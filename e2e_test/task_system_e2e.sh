@@ -245,10 +245,13 @@ post_as_token() {
 # read_int_file PATH — echo the trimmed contents of a file, or "" if absent.
 read_int_file() { [[ -f "$1" ]] && tr -d ' \t\r\n' < "$1" || printf ''; }
 
-# poll_file_eq PATH WANT BUDGET — poll until PATH exists on disk AND its trimmed
-# content == WANT (or budget expires). 0 on match, 1 on timeout. Disk truth only.
+# poll_file_eq PATH WANT BUDGET [TASK_ID] — poll until PATH exists on disk AND its
+# trimmed content == WANT (or budget expires). 0 on match, 1 on timeout. Disk truth
+# only. With TASK_ID, a timeout also reports WHY that task's worker is not writing
+# (ow_reason) — a missing disk product and a worker that was never dispatched look
+# identical from the filesystem.
 poll_file_eq() {
-  local path="$1" want="$2" budget="$3" deadline cur
+  local path="$1" want="$2" budget="$3" tid="${4:-}" deadline cur
   deadline=$(( $(date +%s) + budget ))
   while [[ "$(date +%s)" -lt "$deadline" ]]; do
     cur="$(read_int_file "$path")"
@@ -256,21 +259,78 @@ poll_file_eq() {
     sleep 3
   done
   warn "disk[$path] never became '$want' within ${budget}s (last='${cur:-<absent>}')"
+  [[ -n "$tid" ]] && warn "  why (task=$tid): $(ow_reason "$tid")"
   return 1
 }
 
 # ow_for_task TASK_ID FIELD — from GET /api/outsource-workers, echo FIELD of the
 # (first) worker bound to TASK_ID. FIELD in {id,status,created_ts,...}. "" if none.
+# A JSON null reads as "" here for the same reason it does in task_field/json_field
+# — the worker row's last_op_ok/account/context_pct/cost are all nullable, and the
+# text "None" is not a value any caller below could use.
 ow_for_task() {
   api_get /api/outsource-workers 2>/dev/null | py -c '
 import sys, json
 tid, field = sys.argv[1], sys.argv[2]
 for w in json.load(sys.stdin):
     if w.get("task_id") == tid:
-        print(w.get(field, "")); break
+        v = w.get(field, "")
+        print("" if v is None else v); break
 else:
     print("")
 ' "$1" "$2"
+}
+
+# ow_reason TASK_ID — the WHY behind a stalled worker, read off the worker row.
+#
+# 🔴 WHY THIS EXISTS. Every non-dispatch stamps a structured cause onto the worker
+#   row (worker_spawn.go stampWorkerPlacementBlocked; codes like
+#   no_machine_selected / machine_unavailable / warden_unreachable / wake_timeout /
+#   boot_context_failed / held_down). The polls below used to report only "never
+#   reached X within Ns" and throw that away, so a run that stalled for a reason
+#   the server had ALREADY written looked identical to one that stalled for an
+#   unknown one. This reads the answer back instead of re-deriving it.
+#
+#   It never prints an empty string: a row with nothing stamped says so, and no row
+#   at all says THAT, so "the server recorded no reason" can never be confused with
+#   "nobody looked". One request, whole row, nulls folded to absent.
+ow_reason() {
+  api_get /api/outsource-workers 2>/dev/null | py -c '
+import sys, json
+tid = sys.argv[1]
+try:
+    rows = json.load(sys.stdin)
+except Exception:
+    print("could not read GET /api/outsource-workers to ask why"); sys.exit(0)
+row = next((w for w in rows if w.get("task_id") == tid), None)
+if row is None:
+    print("no worker row is bound to this task at all — the scheduler never bound "
+          "one, or the row was already released (released rows are not served)")
+    sys.exit(0)
+def f(k):
+    v = row.get(k, "")
+    return "" if v is None else v
+ok = f("last_op_ok")
+bits = []
+for k in ("id", "status", "presence", "last_op"):
+    if f(k) != "":
+        bits.append(k + "=" + str(f(k)))
+if ok != "":
+    bits.append("last_op_ok=" + str(ok))
+reason, logtail = str(f("last_op_reason")), str(f("last_op_log"))
+if reason == "" and logtail == "" and not bits:
+    print("the worker row exists but carries no reason to read — the server "
+          "stamped none (last_op/last_op_reason/last_op_log are all unset)")
+    sys.exit(0)
+head = "worker row: " + (", ".join(bits) if bits else "(no status fields set)")
+if reason != "":
+    head += " | last_op_reason: " + reason
+else:
+    head += " | last_op_reason: (none recorded)"
+if logtail != "":
+    head += " | last_op_log tail: " + logtail.strip().splitlines()[-1][:200]
+print(head)
+' "$1"
 }
 
 # poll_ow_live TASK_ID BUDGET — poll /api/outsource-workers until a LIVE worker is
@@ -305,6 +365,7 @@ poll_ow_live() {
     sleep 3
   done
   warn "outsource-worker[task=$tid] never reached a live status (assigned|active) within ${budget}s (last='${cur:-<none>}')"
+  warn "  why (task=$tid): $(ow_reason "$tid")"
   return 1
 }
 
@@ -319,6 +380,7 @@ poll_ow_gone() {
     sleep 3
   done
   warn "outsource-worker for task=$tid still present after ${budget}s (last id='$cur')"
+  warn "  why (task=$tid): $(ow_reason "$tid")"
   return 1
 }
 
@@ -587,7 +649,7 @@ pass_stage
 # ── A6: synthetic task done — DISK-verified ─────────────────────────────────
 stage "A6. synthetic task done — disk product $SYNTH_OUT == '42' (do NOT trust self-report)"
 # Read DISK, not the worker's self-report: the file must exist AND contain exactly 42.
-poll_file_eq "$SYNTH_OUT" "42" "$TASK_WORKER_TIMEOUT" \
+poll_file_eq "$SYNTH_OUT" "42" "$TASK_WORKER_TIMEOUT" "$TASK_ID" \
   || fail_stage "worker never wrote '42' to $SYNTH_OUT within ${TASK_WORKER_TIMEOUT}s — synthetic task did not complete on disk"
 log "disk product verified: $SYNTH_OUT contains 42"
 # best-effort: assert the task's step(s) reached done (server truth).
@@ -936,13 +998,13 @@ fi
 # D3 — each lane file lands with its own number (DISK truth, generous budget: worker
 #   spawns sub-agents; each does 1-2 tool calls). Give fork+join extra headroom.
 FORK_BUDGET=$(( TASK_WORKER_TIMEOUT * 2 ))
-poll_file_eq "$FORK_L3" "3" "$FORK_BUDGET" || fail_stage "lane file $FORK_L3 never became '3' — D3 fork lane failed"
-poll_file_eq "$FORK_L5" "5" "$FORK_BUDGET" || fail_stage "lane file $FORK_L5 never became '5' — D3 fork lane failed"
-poll_file_eq "$FORK_L7" "7" "$FORK_BUDGET" || fail_stage "lane file $FORK_L7 never became '7' — D3 fork lane failed"
+poll_file_eq "$FORK_L3" "3" "$FORK_BUDGET" "$FORK_TID" || fail_stage "lane file $FORK_L3 never became '3' — D3 fork lane failed (see the why line above)"
+poll_file_eq "$FORK_L5" "5" "$FORK_BUDGET" "$FORK_TID" || fail_stage "lane file $FORK_L5 never became '5' — D3 fork lane failed (see the why line above)"
+poll_file_eq "$FORK_L7" "7" "$FORK_BUDGET" "$FORK_TID" || fail_stage "lane file $FORK_L7 never became '7' — D3 fork lane failed (see the why line above)"
 log "D3 OK: all 3 lane files landed (3/5/7) on disk"
 
 # D5 — join: sum file == 15 (read after all lanes; disk truth).
-poll_file_eq "$FORK_SUM" "15" "$FORK_BUDGET" || fail_stage "join file $FORK_SUM never became '15' — D5 join/sum failed"
+poll_file_eq "$FORK_SUM" "15" "$FORK_BUDGET" "$FORK_TID" || fail_stage "join file $FORK_SUM never became '15' — D5 join/sum failed (see the why line above)"
 log "D5 OK: join sum file == 15 on disk"
 
 # D5 ordering — join step started only AFTER all lanes finished (finished_ts ordering).
