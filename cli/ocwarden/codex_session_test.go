@@ -209,13 +209,19 @@ func TestNormalizeCodexEffort(t *testing.T) {
 }
 
 func TestCodexPersonaInstruction(t *testing.T) {
-	const head = "Read /w/PERSONA.md completely before acting: ONE read of the WHOLE file, first " +
-		"line to last. Do NOT read it with shell commands (cat/head/tail/sed) and do NOT read it " +
-		"in chunks — the file is tens of thousands of characters, shell output is silently " +
-		"truncated to the first few KB with no error of any kind, and the 開機程序 (boot sequence) " +
-		"section is at the very END of the file. It is your OffiCraft identity and " +
-		"operating context. Never use request_user_input for normal questions; create an OffiCraft " +
-		"reply card instead. "
+	const head = "Read /w/PERSONA.md completely before acting, first line to LAST line, and read " +
+		"it with your shell — that is the only tool you have that can open a local file. Read it " +
+		"like this: (1) run `wc -l /w/PERSONA.md` first and write down the total line count N; " +
+		"(2) then walk the file in order with `sed -n 'START,ENDp' /w/PERSONA.md`, about 200 " +
+		"lines per call, until a call has returned line N; (3) after EVERY call check that the " +
+		"output really ends at the line you asked for — shell output is truncated silently, with " +
+		"no error of any kind, so a short chunk means you must re-read that range in smaller " +
+		"pieces, never skip ahead. You have read the file ONLY when every line from 1 to N has " +
+		"come back untruncated: reaching the LAST line is what finishes the read, not reaching a " +
+		"part that looks like an ending, and the 開機程序 (boot sequence) section is at the very " +
+		"END of the file. Do not tell anyone you have read it until then. It is your OffiCraft " +
+		"identity and operating context. Never use request_user_input for normal questions; " +
+		"create an OffiCraft reply card instead. "
 
 	if got, want := codexPersonaInstruction("/w/PERSONA.md", "gpt-5-codex"), head+
 		"The explicit OffiCraft launch model is gpt-5-codex. If your role's boot sequence calls "+
@@ -232,6 +238,30 @@ func TestCodexPersonaInstruction(t *testing.T) {
 	}
 	if got := codexPersonaInstruction("/w/PERSONA.md", "   "); got != blank {
 		t.Errorf("codexPersonaInstruction with a whitespace model =\n%q\nwant\n%q", got, blank)
+	}
+
+	// The shell is the ONLY path a Codex member has to a local file (T-178): 136 of
+	// 146 measured boots reached the whole persona, and every one of them did it by
+	// breaking the old ban. Banning it again sends the obedient member away empty.
+	for _, banned := range []string{
+		"Do NOT read it with shell",
+		"do NOT read it in chunks",
+		"cat/head/tail/sed",
+		"ONE read of the WHOLE file",
+	} {
+		if strings.Contains(head, banned) {
+			t.Errorf("codexPersonaInstruction still forbids the only read path it has: %q", banned)
+		}
+	}
+	for _, required := range []string{
+		"wc -l /w/PERSONA.md",
+		"sed -n 'START,ENDp' /w/PERSONA.md",
+		"LAST line",
+		"every line from 1 to N has come back untruncated",
+	} {
+		if !strings.Contains(head, required) {
+			t.Errorf("codexPersonaInstruction no longer teaches how to read to the end: %q missing", required)
+		}
 	}
 }
 
