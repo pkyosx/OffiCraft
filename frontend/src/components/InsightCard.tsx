@@ -10,9 +10,11 @@
 //     and the alternative way to learn the limit is to be refused by it.
 //     ⚠️ THAT IS TRUE OF THE INSIGHT CAP, NOT OF CAPS IN GENERAL. This comment
 //     used to claim the header was the cockpit's ONLY doc-cap readout, and that
-//     stopped being true long before anyone noticed: the Duty card and the role
-//     page's Learning card both carry one now, and T-100 added the two
-//     task-manual documents. Do not read this line as "add nothing elsewhere".
+//     stopped being true long before anyone noticed: the Duty card carries one
+//     too, and T-100 added the task-manual SOP readout. (The role page's
+//     Learning card and the manual's learnings readout were both removed with
+//     the legacy memory surface in T-186.) Do not read this line as "add
+//     nothing elsewhere".
 //     🔴 What this card still does NOT do, and what a reader is most likely to
 //     assume it does: the number here counts the SAVED document, so it does not
 //     move while the owner types. `DocCard` (and `DocUsage`, which the manual

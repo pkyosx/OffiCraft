@@ -206,7 +206,7 @@ data: {"seq":42,"topic":"member","op":"patch","data":{"entity":"member","key":"o
 
 ## 3. Topic and op vocabulary
 
-### 3.1 Topics — the closed set (13 topics)
+### 3.1 Topics — the closed set (12 topics)
 
 The server MUST emit deltas on exactly these topics and no others (`reply_card`
 joined the set in the M2 reply-card batch; `task` / `outsource_worker` /
@@ -235,8 +235,8 @@ riding a topic that names a different document; everything else is the M1 freeze
 frozen implementation's internal topic lists were incomplete (its declared topic constant
 and docs listed fewer topics, and the publish seam never validated against them) —
 the actual wire emitted all of the above except `reply_card` (added M2). This spec froze
-the **observed wire** (8 topics at M1; 9 with the approved M2 addition; 12 with the M3
-task batch). The
+the **observed wire** (7 topics at M1; 8 with the approved M2 addition; 11 with the M3
+task batch; 12 with T-3809's `insight`). The
 directed band topics `context-high`, `token-expiry`, and `warden-command` (§6, §6.1,
 §7) are a separate envelope family, not entity-delta topics.
 **"Resolved in favour of the wire" is the record of THIS one adjudication, made at the M1
@@ -660,7 +660,7 @@ news that every write it makes from now on will 409.
 - The internal buffer/queue/poll mechanics and the 0.25 s poll cadence
   — implementation-free (any concurrency model is fine) provided §1–§8 hold.
 - Topic-list validation as a mechanism — an implementation MAY enforce the closed set at
-  the publish seam (recommended), so long as all 13 topics of §3.1 pass.
+  the publish seam (recommended), so long as all 12 topics of §3.1 pass.
 - Frame ordering **across** connections, and timing between a durable commit and its frame's
   arrival (only per-connection publish order is contract, §4).
 

@@ -358,8 +358,8 @@ func TestMachineRevocationSparesEveryLegitimateCaller(t *testing.T) {
 	// A RELEASED outsource worker mid-close-out. This is the arm that a
 	// roster-status-only gate would kill fleet-wide: release stamps
 	// RosterStatusRemoved (dal_tasks.go ReleaseWorkersForTask) while the
-	// close-out contract deliberately keeps the session alive to write
-	// learnings and report_task_closeout.
+	// close-out contract deliberately keeps the session alive to write its
+	// 傳承 (write_lore_entry) and report_task_closeout.
 	if err := api.dal.PutOutsourceWorker(OutsourceWorker{
 		ID: "ow-closeout", Codename: "O-1", TaskID: "t-closeout",
 		Status: WorkerStatusReleased, DesiredState: DesiredStateOnline,
@@ -403,7 +403,7 @@ func TestMachineRevocationSparesEveryLegitimateCaller(t *testing.T) {
 		{liveCall{"a RELEASED outsource worker reporting close-out", "POST",
 			"/api/tasks/t-closeout/closeout", `{}`}, closeoutTok},
 		{liveCall{"a RELEASED outsource worker writing chat", "POST",
-			"/api/chat", `{"to":"owner","body":"learnings written"}`}, closeoutTok},
+			"/api/chat", `{"to":"owner","body":"lore written"}`}, closeoutTok},
 	}
 
 	// Before the delete — the positive control for every arm.

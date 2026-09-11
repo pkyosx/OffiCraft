@@ -2781,7 +2781,9 @@ type taskManualDTO struct {
 	// Lore is the rendered lore block for this manual, and it is a FIELD OF ITS
 	// OWN (owner ruling 2026-09-07: 「get_task_manual 應該 learning 跟 lore 還是
 	// 分開的欄位」). LoreChars counts THIS field, so the two numbers on this DTO
-	// each measure exactly one thing.
+	// each measure exactly one thing. The learning field that ruling wanted kept
+	// separate was itself removed in T-186; what survives is its conclusion —
+	// lore does NOT fold into sop_md.
 	Lore      string         `json:"lore"`
 	LoreChars int            `json:"lore_chars"`
 	Assignee  map[string]any `json:"assignee"`

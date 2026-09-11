@@ -353,9 +353,9 @@ func (h *Hub) AgentsOnMachine(machineID string) []string {
 	return out
 }
 
-// sseTopics is the CLOSED 13-topic vocabulary (spec/sse.md §3.1; reply_card
+// sseTopics is the CLOSED 12-topic vocabulary (spec/sse.md §3.1; reply_card
 // joined in the M2 reply-card batch; task / outsource_worker / task_manual in
-// the M3 task batch; insight in T-3809). Enforced at the publish seam (the
+// the M3 task batch; insight in T-3809; lessons left in T-186). Enforced at the publish seam (the
 // mechanism §8 recommends): a topic outside the set is dropped, so a typo can
 // never mint a phantom wire topic.
 //

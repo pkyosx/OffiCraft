@@ -17,6 +17,11 @@ document. That is deliberately close to the WORST case: the whole point of the
 change is what a list answer costs when its documents are long, and a cap is
 where a long-lived document ends up. Do not read the resulting ratios as
 typical load — read them as the ceiling the old shape had.
+
+⚠️ The 2026 before/after arm JSONs in this directory were measured while the task
+manual still had a ``learnings`` document. T-186 removed it (and the
+``doc_cap_chars_manual_learnings`` cap), so a fresh run seeds SOP only and emits
+one fewer key under ``_corpus_chars`` than those historical arms carry.
 """
 import json
 import sys
@@ -61,8 +66,6 @@ def main(argv):
 
     SOP = filled("這是一份任務手冊的標準作業流程。每一步都要寫清楚為什麼,而不只是怎麼做。\n",
                  int(caps["doc_cap_chars_manual_sop"] * 0.9))
-    LEARN = filled("結案回寫的學習經驗:這一類任務最常見的失敗是把預設值當成無害的選項。\n",
-                   int(caps["doc_cap_chars_manual_learnings"] * 0.9))
     DEF = filled("這個角色的職責定義。它負責的事、它不負責的事,以及兩者的界線在哪裡。\n",
                  int(caps["doc_cap_chars_duty"] * 0.9))
     DOC = filled("全域脈絡的一段內容,長度刻意接近真實文件,好讓字數量測不是玩具尺度。\n", 3000)
@@ -73,7 +76,7 @@ def main(argv):
         assert st in (200, 201), ("create manual", st, b[:300])
         st, b = req("POST", "/api/task-manuals/" + tk,
                     {"display_name": "手冊 %d" % i, "purpose": "用途 %d" % i,
-                     "sop_md": SOP, "learnings": LEARN}, tok)
+                     "sop_md": SOP}, tok)
         assert st == 200, ("fill manual", st, b[:300])
 
     for i in range(3):
@@ -92,7 +95,7 @@ def main(argv):
 
     out = {
         "_caps": caps,
-        "_corpus_chars": {"sop_md": len(SOP), "learnings": len(LEARN),
+        "_corpus_chars": {"sop_md": len(SOP),
                           "definition_md": len(DEF), "global_context": len(DOC) + 1},
     }
     for name, path in [

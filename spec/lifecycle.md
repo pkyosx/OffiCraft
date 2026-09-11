@@ -640,9 +640,9 @@ goes stale in silence — this very section did exactly that when 判準 was add
 fold and the list here was not updated.
 
 An outsource worker's boot context is this same document **with the persona removed** —
-it has no role, so it carries no 角色定義, no 判準 and no 學習筆記 — in this same order,
-with no outsource-specific document of any kind. 使用者自訂 used to sit between 學習筆記
-and 啟動步驟; T-4595 moved it above the persona so that the staff and outsource
+it has no role, so it carries no 角色定義 and no 判準 — in this same order,
+with no outsource-specific document of any kind. 使用者自訂 used to sit at the end of the
+persona, just before 啟動步驟; T-4595 moved it above the persona so that the staff and outsource
 assemblies would line up, leaving the persona as their only difference.
 
 "No outsource-specific document of any kind" is normative and exhaustive: the outsource

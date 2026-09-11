@@ -8,7 +8,8 @@ import "testing"
 //
 // The harm this replaces is silent and total. Every step of the offboard
 // sequence is an MCP call carrying the session's own bearer token —
-// report_stopping, post_chat, the lesson write, report_stopped. So an expired
+// report_stopping, post_chat, the 傳承 write (write_lore_entry), report_stopped.
+// So an expired
 // token does not make the close-out worse, it makes the close-out IMPOSSIBLE:
 // the session cannot file the hand-off, cannot say it is finished, and cannot
 // ask for its own restart. Renewal used to rest on the agent remembering.

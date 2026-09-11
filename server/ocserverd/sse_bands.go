@@ -244,6 +244,11 @@ type contextHighSignal struct {
 // learning / lesson 寫回去」. A notice that only says "you are running out"
 // tells the agent nothing it can act on.
 //
+// The quote stays verbatim — it is the record of the ruling, not a statement of
+// today's surfaces. Post-T-186 the third item has ONE landing place left, 傳承
+// (write_lore_entry); the role-lessons and task-manual-learnings write faces are
+// both gone.
+//
 // ⚠️ `notice` is a closure so a tick that decides to stay QUIET never pays
 // for it — and that is ALL the closure buys. It does NOT make it
 // once-per-session: this function keeps no state, so once an agent is past its
