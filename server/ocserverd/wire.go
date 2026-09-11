@@ -1633,22 +1633,6 @@ type taskPriorityReceiptDTO struct {
 	FrozenBy string `json:"frozen_by"`
 }
 
-// taskCloseoutReceiptDTO is the bounded confirmation returned after
-// report_task_closeout (T-bb70). BOTH exits of that handler used to answer with
-// the whole task — the first (stamping) report AND the idempotent no-op repeat
-// — which measured over 51,000 characters for a write whose entire news is one
-// bit, so RE-reporting a close-out was the most expensive way in the system to
-// be told nothing new. CloseoutTS rides along because the write DERIVES it
-// (stamped by the first report, unmoved by every repeat), so it is exactly the
-// part the caller cannot predict — the same reason FrozenBy rides the priority
-// receipt. Full task detail remains available through get_task.
-type taskCloseoutReceiptDTO struct {
-	TaskID           string  `json:"task_id"`
-	TaskStatus       string  `json:"task_status"`
-	CloseoutReported bool    `json:"closeout_reported"`
-	CloseoutTS       float64 `json:"closeout_ts"`
-}
-
 // taskStepNoteReceiptDTO is the bounded receipt for a step-note write (T-cc3e).
 //
 // 🔴 T-91 REMOVED THE `note` ECHO AND PUT `sha256` IN ITS PLACE. The earlier
@@ -2674,9 +2658,6 @@ type taskDTO struct {
 	NotesIncluded bool   `json:"notes_included"`
 	ProgressDone  int    `json:"progress_done"`
 	ProgressTotal int    `json:"progress_total"`
-	// CloseoutReported flips true once the executor reports the close-out
-	// follow-ups done (report_task_closeout; §6.3 — terminal tasks only).
-	CloseoutReported bool `json:"closeout_reported"`
 	// ArtifactCount is HOW MANY deliverables are pinned — and since T-92 it is
 	// ALL this response says about them. T-66 had already cut the rows down to
 	// id + label; the owner's original ruling on this ticket was that even the
@@ -3289,9 +3270,8 @@ func newTaskDTO(t Task, steps []TaskStep, deps []string, cardStatus map[string]s
 		// builder, for the same reason the step note was — a per-handler
 		// projection is nine copies of one rule, and the copy nobody watches is
 		// the one that keeps serving the fat rows.
-		ProgressDone:     done,
-		ProgressTotal:    total,
-		CloseoutReported: t.CloseoutTS > 0,
+		ProgressDone:  done,
+		ProgressTotal: total,
 		// ArtifactCount defaults to 0 — the handler (taskDTOOf) folds the real
 		// count in after this pure projection, since counting is a DAL read that
 		// does not belong in a pure builder. ⚠️ Unlike the [] this replaces, 0 is

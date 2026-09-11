@@ -1178,7 +1178,6 @@ func TestReleaseCardHold(t *testing.T) {
 		task.Status = "waiting_owner"
 		task.WaitingReason = ""
 		task.ClosedTS = 0
-		task.CloseoutTS = 0
 		step := dalTestStep("ts-1", task.ID)
 		step.Status = "waiting_owner"
 		step.ReplyCardID = "rc-1"

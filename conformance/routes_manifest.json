@@ -932,13 +932,6 @@
   },
   {
     "auth": "gated",
-    "mcp_tool": "report_task_closeout",
-    "method": "POST",
-    "path": "/api/tasks/{task_id}/closeout",
-    "requires": "agent"
-  },
-  {
-    "auth": "gated",
     "mcp_tool": "reassign_task",
     "method": "POST",
     "path": "/api/tasks/{task_id}/reassign",

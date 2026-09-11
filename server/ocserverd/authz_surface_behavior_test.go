@@ -592,7 +592,7 @@ var authzOutsideRouteTable = map[string]string{
 		"executor_id == '' AND NOTHING ELSE, so the door SHUTS the instant a worker " +
 		"is bound — the creator is then a flat 403 again, exactly as before. Owner " +
 		"scoped this to 改文字類 and named the doors that stay shut (freeze/priority, " +
-		"terminate, reassign, claim, mark_task_duplicated, plan, step status, closeout, " +
+		"the four closes, reassign, claim, plan, step status, " +
 		"deps, linked reply cards); those keep callerMayDriveTask verbatim. Calling " +
 		"this predicate from another handler reverses that ruling rather than " +
 		"extending it.",

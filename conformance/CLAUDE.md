@@ -35,7 +35,7 @@
 - reply card 狀態機：開卡同時建立 chat link、只有 answer 能關 waiting、一次性 answer、re-answer 只對已回答卡；kind/select_mode/options（含每選項 ai_pick 與其數量上限）/summary 先驗；答覆側的索引清單先正規化（去重＋升冪）再驗範圍與單選卡的數量。pane 的 waiting/answered 排序、badge 與 SSE 回 agent 都是 wire。
 - list 只有一種 shape，就是輕量摘要：title/summary、status、decision digest、answer preview、attachment count；body/options/chat message id 一律走單張 full card（`get_reply_card`）。`?view=full` 這個投影已經移除（owner 2026-09-07），200 只有一種形狀，client 不得假設第二種 shape。
 - expire 是 answer 以外的終態出口；answered/expired 的再次操作、answer/PUT on expired 必須拒絕，expired delta 與 pane/count 需一致。現行 route floor 與 handler caller rule 以 manifest/source 為準：作者可處理自己的卡，owner/admin 不因此能改已回答卡；不要把舊 owner-only 文字抄回來。
-- task lifecycle 驗 dedupe、required inputs、plan/step/gate/card binding、合法 transition、waiting_owner／waiting_external 原因、deps、task message、closeout、manual CRUD 與終態防呼。答卡只解除 hold，不替 agent 推進工作進度；replan 要保留已答卡節點為 superseded，並正確計 progress。
+- task lifecycle 驗 dedupe、required inputs、plan/step/gate/card binding、合法 transition、waiting_owner／waiting_external 原因、deps、task message、四條結案路徑、manual CRUD 與終態防呼。答卡只解除 hold，不替 agent 推進工作進度；replan 要保留已答卡節點為 superseded，並正確計 progress。
 - `get_my_task` 已退役，不能在 tools/list、HTTP 或 seed 留殘影；以 `get_task`／`report_waking` 的陽性對照確認不是整個 self surface 消失。task routes 的數量以 manifest set coverage 讀回，不在文件或測試手抄。
 
 ## 6. 修改規則

@@ -2,7 +2,7 @@ package main
 
 // worker_spawn.go — the M3 Phase 6 outsource-worker WAKE/RECLAIM lifecycle:
 // the flesh behind the scheduler's notifyWorkerSpawn seam (outsource_sched.go)
-// plus the dismissal hook the close-out report fires. Since the A案 P7d fold a
+// plus the dismissal hook every task close fires. Since the A案 P7d fold a
 // worker IS a member row (kind='outsource', migrations/00025 — 外包＝正職), and
 // since the A案 P6+P5b convergence (owner-gated, rc-25d6557629b5 選項①) its
 // WIRE + RESCUE machinery are the member's too:
@@ -39,15 +39,16 @@ package main
 //
 // Reclaim (SPEC §6.3 second half):
 //
-//	the task lands terminal → closeTask releases the worker row (panel row
-//	disappears, §4.1) but the SESSION deliberately lives on so the worker can
-//	run its close-out duties (learnings write-back, temp cleanup, the close-out
-//	report). The reclaim then fires from either of:
-//	  * the CLOSE-OUT HOOK (dismissOutsourceWorkersForTask) — the seam the
-//	    close-out report handler calls the moment the worker reports done;
-//	  * the GRACE BACKSTOP — a released worker whose session was never
-//	    reclaimed (close-out never arrived: crashed worker, pre-close-out-tool
-//	    era) is reclaimed workerReclaimGraceSecs after release by the cadence.
+//	the task lands terminal → closeTask DISMISSES the worker
+//	(dismissOutsourceWorkersForTask): the row releases (panel row disappears,
+//	§4.1) and the session is reclaimed in the same call. T-182 — the session
+//	used to outlive the close so the worker could run its close-out duties, and
+//	it no longer has to: those duties happen in `ready_for_done`, BEFORE any of
+//	the four closes lands.
+//	  * the GRACE BACKSTOP still exists for the worker a close never reached
+//	    (crashed worker, a row released by some other path): a released worker
+//	    whose session was never reclaimed is reclaimed workerReclaimGraceSecs
+//	    after release by the cadence.
 //	Both push a member `stop` frame keyed on the ow- id; the warden's ladder
 //	targets EXACTLY member-<ow-id> (plus the legacy worker-<ow-id> residual —
 //	the P5b transition sweep, cli/ocwarden command.go), nothing else.
@@ -81,11 +82,13 @@ const (
 	// (lifecycle §4.4 start_timeout: WakingTTLSecs): a healthy boot claims well
 	// within that window; a lost frame is re-pushed at its boundary.
 	workerSpawnRetrySecs = WakingTTLSecs
-	// workerReclaimGraceSecs is the backstop window between a worker's
-	// release (task terminal) and the forced session reclaim, giving the
-	// worker time to run its §6.3 close-out duties. Mirrors stop_grace /
-	// recycle_grace (120s). A close-out report reclaims IMMEDIATELY via the
-	// dismissal hook; the grace only catches workers that never report.
+	// workerReclaimGraceSecs is the backstop window between a worker's release
+	// and the forced session reclaim. Mirrors stop_grace / recycle_grace (120s).
+	// ⚠️ SINCE T-182 IT IS A BACKSTOP AND ALMOST NOTHING ELSE: a task close
+	// releases the row and reclaims the session in the SAME call
+	// (dismissOutsourceWorkersForTask), so nothing normally reaches this clock.
+	// It catches the leftovers — a row released by a path that is not a close,
+	// or a session the reclaim dispatch could not deliver.
 	workerReclaimGraceSecs = 120.0
 	// reassignHandoverTimeoutSecs bounds how long a task may sit in `reassigning`
 	// before the handover-timeout reaper (outsource_sched.go runOutsourceTick)
@@ -2669,18 +2672,20 @@ func (s *apiServer) reclaimWorkerSession(w OutsourceWorker) {
 		w.ID, w.Codename, strings.Join(targets, ","))
 }
 
-// dismissOutsourceWorkersForTask is the CLOSE-OUT HOOK (SPEC §6.3 step 2):
-// the close-out report handler calls it the moment a task's executor reports
-// "收尾事項已處理完" — the server then fires the outsource worker(s) bound to
-// that task: any not-yet-released row flips released (idempotent — closeTask
-// usually already did this when the task landed terminal) and every bound
-// worker's session is reclaimed NOW rather than waiting out the grace
+// dismissOutsourceWorkersForTask fires the outsource worker(s) bound to a task:
+// any not-yet-released row flips released, and every bound worker's session is
+// reclaimed NOW rather than waiting out the scheduler's workerReclaimGraceSecs
 // backstop.
 //
-// WIRED: the close-out report handler (POST /api/tasks/{id}/closeout,
-// api_tasks.go) calls this on the FIRST successful report, right after
-// closeout_ts is persisted. Safe for member-executed tasks (no worker rows →
-// no-op) and safe to call repeatedly (release + reclaim are both idempotent).
+// WIRED: closeTask (api_tasks.go) calls it on EVERY close — mark_task_done,
+// mark_task_terminated, mark_task_duplicated and force_task_done alike — right
+// after the terminal task row is persisted. T-182 moved it there from the
+// close-out report handler, which no longer exists: the close-out now happens
+// while the task still sits in `ready_for_done`, so the close itself is the
+// moment nothing is left for the worker to do.
+//
+// Safe for member-executed tasks (no worker rows → no-op) and safe to call
+// repeatedly (release + reclaim are both idempotent).
 // Takes outsourceMu itself — call it WITHOUT the scheduler lock held.
 func (s *apiServer) dismissOutsourceWorkersForTask(taskID string, now float64, trigger string) {
 	s.outsourceMu.Lock()

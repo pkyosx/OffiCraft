@@ -13,7 +13,8 @@
 #     PHASE 3 bootstrap server-self warden (so the scheduler can spawn workers) →
 #     STAGE A  task chain (matrix §2 A1-A8):
 #       manual → outsource → create task → scheduler assigns → real worker
-#       spawn → synthetic task done (disk-verified) → closeout → fire →
+#       spawn → synthetic task done (disk-verified) → ready_for_done park →
+#       worker presses mark_task_done → fire →
 #     STAGE D  parallel_group fork-join (matrix §2.5 D1-D6):
 #       3 illegal plan shapes → 400; legal 3-lane+join plan → 200; real
 #       fork-join run (3/5/7 → sum 15, disk-verified) →
@@ -98,7 +99,7 @@ WORKER_EFFORT="${WORKER_EFFORT:-low}"
 FORK_WORKER_MODEL="${FORK_WORKER_MODEL:-claude-sonnet-4-6}"
 FORK_WORKER_EFFORT="${FORK_WORKER_EFFORT:-medium}"
 # Per-task worker budget: a worker that must ALSO do work (spawn → claim → write file
-# → closeout) needs a more generous budget than a bare presence flip. 300s (5min).
+# → mark_task_done) needs a more generous budget than a bare presence flip. 300s (5min).
 TASK_WORKER_TIMEOUT="${TASK_WORKER_TIMEOUT:-300}"
 # ── STAGE KNOBS (validate the cheap core chain first, then enable expensive stages) ──
 # RUN_FORK — 1 (default) runs the STAGE D fork-join REAL worker spawn (D3/D5: 3/5/7 → 15,
@@ -378,7 +379,7 @@ log "manual created: type_key=$SYNTH_TYPE"
 # A1.content — PATCH the manual's CONTENT fields (owner). POST /api/task-manuals/{type_key}.
 #   fields: output_file (required, is_key → the dedupe key) + number (required).
 #   sop_md instructs the worker to write the integer `number` to the path `output_file`.
-A1_SOP='SYNTHETIC E2E TASK. Read your two inputs. Write the integer given in input `number` to the absolute path given in input `output_file` (create parent dirs if needed; write ONLY the integer, no trailing text). Then mark the step done and closeout. Do NOT do anything else.'
+A1_SOP='SYNTHETIC E2E TASK. Read your two inputs. Write the integer given in input `number` to the absolute path given in input `output_file` (create parent dirs if needed; write ONLY the integer, no trailing text). Then mark the step done. Reporting the last step does NOT close the task any more: it settles in `ready_for_done`, and you finish by calling `mark_task_done` on it. Do NOT do anything else.'
 A1_CONTENT="$(py -c '
 import json, sys
 print(json.dumps({
@@ -505,12 +506,12 @@ A4_EXEC="$(task_field "$A4_TASK" executor_id)"
 # wire §D: the worker's first report_waking flips assigned→active (T-4595 moved that
 #   claim off the retired get_my_task onto the boot sequence's FIRST verb); the warden runs a
 #   tmux session member-<ow-id> with claude. BUT a fast worker (small model + tiny task)
-#   can blow through assigned→active→done→closeout→released in well under a minute —
+#   can blow through assigned→active→ready_for_done→done→released in well under a minute —
 #   PROVEN: run1+run2 both wrote the '42' product yet the worker had already left the
 #   'active' projection before a coarse poll caught it. So BOTH 'active' and the
 #   member-<ow-id> tmux session are TRANSIENT and may already be gone when we look. The
 #   AUTHORITATIVE proof the worker really ran is the OUTCOME — A6 disk product (42) +
-#   A7 task done/closeout + A8 released. Observe liveness BEST-EFFORT here; NEVER fail on
+#   A7 the worker closing its own task + A8 released. Observe liveness BEST-EFFORT here; NEVER fail on
 #   a missed transient snapshot (that was the original false-negative).
 _saw=""
 _deadline=$(( $(date +%s) + 20 ))
@@ -552,45 +553,109 @@ print("all" if all(s.get("status")=="done" for s in steps) else "partial")
   || warn "server step-status cross-check inconclusive (got '$A6_STEPS_DONE') — disk product already authoritative"
 pass_stage
 
-# ── A7: closeout → task terminal (done) + closed_ts stamped ──────────────────
-stage "A7. closeout → task status=done + closed_ts stamped + closeout_reported==true (worker did its closeout duty)"
-# @9111cef: closeTask flips workers to `released` WITHOUT reclaiming the session; the WORKER
-#   itself must POST /api/tasks/{id}/closeout to be reclaimed immediately (else a 120s backstop
-#   grace reclaims it). On the TASK (what we poll here) closeout is a BOOLEAN `closeout_reported`
-#   — the task DTO carries no closeout_ts. (T-bb70: the close-out ROUTE's own bounded receipt does
-#   carry `closeout_ts`, but this stage reads GET /api/tasks/{id}, not that response.)
-#   So we assert: task reached status=done + closed_ts set + closeout_reported==true — proving
-#   the worker performed its own closeout (immediate fire). Generous TASK_WORKER_TIMEOUT budget.
-_a7_ok=""; A7_STATUS=""; A7_CLOSED=""; A7_REPORTED=""
+# ── A7a: steps all done does NOT close the task (deterministic, no worker) ───
+stage "A7a. every step reported done → task parks in ready_for_done (NOT done, no closed_ts); mark_task_done is what closes it"
+# T-182 — THE HALF A LIVE WORKER CANNOT PROVE. A fast worker blows through
+#   ready_for_done in well under a poll interval, so "we never saw it parked" is
+#   indistinguishable from "it auto-closed again". This stage removes the race
+#   entirely: it drives the steps itself over REST, with NO worker anywhere, and
+#   then simply LOOKS. A server that still auto-closes answers `done` here and
+#   this stage is red; a server that parks answers `ready_for_done`.
+#   Reuses the mira-executor task machinery D2 sets up, but its own throwaway task.
+A7A_BODY="$(py -c '
+import json, sys
+print(json.dumps({"title": "E2E ready_for_done park check", "executor_member_id": sys.argv[1]}))
+' "$TEST_AGENT")"
+A7A_TASK="$(api_post_logged /api/tasks "$A7A_BODY" || echo '{}')"
+A7A_TID="$(task_field "$A7A_TASK" task_id)"
+[[ -n "$A7A_TID" ]] || fail_stage "could not create the throwaway task for the ready_for_done park check"
+A7A_MINT="$(api_post_logged /api/mint "{\"member_id\":\"$TEST_AGENT\",\"ttl_days\":1}" || echo '{}')"
+A7A_TOKEN="$(printf '%s' "$A7A_MINT" | json_field token)"
+[[ -n "$A7A_TOKEN" ]] \
+  || fail_stage "could not mint executor ($TEST_AGENT) token for A7a — every write below would 403 on the executor guard"
+
+A7A_PLAN='{"steps":[{"name":"the only step","dod":"it is done"}]}'
+A7A_RESP="$(post_as_token "$A7A_TOKEN" "/api/tasks/$A7A_TID/plan" "$A7A_PLAN")"
+[[ "${A7A_RESP##*$'\n'}" == "200" ]] \
+  || fail_stage "submit_plan for A7a returned ${A7A_RESP##*$'\n'} — cannot check the park without a planned step"
+A7A_SID="$(api_get "/api/tasks/$A7A_TID" 2>/dev/null | py -c '
+import sys, json
+t = json.load(sys.stdin); t = t.get("task", t)
+steps = t.get("steps") or []
+print(steps[0]["id"] if steps else "")
+' 2>/dev/null || echo '')"
+[[ -n "$A7A_SID" ]] || fail_stage "could not read back the A7a step id"
+
+for _body in '{"status":"in_progress"}' '{"status":"done","handoff":"none","handoff_note":"nothing follows this"}'; do
+  A7A_RESP="$(post_as_token "$A7A_TOKEN" "/api/tasks/$A7A_TID/steps/$A7A_SID/status" "$_body")"
+  [[ "${A7A_RESP##*$'\n'}" == "200" ]] \
+    || fail_stage "step status $_body returned ${A7A_RESP##*$'\n'} for the A7a task"
+done
+
+A7A_AFTER="$(api_get "/api/tasks/$A7A_TID" 2>/dev/null || echo '{}')"
+A7A_STATUS="$(task_field "$A7A_AFTER" status)"
+A7A_CLOSED="$(task_field "$A7A_AFTER" closed_ts)"
+[[ "$A7A_STATUS" == "ready_for_done" ]] \
+  || fail_stage "every step is done and the task is in '$A7A_STATUS', want 'ready_for_done' — reporting the last step still CLOSES the task, which is exactly what T-182 removed"
+[[ -z "$A7A_CLOSED" || "$A7A_CLOSED" == "0" ]] \
+  || fail_stage "task parked in ready_for_done but closed_ts='$A7A_CLOSED' is already stamped — a task nobody has closed must carry no close stamp"
+log "steps all done → status=ready_for_done, closed_ts unset ✓ (the task did NOT close itself)"
+
+# The positive half: the button is what closes it. Without this the stage above
+# is satisfied by a server that can NEVER reach done.
+A7A_RESP="$(post_as_token "$A7A_TOKEN" "/api/tasks/$A7A_TID/mark-done" '{}')"
+[[ "${A7A_RESP##*$'\n'}" == "200" ]] \
+  || fail_stage "mark_task_done on a ready_for_done task returned ${A7A_RESP##*$'\n'} — the one action that closes a task is refused"
+A7A_AFTER="$(api_get "/api/tasks/$A7A_TID" 2>/dev/null || echo '{}')"
+A7A_STATUS="$(task_field "$A7A_AFTER" status)"
+A7A_CLOSED="$(task_field "$A7A_AFTER" closed_ts)"
+[[ "$A7A_STATUS" == "done" && -n "$A7A_CLOSED" && "$A7A_CLOSED" != "0" ]] \
+  || fail_stage "after mark_task_done the task is status='$A7A_STATUS' closed_ts='$A7A_CLOSED', want done + a stamp"
+log "mark_task_done → status=done + closed_ts stamped ✓"
+pass_stage
+
+# ── A7: the WORKER closes its own task (done + closed_ts) ───────────────────
+stage "A7. worker closes its own task → status=done + closed_ts stamped (it pressed mark_task_done after its close-out)"
+# T-182 — WHAT CHANGED HERE. This stage used to assert `closeout_reported==true`,
+#   a boolean the task DTO carried because the worker filed a SEPARATE
+#   report_task_closeout after the task had already closed itself. That tool and
+#   that field are both gone: the task now parks in `ready_for_done` (proved
+#   deterministically in A7a) and the worker's own mark_task_done is what ends
+#   it. So `done` + a closed_ts IS the close-out evidence now — nothing else can
+#   produce it on this task, because no owner or admin touches it in this run.
+#   A task stuck in ready_for_done is the new, and much more readable, failure:
+#   the worker did the work and never pressed the button.
+_a7_ok=""; A7_STATUS=""; A7_CLOSED=""
 _deadline=$(( $(date +%s) + TASK_WORKER_TIMEOUT ))
 while [[ "$(date +%s)" -lt "$_deadline" ]]; do
   A7_TASK="$(api_get "/api/tasks/$TASK_ID" 2>/dev/null || echo '{}')"
   A7_STATUS="$(task_field "$A7_TASK" status)"
   A7_CLOSED="$(task_field "$A7_TASK" closed_ts)"
-  A7_REPORTED="$(json_bool "$A7_TASK" closeout_reported)"
-  if [[ "$A7_STATUS" == "done" && -n "$A7_CLOSED" && "$A7_CLOSED" != "0" && "$A7_REPORTED" == "true" ]]; then
+  if [[ "$A7_STATUS" == "done" && -n "$A7_CLOSED" && "$A7_CLOSED" != "0" ]]; then
     _a7_ok=1; break
   fi
   sleep 3
 done
 if [[ -z "$_a7_ok" ]]; then
-  # If done+closed_ts landed but closeout_reported never flipped true, that is a REAL finding:
-  # the worker completed the task but did not report its own closeout (fired only via 120s grace,
-  # not immediately) — a worker-seed discipline gap, not a flaky e2e.
-  if [[ "$A7_STATUS" == "done" && -n "$A7_CLOSED" && "$A7_CLOSED" != "0" ]]; then
-    fail_stage "task=$TASK_ID reached done+closed_ts but closeout_reported never became true within ${TASK_WORKER_TIMEOUT}s — the worker COMPLETED the task but did NOT report closeout (fired only via the 120s grace backstop, not immediately). Worker-seed closeout-discipline gap."
+  if [[ "$A7_STATUS" == "ready_for_done" ]]; then
+    fail_stage "task=$TASK_ID is parked in ready_for_done after ${TASK_WORKER_TIMEOUT}s — the worker finished the work (A6 disk product verified) but never called mark_task_done. Worker-seed close-discipline gap, not a flaky e2e."
   else
-    fail_stage "task=$TASK_ID never reached status=done with a closed_ts + closeout_reported within ${TASK_WORKER_TIMEOUT}s (last status='${A7_STATUS:-?}' closed_ts='${A7_CLOSED:-?}' closeout_reported='${A7_REPORTED:-?}')"
+    fail_stage "task=$TASK_ID never reached status=done with a closed_ts within ${TASK_WORKER_TIMEOUT}s (last status='${A7_STATUS:-?}' closed_ts='${A7_CLOSED:-?}')"
   fi
 fi
-log "task done + closed_ts stamped + closeout_reported=true (status=$A7_STATUS, closed_ts=$A7_CLOSED) — worker self-reported closeout ✓"
+log "task closed by its own worker: status=$A7_STATUS, closed_ts=$A7_CLOSED ✓"
 pass_stage
 
 # ── A8: fire — worker released + tmux session gone ──────────────────────────
 stage "A8. fire → worker $OW_ID released (panel row drops) + tmux member-$OW_ID gone"
-# @9111cef: on done/closeout the bound worker flips to status "released" — the active
-#   projection (GET /api/outsource-workers) DROPS released rows, so the row disappearing
-#   IS the released signal — and its tmux session member-<ow-id> is killed (bounded poll).
+# T-182: the bound worker is DISMISSED BY THE CLOSE ITSELF (closeTask → all four
+#   doors), not by a separate close-out report — it flips to "released" AND its
+#   session is reclaimed in that one call. The active projection
+#   (GET /api/outsource-workers) DROPS released rows, so the row disappearing IS
+#   the released signal; the tmux session member-<ow-id> is killed (bounded poll).
+#   The 120s grace backstop still exists, so a generous budget here does NOT prove
+#   the dismissal was immediate — A7 landing first is what makes this the close's
+#   own doing rather than the backstop's.
 poll_ow_gone "$TASK_ID" "$TASK_WORKER_TIMEOUT" \
   || fail_stage "worker for task=$TASK_ID never dropped from the /api/outsource-workers active projection (never released) within ${TASK_WORKER_TIMEOUT}s"
 poll_tmux_worker_gone "$OW_ID" "$TASK_WORKER_TIMEOUT" \
@@ -727,7 +792,7 @@ FORK_SUM="$TSE_OUT/join_sum.txt"
 # D.manual — create + content-patch the fork-join type (owner).
 api_post_logged /api/task-manuals "{\"type_key\":\"$FORK_TYPE\"}" >/dev/null \
   || fail_stage "could not create fork-join manual $FORK_TYPE"
-D_SOP='SYNTHETIC E2E FORK-JOIN. Submit a plan with THREE consecutive parallel_group lanes (one parallel_group id) followed by ONE sequential join step. For each lane, spawn a sub-agent that writes ONLY its integer to its lane file: write 3→'"$FORK_L3"', 5→'"$FORK_L5"', 7→'"$FORK_L7"'. After ALL three lanes are done, the JOIN step (you, the worker, NOT a sub-agent) reads the three lane files, sums them (=15), and writes ONLY 15 to '"$FORK_SUM"'. Report every step yourself (the worker body owns all MCP status reports; sub-agents never report). Then closeout.'
+D_SOP='SYNTHETIC E2E FORK-JOIN. Submit a plan with THREE consecutive parallel_group lanes (one parallel_group id) followed by ONE sequential join step. For each lane, spawn a sub-agent that writes ONLY its integer to its lane file: write 3→'"$FORK_L3"', 5→'"$FORK_L5"', 7→'"$FORK_L7"'. After ALL three lanes are done, the JOIN step (you, the worker, NOT a sub-agent) reads the three lane files, sums them (=15), and writes ONLY 15 to '"$FORK_SUM"'. Report every step yourself (the worker body owns all MCP status reports; sub-agents never report). Reporting the last step does NOT close the task: it settles in `ready_for_done`, and you finish by calling `mark_task_done` on it.'
 D_CONTENT="$(py -c '
 import json, sys
 print(json.dumps({

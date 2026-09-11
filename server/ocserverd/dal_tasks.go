@@ -36,7 +36,6 @@ type Task struct {
 	CreatedTS     float64
 	UpdatedTS     float64
 	ClosedTS      float64 // 0.0 = still open
-	CloseoutTS    float64 // 0.0 = close-out follow-ups not reported yet (§6.3)
 	// DuplicateOf is the ORIGINAL task's id this one duplicates — non-empty
 	// ONLY while Status=='duplicated' (set by mark_task_duplicated). Depth-1 by
 	// construction (see api_tasks.go HandleMarkTaskDuplicate...): the target is
@@ -135,7 +134,7 @@ type Task struct {
 
 const taskColumns = `id, type_key, title, dedupe_key, inputs, description,
 	status, lock, priority, executor_kind, executor_id, creator_id, waiting_reason,
-	created_ts, updated_ts, closed_ts, closeout_ts, duplicate_of,
+	created_ts, updated_ts, closed_ts, duplicate_of,
 	reassigned_from, reassigned_from_kind,
 	handover_note, handover_note_ts, handover_note_by,
 	outsource_runtime, outsource_model, outsource_effort, outsource_machine,
@@ -157,7 +156,7 @@ func scanTask(row interface{ Scan(...any) error }) (Task, error) {
 		&t.ID, &t.TypeKey, &t.Title, &t.DedupeKey, &inputs, &t.Description,
 		&t.Status, &t.Lock, &t.Priority, &t.ExecutorKind, &t.ExecutorID, &t.CreatorID,
 		&t.WaitingReason,
-		&t.CreatedTS, &t.UpdatedTS, &t.ClosedTS, &t.CloseoutTS, &t.DuplicateOf,
+		&t.CreatedTS, &t.UpdatedTS, &t.ClosedTS, &t.DuplicateOf,
 		&t.ReassignedFrom, &t.ReassignedFromKind,
 		&t.HandoverNote, &t.HandoverNoteTS, &t.HandoverNoteBy,
 		&t.OutsourceRuntime, &t.OutsourceModel, &t.OutsourceEffort, &t.OutsourceMachine,
@@ -374,7 +373,7 @@ const (
 // putTaskOn is PutTask's body against either pool handle or an open
 // transaction (the sqlExecer convention, dal.go) — CreateTaskMintingID needs
 // the very same statement to run INSIDE its transaction, and a second copy of a
-// 33-column upsert would drift.
+// 35-column upsert would drift.
 func putTaskOn(ex sqlExecer, t Task, mode taskWriteMode) error {
 	inputs := t.Inputs
 	if inputs == nil {
@@ -392,7 +391,7 @@ func putTaskOn(ex sqlExecer, t Task, mode taskWriteMode) error {
 	// The mode only decides whether the conflict SUFFIX is appended.
 	stmt := `
 		INSERT INTO task (` + taskColumns + `)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 	if mode == taskWriteUpsert {
 		stmt += taskUpsertConflictClause
 	}
@@ -400,7 +399,7 @@ func putTaskOn(ex sqlExecer, t Task, mode taskWriteMode) error {
 		t.ID, t.TypeKey, t.Title, t.DedupeKey, string(blob), t.Description,
 		t.Status, t.Lock, t.Priority, t.ExecutorKind, t.ExecutorID, t.CreatorID,
 		t.WaitingReason,
-		t.CreatedTS, t.UpdatedTS, t.ClosedTS, t.CloseoutTS, t.DuplicateOf,
+		t.CreatedTS, t.UpdatedTS, t.ClosedTS, t.DuplicateOf,
 		t.ReassignedFrom, t.ReassignedFromKind,
 		t.HandoverNote, t.HandoverNoteTS, t.HandoverNoteBy,
 		NormalizeRuntime(t.OutsourceRuntime),
@@ -433,7 +432,7 @@ const taskUpsertConflictClause = `
 			creator_id = excluded.creator_id,
 			waiting_reason = excluded.waiting_reason,
 			created_ts = excluded.created_ts, updated_ts = excluded.updated_ts,
-			closed_ts = excluded.closed_ts, closeout_ts = excluded.closeout_ts,
+			closed_ts = excluded.closed_ts,
 			duplicate_of = excluded.duplicate_of,
 			reassigned_from = excluded.reassigned_from,
 			reassigned_from_kind = excluded.reassigned_from_kind,

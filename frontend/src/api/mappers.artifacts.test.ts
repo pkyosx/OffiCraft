@@ -91,7 +91,6 @@ function wireTask(over: Partial<WireTask>): WireTask {
     closed_ts: null,
     created_ts: 0,
     updated_ts: 0,
-    closeout_reported: false,
     deps: [],
     steps: [],
     progress_done: 0,

@@ -489,7 +489,7 @@ type taskCloseSignal struct {
 // body walks the reader through patch_task_learnings, and an ad-hoc task's
 // type_key is "". The body already opens by telling the agent to read type_key
 // off the ticket, so it finds nothing to write back and skips that half; the
-// scratch cleanup and the close-out report are the parts that still apply.
+// scratch cleanup is the part that still applies.
 //
 // 🔴 WHY THE SENTENCE LEFT THIS FUNCTION. Being pure was the named reason this
 // one document never got wired: with no *apiServer there is no overlay to fold.

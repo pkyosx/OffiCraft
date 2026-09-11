@@ -355,22 +355,22 @@ func TestMachineRevocationSparesEveryLegitimateCaller(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// A RELEASED outsource worker mid-close-out. This is the arm that a
-	// roster-status-only gate would kill fleet-wide: release stamps
-	// RosterStatusRemoved (dal_tasks.go ReleaseWorkersForTask) while the
-	// close-out contract deliberately keeps the session alive to write
-	// learnings and report_task_closeout.
+	// An outsource worker mid-close-out — since T-182 that means a task parked
+	// in `ready_for_done` with the worker still ACTIVE on it, because the close
+	// itself is now what dismisses the worker. A roster-status-only gate would
+	// kill this arm fleet-wide, and it is the window in which the contractor
+	// does the writing that a terminal task would refuse.
 	if err := api.dal.PutOutsourceWorker(OutsourceWorker{
 		ID: "ow-closeout", Codename: "O-1", TaskID: "t-closeout",
-		Status: WorkerStatusReleased, DesiredState: DesiredStateOnline,
-		DesiredMachineID: "m-live", ReleasedTS: float64(now),
+		Status: WorkerStatusActive, DesiredState: DesiredStateOnline,
+		DesiredMachineID: "m-live",
 	}); err != nil {
-		t.Fatalf("seed released worker: %v", err)
+		t.Fatalf("seed closing-out worker: %v", err)
 	}
 	if err := api.dal.PutTask(Task{
-		ID: "t-closeout", Title: "shipped", Status: TaskStatusDone,
+		ID: "t-closeout", Title: "shipped", Status: TaskStatusReadyForDone,
 		Priority: "mid", ExecutorKind: "outsource", ExecutorID: "ow-closeout",
-		CreatedTS: float64(now), UpdatedTS: float64(now), ClosedTS: float64(now),
+		CreatedTS: float64(now), UpdatedTS: float64(now),
 	}); err != nil {
 		t.Fatalf("seed task: %v", err)
 	}
@@ -400,9 +400,12 @@ func TestMachineRevocationSparesEveryLegitimateCaller(t *testing.T) {
 		{liveCall{"an agent RELOCATED off the deleted machine (stale token still names it)",
 			"POST", "/api/monitoring/telemetry",
 			`{"machine":"live","hardware":{"cpu_pct":9}}`}, movedTok},
-		{liveCall{"a RELEASED outsource worker reporting close-out", "POST",
-			"/api/tasks/t-closeout/closeout", `{}`}, closeoutTok},
-		{liveCall{"a RELEASED outsource worker writing chat", "POST",
+		// Idempotent on purpose: every arm is fired TWICE (once as the
+		// positive control before the delete), so a one-shot door would fail
+		// the second pass for a reason that has nothing to do with this gate.
+		{liveCall{"an outsource worker writing up its close-out", "POST",
+			"/api/tasks/t-closeout", `{"description":"close-out notes"}`}, closeoutTok},
+		{liveCall{"a closing-out outsource worker writing chat", "POST",
 			"/api/chat", `{"to":"owner","body":"learnings written"}`}, closeoutTok},
 	}
 

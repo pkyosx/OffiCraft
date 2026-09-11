@@ -459,9 +459,8 @@ def _matrix_ready_task(ctx: Ctx) -> str:
 
 
 def _matrix_closed_task(ctx: Ctx) -> str:
-    """A fresh TERMINATED task executed by agent A (close-out targets are
-    terminal-only; the owner's terminate closes it without touching the
-    closeout stamp)."""
+    """A fresh TERMINATED task executed by agent A — the terminal-task face
+    for routes that stay open after a close (the task's own text)."""
     task_id = _matrix_task(ctx)
     r = ctx.client.post(
         f"/api/tasks/{task_id}/mark-terminated",
@@ -1636,14 +1635,6 @@ MATRIX: dict[str, Route] = {
         overrides={"agent_other": 403},
         path=lambda ctx, _i: f"/api/tasks/{_matrix_task(ctx)}/deps",
         body={"blocked_by": []},
-    ),
-    "POST /api/tasks/{task_id}/closeout": Route(
-        # §6.3 close-out report: executor-guarded like every agent report
-        # row (agent B on agent A's task → 403); idempotent, so the admin
-        # faces re-reporting after agent_self is still a 200 no-op.
-        requires="agent",
-        overrides={"agent_other": 403},
-        path=lambda ctx, _i: f"/api/tasks/{_matrix_closed_task(ctx)}/closeout",
     ),
     "POST /api/tasks/{task_id}/reassign": Route(
         # ② the route floor is `agent`; the handler's executor guard keeps a plain

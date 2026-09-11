@@ -529,15 +529,14 @@ func TestTaskDTOOf(t *testing.T) {
 					"finished_ts":       0,
 				},
 			},
-			"detail_level":      "summary",
-			"notes_included":    false,
-			"progress_done":     0,
-			"progress_total":    2,
-			"closeout_reported": false,
-			"artifact_count":    1,
-			"handoff":           "",
-			"handoff_note":      "",
-			"handoff_task_id":   "",
+			"detail_level":    "summary",
+			"notes_included":  false,
+			"progress_done":   0,
+			"progress_total":  2,
+			"artifact_count":  1,
+			"handoff":         "",
+			"handoff_note":    "",
+			"handoff_task_id": "",
 			"blocking": []any{map[string]any{
 				"id": "T-3", "task_no": "T-3", "title": "Waiter", "status": "not_started",
 			}},
@@ -909,7 +908,6 @@ func TestWriteTask(t *testing.T) {
 			"notes_included":     false,
 			"progress_done":      0,
 			"progress_total":     1,
-			"closeout_reported":  false,
 			"artifact_count":     1,
 			"handoff":            "",
 			"handoff_note":       "",
@@ -1106,45 +1104,6 @@ func TestWriteTaskArtifactReceipt(t *testing.T) {
 			"task_id":        "T-1",
 			"artifact_id":    artifactID,
 			"artifact_count": 1,
-		})
-	})
-}
-
-func TestWriteTaskCloseoutReceipt(t *testing.T) {
-	t.Run("a task that reached done reports that status, and the repeat answers the first stamp again", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
-		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
-		agent := apiTestAgentToken(t, api, "kip", "")
-		apiJSON(t, h, "POST", "/api/tasks/T-1/plan", agent,
-			`{"steps":[{"name":"Draft","dod":"a draft exists"}]}`)
-		_, planned := apiJSON(t, h, "GET", "/api/tasks/T-1", owner, "")
-		stepID, _ := planned["steps"].([]any)[0].(map[string]any)["id"].(string)
-		apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/status", agent, `{"status":"in_progress"}`)
-		apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/status", agent,
-			`{"status":"done","handoff":"none","handoff_note":"nothing follows this"}`)
-		apiMarkDone(t, h, "T-1", agent)
-
-		status, first := apiJSON(t, h, "POST", "/api/tasks/T-1/closeout", agent, "")
-		if status != 200 {
-			t.Fatalf("want 200, got %d (%v)", status, first)
-		}
-		apiWantBody(t, first, map[string]any{
-			"task_id":           "T-1",
-			"task_status":       "done",
-			"closeout_reported": true,
-			"closeout_ts":       apiAnyNumber,
-		})
-		stamp, _ := first["closeout_ts"].(float64)
-
-		status, repeat := apiJSON(t, h, "POST", "/api/tasks/T-1/closeout", agent, "")
-		if status != 200 {
-			t.Fatalf("repeat: want 200, got %d (%v)", status, repeat)
-		}
-		apiWantBody(t, repeat, map[string]any{
-			"task_id":           "T-1",
-			"task_status":       "done",
-			"closeout_reported": true,
-			"closeout_ts":       stamp,
 		})
 	})
 }
@@ -2896,7 +2855,6 @@ func TestHandleGetTaskApiTasksTaskIdGet(t *testing.T) {
 			"notes_included":       false,
 			"progress_done":        0,
 			"progress_total":       0,
-			"closeout_reported":    false,
 			"artifact_count":       0,
 			"handoff":              "",
 			"handoff_note":         "",
@@ -5767,126 +5725,6 @@ func TestHandleSetTaskDepsApiTasksTaskIdDepsPost(t *testing.T) {
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Waiter","executor_member_id":"kip"}`)
 
 		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/deps", "", `{"blocked_by":[]}`)
-		if status != 401 {
-			t.Fatalf("want 401, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "unauthorized", "missing credentials")
-	})
-}
-
-func TestHandleReportTaskCloseoutApiTasksTaskIdCloseoutPost(t *testing.T) {
-	t.Run("the first close-out report stamps the moment, answers the receipt and fans the task delta", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
-		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
-		apiJSON(t, h, "POST", "/api/tasks/T-1/mark-terminated", owner, "")
-		dashboard := apiTestListen(t, api, "")
-		executor := apiTestListen(t, api, "kip")
-		bystander := apiTestListen(t, api, "mira")
-
-		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/closeout", owner, "")
-		if status != 200 {
-			t.Fatalf("want 200, got %d (%v)", status, data)
-		}
-		apiWantBody(t, data, map[string]any{
-			"task_id":           "T-1",
-			"task_status":       "terminated",
-			"closeout_reported": true,
-			"closeout_ts":       apiAnyNumber,
-		})
-
-		taskFrame := map[string]any{
-			"seq":   4,
-			"topic": "task",
-			"op":    "patch",
-			"data": map[string]any{
-				"entity":  "task",
-				"key":     "owner::T-1",
-				"epoch":   4,
-				"deleted": false,
-				"payload": map[string]any{"id": "T-1", "priority": "mid", "status": "terminated"},
-			},
-			"ts":      apiAnyNumber,
-			"trigger": "owner",
-		}
-		dashboard.wantFrames(taskFrame)
-		executor.wantFrames(taskFrame)
-		bystander.wantFrames()
-	})
-
-	t.Run("a repeat report answers the original stamp again and fans nothing", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
-		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
-		apiJSON(t, h, "POST", "/api/tasks/T-1/mark-terminated", owner, "")
-		_, first := apiJSON(t, h, "POST", "/api/tasks/T-1/closeout", owner, "")
-		firstStamp, _ := first["closeout_ts"].(float64)
-		dashboard := apiTestListen(t, api, "")
-
-		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/closeout", owner, "")
-		if status != 200 {
-			t.Fatalf("want 200, got %d (%v)", status, data)
-		}
-		apiWantBody(t, data, map[string]any{
-			"task_id":           "T-1",
-			"task_status":       "terminated",
-			"closeout_reported": true,
-			"closeout_ts":       firstStamp,
-		})
-		dashboard.wantFrames()
-	})
-
-	t.Run("a task that is still open answers 409 naming the status it is in", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
-		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
-		dashboard := apiTestListen(t, api, "")
-
-		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/closeout", owner, "")
-		if status != 409 {
-			t.Fatalf("want 409, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "conflict",
-			"task 'T-1' is still open (not_started) — close-out is reported after the task ends")
-		dashboard.wantFrames()
-	})
-
-	t.Run("an agent that is not the task's executor answers 403", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
-		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"mira"}`)
-		other := apiTestAgentToken(t, api, "kip", "")
-
-		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/closeout", other, "")
-		if status != 403 {
-			t.Fatalf("want 403, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "forbidden", "caller is not the task's executor")
-	})
-
-	t.Run("an authenticated machine identity answers 403 because this row requires agent", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
-		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
-		machine := apiTestAgentToken(t, api, "m-server-self", "")
-
-		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/closeout", machine, "")
-		if status != 403 {
-			t.Fatalf("want 403, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "forbidden", "principal not permitted")
-	})
-
-	t.Run("an id no task carries answers 404 naming it", func(t *testing.T) {
-		_, h, _, owner := newAPITestServer(t)
-
-		status, data := apiJSON(t, h, "POST", "/api/tasks/T-999/closeout", owner, "")
-		if status != 404 {
-			t.Fatalf("want 404, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "not_found", "task 'T-999' not found")
-	})
-
-	t.Run("a request without a token answers 401", func(t *testing.T) {
-		_, h, _, owner := newAPITestServer(t)
-		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
-
-		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/closeout", "", "")
 		if status != 401 {
 			t.Fatalf("want 401, got %d (%v)", status, data)
 		}

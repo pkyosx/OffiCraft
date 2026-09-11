@@ -287,7 +287,7 @@ func TestPredecessorMayStillWriteTheHandoverNoteUnderTheReassignHold(t *testing.
 //
 // 🔴 THE CASE LIST IS THE PREDICATE'S OWN LIST. callerMayWriteHandover's comment
 // enumerates the doors that stay shut — plan, step status, deps, priority,
-// reassign, terminate, artifacts, closeout, the task's own text — and this table
+// reassign, the four closes, artifacts, the task's own text — and this table
 // must cover ALL of them, because that comment is the only place the ruling is
 // written down and a door named there but missing here can be opened without
 // anything going red. Adding a name to that comment means adding a case here.
@@ -344,20 +344,28 @@ func TestPredecessorStaysLockedOutOfEveryOtherTaskWrite(t *testing.T) {
 				pred, "agent"), task.ID)
 			return rec
 		}},
-		// The four below complete the predicate's own list. They were the gap:
-		// callerMayWriteHandover's comment named nine doors that must stay shut
-		// and only five of them had a case here, so widening the predicate onto
-		// terminate / closeout / artifacts / reassign was a silent change.
+		// The rest complete the predicate's own list. They were the gap:
+		// callerMayWriteHandover's comment named doors that must stay shut and
+		// only five of them had a case here, so widening the predicate onto the
+		// closes / artifacts / reassign was a silent change.
 		{"mark_task_terminated", func() *httptest.ResponseRecorder {
 			rec := httptest.NewRecorder()
 			api.HandleMarkTaskTerminatedApiTasksTaskIdMarkTerminatedPost(rec, taskReq(t, "POST",
 				"/api/tasks/"+task.ID+"/mark-terminated", nil, pred, "agent"), task.ID)
 			return rec
 		}},
-		{"report_task_closeout", func() *httptest.ResponseRecorder {
+		{"mark_task_done", func() *httptest.ResponseRecorder {
 			rec := httptest.NewRecorder()
-			api.HandleReportTaskCloseoutApiTasksTaskIdCloseoutPost(rec, taskReq(t,
-				"POST", "/api/tasks/"+task.ID+"/closeout", map[string]any{}, pred,
+			api.HandleMarkTaskDoneApiTasksTaskIdMarkDonePost(rec, taskReq(t,
+				"POST", "/api/tasks/"+task.ID+"/mark-done", nil, pred,
+				"agent"), task.ID)
+			return rec
+		}},
+		{"mark_task_duplicated", func() *httptest.ResponseRecorder {
+			rec := httptest.NewRecorder()
+			api.HandleMarkTaskDuplicatedApiTasksTaskIdMarkDuplicatedPost(rec, taskReq(t,
+				"POST", "/api/tasks/"+task.ID+"/mark-duplicated",
+				map[string]any{"duplicate_of": "t-elsewhere"}, pred,
 				"agent"), task.ID)
 			return rec
 		}},

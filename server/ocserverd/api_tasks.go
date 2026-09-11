@@ -463,18 +463,6 @@ func (s *apiServer) writeTaskArtifactReceipt(w http.ResponseWriter, t Task, arti
 	})
 }
 
-// writeTaskCloseoutReceipt is the common tail of BOTH close-out exits — the
-// first (stamping) report and the idempotent no-op repeat (T-bb70). One tail on
-// purpose: the two exits cannot drift into answering with different shapes, and
-// the repeat — the one a re-reporting agent actually hits — can never again pay
-// 51k characters to be told what it already knew.
-func (s *apiServer) writeTaskCloseoutReceipt(w http.ResponseWriter, t Task) {
-	writeJSON(w, http.StatusOK, taskCloseoutReceiptDTO{
-		TaskID: t.ID, TaskStatus: t.Status,
-		CloseoutReported: t.CloseoutTS > 0, CloseoutTS: t.CloseoutTS,
-	})
-}
-
 func (s *apiServer) writeTaskStepStatusReceipt(w http.ResponseWriter, t Task, step TaskStep) {
 	steps, err := s.dal.ListTaskSteps(t.ID)
 	if err != nil {
@@ -540,8 +528,8 @@ func (s *apiServer) callerMayDriveTask(r *http.Request, t Task) bool {
 // to be moved out from under.
 //
 // 🔴 WHY IT IS NOT callerMayDriveTask ITSELF. That predicate guards plan, step
-// status, deps, priority/freeze, reassign, claim, terminate, mark_task_duplicated,
-// closeout and reply-card linkage as well. Owner ruled (2026-09-02, card
+// status, deps, priority/freeze, reassign, claim, the four closes and
+// reply-card linkage as well. Owner ruled (2026-09-02, card
 // rc-1bb6e01c4bf7) 「只開『改文字類』那幾道（改描述／標題／產物增刪／步驟筆記），
 // 不含凍結、撤票、改派」, so the widening is a SECOND predicate applied at the
 // named doors only. Calling this from any other handler reverses that ruling.
@@ -575,7 +563,7 @@ func (s *apiServer) callerMayEditTaskText(r *http.Request, t Task) bool {
 // duration of the handover — and REFUSED it, choosing to open the 「寫交接」 cell
 // alone. So 全域脈絡 §3.4 (交接完成前，不得讓兩個執行者同時推進同一份工作) is
 // unchanged and every other door callerMayDriveTask guards is unchanged: plan,
-// step STATUS, deps, priority, reassign, terminate, artifacts, closeout and the
+// step STATUS, deps, priority, reassign, the four closes, artifacts and the
 // task's own text all still 403 for the predecessor. Widening this predicate to
 // another route is reversing that ruling, not extending it.
 //
@@ -666,10 +654,12 @@ func authorizeTaskCreate(c taskCaller, willOutsource bool, manualAssigneeMember,
 	return 0, ""
 }
 
-// closeTask applies the terminal-status side effects (done AND terminated):
+// closeTask applies the terminal-status side effects shared by all four closes
+// (mark_task_done, mark_task_terminated, mark_task_duplicated, force_task_done):
 // stamp closed_ts, retire every waiting reply card still bound to the task,
-// release every bound outsource worker (the panel row disappears; the row
-// itself is the audit trail) and fan their deltas.
+// DISMISS every bound outsource worker (row released — the panel row disappears,
+// the row itself is the audit trail — and its session reclaimed) and fan their
+// deltas.
 func (s *apiServer) closeTask(t *Task, status string, now float64, trigger string) error {
 	t.Status = status
 	t.ClosedTS = now
@@ -694,19 +684,35 @@ func (s *apiServer) closeTask(t *Task, status string, now float64, trigger strin
 	if _, err := s.expireWaitingCardsForTask(t.ID, now, trigger); err != nil {
 		taskLog("close %s: reply-card sweep failed (cards left waiting): %v", t.ID, err)
 	}
-	released, err := s.dal.ReleaseWorkersForTask(t.ID, now)
-	if err != nil {
-		return err
-	}
-	for _, w := range released {
-		s.publishOutsourceWorker(w, trigger)
-	}
-	// The worker SESSION is deliberately NOT reclaimed here (SPEC §6.3): the
-	// released worker keeps its session to run the close-out duties (learnings
-	// write-back, temp cleanup, the close-out report). The reclaim fires from
-	// the close-out hook (worker_spawn.go dismissOutsourceWorkersForTask — the
-	// seam the close-out report handler calls) or, when no report ever
-	// arrives, from the scheduler's workerReclaimGraceSecs backstop.
+	// T-182 — THE DISMISSAL HAPPENS HERE, AND ONLY HERE. Every close funnels
+	// through closeTask, so all four doors (mark_task_done, mark_task_terminated,
+	// mark_task_duplicated, force_task_done) fire the worker on the same terms:
+	// the row releases AND the session is reclaimed at once.
+	//
+	// 🔴 WHY NOT ONE DOOR AT A TIME, which is what the old wiring did. The
+	// dismissal used to hang off a SEPARATE report (`report_task_closeout`,
+	// removed in this ticket), which only ever arrived after mark_task_done; the
+	// other three closes left the worker holding a live session until the
+	// scheduler's workerReclaimGraceSecs backstop swept it. So "terminated" and
+	// "duplicated" spent a contractor's quota on a ticket that had already ended.
+	// Owner's ruling (rc-571b665bc047 option [0]) is 「外包改在按下結案那一刻遣散」,
+	// and a close is a close.
+	//
+	// 🔴 WHY NO DOOR OPTS OUT, including force_task_done. A terminal task refuses
+	// every write the worker could still make on it, so a worker left alive past
+	// the close has nothing it is PERMITTED to do — keeping it is not mercy, it
+	// is quota. The close-out work (learnings, deliverables, step notes) has its
+	// own window now and it is BEFORE this call: `ready_for_done`, which the task
+	// sits in until somebody presses mark_task_done. That is the whole reason the
+	// session no longer needs to outlive the close.
+	//
+	// ⚠️ THE NAMED COST: force_task_done and mark_task_terminated can land on a
+	// task whose worker never reached `ready_for_done`, so those two DO cut a
+	// working contractor off mid-sentence with no close-out window. That is what
+	// those two doors are for — they exist to end a task the executor is not
+	// going to end — but it is a behaviour change from the grace-period wait, so
+	// it is written down rather than discovered.
+	s.dismissOutsourceWorkersForTask(t.ID, now, trigger)
 	s.publishTask(*t, trigger)
 	// T-74f8 half B: a dep is no longer a display marker. Every task blocked BY
 	// this one whose blockers are now all terminal is released — durable notice
@@ -3104,58 +3110,6 @@ func (s *apiServer) HandleSetTaskDepsApiTasksTaskIdDepsPost(w http.ResponseWrite
 	}
 	s.publishTask(*t, requestTrigger(r))
 	s.writeTaskWriteReceipt(w, *t)
-}
-
-// POST /api/tasks/{task_id}/closeout — the executor reports the task's
-// close-out follow-ups DONE (SPEC §6.3 step 1: learnings written back +
-// scratch cleaned). TERMINAL tasks only (an open task has nothing to close
-// out → 409); executor-guarded like every agent report row. IDEMPOTENT: the
-// first report stamps closeout_ts and fans a task delta; a repeat is a 200
-// no-op (no write, no fan).
-//
-// SPEC §6.3 step 2 (the former worker-lifecycle SEAM, now WIRED): the FIRST
-// successful report also dismisses the outsource worker(s) bound to this task
-// — dismissOutsourceWorkersForTask (worker_spawn.go) releases any lingering
-// row and pushes the EXACT worker_stop so the session is reclaimed NOW rather
-// than waiting out the workerReclaimGraceSecs backstop. Idempotent and a
-// no-op for member-executed tasks (no worker rows), so it rides the stamp
-// path unconditionally; the repeat-report path never re-fires it.
-func (s *apiServer) HandleReportTaskCloseoutApiTasksTaskIdCloseoutPost(w http.ResponseWriter, r *http.Request, taskId string) {
-	t, err := s.resolveTask(taskId)
-	if err != nil {
-		writeResolveError(w, err, "task", taskId)
-		return
-	}
-	if !s.callerMayDriveTask(r, *t) {
-		writeError(w, http.StatusForbidden, executorGuardRefusal)
-		return
-	}
-	if !TaskIsTerminal(t.Status) {
-		writeError(w, http.StatusConflict,
-			"task '"+taskId+"' is still open ("+t.Status+
-				") — close-out is reported after the task ends")
-		return
-	}
-	if t.CloseoutTS > 0 {
-		// Already reported — idempotent no-op. The receipt (T-bb70) carries the
-		// ORIGINAL stamp, which is the one fact a repeat caller cannot derive:
-		// it says the close-out landed, and when.
-		s.writeTaskCloseoutReceipt(w, *t)
-		return
-	}
-	now := nowSecs()
-	t.CloseoutTS = now
-	t.UpdatedTS = now
-	if err := s.dal.PutTask(*t); err != nil {
-		internalError(w, err)
-		return
-	}
-	// §6.3 step 2: the close-out is durable — fire the bound outsource
-	// worker(s) NOW (release any lingering row + reclaim the session EXACTLY).
-	// Idempotent; member-executed tasks have no worker rows → no-op.
-	s.dismissOutsourceWorkersForTask(t.ID, now, requestTrigger(r))
-	s.publishTask(*t, requestTrigger(r))
-	s.writeTaskCloseoutReceipt(w, *t)
 }
 
 // ── C.4 artifact set (T-3dc5) ────────────────────────────────────────────────
