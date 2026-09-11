@@ -15,9 +15,9 @@ import (
 // editable body under it. The three constants are the three halves the read
 // face names.
 const (
-	apiTestTaskCloseoutSeed = "任務 {task_no} 已結束，關閉的人是 {closed_by}。\n\n<!-- ↑唯讀區（程式產生，改不動）｜↓本體（可編輯，零變數） -->\n\n停下這個任務，移除你開啟的外部資源，並停止更新 task。\n"
+	apiTestTaskCloseoutSeed = "任務 {task_no} 已結案，結案的人是 {closed_by}。\n\n<!-- ↑唯讀區（程式產生，改不動）｜↓本體（可編輯，零變數） -->\n\n停下這個任務，移除你開啟的外部資源，並停止更新 task。\n"
 
-	apiTestTaskCloseoutHead = "任務 {task_no} 已結束，關閉的人是 {closed_by}。"
+	apiTestTaskCloseoutHead = "任務 {task_no} 已結案，結案的人是 {closed_by}。"
 
 	apiTestTaskCloseoutBody = "停下這個任務，移除你開啟的外部資源，並停止更新 task。\n"
 )
@@ -46,7 +46,7 @@ const (
 const apiTestAcceleratedHeadAt = "你的結束時刻是 2026-01-01T00:00:00Z。"
 
 // apiTestCloseoutHeadFilled is 〈任務結案〉's head with both of its names filled.
-const apiTestCloseoutHeadFilled = "任務 T-1 已結束，關閉的人是 owner。"
+const apiTestCloseoutHeadFilled = "任務 T-1 已結案，結案的人是 owner。"
 
 // apiTestBootDocRow is one expected row of bootDocRegistry, written out rather
 // than read off the registry: the two lists are compared, so a kind added,
@@ -444,8 +444,8 @@ func TestSystemInteractionText(t *testing.T) {
 			t.Fatalf("the boot fold and the read face disagree (%d vs %d runes)",
 				utf8.RuneCountInString(got), utf8.RuneCountInString(data["text"].(string)))
 		}
-		if n := utf8.RuneCountInString(got); n != 16778 {
-			t.Fatalf("the shipped block is %d runes, want 16778", n)
+		if n := utf8.RuneCountInString(got); n != 16865 {
+			t.Fatalf("the shipped block is %d runes, want 16865", n)
 		}
 	})
 
@@ -1011,7 +1011,7 @@ func TestReplaceBootDoc(t *testing.T) {
 			"is_default": false,
 			"size_chars": 105,
 			"cap_chars":  15000,
-			"sha256":     "1b27bbd4b2e0d160f4bd2b083bfdad8b2e054097824e51af4c768db021d47465",
+			"sha256":     "1a7b91966130612348b1b472b4956266ffc156f3c0cb04744c4b2086edb392f8",
 		})
 		_, after := apiJSON(t, h, "GET", "/api/boot-docs/task_closeout/global", owner, "")
 		if after["text"] != read["text"] || after["body"] != read["body"] {
@@ -1447,7 +1447,7 @@ func TestHandleGetSystemInteractionApiSystemInteractionGet(t *testing.T) {
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
-		apiWantValue(t, "size_chars", data["size_chars"], 16778)
+		apiWantValue(t, "size_chars", data["size_chars"], 16865)
 		apiWantValue(t, "cap_chars", data["cap_chars"], 60000)
 		apiWantValue(t, "kind", data["kind"], "system_interaction")
 		apiWantValue(t, "key", data["key"], "global")
@@ -1457,8 +1457,8 @@ func TestHandleGetSystemInteractionApiSystemInteractionGet(t *testing.T) {
 		apiWantValue(t, "has_seed", data["has_seed"], true)
 		apiWantValue(t, "schema_version", data["schema_version"], 3)
 		text, ok := data["text"].(string)
-		if !ok || utf8.RuneCountInString(text) != 16778 {
-			t.Fatalf("the shipped system-interaction text has %d runes, want 16778", utf8.RuneCountInString(text))
+		if !ok || utf8.RuneCountInString(text) != 16865 {
+			t.Fatalf("the shipped system-interaction text has %d runes, want 16865", utf8.RuneCountInString(text))
 		}
 	})
 
@@ -1612,9 +1612,9 @@ func TestHandleResetSystemInteractionApiSystemInteractionResetPost(t *testing.T)
 			"kind":       "system_interaction",
 			"key":        "global",
 			"is_default": true,
-			"size_chars": 16778,
+			"size_chars": 16865,
 			"cap_chars":  60000,
-			"sha256":     "5600d76b7ff7eb8b17167e6cbc88027e0a406331f79eab2eb9a84f48c5def9c5",
+			"sha256":     "8a079bae0959c942c382cbdfffd645ce125b536206c0496382066855b1c11e79",
 		})
 		dashboard.wantFrames(map[string]any{
 			"seq":   2,
@@ -1645,9 +1645,9 @@ func TestHandleResetSystemInteractionApiSystemInteractionResetPost(t *testing.T)
 			"kind":       "system_interaction",
 			"key":        "global",
 			"is_default": true,
-			"size_chars": 16778,
+			"size_chars": 16865,
 			"cap_chars":  60000,
-			"sha256":     "5600d76b7ff7eb8b17167e6cbc88027e0a406331f79eab2eb9a84f48c5def9c5",
+			"sha256":     "8a079bae0959c942c382cbdfffd645ce125b536206c0496382066855b1c11e79",
 		})
 		dashboard.wantFrames()
 	})
@@ -1673,7 +1673,7 @@ func TestHandleGetOffboardApiOffboardGet(t *testing.T) {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
 		apiWantBody(t, data, map[string]any{
-			"size_chars":     1770,
+			"size_chars":     1773,
 			"cap_chars":      15000,
 			"kind":           "offboard",
 			"key":            "global",
@@ -1810,9 +1810,9 @@ func TestHandleResetOffboardApiOffboardResetPost(t *testing.T) {
 			"kind":       "offboard",
 			"key":        "global",
 			"is_default": true,
-			"size_chars": 1770,
+			"size_chars": 1773,
 			"cap_chars":  15000,
-			"sha256":     "67ee17b8a0747672b862d3f167f26e848eb8eca9c0417993bfc583bd311a2b9b",
+			"sha256":     "7c1872deba8671a5b00821b0f9c6856a96cb3e39e2c06c94c24b6ca20c19af40",
 		})
 		dashboard.wantFrames(map[string]any{
 			"seq":   2,
@@ -2280,7 +2280,7 @@ func TestHandleReplaceBootDocApiBootDocsKindKeyPost(t *testing.T) {
 			"is_default": false,
 			"size_chars": 77,
 			"cap_chars":  15000,
-			"sha256":     "90b30624f1af74c931c34589a098966ba90f28247e3f7278e409797f387fa4bb",
+			"sha256":     "700418ca3be147deaee00b83e27c7c66b9821283dba4b4d21b2f108129f514dd",
 		})
 		dashboard.wantFrames(map[string]any{
 			"seq":   1,
@@ -2339,7 +2339,7 @@ func TestHandleResetBootDocApiBootDocsKindKeyResetPost(t *testing.T) {
 			"is_default": true,
 			"size_chars": 105,
 			"cap_chars":  15000,
-			"sha256":     "1b27bbd4b2e0d160f4bd2b083bfdad8b2e054097824e51af4c768db021d47465",
+			"sha256":     "1a7b91966130612348b1b472b4956266ffc156f3c0cb04744c4b2086edb392f8",
 		})
 		dashboard.wantFrames(map[string]any{
 			"seq":   2,

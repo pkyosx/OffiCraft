@@ -532,8 +532,10 @@ export interface TaskStepDetailView extends TaskStepView {
 /**
  * One task (M3 任務卡) in view-model form. `status` is the SERVER-DERIVED closed
  * set (`not_started` | `in_progress` | `waiting_owner` | `waiting_external` |
- * `done` | `terminated` | `duplicated`; the last three terminal) — `reassigning`
- * is NOT a status any more (it moved to the orthogonal `lock`, T-9ca5);
+ * `ready_for_done` | `done` | `terminated` | `duplicated`; the last three
+ * terminal, and `ready_for_done` — a finished plan nobody has closed yet — is
+ * NOT one of them) — `reassigning` is NOT a status any more (it moved to the
+ * orthogonal `lock`, T-9ca5);
  * `priority` is `high` | `mid` |
  * `low` | `frozen` (凍結 is a priority, NOT a status). `executorKind`
  * "outsource" with an EMPTY `executorId` is the transient unassigned state
@@ -2294,12 +2296,12 @@ export interface Api {
    * List tasks as LIGHT list items (the collapsed card's fields +
    * server-computed progress + deps, WITHOUT the heavy steps/description/inputs
    * — those hydrate on expand via getTask; the returned TaskView carries
-   * `steps: []` and `description: ""` until then). Partitioning (未結束/已結束),
+   * `steps: []` and `description: ""` until then). Partitioning (未結案/已結案),
    * priority ordering AND the page's 篩選列 are applied CLIENT-SIDE.
    *
    * `opts.open` (T-2b9d) sends `GET /api/tasks?open=true` — the server drops
    * the terminal (done/terminated/duplicated) rows so the DEFAULT 任務頁 view,
-   * which only shows the 未結束 partition, pulls a handful of rows instead of
+   * which only shows the 未結案 partition, pulls a handful of rows instead of
    * the whole history. Omit it (the default) for the full population — the
    * 清除篩選 全部 view needs every task, and that call is byte-for-byte the
    * unfiltered list as before.

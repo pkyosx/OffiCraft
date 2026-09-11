@@ -633,7 +633,7 @@ func (s *apiServer) offboardNoticeFor(m Member, kind string) string {
 //
 // 🔴 OUTSOURCE ONLY, deliberately. A 正職 has a role of its own and its learnings
 // may belong to the ROLE rather than to any one task's type — which document a
-// staff member writes into is ruled by the boot doc's 「記憶與學習」 section, and
+// staff member writes into is ruled by the boot doc's 「記憶與傳承」 section, and
 // naming one document here would overrule it from the wrong place. A worker has
 // no role and outlives nothing: its one task IS its memory, which is why the
 // owner's ruling names 外包 and this gate does too.

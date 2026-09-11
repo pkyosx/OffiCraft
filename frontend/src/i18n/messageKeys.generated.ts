@@ -1242,6 +1242,7 @@ export const MESSAGE_KEYS: readonly string[] = [
   "tasks.status.duplicated",
   "tasks.status.in_progress",
   "tasks.status.not_started",
+  "tasks.status.ready_for_done",
   "tasks.status.terminated",
   "tasks.status.waiting_external",
   "tasks.status.waiting_owner",

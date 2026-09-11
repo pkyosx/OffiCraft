@@ -460,6 +460,16 @@ a.task-card__chip--link {
   border-color: color-mix(in srgb, var(--color-lock-reassigning) 45%, transparent);
   background: color-mix(in srgb, var(--color-lock-reassigning) 12%, transparent);
 }
+/* 可結案 — DERIVED and still OPEN (T-182): every step is reported done and the
+   task is waiting for mark_task_done. Blue is the one hue the status axis has
+   not spent: 已完成 and 進行中 own accent green, 等我回覆 amber, 等待外部 purple,
+   終止 red, 重複 冷灰藍, 尚未執行 muted grey. The point of the badge is that this
+   is NOT one of the three terminals, so it must not read as a shade of any of
+   them — a second green beside 已完成 would say the task had ended. */
+.task-badge--status-ready_for_done {
+  color: var(--color-ready-for-done);
+  border-color: color-mix(in srgb, var(--color-ready-for-done) 45%, transparent);
+}
 .task-badge--status-done {
   color: var(--color-accent);
   border-color: color-mix(in srgb, var(--color-accent) 40%, transparent);

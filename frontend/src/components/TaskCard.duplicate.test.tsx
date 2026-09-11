@@ -1,5 +1,5 @@
 // TaskCard — the duplicated terminal status + 原票指向 (T-02c9). Locked:
-//   1. a duplicated task is terminal (sits in 已結束) and renders the 重複
+//   1. a duplicated task is terminal (sits in 已結案) and renders the 重複
 //      status badge + a 重複於 <task id> link that jumps to the original;
 //   2. the ⋮ menu's 標記重複 opens a picker; confirming a chosen original marks
 //      the task duplicated through the seam — it then leaves the live list
@@ -65,7 +65,7 @@ describe("TaskCard duplicated 終態 + 原票指向 (T-02c9)", () => {
     });
     __injectMockTask(original);
     __injectMockTask(dup);
-    // A duplicated task is terminal → jump straight to it so 已結束 auto-expands.
+    // A duplicated task is terminal → jump straight to it so 已結案 auto-expands.
     window.location.hash = `#tasks/${dup.id}`;
     const { findByTestId } = renderPage();
 

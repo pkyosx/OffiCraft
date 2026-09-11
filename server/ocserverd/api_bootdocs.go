@@ -239,9 +239,9 @@ var bootDocRegistry = []bootDocReg{{
 	//
 	// It matters because the executor of a task it did NOT close is exactly the
 	// reader this notice reaches (T-91 also removed the two gates that used to
-	// silence the duplicate and ad-hoc cases), and "my last step report finished
-	// it" and "somebody terminated it under me" are opposite situations that the
-	// old single sentence rendered identically.
+	// silence the duplicate and ad-hoc cases), and "I closed it myself" and
+	// "somebody terminated it under me" are opposite situations that the old
+	// single sentence rendered identically.
 	Split: true,
 	Join:  "\n",
 	Vars:  []string{"task_no", "closed_by"},

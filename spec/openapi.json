@@ -22086,7 +22086,7 @@
     },
     "/api/tasks/{task_id}/steps/{step_id}/note": {
       "post": {
-        "description": "- Wholesale replace of the step's working note; `\"\"` clears it. It is current state, not a report or an append log.\n- Write only: where the step got to, what the next person does, evidence pointers.\n- Accepted in any step status, but 409 once the task is terminal - and reporting the last step done closes the task.\n- 400 over `note_cap_chars`; 403 unless executor or admin; 404 unknown task or step.",
+        "description": "- Wholesale replace of the step's working note; `\"\"` clears it. It is current state, not a report or an append log.\n- Write only: where the step got to, what the next person does, evidence pointers.\n- Accepted in any step status, but 409 once the task is terminal - reporting the last step done only lands it in `ready_for_done`, which is still open.\n- 400 over `note_cap_chars`; 403 unless executor or admin; 404 unknown task or step.",
         "operationId": "handle_update_task_step_note_api_tasks__task_id__steps__step_id__note_post",
         "parameters": [
           {

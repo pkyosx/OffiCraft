@@ -188,8 +188,8 @@ export const zh = {
   },
   // ── 任務頁(M3 任務卡)──
   tasks: {
-    openTitle: "未結束",
-    closedTitle: "已結束",
+    openTitle: "未結案",
+    closedTitle: "已結案",
     // 空狀態 ×2(SPEC §2.3 指定文案)
     emptyNone: "目前沒有任務",
     emptyFiltered: "沒有符合篩選條件的任務",
@@ -248,6 +248,7 @@ export const zh = {
       in_progress: "進行中",
       waiting_owner: "等我回覆",
       waiting_external: "等待外部",
+      ready_for_done: "可結案",
       done: "已完成",
       terminated: "終止",
       duplicated: "重複",
@@ -358,13 +359,13 @@ export const zh = {
     terminate: "終止",
     terminateConfirmBodyLead: "確定要終止「",
     terminateConfirmBodyTail:
-      "」嗎？任務將移入已結束區，無法恢復；後端會通知負責人做結束處理。",
+      "」嗎？任務將結案為終止，無法恢復；後端會通知負責人做結束處理。",
     terminateConfirm: "確認終止",
     // 標記重複(T-02c9):負責人指向原票即可收斂,免 owner 逐張終止
     markDuplicate: "標記重複",
     markDuplicateBodyLead: "把「",
     markDuplicateBodyTail:
-      "」標記為某張原票的重複?任務將移入已結束區、無法恢復。請選擇原票:",
+      "」標記為某張原票的重複?任務將結案為重複、無法恢復。請選擇原票:",
     markDuplicatePick: "請選擇原票",
     markDuplicateConfirm: "確認標記重複",
     duplicateOfLabel: "重複於",

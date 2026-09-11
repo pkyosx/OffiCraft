@@ -380,9 +380,10 @@ func startFirstStep(t *testing.T, api *apiServer, taskID, executor string) {
 	}
 }
 
-// driveTaskDone plans a single step and reports it in_progress→done, deriving
-// the task to done (auto-close, T-9ca5) — the standard closer for tests that
-// just need a closed task (task status is derived, never reported).
+// driveStepsDone plans a single step and reports it in_progress→done, deriving
+// the task to ready_for_done (T-182) — the standard way for tests that need a
+// task whose plan is finished but which nobody has closed (task status is
+// derived, never reported).
 func driveStepsDone(t *testing.T, api *apiServer, taskID, executor string) {
 	t.Helper()
 	view := submitPlan(t, api, taskID, executor, []map[string]any{

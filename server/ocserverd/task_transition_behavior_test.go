@@ -12,7 +12,7 @@ package main
 //	Q2 轉派後 → the predecessor keeps ONE cell of authority (write the handover),
 //	          and loses every other one. The owner refused the wide version.
 //	Q3 被擋   → on the TICKET ONLY. No message, by explicit ruling.
-//	Q4 關票   → a DURABLE MESSAGE, because 開機盤點 lists only tasks that have not
+//	Q4 結案   → a DURABLE MESSAGE, because 開機盤點 lists only tasks that have not
 //	          ended — a closed ticket is absent from the list that Q3 relies on.
 //
 // 🔴 THESE TESTS PIN MECHANISM, NOT PROSE. Where a document is the subject, the
@@ -714,7 +714,7 @@ func mustResumeChat(t *testing.T, api *apiServer, actor string) []ChatMessage {
 	return out
 }
 
-// "My last step report finished it" and "somebody terminated it under me" are
+// "I closed it myself" and "somebody terminated it under me" are
 // opposite situations, and the notice used to render them identically. The
 // closer is a DECLARED document variable so the sentence around it stays
 // owner-editable — this asserts the value is carried and filled, not the words.

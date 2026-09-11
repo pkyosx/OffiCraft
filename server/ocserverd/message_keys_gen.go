@@ -1243,6 +1243,7 @@ var messageKeys = map[string]bool{
 	"tasks.status.duplicated":                          true,
 	"tasks.status.in_progress":                         true,
 	"tasks.status.not_started":                         true,
+	"tasks.status.ready_for_done":                      true,
 	"tasks.status.terminated":                          true,
 	"tasks.status.waiting_external":                    true,
 	"tasks.status.waiting_owner":                       true,

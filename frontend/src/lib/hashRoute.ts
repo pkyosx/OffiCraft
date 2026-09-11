@@ -81,7 +81,7 @@ export interface HashRoute {
   composeTaskNo?: string;
   /** tasks only — the task the page narrows to + highlights on open (§3.6 請示
    * → 任務跳轉: the reply card's 查看任務詳情 link routes here; the page
-   * guarantees visibility — auto-expands 已結束, overrides the other filters).
+   * guarantees visibility — auto-expands 已結案, overrides the other filters).
    *
    * T-93 (owner 2026-09-05, `rc-428906235337`): when the id names NO task the
    * anchor STAYS and the page answers 沒有符合篩選條件的任務. It used to strip

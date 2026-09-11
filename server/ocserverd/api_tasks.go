@@ -2700,12 +2700,12 @@ func (s *apiServer) HandleSubmitTaskPlanApiTasksTaskIdPlanPost(w http.ResponseWr
 	}
 	// ── T-74f8 交棒閘,第二道門 ───────────────────────────────────────────────
 	// A replan is a step-set write, and task.status is DERIVED from the step
-	// set, so a plan that lands all-done finishes the task just as surely as the
+	// set, so a plan that lands all-done finishes the WORK just as surely as the
 	// final step report does. The replan split keeps `done` rows and DROPS an
 	// unfinished card-less row, so "replan down to only the nodes I already
-	// finished" was a SILENT close with handoff="" — the exact bug this ticket
-	// exists to kill, reachable by the very move a caller refused at the first
-	// door would try next.
+	// finished" was a SILENT arrival at the close-out with handoff="" — the
+	// exact bug this ticket exists to kill, reachable by the very move a caller
+	// refused at the first door would try next.
 	//
 	// 🔴 THE PROJECTION COMPARES AGAINST ready_for_done (T-182), exactly as
 	// wouldFinishTask does. DeriveTaskStatus can no longer RETURN done, so a
@@ -2752,17 +2752,18 @@ func (s *apiServer) HandleSubmitTaskPlanApiTasksTaskIdPlanPost(w http.ResponseWr
 		internalError(w, err)
 		return
 	}
-	// Record the handover BEFORE the derivation closes the task — same ordering
-	// as the step-report door (the successor's dep edge must exist by the time
-	// closeTask walks its dependents, and t's handoff fields ride closeTask's
-	// PutTask). Only ever non-nil when the gate auto-satisfied off a live
+	// Record the handover BEFORE the derivation — same ordering as the
+	// step-report door (the successor's dep edge must exist by the time a later
+	// close walks its dependents, and t's handoff fields ride the PutTask that
+	// close performs). Only ever non-nil when the gate auto-satisfied off a live
 	// dependent, since a replan cannot carry an explicit declaration.
 	if err := s.applyHandoffPlan(t, replanHandoff); err != nil {
 		internalError(w, err)
 		return
 	}
 	// task status is DERIVED (T-9ca5): a fresh plan changes the step set, so
-	// re-project the task status from it (and auto-close if the plan is all-done).
+	// re-project the task status from it (an all-done plan lands ready_for_done;
+	// nothing here closes the task — mark_task_done does).
 	if err := s.deriveAndPersistTask(t, nowSecs(), requestTrigger(r)); err != nil {
 		internalError(w, err)
 		return
@@ -3001,15 +3002,16 @@ func (s *apiServer) HandleUpdateTaskStepStatusApiTasksTaskIdStepsStepIdStatusPos
 		internalError(w, err)
 		return
 	}
-	// Record the handover BEFORE the derivation closes the task: the successor
-	// task (and its dep edge) must already exist when closeTask walks its
-	// dependents, and t's handoff fields ride the PutTask closeTask performs.
+	// Record the handover BEFORE the derivation: the successor task (and its dep
+	// edge) must already exist when a later close walks its dependents, and t's
+	// handoff fields ride the PutTask that close performs.
 	if err := s.applyHandoffPlan(t, plan); err != nil {
 		internalError(w, err)
 		return
 	}
 	// The task status is DERIVED from the steps now — this seam re-projects it
-	// (and auto-closes on all-done). No agent task-status report is involved.
+	// (an all-done step set lands ready_for_done, which is OPEN; mark_task_done
+	// is what closes it). No agent task-status report is involved.
 	if err := s.deriveAndPersistTask(t, now, requestTrigger(r)); err != nil {
 		internalError(w, err)
 		return
