@@ -429,10 +429,19 @@ func TestRealClaudeAnswersTheProbe(t *testing.T) {
 
 	// NON-DESTRUCTIVENESS, in two halves.
 	//
-	// (a) THE CLAUDE INVOCATION changes nothing at all. Snapshot every path, size,
-	// mtime and inode two levels into the config home, run the question claude is
-	// actually asked, snapshot again, compare exactly — no new file, no removed
-	// file, no rewrite, not even a backups/ rotation.
+	// (a) THE CLAUDE INVOCATION changes nothing — IN THE STEADY STATE, which is
+	// what this snapshot pair measures and what every spawn after the first gets.
+	// Snapshot every path, size, mtime and inode two levels into the config home,
+	// run the question claude is actually asked, snapshot again, compare exactly:
+	// no new file, no removed file, no rewrite, no backups/ rotation.
+	//
+	// STATE 1 above has already run claude once against this home, and that FIRST
+	// run is not a no-op: on a home claude has never initialised it rewrites
+	// .claude.json to add its own defaults and rotates one backup (measured — see
+	// claudetrust.go). That is claude initialising itself, not an edit of ours, and
+	// STATE 1 passing is the proof it does not cost us the flag: the witness came
+	// back THROUGH that first run. Asserting DeepEqual across the first run instead
+	// would pin claude's private first-run bookkeeping, which is not our contract.
 	seed := claudeTrustProbeSeedName(workdir)
 	if err := seedTrustProbeWitness(ch.ClaudeJSONPath(), workdir, seed); err != nil {
 		t.Fatalf("seed: %v", err)

@@ -702,6 +702,13 @@
       "seam_reason": "the command-frame handler handed to the SSE scanner as a VALUE: the loop calls it per frame and it reaches the command_result receipts, each declared on its own callsite in command.go."
     },
     {
+      "id": "warden-pretrust-verifier-value",
+      "source": "cli/ocwarden/transport.go",
+      "callsite": "verify,",
+      "kind": "skip",
+      "skip_reason": "Nothing goes on the wire. This is the T-180 pre-trust verifier (claudetrust.go newClaudePretrustVerifier) handed to withPerSpawn as a VALUE; every hop it can reach is a LOCAL subprocess through CmdRunner.Run (main.go execRunner) — tmux show-options, then the claude binary asked `mcp get` — and there is no http.Client, request or dial anywhere beneath it. It is enumerated only because the derived-sink layer keys on the NAME `verify`, which renewapply.go:144 binds to httpCredentialVerifier (a real send) in the same module. That spelling collision is the documented cost of not narrowing the scan, and the price is this one row."
+    },
+    {
       "id": "warden-renew-request",
       "source": "cli/ocwarden/renewapply.go",
       "callsite": "req, err := http.NewRequest(http.MethodPost, base+renewCredentialPath, nil)",

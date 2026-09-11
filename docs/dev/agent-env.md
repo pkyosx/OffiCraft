@@ -187,8 +187,17 @@ claude mcp get oc-trust-probe-missing     # 這個名字永遠不會被種下去
 > **為什麼動詞是 `get` 而不是 `project purge --dry-run`。** 後者是唯一會報告
 > `projects[<dir>]` 的指令，但它的動詞是**破壞性**的；`--dry-run` 今天有效是行為不是契約，
 > 而這整包的存在理由就是我們已經四次賭錯「claude 的行為跟我們以為的一樣」。實測
-> (2026-09-11，2.1.268)：`mcp get` 問一個不存在的名字時**不連線任何 server**、
-> **對設定目錄零寫入**(前後每個檔的 size／mtime／inode 完全一致，連 backups 輪替都沒有)。
+> (2026-09-12，2.1.268，獨立重量)：`mcp get` 問一個不存在的名字時**不連線任何 server**
+> (種一個會建立標記檔的 server，問不存在的名字沒有標記檔；問存在的名字就有——對照組會動)，
+> 而且**永遠不刪東西**：我們寫進 `projects[<workdir>]` 的旗標與見證項每次都原封不動回來。
+>
+> ⚠️ 但它**不是完全零寫入**，先前這裡寫「連 backups 輪替都沒有」是**錯的**。對一個 claude
+> 還沒初始化過的設定目錄(也就是 warden 幫新成員開的那種)，**第一次** `mcp get` 會改寫
+> `.claude.json`(inode 換掉、568 → 1115 bytes)補上 claude 自己的首次啟動欄位
+> (`firstStartTime`／`machineID`／`userID`／`migrationVersion`)並輪替一份到 `backups/`。
+> 第二、三次再問就真的一個 byte 都不動(size／inode／mtime 到奈秒全同)。
+> 也就是說那一次寫入是 claude 在初始化自己，不是動我們的資料——而「不刪」正是換動詞要買的性質，
+> `project purge --dry-run` 買不到，因為它的無害性押在旗標有沒有被遵守上。
 >
 > 為什麼不是在 Go 裡重寫 claude 的解析邏輯？因為那是第五次預測。它會隨 claude 改版而漂移，
 > 而漂移的時候不會有任何東西紅。權威是 `cli/ocwarden/claudetrust.go` 與 `claudehome.go`。
