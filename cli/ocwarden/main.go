@@ -838,11 +838,13 @@ func realMain(argv []string, env func(string) string, out io.Writer) int {
 		return 1
 	}
 
-	// Same layer, same reason: OC_CLAUDE_JSON moves only where pre-trust is
-	// WRITTEN, while the claude child keeps reading $HOME/.claude.json — a
-	// divergent pair pre-trusts into a file with no reader, and nothing downstream
-	// can tell. Refuse before any transport or spawn path exists.
-	if err := claudeJSONRedirectGate(env); err != nil {
+	// Same layer, same reason: an OC_CLAUDE_JSON the launch line cannot make the
+	// child read (a filename other than .claude.json, an unresolvable relative
+	// path) would pre-trust into a file with no reader, and nothing downstream can
+	// tell. Refuse before any transport or spawn path exists. This is no longer a
+	// prediction of the child's environment — claudehome.go states it — only a
+	// refusal of an override that cannot be stated.
+	if err := claudeHomeEntryGate(env, os.Getwd); err != nil {
 		fmt.Fprintf(out, "[ocwarden] FATAL: %v\n", err)
 		return 1
 	}

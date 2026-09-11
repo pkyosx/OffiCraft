@@ -863,7 +863,7 @@ func TestRealMain(t *testing.T) {
 		}
 	})
 
-	t.Run("a claude.json redirect away from HOME is refused ahead of the station-address gate", func(t *testing.T) {
+	t.Run("an OC_CLAUDE_JSON the launch line cannot state is refused ahead of the station-address gate", func(t *testing.T) {
 		var out bytes.Buffer
 		// OC_BASE is deliberately UNSET, so the very next gate would also refuse
 		// this run. Which refusal comes out is the only thing that can tell the
@@ -878,16 +878,33 @@ func TestRealMain(t *testing.T) {
 			t.Errorf("rc = %d, want 1", rc)
 		}
 		got := out.String()
-		if !strings.HasPrefix(got, "[ocwarden] FATAL: OC_CLAUDE_JSON points at a file nothing reads") {
-			t.Errorf("out = %q, want the redirect refusal", got)
+		if !strings.HasPrefix(got, "[ocwarden] FATAL: OC_CLAUDE_JSON=") {
+			t.Errorf("out = %q, want the valve refusal", got)
 		}
 		if strings.Contains(got, "OC_BASE is not set") {
 			t.Errorf("out = %q, want the redirect refused BEFORE the station-address gate ran at all", got)
 		}
-		for _, want := range []string{"/tmp/throwaway.json", "/Users/eva/.claude.json"} {
+		for _, want := range []string{"/tmp/throwaway.json", ".claude.json"} {
 			if !strings.Contains(got, want) {
 				t.Errorf("out = %q, want it to name %q", got, want)
 			}
+		}
+	})
+
+	t.Run("an OC_CLAUDE_JSON the launch line CAN state is not refused here", func(t *testing.T) {
+		// The negative control for the refusal above: without it, a gate that
+		// refuses every OC_CLAUDE_JSON reads exactly like this one does.
+		var out bytes.Buffer
+		env := map[string]string{
+			"OC_CLAUDE_JSON": "/tmp/box/.claude.json",
+			"HOME":           "/Users/eva",
+		}
+		rc := realMain([]string{"run", "--once"}, func(k string) string { return env[k] }, &out)
+		if got := out.String(); strings.Contains(got, "OC_CLAUDE_JSON") {
+			t.Errorf("out = %q, want the run to reach the station-address gate instead", got)
+		}
+		if rc != 1 {
+			t.Errorf("rc = %d, want 1 from the station-address gate (OC_BASE is unset here)", rc)
 		}
 	})
 
