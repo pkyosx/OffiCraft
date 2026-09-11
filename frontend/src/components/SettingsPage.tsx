@@ -202,8 +202,8 @@ import {
 } from "./icons";
 
 /** WHICH GROUP a boot document's list row sits in — the owner's own reading of
- * these ten documents (定稿 2026-08-24): an agent's life from the top
- * (上線 → 下線), then the SIX things that happen to a TASK.
+ * these documents (定稿 2026-08-24): an agent's life from the top
+ * (上線 → 下線), then the things that happen to a TASK.
  *
  * ⚠️ THREE GROUPS, not four. The old 唯讀 group is gone and its two documents
  * (task_takeover_fresh / task_unblocked) are back with the other task events,
@@ -360,6 +360,16 @@ export const BOOT_DOC_ROWS: Record<
     tone: "neutral",
     docKey: "global",
     historyKey: "historyTaskUnblockedTitle",
+    confirmKey: "bootDocSaveConfirmTaskEvent",
+  },
+  task_ready_for_done: {
+    group: "task",
+    nameKey: "taskReadyForDoneName",
+    subKey: "taskReadyForDoneSub",
+    Icon: CheckIcon,
+    tone: "neutral",
+    docKey: "global",
+    historyKey: "historyTaskReadyForDoneTitle",
     confirmKey: "bootDocSaveConfirmTaskEvent",
   },
 };

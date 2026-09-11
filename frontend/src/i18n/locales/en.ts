@@ -1905,6 +1905,9 @@ export const en: Dict = {
     taskUnblockedName: "The ticket blocking your task is released",
     taskUnblockedSub:
       "What an agent is told when the task blocking it is released · editable",
+    taskReadyForDoneName: "Your task is ready to be closed",
+    taskReadyForDoneSub:
+      "What an agent is told each time its task reaches ready_for_done · editable",
     bootDocReadOnlyNote:
       "This document is shown so you can see exactly what agents are told. Nobody may edit it, and it has no version other than the shipped one.",
     bootDocSaveConfirmAcceleratedStop:
@@ -1939,6 +1942,8 @@ export const en: Dict = {
     historyTaskTakeoverFreshTitle: "New task · version history",
     historyTaskUnblockedTitle:
       "The ticket blocking your task is released · version history",
+    historyTaskReadyForDoneTitle:
+      "Your task is ready to be closed · version history",
     defaultBadge: "Default",
     edit: "Edit",
     doneEdit: "Done",

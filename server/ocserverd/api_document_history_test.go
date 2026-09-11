@@ -860,6 +860,49 @@ func TestHandleRestoreDocumentHistoryApiDocumentHistoryKindKeyIdRestorePost(t *t
 		})
 	})
 
+	// EVERY event procedure, not one representative: the restore's write arm and
+	// its fan arm are two case lists of literal kinds, and a kind missing from
+	// either is silent — the restore answers 200 and the DB is changed, while a
+	// missing WRITE arm stores nothing and a missing FAN arm leaves every open
+	// screen showing the old text.
+	for _, kind := range eventProcKinds() {
+		t.Run("restoring "+kind+" writes the revision back and fans the boot-doc delta", func(t *testing.T) {
+			api, h, _, owner := newAPITestServer(t)
+			path := "/api/boot-docs/" + kind + "/" + bootDocSingletonKey
+			apiJSON(t, h, "POST", path, owner, `{"body":"v1 body"}`)
+			apiJSON(t, h, "POST", path, owner, `{"body":"v2 body"}`)
+			dashboard := apiTestListen(t, api, "")
+
+			status, data := apiJSON(t, h, "POST",
+				"/api/document-history/"+kind+"/"+bootDocSingletonKey+"/1/restore", owner, "")
+			if status != 200 {
+				t.Fatalf("want 200, got %d (%v)", status, data)
+			}
+
+			read, doc := apiJSON(t, h, "GET", path, owner, "")
+			if read != 200 {
+				t.Fatalf("read back: want 200, got %d (%v)", read, doc)
+			}
+			if body, _ := doc["body"].(string); !strings.Contains(body, "v1 body") {
+				t.Fatalf("the restore was accepted but the document still reads %q", body)
+			}
+			dashboard.wantFrames(map[string]any{
+				"seq":   apiAnyNumber,
+				"topic": "global_context",
+				"op":    "patch",
+				"data": map[string]any{
+					"entity":  "global_context",
+					"key":     "owner",
+					"epoch":   apiAnyNumber,
+					"deleted": false,
+					"payload": nil,
+				},
+				"ts":      apiAnyNumber,
+				"trigger": "owner",
+			})
+		})
+	}
+
 	t.Run("restoring a role definition revision fans the owner-only role_def delta", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		if err := d.PutRoleDef(RoleDef{RoleKey: "r-design", Name: "Design", DefinitionMD: "# Duty"}); err != nil {

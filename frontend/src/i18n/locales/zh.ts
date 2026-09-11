@@ -1926,6 +1926,8 @@ export const zh = {
     taskTakeoverFreshSub: "第一次被指派這個任務時給 agent 的指示 · 可編輯",
     taskUnblockedName: "擋著你手上任務的票解開了",
     taskUnblockedSub: "依賴的任務放行時給 agent 的通知 · 可編輯",
+    taskReadyForDoneName: "你手上的任務可以結案了",
+    taskReadyForDoneSub: "任務每次進到可結案時給 agent 的通知 · 可編輯",
     // 唯讀文件的說明：說「這份是什麼」，不說「你沒有權限」——沒有任何人可以改，
     // 講權限會讓人去找一個根本不存在的角色來授權。
     bootDocReadOnlyNote:
@@ -1962,6 +1964,7 @@ export const zh = {
     // 那句話跟著決定 2 一起過期了。
     historyTaskTakeoverFreshTitle: "新任務的版本紀錄",
     historyTaskUnblockedTitle: "擋著你手上任務的票解開了的版本紀錄",
+    historyTaskReadyForDoneTitle: "你手上的任務可以結案了的版本紀錄",
     // seed vs owner-edited
     defaultBadge: "預設",
     // ── detail: view / edit ──

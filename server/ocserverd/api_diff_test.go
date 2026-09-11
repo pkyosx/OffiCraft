@@ -748,6 +748,27 @@ func TestCurrentDocumentContent(t *testing.T) {
 		})
 	}
 
+	// EVERY event procedure, not a representative one: the arm that serves them
+	// is a case list of literal kinds, and a kind left out of it answers absent
+	// — the compare view then renders 「沒有差異」 against every retained version
+	// of a document that has plenty, with nothing anywhere going red.
+	for _, kind := range eventProcKinds() {
+		t.Run("the event procedure "+kind+" returns its whole live text", func(t *testing.T) {
+			spec := api.mustBootDocSpec(kind, bootDocSingletonKey)
+			folded, err := api.foldBootDocDTO(spec)
+			if err != nil || folded == nil {
+				t.Fatalf("foldBootDocDTO(%s): %v %#v", kind, err, folded)
+			}
+			got, ok, err := api.currentDocumentContent(kind, bootDocSingletonKey)
+			if err != nil {
+				t.Fatalf("currentDocumentContent: %v", err)
+			}
+			if !ok || !reflect.DeepEqual(got, map[string]string{"text": folded.Text}) {
+				t.Fatalf("content = %#v, present = %v, want the folded document text", got, ok)
+			}
+		})
+	}
+
 	for _, tc := range []struct {
 		name      string
 		kind, key string

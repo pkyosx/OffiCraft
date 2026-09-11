@@ -811,13 +811,63 @@ func (s *apiServer) deriveAndPersistTask(t *Task, now float64, trigger string) e
 	if err != nil {
 		return err
 	}
+	was := t.Status
 	RecomputeTaskStatus(t, steps) // status + display waiting_reason
+	// An ARRIVAL, not a state: the task was somewhere else a moment ago and is
+	// in ready_for_done now. Comparing against the status this call found is
+	// what makes a plain step-note write on a task already sitting there send
+	// nothing — every step-mutation path funnels through here, so a test that
+	// merely re-derives would otherwise re-notify on each of them.
+	arrived := was != TaskStatusReadyForDone && t.Status == TaskStatusReadyForDone
+	if arrived {
+		t.ReadyForDoneVisits++
+	}
 	t.UpdatedTS = now
 	if err := s.dal.PutTask(*t); err != nil {
 		return err
 	}
 	s.publishTask(*t, trigger)
+	if arrived {
+		s.postReadyForDoneNotice(*t, trigger)
+	}
 	return nil
+}
+
+// postReadyForDoneNotice delivers 〈任務可結案〉 to the executor of a task that has
+// just landed in ready_for_done — the window in which the close-out can still
+// be written, and the only notice that says which action ends the task.
+//
+// 🔴 IT FIRES ON EVERY ARRIVAL, AND THE COUNT IS WHY THAT IS SAFE. A task
+// leaves ready_for_done the moment somebody adds a step and comes back when
+// that step is done, so an executor can reach this window several times over
+// one ticket. Sending only the first time would leave the later ones silent —
+// the executor packed up once and has no reason to look again — while sending
+// an identical notice each time reads as a duplicate delivery. The document
+// declares {visit_no} and this is where it is filled, from the durable count on
+// the task rather than from anything this process remembers.
+//
+// 🔴 IT DOES NOT ASK WHETHER THE TASK HAS A TYPE. 〈任務收尾〉's body opens by
+// telling the agent to read type_key off the ticket, so an ad-hoc task's
+// executor reads an instruction it cannot follow; this document's four steps
+// are the same whether or not a manual exists.
+//
+// An unassigned task has nobody to address (an outsource ticket the scheduler
+// has not minted a worker for yet), so it is skipped — a fact about addressing,
+// the same one decideTaskCloseNudge states. "" from taskNoticeText means the
+// document could not be rendered, and every send site in the tree posts nothing
+// rather than a notice with {task_no} still in it.
+func (s *apiServer) postReadyForDoneNotice(t Task, trigger string) {
+	if t.ExecutorID == "" {
+		return
+	}
+	notice := s.taskNoticeText(docKindTaskReadyForDone, map[string]string{
+		"task_no":  TaskNo(t.ID),
+		"visit_no": strconv.Itoa(t.ReadyForDoneVisits),
+	})
+	if notice == "" {
+		return
+	}
+	s.postTaskChat(t, wireSystemSender, t.ExecutorID, notice, trigger, nil)
 }
 
 // reconcileTaskStatusesOnBoot aligns every non-terminal task's stored status
@@ -838,6 +888,14 @@ func (s *apiServer) deriveAndPersistTask(t *Task, now float64, trigger string) e
 // reconcile writes a derived status and nothing else. (The undeclared-handoff
 // warning that hung off that branch went with it: there is no close here to
 // warn about.)
+//
+// ⚠️ A ROW REPAIRED INTO ready_for_done HERE SENDS NO 〈任務可結案〉 NOTICE, and
+// that is deliberate rather than an omission. This loop is a one-shot repair
+// over rows whose stored status DRIFTED from what their steps derive to, not a
+// report that anything just happened; wiring the notice in would make the first
+// boot after any change to the derivation post one chat row per drifted task,
+// to executors that are not the ones who finished the work. The arrival seam is
+// deriveAndPersistTask, which every step-mutation path funnels through.
 func (s *apiServer) reconcileTaskStatusesOnBoot() (int, error) {
 	tasks, err := s.dal.ListTasks()
 	if err != nil {

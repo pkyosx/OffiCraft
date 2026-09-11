@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -1980,6 +1981,144 @@ func TestDeriveAndPersistTask(t *testing.T) {
 		}
 		if worker.Status != WorkerStatusAssigned {
 			t.Fatalf("the derivation must not release the bound worker, got %q", worker.Status)
+		}
+	})
+
+	t.Run("every ARRIVAL in ready_for_done sends 〈任務可結案〉 to the executor, numbered, and a re-derivation on a task already sitting there sends nothing", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/plan", agent,
+			`{"steps":[{"name":"Draft","dod":"a draft exists"}]}`)
+		finish := func(stepID string) {
+			t.Helper()
+			steps, err := d.ListTaskSteps("T-1")
+			if err != nil {
+				t.Fatalf("ListTaskSteps: %v", err)
+			}
+			for _, st := range steps {
+				if st.ID != stepID {
+					continue
+				}
+				st.Status = StepStatusDone
+				if err := d.PutTaskStep(st); err != nil {
+					t.Fatalf("PutTaskStep: %v", err)
+				}
+			}
+			task, err := api.resolveTask("T-1")
+			if err != nil {
+				t.Fatalf("resolveTask: %v", err)
+			}
+			if err := api.deriveAndPersistTask(task, 1750000000, "kip"); err != nil {
+				t.Fatalf("deriveAndPersistTask: %v", err)
+			}
+		}
+		first, err := d.ListTaskSteps("T-1")
+		if err != nil {
+			t.Fatalf("ListTaskSteps: %v", err)
+		}
+
+		finish(first[0].ID)
+		// The task has no type_key at all, so this arm also pins that the notice
+		// does not depend on one — 〈任務收尾〉's body opens by reading type_key off
+		// the ticket and an ad-hoc executor finds nothing to follow.
+		reReadTask, err := api.resolveTask("T-1")
+		if err != nil {
+			t.Fatalf("resolveTask: %v", err)
+		}
+		if reReadTask.TypeKey != "" {
+			t.Fatalf("this arm needs an ad-hoc task, got type_key %q", reReadTask.TypeKey)
+		}
+		if err := api.deriveAndPersistTask(reReadTask, 1750000001, "kip"); err != nil {
+			t.Fatalf("deriveAndPersistTask (re-derivation): %v", err)
+		}
+
+		second := dalTestStep("s-second", "T-1")
+		second.OrderIdx = 9
+		second.Status = StepStatusPending
+		second.WaitingReason = ""
+		second.ReplyCardID = ""
+		second.IsGate = false
+		second.ParallelGroup = ""
+		if err := d.PutTaskStep(second); err != nil {
+			t.Fatalf("PutTaskStep: %v", err)
+		}
+		backToWork, err := api.resolveTask("T-1")
+		if err != nil {
+			t.Fatalf("resolveTask: %v", err)
+		}
+		if err := api.deriveAndPersistTask(backToWork, 1750000002, "kip"); err != nil {
+			t.Fatalf("deriveAndPersistTask (back to work): %v", err)
+		}
+		if backToWork.Status == TaskStatusReadyForDone {
+			t.Fatalf("an added step must take the task back out of ready_for_done, got %q", backToWork.Status)
+		}
+		finish(second.ID)
+
+		stored, err := api.resolveTask("T-1")
+		if err != nil {
+			t.Fatalf("resolveTask: %v", err)
+		}
+		if stored.Status != TaskStatusReadyForDone || stored.ReadyForDoneVisits != 2 {
+			t.Fatalf("stored task: status %q, visits %d, want ready_for_done and 2",
+				stored.Status, stored.ReadyForDoneVisits)
+		}
+		rows, err := d.ListChat()
+		if err != nil {
+			t.Fatalf("ListChat: %v", err)
+		}
+		if len(rows) != 2 {
+			t.Fatalf("chat rows = %d, want one notice per arrival", len(rows))
+		}
+		for i, row := range rows {
+			want := api.taskNoticeText(docKindTaskReadyForDone, map[string]string{
+				"task_no": "T-1", "visit_no": strconv.Itoa(i + 1),
+			})
+			if row.Sender != wireSystemSender || row.Recipient != "kip" || row.Body != want {
+				t.Fatalf("notice %d = %#v, want the durable 〈任務可結案〉 numbered %d", i+1, row, i+1)
+			}
+		}
+	})
+
+	t.Run("an outsource task the scheduler has not minted a worker for yet has nobody to notify", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		unassigned := dalTestTask("T-1")
+		unassigned.Status = TaskStatusInProgress
+		unassigned.Lock = ""
+		unassigned.ClosedTS = 0
+		unassigned.ExecutorKind = TaskExecutorOutsource
+		unassigned.ExecutorID = ""
+		if err := d.PutTask(unassigned); err != nil {
+			t.Fatalf("PutTask: %v", err)
+		}
+		step := dalTestStep("s-only", "T-1")
+		step.OrderIdx = 1
+		step.Status = StepStatusDone
+		step.WaitingReason = ""
+		step.ReplyCardID = ""
+		step.IsGate = false
+		step.ParallelGroup = ""
+		if err := d.PutTaskStep(step); err != nil {
+			t.Fatalf("PutTaskStep: %v", err)
+		}
+		task, err := api.resolveTask("T-1")
+		if err != nil {
+			t.Fatalf("resolveTask: %v", err)
+		}
+
+		if err := api.deriveAndPersistTask(task, 1750000000, "owner"); err != nil {
+			t.Fatalf("deriveAndPersistTask: %v", err)
+		}
+
+		if task.Status != TaskStatusReadyForDone || task.ReadyForDoneVisits != 1 {
+			t.Fatalf("returned task: status %q, visits %d", task.Status, task.ReadyForDoneVisits)
+		}
+		rows, err := d.ListChat()
+		if err != nil {
+			t.Fatalf("ListChat: %v", err)
+		}
+		if len(rows) != 0 {
+			t.Fatalf("chat rows = %#v, want none — there is nobody to address", rows)
 		}
 	})
 
@@ -5038,7 +5177,7 @@ func TestHandleUpdateTaskStepStatusApiTasksTaskIdStepsStepIdStatusPost(t *testin
 	})
 
 	t.Run("the report that finishes the last step lands ready_for_done, and mark_task_done is what closes it", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
+		api, h, d, owner := newAPITestServer(t)
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
 		agent := apiTestAgentToken(t, api, "kip", "")
 		apiJSON(t, h, "POST", "/api/tasks/T-1/plan", agent,
@@ -5080,20 +5219,45 @@ func TestHandleUpdateTaskStepStatusApiTasksTaskIdStepsStepIdStatusPost(t *testin
 			"ts":      apiAnyNumber,
 			"trigger": "kip",
 		}
-		dashboard.wantFrames(readyFrame)
-		executor.wantFrames(readyFrame)
+		readyNoticeFrame := map[string]any{
+			"seq":   5,
+			"topic": "chat",
+			"op":    "patch",
+			"data": map[string]any{
+				"entity":  "chat",
+				"key":     apiAnyString,
+				"epoch":   5,
+				"deleted": false,
+				"payload": map[string]any{"id": apiAnyString, "from": "system", "to": "kip"},
+			},
+			"ts":      apiAnyNumber,
+			"trigger": "kip",
+		}
+		dashboard.wantFrames(readyFrame, readyNoticeFrame)
+		executor.wantFrames(readyFrame, readyNoticeFrame)
 		bystander.wantFrames()
+
+		rows, err := d.ListChat()
+		if err != nil {
+			t.Fatalf("ListChat: %v", err)
+		}
+		wantNotice := api.taskNoticeText(docKindTaskReadyForDone,
+			map[string]string{"task_no": "T-1", "visit_no": "1"})
+		if len(rows) != 1 || rows[0].Sender != wireSystemSender ||
+			rows[0].Recipient != "kip" || rows[0].Body != wantNotice {
+			t.Fatalf("ready-for-done notice = %#v, want the durable 〈任務可結案〉 to kip", rows)
+		}
 
 		apiMarkDone(t, h, "T-1", agent)
 
 		doneFrame := map[string]any{
-			"seq":   5,
+			"seq":   6,
 			"topic": "task",
 			"op":    "patch",
 			"data": map[string]any{
 				"entity":  "task",
 				"key":     "owner::T-1",
-				"epoch":   5,
+				"epoch":   6,
 				"deleted": false,
 				"payload": map[string]any{"id": "T-1", "priority": "mid", "status": "done"},
 			},
@@ -5101,13 +5265,13 @@ func TestHandleUpdateTaskStepStatusApiTasksTaskIdStepsStepIdStatusPost(t *testin
 			"trigger": "kip",
 		}
 		noticeFrame := map[string]any{
-			"seq":   6,
+			"seq":   7,
 			"topic": "chat",
 			"op":    "patch",
 			"data": map[string]any{
 				"entity":  "chat",
 				"key":     apiAnyString,
-				"epoch":   6,
+				"epoch":   7,
 				"deleted": false,
 				"payload": map[string]any{"id": apiAnyString, "from": "system", "to": "kip"},
 			},

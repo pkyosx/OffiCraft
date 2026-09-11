@@ -120,6 +120,17 @@ type Task struct {
 	// because the steps do not agree that the work is finished.
 	ForcedDoneBy     string
 	ForcedDoneReason string
+	// ReadyForDoneVisits counts how many times this task has ARRIVED in
+	// ready_for_done (T-182, migrations/00103) — not how many notices were
+	// sent. A task leaves that state whenever a step is added and returns when
+	// the step is done, so one task can arrive several times, and 〈任務可結案〉
+	// puts the number in the notice: without it the second arrival's notice is
+	// byte-for-byte the first one and reads as a duplicate delivery.
+	//
+	// 0 on every task that has never arrived, pre-column rows included — they
+	// closed under the old rule, where a finished step set went straight to
+	// done and there was no ready_for_done to arrive in.
+	ReadyForDoneVisits int
 }
 
 const taskColumns = `id, type_key, title, dedupe_key, inputs, description,
@@ -130,7 +141,7 @@ const taskColumns = `id, type_key, title, dedupe_key, inputs, description,
 	outsource_runtime, outsource_model, outsource_effort, outsource_machine,
 	outsource_dispatched,
 	handoff, handoff_note, handoff_task_id, frozen_by, kickoff_notified_to,
-	forced_done_by, forced_done_reason`
+	forced_done_by, forced_done_reason, ready_for_done_visits`
 
 // sqlTerminalStatuses is the SQL IN-list of the terminal statuses — every
 // "open task" filter (dedupe probe, resume block, open counts) excludes these.
@@ -153,7 +164,7 @@ func scanTask(row interface{ Scan(...any) error }) (Task, error) {
 		&dispatched,
 		&t.Handoff, &t.HandoffNote, &t.HandoffTaskID, &t.FrozenBy,
 		&t.KickoffNotifiedTo,
-		&t.ForcedDoneBy, &t.ForcedDoneReason,
+		&t.ForcedDoneBy, &t.ForcedDoneReason, &t.ReadyForDoneVisits,
 	)
 	if err != nil {
 		return Task{}, err
@@ -381,7 +392,7 @@ func putTaskOn(ex sqlExecer, t Task, mode taskWriteMode) error {
 	// The mode only decides whether the conflict SUFFIX is appended.
 	stmt := `
 		INSERT INTO task (` + taskColumns + `)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 	if mode == taskWriteUpsert {
 		stmt += taskUpsertConflictClause
 	}
@@ -397,7 +408,7 @@ func putTaskOn(ex sqlExecer, t Task, mode taskWriteMode) error {
 		dispatched,
 		t.Handoff, t.HandoffNote, t.HandoffTaskID, t.FrozenBy,
 		t.KickoffNotifiedTo,
-		t.ForcedDoneBy, t.ForcedDoneReason,
+		t.ForcedDoneBy, t.ForcedDoneReason, t.ReadyForDoneVisits,
 	)
 	return err
 }
@@ -440,7 +451,8 @@ const taskUpsertConflictClause = `
 			frozen_by = excluded.frozen_by,
 			kickoff_notified_to = excluded.kickoff_notified_to,
 			forced_done_by = excluded.forced_done_by,
-			forced_done_reason = excluded.forced_done_reason`
+			forced_done_reason = excluded.forced_done_reason,
+			ready_for_done_visits = excluded.ready_for_done_visits`
 
 // ── task_dep ─────────────────────────────────────────────────────────────────
 

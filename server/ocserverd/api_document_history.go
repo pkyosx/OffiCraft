@@ -272,7 +272,8 @@ func (s *apiServer) documentHistoryAllowed(w http.ResponseWriter, r *http.Reques
 	switch kind {
 	case docKindSystemInteraction, docKindBootSequence, docKindOffboard,
 		docKindAcceleratedStop, docKindTaskCloseout, docKindTaskReassignPredecessor,
-		docKindTaskTakeoverWithPredecessor, docKindTaskTakeoverFresh, docKindTaskUnblocked:
+		docKindTaskTakeoverWithPredecessor, docKindTaskTakeoverFresh, docKindTaskUnblocked,
+		docKindTaskReadyForDone:
 		// T-791e. Same class gate as global_context below — restoring one of
 		// these puts text into every agent's boot context, so it is a governance
 		// write (owner or the admin 助理), exactly as the edit route is. Reading
@@ -453,7 +454,8 @@ func (s *apiServer) documentSeedContent(kind, key string) (map[string]string, bo
 		return map[string]string{"definition_md": seedMD, "tombstoned": "true"}, true, nil
 	case docKindSystemInteraction, docKindBootSequence, docKindOffboard,
 		docKindAcceleratedStop, docKindTaskCloseout, docKindTaskReassignPredecessor,
-		docKindTaskTakeoverWithPredecessor, docKindTaskTakeoverFresh, docKindTaskUnblocked:
+		docKindTaskTakeoverWithPredecessor, docKindTaskTakeoverFresh, docKindTaskUnblocked,
+		docKindTaskReadyForDone:
 		// T-791e. The seed content comes from readSeedFile through the same
 		// resolver the reset uses (bootDocSpecFor → seedBlockMD), so "what the
 		// compare view shows" and "what 還原 would write" cannot be two different
@@ -577,7 +579,8 @@ func (s *apiServer) publishDocumentHistoryRestore(r *http.Request, kind, key str
 		s.hub.Publish("insight", "patch", "insight", wireOwnerID+"::"+key, nil, audienceOwnerOnly(), requestTrigger(r))
 	case docKindSystemInteraction, docKindBootSequence, docKindOffboard,
 		docKindAcceleratedStop, docKindTaskCloseout, docKindTaskReassignPredecessor,
-		docKindTaskTakeoverWithPredecessor, docKindTaskTakeoverFresh, docKindTaskUnblocked:
+		docKindTaskTakeoverWithPredecessor, docKindTaskTakeoverFresh, docKindTaskUnblocked,
+		docKindTaskReadyForDone:
 		// T-791e — the same frame the edit routes fan (see publishBootDoc).
 		// Forgetting to be in THIS switch is the silent failure the insight case
 		// above documents: 200, DB changed, nothing on any screen.
@@ -757,7 +760,8 @@ func (s *apiServer) restoreDocumentHistory(r *http.Request, kind, key string, co
 		})
 	case docKindSystemInteraction, docKindBootSequence, docKindOffboard,
 		docKindAcceleratedStop, docKindTaskCloseout, docKindTaskReassignPredecessor,
-		docKindTaskTakeoverWithPredecessor, docKindTaskTakeoverFresh, docKindTaskUnblocked:
+		docKindTaskTakeoverWithPredecessor, docKindTaskTakeoverFresh, docKindTaskUnblocked,
+		docKindTaskReadyForDone:
 		// T-791e. The cap applies to a restore, exactly as it does for lessons
 		// and insight above: an older, larger revision is still a write, and
 		// letting history walk a document back over the ceiling would make the

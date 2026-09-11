@@ -348,6 +348,26 @@ var bootDocRegistry = []bootDocReg{{
 	//
 	// ⚠️ Not read-only any more — see 〈新任務〉's row above and the shared table.
 	Vars: []string{"blocked_task_no"},
+}, {
+	Kind:    docKindTaskReadyForDone,
+	Keys:    []string{taskReadyForDoneDocKey},
+	SeedFor: func(string) string { return taskReadyForDoneSeedMD },
+	DocName: func(string) string { return "ready-for-done notice" },
+	Cap:     func(s *apiServer) int { return s.taskEventCap() },
+	Split:   true,
+	// A blank line, like 〈解除阻擋〉 and for the same reason: the body opens on a
+	// paragraph and continues into a numbered list, so running it onto the head
+	// would fold the statement of fact into the first instruction.
+	Join: "\n\n",
+	// {visit_no} is the SECOND variable, and it is the one this document cannot
+	// do without: a task leaves ready_for_done every time somebody adds a step
+	// and comes back when that step is done, so the executor can receive this
+	// notice several times over one task. Without the count the second copy is
+	// byte-identical to the first and reads as a duplicate delivery — the agent
+	// that already packed up would see no reason to look again. It counts
+	// ARRIVALS, not sends (task.ready_for_done_visits, migrations/00103), so it
+	// stays truthful across restarts and handovers.
+	Vars: []string{"task_no", "visit_no"},
 }}
 
 // bootDocRegFor finds the row for a kind.

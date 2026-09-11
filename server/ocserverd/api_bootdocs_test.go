@@ -103,11 +103,15 @@ var apiTestBootDocRows = []apiTestBootDocRow{
 		kind: "task_unblocked", keys: []string{"global"},
 		seeds: []string{"task_unblocked.md"}, docNames: []string{"dependency-released notice"},
 		capChars: 15000, vars: []string{"blocked_task_no"}, split: true, join: "\n\n", readOnly: false,
+	}, {
+		kind: "task_ready_for_done", keys: []string{"global"},
+		seeds: []string{"task_ready_for_done.md"}, docNames: []string{"ready-for-done notice"},
+		capChars: 15000, vars: []string{"task_no", "visit_no"}, split: true, join: "\n\n", readOnly: false,
 	},
 }
 
 func TestBootDocRegFor(t *testing.T) {
-	t.Run("every kind this build ships answers its own row, and the registry holds those nine and nothing else", func(t *testing.T) {
+	t.Run("every kind this build ships answers its own row, and the registry holds exactly those and nothing else", func(t *testing.T) {
 		api, _, _, _ := newAPITestServer(t)
 
 		if len(bootDocRegistry) != len(apiTestBootDocRows) {

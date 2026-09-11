@@ -38,6 +38,7 @@ const (
 	Offboard                    BootDocKind = "offboard"
 	SystemInteraction           BootDocKind = "system_interaction"
 	TaskCloseout                BootDocKind = "task_closeout"
+	TaskReadyForDone            BootDocKind = "task_ready_for_done"
 	TaskReassignPredecessor     BootDocKind = "task_reassign_predecessor"
 	TaskTakeoverFresh           BootDocKind = "task_takeover_fresh"
 	TaskTakeoverWithPredecessor BootDocKind = "task_takeover_with_predecessor"
@@ -56,6 +57,8 @@ func (e BootDocKind) Valid() bool {
 	case SystemInteraction:
 		return true
 	case TaskCloseout:
+		return true
+	case TaskReadyForDone:
 		return true
 	case TaskReassignPredecessor:
 		return true
