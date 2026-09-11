@@ -203,10 +203,19 @@ json_bool() { printf '%s' "$1" | py -c 'import sys,json; v=json.load(sys.stdin).
 # Callers therefore pass `task_id` when reading a CREATE receipt and `id` when
 # reading a bare TaskDTO from GET /api/tasks/{id}. Those are two different
 # shapes now and the script says which is which.
+#
+# 🔴 A JSON null PRINTS AS EMPTY, not as the text "None". The task DTO declares
+#   its optional numbers as pointers with no omitempty, so an open task answers
+#   closed_ts: null — a key that IS present. Python .get then yields None and a
+#   bare print emits the four characters None, which is neither empty nor a
+#   number, so every "-z means not set yet" assertion reads a set value and
+#   fires. Not hypothetical: that is what made A7a red while the server was
+#   answering exactly what T-182 wants.
 task_field() {
   printf '%s' "$1" | py -c '
 import sys, json
-print(json.load(sys.stdin).get(sys.argv[1], ""))
+v = json.load(sys.stdin).get(sys.argv[1], "")
+print("" if v is None else v)
 ' "$2"
 }
 
@@ -617,7 +626,7 @@ A7A_TID="$(task_field "$A7A_TASK" task_id)"
 A7A_MINT="$(api_post_logged /api/mint "{\"member_id\":\"$TEST_AGENT\",\"ttl_days\":1}" || echo '{}')"
 A7A_TOKEN="$(printf '%s' "$A7A_MINT" | json_field token)"
 [[ -n "$A7A_TOKEN" ]] \
-  || fail_stage "could not mint executor ($TEST_AGENT) token for A7a — every write below would 403 on the executor guard"
+  || fail_stage "could not mint executor ($TEST_AGENT) token for A7a — the writes below need a caller callerMayDriveTask admits"
 
 A7A_PLAN='{"steps":[{"name":"the only step","dod":"it is done"}]}'
 A7A_RESP="$(post_as_token "$A7A_TOKEN" "/api/tasks/$A7A_TID/plan" "$A7A_PLAN")"
@@ -728,8 +737,12 @@ pass_stage
 
 # ── D2 first (API-only negatives, cheap): 3 illegal plan shapes → 400 ───────
 stage "D2. parallel_group illegal plan shapes → HTTP 400 (gate-in-group / split-group / one-lane) via EXECUTOR token"
-# @9111cef: the plan endpoint checks the EXECUTOR guard BEFORE shape validation — an OWNER
-#   token that is NOT the task's executor gets 403 and never reaches the 400 shape check.
+# The plan endpoint checks its caller guard BEFORE shape validation, so the POSTs
+#   below must come from a caller the guard admits or they 403 before reaching the
+#   400. That guard is callerMayDriveTask (api_tasks.go), which admits the
+#   EXECUTOR *or* anyone at/above admin_agent — so the owner token would also pass
+#   it; this stage drives the plan as the executor because the executor is the
+#   identity the product path uses, not because the owner is refused.
 #   So create an AD-HOC task whose executor_member_id = $TEST_AGENT, mint THAT
 #   member's agent token, and POST the 3 illegal plans as that token → assert 400 each.
 #   (Zero worker spawn — API only.)
@@ -744,7 +757,7 @@ D2_TID="$(task_field "$D2_TASK" task_id)"
 D2_MINT="$(api_post_logged /api/mint "{\"member_id\":\"$TEST_AGENT\",\"ttl_days\":1}" || echo '{}')"
 D2_EXEC_TOKEN="$(printf '%s' "$D2_MINT" | json_field token)"
 [[ -n "$D2_EXEC_TOKEN" ]] \
-  || fail_stage "could not mint executor ($TEST_AGENT) token for D2 — plan POSTs would hit the 403 executor guard before the 400 shape check"
+  || fail_stage "could not mint executor ($TEST_AGENT) token for D2 — plan POSTs need a caller callerMayDriveTask admits, or they 403 before the 400 shape check"
 
 # post_plan_as_exec JSON WANT LABEL — POST a plan as the EXECUTOR ($TEST_AGENT) token; assert HTTP == WANT.
 post_plan_as_exec() {
