@@ -185,6 +185,16 @@ func TestBuildStatuslineSettings(t *testing.T) {
           }
         ]
       }
+    ],
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "ocagent guard-permission"
+          }
+        ]
+      }
     ]
   }
 }

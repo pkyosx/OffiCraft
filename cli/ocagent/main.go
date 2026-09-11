@@ -60,6 +60,9 @@ var planeASubcommands = []struct{ name, help string }{
 	// settings.json PreToolUse hook at it. Listed anyway because an agent that
 	// meets its refusal will come to --help asking what refused it.
 	{"guard-bash", "PreToolUse hook: refuse the removal shapes that stall a headless member"},
+	// Same wiring, the other half of the pair: guard-bash keeps the prompt from
+	// being raised, this one answers it once it has been.
+	{"guard-permission", "PermissionRequest hook: refuse every confirmation prompt nobody is here to answer"},
 	// Listed because --help is where a person or an agent goes to ask "can this
 	// CLI tell me which build it is?". Kept out of the synopsis, `version` was
 	// answerable but undiscoverable: the only two zero-argument surfaces (--help
@@ -246,6 +249,18 @@ func realMain(argv []string, env func(string) string, in io.Reader, out io.Write
 			return 2
 		}
 		return cmdGuardBash(in, out)
+
+	case "guard-permission":
+		// The PermissionRequest hook cli/ocwarden/spawn.go wires into every
+		// member's settings.json, alongside guard-bash. Reads one hook payload on
+		// stdin and always answers with a denial — see guardpermission.go for why
+		// the verdict is unconditional and why this one fails CLOSED.
+		fs := flag.NewFlagSet("ocagent guard-permission", flag.ContinueOnError)
+		fs.SetOutput(out)
+		if err := fs.Parse(rest); err != nil {
+			return 2
+		}
+		return cmdGuardPermission(in, out)
 
 	case "version", "--version", "-v":
 		// Print WHICH build this is (build.sha stamp + VCS metadata when the build
