@@ -213,13 +213,21 @@ func buildMCPConfig(base, token string) string {
 // Code settings.json wiring the statusLine to the context reporter (json.dumps
 // indent=2 + a trailing newline).
 //
-// It also carries the PreToolUse hook, because this file is the ONE place a
+// It also carries the two guard hooks, because this file is the ONE place a
 // member's settings.json is written and a hook declared anywhere else would
-// reach nobody. The hook is named bare — `ocagent guard-bash`, the way statusLine
-// names `ocagent context-report` — because the launch command puts the workdir
-// holding the ocagent symlink at the front of PATH, so neither hardcodes a path
-// that differs per machine. What it refuses, and why the refusal is worded the
-// way it is, lives in cli/ocagent/guardbash.go.
+// reach nobody. Both are named bare — `ocagent guard-bash`, `ocagent
+// guard-permission`, the way statusLine names `ocagent context-report` — because
+// the launch command puts the workdir holding the ocagent symlink at the front of
+// PATH, so none of them hardcodes a path that differs per machine.
+//
+// The two are a front-and-back pair against the same defect — a confirmation prompt
+// --dangerously-skip-permissions cannot waive, with nobody at the keyboard to
+// answer it. PreToolUse→guard-bash keeps the prompt from being raised;
+// PermissionRequest→guard-permission answers it once it has been. Neither
+// replaces the other. PermissionRequest carries no matcher: every question that
+// reaches it is one nobody can answer, whatever tool raised it. What each
+// refuses, and why the refusals are worded the way they are, lives in
+// cli/ocagent/guardbash.go and cli/ocagent/guardpermission.go.
 func buildStatuslineSettings() string {
 	return "{\n" +
 		"  \"statusLine\": {\n" +
@@ -234,6 +242,16 @@ func buildStatuslineSettings() string {
 		"          {\n" +
 		"            \"type\": \"command\",\n" +
 		"            \"command\": \"ocagent guard-bash\"\n" +
+		"          }\n" +
+		"        ]\n" +
+		"      }\n" +
+		"    ],\n" +
+		"    \"PermissionRequest\": [\n" +
+		"      {\n" +
+		"        \"hooks\": [\n" +
+		"          {\n" +
+		"            \"type\": \"command\",\n" +
+		"            \"command\": \"ocagent guard-permission\"\n" +
 		"          }\n" +
 		"        ]\n" +
 		"      }\n" +
@@ -930,7 +948,7 @@ type SpawnDeps struct {
 	Pretrust func() error
 	// PurgeTrash (T-684c, nil-skipped) reaps <workdir>/trash at spawn time — the
 	// scratch the PREVIOUS generation of this agent mv'd there instead of rm-ing it
-	// (the harness's un-waivable dangerous-rm prompt hangs a headless agent; see
+	// (the harness's un-waivable dangerous-rm prompt stands in front of an agent's own rm; see
 	// trash.go). Bound PER-SPAWN by the transport wiring because it needs this
 	// member's workdir, exactly like Pretrust. Purely best-effort: it never fails
 	// a spawn.

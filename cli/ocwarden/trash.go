@@ -5,15 +5,19 @@
 // A headless agent told to "clean up your scratch files" used to run
 // `rm -rf <workdir>/tmp/<task>` itself. Claude Code's harness has a BUILT-IN
 // dangerous-rm confirmation (a Yes/No the agent cannot answer); nobody is
-// sitting in front of a headless agent to press Yes, so the agent hangs SILENTLY
-// until it is reaped.
+// sitting in front of a headless agent to press Yes, so the agent hung SILENTLY
+// until it was reaped.
 //
-// Since T-162 `ocagent guard-bash` runs as a PreToolUse hook and refuses some
-// removal shapes before they reach that check, so for those the prompt is never
-// raised. It refuses on SPELLING — see cli/ocagent/guardbash.go and the tables in
-// its test — which is not the same axis as the harness's own reasons, so plenty
-// of shapes still reach the prompt and a member can still hang. That is what this
-// file's quarantine is still for.
+// Two hooks now stand between an agent's own rm and that prompt, both wired in
+// buildStatuslineSettings. `ocagent guard-bash` (PreToolUse) refuses some removal
+// shapes before they reach the check, so for those the prompt is never raised; it
+// refuses on SPELLING — see cli/ocagent/guardbash.go and the tables in its test —
+// which is not the same axis as the harness's own reasons, so plenty of shapes
+// still reach the prompt. `ocagent guard-permission` (PermissionRequest) then
+// refuses every prompt that IS raised, so the stall is no longer what happens at
+// the end of that road. What both hooks do is REFUSE — neither of them deletes
+// anything — so the quarantine in this file is still the only path by which an
+// agent's leftovers actually go away.
 //
 // The fix is NOT "mv is safer than rm" — an experiment showed
 // relative/absolute x mv/rm all behave identically in that environment, so the verb

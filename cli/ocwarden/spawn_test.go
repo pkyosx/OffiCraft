@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -185,12 +186,31 @@ func TestBuildStatuslineSettings(t *testing.T) {
           }
         ]
       }
+    ],
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "ocagent guard-permission"
+          }
+        ]
+      }
     ]
   }
 }
 `
 	if got := buildStatuslineSettings(); got != want {
 		t.Errorf("buildStatuslineSettings =\n%q\nwant\n%q", got, want)
+	}
+
+	// The golden only says the two strings are equal, so a comma dropped from
+	// this hand-assembled JSON survives it the moment somebody refreshes the
+	// golden from the output. An unparsable settings.json is rejected whole:
+	// statusLine and both guard hooks go down together.
+	var parsed any
+	if err := json.Unmarshal([]byte(buildStatuslineSettings()), &parsed); err != nil {
+		t.Fatalf("the settings.json written for every member is not valid JSON: %v", err)
 	}
 }
 
