@@ -794,8 +794,7 @@ type rawEnv struct{ lookup func(string) string }
 //
 // The runtime backstop is unchanged and is where the danger is: syscallExecImage
 // itself opens with refuseInTestBinary, so a test binary that ever CALLS the real
-// exec seam dies on the spot instead of becoming ocwarden mid-suite — which is
-// exactly what hostseam_test.go's inventory says about that site. Constructing an
+// exec seam dies on the spot instead of becoming ocwarden mid-suite. Constructing an
 // updater was already safe (buildSelfUpdater has been called from tests since it
 // was split out); this only stops pretending otherwise about its one-line caller.
 func newSelfUpdater(cfg Config, env rawEnv, logf func(string, ...any)) *updater {
@@ -824,9 +823,10 @@ func newSelfUpdater(cfg Config, env rawEnv, logf func(string, ...any)) *updater 
 // means becoming ocwarden mid-suite), and everything it was incidentally hiding
 // becomes testable.
 // 🔴 execImage IS INJECTED, and the host-seam guard is why. The first version of
-// this split built the syscall.Exec closure inline here, and TestMain refused to
-// run the suite at all: buildSelfUpdater had become a process-starting site that
-// was not a sanctioned choke point. That refusal is correct — a test binary able
+// this split built the syscall.Exec closure inline here, and the source scan that
+// tree still had refused to run the suite at all: buildSelfUpdater had become a
+// process-starting site that was not a sanctioned choke point. (That scan is gone;
+// the shape it forced is kept.) That refusal was correct — a test binary able
 // to CONSTRUCT the real exec seam can replace its own process image, and
 // "constructing is harmless as long as nobody calls it" is exactly the reasoning
 // that guard exists to reject. So the effect is a parameter, production passes the

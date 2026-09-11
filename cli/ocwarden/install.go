@@ -14,13 +14,18 @@
 // SEAM DESIGN (mirrors main.go's CmdRunner): every side effect — launchctl/plutil
 // subprocess, file mkdir/write/rename/chmod/stat, and the settle-window sleep — goes
 // through the injectable sysOps struct, and the seam itself is constructed in exactly
-// ONE place (realHostSeam, reached only via the rebindable `newHostSeam` var — see
-// hostSeam below): production gets the real os/exec+os wiring, and the test binary
-// rebinds newHostSeam in TestMain, so an entry point that TAKES ITS EFFECTS FROM THE
-// SEAM cannot touch launchctl or the live machine, guard or no guard. What the seam
-// alone does NOT buy — and this sentence used to claim it did — is protection against
-// code that assembles the wiring itself instead of asking for it; see hostSeam below
-// for the mutant that did exactly that, and for the two checks that now close it.
+// ONE place (realHostSeam, reached only via the `newHostSeam` var — see hostSeam
+// below): production gets the real os/exec+os wiring, and a test builds its installer
+// on a fake sysOps, so an entry point that TAKES ITS EFFECTS FROM THE SEAM cannot
+// touch launchctl or the live machine, guard or no guard.
+//
+// 🔴 INJECTION IS NOT WHAT ENFORCES THAT, IN THIS TREE. newHostSeam is a var, but
+// NOTHING REBINDS IT: this package has no TestMain, so a test binary that calls
+// newHostSeam() is handed realHostSeam exactly as production is. The enforcement is
+// the RUNTIME refusal below (refuseInTestBinary), which fires wherever the real
+// wiring is constructed or a subprocess is started. A test reaching an entry point
+// that resolves its own effects therefore DIES rather than being quietly faked —
+// see hostSeam below, and the two t.Skip'd entry-point tests that say so.
 // WARDEN_INSTALL_DRYRUN=1 is the dry-run seam
 // (byte-parity with the bash installer's env of the same name): it prints every
 // step's intent and mutates nothing.
@@ -90,11 +95,11 @@ type sysOps struct {
 	sleep     func(time.Duration)
 }
 
-// refuseInTestBinary is the LAST-RESORT runtime tripwire on the two functions that
-// wire the real machine in. The static guards in hostseam_test.go run in TestMain,
-// so a mutant that reintroduces a direct call is normally rejected before any test
-// executes; this exists for the case where the source scan itself is wrong, deleted,
-// or defeated — a test binary must never be able to construct the real seam, and
+// refuseInTestBinary is the ONLY live tripwire on the functions that wire the real
+// machine in. An earlier shape paired it with a source scan run from a TestMain; no
+// such file is in this tree, so nothing rejects a bad edit before the tests run and
+// this runtime refusal carries the whole weight — a test binary must never be able
+// to construct the real seam or start a real subprocess, and
 // "we noticed afterwards" is not a defence for a verb that boots out a live
 // launchd job.
 //
@@ -102,8 +107,8 @@ type sysOps struct {
 // a mutant run against a tree where the static scan was not in effect reached
 // TestTeardownCmd_CannotReachTheRealHost, constructed the real seam, and booted out
 // this developer machine's live com.officraft.ocwarden job (files survived; the job
-// had to be re-bootstrapped by hand). The scan alone is not enough, because the
-// scan is precisely what a bad edit can remove.
+// had to be re-bootstrapped by hand). A scan alone was never enough, because a scan
+// is precisely what an edit can remove — and in this tree it already has been.
 //
 // WHY os.Exit AND NOT panic: `sseTransport.handlePayload` (transport.go) wraps every
 // dispatched CommandDeps closure in a `recover()` so one bad frame cannot kill the
@@ -121,8 +126,8 @@ func refuseInTestBinary(fn string) {
 		"The real host seam must NEVER be constructed under `go test` — doing so wires the\n"+
 		"test process to the LIVE launchd gui domain, where an install/teardown would boot\n"+
 		"out this machine's real com.officraft.ocwarden job.\n"+
-		"Every entry point must take its effects from newHostSeam(), which TestMain rebinds\n"+
-		"to a fake. See hostseam_test.go.\n", fn)
+		"Every entry point must take its effects from an injected seam, never by building\n"+
+		"the real one itself. See hostSeam in install.go.\n", fn)
 	os.Exit(1)
 }
 
@@ -169,19 +174,16 @@ func realSysOps() sysOps {
 // with a fake. That is "safe by coincidence", and the same shape already
 // unloaded this fleet's live warden three times through the teardown path.
 //
-// So the wiring is now a package-level VARIABLE with exactly one production
-// binding, and the test binary REBINDS it in TestMain (hostseam_test.go) before
-// a single test runs. Consequences that a check could never buy:
-//   - Every test in this package — including tests written after this comment,
-//     including tests that delete/neuter a guard in the code under test — gets
-//     the fake. There is no opt-in to remember and no guard to get right.
-//   - The real host is not reachable from the test binary AT ALL through these
-//     entry points, so a bug in `guard`, in namespace derivation, or in the
-//     label math cannot escalate into touching the machine.
+// So the wiring is a package-level VARIABLE with exactly one production binding, and
+// every test in this package builds its installer on a fake sysOps by hand instead of
+// calling the entry points. An earlier shape had a TestMain rebind newHostSeam to a
+// fake for the whole binary; THAT FILE IS NOT IN THIS TREE, so the rebinding is not
+// what protects anything here — a test that does call newHostSeam() is handed the
+// real one, and the runtime refusal below is what stops it.
 //
-// 🔴 THE LIMIT OF THAT, MEASURED RATHER THAN ASSUMED
-// The two bullets above hold for an entry point that GOES THROUGH the seam. They do
-// NOT hold for one that builds the wiring itself. Independent review put
+// 🔴 WHY REBINDING WOULD NOT HAVE BEEN ENOUGH EITHER, MEASURED RATHER THAN ASSUMED
+// A rebind protects an entry point that GOES THROUGH the seam. It does NOT protect
+// against one that builds the wiring itself. Independent review put
 // `sysOps{run: execRunner{…}.Run, rename: os.Rename, …}` inline in teardownCmd: the
 // words realSysOps and realHostSeam appear nowhere in it, so every identifier-based
 // guard stayed green, refuseInTestBinary was never called, and the test binary issued
@@ -190,19 +192,22 @@ func realSysOps() sysOps {
 // constructed" — which is detection, not defence, and is the shape of the accident
 // this whole file exists to prevent.
 //
-// So the structural claim is machine-checked in THREE layers, and only the last one
-// is unroutable-around (all of it in hostseam_test.go's scanHostSeamSource, run from
-// TestMain before m.Run()):
-//   - realSysOps() may appear in exactly one place in the non-test sources
-//     (realHostSeam, below), and realHostSeam is CALLED nowhere. Identifier-level.
-//   - the `sysOps{` and `execRunner{` composite literals may each appear in exactly
-//     one place (realSysOps's return, and main.go's `var newCmdRunner`). This pins
-//     the STRUCTURE, so the mutant above is now a TestMain refusal before any test
-//     runs — verified: zero tests executed, zero launchctl processes started.
-//   - main.go's execRunner.Run opens with refuseInTestBinary. Whatever assembled the
-//     struct, the subprocess still has to start there, so this fires BEFORE
-//     exec.Command — verified by deleting the layer above and re-running the same
-//     mutant: it died at `execRunner.Run(launchctl)` with the live warden untouched.
+// TWO SOURCE-LEVEL LAYERS ONCE STOOD IN FRONT OF THAT MUTANT and are GONE FROM THIS
+// TREE: a scan pinning realSysOps()/realHostSeam by identifier, and one pinning the
+// `sysOps{` / `execRunner{` composite literals by structure, both run from a TestMain
+// before m.Run(). They are recorded here because what remains is the layer they were
+// in front of, not because they are a defence anyone still has:
+//   - main.go's execRunner.Run and execRunner.RunCombined open with
+//     refuseInTestBinary. Whatever assembled the struct, the subprocess still has to
+//     start there, so this fires BEFORE exec.Command — verified at the time by
+//     deleting the scan layers and re-running the same mutant: it died at
+//     `execRunner.Run(launchctl)` with the live warden untouched. It is the layer
+//     that was called unroutable-around, and it is now the only one.
+//
+// The cost of losing the other two is real and is worth stating plainly: a mutant
+// that assembles the wiring itself is no longer refused BEFORE the tests run, only
+// at the moment it tries to start a process. Detection moved back to defence-at-the-
+// syscall, which holds, but leaves nothing that would notice the shape in review.
 type hostSeam struct {
 	sys         sysOps
 	claudeProbe func(bin, pathEnv, home string) error
@@ -224,9 +229,10 @@ func realHostSeam() hostSeam {
 	}
 }
 
-// newHostSeam is the injection point. Production leaves it at realHostSeam; the
-// test binary swaps it in TestMain. NEVER call realHostSeam directly from an
-// entry point — that reintroduces exactly the reachability this removes.
+// newHostSeam is the injection point. Production leaves it at realHostSeam, and so
+// does the test binary — nothing rebinds it in this tree, so calling it from a test
+// is the deliberate os.Exit(1) in realHostSeam. NEVER call realHostSeam directly
+// from an entry point — that bypasses the one name this indirection gives a test.
 var newHostSeam = realHostSeam
 
 // installer carries the shared state for both install and teardown: where to log,
@@ -1327,9 +1333,10 @@ func installCmd(env func(string) string, out io.Writer, force bool) int {
 	// OC_AGENT_BIN provides a local override or under DRYRUN.
 	cfg := loadConfig(env)
 	// EVERY real-host effect below comes from this one seam (see hostSeam):
-	// production binds realHostSeam, the test binary binds a recording fake in
-	// TestMain, so `realMain([]string{"install"})` from a test can never reach
-	// launchctl, the filesystem, or the network.
+	// production binds realHostSeam, and nothing rebinds it, so
+	// `realMain([]string{"install"})` from a test binary dies inside realHostSeam
+	// (refuseInTestBinary) before launchctl, the filesystem or the network is
+	// touched. That is why TestInstallCmd is a skip and not a call.
 	host := newHostSeam()
 	i := &installer{
 		out:        out,

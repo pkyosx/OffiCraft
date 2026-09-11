@@ -190,14 +190,37 @@ type CmdRunner interface {
 	Run(name string, args ...string) (string, error)
 }
 
+// CombinedCmdRunner is CmdRunner plus the one call whose OUTPUT SURVIVES A
+// NON-ZERO EXIT.
+//
+// 🔴 WHY THIS EXISTS AT ALL. Run returns "" on any non-zero exit — deliberately,
+// because every other caller only classifies the error. That is useless for a
+// caller whose ANSWER is carried by a command that always exits non-zero:
+// `claude mcp get <absent name>` exits 1 and prints "No MCP server named …
+// Configured servers: …" on STDERR. Through Run the pre-trust probe therefore
+// read an empty string on every production spawn and refused every member, while
+// its unit tests passed because the double returned stdout regardless of exit
+// code — the receipt came from the wrapper, not from the thing under test.
+//
+// The fix is stated HERE, in the seam's type, rather than by loosening the probe:
+// a caller that needs the answer has to ask for a runner that can give one, and
+// the compiler is what enforces it. Run is untouched, so the process choke point
+// and every launchctl/plutil/tmux caller behind it behave exactly as before.
+type CombinedCmdRunner interface {
+	CmdRunner
+	RunCombined(name string, args ...string) (string, error)
+}
+
 // execRunner is the real (os/exec) runner: timeout-boxed, stdout on success.
 type execRunner struct{ timeout time.Duration }
 
 // newCmdRunner is the SINGLE production construction point for the real exec
-// runner, and — like newHostSeam (install.go) — it is a package-level var so the
-// test binary can rebind it in TestMain (hostseam_test.go). Production code must
-// obtain its runner from here, never by writing `execRunner{…}` inline.
-var newCmdRunner = func(timeout time.Duration) CmdRunner { return execRunner{timeout: timeout} }
+// runner, and — like newHostSeam (install.go) — it is a package-level var so a
+// test CAN rebind it. Nothing in this tree does; what actually stops a test binary
+// from reaching a real process is the refusal inside Run/RunCombined below.
+// Production code must obtain its runner from here, never by writing
+// `execRunner{…}` inline.
+var newCmdRunner = func(timeout time.Duration) CombinedCmdRunner { return execRunner{timeout: timeout} }
 
 // Run execs one argv. THIS IS THE PROCESS CHOKE POINT OF THE WHOLE BINARY: every
 // launchctl bootout/bootstrap/kickstart, every plutil, every tmux and probe call
@@ -206,10 +229,10 @@ var newCmdRunner = func(timeout time.Duration) CmdRunner { return execRunner{tim
 //
 // WHY refuseInTestBinary IS HERE AND NOT ONLY ON THE SEAM CONSTRUCTORS
 // -------------------------------------------------------------------
-// The static guards in hostseam_test.go pin two IDENTIFIERS (realSysOps,
+// An earlier tree had static guards pinning two IDENTIFIERS (realSysOps,
 // realHostSeam). Independent review defeated them with a mutant that never
 // writes either name: an inline `sysOps{run: execRunner{…}.Run, rename: os.Rename,
-// …}` composite literal in teardownCmd. All the source scans stayed green, no
+// …}` composite literal in teardownCmd. Every source scan stayed green, no
 // refusal fired, and the test binary issued a REAL
 // `launchctl bootout gui/<uid>/com.officraft.ocwarden` against the developer
 // machine's live warden — the runtime tests then failed, but only afterwards
@@ -218,7 +241,10 @@ var newCmdRunner = func(timeout time.Duration) CmdRunner { return execRunner{tim
 // A guard on the seam CONSTRUCTORS can always be routed around, because a caller
 // can assemble the struct itself. A guard on the exec syscall cannot: however the
 // struct was assembled, the subprocess still has to be started here. So a test
-// binary that reaches a real exec dies here, before exec.Command runs.
+// binary that reaches a real exec dies here, before exec.Command runs. Those static
+// guards are no longer in the tree, which makes this the only layer left — and the
+// reason a test that needs to OBSERVE Run/RunCombined has to build a non-test binary
+// to do it (TestExecRunnerRunCombined).
 func (r execRunner) Run(name string, args ...string) (string, error) {
 	refuseInTestBinary("execRunner.Run(" + name + ")")
 	to := r.timeout
@@ -251,6 +277,45 @@ func (r execRunner) Run(name string, args ...string) (string, error) {
 		_ = cmd.Process.Kill()
 		<-done
 		return "", fmt.Errorf("timeout after %s", to)
+	}
+}
+
+// RunCombined execs one argv and returns STDOUT AND STDERR INTERLEAVED, WHATEVER
+// THE EXIT CODE WAS, alongside the same error Run would have produced. It is a
+// second door onto the same choke point, not a wider one: it starts a subprocess,
+// so it opens with the same refuseInTestBinary, and it is timeout-boxed by the
+// same budget. The only difference is that a caller which judges the ANSWER
+// rather than the exit status can still see the answer.
+//
+// It does NOT reuse Run: Run's non-zero path is load-bearing for every other
+// caller in the binary (telemetry checks err==nil, the tmux three-way probe reads
+// stderr out of the error text), and a shared implementation is how that gets
+// changed for them by accident.
+func (r execRunner) RunCombined(name string, args ...string) (string, error) {
+	refuseInTestBinary("execRunner.RunCombined(" + name + ")")
+	to := r.timeout
+	if to == 0 {
+		to = subprocessBudget
+	}
+	var both bytes.Buffer
+	cmd := exec.Command(name, args...)
+	cmd.Stdout = &both
+	cmd.Stderr = &both
+	done := make(chan error, 1)
+	if err := cmd.Start(); err != nil {
+		return "", err
+	}
+	go func() { done <- cmd.Wait() }()
+	select {
+	case err := <-done:
+		return both.String(), err
+	case <-time.After(to):
+		_ = cmd.Process.Kill()
+		<-done
+		// Whatever it managed to say before the kill is still returned: a probe
+		// that judges content needs the partial answer to be able to say it was
+		// not an answer.
+		return both.String(), fmt.Errorf("timeout after %s", to)
 	}
 }
 
@@ -834,6 +899,17 @@ func realMain(argv []string, env func(string) string, out io.Writer) int {
 	// OC_NAMESPACE silently folding back to the main instance's socket/paths
 	// would cross-wire two instances — refuse loudly instead.
 	if _, err := namespaceFromEnv(env); err != nil {
+		fmt.Fprintf(out, "[ocwarden] FATAL: %v\n", err)
+		return 1
+	}
+
+	// Same layer, same reason: an OC_CLAUDE_JSON the launch line cannot make the
+	// child read (a filename other than .claude.json, an unresolvable relative
+	// path) would pre-trust into a file with no reader, and nothing downstream can
+	// tell. Refuse before any transport or spawn path exists. This is no longer a
+	// prediction of the child's environment — claudehome.go states it — only a
+	// refusal of an override that cannot be stated.
+	if err := claudeHomeEntryGate(env, os.Getwd); err != nil {
 		fmt.Fprintf(out, "[ocwarden] FATAL: %v\n", err)
 		return 1
 	}

@@ -250,8 +250,8 @@ func refusalText(fn string) string {
 		"The real host seam must NEVER be constructed under `go test` — doing so wires the\n" +
 		"test process to the LIVE launchd gui domain, where an install/teardown would boot\n" +
 		"out this machine's real com.officraft.ocwarden job.\n" +
-		"Every entry point must take its effects from newHostSeam(), which TestMain rebinds\n" +
-		"to a fake. See hostseam_test.go.\n"
+		"Every entry point must take its effects from an injected seam, never by building\n" +
+		"the real one itself. See hostSeam in install.go.\n"
 }
 
 func TestRefuseInTestBinary(t *testing.T) {
