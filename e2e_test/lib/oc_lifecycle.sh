@@ -167,7 +167,22 @@ py() {
 #
 # Deliberately left as-is (changing it to fail on a missing key would ripple
 # through every caller); recorded here so the next reader is not surprised.
-json_field() { py -c 'import sys,json; print(json.load(sys.stdin).get(sys.argv[1],""))' "$1"; }
+#
+# 🔴 A JSON null READS AS UNSET, the same as an absent key. `.get` only
+# substitutes for an ABSENT key, so a field that is PRESENT AND NULL used to come
+# back as the four characters None — neither empty nor a value, so every
+# `[[ -n ... ]]` "it is set" guard read it as set and every `[[ -z ... ]]` "not
+# set yet" guard fired. The task DTO's optional numbers are pointers with no
+# omitempty (an open task answers closed_ts: null), and that is exactly how A7a
+# came to fail against a server answering correctly. A bool still prints
+# True/False — only None is folded, so the `ok` readers below are untouched.
+json_field() {
+  py -c '
+import sys, json
+v = json.load(sys.stdin).get(sys.argv[1], "")
+print("" if v is None else v)
+' "$1"
+}
 
 # api_get PATH — authenticated GET against LOCAL_BASE, prints body.
 api_get() {

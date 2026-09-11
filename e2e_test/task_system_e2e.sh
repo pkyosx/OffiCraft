@@ -759,14 +759,43 @@ D2_EXEC_TOKEN="$(printf '%s' "$D2_MINT" | json_field token)"
 [[ -n "$D2_EXEC_TOKEN" ]] \
   || fail_stage "could not mint executor ($TEST_AGENT) token for D2 — plan POSTs need a caller callerMayDriveTask admits, or they 403 before the 400 shape check"
 
-# post_plan_as_exec JSON WANT LABEL — POST a plan as the EXECUTOR ($TEST_AGENT) token; assert HTTP == WANT.
+# post_plan_as_exec JSON WANT LABEL [MUST_CONTAIN] — POST a plan as the EXECUTOR
+# ($TEST_AGENT) token; assert HTTP == WANT, and when MUST_CONTAIN is given also
+# assert error.message contains it AND is not the DoD refusal.
+#
+# 🔴 WHY THE MESSAGE IS PART OF THE ASSERTION. submit_plan checks every step's DoD
+#   is non-blank BEFORE the plan ever reaches the parallel-shape gate
+#   (api_tasks.go: the per-step loop, then ValidatePlanParallelShape). So a
+#   negative whose steps carry no `dod` answers 400 for a reason that has nothing
+#   to do with the shape it claims to test — and 400 == 400, so the stage went
+#   green with ValidatePlanParallelShape never executed once. Deleting that
+#   function outright would not have reddened anything here. Matching the sentence
+#   is what makes these three cases assertions rather than decoration.
 post_plan_as_exec() {
-  local json="$1" want="$2" label="$3" resp code
+  local json="$1" want="$2" label="$3" must="${4:-}" resp code body msg
   resp="$(post_as_token "$D2_EXEC_TOKEN" "/api/tasks/$D2_TID/plan" "$json")"
-  code="${resp##*$'\n'}"
+  code="${resp##*$'\n'}"; body="${resp%$'\n'*}"
   if [[ "$code" != "$want" ]]; then
-    warn "$label: expected HTTP $want, got $code — body: $(printf '%s' "${resp%$'\n'*}" | head -c 300)"
+    warn "$label: expected HTTP $want, got $code — body: $(printf '%s' "$body" | head -c 300)"
     return 1
+  fi
+  if [[ -n "$must" ]]; then
+    msg="$(printf '%s' "$body" | py -c '
+import sys, json
+try: d = json.load(sys.stdin)
+except Exception: print(""); sys.exit(0)
+print((d.get("error") or {}).get("message") or "")
+' 2>/dev/null || printf '')"
+    if [[ "$msg" == *"definition of done"* ]]; then
+      warn "$label: HTTP $want came from the DoD quality gate, NOT the parallel-shape gate — message: $msg"
+      return 1
+    fi
+    if [[ "$msg" != *"$must"* ]]; then
+      warn "$label: HTTP $want but the message names no known shape rule — want substring '$must', got: $msg"
+      return 1
+    fi
+    log "$label: HTTP $code + message names the rule ✓ ($must)"
+    return 0
   fi
   log "$label: HTTP $code (expected $want) ✓"
   return 0
@@ -776,36 +805,36 @@ post_plan_as_exec() {
 D2_GATE_IN_GROUP="$(py -c '
 import json
 print(json.dumps({"steps": [
-  {"name": "laneA", "parallel_group": "pg-1"},
-  {"name": "gate-inside", "parallel_group": "pg-1", "is_gate": True},
+  {"name": "laneA", "dod": "lane A is done", "parallel_group": "pg-1"},
+  {"name": "gate-inside", "dod": "the gate is answered", "parallel_group": "pg-1", "is_gate": True},
 ]}))
 ')"
-post_plan_as_exec "$D2_GATE_IN_GROUP" 400 "D2.gate-in-group" \
-  || fail_stage "gate-in-group plan was NOT rejected 400 (ValidatePlanParallelShape rule 1)"
+post_plan_as_exec "$D2_GATE_IN_GROUP" 400 "D2.gate-in-group" "a gate step cannot sit inside a parallel group" \
+  || fail_stage "gate-in-group plan was NOT rejected 400 BY ValidatePlanParallelShape rule 1 (see the warn above: a 400 from the DoD gate does not count)"
 
 # illegal #2: a SPLIT group — same key non-consecutive (separated by another step).
 D2_SPLIT_GROUP="$(py -c '
 import json
 print(json.dumps({"steps": [
-  {"name": "laneA", "parallel_group": "pg-1"},
-  {"name": "interloper", "parallel_group": ""},
-  {"name": "laneB", "parallel_group": "pg-1"},
+  {"name": "laneA", "dod": "lane A is done", "parallel_group": "pg-1"},
+  {"name": "interloper", "dod": "the interloper is done", "parallel_group": ""},
+  {"name": "laneB", "dod": "lane B is done", "parallel_group": "pg-1"},
 ]}))
 ')"
-post_plan_as_exec "$D2_SPLIT_GROUP" 400 "D2.split-group" \
-  || fail_stage "split-group plan was NOT rejected 400 (ValidatePlanParallelShape rule 2)"
+post_plan_as_exec "$D2_SPLIT_GROUP" 400 "D2.split-group" "must sit next to each other" \
+  || fail_stage "split-group plan was NOT rejected 400 BY ValidatePlanParallelShape rule 2 (see the warn above: a 400 from the DoD gate does not count)"
 
 # illegal #3: a ONE-LANE group — same key appears only once (<2 lanes).
 D2_ONE_LANE="$(py -c '
 import json
 print(json.dumps({"steps": [
-  {"name": "loneLane", "parallel_group": "pg-1"},
-  {"name": "seqAfter", "parallel_group": ""},
+  {"name": "loneLane", "dod": "the lone lane is done", "parallel_group": "pg-1"},
+  {"name": "seqAfter", "dod": "the sequential step is done", "parallel_group": ""},
 ]}))
 ')"
-post_plan_as_exec "$D2_ONE_LANE" 400 "D2.one-lane-group" \
-  || fail_stage "one-lane-group plan was NOT rejected 400 (ValidatePlanParallelShape rule 3)"
-log "all 3 illegal parallel_group shapes rejected 400 ✓"
+post_plan_as_exec "$D2_ONE_LANE" 400 "D2.one-lane-group" "holds only one step" \
+  || fail_stage "one-lane-group plan was NOT rejected 400 BY ValidatePlanParallelShape rule 3 (see the warn above: a 400 from the DoD gate does not count)"
+log "all 3 illegal parallel_group shapes rejected 400 by the SHAPE gate (message matched per rule) ✓"
 pass_stage
 
 # ── D1: legal plan (3 consecutive lanes + a join step) → 200, roundtrips ─────
