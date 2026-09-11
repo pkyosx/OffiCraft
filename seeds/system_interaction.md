@@ -505,4 +505,4 @@ ocagent diff --help
 
 CLI 的 help 與當前 runtime 提供的工具說明是實際操作依據；不要自行猜測未列出的子命令，也不要用 `curl` 取代正式工具入口。
 
-要刪除檔案或資料夾時，用 `ocagent clean <path>` 取代 `rm -rf <path>`：`rm` 可能跳出無人回應的確認提示，使你停在該處無法繼續。
+要刪除檔案或資料夾時，用 `ocagent clean <path>` 取代 `rm -rf <path>`：`rm` 可能觸發無人回應的確認提示，那種呼叫會被執行環境當場拒絕，刪除不會發生。
