@@ -837,9 +837,28 @@ func pretrustWorkdir(claudeJSONPath, workdir string) error {
 	})
 }
 
+// claudeProjectKey is the name claude files a workdir under: THE SYMLINK-RESOLVED
+// PATH, because claude keys a project by the cwd it resolves, not by the string
+// the launcher was given. Measured A/B on one directory reached two ways: the real
+// path is trusted, the same directory reached through a symlinked parent is not —
+// so on a host whose agent workdirs have any symlink component, a literal key
+// means the flag is written where claude never looks and EVERY spawn is refused.
+//
+// Best-effort, and the same shape kill.go's ocagentPIDsByCwd uses for the same
+// reason: a workdir that cannot be resolved (it does not exist yet, or a component
+// is unreadable) keeps its literal string, which is exactly today's behaviour.
+func claudeProjectKey(workdir string) string {
+	if resolved, err := filepath.EvalSymlinks(workdir); err == nil {
+		return resolved
+	}
+	return workdir
+}
+
 // editClaudeProjectEntry is the read-modify-write both pretrustWorkdir and the
 // pre-trust probe's seed/clear go through, so there is one implementation of
-// "touch one project's entry without disturbing anything else".
+// "touch one project's entry without disturbing anything else" — and one place
+// where the project KEY is settled (claudeProjectKey), so the flag and the probe's
+// witness can never land under two different names for one directory.
 //
 // SAFELY: preserve every existing top-level key, create projects["<abs workdir>"]
 // only when absent, and hand fn that ONE entry to change. A missing or unparsable
@@ -848,6 +867,7 @@ func pretrustWorkdir(claudeJSONPath, workdir string) error {
 // not swallowed. The write is ATOMIC (temp file in the same dir + rename) at mode
 // 0600, so a crash mid-write can never truncate a live ~/.claude.json.
 func editClaudeProjectEntry(claudeJSONPath, workdir string, fn func(entry map[string]any)) error {
+	workdir = claudeProjectKey(workdir)
 	data := map[string]any{}
 	raw, err := os.ReadFile(claudeJSONPath)
 	switch {

@@ -22,6 +22,13 @@ import (
 // lands on, so a test can put the warden's write and the child's read on
 // different files and watch what the spawn does about it.
 //
+// IT ALSO ANSWERS FROM ONE PROJECT ENTRY: the one named by its own SYMLINK-RESOLVED
+// cwd, which is the cell the real claude looks the project up by. Without that the
+// double answers out of the whole file, and the probe's `cd <workdir>` — every
+// dimension that depends on where the child stands, the symlink key included —
+// goes unmeasured: it failed on every run of this test with `No such file or
+// directory` while the test stayed green.
+//
 // The double exists so the shadow-file case is reachable at all in a test; the
 // PRODUCTION code deliberately holds no copy of this resolution (claudetrust.go).
 func stageResolvingClaude(t *testing.T, path string) string {
@@ -38,9 +45,18 @@ if [ -f "$dir/.config.json" ]; then cfg=$dir/.config.json
 elif [ -n "$CLAUDE_CONFIG_DIR" ]; then cfg=$CLAUDE_CONFIG_DIR/.claude.json
 else cfg=$HOME/.claude.json
 fi
+here=$(pwd -P)
 names=
+cur=
 while IFS= read -r line; do
+  case $line in
+    '    "'*'": {')
+      cur=${line#*\"}
+      cur=${cur%%\"*}
+      continue ;;
+  esac
   case $line in *oc-pretrust-probe-*)
+    [ "$cur" = "$here" ] || continue
     n=${line#*\"}
     n=${n%%\"*}
     names="$names $n" ;;
@@ -290,11 +306,19 @@ func TestPretrustIsVerifiedAgainstTheFileClaudeReallyReads(t *testing.T) {
 	box := t.TempDir()
 	home := filepath.Join(box, "home")
 	configDir := filepath.Join(home, ".claude")
+	// The workdir is REAL and is reached through a SYMLINKED parent, because both
+	// halves are load-bearing: the probe cd's there (an absent directory leaves the
+	// child standing somewhere else entirely), and t.TempDir() on macOS already hands
+	// back a /var → /private/var symlink, which is the production shape of a host
+	// whose agent workdirs resolve to a different path than the one they are named by.
+	workdir := filepath.Join(box, "agents", "m1")
+	if err := os.MkdirAll(workdir, 0o700); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
 	if err := os.MkdirAll(configDir, 0o700); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
 	claudeBin := stageResolvingClaude(t, filepath.Join(box, "bin", "claude"))
-	workdir := filepath.Join(box, "agents", "m1")
 	ch := claudeHome{Home: home}
 	runner := &wardenRunner{shellPassthrough: true}
 	verify := newClaudePretrustVerifier(runner, "officraft", claudeBin, ch, nil)
@@ -404,15 +428,12 @@ func TestRealClaudeAnswersTheProbe(t *testing.T) {
 	if bin == "" {
 		t.Skip("no claude on this host")
 	}
-	// REAL PATH, not t.TempDir()'s /var/folders symlink. claude keys a project by
-	// the cwd it resolves, so a workdir reached through a symlink is looked up
-	// under a different key than pre-trust wrote — the pre-existing symlink hole
-	// (out of scope here, C2). Production agent workdirs are under the real $HOME;
-	// this test must not fail for a reason the ticket is not about.
-	box, err := filepath.EvalSymlinks(t.TempDir())
-	if err != nil {
-		t.Fatalf("resolve tempdir: %v", err)
-	}
+	// t.TempDir()'s /var/folders path is a SYMLINK, and it is left that way on
+	// purpose: claude keys a project by the cwd it resolves, so this is the real
+	// binary's verdict on claudeProjectKey (spawn.go). Before that existed the flag
+	// was written under the literal name and this test could only pass by resolving
+	// the box itself first.
+	box := t.TempDir()
 	home := filepath.Join(box, "home")
 	configDir := filepath.Join(home, ".claude")
 	workdir := filepath.Join(box, "agents", "m1")
