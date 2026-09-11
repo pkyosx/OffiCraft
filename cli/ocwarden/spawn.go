@@ -347,10 +347,13 @@ func (d SpawnDeps) ocAgentTarget() (string, bool) {
 // T-426d G-1). Same pattern as the warden's own
 // exec-warden tokfile (main.go readTokfile).
 //
-// The child's config home is STATED, not inherited: ch is exported as HOME, and
-// CLAUDE_CONFIG_DIR is either exported with it or explicitly unset, after the
-// agent env render is sourced. See claudehome.go — the file pre-trust writes is
-// derived from the same value, which is why the two can no longer disagree.
+// The child's config home is STATED, not inherited: after the agent env render
+// is sourced, the line DELETES THE WHOLE CLAUDE_* FAMILY except the credential
+// names claudeEnvAllowedNames lets through, then exports HOME and either exports
+// or unsets CLAUDE_CONFIG_DIR. See claudehome.go — the file pre-trust writes is
+// derived from the same value, which is why the two can no longer disagree, and
+// the purge is what makes that hold against a redirect variable nobody here has
+// heard of yet.
 //
 // The workdir is prepended to PATH so a bare `ocagent` resolves — the ocagent
 // binary itself is published into the workdir by Phase 4 wiring (the golang
@@ -385,11 +388,22 @@ func buildLaunchCommandWithEnv(claudeBin, workdir, mcpConfigPath, appendSys, tok
 	if envRendered != "" {
 		cd += "[ -f " + shellQuote(envRendered) + " ] && . " + shellQuote(envRendered) + "; "
 	}
-	// ⚠️ ORDER IS THE WHOLE GUARANTEE: this UNSET and the HOME/CLAUDE_CONFIG_DIR
+	// ⚠️ ORDER IS THE WHOLE GUARANTEE: this purge and the HOME/CLAUDE_CONFIG_DIR
 	// exports below come AFTER the render is sourced, so they overwrite whatever
 	// the owner's shell or agent env file carried instead of being overwritten by
 	// it. Move either above the source line and the child is back to inheriting a
 	// config home nobody chose — which is the defect, not a tidiness nit.
+	//
+	// The purge is the structural half: the ENTIRE CLAUDE_* family is deleted and
+	// only claudeEnvAllowedNames survives, so a variable that redirects the
+	// child's config read is stopped whether or not anyone here has heard of it.
+	// See claudehome.go for what was measured and why ANTHROPIC_* is left alone.
+	cd += claudeEnvPurgeFragment()
+	// FALLBACK, not the mechanism. The purge already removed CLAUDE_CONFIG_DIR,
+	// but it is the one variable that relocates the credentials file along with
+	// the trust file, and the purge depends on /usr/bin/env resolving — a host
+	// without it degrades to a SILENT no-op. One explicit line keeps the single
+	// worst variable covered in that degraded case.
 	if ch.ConfigDir == "" {
 		cd += "unset CLAUDE_CONFIG_DIR; "
 	}

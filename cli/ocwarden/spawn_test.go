@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -97,7 +98,13 @@ func startParamsM1() StartParams {
 	return StartParams{MemberID: "m1", PersonaContext: "you are m1", MemberToken: "jwt-m1", Role: "builder"}
 }
 
-const goldenLaunchM1 = `cd /w/m1; unset CLAUDE_CONFIG_DIR; export OC_TOKEN="$(/bin/cat /w/m1/.oc-token)" ` +
+// goldenClaudePurge is the CLAUDE_* family purge as it must appear on every
+// claude launch line — TYPED OUT HERE rather than called from
+// claudeEnvPurgeFragment, so a change to the fragment has to be re-justified
+// against a literal instead of agreeing with itself.
+const goldenClaudePurge = `for __oc_e in $(/usr/bin/env); do case $__oc_e in CLAUDE_CODE_USE_BEDROCK=*|CLAUDE_CODE_USE_VERTEX=*) continue;; CLAUDE_*=*) ;; *) continue;; esac; __oc_n=${__oc_e%%=*}; case $__oc_n in *[!A-Za-z0-9_]*) continue;; esac; unset "$__oc_n"; done; unset __oc_e __oc_n; `
+
+const goldenLaunchM1 = `cd /w/m1; ` + goldenClaudePurge + `unset CLAUDE_CONFIG_DIR; export OC_TOKEN="$(/bin/cat /w/m1/.oc-token)" ` +
 	`OC_BASE=http://127.0.0.1:7755 OC_SESSION=member-m1 OC_TMUX_SOCKET=officraft OC_EFFORT=medium ` +
 	`HOME=/Users/wardenowner; ` +
 	`export PATH=/w/m1:"$PATH"; ` +
@@ -258,7 +265,7 @@ func TestOcAgentTarget(t *testing.T) {
 }
 
 func TestBuildLaunchCommand(t *testing.T) {
-	want := `cd /w/m1; unset CLAUDE_CONFIG_DIR; export OC_TOKEN="$(/bin/cat /w/m1/.oc-token)" ` +
+	want := `cd /w/m1; ` + goldenClaudePurge + `unset CLAUDE_CONFIG_DIR; export OC_TOKEN="$(/bin/cat /w/m1/.oc-token)" ` +
 		`OC_BASE=http://127.0.0.1:7755 OC_SESSION=member-m1 OC_TMUX_SOCKET=officraft ` +
 		`HOME=/Users/wardenowner; ` +
 		`export PATH=/w/m1:"$PATH"; ` +
@@ -271,7 +278,7 @@ func TestBuildLaunchCommand(t *testing.T) {
 		t.Errorf("launch line =\n%s\nwant\n%s", got, want)
 	}
 
-	wantFull := `cd /w/m1; unset CLAUDE_CONFIG_DIR; export OC_TOKEN="$(/bin/cat /w/m1/.oc-token)" ` +
+	wantFull := `cd /w/m1; ` + goldenClaudePurge + `unset CLAUDE_CONFIG_DIR; export OC_TOKEN="$(/bin/cat /w/m1/.oc-token)" ` +
 		`OC_BASE=http://127.0.0.1:7755 OC_SESSION=member-m1 OC_TMUX_SOCKET=officraft ` +
 		`HOME=/Users/wardenowner; ` +
 		`export PATH=/w/m1:"$PATH"; ` +
@@ -288,7 +295,7 @@ func TestBuildLaunchCommand(t *testing.T) {
 
 func TestBuildLaunchCommandWithEnv(t *testing.T) {
 	home := claudeHome{Home: "/Users/wardenowner"}
-	want := `cd /w/m1; [ -f /w/m1/.oc-env ] && . /w/m1/.oc-env; unset CLAUDE_CONFIG_DIR; ` +
+	want := `cd /w/m1; [ -f /w/m1/.oc-env ] && . /w/m1/.oc-env; ` + goldenClaudePurge + `unset CLAUDE_CONFIG_DIR; ` +
 		`export OC_TOKEN="$(/bin/cat /w/m1/.oc-token)" ` +
 		`OC_BASE=http://127.0.0.1:7755 OC_SESSION=member-m1 OC_TMUX_SOCKET=officraft-lab ` +
 		`OC_AGENT_HOME=/w OC_EFFORT=medium HOME=/Users/wardenowner; ` +
@@ -313,7 +320,7 @@ func TestBuildLaunchCommandWithEnv(t *testing.T) {
 	spaced := buildLaunchCommandWithEnv("/opt/my claude/claude", "/w/a b", "/w/a b/.mcp.json", "it's me",
 		"/w/a b/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft", "", "", "", nil, "/w/a b/.oc-env",
 		claudeHome{Home: "/Users/warden owner"})
-	wantSpaced := `cd '/w/a b'; [ -f '/w/a b/.oc-env' ] && . '/w/a b/.oc-env'; unset CLAUDE_CONFIG_DIR; ` +
+	wantSpaced := `cd '/w/a b'; [ -f '/w/a b/.oc-env' ] && . '/w/a b/.oc-env'; ` + goldenClaudePurge + `unset CLAUDE_CONFIG_DIR; ` +
 		`export OC_TOKEN="$(/bin/cat '/w/a b/.oc-token')" ` +
 		`OC_BASE=http://127.0.0.1:7755 OC_SESSION=member-m1 OC_TMUX_SOCKET=officraft ` +
 		`HOME='/Users/warden owner'; ` +
@@ -357,6 +364,69 @@ func TestBuildLaunchCommandWithEnv(t *testing.T) {
 			claudeHome{Home: "/Users/wardenowner"})
 		if src, un := strings.Index(unsetLine, ". /w/m1/.oc-env"), strings.Index(unsetLine, "unset CLAUDE_CONFIG_DIR"); src < 0 || un < 0 || src > un {
 			t.Errorf("the unset must follow the source (source=%d unset=%d):\n%s", src, un, unsetLine)
+		}
+	})
+
+	t.Run("an unknown CLAUDE_ variable does not survive into the child environment", func(t *testing.T) {
+		// THE FALSIFIABLE CONDITION for the whole shape. Three reviews each broke
+		// the previous version by finding one more variable that redirects the
+		// child's config read, so this test names a variable that does not exist
+		// and never will: if the line only deleted the names we know about, this
+		// is where that shows up.
+		//
+		// It runs the REAL launch line in a REAL shell rather than asserting on
+		// the string. A string assertion cannot tell a purge that works from one
+		// that word-splits wrong, matches the wrong pattern, or resolves no
+		// binary — all of which look identical in the emitted text.
+		workdir := t.TempDir()
+		render := filepath.Join(workdir, ".oc-env")
+		if err := os.WriteFile(render, []byte("export CLAUDE_FROM_THE_ENV_FILE=1\n"), 0o600); err != nil {
+			t.Fatalf("seed render: %v", err)
+		}
+		line := buildLaunchCommandWithEnv("/usr/local/bin/claude", workdir, "/w/m1/.mcp.json", "APPEND",
+			"/dev/null", "m1", "http://127.0.0.1:7755", "member-m1", "officraft", "", "", "", nil, render,
+			claudeHome{Home: "/Users/wardenowner"})
+		execAt := strings.Index(line, "; exec ")
+		if execAt < 0 {
+			t.Fatalf("launch line has no exec clause:\n%s", line)
+		}
+		// Everything the line does to the environment, then a dump instead of claude.
+		script := line[:execAt] + "; /usr/bin/env"
+		cmd := exec.Command("/bin/sh", "-c", script)
+		cmd.Env = []string{
+			"PATH=/usr/bin:/bin",
+			"HOME=/Volumes/scratch/home",
+			"CLAUDE_SOMETHING_NEW=redirect-me",
+			"CLAUDE_CODE_CUSTOM_OAUTH_URL=https://example.invalid",
+			"CLAUDE_CONFIG_DIR=/Volumes/scratch/cfg",
+			"CLAUDE_WEIRD=a b c",
+			"CLAUDE_CODE_USE_BEDROCK=1",
+			"ANTHROPIC_API_KEY=sk-keep-me",
+		}
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("running the launch line's env prologue: %v\n%s", err, out)
+		}
+		var survivors []string
+		var home, anthropic string
+		for _, kv := range strings.Split(string(out), "\n") {
+			switch {
+			case strings.HasPrefix(kv, "CLAUDE_"):
+				survivors = append(survivors, kv)
+			case strings.HasPrefix(kv, "HOME="):
+				home = kv
+			case strings.HasPrefix(kv, "ANTHROPIC_API_KEY="):
+				anthropic = kv
+			}
+		}
+		if want := []string{"CLAUDE_CODE_USE_BEDROCK=1"}; !reflect.DeepEqual(survivors, want) {
+			t.Errorf("surviving CLAUDE_* = %v, want exactly %v — anything else is a variable the child could read a config from", survivors, want)
+		}
+		if home != "HOME=/Users/wardenowner" {
+			t.Errorf("%q, want the stated HOME", home)
+		}
+		if anthropic != "ANTHROPIC_API_KEY=sk-keep-me" {
+			t.Errorf("%q, want ANTHROPIC_* untouched — purging it logs the child out and no measurement says it moves the config read", anthropic)
 		}
 	})
 
@@ -906,7 +976,7 @@ func TestStart(t *testing.T) {
 			t.Errorf(".oc-env = %q mode %04o, want %q mode 0600", rendered.content, rendered.mode, want)
 		}
 		wantLaunch := "tmux -L officraft new-session -d -s member-m1 -x 160 -y 50 " +
-			`cd /w/m1; [ -f /w/m1/.oc-env ] && . /w/m1/.oc-env; unset CLAUDE_CONFIG_DIR; ` +
+			`cd /w/m1; [ -f /w/m1/.oc-env ] && . /w/m1/.oc-env; ` + goldenClaudePurge + `unset CLAUDE_CONFIG_DIR; ` +
 			`export OC_TOKEN="$(/bin/cat /w/m1/.oc-token)" ` +
 			`OC_BASE=http://127.0.0.1:7755 OC_SESSION=member-m1 OC_TMUX_SOCKET=officraft ` +
 			`OC_AGENT_HOME=/w OC_EFFORT=high HOME=/Users/wardenowner; ` +
@@ -985,6 +1055,36 @@ func TestStart(t *testing.T) {
 			if strings.Contains(call, "new-session") {
 				t.Errorf("a session was started anyway: %q", call)
 			}
+		}
+	})
+
+	t.Run("a codex spawn with no stated config home still launches", func(t *testing.T) {
+		// SISTER OF THE REFUSAL ABOVE, and the reason it exists: with only that
+		// one, deleting `runtimeName == "claude" &&` from the config-home gate
+		// leaves every test green while every CODEX member on a host with no
+		// stated HOME becomes unstartable — refused over a claude.json codex
+		// never reads. A guard that cannot tell the two runtimes apart is not a
+		// guard, it is an outage waiting for a host with an empty HOME.
+		h := newSpawnHarness()
+		d := h.deps()
+		d.ClaudeHome = claudeHome{}
+		d.CodexBin = "/usr/local/bin/codex"
+		d.WardenBin = "/Users/eva/.officraft/warden/ocwarden"
+		p := startParamsM1()
+		p.Runtime = "codex"
+
+		got := d.start(p)
+		if want := (SpawnOutcome{OK: true, SessionID: "member-m1", PID: "500"}); got != want {
+			t.Fatalf("outcome = %+v, want %+v — codex does not read claude.json, so an unstated claude config home is none of its business", got, want)
+		}
+		launched := false
+		for _, call := range h.runner.calls {
+			if strings.Contains(call, "new-session") {
+				launched = true
+			}
+		}
+		if !launched {
+			t.Errorf("no session was started: %v", h.runner.calls)
 		}
 	})
 
