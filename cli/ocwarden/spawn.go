@@ -383,30 +383,62 @@ func buildLaunchCommand(claudeBin, workdir, mcpConfigPath, appendSys, tokenFile,
 // env-file PATH rather than being erased by it. The source is guarded by a
 // `[ -f ]` test so a file deleted between render and exec degrades to "no extra
 // env" instead of a shell error on the agent's very first line.
-func buildLaunchCommandWithEnv(claudeBin, workdir, mcpConfigPath, appendSys, tokenFile, agentID, base, session, socket, model, effort, settingsPath string, extraEnv [][2]string, envRendered string, ch claudeHome) string {
-	cd := "cd " + shellQuote(workdir) + "; "
+// claudeChildEnvPrologue is everything a claude child's line does to its
+// environment BEFORE the OC_* exports: enter the workdir, source the owner's
+// rendered agent env, then clear the CLAUDE_* family on top of it.
+//
+// ⚠️ ORDER IS THE WHOLE GUARANTEE: the purge and the HOME/CLAUDE_CONFIG_DIR
+// exports come AFTER the render is sourced, so they overwrite whatever the
+// owner's shell or agent env file carried instead of being overwritten by it.
+// Move either above the source line and the child is back to inheriting a config
+// home nobody chose — which is the defect, not a tidiness nit.
+//
+// The purge is the structural half: the ENTIRE CLAUDE_* family is deleted and
+// only claudeEnvAllowedNames survives, so a variable that redirects the child's
+// config read is stopped whether or not anyone here has heard of it. See
+// claudehome.go for what was measured and why ANTHROPIC_* is left alone.
+//
+// 🔴 IT IS SHARED WITH THE PRE-TRUST PROBE ON PURPOSE (claudetrust.go). The probe
+// only means anything if it runs under the environment the child gets; a second
+// copy of these lines would be a second thing to drift. Anything added here is
+// added to both ends at once.
+func claudeChildEnvPrologue(workdir, envRendered string, ch claudeHome) string {
+	s := "cd " + shellQuote(workdir) + "; "
 	if envRendered != "" {
-		cd += "[ -f " + shellQuote(envRendered) + " ] && . " + shellQuote(envRendered) + "; "
+		s += "[ -f " + shellQuote(envRendered) + " ] && . " + shellQuote(envRendered) + "; "
 	}
-	// ⚠️ ORDER IS THE WHOLE GUARANTEE: this purge and the HOME/CLAUDE_CONFIG_DIR
-	// exports below come AFTER the render is sourced, so they overwrite whatever
-	// the owner's shell or agent env file carried instead of being overwritten by
-	// it. Move either above the source line and the child is back to inheriting a
-	// config home nobody chose — which is the defect, not a tidiness nit.
-	//
-	// The purge is the structural half: the ENTIRE CLAUDE_* family is deleted and
-	// only claudeEnvAllowedNames survives, so a variable that redirects the
-	// child's config read is stopped whether or not anyone here has heard of it.
-	// See claudehome.go for what was measured and why ANTHROPIC_* is left alone.
-	cd += claudeEnvPurgeFragment()
+	s += claudeEnvPurgeFragment()
 	// FALLBACK, not the mechanism. The purge already removed CLAUDE_CONFIG_DIR,
 	// but it is the one variable that relocates the credentials file along with
 	// the trust file, and the purge depends on /usr/bin/env resolving — a host
 	// without it degrades to a SILENT no-op. One explicit line keeps the single
 	// worst variable covered in that degraded case.
 	if ch.ConfigDir == "" {
-		cd += "unset CLAUDE_CONFIG_DIR; "
+		s += "unset CLAUDE_CONFIG_DIR; "
 	}
+	return s
+}
+
+// claudeHomeExportPairs is the config-home statement itself: HOME always, and
+// CLAUDE_CONFIG_DIR only for an explicit OC_CLAUDE_JSON redirect. Shared with the
+// probe for the same reason as the prologue above.
+//
+// An empty Home emits nothing rather than `HOME=”`: start() refuses such a spawn
+// outright (claude_home_unresolved), so this stays unreachable in production and
+// a test fixture does not get a broken HOME.
+func claudeHomeExportPairs(ch claudeHome) [][2]string {
+	var pairs [][2]string
+	if ch.Home != "" {
+		pairs = append(pairs, [2]string{"HOME", ch.Home})
+	}
+	if ch.ConfigDir != "" {
+		pairs = append(pairs, [2]string{"CLAUDE_CONFIG_DIR", ch.ConfigDir})
+	}
+	return pairs
+}
+
+func buildLaunchCommandWithEnv(claudeBin, workdir, mcpConfigPath, appendSys, tokenFile, agentID, base, session, socket, model, effort, settingsPath string, extraEnv [][2]string, envRendered string, ch claudeHome) string {
+	cd := claudeChildEnvPrologue(workdir, envRendered, ch)
 	pairs := [][2]string{
 		{"OC_BASE", base},
 		{"OC_SESSION", session},
@@ -414,15 +446,7 @@ func buildLaunchCommandWithEnv(claudeBin, workdir, mcpConfigPath, appendSys, tok
 	}
 	pairs = append(pairs, extraEnv...)
 	// LAST in the export list, so a same-named pair from extraEnv cannot win.
-	// An empty Home emits nothing rather than `HOME=''`: start() refuses such a
-	// spawn outright (claude_home_unresolved), so this stays unreachable in
-	// production and a test fixture does not get a broken HOME.
-	if ch.Home != "" {
-		pairs = append(pairs, [2]string{"HOME", ch.Home})
-	}
-	if ch.ConfigDir != "" {
-		pairs = append(pairs, [2]string{"CLAUDE_CONFIG_DIR", ch.ConfigDir})
-	}
+	pairs = append(pairs, claudeHomeExportPairs(ch)...)
 	kvs := make([]string, 0, len(pairs)+1)
 	// OC_TOKEN reads the 0600 token file at exec time — only the PATH rides the
 	// argv, never the token value (the tmux command line is visible machine-wide).
@@ -798,18 +822,32 @@ func osWriteFile(path, content string, mode os.FileMode) error {
 // pretrustWorkdir pre-marks workdir trusted in the claude.json at claudeJSONPath
 // BEFORE launch, so the fresh TUI lands on the composer instead of blocking on the
 // "trust this folder?" dialog (which would eat the boot nudge → dead-on-boot).
-// LOAD-BEARING. Semantic port of pretrust_launch_cwd — read-modify-write SAFELY:
-// preserve every existing top-level key, ensure projects["<abs workdir>"] exists,
-// and set only hasTrustDialogAccepted=true. A missing or unparsable file starts from
-// an empty config (only an absent/corrupt file is replaced — good data is NEVER
-// clobbered); any other read error (permission etc.) is surfaced, not swallowed.
-// Idempotent: re-trusting the same workdir is a no-op change. The write is ATOMIC
-// (temp file in the same dir + rename) at mode 0600, so a crash mid-write can never
-// truncate a live ~/.claude.json.
+// LOAD-BEARING. Semantic port of pretrust_launch_cwd. Idempotent: re-trusting the
+// same workdir is a no-op change.
+//
+// 🔴 IT IS ONLY HALF THE JOB. Writing the flag says nothing about whether the
+// spawned claude READS this file; claudetrust.go establishes that separately and
+// refuses the spawn when it cannot.
 //
 // The path is INJECTED (production passes the real ~/.claude.json; tests pass a temp
 // file) so a test can NEVER touch the live ~/.claude.json.
 func pretrustWorkdir(claudeJSONPath, workdir string) error {
+	return editClaudeProjectEntry(claudeJSONPath, workdir, func(entry map[string]any) {
+		entry["hasTrustDialogAccepted"] = true
+	})
+}
+
+// editClaudeProjectEntry is the read-modify-write both pretrustWorkdir and the
+// pre-trust probe's seed/clear go through, so there is one implementation of
+// "touch one project's entry without disturbing anything else".
+//
+// SAFELY: preserve every existing top-level key, create projects["<abs workdir>"]
+// only when absent, and hand fn that ONE entry to change. A missing or unparsable
+// file starts from an empty config (only an absent/corrupt file is replaced — good
+// data is NEVER clobbered); any other read error (permission etc.) is surfaced,
+// not swallowed. The write is ATOMIC (temp file in the same dir + rename) at mode
+// 0600, so a crash mid-write can never truncate a live ~/.claude.json.
+func editClaudeProjectEntry(claudeJSONPath, workdir string, fn func(entry map[string]any)) error {
 	data := map[string]any{}
 	raw, err := os.ReadFile(claudeJSONPath)
 	switch {
@@ -828,8 +866,6 @@ func pretrustWorkdir(claudeJSONPath, workdir string) error {
 		return err
 	}
 
-	// projects["<abs workdir>"].hasTrustDialogAccepted = true, creating the nested
-	// maps only when absent — every other existing key/entry is left untouched.
 	projects, ok := data["projects"].(map[string]any)
 	if !ok {
 		projects = map[string]any{}
@@ -840,7 +876,7 @@ func pretrustWorkdir(claudeJSONPath, workdir string) error {
 		entry = map[string]any{}
 		projects[workdir] = entry
 	}
-	entry["hasTrustDialogAccepted"] = true
+	fn(entry)
 
 	// Encode with HTML escaping OFF (mirrors json.dump(ensure_ascii=False)) and a
 	// 2-space indent (matches the python indent=2), then write atomically.
@@ -984,6 +1020,18 @@ type SpawnDeps struct {
 	// and the launch line states that same answer to the child, so there is
 	// nothing about this spawn's environment left for the seam to be told.
 	Pretrust func() error
+	// VerifyPretrust establishes the RESULT Pretrust only attempted: that the
+	// config file the spawned claude actually reads is one that carries the flag
+	// just written. It asks the claude binary itself, under the child's own
+	// environment prologue — see claudetrust.go for why nothing here models
+	// claude's resolution.
+	//
+	// 🔴 IT IS NOT NIL-SKIPPED. A nil seam WITH Pretrust wired refuses the spawn:
+	// "wrote a flag, verified nothing" is precisely the shape four reviews kept
+	// finding, so it must not be reachable by leaving a field out. Only a
+	// Pretrust-less deps literal (the Phase-2 seam-only shape, and tests that
+	// never write a flag) skips both.
+	VerifyPretrust func(workdir, envRendered string) error
 	// PurgeTrash (T-684c, nil-skipped) reaps <workdir>/trash at spawn time — the
 	// scratch the PREVIOUS generation of this agent mv'd there instead of rm-ing it
 	// (the harness's un-waivable dangerous-rm prompt stands in front of an agent's own rm; see
@@ -1031,8 +1079,9 @@ type SpawnDeps struct {
 // here without a decision. It closes two known shapes and makes the third
 // visible; it does not close the family. The earlier fallback comment in
 // tmuxDeliverNudge claimed a family was closed and was wrong — do not repeat it.
-func (d SpawnDeps) withPerSpawn(pretrust func() error, purgeTrash func()) SpawnDeps {
+func (d SpawnDeps) withPerSpawn(pretrust func() error, verifyPretrust func(workdir, envRendered string) error, purgeTrash func()) SpawnDeps {
 	d.Pretrust = pretrust
+	d.VerifyPretrust = verifyPretrust
 	d.PurgeTrash = purgeTrash
 	return d
 }
@@ -1368,6 +1417,15 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 		if err := d.Pretrust(); err != nil {
 			return SpawnOutcome{OK: false, Reason: fmt.Sprintf(
 				"pretrust_failed: marking workdir trusted in claude.json: %v", err)}
+		}
+		// Writing the flag is not the guarantee; the child reading THAT file is.
+		// A missing verifier is a wiring hole, not a "skip this step" option —
+		// refuse rather than spawn the exact shape this ticket exists to kill.
+		if d.VerifyPretrust == nil {
+			return SpawnOutcome{OK: false, Reason: "pretrust_unverified: a trust flag was written but no verifier is wired, so nothing establishes that the spawned claude reads the file it was written to"}
+		}
+		if err := d.VerifyPretrust(workdir, envRendered); err != nil {
+			return SpawnOutcome{OK: false, Reason: fmt.Sprintf("pretrust_unverified: %v", err)}
 		}
 	}
 

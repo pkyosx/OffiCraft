@@ -793,7 +793,10 @@ func TestBuildCommandDeps(t *testing.T) {
 		if err := os.WriteFile(envFile, []byte("HOME=/Volumes/scratch/home\nCLAUDE_CONFIG_DIR=/Volumes/scratch/cfg\n"), 0o600); err != nil {
 			t.Fatalf("seed env file: %v", err)
 		}
-		claudeBin := stageBinary(t, filepath.Join(box, "bin", "claude"), "#!/bin/sh\n")
+		// A claude that really resolves its config file the measured way, so the
+		// spawn's own pre-trust probe is answered by the file the child would
+		// read rather than by a scripted string.
+		claudeBin := stageResolvingClaude(t, filepath.Join(box, "bin", "claude"))
 		// The spawn refuses earlier when it cannot find ocagent, which would make
 		// this test pass for the wrong reason. Publish the sibling the production
 		// resolver looks for first.
@@ -817,7 +820,7 @@ func TestBuildCommandDeps(t *testing.T) {
 			"OC_AGENT_ENV_FILE": envFile, "OC_AGENT_ENV_INHERIT": "0",
 			"OC_CLAUDE_CRED_CHECK": "0", "OC_CLAUDE_BIN": claudeBin,
 		})
-		runner := &wardenRunner{script: map[string]wardenRun{
+		runner := &wardenRunner{shellPassthrough: true, script: map[string]wardenRun{
 			"tmux -L officraft has-session -t member-m1": {err: errors.New("can't find session: member-m1")},
 		}}
 		d := buildCommandDeps(Config{Base: "https://station.example"}, spawnEnv, runner)
@@ -861,7 +864,7 @@ func TestBuildCommandDeps(t *testing.T) {
 		// directly: with no redirect that answer is identical to the stated one, so
 		// a second resolution here would read exactly like the shared one.
 		box := t.TempDir()
-		claudeBin := stageBinary(t, filepath.Join(box, "bin", "claude"), "#!/bin/sh\n")
+		claudeBin := stageResolvingClaude(t, filepath.Join(box, "bin", "claude"))
 		exe, err := os.Executable()
 		if err != nil {
 			t.Fatalf("executable: %v", err)
@@ -883,7 +886,7 @@ func TestBuildCommandDeps(t *testing.T) {
 			"OC_AGENT_ENV_INHERIT": "0", "OC_CLAUDE_CRED_CHECK": "0", "OC_CLAUDE_BIN": claudeBin,
 			"OC_CLAUDE_JSON": filepath.Join(configDir, ".claude.json"),
 		})
-		runner := &wardenRunner{script: map[string]wardenRun{
+		runner := &wardenRunner{shellPassthrough: true, script: map[string]wardenRun{
 			"tmux -L officraft has-session -t member-m1": {err: errors.New("can't find session: member-m1")},
 		}}
 		d := buildCommandDeps(Config{Base: "https://station.example"}, spawnEnv, runner)

@@ -20,9 +20,18 @@ package main
 //	CLAUDE_CONFIG_DIR=D     → D/.claude.json, and D holds projects/ sessions/
 //	                          backups/ .credentials.json too
 //
-// So the guarantee cannot be "we know every input". It is "the child's
-// environment holds no CLAUDE_* we did not put there" — see the family purge at
-// the bottom of this file.
+// So the guarantee cannot be "we know every input", and — measured 2026-09-11 —
+// it cannot be about inputs at all: `<config dir>/.config.json`, when that file
+// merely EXISTS, is read INSTEAD of .claude.json, and no environment is involved
+// in that at all. Two things therefore carry the load, and neither is a
+// prediction:
+//
+//	INPUT SIDE   the child's environment holds no CLAUDE_* we did not put there
+//	             — the family purge at the bottom of this file.
+//	RESULT SIDE  the file the spawned claude REALLY reads carries the flag —
+//	             established per spawn by asking the claude binary itself, and a
+//	             spawn whose answer is anything other than yes is refused by
+//	             name. See claudetrust.go.
 //
 // The earlier shape of this fix PREDICTED what the child's environment would
 // become (HOME read back, "last export wins" modelled in Go) and refused a run
@@ -38,7 +47,9 @@ package main
 // the file pre-trust writes is derived from those same two values by
 // ClaudeJSONPath. Whatever the owner's interactive shell, ~/.zshrc or agent env
 // file carried is then irrelevant — not because we checked, because we overwrote
-// it. That is what makes the pairing causal rather than predicted.
+// it. That is causal rather than predicted FOR THE ENVIRONMENT, which is all it
+// was ever able to be: overwriting a variable does nothing about a file whose
+// existence alone moves the read, which is why the result-side check exists.
 //
 // ⚠️ CLAUDE_CONFIG_DIR is exported ONLY for an explicit OC_CLAUDE_JSON redirect,
 // and moving it MOVES THE CREDENTIALS FILE with it (.credentials.json lives in
@@ -66,10 +77,16 @@ type claudeHome struct {
 	ConfigDir string
 }
 
-// ClaudeJSONPath is the one file both ends use: what pretrustWorkdir writes and
-// what the child reads. It is a function of the two exported values, which is
-// the whole guarantee — there is no second resolution anywhere that could
-// disagree with this one.
+// ClaudeJSONPath is the file this end WRITES: pretrustWorkdir's target, derived
+// from the two values the launch line exports.
+//
+// 🔴 IT IS NOT A PREDICTION OF WHAT THE CHILD READS, and the earlier sentence
+// here that said no second resolution could disagree with it was measured wrong
+// on 2026-09-11: claude reads `<config dir>/.config.json` instead of
+// `.claude.json` whenever that file exists, which this function cannot see and
+// no environment hygiene can reach. What closes the gap is asking claude, after
+// the write, whether it can see the flag — claudetrust.go — not anything
+// asserted here.
 func (c claudeHome) ClaudeJSONPath() string {
 	if c.ConfigDir != "" {
 		return filepath.Join(c.ConfigDir, claudeJSONName)
@@ -257,7 +274,24 @@ func claudeEnvAllowedNames() []string {
 //     name either, and claude looks its settings up by identifier names, so
 //     this is a gap with no reachable exploit rather than a silent hole.
 //   - Verified to behave identically under /bin/zsh, /bin/bash, /bin/sh and
-//     /bin/dash, including the space-carrying-value case.
+//     /bin/dash, including the space-carrying-value case — by execution, not by
+//     recollection: TestBuildLaunchCommandWithEnv runs the real prologue under
+//     every one of those that exists on the host. tmux launches the child under
+//     its default-shell (/bin/zsh on these machines), so a check pinned to
+//     /bin/sh would be measuring a dialect production never uses.
+//
+// TWO WAYS THIS GOES SILENTLY DEAD, neither of which any test here can see,
+// because both are states of the shell the owner's env file left behind:
+//
+//   - IFS. The loop depends on `$(/usr/bin/env)` word-splitting on whitespace.
+//     An env file (or a .zshrc it sources) that sets IFS to something else makes
+//     the whole output one word, which matches no pattern, and the purge unsets
+//     NOTHING while still looking exactly like a purge that ran.
+//   - `typeset -r` / `readonly`. A CLAUDE_* variable marked read-only survives
+//     `unset`, and the shell prints its complaint on the agent's FIRST LINE —
+//     so the variable keeps redirecting the child AND the member opens with an
+//     error banner. The result-side check in claudetrust.go is what turns this
+//     from a silent survival into a named refusal.
 func claudeEnvPurgeFragment() string {
 	var b strings.Builder
 	b.WriteString("for __oc_e in $(/usr/bin/env); do case $__oc_e in ")

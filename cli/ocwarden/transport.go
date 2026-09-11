@@ -696,8 +696,14 @@ func buildCommandDeps(cfg Config, env func(string) string, runner CmdRunner) Com
 			// workdir pair. purgeTrash re-derives and re-validates the whole shape
 			// itself (direct-child containment, symlink refusal) — passing the root
 			// is what lets it do the containment check at all.
+			// The verifier is what turns the write above into a guarantee: it
+			// asks the claude binary itself, under this child's own environment
+			// prologue, whether the flag is visible to it. See claudetrust.go.
+			verify := newClaudePretrustVerifier(runner, socket, spawnDeps.ClaudeBin,
+				spawnDeps.ClaudeHome, stderrLogf)
 			return spawnDeps.withPerSpawn(
 				func() error { return pretrustWorkdir(claudeJSONPath, workdir) },
+				verify,
 				func() { purgeTrash(spawnDeps.Home, workdir, stderrLogf) },
 			).start(p)
 		},
