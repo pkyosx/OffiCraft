@@ -116,7 +116,7 @@ func TestResolveClaudeHome(t *testing.T) {
 	t.Run("an override under another filename can never be read and is refused", func(t *testing.T) {
 		_, err := resolveClaudeHome(fixtureEnv(fixtureHome, "/tmp/throwaway.json"), fixtureGetwd)
 		if err == nil {
-			t.Fatal("the child reads <config home>/.claude.json and nothing else, so any other name must be refused")
+			t.Fatal("pre-trust writes <config home>/.claude.json, so a valve pointing at any other name must be refused")
 		}
 		for _, want := range []string{"/tmp/throwaway.json", ".claude.json"} {
 			if !strings.Contains(err.Error(), want) {
