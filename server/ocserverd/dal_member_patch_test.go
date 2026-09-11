@@ -183,7 +183,6 @@ func TestMemberWholeRow(t *testing.T) {
 	m.Codename = "O-7"
 	linked := "T-1"
 	m.LinkedTaskID = &linked
-	m.AvatarAttachmentID = "att-1"
 
 	got := memberWholeRow(m)
 	want := []memberField{
@@ -218,7 +217,6 @@ func TestMemberWholeRow(t *testing.T) {
 		{col: "created_ts", val: 1700000000.0},
 		{col: "released_ts", val: 1700000010.0},
 		{col: "activated_ts", val: 1700000011.0},
-		{col: "avatar_attachment_id", val: "att-1", insertOnly: true},
 		{col: "forced_stop_at", val: 1700000006.0, forwardOnly: true},
 		{col: "handover_noticed_ts", val: 1700000007.0, insertOnly: true},
 		{col: "agent_iat_floor", val: 1700000008.0, insertOnly: true, forwardOnly: true},

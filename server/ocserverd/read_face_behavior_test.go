@@ -44,7 +44,7 @@ import (
 // struct, so this is an exact body key set, not a ceiling.
 var memberReadFaceKeys = []string{
 	"actual_effort", "actual_machine", "actual_model", "actual_runtime",
-	"avatar_url", "desired_machine_id", "desired_state", "effort",
+	"avatar_icon_id", "desired_machine_id", "desired_state", "effort",
 	"forced_stop_at", "id", "kind", "last_op", "last_op_at", "last_op_log",
 	"last_op_ok", "last_op_reason", "machine", "model", "name", "owner_id",
 	"presence", "refocus_deadline", "refocus_op", "refocus_since", "role_key",
@@ -57,7 +57,7 @@ var memberReadFaceKeys = []string{
 // this set or this set minus that key — never anything else.
 var workerReadFaceKeys = []string{
 	"account", "actual_effort", "actual_machine", "actual_model",
-	"actual_runtime", "avatar_url", "banked_cost", "codename",
+	"actual_runtime", "avatar_icon_id", "banked_cost", "codename",
 	"compaction_count", "context_pct", "cost", "created_ts", "creator_id",
 	"delegated_by", "desired_machine_id", "desired_state", "effort", "id",
 	"last_op", "last_op_at", "last_op_log", "last_op_ok", "last_op_reason",

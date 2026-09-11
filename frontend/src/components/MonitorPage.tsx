@@ -44,7 +44,7 @@ import "./member-detail.css";
 import "./monitor.css";
 
 export function MonitorPage() {
-  const { t, msg } = useI18n();
+  const { t, msg, theme } = useI18n();
   const { settings } = useServerSettings();
   const refreshSeconds = settings?.monitoringRefreshSeconds ?? 5;
   const { monitoring, refetch } = useMonitoring({ refreshSeconds });
@@ -285,28 +285,12 @@ export function MonitorPage() {
             );
           }
         }}
-        onUpdateAvatar={async (file) => {
-          await api.updateMemberAvatar(detail.id, file);
-          // The avatar is uploaded whatever the roster read does next.
+        onSetThemeAvatar={async (iconId) => {
+          await api.setMemberThemeAvatar(detail.id, theme, iconId);
           try {
             await refetchMembers();
-          } catch (e) {
-            console.warn(
-              "MonitorPage: post-avatar-upload refetch failed (the avatar was saved)",
-              e
-            );
-          }
-        }}
-        onRemoveAvatar={async () => {
-          await api.removeMemberAvatar(detail.id);
-          // And the removal is equally done before this read is sent.
-          try {
-            await refetchMembers();
-          } catch (e) {
-            console.warn(
-              "MonitorPage: post-avatar-remove refetch failed (the avatar was removed)",
-              e
-            );
+          } catch {
+            /* the acknowledged mutation outlives a failed refresh */
           }
         }}
       />
@@ -1968,7 +1952,7 @@ function SessionRow({
           <Avatar
             size={34}
             kind={roster ? avatarKindForMember(roster) : "member"}
-            src={roster?.avatarUrl}
+            avatarIconId={roster?.avatarIconId}
           />
           <div className="mon-member__body">
             <div className="mon-member__name">{cells.member}</div>
@@ -2076,7 +2060,7 @@ function OutsourceSessionRow({
     >
       <td className="mon-table__left" data-label={t.monitor.sessionCol.member}>
         <div className="mon-member">
-          <Avatar size={34} kind="outsource" src={worker.avatarUrl} />
+          <Avatar size={34} kind="outsource" avatarIconId={worker.avatarIconId} />
           <div className="mon-member__body">
             <div className="mon-member__name">{cells.member || dash}</div>
             <div className="mon-member__sub">

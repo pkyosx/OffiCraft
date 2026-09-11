@@ -10,6 +10,19 @@ import (
 	"testing"
 )
 
+// dataURI packs raw bytes into a `data:<mime>;base64,<...>` URI.
+func dataURI(mime string, raw []byte) string {
+	return "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(raw)
+}
+
+// Minimal byte payloads that begin with each format's magic bytes (the
+// validator checks magic bytes + size, not full image structure).
+var (
+	pngBytes  = []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x01, 0x02, 0x03}
+	jpegBytes = []byte{0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46}
+	webpBytes = []byte{'R', 'I', 'F', 'F', 0x10, 0x00, 0x00, 0x00, 'W', 'E', 'B', 'P', 0x00}
+)
+
 func TestValidImageValue(t *testing.T) {
 	valid := []struct {
 		name string
@@ -58,27 +71,138 @@ func TestValidImageValue(t *testing.T) {
 }
 
 func TestValidateAvatars(t *testing.T) {
-	valid := imageDataURI("image/png", []byte{0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a})
 	if err := validateAvatars(nil, "theme[0]"); err != nil {
 		t.Fatalf("validateAvatars(nil): %v", err)
 	}
-	values := map[string]string{"member": valid, "outsource": valid, "owner": valid, "assistant": valid}
-	if err := validateAvatars(&values, "theme[0]"); err != nil {
-		t.Fatalf("validateAvatars(valid): %v", err)
+
+	// Canonical single-image identities remain owner and assistant.
+	ok := map[string]string{
+		"owner":     dataURI("image/jpeg", jpegBytes),
+		"assistant": dataURI("image/png", pngBytes),
 	}
-	for _, tt := range []struct {
-		name string
-		data map[string]string
-		want string
-	}{
-		{name: "unknown kind", data: map[string]string{"robot": valid}, want: "not allowed"},
-		{name: "invalid image", data: map[string]string{"member": "not-an-image"}, want: "avatars[member]"},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			if err := validateAvatars(&tt.data, "theme[0]"); err == nil || !strings.Contains(err.Error(), tt.want) {
-				t.Fatalf("validateAvatars() error = %v, want substring %q", err, tt.want)
-			}
-		})
+	if err := validateAvatars(&ok, "t"); err != nil {
+		t.Fatalf("legal avatars overlay must pass: %v", err)
+	}
+
+	// An unknown kind key is rejected, and the message names the canonical set.
+	badKind := map[string]string{"boss": dataURI("image/png", pngBytes)}
+	if err := validateAvatars(&badKind, "t"); err == nil ||
+		!strings.Contains(err.Error(), "only owner, assistant") {
+		t.Fatalf("unknown avatar kind must 422 naming the kind set: %v", err)
+	}
+
+	// A bad value under a legal kind is rejected with the locator.
+	badVal := map[string]string{"assistant": dataURI("image/svg+xml", []byte("<svg/>"))}
+	if err := validateAvatars(&badVal, "cx[0]"); err == nil ||
+		!strings.Contains(err.Error(), "cx[0]: avatars[assistant]") {
+		t.Fatalf("bad avatar value must 422 with locator: %v", err)
+	}
+}
+
+func TestNormalizeAndValidateAvatarPools(t *testing.T) {
+	memberImage := dataURI("image/png", pngBytes)
+	legacy := map[string]string{
+		"member": memberImage,
+		"owner":  dataURI("image/jpeg", jpegBytes),
+	}
+	bundle := ThemeBundleDTO{Avatars: &legacy}
+	if err := normalizeThemeAvatarPools(&bundle, "theme"); err != nil {
+		t.Fatal(err)
+	}
+	if bundle.AvatarPools == nil || len((*bundle.AvatarPools)["member"]) != 1 ||
+		(*bundle.AvatarPools)["member"][0].Image != memberImage {
+		t.Fatalf("legacy member image was not normalized: %+v", bundle.AvatarPools)
+	}
+	// The normalized item carries the derived identity a member's selection
+	// points at, so a legacy bundle is selectable without a data migration.
+	if id := (*bundle.AvatarPools)["member"][0].Id; id == nil || *id != themeIconID(memberImage) {
+		t.Fatalf("normalized legacy image has no stable id: %+v", id)
+	}
+	if bundle.Avatars == nil || (*bundle.Avatars)["owner"] == "" {
+		t.Fatalf("owner singleton must remain canonical: %+v", bundle.Avatars)
+	}
+	if _, exists := (*bundle.Avatars)["member"]; exists {
+		t.Fatal("legacy member key must be omitted after normalization")
+	}
+
+	tooMany := map[string][]ThemeIconDTO{
+		"member": make([]ThemeIconDTO, maxAvatarPoolItems+1),
+	}
+	if err := validateAvatarPools(&tooMany, "theme"); err == nil ||
+		!strings.Contains(err.Error(), "at most 12") {
+		t.Fatalf("oversized pool must be rejected: %v", err)
+	}
+	bothAvatar := map[string]string{"member": memberImage}
+	bothPool := map[string][]ThemeIconDTO{"member": {{Image: memberImage}}}
+	both := ThemeBundleDTO{Avatars: &bothAvatar, AvatarPools: &bothPool}
+	if err := normalizeThemeAvatarPools(&both, "theme"); err == nil ||
+		!strings.Contains(err.Error(), "cannot define both") {
+		t.Fatalf("ambiguous legacy/canonical input must be rejected: %v", err)
+	}
+}
+
+// TestValidateThemeBundlesAvatars checks the avatars overlay flows through the
+// top-level bundle validator (parity with colours / wording / fonts).
+func TestValidateThemeBundlesAvatars(t *testing.T) {
+	avatars := map[string]string{"member": dataURI("image/png", pngBytes)}
+	legal := []ThemeBundleDTO{{
+		Id:      "midnight",
+		Name:    "Midnight",
+		Colors:  map[string]string{"--color-bg": "#101018"},
+		Avatars: &avatars,
+	}}
+	// The write face normalizes BEFORE it validates, and a legacy
+	// `avatars.member` singleton is exactly what normalization exists to move:
+	// it becomes a one-image pool, so `member` never reaches the singleton
+	// validator. Validating without that step asks a question the product
+	// never asks.
+	if err := normalizeThemeBundles(legal); err != nil {
+		t.Fatalf("legacy singleton must normalize: %v", err)
+	}
+	if err := validateThemeBundles(legal); err != nil {
+		t.Fatalf("bundle with a legal avatars overlay must pass: %v", err)
+	}
+	if pool := (*legal[0].AvatarPools)["member"]; len(pool) != 1 || pool[0].Id == nil {
+		t.Fatalf("legacy singleton did not become an identified pool item: %+v", pool)
+	}
+
+	// The illegal half stays on a SINGLETON kind: the point is the image gate,
+	// and routing it through normalization first would test the pool path.
+	bad := map[string]string{"assistant": dataURI("image/svg+xml", []byte("<svg onload=alert(1)>"))}
+	illegal := []ThemeBundleDTO{{
+		Id:      "midnight",
+		Name:    "Midnight",
+		Colors:  map[string]string{"--color-bg": "#101018"},
+		Avatars: &bad,
+	}}
+	if err := validateThemeBundles(illegal); err == nil ||
+		!strings.Contains(err.Error(), "not an allowed image type") {
+		t.Fatalf("bundle with an SVG avatar must 422: %v", err)
+	}
+
+	// Backward compatibility: a pre-T-ea81 bundle carrying only member/outsource
+	// avatars and no logo/navIcons/backgrounds stays valid unchanged.
+	legacy := map[string]string{
+		"member":    dataURI("image/png", pngBytes),
+		"outsource": dataURI("image/webp", webpBytes),
+	}
+	legacyBundles := []ThemeBundleDTO{{
+		Id:      "midnight",
+		Name:    "Midnight",
+		Colors:  map[string]string{"--color-bg": "#101018"},
+		Avatars: &legacy,
+	}}
+	// Same order the write face uses: normalize, then validate. Both singletons
+	// become one-image pools and the bundle stays admissible unchanged.
+	if err := normalizeThemeBundles(legacyBundles); err != nil {
+		t.Fatalf("legacy avatars-only bundle must normalize: %v", err)
+	}
+	if err := validateThemeBundles(legacyBundles); err != nil {
+		t.Fatalf("legacy avatars-only bundle must stay valid: %v", err)
+	}
+	pools := *legacyBundles[0].AvatarPools
+	if len(pools["member"]) != 1 || len(pools["outsource"]) != 1 {
+		t.Fatalf("both legacy singletons must become pools: %+v", pools)
 	}
 }
 

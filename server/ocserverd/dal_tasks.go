@@ -1169,9 +1169,7 @@ type OutsourceWorker struct {
 	// owner-visible spend. Kept separate from the live figure (never
 	// overlapping); the panel sums live + banked.
 	BankedCost float64
-	// AvatarAttachmentID is the shared member row's personal-avatar pointer.
 	// Carry it through every worker projection so lifecycle writes never erase it.
-	AvatarAttachmentID string
 }
 
 // workerStatusFromMember derives the frozen worker lifecycle vocabulary from
@@ -1196,37 +1194,36 @@ func workerFromMember(m Member) OutsourceWorker {
 		taskID = *m.LinkedTaskID
 	}
 	return OutsourceWorker{
-		ID:                 m.ID,
-		Codename:           m.Codename,
-		Runtime:            NormalizeRuntime(m.Runtime),
-		Model:              m.Model,
-		ActualModel:        m.ActualModel,
-		ActualRuntime:      m.ActualRuntime,
-		ActualEffort:       m.ActualEffort,
-		Effort:             m.Effort,
-		TaskID:             taskID,
-		Status:             workerStatusFromMember(m.RosterStatus, m.ActivatedTS),
-		ActivatedTS:        m.ActivatedTS,
-		CreatedTS:          m.CreatedTS,
-		ReleasedTS:         m.ReleasedTS,
-		LastOp:             m.LastOp,
-		LastOpOK:           m.LastOpOK,
-		LastOpLog:          m.LastOpLog,
-		LastOpReason:       m.LastOpReason,
-		LastOpAt:           m.LastOpAt,
-		DesiredMachineID:   m.DesiredMachineID,
-		LastMachineID:      m.LastMachineID,
-		SessionBootTS:      m.SessionBootTS,
-		RefocusSince:       m.RefocusSince,
-		RefocusOp:          m.RefocusOp,
-		StoppingSince:      m.StoppingSince,
-		StoppedSince:       m.StoppedSince,
-		WakingSince:        m.WakingSince,
-		ForcedStopAt:       m.ForcedStopAt,
-		DesiredState:       m.DesiredState,
-		RestartAfterStop:   m.RestartAfterStop,
-		BankedCost:         m.BankedCost,
-		AvatarAttachmentID: m.AvatarAttachmentID,
+		ID:               m.ID,
+		Codename:         m.Codename,
+		Runtime:          NormalizeRuntime(m.Runtime),
+		Model:            m.Model,
+		ActualModel:      m.ActualModel,
+		ActualRuntime:    m.ActualRuntime,
+		ActualEffort:     m.ActualEffort,
+		Effort:           m.Effort,
+		TaskID:           taskID,
+		Status:           workerStatusFromMember(m.RosterStatus, m.ActivatedTS),
+		ActivatedTS:      m.ActivatedTS,
+		CreatedTS:        m.CreatedTS,
+		ReleasedTS:       m.ReleasedTS,
+		LastOp:           m.LastOp,
+		LastOpOK:         m.LastOpOK,
+		LastOpLog:        m.LastOpLog,
+		LastOpReason:     m.LastOpReason,
+		LastOpAt:         m.LastOpAt,
+		DesiredMachineID: m.DesiredMachineID,
+		LastMachineID:    m.LastMachineID,
+		SessionBootTS:    m.SessionBootTS,
+		RefocusSince:     m.RefocusSince,
+		RefocusOp:        m.RefocusOp,
+		StoppingSince:    m.StoppingSince,
+		StoppedSince:     m.StoppedSince,
+		WakingSince:      m.WakingSince,
+		ForcedStopAt:     m.ForcedStopAt,
+		DesiredState:     m.DesiredState,
+		RestartAfterStop: m.RestartAfterStop,
+		BankedCost:       m.BankedCost,
 	}
 }
 
@@ -1293,20 +1290,19 @@ func memberFromWorker(w OutsourceWorker) Member {
 		// alone: it CLEARS it, on every single worker write. That is a silent
 		// erasure — no error, no red test that does not look for it specifically —
 		// so it has its own mutant in the T-65 包② DoD.
-		RestartAfterStop:   w.RestartAfterStop,
-		BankedCost:         w.BankedCost,
-		LastOp:             w.LastOp,
-		LastOpOK:           w.LastOpOK,
-		LastOpLog:          w.LastOpLog,
-		LastOpReason:       w.LastOpReason,
-		LastOpAt:           w.LastOpAt,
-		RosterStatus:       roster,
-		LinkedTaskID:       &taskID,
-		Codename:           w.Codename,
-		CreatedTS:          w.CreatedTS,
-		ReleasedTS:         w.ReleasedTS,
-		ActivatedTS:        activated,
-		AvatarAttachmentID: w.AvatarAttachmentID,
+		RestartAfterStop: w.RestartAfterStop,
+		BankedCost:       w.BankedCost,
+		LastOp:           w.LastOp,
+		LastOpOK:         w.LastOpOK,
+		LastOpLog:        w.LastOpLog,
+		LastOpReason:     w.LastOpReason,
+		LastOpAt:         w.LastOpAt,
+		RosterStatus:     roster,
+		LinkedTaskID:     &taskID,
+		Codename:         w.Codename,
+		CreatedTS:        w.CreatedTS,
+		ReleasedTS:       w.ReleasedTS,
+		ActivatedTS:      activated,
 	}
 }
 

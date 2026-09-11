@@ -286,9 +286,6 @@ type Member struct {
 	CreatedTS   float64
 	ReleasedTS  float64
 	ActivatedTS float64
-	// AvatarAttachmentID points at this stable member id's one personal image
-	// in the shared byte store. Empty means no personal image.
-	AvatarAttachmentID string
 }
 
 // RosterStatusRemoved is the soft-delete lifecycle value (the Python
@@ -304,7 +301,7 @@ const memberColumns = `id, name, kind, role_key, runtime, model, actual_model, e
 	waking_since, stopping_since, stopped_since, refocus_since, refocus_op, banked_cost,
 	last_op, last_op_ok, last_op_log, last_op_reason, last_op_at, roster_status,
 	linked_task_id, codename, created_ts, released_ts, activated_ts,
-	avatar_attachment_id, forced_stop_at, handover_noticed_ts, agent_iat_floor,
+	forced_stop_at, handover_noticed_ts, agent_iat_floor,
 	restart_after_stop, token_key_id`
 
 func scanMember(row interface{ Scan(...any) error }) (Member, error) {
@@ -319,7 +316,7 @@ func scanMember(row interface{ Scan(...any) error }) (Member, error) {
 		&m.BankedCost,
 		&m.LastOp, &lastOpOK, &m.LastOpLog, &m.LastOpReason, &m.LastOpAt, &m.RosterStatus,
 		&linkedTaskID, &codename, &m.CreatedTS, &m.ReleasedTS, &m.ActivatedTS,
-		&m.AvatarAttachmentID, &m.ForcedStopAt, &m.HandoverNoticedTS, &m.AgentIatFloor,
+		&m.ForcedStopAt, &m.HandoverNoticedTS, &m.AgentIatFloor,
 		&m.RestartAfterStop, &m.TokenKeyID,
 	)
 	if err != nil {
@@ -414,10 +411,6 @@ func (d *DAL) GetMember(id string) (*Member, error) {
 // between "the owner picked claude" and "nobody has picked yet", which is what
 // resolveEmptyRuntimeForPlacement needs at placement time.
 //
-// (The paragraph that used to sit here explained why PutMember's conflict clause
-// left avatar_attachment_id alone. That clause is gone; the column is now
-// declared insertOnly, and its reason lives on mfAvatarAttachmentID in
-// dal_member_patch.go with the rest of the property table.)
 // ── account spend (T-53, owner ruling rc-5c5d7c7c6dcd) ───────────────────────
 //
 // The ACCOUNT's own accumulated spend, the number the cockpit's account card
@@ -641,6 +634,113 @@ func (d *DAL) SetMemberForcedStopAt(id string, ts float64) error {
 	return d.PatchMember(id, mfForcedStopAt(ts))
 }
 
+// SetMemberThemeAvatar records ONE member's explicit avatar choice inside ONE
+// theme. The primary key is (member_id, theme_id), so the write replaces only
+// that pair and a choice the same member made in another theme survives.
+//
+// The table is written ONLY from here. Nothing writes a default: a member with
+// no row has made no choice, and the client renders the first pool image for
+// that visit without persisting it. That is what keeps "never chose" and "chose
+// the first image" apart.
+func (d *DAL) SetMemberThemeAvatar(memberID, themeID, iconID string) error {
+	_, err := d.wdb.Exec(
+		`INSERT INTO member_theme_avatar (member_id, theme_id, icon_id)
+		 VALUES (?, ?, ?)
+		 ON CONFLICT (member_id, theme_id) DO UPDATE SET icon_id = excluded.icon_id`,
+		memberID, themeID, iconID,
+	)
+	return err
+}
+
+// MemberThemeAvatars reads every member's choice for ONE theme as member id →
+// icon id. A member with no row is absent from the map, which is the signal the
+// caller needs to send `null` on the wire rather than a manufactured default.
+func (d *DAL) MemberThemeAvatars(themeID string) (map[string]string, error) {
+	rows, err := d.rdb.Query(
+		`SELECT member_id, icon_id FROM member_theme_avatar WHERE theme_id = ?`, themeID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]string{}
+	for rows.Next() {
+		var memberID, iconID string
+		if err := rows.Scan(&memberID, &iconID); err != nil {
+			return nil, err
+		}
+		out[memberID] = iconID
+	}
+	return out, rows.Err()
+}
+
+// DeleteMemberThemeAvatars removes every choice a member holds, in every theme.
+// A removed member must leave no association behind: the ids are reused by
+// nothing, but a dangling row would resurface if an id ever came back.
+func (d *DAL) DeleteMemberThemeAvatars(memberID string) error {
+	_, err := d.wdb.Exec(`DELETE FROM member_theme_avatar WHERE member_id = ?`, memberID)
+	return err
+}
+
+// PruneMemberThemeAvatars drops every association row that the given themes can
+// no longer resolve. `live` maps a stored theme id to the set of icon ids in
+// that theme's pools; a theme absent from the map was deleted, and an icon id
+// absent from its set was removed from the pool.
+//
+// This runs on the theme write and theme delete paths (PUT and DELETE
+// /api/themes/{theme_id}), which are the only places themes and pools change.
+// Deleting the row (rather than leaving it to fail resolution at render time)
+// is what stops a deleted theme's selection from reappearing if a later theme
+// is created with the same id.
+//
+// ⚠️ A NIL `live` IS REFUSED, and that guard is load-bearing rather than
+// defensive tidiness. Reading a Go map that is nil is legal and silent: every
+// lookup answers "absent". So a nil set does not prune nothing — it marks EVERY
+// row stale and deletes the whole table, and then returns success. The only
+// caller that can produce one is a caller whose own read of the themes failed,
+// which is exactly when it must not be trusted to say what is live. The callers
+// already skip the prune in that case (api_themes.go); this refusal is the
+// second line, the one that still holds when a future caller gets that wrong.
+// An EMPTY BUT NON-NIL set stays legal on purpose: that is the true and
+// reachable state "the owner deleted every custom theme", and pruning every
+// association is then the correct answer.
+func (d *DAL) PruneMemberThemeAvatars(live map[string]map[string]bool) error {
+	if live == nil {
+		return errors.New("prune member_theme_avatar: refusing a nil live-theme set (an unread theme list is not an empty one)")
+	}
+	rows, err := d.rdb.Query(`SELECT member_id, theme_id, icon_id FROM member_theme_avatar`)
+	if err != nil {
+		return err
+	}
+	type key struct{ member, theme string }
+	var stale []key
+	for rows.Next() {
+		var k key
+		var iconID string
+		if err := rows.Scan(&k.member, &k.theme, &iconID); err != nil {
+			rows.Close()
+			return err
+		}
+		icons, themeLives := live[k.theme]
+		if !themeLives || !icons[iconID] {
+			stale = append(stale, k)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+	for _, k := range stale {
+		if _, err := d.wdb.Exec(
+			`DELETE FROM member_theme_avatar WHERE member_id = ? AND theme_id = ?`,
+			k.member, k.theme,
+		); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // SetMemberSessionBootTS writes ONLY member.session_boot_ts (T-4235). It is a
 // targeted column UPDATE rather than a PutMember round-trip for two reasons,
 // both load-bearing:
@@ -826,32 +926,23 @@ func (d *DAL) HardDeleteMember(id string) (bool, error) {
 		return false, err
 	}
 	defer tx.Rollback()
-	var avatarID string
-	err = tx.QueryRow(`SELECT avatar_attachment_id FROM member WHERE id = ?`, id).Scan(&avatarID)
+	var exists int
+	err = tx.QueryRow(`SELECT 1 FROM member WHERE id = ?`, id).Scan(&exists)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}
 	if err != nil {
 		return false, err
 	}
+	// The member's per-theme avatar choices go with the row. Nothing else is
+	// owned by a member: the retired personal-image pointer is gone, so there
+	// is no dedicated blob left to collect here.
+	if _, err := tx.Exec(`DELETE FROM member_theme_avatar WHERE member_id = ?`, id); err != nil {
+		return false, err
+	}
 	res, err := tx.Exec(`DELETE FROM member WHERE id = ?`, id)
 	if err != nil {
 		return false, err
-	}
-	if avatarID != "" {
-		// The avatar id is dedicated by contract, but deletion must remain safe
-		// even if a future writer drops that guard or old/corrupt data contains
-		// another reference. The member row is already gone inside this tx, so
-		// only a genuinely surviving record can veto collection here.
-		surviving := map[string]bool{}
-		if err := collectSurvivingBlobRefs(tx, surviving); err != nil {
-			return false, err
-		}
-		if !surviving[avatarID] {
-			if _, err := tx.Exec(`DELETE FROM chat_attachment WHERE id = ?`, avatarID); err != nil {
-				return false, err
-			}
-		}
 	}
 	n, err := res.RowsAffected()
 	if err != nil {
@@ -1567,11 +1658,12 @@ func refIDsFromJSON(blob string, into map[string]bool) {
 // This is the widest GC path for the GENERAL attachment graph
 // (`DeleteTaskArtifact` leaves the LIVE artifact's blob alone, and collects the
 // blobs of its retained versions; `ReplaceTaskArtifact` collects the blob of a
-// version it trims off the end). The T-c826 avatar lifecycle has its own
-// single-owner delete paths; HardDeleteMember reuses this same survivor scan so
-// corrupt/legacy cross-references still fail safe. As of T-60 the
-// blob-referencing columns in the schema are exactly these six, and
-// `collectSurvivingBlobRefs` reads all six:
+// version it trims off the end). HardDeleteMember reuses this same survivor
+// scan so corrupt/legacy cross-references still fail safe. A member row
+// references NO blob: the personal-avatar pointer was retired, and a member's
+// face is a theme image chosen by id (member_theme_avatar). As of T-60 the
+// blob-referencing columns in the schema are exactly these five, and
+// `collectSurvivingBlobRefs` reads all five:
 //
 //	chat_message.meta $.attachments[].id
 //	reply_card.answer_attachments[].id
@@ -1579,7 +1671,6 @@ func refIDsFromJSON(blob string, into map[string]bool) {
 //	task_artifact.attachment_id          (T-62a8 — EVERY kind since T-92: a link's
 //	                                     target is a text/uri-list blob, so link rows
 //	                                     vote too and this code needed no change)
-//	member.avatar_attachment_id           (T-c826 — dedicated personal image)
 //	task_artifact_history.attachment_id   (T-60 — a REPLACED artifact version)
 //
 // ⚠️ ONE column holds blob ids and deliberately does NOT vote:
@@ -1766,31 +1857,7 @@ func collectSurvivingBlobRefs(tx *sql.Tx, into map[string]bool) error {
 	}
 	artRows.Close()
 
-	// 5. personal member avatars (T-c826). Avatar ids are isolated behind an
-	//    ava- prefix and general attachment writers reject that prefix, but the
-	//    liveness verdict must not rely on a distant string guard: if a blob is
-	//    referenced by a surviving member row, deleting it is data loss.
-	memberRows, err := tx.Query(
-		`SELECT avatar_attachment_id FROM member
-		 WHERE COALESCE(avatar_attachment_id, '') <> ''`)
-	if err != nil {
-		return err
-	}
-	for memberRows.Next() {
-		var id string
-		if err := memberRows.Scan(&id); err != nil {
-			memberRows.Close()
-			return err
-		}
-		into[id] = true
-	}
-	if err := memberRows.Err(); err != nil {
-		memberRows.Close()
-		return err
-	}
-	memberRows.Close()
-
-	// 6. RETAINED ARTIFACT VERSIONS (T-60) — a deliverable that was REPLACED
+	// 5. RETAINED ARTIFACT VERSIONS (T-60) — a deliverable that was REPLACED
 	//    keeps its previous versions, and a retained version's blob is as real
 	//    a referrer as the live row's: replacing an artifact must not delete
 	//    the file the earlier version still points at, and neither must the
@@ -2007,69 +2074,6 @@ func (d *DAL) GetChatAttachment(id string) (*ChatAttachment, error) {
 		a.Filename = &filename.String
 	}
 	return &a, nil
-}
-
-// ReplaceMemberAvatar atomically stores a freshly minted dedicated avatar,
-// switches the stable member pointer, and deletes the prior dedicated blob.
-// The member must already exist; a vanished row is errNotFound.
-func (d *DAL) ReplaceMemberAvatar(memberID string, avatar ChatAttachment) error {
-	tx, err := d.wdb.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	var previous string
-	if err := tx.QueryRow(
-		`SELECT avatar_attachment_id FROM member WHERE id = ?`, memberID,
-	).Scan(&previous); errors.Is(err, sql.ErrNoRows) {
-		return errNotFound
-	} else if err != nil {
-		return err
-	}
-	if err := putChatAttachmentOn(tx, avatar); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(
-		`UPDATE member SET avatar_attachment_id = ? WHERE id = ?`,
-		avatar.ID, memberID,
-	); err != nil {
-		return err
-	}
-	if previous != "" && previous != avatar.ID {
-		if _, err := tx.Exec(`DELETE FROM chat_attachment WHERE id = ?`, previous); err != nil {
-			return err
-		}
-	}
-	return tx.Commit()
-}
-
-// DeleteMemberAvatar atomically clears the pointer and deletes the owned blob.
-// It is idempotent when the member already has no personal avatar.
-func (d *DAL) DeleteMemberAvatar(memberID string) error {
-	tx, err := d.wdb.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	var previous string
-	if err := tx.QueryRow(
-		`SELECT avatar_attachment_id FROM member WHERE id = ?`, memberID,
-	).Scan(&previous); errors.Is(err, sql.ErrNoRows) {
-		return errNotFound
-	} else if err != nil {
-		return err
-	}
-	if _, err := tx.Exec(
-		`UPDATE member SET avatar_attachment_id = '' WHERE id = ?`, memberID,
-	); err != nil {
-		return err
-	}
-	if previous != "" {
-		if _, err := tx.Exec(`DELETE FROM chat_attachment WHERE id = ?`, previous); err != nil {
-			return err
-		}
-	}
-	return tx.Commit()
 }
 
 // ── chat read receipts (per-conversation last-read watermark) ────────────────

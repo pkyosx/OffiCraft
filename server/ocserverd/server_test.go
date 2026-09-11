@@ -511,8 +511,8 @@ func TestBuildHandler(t *testing.T) {
 func TestSpecsFor(t *testing.T) {
 	api, _, d, owner := newAPITestServer(t)
 	specs := specsFor(api)
-	if len(specs) != 187 {
-		t.Fatalf("specsFor returned %d routes, want 187", len(specs))
+	if len(specs) != 186 {
+		t.Fatalf("specsFor returned %d routes, want 186", len(specs))
 	}
 	if api.catalogHash != "f854376232a9ffb1" {
 		t.Fatalf("catalogHash = %q, want %q", api.catalogHash, "f854376232a9ffb1")

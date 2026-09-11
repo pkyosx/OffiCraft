@@ -29,7 +29,7 @@ func apiTestWorkerFixture(t *testing.T, h http.Handler, d *DAL, owner, id, statu
 func apiTestWorkerRow(t *testing.T, over map[string]any) map[string]any {
 	t.Helper()
 	row := map[string]any{
-		"id": "ow-abc123", "avatar_url": "", "codename": "Contractor",
+		"id": "ow-abc123", "avatar_icon_id": nil, "codename": "Contractor",
 		"runtime": "claude", "model": "sonnet", "effort": "medium",
 		"actual_model": "", "actual_runtime": "", "actual_effort": "",
 		"status": "assigned", "task_id": "T-1", "task_title": "Ship the crate",

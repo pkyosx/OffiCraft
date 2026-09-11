@@ -927,7 +927,7 @@ func TestNewOutsourceWorkerDTO(t *testing.T) {
 		TaskID: "t-1", Status: WorkerStatusActive, CreatedTS: 100,
 		LastOp: "start", LastOpOK: &okTrue, LastOpLog: "ok", LastOpReason: "",
 		LastOpAt: 150, DesiredMachineID: "m-2", LastMachineID: "m-1",
-		AvatarAttachmentID: "att-9", BankedCost: 3.5,
+		BankedCost:   3.5,
 		RefocusSince: 900, RefocusOp: refocusOpAcceleratedStop, DesiredState: DesiredStateOnline,
 	}
 	proj := outsourceWorkerProjection{
@@ -950,7 +950,7 @@ func TestNewOutsourceWorkerDTO(t *testing.T) {
 		wantCompaction := 2
 		wantAccount := "Studio acct-1"
 		want := outsourceWorkerDTO{
-			ID: "w-1", AvatarURL: "/api/chat/attachment/att-9", Codename: "O-7",
+			ID: "w-1", Codename: "O-7",
 			Runtime: "claude", Model: "claude-opus-4-6", Effort: "high",
 			ActualModel: "claude-opus-4-5", ActualRuntime: "claude", ActualEffort: "medium",
 			Status: "active", TaskID: "t-1", TaskTitle: "Fix the thing",
@@ -992,8 +992,8 @@ func TestNewOutsourceWorkerDTO(t *testing.T) {
 			got.BankedCost != nil || got.CompactionCount != nil {
 			t.Fatalf("newOutsourceWorkerDTO(nothing reported) fabricated runtime facts: %+v", got)
 		}
-		if got.AvatarURL != "" {
-			t.Fatalf("newOutsourceWorkerDTO(no avatar).AvatarURL = %q, want the empty string", got.AvatarURL)
+		if got.AvatarIconID != nil {
+			t.Fatalf("newOutsourceWorkerDTO(no avatar choice).AvatarIconID = %q, want null", *got.AvatarIconID)
 		}
 		if got.Runtime != "claude" {
 			t.Fatalf("newOutsourceWorkerDTO(blank runtime).Runtime = %q, want the normalised default", got.Runtime)

@@ -5806,19 +5806,6 @@ func TestHandleAddTaskArtifactApiTasksTaskIdArtifactPost(t *testing.T) {
 		})
 	})
 
-	t.Run("an attachment_id reserved for a member avatar is refused", func(t *testing.T) {
-		_, h, _, owner := newAPITestServer(t)
-		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
-
-		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/artifact", owner,
-			`{"kind":"image","name":"the face","attachment_id":"ava-kip"}`)
-		if status != 400 {
-			t.Fatalf("want 400, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "validation_error",
-			"attachment 'ava-kip' is reserved for a member avatar")
-	})
-
 	t.Run("a kind outside the closed set answers 400 listing the whole set", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
@@ -6454,26 +6441,6 @@ func TestHandleReplaceTaskArtifactApiTasksTaskIdArtifactArtifactIdReplacePost(t 
 			t.Fatalf("want 400, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "validation_error", "attachment_id is required for a file artifact")
-	})
-
-	t.Run("a file replacement naming an attachment reserved for a member avatar is refused", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
-		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
-		_, uploaded := apiJSON(t, h, "POST", "/api/chat/attachments", owner,
-			`{"filename":"v1.txt","data_b64":"aGVsbG8="}`)
-		blobID, _ := uploaded["id"].(string)
-		agent := apiTestAgentToken(t, api, "kip", "")
-		_, pinned := apiJSON(t, h, "POST", "/api/tasks/T-1/artifact", agent,
-			`{"kind":"file","name":"the report","attachment_id":"`+blobID+`"}`)
-		artifactID, _ := pinned["artifact_id"].(string)
-
-		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/artifact/"+artifactID+"/replace", agent,
-			`{"attachment_id":"ava-kip"}`)
-		if status != 400 {
-			t.Fatalf("want 400, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "validation_error",
-			"attachment 'ava-kip' is reserved for a member avatar")
 	})
 
 	t.Run("a file replacement naming an attachment the store does not carry is refused", func(t *testing.T) {

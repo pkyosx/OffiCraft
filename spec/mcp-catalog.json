@@ -4272,8 +4272,32 @@
             "additionalProperties": {
               "type": "string"
             },
-            "description": "Optional per-role avatar images (T-16a1 P5; extended per role in T-ea81). Keys are the closed set `member` (\u4e00\u822c\u6b63\u8077 member) / `outsource` (\u5916\u5305 outsource worker) / `owner` (the human CEO / owner) / `assistant` (a member whose role is `assistant`, e.g. Mira). Each value is an EMBEDDED image encoded as a base64 `data:` URI so the image travels inside the bundle on export/import. The value is NOT arbitrary: only a `data:image/<mime>;base64,<...>` URI whose mime is a whitelisted RASTER format (`image/png` / `image/jpeg` / `image/webp`) is accepted. SVG (`image/svg+xml`) is REJECTED (it can carry script/onload \u2014 XSS). The base64 must decode, the decoded byte size is capped (<=64 KiB) and the string length capped, and the leading magic bytes must match the declared mime (PNG `89 50 4E 47`, JPEG `FF D8 FF`, WEBP `RIFF....WEBP`) \u2014 a value that declares one mime but carries another is rejected. Absent = that role falls back to the built-in avatar glyph (office never degrades). The server 422s any avatars that violates the key set, the mime whitelist, the size caps, the base64, or the magic-byte check.",
-            "title": "Avatars",
+            "description": "Optional SINGLE-image identities. The canonical key set is only `owner` (the human CEO) and `assistant` (an assistant-role member such as Mira); their existing single-image semantics are unchanged. For backward compatibility, input/stored bundles may also carry legacy `member` or `outsource` singleton strings: the server/client normalize each into a one-image `avatarPools` entry and omit that legacy key on the canonical echo/export. Every value is an embedded base64 raster data URI and passes the same PNG/JPEG/WEBP, strict-base64, <=64 KiB decoded-size, and matching-magic-byte gate. SVG is rejected. Absent owner/assistant values use the built-in glyph.",
+            "type": "object"
+          },
+          "avatarPools": {
+            "additionalProperties": {
+              "items": {
+                "description": "One image in a theme's ordered avatar pool, with the stable identity a member's selection points at. ``id`` is the durable icon identity. The server assigns it when it stores the theme, and it never changes for that image. A client that adds an image may omit ``id``; the server then assigns one and echoes it. The identity is derived from the image bytes, so the same image keeps the same ``id`` across export and import. ``image`` is an embedded base64 raster data URI. It passes the same PNG/JPEG/WEBP, strict-base64, <=64 KiB decoded-size and matching-magic-byte gate as every other theme image. Selections point at ``id``, never at the array position, so removing one pool item can not silently rebind a member to a different image.",
+                "properties": {
+                  "id": {
+                    "title": "Id",
+                    "type": "string"
+                  },
+                  "image": {
+                    "title": "Image",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "image"
+                ],
+                "additionalProperties": false,
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "description": "Optional ordered theme-level pools for `member` (\u4e00\u822c\u6b63\u8077) and `outsource` workers. Those are the only allowed keys. Each pool holds at most 12 items. Every item is a ThemeIconDTO: a stable ``id`` plus an embedded raster data URI that independently passes the same PNG/JPEG/WEBP, strict-base64, <=64 KiB decoded-size and matching-magic-byte gate as other theme images. A member points at an item's ``id``, so order is presentation only and removing one item never rebinds a member to another image. An empty or absent pool renders the built-in glyph. Import and export preserve both the item order and the ids. Reorder is NOT supported in this version. For backward compatibility a stored or imported pool may still be a plain array of data-URI strings; the server assigns each item an id and echoes the canonical form.",
             "type": "object"
           },
           "logo": {

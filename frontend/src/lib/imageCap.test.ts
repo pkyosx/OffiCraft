@@ -12,7 +12,8 @@
 // would only prove the mock agrees with itself); both are asserted against the
 // committed table.
 //
-// The rows are driven through the real validateAvatars / validateLogo /
+// The rows are driven through the real validateAvatars / validateAvatarPools /
+// validateLogo /
 // validateNavIcons / validateBackgrounds entry points rather than the bare gate,
 // so a cap that is raised but wired to the wrong call site still fails here.
 
@@ -26,6 +27,7 @@ import {
   MAX_BACKGROUND_BYTES,
   MAX_BACKGROUND_VALUE_LEN,
   validateAvatars,
+  validateAvatarPools,
   validateLogo,
   validateNavIcons,
   validateBackgrounds,
@@ -126,7 +128,12 @@ function pngURIOfSize(n: number): string {
 function feedPurpose(purpose: string, value: string): string | null {
   switch (purpose) {
     case "avatar":
-      return validateAvatars({ member: value });
+      // A SINGLETON kind — see the Go twin: T-cd6f moved member / outsource
+      // images into avatarPools, so "member" would fail on the kind and never
+      // reach the cap.
+      return validateAvatars({ assistant: value });
+    case "avatarpool":
+      return validateAvatarPools({ member: [value] });
     case "logo":
       return validateLogo(value);
     case "navicon":

@@ -477,7 +477,6 @@ func TestResolveChatAttachmentInputs(t *testing.T) {
 			"neither id nor bytes":     {ChatAttachmentInputDTO{}, "attachment carries neither id nor data_b64"},
 			"a name but no bytes":      {ChatAttachmentInputDTO{Filename: apiTestStrPtr("notes.txt")}, "attachment carries neither id nor data_b64"},
 			"an id nothing carries":    {ChatAttachmentInputDTO{Id: apiTestStrPtr("att-nosuchblob")}, "attachment 'att-nosuchblob' not found"},
-			"a member avatar":          {ChatAttachmentInputDTO{Id: apiTestStrPtr("ava-000000000001")}, "attachment 'ava-000000000001' is reserved for a member avatar"},
 			"bytes that do not decode": {ChatAttachmentInputDTO{DataB64: apiTestStrPtr("!!!")}, "attachment is not valid base64"},
 		} {
 			resolved, status, problem := api.resolveChatAttachmentInputs([]ChatAttachmentInputDTO{c.in})

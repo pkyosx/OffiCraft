@@ -1,8 +1,7 @@
 import { useEffect, useState } from "react";
 import { UserIcon } from "./icons";
-import { useActiveAvatars } from "../i18n";
+import { useActiveAvatarPools, useActiveAvatars } from "../i18n";
 import type { AvatarKind } from "../lib/themeBundle";
-import { authedAttachmentUrl } from "../api/http";
 
 interface AvatarProps {
   size?: number;
@@ -12,9 +11,9 @@ interface AvatarProps {
    * when the theme carries none for this kind, the built-in UserIcon glyph is
    * used (office never degrades). */
   kind?: AvatarKind;
-  /** Stable-member personal image. It outranks the theme image and falls back
-   * through theme -> glyph if the authenticated blob can no longer load. */
-  src?: string;
+  /** The icon this actor chose in the ACTIVE theme, or null/undefined when it
+   * has no choice recorded there. A stable ThemeIcon id, NEVER a position. */
+  avatarIconId?: string | null;
 }
 
 // Pure identity glyph — NO presence dot. Presence is carried exclusively by the
@@ -30,18 +29,23 @@ interface AvatarProps {
 // image is decorative (alt="" + aria-hidden): callers that need an accessible
 // name label the button/container that wraps the Avatar (e.g.
 // .member-card__avatar), so that wrapper's label stays the only accessible name.
-export function Avatar({ size = 40, kind = "member", src }: AvatarProps) {
+export function Avatar({ size = 40, kind = "member", avatarIconId }: AvatarProps) {
   const avatars = useActiveAvatars();
-  const personal = authedAttachmentUrl(src);
-  const theme = avatars?.[kind];
-  const [failed, setFailed] = useState<string[]>([]);
-  useEffect(() => setFailed([]), [personal, theme]);
-  const selected =
-    personal && !failed.includes(personal)
-      ? personal
-      : theme && !failed.includes(theme)
-        ? theme
-        : undefined;
+  const pools = useActiveAvatarPools();
+  const pool = kind === "member" || kind === "outsource" ? pools?.[kind] : undefined;
+  // The fallback chain is deliberate and is the whole point of the id model.
+  // A chosen id that the pool can no longer resolve — the image was removed —
+  // falls back to the pool's FIRST image, the same thing a member who never
+  // chose sees. It must NOT fall back to "whatever is at that position now",
+  // which is how the old index model silently handed a member another
+  // member's face and collided two members onto one image.
+  const chosen = avatarIconId
+    ? pool?.find((item) => item.id === avatarIconId)?.image
+    : undefined;
+  const theme = chosen ?? (pool && pool.length > 0 ? pool[0].image : avatars?.[kind]);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => setFailed(false), [theme]);
+  const selected = theme && !failed ? theme : undefined;
   return (
     <span className="avatar" style={{ width: size, height: size }}>
       {selected ? (
@@ -53,7 +57,7 @@ export function Avatar({ size = 40, kind = "member", src }: AvatarProps) {
           width={size}
           height={size}
           draggable={false}
-          onError={() => setFailed((current) => [...current, selected])}
+          onError={() => setFailed(true)}
         />
       ) : (
         <UserIcon size={Math.round(size * 0.5)} className="avatar__glyph avatar__glyph--office" />

@@ -27,6 +27,7 @@ import type { Member } from "../types";
 import { api } from "../api";
 import { createDeltaSink, narrowToHeld } from "../lib/deltaSink";
 import { burstMovesNoOwnerUnread } from "../lib/ownerUnread";
+import { THEME_AVATARS_CHANGED_EVENT } from "../lib/themeAvatarsChanged";
 
 interface UseMembers {
   members: Member[];
@@ -241,9 +242,26 @@ export function useMembers(opts?: { light?: boolean }): UseMembers {
       })
     );
 
+    // A theme switch, a theme write and a theme delete all change WHICH image
+    // each member resolves to, and none of them writes a member row — so no
+    // `member` delta is fanned and the SSE path above never hears about it. The
+    // roster would keep showing faces resolved for the previous theme until the
+    // next unrelated refetch, which is the silent face-swap this feature exists
+    // to prevent. A full re-pull is the honest answer: the change is roster-wide
+    // by nature (every card re-resolves), so there is no single id to patch.
+    const onThemeAvatarsChanged = () => void full();
+    window.addEventListener(
+      THEME_AVATARS_CHANGED_EVENT,
+      onThemeAvatarsChanged
+    );
+
     return () => {
       alive = false;
       unsubscribe();
+      window.removeEventListener(
+        THEME_AVATARS_CHANGED_EVENT,
+        onThemeAvatarsChanged
+      );
     };
   }, [light, topics, adopt]);
 

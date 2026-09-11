@@ -84,11 +84,15 @@
 # COLUMNS  case<TAB>purpose<TAB>decoded_bytes<TAB>accepted
 #
 #   case           row name, used in failure messages
-#   purpose        avatar | logo | navicon | background — selects WHICH bundle
+#   purpose        avatar | avatarpool | logo | navicon | background — selects
+#                  WHICH bundle
 #                  field the value is fed through. Both halves drive the real
 #                  validate* entry point for that field, not the bare gate, so a
 #                  cap that is raised but wired to the wrong call site still
-#                  fails here.
+#                  fails here. `avatar` probes a SINGLETON kind (owner /
+#                  assistant) and `avatarpool` probes the ordered member /
+#                  outsource pool: T-cd6f split the two entry points, and BOTH
+#                  reach the same avatar cap, so both must stay twinned.
 #   decoded_bytes  size of the decoded PNG (a real 8-byte PNG signature followed
 #                  by zero padding — the magic-byte check is orthogonal to size
 #                  and must keep passing, or a row would go red for the wrong
@@ -99,6 +103,9 @@ case	purpose	decoded_bytes	accepted
 avatar-small	avatar	1024	true
 avatar-at-cap	avatar	65536	true
 avatar-one-past-cap	avatar	65537	false
+avatarpool-small	avatarpool	1024	true
+avatarpool-at-cap	avatarpool	65536	true
+avatarpool-one-past-cap	avatarpool	65537	false
 logo-at-cap	logo	65536	true
 logo-one-past-cap	logo	65537	false
 navicon-at-cap	navicon	65536	true

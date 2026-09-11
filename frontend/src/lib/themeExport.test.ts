@@ -7,7 +7,7 @@ import {
   parseImportedBundle,
   serializeBundle,
 } from "./themeExport";
-import { isValidColorValue } from "./themeBundle";
+import { isValidColorValue, type ThemeBundle } from "./themeBundle";
 import { applyWording } from "../i18n/wording";
 import { MESSAGE_KEYS } from "../i18n/messageKeys.generated";
 import { zh } from "../i18n/locales/zh";
@@ -233,8 +233,8 @@ describe("parseImportedBundle", () => {
         avatars: { outsource: pngAvatar },
       })
     );
-    expect("bundle" in res && res.bundle.avatars).toEqual({
-      outsource: pngAvatar,
+    expect("bundle" in res && res.bundle.avatarPools).toEqual({
+      outsource: [{ image: pngAvatar }],
     });
   });
 
@@ -400,5 +400,43 @@ describe("bundleFilename", () => {
     expect(bundleFilename({ id: "midnight", name: "M", colors: {} })).toBe(
       "officraft-theme-midnight.json"
     );
+  });
+});
+
+describe("theme export is asset-only", () => {
+  const png =
+    "data:image/png;base64," +
+    btoa(
+      String.fromCharCode(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x01)
+    );
+
+  // 🔴 A theme carries its ASSETS — the images and their stable ids — and
+  // nothing about who wears them. A member's choice belongs to a roster, and
+  // the recipient's roster is a different one, so exporting selections would
+  // hand a stranger's face to somebody else's member (owner 2026-08-12).
+  it("carries pool images with their ids, and no member selections", () => {
+    const bundle: ThemeBundle = {
+      id: "faced",
+      name: "Faced",
+      colors: { "--color-accent": "#0b1020" },
+      avatarPools: { member: [{ id: "icn-abc123abc123", image: png }] },
+    };
+    const text = serializeBundle(bundle);
+    const parsed = JSON.parse(text);
+
+    expect(parsed.avatarPools.member).toEqual([
+      { id: "icn-abc123abc123", image: png },
+    ]);
+    // Nothing roster-shaped may ride along.
+    expect(text).not.toContain("member_theme_avatar");
+    expect(text).not.toContain("avatar_icon_id");
+    expect(text).not.toContain("member_id");
+
+    // A round trip preserves both the order and the ids, so a recipient who
+    // does pick an image gets a selection that still resolves after a re-import.
+    const back = parseImportedBundle(text);
+    expect("bundle" in back && back.bundle.avatarPools?.member).toEqual([
+      { id: "icn-abc123abc123", image: png },
+    ]);
   });
 });

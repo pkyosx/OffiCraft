@@ -230,8 +230,11 @@ import {
   validateThemeBundle,
   isValidDisplayTheme,
   MAX_CUSTOM_THEMES,
+  type ThemeIcon,
+  normalizeThemeAvatarPools,
 } from "../lib/themeBundle";
 import type { ThemeBundle } from "../lib/themeBundle";
+import { assignThemeIconIds } from "../lib/themeIconId";
 
 // The always-present server-self machine id (mirrors the server seed):
 // the warden for the host running the server itself — listed FIRST, is_self, NOT
@@ -258,6 +261,7 @@ const MOCK_WIRE_MEMBERS: WireMember[] = [
   {
     id: MOCK_SERVER_SELF_ID,
     terminal_attach_command: mockTerminalAttachCommand(MOCK_SERVER_SELF_ID),
+    avatar_icon_id: null,
     name: "伺服器這一台",
     kind: "warden",
     role_key: "",
@@ -290,6 +294,7 @@ const MOCK_WIRE_MEMBERS: WireMember[] = [
   {
     id: "mira",
     terminal_attach_command: mockTerminalAttachCommand("mira"),
+    avatar_icon_id: null,
     name: "Mira",
     kind: "staff", // mirror the real seed (dbseed.go: Mira kind=KindStaff)
     role_key: "assistant",
@@ -332,6 +337,7 @@ const MOCK_WIRE_MEMBERS: WireMember[] = [
   {
     id: "warden-mbp5",
     terminal_attach_command: mockTerminalAttachCommand("warden-mbp5"),
+    avatar_icon_id: null,
     name: "Warden · mbp5",
     kind: "warden",
     role_key: "assistant",
@@ -382,6 +388,7 @@ const MOCK_WIRE_MEMBERS: WireMember[] = [
   {
     id: "ow-7d8ad859dd9b",
     terminal_attach_command: mockTerminalAttachCommand("ow-7d8ad859dd9b"),
+    avatar_icon_id: null,
     name: "O-179", // a worker reads by its codename, never a personal name
     kind: "outsource",
     role_key: "", // contractors carry no role — their duty is the bound task
@@ -2220,6 +2227,59 @@ const DEFAULT_MOCK_SETTINGS = {
 // there either — one store, or the two would disagree.
 const mockThemes = new Map<string, ThemeBundle>();
 
+// The member x theme association, mirroring the server's member_theme_avatar
+// table: member id -> theme id -> icon id. It is SPARSE on purpose. A member
+// with no entry has made no explicit choice, which is what the wire sends as
+// null and the cockpit renders as the pool's first image.
+const mockThemeAvatars = new Map<string, Map<string, string>>();
+
+function mockPoolFor(kind: "member" | "outsource"): ThemeIcon[] {
+  return mockThemes.get(mockServerSettings.display_theme)?.avatarPools?.[kind] ?? [];
+}
+
+/** Resolve what one actor's DTO puts on the wire, exactly as the server does:
+ * null unless the actor chose in the ACTIVE theme AND that image is still in
+ * the matching pool. Resolving against the live pool is what stops a removed
+ * image from leaving a dangling id on the wire. */
+function mockAvatarIconId(id: string, kind: "member" | "outsource"): string | null {
+  const chosen = mockThemeAvatars.get(id)?.get(mockServerSettings.display_theme);
+  if (!chosen) return null;
+  return mockPoolFor(kind).some((item) => item.id === chosen) ? chosen : null;
+}
+
+/** Re-resolve every actor after a theme switch or a pool edit. The server does
+ * the same by invalidating its cache; here the wire objects hold the value, so
+ * they are refreshed in place. */
+function refreshMockAvatarIconIds() {
+  for (const wire of wireMembers) {
+    wire.avatar_icon_id = mockAvatarIconId(wire.id, "member");
+  }
+  for (const worker of outsourceWorkers) {
+    worker.avatarIconId = mockAvatarIconId(worker.id, "outsource");
+  }
+}
+
+/** Drop every association the stored themes can no longer resolve — a deleted
+ * theme, or an image removed from a pool. The server prunes on the theme write
+ * and delete paths for the same reason: a theme id that is later reused must
+ * not resurrect the old selections. */
+function pruneMockThemeAvatars() {
+  const live = new Map<string, Set<string>>();
+  for (const [id, theme] of mockThemes) {
+    const icons = new Set<string>();
+    for (const items of Object.values(theme.avatarPools ?? {})) {
+      for (const item of items ?? []) if (item.id) icons.add(item.id);
+    }
+    live.set(id, icons);
+  }
+  for (const [memberId, byTheme] of mockThemeAvatars) {
+    for (const [themeId, iconId] of byTheme) {
+      if (!live.get(themeId)?.has(iconId)) byTheme.delete(themeId);
+    }
+    if (byTheme.size === 0) mockThemeAvatars.delete(memberId);
+  }
+}
+
 /** The saved theme ids, for the `display_theme` check ("" | office | a saved
  * id). Reads the theme STORE, never a settings field — after T-83ef there is
  * no settings field left to read. */
@@ -2721,42 +2781,32 @@ export const mockApi: Api = {
     return mapWithExtras({ ...w, unread_count: unreadCountOf(id) });
   },
 
-  async updateMemberAvatar(id: string, file: File): Promise<string> {
-    const url = URL.createObjectURL(file);
+  async setMemberThemeAvatar(
+    id: string,
+    themeId: string,
+    iconId: string,
+  ): Promise<void> {
+    if (!themeId || !iconId) {
+      throw mockApiError("http 422 for PUT /api/members/{id}/theme-avatar", 422,
+        "theme_id and icon_id must not be empty");
+    }
+    const theme = mockThemes.get(themeId);
+    const inPool = Object.values(theme?.avatarPools ?? {}).some(
+      (items) => (items ?? []).some((item) => item.id === iconId),
+    );
+    // Resolve against the NAMED theme, not the active one: an id the pool
+    // cannot resolve is how a member silently ends up wearing another member's
+    // face, so it is refused rather than stored.
+    if (!theme || !inPool) {
+      throw mockApiError("http 422 for PUT /api/members/{id}/theme-avatar", 422,
+        "icon_id is not an image in that theme's pool");
+    }
+    const byTheme = mockThemeAvatars.get(id) ?? new Map<string, string>();
+    byTheme.set(themeId, iconId);
+    mockThemeAvatars.set(id, byTheme);
+    refreshMockAvatarIconIds();
     const worker = outsourceWorkers.find((item) => item.id === id);
-    if (worker) {
-      if (worker.avatarUrl?.startsWith("blob:")) {
-        URL.revokeObjectURL(worker.avatarUrl);
-      }
-      worker.avatarUrl = url;
-      emitTopic("outsource_worker");
-      return url;
-    }
-    const member = findWire(id);
-    if (member.avatar_url?.startsWith("blob:")) {
-      URL.revokeObjectURL(member.avatar_url);
-    }
-    member.avatar_url = url;
-    emitTopic("member");
-    return url;
-  },
-
-  async removeMemberAvatar(id: string): Promise<void> {
-    const worker = outsourceWorkers.find((item) => item.id === id);
-    if (worker) {
-      if (worker.avatarUrl?.startsWith("blob:")) {
-        URL.revokeObjectURL(worker.avatarUrl);
-      }
-      worker.avatarUrl = "";
-      emitTopic("outsource_worker");
-      return;
-    }
-    const member = findWire(id);
-    if (member.avatar_url?.startsWith("blob:")) {
-      URL.revokeObjectURL(member.avatar_url);
-    }
-    member.avatar_url = "";
-    emitTopic("member");
+    emitTopic(worker ? "outsource_worker" : "member");
   },
 
   async activateMember(
@@ -3392,6 +3442,7 @@ export const mockApi: Api = {
         .filter((m) => m.kind !== "warden")
         .map((m) => ({
           id: m.id,
+          avatar_icon_id: null,
           name: m.name,
           kind: "staff",
           roleName: m.role_name ?? "",
@@ -3408,6 +3459,7 @@ export const mockApi: Api = {
         const bound = tasks.find((t) => t.executorId === w.id);
         return {
           id: w.id,
+          avatar_icon_id: null,
           name: w.codename,
           kind: "outsource",
           roleName: "",
@@ -4305,6 +4357,7 @@ export const mockApi: Api = {
       // scheduler here) — validated by the server, dropped honestly here.
       newWorker = {
         id: `ow-mock-${Date.now().toString(16)}`,
+        avatarIconId: null,
         codename: deriveCodename(
           target.model.trim(),
           outsourceWorkers.map((w) => w.codename)
@@ -5210,6 +5263,7 @@ export const mockApi: Api = {
     wireMembers.push({
       id: machineId,
       terminal_attach_command: mockTerminalAttachCommand(machineId),
+      avatar_icon_id: null,
       name: name || machineId,
       kind: "warden",
       role_key: "assistant",
@@ -5574,6 +5628,7 @@ export const mockApi: Api = {
     return JSON.stringify(
       {
         id: "custom-linked",
+        avatar_icon_id: null,
         name: "連結匯入的主題",
         colors: { "--color-bg": "#101018", "--color-accent": "#785af0" },
       },
@@ -5638,7 +5693,19 @@ export const mockApi: Api = {
     // Map.set on an EXISTING key keeps its insertion position — which is
     // exactly the "a replace does not move the theme to the bottom" rule, so
     // nothing here has to re-implement it.
-    mockThemes.set(bundle.id, structuredClone(bundle));
+    // Normalize BEFORE storing, exactly as the server does: a legacy
+    // avatars.member singleton becomes a one-image pool, and every item is
+    // stamped with the identity DERIVED from its bytes, so the cockpit gets
+    // canonical ids back in the echo and never has to mint one.
+    const stored = structuredClone(bundle) as ThemeBundle & Record<string, unknown>;
+    const normalizeErr = normalizeThemeAvatarPools(stored, "theme");
+    if (normalizeErr) {
+      throw mockApiError(`http 422 for PUT /api/themes/${bundle.id}`, 422, normalizeErr);
+    }
+    stored.avatarPools = await assignThemeIconIds(stored.avatarPools);
+    mockThemes.set(bundle.id, stored);
+    pruneMockThemeAvatars();
+    refreshMockAvatarIconIds();
     return {
       id: bundle.id,
       created: !existing,
@@ -5662,6 +5729,8 @@ export const mockApi: Api = {
     // caller learns its theme changed without re-reading settings.
     const displayThemeReset = mockServerSettings.display_theme === id;
     if (displayThemeReset) mockServerSettings.display_theme = "";
+    pruneMockThemeAvatars();
+    refreshMockAvatarIconIds();
     return { id, deleted: true, displayThemeReset };
   },
 
@@ -6079,6 +6148,9 @@ export const mockApi: Api = {
     // kinder than the server lets a test go green on a state the owner would
     // still be sitting in.
     if (patch.displayTheme !== undefined) {
+      // Switching themes changes what every actor resolves to; the server does
+      // the same by invalidating its cache.
+      queueMicrotask(refreshMockAvatarIconIds);
       mockServerSettings.display_theme = patch.displayTheme.trim();
     }
     if (patch.displayLanguage !== undefined) {
@@ -6392,6 +6464,7 @@ export const mockApi: Api = {
     const wireMember: WireMember = {
       id: memberId,
       terminal_attach_command: mockTerminalAttachCommand(memberId),
+      avatar_icon_id: null,
       name: memberName,
       kind: "",
       role_key: roleKey,

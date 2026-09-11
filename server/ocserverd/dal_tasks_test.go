@@ -2134,7 +2134,6 @@ func dalTestOutsourceMember(id string) Member {
 	m.Codename = "O-7"
 	linked := "T-1"
 	m.LinkedTaskID = &linked
-	m.AvatarAttachmentID = "ava-1"
 	m.HandoverNoticedTS = 0
 	m.AgentIatFloor = 0
 	m.TokenKeyID = ""
@@ -2146,37 +2145,36 @@ func dalTestOutsourceMember(id string) Member {
 func dalTestWorker(id string) OutsourceWorker {
 	ok := true
 	return OutsourceWorker{
-		ID:                 id,
-		Codename:           "O-7",
-		Runtime:            "claude",
-		Model:              "sonnet",
-		ActualModel:        "sonnet-4",
-		ActualRuntime:      "codex",
-		ActualEffort:       "high",
-		Effort:             "medium",
-		TaskID:             "T-1",
-		Status:             WorkerStatusActive,
-		ActivatedTS:        1700000011,
-		CreatedTS:          1700000000,
-		ReleasedTS:         1700000010,
-		LastOp:             "stop",
-		LastOpOK:           &ok,
-		LastOpLog:          "log line",
-		LastOpReason:       "code: detail",
-		LastOpAt:           1700000009,
-		DesiredMachineID:   "mac-1",
-		LastMachineID:      "mac-0",
-		SessionBootTS:      1700000001,
-		RefocusSince:       1700000005,
-		RefocusOp:          "refocus",
-		StoppingSince:      1700000003,
-		StoppedSince:       1700000004,
-		WakingSince:        1700000002,
-		ForcedStopAt:       1700000006,
-		DesiredState:       "online",
-		RestartAfterStop:   true,
-		BankedCost:         12.5,
-		AvatarAttachmentID: "ava-1",
+		ID:               id,
+		Codename:         "O-7",
+		Runtime:          "claude",
+		Model:            "sonnet",
+		ActualModel:      "sonnet-4",
+		ActualRuntime:    "codex",
+		ActualEffort:     "high",
+		Effort:           "medium",
+		TaskID:           "T-1",
+		Status:           WorkerStatusActive,
+		ActivatedTS:      1700000011,
+		CreatedTS:        1700000000,
+		ReleasedTS:       1700000010,
+		LastOp:           "stop",
+		LastOpOK:         &ok,
+		LastOpLog:        "log line",
+		LastOpReason:     "code: detail",
+		LastOpAt:         1700000009,
+		DesiredMachineID: "mac-1",
+		LastMachineID:    "mac-0",
+		SessionBootTS:    1700000001,
+		RefocusSince:     1700000005,
+		RefocusOp:        "refocus",
+		StoppingSince:    1700000003,
+		StoppedSince:     1700000004,
+		WakingSince:      1700000002,
+		ForcedStopAt:     1700000006,
+		DesiredState:     "online",
+		RestartAfterStop: true,
+		BankedCost:       12.5,
 	}
 }
 

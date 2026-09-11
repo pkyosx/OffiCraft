@@ -830,7 +830,7 @@ func TestNewMemberDTO(t *testing.T) {
 			LastMachineID: "m-last", RefocusSince: 100, RefocusOp: refocusOpAcceleratedStop,
 			LastOp: "START", LastOpOK: apiHelpersBool(true), LastOpLog: "started",
 			LastOpReason: "ok: fine", LastOpAt: 42, ForcedStopAt: 7,
-			RosterStatus: RosterStatusActive, AvatarAttachmentID: "ava-abc123",
+			RosterStatus: RosterStatusActive,
 		}
 		dashboard := apiTestListen(t, api, "")
 
@@ -838,7 +838,7 @@ func TestNewMemberDTO(t *testing.T) {
 
 		apiWantValue(t, "dto", any(apiHelpersWire(t, dto)), any(map[string]any{
 			"id":                      "m-rich",
-			"avatar_url":              "/api/chat/attachment/ava-abc123",
+			"avatar_icon_id":          nil,
 			"name":                    "Rill",
 			"kind":                    "staff",
 			"role_key":                "r-quarter",
@@ -888,8 +888,8 @@ func TestNewMemberDTO(t *testing.T) {
 		apiWantValue(t, "presence with a live connection", any(online.Presence), any("online"))
 		apiWantValue(t, "the row's own runtime", any(member.Runtime), any(""))
 		apiWantValue(t, "runtime on the wire", any(offline.Runtime), any("claude"))
-		apiWantValue(t, "no avatar is a blank url, not a dangling one",
-			any(offline.AvatarURL), any(""))
+		apiWantValue(t, "no recorded choice is a null icon id, not a dangling one",
+			any(offline.AvatarIconID), any((*string)(nil)))
 	})
 }
 
@@ -904,7 +904,7 @@ func TestNewMemberLightDTO(t *testing.T) {
 			LastMachineID: "m-last", RefocusSince: 100, RefocusOp: refocusOpAcceleratedStop,
 			LastOp: "START", LastOpOK: apiHelpersBool(true), LastOpLog: "started",
 			LastOpReason: "ok: fine", LastOpAt: 42, ForcedStopAt: 7,
-			RosterStatus: RosterStatusActive, AvatarAttachmentID: "ava-abc123",
+			RosterStatus: RosterStatusActive,
 		}
 		dashboard := apiTestListen(t, api, "")
 
@@ -912,7 +912,7 @@ func TestNewMemberLightDTO(t *testing.T) {
 
 		apiWantValue(t, "dto", any(apiHelpersWire(t, dto)), any(map[string]any{
 			"id":                      "m-rich",
-			"avatar_url":              "/api/chat/attachment/ava-abc123",
+			"avatar_icon_id":          nil,
 			"name":                    "Rill",
 			"kind":                    "staff",
 			"role_key":                "r-quarter",
@@ -962,14 +962,6 @@ func TestNewMemberLightDTO(t *testing.T) {
 		apiWantValue(t, "the whole projection is unchanged", any(online), any(offline))
 		apiWantValue(t, "the full projection would have said otherwise",
 			any(api.newMemberDTO(member, "Assistant", "", 0).Presence), any("offline"))
-	})
-}
-
-func TestMemberAvatarURL(t *testing.T) {
-	t.Run("a member with no personal image has a blank url rather than one pointing at nothing", func(t *testing.T) {
-		apiWantValue(t, "no attachment", any(memberAvatarURL("")), any(""))
-		apiWantValue(t, "an attachment", any(memberAvatarURL("ava-abc123")),
-			any("/api/chat/attachment/ava-abc123"))
 	})
 }
 
@@ -1297,26 +1289,6 @@ func TestDecodeJSONBodyPresent(t *testing.T) {
 			apiWantValue(t, "status", any(float64(rec.Code)), any(200))
 			apiWantValue(t, "sent keys", any(got), any(tc.want))
 			apiWantValue(t, "allow_shrink pointer", any(dst.AllowShrink), any(tc.allow))
-		})
-	}
-}
-
-func TestIsMemberAvatarAttachmentID(t *testing.T) {
-	for _, tc := range []struct {
-		name string
-		id   string
-		want bool
-	}{
-		{name: "avatar id is recognized", id: "ava-123", want: true},
-		{name: "avatar prefix alone is recognized by the id predicate", id: "ava-", want: true},
-		{name: "ordinary attachment id is not an avatar", id: "att-123", want: false},
-		{name: "missing separator is not an avatar id", id: "ava", want: false},
-		{name: "empty id is not an avatar", id: "", want: false},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := isMemberAvatarAttachmentID(tc.id); got != tc.want {
-				t.Fatalf("isMemberAvatarAttachmentID(%q) = %v, want %v", tc.id, got, tc.want)
-			}
 		})
 	}
 }
