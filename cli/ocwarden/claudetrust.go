@@ -181,6 +181,21 @@ func claudeTrustProbeScript(claudeBin, workdir, envRendered string, ch claudeHom
 	return s + "exec " + strings.Join(parts, " ")
 }
 
+// ⚠️ THE ANSWER IS NOT ON STDOUT AND THE EXIT CODE IS NOT ZERO. `claude mcp get
+// <absent name>` exits 1 every time and prints its answer — the one containing
+// "Configured servers:" — on STDERR. `ask` must therefore be a seam that returns
+// the COMBINED output whatever the exit code was (production: CombinedCmdRunner.
+// RunCombined); wired to a stdout-on-success-only seam, `out` is permanently ""
+// here, no witness can ever match, and this gate deadlocks in the closed position
+// while every unit test that injects an exit-code-blind double stays green. That
+// is not a hypothetical: it is what shipped, and TestPretrustIsVerifiedAgainst
+// TheFileClaudeReallyReads now runs against a double that exits 1 and answers on
+// stderr precisely so that reverting this cannot stay green.
+//
+// This does NOT loosen the judgement. The verdict is still positive-answer-only:
+// a crash, a timeout, a changed format or a genuine "different file" all arrive
+// here as output that does not contain the witness, and all refuse.
+//
 // verifyClaudeSeesPretrust seeds a witness into the file pre-trust just wrote,
 // asks claude to read its own project config back, and returns nil ONLY when the
 // witness comes back. Every other outcome returns an error naming the file we
@@ -305,11 +320,11 @@ func tmuxLaunchShell(r CmdRunner, socket string, logf func(string, ...any)) stri
 // newClaudePretrustVerifier wires the real probe. It is built once per warden and
 // bound per spawn (the workdir and the rendered env file only exist once
 // StartParams names a member), mirroring how Pretrust itself is bound.
-func newClaudePretrustVerifier(runner CmdRunner, socket, claudeBin string, ch claudeHome, logf func(string, ...any)) func(workdir, envRendered string) error {
+func newClaudePretrustVerifier(runner CombinedCmdRunner, socket, claudeBin string, ch claudeHome, logf func(string, ...any)) func(workdir, envRendered string) error {
 	return func(workdir, envRendered string) error {
 		shell := tmuxLaunchShell(runner, socket, logf)
 		return verifyClaudeSeesPretrust(func(script string) (string, error) {
-			return runner.Run(shell, "-c", script)
+			return runner.RunCombined(shell, "-c", script)
 		}, logf, claudeBin, workdir, envRendered, ch)
 	}
 }
