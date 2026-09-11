@@ -19,6 +19,7 @@ subcommands:
   diff            print a compare-screen URL for two attachment ids / document versions (--external mints a no-login link)
   clean           get rid of a file or folder I made: quarantines it under my workdir (never rm)
   guard-bash      PreToolUse hook: refuse the removal shapes that stall a headless member
+  guard-permission PermissionRequest hook: refuse every confirmation prompt nobody is here to answer
   version         print this build's identity: build.sha, VCS stamp when present, self-hash
 `
 
