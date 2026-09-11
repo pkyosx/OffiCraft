@@ -2467,7 +2467,7 @@ const tokenExpiryLeadSecs = 3600.0
 // worker's session token is minted by mintAgentToken with s.agentTokenTTLValue()
 // (worker_spawn.go), i.e. the SAME mint and the SAME TTL a staff member's boot
 // token gets, so it expires in exactly the same way; and every step of the
-// close-out — report_stopping, the lesson write, report_stopped — is an MCP call
+// close-out — report_stopping, report_stopped — is an MCP call
 // carrying that token. Naming the one exempt kind, rather than allow-listing the
 // one included kind, is what keeps the next kind from inheriting an exemption
 // nobody decided to give it.

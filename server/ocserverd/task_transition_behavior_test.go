@@ -631,8 +631,8 @@ func TestCloseNudgeNoLongerSkipsDuplicateOrAdHocTasks(t *testing.T) {
 	} {
 		if decideTaskCloseNudge(c.task) == nil {
 			t.Fatalf("%s must still nudge its executor: the executor of a closed "+
-				"ticket needs to know it is closed regardless of whether there is a "+
-				"manual to write learnings into", c.what)
+				"ticket needs to know it is closed regardless of whether its type has a "+
+				"manual behind it at all", c.what)
 		}
 	}
 	// The one gate that stays, and the reason it stays is addressing, not

@@ -401,13 +401,10 @@ def test_every_closed_topic_emits(client, owner_token, agent_a, fresh_member, ow
         ("role_def", lambda: client.post(
             "/api/roles", json={"name": f"Conf Topic Role {tag}"},
             headers=_auth(owner_token))),
-        ("lessons", lambda: client.post(
-            "/api/lessons/assistant", json={"text": f"topic probe {tag}"},
-            headers=_auth(owner_token))),
         # insight — the ORDINARY write face (replace_insight), not the restore
         # path. Pinned here because a doc write that reaches the DB but never
         # publishes is invisible from HTTP alone (200 + row changed + cockpit
-        # stuck on the old value), exactly the shape lessons is pinned against.
+        # stuck on the old value).
         ("insight", lambda: client.post(
             "/api/insight/assistant", json={"text": f"topic probe {tag}"},
             headers=_auth(owner_token))),
@@ -423,7 +420,7 @@ def test_every_closed_topic_emits(client, owner_token, agent_a, fresh_member, ow
         "member": "patch", "chat": "patch", "chat_read": "patch",
         "reply_card": "patch",
         "task": "patch", "outsource_worker": "patch", "task_manual": "patch",
-        "global_context": "patch", "role_def": "patch", "lessons": "patch",
+        "global_context": "patch", "role_def": "patch",
         "insight": "patch",
         "context": "signal", "monitoring": "signal",
     }
@@ -568,7 +565,7 @@ def test_every_closed_topic_emits(client, owner_token, agent_a, fresh_member, ow
         if frame["op"] == "signal":
             # §3.2: volatile in-memory store change — payload always null.
             assert frame["data"]["payload"] is None, (topic, frame)
-    # §2.2: global_context / role_def / lessons deltas carry payload null.
+    # §2.2: global_context / role_def deltas carry payload null.
     # (Their frames were consumed above; re-fire one to pin it explicitly.)
     r = client.post(
         "/api/global-context", json={"text": f"payload-null probe {tag}"},
@@ -1180,9 +1177,8 @@ def test_warden_command_band_start_frame(
         assert cmd["rpc"] == "start", cmd
         args = cmd["args"]
         # EXACT set, not a subset: an extra key here is a field the warden was
-        # never told about. `task_type` was in this set until T-2 — it was
-        # sourced from the lessons bucket and carried for parity only — and its
-        # removal is what this equality now pins.
+        # never told about. `task_type` was in this set until T-2 — carried for
+        # parity only — and its removal is what this equality now pins.
         assert set(args) == {
             "member_id", "persona_context", "member_token", "role",
             "runtime", "model", "effort", "session_name",

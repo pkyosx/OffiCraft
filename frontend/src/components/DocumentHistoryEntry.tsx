@@ -58,9 +58,9 @@ import "./settings.css";
 
 export interface DocumentHistoryEntryProps {
   kind: DocumentKind;
-  /** "global" | role key | task id | type_key. Lessons is addressed by the BARE
-   * role key since T-2 removed the task_type axis; the old
-   * "<role_key>::<task_type>" shape is refused by the server. */
+  /** "global" | role key | task id | type_key. A role journal is addressed by
+   * the BARE role key; the old "<role_key>::<task_type>" shape is refused by
+   * the server. */
   docKey: string;
   /** Names the document the list belongs to, in the list's own header. */
   title: string;
@@ -80,7 +80,7 @@ export interface DocumentHistoryEntryProps {
    * True when THIS document can be deleted whole from the cockpit (a task
    * manual, a custom role). Such a delete keeps no history, so the list states
    * that limit — otherwise it reads as a general undo. Left false where no
-   * delete flow exists (global context, seed roles, lessons): a footnote that
+   * delete flow exists (global context, seed roles): a footnote that
    * is false for the document on screen is worse than no footnote.
    */
   docDeletable?: boolean;
@@ -133,17 +133,15 @@ export function DocumentHistoryEntry({
   // server accepts the moment the owner raises it. `undefined` until it loads,
   // which makes the marking abstain (api/docCap.ts).
   //
-  // T-ae38 (widened by T-30f1): one value PER SEGMENT, and which one judges this list is a property of
-  // `kind`. Handing one number down would have judged a Duty revision by the
-  // Learning cap — a 4,000-char role definition would read as restorable while
+  // T-ae38: one value PER SEGMENT, and which one judges this list is a property
+  // of `kind`. Handing one number down would have judged a Duty revision by the
+  // Insight cap — a 4,000-char role definition would read as restorable while
   // the server refuses it at 1,000.
   const settings = useServerSettings().settings;
   const docCaps: DocCaps | undefined = settings ? {
     duty: settings.docCapCharsDuty,
     insight: settings.docCapCharsInsight,
-    learning: settings.docCapCharsLearning,
     manualSop: settings.docCapCharsManualSop,
-    manualLearnings: settings.docCapCharsManualLearnings,
     systemInteraction: settings.docCapCharsSystemInteraction,
     bootSequence: settings.docCapCharsBootSequence,
     offboard: settings.docCapCharsOffboard,

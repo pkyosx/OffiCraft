@@ -151,8 +151,8 @@ type Member struct {
 	// collected (migrations/00057): unix seconds of the last force-stop, 0 when
 	// there has never been one. Force-stop is the one offboard path that sends
 	// no notice, so the session it kills leaves exactly what a session with
-	// nothing to write leaves — no hand-off, no fresh step note, no folded
-	// lesson. This column is what tells those two apart.
+	// nothing to write leaves — no hand-off and no fresh step note. This column
+	// is what tells those two apart.
 	//
 	// 🔴 NOT cleared on the next boot, unlike every other lifecycle anchor: it
 	// describes the session BEFORE this one, and that is precisely who needs to
@@ -1427,9 +1427,9 @@ func documentHistoryKeepFor(kind string) int {
 
 // documentHistoryStream addresses one retained-version series plus the reader
 // that serializes its live state. One row can carry SEVERAL independent series:
-// a task manual versions its SOP and its learnings separately (T-1f39), so a
-// write touching both retains one revision in each — inside the single
-// transaction that writes the row, never as two writes.
+// a task manual versions its SOP as its own series (T-1f39), and a write
+// touching several retains one revision in each — inside the single transaction
+// that writes the row, never as two writes.
 type documentHistoryStream struct {
 	Kind     string
 	Key      string
@@ -2338,102 +2338,14 @@ func (d *DAL) DeleteRoleDef(roleKey string) (bool, error) {
 	return deleted, nil
 }
 
-// ── lessons (per-role; role_key is the WHOLE key) ────────────────────────────
-
-// Lessons mirrors the lessons table: the per-role learnings overlay (agents
-// sharing a role share one doc). RoleKey is the entire identity of the
-// document — the (role_key, task_type) composite was dropped in T-2
-// (00062_drop_lessons_task_type.sql).
-type Lessons struct {
-	RoleKey    string
-	Text       string
-	Tombstoned bool
-}
-
-// GetLessons returns the overlay for roleKey, or nil if never edited.
-func (d *DAL) GetLessons(roleKey string) (*Lessons, error) {
-	return getLessonsOn(d.rdb, roleKey)
-}
-
-func getLessonsOn(q sqlQuerier, roleKey string) (*Lessons, error) {
-	var l Lessons
-	err := q.QueryRow(`
-		SELECT role_key, text, tombstoned FROM lessons
-		WHERE role_key = ?`, roleKey,
-	).Scan(&l.RoleKey, &l.Text, &l.Tombstoned)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	return &l, nil
-}
-
-// PutLessons upserts a per-role lessons overlay.
-func (d *DAL) PutLessons(l Lessons) error {
-	return putLessonsOn(d.wdb, l)
-}
-
-// 🔴 THE 傳承 BACKSTOP LIVES HERE AS WELL AS AT EVERY HANDLER, and the two are
-// not a duplicated rule — they are one function called at two layers for two
-// different reasons. The HANDLERS strip on the way in so the cap they judge and
-// the size/sha256 receipt they answer describe the text that is actually stored.
-// THIS layer strips so that a write face added later cannot silently reopen the
-// growth loop: a new door that forgets the handler-side call still cannot put
-// the block into the column. See stripTrailingLoreBlock (lore_select.go).
-func putLessonsOn(ex sqlExecer, l Lessons) error {
-	l.Text = stripTrailingLoreBlock(l.Text)
-	_, err := ex.Exec(`
-		INSERT INTO lessons (role_key, text, tombstoned)
-		VALUES (?, ?, ?)
-		ON CONFLICT (role_key) DO UPDATE SET
-			text = excluded.text, tombstoned = excluded.tombstoned`,
-		l.RoleKey, l.Text, l.Tombstoned)
-	return err
-}
-
-// DeleteLessonsForRole HARD-deletes roleKey's overlay — the custom-role
-// cascade: per-role lessons have no meaning without the role. Returns the
-// deleted count.
-func (d *DAL) DeleteLessonsForRole(roleKey string) (int, error) {
-	var deleted int
-	err := d.inTx(func(tx *sql.Tx) error {
-		res, err := tx.Exec(`DELETE FROM lessons WHERE role_key = ?`, roleKey)
-		if err != nil {
-			return err
-		}
-		n, err := res.RowsAffected()
-		if err != nil {
-			return err
-		}
-		deleted = int(n)
-		// This role's lessons history, in the same transaction. The key is
-		// now the BARE role_key (T-2 dropped the "::<task_type>" half), so
-		// this is an exact equality rather than the prefix match it used to
-		// be — the same shape DeleteInsightForRole right below has always
-		// used. An equality cannot over-reach onto a neighbouring role whose
-		// key merely starts with this one.
-		_, err = tx.Exec(`DELETE FROM document_history
-			WHERE document_kind = 'lessons' AND document_key = ?`, roleKey)
-		return err
-	})
-	if err != nil {
-		return 0, err
-	}
-	return deleted, nil
-}
-
 // ── insight (per-role; SINGLE role_key key) ──────────────────────────────────
 
 // Insight mirrors the role_insight table: the per-role judgement doc — the
-// trade-offs and boundaries this role keeps reaching for (T-3809). It is the
-// sibling of Lessons, deliberately NOT the same document: lessons record what
-// happened and what to do next time, insight records how this role weighs a
-// call. The owner's whole reason for asking was that the two were mixed.
+// trade-offs and boundaries this role keeps reaching for (T-3809): how this
+// role weighs a call.
 //
-// A single-column primary key, the same shape Lessons has carried since T-2 —
-// hence a BARE role_key as the document_history key.
+// A single-column primary key — hence a BARE role_key as the document_history
+// key.
 type Insight struct {
 	RoleKey    string
 	Text       string
@@ -2476,16 +2388,12 @@ func putInsightOn(ex sqlExecer, i Insight) error {
 }
 
 // DeleteInsightForRole HARD-deletes the insight doc for roleKey — the
-// custom-role cascade twin of DeleteLessonsForRole. Returns the deleted count.
+// custom-role cascade. Returns the deleted count.
 //
 // 🔴 EXACT EQUALITY on the history key. An insight history key is the BARE
 // role_key — no terminator — so a prefix match would delete r-abcdef's retained
 // versions while deleting r-abc. Exact equality is the only safe shape for a
-// single-key document. Until T-2 the lessons cascade above was the one
-// exception (its key was composite, "<role>::<task_type>", so its prefix
-// carried a "::" terminator); the axis is gone and both cascades are now the
-// same equality, which is why this reads as the house shape rather than as a
-// contrast.
+// single-key document.
 func (d *DAL) DeleteInsightForRole(roleKey string) (int, error) {
 	var deleted int
 	err := d.inTx(func(tx *sql.Tx) error {

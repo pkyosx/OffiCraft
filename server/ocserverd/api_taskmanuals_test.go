@@ -18,12 +18,12 @@ func TestTaskManualSopHistorySnapshot(t *testing.T) {
 	}{
 		{
 			name:   "an empty SOP retains no revision",
-			manual: TaskManual{SopMD: "", Learnings: "學習目前版"},
+			manual: TaskManual{SopMD: "", Purpose: "對客戶報價"},
 			want:   "{}",
 		},
 		{
-			name:   "a non-empty SOP is retained without the learnings document",
-			manual: TaskManual{SopMD: "# SOP\n步驟一", Learnings: "學習目前版"},
+			name:   "a non-empty SOP is retained without the manual's other fields",
+			manual: TaskManual{SopMD: "# SOP\n步驟一", Purpose: "對客戶報價"},
 			want:   `{"sop_md":"# SOP\n步驟一"}`,
 		},
 	} {
@@ -31,35 +31,6 @@ func TestTaskManualSopHistorySnapshot(t *testing.T) {
 			got, err := taskManualSopHistorySnapshot(tt.manual)
 			if err != nil {
 				t.Fatalf("taskManualSopHistorySnapshot: %v", err)
-			}
-			if got != tt.want {
-				t.Fatalf("snapshot = %q, want %q", got, tt.want)
-			}
-		})
-	}
-}
-
-func TestTaskManualLearningsHistorySnapshot(t *testing.T) {
-	for _, tt := range []struct {
-		name   string
-		manual TaskManual
-		want   string
-	}{
-		{
-			name:   "an empty learnings document retains no revision",
-			manual: TaskManual{SopMD: "# SOP", Learnings: ""},
-			want:   "{}",
-		},
-		{
-			name:   "a non-empty learnings document is retained without the SOP",
-			manual: TaskManual{SopMD: "# SOP", Learnings: "第一課\n"},
-			want:   `{"learnings":"第一課\n"}`,
-		},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := taskManualLearningsHistorySnapshot(tt.manual)
-			if err != nil {
-				t.Fatalf("taskManualLearningsHistorySnapshot: %v", err)
 			}
 			if got != tt.want {
 				t.Fatalf("snapshot = %q, want %q", got, tt.want)
@@ -77,7 +48,6 @@ func TestResolveTaskManual(t *testing.T) {
 			Purpose:     "對客戶報價",
 			Fields:      `[{"name":"客戶","required":true,"is_key":true}]`,
 			SopMD:       "# SOP\n步驟一",
-			Learnings:   "第一課",
 			Assignee:    `{"kind":"staff","member_id":"kip"}`,
 			UpdatedTS:   42.5,
 		}
@@ -111,7 +81,7 @@ func TestResolveTaskManual(t *testing.T) {
 }
 
 func TestWriteTaskManual(t *testing.T) {
-	t.Run("the read response contains the complete manual and both document measurements", func(t *testing.T) {
+	t.Run("the read response contains the complete manual and its document measurements", func(t *testing.T) {
 		api, _, _, _ := newAPITestServer(t)
 		rec := httptest.NewRecorder()
 
@@ -121,7 +91,6 @@ func TestWriteTaskManual(t *testing.T) {
 			Purpose:     "對客戶報價",
 			Fields:      `[{"name":"客戶","required":true,"is_key":true}]`,
 			SopMD:       "# SOP\n步驟一",
-			Learnings:   "第一課",
 			Assignee:    `{"kind":"staff","member_id":"kip"}`,
 			UpdatedTS:   42.5,
 		})
@@ -133,21 +102,17 @@ func TestWriteTaskManual(t *testing.T) {
 			t.Fatalf("Content-Type = %q, want %q", got, "application/json")
 		}
 		apiWantBody(t, apiTestDecodeJSONBody(t, rec), map[string]any{
-			"type_key":            "tm-quote",
-			"display_name":        "報價",
-			"purpose":             "對客戶報價",
-			"fields":              []any{map[string]any{"name": "客戶", "required": true, "is_key": true}},
-			"sop_md":              "# SOP\n步驟一",
-			"learnings":           "第一課",
-			"assignee":            map[string]any{"kind": "staff", "member_id": "kip"},
-			"lore":                "",
-			"lore_chars":          0,
-			"learnings_chars":     3,
-			"sop_md_chars":        9,
-			"learnings_cap_chars": 15000,
-			"sop_md_cap_chars":    15000,
-			"cap_chars":           15000,
-			"updated_ts":          42.5,
+			"type_key":         "tm-quote",
+			"display_name":     "報價",
+			"purpose":          "對客戶報價",
+			"fields":           []any{map[string]any{"name": "客戶", "required": true, "is_key": true}},
+			"sop_md":           "# SOP\n步驟一",
+			"assignee":         map[string]any{"kind": "staff", "member_id": "kip"},
+			"lore":             "",
+			"lore_chars":       0,
+			"sop_md_chars":     9,
+			"sop_md_cap_chars": 15000,
+			"updated_ts":       42.5,
 		})
 	})
 
@@ -170,28 +135,24 @@ func TestWriteTaskManualReceipt(t *testing.T) {
 	manual := TaskManual{
 		TypeKey:   "tm-quote",
 		SopMD:     "# SOP\n步驟一",
-		Learnings: "第一課",
 		UpdatedTS: 42.5,
 	}
 	for _, tt := range []struct {
-		name           string
-		wroteSop       bool
-		wroteLearnings bool
-		want           map[string]any
+		name     string
+		wroteSop bool
+		want     map[string]any
 	}{
 		{
-			name:           "a write that touched neither document returns neither document receipt",
-			wroteSop:       false,
-			wroteLearnings: false,
+			name:     "a write that touched no document returns no document receipt",
+			wroteSop: false,
 			want: map[string]any{
 				"type_key":   "tm-quote",
 				"updated_ts": 42.5,
 			},
 		},
 		{
-			name:           "a SOP write returns only the SOP size cap and hash",
-			wroteSop:       true,
-			wroteLearnings: false,
+			name:     "a SOP write returns the SOP size cap and hash",
+			wroteSop: true,
 			want: map[string]any{
 				"type_key":         "tm-quote",
 				"updated_ts":       42.5,
@@ -200,37 +161,10 @@ func TestWriteTaskManualReceipt(t *testing.T) {
 				"sop_md_sha256":    "4463e39266c9a31c7dea3dc806c1567c97c34ed1d69af09aaedf4a302bc78aad",
 			},
 		},
-		{
-			name:           "a learnings write returns only the learnings size cap and hash",
-			wroteSop:       false,
-			wroteLearnings: true,
-			want: map[string]any{
-				"type_key":            "tm-quote",
-				"updated_ts":          42.5,
-				"learnings_chars":     3,
-				"learnings_cap_chars": 15000,
-				"learnings_sha256":    "7c50dedd8cc42f2f1e96dc6a013e49de801c5a445f9569e9045c6ec63409e3f9",
-			},
-		},
-		{
-			name:           "a write that touched both documents returns both independent receipts",
-			wroteSop:       true,
-			wroteLearnings: true,
-			want: map[string]any{
-				"type_key":            "tm-quote",
-				"updated_ts":          42.5,
-				"sop_md_chars":        9,
-				"sop_md_cap_chars":    15000,
-				"sop_md_sha256":       "4463e39266c9a31c7dea3dc806c1567c97c34ed1d69af09aaedf4a302bc78aad",
-				"learnings_chars":     3,
-				"learnings_cap_chars": 15000,
-				"learnings_sha256":    "7c50dedd8cc42f2f1e96dc6a013e49de801c5a445f9569e9045c6ec63409e3f9",
-			},
-		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			rec := httptest.NewRecorder()
-			api.writeTaskManualReceipt(rec, manual, tt.wroteSop, tt.wroteLearnings)
+			api.writeTaskManualReceipt(rec, manual, tt.wroteSop)
 
 			if rec.Code != http.StatusOK {
 				t.Fatalf("want 200, got %d", rec.Code)
@@ -404,42 +338,36 @@ func TestHandleListTaskManualsApiTaskManualsGet(t *testing.T) {
 		dashboard.wantFrames()
 	})
 
-	t.Run("every type is listed by display name carrying its documents' sizes and caps but neither document", func(t *testing.T) {
+	t.Run("every type is listed by display name carrying its document's size and cap but not the document", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		agent := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
 		apiTestCreateTaskManual(t, h, agent, `{"type_key":"tm-quote","display_name":"報價"}`)
 		apiTestCreateTaskManual(t, h, agent, `{"type_key":"tm-ship"}`)
 		apiJSON(t, h, "POST", "/api/task-manuals/tm-quote", agent,
-			`{"purpose":"對客戶報價","sop_md":"# SOP\n步驟一","learnings":"第一課"}`)
+			`{"purpose":"對客戶報價","sop_md":"# SOP\n步驟一"}`)
 		dashboard := apiTestListen(t, api, "")
 
 		got := apiTestTaskManualList(t, h, owner)
 		apiWantValue(t, "body", any(got), any([]any{
 			map[string]any{
-				"type_key":            "tm-ship",
-				"display_name":        "tm-ship",
-				"purpose":             "",
-				"fields":              []any{},
-				"assignee":            map[string]any{},
-				"learnings_chars":     0,
-				"sop_md_chars":        0,
-				"learnings_cap_chars": 15000,
-				"sop_md_cap_chars":    15000,
-				"cap_chars":           15000,
-				"updated_ts":          apiAnyNumber,
+				"type_key":         "tm-ship",
+				"display_name":     "tm-ship",
+				"purpose":          "",
+				"fields":           []any{},
+				"assignee":         map[string]any{},
+				"sop_md_chars":     0,
+				"sop_md_cap_chars": 15000,
+				"updated_ts":       apiAnyNumber,
 			},
 			map[string]any{
-				"type_key":            "tm-quote",
-				"display_name":        "報價",
-				"purpose":             "對客戶報價",
-				"fields":              []any{},
-				"assignee":            map[string]any{},
-				"learnings_chars":     3,
-				"sop_md_chars":        9,
-				"learnings_cap_chars": 15000,
-				"sop_md_cap_chars":    15000,
-				"cap_chars":           15000,
-				"updated_ts":          apiAnyNumber,
+				"type_key":         "tm-quote",
+				"display_name":     "報價",
+				"purpose":          "對客戶報價",
+				"fields":           []any{},
+				"assignee":         map[string]any{},
+				"sop_md_chars":     9,
+				"sop_md_cap_chars": 15000,
+				"updated_ts":       apiAnyNumber,
 			},
 		}))
 		dashboard.wantFrames()
@@ -475,19 +403,15 @@ func TestHandleCreateTaskManualApiTaskManualsPost(t *testing.T) {
 		dashboard.wantFrames(apiTestTaskManualFrame(1, typeKey, apiTestPlainAgentID))
 		asker.wantFrames()
 		apiTestWantTaskManual(t, h, owner, typeKey, map[string]any{
-			"type_key":            typeKey,
-			"display_name":        "報價",
-			"purpose":             "",
-			"fields":              []any{},
-			"sop_md":              "",
-			"learnings":           "",
-			"assignee":            map[string]any{},
-			"learnings_chars":     0,
-			"sop_md_chars":        0,
-			"learnings_cap_chars": 15000,
-			"sop_md_cap_chars":    15000,
-			"cap_chars":           15000,
-			"updated_ts":          apiAnyNumber,
+			"type_key":         typeKey,
+			"display_name":     "報價",
+			"purpose":          "",
+			"fields":           []any{},
+			"sop_md":           "",
+			"assignee":         map[string]any{},
+			"sop_md_chars":     0,
+			"sop_md_cap_chars": 15000,
+			"updated_ts":       apiAnyNumber,
 		})
 	})
 
@@ -505,19 +429,15 @@ func TestHandleCreateTaskManualApiTaskManualsPost(t *testing.T) {
 			"updated_ts": apiAnyNumber,
 		})
 		apiTestWantTaskManual(t, h, owner, "tm-quote", map[string]any{
-			"type_key":            "tm-quote",
-			"display_name":        "tm-quote",
-			"purpose":             "",
-			"fields":              []any{},
-			"sop_md":              "",
-			"learnings":           "",
-			"assignee":            map[string]any{},
-			"learnings_chars":     0,
-			"sop_md_chars":        0,
-			"learnings_cap_chars": 15000,
-			"sop_md_cap_chars":    15000,
-			"cap_chars":           15000,
-			"updated_ts":          apiAnyNumber,
+			"type_key":         "tm-quote",
+			"display_name":     "tm-quote",
+			"purpose":          "",
+			"fields":           []any{},
+			"sop_md":           "",
+			"assignee":         map[string]any{},
+			"sop_md_chars":     0,
+			"sop_md_cap_chars": 15000,
+			"updated_ts":       apiAnyNumber,
 		})
 		dashboard.wantFrames(apiTestTaskManualFrame(1, "tm-quote", apiTestPlainAgentID))
 	})
@@ -535,19 +455,15 @@ func TestHandleCreateTaskManualApiTaskManualsPost(t *testing.T) {
 		apiWantError(t, data, "conflict", "task manual 'tm-quote' already exists")
 		dashboard.wantFrames()
 		apiTestWantTaskManual(t, h, owner, "tm-quote", map[string]any{
-			"type_key":            "tm-quote",
-			"display_name":        "報價",
-			"purpose":             "",
-			"fields":              []any{},
-			"sop_md":              "",
-			"learnings":           "",
-			"assignee":            map[string]any{},
-			"learnings_chars":     0,
-			"sop_md_chars":        0,
-			"learnings_cap_chars": 15000,
-			"sop_md_cap_chars":    15000,
-			"cap_chars":           15000,
-			"updated_ts":          apiAnyNumber,
+			"type_key":         "tm-quote",
+			"display_name":     "報價",
+			"purpose":          "",
+			"fields":           []any{},
+			"sop_md":           "",
+			"assignee":         map[string]any{},
+			"sop_md_chars":     0,
+			"sop_md_cap_chars": 15000,
+			"updated_ts":       apiAnyNumber,
 		})
 	})
 
@@ -572,19 +488,15 @@ func TestHandleCreateTaskManualApiTaskManualsPost(t *testing.T) {
 		typeKey := apiTestCreateTaskManual(t, h, admin,
 			`{"display_name":"派工","assignee":{"kind":"staff","member_id":"kip"}}`)
 		apiTestWantTaskManual(t, h, owner, typeKey, map[string]any{
-			"type_key":            typeKey,
-			"display_name":        "派工",
-			"purpose":             "",
-			"fields":              []any{},
-			"sop_md":              "",
-			"learnings":           "",
-			"assignee":            map[string]any{"kind": "staff", "member_id": "kip"},
-			"learnings_chars":     0,
-			"sop_md_chars":        0,
-			"learnings_cap_chars": 15000,
-			"sop_md_cap_chars":    15000,
-			"cap_chars":           15000,
-			"updated_ts":          apiAnyNumber,
+			"type_key":         typeKey,
+			"display_name":     "派工",
+			"purpose":          "",
+			"fields":           []any{},
+			"sop_md":           "",
+			"assignee":         map[string]any{"kind": "staff", "member_id": "kip"},
+			"sop_md_chars":     0,
+			"sop_md_cap_chars": 15000,
+			"updated_ts":       apiAnyNumber,
 		})
 	})
 
@@ -664,12 +576,12 @@ func TestHandleCreateTaskManualApiTaskManualsPost(t *testing.T) {
 }
 
 func TestHandleGetTaskManualApiTaskManualsTypeKeyGet(t *testing.T) {
-	t.Run("a type is served in full with both documents and their separate caps", func(t *testing.T) {
+	t.Run("a type is served in full with its document and its cap", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		agent := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
 		apiTestCreateTaskManual(t, h, agent, `{"type_key":"tm-quote","display_name":"報價"}`)
 		apiJSON(t, h, "POST", "/api/task-manuals/tm-quote", agent,
-			`{"purpose":"對客戶報價","sop_md":"# SOP\n步驟一","learnings":"第一課","fields":[{"name":" 客戶 ","required":true,"is_key":true}]}`)
+			`{"purpose":"對客戶報價","sop_md":"# SOP\n步驟一","fields":[{"name":" 客戶 ","required":true,"is_key":true}]}`)
 		dashboard := apiTestListen(t, api, "")
 
 		status, data := apiJSON(t, h, "GET", "/api/task-manuals/tm-quote", owner, "")
@@ -683,17 +595,13 @@ func TestHandleGetTaskManualApiTaskManualsTypeKeyGet(t *testing.T) {
 			"fields": []any{
 				map[string]any{"name": "客戶", "required": true, "is_key": true},
 			},
-			"sop_md":              "# SOP\n步驟一",
-			"learnings":           "第一課",
-			"assignee":            map[string]any{},
-			"lore":                "",
-			"lore_chars":          0,
-			"learnings_chars":     3,
-			"sop_md_chars":        9,
-			"learnings_cap_chars": 15000,
-			"sop_md_cap_chars":    15000,
-			"cap_chars":           15000,
-			"updated_ts":          apiAnyNumber,
+			"sop_md":           "# SOP\n步驟一",
+			"assignee":         map[string]any{},
+			"lore":             "",
+			"lore_chars":       0,
+			"sop_md_chars":     9,
+			"sop_md_cap_chars": 15000,
+			"updated_ts":       apiAnyNumber,
 		})
 		dashboard.wantFrames()
 	})
@@ -720,7 +628,7 @@ func TestHandleGetTaskManualApiTaskManualsTypeKeyGet(t *testing.T) {
 }
 
 func TestHandleUpdateTaskManualApiTaskManualsTypeKeyPost(t *testing.T) {
-	t.Run("a partial edit changes only the fields it names and reports only the documents it wrote", func(t *testing.T) {
+	t.Run("a partial edit changes only the fields it names and reports the document only when it wrote it", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		agent := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
 		apiTestCreateTaskManual(t, h, agent, `{"type_key":"tm-quote","display_name":"報價"}`)
@@ -748,45 +656,18 @@ func TestHandleUpdateTaskManualApiTaskManualsTypeKeyPost(t *testing.T) {
 			"fields": []any{
 				map[string]any{"name": "客戶", "required": true, "is_key": true},
 			},
-			"sop_md":              "# SOP\n步驟一",
-			"learnings":           "",
-			"assignee":            map[string]any{},
-			"learnings_chars":     0,
-			"sop_md_chars":        9,
-			"learnings_cap_chars": 15000,
-			"sop_md_cap_chars":    15000,
-			"cap_chars":           15000,
-			"updated_ts":          apiAnyNumber,
+			"sop_md":           "# SOP\n步驟一",
+			"assignee":         map[string]any{},
+			"sop_md_chars":     9,
+			"sop_md_cap_chars": 15000,
+			"updated_ts":       apiAnyNumber,
 		})
 	})
 
-	t.Run("an edit that resends both documents reports a triple for each of them", func(t *testing.T) {
-		api, h, _, _ := newAPITestServer(t)
-		agent := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
-		apiTestCreateTaskManual(t, h, agent, `{"type_key":"tm-quote","display_name":"報價"}`)
-
-		status, data := apiJSON(t, h, "POST", "/api/task-manuals/tm-quote", agent,
-			`{"sop_md":"# SOP\n步驟一","learnings":"第一課"}`)
-		if status != 200 {
-			t.Fatalf("want 200, got %d (%v)", status, data)
-		}
-		apiWantBody(t, data, map[string]any{
-			"type_key":            "tm-quote",
-			"updated_ts":          apiAnyNumber,
-			"sop_md_chars":        9,
-			"sop_md_cap_chars":    15000,
-			"sop_md_sha256":       "4463e39266c9a31c7dea3dc806c1567c97c34ed1d69af09aaedf4a302bc78aad",
-			"learnings_chars":     3,
-			"learnings_cap_chars": 15000,
-			"learnings_sha256":    "7c50dedd8cc42f2f1e96dc6a013e49de801c5a445f9569e9045c6ec63409e3f9",
-		})
-	})
-
-	t.Run("the write_task_learnings spelling of the learnings key answers 422 and writes nothing", func(t *testing.T) {
+	t.Run("an unknown body key answers 422 and writes nothing", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		agent := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
 		apiTestCreateTaskManual(t, h, agent, `{"type_key":"tm-quote","display_name":"報價"}`)
-		apiJSON(t, h, "POST", "/api/task-manuals/tm-quote", agent, `{"learnings":"第一課"}`)
 		dashboard := apiTestListen(t, api, "")
 
 		status, data := apiJSON(t, h, "POST", "/api/task-manuals/tm-quote", agent, `{"text":"覆蓋"}`)
@@ -796,19 +677,15 @@ func TestHandleUpdateTaskManualApiTaskManualsTypeKeyPost(t *testing.T) {
 		apiWantError(t, data, "validation_error", "invalid request body: json: unknown field \"text\"")
 		dashboard.wantFrames()
 		apiTestWantTaskManual(t, h, owner, "tm-quote", map[string]any{
-			"type_key":            "tm-quote",
-			"display_name":        "報價",
-			"purpose":             "",
-			"fields":              []any{},
-			"sop_md":              "",
-			"learnings":           "第一課",
-			"assignee":            map[string]any{},
-			"learnings_chars":     3,
-			"sop_md_chars":        0,
-			"learnings_cap_chars": 15000,
-			"sop_md_cap_chars":    15000,
-			"cap_chars":           15000,
-			"updated_ts":          apiAnyNumber,
+			"type_key":         "tm-quote",
+			"display_name":     "報價",
+			"purpose":          "",
+			"fields":           []any{},
+			"sop_md":           "",
+			"assignee":         map[string]any{},
+			"sop_md_chars":     0,
+			"sop_md_cap_chars": 15000,
+			"updated_ts":       apiAnyNumber,
 		})
 	})
 
@@ -826,19 +703,15 @@ func TestHandleUpdateTaskManualApiTaskManualsTypeKeyPost(t *testing.T) {
 		apiWantError(t, data, "validation_error", "field name must not be blank")
 		dashboard.wantFrames()
 		apiTestWantTaskManual(t, h, owner, "tm-quote", map[string]any{
-			"type_key":            "tm-quote",
-			"display_name":        "報價",
-			"purpose":             "",
-			"fields":              []any{},
-			"sop_md":              "",
-			"learnings":           "",
-			"assignee":            map[string]any{},
-			"learnings_chars":     0,
-			"sop_md_chars":        0,
-			"learnings_cap_chars": 15000,
-			"sop_md_cap_chars":    15000,
-			"cap_chars":           15000,
-			"updated_ts":          apiAnyNumber,
+			"type_key":         "tm-quote",
+			"display_name":     "報價",
+			"purpose":          "",
+			"fields":           []any{},
+			"sop_md":           "",
+			"assignee":         map[string]any{},
+			"sop_md_chars":     0,
+			"sop_md_cap_chars": 15000,
+			"updated_ts":       apiAnyNumber,
 		})
 	})
 
@@ -856,19 +729,15 @@ func TestHandleUpdateTaskManualApiTaskManualsTypeKeyPost(t *testing.T) {
 		apiWantError(t, data, "validation_error", "identity-key field '客戶' must be required")
 		dashboard.wantFrames()
 		apiTestWantTaskManual(t, h, owner, "tm-quote", map[string]any{
-			"type_key":            "tm-quote",
-			"display_name":        "報價",
-			"purpose":             "",
-			"fields":              []any{},
-			"sop_md":              "",
-			"learnings":           "",
-			"assignee":            map[string]any{},
-			"learnings_chars":     0,
-			"sop_md_chars":        0,
-			"learnings_cap_chars": 15000,
-			"sop_md_cap_chars":    15000,
-			"cap_chars":           15000,
-			"updated_ts":          apiAnyNumber,
+			"type_key":         "tm-quote",
+			"display_name":     "報價",
+			"purpose":          "",
+			"fields":           []any{},
+			"sop_md":           "",
+			"assignee":         map[string]any{},
+			"sop_md_chars":     0,
+			"sop_md_cap_chars": 15000,
+			"updated_ts":       apiAnyNumber,
 		})
 	})
 
@@ -887,19 +756,15 @@ func TestHandleUpdateTaskManualApiTaskManualsTypeKeyPost(t *testing.T) {
 			"assignee is owner/admin-agent governance — a plain agent may not set who executes a task type")
 		dashboard.wantFrames()
 		apiTestWantTaskManual(t, h, owner, "tm-quote", map[string]any{
-			"type_key":            "tm-quote",
-			"display_name":        "報價",
-			"purpose":             "",
-			"fields":              []any{},
-			"sop_md":              "",
-			"learnings":           "",
-			"assignee":            map[string]any{},
-			"learnings_chars":     0,
-			"sop_md_chars":        0,
-			"learnings_cap_chars": 15000,
-			"sop_md_cap_chars":    15000,
-			"cap_chars":           15000,
-			"updated_ts":          apiAnyNumber,
+			"type_key":         "tm-quote",
+			"display_name":     "報價",
+			"purpose":          "",
+			"fields":           []any{},
+			"sop_md":           "",
+			"assignee":         map[string]any{},
+			"sop_md_chars":     0,
+			"sop_md_cap_chars": 15000,
+			"updated_ts":       apiAnyNumber,
 		})
 	})
 
@@ -930,19 +795,15 @@ func TestHandleUpdateTaskManualApiTaskManualsTypeKeyPost(t *testing.T) {
 		apiWantError(t, data, "forbidden", "principal not permitted")
 		dashboard.wantFrames()
 		apiTestWantTaskManual(t, h, owner, "tm-quote", map[string]any{
-			"type_key":            "tm-quote",
-			"display_name":        "報價",
-			"purpose":             "",
-			"fields":              []any{},
-			"sop_md":              "",
-			"learnings":           "",
-			"assignee":            map[string]any{},
-			"learnings_chars":     0,
-			"sop_md_chars":        0,
-			"learnings_cap_chars": 15000,
-			"sop_md_cap_chars":    15000,
-			"cap_chars":           15000,
-			"updated_ts":          apiAnyNumber,
+			"type_key":         "tm-quote",
+			"display_name":     "報價",
+			"purpose":          "",
+			"fields":           []any{},
+			"sop_md":           "",
+			"assignee":         map[string]any{},
+			"sop_md_chars":     0,
+			"sop_md_cap_chars": 15000,
+			"updated_ts":       apiAnyNumber,
 		})
 	})
 
@@ -959,19 +820,15 @@ func TestHandleUpdateTaskManualApiTaskManualsTypeKeyPost(t *testing.T) {
 		apiWantError(t, data, "unauthorized", "missing credentials")
 		dashboard.wantFrames()
 		apiTestWantTaskManual(t, h, owner, "tm-quote", map[string]any{
-			"type_key":            "tm-quote",
-			"display_name":        "報價",
-			"purpose":             "",
-			"fields":              []any{},
-			"sop_md":              "",
-			"learnings":           "",
-			"assignee":            map[string]any{},
-			"learnings_chars":     0,
-			"sop_md_chars":        0,
-			"learnings_cap_chars": 15000,
-			"sop_md_cap_chars":    15000,
-			"cap_chars":           15000,
-			"updated_ts":          apiAnyNumber,
+			"type_key":         "tm-quote",
+			"display_name":     "報價",
+			"purpose":          "",
+			"fields":           []any{},
+			"sop_md":           "",
+			"assignee":         map[string]any{},
+			"sop_md_chars":     0,
+			"sop_md_cap_chars": 15000,
+			"updated_ts":       apiAnyNumber,
 		})
 	})
 }
@@ -1013,19 +870,15 @@ func TestHandleDeleteTaskManualApiTaskManualsTypeKeyDelete(t *testing.T) {
 		apiWantError(t, data, "conflict", "task manual 'tm-quote' still has open tasks — close them first")
 		dashboard.wantFrames()
 		apiTestWantTaskManual(t, h, owner, "tm-quote", map[string]any{
-			"type_key":            "tm-quote",
-			"display_name":        "報價",
-			"purpose":             "",
-			"fields":              []any{},
-			"sop_md":              "",
-			"learnings":           "",
-			"assignee":            map[string]any{},
-			"learnings_chars":     0,
-			"sop_md_chars":        0,
-			"learnings_cap_chars": 15000,
-			"sop_md_cap_chars":    15000,
-			"cap_chars":           15000,
-			"updated_ts":          apiAnyNumber,
+			"type_key":         "tm-quote",
+			"display_name":     "報價",
+			"purpose":          "",
+			"fields":           []any{},
+			"sop_md":           "",
+			"assignee":         map[string]any{},
+			"sop_md_chars":     0,
+			"sop_md_cap_chars": 15000,
+			"updated_ts":       apiAnyNumber,
 		})
 	})
 
@@ -1055,19 +908,15 @@ func TestHandleDeleteTaskManualApiTaskManualsTypeKeyDelete(t *testing.T) {
 		apiWantError(t, data, "forbidden", "principal not permitted")
 		dashboard.wantFrames()
 		apiTestWantTaskManual(t, h, owner, "tm-quote", map[string]any{
-			"type_key":            "tm-quote",
-			"display_name":        "報價",
-			"purpose":             "",
-			"fields":              []any{},
-			"sop_md":              "",
-			"learnings":           "",
-			"assignee":            map[string]any{},
-			"learnings_chars":     0,
-			"sop_md_chars":        0,
-			"learnings_cap_chars": 15000,
-			"sop_md_cap_chars":    15000,
-			"cap_chars":           15000,
-			"updated_ts":          apiAnyNumber,
+			"type_key":         "tm-quote",
+			"display_name":     "報價",
+			"purpose":          "",
+			"fields":           []any{},
+			"sop_md":           "",
+			"assignee":         map[string]any{},
+			"sop_md_chars":     0,
+			"sop_md_cap_chars": 15000,
+			"updated_ts":       apiAnyNumber,
 		})
 	})
 
@@ -1085,424 +934,16 @@ func TestHandleDeleteTaskManualApiTaskManualsTypeKeyDelete(t *testing.T) {
 		dashboard.wantFrames()
 		apiWantValue(t, "body", any(apiTestTaskManualList(t, h, owner)), any([]any{
 			map[string]any{
-				"type_key":            "tm-quote",
-				"display_name":        "報價",
-				"purpose":             "",
-				"fields":              []any{},
-				"assignee":            map[string]any{},
-				"learnings_chars":     0,
-				"sop_md_chars":        0,
-				"learnings_cap_chars": 15000,
-				"sop_md_cap_chars":    15000,
-				"cap_chars":           15000,
-				"updated_ts":          apiAnyNumber,
+				"type_key":         "tm-quote",
+				"display_name":     "報價",
+				"purpose":          "",
+				"fields":           []any{},
+				"assignee":         map[string]any{},
+				"sop_md_chars":     0,
+				"sop_md_cap_chars": 15000,
+				"updated_ts":       apiAnyNumber,
 			},
 		}))
-	})
-}
-
-func TestHandleWriteTaskLearningsApiTaskManualsTypeKeyLearningsPost(t *testing.T) {
-	t.Run("a whole-doc write replaces the learnings and answers its size, cap and hash", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
-		agent := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
-		apiTestCreateTaskManual(t, h, agent, `{"type_key":"tm-quote","display_name":"報價"}`)
-		dashboard := apiTestListen(t, api, "")
-		asker := apiTestListen(t, api, apiTestPlainAgentID)
-
-		status, data := apiJSON(t, h, "POST", "/api/task-manuals/tm-quote/learnings", agent, `{"text":"第一課"}`)
-		if status != 200 {
-			t.Fatalf("want 200, got %d (%v)", status, data)
-		}
-		apiWantBody(t, data, map[string]any{
-			"type_key":   "tm-quote",
-			"size_chars": 3,
-			"cap_chars":  15000,
-			"sha256":     "7c50dedd8cc42f2f1e96dc6a013e49de801c5a445f9569e9045c6ec63409e3f9",
-		})
-		dashboard.wantFrames(apiTestTaskManualFrame(2, "tm-quote", apiTestPlainAgentID))
-		asker.wantFrames()
-		apiTestWantTaskManual(t, h, owner, "tm-quote", map[string]any{
-			"type_key":            "tm-quote",
-			"display_name":        "報價",
-			"purpose":             "",
-			"fields":              []any{},
-			"sop_md":              "",
-			"learnings":           "第一課",
-			"assignee":            map[string]any{},
-			"learnings_chars":     3,
-			"sop_md_chars":        0,
-			"learnings_cap_chars": 15000,
-			"sop_md_cap_chars":    15000,
-			"cap_chars":           15000,
-			"updated_ts":          apiAnyNumber,
-		})
-	})
-
-	t.Run("the update_task_manual spelling of the document key answers 422 and writes nothing", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
-		agent := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
-		apiTestCreateTaskManual(t, h, agent, `{"type_key":"tm-quote","display_name":"報價"}`)
-		apiJSON(t, h, "POST", "/api/task-manuals/tm-quote/learnings", agent, `{"text":"第一課"}`)
-		dashboard := apiTestListen(t, api, "")
-
-		status, data := apiJSON(t, h, "POST", "/api/task-manuals/tm-quote/learnings", agent, `{"learnings":"覆蓋"}`)
-		if status != 422 {
-			t.Fatalf("want 422, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "validation_error", "invalid request body: json: unknown field \"learnings\"")
-		dashboard.wantFrames()
-		apiTestWantTaskManual(t, h, owner, "tm-quote", map[string]any{
-			"type_key":            "tm-quote",
-			"display_name":        "報價",
-			"purpose":             "",
-			"fields":              []any{},
-			"sop_md":              "",
-			"learnings":           "第一課",
-			"assignee":            map[string]any{},
-			"learnings_chars":     3,
-			"sop_md_chars":        0,
-			"learnings_cap_chars": 15000,
-			"sop_md_cap_chars":    15000,
-			"cap_chars":           15000,
-			"updated_ts":          apiAnyNumber,
-		})
-	})
-
-	t.Run("an empty text over an accumulated doc answers 400 and writes nothing", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
-		agent := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
-		apiTestCreateTaskManual(t, h, agent, `{"type_key":"tm-quote","display_name":"報價"}`)
-		apiJSON(t, h, "POST", "/api/task-manuals/tm-quote/learnings", agent, `{"text":"第一課"}`)
-		dashboard := apiTestListen(t, api, "")
-
-		status, data := apiJSON(t, h, "POST", "/api/task-manuals/tm-quote/learnings", agent, `{"text":""}`)
-		if status != 400 {
-			t.Fatalf("want 400, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "validation_error",
-			"this would replace the existing learnings with an empty doc — pass allow_shrink=true "+
-				"if that is intended; nothing was written")
-		dashboard.wantFrames()
-		apiTestWantTaskManual(t, h, owner, "tm-quote", map[string]any{
-			"type_key":            "tm-quote",
-			"display_name":        "報價",
-			"purpose":             "",
-			"fields":              []any{},
-			"sop_md":              "",
-			"learnings":           "第一課",
-			"assignee":            map[string]any{},
-			"learnings_chars":     3,
-			"sop_md_chars":        0,
-			"learnings_cap_chars": 15000,
-			"sop_md_cap_chars":    15000,
-			"cap_chars":           15000,
-			"updated_ts":          apiAnyNumber,
-		})
-	})
-
-	t.Run("allow_shrink clears the doc and answers the empty document's hash", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
-		agent := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
-		apiTestCreateTaskManual(t, h, agent, `{"type_key":"tm-quote","display_name":"報價"}`)
-		apiJSON(t, h, "POST", "/api/task-manuals/tm-quote/learnings", agent, `{"text":"第一課"}`)
-		dashboard := apiTestListen(t, api, "")
-
-		status, data := apiJSON(t, h, "POST", "/api/task-manuals/tm-quote/learnings", agent,
-			`{"text":"","allow_shrink":true}`)
-		if status != 200 {
-			t.Fatalf("want 200, got %d (%v)", status, data)
-		}
-		apiWantBody(t, data, map[string]any{
-			"type_key":   "tm-quote",
-			"size_chars": 0,
-			"cap_chars":  15000,
-			"sha256":     "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-		})
-		dashboard.wantFrames(apiTestTaskManualFrame(3, "tm-quote", apiTestPlainAgentID))
-		apiTestWantTaskManual(t, h, owner, "tm-quote", map[string]any{
-			"type_key":            "tm-quote",
-			"display_name":        "報價",
-			"purpose":             "",
-			"fields":              []any{},
-			"sop_md":              "",
-			"learnings":           "",
-			"assignee":            map[string]any{},
-			"learnings_chars":     0,
-			"sop_md_chars":        0,
-			"learnings_cap_chars": 15000,
-			"sop_md_cap_chars":    15000,
-			"cap_chars":           15000,
-			"updated_ts":          apiAnyNumber,
-		})
-	})
-
-	t.Run("an unknown type key answers 404", func(t *testing.T) {
-		api, h, _, _ := newAPITestServer(t)
-		agent := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
-		dashboard := apiTestListen(t, api, "")
-
-		status, data := apiJSON(t, h, "POST", "/api/task-manuals/tm-ghost/learnings", agent, `{"text":"第一課"}`)
-		if status != 404 {
-			t.Fatalf("want 404, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "not_found", "task manual 'tm-ghost' not found")
-		dashboard.wantFrames()
-	})
-
-	t.Run("an authenticated machine identity answers 403 because this row requires agent", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
-		agent := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
-		machine := apiTestAgentToken(t, api, ServerSelfHost, "")
-		apiTestCreateTaskManual(t, h, agent, `{"type_key":"tm-quote","display_name":"報價"}`)
-		dashboard := apiTestListen(t, api, "")
-
-		status, data := apiJSON(t, h, "POST", "/api/task-manuals/tm-quote/learnings", machine, `{"text":"第一課"}`)
-		if status != 403 {
-			t.Fatalf("want 403, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "forbidden", "principal not permitted")
-		dashboard.wantFrames()
-		apiTestWantTaskManual(t, h, owner, "tm-quote", map[string]any{
-			"type_key":            "tm-quote",
-			"display_name":        "報價",
-			"purpose":             "",
-			"fields":              []any{},
-			"sop_md":              "",
-			"learnings":           "",
-			"assignee":            map[string]any{},
-			"learnings_chars":     0,
-			"sop_md_chars":        0,
-			"learnings_cap_chars": 15000,
-			"sop_md_cap_chars":    15000,
-			"cap_chars":           15000,
-			"updated_ts":          apiAnyNumber,
-		})
-	})
-
-	t.Run("a request without a token answers 401", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
-		agent := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
-		apiTestCreateTaskManual(t, h, agent, `{"type_key":"tm-quote","display_name":"報價"}`)
-		dashboard := apiTestListen(t, api, "")
-
-		status, data := apiJSON(t, h, "POST", "/api/task-manuals/tm-quote/learnings", "", `{"text":"第一課"}`)
-		if status != 401 {
-			t.Fatalf("want 401, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "unauthorized", "missing credentials")
-		dashboard.wantFrames()
-		apiTestWantTaskManual(t, h, owner, "tm-quote", map[string]any{
-			"type_key":            "tm-quote",
-			"display_name":        "報價",
-			"purpose":             "",
-			"fields":              []any{},
-			"sop_md":              "",
-			"learnings":           "",
-			"assignee":            map[string]any{},
-			"learnings_chars":     0,
-			"sop_md_chars":        0,
-			"learnings_cap_chars": 15000,
-			"sop_md_cap_chars":    15000,
-			"cap_chars":           15000,
-			"updated_ts":          apiAnyNumber,
-		})
-	})
-}
-
-func TestHandlePatchTaskLearningsApiTaskManualsTypeKeyLearningsPatchPost(t *testing.T) {
-	setup := func(t *testing.T, seeded string) (*apiServer, http.Handler, string, string) {
-		t.Helper()
-		api, h, _, owner := newAPITestServer(t)
-		agent := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
-		apiTestCreateTaskManual(t, h, agent, `{"type_key":"tm-quote","display_name":"報價"}`)
-		if seeded != "" {
-			if status, data := apiJSON(t, h, "POST", "/api/task-manuals/tm-quote/learnings", agent,
-				`{"text":"`+seeded+`"}`); status != 200 {
-				t.Fatalf("seed learnings: %d %v", status, data)
-			}
-		}
-		return api, h, owner, agent
-	}
-	wantLearnings := func(t *testing.T, h http.Handler, owner, text string, chars int) {
-		t.Helper()
-		apiTestWantTaskManual(t, h, owner, "tm-quote", map[string]any{
-			"type_key":            "tm-quote",
-			"display_name":        "報價",
-			"purpose":             "",
-			"fields":              []any{},
-			"sop_md":              "",
-			"learnings":           text,
-			"assignee":            map[string]any{},
-			"learnings_chars":     chars,
-			"sop_md_chars":        0,
-			"learnings_cap_chars": 15000,
-			"sop_md_cap_chars":    15000,
-			"cap_chars":           15000,
-			"updated_ts":          apiAnyNumber,
-		})
-	}
-
-	t.Run("an empty anchor appends to the doc and fans the owner's manual delta", func(t *testing.T) {
-		api, h, owner, agent := setup(t, "")
-		dashboard := apiTestListen(t, api, "")
-		asker := apiTestListen(t, api, apiTestPlainAgentID)
-
-		status, data := apiJSON(t, h, "POST", "/api/task-manuals/tm-quote/learnings/patch", agent,
-			`{"edits":[{"new":"甲\n"}]}`)
-		if status != 200 {
-			t.Fatalf("want 200, got %d (%v)", status, data)
-		}
-		apiWantBody(t, data, map[string]any{
-			"type_key":      "tm-quote",
-			"applied_edits": 1,
-			"size_chars":    2,
-			"cap_chars":     15000,
-			"sha256":        "7589c50dcc90a9be456502ec1ebf077ed6c882f7ebe475a0fd6cb3a07f6b066c",
-		})
-		dashboard.wantFrames(apiTestTaskManualFrame(2, "tm-quote", apiTestPlainAgentID))
-		asker.wantFrames()
-		wantLearnings(t, h, owner, "甲\n", 2)
-	})
-
-	t.Run("a unique anchor is spliced in place", func(t *testing.T) {
-		api, h, owner, agent := setup(t, "甲\\n")
-		dashboard := apiTestListen(t, api, "")
-
-		status, data := apiJSON(t, h, "POST", "/api/task-manuals/tm-quote/learnings/patch", agent,
-			`{"edits":[{"old":"甲","new":"乙"}]}`)
-		if status != 200 {
-			t.Fatalf("want 200, got %d (%v)", status, data)
-		}
-		apiWantBody(t, data, map[string]any{
-			"type_key":      "tm-quote",
-			"applied_edits": 1,
-			"size_chars":    2,
-			"cap_chars":     15000,
-			"sha256":        "d7d75b8c747529fa466c1edd6209ce3ecba924d70b1883525ddde333e065fd38",
-		})
-		dashboard.wantFrames(apiTestTaskManualFrame(3, "tm-quote", apiTestPlainAgentID))
-		wantLearnings(t, h, owner, "乙\n", 2)
-	})
-
-	t.Run("an anchor that matches nothing answers 400 and writes nothing", func(t *testing.T) {
-		api, h, owner, agent := setup(t, "甲\\n")
-		dashboard := apiTestListen(t, api, "")
-
-		status, data := apiJSON(t, h, "POST", "/api/task-manuals/tm-quote/learnings/patch", agent,
-			`{"edits":[{"old":"丙","new":"丁"}]}`)
-		if status != 400 {
-			t.Fatalf("want 400, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "validation_error",
-			"edits[0]: old not found in the current doc — re-read (get_task_manual) and re-anchor; nothing was written")
-		dashboard.wantFrames()
-		wantLearnings(t, h, owner, "甲\n", 2)
-	})
-
-	t.Run("an empty edit list answers 422 and writes nothing", func(t *testing.T) {
-		api, h, owner, agent := setup(t, "甲\\n")
-		dashboard := apiTestListen(t, api, "")
-
-		status, data := apiJSON(t, h, "POST", "/api/task-manuals/tm-quote/learnings/patch", agent, `{"edits":[]}`)
-		if status != 422 {
-			t.Fatalf("want 422, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "validation_error", "edits requires at least one {old, new} entry")
-		dashboard.wantFrames()
-		wantLearnings(t, h, owner, "甲\n", 2)
-	})
-
-	t.Run("an edit carrying neither old nor new answers 422 and writes nothing", func(t *testing.T) {
-		api, h, owner, agent := setup(t, "甲\\n")
-		dashboard := apiTestListen(t, api, "")
-
-		status, data := apiJSON(t, h, "POST", "/api/task-manuals/tm-quote/learnings/patch", agent, `{"edits":[{}]}`)
-		if status != 422 {
-			t.Fatalf("want 422, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "validation_error",
-			"edits[0]: neither old nor new was given — an edit needs at least one of them "+
-				"(empty old appends new); nothing was written")
-		dashboard.wantFrames()
-		wantLearnings(t, h, owner, "甲\n", 2)
-	})
-
-	t.Run("a batch that undoes itself counts its edits but writes nothing and fans nothing", func(t *testing.T) {
-		api, h, owner, agent := setup(t, "甲\\n")
-		dashboard := apiTestListen(t, api, "")
-
-		status, data := apiJSON(t, h, "POST", "/api/task-manuals/tm-quote/learnings/patch", agent,
-			`{"edits":[{"old":"甲","new":"乙"},{"old":"乙","new":"甲"}]}`)
-		if status != 200 {
-			t.Fatalf("want 200, got %d (%v)", status, data)
-		}
-		apiWantBody(t, data, map[string]any{
-			"type_key":      "tm-quote",
-			"applied_edits": 2,
-			"size_chars":    2,
-			"cap_chars":     15000,
-			"sha256":        "7589c50dcc90a9be456502ec1ebf077ed6c882f7ebe475a0fd6cb3a07f6b066c",
-		})
-		dashboard.wantFrames()
-		wantLearnings(t, h, owner, "甲\n", 2)
-	})
-
-	t.Run("a patch that would empty the doc answers 400 without allow_shrink", func(t *testing.T) {
-		api, h, owner, agent := setup(t, "甲\\n")
-		dashboard := apiTestListen(t, api, "")
-
-		status, data := apiJSON(t, h, "POST", "/api/task-manuals/tm-quote/learnings/patch", agent,
-			`{"edits":[{"old":"甲\n","new":""}]}`)
-		if status != 400 {
-			t.Fatalf("want 400, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "validation_error",
-			"patch would empty (or shrink to under a tenth of) the learnings doc — pass allow_shrink=true "+
-				"if this is intended, or use write_task_learnings; nothing was written")
-		dashboard.wantFrames()
-		wantLearnings(t, h, owner, "甲\n", 2)
-	})
-
-	t.Run("an unknown type key answers 404", func(t *testing.T) {
-		api, h, _, agent := setup(t, "")
-		dashboard := apiTestListen(t, api, "")
-
-		status, data := apiJSON(t, h, "POST", "/api/task-manuals/tm-ghost/learnings/patch", agent,
-			`{"edits":[{"new":"甲"}]}`)
-		if status != 404 {
-			t.Fatalf("want 404, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "not_found", "task manual 'tm-ghost' not found")
-		dashboard.wantFrames()
-	})
-
-	t.Run("an authenticated machine identity answers 403 because this row requires agent", func(t *testing.T) {
-		api, h, owner, _ := setup(t, "甲\\n")
-		machine := apiTestAgentToken(t, api, ServerSelfHost, "")
-		dashboard := apiTestListen(t, api, "")
-
-		status, data := apiJSON(t, h, "POST", "/api/task-manuals/tm-quote/learnings/patch", machine,
-			`{"edits":[{"new":"乙"}]}`)
-		if status != 403 {
-			t.Fatalf("want 403, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "forbidden", "principal not permitted")
-		dashboard.wantFrames()
-		wantLearnings(t, h, owner, "甲\n", 2)
-	})
-
-	t.Run("a request without a token answers 401", func(t *testing.T) {
-		api, h, owner, _ := setup(t, "甲\\n")
-		dashboard := apiTestListen(t, api, "")
-
-		status, data := apiJSON(t, h, "POST", "/api/task-manuals/tm-quote/learnings/patch", "",
-			`{"edits":[{"new":"乙"}]}`)
-		if status != 401 {
-			t.Fatalf("want 401, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "unauthorized", "missing credentials")
-		dashboard.wantFrames()
-		wantLearnings(t, h, owner, "甲\n", 2)
 	})
 }
 
@@ -1521,19 +962,15 @@ func TestHandlePatchTaskSopApiTaskManualsTypeKeySopPatchPost(t *testing.T) {
 	wantSop := func(t *testing.T, h http.Handler, owner, text string, chars int) {
 		t.Helper()
 		apiTestWantTaskManual(t, h, owner, "tm-quote", map[string]any{
-			"type_key":            "tm-quote",
-			"display_name":        "報價",
-			"purpose":             "",
-			"fields":              []any{},
-			"sop_md":              text,
-			"learnings":           "",
-			"assignee":            map[string]any{},
-			"learnings_chars":     0,
-			"sop_md_chars":        chars,
-			"learnings_cap_chars": 15000,
-			"sop_md_cap_chars":    15000,
-			"cap_chars":           15000,
-			"updated_ts":          apiAnyNumber,
+			"type_key":         "tm-quote",
+			"display_name":     "報價",
+			"purpose":          "",
+			"fields":           []any{},
+			"sop_md":           text,
+			"assignee":         map[string]any{},
+			"sop_md_chars":     chars,
+			"sop_md_cap_chars": 15000,
+			"updated_ts":       apiAnyNumber,
 		})
 	}
 

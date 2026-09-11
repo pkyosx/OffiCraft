@@ -53,14 +53,6 @@
 //   * `insight` — verified end to end since `api/mock.ts` learned to serve its
 //     seed; before that the mock 404'd where the server answers, so the cockpit
 //     could only ever trade one wrong screen for a differently wrong one.
-//   * `lessons` — NOT reachable today, and saying "one fix covers lessons too"
-//     was a blank cheque. `Lessons.Tombstoned` has exactly one writer that can
-//     set it true (`restoreDocumentHistory`), and both ordinary write doors
-//     (api_roles.go's replace and patch) hard-code `false`. There is no
-//     `reset_lessons` route and no reset tool, so the state cannot bootstrap
-//     itself. If anyone ever adds one, a tombstoned lessons revision lands
-//     straight in the "the default cannot be read" branch below — `lessons` has
-//     no `onReset`, so its host never fetches a seed to substitute.
 //
 // 🔴 The CAP verdict deliberately still judges THIS REVISION's own sizes, NOT
 // the effective content: the server's restore checks `content["text"]` too (it
@@ -377,7 +369,7 @@ export function DocumentHistoryModal({
             ) : (
               fields.map(([name, value]) => (
                 <section className="doc-hist-modal__field" key={name}>
-                  {/* A single-field kind (SOP, 學習經驗, 全域情境) needs no
+                  {/* A single-field kind (SOP, 判準, 全域情境) needs no
                     * label — the modal's own document IS that field. A kind
                     * that carries several keeps them named and apart. */}
                   {fields.length > 1 && (

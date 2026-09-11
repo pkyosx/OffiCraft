@@ -203,7 +203,7 @@ server 的處理方式是**每一輪重新推導**——還活著就再送一次
 ### 🔴 token 到期前一小時也會開一條「停止」（owner 2026-08-21）
 
 原本 token 續期靠 agent 自己記得。問題是：**收尾程序的每一步都是拿那顆 token 打的 MCP
-呼叫**（`report_stopping`、`post_chat`、寫 lesson、`report_stopped`），所以 token 過期
+呼叫**（`report_stopping`、`post_chat`、寫傳承（`write_lore_entry`）、`report_stopped`），所以 token 過期
 不是讓收尾變差，是讓收尾**完全做不到**——它只能一路 401。
 
 🔴 **而從 T-14 項目 4B 起，「一路 401」不再只有到期這一個成因。** 同一個成員的**接班那一輪

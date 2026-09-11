@@ -24,7 +24,7 @@ describe("parseDiffSideAddress", () => {
   });
 
   it("keeps a composite document key whole", () => {
-    expect(parseDiffSideAddress("doc:lessons/pm::ops/current/text")?.doc?.key).toBe(
+    expect(parseDiffSideAddress("doc:insight/pm::ops/current/text")?.doc?.key).toBe(
       "pm::ops",
     );
   });
@@ -86,7 +86,7 @@ describe("formatDiffUrl", () => {
   it("round-trips through parseDiffParams with the values encoded", () => {
     const params = {
       before: "att-0123456789ab",
-      after: "doc:lessons/pm::ops/current/text",
+      after: "doc:insight/pm::ops/current/text",
       labelBefore: "改動前 & 之後",
       sig: "s+g/1",
     };

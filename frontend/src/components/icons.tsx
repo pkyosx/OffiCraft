@@ -420,17 +420,6 @@ export function ClockIcon({ size = 16, className }: IconProps) {
   );
 }
 
-export function BulbIcon({ size = 16, className }: IconProps) {
-  // 學習經驗 (manual hub entry card) — a simple lightbulb.
-  return (
-    <svg {...base(size)} className={className}>
-      <path d="M9 18h6" />
-      <path d="M10 21h4" />
-      <path d="M12 3a6 6 0 0 0-4 10.5c.8.8 1.3 1.5 1.5 2.5h5c.2-1 .7-1.7 1.5-2.5A6 6 0 0 0 12 3Z" />
-    </svg>
-  );
-}
-
 export function BoltIcon({ size = 16, className }: IconProps) {
   return (
     <svg

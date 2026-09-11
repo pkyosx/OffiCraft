@@ -1,6 +1,6 @@
 // HOTSPOT — `.doc-md` document surfaces, long-token overflow (T-d451).
 //
-// Bug (owner, phone 2026-07-20): 角色誌 / 學習經驗 carried unbreakable long tokens
+// Bug (owner, phone 2026-07-20): 角色誌 / 判準 carried unbreakable long tokens
 // (long URL, 40-hex sha, long English word). The `.doc-md` BASE rule
 // (settings.css) declares no `overflow-wrap`, so such a token set the
 // container's min-content to its full width, pushed it past the phone viewport
@@ -46,7 +46,7 @@ import { DocMdLongTokenStory } from "./stories/DocMdLongTokenStory";
 /** Surfaces that must FIT — one entry per real render site's wrapper chain. */
 const FIT_SURFACES = [
   '[data-surface="doc-detail"] .doc-card__body .doc-md',
-  '[data-surface="lessons"] .doc-md',
+  '[data-surface="insight"] .doc-md',
   '[data-surface="reply-card"] .reply-card__summary',
   '[data-surface="reply-card"] .reply-card__body',
   // Non-markdown reply-card fields — they do NOT inherit the .doc-md base fix,
@@ -58,7 +58,7 @@ const FIT_SURFACES = [
 async function mountAt(mount: any, page: any, width: number) {
   await page.setViewportSize({ width, height: 900 });
   const cmp = await mount(<DocMdLongTokenStory />);
-  await expect(cmp.locator('[data-surface="lessons"] .doc-md')).toBeVisible();
+  await expect(cmp.locator('[data-surface="insight"] .doc-md')).toBeVisible();
   return cmp;
 }
 

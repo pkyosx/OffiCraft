@@ -14,12 +14,12 @@
 //                   the 負責成員 SUMMARY CARD (icon + 「負責成員 · 同類型所有
 //                   任務由他負責」 + one-line setting + 編輯 → the member-
 //                   panel-style editor expands IN PLACE), then the 任務規劃
-//                   section with TWO ENTRY CARDS (任務定義 / 學習經驗, each
-//                   subtitle + chevron) that PUSH their own sub-page.
-//   Sub-pages     — 任務定義 / 學習經驗 each get their own breadcrumb page
-//                   (設定 › 任務手冊 › <type> › 任務定義/學習經驗, owner
+//                   section with ONE ENTRY CARD (任務定義, subtitle + chevron)
+//                   that PUSHES its own sub-page.
+//   Sub-page      — 任務定義 gets its own breadcrumb page
+//                   (設定 › 任務手冊 › <type> › 任務定義, owner
 //                   2026-07-20 — ex-inline-accordion); content mirrors the
-//                   guided three questions / the learnings doc, editing carried
+//                   guided three questions, editing carried
 //                   over. NO internal filename anywhere (owner's earlier ruling
 //                   stands — manuals are content, not files; the mockup's
 //                   review-pr.md chip is deliberately not built).
@@ -59,7 +59,6 @@ import { ConfirmModal } from "./ConfirmModal";
 import { CODEX_MODEL_OPTIONS, MODEL_QUICK_PICKS, EFFORTS } from "./ModelEffortEditor";
 import {
   BriefcaseIcon,
-  BulbIcon,
   ChevronRightIcon,
   FileTextIcon,
   PencilIcon,
@@ -309,21 +308,19 @@ export function TaskManualHub({
   crumbs,
   onSave,
   onOpenDefinition,
-  onOpenLearnings,
 }: {
   /** The DIRECTORY row is enough here (T-1170): the hub renders the display
-   * name, the 負責成員 card and two links. Neither long document is on this
-   * page, so it must not ask for a shape that carries them. */
+   * name, the 負責成員 card and one link. The long document is not on this
+   * page, so it must not ask for a shape that carries it. */
   manual: TaskManualSummaryView;
   /** The office roster (real assistants) — the assignee member picker. */
   members: Member[];
   /** The unified settings breadcrumb (T-8f6e) — 設定 › 任務手冊 › <type>. */
   crumbs: Crumb[];
   onSave: (patch: TaskManualPatch) => Promise<unknown>;
-  /** Navigate into the 任務定義 / 學習經驗 sub-pages (owner 2026-07-20 — the
-   * two 任務規劃 cards push a child page instead of expanding in place). */
+  /** Navigate into the 任務定義 sub-page (owner 2026-07-20 — the 任務規劃 card
+   * pushes a child page instead of expanding in place). */
   onOpenDefinition: () => void;
-  onOpenLearnings: () => void;
 }) {
   const { t } = useI18n();
   return (
@@ -345,7 +342,7 @@ export function TaskManualHub({
 
       <AssigneeCard manual={manual} members={members} onSave={onSave} />
 
-      {/* 任務規劃 — the two entry cards navigate into their own sub-pages
+      {/* 任務規劃 — the entry card navigates into its own sub-page
        * (owner 2026-07-20). The chevron is now the plain 前往 right-caret the
        * other settings rows use, matching the push semantics. */}
       <div className="manual-section-label">
@@ -371,34 +368,15 @@ export function TaskManualHub({
           </span>
           <ChevronRightIcon size={18} className="set-entry__chev" />
         </button>
-        <button
-          type="button"
-          className="set-entry manual-entry"
-          data-testid="manual-entry-learnings"
-          onClick={onOpenLearnings}
-        >
-          <span className="set-entry__icon set-entry__icon--purple">
-            <BulbIcon size={18} />
-          </span>
-          <span className="set-entry__body">
-            <span className="set-entry__name">
-              {t.settings.manualTabLearnings}
-            </span>
-            <span className="set-entry__sub">
-              {t.settings.manualLearnEntrySub}
-            </span>
-          </span>
-          <ChevronRightIcon size={18} className="set-entry__chev" />
-        </button>
       </div>
     </div>
   );
 }
 
-// ── 任務定義 / 學習經驗 sub-pages (owner 2026-07-20 — pushed from the hub) ───
-// Each is a breadcrumb sub-page (設定 › 任務手冊 › <type> › 任務定義/學習經驗)
-// wrapping the SAME card the hub used to expand inline, so the editing
-// affordance is carried over untouched.
+// ── 任務定義 sub-page (owner 2026-07-20 — pushed from the hub) ───
+// A breadcrumb sub-page (設定 › 任務手冊 › <type> › 任務定義) wrapping the SAME
+// card the hub used to expand inline, so the editing affordance is carried
+// over untouched.
 
 export function TaskManualDefinitionPage({
   manual,
@@ -418,8 +396,7 @@ export function TaskManualDefinitionPage({
   crumbs: Crumb[];
   onSave: (patch: TaskManualPatch) => Promise<unknown>;
   /** Re-read the manual after a 版本紀錄 restore (T-7d33). A restore writes ONE
-   * field of the manual back (T-1f39), but the manual is fetched whole, so both
-   * sub-pages still refresh the same way. */
+   * field of the manual back (T-1f39), but the manual is fetched whole. */
   onRestored?: () => Promise<unknown> | void;
 }) {
   const { t } = useI18n();
@@ -448,44 +425,6 @@ export function TaskManualDefinitionPage({
     </div>
   );
 }
-
-export function TaskManualLearningsPage({
-  manual,
-  loadError,
-  crumbs,
-  onSave,
-  onRestored,
-}: {
-  /** See TaskManualDefinitionPage — `null` until this page's own read lands. */
-  manual: TaskManualView | null;
-  loadError?: boolean;
-  crumbs: Crumb[];
-  onSave: (patch: TaskManualPatch) => Promise<unknown>;
-  /** Re-read the manual after a 版本紀錄 restore (T-7d33). */
-  onRestored?: () => Promise<unknown> | void;
-}) {
-  const { t } = useI18n();
-  return (
-    <div className="settings">
-      <Breadcrumbs items={crumbs} />
-      <h1 className="settings__title settings__title--doc">
-        {t.settings.manualTabLearnings}
-      </h1>
-      {/* The manual's learnings have their OWN revision series since T-1f39, so
-        * a SOP rewrite no longer washes the list out — and restoring from the
-        * card's own 版本紀錄 puts back the learnings alone. */}
-      {loadError && (
-        <div className="set-error" data-testid="manual-doc-load-error">
-          {t.settings.manualsLoadError}
-        </div>
-      )}
-      {manual && (
-        <LearningsCard manual={manual} onSave={onSave} onRestored={onRestored} />
-      )}
-    </div>
-  );
-}
-
 
 /** True when two field lists are byte-equivalent (name/required/isKey) — used
  * to skip a no-op PATCH on a blur that changed nothing. */
@@ -1516,141 +1455,6 @@ function AssigneeCard({
       {!editing && saveError && (
         <div className="set-error">{t.settings.manualSaveError}</div>
       )}
-    </div>
-  );
-}
-
-/** 學習經驗 — the type's accumulated feedback (agent write-back on task close;
- * owner-editable). The DocDetail edit pattern, learnings-scoped. */
-function LearningsCard({
-  manual,
-  onSave,
-  onRestored,
-}: {
-  manual: TaskManualView;
-  onSave: (patch: TaskManualPatch) => Promise<unknown>;
-  /** Re-read the manual after a 版本紀錄 restore. */
-  onRestored?: () => Promise<unknown> | void;
-}) {
-  const { t } = useI18n();
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [saveError, setSaveError] = useState(false);
-
-  function startEdit() {
-    setDraft(manual.learnings);
-    setSaveError(false);
-    setEditing(true);
-  }
-
-  async function commit() {
-    setBusy(true);
-    setSaveError(false);
-    try {
-      await onSave({ learnings: draft });
-      setEditing(false);
-    } catch (e) {
-      console.warn("TaskManualsPage: learnings save failed", e);
-      setSaveError(true);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div className="doc-card" data-testid="manual-learnings-card">
-      <div className="doc-card__head">
-        <span className="doc-card__file" />
-        {/* T-100 — see the SOP readout for the reasoning; this document has its
-          * OWN cap, which is why the pair is read off the manual rather than
-          * shared with the SOP's. `draft` while editing, `null` otherwise. */}
-        <DocUsage
-          size={manual.learningsChars}
-          cap={manual.learningsCapChars}
-          storedText={manual.learnings}
-          draft={editing ? draft : null}
-          testId="manual-learnings-usage"
-        />
-        {editing ? (
-          <div className="doc-card__actions">
-            <DocumentHistoryEntry
-              kind="task_manual_learnings"
-              docKey={manual.typeKey}
-              title={t.settings.historyManualLearningsTitle}
-              currentContent={{ learnings: manual.learnings }}
-              docDeletable
-              onRestored={async () => {
-                // 🔴 `finally`, not a plain sequence: the restore has ALREADY
-                // landed by the time this runs, so the draft below is stale no
-                // matter what the re-read does. T-91 wrapped the re-read in
-                // DocumentHistoryEntry so a failed re-read stops showing as a
-                // failed restore — but that made a rejection here SKIP the
-                // line below and then get swallowed, which closed the modal
-                // silently and left the editor holding the pre-restore draft.
-                // Leaving edit mode is what the comment above promises; it
-                // must not be conditional on the re-read succeeding.
-                try {
-                  await onRestored?.();
-                } finally {
-                  setEditing(false);
-                }
-              }}
-              disabled={busy}
-            />
-            <button
-              type="button"
-              className="doc-btn"
-              onClick={() => setEditing(false)}
-              disabled={busy}
-              data-testid="manual-learnings-cancel"
-            >
-              {t.settings.cancel}
-            </button>
-            <button
-              type="button"
-              className="doc-btn doc-btn--accent"
-              onClick={() => void commit()}
-              disabled={busy}
-              data-testid="manual-learnings-done"
-            >
-              {t.settings.doneEdit}
-            </button>
-          </div>
-        ) : (
-          <button
-            type="button"
-            className="doc-btn doc-btn--edit"
-            onClick={startEdit}
-            data-testid="manual-learnings-edit"
-          >
-            <PencilIcon size={14} />
-            <span>{t.settings.edit}</span>
-          </button>
-        )}
-      </div>
-      <div className="doc-card__body">
-        <div className="manual-q__hint">{t.settings.manualLearningsHint}</div>
-        {editing ? (
-          <textarea
-            className="doc-editor"
-            value={draft}
-            autoFocus
-            spellCheck={false}
-            placeholder={t.settings.editorPlaceholder}
-            aria-label={t.settings.manualTabLearnings}
-            data-testid="manual-learnings-input"
-            onChange={(e) => setDraft(e.target.value)}
-          />
-        ) : manual.learnings ? (
-          <Markdown source={manual.learnings} className="doc-md" />
-        ) : (
-          <span className="manual-q__empty">{t.settings.manualEmptyHint}</span>
-        )}
-        {saveError && (
-          <div className="set-error">{t.settings.manualSaveError}</div>
-        )}
-      </div>
     </div>
   );
 }

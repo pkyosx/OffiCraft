@@ -511,14 +511,14 @@ func TestBuildHandler(t *testing.T) {
 func TestSpecsFor(t *testing.T) {
 	api, _, d, owner := newAPITestServer(t)
 	specs := specsFor(api)
-	if len(specs) != 188 {
-		t.Fatalf("specsFor returned %d routes, want 188", len(specs))
+	if len(specs) != 183 {
+		t.Fatalf("specsFor returned %d routes, want 183", len(specs))
 	}
-	if api.catalogHash != "040d782e97b3481b" {
-		t.Fatalf("catalogHash = %q, want %q", api.catalogHash, "040d782e97b3481b")
+	if api.catalogHash != "4b65eb86d2c9a311" {
+		t.Fatalf("catalogHash = %q, want %q", api.catalogHash, "4b65eb86d2c9a311")
 	}
-	if len(api.mcpTools) != 132 {
-		t.Fatalf("MCP tool index has %d entries, want 132", len(api.mcpTools))
+	if len(api.mcpTools) != 127 {
+		t.Fatalf("MCP tool index has %d entries, want 127", len(api.mcpTools))
 	}
 	if got, ok := api.mcpTools["get_version"]; !ok || got.Method != http.MethodGet || got.Path != "/api/version" {
 		t.Fatalf("get_version = %#v, present=%v", got, ok)

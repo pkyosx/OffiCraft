@@ -18,8 +18,8 @@
 //     from the over-cap fix below.
 //   * 系統互動 / 啟動步驟 ×2 (BootDocPage) — which pass `confirmSave`,
 //     `replaceNote` and `requireDirty`, and hold no editor state of their own.
-// InsightCard / LessonsCard / the two task-manual documents are NOT migrated
-// here yet (a separate ticket); the shell is shaped so they can be, which is
+// InsightCard and the task-manual SOP are NOT migrated here yet (a separate
+// ticket); the shell is shaped so they can be, which is
 // why `renderBody` exists at all.
 //
 // 🔴 THE OVER-CAP DOOR IS NEW, AND IT IS A BUG FIX, NOT A TIDY-UP. `DocDetail`
@@ -95,7 +95,7 @@ export interface DocCardProps {
    * does not grow that row. */
   history?: Omit<DocumentHistoryEntryProps, "onReset" | "disabled">;
   /** Optional content rendered BELOW the card (e.g. the persona page's
-   * <InsightCard> / <LessonsCard>). */
+   * <InsightCard>). */
   extra?: ReactNode;
   /** An honest load-failure line, rendered above the card. */
   errorNote?: ReactNode;
@@ -436,7 +436,7 @@ export function DocCard({
 
       {/* Collapsed hides THIS document — its load error included, since the
         * line is about the body that is no longer on screen. `extra` stays: it
-        * carries OTHER documents (the persona page's insight / lessons cards),
+        * carries OTHER documents (the persona page's insight card),
         * and folding a role definition must not take them with it. */}
       {collapsed ? null : (
         <>

@@ -174,23 +174,16 @@ const (
 	// `doc.cap_chars.manual` either, and that is the point: an agent reading
 	// `get_settings` sees key NAMES with no descriptions attached, so a key that
 	// names a WHOLE artefact sitting beside the segments it was split into reads
-	// as "the default for all of them". Someone wanting to raise the manual's
-	// learnings cap would edit `.manual` and believe they had moved both halves,
-	// and nothing would say otherwise. Each rename costs one migration, which
+	// as "the default for all of them". Each rename costs one migration, which
 	// had to be written regardless — the value has to move either way.
 	//
-	// The task manual's `sop_md` / `learnings` answer to `.manual_sop` /
-	// `.manual_learnings`, NOT to any of the three role-journal segments: they
-	// are keyed by `type_key`, so they are assets of a task TYPE, not entries in
-	// a role's journal. They are two keys and not one because the SOP is a
-	// blueprint that is refined in place while the learnings accumulate — one
-	// number could only ever be right for one of them.
-	settingDocCapCharsDuty            = "doc.cap_chars.duty"
-	settingDocCapCharsInsight         = "doc.cap_chars.insight"
-	settingDocCapCharsLearning        = "doc.cap_chars.learning"
-	settingDocCapCharsManualSop       = "doc.cap_chars.manual_sop"
-	settingDocCapCharsManualLearnings = "doc.cap_chars.manual_learnings"
-	// The two boot-context document kinds (T-791e). Same shape as the five
+	// The task manual's `sop_md` answers to `.manual_sop`, NOT to either of the
+	// role-journal segments: it is keyed by `type_key`, so it is an asset of a
+	// task TYPE, not an entry in a role's journal.
+	settingDocCapCharsDuty      = "doc.cap_chars.duty"
+	settingDocCapCharsInsight   = "doc.cap_chars.insight"
+	settingDocCapCharsManualSop = "doc.cap_chars.manual_sop"
+	// The two boot-context document kinds (T-791e). Same shape as the three
 	// above, and deliberately suffixed the same way: a bare `doc.cap_chars`
 	// would read as a global default beside them, and an agent looking at
 	// get_settings sees key
@@ -486,9 +479,7 @@ type authSettings struct {
 	outsourceMaxParallel         int    // task.outsource_max_parallel (default 3)
 	docCapCharsDuty              int    // doc.cap_chars.duty (default dutyCapCharsDefault)
 	docCapCharsInsight           int    // doc.cap_chars.insight (default contextDocMaxCharsDefault)
-	docCapCharsLearning          int    // doc.cap_chars.learning (default contextDocMaxCharsDefault)
 	docCapCharsManualSop         int    // doc.cap_chars.manual_sop (default contextDocMaxCharsDefault)
-	docCapCharsManualLearnings   int    // doc.cap_chars.manual_learnings (default contextDocMaxCharsDefault)
 	docCapCharsSystemInteraction int    // doc.cap_chars.system_interaction (default systemInteractionCapCharsDefault)
 	docCapCharsBootSequence      int    // doc.cap_chars.boot_sequence (default bootSequenceCapCharsDefault; ONE cap, both runtimes)
 	docCapCharsOffboard          int    // doc.cap_chars.offboard (default offboardCapCharsDefault)
@@ -849,8 +840,8 @@ func loadAuthSettings(d *DAL, cfg Config, logf func(string)) (authSettings, erro
 	// a cap only ever goes up), so a stored value below it is corruption, not a
 	// downgrade. The legacy single `doc.cap_chars` row was RENAMED to
 	// `doc.cap_chars.manual` by migration 00048, and that row was in turn
-	// COPIED to `.manual_sop` and `.manual_learnings` and deleted by 00049 —
-	// the DB never holds a retired key beside its successors.
+	// COPIED to `.manual_sop` and deleted by 00049 — the DB never holds a
+	// retired key beside its successors.
 	//
 	// The max is a parameter rather than maxDocCapChars because T-c9b4 added a
 	// bounded integer with its OWN ceiling (chat.budget_chars); baking one
@@ -877,16 +868,8 @@ func loadAuthSettings(d *DAL, cfg Config, logf func(string)) (authSettings, erro
 		&out.docCapCharsInsight, contextDocMaxCharsDefault); err != nil {
 		return out, err
 	}
-	if err := loadCap(settingDocCapCharsLearning, minDocCapChars, maxDocCapChars,
-		&out.docCapCharsLearning, contextDocMaxCharsDefault); err != nil {
-		return out, err
-	}
 	if err := loadCap(settingDocCapCharsManualSop, minDocCapChars, maxDocCapChars,
 		&out.docCapCharsManualSop, contextDocMaxCharsDefault); err != nil {
-		return out, err
-	}
-	if err := loadCap(settingDocCapCharsManualLearnings, minDocCapChars, maxDocCapChars,
-		&out.docCapCharsManualLearnings, contextDocMaxCharsDefault); err != nil {
 		return out, err
 	}
 	if err := loadCap(settingDocCapCharsSystemInteraction, minDocCapChars, maxDocCapChars,

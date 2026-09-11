@@ -1457,18 +1457,17 @@ type TaskManual struct {
 	Purpose     string
 	Fields      string // JSON array [{name, required, is_key}]
 	SopMD       string
-	Learnings   string
 	Assignee    string // JSON object; "{}" = unset
 	UpdatedTS   float64
 }
 
-const taskManualColumns = `type_key, purpose, fields, sop_md, learnings,
+const taskManualColumns = `type_key, purpose, fields, sop_md,
 	assignee, updated_ts, display_name`
 
 func scanTaskManual(row interface{ Scan(...any) error }) (TaskManual, error) {
 	var m TaskManual
 	err := row.Scan(
-		&m.TypeKey, &m.Purpose, &m.Fields, &m.SopMD, &m.Learnings,
+		&m.TypeKey, &m.Purpose, &m.Fields, &m.SopMD,
 		&m.Assignee, &m.UpdatedTS, &m.DisplayName,
 	)
 	return m, err
@@ -1519,19 +1518,16 @@ func (d *DAL) PutTaskManual(m TaskManual) error {
 	return putTaskManualOn(d.wdb, m)
 }
 
-// The 傳承 backstop on the learnings column — see putLessonsOn (dal.go) for why
-// it sits at this layer as well as at every handler.
 func putTaskManualOn(ex sqlExecer, m TaskManual) error {
-	m.Learnings = stripTrailingLoreBlock(m.Learnings)
 	_, err := ex.Exec(`
 		INSERT INTO task_manual (`+taskManualColumns+`)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (type_key) DO UPDATE SET
 			purpose = excluded.purpose, fields = excluded.fields,
-			sop_md = excluded.sop_md, learnings = excluded.learnings,
+			sop_md = excluded.sop_md,
 			assignee = excluded.assignee, updated_ts = excluded.updated_ts,
 			display_name = excluded.display_name`,
-		m.TypeKey, m.Purpose, m.Fields, m.SopMD, m.Learnings,
+		m.TypeKey, m.Purpose, m.Fields, m.SopMD,
 		m.Assignee, m.UpdatedTS, m.DisplayName,
 	)
 	return err
@@ -1555,12 +1551,12 @@ func (d *DAL) DeleteTaskManual(typeKey string) (bool, error) {
 			return err
 		}
 		deleted = n > 0
-		// Both manual streams (T-1f39). The retired four-field bundle is not
-		// listed: migration 00045 removed every row of it and nothing can write
-		// another, so there is nothing left for this cascade to reach.
+		// The manual's one live stream (T-1f39). The retired four-field bundle
+		// is not listed: migration 00045 removed every row of it and nothing can
+		// write another, so there is nothing left for this cascade to reach.
 		_, err = tx.Exec(`DELETE FROM document_history
-			WHERE document_key = ? AND document_kind IN (?, ?)`,
-			typeKey, docKindTaskManualSop, docKindTaskManualLearnings)
+			WHERE document_key = ? AND document_kind = ?`,
+			typeKey, docKindTaskManualSop)
 		return err
 	})
 	if err != nil {

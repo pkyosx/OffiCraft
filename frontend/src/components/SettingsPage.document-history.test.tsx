@@ -50,7 +50,7 @@ async function openUserCustomDoc() {
 }
 
 /** Enter edit mode on the FIRST doc card of the page (the role page's second
- * editor is the lessons card, which has its own entry). */
+ * editor is the insight card, which has its own entry). */
 function startEditing(utils: Utils) {
   fireEvent.click(utils.getAllByText(s.edit)[0]);
 }
@@ -617,18 +617,10 @@ describe("SettingsPage · 版本紀錄", () => {
     await mockApi.saveRole("assistant", { definitionMd: "第一版定義" });
     await mockApi.saveRole(customKey, { definitionMd: "第零版定義" });
     await mockApi.saveRole(customKey, { definitionMd: "第一版定義" });
-    await mockApi.saveLessons(customKey, "第零版經驗");
-    await mockApi.saveLessons(customKey, "第一版經驗");
     await mockApi.saveInsight(customKey, "第零版判準");
     await mockApi.saveInsight(customKey, "第一版判準");
-    await mockApi.updateTaskManual(manual.typeKey, {
-      sopMd: "第零版 SOP",
-      learnings: "第零版經驗",
-    });
-    await mockApi.updateTaskManual(manual.typeKey, {
-      sopMd: "第一版 SOP",
-      learnings: "第一版經驗",
-    });
+    await mockApi.updateTaskManual(manual.typeKey, { sopMd: "第零版 SOP" });
+    await mockApi.updateTaskManual(manual.typeKey, { sopMd: "第一版 SOP" });
 
     const utils = render(
       <I18nProvider>
@@ -698,26 +690,17 @@ describe("SettingsPage · 版本紀錄", () => {
       seeded: false,
     });
 
-    // Lessons, insight, and both of a task manual's documents have no seed
-    // either.
+    // Insight and the task manual's SOP have no seed either.
     //
-    // ⚠️ These two cards are picked BY CARD, not by position. This used to be
+    // ⚠️ The card is picked BY CARD, not by position. This used to be
     // `getAllByText(s.edit).at(-1)` with a comment asserting the page's last
-    // 編輯 was the lessons card's — true only while lessons was the last card
-    // on the persona page. T-3809 put InsightCard after it and the selector
-    // silently started opening the wrong document; the failure surfaced three
-    // steps later as a missing lessons history entry, naming neither card.
+    // 編輯 belonged to a particular card — true only while that card was last
+    // on the persona page, and the selector silently started opening the wrong
+    // document when the order changed.
     const cardEdit = (cls: string) =>
       within(
         utils.container.querySelector(cls) as HTMLElement
       ).getByText(s.edit);
-
-    fireEvent.click(cardEdit(".mp-lessons:not(.mp-insight)"));
-    fireEvent.click(utils.getByTestId("doc-history-entry-lessons"));
-    expect(await probe("lessons", "lessons")).toEqual({
-      surface: "lessons",
-      seeded: false,
-    });
 
     // Insight (T-3809): NO file seed, deliberately — that is what lets an
     // untouched doc read as genuinely empty and makes "has this role moved
@@ -742,29 +725,18 @@ describe("SettingsPage · 版本紀錄", () => {
       surface: "manual SOP",
       seeded: false,
     });
-
-    goSettingsRoot();
-    fireEvent.click(utils.getByText(s.manuals));
-    fireEvent.click(await utils.findByTestId(`manual-open-${manual.typeKey}`));
-    fireEvent.click(await utils.findByTestId("manual-entry-learnings"));
-    fireEvent.click(await utils.findByTestId("manual-learnings-edit"));
-    fireEvent.click(utils.getByTestId("doc-history-entry-task_manual_learnings"));
-    expect(await probe("manual learnings", "task_manual_learnings")).toEqual({
-      surface: "manual learnings",
-      seeded: false,
-    });
   });
 
   it("marks an over-cap revision un-restorable up front, with the reason", async () => {
-    // The revision the server WOULD refuse with a 400: a lessons doc that is
+    // The revision the server WOULD refuse with a 400: an insight doc that is
     // over the cap and not shrinking. Before this, the owner only found out by
     // clicking — which reads as a broken system rather than a stated limit.
     const overCap = "字".repeat(DOC_CAP_CHARS_DEFAULT + 1);
     // The doc's first write retains nothing, so the over-cap text has to be the
     // SECOND one for it to become a retained revision at all.
-    await mockApi.saveLessons("assistant", "原始經驗");
-    await mockApi.saveLessons("assistant", overCap);
-    await mockApi.saveLessons("assistant", "短");
+    await mockApi.saveInsight("assistant", "原始判準");
+    await mockApi.saveInsight("assistant", overCap);
+    await mockApi.saveInsight("assistant", "短");
 
     const utils = render(
       <I18nProvider>
@@ -773,21 +745,16 @@ describe("SettingsPage · 版本紀錄", () => {
     );
     fireEvent.click(utils.getByText(s.roles));
     fireEvent.click(await utils.findByText(zh.office.role.assistant));
-    // The LESSONS card, addressed by its own class rather than by position:
+    // The INSIGHT card, addressed by its own class rather than by position:
     // the role page's card order is owner-ruled and has moved once already
     // (2026-08-03), and an index silently lands on the wrong card when it does.
     await utils.findAllByText(s.edit);
     fireEvent.click(
-      within(
-        utils.container.querySelector(".mp-lessons:not(.mp-insight)")!
-      ).getByText(s.edit)
+      within(utils.container.querySelector(".mp-insight")!).getByText(s.edit)
     );
-    fireEvent.click(utils.getByTestId("doc-history-entry-lessons"));
+    fireEvent.click(utils.getByTestId("doc-history-entry-insight"));
 
-    const [target] = await mockApi.listDocumentHistory(
-      "lessons",
-      "assistant"
-    );
+    const [target] = await mockApi.listDocumentHistory("insight", "assistant");
     expect(target.sizes.text).toBe(runeLength(overCap));
 
     const row = await utils.findByTestId(`doc-history-item-${target.id}`);
@@ -820,10 +787,10 @@ describe("SettingsPage · 版本紀錄", () => {
     // it un-restorable would be the cockpit lying — and it is the direction
     // that matters, because the cap can only ever be raised.
     const overDefault = "字".repeat(DOC_CAP_CHARS_DEFAULT + 100);
-    await mockApi.patchServerSettings({ docCapCharsLearning: 50000 });
-    await mockApi.saveLessons("assistant", "原始經驗");
-    await mockApi.saveLessons("assistant", overDefault);
-    await mockApi.saveLessons("assistant", "短");
+    await mockApi.patchServerSettings({ docCapCharsInsight: 50000 });
+    await mockApi.saveInsight("assistant", "原始判準");
+    await mockApi.saveInsight("assistant", overDefault);
+    await mockApi.saveInsight("assistant", "短");
 
     const utils = render(
       <I18nProvider>
@@ -832,19 +799,14 @@ describe("SettingsPage · 版本紀錄", () => {
     );
     fireEvent.click(utils.getByText(s.roles));
     fireEvent.click(await utils.findByText(zh.office.role.assistant));
-    // The LESSONS card, addressed by class — see the note above.
+    // The INSIGHT card, addressed by class — see the note above.
     await utils.findAllByText(s.edit);
     fireEvent.click(
-      within(
-        utils.container.querySelector(".mp-lessons:not(.mp-insight)")!
-      ).getByText(s.edit)
+      within(utils.container.querySelector(".mp-insight")!).getByText(s.edit)
     );
-    fireEvent.click(utils.getByTestId("doc-history-entry-lessons"));
+    fireEvent.click(utils.getByTestId("doc-history-entry-insight"));
 
-    const [target] = await mockApi.listDocumentHistory(
-      "lessons",
-      "assistant"
-    );
+    const [target] = await mockApi.listDocumentHistory("insight", "assistant");
     expect(target.sizes.text).toBe(runeLength(overDefault));
 
     const row = await utils.findByTestId(`doc-history-item-${target.id}`);
@@ -863,9 +825,9 @@ describe("SettingsPage · 版本紀錄", () => {
   });
 
   it("leaves an ordinary revision restorable — the mark is not blanket", async () => {
-    await mockApi.saveLessons("assistant", "第零版經驗");
-    await mockApi.saveLessons("assistant", "第一版經驗");
-    await mockApi.saveLessons("assistant", "第二版經驗");
+    await mockApi.saveInsight("assistant", "第零版判準");
+    await mockApi.saveInsight("assistant", "第一版判準");
+    await mockApi.saveInsight("assistant", "第二版判準");
 
     const utils = render(
       <I18nProvider>
@@ -874,19 +836,14 @@ describe("SettingsPage · 版本紀錄", () => {
     );
     fireEvent.click(utils.getByText(s.roles));
     fireEvent.click(await utils.findByText(zh.office.role.assistant));
-    // The LESSONS card, addressed by class — see the note above.
+    // The INSIGHT card, addressed by class — see the note above.
     await utils.findAllByText(s.edit);
     fireEvent.click(
-      within(
-        utils.container.querySelector(".mp-lessons:not(.mp-insight)")!
-      ).getByText(s.edit)
+      within(utils.container.querySelector(".mp-insight")!).getByText(s.edit)
     );
-    fireEvent.click(utils.getByTestId("doc-history-entry-lessons"));
+    fireEvent.click(utils.getByTestId("doc-history-entry-insight"));
 
-    const [target] = await mockApi.listDocumentHistory(
-      "lessons",
-      "assistant"
-    );
+    const [target] = await mockApi.listDocumentHistory("insight", "assistant");
     fireEvent.click(await utils.findByTestId(`doc-history-open-${target.id}`));
     const button = utils.getByTestId(
       "doc-history-modal-restore"
@@ -946,31 +903,22 @@ describe("SettingsPage · 版本紀錄", () => {
       return readNote(`${s.roles} › ${label}`, deletable);
     };
 
-    // A task manual carries the same footnote on BOTH of its document
-    // sub-pages: deleting the type takes every revision of both with it.
-    const probeManual = async (entry: "definition" | "learnings") => {
+    // A task manual carries the same footnote on its document sub-page:
+    // deleting the type takes every revision with it.
+    const probeManual = async () => {
       goSettingsRoot();
       fireEvent.click(utils.getByText(s.manuals));
       await utils.findByTestId(`manual-open-${manual.typeKey}`);
       const deletable =
         utils.queryByTestId(`manual-delete-${manual.typeKey}`) !== null;
       fireEvent.click(utils.getByTestId(`manual-open-${manual.typeKey}`));
-      fireEvent.click(await utils.findByTestId(`manual-entry-${entry}`));
-      // 任務定義's SOP entry lives in block ③'s edit row (owner 2026-07-31 P1);
-      // 學習經驗 still has one card-level switch.
-      fireEvent.click(
-        await utils.findByTestId(
-          entry === "definition" ? "manual-def-edit-3" : "manual-learnings-edit"
-        )
-      );
-      fireEvent.click(
-        utils.getByTestId(
-          `doc-history-entry-task_manual_${entry === "definition" ? "sop" : "learnings"}`
-        )
-      );
+      fireEvent.click(await utils.findByTestId("manual-entry-definition"));
+      // 任務定義's SOP entry lives in block ③'s edit row (owner 2026-07-31 P1).
+      fireEvent.click(await utils.findByTestId("manual-def-edit-3"));
+      fireEvent.click(utils.getByTestId("doc-history-entry-task_manual_sop"));
       // T-91: createTaskManual answers the minted type_key only, so the
       // display name is the one this test passed in.
-      return readNote(`${s.manuals} › 週報 › ${entry}`, deletable);
+      return readNote(`${s.manuals} › 週報 › definition`, deletable);
     };
 
     // A seed role cannot be deleted, so the note — which says what history does
@@ -986,35 +934,24 @@ describe("SettingsPage · 版本紀錄", () => {
       deletable: true,
       noted: true,
     });
-    // Every task manual can be deleted whole — so the note belongs on both of
-    // its document pages, and the same equivalence binds them.
-    expect(await probeManual("definition")).toEqual({
+    // Every task manual can be deleted whole — so the note belongs on its
+    // document page, and the same equivalence binds it.
+    expect(await probeManual()).toEqual({
       surface: `${s.manuals} › 週報 › definition`,
-      deletable: true,
-      noted: true,
-    });
-    expect(await probeManual("learnings")).toEqual({
-      surface: `${s.manuals} › 週報 › learnings`,
       deletable: true,
       noted: true,
     });
   });
 
-  // T-1f39 — the manual's two document pages read two SEPARATE series, and the
-  // 任務定義 page also edits 用途／識別鍵, which are no longer versioned at all.
-  // A list there still headed plain 「版本紀錄」 would claim a history those
-  // edits do not have, so the heading and the note both name the SOP.
-  it("gives the manual's SOP and learnings their own history, and says so", async () => {
+  // T-1f39 — the 任務定義 page versions the SOP alone, and it also edits
+  // 用途／識別鍵, which are not versioned at all. A list there still headed
+  // plain 「版本紀錄」 would claim a history those edits do not have, so the
+  // heading and the note both name the SOP.
+  it("gives the manual's SOP its own history, and says so", async () => {
     const manual = await mockApi.createTaskManual("週報");
-    await mockApi.updateTaskManual(manual.typeKey, {
-      sopMd: "第一版 SOP",
-      learnings: "第一版經驗",
-    });
-    await mockApi.updateTaskManual(manual.typeKey, {
-      sopMd: "第二版 SOP",
-      learnings: "第二版經驗",
-    });
-    // A purpose-only edit after them: not versioned, so neither list may grow.
+    await mockApi.updateTaskManual(manual.typeKey, { sopMd: "第一版 SOP" });
+    await mockApi.updateTaskManual(manual.typeKey, { sopMd: "第二版 SOP" });
+    // A purpose-only edit after them: not versioned, so the list may not grow.
     await mockApi.updateTaskManual(manual.typeKey, { purpose: "每週回顧" });
 
     const utils = render(
@@ -1022,35 +959,24 @@ describe("SettingsPage · 版本紀錄", () => {
         <SettingsPage />
       </I18nProvider>
     );
-    const openManualPage = async (entry: "definition" | "learnings") => {
-      const [root] = utils.container.querySelectorAll(".crumbs__seg button");
-      if (root) fireEvent.click(root);
-      fireEvent.click(utils.getByText(s.manuals));
-      fireEvent.click(await utils.findByTestId(`manual-open-${manual.typeKey}`));
-      fireEvent.click(await utils.findByTestId(`manual-entry-${entry}`));
-      fireEvent.click(
-        await utils.findByTestId(
-          entry === "definition" ? "manual-def-edit-3" : "manual-learnings-edit"
-        )
-      );
-      fireEvent.click(
-        utils.getByTestId(
-          `doc-history-entry-task_manual_${entry === "definition" ? "sop" : "learnings"}`
-        )
-      );
-      return waitFor(() => {
-        const rows = utils.container.querySelectorAll(".doc-hist__item");
-        expect(rows).toHaveLength(1);
-        return rows[0] as HTMLElement;
-      });
-    };
+    const [root] = utils.container.querySelectorAll(".crumbs__seg button");
+    if (root) fireEvent.click(root);
+    fireEvent.click(utils.getByText(s.manuals));
+    fireEvent.click(await utils.findByTestId(`manual-open-${manual.typeKey}`));
+    fireEvent.click(await utils.findByTestId("manual-entry-definition"));
+    fireEvent.click(await utils.findByTestId("manual-def-edit-3"));
+    fireEvent.click(utils.getByTestId("doc-history-entry-task_manual_sop"));
+    const sopRow = await waitFor(() => {
+      const rows = utils.container.querySelectorAll(".doc-hist__item");
+      expect(rows).toHaveLength(1);
+      return rows[0] as HTMLElement;
+    });
 
-    const sopRow = await openManualPage("definition");
     expect(utils.getByText(s.historySopTitle)).toBeTruthy();
     expect(utils.getByText(s.historySopSub)).toBeTruthy();
-    // The SOP series holds the SOP alone: no 學習經驗 field, and — the point of
-    // the split — no 用途 either. Read inside the version, since the list no
-    // longer previews content (owner 2026-07-31).
+    // The SOP series holds the SOP alone — the point of the split — so no
+    // 用途. Read inside the version, since the list no longer previews content
+    // (owner 2026-07-31).
     fireEvent.click(sopRow.querySelector(".doc-hist__row") as HTMLElement);
     const sopModal = utils.getByTestId("doc-history-modal");
     // No field LABEL to look for: a single-field kind IS its one field, and
@@ -1059,21 +985,7 @@ describe("SettingsPage · 版本紀錄", () => {
     await waitFor(() =>
       expect(within(sopModal).getByText("第一版 SOP")).toBeTruthy()
     );
-    expect(sopModal.textContent).not.toContain("第一版經驗");
     expect(sopModal.textContent).not.toContain("每週回顧");
-    fireEvent.click(within(sopModal).getByTestId("doc-history-modal-close"));
-
-    const learningsRow = await openManualPage("learnings");
-    // Every list names its own document (owner 2026-07-31): a heading that
-    // only said 「版本紀錄」 left the reader guessing which of the page's
-    // documents it held.
-    expect(utils.getByText(s.historyManualLearningsTitle)).toBeTruthy();
-    fireEvent.click(learningsRow.querySelector(".doc-hist__row") as HTMLElement);
-    const learnModal = utils.getByTestId("doc-history-modal");
-    await waitFor(() =>
-      expect(within(learnModal).getByText("第一版經驗")).toBeTruthy()
-    );
-    expect(learnModal.textContent).not.toContain("第一版 SOP");
   });
 
   it("shows the same entry on a role definition, keyed to that role", async () => {
@@ -1165,25 +1077,22 @@ describe("SettingsPage · 版本紀錄 — 還原後的離開編輯 (T-91)", () 
     restore.mockRestore();
   });
 
-  // The same property on the FOUR other hosts that wire `onRestored`. Each one
-  // owns its own exit — 手冊 SOP is `cancelEdit(3)`, 手冊學習經驗 and the two
-  // journal cards are their own `setEditing(false)` / `cancelEdit()` — so the
-  // DocCard case above proves nothing about any of them: a sequenced re-read
-  // reintroduced on any single host is invisible to every other test in the
-  // tree, and its only symptom is the owner's next 完成編輯 silently writing
-  // the pre-restore draft over the version he just restored.
+  // The same property on the other hosts that wire `onRestored`. Each one
+  // owns its own exit — 手冊 SOP is `cancelEdit(3)`, the journal card is its
+  // own `setEditing(false)` — so the DocCard case above proves nothing about
+  // either of them: a sequenced re-read reintroduced on any single host is
+  // invisible to every other test in the tree, and its only symptom is the
+  // owner's next 完成編輯 silently writing the pre-restore draft over the
+  // version he just restored.
   //
-  // 🔴 Each case mocks the host's OWN re-read (getTaskManual / getInsight /
-  // getLessons) and nothing else: `restoreDocumentHistory` keeps landing, which
+  // 🔴 Each case mocks the host's OWN re-read (getTaskManual / getInsight)
+  // and nothing else: `restoreDocumentHistory` keeps landing, which
   // is the premise. None of those rejections drops the card from the screen —
   // the hooks keep the last good document on a failed refetch — so "the editor
   // is gone" is a real observation about edit mode, not about an unmounted card.
 
-  /** 設定 › 任務手冊 › 週報, on the sub-page named by `entry`. */
-  async function openManualPage(
-    typeKey: string,
-    entry: "definition" | "learnings"
-  ) {
+  /** 設定 › 任務手冊 › 週報 › 任務定義. */
+  async function openManualPage(typeKey: string) {
     const utils = render(
       <I18nProvider>
         <SettingsPage />
@@ -1191,7 +1100,7 @@ describe("SettingsPage · 版本紀錄 — 還原後的離開編輯 (T-91)", () 
     );
     fireEvent.click(utils.getByText(s.manuals));
     fireEvent.click(await utils.findByTestId(`manual-open-${typeKey}`));
-    fireEvent.click(await utils.findByTestId(`manual-entry-${entry}`));
+    fireEvent.click(await utils.findByTestId("manual-entry-definition"));
     return utils;
   }
 
@@ -1215,7 +1124,7 @@ describe("SettingsPage · 版本紀錄 — 還原後的離開編輯 (T-91)", () 
     await mockApi.updateTaskManual(manual.typeKey, { sopMd: "第一版 SOP" });
     const restore = vi.spyOn(mockApi, "restoreDocumentHistory");
 
-    const utils = await openManualPage(manual.typeKey, "definition");
+    const utils = await openManualPage(manual.typeKey);
     // Block ③ open, holding a draft the restore is about to supersede.
     fireEvent.click(await utils.findByTestId("manual-def-edit-3"));
     fireEvent.change(utils.getByTestId("manual-sop-input"), {
@@ -1243,38 +1152,7 @@ describe("SettingsPage · 版本紀錄 — 還原後的離開編輯 (T-91)", () 
     restore.mockRestore();
   });
 
-  it("leaves the manual's 學習經驗 editor even when the re-read after a landed restore fails", async () => {
-    const manual = await mockApi.createTaskManual("週報");
-    await mockApi.updateTaskManual(manual.typeKey, { learnings: "第零版經驗" });
-    await mockApi.updateTaskManual(manual.typeKey, { learnings: "第一版經驗" });
-    const restore = vi.spyOn(mockApi, "restoreDocumentHistory");
-
-    const utils = await openManualPage(manual.typeKey, "learnings");
-    fireEvent.click(await utils.findByTestId("manual-learnings-edit"));
-    fireEvent.change(utils.getByTestId("manual-learnings-input"), {
-      target: { value: "編輯到一半的經驗草稿" },
-    });
-    await armRestore(utils, "task_manual_learnings", manual.typeKey);
-
-    const read = vi
-      .spyOn(mockApi, "getTaskManual")
-      .mockRejectedValue(mockApiError("read failed", 503, ""));
-    fireEvent.click(utils.getByTestId("doc-history-restore-confirm-btn"));
-
-    await waitFor(() => expect(restore).toHaveBeenCalledTimes(1));
-    await waitFor(() =>
-      expect(utils.queryByTestId("manual-learnings-input")).toBeNull()
-    );
-    expect(utils.getByTestId("manual-learnings-edit")).toBeTruthy();
-    expect(utils.queryByText("編輯到一半的經驗草稿")).toBeNull();
-    expect(restore).toHaveBeenCalledTimes(1);
-    expect(utils.queryByText(s.historyRestoreError)).toBeNull();
-
-    read.mockRestore();
-    restore.mockRestore();
-  });
-
-  /** 設定 › 角色誌 › 助理 — the page that carries both journal cards. */
+  /** 設定 › 角色誌 › 助理 — the page that carries the journal cards. */
   async function openAssistantRolePage() {
     const utils = render(
       <I18nProvider>
@@ -1288,8 +1166,7 @@ describe("SettingsPage · 版本紀錄 — 還原後的離開編輯 (T-91)", () 
   }
 
   /** The journal cards are picked BY CARD, never by the position of a 編輯
-   * button: Duty, Learning and Insight all carry one, and `.mp-insight` also
-   * matches `.mp-lessons`. */
+   * button: Duty and Insight both carry one. */
   const journalCard = (utils: Utils, cls: string) =>
     utils.container.querySelector(cls) as HTMLElement;
 
@@ -1323,42 +1200,6 @@ describe("SettingsPage · 版本紀錄 — 還原後的離開編輯 (T-91)", () 
       within(journalCard(utils, ".mp-insight")).getByText(s.edit)
     ).toBeTruthy();
     expect(utils.queryByText("編輯到一半的判準草稿")).toBeNull();
-    expect(restore).toHaveBeenCalledTimes(1);
-    expect(utils.queryByText(s.historyRestoreError)).toBeNull();
-
-    read.mockRestore();
-    restore.mockRestore();
-  });
-
-  it("leaves the Lessons editor even when the re-read after a landed restore fails", async () => {
-    await mockApi.saveLessons("assistant", "第零版經驗");
-    await mockApi.saveLessons("assistant", "第一版經驗");
-    const restore = vi.spyOn(mockApi, "restoreDocumentHistory");
-
-    const utils = await openAssistantRolePage();
-    const lessons = ".mp-lessons:not(.mp-insight)";
-    const card = journalCard(utils, lessons);
-    fireEvent.click(within(card).getByText(s.edit));
-    fireEvent.change(within(card).getByPlaceholderText(s.editorPlaceholder), {
-      target: { value: "編輯到一半的經驗草稿" },
-    });
-    await armRestore(utils, "lessons", "assistant");
-
-    const read = vi
-      .spyOn(mockApi, "getLessons")
-      .mockRejectedValue(mockApiError("read failed", 503, ""));
-    fireEvent.click(utils.getByTestId("doc-history-restore-confirm-btn"));
-
-    await waitFor(() => expect(restore).toHaveBeenCalledTimes(1));
-    await waitFor(() =>
-      expect(
-        within(journalCard(utils, lessons)).queryByPlaceholderText(
-          s.editorPlaceholder
-        )
-      ).toBeNull()
-    );
-    expect(within(journalCard(utils, lessons)).getByText(s.edit)).toBeTruthy();
-    expect(utils.queryByText("編輯到一半的經驗草稿")).toBeNull();
     expect(restore).toHaveBeenCalledTimes(1);
     expect(utils.queryByText(s.historyRestoreError)).toBeNull();
 

@@ -344,7 +344,7 @@ func (s *apiServer) HandleSetLoreEntryStateApiLoreEntryIdStatePost(w http.Respon
 // Author-only at the agent floor, admin unrestricted — the same predicate the
 // state door uses. 提到最新 moves an entry ahead of other people's entries under
 // a shared cap, so it is a claim on somebody else's room; making it open to any
-// agent would let one caller quietly push everyone else's lessons out of every
+// agent would let one caller quietly push everyone else's entries out of every
 // boot of a role it does not even hold.
 func (s *apiServer) HandleBumpLoreEntryApiLoreEntryIdBumpPost(w http.ResponseWriter, r *http.Request, entryID string) {
 	current, err := s.dal.GetLoreEntry(entryID)

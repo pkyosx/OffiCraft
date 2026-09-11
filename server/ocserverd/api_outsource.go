@@ -379,7 +379,7 @@ func (s *apiServer) relocateWorkerByID(w http.ResponseWriter, r *http.Request, i
 // (winddownKindFor). This used to name "the 120s grace deadline" as a third
 // driver: a driver that does not exist here, and precisely the one an owner
 // would sit and wait for. So a live worker gets to flush its handoff
-// (step notes / learnings / baton) before the session is taken. ONLINE-ONLY
+// (step notes / baton) before the session is taken. ONLINE-ONLY
 // (409 otherwise — a context handover is meaningless with no live session, the
 // exact member gate); 404 for an unknown / released worker; 409 for a stopped
 // worker (restart it first). The refocus_since marker doubles as the tick's

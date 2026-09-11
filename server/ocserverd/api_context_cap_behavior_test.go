@@ -4,12 +4,11 @@ package main
 // SETTING, and the patch receipt's `size` started speaking the cap's unit
 // instead of bytes.
 //
-// ⚠️ T-ae38 (2026-08-03) split that one setting into FOUR
-// (`doc.cap_chars.duty` / `.insight` / `.learning` / `.manual`; the old
-// `doc.cap_chars` was RENAMED to `.manual` by migration 00048). This file is
-// the LESSONS half of the story and now names `doc.cap_chars.learning`
-// throughout — the rulings below are unchanged, they just apply per segment.
-// The per-segment independence itself is pinned in api_doc_caps_tae38_test.go.
+// ⚠️ T-ae38 (2026-08-03) split that one setting per segment
+// (`doc.cap_chars.duty` / `.insight` / `.manual_sop`; the old `doc.cap_chars`
+// was RENAMED by migration 00048). This file drives the INSIGHT segment — the
+// rulings below are unchanged, they just apply per segment. The per-segment
+// independence itself is pinned in api_doc_caps_tae38_test.go.
 //
 // Owner rulings (2026-07-31, cards rc-286b34b60388 / rc-33b88ed80212):
 //   - shipped default = contextDocMaxCharsDefault, adjustable up to
@@ -20,8 +19,8 @@ package main
 //     field, do not touch" ruling, because one subject may not have two units.
 //
 // ⚠️ WHY THE MULTI-BYTE FIXTURES ARE LOAD-BEARING. Before this file, EVERY
-// assertion on `size` in the repo was ASCII-only (api_lessons_patch_test.go,
-// api_taskmanuals_patch_test.go, conformance's `size > 0`) — and for ASCII the
+// assertion on `size` in the repo was ASCII-only (the patch-face tests,
+// conformance's `size > 0`) — and for ASCII the
 // byte count and the rune count are the SAME NUMBER. The unit flip was
 // therefore invisible to the entire suite: it could have shipped either way and
 // nothing would have reddened. The CJK fixtures below are the only thing that
@@ -74,13 +73,13 @@ func patchSettings(t *testing.T, srv, tok, body string) (int, map[string]any) {
 // applied at all — a broken gate would also "accept" the write); phase 2 raises
 // it; phase 3 proves the raise reached the write path.
 func TestDocCap_FollowsTheLiveSetting(t *testing.T) {
-	srv, dal, tok := capLessonsServer(t)
+	srv, dal, tok := capDocServer(t)
 	before := capDoc(t, contextDocMaxCharsDefault-10)
-	seedLessonsOverlay(t, dal, "assistant", before)
+	seedInsightOverlay(t, dal, "assistant", before)
 
 	// Over the DEFAULT cap, and not shorter than what is stored → refused.
 	overDefault := capDoc(t, contextDocMaxCharsDefault+500)
-	status, data := replaceLessons(t, srv, tok, overDefault, false)
+	status, data := replaceInsight(t, srv, tok, overDefault, false)
 	if status != http.StatusBadRequest {
 		t.Fatalf("phase 1: a write over the default cap must be refused, got %d: %v", status, data)
 	}
@@ -90,22 +89,22 @@ func TestDocCap_FollowsTheLiveSetting(t *testing.T) {
 	}
 
 	// The owner raises the cap.
-	if status, data := patchSettings(t, srv.URL, tok, `{"doc_cap_chars_learning":20000}`); status != http.StatusOK {
+	if status, data := patchSettings(t, srv.URL, tok, `{"doc_cap_chars_insight":20000}`); status != http.StatusOK {
 		t.Fatalf("phase 2: raising the cap must be accepted, got %d: %v", status, data)
 	}
 
 	// The SAME write now lands — no restart, no re-login.
-	status, data = replaceLessons(t, srv, tok, overDefault, false)
+	status, data = replaceInsight(t, srv, tok, overDefault, false)
 	if status != http.StatusOK {
 		t.Fatalf("phase 3: after raising the cap the same write must land, got %d: %v", status, data)
 	}
-	if got := getLessonsText(t, srv.URL, tok, "assistant"); got != overDefault {
+	if got := getInsightText(t, srv.URL, tok, "assistant"); got != overDefault {
 		t.Fatalf("phase 3: the raised cap must actually store the doc (%d runes stored)",
 			utf8.RuneCountInString(got))
 	}
 
 	// And the NEW cap is the one now being enforced — not merely "no cap".
-	status, data = replaceLessons(t, srv, tok, capDoc(t, 20001), false)
+	status, data = replaceInsight(t, srv, tok, capDoc(t, 20001), false)
 	if status != http.StatusBadRequest {
 		t.Fatalf("phase 4: the raised cap must still be a cap, got %d: %v", status, data)
 	}
@@ -120,15 +119,15 @@ func TestDocCap_FollowsTheLiveSetting(t *testing.T) {
 // still quoting the SHIPPED DEFAULT after the owner raised it would send every
 // agent shrinking toward a limit that no longer exists.
 func TestDocCap_RefusalQuotesTheLiveCapNotTheDefault(t *testing.T) {
-	srv, dal, tok := capLessonsServer(t)
-	seedLessonsOverlay(t, dal, "assistant", capDoc(t, 30000))
+	srv, dal, tok := capDocServer(t)
+	seedInsightOverlay(t, dal, "assistant", capDoc(t, 30000))
 
-	if status, data := patchSettings(t, srv.URL, tok, `{"doc_cap_chars_learning":25000}`); status != http.StatusOK {
+	if status, data := patchSettings(t, srv.URL, tok, `{"doc_cap_chars_insight":25000}`); status != http.StatusOK {
 		t.Fatalf("raise the cap: %d %v", status, data)
 	}
 
 	// Over 25000 and NOT shorter than the 30000 stored → refused.
-	_, data := replaceLessons(t, srv, tok, capDoc(t, 30000), false)
+	_, data := replaceInsight(t, srv, tok, capDoc(t, 30000), false)
 	msg := capErrMessage(data)
 	if !strings.Contains(msg, "25000") {
 		t.Fatalf("the refusal must quote the live cap 25000, got %q", msg)
@@ -139,105 +138,6 @@ func TestDocCap_RefusalQuotesTheLiveCapNotTheDefault(t *testing.T) {
 }
 
 // ── the receipt speaks the cap's unit ────────────────────────────────────────
-
-// TestPatchLessonsReceiptSizeIsCharsNotBytes — the T-3aeb unit fix, on the
-// lessons face. A member hit the live defect on 2026-07-31: the refusal said
-// "10184 chars, over the 10000-char cap", and the very next successful write
-// answered `size: 22856` for a document nowhere near that many characters.
-func TestPatchLessonsReceiptSizeIsCharsNotBytes(t *testing.T) {
-	srv, dal, tok := capLessonsServer(t)
-	seedLessonsOverlay(t, dal, "assistant", cjkDoc(t, 200))
-
-	status, data := patchLessons(t, srv.URL, tok, "assistant",
-		`{"edits":[{"old":"","new":"`+cjkDoc(t, 50)+`"}]}`)
-	if status != http.StatusOK {
-		t.Fatalf("append patch must land, got %d: %v", status, data)
-	}
-
-	stored := getLessonsText(t, srv.URL, tok, "assistant")
-	wantRunes := utf8.RuneCountInString(stored)
-	if len(stored) == wantRunes {
-		t.Fatalf("fixture is not multi-byte — this test cannot tell the units apart")
-	}
-	got, _ := data["size_chars"].(float64)
-	if int(got) != wantRunes {
-		t.Fatalf("receipt size must be CHARACTERS: got %v, runes=%d (bytes=%d)",
-			data["size_chars"], wantRunes, len(stored))
-	}
-	if int(got) == len(stored) {
-		t.Fatalf("receipt size_chars is still the BYTE count (%d)", len(stored))
-	}
-	// The receipt also states the cap it was judged against, so the caller can
-	// compute its remaining budget without a second (admin-only) request.
-	if capGot, _ := data["cap_chars"].(float64); int(capGot) != contextDocMaxCharsDefault {
-		t.Fatalf("receipt must report the live cap, got %v", data["cap_chars"])
-	}
-}
-
-// TestPatchTaskLearningsReceiptSizeIsCharsNotBytes — the same contract on the
-// task-manual face. Both faces are pinned because they are two independent
-// literal expressions; fixing one and missing the other is the obvious way to
-// half-land this change, and nothing else in the suite would notice.
-func TestPatchTaskLearningsReceiptSizeIsCharsNotBytes(t *testing.T) {
-	api := newTasksTestServer(t)
-	key := seedManualWithLearnings(t, api, cjkDoc(t, 200))
-
-	status, data := patchLearnings(t, api, key, map[string]any{
-		"edits": []any{edit("", cjkDoc(t, 50))},
-	})
-	if status != http.StatusOK {
-		t.Fatalf("append patch must land, got %d: %v", status, data)
-	}
-
-	stored := storedLearnings(t, api, key)
-	wantRunes := utf8.RuneCountInString(stored)
-	if len(stored) == wantRunes {
-		t.Fatalf("fixture is not multi-byte — this test cannot tell the units apart")
-	}
-	got, _ := data["size_chars"].(float64)
-	if int(got) != wantRunes {
-		t.Fatalf("receipt size must be CHARACTERS: got %v, runes=%d (bytes=%d)",
-			data["size_chars"], wantRunes, len(stored))
-	}
-	if int(got) == len(stored) {
-		t.Fatalf("receipt size_chars is still the BYTE count (%d)", len(stored))
-	}
-	// The receipt also states the cap it was judged against, so the caller can
-	// compute its remaining budget without a second (admin-only) request.
-	if capGot, _ := data["cap_chars"].(float64); int(capGot) != contextDocMaxCharsDefault {
-		t.Fatalf("receipt must report the live cap, got %v", data["cap_chars"])
-	}
-}
-
-// TestReplaceLessonsReceiptReportsSizeAndCap — the whole-document write face
-// answers with the same two numbers, from a THIRD literal expression. It needs
-// its own pin: before this test, a mutant that reported the wrong cap here, and
-// one that counted its size in bytes, each reddened NOTHING in the suite.
-func TestReplaceLessonsReceiptReportsSizeAndCap(t *testing.T) {
-	srv, _, tok := capLessonsServer(t)
-	doc := cjkDoc(t, 500)
-
-	status, data := replaceLessons(t, srv, tok, doc, false)
-	if status != http.StatusOK {
-		t.Fatalf("replace must land, got %d: %v", status, data)
-	}
-	if got, _ := data["size_chars"].(float64); int(got) != utf8.RuneCountInString(doc) {
-		t.Fatalf("size_chars must be CHARACTERS: got %v want %d (bytes=%d)",
-			data["size_chars"], utf8.RuneCountInString(doc), len(doc))
-	}
-	if got, _ := data["cap_chars"].(float64); int(got) != contextDocMaxCharsDefault {
-		t.Fatalf("cap_chars must be the live cap: got %v", data["cap_chars"])
-	}
-
-	// And it FOLLOWS the setting instead of quoting the shipped default.
-	if status, data := patchSettings(t, srv.URL, tok, `{"doc_cap_chars_learning":41000}`); status != http.StatusOK {
-		t.Fatalf("raise the cap: %d %v", status, data)
-	}
-	_, data = replaceLessons(t, srv, tok, doc+cjkDoc(t, 10), false)
-	if got, _ := data["cap_chars"].(float64); int(got) != 41000 {
-		t.Fatalf("cap_chars must track the setting, got %v", data["cap_chars"])
-	}
-}
 
 // ── the setting's own surface ────────────────────────────────────────────────
 
@@ -252,11 +152,11 @@ func TestReplaceLessonsReceiptReportsSizeAndCap(t *testing.T) {
 // assertion here passes under both.
 //
 // 🔴 EVERY knob is exercised, not just one. Until T-30f1 this test drove only
-// `doc_cap_chars_learning`, so a knob whose floor was written as the wrong
-// constant went green here. A per-knob table is the only shape that fails when
-// a row is missing or holds the wrong floor. The three boot-context knobs were
-// added to the table on 2026-09-07: the comment claimed "every knob" while the
-// table held five of eight, so the claim was checking nothing for three of them.
+// a single knob, so a knob whose floor was written as the wrong constant went
+// green here. A per-knob table is the only shape that fails when a row is
+// missing or holds the wrong floor. The three boot-context knobs were added to
+// the table on 2026-09-07: the comment claimed "every knob" while the table
+// held five of eight, so the claim was checking nothing for three of them.
 func TestUpdateSettingsDocCapCharsRange(t *testing.T) {
 	knobs := []struct {
 		field   string
@@ -268,12 +168,8 @@ func TestUpdateSettingsDocCapCharsRange(t *testing.T) {
 			func(s *apiServer) int { return s.dutyCap() }},
 		{"doc_cap_chars_insight", settingDocCapCharsInsight, contextDocMaxCharsDefault,
 			func(s *apiServer) int { return s.insightCap() }},
-		{"doc_cap_chars_learning", settingDocCapCharsLearning, contextDocMaxCharsDefault,
-			func(s *apiServer) int { return s.learningCap() }},
 		{"doc_cap_chars_manual_sop", settingDocCapCharsManualSop, contextDocMaxCharsDefault,
 			func(s *apiServer) int { return s.manualSopCap() }},
-		{"doc_cap_chars_manual_learnings", settingDocCapCharsManualLearnings, contextDocMaxCharsDefault,
-			func(s *apiServer) int { return s.manualLearningsCap() }},
 		{"doc_cap_chars_system_interaction", settingDocCapCharsSystemInteraction, systemInteractionCapCharsDefault,
 			func(s *apiServer) int { return s.systemInteractionCap() }},
 		{"doc_cap_chars_boot_sequence", settingDocCapCharsBootSequence, bootSequenceCapCharsDefault,
@@ -380,9 +276,7 @@ func TestLoadAuthSettingsRejectsAnOutOfRangeDocCap(t *testing.T) {
 	shipped := map[string]int{
 		settingDocCapCharsDuty:              dutyCapCharsDefault,
 		settingDocCapCharsInsight:           contextDocMaxCharsDefault,
-		settingDocCapCharsLearning:          contextDocMaxCharsDefault,
 		settingDocCapCharsManualSop:         contextDocMaxCharsDefault,
-		settingDocCapCharsManualLearnings:   contextDocMaxCharsDefault,
 		settingDocCapCharsSystemInteraction: systemInteractionCapCharsDefault,
 		settingDocCapCharsBootSequence:      bootSequenceCapCharsDefault,
 		settingDocCapCharsOffboard:          offboardCapCharsDefault,
@@ -420,18 +314,18 @@ func TestLoadAuthSettingsRejectsAnOutOfRangeDocCap(t *testing.T) {
 
 // ── the read faces report size and cap (owner 2026-07-31, card rc-3800e090f5e1) ──
 
-// TestLessonsReadReportsSizeAndCap — the gap the owner asked to close: before
+// TestInsightReadReportsSizeAndCap — the gap the owner asked to close: before
 // this, an agent learned the limit ONLY by being refused, because the settings
 // surface that holds it is admin-only. Reading the doc now answers both "how
 // big is it" and "how big may it get".
-func TestLessonsReadReportsSizeAndCap(t *testing.T) {
-	srv, dal, tok := capLessonsServer(t)
+func TestInsightReadReportsSizeAndCap(t *testing.T) {
+	srv, dal, tok := capDocServer(t)
 	doc := cjkDoc(t, 300)
-	seedLessonsOverlay(t, dal, "assistant", doc)
+	seedInsightOverlay(t, dal, "assistant", doc)
 
-	status, data := doJSON(t, "GET", srv.URL+"/api/lessons/assistant", tok, "")
+	status, data := doJSON(t, "GET", srv.URL+"/api/insight/assistant", tok, "")
 	if status != http.StatusOK {
-		t.Fatalf("GET lessons: %d %v", status, data)
+		t.Fatalf("GET insight: %d %v", status, data)
 	}
 	// CJK on purpose: with ASCII the two units are the same number, so a byte
 	// count would satisfy this assertion by coincidence.
@@ -444,22 +338,20 @@ func TestLessonsReadReportsSizeAndCap(t *testing.T) {
 	}
 
 	// And it FOLLOWS the setting, like every other reader of the cap.
-	if status, data := patchSettings(t, srv.URL, tok, `{"doc_cap_chars_learning":33000}`); status != 200 {
+	if status, data := patchSettings(t, srv.URL, tok, `{"doc_cap_chars_insight":33000}`); status != 200 {
 		t.Fatalf("raise the cap: %d %v", status, data)
 	}
-	_, data = doJSON(t, "GET", srv.URL+"/api/lessons/assistant", tok, "")
+	_, data = doJSON(t, "GET", srv.URL+"/api/insight/assistant", tok, "")
 	if got, _ := data["cap_chars"].(float64); int(got) != 33000 {
 		t.Fatalf("cap_chars must track the setting, got %v", data["cap_chars"])
 	}
 }
 
-// TestTaskManualReadReportsPerDocumentSizes — the manual carries TWO capped
-// documents, so it reports TWO sizes. One combined total would answer neither
-// question, since the cap applies to each separately.
-func TestTaskManualReadReportsPerDocumentSizes(t *testing.T) {
+// TestTaskManualReadReportsItsDocumentSize — the manual's capped document is
+// reported with its own size and its own cap, measured in CHARACTERS.
+func TestTaskManualReadReportsItsDocumentSize(t *testing.T) {
 	api := newTasksTestServer(t)
-	learnings := cjkDoc(t, 400)
-	key := seedManualWithLearnings(t, api, learnings)
+	key := seedManual(t, api)
 
 	sop := cjkDoc(t, 120)
 	if rec := updateManual(t, api, key, map[string]any{"sop_md": sop}); rec.Code != http.StatusOK {
@@ -476,37 +368,28 @@ func TestTaskManualReadReportsPerDocumentSizes(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &data); err != nil {
 		t.Fatalf("decode manual: %v", err)
 	}
-	if got, _ := data["learnings_chars"].(float64); int(got) != utf8.RuneCountInString(learnings) {
-		t.Fatalf("learnings_chars: got %v want %d (bytes=%d)",
-			data["learnings_chars"], utf8.RuneCountInString(learnings), len(learnings))
-	}
+	// CJK on purpose: with ASCII the byte count and the rune count are the same
+	// number, so a byte count would satisfy this assertion by coincidence.
 	if got, _ := data["sop_md_chars"].(float64); int(got) != utf8.RuneCountInString(sop) {
-		t.Fatalf("sop_md_chars: got %v want %d", data["sop_md_chars"], utf8.RuneCountInString(sop))
+		t.Fatalf("sop_md_chars: got %v want %d (bytes=%d)",
+			data["sop_md_chars"], utf8.RuneCountInString(sop), len(sop))
 	}
-	// The two are DIFFERENT numbers here, so a swap or a shared total cannot
-	// pass: that is the whole reason the fixture uses two distinct lengths.
-	if data["learnings_chars"] == data["sop_md_chars"] {
-		t.Fatalf("fixture lost its discriminating power: both docs measure the same")
-	}
-	if got, _ := data["cap_chars"].(float64); int(got) != contextDocMaxCharsDefault {
-		t.Fatalf("cap_chars must be the live cap: got %v", data["cap_chars"])
+	if got, _ := data["sop_md_cap_chars"].(float64); int(got) != contextDocMaxCharsDefault {
+		t.Fatalf("sop_md_cap_chars must be the live cap: got %v", data["sop_md_cap_chars"])
 	}
 }
 
-// TestListViewOmitsTheTextButNotItsSize — the listing drops the bulky sop_md /
-// learnings, and it would have been easy to let their sizes fall out as 0 along
-// with them. A 0 that looks like a measurement is worse than the omission it
-// describes: the list is exactly where "which manual is close to the cap" gets
-// asked.
+// TestListViewOmitsTheTextButNotItsSize — the listing drops the bulky sop_md,
+// and it would have been easy to let its size fall out as 0 along with it. A 0
+// that looks like a measurement is worse than the omission it describes: the
+// list is exactly where "which manual is close to the cap" gets asked.
 func TestListViewOmitsTheTextButNotItsSize(t *testing.T) {
 	s := &apiServer{dal: newTestDAL(t), hub: NewHub(),
-		docCapCharsManualSop:       contextDocMaxCharsDefault,
-		docCapCharsManualLearnings: contextDocMaxCharsDefault}
-	learnings := cjkDoc(t, 260)
+		docCapCharsManualSop: contextDocMaxCharsDefault}
 	sop := cjkDoc(t, 90)
 	if err := s.dal.PutTaskManual(TaskManual{
 		TypeKey: "tm-sized", DisplayName: "sized", Purpose: "p",
-		Fields: `[]`, SopMD: sop, Learnings: learnings, Assignee: `{}`, UpdatedTS: 1,
+		Fields: `[]`, SopMD: sop, Assignee: `{}`, UpdatedTS: 1,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -518,21 +401,15 @@ func TestListViewOmitsTheTextButNotItsSize(t *testing.T) {
 	got := list[0]
 	// The narrowing still happened — otherwise this test would pass on the
 	// full projection and prove nothing about the listing.
-	for _, absent := range []string{"sop_md", "learnings"} {
-		if _, present := listManualRows(t, s)[0][absent]; present {
-			t.Fatalf("listing must still omit %q", absent)
-		}
-	}
-	if got.LearningsChars != utf8.RuneCountInString(learnings) {
-		t.Fatalf("learnings_chars must survive the narrowing: got %d want %d",
-			got.LearningsChars, utf8.RuneCountInString(learnings))
+	if _, present := listManualRows(t, s)[0]["sop_md"]; present {
+		t.Fatalf("listing must still omit %q", "sop_md")
 	}
 	if got.SopMDChars != utf8.RuneCountInString(sop) {
 		t.Fatalf("sop_md_chars must survive the narrowing: got %d want %d",
 			got.SopMDChars, utf8.RuneCountInString(sop))
 	}
-	if got.CapChars != contextDocMaxCharsDefault {
-		t.Fatalf("cap_chars on the list view: got %d", got.CapChars)
+	if got.SopMDCapChars != contextDocMaxCharsDefault {
+		t.Fatalf("sop_md_cap_chars on the list view: got %d", got.SopMDCapChars)
 	}
 }
 
@@ -552,17 +429,17 @@ func TestRestoreFollowsTheLiveCap(t *testing.T) {
 
 	// An over-cap revision is retained (the cap never truncates what is stored),
 	// then the live doc shrinks — so restoring would push it back over.
-	if err := api.dal.PutLessons(Lessons{RoleKey: role, Text: oversized}); err != nil {
+	if err := api.dal.PutInsight(Insight{RoleKey: role, Text: oversized}); err != nil {
 		t.Fatal(err)
 	}
 	rec := httptest.NewRecorder()
-	api.HandleReplaceLessonsApiLessonsRoleKeyPost(rec, taskReq(t, http.MethodPost,
-		"/api/lessons/"+role, map[string]any{"text": "short again"}, "owner", "owner"),
+	api.HandleReplaceInsightApiInsightRoleKeyPost(rec, taskReq(t, http.MethodPost,
+		"/api/insight/"+role, map[string]any{"text": "short again"}, "owner", "owner"),
 		role)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("shrinking write: %d %s", rec.Code, rec.Body.String())
 	}
-	stored, err := api.dal.ListDocumentHistory("lessons", role)
+	stored, err := api.dal.ListDocumentHistory("insight", role)
 	if err != nil || len(stored) == 0 {
 		t.Fatalf("history = %+v, %v", stored, err)
 	}
@@ -570,9 +447,9 @@ func TestRestoreFollowsTheLiveCap(t *testing.T) {
 	restore := func() int {
 		rec := httptest.NewRecorder()
 		api.HandleRestoreDocumentHistoryApiDocumentHistoryKindKeyIdRestorePost(rec,
-			taskReq(t, http.MethodPost, "/api/document-history/lessons/"+role+"/"+
+			taskReq(t, http.MethodPost, "/api/document-history/insight/"+role+"/"+
 				strconv.FormatInt(stored[0].ID, 10)+"/restore", nil, "owner", "owner"),
-			"lessons", role, stored[0].ID)
+			"insight", role, stored[0].ID)
 		return rec.Code
 	}
 
@@ -584,13 +461,13 @@ func TestRestoreFollowsTheLiveCap(t *testing.T) {
 
 	// Raise the cap above the revision's size; the same restore now lands.
 	api.settingsMu.Lock()
-	api.docCapCharsLearning = contextDocMaxCharsDefault + 1000
+	api.docCapCharsInsight = contextDocMaxCharsDefault + 1000
 	api.settingsMu.Unlock()
 
 	if code := restore(); code != http.StatusOK {
 		t.Fatalf("after raising the cap the restore must land, got %d", code)
 	}
-	current, err := api.foldLessonsDTO(role)
+	current, err := api.foldInsightDTO(role)
 	if err != nil {
 		t.Fatal(err)
 	}

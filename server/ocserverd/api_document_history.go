@@ -5,74 +5,35 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
-	"strings"
 	"unicode/utf8"
 )
 
 var errDocumentHistoryCap = errors.New("restoring this version would violate the existing document size limit")
 
-// Naming both replacements is the whole point of refusing loudly: a caller who
-// still says "task_manual" learns which of the two series it wanted.
+// Naming the replacement is the whole point of refusing loudly: a caller who
+// still says "task_manual" learns which series it wanted.
 const legacyTaskManualKindMsg = "document history kind \"task_manual\" was retired: " +
-	"use \"task_manual_sop\" or \"task_manual_learnings\""
+	"use \"task_manual_sop\""
 
-// lessonsRetiredKeySeparator is the "::" that used to join a lessons history
-// key's two halves. Named rather than inlined so the one rule that still cares
-// about it is greppable from the migrations that talk about the same shapes
-// (00061 §2, 00062's "left alone" paragraph) — all three have to agree, and a
-// bare "::" in the source is not something you can search for.
-const lessonsRetiredKeySeparator = "::"
-
-// malformedLessonsKeyMsg names the retired axis rather than saying "invalid",
-// because the caller most likely to hit this is one that learned the OLD
-// `role_key::task_type` shape from a tool description and has no way to guess
-// that the shape itself is what changed.
-const malformedLessonsKeyMsg = "invalid lessons document history key: T-2 removed the task_type axis, " +
-	"so a lessons key is the bare role_key and one carrying \"::\" names nothing"
+// The two legacy-memory kinds (T-186). Refused BY NAME rather than left to fall
+// through to "unknown kind", and the message has to say that the documents are
+// GONE: the migration that landed with this removal dropped the lessons table,
+// task_manual.learnings and every retained revision of both, so a caller who
+// guesses these kinds is asking after storage that no longer exists — and
+// putting either name back into the switch below would make list answer an
+// empty 200 that is indistinguishable from "this document has no versions yet".
+//
+// The message names no migration NUMBER on purpose: a number is claimed, not
+// fixed, and a rebase that renumbers the migration would rot this sentence
+// without reddening anything.
+const legacyMemoryKindsMsg = "document history kinds \"lessons\" and " +
+	"\"task_manual_learnings\" were retired: the legacy memory documents and " +
+	"their retained revisions were dropped from the database, so there is " +
+	"nothing left to list or restore"
 
 // historyKeyParts reports a document-history key's PRIMARY identity and whether
 // the key names a document at all.
-//
-// 🔴 THE SPLIT IS GONE; THE REFUSAL IS NOT, and getting that distinction
-// wrong is what this comment is for. Until T-2 the lessons kind was the ONE key
-// with a composite shape ("<role_key>::<task_type>"), so this function existed
-// to split it and every caller had to carry the second half. With the axis
-// removed a lessons key is the bare role_key like every other kind's, so the
-// SPLIT has nothing left to do.
-//
-// 🔴 BUT DROPPING THE SPLIT MUST NOT DROP THE REFUSAL THAT CAME WITH IT.
-// The old parse returned valid=false for a lessons key that was not two
-// non-empty halves, and that refusal is the ENTIRE argument 00061 wrote down
-// for leaving three malformed lessons history rows in the table: "the
-// list/restore door refuses such a key with 400 before any restore runs, so
-// none of them can reseed anything". A first cut of T-2 reduced this function
-// to `key != ""` for every kind, which retired that refusal by accident and
-// made `assistant::` a key you could LIST and RESTORE. The restore answered
-// 200 and materialised a `lessons` row keyed `assistant::`: no role carries it,
-// get_lessons cannot see it, peek_doc_sizes does not list it,
-// DeleteLessonsForRole cannot reach it, it spends the lessons cap anyway, and
-// it grows a history of its own. That is the hidden drawer T-2 exists to
-// remove, rebuilt one door over. So the rule now reads FORWARD instead of
-// backward: since T-2 a lessons key that carries "::" names nothing, and this
-// door says so.
-//
-// The check is scoped to lessons on purpose. "::" is not special to any other
-// kind — task ids, boot-doc keys and role keys have never been parsed on it —
-// so widening the refusal would refuse keys that are merely unusual rather than
-// meaningless. Both directions are pinned in
-// api_document_history_lessons_key_t2_test.go, and the POSITIVE case there runs
-// first: a door shut too hard would make every negative assertion pass.
-//
-// This gate is about the KEY'S SHAPE, not about whether a role exists. Nothing
-// on the lessons write face compares a role_key against the roster (see
-// peek_doc_sizes' summary, which says so in as many words), so an admin or the
-// owner can still create a lessons document under a name no role carries. That
-// is a wider gap with its own owner decision to make; it is not this function's
-// to close.
 func historyKeyParts(kind, key string) (string, bool) {
-	if kind == "lessons" && strings.Contains(key, lessonsRetiredKeySeparator) {
-		return key, false
-	}
 	return key, key != ""
 }
 
@@ -163,16 +124,7 @@ func roleDefHistorySnapshot(current *RoleDef) (string, error) {
 	})
 }
 
-func lessonsHistorySnapshot(current *Lessons) (string, error) {
-	if current == nil {
-		return "{}", nil
-	}
-	return historyJSON(map[string]string{
-		"text": current.Text, "tombstoned": strconv.FormatBool(current.Tombstoned),
-	})
-}
-
-// The four readers below are what SaveWithDocumentHistory calls from inside the
+// The readers below are what SaveWithDocumentHistory calls from inside the
 // write transaction. They deliberately re-read the document rather than trust a
 // value the handler folded earlier: the retained revision must be the state
 // this write replaced, otherwise two writers racing on one document both retain
@@ -195,16 +147,6 @@ func roleDefSnapshotIn(roleKey string) func(sqlQuerier) (string, error) {
 	}
 }
 
-func lessonsSnapshotIn(roleKey string) func(sqlQuerier) (string, error) {
-	return func(q sqlQuerier) (string, error) {
-		current, err := getLessonsOn(q, roleKey)
-		if err != nil {
-			return "", err
-		}
-		return lessonsHistorySnapshot(current)
-	}
-}
-
 func manualSnapshotIn(typeKey string, of func(TaskManual) (string, error)) func(sqlQuerier) (string, error) {
 	return func(q sqlQuerier) (string, error) {
 		current, err := getTaskManualOn(q, typeKey)
@@ -218,23 +160,17 @@ func manualSnapshotIn(typeKey string, of func(TaskManual) (string, error)) func(
 	}
 }
 
-// taskManualHistoryStreams names the series a manual write must retain. SOP and
-// learnings are versioned INDEPENDENTLY and only when the write actually
-// changes them; purpose, the identifier fields, display_name and assignee are
-// not versioned at all (owner ruling, T-1f39), so a write touching only those
-// returns no streams and retains nothing anywhere.
-func taskManualHistoryStreams(typeKey, actor string, sopChanged, learningsChanged bool) []documentHistoryStream {
+// taskManualHistoryStreams names the series a manual write must retain. The SOP
+// is versioned only when the write actually changes it; purpose, the identifier
+// fields, display_name and assignee are not versioned at all (owner ruling,
+// T-1f39), so a write touching only those returns no streams and retains
+// nothing anywhere.
+func taskManualHistoryStreams(typeKey, actor string, sopChanged bool) []documentHistoryStream {
 	var streams []documentHistoryStream
 	if sopChanged {
 		streams = append(streams, documentHistoryStream{
 			Kind: docKindTaskManualSop, Key: typeKey, ActorID: actor,
 			Snapshot: manualSnapshotIn(typeKey, taskManualSopHistorySnapshot),
-		})
-	}
-	if learningsChanged {
-		streams = append(streams, documentHistoryStream{
-			Kind: docKindTaskManualLearnings, Key: typeKey, ActorID: actor,
-			Snapshot: manualSnapshotIn(typeKey, taskManualLearningsHistorySnapshot),
 		})
 	}
 	return streams
@@ -257,15 +193,6 @@ func roleDefHistoryStreams(roleKey, actor string, definitionChanged bool) []docu
 func (s *apiServer) documentHistoryAllowed(w http.ResponseWriter, r *http.Request, kind, key string, write bool) bool {
 	primary, valid := historyKeyParts(kind, key)
 	if !valid {
-		// Two different refusals share this branch, and the message has to
-		// separate them: an empty key is a caller that sent nothing, while a
-		// lessons key carrying "::" is a caller working from the pre-T-2 shape
-		// — a much more likely mistake, and one that "invalid document history
-		// key" would send hunting in the wrong direction.
-		if kind == "lessons" && strings.Contains(key, lessonsRetiredKeySeparator) {
-			writeError(w, http.StatusBadRequest, malformedLessonsKeyMsg)
-			return false
-		}
 		writeError(w, http.StatusBadRequest, "invalid document history key")
 		return false
 	}
@@ -314,20 +241,16 @@ func (s *apiServer) documentHistoryAllowed(w http.ResponseWriter, r *http.Reques
 			writeError(w, http.StatusForbidden, "restoring this document requires admin capability")
 			return false
 		}
-	case "lessons":
-		if write && !s.lessonsWriteAuthz(w, r, primary) {
-			return false
-		}
 	case "insight":
-		// Same posture as lessons — and the `write &&` is the point, not a
-		// copy-paste: reading any role's retained insight versions is open to
+		// The `write &&` is the point, not a copy-paste: reading any role's
+		// retained insight versions is open to
 		// every authenticated caller, exactly like reading the current doc
 		// (owner ruling rc-dc171587220c). An earlier draft of this design said
 		// the opposite; the ruling settled it.
 		if write && !s.insightWriteAuthz(w, r, primary) {
 			return false
 		}
-	case docKindTaskManualSop, docKindTaskManualLearnings:
+	case docKindTaskManualSop:
 	case docKindTaskDescription:
 		// T-e271. The only kind whose restore gate is per-DOCUMENT rather than
 		// per-class: a task description is writable by that task's executor (or
@@ -348,6 +271,9 @@ func (s *apiServer) documentHistoryAllowed(w http.ResponseWriter, r *http.Reques
 		if write && !s.taskTitleRestoreAuthz(w, r, primary) {
 			return false
 		}
+	case "lessons", "task_manual_learnings":
+		writeError(w, http.StatusBadRequest, legacyMemoryKindsMsg)
+		return false
 	case docKindTaskManual:
 		// The legacy four-field bundle. Its rows were deleted by migration 00045
 		// (owner ruling, T-1f39), so the kind names nothing at all — an empty
@@ -566,8 +492,6 @@ func (s *apiServer) publishDocumentHistoryRestore(r *http.Request, kind, key str
 		// "role" is not in the closed topic set, so it was dropped at the
 		// publish seam and a restore fanned nothing at all.
 		s.hub.Publish("role_def", "patch", "role_def", wireOwnerID+"::"+key, nil, audienceOwnerOnly(), requestTrigger(r))
-	case "lessons":
-		s.hub.Publish("lessons", "patch", "lessons", wireOwnerID+"::"+key, nil, audienceOwnerOnly(), requestTrigger(r))
 	case "insight":
 		// 🔴 THE SILENT ONE. This switch has no default: omitting a kind here
 		// costs nothing visible — the restore succeeds, the DB is changed, the
@@ -585,7 +509,7 @@ func (s *apiServer) publishDocumentHistoryRestore(r *http.Request, kind, key str
 		// Forgetting to be in THIS switch is the silent failure the insight case
 		// above documents: 200, DB changed, nothing on any screen.
 		s.publishBootDoc(r)
-	case docKindTaskManualSop, docKindTaskManualLearnings:
+	case docKindTaskManualSop:
 		s.publishTaskManual(key, requestTrigger(r))
 	case docKindTaskDescription, docKindTaskTitle:
 		// Both fan the same task delta: the cockpit's list and card reconcile by
@@ -641,11 +565,11 @@ func (s *apiServer) restoreDocumentHistory(r *http.Request, kind, key string, co
 			return errNotFound
 		}
 		// The cap applies to a restore too (T-ae38), exactly as it already did
-		// for lessons and insight below — and this branch is the reason the
-		// edit-door check alone would not be a cap at all: edit the definition
-		// down to 999 chars and then restore a 4,000-char earlier revision, and
-		// nothing would ever have looked. Duty was the ONLY kind in this switch
-		// with no check; lessons and insight are the shape to copy.
+		// for insight below — and this branch is the reason the edit-door check
+		// alone would not be a cap at all: edit the definition down to 999 chars
+		// and then restore a 4,000-char earlier revision, and nothing would ever
+		// have looked. Duty was the ONLY kind in this switch with no check;
+		// insight is the shape to copy.
 		if DocCapBlocked(s.dutyCap(), folded.DefinitionMD, content["definition_md"]) {
 			return errDocumentHistoryCap
 		}
@@ -655,31 +579,6 @@ func (s *apiServer) restoreDocumentHistory(r *http.Request, kind, key string, co
 		name := folded.Name
 		return s.dal.SaveWithDocumentHistory(kind, key, actor, roleDefSnapshotIn(key), func(ex sqlExecer) error {
 			return putRoleDefOn(ex, RoleDef{RoleKey: key, Name: name, DefinitionMD: content["definition_md"], Tombstoned: historyTombstoned(content)})
-		})
-	case "lessons":
-		// The key IS the role_key since T-2 — no split, and therefore no way
-		// for a restore to write a task_type the caller never chose. That path
-		// is what 00061 had to shut a door against in the migration itself;
-		// there is no longer a door.
-		roleKey := key
-		current, err := s.foldLessonsDTO(roleKey)
-		if err != nil {
-			return err
-		}
-		// 🔴 A restore is a WRITE like any other, and the retained version may
-		// itself be a snapshot taken while the 傳承 block was already written into
-		// the document — restoring it verbatim would put the block back and
-		// restart the growth. See stripTrailingLoreBlock (lore_select.go).
-		//
-		// Stripped BEFORE the cap is judged, not after: the cap decides whether
-		// this restore is allowed at all, and judging it on text the write will
-		// not store would refuse restores that in fact fit.
-		restored := stripTrailingLoreBlock(content["text"])
-		if DocCapBlocked(s.learningCap(), current.Text, restored) {
-			return errDocumentHistoryCap
-		}
-		return s.dal.SaveWithDocumentHistory(kind, key, actor, lessonsSnapshotIn(roleKey), func(ex sqlExecer) error {
-			return putLessonsOn(ex, Lessons{RoleKey: roleKey, Text: restored, Tombstoned: historyTombstoned(content)})
 		})
 	case docKindTaskDescription:
 		// T-e271. No doc cap: the description has never had a length ceiling on
@@ -743,8 +642,7 @@ func (s *apiServer) restoreDocumentHistory(r *http.Request, kind, key string, co
 		}
 		return nil
 	case "insight":
-		// The key is the BARE role_key — insight has no task_type axis, so
-		// there is nothing to split out of it the way lessons does above.
+		// The key is the BARE role_key.
 		current, err := s.foldInsightDTO(key)
 		if err != nil {
 			return err
@@ -762,8 +660,8 @@ func (s *apiServer) restoreDocumentHistory(r *http.Request, kind, key string, co
 		docKindAcceleratedStop, docKindTaskCloseout, docKindTaskReassignPredecessor,
 		docKindTaskTakeoverWithPredecessor, docKindTaskTakeoverFresh, docKindTaskUnblocked,
 		docKindTaskReadyForDone:
-		// T-791e. The cap applies to a restore, exactly as it does for lessons
-		// and insight above: an older, larger revision is still a write, and
+		// T-791e. The cap applies to a restore, exactly as it does for insight
+		// above: an older, larger revision is still a write, and
 		// letting history walk a document back over the ceiling would make the
 		// ceiling a suggestion. (The RESET path is the deliberate opposite — see
 		// resetBootDoc: the factory text is the product, not something a caller
@@ -807,25 +705,12 @@ func (s *apiServer) restoreDocumentHistory(r *http.Request, kind, key string, co
 			})
 		})
 	case docKindTaskManualSop:
-		return s.restoreTaskManualField(key, taskManualHistoryStreams(key, actor, true, false),
+		return s.restoreTaskManualField(key, taskManualHistoryStreams(key, actor, true),
 			func(m *TaskManual) error {
 				if DocCapBlocked(s.manualSopCap(), m.SopMD, content["sop_md"]) {
 					return errDocumentHistoryCap
 				}
 				m.SopMD = content["sop_md"]
-				return nil
-			})
-	case docKindTaskManualLearnings:
-		return s.restoreTaskManualField(key, taskManualHistoryStreams(key, actor, false, true),
-			func(m *TaskManual) error {
-				// Stripped for the same reason as the lessons restore above, and
-				// BEFORE the cap for the same reason: the cap must judge what will
-				// actually be stored.
-				restored := stripTrailingLoreBlock(content["learnings"])
-				if DocCapBlocked(s.manualLearningsCap(), m.Learnings, restored) {
-					return errDocumentHistoryCap
-				}
-				m.Learnings = restored
 				return nil
 			})
 	}
@@ -834,9 +719,7 @@ func (s *apiServer) restoreDocumentHistory(r *http.Request, kind, key string, co
 
 // restoreTaskManualField writes back exactly the one field its stream versions
 // and leaves every other field of the manual as it stands. apply also judges
-// the cap, on THAT field alone: restoring a SOP has nothing to do with how long
-// the current learnings doc is, and before the split (T-1f39) an over-cap
-// learnings doc blocked the SOP restore too.
+// the cap, on THAT field alone.
 func (s *apiServer) restoreTaskManualField(key string, streams []documentHistoryStream, apply func(*TaskManual) error) error {
 	current, err := s.dal.GetTaskManual(key)
 	if err != nil {

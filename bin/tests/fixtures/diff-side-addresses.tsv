@@ -59,26 +59,26 @@ att-/../../api/version	bad	traversal: a reader that concatenates would fetch ano
 att-0123456789ab<space>	bad	a trailing space, for the same reason
 0123456789ab	bad	no att- prefix
 ./before.md	bad	a file path: diff uploads nothing, upload it first
-doc:lessons/mira/current/text	ok	the live content of a document
-doc:lessons/mira/seed/text	ok	the shipped default
-doc:lessons/mira/12/text	ok	a retained revision, addressed by its id
+doc:insight/mira/current/text	ok	the live content of a document
+doc:insight/mira/seed/text	ok	the shipped default
+doc:insight/mira/12/text	ok	a retained revision, addressed by its id
 doc:task_manual_sop/deploy/current/sop_md	ok	one field of a multi-field document
 doc:role_definition/mira/current/definition_md	ok	a kind whose field is not called text
 doc:not_a_kind/x/current/text	ok	SAYABLE but unresolvable: kinds are not enumerated here, and a kind this station lacks is a gone side at read time, not a refusal
-doc:lessons/mira/current	bad	three segments — the address is kind/key/at/field
-doc:lessons/mira/current/text/extra	bad	five segments
-doc:lessons//current/text	bad	an empty key
-doc:lessons/mira/current/	bad	an empty field
+doc:insight/mira/current	bad	three segments — the address is kind/key/at/field
+doc:insight/mira/current/text/extra	bad	five segments
+doc:insight//current/text	bad	an empty key
+doc:insight/mira/current/	bad	an empty field
 doc:/mira/current/text	bad	an empty kind
-doc:lessons/../current/text	bad	'..' traverses without containing an excluded character
-doc:lessons/./current/text	bad	'.' likewise
-doc:lessons/mi%2Fra/current/text	bad	'%' is excluded: a reader splicing this into a URL would re-decode it
-doc:lessons/mi?ra/current/text	bad	'?' would end the path and start a query
-doc:lessons/mi#ra/current/text	bad	'#' would end the URL
-doc:lessons/mira/latest/text	bad	'latest' is not one of current, seed or a revision id
-doc:lessons/mira/0/text	bad	a revision id never starts at zero
-doc:lessons/mira/01/text	bad	a leading zero is not the decimal spelling of an id
-doc:lessons/mira/<space>current<space>/text	bad	a padded at — matched as given
-doc:lessons/mira/current/te xt	bad	a space inside a field name
+doc:insight/../current/text	bad	'..' traverses without containing an excluded character
+doc:insight/./current/text	bad	'.' likewise
+doc:insight/mi%2Fra/current/text	bad	'%' is excluded: a reader splicing this into a URL would re-decode it
+doc:insight/mi?ra/current/text	bad	'?' would end the path and start a query
+doc:insight/mi#ra/current/text	bad	'#' would end the URL
+doc:insight/mira/latest/text	bad	'latest' is not one of current, seed or a revision id
+doc:insight/mira/0/text	bad	a revision id never starts at zero
+doc:insight/mira/01/text	bad	a leading zero is not the decimal spelling of an id
+doc:insight/mira/<space>current<space>/text	bad	a padded at — matched as given
+doc:insight/mira/current/te xt	bad	a space inside a field name
 doc:	bad	the prefix alone names nothing
 <space>	bad	whitespace only

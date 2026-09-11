@@ -136,8 +136,9 @@ test.describe('B10 · settings roles + monitor — inline create rows & gating',
       'the internal role file name must never render',
     ).not.toContainText(/role-.*\.md/);
     // enter doc edit mode: a CUSTOM role offers 儲存/取消 but NO 重置.
-    // Scope to the ROLE doc card (.first()) — the page also renders the shared
-    // per-role LessonsCard below, which has its own edit affordance.
+    // Scope to the ROLE doc card. The Insight card renders as DocCard's `extra`,
+    // a SIBLING of .doc-card, so its own edit affordance is outside this subtree
+    // already. (It used to be the per-role LessonsCard, removed in T-186.)
     const roleDocCard = page.locator('.doc-card').first();
     await roleDocCard.locator('.doc-btn--edit').click();
     // d0c2ea3 (T-1f39) removed the standalone 重置 button from the doc card and

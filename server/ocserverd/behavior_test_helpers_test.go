@@ -324,11 +324,11 @@ func newWiredTestServer(t *testing.T) (*httptest.Server, []byte, *Hub) {
 	return srv, secret, hub
 }
 
-// newLessonsTestServer is the wired lessons fixture with the DAL exposed so a
+// newDocCapTestServer is the wired document fixture with the DAL exposed so a
 // test can seed a deterministic overlay before exercising the REST surface.
-func newLessonsTestServer(t *testing.T) (*httptest.Server, *DAL, []byte) {
+func newDocCapTestServer(t *testing.T) (*httptest.Server, *DAL, []byte) {
 	t.Helper()
-	db, err := openSQLite(filepath.Join(t.TempDir(), "behavior-lessons.db"))
+	db, err := openSQLite(filepath.Join(t.TempDir(), "behavior-doccap.db"))
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
@@ -604,24 +604,24 @@ func capDoc(t *testing.T, n int) string {
 	return doc
 }
 
-func seedLessonsOverlay(t *testing.T, dal *DAL, roleKey, text string) {
+func seedInsightOverlay(t *testing.T, dal *DAL, roleKey, text string) {
 	t.Helper()
-	if err := dal.PutLessons(Lessons{RoleKey: roleKey, Text: text, Tombstoned: false}); err != nil {
-		t.Fatalf("PutLessons: %v", err)
+	if err := dal.PutInsight(Insight{RoleKey: roleKey, Text: text, Tombstoned: false}); err != nil {
+		t.Fatalf("PutInsight: %v", err)
 	}
 }
 
-func getLessonsText(t *testing.T, url, token, roleKey string) string {
+func getInsightText(t *testing.T, url, token, roleKey string) string {
 	t.Helper()
-	status, data := doJSON(t, http.MethodGet, url+"/api/lessons/"+roleKey, token, "")
+	status, data := doJSON(t, http.MethodGet, url+"/api/insight/"+roleKey, token, "")
 	if status != http.StatusOK {
-		t.Fatalf("get lessons: status %d", status)
+		t.Fatalf("get insight: status %d", status)
 	}
 	text, _ := data["text"].(string)
 	return text
 }
 
-func replaceLessons(t *testing.T, srv *httptest.Server, token, bodyText string, allowShrink bool) (int, map[string]any) {
+func replaceInsight(t *testing.T, srv *httptest.Server, token, bodyText string, allowShrink bool) (int, map[string]any) {
 	t.Helper()
 	body := map[string]any{"text": bodyText}
 	if allowShrink {
@@ -631,17 +631,12 @@ func replaceLessons(t *testing.T, srv *httptest.Server, token, bodyText string, 
 	if err != nil {
 		t.Fatal(err)
 	}
-	return doJSON(t, http.MethodPost, srv.URL+"/api/lessons/assistant", token, string(raw))
+	return doJSON(t, http.MethodPost, srv.URL+"/api/insight/assistant", token, string(raw))
 }
 
-func patchLessons(t *testing.T, url, token, roleKey, body string) (int, map[string]any) {
+func capDocServer(t *testing.T) (*httptest.Server, *DAL, string) {
 	t.Helper()
-	return doJSON(t, http.MethodPost, url+"/api/lessons/"+roleKey+"/patch", token, body)
-}
-
-func capLessonsServer(t *testing.T) (*httptest.Server, *DAL, string) {
-	t.Helper()
-	srv, dal, secret := newLessonsTestServer(t)
+	srv, dal, secret := newDocCapTestServer(t)
 	ownerToken, err := mintJWT("owner", "owner", 300, secret, time.Now().Unix(), "")
 	if err != nil {
 		t.Fatalf("mint owner token: %v", err)
@@ -655,7 +650,9 @@ func capErrMessage(data map[string]any) string {
 	return message
 }
 
-func seedManualWithLearnings(t *testing.T, api *apiServer, learnings string) string {
+// seedManual mints a manual through the real create face and returns its
+// server-minted type_key.
+func seedManual(t *testing.T, api *apiServer) string {
 	t.Helper()
 	rec := httptest.NewRecorder()
 	api.HandleCreateTaskManualApiTaskManualsPost(rec, taskReq(t, http.MethodPost,
@@ -670,37 +667,7 @@ func seedManualWithLearnings(t *testing.T, api *apiServer, learnings string) str
 	if err := json.Unmarshal(rec.Body.Bytes(), &dto); err != nil {
 		t.Fatalf("create response: %v", err)
 	}
-	manual, err := api.dal.GetTaskManual(dto.TypeKey)
-	if err != nil || manual == nil {
-		t.Fatalf("readback minted manual: %+v %v", manual, err)
-	}
-	manual.Learnings = learnings
-	if err := api.dal.PutTaskManual(*manual); err != nil {
-		t.Fatalf("seed learnings: %v", err)
-	}
 	return dto.TypeKey
-}
-
-func storedLearnings(t *testing.T, api *apiServer, typeKey string) string {
-	t.Helper()
-	manual, err := api.dal.GetTaskManual(typeKey)
-	if err != nil || manual == nil {
-		t.Fatalf("read manual %s: %+v %v", typeKey, manual, err)
-	}
-	return manual.Learnings
-}
-
-func patchLearnings(t *testing.T, api *apiServer, typeKey string, body any) (int, map[string]any) {
-	t.Helper()
-	rec := httptest.NewRecorder()
-	api.HandlePatchTaskLearningsApiTaskManualsTypeKeyLearningsPatchPost(rec, taskReq(t,
-		http.MethodPost, "/api/task-manuals/"+typeKey+"/learnings/patch", body,
-		"m-exec", "agent"), typeKey)
-	var data map[string]any
-	if rec.Body.Len() > 0 {
-		_ = json.Unmarshal(rec.Body.Bytes(), &data)
-	}
-	return rec.Code, data
 }
 
 func edit(old, newValue string) map[string]any {

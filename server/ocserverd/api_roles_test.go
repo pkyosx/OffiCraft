@@ -2,8 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"net/http"
-	"net/http/httptest"
 	"reflect"
 	"strings"
 	"testing"
@@ -12,22 +10,6 @@ import (
 const apiTestAssistantSeedDefinitionMD = "# 助理\n\nOwner 的助理，工作室的預設對口。\n\n- **不知道該找誰**：先找我，我會判斷並安排後續。\n- **OffiCraft 怎麼運作**：怎麼使用、規則是什麼、某個操作在哪裡，都可以問我。\n- **你做不到的操作**：我的權限比一般成員大，權限之內的我可以代你執行；只有 Owner 能決定的，我整理好開一張卡送到他面前。\n"
 
 const apiTestCustomRoleTemplateMD = "# 角色定義\n\n## 你是誰\n\n（待填：這個角色的身分與定位——用一兩句話說明「你是誰」、在辦公室裡站什麼位置、面對 owner 與其他成員時以什麼視角說話。）\n\n## 你做什麼\n\n（待填：這個角色的職責與工作方式——負責哪些事、怎麼做事、輸出長什麼樣、與 owner 及其他成員怎麼協作、什麼事不歸你管。）\n"
-
-const apiTestLessonsSeedText = "以下是我們的自我學習紀錄。\n"
-
-const apiTestLessonsTaskTypeRetiredMsg = "task_type was removed from the lessons tools (T-2): a lessons doc is " +
-	"addressed by role_key ALONE. Drop the field and retry — it is " +
-	"refused rather than ignored so that a call which believes it named " +
-	"a classification cannot quietly land somewhere else"
-
-func apiTestLessonsUnaddressableMsg(roleKey string) string {
-	return "role '" + roleKey + "' not found — a lessons doc must be addressable by " +
-		"something: a role that folds (list_roles), or a member carrying that " +
-		"role_key (list_members). This name is neither, so the document could " +
-		"be read by nobody: no boot would load it, no member could be given a " +
-		"token for it, and peek_doc_sizes (keyed by role) would never list it, " +
-		"while it still spent the lessons cap. Check the role_key and retry"
-}
 
 func TestHistoryJSON(t *testing.T) {
 	t.Run("a supported value is encoded as its JSON object", func(t *testing.T) {
@@ -981,7 +963,6 @@ func TestHandleDeleteRoleApiRolesRoleDelete(t *testing.T) {
 		}
 		apiJSON(t, h, "POST", "/api/chat", owner, `{"to":"m-zed","body":"hi"}`)
 		apiJSON(t, h, "POST", "/api/chat/mark-read", owner, `{"peer":"m-zed"}`)
-		apiJSON(t, h, "POST", "/api/lessons/r-design", owner, `{"text":"L"}`)
 		apiJSON(t, h, "POST", "/api/insight/r-design", owner, `{"text":"I"}`)
 		dashboard := apiTestListen(t, api, "")
 		bystander := apiTestListen(t, api, "kip")
@@ -996,16 +977,15 @@ func TestHandleDeleteRoleApiRolesRoleDelete(t *testing.T) {
 			"deleted_chat_messages":    1,
 			"deleted_chat_attachments": 0,
 			"deleted_chat_reads":       1,
-			"deleted_lessons":          1,
 		})
 		memberFrame := map[string]any{
-			"seq":   7,
+			"seq":   6,
 			"topic": "member",
 			"op":    "remove",
 			"data": map[string]any{
 				"entity":  "member",
 				"key":     "owner::m-zed",
-				"epoch":   7,
+				"epoch":   6,
 				"deleted": true,
 				"payload": nil,
 			},
@@ -1014,11 +994,25 @@ func TestHandleDeleteRoleApiRolesRoleDelete(t *testing.T) {
 		}
 		dashboard.wantFrames(
 			map[string]any{
-				"seq":   5,
+				"seq":   4,
 				"topic": "chat",
 				"op":    "patch",
 				"data": map[string]any{
 					"entity":  "chat",
+					"key":     "owner::m-zed",
+					"epoch":   4,
+					"deleted": false,
+					"payload": nil,
+				},
+				"ts":      apiAnyNumber,
+				"trigger": "owner",
+			},
+			map[string]any{
+				"seq":   5,
+				"topic": "chat_read",
+				"op":    "patch",
+				"data": map[string]any{
+					"entity":  "chat_read",
 					"key":     "owner::m-zed",
 					"epoch":   5,
 					"deleted": false,
@@ -1027,43 +1021,15 @@ func TestHandleDeleteRoleApiRolesRoleDelete(t *testing.T) {
 				"ts":      apiAnyNumber,
 				"trigger": "owner",
 			},
-			map[string]any{
-				"seq":   6,
-				"topic": "chat_read",
-				"op":    "patch",
-				"data": map[string]any{
-					"entity":  "chat_read",
-					"key":     "owner::m-zed",
-					"epoch":   6,
-					"deleted": false,
-					"payload": nil,
-				},
-				"ts":      apiAnyNumber,
-				"trigger": "owner",
-			},
 			memberFrame,
 			map[string]any{
-				"seq":   8,
-				"topic": "lessons",
-				"op":    "patch",
-				"data": map[string]any{
-					"entity":  "lessons",
-					"key":     "owner::r-design",
-					"epoch":   8,
-					"deleted": false,
-					"payload": nil,
-				},
-				"ts":      apiAnyNumber,
-				"trigger": "owner",
-			},
-			map[string]any{
-				"seq":   9,
+				"seq":   7,
 				"topic": "insight",
 				"op":    "patch",
 				"data": map[string]any{
 					"entity":  "insight",
 					"key":     "owner::r-design",
-					"epoch":   9,
+					"epoch":   7,
 					"deleted": false,
 					"payload": nil,
 				},
@@ -1071,13 +1037,13 @@ func TestHandleDeleteRoleApiRolesRoleDelete(t *testing.T) {
 				"trigger": "owner",
 			},
 			map[string]any{
-				"seq":   10,
+				"seq":   8,
 				"topic": "role_def",
 				"op":    "remove",
 				"data": map[string]any{
 					"entity":  "role_def",
 					"key":     "owner::r-design",
-					"epoch":   10,
+					"epoch":   8,
 					"deleted": true,
 					"payload": nil,
 				},
@@ -1113,7 +1079,6 @@ func TestHandleDeleteRoleApiRolesRoleDelete(t *testing.T) {
 			"deleted_chat_messages":    0,
 			"deleted_chat_attachments": 0,
 			"deleted_chat_reads":       0,
-			"deleted_lessons":          0,
 		})
 		memberFrame := map[string]any{
 			"seq":   1,
@@ -1164,7 +1129,6 @@ func TestHandleDeleteRoleApiRolesRoleDelete(t *testing.T) {
 			"deleted_chat_messages":    0,
 			"deleted_chat_attachments": 0,
 			"deleted_chat_reads":       0,
-			"deleted_lessons":          0,
 		})
 		dashboard.wantFrames(map[string]any{
 			"seq":   1,
@@ -1274,730 +1238,6 @@ func TestHandleDeleteRoleApiRolesRoleDelete(t *testing.T) {
 		dashboard := apiTestListen(t, api, "")
 
 		status, data := apiJSON(t, h, "DELETE", "/api/roles/r-design", "", "")
-		if status != 401 {
-			t.Fatalf("want 401, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "unauthorized", "missing credentials")
-		dashboard.wantFrames()
-	})
-}
-
-func TestRefuseRetiredLessonsQuery(t *testing.T) {
-	t.Run("a request without the retired query key may proceed without a response", func(t *testing.T) {
-		rec := httptest.NewRecorder()
-		req := httptest.NewRequest("GET", "/api/lessons/engineer", nil)
-		if !refuseRetiredLessonsQuery(rec, req) {
-			t.Fatal("a request without task_type must proceed")
-		}
-		if rec.Body.Len() != 0 {
-			t.Fatalf("unexpected response body: %s", rec.Body.String())
-		}
-	})
-
-	t.Run("presence of the retired query key is rejected on every lessons route even when blank", func(t *testing.T) {
-		for _, tc := range []struct {
-			name   string
-			method string
-			target string
-		}{
-			{name: "get", method: "GET", target: "/api/lessons/engineer?task_type=build"},
-			{name: "replace", method: "POST", target: "/api/lessons/engineer?task_type="},
-			{name: "patch", method: "POST", target: "/api/lessons/engineer/patch?task_type=build"},
-		} {
-			t.Run(tc.name, func(t *testing.T) {
-				rec := httptest.NewRecorder()
-				req := httptest.NewRequest(tc.method, tc.target, nil)
-				if refuseRetiredLessonsQuery(rec, req) {
-					t.Fatal("a request carrying task_type must be refused")
-				}
-				if rec.Code != http.StatusBadRequest {
-					t.Fatalf("want 400, got %d", rec.Code)
-				}
-				apiWantError(t, apiHelpersWritten(t, rec), "validation_error", apiTestLessonsTaskTypeRetiredMsg)
-			})
-		}
-	})
-}
-
-func TestFillLessonsIdentityArgs(t *testing.T) {
-	t.Run("each lessons tool fills a blank agent role from the verified roster identity", func(t *testing.T) {
-		api, _, d, _ := newAPITestServer(t)
-		agent := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
-
-		apiHelpersGated(t, api, d, agent, func(r *http.Request) {
-			for _, name := range []string{"get_lessons", "replace_lessons", "patch_lessons"} {
-				arguments := map[string]any{}
-				if err := api.fillLessonsIdentityArgs(r, name, arguments); err != nil {
-					t.Fatalf("fillLessonsIdentityArgs(%q): %v", name, err)
-				}
-				apiWantValue(t, name+" arguments", any(arguments), any(map[string]any{
-					"role_key": "engineer",
-				}))
-			}
-		})
-	})
-
-	t.Run("an explicit role is preserved and an unrelated tool is not rewritten", func(t *testing.T) {
-		api, _, d, _ := newAPITestServer(t)
-		agent := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
-
-		apiHelpersGated(t, api, d, agent, func(r *http.Request) {
-			arguments := map[string]any{"role_key": "assistant"}
-			if err := api.fillLessonsIdentityArgs(r, "get_lessons", arguments); err != nil {
-				t.Fatalf("explicit role: %v", err)
-			}
-			apiWantValue(t, "explicit role arguments", any(arguments), any(map[string]any{
-				"role_key": "assistant",
-			}))
-
-			unrelated := map[string]any{"task_type": "legacy"}
-			if err := api.fillLessonsIdentityArgs(r, "get_role", unrelated); err != nil {
-				t.Fatalf("unrelated tool: %v", err)
-			}
-			apiWantValue(t, "unrelated arguments", any(unrelated), any(map[string]any{
-				"task_type": "legacy",
-			}))
-		})
-	})
-
-	t.Run("the retired task_type is refused by presence and prevents identity filling", func(t *testing.T) {
-		api, _, d, _ := newAPITestServer(t)
-		agent := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
-
-		apiHelpersGated(t, api, d, agent, func(r *http.Request) {
-			arguments := map[string]any{"role_key": "", "task_type": ""}
-			err := api.fillLessonsIdentityArgs(r, "get_lessons", arguments)
-			if err == nil || err.Error() != apiTestLessonsTaskTypeRetiredMsg {
-				t.Fatalf("retired task_type error = %v, want %q", err, apiTestLessonsTaskTypeRetiredMsg)
-			}
-			apiWantValue(t, "refused arguments", any(arguments), any(map[string]any{
-				"role_key":  "",
-				"task_type": "",
-			}))
-		})
-	})
-
-	t.Run("an owner request keeps a blank role because the owner has no member role", func(t *testing.T) {
-		api, _, d, owner := newAPITestServer(t)
-
-		apiHelpersGated(t, api, d, owner, func(r *http.Request) {
-			arguments := map[string]any{}
-			if err := api.fillLessonsIdentityArgs(r, "get_lessons", arguments); err != nil {
-				t.Fatalf("owner blank role: %v", err)
-			}
-			apiWantValue(t, "owner arguments", any(arguments), any(map[string]any{}))
-		})
-	})
-}
-
-func TestLessonsWriteAuthz(t *testing.T) {
-	assertAllowed := func(t *testing.T, api *apiServer, d *DAL, token, roleKey string) {
-		t.Helper()
-		apiHelpersGated(t, api, d, token, func(r *http.Request) {
-			rec := httptest.NewRecorder()
-			if !api.lessonsWriteAuthz(rec, r, roleKey) {
-				t.Fatalf("lessonsWriteAuthz(%q) refused an allowed caller", roleKey)
-			}
-			if rec.Body.Len() != 0 {
-				t.Fatalf("allowed caller received a response: %s", rec.Body.String())
-			}
-		})
-	}
-
-	t.Run("the owner may write any role's lessons", func(t *testing.T) {
-		api, _, d, owner := newAPITestServer(t)
-		assertAllowed(t, api, d, owner, "role-owned-by-another")
-	})
-
-	t.Run("the admin agent may write any role's lessons", func(t *testing.T) {
-		api, _, d, _ := newAPITestServer(t)
-		admin := apiTestAgentToken(t, api, "mira", "")
-		assertAllowed(t, api, d, admin, "engineer")
-	})
-
-	t.Run("a plain agent may write its own member role's lessons", func(t *testing.T) {
-		api, _, d, _ := newAPITestServer(t)
-		agent := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
-		assertAllowed(t, api, d, agent, "engineer")
-	})
-
-	t.Run("a plain agent writing another role receives a forbidden error", func(t *testing.T) {
-		api, _, d, _ := newAPITestServer(t)
-		agent := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
-
-		apiHelpersGated(t, api, d, agent, func(r *http.Request) {
-			rec := httptest.NewRecorder()
-			if api.lessonsWriteAuthz(rec, r, "assistant") {
-				t.Fatal("a plain agent must not write another role's lessons")
-			}
-			if rec.Code != http.StatusForbidden {
-				t.Fatalf("want 403, got %d", rec.Code)
-			}
-			apiWantError(t, apiHelpersWritten(t, rec), "forbidden", "an agent may only write its own role's lessons")
-		})
-	})
-
-	t.Run("a warden cannot write a member role's lessons", func(t *testing.T) {
-		api, _, d, _ := newAPITestServer(t)
-		warden := apiHelpersWardenToken(t, api, d, ServerSelfHost)
-
-		apiHelpersGated(t, api, d, warden, func(r *http.Request) {
-			rec := httptest.NewRecorder()
-			if api.lessonsWriteAuthz(rec, r, "engineer") {
-				t.Fatal("a warden must not write an agent role's lessons")
-			}
-			if rec.Code != http.StatusForbidden {
-				t.Fatalf("want 403, got %d", rec.Code)
-			}
-			apiWantError(t, apiHelpersWritten(t, rec), "forbidden", "an agent may only write its own role's lessons")
-		})
-	})
-}
-
-func TestRequireLessonsAddressableRole(t *testing.T) {
-	assertAddressable := func(t *testing.T, api *apiServer, roleKey string) {
-		t.Helper()
-		rec := httptest.NewRecorder()
-		if !api.requireLessonsAddressableRole(rec, roleKey) {
-			t.Fatalf("requireLessonsAddressableRole(%q) refused an addressable role", roleKey)
-		}
-		if rec.Body.Len() != 0 {
-			t.Fatalf("addressable role received a response: %s", rec.Body.String())
-		}
-	}
-
-	t.Run("a seeded role is addressable through the folded role definition", func(t *testing.T) {
-		api, _, _, _ := newAPITestServer(t)
-		assertAddressable(t, api, "assistant")
-	})
-
-	t.Run("an active custom role is addressable through its role definition", func(t *testing.T) {
-		api, _, d, _ := newAPITestServer(t)
-		if err := d.PutRoleDef(RoleDef{RoleKey: "r-design", Name: "Design", DefinitionMD: "# Duty"}); err != nil {
-			t.Fatalf("PutRoleDef: %v", err)
-		}
-		assertAddressable(t, api, "r-design")
-	})
-
-	t.Run("a role carried by a member is addressable without a role definition", func(t *testing.T) {
-		api, _, d, _ := newAPITestServer(t)
-		if err := d.PutMember(Member{
-			ID: "m-routed", Name: "Routed", Kind: KindStaff,
-			RoleKey: "role-by-member", RosterStatus: RosterStatusActive,
-		}); err != nil {
-			t.Fatalf("PutMember: %v", err)
-		}
-		assertAddressable(t, api, "role-by-member")
-	})
-
-	t.Run("a role carried by neither a definition nor a member answers not found", func(t *testing.T) {
-		api, _, _, _ := newAPITestServer(t)
-		rec := httptest.NewRecorder()
-		if api.requireLessonsAddressableRole(rec, "nosuch") {
-			t.Fatal("an unaddressable role must be refused")
-		}
-		if rec.Code != http.StatusNotFound {
-			t.Fatalf("want 404, got %d", rec.Code)
-		}
-		apiWantError(t, apiHelpersWritten(t, rec), "not_found", apiTestLessonsUnaddressableMsg("nosuch"))
-	})
-}
-
-func TestHandleGetLessonsApiLessonsRoleKeyGet(t *testing.T) {
-	t.Run("a role nobody has written for answers the shipped seed flagged default", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
-		dashboard := apiTestListen(t, api, "")
-
-		status, data := apiJSON(t, h, "GET", "/api/lessons/engineer", owner, "")
-		if status != 200 {
-			t.Fatalf("want 200, got %d (%v)", status, data)
-		}
-		apiWantBody(t, data, map[string]any{
-			"size_chars":     14,
-			"cap_chars":      15000,
-			"role_key":       "engineer",
-			"text":           apiTestLessonsSeedText,
-			"owner_id":       "owner",
-			"schema_version": 3,
-			"is_default":     true,
-		})
-		dashboard.wantFrames()
-	})
-
-	t.Run("after a write the doc reads back the stored text and is no longer default", func(t *testing.T) {
-		_, h, _, owner := newAPITestServer(t)
-		apiJSON(t, h, "POST", "/api/lessons/engineer", owner, `{"text":"L1"}`)
-
-		status, data := apiJSON(t, h, "GET", "/api/lessons/engineer", owner, "")
-		if status != 200 {
-			t.Fatalf("want 200, got %d (%v)", status, data)
-		}
-		apiWantBody(t, data, map[string]any{
-			"size_chars":     2,
-			"cap_chars":      15000,
-			"role_key":       "engineer",
-			"text":           "L1",
-			"owner_id":       "owner",
-			"schema_version": 3,
-			"is_default":     false,
-		})
-	})
-
-	t.Run("a request still carrying the retired task_type query answers 400 naming the replacement", func(t *testing.T) {
-		_, h, _, owner := newAPITestServer(t)
-
-		status, data := apiJSON(t, h, "GET", "/api/lessons/engineer?task_type=build", owner, "")
-		if status != 400 {
-			t.Fatalf("want 400, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "validation_error", apiTestLessonsTaskTypeRetiredMsg)
-	})
-
-	t.Run("a request without a token answers 401", func(t *testing.T) {
-		_, h, _, _ := newAPITestServer(t)
-
-		status, data := apiJSON(t, h, "GET", "/api/lessons/engineer", "", "")
-		if status != 401 {
-			t.Fatalf("want 401, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "unauthorized", "missing credentials")
-	})
-}
-
-func TestHandleReplaceLessonsApiLessonsRoleKeyPost(t *testing.T) {
-	t.Run("a whole-doc replace answers the receipt over what was judged and fans the owner-only delta", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
-		dashboard := apiTestListen(t, api, "")
-		bystander := apiTestListen(t, api, "kip")
-
-		status, data := apiJSON(t, h, "POST", "/api/lessons/engineer", owner, `{"text":"L1"}`)
-		if status != 200 {
-			t.Fatalf("want 200, got %d (%v)", status, data)
-		}
-		apiWantBody(t, data, map[string]any{
-			"role_key":   "engineer",
-			"size_chars": 2,
-			"cap_chars":  15000,
-			"sha256":     "dffe8596427fc50e8f64654a609af134d45552f18bbecef90b31135a9e7acaa0",
-		})
-		dashboard.wantFrames(map[string]any{
-			"seq":   1,
-			"topic": "lessons",
-			"op":    "patch",
-			"data": map[string]any{
-				"entity":  "lessons",
-				"key":     "owner::engineer",
-				"epoch":   1,
-				"deleted": false,
-				"payload": nil,
-			},
-			"ts":      apiAnyNumber,
-			"trigger": "owner",
-		})
-		bystander.wantFrames()
-	})
-
-	t.Run("an agent writing its own role's lessons is allowed and fans the same delta", func(t *testing.T) {
-		api, h, _, _ := newAPITestServer(t)
-		agent := apiTestAgentToken(t, api, "kip", "")
-		dashboard := apiTestListen(t, api, "")
-
-		status, data := apiJSON(t, h, "POST", "/api/lessons/engineer", agent, `{"text":"L1"}`)
-		if status != 200 {
-			t.Fatalf("want 200, got %d (%v)", status, data)
-		}
-		apiWantBody(t, data, map[string]any{
-			"role_key":   "engineer",
-			"size_chars": 2,
-			"cap_chars":  15000,
-			"sha256":     "dffe8596427fc50e8f64654a609af134d45552f18bbecef90b31135a9e7acaa0",
-		})
-		dashboard.wantFrames(map[string]any{
-			"seq":   1,
-			"topic": "lessons",
-			"op":    "patch",
-			"data": map[string]any{
-				"entity":  "lessons",
-				"key":     "owner::engineer",
-				"epoch":   1,
-				"deleted": false,
-				"payload": nil,
-			},
-			"ts":      apiAnyNumber,
-			"trigger": "kip",
-		})
-	})
-
-	t.Run("an agent writing another role's lessons answers 403 and writes nothing", func(t *testing.T) {
-		api, h, _, _ := newAPITestServer(t)
-		agent := apiTestAgentToken(t, api, "kip", "")
-		dashboard := apiTestListen(t, api, "")
-
-		status, data := apiJSON(t, h, "POST", "/api/lessons/assistant", agent, `{"text":"L1"}`)
-		if status != 403 {
-			t.Fatalf("want 403, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "forbidden", "an agent may only write its own role's lessons")
-		dashboard.wantFrames()
-	})
-
-	t.Run("a role_key nothing on the station can address answers 404 and writes nothing", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
-		dashboard := apiTestListen(t, api, "")
-
-		status, data := apiJSON(t, h, "POST", "/api/lessons/nosuch", owner, `{"text":"L1"}`)
-		if status != 404 {
-			t.Fatalf("want 404, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "not_found", apiTestLessonsUnaddressableMsg("nosuch"))
-		dashboard.wantFrames()
-	})
-
-	t.Run("emptying a doc that had content answers 400 and writes nothing", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
-		apiJSON(t, h, "POST", "/api/lessons/engineer", owner, `{"text":"L1"}`)
-		dashboard := apiTestListen(t, api, "")
-
-		status, data := apiJSON(t, h, "POST", "/api/lessons/engineer", owner, `{"text":""}`)
-		if status != 400 {
-			t.Fatalf("want 400, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "validation_error",
-			"this would replace the existing lessons doc with an empty one — pass allow_shrink=true if that is intended; nothing was written")
-		dashboard.wantFrames()
-	})
-
-	t.Run("a text over the cap that is not shorter than what is stored answers 400 and writes nothing", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
-		apiJSON(t, h, "POST", "/api/lessons/engineer", owner, `{"text":"`+strings.Repeat("a", 200)+`"}`)
-		dashboard := apiTestListen(t, api, "")
-
-		status, data := apiJSON(t, h, "POST", "/api/lessons/engineer", owner,
-			`{"text":"`+strings.Repeat("b", 15001)+`"}`)
-		if status != 400 {
-			t.Fatalf("want 400, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "validation_error",
-			"the lessons doc you are writing is 15001 chars, over the 15000-char cap, "+
-				"and is not shorter than the 200 chars already stored — nothing was written. "+
-				"What is already stored is never truncated, but every update must land at or "+
-				"under the cap, or at least come out SHORTER than what is there now. Drop stale "+
-				"or superseded material as part of this write (or in a shrinking write first), "+
-				"then write again.")
-		dashboard.wantFrames()
-	})
-
-	t.Run("a request still carrying the retired task_type query answers 400 and writes nothing", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
-		dashboard := apiTestListen(t, api, "")
-
-		status, data := apiJSON(t, h, "POST", "/api/lessons/engineer?task_type=build", owner, `{"text":"L1"}`)
-		if status != 400 {
-			t.Fatalf("want 400, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "validation_error", apiTestLessonsTaskTypeRetiredMsg)
-		dashboard.wantFrames()
-	})
-
-	t.Run("a body carrying a key this route does not declare answers 422 and writes nothing", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
-		dashboard := apiTestListen(t, api, "")
-
-		status, data := apiJSON(t, h, "POST", "/api/lessons/engineer", owner, `{"text":"L1","bogus":1}`)
-		if status != 422 {
-			t.Fatalf("want 422, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "validation_error", `invalid request body: json: unknown field "bogus"`)
-		dashboard.wantFrames()
-	})
-
-	t.Run("an authenticated machine identity answers 403 because this row requires agent", func(t *testing.T) {
-		api, h, _, _ := newAPITestServer(t)
-		machine := apiTestAgentToken(t, api, "m-server-self", "")
-		dashboard := apiTestListen(t, api, "")
-
-		status, data := apiJSON(t, h, "POST", "/api/lessons/engineer", machine, `{"text":"L1"}`)
-		if status != 403 {
-			t.Fatalf("want 403, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "forbidden", "principal not permitted")
-		dashboard.wantFrames()
-	})
-
-	t.Run("a request without a token answers 401", func(t *testing.T) {
-		api, h, _, _ := newAPITestServer(t)
-		dashboard := apiTestListen(t, api, "")
-
-		status, data := apiJSON(t, h, "POST", "/api/lessons/engineer", "", `{"text":"L1"}`)
-		if status != 401 {
-			t.Fatalf("want 401, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "unauthorized", "missing credentials")
-		dashboard.wantFrames()
-	})
-}
-
-func TestHandlePatchLessonsApiLessonsRoleKeyPatchPost(t *testing.T) {
-	t.Run("an anchored edit answers the receipt over the resulting doc and fans the owner-only delta", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
-		apiJSON(t, h, "POST", "/api/lessons/engineer", owner, `{"text":"alpha beta"}`)
-		dashboard := apiTestListen(t, api, "")
-		bystander := apiTestListen(t, api, "kip")
-
-		status, data := apiJSON(t, h, "POST", "/api/lessons/engineer/patch", owner,
-			`{"edits":[{"old":"alpha","new":"gamma"}]}`)
-		if status != 200 {
-			t.Fatalf("want 200, got %d (%v)", status, data)
-		}
-		apiWantBody(t, data, map[string]any{
-			"role_key":       "engineer",
-			"applied_edits":  1,
-			"size_chars":     10,
-			"cap_chars":      15000,
-			"sha256":         "1ab01121cca28ffac7e9b0bf95890779867a992a0a9620be18b13cffd14186d2",
-			"owner_id":       "owner",
-			"schema_version": 3,
-			"is_default":     false,
-		})
-		dashboard.wantFrames(map[string]any{
-			"seq":   2,
-			"topic": "lessons",
-			"op":    "patch",
-			"data": map[string]any{
-				"entity":  "lessons",
-				"key":     "owner::engineer",
-				"epoch":   2,
-				"deleted": false,
-				"payload": nil,
-			},
-			"ts":      apiAnyNumber,
-			"trigger": "owner",
-		})
-		bystander.wantFrames()
-	})
-
-	t.Run("an empty old appends the new text and fans the delta", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
-		apiJSON(t, h, "POST", "/api/lessons/engineer", owner, `{"text":"alpha beta"}`)
-		dashboard := apiTestListen(t, api, "")
-
-		status, data := apiJSON(t, h, "POST", "/api/lessons/engineer/patch", owner,
-			`{"edits":[{"old":"","new":" delta"}]}`)
-		if status != 200 {
-			t.Fatalf("want 200, got %d (%v)", status, data)
-		}
-		apiWantBody(t, data, map[string]any{
-			"role_key":       "engineer",
-			"applied_edits":  1,
-			"size_chars":     17,
-			"cap_chars":      15000,
-			"sha256":         "6d691094f4bd670b68408444286bbfcf3c14fbf003a4d2df0f0c3f7b093af1f9",
-			"owner_id":       "owner",
-			"schema_version": 3,
-			"is_default":     false,
-		})
-		dashboard.wantFrames(map[string]any{
-			"seq":   2,
-			"topic": "lessons",
-			"op":    "patch",
-			"data": map[string]any{
-				"entity":  "lessons",
-				"key":     "owner::engineer",
-				"epoch":   2,
-				"deleted": false,
-				"payload": nil,
-			},
-			"ts":      apiAnyNumber,
-			"trigger": "owner",
-		})
-	})
-
-	t.Run("two edits that undo one another answer applied_edits 2 and fan nothing at all", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
-		apiJSON(t, h, "POST", "/api/lessons/engineer", owner, `{"text":"alpha beta"}`)
-		dashboard := apiTestListen(t, api, "")
-
-		status, data := apiJSON(t, h, "POST", "/api/lessons/engineer/patch", owner,
-			`{"edits":[{"old":"alpha","new":"gamma"},{"old":"gamma","new":"alpha"}]}`)
-		if status != 200 {
-			t.Fatalf("want 200, got %d (%v)", status, data)
-		}
-		apiWantBody(t, data, map[string]any{
-			"role_key":       "engineer",
-			"applied_edits":  2,
-			"size_chars":     10,
-			"cap_chars":      15000,
-			"sha256":         "1a989ea86150171c687b0727f218eedbb94c4665a7da9b0add1bf5de607f2bf1",
-			"owner_id":       "owner",
-			"schema_version": 3,
-			"is_default":     false,
-		})
-		dashboard.wantFrames()
-	})
-
-	t.Run("an anchor that matches nothing answers 400 and writes nothing", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
-		apiJSON(t, h, "POST", "/api/lessons/engineer", owner, `{"text":"alpha beta"}`)
-		dashboard := apiTestListen(t, api, "")
-
-		status, data := apiJSON(t, h, "POST", "/api/lessons/engineer/patch", owner,
-			`{"edits":[{"old":"zulu","new":"gamma"}]}`)
-		if status != 400 {
-			t.Fatalf("want 400, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "validation_error",
-			"edits[0]: old not found in the current doc — re-read (get_lessons) and re-anchor; nothing was written")
-		dashboard.wantFrames()
-	})
-
-	t.Run("an anchor that matches more than once answers 400 and writes nothing", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
-		apiJSON(t, h, "POST", "/api/lessons/engineer", owner, `{"text":"alpha alpha"}`)
-		dashboard := apiTestListen(t, api, "")
-
-		status, data := apiJSON(t, h, "POST", "/api/lessons/engineer/patch", owner,
-			`{"edits":[{"old":"alpha","new":"gamma"}]}`)
-		if status != 400 {
-			t.Fatalf("want 400, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "validation_error",
-			"edits[0]: old matches 2 locations — re-read (get_lessons) and widen the anchor until it is unique; nothing was written")
-		dashboard.wantFrames()
-	})
-
-	t.Run("an edits list with no entry answers 422 and writes nothing", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
-		dashboard := apiTestListen(t, api, "")
-
-		status, data := apiJSON(t, h, "POST", "/api/lessons/engineer/patch", owner, `{"edits":[]}`)
-		if status != 422 {
-			t.Fatalf("want 422, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "validation_error", "edits requires at least one {old, new} entry")
-		dashboard.wantFrames()
-	})
-
-	t.Run("an edit carrying neither old nor new answers 422 naming its index and writes nothing", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
-		dashboard := apiTestListen(t, api, "")
-
-		status, data := apiJSON(t, h, "POST", "/api/lessons/engineer/patch", owner, `{"edits":[{}]}`)
-		if status != 422 {
-			t.Fatalf("want 422, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "validation_error",
-			"edits[0]: neither old nor new was given — an edit needs at least one of them "+
-				"(empty old appends new); nothing was written")
-		dashboard.wantFrames()
-	})
-
-	t.Run("a patch that would empty the doc answers 400 and writes nothing", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
-		apiJSON(t, h, "POST", "/api/lessons/engineer", owner, `{"text":"`+strings.Repeat("a", 200)+`"}`)
-		dashboard := apiTestListen(t, api, "")
-
-		status, data := apiJSON(t, h, "POST", "/api/lessons/engineer/patch", owner,
-			`{"edits":[{"old":"`+strings.Repeat("a", 200)+`","new":"z"}]}`)
-		if status != 400 {
-			t.Fatalf("want 400, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "validation_error",
-			"patch would empty (or shrink to under a tenth of) the lessons doc — pass allow_shrink=true if this is intended, or use replace_lessons; nothing was written")
-		dashboard.wantFrames()
-	})
-
-	t.Run("a patch whose result is over the cap and no shorter than what is stored answers 400 and writes nothing", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
-		apiJSON(t, h, "POST", "/api/lessons/engineer", owner, `{"text":"`+strings.Repeat("a", 200)+`"}`)
-		dashboard := apiTestListen(t, api, "")
-
-		status, data := apiJSON(t, h, "POST", "/api/lessons/engineer/patch", owner,
-			`{"edits":[{"old":"`+strings.Repeat("a", 200)+`","new":"`+strings.Repeat("b", 15001)+`"}]}`)
-		if status != 400 {
-			t.Fatalf("want 400, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "validation_error",
-			"the lessons doc you are writing is 15001 chars, over the 15000-char cap, "+
-				"and is not shorter than the 200 chars already stored — nothing was written. "+
-				"What is already stored is never truncated, but every update must land at or "+
-				"under the cap, or at least come out SHORTER than what is there now. Drop stale "+
-				"or superseded material as part of this write (or in a shrinking write first), "+
-				"then write again.")
-		dashboard.wantFrames()
-	})
-
-	t.Run("a role_key nothing on the station can address answers 404 and writes nothing", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
-		dashboard := apiTestListen(t, api, "")
-
-		status, data := apiJSON(t, h, "POST", "/api/lessons/nosuch/patch", owner,
-			`{"edits":[{"old":"","new":"x"}]}`)
-		if status != 404 {
-			t.Fatalf("want 404, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "not_found", apiTestLessonsUnaddressableMsg("nosuch"))
-		dashboard.wantFrames()
-	})
-
-	t.Run("an agent patching another role's lessons answers 403 and writes nothing", func(t *testing.T) {
-		api, h, _, _ := newAPITestServer(t)
-		agent := apiTestAgentToken(t, api, "kip", "")
-		dashboard := apiTestListen(t, api, "")
-
-		status, data := apiJSON(t, h, "POST", "/api/lessons/assistant/patch", agent,
-			`{"edits":[{"old":"","new":"x"}]}`)
-		if status != 403 {
-			t.Fatalf("want 403, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "forbidden", "an agent may only write its own role's lessons")
-		dashboard.wantFrames()
-	})
-
-	t.Run("a request still carrying the retired task_type query answers 400 and writes nothing", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
-		dashboard := apiTestListen(t, api, "")
-
-		status, data := apiJSON(t, h, "POST", "/api/lessons/engineer/patch?task_type=build", owner,
-			`{"edits":[{"old":"","new":"x"}]}`)
-		if status != 400 {
-			t.Fatalf("want 400, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "validation_error", apiTestLessonsTaskTypeRetiredMsg)
-		dashboard.wantFrames()
-	})
-
-	t.Run("a body that is not JSON answers 422 and writes nothing", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
-		dashboard := apiTestListen(t, api, "")
-
-		status, data := apiJSON(t, h, "POST", "/api/lessons/engineer/patch", owner, `{`)
-		if status != 422 {
-			t.Fatalf("want 422, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "validation_error", "invalid request body: unexpected end of JSON input")
-		dashboard.wantFrames()
-	})
-
-	t.Run("an authenticated machine identity answers 403 because this row requires agent", func(t *testing.T) {
-		api, h, _, _ := newAPITestServer(t)
-		machine := apiTestAgentToken(t, api, "m-server-self", "")
-		dashboard := apiTestListen(t, api, "")
-
-		status, data := apiJSON(t, h, "POST", "/api/lessons/engineer/patch", machine,
-			`{"edits":[{"old":"","new":"x"}]}`)
-		if status != 403 {
-			t.Fatalf("want 403, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "forbidden", "principal not permitted")
-		dashboard.wantFrames()
-	})
-
-	t.Run("a request without a token answers 401", func(t *testing.T) {
-		api, h, _, _ := newAPITestServer(t)
-		dashboard := apiTestListen(t, api, "")
-
-		status, data := apiJSON(t, h, "POST", "/api/lessons/engineer/patch", "",
-			`{"edits":[{"old":"","new":"x"}]}`)
 		if status != 401 {
 			t.Fatalf("want 401, got %d (%v)", status, data)
 		}

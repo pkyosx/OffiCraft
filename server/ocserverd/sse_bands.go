@@ -244,6 +244,11 @@ type contextHighSignal struct {
 // learning / lesson 寫回去」. A notice that only says "you are running out"
 // tells the agent nothing it can act on.
 //
+// The quote stays verbatim — it is the record of the ruling, not a statement of
+// today's surfaces. Post-T-186 the third item has ONE landing place left, 傳承
+// (write_lore_entry); the role-lessons and task-manual-learnings write faces are
+// both gone.
+//
 // ⚠️ `notice` is a closure so a tick that decides to stay QUIET never pays
 // for it — and that is ALL the closure buys. It does NOT make it
 // once-per-session: this function keeps no state, so once an agent is past its
@@ -470,26 +475,20 @@ type taskCloseSignal struct {
 // the 〈任務收尾〉 document and are folded in at the send site (T-7870), the same
 // road the other nine lifecycle documents take. Evaluated when a task lands in
 // a terminal status (closeTask — done AND terminated both count: a terminated
-// task's executor has lessons worth folding back too). nil = stay quiet, and
+// task's executor still has a close-out to walk). nil = stay quiet, and
 // there is now exactly ONE reason left:
 //   - an unassigned task has nobody to remind. That is a fact about ADDRESSING,
 //     not a judgement about whether the news matters.
 //
 // 🔴 TWO GATES WERE REMOVED (T-91, owner ruling), AND THE REASONING THAT PUT
 // THEM THERE WAS SOUND — about a different question. Both asked "does this task
-// have learnings worth folding into a manual?": a DUPLICATED task is a
+// have anything worth folding into a manual?": a DUPLICATED task is a
 // duplicate of another ticket (T-02c9 point 6), and an AD-HOC task has no
 // manual to fold into. Both true, and both beside the point once you ask what
 // the recipient actually loses by not being told: its ticket is CLOSED, so
 // every write it makes from here on is a 409. Filtering by "is there a manual"
 // silenced exactly the two shapes where the close is most likely to have been
 // somebody ELSE's decision rather than the executor's own mark_task_done.
-//
-// ⚠️ THE CONSEQUENCE FOR THE DOCUMENT IS REAL AND IS NOT A DEFECT. 〈任務收尾〉's
-// body walks the reader through patch_task_learnings, and an ad-hoc task's
-// type_key is "". The body already opens by telling the agent to read type_key
-// off the ticket, so it finds nothing to write back and skips that half; the
-// scratch cleanup is the part that still applies.
 //
 // 🔴 WHY THE SENTENCE LEFT THIS FUNCTION. Being pure was the named reason this
 // one document never got wired: with no *apiServer there is no overlay to fold.

@@ -631,11 +631,9 @@ func (s *apiServer) offboardNoticeFor(m Member, kind string) string {
 // worker's bound task decides whether there is a 手冊 to write back into, and
 // offboardManualWriteBack composes the sentence.
 //
-// 🔴 OUTSOURCE ONLY, deliberately. A 正職 has a role of its own and its learnings
-// may belong to the ROLE rather than to any one task's type — which document a
-// staff member writes into is ruled by the boot doc's 「記憶與傳承」 section, and
-// naming one document here would overrule it from the wrong place. A worker has
-// no role and outlives nothing: its one task IS its memory, which is why the
+// 🔴 OUTSOURCE ONLY, deliberately. A 正職 has a role of its own and outlives any
+// one task, so naming one task's type here would be the wrong address. A worker
+// has no role and outlives nothing: its one task IS its scope, which is why the
 // owner's ruling names 外包 and this gate does too.
 //
 // Best-effort by construction: an unreadable task row, a task with no type, or a

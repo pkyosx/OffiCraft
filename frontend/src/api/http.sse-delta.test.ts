@@ -68,7 +68,7 @@ describe("toSseDelta", () => {
   });
 
   it("names nothing for a null payload — the topics that carry none", () => {
-    for (const topic of ["task_manual", "global_context", "lessons", "monitoring"]) {
+    for (const topic of ["task_manual", "global_context", "insight", "monitoring"]) {
       const d = toSseDelta(topic, null);
       expect(d.topic).toBe(topic);
       expect(d.names).toEqual({});

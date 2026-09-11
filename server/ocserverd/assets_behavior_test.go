@@ -30,7 +30,7 @@ func seedRootWith(t *testing.T, files map[string]string) assetRoot {
 
 // EMBED-ONLY (T-e731): a stale seeds/*.md sitting under the CWD must never
 // shadow the version-locked embed the binary was built with. Disk-first once
-// served a frozen repo checkout's stale boot/worker/role/lessons seeds — the
+// served a frozen repo checkout's stale boot/worker/role seeds — the
 // first crash of the disk-first trilogy. Mirrors serveBinary's "disk copy in
 // CWD never shadows the embed" guard.
 func TestReadSeedFileEmbedOnlyIgnoresDisk(t *testing.T) {

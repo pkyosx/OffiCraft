@@ -37,7 +37,7 @@
 
 .mp-card {
   /* .mp is a flex column with a bounded height; flex children default to
-   * flex-shrink:1, so a tall expanded card (initial PROMPT / lessons) would be
+   * flex-shrink:1, so a tall expanded card (initial PROMPT / journal) would be
    * SQUEEZED to fit and then clipped by .mp-expand's overflow:hidden — never
    * overflowing, so .mp's overflow-y:auto never engaged (the "can't scroll"
    * bug). flex-shrink:0 keeps each card its natural height → the column
@@ -586,7 +586,9 @@
   color: var(--color-text-muted);
 }
 
-/* ---- lessons card (owner-editable, mirrors role_def DocDetail) ---- */
+/* ---- journal card (owner-editable, mirrors role_def DocDetail). The
+   `.mp-lessons*` names predate the card that first used them and are now the
+   Insight card's; renaming them would churn the CT guards for nothing. ---- */
 .mp-lessons {
   padding: 15px 20px 18px;
 }
@@ -676,7 +678,7 @@
   color: var(--color-danger);
 }
 
-/* Insight (T-3809) reuses .mp-lessons__* wholesale — it is the same editor over
+/* Insight (T-3809) uses .mp-lessons__* wholesale — it is the same editor over
  * a different document, and a parallel class tree would only drift. The one
  * addition is the size/cap readout in the header: {size_chars} / {cap_chars},
  * shown at every size INCLUDING zero, because the settings surface that
@@ -796,7 +798,7 @@
 
 /* ── model / effort inline editor (M2-2 launch intents) ───────────────────── */
 /* Head row of the model/effort cell: label left, the site-wide doc-btn--edit
- * (accent outline + pencil — the SAME button the lessons card renders) pinned
+ * (accent outline + pencil — the SAME button the journal card renders) pinned
  * to the cell's TOP-RIGHT. Mirrors .mp-lessons__head. */
 .mp-field__head {
   display: flex;

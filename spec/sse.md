@@ -84,12 +84,9 @@ data: {"seq":42,"topic":"member","op":"patch","data":{"entity":"member","key":"o
     the agent it is being collected, `\n`-joined with the WHOLE 〈停止〉 document as the
     server holds it — the server PUSHES the checklist; the agent never fetches it back.
     For an **outsource worker on a TYPED task** one more paragraph follows the document
-    (T-ed79): the 記憶回寫 order, naming that task type's 任務手冊 and the anchored
-    `get_task_manual` → `patch_task_learnings` pair by `type_key`. The 〈停止〉 says only
-    「回寫到長期記憶，位置看開機說明」; a worker lives one task and has no role to fall back
-    on, so the concrete address is resolved server-side and delivered with the order.
-    An **ad-hoc** (typeless) task carries NO such paragraph — no type, no manual to
-    write into. ⚠️ This used to cite the task-close nudge (§8) as the same criterion;
+    (T-ed79): the 〈任務結案〉 body, delivered server-side because a worker lives one task
+    and has no role to fall back on. An **ad-hoc** (typeless) task carries NO such
+    paragraph — no type, no manual behind it. ⚠️ This used to cite the task-close nudge (§8) as the same criterion;
     it no longer is. T-91 removed that criterion from the close notice, which now goes
     out for a typeless task too, because its subject is 「你的票關掉了」 rather than
     「去回寫手冊」. The rule HERE is unchanged and the shared-criterion claim is what was
@@ -117,14 +114,14 @@ data: {"seq":42,"topic":"member","op":"patch","data":{"entity":"member","key":"o
   - `task`: `{id, status, priority}` (any durable task write — status/priority/plan/
     steps/deps/executor; one topic per task entity, the member granularity)
   - `outsource_worker`: `{id, codename, status}` (assignment / claim / release)
-  - `task_manual`: `payload` is `null` (manual create/edit/delete, learnings write-back)
-  - `global_context` / `role_def` / `lessons`: `payload` is `null`
+  - `task_manual`: `payload` is `null` (manual create/edit/delete)
+  - `global_context` / `role_def`: `payload` is `null`
   - `context` / `monitoring` signals: `payload` is `null`
 - `key` MUST be treated as an **opaque change hint**. Current key formats (clients MUST NOT
   parse them): `{owner}::{id}` for member/chat/reply_card/task/outsource_worker/role_def,
   `{owner}::{type_key}` for task_manual,
   `{owner}::{reader}::{peer}` for chat_read,
-  `{owner}::{role_key}` for lessons, the bare owner id for global_context, the bare agent id for context/monitoring signals.
+  `{owner}::{role_key}` for insight, the bare owner id for global_context, the bare agent id for context/monitoring signals.
 
 ### 2.3 `trigger` — actor attribution (and the client-side echo rules)
 
@@ -209,15 +206,15 @@ data: {"seq":42,"topic":"member","op":"patch","data":{"entity":"member","key":"o
 
 ## 3. Topic and op vocabulary
 
-### 3.1 Topics — the closed set (13 topics)
+### 3.1 Topics — the closed set (12 topics)
 
 The server MUST emit deltas on exactly these topics and no others (`reply_card`
 joined the set in the M2 reply-card batch; `task` / `outsource_worker` /
 `task_manual` joined in the M3 task batch — the owner-tasked M3 scope [SPEC.md
 M3 任務系統] covers the task surface wholesale, these are its necessary
-delta topics; `insight` joined in T-3809, which split the role journal's third
-block out of `lessons` and therefore needed its own delta rather than riding a
-topic that names a different document; everything else is the M1 freeze):
+delta topics; `insight` joined in T-3809, which split the role journal's judgement
+block into its own document and therefore needed its own delta rather than
+riding a topic that names a different document; everything else is the M1 freeze):
 
 | topic | trigger | op |
 |---|---|---|
@@ -227,10 +224,9 @@ topic that names a different document; everything else is the M1 freeze):
 | `reply_card` | reply-card create / answer / answer revision / expire | patch |
 | `task` | any durable task write (create / status / priority / plan / step / deps / executor assignment / terminate) | patch |
 | `outsource_worker` | worker assignment / first claim (active) / release | patch |
-| `task_manual` | manual create / edit / delete / learnings write-back | patch |
+| `task_manual` | manual create / edit / delete | patch |
 | `global_context` | user-context overlay write/reset | patch |
 | `role_def` | role overlay write/reset/delete | patch |
-| `lessons` | lessons overlay write/cascade delete | patch |
 | `insight` | insight overlay write (replace / patch / reset) / restore / cascade delete | patch |
 | `context` | agent context-gauge ingest (`POST /api/agent/context`) | signal |
 | `monitoring` | warden telemetry ingest (`POST /api/monitoring/telemetry`) | signal |
@@ -239,8 +235,8 @@ topic that names a different document; everything else is the M1 freeze):
 frozen implementation's internal topic lists were incomplete (its declared topic constant
 and docs listed fewer topics, and the publish seam never validated against them) —
 the actual wire emitted all of the above except `reply_card` (added M2). This spec froze
-the **observed wire** (8 topics at M1; 9 with the approved M2 addition; 12 with the M3
-task batch). The
+the **observed wire** (7 topics at M1; 8 with the approved M2 addition; 11 with the M3
+task batch; 12 with T-3809's `insight`). The
 directed band topics `context-high`, `token-expiry`, and `warden-command` (§6, §6.1,
 §7) are a separate envelope family, not entity-delta topics.
 **"Resolved in favour of the wire" is the record of THIS one adjudication, made at the M1
@@ -291,7 +287,7 @@ server's own deps-fulfill, not by eavesdropping on another member's stream):
 | `task` | the executor ONLY (NOT the creator, NOT dependents); a reassign additionally fans one delta to the OLD executor — the row's executor just changed, so the person unassigned would otherwise be silently dropped from the audience |
 | `outsource_worker` | — (owner cockpit only; an `ow-` id has no roster/presence) |
 | `task_manual` | — (owner cockpit only) |
-| `global_context` / `role_def` / `lessons` / `insight` | — (owner cockpit only) |
+| `global_context` / `role_def` / `insight` | — (owner cockpit only) |
 | `context` / `monitoring` | — (owner cockpit only; `context` also drives the server-side §6 band) |
 
 A blank id in an audience (an unassigned executor) is dropped — it narrows the
@@ -470,8 +466,8 @@ data: {"topic":"warden-command","data":{"rpc":"start","args":{"member_id":"m-1a2
 
 - `rpc` vocabulary and `args` shapes:
   - `start`: `{member_id, persona_context, member_token, role, runtime, model, effort, session_name}`.
-    `task_type` was carried here until T-2 as a parity-only field sourced from the lessons
-    bucket; lessons no longer have buckets, so the server no longer sends it.
+    `task_type` was carried here until T-2 as a parity-only field; the server no
+    longer sends it.
     `runtime` is the closed vocabulary `claude | codex`; absent/blank means `claude` for
     compatibility with older servers. Blank `effort`/`model`/`session_name` mean the
     selected runtime's defaults; `session_name` is always `""` today — the warden derives
@@ -628,12 +624,11 @@ signal. This section is kept — rather than deleted — because the reason it m
 reason nobody should put it back.
 
 **What it was.** A directed reminder pushed down the task executor's own connection when
-its task landed in a terminal status: walk the close-out (fold this run's learnings back
-into the type's manual with `patch_task_learnings`, clean the task's scratch, then report
-it). Best-effort at-most-once, no queue, no replay. ⚠️ T-182 later moved the close-out
-itself EARLIER — it now happens in `ready_for_done`, BEFORE the task is closed — and
-removed the separate report tool; the notice below is still sent by `closeTask`, but it
-now arrives after the close-out rather than asking for one.
+its task landed in a terminal status: walk the close-out (clean the task's scratch, then
+report it). Best-effort at-most-once, no queue, no replay. ⚠️ T-182 later moved the
+close-out itself EARLIER — it now happens in `ready_for_done`, BEFORE the task is closed
+— and removed the separate report tool; the notice below is still sent by `closeTask`, but
+it now arrives after the close-out rather than asking for one.
 
 **Why it moved.** "Best-effort at-most-once onto a live connection" means an executor that
 was not connected at the instant its task closed was never told — and an executor whose
@@ -657,7 +652,7 @@ news that every write it makes from now on will 409.
   - the task **has an executor** — an unassigned task has nobody to address.
 
   ⚠️ The old rules also required a non-blank `type_key` and excluded `duplicated`. Both
-  were removed by owner ruling in T-91: they asked whether the task had LESSONS worth
+  were removed by owner ruling in T-91: they asked whether the task had anything worth
   folding into a manual, when what the recipient actually needs to know is that its ticket
   is closed. They silenced the two shapes where the close is most likely to have been
   somebody else's decision.
@@ -668,7 +663,7 @@ news that every write it makes from now on will 409.
 - The internal buffer/queue/poll mechanics and the 0.25 s poll cadence
   — implementation-free (any concurrency model is fine) provided §1–§8 hold.
 - Topic-list validation as a mechanism — an implementation MAY enforce the closed set at
-  the publish seam (recommended), so long as all 13 topics of §3.1 pass.
+  the publish seam (recommended), so long as all 12 topics of §3.1 pass.
 - Frame ordering **across** connections, and timing between a durable commit and its frame's
   arrival (only per-connection publish order is contract, §4).
 

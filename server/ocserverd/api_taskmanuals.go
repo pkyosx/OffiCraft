@@ -2,34 +2,31 @@ package main
 
 // api_taskmanuals.go — the 設定 › 任務手冊 surface (M3 contract §C.5): the
 // shared read face, the agent-floor CONTENT writes (create a manual, partial
-// edit of purpose / fields / SOP / learnings — owner ruling 2026-07-13:
+// edit of purpose / fields / SOP — owner ruling 2026-07-13:
 // agents author manual content), the GOVERNANCE face (the assignee setting —
 // a caller below admin_agent supplying `assignee` on create/edit is a 403 from
 // the in-handler gate; delete is requires=admin_agent on the route table —
-// both floors lowered from owner by T-6020, owner ruling 2026-07-26),
-// and the AGENT's learnings write-back (whole-doc replace, the
-// replace_lessons shape). Manuals ship EMPTY (SPEC §5.1: no seed, no
-// tombstone); delete is refused while non-terminal tasks of the type exist.
+// both floors lowered from owner by T-6020, owner ruling 2026-07-26).
+// Manuals ship EMPTY (SPEC §5.1: no seed, no tombstone); delete is refused
+// while non-terminal tasks of the type exist.
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"unicode/utf8"
 )
 
-// The two live manual history kinds, plus the RETIRED four-field bundle name.
-// Nothing writes, reads or stores task_manual any more: T-1f39 split SOP and
-// learnings into their own series and migration 00045 deleted the stranded
-// rows. The constant survives solely so documentHistoryAllowed can refuse the
-// old name by name instead of falling through to "unknown kind".
+// The live manual history kind, plus the RETIRED four-field bundle name.
+// Nothing writes, reads or stores task_manual any more: T-1f39 split it into
+// per-document series and migration 00045 deleted the stranded rows. The
+// constant survives solely so documentHistoryAllowed can refuse the old name by
+// name instead of falling through to "unknown kind".
 const (
-	docKindTaskManual          = "task_manual"
-	docKindTaskManualSop       = "task_manual_sop"
-	docKindTaskManualLearnings = "task_manual_learnings"
+	docKindTaskManual    = "task_manual"
+	docKindTaskManualSop = "task_manual_sop"
 )
 
-// The two split snapshots carry ONE field each, and answer "{}" — the sentinel
+// The snapshot carries ONE field, and answers "{}" — the sentinel
 // SaveWithDocumentHistories reads as "nothing worth retaining" — when that
 // field is empty. A manual ships blank, so without this the first SOP write of
 // every manual would burn a version slot on an empty document, which is the
@@ -39,13 +36,6 @@ func taskManualSopHistorySnapshot(m TaskManual) (string, error) {
 		return "{}", nil
 	}
 	return historyJSON(map[string]string{"sop_md": m.SopMD})
-}
-
-func taskManualLearningsHistorySnapshot(m TaskManual) (string, error) {
-	if m.Learnings == "" {
-		return "{}", nil
-	}
-	return historyJSON(map[string]string{"learnings": m.Learnings})
 }
 
 // resolveTaskManual returns the manual for typeKey (errNotFound when absent).
@@ -64,37 +54,21 @@ func (s *apiServer) resolveTaskManual(typeKey string) (*TaskManual, error) {
 //
 // 🔴 T-91 LEFT IT ALONE ON PURPOSE. It still serves GET /api/task-manuals/{key}
 // — the intake's type judgement and the planner's blueprint read — with the
-// whole manual, sop_md and learnings included. The three WRITE faces moved onto
-// the receipt tails below.
+// whole manual, sop_md included. The WRITE faces moved onto the receipt tails
+// below.
 func (s *apiServer) writeTaskManual(w http.ResponseWriter, m TaskManual) {
-	dto, err := newTaskManualDTO(m, s.manualSopCap(), s.manualLearningsCap())
+	dto, err := newTaskManualDTO(m, s.manualSopCap())
 	if err != nil {
 		internalError(w, err)
 		return
 	}
 	// 傳承 (T-33) — the MANUAL exit. The type's lore rides out on `lore`, its
-	// OWN field, beside the learnings document rather than appended to it.
-	//
-	// ⚠️ THE EARLIER SHAPE APPENDED IT TO `learnings`, and the reasoning for
-	// that is recorded here because it was not silly: `learnings` is what a
-	// planner already reads, so a sibling field risked being served to every
-	// client and read by none until each was taught to look. What that argument
-	// missed is that it makes the field unmeasurable — learnings_chars counts
-	// the stored document, so the owner was served a manual whose learnings
-	// field was full and whose learnings_chars was 0. Owner ruling 2026-09-07:
-	// 「get_task_manual 應該 learning 跟 lore 還是分開的欄位」. The reach problem
-	// is real and is now a DOCUMENTATION problem, which is the honest place for
-	// it — not a reason to keep two things in one field.
+	// OWN field.
 	//
 	// 🔴 THIS DOES NOT ENTER ANY BOOT DOCUMENT. Task lore is fetched when
 	// somebody opens the manual, which is where staff and outsource behave
 	// identically — the role/outsource asymmetry lives on the OTHER exit and
 	// stops there.
-	//
-	// 🔴 SPLIT IS WHAT MAKES BOTH NUMBERS HONEST. learnings_chars counts the
-	// stored document the write face writes, lore_chars counts this rendering;
-	// neither rule had to change. A reader that wants what a member actually
-	// sees concatenates the two itself, and can see that it did.
 	sel, err := selectLoreForScope(s.dal, LoreScopeManual, m.TypeKey, s.loreManualCap())
 	if err != nil {
 		internalError(w, err)
@@ -109,28 +83,16 @@ func (s *apiServer) writeTaskManual(w http.ResponseWriter, m TaskManual) {
 // (T-91). The whole taskManualDTO — both capped documents in full — used to
 // ride back from every one of these writes.
 //
-// 🔴 wroteSop / wroteLearnings ARE THE POINT OF THE SIGNATURE. A document's
-// triple is reported ONLY when THIS call wrote it: update_task_manual is a
-// partial, so a caller that changed only the display name never touched either
-// document, and reporting a size and a hash for an untouched document invites
-// exactly the wrong conclusion. Absence is spelled with pointers rather than
-// zeroes, because 0 is indistinguishable from an empty document that WAS
-// written.
-func (s *apiServer) writeTaskManualReceipt(w http.ResponseWriter, m TaskManual, wroteSop, wroteLearnings bool) {
+// 🔴 wroteSop IS THE POINT OF THE SIGNATURE. The document's triple is reported
+// ONLY when THIS call wrote it: update_task_manual is a partial, so a caller
+// that changed only the display name never touched the document, and reporting
+// a size and a hash for an untouched document invites exactly the wrong
+// conclusion. Absence is spelled with pointers rather than zeroes, because 0 is
+// indistinguishable from an empty document that WAS written.
+func (s *apiServer) writeTaskManualReceipt(w http.ResponseWriter, m TaskManual, wroteSop bool) {
 	receipt := taskManualReceiptDTO{TypeKey: m.TypeKey, UpdatedTS: m.UpdatedTS}
-	if wroteLearnings {
-		n := utf8.RuneCountInString(m.Learnings)
-		capChars := s.manualLearningsCap()
-		sum := receiptSha256(m.Learnings)
-		receipt.LearningsChars = &n
-		receipt.LearningsCapChars = &capChars
-		receipt.LearningsSha256 = &sum
-	}
 	if wroteSop {
 		n := utf8.RuneCountInString(m.SopMD)
-		// The SOP's OWN cap — doc_cap_chars_manual_sop, a different settings key
-		// from the learnings one. Reading one as evidence about the other is the
-		// mistake the split cap exists to prevent.
 		capChars := s.manualSopCap()
 		sum := receiptSha256(m.SopMD)
 		receipt.SopMdChars = &n
@@ -231,9 +193,8 @@ const assigneeGovernanceMsg = "assignee is owner/admin-agent governance — " +
 	"a plain agent may not set who executes a task type"
 
 // GET /api/task-manuals — the type rows. The catalogue and the bodies are
-// separate reads: this answers WHICH types exist and how big each one's two
-// long documents are; the SOP and the learnings themselves come one type at a
-// time from get_task_manual.
+// separate reads: this answers WHICH types exist and how big each one's long
+// document is; the SOP itself comes one type at a time from get_task_manual.
 //
 // This used to answer with the FULL manual of every type by default and offer
 // the light row behind ?view=list. A default is where the cost actually lands,
@@ -251,15 +212,12 @@ func (s *apiServer) HandleListTaskManualsApiTaskManualsGet(w http.ResponseWriter
 		return
 	}
 	out := []taskManualListItemDTO{}
-	// Read each cap ONCE for the whole listing: per-row reads could straddle a
+	// Read the cap ONCE for the whole listing: per-row reads could straddle a
 	// PATCH and hand back one list quoting two different caps for the same
-	// segment. The two segments' caps are still read independently — they are
-	// different settings, and a list reporting one number for both is the bug
-	// T-30f1 exists to remove.
+	// segment.
 	sopCapChars := s.manualSopCap()
-	learningsCapChars := s.manualLearningsCap()
 	for _, m := range manuals {
-		dto, err := newTaskManualListItemDTO(m, sopCapChars, learningsCapChars)
+		dto, err := newTaskManualListItemDTO(m, sopCapChars)
 		if err != nil {
 			internalError(w, err)
 			return
@@ -342,11 +300,10 @@ func (s *apiServer) HandleCreateTaskManualApiTaskManualsPost(w http.ResponseWrit
 		return
 	}
 	s.publishTaskManual(typeKey, requestTrigger(r))
-	// Neither document is written on a create — a fresh manual starts with an
-	// empty SOP and empty learnings — so neither triple rides back. type_key IS
-	// news on this face when the caller sent only a display_name: the id was
-	// minted here.
-	s.writeTaskManualReceipt(w, m, false, false)
+	// The document is not written on a create — a fresh manual starts with an
+	// empty SOP — so no triple rides back. type_key IS news on this face when
+	// the caller sent only a display_name: the id was minted here.
+	s.writeTaskManualReceipt(w, m, false)
 }
 
 // GET /api/task-manuals/{type_key} — one manual in full (the intake's
@@ -362,20 +319,15 @@ func (s *apiServer) HandleGetTaskManualApiTaskManualsTypeKeyGet(w http.ResponseW
 
 // POST /api/task-manuals/{type_key} — the partial manual edit (only supplied
 // fields change — the role-def edit posture). Agent floor for the CONTENT
-// fields (purpose / fields / sop_md / learnings); assignee stays the
+// fields (purpose / fields / sop_md); assignee stays the
 // GOVERNANCE face — a caller below admin_agent supplying it is a 403 (T-6020).
 func (s *apiServer) HandleUpdateTaskManualApiTaskManualsTypeKeyPost(w http.ResponseWriter, r *http.Request, typeKey string) {
 	var body TaskManualUpdateDTO
 	// T-2d99 (mirror direction): strict decode, but NO required names. This is
 	// a partial update — "only supplied fields change" is the contract, so an
-	// absent key must stay legal. What must NOT stay legal is an UNKNOWN key:
-	// this handler writes the SAME learnings document as write_task_learnings,
-	// and the two tools spell the field differently (`learnings` here, `text`
-	// there). The observed incident was that confusion in one direction; the
-	// mirror — update_task_manual{text: "..."} — was answering 200 while
-	// dropping the key, so the caller's new learnings silently vanished. That
-	// is not a wipe (pointer fields, nil = unchanged) but it is the same bug
-	// class: report success while doing nothing. Unknown key ⇒ 422, no write.
+	// absent key must stay legal. What must NOT stay legal is an UNKNOWN key: a
+	// misspelled field name answering 200 while dropping the write is the bug
+	// class this guards. Unknown key ⇒ 422, no write.
 	if !decodeJSONBodyStrict(w, r, &body) {
 		return
 	}
@@ -419,35 +371,20 @@ func (s *apiServer) HandleUpdateTaskManualApiTaskManualsTypeKeyPost(w http.Respo
 	}
 	// T-3351 hard cap. This handler is ONE OF TWO write faces for sop_md (the
 	// other is patch_task_sop, T-1667, which judges the SAME cap on the RESULT
-	// of its patch), and a SECOND write face for learnings (spelled `learnings`
-	// here, `text` in write_task_learnings) — capping only the
-	// learnings-specific seams would have left both an uncapped door onto the
-	// same document and sop_md with no gate at all; every sop_md door has to
-	// carry the cap or the cap is a suggestion. Validated BEFORE any field is
-	// applied, so a refusal leaves the whole partial update unwritten (the
-	// handler's existing posture).
-	// Each field is judged against ITS OWN cap, read once (T-30f1). Until then
-	// both were judged against one read of one shared cap, and the reason given
-	// was that two reads could straddle a concurrent PATCH and judge one doc by
-	// a cap the other never saw — true only while there was a single number to
-	// straddle. sop_md and learnings now answer to two independent settings, so
-	// sharing a read would mean judging one document by the other's budget.
-	// Each cap is still read exactly once, so neither field is judged twice
-	// against two different values of its own setting.
+	// of its patch); every sop_md door has to carry the cap or the cap is a
+	// suggestion. Validated BEFORE any field is applied, so a refusal leaves the
+	// whole partial update unwritten (the handler's existing posture). The cap
+	// is read exactly once, so the field is not judged twice against two
+	// different values of its own setting.
 	sopCap := s.manualSopCap()
-	learningsCap := s.manualLearningsCap()
 	if body.SopMd != nil && DocCapBlocked(sopCap, m.SopMD, *body.SopMd) {
 		writeError(w, http.StatusBadRequest, docCapRefusal(sopCap, "sop_md doc", m.SopMD, *body.SopMd))
 		return
 	}
-	if body.Learnings != nil && DocCapBlocked(learningsCap, m.Learnings, *body.Learnings) {
-		writeError(w, http.StatusBadRequest, docCapRefusal(learningsCap, "learnings doc", m.Learnings, *body.Learnings))
-		return
-	}
-	// All validated — apply the partial update. The two versioned fields are
-	// remembered as they stood so the write below can retain a revision only
-	// for the ones this call actually changes (T-1f39).
-	sopBefore, learningsBefore := m.SopMD, m.Learnings
+	// All validated — apply the partial update. The versioned field is
+	// remembered as it stood so the write below can retain a revision only when
+	// this call actually changes it (T-1f39).
+	sopBefore := m.SopMD
 	if body.DisplayName != nil {
 		m.DisplayName = trimString(*body.DisplayName)
 	}
@@ -456,12 +393,6 @@ func (s *apiServer) HandleUpdateTaskManualApiTaskManualsTypeKeyPost(w http.Respo
 	}
 	if body.SopMd != nil {
 		m.SopMD = *body.SopMd
-	}
-	if body.Learnings != nil {
-		// 🔴 Stripped on the way in — GET /api/task-manuals/{type_key} SERVES the
-		// 傳承 block appended to this very field, so "read the latest, merge, send
-		// it back" puts it here. See stripTrailingLoreBlock (lore_select.go).
-		m.Learnings = stripTrailingLoreBlock(*body.Learnings)
 	}
 	if body.Fields != nil {
 		fields := make([]ManualField, 0, len(*body.Fields))
@@ -488,8 +419,7 @@ func (s *apiServer) HandleUpdateTaskManualApiTaskManualsTypeKeyPost(w http.Respo
 		m.Assignee = string(blob)
 	}
 	m.UpdatedTS = nowSecs()
-	streams := taskManualHistoryStreams(typeKey, currentActor(r),
-		m.SopMD != sopBefore, m.Learnings != learningsBefore)
+	streams := taskManualHistoryStreams(typeKey, currentActor(r), m.SopMD != sopBefore)
 	if err := s.dal.SaveWithDocumentHistories(streams, func(ex sqlExecer) error {
 		return putTaskManualOn(ex, *m)
 	}); err != nil {
@@ -501,7 +431,7 @@ func (s *apiServer) HandleUpdateTaskManualApiTaskManualsTypeKeyPost(w http.Respo
 	// a caller that resent the SOP unchanged still asked about the SOP, and the
 	// size/hash it gets back are the honest answer to that question. A caller
 	// that never mentioned it gets nothing about it at all.
-	s.writeTaskManualReceipt(w, *m, body.SopMd != nil, body.Learnings != nil)
+	s.writeTaskManualReceipt(w, *m, body.SopMd != nil)
 }
 
 // DELETE /api/task-manuals/{type_key} — hard delete (no seed to fall back
@@ -533,190 +463,9 @@ func (s *apiServer) HandleDeleteTaskManualApiTaskManualsTypeKeyDelete(w http.Res
 	})
 }
 
-// POST /api/task-manuals/{type_key}/learnings — the agent's task-close
-// write-back: whole-doc replace (the replace_lessons posture — the agent
-// reads, folds its experience in, writes the whole doc back).
-func (s *apiServer) HandleWriteTaskLearningsApiTaskManualsTypeKeyLearningsPost(w http.ResponseWriter, r *http.Request, typeKey string) {
-	// T-2d99 — this is the handler that actually destroyed a manual. It used
-	// the lenient decoder, so write_task_learnings{learnings: "..."} (the key
-	// update_task_manual uses for THIS SAME document) had its only meaningful
-	// key silently dropped, leaving body.Text nil → "" → the whole doc wiped,
-	// with the 200 response echoing learnings: "". Strict + required now.
-	var body TaskLearningsReplaceDTO
-	if !decodeJSONBodyStrict(w, r, &body, "text") {
-		return
-	}
-	m, err := s.resolveTaskManual(typeKey)
-	if err != nil {
-		writeResolveError(w, err, "task manual", typeKey)
-		return
-	}
-	// 🔴 STRIPPED FIRST — before the wipe guard, the cap check and the receipt,
-	// so every one of them judges the text that is actually STORED. The sibling
-	// face (api_roles.go) has always done it in this order and says so; this one
-	// did not, and the gap was not academic: a write consisting of nothing but a
-	// 傳承 block (what an agent sends after reading get_task_manual's new `lore`
-	// field and writing it back) is non-empty on the way in and empty on the way
-	// out. The wipe guard saw the non-empty version, let it through, and the
-	// manual's accumulated learnings were erased with a 200 whose only trace was
-	// `size_chars: 0`. See stripTrailingLoreBlock (lore_select.go) for the loop.
-	incoming := stripTrailingLoreBlock(body.Text)
-	// Belt to the strict decoder's braces: even a well-formed {"text": ""}
-	// must not silently erase accumulated learnings.
-	if !(body.AllowShrink != nil && *body.AllowShrink) && WholeDocWipeBlocked(m.Learnings, incoming) {
-		writeError(w, http.StatusBadRequest,
-			"this would replace the existing learnings with an empty doc — pass allow_shrink=true "+
-				"if that is intended; nothing was written")
-		return
-	}
-	// T-3351 hard cap. Unconditional — allow_shrink governs the opposite
-	// direction (shrinking too far) and is not a bypass for this one.
-	if cap := s.manualLearningsCap(); DocCapBlocked(cap, m.Learnings, incoming) {
-		writeError(w, http.StatusBadRequest, docCapRefusal(cap, "learnings doc", m.Learnings, incoming))
-		return
-	}
-	m.Learnings = incoming
-	m.UpdatedTS = nowSecs()
-	if err := s.dal.SaveWithDocumentHistories(
-		taskManualHistoryStreams(typeKey, currentActor(r), false, true),
-		func(ex sqlExecer) error {
-			return putTaskManualOn(ex, *m)
-		}); err != nil {
-		internalError(w, err)
-		return
-	}
-	s.publishTaskManual(typeKey, requestTrigger(r))
-	// T-91: its own shape, not the manual. This write touches ONE document, and
-	// the whole taskManualDTO it used to answer with carried the SOP too — a
-	// document this call never looked at.
-	writeJSON(w, http.StatusOK, taskLearningsWriteReceiptDTO{
-		TypeKey:   m.TypeKey,
-		SizeChars: utf8.RuneCountInString(m.Learnings),
-		CapChars:  s.manualLearningsCap(),
-		Sha256:    receiptSha256(m.Learnings),
-	})
-}
-
-// POST /api/task-manuals/{type_key}/learnings/patch — anchor-addressed patch of
-// a type's learnings (T-9ffd; the patch_lessons twin for task manuals).
-// ApplyDocEdits is the SHARED engine — it is generic over the doc text, so the
-// anchor/append/atomicity semantics are byte-identical to patch_lessons. The
-// one thing it is NOT generic over is which tool re-reads this doc: that is a
-// required argument, and this face passes get_task_manual.
-//
-// Why this exists: the ONLY write face for learnings was whole-doc replace
-// (write_task_learnings / update_task_manual.learnings). As a manual's
-// learnings grows (30k chars observed on tm-05f7c776d6ff) re-typing the whole
-// doc to add three lines stops fitting in one model output AND every re-type
-// silently risks transcription loss (the tool answers 200 either way). This
-// makes the write cost scale with the CHANGE, not the doc — and the unique
-// anchor doubles as an optimistic lock under last-write-wins, so a concurrent
-// write that moved the anchor turns the next patch into a 400 rather than a
-// silent mis-splice. (It does NOT solve section-level concurrent overwrite of
-// DIFFERENT anchors — that needs a version/etag lock, tracked separately.)
-//
-// Semantics: edits apply IN ORDER; a non-empty old must match exactly once
-// (0/>1 → flat 400, WHOLE batch rejected, zero writes); an empty old appends.
-// A patch that wipes the doc, or shrinks a substantial doc to <10%, is refused
-// without allow_shrink=true (the r-76 wipe-guard posture). Same agent-floor
-// authz as write_task_learnings (route Requires: principalAgent — manual
-// CONTENT is agent-editable). Unknown type → 404.
-func (s *apiServer) HandlePatchTaskLearningsApiTaskManualsTypeKeyLearningsPatchPost(w http.ResponseWriter, r *http.Request, typeKey string) {
-	var body TaskLearningsPatchDTO
-	if !decodeJSONBodyStrict(w, r, &body, "edits") {
-		return
-	}
-	if len(body.Edits) == 0 {
-		writeError(w, http.StatusUnprocessableEntity,
-			"edits requires at least one {old, new} entry")
-		return
-	}
-	m, err := s.resolveTaskManual(typeKey)
-	if err != nil {
-		writeResolveError(w, err, "task manual", typeKey)
-		return
-	}
-	edits := make([]LessonsEdit, len(body.Edits))
-	for i, e := range body.Edits {
-		// T-2d99 shape (shared with patch_lessons): an edit carrying NEITHER old
-		// NOR new is malformed, not a request to append nothing. Folding nil→""
-		// would route it into the empty-old APPEND branch where appending "" is a
-		// perfect no-op — the whole batch would answer 200 with an unchanged doc.
-		// Refuse it; the whole batch is rejected and nothing is written, matching
-		// the anchor-miss posture.
-		if e.Old == nil && e.New == nil {
-			writeError(w, http.StatusUnprocessableEntity, fmt.Sprintf(
-				"edits[%d]: neither old nor new was given — an edit needs at least one of them "+
-					"(empty old appends new); nothing was written", i))
-			return
-		}
-		edits[i] = LessonsEdit{Old: strOrEmpty(e.Old), New: strOrEmpty(e.New)}
-	}
-	// get_task_manual, NOT get_lessons (T-2fbf): a manual's learnings is served
-	// by the manual, and an agent sent to re-read its ROLE's lessons will never
-	// find the anchor it missed — it re-anchors against the wrong document and
-	// misses again, with no error and no signal that it was misdirected.
-	next, applied, err := ApplyDocEdits(m.Learnings, edits, "get_task_manual")
-	// The patch's RESULT is stripped, not its edits: get_task_manual serves the
-	// 傳承 block inside `learnings`, so an append edit carrying what the caller
-	// read back lands the block in `next` — and `next` becomes the document.
-	next = stripTrailingLoreBlock(next)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	allowShrink := body.AllowShrink != nil && *body.AllowShrink
-	if !allowShrink && LessonsShrinkBlocked(m.Learnings, next) {
-		writeError(w, http.StatusBadRequest,
-			"patch would empty (or shrink to under a tenth of) the learnings doc — pass allow_shrink=true if this is intended, or use write_task_learnings; nothing was written")
-		return
-	}
-	// T-3351 hard cap, judged on the RESULT of the patch (not the patch's own
-	// size). Unconditional: allow_shrink is not a bypass.
-	// One read, reused by the receipt below (see api_roles.go).
-	cap := s.manualLearningsCap()
-	if DocCapBlocked(cap, m.Learnings, next) {
-		writeError(w, http.StatusBadRequest, docCapRefusal(cap, "learnings doc", m.Learnings, next))
-		return
-	}
-	// 🔴 `next` byte-identical to the stored learnings → there is nothing to
-	// write and nothing to retain. The gate is that text comparison and NOT
-	// applied > 0: `applied` counts edits that moved the INTERMEDIATE result, so
-	// a batch whose edits undo one another reports applied != 0 over a document
-	// that never changed. Writing anyway burns one of the THREE document history
-	// slots on a snapshot of text nobody replaced (and bumps updated_ts for a
-	// change that did not happen), silently shortening the owner's undo path.
-	// Full reasoning at the patch_lessons twin (api_roles.go,
-	// HandlePatchLessonsApiLessonsRoleKeyPatchPost). This is the same
-	// "did the field actually change" gate update_task_manual already applies
-	// above via taskManualHistoryStreams; the receipt below stays outside the
-	// gate and unchanged.
-	if next != m.Learnings {
-		m.Learnings = next
-		m.UpdatedTS = nowSecs()
-		if err := s.dal.SaveWithDocumentHistories(
-			taskManualHistoryStreams(typeKey, currentActor(r), false, true),
-			func(ex sqlExecer) error {
-				return putTaskManualOn(ex, *m)
-			}); err != nil {
-			internalError(w, err)
-			return
-		}
-		s.publishTaskManual(typeKey, requestTrigger(r))
-	}
-	writeJSON(w, http.StatusOK, taskLearningsPatchResultDTO{
-		TypeKey:      typeKey,
-		AppliedEdits: applied,
-		SizeChars:    utf8.RuneCountInString(next),
-		CapChars:     cap,
-		Sha256:       receiptSha256(next),
-	})
-}
-
 // POST /api/task-manuals/{type_key}/sop/patch — anchor-addressed patch of a
-// type's SOP (T-1667; the patch_task_learnings twin for the OTHER long-form
-// document a manual carries). ApplyDocEdits is the SHARED engine, so the
-// anchor/append/atomicity semantics are byte-identical to the three patch faces
+// type's SOP (T-1667). ApplyDocEdits is the SHARED engine, so the
+// anchor/append/atomicity semantics are byte-identical to the other patch faces
 // that came before it.
 //
 // WHY THIS EXISTS — CONCURRENT OVERWRITE, not token economy. update_task_manual
@@ -749,12 +498,12 @@ func (s *apiServer) HandlePatchTaskLearningsApiTaskManualsTypeKeyLearningsPatchP
 //
 // 🔴 AND THAT WINDOW IS WIDER HERE THAN ON THE patch_step_note TWIN, which is
 // why this caveat is not a copy of that one. putTaskManualOn is a WHOLE-ROW
-// upsert: it writes back purpose, fields, display_name, assignee and learnings
-// from the copy resolveTaskManual read at the top of this request, not just
-// sop_md. So an interleaving in the same window also REVERTS a concurrent write
-// to any of those other fields — a patch_task_learnings landing between this
-// face's read and its write is silently undone, and the caller of that write
-// already got its 200. The step-note twin does not have this: SetTaskStepNote
+// upsert: it writes back purpose, fields, display_name and assignee from the
+// copy resolveTaskManual read at the top of this request, not just sop_md. So
+// an interleaving in the same window also REVERTS a concurrent write to any of
+// those other fields — an update_task_manual landing between this face's read
+// and its write is silently undone, and the caller of that write already got
+// its 200. The step-note twin does not have this: SetTaskStepNote
 // is a SINGLE-column UPDATE, so its window can only cost the note itself.
 // The narrow fix is to make this face write sop_md alone; that is out of
 // T-1667's scope and is recorded here rather than done.
@@ -765,17 +514,17 @@ func (s *apiServer) HandlePatchTaskLearningsApiTaskManualsTypeKeyLearningsPatchP
 // seam), but this ticket opens a SECOND door onto it. Also not fixed here.
 //
 // Wording note: the two faces T-1667 added (this one and patch_step_note) are
-// the only ones rewritten to the description above. patch_task_learnings above,
-// and patch_lessons / patch_insight, still describe the anchor as an "optimistic
-// lock" in their comments and on the wire. Realigning those three is a
-// follow-up; do not read this comment as a claim that all five now agree.
+// the only ones rewritten to the description above. patch_insight still
+// describes the anchor as an "optimistic lock" in its comments and on the wire.
+// Realigning it is a follow-up; do not read this comment as a claim that every
+// patch face now agrees.
 //
 // Semantics: edits apply IN ORDER; a non-empty old must match exactly once
 // (0/>1 → flat 400 naming the failing edit index and get_task_manual as the
 // re-read, WHOLE batch rejected, zero writes); an empty old appends. A patch
 // that wipes the doc, or shrinks a substantial doc to <10%, is refused without
 // allow_shrink=true. The sop_md cap is judged on the RESULT and allow_shrink is
-// not a bypass — the same posture the learnings twin takes. Same agent floor as
+// not a bypass — the same posture the other patch faces take. Same agent floor as
 // update_task_manual's content fields. Unknown type → 404.
 func (s *apiServer) HandlePatchTaskSopApiTaskManualsTypeKeySopPatchPost(w http.ResponseWriter, r *http.Request, typeKey string) {
 	var body TaskSopPatchDTO
@@ -785,9 +534,8 @@ func (s *apiServer) HandlePatchTaskSopApiTaskManualsTypeKeySopPatchPost(w http.R
 	if !requireNonEmptyEdits(w, body.Edits) {
 		return
 	}
-	// Target first, content second — the order patch_task_learnings takes, so an
-	// unknown type_key answers 404 on both faces rather than one of them ruling
-	// on the edits of a manual that does not exist.
+	// Target first, content second, so an unknown type_key answers 404 rather
+	// than this face ruling on the edits of a manual that does not exist.
 	m, err := s.resolveTaskManual(typeKey)
 	if err != nil {
 		writeResolveError(w, err, "task manual", typeKey)
@@ -797,7 +545,7 @@ func (s *apiServer) HandlePatchTaskSopApiTaskManualsTypeKeySopPatchPost(w http.R
 	if !ok {
 		return
 	}
-	// get_task_manual, not get_lessons: the anchor-miss message tells the caller
+	// get_task_manual: the anchor-miss message tells the caller
 	// where to look next, and naming the wrong document is worse than naming
 	// none (the reason ApplyDocEdits takes the tool name as a parameter).
 	next, applied, err := ApplyDocEdits(m.SopMD, edits, "get_task_manual")
@@ -827,14 +575,14 @@ func (s *apiServer) HandlePatchTaskSopApiTaskManualsTypeKeySopPatchPost(w http.R
 	// snapshot of text nobody replaced (and bumps updated_ts for a change that did
 	// not happen), silently shortening the owner's undo path. Full reasoning at
 	// ApplyDocEdits (domain.go), which marks `applied > 0` as the exact reasoning
-	// error the earlier faces were built on. SOP and learnings are two independent
+	// error the earlier faces were built on. The SOP has its own independent
 	// version series on one manual (T-1f39), so this face burns the SOP series'
 	// slots specifically. The receipt below stays outside the gate and unchanged.
 	if next != m.SopMD {
 		m.SopMD = next
 		m.UpdatedTS = nowSecs()
 		if err := s.dal.SaveWithDocumentHistories(
-			taskManualHistoryStreams(typeKey, currentActor(r), true, false),
+			taskManualHistoryStreams(typeKey, currentActor(r), true),
 			func(ex sqlExecer) error {
 				return putTaskManualOn(ex, *m)
 			}); err != nil {

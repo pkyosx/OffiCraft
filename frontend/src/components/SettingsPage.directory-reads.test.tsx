@@ -29,7 +29,6 @@ import {
 const s = zh.settings;
 
 const SOP_MD = "先讀 diff，再看測試。";
-const LEARNINGS_MD = "小心 flaky 測試。";
 const DUTY_MD = "你是助理，負責替 owner 收斂雜事。";
 
 function openSettings() {
@@ -184,13 +183,12 @@ describe("設定 › 任務手冊 · the list is a directory (T-1170)", () => {
       purpose: "審一份 PR",
       fields: [],
       sopMd: SOP_MD,
-      learnings: LEARNINGS_MD,
       assignee: null,
       updatedTs: 1,
     });
   });
 
-  it("lists the manuals and their hub without reading either document, then fetches on the sub-page", async () => {
+  it("lists the manuals and their hub without reading the document, then fetches on the sub-page", async () => {
     const getManual = vi.spyOn(mockApi, "getTaskManual");
 
     const utils = openSettings();
@@ -199,8 +197,8 @@ describe("設定 › 任務手冊 · the list is a directory (T-1170)", () => {
     // ① the manual row renders from the directory…
     await utils.findByTestId("manual-open-tm-000000000001");
     fireEvent.click(utils.getByTestId("manual-open-tm-000000000001"));
-    // …and so does the hub: 顯示名稱 / 負責成員 / the two entry cards all come
-    // off the row, so neither long document has been read yet.
+    // …and so does the hub: 顯示名稱 / 負責成員 / the entry card all come
+    // off the row, so the long document has not been read yet.
     await utils.findByTestId("manual-entry-definition");
     expect(getManual).not.toHaveBeenCalled();
 
@@ -210,17 +208,6 @@ describe("設定 › 任務手冊 · the list is a directory (T-1170)", () => {
       expect(getManual).toHaveBeenCalledWith("tm-000000000001")
     );
     await utils.findByText(SOP_MD);
-    // The OTHER document is not on this page — the read is per manual, but the
-    // page still shows only its own half.
-    expect(utils.queryByText(LEARNINGS_MD)).toBeNull();
-  });
-
-  it("renders 學習經驗 from its own read, not from anything the list carried", async () => {
-    const utils = openSettings();
-    fireEvent.click(utils.getByText(s.manuals));
-    fireEvent.click(await utils.findByTestId("manual-open-tm-000000000001"));
-    fireEvent.click(await utils.findByTestId("manual-entry-learnings"));
-    await utils.findByText(LEARNINGS_MD);
   });
 
   it("says so when the manual's own read fails, instead of drawing a blank document", async () => {

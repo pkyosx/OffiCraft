@@ -121,7 +121,7 @@ func (s *apiServer) HandlePatchTaskStepNoteApiTasksTaskIdStepsStepIdNotePatchPos
 	if !ok {
 		return
 	}
-	// get_task_step, not get_lessons and — since T-66 — no longer get_task: the
+	// get_task_step — not another document's read tool — and, since T-66, no longer get_task: the
 	// anchor-miss message tells the caller where to look next, and get_task
 	// stopped carrying the note TEXT. Sending a caller to a read that reports
 	// only the note's SIZE is the exact misdirection ApplyDocEdits takes this
@@ -163,7 +163,7 @@ func (s *apiServer) HandlePatchTaskStepNoteApiTasksTaskIdStepsStepIdNotePatchPos
 	//
 	// Deliberately not carried into the wholesale face: it says "the note is now
 	// this" and owes the same unconditional delta as the other wholesale faces
-	// (update_task_manual, write_task_learnings). Only a patch face reports a count
+	// (update_task_manual). Only a patch face reports a count
 	// of edits, and only a patch face can report a non-zero one over a document
 	// that never moved.
 	if !s.storeStepNote(w, r, t, step, next, next != step.Note) {
