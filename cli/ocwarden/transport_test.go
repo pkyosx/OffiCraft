@@ -783,6 +783,51 @@ func TestBuildCommandDeps(t *testing.T) {
 		t.Error("the update/renew kicks belong to the updater, so this constructor must leave them nil")
 	}
 
+	t.Run("a spawn whose agent env moves HOME never pre-trusts into the old reader", func(t *testing.T) {
+		box := t.TempDir()
+		envFile := filepath.Join(box, "env")
+		if err := os.WriteFile(envFile, []byte("HOME=/Volumes/scratch/home\n"), 0o600); err != nil {
+			t.Fatalf("seed env file: %v", err)
+		}
+		claudeBin := stageBinary(t, filepath.Join(box, "bin", "claude"), "#!/bin/sh\n")
+		// The spawn refuses earlier when it cannot find ocagent, which would make
+		// this test pass for the wrong reason. Publish the sibling the production
+		// resolver looks for first.
+		exe, err := os.Executable()
+		if err != nil {
+			t.Fatalf("executable: %v", err)
+		}
+		ocagent := filepath.Join(filepath.Dir(exe), "ocagent")
+		if err := os.WriteFile(ocagent, []byte("#!/bin/sh\n"), 0o755); err != nil {
+			t.Skipf("cannot publish an ocagent beside the test binary: %v", err)
+		}
+		t.Cleanup(func() { os.Remove(ocagent) })
+		spawnEnv := envMap(map[string]string{
+			"HOME": root, "OC_AGENT_HOME": filepath.Join(box, "agents"),
+			"OC_AGENT_ENV_FILE": envFile, "OC_AGENT_ENV_INHERIT": "0",
+			"OC_CLAUDE_CRED_CHECK": "0", "OC_CLAUDE_BIN": claudeBin,
+		})
+		runner := &wardenRunner{script: map[string]wardenRun{
+			"tmux -L officraft has-session -t member-m1": {err: errors.New("can't find session: member-m1")},
+		}}
+		d := buildCommandDeps(Config{Base: "https://station.example"}, spawnEnv, runner)
+
+		got := d.Spawn(StartParams{MemberID: "m1", PersonaContext: "p", MemberToken: "jwt", Role: "builder"})
+		if got.OK {
+			t.Fatal("the launch line sources a HOME the warden does not have, so the pre-trust it is about to write has no reader — this spawn must fail")
+		}
+		for _, want := range []string{"pretrust_failed", filepath.Join(root, ".claude.json"), "/Volumes/scratch/home/.claude.json"} {
+			if !strings.Contains(got.Reason, want) {
+				t.Errorf("reason = %q, want it to name %q", got.Reason, want)
+			}
+		}
+		for _, call := range runner.calls {
+			if strings.Contains(call, "new-session") {
+				t.Errorf("a session was started anyway: %q", call)
+			}
+		}
+	})
+
 	homeless := buildCommandDeps(Config{}, envMap(map[string]string{}), &wardenRunner{})
 	ok, log := homeless.Teardown()
 	if ok || log != "[ocwarden teardown] cannot resolve paths: HOME must be set\n" {

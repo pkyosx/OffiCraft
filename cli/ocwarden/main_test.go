@@ -863,12 +863,15 @@ func TestRealMain(t *testing.T) {
 		}
 	})
 
-	t.Run("a claude.json redirect away from HOME is refused before anything is derived", func(t *testing.T) {
+	t.Run("a claude.json redirect away from HOME is refused ahead of the station-address gate", func(t *testing.T) {
 		var out bytes.Buffer
+		// OC_BASE is deliberately UNSET, so the very next gate would also refuse
+		// this run. Which refusal comes out is the only thing that can tell the
+		// gate's POSITION apart from its mere presence: move the gate below the
+		// station-address gate and the OC_BASE message wins instead.
 		env := map[string]string{
 			"OC_CLAUDE_JSON": "/tmp/throwaway.json",
 			"HOME":           "/Users/eva",
-			"OC_BASE":        "http://127.0.0.1:7755",
 		}
 		rc := realMain([]string{"run", "--once"}, func(k string) string { return env[k] }, &out)
 		if rc != 1 {
@@ -877,6 +880,9 @@ func TestRealMain(t *testing.T) {
 		got := out.String()
 		if !strings.HasPrefix(got, "[ocwarden] FATAL: OC_CLAUDE_JSON points at a file nothing reads") {
 			t.Errorf("out = %q, want the redirect refusal", got)
+		}
+		if strings.Contains(got, "OC_BASE is not set") {
+			t.Errorf("out = %q, want the redirect refused BEFORE the station-address gate ran at all", got)
 		}
 		for _, want := range []string{"/tmp/throwaway.json", "/Users/eva/.claude.json"} {
 			if !strings.Contains(got, want) {

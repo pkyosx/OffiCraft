@@ -689,7 +689,17 @@ func buildCommandDeps(cfg Config, env func(string) string, runner CmdRunner) Com
 			// itself (direct-child containment, symlink refusal) — passing the root
 			// is what lets it do the containment check at all.
 			return spawnDeps.withPerSpawn(
-				func() error { return pretrustWorkdir(claudeJSONPath, workdir) },
+				func(agentEnv []agentEnvPair) error {
+					// The child's HOME is not necessarily this warden's: the
+					// agent env render is sourced before exec claude and may set
+					// it. Judge the write target against THAT HOME, using the
+					// very pairs the launch line sources, or pre-trust lands in
+					// a file nothing reads (realMain's gate cannot see this).
+					if err := claudeJSONReaderGate(claudeJSONPath, env, agentEnv); err != nil {
+						return err
+					}
+					return pretrustWorkdir(claudeJSONPath, workdir)
+				},
 				func() { purgeTrash(spawnDeps.Home, workdir, stderrLogf) },
 			).start(p)
 		},

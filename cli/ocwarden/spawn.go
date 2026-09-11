@@ -854,11 +854,19 @@ func defaultClaudeJSONPath(env func(string) string) string {
 
 // claudeJSONRedirectGate refuses a run whose OC_CLAUDE_JSON names a file other than
 // the $HOME/.claude.json the spawned claude actually reads. The override moves only
-// WHERE pre-trust is written; the child process inherits this warden's HOME, so a
-// divergent pair writes trust into a file with no reader — the trust dialog still
-// fires, the member dies within a second, and pretrustWorkdir reports success. HOME
-// is read through env rather than os.UserHomeDir so the check judges the very
-// environment the child will inherit.
+// WHERE pre-trust is written, so a divergent pair writes trust into a file with no
+// reader — the trust dialog still fires, the member dies within a second, and
+// pretrustWorkdir reports success. HOME is read through env rather than
+// os.UserHomeDir so the check judges the run's own environment.
+//
+// ⚠️ THIS GATE ALONE IS NOT THE GUARANTEE, and reading it as one is how the defect
+// survives: it compares against THIS warden's HOME, and the child's HOME is not
+// this warden's. Nothing refuses a `HOME=` line in the agent env file (agentenv.go
+// rejects only OC_*), and the launch line sources that render BEFORE exec'ing
+// claude — so a spawn can move the reader out from under a pair this gate passed,
+// with OC_CLAUDE_JSON not even set. claudeJSONReaderGate re-judges it per spawn,
+// against the pairs that spawn actually renders. Keep this one anyway: it is the
+// cheap early refusal, before any transport or spawn path exists.
 func claudeJSONRedirectGate(env func(string) string) error {
 	raw := env("OC_CLAUDE_JSON")
 	if raw == "" {
@@ -891,6 +899,43 @@ func normalizeClaudeJSONPath(p, home string) string {
 		}
 	}
 	return filepath.Clean(p)
+}
+
+// effectiveAgentHome returns the HOME the claude child of THIS spawn will run
+// under: the warden's own, unless the agent env render carries a HOME — the
+// launch line sources that file before exec'ing claude, so its value wins. Last
+// pair wins, matching what the rendered `export` lines do to a shell.
+func effectiveAgentHome(env func(string) string, agentEnv []agentEnvPair) string {
+	home := env("HOME")
+	for _, p := range agentEnv {
+		if p.Key == "HOME" {
+			home = p.Value
+		}
+	}
+	return home
+}
+
+// claudeJSONReaderGate is the per-spawn half of the pre-trust guarantee: it
+// refuses to write trust into a file the child of THIS spawn will not read.
+//
+// realMain's claudeJSONRedirectGate can only compare against the warden's own
+// HOME. The child's HOME is whatever the sourced agent env render leaves it as,
+// and a `HOME=` line there is neither rejected nor visible to that early gate —
+// so the writePath can be correct for the warden and wrong for the child, with
+// OC_CLAUDE_JSON unset. Run this immediately before pretrustWorkdir, on the very
+// pairs the launch line sources, and let a mismatch fail the spawn: "pretrust
+// failed aborts the spawn" is the mechanism that already exists.
+func claudeJSONReaderGate(writePath string, env func(string) string, agentEnv []agentEnvPair) error {
+	home := effectiveAgentHome(env, agentEnv)
+	if home == "" {
+		return fmt.Errorf("pre-trust would be written to %q, but this spawn's claude child has an empty HOME, so the file it reads ($HOME/.claude.json) cannot be resolved — set HOME, or drop the HOME line from the agent env file", writePath)
+	}
+	want := normalizeClaudeJSONPath(filepath.Join(home, ".claude.json"), home)
+	got := normalizeClaudeJSONPath(writePath, home)
+	if got != want {
+		return fmt.Errorf("pre-trust would be written to %q, but this spawn's claude child runs with HOME=%s and reads %q — point OC_CLAUDE_JSON at that same file, or drop the HOME line from the agent env file", got, home, want)
+	}
+	return nil
 }
 
 // ---------------------------------------------------------------------------
@@ -986,7 +1031,11 @@ type SpawnDeps struct {
 	// (LOAD-BEARING, mirrors pretrust_launch_cwd). nil in Phase 2 (seam only — Phase
 	// 4 wires the real ~/.claude.json write); a nil seam is skipped, a failing one
 	// aborts the spawn (a live trust gate WOULD eat the nudge → dead-on-boot).
-	Pretrust func() error
+	//
+	// It receives the agent env pairs THIS spawn actually rendered into the file
+	// the launch line sources, because those pairs may carry HOME — and HOME
+	// decides which claude.json the child will read (claudeJSONReaderGate).
+	Pretrust func(agentEnv []agentEnvPair) error
 	// PurgeTrash (T-684c, nil-skipped) reaps <workdir>/trash at spawn time — the
 	// scratch the PREVIOUS generation of this agent mv'd there instead of rm-ing it
 	// (the harness's un-waivable dangerous-rm prompt stands in front of an agent's own rm; see
@@ -1034,7 +1083,7 @@ type SpawnDeps struct {
 // here without a decision. It closes two known shapes and makes the third
 // visible; it does not close the family. The earlier fallback comment in
 // tmuxDeliverNudge claimed a family was closed and was wrong — do not repeat it.
-func (d SpawnDeps) withPerSpawn(pretrust func() error, purgeTrash func()) SpawnDeps {
+func (d SpawnDeps) withPerSpawn(pretrust func(agentEnv []agentEnvPair) error, purgeTrash func()) SpawnDeps {
 	d.Pretrust = pretrust
 	d.PurgeTrash = purgeTrash
 	return d
@@ -1329,6 +1378,10 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 		d.logf("agent env: %s overrides the interactive shell for: %s",
 			d.EnvFile, strings.Join(names, " "))
 	}
+	// The pairs the launch line ACTUALLY sources — empty unless the render below
+	// succeeds. Pretrust judges the child's HOME off exactly this set, so a
+	// failed render must not be judged as though the file were there.
+	var agentEnvApplied []agentEnvPair
 	if pairs := mergeAgentEnv(interactive, fileEnv); len(pairs) > 0 {
 		// 0600: this file holds the credentials the whole feature exists to
 		// deliver. A write failure is NON-FATAL — the agent boots without the
@@ -1337,6 +1390,7 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 			d.logf("agent env: could not write %s (%v); spawning without extra env", renderPath, err)
 		} else {
 			envRendered = renderPath
+			agentEnvApplied = pairs
 			// Names only — proving WHAT was loaded without printing a value.
 			d.logf("agent env: %d var(s) for the agent (%d inherited from the interactive shell, %d from %s): %s",
 				len(pairs), len(interactive), len(fileEnv), d.EnvFile,
@@ -1359,7 +1413,7 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 	// seam nil (Phase 4 wires the real ~/.claude.json write); a nil seam is skipped,
 	// a failing one aborts (better to not-spawn than to spawn a nudge-eaten zombie).
 	if runtimeName == "claude" && d.Pretrust != nil {
-		if err := d.Pretrust(); err != nil {
+		if err := d.Pretrust(agentEnvApplied); err != nil {
 			return SpawnOutcome{OK: false, Reason: fmt.Sprintf(
 				"pretrust_failed: marking workdir trusted in claude.json: %v", err)}
 		}
