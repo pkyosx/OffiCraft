@@ -53,8 +53,11 @@
 #   OC_TASK_SYSTEM_YES=1 bash e2e_test/task_system_e2e.sh
 #
 # PARAMS (env, overridable):
-#   TEST_AGENT          seeded agent member id used as the manual author + a seed
-#                       member for the agent-token floor check (default mira)
+#   TEST_AGENT          seeded ADMIN-role agent member id (role_key 'assistant' →
+#                       principalAdminAgent) used as the manual author and as the
+#                       ALLOW arm of the A1 assignee governance floor (default mira).
+#                       The DENY arm does not use it — A1 hires its own plain
+#                       member for that, because an assistant is above the floor.
 #   OWNER_PASSWORD      deterministic owner password to seed (default: random uuid)
 #   WORKER_MODEL        cheap model the outsource worker runs (default haiku)
 #   WORKER_EFFORT       cheap effort for the outsource worker (default low)
@@ -366,8 +369,8 @@ pass_stage
 # STAGE A — M3 TASK CHAIN (matrix §2 A1-A8; wire contract §A-§D)
 # ===========================================================================
 
-# ── A1: create the synthetic manual + agent-author floor (9111cef) ──────────
-stage "A1. create task-manual '$SYNTH_TYPE' (owner) + assert 9111cef agent-author floor"
+# ── A1: create the synthetic manual + the two author floors ─────────────────
+stage "A1. create task-manual '$SYNTH_TYPE' (owner) + assert the 9111cef agent-author floor and BOTH arms of the assignee governance floor"
 
 # A1.owner — create a blank manual type (owner token). POST /api/task-manuals.
 #   body {type_key}; type_key empty→400, dup→409 (wire §A). Owner may set assignee.
@@ -397,30 +400,63 @@ A1_PATCH="$(api_post_logged "/api/task-manuals/$SYNTH_TYPE" "$A1_CONTENT" || ech
   || fail_stage "PATCH content for $SYNTH_TYPE (owner) returned no DTO — content write rejected"
 log "manual content patched (owner): fields[output_file(key),number] + sop_md"
 
-# A1.floor — the 9111cef agent-author floor: with an AGENT token,
-#   PATCH content OK, but a body carrying `assignee` → 403 (callerMaySetAssignee).
-# Mint an agent-scope token for the seeded TEST_AGENT via POST /api/mint (owner-authed).
-MINT_JSON="$(api_post_logged /api/mint "{\"member_id\":\"$TEST_AGENT\",\"ttl_days\":1}" || echo '{}')"
-AGENT_TOKEN="$(printf '%s' "$MINT_JSON" | json_field token)"
-if [[ -n "$AGENT_TOKEN" ]]; then
-  # (a) agent PATCHing a CONTENT-ONLY body must succeed (agent floor).
-  AF_OK="$(post_as_token "$AGENT_TOKEN" "/api/task-manuals/$SYNTH_TYPE" '{"learnings":"agent-authored note"}')"
-  AF_OK_CODE="${AF_OK##*$'\n'}"
-  [[ "$AF_OK_CODE" =~ ^2[0-9][0-9]$ ]] \
-    || fail_stage "agent-token content PATCH expected 2xx, got $AF_OK_CODE — 9111cef agent-author floor regressed"
-  log "agent-token content PATCH OK (HTTP $AF_OK_CODE) — content-field author floor holds"
-  # (b) agent PATCHing a body that carries `assignee` must be 403.
-  AF_DENY="$(post_as_token "$AGENT_TOKEN" "/api/task-manuals/$SYNTH_TYPE" \
-    "{\"assignee\":{\"kind\":\"outsource\",\"model\":\"$WORKER_MODEL\"}}")"
-  AF_DENY_CODE="${AF_DENY##*$'\n'}"
-  [[ "$AF_DENY_CODE" == "403" ]] \
-    || fail_stage "agent-token PATCH with assignee expected HTTP 403 (callerMaySetAssignee), got $AF_DENY_CODE — owner-only governance floor regressed"
-  log "agent-token PATCH with assignee → HTTP 403 ✓ (owner-only assignee governance holds)"
-else
-  # mint is owner-gated and works for a seed member (mira) on a fresh install
-  # (POST /api/mint {member_id,ttl_days} → {token,...}). No token here is a real failure.
-  fail_stage "POST /api/mint {member_id:$TEST_AGENT,ttl_days:1} returned no .token — mint route/seed-member floor regressed (mint is owner-gated + works for seed member mira on fresh install @9111cef)"
-fi
+# A1.floor — the 9111cef agent-author floor + the T-6020 assignee governance
+#   floor, BOTH arms. The manual CONTENT fields are agent-editable; the
+#   `assignee` face is governance and admits only {owner, admin_agent}
+#   (api_taskmanuals.go callerMaySetAssignee → principalAtLeast(principalAdminAgent)).
+#
+# 🔴 THE DENY ARM NEEDS A PLAIN MEMBER, NOT $TEST_AGENT. A principal class is
+#   derived from the roster row (authz.go classifyMember): role_key=="assistant"
+#   → admin_agent. The seeded $TEST_AGENT (mira) IS the assistant, so it sits
+#   ABOVE this floor and its assignee write is a correct 200 — asserting 403 with
+#   that token made the 403 unreachable and left the rule with no test at all. A
+#   bare hire (name only, no kind/role_key) folds to kind=staff with an empty
+#   role_key → principalAgent, which is the identity the 403 belongs to. It is
+#   hired offline and never activated, so it spawns nothing and burns no token.
+PLAIN_HIRE="$(api_post_logged /api/members "$(py -c '
+import json, sys; print(json.dumps({"name": sys.argv[1]}))' "E2E Plain Member")" || echo '{}')"
+PLAIN_MEMBER="$(printf '%s' "$PLAIN_HIRE" | json_field id)"
+[[ -n "$PLAIN_MEMBER" ]] \
+  || fail_stage "POST /api/members {name} returned no id — the assignee 403 arm has no identity below the governance floor to assert with"
+log "hired plain member id=$PLAIN_MEMBER (bare hire → kind=staff, role_key empty → principalAgent)"
+
+PLAIN_MINT="$(api_post_logged /api/mint "{\"member_id\":\"$PLAIN_MEMBER\",\"ttl_days\":1}" || echo '{}')"
+PLAIN_TOKEN="$(printf '%s' "$PLAIN_MINT" | json_field token)"
+[[ -n "$PLAIN_TOKEN" ]] \
+  || fail_stage "POST /api/mint {member_id:$PLAIN_MEMBER,ttl_days:1} returned no .token — mint is owner-gated and resolves any staff member, so a hired member must mint"
+
+ADMIN_MINT="$(api_post_logged /api/mint "{\"member_id\":\"$TEST_AGENT\",\"ttl_days\":1}" || echo '{}')"
+ADMIN_TOKEN="$(printf '%s' "$ADMIN_MINT" | json_field token)"
+[[ -n "$ADMIN_TOKEN" ]] \
+  || fail_stage "POST /api/mint {member_id:$TEST_AGENT,ttl_days:1} returned no .token — mint route/seed-member floor regressed (mint is owner-gated + works for the seeded assistant on a fresh install @9111cef)"
+
+# (a) a PLAIN member PATCHing a CONTENT-ONLY body must succeed (agent floor).
+AF_OK="$(post_as_token "$PLAIN_TOKEN" "/api/task-manuals/$SYNTH_TYPE" '{"learnings":"agent-authored note"}')"
+AF_OK_CODE="${AF_OK##*$'\n'}"
+[[ "$AF_OK_CODE" =~ ^2[0-9][0-9]$ ]] \
+  || fail_stage "plain-member content PATCH expected 2xx, got $AF_OK_CODE — 9111cef agent-author floor regressed"
+log "plain-member content PATCH OK (HTTP $AF_OK_CODE) — content-field author floor holds"
+
+# (b) DENY arm: the SAME member PATCHing a body that carries `assignee` → 403.
+AF_ASSIGNEE="{\"assignee\":{\"kind\":\"outsource\",\"model\":\"$WORKER_MODEL\"}}"
+AF_DENY="$(post_as_token "$PLAIN_TOKEN" "/api/task-manuals/$SYNTH_TYPE" "$AF_ASSIGNEE")"
+AF_DENY_CODE="${AF_DENY##*$'\n'}"
+[[ "$AF_DENY_CODE" == "403" ]] \
+  || fail_stage "plain-member PATCH with assignee expected HTTP 403 (callerMaySetAssignee), got $AF_DENY_CODE — the assignee governance floor regressed"
+log "plain-member PATCH with assignee → HTTP 403 ✓ (below the governance floor)"
+
+# (c) ALLOW arm: the SAME body from an ADMIN AGENT ($TEST_AGENT — NOT the owner) lands,
+#   and the 200 is read back so a no-op cannot pass as a write. Without this arm
+#   (b) is equally satisfied by a server that refuses every non-owner assignee
+#   write, which is not the floor T-6020 set.
+AF_ADMIN="$(post_as_token "$ADMIN_TOKEN" "/api/task-manuals/$SYNTH_TYPE" "$AF_ASSIGNEE")"
+AF_ADMIN_CODE="${AF_ADMIN##*$'\n'}"
+[[ "$AF_ADMIN_CODE" =~ ^2[0-9][0-9]$ ]] \
+  || fail_stage "admin-agent ($TEST_AGENT) PATCH with assignee expected 2xx, got $AF_ADMIN_CODE — the admin_agent arm of the T-6020 assignee floor regressed"
+AF_ADMIN_KIND="$(api_get "/api/task-manuals/$SYNTH_TYPE" 2>/dev/null | py -c 'import sys,json; a=json.load(sys.stdin).get("assignee") or {}; print(a.get("kind",""))' 2>/dev/null || echo '')"
+[[ "$AF_ADMIN_KIND" == "outsource" ]] \
+  || fail_stage "admin-agent assignee PATCH answered $AF_ADMIN_CODE but GET assignee.kind='$AF_ADMIN_KIND' — the 2xx wrote nothing"
+log "admin-agent PATCH with assignee → HTTP $AF_ADMIN_CODE + persisted ✓ (floor = {owner, admin_agent})"
 pass_stage
 
 # ── A2: owner sets outsourcing on the manual ────────────────────────────────
@@ -561,7 +597,7 @@ stage "A7a. every step reported done → task parks in ready_for_done (NOT done,
 #   entirely: it drives the steps itself over REST, with NO worker anywhere, and
 #   then simply LOOKS. A server that still auto-closes answers `done` here and
 #   this stage is red; a server that parks answers `ready_for_done`.
-#   Reuses the mira-executor task machinery D2 sets up, but its own throwaway task.
+#   Reuses the $TEST_AGENT-executor task machinery D2 sets up, but its own throwaway task.
 A7A_BODY="$(py -c '
 import json, sys
 print(json.dumps({"title": "E2E ready_for_done park check", "executor_member_id": sys.argv[1]}))
@@ -685,8 +721,8 @@ pass_stage
 stage "D2. parallel_group illegal plan shapes → HTTP 400 (gate-in-group / split-group / one-lane) via EXECUTOR token"
 # @9111cef: the plan endpoint checks the EXECUTOR guard BEFORE shape validation — an OWNER
 #   token that is NOT the task's executor gets 403 and never reaches the 400 shape check.
-#   So create an AD-HOC task whose executor_member_id = a seed member (mira), mint THAT
-#   member's agent token, and POST the 3 illegal plans as MIRA's token → assert 400 each.
+#   So create an AD-HOC task whose executor_member_id = $TEST_AGENT, mint THAT
+#   member's agent token, and POST the 3 illegal plans as that token → assert 400 each.
 #   (Zero worker spawn — API only.)
 D2_TASK_BODY="$(py -c '
 import json, sys
@@ -695,13 +731,13 @@ print(json.dumps({"title": "E2E plan-shape negative harness", "executor_member_i
 D2_TASK="$(api_post_logged /api/tasks "$D2_TASK_BODY" || echo '{}')"
 D2_TID="$(task_field "$D2_TASK" task_id)"
 [[ -n "$D2_TID" ]] || fail_stage "could not create the throwaway task for D2 plan-shape negatives"
-# Mint the EXECUTOR (mira) token so the plan POSTs pass the executor guard and reach shape validation.
+# Mint the EXECUTOR ($TEST_AGENT) token so the plan POSTs pass the executor guard and reach shape validation.
 D2_MINT="$(api_post_logged /api/mint "{\"member_id\":\"$TEST_AGENT\",\"ttl_days\":1}" || echo '{}')"
 D2_EXEC_TOKEN="$(printf '%s' "$D2_MINT" | json_field token)"
 [[ -n "$D2_EXEC_TOKEN" ]] \
   || fail_stage "could not mint executor ($TEST_AGENT) token for D2 — plan POSTs would hit the 403 executor guard before the 400 shape check"
 
-# post_plan_as_exec JSON WANT LABEL — POST a plan as the EXECUTOR (mira) token; assert HTTP == WANT.
+# post_plan_as_exec JSON WANT LABEL — POST a plan as the EXECUTOR ($TEST_AGENT) token; assert HTTP == WANT.
 post_plan_as_exec() {
   local json="$1" want="$2" label="$3" resp code
   resp="$(post_as_token "$D2_EXEC_TOKEN" "/api/tasks/$D2_TID/plan" "$json")"
@@ -761,7 +797,7 @@ print(json.dumps({"steps": [
   {"name": "join-sum", "parallel_group": "", "dod": "read all lanes + write sum (15)"},
 ]}))
 ')"
-# D1 also posts to the mira-executor task ($D2_TID), so it MUST go through the executor token.
+# D1 also posts to the $TEST_AGENT-executor task ($D2_TID), so it MUST go through the executor token.
 post_plan_as_exec "$D1_PLAN" 200 "D1.legal-plan" \
   || fail_stage "legal 3-lane+join plan was NOT accepted 200 — ValidatePlanParallelShape false-rejected the happy shape"
 # roundtrip: GET the task and assert task.steps carries the 3 same-group lanes + the join.
