@@ -3,11 +3,13 @@ package main
 import (
 	"bytes"
 	"context"
-
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"sync"
@@ -928,6 +930,111 @@ func TestRealMain(t *testing.T) {
 		want := "[ocwarden] run: no OC_TOKEN/OC_ID — nothing to report; exiting.\n"
 		if rc != 0 || out.String() != want {
 			t.Errorf("rc = %d, out = %q, want 0 and %q", rc, out.String(), want)
+		}
+	})
+}
+
+// execProbeSource is one extra file for the ocwarden package, compiled into a
+// NON-TEST binary so it may reach the real exec seam. It runs exactly one
+// execRunner call and prints what came back.
+const execProbeSource = `package main
+
+import (
+	"fmt"
+	"os"
+	"time"
+)
+
+func init() {
+	if os.Getenv("OCWARDEN_EXECPROBE") != "1" {
+		return
+	}
+	r := execRunner{timeout: 5 * time.Second}
+	out, err := r.RunCombined(os.Args[2], os.Args[3:]...)
+	if os.Args[1] == "plain" {
+		out, err = r.Run(os.Args[2], os.Args[3:]...)
+	}
+	fmt.Printf("OUT<<<%s>>>ERR<<<%v>>>", out, err)
+	os.Exit(0)
+}
+`
+
+// buildExecProbe compiles the ocwarden package WITH execProbeSource added to it
+// and returns the binary's path.
+//
+// Why a built binary and not the re-exec'd child TestRefuseInTestBinary uses:
+// that child is still a `go test` binary, so testing.Testing() is true in it and
+// refuseInTestBinary kills it before exec.Command runs. That guard is the reason
+// execRunner.RunCombined had never been EXECUTED by anything — a mutant giving it
+// back Run's drop-the-output-on-a-non-zero-exit semantics left the whole suite
+// passing while every production spawn was refused with "claude said: (nothing)".
+//
+// `go build -overlay` adds the file to the real package directory as the compiler
+// sees it, so what runs is the shipped source of execRunner, not a copy of it.
+func buildExecProbe(t *testing.T) string {
+	t.Helper()
+	pkg, err := filepath.Abs(".")
+	if err != nil {
+		t.Fatalf("resolve package dir: %v", err)
+	}
+	box := t.TempDir()
+	src := filepath.Join(box, "execprobe.go")
+	if err := os.WriteFile(src, []byte(execProbeSource), 0o600); err != nil {
+		t.Fatalf("write probe source: %v", err)
+	}
+	overlay := filepath.Join(box, "overlay.json")
+	spec, err := json.Marshal(map[string]any{
+		"Replace": map[string]string{filepath.Join(pkg, "zz_execprobe_overlay.go"): src},
+	})
+	if err != nil {
+		t.Fatalf("marshal overlay: %v", err)
+	}
+	if err := os.WriteFile(overlay, spec, 0o600); err != nil {
+		t.Fatalf("write overlay: %v", err)
+	}
+	bin := filepath.Join(box, "execprobe")
+	build := exec.Command("go", "build", "-overlay="+overlay, "-o", bin, ".")
+	build.Dir = pkg
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build the non-test probe binary: %v\n%s", err, out)
+	}
+	return bin
+}
+
+func TestExecRunnerRunCombined(t *testing.T) {
+	probe := buildExecProbe(t)
+	// The production question, in the production shape: `claude mcp get <absent
+	// name>` exits 1 and puts its answer on stderr.
+	const answer = "Configured servers: oc-pretrust-probe-42"
+	ask := func(t *testing.T, mode string) string {
+		t.Helper()
+		cmd := exec.Command(probe, mode, "/bin/sh", "-c",
+			`printf %s `+"'"+answer+"'"+` >&2; exit 1`)
+		cmd.Env = append(os.Environ(), "OCWARDEN_EXECPROBE=1")
+		out, err := cmd.Output()
+		if err != nil {
+			t.Fatalf("run the probe (%s): %v", mode, err)
+		}
+		return string(out)
+	}
+
+	t.Run("an answer written to stderr by a command that exits 1 is returned", func(t *testing.T) {
+		got := ask(t, "combined")
+		if want := "OUT<<<" + answer + ">>>"; !strings.Contains(got, want) {
+			t.Errorf("RunCombined gave %s, want it to contain %s — the pre-trust probe reads its verdict out of this string, and an empty one refuses every spawn", got, want)
+		}
+		if want := "ERR<<<exit status 1>>>"; !strings.Contains(got, want) {
+			t.Errorf("RunCombined gave %s, want it to still report %s", got, want)
+		}
+	})
+
+	t.Run("the plain seam still drops that same answer", func(t *testing.T) {
+		got := ask(t, "plain")
+		if !strings.Contains(got, "OUT<<<>>>") {
+			t.Errorf("Run gave %s, want an empty output — every other caller in the binary classifies the error and must keep that behaviour", got)
+		}
+		if !strings.Contains(got, answer) {
+			t.Errorf("Run gave %s, want the stderr folded into the error text", got)
 		}
 	})
 }

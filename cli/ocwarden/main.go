@@ -215,9 +215,11 @@ type CombinedCmdRunner interface {
 type execRunner struct{ timeout time.Duration }
 
 // newCmdRunner is the SINGLE production construction point for the real exec
-// runner, and — like newHostSeam (install.go) — it is a package-level var so the
-// test binary can rebind it in TestMain (hostseam_test.go). Production code must
-// obtain its runner from here, never by writing `execRunner{…}` inline.
+// runner, and — like newHostSeam (install.go) — it is a package-level var so a
+// test CAN rebind it. Nothing in this tree does; what actually stops a test binary
+// from reaching a real process is the refusal inside Run/RunCombined below.
+// Production code must obtain its runner from here, never by writing
+// `execRunner{…}` inline.
 var newCmdRunner = func(timeout time.Duration) CombinedCmdRunner { return execRunner{timeout: timeout} }
 
 // Run execs one argv. THIS IS THE PROCESS CHOKE POINT OF THE WHOLE BINARY: every
@@ -227,10 +229,10 @@ var newCmdRunner = func(timeout time.Duration) CombinedCmdRunner { return execRu
 //
 // WHY refuseInTestBinary IS HERE AND NOT ONLY ON THE SEAM CONSTRUCTORS
 // -------------------------------------------------------------------
-// The static guards in hostseam_test.go pin two IDENTIFIERS (realSysOps,
+// An earlier tree had static guards pinning two IDENTIFIERS (realSysOps,
 // realHostSeam). Independent review defeated them with a mutant that never
 // writes either name: an inline `sysOps{run: execRunner{…}.Run, rename: os.Rename,
-// …}` composite literal in teardownCmd. All the source scans stayed green, no
+// …}` composite literal in teardownCmd. Every source scan stayed green, no
 // refusal fired, and the test binary issued a REAL
 // `launchctl bootout gui/<uid>/com.officraft.ocwarden` against the developer
 // machine's live warden — the runtime tests then failed, but only afterwards
@@ -239,7 +241,10 @@ var newCmdRunner = func(timeout time.Duration) CombinedCmdRunner { return execRu
 // A guard on the seam CONSTRUCTORS can always be routed around, because a caller
 // can assemble the struct itself. A guard on the exec syscall cannot: however the
 // struct was assembled, the subprocess still has to be started here. So a test
-// binary that reaches a real exec dies here, before exec.Command runs.
+// binary that reaches a real exec dies here, before exec.Command runs. Those static
+// guards are no longer in the tree, which makes this the only layer left — and the
+// reason a test that needs to OBSERVE Run/RunCombined has to build a non-test binary
+// to do it (TestExecRunnerRunCombined).
 func (r execRunner) Run(name string, args ...string) (string, error) {
 	refuseInTestBinary("execRunner.Run(" + name + ")")
 	to := r.timeout

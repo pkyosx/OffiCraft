@@ -846,6 +846,31 @@ func TestPretrustWorkdir(t *testing.T) {
 		}
 	})
 
+	t.Run("a workdir reached through a symlink is trusted under the path claude resolves", func(t *testing.T) {
+		box, err := filepath.EvalSymlinks(t.TempDir())
+		if err != nil {
+			t.Fatalf("resolve tempdir: %v", err)
+		}
+		real := filepath.Join(box, "real", "m1")
+		if err := os.MkdirAll(real, 0o700); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+		if err := os.Symlink(filepath.Join(box, "real"), filepath.Join(box, "link")); err != nil {
+			t.Fatalf("symlink: %v", err)
+		}
+		path := filepath.Join(box, ".claude.json")
+		if err := pretrustWorkdir(path, filepath.Join(box, "link", "m1")); err != nil {
+			t.Fatalf("err = %v, want nil", err)
+		}
+		got := read(t, path)
+		if !strings.Contains(got, `"`+real+`": {`) {
+			t.Errorf("the trusted key must be the resolved path %s — claude looks up the cwd it resolves, so a literal key is written where it never reads. got\n%s", real, got)
+		}
+		if strings.Contains(got, filepath.Join(box, "link")) {
+			t.Errorf("the literal symlink path is not a key claude ever looks up:\n%s", got)
+		}
+	})
+
 	t.Run("an unreadable file is surfaced, never clobbered", func(t *testing.T) {
 		dir := t.TempDir()
 		if err := pretrustWorkdir(dir, "/w/m1"); err == nil {
