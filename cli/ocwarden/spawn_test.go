@@ -741,6 +741,88 @@ func TestDefaultClaudeJSONPath(t *testing.T) {
 	}
 }
 
+func TestClaudeJSONRedirectGate(t *testing.T) {
+	home := "/Users/eva"
+	envOf := func(claudeJSON, home string) func(string) string {
+		return func(k string) string {
+			switch k {
+			case "OC_CLAUDE_JSON":
+				return claudeJSON
+			case "HOME":
+				return home
+			}
+			return ""
+		}
+	}
+
+	t.Run("unset lets the run through", func(t *testing.T) {
+		if err := claudeJSONRedirectGate(envOf("", home)); err != nil {
+			t.Errorf("err = %v, want nil", err)
+		}
+	})
+
+	t.Run("unset lets the run through even without HOME", func(t *testing.T) {
+		if err := claudeJSONRedirectGate(envOf("", "")); err != nil {
+			t.Errorf("err = %v, want nil", err)
+		}
+	})
+
+	t.Run("the same file under any spelling lets the run through", func(t *testing.T) {
+		cwd, err := os.Getwd()
+		if err != nil {
+			t.Fatalf("getwd: %v", err)
+		}
+		spellings := []struct {
+			name       string
+			claudeJSON string
+			home       string
+		}{
+			{"literal", "/Users/eva/.claude.json", home},
+			{"tilde", "~/.claude.json", home},
+			{"uncleaned", "/Users/eva/x/../.claude.json", home},
+			{"trailing slash on HOME", "/Users/eva/.claude.json", "/Users/eva/"},
+			{"relative to the cwd", ".claude.json", cwd},
+		}
+		for _, c := range spellings {
+			if err := claudeJSONRedirectGate(envOf(c.claudeJSON, c.home)); err != nil {
+				t.Errorf("%s: err = %v, want nil", c.name, err)
+			}
+		}
+	})
+
+	t.Run("a different file is refused naming both paths", func(t *testing.T) {
+		err := claudeJSONRedirectGate(envOf("/tmp/throwaway.json", home))
+		if err == nil {
+			t.Fatal("a redirect away from $HOME/.claude.json must be refused")
+		}
+		for _, want := range []string{"/tmp/throwaway.json", "/Users/eva/.claude.json"} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("err = %q, want it to name %q", err, want)
+			}
+		}
+	})
+
+	t.Run("another home's claude.json is refused", func(t *testing.T) {
+		err := claudeJSONRedirectGate(envOf("/Users/seth/.claude.json", home))
+		if err == nil {
+			t.Fatal("another user's claude.json must be refused")
+		}
+		if !strings.Contains(err.Error(), "/Users/seth/.claude.json") || !strings.Contains(err.Error(), "/Users/eva/.claude.json") {
+			t.Errorf("err = %q, want it to name both paths", err)
+		}
+	})
+
+	t.Run("an empty HOME cannot prove the pair and is refused", func(t *testing.T) {
+		err := claudeJSONRedirectGate(envOf("/tmp/throwaway.json", ""))
+		if err == nil {
+			t.Fatal("an unresolvable $HOME/.claude.json must be refused, not assumed equal")
+		}
+		if !strings.Contains(err.Error(), "/tmp/throwaway.json") || !strings.Contains(err.Error(), "HOME is empty") {
+			t.Errorf("err = %q, want the empty-HOME refusal naming the override", err)
+		}
+	})
+}
+
 func TestWithPerSpawn(t *testing.T) {
 	baseClock := 0
 	basePretrust := 0

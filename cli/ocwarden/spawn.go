@@ -852,6 +852,47 @@ func defaultClaudeJSONPath(env func(string) string) string {
 	return filepath.Join(home, ".claude.json")
 }
 
+// claudeJSONRedirectGate refuses a run whose OC_CLAUDE_JSON names a file other than
+// the $HOME/.claude.json the spawned claude actually reads. The override moves only
+// WHERE pre-trust is written; the child process inherits this warden's HOME, so a
+// divergent pair writes trust into a file with no reader — the trust dialog still
+// fires, the member dies within a second, and pretrustWorkdir reports success. HOME
+// is read through env rather than os.UserHomeDir so the check judges the very
+// environment the child will inherit.
+func claudeJSONRedirectGate(env func(string) string) error {
+	raw := env("OC_CLAUDE_JSON")
+	if raw == "" {
+		return nil
+	}
+	home := env("HOME")
+	if home == "" {
+		return fmt.Errorf("OC_CLAUDE_JSON=%q is set but HOME is empty, so the file claude reads ($HOME/.claude.json) cannot be resolved — pre-trust would land where nothing reads it. Set HOME, or unset OC_CLAUDE_JSON", raw)
+	}
+	want := normalizeClaudeJSONPath(filepath.Join(home, ".claude.json"), home)
+	got := normalizeClaudeJSONPath(raw, home)
+	if got != want {
+		return fmt.Errorf("OC_CLAUDE_JSON points at a file nothing reads: pre-trust would be written to %q, but the claude child inherits HOME=%s and reads %q. Point OC_CLAUDE_JSON at that same file, move HOME with it, or unset OC_CLAUDE_JSON", got, home, want)
+	}
+	return nil
+}
+
+// normalizeClaudeJSONPath expands a leading ~, resolves a relative path against the
+// process cwd, and cleans the result, so two spellings of one file compare equal.
+func normalizeClaudeJSONPath(p, home string) string {
+	switch {
+	case p == "~":
+		p = home
+	case strings.HasPrefix(p, "~/"):
+		p = filepath.Join(home, p[2:])
+	}
+	if !filepath.IsAbs(p) {
+		if abs, err := filepath.Abs(p); err == nil {
+			p = abs
+		}
+	}
+	return filepath.Clean(p)
+}
+
 // ---------------------------------------------------------------------------
 // the spawn mechanism — receives the server-downpushed start params, executes.
 // ---------------------------------------------------------------------------
