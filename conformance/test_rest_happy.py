@@ -130,6 +130,38 @@ class HCtx:
     fresh_machine: Callable[[], str]
     fresh_role: Callable[[], str]
     _attachment: tuple[str, bytes] | None = field(default=None, repr=False)
+    _theme_avatar: tuple[str, str] | None = field(default=None, repr=False)
+
+    def theme_avatar(self) -> tuple[str, str]:
+        """Lazily seed ONE theme carrying a one-image member pool, and return
+        ``(theme_id, icon_id)``.
+
+        The icon id is READ BACK from the echo rather than computed here: the
+        server derives it from the image bytes, and a locally invented id is
+        exactly the unresolvable selection the route must refuse."""
+        if self._theme_avatar is None:
+            image = "data:image/png;base64," + base64.b64encode(_PNG_BYTES).decode()
+            r = self.client.put(
+                "/api/themes/conf-theme-avatar",
+                json={
+                    "id": "conf-theme-avatar",
+                    "name": "conformance",
+                    "colors": {"--color-bg": "#000000"},
+                    "avatarPools": {"member": [{"image": image}]},
+                },
+                headers=_auth(self.owner_token),
+            )
+            r.raise_for_status()
+            stored = self.client.get(
+                "/api/themes/conf-theme-avatar", headers=_auth(self.owner_token)
+            )
+            stored.raise_for_status()
+            pool = stored.json()["avatarPools"]["member"]
+            object.__setattr__(
+                self, "_theme_avatar", ("conf-theme-avatar", pool[0]["id"])
+            )
+        assert self._theme_avatar is not None
+        return self._theme_avatar
     _put_theme_id: str | None = field(default=None, repr=False)
     _avatar_to_delete_url: str | None = field(default=None, repr=False)
 
@@ -257,7 +289,7 @@ _RELOCATE_KEYS = {"id", "relocation_pending", "relocation_deferred"}
 # a CEILING: `compaction_count` is the one omitempty on outsourceWorkerDTO.
 _MEMBER_READ_KEYS = {
     "actual_effort", "actual_machine", "actual_model", "actual_runtime",
-    "avatar_url", "desired_machine_id", "desired_state", "effort",
+    "avatar_icon_id", "desired_machine_id", "desired_state", "effort",
     "forced_stop_at", "id", "kind", "last_op", "last_op_at", "last_op_log",
     "last_op_ok", "last_op_reason", "machine", "model", "name", "owner_id",
     "presence", "refocus_deadline", "refocus_op", "refocus_since", "role_key",
@@ -266,7 +298,7 @@ _MEMBER_READ_KEYS = {
 }
 _WORKER_READ_KEYS = {
     "account", "actual_effort", "actual_machine", "actual_model",
-    "actual_runtime", "avatar_url", "banked_cost", "codename",
+    "actual_runtime", "avatar_icon_id", "banked_cost", "codename",
     "compaction_count", "context_pct", "cost", "created_ts", "creator_id",
     "delegated_by", "desired_machine_id", "desired_state", "effort", "id",
     "last_op", "last_op_at", "last_op_log", "last_op_ok", "last_op_reason",
@@ -542,41 +574,6 @@ def _check_upload_ref(ctx: HCtx, r: httpx.Response) -> None:
 def _check_attachment_roundtrip(ctx: HCtx, r: httpx.Response) -> None:
     _att_id, payload = ctx.attachment()
     assert r.content == payload, "attachment bytes did not round-trip"
-
-
-def _seeded_avatar_delete_path(ctx: HCtx) -> str:
-    """Give the DELETE happy row its own precondition.
-
-    Parametrized route order is not a contract, so the adjacent PUT row cannot
-    be the setup: without this seed a broken no-op DELETE still answers the
-    same empty avatar_url and the conformance row stays green.
-    """
-    path = f"/api/members/{ctx.agent.member_id}/avatar"
-    seeded = ctx.client.put(
-        path + "?filename=conf-delete.png&mime=image/png",
-        content=_PNG_BYTES,
-        headers=_auth(ctx.owner_token),
-    )
-    assert seeded.status_code == 200, f"avatar delete seed failed: {seeded.text}"
-    url = seeded.json()["avatar_url"]
-    assert url.startswith("/api/chat/attachment/ava-"), seeded.json()
-    ctx._avatar_to_delete_url = url
-    return path
-
-
-def _check_avatar_delete(ctx: HCtx, r: httpx.Response) -> None:
-    data = r.json()
-    assert data["member_id"] == ctx.agent.member_id and data["avatar_url"] == "", data
-    assert ctx._avatar_to_delete_url is not None, "DELETE row ran without its seed"
-    old = ctx.client.get(
-        ctx._avatar_to_delete_url,
-        headers=_auth(ctx.owner_token),
-    )
-    assert old.status_code == 404, (
-        f"DELETE left its previously referenced blob reachable: "
-        f"{old.status_code} {old.text[:200]}"
-    )
-    ctx._avatar_to_delete_url = None
 
 
 def _check_bootstrap_preview(_ctx: HCtx, r: httpx.Response) -> None:
@@ -2210,21 +2207,18 @@ HAPPY: dict[str, Happy] = {
             _LIFECYCLE_KEYS, lambda _c, d: d["name"] == "conf-happy-renamed"
         ),
     ),
-    "PUT /api/members/{member_id}/avatar": Happy(
-        path=lambda ctx: f"/api/members/{ctx.agent.member_id}/avatar"
-        "?filename=conf-avatar.png&mime=image/png",
-        body=_PNG_BYTES,
+    "PUT /api/members/{member_id}/theme-avatar": Happy(
+        path=lambda ctx: f"/api/members/{ctx.agent.member_id}/theme-avatar",
+        body=lambda ctx: {
+            "theme_id": ctx.theme_avatar()[0],
+            "icon_id": ctx.theme_avatar()[1],
+        },
         check=lambda ctx, r: _expect(
             r,
             lambda d: d["member_id"] == ctx.agent.member_id
-            and d["avatar_url"].startswith("/api/chat/attachment/ava-")
-            and d["mime"] == "image/png"
-            and d["filename"] == "conf-avatar.png",
+            and d["theme_id"] == ctx.theme_avatar()[0]
+            and d["icon_id"] == ctx.theme_avatar()[1],
         ),
-    ),
-    "DELETE /api/members/{member_id}/avatar": Happy(
-        path=_seeded_avatar_delete_path,
-        check=_check_avatar_delete,
     ),
     "POST /api/members/{member_id}/activate": Happy(
         path=lambda ctx: f"/api/members/{ctx.fresh_member()}/activate",

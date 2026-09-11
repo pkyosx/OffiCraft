@@ -116,6 +116,24 @@ function wordingSearch(utils: ReturnType<typeof render>): HTMLElement {
   return el as HTMLElement;
 }
 
+/**
+ * The avatar pool modal. Fetched structurally for the same reason as
+ * wordingSearch: it only ever opens over the edit view, so a role query for it
+ * scans all 866 用詞 rows. Its accessible name is ASSERTED instead — the
+ * aria-labelledby binding keeps a witness at O(1).
+ */
+function avatarPoolModal(
+  utils: ReturnType<typeof render>,
+  title: string = s.themeAvatarMember
+): HTMLElement {
+  const el = utils.container.querySelector(".ts-avatar-modal");
+  if (!el) throw new Error("no .ts-avatar-modal open");
+  expect(el.getAttribute("role")).toBe("dialog");
+  const labelledBy = el.getAttribute("aria-labelledby");
+  expect(el.querySelector(`#${labelledBy}`)?.textContent).toBe(title);
+  return el as HTMLElement;
+}
+
 /** 儲存 / 取消 — two buttons, so a role query over them is cheap. */
 function formActions(utils: ReturnType<typeof render>): HTMLElement {
   const el = utils.container.querySelector(".ts-form-actions");
@@ -901,6 +919,129 @@ describe("ThemeSettings · outer-canvas background", () => {
         )?.textContent
       ).toBe(s.themeAvatarInvalid)
     );
+  });
+});
+
+describe("ThemeSettings · avatar pools", () => {
+  const pngData = (tail: number) =>
+    "data:image/png;base64," +
+    btoa(
+      String.fromCharCode(
+        0x89,
+        0x50,
+        0x4e,
+        0x47,
+        0x0d,
+        0x0a,
+        0x1a,
+        0x0a,
+        tail,
+      ),
+    );
+
+  async function choosePng(input: HTMLElement, tail: number) {
+    const file = new File(
+      [
+        new Uint8Array([
+          0x89,
+          0x50,
+          0x4e,
+          0x47,
+          0x0d,
+          0x0a,
+          0x1a,
+          0x0a,
+          tail,
+        ]),
+      ],
+      `avatar-${tail}.png`,
+      { type: "image/png" },
+    );
+    await act(async () => {
+      fireEvent.change(input, { target: { files: [file] } });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  }
+
+  it("manages pool images in a grid modal without exposing reorder controls", async () => {
+    setToken("owner-token");
+    const utils = await renderManage();
+    await importBundle(utils, {
+      id: "portraits",
+      name: "人物池",
+      colors: { "--color-accent": "#0b1020" },
+      avatarPools: { member: [pngData(1), pngData(2)] },
+    });
+    fireEvent.click(await utils.findByLabelText(`${p.themeEdit} 人物池`));
+    // T-83ef: editing fetches that theme's bundle first, so the edit view — and
+    // the avatar slots on it — land one round trip after the click.
+    await waitFor(() =>
+      expect(utils.container.querySelector(".ts-avatar-slots")).not.toBeNull(),
+    );
+
+    // Every query below is scoped to a handful of elements. The edit view has
+    // the 866-row 用詞 list mounted, so a label or role query over the whole
+    // container is the O(N²) case that costs ~16s each — see the helpers above.
+    const slots = imageSlots(utils, s.themeAvatarMember);
+    const input = within(slots).getByLabelText(s.themeAvatarMember);
+    const slot = input.closest(".ts-avatar-slot") as HTMLElement | null;
+    if (!slot) throw new Error("member avatar slot missing");
+
+    const manageButton = within(slot).getByRole("button", {
+      name: s.themeAvatarManage,
+    });
+    fireEvent.click(manageButton);
+    const modal = avatarPoolModal(utils);
+    expect(modal.querySelectorAll(".ts-avatar-grid__item")).toHaveLength(2);
+    expect(
+      within(modal).queryByRole("button", { name: /圖片上移/ }),
+    ).toBeNull();
+
+    fireEvent.click(
+      within(modal).getByRole("button", {
+        name: `${s.themeAvatarReplace} 2`,
+      }),
+    );
+    await choosePng(input, 3);
+    fireEvent.click(
+      within(modal).getByRole("button", {
+        name: `${s.themeAvatarRemove} 1`,
+      }),
+    );
+
+    fireEvent.click(
+      within(modal).getByRole("button", { name: s.themeAvatarAdd }),
+    );
+    await choosePng(input, 4);
+    fireEvent.click(
+      within(modal).getByRole("button", { name: s.themeAvatarDone }),
+    );
+
+    fireEvent.click(manageButton);
+    fireEvent.keyDown(window, { key: "Escape" });
+    await act(
+      () =>
+        new Promise<void>((resolve) => {
+          requestAnimationFrame(() => resolve());
+        }),
+    );
+    expect(utils.container.querySelector(".ts-avatar-modal")).toBeNull();
+    expect(document.activeElement).toBe(manageButton);
+
+    clickSave(utils);
+
+    // The save is fire-and-forget and the write path derives each item's id
+    // from its bytes, so poll rather than reading once: a single microtask is
+    // not enough for that chain to settle.
+    await waitFor(async () => {
+      const bundle = await api.getTheme("portraits");
+      // Each item carries the stable identity a member's selection points at,
+      // so removing one image can never rebind a member to another.
+      expect(bundle?.avatarPools?.member).toEqual([
+        { id: expect.stringMatching(/^icn-[0-9a-f]{12}$/), image: pngData(3) },
+        { id: expect.stringMatching(/^icn-[0-9a-f]{12}$/), image: pngData(4) },
+      ]);
+    });
   });
 });
 

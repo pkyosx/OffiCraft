@@ -54,7 +54,7 @@ import { isHttpStatus } from "../api/errors";
 import { useMembers } from "../hooks/useMembers";
 import { useReplyCards } from "../hooks/useReplyCards";
 import {
-  useWorkerAvatarUrls,
+  useWorkerAvatarIconIds,
   useWorkerCodenames,
 } from "../hooks/useWorkerCodenames";
 import { useHashRoute } from "../lib/hashRoute";
@@ -562,7 +562,7 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   // so a live worker that IS in `members` takes this path as well.
   const workerIds = [...waiting, ...handled].map((c) => c.from);
   const codenames = useWorkerCodenames(workerIds);
-  const workerAvatarUrls = useWorkerAvatarUrls(workerIds);
+  const workerAvatarIconIds = useWorkerAvatarIconIds(workerIds);
 
   // Resolve the initiating member for a card's identity row. A card can
   // outlive its member (removed roster row) — fall back to the outsource
@@ -772,10 +772,7 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
       <header className="reply-card__head">
         <ReplyCardAvatarButton
           onClick={() => openProfile(row)}
-          src={
-            (asker?.kind === "outsource" ? undefined : asker?.avatarUrl) ??
-            workerAvatarUrls.get(row.from)
-          }
+          avatarIconId={asker?.avatarIconId ?? workerAvatarIconIds.get(row.from)}
           kind={avatarKindForMember(
             asker ?? { id: row.from }
           )}

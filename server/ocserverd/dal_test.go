@@ -499,7 +499,6 @@ func TestSetMemberOpReceipt(t *testing.T) {
 func TestHardDeleteMember(t *testing.T) {
 	d := newAPITestDAL(t)
 	ann := dalTestMember("ann", "Ann")
-	ann.AvatarAttachmentID = "blob-ann"
 	dalPutMember(t, d, ann)
 	bob := dalPutMember(t, d, dalTestMember("bob", "Bob"))
 	for _, id := range []string{"blob-ann", "blob-loose"} {
@@ -518,8 +517,10 @@ func TestHardDeleteMember(t *testing.T) {
 	if got, err := d.GetMember("ann"); err != nil || got != nil {
 		t.Fatalf("HardDeleteMember must remove the row, got %+v, %v", got, err)
 	}
-	if got, err := d.GetChatAttachment("blob-ann"); err != nil || got != nil {
-		t.Fatalf("HardDeleteMember must collect the dedicated avatar blob, got %+v, %v", got, err)
+	// A member row references no blob any more (the personal-avatar pointer is
+	// retired), so a hard delete collects nothing from the attachment table.
+	if got, err := d.GetChatAttachment("blob-ann"); err != nil || got == nil {
+		t.Fatalf("HardDeleteMember must leave unrelated blobs alone, got %+v, %v", got, err)
 	}
 	loose, err := d.GetChatAttachment("blob-loose")
 	if err != nil {
@@ -1368,13 +1369,12 @@ func TestRefIDsFromJSON(t *testing.T) {
 
 func TestDeleteChatInvolving(t *testing.T) {
 	d := newAPITestDAL(t)
-	dalPutBlobs(t, d, "att-orphan", "att-shared", "att-card", "att-artifact", "att-avatar", "att-untouched")
+	dalPutBlobs(t, d, "att-orphan", "att-shared", "att-card", "att-artifact", "att-untouched")
 	doomedSent := dalChatWithAtts("m1", "ann", "bob", 100,
 		dalAttRef("att-orphan", "image/png", "a.png"),
 		dalAttRef("att-shared", "image/png", "b.png"),
 		dalAttRef("att-card", "image/png", "c.png"),
-		dalAttRef("att-artifact", "image/png", "d.png"),
-		dalAttRef("att-avatar", "image/png", "e.png"))
+		dalAttRef("att-artifact", "image/png", "d.png"))
 	doomedReceived := dalChat("m2", "carl", "ann", 200)
 	survivor := dalChatWithAtts("m3", "carl", "dee", 300, dalAttRef("att-shared", "image/png", "b.png"))
 	dalPutChats(t, d, doomedSent, doomedReceived, survivor)
@@ -1389,9 +1389,6 @@ func TestDeleteChatInvolving(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("PutTaskArtifact: %v", err)
 	}
-	avatarOwner := dalTestMember("dee", "Dee")
-	avatarOwner.AvatarAttachmentID = "att-avatar"
-	dalPutMember(t, d, avatarOwner)
 
 	msgs, atts, err := d.DeleteChatInvolving("ann")
 	if err != nil {
@@ -1402,7 +1399,7 @@ func TestDeleteChatInvolving(t *testing.T) {
 	}
 	dalWantChats(t, "only the messages involving the member are gone",
 		dalMustListChat(t, d), []ChatMessage{survivor})
-	want := []string{"att-artifact", "att-avatar", "att-card", "att-shared", "att-untouched"}
+	want := []string{"att-artifact", "att-card", "att-shared", "att-untouched"}
 	if got := dalStoredBlobIDs(t, d); !reflect.DeepEqual(got, want) {
 		t.Fatalf("only the blob no surviving record references is collected: want %v, got %v", want, got)
 	}
@@ -1473,9 +1470,7 @@ func TestCollectSurvivingBlobRefs(t *testing.T) {
 	if replaced, err := d.ReplaceTaskArtifact(live); err != nil || !replaced {
 		t.Fatalf("ReplaceTaskArtifact: %v, %v", replaced, err)
 	}
-	member := dalTestMember("dee", "Dee")
-	member.AvatarAttachmentID = "att-avatar"
-	dalPutMember(t, d, member)
+	dalPutMember(t, d, dalTestMember("dee", "Dee"))
 	dalPutMember(t, d, dalTestMember("eve", "Eve"))
 
 	var got []string
@@ -1490,7 +1485,7 @@ func TestCollectSurvivingBlobRefs(t *testing.T) {
 		t.Fatalf("collectSurvivingBlobRefs: %v", err)
 	}
 	want := []string{
-		"already-there", "att-answer", "att-artifact", "att-avatar",
+		"already-there", "att-answer", "att-artifact",
 		"att-chat", "att-question", "att-retired",
 	}
 	if !reflect.DeepEqual(got, want) {
@@ -1726,81 +1721,6 @@ func TestGetChatAttachment(t *testing.T) {
 	}
 	if got != nil {
 		t.Fatalf("GetChatAttachment(att-ghost): want nil, got %+v", *got)
-	}
-}
-
-func TestReplaceMemberAvatar(t *testing.T) {
-	d := newAPITestDAL(t)
-	ann := dalPutMember(t, d, dalTestMember("ann", "Ann"))
-	bob := dalTestMember("bob", "Bob")
-	bob.AvatarAttachmentID = "ava-bob"
-	dalPutMember(t, d, bob)
-	dalPutBlobs(t, d, "ava-bob", "att-unrelated")
-
-	first := ChatAttachment{ID: "ava-ann-1", Mime: "image/png", Data: []byte("first face")}
-	if err := d.ReplaceMemberAvatar("ann", first); err != nil {
-		t.Fatalf("ReplaceMemberAvatar: %v", err)
-	}
-	ann.AvatarAttachmentID = "ava-ann-1"
-	dalWantMember(t, d, ann)
-	got, err := d.GetChatAttachment("ava-ann-1")
-	if err != nil {
-		t.Fatalf("GetChatAttachment: %v", err)
-	}
-	if !reflect.DeepEqual(got, &first) {
-		t.Fatalf("the fresh blob is stored:\n got %+v\nwant %+v", got, first)
-	}
-
-	second := ChatAttachment{ID: "ava-ann-2", Mime: "image/jpeg", Data: []byte("second face")}
-	if err := d.ReplaceMemberAvatar("ann", second); err != nil {
-		t.Fatalf("ReplaceMemberAvatar(second): %v", err)
-	}
-	ann.AvatarAttachmentID = "ava-ann-2"
-	dalWantMember(t, d, ann)
-	want := []string{"att-unrelated", "ava-ann-2", "ava-bob"}
-	if ids := dalStoredBlobIDs(t, d); !reflect.DeepEqual(ids, want) {
-		t.Fatalf("the prior dedicated blob is deleted and nobody else's is touched: want %v, got %v", want, ids)
-	}
-
-	if err := d.ReplaceMemberAvatar("ghost", ChatAttachment{ID: "ava-ghost", Mime: "image/png", Data: []byte("x")}); !errors.Is(err, errNotFound) {
-		t.Fatalf("ReplaceMemberAvatar on a vanished row: want errNotFound, got %v", err)
-	}
-	if ids := dalStoredBlobIDs(t, d); !reflect.DeepEqual(ids, want) {
-		t.Fatalf("a refused replacement stores nothing: want %v, got %v", want, ids)
-	}
-}
-
-func TestDeleteMemberAvatar(t *testing.T) {
-	d := newAPITestDAL(t)
-	ann := dalTestMember("ann", "Ann")
-	ann.AvatarAttachmentID = "ava-ann"
-	dalPutMember(t, d, ann)
-	bob := dalTestMember("bob", "Bob")
-	bob.AvatarAttachmentID = "ava-bob"
-	dalPutMember(t, d, bob)
-	dalPutBlobs(t, d, "ava-ann", "ava-bob")
-
-	if err := d.DeleteMemberAvatar("ann"); err != nil {
-		t.Fatalf("DeleteMemberAvatar: %v", err)
-	}
-	ann.AvatarAttachmentID = ""
-	dalWantMember(t, d, ann)
-	dalWantMember(t, d, bob)
-	want := []string{"ava-bob"}
-	if ids := dalStoredBlobIDs(t, d); !reflect.DeepEqual(ids, want) {
-		t.Fatalf("the owned blob goes and nobody else's does: want %v, got %v", want, ids)
-	}
-
-	if err := d.DeleteMemberAvatar("ann"); err != nil {
-		t.Fatalf("DeleteMemberAvatar on a member with no personal image: %v", err)
-	}
-	dalWantMember(t, d, ann)
-
-	if err := d.DeleteMemberAvatar("ghost"); !errors.Is(err, errNotFound) {
-		t.Fatalf("DeleteMemberAvatar on a vanished row: want errNotFound, got %v", err)
-	}
-	if ids := dalStoredBlobIDs(t, d); !reflect.DeepEqual(ids, want) {
-		t.Fatalf("want %v, got %v", want, ids)
 	}
 }
 
@@ -4053,41 +3973,40 @@ func TestDisplayNames(t *testing.T) {
 func dalTestMember(id, name string) Member {
 	ok := true
 	return Member{
-		ID:                 id,
-		Name:               name,
-		Kind:               KindStaff,
-		RoleKey:            "engineer",
-		Runtime:            "claude",
-		Model:              "sonnet",
-		ActualModel:        "sonnet-4",
-		Effort:             "medium",
-		ActualRuntime:      "codex",
-		ActualEffort:       "high",
-		DesiredState:       "online",
-		DesiredMachineID:   "mac-1",
-		LastMachineID:      "mac-0",
-		SessionBootTS:      1700000001,
-		WakingSince:        1700000002,
-		StoppingSince:      1700000003,
-		StoppedSince:       1700000004,
-		RefocusSince:       1700000005,
-		RefocusOp:          "refocus",
-		ForcedStopAt:       1700000006,
-		RestartAfterStop:   true,
-		HandoverNoticedTS:  1700000007,
-		AgentIatFloor:      1700000008,
-		TokenKeyID:         "ring-1",
-		BankedCost:         12.5,
-		LastOp:             "stop",
-		LastOpOK:           &ok,
-		LastOpLog:          "log line",
-		LastOpReason:       "code: detail",
-		LastOpAt:           1700000009,
-		RosterStatus:       RosterStatusActive,
-		CreatedTS:          1700000000,
-		ReleasedTS:         1700000010,
-		ActivatedTS:        1700000011,
-		AvatarAttachmentID: "",
+		ID:                id,
+		Name:              name,
+		Kind:              KindStaff,
+		RoleKey:           "engineer",
+		Runtime:           "claude",
+		Model:             "sonnet",
+		ActualModel:       "sonnet-4",
+		Effort:            "medium",
+		ActualRuntime:     "codex",
+		ActualEffort:      "high",
+		DesiredState:      "online",
+		DesiredMachineID:  "mac-1",
+		LastMachineID:     "mac-0",
+		SessionBootTS:     1700000001,
+		WakingSince:       1700000002,
+		StoppingSince:     1700000003,
+		StoppedSince:      1700000004,
+		RefocusSince:      1700000005,
+		RefocusOp:         "refocus",
+		ForcedStopAt:      1700000006,
+		RestartAfterStop:  true,
+		HandoverNoticedTS: 1700000007,
+		AgentIatFloor:     1700000008,
+		TokenKeyID:        "ring-1",
+		BankedCost:        12.5,
+		LastOp:            "stop",
+		LastOpOK:          &ok,
+		LastOpLog:         "log line",
+		LastOpReason:      "code: detail",
+		LastOpAt:          1700000009,
+		RosterStatus:      RosterStatusActive,
+		CreatedTS:         1700000000,
+		ReleasedTS:        1700000010,
+		ActivatedTS:       1700000011,
 	}
 }
 

@@ -1665,36 +1665,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/members/{member_id}/avatar": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /**
-         * Upload or replace a member's personal avatar (owner only).
-         * @description - The request body is the raw image bytes — not base64 and not multipart.
-         *     - PNG, JPEG or WEBP only, at most 64 KiB decoded; SVG is rejected and a declared `mime` must match the bytes.
-         *     - Owner only: agents and machine tokens cannot change anyone's avatar.
-         *     - Emits a `member` or `outsource_worker` event; a client holding the stream learns of this without polling.
-         */
-        put: operations["handle_put_member_avatar_api_members__member_id__avatar_put"];
-        post?: never;
-        /**
-         * Remove a member's personal avatar (owner only).
-         * @description - Removes the personal avatar and returns the member to the fallback chain: the active theme's role avatar, then the built-in glyph.
-         *     - Owner only: admin agents, ordinary agents and machine tokens cannot alter another actor's appearance.
-         *     - Idempotent when there is no personal avatar.
-         *     - Emits a `member` or `outsource_worker` event; a client holding the stream learns of this without polling.
-         */
-        delete: operations["handle_delete_member_avatar_api_members__member_id__avatar_delete"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/members/{member_id}/cost/reset": {
         parameters: {
             query?: never;
@@ -2008,6 +1978,34 @@ export interface paths {
          */
         get: operations["handle_list_webhook_requests_api_members__member_id__webhooks__endpoint_id__requests_get"];
         put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/members/{member_id}/theme-avatar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Record a staff or outsource member's avatar choice for one theme (owner only).
+         * @description Record one active staff or outsource member's avatar choice for ONE theme. Owner-only: visual identity is governance, so an agent or a machine token can not change it. This is why the route sits behind the owner gate and stays out of MCP — it is a cockpit visual-identity control, not an agent tool. Do not relax either property without an owner ruling.
+         *
+         *     The write targets the association row ``(member_id, theme_id)`` and replaces only that row. A choice the same member made in ANOTHER theme is untouched, so switching themes and switching back restores each theme's own choice.
+         *
+         *     ``theme_id`` must name a stored custom theme. ``icon_id`` must name an image in that theme's ``member`` or ``outsource`` pool, whichever matches the member kind. Either one missing gives a 422, because a selection the pool can not resolve is how a member silently gets another member's face.
+         *
+         *     The server never writes a default. A member with no row renders the first image of the matching pool, and that first visit stays unpersisted until the owner picks an image here.
+         *
+         *     A staff write publishes the existing ``member`` SSE topic; an outsource write publishes ``outsource_worker``.
+         */
+        put: operations["handle_set_member_theme_avatar_api_members__member_id__theme_avatar_put"];
         post?: never;
         delete?: never;
         options?: never;
@@ -6083,26 +6081,6 @@ export interface components {
             last_op_reason?: string;
         };
         /**
-         * MemberAvatarDTO
-         * @description Narrow result of an owner-only personal-avatar mutation. ``avatar_url`` is a newly minted authenticated blob path after upload and empty after removal; the changing blob id naturally cache-busts replacements.
-         */
-        MemberAvatarDTO: {
-            /**
-             * Avatar Url
-             * @default
-             */
-            avatar_url: string;
-            /** Filename */
-            filename?: string | null;
-            /** Member Id */
-            member_id: string;
-            /**
-             * Mime
-             * @default
-             */
-            mime: string;
-        };
-        /**
          * MemberDTO
          * @description API representation of one ``domain.Member`` (a roster member; §3.4 #8/#10).
          *
@@ -6147,10 +6125,10 @@ export interface components {
              */
             actual_runtime: string;
             /**
-             * Avatar Url
-             * @description Authenticated URL of this stable member id's personal raster avatar. Empty means no personal image; clients fall back to the active theme's role avatar, then the built-in glyph. Additive-optional for older clients.
+             * Avatar Icon Id
+             * @description The icon this member explicitly chose in the ACTIVE theme, or ``null`` when the member has no choice recorded for that theme. The value is a stable ``ThemeIconDTO.id``, not an array position. The client renders the pool item with that id; when the id is ``null``, or the chosen image was removed from the pool, it renders the FIRST image of the matching pool, and the built-in glyph when the pool is empty. A first visit is not persisted: the server records a row only when the owner picks an image, so the field stays ``null`` until then.
              */
-            avatar_url?: string;
+            avatar_icon_id: string | null;
             /**
              * Desired Machine Id
              * @default m-server-self
@@ -6335,6 +6313,28 @@ export interface components {
              * @description Optional runtime replacement; null/omitted leaves the current runtime unchanged.
              */
             runtime?: components["schemas"]["AgentRuntime"] | null;
+        };
+        /**
+         * MemberThemeAvatarDTO
+         * @description One member's avatar choice inside one theme. The row is the association ``member_theme_avatar(member_id, theme_id, icon_id)`` with the primary key ``(member_id, theme_id)``, so a member holds at most one choice per theme and the themes never overwrite each other.
+         */
+        MemberThemeAvatarDTO: {
+            /** Icon Id */
+            icon_id: string;
+            /** Member Id */
+            member_id: string;
+            /** Theme Id */
+            theme_id: string;
+        };
+        /**
+         * MemberThemeAvatarUpdateDTO
+         * @description Record one member's explicit avatar choice in one theme. Both fields are required. ``theme_id`` must name a stored custom theme and ``icon_id`` must name an image in that theme's matching pool; anything else is a 422. The write replaces only the row for this ``(member_id, theme_id)`` pair, so a choice made in another theme survives unchanged.
+         */
+        MemberThemeAvatarUpdateDTO: {
+            /** Icon Id */
+            icon_id: string;
+            /** Theme Id */
+            theme_id: string;
         };
         /**
          * MfaActivateDTO
@@ -6773,10 +6773,10 @@ export interface components {
              */
             actual_runtime: string;
             /**
-             * Avatar Url
-             * @description Authenticated URL of this stable outsource-worker id's personal raster avatar. Empty means the client uses the outsource theme avatar or built-in glyph. Additive-optional.
+             * Avatar Icon Id
+             * @description The icon this worker explicitly chose in the ACTIVE theme, or ``null`` when the member has no choice recorded for that theme. The value is a stable ``ThemeIconDTO.id``, not an array position. The client renders the pool item with that id; when the id is ``null``, or the chosen image was removed from the pool, it renders the FIRST image of the matching pool, and the built-in glyph when the pool is empty. A first visit is not persisted: the server records a row only when the owner picks an image, so the field stays ``null`` until then.
              */
-            avatar_url?: string;
+            avatar_icon_id: string | null;
             /**
              * Banked Cost
              * @description The worker's persistent historical cumulative cost (migrations/00021), the DIRECT twin of member banked_cost: the live cost is banked through the SAME bankLiveCost fold on every session end / kill+respawn (refocus / model change / relocate / stop / auto-handover), so a handover never zeroes the owner-visible spend. null when nothing banked yet. The panel shows live + banked summed, the member presentation. T-ba6b additive-optional.
@@ -10446,10 +10446,17 @@ export interface components {
         ThemeBundleDTO: {
             /**
              * Avatars
-             * @description Optional per-role avatar images (T-16a1 P5; extended per role in T-ea81). Keys are the closed set `member` (一般正職 member) / `outsource` (外包 outsource worker) / `owner` (the human CEO / owner) / `assistant` (a member whose role is `assistant`, e.g. Mira). Each value is an EMBEDDED image encoded as a base64 `data:` URI so the image travels inside the bundle on export/import. The value is NOT arbitrary: only a `data:image/<mime>;base64,<...>` URI whose mime is a whitelisted RASTER format (`image/png` / `image/jpeg` / `image/webp`) is accepted. SVG (`image/svg+xml`) is REJECTED (it can carry script/onload — XSS). The base64 must decode, the decoded byte size is capped (<=64 KiB) and the string length capped, and the leading magic bytes must match the declared mime (PNG `89 50 4E 47`, JPEG `FF D8 FF`, WEBP `RIFF....WEBP`) — a value that declares one mime but carries another is rejected. Absent = that role falls back to the built-in avatar glyph (office never degrades). The server 422s any avatars that violates the key set, the mime whitelist, the size caps, the base64, or the magic-byte check.
+             * @description Optional SINGLE-image identities. The canonical key set is only `owner` (the human CEO) and `assistant` (an assistant-role member such as Mira); their existing single-image semantics are unchanged. For backward compatibility, input/stored bundles may also carry legacy `member` or `outsource` singleton strings: the server/client normalize each into a one-image `avatarPools` entry and omit that legacy key on the canonical echo/export. Every value is an embedded base64 raster data URI and passes the same PNG/JPEG/WEBP, strict-base64, <=64 KiB decoded-size, and matching-magic-byte gate. SVG is rejected. Absent owner/assistant values use the built-in glyph.
              */
             avatars?: {
                 [key: string]: string;
+            };
+            /**
+             * Avatarpools
+             * @description Optional ordered theme-level pools for `member` (一般正職) and `outsource` workers. Those are the only allowed keys. Each pool holds at most 12 items. Every item is a ThemeIconDTO: a stable ``id`` plus an embedded raster data URI that independently passes the same PNG/JPEG/WEBP, strict-base64, <=64 KiB decoded-size and matching-magic-byte gate as other theme images. A member points at an item's ``id``, so order is presentation only and removing one item never rebinds a member to another image. An empty or absent pool renders the built-in glyph. Import and export preserve both the item order and the ids. Reorder is NOT supported in this version. For backward compatibility a stored or imported pool may still be a plain array of data-URI strings; the server assigns each item an id and echoes the canonical form.
+             */
+            avatarPools?: {
+                [key: string]: components["schemas"]["ThemeIconDTO"][];
             };
             /**
              * Background Modes
@@ -10501,6 +10508,16 @@ export interface components {
                     [key: string]: string;
                 };
             };
+        };
+        /**
+         * ThemeIconDTO
+         * @description One image in a theme's ordered avatar pool, with the stable identity a member's selection points at. ``id`` is the durable icon identity. The server assigns it when it stores the theme, and it never changes for that image. A client that adds an image may omit ``id``; the server then assigns one and echoes it. The identity is derived from the image bytes, so the same image keeps the same ``id`` across export and import. ``image`` is an embedded base64 raster data URI. It passes the same PNG/JPEG/WEBP, strict-base64, <=64 KiB decoded-size and matching-magic-byte gate as every other theme image. Selections point at ``id``, never at the array position, so removing one pool item can not silently rebind a member to a different image.
+         */
+        ThemeIconDTO: {
+            /** Id */
+            id?: string;
+            /** Image */
+            image: string;
         };
         /**
          * ThemeDeleteResultDTO
@@ -14625,120 +14642,6 @@ export interface operations {
             };
         };
     };
-    handle_put_member_avatar_api_members__member_id__avatar_put: {
-        parameters: {
-            query?: {
-                filename?: string | null;
-                mime?: string | null;
-            };
-            header?: never;
-            path: {
-                member_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/octet-stream": string;
-            };
-        };
-        responses: {
-            /** @description Avatar stored and pointer replaced atomically. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MemberAvatarDTO"];
-                };
-            };
-            /** @description Image exceeds the 64 KiB cap. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
-                };
-            };
-            /** @description Empty, unsupported, mismatched, or machine-target image. */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
-                };
-            };
-            /** @description Authentication, authorization, or not-found error. */
-            "4XX": {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
-                };
-            };
-            /** @description Server error (unified error envelope). */
-            "5XX": {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
-                };
-            };
-        };
-    };
-    handle_delete_member_avatar_api_members__member_id__avatar_delete: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                member_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Avatar removed, or already absent. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MemberAvatarDTO"];
-                };
-            };
-            /** @description Member is a machine/warden and cannot have a personal avatar. */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
-                };
-            };
-            /** @description Authentication, authorization, or not-found error. */
-            "4XX": {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
-                };
-            };
-            /** @description Server error (unified error envelope). */
-            "5XX": {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
-                };
-            };
-        };
-    };
     handle_reset_cost_api_members__member_id__cost_reset_post: {
         parameters: {
             query?: never;
@@ -15480,6 +15383,59 @@ export interface operations {
                 };
             };
             /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_set_member_theme_avatar_api_members__member_id__theme_avatar_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                member_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MemberThemeAvatarUpdateDTO"];
+            };
+        };
+        responses: {
+            /** @description Choice stored and the actor's canonical SSE topic published. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemberThemeAvatarDTO"];
+                };
+            };
+            /** @description Missing theme_id or icon_id, unknown theme, an icon that is not in the matching pool, or a machine/warden target. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Authentication, authorization, or not-found error. */
             "4XX": {
                 headers: {
                     [name: string]: unknown;

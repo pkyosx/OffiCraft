@@ -92,7 +92,7 @@ import {
   useAttachmentStaging,
 } from "../hooks/useAttachmentStaging";
 import {
-  useWorkerAvatarUrls,
+  useWorkerAvatarIconIds,
   useWorkerCodenames,
 } from "../hooks/useWorkerCodenames";
 import { avatarKindForMember } from "../lib/avatarKind";
@@ -458,7 +458,7 @@ export function LorePage() {
     [entries]
   );
   const releasedCodenames = useWorkerCodenames(workerIds);
-  const releasedAvatarUrls = useWorkerAvatarUrls(workerIds);
+  const releasedAvatarIconIds = useWorkerAvatarIconIds(workerIds);
 
   const resolveAuthor = useCallback(
     (id: string): AuthorIdentity => {
@@ -584,15 +584,15 @@ export function LorePage() {
   const authorAvatar = useCallback(
     (id: string) => {
       const m = members.find((x) => x.id === id);
-      if (m) return { src: m.avatarUrl, kind: avatarKindForMember(m) } as const;
+      if (m) return { avatarIconId: m.avatarIconId, kind: avatarKindForMember(m) } as const;
       const w = workers.find((x) => x.id === id);
-      if (w) return { src: w.avatarUrl, kind: "outsource" } as const;
+      if (w) return { avatarIconId: w.avatarIconId, kind: "outsource" } as const;
       if (id.startsWith("ow-")) {
-        return { src: releasedAvatarUrls.get(id), kind: "outsource" } as const;
+        return { avatarIconId: releasedAvatarIconIds.get(id), kind: "outsource" } as const;
       }
       return null;
     },
-    [members, workers, releasedAvatarUrls]
+    [members, workers, releasedAvatarIconIds]
   );
 
   // ── mutations. A 403 must READ as a refusal, never as nothing happening ──
@@ -935,7 +935,7 @@ function LoreRow({
   entry: LoreEntryView;
   dimmed: boolean;
   author: AuthorIdentity;
-  avatar: { src?: string; kind: "member" | "outsource" | "owner" | "assistant" } | null;
+  avatar: { avatarIconId?: string | null; kind: "member" | "outsource" | "owner" | "assistant" } | null;
   /** 屬於, already resolved. `manualKey` non-empty is the ONLY thing that makes
    * the pill clickable — the row never re-derives that from `entry.scopeKind`,
    * so there is one place that decides it (resolveScope). `kind` is what picks
@@ -1577,7 +1577,7 @@ function LoreAuthorChip({
   onOpenChat,
 }: {
   author: AuthorIdentity;
-  avatar: { src?: string; kind: "member" | "outsource" | "owner" | "assistant" } | null;
+  avatar: { avatarIconId?: string | null; kind: "member" | "outsource" | "owner" | "assistant" } | null;
   onOpenChat: (peerId: string) => void;
 }): ReactNode {
   const { t } = useI18n();
@@ -1599,7 +1599,7 @@ function LoreAuthorChip({
       data-testid="lore-author-link"
       onClick={() => onOpenChat(author.peerId)}
     >
-      {avatar ? <Avatar size={18} kind={avatar.kind} src={avatar.src} /> : null}
+      {avatar ? <Avatar size={18} kind={avatar.kind} avatarIconId={avatar.avatarIconId} /> : null}
       <span className="lore-row__author" data-testid="lore-author">
         {author.text}
       </span>

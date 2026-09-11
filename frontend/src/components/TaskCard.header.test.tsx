@@ -32,11 +32,11 @@ import type { TaskView } from "../api/adapter";
 vi.mock("../hooks/useWorkerCodenames", () => ({
   useWorkerCodenames: (ids: readonly string[]) =>
     new Map(ids.filter((id) => id === "ow-rel").map((id) => [id, "R-2"])),
-  useWorkerAvatarUrls: (ids: readonly string[]) =>
+  useWorkerAvatarIconIds: (ids: readonly string[]) =>
     new Map(
       ids
         .filter((id) => id === "ow-rel")
-        .map((id) => [id, "/api/chat/attachment/ava-released"]),
+        .map((id) => [id, 2]),
     ),
 }));
 

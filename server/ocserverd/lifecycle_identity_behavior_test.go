@@ -750,14 +750,19 @@ var identityGateLedger = map[string]string{
 		"A WIRE-topic split (workers are owner-only on the wire), not a difference in " +
 		"what happens to the row.",
 
-	// ── personal-avatar target scoping (T-c826) ─────────────────────────────
-	"api_members.go :: HandlePutMemberAvatarApiMembersMemberIdAvatarPut :: m.Kind == KindWarden": "" +
-		"T-c826 owner ruling: wardens are infrastructure, not people with personal " +
-		"avatars, so the avatar face 422s for that kind. Classifies the TARGET, not the " +
-		"caller — the route table already makes the caller owner-only, which is why it " +
-		"cannot be a Requires floor.",
-	"api_members.go :: HandleDeleteMemberAvatarApiMembersMemberIdAvatarDelete :: m.Kind == KindWarden": "" +
-		"the delete half of the same T-c826 target rule, same reasoning.",
+	// ── theme-avatar target scoping ─────────────────────────────────────────
+	"api_members.go :: HandleSetMemberThemeAvatarApiMembersMemberIdThemeAvatarPut :: m.Kind == KindWarden": "" +
+		"wardens are infrastructure, not a staff/outsource visual identity, so the " +
+		"theme-avatar face 422s for that kind. Classifies the TARGET, not the caller — " +
+		"the route table already makes the caller owner-only, which is why it cannot " +
+		"be a Requires floor. Staff and outsource are treated the SAME here: both " +
+		"draw from a theme pool (member / outsource), so this is not a 正職／外包 " +
+		"divergence.",
+	"api_members.go :: HandleSetMemberThemeAvatarApiMembersMemberIdThemeAvatarPut :: avatarPoolKindFor(m.Kind) == \"\"": "" +
+		"the same TARGET classification stated positively: only a kind that HAS a " +
+		"theme pool can hold a selection. avatarPoolKindFor maps staff and outsource " +
+		"onto their pools alike; the empty answer is the fail-closed floor for any " +
+		"kind added later, not a difference between the two.",
 
 	// ── offboard / wind-down ────────────────────────────────────────────────
 	"api_members.go :: offboardManualWriteBackFor :: m.Kind != KindOutsource": "" +

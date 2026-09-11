@@ -11,7 +11,7 @@ import { useIsMobile } from "../hooks/useIsMobile";
 import { joinSessionRuntime, findSessionFor } from "../lib/runtime";
 import { useHashRoute } from "../lib/hashRoute";
 import { openChatAttachErrorScope } from "../lib/chatDraftStore";
-import { updateCachedWorkerAvatar } from "../hooks/useWorkerCodenames";
+import { updateCachedWorkerThemeAvatar } from "../hooks/useWorkerCodenames";
 import { MemberCard } from "./MemberCard";
 import { ChatArea } from "./ChatArea";
 import { MemberDetailPanel } from "./MemberDetailPanel";
@@ -69,7 +69,7 @@ export function OfficePage({
    * fall back to the roster. Never raised for an explicitly requested chat. */
   onRestoredChatGone?: () => void;
 } = {}) {
-  const { t, msg } = useI18n();
+  const { t, msg, theme } = useI18n();
   // T-66a8: the sidebar switches 正職/外包 by a top text tab (owner mockup
   // 2026-07-18), replacing the old two-stacked-groups rail. Plain component
   // state (not persisted) — the tab is a view toggle, not a route.
@@ -267,7 +267,7 @@ export function OfficePage({
         status: toStatus(workerPresence),
         lifecycle: workerPresence,
         model: workerPeer.model,
-        avatarUrl: workerPeer.avatarUrl,
+        avatarIconId: workerPeer.avatarIconId,
         // ChatArea snapshots this before its own mark-read clears the room
         // (T-48: the LISTING stopped writing a watermark; the clearer is
         // ChatArea's explicit POST /api/chat/mark-read).  The
@@ -428,13 +428,9 @@ export function OfficePage({
             effort,
           });
         }}
-        onUpdateAvatar={async (file) => {
-          const avatarUrl = await api.updateMemberAvatar(workerDetail.id, file);
-          updateCachedWorkerAvatar(workerDetail.id, avatarUrl);
-        }}
-        onRemoveAvatar={async () => {
-          await api.removeMemberAvatar(workerDetail.id);
-          updateCachedWorkerAvatar(workerDetail.id, "");
+        onSetThemeAvatar={async (iconId) => {
+          await api.setMemberThemeAvatar(workerDetail.id, theme, iconId);
+          updateCachedWorkerThemeAvatar(workerDetail.id, iconId);
         }}
         // Initial-prompt PREVIEW (T-ba6b): the server re-runs the spawn fold
         // over the CURRENT task/manual rows (no token minted) — the worker twin
@@ -577,29 +573,9 @@ export function OfficePage({
             );
           }
         }}
-        onUpdateAvatar={async (file) => {
-          await api.updateMemberAvatar(detail.id, file);
-          // The avatar is uploaded whatever the roster read does next.
-          try {
-            await refetch();
-          } catch (e) {
-            console.warn(
-              "OfficePage: post-avatar-upload refetch failed (the avatar was saved)",
-              e
-            );
-          }
-        }}
-        onRemoveAvatar={async () => {
-          await api.removeMemberAvatar(detail.id);
-          // And the removal is equally done before this read is sent.
-          try {
-            await refetch();
-          } catch (e) {
-            console.warn(
-              "OfficePage: post-avatar-remove refetch failed (the avatar was removed)",
-              e
-            );
-          }
+        onSetThemeAvatar={async (iconId) => {
+          await api.setMemberThemeAvatar(detail.id, theme, iconId);
+          await refetch();
         }}
       />
     );

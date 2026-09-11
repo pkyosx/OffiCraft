@@ -497,15 +497,16 @@ var authzOutsideRouteTable = map[string]string{
 		"through the worker row. It cannot be a Requires floor: the caller is owner on " +
 		"both arms, while the branch depends on the kind of the member named in the path.",
 
-	// ── personal-avatar target scoping (T-c826, owner 2026-07-27) ────────────
-	"api_members.go :: HandlePutMemberAvatarApiMembersMemberIdAvatarPut :: m.Kind == KindWarden": "" +
-		"T-c826 owner ruling: the route table already makes the caller owner-only; this " +
-		"separate predicate classifies the requested TARGET. Wardens are infrastructure, " +
-		"not people with personal avatars, so the avatar face returns 422 for that kind.",
-	"api_members.go :: HandleDeleteMemberAvatarApiMembersMemberIdAvatarDelete :: m.Kind == KindWarden": "" +
-		"the delete half of the same T-c826 target rule. It cannot be a Requires floor: " +
-		"the caller remains owner in both cases, while eligibility depends on the member " +
-		"identified by the path parameter.",
+	// ── theme-avatar target scoping ──────────────────────────────────────────
+	"api_members.go :: HandleSetMemberThemeAvatarApiMembersMemberIdThemeAvatarPut :: m.Kind == KindWarden": "" +
+		"the route table makes the caller owner-only; this separate predicate classifies " +
+		"the requested TARGET. Wardens are infrastructure, not a staff/outsource visual " +
+		"identity, so the theme-avatar face returns 422 for that kind.",
+	"api_members.go :: HandleSetMemberThemeAvatarApiMembersMemberIdThemeAvatarPut :: avatarPoolKindFor(m.Kind) == \"\"": "" +
+		"the same TARGET classification stated positively: only the kinds that HAVE a " +
+		"theme pool (staff, outsource) can hold a selection. It is a second predicate " +
+		"rather than one because the warden refusal names the machine case explicitly, " +
+		"and this one is the fail-closed floor for any kind added later.",
 
 	// ── chat ─────────────────────────────────────────────────────────────────
 	"api_chat.go :: HandlePostChatApiChatPost :: currentActor(r) != wireOwnerID": "" +

@@ -12,9 +12,9 @@ vi.mock("../api", () => ({
 }));
 
 import {
-  useWorkerAvatarUrls,
+  useWorkerAvatarIconIds,
   useWorkerCodenames,
-  updateCachedWorkerAvatar,
+  updateCachedWorkerThemeAvatar,
   __resetWorkerCodenameCache,
 } from "./useWorkerCodenames";
 
@@ -34,17 +34,15 @@ describe("useWorkerCodenames", () => {
     expect(getOutsourceWorker).toHaveBeenCalledWith("ow-abc");
   });
 
-  it("shares the per-id read for a released worker's personal avatar", async () => {
+  it("shares the per-id read for a released worker's avatar choice", async () => {
     getOutsourceWorker.mockResolvedValue({
       id: "ow-abc",
       codename: "X-1",
-      avatarUrl: "/api/chat/attachment/ava-x1",
+      avatarIconId: "icn-three",
     });
-    const { result } = renderHook(() => useWorkerAvatarUrls(["ow-abc"]));
+    const { result } = renderHook(() => useWorkerAvatarIconIds(["ow-abc"]));
     await waitFor(() => {
-      expect(result.current.get("ow-abc")).toBe(
-        "/api/chat/attachment/ava-x1",
-      );
+      expect(result.current.get("ow-abc")).toBe("icn-three");
     });
     expect(getOutsourceWorker).toHaveBeenCalledTimes(1);
   });
@@ -53,17 +51,17 @@ describe("useWorkerCodenames", () => {
     getOutsourceWorker.mockResolvedValue({
       id: "ow-abc",
       codename: "X-1",
-      avatarUrl: "/api/chat/attachment/ava-old",
+      avatarIconId: "icn-one",
     });
-    const { result } = renderHook(() => useWorkerAvatarUrls(["ow-abc"]));
+    const { result } = renderHook(() => useWorkerAvatarIconIds(["ow-abc"]));
     await waitFor(() => {
-      expect(result.current.get("ow-abc")).toContain("ava-old");
+      expect(result.current.get("ow-abc")).toBe("icn-one");
     });
     act(() => {
-      updateCachedWorkerAvatar("ow-abc", "/api/chat/attachment/ava-new");
+      updateCachedWorkerThemeAvatar("ow-abc", "icn-five");
     });
     await waitFor(() => {
-      expect(result.current.get("ow-abc")).toContain("ava-new");
+      expect(result.current.get("ow-abc")).toBe("icn-five");
     });
   });
 

@@ -8,6 +8,7 @@ import {
   isValidFontValue,
   isValidAvatarValue,
   validateAvatars,
+  validateAvatarPools,
   validateLogo,
   validateNavIcons,
   validateBackgrounds,
@@ -337,20 +338,20 @@ describe("isValidAvatarValue", () => {
 });
 
 describe("validateAvatars", () => {
-  it("accepts undefined (optional) and a legal member/outsource/owner/assistant overlay", () => {
+  it("accepts undefined and the canonical owner/assistant singleton overlay", () => {
     expect(validateAvatars(undefined)).toBeNull();
     expect(
-      validateAvatars({ member: okPng, outsource: okWebp, owner: okJpeg, assistant: okPng })
+      validateAvatars({ owner: okJpeg, assistant: okPng })
     ).toBeNull();
   });
 
   it("rejects a non-object, an unknown kind, and an invalid image", () => {
     expect(validateAvatars([])).toMatch(/must be an object/);
     expect(validateAvatars({ boss: okPng })).toMatch(
-      /not allowed \(only member, outsource, owner, assistant\)/
+      /not allowed \(only owner, assistant\)/
     );
     expect(
-      validateAvatars({ member: avatarURI("image/svg+xml", [0x3c]) })
+      validateAvatars({ assistant: avatarURI("image/svg+xml", [0x3c]) })
     ).toMatch(/not a valid image/);
   });
 
@@ -364,6 +365,15 @@ describe("validateAvatars", () => {
     expect(validateThemeBundle(good)).toBeNull();
     const bad = { ...good, avatars: { member: avatarURI("image/svg+xml", [0x3c]) } };
     expect(validateThemeBundle(bad)).toMatch(/not a valid image/);
+  });
+});
+
+describe("validateAvatarPools", () => {
+  it("accepts ordered member/outsource pools and caps each at 12", () => {
+    expect(validateAvatarPools({ member: [okPng], outsource: [okWebp] })).toBeNull();
+    expect(validateAvatarPools({ member: Array(13).fill(okPng) })).toMatch(
+      /at most 12/
+    );
   });
 });
 
@@ -469,8 +479,15 @@ describe("validateBackgrounds", () => {
     );
     expect(validateBackgrounds({ canvas: pastAvatarCap })).toBeNull();
     // And an avatar of that same size is STILL refused — the relaxation did not
-    // leak across, which is the whole point of splitting the caps.
-    expect(validateAvatars({ member: pastAvatarCap })).toMatch(
+    // leak across, which is the whole point of splitting the caps. Probe a
+    // SINGLETON kind: T-cd6f moved member / outsource images into avatarPools,
+    // so "member" would be refused on the KIND and prove nothing about the cap.
+    expect(validateAvatars({ assistant: pastAvatarCap })).toMatch(
+      /not a valid image/
+    );
+    // The pool is the other entry point into the same cap, so it must refuse it
+    // too — otherwise the split leaks through the path member images now take.
+    expect(validateAvatarPools({ member: [pastAvatarCap] })).toMatch(
       /not a valid image/
     );
 

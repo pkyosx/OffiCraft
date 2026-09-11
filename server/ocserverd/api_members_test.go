@@ -966,205 +966,6 @@ func TestPublishMemberAvatarChanged(t *testing.T) {
 	})
 }
 
-func TestMemberAvatarResult(t *testing.T) {
-	decode := func(t *testing.T, dto MemberAvatarDTO) map[string]any {
-		t.Helper()
-		raw, err := json.Marshal(dto)
-		if err != nil {
-			t.Fatalf("marshal: %v", err)
-		}
-		var got map[string]any
-		if err := json.Unmarshal(raw, &got); err != nil {
-			t.Fatalf("unmarshal: %v", err)
-		}
-		return got
-	}
-
-	t.Run("a stored avatar answers its minted address with the mime and filename beside it", func(t *testing.T) {
-		filename := "portrait.png"
-		got := decode(t, memberAvatarResult(
-			Member{ID: "kip", AvatarAttachmentID: "ava-0001"}, "image/png", &filename))
-
-		apiWantBody(t, got, map[string]any{
-			"member_id":  "kip",
-			"avatar_url": "/api/chat/attachment/ava-0001",
-			"mime":       "image/png",
-			"filename":   "portrait.png",
-		})
-	})
-
-	t.Run("a member carrying no avatar answers the empty address", func(t *testing.T) {
-		got := decode(t, memberAvatarResult(Member{ID: "kip"}, "", nil))
-
-		apiWantBody(t, got, map[string]any{"member_id": "kip", "avatar_url": ""})
-	})
-
-	t.Run("a blank mime omits the key while a filename left nil omits its own", func(t *testing.T) {
-		got := decode(t, memberAvatarResult(
-			Member{ID: "kip", AvatarAttachmentID: "ava-0002"}, "", nil))
-
-		apiWantBody(t, got, map[string]any{
-			"member_id":  "kip",
-			"avatar_url": "/api/chat/attachment/ava-0002",
-		})
-	})
-}
-
-func TestHandlePutMemberAvatarApiMembersMemberIdAvatarPut(t *testing.T) {
-	t.Run("raster bytes answer the minted avatar address and fan the member delta to the dashboard and to that member", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
-		dashboard := apiTestListen(t, api, "")
-		self := apiTestListen(t, api, "kip")
-		bystander := apiTestListen(t, api, "mira")
-
-		rec := apiRequest(t, h, "PUT", "/api/members/kip/avatar", owner, apiTestPNGBytes)
-		if rec.Code != 200 {
-			t.Fatalf("want 200, got %d (%s)", rec.Code, rec.Body.String())
-		}
-		var data map[string]any
-		if err := json.Unmarshal(rec.Body.Bytes(), &data); err != nil {
-			t.Fatalf("non-JSON body: %s", rec.Body.String())
-		}
-		apiWantBody(t, data, map[string]any{
-			"member_id":  "kip",
-			"avatar_url": apiAnyString,
-			"mime":       "image/png",
-		})
-		frame := map[string]any{
-			"seq":   1,
-			"topic": "member",
-			"op":    "patch",
-			"data": map[string]any{
-				"entity":  "member",
-				"key":     "owner::kip",
-				"epoch":   1,
-				"deleted": false,
-				"payload": map[string]any{
-					"id":            "kip",
-					"name":          "Kip",
-					"status":        "active",
-					"desired_state": "",
-					"owner_id":      "owner",
-				},
-			},
-			"ts":      apiAnyNumber,
-			"trigger": "owner",
-		}
-		dashboard.wantFrames(frame)
-		self.wantFrames(frame)
-		bystander.wantFrames()
-	})
-
-	t.Run("bytes that are no raster image at all answer 422 and fan nothing", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
-		dashboard := apiTestListen(t, api, "")
-
-		rec := apiRequest(t, h, "PUT", "/api/members/kip/avatar", owner, "not-an-image")
-		if rec.Code != 422 {
-			t.Fatalf("want 422, got %d (%s)", rec.Code, rec.Body.String())
-		}
-		var data map[string]any
-		if err := json.Unmarshal(rec.Body.Bytes(), &data); err != nil {
-			t.Fatalf("non-JSON body: %s", rec.Body.String())
-		}
-		apiWantError(t, data, "validation_error", "avatar must be PNG, JPEG, or WEBP raster bytes")
-		dashboard.wantFrames()
-	})
-
-	t.Run("a member id nothing carries answers 404 naming it and fans nothing", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
-		dashboard := apiTestListen(t, api, "")
-
-		rec := apiRequest(t, h, "PUT", "/api/members/nope/avatar", owner, apiTestPNGBytes)
-		if rec.Code != 404 {
-			t.Fatalf("want 404, got %d (%s)", rec.Code, rec.Body.String())
-		}
-		var data map[string]any
-		if err := json.Unmarshal(rec.Body.Bytes(), &data); err != nil {
-			t.Fatalf("non-JSON body: %s", rec.Body.String())
-		}
-		apiWantError(t, data, "not_found", "member 'nope' not found")
-		dashboard.wantFrames()
-	})
-
-	t.Run("a request without a token answers 401", func(t *testing.T) {
-		_, h, _, _ := newAPITestServer(t)
-
-		rec := apiRequest(t, h, "PUT", "/api/members/kip/avatar", "", apiTestPNGBytes)
-		if rec.Code != 401 {
-			t.Fatalf("want 401, got %d (%s)", rec.Code, rec.Body.String())
-		}
-	})
-}
-
-func TestHandleDeleteMemberAvatarApiMembersMemberIdAvatarDelete(t *testing.T) {
-	t.Run("clearing an avatar answers the empty address and fans the member delta to the dashboard and to that member", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
-		apiRequest(t, h, "PUT", "/api/members/kip/avatar", owner, apiTestPNGBytes)
-		dashboard := apiTestListen(t, api, "")
-		self := apiTestListen(t, api, "kip")
-		bystander := apiTestListen(t, api, "mira")
-
-		rec := apiRequest(t, h, "DELETE", "/api/members/kip/avatar", owner, "")
-		if rec.Code != 200 {
-			t.Fatalf("want 200, got %d (%s)", rec.Code, rec.Body.String())
-		}
-		var data map[string]any
-		if err := json.Unmarshal(rec.Body.Bytes(), &data); err != nil {
-			t.Fatalf("non-JSON body: %s", rec.Body.String())
-		}
-		apiWantBody(t, data, map[string]any{"member_id": "kip", "avatar_url": ""})
-		frame := map[string]any{
-			"seq":   2,
-			"topic": "member",
-			"op":    "patch",
-			"data": map[string]any{
-				"entity":  "member",
-				"key":     "owner::kip",
-				"epoch":   2,
-				"deleted": false,
-				"payload": map[string]any{
-					"id":            "kip",
-					"name":          "Kip",
-					"status":        "active",
-					"desired_state": "",
-					"owner_id":      "owner",
-				},
-			},
-			"ts":      apiAnyNumber,
-			"trigger": "owner",
-		}
-		dashboard.wantFrames(frame)
-		self.wantFrames(frame)
-		bystander.wantFrames()
-	})
-
-	t.Run("a member id nothing carries answers 404 naming it and fans nothing", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
-		dashboard := apiTestListen(t, api, "")
-
-		rec := apiRequest(t, h, "DELETE", "/api/members/nope/avatar", owner, "")
-		if rec.Code != 404 {
-			t.Fatalf("want 404, got %d (%s)", rec.Code, rec.Body.String())
-		}
-		var data map[string]any
-		if err := json.Unmarshal(rec.Body.Bytes(), &data); err != nil {
-			t.Fatalf("non-JSON body: %s", rec.Body.String())
-		}
-		apiWantError(t, data, "not_found", "member 'nope' not found")
-		dashboard.wantFrames()
-	})
-
-	t.Run("a request without a token answers 401", func(t *testing.T) {
-		_, h, _, _ := newAPITestServer(t)
-
-		rec := apiRequest(t, h, "DELETE", "/api/members/kip/avatar", "", "")
-		if rec.Code != 401 {
-			t.Fatalf("want 401, got %d (%s)", rec.Code, rec.Body.String())
-		}
-	})
-}
-
 func TestHandleListMembersApiMembersGet(t *testing.T) {
 	t.Run("the listing carries every roster row in wire order with the presence and unread count derived for the caller", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
@@ -1185,7 +986,7 @@ func TestHandleListMembersApiMembersGet(t *testing.T) {
 		}
 		apiWantValue(t, "body", got, []any{
 			map[string]any{
-				"id": "kip", "avatar_url": "", "name": "Kip", "kind": "staff",
+				"id": "kip", "avatar_icon_id": nil, "name": "Kip", "kind": "staff",
 				"role_key": "engineer", "role_name": "", "runtime": "claude",
 				"model": "", "actual_model": "", "actual_runtime": "",
 				"actual_effort": "", "actual_machine": "", "effort": "",
@@ -1198,7 +999,7 @@ func TestHandleListMembersApiMembersGet(t *testing.T) {
 				"terminal_attach_command": "tmux -L officraft attach -t member-kip",
 			},
 			map[string]any{
-				"id": "mira", "avatar_url": "", "name": "Mira", "kind": "staff",
+				"id": "mira", "avatar_icon_id": nil, "name": "Mira", "kind": "staff",
 				"role_key": "assistant", "role_name": "Assistant", "runtime": "claude",
 				"model": "", "actual_model": "", "actual_runtime": "",
 				"actual_effort": "", "actual_machine": "", "effort": "medium",
@@ -1211,7 +1012,7 @@ func TestHandleListMembersApiMembersGet(t *testing.T) {
 				"terminal_attach_command": "tmux -L officraft attach -t member-mira",
 			},
 			map[string]any{
-				"id": "m-server-self", "avatar_url": "", "name": "伺服器這一台",
+				"id": "m-server-self", "avatar_icon_id": nil, "name": "伺服器這一台",
 				"kind": "warden", "role_key": "", "role_name": "", "runtime": "claude",
 				"model": "", "actual_model": "", "actual_runtime": "",
 				"actual_effort": "", "actual_machine": "", "effort": "medium",
@@ -1246,7 +1047,7 @@ func TestHandleListMembersApiMembersGet(t *testing.T) {
 		}
 		apiWantValue(t, "body", got, []any{
 			map[string]any{
-				"id": "kip", "avatar_url": "", "name": "Kip", "kind": "staff",
+				"id": "kip", "avatar_icon_id": nil, "name": "Kip", "kind": "staff",
 				"role_key": "engineer", "role_name": "", "runtime": "claude",
 				"model": "", "actual_model": "", "actual_runtime": "",
 				"actual_effort": "", "actual_machine": "", "effort": "",
@@ -1259,7 +1060,7 @@ func TestHandleListMembersApiMembersGet(t *testing.T) {
 				"terminal_attach_command": "tmux -L officraft attach -t member-kip",
 			},
 			map[string]any{
-				"id": "mira", "avatar_url": "", "name": "Mira", "kind": "staff",
+				"id": "mira", "avatar_icon_id": nil, "name": "Mira", "kind": "staff",
 				"role_key": "assistant", "role_name": "Assistant", "runtime": "claude",
 				"model": "", "actual_model": "", "actual_runtime": "",
 				"actual_effort": "", "actual_machine": "", "effort": "",
@@ -1272,7 +1073,7 @@ func TestHandleListMembersApiMembersGet(t *testing.T) {
 				"terminal_attach_command": "tmux -L officraft attach -t member-mira",
 			},
 			map[string]any{
-				"id": "m-server-self", "avatar_url": "", "name": "伺服器這一台",
+				"id": "m-server-self", "avatar_icon_id": nil, "name": "伺服器這一台",
 				"kind": "warden", "role_key": "", "role_name": "", "runtime": "claude",
 				"model": "", "actual_model": "", "actual_runtime": "",
 				"actual_effort": "", "actual_machine": "", "effort": "",
@@ -1304,7 +1105,7 @@ func TestHandleListMembersApiMembersGet(t *testing.T) {
 		}
 		apiWantValue(t, "body", got, []any{
 			map[string]any{
-				"id": "mira", "avatar_url": "", "name": "Mira", "kind": "staff",
+				"id": "mira", "avatar_icon_id": nil, "name": "Mira", "kind": "staff",
 				"role_key": "assistant", "role_name": "Assistant", "runtime": "claude",
 				"model": "", "actual_model": "", "actual_runtime": "",
 				"actual_effort": "", "actual_machine": "", "effort": "medium",
@@ -1317,7 +1118,7 @@ func TestHandleListMembersApiMembersGet(t *testing.T) {
 				"terminal_attach_command": "tmux -L officraft attach -t member-mira",
 			},
 			map[string]any{
-				"id": "m-server-self", "avatar_url": "", "name": "伺服器這一台",
+				"id": "m-server-self", "avatar_icon_id": nil, "name": "伺服器這一台",
 				"kind": "warden", "role_key": "", "role_name": "", "runtime": "claude",
 				"model": "", "actual_model": "", "actual_runtime": "",
 				"actual_effort": "", "actual_machine": "", "effort": "medium",
@@ -1460,7 +1261,7 @@ func TestHandleGetMemberApiMembersMemberIdGet(t *testing.T) {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
 		apiWantBody(t, data, map[string]any{
-			"id": "kip", "avatar_url": "", "name": "Kip", "kind": "staff",
+			"id": "kip", "avatar_icon_id": nil, "name": "Kip", "kind": "staff",
 			"role_key": "engineer", "role_name": "", "runtime": "claude",
 			"model": "", "actual_model": "", "actual_runtime": "",
 			"actual_effort": "", "actual_machine": "", "effort": "",
@@ -1489,7 +1290,7 @@ func TestHandleGetMemberApiMembersMemberIdGet(t *testing.T) {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
 		apiWantBody(t, data, map[string]any{
-			"id": "ow-abc123", "avatar_url": "", "name": "Contractor",
+			"id": "ow-abc123", "avatar_icon_id": nil, "name": "Contractor",
 			"kind": "outsource", "role_key": "", "role_name": "", "runtime": "claude",
 			"model": "", "actual_model": "", "actual_runtime": "",
 			"actual_effort": "", "actual_machine": "", "effort": "",

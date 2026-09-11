@@ -243,18 +243,6 @@ func mfLastOpAt(v float64) memberField {
 	return memberField{col: "last_op_at", val: v, insertOnly: true}
 }
 
-// mfAvatarAttachmentID — insert-only, and its blast radius is WORSE than the
-// usual clobber, which is why it gets its own paragraph rather than sharing the
-// receipt's. ReplaceMemberAvatar / DeleteMemberAvatar are the only update seams
-// for this pointer, and they DELETE the blob they replace in the same
-// transaction. So a whole-row writer landing a stale pointer here does not just
-// disagree with the cockpit — it restores a pointer to bytes that are already
-// gone, orphaning the new blob and leaving a member whose avatar cannot load.
-// The INSERT still accepts the field for migrations, tests and new rows.
-func mfAvatarAttachmentID(v string) memberField {
-	return memberField{col: "avatar_attachment_id", val: v, insertOnly: true}
-}
-
 // mfHandoverNoticedTS — session-scoped state cleared at a session boundary
 // (T-6ebc), and the boundary runs next to HTTP faces that write member rows from
 // snapshots taken before it. Carrying the column onto an existing row would let
@@ -358,7 +346,7 @@ func memberWholeRow(m Member) []memberField {
 		mfLinkedTaskID(m.LinkedTaskID), mfCodename(m.Codename),
 		mfCreatedTS(m.CreatedTS), mfReleasedTS(m.ReleasedTS),
 		mfActivatedTS(m.ActivatedTS),
-		mfAvatarAttachmentID(m.AvatarAttachmentID), mfForcedStopAt(m.ForcedStopAt),
+		mfForcedStopAt(m.ForcedStopAt),
 		mfHandoverNoticedTS(m.HandoverNoticedTS), mfAgentIatFloor(m.AgentIatFloor),
 		mfRestartAfterStop(m.RestartAfterStop), mfTokenKeyID(m.TokenKeyID),
 	}
