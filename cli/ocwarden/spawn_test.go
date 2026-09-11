@@ -394,7 +394,13 @@ func TestBuildLaunchCommandWithEnv(t *testing.T) {
 		script := line[:execAt] + "; /usr/bin/env"
 		cmd := exec.Command("/bin/sh", "-c", script)
 		cmd.Env = []string{
-			"PATH=/usr/bin:/bin",
+			// PATH IS DELIBERATELY BROKEN. The owner's env file is sourced
+			// earlier on this same line and may leave PATH in any state at all
+			// (the measured reason OC_TOKEN uses an absolute /bin/cat). With a
+			// resolvable PATH this test passes just as happily against a purge
+			// written with a bare `env`, which on a real host would be a SILENT
+			// no-op and the whole defect back.
+			"PATH=/nonexistent",
 			"HOME=/Volumes/scratch/home",
 			"CLAUDE_SOMETHING_NEW=redirect-me",
 			"CLAUDE_CODE_CUSTOM_OAUTH_URL=https://example.invalid",
