@@ -42,7 +42,6 @@ import type {
   RoleSummaryView,
   RoleDefView,
   BootstrapView,
-  LessonsView,
   InsightView,
   OnboardResultView,
   DeleteResultView,
@@ -76,7 +75,6 @@ import type {
   WireRoleDef,
   WireRoleDefListItem,
   WireBootstrap,
-  WireLessons,
   WireInsight,
   WireOnboardResult,
   WireDeleteResult,
@@ -275,9 +273,8 @@ export function toMember(w: WireMember): Member {
     // that is only right on the unnamespaced instance. "" = a server too old to
     // serve it; the panel says so rather than reconstructing one.
     terminalAttachCommand: w.terminal_attach_command ?? "",
-    // The member wire carries no lessons (those come from the lessons doc, not
-    // wired in M1). The initial boot prompt is NOT baked into the member view —
-    // it is fetched on demand from /api/bootstrap (see api.getBootstrap).
+    // The initial boot prompt is NOT baked into the member view — it is
+    // fetched on demand from /api/bootstrap (see api.getBootstrap).
 
     // refocus_since > 0 → epoch of the last refocus intent (surfaced in the
     // detail panel); 0 → null (never refocused) so the panel shows no fabricated
@@ -864,7 +861,7 @@ export function toOutsourceWorker(w: WireOutsourceWorker): OutsourceWorkerView {
 }
 
 /** Map one wire task manual → the LIGHT `TaskTypeView` the type filter reads.
- * DROPS fields/sop/learnings/assignee on purpose — the tasks page must not
+ * DROPS fields/sop/assignee on purpose — the tasks page must not
  * grow a manual-editing surface (that is 設定 › 任務手冊's `toTaskManual`). */
 export function toTaskType(
   w: WireTaskManualListItem | WireTaskManual
@@ -932,11 +929,11 @@ export function toTaskManualSummary(
     // T-100: something draws them now — both manual sub-pages render 「已用 /
     // 上限」 while the owner types, which is what this mapper was waiting for.
     //
-    // 🔴 `?? 0` IS NOT A MEASUREMENT. Today's server always emits all four (the
+    // 🔴 `?? 0` IS NOT A MEASUREMENT. Today's server always emits both (the
     // generated TypeScript shape treats them as present), so the fallback is
     // only reachable
-    // from a server that predates them — the same defence `toRoleSummary` and
-    // `toLessons` keep. A zero cap would render 「1234 / 0」 — a budget that
+    // from a server that predates them — the same defence `toRoleSummary`
+    // keeps. A zero cap would render 「1234 / 0」 — a budget that
     // reads as "already over" on a document that is fine. The readout is
     // gated on `cap > 0` at
     // the render site for exactly that reason; do not remove that gate here by
@@ -945,21 +942,18 @@ export function toTaskManualSummary(
     // refuses a write against.
     sopMdChars: w.sop_md_chars ?? 0,
     sopMdCapChars: w.sop_md_cap_chars ?? 0,
-    learningsChars: w.learnings_chars ?? 0,
-    learningsCapChars: w.learnings_cap_chars ?? 0,
   };
 }
 
 /** Map one wire manual → the FULL view (`GET /{type_key}` and every write
- * echo). `sop_md` / `learnings` are optional on the wire and ABSENT from the
- * list answer since T-1170; `?? ""` here is the geometry of a manual that has
- * never been written, not a stand-in for a projection that dropped them — this
- * mapper is only ever handed a full-document response. */
+ * echo). `sop_md` is optional on the wire and ABSENT from the list answer
+ * since T-1170; `?? ""` here is the geometry of a manual that has never been
+ * written, not a stand-in for a projection that dropped it — this mapper is
+ * only ever handed a full-document response. */
 export function toTaskManual(w: WireTaskManual): TaskManualView {
   return {
     ...toTaskManualSummary(w),
     sopMd: w.sop_md ?? "",
-    learnings: w.learnings ?? "",
   };
 }
 
@@ -974,7 +968,6 @@ export function fromTaskManualPatch(
     display_name: patch.displayName ?? null,
     purpose: patch.purpose ?? null,
     sop_md: patch.sopMd ?? null,
-    learnings: patch.learnings ?? null,
     fields:
       patch.fields !== undefined
         ? patch.fields.map((f) => ({
@@ -1220,11 +1213,7 @@ export function toServerSettings(w: WireServerSettings): ServerSettingsView {
     // (T-ae38) — the numbers live in DOC_CAP_CHARS_DEFAULTS, not here.
     docCapCharsDuty: w.doc_cap_chars_duty ?? DOC_CAP_CHARS_DEFAULTS.duty,
     docCapCharsInsight: w.doc_cap_chars_insight ?? DOC_CAP_CHARS_DEFAULTS.insight,
-    docCapCharsLearning:
-      w.doc_cap_chars_learning ?? DOC_CAP_CHARS_DEFAULTS.learning,
     docCapCharsManualSop: w.doc_cap_chars_manual_sop ?? DOC_CAP_CHARS_DEFAULTS.manualSop,
-    docCapCharsManualLearnings:
-      w.doc_cap_chars_manual_learnings ?? DOC_CAP_CHARS_DEFAULTS.manualLearnings,
     // T-791e boot-context caps — same rule and same reason as the five above.
     docCapCharsSystemInteraction:
       w.doc_cap_chars_system_interaction ??
@@ -1765,29 +1754,11 @@ export function toTeardownHereResult(
   };
 }
 
-/** Map the wire lessons doc → the view model (snake→camel). DROPS `owner_id` /
- * `schema_version` on purpose (the view needs neither, and carries no owner
- * credential). Pure passthrough of `text` — never fabricated; an empty seed
- * stays empty so the UI can show an honest empty state. */
-export function toLessons(w: WireLessons): LessonsView {
-  return {
-    // T-ae38: KEPT, not dropped. The wire has carried these since T-3aeb and
-    // this mapper threw them away, so the Learning card was the one journal
-    // block whose usage an agent could not see — it learned its limit by being
-    // refused. Same fields, same reason, as toInsight.
-    sizeChars: w.size_chars ?? 0,
-    capChars: w.cap_chars ?? 0,
-    roleKey: w.role_key,
-    text: w.text,
-    isDefault: w.is_default,
-  };
-}
-
-/** Map the folded PER-ROLE insight doc (T-3809) → the view model. Unlike
- * `toLessons` this KEEPS `size_chars` / `cap_chars`: the cap is the live
- * `doc.cap_chars.insight` setting and the settings surface is admin-only, so the card
- * header is where the owner reads it. Dropping them here would make the card's
- * one honest number un-renderable. */
+/** Map the folded PER-ROLE insight doc (T-3809) → the view model. It KEEPS
+ * `size_chars` / `cap_chars`: the cap is the live `doc.cap_chars.insight`
+ * setting and the settings surface is admin-only, so the card header is where
+ * the owner reads it. Dropping them here would make the card's one honest
+ * number un-renderable. */
 export function toInsight(w: WireInsight): InsightView {
   return {
     roleKey: w.role_key,

@@ -27,7 +27,7 @@ for (const width of [375, 390, 1280]) {
     await page.setViewportSize({ width, height: 900 });
     const cmp = await mount(<WorkerDetailPanelTaskOrderStory />);
 
-    // Surface-existence first (§1 of the手冊 learnings: an absent element must
+    // Surface-existence first (an absent element must
     // fail loudly, never silently satisfy an order/overflow assertion below).
     const taskCard = cmp.locator(".mp-worker-task");
     await expect(taskCard).toBeVisible();

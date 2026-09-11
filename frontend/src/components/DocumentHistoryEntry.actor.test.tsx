@@ -49,9 +49,9 @@ function roster(): Member[] {
 async function openList(ownerName?: string) {
   const entry = (
     <DocumentHistoryEntry
-      kind="lessons"
-      docKey="r-engineer::review-pr"
-      title={s.historyLessonsTitle}
+      kind="insight"
+      docKey="r-engineer"
+      title={s.historyInsightTitle}
     />
   );
   const utils = render(
@@ -63,7 +63,7 @@ async function openList(ownerName?: string) {
       )}
     </I18nProvider>
   );
-  fireEvent.click(utils.getByTestId("doc-history-entry-lessons"));
+  fireEvent.click(utils.getByTestId("doc-history-entry-insight"));
   await utils.findByTestId("doc-history-item-1");
   return utils;
 }

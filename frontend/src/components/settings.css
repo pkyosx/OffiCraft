@@ -590,7 +590,7 @@
      opportunity such a token sets this container's min-content to its own full
      width; the container then refuses to shrink, outgrows a phone viewport, and
      the whole PAGE gains a horizontal scrollbar (owner phone report 2026-07-20:
-     角色誌 / 學習經驗 could be dragged sideways).
+     角色誌 / 判準 could be dragged sideways).
 
      `anywhere`, not `break-word`: both break an already-overflowing line, but
      only `anywhere` SHRINKS min-content — which is what lets the container bind
@@ -598,7 +598,7 @@
 
      This lives on the `.doc-md` BASE deliberately. T-4974 fixed the same bug by
      patching the three task-card surfaces individually, so every other host of
-     this skin (角色誌, 學習經驗, 任務手冊, reply cards, chat bubbles, boot prompt)
+     this skin (角色誌, 判準, 任務手冊, reply cards, chat bubbles, boot prompt)
      stayed unprotected and the bug came back from a different page. On the base,
      all 17 present render sites — and any future one — inherit it by
      construction.
@@ -1152,7 +1152,7 @@
   }
 }
 
-/* ---- 任務手冊 (SPEC §5): list + tabbed detail (任務定義 / 學習經驗) +
+/* ---- 任務手冊 (SPEC §5): list + detail (任務定義) +
  * 負責成員 card. Reuses the doc-card / set-entry silhouettes; only the
  * manual-specific interior gets new classes. ---- */
 .manual-key {

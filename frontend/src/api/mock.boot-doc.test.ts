@@ -429,34 +429,4 @@ describe("mockApi · 開機脈絡預覽", () => {
     expect(ctx).not.toContain("claude 版");
     expect(ctx).not.toContain(SEED_BOOT_SEQUENCE_CODEX_MD.trim());
   });
-
-  it("carries exactly ONE lessons title, even when the document already starts with it", async () => {
-    // A generation that treats its boot segment as the document base and writes
-    // it back turns the injected title into document content. Without the
-    // idempotent strip the preview then shows one more title per generation —
-    // drift the server does not have, in the screen built to show what the
-    // server sends.
-    const title = "# Lessons (assistant)";
-    await mockApi.saveLessons(
-      "assistant",
-      `${title}\n\n${title}\n\n學到的東西\n`
-    );
-    const ctx = (await mockApi.getBootstrap("assistant")).context;
-    expect(ctx).toContain("學到的東西");
-    expect(ctx.split(title).length - 1).toBe(1);
-  });
-
-  it("strips the PRE-T-2 lessons title too, so a document poisoned before the axis was dropped self-heals", async () => {
-    // T-2 removed the task_type axis, and with it the "/ general" half of this
-    // title. A document poisoned BEFORE that change carries the old wording, so
-    // a strip that only knew the new title would leave it wedged at the top of
-    // the document with nothing able to reach it. The server strips both
-    // (assets.go); this is the mock held to the same rule.
-    const legacy = "# Lessons (assistant / general)";
-    await mockApi.saveLessons("assistant", `${legacy}\n\n學到的東西\n`);
-    const ctx = (await mockApi.getBootstrap("assistant")).context;
-    expect(ctx).toContain("學到的東西");
-    expect(ctx).not.toContain(legacy);
-    expect(ctx.split("# Lessons (assistant)").length - 1).toBe(1);
-  });
 });

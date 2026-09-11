@@ -27,9 +27,9 @@ const PARAGRAPHS = Array.from(
   (_, i) => `${i + 1}. 這一行是版本內容的第 ${i + 1} 段，用來把 modal 的內文撐高。`
 );
 
-const BEFORE = ["# 學習經驗", "", ...PARAGRAPHS, "", LONG_TOKEN].join("\n");
+const BEFORE = ["# 判準", "", ...PARAGRAPHS, "", LONG_TOKEN].join("\n");
 const AFTER = [
-  "# 學習經驗",
+  "# 判準",
   "",
   ...PARAGRAPHS.map((line, i) => (i === 2 ? `${line}（已改寫）` : line)),
   "",
@@ -65,7 +65,7 @@ export function DocumentHistoryModalStory({
       </div>
       {showing && (
         <DocumentHistoryModal
-          kind="lessons"
+          kind="insight"
           createdTs={1753776180}
           tombstoned={false}
           sizes={contentSizes(VERSION_CONTENT)}

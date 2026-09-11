@@ -95,7 +95,7 @@ describe("SettingsPage · #settings/roles deep-link (T-f074 正職 ➕👤)", ()
         <SettingsPage initialRoleKey="assistant" />
       </I18nProvider>
     );
-    // The role detail (localized seed title + its lessons card) renders on
+    // The role detail (localized seed title + its insight card) renders on
     // mount — no list navigation needed.
     // (findAll — the localized title renders in both the breadcrumb and the h1)
     const titles = await utils.findAllByText(zh.office.role.assistant);
@@ -362,7 +362,7 @@ describe("SettingsPage · 自訂角色 改名 (custom-only rename)", () => {
   it("offers NO rename on a seed role's detail page", async () => {
     const utils = await openRolesLog();
     fireEvent.click(utils.getByText(zh.office.role.assistant));
-    await utils.findAllByText(zh.settings.edit); // 編輯 renders (doc + lessons cards)
+    await utils.findAllByText(zh.settings.edit); // 編輯 renders (doc + insight cards)
     expect(utils.queryByLabelText(zh.settings.renameRole)).toBeNull();
   });
 });

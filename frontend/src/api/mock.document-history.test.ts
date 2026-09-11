@@ -24,7 +24,7 @@ describe("mockApi · document history", () => {
     // here would show the cockpit a version the real server never kept.
     await mockApi.saveGlobalContext("first customization");
     await mockApi.saveRole("assistant", { definitionMd: "first rewrite" });
-    await mockApi.saveLessons("assistant", "first learnings");
+    await mockApi.saveInsight("assistant", "first insight");
 
     expect(
       await documentRevisions(mockApi, "global_context", "global")
@@ -33,7 +33,7 @@ describe("mockApi · document history", () => {
       await documentRevisions(mockApi, "role_definition", "assistant")
     ).toEqual([]);
     expect(
-      await documentRevisions(mockApi, "lessons", "assistant")
+      await documentRevisions(mockApi, "insight", "assistant")
     ).toEqual([]);
   });
 
@@ -71,13 +71,13 @@ describe("mockApi · document history", () => {
   });
 
   it("scopes history per document, not per kind", async () => {
-    await mockApi.saveLessons("assistant", "assistant learnings");
-    await mockApi.saveLessons("assistant", "assistant learnings v2");
+    await mockApi.saveInsight("assistant", "assistant insight");
+    await mockApi.saveInsight("assistant", "assistant insight v2");
     expect(
-      await documentRevisions(mockApi, "lessons", "researcher")
+      await documentRevisions(mockApi, "insight", "researcher")
     ).toEqual([]);
     expect(
-      await documentRevisions(mockApi, "lessons", "assistant")
+      await documentRevisions(mockApi, "insight", "assistant")
     ).toHaveLength(1);
   });
 
@@ -140,23 +140,21 @@ describe("mockApi · document history", () => {
     );
   });
 
-  // T-1f39 split the manual's one four-field bundle into TWO independent
-  // series and stopped versioning purpose/fields altogether. The restore is
-  // narrow to match: exactly the field its series versions goes back, and the
-  // rest of the manual is left where it stands.
+  // T-1f39 split the manual's four-field bundle into its own SOP series and
+  // stopped versioning purpose/fields altogether. The restore is narrow to
+  // match: exactly the field its series versions goes back, and the rest of the
+  // manual is left where it stands.
   it("restores a task manual's SOP alone, leaving every other field where it is", async () => {
     const manual = await mockApi.createTaskManual("Review PR");
     await mockApi.updateTaskManual(manual.typeKey, {
       purpose: "review pull requests",
       sopMd: "## steps",
-      learnings: "keep diffs small",
       fields: [{ name: "pr_url", required: true, isKey: true }],
     });
-    // Later edits move all four fields; only the SOP one is retained.
+    // Later edits move every field; only the SOP one is retained.
     await mockApi.updateTaskManual(manual.typeKey, {
       purpose: "changed purpose",
       sopMd: "## rewritten",
-      learnings: "changed learnings",
       fields: [],
     });
 
@@ -173,68 +171,30 @@ describe("mockApi · document history", () => {
 
     const back = await mockApi.getTaskManual(manual.typeKey);
     expect(back.sopMd).toBe("## steps");
-    // The three fields this series does NOT version are untouched — before the
+    // The fields this series does NOT version are untouched — before the
     // split, restoring dragged the purpose and the identifier fields back too.
     expect(back.purpose).toBe("changed purpose");
-    expect(back.learnings).toBe("changed learnings");
     expect(back.fields).toEqual([]);
-  });
-
-  it("versions a manual's learnings on their own series, independent of the SOP", async () => {
-    const manual = await mockApi.createTaskManual("Review PR");
-    await mockApi.updateTaskManual(manual.typeKey, {
-      sopMd: "## v1",
-      learnings: "第一版經驗",
-    });
-    // THREE SOP-only writes: enough to wash a shared 3-slot series clean. The
-    // learnings series must still be holding its own single revision.
-    for (const sop of ["## v2", "## v3", "## v4"]) {
-      await mockApi.updateTaskManual(manual.typeKey, { sopMd: sop });
-    }
-    await mockApi.updateTaskManual(manual.typeKey, { learnings: "第二版經驗" });
-
-    const learnings = await documentRevisions(mockApi, 
-      "task_manual_learnings",
-      manual.typeKey
-    );
-    expect(learnings.map((v) => v.content)).toEqual([
-      { learnings: "第一版經驗" },
-    ]);
-    const sops = await documentRevisions(mockApi, 
-      "task_manual_sop",
-      manual.typeKey
-    );
-    expect(sops.map((v) => v.content.sop_md)).toEqual([
-      "## v3",
-      "## v2",
-      "## v1",
-    ]);
   });
 
   it("retains nothing for an edit to the purpose or the identifier fields", async () => {
     const manual = await mockApi.createTaskManual("Review PR");
-    await mockApi.updateTaskManual(manual.typeKey, {
-      sopMd: "## steps",
-      learnings: "keep diffs small",
-    });
+    await mockApi.updateTaskManual(manual.typeKey, { sopMd: "## steps" });
     await mockApi.updateTaskManual(manual.typeKey, {
       purpose: "review pull requests",
       fields: [{ name: "pr_url", required: true, isKey: true }],
       displayName: "PR 審查",
     });
 
-    // Those three are not versioned at all (owner ruling), so neither series
-    // moved — and the SOP series still holds only what a SOP write retained.
+    // Those three are not versioned at all (owner ruling), so the series did
+    // not move — it still holds only what a SOP write retained.
     expect(
       await documentRevisions(mockApi, "task_manual_sop", manual.typeKey)
-    ).toEqual([]);
-    expect(
-      await documentRevisions(mockApi, "task_manual_learnings", manual.typeKey)
     ).toEqual([]);
   });
 
   // Deleting a document takes its retained revisions with it, in the same
-  // transaction (dal.go DeleteRoleDef / DeleteLessonsOfRole / DeleteTaskManual):
+  // transaction (dal.go DeleteRoleDef / DeleteTaskManual):
   // history is readable by any authenticated caller, so a leftover revision is a
   // readable echo of a deleted document and makes the guide's 「永久移除」 false.
   // No live cockpit path reaches a stale row today — role keys and manual
@@ -242,16 +202,15 @@ describe("mockApi · document history", () => {
   // the mock is the cockpit's stand-in for the contract: one that still lists
   // history for a deleted document teaches the UI, and the next reader of this
   // file, a behaviour the server does not have.
-  it("deleting a role drops its own history and its lessons history", async () => {
+  it("deleting a role drops its own history and its insight history", async () => {
     const { roleKey } = await mockApi.createRole({ name: "臨時角色" });
     await mockApi.saveRole(roleKey, { definitionMd: "改寫" });
-    // The lessons history key is the BARE role_key since T-2 — one document per
-    // role, addressed exactly, so this is an equality rather than the prefix
-    // sweep the compound key used to need.
-    await mockApi.saveLessons(roleKey, "第一版");
-    await mockApi.saveLessons(roleKey, "第二版");
+    // The insight history key is the BARE role_key — one document per role,
+    // addressed exactly, so this is an equality rather than a prefix sweep.
+    await mockApi.saveInsight(roleKey, "第一版");
+    await mockApi.saveInsight(roleKey, "第二版");
     expect(
-      await documentRevisions(mockApi, "lessons", roleKey)
+      await documentRevisions(mockApi, "insight", roleKey)
     ).toHaveLength(1);
     expect(
       await documentRevisions(mockApi, "role_definition", roleKey)
@@ -262,35 +221,23 @@ describe("mockApi · document history", () => {
     expect(
       await documentRevisions(mockApi, "role_definition", roleKey)
     ).toEqual([]);
-    expect(await documentRevisions(mockApi, "lessons", roleKey)).toEqual([]);
+    expect(await documentRevisions(mockApi, "insight", roleKey)).toEqual([]);
   });
 
-  it("deleting a task manual drops the history of BOTH its series", async () => {
+  it("deleting a task manual drops its SOP history", async () => {
     const manual = await mockApi.createTaskManual("Review PR");
-    await mockApi.updateTaskManual(manual.typeKey, {
-      sopMd: "第一版 SOP",
-      learnings: "第一版經驗",
-    });
-    await mockApi.updateTaskManual(manual.typeKey, {
-      sopMd: "第二版 SOP",
-      learnings: "第二版經驗",
-    });
-    // Both series really hold something — a delete test whose fixture retained
+    await mockApi.updateTaskManual(manual.typeKey, { sopMd: "第一版 SOP" });
+    await mockApi.updateTaskManual(manual.typeKey, { sopMd: "第二版 SOP" });
+    // The series really holds something — a delete test whose fixture retained
     // nothing would pass on a delete that dropped nothing.
     expect(
       await documentRevisions(mockApi, "task_manual_sop", manual.typeKey)
-    ).toHaveLength(1);
-    expect(
-      await documentRevisions(mockApi, "task_manual_learnings", manual.typeKey)
     ).toHaveLength(1);
 
     await mockApi.deleteTaskManual(manual.typeKey);
 
     expect(
       await documentRevisions(mockApi, "task_manual_sop", manual.typeKey)
-    ).toEqual([]);
-    expect(
-      await documentRevisions(mockApi, "task_manual_learnings", manual.typeKey)
     ).toEqual([]);
   });
 
@@ -304,9 +251,9 @@ describe("mockApi · document history", () => {
   // The retired bundle: the server 400s BOTH routes and migration 00044 deleted
   // its rows, so a mock that answered 200 (or 404) would let a surface still
   // addressing the dead kind look alive in every frontend test and fail only in
-  // production. The refusal must also NAME the two replacements — that is what
+  // production. The refusal must also NAME the replacement — that is what
   // makes it actionable rather than a wall.
-  it("refuses the retired task_manual kind on both routes, naming its two replacements", async () => {
+  it("refuses the retired task_manual kind on both routes, naming its replacement", async () => {
     const manual = await mockApi.createTaskManual("週報");
     await mockApi.updateTaskManual(manual.typeKey, { sopMd: "第零版" });
     await mockApi.updateTaskManual(manual.typeKey, { sopMd: "第一版" });
@@ -319,11 +266,10 @@ describe("mockApi · document history", () => {
     ).rejects.toSatisfy(
       (e) =>
         e instanceof ApiError &&
-        e.serverMessage.includes("task_manual_sop") &&
-        e.serverMessage.includes("task_manual_learnings")
+        e.serverMessage.includes("task_manual_sop")
     );
 
-    // Positive control: the two live series on the SAME manual still answer.
+    // Positive control: the live series on the SAME manual still answers.
     expect(
       await documentRevisions(mockApi, "task_manual_sop", manual.typeKey)
     ).toHaveLength(1);
@@ -368,15 +314,12 @@ describe("mockApi · document history", () => {
     for (const probe of [
       ["role_definition", customKey],
       ["task_manual_sop", manual.typeKey],
-      ["task_manual_learnings", manual.typeKey],
-      ["lessons", customKey],
+      ["insight", customKey],
     ] as const) {
       await expect(
         mockApi.getDocumentSeed(probe[0], probe[1])
       ).rejects.toSatisfy((e) => isHttpStatus(e, 404));
       // The equivalence itself: the reset of that same document also refuses.
-      // (Only role_definition HAS a reset route; the other three have none at
-      // all, which is the stronger form of the same fact.)
     }
     await expect(mockApi.resetRole(customKey)).rejects.toSatisfy((e) =>
       isHttpStatus(e, 404)

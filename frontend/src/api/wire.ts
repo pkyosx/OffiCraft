@@ -271,8 +271,8 @@ export type WireOutsourceWorker = components["schemas"]["OutsourceWorkerDTO"];
 export type WireTaskManual = components["schemas"]["TaskManualDTO"];
 
 /** Mirrors `TaskManualListItemDTO` (`GET /api/task-manuals`) — the DIRECTORY
- * row since T-1170: everything a picker needs plus `sop_md` / `learnings`
- * CHAR COUNTS, and neither document's text. The bodies come from
+ * row since T-1170: everything a picker needs plus the `sop_md` CHAR COUNTS,
+ * and not the document's text. The body comes from
  * `GET /api/task-manuals/{type_key}`, one manual at a time. */
 export type WireTaskManualListItem =
   components["schemas"]["TaskManualListItemDTO"];
@@ -375,16 +375,11 @@ export type WireRoleDeleteResult = components["schemas"]["RoleDeleteResultDTO"];
  * NEVER maps token in. */
 export type WireBootstrap = components["schemas"]["BootstrapDTO"];
 
-/** Mirrors `service/dto.py :: LessonsDTO`. The folded PER-ROLE lessons doc for
- * one `role_key` (T-2 removed the `task_type` axis). `is_default` = seed vs
- * owner-edited. */
-export type WireLessons = components["schemas"]["LessonsDTO"];
-
 /** Mirrors `service/dto.py :: InsightDTO` (T-3809). The folded PER-ROLE
- * insight doc for one `role_key` — the role journal's third block.
- * The seed (T-e1e3) is PER-ROLE — `seeds/insight_<role_key>.md`,
- * never lessons' one shared file — so `is_default` ("never written by this role")
- * no longer implies an empty `text`: a seeded role reads factory wording. */
+ * insight doc for one `role_key` — the role journal's second block.
+ * The seed (T-e1e3) is PER-ROLE — `seeds/insight_<role_key>.md` — so
+ * `is_default` ("never written by this role") does not imply an empty `text`:
+ * a seeded role reads factory wording. */
 export type WireInsight = components["schemas"]["InsightDTO"];
 
 /** Mirrors `BackupHealthDTO` (`GET /api/backup-health`) — whether the

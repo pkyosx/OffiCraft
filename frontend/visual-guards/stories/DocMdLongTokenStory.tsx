@@ -1,10 +1,10 @@
 // Story — the `.doc-md` DOCUMENT surfaces that render agent/owner free text
-// (T-d451). Owner (2026-07-20, phone): 角色誌 / 學習經驗 carried unbreakable long
+// (T-d451). Owner (2026-07-20, phone): 角色誌 / 判準 carried unbreakable long
 // tokens (long URL, 40-char sha, long English word) that widened the container
 // and gave the whole PAGE a horizontal scrollbar.
 //
 // T-4974 fixed the three TASK-CARD surfaces via per-surface rules in tasks.css.
-// Every OTHER `.doc-md` host (settings 角色誌, 學習經驗, 任務手冊 SOP, reply-card
+// Every OTHER `.doc-md` host (settings 角色誌, 判準, 任務手冊 SOP, reply-card
 // summary/body, chat bubble, agent boot prompt) still inherited the bare
 // `.doc-md` base, which declares no `overflow-wrap` — so they all still overflow.
 // This story renders the doc-shaped hosts against the REAL sheets so the guard
@@ -18,7 +18,7 @@ import { Markdown } from "../../src/components/Markdown";
 import "../../src/components/member-detail.css";
 import "../../src/components/replies.css";
 
-/** 88 chars, no break opportunity — the shape owner hit in a lessons doc. */
+/** 88 chars, no break opportunity — the shape owner hit in a journal doc. */
 export const LONG_WORD =
   "supercalifragilisticexpialidociousantidisestablishmentarianismpneumonoultramicroscopicsi";
 /** A real-shaped long URL with no spaces. */
@@ -28,7 +28,7 @@ export const LONG_URL =
 export const LONG_SHA =
   "897a00853ca287deb861dccba228cc033c1386a8/twin(desired_state/desired_machine_id/refocus_since/bank_balance)";
 
-const DOC = `# 學習經驗
+const DOC = `# 判準
 
 坑:部署後要驗 ${LONG_SHA} 這顆 sha 真的在服役面。
 
@@ -43,7 +43,7 @@ $ curl -s https://officraft.hardcoretech.link/api/version | jq -r '.git_sha + " 
 | surface | class | overflow-wrap |
 | --- | --- | --- |
 | 角色誌 | .doc-md | (none before T-d451) |
-| 學習經驗 | .doc-md | (none before T-d451) |
+| 判準 | .doc-md | (none before T-d451) |
 `;
 
 /**
@@ -67,8 +67,9 @@ export function DocMdLongTokenStory() {
         </div>
       </div>
 
-      {/* 學習經驗 (LessonsCard.tsx:125 — .mp-lessons__body wrapper) */}
-      <div className="mp-lessons" data-surface="lessons">
+      {/* 判準 (InsightCard.tsx — .mp-lessons__body wrapper; the class name is
+        * shared by the journal cards and predates the card that named it) */}
+      <div className="mp-lessons" data-surface="insight">
         <div className="mp-lessons__body">
           <Markdown source={DOC} className="doc-md" />
         </div>

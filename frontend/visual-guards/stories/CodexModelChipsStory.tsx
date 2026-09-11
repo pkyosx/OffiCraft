@@ -51,8 +51,6 @@ const MANUAL: TaskManualSummaryView = {
   updatedTs: 0,
   sopMdChars: 0,
   sopMdCapChars: 18000,
-  learningsChars: 0,
-  learningsCapChars: 17000,
 };
 
 /** 轉派 dialog. The spec picks 轉外包 + Codex itself — going through the real
@@ -84,7 +82,6 @@ export function ManualCodexChipsStory({ widthPx }: { widthPx: number }) {
             crumbs={[{ label: "設定" }, { label: "任務手冊" }]}
             onSave={() => Promise.resolve()}
             onOpenDefinition={() => {}}
-            onOpenLearnings={() => {}}
           />
         </div>
       </div>

@@ -2,7 +2,8 @@
 // (`.doc-btn--edit`) that sit in the SAME header row of the Insight card.
 //
 // Why the real card and not a hand-built row: the defect is a flex-shrink
-// story. `.mp-lessons__head` is `display:flex; justify-content:space-between`,
+// story. `.mp-lessons__head` (shared by the journal cards) is
+// `display:flex; justify-content:space-between`,
 // its title span and its action button are both shrinkable flex items, and the
 // badge inside the title is a THIRD shrinkable item. A hand-rolled row would
 // have to re-declare that chain by hand and could drift from it; mounting

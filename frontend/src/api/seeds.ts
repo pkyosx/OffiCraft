@@ -6,7 +6,6 @@
 // Source of truth: seeds/*.md (repo root; read by ocserverd at runtime)
 //   * SEED_SYSTEM_INTERACTION_MD ← seeds/system_interaction.md
 //   * SEED_ROLE_ASSISTANT_MD     ← seeds/role_def_assistant.md
-//   * SEED_LESSONS_MD            ← seeds/lessons.md
 //   * SEED_INSIGHT_ASSISTANT_MD  ← seeds/insight_assistant.md
 //   * SEED_BOOT_SEQUENCE_MD      ← seeds/boot_sequence.md
 //   * SEED_BOOT_SEQUENCE_CODEX_MD ← seeds/boot_sequence_codex.md
@@ -20,7 +19,6 @@
 
 import SEED_SYSTEM_INTERACTION_RAW from "../../../seeds/system_interaction.md?raw";
 import SEED_ROLE_ASSISTANT_RAW from "../../../seeds/role_def_assistant.md?raw";
-import SEED_LESSONS_RAW from "../../../seeds/lessons.md?raw";
 import SEED_INSIGHT_ASSISTANT_RAW from "../../../seeds/insight_assistant.md?raw";
 import SEED_BOOT_SEQUENCE_RAW from "../../../seeds/boot_sequence.md?raw";
 import SEED_BOOT_SEQUENCE_CODEX_RAW from "../../../seeds/boot_sequence_codex.md?raw";
@@ -50,13 +48,8 @@ export const SEED_SYSTEM_INTERACTION_MD = foldOwnerId(SEED_SYSTEM_INTERACTION_RA
 /** seeds/role_def_assistant.md — the REAL Mira persona. */
 export const SEED_ROLE_ASSISTANT_MD = foldOwnerId(SEED_ROLE_ASSISTANT_RAW);
 
-/** seeds/lessons.md — the REAL accumulated-lessons seed,
- * is_default=true → the folded GET returns exactly this (UI labels it "預設").
- * An owner edit later overlays it. */
-export const SEED_LESSONS_MD = foldOwnerId(SEED_LESSONS_RAW);
-
 /** seeds/boot_sequence.md — the standalone 啟動步驟 section appended LAST (after
- * Global → Role → Insight → Lessons) so the concrete boot steps are the recency-
+ * Global → Role → Insight) so the concrete boot steps are the recency-
  * authoritative tail an agent reads. */
 export const SEED_BOOT_SEQUENCE_MD = foldOwnerId(SEED_BOOT_SEQUENCE_RAW);
 
@@ -93,10 +86,10 @@ export const SEED_TASK_TAKEOVER_FRESH_MD = foldOwnerId(
 export const SEED_TASK_UNBLOCKED_MD = foldOwnerId(SEED_TASK_UNBLOCKED_RAW);
 
 /** seeds/insight_assistant.md — the assistant's FACTORY judgement calls (T-e1e3).
- * 🔴 PER-ROLE, and there is deliberately no `SEED_INSIGHT_MD`: lessons folds one
- * shared file for every role, and doing that here would ship the assistant's
- * judgement calls to every role out of the box. Every OTHER role has no insight
- * seed and reads "" until it writes. is_default=true → the folded GET returns
+ * 🔴 PER-ROLE, and there is deliberately no `SEED_INSIGHT_MD`: one shared file
+ * for every role would ship the assistant's judgement calls to every role out
+ * of the box. Every OTHER role has no insight seed and reads "" until it
+ * writes. is_default=true → the folded GET returns
  * exactly this, and the card must label it 「預設」 rather than render it as
  * something a person wrote. */
 export const SEED_INSIGHT_ASSISTANT_MD = foldOwnerId(SEED_INSIGHT_ASSISTANT_RAW);

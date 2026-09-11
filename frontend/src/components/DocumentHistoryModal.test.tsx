@@ -40,7 +40,7 @@ function open(opts: {
   onClose?: () => void;
 }) {
   const {
-    kind = "lessons" as DocumentKind,
+    kind = "insight" as DocumentKind,
     content = { text: VERSION_MD },
     onBack,
     onRestore = async () => {},
@@ -169,18 +169,18 @@ describe("DocumentHistoryModal", () => {
   });
 
   it("diffs each field a multi-field revision carries", () => {
-    // The retired whole-manual kind still carries four fields in one snapshot;
-    // diffing only the first would hide every change below it.
+    // The retired whole-manual kind still carries several fields in one
+    // snapshot; diffing only the first would hide every change below it.
     const utils = open({
       kind: "task_manual",
-      content: { sop_md: "第一版 SOP", learnings: "舊的經驗" },
-      currentContent: { sop_md: "第一版 SOP", learnings: "新的經驗" },
+      content: { purpose: "舊的用途", sop_md: "第一版 SOP" },
+      currentContent: { purpose: "新的用途", sop_md: "第一版 SOP" },
     });
     fireEvent.click(utils.getByTestId("doc-history-pane-diff"));
 
-    expect(diffRows(utils.getByTestId("doc-history-diff-learnings"))).toEqual([
-      ["1", "", "-", "舊的經驗"],
-      ["", "1", "+", "新的經驗"],
+    expect(diffRows(utils.getByTestId("doc-history-diff-purpose"))).toEqual([
+      ["1", "", "-", "舊的用途"],
+      ["", "1", "+", "新的用途"],
     ]);
     expect(
       utils.getByTestId("doc-history-diff-sop_md").textContent
@@ -194,41 +194,46 @@ describe("DocumentHistoryModal", () => {
     const utils = open({
       kind: "task_manual",
       content: { sop_md: "第一版 SOP" },
-      currentContent: { sop_md: "第一版 SOP", learnings: "後來才有的經驗" },
+      currentContent: { sop_md: "第一版 SOP", purpose: "後來才有的用途" },
     });
     fireEvent.click(utils.getByTestId("doc-history-pane-diff"));
 
-    expect(diffRows(utils.getByTestId("doc-history-diff-learnings"))).toEqual([
-      ["", "1", "+", "後來才有的經驗"],
+    expect(diffRows(utils.getByTestId("doc-history-diff-purpose"))).toEqual([
+      ["", "1", "+", "後來才有的用途"],
     ]);
   });
 
   it("judges the cap on the ONE field the restored series writes back", () => {
-    // The split's own behaviour change (T-1f39): restoring a SOP writes the
-    // SOP alone, so an over-cap LEARNINGS doc is none of its business. The
-    // legacy four-field bundle restores both and is still refused — the
-    // contrast is what makes this a statement about scope rather than about
-    // this one fixture.
+    // The SOP series writes the SOP alone (T-1f39), so the cap is judged on
+    // `sop_md` and on nothing else a revision happens to carry. The un-capped
+    // neighbour is the discrimination: a fixture with only the blocked case
+    // would also pass on a modal that judges every field it is handed.
     const overCap = "字".repeat(DOC_CAP_CHARS_DEFAULT + 1);
-    const content = { sop_md: "短 SOP", learnings: overCap };
-    const current = { sop_md: "短 SOP", learnings: "短" };
 
-    const split = open({ kind: "task_manual_sop", content, currentContent: current });
+    const clear = open({
+      kind: "task_manual_sop",
+      content: { sop_md: "短 SOP", purpose: overCap },
+      currentContent: { sop_md: "短 SOP", purpose: "短" },
+    });
     expect(
-      (split.getByTestId("doc-history-modal-restore") as HTMLButtonElement)
+      (clear.getByTestId("doc-history-modal-restore") as HTMLButtonElement)
         .disabled
     ).toBe(false);
-    expect(split.queryByTestId("doc-history-modal-blocked")).toBeNull();
-    split.unmount();
+    expect(clear.queryByTestId("doc-history-modal-blocked")).toBeNull();
+    clear.unmount();
 
-    const bundle = open({ kind: "task_manual", content, currentContent: current });
+    const blocked = open({
+      kind: "task_manual_sop",
+      content: { sop_md: overCap },
+      currentContent: { sop_md: "短 SOP" },
+    });
     expect(
-      (bundle.getByTestId("doc-history-modal-restore") as HTMLButtonElement)
+      (blocked.getByTestId("doc-history-modal-restore") as HTMLButtonElement)
         .disabled
     ).toBe(true);
     expect(
-      bundle.getByTestId("doc-history-modal-blocked").textContent
-    ).toContain(s.historyField.learnings);
+      blocked.getByTestId("doc-history-modal-blocked").textContent
+    ).toContain(s.historyField.sop_md);
   });
 
   it("restore asks first, then calls through and closes the reader", async () => {
@@ -255,7 +260,7 @@ describe("DocumentHistoryModal", () => {
     const onRestore = vi
       .fn()
       .mockRejectedValue(
-        mockApiError("http 400", 400, "learnings doc is over the limit")
+        mockApiError("http 400", 400, "SOP doc is over the limit")
       );
     const onClose = vi.fn();
     const utils = open({ onRestore, onClose });
@@ -265,7 +270,7 @@ describe("DocumentHistoryModal", () => {
 
     // The SERVER's own sentence, not the generic fallback — it is the only
     // thing that says WHY.
-    await utils.findByText("learnings doc is over the limit");
+    await utils.findByText("SOP doc is over the limit");
     expect(utils.getByTestId("doc-history-restore-confirm")).toBeTruthy();
     expect(utils.getByTestId("doc-history-modal")).toBeTruthy();
     expect(onClose).not.toHaveBeenCalled();

@@ -211,7 +211,7 @@ export function TaskReassignDialog({
       // fixed 「轉派失敗」, so the only way to learn which refusal you hit was to
       // ask someone to read the code (owner did exactly that, 2026-08-11, chat
       // c-066088ffad83 → T-b9f6). `console.warn` is not a channel: nobody has
-      // devtools open. Same shape as InsightCard / LessonsCard / MonitorPage:
+      // devtools open. Same shape as InsightCard / MonitorPage:
       // the server's reason when there is one, our own copy when there is not
       // (an empty error line is worse than a generic one).
       setError(serverMessageOf(e) || t.tasks.reassignError);

@@ -46,7 +46,6 @@ import type {
   RoleSummaryView,
   RoleDefView,
   BootstrapView,
-  LessonsView,
   InsightView,
   OnboardResultView,
   DeleteResultView,
@@ -140,7 +139,6 @@ import {
   toRoleDef,
   toRoleSummary,
   toBootstrap,
-  toLessons,
   toInsight,
   toOnboardResult,
   toDeleteResult,
@@ -424,7 +422,6 @@ export const SSE_RESYNC_TOPICS = [
   "task_manual",
   "global_context",
   "role_def",
-  "lessons",
   "insight",
   "context",
   "monitoring",
@@ -2093,9 +2090,9 @@ export const httpApi: Api = {
 
   async listTaskManuals(): Promise<TaskManualSummaryView[]> {
     // GET /api/task-manuals -> TaskManualDTO[] — the SAME wire read as
-    // listTaskTypes. T-1170: this answer is the DIRECTORY (sop_md / learnings
-    // absent, their char counts and caps present), so it is mapped to the
-    // summary; the 任務定義 / 學習經驗 sub-pages read their document through
+    // listTaskTypes. T-1170: this answer is the DIRECTORY (sop_md
+    // absent, its char count and cap present), so it is mapped to the
+    // summary; the 任務定義 sub-page reads its document through
     // getTaskManual.
     const wire = unwrap(await client.GET("/api/task-manuals"));
     return wire.map(toTaskManualSummary);
@@ -2574,9 +2571,7 @@ export const httpApi: Api = {
       outsource_max_parallel?: number;
       doc_cap_chars_duty?: number;
       doc_cap_chars_insight?: number;
-      doc_cap_chars_learning?: number;
       doc_cap_chars_manual_sop?: number;
-      doc_cap_chars_manual_learnings?: number;
       doc_cap_chars_system_interaction?: number;
       doc_cap_chars_boot_sequence?: number;
       doc_cap_chars_offboard?: number;
@@ -2622,14 +2617,8 @@ export const httpApi: Api = {
     if (patch.docCapCharsInsight !== undefined) {
       body.doc_cap_chars_insight = patch.docCapCharsInsight;
     }
-    if (patch.docCapCharsLearning !== undefined) {
-      body.doc_cap_chars_learning = patch.docCapCharsLearning;
-    }
     if (patch.docCapCharsManualSop !== undefined) {
       body.doc_cap_chars_manual_sop = patch.docCapCharsManualSop;
-    }
-    if (patch.docCapCharsManualLearnings !== undefined) {
-      body.doc_cap_chars_manual_learnings = patch.docCapCharsManualLearnings;
     }
     if (patch.docCapCharsSystemInteraction !== undefined) {
       body.doc_cap_chars_system_interaction =
@@ -2809,7 +2798,7 @@ export const httpApi: Api = {
     // did. NOTE the POST verb — the frozen route surface
     // registers POST, not PUT; a PUT here 405s against the real backend — and
     // is now ALSO a compile error (the schema's /api/global-context has no put).
-    // allow_shrink: see saveLessons — the T-2d99 wipe guard targets blind
+    // allow_shrink: see saveInsight — the T-2d99 wipe guard targets blind
     // agent write-backs; the owner clearing this textarea is explicit intent.
     await client.POST("/api/global-context", {
       body: { text, allow_shrink: true },
@@ -2889,8 +2878,7 @@ export const httpApi: Api = {
     key: string,
   ): Promise<DocumentHistoryEntryView[]> {
     // GET /api/document-history/{kind}/{key} -> DocumentHistoryDTO[], newest
-    // first, at most 3 (the server prunes). `key` carries the "::" composite
-    // for lessons verbatim — openapi-fetch encodes it as one path segment.
+    // first, at most 3 (the server prunes).
     //
     // T-1170: the answer IS the directory — `field_chars` + `tombstoned`, no
     // text at all. A caller that wants a revision's prose names it through
@@ -3078,38 +3066,6 @@ export const httpApi: Api = {
     return toBootstrap(wire);
   },
 
-  async getLessons(roleKey: string): Promise<LessonsView> {
-    // GET /api/lessons/{role_key} -> LessonsDTO (folded overlay ⊕ seed).
-    // PER-ROLE doc, and role_key is the WHOLE address: T-2 removed the
-    // task_type axis.
-    const wire = unwrap(
-      await client.GET("/api/lessons/{role_key}", {
-        params: { path: { role_key: roleKey } },
-      }),
-    );
-    return toLessons(wire);
-  },
-
-  async saveLessons(roleKey: string, text: string): Promise<void> {
-    // POST /api/lessons/{role_key} {text} -> LessonsReceiptDTO (is_default=false).
-    // The write answers with a bounded receipt (T-91), not the folded doc; the
-    // cockpit refetches, exactly as it already did. Whole-doc replace matching the backend
-    // `handle_replace_lessons`. NOTE the POST verb — do NOT copy the
-    // global-context save's PUT/DELETE, which mismatch this contract. PER-ROLE
-    // doc addressed by role_key alone. WRITE authz is per-role
-    // and keyed on the PRINCIPAL CLASS, not the token scope (T-5336): a caller
-    // at or above admin_agent — the owner (this UI's scope) and the admin agent
-    // — may write ANY role; every other agent may write only its own role.
-    await client.POST("/api/lessons/{role_key}", {
-      params: { path: { role_key: roleKey } },
-      // allow_shrink: the server's T-2d99 wipe guard refuses a non-empty →
-      // empty whole-doc replace unless the caller says so explicitly. That
-      // guard exists for BLIND agent write-backs; here a human is looking at
-      // the editor they just cleared, so the intent is already explicit.
-      body: { text, allow_shrink: true },
-    });
-  },
-
   async getInsight(roleKey: string): Promise<InsightView> {
     // GET /api/insight/{role_key} -> InsightDTO (T-3809). PER-ROLE doc keyed on
     // the BARE role_key, and there
@@ -3129,11 +3085,11 @@ export const httpApi: Api = {
   async saveInsight(roleKey: string, text: string): Promise<void> {
     // POST /api/insight/{role_key} {text} -> InsightReceiptDTO (is_default=false).
     // The write answers with a bounded receipt (T-91), not the folded doc; the
-    // cockpit refetches, exactly as it already did. Same POST-verb contract as saveLessons — do NOT copy the
+    // cockpit refetches, exactly as it already did. NOTE the POST verb — do NOT copy the
     // global-context save's PUT/DELETE.
     await client.POST("/api/insight/{role_key}", {
       params: { path: { role_key: roleKey } },
-      // allow_shrink: identical reasoning to saveLessons — the server's wipe
+      // allow_shrink: the server's wipe
       // guard targets BLIND agent write-backs, and here a human is looking at
       // the editor they just cleared, so the intent is already explicit. The
       // doc.cap_chars.insight cap is checked UNCONDITIONALLY and this does not bypass

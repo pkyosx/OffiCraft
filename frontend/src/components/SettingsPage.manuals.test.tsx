@@ -4,9 +4,9 @@
 //   2. 新增類型 (T-fa76): the inline row takes a DISPLAY NAME; the system
 //      mints the tm- type_key (never the user's text) and the list row shows
 //      the display name — the key stays out of the UI.
-//   3. The detail is a HUB: 負責成員 summary card + 任務規劃 entry cards —
-//      clicking 任務定義 / 學習經驗 PUSHES its own breadcrumb sub-page (設定 ›
-//      任務手冊 › <type> › 任務定義/學習經驗, owner 2026-07-20), where the
+//   3. The detail is a HUB: 負責成員 summary card + the 任務規劃 entry card —
+//      clicking 任務定義 PUSHES its own breadcrumb sub-page (設定 ›
+//      任務手冊 › <type> › 任務定義, owner 2026-07-20), where the
 //      <type> crumb returns to the hub; never shows a filename.
 //   4. 任務定義 editing (owner 2026-07-31, proposal P1 — 三塊各自編輯): every
 //      block is READ-ONLY by default and carries its OWN 編輯 in its own
@@ -16,9 +16,8 @@
 //      one-block-at-a-time rule). The 版本紀錄 entry belongs to block ③'s edit
 //      row only (only the SOP is versioned).
 //      (No 重置 — manuals have no seed.)
-//   5. 學習經驗 is editable (agent write-back surface, owner-editable too).
-//   6. 負責成員 card: member pick or 外包 (model + effort + copies ×N).
-//   7. Delete: confirm modal; a type with OPEN tasks survives its 409 with the
+//   5. 負責成員 card: member pick or 外包 (model + effort + copies ×N).
+//   6. Delete: confirm modal; a type with OPEN tasks survives its 409 with the
 //      honest 先讓它們結束 message; a closed-task type deletes.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
@@ -78,7 +77,6 @@ function mkManual(over: Partial<TaskManualView>): TaskManualView {
     purpose: "",
     fields: [],
     sopMd: "",
-    learnings: "",
     assignee: null,
     updatedTs: 0,
     // T-100 — the size/cap pairs. Defaulted to a REAL, non-equal pair rather
@@ -86,11 +84,9 @@ function mkManual(over: Partial<TaskManualView>): TaskManualView {
     // entirely, so a fixture built on it would let every usage assertion pass
     // vacuously. These values are only type-valid, nonzero defaults here: the
     // mock adapter replaces them on read, so this fixture does not distinguish
-    // which document pair a readout uses.
+    // which pair a readout uses.
     sopMdChars: 0,
     sopMdCapChars: 18000,
-    learningsChars: 0,
-    learningsCapChars: 17000,
     ...over,
   };
 }
@@ -158,14 +154,12 @@ describe("設定 › 任務手冊 — list", () => {
       fields: [],
       assignee: null,
     });
-    // T-1170: the LIST answer does not carry either long document — so the
+    // T-1170: the LIST answer does not carry the long document — so the
     // blankness of a fresh manual is asserted where it is actually readable,
     // on the manual's own read.
     expect(manual).not.toHaveProperty("sopMd");
-    expect(manual).not.toHaveProperty("learnings");
     expect(await api.getTaskManual(manual.typeKey)).toMatchObject({
       sopMd: "",
-      learnings: "",
     });
     const row = getByTestId(`manual-open-${manual.typeKey}`);
     expect(
@@ -238,9 +232,8 @@ describe("設定 › 任務手冊 — detail", () => {
       await renderManualsList();
     fireEvent.click(await findByTestId("manual-open-review-pr"));
 
-    // The HUB shows the two 任務規劃 entry cards — no sub-page card inline yet.
+    // The HUB shows the 任務規劃 entry card — no sub-page card inline yet.
     await findByTestId("manual-entry-definition");
-    await findByTestId("manual-entry-learnings");
     expect(queryByTestId("manual-definition-card")).toBeNull();
 
     // Click 任務定義: it PUSHES a sub-page. The hub-only 負責成員 card and the
@@ -248,7 +241,7 @@ describe("設定 › 任務手冊 — detail", () => {
     fireEvent.click(getByTestId("manual-entry-definition"));
     await findByTestId("manual-definition-card");
     expect(queryByTestId("manual-assignee-card")).toBeNull();
-    expect(queryByTestId("manual-entry-learnings")).toBeNull();
+    expect(queryByTestId("manual-entry-definition")).toBeNull();
 
     // …the breadcrumb reads 設定 › 任務手冊 › 審查 PR › 任務定義.
     const crumbText = container.querySelector(".crumbs")!.textContent!;
@@ -676,49 +669,6 @@ describe("設定 › 任務手冊 — detail", () => {
     });
   });
 
-  it("學習經驗 entry pushes the learnings sub-page; content carries over and hand edit still persists (owner 2026-07-20)", async () => {
-    __injectMockTaskManual(
-      mkManual({
-        typeKey: "review-pr",
-        displayName: "審查 PR",
-        learnings: "## 經驗\n- 舊經驗",
-      })
-    );
-    const { findByTestId, getByTestId, queryByTestId, container, getByText } =
-      await renderManualsList();
-    fireEvent.click(await findByTestId("manual-open-review-pr"));
-
-    // Clicking 學習經驗 navigates to its own sub-page (hub entries gone).
-    fireEvent.click(await findByTestId("manual-entry-learnings"));
-    const card = await findByTestId("manual-learnings-card");
-    expect(card.textContent).toContain("舊經驗");
-    expect(queryByTestId("manual-entry-definition")).toBeNull();
-    expect(queryByTestId("manual-assignee-card")).toBeNull();
-
-    const crumbText = container.querySelector(".crumbs")!.textContent!;
-    expect(crumbText).toContain("審查 PR");
-    expect(crumbText).toContain("學習經驗");
-
-    // The edit affordance carried over — the hand edit still persists.
-    fireEvent.click(getByTestId("manual-learnings-edit"));
-    fireEvent.change(getByTestId("manual-learnings-input"), {
-      target: { value: "## 經驗\n- 新經驗" },
-    });
-    fireEvent.click(getByTestId("manual-learnings-done"));
-
-    await waitFor(async () => {
-      expect((await api.getTaskManual("review-pr")).learnings).toBe(
-        "## 經驗\n- 新經驗"
-      );
-    });
-
-    // The 審查 PR crumb navigates back to the hub.
-    fireEvent.click(getByText("審查 PR"));
-    await findByTestId("manual-assignee-card");
-    expect(queryByTestId("manual-learnings-card")).toBeNull();
-    expect(queryByTestId("manual-entry-learnings")).not.toBeNull();
-  });
-
   it("負責成員 投入程度 offers exactly the five English levels in the dropdown", async () => {
     useEnglishLocale();
     __injectMockTaskManual(mkManual({ typeKey: "review-pr" }));
@@ -881,7 +831,7 @@ describe("設定 › 任務手冊 — deep link (T-e987 任務類型 label 跳�
         <SettingsPage initialManualKey="review-pr" />
       </I18nProvider>
     );
-    // The definition/learnings accordion entries only render on the hub.
+    // The 任務定義 entry only renders on the hub.
     expect(await findByTestId("manual-entry-definition")).toBeTruthy();
   });
 

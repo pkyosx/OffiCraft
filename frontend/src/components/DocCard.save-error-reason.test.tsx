@@ -1,6 +1,6 @@
 // The journal cards must show WHY a save failed, not just THAT it failed.
 //
-// Both cards used to hold `saveError` as a boolean and render one fixed i18n
+// The card used to hold `saveError` as a boolean and render one fixed i18n
 // string. The server's refusals are not shaped like that: the doc-cap guard
 // answers with real instructions (how far over the limit this write is, what
 // the cap is, that what is already stored has NOT been truncated, that stale
@@ -19,15 +19,12 @@
 // server message (a network throw, a proxy error page with no envelope). An
 // empty red line would be a worse regression than the boolean it replaced.
 //
-// Insight and Learning are asserted together because they are the same editor
-// over different documents — fixing one and not the other is how the two drift.
 
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import { render, fireEvent, waitFor, within } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { zh } from "../i18n/locales/zh";
 import { InsightCard } from "./InsightCard";
-import { LessonsCard } from "./LessonsCard";
 import { __resetMock, mockApi } from "../api/mock";
 import { mockApiError } from "../api/errorCodes";
 
@@ -96,24 +93,9 @@ describe("journal cards · a failed save shows the server's REASON", () => {
     expect(line.textContent?.trim()).toBe(mp.insightSaveError);
   });
 
-  it("Learning: the server's message is on the screen", async () => {
-    const line = await failSaveAndRead(<LessonsCard roleKey="assistant" />, () =>
-      vi.spyOn(mockApi, "saveLessons").mockRejectedValue(apiError(REASON))
-    );
-    expect(line.textContent).toBe(REASON);
-    expect(line.textContent).not.toContain(mp.lessonsSaveError);
-  });
-
-  it("Learning: falls back to the i18n copy when there is no server message", async () => {
-    const line = await failSaveAndRead(<LessonsCard roleKey="assistant" />, () =>
-      vi.spyOn(mockApi, "saveLessons").mockRejectedValue(new Error("network down"))
-    );
-    expect(line.textContent?.trim()).toBe(mp.lessonsSaveError);
-  });
-
   it("a SUCCESSFUL save shows no error line at all", async () => {
     // The anti-tautology for every assertion above: a card that rendered the
-    // error line unconditionally would satisfy all four.
+    // error line unconditionally would satisfy both.
     const utils = await openEditor(<InsightCard roleKey="assistant" />);
     fireEvent.click(utils.getByText(s.doneEdit));
     await waitFor(() =>

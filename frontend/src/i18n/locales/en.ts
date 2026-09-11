@@ -615,13 +615,12 @@ export const en: Dict = {
     // dispatch-time persona, so the server re-runs the same assembly — the hint
     // and note both flag that it is today's version. Since T-4595 that assembly
     // is the STAFF boot context minus the whole persona — the role definition
-    // (Duty), its insight and its lessons (a worker has no role, so it has none
-    // of the three);
+    // (Duty) and its insight (a worker has no role, so it has neither);
     // it contains neither the task nor the manual, so the old
     // "re-assembled from the current task and manual" wording was simply false.
     initialPromptHint: "current re-assembly",
     initialPromptNote:
-      "A preview re-assembled from the CURRENT boot documents — not a verbatim record of the dispatch-time text (edits to them since then will differ). It is the staff boot context minus the whole persona — the role definition (Duty), its insight and its lessons: a worker has no role, so it has none of the three, and it picks its task and manual up itself after booting.",
+      "A preview re-assembled from the CURRENT boot documents — not a verbatim record of the dispatch-time text (edits to them since then will differ). It is the staff boot context minus the whole persona — the role definition (Duty) and its insight: a worker has no role, so it has neither, and it picks its task and manual up itself after booting.",
     dash: "—",
   },
   lifecycle: {
@@ -1216,17 +1215,8 @@ export const en: Dict = {
     promptLoading: "Loading…",
     promptError: "Failed to load initial prompt",
     promptRetry: "Retry",
-    lessons: "Past lessons",
     expandableHint: "applies on next wake / refocus",
-    lessonsLoading: "Loading…",
-    lessonsError: "Failed to load lessons",
-    lessonsEmpty: "No lessons yet.",
-    lessonsShared: "This role's learnings (shared by every agent of this role).",
-    lessonsSaveError: "Failed to save lessons",
-    // ── Insight (T-3809) — the role journal's THIRD block. Deliberately not
-    // worded as a variant of lessons: the whole point of the ticket is that
-    // "how this role weighs a call" and "what happened last time" are not the
-    // same document. ──
+    // ── Insight (T-3809) — the role journal's SECOND block. ──
     insight: "Insight (judgement calls)",
     insightLoading: "Loading…",
     insightError: "Failed to load insight",
@@ -2003,10 +1993,8 @@ export const en: Dict = {
       "This version was on the content this document shipped with, but that default cannot be read right now, so it cannot be shown or compared. Restoring this version still works.",
     historyClose: "Close",
     historyRoleDefTitle: "Role definition · version history",
-    historyLessonsTitle: "Lessons · version history",
     historyInsightTitle: "Insight · version history",
     historyGlobalTitle: "Global context · version history",
-    historyManualLearningsTitle: "Lessons · version history",
     historySopTitle: "SOP version history",
     historySopSub:
       "Only the SOP is versioned; edits to the purpose and the identifier fields keep no history. The last 3 revisions are kept, and restoring overwrites the SOP only.",
@@ -2017,7 +2005,6 @@ export const en: Dict = {
       purpose: "Purpose",
       fields: "Fields",
       sop_md: "SOP",
-      learnings: "Lessons",
     },
     loadError: "Failed to load role definitions. Please try again.",
     addRole: "Add role definition",
@@ -2030,7 +2017,7 @@ export const en: Dict = {
     deleteRole: "Delete",
     deleteRoleConfirmLead: 'Delete role "',
     deleteRoleConfirmTail:
-      '"? Its members and their conversations and lessons will be removed permanently.',
+      '"? Its members and their conversations will be removed permanently.',
     deleteRoleConfirmAction: "Delete role",
     deleteRoleOnline: "A member is online — cannot delete",
     deleteRoleError: "Delete failed. Please try again.",
@@ -2068,7 +2055,7 @@ export const en: Dict = {
     rounds: "rounds",
     // T-ae38 (split again by T-30f1): one cap became many. Deleting from these
     // documents costs wildly different amounts — a role definition is a
-    // standing description, a lessons doc is append-only environment Q&A — so
+    // standing description, an insight doc is append-only judgement calls — so
     // they no longer share one ruler.
     docCapDuty: "Duty size cap",
     docCapDutySub:
@@ -2076,15 +2063,9 @@ export const en: Dict = {
     docCapInsight: "Insight size cap",
     docCapInsightSub:
       "Per-role limit on the insight doc. The floor is 100 and the ceiling is 100000, and it moves in both directions — a lowered cap binds the next write only; stored content is never truncated and still reads back, and a doc already over the cap still saves as long as the new version is shorter.",
-    docCapLearning: "Learning size cap",
-    docCapLearningSub:
-      "Per-role limit on the lessons doc. The floor is 100 and the ceiling is 100000, and it moves in both directions — a lowered cap binds the next write only; stored content is never truncated and still reads back, and a doc already over the cap still saves as long as the new version is shorter.",
     docCapManualSop: "Task manual SOP size cap",
     docCapManualSopSub:
-      "Limit on a task manual's SOP (the plan blueprint). Independent of the field below — the SOP is refined in place while the learnings accumulate, so one number could only ever be right for one of them. The floor is 100 and the ceiling is 100000, and it moves in both directions — a lowered cap binds the next write only; a stored SOP is never truncated and still reads back, and one already over the cap still saves as long as the new version is shorter.",
-    docCapManualLearnings: "Task manual learnings size cap",
-    docCapManualLearningsSub:
-      "Limit on a task manual's learnings doc, independent of the SOP cap above. The floor is 100 and the ceiling is 100000, and it moves in both directions — a lowered cap binds the next write only; stored content is never truncated and still reads back, and a doc already over the cap still saves as long as the new version is shorter.",
+      "Limit on a task manual's SOP (the plan blueprint). The floor is 100 and the ceiling is 100000, and it moves in both directions — a lowered cap binds the next write only; a stored SOP is never truncated and still reads back, and one already over the cap still saves as long as the new version is shorter.",
     // T-c9b4: the wake snapshot's chat budget. Deliberately not folded into the
     // doc-cap wording above — both directions are now legal on both sides (owner
     // 2026-09-07 dropped every doc-cap floor to 100), but the numbers differ, and
@@ -2136,7 +2117,7 @@ export const en: Dict = {
       "How many characters of lore a member's boot document carries — a staff member reads the lore of their role, an outsource worker reads the lore it wrote itself. An entry that does not fit is left out WHOLE — never truncated, and with no error anywhere. Independent of the task-manual cap below; the two are never summed. This one may be lowered: an entry cannot be edited, so a smaller cap only changes which entries load next time and strands nothing already stored.",
     loreCapManual: "Task manual lore size cap",
     loreCapManualSub:
-      "How many characters of lore are appended after a task type's learnings when its manual is read. This block enters nobody's boot document — staff and outsource alike. Independent of the member cap above. May be lowered.",
+      "How many characters of lore are appended after a task type's SOP when its manual is read. This block enters nobody's boot document — staff and outsource alike. Independent of the member cap above. May be lowered.",
     loreCapTitle: "Lore title size cap",
     loreCapTitleSub:
       "The longest title one lore entry may carry. An over-cap write is refused and stores nothing. May be lowered; it binds the next write only and leaves stored entries untouched.",
@@ -2170,13 +2151,12 @@ export const en: Dict = {
     deleteManual: "Delete",
     deleteManualConfirmLead: "Delete the task type “",
     deleteManualConfirmTail:
-      "”? Its manual (definition, SOP, learnings) is removed with it and cannot be restored.",
+      "”? Its manual (definition, SOP) is removed with it and cannot be restored.",
     deleteManualConfirmAction: "Delete",
     deleteManualOpenTasks:
       "This type still has open tasks — let them finish before deleting",
     deleteManualError: "Delete failed. Please try again.",
     manualTabDefinition: "Task definition",
-    manualTabLearnings: "Learnings",
     manualDisplayName: "Display name",
     manualDisplayNamePlaceholder: "A readable name (blank shows the internal ID)…",
     manualQ1: "What is this task?",
@@ -2198,8 +2178,6 @@ export const en: Dict = {
     manualAddField: "Add field",
     manualRemoveField: "Remove field",
     manualNoFields: "No fields defined yet",
-    manualLearningsHint:
-      "Feedback and corrections accumulated for this type, reused across tasks; agents write back on task close, and you can edit by hand.",
     manualSaveError: "Save failed. Please try again.",
     assigneeTitle: "Assigned executor",
     assigneeSummarySub: "Assigned executor · handles every task of this type",
@@ -2228,6 +2206,5 @@ export const en: Dict = {
     assigneeNoMembers: "No members available",
     manualPlanningSection: "Task planning",
     manualDefEntrySub: "What it is, what info it needs, how to do it",
-    manualLearnEntrySub: "Feedback and corrections from past tasks",
   },
 };

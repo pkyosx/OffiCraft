@@ -1,7 +1,7 @@
 // hooks/useDocumentHistory.ts — the retained revisions of ONE editable
 // long-form document (T-7d33).
 //
-// Mirrors useGlobalContext / useLessons: mount-fetch + reconcile-by-refetch on
+// Mirrors useGlobalContext: mount-fetch + reconcile-by-refetch on
 // the document's OWN SSE topic (a restore republishes exactly that topic, so
 // the list and the visible doc reconcile off the same signal). `restore` is
 // deliberately NOT self-healing: it re-reads the list itself, and leaves
@@ -38,13 +38,11 @@ import { api } from "../api";
 const TOPIC_OF: Record<DocumentKind, string> = {
   global_context: "global_context",
   role_definition: "role_def",
-  lessons: "lessons",
   insight: "insight",
-  // All three manual kinds fan the manual's own topic: the document they
+  // Both manual kinds fan the manual's own topic: the document they
   // version IS the manual, whichever slice of it a revision holds.
   task_manual: "task_manual",
   task_manual_sop: "task_manual",
-  task_manual_learnings: "task_manual",
   // T-e271: a description belongs to a TASK, so its writes and its restores
   // both fan the `task` topic (publishDocumentHistoryRestore's own branch calls
   // publishTask) — the same topic useTasks reconciles on.

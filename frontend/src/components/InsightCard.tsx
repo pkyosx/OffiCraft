@@ -1,10 +1,8 @@
 // components/InsightCard.tsx — the per-role INSIGHT card (T-3809): the role
-// journal's third block, rendered beside Duty (the role_definition doc this
-// page already shows) and Learning (LessonsCard).
+// journal's second block, rendered beside Duty (the role_definition doc this
+// page already shows).
 //
-// Built against LessonsCard rather than beside it, because the two are the same
-// editor over different documents. Two deliberate differences, each with a
-// reason that is not "tidier":
+// Two deliberate properties, each with a reason that is not "tidier":
 //
 //  1. The header carries {size_chars} / {cap_chars}. It is the only place in
 //     the cockpit an owner reads the live doc.cap_chars.insight value without
@@ -215,8 +213,8 @@ export function InsightCard({ roleKey }: InsightCardProps) {
             type="button"
             className="doc-btn doc-btn--edit"
             onClick={startEdit}
-            // Same load gate as LessonsCard (T-2d99): you cannot edit what has
-            // not arrived, or the first commit is a whole-doc replace of "".
+            // Load gate (T-2d99): you cannot edit what has not arrived, or
+            // the first commit is a whole-doc replace of "".
             disabled={loading || error}
           >
             <PencilIcon size={14} />

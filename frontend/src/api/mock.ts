@@ -28,7 +28,6 @@ import type {
   RoleSummaryView,
   RoleDefView,
   BootstrapView,
-  LessonsView,
   OnboardResultView,
   DeleteResultView,
   UninstallResultView,
@@ -115,7 +114,6 @@ import type {
   WireDocumentSeed,
   WireRoleDef,
   WireBootstrap,
-  WireLessons,
   WireInsight,
   WireOnboardResult,
   WireDeleteResult,
@@ -138,7 +136,6 @@ import {
   toRoleDef,
   toRoleSummary,
   toBootstrap,
-  toLessons,
   toInsight,
   toOnboardResult,
   toDeleteResult,
@@ -193,7 +190,6 @@ import {
   MOCK_OWNER_ID,
   SEED_SYSTEM_INTERACTION_MD,
   SEED_ROLE_ASSISTANT_MD,
-  SEED_LESSONS_MD,
   SEED_INSIGHT_ASSISTANT_MD,
   SEED_BOOT_SEQUENCE_MD,
   SEED_BOOT_SEQUENCE_CODEX_MD,
@@ -878,22 +874,14 @@ const CUSTOM_ROLE_TEMPLATE_MD = `# 角色定義
 （待填：這個角色的職責與工作方式——負責哪些事、怎麼做事、輸出長什麼樣、\
 與 owner 及其他成員怎麼協作、什麼事不歸你管。）
 `;
-// Lessons OVERLAY (owner overlay ⊕ seed), keyed by the BARE `role_key` (T-2
-// removed the `task_type` half of the old composite key). A
-// save stores the overlay so the folded read is now owner-edited
-// (is_default=false); absent → the folded read is the REAL seed. PER-ROLE doc:
-// agents sharing a role share the overlay.
-const lessonsOverlays = new Map<string, WireLessons>();
-
-// Insight OVERLAY (T-3809), keyed by the BARE `role_key` — the same shape
-// lessons uses since T-2. An absent entry folds
+// Insight OVERLAY (T-3809), keyed by the BARE `role_key`. An absent entry folds
 // against INSIGHT_SEEDS below (T-e1e3).
 const insightOverlays = new Map<string, WireInsight>();
 
 // The PER-ROLE insight file seeds (T-e1e3) — the mock's mirror of the server's
-// `seeds/insight_<roleKey>.md` lookup. 🔴 A MAP, not a single constant: the
-// lessons seed is one shared file every role reads, and doing that to insight
-// would ship the assistant's judgement calls to every role out of the box.
+// `seeds/insight_<roleKey>.md` lookup. 🔴 A MAP, not a single constant: one
+// shared seed for every role would ship the assistant's judgement calls to
+// every role out of the box.
 // A role absent from this map has NO seed and folds to "" — that is the
 // intended reading for every role but `assistant` today.
 const INSIGHT_SEEDS: Record<string, string> = {
@@ -975,25 +963,21 @@ let outsourceWorkers: OutsourceWorkerView[] = [];
  * thing that must not lie about how full the document is. */
 type StoredTaskManual = Omit<
   TaskManualView,
-  "sopMdChars" | "sopMdCapChars" | "learningsChars" | "learningsCapChars"
+  "sopMdChars" | "sopMdCapChars"
 >;
 
 let taskManuals: StoredTaskManual[] = [];
 
-/** Stored manual → the shape the wire answers with, sizes and caps measured
- * NOW. Each document is measured against its OWN cap: they are two separate
- * settings and on a live station they differ, so folding them into one number
- * here would make mock mode disagree with the server about how much room is
- * left — the exact disagreement `docSizeFields` exists to prevent. */
+/** Stored manual → the shape the wire answers with, size and cap measured NOW.
+ * The SOP is measured against its OWN cap, so mock mode cannot disagree with
+ * the server about how much room is left — the exact disagreement
+ * `docSizeFields` exists to prevent. */
 function withManualSizes(m: StoredTaskManual): TaskManualView {
   const sop = docSizeFields(m.sopMd, "manualSop");
-  const learnings = docSizeFields(m.learnings, "manualLearnings");
   return {
     ...m,
     sopMdChars: sop.size_chars,
     sopMdCapChars: sop.cap_chars,
-    learningsChars: learnings.size_chars,
-    learningsCapChars: learnings.cap_chars,
   };
 }
 
@@ -1616,14 +1600,14 @@ let nextDocumentHistoryId = 1;
 const historySlot = (kind: DocumentKind, key: string) => `${kind}/${key}`;
 
 /** The RETIRED four-field bundle. `documentHistoryAllowed` (api_document_history.go)
- * answers 400 for it on BOTH routes, naming the two replacements — and the mock
+ * answers 400 for it on BOTH routes, naming the replacement — and the mock
  * is the adapter every frontend test runs against, so a mock that answered 200
  * here would hide exactly the class of bug the server refusal exists to catch:
  * a surface still addressing the dead kind looks alive under test and 400s in
  * production. Message kept verbatim in step with `legacyTaskManualKindMsg`. */
 const RETIRED_DOCUMENT_KIND_MSG =
   'document history kind "task_manual" was retired: ' +
-  'use "task_manual_sop" or "task_manual_learnings"';
+  'use "task_manual_sop"';
 
 function refuseRetiredDocumentKind(kind: DocumentKind, call: string): void {
   if (kind !== "task_manual") return;
@@ -1647,11 +1631,7 @@ const documentRows = new Set<string>();
 const markDocumentRow = (kind: DocumentKind, key: string) =>
   documentRows.add(historySlot(kind, key));
 
-const MANUAL_KINDS: readonly DocumentKind[] = [
-  "task_manual",
-  "task_manual_sop",
-  "task_manual_learnings",
-];
+const MANUAL_KINDS: readonly DocumentKind[] = ["task_manual", "task_manual_sop"];
 
 function hasDocumentRow(kind: DocumentKind, key: string): boolean {
   if (MANUAL_KINDS.includes(kind)) {
@@ -1676,29 +1656,9 @@ function dropDocumentHistory(kind: DocumentKind, key: string): void {
   documentRows.delete(historySlot(kind, key));
 }
 
-/** The lessons document of one role. EXACT match on the bare role_key, mirroring
- * DeleteLessonsForRole on the server: T-2 collapsed the compound
- * "<role>::<task_type>" key to the role_key alone, and a prefix match on a key
- * with no terminator would reach a neighbouring role whose key merely starts
- * with this one. */
-function dropRoleLessonsHistory(roleKey: string): void {
-  const target = historySlot("lessons", roleKey);
-  for (const slot of [...documentHistories.keys()]) {
-    if (slot === target) {
-      documentHistories.delete(slot);
-    }
-  }
-  for (const slot of [...documentRows]) {
-    if (slot === target) documentRows.delete(slot);
-  }
-  lessonsOverlays.delete(roleKey);
-}
-
-/** The one insight document of one role (T-3809). EXACT EQUALITY, the same
- * shape its lessons twin above now uses: the key is the bare role_key with no
- * "::" terminator, so a prefix match would delete r-abcdef's retained versions
- * while deleting r-abc. (Until T-2 the lessons key was compound and DID need a
- * prefix match; that is why the two used to differ.)
+/** The one insight document of one role (T-3809). EXACT EQUALITY: the key is
+ * the bare role_key with no "::" terminator, so a prefix match would delete
+ * r-abcdef's retained versions while deleting r-abc.
  *
  * 🔴 WHY THIS FUNCTION EXISTS AT ALL rather than a line added above: adding
  * "insight" to DocumentKind produces NO error anywhere in this file — the type
@@ -1751,17 +1711,6 @@ function snapshotDocument(
       // (a restore puts the TEXT back, it does not rename the role).
       return { definition_md: "", tombstoned: "true" };
     }
-    case "lessons": {
-      const overlay = lessonsOverlays.get(key);
-      // Same server parity as role_definition above: a tombstoned row stores
-      // "" and the seed text is what the FOLD supplies, not what the revision
-      // holds. (No route can produce a tombstoned lessons row today — there is
-      // no reset_lessons — so this arm is parity for its own sake.)
-      return {
-        text: overlay?.text ?? "",
-        tombstoned: String(overlay === undefined),
-      };
-    }
     case "insight": {
       // No seed to fall back to, so an absent overlay snapshots as the honest
       // empty doc rather than as seed text.
@@ -1778,10 +1727,9 @@ function snapshotDocument(
         purpose: manual.purpose,
         fields: JSON.stringify(manual.fields),
         sop_md: manual.sopMd,
-        learnings: manual.learnings,
       };
     }
-    // The two SPLIT series (T-1f39): one field each, and an EMPTY field is
+    // The SPLIT series (T-1f39): one field, and an EMPTY field is
     // "nothing worth retaining" — taskManualSopHistorySnapshot answers "{}"
     // there, which SaveWithDocumentHistories drops. Without that, the first SOP
     // a blank manual is ever given would burn a version slot on emptiness.
@@ -1790,12 +1738,7 @@ function snapshotDocument(
       if (!manual || manual.sopMd === "") return null;
       return { sop_md: manual.sopMd };
     }
-    case "task_manual_learnings": {
-      const manual = taskManuals.find((m) => m.typeKey === key);
-      if (!manual || manual.learnings === "") return null;
-      return { learnings: manual.learnings };
-    }
-    // T-e271. Same "empty is nothing worth retaining" rule as the two split
+    // T-e271. Same "empty is nothing worth retaining" rule as the split
     // manual series above, and for the same reason — most tasks are created
     // with no description at all, so the first correction would otherwise spend
     // one of the three kept slots recording emptiness. Server twin:
@@ -1903,23 +1846,6 @@ function applyDocumentHistory(
       emitTopic("role_def");
       return;
     }
-    case "lessons": {
-      // The key IS the role_key since T-2 — nothing to split.
-      if (tombstoned) {
-        lessonsOverlays.delete(key);
-      } else {
-        lessonsOverlays.set(key, {
-          ...docSizeFields(content.text ?? "", "learning"),
-          role_key: key,
-          text: content.text ?? "",
-          owner_id: MOCK_OWNER_ID,
-          schema_version: 2,
-          is_default: false,
-        });
-      }
-      emitTopic("lessons");
-      return;
-    }
     case "insight": {
       // The key IS the role_key — nothing to split out of it.
       if (tombstoned) {
@@ -1947,7 +1873,6 @@ function applyDocumentHistory(
       if (!manual) return;
       manual.purpose = content.purpose ?? manual.purpose;
       manual.sopMd = content.sop_md ?? manual.sopMd;
-      manual.learnings = content.learnings ?? manual.learnings;
       if (content.fields !== undefined) {
         // The retained value is the serialised field list; a value this mock
         // cannot parse leaves the live fields alone rather than wiping them.
@@ -1964,12 +1889,10 @@ function applyDocumentHistory(
     // restoreTaskManualField (T-1f39): exactly the one field this series
     // versions goes back, and every other field of the manual is left as it
     // stands — restoring a SOP must not resurrect the 用途 it was written under.
-    case "task_manual_sop":
-    case "task_manual_learnings": {
+    case "task_manual_sop": {
       const manual = taskManuals.find((m) => m.typeKey === key);
       if (!manual) return;
-      if (kind === "task_manual_sop") manual.sopMd = content.sop_md ?? "";
-      else manual.learnings = content.learnings ?? "";
+      manual.sopMd = content.sop_md ?? "";
       manual.updatedTs = Date.now() / 1000;
       emitTopic("task_manual");
       return;
@@ -2148,9 +2071,7 @@ const DEFAULT_MOCK_SETTINGS = {
   // smaller one; the other three share).
   doc_cap_chars_duty: DOC_CAP_CHARS_DEFAULTS.duty,
   doc_cap_chars_insight: DOC_CAP_CHARS_DEFAULTS.insight,
-  doc_cap_chars_learning: DOC_CAP_CHARS_DEFAULTS.learning,
   doc_cap_chars_manual_sop: DOC_CAP_CHARS_DEFAULTS.manualSop,
-  doc_cap_chars_manual_learnings: DOC_CAP_CHARS_DEFAULTS.manualLearnings,
   // T-791e added the two boot-context caps to the SAME settings surface, so the
   // mock has to serve them or it is answering a settings DTO the server does
   // not send. They mirror the same shipped defaults foldBootDoc reports as
@@ -2230,22 +2151,17 @@ function mockThemeIds(): Set<string> {
 /** Mirror of the server's per-document size/cap reporting (T-3aeb). Runes, not
  * UTF-16 units — same reason docCap.ts spells it [...s].length.
  *
- * T-ae38, widened by T-30f1: the cap is per SEGMENT, so the caller names which
- * of the five it is judged by. Passing the wrong one here would make the mock
- * disagree with the server about a doc's remaining budget — the one thing this
- * helper exists to keep honest. */
-function docSizeFields(
-  text: string,
-  cap: "duty" | "insight" | "learning" | "manualSop" | "manualLearnings"
-) {
+ * T-ae38: the cap is per SEGMENT, so the caller names which one it is judged
+ * by. Passing the wrong one here would make the mock disagree with the server
+ * about a doc's remaining budget — the one thing this helper exists to keep
+ * honest. */
+function docSizeFields(text: string, cap: "duty" | "insight" | "manualSop") {
   return {
     size_chars: [...text].length,
     cap_chars: {
       duty: mockServerSettings.doc_cap_chars_duty,
       insight: mockServerSettings.doc_cap_chars_insight,
-      learning: mockServerSettings.doc_cap_chars_learning,
       manualSop: mockServerSettings.doc_cap_chars_manual_sop,
-      manualLearnings: mockServerSettings.doc_cap_chars_manual_learnings,
     }[cap],
   };
 }
@@ -4853,11 +4769,11 @@ export const mockApi: Api = {
   },
 
   async listTaskManuals(): Promise<TaskManualSummaryView[]> {
-    // T-1170: the DIRECTORY. The two long documents are DROPPED here, the way
-    // the server drops them — a mock that kept serving them would let the
-    // manual sub-pages keep reading a list row and stay green.
+    // T-1170: the DIRECTORY. The long document is DROPPED here, the way
+    // the server drops it — a mock that kept serving it would let the
+    // manual sub-page keep reading a list row and stay green.
     return taskManuals.map((m) => {
-      const { sopMd: _sop, learnings: _learn, ...row } = withManualSizes(m);
+      const { sopMd: _sop, ...row } = withManualSizes(m);
       return structuredClone(row);
     });
   },
@@ -4888,7 +4804,6 @@ export const mockApi: Api = {
       purpose: "",
       fields: [],
       sopMd: "",
-      learnings: "",
       assignee: null,
       updatedTs: Date.now() / 1000,
     };
@@ -4907,22 +4822,18 @@ export const mockApi: Api = {
     // Mirrors handle_update_task_manual: partial — only supplied fields
     // change; assignee is three-valued (omitted = unchanged, null = unset).
     const manual = findTaskManual(typeKey);
-    // T-1f39 — SOP and 學習經驗 are versioned INDEPENDENTLY, and only when this
-    // write actually changes them; 用途／識別鍵／display_name／assignee are not
-    // versioned at all, so a write touching only those retains nothing anywhere
+    // T-1f39 — the SOP is versioned on its own, and only when this write
+    // actually changes it; 用途／識別鍵／display_name／assignee are not versioned
+    // at all, so a write touching only those retains nothing anywhere
     // (taskManualHistoryStreams). The legacy `task_manual` bundle is retired:
     // nothing writes it, migration 00044 deleted its rows, and both
     // document-history routes now refuse it with 400 (server and mock alike).
     if (patch.sopMd !== undefined && patch.sopMd !== manual.sopMd) {
       recordDocumentHistory("task_manual_sop", typeKey);
     }
-    if (patch.learnings !== undefined && patch.learnings !== manual.learnings) {
-      recordDocumentHistory("task_manual_learnings", typeKey);
-    }
     if (patch.displayName !== undefined) manual.displayName = patch.displayName;
     if (patch.purpose !== undefined) manual.purpose = patch.purpose;
     if (patch.sopMd !== undefined) manual.sopMd = patch.sopMd;
-    if (patch.learnings !== undefined) manual.learnings = patch.learnings;
     if (patch.fields !== undefined) {
       manual.fields = structuredClone(patch.fields);
     }
@@ -5764,9 +5675,7 @@ export const mockApi: Api = {
     for (const [field, wire] of [
       [patch.docCapCharsDuty, "doc_cap_chars_duty"],
       [patch.docCapCharsInsight, "doc_cap_chars_insight"],
-      [patch.docCapCharsLearning, "doc_cap_chars_learning"],
       [patch.docCapCharsManualSop, "doc_cap_chars_manual_sop"],
-      [patch.docCapCharsManualLearnings, "doc_cap_chars_manual_learnings"],
       [patch.docCapCharsSystemInteraction, "doc_cap_chars_system_interaction"],
       [patch.docCapCharsBootSequence, "doc_cap_chars_boot_sequence"],
       [patch.docCapCharsOffboard, "doc_cap_chars_offboard"],
@@ -5975,15 +5884,8 @@ export const mockApi: Api = {
     if (patch.docCapCharsInsight !== undefined) {
       mockServerSettings.doc_cap_chars_insight = patch.docCapCharsInsight;
     }
-    if (patch.docCapCharsLearning !== undefined) {
-      mockServerSettings.doc_cap_chars_learning = patch.docCapCharsLearning;
-    }
     if (patch.docCapCharsManualSop !== undefined) {
       mockServerSettings.doc_cap_chars_manual_sop = patch.docCapCharsManualSop;
-    }
-    if (patch.docCapCharsManualLearnings !== undefined) {
-      mockServerSettings.doc_cap_chars_manual_learnings =
-        patch.docCapCharsManualLearnings;
     }
     if (patch.docCapCharsSystemInteraction !== undefined) {
       mockServerSettings.doc_cap_chars_system_interaction =
@@ -6468,7 +6370,6 @@ export const mockApi: Api = {
       if (ids.has(reader) || ids.has(peer)) chatReads.delete(k);
     }
     // The role's documents go with it, retained revisions included.
-    dropRoleLessonsHistory(key);
     dropRoleInsightHistory(key);
     dropDocumentHistory("role_definition", key);
     roleOverlays.delete(key);
@@ -6485,10 +6386,9 @@ export const mockApi: Api = {
     //      the seed constant straight, so the one screen built to show what an
     //      agent will read was the one place the owner's edit was invisible;
     //   2. 使用者自訂 — the owner's ADDITIVE block, SKIPPED entirely when empty;
-    //   3. `# Role:` + `# Insight (role)` + `# Lessons (role)` —
-    //      the persona (Duty → Insight → Learning, the order the three blocks
-    //      are defined in), and the ONLY slot an outsource worker has nothing
-    //      in (see getWorkerBootContext below). The Insight section is SKIPPED
+    //   3. `# Role:` + `# Insight (role)` — the persona (Duty → Insight, the
+    //      order the two blocks are defined in), and the ONLY slot an outsource
+    //      worker has nothing in (see getWorkerBootContext below). The Insight section is SKIPPED
     //      ENTIRELY when the folded text is blank, exactly like the owner block
     //      — the gate is the TEXT, never is_default/has_seed (those answer
     //      different questions and would emit an orphan header);
@@ -6504,10 +6404,9 @@ export const mockApi: Api = {
     // The owner block moved from below the persona to above it so the two
     // assemblies line up: a
     // worker's boot context is this list minus slot 3, and with the owner block
-    // wedged between the lessons and the boot sequence it could not be.
+    // wedged between the persona and the boot sequence it could not be.
     // NO token (a UI preview mints none).
     const roleDef = foldRole(role); // throws for an unknown role (≈ server 404)
-    const lessons = lessonsOverlays.get(role)?.text ?? SEED_LESSONS_MD;
     const userText = foldGlobalContext().text;
     const parts = [foldBootDoc("system_interaction", "global").text.trim()];
     if (userText.trim()) {
@@ -6521,37 +6420,7 @@ export const mockApi: Api = {
     if (insightText.trim()) {
       parts.push(`# Insight (${role})\n\n${insightText.trim()}`);
     }
-    // The title is injected IDEMPOTENTLY, mirroring buildBootContext (T-8327):
-    // a generation that treats its boot segment as the document base and writes
-    // it back turns the title into document content, and a naive re-prepend
-    // would then stack one title per generation. Strip any leading copies of
-    // the EXACT title line first, so an already-poisoned document self-heals in
-    // the assembled preview instead of showing the drift the server does not.
-    // TWO titles are stripped, not one: a document poisoned BEFORE T-2 carries
-    // the old "# Lessons (role / general)" wording, and the server strips both
-    // (assets.go). Mirroring that here is what keeps this preview honest about
-    // what the agent will actually read.
-    const lessonsTitle = `# Lessons (${role})`;
-    const legacyLessonsTitle = `# Lessons (${role} / general)`;
-    let lessonsBody = lessons.trim();
-    for (;;) {
-      let stripped = false;
-      for (const title of [lessonsTitle, legacyLessonsTitle]) {
-        while (lessonsBody.startsWith(title)) {
-          const rest = lessonsBody.slice(title.length);
-          // A title that is merely the PREFIX of a longer line is not a
-          // duplicate title line — stop, or the next heading gets eaten.
-          if (rest !== "" && !rest.startsWith("\n")) break;
-          lessonsBody = rest.trim();
-          stripped = true;
-        }
-      }
-      if (!stripped) break;
-    }
-    parts.push(
-      `${lessonsTitle}\n\n${lessonsBody}`,
-      foldBootDoc("boot_sequence", "claude").text.trim(),
-    );
+    parts.push(foldBootDoc("boot_sequence", "claude").text.trim());
     const wire: WireBootstrap = {
       role,
       name: roleDef.name,
@@ -6561,50 +6430,13 @@ export const mockApi: Api = {
     return toBootstrap(wire);
   },
 
-  async getLessons(roleKey: string): Promise<LessonsView> {
-    // The folded PER-ROLE lessons doc for `role_key`. When an
-    // overlay was saved (is_default=false) the folded read is that edit; otherwise
-    // it IS the REAL seed (dal/seeds/lessons.md via SEED_LESSONS_MD) →
-    // is_default=true. The seed is shared until a role diverges (each role_key
-    // gets its own overlay slot).
-    const overlay = lessonsOverlays.get(roleKey);
-    const wire: WireLessons = overlay ?? {
-      ...docSizeFields(SEED_LESSONS_MD, "learning"),
-      role_key: roleKey,
-      text: SEED_LESSONS_MD,
-      owner_id: MOCK_OWNER_ID,
-      schema_version: 2,
-      is_default: true,
-    };
-    return toLessons(wire);
-  },
-
-  async saveLessons(roleKey: string, text: string): Promise<void> {
-    // Whole-doc replace → store the per-role overlay; the folded read is now
-    // owner-edited for THIS role_key only (a sibling role's doc is untouched).
-    recordDocumentHistory("lessons", roleKey);
-    const wire: WireLessons = {
-      ...docSizeFields(text, "learning"),
-      role_key: roleKey,
-      text,
-      owner_id: MOCK_OWNER_ID,
-      schema_version: 2,
-      is_default: false,
-    };
-    lessonsOverlays.set(roleKey, wire);
-    emitTopic("lessons");
-    // T-91: the write answers a RECEIPT, not the object. The mock's own store
-    // is still the one that changed above, so a read-back sees the write; the
-    // response just stops carrying what nobody may render from it.
-  },
-
   async getInsight(roleKey: string): Promise<InsightView> {
     // The folded PER-ROLE insight doc: overlay ⊕ this role's OWN file seed
     // (T-e1e3). 🔴 PER-ROLE, mirroring seedInsightMD on the server — `assistant`
     // folds against seeds/insight_assistant.md, EVERY OTHER ROLE STILL READS "".
-    // Copying the lessons shape (one shared seed for all roles) here would hide
-    // the exact defect the server test is guarding against, because the cockpit
-    // would then look correct against a mock that is wrong in the same way.
+    // One shared seed for all roles here would hide the exact defect the server
+    // test is guarding against, because the cockpit would then look correct
+    // against a mock that is wrong in the same way.
     //
     // is_default stays "this role has never written" in both branches; it is no
     // longer the same statement as text === "".
@@ -6861,7 +6693,6 @@ export function __resetMock(): void {
   bootDocOverlays.clear();
   roleOverlays.clear();
   customRoles.clear();
-  lessonsOverlays.clear();
   insightOverlays.clear();
   documentHistories.clear();
   documentRows.clear();
@@ -7006,14 +6837,13 @@ export function __injectMockTaskType(t: TaskTypeView): void {
     purpose: t.purpose,
     fields: [],
     sopMd: "",
-    learnings: "",
     assignee: null,
     updatedTs: Date.now() / 1000,
   });
   emitTopic("task_manual");
 }
 
-// Test-only hook: land a FULL manual (fields/SOP/learnings/assignee) so tests
+// Test-only hook: land a FULL manual (fields/SOP/assignee) so tests
 // can exercise the 設定 › 任務手冊 editor against a populated store entry.
 export function __injectMockTaskManual(m: StoredTaskManual): void {
   taskManuals.push(structuredClone(m));
