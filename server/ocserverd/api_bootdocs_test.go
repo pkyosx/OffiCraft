@@ -692,8 +692,8 @@ func TestBootSequenceText(t *testing.T) {
 		if err != nil {
 			t.Fatalf("bootSequenceText(codex): %v", err)
 		}
-		if n := utf8.RuneCountInString(codex); n != 2203 {
-			t.Fatalf("the codex sequence is %d runes, want the shipped 2203", n)
+		if n := utf8.RuneCountInString(codex); n != 2786 {
+			t.Fatalf("the codex sequence is %d runes, want the shipped 2786", n)
 		}
 	})
 
@@ -724,8 +724,8 @@ func TestBootSequenceText(t *testing.T) {
 		if got != data["text"] {
 			t.Fatalf("the boot fold and the read face disagree (%d runes)", utf8.RuneCountInString(got))
 		}
-		if n := utf8.RuneCountInString(got); n != 3124 {
-			t.Fatalf("the shipped claude sequence is %d runes, want 3124", n)
+		if n := utf8.RuneCountInString(got); n != 2965 {
+			t.Fatalf("the shipped claude sequence is %d runes, want 2965", n)
 		}
 	})
 }
@@ -1928,7 +1928,7 @@ func TestHandleGetBootSequenceApiBootSequenceRuntimeKeyGet(t *testing.T) {
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
-		apiWantValue(t, "size_chars", data["size_chars"], 3124)
+		apiWantValue(t, "size_chars", data["size_chars"], 2965)
 		apiWantValue(t, "cap_chars", data["cap_chars"], 15000)
 		apiWantValue(t, "kind", data["kind"], "boot_sequence")
 		apiWantValue(t, "key", data["key"], "claude")
@@ -1938,8 +1938,8 @@ func TestHandleGetBootSequenceApiBootSequenceRuntimeKeyGet(t *testing.T) {
 		apiWantValue(t, "has_seed", data["has_seed"], true)
 		apiWantValue(t, "schema_version", data["schema_version"], 3)
 		text, ok := data["text"].(string)
-		if !ok || utf8.RuneCountInString(text) != 3124 {
-			t.Fatalf("the shipped claude sequence has %d runes, want 3124", utf8.RuneCountInString(text))
+		if !ok || utf8.RuneCountInString(text) != 2965 {
+			t.Fatalf("the shipped claude sequence has %d runes, want 2965", utf8.RuneCountInString(text))
 		}
 	})
 
@@ -2027,9 +2027,9 @@ func TestHandleResetBootSequenceApiBootSequenceRuntimeKeyResetPost(t *testing.T)
 			"kind":       "boot_sequence",
 			"key":        "claude",
 			"is_default": true,
-			"size_chars": 3124,
+			"size_chars": 2965,
 			"cap_chars":  15000,
-			"sha256":     "793565bdb6fb6e013666f64fed90e925d60b06023a465f8e42c91fc6cd0cb622",
+			"sha256":     "a07cefcbbf849bed70edc1cfa8c407e77eadc7f75227a2b936f1061483db3d36",
 		})
 		dashboard.wantFrames(map[string]any{
 			"seq":   2,
