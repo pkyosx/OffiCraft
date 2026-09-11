@@ -81,10 +81,10 @@ func apiHelpersMember(t *testing.T, d *DAL, id string) Member {
 }
 
 func apiHelpersDecode(t *testing.T, body string, required ...string) (
-	LessonsPatchDTO, map[string]bool, bool, *httptest.ResponseRecorder,
+	InsightPatchDTO, map[string]bool, bool, *httptest.ResponseRecorder,
 ) {
 	t.Helper()
-	var dst LessonsPatchDTO
+	var dst InsightPatchDTO
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest("POST", "/api/probe", strings.NewReader(body))
 	keys, ok := decodeJSONBodyKeys(rec, req, &dst, required...)
@@ -298,7 +298,7 @@ func TestReceiptReporterMachine(t *testing.T) {
 
 func TestDecodeJSONBodyStrict(t *testing.T) {
 	t.Run("a well-formed body decodes and answers true with nothing written to the response", func(t *testing.T) {
-		var dst LessonsPatchDTO
+		var dst InsightPatchDTO
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequest("POST", "/api/probe",
 			strings.NewReader(`{"edits":[{"old":"a","new":"b"}]}`))
@@ -314,21 +314,21 @@ func TestDecodeJSONBodyStrict(t *testing.T) {
 	})
 
 	t.Run("an unknown key answers false and the same 422 envelope the keys-returning face writes", func(t *testing.T) {
-		var dst LessonsPatchDTO
+		var dst InsightPatchDTO
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequest("POST", "/api/probe",
-			strings.NewReader(`{"edits":[],"learnings":"wiped"}`))
+			strings.NewReader(`{"edits":[],"notes":"wiped"}`))
 
 		ok := decodeJSONBodyStrict(rec, req, &dst, "edits")
 
 		apiWantValue(t, "ok", any(ok), any(false))
 		apiWantValue(t, "status", any(float64(rec.Code)), any(422))
 		apiWantError(t, apiHelpersWritten(t, rec), "validation_error",
-			`invalid request body: json: unknown field "learnings"`)
+			`invalid request body: json: unknown field "notes"`)
 	})
 
 	t.Run("a required key the caller omitted answers false and names the field", func(t *testing.T) {
-		var dst LessonsPatchDTO
+		var dst InsightPatchDTO
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequest("POST", "/api/probe", strings.NewReader(`{"allow_shrink":true}`))
 
@@ -379,13 +379,13 @@ func TestDecodeJSONBodyKeys(t *testing.T) {
 	})
 
 	t.Run("an unknown top-level key is refused 422 naming it, and the sent set comes back nil", func(t *testing.T) {
-		_, keys, ok, rec := apiHelpersDecode(t, `{"edits":[],"learnings":"wiped"}`, "edits")
+		_, keys, ok, rec := apiHelpersDecode(t, `{"edits":[],"notes":"wiped"}`, "edits")
 
 		apiWantValue(t, "ok", any(ok), any(false))
 		apiWantValue(t, "sent is nil", any(keys == nil), any(true))
 		apiWantValue(t, "status", any(float64(rec.Code)), any(422))
 		apiWantError(t, apiHelpersWritten(t, rec), "validation_error",
-			`invalid request body: json: unknown field "learnings"`)
+			`invalid request body: json: unknown field "notes"`)
 	})
 
 	t.Run("an unknown key nested inside an edit is refused the same way, not silently dropped", func(t *testing.T) {
@@ -1084,11 +1084,11 @@ func TestNewHexID(t *testing.T) {
 
 func TestStrOrEmpty(t *testing.T) {
 	t.Run("an omitted optional string reads blank and a sent one reads through, empty string included", func(t *testing.T) {
-		sent := "learnings"
+		sent := "notes"
 		blank := ""
 
 		apiWantValue(t, "omitted", any(strOrEmpty(nil)), any(""))
-		apiWantValue(t, "sent", any(strOrEmpty(&sent)), any("learnings"))
+		apiWantValue(t, "sent", any(strOrEmpty(&sent)), any("notes"))
 		apiWantValue(t, "sent empty", any(strOrEmpty(&blank)), any(""))
 	})
 }
@@ -1220,7 +1220,7 @@ func TestDecodePatchEdits(t *testing.T) {
 
 func TestDecodeJSONBody(t *testing.T) {
 	t.Run("an all-optional body accepts an empty object and leaves the destination at its zero value", func(t *testing.T) {
-		var dst LessonsPatchDTO
+		var dst InsightPatchDTO
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequest("POST", "/api/probe", strings.NewReader(`{}`))
 
@@ -1233,22 +1233,22 @@ func TestDecodeJSONBody(t *testing.T) {
 	})
 
 	t.Run("an unknown field is rejected at the public decoder face", func(t *testing.T) {
-		var dst LessonsPatchDTO
+		var dst InsightPatchDTO
 		rec := httptest.NewRecorder()
-		req := httptest.NewRequest("POST", "/api/probe", strings.NewReader(`{"learnings":"not a patch"}`))
+		req := httptest.NewRequest("POST", "/api/probe", strings.NewReader(`{"notes":"not a patch"}`))
 
 		if ok := decodeJSONBody(rec, req, &dst); ok {
 			t.Fatal("decodeJSONBody with an unknown field = true, want false")
 		}
 		apiWantValue(t, "status", any(float64(rec.Code)), any(422))
 		apiWantError(t, apiHelpersWritten(t, rec), "validation_error",
-			`invalid request body: json: unknown field "learnings"`)
+			`invalid request body: json: unknown field "notes"`)
 	})
 }
 
 func TestDecodeJSONBodyRequired(t *testing.T) {
 	t.Run("a named key is decoded and accepted when the caller sends it", func(t *testing.T) {
-		var dst LessonsPatchDTO
+		var dst InsightPatchDTO
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequest("POST", "/api/probe",
 			strings.NewReader(`{"edits":[]}`))
@@ -1257,11 +1257,11 @@ func TestDecodeJSONBodyRequired(t *testing.T) {
 			t.Fatal("decodeJSONBodyRequired with edits = false, want true")
 		}
 		apiWantValue(t, "status", any(float64(rec.Code)), any(200))
-		apiWantValue(t, "decoded edits", any(dst.Edits), any([]LessonsEditDTO{}))
+		apiWantValue(t, "decoded edits", any(dst.Edits), any([]InsightEditDTO{}))
 	})
 
 	t.Run("an omitted named key is rejected before a caller can use the zero value as a write", func(t *testing.T) {
-		var dst LessonsPatchDTO
+		var dst InsightPatchDTO
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequest("POST", "/api/probe",
 			strings.NewReader(`{"allow_shrink":true}`))
@@ -1286,7 +1286,7 @@ func TestDecodeJSONBodyPresent(t *testing.T) {
 		{name: "explicit false optional key", body: `{"edits":[],"allow_shrink":false}`, want: map[string]bool{"edits": true, "allow_shrink": true}, allow: apiHelpersBool(false)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			var dst LessonsPatchDTO
+			var dst InsightPatchDTO
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequest("POST", "/api/probe", strings.NewReader(tc.body))
 

@@ -56,9 +56,7 @@ func apiTestShippedSettings() map[string]any {
 		"warden_credential_lifetime_secs":  2592000,
 		"doc_cap_chars_duty":               1000,
 		"doc_cap_chars_insight":            15000,
-		"doc_cap_chars_learning":           15000,
 		"doc_cap_chars_manual_sop":         15000,
-		"doc_cap_chars_manual_learnings":   15000,
 		"doc_cap_chars_system_interaction": 60000,
 		"doc_cap_chars_boot_sequence":      15000,
 		"doc_cap_chars_offboard":           15000,
@@ -501,9 +499,7 @@ func TestHandleUpdateSettingsApiSettingsPatch(t *testing.T) {
 			"outsource_max_parallel":-1,
 			"doc_cap_chars_duty":2000,
 			"doc_cap_chars_insight":20000,
-			"doc_cap_chars_learning":20000,
 			"doc_cap_chars_manual_sop":20000,
-			"doc_cap_chars_manual_learnings":20000,
 			"doc_cap_chars_system_interaction":70000,
 			"doc_cap_chars_boot_sequence":20000,
 			"doc_cap_chars_offboard":20000,
@@ -527,9 +523,7 @@ func TestHandleUpdateSettingsApiSettingsPatch(t *testing.T) {
 		want["outsource_max_parallel"] = -1
 		want["doc_cap_chars_duty"] = 2000
 		want["doc_cap_chars_insight"] = 20000
-		want["doc_cap_chars_learning"] = 20000
 		want["doc_cap_chars_manual_sop"] = 20000
-		want["doc_cap_chars_manual_learnings"] = 20000
 		want["doc_cap_chars_system_interaction"] = 70000
 		want["doc_cap_chars_boot_sequence"] = 20000
 		want["doc_cap_chars_offboard"] = 20000
@@ -907,9 +901,7 @@ func TestSettingsView(t *testing.T) {
 		WardenCredentialLifetimeSecs: 2592000,
 		DocCapCharsDuty:              1000,
 		DocCapCharsInsight:           15000,
-		DocCapCharsLearning:          15000,
 		DocCapCharsManualSop:         15000,
-		DocCapCharsManualLearnings:   15000,
 		DocCapCharsSystemInteraction: 60000,
 		DocCapCharsBootSequence:      15000,
 		DocCapCharsOffboard:          15000,

@@ -156,7 +156,7 @@ func resolvePrincipal(claims map[string]any, lookup func(id string) (*Member, er
 // laziness. RosterStatusRemoved is ALSO how a released outsource worker
 // (dal_tasks.go ReleaseWorkersForTask) and a dismissed member are recorded,
 // and the close-out contract deliberately keeps a released worker's session
-// alive so it can write learnings and call report_task_closeout. A gate keyed
+// alive so it can call report_task_closeout. A gate keyed
 // on "roster removed" alone would silently kill every outsource close-out in
 // the fleet. Machines are the ticket; the rest is another ticket.
 

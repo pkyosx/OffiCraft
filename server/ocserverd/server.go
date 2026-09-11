@@ -483,9 +483,7 @@ func newAPIServer(dal *DAL, hub *Hub, keys *keyring, tokenTTL int64, root assetR
 		outsourceMaxParallel:         defaultOutsourceMaxParallel,
 		docCapCharsDuty:              dutyCapCharsDefault,
 		docCapCharsInsight:           contextDocMaxCharsDefault,
-		docCapCharsLearning:          contextDocMaxCharsDefault,
 		docCapCharsManualSop:         contextDocMaxCharsDefault,
-		docCapCharsManualLearnings:   contextDocMaxCharsDefault,
 		docCapCharsSystemInteraction: systemInteractionCapCharsDefault,
 		docCapCharsBootSequence:      bootSequenceCapCharsDefault,
 		docCapCharsOffboard:          offboardCapCharsDefault,
@@ -673,9 +671,7 @@ func cmdServe(env func(string) string, noReconcile, noOutsource bool, out io.Wri
 	api.outsourceMaxParallel = auth.outsourceMaxParallel
 	api.docCapCharsDuty = auth.docCapCharsDuty
 	api.docCapCharsInsight = auth.docCapCharsInsight
-	api.docCapCharsLearning = auth.docCapCharsLearning
 	api.docCapCharsManualSop = auth.docCapCharsManualSop
-	api.docCapCharsManualLearnings = auth.docCapCharsManualLearnings
 	api.docCapCharsSystemInteraction = auth.docCapCharsSystemInteraction
 	api.docCapCharsBootSequence = auth.docCapCharsBootSequence
 	api.docCapCharsOffboard = auth.docCapCharsOffboard

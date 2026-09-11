@@ -266,31 +266,6 @@ func TestFoldRoleDefDTO(t *testing.T) {
 	}
 }
 
-func TestFoldLessonsDTO(t *testing.T) {
-	api, _, d, _ := newAPITestServer(t)
-	got, err := api.foldLessonsDTO("assistant")
-	if err != nil {
-		t.Fatalf("foldLessonsDTO(seed): %v", err)
-	}
-	if got == nil || got.RoleKey != "assistant" || got.Text != apiTestLessonsSeedText || !got.IsDefault ||
-		got.SizeChars != utf8.RuneCountInString(apiTestLessonsSeedText) ||
-		got.CapChars != api.learningCap() || got.OwnerID != wireOwnerID ||
-		got.SchemaVersion != wireSchemaVersion {
-		t.Fatalf("seed lessons dto = %#v", got)
-	}
-
-	if err := d.PutLessons(Lessons{RoleKey: "assistant", Text: "learned facts"}); err != nil {
-		t.Fatalf("PutLessons: %v", err)
-	}
-	got, err = api.foldLessonsDTO("assistant")
-	if err != nil {
-		t.Fatalf("foldLessonsDTO(overlay): %v", err)
-	}
-	if got == nil || got.Text != "learned facts" || got.IsDefault || got.SizeChars != 13 {
-		t.Fatalf("overlay lessons dto = %#v", got)
-	}
-}
-
 func TestFoldUserContextDTO(t *testing.T) {
 	api, _, d, _ := newAPITestServer(t)
 	got, err := api.foldUserContextDTO()
@@ -390,7 +365,6 @@ func TestBuildBootContext(t *testing.T) {
 		parts = append(parts,
 			"# Role: Assistant\n\n"+strings.TrimSpace(apiTestAssistantSeedDefinitionMD),
 			"# Insight (assistant)\n\n"+strings.TrimSpace(readSeed("insight_assistant.md")),
-			"# Lessons (assistant)\n\n"+strings.TrimSpace(apiTestLessonsSeedText),
 			strings.TrimSpace(readSeed(bootSequenceSeedClaude)))
 		return strings.Join(parts, "\n\n") + "\n"
 	}

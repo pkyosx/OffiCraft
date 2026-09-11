@@ -729,7 +729,7 @@ def test_list_answers_carry_sizes_but_never_the_documents(client, owner_token):
     assert r.status_code == 200, r.text
     r = client.post(
         f"/api/task-manuals/{type_key}",
-        json={"sop_md": prose, "learnings": prose},
+        json={"sop_md": prose},
         headers=h,
     )
     assert r.status_code == 200, r.text
@@ -753,13 +753,12 @@ def test_list_answers_carry_sizes_but_never_the_documents(client, owner_token):
     rows = {m["type_key"]: m for m in r.json()}
     assert type_key in rows, "the manual just created is not on its own listing"
     m = rows[type_key]
-    for absent in ("sop_md", "learnings"):
+    for absent in ("sop_md",):
         assert absent not in m, (
             f"list_task_manuals still carries {absent!r} — the default answer "
             f"is the directory, and the body is GET /api/task-manuals/{{type_key}}"
         )
     assert m["sop_md_chars"] == n, f"sop_md_chars={m['sop_md_chars']!r}, want {n}"
-    assert m["learnings_chars"] == n, f"learnings_chars={m['learnings_chars']!r}, want {n}"
 
     # ── list_roles ──────────────────────────────────────────────────────────
     r = client.get("/api/roles", headers=h)
@@ -1801,28 +1800,6 @@ def _check_global_context_reset(ctx: HCtx, r: httpx.Response) -> None:
     assert d["sha256"] == _sha(served["text"]), d
 
 
-_HAPPY_LESSONS_DOC = "conformance happy lessons doc"
-
-
-def _check_lessons_written(ctx: HCtx, r: httpx.Response) -> None:
-    d = r.json()
-    assert set(d) == {"role_key", "size_chars", "cap_chars", "sha256"}, d
-    assert d["role_key"] == "assistant", d
-    # The text is gone from the wire, so what proves the server took THIS doc
-    # (and not an empty body, and not a truncation) is the pair it reports:
-    # the character count and the digest of exactly what was sent.
-    assert d["size_chars"] == len(_HAPPY_LESSONS_DOC), d
-    assert d["sha256"] == _sha(_HAPPY_LESSONS_DOC), d
-    assert d["cap_chars"] >= d["size_chars"], d
-    # …and it was STORED, not merely measured.
-    g = ctx.client.get(
-        "/api/lessons/assistant",
-        headers={"Authorization": f"Bearer {ctx.owner_token}"},
-    )
-    assert g.status_code == 200, f"{g.status_code} {g.text}"
-    assert _HAPPY_LESSONS_DOC in g.json()["text"], g.text
-
-
 _HAPPY_INSIGHT_DOC = "conformance happy insight doc"
 
 
@@ -1962,23 +1939,6 @@ def _check_manual_edited(ctx: HCtx, r: httpx.Response) -> None:
     manual = g.json()
     assert manual["purpose"] == "conf happy purpose", manual
     assert manual["fields"][0]["is_key"] is True, manual
-
-
-_HAPPY_MANUAL_LEARNINGS = "conf happy learnings"
-
-
-def _check_manual_learnings_written(ctx: HCtx, r: httpx.Response) -> None:
-    d = r.json()
-    assert set(d) == {"type_key", "size_chars", "cap_chars", "sha256"}, d
-    assert d["size_chars"] == len(_HAPPY_MANUAL_LEARNINGS), d
-    assert d["sha256"] == _sha(_HAPPY_MANUAL_LEARNINGS), d
-    assert d["cap_chars"] >= d["size_chars"], d
-    g = ctx.client.get(
-        f"/api/task-manuals/{d['type_key']}",
-        headers={"Authorization": f"Bearer {ctx.owner_token}"},
-    )
-    assert g.status_code == 200, f"{g.status_code} {g.text}"
-    assert g.json()["learnings"] == _HAPPY_MANUAL_LEARNINGS, g.text
 
 
 
@@ -2682,7 +2642,7 @@ HAPPY: dict[str, Happy] = {
     "DELETE /api/machines/{member_id}": Happy(
         path=lambda ctx: f"/api/machines/{ctx.fresh_machine()}",
     ),
-    # ── global context / roles / lessons / bootstrap ─────────────────────────
+    # ── global context / roles / bootstrap ───────────────────────────────────
     # ── document history (T-7d33) ───────────────────────────────────────────
     "GET /api/document-history/{kind}/{key}": Happy(
         path="/api/document-history/global_context/global",
@@ -2794,7 +2754,7 @@ HAPPY: dict[str, Happy] = {
     "GET /api/doc-sizes": Happy(
         # Size-only overview: every capped document reports its own size and
         # its OWN segment's cap, and NO document text rides along (no
-        # definition_md / text / sop_md / learnings anywhere in the payload).
+        # definition_md / text / sop_md anywhere in the payload).
         check=lambda _c, r: _expect(
             r,
             lambda d: isinstance(d.get("roles"), list)
@@ -2805,30 +2765,30 @@ HAPPY: dict[str, Happy] = {
                 and isinstance(row[seg].get("size_chars"), int)
                 and isinstance(row[seg].get("cap_chars"), int)
                 for row in d["roles"]
-                for seg in ("duty", "insight", "lessons")
+                for seg in ("duty", "insight")
             )
             and all(
                 isinstance(row.get(seg), dict)
                 and isinstance(row[seg].get("size_chars"), int)
                 and isinstance(row[seg].get("cap_chars"), int)
                 for row in d["task_manuals"]
-                for seg in ("sop", "learnings")
+                for seg in ("sop",)
             )
             # Exact key sets, so a document body cannot ride along under any
             # name — an absence check naming the fields we happen to know about
             # would go green on a payload that renamed them.
             and set(d) == {"roles", "task_manuals"}
             and all(
-                set(row) == {"role_key", "duty", "insight", "lessons"}
+                set(row) == {"role_key", "duty", "insight"}
                 and set(row[seg]) == {"size_chars", "cap_chars"}
                 for row in d["roles"]
-                for seg in ("duty", "insight", "lessons")
+                for seg in ("duty", "insight")
             )
             and all(
-                set(row) == {"type_key", "sop", "learnings"}
+                set(row) == {"type_key", "sop"}
                 and set(row[seg]) == {"size_chars", "cap_chars"}
                 for row in d["task_manuals"]
-                for seg in ("sop", "learnings")
+                for seg in ("sop",)
             ),
         ),
     ),
@@ -2876,36 +2836,8 @@ HAPPY: dict[str, Happy] = {
     "DELETE /api/roles/{role}": Happy(
         path=lambda ctx: f"/api/roles/{ctx.fresh_role()}",
     ),
-    "GET /api/lessons/{role_key}": Happy(
-        path="/api/lessons/assistant",
-    ),
-    "POST /api/lessons/{role_key}": Happy(
-        path="/api/lessons/assistant",
-        body={"text": _HAPPY_LESSONS_DOC},
-        check=_check_lessons_written,
-    ),
-    "POST /api/lessons/{role_key}/patch": Happy(
-        # Anchor-addressed patch (T-8327): an APPEND edit (empty old) always
-        # lands regardless of the doc's current content; the receipt carries
-        # size_chars/cap_chars/sha256 verification anchors instead of the full
-        # text. T-3aeb renamed `size` -> `size_chars` (a size field must carry
-        # its unit) and added the cap the write was judged against, so a caller
-        # can compute its remaining budget without a second request.
-        path="/api/lessons/assistant/patch",
-        body={"edits": [{"old": "", "new": "conformance happy patch line"}]},
-        check=lambda _c, r: _expect(
-            r,
-            lambda d: d["applied_edits"] == 1
-            and d["size_chars"] > 0
-            and d["cap_chars"] >= d["size_chars"]
-            and "size" not in d
-            and len(d["sha256"]) == 64
-            and d["is_default"] is False,
-        ),
-    ),
     # ── insight (T-3809) ─────────────────────────────────────────────────────
-    # The role journal's third block. Its key is the BARE role_key — which
-    # since T-2 is also what the lessons trio above uses.
+    # The role journal's second block. Its key is the BARE role_key.
     "GET /api/insight/{role_key}": Happy(
         path="/api/insight/assistant",
         # ⚠️ This row deliberately does NOT assert the empty doc, and the reason
@@ -2919,8 +2851,7 @@ HAPPY: dict[str, Happy] = {
         # is real, but this is not the layer that can see it. It belongs to a
         # server unit test and to the cockpit's mock.
         #
-        # What IS order-independent is the size/cap contract, and it is worth
-        # more than the lessons GET row (which asserts nothing at all):
+        # What IS order-independent is the size/cap contract:
         # size_chars must be the CHARACTER count of the served text — Python's
         # len() over a str counts code points, exactly as the server counts
         # runes — and the cap must be at or above it. A server that reported
@@ -2948,8 +2879,8 @@ HAPPY: dict[str, Happy] = {
         # An APPEND edit (empty `old`) always lands regardless of the doc's
         # current content, so this row does not depend on what the replace row
         # above left behind. The receipt carries size_chars / cap_chars / sha256
-        # verification anchors instead of the full text — same shape as the
-        # lessons patch receipt, and `size` (unitless) must stay absent.
+        # verification anchors instead of the full text, and `size` (unitless)
+        # must stay absent.
         path="/api/insight/assistant/patch",
         body={"edits": [{"old": "", "new": "conformance happy insight patch"}]},
         check=lambda _c, r: _expect(
@@ -3466,18 +3397,6 @@ HAPPY: dict[str, Happy] = {
     "DELETE /api/task-manuals/{type_key}": Happy(
         path=lambda ctx: f"/api/task-manuals/{_happy_manual(ctx)}",
         check=lambda _c, r: _expect(r, lambda d: d["deleted"] is True),
-    ),
-    "POST /api/task-manuals/{type_key}/learnings": Happy(
-        identity="agent",
-        path=lambda ctx: f"/api/task-manuals/{_happy_manual(ctx)}/learnings",
-        body={"text": _HAPPY_MANUAL_LEARNINGS},
-        check=_check_manual_learnings_written,
-    ),
-    "POST /api/task-manuals/{type_key}/learnings/patch": Happy(
-        identity="agent",
-        path=lambda ctx: f"/api/task-manuals/{_happy_manual(ctx)}/learnings/patch",
-        body={"edits": [{"old": "", "new": "conf happy patch"}]},
-        check=lambda _c, r: _expect(r, lambda d: d["applied_edits"] == 1),
     ),
     "POST /api/task-manuals/{type_key}/sop/patch": Happy(
         identity="agent",

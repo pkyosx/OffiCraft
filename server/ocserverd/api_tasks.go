@@ -702,7 +702,7 @@ func (s *apiServer) closeTask(t *Task, status string, now float64, trigger strin
 		s.publishOutsourceWorker(w, trigger)
 	}
 	// The worker SESSION is deliberately NOT reclaimed here (SPEC §6.3): the
-	// released worker keeps its session to run the close-out duties (learnings
+	// released worker keeps its session to run the close-out duties (scratch
 	// write-back, temp cleanup, the close-out report). The reclaim fires from
 	// the close-out hook (worker_spawn.go dismissOutsourceWorkersForTask — the
 	// seam the close-out report handler calls) or, when no report ever
@@ -715,7 +715,7 @@ func (s *apiServer) closeTask(t *Task, status string, now float64, trigger strin
 	// actually happen. Best-effort; never fails the close.
 	s.releaseDependentsOnClose(*t, now, trigger)
 	// Task-close nudge band (spec/sse.md §8): remind the executor down its own
-	// SSE connection to fold this run's learnings back into the type's manual.
+	// SSE connection to walk the close-out.
 	// Typed tasks only (ad-hoc has no manual); done AND terminated both nudge.
 	// Best-effort — a fan failure must never fail the close it follows.
 	// T-7870 — THE WORDS COME FROM THE DOCUMENT, and this is the only place they
@@ -794,7 +794,7 @@ func nameWithIDSlot(label, id string) string {
 // call every step-mutation path funnels through to re-project the task's status
 // (and display waiting_reason) from its steps, persist it, and fan the delta. It
 // mutates t in place. When the derivation lands on done (every step done) it
-// runs the full close (closeTask: release workers, stamp closed_ts, learnings
+// runs the full close (closeTask: release workers, stamp closed_ts, close-out
 // nudge) — that is how a task reaches done now, NOT an agent status report.
 // Already-closed tasks are left untouched. The lock (task.lock) is orthogonal
 // and never read here.
@@ -2603,9 +2603,10 @@ func (s *apiServer) HandleSubmitTaskPlanApiTasksTaskIdPlanPost(w http.ResponseWr
 // the agent status-report path: whoever executes a duplicate shell closes it
 // themselves rather than leaving the owner to terminate each by hand. duplicated
 // is a third terminal status (closeTask stamps closed_ts + releases bound
-// outsource workers) but it does NOT nudge the learnings write-back — a
-// duplicate has no lessons (decideTaskCloseNudge excludes it). The executor
-// guard applies (owner/admin may act on any task). Validation keeps the
+// outsource workers) and its executor IS nudged: T-02c9 skipped the notice on
+// the reasoning that a duplicate has nothing to fold back, and T-91 reversed
+// that — the subject is 「你的票關掉了」, which is true of a duplicate too. The
+// executor guard applies (owner/admin may act on any task). Validation keeps the
 // duplicate graph DEPTH-1 so the cockpit "重複於 <task id>" link resolves in one hop:
 //   - the task must be non-terminal (else 409 — already closed);
 //   - duplicate_of is required (422) and must be an EXISTING task (404);
@@ -2926,9 +2927,9 @@ func (s *apiServer) HandleSetTaskDepsApiTasksTaskIdDepsPost(w http.ResponseWrite
 }
 
 // POST /api/tasks/{task_id}/closeout — the executor reports the task's
-// close-out follow-ups DONE (SPEC §6.3 step 1: learnings written back +
-// scratch cleaned). TERMINAL tasks only (an open task has nothing to close
-// out → 409); executor-guarded like every agent report row. IDEMPOTENT: the
+// close-out follow-ups DONE (SPEC §6.3 step 1: scratch cleaned). TERMINAL tasks
+// only (an open task has nothing to close out → 409); executor-guarded like
+// every agent report row. IDEMPOTENT: the
 // first report stamps closeout_ts and fans a task delta; a repeat is a 200
 // no-op (no write, no fan).
 //

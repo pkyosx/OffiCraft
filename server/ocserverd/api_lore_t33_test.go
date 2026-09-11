@@ -455,9 +455,9 @@ func TestSetLoreStateRejectsAnUnknownState(t *testing.T) {
 
 // ── the two exits ───────────────────────────────────────────────────────────
 
-// TestRoleLoreLandsInTheStaffBootDocumentAfterTheLessons is EXIT 1, asserted on
+// TestRoleLoreLandsInTheStaffBootDocumentAfterThePersona is EXIT 1, asserted on
 // the assembled document: the literal entry text must be IN it, and it must sit
-// AFTER the 長期筆記 heading and BEFORE the boot-sequence tail.
+// AFTER the persona and BEFORE the boot-sequence tail.
 // loreBlockAt reports where the APPENDED 傳承 block starts in an assembled
 // document, or -1 when the document carries none.
 //
@@ -470,10 +470,8 @@ func TestSetLoreStateRejectsAnUnknownState(t *testing.T) {
 // one, reports it thousands of characters too early. Both readings look exactly
 // like a real answer.
 //
-// This mirrors what stripTrailingLoreBlock does in production (lore_select.go:
-// LastIndex of "\n"+loreBlockHeading, then a check that the heading ends its
-// line), which is why production was never affected: only these tests were
-// asking the question the loose way.
+// Anchoring to the start of a line is what makes the answer trustworthy; the
+// loose form was only ever asked here, never in production.
 func loreBlockAt(doc string) int {
 	if strings.HasPrefix(doc, loreBlockHeading+"\n") || doc == loreBlockHeading {
 		return 0
@@ -487,7 +485,7 @@ func loreBlockAt(doc string) int {
 	return -1
 }
 
-func TestRoleLoreLandsInTheStaffBootDocumentAfterTheLessons(t *testing.T) {
+func TestRoleLoreLandsInTheStaffBootDocumentAfterThePersona(t *testing.T) {
 	s := loreTestServer(t)
 	me := hireLoreStaff(t, s, "m-lore-6", defaultBootRole)
 	rec := postLore(t, s, me, map[string]any{
@@ -506,20 +504,20 @@ func TestRoleLoreLandsInTheStaffBootDocumentAfterTheLessons(t *testing.T) {
 	}
 
 	doc := ctx.Context
-	lessonsAt := strings.Index(doc, "# Lessons ("+defaultBootRole+")")
+	personaAt := strings.Index(doc, "# Role: ")
 	loreAt := loreBlockAt(doc)
 	titleAt := strings.Index(doc, "傳承標題甲")
 	bodyAt := strings.Index(doc, "傳承內容甲")
-	if lessonsAt < 0 {
-		t.Fatalf("the boot document has no 長期筆記 block at all:\n%s", doc)
+	if personaAt < 0 {
+		t.Fatalf("the boot document has no 角色說明 block at all:\n%s", doc)
 	}
 	if loreAt < 0 || titleAt < 0 || bodyAt < 0 {
 		t.Fatalf("the entry did not reach the boot document (lore=%d title=%d body=%d):\n%s",
 			loreAt, titleAt, bodyAt, doc)
 	}
-	if loreAt < lessonsAt {
-		t.Fatalf("傳承 was assembled BEFORE 長期筆記 (lore=%d lessons=%d) — the spec "+
-			"puts it after", loreAt, lessonsAt)
+	if loreAt < personaAt {
+		t.Fatalf("傳承 was assembled BEFORE the persona (lore=%d persona=%d) — the "+
+			"spec puts it after", loreAt, personaAt)
 	}
 }
 
@@ -563,14 +561,14 @@ func TestRoleLoreDoesNotReachTheOutsourceBootContext(t *testing.T) {
 // longer "which came first" but "did they stay apart".
 //
 // 🔴 IT PINS ALL FOUR CORNERS, and it has to. Serving the block on `lore` while
-// ALSO leaving it on `learnings` would satisfy any single one of these, and
-// that half-migrated state is the likely regression: it is what every caller
-// that "just adds the new field" produces.
+// ALSO folding it into the manual's stored document would satisfy any single
+// one of these, and that half-migrated state is the likely regression: it is
+// what every caller that "just adds the new field" produces.
 func TestManualLoreRidesItsOwnFieldInTheManualRead(t *testing.T) {
 	s := loreTestServer(t)
 	me := hireLoreStaff(t, s, "m-lore-8", "researcher")
 	if err := s.dal.PutTaskManual(TaskManual{
-		TypeKey: "tm-review", DisplayName: "Review", Learnings: "既有的學習內容",
+		TypeKey: "tm-review", DisplayName: "Review", SopMD: "既有的 SOP 內容",
 		UpdatedTS: 1,
 	}); err != nil {
 		t.Fatalf("PutTaskManual: %v", err)
@@ -596,11 +594,11 @@ func TestManualLoreRidesItsOwnFieldInTheManualRead(t *testing.T) {
 		t.Fatalf("want 200, got %d %s", rec.Code, rec.Body.String())
 	}
 	var dto struct {
-		Learnings         string `json:"learnings"`
-		LearningsChars    int    `json:"learnings_chars"`
-		LearningsCapChars int    `json:"learnings_cap_chars"`
-		Lore              string `json:"lore"`
-		LoreChars         int    `json:"lore_chars"`
+		SopMD         string `json:"sop_md"`
+		SopMDChars    int    `json:"sop_md_chars"`
+		SopMDCapChars int    `json:"sop_md_cap_chars"`
+		Lore          string `json:"lore"`
+		LoreChars     int    `json:"lore_chars"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &dto); err != nil {
 		t.Fatalf("decode: %v", err)
@@ -615,20 +613,20 @@ func TestManualLoreRidesItsOwnFieldInTheManualRead(t *testing.T) {
 		t.Fatalf("`lore` is not a rendered 傳承 block: %q", dto.Lore)
 	}
 
-	// CORNER 2 — `learnings` is the STORED DOCUMENT AND NOTHING ELSE. Equality,
+	// CORNER 2 — `sop_md` is the STORED DOCUMENT AND NOTHING ELSE. Equality,
 	// not "contains": a half-migration that appends as well as splits still
 	// contains the stored text, and would slip past a containment check.
-	if dto.Learnings != "既有的學習內容" {
-		t.Fatalf("learnings = %q, want the stored document verbatim and alone — "+
-			"the 傳承 block rides `lore` now", dto.Learnings)
+	if dto.SopMD != "既有的 SOP 內容" {
+		t.Fatalf("sop_md = %q, want the stored document verbatim and alone — "+
+			"the 傳承 block rides `lore`", dto.SopMD)
 	}
 
-	// CORNER 3 — learnings_chars still measures the STORED document, because
-	// that is what a WRITER sizes an edit against. If it grew to cover the
+	// CORNER 3 — sop_md_chars still measures the STORED document, because that
+	// is what a WRITER sizes an edit against. If it grew to cover the
 	// rendering, an edit that fits would start being refused.
-	if want := len([]rune("既有的學習內容")); dto.LearningsChars != want {
-		t.Fatalf("learnings_chars = %d, want %d — it must measure the STORED "+
-			"document", dto.LearningsChars, want)
+	if want := len([]rune("既有的 SOP 內容")); dto.SopMDChars != want {
+		t.Fatalf("sop_md_chars = %d, want %d — it must measure the STORED "+
+			"document", dto.SopMDChars, want)
 	}
 
 	// CORNER 4 — lore_chars measures `lore`. This is the number whose ABSENCE
@@ -640,7 +638,7 @@ func TestManualLoreRidesItsOwnFieldInTheManualRead(t *testing.T) {
 	}
 	if dto.LoreChars == 0 {
 		t.Fatalf("lore_chars = 0 while `lore` carries %q — this is exactly the "+
-			"shape the owner reported on learnings/learnings_chars", dto.Lore)
+			"shape the owner reported: a field full of text beside a count of 0", dto.Lore)
 	}
 }
 
@@ -650,7 +648,7 @@ func TestManualLoreRidesItsOwnFieldInTheManualRead(t *testing.T) {
 func TestManualWithNoLoreIsUnchanged(t *testing.T) {
 	s := loreTestServer(t)
 	if err := s.dal.PutTaskManual(TaskManual{
-		TypeKey: "tm-empty", DisplayName: "Empty", Learnings: "只有學習內容",
+		TypeKey: "tm-empty", DisplayName: "Empty", SopMD: "只有 SOP 內容",
 		UpdatedTS: 1,
 	}); err != nil {
 		t.Fatalf("PutTaskManual: %v", err)
@@ -662,14 +660,14 @@ func TestManualWithNoLoreIsUnchanged(t *testing.T) {
 		t.Fatalf("want 200, got %d %s", rec.Code, rec.Body.String())
 	}
 	var dto struct {
-		Learnings string `json:"learnings"`
+		SopMD string `json:"sop_md"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &dto); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if dto.Learnings != "只有學習內容" {
-		t.Fatalf("learnings = %q, want the stored text verbatim — with no 傳承 to "+
-			"append, nothing at all is appended", dto.Learnings)
+	if dto.SopMD != "只有 SOP 內容" {
+		t.Fatalf("sop_md = %q, want the stored text verbatim — with no 傳承 to "+
+			"append, nothing at all is appended", dto.SopMD)
 	}
 }
 

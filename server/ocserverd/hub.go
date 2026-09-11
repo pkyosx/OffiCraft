@@ -383,7 +383,6 @@ var sseTopics = map[string]bool{
 	"task_manual":      true,
 	"global_context":   true,
 	"role_def":         true,
-	"lessons":          true,
 	"insight":          true,
 	"context":          true,
 	"monitoring":       true,
@@ -441,7 +440,7 @@ func audienceAll() Audience { return Audience{All: true} }
 
 // audienceOwnerOnly reaches ONLY owner/dashboard connections — no agent gets
 // it. Used by the topics no agent consumes on the wire (chat_read /
-// outsource_worker / task_manual / global_context / role_def / lessons /
+// outsource_worker / task_manual / global_context / role_def /
 // context / monitoring): fanning them to agents was pure wake waste.
 func audienceOwnerOnly() Audience { return Audience{} }
 

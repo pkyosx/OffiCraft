@@ -1406,22 +1406,6 @@ func (s *apiServer) HandleMcpApiMcpPost(w http.ResponseWriter, r *http.Request) 
 			rpcError(w, id, rpcInvalidParams, "unknown tool: '"+name+"'")
 			return
 		}
-		if retired := s.fillLessonsIdentityArgs(r, name, arguments); retired != nil {
-			// A RETIRED ARGUMENT IS A TOOL-LEVEL REFUSAL, not a JSON-RPC
-			// invalid-params error — same CallToolResult shape a REST 400
-			// takes, so the caller reads the field name and the replacement
-			// instead of a transport-level complaint it cannot act on.
-			status := http.StatusBadRequest
-			raw, marshalErr := json.Marshal(map[string]map[string]string{
-				"error": {"code": errorCodeForStatus(status), "message": retired.Error()},
-			})
-			if marshalErr != nil {
-				rpcError(w, id, rpcInternalError, "tool validation failed: "+marshalErr.Error())
-				return
-			}
-			rpcResult(w, id, callToolResult(status, raw))
-			return
-		}
 		reqPath, rawQuery, body, splitErr := splitToolArguments(spec, arguments)
 		if splitErr != nil {
 			// A known tool with a missing path argument is a tool-level input

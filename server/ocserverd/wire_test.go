@@ -698,23 +698,20 @@ func TestNewTaskManualDTO(t *testing.T) {
 		TypeKey: "bugfix", DisplayName: "Bug fix", Purpose: "修 bug",
 		Fields:    `[{"name":"PR Link","required":true,"is_key":true}]`,
 		SopMD:     "台北",
-		Learnings: "abcd",
 		Assignee:  `{"kind":"outsource","model":"opus"}`,
 		UpdatedTS: 42.5,
 	}
 
-	t.Run("the stored blobs parse and both documents report their rune size beside their own cap", func(t *testing.T) {
-		got, err := newTaskManualDTO(manual, 11000, 12000)
+	t.Run("the stored blobs parse and the document reports its rune size beside its own cap", func(t *testing.T) {
+		got, err := newTaskManualDTO(manual, 11000)
 		if err != nil {
 			t.Fatalf("newTaskManualDTO: %v", err)
 		}
 		want := taskManualDTO{
-			LearningsChars: 4, SopMDChars: 2,
-			LearningsCapChars: 12000, SopMDCapChars: 11000, CapChars: 12000,
+			SopMDChars: 2, SopMDCapChars: 11000,
 			TypeKey: "bugfix", DisplayName: "Bug fix", Purpose: "修 bug",
 			Fields:    []ManualField{{Name: "PR Link", Required: true, IsKey: true}},
 			SopMD:     "台北",
-			Learnings: "abcd",
 			Assignee:  map[string]any{"kind": "outsource", "model": "opus"},
 			UpdatedTS: 42.5,
 		}
@@ -725,7 +722,7 @@ func TestNewTaskManualDTO(t *testing.T) {
 
 	t.Run("an unset fields blob and an unset assignee serialise as empty containers, never as null", func(t *testing.T) {
 		bare := TaskManual{TypeKey: "bare"}
-		got, err := newTaskManualDTO(bare, 1, 2)
+		got, err := newTaskManualDTO(bare, 1)
 		if err != nil {
 			t.Fatalf("newTaskManualDTO(bare): %v", err)
 		}
@@ -740,7 +737,7 @@ func TestNewTaskManualDTO(t *testing.T) {
 	t.Run("a corrupt fields blob and a corrupt assignee blob are both errors, never a silent empty", func(t *testing.T) {
 		bad := manual
 		bad.Fields = "{not json"
-		got, err := newTaskManualDTO(bad, 1, 2)
+		got, err := newTaskManualDTO(bad, 1)
 		if err == nil || !strings.HasPrefix(err.Error(), "task_manual fields: bad JSON: ") {
 			t.Fatalf("newTaskManualDTO(corrupt fields) error = %v", err)
 		}
@@ -749,7 +746,7 @@ func TestNewTaskManualDTO(t *testing.T) {
 		}
 		bad = manual
 		bad.Assignee = "not json"
-		got, err = newTaskManualDTO(bad, 1, 2)
+		got, err = newTaskManualDTO(bad, 1)
 		if err == nil || !strings.HasPrefix(err.Error(), "task_manual bugfix: bad assignee JSON: ") {
 			t.Fatalf("newTaskManualDTO(corrupt assignee) error = %v", err)
 		}
@@ -764,19 +761,17 @@ func TestNewTaskManualListItemDTO(t *testing.T) {
 		TypeKey: "bugfix", DisplayName: "Bug fix", Purpose: "修 bug",
 		Fields:    `[{"name":"PR Link","required":true,"is_key":true}]`,
 		SopMD:     "台北市",
-		Learnings: "abcd",
 		Assignee:  `{"kind":"outsource"}`,
 		UpdatedTS: 42.5,
 	}
 
-	t.Run("the row carries identity, fields and assignee, and reports both omitted documents' stored sizes", func(t *testing.T) {
-		got, err := newTaskManualListItemDTO(manual, 11000, 12000)
+	t.Run("the row carries identity, fields and assignee, and reports the omitted document's stored size", func(t *testing.T) {
+		got, err := newTaskManualListItemDTO(manual, 11000)
 		if err != nil {
 			t.Fatalf("newTaskManualListItemDTO: %v", err)
 		}
 		want := taskManualListItemDTO{
-			LearningsChars: 4, SopMDChars: 3,
-			LearningsCapChars: 12000, SopMDCapChars: 11000, CapChars: 12000,
+			SopMDChars: 3, SopMDCapChars: 11000,
 			TypeKey: "bugfix", DisplayName: "Bug fix", Purpose: "修 bug",
 			Fields:    []ManualField{{Name: "PR Link", Required: true, IsKey: true}},
 			Assignee:  map[string]any{"kind": "outsource"},
@@ -787,24 +782,22 @@ func TestNewTaskManualListItemDTO(t *testing.T) {
 		}
 	})
 
-	t.Run("the sizes and caps agree with the full read of the same row", func(t *testing.T) {
-		full, err := newTaskManualDTO(manual, 11000, 12000)
+	t.Run("the size and cap agree with the full read of the same row", func(t *testing.T) {
+		full, err := newTaskManualDTO(manual, 11000)
 		if err != nil {
 			t.Fatalf("newTaskManualDTO: %v", err)
 		}
-		row, err := newTaskManualListItemDTO(manual, 11000, 12000)
+		row, err := newTaskManualListItemDTO(manual, 11000)
 		if err != nil {
 			t.Fatalf("newTaskManualListItemDTO: %v", err)
 		}
-		if row.LearningsChars != full.LearningsChars || row.SopMDChars != full.SopMDChars ||
-			row.LearningsCapChars != full.LearningsCapChars ||
-			row.SopMDCapChars != full.SopMDCapChars || row.CapChars != full.CapChars {
+		if row.SopMDChars != full.SopMDChars || row.SopMDCapChars != full.SopMDCapChars {
 			t.Fatalf("the listing row and the full read disagree:\n row  %+v\n full %+v", row, full)
 		}
 	})
 
 	t.Run("an unset fields blob and an unset assignee serialise as empty containers", func(t *testing.T) {
-		got, err := newTaskManualListItemDTO(TaskManual{TypeKey: "bare"}, 1, 2)
+		got, err := newTaskManualListItemDTO(TaskManual{TypeKey: "bare"}, 1)
 		if err != nil {
 			t.Fatalf("newTaskManualListItemDTO(bare): %v", err)
 		}
@@ -819,7 +812,7 @@ func TestNewTaskManualListItemDTO(t *testing.T) {
 	t.Run("a corrupt blob on either side is an error and the zero row", func(t *testing.T) {
 		bad := manual
 		bad.Fields = "{"
-		got, err := newTaskManualListItemDTO(bad, 1, 2)
+		got, err := newTaskManualListItemDTO(bad, 1)
 		if err == nil || !strings.HasPrefix(err.Error(), "task_manual fields: bad JSON: ") {
 			t.Fatalf("newTaskManualListItemDTO(corrupt fields) error = %v", err)
 		}
@@ -828,7 +821,7 @@ func TestNewTaskManualListItemDTO(t *testing.T) {
 		}
 		bad = manual
 		bad.Assignee = "["
-		got, err = newTaskManualListItemDTO(bad, 1, 2)
+		got, err = newTaskManualListItemDTO(bad, 1)
 		if err == nil || !strings.HasPrefix(err.Error(), "task_manual bugfix: bad assignee JSON: ") {
 			t.Fatalf("newTaskManualListItemDTO(corrupt assignee) error = %v", err)
 		}

@@ -699,9 +699,6 @@ func TestCurrentDocumentContent(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("PutRoleDef: %v", err)
 	}
-	if err := d.PutLessons(Lessons{RoleKey: "r-current", Text: "lesson text"}); err != nil {
-		t.Fatalf("PutLessons: %v", err)
-	}
 	if err := d.PutInsight(Insight{RoleKey: "r-current", Text: "insight text"}); err != nil {
 		t.Fatalf("PutInsight: %v", err)
 	}
@@ -709,7 +706,7 @@ func TestCurrentDocumentContent(t *testing.T) {
 		t.Fatalf("PutBootDocument: %v", err)
 	}
 	if err := d.PutTaskManual(TaskManual{
-		TypeKey: "tm-current", SopMD: "SOP text", Learnings: "learning text",
+		TypeKey: "tm-current", SopMD: "SOP text",
 	}); err != nil {
 		t.Fatalf("PutTaskManual: %v", err)
 	}
@@ -729,11 +726,9 @@ func TestCurrentDocumentContent(t *testing.T) {
 	}{
 		{name: "global context returns its live text", kind: "global_context", key: "global", want: map[string]string{"text": "context text"}, wantExists: true},
 		{name: "a role definition returns its live definition field", kind: "role_definition", key: "r-current", want: map[string]string{"definition_md": "# current"}, wantExists: true},
-		{name: "lessons returns its live text field", kind: "lessons", key: "r-current", want: map[string]string{"text": "lesson text"}, wantExists: true},
 		{name: "insight returns its live text field", kind: "insight", key: "r-current", want: map[string]string{"text": "insight text"}, wantExists: true},
 		{name: "a boot document returns its whole live text", kind: "offboard", key: "global", want: map[string]string{"text": "offboard text"}, wantExists: true},
 		{name: "a task manual returns its live SOP", kind: docKindTaskManualSop, key: "tm-current", want: map[string]string{"sop_md": "SOP text"}, wantExists: true},
-		{name: "a task manual returns its live learnings", kind: docKindTaskManualLearnings, key: "tm-current", want: map[string]string{"learnings": "learning text"}, wantExists: true},
 		{name: "a task returns its live title", kind: docKindTaskTitle, key: "T-current", want: map[string]string{"title": "task title"}, wantExists: true},
 		{name: "a task returns its live description", kind: docKindTaskDescription, key: "T-current", want: map[string]string{"description": "task description"}, wantExists: true},
 	} {

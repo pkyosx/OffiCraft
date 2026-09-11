@@ -532,8 +532,7 @@ func TestHandleDirectedBand(t *testing.T) {
 			frame: map[string]any{"topic": "task-close", "data": map[string]any{
 				"task_no": "T-be18", "type": "build", "status": "done"}},
 			want: "[ocagent] signal task-close: task T-be18 (type=build) closed (done) — " +
-				"fold this run's learnings into the current manual as an anchor-addressed " +
-				"patch (patch_task_learnings)\n",
+				"walk your close-out: clean this run's scratch, then report_task_closeout\n",
 		},
 		{
 			name:  "a frame with no data object still prints rather than being dropped",

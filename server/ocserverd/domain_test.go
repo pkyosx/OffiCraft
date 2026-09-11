@@ -351,16 +351,6 @@ func TestValidateRoleDef(t *testing.T) {
 	}
 }
 
-func TestValidateLessons(t *testing.T) {
-	if err := ValidateLessons(Lessons{RoleKey: "engineer"}); err != nil {
-		t.Fatalf("ValidateLessons(with a key): %v", err)
-	}
-	err := ValidateLessons(Lessons{Text: "always read the spec"})
-	if err == nil || err.Error() != "lessons requires a non-empty role_key" {
-		t.Fatalf("ValidateLessons(no key): got %v", err)
-	}
-}
-
 func TestValidateAccountAlias(t *testing.T) {
 	if err := ValidateAccountAlias(AccountAlias{Account: "acct-1"}); err != nil {
 		t.Fatalf("ValidateAccountAlias(with an account): %v", err)
@@ -932,30 +922,6 @@ func TestFoldRoleDef(t *testing.T) {
 	})
 }
 
-func TestFoldLessons(t *testing.T) {
-	t.Run("a live overlay wins and reads as not-default, even when its text is empty", func(t *testing.T) {
-		text, isDefault := FoldLessons(&Lessons{RoleKey: "engineer", Text: "mine"}, "seed")
-		if text != "mine" || isDefault {
-			t.Fatalf("FoldLessons(live overlay) = (%q, %v), want (%q, false)", text, isDefault, "mine")
-		}
-		text, isDefault = FoldLessons(&Lessons{RoleKey: "engineer"}, "seed")
-		if text != "" || isDefault {
-			t.Fatalf("FoldLessons(empty overlay) = (%q, %v), want (\"\", false)", text, isDefault)
-		}
-	})
-
-	t.Run("no overlay or a tombstoned one falls back to the shared seed as the default", func(t *testing.T) {
-		text, isDefault := FoldLessons(nil, "seed")
-		if text != "seed" || !isDefault {
-			t.Fatalf("FoldLessons(nil) = (%q, %v), want (%q, true)", text, isDefault, "seed")
-		}
-		text, isDefault = FoldLessons(&Lessons{RoleKey: "engineer", Text: "mine", Tombstoned: true}, "seed")
-		if text != "seed" || !isDefault {
-			t.Fatalf("FoldLessons(tombstoned) = (%q, %v), want (%q, true)", text, isDefault, "seed")
-		}
-	})
-}
-
 func TestFoldInsight(t *testing.T) {
 	t.Run("a live overlay wins and is never default, an empty overlay text included", func(t *testing.T) {
 		text, isDefault := FoldInsight(&Insight{RoleKey: "assistant", Text: "mine"}, "seed", true)
@@ -1023,7 +989,7 @@ func TestApplyDocEdits(t *testing.T) {
 		got, applied, err := ApplyDocEdits("alpha beta", []LessonsEdit{
 			{Old: "alpha", New: "gamma"},
 			{Old: "gamma beta", New: "delta"},
-		}, "get_lessons")
+		}, "get_insight")
 		if err != nil {
 			t.Fatalf("ApplyDocEdits(chained): %v", err)
 		}
@@ -1033,33 +999,33 @@ func TestApplyDocEdits(t *testing.T) {
 	})
 
 	t.Run("an empty old appends, joining with a newline only when the doc needs one", func(t *testing.T) {
-		got, applied, err := ApplyDocEdits("head", []LessonsEdit{{New: "tail"}}, "get_lessons")
+		got, applied, err := ApplyDocEdits("head", []LessonsEdit{{New: "tail"}}, "get_insight")
 		if err != nil || got != "head\ntail" || applied != 1 {
 			t.Fatalf("append to a doc with no trailing newline = (%q, %d, %v), want (%q, 1, nil)",
 				got, applied, err, "head\ntail")
 		}
-		got, applied, err = ApplyDocEdits("head\n", []LessonsEdit{{New: "tail"}}, "get_lessons")
+		got, applied, err = ApplyDocEdits("head\n", []LessonsEdit{{New: "tail"}}, "get_insight")
 		if err != nil || got != "head\ntail" || applied != 1 {
 			t.Fatalf("append to a newline-terminated doc = (%q, %d, %v), want (%q, 1, nil)",
 				got, applied, err, "head\ntail")
 		}
-		got, applied, err = ApplyDocEdits("", []LessonsEdit{{New: "tail"}}, "get_lessons")
+		got, applied, err = ApplyDocEdits("", []LessonsEdit{{New: "tail"}}, "get_insight")
 		if err != nil || got != "tail" || applied != 1 {
 			t.Fatalf("append to an empty doc = (%q, %d, %v), want (%q, 1, nil)", got, applied, err, "tail")
 		}
 	})
 
 	t.Run("an edit that leaves the text it was handed untouched does not increment the count", func(t *testing.T) {
-		got, applied, err := ApplyDocEdits("same", []LessonsEdit{{Old: "same", New: "same"}}, "get_lessons")
+		got, applied, err := ApplyDocEdits("same", []LessonsEdit{{Old: "same", New: "same"}}, "get_insight")
 		if err != nil || got != "same" || applied != 0 {
 			t.Fatalf("replace with an identical value = (%q, %d, %v), want (%q, 0, nil)", got, applied, err, "same")
 		}
-		got, applied, err = ApplyDocEdits("doc\n", []LessonsEdit{{}}, "get_lessons")
+		got, applied, err = ApplyDocEdits("doc\n", []LessonsEdit{{}}, "get_insight")
 		if err != nil || got != "doc\n" || applied != 0 {
 			t.Fatalf("append \"\" to a newline-terminated doc = (%q, %d, %v), want (%q, 0, nil)",
 				got, applied, err, "doc\n")
 		}
-		got, applied, err = ApplyDocEdits("doc", []LessonsEdit{{}}, "get_lessons")
+		got, applied, err = ApplyDocEdits("doc", []LessonsEdit{{}}, "get_insight")
 		if err != nil || got != "doc\n" || applied != 1 {
 			t.Fatalf("append \"\" to a doc with no trailing newline = (%q, %d, %v), want (%q, 1, nil)",
 				got, applied, err, "doc\n")
@@ -1070,7 +1036,7 @@ func TestApplyDocEdits(t *testing.T) {
 		got, applied, err := ApplyDocEdits("anchor", []LessonsEdit{
 			{Old: "anchor", New: "middle"},
 			{Old: "middle", New: "anchor"},
-		}, "get_lessons")
+		}, "get_insight")
 		if err != nil || got != "anchor" || applied != 2 {
 			t.Fatalf("cancelling batch = (%q, %d, %v), want (%q, 2, nil)", got, applied, err, "anchor")
 		}
@@ -1102,7 +1068,7 @@ func TestApplyDocEdits(t *testing.T) {
 	})
 
 	t.Run("no edits at all returns the doc unchanged with nothing applied", func(t *testing.T) {
-		got, applied, err := ApplyDocEdits("doc", nil, "get_lessons")
+		got, applied, err := ApplyDocEdits("doc", nil, "get_insight")
 		if err != nil || got != "doc" || applied != 0 {
 			t.Fatalf("ApplyDocEdits(no edits) = (%q, %d, %v), want (%q, 0, nil)", got, applied, err, "doc")
 		}
@@ -1191,8 +1157,8 @@ func TestDocCapBlocked(t *testing.T) {
 }
 
 func TestDocCapRefusal(t *testing.T) {
-	got := docCapRefusal(1000, "lessons doc", strings.Repeat("x", 1500), "台北"+strings.Repeat("y", 1498))
-	want := "the lessons doc you are writing is 1500 chars, over the 1000-char cap, and is not " +
+	got := docCapRefusal(1000, "insight doc", strings.Repeat("x", 1500), "台北"+strings.Repeat("y", 1498))
+	want := "the insight doc you are writing is 1500 chars, over the 1000-char cap, and is not " +
 		"shorter than the 1500 chars already stored — nothing was written. What is already stored " +
 		"is never truncated, but every update must land at or under the cap, or at least come out " +
 		"SHORTER than what is there now. Drop stale or superseded material as part of this write " +
@@ -1200,8 +1166,8 @@ func TestDocCapRefusal(t *testing.T) {
 	if got != want {
 		t.Fatalf("docCapRefusal:\n got %s\nwant %s", got, want)
 	}
-	if second := docCapRefusal(200, "manual's learnings", "", "abc"); second != "the manual's "+
-		"learnings you are writing is 3 chars, over the 200-char cap, and is not shorter than the "+
+	if second := docCapRefusal(200, "manual's SOP", "", "abc"); second != "the manual's "+
+		"SOP you are writing is 3 chars, over the 200-char cap, and is not shorter than the "+
 		"0 chars already stored — nothing was written. What is already stored is never truncated, "+
 		"but every update must land at or under the cap, or at least come out SHORTER than what is "+
 		"there now. Drop stale or superseded material as part of this write (or in a shrinking "+
@@ -1218,8 +1184,8 @@ func TestDocWipeRefusal(t *testing.T) {
 	if got != want {
 		t.Fatalf("docWipeRefusal(with a way out):\n got %s\nwant %s", got, want)
 	}
-	got = docWipeRefusal("lessons", "")
-	want = "this would replace the existing lessons with an empty one — pass allow_shrink=true " +
+	got = docWipeRefusal("insight doc", "")
+	want = "this would replace the existing insight doc with an empty one — pass allow_shrink=true " +
 		"if that is intended; nothing was written"
 	if got != want {
 		t.Fatalf("docWipeRefusal(no way out):\n got %s\nwant %s", got, want)
@@ -1978,9 +1944,9 @@ func TestWholeDocWipeBlocked(t *testing.T) {
 		after  string
 		want   bool
 	}{
-		{name: "content replaced by whitespace is blocked", before: "lessons", after: "  \n", want: true},
+		{name: "content replaced by whitespace is blocked", before: "stored text", after: "  \n", want: true},
 		{name: "blank content remains allowed to stay blank", before: " \n", after: "", want: false},
-		{name: "content replaced by other content is allowed", before: "lessons", after: "updated", want: false},
+		{name: "content replaced by other content is allowed", before: "stored text", after: "updated", want: false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := WholeDocWipeBlocked(tc.before, tc.after); got != tc.want {

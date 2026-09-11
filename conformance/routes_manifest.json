@@ -757,27 +757,6 @@
   },
   {
     "auth": "gated",
-    "mcp_tool": "get_lessons",
-    "method": "GET",
-    "path": "/api/lessons/{role_key}",
-    "requires": "machine"
-  },
-  {
-    "auth": "gated",
-    "mcp_tool": "replace_lessons",
-    "method": "POST",
-    "path": "/api/lessons/{role_key}",
-    "requires": "agent"
-  },
-  {
-    "auth": "gated",
-    "mcp_tool": "patch_lessons",
-    "method": "POST",
-    "path": "/api/lessons/{role_key}/patch",
-    "requires": "agent"
-  },
-  {
-    "auth": "gated",
     "mcp_tool": "resume_summary",
     "method": "GET",
     "path": "/api/resume-summary",
@@ -1069,20 +1048,6 @@
     "method": "DELETE",
     "path": "/api/task-manuals/{type_key}",
     "requires": "admin_agent"
-  },
-  {
-    "auth": "gated",
-    "mcp_tool": "write_task_learnings",
-    "method": "POST",
-    "path": "/api/task-manuals/{type_key}/learnings",
-    "requires": "agent"
-  },
-  {
-    "auth": "gated",
-    "mcp_tool": "patch_task_learnings",
-    "method": "POST",
-    "path": "/api/task-manuals/{type_key}/learnings/patch",
-    "requires": "agent"
   },
   {
     "auth": "gated",

@@ -471,26 +471,20 @@ type taskCloseSignal struct {
 // the 〈任務收尾〉 document and are folded in at the send site (T-7870), the same
 // road the other nine lifecycle documents take. Evaluated when a task lands in
 // a terminal status (closeTask — done AND terminated both count: a terminated
-// task's executor has lessons worth folding back too). nil = stay quiet, and
+// task's executor still has a close-out to walk). nil = stay quiet, and
 // there is now exactly ONE reason left:
 //   - an unassigned task has nobody to remind. That is a fact about ADDRESSING,
 //     not a judgement about whether the news matters.
 //
 // 🔴 TWO GATES WERE REMOVED (T-91, owner ruling), AND THE REASONING THAT PUT
 // THEM THERE WAS SOUND — about a different question. Both asked "does this task
-// have learnings worth folding into a manual?": a DUPLICATED task is a
+// have anything worth folding into a manual?": a DUPLICATED task is a
 // duplicate of another ticket (T-02c9 point 6), and an AD-HOC task has no
 // manual to fold into. Both true, and both beside the point once you ask what
 // the recipient actually loses by not being told: its ticket is CLOSED, so
 // every write it makes from here on is a 409. Filtering by "is there a manual"
 // silenced exactly the two shapes where the close is most likely to have been
 // somebody ELSE's decision rather than the executor's own last step report.
-//
-// ⚠️ THE CONSEQUENCE FOR THE DOCUMENT IS REAL AND IS NOT A DEFECT. 〈任務收尾〉's
-// body walks the reader through patch_task_learnings, and an ad-hoc task's
-// type_key is "". The body already opens by telling the agent to read type_key
-// off the ticket, so it finds nothing to write back and skips that half; the
-// scratch cleanup and the close-out report are the parts that still apply.
 //
 // 🔴 WHY THE SENTENCE LEFT THIS FUNCTION. Being pure was the named reason this
 // one document never got wired: with no *apiServer there is no overlay to fold.

@@ -181,12 +181,11 @@ func decodeJSONBodyStrict(w http.ResponseWriter, r *http.Request, dst any, requi
 //
 //  1. DisallowUnknownFields — any key the DTO does not declare is a 422, not a
 //     silent drop. This is the single highest-leverage guard: the observed data
-//     loss was an agent sending write_task_learnings{learnings: "..."} (the key
-//     update_task_manual uses for the same document) — the unknown key was
-//     dropped, body.Text stayed nil, strOrEmpty folded it to "" and the whole
-//     doc was wiped, with the response cheerfully echoing learnings: "". Note
-//     encoding/json applies this to NESTED objects too, so it also catches
-//     edits[i].old_text in a patch_lessons batch.
+//     loss was an agent spelling a whole-doc field with a NEIGHBOURING tool's
+//     key name — the unknown key was dropped, body.Text stayed nil, strOrEmpty
+//     folded it to "" and the whole doc was wiped, with the response cheerfully
+//     echoing that key back empty. Note encoding/json applies this to NESTED
+//     objects too, so it also catches edits[i].old_text in a patch batch.
 //  2. required names — a whole-doc replace must never infer "the caller wants
 //     it empty" from "the caller did not say". Absent key ⇒ 422, never a write.
 //
@@ -752,10 +751,10 @@ func intSliceOrNil(p *[]int) []int {
 // changes nothing", it is a caller that built the request wrong.
 //
 // Split from decodePatchEdits because the two checks sit on OPPOSITE sides of
-// the target's resolve/authz chain in patch_lessons and patch_task_learnings,
-// and the newer patch faces mirror that placement rather than invent a second
-// order — otherwise the same malformed batch against a nonexistent target
-// answers 422 on one endpoint and 404 on its neighbour.
+// the target's resolve/authz chain, and every patch face mirrors that placement
+// rather than invent a second order — otherwise the same malformed batch
+// against a nonexistent target answers 422 on one endpoint and 404 on its
+// neighbour.
 func requireNonEmptyEdits(w http.ResponseWriter, dtos []LessonsEditDTO) bool {
 	if len(dtos) == 0 {
 		writeError(w, http.StatusUnprocessableEntity,
@@ -769,9 +768,9 @@ func requireNonEmptyEdits(w http.ResponseWriter, dtos []LessonsEditDTO) bool {
 // []LessonsEdit, writing a 422 and returning ok=false for an edit carrying
 // NEITHER old NOR new — that would fold to the empty-old APPEND branch where
 // appending "" is a perfect no-op, so the batch would answer 200 with an
-// unchanged doc, i.e. report success while doing nothing. The check is the one
-// patch_lessons and patch_task_learnings already spell inline (T-2d99), lifted
-// here so the newer patch faces cannot answer a malformed batch differently.
+// unchanged doc, i.e. report success while doing nothing. The check was spelled
+// inline on the first patch faces (T-2d99) and lifted here so no patch face can
+// answer a malformed batch differently.
 //
 // The WHOLE batch is refused before anything is written, matching the
 // anchor-miss posture. Callers run it AFTER resolving the target (see

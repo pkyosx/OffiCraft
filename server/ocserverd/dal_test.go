@@ -1113,10 +1113,10 @@ func TestSaveWithDocumentHistories(t *testing.T) {
 		t.Fatalf("SaveWithDocumentHistories(no stream): %v", err)
 	}
 
-	streams := func(sop, learnings string) []documentHistoryStream {
+	streams := func(sop, definition string) []documentHistoryStream {
 		return []documentHistoryStream{
 			{Kind: "task_manual_sop", Key: "review", ActorID: "owner", Snapshot: dalStaticSnapshot(sop)},
-			{Kind: "task_manual_learnings", Key: "review", ActorID: "owner", Snapshot: dalStaticSnapshot(learnings)},
+			{Kind: "role_definition", Key: "review", ActorID: "owner", Snapshot: dalStaticSnapshot(definition)},
 		}
 	}
 	if err := d.SaveWithDocumentHistories(streams(`{"sop":1}`, ""), func(sqlExecer) error {
@@ -1125,7 +1125,7 @@ func TestSaveWithDocumentHistories(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("SaveWithDocumentHistories: %v", err)
 	}
-	if err := d.SaveWithDocumentHistories(streams(`{"sop":2}`, `{"learnings":1}`), func(sqlExecer) error {
+	if err := d.SaveWithDocumentHistories(streams(`{"sop":2}`, `{"definition_md":1}`), func(sqlExecer) error {
 		landed++
 		return nil
 	}); err != nil {
@@ -1144,23 +1144,23 @@ func TestSaveWithDocumentHistories(t *testing.T) {
 		{DocumentKind: "task_manual_sop", DocumentKey: "review", ContentJSON: `{"sop":1}`, ActorID: "owner"},
 	}, since)
 
-	learnings, err := d.ListDocumentHistory("task_manual_learnings", "review")
+	definition, err := d.ListDocumentHistory("role_definition", "review")
 	if err != nil {
-		t.Fatalf("ListDocumentHistory(learnings): %v", err)
+		t.Fatalf("ListDocumentHistory(role_definition): %v", err)
 	}
-	dalWantHistory(t, "the learnings stream is retained independently", learnings, []DocumentHistory{
-		{DocumentKind: "task_manual_learnings", DocumentKey: "review", ContentJSON: `{"learnings":1}`, ActorID: "owner"},
+	dalWantHistory(t, "the second stream is retained independently", definition, []DocumentHistory{
+		{DocumentKind: "role_definition", DocumentKey: "review", ContentJSON: `{"definition_md":1}`, ActorID: "owner"},
 	}, since)
 
 	failed := errors.New("the write refused")
-	if err := d.SaveWithDocumentHistories(streams(`{"sop":3}`, `{"learnings":2}`),
+	if err := d.SaveWithDocumentHistories(streams(`{"sop":3}`, `{"definition_md":2}`),
 		func(sqlExecer) error { return failed }); !errors.Is(err, failed) {
 		t.Fatalf("SaveWithDocumentHistories(failing write): want %v, got %v", failed, err)
 	}
 	for _, stream := range []struct {
 		kind string
 		want int
-	}{{"task_manual_sop", 2}, {"task_manual_learnings", 1}} {
+	}{{"task_manual_sop", 2}, {"role_definition", 1}} {
 		got, err := d.ListDocumentHistory(stream.kind, "review")
 		if err != nil {
 			t.Fatalf("ListDocumentHistory(%s): %v", stream.kind, err)
@@ -2187,114 +2187,6 @@ func TestDeleteRoleDef(t *testing.T) {
 	}
 	if deleted {
 		t.Fatalf("deleting an absent overlay: want false, got true")
-	}
-}
-
-func TestGetLessonsOn(t *testing.T) {
-	d := newAPITestDAL(t)
-	got, err := getLessonsOn(d.rdb, "engineer")
-	if err != nil {
-		t.Fatalf("getLessonsOn before any overlay: %v", err)
-	}
-	if got != nil {
-		t.Fatalf("a role nobody has edited reads back as nil, got %+v", *got)
-	}
-
-	written := Lessons{RoleKey: "engineer", Text: "what we learned", Tombstoned: true}
-	if err := d.PutLessons(written); err != nil {
-		t.Fatalf("PutLessons: %v", err)
-	}
-	got, err = getLessonsOn(d.rdb, "engineer")
-	if err != nil {
-		t.Fatalf("getLessonsOn: %v", err)
-	}
-	if !reflect.DeepEqual(got, &written) {
-		t.Fatalf("getLessonsOn:\n got %+v\nwant %+v", got, written)
-	}
-
-	if err := d.inTx(func(tx *sql.Tx) error {
-		inside, err := getLessonsOn(tx, "engineer")
-		if err != nil {
-			return err
-		}
-		if !reflect.DeepEqual(inside, &written) {
-			t.Fatalf("the transactional read sees the same overlay:\n got %+v\nwant %+v", inside, written)
-		}
-		return nil
-	}); err != nil {
-		t.Fatalf("inTx: %v", err)
-	}
-}
-
-func TestPutLessonsOn(t *testing.T) {
-	d := newAPITestDAL(t)
-	first := Lessons{RoleKey: "engineer", Text: "first draft"}
-	if err := putLessonsOn(d.wdb, first); err != nil {
-		t.Fatalf("putLessonsOn: %v", err)
-	}
-	dalWantLessons(t, d, "engineer", &first)
-
-	second := Lessons{RoleKey: "engineer", Text: "", Tombstoned: true}
-	if err := putLessonsOn(d.wdb, second); err != nil {
-		t.Fatalf("putLessonsOn(reset marker): %v", err)
-	}
-	dalWantLessons(t, d, "engineer", &second)
-
-	failed := errors.New("the rest of the transaction refused")
-	if err := d.inTx(func(tx *sql.Tx) error {
-		if err := putLessonsOn(tx, Lessons{RoleKey: "designer", Text: "rolled back"}); err != nil {
-			return err
-		}
-		return failed
-	}); !errors.Is(err, failed) {
-		t.Fatalf("inTx: want %v, got %v", failed, err)
-	}
-	dalWantLessons(t, d, "designer", nil)
-}
-
-// dalWantLessons asserts one role's lessons overlay reads back as want.
-
-func TestDeleteLessonsForRole(t *testing.T) {
-	d := newAPITestDAL(t)
-	since := nowSecs()
-	for _, roleKey := range []string{"r-abc", "r-abcdef"} {
-		if err := d.PutLessons(Lessons{RoleKey: roleKey, Text: "learned by " + roleKey}); err != nil {
-			t.Fatalf("PutLessons(%q): %v", roleKey, err)
-		}
-		if err := d.SaveWithDocumentHistory("lessons", roleKey, "owner",
-			dalStaticSnapshot(`{"v":1}`), func(sqlExecer) error { return nil }); err != nil {
-			t.Fatalf("SaveWithDocumentHistory(%q): %v", roleKey, err)
-		}
-	}
-
-	deleted, err := d.DeleteLessonsForRole("r-abc")
-	if err != nil {
-		t.Fatalf("DeleteLessonsForRole: %v", err)
-	}
-	if deleted != 1 {
-		t.Fatalf("DeleteLessonsForRole: want 1, got %d", deleted)
-	}
-	dalWantLessons(t, d, "r-abc", nil)
-	gone, err := d.ListDocumentHistory("lessons", "r-abc")
-	if err != nil {
-		t.Fatalf("ListDocumentHistory: %v", err)
-	}
-	dalWantHistory(t, "the retained versions go with the document", gone, nil, since)
-
-	dalWantLessons(t, d, "r-abcdef", &Lessons{RoleKey: "r-abcdef", Text: "learned by r-abcdef"})
-	kept, err := d.ListDocumentHistory("lessons", "r-abcdef")
-	if err != nil {
-		t.Fatalf("ListDocumentHistory(neighbour): %v", err)
-	}
-	dalWantHistory(t, "a role whose key merely starts with the deleted one keeps its history", kept,
-		[]DocumentHistory{{DocumentKind: "lessons", DocumentKey: "r-abcdef", ContentJSON: `{"v":1}`, ActorID: "owner"}}, since)
-
-	deleted, err = d.DeleteLessonsForRole("r-abc")
-	if err != nil {
-		t.Fatalf("DeleteLessonsForRole again: %v", err)
-	}
-	if deleted != 0 {
-		t.Fatalf("deleting an absent overlay: want 0, got %d", deleted)
 	}
 }
 
@@ -4278,17 +4170,6 @@ func dalWantRoleDef(t *testing.T, d *DAL, roleKey string, want *RoleDef) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("GetRoleDef(%q):\n got %+v\nwant %+v", roleKey, got, want)
-	}
-}
-
-func dalWantLessons(t *testing.T, d *DAL, roleKey string, want *Lessons) {
-	t.Helper()
-	got, err := d.GetLessons(roleKey)
-	if err != nil {
-		t.Fatalf("GetLessons(%q): %v", roleKey, err)
-	}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("GetLessons(%q):\n got %+v\nwant %+v", roleKey, got, want)
 	}
 }
 

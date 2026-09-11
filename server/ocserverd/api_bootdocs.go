@@ -607,7 +607,7 @@ func (s *apiServer) winddownNoticeText(kind string, deadline float64) string {
 // opens 「任務 {task_no} 已結束。」, which is true when a task closes and FALSE on
 // the other path that needs the same instructions: an outsource worker being
 // wound down mid-task, whose ticket is still open. Sending it the whole document
-// would tell it its task had ended in order to remind it to write its learnings
+// would tell it its task had ended in order to remind it to wrap up
 // back — and the false half is the half it would act on.
 //
 // The body stands alone by construction: it opens by telling the agent to read

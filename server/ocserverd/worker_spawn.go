@@ -19,7 +19,7 @@ package main
 //
 // What stays outsource-specific is PLACEMENT + BOOT CONTENT: pickWorkerWarden
 // (a worker has no durable machine binding; placement is decided at spawn
-// time) and buildWorkerBootContext (a worker has no role doc / lessons shard —
+// time) and buildWorkerBootContext (a worker has no role doc —
 // never the member buildBootContext fold).
 //
 // Wake chain (SPEC §4 / contract §A.4, ruling H8):
@@ -41,7 +41,7 @@ package main
 //
 //	the task lands terminal → closeTask releases the worker row (panel row
 //	disappears, §4.1) but the SESSION deliberately lives on so the worker can
-//	run its close-out duties (learnings write-back, temp cleanup, the close-out
+//	run its close-out duties (temp cleanup, the close-out
 //	report). The reclaim then fires from either of:
 //	  * the CLOSE-OUT HOOK (dismissOutsourceWorkersForTask) — the seam the
 //	    close-out report handler calls the moment the worker reports done;
@@ -1783,7 +1783,7 @@ const (
 // only party that can see the agent's unsaved state is the agent. The server has
 // zero visibility into a transcript; any finer server-side test (context pct,
 // time since boot, message counts) would be a GUESS dressed as a criterion, and
-// guessing wrong here silently discards a round of learnings. Recorded honestly:
+// guessing wrong here silently discards a round of close-out work. Recorded honestly:
 // for the online case this is the 「照舊等滿但可提早結束」 fallback, not a
 // positive detection of unsaved work.
 // ⚠️ THE EPOCH GUARD ON THAT THIRD ARM — the STALE-LATCH finding, which is the

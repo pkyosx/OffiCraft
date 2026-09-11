@@ -132,7 +132,7 @@ package main
 // The active+online cell is an honest fallback, not a positive detection: the
 // server has zero visibility into an agent's transcript, so any finer test
 // (context pct, uptime, message counts) would be a guess dressed as a
-// criterion, and guessing wrong silently discards a round of learnings.
+// criterion, and guessing wrong silently discards a round of close-out work.
 // 🔴 THERE IS NO CEILING ON THIS FUNNEL ANY MORE (T-ed79). This used to read
 // "the grace is a CEILING — the 收口 fires the instant the agent answers
 // report_stopped", which priced the wait as "at most RecycleGrace". Both staff
@@ -185,7 +185,7 @@ const (
 	//
 	// 🔴 WHY IT HAS TO EXIST AT ALL: an expired agent token does not degrade
 	// gracefully. Every MCP call the offboard sequence makes — report_stopping,
-	// post_chat, the lesson write, report_stopped — goes through the same bearer
+	// post_chat, report_stopped — goes through the same bearer
 	// token, so a session that reaches expiry mid-thought cannot file the
 	// hand-off it is being asked for; it can only fail. Renewal used to depend
 	// on the agent noticing on its own.

@@ -7,11 +7,11 @@ import (
 	"unicode/utf8"
 )
 
-// Per-role INSIGHT doc (T-3809) — the third block of the role journal, beside
-// Duty (role_def.definition_md) and Learning (lessons.text).
+// Per-role INSIGHT doc (T-3809) — the second block of the role journal, beside
+// Duty (role_def.definition_md).
 //
-// WHY IT IS ITS OWN FILE AND ITS OWN FUNCTIONS, not a task_type-less branch
-// through the lessons handlers: every place the two documents differ is a place
+// WHY IT IS ITS OWN FILE AND ITS OWN FUNCTIONS, rather than a branch through
+// another document's handlers: every place two documents differ is a place
 // where sharing code would have produced a message or a key that is FALSE for
 // one of them. The two that bit in review were the 403 wording and the
 // anchor-miss wording — both name a document, and naming the wrong one sends
@@ -71,13 +71,13 @@ func (s *apiServer) foldInsightDTO(roleKey string) (*insightDTO, error) {
 // not private — and the delivery has to say so, because a document called
 // "insight" reads as confidential whether or not anyone promised it.
 //
-// 🔴 WHY THIS IS NOT lessonsWriteAuthz WITH A DIFFERENT ARGUMENT. That function
-// hard-codes the word "lessons" into its 403 body. Reusing it would answer a
-// refused insight write with "an agent may only write its own role's lessons" —
+// 🔴 WHY THIS IS ITS OWN FUNCTION AND NOT A SHARED ONE WITH A DIFFERENT
+// ARGUMENT. A shared gate hard-codes ONE document's name into its 403 body, so
+// reusing it would answer a refused insight write by naming another document —
 // true-sounding, wrong document, and the caller's next move (go look at
-// lessons) is wasted. The design ruled on this explicitly; the same defect
+// somewhere else) is wasted. The design ruled on this explicitly; the same defect
 // hides in the anchor-miss message, which is why ApplyDocEdits takes the tool
-// name to re-read with rather than baking in get_lessons.
+// name to re-read with rather than baking one in.
 func (s *apiServer) insightWriteAuthz(w http.ResponseWriter, r *http.Request, roleKey string) bool {
 	if principalAtLeast(s.principalOfRequest(r), principalAdminAgent) {
 		return true
@@ -115,7 +115,7 @@ func insightHistorySnapshot(current *Insight) (string, error) {
 }
 
 // insightSnapshotIn is what SaveWithDocumentHistory calls from INSIDE the write
-// transaction. Like its lessons twin it deliberately re-reads rather than trust
+// transaction. It deliberately re-reads rather than trust
 // a value the handler folded earlier: the retained revision must be the state
 // this write replaced, or two writers racing on one document both retain the
 // same ancestor and the revision written in between becomes unrecoverable.
@@ -235,7 +235,7 @@ func (s *apiServer) HandleReplaceInsightApiInsightRoleKeyPost(w http.ResponseWri
 		internalError(w, err)
 		return
 	}
-	// Wipe guard, same posture replace_lessons carries: emptying a doc that had
+	// Wipe guard, the house posture for a whole-doc replace: emptying a doc that had
 	// content needs allow_shrink. It cannot fire on day one (every doc starts
 	// empty, and empty → empty is not a wipe) — that is expected, not evidence
 	// the guard works.
@@ -290,7 +290,7 @@ func (s *apiServer) HandleReplaceInsightApiInsightRoleKeyPost(w http.ResponseWri
 }
 
 // POST /api/insight/{role_key}/patch — anchor-addressed patch. Semantics are
-// patch_lessons': edits apply IN ORDER, a non-empty `old` must match exactly
+// the house anchor semantics: edits apply IN ORDER, a non-empty `old` must match exactly
 // once (0/>1 hits → flat 400, WHOLE batch rejected, zero writes — the unique
 // anchor doubling as an optimistic lock), an empty `old` appends. Same per-role
 // write authz as replace_insight.
@@ -326,7 +326,7 @@ func (s *apiServer) HandlePatchInsightApiInsightRoleKeyPatchPost(w http.Response
 		}
 		edits[i] = LessonsEdit{Old: strOrEmpty(e.Old), New: strOrEmpty(e.New)}
 	}
-	// get_insight, NOT get_lessons: an anchor-miss message that sends the caller
+	// get_insight — NOT some other document's read tool: an anchor-miss message that sends the caller
 	// to re-read the wrong document is worse than a vague one.
 	next, applied, err := ApplyDocEdits(current.Text, edits, "get_insight")
 	if err != nil {
@@ -352,8 +352,7 @@ func (s *apiServer) HandlePatchInsightApiInsightRoleKeyPatchPost(w http.Response
 	// whose edits undo one another reports applied != 0 over a document that
 	// never changed. Writing anyway burns one of the THREE document history
 	// slots on a snapshot of text nobody replaced, silently shortening the
-	// owner's undo path. Full reasoning at the patch_lessons twin (api_roles.go,
-	// HandlePatchLessonsApiLessonsRoleKeyPatchPost). The receipt below
+	// owner's undo path. Full reasoning at ApplyDocEdits (domain.go). The receipt below
 	// stays outside the gate and unchanged.
 	if next != current.Text {
 		if err := s.dal.SaveWithDocumentHistory("insight", roleKey, currentActor(r), insightSnapshotIn(roleKey), func(ex sqlExecer) error {

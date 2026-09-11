@@ -110,9 +110,7 @@ func apiTestStack(t *testing.T, withSigningSecret bool) (*apiServer, http.Handle
 	api.outsourceMaxParallel = auth.outsourceMaxParallel
 	api.docCapCharsDuty = auth.docCapCharsDuty
 	api.docCapCharsInsight = auth.docCapCharsInsight
-	api.docCapCharsLearning = auth.docCapCharsLearning
 	api.docCapCharsManualSop = auth.docCapCharsManualSop
-	api.docCapCharsManualLearnings = auth.docCapCharsManualLearnings
 	api.docCapCharsSystemInteraction = auth.docCapCharsSystemInteraction
 	api.docCapCharsBootSequence = auth.docCapCharsBootSequence
 	api.docCapCharsOffboard = auth.docCapCharsOffboard

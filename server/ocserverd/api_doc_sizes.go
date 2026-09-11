@@ -3,13 +3,13 @@ package main
 // api_doc_sizes.go — the capped-document SIZE overview (peek_doc_sizes;
 // GET /api/doc-sizes).
 //
-// WHY IT EXISTS: two of the five capped segments — a role's insight and its
-// lessons — are reported by NO listing on this station at any price. The manual
-// pair (sop_md / learnings, sizes and caps) is already on list_task_manuals'
-// light view, and the role definition's size and cap already ride every
-// list_roles row; so those three are cheap-but-scattered, while insight and
-// lessons are simply unavailable in bulk. This route serves all five from one
-// place so "which long-lived document is nearly full?" is a single call.
+// WHY IT EXISTS: one of the three capped segments — a role's insight — is
+// reported by NO listing on this station at any price. The manual's sop_md size
+// and cap are already on list_task_manuals' light view, and the role
+// definition's size and cap already ride every list_roles row; so those two are
+// cheap-but-scattered, while insight is simply unavailable in bulk. This route
+// serves all three from one place so "which long-lived document is nearly
+// full?" is a single call.
 //
 // WHAT IT DELIBERATELY DOES NOT CARRY: any document text. That is not a
 // nice-to-have — it is the entire property. The response size is a function of
@@ -23,11 +23,10 @@ import (
 
 // HandlePeekDocSizesApiDocSizesGet answers GET /api/doc-sizes.
 //
-// Each of the FIVE capped segments is reported against ITS OWN cap. They stopped
-// sharing a number when T-ae38 split one cap into four and T-30f1 split the task
-// manual's in two again; a listing that quoted one number for all five would be
-// wrong the first time an owner raised any single one of them, and wrong
-// silently — every row would still look plausible.
+// Each capped segment is reported against ITS OWN cap. They stopped sharing a
+// number when T-ae38 split one cap into several; a listing that quoted one
+// number for all of them would be wrong the first time an owner raised any
+// single one, and wrong silently — every row would still look plausible.
 //
 // The caps are read ONCE each for the whole listing, the same discipline
 // HandleListTaskManualsApiTaskManualsGet follows: per-row reads could straddle a
@@ -35,17 +34,14 @@ import (
 // the same segment.
 //
 // The SIZES come from the very same fold* helpers the per-document GETs use
-// (foldRoleDefDTO / foldInsightDTO / foldLessonsDTO), so a size reported here
-// cannot drift from what get_role / get_insight / get_lessons report for the
-// same document. Only the cap field is replaced with the once-read value — the
+// (foldRoleDefDTO / foldInsightDTO), so a size reported here cannot drift from
+// what get_role / get_insight report for the same document. Only the cap field is replaced with the once-read value — the
 // helpers read their own cap per call, which is right for a single-document read
 // and wrong for a listing.
 func (s *apiServer) HandlePeekDocSizesApiDocSizesGet(w http.ResponseWriter, r *http.Request) {
 	dutyCap := s.dutyCap()
 	insightCap := s.insightCap()
-	learningCap := s.learningCap()
 	sopCap := s.manualSopCap()
-	learningsCap := s.manualLearningsCap()
 
 	roleKeys, err := s.listRoleKeys()
 	if err != nil {
@@ -69,22 +65,10 @@ func (s *apiServer) HandlePeekDocSizesApiDocSizesGet(w http.ResponseWriter, r *h
 			internalError(w, err)
 			return
 		}
-		// The role's ONE lessons doc — whole. Until T-2 this line sized only
-		// the DEFAULT bucket and a write naming any other bucket produced a
-		// document that drew on the same lessons cap while staying off this
-		// listing entirely. The axis is gone, so a role's lessons and the row
-		// reported here are now the same document by construction rather than
-		// by convention.
-		lessons, err := s.foldLessonsDTO(roleKey)
-		if err != nil {
-			internalError(w, err)
-			return
-		}
 		roles = append(roles, roleDocSizesDTO{
 			RoleKey: roleKey,
 			Duty:    docSizeDTO{SizeChars: duty.SizeChars, CapChars: dutyCap},
 			Insight: docSizeDTO{SizeChars: insight.SizeChars, CapChars: insightCap},
-			Lessons: docSizeDTO{SizeChars: lessons.SizeChars, CapChars: learningCap},
 		})
 	}
 
@@ -96,9 +80,8 @@ func (s *apiServer) HandlePeekDocSizesApiDocSizesGet(w http.ResponseWriter, r *h
 	taskManuals := []taskManualDocSizesDTO{}
 	for _, m := range manuals {
 		taskManuals = append(taskManuals, taskManualDocSizesDTO{
-			TypeKey:   m.TypeKey,
-			Sop:       docSizeDTO{SizeChars: utf8.RuneCountInString(m.SopMD), CapChars: sopCap},
-			Learnings: docSizeDTO{SizeChars: utf8.RuneCountInString(m.Learnings), CapChars: learningsCap},
+			TypeKey: m.TypeKey,
+			Sop:     docSizeDTO{SizeChars: utf8.RuneCountInString(m.SopMD), CapChars: sopCap},
 		})
 	}
 

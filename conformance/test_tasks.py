@@ -16,11 +16,11 @@ the happy shapes; this file pins the BEHAVIOUR the M3 contract promises:
     fresh; a TERMINAL twin never blocks a reopen (rulings H1/H2);
   * terminal states are walls: every later agent push (status / plan / deps /
     step / gate) and a second terminate are flat 409s;
-  * manuals: create / partial edit / agent learnings write-back round-trip;
+  * manuals: create / partial edit round-trip;
     delete is refused (409) while the type has open tasks and passes once
     they close; the deleted manual reads 404;
   * manual authorship split (owner ruling 2026-07-13): agents CREATE manuals
-    and edit the CONTENT fields (purpose / fields / sop_md / learnings) —
+    and edit the CONTENT fields (purpose / fields / sop_md) —
     also via the MCP tools create_task_manual / update_task_manual — while
     the ASSIGNEE face stays GOVERNANCE — floor admin_agent since T-6020, so a
     PLAIN agent supplying `assignee` on create or edit is a flat 403 — and
@@ -38,7 +38,6 @@ through test_rest_happy.
 
 from __future__ import annotations
 
-import hashlib
 import uuid
 
 import pytest
@@ -189,12 +188,10 @@ def _open_count(client, owner_token) -> int:
 
 
 # T-91: create_task_manual and update_task_manual answer taskManualReceiptDTO.
-# The two document triples are POINTERS: learnings_* is on the response only
-# when this call wrote the learnings, sop_md_* only when it wrote the SOP, so
-# "not written" is expressible and is not spelled 0.
+# The document triple is a POINTER: sop_md_* is on the response only when this
+# call wrote the SOP, so "not written" is expressible and is not spelled 0.
 _MANUAL_RECEIPT_ALWAYS = {"type_key", "updated_ts"}
 _MANUAL_RECEIPT_OPTIONAL = {
-    "learnings_chars", "learnings_cap_chars", "learnings_sha256",
     "sop_md_chars", "sop_md_cap_chars", "sop_md_sha256",
 }
 
@@ -1187,23 +1184,6 @@ def test_manual_crud_and_delete_guard(client, owner_token, executor):
     # The list face carries it.
     listed = client.get("/api/task-manuals", headers=_auth(owner_token)).json()
     assert type_key in {m["type_key"] for m in listed}
-    # The agent learnings write-back is whole-doc replace.
-    r = client.post(f"/api/task-manuals/{type_key}/learnings",
-                    json={"text": "always check CI first"},
-                    headers=_auth(executor.token))
-    assert r.status_code == 200, f"{r.status_code} {r.text}"
-    # T-91: taskLearningsWriteReceiptDTO — the doc does not ride home; its size
-    # and digest do. Key-set equality: asserting only that type_key is present
-    # would stay green if the whole manual came back.
-    got = r.json()
-    assert set(got) == {"type_key", "size_chars", "cap_chars", "sha256"}, got
-    assert got["size_chars"] == len("always check CI first"), got
-    assert got["sha256"] == hashlib.sha256(
-        "always check CI first".encode("utf-8")).hexdigest(), got
-    # …and it LANDED.
-    assert client.get(f"/api/task-manuals/{type_key}",
-                      headers=_auth(owner_token)
-                      ).json()["learnings"] == "always check CI first"
     # A duplicate create is a 409.
     assert client.post("/api/task-manuals", json={"type_key": type_key},
                        headers=_auth(owner_token)).status_code == 409
@@ -1235,19 +1215,17 @@ def test_agent_creates_manual_and_edits_content_fields(client, executor):
     r = client.post("/api/task-manuals", json={"type_key": type_key},
                     headers=_auth(executor.token))
     assert _manual_written(client, executor.token, r)["assignee"] == {}
-    # …and edits the content fields (purpose / fields / sop_md / learnings).
+    # …and edits the content fields (purpose / fields / sop_md).
     r = client.post(
         f"/api/task-manuals/{type_key}",
         json={"purpose": "triage inbound bug reports",
               "fields": [{"name": "report", "required": True, "is_key": True}],
-              "sop_md": "# SOP\n1. reproduce",
-              "learnings": "check the version first"},
+              "sop_md": "# SOP\n1. reproduce"},
         headers=_auth(executor.token))
     manual = _manual_written(client, executor.token, r)
     assert manual["purpose"] == "triage inbound bug reports"
     assert manual["fields"][0]["name"] == "report"
     assert manual["sop_md"].startswith("# SOP")
-    assert manual["learnings"] == "check the version first"
     assert manual["assignee"] == {}, "content edit must not touch assignee"
 
 

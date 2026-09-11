@@ -1,7 +1,7 @@
 package main
 
 // domain.go — the pure business-rule ring over the dal.go entities (the Go
-// twin of the retired Python domain/{member,chat,chat_read,role_def,lessons,alias,
+// twin of the retired Python domain/{member,chat,chat_read,role_def,alias,
 // user_context}.py). Framework-free by construction: no net/http, no SQL —
 // only invariants, closed vocabularies, and the derivations/folds the service
 // ring calls.
@@ -369,16 +369,6 @@ func ValidateChatRead(r ChatRead) error {
 func ValidateRoleDef(rd RoleDef) error {
 	if rd.RoleKey == "" {
 		return errors.New("role def requires a non-empty role_key")
-	}
-	return nil
-}
-
-// ValidateLessons enforces the lessons-overlay invariant: role_key IS the key
-// (T-2 dropped the task_type half of the old composite), so it must be
-// populated.
-func ValidateLessons(l Lessons) error {
-	if l.RoleKey == "" {
-		return errors.New("lessons requires a non-empty role_key")
 	}
 	return nil
 }
@@ -831,19 +821,6 @@ func FoldRoleDef(key string, overlay *RoleDef, seedName, seedMD string, hasSeed 
 	}
 }
 
-// ── lessons: per-role overlay ⊕ shared seed fold ─────────────────────────────
-
-// FoldLessons folds a per-role lessons doc: owner overlay ⊕ file seed.
-// Lessons are PER-ROLE (agents sharing a role share one overlay), but every
-// role falls back to the SAME shared seed text until its own overlay diverges
-// it; a tombstoned overlay (reset) reads as absent.
-func FoldLessons(overlay *Lessons, seedText string) (text string, isDefault bool) {
-	if overlay == nil || overlay.Tombstoned {
-		return seedText, true
-	}
-	return overlay.Text, false
-}
-
 // ── insight: per-role overlay ⊕ PER-ROLE file seed (T-3809 → T-e1e3) ─────────
 
 // FoldInsight resolves a per-role insight doc: owner/agent overlay ⊕ this
@@ -854,8 +831,8 @@ func FoldLessons(overlay *Lessons, seedText string) (text string, isDefault bool
 //	written                               → (overlay,   isDefault=false)
 //
 // 🔴 THE SEED IS PER-ROLE, NOT SHARED (T-e1e3, and this is the whole point).
-// FoldLessons folds against ONE shared file every role reads, so every role
-// inherits the same lessons out of the box. Insight must NEVER work that way:
+// A single shared file would give every role the same insight out of the box.
+// Insight must NEVER work that way:
 // a role's insight is how THAT role weighs a call, and the assistant's calls
 // are wrong for a tester. The caller (assets.go seedInsightMD) resolves
 // `insight_<roleKey>.md`; a role with no such file keeps the genuinely-empty
@@ -898,10 +875,15 @@ func FoldBootDocument(overlay *BootDocument, seedText string, hasSeed bool) (tex
 	return "", true
 }
 
-// ── lessons: anchor-addressed patch (MCP patch_lessons, T-8327) ──────────────
+// ── anchor-addressed patch (T-8327) ─────────────────────────────────────────
 
 // LessonsEdit is one {old, new} patch instruction: replace the UNIQUE
 // occurrence of Old with New; an empty Old appends New at the end of the doc.
+//
+// 🔴 THE NAME IS HISTORICAL AND THE TYPE IS SHARED. It is the wire and engine
+// shape every anchor-patch face uses — insight, a manual's SOP, a step note —
+// so it outlived the document it was first written for. Renaming it is a wire
+// change (LessonsEditDTO is the spec name), not a rename.
 type LessonsEdit struct {
 	Old string
 	New string
@@ -942,27 +924,23 @@ type LessonsEdit struct {
 // cancelling batch persisted, burned one of the three retained versions, and
 // announced a change that never happened.
 //
-// They now compare the TEXT — `next != current.Text`, and `next != m.Learnings`
-// for a manual's learnings — in api_roles.go, api_insight.go and
+// They now compare the TEXT — `next != current.Text`, and `next != m.SopMD`
+// for a manual's SOP — in api_insight.go and
 // api_taskmanuals.go. Anyone asking "did this patch change the document" must
 // do the same, or read the sha256 the receipt carries over the result; the
 // count answers a different question and always did.
 //
 // 🔴 WHY THE TOOL NAME IS A PARAMETER AND NOT A CONSTANT. The anchor-miss
-// message tells the caller what to do next, and "re-read (get_lessons)" is
-// FALSE advice for an agent patching its insight doc: re-reading lessons will
-// never show it the anchor it missed. This is the same defect class the ticket
-// already ruled on for the 403 path — insightWriteAuthz exists as its own
-// function rather than reusing lessonsWriteAuthz precisely because that one
-// hard-codes the word "lessons" into a message served on a different document.
-// A wrong instruction is worse than a vague one: it sends the reader somewhere
-// with confidence.
+// message tells the caller what to do next, and naming the WRONG document's
+// read tool is FALSE advice: re-reading a document that does not hold the
+// anchor will never show the caller what it missed. A wrong instruction is
+// worse than a vague one: it sends the reader somewhere with confidence.
 //
 // 🔴 THERE IS DELIBERATELY NO PER-DOCUMENT WRAPPER THAT BAKES THE NAME IN
-// (T-2fbf). A `ApplyLessonsEdits(text, edits)` convenience used to exist, and
-// the manual-learnings patch face reached for it as "the shared engine" —
-// which is exactly how patch_task_learnings came to tell its callers to
-// re-read get_lessons. Every call site must name its own document's read tool,
+// (T-2fbf). A convenience wrapper that hard-coded one document's read tool used
+// to exist, and a second patch face reached for it as "the shared engine" —
+// which is exactly how that face came to send its callers to re-read a document
+// it had never touched. Every call site must name its own document's read tool,
 // so that getting it wrong is a visible edit rather than a default.
 func ApplyDocEdits(text string, edits []LessonsEdit, rereadTool string) (string, int, error) {
 	result := text
@@ -1022,7 +1000,7 @@ const lessonsShrinkGuardMinChars = 200
 // LessonsShrinkBlocked reports whether patching before → after would wipe the
 // doc (non-blank → blank) or shrink a substantial doc to under a tenth of its
 // size — the r-76 wipe-accident guard, bypassed only by an explicit
-// allow_shrink=true (or the whole-doc replace_lessons seam).
+// allow_shrink=true (or a whole-doc replace seam).
 func LessonsShrinkBlocked(before, after string) bool {
 	if strings.TrimSpace(before) == "" {
 		return false // nothing to protect
@@ -1037,7 +1015,7 @@ func LessonsShrinkBlocked(before, after string) bool {
 
 // contextDocMaxCharsDefault is the SHIPPED DEFAULT of the cap, in UTF-8
 // CHARACTERS (runes), on the accumulating context documents an agent writes
-// back: a role's lessons doc and a task manual's learnings / sop_md. Owner
+// back: a role's insight doc and a task manual's sop_md. Owner
 // ruling (2026-07-27), stated in two sentences: "an update must not push the
 // doc past this size", and "whatever is already over it we do NOT truncate —
 // but its next update may only make it smaller".
@@ -1056,18 +1034,16 @@ func LessonsShrinkBlocked(before, after string) bool {
 // range equals its default, so a cap can only ever be RAISED: lowering it
 // would turn documents that are legal today into shrink-only ones.
 //
-// T-ae38 (owner 2026-08-03): ONE cap became FOUR, and T-30f1 split the task
-// manual's in two again. This constant is the default SHARED by Insight,
-// Learning and BOTH of a task manual's capped documents (sop_md, learnings);
-// Duty got its own, much smaller one below (dutyCapCharsDefault). The owner's words: 「我預期 duty
+// T-ae38 (owner 2026-08-03): ONE cap became several. This constant is the
+// default SHARED by Insight and a task manual's sop_md; Duty got its own, much
+// smaller one below (dutyCapCharsDefault). The owner's words: 「我預期 duty
 // 1000 / insight 10000 / learning 10000 但是三者都可以調整」 — quoted as the
 // record of the ruling, NOT as a statement of the current numbers. He revised
 // them the same day, and every one of them is a runtime setting on top of that,
 // so no prose anywhere should restate a cap: read the two constants below.
 // The reason the segments cannot share a number is that their deletion costs
 // differ by an order of magnitude: a Duty is a standing definition that should
-// stay readable in one screen, while a Learning doc is append-only environment
-// Q&A.
+// stay readable in one screen.
 //
 // The patch receipts' `size` field speaks THIS unit too, since T-3aeb — it
 // counted bytes until the owner ruled that one subject may not have two units.
@@ -1210,7 +1186,7 @@ const (
 //   - after ≤ cap                      → allowed (the ordinary case);
 //   - after > cap AND after < before   → allowed (an over-cap doc is free to
 //     keep converging downward — this is the escape hatch the two live
-//     over-cap lessons docs and four over-cap manuals depend on);
+//     over-cap docs and four over-cap manuals depend on);
 //   - after > cap AND after ≥ before   → REFUSED, EQUAL LENGTH INCLUDED. Not
 //     getting shorter is not converging, and admitting equal-length rewrites
 //     would let an over-cap doc be replaced wholesale forever.
@@ -1220,7 +1196,7 @@ const (
 // therefore judged on the cap alone.
 //
 // It is measured on the doc the caller reads and edits (the folded overlay ⊕
-// seed for lessons; the stored column for a manual) — the same `before` the
+// seed for insight; the stored column for a manual) — the same `before` the
 // shrink guard uses, so the two guards can never disagree about what "the
 // current doc" is.
 func DocCapBlocked(cap int, before, after string) bool {
@@ -1260,16 +1236,9 @@ func docCapRefusal(cap int, docName, before, after string) string {
 // wayOut is the seam-specific escape the caller also has — the way back to the
 // factory text, which is NOT the same sentence everywhere: replace_global_context
 // names a tool (reset_global_context), the boot documents name a gesture ("reset
-// it to the shipped default"), and the lessons / insight seams have no second
-// way out and pass "". It is a parameter rather than a fifth hardcoded sentence
-// so folding these four together changed no byte any caller reads.
-//
-// 🔴 FOUR SEAMS, NOT FIVE. api_taskmanuals.go's replace_task_manual_learnings
-// says "…the existing learnings with an empty DOC" — a different skeleton, not
-// just a different name — so it is deliberately NOT folded in here. Bending it
-// to fit would mean editing the sentence an agent reads, which is a text change
-// wearing a refactor's clothes. Leave it where it is until someone decides, on
-// purpose, to reword it.
+// it to the shipped default"), and the insight seam has no second way out and
+// passes "". It is a parameter rather than one more hardcoded sentence so
+// folding these together changed no byte any caller reads.
 func docWipeRefusal(docName, wayOut string) string {
 	return "this would replace the existing " + docName + " with an empty one — pass allow_shrink=true " +
 		"if that is intended" + wayOut + "; nothing was written"

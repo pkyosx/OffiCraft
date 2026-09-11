@@ -1204,7 +1204,7 @@ MATRIX: dict[str, Route] = {
         path=lambda ctx, i: "/api/document-history/task_manual_sop/tm-conf-missing/1/restore",
         overrides={"agent_self": 404, "agent_other": 404, "admin_agent": 404, "owner": 404},
     ),
-    # ── global context / roles / lessons / bootstrap ─────────────────────────
+    # ── global context / roles / bootstrap ───────────────────────────────────
     "GET /api/global-context": Route(requires="machine"),
     "POST /api/global-context": Route(
         requires="admin_agent",
@@ -1304,62 +1304,16 @@ MATRIX: dict[str, Route] = {
             f"/api/roles/{ctx.fresh_role() if i in _ADMIN_FACES else 'assistant'}"
         ),
     ),
-    "GET /api/lessons/{role_key}": Route(
-        requires="machine",
-        path="/api/lessons/assistant",
-    ),
-    "POST /api/lessons/{role_key}": Route(
-        # Per-role write authz ABOVE the declared floor (handler-level,
-        # lessonsWriteAuthz): admin capability (owner / admin_agent) writes ANY
-        # role; anyone else writes ONLY its OWN member's role_key.
-        # T-5336: the floor moved machine → agent, and the warden cell is now a
-        # DERIVED 403 instead of a hand-written override. The warden THIS suite
-        # builds carries role_key "" (as do both production warden creation
-        # points), so its 403 is unchanged in cause and in code. That is NOT a
-        # claim that the move is a no-op for every warden: a warden row hired
-        # with a non-empty role_key (POST /api/members takes kind and role_key
-        # in one body, owner/admin only) used to pass the handler's self-role
-        # compare on its OWN role and now 403s at the floor. See routes.go.
-        # admin_agent deliberately aims at agent A's role — a role that is NOT
-        # its own — so this cell fails if the admin ever loses the cross-role
-        # write. agent B aims at assistant → 403 (cross-role poison denied);
-        # agent A writes its own role → 200.
-        requires="agent",
-        overrides={"agent_other": 403},
-        path=lambda ctx, i: (
-            f"/api/lessons/{ctx.agent_a.role_key}"
-            if i in ("agent_self", "admin_agent")
-            else "/api/lessons/assistant"
-        ),
-        body={"text": "conformance lessons doc"},
-    ),
-    "POST /api/lessons/{role_key}/patch": Route(
-        # anchor-addressed patch (T-8327): SAME per-role write authz seam as
-        # the whole-doc replace above (T-5336 floor + admin cross-role cell
-        # included). Positive faces use an always-valid APPEND edit (empty old)
-        # so cell order never matters.
-        requires="agent",
-        overrides={"agent_other": 403},
-        path=lambda ctx, i: (
-            f"/api/lessons/{ctx.agent_a.role_key}/patch"
-            if i in ("agent_self", "admin_agent")
-            else "/api/lessons/assistant/patch"
-        ),
-        body={"edits": [{"old": "", "new": "conformance patch probe"}]},
-    ),
     # ── insight (T-3809) ─────────────────────────────────────────────────────
-    # The role journal's third block. Its authz face is the lessons face with
-    # the task_type axis removed — three rows, same three floors, same handler
-    # seam shape. That parallel is the point of putting them next to each other:
-    # if the two blocks ever DIVERGE on who may read or write, the diff shows up
-    # here as an asymmetry rather than as prose in a design document.
+    # The role journal's second block — three rows, three floors, one handler
+    # seam shape.
     #
     # 🔴 READ SITS ON THE MACHINE FLOOR, DELIBERATELY, and this row is what
     # states that as a testable fact rather than a claim. The owner ruled
     # (rc-dc171587220c, option 1) that this release closes NOTHING on the read
     # face: any authenticated identity may read ANY role's insight. Insight is
-    # SEPARATE, not private. Someone reading only the ticket title ("keep
-    # Insight and Learning apart") will reach for a narrower floor here; the
+    # SEPARATE, not private. Someone reading only the ticket title will reach
+    # for a narrower floor here; the
     # expected 2xx for every gated identity is what stops that from landing
     # quietly.
     "GET /api/insight/{role_key}": Route(
@@ -1368,11 +1322,11 @@ MATRIX: dict[str, Route] = {
     ),
     "POST /api/insight/{role_key}": Route(
         # Per-role write authz ABOVE the declared floor (handler-level,
-        # insightWriteAuthz — a SEPARATE guard from lessonsWriteAuthz, because
-        # its 403 has to name `insight`: an agent told to re-read the wrong
-        # document is worse off than one told nothing). Same shape as the
-        # lessons replace row above: admin capability writes ANY role, everyone
-        # else writes ONLY its own member's role_key.
+        # insightWriteAuthz — its own guard rather than one shared with another
+        # document, because its 403 has to name `insight`: an agent told to
+        # re-read the wrong document is worse off than one told nothing). Admin
+        # capability writes ANY role, everyone else writes ONLY its own member's
+        # role_key.
         #
         # Only ONE cell is hand-written, and only because the framework's
         # requires-rank cannot express a caller-vs-target rule. Everything else
@@ -1446,8 +1400,7 @@ MATRIX: dict[str, Route] = {
         requires="admin_agent",
         body={},
     ),
-    # ── tasks (M3) — requires="agent" rows (the two lessons WRITE rows above
-    # joined this floor in T-5336): warden (rank 0) is
+    # ── tasks (M3) — requires="agent" rows: warden (rank 0) is
     # below the agent floor (rank 1) and derives to 403; the executor guard
     # (caller == executor unless admin capability) shows as agent_other=403.
     "GET /api/tasks": Route(requires="machine"),
@@ -1848,20 +1801,6 @@ MATRIX: dict[str, Route] = {
             f"/api/task-manuals/"
             f"{_matrix_manual(ctx) if i in _ADMIN_FACES else 'conf-missing-type'}"
         ),
-    ),
-    "POST /api/task-manuals/{type_key}/learnings": Route(
-        # the agent write-back face: any agent may fold learnings in (floor
-        # agent — the write is per-type, not per-executor).
-        requires="agent",
-        path=lambda ctx, _i: f"/api/task-manuals/{_matrix_manual(ctx)}/learnings",
-        body={"text": "conf matrix learnings"},
-    ),
-    "POST /api/task-manuals/{type_key}/learnings/patch": Route(
-        # the agent patch face for learnings — same agent floor as the
-        # whole-doc write-back (per-type, not per-executor).
-        requires="agent",
-        path=lambda ctx, _i: f"/api/task-manuals/{_matrix_manual(ctx)}/learnings/patch",
-        body={"edits": [{"old": "", "new": "conf matrix patch"}]},
     ),
     "POST /api/task-manuals/{type_key}/sop/patch": Route(
         # the agent patch face for sop_md — same agent floor as the whole-doc

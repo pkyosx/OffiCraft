@@ -21,7 +21,7 @@ package main
 // or bin/ocwarden sitting under the CWD (a frozen repo checkout beside the
 // binary) must never shadow the version-locked embed. Disk-first once let
 // exactly that happen three times over (the T-e731 trilogy: stale
-// boot/worker/role/lessons seeds, a stale tools/list catalog, and a stale
+// boot/worker/role seeds, a stale tools/list catalog, and a stale
 // bootstrap-here warden — each silent, each a content-level version regression
 // with no error). This is serveBinary's stance (api_machines.go — already
 // embed-only for the download routes) applied to every asset seam. A lone
@@ -181,9 +181,9 @@ func (root assetRoot) seedRoleDefinitionMD(roleKey string) (string, bool, error)
 // seedInsightMD returns the file-backed INSIGHT markdown for a SEED roleKey
 // ("" + false when the role has no insight seed).
 //
-// 🔴 PER-ROLE BY CONSTRUCTION — `insight_<roleKey>.md`, deliberately NOT the
-// ONE-SHARED-FILE shape lessons uses (`readSeedFile("lessons.md")`, same bytes
-// for every role). Copying that shape here would ship the ASSISTANT's judgement
+// 🔴 PER-ROLE BY CONSTRUCTION — `insight_<roleKey>.md`, deliberately NOT a
+// ONE-SHARED-FILE shape (the same bytes for every role). That shape would ship
+// the ASSISTANT's judgement
 // calls to every role out of the box — how to ghost-write someone else's memory,
 // when to stop and ask the owner, how to move context — and those are WRONG for
 // a tester or an engineer. One role's insight is not another role's insight.
@@ -300,29 +300,6 @@ func (s *apiServer) foldRoleDefDTO(roleKey string) (*roleDefDTO, error) {
 	}, nil
 }
 
-// foldLessonsDTO folds a per-role lessons doc (owner overlay ⊕ the ONE shared
-// file seed).
-func (s *apiServer) foldLessonsDTO(roleKey string) (*lessonsDTO, error) {
-	overlay, err := s.dal.GetLessons(roleKey)
-	if err != nil {
-		return nil, err
-	}
-	seedText, err := s.root.readSeedFile("lessons.md")
-	if err != nil {
-		return nil, err
-	}
-	text, isDefault := FoldLessons(overlay, seedText)
-	return &lessonsDTO{
-		SizeChars:     utf8.RuneCountInString(text),
-		CapChars:      s.learningCap(),
-		RoleKey:       roleKey,
-		Text:          text,
-		OwnerID:       wireOwnerID,
-		SchemaVersion: wireSchemaVersion,
-		IsDefault:     isDefault,
-	}, nil
-}
-
 // foldUserContextDTO folds the owner's user-custom ADDITIVE block.
 func (s *apiServer) foldUserContextDTO() (*globalContextDTO, error) {
 	row, err := s.dal.GetUserContext()
@@ -432,7 +409,7 @@ func bootSequenceSeedForKey(key string) (string, bool) {
 
 // buildBootContext resolves the role + folds the role docs + assembles the
 // boot context (lifecycle.md §2.2 normative order: system-interaction seed,
-// user-custom block when non-blank, # Role, # Insight when non-blank, # Lessons,
+// user-custom block when non-blank, # Role, # Insight when non-blank,
 // boot-sequence seed — joined "\n\n" + one trailing "\n"). nil = unknown role
 // (caller maps to 404 / fail-closed).
 func (s *apiServer) buildBootContext(role string, member *Member) (*bootContext, error) {
@@ -445,10 +422,6 @@ func (s *apiServer) buildBootContext(role string, member *Member) (*bootContext,
 		return nil, nil
 	}
 	userCtx, err := s.foldUserContextDTO()
-	if err != nil {
-		return nil, err
-	}
-	lessons, err := s.foldLessonsDTO(roleKey)
 	if err != nil {
 		return nil, err
 	}
@@ -478,55 +451,19 @@ func (s *apiServer) buildBootContext(role string, member *Member) (*bootContext,
 	if roleTitle == "" {
 		roleTitle = roleDTO.Key
 	}
-	// Lessons section title — injected IDEMPOTENTLY (T-8327). The injection
-	// wraps the authoritative doc in a title the doc itself does not carry;
-	// when a generation treats its boot segment as the doc base and writes it
-	// back (replace_lessons), the title becomes doc content and a naive
-	// re-prepend would then stack one more title per generation (the observed
-	// +38-char drift: server doc 50,625 vs boot segment 50,663). Strip any
-	// leading copies of the EXACT title line before prepending exactly one, so
-	// the boot context always carries a single title AND an already-poisoned
-	// doc self-heals in the assembled context.
-	//
-	// 🔴 TWO TITLES ARE STRIPPED, NOT ONE. Until T-2 this title carried the
-	// lessons bucket — "# Lessons (assistant / general)" — so a doc poisoned
-	// BEFORE that change carries the old wording, and stripping only the new
-	// one would leave it wedged at the top of the doc forever with no way for
-	// the self-heal to reach it. Both forms are removed; the legacy form's
-	// bucket half is 'general' because that is the only bucket 00061 left
-	// behind and the only one this title could ever have named after it.
-	lessonsTitle := "# Lessons (" + lessons.RoleKey + ")"
-	legacyLessonsTitle := "# Lessons (" + lessons.RoleKey + " / general)"
-	lessonsBody := strings.TrimSpace(lessons.Text)
-	for {
-		stripped := false
-		for _, title := range []string{lessonsTitle, legacyLessonsTitle} {
-			for strings.HasPrefix(lessonsBody, title) {
-				rest := lessonsBody[len(title):]
-				if rest != "" && !strings.HasPrefix(rest, "\n") {
-					break // title is a prefix of a longer line, not a duplicate title line
-				}
-				lessonsBody = strings.TrimSpace(rest)
-				stripped = true
-			}
-		}
-		if !stripped {
-			break
-		}
-	}
 	// T-4595 — the user-custom block moved from below the persona to above it
-	// (it used to sit between the lessons and the boot sequence). Staff and
+	// (it used to sit between the persona and the boot sequence). Staff and
 	// outsource boot contexts are now the SAME FOUR SLOTS in the same order:
 	//
 	//	1. 系統互動 (shared seed)
 	//	2. 使用者自訂 (shared, skipped entirely when blank)
-	//	3. the persona — staff: 角色說明 → 判準（when non-blank）→ 長期筆記;
+	//	3. the persona — staff: 角色說明 → 判準（when non-blank）;
 	//	   outsource: NOTHING (no role)
 	//	4. 啟動步驟 (shared seed, recency-authoritative tail)
 	//
 	// Only slot 3 differs between the two, and that is the whole difference.
 	// Putting the owner's additions ABOVE the persona is what makes the two
-	// assemblies line up; leaving it wedged between the lessons and the boot
+	// assemblies line up; leaving it wedged between the persona and the boot
 	// sequence would keep one seam that only staff have.
 	parts := []string{strings.TrimSpace(sysSeed)}
 	if strings.TrimSpace(userCtx.Text) != "" {
@@ -535,9 +472,9 @@ func (s *apiServer) buildBootContext(role string, member *Member) (*bootContext,
 	}
 	parts = append(parts,
 		"# Role: "+roleTitle+"\n\n"+strings.TrimSpace(roleDTO.DefinitionMD))
-	// Insight (T-3809) — the persona's third block, between Duty (# Role) and
-	// Learning (# Lessons), which is the order the three documents are defined
-	// in: what she does → how she works → what she learned doing it.
+	// Insight (T-3809) — the persona's second block, after Duty (# Role), which
+	// is the order the two documents are defined in: what she does → how she
+	// works.
 	//
 	// 🔴 The condition is the FOLDED TEXT being non-blank, exactly like the
 	// 使用者自訂 block above — deliberately NOT insight.IsDefault and NOT
@@ -549,8 +486,7 @@ func (s *apiServer) buildBootContext(role string, member *Member) (*bootContext,
 	if insightBody := strings.TrimSpace(insight.Text); insightBody != "" {
 		parts = append(parts, "# Insight ("+roleKey+")\n\n"+insightBody)
 	}
-	parts = append(parts, lessonsTitle+"\n\n"+lessonsBody)
-	// 傳承 (T-33) — the MEMBER exit, appended immediately after 長期筆記 and
+	// 傳承 (T-33) — the MEMBER exit, appended immediately after the persona and
 	// before the recency-authoritative 啟動步驟 tail.
 	//
 	// 🔴 THIS USED TO BE KEYED BY ROLE AND IS NOW KEYED BY THE MEMBER. Owner

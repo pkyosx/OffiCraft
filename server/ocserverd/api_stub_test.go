@@ -492,23 +492,21 @@ func TestOutsourceParallelCap(t *testing.T) {
 }
 
 // asDocCaps is every accumulating-document cap in one value, so a scenario that
-// moves one has to say what happened to the other seven.
+// moves one has to say what happened to the other five.
 func asDocCaps(api *apiServer) map[string]any {
 	return map[string]any{
 		"duty": float64(api.dutyCap()), "insight": float64(api.insightCap()),
-		"learning": float64(api.learningCap()), "manual_sop": float64(api.manualSopCap()),
-		"manual_learnings":   float64(api.manualLearningsCap()),
+		"manual_sop":         float64(api.manualSopCap()),
 		"system_interaction": float64(api.systemInteractionCap()),
 		"boot_sequence":      float64(api.bootSequenceCap()),
 		"offboard":           float64(api.offboardCap()),
 	}
 }
 
-// asShippedDocCaps is the out-of-box answer of all eight.
+// asShippedDocCaps is the out-of-box answer of all six.
 func asShippedDocCaps() map[string]any {
 	return map[string]any{
-		"duty": 1000.0, "insight": 15000.0, "learning": 15000.0,
-		"manual_sop": 15000.0, "manual_learnings": 15000.0,
+		"duty": 1000.0, "insight": 15000.0, "manual_sop": 15000.0,
 		"system_interaction": 60000.0, "boot_sequence": 15000.0, "offboard": 15000.0,
 	}
 }
@@ -521,7 +519,7 @@ func asDocCapMoved(field string, value float64) map[string]any {
 }
 
 func TestDutyCap(t *testing.T) {
-	t.Run("the duty document ships with the smallest cap of the eight", func(t *testing.T) {
+	t.Run("the duty document ships with the smallest cap of the six", func(t *testing.T) {
 		api, _, _, _ := newAPITestServer(t)
 
 		apiWantValue(t, "document caps", any(asDocCaps(api)), any(asShippedDocCaps()))
@@ -546,33 +544,13 @@ func TestInsightCap(t *testing.T) {
 	})
 }
 
-func TestLearningCap(t *testing.T) {
-	t.Run("patching the learning cap moves that cap alone and takes effect on the next read", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
-
-		asPatchSettings(t, h, owner, `{"doc_cap_chars_learning":20001}`)
-
-		apiWantValue(t, "document caps", any(asDocCaps(api)), any(asDocCapMoved("learning", 20001)))
-	})
-}
-
 func TestManualSopCap(t *testing.T) {
-	t.Run("patching the manual SOP cap moves that cap alone, leaving the manual's other half where it was", func(t *testing.T) {
+	t.Run("patching the manual SOP cap moves that cap alone and takes effect on the next read", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 
 		asPatchSettings(t, h, owner, `{"doc_cap_chars_manual_sop":20002}`)
 
 		apiWantValue(t, "document caps", any(asDocCaps(api)), any(asDocCapMoved("manual_sop", 20002)))
-	})
-}
-
-func TestManualLearningsCap(t *testing.T) {
-	t.Run("patching the manual learnings cap moves that cap alone, leaving the manual's SOP where it was", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
-
-		asPatchSettings(t, h, owner, `{"doc_cap_chars_manual_learnings":20003}`)
-
-		apiWantValue(t, "document caps", any(asDocCaps(api)), any(asDocCapMoved("manual_learnings", 20003)))
 	})
 }
 
