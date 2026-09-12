@@ -2127,28 +2127,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/outsource-workers/{id}/accelerated-stop": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * 加速停止 an outsource worker: put its ALREADY-OPEN wind-down (a 停止 or a 換手) on the stop.accelerated_grace_secs clock and tell it. 409 if none is open. Answers with a bounded receipt (``id``), not the roster row — call ``list_outsource_workers`` when you need the rest.
-         * @description - Puts a wind-down the worker is already inside on a clock and tells it, timed from this press.
-         *     - Covers both arms: a stop in progress and a hand-over.
-         *     - 409 when the worker is offline, released, force-stopped, or has no wind-down open — there is nothing to escalate.
-         */
-        post: operations["handle_accelerated_stop_outsource_worker_api_outsource_workers__id__accelerated_stop_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/outsource-workers/{id}/boot-context": {
         parameters: {
             query?: never;
@@ -2163,148 +2141,6 @@ export interface paths {
         get: operations["handle_get_worker_boot_context_api_outsource_workers__id__boot_context_get"];
         put?: never;
         post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/outsource-workers/{id}/force-stop": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * 強制停止 an outsource worker: kill the session NOW and hold it down; says nothing to it. Third rung of 停止 -> 加速停止 -> 強制停止. Answers with a bounded receipt (``id``), not the roster row — call ``list_outsource_workers`` when you need the rest.
-         * @description - The third rung of stop -> accelerated stop -> force stop.
-         *     - Kills the worker's session immediately, with no wind-down and no message sent to the worker.
-         *     - No online gate: a worker whose session is already gone still gets its intent and record written.
-         *     - Idempotent. 404 if the id is unknown or already released.
-         *     - Admin agent only; a plain agent is a flat 403.
-         */
-        post: operations["handle_force_stop_outsource_worker_api_outsource_workers__id__force_stop_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/outsource-workers/{id}/model": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Change (換 model) an outsource worker's model/effort (same floor as the staff model edit). On a worker whose stop is IN FLIGHT OR HAS LANDED it ALSO queues the restart (restart_after_stop), so the worker comes back up ON THE NEW MODEL once the stop converges — an edit is no longer only a save. A worker nobody ever asked to stop is still only persisted. Answers with a bounded receipt (``id``), not the roster row — call ``list_outsource_workers`` when you need the rest.
-         * @description - Sets the worker's model (blank = launcher default) and effort.
-         *     - On a live worker it hands over so the values take effect next session; otherwise it only persists until the next spawn.
-         *     - If a stop is in flight or landed it also queues the restart, so the worker returns on the new model.
-         *     - A worker nobody asked to stop is only persisted — an edit never boots it.
-         *     - 404 unknown or released.
-         */
-        post: operations["handle_set_outsource_worker_model_api_outsource_workers__id__model_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/outsource-workers/{id}/refocus": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Refocus (換手) an outsource worker's context; on a STOPPED worker it queues the 起來 instead of refusing (owner/admin agent). Answers with a bounded receipt (``id``), not the roster row — call ``list_outsource_workers`` when you need the rest.
-         * @description - Kills the current session and respawns it, so a fresh worker resumes the same task from its plan and step notes.
-         *     - On a worker whose stop is in flight or already landed it answers 200 and queues the start instead.
-         *     - A worker nobody has asked to stop, or with no live session, is a 409; 404 unknown or released.
-         *     - Admin agent only.
-         */
-        post: operations["handle_refocus_outsource_worker_api_outsource_workers__id__refocus_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/outsource-workers/{id}/relocate": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Relocate an outsource worker to a machine (admin-gated). Answers with a bounded receipt (``id``, ``relocation_pending``, ``relocation_deferred``), not the roster row — call ``list_outsource_workers`` when you need the rest.
-         * @description - Graceful: a live worker runs on the OLD machine until it reports stopped, then re-spawns on the new.
-         *     - No deadline. An offline worker is killed and re-spawned at once.
-         *     - Otherwise a placement change, not a lifecycle change.
-         *     - Exception: on a worker whose stop is in flight or landed, it also QUEUES the restart and brings it back up.
-         *     - A worker nobody asked to stop is only re-pinned; admin-gated.
-         */
-        post: operations["handle_relocate_outsource_worker_api_outsource_workers__id__relocate_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/outsource-workers/{id}/restart": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Restart (重啟) an outsource worker (owner/admin agent; a worker that is still running is LEFT ALONE, not restarted and not refused). Answers with a bounded receipt (``id``, ``activation_pending``, ``last_op_reason``), not the worker — call ``list_outsource_workers`` when you need the rest.
-         * @description - If the session is still running the worker is left alone: nothing killed, nothing dispatched, work in flight untouched; `last_op_reason` says session_alive.
-         *     - If it is not running, a fresh worker starts on the pinned machine.
-         *     - To end a wedged session it is two presses: force-stop, then this.
-         *     - Owner or admin agent only, else 403; 404 for an unknown or released worker.
-         */
-        post: operations["handle_restart_outsource_worker_api_outsource_workers__id__restart_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/outsource-workers/{id}/stop": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Stop (停止) an outsource worker: ask it to work its 〈停止〉 document and wait for its own report_stopped -- no kill, no deadline (owner/admin agent). Answers with a bounded receipt (``id``), not the roster row — call ``list_outsource_workers`` when you need the rest.
-         * @description - Graceful: the worker is told to work its stop document; the call returns. No kill, no deadline.
-         *     - Done only when the worker reports stopped; escalate with accelerated-stop, then force-stop.
-         *     - Held down: no scheduler path revives it. The bound task keeps its status.
-         *     - An OFFLINE worker is killed at once instead. Idempotent; 404 unknown or released.
-         *     - Owner or admin agent only. Returns only `id`.
-         */
-        post: operations["handle_stop_outsource_worker_api_outsource_workers__id__stop_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3905,11 +3741,7 @@ export interface components {
         };
         /**
          * AgentLifecycleReceiptDTO
-         * @description Bounded receipt for the TWELVE agent-lifecycle writes whose entire answer was a re-read of the row they had just written (T-91, owner 2026-09-06). Seven staff routes — ``POST /api/members`` (hire_member), ``PATCH`` (update_member), ``DELETE`` (dismiss_member), ``/deactivate``, ``/refocus``, ``/force-stop``, ``/accelerated-stop`` — answered the whole MemberDTO, 33 fields flattened; five worker routes — ``/stop``, ``/model``, ``/refocus``, ``/force-stop``, ``/accelerated-stop`` — answered the whole OutsourceWorkerDTO, 42 fields. All twelve are agent-callable MCP tools, so those answers land in a model's context.
-         *
-         *     WHY ID ALONE IS THE WHOLE OF THE NEWS HERE, stated as a property someone can re-check rather than a claim to be taken on trust: not one of these twelve handlers ever wrote a field onto its RESPONSE that it had not also persisted, so every value they answered with was already readable afterwards. Among the fifteen routes in this reshape exactly three did compute something response-only — the activate and the two relocates — and those three have receipts of their own for that reason. The check is whether a handler decorates the object it is about to write or only projects stored state. (An earlier draft of this paragraph made that claim two ways that were both wrong: it named two shared helper functions that this same change DELETES, and it called five line numbers the whole server's supply of response-only writes when they were only this pair of files'. Line numbers do not survive their own commit, which is why none are cited here.) So nothing on this wire was unrecoverable: ``get_member`` and ``list_outsource_workers`` serve all of it, at the moment the caller actually wants it rather than at the moment it wrote.
-         *
-         *     THE COCKPIT LOSES NOTHING, checked call site by call site rather than inferred from the adapter: all twelve are awaited for their completion and their value discarded (frontend/src/components/OfficePage.tsx, MemberDetailPanel.tsx, MonitorPage.tsx). Two adapters did parse the answer on the way past — ``patchMember`` returned ``toMember(wire)`` and the five worker verbs returned ``toOutsourceWorker(wire)`` — and no caller read what they returned; those adapters answer ``void`` in the same change, which is what every one of their callers already treated them as.
+         * @description Bounded receipt for a shared member lifecycle write. The same member endpoint accepts staff and outsource ids, and the stored row remains available from the corresponding read projection.
          */
         AgentLifecycleReceiptDTO: {
             /**
@@ -3920,11 +3752,7 @@ export interface components {
         };
         /**
          * AgentRelocateReceiptDTO
-         * @description Bounded receipt shared by BOTH relocate routes — ``POST /api/members/{member_id}/relocate`` (relocate_member) and ``POST /api/outsource-workers/{id}/relocate`` (T-91, owner 2026-09-06). They answered the whole MemberDTO (33 fields) and the whole OutsourceWorkerDTO (42 fields) respectively.
-         *
-         *     ONE RECEIPT FOR THE TWO IS WHAT MAKES THIS PAGE TRUE, not a tidy-up. The member route accepts an ow- id as well — the verb is "move one agent" — and delegates it to relocateWorkerByID (api_members.go:1181-1185), which writes the WORKER projection. So that route could already answer an OutsourceWorkerDTO while this document said MemberDTO. The two answers are now the same three fields whichever kind of agent was named, and the disagreement is gone rather than documented.
-         *
-         *     NEITHER FLAG IS RECOVERABLE, which is why this is not an id-only receipt: both are computed at dispatch time and written onto the RESPONSE ONLY, in the member arm and the worker arm alike — the reconcile decision that produced them is stored nowhere, so a later read has nothing to serve. The cockpit reads both on the member arm (frontend/src/api/http.ts relocateMember) and discards the worker arm's answer entirely. Everything else the two DTOs carried is the stored row, which ``get_member`` and ``list_outsource_workers`` serve.
+         * @description Bounded receipt for POST /api/members/{member_id}/relocate. The endpoint accepts staff and outsource ids; relocation_pending and relocation_deferred are dispatch-time signals that cannot be recovered from a later read.
          */
         AgentRelocateReceiptDTO: {
             /**
@@ -5828,11 +5656,7 @@ export interface components {
         };
         /**
          * MemberActivateReceiptDTO
-         * @description Bounded receipt for ``POST /api/members/{member_id}/activate`` (activate_member) (T-91, owner 2026-09-06). It answered the whole MemberDTO, 33 fields flattened, and it is agent-callable, so that answer lands in a model's context.
-         *
-         *     THIS ONE CANNOT COLLAPSE TO AN ID, and for the same reason its worker twin cannot (OutsourceRestartReceiptDTO): ``activation_pending`` is computed at dispatch time and written onto the RESPONSE ONLY — the reconcile decision behind it is stored nowhere, so a later read has nothing to serve. It is one of the three flags that no READ structure declares at all: ``MemberDTO`` does not carry it, so it is not a field that reads back null — the read face does not have the field. A caller that drops it cannot ask again; there is no row to ask. The cockpit already depends on exactly this: frontend/src/api/http.ts activateMember returns ``{activationPending: wire.activation_pending === true}`` and the 喚醒中… button stays put on true.
-         *
-         *     ``last_op_reason`` rides beside it for the reason the handler gives in its own words where it stamps the row — the flag is one bit and at least four different states reach it, so the handler stamps WHICH one on the row before answering. Unlike the flag this one IS recoverable from ``get_member``; it is kept because a caller holding a pending bit with no cause has to make a second call to act on the first, which is the round trip this whole reshape exists to remove. Everything else the DTO carried is the member's stored row, which ``get_member`` serves.
+         * @description Bounded receipt for POST /api/members/{member_id}/activate. The endpoint accepts staff and outsource ids; activation_pending is a dispatch-time signal, while last_op_reason explains the stored or delivered result.
          */
         MemberActivateReceiptDTO: {
             /**
@@ -6079,7 +5903,7 @@ export interface components {
         };
         /**
          * MemberRelocateDTO
-         * @description Relocate a member to a machine (POST /api/members/{member_id}/relocate) — the owner cockpit's 改機器 for a roster member, the member twin of OutsourceWorkerRelocateDTO. Writes the member's owner-pinned desired_machine_id, then runs the SAME event-driven reconcile the activate click uses (reconcileMemberNow): a LIVE member is auto-migrated onto the chosen machine (robust STOP the old session → next tick re-spawns on the pin), an offline member just re-pins so the next wake lands there. PLACEMENT ONLY — unlike activate it NEVER touches desired_state (a relocate is not a wake). machine_id is REQUIRED (owner 2026-07-27) and is the STABLE machine id (the warden member's own id): a relocate NAMES its destination and no longer doubles as an unpin. An absent key is a 422; an explicit null or "" is a 400. The value must resolve to a real machine.
+         * @description Relocate a member to a concrete machine through POST /api/members/{member_id}/relocate. The endpoint accepts staff and outsource ids, updates the machine pin, and never changes desired_state. machine_id is required and must resolve to a real machine.
          */
         MemberRelocateDTO: {
             /** Machine Id */
@@ -6485,29 +6309,6 @@ export interface components {
             reason: string;
         };
         /**
-         * OutsourceRestartReceiptDTO
-         * @description Bounded receipt for ``POST /api/outsource-workers/{id}/restart`` (restart_outsource_worker) (T-91). It answered with the whole OutsourceWorkerDTO, 41 fields flattened; measured over 24 hours of real agent sessions, 9 calls and 10,000 characters. It is agent-called, so that answer lands in a model's context.
-         *
-         *     THIS ONE CANNOT COLLAPSE TO IDS ALONE, and the reason is pinned by a test rather than inferred: worker_pending_signals_ted79_test.go:107-118 requires the restart answer to carry BOTH ``activation_pending`` and a non-empty ``last_op_reason``, and states why in its own failure message - a restart aimed at a machine that cannot take the worker used to answer a clean 200 with zero signal, and "one bit cannot answer why". ``activation_pending`` is additionally one of the three flags that no READ structure declares at all: ``OutsourceWorkerDTO`` does not carry it, so it is not a field that reads back null - the read face does not have the field. No follow-up query can recover it. Everything else the DTO carried is the worker's stored row, which ``list_outsource_workers`` serves.
-         */
-        OutsourceRestartReceiptDTO: {
-            /**
-             * Activation Pending
-             * @description True when the restart was DECIDED but could not be delivered - no live SSE downstream to the target warden. The intent is stored and the reconcile cadence will retry, but nothing has been dispatched yet. Absent when the restart actually landed. It is here or nowhere: this flag is set only on responses of this kind, and no read structure declares it at all - there is no worker read that carries the field, null or otherwise - so a caller that drops it cannot ask again.
-             */
-            activation_pending?: boolean;
-            /**
-             * Id
-             * @description The worker this restart was aimed at - the caller's own path parameter, kept because a receipt that cannot say which worker it acted on is unreadable next to a log of several.
-             */
-            id: string;
-            /**
-             * Last Op Reason
-             * @description WHICH cause, as a structured ``<code>: <detail>`` line. It rides beside ``activation_pending`` because the flag is one bit and at least four different states reach it - the test that pins this pair says so in its own words. Empty when there is no refusal to report.
-             */
-            last_op_reason?: string;
-        };
-        /**
          * OutsourceWorkerDTO
          * @description One outsource worker row of the panel (SPEC §4.1): the anonymous codename (model prefix + sequence), runtime/model/effort, lifecycle status (assigned → active → released), and its ONE bound task's id / title / status.
          */
@@ -6731,35 +6532,6 @@ export interface components {
              * @default
              */
             terminal_attach_command: string;
-        };
-        /**
-         * OutsourceWorkerModelDTO
-         * @description Change an outsource worker's runtime/model/effort (POST /api/outsource-workers/{id}/model, T-f190). runtime is optional (null/absent ⇒ keep current); model is the launch model (blank ⇒ the selected runtime's default); effort is optional (null/absent ⇒ keep current). The worker twin of the member runtime/model/effort edit.
-         */
-        OutsourceWorkerModelDTO: {
-            /**
-             * Effort
-             * @description Optional effort quick-pick; null/absent keeps the current effort.
-             */
-            effort?: string | null;
-            /**
-             * Model
-             * @default
-             */
-            model: string;
-            /**
-             * Runtime Key
-             * @description Optional runtime replacement; null/absent keeps the current runtime.
-             */
-            runtime?: components["schemas"]["AgentRuntime"] | null;
-        };
-        /**
-         * OutsourceWorkerRelocateDTO
-         * @description Relocate an outsource worker to a machine (POST /api/outsource-workers/{id}/relocate, T-f190) — the owner cockpit's 改機器 operation, the worker twin of MemberActivateDTO's machine bind. Writes the worker's desired_machine_id pin, kills the current session, and clears pacing so the next scheduler tick re-spawns on the chosen machine (no lifecycle change). machine_id is REQUIRED (owner 2026-07-27) and is the STABLE machine id (the warden member's own id): a relocate NAMES its destination and no longer clears the pin. An absent key is a 422; an explicit null or "" is a 400. The value must resolve to a real machine.
-         */
-        OutsourceWorkerRelocateDTO: {
-            /** Machine Id */
-            machine_id: string;
         };
         /**
          * ProbeVersionDTO
@@ -15320,55 +15092,6 @@ export interface operations {
             };
         };
     };
-    handle_accelerated_stop_outsource_worker_api_outsource_workers__id__accelerated_stop_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AgentLifecycleReceiptDTO"];
-                };
-            };
-            /** @description Validation error (unified error envelope). */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
-                };
-            };
-            /** @description Client error (unified error envelope). */
-            "4XX": {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
-                };
-            };
-            /** @description Server error (unified error envelope). */
-            "5XX": {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
-                };
-            };
-        };
-    };
     handle_get_worker_boot_context_api_outsource_workers__id__boot_context_get: {
         parameters: {
             query?: never;
@@ -15387,308 +15110,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WorkerBootContextDTO"];
-                };
-            };
-            /** @description Validation error (unified error envelope). */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
-                };
-            };
-            /** @description Client error (unified error envelope). */
-            "4XX": {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
-                };
-            };
-            /** @description Server error (unified error envelope). */
-            "5XX": {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
-                };
-            };
-        };
-    };
-    handle_force_stop_outsource_worker_api_outsource_workers__id__force_stop_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AgentLifecycleReceiptDTO"];
-                };
-            };
-            /** @description Validation error (unified error envelope). */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
-                };
-            };
-            /** @description Client error (unified error envelope). */
-            "4XX": {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
-                };
-            };
-            /** @description Server error (unified error envelope). */
-            "5XX": {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
-                };
-            };
-        };
-    };
-    handle_set_outsource_worker_model_api_outsource_workers__id__model_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["OutsourceWorkerModelDTO"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AgentLifecycleReceiptDTO"];
-                };
-            };
-            /** @description Validation error (unified error envelope). */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
-                };
-            };
-            /** @description Client error (unified error envelope). */
-            "4XX": {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
-                };
-            };
-            /** @description Server error (unified error envelope). */
-            "5XX": {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
-                };
-            };
-        };
-    };
-    handle_refocus_outsource_worker_api_outsource_workers__id__refocus_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AgentLifecycleReceiptDTO"];
-                };
-            };
-            /** @description Validation error (unified error envelope). */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
-                };
-            };
-            /** @description Client error (unified error envelope). */
-            "4XX": {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
-                };
-            };
-            /** @description Server error (unified error envelope). */
-            "5XX": {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
-                };
-            };
-        };
-    };
-    handle_relocate_outsource_worker_api_outsource_workers__id__relocate_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["OutsourceWorkerRelocateDTO"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AgentRelocateReceiptDTO"];
-                };
-            };
-            /** @description Validation error (unified error envelope). */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
-                };
-            };
-            /** @description Client error (unified error envelope). */
-            "4XX": {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
-                };
-            };
-            /** @description Server error (unified error envelope). */
-            "5XX": {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
-                };
-            };
-        };
-    };
-    handle_restart_outsource_worker_api_outsource_workers__id__restart_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["OutsourceRestartReceiptDTO"];
-                };
-            };
-            /** @description Validation error (unified error envelope). */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
-                };
-            };
-            /** @description Client error (unified error envelope). */
-            "4XX": {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
-                };
-            };
-            /** @description Server error (unified error envelope). */
-            "5XX": {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
-                };
-            };
-        };
-    };
-    handle_stop_outsource_worker_api_outsource_workers__id__stop_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AgentLifecycleReceiptDTO"];
                 };
             };
             /** @description Validation error (unified error envelope). */

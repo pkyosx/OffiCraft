@@ -64,12 +64,6 @@ ROUTES = [
     ("/api/members/{member_id}/refocus", "post", "MemberDTO", LIFECYCLE_DTO, "get_member"),
     ("/api/members/{member_id}/force-stop", "post", "MemberDTO", LIFECYCLE_DTO, "get_member"),
     ("/api/members/{member_id}/accelerated-stop", "post", "MemberDTO", LIFECYCLE_DTO, "get_member"),
-    ("/api/outsource-workers/{id}/stop", "post", "OutsourceWorkerDTO", LIFECYCLE_DTO, "list_outsource_workers"),
-    ("/api/outsource-workers/{id}/model", "post", "OutsourceWorkerDTO", LIFECYCLE_DTO, "list_outsource_workers"),
-    ("/api/outsource-workers/{id}/refocus", "post", "OutsourceWorkerDTO", LIFECYCLE_DTO, "list_outsource_workers"),
-    ("/api/outsource-workers/{id}/force-stop", "post", "OutsourceWorkerDTO", LIFECYCLE_DTO, "list_outsource_workers"),
-    ("/api/outsource-workers/{id}/accelerated-stop", "post", "OutsourceWorkerDTO", LIFECYCLE_DTO, "list_outsource_workers"),
-    ("/api/outsource-workers/{id}/relocate", "post", "OutsourceWorkerDTO", RELOCATE_DTO, "list_outsource_workers"),
 ]
 
 FIELDS = {

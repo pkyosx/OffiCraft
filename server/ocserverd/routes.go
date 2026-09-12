@@ -1687,53 +1687,6 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Summary: "Read an outsource worker's boot-context preview (owner/admin agent).",
 			MCPTool: "get_outsource_worker_boot_context",
 		}),
-		Gated(principalAdminAgent, routeDef{
-			// T-f190 改機器; P7c (gate rc-2786636f30e5) drops the floor to
-			// admin_agent — 外包對齊正職, the exact member relocate floor, so an
-			// admin 助理 can move a worker too. STAYS MCPExclude on purpose: the
-			// MCP channel is the EXISTING relocate_member tool (its handler falls
-			// through to the worker table for an ow-… id), so no worker-specific
-			// tool grows here (P7d 合表後此 route 自然消失) and the catalog hash
-			// (non-exclude METHOD+path set) is unchanged.
-			Method:     "POST",
-			Path:       "/api/outsource-workers/{id}/relocate",
-			Handler:    w.HandleRelocateOutsourceWorkerApiOutsourceWorkersIdRelocatePost,
-			Summary:    "Relocate an outsource worker to a machine (admin-gated). Answers with a bounded receipt (``id``, ``relocation_pending``, ``relocation_deferred``), not the roster row — call ``list_outsource_workers`` when you need the rest.",
-			MCPExclude: true,
-		}),
-		Gated(principalAdminAgent, routeDef{
-			// T-32e1/T-f190 worker lifecycle ops — owner mental model "外包只是
-			// 系統會幫我產生跟刪除的正職員工", so each reuses a member mechanism.
-			// T-6020 (owner 2026-07-26) put FOUR of them at the SAME admin_agent
-			// floor relocate already had in P7c — 外包對齊正職, one floor for the
-			// worker lifecycle. Plain agents remain 403 on those.
-			//
-			// ⚠️ "all four" is what this note used to say, and since T-ed79 it is
-			// FALSE: /model left that floor (owner 2026-08-21, rc-376a41719e62 —
-			// the full ruling is on that row below). THREE of the T-6020 four are
-			// still here: refocus, stop, restart. /relocate is the fifth worker
-			// lifecycle row and it sits at admin_agent too, but it got there in
-			// P7c, not from this ruling.
-			Method:  "POST",
-			Path:    "/api/outsource-workers/{id}/refocus",
-			Handler: w.HandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost,
-			Summary: "Refocus (換手) an outsource worker (owner/admin agent). Needs a live session, 409 otherwise — EXCEPT on a worker whose stop is in flight or has landed, where it answers 200 and QUEUES the restart (restart_after_stop); the stop itself is honoured as-is. A worker nobody ever asked to stop is still a 409. Answers with a bounded receipt (``id``), not the roster row — call ``list_outsource_workers`` when you need the rest.",
-			MCPTool: "refocus_outsource_worker",
-		}),
-		Gated(principalAdminAgent, routeDef{
-			Method:  "POST",
-			Path:    "/api/outsource-workers/{id}/stop",
-			Handler: w.HandleStopOutsourceWorkerApiOutsourceWorkersIdStopPost,
-			Summary: "Stop (停止) an outsource worker: ask it to work its 〈停止〉 document and wait for its own report_stopped -- no kill, no deadline (owner/admin agent). Answers with a bounded receipt (``id``), not the roster row — call ``list_outsource_workers`` when you need the rest.",
-			MCPTool: "stop_outsource_worker",
-		}),
-		Gated(principalAdminAgent, routeDef{
-			Method:  "POST",
-			Path:    "/api/outsource-workers/{id}/restart",
-			Handler: w.HandleRestartOutsourceWorkerApiOutsourceWorkersIdRestartPost,
-			Summary: "Restart (重啟) an outsource worker (owner/admin agent; a worker that is still running is LEFT ALONE, not restarted and not refused). Answers with a bounded receipt (``id``, ``activation_pending``, ``last_op_reason``), not the worker — call ``list_outsource_workers`` when you need the rest.",
-			MCPTool: "restart_outsource_worker",
-		}),
 		// ⚠️ set_outsource_worker_model sits at the machine FLOOR since T-ed79,
 		// and it is the ONE T-6020 row that left the admin_agent floor. owner
 		// 2026-08-21 (rc-376a41719e62) was asked whether changing a worker's
@@ -1757,13 +1710,6 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 		// This note exists so the NEXT permission audit does not re-open the
 		// question, the way this one had to re-open T-5336's. Raising this row
 		// needs a fresh owner ruling, not a tidy-up commit.
-		Gated(principalMachine, routeDef{
-			Method:  "POST",
-			Path:    "/api/outsource-workers/{id}/model",
-			Handler: w.HandleSetOutsourceWorkerModelApiOutsourceWorkersIdModelPost,
-			Summary: "Change (換 model) an outsource worker's model/effort (same floor as the staff model edit). On a worker whose stop is IN FLIGHT OR HAS LANDED it ALSO queues the restart (restart_after_stop), so the worker comes back up ON THE NEW MODEL once the stop converges — an edit is no longer only a save. A worker nobody ever asked to stop is still only persisted. Answers with a bounded receipt (``id``), not the roster row — call ``list_outsource_workers`` when you need the rest.",
-			MCPTool: "set_outsource_worker_model",
-		}),
 		// ── Task manuals (M3) — agents create manuals + edit the CONTENT fields
 		// (purpose / fields / SOP); the assignee face and delete are
 		// GOVERNANCE, floor admin_agent since T-6020 (owner 2026-07-26; the
@@ -1984,20 +1930,6 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler: w.HandleAcceleratedStopMemberApiMembersMemberIdAcceleratedStopPost,
 			Summary: "加速停止: put an ALREADY-OPEN wind-down on the stop.accelerated_grace_secs clock and tell the member. 409 if nothing is winding down -- press 停止 first. Middle rung of 停止 -> 加速停止 -> 強制停止. Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.",
 			MCPTool: "accelerated_stop_member",
-		}),
-		Gated(principalAdminAgent, routeDef{
-			Method:  "POST",
-			Path:    "/api/outsource-workers/{id}/accelerated-stop",
-			Handler: w.HandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcceleratedStopPost,
-			Summary: "加速停止 an outsource worker: put its ALREADY-OPEN wind-down (a 停止 or a 換手) on the stop.accelerated_grace_secs clock and tell it. 409 if none is open. Answers with a bounded receipt (``id``), not the roster row — call ``list_outsource_workers`` when you need the rest.",
-			MCPTool: "accelerated_stop_outsource_worker",
-		}),
-		Gated(principalAdminAgent, routeDef{
-			Method:  "POST",
-			Path:    "/api/outsource-workers/{id}/force-stop",
-			Handler: w.HandleForceStopOutsourceWorkerApiOutsourceWorkersIdForceStopPost,
-			Summary: "強制停止 an outsource worker: kill the session NOW and hold it down; says nothing to it. Third rung of 停止 -> 加速停止 -> 強制停止. Answers with a bounded receipt (``id``), not the roster row — call ``list_outsource_workers`` when you need the rest.",
-			MCPTool: "force_stop_outsource_worker",
 		}),
 		// ── 傳承 (T-33) ─────────────────────────────────────────────────────
 		// These rows are appended to preserve the shared route/MCP order. The

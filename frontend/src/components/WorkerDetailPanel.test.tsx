@@ -456,13 +456,13 @@ describe("WorkerDetailPanel — 設定改走喚醒區 (T-7526 parity)", () => {
     expect(queryByTestId("worker-detail-relocate")).toBeNull();
   });
 
-  it("更改 → changing the machine REACHES relocateWorker and the 機器 cell adopts it", async () => {
+  it("更改 → changing the machine reaches relocateMember and the 機器 cell adopts it", async () => {
     __setMockMemberOnline("warden-mbp5", true);
     __injectMockTask(mkTask({ id: "t-1" }));
     __injectMockOutsourceWorker(
       mkWorker({ id: "ow-1", taskId: "t-1", machine: "", desiredMachineId: "" }),
     );
-    const relocate = vi.spyOn(api, "relocateWorker");
+    const relocate = vi.spyOn(api, "relocateMember");
     const { findByTestId } = renderOfficeAt("#office/worker/ow-1");
     await openSettingsDialog(findByTestId);
     const select = (await findByTestId(
@@ -492,9 +492,9 @@ describe("WorkerDetailPanel — 設定改走喚醒區 (T-7526 parity)", () => {
     __injectMockOutsourceWorker(
       mkWorker({ id: "ow-1", taskId: "t-1", model: "Opus 4.6" }),
     );
-    vi.spyOn(api, "setWorkerModel").mockRejectedValue(
+    vi.spyOn(api, "patchMember").mockRejectedValue(
       new ApiError(
-        "http 409 for POST /api/outsource-workers/ow-1/model",
+        "http 409 for PATCH /api/members/ow-1",
         409,
         "conflict",
         "這個外包已經被釋放了",
@@ -523,11 +523,11 @@ describe("WorkerDetailPanel — 設定改走喚醒區 (T-7526 parity)", () => {
     // relocate that goes first spawns on the OLD model and the owner's edit only
     // lands one respawn later.
     const order: string[] = [];
-    vi.spyOn(api, "setWorkerModel").mockImplementation(async (id) => {
+    vi.spyOn(api, "patchMember").mockImplementation(async (id) => {
       order.push("model");
       return (await api.getOutsourceWorker(id)) as never;
     });
-    vi.spyOn(api, "relocateWorker").mockImplementation(async (id) => {
+    vi.spyOn(api, "relocateMember").mockImplementation(async (id) => {
       order.push("relocate");
       return (await api.getOutsourceWorker(id)) as never;
     });
@@ -838,7 +838,7 @@ describe("WorkerDetailPanel — lifecycle ops (T-32e1/T-f190)", () => {
     __injectMockOutsourceWorker(
       mkWorker({ id: "ow-1", taskId: "t-1", presence: "online" }),
     );
-    const force = vi.spyOn(api, "forceStopWorker");
+    const force = vi.spyOn(api, "forceStopMember");
     const { findByTestId } = renderOfficeAt("#office/worker/ow-1");
     // Rung 1 → rung 2. `waitFor` on the ENABLED state is not incidental: a cell
     // that has just UPGRADED spends LADDER_ARM_MS inert so a repeat click on the
@@ -892,7 +892,7 @@ describe("WorkerDetailPanel — lifecycle ops (T-32e1/T-f190)", () => {
         desiredState: "offline",
       }),
     );
-    const restart = vi.spyOn(api, "restartWorker");
+    const restart = vi.spyOn(api, "activateMember");
     const { findByTestId } = renderOfficeAt("#office/worker/ow-1");
     // Nothing is open before the click — otherwise "the dialog is open after"
     // would be true no matter what the button does.
@@ -989,19 +989,21 @@ describe("WorkerDetailPanel — lifecycle ops (T-32e1/T-f190)", () => {
     );
     const order: string[] = [];
     const setModel = vi
-      .spyOn(api, "setWorkerModel")
+      .spyOn(api, "patchMember")
       .mockImplementation(async () => {
         order.push("model");
       });
     const relocate = vi
-      .spyOn(api, "relocateWorker")
+      .spyOn(api, "relocateMember")
       .mockImplementation(async () => {
         order.push("relocate");
+        return { relocationPending: false, relocationDeferred: false };
       });
     const restart = vi
-      .spyOn(api, "restartWorker")
+      .spyOn(api, "activateMember")
       .mockImplementation(async () => {
         order.push("wake");
+        return { activationPending: false };
       });
 
     const { findByTestId } = renderOfficeAt("#office/worker/ow-1");
@@ -1050,8 +1052,8 @@ describe("WorkerDetailPanel — lifecycle ops (T-32e1/T-f190)", () => {
         desiredMachineId: "m-asleep",
       }),
     );
-    const relocate = vi.spyOn(api, "relocateWorker");
-    const restart = vi.spyOn(api, "restartWorker");
+    const relocate = vi.spyOn(api, "relocateMember");
+    const restart = vi.spyOn(api, "activateMember");
     const { findByTestId } = renderOfficeAt("#office/worker/ow-1");
     fireEvent.click(await findByTestId("worker-detail-wake"));
     // The sleeping pin is still the selected value (and offered, disabled) —
@@ -1093,7 +1095,7 @@ describe("WorkerDetailPanel — lifecycle ops (T-32e1/T-f190)", () => {
     __injectMockOutsourceWorker(
       mkWorker({ id: "ow-1", taskId: "t-1", model: "Opus 4.6", presence: "online" }),
     );
-    const setModel = vi.spyOn(api, "setWorkerModel");
+    const setModel = vi.spyOn(api, "patchMember");
     const { findByTestId } = renderOfficeAt("#office/worker/ow-1");
     // The ONE settings entry (T-7526) — the model cell itself is read-only.
     await openSettingsDialog(findByTestId);
@@ -1482,7 +1484,7 @@ describe("WorkerDetailPanel — reported state vs configured launch intent (T-e1
 
   it("writes nothing when the dialog is confirmed unchanged, so no telemetry value can reach the save", async () => {
     liveWorkerReporting();
-    const setModel = vi.spyOn(api, "setWorkerModel");
+    const setModel = vi.spyOn(api, "patchMember");
 
     const { findByTestId } = renderOfficeAt("#office/worker/ow-1");
     await openSettingsDialog(findByTestId);

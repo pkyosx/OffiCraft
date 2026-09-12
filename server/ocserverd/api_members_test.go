@@ -1699,6 +1699,38 @@ func TestHandleUpdateMemberApiMembersMemberIdPatch(t *testing.T) {
 		}
 	})
 
+	t.Run("an outsource worker's launch settings are updated through the shared member verb", func(t *testing.T) {
+		_, h, d, owner := newAPITestServer(t)
+		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusAssigned)
+
+		status, data := apiJSON(t, h, "PATCH", "/api/members/ow-abc123", owner,
+			`{"runtime":"codex","model":"gpt-5.6-sol","effort":"high"}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{"id": "ow-abc123"})
+		worker, err := d.GetOutsourceWorker("ow-abc123")
+		if err != nil {
+			t.Fatalf("GetOutsourceWorker: %v", err)
+		}
+		if worker.Runtime != "codex" || worker.Model != "gpt-5.6-sol" || worker.Effort != "high" {
+			t.Fatalf("worker launch settings were not updated: %+v", worker)
+		}
+	})
+
+	t.Run("an outsource worker's task-bound codename cannot be renamed through the shared member verb", func(t *testing.T) {
+		_, h, d, owner := newAPITestServer(t)
+		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusAssigned)
+
+		status, data := apiJSON(t, h, "PATCH", "/api/members/ow-abc123", owner,
+			`{"name":"Renamed"}`)
+		if status != 422 {
+			t.Fatalf("want 422, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error",
+			"an outsource worker's codename is task-bound and cannot be renamed")
+	})
+
 	t.Run("a request without a token answers 401", func(t *testing.T) {
 		_, h, _, _ := newAPITestServer(t)
 
@@ -1762,6 +1794,27 @@ func TestHandleActivateMemberApiMembersMemberIdActivatePost(t *testing.T) {
 		}
 		apiWantError(t, data, "not_found", "machine 'nope' not found")
 		dashboard.wantFrames()
+	})
+
+	t.Run("an outsource worker is activated and pinned through the shared member verb", func(t *testing.T) {
+		_, h, d, owner := newAPITestServer(t)
+		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusAssigned)
+
+		status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/activate", owner,
+			`{"machine_id":"m-server-self"}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		if data["id"] != "ow-abc123" {
+			t.Fatalf("want worker id receipt, got %v", data)
+		}
+		worker, err := d.GetOutsourceWorker("ow-abc123")
+		if err != nil {
+			t.Fatalf("GetOutsourceWorker: %v", err)
+		}
+		if worker.DesiredState != DesiredStateOnline || worker.DesiredMachineID != ServerSelfHost {
+			t.Fatalf("worker was not activated on the requested machine: %+v", worker)
+		}
 	})
 
 	t.Run("an authenticated agent identity answers 403 because this row requires admin_agent", func(t *testing.T) {
@@ -2227,6 +2280,24 @@ func TestHandleDeactivateMemberApiMembersMemberIdDeactivatePost(t *testing.T) {
 		dashboard.wantFrames()
 	})
 
+	t.Run("an outsource worker is stopped through the shared member verb", func(t *testing.T) {
+		_, h, d, owner := newAPITestServer(t)
+		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
+
+		status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/deactivate", owner, `{}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{"id": "ow-abc123"})
+		worker, err := d.GetOutsourceWorker("ow-abc123")
+		if err != nil {
+			t.Fatalf("GetOutsourceWorker: %v", err)
+		}
+		if worker.DesiredState != DesiredStateOffline {
+			t.Fatalf("want desired_state offline, got %q", worker.DesiredState)
+		}
+	})
+
 	t.Run("a request without a token answers 401", func(t *testing.T) {
 		_, h, _, _ := newAPITestServer(t)
 
@@ -2329,7 +2400,7 @@ func TestHandleForceStopMemberApiMembersMemberIdForceStopPost(t *testing.T) {
 		dashboard.wantFrames()
 	})
 
-	t.Run("an outsource id answers 404 because this row is the staff verb", func(t *testing.T) {
+	t.Run("an outsource id is force-stopped through the shared member verb", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		if err := d.PutOutsourceWorker(OutsourceWorker{
 			ID: "ow-abc123", Codename: "Contractor", Status: WorkerStatusActive,
@@ -2339,11 +2410,18 @@ func TestHandleForceStopMemberApiMembersMemberIdForceStopPost(t *testing.T) {
 		dashboard := apiTestListen(t, api, "")
 
 		status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/force-stop", owner, `{}`)
-		if status != 404 {
-			t.Fatalf("want 404, got %d (%v)", status, data)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
-		apiWantError(t, data, "not_found", "member 'ow-abc123' not found")
-		dashboard.wantFrames()
+		apiWantBody(t, data, map[string]any{"id": "ow-abc123"})
+		worker, err := d.GetOutsourceWorker("ow-abc123")
+		if err != nil {
+			t.Fatalf("GetOutsourceWorker: %v", err)
+		}
+		if worker.DesiredState != DesiredStateOffline || worker.ForcedStopAt <= 0 {
+			t.Fatalf("worker was not force-stopped: %+v", worker)
+		}
+		dashboard.wantFrames(apiTestWorkerDelta(1, WorkerStatusActive, "owner"))
 	})
 
 	t.Run("an authenticated agent identity answers 403 because this row requires admin_agent", func(t *testing.T) {
@@ -2493,6 +2571,28 @@ func TestHandleAcceleratedStopMemberApiMembersMemberIdAcceleratedStopPost(t *tes
 		dashboard.wantFrames()
 	})
 
+	t.Run("an outsource worker is accelerated through the shared member verb", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
+		apiTestListen(t, api, "ow-abc123")
+		if status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/deactivate", owner, `{}`); status != 200 {
+			t.Fatalf("deactivate: %d %v", status, data)
+		}
+
+		status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/accelerated-stop", owner, `{}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{"id": "ow-abc123"})
+		worker, err := d.GetOutsourceWorker("ow-abc123")
+		if err != nil {
+			t.Fatalf("GetOutsourceWorker: %v", err)
+		}
+		if worker.RefocusOp != refocusOpAcceleratedStop {
+			t.Fatalf("want refocus_op %q, got %q", refocusOpAcceleratedStop, worker.RefocusOp)
+		}
+	})
+
 	t.Run("an authenticated agent identity answers 403 because this row requires admin_agent", func(t *testing.T) {
 		api, h, _, _ := newAPITestServer(t)
 		agent := apiTestAgentToken(t, api, "kip", "")
@@ -2518,6 +2618,33 @@ func TestHandleAcceleratedStopMemberApiMembersMemberIdAcceleratedStopPost(t *tes
 }
 
 func TestHandleRefocusMemberApiMembersMemberIdRefocusPost(t *testing.T) {
+	t.Run("an outsource worker is refocused through the shared member verb", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
+		worker, err := d.GetOutsourceWorker("ow-abc123")
+		if err != nil {
+			t.Fatalf("GetOutsourceWorker: %v", err)
+		}
+		worker.DesiredState = DesiredStateOnline
+		if err := d.PutOutsourceWorker(*worker); err != nil {
+			t.Fatalf("PutOutsourceWorker: %v", err)
+		}
+		apiTestListen(t, api, "ow-abc123")
+
+		status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/refocus", owner, `{}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{"id": "ow-abc123"})
+		worker, err = d.GetOutsourceWorker("ow-abc123")
+		if err != nil {
+			t.Fatalf("GetOutsourceWorker: %v", err)
+		}
+		if worker.RefocusOp != refocusOpRefocus || worker.RefocusSince <= 0 {
+			t.Fatalf("want a refocus epoch, got op=%q since=%v", worker.RefocusOp, worker.RefocusSince)
+		}
+	})
+
 	t.Run("a live member that is wanted online gets the refocus epoch and the wind-down notice", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		if status, data := apiJSON(t, h, "POST", "/api/members/kip/activate", owner, `{}`); status != 200 {

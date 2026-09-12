@@ -988,41 +988,6 @@
   },
   {
     "auth": "gated",
-    "mcp_tool": null,
-    "method": "POST",
-    "path": "/api/outsource-workers/{id}/relocate",
-    "requires": "admin_agent"
-  },
-  {
-    "auth": "gated",
-    "mcp_tool": "refocus_outsource_worker",
-    "method": "POST",
-    "path": "/api/outsource-workers/{id}/refocus",
-    "requires": "admin_agent"
-  },
-  {
-    "auth": "gated",
-    "mcp_tool": "stop_outsource_worker",
-    "method": "POST",
-    "path": "/api/outsource-workers/{id}/stop",
-    "requires": "admin_agent"
-  },
-  {
-    "auth": "gated",
-    "mcp_tool": "restart_outsource_worker",
-    "method": "POST",
-    "path": "/api/outsource-workers/{id}/restart",
-    "requires": "admin_agent"
-  },
-  {
-    "auth": "gated",
-    "mcp_tool": "set_outsource_worker_model",
-    "method": "POST",
-    "path": "/api/outsource-workers/{id}/model",
-    "requires": "machine"
-  },
-  {
-    "auth": "gated",
     "mcp_tool": "list_task_manuals",
     "method": "GET",
     "path": "/api/task-manuals",
@@ -1229,20 +1194,6 @@
     "mcp_tool": "accelerated_stop_member",
     "method": "POST",
     "path": "/api/members/{member_id}/accelerated-stop",
-    "requires": "admin_agent"
-  },
-  {
-    "auth": "gated",
-    "mcp_tool": "accelerated_stop_outsource_worker",
-    "method": "POST",
-    "path": "/api/outsource-workers/{id}/accelerated-stop",
-    "requires": "admin_agent"
-  },
-  {
-    "auth": "gated",
-    "mcp_tool": "force_stop_outsource_worker",
-    "method": "POST",
-    "path": "/api/outsource-workers/{id}/force-stop",
     "requires": "admin_agent"
   },
   {

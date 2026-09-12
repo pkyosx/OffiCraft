@@ -1746,65 +1746,6 @@ MATRIX: dict[str, Route] = {
         path=lambda _ctx, _i: "/api/outsource-workers/ow-nope/boot-context",
         overrides={"owner": 404, "admin_agent": 404},
     ),
-    "POST /api/outsource-workers/{id}/relocate": Route(
-        # T-f190 改機器; P7c drops the floor to admin_agent (外包對齊正職 — the
-        # exact member relocate floor). Below-admin faces are a flat 403 (the
-        # gate's teeth); the admin/owner faces are an honest 404 (no black-box
-        # worker row). The session's REAL machine is pinned so that 404 is the
-        # worker's — any non-blank machine_id now resolves too, and a bogus one
-        # would 404 for the wrong reason.
-        requires="admin_agent",
-        path=lambda _ctx, _i: "/api/outsource-workers/ow-nope/relocate",
-        body=lambda ctx, _i: {"machine_id": ctx.machine_id},
-        overrides={"admin_agent": 404, "owner": 404},
-    ),
-    # T-32e1/T-f190 worker lifecycle ops — ALL at the admin floor since T-6020
-    # (owner ruling 2026-07-26: 外包對齊正職, the same floor relocate has had
-    # since P7c). Below-floor faces are a flat 403 (the gate's teeth); the
-    # positive faces get an honest 404 against the unknown ow-nope row (no
-    # black-box worker exists).
-    "POST /api/outsource-workers/{id}/refocus": Route(
-        requires="admin_agent",
-        path=lambda _ctx, _i: "/api/outsource-workers/ow-nope/refocus",
-        overrides={"owner": 404, "admin_agent": 404},
-    ),
-    "POST /api/outsource-workers/{id}/accelerated-stop": Route(
-        requires="admin_agent",
-        path=lambda _ctx, _i: "/api/outsource-workers/ow-nope/accelerated-stop",
-        overrides={"owner": 404, "admin_agent": 404},
-    ),
-    "POST /api/outsource-workers/{id}/force-stop": Route(
-        requires="admin_agent",
-        path=lambda _ctx, _i: "/api/outsource-workers/ow-nope/force-stop",
-        overrides={"owner": 404, "admin_agent": 404},
-    ),
-    "POST /api/outsource-workers/{id}/stop": Route(
-        requires="admin_agent",
-        path=lambda _ctx, _i: "/api/outsource-workers/ow-nope/stop",
-        overrides={"owner": 404, "admin_agent": 404},
-    ),
-    "POST /api/outsource-workers/{id}/restart": Route(
-        requires="admin_agent",
-        path=lambda _ctx, _i: "/api/outsource-workers/ow-nope/restart",
-        overrides={"owner": 404, "admin_agent": 404},
-    ),
-    # T-ed79, owner 2026-08-21 (rc-376a41719e62): 「如果原本正職可以改 model 外包就
-    # 應該可以改」— the machine floor of the STAFF face (PATCH /api/members/{id}),
-    # not the admin floor the other four worker lifecycle rows still carry.
-    "POST /api/outsource-workers/{id}/model": Route(
-        requires="machine",
-        path=lambda _ctx, _i: "/api/outsource-workers/ow-nope/model",
-        body=lambda _ctx, _i: {"model": "claude-opus-4-8"},
-        # Every identity now clears the floor, so every identity reaches the
-        # route's own semantics — a 404 for the nonexistent ow-nope.
-        overrides={
-            "owner": 404,
-            "admin_agent": 404,
-            "agent_self": 404,
-            "agent_other": 404,
-            "warden": 404,
-        },
-    ),
     # ── task manuals (M3) ───────────────────────────────────────────────────
     "GET /api/task-manuals": Route(requires="machine"),
     "POST /api/task-manuals": Route(

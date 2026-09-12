@@ -408,21 +408,13 @@ type AgentContextReceiptDTO struct {
 	Ts float64 `json:"ts"`
 }
 
-// AgentLifecycleReceiptDTO Bounded receipt for the TWELVE agent-lifecycle writes whose entire answer was a re-read of the row they had just written (T-91, owner 2026-09-06). Seven staff routes — “POST /api/members“ (hire_member), “PATCH“ (update_member), “DELETE“ (dismiss_member), “/deactivate“, “/refocus“, “/force-stop“, “/accelerated-stop“ — answered the whole MemberDTO, 33 fields flattened; five worker routes — “/stop“, “/model“, “/refocus“, “/force-stop“, “/accelerated-stop“ — answered the whole OutsourceWorkerDTO, 42 fields. All twelve are agent-callable MCP tools, so those answers land in a model's context.
-//
-// WHY ID ALONE IS THE WHOLE OF THE NEWS HERE, stated as a property someone can re-check rather than a claim to be taken on trust: not one of these twelve handlers ever wrote a field onto its RESPONSE that it had not also persisted, so every value they answered with was already readable afterwards. Among the fifteen routes in this reshape exactly three did compute something response-only — the activate and the two relocates — and those three have receipts of their own for that reason. The check is whether a handler decorates the object it is about to write or only projects stored state. (An earlier draft of this paragraph made that claim two ways that were both wrong: it named two shared helper functions that this same change DELETES, and it called five line numbers the whole server's supply of response-only writes when they were only this pair of files'. Line numbers do not survive their own commit, which is why none are cited here.) So nothing on this wire was unrecoverable: “get_member“ and “list_outsource_workers“ serve all of it, at the moment the caller actually wants it rather than at the moment it wrote.
-//
-// THE COCKPIT LOSES NOTHING, checked call site by call site rather than inferred from the adapter: all twelve are awaited for their completion and their value discarded (frontend/src/components/OfficePage.tsx, MemberDetailPanel.tsx, MonitorPage.tsx). Two adapters did parse the answer on the way past — “patchMember“ returned “toMember(wire)“ and the five worker verbs returned “toOutsourceWorker(wire)“ — and no caller read what they returned; those adapters answer “void“ in the same change, which is what every one of their callers already treated them as.
+// AgentLifecycleReceiptDTO Bounded receipt for a shared member lifecycle write. The same member endpoint accepts staff and outsource ids, and the stored row remains available from the corresponding read projection.
 type AgentLifecycleReceiptDTO struct {
 	// Id The agent this write acted on. On eleven of the twelve routes it is the caller's own path parameter, kept for the reason the restart receipt keeps it: a receipt that cannot say which agent it acted on is unreadable next to a log of several. On ``POST /api/members`` it is the one piece of genuine news on the wire — the server mints the id, and a caller that dropped it would have to search the roster for the row it had just created.
 	Id string `json:"id"`
 }
 
-// AgentRelocateReceiptDTO Bounded receipt shared by BOTH relocate routes — “POST /api/members/{member_id}/relocate“ (relocate_member) and “POST /api/outsource-workers/{id}/relocate“ (T-91, owner 2026-09-06). They answered the whole MemberDTO (33 fields) and the whole OutsourceWorkerDTO (42 fields) respectively.
-//
-// ONE RECEIPT FOR THE TWO IS WHAT MAKES THIS PAGE TRUE, not a tidy-up. The member route accepts an ow- id as well — the verb is "move one agent" — and delegates it to relocateWorkerByID (api_members.go:1181-1185), which writes the WORKER projection. So that route could already answer an OutsourceWorkerDTO while this document said MemberDTO. The two answers are now the same three fields whichever kind of agent was named, and the disagreement is gone rather than documented.
-//
-// NEITHER FLAG IS RECOVERABLE, which is why this is not an id-only receipt: both are computed at dispatch time and written onto the RESPONSE ONLY, in the member arm and the worker arm alike — the reconcile decision that produced them is stored nowhere, so a later read has nothing to serve. The cockpit reads both on the member arm (frontend/src/api/http.ts relocateMember) and discards the worker arm's answer entirely. Everything else the two DTOs carried is the stored row, which “get_member“ and “list_outsource_workers“ serve.
+// AgentRelocateReceiptDTO Bounded receipt for POST /api/members/{member_id}/relocate. The endpoint accepts staff and outsource ids; relocation_pending and relocation_deferred are dispatch-time signals that cannot be recovered from a later read.
 type AgentRelocateReceiptDTO struct {
 	// Id The agent this relocate was aimed at — the caller's own path parameter, kept because a receipt that cannot say which agent it acted on is unreadable next to a log of several.
 	Id string `json:"id"`
@@ -1699,11 +1691,7 @@ type MemberActivateDTO struct {
 	MachineId *string `json:"machine_id,omitempty"`
 }
 
-// MemberActivateReceiptDTO Bounded receipt for “POST /api/members/{member_id}/activate“ (activate_member) (T-91, owner 2026-09-06). It answered the whole MemberDTO, 33 fields flattened, and it is agent-callable, so that answer lands in a model's context.
-//
-// THIS ONE CANNOT COLLAPSE TO AN ID, and for the same reason its worker twin cannot (OutsourceRestartReceiptDTO): “activation_pending“ is computed at dispatch time and written onto the RESPONSE ONLY — the reconcile decision behind it is stored nowhere, so a later read has nothing to serve. It is one of the three flags that no READ structure declares at all: “MemberDTO“ does not carry it, so it is not a field that reads back null — the read face does not have the field. A caller that drops it cannot ask again; there is no row to ask. The cockpit already depends on exactly this: frontend/src/api/http.ts activateMember returns “{activationPending: wire.activation_pending === true}“ and the 喚醒中… button stays put on true.
-//
-// “last_op_reason“ rides beside it for the reason the handler gives in its own words where it stamps the row — the flag is one bit and at least four different states reach it, so the handler stamps WHICH one on the row before answering. Unlike the flag this one IS recoverable from “get_member“; it is kept because a caller holding a pending bit with no cause has to make a second call to act on the first, which is the round trip this whole reshape exists to remove. Everything else the DTO carried is the member's stored row, which “get_member“ serves.
+// MemberActivateReceiptDTO Bounded receipt for POST /api/members/{member_id}/activate. The endpoint accepts staff and outsource ids; activation_pending is a dispatch-time signal, while last_op_reason explains the stored or delivered result.
 type MemberActivateReceiptDTO struct {
 	// ActivationPending True when the activation intent was STORED but no START went out on this attempt — a warden that would not take it, an unbuildable start frame (missing persona or token), a backoff, an open circuit. It is a POSITIVE determination rather than a list of known failures: the handler asks whether a START actually went out, so failure modes not yet invented answer honestly here too. Absent when the member was already online or the start landed. It is here or nowhere: the flag is set only on responses of this kind, and no read structure declares it at all — there is no member read that carries the field, null or otherwise.
 	ActivationPending *bool `json:"activation_pending,omitempty"`
@@ -1814,7 +1802,7 @@ type MemberHireDTO struct {
 	Runtime *AgentRuntime `json:"runtime,omitempty"`
 }
 
-// MemberRelocateDTO Relocate a member to a machine (POST /api/members/{member_id}/relocate) — the owner cockpit's 改機器 for a roster member, the member twin of OutsourceWorkerRelocateDTO. Writes the member's owner-pinned desired_machine_id, then runs the SAME event-driven reconcile the activate click uses (reconcileMemberNow): a LIVE member is auto-migrated onto the chosen machine (robust STOP the old session → next tick re-spawns on the pin), an offline member just re-pins so the next wake lands there. PLACEMENT ONLY — unlike activate it NEVER touches desired_state (a relocate is not a wake). machine_id is REQUIRED (owner 2026-07-27) and is the STABLE machine id (the warden member's own id): a relocate NAMES its destination and no longer doubles as an unpin. An absent key is a 422; an explicit null or "" is a 400. The value must resolve to a real machine.
+// MemberRelocateDTO Relocate a member to a concrete machine through POST /api/members/{member_id}/relocate. The endpoint accepts staff and outsource ids, updates the machine pin, and never changes desired_state. machine_id is required and must resolve to a real machine.
 type MemberRelocateDTO struct {
 	MachineId string `json:"machine_id"`
 }
@@ -2039,20 +2027,6 @@ type OnboardingStepDTO struct {
 	Reason *string `json:"reason,omitempty"`
 }
 
-// OutsourceRestartReceiptDTO Bounded receipt for “POST /api/outsource-workers/{id}/restart“ (restart_outsource_worker) (T-91). It answered with the whole OutsourceWorkerDTO, 41 fields flattened; measured over 24 hours of real agent sessions, 9 calls and 10,000 characters. It is agent-called, so that answer lands in a model's context.
-//
-// THIS ONE CANNOT COLLAPSE TO IDS ALONE, and the reason is pinned by a test rather than inferred: worker_pending_signals_ted79_test.go:107-118 requires the restart answer to carry BOTH “activation_pending“ and a non-empty “last_op_reason“, and states why in its own failure message - a restart aimed at a machine that cannot take the worker used to answer a clean 200 with zero signal, and "one bit cannot answer why". “activation_pending“ is additionally one of the three flags that no READ structure declares at all: “OutsourceWorkerDTO“ does not carry it, so it is not a field that reads back null - the read face does not have the field. No follow-up query can recover it. Everything else the DTO carried is the worker's stored row, which “list_outsource_workers“ serves.
-type OutsourceRestartReceiptDTO struct {
-	// ActivationPending True when the restart was DECIDED but could not be delivered - no live SSE downstream to the target warden. The intent is stored and the reconcile cadence will retry, but nothing has been dispatched yet. Absent when the restart actually landed. It is here or nowhere: this flag is set only on responses of this kind, and no read structure declares it at all - there is no worker read that carries the field, null or otherwise - so a caller that drops it cannot ask again.
-	ActivationPending *bool `json:"activation_pending,omitempty"`
-
-	// Id The worker this restart was aimed at - the caller's own path parameter, kept because a receipt that cannot say which worker it acted on is unreadable next to a log of several.
-	Id string `json:"id"`
-
-	// LastOpReason WHICH cause, as a structured ``<code>: <detail>`` line. It rides beside ``activation_pending`` because the flag is one bit and at least four different states reach it - the test that pins this pair says so in its own words. Empty when there is no refusal to report.
-	LastOpReason *string `json:"last_op_reason,omitempty"`
-}
-
 // OutsourceWorkerDTO One outsource worker row of the panel (SPEC §4.1): the anonymous codename (model prefix + sequence), runtime/model/effort, lifecycle status (assigned → active → released), and its ONE bound task's id / title / status.
 type OutsourceWorkerDTO struct {
 	// Account The Claude account this worker's session runs under (telemetry entry keyed by the worker's actor id — the SAME per-actor telemetry the member roster reads). null when the worker has not reported one (never fabricated). T-f190 additive-optional.
@@ -2164,21 +2138,6 @@ type OutsourceWorkerDTO struct {
 
 	// UnreadCount The CALLER's unread chat-message count for this worker's conversation (the same chat_read watermark inverse the member roster serves) — the office 外包 row's red badge. Optional-with-default: absent reads as 0 for older clients.
 	UnreadCount *int `json:"unread_count,omitempty"`
-}
-
-// OutsourceWorkerModelDTO Change an outsource worker's runtime/model/effort (POST /api/outsource-workers/{id}/model, T-f190). runtime is optional (null/absent ⇒ keep current); model is the launch model (blank ⇒ the selected runtime's default); effort is optional (null/absent ⇒ keep current). The worker twin of the member runtime/model/effort edit.
-type OutsourceWorkerModelDTO struct {
-	// Effort Optional effort quick-pick; null/absent keeps the current effort.
-	Effort *string `json:"effort,omitempty"`
-	Model  *string `json:"model,omitempty"`
-
-	// Runtime Optional runtime replacement; null/absent keeps the current runtime.
-	Runtime *AgentRuntime `json:"runtime,omitempty"`
-}
-
-// OutsourceWorkerRelocateDTO Relocate an outsource worker to a machine (POST /api/outsource-workers/{id}/relocate, T-f190) — the owner cockpit's 改機器 operation, the worker twin of MemberActivateDTO's machine bind. Writes the worker's desired_machine_id pin, kills the current session, and clears pacing so the next scheduler tick re-spawns on the chosen machine (no lifecycle change). machine_id is REQUIRED (owner 2026-07-27) and is the STABLE machine id (the warden member's own id): a relocate NAMES its destination and no longer clears the pin. An absent key is a 422; an explicit null or "" is a 400. The value must resolve to a real machine.
-type OutsourceWorkerRelocateDTO struct {
-	MachineId string `json:"machine_id"`
 }
 
 // ProbeVersionDTO Bare `/version` deploy-probe shape (autodeploy reads `sha` to compare).
@@ -4398,12 +4357,6 @@ type HandleIngestTelemetryApiMonitoringTelemetryPostJSONRequestBody = AgentTelem
 // HandleReplaceOffboardApiOffboardPostJSONRequestBody defines body for HandleReplaceOffboardApiOffboardPost for application/json ContentType.
 type HandleReplaceOffboardApiOffboardPostJSONRequestBody = BootDocumentReplaceDTO
 
-// HandleSetOutsourceWorkerModelApiOutsourceWorkersIdModelPostJSONRequestBody defines body for HandleSetOutsourceWorkerModelApiOutsourceWorkersIdModelPost for application/json ContentType.
-type HandleSetOutsourceWorkerModelApiOutsourceWorkersIdModelPostJSONRequestBody = OutsourceWorkerModelDTO
-
-// HandleRelocateOutsourceWorkerApiOutsourceWorkersIdRelocatePostJSONRequestBody defines body for HandleRelocateOutsourceWorkerApiOutsourceWorkersIdRelocatePost for application/json ContentType.
-type HandleRelocateOutsourceWorkerApiOutsourceWorkersIdRelocatePostJSONRequestBody = OutsourceWorkerRelocateDTO
-
 // HandleDeletePushSubscriptionApiPushSubscriptionDeleteJSONRequestBody defines body for HandleDeletePushSubscriptionApiPushSubscriptionDelete for application/json ContentType.
 type HandleDeletePushSubscriptionApiPushSubscriptionDeleteJSONRequestBody = PushSubscriptionDeleteDTO
 
@@ -4821,30 +4774,9 @@ type ServerInterface interface {
 	// Read one outsource worker by id (detail-panel refresh).
 	// (GET /api/outsource-workers/{id})
 	HandleGetOutsourceWorkerApiOutsourceWorkersIdGet(w http.ResponseWriter, r *http.Request, id string)
-	// 加速停止 an outsource worker: put its ALREADY-OPEN wind-down (a 停止 or a 換手) on the stop.accelerated_grace_secs clock and tell it. 409 if none is open. Answers with a bounded receipt (“id“), not the roster row — call “list_outsource_workers“ when you need the rest.
-	// (POST /api/outsource-workers/{id}/accelerated-stop)
-	HandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcceleratedStopPost(w http.ResponseWriter, r *http.Request, id string)
 	// Read an outsource worker's boot-context preview (owner/admin agent).
 	// (GET /api/outsource-workers/{id}/boot-context)
 	HandleGetWorkerBootContextApiOutsourceWorkersIdBootContextGet(w http.ResponseWriter, r *http.Request, id string)
-	// 強制停止 an outsource worker: kill the session NOW and hold it down; says nothing to it. Third rung of 停止 -> 加速停止 -> 強制停止. Answers with a bounded receipt (“id“), not the roster row — call “list_outsource_workers“ when you need the rest.
-	// (POST /api/outsource-workers/{id}/force-stop)
-	HandleForceStopOutsourceWorkerApiOutsourceWorkersIdForceStopPost(w http.ResponseWriter, r *http.Request, id string)
-	// Change (換 model) an outsource worker's model/effort (same floor as the staff model edit). On a worker whose stop is IN FLIGHT OR HAS LANDED it ALSO queues the restart (restart_after_stop), so the worker comes back up ON THE NEW MODEL once the stop converges — an edit is no longer only a save. A worker nobody ever asked to stop is still only persisted. Answers with a bounded receipt (“id“), not the roster row — call “list_outsource_workers“ when you need the rest.
-	// (POST /api/outsource-workers/{id}/model)
-	HandleSetOutsourceWorkerModelApiOutsourceWorkersIdModelPost(w http.ResponseWriter, r *http.Request, id string)
-	// Refocus (換手) an outsource worker's context; on a STOPPED worker it queues the 起來 instead of refusing (owner/admin agent). Answers with a bounded receipt (“id“), not the roster row — call “list_outsource_workers“ when you need the rest.
-	// (POST /api/outsource-workers/{id}/refocus)
-	HandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost(w http.ResponseWriter, r *http.Request, id string)
-	// Relocate an outsource worker to a machine (admin-gated). Answers with a bounded receipt (“id“, “relocation_pending“, “relocation_deferred“), not the roster row — call “list_outsource_workers“ when you need the rest.
-	// (POST /api/outsource-workers/{id}/relocate)
-	HandleRelocateOutsourceWorkerApiOutsourceWorkersIdRelocatePost(w http.ResponseWriter, r *http.Request, id string)
-	// Restart (重啟) an outsource worker (owner/admin agent; a worker that is still running is LEFT ALONE, not restarted and not refused). Answers with a bounded receipt (“id“, “activation_pending“, “last_op_reason“), not the worker — call “list_outsource_workers“ when you need the rest.
-	// (POST /api/outsource-workers/{id}/restart)
-	HandleRestartOutsourceWorkerApiOutsourceWorkersIdRestartPost(w http.ResponseWriter, r *http.Request, id string)
-	// Stop (停止) an outsource worker: ask it to work its 〈停止〉 document and wait for its own report_stopped -- no kill, no deadline (owner/admin agent). Answers with a bounded receipt (“id“), not the roster row — call “list_outsource_workers“ when you need the rest.
-	// (POST /api/outsource-workers/{id}/stop)
-	HandleStopOutsourceWorkerApiOutsourceWorkersIdStopPost(w http.ResponseWriter, r *http.Request, id string)
 	// Read the VAPID public key used to subscribe this owner's browser.
 	// (GET /api/push/public-key)
 	HandleGetPushPublicKeyApiPushPublicKeyGet(w http.ResponseWriter, r *http.Request)
@@ -7807,32 +7739,6 @@ func (siw *ServerInterfaceWrapper) HandleGetOutsourceWorkerApiOutsourceWorkersId
 	handler.ServeHTTP(w, r)
 }
 
-// HandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcceleratedStopPost operation middleware
-func (siw *ServerInterfaceWrapper) HandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcceleratedStopPost(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "id" -------------
-	var id string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.HandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcceleratedStopPost(w, r, id)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
 // HandleGetWorkerBootContextApiOutsourceWorkersIdBootContextGet operation middleware
 func (siw *ServerInterfaceWrapper) HandleGetWorkerBootContextApiOutsourceWorkersIdBootContextGet(w http.ResponseWriter, r *http.Request) {
 
@@ -7850,162 +7756,6 @@ func (siw *ServerInterfaceWrapper) HandleGetWorkerBootContextApiOutsourceWorkers
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.HandleGetWorkerBootContextApiOutsourceWorkersIdBootContextGet(w, r, id)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// HandleForceStopOutsourceWorkerApiOutsourceWorkersIdForceStopPost operation middleware
-func (siw *ServerInterfaceWrapper) HandleForceStopOutsourceWorkerApiOutsourceWorkersIdForceStopPost(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "id" -------------
-	var id string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.HandleForceStopOutsourceWorkerApiOutsourceWorkersIdForceStopPost(w, r, id)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// HandleSetOutsourceWorkerModelApiOutsourceWorkersIdModelPost operation middleware
-func (siw *ServerInterfaceWrapper) HandleSetOutsourceWorkerModelApiOutsourceWorkersIdModelPost(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "id" -------------
-	var id string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.HandleSetOutsourceWorkerModelApiOutsourceWorkersIdModelPost(w, r, id)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// HandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost operation middleware
-func (siw *ServerInterfaceWrapper) HandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "id" -------------
-	var id string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.HandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost(w, r, id)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// HandleRelocateOutsourceWorkerApiOutsourceWorkersIdRelocatePost operation middleware
-func (siw *ServerInterfaceWrapper) HandleRelocateOutsourceWorkerApiOutsourceWorkersIdRelocatePost(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "id" -------------
-	var id string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.HandleRelocateOutsourceWorkerApiOutsourceWorkersIdRelocatePost(w, r, id)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// HandleRestartOutsourceWorkerApiOutsourceWorkersIdRestartPost operation middleware
-func (siw *ServerInterfaceWrapper) HandleRestartOutsourceWorkerApiOutsourceWorkersIdRestartPost(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "id" -------------
-	var id string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.HandleRestartOutsourceWorkerApiOutsourceWorkersIdRestartPost(w, r, id)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// HandleStopOutsourceWorkerApiOutsourceWorkersIdStopPost operation middleware
-func (siw *ServerInterfaceWrapper) HandleStopOutsourceWorkerApiOutsourceWorkersIdStopPost(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "id" -------------
-	var id string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.HandleStopOutsourceWorkerApiOutsourceWorkersIdStopPost(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -10088,14 +9838,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/offboard/reset", wrapper.HandleResetOffboardApiOffboardResetPost)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/outsource-workers", wrapper.HandleListOutsourceWorkersApiOutsourceWorkersGet)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/outsource-workers/{id}", wrapper.HandleGetOutsourceWorkerApiOutsourceWorkersIdGet)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/outsource-workers/{id}/accelerated-stop", wrapper.HandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcceleratedStopPost)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/outsource-workers/{id}/boot-context", wrapper.HandleGetWorkerBootContextApiOutsourceWorkersIdBootContextGet)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/outsource-workers/{id}/force-stop", wrapper.HandleForceStopOutsourceWorkerApiOutsourceWorkersIdForceStopPost)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/outsource-workers/{id}/model", wrapper.HandleSetOutsourceWorkerModelApiOutsourceWorkersIdModelPost)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/outsource-workers/{id}/refocus", wrapper.HandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/outsource-workers/{id}/relocate", wrapper.HandleRelocateOutsourceWorkerApiOutsourceWorkersIdRelocatePost)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/outsource-workers/{id}/restart", wrapper.HandleRestartOutsourceWorkerApiOutsourceWorkersIdRestartPost)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/outsource-workers/{id}/stop", wrapper.HandleStopOutsourceWorkerApiOutsourceWorkersIdStopPost)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/push/public-key", wrapper.HandleGetPushPublicKeyApiPushPublicKeyGet)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/push/subscription", wrapper.HandleDeletePushSubscriptionApiPushSubscriptionDelete)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/push/subscription", wrapper.HandleCreatePushSubscriptionApiPushSubscriptionPost)

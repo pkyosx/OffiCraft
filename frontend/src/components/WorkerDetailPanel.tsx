@@ -69,10 +69,8 @@ interface WorkerDetailPanelProps {
   /** 強制停止 (T-ed79) — the THIRD rung: kill the session NOW, saying nothing.
    * This panel gates it behind its own confirm. */
   onForceStop?: () => Promise<void>;
-  /** Wake (喚醒 — T-7526): clear the stop + re-dispatch. ⚠️ The WIRE is still
-   * `POST /api/outsource-workers/{id}/restart` — a frozen contract (§13). Only
-   * the owner-facing WORD changed (owner 2026-07-31 「應該要統一」: 重啟 retired,
-   * 喚醒 is the one verb on both panels). Do NOT rename the endpoint to match. */
+  /** Wake (喚醒 — T-7526): clear the stop and re-dispatch through the shared
+   * member activation endpoint. */
   onWake?: () => Promise<void>;
   /** Change model/effort (換 model — T-f190): active → takes effect now,
    * assigned → next spawn. Undefined ⇒ the model cell is read-only. */

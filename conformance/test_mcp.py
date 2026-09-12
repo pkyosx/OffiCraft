@@ -487,9 +487,6 @@ T6020_OPENED_TOOLS = {
     "upgrade_warden": "POST /api/machines/{member_id}/upgrade",
     "post_task_message": "POST /api/tasks/{task_id}/message",
     "get_outsource_worker_boot_context": "GET /api/outsource-workers/{id}/boot-context",
-    "refocus_outsource_worker": "POST /api/outsource-workers/{id}/refocus",
-    "stop_outsource_worker": "POST /api/outsource-workers/{id}/stop",
-    "restart_outsource_worker": "POST /api/outsource-workers/{id}/restart",
     "delete_task_manual": "DELETE /api/task-manuals/{type_key}",
 }
 
@@ -529,15 +526,13 @@ T6020_REVISED_TOOLS = {
     # T-182 renamed the route and the tool (was /terminate + terminate_task);
     # the ruling above and the floor it set are untouched.
     "mark_task_terminated": ("POST /api/tasks/{task_id}/mark-terminated", "agent"),
-    # owner 2026-08-21, card rc-376a41719e62 (T-ed79):「如果原本正職可以改 model
-    # 外包就應該可以改，如果只有 mira 可以改，那就不變，正職跟外包一樣，mira 是
-    # 特殊的意義，他代替 owner 執行高權限動作。」— the floor is decided by the
-    # STAFF face of the same act (PATCH /api/members/{member_id}, machine floor
-    # since T-5336), not by how the verb looks on its own. It dropped two rungs,
-    # to `machine`, and it is the ONLY one of the four worker lifecycle rows the
-    # ruling moved.
-    "set_outsource_worker_model": (
-        "POST /api/outsource-workers/{id}/model", "machine"),
+}
+
+T6020_RETIRED_TOOLS = {
+    "refocus_outsource_worker",
+    "stop_outsource_worker",
+    "restart_outsource_worker",
+    "set_outsource_worker_model",
 }
 
 T6020_WITHHELD_ROUTES = (
@@ -557,12 +552,11 @@ def test_t6020_opened_routes_are_admin_floor_tools(client, owner_token) -> None:
     unreachability, not a cosmetic gap)."""
     listed = {t["name"] for t in _result(_rpc(client, owner_token, "tools/list"))["tools"]}
     by_op = {f"{r['method']} {r['path']}": r for r in MANIFEST}
-    # 16 still at the admin floor + 3 later revised = the 19 the ruling opened.
-    # Split so a revision MOVES a row (visible in the diff) instead of deleting one.
-    assert len(T6020_OPENED_TOOLS) + len(T6020_REVISED_TOOLS) == 19, (
+    assert (len(T6020_OPENED_TOOLS) + len(T6020_REVISED_TOOLS)
+            + len(T6020_RETIRED_TOOLS)) == 19, (
         "the 2026-07-26 ruling opened 19 routes; these tables account for "
-        f"{len(T6020_OPENED_TOOLS)} + {len(T6020_REVISED_TOOLS)} — a row was "
-        "dropped rather than moved"
+        f"{len(T6020_OPENED_TOOLS)} current + {len(T6020_REVISED_TOOLS)} revised + "
+        f"{len(T6020_RETIRED_TOOLS)} retired — a row was dropped without an account"
     )
     for tool, op in T6020_OPENED_TOOLS.items():
         row = by_op.get(op)
@@ -588,8 +582,8 @@ def test_t6020_revised_routes_sit_at_their_revised_floor(client, owner_token) ->
     tool. This is the only place in this file that proves the floor actually
     moved — the handler-level Go tests drive the handler function directly and
     never pass through the RBAC choke, so their green says nothing about it."""
-    assert len(T6020_REVISED_TOOLS) == 3, (
-        f"T6020_REVISED_TOOLS lists {len(T6020_REVISED_TOOLS)} rows, expected 3 — a "
+    assert len(T6020_REVISED_TOOLS) == 2, (
+        f"T6020_REVISED_TOOLS lists {len(T6020_REVISED_TOOLS)} rows, expected 2 — a "
         "further revision needs its OWN owner ruling, and this guard must be edited "
         "in the same commit"
     )

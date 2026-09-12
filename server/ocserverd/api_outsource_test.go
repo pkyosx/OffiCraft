@@ -350,7 +350,7 @@ func TestHandleGetOutsourceWorkerApiOutsourceWorkersIdGet(t *testing.T) {
 		if status != 404 {
 			t.Fatalf("want 404, got %d (%v)", status, data)
 		}
-		apiWantError(t, data, "not_found", "outsource worker 'ow-nope' not found")
+		apiWantError(t, data, "not_found", "member 'ow-nope' not found")
 		dashboard.wantFrames()
 	})
 
@@ -424,7 +424,7 @@ func TestHandleGetWorkerBootContextApiOutsourceWorkersIdBootContextGet(t *testin
 		if status != 404 {
 			t.Fatalf("want 404, got %d (%v)", status, data)
 		}
-		apiWantError(t, data, "not_found", "outsource worker 'ow-nope' not found")
+		apiWantError(t, data, "not_found", "member 'ow-nope' not found")
 	})
 
 	t.Run("a worker whose bound task is gone answers 404 naming the task", func(t *testing.T) {
@@ -489,7 +489,7 @@ func TestHandleRelocateOutsourceWorkerApiOutsourceWorkersIdRelocatePost(t *testi
 		bystander := apiTestListen(t, api, "kip")
 		push := apiTestWebPushSink(t, api)
 
-		status, data := apiJSON(t, h, "POST", "/api/outsource-workers/ow-abc123/relocate", owner,
+		status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/relocate", owner,
 			`{"machine_id":"m-server-self"}`)
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
@@ -518,7 +518,7 @@ func TestHandleRelocateOutsourceWorkerApiOutsourceWorkersIdRelocatePost(t *testi
 		dashboard := apiTestListen(t, api, "")
 		bystander := apiTestListen(t, api, "kip")
 
-		status, data := apiJSON(t, h, "POST", "/api/outsource-workers/ow-abc123/relocate", owner,
+		status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/relocate", owner,
 			`{"machine_id":"m-server-self"}`)
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
@@ -548,7 +548,7 @@ func TestHandleRelocateOutsourceWorkerApiOutsourceWorkersIdRelocatePost(t *testi
 			t.Fatalf("PutOutsourceWorker: %v", err)
 		}
 
-		status, data := apiJSON(t, h, "POST", "/api/outsource-workers/ow-def456/relocate", owner,
+		status, data := apiJSON(t, h, "POST", "/api/members/ow-def456/relocate", owner,
 			`{"machine_id":"m-server-self"}`)
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
@@ -562,7 +562,7 @@ func TestHandleRelocateOutsourceWorkerApiOutsourceWorkersIdRelocatePost(t *testi
 		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusAssigned)
 		dashboard := apiTestListen(t, api, "")
 
-		status, data := apiJSON(t, h, "POST", "/api/outsource-workers/ow-abc123/relocate", owner, `{}`)
+		status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/relocate", owner, `{}`)
 		if status != 422 {
 			t.Fatalf("want 422, got %d (%v)", status, data)
 		}
@@ -576,7 +576,7 @@ func TestHandleRelocateOutsourceWorkerApiOutsourceWorkersIdRelocatePost(t *testi
 		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusAssigned)
 		dashboard := apiTestListen(t, api, "")
 
-		status, data := apiJSON(t, h, "POST", "/api/outsource-workers/ow-abc123/relocate", owner,
+		status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/relocate", owner,
 			`{"machine_id":""}`)
 		if status != 400 {
 			t.Fatalf("want 400, got %d (%v)", status, data)
@@ -593,7 +593,7 @@ func TestHandleRelocateOutsourceWorkerApiOutsourceWorkersIdRelocatePost(t *testi
 		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusAssigned)
 		dashboard := apiTestListen(t, api, "")
 
-		status, data := apiJSON(t, h, "POST", "/api/outsource-workers/ow-abc123/relocate", owner,
+		status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/relocate", owner,
 			`{"machine_id":"m-nope"}`)
 		if status != 404 {
 			t.Fatalf("want 404, got %d (%v)", status, data)
@@ -608,12 +608,12 @@ func TestHandleRelocateOutsourceWorkerApiOutsourceWorkersIdRelocatePost(t *testi
 		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusReleased)
 		dashboard := apiTestListen(t, api, "")
 
-		status, data := apiJSON(t, h, "POST", "/api/outsource-workers/ow-abc123/relocate", owner,
+		status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/relocate", owner,
 			`{"machine_id":"m-server-self"}`)
 		if status != 404 {
 			t.Fatalf("want 404, got %d (%v)", status, data)
 		}
-		apiWantError(t, data, "not_found", "outsource worker 'ow-abc123' not found")
+		apiWantError(t, data, "not_found", "member 'ow-abc123' not found")
 		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
 			"status": "released", "presence": "",
 		}))
@@ -626,7 +626,7 @@ func TestHandleRelocateOutsourceWorkerApiOutsourceWorkersIdRelocatePost(t *testi
 		housekeeper := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
 		dashboard := apiTestListen(t, api, "")
 
-		status, data := apiJSON(t, h, "POST", "/api/outsource-workers/ow-abc123/relocate", housekeeper,
+		status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/relocate", housekeeper,
 			`{"machine_id":"m-server-self"}`)
 		if status != 403 {
 			t.Fatalf("want 403, got %d (%v)", status, data)
@@ -640,7 +640,7 @@ func TestHandleRelocateOutsourceWorkerApiOutsourceWorkersIdRelocatePost(t *testi
 		_, h, d, owner := newAPITestServer(t)
 		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusAssigned)
 
-		status, data := apiJSON(t, h, "POST", "/api/outsource-workers/ow-abc123/relocate", "",
+		status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/relocate", "",
 			`{"machine_id":"m-server-self"}`)
 		if status != 401 {
 			t.Fatalf("want 401, got %d (%v)", status, data)
@@ -654,14 +654,14 @@ func TestHandleRelocateOutsourceWorkerApiOutsourceWorkersIdRelocatePost(t *testi
 		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusAssigned)
 		dashboard := apiTestListen(t, api, "")
 
-		status, data := apiJSON(t, h, "POST", "/api/outsource-workers/ow-abc123/relocate", owner, `{{{`)
+		status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/relocate", owner, `{{{`)
 		if status != 422 {
 			t.Fatalf("want 422, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "validation_error",
 			"invalid request body: invalid character '{' looking for beginning of object key string")
 
-		status, data = apiJSON(t, h, "POST", "/api/outsource-workers/ow-abc123/relocate", owner,
+		status, data = apiJSON(t, h, "POST", "/api/members/ow-abc123/relocate", owner,
 			`{"machine_id":"m-server-self","hostname":"loft"}`)
 		if status != 422 {
 			t.Fatalf("want 422, got %d (%v)", status, data)
@@ -679,7 +679,7 @@ func TestRelocateWorkerByID(t *testing.T) {
 
 	t.Run("persists a valid machine pin and answers a receipt", func(t *testing.T) {
 		rec := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodPost, "/api/outsource-workers/ow-abc123/relocate", nil)
+		req := httptest.NewRequest(http.MethodPost, "/api/members/ow-abc123/relocate", nil)
 		api.relocateWorkerByID(rec, req, "ow-abc123", "m-server-self")
 		if rec.Code != http.StatusOK {
 			t.Fatalf("want 200, got %d (%s)", rec.Code, rec.Body.String())
@@ -702,7 +702,7 @@ func TestRelocateWorkerByID(t *testing.T) {
 
 	t.Run("refuses an unknown machine before touching the worker", func(t *testing.T) {
 		rec := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodPost, "/api/outsource-workers/ow-abc123/relocate", nil)
+		req := httptest.NewRequest(http.MethodPost, "/api/members/ow-abc123/relocate", nil)
 		api.relocateWorkerByID(rec, req, "ow-abc123", "m-nope")
 		if rec.Code != http.StatusNotFound {
 			t.Fatalf("want 404, got %d (%s)", rec.Code, rec.Body.String())
@@ -727,7 +727,7 @@ func TestHandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost(t *testing
 		bystander := apiTestListen(t, api, "kip")
 		push := apiTestWebPushSink(t, api)
 
-		status, data := apiJSON(t, h, "POST", "/api/outsource-workers/ow-abc123/refocus", owner, "")
+		status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/refocus", owner, "")
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
@@ -749,12 +749,12 @@ func TestHandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost(t *testing
 		api, h, d, owner := newAPITestServer(t)
 		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
 		apiTestListen(t, api, "ow-abc123")
-		if code, data := apiJSON(t, h, "POST", "/api/outsource-workers/ow-abc123/stop", owner, ""); code != 200 {
+		if code, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/deactivate", owner, ""); code != 200 {
 			t.Fatalf("stop: %d %v", code, data)
 		}
 		dashboard := apiTestListen(t, api, "")
 
-		status, data := apiJSON(t, h, "POST", "/api/outsource-workers/ow-abc123/refocus", owner, "")
+		status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/refocus", owner, "")
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
@@ -786,7 +786,7 @@ func TestHandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost(t *testing
 		apiTestWantWorker(t, h, owner, "ow-abc123", held)
 		dashboard := apiTestListen(t, api, "")
 
-		status, data := apiJSON(t, h, "POST", "/api/outsource-workers/ow-abc123/refocus", owner, "")
+		status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/refocus", owner, "")
 		if status != 409 {
 			t.Fatalf("want 409, got %d (%v)", status, data)
 		}
@@ -803,7 +803,7 @@ func TestHandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost(t *testing
 		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusAssigned)
 		dashboard := apiTestListen(t, api, "")
 
-		status, data := apiJSON(t, h, "POST", "/api/outsource-workers/ow-abc123/refocus", owner, "")
+		status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/refocus", owner, "")
 		if status != 409 {
 			t.Fatalf("want 409, got %d (%v)", status, data)
 		}
@@ -817,10 +817,10 @@ func TestHandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost(t *testing
 		api, h, d, owner := newAPITestServer(t)
 		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
 		apiTestListen(t, api, "ow-abc123")
-		if code, data := apiJSON(t, h, "POST", "/api/outsource-workers/ow-abc123/refocus", owner, ""); code != 200 {
+		if code, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/refocus", owner, ""); code != 200 {
 			t.Fatalf("refocus: %d %v", code, data)
 		}
-		if code, data := apiJSON(t, h, "POST", "/api/outsource-workers/ow-abc123/accelerated-stop", owner, ""); code != 200 {
+		if code, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/accelerated-stop", owner, ""); code != 200 {
 			t.Fatalf("accelerated-stop: %d %v", code, data)
 		}
 		accelerated := apiTestWorkerRow(t, map[string]any{
@@ -830,7 +830,7 @@ func TestHandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost(t *testing
 		})
 		dashboard := apiTestListen(t, api, "")
 
-		status, data := apiJSON(t, h, "POST", "/api/outsource-workers/ow-abc123/refocus", owner, "")
+		status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/refocus", owner, "")
 		if status != 409 {
 			t.Fatalf("want 409, got %d (%v)", status, data)
 		}
@@ -846,17 +846,17 @@ func TestHandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost(t *testing
 		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusReleased)
 		dashboard := apiTestListen(t, api, "")
 
-		status, data := apiJSON(t, h, "POST", "/api/outsource-workers/ow-abc123/refocus", owner, "")
+		status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/refocus", owner, "")
 		if status != 404 {
 			t.Fatalf("want 404, got %d (%v)", status, data)
 		}
-		apiWantError(t, data, "not_found", "outsource worker 'ow-abc123' not found")
+		apiWantError(t, data, "not_found", "member 'ow-abc123' not found")
 
-		status, data = apiJSON(t, h, "POST", "/api/outsource-workers/ow-nope/refocus", owner, "")
+		status, data = apiJSON(t, h, "POST", "/api/members/ow-nope/refocus", owner, "")
 		if status != 404 {
 			t.Fatalf("want 404, got %d (%v)", status, data)
 		}
-		apiWantError(t, data, "not_found", "outsource worker 'ow-nope' not found")
+		apiWantError(t, data, "not_found", "member 'ow-nope' not found")
 		dashboard.wantFrames()
 	})
 
@@ -867,7 +867,7 @@ func TestHandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost(t *testing
 		housekeeper := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
 		dashboard := apiTestListen(t, api, "")
 
-		status, data := apiJSON(t, h, "POST", "/api/outsource-workers/ow-abc123/refocus", housekeeper, "")
+		status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/refocus", housekeeper, "")
 		if status != 403 {
 			t.Fatalf("want 403, got %d (%v)", status, data)
 		}
@@ -882,7 +882,7 @@ func TestHandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost(t *testing
 		_, h, d, owner := newAPITestServer(t)
 		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
 
-		status, data := apiJSON(t, h, "POST", "/api/outsource-workers/ow-abc123/refocus", "", "")
+		status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/refocus", "", "")
 		if status != 401 {
 			t.Fatalf("want 401, got %d (%v)", status, data)
 		}
@@ -900,7 +900,7 @@ func TestHandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost(t *testing
 		bystander := apiTestListen(t, api, "kip")
 		push := apiTestWebPushSink(t, api)
 
-		status, data := apiJSON(t, h, "POST", "/api/outsource-workers/ow-abc123/refocus", owner, `{{{`)
+		status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/refocus", owner, `{{{`)
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
@@ -924,7 +924,7 @@ func TestHandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcceleratedSto
 		api, h, d, owner := newAPITestServer(t)
 		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
 		apiTestListen(t, api, "ow-abc123")
-		if code, data := apiJSON(t, h, "POST", "/api/outsource-workers/ow-abc123/refocus", owner, ""); code != 200 {
+		if code, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/refocus", owner, ""); code != 200 {
 			t.Fatalf("refocus: %d %v", code, data)
 		}
 		contractor := apiTestListen(t, api, "ow-abc123")
@@ -932,7 +932,7 @@ func TestHandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcceleratedSto
 		bystander := apiTestListen(t, api, "kip")
 		push := apiTestWebPushSink(t, api)
 
-		status, data := apiJSON(t, h, "POST", "/api/outsource-workers/ow-abc123/accelerated-stop", owner, "")
+		status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/accelerated-stop", owner, "")
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
@@ -955,13 +955,13 @@ func TestHandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcceleratedSto
 		api, h, d, owner := newAPITestServer(t)
 		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
 		apiTestListen(t, api, "ow-abc123")
-		if code, data := apiJSON(t, h, "POST", "/api/outsource-workers/ow-abc123/stop", owner, ""); code != 200 {
+		if code, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/deactivate", owner, ""); code != 200 {
 			t.Fatalf("stop: %d %v", code, data)
 		}
 		contractor := apiTestListen(t, api, "ow-abc123")
 		dashboard := apiTestListen(t, api, "")
 
-		status, data := apiJSON(t, h, "POST", "/api/outsource-workers/ow-abc123/accelerated-stop", owner, "")
+		status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/accelerated-stop", owner, "")
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
@@ -983,7 +983,7 @@ func TestHandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcceleratedSto
 		apiTestListen(t, api, "ow-abc123")
 		dashboard := apiTestListen(t, api, "")
 
-		status, data := apiJSON(t, h, "POST", "/api/outsource-workers/ow-abc123/accelerated-stop", owner, "")
+		status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/accelerated-stop", owner, "")
 		if status != 409 {
 			t.Fatalf("want 409, got %d (%v)", status, data)
 		}
@@ -1001,7 +1001,7 @@ func TestHandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcceleratedSto
 		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusAssigned)
 		dashboard := apiTestListen(t, api, "")
 
-		status, data := apiJSON(t, h, "POST", "/api/outsource-workers/ow-abc123/accelerated-stop", owner, "")
+		status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/accelerated-stop", owner, "")
 		if status != 409 {
 			t.Fatalf("want 409, got %d (%v)", status, data)
 		}
@@ -1016,17 +1016,17 @@ func TestHandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcceleratedSto
 		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusReleased)
 		dashboard := apiTestListen(t, api, "")
 
-		status, data := apiJSON(t, h, "POST", "/api/outsource-workers/ow-abc123/accelerated-stop", owner, "")
+		status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/accelerated-stop", owner, "")
 		if status != 404 {
 			t.Fatalf("want 404, got %d (%v)", status, data)
 		}
-		apiWantError(t, data, "not_found", "outsource worker 'ow-abc123' not found")
+		apiWantError(t, data, "not_found", "member 'ow-abc123' not found")
 
-		status, data = apiJSON(t, h, "POST", "/api/outsource-workers/ow-nope/accelerated-stop", owner, "")
+		status, data = apiJSON(t, h, "POST", "/api/members/ow-nope/accelerated-stop", owner, "")
 		if status != 404 {
 			t.Fatalf("want 404, got %d (%v)", status, data)
 		}
-		apiWantError(t, data, "not_found", "outsource worker 'ow-nope' not found")
+		apiWantError(t, data, "not_found", "member 'ow-nope' not found")
 		dashboard.wantFrames()
 	})
 
@@ -1037,7 +1037,7 @@ func TestHandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcceleratedSto
 		housekeeper := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
 		dashboard := apiTestListen(t, api, "")
 
-		status, data := apiJSON(t, h, "POST", "/api/outsource-workers/ow-abc123/accelerated-stop", housekeeper, "")
+		status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/accelerated-stop", housekeeper, "")
 		if status != 403 {
 			t.Fatalf("want 403, got %d (%v)", status, data)
 		}
@@ -1052,7 +1052,7 @@ func TestHandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcceleratedSto
 		_, h, d, owner := newAPITestServer(t)
 		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
 
-		status, data := apiJSON(t, h, "POST", "/api/outsource-workers/ow-abc123/accelerated-stop", "", "")
+		status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/accelerated-stop", "", "")
 		if status != 401 {
 			t.Fatalf("want 401, got %d (%v)", status, data)
 		}
@@ -1066,7 +1066,7 @@ func TestHandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcceleratedSto
 		api, h, d, owner := newAPITestServer(t)
 		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
 		apiTestListen(t, api, "ow-abc123")
-		if code, data := apiJSON(t, h, "POST", "/api/outsource-workers/ow-abc123/refocus", owner, ""); code != 200 {
+		if code, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/refocus", owner, ""); code != 200 {
 			t.Fatalf("refocus: %d %v", code, data)
 		}
 		contractor := apiTestListen(t, api, "ow-abc123")
@@ -1074,7 +1074,7 @@ func TestHandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcceleratedSto
 		bystander := apiTestListen(t, api, "kip")
 		push := apiTestWebPushSink(t, api)
 
-		status, data := apiJSON(t, h, "POST", "/api/outsource-workers/ow-abc123/accelerated-stop", owner, `{{{`)
+		status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/accelerated-stop", owner, `{{{`)
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
@@ -1103,7 +1103,7 @@ func TestHandleStopOutsourceWorkerApiOutsourceWorkersIdStopPost(t *testing.T) {
 		bystander := apiTestListen(t, api, "kip")
 		push := apiTestWebPushSink(t, api)
 
-		status, data := apiJSON(t, h, "POST", "/api/outsource-workers/ow-abc123/stop", owner, "")
+		status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/deactivate", owner, "")
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
@@ -1125,7 +1125,7 @@ func TestHandleStopOutsourceWorkerApiOutsourceWorkersIdStopPost(t *testing.T) {
 		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
 		dashboard := apiTestListen(t, api, "")
 
-		status, data := apiJSON(t, h, "POST", "/api/outsource-workers/ow-abc123/stop", owner, "")
+		status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/deactivate", owner, "")
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
@@ -1143,12 +1143,12 @@ func TestHandleStopOutsourceWorkerApiOutsourceWorkersIdStopPost(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
 		apiTestListen(t, api, "ow-abc123")
-		if code, data := apiJSON(t, h, "POST", "/api/outsource-workers/ow-abc123/stop", owner, ""); code != 200 {
+		if code, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/deactivate", owner, ""); code != 200 {
 			t.Fatalf("first stop: %d %v", code, data)
 		}
 		dashboard := apiTestListen(t, api, "")
 
-		status, data := apiJSON(t, h, "POST", "/api/outsource-workers/ow-abc123/stop", owner, "")
+		status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/deactivate", owner, "")
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
@@ -1173,7 +1173,7 @@ func TestHandleStopOutsourceWorkerApiOutsourceWorkersIdStopPost(t *testing.T) {
 			t.Fatalf("PutOutsourceWorker: %v", err)
 		}
 
-		status, data := apiJSON(t, h, "POST", "/api/outsource-workers/ow-def456/stop", owner, "")
+		status, data := apiJSON(t, h, "POST", "/api/members/ow-def456/deactivate", owner, "")
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
@@ -1188,17 +1188,17 @@ func TestHandleStopOutsourceWorkerApiOutsourceWorkersIdStopPost(t *testing.T) {
 		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusReleased)
 		dashboard := apiTestListen(t, api, "")
 
-		status, data := apiJSON(t, h, "POST", "/api/outsource-workers/ow-abc123/stop", owner, "")
+		status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/deactivate", owner, "")
 		if status != 404 {
 			t.Fatalf("want 404, got %d (%v)", status, data)
 		}
-		apiWantError(t, data, "not_found", "outsource worker 'ow-abc123' not found")
+		apiWantError(t, data, "not_found", "member 'ow-abc123' not found")
 
-		status, data = apiJSON(t, h, "POST", "/api/outsource-workers/ow-nope/stop", owner, "")
+		status, data = apiJSON(t, h, "POST", "/api/members/ow-nope/deactivate", owner, "")
 		if status != 404 {
 			t.Fatalf("want 404, got %d (%v)", status, data)
 		}
-		apiWantError(t, data, "not_found", "outsource worker 'ow-nope' not found")
+		apiWantError(t, data, "not_found", "member 'ow-nope' not found")
 		dashboard.wantFrames()
 	})
 
@@ -1208,7 +1208,7 @@ func TestHandleStopOutsourceWorkerApiOutsourceWorkersIdStopPost(t *testing.T) {
 		housekeeper := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
 		dashboard := apiTestListen(t, api, "")
 
-		status, data := apiJSON(t, h, "POST", "/api/outsource-workers/ow-abc123/stop", housekeeper, "")
+		status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/deactivate", housekeeper, "")
 		if status != 403 {
 			t.Fatalf("want 403, got %d (%v)", status, data)
 		}
@@ -1223,7 +1223,7 @@ func TestHandleStopOutsourceWorkerApiOutsourceWorkersIdStopPost(t *testing.T) {
 		_, h, d, owner := newAPITestServer(t)
 		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
 
-		status, data := apiJSON(t, h, "POST", "/api/outsource-workers/ow-abc123/stop", "", "")
+		status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/deactivate", "", "")
 		if status != 401 {
 			t.Fatalf("want 401, got %d (%v)", status, data)
 		}
@@ -1241,7 +1241,7 @@ func TestHandleStopOutsourceWorkerApiOutsourceWorkersIdStopPost(t *testing.T) {
 		bystander := apiTestListen(t, api, "kip")
 		push := apiTestWebPushSink(t, api)
 
-		status, data := apiJSON(t, h, "POST", "/api/outsource-workers/ow-abc123/stop", owner, `{{{`)
+		status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/deactivate", owner, `{{{`)
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
@@ -1268,7 +1268,7 @@ func TestHandleForceStopOutsourceWorkerApiOutsourceWorkersIdForceStopPost(t *tes
 		bystander := apiTestListen(t, api, "kip")
 		push := apiTestWebPushSink(t, api)
 
-		status, data := apiJSON(t, h, "POST", "/api/outsource-workers/ow-abc123/force-stop", owner, "")
+		status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/force-stop", owner, "")
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
@@ -1287,7 +1287,7 @@ func TestHandleForceStopOutsourceWorkerApiOutsourceWorkersIdForceStopPost(t *tes
 		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
 		dashboard := apiTestListen(t, api, "")
 
-		status, data := apiJSON(t, h, "POST", "/api/outsource-workers/ow-abc123/force-stop", owner, "")
+		status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/force-stop", owner, "")
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
@@ -1302,12 +1302,12 @@ func TestHandleForceStopOutsourceWorkerApiOutsourceWorkersIdForceStopPost(t *tes
 		api, h, d, owner := newAPITestServer(t)
 		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
 		apiTestListen(t, api, "ow-abc123")
-		if code, data := apiJSON(t, h, "POST", "/api/outsource-workers/ow-abc123/refocus", owner, ""); code != 200 {
+		if code, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/refocus", owner, ""); code != 200 {
 			t.Fatalf("refocus: %d %v", code, data)
 		}
 		dashboard := apiTestListen(t, api, "")
 
-		status, data := apiJSON(t, h, "POST", "/api/outsource-workers/ow-abc123/force-stop", owner, "")
+		status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/force-stop", owner, "")
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
@@ -1323,17 +1323,17 @@ func TestHandleForceStopOutsourceWorkerApiOutsourceWorkersIdForceStopPost(t *tes
 		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusReleased)
 		dashboard := apiTestListen(t, api, "")
 
-		status, data := apiJSON(t, h, "POST", "/api/outsource-workers/ow-abc123/force-stop", owner, "")
+		status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/force-stop", owner, "")
 		if status != 404 {
 			t.Fatalf("want 404, got %d (%v)", status, data)
 		}
-		apiWantError(t, data, "not_found", "outsource worker 'ow-abc123' not found")
+		apiWantError(t, data, "not_found", "member 'ow-abc123' not found")
 
-		status, data = apiJSON(t, h, "POST", "/api/outsource-workers/ow-nope/force-stop", owner, "")
+		status, data = apiJSON(t, h, "POST", "/api/members/ow-nope/force-stop", owner, "")
 		if status != 404 {
 			t.Fatalf("want 404, got %d (%v)", status, data)
 		}
-		apiWantError(t, data, "not_found", "outsource worker 'ow-nope' not found")
+		apiWantError(t, data, "not_found", "member 'ow-nope' not found")
 		dashboard.wantFrames()
 	})
 
@@ -1343,7 +1343,7 @@ func TestHandleForceStopOutsourceWorkerApiOutsourceWorkersIdForceStopPost(t *tes
 		housekeeper := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
 		dashboard := apiTestListen(t, api, "")
 
-		status, data := apiJSON(t, h, "POST", "/api/outsource-workers/ow-abc123/force-stop", housekeeper, "")
+		status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/force-stop", housekeeper, "")
 		if status != 403 {
 			t.Fatalf("want 403, got %d (%v)", status, data)
 		}
@@ -1358,7 +1358,7 @@ func TestHandleForceStopOutsourceWorkerApiOutsourceWorkersIdForceStopPost(t *tes
 		_, h, d, owner := newAPITestServer(t)
 		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
 
-		status, data := apiJSON(t, h, "POST", "/api/outsource-workers/ow-abc123/force-stop", "", "")
+		status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/force-stop", "", "")
 		if status != 401 {
 			t.Fatalf("want 401, got %d (%v)", status, data)
 		}
@@ -1376,7 +1376,7 @@ func TestHandleForceStopOutsourceWorkerApiOutsourceWorkersIdForceStopPost(t *tes
 		bystander := apiTestListen(t, api, "kip")
 		push := apiTestWebPushSink(t, api)
 
-		status, data := apiJSON(t, h, "POST", "/api/outsource-workers/ow-abc123/force-stop", owner, `{{{`)
+		status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/force-stop", owner, `{{{`)
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
@@ -1395,14 +1395,14 @@ func TestHandleRestartOutsourceWorkerApiOutsourceWorkersIdRestartPost(t *testing
 	t.Run("喚醒 on a stopped worker records the intent and names the cause its start could not be delivered", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
-		if code, data := apiJSON(t, h, "POST", "/api/outsource-workers/ow-abc123/force-stop", owner, ""); code != 200 {
+		if code, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/force-stop", owner, ""); code != 200 {
 			t.Fatalf("force-stop: %d %v", code, data)
 		}
 		dashboard := apiTestListen(t, api, "")
 		bystander := apiTestListen(t, api, "kip")
 		push := apiTestWebPushSink(t, api)
 
-		status, data := apiJSON(t, h, "POST", "/api/outsource-workers/ow-abc123/restart", owner, "")
+		status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/activate", owner, "")
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
@@ -1434,7 +1434,7 @@ func TestHandleRestartOutsourceWorkerApiOutsourceWorkersIdRestartPost(t *testing
 		contractor := apiTestListen(t, api, "ow-abc123")
 		dashboard := apiTestListen(t, api, "")
 
-		status, data := apiJSON(t, h, "POST", "/api/outsource-workers/ow-abc123/restart", owner, "")
+		status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/activate", owner, "")
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
@@ -1461,14 +1461,14 @@ func TestHandleRestartOutsourceWorkerApiOutsourceWorkersIdRestartPost(t *testing
 		api, h, d, owner := newAPITestServer(t)
 		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
 		apiTestListen(t, api, "ow-abc123")
-		if code, data := apiJSON(t, h, "POST", "/api/outsource-workers/ow-abc123/refocus", owner, ""); code != 200 {
+		if code, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/refocus", owner, ""); code != 200 {
 			t.Fatalf("refocus: %d %v", code, data)
 		}
-		if code, data := apiJSON(t, h, "POST", "/api/outsource-workers/ow-abc123/accelerated-stop", owner, ""); code != 200 {
+		if code, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/accelerated-stop", owner, ""); code != 200 {
 			t.Fatalf("accelerated-stop: %d %v", code, data)
 		}
 
-		status, data := apiJSON(t, h, "POST", "/api/outsource-workers/ow-abc123/restart", owner, "")
+		status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/activate", owner, "")
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
@@ -1489,17 +1489,17 @@ func TestHandleRestartOutsourceWorkerApiOutsourceWorkersIdRestartPost(t *testing
 		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusReleased)
 		dashboard := apiTestListen(t, api, "")
 
-		status, data := apiJSON(t, h, "POST", "/api/outsource-workers/ow-abc123/restart", owner, "")
+		status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/activate", owner, "")
 		if status != 404 {
 			t.Fatalf("want 404, got %d (%v)", status, data)
 		}
-		apiWantError(t, data, "not_found", "outsource worker 'ow-abc123' not found")
+		apiWantError(t, data, "not_found", "member 'ow-abc123' not found")
 
-		status, data = apiJSON(t, h, "POST", "/api/outsource-workers/ow-nope/restart", owner, "")
+		status, data = apiJSON(t, h, "POST", "/api/members/ow-nope/activate", owner, "")
 		if status != 404 {
 			t.Fatalf("want 404, got %d (%v)", status, data)
 		}
-		apiWantError(t, data, "not_found", "outsource worker 'ow-nope' not found")
+		apiWantError(t, data, "not_found", "member 'ow-nope' not found")
 		dashboard.wantFrames()
 	})
 
@@ -1509,7 +1509,7 @@ func TestHandleRestartOutsourceWorkerApiOutsourceWorkersIdRestartPost(t *testing
 		housekeeper := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
 		dashboard := apiTestListen(t, api, "")
 
-		status, data := apiJSON(t, h, "POST", "/api/outsource-workers/ow-abc123/restart", housekeeper, "")
+		status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/activate", housekeeper, "")
 		if status != 403 {
 			t.Fatalf("want 403, got %d (%v)", status, data)
 		}
@@ -1524,7 +1524,7 @@ func TestHandleRestartOutsourceWorkerApiOutsourceWorkersIdRestartPost(t *testing
 		_, h, d, owner := newAPITestServer(t)
 		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
 
-		status, data := apiJSON(t, h, "POST", "/api/outsource-workers/ow-abc123/restart", "", "")
+		status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/activate", "", "")
 		if status != 401 {
 			t.Fatalf("want 401, got %d (%v)", status, data)
 		}
@@ -1534,40 +1534,26 @@ func TestHandleRestartOutsourceWorkerApiOutsourceWorkersIdRestartPost(t *testing
 		}))
 	})
 
-	t.Run("a malformed body is ignored and restart still returns its receipt and activation effects", func(t *testing.T) {
+	t.Run("a malformed activation body answers 422 before changing the worker", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
-		if code, data := apiJSON(t, h, "POST", "/api/outsource-workers/ow-abc123/force-stop", owner, ""); code != 200 {
+		if code, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/force-stop", owner, ""); code != 200 {
 			t.Fatalf("force-stop: %d %v", code, data)
 		}
 		dashboard := apiTestListen(t, api, "")
 		bystander := apiTestListen(t, api, "kip")
-		push := apiTestWebPushSink(t, api)
 
-		status, data := apiJSON(t, h, "POST", "/api/outsource-workers/ow-abc123/restart", owner, `{{{`)
-		if status != 200 {
-			t.Fatalf("want 200, got %d (%v)", status, data)
+		status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/activate", owner, `{{{`)
+		if status != 422 {
+			t.Fatalf("want 422, got %d (%v)", status, data)
 		}
-		apiWantBody(t, data, map[string]any{
-			"id": "ow-abc123", "activation_pending": true,
-			"last_op_reason": "no_machine_selected: no machine is selected for this " +
-				"worker — pick one on the worker (改機器) or on the task type's 手冊 " +
-				"assignee; there is no automatic placement",
-		})
+		apiWantError(t, data, "validation_error",
+			"invalid request body: invalid character '{' looking for beginning of object key string")
 		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
-			"status": "active", "desired_state": "online",
-			"last_op": "start", "last_op_ok": false, "last_op_at": apiAnyNumber,
-			"last_op_reason": "no_machine_selected: no machine is selected for this " +
-				"worker — pick one on the worker (改機器) or on the task type's 手冊 " +
-				"assignee; there is no automatic placement",
+			"status": "active", "presence": "stopped", "desired_state": "offline",
 		}))
-		dashboard.wantFrames(
-			apiTestWorkerDelta(3, "active", "server"),
-			apiTestWorkerDelta(4, "active", "server"),
-			apiTestWorkerDelta(5, "active", "owner"),
-		)
+		dashboard.wantFrames()
 		bystander.wantFrames()
-		push()
 	})
 }
 
@@ -1579,7 +1565,7 @@ func TestHandleSetOutsourceWorkerModelApiOutsourceWorkersIdModelPost(t *testing.
 		bystander := apiTestListen(t, api, "kip")
 		push := apiTestWebPushSink(t, api)
 
-		status, data := apiJSON(t, h, "POST", "/api/outsource-workers/ow-abc123/model", owner,
+		status, data := apiJSON(t, h, "PATCH", "/api/members/ow-abc123", owner,
 			`{"model":"opus","runtime":"codex","effort":"high"}`)
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
@@ -1599,7 +1585,7 @@ func TestHandleSetOutsourceWorkerModelApiOutsourceWorkersIdModelPost(t *testing.
 		contractor := apiTestListen(t, api, "ow-abc123")
 		dashboard := apiTestListen(t, api, "")
 
-		status, data := apiJSON(t, h, "POST", "/api/outsource-workers/ow-abc123/model", owner,
+		status, data := apiJSON(t, h, "PATCH", "/api/members/ow-abc123", owner,
 			`{"model":"opus"}`)
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
@@ -1623,7 +1609,7 @@ func TestHandleSetOutsourceWorkerModelApiOutsourceWorkersIdModelPost(t *testing.
 		apiTestListen(t, api, "ow-abc123")
 		dashboard := apiTestListen(t, api, "")
 
-		status, data := apiJSON(t, h, "POST", "/api/outsource-workers/ow-abc123/model", owner,
+		status, data := apiJSON(t, h, "PATCH", "/api/members/ow-abc123", owner,
 			`{"model":" sonnet "}`)
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
@@ -1640,7 +1626,7 @@ func TestHandleSetOutsourceWorkerModelApiOutsourceWorkersIdModelPost(t *testing.
 		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusAssigned)
 		dashboard := apiTestListen(t, api, "")
 
-		status, data := apiJSON(t, h, "POST", "/api/outsource-workers/ow-abc123/model", owner, `{}`)
+		status, data := apiJSON(t, h, "PATCH", "/api/members/ow-abc123", owner, `{}`)
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
@@ -1654,7 +1640,7 @@ func TestHandleSetOutsourceWorkerModelApiOutsourceWorkersIdModelPost(t *testing.
 		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusAssigned)
 		dashboard := apiTestListen(t, api, "")
 
-		status, data := apiJSON(t, h, "POST", "/api/outsource-workers/ow-abc123/model", owner,
+		status, data := apiJSON(t, h, "PATCH", "/api/members/ow-abc123", owner,
 			`{"model":"opus","runtime":"gpt"}`)
 		if status != 422 {
 			t.Fatalf("want 422, got %d (%v)", status, data)
@@ -1669,7 +1655,7 @@ func TestHandleSetOutsourceWorkerModelApiOutsourceWorkersIdModelPost(t *testing.
 		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusAssigned)
 		dashboard := apiTestListen(t, api, "")
 
-		status, data := apiJSON(t, h, "POST", "/api/outsource-workers/ow-abc123/model", owner,
+		status, data := apiJSON(t, h, "PATCH", "/api/members/ow-abc123", owner,
 			`{"model":"opus","effort":"turbo"}`)
 		if status != 422 {
 			t.Fatalf("want 422, got %d (%v)", status, data)
@@ -1690,7 +1676,7 @@ func TestHandleSetOutsourceWorkerModelApiOutsourceWorkersIdModelPost(t *testing.
 			t.Fatalf("PutOutsourceWorker: %v", err)
 		}
 
-		status, data := apiJSON(t, h, "POST", "/api/outsource-workers/ow-def456/model", owner,
+		status, data := apiJSON(t, h, "PATCH", "/api/members/ow-def456", owner,
 			`{"model":"opus"}`)
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
@@ -1704,19 +1690,19 @@ func TestHandleSetOutsourceWorkerModelApiOutsourceWorkersIdModelPost(t *testing.
 		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusReleased)
 		dashboard := apiTestListen(t, api, "")
 
-		status, data := apiJSON(t, h, "POST", "/api/outsource-workers/ow-abc123/model", owner,
+		status, data := apiJSON(t, h, "PATCH", "/api/members/ow-abc123", owner,
 			`{"model":"opus"}`)
 		if status != 404 {
 			t.Fatalf("want 404, got %d (%v)", status, data)
 		}
-		apiWantError(t, data, "not_found", "outsource worker 'ow-abc123' not found")
+		apiWantError(t, data, "not_found", "member 'ow-abc123' not found")
 
-		status, data = apiJSON(t, h, "POST", "/api/outsource-workers/ow-nope/model", owner,
+		status, data = apiJSON(t, h, "PATCH", "/api/members/ow-nope", owner,
 			`{"model":"opus"}`)
 		if status != 404 {
 			t.Fatalf("want 404, got %d (%v)", status, data)
 		}
-		apiWantError(t, data, "not_found", "outsource worker 'ow-nope' not found")
+		apiWantError(t, data, "not_found", "member 'ow-nope' not found")
 		dashboard.wantFrames()
 	})
 
@@ -1725,7 +1711,7 @@ func TestHandleSetOutsourceWorkerModelApiOutsourceWorkersIdModelPost(t *testing.
 		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusAssigned)
 		housekeeper := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
 
-		status, data := apiJSON(t, h, "POST", "/api/outsource-workers/ow-abc123/model", housekeeper,
+		status, data := apiJSON(t, h, "PATCH", "/api/members/ow-abc123", housekeeper,
 			`{"model":"opus"}`)
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
@@ -1740,7 +1726,7 @@ func TestHandleSetOutsourceWorkerModelApiOutsourceWorkersIdModelPost(t *testing.
 		_, h, d, owner := newAPITestServer(t)
 		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusAssigned)
 
-		status, data := apiJSON(t, h, "POST", "/api/outsource-workers/ow-abc123/model", "",
+		status, data := apiJSON(t, h, "PATCH", "/api/members/ow-abc123", "",
 			`{"model":"opus"}`)
 		if status != 401 {
 			t.Fatalf("want 401, got %d (%v)", status, data)
@@ -1754,14 +1740,14 @@ func TestHandleSetOutsourceWorkerModelApiOutsourceWorkersIdModelPost(t *testing.
 		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusAssigned)
 		dashboard := apiTestListen(t, api, "")
 
-		status, data := apiJSON(t, h, "POST", "/api/outsource-workers/ow-abc123/model", owner, `{{{`)
+		status, data := apiJSON(t, h, "PATCH", "/api/members/ow-abc123", owner, `{{{`)
 		if status != 422 {
 			t.Fatalf("want 422, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "validation_error",
 			"invalid request body: invalid character '{' looking for beginning of object key string")
 
-		status, data = apiJSON(t, h, "POST", "/api/outsource-workers/ow-abc123/model", owner,
+		status, data = apiJSON(t, h, "PATCH", "/api/members/ow-abc123", owner,
 			`{"machine_id":"m-server-self"}`)
 		if status != 422 {
 			t.Fatalf("want 422, got %d (%v)", status, data)

@@ -413,12 +413,12 @@ export function OfficePage({
         // 改機器 (T-f190; admin-gated since P7c): fire the relocate; the outsource_worker SSE
         // delta refetches the worker list so the panel adopts the new placement.
         onRelocate={async (machineId) => {
-          await api.relocateWorker(workerDetail.id, machineId);
+          await api.relocateMember(workerDetail.id, machineId);
         }}
         // T-32e1/T-f190 lifecycle ops (owner/admin-agent floor since T-6020). Each fires the mutation; the
         // outsource_worker SSE delta refetches so the panel adopts the new state.
         onRefocus={async () => {
-          await api.refocusWorker(workerDetail.id);
+          await api.refocusMember(workerDetail.id);
         }}
         // 成本歸零 (T-53, owner-only + irreversible; the panel confirms first).
         // Refetch is what returns the cell to the dash: the reset clears both
@@ -430,21 +430,19 @@ export function OfficePage({
         // (T-ed79). 停止 no longer kills: it asks the worker to work its
         // 〈停止〉 and waits for its own report_stopped.
         onStop={async () => {
-          await api.stopWorker(workerDetail.id);
+          await api.deactivateMember(workerDetail.id);
         }}
         onAcceleratedStop={async () => {
-          await api.acceleratedStopWorker(workerDetail.id);
+          await api.acceleratedStopMember(workerDetail.id);
         }}
         onForceStop={async () => {
-          await api.forceStopWorker(workerDetail.id);
+          await api.forceStopMember(workerDetail.id);
         }}
-        // 喚醒 (T-7526). The endpoint is still `restartWorker` → POST …/restart:
-        // the frozen wire keeps its name, only the owner-facing word changed.
         onWake={async () => {
-          await api.restartWorker(workerDetail.id);
+          await api.activateMember(workerDetail.id);
         }}
         onSetModel={async (runtime, model, effort) => {
-          await api.setWorkerModel(workerDetail.id, {
+          await api.patchMember(workerDetail.id, {
             runtime,
             model,
             effort,
@@ -671,7 +669,7 @@ export function OfficePage({
             onOpenTasks: undefined,
             onOpenRoleSettings: undefined,
             onWake: async () => {
-              await api.restartWorker(workerPeer.id);
+              await api.activateMember(workerPeer.id);
             },
             jumpToMsgId: undefined,
             draftSeed: seedFor(workerPeer.id),

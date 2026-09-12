@@ -282,7 +282,7 @@ func (s *apiServer) HandleGetWorkerBootContextApiOutsourceWorkersIdBootContextGe
 // has no session to move). machine_id is REQUIRED since owner 2026-07-27
 // (relocateNeedsMachineMsg): absent key ⇒ 422, explicit null / "" ⇒ 400.
 func (s *apiServer) HandleRelocateOutsourceWorkerApiOutsourceWorkersIdRelocatePost(w http.ResponseWriter, r *http.Request, id string) {
-	var body OutsourceWorkerRelocateDTO
+	var body MemberRelocateDTO
 	if !decodeJSONBodyRequired(w, r, &body, "machine_id") {
 		return
 	}
@@ -784,6 +784,10 @@ func (s *apiServer) HandleForceStopOutsourceWorkerApiOutsourceWorkersIdForceStop
 // restartable; 404 unknown/released is the only refusal this handler writes (a
 // store failure still answers 500).
 func (s *apiServer) HandleRestartOutsourceWorkerApiOutsourceWorkersIdRestartPost(w http.ResponseWriter, r *http.Request, id string) {
+	s.handleRestartOutsourceWorker(w, r, id, MemberActivateDTO{})
+}
+
+func (s *apiServer) handleRestartOutsourceWorker(w http.ResponseWriter, r *http.Request, id string, body MemberActivateDTO) {
 	s.outsourceMu.Lock()
 	worker, err := s.dal.GetOutsourceWorker(id)
 	if err != nil {
@@ -795,6 +799,21 @@ func (s *apiServer) HandleRestartOutsourceWorkerApiOutsourceWorkersIdRestartPost
 		s.outsourceMu.Unlock()
 		writeResolveError(w, errNotFound, "outsource worker", id)
 		return
+	}
+	if body.MachineId != nil && *body.MachineId != "" {
+		if _, err := s.resolveMachine(*body.MachineId); err != nil {
+			s.outsourceMu.Unlock()
+			writeResolveError(w, err, "machine", *body.MachineId)
+			return
+		}
+	}
+	if body.MachineId != nil {
+		worker.DesiredMachineID = *body.MachineId
+		if err := s.dal.SetMemberDesiredMachineID(worker.ID, worker.DesiredMachineID); err != nil {
+			s.outsourceMu.Unlock()
+			internalError(w, err)
+			return
+		}
 	}
 	// 🔴 THE OVER-SPAWN GUARD IS GONE (T-ed79 #10, owner 2026-08-21 「往正職靠：
 	// 外包也不擋」). It used to 409 a worker that was still ALIVE — first on pure
@@ -980,10 +999,14 @@ func (s *apiServer) HandleRestartOutsourceWorkerApiOutsourceWorkersIdRestartPost
 // next spawn / restart bakes it in ("active 時 kill+respawn 立即生效, assigned 時
 // 下次 spawn 生效"). 404 unknown/released.
 func (s *apiServer) HandleSetOutsourceWorkerModelApiOutsourceWorkersIdModelPost(w http.ResponseWriter, r *http.Request, id string) {
-	var body OutsourceWorkerModelDTO
+	var body MemberUpdateDTO
 	if !decodeJSONBody(w, r, &body) {
 		return
 	}
+	s.handleSetOutsourceWorkerModel(w, r, id, body)
+}
+
+func (s *apiServer) handleSetOutsourceWorkerModel(w http.ResponseWriter, r *http.Request, id string, body MemberUpdateDTO) {
 	s.outsourceMu.Lock()
 	worker, err := s.dal.GetOutsourceWorker(id)
 	if err != nil {

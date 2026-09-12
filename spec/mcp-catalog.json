@@ -3406,101 +3406,6 @@
       "name": "get_outsource_worker_boot_context"
     },
     {
-      "description": "Refocus (\u63db\u624b) an outsource worker (owner/admin agent). Needs a live session, 409 otherwise \u2014 EXCEPT on a worker whose stop is in flight or has landed, where it answers 200 and QUEUES the restart (restart_after_stop); the stop itself is honoured as-is. A worker nobody ever asked to stop is still a 409. Answers with a bounded receipt (``id``), not the roster row \u2014 call ``list_outsource_workers`` when you need the rest.",
-      "inputSchema": {
-        "properties": {
-          "id": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "id"
-        ],
-        "type": "object"
-      },
-      "name": "refocus_outsource_worker"
-    },
-    {
-      "description": "Stop (\u505c\u6b62) an outsource worker: ask it to work its \u3008\u505c\u6b62\u3009 document and wait for its own report_stopped -- no kill, no deadline (owner/admin agent). Answers with a bounded receipt (``id``), not the roster row \u2014 call ``list_outsource_workers`` when you need the rest.",
-      "inputSchema": {
-        "properties": {
-          "id": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "id"
-        ],
-        "type": "object"
-      },
-      "name": "stop_outsource_worker"
-    },
-    {
-      "description": "Restart (\u91cd\u555f) an outsource worker (owner/admin agent; a worker that is still running is LEFT ALONE, not restarted and not refused). Answers with a bounded receipt (``id``, ``activation_pending``, ``last_op_reason``), not the worker \u2014 call ``list_outsource_workers`` when you need the rest.",
-      "inputSchema": {
-        "properties": {
-          "id": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "id"
-        ],
-        "type": "object"
-      },
-      "name": "restart_outsource_worker"
-    },
-    {
-      "description": "Change (\u63db model) an outsource worker's model/effort (same floor as the staff model edit). On a worker whose stop is IN FLIGHT OR HAS LANDED it ALSO queues the restart (restart_after_stop), so the worker comes back up ON THE NEW MODEL once the stop converges \u2014 an edit is no longer only a save. A worker nobody ever asked to stop is still only persisted. Answers with a bounded receipt (``id``), not the roster row \u2014 call ``list_outsource_workers`` when you need the rest.",
-      "inputSchema": {
-        "properties": {
-          "effort": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Optional effort quick-pick; null/absent keeps the current effort.",
-            "title": "Effort"
-          },
-          "id": {
-            "type": "string"
-          },
-          "model": {
-            "default": "",
-            "description": "New model for the outsource worker. It is trimmed and stored with no whitelist of any kind - runtime and effort in this same call ARE checked and 422 on an unknown value, and that 422 returns BEFORE the row is written, so a rejected effort also throws away the model you sent alongside it - and a blank string is a legal value meaning the launcher's default, not 'leave it as it is'; to leave it alone, omit the field. The value is persisted before anything else happens, so a 200 says nothing about whether it is usable. Exactly ONE combination is acted on now: status 'active' AND a session that is connected at this moment AND at least one of runtime/model/effort actually different from what is already stored (re-sending the same values, or sending only fields that match, changes nothing and takes nothing down). An assigned worker, or an active one whose session is not connected, is written to the row and nothing else - it picks the value up at its next spawn. The connected active worker then has THREE outcomes, not two. If the owner has already stopped it (desired_state offline), nothing is started at all: the model is saved and the row is stamped held_down, telling you to restart it when you want it to run. Otherwise the call opens a hand-over window and tells the worker to wind down, and the kill plus respawn on the new model happens when it reports stopped, or when the owner ends the wait himself (accelerated-stop arms a deadline the worker is told about; force-stop skips it) - this hand-over arms no clock of its own, model/runtime being one of the soft causes - UNLESS this refocus epoch's wind-down was already collected (its refocus AND stopped anchors both set), in which case the kill and the respawn go out inside this very call. So in the ordinary case an unusable model name does not take the worker down while you hold the 200 - the old model keeps running until the hand-over closes, and only then does the respawn fail.",
-            "title": "Model",
-            "type": "string"
-          },
-          "runtime": {
-            "anyOf": [
-              {
-                "enum": [
-                  "claude",
-                  "codex"
-                ],
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Optional runtime replacement; null/absent keeps the current runtime.",
-            "title": "Runtime"
-          }
-        },
-        "required": [
-          "id"
-        ],
-        "additionalProperties": false,
-        "type": "object"
-      },
-      "name": "set_outsource_worker_model"
-    },
-    {
       "description": "List task types WITHOUT their long documents: each row is the type identity (type_key / display_name / purpose), its input fields and its assignee setting, plus the SIZE of sop_md and the cap it is judged against. The SOP text is not on this answer at all — read the one type you picked with get_task_manual.",
       "inputSchema": {
         "properties": {},
@@ -4175,36 +4080,6 @@
         "type": "object"
       },
       "name": "accelerated_stop_member"
-    },
-    {
-      "description": "\u52a0\u901f\u505c\u6b62 an outsource worker: put its ALREADY-OPEN wind-down (a \u505c\u6b62 or a \u63db\u624b) on the stop.accelerated_grace_secs clock and tell it. 409 if none is open. Answers with a bounded receipt (``id``), not the roster row \u2014 call ``list_outsource_workers`` when you need the rest.",
-      "inputSchema": {
-        "properties": {
-          "id": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "id"
-        ],
-        "type": "object"
-      },
-      "name": "accelerated_stop_outsource_worker"
-    },
-    {
-      "description": "\u5f37\u5236\u505c\u6b62 an outsource worker: kill the session NOW and hold it down; says nothing to it. Third rung of \u505c\u6b62 -> \u52a0\u901f\u505c\u6b62 -> \u5f37\u5236\u505c\u6b62. Answers with a bounded receipt (``id``), not the roster row \u2014 call ``list_outsource_workers`` when you need the rest.",
-      "inputSchema": {
-        "properties": {
-          "id": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "id"
-        ],
-        "type": "object"
-      },
-      "name": "force_stop_outsource_worker"
     },
     {
       "description": "Replace the CONTENT of one already-pinned deliverable while its artifact id stays exactly the same — the card keeps pointing at the same artifact and what sits behind it changes. Use this instead of remove+add whenever you are shipping a corrected version of something you already pinned: remove+add mints a NEW id, so anyone holding the old one is left pointing at nothing. For a file/image whose new bytes are on disk the one-call door is the task-scoped upload (POST /api/tasks/{task_id}/artifact/{artifact_id}/replace/upload, raw body); use THIS call to point a file/image at a blob already in the store (attachment_id), or to change a link's target (url). THE KIND CANNOT CHANGE ACROSS VERSIONS: a file artifact stays a file artifact, so sending a url for one (or an attachment_id for a link, or an explicit kind that differs from what is pinned) is a 400 — un-pin it and register a new artifact if the kind is what you meant to change. name and description are optional here and an omitted one is CARRIED FORWARD: a replacement is a corrected version of the same deliverable, so you never re-type either just to swap the content. Sending one replaces it, and the length caps (48 runes for name, 256 for description) are checked ONLY against a value you actually send — omit the field and whatever is stored stands, however long it is. A blank name is refused, because every deliverable has a name; a blank description clears it. ⚠️ Some clients serialise an empty string as an omitted field, so \"omit to keep\" is reliable and \"send blank to clear\" is not — do not build on the latter. The version you replaced is KEPT and readable, but only the most recent few are retained: the oldest falls off the end for good when a newer one arrives, and the file it pointed at is deleted with it, so a version that has scrolled off is not recoverable from anywhere. ONLY WHILE THE TASK IS STILL OPEN: once a task closes (done / terminated / duplicated) its deliverable set is frozen in every direction — replace is refused with the same 409 as add and remove, and admin/owner are not exempt. For a link, the url must begin with https:// or http:// and be at most 2048 characters (Unicode runes), refused with a 400 otherwise; and UNLIKE name and description it is re-validated on EVERY call - it has no carry-forward - so a caller that only means to change the name must still send back a url that passes. Answers with a bounded receipt (task_id, artifact_id, artifact_count, version_count), not the whole task.",
