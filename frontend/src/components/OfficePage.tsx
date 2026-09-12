@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import type { ComponentProps } from "react";
 import { useI18n } from "../i18n";
 import type { Member } from "../types";
 import type { OutsourceWorkerView } from "../api/adapter";
@@ -21,6 +22,27 @@ import { OfficeSidebarTabs } from "./OfficeSidebarTabs";
 import { OutsourceCapPopover } from "./OutsourceCapPopover";
 import { ChevronLeftIcon, PersonPlusIcon } from "./icons";
 import "./office.css";
+
+type ChatSlotName =
+  | "onOpenDetail"
+  | "onOpenTasks"
+  | "onOpenRoleSettings"
+  | "onWake"
+  | "jumpToMsgId"
+  | "draftSeed"
+  | "headerSub"
+  | "headerTaskTitle";
+
+// Optional ChatArea props become required projection slots here. Each peer
+// kind must explicitly supply every slot, including the ones it does not use.
+type ChatSlots = {
+  [K in ChatSlotName]-?: ComponentProps<typeof ChatArea>[K];
+};
+
+type ChatProjection = {
+  member: Member;
+  slots: ChatSlots;
+};
 
 // A fully-shaped Member with honest-empty telemetry, for the SYNTHESIZED chat
 // peers the office projects onto ChatArea's Member contract: a LIVE outsource
@@ -506,7 +528,7 @@ export function OfficePage({
           } catch (e) {
             console.warn(
               "OfficePage: post-deactivate refetch failed (the stop was sent)",
-              e
+              e,
             );
           }
         }}
@@ -523,7 +545,7 @@ export function OfficePage({
           } catch (e) {
             console.warn(
               "OfficePage: post-accelerated-stop refetch failed (the stop was sent)",
-              e
+              e,
             );
           }
         }}
@@ -535,7 +557,7 @@ export function OfficePage({
           } catch (e) {
             console.warn(
               "OfficePage: post-force-stop refetch failed (the kill was sent)",
-              e
+              e,
             );
           }
         }}
@@ -547,7 +569,7 @@ export function OfficePage({
           } catch (e) {
             console.warn(
               "OfficePage: post-refocus refetch failed (the refocus was sent)",
-              e
+              e,
             );
           }
         }}
@@ -561,7 +583,7 @@ export function OfficePage({
           } catch (e) {
             console.warn(
               "OfficePage: post-cost-reset refetch failed (the cost was cleared)",
-              e
+              e,
             );
           }
         }}
@@ -573,7 +595,7 @@ export function OfficePage({
           } catch (e) {
             console.warn(
               "OfficePage: post-rename refetch failed (the name was saved)",
-              e
+              e,
             );
           }
         }}
@@ -585,7 +607,7 @@ export function OfficePage({
           } catch (e) {
             console.warn(
               "OfficePage: post-avatar-upload refetch failed (the avatar was saved)",
-              e
+              e,
             );
           }
         }}
@@ -597,7 +619,7 @@ export function OfficePage({
           } catch (e) {
             console.warn(
               "OfficePage: post-avatar-remove refetch failed (the avatar was removed)",
-              e
+              e,
             );
           }
         }}
@@ -615,6 +637,91 @@ export function OfficePage({
   const chatOpen = selectedId !== "";
   const showRoster = !isMobile || !chatOpen;
   const showChat = !isMobile || chatOpen;
+
+  // Every conversation reaches one ChatArea mount. Only this typed projection
+  // varies by peer kind; the conversation plumbing below is written once.
+  const chatProjection: ChatProjection | undefined = releasedPeer
+    ? {
+        member: releasedPeer,
+        slots: {
+          onOpenDetail: undefined,
+          onOpenTasks: undefined,
+          onOpenRoleSettings: undefined,
+          onWake: undefined,
+          jumpToMsgId: route.msgId,
+          draftSeed: seedFor(releasedPeer.id),
+          headerSub: (
+            <span
+              className="chat__header-outsource"
+              data-testid="released-chat-sub"
+            >
+              {isReleasedWorkerId
+                ? t.office.outsource.releasedSub
+                : t.office.chatUnavailableSub}
+            </span>
+          ),
+          headerTaskTitle: undefined,
+        },
+      }
+    : workerMember && workerPeer
+      ? {
+          member: workerMember,
+          slots: {
+            onOpenDetail: () => setWorkerDetailId(workerPeer.id),
+            onOpenTasks: undefined,
+            onOpenRoleSettings: undefined,
+            onWake: async () => {
+              await api.restartWorker(workerPeer.id);
+            },
+            jumpToMsgId: undefined,
+            draftSeed: seedFor(workerPeer.id),
+            headerSub: (
+              <span
+                className="chat__header-outsource"
+                data-testid="outsource-chat-sub"
+              >
+                <OutsourceTaskLine
+                  worker={workerPeer}
+                  onOpenTask={(taskId) => setRoute({ page: "tasks", taskId })}
+                  idPrefix="outsource-chat"
+                />
+              </span>
+            ),
+            headerTaskTitle: workerPeer.taskTitle ?? "",
+          },
+        }
+      : selected
+        ? {
+            member: selected,
+            slots: {
+              onOpenDetail: () => setDetailId(selected.id),
+              onOpenTasks: () =>
+                setRoute({ page: "tasks", executorId: selected.id }),
+              onOpenRoleSettings: selected.role
+                ? () =>
+                    setRoute({
+                      page: "settings",
+                      settingsRoles: true,
+                      roleKey: selected.role,
+                    })
+                : undefined,
+              onWake: async () => {
+                const result = await api.activateMember(selected.id);
+                try {
+                  await refetch();
+                } catch {
+                  /* the verdict outlives a failed refresh (NIT-4) */
+                }
+                return result;
+              },
+              jumpToMsgId:
+                selected.id === route.chatId ? route.msgId : undefined,
+              draftSeed: seedFor(selected.id),
+              headerSub: undefined,
+              headerTaskTitle: undefined,
+            },
+          }
+        : undefined;
 
   return (
     <div className={`office${isMobile ? " office--mobile" : ""}`}>
@@ -711,9 +818,9 @@ export function OfficePage({
       )}
 
       {/* 🔴 ONE MOUNTED ChatArea PER CONVERSATION, AND THE `key` IS THE WHOLE OF
-          IT (T-48, R13-5). All three branches below sit in the same position of
-          the same conditional expression, so without a key React reuses ONE
-          component instance and a conversation switch is just a prop change —
+          IT (T-48, R13-5). Every peer kind reaches this single mount, so without
+          a key React reuses ONE component instance and a conversation switch is
+          just a prop change —
           every piece of per-conversation state, every in-flight read and every
           latch inside `ChatArea` and `useChat` then survives into a room it does
           not belong to. Twelve reviews found twelve instances of that, and each
@@ -730,7 +837,7 @@ export function OfficePage({
 
           ⚠️ Removing a key here does not break a test that names it; it silently
           reopens all twelve. `lint-chat-area-key` is what goes red instead. */}
-      {showChat && (workerMember || releasedPeer || selected) && (
+      {showChat && chatProjection && (
         <section className="office__chat">
           {isMobile && (
             <button
@@ -742,149 +849,13 @@ export function OfficePage({
               <span>{t.office.backToMembers}</span>
             </button>
           )}
-          {releasedPeer ? (
-            // T-661b: a 跳到原訊息 whose chatId resolves to neither a roster
-            // member nor a LIVE worker (a released outsource worker / removed
-            // member). Render the ORIGINAL conversation read-only — history is
-            // keyed by peer id, so it is still reachable — with an honest
-            // "已釋出 / 不在名單" subtitle instead of a fabricated presence, and
-            // NO onOpenDetail (there is no live detail to open → composer stays
-            // the plain locked notice). jumpToMsgId still locates the ask.
-            <ChatArea
-              key={releasedPeer.id}
-              member={releasedPeer}
-              members={members}
-              workers={outsource.workers}
-              jumpToMsgId={route.msgId}
-              draftSeed={seedFor(releasedPeer.id)}
-              headerSub={
-                <span
-                  className="chat__header-outsource"
-                  data-testid="released-chat-sub"
-                >
-                  {isReleasedWorkerId
-                    ? t.office.outsource.releasedSub
-                    : t.office.chatUnavailableSub}
-                </span>
-              }
-            />
-          ) : workerMember && workerPeer ? (
-            // M3 §4.2 outsource chat: the SAME ChatArea as a member chat
-            // (打字/附檔/看回覆), mounted on the worker id as the chat peer.
-            // Header title = 「外包 · 代號」; the subtitle is the SAME task
-            // line the rail's outsource row shows — [clickable task-id chip →
-            // task type], the shared OutsourceTaskLine (owner 2026-07-16:
-            // 兩邊顯示一樣的東西; replaces the old 狀態 · 標題 pair) — instead
-            // of a member presence badge. NO dot here: outsource presence
-            // lives only in the rail row, the header never grows a second
-            // presence source. A worker is anonymous (no presence projection,
-            // no unread counter), but it HAS a lean detail panel: the header
-            // opens it (same gate the roster row's avatar uses), routed to
-            // #office/worker/<id>. The chip's stopPropagation keeps the task
-            // jump from also opening that detail.
-            <ChatArea
-              key={workerPeer.id}
-              member={workerMember}
-              members={members}
-              workers={outsource.workers}
-              onOpenDetail={() => setWorkerDetailId(workerPeer.id)}
-              // T-128 就地喚醒, 外包版. The SAME ChatArea prop the 正職 branch
-              // below wires — that is the whole point: an offline worker's chat
-              // is offered the identical queue notice + ⚡喚醒 row rather than a
-              // second, outsource-only surface. The verb differs because the
-              // wake VERB differs (a worker is re-dispatched via restartWorker,
-              // the 喚醒 the detail panel already fires since T-7526; a member
-              // is activateMember). It resolves VOID, which ChatArea already
-              // handles — no `activationPending` verdict exists on this wire, so
-              // none is fabricated. No refetch here: the outsource_worker SSE
-              // delta refetches the list, exactly as the detail panel's 喚醒
-              // relies on, and the presence flip clears the optimistic pending.
-              onWake={async () => {
-                await api.restartWorker(workerPeer.id);
-              }}
-              draftSeed={seedFor(workerPeer.id)}
-              // T-3451: the bound task's FULL title under the 任務編號·type sub —
-              // owner: 外包側 header 同樣顯示完整 title. Rides the wire echo.
-              headerTaskTitle={workerPeer.taskTitle ?? ""}
-              headerSub={
-                <span
-                  className="chat__header-outsource"
-                  data-testid="outsource-chat-sub"
-                >
-                  <OutsourceTaskLine
-                    worker={workerPeer}
-                    onOpenTask={(taskId) => setRoute({ page: "tasks", taskId })}
-                    idPrefix="outsource-chat"
-                  />
-                </span>
-              }
-            />
-          ) : (
-            selected && (
-              <ChatArea
-                key={selected.id}
-                member={selected}
-                // The full roster resolves an inter-agent message's sender id →
-                // name (the sender may be a THIRD agent, not the window's peer).
-                members={members}
-                // The live worker list, so an ow- sender `members` did not
-                // resolve still gets the codename the left rail shows. Note
-                // `members` is the UNFILTERED roster (not `roster`, which is
-                // kind==='staff' only), and GET /api/members does carry
-                // kind='outsource' rows — so this list is a fallback, not the
-                // only outsource label source. Released workers are in
-                // neither; ChatArea's useWorkerCodenames covers those.
-                workers={outsource.workers}
-                // Reuse the existing detailId gate: the header opens the same
-                // MemberDetailPanel the left-rail MemberCard avatar opens.
-                onOpenDetail={() => setDetailId(selected.id)}
-                // T-dfae 聊天 header 兩個圖示 (owner 2026-07-17). Wired ONLY on
-                // this branch — the outsource / released branches above pass
-                // neither, so no dead jump is ever advertised. Both go through
-                // the hashRoute seam like every other jump on this page.
-                onOpenTasks={() =>
-                  setRoute({ page: "tasks", executorId: selected.id })
-                }
-                // The role KEY rides in the hash only — never rendered (T-fa76).
-                // A member with no role has nothing to open, so no button.
-                onOpenRoleSettings={
-                  selected.role
-                    ? () =>
-                        setRoute({
-                          page: "settings",
-                          settingsRoles: true,
-                          roleKey: selected.role,
-                        })
-                    : undefined
-                }
-                // T-94c1 就地喚醒: same activate contract as the detail panel's
-                // spawn — writes desired_state=online INTENT (default machine
-                // binding), then refetch lets server-driven presence surface
-                // waking → online. Wired ONLY on this live-member branch (an
-                // outsource worker is spawn/task-driven, not activate-woken).
-                onWake={async () => {
-                  // 🔴 T-7fa1: the in-chat wake row has its own optimistic
-                  // 「喚醒中…」, so it needs the verdict too — returning void
-                  // here leaves the chat surface stuck exactly as before.
-                  const result = await api.activateMember(selected.id);
-                  try {
-                    await refetch();
-                  } catch {
-                    /* the verdict outlives a failed refresh (NIT-4) */
-                  }
-                  return result;
-                }}
-                // B3 跳到原訊息 (#office/chat/<id>/msg/<msgId>): locate +
-                // highlight the ask message. Only meaningful for the EXPLICITLY
-                // routed chat — the roster[0] fallback never inherits a stale
-                // msg target.
-                jumpToMsgId={
-                  selected.id === route.chatId ? route.msgId : undefined
-                }
-                draftSeed={seedFor(selected.id)}
-              />
-            )
-          )}
+          <ChatArea
+            key={chatProjection.member.id}
+            member={chatProjection.member}
+            {...chatProjection.slots}
+            members={members}
+            workers={outsource.workers}
+          />
         </section>
       )}
     </div>

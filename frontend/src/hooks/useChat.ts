@@ -318,11 +318,7 @@ function mergePeerRead(prev: number, next: number): number {
 //                    the caller to retry here would resurrect a jump the reader
 //                    has moved on from, on top of the one they are waiting for.
 export type JumpOutcome =
-  | "found"
-  | "missing"
-  | "unreachable"
-  | "superseded"
-  | "cancelled";
+  "found" | "missing" | "unreachable" | "superseded" | "cancelled";
 
 // Topics that mutate the chat thread → trigger a refetch. "chat_read" advances a
 // participant's last-read watermark (the peer read our messages).
@@ -346,7 +342,9 @@ function pageJoinsThread(have: ChatMessage[], latest: ChatMessage[]): boolean {
   const haveIds = new Set(have.map((m) => m.id));
   if (latest.some((m) => haveIds.has(m.id))) return true;
   const ourNewest = have.reduce((a, b) => (cmpStreamOrder(a, b) >= 0 ? a : b));
-  const pageOldest = latest.reduce((a, b) => (cmpStreamOrder(a, b) <= 0 ? a : b));
+  const pageOldest = latest.reduce((a, b) =>
+    cmpStreamOrder(a, b) <= 0 ? a : b,
+  );
   return cmpStreamOrder(pageOldest, ourNewest) <= 0;
 }
 
@@ -407,7 +405,9 @@ async function backfillSeam(
       filled.unshift(...page);
       // A row we already hold ⇒ the two ranges now touch. Done.
       if (page.some((m) => haveIds.has(m.id))) return { filled, joined: true };
-      const pageOldest = page.reduce((a, b) => (cmpStreamOrder(a, b) <= 0 ? a : b));
+      const pageOldest = page.reduce((a, b) =>
+        cmpStreamOrder(a, b) <= 0 ? a : b,
+      );
       // …or this page reached back past our newest row, which is the same
       // thing when ids happen not to repeat.
       if (cmpStreamOrder(pageOldest, ourNewest) <= 0) {
@@ -494,10 +494,7 @@ type ConversationSlot = {
   dropDebt: LatchRelease | null;
 };
 
-export function useChat(
-  withId: string,
-  entryAnchorMsgId?: string,
-): UseChat {
+export function useChat(withId: string, entryAnchorMsgId?: string): UseChat {
   // The thread, its mirror and its generation clock — all three behind
   // `lib/threadCommit`, which is the only thing that can write them.
   const view = useThreadCommit();
@@ -881,9 +878,10 @@ export function useChat(
     // the `key` did.
     //
     // 🔴 THERE IS NO SUCH CALLER TODAY, AND THAT IS WRITTEN DOWN RATHER THAN
-    // LEFT TO BE REDISCOVERED (T-48, R14-3.3). `OfficePage`'s three `<ChatArea>`
-    // branches all pass `key={x.id}` with the same `x` they pass as `member`,
-    // so `key` IS `withId` and a room change is always a remount: nothing in
+    // LEFT TO BE REDISCOVERED (T-48, R14-3.3). `OfficePage`'s single
+    // `<ChatArea>` mount passes `key={chatProjection.member.id}` beside that
+    // same member, so `key` IS `withId` and a room change is always a remount:
+    // nothing in
     // the product reaches this path. What it costs is one extra `clear()` per
     // mount, into a thread that is already empty. It stays because the shape it
     // catches is a shape somebody can go back to — drop the key, or mount this
@@ -1090,10 +1088,10 @@ export function useChat(
           batch.topics.has("chat_read") &&
           (reads.length === 0 ||
             reads.some(
-              (d) => d.names.reader === undefined || d.names.reader === withId
+              (d) => d.names.reader === undefined || d.names.reader === withId,
             ));
         if (ourChat || peerRead) void refetchReads();
-      })
+      }),
     );
 
     // Coming BACK to the foreground while this thread is open: refresh, so what
@@ -1339,7 +1337,7 @@ export function useChat(
   // the one stated above and in lib/conversationLatches; there is nothing else
   // to go and read.)
   const withAnchorFetch = useCallback(
-    async <T,>(body: () => Promise<T>): Promise<T> => {
+    async <T>(body: () => Promise<T>): Promise<T> => {
       const release = conv.latches.acquire("anchorFetch");
       try {
         return await body();
@@ -1362,7 +1360,8 @@ export function useChat(
       // been replaced must stop buying pages long before it has anything to
       // commit. `walkAliveRef` covers the other ending — the room is gone.
       const gen = ++walkGenRef.current;
-      const isCurrent = () => walkAliveRef.current && walkGenRef.current === gen;
+      const isCurrent = () =>
+        walkAliveRef.current && walkGenRef.current === gen;
       // 🔴 AND THE WAIT GOES UP HERE, NOT AT THE MOUNT. This is the only line
       // that makes 「第二次跳到原訊息」 draw anything at all (review25 F2): the
       // room is already open, so nothing else in this hook is in a waiting
@@ -1374,116 +1373,120 @@ export function useChat(
       // and neither can end without writing it.
       try {
         return await withAnchorFetch(async () => {
-        const seq = view.takeTicket();
-        let older: ChatMessage[];
-        let newer: ChatMessage[];
-        try {
-          [older, newer] = await Promise.all([
-            api.listChatWindow(withId, { endId: msgId }, CHAT_PAGE_SIZE),
-            // The forward half is the FIRST PAGE OF THE FETCH TO THE TAIL, so
-            // it is asked at the walk's page size rather than the history one.
-            api.listChatWindow(withId, { startId: msgId }, CHAT_WALK_PAGE_SIZE),
-          ]);
-        } catch (e) {
-          // An unknown id is a 404 here, NOT an empty page — the server refuses
-          // to make "no such message" look like "a window that happens to be
-          // empty".
+          const seq = view.takeTicket();
+          let older: ChatMessage[];
+          let newer: ChatMessage[];
+          try {
+            [older, newer] = await Promise.all([
+              api.listChatWindow(withId, { endId: msgId }, CHAT_PAGE_SIZE),
+              // The forward half is the FIRST PAGE OF THE FETCH TO THE TAIL, so
+              // it is asked at the walk's page size rather than the history one.
+              api.listChatWindow(
+                withId,
+                { startId: msgId },
+                CHAT_WALK_PAGE_SIZE,
+              ),
+            ]);
+          } catch (e) {
+            // An unknown id is a 404 here, NOT an empty page — the server refuses
+            // to make "no such message" look like "a window that happens to be
+            // empty".
+            //
+            // 🔴 BUT A FAILED READ IS NOT A MISSING MESSAGE (T-48). Both used to
+            // come back as one word, and the screen then said 「可能已經被清掉了」 to
+            // somebody whose message was sitting right there behind a 502. The two
+            // answers point the reader at opposite next moves — one ends the matter,
+            // the other is worth retrying — so the split is by what the server
+            // actually said:
+            //   • 404 — this conversation carries no such row.
+            //   • 422 — the id is not a usable id; sending it again cannot help.
+            //   ⇒ both are "missing": retrying changes nothing.
+            //   • anything else (5xx, 429, a rejected fetch with no status at all)
+            //     ⇒ "unreachable": the read failed, and a retry is exactly the
+            //     right thing to offer.
+            console.warn("useChat: loadAround failed", e);
+            const status = e instanceof ApiError ? e.status : 0;
+            return status === 404 || status === 422 ? "missing" : "unreachable";
+          }
+          const byId = new Map<string, ChatMessage>();
+          for (const m of [...older, ...newer]) byId.set(m.id, m);
+          const window = [...byId.values()].sort(cmpStreamOrder);
+          // 🔴 NOT MERELY DEFENSIVE — THIS IS A REACHABLE 200 (T-48, F1). The server
+          // resolves the anchor WITHOUT the participant filter on purpose
+          // (api_chat.go: "a window anchored outside it simply comes back empty,
+          // which is the honest answer"), so a msgId that EXISTS but belongs to a
+          // DIFFERENT conversation answers both calls with 200 + an empty array.
+          // Adopting that window writes `messages: []` into the thread: the room
+          // goes blank, the miss notice does not light, and nothing is logged.
+          // Refusing turns it into the ordinary miss, which is what it is.
+          if (!window.some((m) => m.id === msgId)) return "missing";
+          // 🔴 EVERYTHING FROM THE ANCHOR TO THE LIVE TAIL, BEFORE ANYTHING IS
+          // COMMITTED (T-48 fix12, owner c-6a973512ed77 逐字:「我是指整個訊息撈完
+          // 才 render」). A full forward half means the stream continues below the
+          // window; the rest of it is collected in memory here and lands in the
+          // SAME commit as the anchor window.
           //
-          // 🔴 BUT A FAILED READ IS NOT A MISSING MESSAGE (T-48). Both used to
-          // come back as one word, and the screen then said 「可能已經被清掉了」 to
-          // somebody whose message was sitting right there behind a 502. The two
-          // answers point the reader at opposite next moves — one ends the matter,
-          // the other is worth retrying — so the split is by what the server
-          // actually said:
-          //   • 404 — this conversation carries no such row.
-          //   • 422 — the id is not a usable id; sending it again cannot help.
-          //   ⇒ both are "missing": retrying changes nothing.
-          //   • anything else (5xx, 429, a rejected fetch with no status at all)
-          //     ⇒ "unreachable": the read failed, and a retry is exactly the
-          //     right thing to offer.
-          console.warn("useChat: loadAround failed", e);
-          const status = e instanceof ApiError ? e.status : 0;
-          return status === 404 || status === 422 ? "missing" : "unreachable";
-        }
-        const byId = new Map<string, ChatMessage>();
-        for (const m of [...older, ...newer]) byId.set(m.id, m);
-        const window = [...byId.values()].sort(cmpStreamOrder);
-        // 🔴 NOT MERELY DEFENSIVE — THIS IS A REACHABLE 200 (T-48, F1). The server
-        // resolves the anchor WITHOUT the participant filter on purpose
-        // (api_chat.go: "a window anchored outside it simply comes back empty,
-        // which is the honest answer"), so a msgId that EXISTS but belongs to a
-        // DIFFERENT conversation answers both calls with 200 + an empty array.
-        // Adopting that window writes `messages: []` into the thread: the room
-        // goes blank, the miss notice does not light, and nothing is logged.
-        // Refusing turns it into the ordinary miss, which is what it is.
-        if (!window.some((m) => m.id === msgId)) return "missing";
-        // 🔴 EVERYTHING FROM THE ANCHOR TO THE LIVE TAIL, BEFORE ANYTHING IS
-        // COMMITTED (T-48 fix12, owner c-6a973512ed77 逐字:「我是指整個訊息撈完
-        // 才 render」). A full forward half means the stream continues below the
-        // window; the rest of it is collected in memory here and lands in the
-        // SAME commit as the anchor window.
-        //
-        // Why it is not a page-by-page commit with a spinner off the side:
-        // measured (fix11), committing per page costs 12.4s of main-thread work
-        // at 8,000 rows against 0.58s for one commit, because there is no
-        // virtualization and every commit re-renders the whole thread. It is
-        // also what makes the un-read watermark safe by construction — see
-        // ChatArea's `tailSeen`: with one commit there is never a moment where
-        // the thread holds the tail while the reader is still being moved.
-        let all = window;
-        let reachedTail = newer.length < CHAT_WALK_PAGE_SIZE;
-        if (!reachedTail) {
-          const r = await fetchToLatest(window, isCurrent);
-          // 🔴 A CALLED-OFF WALK COMMITS NOTHING (T-48 fix14, review25 F1). The
-          // reader has left the room or asked for a different message; the
-          // half-thread in hand belongs to a screen that no longer wants it,
-          // and the trip that replaced this one is the one that gets to paint.
-          if (r.cancelled) return "cancelled";
-          all = r.messages;
-          reachedTail = r.reachedTail;
-        }
-        // …and the same question once more at the door, for the trip whose
-        // forward half was short enough never to enter the walk at all.
-        if (!isCurrent()) return "cancelled";
-        // 🔴 THE WAIT COMES DOWN BEFORE THE COMMIT, NEVER AFTER IT (T-48
-        // fix14). The spinner REPLACES the thread body, so the frame that
-        // paints the fetched rows must not still be under it: `ChatArea`'s jump
-        // reactor locates its target by querying the painted DOM, and a commit
-        // that lands while the pane is still a spinner is a commit whose target
-        // is never found — the reader ends up on a thread nobody scrolled.
-        // Measured, not theorised: with this line in the `finally` instead,
-        // `ChatArea.anchor-entry.test.tsx` loses the row and paints the
-        // new-message strip in place of the 回到最新 arrow. React batches the
-        // two into one frame when it can; this makes the ORDER not matter when
-        // it cannot. The `finally` below still covers every ending that never
-        // reaches a commit.
-        setAnchorWalking(false);
-        // 🔴 THE CARD PREFILL LANDS INSIDE THE `withAnchorFetch` LEASE, AND THAT
-        // IS DELIBERATE (T-48). This is the one commit point where the extra
-        // round trip is not merely tolerable but WANTED: while the lease is held
-        // `load()` stands down, so the interval spent waiting for the jump
-        // target's cards is also an interval in which the live tail cannot flash
-        // onto the screen underneath the jump. The lease still releases in the
-        // same `finally` — do not move this out of it.
-        const ok = await view.commit(seq, (prev) => ({
-          messages: all,
-          // A full older page means history may continue above it; the tail
-          // question is answered by the fetch above rather than by one page's
-          // length now.
-          hasMore: older.length >= CHAT_PAGE_SIZE,
-          gapSuspected: prev.gapSuspected,
-          // 🔴 COMMIT WHAT WE HAVE EVEN WHEN THE FETCH GAVE UP, AND SAY SO.
-          // The alternative — refusing to commit — is a blank room for a reader
-          // who asked to see a specific message. So the short thread lands and
-          // this flag carries the truth: the 回到最新 arrow stays up, `load()`
-          // stands down, and the watermark is not stamped.
-          hasNewer: !reachedTail,
-        }));
-        // Overtaken, NOT missing — and the difference is the whole of F3. The
-        // caller re-schedules; the latch is NOT what carries that decision
-        // across the gap (see the finally below).
-        if (!ok) return "superseded";
-        return "found";
+          // Why it is not a page-by-page commit with a spinner off the side:
+          // measured (fix11), committing per page costs 12.4s of main-thread work
+          // at 8,000 rows against 0.58s for one commit, because there is no
+          // virtualization and every commit re-renders the whole thread. It is
+          // also what makes the un-read watermark safe by construction — see
+          // ChatArea's `tailSeen`: with one commit there is never a moment where
+          // the thread holds the tail while the reader is still being moved.
+          let all = window;
+          let reachedTail = newer.length < CHAT_WALK_PAGE_SIZE;
+          if (!reachedTail) {
+            const r = await fetchToLatest(window, isCurrent);
+            // 🔴 A CALLED-OFF WALK COMMITS NOTHING (T-48 fix14, review25 F1). The
+            // reader has left the room or asked for a different message; the
+            // half-thread in hand belongs to a screen that no longer wants it,
+            // and the trip that replaced this one is the one that gets to paint.
+            if (r.cancelled) return "cancelled";
+            all = r.messages;
+            reachedTail = r.reachedTail;
+          }
+          // …and the same question once more at the door, for the trip whose
+          // forward half was short enough never to enter the walk at all.
+          if (!isCurrent()) return "cancelled";
+          // 🔴 THE WAIT COMES DOWN BEFORE THE COMMIT, NEVER AFTER IT (T-48
+          // fix14). The spinner REPLACES the thread body, so the frame that
+          // paints the fetched rows must not still be under it: `ChatArea`'s jump
+          // reactor locates its target by querying the painted DOM, and a commit
+          // that lands while the pane is still a spinner is a commit whose target
+          // is never found — the reader ends up on a thread nobody scrolled.
+          // Measured, not theorised: with this line in the `finally` instead,
+          // `ChatArea.anchor-entry.test.tsx` loses the row and paints the
+          // new-message strip in place of the 回到最新 arrow. React batches the
+          // two into one frame when it can; this makes the ORDER not matter when
+          // it cannot. The `finally` below still covers every ending that never
+          // reaches a commit.
+          setAnchorWalking(false);
+          // 🔴 THE CARD PREFILL LANDS INSIDE THE `withAnchorFetch` LEASE, AND THAT
+          // IS DELIBERATE (T-48). This is the one commit point where the extra
+          // round trip is not merely tolerable but WANTED: while the lease is held
+          // `load()` stands down, so the interval spent waiting for the jump
+          // target's cards is also an interval in which the live tail cannot flash
+          // onto the screen underneath the jump. The lease still releases in the
+          // same `finally` — do not move this out of it.
+          const ok = await view.commit(seq, (prev) => ({
+            messages: all,
+            // A full older page means history may continue above it; the tail
+            // question is answered by the fetch above rather than by one page's
+            // length now.
+            hasMore: older.length >= CHAT_PAGE_SIZE,
+            gapSuspected: prev.gapSuspected,
+            // 🔴 COMMIT WHAT WE HAVE EVEN WHEN THE FETCH GAVE UP, AND SAY SO.
+            // The alternative — refusing to commit — is a blank room for a reader
+            // who asked to see a specific message. So the short thread lands and
+            // this flag carries the truth: the 回到最新 arrow stays up, `load()`
+            // stands down, and the watermark is not stamped.
+            hasNewer: !reachedTail,
+          }));
+          // Overtaken, NOT missing — and the difference is the whole of F3. The
+          // caller re-schedules; the latch is NOT what carries that decision
+          // across the gap (see the finally below).
+          if (!ok) return "superseded";
+          return "found";
         });
       } finally {
         settleFirstLoad();

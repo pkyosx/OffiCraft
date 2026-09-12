@@ -289,6 +289,14 @@ type Member struct {
 	// AvatarAttachmentID points at this stable member id's one personal image
 	// in the shared byte store. Empty means no personal image.
 	AvatarAttachmentID string
+	// TaskID and Status are the historical outsource vocabulary projected from
+	// LinkedTaskID and the durable roster/activation anchors. They stay empty on
+	// a Member row and are populated only on the OutsourceWorker view. Keeping
+	// them in the shared underlying record lets Member and OutsourceWorker use a
+	// compile-time conversion: a newly added member field is then carried by
+	// construction instead of depending on another handwritten copy list.
+	TaskID string
+	Status string
 }
 
 // RosterStatusRemoved is the soft-delete lifecycle value (the Python

@@ -1057,147 +1057,13 @@ func (d *DAL) ReplaceTaskPlan(taskID string, retain, freeze []string,
 // the server's in-memory maps (worker_spawn.go workerSpawnAt/Target/Attempts),
 // the member-reconcile posture — a restart forgets them (accepted trade-off,
 // P7d spec 1f).
-type OutsourceWorker struct {
-	ID       string
-	Codename string
-	Runtime  string
-	Model    string
-	// ActualModel / ActualRuntime / ActualEffort are the runtime-REPORTED twins
-	// of the owner's configured launch Model / Runtime / Effort. Outsource
-	// workers project the same member row, so all three MUST round-trip through
-	// memberFromWorker: that function rebuilds a Member from scratch, and any
-	// column it forgets is zeroed on the next worker write — which would silently
-	// erase a reported value the telemetry path had just stamped.
-	ActualModel   string
-	ActualRuntime string
-	ActualEffort  string
-	Effort        string
-	TaskID        string
-	Status        string // closed set assigned|active|released (derived projection)
-	// ActivatedTS is the durable assigned→active anchor (member.activated_ts):
-	// 0 = never claimed its task; >0 = the first report_waking claim time (T-4595
-	// moved that edge off the retired GET /api/self/task).
-	// Writers normally leave it alone — the Put mapping stamps it when Status
-	// flips to active with no anchor yet.
-	ActivatedTS  float64
-	CreatedTS    float64
-	ReleasedTS   float64
-	LastOp       string
-	LastOpOK     *bool // nil = no worker receipt folded yet (three-valued)
-	LastOpLog    string
-	LastOpReason string
-	LastOpAt     float64
-	// DesiredMachineID is the OWNER-PINNED placement (T-f190, migrations/00018),
-	// the worker twin of member.desired_machine_id: "" = unpinned (fall back to
-	// the task's 發包 target, then the type manual), else a concrete machine id.
-	// notifyWorkerSpawn prefers this over the manual pref;
-	// the relocate handler writes it and re-spawns onto the chosen machine.
-	DesiredMachineID string
-	// LastMachineID is the STICKY placement anchor (T-98f4, migrations/00039),
-	// mirroring member.last_machine_id: the machine this worker's last CONFIRMED
-	// session connected from ("" = it has never landed anywhere yet, i.e. the
-	// next boot is its first). notifyWorkerSpawn prefers it over the configured
-	// (task row / 手冊) arms but below the owner pin, and — unlike the pin —
-	// treats it as a soft preference that falls through when that machine cannot
-	// currently take the worker. Written only by the SSE first-connect edge; no
-	// owner verb writes it directly.
-	LastMachineID string
-	// SessionBootTS mirrors member.session_boot_ts (T-4235, migrations/00051):
-	// the durable anchor for when this worker's CURRENT session first connected,
-	// 0 when no session is anchored. Carried through workerFromMember /
-	// memberFromWorker for the SAME reason StoppingSince/StoppedSince are — the
-	// projection rebuilds a Member from scratch, so a column it forgets is ZEROED
-	// by the next outsource write, and zeroing this one hands a live hours-old
-	// session back to the boot-storm guard as "just booted".
-	SessionBootTS float64
-	// RefocusSince is the in-flight context-handover marker (T-32e1,
-	// migrations/00019), the worker twin of member.RefocusSince: >0 while a
-	// refocus (owner 換手 button OR the context-high auto-handover) is mid-flight,
-	// 0 otherwise. Set by both refocus paths, used as the auto-handover cooldown,
-	// and cleared by the tick's loop-break once a fresh session boots after it.
-	RefocusSince float64
-	// RefocusOp names WHICH operation opened that window ("" when none is in
-	// flight) — the worker twin of member.refocus_op. Stamped and cleared in
-	// lockstep with RefocusSince.
-	RefocusOp string
-	// ForcedStopAt mirrors member.forced_stop_at (T-a9d6, migrations/00057) —
-	// the durable record that this session was CUT OFF rather than collected,
-	// and the one field forcedEpochLive reads to decide whether an offboard
-	// delta says anything at all.
-	//
-	// 🔴 It has to be here, not derived, because the projection rebuilds a
-	// Member from scratch: for as long as this field did not exist,
-	// forcedEpochLive was FALSE for every worker that ever ran, and the silence
-	// the owner ruled for a forced stop simply did not apply on this side
-	// (T-c996). Deriving it from desired_state instead would be true only for as
-	// long as 停止 stays the ONLY writer of offline on a worker — a condition
-	// nothing enforces and nothing would report breaking.
-	ForcedStopAt float64
-	// StoppingSince / StoppedSince are the graceful-handover wind-down anchors
-	// (T-ea82), DIRECT mirrors of the member columns (the row has carried them
-	// since the P7d fold): stopping_since marks the SOP started; stopped_since
-	// is the dump-done latch both 收口 drivers (stopped-report, grace timeout)
-	// key their once-only check on. Carried through workerFromMember /
-	// memberFromWorker so no in-between PutOutsourceWorker can zero a
-	// mid-handover anchor.
-	StoppingSince float64
-	StoppedSince  float64
-	// WakingSince is the DURABLE wake anchor, a DIRECT mirror of
-	// member.waking_since (T-14): the timestamp of the last LANDED start
-	// dispatch, 0 when no wake is on record. Carried through workerFromMember /
-	// memberFromWorker for the same reason StoppingSince/StoppedSince are — the
-	// projection rebuilds a Member from scratch, so a column it forgets is
-	// ZEROED by the next outsource write, and zeroing this one drops a live
-	// worker out of 「喚醒中」 mid-wake.
-	//
-	// It replaces the in-memory workerSpawnAt anchor the presence projection
-	// used to read: that map is reborn empty by every re-exec, so a worker
-	// dispatched before a restart fell straight to 「離線」 while its wake was
-	// still in flight. The staff side already stamps at dispatch
-	// (stampWakeObservability, "a LANDED START stamps waking_since") — this is
-	// that same rule, not a second one. workerSpawnAt survives, but only as the
-	// re-dispatch PACE.
-	WakingSince float64
-	// DesiredState is the run-intent, a DIRECT mirror of member.DesiredState
-	// (T-f190, migrations/00020): "online" (system wants it running — the default),
-	// "offline" (owner-explicit STOP — held down, every auto-revival path skips it).
-	// Set "offline" by stop, back to "online" by restart. A worker whose intent is
-	// offline projects spawn_state "stopped". Replaces the earlier bespoke
-	// stopped_since marker with the member value domain (owner: 外包＝系統代管的正職員工).
-	DesiredState string
-	// RestartAfterStop is the SECOND owner intent (T-14 項目 7, migrations/00070),
-	// a DIRECT mirror of member.restart_after_stop: 「這一輪下線收口之後，把它帶
-	// 起來」. The 下線 verbs clear it, the 重啟 verbs (重新聚焦 / 改機器 / 換 model
-	// on a stopped worker) set it, and consumeWorkerRestartAfterStop spends it at
-	// the converged-offline edge of the outsource tick.
-	//
-	// 🔴 IT HAS TO BE CARRIED HERE, and this is the field that made T-65 包② a
-	// two-commit change rather than a one-commit one. restart_after_stop is one of
-	// the FEW owner-intent columns that is deliberately NOT insertOnly
-	// (mfRestartAfterStop, dal_member_patch.go), so memberWholeRow carries it into
-	// PutMember's SET list — which means every PutOutsourceWorker is a write of
-	// this column. While the projection did not carry it, memberFromWorker rebuilt
-	// the Member with the zero value and EVERY non-test PutOutsourceWorker call
-	// site wrote restart_after_stop=0 over whatever was there. (Do not trust a
-	// count in a comment — this sentence said "13" and was wrong in both
-	// directions: 12 before this package, 14 after. Count them.) A handler
-	// stamping the intent would have had it erased by the very next worker write,
-	// with NOTHING going red: the owner presses 重新聚焦 on a stopped worker, gets
-	// a 200, and the worker never comes up.
-	// Pinned by TestOutsourceProjectionCarriesRestartAfterStop.
-	RestartAfterStop bool
-	// BankedCost is the persistent historical cumulative cost (T-ba6b,
-	// migrations/00021), the worker twin of member.BankedCost: the live
-	// telemetry cost folds in here (bankLiveCost — the SAME helper the member
-	// SSE-disconnect edge uses) whenever the session ends or is killed for a
-	// respawn, so a refocus / 換 model / auto-handover no longer zeroes the
-	// owner-visible spend. Kept separate from the live figure (never
-	// overlapping); the panel sums live + banked.
-	BankedCost float64
-	// AvatarAttachmentID is the shared member row's personal-avatar pointer.
-	// Carry it through every worker projection so lifecycle writes never erase it.
-	AvatarAttachmentID string
-}
+
+// OutsourceWorker is the historical worker vocabulary over the exact same
+// underlying record as Member. The two defined types intentionally share the
+// complete field set so conversion carries every durable member column at
+// compile time; workerFromMember/memberFromWorker below only translate the
+// fields whose meanings genuinely differ between the two views.
+type OutsourceWorker Member
 
 // workerStatusFromMember derives the frozen worker lifecycle vocabulary from
 // the member row's anchors: roster removed ⇒ released; a claimed task
@@ -1220,39 +1086,19 @@ func workerFromMember(m Member) OutsourceWorker {
 	if m.LinkedTaskID != nil {
 		taskID = *m.LinkedTaskID
 	}
-	return OutsourceWorker{
-		ID:                 m.ID,
-		Codename:           m.Codename,
-		Runtime:            NormalizeRuntime(m.Runtime),
-		Model:              m.Model,
-		ActualModel:        m.ActualModel,
-		ActualRuntime:      m.ActualRuntime,
-		ActualEffort:       m.ActualEffort,
-		Effort:             m.Effort,
-		TaskID:             taskID,
-		Status:             workerStatusFromMember(m.RosterStatus, m.ActivatedTS),
-		ActivatedTS:        m.ActivatedTS,
-		CreatedTS:          m.CreatedTS,
-		ReleasedTS:         m.ReleasedTS,
-		LastOp:             m.LastOp,
-		LastOpOK:           m.LastOpOK,
-		LastOpLog:          m.LastOpLog,
-		LastOpReason:       m.LastOpReason,
-		LastOpAt:           m.LastOpAt,
-		DesiredMachineID:   m.DesiredMachineID,
-		LastMachineID:      m.LastMachineID,
-		SessionBootTS:      m.SessionBootTS,
-		RefocusSince:       m.RefocusSince,
-		RefocusOp:          m.RefocusOp,
-		StoppingSince:      m.StoppingSince,
-		StoppedSince:       m.StoppedSince,
-		WakingSince:        m.WakingSince,
-		ForcedStopAt:       m.ForcedStopAt,
-		DesiredState:       m.DesiredState,
-		RestartAfterStop:   m.RestartAfterStop,
-		BankedCost:         m.BankedCost,
-		AvatarAttachmentID: m.AvatarAttachmentID,
-	}
+	w := OutsourceWorker(m)
+	w.Name = ""
+	w.Kind = ""
+	w.RoleKey = ""
+	w.RosterStatus = ""
+	w.LinkedTaskID = nil
+	w.HandoverNoticedTS = 0
+	w.AgentIatFloor = 0
+	w.TokenKeyID = ""
+	w.Runtime = NormalizeRuntime(m.Runtime)
+	w.TaskID = taskID
+	w.Status = workerStatusFromMember(m.RosterStatus, m.ActivatedTS)
+	return w
 }
 
 // memberFromWorker maps the worker vocabulary back onto a member row (the
@@ -1263,76 +1109,34 @@ func workerFromMember(m Member) OutsourceWorker {
 // activated_ts = now (the report_waking claim edge — the only assigned→active
 // transition; T-4595 moved it off the retired GET /api/self/task).
 func memberFromWorker(w OutsourceWorker) Member {
-	roster := RosterStatusActive
-	if w.Status == WorkerStatusReleased {
-		roster = RosterStatusRemoved
+	m := Member(w)
+	identity := Member{
+		Name:    w.Codename,
+		Kind:    KindOutsource,
+		RoleKey: "",
+		Runtime: NormalizeRuntime(w.Runtime),
 	}
-	activated := w.ActivatedTS
+	m.Name = identity.Name
+	m.Kind = identity.Kind
+	m.RoleKey = identity.RoleKey
+	m.Runtime = identity.Runtime
+	m.RosterStatus = RosterStatusActive
+	if w.Status == WorkerStatusReleased {
+		m.RosterStatus = RosterStatusRemoved
+	}
 	switch w.Status {
 	case WorkerStatusAssigned:
-		activated = 0.0
+		m.ActivatedTS = 0
 	case WorkerStatusActive:
-		if activated == 0.0 {
-			activated = nowSecs()
+		if m.ActivatedTS == 0 {
+			m.ActivatedTS = nowSecs()
 		}
 	}
 	taskID := w.TaskID
-	return Member{
-		ID:               w.ID,
-		Name:             w.Codename,
-		Kind:             KindOutsource,
-		RoleKey:          "",
-		Runtime:          NormalizeRuntime(w.Runtime),
-		Model:            w.Model,
-		ActualModel:      w.ActualModel,
-		ActualRuntime:    w.ActualRuntime,
-		ActualEffort:     w.ActualEffort,
-		Effort:           w.Effort,
-		DesiredState:     w.DesiredState,
-		DesiredMachineID: w.DesiredMachineID,
-		LastMachineID:    w.LastMachineID,
-		SessionBootTS:    w.SessionBootTS,
-		RefocusSince:     w.RefocusSince,
-		RefocusOp:        w.RefocusOp,
-		StoppingSince:    w.StoppingSince,
-		StoppedSince:     w.StoppedSince,
-		ForcedStopAt:     w.ForcedStopAt,
-		// 🔴 CARRIED, NOT ZEROED (T-14). This used to be a hardcoded 0 with a
-		// long note explaining that the worker vocabulary had no `waking` concept
-		// and that the DTO face anchored waking on the spawn dispatch instead. That
-		// second anchor WAS the divergence: it lived in memory, so a re-exec forgot
-		// it, and the two kinds answered 「喚醒中」 with two different rules. The
-		// worker vocabulary now carries the concept (OutsourceWorker.WakingSince),
-		// the spawn dispatch stamps it exactly where the staff arm does
-		// (stampWakeObservability), and PresenceState is the ONE reader for both.
-		//
-		// waking_since is NOT insertOnly, so a whole-row write does land it on an
-		// existing row — which makes this line what decides whether a mid-wake
-		// anchor survives the next worker write. Dropping it back to a constant
-		// re-opens the exact bug.
-		WakingSince: w.WakingSince,
-		// 🔴 CARRIED, NOT ZEROED (T-65 包②) — and unlike WakingSince above, this one
-		// is load-bearing on a column the whole-row upsert ACTIVELY WRITES rather
-		// than merely fails to refresh. mfRestartAfterStop is not insertOnly, so
-		// dropping this line back to the zero value does not leave the stored intent
-		// alone: it CLEARS it, on every single worker write. That is a silent
-		// erasure — no error, no red test that does not look for it specifically —
-		// so it has its own mutant in the T-65 包② DoD.
-		RestartAfterStop:   w.RestartAfterStop,
-		BankedCost:         w.BankedCost,
-		LastOp:             w.LastOp,
-		LastOpOK:           w.LastOpOK,
-		LastOpLog:          w.LastOpLog,
-		LastOpReason:       w.LastOpReason,
-		LastOpAt:           w.LastOpAt,
-		RosterStatus:       roster,
-		LinkedTaskID:       &taskID,
-		Codename:           w.Codename,
-		CreatedTS:          w.CreatedTS,
-		ReleasedTS:         w.ReleasedTS,
-		ActivatedTS:        activated,
-		AvatarAttachmentID: w.AvatarAttachmentID,
-	}
+	m.LinkedTaskID = &taskID
+	m.TaskID = ""
+	m.Status = ""
+	return m
 }
 
 // ListOutsourceWorkers returns every outsource member row projected onto the

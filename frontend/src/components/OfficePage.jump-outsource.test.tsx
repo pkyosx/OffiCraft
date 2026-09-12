@@ -28,7 +28,7 @@ function renderOffice() {
   return render(
     <I18nProvider>
       <OfficePage />
-    </I18nProvider>
+    </I18nProvider>,
   );
 }
 
@@ -88,10 +88,12 @@ describe("OfficePage — 跳到原訊息 to an outsource sender", () => {
     // jump target — i.e. we reached the origin conversation, not a blank pane.
     const located = await findByText("外包回報:任務初稿完成,請確認。");
     await waitFor(() =>
-      expect(located.closest(".chat__msg--located")).not.toBeNull()
+      expect(located.closest(".chat__msg--located")).not.toBeNull(),
     );
     // The header carries the honest 已釋出 subtitle, not a fabricated presence.
     await findByTestId("released-chat-sub");
+    expect(container.querySelector("textarea.chat__input")).toBeNull();
+    expect(container.querySelector(".chat__composer-locked")).not.toBeNull();
 
     // NEGATIVE: never Mira's room.
     const headerName = container.querySelector(".chat__header-name");
@@ -120,7 +122,7 @@ describe("OfficePage — 跳到原訊息 to an outsource sender", () => {
     // …and the mobile back-to-roster control is present — the pre-fix blank
     // pane had no back button (it lives inside the chat section), a dead end.
     await waitFor(() =>
-      expect(container.querySelector(".office__back")).not.toBeNull()
+      expect(container.querySelector(".office__back")).not.toBeNull(),
     );
   });
 
@@ -158,7 +160,7 @@ describe("OfficePage — 跳到原訊息 to an outsource sender", () => {
     // and not a member presence.
     await findByTestId("outsource-chat-sub");
     expect(
-      container.querySelector('[data-testid="released-chat-sub"]')
+      container.querySelector('[data-testid="released-chat-sub"]'),
     ).toBeNull();
     const headerName = container.querySelector(".chat__header-name");
     expect(headerName?.textContent ?? "").not.toContain("Mira");
@@ -224,9 +226,8 @@ describe("OfficePage — a released worker says the same thing from either entry
     // ── entry 1: the chat room ──
     window.location.hash = `#office/chat/${workerId}`;
     const chat = renderOffice();
-    const chatSentence = (
-      await chat.findByTestId("released-chat-sub")
-    ).textContent;
+    const chatSentence = (await chat.findByTestId("released-chat-sub"))
+      .textContent;
     chat.unmount();
 
     // ── entry 2: the detail panel ──
