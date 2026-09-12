@@ -18,7 +18,7 @@
 // Playwright reports "expected to fail but passed". When you see that, DELETE the
 // `test.fail()` marker to flip this into a permanent green regression guard.
 const { test, expect } = require('@playwright/test');
-const { blockWebFonts } = require('../lib/fixtures');
+const { blockWebFonts, scratchRoleKey } = require('../lib/fixtures');
 
 const BASE = process.env.OC_E2E_BASE || 'http://127.0.0.1:8791';
 const PASSWORD = process.env.OC_E2E_PASSWORD || 'joey-e2e-local-pw';
@@ -50,7 +50,11 @@ async function ensureAssistant(page, token) {
 
   const hireRes = await page.request.post(`${BASE}/api/members`, {
     headers: auth,
-    data: { name: 'Mira', kind: 'staff' },
+    data: {
+      name: 'Mira',
+      kind: 'staff',
+      role_key: await scratchRoleKey(page.request, token),
+    },
   });
   expect(hireRes.status(), 'hiring a staff member must succeed').toBe(200);
   return (await hireRes.json()).id;

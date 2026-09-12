@@ -1362,6 +1362,22 @@ func TestHandleListMembersApiMembersGet(t *testing.T) {
 	})
 }
 
+// apiTestRosterSize reads the roster back through the API and counts its rows —
+// the "nothing was written" half of a refused hire, read from the same face a
+// caller would (the SSE silence the refusals also assert covers the fan-out).
+func apiTestRosterSize(t *testing.T, h http.Handler, token string) int {
+	t.Helper()
+	rec := apiRequest(t, h, "GET", "/api/members", token, "")
+	if rec.Code != 200 {
+		t.Fatalf("roster read: want 200, got %d (%s)", rec.Code, rec.Body.String())
+	}
+	var rows []any
+	if err := json.Unmarshal(rec.Body.Bytes(), &rows); err != nil {
+		t.Fatalf("roster read: non-array body: %s", rec.Body.String())
+	}
+	return len(rows)
+}
+
 func TestHandleHireMemberApiMembersPost(t *testing.T) {
 	t.Run("a hire answers the minted id and fans the new member's own delta", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
@@ -1418,6 +1434,70 @@ func TestHandleHireMemberApiMembersPost(t *testing.T) {
 		}
 		apiWantError(t, data, "validation_error", `member kind "ghost" not in {"staff", "warden", "outsource"}`)
 		dashboard.wantFrames()
+	})
+
+	t.Run("a staff hire with no role_key answers 422 and hires nobody", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		before := apiTestRosterSize(t, h, owner)
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/members", owner, `{"name":"Ada","kind":"staff"}`)
+		if status != 422 {
+			t.Fatalf("want 422, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error",
+			"a staff member requires a role_key; hire the member through "+
+				"POST /api/roles, which mints a role and its member together")
+		dashboard.wantFrames()
+		if after := apiTestRosterSize(t, h, owner); after != before {
+			t.Fatalf("roster changed on a refused hire: %d → %d", before, after)
+		}
+	})
+
+	t.Run("a staff hire whose role_key is only whitespace answers 422 and hires nobody", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		before := apiTestRosterSize(t, h, owner)
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/members", owner, `{"name":"Ada","kind":"staff","role_key":"   "}`)
+		if status != 422 {
+			t.Fatalf("want 422, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error",
+			"a staff member requires a role_key; hire the member through "+
+				"POST /api/roles, which mints a role and its member together")
+		dashboard.wantFrames()
+		if after := apiTestRosterSize(t, h, owner); after != before {
+			t.Fatalf("roster changed on a refused hire: %d → %d", before, after)
+		}
+	})
+
+	t.Run("a hire that names no kind folds to staff and so answers 422 without a role_key", func(t *testing.T) {
+		api, h, _, _ := newAPITestServer(t)
+		// An AGENT token on purpose: a body carrying neither kind nor role_key
+		// is not privilege-bearing, so this is the door an ordinary member
+		// reaches, and the refusal has to be the 422 rather than the 403.
+		agent := apiTestAgentToken(t, api, "kip", "")
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/members", agent, `{"name":"Ada"}`)
+		if status != 422 {
+			t.Fatalf("want 422, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error",
+			"a staff member requires a role_key; hire the member through "+
+				"POST /api/roles, which mints a role and its member together")
+		dashboard.wantFrames()
+	})
+
+	t.Run("a warden hire carries no role_key and is still hired", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "POST", "/api/members", owner, `{"name":"box","kind":"warden"}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{"id": apiAnyString})
 	})
 
 	t.Run("an agent hiring with kind or role_key answers 403 and hires nobody", func(t *testing.T) {

@@ -532,6 +532,16 @@ var identityGateExpectedCount = map[string]int{
 // The fix applied here was to put the predicate back where the scanners can see
 // it (at each call site) and re-register it, not to widen the scanners.
 var identityGateLedger = map[string]string{
+	// ── the hire door's required-field rule (owner 2026-09-12, rc-564e5f39b6f5) ──
+	"api_members.go :: HandleHireMemberApiMembersPost :: kind == KindStaff": "" +
+		"the kind of the row being CREATED, not of the caller, and not a lifecycle " +
+		"difference: a staff member must name a role because a role-less 正職 is a " +
+		"state nothing downstream defines (the cockpit drew it as the 特助, the boot " +
+		"fold handed it that persona, and authz refused its every governance call). " +
+		"A warden carries no role BY DESIGN — it is classified by kind, not by role — " +
+		"and an outsource worker is born on the spawn path rather than this door, so " +
+		"neither is touched by the rule. 外包＝正職 is not at stake here: after the " +
+		"row exists, nothing about how it is treated differs by this predicate.",
 	// The scanner also reports AST token-kind comparisons. This one classifies
 	// syntax while locating migration registrations; it never compares a
 	// Member identity, so it is a documented scanner false positive.
