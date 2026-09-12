@@ -628,9 +628,12 @@ signal. This section is kept — rather than deleted — because the reason it m
 reason nobody should put it back.
 
 **What it was.** A directed reminder pushed down the task executor's own connection when
-its task landed in a terminal status: walk the §6.3 close-out (fold this run's learnings
-back into the type's manual with `patch_task_learnings`, clean the task's scratch, then
-`report_task_closeout`). Best-effort at-most-once, no queue, no replay.
+its task landed in a terminal status: walk the close-out (fold this run's learnings back
+into the type's manual with `patch_task_learnings`, clean the task's scratch, then report
+it). Best-effort at-most-once, no queue, no replay. ⚠️ T-182 later moved the close-out
+itself EARLIER — it now happens in `ready_for_done`, BEFORE the task is closed — and
+removed the separate report tool; the notice below is still sent by `closeTask`, but it
+now arrives after the close-out rather than asking for one.
 
 **Why it moved.** "Best-effort at-most-once onto a live connection" means an executor that
 was not connected at the instant its task closed was never told — and an executor whose

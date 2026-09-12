@@ -207,7 +207,7 @@ func TestHandleUploadTaskArtifactApiTasksTaskIdArtifactsUploadPost(t *testing.T)
 		api, h, _, owner := newAPITestServer(t)
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
 		agent := apiTestAgentToken(t, api, "kip", "")
-		apiJSON(t, h, "POST", "/api/tasks/T-1/terminate", owner, "")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/mark-terminated", owner, "")
 		dashboard := apiTestListen(t, api, "")
 
 		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/artifacts/upload?name=late", agent, "bytes")
@@ -502,7 +502,7 @@ func TestHandleUploadReplaceTaskArtifactApiTasksTaskIdArtifactArtifactIdReplaceU
 			"/api/tasks/T-1/artifacts/upload?name=the+report&filename=report.md&mime=text/markdown",
 			agent, "# v1\n")
 		artifactID, _ := pinned["artifact_id"].(string)
-		apiJSON(t, h, "POST", "/api/tasks/T-1/terminate", owner, "")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/mark-terminated", owner, "")
 		dashboard := apiTestListen(t, api, "")
 
 		status, data := apiJSON(t, h, "POST",

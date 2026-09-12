@@ -353,7 +353,8 @@ sleep 2
 #     a binding), which parks that step in waiting_owner (armStepWithCard), and
 #     waiting_owner has exactly ONE exit: the owner answers. Without someone on
 #     that end, ⑥ succeeding is what makes ⑦ impossible — the step can never
-#     move again, the task can never close, and closeout is terminal-only. That
+#     move again, so the task can never reach ready_for_done and ⑦ can never
+#     press the button. That
 #     is not a harness convenience; it is who the counterparty is. It answers
 #     only cards this run's agent opened, on this run's isolated server.
 #     It answers CARDS. It never answers the friction questions — those are the
@@ -393,7 +394,7 @@ for c in rows if isinstance(rows, list) else []:
       _card="$(sg_http GET "/api/reply-cards/$_cid")" || _card=""
       _body="$(printf '%s' "$_card" | python3 -c '
 import sys, json
-TEXT = "（七步關卡的 owner 端）就照你標成 AI 建議的那個選項辦，做完照常回報收尾。"
+TEXT = "（七步關卡的 owner 端）就照你標成 AI 建議的那個選項辦，做完照常收尾結案。"
 try:
     card = json.load(sys.stdin)
 except Exception:

@@ -42,8 +42,8 @@ const EXPECTED: [Lang, string, (string | number | string[] | number[])[], string
     ["zh", "taskBlockedBy", ["T-1234"], "等 T-1234"],
     ["zh", "taskBlockedByMissing", ["T-dead"], "等 T-dead(查無此任務)"],
     ["zh", "taskCopyTaskNo", ["T-1234"], "複製任務編號 T-1234"],
-    ["zh", "taskTerminateConfirmBody", ["修理電梯"], "確定要終止「修理電梯」嗎？任務將移入已結束區，無法恢復；後端會通知負責人做結束處理。"],
-    ["zh", "taskMarkDuplicateBody", ["T-1234"], "把「T-1234」標記為某張原票的重複?任務將移入已結束區、無法恢復。請選擇原票:"],
+    ["zh", "taskTerminateConfirmBody", ["修理電梯"], "確定要終止「修理電梯」嗎？任務將結案為終止，無法恢復；後端會通知負責人做結束處理。"],
+    ["zh", "taskMarkDuplicateBody", ["T-1234"], "把「T-1234」標記為某張原票的重複?任務將結案為重複、無法恢復。請選擇原票:"],
     ["zh", "taskDuplicateOf", ["T-9999"], "重複於 T-9999"],
     ["zh", "taskReassignTitle", ["T-1234"], "轉派 T-1234"],
     // T-60 — the artifact version reader's four. The count is the `sp` case
@@ -176,8 +176,8 @@ const EXPECTED: [Lang, string, (string | number | string[] | number[])[], string
     ["en", "taskBlockedBy", ["T-1234"], "Waiting on T-1234"],
     ["en", "taskBlockedByMissing", ["T-dead"], "Waiting on T-dead (task not found)"],
     ["en", "taskCopyTaskNo", ["T-1234"], "Copy task number T-1234"],
-    ["en", "taskTerminateConfirmBody", ["修理電梯"], "Terminate “修理電梯”? The task moves to Closed and cannot be resumed; the backend will notify the executor to wind it down."],
-    ["en", "taskMarkDuplicateBody", ["T-1234"], "Mark “T-1234” a duplicate of another task? It moves to Closed and cannot be resumed. Pick the original:"],
+    ["en", "taskTerminateConfirmBody", ["修理電梯"], "Terminate “修理電梯”? The task moves to Terminated and cannot be resumed; the backend will notify the executor to wind it down."],
+    ["en", "taskMarkDuplicateBody", ["T-1234"], "Mark “T-1234” a duplicate of another task? It moves to Duplicate and cannot be resumed. Pick the original:"],
     ["en", "taskDuplicateOf", ["T-9999"], "Duplicate of T-9999"],
     ["en", "taskReassignTitle", ["T-1234"], "Reassign T-1234"],
     ["en", "replyWaited", ["3 小時"], "Waiting 3 小時"],
@@ -320,7 +320,7 @@ describe("makeMessages", () => {
     );
     // …and the un-overlaid base is untouched (the overlay copies, never mutates).
     expect(makeMessages(zh, "zh").taskTerminateConfirmBody("修理電梯")).toBe(
-      "確定要終止「修理電梯」嗎？任務將移入已結束區，無法恢復；後端會通知負責人做結束處理。"
+      "確定要終止「修理電梯」嗎？任務將結案為終止，無法恢復；後端會通知負責人做結束處理。"
     );
   });
 

@@ -211,8 +211,8 @@ oc_resolve_bin() {
 
 # Restore server/ocserverd/webdist to pristine (only .gitkeep survives). The go
 # leg stages the built SPA here for go:embed; a stray file that survives cleanup
-# gets baked into the COMMITTED bin/ocserverd by a later `go build` (server/
-# CLAUDE.md) — so a SILENT delete failure is a real hazard, not cosmetic. This
+# gets baked into whatever binary the next `go build` links (server/CLAUDE.md) —
+# so a SILENT delete failure is a real hazard, not cosmetic. This
 # historically ran `find … -delete 2>/dev/null` with no rc check, so a half-failed
 # delete retired silently (T-c5d4 weakness-2). Now: let find's stderr through,
 # check its rc, AND independently re-assert nothing but .gitkeep remains (rc alone
@@ -236,7 +236,7 @@ oc_restore_webdist_pristine() {
   find_rc=$?
   leftover=$(find "$webdist" -mindepth 1 -not -name '.gitkeep' | wc -l | tr -d ' ')
   if [ "$find_rc" -ne 0 ] || [ "$leftover" -ne 0 ]; then
-    echo "[teardown] WARN: webdist NOT fully restored to pristine — find rc=$find_rc, $leftover stray entries left under $webdist. A later 'go build' could embed this stray SPA into the committed bin/ocserverd; inspect + clean manually." >&2
+    echo "[teardown] WARN: webdist NOT fully restored to pristine — find rc=$find_rc, $leftover stray entries left under $webdist. A later 'go build' could embed this stray SPA into the binary it links; inspect + clean manually." >&2
     return 1
   fi
   echo "[teardown] restored server/ocserverd/webdist to pristine (.gitkeep only)"

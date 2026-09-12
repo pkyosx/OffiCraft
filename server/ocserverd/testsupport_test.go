@@ -416,3 +416,14 @@ func apiTestWebPushSink(t *testing.T, api *apiServer) func(want ...map[string]an
 		apiWantValue(t, "web-push", any(got), any(expected))
 	}
 }
+
+// apiMarkDone drives mark_task_done through the whole handler stack for a
+// caller that only needs the task closed. Since T-182 reporting the last step
+// done lands the task in ready_for_done and closes nothing, so every test that
+// used to reach `done` by finishing the plan needs this one extra call.
+func apiMarkDone(t *testing.T, h http.Handler, taskID, token string) {
+	t.Helper()
+	if status, data := apiJSON(t, h, "POST", "/api/tasks/"+taskID+"/mark-done", token, ""); status != 200 {
+		t.Fatalf("mark-done %s: want 200, got %d (%v)", taskID, status, data)
+	}
+}

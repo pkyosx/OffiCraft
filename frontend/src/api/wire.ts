@@ -171,9 +171,13 @@ export type WireReplyCardCount = components["schemas"]["ReplyCardCountDTO"];
 // ── Tasks (M3 任務卡 wire) ────────────────────────────────────────────────────
 
 /** Mirrors `TaskDTO`: one task (a multi-node workflow with a DoD). `status` is
- * the eight-state closed set (done/terminated/duplicated terminal;
- * `reassigning` is the transient handover hold a reassign enters — only the
- * NEW executor reports it back to in_progress); `priority`
+ * the eight-state closed set — five DERIVED from the steps (`not_started`,
+ * `in_progress`, `waiting_owner`, `waiting_external`, `ready_for_done`) and
+ * three TERMINAL (`done`/`terminated`/`duplicated`), each reached only by its
+ * own action. `ready_for_done` is where a finished plan lands and it is still
+ * OPEN — nothing closes a task but `mark_task_done` / `mark_task_terminated` /
+ * `mark_task_duplicated` / `force_task_done`. `reassigning` is NOT a status (it
+ * moved to the orthogonal `lock`, T-9ca5); `priority`
  * includes `frozen`; `executor_kind='outsource'` with an empty `executor_id` is
  * the transient unassigned state; `deps` are blocking task IDS (display
  * markers); `duplicate_of` is the original this task duplicates ('' unless

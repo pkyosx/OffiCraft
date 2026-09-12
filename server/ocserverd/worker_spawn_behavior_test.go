@@ -1976,181 +1976,146 @@ func TestDismissOutsourceWorkersForTask_ReleasesAndReclaims(t *testing.T) {
 	}
 }
 
-// ── close-out report → immediate dismissal (the wired §6.3 step-2 hook) ─────
+// ── every close → immediate dismissal (T-182) ──────────────────────────────
 
-// postCloseout drives the real close-out handler as caller sub (agent scope).
-func postCloseout(t *testing.T, s *apiServer, taskID, sub string) *httptest.ResponseRecorder {
+// closedWorkerFixture seats one task in `status` with a LIVE worker bound to it
+// and returns the task. The worker is deliberately still ACTIVE: the close has
+// to both release the row AND reclaim the session, and starting from `released`
+// would let a close that only reclaims look identical to one that does both.
+func closedWorkerFixture(t *testing.T, s *apiServer, taskID, workerID, status string) Task {
 	t.Helper()
-	rec := httptest.NewRecorder()
-	req := taskReq(t, http.MethodPost, "/api/tasks/"+taskID+"/closeout", nil,
-		sub, "agent")
-	s.HandleReportTaskCloseoutApiTasksTaskIdCloseoutPost(rec, req, taskID)
-	return rec
-}
-
-func TestCloseoutReport_DismissesWorkerImmediately(t *testing.T) {
-	s := newWorkerTestServer(t)
-	connectWarden(t, s, ServerSelfHost)
 	task := putTaskFixture(t, s, Task{
-		ID: "t-00000000000b", TypeKey: "review-pr", Title: "x",
-		Status: TaskStatusDone, Priority: TaskPriorityMid,
-		ExecutorKind: TaskExecutorOutsource, ExecutorID: "ow-b", ClosedTS: 1,
+		ID: taskID, TypeKey: "review-pr", Title: "x",
+		Status: status, Priority: TaskPriorityMid,
+		ExecutorKind: TaskExecutorOutsource, ExecutorID: workerID,
 	})
-	// The worker is still ACTIVE here (closeTask normally releases it, but the
-	// hook must be robust to a lingering row) — the close-out must both
-	// release it AND reclaim its session at once, NOT after the grace.
 	putWorkerFixture(t, s, OutsourceWorker{
-		ID: "ow-b", Codename: "O-11", Model: "opus", Effort: "high",
+		ID: workerID, Codename: "O-" + workerID, Model: "opus", Effort: "high",
 		TaskID: task.ID, Status: WorkerStatusActive,
 	})
+	return task
+}
 
-	if rec := postCloseout(t, s, task.ID, "ow-b"); rec.Code != http.StatusOK {
-		t.Fatalf("closeout report: %d %s", rec.Code, rec.Body.String())
-	}
-
-	after, err := s.dal.GetOutsourceWorker("ow-b")
+// assertWorkerDismissed reads the two facts a dismissal produces — the row is
+// released AND exactly one worker_stop naming that worker went to the warden.
+// Both, because either one alone is served by a half-dismissal: closeTask
+// released the row long before this ticket and left the session running.
+func assertWorkerDismissed(t *testing.T, s *apiServer, workerID string) {
+	t.Helper()
+	after, err := s.dal.GetOutsourceWorker(workerID)
 	if err != nil || after == nil {
 		t.Fatalf("read back worker: %v", err)
 	}
 	if after.Status != WorkerStatusReleased {
-		t.Errorf("worker after close-out = %q, want released", after.Status)
+		t.Errorf("worker after close = %q, want released", after.Status)
 	}
 	frames := s.hub.DrainWardenCommands(ServerSelfHost)
 	if len(frames) != 1 {
 		t.Fatalf("want 1 immediate worker_stop, got %d", len(frames))
 	}
 	if rpc, args := decodeWardenFrame(t, frames[0].Frame); rpc != reconcileCmdStop ||
-		args["member_id"] != "ow-b" {
-		t.Errorf("frame = %s %v, want worker_stop ow-b", rpc, args)
+		args["member_id"] != workerID {
+		t.Errorf("frame = %s %v, want worker_stop %s", rpc, args, workerID)
 	}
 }
 
-func TestCloseoutReport_RepeatIsNoOp_NoSecondDispatch(t *testing.T) {
-	s := newWorkerTestServer(t)
-	connectWarden(t, s, ServerSelfHost)
-	task := putTaskFixture(t, s, Task{
-		ID: "t-00000000000c", TypeKey: "review-pr", Title: "x",
-		Status: TaskStatusDone, Priority: TaskPriorityMid,
-		ExecutorKind: TaskExecutorOutsource, ExecutorID: "ow-c", ClosedTS: 1,
-	})
-	putWorkerFixture(t, s, OutsourceWorker{
-		ID: "ow-c", Codename: "O-12", Model: "opus", Effort: "high",
-		TaskID: task.ID, Status: WorkerStatusReleased, ReleasedTS: 1,
-	})
-
-	if rec := postCloseout(t, s, task.ID, "ow-c"); rec.Code != http.StatusOK {
-		t.Fatalf("first closeout: %d %s", rec.Code, rec.Body.String())
-	}
-	if got := len(s.hub.DrainWardenCommands(ServerSelfHost)); got != 1 {
-		t.Fatalf("first closeout: want 1 worker_stop, got %d", got)
-	}
-	if rec := postCloseout(t, s, task.ID, "ow-c"); rec.Code != http.StatusOK {
-		t.Fatalf("repeat closeout: %d %s", rec.Code, rec.Body.String())
-	}
-	if got := len(s.hub.DrainWardenCommands(ServerSelfHost)); got != 0 {
-		t.Errorf("repeat closeout must dispatch nothing, got %d frames", got)
-	}
-}
-
-func TestCloseoutReport_MemberTask_NoDismissal(t *testing.T) {
-	s := newWorkerTestServer(t)
-	connectWarden(t, s, ServerSelfHost)
-	task := putTaskFixture(t, s, Task{
-		ID: "t-00000000000d", Title: "ad-hoc thing",
-		Status: TaskStatusDone, Priority: TaskPriorityMid,
-		ExecutorKind: TaskExecutorStaff, ExecutorID: "mira", ClosedTS: 1,
-	})
-	// An UNRELATED live worker on another task must be untouched by this
-	// member close-out (the dismissal is task-scoped).
-	putWorkerFixture(t, s, OutsourceWorker{
-		ID: "ow-d", Codename: "O-13", Model: "opus", Effort: "high",
-		TaskID: "t-something-else", Status: WorkerStatusActive,
+// TestTaskClose_DismissesBoundWorkers covers the ONE fact this ticket moved: the bound outsource
+// worker is dismissed — row released and session reclaimed in the same call —
+// by EVERY close, not by a separate close-out report (removed in T-182).
+//
+// All four doors are driven through their REAL handlers rather than closeTask
+// directly. Driving the shared seam once would prove only that the seam works;
+// what has to hold is that no door bypasses it, and a door that forgot to call
+// closeTask is exactly the regression a seam-level test cannot see.
+//
+// It is deliberately NOT folded into api_tasks_test.go's TestCloseTask: that one
+// observes the DAL and the chat rows, and the fact under test here — the
+// worker_stop frame that reclaims the session — is only visible through the
+// warden hub this file's newWorkerTestServer wires up.
+func TestTaskClose_DismissesBoundWorkers(t *testing.T) {
+	t.Run("mark_task_done dismisses the bound worker", func(t *testing.T) {
+		s := newWorkerTestServer(t)
+		connectWarden(t, s, ServerSelfHost)
+		task := closedWorkerFixture(t, s, "t-00000000000b", "ow-b", TaskStatusReadyForDone)
+		if rec := markDone(t, s, task.ID, "ow-b", "agent"); rec.Code != http.StatusOK {
+			t.Fatalf("mark_task_done: %d %s", rec.Code, rec.Body.String())
+		}
+		assertWorkerDismissed(t, s, "ow-b")
 	})
 
-	if rec := postCloseout(t, s, task.ID, "mira"); rec.Code != http.StatusOK {
-		t.Fatalf("member closeout: %d %s", rec.Code, rec.Body.String())
-	}
-	if got := len(s.hub.DrainWardenCommands(ServerSelfHost)); got != 0 {
-		t.Errorf("member-task closeout must dispatch no worker_stop, got %d", got)
-	}
-	after, err := s.dal.GetOutsourceWorker("ow-d")
-	if err != nil || after == nil || after.Status != WorkerStatusActive {
-		t.Errorf("unrelated worker must stay active, got %+v (err %v)", after, err)
-	}
-}
-
-// ── the scheduler tick's lifecycle passes ────────────────────────────────────
-
-func TestTick_ReclaimBackstop_GraceRespected(t *testing.T) {
-	s := newWorkerTestServer(t)
-	connectWarden(t, s, ServerSelfHost)
-	now := nowSecs()
-	putTaskFixture(t, s, Task{
-		ID: "t-000000000008", TypeKey: "review-pr", Title: "x",
-		Status: TaskStatusDone, Priority: TaskPriorityMid,
-		ExecutorKind: TaskExecutorOutsource, ExecutorID: "ow-8", ClosedTS: now,
-	})
-	// Released WITHIN the grace → left alone; released BEYOND it → reclaimed.
-	putWorkerFixture(t, s, OutsourceWorker{
-		ID: "ow-8", Codename: "O-8", Model: "opus", Effort: "high",
-		TaskID: "t-000000000008", Status: WorkerStatusReleased, ReleasedTS: now - 5,
-	})
-	putWorkerFixture(t, s, OutsourceWorker{
-		ID: "ow-9", Codename: "O-9", Model: "opus", Effort: "high",
-		TaskID: "t-000000000008", Status: WorkerStatusReleased,
-		ReleasedTS: now - workerReclaimGraceSecs - 5,
+	t.Run("mark_task_terminated dismisses the bound worker", func(t *testing.T) {
+		s := newWorkerTestServer(t)
+		connectWarden(t, s, ServerSelfHost)
+		task := closedWorkerFixture(t, s, "t-00000000000e", "ow-e", TaskStatusInProgress)
+		rec := httptest.NewRecorder()
+		s.HandleMarkTaskTerminatedApiTasksTaskIdMarkTerminatedPost(rec,
+			taskReq(t, http.MethodPost, "/api/tasks/"+task.ID+"/mark-terminated",
+				nil, "owner", "owner"), task.ID)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("mark_task_terminated: %d %s", rec.Code, rec.Body.String())
+		}
+		assertWorkerDismissed(t, s, "ow-e")
 	})
 
-	s.runOutsourceTick(now)
-
-	frames := s.hub.DrainWardenCommands(ServerSelfHost)
-	if len(frames) != 1 {
-		t.Fatalf("want exactly 1 backstop worker_stop, got %d", len(frames))
-	}
-	if _, args := decodeWardenFrame(t, frames[0].Frame); args["member_id"] != "ow-9" {
-		t.Errorf("backstop reclaimed %v, want ow-9", args["member_id"])
-	}
-}
-
-func TestTick_AssignedWorker_RedispatchesSpawn(t *testing.T) {
-	s := newWorkerTestServer(t)
-	connectWarden(t, s, ServerSelfHost)
-	task := putTaskFixture(t, s, Task{
-		ID: "t-00000000000a", TypeKey: "review-pr", Title: "x",
-		Status: TaskStatusNotStarted, Priority: TaskPriorityMid,
-		ExecutorKind: TaskExecutorOutsource, ExecutorID: "ow-a",
-	})
-	putWorkerFixture(t, s, OutsourceWorker{
-		ID: "ow-a", Codename: "O-10", Model: "opus", Effort: "high",
-		TaskID: task.ID, Status: WorkerStatusAssigned,
-		DesiredMachineID: ServerSelfHost, // explicit placement (owner ruling 2026-07-25)
-		// T-72dd: this fixture used to leave desired_state UNSET, and passed only
-		// because reconcileWorkerLiveness hard-wired the FSM's Desired to online
-		// and never read the row. Now that it reads the row, "" would route to
-		// decideDown and this worker would never be spawned at all.
-		//
-		// "" is a FIXTURE state, not a production one: the sole creation path
-		// (outsource_sched.go's assignment pass) writes DesiredStateOnline
-		// explicitly, so setting it here is what a real assigned worker looks
-		// like — not a workaround for the change.
-		//
-		// 🔴 It is worth knowing that "" SURVIVES a write: the member column's
-		// DEFAULT 'online' does not rescue an explicit empty value (measured,
-		// T-72dd). Nothing validates desired_state either (ValidateMember does
-		// not check it), so a row that acquires "" some other way would silently
-		// stop being spawned rather than fail loudly. No guard is added here —
-		// that is an owner ruling, not an implementation detail.
-		DesiredState: DesiredStateOnline,
+	t.Run("mark_task_duplicated dismisses the bound worker", func(t *testing.T) {
+		s := newWorkerTestServer(t)
+		connectWarden(t, s, ServerSelfHost)
+		putTaskFixture(t, s, Task{
+			ID: "t-00000000000f", TypeKey: "review-pr", Title: "the original",
+			Status: TaskStatusInProgress, Priority: TaskPriorityMid,
+			ExecutorKind: TaskExecutorStaff, ExecutorID: "mira",
+		})
+		task := closedWorkerFixture(t, s, "t-000000000010", "ow-f", TaskStatusInProgress)
+		rec := httptest.NewRecorder()
+		s.HandleMarkTaskDuplicatedApiTasksTaskIdMarkDuplicatedPost(rec,
+			taskReq(t, http.MethodPost, "/api/tasks/"+task.ID+"/mark-duplicated",
+				map[string]any{"duplicate_of": "t-00000000000f"}, "owner", "owner"), task.ID)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("mark_task_duplicated: %d %s", rec.Code, rec.Body.String())
+		}
+		assertWorkerDismissed(t, s, "ow-f")
 	})
 
-	s.runOutsourceTick(nowSecs())
+	t.Run("force_task_done dismisses the bound worker", func(t *testing.T) {
+		s := newWorkerTestServer(t)
+		connectWarden(t, s, ServerSelfHost)
+		// Mid-plan on purpose: force_task_done is the door for a task whose
+		// executor is never going to close it, so the worker it fires has NOT
+		// been through `ready_for_done`.
+		task := closedWorkerFixture(t, s, "t-000000000011", "ow-g", TaskStatusInProgress)
+		rec := httptest.NewRecorder()
+		s.HandleForceTaskDoneApiTasksTaskIdForceDonePost(rec,
+			taskReq(t, http.MethodPost, "/api/tasks/"+task.ID+"/force-done",
+				map[string]any{"reason": "worker is gone"}, "owner", "owner"), task.ID)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("force_task_done: %d %s", rec.Code, rec.Body.String())
+		}
+		assertWorkerDismissed(t, s, "ow-g")
+	})
 
-	frames := s.hub.DrainWardenCommands(ServerSelfHost)
-	if len(frames) != 1 {
-		t.Fatalf("want 1 worker_start from the tick pass, got %d", len(frames))
-	}
-	if rpc, args := decodeWardenFrame(t, frames[0].Frame); rpc != reconcileCmdStart ||
-		args["member_id"] != "ow-a" {
-		t.Errorf("frame = %s %v", rpc, args)
-	}
+	t.Run("a member-executed task dismisses nobody", func(t *testing.T) {
+		s := newWorkerTestServer(t)
+		connectWarden(t, s, ServerSelfHost)
+		task := putTaskFixture(t, s, Task{
+			ID: "t-00000000000d", Title: "ad-hoc thing",
+			Status: TaskStatusReadyForDone, Priority: TaskPriorityMid,
+			ExecutorKind: TaskExecutorStaff, ExecutorID: "mira",
+		})
+		// An UNRELATED live worker on another task: the dismissal is
+		// task-scoped, and a sweep that ignored task_id would fire this one.
+		putWorkerFixture(t, s, OutsourceWorker{
+			ID: "ow-d", Codename: "O-13", Model: "opus", Effort: "high",
+			TaskID: "t-something-else", Status: WorkerStatusActive,
+		})
+		if rec := markDone(t, s, task.ID, "mira", "agent"); rec.Code != http.StatusOK {
+			t.Fatalf("mark_task_done: %d %s", rec.Code, rec.Body.String())
+		}
+		if got := len(s.hub.DrainWardenCommands(ServerSelfHost)); got != 0 {
+			t.Errorf("member-task close must dispatch no worker_stop, got %d", got)
+		}
+		after, err := s.dal.GetOutsourceWorker("ow-d")
+		if err != nil || after == nil || after.Status != WorkerStatusActive {
+			t.Errorf("unrelated worker must stay active, got %+v (err %v)", after, err)
+		}
+	})
 }

@@ -29,7 +29,7 @@
 #
 # MAY NOT: anything the AGENT is supposed to decide. It does not open the
 # ticket, does not file the plan, does not report a step, does not open the
-# card, does not answer the colleague, does not report the close-out. If the
+# card, does not answer the colleague, does not close the task. If the
 # agent does not do those, the run is red, and a red run here is the ANSWER,
 # not a bug in this file.
 # It also does not write the friction answers — see 〈friction〉 below.
@@ -288,12 +288,12 @@ print("\n".join(t["id"] for t in rows if t.get("creator_id") == sys.argv[1] and 
   [[ -n "$MINE" ]] || { say "   …no task from the agent yet"; continue; }
   DONE=""
   for tid in $MINE; do
-    if sg_http GET "/api/tasks/$tid" | python3 -c 'import sys,json;sys.exit(0 if json.load(sys.stdin).get("closeout_reported") else 1)' 2>/dev/null; then
+    if sg_http GET "/api/tasks/$tid" | python3 -c 'import sys,json;sys.exit(0 if json.load(sys.stdin).get("status") == "done" else 1)' 2>/dev/null; then
       DONE="$tid"; break
     fi
   done
   if [[ -n "$DONE" ]]; then say "   ⑦'s fact is on the server (task $DONE) — stopping the wait"; break; fi
-  say "   …agent has task(s) [$(printf '%s' "$MINE" | tr '\n' ' ')], close-out not reported yet"
+  say "   …agent has task(s) [$(printf '%s' "$MINE" | tr '\n' ' ')], none closed yet"
 done
 
 # ── 7. friction. The two questions are put to the agent VERBATIM, straight out

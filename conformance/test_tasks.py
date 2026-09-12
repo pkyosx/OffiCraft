@@ -159,11 +159,20 @@ def _drive_in_progress(client, token, task_id, name="conf drive"):
     return step_id
 
 
+def _mark_done(client, token, task_id):
+    """Press mark_task_done — the action that CLOSES a task (T-182)."""
+    r = client.post(f"/api/tasks/{task_id}/mark-done", headers=_auth(token))
+    assert r.status_code == 200, r.text
+    return r
+
+
 def _drive_done(client, token, task_id):
-    """Derive a task to done (auto-closes): plan one step, report it done."""
+    """Take a task to done: plan one step, report it done (which only derives
+    ready_for_done since T-182), then press mark_task_done."""
     step_id = _drive_in_progress(client, token, task_id)
     assert _step_status(client, token, task_id, step_id,
                         "done").status_code == 200
+    _mark_done(client, token, task_id)
 
 
 def _get_task(client, token, task_id) -> dict:
@@ -333,15 +342,18 @@ def test_full_task_loop(client, owner_token, executor):
                         "done").status_code == 200
     assert _step_status(client, executor.token, task["id"], ship["id"],
                         "in_progress").status_code == 200
-    # Reporting the LAST step done auto-derives the task to done and closes it
-    # (T-9ca5 — done is no longer an agent task-status report).
+    # Reporting the LAST step done derives the task to ready_for_done and closes
+    # NOTHING (T-182): the close-out happens in that window, and mark_task_done
+    # is the call that ends the task.
     r = _step_status(client, executor.token, task["id"], ship["id"], "done")
     assert r.status_code == 200, r.text
     final = r.json()
     assert final["step_status"] == "done"
-    assert final["task_status"] == "done"
-    assert final["closed_ts"]
+    assert final["task_status"] == "ready_for_done"
+    assert final["closed_ts"] is None
     assert final["progress_done"] == 3 and final["progress_total"] == 3
+    closed = _mark_done(client, executor.token, task["id"]).json()
+    assert closed["status"] == "done" and closed["closed_ts"]
     # The badge counts open tasks only — the finished loop dropped off.
     assert _open_count(client, owner_token) == before - 1
 
@@ -690,7 +702,7 @@ def test_create_dedupes_open_tasks_and_reopens_after_terminal(
     assert other["task"]["id"] != first["task"]["id"]
 
     # Close the first; the same key then mints FRESH (periodic reopen, H2).
-    r = client.post(f"/api/tasks/{first['task']['id']}/terminate",
+    r = client.post(f"/api/tasks/{first['task']['id']}/mark-terminated",
                     headers=_auth(owner_token))
     assert r.status_code == 200, r.text
     reopened = _create_task(client, executor, title="review 9 (reopen)",
@@ -714,7 +726,7 @@ def test_terminated_task_refuses_every_agent_push(client, owner_token, executor)
                          [{"name": "g", "dod": "d", "is_gate": True}])
     gate_id = planned["steps"][0]["id"]
 
-    r = client.post(f"/api/tasks/{task['id']}/terminate",
+    r = client.post(f"/api/tasks/{task['id']}/mark-terminated",
                     headers=_auth(owner_token))
     assert r.status_code == 200 and r.json()["status"] == "terminated"
 
@@ -735,7 +747,7 @@ def test_terminated_task_refuses_every_agent_push(client, owner_token, executor)
               "linked_task": {"task_id": task["id"], "step_id": gate_id}},
         headers=h).status_code == 409
     # A second terminate is a 409 too (already closed).
-    assert client.post(f"/api/tasks/{task['id']}/terminate",
+    assert client.post(f"/api/tasks/{task['id']}/mark-terminated",
                        headers=_auth(owner_token)).status_code == 409
     # The steps froze as they stood (audit trail).
     view = _get_task(client, owner_token, task["id"])
@@ -904,7 +916,7 @@ def test_status_set_returns_exactly_those_states(client, owner_token, executor):
     live = _create_task(client, executor, title="a3e4 live")["task"]
     _drive_in_progress(client, executor.token, live["id"])
     closed = _create_task(client, executor, title="a3e4 closed")["task"]
-    assert client.post(f"/api/tasks/{closed['id']}/terminate",
+    assert client.post(f"/api/tasks/{closed['id']}/mark-terminated",
                        headers=_auth(owner_token)).status_code == 200
     fresh = _create_task(client, executor, title="a3e4 fresh")["task"]
 
@@ -995,7 +1007,7 @@ def test_task_count_carries_the_unfiltered_total(client, owner_token, executor):
     assert r.status_code == 200, r.text
     before = r.json()
     assert before["total"] >= before["open"] >= 1
-    assert client.post(f"/api/tasks/{task['id']}/terminate",
+    assert client.post(f"/api/tasks/{task['id']}/mark-terminated",
                        headers=_auth(owner_token)).status_code == 200
     after = client.get("/api/tasks/count", headers=_auth(owner_token)).json()
     # Closing a task drops `open` but NOT `total` — the two are different numbers
@@ -1215,7 +1227,7 @@ def test_manual_crud_and_delete_guard(client, owner_token, executor):
                       headers=_auth(owner_token))
     assert r.status_code == 409, f"open task must block delete: {r.status_code}"
     # …and a CLOSED one does not.
-    assert client.post(f"/api/tasks/{task['id']}/terminate",
+    assert client.post(f"/api/tasks/{task['id']}/mark-terminated",
                        headers=_auth(owner_token)).status_code == 200
     r = client.delete(f"/api/task-manuals/{type_key}",
                       headers=_auth(owner_token))
@@ -1559,87 +1571,6 @@ def test_set_task_priority_via_mcp_loopback(client, executor):
     assert result["structuredContent"]["frozen_by"] == executor.member_id, r.text
 
 
-# ── §6.3 close-out report ────────────────────────────────────────────────────
-
-
-def _closeout(client, token, task_id):
-    return client.post(f"/api/tasks/{task_id}/closeout", headers=_auth(token))
-
-
-# T-bb70: BOTH close-out exits (first report and idempotent repeat) answer with
-# a bounded receipt, never the whole task. The key SET is pinned on purpose: a
-# whole task carries closeout_reported too, so a field-presence assertion would
-# stay green through exactly the regression this replaces.
-CLOSEOUT_RECEIPT_KEYS = {
-    "task_id", "task_status", "closeout_reported", "closeout_ts"}
-
-
-def _assert_closeout_receipt(r, task_id, status):
-    body = r.json()
-    assert set(body) == CLOSEOUT_RECEIPT_KEYS, (
-        f"close-out must answer a bounded receipt, got keys "
-        f"{sorted(set(body) - CLOSEOUT_RECEIPT_KEYS)} extra / "
-        f"{sorted(CLOSEOUT_RECEIPT_KEYS - set(body))} missing ({len(r.text)} chars)")
-    assert body["task_id"] == task_id, r.text
-    assert body["task_status"] == status, r.text
-    assert body["closeout_reported"] is True, r.text
-    assert body["closeout_ts"] > 0, r.text
-    return body
-
-
-def test_closeout_reports_after_terminal_and_is_idempotent(
-    client, owner_token, executor
-):
-    task = _create_task(client, executor, title="conf closeout done")["task"]
-    # An OPEN task has nothing to close out — flat 409.
-    r = _closeout(client, executor.token, task["id"])
-    assert r.status_code == 409, f"{r.status_code} {r.text}"
-
-    _drive_done(client, executor.token, task["id"])
-    assert _get_task(client, executor.token, task["id"])[
-        "closeout_reported"] is False
-
-    # First report flips the flag and answers a bounded receipt.
-    r = _closeout(client, executor.token, task["id"])
-    assert r.status_code == 200, f"{r.status_code} {r.text}"
-    first = _assert_closeout_receipt(r, task["id"], "done")
-
-    # A repeat is a 200 no-op (idempotent — never a 409, never a re-flip), and
-    # it answers the SAME bounded receipt, stamp included.
-    r = _closeout(client, executor.token, task["id"])
-    assert r.status_code == 200, f"{r.status_code} {r.text}"
-    assert _assert_closeout_receipt(r, task["id"], "done") == first, r.text
-    assert _get_task(client, executor.token, task["id"])[
-        "closeout_reported"] is True
-
-    # Unknown task → 404.
-    r = _closeout(client, executor.token, "t-conf-missing")
-    assert r.status_code == 404, f"{r.status_code} {r.text}"
-
-
-def test_closeout_covers_terminated_tasks_too(client, owner_token, executor):
-    task = _create_task(client, executor, title="conf closeout terminated")["task"]
-    r = client.post(f"/api/tasks/{task['id']}/terminate",
-                    headers=_auth(owner_token))
-    assert r.status_code == 200, f"{r.status_code} {r.text}"
-    # The executor of a TERMINATED task still owes (and can file) a close-out.
-    r = _closeout(client, executor.token, task["id"])
-    assert r.status_code == 200, f"{r.status_code} {r.text}"
-    _assert_closeout_receipt(r, task["id"], "terminated")
-
-
-def test_closeout_enforces_the_executor_guard(client, owner_token, executor):
-    task = _create_task(client, executor, title="conf closeout guard")["task"]
-    _drive_done(client, executor.token, task["id"])
-    stranger_id = hire_member(client, owner_token, "conf-closeout-stranger")
-    stranger = mint_member_token(client, owner_token, stranger_id, ttl_days=1)
-    r = _closeout(client, stranger, task["id"])
-    assert r.status_code == 403, f"{r.status_code} {r.text}"
-    # Admin capability (owner) passes — the §14 caller-identity convention.
-    r = _closeout(client, owner_token, task["id"])
-    assert r.status_code == 200, f"{r.status_code} {r.text}"
-
-
 # ── §6.2 resume-summary task block ───────────────────────────────────────────
 
 
@@ -1908,6 +1839,7 @@ def test_create_reply_card_with_linked_task_arms_the_named_step(
     for status in ("in_progress", "done"):
         assert _step_status(client, token, task["id"], recon["id"],
                             status).status_code == 200
+    _mark_done(client, token, task["id"])
     assert _get_task(client, owner_token, task["id"])["status"] == "done"
 
 
@@ -2093,17 +2025,17 @@ def test_manual_rejects_is_key_without_required(client, owner_token):
     assert r.status_code == 200, f"{r.status_code} {r.text}"
 
 
-# ── mark_duplicate (T-02c9) ──────────────────────────────────────────────────
+# ── mark_task_duplicated (T-02c9) ──────────────────────────────────────────────────
 
 
-def _mark_duplicate(client, token, task_id, duplicate_of):
+def _mark_task_duplicated(client, token, task_id, duplicate_of):
     return client.post(
-        f"/api/tasks/{task_id}/duplicate",
+        f"/api/tasks/{task_id}/mark-duplicated",
         json={"duplicate_of": duplicate_of}, headers=_auth(token))
 
 
-def test_mark_duplicate_closes_and_guards_depth1(client, owner_token, executor):
-    """T-02c9: mark_duplicate is a DEDICATED terminal action. It closes the task
+def test_mark_task_duplicated_closes_and_guards_depth1(client, owner_token, executor):
+    """T-02c9: mark_task_duplicated is a DEDICATED terminal action. It closes the task
     with status=duplicated + duplicate_of set (closed_ts stamps), the graph is
     kept depth-1 (no self, no pointing at a duplicate, no marking an original,
     no re-marking a closed task); 'duplicated' is reachable ONLY through this
@@ -2112,12 +2044,12 @@ def test_mark_duplicate_closes_and_guards_depth1(client, owner_token, executor):
     dup = _create_task(client, executor, title="dup shell")["task"]
 
     # validation: self → 409, unknown original → 404, blank → 422.
-    assert _mark_duplicate(client, executor.token, dup["id"], dup["id"]).status_code == 409
-    assert _mark_duplicate(client, executor.token, dup["id"], "t-nope").status_code == 404
-    assert _mark_duplicate(client, executor.token, dup["id"], "").status_code == 422
+    assert _mark_task_duplicated(client, executor.token, dup["id"], dup["id"]).status_code == 409
+    assert _mark_task_duplicated(client, executor.token, dup["id"], "t-nope").status_code == 404
+    assert _mark_task_duplicated(client, executor.token, dup["id"], "").status_code == 422
 
     # happy path: dup becomes duplicated, points at the original, is closed.
-    r = _mark_duplicate(client, executor.token, dup["id"], original["id"])
+    r = _mark_task_duplicated(client, executor.token, dup["id"], original["id"])
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["status"] == "duplicated"
@@ -2133,19 +2065,19 @@ def test_mark_duplicate_closes_and_guards_depth1(client, owner_token, executor):
 
     # depth-1: cannot point AT a duplicate, cannot mark an existing original.
     other = _create_task(client, executor, title="other")["task"]
-    assert _mark_duplicate(client, executor.token, other["id"], dup["id"]).status_code == 409
-    assert _mark_duplicate(client, executor.token, original["id"], other["id"]).status_code == 409
+    assert _mark_task_duplicated(client, executor.token, other["id"], dup["id"]).status_code == 409
+    assert _mark_task_duplicated(client, executor.token, original["id"], other["id"]).status_code == 409
 
     # re-marking a closed task → 409.
-    assert _mark_duplicate(client, executor.token, dup["id"], original["id"]).status_code == 409
+    assert _mark_task_duplicated(client, executor.token, dup["id"], original["id"]).status_code == 409
 
 
-def test_mark_duplicate_owner_may_mark_any_task(client, owner_token, executor):
+def test_mark_task_duplicated_owner_may_mark_any_task(client, owner_token, executor):
     """T-02c9 point 5: the owner (admin) may mark any task, not just its
     executor — the same lever that lets the finder converge a duplicate."""
     original = _create_task(client, executor, title="orig-owner")["task"]
     dup = _create_task(client, executor, title="dup-owner")["task"]
-    r = _mark_duplicate(client, owner_token, dup["id"], original["id"])
+    r = _mark_task_duplicated(client, owner_token, dup["id"], original["id"])
     assert r.status_code == 200, r.text
     assert r.json()["status"] == "duplicated"
 
@@ -2382,7 +2314,7 @@ def test_reassign_guards(client, owner_token, executor):
                        json={"priority": "mid"},
                        headers=_auth(owner_token)).status_code == 200
     # terminal task → 409.
-    assert client.post(f"/api/tasks/{task['id']}/terminate",
+    assert client.post(f"/api/tasks/{task['id']}/mark-terminated",
                        headers=_auth(owner_token)).status_code == 200
     assert _reassign(client, owner_token, task["id"],
                      {"kind": "staff", "member_id": fresh}).status_code == 409

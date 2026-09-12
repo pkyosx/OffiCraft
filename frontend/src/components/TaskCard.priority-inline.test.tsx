@@ -135,7 +135,7 @@ describe("TaskCard in-place priority editing (v2)", () => {
     );
     const { findAllByTestId, findByTestId } = renderPage();
     // Terminal tasks hide behind the 狀態 filter → tick 終止 to surface the
-    // (collapsed) 已結束 section, then open it. The filter is inside the
+    // (collapsed) 已結案 section, then open it. The filter is inside the
     // FilterPanel now, so the driver opens it and presses 套用篩選 (T-93 r3).
     toggleFilter("filter-status", "terminated");
     fireEvent.click(await findByTestId("closed-toggle"));

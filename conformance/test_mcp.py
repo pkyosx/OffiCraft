@@ -502,7 +502,9 @@ T6020_REVISED_TOOLS = {
     # moved in-handler (callerMayTerminateTask), which also carries the one
     # subtraction the ladder cannot state: an OUTSOURCE worker is refused even on
     # its own task, because a 正職 and a contractor both rank principalAgent.
-    "terminate_task": ("POST /api/tasks/{task_id}/terminate", "agent"),
+    # T-182 renamed the route and the tool (was /terminate + terminate_task);
+    # the ruling above and the floor it set are untouched.
+    "mark_task_terminated": ("POST /api/tasks/{task_id}/mark-terminated", "agent"),
     # owner 2026-08-21, card rc-376a41719e62 (T-ed79):「如果原本正職可以改 model
     # 外包就應該可以改，如果只有 mira 可以改，那就不變，正職跟外包一樣，mira 是
     # 特殊的意義，他代替 owner 執行高權限動作。」— the floor is decided by the

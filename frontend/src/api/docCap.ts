@@ -104,6 +104,7 @@ export const BOOT_DOC_CAP_CHARS_DEFAULTS: Record<BootDocKind, number> = {
   task_takeover_with_predecessor: TASK_EVENT_CAP_CHARS_DEFAULT,
   task_takeover_fresh: TASK_EVENT_CAP_CHARS_DEFAULT,
   task_unblocked: TASK_EVENT_CAP_CHARS_DEFAULT,
+  task_ready_for_done: TASK_EVENT_CAP_CHARS_DEFAULT,
 };
 
 export const DOC_CAP_CHARS_DEFAULTS: DocCaps = {
@@ -294,6 +295,7 @@ export const CAPPED_FIELDS: Record<DocumentKind, readonly string[]> = {
   task_takeover_with_predecessor: ["text"],
   task_takeover_fresh: ["text"],
   task_unblocked: ["text"],
+  task_ready_for_done: ["text"],
 };
 
 /**
@@ -411,6 +413,7 @@ export function capForKind(
     case "task_takeover_with_predecessor":
     case "task_takeover_fresh":
     case "task_unblocked":
+    case "task_ready_for_done":
       return caps.taskEvent;
   }
 }

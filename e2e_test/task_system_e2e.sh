@@ -13,7 +13,8 @@
 #     PHASE 3 bootstrap server-self warden (so the scheduler can spawn workers) →
 #     STAGE A  task chain (matrix §2 A1-A8):
 #       manual → outsource → create task → scheduler assigns → real worker
-#       spawn → synthetic task done (disk-verified) → closeout → fire →
+#       spawn → synthetic task done (disk-verified) → ready_for_done park →
+#       worker presses mark_task_done → fire →
 #     STAGE D  parallel_group fork-join (matrix §2.5 D1-D6):
 #       3 illegal plan shapes → 400; legal 3-lane+join plan → 200; real
 #       fork-join run (3/5/7 → sum 15, disk-verified) →
@@ -52,8 +53,11 @@
 #   OC_TASK_SYSTEM_YES=1 bash e2e_test/task_system_e2e.sh
 #
 # PARAMS (env, overridable):
-#   TEST_AGENT          seeded agent member id used as the manual author + a seed
-#                       member for the agent-token floor check (default mira)
+#   TEST_AGENT          seeded ADMIN-role agent member id (role_key 'assistant' →
+#                       principalAdminAgent) used as the manual author and as the
+#                       ALLOW arm of the A1 assignee governance floor (default mira).
+#                       The DENY arm does not use it — A1 hires its own plain
+#                       member for that, because an assistant is above the floor.
 #   OWNER_PASSWORD      deterministic owner password to seed (default: random uuid)
 #   WORKER_MODEL        cheap model the outsource worker runs (default haiku)
 #   WORKER_EFFORT       cheap effort for the outsource worker (default low)
@@ -98,7 +102,7 @@ WORKER_EFFORT="${WORKER_EFFORT:-low}"
 FORK_WORKER_MODEL="${FORK_WORKER_MODEL:-claude-sonnet-4-6}"
 FORK_WORKER_EFFORT="${FORK_WORKER_EFFORT:-medium}"
 # Per-task worker budget: a worker that must ALSO do work (spawn → claim → write file
-# → closeout) needs a more generous budget than a bare presence flip. 300s (5min).
+# → mark_task_done) needs a more generous budget than a bare presence flip. 300s (5min).
 TASK_WORKER_TIMEOUT="${TASK_WORKER_TIMEOUT:-300}"
 # ── STAGE KNOBS (validate the cheap core chain first, then enable expensive stages) ──
 # RUN_FORK — 1 (default) runs the STAGE D fork-join REAL worker spawn (D3/D5: 3/5/7 → 15,
@@ -199,10 +203,19 @@ json_bool() { printf '%s' "$1" | py -c 'import sys,json; v=json.load(sys.stdin).
 # Callers therefore pass `task_id` when reading a CREATE receipt and `id` when
 # reading a bare TaskDTO from GET /api/tasks/{id}. Those are two different
 # shapes now and the script says which is which.
+#
+# 🔴 A JSON null PRINTS AS EMPTY, not as the text "None". The task DTO declares
+#   its optional numbers as pointers with no omitempty, so an open task answers
+#   closed_ts: null — a key that IS present. Python .get then yields None and a
+#   bare print emits the four characters None, which is neither empty nor a
+#   number, so every "-z means not set yet" assertion reads a set value and
+#   fires. Not hypothetical: that is what made A7a red while the server was
+#   answering exactly what T-182 wants.
 task_field() {
   printf '%s' "$1" | py -c '
 import sys, json
-print(json.load(sys.stdin).get(sys.argv[1], ""))
+v = json.load(sys.stdin).get(sys.argv[1], "")
+print("" if v is None else v)
 ' "$2"
 }
 
@@ -232,10 +245,13 @@ post_as_token() {
 # read_int_file PATH — echo the trimmed contents of a file, or "" if absent.
 read_int_file() { [[ -f "$1" ]] && tr -d ' \t\r\n' < "$1" || printf ''; }
 
-# poll_file_eq PATH WANT BUDGET — poll until PATH exists on disk AND its trimmed
-# content == WANT (or budget expires). 0 on match, 1 on timeout. Disk truth only.
+# poll_file_eq PATH WANT BUDGET [TASK_ID] — poll until PATH exists on disk AND its
+# trimmed content == WANT (or budget expires). 0 on match, 1 on timeout. Disk truth
+# only. With TASK_ID, a timeout also reports WHY that task's worker is not writing
+# (ow_reason) — a missing disk product and a worker that was never dispatched look
+# identical from the filesystem.
 poll_file_eq() {
-  local path="$1" want="$2" budget="$3" deadline cur
+  local path="$1" want="$2" budget="$3" tid="${4:-}" deadline cur
   deadline=$(( $(date +%s) + budget ))
   while [[ "$(date +%s)" -lt "$deadline" ]]; do
     cur="$(read_int_file "$path")"
@@ -243,21 +259,78 @@ poll_file_eq() {
     sleep 3
   done
   warn "disk[$path] never became '$want' within ${budget}s (last='${cur:-<absent>}')"
+  [[ -n "$tid" ]] && warn "  why (task=$tid): $(ow_reason "$tid")"
   return 1
 }
 
 # ow_for_task TASK_ID FIELD — from GET /api/outsource-workers, echo FIELD of the
 # (first) worker bound to TASK_ID. FIELD in {id,status,created_ts,...}. "" if none.
+# A JSON null reads as "" here for the same reason it does in task_field/json_field
+# — the worker row's last_op_ok/account/context_pct/cost are all nullable, and the
+# text "None" is not a value any caller below could use.
 ow_for_task() {
   api_get /api/outsource-workers 2>/dev/null | py -c '
 import sys, json
 tid, field = sys.argv[1], sys.argv[2]
 for w in json.load(sys.stdin):
     if w.get("task_id") == tid:
-        print(w.get(field, "")); break
+        v = w.get(field, "")
+        print("" if v is None else v); break
 else:
     print("")
 ' "$1" "$2"
+}
+
+# ow_reason TASK_ID — the WHY behind a stalled worker, read off the worker row.
+#
+# 🔴 WHY THIS EXISTS. Every non-dispatch stamps a structured cause onto the worker
+#   row (worker_spawn.go stampWorkerPlacementBlocked; codes like
+#   no_machine_selected / machine_unavailable / warden_unreachable / wake_timeout /
+#   boot_context_failed / held_down). The polls below used to report only "never
+#   reached X within Ns" and throw that away, so a run that stalled for a reason
+#   the server had ALREADY written looked identical to one that stalled for an
+#   unknown one. This reads the answer back instead of re-deriving it.
+#
+#   It never prints an empty string: a row with nothing stamped says so, and no row
+#   at all says THAT, so "the server recorded no reason" can never be confused with
+#   "nobody looked". One request, whole row, nulls folded to absent.
+ow_reason() {
+  api_get /api/outsource-workers 2>/dev/null | py -c '
+import sys, json
+tid = sys.argv[1]
+try:
+    rows = json.load(sys.stdin)
+except Exception:
+    print("could not read GET /api/outsource-workers to ask why"); sys.exit(0)
+row = next((w for w in rows if w.get("task_id") == tid), None)
+if row is None:
+    print("no worker row is bound to this task at all — the scheduler never bound "
+          "one, or the row was already released (released rows are not served)")
+    sys.exit(0)
+def f(k):
+    v = row.get(k, "")
+    return "" if v is None else v
+ok = f("last_op_ok")
+bits = []
+for k in ("id", "status", "presence", "last_op"):
+    if f(k) != "":
+        bits.append(k + "=" + str(f(k)))
+if ok != "":
+    bits.append("last_op_ok=" + str(ok))
+reason, logtail = str(f("last_op_reason")), str(f("last_op_log"))
+if reason == "" and logtail == "" and not bits:
+    print("the worker row exists but carries no reason to read — the server "
+          "stamped none (last_op/last_op_reason/last_op_log are all unset)")
+    sys.exit(0)
+head = "worker row: " + (", ".join(bits) if bits else "(no status fields set)")
+if reason != "":
+    head += " | last_op_reason: " + reason
+else:
+    head += " | last_op_reason: (none recorded)"
+if logtail != "":
+    head += " | last_op_log tail: " + logtail.strip().splitlines()[-1][:200]
+print(head)
+' "$1"
 }
 
 # poll_ow_live TASK_ID BUDGET — poll /api/outsource-workers until a LIVE worker is
@@ -292,6 +365,7 @@ poll_ow_live() {
     sleep 3
   done
   warn "outsource-worker[task=$tid] never reached a live status (assigned|active) within ${budget}s (last='${cur:-<none>}')"
+  warn "  why (task=$tid): $(ow_reason "$tid")"
   return 1
 }
 
@@ -306,6 +380,7 @@ poll_ow_gone() {
     sleep 3
   done
   warn "outsource-worker for task=$tid still present after ${budget}s (last id='$cur')"
+  warn "  why (task=$tid): $(ow_reason "$tid")"
   return 1
 }
 
@@ -365,8 +440,8 @@ pass_stage
 # STAGE A — M3 TASK CHAIN (matrix §2 A1-A8; wire contract §A-§D)
 # ===========================================================================
 
-# ── A1: create the synthetic manual + agent-author floor (9111cef) ──────────
-stage "A1. create task-manual '$SYNTH_TYPE' (owner) + assert 9111cef agent-author floor"
+# ── A1: create the synthetic manual + the two author floors ─────────────────
+stage "A1. create task-manual '$SYNTH_TYPE' (owner) + assert the 9111cef agent-author floor and BOTH arms of the assignee governance floor"
 
 # A1.owner — create a blank manual type (owner token). POST /api/task-manuals.
 #   body {type_key}; type_key empty→400, dup→409 (wire §A). Owner may set assignee.
@@ -378,7 +453,7 @@ log "manual created: type_key=$SYNTH_TYPE"
 # A1.content — PATCH the manual's CONTENT fields (owner). POST /api/task-manuals/{type_key}.
 #   fields: output_file (required, is_key → the dedupe key) + number (required).
 #   sop_md instructs the worker to write the integer `number` to the path `output_file`.
-A1_SOP='SYNTHETIC E2E TASK. Read your two inputs. Write the integer given in input `number` to the absolute path given in input `output_file` (create parent dirs if needed; write ONLY the integer, no trailing text). Then mark the step done and closeout. Do NOT do anything else.'
+A1_SOP='SYNTHETIC E2E TASK. Read your two inputs. Write the integer given in input `number` to the absolute path given in input `output_file` (create parent dirs if needed; write ONLY the integer, no trailing text). Then mark the step done. Reporting the last step does NOT close the task any more: it settles in `ready_for_done`, and you finish by calling `mark_task_done` on it. Do NOT do anything else.'
 A1_CONTENT="$(py -c '
 import json, sys
 print(json.dumps({
@@ -396,42 +471,84 @@ A1_PATCH="$(api_post_logged "/api/task-manuals/$SYNTH_TYPE" "$A1_CONTENT" || ech
   || fail_stage "PATCH content for $SYNTH_TYPE (owner) returned no DTO — content write rejected"
 log "manual content patched (owner): fields[output_file(key),number] + sop_md"
 
-# A1.floor — the 9111cef agent-author floor: with an AGENT token,
-#   PATCH content OK, but a body carrying `assignee` → 403 (callerMaySetAssignee).
-# Mint an agent-scope token for the seeded TEST_AGENT via POST /api/mint (owner-authed).
-MINT_JSON="$(api_post_logged /api/mint "{\"member_id\":\"$TEST_AGENT\",\"ttl_days\":1}" || echo '{}')"
-AGENT_TOKEN="$(printf '%s' "$MINT_JSON" | json_field token)"
-if [[ -n "$AGENT_TOKEN" ]]; then
-  # (a) agent PATCHing a CONTENT-ONLY body must succeed (agent floor).
-  AF_OK="$(post_as_token "$AGENT_TOKEN" "/api/task-manuals/$SYNTH_TYPE" '{"learnings":"agent-authored note"}')"
-  AF_OK_CODE="${AF_OK##*$'\n'}"
-  [[ "$AF_OK_CODE" =~ ^2[0-9][0-9]$ ]] \
-    || fail_stage "agent-token content PATCH expected 2xx, got $AF_OK_CODE — 9111cef agent-author floor regressed"
-  log "agent-token content PATCH OK (HTTP $AF_OK_CODE) — content-field author floor holds"
-  # (b) agent PATCHing a body that carries `assignee` must be 403.
-  AF_DENY="$(post_as_token "$AGENT_TOKEN" "/api/task-manuals/$SYNTH_TYPE" \
-    "{\"assignee\":{\"kind\":\"outsource\",\"model\":\"$WORKER_MODEL\"}}")"
-  AF_DENY_CODE="${AF_DENY##*$'\n'}"
-  [[ "$AF_DENY_CODE" == "403" ]] \
-    || fail_stage "agent-token PATCH with assignee expected HTTP 403 (callerMaySetAssignee), got $AF_DENY_CODE — owner-only governance floor regressed"
-  log "agent-token PATCH with assignee → HTTP 403 ✓ (owner-only assignee governance holds)"
-else
-  # mint is owner-gated and works for a seed member (mira) on a fresh install
-  # (POST /api/mint {member_id,ttl_days} → {token,...}). No token here is a real failure.
-  fail_stage "POST /api/mint {member_id:$TEST_AGENT,ttl_days:1} returned no .token — mint route/seed-member floor regressed (mint is owner-gated + works for seed member mira on fresh install @9111cef)"
-fi
+# A1.floor — the 9111cef agent-author floor + the T-6020 assignee governance
+#   floor, BOTH arms. The manual CONTENT fields are agent-editable; the
+#   `assignee` face is governance and admits only {owner, admin_agent}
+#   (api_taskmanuals.go callerMaySetAssignee → principalAtLeast(principalAdminAgent)).
+#
+# 🔴 THE DENY ARM NEEDS A PLAIN MEMBER, NOT $TEST_AGENT. A principal class is
+#   derived from the roster row (authz.go classifyMember): role_key=="assistant"
+#   → admin_agent. The seeded $TEST_AGENT (mira) IS the assistant, so it sits
+#   ABOVE this floor and its assignee write is a correct 200 — asserting 403 with
+#   that token made the 403 unreachable and left the rule with no test at all. A
+#   bare hire (name only, no kind/role_key) folds to kind=staff with an empty
+#   role_key → principalAgent, which is the identity the 403 belongs to. It is
+#   hired offline and never activated, so it spawns nothing and burns no token.
+PLAIN_HIRE="$(api_post_logged /api/members "$(py -c '
+import json, sys; print(json.dumps({"name": sys.argv[1]}))' "E2E Plain Member")" || echo '{}')"
+PLAIN_MEMBER="$(printf '%s' "$PLAIN_HIRE" | json_field id)"
+[[ -n "$PLAIN_MEMBER" ]] \
+  || fail_stage "POST /api/members {name} returned no id — the assignee 403 arm has no identity below the governance floor to assert with"
+log "hired plain member id=$PLAIN_MEMBER (bare hire → kind=staff, role_key empty → principalAgent)"
+
+PLAIN_MINT="$(api_post_logged /api/mint "{\"member_id\":\"$PLAIN_MEMBER\",\"ttl_days\":1}" || echo '{}')"
+PLAIN_TOKEN="$(printf '%s' "$PLAIN_MINT" | json_field token)"
+[[ -n "$PLAIN_TOKEN" ]] \
+  || fail_stage "POST /api/mint {member_id:$PLAIN_MEMBER,ttl_days:1} returned no .token — mint is owner-gated and resolves any staff member, so a hired member must mint"
+
+ADMIN_MINT="$(api_post_logged /api/mint "{\"member_id\":\"$TEST_AGENT\",\"ttl_days\":1}" || echo '{}')"
+ADMIN_TOKEN="$(printf '%s' "$ADMIN_MINT" | json_field token)"
+[[ -n "$ADMIN_TOKEN" ]] \
+  || fail_stage "POST /api/mint {member_id:$TEST_AGENT,ttl_days:1} returned no .token — mint route/seed-member floor regressed (mint is owner-gated + works for the seeded assistant on a fresh install @9111cef)"
+
+# (a) a PLAIN member PATCHing a CONTENT-ONLY body must succeed (agent floor).
+AF_OK="$(post_as_token "$PLAIN_TOKEN" "/api/task-manuals/$SYNTH_TYPE" '{"learnings":"agent-authored note"}')"
+AF_OK_CODE="${AF_OK##*$'\n'}"
+[[ "$AF_OK_CODE" =~ ^2[0-9][0-9]$ ]] \
+  || fail_stage "plain-member content PATCH expected 2xx, got $AF_OK_CODE — 9111cef agent-author floor regressed"
+log "plain-member content PATCH OK (HTTP $AF_OK_CODE) — content-field author floor holds"
+
+# (b) DENY arm: the SAME member PATCHing a body that carries `assignee` → 403.
+AF_ASSIGNEE="{\"assignee\":{\"kind\":\"outsource\",\"model\":\"$WORKER_MODEL\"}}"
+AF_DENY="$(post_as_token "$PLAIN_TOKEN" "/api/task-manuals/$SYNTH_TYPE" "$AF_ASSIGNEE")"
+AF_DENY_CODE="${AF_DENY##*$'\n'}"
+[[ "$AF_DENY_CODE" == "403" ]] \
+  || fail_stage "plain-member PATCH with assignee expected HTTP 403 (callerMaySetAssignee), got $AF_DENY_CODE — the assignee governance floor regressed"
+log "plain-member PATCH with assignee → HTTP 403 ✓ (below the governance floor)"
+
+# (c) ALLOW arm: the SAME body from an ADMIN AGENT ($TEST_AGENT — NOT the owner) lands,
+#   and the 200 is read back so a no-op cannot pass as a write. Without this arm
+#   (b) is equally satisfied by a server that refuses every non-owner assignee
+#   write, which is not the floor T-6020 set.
+AF_ADMIN="$(post_as_token "$ADMIN_TOKEN" "/api/task-manuals/$SYNTH_TYPE" "$AF_ASSIGNEE")"
+AF_ADMIN_CODE="${AF_ADMIN##*$'\n'}"
+[[ "$AF_ADMIN_CODE" =~ ^2[0-9][0-9]$ ]] \
+  || fail_stage "admin-agent ($TEST_AGENT) PATCH with assignee expected 2xx, got $AF_ADMIN_CODE — the admin_agent arm of the T-6020 assignee floor regressed"
+AF_ADMIN_KIND="$(api_get "/api/task-manuals/$SYNTH_TYPE" 2>/dev/null | py -c 'import sys,json; a=json.load(sys.stdin).get("assignee") or {}; print(a.get("kind",""))' 2>/dev/null || echo '')"
+[[ "$AF_ADMIN_KIND" == "outsource" ]] \
+  || fail_stage "admin-agent assignee PATCH answered $AF_ADMIN_CODE but GET assignee.kind='$AF_ADMIN_KIND' — the 2xx wrote nothing"
+log "admin-agent PATCH with assignee → HTTP $AF_ADMIN_CODE + persisted ✓ (floor = {owner, admin_agent})"
 pass_stage
 
 # ── A2: owner sets outsourcing on the manual ────────────────────────────────
-stage "A2. owner sets manual.assignee = outsource ($WORKER_MODEL/$WORKER_EFFORT, copies=1, machine=auto)"
+stage "A2. owner sets manual.assignee = outsource ($WORKER_MODEL/$WORKER_EFFORT, copies=1, machine=$SERVER_SELF_ID)"
 # wire §B: owner sets manual.assignee {kind:outsource, model(req), effort, copies, machine}.
+#
+# 🔴 `machine` MUST BE A REAL MACHINE ID. "auto" is not a legal value any more —
+#   validateManualAssignee rejects it with a 400 (ef068bd9: an unnamed placement
+#   could be stored and shown but never reached, so every worker of the type
+#   silently never booted). Omitting the key is legal but leaves the type with no
+#   placement, i.e. nothing to boot — which would turn A3-A8 into a wait for a
+#   worker that never comes. server-self is the one machine this isolated
+#   instance bootstraps a warden on (PHASE 3 / oc_bootstrap_warden above), so it is
+#   the placement.
 A2_BODY="$(py -c '
 import json, sys
 print(json.dumps({"assignee": {
   "kind": "outsource", "model": sys.argv[1], "effort": sys.argv[2],
-  "copies": 1, "machine": "auto",
+  "copies": 1, "machine": sys.argv[3],
 }}))
-' "$WORKER_MODEL" "$WORKER_EFFORT")"
+' "$WORKER_MODEL" "$WORKER_EFFORT" "$SERVER_SELF_ID")"
 A2_PATCH="$(api_post_logged "/api/task-manuals/$SYNTH_TYPE" "$A2_BODY" || echo '{}')"
 [[ -n "$(printf '%s' "$A2_PATCH" | json_field type_key)" ]] \
   || fail_stage "owner PATCH assignee=outsource for $SYNTH_TYPE returned no DTO — outsource set rejected"
@@ -505,12 +622,12 @@ A4_EXEC="$(task_field "$A4_TASK" executor_id)"
 # wire §D: the worker's first report_waking flips assigned→active (T-4595 moved that
 #   claim off the retired get_my_task onto the boot sequence's FIRST verb); the warden runs a
 #   tmux session member-<ow-id> with claude. BUT a fast worker (small model + tiny task)
-#   can blow through assigned→active→done→closeout→released in well under a minute —
+#   can blow through assigned→active→ready_for_done→done→released in well under a minute —
 #   PROVEN: run1+run2 both wrote the '42' product yet the worker had already left the
 #   'active' projection before a coarse poll caught it. So BOTH 'active' and the
 #   member-<ow-id> tmux session are TRANSIENT and may already be gone when we look. The
 #   AUTHORITATIVE proof the worker really ran is the OUTCOME — A6 disk product (42) +
-#   A7 task done/closeout + A8 released. Observe liveness BEST-EFFORT here; NEVER fail on
+#   A7 the worker closing its own task + A8 released. Observe liveness BEST-EFFORT here; NEVER fail on
 #   a missed transient snapshot (that was the original false-negative).
 _saw=""
 _deadline=$(( $(date +%s) + 20 ))
@@ -532,7 +649,7 @@ pass_stage
 # ── A6: synthetic task done — DISK-verified ─────────────────────────────────
 stage "A6. synthetic task done — disk product $SYNTH_OUT == '42' (do NOT trust self-report)"
 # Read DISK, not the worker's self-report: the file must exist AND contain exactly 42.
-poll_file_eq "$SYNTH_OUT" "42" "$TASK_WORKER_TIMEOUT" \
+poll_file_eq "$SYNTH_OUT" "42" "$TASK_WORKER_TIMEOUT" "$TASK_ID" \
   || fail_stage "worker never wrote '42' to $SYNTH_OUT within ${TASK_WORKER_TIMEOUT}s — synthetic task did not complete on disk"
 log "disk product verified: $SYNTH_OUT contains 42"
 # best-effort: assert the task's step(s) reached done (server truth).
@@ -552,45 +669,109 @@ print("all" if all(s.get("status")=="done" for s in steps) else "partial")
   || warn "server step-status cross-check inconclusive (got '$A6_STEPS_DONE') — disk product already authoritative"
 pass_stage
 
-# ── A7: closeout → task terminal (done) + closed_ts stamped ──────────────────
-stage "A7. closeout → task status=done + closed_ts stamped + closeout_reported==true (worker did its closeout duty)"
-# @9111cef: closeTask flips workers to `released` WITHOUT reclaiming the session; the WORKER
-#   itself must POST /api/tasks/{id}/closeout to be reclaimed immediately (else a 120s backstop
-#   grace reclaims it). On the TASK (what we poll here) closeout is a BOOLEAN `closeout_reported`
-#   — the task DTO carries no closeout_ts. (T-bb70: the close-out ROUTE's own bounded receipt does
-#   carry `closeout_ts`, but this stage reads GET /api/tasks/{id}, not that response.)
-#   So we assert: task reached status=done + closed_ts set + closeout_reported==true — proving
-#   the worker performed its own closeout (immediate fire). Generous TASK_WORKER_TIMEOUT budget.
-_a7_ok=""; A7_STATUS=""; A7_CLOSED=""; A7_REPORTED=""
+# ── A7a: steps all done does NOT close the task (deterministic, no worker) ───
+stage "A7a. every step reported done → task parks in ready_for_done (NOT done, no closed_ts); mark_task_done is what closes it"
+# T-182 — THE HALF A LIVE WORKER CANNOT PROVE. A fast worker blows through
+#   ready_for_done in well under a poll interval, so "we never saw it parked" is
+#   indistinguishable from "it auto-closed again". This stage removes the race
+#   entirely: it drives the steps itself over REST, with NO worker anywhere, and
+#   then simply LOOKS. A server that still auto-closes answers `done` here and
+#   this stage is red; a server that parks answers `ready_for_done`.
+#   Reuses the $TEST_AGENT-executor task machinery D2 sets up, but its own throwaway task.
+A7A_BODY="$(py -c '
+import json, sys
+print(json.dumps({"title": "E2E ready_for_done park check", "executor_member_id": sys.argv[1]}))
+' "$TEST_AGENT")"
+A7A_TASK="$(api_post_logged /api/tasks "$A7A_BODY" || echo '{}')"
+A7A_TID="$(task_field "$A7A_TASK" task_id)"
+[[ -n "$A7A_TID" ]] || fail_stage "could not create the throwaway task for the ready_for_done park check"
+A7A_MINT="$(api_post_logged /api/mint "{\"member_id\":\"$TEST_AGENT\",\"ttl_days\":1}" || echo '{}')"
+A7A_TOKEN="$(printf '%s' "$A7A_MINT" | json_field token)"
+[[ -n "$A7A_TOKEN" ]] \
+  || fail_stage "could not mint executor ($TEST_AGENT) token for A7a — the writes below need a caller callerMayDriveTask admits"
+
+A7A_PLAN='{"steps":[{"name":"the only step","dod":"it is done"}]}'
+A7A_RESP="$(post_as_token "$A7A_TOKEN" "/api/tasks/$A7A_TID/plan" "$A7A_PLAN")"
+[[ "${A7A_RESP##*$'\n'}" == "200" ]] \
+  || fail_stage "submit_plan for A7a returned ${A7A_RESP##*$'\n'} — cannot check the park without a planned step"
+A7A_SID="$(api_get "/api/tasks/$A7A_TID" 2>/dev/null | py -c '
+import sys, json
+t = json.load(sys.stdin); t = t.get("task", t)
+steps = t.get("steps") or []
+print(steps[0]["id"] if steps else "")
+' 2>/dev/null || echo '')"
+[[ -n "$A7A_SID" ]] || fail_stage "could not read back the A7a step id"
+
+for _body in '{"status":"in_progress"}' '{"status":"done","handoff":"none","handoff_note":"nothing follows this"}'; do
+  A7A_RESP="$(post_as_token "$A7A_TOKEN" "/api/tasks/$A7A_TID/steps/$A7A_SID/status" "$_body")"
+  [[ "${A7A_RESP##*$'\n'}" == "200" ]] \
+    || fail_stage "step status $_body returned ${A7A_RESP##*$'\n'} for the A7a task"
+done
+
+A7A_AFTER="$(api_get "/api/tasks/$A7A_TID" 2>/dev/null || echo '{}')"
+A7A_STATUS="$(task_field "$A7A_AFTER" status)"
+A7A_CLOSED="$(task_field "$A7A_AFTER" closed_ts)"
+[[ "$A7A_STATUS" == "ready_for_done" ]] \
+  || fail_stage "every step is done and the task is in '$A7A_STATUS', want 'ready_for_done' — reporting the last step still CLOSES the task, which is exactly what T-182 removed"
+[[ -z "$A7A_CLOSED" || "$A7A_CLOSED" == "0" ]] \
+  || fail_stage "task parked in ready_for_done but closed_ts='$A7A_CLOSED' is already stamped — a task nobody has closed must carry no close stamp"
+log "steps all done → status=ready_for_done, closed_ts unset ✓ (the task did NOT close itself)"
+
+# The positive half: the button is what closes it. Without this the stage above
+# is satisfied by a server that can NEVER reach done.
+A7A_RESP="$(post_as_token "$A7A_TOKEN" "/api/tasks/$A7A_TID/mark-done" '{}')"
+[[ "${A7A_RESP##*$'\n'}" == "200" ]] \
+  || fail_stage "mark_task_done on a ready_for_done task returned ${A7A_RESP##*$'\n'} — the one action that closes a task is refused"
+A7A_AFTER="$(api_get "/api/tasks/$A7A_TID" 2>/dev/null || echo '{}')"
+A7A_STATUS="$(task_field "$A7A_AFTER" status)"
+A7A_CLOSED="$(task_field "$A7A_AFTER" closed_ts)"
+[[ "$A7A_STATUS" == "done" && -n "$A7A_CLOSED" && "$A7A_CLOSED" != "0" ]] \
+  || fail_stage "after mark_task_done the task is status='$A7A_STATUS' closed_ts='$A7A_CLOSED', want done + a stamp"
+log "mark_task_done → status=done + closed_ts stamped ✓"
+pass_stage
+
+# ── A7: the WORKER closes its own task (done + closed_ts) ───────────────────
+stage "A7. worker closes its own task → status=done + closed_ts stamped (it pressed mark_task_done after its close-out)"
+# T-182 — WHAT CHANGED HERE. This stage used to assert `closeout_reported==true`,
+#   a boolean the task DTO carried because the worker filed a SEPARATE
+#   report_task_closeout after the task had already closed itself. That tool and
+#   that field are both gone: the task now parks in `ready_for_done` (proved
+#   deterministically in A7a) and the worker's own mark_task_done is what ends
+#   it. So `done` + a closed_ts IS the close-out evidence now — nothing else can
+#   produce it on this task, because no owner or admin touches it in this run.
+#   A task stuck in ready_for_done is the new, and much more readable, failure:
+#   the worker did the work and never pressed the button.
+_a7_ok=""; A7_STATUS=""; A7_CLOSED=""
 _deadline=$(( $(date +%s) + TASK_WORKER_TIMEOUT ))
 while [[ "$(date +%s)" -lt "$_deadline" ]]; do
   A7_TASK="$(api_get "/api/tasks/$TASK_ID" 2>/dev/null || echo '{}')"
   A7_STATUS="$(task_field "$A7_TASK" status)"
   A7_CLOSED="$(task_field "$A7_TASK" closed_ts)"
-  A7_REPORTED="$(json_bool "$A7_TASK" closeout_reported)"
-  if [[ "$A7_STATUS" == "done" && -n "$A7_CLOSED" && "$A7_CLOSED" != "0" && "$A7_REPORTED" == "true" ]]; then
+  if [[ "$A7_STATUS" == "done" && -n "$A7_CLOSED" && "$A7_CLOSED" != "0" ]]; then
     _a7_ok=1; break
   fi
   sleep 3
 done
 if [[ -z "$_a7_ok" ]]; then
-  # If done+closed_ts landed but closeout_reported never flipped true, that is a REAL finding:
-  # the worker completed the task but did not report its own closeout (fired only via 120s grace,
-  # not immediately) — a worker-seed discipline gap, not a flaky e2e.
-  if [[ "$A7_STATUS" == "done" && -n "$A7_CLOSED" && "$A7_CLOSED" != "0" ]]; then
-    fail_stage "task=$TASK_ID reached done+closed_ts but closeout_reported never became true within ${TASK_WORKER_TIMEOUT}s — the worker COMPLETED the task but did NOT report closeout (fired only via the 120s grace backstop, not immediately). Worker-seed closeout-discipline gap."
+  if [[ "$A7_STATUS" == "ready_for_done" ]]; then
+    fail_stage "task=$TASK_ID is parked in ready_for_done after ${TASK_WORKER_TIMEOUT}s — the worker finished the work (A6 disk product verified) but never called mark_task_done. Worker-seed close-discipline gap, not a flaky e2e."
   else
-    fail_stage "task=$TASK_ID never reached status=done with a closed_ts + closeout_reported within ${TASK_WORKER_TIMEOUT}s (last status='${A7_STATUS:-?}' closed_ts='${A7_CLOSED:-?}' closeout_reported='${A7_REPORTED:-?}')"
+    fail_stage "task=$TASK_ID never reached status=done with a closed_ts within ${TASK_WORKER_TIMEOUT}s (last status='${A7_STATUS:-?}' closed_ts='${A7_CLOSED:-?}')"
   fi
 fi
-log "task done + closed_ts stamped + closeout_reported=true (status=$A7_STATUS, closed_ts=$A7_CLOSED) — worker self-reported closeout ✓"
+log "task closed by its own worker: status=$A7_STATUS, closed_ts=$A7_CLOSED ✓"
 pass_stage
 
 # ── A8: fire — worker released + tmux session gone ──────────────────────────
 stage "A8. fire → worker $OW_ID released (panel row drops) + tmux member-$OW_ID gone"
-# @9111cef: on done/closeout the bound worker flips to status "released" — the active
-#   projection (GET /api/outsource-workers) DROPS released rows, so the row disappearing
-#   IS the released signal — and its tmux session member-<ow-id> is killed (bounded poll).
+# T-182: the bound worker is DISMISSED BY THE CLOSE ITSELF (closeTask → all four
+#   doors), not by a separate close-out report — it flips to "released" AND its
+#   session is reclaimed in that one call. The active projection
+#   (GET /api/outsource-workers) DROPS released rows, so the row disappearing IS
+#   the released signal; the tmux session member-<ow-id> is killed (bounded poll).
+#   The 120s grace backstop still exists, so a generous budget here does NOT prove
+#   the dismissal was immediate — A7 landing first is what makes this the close's
+#   own doing rather than the backstop's.
 poll_ow_gone "$TASK_ID" "$TASK_WORKER_TIMEOUT" \
   || fail_stage "worker for task=$TASK_ID never dropped from the /api/outsource-workers active projection (never released) within ${TASK_WORKER_TIMEOUT}s"
 poll_tmux_worker_gone "$OW_ID" "$TASK_WORKER_TIMEOUT" \
@@ -618,10 +799,14 @@ pass_stage
 
 # ── D2 first (API-only negatives, cheap): 3 illegal plan shapes → 400 ───────
 stage "D2. parallel_group illegal plan shapes → HTTP 400 (gate-in-group / split-group / one-lane) via EXECUTOR token"
-# @9111cef: the plan endpoint checks the EXECUTOR guard BEFORE shape validation — an OWNER
-#   token that is NOT the task's executor gets 403 and never reaches the 400 shape check.
-#   So create an AD-HOC task whose executor_member_id = a seed member (mira), mint THAT
-#   member's agent token, and POST the 3 illegal plans as MIRA's token → assert 400 each.
+# The plan endpoint checks its caller guard BEFORE shape validation, so the POSTs
+#   below must come from a caller the guard admits or they 403 before reaching the
+#   400. That guard is callerMayDriveTask (api_tasks.go), which admits the
+#   EXECUTOR *or* anyone at/above admin_agent — so the owner token would also pass
+#   it; this stage drives the plan as the executor because the executor is the
+#   identity the product path uses, not because the owner is refused.
+#   So create an AD-HOC task whose executor_member_id = $TEST_AGENT, mint THAT
+#   member's agent token, and POST the 3 illegal plans as that token → assert 400 each.
 #   (Zero worker spawn — API only.)
 D2_TASK_BODY="$(py -c '
 import json, sys
@@ -630,20 +815,49 @@ print(json.dumps({"title": "E2E plan-shape negative harness", "executor_member_i
 D2_TASK="$(api_post_logged /api/tasks "$D2_TASK_BODY" || echo '{}')"
 D2_TID="$(task_field "$D2_TASK" task_id)"
 [[ -n "$D2_TID" ]] || fail_stage "could not create the throwaway task for D2 plan-shape negatives"
-# Mint the EXECUTOR (mira) token so the plan POSTs pass the executor guard and reach shape validation.
+# Mint the EXECUTOR ($TEST_AGENT) token so the plan POSTs pass the executor guard and reach shape validation.
 D2_MINT="$(api_post_logged /api/mint "{\"member_id\":\"$TEST_AGENT\",\"ttl_days\":1}" || echo '{}')"
 D2_EXEC_TOKEN="$(printf '%s' "$D2_MINT" | json_field token)"
 [[ -n "$D2_EXEC_TOKEN" ]] \
-  || fail_stage "could not mint executor ($TEST_AGENT) token for D2 — plan POSTs would hit the 403 executor guard before the 400 shape check"
+  || fail_stage "could not mint executor ($TEST_AGENT) token for D2 — plan POSTs need a caller callerMayDriveTask admits, or they 403 before the 400 shape check"
 
-# post_plan_as_exec JSON WANT LABEL — POST a plan as the EXECUTOR (mira) token; assert HTTP == WANT.
+# post_plan_as_exec JSON WANT LABEL [MUST_CONTAIN] — POST a plan as the EXECUTOR
+# ($TEST_AGENT) token; assert HTTP == WANT, and when MUST_CONTAIN is given also
+# assert error.message contains it AND is not the DoD refusal.
+#
+# 🔴 WHY THE MESSAGE IS PART OF THE ASSERTION. submit_plan checks every step's DoD
+#   is non-blank BEFORE the plan ever reaches the parallel-shape gate
+#   (api_tasks.go: the per-step loop, then ValidatePlanParallelShape). So a
+#   negative whose steps carry no `dod` answers 400 for a reason that has nothing
+#   to do with the shape it claims to test — and 400 == 400, so the stage went
+#   green with ValidatePlanParallelShape never executed once. Deleting that
+#   function outright would not have reddened anything here. Matching the sentence
+#   is what makes these three cases assertions rather than decoration.
 post_plan_as_exec() {
-  local json="$1" want="$2" label="$3" resp code
+  local json="$1" want="$2" label="$3" must="${4:-}" resp code body msg
   resp="$(post_as_token "$D2_EXEC_TOKEN" "/api/tasks/$D2_TID/plan" "$json")"
-  code="${resp##*$'\n'}"
+  code="${resp##*$'\n'}"; body="${resp%$'\n'*}"
   if [[ "$code" != "$want" ]]; then
-    warn "$label: expected HTTP $want, got $code — body: $(printf '%s' "${resp%$'\n'*}" | head -c 300)"
+    warn "$label: expected HTTP $want, got $code — body: $(printf '%s' "$body" | head -c 300)"
     return 1
+  fi
+  if [[ -n "$must" ]]; then
+    msg="$(printf '%s' "$body" | py -c '
+import sys, json
+try: d = json.load(sys.stdin)
+except Exception: print(""); sys.exit(0)
+print((d.get("error") or {}).get("message") or "")
+' 2>/dev/null || printf '')"
+    if [[ "$msg" == *"definition of done"* ]]; then
+      warn "$label: HTTP $want came from the DoD quality gate, NOT the parallel-shape gate — message: $msg"
+      return 1
+    fi
+    if [[ "$msg" != *"$must"* ]]; then
+      warn "$label: HTTP $want but the message names no known shape rule — want substring '$must', got: $msg"
+      return 1
+    fi
+    log "$label: HTTP $code + message names the rule ✓ ($must)"
+    return 0
   fi
   log "$label: HTTP $code (expected $want) ✓"
   return 0
@@ -653,36 +867,36 @@ post_plan_as_exec() {
 D2_GATE_IN_GROUP="$(py -c '
 import json
 print(json.dumps({"steps": [
-  {"name": "laneA", "parallel_group": "pg-1"},
-  {"name": "gate-inside", "parallel_group": "pg-1", "is_gate": True},
+  {"name": "laneA", "dod": "lane A is done", "parallel_group": "pg-1"},
+  {"name": "gate-inside", "dod": "the gate is answered", "parallel_group": "pg-1", "is_gate": True},
 ]}))
 ')"
-post_plan_as_exec "$D2_GATE_IN_GROUP" 400 "D2.gate-in-group" \
-  || fail_stage "gate-in-group plan was NOT rejected 400 (ValidatePlanParallelShape rule 1)"
+post_plan_as_exec "$D2_GATE_IN_GROUP" 400 "D2.gate-in-group" "a gate step cannot sit inside a parallel group" \
+  || fail_stage "gate-in-group plan was NOT rejected 400 BY ValidatePlanParallelShape rule 1 (see the warn above: a 400 from the DoD gate does not count)"
 
 # illegal #2: a SPLIT group — same key non-consecutive (separated by another step).
 D2_SPLIT_GROUP="$(py -c '
 import json
 print(json.dumps({"steps": [
-  {"name": "laneA", "parallel_group": "pg-1"},
-  {"name": "interloper", "parallel_group": ""},
-  {"name": "laneB", "parallel_group": "pg-1"},
+  {"name": "laneA", "dod": "lane A is done", "parallel_group": "pg-1"},
+  {"name": "interloper", "dod": "the interloper is done", "parallel_group": ""},
+  {"name": "laneB", "dod": "lane B is done", "parallel_group": "pg-1"},
 ]}))
 ')"
-post_plan_as_exec "$D2_SPLIT_GROUP" 400 "D2.split-group" \
-  || fail_stage "split-group plan was NOT rejected 400 (ValidatePlanParallelShape rule 2)"
+post_plan_as_exec "$D2_SPLIT_GROUP" 400 "D2.split-group" "must sit next to each other" \
+  || fail_stage "split-group plan was NOT rejected 400 BY ValidatePlanParallelShape rule 2 (see the warn above: a 400 from the DoD gate does not count)"
 
 # illegal #3: a ONE-LANE group — same key appears only once (<2 lanes).
 D2_ONE_LANE="$(py -c '
 import json
 print(json.dumps({"steps": [
-  {"name": "loneLane", "parallel_group": "pg-1"},
-  {"name": "seqAfter", "parallel_group": ""},
+  {"name": "loneLane", "dod": "the lone lane is done", "parallel_group": "pg-1"},
+  {"name": "seqAfter", "dod": "the sequential step is done", "parallel_group": ""},
 ]}))
 ')"
-post_plan_as_exec "$D2_ONE_LANE" 400 "D2.one-lane-group" \
-  || fail_stage "one-lane-group plan was NOT rejected 400 (ValidatePlanParallelShape rule 3)"
-log "all 3 illegal parallel_group shapes rejected 400 ✓"
+post_plan_as_exec "$D2_ONE_LANE" 400 "D2.one-lane-group" "holds only one step" \
+  || fail_stage "one-lane-group plan was NOT rejected 400 BY ValidatePlanParallelShape rule 3 (see the warn above: a 400 from the DoD gate does not count)"
+log "all 3 illegal parallel_group shapes rejected 400 by the SHAPE gate (message matched per rule) ✓"
 pass_stage
 
 # ── D1: legal plan (3 consecutive lanes + a join step) → 200, roundtrips ─────
@@ -696,7 +910,7 @@ print(json.dumps({"steps": [
   {"name": "join-sum", "parallel_group": "", "dod": "read all lanes + write sum (15)"},
 ]}))
 ')"
-# D1 also posts to the mira-executor task ($D2_TID), so it MUST go through the executor token.
+# D1 also posts to the $TEST_AGENT-executor task ($D2_TID), so it MUST go through the executor token.
 post_plan_as_exec "$D1_PLAN" 200 "D1.legal-plan" \
   || fail_stage "legal 3-lane+join plan was NOT accepted 200 — ValidatePlanParallelShape false-rejected the happy shape"
 # roundtrip: GET the task and assert task.steps carries the 3 same-group lanes + the join.
@@ -727,7 +941,7 @@ FORK_SUM="$TSE_OUT/join_sum.txt"
 # D.manual — create + content-patch the fork-join type (owner).
 api_post_logged /api/task-manuals "{\"type_key\":\"$FORK_TYPE\"}" >/dev/null \
   || fail_stage "could not create fork-join manual $FORK_TYPE"
-D_SOP='SYNTHETIC E2E FORK-JOIN. Submit a plan with THREE consecutive parallel_group lanes (one parallel_group id) followed by ONE sequential join step. For each lane, spawn a sub-agent that writes ONLY its integer to its lane file: write 3→'"$FORK_L3"', 5→'"$FORK_L5"', 7→'"$FORK_L7"'. After ALL three lanes are done, the JOIN step (you, the worker, NOT a sub-agent) reads the three lane files, sums them (=15), and writes ONLY 15 to '"$FORK_SUM"'. Report every step yourself (the worker body owns all MCP status reports; sub-agents never report). Then closeout.'
+D_SOP='SYNTHETIC E2E FORK-JOIN. Submit a plan with THREE consecutive parallel_group lanes (one parallel_group id) followed by ONE sequential join step. For each lane, spawn a sub-agent that writes ONLY its integer to its lane file: write 3→'"$FORK_L3"', 5→'"$FORK_L5"', 7→'"$FORK_L7"'. After ALL three lanes are done, the JOIN step (you, the worker, NOT a sub-agent) reads the three lane files, sums them (=15), and writes ONLY 15 to '"$FORK_SUM"'. Report every step yourself (the worker body owns all MCP status reports; sub-agents never report). Reporting the last step does NOT close the task: it settles in `ready_for_done`, and you finish by calling `mark_task_done` on it.'
 D_CONTENT="$(py -c '
 import json, sys
 print(json.dumps({
@@ -748,8 +962,8 @@ api_post_logged "/api/task-manuals/$FORK_TYPE" "$D_CONTENT" >/dev/null \
 # execution layer must be reliable to prove the parallel_group mechanism), copies=1.
 D_ASSIGNEE="$(py -c '
 import json, sys
-print(json.dumps({"assignee": {"kind":"outsource","model":sys.argv[1],"effort":sys.argv[2],"copies":1,"machine":"auto"}}))
-' "$FORK_WORKER_MODEL" "$FORK_WORKER_EFFORT")"
+print(json.dumps({"assignee": {"kind":"outsource","model":sys.argv[1],"effort":sys.argv[2],"copies":1,"machine":sys.argv[3]}}))
+' "$FORK_WORKER_MODEL" "$FORK_WORKER_EFFORT" "$SERVER_SELF_ID")"
 api_post_logged "/api/task-manuals/$FORK_TYPE" "$D_ASSIGNEE" >/dev/null \
   || fail_stage "could not set outsource assignee on fork-join manual $FORK_TYPE"
 log "fork-join manual $FORK_TYPE created + outsourced"
@@ -784,13 +998,13 @@ fi
 # D3 — each lane file lands with its own number (DISK truth, generous budget: worker
 #   spawns sub-agents; each does 1-2 tool calls). Give fork+join extra headroom.
 FORK_BUDGET=$(( TASK_WORKER_TIMEOUT * 2 ))
-poll_file_eq "$FORK_L3" "3" "$FORK_BUDGET" || fail_stage "lane file $FORK_L3 never became '3' — D3 fork lane failed"
-poll_file_eq "$FORK_L5" "5" "$FORK_BUDGET" || fail_stage "lane file $FORK_L5 never became '5' — D3 fork lane failed"
-poll_file_eq "$FORK_L7" "7" "$FORK_BUDGET" || fail_stage "lane file $FORK_L7 never became '7' — D3 fork lane failed"
+poll_file_eq "$FORK_L3" "3" "$FORK_BUDGET" "$FORK_TID" || fail_stage "lane file $FORK_L3 never became '3' — D3 fork lane failed (see the why line above)"
+poll_file_eq "$FORK_L5" "5" "$FORK_BUDGET" "$FORK_TID" || fail_stage "lane file $FORK_L5 never became '5' — D3 fork lane failed (see the why line above)"
+poll_file_eq "$FORK_L7" "7" "$FORK_BUDGET" "$FORK_TID" || fail_stage "lane file $FORK_L7 never became '7' — D3 fork lane failed (see the why line above)"
 log "D3 OK: all 3 lane files landed (3/5/7) on disk"
 
 # D5 — join: sum file == 15 (read after all lanes; disk truth).
-poll_file_eq "$FORK_SUM" "15" "$FORK_BUDGET" || fail_stage "join file $FORK_SUM never became '15' — D5 join/sum failed"
+poll_file_eq "$FORK_SUM" "15" "$FORK_BUDGET" "$FORK_TID" || fail_stage "join file $FORK_SUM never became '15' — D5 join/sum failed (see the why line above)"
 log "D5 OK: join sum file == 15 on disk"
 
 # D5 ordering — join step started only AFTER all lanes finished (finished_ts ordering).

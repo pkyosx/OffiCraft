@@ -139,11 +139,12 @@ describe("T-a3e4 資料供給: 勾什麼就問什麼 — dep 不再讓它拉整�
     expect(
       spy.mock.calls.every(([opts]) => (opts?.statuses ?? []).length > 0)
     ).toBe(true);
-    // And the set is the DEFAULT view's, stated as values: five non-terminal
+    // And the set is the DEFAULT view's, stated as values: six non-terminal
     // states, terminals excluded. "It sent something" is not the contract.
     expect([...(spy.mock.calls[0][0]?.statuses ?? [])].sort()).toEqual([
       "in_progress",
       "not_started",
+      "ready_for_done",
       "reassigning",
       "waiting_external",
       "waiting_owner",

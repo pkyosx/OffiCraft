@@ -4,7 +4,7 @@
 //      (adjudicated). A pure chat ask shows nothing.
 //   2. Clicking 查看任務詳情 routes to #tasks/<taskId>.
 //   3. Arriving at #tasks/<id> narrows the page to that ONE task in the normal
-//      layout (a closed target auto-expands 已結束); emptying the 編號 field
+//      layout (a closed target auto-expands 已結案); emptying the 編號 field
 //      returns to the full list; an unknown id KEEPS its anchor and the page
 //      says THAT ID DOES NOT EXIST — the server was asked (owner 2026-09-05
 //      rc-428906235337 stopped the silent self-heal; owner 2026-09-06 option ①
@@ -269,7 +269,7 @@ describe("TasksPage 單一任務 filter (#tasks/<id>)", () => {
     ).not.toBe("");
   });
 
-  it("a CLOSED target shows up with 已結束 auto-expanded", async () => {
+  it("a CLOSED target shows up with 已結案 auto-expanded", async () => {
     __injectMockTask(mkTask({ id: "t-open" }));
     __injectMockTask(
       mkTask({ id: "t-closed", status: "done", closedTs: Date.now() / 1000 - 60 })
@@ -299,7 +299,7 @@ describe("TasksPage 單一任務 filter (#tasks/<id>)", () => {
     );
     expect(document.querySelector('[data-task-id="t-open"]')).not.toBeNull();
     // The anchor is a filter axis: clearing it goes to 顯示全部, so the done
-    // task's 已結束 section is there too (the anchor visit already auto-
+    // task's 已結案 section is there too (the anchor visit already auto-
     // expanded it — open it only if still collapsed).
     const toggle = await findByTestId("closed-toggle");
     if (toggle.getAttribute("aria-expanded") !== "true") {
@@ -371,10 +371,10 @@ describe("TasksPage executor seed (#tasks/executor/<id>, T-dfae)", () => {
     expect(openList.querySelector('[data-task-id="t-mira-open"]')).not.toBeNull();
     expect(document.querySelector('[data-task-id="t-kyle-open"]')).toBeNull();
     // 還沒完成 half: mira's DONE task is nowhere on the page. Stronger than
-    // "已結束 stays collapsed" — the status filter removes terminals from the
-    // filtered set, so the 已結束 section does not render at all (it is gated
+    // "已結案 stays collapsed" — the status filter removes terminals from the
+    // filtered set, so the 已結案 section does not render at all (it is gated
     // on closed.length > 0 over the FILTERED list). Contrast the #tasks/<id>
-    // anchor, which deliberately auto-expands 已結束 to guarantee visibility;
+    // anchor, which deliberately auto-expands 已結案 to guarantee visibility;
     // this seed promises the opposite.
     expect(queryByTestId("closed-toggle")).toBeNull();
     expect(document.querySelector('[data-task-id="t-mira-done"]')).toBeNull();
@@ -435,7 +435,7 @@ describe("TasksPage executor seed (#tasks/executor/<id>, T-dfae)", () => {
     await waitFor(() => expect(window.location.hash).toBe("#tasks"));
 
     // The stale 所有狀態 must have been overwritten by the seed. Document-wide:
-    // the done task is nowhere, and 已結束 is gone entirely (it renders only
+    // the done task is nowhere, and 已結案 is gone entirely (it renders only
     // when the FILTERED closed set is non-empty).
     await waitFor(() =>
       expect(document.querySelector('[data-task-id="t-mira-done"]')).toBeNull()

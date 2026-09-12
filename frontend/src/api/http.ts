@@ -1769,24 +1769,27 @@ export const httpApi: Api = {
   },
 
   async terminateTask(id: string): Promise<void> {
-    // POST /api/tasks/{task_id}/terminate -> TaskWriteReceiptDTO. The write
+    // POST /api/tasks/{task_id}/mark-terminated -> TaskWriteReceiptDTO (T-182
+    // renamed the route; the tool is now mark_task_terminated). The write
     // answers with a bounded receipt (T-91), not the task; the cockpit
     // refetches, exactly as it already did. The ONLY owner-side
     // status change (spec §3.7); non-terminal only (409 throws via the client
     // middleware). No body — the FE owns the double-confirm.
-    await client.POST("/api/tasks/{task_id}/terminate", {
+    await client.POST("/api/tasks/{task_id}/mark-terminated", {
       params: { path: { task_id: id } },
     });
   },
 
   async markTaskDuplicate(id: string, duplicateOf: string): Promise<void> {
-    // POST /api/tasks/{task_id}/duplicate {duplicate_of} -> TaskWriteReceiptDTO.
+    // POST /api/tasks/{task_id}/mark-duplicated {duplicate_of} ->
+    // TaskWriteReceiptDTO (T-182 renamed the route; the tool is now
+    // mark_task_duplicated).
     // The write answers with a bounded receipt (T-91), not the task; the
     // cockpit refetches, exactly as it already did. Marks the
     // task a duplicate of the original (T-02c9); a third terminal status. The
     // server enforces the depth-1 graph (self/already-duplicated/already-an-
     // original are all 409) and rejects a closed task (409) — all throw.
-    await client.POST("/api/tasks/{task_id}/duplicate", {
+    await client.POST("/api/tasks/{task_id}/mark-duplicated", {
       params: { path: { task_id: id } },
       body: { duplicate_of: duplicateOf },
     });

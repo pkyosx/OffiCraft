@@ -769,4 +769,8 @@ const (
 	taskUnblockedSeedMD  = "task_unblocked.md"
 	taskUnblockedDocKey  = "global"
 	docKindTaskUnblocked = "task_unblocked"
+
+	taskReadyForDoneSeedMD  = "task_ready_for_done.md"
+	taskReadyForDoneDocKey  = "global"
+	docKindTaskReadyForDone = "task_ready_for_done"
 )

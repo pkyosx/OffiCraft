@@ -56,6 +56,7 @@ export const THEME_COLOR_TOKENS: readonly string[] = [
   "--color-onboarding-border",
   "--color-onboarding-fg",
   "--color-overlay",
+  "--color-ready-for-done",
   "--color-scrim",
   "--color-scrollbar-thumb",
   "--color-seg-border",

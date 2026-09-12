@@ -763,7 +763,7 @@ func TestTaskCloseoutDoc_IsTheApprovedRewriteWithBothNamesMovedIntoTheHead(t *te
 	gotHead := mustRender(t, spec, head, map[string]string{
 		"task_no": "T-7d40", "closed_by": "owner",
 	})
-	wantHead := "任務 T-7d40 已結束，關閉的人是 owner。"
+	wantHead := "任務 T-7d40 已結案，結案的人是 owner。"
 	if gotHead != wantHead {
 		t.Fatalf("the read-only head is not the approved sentence:\n got %q\nwant %q", gotHead, wantHead)
 	}

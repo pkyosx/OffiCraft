@@ -51,6 +51,7 @@ export const DOC_FIELD_ORDER: Record<DocumentKind, readonly string[]> = {
   task_takeover_with_predecessor: ["text"],
   task_takeover_fresh: ["text"],
   task_unblocked: ["text"],
+  task_ready_for_done: ["text"],
 };
 
 /** Keys a revision may CARRY but that are not content of the document.

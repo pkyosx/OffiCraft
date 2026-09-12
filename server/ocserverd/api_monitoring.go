@@ -976,10 +976,10 @@ type monitoringActor struct {
 	// tallied into machines[].agents?" — and nothing else.
 	//
 	// ⚠️ NAMED THIS WAY ON PURPOSE. The obvious name, `live`, is a trap: the
-	// actors loop below argues at length that a released worker IS still alive
-	// and still burning money (SPEC §6.3 keeps its session up to run close-out
-	// duties), and that argument is why released workers are included in the
-	// COST fold. A field called `live` set to false for exactly those workers
+	// actors loop below argues at length that a released worker may still be
+	// alive and still burning money (the reclaim is not instantaneous — see the
+	// bound below), and that argument is why released workers are included in
+	// the COST fold. A field called `live` set to false for exactly those workers
 	// would flatly contradict the comment a dozen lines away, and the next
 	// reader would reasonably conclude the flag was inverted by mistake.
 	//
@@ -1209,8 +1209,8 @@ func (s *apiServer) HandleGetMonitoringApiMonitoringGet(w http.ResponseWriter, r
 		// filtering it here makes the two loops disagree.
 		//
 		// And released is the STEADY STATE for outsource workers, not an edge
-		// case: ReleaseWorkersForTask fires on every task close (api_tasks.go
-		// closeTask) and on every close-out report (dismissOutsourceWorkersForTask).
+		// case: every task close dismisses the bound worker (api_tasks.go
+		// closeTask → dismissOutsourceWorkersForTask), which releases the row.
 		// A filter here would therefore hide almost all outsource spend — the
 		// owner-reported eva-m5-claude symptom, restored verbatim.
 		//
@@ -1352,13 +1352,15 @@ func (s *apiServer) HandleGetMonitoringApiMonitoringGet(w http.ResponseWriter, r
 	// Including released workers would be the behaviour CHANGE here; excluding
 	// them preserves what `agents` has always meant.
 	//
-	// THE ONE CASE THIS UNDERCOUNTS, and its exact bound. A released worker does
-	// keep its session briefly (SPEC §6.3, close-out duties), so for that window
-	// it is a real running process that `agents` does not count. The window is
-	// bounded at BOTH ends: dismissOutsourceWorkersForTask reclaims it the
-	// moment the close-out report lands, and the outsource tick force-reclaims
-	// it at workerReclaimGraceSecs = 120.0 (worker_spawn.go) after release
-	// regardless. So the undercount is at most ~120s per worker and then the
+	// THE ONE CASE THIS UNDERCOUNTS, and its exact bound. A released worker can
+	// still hold its session for a moment — the release and the session reclaim
+	// are two steps of one call, and a worker released by some path that is not
+	// a task close waits out the backstop — so for that window it is a real
+	// running process that `agents` does not count. The window is bounded at
+	// BOTH ends: since T-182 the close itself reclaims the session in the same
+	// call that releases the row (dismissOutsourceWorkersForTask), and the
+	// outsource tick force-reclaims anything else at workerReclaimGraceSecs =
+	// 120.0 (worker_spawn.go) after release regardless. So the undercount is at most ~120s per worker and then the
 	// session is genuinely gone — whereas the overcount from counting released
 	// workers is UNBOUNDED and grows with every task the box has ever run. A
 	// bounded 2-minute undercount is the better error, which is what makes 0 an

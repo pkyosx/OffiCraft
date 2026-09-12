@@ -188,8 +188,8 @@ export const zh = {
   },
   // ── 任務頁(M3 任務卡)──
   tasks: {
-    openTitle: "未結束",
-    closedTitle: "已結束",
+    openTitle: "未結案",
+    closedTitle: "已結案",
     // 空狀態 ×2(SPEC §2.3 指定文案)
     emptyNone: "目前沒有任務",
     emptyFiltered: "沒有符合篩選條件的任務",
@@ -248,6 +248,7 @@ export const zh = {
       in_progress: "進行中",
       waiting_owner: "等我回覆",
       waiting_external: "等待外部",
+      ready_for_done: "可結案",
       done: "已完成",
       terminated: "終止",
       duplicated: "重複",
@@ -358,13 +359,13 @@ export const zh = {
     terminate: "終止",
     terminateConfirmBodyLead: "確定要終止「",
     terminateConfirmBodyTail:
-      "」嗎？任務將移入已結束區，無法恢復；後端會通知負責人做結束處理。",
+      "」嗎？任務將結案為終止，無法恢復；後端會通知負責人做結束處理。",
     terminateConfirm: "確認終止",
     // 標記重複(T-02c9):負責人指向原票即可收斂,免 owner 逐張終止
     markDuplicate: "標記重複",
     markDuplicateBodyLead: "把「",
     markDuplicateBodyTail:
-      "」標記為某張原票的重複?任務將移入已結束區、無法恢復。請選擇原票:",
+      "」標記為某張原票的重複?任務將結案為重複、無法恢復。請選擇原票:",
     markDuplicatePick: "請選擇原票",
     markDuplicateConfirm: "確認標記重複",
     duplicateOfLabel: "重複於",
@@ -1926,6 +1927,8 @@ export const zh = {
     taskTakeoverFreshSub: "第一次被指派這個任務時給 agent 的指示 · 可編輯",
     taskUnblockedName: "擋著你手上任務的票解開了",
     taskUnblockedSub: "依賴的任務放行時給 agent 的通知 · 可編輯",
+    taskReadyForDoneName: "你手上的任務可以結案了",
+    taskReadyForDoneSub: "任務每次進到可結案時給 agent 的通知 · 可編輯",
     // 唯讀文件的說明：說「這份是什麼」，不說「你沒有權限」——沒有任何人可以改，
     // 講權限會讓人去找一個根本不存在的角色來授權。
     bootDocReadOnlyNote:
@@ -1962,6 +1965,7 @@ export const zh = {
     // 那句話跟著決定 2 一起過期了。
     historyTaskTakeoverFreshTitle: "新任務的版本紀錄",
     historyTaskUnblockedTitle: "擋著你手上任務的票解開了的版本紀錄",
+    historyTaskReadyForDoneTitle: "你手上的任務可以結案了的版本紀錄",
     // seed vs owner-edited
     defaultBadge: "預設",
     // ── detail: view / edit ──

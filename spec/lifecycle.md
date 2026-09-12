@@ -263,8 +263,13 @@ ceiling of the warden lifetime setting (§1.6).
 
      Scope notes, all load-bearing: the cut applies to `kind="warden"` rows ONLY —
      `roster_status="removed"` is ALSO how a released outsource worker and a dismissed
-     member are recorded, and a released worker is contractually still working (§6.3
-     close-out). A failed roster read MUST NOT revoke (unknown ≠ revoked). `POST
+     member are recorded. ⚠️ A released worker USED TO be contractually still working (it
+     kept its session to file a close-out report after the task closed); since T-182 the
+     close itself dismisses it — row released and session reclaimed in one call — so the
+     window this note protected is now very short rather than open-ended. The scope
+     restriction stands regardless: this cut is for `kind="warden"` rows only, and a
+     released worker's row must not be swept by it. A failed roster read MUST NOT revoke
+     (unknown ≠ revoked). `POST
      /api/machines/{member_id}/uninstall` KEEPS the record and therefore does NOT revoke
      anything; the machine stays on the roster and re-installable.
 

@@ -393,7 +393,7 @@ func (s *apiServer) writeTask(w http.ResponseWriter, t Task) {
 
 // writeTaskWriteReceipt is the common tail of the EIGHT task-driving writes that
 // used to answer with the whole taskDTO (T-91): update_task and its title and
-// description twins, claim, reassign, terminate, mark_duplicate and
+// description twins, claim, reassign, terminate, mark_task_duplicated and
 // set_task_deps.
 //
 // 🔴 IT IS A SECOND TAIL, NOT A CHANGE TO writeTask. writeTask still serves
@@ -463,18 +463,6 @@ func (s *apiServer) writeTaskArtifactReceipt(w http.ResponseWriter, t Task, arti
 	})
 }
 
-// writeTaskCloseoutReceipt is the common tail of BOTH close-out exits — the
-// first (stamping) report and the idempotent no-op repeat (T-bb70). One tail on
-// purpose: the two exits cannot drift into answering with different shapes, and
-// the repeat — the one a re-reporting agent actually hits — can never again pay
-// 51k characters to be told what it already knew.
-func (s *apiServer) writeTaskCloseoutReceipt(w http.ResponseWriter, t Task) {
-	writeJSON(w, http.StatusOK, taskCloseoutReceiptDTO{
-		TaskID: t.ID, TaskStatus: t.Status,
-		CloseoutReported: t.CloseoutTS > 0, CloseoutTS: t.CloseoutTS,
-	})
-}
-
 func (s *apiServer) writeTaskStepStatusReceipt(w http.ResponseWriter, t Task, step TaskStep) {
 	steps, err := s.dal.ListTaskSteps(t.ID)
 	if err != nil {
@@ -540,8 +528,8 @@ func (s *apiServer) callerMayDriveTask(r *http.Request, t Task) bool {
 // to be moved out from under.
 //
 // 🔴 WHY IT IS NOT callerMayDriveTask ITSELF. That predicate guards plan, step
-// status, deps, priority/freeze, reassign, claim, terminate, mark_duplicate,
-// closeout and reply-card linkage as well. Owner ruled (2026-09-02, card
+// status, deps, priority/freeze, reassign, claim, the four closes and
+// reply-card linkage as well. Owner ruled (2026-09-02, card
 // rc-1bb6e01c4bf7) 「只開『改文字類』那幾道（改描述／標題／產物增刪／步驟筆記），
 // 不含凍結、撤票、改派」, so the widening is a SECOND predicate applied at the
 // named doors only. Calling this from any other handler reverses that ruling.
@@ -575,7 +563,7 @@ func (s *apiServer) callerMayEditTaskText(r *http.Request, t Task) bool {
 // duration of the handover — and REFUSED it, choosing to open the 「寫交接」 cell
 // alone. So 全域脈絡 §3.4 (交接完成前，不得讓兩個執行者同時推進同一份工作) is
 // unchanged and every other door callerMayDriveTask guards is unchanged: plan,
-// step STATUS, deps, priority, reassign, terminate, artifacts, closeout and the
+// step STATUS, deps, priority, reassign, the four closes, artifacts and the
 // task's own text all still 403 for the predecessor. Widening this predicate to
 // another route is reversing that ruling, not extending it.
 //
@@ -666,10 +654,12 @@ func authorizeTaskCreate(c taskCaller, willOutsource bool, manualAssigneeMember,
 	return 0, ""
 }
 
-// closeTask applies the terminal-status side effects (done AND terminated):
+// closeTask applies the terminal-status side effects shared by all four closes
+// (mark_task_done, mark_task_terminated, mark_task_duplicated, force_task_done):
 // stamp closed_ts, retire every waiting reply card still bound to the task,
-// release every bound outsource worker (the panel row disappears; the row
-// itself is the audit trail) and fan their deltas.
+// DISMISS every bound outsource worker (row released — the panel row disappears,
+// the row itself is the audit trail — and its session reclaimed) and fan their
+// deltas.
 func (s *apiServer) closeTask(t *Task, status string, now float64, trigger string) error {
 	t.Status = status
 	t.ClosedTS = now
@@ -694,19 +684,35 @@ func (s *apiServer) closeTask(t *Task, status string, now float64, trigger strin
 	if _, err := s.expireWaitingCardsForTask(t.ID, now, trigger); err != nil {
 		taskLog("close %s: reply-card sweep failed (cards left waiting): %v", t.ID, err)
 	}
-	released, err := s.dal.ReleaseWorkersForTask(t.ID, now)
-	if err != nil {
-		return err
-	}
-	for _, w := range released {
-		s.publishOutsourceWorker(w, trigger)
-	}
-	// The worker SESSION is deliberately NOT reclaimed here (SPEC §6.3): the
-	// released worker keeps its session to run the close-out duties (learnings
-	// write-back, temp cleanup, the close-out report). The reclaim fires from
-	// the close-out hook (worker_spawn.go dismissOutsourceWorkersForTask — the
-	// seam the close-out report handler calls) or, when no report ever
-	// arrives, from the scheduler's workerReclaimGraceSecs backstop.
+	// T-182 — THE DISMISSAL HAPPENS HERE, AND ONLY HERE. Every close funnels
+	// through closeTask, so all four doors (mark_task_done, mark_task_terminated,
+	// mark_task_duplicated, force_task_done) fire the worker on the same terms:
+	// the row releases AND the session is reclaimed at once.
+	//
+	// 🔴 WHY NOT ONE DOOR AT A TIME, which is what the old wiring did. The
+	// dismissal used to hang off a SEPARATE report (`report_task_closeout`,
+	// removed in this ticket), which only ever arrived after mark_task_done; the
+	// other three closes left the worker holding a live session until the
+	// scheduler's workerReclaimGraceSecs backstop swept it. So "terminated" and
+	// "duplicated" spent a contractor's quota on a ticket that had already ended.
+	// Owner's ruling (rc-571b665bc047 option [0]) is 「外包改在按下結案那一刻遣散」,
+	// and a close is a close.
+	//
+	// 🔴 WHY NO DOOR OPTS OUT, including force_task_done. A terminal task refuses
+	// every write the worker could still make on it, so a worker left alive past
+	// the close has nothing it is PERMITTED to do — keeping it is not mercy, it
+	// is quota. The close-out work (learnings, deliverables, step notes) has its
+	// own window now and it is BEFORE this call: `ready_for_done`, which the task
+	// sits in until somebody presses mark_task_done. That is the whole reason the
+	// session no longer needs to outlive the close.
+	//
+	// ⚠️ THE NAMED COST: force_task_done and mark_task_terminated can land on a
+	// task whose worker never reached `ready_for_done`, so those two DO cut a
+	// working contractor off mid-sentence with no close-out window. That is what
+	// those two doors are for — they exist to end a task the executor is not
+	// going to end — but it is a behaviour change from the grace-period wait, so
+	// it is written down rather than discovered.
+	s.dismissOutsourceWorkersForTask(t.ID, now, trigger)
 	s.publishTask(*t, trigger)
 	// T-74f8 half B: a dep is no longer a display marker. Every task blocked BY
 	// this one whose blockers are now all terminal is released — durable notice
@@ -793,11 +799,16 @@ func nameWithIDSlot(label, id string) string {
 // deriveAndPersistTask is the DERIVATION SEAM (T-9ca5 "任務狀態全推導"): the single
 // call every step-mutation path funnels through to re-project the task's status
 // (and display waiting_reason) from its steps, persist it, and fan the delta. It
-// mutates t in place. When the derivation lands on done (every step done) it
-// runs the full close (closeTask: release workers, stamp closed_ts, learnings
-// nudge) — that is how a task reaches done now, NOT an agent status report.
-// Already-closed tasks are left untouched. The lock (task.lock) is orthogonal
-// and never read here.
+// mutates t in place. Already-closed tasks are left untouched. The lock
+// (task.lock) is orthogonal and never read here.
+//
+// 🔴 IT NO LONGER CLOSES ANYTHING (T-182). This function used to answer "every
+// step done" by calling closeTask, which is what made the last step report also
+// the moment the task went terminal — and therefore the moment the close-out
+// writes (pin the deliverables, finish the step notes, write the learnings
+// back) all turned into 409s. A finished step set now derives to
+// ready_for_done, which is OPEN, and the task stays there until somebody calls
+// mark_task_done. Derivation derives; closing is an action.
 func (s *apiServer) deriveAndPersistTask(t *Task, now float64, trigger string) error {
 	if TaskIsTerminal(t.Status) {
 		return nil
@@ -806,25 +817,91 @@ func (s *apiServer) deriveAndPersistTask(t *Task, now float64, trigger string) e
 	if err != nil {
 		return err
 	}
-	if DeriveTaskStatus(steps) == TaskStatusDone {
-		return s.closeTask(t, TaskStatusDone, now, trigger)
-	}
+	was := t.Status
 	RecomputeTaskStatus(t, steps) // status + display waiting_reason
+	// An ARRIVAL, not a state: the task was somewhere else a moment ago and is
+	// in ready_for_done now. Comparing against the status this call found is
+	// what makes a plain step-note write on a task already sitting there send
+	// nothing — every step-mutation path funnels through here, so a test that
+	// merely re-derives would otherwise re-notify on each of them.
+	arrived := was != TaskStatusReadyForDone && t.Status == TaskStatusReadyForDone
+	if arrived {
+		t.ReadyForDoneVisits++
+	}
 	t.UpdatedTS = now
 	if err := s.dal.PutTask(*t); err != nil {
 		return err
 	}
 	s.publishTask(*t, trigger)
+	if arrived {
+		s.postReadyForDoneNotice(*t, trigger)
+	}
 	return nil
+}
+
+// postReadyForDoneNotice delivers 〈任務可結案〉 to the executor of a task that has
+// just landed in ready_for_done — the window in which the close-out can still
+// be written, and the only notice that says which action ends the task.
+//
+// 🔴 IT FIRES ON EVERY ARRIVAL, AND THE COUNT IS WHY THAT IS SAFE. A task
+// leaves ready_for_done the moment somebody adds a step and comes back when
+// that step is done, so an executor can reach this window several times over
+// one ticket. Sending only the first time would leave the later ones silent —
+// the executor packed up once and has no reason to look again — while sending
+// an identical notice each time reads as a duplicate delivery. The document
+// declares {visit_no} and this is where it is filled, from the durable count on
+// the task rather than from anything this process remembers.
+//
+// 🔴 IT DOES NOT ASK WHETHER THE TASK HAS A TYPE. 〈任務收尾〉's body opens by
+// telling the agent to read type_key off the ticket, so an ad-hoc task's
+// executor reads an instruction it cannot follow; this document's four steps
+// are the same whether or not a manual exists.
+//
+// An unassigned task has nobody to address (an outsource ticket the scheduler
+// has not minted a worker for yet), so it is skipped — a fact about addressing,
+// the same one decideTaskCloseNudge states. "" from taskNoticeText means the
+// document could not be rendered, and every send site in the tree posts nothing
+// rather than a notice with {task_no} still in it.
+func (s *apiServer) postReadyForDoneNotice(t Task, trigger string) {
+	if t.ExecutorID == "" {
+		return
+	}
+	notice := s.taskNoticeText(docKindTaskReadyForDone, map[string]string{
+		"task_no":  TaskNo(t.ID),
+		"visit_no": strconv.Itoa(t.ReadyForDoneVisits),
+	})
+	if notice == "" {
+		return
+	}
+	s.postTaskChat(t, wireSystemSender, t.ExecutorID, notice, trigger, nil)
 }
 
 // reconcileTaskStatusesOnBoot aligns every non-terminal task's stored status
 // with what its steps derive to (owner T-9ca5 ⑤: 上線時既有不一致一次對齊) — a
 // one-shot at startup after task status became fully derived. Terminal tasks are
 // skipped (their status is not derived). Only rows whose status or display
-// waiting_reason actually drift are written; a task whose steps are all done is
-// properly closed. Returns the number of tasks it corrected, for the boot log.
-// No SSE fan matters here (boot has no subscribers yet).
+// waiting_reason actually drift are written. Returns the number of tasks it
+// corrected, for the boot log. No SSE fan matters here (boot has no subscribers
+// yet).
+//
+// 🔴 IT CLOSES NOTHING ANY MORE (T-182). It used to treat a derived `done` as
+// "this task should have been closed and wasn't" and run the full close. Under
+// the new rule a finished step set derives to ready_for_done and the task is
+// WAITING for its executor to press mark_task_done — so the old branch would
+// have turned every server restart into a sweep that closed every task anyone
+// was still packing up, which is the exact opposite of the ticket. What used to
+// be the fourth, un-gated door to a terminal status is therefore simply gone;
+// reconcile writes a derived status and nothing else. (The undeclared-handoff
+// warning that hung off that branch went with it: there is no close here to
+// warn about.)
+//
+// ⚠️ A ROW REPAIRED INTO ready_for_done HERE SENDS NO 〈任務可結案〉 NOTICE, and
+// that is deliberate rather than an omission. This loop is a one-shot repair
+// over rows whose stored status DRIFTED from what their steps derive to, not a
+// report that anything just happened; wiring the notice in would make the first
+// boot after any change to the derivation post one chat row per drifted task,
+// to executors that are not the ones who finished the work. The arrival seam is
+// deriveAndPersistTask, which every step-mutation path funnels through.
 func (s *apiServer) reconcileTaskStatusesOnBoot() (int, error) {
 	tasks, err := s.dal.ListTasks()
 	if err != nil {
@@ -851,32 +928,6 @@ func (s *apiServer) reconcileTaskStatusesOnBoot() (int, error) {
 		}
 		if derived == t.Status && reason == t.WaitingReason {
 			continue // already consistent
-		}
-		if derived == TaskStatusDone {
-			// T-74f8: the FOURTH way a task reaches a terminal status, and the
-			// one an enumerated door list misses. It is deliberately NOT gated:
-			// there is no caller here to answer a 422, so "fail-closed" has no
-			// shape at boot — the only two options are "close it" and "leave it
-			// inconsistent forever", and neither is a handover. It is also not
-			// agent-reachable (it needs a server restart), so it cannot be used
-			// to route around the gate.
-			//
-			// What it MUST NOT be is silent, which it was. If this task was in
-			// the gate's population and never declared, the ball is being
-			// dropped right here and nobody would ever know.
-			if TaskNeedsHandoffDeclaration(t.CreatorID, t.ExecutorID, t.Handoff) {
-				outsourceLog("boot-reconcile %s: closing a cross-executor task "+
-					"(creator=%s executor=%s) that never declared a handoff — "+
-					"the ball on this task is on NOBODY. It got here without "+
-					"passing the T-74f8 gate, which means a crash between the "+
-					"step write and the task write, or a door not on the list "+
-					"in api_tasks_handoff.go.", t.ID, t.CreatorID, t.ExecutorID)
-			}
-			if err := s.closeTask(&t, TaskStatusDone, now, "boot-reconcile"); err != nil {
-				return fixed, err
-			}
-			fixed++
-			continue
 		}
 		t.Status = derived
 		t.WaitingReason = reason
@@ -1252,13 +1303,92 @@ func (s *apiServer) callerMayTerminateTask(r *http.Request, t Task) (bool, strin
 	return true, ""
 }
 
-// POST /api/tasks/{task_id}/terminate — the only status change that does not go
-// through the task's own step reports (SPEC §3.7). Non-terminal only; the FE
-// owns the double-confirm.
+// taskAlreadyClosedRefusal is the 409 every close action answers when the task
+// has ALREADY reached a terminal status. It names the status the task is
+// actually in (T-182): "already closed" alone cannot be acted on, while
+// "already closed (duplicated)" tells the caller which of the three happened
+// and therefore whether anything is left to do.
+func taskAlreadyClosedRefusal(t Task) string {
+	return "task '" + t.ID + "' is already closed (" + t.Status + ")"
+}
+
+// POST /api/tasks/{task_id}/mark-done — the action ready_for_done waits for
+// (T-182). It is the ONLY way an ordinary executor reaches `done`: the last step
+// report no longer closes anything, so this call is what ends the task and
+// freezes its record.
+//
+// WHO: the task's OWN executor, staff member and outsource worker alike — the
+// close-out is the executor's work, so whoever does it must be able to say it is
+// finished. Deliberately NOT callerMayTerminateTask's set: that one subtracts
+// the outsource worker, and this one must not, or the most common executor kind
+// in the system could never close its own ticket. Owner and admin have their own
+// door (force_task_done), which records that it was forced.
+//
+// Guard order: 404 → 403 authz → 409 precondition, the order every other task
+// action uses (deny before state probing).
+func (s *apiServer) HandleMarkTaskDoneApiTasksTaskIdMarkDonePost(w http.ResponseWriter, r *http.Request, taskId string) {
+	t, err := s.resolveTask(taskId)
+	if err != nil {
+		writeResolveError(w, err, "task", taskId)
+		return
+	}
+	if !s.callerMayMarkTaskDone(r, *t) {
+		writeError(w, http.StatusForbidden, executorGuardRefusal)
+		return
+	}
+	if TaskIsTerminal(t.Status) {
+		writeError(w, http.StatusConflict, taskAlreadyClosedRefusal(*t))
+		return
+	}
+	if t.Status != TaskStatusReadyForDone {
+		// The two ways to fail here need DIFFERENT answers, which is why the
+		// message names the status rather than restating the rule: a task in a
+		// work state has a step nobody has reported, and the caller's next move
+		// is to go and report it.
+		writeError(w, http.StatusConflict,
+			"task '"+taskId+"' is in '"+t.Status+"', not '"+TaskStatusReadyForDone+
+				"' — every step has to be reported done before the task can be "+
+				"closed as done (or ask the owner for force_task_done)")
+		return
+	}
+	// T-74f8 交棒閘, re-timed by T-182. See api_tasks_handoff.go: the gate guards
+	// the moment the close becomes irreversible, and that moment moved here.
+	if _, code, msg := s.handoffGateVerdict(*t, handoffDoorMarkDone, "", "", ""); code != 0 {
+		writeError(w, code, msg)
+		return
+	}
+	if err := s.closeTask(t, TaskStatusDone, nowSecs(), requestTrigger(r)); err != nil {
+		internalError(w, err)
+		return
+	}
+	s.writeTaskWriteReceipt(w, *t)
+}
+
+// callerMayMarkTaskDone is the mark_task_done gate: BE the task's executor,
+// staff member and outsource worker alike. The close-out is the executor's
+// work, so whoever does it must be able to say it is finished.
+//
+// 🔴 IT IS NOT callerMayDriveTask, and the difference is the whole ticket. That
+// one widens to admin capability, which would hand the owner and the admin
+// assistant a way to close any task with no reason recorded and no
+// forced_done_by — the exact thing force_task_done exists to make impossible to
+// do silently. Their door is force_task_done; this one is the executor's.
+func (s *apiServer) callerMayMarkTaskDone(r *http.Request, t Task) bool {
+	return t.ExecutorID != "" && currentActor(r) == t.ExecutorID
+}
+
+// POST /api/tasks/{task_id}/mark-terminated — the only status change that does
+// not go through the task's own step reports (SPEC §3.7). Non-terminal only,
+// `ready_for_done` INCLUDED (giving up does not require the work to be complete
+// first); the FE owns the double-confirm.
+//
+// T-182 renamed it from /terminate + `terminate_task`: the old name said what
+// you were doing to the task, this one says the status the task lands in — the
+// same shape as its three siblings. Permissions and behaviour are unchanged.
 //
 // Guard order: 404 → 403 authz → 409 terminal (deny before state probing), the
 // same order HandleSetTaskPriority uses.
-func (s *apiServer) HandleTerminateTaskApiTasksTaskIdTerminatePost(w http.ResponseWriter, r *http.Request, taskId string) {
+func (s *apiServer) HandleMarkTaskTerminatedApiTasksTaskIdMarkTerminatedPost(w http.ResponseWriter, r *http.Request, taskId string) {
 	t, err := s.resolveTask(taskId)
 	if err != nil {
 		writeResolveError(w, err, "task", taskId)
@@ -1269,11 +1399,61 @@ func (s *apiServer) HandleTerminateTaskApiTasksTaskIdTerminatePost(w http.Respon
 		return
 	}
 	if TaskIsTerminal(t.Status) {
-		writeError(w, http.StatusConflict,
-			"task '"+taskId+"' is already closed ("+t.Status+")")
+		writeError(w, http.StatusConflict, taskAlreadyClosedRefusal(*t))
 		return
 	}
 	if err := s.closeTask(t, TaskStatusTerminated, nowSecs(), requestTrigger(r)); err != nil {
+		internalError(w, err)
+		return
+	}
+	s.writeTaskWriteReceipt(w, *t)
+}
+
+// POST /api/tasks/{task_id}/force-done — close a task as done OVER the
+// ready_for_done precondition (T-182): the exit for a task that is never going
+// to be closed by the agent holding it.
+//
+// 🔴 OWNER AND ADMIN ASSISTANT ONLY, and the task's own executor is a 403 HERE
+// even though it may mark_task_done. An executor that can force its own task
+// simply has mark_task_done without a precondition, and the precondition is the
+// whole point of the state.
+//
+// `reason` is required and refused blank: a forced close is the one close nobody
+// can reconstruct from the steps afterwards, because the steps do not agree that
+// the work is finished.
+//
+// THE 403 IS THE ROUTE FLOOR AND ONLY THE ROUTE FLOOR (routes.go:
+// Gated(principalAdminAgent, …)). There is deliberately no second principal
+// check in this body: a duplicate of a rule the enumerable route table already
+// carries is a rule with two homes, and authz_surface_behavior_test.go refuses
+// exactly that — a decision that CAN be a route floor belongs on the row.
+//
+// Guard order: 422 body → 404 → 409 terminal. The blank-reason 422 leads because
+// it is a fault in the request itself and does not depend on which task it
+// names.
+func (s *apiServer) HandleForceTaskDoneApiTasksTaskIdForceDonePost(w http.ResponseWriter, r *http.Request, taskId string) {
+	var body TaskForceDoneDTO
+	if !decodeJSONBodyRequired(w, r, &body, "reason") {
+		return
+	}
+	reason := trimString(body.Reason)
+	if reason == "" {
+		writeError(w, http.StatusUnprocessableEntity, "reason must not be blank")
+		return
+	}
+	t, err := s.resolveTask(taskId)
+	if err != nil {
+		writeResolveError(w, err, "task", taskId)
+		return
+	}
+	if TaskIsTerminal(t.Status) {
+		// This forces the PRECONDITION, not the terminal wall.
+		writeError(w, http.StatusConflict, taskAlreadyClosedRefusal(*t))
+		return
+	}
+	t.ForcedDoneBy = requestTrigger(r)
+	t.ForcedDoneReason = reason
+	if err := s.closeTask(t, TaskStatusDone, nowSecs(), requestTrigger(r)); err != nil {
 		internalError(w, err)
 		return
 	}
@@ -1320,8 +1500,7 @@ func (s *apiServer) HandleSetTaskPriorityApiTasksTaskIdPriorityPost(w http.Respo
 		return
 	}
 	if TaskIsTerminal(t.Status) {
-		writeError(w, http.StatusConflict,
-			"task '"+taskId+"' is already closed ("+t.Status+")")
+		writeError(w, http.StatusConflict, taskAlreadyClosedRefusal(*t))
 		return
 	}
 	// Attribution (T-6020): stamp the freezer on the transition INTO frozen and
@@ -1519,8 +1698,7 @@ func (s *apiServer) HandleReassignTaskApiTasksTaskIdReassignPost(w http.Response
 		return
 	}
 	if TaskIsTerminal(t.Status) {
-		writeError(w, http.StatusConflict,
-			"task '"+taskId+"' is already closed ("+t.Status+")")
+		writeError(w, http.StatusConflict, taskAlreadyClosedRefusal(*t))
 		return
 	}
 	// 🔴 There is deliberately NO frozen check here (owner ruling 2026-08-11,
@@ -2406,8 +2584,7 @@ func (s *apiServer) HandleSubmitTaskPlanApiTasksTaskIdPlanPost(w http.ResponseWr
 		return
 	}
 	if TaskIsTerminal(t.Status) {
-		writeError(w, http.StatusConflict,
-			"task '"+taskId+"' is already closed ("+t.Status+")")
+		writeError(w, http.StatusConflict, taskAlreadyClosedRefusal(*t))
 		return
 	}
 	var fresh []TaskStep
@@ -2529,12 +2706,17 @@ func (s *apiServer) HandleSubmitTaskPlanApiTasksTaskIdPlanPost(w http.ResponseWr
 	}
 	// ── T-74f8 交棒閘,第二道門 ───────────────────────────────────────────────
 	// A replan is a step-set write, and task.status is DERIVED from the step
-	// set, so a plan that lands all-done closes the task just as surely as the
-	// final step report does (deriveAndPersistTask → closeTask, below). The
-	// replan split keeps `done` rows and DROPS an unfinished card-less row, so
-	// "replan down to only the nodes I already finished" was a SILENT close with
-	// handoff="" — the exact bug this ticket exists to kill, reachable by the
-	// very move a caller refused at the first door would try next.
+	// set, so a plan that lands all-done finishes the WORK just as surely as the
+	// final step report does. The replan split keeps `done` rows and DROPS an
+	// unfinished card-less row, so "replan down to only the nodes I already
+	// finished" was a SILENT arrival at the close-out with handoff="" — the
+	// exact bug this ticket exists to kill, reachable by the very move a caller
+	// refused at the first door would try next.
+	//
+	// 🔴 THE PROJECTION COMPARES AGAINST ready_for_done (T-182), exactly as
+	// wouldFinishTask does. DeriveTaskStatus can no longer RETURN done, so a
+	// comparison against done here is a condition that is false forever: the
+	// gate would keep running, keep costing nothing, and never fire again.
 	//
 	// Same projection rule, same verdict function, same population — only the
 	// prose differs (a plan carries no declaration field). Run it over the
@@ -2563,7 +2745,7 @@ func (s *apiServer) HandleSubmitTaskPlanApiTasksTaskIdPlanPost(w http.ResponseWr
 		projected = append(projected, st)
 	}
 	projected = append(projected, fresh...)
-	if DeriveTaskStatus(projected) == TaskStatusDone {
+	if DeriveTaskStatus(projected) == TaskStatusReadyForDone {
 		p, code, msg := s.handoffGateVerdict(*t, handoffDoorReplan, "", "", "")
 		if code != 0 {
 			writeError(w, code, msg)
@@ -2576,17 +2758,18 @@ func (s *apiServer) HandleSubmitTaskPlanApiTasksTaskIdPlanPost(w http.ResponseWr
 		internalError(w, err)
 		return
 	}
-	// Record the handover BEFORE the derivation closes the task — same ordering
-	// as the step-report door (the successor's dep edge must exist by the time
-	// closeTask walks its dependents, and t's handoff fields ride closeTask's
-	// PutTask). Only ever non-nil when the gate auto-satisfied off a live
+	// Record the handover BEFORE the derivation — same ordering as the
+	// step-report door (the successor's dep edge must exist by the time a later
+	// close walks its dependents, and t's handoff fields ride the PutTask that
+	// close performs). Only ever non-nil when the gate auto-satisfied off a live
 	// dependent, since a replan cannot carry an explicit declaration.
 	if err := s.applyHandoffPlan(t, replanHandoff); err != nil {
 		internalError(w, err)
 		return
 	}
 	// task status is DERIVED (T-9ca5): a fresh plan changes the step set, so
-	// re-project the task status from it (and auto-close if the plan is all-done).
+	// re-project the task status from it (an all-done plan lands ready_for_done;
+	// nothing here closes the task — mark_task_done does).
 	if err := s.deriveAndPersistTask(t, nowSecs(), requestTrigger(r)); err != nil {
 		internalError(w, err)
 		return
@@ -2599,7 +2782,7 @@ func (s *apiServer) HandleSubmitTaskPlanApiTasksTaskIdPlanPost(w http.ResponseWr
 }
 
 // POST /api/tasks/{task_id}/duplicate — mark a task duplicated, pointing at the
-// ORIGINAL it duplicates (MCP mark_duplicate; T-02c9). A DEDICATED action, not
+// ORIGINAL it duplicates (MCP mark_task_duplicated; T-02c9). A DEDICATED action, not
 // the agent status-report path: whoever executes a duplicate shell closes it
 // themselves rather than leaving the owner to terminate each by hand. duplicated
 // is a third terminal status (closeTask stamps closed_ts + releases bound
@@ -2607,14 +2790,20 @@ func (s *apiServer) HandleSubmitTaskPlanApiTasksTaskIdPlanPost(w http.ResponseWr
 // duplicate has no lessons (decideTaskCloseNudge excludes it). The executor
 // guard applies (owner/admin may act on any task). Validation keeps the
 // duplicate graph DEPTH-1 so the cockpit "重複於 <task id>" link resolves in one hop:
-//   - the task must be non-terminal (else 409 — already closed);
+//   - the task must be non-terminal (else 409 — already closed), which since
+//     T-182 explicitly INCLUDES ready_for_done: a task can turn out to be a
+//     copy of another one at any point, the close-out window included;
 //   - duplicate_of is required (422) and must be an EXISTING task (404);
 //   - it may not point at itself (409);
 //   - it may not point at a task that is ITSELF duplicated (409 — point at the
 //     final original; the server never chases a chain);
 //   - a task already pointed at as an original cannot be marked duplicated (409).
-func (s *apiServer) HandleMarkTaskDuplicateApiTasksTaskIdDuplicatePost(w http.ResponseWriter, r *http.Request, taskId string) {
-	var body TaskMarkDuplicateDTO
+//
+// T-182 renamed the route to /mark-duplicated and the tool to
+// mark_task_duplicated — same behaviour, a name that says which status the task
+// lands in.
+func (s *apiServer) HandleMarkTaskDuplicatedApiTasksTaskIdMarkDuplicatedPost(w http.ResponseWriter, r *http.Request, taskId string) {
+	var body TaskMarkDuplicatedDTO
 	if !decodeJSONBodyRequired(w, r, &body, "duplicate_of") {
 		return
 	}
@@ -2633,8 +2822,7 @@ func (s *apiServer) HandleMarkTaskDuplicateApiTasksTaskIdDuplicatePost(w http.Re
 		return
 	}
 	if TaskIsTerminal(t.Status) {
-		writeError(w, http.StatusConflict,
-			"task '"+taskId+"' is already closed ("+t.Status+")")
+		writeError(w, http.StatusConflict, taskAlreadyClosedRefusal(*t))
 		return
 	}
 	if originalID == t.ID {
@@ -2675,7 +2863,7 @@ func (s *apiServer) HandleMarkTaskDuplicateApiTasksTaskIdDuplicatePost(w http.Re
 	t.DuplicateOf = originalID
 	t.WaitingReason = "" // duplicated is terminal; no lingering wait reason
 	// ── T-74f8 交棒閘,第三道門 ───────────────────────────────────────────────
-	// mark_duplicate is the agent's OTHER terminal key (routes.go: principalAgent
+	// mark_task_duplicated is the agent's OTHER terminal key (routes.go: principalAgent
 	// + MCPTool) and it closes the task directly, so before this it reached a
 	// terminal status with handoff="" — silently, exactly like the two doors the
 	// gate does guard.
@@ -2729,8 +2917,7 @@ func (s *apiServer) HandleUpdateTaskStepStatusApiTasksTaskIdStepsStepIdStatusPos
 		return
 	}
 	if TaskIsTerminal(t.Status) {
-		writeError(w, http.StatusConflict,
-			"task '"+taskId+"' is already closed ("+t.Status+")")
+		writeError(w, http.StatusConflict, taskAlreadyClosedRefusal(*t))
 		return
 	}
 	step, err := s.dal.GetTaskStep(stepId)
@@ -2797,7 +2984,7 @@ func (s *apiServer) HandleUpdateTaskStepStatusApiTasksTaskIdStepsStepIdStatusPos
 			internalError(w, err)
 			return
 		}
-		if wouldCloseTask(allSteps, step.ID) {
+		if wouldFinishTask(allSteps, step.ID) {
 			p, code, msg := s.handoffGateVerdict(*t, handoffDoorStepReport,
 				trimmedOrEmpty(body.Handoff),
 				trimmedOrEmpty(body.HandoffNote),
@@ -2821,15 +3008,16 @@ func (s *apiServer) HandleUpdateTaskStepStatusApiTasksTaskIdStepsStepIdStatusPos
 		internalError(w, err)
 		return
 	}
-	// Record the handover BEFORE the derivation closes the task: the successor
-	// task (and its dep edge) must already exist when closeTask walks its
-	// dependents, and t's handoff fields ride the PutTask closeTask performs.
+	// Record the handover BEFORE the derivation: the successor task (and its dep
+	// edge) must already exist when a later close walks its dependents, and t's
+	// handoff fields ride the PutTask that close performs.
 	if err := s.applyHandoffPlan(t, plan); err != nil {
 		internalError(w, err)
 		return
 	}
 	// The task status is DERIVED from the steps now — this seam re-projects it
-	// (and auto-closes on all-done). No agent task-status report is involved.
+	// (an all-done step set lands ready_for_done, which is OPEN; mark_task_done
+	// is what closes it). No agent task-status report is involved.
 	if err := s.deriveAndPersistTask(t, now, requestTrigger(r)); err != nil {
 		internalError(w, err)
 		return
@@ -2883,8 +3071,7 @@ func (s *apiServer) HandleSetTaskDepsApiTasksTaskIdDepsPost(w http.ResponseWrite
 		return
 	}
 	if TaskIsTerminal(t.Status) {
-		writeError(w, http.StatusConflict,
-			"task '"+taskId+"' is already closed ("+t.Status+")")
+		writeError(w, http.StatusConflict, taskAlreadyClosedRefusal(*t))
 		return
 	}
 	seen := map[string]bool{}
@@ -2923,58 +3110,6 @@ func (s *apiServer) HandleSetTaskDepsApiTasksTaskIdDepsPost(w http.ResponseWrite
 	}
 	s.publishTask(*t, requestTrigger(r))
 	s.writeTaskWriteReceipt(w, *t)
-}
-
-// POST /api/tasks/{task_id}/closeout — the executor reports the task's
-// close-out follow-ups DONE (SPEC §6.3 step 1: learnings written back +
-// scratch cleaned). TERMINAL tasks only (an open task has nothing to close
-// out → 409); executor-guarded like every agent report row. IDEMPOTENT: the
-// first report stamps closeout_ts and fans a task delta; a repeat is a 200
-// no-op (no write, no fan).
-//
-// SPEC §6.3 step 2 (the former worker-lifecycle SEAM, now WIRED): the FIRST
-// successful report also dismisses the outsource worker(s) bound to this task
-// — dismissOutsourceWorkersForTask (worker_spawn.go) releases any lingering
-// row and pushes the EXACT worker_stop so the session is reclaimed NOW rather
-// than waiting out the workerReclaimGraceSecs backstop. Idempotent and a
-// no-op for member-executed tasks (no worker rows), so it rides the stamp
-// path unconditionally; the repeat-report path never re-fires it.
-func (s *apiServer) HandleReportTaskCloseoutApiTasksTaskIdCloseoutPost(w http.ResponseWriter, r *http.Request, taskId string) {
-	t, err := s.resolveTask(taskId)
-	if err != nil {
-		writeResolveError(w, err, "task", taskId)
-		return
-	}
-	if !s.callerMayDriveTask(r, *t) {
-		writeError(w, http.StatusForbidden, executorGuardRefusal)
-		return
-	}
-	if !TaskIsTerminal(t.Status) {
-		writeError(w, http.StatusConflict,
-			"task '"+taskId+"' is still open ("+t.Status+
-				") — close-out is reported after the task ends")
-		return
-	}
-	if t.CloseoutTS > 0 {
-		// Already reported — idempotent no-op. The receipt (T-bb70) carries the
-		// ORIGINAL stamp, which is the one fact a repeat caller cannot derive:
-		// it says the close-out landed, and when.
-		s.writeTaskCloseoutReceipt(w, *t)
-		return
-	}
-	now := nowSecs()
-	t.CloseoutTS = now
-	t.UpdatedTS = now
-	if err := s.dal.PutTask(*t); err != nil {
-		internalError(w, err)
-		return
-	}
-	// §6.3 step 2: the close-out is durable — fire the bound outsource
-	// worker(s) NOW (release any lingering row + reclaim the session EXACTLY).
-	// Idempotent; member-executed tasks have no worker rows → no-op.
-	s.dismissOutsourceWorkersForTask(t.ID, now, requestTrigger(r))
-	s.publishTask(*t, requestTrigger(r))
-	s.writeTaskCloseoutReceipt(w, *t)
 }
 
 // ── C.4 artifact set (T-3dc5) ────────────────────────────────────────────────
@@ -3080,7 +3215,7 @@ func (s *apiServer) HandleAddTaskArtifactApiTasksTaskIdArtifactPost(w http.Respo
 		writeError(w, http.StatusForbidden, executorGuardRefusal)
 		return
 	}
-	if TaskIsTerminal(t.Status) {
+	if TaskRecordFrozen(t.Status) {
 		writeError(w, http.StatusConflict, taskFrozenDeliverablesRefusal(*t))
 		return
 	}
@@ -3242,7 +3377,7 @@ func (s *apiServer) artifactOnTask(
 		writeError(w, http.StatusForbidden, executorGuardRefusal)
 		return nil, nil, false
 	}
-	if access == artifactWrite && TaskIsTerminal(t.Status) {
+	if access == artifactWrite && TaskRecordFrozen(t.Status) {
 		writeError(w, http.StatusConflict, taskFrozenDeliverablesRefusal(*t))
 		return nil, nil, false
 	}

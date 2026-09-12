@@ -167,7 +167,22 @@ py() {
 #
 # Deliberately left as-is (changing it to fail on a missing key would ripple
 # through every caller); recorded here so the next reader is not surprised.
-json_field() { py -c 'import sys,json; print(json.load(sys.stdin).get(sys.argv[1],""))' "$1"; }
+#
+# 🔴 A JSON null READS AS UNSET, the same as an absent key. `.get` only
+# substitutes for an ABSENT key, so a field that is PRESENT AND NULL used to come
+# back as the four characters None — neither empty nor a value, so every
+# `[[ -n ... ]]` "it is set" guard read it as set and every `[[ -z ... ]]` "not
+# set yet" guard fired. The task DTO's optional numbers are pointers with no
+# omitempty (an open task answers closed_ts: null), and that is exactly how A7a
+# came to fail against a server answering correctly. A bool still prints
+# True/False — only None is folded, so the `ok` readers below are untouched.
+json_field() {
+  py -c '
+import sys, json
+v = json.load(sys.stdin).get(sys.argv[1], "")
+print("" if v is None else v)
+' "$1"
+}
 
 # api_get PATH — authenticated GET against LOCAL_BASE, prints body.
 api_get() {
@@ -1164,14 +1179,131 @@ oc_teardown_bounded() {
   return 0
 }
 
-# oc_fresh_install — PHASE 2 fresh install (canonical serve port): seed KNOWN owner
-# password (render-config + set-password seam), run `ocserver install --force`
-# under oc_env, /health + /api/version sanity, owner login → OWNER_TOKEN, then
+# oc_build_candidate_binary — build THE CANDIDATE station binary from THIS
+# checkout and publish its identity.
+#
+# WHY THIS EXISTS: `ocserver install` stands the station up from a plain
+# `git clone --quiet "$ORIGIN" "$REPO"` of $SRC's ORIGIN URL (bin/ocserver) — no
+# --branch, no checkout of the ref the operator is holding, and the installer
+# takes no ref/sha argument at all. So the station it builds is ALWAYS the
+# project's DEFAULT BRANCH, never the branch under test. That is the installer's
+# right answer (its job is installing a station on a machine, not verifying a
+# candidate), so the suite supplies the candidate itself: build it here, swap it
+# in, then make the station prove it is running it.
+#
+# bin/build, not a bare `go build`: server assets are served EMBED-ONLY
+# (server/ocserverd/assets.go, no disk fallback), so the SPA (webdist), the
+# product-guide docs (docsdist), the personas/seeds (seedsdist) and the
+# ocwarden/ocagent + MCP catalog (bindist) must ALL be staged before the link or
+# the station boots with no UI, 404ing docs, no bootable persona and no
+# self-update binaries. bin/build is the repo's own entry point for exactly that
+# sequence, and it additionally stamps -X main.buildSHA=<this checkout's short
+# HEAD> — which is what makes the station's /api/version self-report comparable
+# to a value measured from this worktree (server.go gitSHA(): a stamped buildSHA
+# WINS over the CWD git probe, so the installed clone's mainline HEAD cannot
+# leak into the answer).
+#   reads: REPO_ROOT
+#   sets:  CANDIDATE_BIN, CANDIDATE_SHA
+oc_build_candidate_binary() {
+  CANDIDATE_SHA="$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || true)"
+  [[ -n "$CANDIDATE_SHA" ]] \
+    || fail_stage "cannot read this checkout's HEAD (git -C $REPO_ROOT rev-parse --short HEAD) — with no candidate identity there is nothing to hold the station to, and the run falls back to verifying whatever the installer cloned"
+  CANDIDATE_BIN="$REPO_ROOT/.deploy/ocserverd"
+  # Delete first: an artifact left by an earlier run would otherwise satisfy the
+  # existence check below even if THIS build produced nothing.
+  rm -f "$CANDIDATE_BIN"
+  log "bin/build in $REPO_ROOT (stages webdist/docsdist/seedsdist/bindist, then go build → .deploy/ocserverd stamped buildSHA=$CANDIDATE_SHA)"
+  if ! ( cd "$REPO_ROOT" && bash bin/build ) 2>&1 | sed 's/^/[candidate-build] /' >&2; then
+    fail_stage "bin/build failed in $REPO_ROOT — no candidate station binary (see candidate-build lines above)"
+  fi
+  [[ -x "$CANDIDATE_BIN" ]] \
+    || fail_stage "bin/build exited 0 but $CANDIDATE_BIN is missing or not executable"
+  log "candidate binary ready: $CANDIDATE_BIN (HEAD=$CANDIDATE_SHA)"
+}
+
+# oc_swap_in_candidate_binary — point the INSTALLED station at the candidate
+# binary and restart it onto that.
+#
+# The station runs $SERVER_ROOT/repo/.deploy/ocserverd: the serve plist execs
+# repo/bin/serve, which execs that exact path. Replacing that one file and
+# restarting the serve job IS the swap — the installed clone's source tree is
+# left alone (it is mainline, and nothing reads it once the binary is linked).
+#   reads: CANDIDATE_BIN, CANDIDATE_SHA, SERVER_ROOT, GUI, SERVE_LABEL
+oc_swap_in_candidate_binary() {
+  local installed="$SERVER_ROOT/repo/.deploy/ocserverd"
+  [[ -x "${CANDIDATE_BIN:-}" ]] \
+    || fail_stage "oc_swap_in_candidate_binary called with no candidate binary — oc_build_candidate_binary must run first"
+  [[ -x "$installed" ]] \
+    || fail_stage "the installer left no station binary at $installed — nothing to replace (has 'ocserver install' changed its layout?)"
+  # Rename-over, never write-in-place: the station is RUNNING from this exact
+  # path and a cp onto a live Mach-O image fails with ETXTBSY. A rename swaps the
+  # directory entry and leaves the running process's image untouched until the
+  # restart below.
+  cp "$CANDIDATE_BIN" "$installed.candidate" \
+    || fail_stage "could not stage the candidate binary beside $installed"
+  chmod +x "$installed.candidate"
+  mv -f "$installed.candidate" "$installed" \
+    || fail_stage "could not move the candidate binary into place at $installed"
+  # TRAP, canonical mode only: autodeploy (loaded only by a NON-namespaced
+  # install) rebuilds repo/.deploy/ocserverd when it sees drift between the
+  # clone's HEAD and origin. A fresh clone sits exactly at origin, so the default
+  # path is no-drift/no-rebuild — but if mainline MOVES mid-run, autodeploy
+  # replaces this candidate with mainline AFTER the 2d gate has already passed,
+  # and nothing re-checks. The default namespaced mode installs serve only (no
+  # autodeploy) and is not exposed to this.
+  log "candidate ($CANDIDATE_SHA) swapped into $installed — restarting $SERVE_LABEL onto it"
+  launchctl kickstart -k "$GUI/$SERVE_LABEL" \
+    || fail_stage "launchctl kickstart -k $GUI/$SERVE_LABEL failed — the candidate binary is in place but the station was never restarted onto it"
+}
+
+# oc_assert_station_runs_candidate — HARD gate: the station's own self-report
+# must BE the candidate commit.
+#
+# This replaces a check that could not fail for the reason it existed: it
+# asserted only that git_sha was non-empty and not "unknown", never that it was
+# the code under test. A run against mainline satisfied it and printed the
+# mainline sha into the log — byte-for-byte what a real verification looks like.
+# So: full-string equality against the HEAD measured in this worktree, and an
+# unreadable version is a FAILURE, not a pass.
+#   reads: LOCAL_BASE, CANDIDATE_SHA
+#   sets:  GIT_SHA
+oc_assert_station_runs_candidate() {
+  local ver_json
+  ver_json="$(curl -fsS --max-time 5 "$LOCAL_BASE/api/version" 2>/dev/null || echo '{}')"
+  # `|| true` is load-bearing: json_field is python, and a non-zero exit here (a
+  # malformed body, SIGPIPE, py missing) must arrive at the comparison below as
+  # an EMPTY value. Without it the assignment itself would die under a caller's
+  # set -e and the gate would never run at all.
+  GIT_SHA="$(printf '%s' "$ver_json" | json_field git_sha 2>/dev/null || true)"
+  [[ -n "${CANDIDATE_SHA:-}" ]] \
+    || fail_stage "internal: oc_assert_station_runs_candidate ran with an empty CANDIDATE_SHA — refusing to compare against nothing, which would pass for any station"
+  [[ -n "$GIT_SHA" ]] \
+    || fail_stage "/api/version carried NO readable git_sha (body: $ver_json) — candidate HEAD=$CANDIDATE_SHA. An unreadable version FAILS: it is indistinguishable from a station running code we did not build"
+  [[ "$GIT_SHA" == "$CANDIDATE_SHA" ]] \
+    || fail_stage "STATION IS NOT THE CANDIDATE — /api/version git_sha='$GIT_SHA', this checkout's HEAD='$CANDIDATE_SHA'. Full-string equality on purpose, no prefix match. 'ocserver install' clones the project's DEFAULT BRANCH, so a mismatch here is exactly the shape of a run that would have verified mainline behind a green log"
+  log "/api/version git_sha=$GIT_SHA == candidate HEAD=$CANDIDATE_SHA — the station is the code under test"
+}
+
+# oc_fresh_install — PHASE 2 fresh install (canonical serve port): build the
+# CANDIDATE station binary from this checkout, seed the KNOWN owner password
+# (render-config + set-password seam), run `ocserver install --force` under
+# oc_env, SWAP THE CANDIDATE BINARY INTO THE INSTALLED STATION and restart it,
+# then /health + the hard candidate-identity gate, owner login → OWNER_TOKEN, and
 # the 15s serve stability window. Calls fail_stage on any failure.
+#
+# The installer clones the project's default branch (see
+# oc_build_candidate_binary for why, and why that is the installer's right
+# answer), so steps 2a0 / 2b2 / 2d are what make every suite sharing this flow
+# verify the branch under test instead of mainline.
 #   reads: SERVER_ROOT, DB_PATH, OCSERVER, REPO_ROOT, OC_TOML, LOCAL_BASE,
-#          OWNER_PASSWORD.
-#   sets: OWNER_TOKEN (used by all api_* helpers), GIT_SHA.
+#          OWNER_PASSWORD, GUI, SERVE_LABEL.
+#   sets: OWNER_TOKEN (used by all api_* helpers), GIT_SHA, CANDIDATE_BIN,
+#         CANDIDATE_SHA.
 oc_fresh_install() {
+  # 2a0. Build the candidate FIRST: step 2a below needs a working `ocserverd
+  #      set-password`, and step 2b2 needs the same artifact to swap in.
+  oc_build_candidate_binary
+
   # 2a. PRE-SEED the KNOWN OWNER_PASSWORD via the render-config + set-password seam.
   #     `ocserver install` NEVER clobbers a pre-existing oc.toml, so the installer's
   #     own namespace/port injection does NOT run for our seeded file — we inject
@@ -1201,7 +1333,11 @@ if ns:
         txt = re.sub(r"(?m)^(port\s*=\s*\d+)$", r"\1" + f"\nnamespace = \"{ns}\"", txt, count=1)
 open(p, "w", encoding="utf-8").write(txt)
 '
-    OC_CONFIG="$OC_TOML" OC_NEW_PASSWORD="$OWNER_PASSWORD" "$REPO_ROOT/bin/ocserverd" set-password >/dev/null \
+    # $CANDIDATE_BIN ($REPO_ROOT/.deploy/ocserverd) is where bin/build puts the
+    # binary. This line used to read $REPO_ROOT/bin/ocserverd — a path that is
+    # gitignored (.gitignore) and produced by nothing in this repo, so the call
+    # died with "No such file or directory" on any clean checkout.
+    OC_CONFIG="$OC_TOML" OC_NEW_PASSWORD="$OWNER_PASSWORD" "$CANDIDATE_BIN" set-password >/dev/null \
       || die "ocserverd set-password failed — cannot seed a known owner password"
     log "seeded oc.toml (port=${port} ns='${OC_NS:-<canonical>}') + known OWNER_PASSWORD hash → DB ($DB_PATH)"
   }
@@ -1221,16 +1357,25 @@ open(p, "w", encoding="utf-8").write(txt)
     fail_stage "ocserver ${install_args[*]} failed (see install| lines above)"
   fi
 
-  # 2c. health: /health must be 200.
-  code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$LOCAL_BASE/health" 2>/dev/null || echo 000)"
-  [[ "$code" == "200" ]] || fail_stage "server /health not 200 after install (got $code)"
+  # 2b2. the installer built and started MAINLINE. Replace the station's binary
+  #      with the candidate and restart it onto that.
+  oc_swap_in_candidate_binary
+
+  # 2c. health: /health must come back 200 after the restart. Polled, not a single
+  #     shot — 2b2 just bounced the job, so the first probe can legitimately land
+  #     before the new image has bound the port.
+  code=000
+  health_deadline=$(( $(date +%s) + 60 ))
+  while [[ "$(date +%s)" -lt "$health_deadline" ]]; do
+    code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$LOCAL_BASE/health" 2>/dev/null || echo 000)"
+    [[ "$code" == "200" ]] && break
+    sleep 1
+  done
+  [[ "$code" == "200" ]] || fail_stage "server /health not 200 within 60s of the candidate restart (last code $code)"
   log "/health = 200"
 
-  # 2d. /api/version must carry a git_sha (proves the real server booted).
-  VER_JSON="$(curl -fsS --max-time 5 "$LOCAL_BASE/api/version" 2>/dev/null || echo '{}')"
-  GIT_SHA="$(printf '%s' "$VER_JSON" | json_field git_sha)"
-  [[ -n "$GIT_SHA" && "$GIT_SHA" != "unknown" ]] || fail_stage "/api/version returned no usable git_sha (got '$GIT_SHA')"
-  log "/api/version git_sha=$GIT_SHA"
+  # 2d. the station must self-report the CANDIDATE commit — not merely some sha.
+  oc_assert_station_runs_candidate
 
   # 2e. login with the KNOWN owner password → owner token (used by all api_* helpers).
   LOGIN_JSON="$(curl -fsS --max-time 10 -X POST "$LOCAL_BASE/api/login" \

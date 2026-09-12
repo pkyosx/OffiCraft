@@ -24,6 +24,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, fireEvent, waitFor, within } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
+import { zh } from "../i18n/locales/zh";
 import { TasksPage } from "./TasksPage";
 import { __resetMock, __injectMockTask, mockApi } from "../api/mock";
 import type { TaskView } from "../api/adapter";
@@ -69,7 +70,7 @@ function renderPage() {
 }
 
 /** Terminals are hidden by default — tick one in the 狀態 filter to reveal the
- * 已結束 section (same helper shape as TasksPage.test.tsx). */
+ * 已結案 section (same helper shape as TasksPage.test.tsx). */
 
 beforeEach(() => {
   __resetMock();
@@ -80,7 +81,12 @@ beforeEach(() => {
 describe("spec ② 狀態 badge → 下拉選單", () => {
   it("opens the dropdown for EVERY live status, not just 等我回覆", async () => {
     // One card per live status — each badge must drop the menu.
-    const statuses = ["in_progress", "waiting_owner", "waiting_external"];
+    const statuses = [
+      "in_progress",
+      "waiting_owner",
+      "waiting_external",
+      "ready_for_done",
+    ];
     for (const status of statuses) {
       __injectMockTask(mkTask({ title: `狀態-${status}`, status }));
     }
@@ -342,7 +348,7 @@ describe("spec ② 狀態 badge → 下拉選單", () => {
     );
     const { findByTestId } = renderPage();
     // Terminals are hidden by default: tick the 狀態 filter AND open the
-    // 已結束 section (same two-step the existing closed-card test uses).
+    // 已結案 section (same two-step the existing closed-card test uses).
     toggleFilter("filter-status", "terminated");
     fireEvent.click(await findByTestId("closed-toggle"));
     const card = await findByTestId("task-card");
@@ -491,8 +497,45 @@ describe("spec ② 狀態 badge → 下拉選單", () => {
     }
   });
 
+  // ready_for_done is DERIVED and NOT terminal (T-182): a finished plan lands
+  // there and waits for mark_task_done. The badge renders through
+  // `t.tasks.status[task.status] ?? task.status`, so a missing dictionary entry
+  // does not throw — it prints the raw identifier and the chip falls back to the
+  // default colour. That is what this pins: the translated word AND the status's
+  // own class, for every live status, with the raw-key shape refused outright.
+  it("every live status badge renders its translated word and its own colour class, never the raw key", async () => {
+    const statuses = [
+      "not_started",
+      "in_progress",
+      "waiting_owner",
+      "waiting_external",
+      "ready_for_done",
+    ];
+    for (const status of statuses) {
+      __injectMockTask(mkTask({ title: `狀態字-${status}`, status }));
+    }
+    const { findAllByTestId } = renderPage();
+    const cards = await findAllByTestId("task-card");
+    expect(cards).toHaveLength(statuses.length);
+
+    for (const status of statuses) {
+      const card = cards.find((c) =>
+        c.querySelector(".task-card__title")?.textContent?.includes(
+          `狀態字-${status}`
+        )
+      )!;
+      const badge = within(card).getByTestId("task-status");
+      expect(badge.textContent?.trim()).toBe(zh.tasks.status[status]);
+      expect(badge.textContent?.trim()).not.toMatch(/^[a-z_]+$/);
+      expect(
+        badge.classList.contains(`task-badge--status-${status}`),
+        `${status} lost its own colour class`
+      ).toBe(true);
+    }
+  });
+
   // ── owner ruling 2026-07-17 (rc-12d552eed7ce), spec ② follow-up ──────────
-  // "照字面永遠出，已結束時兩項變灰不可點". The badge of a CLOSED card
+  // "照字面永遠出，已結案時兩項變灰不可點". The badge of a CLOSED card
   // (已完成 / 已終止 / 已標為重複 — all three shapes, not just 已終止) still
   // drops the menu; 標記重複 + 終止 render greyed and MUST NOT be able to fire.
   // The two assertions that actually bite are the disabled-attr check and the
@@ -516,7 +559,7 @@ describe("spec ② 狀態 badge → 下拉選單", () => {
     for (const status of closedStatuses) {
       __injectMockTask(
         mkTask({
-          title: `已結束-${status}`,
+          title: `已結案-${status}`,
           status,
           closedTs: Date.now() / 1000 - 60,
         })
@@ -536,7 +579,7 @@ describe("spec ② 狀態 badge → 下拉選單", () => {
       )!;
 
     for (const status of closedStatuses) {
-      const card = byTitle(`已結束-${status}`);
+      const card = byTitle(`已結案-${status}`);
       const badge = within(card).getByTestId("task-status");
       // It IS a menu trigger now (it used to be a plain span).
       expect(badge.getAttribute("aria-haspopup")).toBe("menu");
@@ -708,7 +751,7 @@ describe("spec ④ 右上三角展開指示器", () => {
   it("a closed task still shows the indicator and still expands", async () => {
     __injectMockTask(
       mkTask({
-        title: "已結束仍有三角",
+        title: "已結案仍有三角",
         status: "terminated",
         closedTs: Date.now() / 1000 - 60,
       })

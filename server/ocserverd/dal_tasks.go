@@ -36,9 +36,8 @@ type Task struct {
 	CreatedTS     float64
 	UpdatedTS     float64
 	ClosedTS      float64 // 0.0 = still open
-	CloseoutTS    float64 // 0.0 = close-out follow-ups not reported yet (§6.3)
 	// DuplicateOf is the ORIGINAL task's id this one duplicates — non-empty
-	// ONLY while Status=='duplicated' (set by mark_duplicate). Depth-1 by
+	// ONLY while Status=='duplicated' (set by mark_task_duplicated). Depth-1 by
 	// construction (see api_tasks.go HandleMarkTaskDuplicate...): the target is
 	// never itself duplicated and this task is never itself an original.
 	DuplicateOf string
@@ -111,16 +110,37 @@ type Task struct {
 	// first kickoff of exactly the tasks that were notified before — the subset
 	// nobody would think to look at.
 	KickoffNotifiedTo string
+	// ForcedDoneBy / ForcedDoneReason record a close that skipped its own
+	// precondition (T-182, migrations/00102): the verified actor of the
+	// force_task_done write and the reason it demanded. Both are '' on every
+	// other task, including one closed with mark_task_done — which is the
+	// point: a done task always says whether it got there by itself. A forced
+	// close is the one close nobody can reconstruct from the steps afterwards,
+	// because the steps do not agree that the work is finished.
+	ForcedDoneBy     string
+	ForcedDoneReason string
+	// ReadyForDoneVisits counts how many times this task has ARRIVED in
+	// ready_for_done (T-182, migrations/00103) — not how many notices were
+	// sent. A task leaves that state whenever a step is added and returns when
+	// the step is done, so one task can arrive several times, and 〈任務可結案〉
+	// puts the number in the notice: without it the second arrival's notice is
+	// byte-for-byte the first one and reads as a duplicate delivery.
+	//
+	// 0 on every task that has never arrived, pre-column rows included — they
+	// closed under the old rule, where a finished step set went straight to
+	// done and there was no ready_for_done to arrive in.
+	ReadyForDoneVisits int
 }
 
 const taskColumns = `id, type_key, title, dedupe_key, inputs, description,
 	status, lock, priority, executor_kind, executor_id, creator_id, waiting_reason,
-	created_ts, updated_ts, closed_ts, closeout_ts, duplicate_of,
+	created_ts, updated_ts, closed_ts, duplicate_of,
 	reassigned_from, reassigned_from_kind,
 	handover_note, handover_note_ts, handover_note_by,
 	outsource_runtime, outsource_model, outsource_effort, outsource_machine,
 	outsource_dispatched,
-	handoff, handoff_note, handoff_task_id, frozen_by, kickoff_notified_to`
+	handoff, handoff_note, handoff_task_id, frozen_by, kickoff_notified_to,
+	forced_done_by, forced_done_reason, ready_for_done_visits`
 
 // sqlTerminalStatuses is the SQL IN-list of the terminal statuses — every
 // "open task" filter (dedupe probe, resume block, open counts) excludes these.
@@ -136,13 +156,14 @@ func scanTask(row interface{ Scan(...any) error }) (Task, error) {
 		&t.ID, &t.TypeKey, &t.Title, &t.DedupeKey, &inputs, &t.Description,
 		&t.Status, &t.Lock, &t.Priority, &t.ExecutorKind, &t.ExecutorID, &t.CreatorID,
 		&t.WaitingReason,
-		&t.CreatedTS, &t.UpdatedTS, &t.ClosedTS, &t.CloseoutTS, &t.DuplicateOf,
+		&t.CreatedTS, &t.UpdatedTS, &t.ClosedTS, &t.DuplicateOf,
 		&t.ReassignedFrom, &t.ReassignedFromKind,
 		&t.HandoverNote, &t.HandoverNoteTS, &t.HandoverNoteBy,
 		&t.OutsourceRuntime, &t.OutsourceModel, &t.OutsourceEffort, &t.OutsourceMachine,
 		&dispatched,
 		&t.Handoff, &t.HandoffNote, &t.HandoffTaskID, &t.FrozenBy,
 		&t.KickoffNotifiedTo,
+		&t.ForcedDoneBy, &t.ForcedDoneReason, &t.ReadyForDoneVisits,
 	)
 	if err != nil {
 		return Task{}, err
@@ -255,7 +276,7 @@ func (d *DAL) CountOpenTasksOfType(typeKey string) (int, error) {
 }
 
 // CountTasksDuplicatingOriginal counts the tasks that already point AT originalID
-// as their duplicate_of original — the mark_duplicate chain guard (T-02c9
+// as their duplicate_of original — the mark_task_duplicated chain guard (T-02c9
 // point 3): a task that is already an original cannot itself be marked
 // duplicated, which (together with the "target must not itself be duplicated"
 // guard) keeps the graph depth-1 so the cockpit link always resolves in one hop.
@@ -352,7 +373,7 @@ const (
 // putTaskOn is PutTask's body against either pool handle or an open
 // transaction (the sqlExecer convention, dal.go) — CreateTaskMintingID needs
 // the very same statement to run INSIDE its transaction, and a second copy of a
-// 33-column upsert would drift.
+// 35-column upsert would drift.
 func putTaskOn(ex sqlExecer, t Task, mode taskWriteMode) error {
 	inputs := t.Inputs
 	if inputs == nil {
@@ -370,7 +391,7 @@ func putTaskOn(ex sqlExecer, t Task, mode taskWriteMode) error {
 	// The mode only decides whether the conflict SUFFIX is appended.
 	stmt := `
 		INSERT INTO task (` + taskColumns + `)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 	if mode == taskWriteUpsert {
 		stmt += taskUpsertConflictClause
 	}
@@ -378,7 +399,7 @@ func putTaskOn(ex sqlExecer, t Task, mode taskWriteMode) error {
 		t.ID, t.TypeKey, t.Title, t.DedupeKey, string(blob), t.Description,
 		t.Status, t.Lock, t.Priority, t.ExecutorKind, t.ExecutorID, t.CreatorID,
 		t.WaitingReason,
-		t.CreatedTS, t.UpdatedTS, t.ClosedTS, t.CloseoutTS, t.DuplicateOf,
+		t.CreatedTS, t.UpdatedTS, t.ClosedTS, t.DuplicateOf,
 		t.ReassignedFrom, t.ReassignedFromKind,
 		t.HandoverNote, t.HandoverNoteTS, t.HandoverNoteBy,
 		NormalizeRuntime(t.OutsourceRuntime),
@@ -386,6 +407,7 @@ func putTaskOn(ex sqlExecer, t Task, mode taskWriteMode) error {
 		dispatched,
 		t.Handoff, t.HandoffNote, t.HandoffTaskID, t.FrozenBy,
 		t.KickoffNotifiedTo,
+		t.ForcedDoneBy, t.ForcedDoneReason, t.ReadyForDoneVisits,
 	)
 	return err
 }
@@ -410,7 +432,7 @@ const taskUpsertConflictClause = `
 			creator_id = excluded.creator_id,
 			waiting_reason = excluded.waiting_reason,
 			created_ts = excluded.created_ts, updated_ts = excluded.updated_ts,
-			closed_ts = excluded.closed_ts, closeout_ts = excluded.closeout_ts,
+			closed_ts = excluded.closed_ts,
 			duplicate_of = excluded.duplicate_of,
 			reassigned_from = excluded.reassigned_from,
 			reassigned_from_kind = excluded.reassigned_from_kind,
@@ -426,7 +448,10 @@ const taskUpsertConflictClause = `
 			handoff_note = excluded.handoff_note,
 			handoff_task_id = excluded.handoff_task_id,
 			frozen_by = excluded.frozen_by,
-			kickoff_notified_to = excluded.kickoff_notified_to`
+			kickoff_notified_to = excluded.kickoff_notified_to,
+			forced_done_by = excluded.forced_done_by,
+			forced_done_reason = excluded.forced_done_reason,
+			ready_for_done_visits = excluded.ready_for_done_visits`
 
 // ── task_dep ─────────────────────────────────────────────────────────────────
 

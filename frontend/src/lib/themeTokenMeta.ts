@@ -226,6 +226,10 @@ const TOKEN_META: Record<string, TokenMeta> = {
     group: "status",
     label: { zh: "重複狀態", en: "Duplicated" },
   },
+  "--color-ready-for-done": {
+    group: "status",
+    label: { zh: "可結案狀態", en: "Ready for done" },
+  },
   "--color-lock-reassigning": {
     group: "status",
     label: { zh: "重新指派鎖", en: "Reassigning lock" },

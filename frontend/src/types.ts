@@ -713,7 +713,8 @@ export type DocumentKind =
   | "task_reassign_predecessor"
   | "task_takeover_with_predecessor"
   | "task_takeover_fresh"
-  | "task_unblocked";
+  | "task_unblocked"
+  | "task_ready_for_done";
 
 /** The DocumentKinds that carry a seeded boot-context / lifecycle document
  * (T-791e, widened by T-3201). Narrower than DocumentKind on purpose: the
@@ -741,7 +742,8 @@ export type BootDocKind =
   | "task_reassign_predecessor"
   | "task_takeover_with_predecessor"
   | "task_takeover_fresh"
-  | "task_unblocked";
+  | "task_unblocked"
+  | "task_ready_for_done";
 
 /**
  * One seeded boot-context block as the cockpit reads it (T-791e) — the folded
