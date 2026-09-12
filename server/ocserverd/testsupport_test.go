@@ -171,6 +171,32 @@ func apiTestAgentToken(t *testing.T, api *apiServer, sub, machineID string) stri
 	return tok
 }
 
+// apiTestPrincipalToken seeds a roster row that classifies as class and answers
+// the session credential for it, so a test can speak as any rung of the ladder
+// without hand-assembling claims. The owner has no roster row and no lookup
+// path — mint an owner token through the product instead (newAPITestServer).
+func apiTestPrincipalToken(t *testing.T, api *apiServer, d *DAL, class principalClass, id string) string {
+	t.Helper()
+	member := Member{ID: id, Name: id, Kind: KindStaff, RosterStatus: RosterStatusActive}
+	switch class {
+	case principalMachine:
+		member.Kind = KindWarden
+	case principalAdminAgent:
+		member.RoleKey = adminRoleKey
+	case principalAgent:
+		member.RoleKey = "conf-plain-role"
+	default:
+		t.Fatalf("apiTestPrincipalToken cannot seed %v", class)
+	}
+	if err := d.PutMember(member); err != nil {
+		t.Fatalf("PutMember(%q): %v", id, err)
+	}
+	if got := classifyMember(&member); got != class {
+		t.Fatalf("the seeded row classifies as %v, not %v — the fixture is lying about who is calling", got, class)
+	}
+	return apiTestAgentToken(t, api, id, "")
+}
+
 // apiTestArmMFA puts the server in the state a boot with an already-enrolled
 // second factor leaves it in (server.go copies exactly these two fields off
 // loadAuthSettings), and answers with the shared secret an authenticator app

@@ -1,6 +1,6 @@
 """MCP face — the /api/mcp JSON-RPC transport contract (spec/mcp.md).
 
-Third conformance batch. test_rest_happy.py already pins tools/list ≡
+Third conformance batch. test_rest_happy.py already pins an OWNER's tools/list ≡
 spec/mcp-catalog.json by NAME set; this file pins the rest of the frozen
 transport behaviour, MUST by MUST:
 
@@ -15,7 +15,10 @@ transport behaviour, MUST by MUST:
         (same gate as REST); result mapping — content single text item,
         isError ≡ status>=400 (a 4xx is a RESULT, never a JSON-RPC error),
         structuredContent present iff the body is a JSON object;
-  * §5  tools/list ≡ the frozen snapshot ELEMENT-WISE (order included);
+  * §5  tools/list ≡ the frozen snapshot NARROWED TO THE CALLER'S PRINCIPAL
+        CLASS, element-wise (order included) — the catalog is no longer served
+        whole to everybody, so the element-wise pin runs once per class and the
+        absolute counts are pinned separately;
   * §6  catalog_hash: recomputed from the committed routes manifest
         ("{METHOD} {path}" over exactly the non-mcp_exclude rows, sorted,
         \\n-joined, SHA-256, first 16 hex) and compared against BOTH version
@@ -117,18 +120,98 @@ def test_ping_returns_empty_object(client, owner_token) -> None:
     assert _result(_rpc(client, owner_token, "ping")) == {}
 
 
-def test_tools_list_equals_frozen_snapshot_elementwise(client, owner_token) -> None:
-    """spec §5: a live tools/list MUST equal the snapshot's tools array
-    element-wise — order included (catalog/route-table order, spec §2)."""
-    tools = _result(_rpc(client, owner_token, "tools/list"))["tools"]
-    assert tools == MCP_CATALOG["tools"], (
-        "live tools/list != spec/mcp-catalog.json (element-wise). "
-        f"live order={[t['name'] for t in tools]}"
+# The principal ladder, restated here rather than imported: this suite is
+# black-box, so the ladder is part of the behaviour being defined, not a detail
+# read out of the implementation. "public" is not a rung at all — it is the
+# absence of a class requirement, so every authenticated caller clears it
+# (/api/mcp is itself gated, so nobody unauthenticated ever gets a list).
+_RANK = {"machine": 0, "agent": 1, "admin_agent": 2, "owner": 3}
+
+
+def _reachable(principal: str, requires: str) -> bool:
+    return True if requires == "public" else _RANK[principal] >= _RANK[requires]
+
+
+def _catalog_for(principal: str) -> list[dict[str, Any]]:
+    """The snapshot narrowed to what the ROUTE TABLE says this class can call —
+    derived from the manifest's own ``requires`` column, never a second
+    hand-kept list of tool names."""
+    floors = {r["mcp_tool"]: r["requires"] for r in MCP_ROWS}
+    return [t for t in MCP_CATALOG["tools"] if _reachable(principal, floors[t["name"]])]
+
+
+def test_tools_list_equals_frozen_snapshot_elementwise(
+    client, owner_token, admin_agent, agent_a, warden_agent
+) -> None:
+    """spec §5, per identity: a live tools/list MUST equal the snapshot's tools
+    array NARROWED TO THE CALLER'S CLASS, element-wise — order included
+    (catalog/route-table order, spec §2).
+
+    The old shape of this test asserted the whole snapshot for one owner token,
+    and that is now the TOP RUNG of this table rather than the whole contract:
+    tools/list stopped being a frozen catalogue served to everybody and became a
+    projection of the route table's own Requires column onto the caller. Both
+    halves of the freeze survive — the descriptors are still byte-for-byte the
+    committed ones, and the surviving order is still route-table order — but a
+    member is no longer shown 51 tools its class is refused on."""
+    for principal, token in (
+        ("owner", owner_token),
+        ("admin_agent", admin_agent.token),
+        ("agent", agent_a.token),
+        ("machine", warden_agent.token),
+    ):
+        tools = _result(_rpc(client, token, "tools/list"))["tools"]
+        expected = _catalog_for(principal)
+        assert tools == expected, (
+            f"{principal}: live tools/list != spec/mcp-catalog.json narrowed by the "
+            f"route table (element-wise). live={[t['name'] for t in tools]} "
+            f"expected={[t['name'] for t in expected]}"
+        )
+        # And the surviving order is still the ROUTE-TABLE order of those rows.
+        assert [t["name"] for t in tools] == [
+            r["mcp_tool"] for r in MCP_ROWS if _reachable(principal, r["requires"])
+        ], f"{principal}: tools/list order is not the route-table order"
+
+
+def test_tools_list_counts_differ_by_class(
+    client, owner_token, admin_agent, agent_a, warden_agent
+) -> None:
+    """The narrowing is REAL, and this is the test that says so in absolute
+    numbers. Without it the table above could be satisfied by a server that
+    still serves everyone everything AND a helper that computed "everything" —
+    both sides moving together, output identical to a correct run.
+
+    The numbers are the 2026-09-12 route table: 48 machine-floor rows + the one
+    public row, +27 agent, +51 admin_agent, and nothing above admin_agent on the
+    MCP surface at all (which is why owner and 特助 see the same list)."""
+    counts = {
+        principal: len(_result(_rpc(client, token, "tools/list"))["tools"])
+        for principal, token in (
+            ("owner", owner_token),
+            ("admin_agent", admin_agent.token),
+            ("agent", agent_a.token),
+            ("machine", warden_agent.token),
+        )
+    }
+    assert counts == {"owner": 127, "admin_agent": 127, "agent": 76, "machine": 49}, counts
+    assert len(MCP_CATALOG["tools"]) == 127, "the frozen snapshot itself changed size"
+
+
+def test_an_unlisted_tool_is_refused_not_unknown(client, agent_a) -> None:
+    """Hiding a tool is ADVERTISING, not a gate: an ordinary member that calls
+    an admin-floor tool by name still reaches the route's own 403, never the
+    -32602 unknown-tool error. If this ever flips, tools/list has quietly become
+    the authorization boundary — and then a listing bug is a security bug."""
+    hidden = "update_settings"
+    listed = {t["name"] for t in _result(_rpc(client, agent_a.token, "tools/list"))["tools"]}
+    assert hidden not in listed, listed  # premise of the test, not the claim
+    assert "get_task" in listed  # positive control: the read the same token DOES see
+
+    result = _result(
+        _rpc(client, agent_a.token, "tools/call", {"name": hidden, "arguments": {}})
     )
-    # And the catalog order is the ROUTE-TABLE order of the non-excluded rows.
-    assert [t["name"] for t in tools] == [r["mcp_tool"] for r in MCP_ROWS], (
-        "tools/list order is not the route-table order of non-mcp_exclude rows"
-    )
+    assert result["isError"] is True, result
+    assert "principal not permitted" in result["content"][0]["text"], result
 
 
 def test_update_task_status_tool_is_unlisted(client, owner_token) -> None:

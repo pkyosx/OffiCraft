@@ -11,8 +11,8 @@ package main
 //
 // The tool NAME surface is derived from the route table (RouteSpec.toolName
 // mirrors the frozen tool_name vocabulary), never hand-maintained; the
-// tools/list DESCRIPTORS stay served from the frozen spec/mcp-catalog.json
-// (api_infra.go) — see the note there.
+// tools/list DESCRIPTORS stay served from the frozen spec/mcp-catalog.json,
+// narrowed to the caller's principal class (api_infra.go) — see the note there.
 
 import (
 	"bytes"
@@ -59,8 +59,14 @@ func (s RouteSpec) toolName() string {
 }
 
 // mcpToolIndex maps tool name → route row over the non-mcp_exclude rows —
-// the same filter the frozen catalog and catalog_hash key off, so the
-// callable set is exactly the tools/list surface.
+// the same filter the frozen catalog and catalog_hash key off, so this index is
+// the station's WHOLE tool surface.
+//
+// It is read twice per request family and the two readings differ: tools/call
+// resolves a name here to dispatch it, and tools/list projects it through the
+// caller's principal class to decide what to advertise (api_infra.go
+// toolsVisibleTo). The row's Requires is what both lean on, so what a caller is
+// SHOWN and what it is ALLOWED cannot drift apart into two lists.
 func mcpToolIndex(specs []RouteSpec) map[string]RouteSpec {
 	index := make(map[string]RouteSpec)
 	for _, spec := range specs {

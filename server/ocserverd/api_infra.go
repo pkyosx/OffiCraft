@@ -13,7 +13,8 @@ package main
 //
 //   * POST /api/mcp — the JSON-RPC face (spec/mcp.md): parse errors,
 //     initialize/ping, notifications → 202, tools/list from the FROZEN
-//     catalog (spec/mcp-catalog.json — the wire SSOT), tools/call params
+//     catalog (spec/mcp-catalog.json — the wire SSOT) narrowed to the
+//     caller's principal class, tools/call params
 //     validation + the in-process LOOPBACK (mcp.go): split the arguments,
 //     re-enter the route through the app's own mux with the caller's
 //     Authorization forwarded, wrap the sub-response as a CallToolResult.
@@ -1302,8 +1303,13 @@ func rpcResult(w http.ResponseWriter, id any, result any) {
 // and deriving the inputSchema bodies statically in Go would duplicate every
 // DTO schema — a second drifting list. The tool NAME surface (tools/call
 // routing + catalog_hash) IS table-derived (mcp.go mcpToolIndex), and the
-// conformance suite pins snapshot ≡ live list ≡ table order, so the two views
-// cannot drift silently. EMBED-ONLY — the bindist copy is the sole source and
+// conformance suite pins snapshot ≡ live list ≡ table order ONCE PER PRINCIPAL
+// CLASS, so the two views cannot drift silently.
+//
+// This returns the catalog WHOLE. What tools/list actually serves is this run
+// through toolsVisibleTo — every caller of this function that is answering a
+// request must narrow it, or it hands an ordinary member 51 tools its class is
+// refused on. EMBED-ONLY — the bindist copy is the sole source and
 // disk is never consulted (assets.go readMCPCatalogFrom). This sentence used to
 // say "disk-first with the embed as fallback"; it was wrong, and a reviewer
 // reading it "corrected" a correct implementation on its authority.
@@ -1319,6 +1325,46 @@ func (s *apiServer) mcpCatalogTools() ([]any, error) {
 		return nil, err
 	}
 	return catalog.Tools, nil
+}
+
+// toolsVisibleTo narrows the frozen catalog to the tools the caller could
+// actually CALL, keeping catalog order. The filter reads the ROUTE TABLE
+// (mcpToolIndex, name → row) and nothing else: the visible set is a projection
+// of the same Requires the tools/call loopback will enforce a moment later, so
+// there is no second list to keep in step with the first.
+//
+// WHY tools/list IS FILTERED AT ALL. It used to serve the whole catalog to
+// everyone, so an ordinary agent was shown 51 tools its own class can never
+// reach. Members plan against what they can see: the cheap failure is a 403 on
+// first use, the expensive one is a member concluding the station cannot do
+// something and routing around it — which has happened.
+//
+// 🔴 IT IS NOT A SECURITY BOUNDARY, and must not be described as one. The
+// enforcement is requirePrincipalClass on the route itself; this only decides
+// what is ADVERTISED. Calling an unlisted tool still reaches the same 403 it
+// always did — hiding it does not gate it, and gating it is not this function's
+// job.
+//
+// A descriptor whose name is not on the route table is dropped for EVERYONE,
+// including the owner. Such a tool is uncallable by construction (tools/call
+// resolves through this very index), so listing it would advertise a dead name;
+// dropping it also means the owner-token element-wise conformance pin is the
+// alarm for that drift rather than a silent pass.
+func (s *apiServer) toolsVisibleTo(principal principalClass, tools []any) []any {
+	visible := make([]any, 0, len(tools))
+	for _, raw := range tools {
+		descriptor, isObj := raw.(map[string]any)
+		if !isObj {
+			continue
+		}
+		name, _ := descriptor["name"].(string)
+		spec, known := s.mcpTools[name]
+		if !known || !routeReachableBy(principal, spec.Requires) {
+			continue
+		}
+		visible = append(visible, raw)
+	}
+	return visible
 }
 
 func (s *apiServer) HandleMcpApiMcpPost(w http.ResponseWriter, r *http.Request) {
@@ -1378,7 +1424,7 @@ func (s *apiServer) HandleMcpApiMcpPost(w http.ResponseWriter, r *http.Request) 
 			rpcError(w, id, rpcInternalError, "catalog unavailable: "+err.Error())
 			return
 		}
-		rpcResult(w, id, map[string]any{"tools": tools})
+		rpcResult(w, id, map[string]any{"tools": s.toolsVisibleTo(s.principalOfRequest(r), tools)})
 		return
 
 	case "tools/call":

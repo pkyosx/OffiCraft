@@ -110,6 +110,7 @@ import (
 // reading WHO IS CALLING, whatever else it does.
 var authzFuncs = map[string]bool{
 	"principalAtLeast":   true,
+	"routeReachableBy":   true,
 	"isOutsourceMember":  true,
 	"classifyMember":     true,
 	"currentScope":       true,
@@ -179,7 +180,7 @@ func classifiesPrincipal(fd *ast.FuncDecl) bool {
 		case *ast.CallExpr:
 			if id, ok := v.Fun.(*ast.Ident); ok && authzFuncs[id.Name] &&
 				(id.Name == "classifyMember" || id.Name == "principalAtLeast" ||
-					id.Name == "isOutsourceMember") {
+					id.Name == "isOutsourceMember" || id.Name == "routeReachableBy") {
 				found = true
 			}
 		case *ast.Ident:
@@ -336,7 +337,7 @@ func scanAuthzSites(t *testing.T) (sites []authzSite, files, funcs int) {
 					name = f.Sel.Name
 				}
 				if name == "principalAtLeast" || name == "isOutsourceMember" ||
-					name == "classifyMember" {
+					name == "classifyMember" || name == "routeReachableBy" {
 					record(ce)
 				}
 				return true
@@ -478,6 +479,14 @@ var authzOutsideRouteTable = map[string]string{
 	"api_infra.go :: HandleEventsApiEventsGet :: m.Kind == KindWarden": "" +
 		"wardens and members share one online projection (§3) but get different stream " +
 		"gating; the row's kind picks which.",
+	"api_infra.go :: toolsVisibleTo :: routeReachableBy(principal, spec.Requires)": "" +
+		"tools/list is ADVERTISING, not a door: this reads the caller's class only to " +
+		"decide which catalog descriptors to show, and every hidden tool is still " +
+		"refused by its own route's Requires if called. It cannot be a Requires value " +
+		"on POST /api/mcp — that row has ONE floor (machine) and the whole point is to " +
+		"answer differently per caller under it. Listed so a governance re-grade sees " +
+		"that the class ladder also decides what members can DISCOVER, not only what " +
+		"they may do: over-hide and a member concludes the station cannot do something.",
 
 	// ── machine-roster scoping (kind is the machine discriminator) ────────────
 	"api_machines.go :: HandleListMachinesApiMachinesGet :: m.Kind != machineKind": "" +

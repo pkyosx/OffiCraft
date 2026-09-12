@@ -1924,7 +1924,7 @@ func TestMcpCatalogTools(t *testing.T) {
 		})
 	})
 
-	t.Run("the descriptors are the same list tools/list serves", func(t *testing.T) {
+	t.Run("the descriptors are the same list tools/list serves an owner", func(t *testing.T) {
 		api, h, owner := apiTestMCPServer(t)
 
 		tools, err := api.mcpCatalogTools()
@@ -1940,7 +1940,7 @@ func TestMcpCatalogTools(t *testing.T) {
 		apiWantValue(t, "tools/list", result["tools"], tools)
 	})
 
-	t.Run("tools/list still serves the frozen catalog when the disk root has no catalog", func(t *testing.T) {
+	t.Run("an owner's tools/list still covers the frozen catalog when the disk root has none", func(t *testing.T) {
 		api, h, owner := apiTestMCPServer(t)
 		api.root = assetRoot(t.TempDir())
 
@@ -1959,6 +1959,146 @@ func TestMcpCatalogTools(t *testing.T) {
 			t.Fatalf("the catalog order moved: first %#v, last %#v", first["name"], last["name"])
 		}
 	})
+}
+
+// apiMCPListedNames posts tools/list as credential and answers the tool names
+// in the order served.
+func apiMCPListedNames(t *testing.T, h http.Handler, credential string) []string {
+	t.Helper()
+	status, data := apiMCP(t, h, credential, `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`)
+	if status != 200 {
+		t.Fatalf("tools/list: want 200, got %d (%v)", status, data)
+	}
+	result, _ := data["result"].(map[string]any)
+	tools, ok := result["tools"].([]any)
+	if !ok {
+		t.Fatalf("tools/list result carries no tools array: %v", result)
+	}
+	names := make([]string, 0, len(tools))
+	for i, raw := range tools {
+		tool, isObj := raw.(map[string]any)
+		if !isObj {
+			t.Fatalf("descriptor %d is not an object: %#v", i, raw)
+		}
+		name, _ := tool["name"].(string)
+		if name == "" {
+			t.Fatalf("every descriptor must be named, got %v", tool)
+		}
+		names = append(names, name)
+	}
+	return names
+}
+
+func TestToolsVisibleTo(t *testing.T) {
+	api, _, _, _ := newAPITestServer(t)
+	tools, err := api.mcpCatalogTools()
+	if err != nil {
+		t.Fatalf("mcpCatalogTools: %v", err)
+	}
+
+	// The counts are written out rather than recomputed from routeReachableBy,
+	// deliberately: an expectation derived through the function under test moves
+	// with it, so a filter that stopped filtering would still match itself.
+	for _, tc := range []struct {
+		principal principalClass
+		want      int
+		listed    []string
+		hidden    []string
+	}{
+		{
+			principal: principalMachine,
+			want:      49,
+			listed:    []string{"get_version", "get_task", "post_chat", "report_waking"},
+			hidden:    []string{"create_task", "update_step_status", "update_settings", "dismiss_member"},
+		},
+		{
+			principal: principalAgent,
+			want:      76,
+			listed:    []string{"get_version", "get_task", "create_task", "update_step_status"},
+			hidden:    []string{"update_settings", "dismiss_member", "upgrade_station"},
+		},
+		{
+			principal: principalAdminAgent,
+			want:      127,
+			listed:    []string{"get_version", "get_task", "create_task", "update_settings", "dismiss_member"},
+		},
+		{
+			principal: principalOwner,
+			want:      127,
+			listed:    []string{"get_version", "get_task", "create_task", "update_settings", "dismiss_member"},
+		},
+	} {
+		t.Run(tc.principal.String(), func(t *testing.T) {
+			visible := api.toolsVisibleTo(tc.principal, tools)
+
+			if len(visible) != tc.want {
+				t.Fatalf("%v sees %d tools, want %d", tc.principal, len(visible), tc.want)
+			}
+			names := map[string]bool{}
+			order := []string{}
+			for _, raw := range visible {
+				name, _ := raw.(map[string]any)["name"].(string)
+				names[name] = true
+				order = append(order, name)
+			}
+			for _, want := range tc.listed {
+				if !names[want] {
+					t.Fatalf("%v cannot see %q, a tool its own class can call", tc.principal, want)
+				}
+			}
+			for _, unwanted := range tc.hidden {
+				if names[unwanted] {
+					t.Fatalf("%v is shown %q, which it cannot call", tc.principal, unwanted)
+				}
+			}
+			apiWantCatalogSubsequence(t, tools, order)
+		})
+	}
+
+	t.Run("every listed tool is one the route table says this caller could call", func(t *testing.T) {
+		for _, principal := range []principalClass{principalMachine, principalAgent, principalAdminAgent, principalOwner} {
+			for _, raw := range api.toolsVisibleTo(principal, tools) {
+				name, _ := raw.(map[string]any)["name"].(string)
+				spec, known := api.mcpTools[name]
+				if !known {
+					t.Fatalf("%v is shown %q, which is on no route row at all", principal, name)
+				}
+				if spec.Requires != requiresPublic && !principalAtLeast(principal, spec.Requires) {
+					t.Fatalf("%v is shown %q, whose row requires %v", principal, name, spec.Requires)
+				}
+			}
+		}
+	})
+
+	t.Run("a descriptor no route row backs is dropped for everyone, the owner included", func(t *testing.T) {
+		ghost := append([]any{map[string]any{"name": "retired_tool"}}, tools...)
+
+		visible := api.toolsVisibleTo(principalOwner, ghost)
+
+		if len(visible) != len(tools) {
+			t.Fatalf("owner sees %d of %d — a catalog entry with no route row is uncallable and must not be advertised",
+				len(visible), len(ghost))
+		}
+	})
+}
+
+// apiWantCatalogSubsequence fails unless names appear in the frozen catalog's
+// own order: filtering may remove descriptors, never reorder the survivors.
+func apiWantCatalogSubsequence(t *testing.T, catalog []any, names []string) {
+	t.Helper()
+	next := 0
+	for _, raw := range catalog {
+		if next == len(names) {
+			return
+		}
+		if name, _ := raw.(map[string]any)["name"].(string); name == names[next] {
+			next++
+		}
+	}
+	if next != len(names) {
+		t.Fatalf("the served order is not the catalog order — diverged at %q (%d of %d matched)",
+			names[next], next, len(names))
+	}
 }
 
 func TestHandleMcpApiMcpPost(t *testing.T) {
@@ -2108,7 +2248,88 @@ func TestHandleMcpApiMcpPost(t *testing.T) {
 		})
 	})
 
-	t.Run("tools/list serves the frozen catalog and leaves the two transport rows out of it", func(t *testing.T) {
+	t.Run("each principal class is served the tools its own class can call, and no others", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		api.loopback = h
+
+		for _, tc := range []struct {
+			class  principalClass
+			id     string
+			want   int
+			listed []string
+			hidden []string
+		}{
+			{
+				class: principalMachine, id: "m-t195-warden", want: 49,
+				listed: []string{"get_version", "get_task", "report_waking"},
+				hidden: []string{"create_task", "update_settings"},
+			},
+			{
+				class: principalAgent, id: "m-t195-agent", want: 76,
+				listed: []string{"get_version", "get_task", "create_task", "update_step_status"},
+				hidden: []string{"update_settings", "dismiss_member"},
+			},
+			{
+				class: principalAdminAgent, id: "m-t195-mira", want: 127,
+				listed: []string{"get_version", "create_task", "update_settings", "dismiss_member"},
+			},
+		} {
+			t.Run(tc.class.String(), func(t *testing.T) {
+				token := apiTestPrincipalToken(t, api, d, tc.class, tc.id)
+
+				names := apiMCPListedNames(t, h, token)
+
+				if len(names) != tc.want {
+					t.Fatalf("%v is served %d tools, want %d", tc.class, len(names), tc.want)
+				}
+				seen := map[string]bool{}
+				for _, name := range names {
+					seen[name] = true
+				}
+				for _, want := range tc.listed {
+					if !seen[want] {
+						t.Fatalf("%v is not shown %q, a tool it can call — a member plans against what it can see", tc.class, want)
+					}
+				}
+				for _, unwanted := range tc.hidden {
+					if seen[unwanted] {
+						t.Fatalf("%v is shown %q, which its class is refused on call", tc.class, unwanted)
+					}
+				}
+			})
+		}
+
+		t.Run("owner", func(t *testing.T) {
+			if names := apiMCPListedNames(t, h, owner); len(names) != 127 {
+				t.Fatalf("the owner is served %d tools, want the whole catalog's 127", len(names))
+			}
+		})
+	})
+
+	t.Run("a hidden tool is still refused on call rather than reported unknown", func(t *testing.T) {
+		api, h, d, _ := newAPITestServer(t)
+		api.loopback = h
+		token := apiTestPrincipalToken(t, api, d, principalAgent, "m-t195-caller")
+
+		status, data := apiMCP(t, h, token,
+			`{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"update_settings","arguments":{}}}`)
+
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		result, _ := data["result"].(map[string]any)
+		if result == nil || result["isError"] != true {
+			t.Fatalf("an unlisted tool must still dispatch into its own route's refusal, got %v", data)
+		}
+		content, _ := result["content"].([]any)
+		first, _ := content[0].(map[string]any)
+		text, _ := first["text"].(string)
+		if !strings.Contains(text, "principal not permitted") {
+			t.Fatalf("want the route's own 403, got %q — hiding a tool is advertising, not a gate", text)
+		}
+	})
+
+	t.Run("an owner is served the whole frozen catalog, the two transport rows excepted", func(t *testing.T) {
 		_, h, owner := apiTestMCPServer(t)
 
 		status, data := apiMCP(t, h, owner, `{"jsonrpc":"2.0","id":9,"method":"tools/list"}`)

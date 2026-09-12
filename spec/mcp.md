@@ -37,7 +37,7 @@
 |---|---|
 | `initialize` | result `{protocolVersion, capabilities:{tools:{listChanged:false}}, serverInfo:{name:"officraft", version:<VERSION>}}`. `protocolVersion` MUST echo the client's requested `params.protocolVersion` when it is a non-empty string, else default `"2025-06-18"`. |
 | `ping` | result `{}` |
-| `tools/list` | result `{"tools":[<descriptor>...]}` in catalog (route-table) order |
+| `tools/list` | result `{"tools":[<descriptor>...]}` in catalog (route-table) order, narrowed to the caller's class (§4.2) |
 | `tools/call` | §3 |
 | `notifications/*` **or any id-less request** | fire-and-forget: MUST answer HTTP **202 with a JSON `null` body** — no JSON-RPC envelope (a request without an `id` key is a notification even outside the `notifications/` namespace) |
 | anything else | error `-32601` |
@@ -108,16 +108,41 @@ per-operation definitions, keeping every operation **not** excluded, in declared
 Today that authority is the `x-mcp` block carried by each operation in `spec/openapi.json`:
 `include: true` puts the operation on the tool surface and `order` fixes its position;
 `include: false` keeps it off. That included set mirrors the implementation's single route
-table (the rows **not** flagged `mcp_exclude`). Two tests hold the three sources together and
-they cover different things: `TestMcpToolIndexMatchesFrozenCatalog`
-(`server/ocserverd/mcp_test.go`) pins the tool-NAME set of the route table and the catalog to
-be equal, while `server/ocserverd/spec_catalog_conformance_test.go` walks the route table into
-`spec/openapi.json` and the catalog to compare each tool's parameter names. ⚠️ **That second
-walk is one-directional** (route table → catalog), and it skips any parameter listed in its
-`knownCatalogDrift` / `openapiOverweight` / `deliberatelyOffMCP` maps — a disagreement written
-into one of those maps is silenced by design, so read them before trusting a green run.
+table (the rows **not** flagged `mcp_exclude`).
+
+⚠️ **This paragraph used to name two tests as the thing holding the three sources together —
+`TestMcpToolIndexMatchesFrozenCatalog` in `server/ocserverd/mcp_test.go` and
+`server/ocserverd/spec_catalog_conformance_test.go` — and NEITHER EXISTS** (verified
+2026-09-12: both names match 0 lines in the tree; positive control, the same prefix
+`TestMcpToolIndex` does exist, at `server/ocserverd/mcp_test.go`, and pins `mcpToolIndex`'s
+exclusion rule against three hand-written rows, not against the catalog). It also described
+`knownCatalogDrift` / `openapiOverweight` / `deliberatelyOffMCP` silencing maps that are
+likewise nowhere in the tree. A reader trusting that paragraph would have believed the three
+sources were pinned by Go tests that cannot run. What ACTUALLY holds them together:
+
+- `make drift-mcp-catalog` re-renders `spec/mcp-catalog.json` from `spec/openapi.json` and
+  byte-diffs it against the committed file (§5) — openapi → catalog.
+- `conformance/test_mcp.py::test_catalog_hash_keys_off_tool_surface_only` asserts the
+  manifest's `mcp_tool` column equals the catalog's names, in order — route table → catalog.
+- `conformance/test_mcp.py::test_tools_list_equals_frozen_snapshot_elementwise` asserts the
+  LIVE list equals the catalog narrowed to the caller's class (see §4.2) — catalog → wire.
+
 **Counts are deliberately not written down here** — how the committed catalog is produced and
 pinned is §5.
+
+### 4.2 `tools/list` is narrowed to the caller
+
+The catalog above is the WHOLE tool surface. What a `tools/list` call returns is that catalog
+filtered to the tools whose route row the CALLER could get past: for each descriptor, the
+route table's `Requires` for that tool name is compared against the caller's principal class
+(`machine < agent < admin_agent < owner`; a `public` row has no class requirement and is
+listed for every authenticated caller). Catalog order is preserved among the survivors, and
+descriptors are served verbatim — the filter only removes.
+
+The filter keys off the ROUTE TABLE and nothing else, so there is no second list to keep in
+step. It is **advertising, not authorization**: an unlisted tool called by name still reaches
+its own route's 403. Do not turn `tools/list` into the boundary — if it ever becomes one, a
+listing bug becomes a security bug.
 
 Each tool descriptor is exactly:
 
@@ -164,9 +189,10 @@ drifting list).
   honest* — and neither substitutes for the other: a provably correct generator still leaves
   a stale catalog on disk if nobody re-runs it, and that stale file is what the wire serves.
 - The other direction is pinned as well: ocserverd serves `tools/list` straight out of the
-  committed snapshot (`server/ocserverd/assets.go` + `mcp.go`), so the descriptor surface
-  cannot drift from the file by construction, and `conformance/test_mcp.py` asserts a LIVE
-  `tools/list` equals the snapshot's `tools` array element-wise.
+  committed snapshot (`server/ocserverd/assets.go` + `mcp.go`) — descriptors verbatim, only
+  narrowed per §4.2 — so the descriptor surface cannot drift from the file by construction,
+  and `conformance/test_mcp.py` asserts a LIVE `tools/list` equals the snapshot's `tools`
+  array element-wise once per principal class.
 - Changing the tool surface therefore stays spec-first, and **the first edit is no longer
   this file**: edit the operation's `x-mcp` in `spec/openapi.json` (owner walkthrough) →
   `bin/gen-mcp-catalog` → commit both → then the code.
@@ -200,7 +226,7 @@ Normative algorithm:
 
 1. Enumerate the route table and keep every route NOT flagged `mcp_exclude` — exactly the
    routes that become MCP tools (the same filter §4 applies, so the hash keys off the
-   identical tool surface `tools/list` serves and `spec/mcp-catalog.json` freezes).
+   identical tool surface `spec/mcp-catalog.json` freezes).
 2. Render each kept route as the string `"{METHOD} {path}"` — uppercase HTTP method, single
    space, the path template with `{param}` placeholders as written in the table (e.g.
    `"GET /api/members"`, `"POST /api/members/{member_id}/context"`).
@@ -210,9 +236,22 @@ Normative algorithm:
 5. The hash is the **first 16 lowercase hex chars** of the digest.
 
 Deliberately EXCLUDED from the input: tool descriptions, input schemas (DTO shapes), and
-auth requirements — the hash signals "the set of callable tools changed" (add/remove/move a
+auth requirements — the hash signals "the STATION'S tool surface changed" (add/remove/move a
 route), not "a schema field changed". Schema-level drift is caught by the CI wire-freeze
 gate over `spec/mcp-catalog.json` instead.
+
+🔴 **It is a property of the STATION, not of you.** §4.2 made `tools/list` per-caller, and
+this value deliberately did NOT follow. It is one number over the whole route table, the same
+for every caller, and `GET /version` serves it with no credential at all — so it cannot be
+read as "the set of tools I can call changed": a `Requires` moving from `admin_agent` to
+`agent` opens 一支工具 to every member and does not move this hash by one character (auth
+requirements are not in the input, see above). Two reasons it stayed whole-surface, both
+load-bearing: the MUST above is that two independent implementations compute the IDENTICAL
+value, which a caller-dependent number cannot satisfy; and the probe that carries it is public,
+where there is no principal to compute one for. If a per-caller "what I can reach changed"
+signal is ever wanted, it is a SECOND value on an authenticated route — not this one
+re-pointed. (Note the blast radius this caps: on the evidence in the box above, nothing reads
+this field at all today.)
 
 ## 7. Not in this contract
 

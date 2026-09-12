@@ -24,7 +24,7 @@
 
 ## 4. MCP、SSE 與 lifecycle
 
-- MCP JSON-RPC 的 parse/invalid request/unknown method/invalid params、notification、initialize、tools/list、tools/call、loopback Authorization 都以黑箱驗；`tools/list` 逐元素含順序等於凍結 catalog。`isError` 對應 HTTP status≥400，structuredContent 只在 JSON object 時存在。
+- MCP JSON-RPC 的 parse/invalid request/unknown method/invalid params、notification、initialize、tools/list、tools/call、loopback Authorization 都以黑箱驗；`tools/list` 逐元素含順序等於「凍結 catalog 依呼叫者身分收窄後」的那一份 —— 負責人與特助拿到完整 127 支，一般成員 76 支，機器 49 支；收窄依據是路由表的 `requires`（`routes_manifest.json` 的那一欄），不是另一份手維名單。整份 127 支只對負責人／特助成立，不要把任何一支 owner 權杖的斷言當成「全體看得到的清單」。`isError` 對應 HTTP status≥400，structuredContent 只在 JSON object 時存在。
 - catalog hash 從 manifest 的非排除 route 以 `METHOD path` 排序、換行、SHA-256 前 16 hex 黑箱重算，對 `/api/version` 與 `/version` 一致。`MCPExclude` 不得以 token 或 caller 旁路。
 - SSE client 用 stream/queue；每個等待先用 HTTP write 觸發事件，不空等 heartbeat。closed topic 集合每次由產生物 `spec/sse-topics.json`（`bin/gen-sse-topics` 由 `hub.go` 的 `sseTopics` 產生）fail-loud 讀入，再與 trigger 表對質；檔案讀不到、形狀不對或 topics 為空必須拒跑，不能 fallback。不要回頭解析 `spec/sse.md`——那份表是手寫文件，不是權威。directed bands 不屬 `Publish` closed set，交由各自測試。
 - SSE 驗 headers、connected、frame envelope/seq/epoch、delete payload、嚴格發佈序、所有 closed topics、dual-SSE takeover 與 stop gate。對可回顯的 topic 要綁本次 write 的值，不能只驗「有某個舊 frame」；先 drain backlog 的 barrier 要等到靜默，不可用固定 sleep。
