@@ -1296,23 +1296,8 @@ func rpcResult(w http.ResponseWriter, id any, result any) {
 	})
 }
 
-// mcpCatalogTools loads the FROZEN tool catalog (spec/mcp-catalog.json — the
-// committed wire SSOT the Python tools/list serves byte-equal descriptors of).
-// Kept as the tools/list DESCRIPTOR source on purpose: spec/mcp.md §4 makes
-// byte-equality against the snapshot the contract (derivation mechanism free),
-// and deriving the inputSchema bodies statically in Go would duplicate every
-// DTO schema — a second drifting list. The tool NAME surface (tools/call
-// routing + catalog_hash) IS table-derived (mcp.go mcpToolIndex), and the
-// conformance suite pins snapshot ≡ live list ≡ table order ONCE PER PRINCIPAL
-// CLASS, so the two views cannot drift silently.
-//
-// This returns the catalog WHOLE. What tools/list actually serves is this run
-// through toolsVisibleTo — every caller of this function that is answering a
-// request must narrow it, or it hands an ordinary member 51 tools its class is
-// refused on. EMBED-ONLY — the bindist copy is the sole source and
-// disk is never consulted (assets.go readMCPCatalogFrom). This sentence used to
-// say "disk-first with the embed as fallback"; it was wrong, and a reviewer
-// reading it "corrected" a correct implementation on its authority.
+// mcpCatalogTools loads the complete frozen descriptor catalog from the
+// embedded bindist. Request handlers narrow the result with toolsVisibleTo.
 func (s *apiServer) mcpCatalogTools() ([]any, error) {
 	raw, err := s.root.readMCPCatalogFrom(bindistFS())
 	if err != nil {
@@ -1327,29 +1312,8 @@ func (s *apiServer) mcpCatalogTools() ([]any, error) {
 	return catalog.Tools, nil
 }
 
-// toolsVisibleTo narrows the frozen catalog to the tools the caller could
-// actually CALL, keeping catalog order. The filter reads the ROUTE TABLE
-// (mcpToolIndex, name → row) and nothing else: the visible set is a projection
-// of the same Requires the tools/call loopback will enforce a moment later, so
-// there is no second list to keep in step with the first.
-//
-// WHY tools/list IS FILTERED AT ALL. It used to serve the whole catalog to
-// everyone, so an ordinary agent was shown 51 tools its own class can never
-// reach. Members plan against what they can see: the cheap failure is a 403 on
-// first use, the expensive one is a member concluding the station cannot do
-// something and routing around it — which has happened.
-//
-// 🔴 IT IS NOT A SECURITY BOUNDARY, and must not be described as one. The
-// enforcement is requirePrincipalClass on the route itself; this only decides
-// what is ADVERTISED. Calling an unlisted tool still reaches the same 403 it
-// always did — hiding it does not gate it, and gating it is not this function's
-// job.
-//
-// A descriptor whose name is not on the route table is dropped for EVERYONE,
-// including the owner. Such a tool is uncallable by construction (tools/call
-// resolves through this very index), so listing it would advertise a dead name;
-// dropping it also means the owner-token element-wise conformance pin is the
-// alarm for that drift rather than a silent pass.
+// toolsVisibleTo preserves catalog order while filtering by the route table's
+// authorization floor. Route middleware remains the enforcement boundary.
 func (s *apiServer) toolsVisibleTo(principal principalClass, tools []any) []any {
 	visible := make([]any, 0, len(tools))
 	for _, raw := range tools {

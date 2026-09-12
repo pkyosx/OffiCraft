@@ -109,16 +109,7 @@ Today that authority is the `x-mcp` block carried by each operation in `spec/ope
 `include: true` puts the operation on the tool surface and `order` fixes its position;
 `include: false` keeps it off. That included set mirrors the implementation's single route
 table (the rows **not** flagged `mcp_exclude`).
-
-⚠️ **This paragraph used to name two tests as the thing holding the three sources together —
-`TestMcpToolIndexMatchesFrozenCatalog` in `server/ocserverd/mcp_test.go` and
-`server/ocserverd/spec_catalog_conformance_test.go` — and NEITHER EXISTS** (verified
-2026-09-12: both names match 0 lines in the tree; positive control, the same prefix
-`TestMcpToolIndex` does exist, at `server/ocserverd/mcp_test.go`, and pins `mcpToolIndex`'s
-exclusion rule against three hand-written rows, not against the catalog). It also described
-`knownCatalogDrift` / `openapiOverweight` / `deliberatelyOffMCP` silencing maps that are
-likewise nowhere in the tree. A reader trusting that paragraph would have believed the three
-sources were pinned by Go tests that cannot run. What ACTUALLY holds them together:
+The following checks hold the three representations together:
 
 - `make drift-mcp-catalog` re-renders `spec/mcp-catalog.json` from `spec/openapi.json` and
   byte-diffs it against the committed file (§5) — openapi → catalog.
@@ -240,18 +231,10 @@ auth requirements — the hash signals "the STATION'S tool surface changed" (add
 route), not "a schema field changed". Schema-level drift is caught by the CI wire-freeze
 gate over `spec/mcp-catalog.json` instead.
 
-🔴 **It is a property of the STATION, not of you.** §4.2 made `tools/list` per-caller, and
-this value deliberately did NOT follow. It is one number over the whole route table, the same
-for every caller, and `GET /version` serves it with no credential at all — so it cannot be
-read as "the set of tools I can call changed": a `Requires` moving from `admin_agent` to
-`agent` opens 一支工具 to every member and does not move this hash by one character (auth
-requirements are not in the input, see above). Two reasons it stayed whole-surface, both
-load-bearing: the MUST above is that two independent implementations compute the IDENTICAL
-value, which a caller-dependent number cannot satisfy; and the probe that carries it is public,
-where there is no principal to compute one for. If a per-caller "what I can reach changed"
-signal is ever wanted, it is a SECOND value on an authenticated route — not this one
-re-pointed. (Note the blast radius this caps: on the evidence in the box above, nothing reads
-this field at all today.)
+This hash describes the station's complete tool surface, not one caller's visible subset.
+Changing only a route's authorization floor does not change the hash because authorization
+requirements are excluded from the input. A per-caller change signal would require a separate
+value on an authenticated route.
 
 ## 7. Not in this contract
 

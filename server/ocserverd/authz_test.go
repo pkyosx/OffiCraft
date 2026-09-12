@@ -325,10 +325,6 @@ func TestRouteReachableBy(t *testing.T) {
 	}
 
 	t.Run("public stays off the rank ladder so a public row cannot be written as a class choke", func(t *testing.T) {
-		// requirePrincipalClass panics on a class principalRank does not hold,
-		// and that panic is the whole reason Gated(requiresPublic, …) cannot
-		// ship a chokeless gated row. Teaching the map about "public" to make
-		// routeReachableBy simpler would silently disarm it.
 		if _, found := principalRank[requiresPublic]; found {
 			t.Fatal("requiresPublic was added to principalRank — requirePrincipalClass would stop refusing it")
 		}

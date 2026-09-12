@@ -171,10 +171,7 @@ func apiTestAgentToken(t *testing.T, api *apiServer, sub, machineID string) stri
 	return tok
 }
 
-// apiTestPrincipalToken seeds a roster row that classifies as class and answers
-// the session credential for it, so a test can speak as any rung of the ladder
-// without hand-assembling claims. The owner has no roster row and no lookup
-// path — mint an owner token through the product instead (newAPITestServer).
+// apiTestPrincipalToken obtains a production-minted token for a roster-backed class.
 func apiTestPrincipalToken(t *testing.T, api *apiServer, d *DAL, class principalClass, id string) string {
 	t.Helper()
 	member := Member{ID: id, Name: id, Kind: KindStaff, RosterStatus: RosterStatusActive}

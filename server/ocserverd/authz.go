@@ -379,33 +379,8 @@ func principalAtLeast(principal, minimum principalClass) bool {
 	return principalRank[principal] >= principalRank[minimum]
 }
 
-// routeReachableBy answers the question the route table can be asked ABOUT a
-// caller without dispatching: could this principal get past the row's class
-// choke? It is principalAtLeast for the four ladder classes plus the ONE label
-// that is not on the ladder at all.
-//
-// 🔴 requiresPublic IS NOT IN principalRank, and this function exists because
-// that must stop being answered by accident. principalRank[requiresPublic] is a
-// map miss returning 0 — the same rank as machine — so principalAtLeast already
-// happens to admit every authenticated caller to a public row. Right answer,
-// derived from a zero value rather than from a rule: adding a fifth class above
-// machine, or reordering the ladder off 0, silently changes who is told a
-// public tool exists. Adding requiresPublic to principalRank would fix the
-// coincidence by breaking something better — requirePrincipalClass panics on a
-// class the map does not hold, and that panic is what makes
-// `Gated(requiresPublic, …)` a boot failure instead of a row with no choke — so
-// the rule is declared HERE instead.
-//
-// A public row is reachable by any caller that got this far: /api/mcp is itself
-// gated, so "no class requirement" over an already-authenticated request means
-// every principal, not merely the floor.
-//
-// The unknown-class arm is what keeps the rule above from decaying back into
-// the coincidence: it DENIES rather than falling through to rank 0, so deleting
-// the requiresPublic arm turns a public row invisible instead of leaving the
-// answer accidentally unchanged. Deny is also the right default for a class
-// nobody has taught this function about — a row whose floor we cannot read is
-// not a row to advertise.
+// routeReachableBy treats public as reachable without adding it to the
+// principal ladder. Unknown authorization floors fail closed.
 func routeReachableBy(principal, requires principalClass) bool {
 	if requires == requiresPublic {
 		return true

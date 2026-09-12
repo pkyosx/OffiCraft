@@ -120,11 +120,7 @@ def test_ping_returns_empty_object(client, owner_token) -> None:
     assert _result(_rpc(client, owner_token, "ping")) == {}
 
 
-# The principal ladder, restated here rather than imported: this suite is
-# black-box, so the ladder is part of the behaviour being defined, not a detail
-# read out of the implementation. "public" is not a rung at all — it is the
-# absence of a class requirement, so every authenticated caller clears it
-# (/api/mcp is itself gated, so nobody unauthenticated ever gets a list).
+# Restated because the conformance suite cannot import the server implementation.
 _RANK = {"machine": 0, "agent": 1, "admin_agent": 2, "owner": 3}
 
 
@@ -133,9 +129,7 @@ def _reachable(principal: str, requires: str) -> bool:
 
 
 def _catalog_for(principal: str) -> list[dict[str, Any]]:
-    """The snapshot narrowed to what the ROUTE TABLE says this class can call —
-    derived from the manifest's own ``requires`` column, never a second
-    hand-kept list of tool names."""
+    """Return the frozen catalog narrowed by the manifest's authorization floors."""
     floors = {r["mcp_tool"]: r["requires"] for r in MCP_ROWS}
     return [t for t in MCP_CATALOG["tools"] if _reachable(principal, floors[t["name"]])]
 
@@ -143,17 +137,7 @@ def _catalog_for(principal: str) -> list[dict[str, Any]]:
 def test_tools_list_equals_frozen_snapshot_elementwise(
     client, owner_token, admin_agent, agent_a, warden_agent
 ) -> None:
-    """spec §5, per identity: a live tools/list MUST equal the snapshot's tools
-    array NARROWED TO THE CALLER'S CLASS, element-wise — order included
-    (catalog/route-table order, spec §2).
-
-    The old shape of this test asserted the whole snapshot for one owner token,
-    and that is now the TOP RUNG of this table rather than the whole contract:
-    tools/list stopped being a frozen catalogue served to everybody and became a
-    projection of the route table's own Requires column onto the caller. Both
-    halves of the freeze survive — the descriptors are still byte-for-byte the
-    committed ones, and the surviving order is still route-table order — but a
-    member is no longer shown 51 tools its class is refused on."""
+    """Each identity receives the matching catalog descriptors in catalog order."""
     for principal, token in (
         ("owner", owner_token),
         ("admin_agent", admin_agent.token),
@@ -167,7 +151,6 @@ def test_tools_list_equals_frozen_snapshot_elementwise(
             f"route table (element-wise). live={[t['name'] for t in tools]} "
             f"expected={[t['name'] for t in expected]}"
         )
-        # And the surviving order is still the ROUTE-TABLE order of those rows.
         assert [t["name"] for t in tools] == [
             r["mcp_tool"] for r in MCP_ROWS if _reachable(principal, r["requires"])
         ], f"{principal}: tools/list order is not the route-table order"
@@ -176,14 +159,7 @@ def test_tools_list_equals_frozen_snapshot_elementwise(
 def test_tools_list_counts_differ_by_class(
     client, owner_token, admin_agent, agent_a, warden_agent
 ) -> None:
-    """The narrowing is REAL, and this is the test that says so in absolute
-    numbers. Without it the table above could be satisfied by a server that
-    still serves everyone everything AND a helper that computed "everything" —
-    both sides moving together, output identical to a correct run.
-
-    The numbers are the 2026-09-12 route table: 48 machine-floor rows + the one
-    public row, +27 agent, +51 admin_agent, and nothing above admin_agent on the
-    MCP surface at all (which is why owner and 特助 see the same list)."""
+    """Each principal class receives the independently pinned number of tools."""
     counts = {
         principal: len(_result(_rpc(client, token, "tools/list"))["tools"])
         for principal, token in (
@@ -198,14 +174,11 @@ def test_tools_list_counts_differ_by_class(
 
 
 def test_an_unlisted_tool_is_refused_not_unknown(client, agent_a) -> None:
-    """Hiding a tool is ADVERTISING, not a gate: an ordinary member that calls
-    an admin-floor tool by name still reaches the route's own 403, never the
-    -32602 unknown-tool error. If this ever flips, tools/list has quietly become
-    the authorization boundary — and then a listing bug is a security bug."""
+    """An unlisted tool still reaches the route's authorization refusal."""
     hidden = "update_settings"
     listed = {t["name"] for t in _result(_rpc(client, agent_a.token, "tools/list"))["tools"]}
-    assert hidden not in listed, listed  # premise of the test, not the claim
-    assert "get_task" in listed  # positive control: the read the same token DOES see
+    assert hidden not in listed, listed
+    assert "get_task" in listed
 
     result = _result(
         _rpc(client, agent_a.token, "tools/call", {"name": hidden, "arguments": {}})

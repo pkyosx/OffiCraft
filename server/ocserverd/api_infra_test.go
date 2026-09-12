@@ -1961,8 +1961,6 @@ func TestMcpCatalogTools(t *testing.T) {
 	})
 }
 
-// apiMCPListedNames posts tools/list as credential and answers the tool names
-// in the order served.
 func apiMCPListedNames(t *testing.T, h http.Handler, credential string) []string {
 	t.Helper()
 	status, data := apiMCP(t, h, credential, `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`)
@@ -1996,9 +1994,7 @@ func TestToolsVisibleTo(t *testing.T) {
 		t.Fatalf("mcpCatalogTools: %v", err)
 	}
 
-	// The counts are written out rather than recomputed from routeReachableBy,
-	// deliberately: an expectation derived through the function under test moves
-	// with it, so a filter that stopped filtering would still match itself.
+	// Keep counts independent from the filter under test.
 	for _, tc := range []struct {
 		principal principalClass
 		want      int
@@ -2082,8 +2078,6 @@ func TestToolsVisibleTo(t *testing.T) {
 	})
 }
 
-// apiWantCatalogSubsequence fails unless names appear in the frozen catalog's
-// own order: filtering may remove descriptors, never reorder the survivors.
 func apiWantCatalogSubsequence(t *testing.T, catalog []any, names []string) {
 	t.Helper()
 	next := 0

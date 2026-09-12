@@ -511,12 +511,7 @@ def _check_binary(_ctx: HCtx, r: httpx.Response) -> None:
 
 
 def _check_mcp_tools_list(_ctx: HCtx, r: httpx.Response) -> None:
-    # mcp.md: JSON-RPC over HTTP 200; tools/list serves the committed catalog
-    # NARROWED to the caller's principal class. This row runs as the OWNER (the
-    # Happy default identity), which is the one class that still sees the whole
-    # of it — so the equality below holds here and would NOT hold for an agent
-    # or a warden token. The per-class contract lives in test_mcp.py; do not
-    # "generalise" this row by switching its identity.
+    # The happy-path client is owner-scoped and therefore sees the whole catalog.
     payload = r.json()
     assert payload.get("jsonrpc") == "2.0" and payload.get("id") == 1, payload
     assert "error" not in payload, payload

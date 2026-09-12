@@ -58,15 +58,7 @@ func (s RouteSpec) toolName() string {
 	return strings.ToLower(s.Method)
 }
 
-// mcpToolIndex maps tool name → route row over the non-mcp_exclude rows —
-// the same filter the frozen catalog and catalog_hash key off, so this index is
-// the station's WHOLE tool surface.
-//
-// It is read twice per request family and the two readings differ: tools/call
-// resolves a name here to dispatch it, and tools/list projects it through the
-// caller's principal class to decide what to advertise (api_infra.go
-// toolsVisibleTo). The row's Requires is what both lean on, so what a caller is
-// SHOWN and what it is ALLOWED cannot drift apart into two lists.
+// mcpToolIndex maps each advertised tool name to its route row.
 func mcpToolIndex(specs []RouteSpec) map[string]RouteSpec {
 	index := make(map[string]RouteSpec)
 	for _, spec := range specs {
