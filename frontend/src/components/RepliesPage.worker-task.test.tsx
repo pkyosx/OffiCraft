@@ -56,6 +56,7 @@ function mkWorker(over: Partial<OutsourceWorkerView>): OutsourceWorkerView {
     codename: "O-9",
     model: "opus",
     effort: "medium",
+    status: "active",
     taskId: "T-42",
     taskNo: "T-42",
     taskTitle: "把請示卡列表補上外包正在做的任務",
@@ -228,6 +229,37 @@ describe("RepliesPage — the asking outsource worker's current task", () => {
     await findCard();
     expect(queryByTestId("reply-card-rc-1-task-ow-a")).toBeNull();
     expect(queryByTestId("reply-card-task-title-rc-1")).toBeNull();
+  });
+
+  it("an UNKNOWN status shows nothing either — the check is an allowlist, not a list of the terminal ones", async () => {
+    // Naming the terminal status instead would be a prediction: the next
+    // terminal state added server-side would arrive here as a live-looking row.
+    workerRows = [mkWorker({ status: "retired-someday" })];
+    __injectMockReplyCard(mkCard({}));
+
+    const { queryByTestId } = renderPage();
+
+    await findCard();
+    expect(queryByTestId("reply-card-task-title-rc-1")).toBeNull();
+  });
+
+  it("a task_id whose task no longer resolves shows the placeholder, not 自由代辦", async () => {
+    // The server writes task_id unconditionally but fills task_no / task_title
+    // / task_type_* only when it could resolve the task. Gating on task_id
+    // would let this row draw the type slot's 自由代辦 fallback over 無當前任務
+    // — the same contradiction, one field later.
+    workerRows = [
+      mkWorker({ taskId: "T-42", taskNo: "", taskTitle: "", taskTypeName: "" }),
+    ];
+    __injectMockReplyCard(mkCard({}));
+
+    const { findByTestId, queryByTestId, queryByText } = renderPage();
+
+    expect((await findByTestId("reply-card-task-title-rc-1")).textContent).toBe(
+      "無當前任務",
+    );
+    expect(queryByTestId("reply-card-rc-1-type-ow-a")).toBeNull();
+    expect(queryByText("自由代辦")).toBeNull();
   });
 
   it("a live worker with an ad-hoc task still shows 自由代辦 — the fallback is only wrong when there is NO task", async () => {

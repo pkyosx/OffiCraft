@@ -2493,9 +2493,14 @@ export interface Api {
    * the bare 外包 label instead of a fabricated codename.
    */
   listOutsourceWorkers(): Promise<OutsourceWorkerView[]>;
-  /** Read ONE live worker (`GET /api/outsource-workers/{id}`) — the SAME
-   * projection the list serves, for the detail panel's post-relocate refresh.
-   * A released / unknown worker → 404 (throws ApiError). (T-f190) */
+  /** Read ONE worker (`GET /api/outsource-workers/{id}`) — the SAME projection
+   * the list serves, for the detail panel's post-relocate refresh.
+   * 🔴 A RELEASED worker READS FINE here; only an UNKNOWN id is 404 (throws
+   * ApiError). That asymmetry with the LIST — which skips released rows on
+   * purpose — is the whole reason the lazy identity cache exists, and it is
+   * also why a released row still carries the task it finished: a caller asking
+   * "what is this worker on NOW" must read `status` and not assume the row it
+   * got back describes current work. (T-f190, corrected T-196) */
   getOutsourceWorker(id: string): Promise<OutsourceWorkerView>;
   /** Relocate a worker to a machine (`POST /api/outsource-workers/{id}/relocate`
    * {machine_id}, admin-gated since P7c — the member relocate floor) — the

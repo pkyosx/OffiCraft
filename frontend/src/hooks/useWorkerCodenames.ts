@@ -151,11 +151,42 @@ export function useWorkerCurrentTasks(
   // The ids to re-read, readable from the SSE callback without a stale closure.
   const wantedRef = useRef<string[]>([]);
   wantedRef.current = key ? key.split("|") : [];
-  // True while a refresh round is in flight — see the burst note below.
+  // True while a refresh round is in flight; `pending` remembers that a burst
+  // arrived while it was — see the coalescing note below.
   const refreshingRef = useRef(false);
+  const pendingRef = useRef(false);
 
   useEffect(() => {
     let alive = true;
+
+    /** One refresh round over the ids this caller holds; runs again if a burst
+     * arrived while it was in flight. */
+    const runRound = async (): Promise<void> => {
+      refreshingRef.current = true;
+      pendingRef.current = false;
+      const mine = wantedRef.current.filter((id) => cache.get(id));
+      await Promise.all(
+        mine.map((id) =>
+          api.getOutsourceWorker(id).then(
+            (w) => cache.set(id, w),
+            // Keep the last known row: a failed re-read is not evidence the
+            // worker is gone, and blanking the line would say it is.
+            () => {},
+          ),
+        ),
+      );
+      refreshingRef.current = false;
+      // The cache is shared and global, so this wakes EVERY mounted consumer
+      // (codename / avatar) — `cache.size` does not move on an overwrite, so
+      // nothing recomputes on its own. It runs even when THIS hook has since
+      // unmounted: the other consumers are still on screen holding the row we
+      // just replaced, and the same reasoning is why `updateCachedWorkerAvatar`
+      // notifies rather than mutating quietly.
+      notifyAll();
+      if (alive) setTick((n) => n + 1);
+      if (pendingRef.current) await runRound();
+    };
+
     const unsubscribe = api.subscribeEvents(
       createDeltaSink((batch) => {
         if (![...batch.topics].some((t) => CURRENT_TASK_TOPICS.has(t))) return;
@@ -165,30 +196,21 @@ export function useWorkerCurrentTasks(
         // (the per-id endpoint is the only one that covers released workers),
         // and task deltas arrive in bursts — without this, a busy studio turns
         // a page holding N askers into N reads per burst, several bursts deep.
-        // Dropping a burst that lands mid-round loses nothing: the round now
-        // finishing reads the same current state, and the NEXT burst re-reads.
-        if (refreshingRef.current) return;
-        refreshingRef.current = true;
-        void Promise.all(
-          mine.map((id) =>
-            api.getOutsourceWorker(id).then(
-              (w) => cache.set(id, w),
-              // Keep the last known row: a failed re-read is not evidence the
-              // worker is gone, and blanking the line would say it is.
-              () => {},
-            ),
-          ),
-        ).then(() => {
-          refreshingRef.current = false;
-          if (!alive) return;
-          setTick((n) => n + 1);
-          // The cache is shared, so a re-read that only woke THIS hook would
-          // leave every other mounted consumer (codename / avatar) memoised on
-          // the row it read at mount. `cache.size` does not move on an
-          // overwrite, so nothing would recompute — the same reason
-          // `updateCachedWorkerAvatar` notifies rather than mutating quietly.
-          notifyAll();
-        });
+        //
+        // 🔴 COALESCED, NOT DROPPED, and the difference is a real defect. A
+        // burst that lands mid-round reports a change the in-flight reads were
+        // sent BEFORE, so they cannot carry it: finishing the round writes back
+        // the state as it was a moment ago. Dropping it outright would leave
+        // that stale row on screen until some UNRELATED later delta happens to
+        // arrive — and in a quiet studio the release of the very worker on
+        // screen can be the last event of the hour, so "later" means never. So
+        // the round remembers it was overtaken and runs once more; the second
+        // round is the one that sees the release.
+        if (refreshingRef.current) {
+          pendingRef.current = true;
+          return;
+        }
+        void runRound();
       }),
     );
     return () => {

@@ -78,7 +78,10 @@ import {
 } from "./ReplyCardBody";
 import { formatDuration } from "../lib/duration";
 import { formatAbsolute } from "../lib/dateFormat";
-import "./office.css"; // chat composer classes the ReplyComposer reuses
+import "./office.css"; // chat composer classes the ReplyComposer reuses, AND
+// the rail's `.outsource-row__*` / `.current-task-title` rules the asker's
+// current-task line is drawn with (T-196) — removing this import as an
+// unused-looking tidy-up unstyles that line, and no vitest test can see it.
 import "./replies.css";
 
 const HANDLED_WINDOW_SECONDS = 24 * 3600;
@@ -805,14 +808,25 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
     // no task, and neither is this page a place to announce 已釋出 — that
     // sentence already has one home (the chat header banner) and the repo's own
     // i18n note forbids a second copy of it.
-    if (worker.status === "released") return null;
+    // An ALLOWLIST, not a denylist: only the two statuses that mean "this
+    // worker is on the job" draw the line. Naming the terminal one instead
+    // would be a prediction — the next terminal status added server-side would
+    // reach this surface as a live-looking row, which is precisely the defect
+    // this check exists for. An absent status (an older server) falls on the
+    // silent side too: not knowing is not evidence of current work.
+    if (worker.status !== "assigned" && worker.status !== "active") return null;
     // An empty taskId is the other honest nothing: the worker holds no task, or
     // the server could not resolve the one it holds. `OutsourceTaskLine` always
     // draws its type slot, falling back to 自由代辦 — true on the rail, where a
     // listed worker always HAS a task and the fallback means "a task with no
     // type", but a plain lie here, where it would sit above 無當前任務 and the
     // same row would claim both.
-    const bound = Boolean(worker.taskId);
+    // Keyed on `taskNo`, NOT `taskId`: the server writes task_id
+    // unconditionally but fills task_no / task_title / task_type_* only when it
+    // could RESOLVE the task, so a task_id whose task is gone would pass a
+    // taskId test and then render 自由代辦 over 無當前任務 — the contradiction
+    // above, one field later.
+    const bound = Boolean(worker.taskNo);
     return (
       <span className="reply-card__worker-task">
         {bound && (

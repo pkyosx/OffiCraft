@@ -247,9 +247,13 @@ describe("useWorkerCodenames", () => {
     expect(tasks.result.current.get("ow-abc")?.taskId).toBe("T-9");
   });
 
-  it("coalesces bursts: a second delta arriving mid-round does not start a second round", async () => {
-    // A round costs one read PER held id, and task deltas arrive in bursts.
-    let release: (() => void) | null = null;
+  it("coalesces bursts into ONE trailing round — a delta that lands mid-round is not lost", async () => {
+    // 🔴 The mid-round burst must NOT simply be dropped. The reads already in
+    // flight were sent BEFORE it, so they cannot carry what it reports; letting
+    // the round finish and stopping there writes back the state as it was a
+    // moment ago. In a quiet studio the next unrelated delta may never come, so
+    // "it will refresh eventually" means "never". One trailing round, no more.
+    let settle: (() => void) | null = null;
     getOutsourceWorker.mockResolvedValueOnce({ id: "ow-abc", codename: "X-1", taskId: "T-9" });
     renderHook(() => useWorkerCurrentTasks(["ow-abc"]));
     await waitFor(() => expect(getOutsourceWorker).toHaveBeenCalledTimes(1));
@@ -257,20 +261,75 @@ describe("useWorkerCodenames", () => {
     getOutsourceWorker.mockImplementation(
       () =>
         new Promise((resolve) => {
-          release = () => resolve({ id: "ow-abc", codename: "X-1", taskId: "T-10" });
+          settle = () => resolve({ id: "ow-abc", codename: "X-1", taskId: "T-10" });
         }),
     );
     await emit("task"); // starts the round, which now hangs
     expect(getOutsourceWorker).toHaveBeenCalledTimes(2);
-    await emit("task"); // lands mid-round — must be dropped, not queued
-    expect(getOutsourceWorker).toHaveBeenCalledTimes(2);
+    await emit("task"); // lands mid-round
+    await emit("task"); // and another — still ONE trailing round, not two
+    expect(getOutsourceWorker, "no second round while one is in flight").toHaveBeenCalledTimes(2);
 
+    const first = settle!;
+    getOutsourceWorker.mockResolvedValue({ id: "ow-abc", codename: "X-1", taskId: "T-11" });
     await act(async () => {
-      release?.();
+      first();
       await Promise.resolve();
     });
-    // …and the guard lifts, so the NEXT burst is served.
-    await emit("task");
+    // The round that was overtaken runs again — exactly once for both bursts.
     await waitFor(() => expect(getOutsourceWorker).toHaveBeenCalledTimes(3));
+  });
+
+  it("a worker released DURING a refresh round is still seen: the trailing round is the one that reports it", async () => {
+    // The race the coalescing exists for. The reads in flight were sent while
+    // the worker was still on the job; without the trailing round the cache
+    // keeps that row and the reply card list keeps drawing finished work as
+    // current — permanently, if nothing else happens in the studio.
+    let settle: (() => void) | null = null;
+    getOutsourceWorker.mockResolvedValueOnce({
+      id: "ow-abc",
+      codename: "X-1",
+      status: "active",
+      taskId: "T-9",
+      taskTitle: "還在做",
+    });
+    const { result } = renderHook(() => useWorkerCurrentTasks(["ow-abc"]));
+    await waitFor(() =>
+      expect(result.current.get("ow-abc")?.status).toBe("active"),
+    );
+
+    // A round starts and hangs; it will answer with the PRE-release row.
+    getOutsourceWorker.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          settle = () => resolve({
+            id: "ow-abc",
+            codename: "X-1",
+            status: "active",
+            taskId: "T-9",
+            taskTitle: "還在做",
+          });
+        }),
+    );
+    await emit("task");
+
+    // The release lands while that round is still in flight.
+    const first = settle!;
+    getOutsourceWorker.mockResolvedValue({
+      id: "ow-abc",
+      codename: "X-1",
+      status: "released",
+      taskId: "T-9",
+      taskTitle: "還在做",
+    });
+    await emit("outsource_worker");
+    await act(async () => {
+      first();
+      await Promise.resolve();
+    });
+
+    await waitFor(() =>
+      expect(result.current.get("ow-abc")?.status).toBe("released"),
+    );
   });
 });
