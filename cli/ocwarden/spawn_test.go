@@ -110,7 +110,9 @@ func startParamsM1() StartParams {
 // against a literal instead of agreeing with itself.
 const goldenClaudePurge = `for __oc_e in $(/usr/bin/env); do case $__oc_e in CLAUDE_CODE_USE_BEDROCK=*|CLAUDE_CODE_USE_VERTEX=*) continue;; CLAUDE_*=*) ;; *) continue;; esac; __oc_n=${__oc_e%%=*}; case $__oc_n in *[!A-Za-z0-9_]*) continue;; esac; unset "$__oc_n"; done; unset __oc_e __oc_n; `
 
-const goldenLaunchM1 = `cd /w/m1; ` + goldenClaudePurge + `unset CLAUDE_CONFIG_DIR; export OC_TOKEN="$(/bin/cat /w/m1/.oc-token)" ` +
+const goldenInlineSettings = `{"statusLine":{"type":"command","command":"ocagent context-report"},"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"ocagent guard-bash"}]}],"PermissionRequest":[{"hooks":[{"type":"command","command":"ocagent guard-permission"}]}]}}`
+
+var goldenLaunchM1 = `cd /w/m1; ` + goldenClaudePurge + `unset CLAUDE_CONFIG_DIR; export OC_TOKEN="$(/bin/cat /w/m1/.oc-token)" ` +
 	`OC_BASE=http://127.0.0.1:7755 OC_SESSION=member-m1 OC_TMUX_SOCKET=officraft OC_EFFORT=medium ` +
 	`HOME=/Users/wardenowner; ` +
 	`export PATH=/w/m1:"$PATH"; ` +
@@ -120,7 +122,7 @@ const goldenLaunchM1 = `cd /w/m1; ` + goldenClaudePurge + `unset CLAUDE_CONFIG_D
 	`/w/m1/persona.md。第一步:用 Read 工具把它從頭到尾整份讀完 —— 不要帶 offset/limit,不要只讀開頭,` +
 	`也不准用 cat/head/tail/sed 或任何終端機指令讀它:這個檔有數萬字元,終端機輸出只有開頭一小段會進到你的 context,` +
 	`其餘會被靜默丟棄而且不會有任何錯誤訊息,而「開機程序」在整份檔案的最後面。` +
-	`整份讀完後,照裡面「開機程序」段逐步執行。' --settings /w/m1/settings.json`
+	`整份讀完後,照裡面「開機程序」段逐步執行。' --settings ` + shellQuote(goldenInlineSettings)
 
 func TestShellQuote(t *testing.T) {
 	cases := []struct{ in, want string }{
@@ -228,7 +230,14 @@ func TestBuildStatuslineSettings(t *testing.T) {
 	// statusLine and both guard hooks go down together.
 	var parsed any
 	if err := json.Unmarshal([]byte(buildStatuslineSettings()), &parsed); err != nil {
-		t.Fatalf("the settings.json written for every member is not valid JSON: %v", err)
+		t.Fatalf("the settings passed to every member are not valid JSON: %v", err)
+	}
+	compact, err := compactSettingsJSON(buildStatuslineSettings())
+	if err != nil {
+		t.Fatalf("compact settings: %v", err)
+	}
+	if want := goldenInlineSettings; compact != want {
+		t.Errorf("compact settings = %q, want %q", compact, want)
 	}
 }
 
@@ -290,10 +299,10 @@ func TestBuildLaunchCommand(t *testing.T) {
 		`export PATH=/w/m1:"$PATH"; ` +
 		`exec /usr/local/bin/claude --dangerously-skip-permissions --disallowedTools AskUserQuestion ` +
 		`--mcp-config /w/m1/.mcp.json --effort high --append-system-prompt APPEND ` +
-		`--model opus --settings /w/m1/settings.json`
+		`--model opus --settings '{"hooks":{}}'`
 	got = buildLaunchCommand("/usr/local/bin/claude", "/w/m1", "/w/m1/.mcp.json", "APPEND",
 		"/w/m1/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft",
-		"opus", "high", "/w/m1/settings.json", claudeHome{Home: "/Users/wardenowner"})
+		"opus", "high", `{"hooks":{}}`, claudeHome{Home: "/Users/wardenowner"})
 	if got != wantFull {
 		t.Errorf("launch line =\n%s\nwant\n%s", got, wantFull)
 	}
@@ -308,10 +317,10 @@ func TestBuildLaunchCommandWithEnv(t *testing.T) {
 		`export PATH=/w/m1:"$PATH"; ` +
 		`exec /usr/local/bin/claude --dangerously-skip-permissions --disallowedTools AskUserQuestion ` +
 		`--mcp-config /w/m1/.mcp.json --effort medium --append-system-prompt APPEND ` +
-		`--settings /w/m1/settings.json`
+		`--settings '{"hooks":{}}'`
 	got := buildLaunchCommandWithEnv("/usr/local/bin/claude", "/w/m1", "/w/m1/.mcp.json", "APPEND",
 		"/w/m1/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft-lab", "", "medium",
-		"/w/m1/settings.json", [][2]string{{"OC_AGENT_HOME", "/w"}, {"OC_EFFORT", "medium"}}, "/w/m1/.oc-env", home)
+		`{"hooks":{}}`, [][2]string{{"OC_AGENT_HOME", "/w"}, {"OC_EFFORT", "medium"}}, "/w/m1/.oc-env", home)
 	if got != want {
 		t.Errorf("launch line =\n%s\nwant\n%s", got, want)
 	}
@@ -1007,6 +1016,12 @@ func TestStart(t *testing.T) {
 		if !reflect.DeepEqual(h.runner.calls, wantCalls) {
 			t.Errorf("calls =\n%v\nwant\n%v", h.runner.calls, wantCalls)
 		}
+		if strings.Contains(h.runner.calls[1], "--settings /w/m1/settings.json") {
+			t.Fatal("the launch still reads a workdir settings file that can be changed after the pre-trust gate")
+		}
+		if !strings.Contains(h.runner.calls[1], "--settings "+shellQuote(goldenInlineSettings)) {
+			t.Fatal("the generated settings must ride the launch argv as inline JSON")
+		}
 		if len(h.slept) != 30 {
 			t.Errorf("slept %d times, want 30", len(h.slept))
 		}
@@ -1061,7 +1076,7 @@ func TestStart(t *testing.T) {
 			`/w/m1/persona.md。第一步:用 Read 工具把它從頭到尾整份讀完 —— 不要帶 offset/limit,不要只讀開頭,` +
 			`也不准用 cat/head/tail/sed 或任何終端機指令讀它:這個檔有數萬字元,終端機輸出只有開頭一小段會進到你的 context,` +
 			`其餘會被靜默丟棄而且不會有任何錯誤訊息,而「開機程序」在整份檔案的最後面。` +
-			`整份讀完後,照裡面「開機程序」段逐步執行。' --model opus --settings /w/m1/settings.json`
+			`整份讀完後,照裡面「開機程序」段逐步執行。' --model opus --settings ` + shellQuote(goldenInlineSettings)
 		if h.runner.calls[1] != wantLaunch {
 			t.Errorf("launch call =\n%s\nwant\n%s", h.runner.calls[1], wantLaunch)
 		}

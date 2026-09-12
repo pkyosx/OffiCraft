@@ -210,12 +210,10 @@ func buildMCPConfig(base, token string) string {
 }
 
 // buildStatuslineSettings is the port of build_statusline_settings: the Claude
-// Code settings.json wiring the statusLine to the context reporter (json.dumps
+// Code settings payload wiring the statusLine to the context reporter (json.dumps
 // indent=2 + a trailing newline).
 //
-// It also carries the two guard hooks, because this file is the ONE place a
-// member's settings.json is written and a hook declared anywhere else would
-// reach nobody. Both are named bare — `ocagent guard-bash`, `ocagent
+// It also carries the two guard hooks. Both are named bare — `ocagent guard-bash`, `ocagent
 // guard-permission`, the way statusLine names `ocagent context-report` — because
 // the launch command puts the workdir holding the ocagent symlink at the front of
 // PATH, so none of them hardcodes a path that differs per machine.
@@ -258,6 +256,14 @@ func buildStatuslineSettings() string {
 		"    ]\n" +
 		"  }\n" +
 		"}\n"
+}
+
+func compactSettingsJSON(raw string) (string, error) {
+	var compact bytes.Buffer
+	if err := json.Compact(&compact, []byte(raw)); err != nil {
+		return "", err
+	}
+	return compact.String(), nil
 }
 
 // buildAppendSystemPrompt is the port of build_append_system_prompt: the TRUSTED
@@ -337,7 +343,7 @@ func (d SpawnDeps) ocAgentTarget() (string, bool) {
 // (--append-system-prompt). OC_* ride the env export so the agent runs under its
 // OWN identity; the workdir is prepended to PATH so a bare `ocagent` resolves.
 // --model is emitted only when set (an unset model keeps the line byte-identical to
-// the pre-model version); --settings only when settings_path is given.
+// the pre-model version); --settings only when settings JSON is given.
 //
 // Deviation from the Python origin (flagged): the origin exported the member token
 // LITERALLY (OC_TOKEN=<jwt>), leaking it machine-wide via the tmux argv (`ps` shows
@@ -359,9 +365,9 @@ func (d SpawnDeps) ocAgentTarget() (string, bool) {
 // binary itself is published into the workdir by Phase 4 wiring (the golang
 // ocagent, agent-cli's T2.4 artifact), NOT by this pure builder. Until that
 // wiring lands, a spawned agent on a clean host has no ocagent on PATH.
-func buildLaunchCommand(claudeBin, workdir, mcpConfigPath, appendSys, tokenFile, agentID, base, session, socket, model, effort, settingsPath string, ch claudeHome) string {
+func buildLaunchCommand(claudeBin, workdir, mcpConfigPath, appendSys, tokenFile, agentID, base, session, socket, model, effort, settingsJSON string, ch claudeHome) string {
 	return buildLaunchCommandWithEnv(claudeBin, workdir, mcpConfigPath, appendSys,
-		tokenFile, agentID, base, session, socket, model, effort, settingsPath, nil, "", ch)
+		tokenFile, agentID, base, session, socket, model, effort, settingsJSON, nil, "", ch)
 }
 
 // buildLaunchCommandWithEnv is buildLaunchCommand plus optional EXTRA env pairs
@@ -437,7 +443,7 @@ func claudeHomeExportPairs(ch claudeHome) [][2]string {
 	return pairs
 }
 
-func buildLaunchCommandWithEnv(claudeBin, workdir, mcpConfigPath, appendSys, tokenFile, agentID, base, session, socket, model, effort, settingsPath string, extraEnv [][2]string, envRendered string, ch claudeHome) string {
+func buildLaunchCommandWithEnv(claudeBin, workdir, mcpConfigPath, appendSys, tokenFile, agentID, base, session, socket, model, effort, settingsJSON string, extraEnv [][2]string, envRendered string, ch claudeHome) string {
 	cd := claudeChildEnvPrologue(workdir, envRendered, ch)
 	pairs := [][2]string{
 		{"OC_BASE", base},
@@ -500,8 +506,8 @@ func buildLaunchCommandWithEnv(claudeBin, workdir, mcpConfigPath, appendSys, tok
 	if model != "" {
 		parts = append(parts, "--model", shellQuote(model))
 	}
-	if settingsPath != "" {
-		parts = append(parts, "--settings", shellQuote(settingsPath))
+	if settingsJSON != "" {
+		parts = append(parts, "--settings", shellQuote(settingsJSON))
 	}
 	return cd + exports + "exec " + strings.Join(parts, " ")
 }
@@ -1281,6 +1287,10 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 	personaFile := filepath.Join(workdir, "persona.md")
 	mcpConfigPath := filepath.Join(workdir, ".mcp.json")
 	settingsPath := filepath.Join(workdir, "settings.json")
+	settingsJSON, err := compactSettingsJSON(buildStatuslineSettings())
+	if err != nil {
+		return SpawnOutcome{OK: false, Reason: fmt.Sprintf("settings_invalid: %v", err)}
+	}
 	tokenFile := filepath.Join(workdir, ".oc-token")
 
 	// persona → TRUSTED FILE channel (not the command line): the append-system-prompt
@@ -1296,7 +1306,10 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 		return SpawnOutcome{OK: false, Reason: fmt.Sprintf(
 			"write_file_failed: .mcp.json: %v", err)}
 	}
-	// settings.json → the statusLine context reporter (paired with --settings).
+	// Keep the 0600 settings.json artifact for inspection, but do not launch from
+	// it. A writable path between the successful pre-trust probe and exec allowed
+	// env.CLAUDE_CONFIG_DIR to redirect the real child after the gate approved a
+	// different config home; the launch command receives settingsJSON inline.
 	if err := d.WriteFile(settingsPath, buildStatuslineSettings(), 0o600); err != nil {
 		return SpawnOutcome{OK: false, Reason: fmt.Sprintf(
 			"write_file_failed: settings.json: %v", err)}
@@ -1425,7 +1438,7 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 			extraEnv, envRendered, d.logf)
 	} else {
 		command = buildLaunchCommandWithEnv(d.ClaudeBin, workdir, mcpConfigPath, appendSys,
-			tokenFile, p.MemberID, base, session, socket, p.Model, p.Effort, settingsPath, extraEnv, envRendered,
+			tokenFile, p.MemberID, base, session, socket, p.Model, p.Effort, settingsJSON, extraEnv, envRendered,
 			d.ClaudeHome)
 	}
 
