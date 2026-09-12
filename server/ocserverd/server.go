@@ -500,7 +500,7 @@ func newAPIServer(dal *DAL, hub *Hub, keys *keyring, tokenTTL int64, root assetR
 		ctxhigh:                      defaultSseContextHigh(),
 		root:                         root,
 		binHashes:                    bindistBinaryHashesFrom(bindistFS()),
-		reconcileStates:              map[string]reconcileState{},
+		lifecycleStates:              map[string]reconcileState{},
 		reconcileCfg:                 defaultReconcileConfig(),
 		identitySweepAt:              map[string]float64{},
 		receiptPending:               map[string]pendingReceipt{},
@@ -511,7 +511,6 @@ func newAPIServer(dal *DAL, hub *Hub, keys *keyring, tokenTTL int64, root assetR
 		workerStopPending:            map[string]string{},
 		workerStopLanded:             map[string]workerStopDispatch{},
 		workerMachinePref:            map[string]string{},
-		workerReconcileStates:        map[string]reconcileState{},
 		workerMachineCooldown:        map[string]float64{},
 		workerOfflineSince:           map[string]float64{},
 	}

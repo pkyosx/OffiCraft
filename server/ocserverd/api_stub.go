@@ -310,10 +310,13 @@ type apiServer struct {
 	// the merged tick takes this lock, drops it, and only then enters the
 	// outsource half.
 	reconcileMu sync.Mutex
-	// reconcileStates is the in-memory per-member bookkeeping — restart
-	// amnesia is contract (the next tick re-decides from presence).
-	reconcileStates map[string]reconcileState
-	reconcileCfg    reconcileConfig
+	// lifecycleStates is the single in-memory FSM store for every agent-shaped
+	// row. The producer locks still serialize their own work; this mutex only
+	// protects the shared map when the staff and outsource halves run from
+	// different goroutines. Restart amnesia remains the contract.
+	lifecycleStateMu sync.Mutex
+	lifecycleStates  map[string]reconcileState
+	reconcileCfg     reconcileConfig
 	// noReconcile is the --no-reconcile serve flag: skips the RECONCILE HALF of
 	// the cadence tick AND disables the event-driven warden-command dispatch the
 	// producer owns (the shadow-deployment kill-switch) while the rest of the
@@ -347,7 +350,7 @@ type apiServer struct {
 	// Guarded by its OWN mutex, never reconcileMu/outsourceMu: it is armed from
 	// both producers and disarmed from the telemetry ingest goroutine, so
 	// borrowing either producer's lock would couple them through the ingest path.
-	// In-memory, restart-amnesia by design (the same posture as reconcileStates):
+	// In-memory, restart-amnesia by design (the same posture as lifecycleStates):
 	// a forgotten watch just means one dispatch goes unwatched, never a false
 	// receipt_missing on a member the server never dispatched to.
 	receiptMu      sync.Mutex
@@ -413,15 +416,6 @@ type apiServer struct {
 	// like its siblings: after a restart the spawn retry honestly falls back
 	// to the manual preference.
 	workerMachinePref map[string]string // worker id → machine id
-	// workerReconcileStates (A案 P6) → worker id → shared-FSM bookkeeping.
-	// The outsource spawn/rescue path runs the SAME pure member reconcile FSM
-	// (reconcileDecide: start_timeout / backoff / circuit / zombie-takeover —
-	// reconcileWorkerLiveness), which retired the bespoke one-shot ghost-clear
-	// (recoverStuckWorker + workerGhostKillAt). Kept as its OWN store under
-	// outsourceMu (never reconcileStates/reconcileMu) so the two producers
-	// stay lock-disjoint; restart amnesia is the contract, like the member
-	// store — the next tick re-decides from presence.
-	workerReconcileStates map[string]reconcileState
 	// workerMachineCooldown (T-9ccf DoD②, 換機重試) → "<worker id>|<machine id>"
 	// → cooldown-until ts. A machine that just FAILED to boot a worker (a
 	// worker_start receipt refused, or a stuck-worker ghost cleared off it) is

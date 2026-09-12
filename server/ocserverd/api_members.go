@@ -176,16 +176,13 @@ func (s *apiServer) persistMemberWindDownAnchors(m Member) error {
 //	persistMemberWindDownAnchors / persistWorkerWindDownAnchors (this file, the
 //	  two value params above), collectWorkerHandover, collectWorkerStop.
 //
-// POINTER-shaped (10) — the row aliases the caller's row:
+// POINTER-shaped (8) — the row aliases the caller's row:
 //
 //	*Member (5): HandleForceStopMember…, HandleReportStopping…,
 //	  HandleReportStopped… (all three this file, `m` from resolveMember /
 //	  resolveSelf); consumeRestartAfterStop (member_ownerop_winddown.go, `m` is
-//	  its own PARAMETER, so the mutation escapes to ITS caller);
-//	  clearRecycleMarkersOnRespawn (reconcile.go, `m := &members[i]` — the
-//	  mutation lands in the CALLER'S SLICE).
-//	*OutsourceWorker (5): clearWorkerRefocus (`fresh` from the DAL),
-//	  workerReportWaking, workerReportStopping, workerReportStopped (all
+//	  its own PARAMETER, so the mutation escapes to ITS caller).
+//	*OutsourceWorker (4): workerReportWaking, workerReportStopping, workerReportStopped (all
 //	  worker_spawn.go, `w` from resolveLiveWorker); consumeWorkerRestartAfterStop
 //	  (member_ownerop_winddown.go, `w` is its own PARAMETER — same escape).
 //

@@ -70,13 +70,12 @@ func TestLifecycleTickDriverFor(t *testing.T) {
 
 func TestLifecycleRosterPasses(t *testing.T) {
 	passes := (&apiServer{}).lifecycleRosterPasses()
-	if len(passes) != 5 {
-		t.Fatalf("pass count = %d, want 5", len(passes))
+	if len(passes) != 4 {
+		t.Fatalf("pass count = %d, want 4", len(passes))
 	}
 	wantNames := []string{
 		"context_high_recycle",
 		"token_expiry_winddown",
-		"recycle_loop_break",
 		"stale_stopping_clear",
 		"uninstall_intent_consume",
 	}
@@ -84,7 +83,6 @@ func TestLifecycleRosterPasses(t *testing.T) {
 	wantApplies := [][]bool{
 		{true, true, true},
 		{true, true, true},
-		{true, false, true},
 		{true, true, true},
 		{false, false, true},
 	}

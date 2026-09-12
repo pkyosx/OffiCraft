@@ -625,13 +625,6 @@ var identityGateLedger = map[string]string{
 		"the parallel cap; the guard used to sit below those, which was harmless only " +
 		"while it was a no-op. Same tooth as the reconcile entry above: delete the " +
 		"guard and this key goes stale.",
-	"lifecycle_roster.go :: lifecycleRosterPasses :: m.Kind != KindOutsource": "" +
-		"recycle_loop_break's AppliesTo — THE one declared staff-only formality, and " +
-		"the mechanism working as designed: a worker already has a loop-break in " +
-		"autoHandoverWorker arm (1) asking a different question, and two collectors on " +
-		"one latch is the double-kill T-72dd removed. Read back by name in " +
-		"lifecyclePassContractedReach; converging the two rules needs its own " +
-		"owner-gated step.",
 	"lifecycle_roster.go :: lifecycleRosterPasses :: m.Kind == KindWarden": "" +
 		"uninstall_intent_consume's AppliesTo. Warden-only, and it always was — the " +
 		"pass's own loop opened with the same test; hoisting it into the list changed " +

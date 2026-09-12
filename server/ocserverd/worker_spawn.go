@@ -54,8 +54,8 @@ package main
 //	the P5b transition sweep, cli/ocwarden command.go), nothing else.
 //
 // Bookkeeping is IN-MEMORY only (workerSpawnAt / workerSpawnTarget /
-// workerSpawnAttempts / workerReclaimed / workerReconcileStates, all under
-// outsourceMu): a restart forgets pacing and FSM state (worst
+// workerSpawnAttempts / workerReclaimed, plus the shared lifecycleStates store):
+// a restart forgets pacing and FSM state (worst
 // case one extra start — the warden's clobber guard refuses a live
 // session) and forgets which reclaims already went out (worst case one extra
 // stop per released worker — stopping an absent session is a clean
@@ -974,11 +974,11 @@ func (s *apiServer) notifyWorkerSpawn(w OutsourceWorker, now float64) bool {
 	// from the assignment loop / respawnWorkerNow would look like "no start ever
 	// went out" to the FSM, whose fresh START would then bounce off the warden
 	// clobber-guard and mis-read the healthy boot as a zombie.
-	st := s.workerReconcileStates[w.ID]
+	st := s.lifecycleState(w.ID)
 	st.Phase = reconcilePhaseStarting
 	st.LastCommand = reconcileCmdStart
 	st.LastCommandAt = now
-	s.workerReconcileStates[w.ID] = st
+	s.setLifecycleState(w.ID, st)
 	// The start landed: any placement-blocked explanation on the row is now
 	// history, and leaving it would make the NEXT block look like the same one.
 	s.clearWorkerPlacementBlock(w.ID)
@@ -1015,18 +1015,13 @@ func (s *apiServer) workerSpawnObs(workerID string) (target string, at float64) 
 //     the next tick's plain START lands on a clean slot;
 //   - an online worker converges (failure bookkeeping resets).
 //
-// Refocus / relocation are DELIBERATELY masked out of the observation: the
-// outsource tick's autoHandoverWorker and the event-driven relocate handler own
-// those (kill+respawn immediately) — feeding them into decideUp would double
-// the machinery. FSM state lives in workerReconcileStates under outsourceMu
-// (restart amnesia is the contract, exactly like the member store).
+// Refocus is handled by this shared FSM. Relocation remains masked because its
+// event-driven handler owns the placement change. FSM state lives in the one
+// lifecycleStates store used by staff and outsource rows.
 //
 // Callers hold s.outsourceMu.
 func (s *apiServer) reconcileWorkerLiveness(w OutsourceWorker, now float64) {
-	st, ok := s.workerReconcileStates[w.ID]
-	if !ok {
-		st = newReconcileState()
-	}
+	st := s.lifecycleState(w.ID)
 	// 🔴 THE STOP ANCHOR BELONGS TO AN EPOCH, NOT TO THE WORKER (T-72dd).
 	//
 	// decideUp's recycle arm de-dupes on `st.LastCommand == stop` plus StopRetry,
@@ -1054,10 +1049,10 @@ func (s *apiServer) reconcileWorkerLiveness(w OutsourceWorker, now float64) {
 		// next tick retries — the member producer's never-record-an-undelivered
 		// -command discipline (notifyWorkerSpawn stamps the in-flight state on
 		// success itself).
-		s.workerReconcileStates[w.ID] = decision.State
+		s.setLifecycleState(w.ID, decision.State)
 		delete(s.workerSpawnAt, w.ID)
 		if !s.notifyWorkerSpawn(w, now) {
-			s.workerReconcileStates[w.ID] = st
+			s.setLifecycleState(w.ID, st)
 		}
 	case reconcileCmdStop:
 		// 🔴 THE FSM DECIDED A COLLECT — collectWorkerHandover EXECUTES it
@@ -1069,10 +1064,8 @@ func (s *apiServer) reconcileWorkerLiveness(w OutsourceWorker, now float64) {
 		//     does not zero the owner-visible spend;
 		//   * it re-spawns onto the SAME task (respawnWorkerNow logs and honours
 		//     w.TaskID) — the owner's rule that a worker's life follows its task;
-		//   * it CLEARS session boot_ts, which is what lets the loop-break fire
-		//     at all (it keys on boot_ts > refocus_since). A plain FSM stop+start
-		//     would leave the old anchor in place, the loop-break would never
-		//     fire, and the epoch would never clear — an endless recycle;
+		//   * it clears session boot_ts, so the replacement can publish a fresh
+		//     boot record before its report_waking completes the epoch;
 		//   * it rolls the epoch back when there is no kill target, instead of
 		//     circling forever.
 		//
@@ -1080,7 +1073,7 @@ func (s *apiServer) reconcileWorkerLiveness(w OutsourceWorker, now float64) {
 		// no longer allowed to disagree about WHEN — which is what having two
 		// deciders meant.
 		if decision.StopKind == stopKindRecycle {
-			s.workerReconcileStates[w.ID] = decision.State
+			s.setLifecycleState(w.ID, decision.State)
 			if s.collectWorkerHandover(w, "fsm-recycle", triggerServer) {
 				// 🔴 RESTORE THE STOP ANCHOR THE RESPAWN JUST CLOBBERED.
 				//
@@ -1099,17 +1092,15 @@ func (s *apiServer) reconcileWorkerLiveness(w OutsourceWorker, now float64) {
 				// StopRetry, which is the at-least-once re-dispatch the arm was
 				// designed for (a STOP that did not land), NOT a double collect.
 				//
-				// The epoch itself is deliberately LEFT OPEN — it is ended the
-				// ordinary way, by autoHandoverWorker's loop-break once the respawn
-				// boots (respawnWorkerNow clears session boot_ts precisely so that
-				// fires). Tearing it down here instead would make an owner verb
+				// The epoch itself is deliberately LEFT OPEN — only the replacement's
+				// report_waking ends it. Tearing it down here instead would make an owner verb
 				// arriving in the kill→boot window look like a fresh worker and
 				// open a second wind-down on a session already collected — the
 				// "owner waits for nothing" shape T-98f4 removed.
-				st := s.workerReconcileStates[w.ID]
+				st := s.lifecycleState(w.ID)
 				st.LastCommand = reconcileCmdStop
 				st.LastCommandAt = now
-				s.workerReconcileStates[w.ID] = st
+				s.setLifecycleState(w.ID, st)
 			}
 			return
 		}
@@ -1118,10 +1109,10 @@ func (s *apiServer) reconcileWorkerLiveness(w OutsourceWorker, now float64) {
 		// target keeps the prior state so the next tick retries.
 		target := s.workerSpawnTarget[w.ID]
 		if target == "" {
-			s.workerReconcileStates[w.ID] = st
+			s.setLifecycleState(w.ID, st)
 			return
 		}
-		s.workerReconcileStates[w.ID] = decision.State
+		s.setLifecycleState(w.ID, decision.State)
 		s.stopWorkerSessionOrPark(target, w.ID, now)
 		delete(s.workerSpawnAt, w.ID) // the respawn must not be throttled
 		// 🔴 BENCHING BELONGS TO THE TAKEOVER, AND THE RECYCLE NEVER GETS HERE.
@@ -1136,9 +1127,8 @@ func (s *apiServer) reconcileWorkerLiveness(w OutsourceWorker, now float64) {
 		//                    empty, so decideUp's relocation arm is masked;
 		//   * winddown     — decideDown is only reached with desired offline, which
 		//                    both tick call sites refuse to reconcile;
-		//   * robust_resend — needs st.RobustStopPendingAt, and the only writer
-		//                    (noteRobustStopDispatched) writes s.reconcileStates,
-		//                    never s.workerReconcileStates.
+		//   * robust_resend — needs st.RobustStopPendingAt, which workerObservation
+		//                    deliberately does not populate.
 		// So the ONLY STOP that arrives here is the takeover, and the single line
 		// that says "a recycle must not bench" is the early return above — which
 		// is load-bearing and tested: delete it and the recycle falls into this
@@ -1160,7 +1150,7 @@ func (s *apiServer) reconcileWorkerLiveness(w OutsourceWorker, now float64) {
 		outsourceLog("rescue %s (%s): %s — robust stop → %s, %s benched",
 			w.ID, w.Codename, decision.Reason, target, target)
 	default:
-		s.workerReconcileStates[w.ID] = decision.State
+		s.setLifecycleState(w.ID, decision.State)
 	}
 	// T-39: the worker is back. Read verbatim off the decider (the member arm
 	// reads the same flag in reconcileTickMemberLocked) rather than re-deriving
@@ -1745,12 +1735,9 @@ const (
 //     moment. The old session stays hub.IsOnline until its warden reaps it, so
 //     without this arm an owner verb landing in that window would open a SECOND
 //     wind-down: openOwnerOpHandover zeroes the collected latch, re-stamps the
-//     epoch — and dispatches NOTHING. The in-flight start (OLD model / OLD
-//     machine) then boots, its boot_ts beats the fresh refocus_since,
-//     autoHandoverWorker's loop-break calls clearWorkerRefocus, and the owner's
-//     change reaches NO session at all: the cockpit shows the new value while
-//     the worker runs the old one — and for 改機器 the worker stays on the old
-//     machine indefinitely, because the FSM rescue is gated on !IsOnline.
+//     epoch — and dispatches NOTHING. The in-flight start carries the old
+//     model/machine, so the owner's change reaches no session unless this arm
+//     immediately re-dispatches the replacement with the new specification.
 //     A collected worker has nothing left to flush, so the verb goes out NOW.
 //
 // 🔴 T-4595 REMOVED A THIRD NEGATIVE, DELIBERATELY, AND THE COST IS BOUNDED.
@@ -1794,9 +1781,8 @@ const (
 // is a handover: collectWorkerHandover latches it as the 收口 of a refocus
 // epoch, and workerReportStopped's ELSE arm latches it for a report arriving
 // outside any handover (an ordinary 停止 where the worker says it has finished).
-// The second one is latched with NO epoch to clear it — clearWorkerRefocus is
-// only reachable while refocus_since > 0, so nothing on the handover machinery
-// ever sees it. (Until T-ed79 parity #11 the restart handler wrote desired_state
+// The second one is latched with NO epoch to pair it with. (Until T-ed79 parity
+// #11 the restart handler wrote desired_state
 // and nothing else, so it outlived the whole stop→restart cycle too; 重啟 now
 // clears the anchors, which closes that ROUTE but not the state — an ordinary
 // stopped-report on a desired-online worker still produces it, and that is the
@@ -2004,10 +1990,8 @@ func (s *apiServer) respawnWorkerNow(w OutsourceWorker, reason string) bool {
 	if old != "" { // "" here ⇒ non-active, no session to kill (guarded above)
 		s.stopWorkerSessionOrPark(old, w.ID, nowSecs())
 	}
-	// The kill ends the current session: drop its boot_ts so the fresh session's
-	// connect re-stamps an anchor NEWER than refocus_since — the autoHandoverWorker
-	// loop-break keys on boot_ts > refocus_since (T-8fb2: onFirstConnect now only
-	// stamps when absent, so a respawn MUST clear it or the loop-break never fires).
+	// The kill ends the current session: drop its boot_ts so the replacement's
+	// connect records its own session age instead of inheriting the old one.
 	s.clearSessionBootTS(w.ID)
 	delete(s.workerSpawnAt, w.ID)     // clear pace so the re-dispatch is not throttled
 	s.notifyWorkerSpawn(w, nowSecs()) // re-dispatch now → lands on the pinned machine
@@ -2119,35 +2103,22 @@ func (s *apiServer) workerSessionConfirmedGone(workerID string, now float64) boo
 //     keyed on one stopped_since latch do not merely double a kill: the second
 //     one lands on the session the first one respawned.
 //
-// What remains is two things it is the right place for:
+// What remains is the one thing it is the right place for:
 //
 //	(0) THE 停止 EPOCH (desired_state=offline). Untouched by T-72dd, and still
 //	    de-bounced by workerOfflineConfirmGraceSecs — the shared FSM never sees
 //	    a desired-offline worker (both tick call sites refuse to reconcile one),
 //	    so this arm is that intent's only driver.
-//	(1) THE REFOCUS LOOP-BREAK: clear the epoch once a session has booted AFTER
-//	    the stamp (boot_ts > refocus_since — respawnWorkerNow clears the anchor
-//	    precisely so this can fire). It is an OBSERVATION that the respawn
-//	    landed, not a collect decision, which is why it stays here.
 //
-// 🔴 The caller MUST re-read the row between this function and the FSM: the
-// loop-break can close the epoch, and a stale snapshot would have the FSM
-// collect a wind-down that is already over — killing the session that just came
-// up. See outsource_sched.go and
-// TestTickReReadsRowBeforeFSM_SoTheLoopBreakIsNotOverruled_T72dd.
+// Owner ruling rc-10cc6f9b2572: both kinds close a refocus epoch only when the
+// replacement calls report_waking. An offline observation or a newer boot_ts
+// is not completion. workerReportWaking and the staff report_waking handler
+// therefore own the same durable clear; this tick has no refocus loop-break.
 //
 // Truth is the worker ROW status (the caller routes only ACTIVE, non-stopped
 // workers here — never the mere existence of a gauge entry, which a released
 // worker's leftover would falsely satisfy). Callers hold s.outsourceMu.
 func (s *apiServer) autoHandoverWorker(w OutsourceWorker, now float64) {
-	// The de-bounced liveness verdict, taken ONCE and before any branch so the
-	// anchor advances on every path (workerSessionConfirmedGone). The 停止 collect
-	// below reads THIS and never hub.IsOnline directly: a single instantaneous
-	// sample is what used to cut a live worker off mid-close-out (T-ed79 #13).
-	// (T-72dd: the handover collect that was the other reader is gone — the
-	// shared FSM owns it now, and it needs no de-bounce because its recycle arm
-	// requires an ONLINE session and so cannot fire on a blip at all.)
-	sessionGone := s.workerSessionConfirmedGone(w.ID, now)
 	// (0) THE 停止 EPOCH (T-ed79), and it is FIRST for a reason: the loop-break
 	// below — and the shared FSM after it — treat this worker as one that should
 	// be RUNNING, which would revive a worker the owner has held down. A
@@ -2173,6 +2144,7 @@ func (s *apiServer) autoHandoverWorker(w OutsourceWorker, now float64) {
 	// 加速停止 faces ask. StoppedSince is this site's own extra term: a report
 	// already in hand means nothing here is waiting for one.)
 	if w.DesiredState == DesiredStateOffline {
+		sessionGone := s.workerSessionConfirmedGone(w.ID, now)
 		if w.StoppedSince <= 0.0 && gracefulStopEpochOpen(memberFromWorker(w)) {
 			if sessionGone {
 				s.collectWorkerStop(w, "stop-session-gone", triggerServer)
@@ -2184,39 +2156,26 @@ func (s *apiServer) autoHandoverWorker(w OutsourceWorker, now float64) {
 		}
 		return
 	}
-	record := s.gauge.Get(w.ID)
-	// (1) mid-handover: the LOOP-BREAK, and nothing else. Clear the epoch once a
-	// session booted AFTER the stamp (respawn landed — boot_ts is stamped on the
-	// fresh SSE connect). The paced re-dispatch that used to live here is the
-	// shared FSM's START now, which paces it properly (start_timeout + backoff)
-	// instead of a flat stamp.
-	if w.RefocusSince > 0.0 {
-		if bootTS, ok := gaugeBootTS(record); ok && bootTS > w.RefocusSince {
-			s.clearWorkerRefocus(w.ID, "respawn landed")
-			return
-		}
-		// 🔴 AND THAT IS ALL THIS ARM DOES NOW (T-72dd). What used to live here —
-		// "collect on confirmed-offline", "collect on the grace deadline", and
-		// the paced re-dispatch after the collect — has moved to the SHARED FSM
-		// (decideUp's recycle arm, reached through reconcileWorkerLiveness).
-		//
-		// It had to move, not be duplicated. Two collectors keyed on the same
-		// stopped_since latch do not merely double the kill: collectWorkerHandover
-		// killed AND respawned synchronously, so the fresh session could be up
-		// while refocus_since was still set and stopped_since still latched — and
-		// the FSM, reading exactly those two fields, would then robust-STOP the
-		// REPLACEMENT. That is a kill landing on a healthy, seconds-old agent, and
-		// it is the failure mode this consolidation exists to make impossible.
-		//
-		// The FSM covers both of the old arms: a session confirmed gone is not
-		// online, so decideUp skips the recycle arm and re-STARTs it (there was
-		// nothing left to kill anyway); a clocked cause past its deadline is the
-		// recycle arm's own graceExpired test, reading the SAME recycleGraceFor.
-		// The loop-break stays here because it is not a collect decision — it is
-		// the observation that the respawn already landed.
-		return
-	}
-	// (2) THE THRESHOLD ARM IS GONE (T-72dd). It used to re-implement the
+	// Handover collection and paced re-dispatch live in the shared FSM. What used
+	// to live here —
+	// "collect on confirmed-offline", "collect on the grace deadline", and
+	// the paced re-dispatch after the collect — has moved to the SHARED FSM
+	// (decideUp's recycle arm, reached through reconcileWorkerLiveness).
+	//
+	// It had to move, not be duplicated. Two collectors keyed on the same
+	// stopped_since latch do not merely double the kill: collectWorkerHandover
+	// killed AND respawned synchronously, so the fresh session could be up
+	// while refocus_since was still set and stopped_since still latched — and
+	// the FSM, reading exactly those two fields, would then robust-STOP the
+	// REPLACEMENT. That is a kill landing on a healthy, seconds-old agent, and
+	// it is the failure mode this consolidation exists to make impossible.
+	//
+	// The FSM covers both of the old arms: a session confirmed gone is not
+	// online, so decideUp skips the recycle arm and re-STARTs it (there was
+	// nothing left to kill anyway); a clocked cause past its deadline is the
+	// recycle arm's own graceExpired test, reading the SAME recycleGraceFor.
+	// The epoch remains open until the replacement calls report_waking.
+	// The threshold arm is also gone. It used to re-implement the
 	// context-pressure ruling for workers: ONE threshold (handover_pct), one
 	// kind (context_high), and no promotion — a copy of a decision that already
 	// lived in stampContextHighRecycle, and the copy T-ed79 did not update when
@@ -2224,31 +2183,6 @@ func (s *apiServer) autoHandoverWorker(w OutsourceWorker, now float64) {
 	// through that same staff pass from runOutsourceTick, so this function no
 	// longer decides WHEN a handover opens at all; it only observes that one
 	// already landed.
-}
-
-// clearWorkerRefocus zeroes a worker's refocus_since AND the graceful-handover
-// wind-down anchors (stopping/stopped — a stale stopped_since latch bleeding
-// into the next handover epoch would make the collect re-dispatch a
-// spawn WITHOUT a kill) — the handover loop-break (respawn landed). `reason`
-// is a short log tag. Best-effort + re-read to avoid clobbering a raced row;
-// never resurrects a released row. Callers hold s.outsourceMu.
-func (s *apiServer) clearWorkerRefocus(id, reason string) {
-	fresh, err := s.dal.GetOutsourceWorker(id)
-	if err != nil || fresh == nil ||
-		(fresh.RefocusSince == 0.0 && fresh.StoppingSince == 0.0 && fresh.StoppedSince == 0.0) {
-		return
-	}
-	clearWindDownRow(windDownAnchorRowOfWorker(fresh))
-	if err := s.persistWorkerWindDownAnchors(*fresh); err != nil {
-		outsourceLog("refocus clear %s (%s): ANCHOR write failed: %v", id, reason, err)
-		return
-	}
-	if err := s.dal.PutOutsourceWorker(*fresh); err != nil {
-		outsourceLog("refocus clear %s (%s): persist failed: %v", id, reason, err)
-		return
-	}
-	s.publishOutsourceWorker(*fresh, triggerServer)
-	outsourceLog("refocus clear %s: cleared refocus_since (%s)", id, reason)
 }
 
 // ── graceful handover (T-ea82 — member-shaped 預告→寬限→收口 for workers) ──────
@@ -2268,8 +2202,7 @@ func (s *apiServer) clearWorkerRefocus(id, reason string) {
 //
 // 🔴 THIS USED TO NAME autoHandoverWorker's in-flight arm and a
 // "confirmed-offline fallback" as the other two drivers. BOTH ARE GONE (T-72dd):
-// that arm's collect decisions were the second copy this ticket deleted, and it
-// now does nothing but the loop-break. An offline worker is no longer
+// that arm's collect decisions were the second copy this ticket deleted. An offline worker is no longer
 // "collected" at all — there is no live session to kill, so the FSM simply
 // re-STARTs it. An OFFLINE worker skips the window
 // entirely and takes the legacy immediate kill+respawn: no session can hear the
@@ -2321,16 +2254,10 @@ func (s *apiServer) openWorkerHandoverGrace(w OutsourceWorker, trigger string) {
 // once-only check on it, so a stopped-report racing the grace timeout can never
 // double-collect, D4) then kill+respawn via the worker's single kill funnel.
 //
-// A deferred respawn (ACTIVE + no kill target — server-restart amnesia) splits
-// on the session's liveness (review B1): the session GONE means this epoch can
-// never self-heal — spawn memory is lost, a dead session's SSE never returns,
-// and the tick's FSM rescue stays masked by refocus_since>0, so retrying the
-// collect would circle forever (collect waits for a target, the target waits
-// for a respawn, the respawn waits for the collect). Roll the WHOLE epoch back
-// (clearWorkerRefocus — the base rollback semantics) so the ordinary FSM
-// rescue re-spawns the worker next tick; there was nothing left to flush
-// anyway. A session still ONLINE (a blank machine claim — no production shape,
-// tokens carry the host) only rolls the latch back so the grace arm retries.
+// A deferred respawn (ACTIVE + no kill target — server-restart amnesia) rolls
+// the stopped latch back. If the session is gone, the shared FSM starts the
+// replacement on the next tick; if it is still online, the collect retries.
+// In both cases the refocus epoch stays open until replacement report_waking.
 // Callers hold s.outsourceMu and pass a freshly-read row with refocus_since>0
 // ∧ stopped_since==0.
 func (s *apiServer) collectWorkerHandover(w OutsourceWorker, reason, trigger string) bool {
@@ -2344,10 +2271,6 @@ func (s *apiServer) collectWorkerHandover(w OutsourceWorker, reason, trigger str
 		return false
 	}
 	if !s.respawnWorkerNow(w, reason) {
-		if !s.hub.IsOnline(w.ID) {
-			s.clearWorkerRefocus(w.ID, "collect deferred, session gone — FSM rescue takes over")
-			return false
-		}
 		w.StoppedSince = prior
 		if err := s.persistWorkerWindDownAnchors(w); err != nil {
 			outsourceLog("handover collect %s (%s): latch-rollback ANCHOR write failed: %v",
@@ -2406,7 +2329,7 @@ func (s *apiServer) resolveLiveWorker(id string) (*OutsourceWorker, error) {
 }
 
 // workerReportWaking is report_waking for a kind='outsource' caller: clear the
-// recycle markers (the durable loop-break, member parity). The boot-reported
+// recycle markers and complete the epoch, matching staff. The boot-reported
 // model is runtime telemetry, stored separately from the owner configuration.
 // waking_since is deliberately NOT re-stamped here: since T-14 the anchor is
 // stamped at the START DISPATCH (notifyWorkerSpawn), which is the staff rule
@@ -2667,7 +2590,7 @@ func (s *apiServer) reclaimWorkerSession(w OutsourceWorker) {
 		return // frame build failed for every target — retry next tick
 	}
 	s.workerReclaimed[w.ID] = true
-	delete(s.workerReconcileStates, w.ID) // retired — drop its FSM bookkeeping
+	s.dropLifecycleState(w.ID)
 	outsourceLog("reclaim %s (%s) dispatched → warden(s) %s",
 		w.ID, w.Codename, strings.Join(targets, ","))
 }

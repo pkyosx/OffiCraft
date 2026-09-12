@@ -174,10 +174,10 @@ const (
 // stop asking it, and the harm is not hypothetical: with the clause lifted and
 // no driver guard, one ACTIVE desired-online worker row was MEASURED taking a
 // `start` from enqueueWardenFrame AND a `start` from notifyWorkerSpawn in the
-// SAME tick, leaving an entry in reconcileStates and in workerReconcileStates at
-// once. An already-ONLINE worker emits no second frame but still books that
-// second state entry — so counting dispatched frames alone under-reports the
-// overlap by half.
+// SAME tick. The shared lifecycleStates store now suppresses the second START
+// when the halves run in order, but ownership remains load-bearing: it keeps a
+// worker out of the staff executor and prevents event-driven producers from
+// racing the wrong command path.
 //
 // The split therefore no longer lives in a query. It lives in this named, TOTAL
 // predicate that both halves ask by name, so "exactly one half owns a row" is a
@@ -212,7 +212,6 @@ func lifecycleTickDriverFor(m Member) lifecycleDriver {
 const (
 	lifecyclePassContextHigh     = "context_high_recycle"
 	lifecyclePassTokenExpiry     = "token_expiry_winddown"
-	lifecyclePassRecycleBreak    = "recycle_loop_break"
 	lifecyclePassStaleStopping   = "stale_stopping_clear"
 	lifecyclePassUninstallIntent = "uninstall_intent_consume"
 )
@@ -262,21 +261,6 @@ func (s *apiServer) lifecycleRosterPasses() []lifecycleRosterPass {
 			Name:      lifecyclePassTokenExpiry,
 			AppliesTo: lifecycleEveryKind,
 			Run:       s.stampTokenExpiryWinddown,
-		},
-		{
-			// 🔴 STAFF-ONLY, AND THIS IS THE ONE HONEST EXCEPTION IN THE LIST —
-			// not a leftover. A worker already has a loop-break, in
-			// autoHandoverWorker arm (1), and it asks a DIFFERENT question:
-			// "did a session boot AFTER the stamp" (gauge boot_ts > refocus_since)
-			// versus this pass's "desired online ∧ not online". Handing workers
-			// this pass as well would mean two collectors on one latch, which is
-			// exactly the double-kill shape T-72dd removed. Converging the two
-			// rules is a behaviour change and needs its own owner-gated step; what
-			// this line buys today is that the divergence is WRITTEN DOWN in the
-			// list instead of being invisible by omission.
-			Name:      lifecyclePassRecycleBreak,
-			AppliesTo: func(m Member) bool { return m.Kind != KindOutsource },
-			Run:       func(roster []Member, _ float64) { s.clearRecycleMarkersOnRespawn(roster) },
 		},
 		{
 			// The survived-stop auto-clear. Without it on the worker side the

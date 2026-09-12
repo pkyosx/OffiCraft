@@ -626,7 +626,7 @@ func TestRelocateAssignedWorker_X46(t *testing.T) {
 	// And it must survive a server re-exec, unlike the in-memory machine cell —
 	// that asymmetry is what made X-46 look like "no attempt was ever made".
 	api.workerSpawnTarget = map[string]string{}
-	api.workerReconcileStates = map[string]reconcileState{}
+	api.lifecycleStates = map[string]reconcileState{}
 	after, _ := api.dal.GetOutsourceWorker(workerID)
 	if !strings.HasPrefix(after.LastOpReason, spawnReasonNeverCollected+":") {
 		t.Fatalf("the receipt must be durable across a re-exec, got %q", after.LastOpReason)

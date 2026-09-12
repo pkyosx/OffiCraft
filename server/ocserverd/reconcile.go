@@ -224,6 +224,28 @@ func newReconcileState() reconcileState {
 	return reconcileState{Phase: reconcilePhaseOffline, LastCommand: reconcileCmdNone}
 }
 
+func (s *apiServer) lifecycleState(memberID string) reconcileState {
+	s.lifecycleStateMu.Lock()
+	defer s.lifecycleStateMu.Unlock()
+	st, ok := s.lifecycleStates[memberID]
+	if !ok {
+		return newReconcileState()
+	}
+	return st
+}
+
+func (s *apiServer) setLifecycleState(memberID string, st reconcileState) {
+	s.lifecycleStateMu.Lock()
+	defer s.lifecycleStateMu.Unlock()
+	s.lifecycleStates[memberID] = st
+}
+
+func (s *apiServer) dropLifecycleState(memberID string) {
+	s.lifecycleStateMu.Lock()
+	defer s.lifecycleStateMu.Unlock()
+	delete(s.lifecycleStates, memberID)
+}
+
 // memberObservation is the reconcile input for one member (machine.py
 // MemberObservation): the desired intent + the live SSE-online fact + the two
 // recycle markers.
@@ -1420,12 +1442,9 @@ func (s *apiServer) reconcileOne(m Member, st reconcileState, now float64) recon
 // reconcileTickMemberLocked reconciles ONE member against the shared store and
 // persists its next state. Caller MUST hold reconcileMu.
 func (s *apiServer) reconcileTickMemberLocked(m Member, now float64) reconcileDecision {
-	st, ok := s.reconcileStates[m.ID]
-	if !ok {
-		st = newReconcileState()
-	}
+	st := s.lifecycleState(m.ID)
 	decision := s.reconcileOne(m, st, now)
-	s.reconcileStates[m.ID] = decision.State
+	s.setLifecycleState(m.ID, decision.State)
 	reconcileLog("%s: desired=%s command=%s — %s",
 		m.ID, parseDesired(m.DesiredState), decision.Command, decision.Reason)
 	s.armDecidedHandover(m.ID, decision)
@@ -2282,8 +2301,8 @@ func (s *apiServer) stampContextHighRecycle(members []Member, now float64) {
 		// (owner rc-b08d49dc3b03), and then fires ONE best-effort
 		// dispatchRobustStopNow. A warden that is unreachable at that instant
 		// drops it, and nothing sweeps the row while the session is still up:
-		// clearRecycleMarkersOnRespawn skips anything online, and
-		// clearStaleStoppingOnOnline only ever zeroes stopping_since. So the
+		// report_waking has not happened, and clearStaleStoppingOnOnline only
+		// ever zeroes stopping_since. So the
 		// member sits at desired-online ∧ online ∧ stopped_since>0 ∧ no epoch.
 		//
 		// Opening a wind-down there does two wrong things at once. armRefocusEpoch
@@ -2574,66 +2593,6 @@ func bootStormTripped(secsSinceBoot *float64, minBootSecs float64) bool {
 		return false
 	}
 	return *secsSinceBoot < minBootSecs
-}
-
-// clearRecycleMarkersOnRespawn is the server-authoritative recycle LOOP-BREAK
-// (§4.5): clear the recycle markers the moment the respawn-pending state is
-// observed (desired online ∧ ¬online ∧ refocus_since>0 — the kill landed), so
-// a slow/never-waking respawn can never be re-killed off a stale marker.
-//
-// 🔴 It also clears a wind-down latch left behind with NO epoch at all. An agent
-// can report_stopping / report_stopped on its own, without anybody stamping
-// refocus_since — a spontaneous close-out, or one whose epoch was already
-// cleared — and the arm below used to skip those rows on `refocus_since <= 0`,
-// so stopped_since sat on a desired-online member forever. That latch is not
-// inert: it is exactly what armRefocusEpoch documents, and it is read by the
-// recycle arm of decideUp (which robust-stops on stopped_since > 0 the instant
-// ANY epoch is stamped). Clearing it here is why the stamp sites can be trusted
-// to open a clean epoch even against a row that has been sitting in the DB for
-// days.
-//
-// 🔴 The SSE stop gate is NOT a second reader in this scope, and this comment
-// used to name it as one. api_infra.go's gate only fires on
-// `desired_state == offline`, and the first gate below `continue`s on anything
-// that is not desired online — so within this function's range the gate is
-// unreachable by construction. Citing a protection that cannot apply here made
-// the case for clearing the latch look stronger than it is; the decideUp reader
-// alone is the real reason, and it is sufficient.
-//
-// WHY THE `IsOnline` GATE IS SUFFICIENT here, and no close-out is cut short by
-// this: the arm only fires on desired online ∧ NOT online. A member with a live
-// session is never touched, so an agent working its sequence (report_stopping
-// sent, report_stopped not yet) keeps its anchors for as long as it is
-// connected. If its socket really is gone while desired_state is still online,
-// reconcile's decideUp is already going to START a replacement session on this
-// same tick — with or without the latch, nothing is waiting for that close-out
-// to finish. What the latch WOULD do in that state is arm the two destructive
-// readers above against the next epoch. Clearing loses nothing that is still
-// being used and removes a trap; keeping it protects a close-out that no code
-// path is still honouring.
-func (s *apiServer) clearRecycleMarkersOnRespawn(members []Member) {
-	for i := range members {
-		m := &members[i]
-		if m.DesiredState != DesiredStateOnline {
-			continue
-		}
-		if m.RefocusSince <= 0.0 && m.StoppedSince <= 0.0 && m.StoppingSince <= 0.0 {
-			continue // plain respawn — nothing to clear
-		}
-		if s.hub.IsOnline(m.ID) {
-			continue // still online = recycle-PENDING (dump in flight), not a respawn
-		}
-		clearWindDownRow(windDownAnchorRowOfMember(m))
-		if err := s.persistMemberWindDownAnchors(*m); err != nil {
-			reconcileLog("recycle: loop-break ANCHOR write failed for %s: %v", m.ID, err)
-			continue
-		}
-		if err := s.putMember(*m, triggerServer); err != nil {
-			reconcileLog("recycle: loop-break persist failed for %s: %v", m.ID, err)
-			continue
-		}
-		reconcileLog("recycle: loop-break — cleared recycle markers on respawn for %s", m.ID)
-	}
 }
 
 // consumeUninstallIntentOnOffline consumes the ONE-SHOT uninstall intent
@@ -2972,12 +2931,9 @@ func (s *apiServer) dispatchRobustStopNow(memberID string) {
 func (s *apiServer) noteRobustStopDispatched(memberID string, now float64) {
 	s.reconcileMu.Lock()
 	defer s.reconcileMu.Unlock()
-	st, ok := s.reconcileStates[memberID]
-	if !ok {
-		st = newReconcileState()
-	}
+	st := s.lifecycleState(memberID)
 	st.RobustStopPendingAt = now
-	s.reconcileStates[memberID] = st
+	s.setLifecycleState(memberID, st)
 }
 
 // identitySweepDedupeSecs is the window a member's cross-machine identity sweep
