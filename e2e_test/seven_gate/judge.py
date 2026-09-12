@@ -70,7 +70,10 @@ STEPS = [
     ("submit_plan", "提出計畫"),
     ("step_done", "報一步完成"),
     ("reply_card", "開一張等我回覆卡"),
-    ("closeout", "回報收尾"),
+    # The KEY stays "closeout" while the label became 按下結案 (T-182): the key is
+    # the id OC_SG_SKIP_STEP and every archived verdict.json is written in, and
+    # renaming it would silently invalidate both. The label is what a reader acts on.
+    ("closeout", "按下結案"),
     ("peer_message", "回覆另一個 agent"),
     ("image_answer", "看得到圖"),
 ]
@@ -184,11 +187,12 @@ def _observe_step_shape(task, samples, multi=""):
         (api_tasks.go stamps `step.FinishedTS = nowSecs()`, i.e.
         time.Now().UnixNano()/1e9 — about 2e-7 s of resolution at today's epoch),
         so they do not depend on how often the collector polled;
-      * when the close-out was FIRST SEEN IN THE JOURNAL, which is a SAMPLED
-        number: the server stamps `closeout_ts` and persists it, but TaskDTO
-        exposes only the boolean, so the moment itself is not readable here. It
-        is labelled as sampled every time it is printed, because the previous two
-        versions of this cell drew a verdict from exactly this kind of number.
+      * when the CLOSE was FIRST SEEN IN THE JOURNAL, which is a SAMPLED
+        number. Since T-182 the task also carries a server-stamped `closed_ts`
+        for the same moment, but the sighting is kept as the sampled figure it
+        has always been and labelled as such every time it is printed, because
+        the previous two versions of this cell drew a verdict from exactly this
+        kind of number.
     """
     if not task:
         return ("no task to observe — ③ did not find one" + multi)
@@ -227,7 +231,7 @@ def _observe_step_shape(task, samples, multi=""):
     first_co = None
     for s in samples:
         for t in s.get("tasks") or []:
-            if t.get("id") == tid and t.get("closeout_reported"):
+            if t.get("id") == tid and t.get("status") == "done":
                 first_co = s.get("t")
                 break
         if first_co is not None:
@@ -237,9 +241,9 @@ def _observe_step_shape(task, samples, multi=""):
     # seen (neither `stamps and first_co` nor `not first_co` held), so the branch
     # order below is: say why it is missing before saying nothing.
     if not first_co:
-        bits.append("the close-out was never seen in any sample")
+        bits.append("the close was never seen in any sample")
     elif not stamps:
-        bits.append("first completion→close-out sighting n/a (no done step "
+        bits.append("first completion→close sighting n/a (no done step "
                     "carries a server stamp to measure from)")
     else:
         gap = float(first_co) - stamps[0]
@@ -247,14 +251,13 @@ def _observe_step_shape(task, samples, multi=""):
             # The journal's own clock and the server's stamps are not comparable
             # in this bundle (a synthetic fixture, or a clock that moved). Say so
             # rather than print a negative duration somebody would try to explain.
-            bits.append("first completion→close-out sighting not comparable in "
+            bits.append("first completion→close sighting not comparable in "
                         "this bundle (the sample clock reads before the server's "
                         "finished_ts)")
         else:
-            bits.append("first completion→close-out FIRST SEEN in the journal "
-                        "%.2fs (⚠️ SAMPLED at the collector's poll interval — not "
-                        "a server fact; the server's own closeout_ts is not on "
-                        "TaskDTO)" % gap)
+            bits.append("first completion→close FIRST SEEN in the journal "
+                        "%.2fs (⚠️ SAMPLED at the collector's poll interval; the "
+                        "task's own closed_ts is the server-stamped twin)" % gap)
     return ("OBSERVED, NOT JUDGED (this cell cannot make the run red — the server "
             "records when each report ARRIVED, never whether work happened "
             "between two reports, so nothing here separates 'reported as the work "
@@ -390,12 +393,15 @@ def judge(scene, samples):
     #
     # 🔴 THE TWO THINGS THIS CELL HAS ALREADY BEEN, AND WHY BOTH FAILED.
     #
-    # (1) "does ANY step of this task carry status=done". ⑦ (closeout) is
-    #     terminal-tasks-only and a task is terminal only when every non-
-    #     superseded step derives it there (domain.go DeriveTaskStatus: allDone →
-    #     done), so ⑦ GREEN IMPLIED ⑤ GREEN: no world existed in which this cell
-    #     was red while ⑦ was green. Zero discriminating power. MEASURED:
-    #     OC_SG_SKIP_STEP=step_done left ⑤ PASS and put the red on ⑦.
+    # (1) "does ANY step of this task carry status=done". ⑦ (the close) could
+    #     only be reached once every non-superseded step derived the task there
+    #     (domain.go DeriveTaskStatus: allDone → done), so ⑦ GREEN IMPLIED ⑤
+    #     GREEN: no world existed in which this cell was red while ⑦ was green.
+    #     Zero discriminating power. MEASURED: OC_SG_SKIP_STEP=step_done left ⑤
+    #     PASS and put the red on ⑦. (T-182 loosened the implication one notch —
+    #     allDone now reaches `ready_for_done`, and ⑦ needs a further button
+    #     press — but the implication still runs the same direction, so this cell
+    #     gains no discriminating power from the change.)
     #
     # (2) "the done steps are a PREFIX of the plan, finished in plan order". That
     #     one is worse than zero, because it is red on TWO behaviours the server
@@ -445,16 +451,14 @@ def judge(scene, samples):
     # costs a cheater nothing. A guessed constant here is the same species of
     # mistake this harness already paid for twice (`--seconds 900`, PASS_FLOOR 100).
     #
-    # WHAT IT WOULD TAKE TO JUDGE IT (neither exists today, both are named so the
-    # next person does not have to rediscover this):
-    #   * the CLOSE-OUT MOMENT as a server fact the judge can read. The server
-    #     does stamp and persist it (api_tasks.go `t.CloseoutTS = now`, column
-    #     `closeout_ts`), but TaskDTO exposes only the boolean
-    #     `closeout_reported` (wire.go: `CloseoutReported: t.CloseoutTS > 0`).
-    #     Exposing it is a WIRE change — spec/*.json first, owner's review — and
-    #     is deliberately NOT done here;
+    # WHAT IT WOULD TAKE TO JUDGE IT:
+    #   * the CLOSE MOMENT as a server fact the judge can read. T-182 SUPPLIED
+    #     THIS and it changed nothing here: `closed_ts` is on TaskDTO, stamped by
+    #     closeTask, so the sighting no longer HAS to be sampled;
     #   * a threshold that is DERIVED from something, not picked. See above: no
     #     such derivation is known, and "another guessed number" is not a fix.
+    # The second one is why the cell is still an observation. Getting the
+    # timestamp was never the missing half.
     #
     # WHAT IT DOES GIVE YOU, and it needs no constant and no sampling luck: the
     # two numbers below, printed on every run, green or not.
@@ -471,15 +475,21 @@ def judge(scene, samples):
                 else "no reply card on the server carries from=%s — the agent "
                      "never asked the owner anything" % agent))
 
-    # ⑦ 回報收尾 — closeout_reported is the server's own record that the agent
-    # called report_task_closeout, distinct from the task merely being done.
-    closed = bool(task) and bool(task.get("closeout_reported"))
-    out.append(("closeout", "回報收尾", closed,
-                "task %s has closeout_reported=true (status=%s)"
-                % (task.get("id"), task.get("status")) if closed
-                else ("task %s has closeout_reported=false — the work may have "
-                      "stopped but no closeout was ever reported"
-                      % (task.get("id") if task else "<none: ③ failed>")) + _multi))
+    # ⑦ 按下結案 — T-182. `status == done` is the server's own record that the
+    # agent CALLED mark_task_done, and on this run nothing else can produce it:
+    # a task whose every step is reported settles in `ready_for_done` and stays
+    # there until somebody presses the button. Before T-182 the steps closed the
+    # task by themselves, so "done" proved nothing about the agent and a separate
+    # `closeout_reported` flag had to carry that fact; the flag and the tool
+    # behind it are gone, and `done` now means what the flag meant.
+    closed = bool(task) and task.get("status") == "done"
+    out.append(("closeout", "按下結案", closed,
+                "task %s reached status=done (closed_ts=%s)"
+                % (task.get("id"), task.get("closed_ts")) if closed
+                else ("task %s is status=%s — the work may have stopped but the "
+                      "agent never closed the task"
+                      % (task.get("id"), task.get("status")) if task
+                      else "task <none: ③ failed>") + _multi))
 
     # ⑧ 回覆另一個 agent — the three channels an agent has are chat, the reply
     # card and the task, and every step above exercises them only TOWARDS THE
@@ -606,7 +616,7 @@ def judge(scene, samples):
 # ⚠️ THE EVIDENCE OF A FAIL-CLOSED RED DESCRIBES NOTHING THAT WAS MEASURED. A
 # gate that produced no verdict at all still carries whatever text its cell
 # happened to build — which is the cell's else-branch, and that branch asserts a
-# fact ("closeout_reported=false") that may be the opposite of what is in the
+# fact ("the agent never closed the task") that may be the opposite of what is in the
 # bundle. Reviewed 2026-08-11: the red is correct, the sentence under it is not,
 # so the conversion says so in the line the reader acts on.
 NOTHING_DECIDED = (" ⚠️ FAIL-CLOSED: this GATE produced no verdict at all, so it "

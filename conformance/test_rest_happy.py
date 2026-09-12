@@ -953,10 +953,9 @@ def _happy_step_with_note(ctx: HCtx) -> str:
     return f"/api/tasks/{task_id}/steps/{step_id}"
 
 
-def _happy_closed_task(ctx: HCtx) -> str:
-    """A fresh DONE task the happy agent executed (close-out targets are
-    terminal-only). Task status is DERIVED (T-9ca5): a one-step plan reported
-    done auto-derives the task to done and closes it."""
+def _happy_ready_task(ctx: HCtx) -> str:
+    """A fresh task the happy agent executed down to its last step, so it sits
+    in `ready_for_done` — open, and one mark_task_done from closed (T-182)."""
     h = _auth(ctx.agent.token)
     task_id = _happy_task(ctx)
     r = ctx.client.post(
@@ -973,6 +972,17 @@ def _happy_closed_task(ctx: HCtx) -> str:
             json={"status": status}, headers=h,
         )
         assert r.status_code == 200, f"happy step {status} failed: {r.status_code} {r.text}"
+    return task_id
+
+
+def _happy_closed_task(ctx: HCtx) -> str:
+    """A fresh DONE task the happy agent executed (close-out targets are
+    terminal-only). Since T-182 that is TWO moves: finishing the plan derives
+    `ready_for_done`, and mark_task_done is what closes it."""
+    task_id = _happy_ready_task(ctx)
+    r = ctx.client.post(
+        f"/api/tasks/{task_id}/mark-done", headers=_auth(ctx.agent.token))
+    assert r.status_code == 200, f"happy mark-done failed: {r.status_code} {r.text}"
     return task_id
 
 
@@ -1637,7 +1647,7 @@ def _boot_doc_read(kind: str, key: str):
 # ── T-91 receipt guards ──────────────────────────────────────────────────────
 # Forty-four write routes stopped echoing the object they wrote and started
 # answering a bounded receipt. Every check below states the receipt's shape as
-# KEY-SET EQUALITY, following the closeout row's precedent: asserting only that
+# KEY-SET EQUALITY: asserting only that
 # the interesting fields are PRESENT would stay green if a route went back to
 # serving the whole object, because the object carries those fields too. Where
 # the old check made a BEHAVIOURAL claim off the echo, the claim is not deleted
@@ -2942,8 +2952,8 @@ HAPPY: dict[str, Happy] = {
         path=lambda ctx: f"/api/tasks/{_happy_task(ctx)}",
         check=lambda _c, r: _expect(r, lambda d: d["closed_ts"] is None),
     ),
-    "POST /api/tasks/{task_id}/terminate": Happy(
-        path=lambda ctx: f"/api/tasks/{_happy_task(ctx)}/terminate",
+    "POST /api/tasks/{task_id}/mark-terminated": Happy(
+        path=lambda ctx: f"/api/tasks/{_happy_task(ctx)}/mark-terminated",
         # T-91: the nine task-driving writes answer taskWriteReceiptDTO. Key-set
         # equality in every one of them: asserting only that `status` is present
         # would stay green if the route went back to serving the whole task.
@@ -3092,11 +3102,35 @@ HAPPY: dict[str, Happy] = {
             and d["closed_ts"] is not None,
         ),
     ),
-    "POST /api/tasks/{task_id}/duplicate": Happy(
+    "POST /api/tasks/{task_id}/mark-done": Happy(
+        # T-182: the EXECUTOR closes its own task out of ready_for_done. Not the
+        # owner — that identity is a 403 here and uses force-done below.
+        identity="agent",
+        path=lambda ctx: f"/api/tasks/{_happy_ready_task(ctx)}/mark-done",
+        check=lambda _c, r: _expect(
+            r,
+            lambda d: set(d) == _TASK_WRITE_RECEIPT_KEYS
+            and d["status"] == "done"
+            and d["closed_ts"] is not None,
+        ),
+    ),
+    "POST /api/tasks/{task_id}/force-done": Happy(
+        # T-182: owner/admin only, and it forces the PRECONDITION — the subject
+        # here is a plain open task that never finished a step.
+        path=lambda ctx: f"/api/tasks/{_happy_task(ctx)}/force-done",
+        body={"reason": "conf happy forced close"},
+        check=lambda _c, r: _expect(
+            r,
+            lambda d: set(d) == _TASK_WRITE_RECEIPT_KEYS
+            and d["status"] == "done"
+            and d["closed_ts"] is not None,
+        ),
+    ),
+    "POST /api/tasks/{task_id}/mark-duplicated": Happy(
         # T-02c9: mark a fresh task a duplicate of a fresh original — the
         # subject is executed by the happy agent, so the executor guard passes.
         identity="agent",
-        path=lambda ctx: f"/api/tasks/{_happy_task(ctx)}/duplicate",
+        path=lambda ctx: f"/api/tasks/{_happy_task(ctx)}/mark-duplicated",
         body=lambda ctx: {"duplicate_of": _happy_task(ctx)},
         check=lambda _c, r: _expect(
             r,
@@ -3189,23 +3223,6 @@ HAPPY: dict[str, Happy] = {
         check=lambda _c, r: _expect(
             r,
             lambda d: set(d) == _TASK_WRITE_RECEIPT_KEYS and len(d["deps"]) == 1
-        ),
-    ),
-    "POST /api/tasks/{task_id}/closeout": Happy(
-        identity="agent",
-        path=lambda ctx: f"/api/tasks/{_happy_closed_task(ctx)}/closeout",
-        # T-bb70: the close-out answers a BOUNDED receipt, not the whole task.
-        # The key-set equality is the point — asserting only that the fields are
-        # present would stay green if the route went back to serving the task,
-        # because a whole task carries closeout_reported too.
-        check=lambda _c, r: _expect(
-            r,
-            lambda d: set(d) == {
-                "task_id", "task_status", "closeout_reported", "closeout_ts"
-            }
-            and d["closeout_reported"] is True
-            and d["task_status"] == "done"
-            and d["closeout_ts"] > 0,
         ),
     ),
     "POST /api/tasks/{task_id}/artifact": Happy(

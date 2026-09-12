@@ -91,7 +91,6 @@ function wireTask(over: Partial<WireTask>): WireTask {
     closed_ts: null,
     created_ts: 0,
     updated_ts: 0,
-    closeout_reported: false,
     deps: [],
     steps: [],
     progress_done: 0,
@@ -104,6 +103,8 @@ function wireTask(over: Partial<WireTask>): WireTask {
     handoff_task_id: "",
     // T-6020: who froze the task ("" = not frozen). Same always-present shape.
     frozen_by: "",
+    forced_done_by: "",
+    forced_done_reason: "",
     // T-66: the task read DESCRIBES ITSELF — always "summary"/false, because
     // get_task no longer carries the step notes. Always-present on the wire,
     // so the complete-wire-object helper carries it like the rest.

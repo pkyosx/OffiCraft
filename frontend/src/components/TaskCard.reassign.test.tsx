@@ -10,7 +10,7 @@
 //   4. confirming an 外包 target mints a worker and the card shows its codename;
 //   5. the CURRENT executor is never offered (the server 409s a no-op);
 //   6. 轉派中 is an orthogonal LOCK (T-9ca5), not a status: the task keeps its
-//      derived status (in_progress), stays in 未結束, and renders the lock badge.
+//      derived status (in_progress), stays in 未結案, and renders the lock badge.
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, fireEvent, waitFor, within } from "@testing-library/react";

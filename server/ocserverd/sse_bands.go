@@ -463,11 +463,10 @@ type taskCloseSignal struct {
 	Status string `json:"status"`
 	Reason string `json:"reason"`
 	// ClosedBy is the verified trigger of the write that closed the task — the
-	// owner, an admin agent, the executor itself, or "boot-reconcile" when the
-	// reconciler closed an all-done task with no caller present. There was no
-	// such field at all before T-91: the notice said a task ended and gave the
-	// recipient no way to tell its own last step report from somebody else
-	// terminating the work under it, which are opposite situations.
+	// owner, an admin agent, or the executor itself. There was no such field at
+	// all before T-91: the notice said a task ended and gave the recipient no
+	// way to tell its own close from somebody else terminating the work under
+	// it, which are opposite situations.
 	ClosedBy string `json:"closed_by"`
 }
 
@@ -489,7 +488,7 @@ type taskCloseSignal struct {
 // the recipient actually loses by not being told: its ticket is CLOSED, so
 // every write it makes from here on is a 409. Filtering by "is there a manual"
 // silenced exactly the two shapes where the close is most likely to have been
-// somebody ELSE's decision rather than the executor's own last step report.
+// somebody ELSE's decision rather than the executor's own mark_task_done.
 //
 // 🔴 WHY THE SENTENCE LEFT THIS FUNCTION. Being pure was the named reason this
 // one document never got wired: with no *apiServer there is no overlay to fold.

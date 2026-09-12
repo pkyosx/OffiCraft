@@ -1,8 +1,8 @@
 package main
 
-// T-186 — migration 00104_drop_legacy_memory.
+// T-186 — migration 00105_drop_legacy_memory.
 //
-// 🔴 WHAT THESE TESTS ARE FOR. Three of the four things 00104 removes fail
+// 🔴 WHAT THESE TESTS ARE FOR. Three of the four things 00105 removes fail
 // SILENTLY when the migration is wrong, and the fourth fails on a driver the
 // author cannot reach from a shell:
 //
@@ -41,42 +41,42 @@ import (
 	"github.com/pressly/goose/v3"
 )
 
-// t186UpToJustBefore104 migrates as far as 103 — the world 00104 will actually
+// t186UpToJustBefore105 migrates as far as 104 — the world 00105 will actually
 // meet, with `lessons` and `task_manual.learnings` still present. It never
 // migrates to head: asserting against head would make this file fail on the
 // next unrelated migration.
 //
 // 🔴 IT DOES NOT ASSERT WHICH VERSION IT LANDED ON, and that is not laziness.
-// `UpTo(103)` means "apply every migration numbered 103 or below", and 102/103
-// are numbers claimed on OTHER branches that this one does not carry — so the
-// version this returns is 101 today and will become 103 the moment those land,
-// with no edit here. Callers read the version back instead of naming it.
-func t186UpToJustBefore104(t *testing.T, db *sql.DB) {
+// `UpTo(104)` means "apply every migration numbered 104 or below", so the
+// version this returns is whatever the highest migration below 00105 happens to
+// be — it moves on its own as neighbouring numbers land, with no edit here.
+// Callers read the version back instead of naming it.
+func t186UpToJustBefore105(t *testing.T, db *sql.DB) {
 	t.Helper()
 	goose.SetBaseFS(embeddedMigrations)
 	if err := goose.SetDialect("sqlite3"); err != nil {
 		t.Fatalf("goose dialect: %v", err)
 	}
-	if err := goose.UpTo(db, "migrations", 103); err != nil {
-		t.Fatalf("goose up to 103: %v", err)
+	if err := goose.UpTo(db, "migrations", 104); err != nil {
+		t.Fatalf("goose up to 104: %v", err)
 	}
 }
 
-func t186OpenJustBefore104(t *testing.T, name string) *sql.DB {
+func t186OpenJustBefore105(t *testing.T, name string) *sql.DB {
 	t.Helper()
 	db, err := openSQLite(filepath.Join(t.TempDir(), name))
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
 	t.Cleanup(func() { db.Close() })
-	t186UpToJustBefore104(t, db)
+	t186UpToJustBefore105(t, db)
 	return db
 }
 
-func t186UpTo104(t *testing.T, db *sql.DB) {
+func t186UpTo105(t *testing.T, db *sql.DB) {
 	t.Helper()
-	if err := goose.UpTo(db, "migrations", 104); err != nil {
-		t.Fatalf("goose up to 104: %v", err)
+	if err := goose.UpTo(db, "migrations", 105); err != nil {
+		t.Fatalf("goose up to 105: %v", err)
 	}
 }
 
@@ -136,7 +136,7 @@ func t186Count(t *testing.T, db *sql.DB, query string, args ...any) int {
 	return n
 }
 
-// t186SeedLegacyMemory fills a pre-104 database with one of everything the
+// t186SeedLegacyMemory fills a pre-105 database with one of everything the
 // migration is supposed to remove, plus one of everything adjacent that it must
 // leave alone. Every row is written through the same handle the migration will
 // use, so the fixture is a database an upgrade could really arrive at.
@@ -182,7 +182,7 @@ func t186SeedLegacyMemory(t *testing.T, db *sql.DB) {
 	}
 }
 
-// TestMigration00104DropsTheLegacyMemoryStorage — the whole upgrade path, on a
+// TestMigration00105DropsTheLegacyMemoryStorage — the whole upgrade path, on a
 // database that carries real legacy content rather than an empty schema.
 //
 // 🔴 THE PRECONDITION BLOCK IS NOT CEREMONY. Every assertion after the upgrade
@@ -190,20 +190,20 @@ func t186SeedLegacyMemory(t *testing.T, db *sql.DB) {
 // moment earlier: a fixture that silently failed to seed would let this test
 // pass against a migration that did nothing at all. So the table, the column
 // and both row families are read back BEFORE goose is asked to move.
-func TestMigration00104DropsTheLegacyMemoryStorage(t *testing.T) {
-	db := t186OpenJustBefore104(t, "t186-up.db")
+func TestMigration00105DropsTheLegacyMemoryStorage(t *testing.T) {
+	db := t186OpenJustBefore105(t, "t186-up.db")
 	t186SeedLegacyMemory(t, db)
 
 	before := t186Version(t, db)
-	if before == 0 || before >= 104 {
+	if before == 0 || before >= 105 {
 		t.Fatalf("precondition: goose reports version %d, want a real version "+
-			"below 104 for the fixture to be a pre-upgrade database at all", before)
+			"below 105 for the fixture to be a pre-upgrade database at all", before)
 	}
 	if !t186TableExists(t, db, "lessons") {
-		t.Fatal("precondition: the lessons table is already gone at 103")
+		t.Fatal("precondition: the lessons table is already gone at 104")
 	}
 	if !t186ColumnExists(t, db, "task_manual", "learnings") {
-		t.Fatal("precondition: task_manual.learnings is already gone at 103")
+		t.Fatal("precondition: task_manual.learnings is already gone at 104")
 	}
 	if n := t186Count(t, db, `SELECT COUNT(*) FROM lessons`); n != 2 {
 		t.Fatalf("precondition: lessons holds %d rows, want the 2 seeded", n)
@@ -219,10 +219,10 @@ func TestMigration00104DropsTheLegacyMemoryStorage(t *testing.T) {
 		t.Fatalf("precondition: %d legacy cap rows, want the 2 seeded", n)
 	}
 
-	t186UpTo104(t, db)
+	t186UpTo105(t, db)
 
-	if v := t186Version(t, db); v != 104 {
-		t.Fatalf("after the upgrade goose reports version %d, want 104 (it was %d "+
+	if v := t186Version(t, db); v != 105 {
+		t.Fatalf("after the upgrade goose reports version %d, want 105 (it was %d "+
 			"before). This is the only indicator that answers honestly: in WAL "+
 			"mode the main database file can be byte-identical across a "+
 			"migration that ran.", v, before)
@@ -232,7 +232,7 @@ func TestMigration00104DropsTheLegacyMemoryStorage(t *testing.T) {
 	}
 	if t186ColumnExists(t, db, "task_manual", "learnings") {
 		t.Fatal("task_manual.learnings survived the upgrade — ALTER TABLE ... " +
-			"DROP COLUMN did not take effect on modernc.org/sqlite, so 00104 " +
+			"DROP COLUMN did not take effect on modernc.org/sqlite, so 00105 " +
 			"needs 00062's create/copy/drop/rename rebuild instead")
 	}
 	if n := t186Count(t, db,
@@ -277,7 +277,7 @@ func TestMigration00104DropsTheLegacyMemoryStorage(t *testing.T) {
 	}
 }
 
-// TestMigration00104DownRestoresTheShapeAnOlderBinaryReads — the rollback's only
+// TestMigration00105DownRestoresTheShapeAnOlderBinaryReads — the rollback's only
 // job, stated as the query an older binary actually issues.
 //
 // 🔴 IT ASSERTS THE SHAPE AND THE EMPTINESS, IN THAT ORDER. A Down that
@@ -285,18 +285,18 @@ func TestMigration00104DropsTheLegacyMemoryStorage(t *testing.T) {
 // makes the rollback honest is that it hands the old binary an EMPTY document
 // rather than a synthesized one, and that half is asserted too so nobody later
 // "improves" the Down into inventing content.
-func TestMigration00104DownRestoresTheShapeAnOlderBinaryReads(t *testing.T) {
-	db := t186OpenJustBefore104(t, "t186-down.db")
+func TestMigration00105DownRestoresTheShapeAnOlderBinaryReads(t *testing.T) {
+	db := t186OpenJustBefore105(t, "t186-down.db")
 	t186SeedLegacyMemory(t, db)
 	before := t186Version(t, db)
-	t186UpTo104(t, db)
+	t186UpTo105(t, db)
 
 	if t186TableExists(t, db, "lessons") {
 		t.Fatal("precondition: the Up left the lessons table in place")
 	}
 
-	if err := goose.DownTo(db, "migrations", 103); err != nil {
-		t.Fatalf("goose down to 103: %v", err)
+	if err := goose.DownTo(db, "migrations", 104); err != nil {
+		t.Fatalf("goose down to 104: %v", err)
 	}
 
 	if v := t186Version(t, db); v != before {

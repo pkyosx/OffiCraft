@@ -240,6 +240,7 @@ export const en: Dict = {
       in_progress: "In progress",
       waiting_owner: "Awaiting my reply",
       waiting_external: "Waiting on external",
+      ready_for_done: "Ready to close",
       done: "Done",
       terminated: "Terminated",
       duplicated: "Duplicate",
@@ -334,13 +335,13 @@ export const en: Dict = {
     terminate: "Terminate",
     terminateConfirmBodyLead: "Terminate “",
     terminateConfirmBodyTail:
-      "”? The task moves to Closed and cannot be resumed; the backend will notify the executor to wind it down.",
+      "”? The task moves to Terminated and cannot be resumed; the backend will notify the executor to wind it down.",
     terminateConfirm: "Terminate",
     // Mark duplicate (T-02c9): the executor points at the original and closes it
     markDuplicate: "Mark duplicate",
     markDuplicateBodyLead: "Mark “",
     markDuplicateBodyTail:
-      "” a duplicate of another task? It moves to Closed and cannot be resumed. Pick the original:",
+      "” a duplicate of another task? It moves to Duplicate and cannot be resumed. Pick the original:",
     markDuplicatePick: "Select the original task",
     markDuplicateConfirm: "Mark duplicate",
     duplicateOfLabel: "Duplicate of",
@@ -1895,6 +1896,9 @@ export const en: Dict = {
     taskUnblockedName: "The ticket blocking your task is released",
     taskUnblockedSub:
       "What an agent is told when the task blocking it is released · editable",
+    taskReadyForDoneName: "Your task is ready to be closed",
+    taskReadyForDoneSub:
+      "What an agent is told each time its task reaches ready_for_done · editable",
     bootDocReadOnlyNote:
       "This document is shown so you can see exactly what agents are told. Nobody may edit it, and it has no version other than the shipped one.",
     bootDocSaveConfirmAcceleratedStop:
@@ -1929,6 +1933,8 @@ export const en: Dict = {
     historyTaskTakeoverFreshTitle: "New task · version history",
     historyTaskUnblockedTitle:
       "The ticket blocking your task is released · version history",
+    historyTaskReadyForDoneTitle:
+      "Your task is ready to be closed · version history",
     defaultBadge: "Default",
     edit: "Edit",
     doneEdit: "Done",

@@ -13,7 +13,7 @@
 
 - `report_waking` 只輸出 `OBSERVED`：live 路徑中 warden 先接走 START 時，reconcile 自己會 stamp `waking_since`；這不是 agent 報到的證據。stub 沒 warden，不能用 stub 的不同來源替 live 路徑背書。
 - `step_done` 只輸出 `OBSERVED`：server 只知道 agent 回報鍵被按下的時間，不知道兩次回報之間是否真的工作；沒有 agent-only、可被 collector 讀到的 durable fact，就不能猜一個秒數把它重新武裝成 gate。
-- 其餘 gate 必須用 server 上的 caller/target 和同一張票判定。開票、plan、step、closeout 不可各挑一張碰巧符合的 task；多張票目前取 `created_ts` 最早者，但 judge 必須警告並點名所有票，因為 server 沒有「這輪票」的事實。
+- 其餘 gate 必須用 server 上的 caller/target 和同一張票判定。開票、plan、step、結案不可各挑一張碰巧符合的 task；多張票目前取 `created_ts` 最早者，但 judge 必須警告並點名所有票，因為 server 沒有「這輪票」的事實。
 - resume/chat nonce 證明的是內容被讀到並帶回，不證明特定 tool 曾被呼叫。peer gate 要同時滿足 `from == agent`、`to == peer` 與帶回 peer nonce；沒有 peer 或圖片種植失敗時要報 `This is a HARNESS red, not an agent red`，仍然 FAIL，不可把載體錯誤算成 agent 綠。
 - 圖片答案每輪重抽六位數，只存在 PNG 像素；不在正文、檔名、mime、task、plan、PNG text metadata、server 文字或 agent 可讀檔案。`scene.json` 只存 salt、hash、長度，judge 對 agent 訊息中的等長數字做 hash 比對。
 - 圖片秘密、peer nonce、scene nonce 不得從 actor 傳進 live warden：spawn 前 scrub 整個 `OC_SG_*`／`SG_*` namespace，並用陽性對照證明 scrub 真的有抓到秘密。live agent 與載體同 user/host 的主動翻 repo 或暴力搜尋仍是明確未解的界線。
@@ -24,7 +24,7 @@
 - reply card 帶 `linked_task={task_id, step_id}` 開出時，server 會把卡綁到該 step 並進 `waiting_owner`（T-18 起 `linked_task` 必填，不給是 400，server 不再自己猜）；owner 端必須在背景只回答本 run agent 的卡，否則卡成功反而鎖住 task、後續 closeout 不可能成立。收尾用確切 PID 清 owner responder，不用模糊 kill。
 - owner responder 的答覆呼叫**不得吞 rc**（曾經是行尾 `|| true`）：答覆被拒 = 那個 step 永遠出不了 `waiting_owner`、⑦ 不可能成立，而 verdict 會把這個載體自己的故障寫成 agent 的紅。每次被拒都要寫進 `$RUN_DIR/responder.fault`，`run.sh` 在判定後讀它並以 rc 2 拒絕整輪 —— 那不是 verdict，是載體的自述。
 - 答覆圈的是**帶 `ai_pick` 的那個選項**（讀完整卡取旗標），不是第一個；選項本身是 `{text, ai_pick}` 物件、卡有 `select_mode`、答覆是 `option_idxs` 清單。位置自 T-40 起不再有任何意義。
-- `actors/stub.sh` 是 REST actor，不是 agent；它只供判定讀取與 skip-case 的負向控制。`actors/live.sh` 才是實 agent：onboard machine、啟動真 `ocwarden run`、owner activate 帶 `machine_id`、spawn claude；它只做 owner 端交辦、給機器、回卡、friction，不代做 agent 的 task/plan/step/closeout。
+- `actors/stub.sh` 是 REST actor，不是 agent；它只供判定讀取與 skip-case 的負向控制。`actors/live.sh` 才是實 agent：onboard machine、啟動真 `ocwarden run`、owner activate 帶 `machine_id`、spawn claude；它只做 owner 端交辦、給機器、回卡、friction，不代做 agent 的 task/plan/step/結案。
 - live actor 預設嚴格關閉，只在 `OC_SG_LIVE_AGENT=1` 才可能花真 API 額度；錯值不得啟動。真 live 路徑至今未執行過，不能把 stub 綠、相依項可解析或另一支 E2E 的結果宣稱成 live 通過。
 - 不用 `task_system_e2e.sh` 當本載體的 live actor：它起的是 outsource worker、走另一套 namespaced 安裝／全站 reset，而本載體要 member token 與 `creator_id == agent`。可借用的只是呼叫記錄與磁碟產物驗收原語。
 

@@ -154,11 +154,18 @@ func resolvePrincipal(claims map[string]any, lookup func(id string) (*Member, er
 //
 // SCOPE — kind=="warden" ONLY, and that restriction is load-bearing, not
 // laziness. RosterStatusRemoved is ALSO how a released outsource worker
-// (dal_tasks.go ReleaseWorkersForTask) and a dismissed member are recorded,
-// and the close-out contract deliberately keeps a released worker's session
-// alive so it can call report_task_closeout. A gate keyed
-// on "roster removed" alone would silently kill every outsource close-out in
-// the fleet. Machines are the ticket; the rest is another ticket.
+// (dal_tasks.go ReleaseWorkersForTask) and a dismissed member are recorded, and
+// a gate keyed on "roster removed" alone would reach both. Machines are the
+// ticket; the rest is another ticket.
+//
+// ⚠️ THE ORIGINAL REASON WAS STRONGER THAN THE ONE THAT REMAINS. It used to be
+// that a released worker was still WORKING — the close-out contract kept its
+// session alive to file a close-out report — so a
+// roster-keyed gate would have killed every outsource close-out in the fleet.
+// T-182 removed that window: the close dismisses the worker outright, so a
+// released worker is a worker on its way out. The scope restriction stays
+// because it is still not this gate's job to decide that, and because the
+// dismissed-MEMBER arm never depended on the close-out story at all.
 
 // revocationRefusal returns a non-empty refusal message when the verified
 // claims belong to a machine that is no longer on the roster, "" otherwise.

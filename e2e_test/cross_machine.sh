@@ -312,12 +312,18 @@ pass_stage
 # ===========================================================================
 stage "2. fresh install server (ocserver install --force) + seed owner password"
 
+# 2a0. build the CANDIDATE station binary from THIS checkout. `ocserver install`
+#      clones the project's default branch (oc_build_candidate_binary says why),
+#      so without this the whole stage verifies mainline. It also has to run
+#      before 2a, which needs a working `ocserverd set-password`.
+oc_build_candidate_binary
+
 # 2a. PRE-SEED the KNOWN OWNER_PASSWORD (gotcha #8). Since B2 no credential
 #     lives in oc.toml: render the (port+dsn) oc.toml via the render-config
 #     seam, then write OWNER_PASSWORD's hash straight into the fresh DB via
-#     the committed `bin/ocserverd set-password`. install keeps the oc.toml,
-#     and with the password already set the server mints no claim code — we
-#     log in deterministically, no first-run flow to drive.
+#     `$CANDIDATE_BIN set-password`. install keeps the oc.toml, and with the
+#     password already set the server mints no claim code — we log in
+#     deterministically, no first-run flow to drive.
 seed_owner_password() {
   mkdir -p "$SERVER_ROOT/data"
   local dsn="sqlite:///$DB_PATH"
@@ -339,7 +345,11 @@ open(p, "w", encoding="utf-8").write(txt)
 ' "$OC_TOML" "$port"
   fi
   # Migrate + store the argon2id hash in the DB (password rides env, not argv).
-  OC_CONFIG="$OC_TOML" OC_NEW_PASSWORD="$OWNER_PASSWORD" "$REPO_ROOT/bin/ocserverd" set-password >/dev/null \
+  # $CANDIDATE_BIN ($REPO_ROOT/.deploy/ocserverd) is where bin/build puts the
+  # binary. This line used to read $REPO_ROOT/bin/ocserverd — a path that is
+  # gitignored (.gitignore) and produced by nothing in this repo, so the call died
+  # with "No such file or directory" on any clean checkout.
+  OC_CONFIG="$OC_TOML" OC_NEW_PASSWORD="$OWNER_PASSWORD" "$CANDIDATE_BIN" set-password >/dev/null \
     || die "ocserverd set-password failed — cannot seed a known owner password"
   log "seeded oc.toml (port=${port:-$OC_CANONICAL_SERVE_PORT}) + known OWNER_PASSWORD hash → DB ($DB_PATH)"
 }
@@ -353,16 +363,25 @@ if ! "$OCSERVER" install --force 2>&1 | sed 's/^/[cross-machine] install| /' >&2
   fail_stage "ocserver install --force failed (see install| lines above)"
 fi
 
-# 2c. health: /health must be 200.
-code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$LOCAL_BASE/health" 2>/dev/null || echo 000)"
-[[ "$code" == "200" ]] || fail_stage "server /health not 200 after install (got $code)"
+# 2b2. the installer built and started MAINLINE. Replace the station's binary with
+#      the candidate and restart it onto that.
+oc_swap_in_candidate_binary
+
+# 2c. health: /health must come back 200 after the restart. Polled, not a single
+#     shot — 2b2 just bounced the job, so the first probe can legitimately land
+#     before the new image has bound the port.
+code=000
+health_deadline=$(( $(date +%s) + 60 ))
+while [[ "$(date +%s)" -lt "$health_deadline" ]]; do
+  code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$LOCAL_BASE/health" 2>/dev/null || echo 000)"
+  [[ "$code" == "200" ]] && break
+  sleep 1
+done
+[[ "$code" == "200" ]] || fail_stage "server /health not 200 within 60s of the candidate restart (last code $code)"
 log "/health = 200"
 
-# 2d. /api/version must carry a git_sha (proves the real server booted).
-VER_JSON="$(curl -fsS --max-time 5 "$LOCAL_BASE/api/version" 2>/dev/null || echo '{}')"
-GIT_SHA="$(printf '%s' "$VER_JSON" | json_field git_sha)"
-[[ -n "$GIT_SHA" && "$GIT_SHA" != "unknown" ]] || fail_stage "/api/version returned no usable git_sha (got '$GIT_SHA')"
-log "/api/version git_sha=$GIT_SHA"
+# 2d. the station must self-report the CANDIDATE commit — not merely some sha.
+oc_assert_station_runs_candidate
 
 # 2e. login with the KNOWN owner password → owner token (used by all api_* helpers).
 LOGIN_JSON="$(curl -fsS --max-time 10 -X POST "$LOCAL_BASE/api/login" \

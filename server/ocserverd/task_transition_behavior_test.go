@@ -12,7 +12,7 @@ package main
 //	Q2 轉派後 → the predecessor keeps ONE cell of authority (write the handover),
 //	          and loses every other one. The owner refused the wide version.
 //	Q3 被擋   → on the TICKET ONLY. No message, by explicit ruling.
-//	Q4 關票   → a DURABLE MESSAGE, because 開機盤點 lists only tasks that have not
+//	Q4 結案   → a DURABLE MESSAGE, because 開機盤點 lists only tasks that have not
 //	          ended — a closed ticket is absent from the list that Q3 relies on.
 //
 // 🔴 THESE TESTS PIN MECHANISM, NOT PROSE. Where a document is the subject, the
@@ -287,7 +287,7 @@ func TestPredecessorMayStillWriteTheHandoverNoteUnderTheReassignHold(t *testing.
 //
 // 🔴 THE CASE LIST IS THE PREDICATE'S OWN LIST. callerMayWriteHandover's comment
 // enumerates the doors that stay shut — plan, step status, deps, priority,
-// reassign, terminate, artifacts, closeout, the task's own text — and this table
+// reassign, the four closes, artifacts, the task's own text — and this table
 // must cover ALL of them, because that comment is the only place the ruling is
 // written down and a door named there but missing here can be opened without
 // anything going red. Adding a name to that comment means adding a case here.
@@ -344,20 +344,28 @@ func TestPredecessorStaysLockedOutOfEveryOtherTaskWrite(t *testing.T) {
 				pred, "agent"), task.ID)
 			return rec
 		}},
-		// The four below complete the predicate's own list. They were the gap:
-		// callerMayWriteHandover's comment named nine doors that must stay shut
-		// and only five of them had a case here, so widening the predicate onto
-		// terminate / closeout / artifacts / reassign was a silent change.
-		{"terminate_task", func() *httptest.ResponseRecorder {
+		// The rest complete the predicate's own list. They were the gap:
+		// callerMayWriteHandover's comment named doors that must stay shut and
+		// only five of them had a case here, so widening the predicate onto the
+		// closes / artifacts / reassign was a silent change.
+		{"mark_task_terminated", func() *httptest.ResponseRecorder {
 			rec := httptest.NewRecorder()
-			api.HandleTerminateTaskApiTasksTaskIdTerminatePost(rec, taskReq(t, "POST",
-				"/api/tasks/"+task.ID+"/terminate", nil, pred, "agent"), task.ID)
+			api.HandleMarkTaskTerminatedApiTasksTaskIdMarkTerminatedPost(rec, taskReq(t, "POST",
+				"/api/tasks/"+task.ID+"/mark-terminated", nil, pred, "agent"), task.ID)
 			return rec
 		}},
-		{"report_task_closeout", func() *httptest.ResponseRecorder {
+		{"mark_task_done", func() *httptest.ResponseRecorder {
 			rec := httptest.NewRecorder()
-			api.HandleReportTaskCloseoutApiTasksTaskIdCloseoutPost(rec, taskReq(t,
-				"POST", "/api/tasks/"+task.ID+"/closeout", map[string]any{}, pred,
+			api.HandleMarkTaskDoneApiTasksTaskIdMarkDonePost(rec, taskReq(t,
+				"POST", "/api/tasks/"+task.ID+"/mark-done", nil, pred,
+				"agent"), task.ID)
+			return rec
+		}},
+		{"mark_task_duplicated", func() *httptest.ResponseRecorder {
+			rec := httptest.NewRecorder()
+			api.HandleMarkTaskDuplicatedApiTasksTaskIdMarkDuplicatedPost(rec, taskReq(t,
+				"POST", "/api/tasks/"+task.ID+"/mark-duplicated",
+				map[string]any{"duplicate_of": "t-elsewhere"}, pred,
 				"agent"), task.ID)
 			return rec
 		}},
@@ -537,8 +545,8 @@ func TestBlockingSkipsWaitersThatHaveAlreadyClosed(t *testing.T) {
 	t91Block(t, api, dead.ID, blocker.ID, "m-waiter")
 
 	rec := httptest.NewRecorder()
-	api.HandleTerminateTaskApiTasksTaskIdTerminatePost(rec,
-		taskReq(t, "POST", "/api/tasks/"+dead.ID+"/terminate", nil, "owner", "owner"),
+	api.HandleMarkTaskTerminatedApiTasksTaskIdMarkTerminatedPost(rec,
+		taskReq(t, "POST", "/api/tasks/"+dead.ID+"/mark-terminated", nil, "owner", "owner"),
 		dead.ID)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("terminate the waiter: %d %s", rec.Code, rec.Body.String())
@@ -652,8 +660,8 @@ func TestTaskCloseNudgeIsADurableChatRowTheExecutorReadsAtItsNextWake(t *testing
 	task := createAdHocTask(t, api, "m-exec")
 
 	rec := httptest.NewRecorder()
-	api.HandleTerminateTaskApiTasksTaskIdTerminatePost(rec, taskReq(t, "POST",
-		"/api/tasks/"+task.ID+"/terminate", nil, wireOwnerID, "owner"), task.ID)
+	api.HandleMarkTaskTerminatedApiTasksTaskIdMarkTerminatedPost(rec, taskReq(t, "POST",
+		"/api/tasks/"+task.ID+"/mark-terminated", nil, wireOwnerID, "owner"), task.ID)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("owner terminate: %d %s", rec.Code, rec.Body.String())
 	}
@@ -714,7 +722,7 @@ func mustResumeChat(t *testing.T, api *apiServer, actor string) []ChatMessage {
 	return out
 }
 
-// "My last step report finished it" and "somebody terminated it under me" are
+// "I closed it myself" and "somebody terminated it under me" are
 // opposite situations, and the notice used to render them identically. The
 // closer is a DECLARED document variable so the sentence around it stays
 // owner-editable — this asserts the value is carried and filled, not the words.
@@ -724,8 +732,8 @@ func TestTaskCloseNudgeNamesWhoClosedIt(t *testing.T) {
 	task := createAdHocTask(t, api, "m-exec")
 
 	rec := httptest.NewRecorder()
-	api.HandleTerminateTaskApiTasksTaskIdTerminatePost(rec, taskReq(t, "POST",
-		"/api/tasks/"+task.ID+"/terminate", nil, wireOwnerID, "owner"), task.ID)
+	api.HandleMarkTaskTerminatedApiTasksTaskIdMarkTerminatedPost(rec, taskReq(t, "POST",
+		"/api/tasks/"+task.ID+"/mark-terminated", nil, wireOwnerID, "owner"), task.ID)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("owner terminate: %d %s", rec.Code, rec.Body.String())
 	}

@@ -13,54 +13,61 @@ package main
 //
 // WHY THE GATE SITS WHERE IT SITS (the whole point of the ticket).
 // A task's status is DERIVED from its steps (T-9ca5): the instant the LAST
-// non-terminal step is reported done, DeriveTaskStatus returns done,
-// deriveAndPersistTask calls closeTask, closed_ts stamps — and from that
-// microsecond on submit_plan answers 409 already closed and every step report
-// is a 409 too. The executor's last chance to arrange a handover is therefore
-// BEFORE the step write of the report that closes the task, not after the
-// close. A gate inside closeTask (or anywhere downstream of it) would be asking
-// a question whose only answers have already been taken away — and a gate that
-// let the step write land first would leave the task with all steps done, no
-// legal transition out, and no way to replan: a hard deadlock.
+// non-terminal step is reported done, DeriveTaskStatus returns ready_for_done
+// and the task is one call — mark_task_done — away from a close that stamps
+// closed_ts and turns every step report and every submit_plan into a 409. The
+// executor's last chance to arrange a handover is therefore BEFORE the step
+// write of the report that finishes the work, not after the close. A gate
+// inside closeTask (or anywhere downstream of it) would be asking a question
+// whose only answers have already been taken away — and a gate that let the
+// step write land first would leave the task with all steps done and no
+// declaration, one keystroke from an irreversible close.
 //
 // So the gate runs over a PROJECTION of the step set ("if I applied this write,
-// would the task derive to done?"), before any row is written. A refused close
-// changes nothing: no step row moved, no plan row moved, the task is still open
-// and still plannable.
+// would the task derive to ready_for_done?"), before any row is written. A
+// refused close changes nothing: no step row moved, no plan row moved, the task
+// is still open and still plannable.
 //
-// 🔴 THERE ARE TWO DOORS, NOT ONE — and the second one nearly shipped open.
-// task.status is derived, so ANY write that changes the step set can close the
-// task. Both go through deriveAndPersistTask → closeTask:
+// 🔴 THERE ARE THREE DOORS, NOT ONE — and the second one nearly shipped open.
+// task.status is derived, so ANY write that changes the step set can finish the
+// task; since T-182 one door beyond them performs the close itself:
 //
 //	handoffDoorStepReport — HandleUpdateTaskStepStatus… (the obvious one);
 //	handoffDoorReplan     — HandleSubmitTaskPlan…. The replan split KEEPS `done`
 //	                        rows and DROPS an unfinished card-less row outright,
 //	                        so "replan down to only the nodes I already
-//	                        finished" derives to done and closes the task. It is
-//	                        also the move a caller refused at the first door
-//	                        would most naturally try next, which made it the
-//	                        worst possible hole: the gate was pointing at it.
+//	                        finished" derives to ready_for_done. It is also the
+//	                        move a caller refused at the first door would most
+//	                        naturally try next, which made it the worst possible
+//	                        hole: the gate was pointing at it.
+//	handoffDoorMarkDone   — HandleMarkTaskDone… (T-182). The two doors above no
+//	                        longer close anything; this one does. An agent that
+//	                        declared at the step-report door never sees it (the
+//	                        declaration is already on the task), so what reaches
+//	                        it is a task that got into ready_for_done some other
+//	                        way — boot-reconcile, or a replan the gate stood
+//	                        aside on.
 //
-// Both doors call the SAME handoffGateVerdict with the SAME projection rule, so
-// there is exactly one place where "may this close?" is decided. Only the
-// refusal PROSE differs (a replan cannot carry a declaration, so it has to name
-// a different way out — never "go use submit_plan", which is now a loop).
+// All three call the SAME handoffGateVerdict with the SAME rule, so there is
+// exactly one place where "may this close?" is decided. Only the refusal PROSE
+// differs (neither a replan nor a mark_task_done can carry a declaration, so
+// each has to name a different way out — never "go use submit_plan", which is
+// now a loop).
 //
-// mark_duplicate is the third agent-reachable terminal door; it does not refuse
-// at all — the ball on a duplicate is on the ORIGINAL by definition, so the
-// server declares that itself (api_tasks.go). owner terminate is deliberately
-// ungated: routes.go marks it principalOwner + MCPExclude, so it is the owner's
-// escape hatch and never an agent's key.
+// mark_task_duplicated is the third agent-reachable terminal door; it does not
+// refuse at all — the ball on a duplicate is on the ORIGINAL by definition, so
+// the server declares that itself (api_tasks.go). mark_task_terminated is
+// deliberately ungated: abandoning work is not dropping a ball that anyone is
+// still expected to catch.
 //
 // ⚠️ THIS LIST IS NOT A PROOF OF EXHAUSTIVENESS — it is an enumeration, and an
-// enumeration of the ways a DERIVED status can be reached is exactly the shape
-// that misses one. Two known non-agent doors are outside it:
+// enumeration of the ways a task can reach a terminal status is exactly the
+// shape that misses one. Two known doors are outside it:
 //
-//	reconcileTaskStatuses (api_tasks.go) — boot-reconcile closes an all-done
-//	  task with no gate at all. Not gated on purpose (no caller exists at boot
-//	  to answer a 422), but it now LOGS when it closes an undeclared cross task,
-//	  because the one thing it must not be is silent.
-//	owner terminate — see above, ungated by design.
+//	force_task_done (api_tasks.go) — owner/admin only, ungated by design: it is
+//	  the exit for a task whose executor is gone, and the reason it demands is
+//	  the record of where the ball went.
+//	mark_task_terminated — see above, ungated by design.
 //
 // If you add a write that can change the step set, it is a door: check it here
 // rather than trusting this comment to still be complete.
@@ -83,12 +90,20 @@ type handoffPlan struct {
 	Auto bool
 }
 
-// wouldCloseTask projects the step set as it would stand AFTER stepID is
-// reported done and asks the ordinary derivation whether that closes the task.
+// wouldFinishTask projects the step set as it would stand AFTER stepID is
+// reported done and asks the ordinary derivation whether that finishes the work.
 // Using DeriveTaskStatus (not a hand-rolled "is this the last step") is what
 // keeps parallel groups safe: a lane finishing while its siblings still run
 // derives to in_progress, so the gate never fires there.
-func wouldCloseTask(steps []TaskStep, stepID string) bool {
+//
+// 🔴 IT PROJECTS ready_for_done, NOT done (T-182) — and the rename is the point.
+// This report used to BE the close, so "would this close the task" and "would
+// this finish the work" were the same question and the same word. They are two
+// questions now: this report lands the task in ready_for_done and closes
+// nothing. Left comparing against TaskStatusDone the projection would simply
+// never match again, and the gate would go silently, permanently blind — a
+// guard that is green because it stopped looking.
+func wouldFinishTask(steps []TaskStep, stepID string) bool {
 	projected := make([]TaskStep, len(steps))
 	copy(projected, steps)
 	for i := range projected {
@@ -96,15 +111,18 @@ func wouldCloseTask(steps []TaskStep, stepID string) bool {
 			projected[i].Status = StepStatusDone
 		}
 	}
-	return DeriveTaskStatus(projected) == TaskStatusDone
+	return DeriveTaskStatus(projected) == TaskStatusReadyForDone
 }
 
-// The two agent-reachable doors that can derive a task to done. The value is
-// only ever used to pick the refusal PROSE — the admit/refuse decision itself is
-// identical for both, which is the point (one rule, one place).
+// The agent-reachable doors the gate guards. The value is only ever used to pick
+// the refusal PROSE — the admit/refuse decision itself is identical for all of
+// them, which is the point (one rule, one place).
 const (
 	handoffDoorStepReport = "step_report"
 	handoffDoorReplan     = "replan"
+	// handoffDoorMarkDone is T-182's door: mark_task_done, the call that now
+	// performs the irreversible close the other two only used to lead to.
+	handoffDoorMarkDone = "mark_done"
 )
 
 // handoffGateReason is the 422 body the gate answers with. It is the whole
@@ -145,11 +163,12 @@ func handoffGateReason(t Task, door string) string {
 		// to somebody else, so the ordinary case 403s. Naming a route without
 		// naming its precondition is how a fail-closed guard turns into an
 		// outage, which is the failure mode this whole gate is about.
-		return who + ": this plan leaves EVERY step done, which CLOSES the task, " +
-			"and a closed task can never be replanned. A plan carries no handoff " +
+		return who + ": this plan leaves EVERY step done, which FINISHES the " +
+			"task — it lands in " + TaskStatusReadyForDone + ", one mark_task_done " +
+			"away from a close that can never be undone. A plan carries no handoff " +
 			"declaration, so hand the ball over first, one of two ways: " +
 			"(1) keep ONE unfinished step in this plan, then declare the handover " +
-			"on the update_step_status report that closes it (handoff='" +
+			"on the update_step_status report that finishes it (handoff='" +
 			HandoffReturnToCreator + "' | '" + HandoffFollowUp +
 			"' + handoff_task_id | '" + HandoffNone + "' + handoff_note) — " +
 			"this route always works, and the server adds the dependency edge " +
@@ -161,9 +180,26 @@ func handoffGateReason(t Task, door string) string {
 			"route only works when the successor is assigned to you; otherwise " +
 			"it answers 403 and you want route (1)."
 	}
+	if door == handoffDoorMarkDone {
+		// This door carries NO declaration field (mark_task_done takes a task id
+		// and nothing else), so this refusal must not tell the caller to declare
+		// HERE. In practice an agent almost never sees it: the step-report door
+		// asks the same question one call earlier, where the answer fits in the
+		// request. What reaches this refusal is a task that got into
+		// ready_for_done some other way.
+		return who + ": closing it is irreversible and nobody is holding the " +
+			"follow-up work. Hand the ball over first: create the successor task " +
+			"(create_task) and point its blocked_by at this task (set_task_deps, " +
+			"which stays open in " + TaskStatusReadyForDone + ") — this gate then " +
+			"stands aside by itself, and closing this task releases the successor. " +
+			"NOTE: set_task_deps requires you to be the successor's executor (or " +
+			"an owner), so when the successor belongs to somebody else, ask the " +
+			"owner to force_task_done this one instead."
+	}
 	return who +
-		": this report would CLOSE it, and a closed task can never be replanned " +
-		"(submit_plan turns into a permanent 409). Say where the ball goes, in " +
+		": this report would FINISH it — every step done — and it is then one " +
+		"call (mark_task_done) from a close that can never be undone or " +
+		"replanned. Say where the ball goes, in " +
 		"THIS same update_step_status call, with one of: " +
 		"handoff='" + HandoffReturnToCreator + "' (recorded on this task and " +
 		"nothing else — no task is opened and nobody is notified); handoff='" +

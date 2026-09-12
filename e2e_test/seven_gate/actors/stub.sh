@@ -32,9 +32,10 @@
 #     no longer infers a binding and omitting the field is a 400) — and that step
 #     must be live, so ⑥ comes while a step is running, and the owner side
 #     answers it (run.sh) to release the waiting_owner hold.
-#   ⑦ closeout is TERMINAL-tasks-only (api_tasks.go). A task is terminal when
-#     its steps derive it there — so the last step must actually reach done
-#     first, and the handoff declaration rides THAT call, not the closeout.
+#   ⑦ the close is its OWN call (T-182). Reporting the last step no longer
+#     closes anything — it parks the task in `ready_for_done` — so the last step
+#     must reach done first (the handoff declaration rides THAT call), and then
+#     mark_task_done actually ends it.
 #
 # OC_SG_SKIP_STEP=<key> makes exactly one step NOT happen (keys as in judge.py:
 # report_waking resume_scene create_task submit_plan step_done reply_card
@@ -122,7 +123,7 @@ fi
 # close under ⑦.
 if [[ -n "$TASK" ]] && ! skipped submit_plan; then
   sg_step submit_plan POST "/api/tasks/$TASK/plan" \
-    '{"steps":[{"name":"走完七步","dod":"七個 server 事實都在"},{"name":"回報收尾","dod":"closeout_reported=true"}]}' >/dev/null
+    '{"steps":[{"name":"走完七步","dod":"七個 server 事實都在"},{"name":"收尾","dod":"status=done"}]}' >/dev/null
 fi
 
 # ⑤ 報一步完成 — pending → in_progress → done, in that order. The old code sent
@@ -179,10 +180,10 @@ if ! skipped peer_message; then
   fi
 fi
 
-# ⑧ 回報收尾 — wait for the owner to answer (the server restores the step to
+# ⑦ 按下結案 — wait for the owner to answer (the server restores the step to
 # in_progress when the card is answered), finish the last step with the handoff
-# declared IN THAT CALL (T-74f8 交棒閘), which derives the task to done — and
-# only a terminal task may report closeout.
+# declared IN THAT CALL (T-74f8 交棒閘), which derives the task to
+# `ready_for_done` — and then PRESS the button, which is what closes it.
 if [[ -n "$TASK" ]] && ! skipped closeout; then
   SID2="$(step_id_at 1)"
   if [[ -z "$SID2" ]]; then
@@ -201,11 +202,11 @@ if [[ -n "$TASK" ]] && ! skipped closeout; then
     # so a skipped ⑥ reddens ⑥ ALONE instead of dragging ⑦ down with it and
     # making the verdict point at the wrong step.
     if [[ "$ST" == "pending" ]]; then
-      sg_step closeout_start POST "/api/tasks/$TASK/steps/$SID2/status" '{"status":"in_progress"}' >/dev/null
+      sg_step close_start POST "/api/tasks/$TASK/steps/$SID2/status" '{"status":"in_progress"}' >/dev/null
     fi
-    sg_step closeout_last_step POST "/api/tasks/$TASK/steps/$SID2/status" \
+    sg_step close_last_step POST "/api/tasks/$TASK/steps/$SID2/status" \
       '{"status":"done","handoff":"none","handoff_note":"載體 run,無後續"}' >/dev/null
-    sg_step closeout POST "/api/tasks/$TASK/closeout" '{}' >/dev/null
+    sg_step mark_done POST "/api/tasks/$TASK/mark-done" '{}' >/dev/null
   fi
 fi
 

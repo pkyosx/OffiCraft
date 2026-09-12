@@ -806,9 +806,16 @@
   },
   {
     "auth": "gated",
-    "mcp_tool": "terminate_task",
+    "mcp_tool": "mark_task_done",
     "method": "POST",
-    "path": "/api/tasks/{task_id}/terminate",
+    "path": "/api/tasks/{task_id}/mark-done",
+    "requires": "agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "mark_task_terminated",
+    "method": "POST",
+    "path": "/api/tasks/{task_id}/mark-terminated",
     "requires": "agent"
   },
   {
@@ -855,9 +862,9 @@
   },
   {
     "auth": "gated",
-    "mcp_tool": "mark_duplicate",
+    "mcp_tool": "mark_task_duplicated",
     "method": "POST",
-    "path": "/api/tasks/{task_id}/duplicate",
+    "path": "/api/tasks/{task_id}/mark-duplicated",
     "requires": "agent"
   },
   {
@@ -890,16 +897,16 @@
   },
   {
     "auth": "gated",
-    "mcp_tool": "set_task_deps",
+    "mcp_tool": "force_task_done",
     "method": "POST",
-    "path": "/api/tasks/{task_id}/deps",
-    "requires": "agent"
+    "path": "/api/tasks/{task_id}/force-done",
+    "requires": "admin_agent"
   },
   {
     "auth": "gated",
-    "mcp_tool": "report_task_closeout",
+    "mcp_tool": "set_task_deps",
     "method": "POST",
-    "path": "/api/tasks/{task_id}/closeout",
+    "path": "/api/tasks/{task_id}/deps",
     "requires": "agent"
   },
   {

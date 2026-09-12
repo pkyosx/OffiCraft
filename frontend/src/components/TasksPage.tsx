@@ -14,10 +14,10 @@
 //             狀態 is asked of the SERVER (T-a3e4: the fetch carries the applied
 //             set, see the setStatuses effect); 負責人 / 類型 stay client-side
 //             over the already status-narrowed list.
-//   未結束  — every NON-terminal task in ONE list (狀態不分組 — the status
+//   未結案  — every NON-terminal task in ONE list (狀態不分組 — the status
 //             badge differentiates), ordered by priority 高→中→低→凍結 (凍結
 //             永遠最後), createdTs newest-first within a level.
-//   已結束  — 已完成 + 終止, COLLAPSED BY DEFAULT (the RepliesPage answered-
+//   已結案  — 已完成 + 終止, COLLAPSED BY DEFAULT (the RepliesPage answered-
 //             toggle pattern), newest close first. Both section titles carry
 //             counts.
 //
@@ -59,6 +59,10 @@ const STATUS_OPTIONS = [
   "in_progress",
   "waiting_owner",
   "waiting_external",
+  // 可結案 — DERIVED and NOT terminal, so it sits with the other work states and
+  // is checked by DEFAULT_STATUS below: a task nobody has closed yet is exactly
+  // what the page opens on.
+  "ready_for_done",
   // "reassigning" is NO LONGER a status (T-9ca5) — it moved to the orthogonal
   // `task.lock`. It stays a 狀態-filter row for continuity, but its predicate
   // keys off task.lock (matchesStatus) and its label off lockReassigning.
@@ -495,7 +499,7 @@ export function TasksPage() {
     .filter((x) => TERMINAL.has(x.status))
     .sort((a, b) => (b.closedTs ?? 0) - (a.closedTs ?? 0));
 
-  // 已結束 collapses by default (RepliesPage answered-toggle pattern): closed
+  // 已結案 collapses by default (RepliesPage answered-toggle pattern): closed
   // tasks are reference material. Plain component state — never persisted.
   const [closedOpen, setClosedOpen] = useState(false);
 
@@ -530,9 +534,9 @@ export function TasksPage() {
   // on a strip, and both helpers came back with it. Do not restore the older
   // wording — read lines 298 and 313.
   //
-  // A closed target still auto-expands 已結束 so the one match is visible.
+  // A closed target still auto-expands 已結案 so the one match is visible.
   // 🔴 Keyed on the APPLIED id, not the hash: an id TYPED into the field names a
-  // closed task exactly as often as a link does, and if 已結束 stays collapsed
+  // closed task exactly as often as a link does, and if 已結案 stays collapsed
   // the page has "found and passes" as its verdict while showing no row at all —
   // a fourth, silent outcome, which is the failure mode this ticket is about.
   useEffect(() => {
@@ -713,7 +717,7 @@ export function TasksPage() {
         </div>
       )}
 
-      {/* ── 未結束 ── */}
+      {/* ── 未結案 ── */}
       {open.length > 0 && (
         <section className="tasks__section">
           <div className="tasks__section-title">
@@ -726,7 +730,7 @@ export function TasksPage() {
         </section>
       )}
 
-      {/* ── 已結束 (collapsible, default collapsed) ── */}
+      {/* ── 已結案 (collapsible, default collapsed) ── */}
       {closed.length > 0 && (
         <section className="tasks__section">
           <button

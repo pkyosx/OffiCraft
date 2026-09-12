@@ -1973,7 +1973,6 @@ func dalTestTask(id string) Task {
 		CreatedTS:           1700000001,
 		UpdatedTS:           1700000002,
 		ClosedTS:            1700000003,
-		CloseoutTS:          1700000004,
 		DuplicateOf:         "T-900",
 		ReassignedFrom:      "carl",
 		ReassignedFromKind:  "staff",

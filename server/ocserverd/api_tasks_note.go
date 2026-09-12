@@ -236,7 +236,7 @@ func (s *apiServer) resolveStepForNoteWrite(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusForbidden, executorGuardRefusal)
 		return nil, nil, false
 	}
-	if TaskIsTerminal(t.Status) {
+	if TaskRecordFrozen(t.Status) {
 		writeError(w, http.StatusConflict,
 			"task '"+taskId+"' is already closed ("+t.Status+")")
 		return nil, nil, false
@@ -256,11 +256,12 @@ func (s *apiServer) resolveStepForNoteWrite(w http.ResponseWriter, r *http.Reque
 	// and a done or superseded one. The status machine governs the WORK; the
 	// note only describes it.
 	//
-	// Note that the TASK-level terminal gate above still applies: once every
-	// step is done the task auto-closes, so a done step is writable while its
-	// task is still open and not after. That is the same line the artifact set
-	// draws — a closed task's record stops moving — and the tool descriptions
-	// say so rather than promising a write that would 409.
+	// Note that the TASK-level terminal gate above still applies. Since T-182 a
+	// finished step set only lands the task in ready_for_done, which is OPEN, so
+	// a done step stays writable through the close-out window and stops being
+	// writable when somebody actually closes the task. That is the same line the
+	// artifact set draws — a closed task's record stops moving — and the tool
+	// descriptions say so rather than promising a write that would 409.
 	return t, step, true
 }
 

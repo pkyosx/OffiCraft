@@ -62,13 +62,14 @@ func ownerPost(path string) *http.Request {
 	return httptest.NewRequest(http.MethodPost, path, nil)
 }
 
-// eventProcKinds are the six kinds this ticket adds, spelled out rather than
-// filtered out of the registry: a test that derived them from the registry
-// would agree with a registry that lost one.
+// eventProcKinds are the event-procedure kinds, spelled out rather than filtered
+// out of the registry: a test that derived them from the registry would agree
+// with a registry that lost one.
 func eventProcKinds() []string {
 	return []string{
 		docKindAcceleratedStop, docKindTaskCloseout, docKindTaskReassignPredecessor,
 		docKindTaskTakeoverWithPredecessor, docKindTaskTakeoverFresh, docKindTaskUnblocked,
+		docKindTaskReadyForDone,
 	}
 }
 

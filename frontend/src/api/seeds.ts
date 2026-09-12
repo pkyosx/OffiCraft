@@ -29,6 +29,7 @@ import SEED_TASK_REASSIGN_PREDECESSOR_RAW from "../../../seeds/task_reassign_pre
 import SEED_TASK_TAKEOVER_WITH_PREDECESSOR_RAW from "../../../seeds/task_takeover_with_predecessor.md?raw";
 import SEED_TASK_TAKEOVER_FRESH_RAW from "../../../seeds/task_takeover_fresh.md?raw";
 import SEED_TASK_UNBLOCKED_RAW from "../../../seeds/task_unblocked.md?raw";
+import SEED_TASK_READY_FOR_DONE_RAW from "../../../seeds/task_ready_for_done.md?raw";
 
 /** The out-of-box owner id (mirrors the server seed). */
 export const MOCK_OWNER_ID = "owner";
@@ -84,6 +85,7 @@ export const SEED_TASK_TAKEOVER_FRESH_MD = foldOwnerId(
   SEED_TASK_TAKEOVER_FRESH_RAW
 );
 export const SEED_TASK_UNBLOCKED_MD = foldOwnerId(SEED_TASK_UNBLOCKED_RAW);
+export const SEED_TASK_READY_FOR_DONE_MD = foldOwnerId(SEED_TASK_READY_FOR_DONE_RAW);
 
 /** seeds/insight_assistant.md — the assistant's FACTORY judgement calls (T-e1e3).
  * 🔴 PER-ROLE, and there is deliberately no `SEED_INSIGHT_MD`: one shared file

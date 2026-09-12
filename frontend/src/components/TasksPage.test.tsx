@@ -3,9 +3,9 @@
 //      GET /api/tasks/count's unfiltered `total`, since the list itself now
 //      answers only the ticked statuses); filters matching nothing →
 //      沒有符合篩選條件的任務 (+ 清除篩選 restores).
-//   2. 未結束 is ONE list ordered 高→中→低→凍結 (凍結永遠最後), createdTs
+//   2. 未結案 is ONE list ordered 高→中→低→凍結 (凍結永遠最後), createdTs
 //      newest-first within a level — never grouped by status.
-//   3. 已結束 (已完成+終止) is collapsible and COLLAPSED BY DEFAULT; the
+//   3. 已結案 (已完成+終止) is collapsible and COLLAPSED BY DEFAULT; the
 //      title row toggles it (RepliesPage answered-toggle pattern).
 //   4. Filters: 執行者 (外包/未指派/各成員) · 類型 (各手冊類型/自由代辦) ·
 //      狀態 (六態全部).
@@ -15,7 +15,7 @@
 //      規劃中), gate projection (announced dashed vs armed solid), parallel
 //      stage label, deps chips, waiting_external reason row.
 //   6. 終止 is double-confirmed (ConfirmModal), non-terminal only, and moves
-//      the task into 已結束.
+//      the task into 已結案.
 //   7. The embedded reply card is the SHARED M2 interior: answering by option
 //      flips it to answered in place.
 //   8. The message box posts one ordinary chat message to the executor and is
@@ -207,7 +207,7 @@ describe("TasksPage", () => {
     // The page's own copy, isolated by making the fetch return the residue row
     // regardless — which is also the real transient case: rows from an earlier,
     // wider ask are still in state while a narrower refetch is in flight.
-    // 🔴 The observable is the 已結束 SECTION HEADER, not a rendered card: that
+    // 🔴 The observable is the 已結案 SECTION HEADER, not a rendered card: that
     // partition is collapsed by default, so a residue row that wrongly passes
     // matchesStatus renders no card and an assertion on cards alone cannot see
     // it (measured — the card-only version stayed green under this mutant).
@@ -229,11 +229,11 @@ describe("TasksPage", () => {
     expect(titles.some((t) => t.includes("真的在轉派"))).toBe(true);
     expect(titles.some((t) => t.includes("反悔終止的"))).toBe(false);
     // The residue row must not have survived the filter at all: if it had, it
-    // would form the 已結束 partition and its toggle would exist (「已結束 · 1」).
+    // would form the 已結案 partition and its toggle would exist (「已結案 · 1」).
     expect(queryByTestId("closed-toggle")).toBeNull();
   });
 
-  it("orders 未結束 by priority 高→中→低→凍結 (凍結墊底), createdTs newest-first within a level", async () => {
+  it("orders 未結案 by priority 高→中→低→凍結 (凍結墊底), createdTs newest-first within a level", async () => {
     const now = Date.now() / 1000;
     __injectMockTask(
       mkTask({ title: "凍結的", priority: "frozen", createdTs: now - 9000 })
@@ -265,7 +265,7 @@ describe("TasksPage", () => {
     ]);
   });
 
-  it("已結束 collects done+terminated (once their statuses are picked), collapsed by default, toggling open/shut", async () => {
+  it("已結案 collects done+terminated (once their statuses are picked), collapsed by default, toggling open/shut", async () => {
     __injectMockTask(mkTask({ title: "還在跑" }));
     __injectMockTask(
       mkTask({
@@ -284,7 +284,7 @@ describe("TasksPage", () => {
 
     const { findByTestId, queryByTestId, findAllByTestId } = renderPage();
     // Default view EXCLUDES the two terminal states (T-be18 #2): only the live
-    // task shows and there is no 已結束 section yet.
+    // task shows and there is no 已結案 section yet.
     expect((await findAllByTestId("task-card")).length).toBe(1);
     expect(queryByTestId("closed-toggle")).toBeNull();
 
@@ -294,7 +294,7 @@ describe("TasksPage", () => {
 
     // Section titles carry counts; closed cards hidden while collapsed.
     const toggle = await findByTestId("closed-toggle");
-    expect(toggle.textContent).toContain("已結束 · 2");
+    expect(toggle.textContent).toContain("已結案 · 2");
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
     expect(queryByTestId("closed-list")).toBeNull();
     expect((await findAllByTestId("task-card")).length).toBe(1);
@@ -450,7 +450,7 @@ describe("TasksPage", () => {
     }
     const { findByTestId } = renderPage();
     // Terminals are hidden by default — tick 已完成 + 終止 so all six render,
-    // then reveal the 已結束 section that now holds the two terminal cards.
+    // then reveal the 已結案 section that now holds the two terminal cards.
     toggleFilter("filter-status", "done");
     toggleFilter("filter-status", "terminated");
     fireEvent.click(await findByTestId("closed-toggle"));
@@ -731,7 +731,7 @@ describe("TasksPage", () => {
     ).toBe("等我回覆");
   });
 
-  it("終止 double-confirms; the terminated task leaves the default view, and 終止 reveals it in 已結束 (action hidden on closed tasks)", async () => {
+  it("終止 double-confirms; the terminated task leaves the default view, and 終止 reveals it in 已結案 (action hidden on closed tasks)", async () => {
     __injectMockTask(mkTask({ title: "要被終止的" }));
     const { findByTestId, queryByTestId } = renderPage();
 
@@ -744,7 +744,7 @@ describe("TasksPage", () => {
     fireEvent.click(await findByTestId("terminate-confirm-btn"));
 
     // Its new 終止 state is excluded by the default filter → the task drops out
-    // of view entirely (no 未結束 card, no 已結束 section yet).
+    // of view entirely (no 未結案 card, no 已結案 section yet).
     await waitFor(() =>
       expect(document.querySelectorAll('[data-testid="task-card"]')).toHaveLength(
         0
@@ -752,10 +752,10 @@ describe("TasksPage", () => {
     );
     expect(queryByTestId("closed-toggle")).toBeNull();
 
-    // Tick 終止 in the 狀態 filter → it surfaces in the (collapsed) 已結束 section.
+    // Tick 終止 in the 狀態 filter → it surfaces in the (collapsed) 已結案 section.
     toggleFilter("filter-status", "terminated");
     const toggle = await findByTestId("closed-toggle");
-    await waitFor(() => expect(toggle.textContent).toContain("已結束 · 1"));
+    await waitFor(() => expect(toggle.textContent).toContain("已結案 · 1"));
     fireEvent.click(toggle);
     const closedList = await findByTestId("closed-list");
     const card = closedList.querySelector('[data-testid="task-card"]')!;
@@ -763,7 +763,7 @@ describe("TasksPage", () => {
       card.querySelector('[data-testid="task-status"]')?.textContent
     ).toBe("終止");
     // Terminal task: the badge STILL drops its menu (owner ruling 2026-07-17 —
-    // 「照字面永遠出，已結束時兩項變灰不可點」), but 終止 there is now greyed and
+    // 「照字面永遠出，已結案時兩項變灰不可點」), but 終止 there is now greyed and
     // dead: clicking it opens no confirm modal, so no 409-bound terminate can
     // leave the UI. (Full three-shape coverage lives in
     // TaskCard.status-menu.test.tsx; this pins the end of THIS flow.)
@@ -937,7 +937,7 @@ describe("TasksPage", () => {
       getTaskSpy.mockRestore();
     });
 
-    it("manually expanding a DONE task in 已結束 hydrates its steps via getTask", async () => {
+    it("manually expanding a DONE task in 已結案 hydrates its steps via getTask", async () => {
       __injectMockTask(
         mkTask({
           title: "已完成有步驟",
@@ -955,7 +955,7 @@ describe("TasksPage", () => {
       const { getByTestId, findByTestId, findByText, queryByText } = renderPage();
 
       // Terminals are filtered out by default — tick 已完成 so the done task's
-      // 已結束 section exists, then open the (collapsed) section.
+      // 已結案 section exists, then open the (collapsed) section.
       toggleFilter("filter-status", "done");
       fireEvent.click(await findByTestId("closed-toggle"));
       await findByText("已完成有步驟");
@@ -974,7 +974,7 @@ describe("TasksPage", () => {
     it("auto-expands and hydrates a DONE task jumped to via #tasks/<id> (T-4108 regression)", async () => {
       // The real report: a reply card's 查看任務詳情 (or the 外包 panel task chip)
       // routes to #tasks/<id>. For a CLOSED task that filters the list to one
-      // card and auto-opens 已結束 — but the card itself must ALSO auto-expand
+      // card and auto-opens 已結案 — but the card itself must ALSO auto-expand
       // (located → setExpanded), otherwise the owner lands on the task they
       // asked to see and its steps/details are hidden behind a collapsed card.
       __injectMockTask(
@@ -1178,7 +1178,7 @@ describe("TasksPage filter enhancements (T-be18)", () => {
 
     const { findByText, findByTestId, queryByText, queryByTestId } = renderPage();
     // Default view: the live task only; neither terminal task is anywhere, and
-    // there is no 已結束 section standing in for them.
+    // there is no 已結案 section standing in for them.
     await findByText("活的");
     expect(queryByText("完成的")).toBeNull();
     expect(queryByText("終止的")).toBeNull();
@@ -1351,7 +1351,7 @@ describe("TasksPage filter enhancements (T-be18)", () => {
     expect(queryByText("收工的")).toBeNull();
 
     toggleFilter("filter-status", "done");
-    // 已結束 now carries the done task — expand it to see the card.
+    // 已結案 now carries the done task — expand it to see the card.
     fireEvent.click(await findByTestId("closed-toggle"));
     await findByText("收工的");
     // The live task is still there — the tick added a status, it didn't replace.
@@ -1399,10 +1399,10 @@ describe("TasksPage 顯示全部 semantics (T-50bb)", () => {
     expect(queryByText("完成的")).toBeNull();
 
     clearAllFilters();
-    // Terminals now pass the (emptied) status filter → the 已結束 section
+    // Terminals now pass the (emptied) status filter → the 已結案 section
     // appears with both closed tasks; expand it to see the cards.
     const toggle = await findByTestId("closed-toggle");
-    expect(toggle.textContent).toContain("已結束 · 2");
+    expect(toggle.textContent).toContain("已結案 · 2");
     fireEvent.click(toggle);
     await findByText("完成的");
     await findByText("終止的");
@@ -1433,7 +1433,7 @@ describe("TasksPage 顯示全部 semantics (T-50bb)", () => {
 
     clearAllFilters();
     // Straight to 顯示全部: the live task is back AND the terminals surface in
-    // 已結束 — proof it did not stop at the terminal-hiding default view.
+    // 已結案 — proof it did not stop at the terminal-hiding default view.
     await findByText("活的");
     fireEvent.click(await findByTestId("closed-toggle"));
     await findByText("完成的");

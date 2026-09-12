@@ -335,7 +335,7 @@ func TestNewTaskDTO(t *testing.T) {
 		CreatorID: "owner", ReassignedFrom: "bob", ReassignedFromKind: "staff",
 		HandoverNote: "picked up mid-flight", HandoverNoteTS: 90, HandoverNoteBy: "bob",
 		WaitingReason: "vendor", CreatedTS: 10, UpdatedTS: 20, ClosedTS: 0,
-		CloseoutTS: 0, DuplicateOf: "", Handoff: HandoffFollowUp,
+		DuplicateOf: "", Handoff: HandoffFollowUp,
 		HandoffNote: "see t-next", HandoffTaskID: "t-next", FrozenBy: "",
 	}
 	steps := []TaskStep{
@@ -363,7 +363,7 @@ func TestNewTaskDTO(t *testing.T) {
 				{ID: "s-3", TaskID: "t-abc", OrderIdx: 2, Name: "old", Status: "superseded", NoteCapChars: 10000},
 			},
 			DetailLevel: "summary", NotesIncluded: false,
-			ProgressDone: 1, ProgressTotal: 2, CloseoutReported: false,
+			ProgressDone: 1, ProgressTotal: 2,
 			ArtifactCount: 0, Handoff: "follow_up", HandoffNote: "see t-next",
 			HandoffTaskID: "t-next", Blocking: []taskDepRefDTO{}, FrozenBy: "",
 		}
@@ -372,16 +372,12 @@ func TestNewTaskDTO(t *testing.T) {
 		}
 	})
 
-	t.Run("a closed task serialises closed_ts as the stamp itself and reports the close-out flag", func(t *testing.T) {
+	t.Run("a closed task serialises closed_ts as the stamp itself", func(t *testing.T) {
 		closed := task
 		closed.ClosedTS = 555.25
-		closed.CloseoutTS = 600
 		got := newTaskDTO(closed, nil, nil, nil, 10)
 		if got.ClosedTS == nil || *got.ClosedTS != 555.25 {
 			t.Fatalf("newTaskDTO(closed).ClosedTS = %v, want a pointer to 555.25", got.ClosedTS)
-		}
-		if !got.CloseoutReported {
-			t.Fatal("newTaskDTO(closeout stamped).CloseoutReported = false, want true")
 		}
 	})
 

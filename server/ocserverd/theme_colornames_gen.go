@@ -58,6 +58,7 @@ var themeColorTokens = map[string]bool{
 	"--color-onboarding-border":   true,
 	"--color-onboarding-fg":       true,
 	"--color-overlay":             true,
+	"--color-ready-for-done":      true,
 	"--color-scrim":               true,
 	"--color-scrollbar-thumb":     true,
 	"--color-seg-border":          true,

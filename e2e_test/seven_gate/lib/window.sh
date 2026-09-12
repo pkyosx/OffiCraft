@@ -9,7 +9,7 @@
 # landed after that instant was invisible to judge.py.
 #
 # That does not read as "the harness stopped watching". It reads as
-# 「回報收尾 FAIL — no closeout was ever reported」: A RED POINTING AT THE AGENT
+# 「按下結案 FAIL — the agent never closed the task」: A RED POINTING AT THE AGENT
 # FOR SOMETHING THE HARNESS DID. It is the same disease as the swallowed curl
 # output — a harness fault wearing an agent fault's face — and it is worse here,
 # because the run that produces it looks complete.

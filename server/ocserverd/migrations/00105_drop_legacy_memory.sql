@@ -44,7 +44,7 @@ DROP TABLE lessons;
 -- The server does not use the sqlite3 CLI: migrate.go runs goose over
 -- modernc.org/sqlite v1.53.0, a pure-Go reimplementation, and "the CLI can do
 -- it" is not evidence about that engine. It is pinned by a test that runs
--- through this very driver — TestMigration00104DropsTheLegacyMemoryStorage —
+-- through this very driver — TestMigration00105DropsTheLegacyMemoryStorage —
 -- so the claim is checked by the same code path that ships.
 ALTER TABLE task_manual DROP COLUMN learnings;
 

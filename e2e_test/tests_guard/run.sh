@@ -479,7 +479,7 @@ fi
 # ── 12) T-c5d4 weakness-2: webdist restore must SURFACE a failed/partial delete,
 #        not swallow it. teardown.sh used `find … -delete 2>/dev/null` with no rc
 #        check — a silent failure leaves a dirty webdist that a later `go build`
-#        bakes into the committed bin/ocserverd. oc_restore_webdist_pristine now
+#        bakes into the binary it links. oc_restore_webdist_pristine now
 #        checks find's rc AND re-asserts only .gitkeep remains, printing a loud
 #        WARN on trouble. OUTPUT+rc assertion on purpose: a fail-closed cleanup is
 #        rc-blind to a half-delete, so we assert the reason/output, not only rc.
@@ -1595,20 +1595,24 @@ REPLAN = os.environ.get("SG_REPLAN") == "1"
 # ── the plan, and the TWO SHAPES OF IT THE JOURNAL SEES ─────────────────────
 # ⑤ is a TIME fact now ("a step was done while the task was still open"), so the
 # fixture has to be a time series and not one final snapshot. Two versions of
-# the same task row are therefore emitted: a MID-FLIGHT one (step0 done, no
-# close-out) and a FINAL one (everything done, close-out reported).
+# the same task row are therefore emitted: a MID-FLIGHT one (step0 done, task
+# still open) and a FINAL one (everything done, task closed).
 #
 # The step_done mutant is the real exposure this fixture exists to pin, and it
 # is now a state the SERVER CAN ACTUALLY PRODUCE: the mid-flight sample shows
 # the task open with NOTHING done yet, and the final sample shows the whole plan
-# done with the close-out already reported — i.e. the plan was back-filled in one
-# go at the close. closeout_reported stays TRUE, so it is a bundle where ⑤ is red
-# and ⑦ is green.
+# done and the task closed — i.e. the plan was back-filled in one go at the
+# close. The final status stays `done`, so it is a bundle where ⑤ is red and ⑦
+# is green.
 # ⚠️ THE PREVIOUS VERSION OF THIS FIXTURE WAS NOT REACHABLE and therefore proved
-# nothing: it asserted step0.status="todo" together with task.status="done" and
-# closeout_reported=true, and DeriveTaskStatus cannot derive `done` while a step
-# is not done. It demonstrated that the predicate could be falsified, not that
-# the world it described exists.
+# nothing: it asserted step0.status="todo" together with task.status="done", and
+# DeriveTaskStatus cannot derive `done` while a step is not done. It
+# demonstrated that the predicate could be falsified, not that the world it
+# described exists.
+# T-182: ⑦'s signal moved from the `closeout_reported` boolean to the task's own
+# `status` — so the ⑦ mutant is now "the plan is all done but the agent never
+# pressed the button", i.e. the task parked at `ready_for_done`, which is a
+# state the server really produces rather than a flag left unset.
 def step(i, name, status, fin):
     return {"id": "s%d" % i, "name": name, "order_idx": i - 1, "status": status,
             "started_ts": max(0.0, fin - 10.0) if fin else 0, "finished_ts": fin}
@@ -1627,23 +1631,25 @@ if REPLAN:
 else:
     mid_steps = [step(1, "走完七步", "in_progress" if drop == "step_done" else "done",
                       0 if drop == "step_done" else 150.0),
-                 step(2, "回報收尾", "in_progress", 0)]
+                 step(2, "收尾", "in_progress", 0)]
     final_steps = [step(1, "走完七步", "done", 150.0),
-                   step(2, "回報收尾", "done", 180.0)]
+                   step(2, "收尾", "done", 180.0)]
 
-def task_row(steps, updated, status, closed):
+def task_row(steps, updated, status, closed_ts=0):
     return {"id": "T-1", "creator_id": AG, "title": "probe", "created_ts": 100,
             "updated_ts": updated, "status": status,
             "steps": [] if drop == "submit_plan" else steps,
-            "closeout_reported": closed}
+            "closed_ts": closed_ts}
 
-mid = task_row(mid_steps, 150, "in_progress", False)
-final = task_row(final_steps, 200, "done", drop != "closeout")
+mid = task_row(mid_steps, 150, "in_progress")
+# The ⑦ mutant parks the task at ready_for_done: every step reported, nobody
+# pressed mark_task_done. Same plan, same steps — only the close is missing.
+final = (task_row(final_steps, 200, "done", 200)
+         if drop != "closeout" else task_row(final_steps, 200, "ready_for_done"))
 # The scratch ticket: same creator, EARLIER created_ts, no plan on it. Nothing
 # on the server distinguishes it from the real one.
 draft = {"id": "T-0-draft", "creator_id": AG, "title": "草稿", "created_ts": 50,
-         "updated_ts": 60, "status": "not_started", "steps": [],
-         "closeout_reported": False}
+         "updated_ts": 60, "status": "not_started", "steps": [], "closed_ts": 0}
 # 🔴 THE THIRD-PARTY ROW, AND IT IS NOW REALLY HERE. The comment that used to sit
 # on this line said "A THIRD-PARTY TASK ROW is always present: ③ must key on
 # creator_id, not on 'a task exists'" — and there was no such row in the fixture,
@@ -1653,7 +1659,7 @@ draft = {"id": "T-0-draft", "creator_id": AG, "title": "草稿", "created_ts": 5
 # earliest task" and ④ goes red — which is what makes the relaxation loud.
 other = {"id": "T-other", "creator_id": "m-someone-else", "title": "別人的票",
          "created_ts": 10, "updated_ts": 20, "status": "in_progress",
-         "steps": [], "closeout_reported": False}
+         "steps": [], "closed_ts": 0}
 def tasks_at(row):
     # The third-party row is present in EVERY sample, including the create_task
     # mutant's — that mutant must go red because no row carries the agent's id,
@@ -1765,22 +1771,23 @@ sg_mutant submit_plan   提出計畫
 # happened between two reports. A mutant here would now assert the opposite of
 # the contract. 21b-v pins the downgrade itself, in both directions.
 sg_mutant reply_card    開一張等我回覆卡
-sg_mutant closeout      回報收尾
+sg_mutant closeout      按下結案
 sg_mutant peer_message  回覆另一個-agent
 sg_mutant image_answer  看得到圖
 
 # 21b-i) ⑤ HAS DISCRIMINATING POWER OF ITS OWN, AND IN A REACHABLE WORLD.
-# ⑤ used to ask "does ANY step carry done", and ⑦ (closeout) is terminal-only
-# while a task is terminal only when every non-superseded step is done
-# (DeriveTaskStatus) — so ⑦ green IMPLIED ⑤ green and no bundle could exist where
+# ⑤ used to ask "does ANY step carry done", and ⑦ (the close) could only be
+# reached once every non-superseded step was done (DeriveTaskStatus, which since
+# T-182 lands on `ready_for_done` rather than `done` — same implication, one more
+# step) — so ⑦ green IMPLIED ⑤ green and no bundle could exist where
 # ⑤ was red and ⑦ was not. The prefix/ordering version that replaced it bought
 # almost nothing back (with ⑦ green the prefix half is true by construction) and
 # was RED ON REPLAN AND ON PARALLEL — see 21b-iii.
 # ⑤ now reads a TIME fact: was the task ever OBSERVED carrying a done step while
-# it had not yet reported its close-out. ⑦ reads the last state only and can say
-# nothing about the states passed through, so the two are independent — and the
-# bundle that separates them is a plain back-fill: nothing done mid-flight, the
-# whole plan done and closed out in the final sample. Every row of it is a state
+# it was still open. ⑦ reads the last state only and can say nothing about the
+# states passed through, so the two are independent — and the bundle that
+# separates them is a plain back-fill: nothing done mid-flight, the whole plan
+# done and the task closed in the final sample. Every row of it is a state
 # the server can produce, which the previous fixture (step todo + task done) was
 # not.
 # ⚠️ 2026-08-11: THE CELL THIS PARAGRAPH DESCRIBES NO LONGER JUDGES ANYTHING.
@@ -1915,7 +1922,7 @@ esac
 # "⑤ CONFIRMS THIS AGENT REPORTED EACH STEP AS THE WORK WENT" and the suite
 # stayed at 319/0. The preamble is the half a reader forms their conclusion from.
 check "seven_gate: …and ⑤'s line is EXACTLY this, preamble included (comparing only the suffix let a mutant rewrite the preamble into a claim that the agent was verified — measured)" \
-  '[seven_gate] step5 step_done      報一步完成 OBSERVED — OBSERVED, NOT JUDGED (this cell cannot make the run red — the server records when each report ARRIVED, never whether work happened between two reports, so nothing here separates '"'"'reported as the work went'"'"' from '"'"'reported all at once'"'"'): task T-1: 2 of 2 plan step(s) at done; 2 distinct server-stamped finished_ts; first→last completion 30.000s (server-stamped, not sampled); first completion→close-out sighting not comparable in this bundle (the sample clock reads before the server'"'"'s finished_ts)' \
+  '[seven_gate] step5 step_done      報一步完成 OBSERVED — OBSERVED, NOT JUDGED (this cell cannot make the run red — the server records when each report ARRIVED, never whether work happened between two reports, so nothing here separates '"'"'reported as the work went'"'"' from '"'"'reported all at once'"'"'): task T-1: 2 of 2 plan step(s) at done; 2 distinct server-stamped finished_ts; first→last completion 30.000s (server-stamped, not sampled); first completion→task closed_ts 50.000s (both server-stamped); first completion→close sighting not comparable in this bundle (the sample clock reads before the server'"'"'s finished_ts)' \
   "$_sg_obs_line"
 check "seven_gate: …and ①'s line is EXACTLY this, preamble included (it says WHY it cannot decide — without that the downgrade is a null in a file plus one English word)" \
   '[seven_gate] step1 report_waking  報到 OBSERVED — OBSERVED, NOT JUDGED (this cell cannot make the run red — on the live path, where a warden is online before the harness activates the member, reconcile stamps the `waking_since` this projection derives from when the START lands, before the agent runs; so a sighting here is not evidence the agent reported anything): member m-sg was seen at presence=waking at t=2.0' \
@@ -2011,7 +2018,7 @@ check "seven_gate: the one-stamp counter-fixture really carries two done steps s
   "2 done|1 distinct" "$_sg_one_shape"
 _sg_one_line="$(_sg_line "$SG_WORK/b-onestamp" 'step5 step_done')"
 check "seven_gate: …and on that bundle ⑤'s line CHANGES with it, whole line (this is what separates 'it reports the shape' from 'it prints a sentence')" \
-  '[seven_gate] step5 step_done      報一步完成 OBSERVED — OBSERVED, NOT JUDGED (this cell cannot make the run red — the server records when each report ARRIVED, never whether work happened between two reports, so nothing here separates '"'"'reported as the work went'"'"' from '"'"'reported all at once'"'"'): task T-1: 2 of 2 plan step(s) at done; 1 distinct server-stamped finished_ts; first→last completion n/a (2 done steps share ONE server stamp); first completion→close-out sighting not comparable in this bundle (the sample clock reads before the server'"'"'s finished_ts)' \
+  '[seven_gate] step5 step_done      報一步完成 OBSERVED — OBSERVED, NOT JUDGED (this cell cannot make the run red — the server records when each report ARRIVED, never whether work happened between two reports, so nothing here separates '"'"'reported as the work went'"'"' from '"'"'reported all at once'"'"'): task T-1: 2 of 2 plan step(s) at done; 1 distinct server-stamped finished_ts; first→last completion n/a (2 done steps share ONE server stamp); first completion→task closed_ts 50.000s (both server-stamped); first completion→close sighting not comparable in this bundle (the sample clock reads before the server'"'"'s finished_ts)' \
   "$_sg_one_line"
 # ⚠️ AND IT MUST NOT SAY "a one-step plan is a legitimate way to get here" ON A
 # LINE THAT ALSO SAYS "2 of 2". That sentence was the ONLY else-branch until
@@ -2064,14 +2071,14 @@ fi
 # 21b-vi) FAIL-CLOSED, AND THE SENTENCE UNDERNEATH IT. A gate that produced no
 # verdict at all is red — that half was already true and review confirmed it by
 # hand. What was NOT true is the evidence line: the cell's else-branch text goes
-# out unchanged, so a ⑦ that decided nothing printed "task T-1 has
-# closeout_reported=false" over a bundle where it is TRUE. The red is right and
+# out unchanged, so a ⑦ that decided nothing printed "the agent never closed the
+# task" over a bundle where the task IS closed. The red is right and
 # the sentence under it is wrong, which is the exact failure mode this repo
 # keeps paying for. _seal() is the one place the conversion happens, so it is
 # asserted directly rather than through a judge.py mutant.
 _sg_seal="$(cd "$SG_DIR" && python3 -c '
 import judge
-rows = judge._seal([("closeout", "回報收尾", None, "EVIDENCE-FROM-THE-ELSE-BRANCH"),
+rows = judge._seal([("closeout", "按下結案", None, "EVIDENCE-FROM-THE-ELSE-BRANCH"),
                     ("step_done", "報一步完成", None, "obs"),
                     ("create_task", "開票", True, "ok")])
 print("|".join("%s=%r,%s" % (k, p, "MARKED" if judge.NOTHING_DECIDED in w else "bare")
@@ -2166,10 +2173,10 @@ done = [s for s in t["steps"] if s["status"] == "done"]
 fts = [s["finished_ts"] for s in sorted(done, key=lambda s: s["order_idx"])]
 back = any(a > b for a, b in zip(fts, fts[1:]))
 first_is_sup = t["steps"][0]["status"] == "superseded"
-print("%s|%s|%s" % (bool(sup) and first_is_sup, back, t.get("closeout_reported")))
+print("%s|%s|%s" % (bool(sup) and first_is_sup, back, t.get("status")))
 ' "$SG_WORK/b-replan/journal.ndjson" 2>/dev/null)"
 check "seven_gate: the replan/parallel fixture really carries a leading superseded row AND backwards finished_ts" \
-  "True|True|True" "$_sg_rp_shape"
+  "True|True|done" "$_sg_rp_shape"
 _sg_rp_out="$(python3 "$SG_DIR/judge.py" "$SG_WORK/b-replan" 2>&1)"; _sg_rp_rc=$?
 check "seven_gate: a replanned plan with a parallel group finishing out of order is GREEN (⑤ is not red on correct agent behaviour)" \
   "0" "$_sg_rp_rc"
@@ -2337,7 +2344,7 @@ fi
 # actors/live.sh would wait 30 + 120 + 1800 + 300 ≈ 2250s. On DEFAULTS the
 # collector stopped sampling ~22 minutes before the actor stopped working, so
 # every fact that landed after that instant was invisible to judge.py — and the
-# verdict it produced was 「回報收尾 FAIL」: A RED NAMING THE AGENT FOR THE
+# verdict it produced was 「按下結案 FAIL」: A RED NAMING THE AGENT FOR THE
 # HARNESS'S OWN GAP. The person who hit it worked around it by knowing to raise
 # OC_SG_MAX_SECONDS; the next person would not have known that flag existed.
 #

@@ -56,8 +56,8 @@ func TestVerifyDiffShareSig(t *testing.T) {
 func TestRouteSpecs(t *testing.T) {
 	api, _, _, _ := newAPITestServer(t)
 	specs := routeSpecs(&ServerInterfaceWrapper{Handler: api})
-	if len(specs) != 182 {
-		t.Fatalf("routeSpecs returned %d rows, want 182", len(specs))
+	if len(specs) != 183 {
+		t.Fatalf("routeSpecs returned %d rows, want 183", len(specs))
 	}
 
 	seen := make(map[string]bool, len(specs))
@@ -98,6 +98,10 @@ func TestRouteSpecs(t *testing.T) {
 		{method: http.MethodGet, path: "/api/version", auth: authPublic, requires: requiresPublic},
 		{method: http.MethodPost, path: "/api/mcp", auth: authGated, requires: principalMachine, exclude: true},
 		{method: http.MethodGet, path: "/api/release/check", auth: authGated, requires: principalAdminAgent, mcpTool: "check_release"},
+		{method: http.MethodPost, path: "/api/tasks/{task_id}/mark-done", auth: authGated, requires: principalAgent, mcpTool: "mark_task_done"},
+		{method: http.MethodPost, path: "/api/tasks/{task_id}/mark-terminated", auth: authGated, requires: principalAgent, mcpTool: "mark_task_terminated"},
+		{method: http.MethodPost, path: "/api/tasks/{task_id}/mark-duplicated", auth: authGated, requires: principalAgent, mcpTool: "mark_task_duplicated"},
+		{method: http.MethodPost, path: "/api/tasks/{task_id}/force-done", auth: authGated, requires: principalAdminAgent, mcpTool: "force_task_done"},
 	} {
 		t.Run(tc.method+" "+tc.path, func(t *testing.T) {
 			var got *RouteSpec
@@ -115,4 +119,19 @@ func TestRouteSpecs(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("the two tool names T-182 replaced are gone from the callable surface", func(t *testing.T) {
+		// MCPTool IS the live tool name (RouteSpec.toolName), so a row that
+		// kept its old name is a renamed tool that never renamed. Nothing else
+		// in this package reads these strings, which is why they are pinned
+		// here rather than left to the committed catalog.
+		for _, spec := range specs {
+			switch spec.toolName() {
+			case "terminate_task", "mark_duplicate":
+				t.Fatalf("route %s %s still answers to %q — it was replaced by "+
+					"mark_task_terminated / mark_task_duplicated",
+					spec.Method, spec.Path, spec.toolName())
+			}
+		}
+	})
 }

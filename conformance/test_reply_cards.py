@@ -869,7 +869,7 @@ def test_closing_a_task_retires_its_waiting_card(client, owner_token, asker):
     card_id = r.json()["id"]
     # The owner terminates the task under the still-waiting card → orphan.
     assert client.post(
-        f"/api/tasks/{task_id}/terminate", headers=_auth(owner_token)
+        f"/api/tasks/{task_id}/mark-terminated", headers=_auth(owner_token)
     ).status_code == 200
 
     # The close swept it: expired, off the waiting pane, unanswerable.

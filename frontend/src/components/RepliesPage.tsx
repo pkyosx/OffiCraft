@@ -686,7 +686,7 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   // The row itself lives in ReplyCardBody, shared with the inline chat card
   // (which moved in the same breath); only the route is ours.
   // The route carries the task id so the tasks page can locate the card
-  // (auto-expanding 已結束 / clearing hiding filters). A pure chat ask renders
+  // (auto-expanding 已結案 / clearing hiding filters). A pure chat ask renders
   // nothing here.
   function renderTaskRef(row: ReplyCardRow) {
     const task = row.task;

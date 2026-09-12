@@ -60,3 +60,4 @@ task_reassign_predecessor	global	false	true
 task_takeover_with_predecessor	global	false	true
 task_takeover_fresh	global	false	true
 task_unblocked	global	false	true
+task_ready_for_done	global	false	true

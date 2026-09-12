@@ -95,8 +95,8 @@ def sample(base, token, agent):
         tid = t.get("id")
         if not tid:
             continue
-        # The list DTO carries neither steps[] nor closeout_reported, and those
-        # are ④⑤⑦'s entire evidence — so every task is re-read in full.
+        # The list DTO carries no steps[], and those are ④⑤'s entire evidence
+        # (⑦ reads status/closed_ts) — so every task is re-read in full.
         full = get(base, token, "/api/tasks/" + tid)
         tasks.append(full if isinstance(full, dict) and full.get("id") else t)
     return {"t": round(time.time(), 3), "member": member, "chat": chat,
