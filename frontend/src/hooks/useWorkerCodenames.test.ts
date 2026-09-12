@@ -207,6 +207,29 @@ describe("useWorkerCodenames", () => {
     expect(result.current.get("ow-abc")?.taskTitle).toBe("還在做的那一張");
   });
 
+  it("a round whose reads REJECT still lifts the latch — the next delta is served", async () => {
+    // 🔴 The latch decides whether ANY future delta is served, so leaving it
+    // stuck means the line freezes on a stale fact with nothing to show for it.
+    //
+    // ⚠️ Measured: removing EITHER protection alone leaves this green, because
+    // each covers the other — a per-read handler that swallows the rejection,
+    // and a `finally` that lifts the latch even if one gets through. That is
+    // what the pair is for, and it is also why this assertion cannot tell you
+    // which one is load-bearing. Removing BOTH reddens exactly this case.
+    getOutsourceWorker.mockResolvedValueOnce({ id: "ow-abc", codename: "X-1", taskId: "T-9" });
+    renderHook(() => useWorkerCurrentTasks(["ow-abc"]));
+    await waitFor(() => expect(getOutsourceWorker).toHaveBeenCalledTimes(1));
+
+    getOutsourceWorker.mockRejectedValue(new Error("offline"));
+    await emit("task");
+    await waitFor(() => expect(getOutsourceWorker).toHaveBeenCalledTimes(2));
+
+    getOutsourceWorker.mockResolvedValue({ id: "ow-abc", codename: "X-1", taskId: "T-10" });
+    await emit("task");
+
+    await waitFor(() => expect(getOutsourceWorker).toHaveBeenCalledTimes(3));
+  });
+
   it("never re-reads an id that resolved to nothing — the negative cache still holds", async () => {
     getOutsourceWorker.mockRejectedValue(new Error("404"));
     const { result } = renderHook(() => useWorkerCurrentTasks(["ow-gone"]));

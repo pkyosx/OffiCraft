@@ -498,9 +498,9 @@ const REGISTRY = [
   {
     file: "hooks/useWorkerCodenames.ts",
     kind: "await",
-    count: 2,
+    count: 1,
     verdict:
-      "the T-196 refresh round, awaiting its per-id reads and then awaiting ONE trailing round when a burst overtook it. Both land in the same globally-keyed cache — a worker id names the same worker in every room — so a late landing writes what a fresh mount would write anyway. The round clears its in-flight latch before it can recurse, and `notifyAll` runs whether or not THIS hook is still mounted, because the other consumers of that cache are the ones holding the row it just replaced",
+      "the T-196 refresh round, awaiting its per-id reads inside a do/while that runs one more pass when a burst overtook it. Landings go to the same globally-keyed cache — a worker id names the same worker in every room — so a late landing writes what a fresh mount would write anyway. The round clears its in-flight latch before it can recurse, and `notifyAll` runs whether or not THIS hook is still mounted, because the other consumers of that cache are the ones holding the row it just replaced",
   },
   {
     file: "hooks/useWorkerCodenames.ts",

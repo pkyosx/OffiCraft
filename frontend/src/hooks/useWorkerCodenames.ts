@@ -163,19 +163,40 @@ export function useWorkerCurrentTasks(
      * arrived while it was in flight. */
     const runRound = async (): Promise<void> => {
       refreshingRef.current = true;
-      pendingRef.current = false;
-      const mine = wantedRef.current.filter((id) => cache.get(id));
-      await Promise.all(
-        mine.map((id) =>
-          api.getOutsourceWorker(id).then(
-            (w) => cache.set(id, w),
-            // Keep the last known row: a failed re-read is not evidence the
-            // worker is gone, and blanking the line would say it is.
-            () => {},
-          ),
-        ),
-      );
-      refreshingRef.current = false;
+      // 🔴 `finally`, not a line after the await. The latch decides whether ANY
+      // future delta is served, so the one way to lose the refresh for good is
+      // to leave it stuck true — and every read here currently settles, which
+      // makes that impossible by accident and trivial to reintroduce: deleting
+      // the "useless" empty reject handler below is enough, and the whole suite
+      // stays green while the line on screen freezes on a stale fact. The
+      // guarantee belongs to the latch, not to the callers that happen not to
+      // throw today. (Third-round review finding.)
+      try {
+        do {
+          pendingRef.current = false;
+          const mine = wantedRef.current.filter((id) => cache.get(id));
+          await Promise.all(
+            mine.map((id) =>
+              api.getOutsourceWorker(id).then(
+                (w) => cache.set(id, w),
+                // Keep the last known row: a failed re-read is not evidence the
+                // worker is gone, and blanking the line would say it is.
+                () => {},
+              ),
+            ),
+          );
+          settleRound();
+          // A burst that arrived mid-round is served by one more pass — a flat
+          // loop rather than recursion, so "one more, then stop" is the shape
+          // of the code and not a chain of pending promises.
+        } while (pendingRef.current);
+      } finally {
+        refreshingRef.current = false;
+      }
+    };
+
+    /** What every pass publishes once its reads have landed. */
+    const settleRound = () => {
       // The cache is shared and global, so this wakes EVERY mounted consumer
       // (codename / avatar) — `cache.size` does not move on an overwrite, so
       // nothing recomputes on its own. It runs even when THIS hook has since
@@ -184,7 +205,6 @@ export function useWorkerCurrentTasks(
       // notifies rather than mutating quietly.
       notifyAll();
       if (alive) setTick((n) => n + 1);
-      if (pendingRef.current) await runRound();
     };
 
     const unsubscribe = api.subscribeEvents(

@@ -231,6 +231,20 @@ describe("RepliesPage — the asking outsource worker's current task", () => {
     expect(queryByTestId("reply-card-task-title-rc-1")).toBeNull();
   });
 
+  it("a worker that is assigned but has not started yet still shows its task", async () => {
+    // `assigned` is a real minted status, not a synonym for `active`: leaving it
+    // out of the allowlist would hide the line for a worker that genuinely holds
+    // the task it is about to start.
+    workerRows = [mkWorker({ status: "assigned" })];
+    __injectMockReplyCard(mkCard({}));
+
+    const { findByTestId } = renderPage();
+
+    expect((await findByTestId("reply-card-rc-1-task-ow-a")).textContent).toBe(
+      "T-42",
+    );
+  });
+
   it("an UNKNOWN status shows nothing either — the check is an allowlist, not a list of the terminal ones", async () => {
     // Naming the terminal status instead would be a prediction: the next
     // terminal state added server-side would arrive here as a live-looking row.
