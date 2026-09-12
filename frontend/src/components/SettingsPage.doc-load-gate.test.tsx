@@ -9,7 +9,7 @@
 // is deliberate), which is exactly the flag that waives the T-2d99 wipe guard.
 //
 // So the guard has to sit where the intent is actually known: you cannot edit
-// what has not arrived. LessonsCard already gates its pencil on
+// what has not arrived. InsightCard already gates its pencil on
 // `loading || error`; DocDetail was the one editable doc surface that did not.
 //
 // This test hangs getGlobalContext forever, so the 使用者自訂 block stays null

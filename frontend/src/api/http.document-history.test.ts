@@ -15,8 +15,8 @@
 // The two things that can silently drift here are the METHOD (a restore is a
 // POST on its own sub-path, not a PUT on the revision) and how a key
 // containing "::" is placed — it is ONE path segment, so a naive split would
-// address a route that does not exist. Lessons keys stopped carrying "::" in
-// T-2, which is exactly why the fixture below still uses one: the encoding
+// address a route that does not exist. No shipped kind mints a "::" key any
+// more, which is exactly why the fixture below still uses one: the encoding
 // rule outlived the key shape that motivated it, and nothing else in this
 // suite would notice if it broke.
 
@@ -148,11 +148,9 @@ describe("httpApi · document-history wire methods", () => {
     await httpApi.listDocumentHistory("role_definition", "assistant::general");
     const { url } = await lastCall();
     // "::" is not a path separator here: a document key is ONE segment whatever
-    // it contains, and the cockpit must not split it into two. (The kind here is
-    // deliberately not lessons — T-2 removed the task_type axis, so a lessons key
-    // carrying "::" is refused by the server with a 400. This test is about URL
-    // construction, not about which keys are legal; api_document_history_lessons_key_t2_test.go
-    // owns that.)
+    // it contains, and the cockpit must not split it into two. This test is
+    // about URL construction, not about which keys are legal — the server owns
+    // that.
     expect(decodeURIComponent(url)).toBe(
       "/api/document-history/role_definition/assistant::general"
     );

@@ -160,7 +160,7 @@ func resolvePrincipal(claims map[string]any, lookup func(id string) (*Member, er
 //
 // ⚠️ THE ORIGINAL REASON WAS STRONGER THAN THE ONE THAT REMAINS. It used to be
 // that a released worker was still WORKING — the close-out contract kept its
-// session alive to write learnings and file a close-out report — so a
+// session alive to file a close-out report — so a
 // roster-keyed gate would have killed every outsource close-out in the fleet.
 // T-182 removed that window: the close dismisses the worker outright, so a
 // released worker is a worker on its way out. The scope restriction stays

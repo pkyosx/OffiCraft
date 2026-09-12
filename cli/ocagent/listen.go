@@ -618,8 +618,8 @@ func handleDirectedBand(frame map[string]any, out io.Writer) {
 			line = fmt.Sprintf("agent token expires in %ss — checkpoint this turn, then call restart_self",
 				get("expires_in"))
 		case taskCloseTopic:
-			line = fmt.Sprintf("task %s (type=%s) closed (%s) — fold this run's "+
-				"learnings into the current manual as an anchor-addressed patch (patch_task_learnings)",
+			line = fmt.Sprintf("task %s (type=%s) closed (%s) — walk your close-out: "+
+				"clean this run's scratch, then report_task_closeout",
 				get("task_no"), get("type"), get("status"))
 		}
 	}

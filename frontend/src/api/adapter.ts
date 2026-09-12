@@ -34,7 +34,6 @@ import type {
   RoleSummaryView,
   RoleDefView,
   BootstrapView,
-  LessonsView,
   InsightView,
   OnboardResultView,
   DeleteResultView,
@@ -954,15 +953,15 @@ export type ManualAssigneeView =
   | null;
 
 /** ONE ROW of the manuals list (任務手冊 — a task type / playbook) WITHOUT its
- * two long documents: the guided definition's short answers (Q1 purpose / Q2
- * fields), the 負責成員 assignee setting, and how big the SOP and the 學習經驗
- * are. NO internal filename anywhere — manuals are presented as content, not
+ * long document: the guided definition's short answers (Q1 purpose / Q2
+ * fields), the 負責成員 assignee setting, and how big the SOP is.
+ * NO internal filename anywhere — manuals are presented as content, not
  * files (spec §5.2 note).
  *
  * 🔴 T-1170 split this off `TaskManualView`. `GET /api/task-manuals` now
- * answers what `?view=list` used to: `sop_md` / `learnings` are NOT on the
- * wire, only their char counts and the caps in force. The two sub-pages that
- * render those documents read them through `useTaskManual`
+ * answers what `?view=list` used to: `sop_md` is NOT on the wire, only its
+ * char count and the cap in force. The sub-page that renders that document
+ * reads it through `useTaskManual`
  * (`GET /api/task-manuals/{type_key}`). */
 export interface TaskManualSummaryView {
   typeKey: string;
@@ -975,29 +974,21 @@ export interface TaskManualSummaryView {
   assignee: ManualAssigneeView;
   updatedTs: number;
   /** Size of the STORED SOP in CHARACTERS (Unicode code points), and the cap in
-   * force for it. Both are measured/answered PER MANUAL by the server, and the
-   * two documents are judged against SEPARATE caps (T-30f1) — on a live station
-   * they differ (18000 / 17000 measured 2026-09-06), so neither may be folded
-   * into the other nor into `DOC_CAP_CHARS_DEFAULTS`, which only carries the
+   * force for it. Both are measured/answered PER MANUAL by the server, so
+   * neither may be folded into `DOC_CAP_CHARS_DEFAULTS`, which only carries the
    * shipped fallback. The cap here is the SAME number the server refuses a
    * write against (`manualSopCap()`), which is what makes it safe to show as a
    * budget rather than as a hint. */
   sopMdChars: number;
   sopMdCapChars: number;
-  /** The 學習經驗 pair, same rules as the SOP pair above and its OWN cap. */
-  learningsChars: number;
-  learningsCapChars: number;
 }
 
-/** One FULL task manual — a list row plus the two long documents it sizes
- * (Q3 SOP markdown, and the accumulated 學習經驗 agents write back on task
- * close). Answered by `GET /api/task-manuals/{type_key}` and by every manual
- * write; never by the list. */
+/** One FULL task manual — a list row plus the long document it sizes
+ * (Q3 SOP markdown). Answered by `GET /api/task-manuals/{type_key}` and by
+ * every manual write; never by the list. */
 export interface TaskManualView extends TaskManualSummaryView {
   /** Q3 該怎麼做 — the SOP markdown the AI plans the workflow from. */
   sopMd: string;
-  /** 學習經驗 — agent write-back on task close; owner-editable too. */
-  learnings: string;
 }
 
 /** One product-guide doc row (使用說明 tab landing): the addressable slug +
@@ -1024,7 +1015,6 @@ export interface TaskManualPatch {
   purpose?: string;
   fields?: TaskManualFieldView[];
   sopMd?: string;
-  learnings?: string;
   assignee?: ManualAssigneeView;
 }
 
@@ -1142,18 +1132,16 @@ export interface ServerSettingsView {
    * PAUSED — the panel annotates it). */
   outsourceMaxParallel: number;
   /** T-3aeb / T-ae38 / T-30f1: the independent size caps on the accumulating
-   * documents, in CHARACTERS (runes) — a role's Duty (role definition),
-   * Insight, Learning (the lessons doc), and a task manual's sop_md and
-   * learnings, which answer to one cap EACH. The shipped defaults live in
+   * documents, in CHARACTERS (runes) — a role's Duty (role definition), its
+   * Insight, and a task manual's sop_md, which answer to one cap EACH. The
+   * shipped defaults live in
    * `DOC_CAP_CHARS_DEFAULTS` (docCap.ts, mirroring server/ocserverd/domain.go);
    * Duty's is deliberately much smaller than every other one. Each floor IS that segment's own
    * default and the ceiling is 100000, so a cap only ever goes UP. Numbers are
    * not restated here — they are owner-adjustable settings. */
   docCapCharsDuty: number;
   docCapCharsInsight: number;
-  docCapCharsLearning: number;
   docCapCharsManualSop: number;
-  docCapCharsManualLearnings: number;
   /** T-791e: the two boot-context blocks' caps, on the SAME settings surface
    * and in the same rune unit. `docCapCharsBootSequence` is ONE number across
    * both runtimes — claude and codex are two documents of one block, each
@@ -1177,7 +1165,7 @@ export interface ServerSettingsView {
   stepNoteCapChars: number;
   /** T-33: the four 傳承 knobs. The first two are FOLD budgets — how much 傳承 a
    * staff boot document carries for one role, and how much `get_task_manual`
-   * appends after a type's learnings. They are never summed: different readers
+   * appends after a type's SOP. They are never summed: different readers
    * pay them at different moments. The last two bound ONE entry's title and
    * body at write time.
    * NOT document caps — a 傳承 entry has no edit path, so a lowered cap cannot
@@ -1295,9 +1283,7 @@ export interface ServerSettingsPatch {
    * floor, so every one of them may be lowered as well as raised. */
   docCapCharsDuty?: number;
   docCapCharsInsight?: number;
-  docCapCharsLearning?: number;
   docCapCharsManualSop?: number;
-  docCapCharsManualLearnings?: number;
   /** T-791e boot-context caps, same range rule. Editable because the version
    * list judges an old revision against these — a cap the cockpit can read but
    * never write would leave the one number the marking depends on unreachable
@@ -2587,11 +2573,11 @@ export interface Api {
   // ── Task manuals (設定 › 任務手冊, SPEC §5) ────────────────────────────────
   /** List the manuals as a DIRECTORY (`GET /api/task-manuals`) — the 任務手冊
    * list page (type cards: 類型名 + 用途摘要). 出廠不含任何類型 (honest empty
-   * list). T-1170: `sop_md` / `learnings` are NOT in this answer, only their
-   * sizes; the body comes from `getTaskManual`. */
+   * list). T-1170: `sop_md` is NOT in this answer, only its size; the body
+   * comes from `getTaskManual`. */
   listTaskManuals(): Promise<TaskManualSummaryView[]>;
   /** Read ONE manual in full (`GET /api/task-manuals/{type_key}`) — the detail
-   * page's 任務定義/學習經驗 tabs + 負責成員 card. Unknown → 404 (throws). */
+   * page's 任務定義 tab + 負責成員 card. Unknown → 404 (throws). */
   getTaskManual(typeKey: string): Promise<TaskManualView>;
   /** Create one task type as a BLANK manual (`POST /api/task-manuals`
    * {type_key}). Duplicate type_key → 409, blank → 422 (both throw ApiError).
@@ -2845,18 +2831,18 @@ export interface Api {
    */
   createRole(input: RoleCreateInput): Promise<RoleCreateResult>;
   /**
-   * HARD-delete a CUSTOM role + its members + their conversations / receipts /
-   * lessons (`DELETE /api/roles/{key}`, M2-2). Server-side 防線 (not UI-only):
+   * HARD-delete a CUSTOM role + its members + their conversations / receipts
+   * (`DELETE /api/roles/{key}`, M2-2). Server-side 防線 (not UI-only):
    * a seed role → 403; ANY member of the role online → 409 (the caller surfaces
    * 「有成員在線上，無法刪除」); unknown → 404. All three reject (throw). On
-   * success the role row, its members and their chat/receipts/lessons are
+   * success the role row, its members and their chat/receipts are
    * PHYSICALLY gone — the caller refetches roles + members.
    */
   deleteRole(key: string): Promise<void>;
 
   /**
    * Preview a member's initial boot prompt from /api/bootstrap — 系統互動 ⊕
-   * global context ⊕ role definition ⊕ insight ⊕ lessons ⊕ 啟動步驟, every
+   * global context ⊕ role definition ⊕ insight ⊕ 啟動步驟, every
    * document FOLDED (the owner's edit wins, the seed is what an unedited
    * installation folds to). Pass the ROLE key (NOT a member_id) so the server
    * mints NO token: a UI preview must never receive an agent credential
@@ -2866,25 +2852,9 @@ export interface Api {
    */
   getBootstrap(role: string): Promise<BootstrapView>;
   /**
-   * The folded PER-ROLE lessons doc for a `roleKey`. `roleKey` is the WHOLE
-   * address — T-2 removed the `task_type` axis. Agents sharing a role share
-   * the accumulated lessons.
-   */
-  getLessons(roleKey: string): Promise<LessonsView>;
-  /**
-   * Whole-doc replace of the PER-ROLE lessons for a `roleKey`. The write
-   * answers with a bounded receipt (T-91), not the folded doc; read it back
-   * with `getLessons` (`isDefault` flips false there). Backend contract is POST
-   * (NOT the PUT/DELETE the global-context save uses). WRITE authz is per-role
-   * and keyed on the PRINCIPAL CLASS, not the token scope (T-5336): a caller at
-   * or above admin_agent — the owner (this UI's scope) and the admin agent —
-   * may write ANY role; every other agent may write only its own role.
-   */
-  saveLessons(roleKey: string, text: string): Promise<void>;
-  /**
    * The folded PER-ROLE insight doc for a `roleKey` (T-3809) — the role
-   * journal's third block, beside Duty and Learning. No file seed, so an
-   * untouched doc reads as genuinely empty.
+   * journal's second block, beside Duty. No file seed, so an untouched doc
+   * reads as genuinely empty.
    *
    * READ IS UNRESTRICTED and that is deliberate: any authenticated identity may
    * read ANY role's insight. Insight is SEPARATE, not private — this release
@@ -2897,8 +2867,7 @@ export interface Api {
    * (`isDefault` flips false there). WRITE authz is per-role and keyed on the
    * PRINCIPAL CLASS: a caller at or above admin_agent — the owner (this UI's
    * scope) and the admin agent — may write ANY role; every other agent may
-   * write only its own role, and the 403 names `insight` rather than borrowing
-   * the lessons wording.
+   * write only its own role, and the 403 names `insight`.
    */
   saveInsight(roleKey: string, text: string): Promise<void>;
   /**
@@ -2950,7 +2919,7 @@ export interface Api {
    * READ-ONLY: this is what makes 初始版本 comparable BEFORE its restore, which
    * is the one restore in the list that throws away everything the owner ever
    * wrote. Rejects with a 404 `ApiError` for a document that has no default
-   * (a custom role, a task manual, per-role lessons) — the same documents whose
+   * (a custom role, a task manual) — the same documents whose
    * reset the server 404s, and the same ones whose 初始版本 row is not drawn.
    */
   getDocumentSeed(kind: DocumentKind, key: string): Promise<DocumentSeedView>;

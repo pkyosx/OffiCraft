@@ -73,7 +73,7 @@ describe("createDeltaSink", () => {
     const batches: DeltaBatch[] = [];
     const sink = createDeltaSink((b) => batches.push(b));
     sink("chat", delta("chat", { id: "cm-1" }));
-    sink("lessons", delta("lessons")); // payload null on the wire
+    sink("insight", delta("insight")); // payload null on the wire
     await flush();
     expect(batches[0].unnamed).toBe(true);
   });

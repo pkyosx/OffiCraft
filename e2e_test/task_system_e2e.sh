@@ -463,7 +463,6 @@ print(json.dumps({
     {"name": "number",      "required": True, "is_key": False},
   ],
   "sop_md": sys.argv[1],
-  "learnings": "",
 }))
 ' "$A1_SOP")"
 A1_PATCH="$(api_post_logged "/api/task-manuals/$SYNTH_TYPE" "$A1_CONTENT" || echo '{}')"
@@ -502,7 +501,7 @@ ADMIN_TOKEN="$(printf '%s' "$ADMIN_MINT" | json_field token)"
   || fail_stage "POST /api/mint {member_id:$TEST_AGENT,ttl_days:1} returned no .token — mint route/seed-member floor regressed (mint is owner-gated + works for the seeded assistant on a fresh install @9111cef)"
 
 # (a) a PLAIN member PATCHing a CONTENT-ONLY body must succeed (agent floor).
-AF_OK="$(post_as_token "$PLAIN_TOKEN" "/api/task-manuals/$SYNTH_TYPE" '{"learnings":"agent-authored note"}')"
+AF_OK="$(post_as_token "$PLAIN_TOKEN" "/api/task-manuals/$SYNTH_TYPE" '{"purpose":"agent-authored purpose"}')"
 AF_OK_CODE="${AF_OK##*$'\n'}"
 [[ "$AF_OK_CODE" =~ ^2[0-9][0-9]$ ]] \
   || fail_stage "plain-member content PATCH expected 2xx, got $AF_OK_CODE — 9111cef agent-author floor regressed"
@@ -953,7 +952,6 @@ print(json.dumps({
     {"name": "sum_file", "required": True, "is_key": False},
   ],
   "sop_md": sys.argv[1],
-  "learnings": "",
 }))
 ' "$D_SOP")"
 api_post_logged "/api/task-manuals/$FORK_TYPE" "$D_CONTENT" >/dev/null \

@@ -1,16 +1,12 @@
 // hooks/useInsight.ts — load + mutate the folded PER-ROLE insight doc for one
-// role_key (T-3809). The role journal's third block, beside Duty (the role
-// definition) and Learning (the lessons doc).
+// role_key (T-3809). The role journal's second block, beside Duty (the role
+// definition).
 //
-// Shaped after useLessons, with one deliberate difference:
+//  * The view it returns KEEPS size_chars / cap_chars: the cap is the number
+//     the card header shows, and it is the only place an owner can read the
+//     live doc.cap_chars.insight setting without being admin.
 //
-//  * The view it returns KEEPS size_chars / cap_chars. useLessons drops the
-//     wire's bookkeeping fields as noise; here the cap is the number the card
-//     header shows, and it is the only place an owner can read the live
-//     doc.cap_chars.insight setting without being admin.
-//
-// Reconcile-by-refetch on the "insight" SSE topic, same posture as useLessons on
-// "lessons". 🔴 That subscription is the ONLY thing that makes a restore
+// Reconcile-by-refetch on the "insight" SSE topic. 🔴 That subscription is the ONLY thing that makes a restore
 // performed on another surface show up here without a page reload, and nothing
 // in CI proves it is wired: the server-side test proves the frame is PUBLISHED,
 // not that this hook hears it. If you are editing this file, that is the line

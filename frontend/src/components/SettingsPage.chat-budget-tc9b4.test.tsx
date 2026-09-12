@@ -65,7 +65,7 @@ describe("T-c9b4 — the wake chat budget is an adjustable setting", () => {
     const after = await mockApi.getServerSettings();
     expect(after.chatBudgetChars).toBe(9000);
     expect(after.docCapCharsDuty).toBe(DOC_CAP_CHARS_DEFAULTS.duty);
-    expect(after.docCapCharsLearning).toBe(DOC_CAP_CHARS_DEFAULTS.learning);
+    expect(after.docCapCharsInsight).toBe(DOC_CAP_CHARS_DEFAULTS.insight);
   });
 
   it("accepts a value BELOW the shipped default — the knob turns down", async () => {

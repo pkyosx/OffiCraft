@@ -679,12 +679,12 @@ export const zh = {
     terminalUnavailable: "這個版本的伺服器沒有提供接上終端的指令。",
     // 初始 PROMPT 預覽（boot-context）：外包沒存派工當下的逐字 persona，伺服器
     // 用同一套組裝即時重組，故 hint 與 note 都要誠實標明「目前版本」。
-    // T-4595 起這份就是正職那份扣掉整個 persona——角色說明、判準、長期筆記
-    // （外包沒有角色，這三份都跟著沒有）——裡面不含任務也不含手冊 —— 舊文案寫
+    // T-4595 起這份就是正職那份扣掉整個 persona——角色說明、判準
+    // （外包沒有角色，這兩份都跟著沒有）——裡面不含任務也不含手冊 —— 舊文案寫
     // 「依目前任務與手冊重組」已經是假的。
     initialPromptHint: "目前版本重組",
     initialPromptNote:
-      "此為依目前開機說明即時重組的預覽，非派工當下的逐字版本（開機說明事後修改過會有差異）。內容就是正職那份扣掉整個 persona（角色說明、判準、長期筆記）——外包沒有角色，這三份都跟著沒有；任務與手冊不在裡面，它開機後自己去領。",
+      "此為依目前開機說明即時重組的預覽，非派工當下的逐字版本（開機說明事後修改過會有差異）。內容就是正職那份扣掉整個 persona（角色說明、判準）——外包沒有角色，這兩份都跟著沒有；任務與手冊不在裡面，它開機後自己去領。",
     dash: "—",
   },
   // ── Layer-4 lifecycle UI (aligned to backend's real five-state presence) ──
@@ -1257,15 +1257,8 @@ export const zh = {
     promptLoading: "載入中…",
     promptError: "讀取初始 PROMPT 失敗",
     promptRetry: "重試",
-    lessons: "過往學習經驗",
     expandableHint: "下次喚醒／聚焦生效",
-    lessonsLoading: "載入中…",
-    lessonsError: "讀取學習經驗失敗",
-    lessonsEmpty: "尚無學習經驗。",
-    lessonsShared: "此角色的學習經驗(同一角色的成員共用)。",
-    lessonsSaveError: "儲存學習經驗失敗",
-    // ── 判準 Insight（T-3809）——角色誌的第三塊。刻意不寫成學習經驗的變體:
-    // 本票存在的理由就是「這個角色怎麼權衡」與「上次發生了什麼」不是同一份文件。──
+    // ── 判準 Insight（T-3809）——角色誌的第二塊。──
     insight: "判準(Insight)",
     insightLoading: "載入中…",
     insightError: "讀取判準失敗",
@@ -2054,14 +2047,12 @@ export const zh = {
     historyDefaultUnreadable:
       "這個版本當時採用出廠預設內容,但預設內容目前讀不到,暫時無法顯示或比較;還原這個版本仍然可以執行。",
     historyClose: "關閉",
-    // 一頁上同時放著兩份可編輯長文時（角色誌＝角色定義＋學習經驗），標題只寫
+    // 一頁上同時放著兩份可編輯長文時（角色誌＝角色定義＋判準），標題只寫
     // 「版本紀錄」看不出管的是哪一份——卡片得自己講清楚。owner 2026-07-31 實際
     // 在畫面上踩到這件事。
     historyRoleDefTitle: "角色定義的版本紀錄",
-    historyLessonsTitle: "學習經驗的版本紀錄",
     historyInsightTitle: "判準(Insight)的版本紀錄",
     historyGlobalTitle: "全域情境的版本紀錄",
-    historyManualLearningsTitle: "學習經驗的版本紀錄",
     // 任務定義頁：purpose／識別鍵已經不再留版本，卡片得說清楚它只代表 SOP。
     historySopTitle: "SOP 版本紀錄",
     historySopSub:
@@ -2073,7 +2064,6 @@ export const zh = {
       purpose: "用途",
       fields: "欄位",
       sop_md: "SOP",
-      learnings: "學習經驗",
     },
     // doc filenames
     // Honest load-failure notice — shown when the role/global-context fetch
@@ -2090,7 +2080,7 @@ export const zh = {
     deleteRole: "刪除",
     deleteRoleConfirmLead: "確定刪除角色「",
     deleteRoleConfirmTail:
-      "」？該角色的成員及其對話、學習經驗將一併移除，無法復原。",
+      "」？該角色的成員及其對話將一併移除，無法復原。",
     deleteRoleConfirmAction: "確認刪除",
     deleteRoleOnline: "有成員在線上，無法刪除",
     deleteRoleError: "刪除失敗，請稍後重試",
@@ -2125,22 +2115,16 @@ export const zh = {
       "一台機器的憑證能活多久——這就是蓋在憑證上的到期時間，也是每台機器換發時對照的那個數字。每台機器會在自己的憑證用掉三分之二的時候自己換一張新的，並隨機錯開最多一小時，避免整批機器同一刻一起換。錯過剩下那三分之一的機器只能靠人重裝。調小不會縮短任何已經發出去的憑證（86400–34560000）",
     rounds: "次",
     // T-ae38 起(T-30f1 又拆過一次):上限不再是一個。這些文件被刪掉的成本差很多
-    // ——角色定義是常設說明、學習經驗是逐次累積的環境問答——所以不再共用同一把尺。
+    // ——角色定義是常設說明、判準是逐次累積的權衡——所以不再共用同一把尺。
     docCapDuty: "角色定義字數上限",
     docCapDutySub:
       "一個角色的角色定義的字數上限（出廠預設比其餘每一段都小）。下限 100、上限 100000，兩個方向都能調——調低不會截斷任何已經存下來的角色定義，也不會讓它讀不回來，只約束下一次寫入；已經超過上限的那幾份，只要新版比舊版短就仍然寫得進去。",
     docCapInsight: "Insight 字數上限",
     docCapInsightSub:
       "一個角色的 Insight 的字數上限。下限 100、上限 100000，兩個方向都能調——調低只約束下一次寫入，已經存下來的內容不會被截斷，也照樣讀得回來；已經超過上限的，只要新版比舊版短就仍然寫得進去。",
-    docCapLearning: "學習經驗字數上限",
-    docCapLearningSub:
-      "一個角色的學習經驗的字數上限。下限 100、上限 100000，兩個方向都能調——調低只約束下一次寫入，已經存下來的內容不會被截斷，也照樣讀得回來；已經超過上限的，只要新版比舊版短就仍然寫得進去。",
     docCapManualSop: "任務手冊 SOP 字數上限",
     docCapManualSopSub:
-      "任務手冊的 SOP（做法藍圖）的字數上限。與下面那格各自獨立——SOP 是改寫收斂的藍圖，學習經驗是持續累積的紀錄，一個數字只能對其中一份是對的。下限 100、上限 100000，兩個方向都能調——調低只約束下一次寫入，已經存下來的 SOP 不會被截斷，也照樣讀得回來；已經超過上限的，只要新版比舊版短就仍然寫得進去。",
-    docCapManualLearnings: "任務手冊學習經驗字數上限",
-    docCapManualLearningsSub:
-      "任務手冊的學習經驗的字數上限，與上面的 SOP 那格各自獨立。下限 100、上限 100000，兩個方向都能調——調低只約束下一次寫入，已經存下來的內容不會被截斷，也照樣讀得回來；已經超過上限的，只要新版比舊版短就仍然寫得進去。",
+      "任務手冊的 SOP（做法藍圖）的字數上限。下限 100、上限 100000，兩個方向都能調——調低只約束下一次寫入，已經存下來的 SOP 不會被截斷，也照樣讀得回來；已經超過上限的，只要新版比舊版短就仍然寫得進去。",
     // T-c9b4:喚醒快照的聊天區塊預算。刻意不跟上面那幾格共用一段說明——兩個方向
     // 都能調這件事現在兩邊一樣(owner 2026-09-07 把那幾格的下限一律改成 100),
     // 但上下限的數字不同,而且那幾格管的是存起來的文件、這一格管的是每次重新
@@ -2197,7 +2181,7 @@ export const zh = {
       "一個成員的開機檔裡，傳承那一段最多載入多少字；正職讀到的是他角色的傳承，外包讀到的是他自己寫的。裝不下的整筆不載入，不會被截斷，也不會有任何錯誤訊息。與下面的任務傳承各自獨立，兩個數字不相加。可以調低——條目不能編輯，調低只影響下次載入哪幾筆，不會弄壞任何已經寫好的條目。",
     loreCapManual: "任務傳承字數上限",
     loreCapManualSub:
-      "讀一本任務手冊時，接在學習經驗後面的傳承最多多少字。這一段不進任何人的開機檔，正職與外包一視同仁。與上面的成員傳承各自獨立。可以調低。",
+      "讀一本任務手冊時，接在 SOP 後面的傳承最多多少字。這一段不進任何人的開機檔，正職與外包一視同仁。與上面的成員傳承各自獨立。可以調低。",
     loreCapTitle: "傳承標題字數上限",
     loreCapTitleSub:
       "一筆傳承的標題最多幾個字。超過的寫入會被拒絕,一個字都不會寫進去。可以調低,調低只擋接下來的寫入,已經存好的條目不受影響。",
@@ -2233,14 +2217,13 @@ export const zh = {
     deleteManual: "刪除",
     deleteManualConfirmLead: "確定刪除任務類型「",
     deleteManualConfirmTail:
-      "」？其手冊（定義、SOP、學習經驗）將一併移除，無法復原。",
+      "」？其手冊（定義、SOP）將一併移除，無法復原。",
     deleteManualConfirmAction: "確認刪除",
     // 有非終態任務 → server 409;講人話
     deleteManualOpenTasks: "這個類型還有未結束的任務，先讓它們結束才能刪除",
     deleteManualError: "刪除失敗，請稍後重試",
     // 詳情頁籤
     manualTabDefinition: "任務定義",
-    manualTabLearnings: "學習經驗",
     // 任務定義三題（§5.2 引導式定義表）
     manualDisplayName: "顯示名稱",
     manualDisplayNamePlaceholder: "取個好懂的名字（留空就顯示內部 ID）…",
@@ -2264,8 +2247,6 @@ export const zh = {
     manualAddField: "新增欄位",
     manualRemoveField: "刪除欄位",
     manualNoFields: "尚未定義欄位",
-    manualLearningsHint:
-      "該類型累積的回饋與修正，跨任務沿用；agent 於任務結束時回寫，你也可手動增修。",
     manualSaveError: "儲存失敗，請稍後重試",
     // 負責成員設定卡（執行者在任務建立時由手冊決定;外包的模型/投入度/份數
     // 也在這裡設定，指派本身一律由伺服器執行）
@@ -2301,7 +2282,6 @@ export const zh = {
     // 任務規劃段（hub 的兩張子頁入口卡）
     manualPlanningSection: "任務規劃",
     manualDefEntrySub: "這是什麼任務、需要哪些資訊、該怎麼做",
-    manualLearnEntrySub: "過往任務累積的回饋與修正",
   },
 };
 

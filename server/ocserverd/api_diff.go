@@ -248,12 +248,6 @@ func (s *apiServer) currentDocumentContent(kind, key string) (map[string]string,
 			return nil, false, err
 		}
 		return one("definition_md", folded.DefinitionMD, nil)
-	case "lessons":
-		folded, err := s.foldLessonsDTO(key)
-		if err != nil || folded == nil {
-			return nil, false, err
-		}
-		return one("text", folded.Text, nil)
 	case "insight":
 		folded, err := s.foldInsightDTO(key)
 		if err != nil || folded == nil {
@@ -275,15 +269,12 @@ func (s *apiServer) currentDocumentContent(kind, key string) (map[string]string,
 		// `text`, the WHOLE stored document — the same half bootDocHistorySnapshot
 		// retains, so a `current` side and a revision side are comparable.
 		return one("text", folded.Text, nil)
-	case docKindTaskManualSop, docKindTaskManualLearnings:
+	case docKindTaskManualSop:
 		manual, err := s.dal.GetTaskManual(key)
 		if err != nil || manual == nil {
 			return nil, false, err
 		}
-		if kind == docKindTaskManualSop {
-			return one("sop_md", manual.SopMD, nil)
-		}
-		return one("learnings", manual.Learnings, nil)
+		return one("sop_md", manual.SopMD, nil)
 	case docKindTaskDescription, docKindTaskTitle:
 		t, err := s.resolveTask(key)
 		if err != nil || t == nil {

@@ -701,7 +701,7 @@ func (s *apiServer) closeTask(t *Task, status string, now float64, trigger strin
 	// 🔴 WHY NO DOOR OPTS OUT, including force_task_done. A terminal task refuses
 	// every write the worker could still make on it, so a worker left alive past
 	// the close has nothing it is PERMITTED to do — keeping it is not mercy, it
-	// is quota. The close-out work (learnings, deliverables, step notes) has its
+	// is quota. The close-out work (deliverables, step notes) has its
 	// own window now and it is BEFORE this call: `ready_for_done`, which the task
 	// sits in until somebody presses mark_task_done. That is the whole reason the
 	// session no longer needs to outlive the close.
@@ -721,7 +721,7 @@ func (s *apiServer) closeTask(t *Task, status string, now float64, trigger strin
 	// actually happen. Best-effort; never fails the close.
 	s.releaseDependentsOnClose(*t, now, trigger)
 	// Task-close nudge band (spec/sse.md §8): remind the executor down its own
-	// SSE connection to fold this run's learnings back into the type's manual.
+	// SSE connection to walk the close-out.
 	// Typed tasks only (ad-hoc has no manual); done AND terminated both nudge.
 	// Best-effort — a fan failure must never fail the close it follows.
 	// T-7870 — THE WORDS COME FROM THE DOCUMENT, and this is the only place they
@@ -805,8 +805,7 @@ func nameWithIDSlot(label, id string) string {
 // 🔴 IT NO LONGER CLOSES ANYTHING (T-182). This function used to answer "every
 // step done" by calling closeTask, which is what made the last step report also
 // the moment the task went terminal — and therefore the moment the close-out
-// writes (pin the deliverables, finish the step notes, write the learnings
-// back) all turned into 409s. A finished step set now derives to
+// writes (pin the deliverables, finish the step notes) all turned into 409s. A finished step set now derives to
 // ready_for_done, which is OPEN, and the task stays there until somebody calls
 // mark_task_done. Derivation derives; closing is an action.
 func (s *apiServer) deriveAndPersistTask(t *Task, now float64, trigger string) error {
@@ -2786,9 +2785,10 @@ func (s *apiServer) HandleSubmitTaskPlanApiTasksTaskIdPlanPost(w http.ResponseWr
 // the agent status-report path: whoever executes a duplicate shell closes it
 // themselves rather than leaving the owner to terminate each by hand. duplicated
 // is a third terminal status (closeTask stamps closed_ts + releases bound
-// outsource workers) but it does NOT nudge the learnings write-back — a
-// duplicate has no lessons (decideTaskCloseNudge excludes it). The executor
-// guard applies (owner/admin may act on any task). Validation keeps the
+// outsource workers) and its executor IS nudged: T-02c9 skipped the notice on
+// the reasoning that a duplicate has nothing to fold back, and T-91 reversed
+// that — the subject is 「你的票關掉了」, which is true of a duplicate too. The
+// executor guard applies (owner/admin may act on any task). Validation keeps the
 // duplicate graph DEPTH-1 so the cockpit "重複於 <task id>" link resolves in one hop:
 //   - the task must be non-terminal (else 409 — already closed), which since
 //     T-182 explicitly INCLUDES ready_for_done: a task can turn out to be a

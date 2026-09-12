@@ -52,14 +52,14 @@ initialize/thread start terminates the session visibly for normal OffiCraft reco
 ## Global context: one policy, runtime-selected boot tails
 
 OffiCraft keeps one canonical Global Context. Governance, identity, MCP, chat, reply cards,
-tasks, lessons/manuals, lifecycle semantics, and `ocagent` commands are provider-neutral
+tasks, manuals, lifecycle semantics, and `ocagent` commands are provider-neutral
 and must not be copied into separate Claude and Codex personas. Only the small, read-only
 Boot Sequence is runtime-specific, because listener ownership and the readiness boundary
 genuinely differ:
 
 ```text
 shared Global Context
-  + role / lessons / owner additions
+  + role / insight / owner additions
   + actor boot semantics (member or outsource)
   + runtime boot sequence (Claude or Codex)
 ```

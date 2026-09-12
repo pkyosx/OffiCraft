@@ -57,17 +57,17 @@ describe("T-119 — the step note size cap is an adjustable setting", () => {
   });
 
   // The owner reviewed the shipped row and asked for this position by name:
-  // directly under the task-manual learnings cap, so the size caps read as one
+  // directly under the last task-manual cap, so the size caps read as one
   // group. That is an acceptance condition, not styling — styling someone says
   // again, an acceptance condition nobody says twice once it has been signed
   // off. Nothing else here would notice the row drifting back down the page.
-  it("sits directly under the task-manual learnings cap", async () => {
+  it("sits directly under the task-manual SOP cap", async () => {
     const utils = await openParamsPage();
     const rowOf = (label: string) =>
       utils.getByLabelText(label).closest(".param-row");
-    const learnings = rowOf(s.docCapManualLearnings);
-    expect(learnings).not.toBeNull();
-    expect(learnings!.nextElementSibling).toBe(rowOf(s.stepNoteCap));
+    const manualSop = rowOf(s.docCapManualSop);
+    expect(manualSop).not.toBeNull();
+    expect(manualSop!.nextElementSibling).toBe(rowOf(s.stepNoteCap));
   });
 
   it("the row shows the LIVE value, not the shipped default", async () => {

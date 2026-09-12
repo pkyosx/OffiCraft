@@ -490,7 +490,7 @@ export interface paths {
         put?: never;
         /**
          * Assemble an agent boot context + mint the member JWT (spawn seam).
-         * @description - Folds the role definition, global context and lessons into one readable `context`.
+         * @description - Folds the role definition and global context into one readable `context`.
          *     - The role resolves from an explicit `role`, else the member's own role, else `assistant`.
          *     - With `member_id` the response carries a freshly minted member token; a preview without it gets `token` null.
          *     - 404 on an unknown `member_id`, or a resolved role that is neither seeded nor an owner overlay.
@@ -784,9 +784,9 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Size-only overview of the capped documents on the station: each role's role definition / insight / lessons, and each task manual's SOP / learnings, as size_chars plus the cap_chars in force for THAT segment (the five segments have five separate caps — each is reported against its own). THE LISTING IS KEYED BY ROLE, AND THAT IS ITS LIMIT. T-2 removed the lessons task_type axis, so a role now has exactly ONE lessons document and it is the one reported here — the old 'default bucket only' gap is gone. What remains is narrower still and it is now INSIGHT-ONLY: nothing validates a role_key against the roster on the INSIGHT write face, so an admin or the owner can write insight under a role_key no role carries; such a document spends the insight cap and, having no role to hang off, never appears here. The LESSONS write face no longer has that gap — replace_lessons and patch_lessons refuse with 404 any role_key that nothing could read: neither a role that folds (which is what this listing walks, and what every boot loads) nor a member carrying that role_key (which cannot boot, but can be minted a token that reads the doc). A role_key on neither list now fails instead of silently producing an unreachable document. list_roles is the roster this listing is derived from — a document under a name that is not on it is not on this page either. Carries NO document text, so it costs a few hundred bytes. Use it to find which long-lived document is nearly full, then read only that one (get_role / get_insight / get_lessons / get_task_manual). It is the only way to see insight and lessons sizes in bulk — no listing reports those at any price; the manual sizes and caps are also on every list_task_manuals row, and a role definition's size and cap are already on every list_roles row.
-         * @description - Size-only overview of every role's definition, insight and lessons, and every manual's SOP and learnings.
-         *     - Each document is measured against its OWN cap; the five segments have five separate caps.
+         * Size-only overview of the capped documents on the station: each role's role definition / insight, and each task manual's SOP, as size_chars plus the cap_chars in force for THAT segment (the three segments have three separate caps — each is reported against its own). THE LISTING IS KEYED BY ROLE, AND THAT IS ITS LIMIT: nothing validates a role_key against the roster on the INSIGHT write face, so an admin or the owner can write insight under a role_key no role carries; such a document spends the insight cap and, having no role to hang off, never appears here. list_roles is the roster this listing is derived from — a document under a name that is not on it is not on this page either. Carries NO document text, so it costs a few hundred bytes. Use it to find which long-lived document is nearly full, then read only that one (get_role / get_insight / get_task_manual). It is the only way to see insight sizes in bulk — no listing reports those at any price; the manual sizes and caps are also on every list_task_manuals row, and a role definition's size and cap are already on every list_roles row.
+         * @description - Size-only overview of every role's definition and insight, and every manual's SOP.
+         *     - Each document is measured against its OWN cap; the three segments have three separate caps.
          *     - No document text, so it is cheap: find the nearly-full document here, then read only that one.
          *     - Keyed by role: insight written under a role_key no role carries spends the cap but has no row here.
          */
@@ -901,7 +901,7 @@ export interface paths {
          *
          *     ADDRESSING: ``kind`` and ``key`` name a document exactly as they do for list_document_history — the same server-side gate answers both routes, so whatever that tool addresses is addressable here, and a ``kind`` this server does not know is refused with 400 while a ``key`` that names no document of that kind is refused with 404 that names it. Neither is something to guess at: ask and read the answer.
          *
-         *     COVERAGE: whether THAT document ships a default is answered by asking for it. 200 means it does, and ``content`` is that text. 404 means it has none at all — a role the owner created, a task manual, per-role lessons — which is the same set whose reset the server also 404s, so it is the honest 'there is nothing to go back to', not a gap to work around. 400 on a retired kind names the series that replaced it.
+         *     COVERAGE: whether THAT document ships a default is answered by asking for it. 200 means it does, and ``content`` is that text. 404 means it has none at all — a role the owner created, a task manual — which is the same set whose reset the server also 404s, so it is the honest 'there is nothing to go back to', not a gap to work around. 400 on a retired kind names the series that replaced it.
          * @description - The document's shipped default, so it can be compared against the live text before anyone resets to it.
          *     - Read-only, same floor as reading the retained versions.
          *     - 404 where no seed exists.
@@ -1054,7 +1054,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Read a per-role insight doc - this role's accumulated judgement calls and trade-offs (per role_key). A role may ship with a factory seed, and that seed is PER-ROLE (seeds/insight_<role_key>.md) - today only the assistant has one; a role without one reads genuinely empty until it writes. is_default=true means THIS ROLE has never written its own, whether what you are reading is the factory wording or nothing at all. Separate from the lessons doc on purpose: lessons record what happened and what to do next time, insight records how this role weighs a call. Like lessons, reading is unrestricted: any authenticated identity may read ANY role's insight - it is SEPARATE, not private.
+         * Read a per-role insight doc - this role's accumulated judgement calls and trade-offs (per role_key). A role may ship with a factory seed, and that seed is PER-ROLE (seeds/insight_<role_key>.md) - today only the assistant has one; a role without one reads genuinely empty until it writes. is_default=true means THIS ROLE has never written its own, whether what you are reading is the factory wording or nothing at all. Reading is unrestricted: any authenticated identity may read ANY role's insight - it is SEPARATE, not private.
          * @description - The judgement calls and trade-offs this role keeps reaching for.
          *     - Any authenticated identity may read any role's insight: there is no confidentiality boundary here, only writes are narrowed.
          *     - There is no seed, so an untouched doc reads as genuinely empty with `is_default=true`.
@@ -1115,59 +1115,6 @@ export interface paths {
          *     - Emits an `insight` event; a client holding the stream learns of this without polling.
          */
         post: operations["handle_reset_insight_api_insight__role_key__reset_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/lessons/{role_key}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Read a per-role lessons doc (per role_key; overlay ⊕ seed).
-         * @description - Returns the FOLDED document: the role's overlay on top of the shipped seed, not the overlay alone.
-         *     - Reading is unrestricted — any authenticated caller may read any role's lessons.
-         *     - An unknown role_key is not an error: it folds to the seed and answers 200.
-         *     - Addressed by role_key alone; a `?task_type=` query parameter is refused with 400, empty value included.
-         */
-        get: operations["handle_get_lessons_api_lessons__role_key__get"];
-        put?: never;
-        /**
-         * Replace the WHOLE per-role lessons document. text is REQUIRED and unknown keys are rejected; only that role's agent or an admin may write it; role_key must be addressable — a role that folds (list_roles), or a member carrying that role_key (list_members) — or the write is refused 404, so a lessons doc can no longer be created under a name nothing on this station could ever read; emptying or sharply shrinking it needs allow_shrink=true; and the result is still judged against the lessons cap. Answers with a bounded receipt (``role_key``, ``size_chars``, ``cap_chars``, ``sha256``), not the journal — call ``get_lessons`` when you need the rest.
-         * @description - Whole-doc replace, not append; `text` required. Shrinking substantially needs `allow_shrink=true`; the cap applies.
-         *     - An agent may write only its own role, taken from your token, not the request; another role is 403. Owner/admin agents write any role.
-         *     - Emits a `lessons` event; a client holding the stream learns of this without polling.
-         */
-        post: operations["handle_replace_lessons_api_lessons__role_key__post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/lessons/{role_key}/patch": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Patch a per-role lessons doc by unique anchors ({edits:[{old,new}]}). role_key must be addressable — a role that folds (list_roles), or a member carrying that role_key (list_members) — or the patch is refused 404.
-         * @description - Anchor edit: `edits` apply in order; each non-empty `old` must match exactly once.
-         *     - 0 or 2+ matches rejects the WHOLE batch (400) and writes nothing.
-         *     - You may patch only your own role; owner and admin agents patch any, else 403.
-         *     - `role_key` must be a defined role or one a member carries, else 404.
-         *     - Emits a `lessons` event; a client holding the stream learns of this without polling.
-         */
-        post: operations["handle_patch_lessons_api_lessons__role_key__patch_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2564,7 +2511,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Bounded LIGHT wake snapshot for the caller (identity-locked; recent chat + light open-task rows + size overview — peek sizes first, pull detail via get_task). CHAT is packed newest-first under a CHARACTER BUDGET, not a fixed message count, and stopping at the last message that still fits; each message carries from_name/to_name beside the ids and ts_display (full date + time + zone offset) beside the epoch ts, and folds in its reply card as `card` when it has one — read every ts_display against the top-level `generated_at`. TWO DIFFERENT things can be missing and they are marked DIFFERENTLY: `body_omitted_chars` > 0 means THAT message is here with that many characters COLLAPSED away (another agent's line — the owner's line and your own hand-off notes to yourself are carried in full), re-read it with get_chat; `chat_earlier_omitted` is the other kind and it is a MAYBE, not a fact: that line was cut at a read or budget limit and nothing looked past the cut, so whole messages may be missing from this payload entirely — it is raised even when there is in fact nothing older. Its hint tells you how to CHECK and fetch them. The two are asymmetric ON PURPOSE: the collapse marker is CERTAIN (that message IS here, shortened, exact count); this one is not, and only the fetch settles it. Also carries the STUDIO FLOOR you wake up onto: roster (every member and contractor, each with online/offline status, the machine it runs on, and its duty capped at 1000 chars with `…` marking a cut, the cap applied after the doc's own leading title line is removed — who to ask for help; no insight/learning by owner ruling. Contractors additionally carry their bound task's status, waiting_reason, and step progress (progress_done/progress_total) — members leave these at their zero value; a contractor's 0/0 is ambiguous (a task with no steps yet, or no task at all) and task_status is what tells them apart, non-empty vs empty) and machines (the machine list plus you_are_on, your server-recorded machine binding — never derive it from a hostname).
+         * Bounded LIGHT wake snapshot for the caller (identity-locked; recent chat + light open-task rows + size overview — peek sizes first, pull detail via get_task). CHAT is packed newest-first under a CHARACTER BUDGET, not a fixed message count, and stopping at the last message that still fits; each message carries from_name/to_name beside the ids and ts_display (full date + time + zone offset) beside the epoch ts, and folds in its reply card as `card` when it has one — read every ts_display against the top-level `generated_at`. TWO DIFFERENT things can be missing and they are marked DIFFERENTLY: `body_omitted_chars` > 0 means THAT message is here with that many characters COLLAPSED away (another agent's line — the owner's line and your own hand-off notes to yourself are carried in full), re-read it with get_chat; `chat_earlier_omitted` is the other kind and it is a MAYBE, not a fact: that line was cut at a read or budget limit and nothing looked past the cut, so whole messages may be missing from this payload entirely — it is raised even when there is in fact nothing older. Its hint tells you how to CHECK and fetch them. The two are asymmetric ON PURPOSE: the collapse marker is CERTAIN (that message IS here, shortened, exact count); this one is not, and only the fetch settles it. Also carries the STUDIO FLOOR you wake up onto: roster (every member and contractor, each with online/offline status, the machine it runs on, and its duty capped at 1000 chars with `…` marking a cut, the cap applied after the doc's own leading title line is removed — who to ask for help; no insight by owner ruling. Contractors additionally carry their bound task's status, waiting_reason, and step progress (progress_done/progress_total) — members leave these at their zero value; a contractor's 0/0 is ambiguous (a task with no steps yet, or no task at all) and task_status is what tells them apart, non-empty vs empty) and machines (the machine list plus you_are_on, your server-recorded machine binding — never derive it from a hostname).
          * @description - Bounded wake snapshot of YOUR plane; identity comes from the token, never a parameter.
          *     - Chat is packed newest-first under a character BUDGET, not a fixed message count.
          *     - `body_omitted_chars` > 0 means that message IS here, shortened by that many chars — re-read with get_chat.
@@ -2657,7 +2604,7 @@ export interface paths {
         /**
          * Hard-delete a custom role + its members (seed → 403; online → 409).
          * @description - Hard-deletes a custom role and everything it owns; there is no undo and this is not the soft dismiss.
-         *     - Every member of the role, soft-removed ones included, is physically deleted with its chats, attachments, read receipts and lessons.
+         *     - Every member of the role, soft-removed ones included, is physically deleted with its chats, attachments and read receipts.
          *     - A seed role can never be deleted: 403. Unknown role 404.
          *     - 409 while any member of the role is online.
          *     - Owner or admin agent only.
@@ -2876,15 +2823,15 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List task types WITHOUT their long documents: each row is the type identity (type_key / display_name / purpose), its input fields and its assignee setting, plus the SIZES of sop_md and learnings and the cap each is judged against. The SOP and the learnings text are not on this answer at all — read the one type you picked with get_task_manual.
-         * @description - Identity rows only: `sop_md` and `learnings` are ABSENT, not empty - serving them once made this answer six figures of characters.
-         *     - Every row still carries `sop_md_chars`/`learnings_chars` and the cap each is judged against, so which manual is nearly full is answerable here.
+         * List task types WITHOUT their long documents: each row is the type identity (type_key / display_name / purpose), its input fields and its assignee setting, plus the SIZE of sop_md and the cap it is judged against. The SOP text is not on this answer at all — read the one type you picked with get_task_manual.
+         * @description - Identity rows only: `sop_md` is ABSENT, not empty - serving it once made this answer six figures of characters.
+         *     - Every row still carries `sop_md_chars` and the cap it is judged against, so which manual is nearly full is answerable here.
          *     - Fetch one manual's text with get_task_manual.
          */
         get: operations["handle_list_task_manuals_api_task_manuals_get"];
         put?: never;
         /**
-         * Create a task type: pass display_name; the server mints and returns the tm- type_key id (legacy explicit type_key still accepted; duplicate → 409; assignee = owner/admin agent). An outsource assignee may select runtime claude/codex; absent = claude. Answers with a bounded receipt (``type_key``, ``updated_ts``, ``learnings_chars``, ``learnings_cap_chars``, ``learnings_sha256``, ``sop_md_chars``, ``sop_md_cap_chars``, ``sop_md_sha256``), not the manual — call ``get_task_manual`` when you need the rest.
+         * Create a task type: pass display_name; the server mints and returns the tm- type_key id (legacy explicit type_key still accepted; duplicate → 409; assignee = owner/admin agent). An outsource assignee may select runtime claude/codex; absent = claude. Answers with a bounded receipt (``type_key``, ``updated_ts``, ``sop_md_chars``, ``sop_md_cap_chars``, ``sop_md_sha256``), not the manual — call ``get_task_manual`` when you need the rest.
          * @description - Creates one task type as a blank manual from `display_name`; the server mints the `tm-` type_key and returns it.
          *     - An explicit `type_key` is still accepted verbatim as the id (duplicate is 409; a blank display_name backfills to it).
          *     - Any agent may create a manual, but supplying `assignee` below admin_agent is a 403.
@@ -2904,20 +2851,19 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Read one task manual (purpose/fields/SOP/learnings/assignee). The SOP and the learnings are judged by two SEPARATE caps: read sop_md_cap_chars and learnings_cap_chars. The older cap_chars is DEPRECATED — it carries the LEARNINGS cap only and says nothing about sop_md, so read sop_md_cap_chars for the SOP.
-         * @description - One manual in full: purpose, fields, SOP, learnings and assignee.
-         *     - The SOP and the learnings are judged by two separate caps, `sop_md_cap_chars` and `learnings_cap_chars`.
-         *     - `cap_chars` is deprecated: it carries the learnings cap only and says nothing about the SOP.
+         * Read one task manual (purpose/fields/SOP/assignee). The SOP is judged against sop_md_cap_chars.
+         * @description - One manual in full: purpose, fields, SOP and assignee.
+         *     - The SOP is judged against `sop_md_cap_chars`.
          *     - Unknown type: 404.
          */
         get: operations["handle_get_task_manual_api_task_manuals__type_key__get"];
         put?: never;
         /**
-         * Edit a task manual (partial; content fields agent-editable; assignee = owner/admin agent). An outsource assignee may select runtime claude/codex; absent = claude. Only the fields you name change, so omitting a field is safe — but unknown keys are rejected rather than dropped: the learnings doc goes in learnings (NOT text — that is write_task_learnings' field name). The SOP and the learnings are judged by two SEPARATE caps: read sop_md_cap_chars and learnings_cap_chars. The older cap_chars is DEPRECATED — it carries the LEARNINGS cap only and says nothing about sop_md, so read sop_md_cap_chars for the SOP. Answers with a bounded receipt (``type_key``, ``updated_ts``, ``learnings_chars``, ``learnings_cap_chars``, ``learnings_sha256``, ``sop_md_chars``, ``sop_md_cap_chars``, ``sop_md_sha256``), not the manual — call ``get_task_manual`` when you need the rest.
+         * Edit a task manual (partial; content fields agent-editable; assignee = owner/admin agent). An outsource assignee may select runtime claude/codex; absent = claude. Only the fields you name change, so omitting a field is safe — but unknown keys are rejected rather than dropped. The SOP is judged against sop_md_cap_chars. Answers with a bounded receipt (``type_key``, ``updated_ts``, ``sop_md_chars``, ``sop_md_cap_chars``, ``sop_md_sha256``), not the manual — call ``get_task_manual`` when you need the rest.
          * @description - Partial edit: only supplied fields change, but an unrecognised field name is 422 rather than silently ignored.
          *     - Content fields are agent-writable; `assignee` below admin is 403.
          *     - `assignee` is {kind: staff, member_id} or {kind: outsource, model, effort, copies}; {} unsets it.
-         *     - SOP and learnings have separate caps: read `sop_md_cap_chars`; deprecated `cap_chars` covers learnings only.
+         *     - The SOP is judged against `sop_md_cap_chars`.
          */
         post: operations["handle_update_task_manual_api_task_manuals__type_key__post"];
         /**
@@ -2926,50 +2872,6 @@ export interface paths {
          *     - Owner or admin agent only; a plain agent is 403.
          */
         delete: operations["handle_delete_task_manual_api_task_manuals__type_key__delete"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/task-manuals/{type_key}/learnings": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Whole-doc replace of a type's learnings (task-close write-back). The doc text goes in text (NOT learnings — that is update_task_manual's field name); text is REQUIRED and unknown keys are rejected. Wiping existing learnings needs allow_shrink=true. Answers with a bounded receipt (``type_key``, ``size_chars``, ``cap_chars``, ``sha256``), not the learnings text — call ``get_task_manual`` when you need the rest.
-         * @description - Whole-doc replace of the type's learnings, not an append; the agent's write-back when closing a task.
-         *     - 404 for an unknown type.
-         */
-        post: operations["handle_write_task_learnings_api_task_manuals__type_key__learnings_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/task-manuals/{type_key}/learnings/patch": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Patch a type's learnings by unique anchors ({edits:[{old,new}]}) — the learnings twin of patch_lessons, so the write cost scales with the CHANGE, not the whole (30k-char) doc, and re-typing the whole doc can no longer silently drop content. Edits apply in order; a non-empty old must match the current learnings EXACTLY ONCE (0 or >1 hits reject the WHOLE batch with a 400, zero writes — the unique anchor also acts as an optimistic lock); an empty old appends. Wiping the doc, or shrinking it below a tenth, needs allow_shrink=true.
-         * @description - Send only the part that changed. Unknown type is 404.
-         *     - Each non-empty `old` must match the learnings EXACTLY ONCE; 0 or >1 hits reject the WHOLE batch, zero writes.
-         *     - That unique anchor doubles as an optimistic lock: a concurrent write makes the next patch a 400, not a mis-splice.
-         *     - Edits apply in order; an empty `old` appends. Emptying or shrinking below a tenth needs allow_shrink=true.
-         */
-        post: operations["handle_patch_task_learnings_api_task_manuals__type_key__learnings_patch_post"];
-        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -4485,7 +4387,7 @@ export interface components {
         };
         /**
          * BootDocumentReceiptDTO
-         * @description Bounded receipt returned after the eight BOOT-DOCUMENT writes - replace and reset for boot docs, boot sequence, offboard and system interaction (T-91). How much BootDocumentDTO echoed depends on the kind, and the earlier claim that it always carried the text TWICE was wrong. On the UNSPLIT kinds - system_interaction, boot_sequence, offboard - ``body`` equals ``text`` and the echo really was double: a measurement on the live station (inherited from this ticket's previous session, not re-taken here) put GET /api/system-interaction at 77,849 bytes with text and body both 17,166 characters, and GET /api/boot-sequence/claude at 10,648 with text=2,519=body. On the SPLIT kinds - the six registered with Split:true and served by /api/boot-docs/{kind}/{key} - ``body`` is the EDITABLE HALF and ``read_only_head`` is the other half, with ``text`` their join (bootDocBodyOf, api_bootdocs.go); there the echo was one copy plus its halves, not two copies. A replace writes text the caller is holding and a reset writes the seed, which is fetchable; neither needs it back. ``size_chars`` against ``cap_chars`` gives the room left and ``sha256`` makes the write verifiable at the write - the same anchor trio patch_lessons and patch_insight already answer with. The scalars kept here are kept because the write DERIVES them: ``is_default`` flips on reset and clears on replace, and ``read_only`` is a per-document registry constant. ``read_only_head`` was on an earlier draft of this receipt and has been REMOVED: it IS document text, no cap bounded it, and it left this receipt not literally text-free. The caller never sends that half and cannot compute it, but it does not need it either - it is re-read with the document, and ``sha256`` already says whether the stored document changed. GET the same path for the text. TWO KINDS OF FIELD WERE DROPPED HERE AND THEY ARE NOT THE SAME. The pure metadata (named in the sentence that follows this one) has NO consumer anywhere - searched across frontend, Go, conformance, e2e and the ocagent CLI, every zero-hit backed by a positive control on the same query shape. The CONTENT fields were the opposite: they HAD live consumers when this receipt was drafted. The cockpit adopted these write responses straight into rendered state and conformance asserted on them, so dropping the content was not additive - those consumers had to move to a follow-up read FIRST, which is why the frontend change was written up as a hard prerequisite step of this package rather than a cleanup after it. THAT STEP HAS SHIPPED, in this same package: the cockpit writes then re-reads. This paragraph is history, not a condition still outstanding. Owner direction, 2026-09-05: a write answers with identity, the size numbers, and what the write itself decides.
+         * @description Bounded receipt returned after the eight BOOT-DOCUMENT writes - replace and reset for boot docs, boot sequence, offboard and system interaction (T-91). How much BootDocumentDTO echoed depends on the kind, and the earlier claim that it always carried the text TWICE was wrong. On the UNSPLIT kinds - system_interaction, boot_sequence, offboard - ``body`` equals ``text`` and the echo really was double: a measurement on the live station (inherited from this ticket's previous session, not re-taken here) put GET /api/system-interaction at 77,849 bytes with text and body both 17,166 characters, and GET /api/boot-sequence/claude at 10,648 with text=2,519=body. On the SPLIT kinds - the six registered with Split:true and served by /api/boot-docs/{kind}/{key} - ``body`` is the EDITABLE HALF and ``read_only_head`` is the other half, with ``text`` their join (bootDocBodyOf, api_bootdocs.go); there the echo was one copy plus its halves, not two copies. A replace writes text the caller is holding and a reset writes the seed, which is fetchable; neither needs it back. ``size_chars`` against ``cap_chars`` gives the room left and ``sha256`` makes the write verifiable at the write - the same anchor trio patch_insight already answers with. The scalars kept here are kept because the write DERIVES them: ``is_default`` flips on reset and clears on replace, and ``read_only`` is a per-document registry constant. ``read_only_head`` was on an earlier draft of this receipt and has been REMOVED: it IS document text, no cap bounded it, and it left this receipt not literally text-free. The caller never sends that half and cannot compute it, but it does not need it either - it is re-read with the document, and ``sha256`` already says whether the stored document changed. GET the same path for the text. TWO KINDS OF FIELD WERE DROPPED HERE AND THEY ARE NOT THE SAME. The pure metadata (named in the sentence that follows this one) has NO consumer anywhere - searched across frontend, Go, conformance, e2e and the ocagent CLI, every zero-hit backed by a positive control on the same query shape. The CONTENT fields were the opposite: they HAD live consumers when this receipt was drafted. The cockpit adopted these write responses straight into rendered state and conformance asserted on them, so dropping the content was not additive - those consumers had to move to a follow-up read FIRST, which is why the frontend change was written up as a hard prerequisite step of this package rather than a cleanup after it. THAT STEP HAS SHIPPED, in this same package: the cockpit writes then re-reads. This paragraph is history, not a condition still outstanding. Owner direction, 2026-09-05: a write answers with identity, the size numbers, and what the write itself decides.
          */
         BootDocumentReceiptDTO: {
             /**
@@ -4547,7 +4449,7 @@ export interface components {
         /**
          * BootstrapDTO
          * @description The agent boot package (§3.4 #29, §2.4). ``context`` is the assembled agent
-         *     persona — role definition + global context + lessons, folded and concatenated
+         *     persona — role definition + global context, folded and concatenated
          *     into one readable markdown block (the North Star's "rich enough to converse and
          *     play", §7 leg 4). ``token`` is the member JWT (``scope="agent"``) when a
          *     ``member_id`` was supplied; None for a UI preview.
@@ -4574,9 +4476,8 @@ export interface components {
          *     optional — a UI preview omits ``member_id`` (no token minted); a warden spawn
          *     supplies it to mint the member's boot JWT.
          *
-         *     T-2 removed ``task_type``: it existed only to choose which lessons bucket the
-         *     assembled persona folded in, and lessons no longer have buckets. Unknown keys
-         *     are refused (422), so a caller still sending it is told rather than ignored.
+         *     T-2 removed ``task_type``. Unknown keys are refused (422), so a caller still
+         *     sending it is told rather than ignored.
          */
         BootstrapRequestDTO: {
             /** Member Id */
@@ -5162,9 +5063,8 @@ export interface components {
          *     points — the unit every cap is expressed in); ``cap_chars`` is the cap in force
          *     for THAT document's OWN segment at the moment of the read.
          *
-         *     The five capped segments (role definition, insight, role lessons, a task
-         *     manual's sop_md, a task manual's learnings) each have their own
-         *     ``doc.cap_chars.*`` setting and are NOT one shared number, so every occurrence
+         *     The three capped segments (role definition, insight, a task manual's sop_md)
+         *     each have their own ``doc.cap_chars.*`` setting and are NOT one shared number, so every occurrence
          *     of this object carries the ruler belonging to the document it describes.
          *     Reading one segment's cap off another's is the specific mistake this shape
          *     exists to make impossible.
@@ -5180,29 +5080,23 @@ export interface components {
         /**
          * DocSizesDTO
          * @description The station-wide capped-document size overview (``peek_doc_sizes`` MCP tool,
-         *     zero params; ``GET /api/doc-sizes``): for EVERY role its role definition, its
-         *     insight and its lessons, and for EVERY task manual its sop_md and
-         *     its learnings — each as its current size plus the cap in force for that segment,
-         *     and nothing else.
+         *     zero params; ``GET /api/doc-sizes``): for EVERY role its role definition and its
+         *     insight, and for EVERY task manual its sop_md — each as its current size plus
+         *     the cap in force for that segment, and nothing else.
          *
-         *     The listing is KEYED BY ROLE, and that is its limit. Until T-2 lessons carried a ``task_type``
-         *     axis and only the default bucket was reported, so a document under any other
-         *     bucket name drew on the same lessons cap while staying off this listing; that axis
-         *     is gone and a role has exactly one lessons document. What remains is a narrower
-         *     gap on the WRITE side rather than in this listing: nothing validates a role_key
-         *     against the roster, so an admin or the owner may write lessons or insight under a
-         *     role_key no role carries. Such a document spends the same cap and, having no role
-         *     to hang off, never appears here — ``list_roles`` is the roster this page is derived
-         *     from.
+         *     The listing is KEYED BY ROLE, and that is its limit. Nothing validates a
+         *     role_key against the roster on the write side, so an admin or the owner may
+         *     write insight under a role_key no role carries. Such a document spends the same
+         *     cap and, having no role to hang off, never appears here — ``list_roles`` is the
+         *     roster this page is derived from.
          *
          *     It carries NO document content, so its size is a function of how many roles and
-         *     manuals exist, never of what they hold — which is the point. The two numbers no
-         *     listing on this station reports at any price are a role's insight and lessons
-         *     sizes; a manual's four numbers are already on the ``list_task_manuals`` light
-         *     view and a role definition's size and cap already ride every ``list_roles`` row.
+         *     manuals exist, never of what they hold — which is the point. The number no
+         *     listing on this station reports at any price is a role's insight size; a
+         *     manual's sop_md numbers are already on the ``list_task_manuals`` light view and
+         *     a role definition's size and cap already ride every ``list_roles`` row.
          *
-         *     Read-only and deterministic; a station with no roles and no manuals gets empty
-         *     arrays, never an error.
+         *     Read-only and cheap.
          */
         DocSizesDTO: {
             /** Roles */
@@ -5255,7 +5149,7 @@ export interface components {
             key: string;
             kind: string;
         };
-        /** @description The SHIPPED DEFAULT of an editable long-form document — what a reset puts back, expressed in the SAME field names a retained revision uses so one reader can compare either against the live document. READ-ONLY: this route writes nothing, so looking at 初始版本 can never overwrite anything. 404 when the document has no shipped default (a custom role, a task manual, per-role lessons) — exactly the documents whose reset the server also 404s. */
+        /** @description The SHIPPED DEFAULT of an editable long-form document — what a reset puts back, expressed in the SAME field names a retained revision uses so one reader can compare either against the live document. READ-ONLY: this route writes nothing, so looking at 初始版本 can never overwrite anything. 404 when the document has no shipped default (a custom role, a task manual) — exactly the documents whose reset the server also 404s. */
         DocumentSeedDTO: {
             content: {
                 [key: string]: string;
@@ -5377,19 +5271,16 @@ export interface components {
         /**
          * InsightDTO
          * @description The per-role INSIGHT doc (T-3809): the judgement calls and trade-offs this role
-         *     keeps reaching for. Third block of the role journal, alongside Duty (the role
-         *     definition) and Learning (the lessons doc) — the owner asked for it because
-         *     insight and learning had been sharing one document.
+         *     keeps reaching for. Second block of the role journal, alongside Duty (the role
+         *     definition).
          *
-         *     ``role_key`` scopes the doc to a role; there is NO ``task_type`` axis (that is
-         *     the lessons key, and it is deliberately absent here). Since T-e1e3 a role MAY
-         *     have a factory seed, and unlike lessons that seed is PER-ROLE
-         *     (``seeds/insight_<role_key>.md``) rather than one shared file — the assistant's
-         *     judgement calls would be wrong for any other role. A role with no seed file
-         *     still reads genuinely EMPTY until it writes.
+         *     ``role_key`` scopes the doc to a role. Since T-e1e3 a role MAY have a factory
+         *     seed, and that seed is PER-ROLE (``seeds/insight_<role_key>.md``) rather than
+         *     one shared file — the assistant's judgement calls would be wrong for any other
+         *     role. A role with no seed file still reads genuinely EMPTY until it writes.
          *
          *     Insight is SEPARATE, not private. READ is unrestricted: any authenticated
-         *     identity may read ANY role's insight — the same floor Duty and Learning sit on.
+         *     identity may read ANY role's insight — the same floor Duty sits on.
          */
         InsightDTO: {
             /**
@@ -5455,7 +5346,7 @@ export interface components {
         };
         /**
          * InsightPatchDTO
-         * @description Anchor-addressed PATCH of an insight doc: ``{edits: [{old, new}], allow_shrink?}``. ATOMIC — edits apply sequentially to an in-memory copy and any failing anchor (absent or ambiguous ``old``) rejects the ENTIRE batch with a flat 400 and ZERO writes. ``allow_shrink`` (default false) must be set explicitly for a patch that empties the doc or shrinks it to under a tenth of its size — the same wipe-guard posture patch_lessons carries.
+         * @description Anchor-addressed PATCH of an insight doc: ``{edits: [{old, new}], allow_shrink?}``. ATOMIC — edits apply sequentially to an in-memory copy and any failing anchor (absent or ambiguous ``old``) rejects the ENTIRE batch with a flat 400 and ZERO writes. ``allow_shrink`` (default false) must be set explicitly for a patch that empties the doc or shrinks it to under a tenth of its size.
          */
         InsightPatchDTO: {
             /**
@@ -5558,7 +5449,7 @@ export interface components {
         };
         /**
          * InsightReplaceDTO
-         * @description Whole-doc replace of an insight doc: ``{text}``. ``text`` is REQUIRED — a whole-doc replace must never infer "empty" from a missing key. ``allow_shrink`` (default false) must be set explicitly to replace existing content with an empty doc — the same wipe-guard posture replace_lessons carries.
+         * @description Whole-doc replace of an insight doc: ``{text}``. ``text`` is REQUIRED — a whole-doc replace must never infer "empty" from a missing key. ``allow_shrink`` (default false) must be set explicitly to replace existing content with an empty doc.
          */
         InsightReplaceDTO: {
             /**
@@ -5573,52 +5464,8 @@ export interface components {
             text: string;
         };
         /**
-         * LessonsDTO
-         * @description The folded per-role lessons doc (§3.4 #27). A lessons doc is addressed by
-         *     ``role_key`` ALONE (T-2). ``is_default`` = seed-vs-edited.
-         */
-        LessonsDTO: {
-            /**
-             * Cap Chars
-             * @description The document size cap now in force, in CHARACTERS (the doc.cap_chars.learning setting). Served on the READ face so an agent can size an edit BEFORE writing it — the alternative is discovering the limit by being refused, and the settings surface is admin-only.
-             * @default 0
-             */
-            cap_chars: number;
-            /**
-             * Is Default
-             * @default true
-             */
-            is_default: boolean;
-            /**
-             * Owner Id
-             * @default
-             */
-            owner_id: string;
-            /**
-             * Role Key
-             * @default
-             */
-            role_key: string;
-            /**
-             * Schema Version
-             * @default 3
-             */
-            schema_version: number;
-            /**
-             * Size Chars
-             * @description Size of `text` in CHARACTERS (Unicode code points) — the same unit as cap_chars.
-             * @default 0
-             */
-            size_chars: number;
-            /**
-             * Text
-             * @default
-             */
-            text: string;
-        };
-        /**
          * LessonsEditDTO
-         * @description One ``patch_lessons`` edit (§3.4 #28b): replace the occurrence of ``old`` with ``new``. ``old`` must match the current doc EXACTLY ONCE (0 or >1 hits reject the whole batch — the unique anchor doubles as an optimistic concurrency check); an EMPTY ``old`` appends ``new`` at the end of the doc (joined with a newline when the doc does not already end in one).
+         * @description One anchor-addressed edit (§3.4 #28b): replace the occurrence of ``old`` with ``new``. ``old`` must match the current doc EXACTLY ONCE (0 or >1 hits reject the whole batch — the unique anchor doubles as an optimistic concurrency check); an EMPTY ``old`` appends ``new`` at the end of the doc (joined with a newline when the doc does not already end in one).
          */
         LessonsEditDTO: {
             /**
@@ -5631,113 +5478,6 @@ export interface components {
              * @default
              */
             old: string;
-        };
-        /**
-         * LessonsPatchDTO
-         * @description Anchor-addressed PATCH of a lessons doc (§3.4 #28b): ``{edits: [{old, new}], allow_shrink?}``. ATOMIC — edits apply sequentially to an in-memory copy and any failing anchor (absent or ambiguous ``old``) rejects the ENTIRE batch with a flat 400 and ZERO writes. ``allow_shrink`` (default false) must be set explicitly for a patch that empties the doc or shrinks it to under a tenth of its size — the r-76 wipe-guard posture.
-         */
-        LessonsPatchDTO: {
-            /**
-             * Allow Shrink
-             * @default false
-             */
-            allow_shrink: boolean;
-            /** Edits */
-            edits: components["schemas"]["LessonsEditDTO"][];
-        };
-        /**
-         * LessonsPatchResultDTO
-         * @description Receipt of a lessons PATCH (§3.4 #28b). ``size`` (CHARACTERS — Unicode code points, the SAME unit as the ``doc.cap_chars.learning`` cap the write is judged against) and ``sha256`` (hex) are lightweight verification anchors over the RESULTING doc text, so the caller can confirm the write landed without re-reading the full doc. ``size`` counted UTF-8 BYTES until 2026-07-31, when the owner ruled the receipt must speak the cap's unit.
-         */
-        LessonsPatchResultDTO: {
-            /**
-             * Applied Edits
-             * @default 0
-             */
-            applied_edits: number;
-            /**
-             * Cap Chars
-             * @description The document size cap in force when this write was judged, in CHARACTERS (the doc.cap_chars.learning setting). Returned so a caller can see its remaining budget without a second request — the cap is adjustable and agents cannot read the settings surface.
-             * @default 0
-             */
-            cap_chars: number;
-            /**
-             * Is Default
-             * @default false
-             */
-            is_default: boolean;
-            /**
-             * Owner Id
-             * @default
-             */
-            owner_id: string;
-            /**
-             * Role Key
-             * @default
-             */
-            role_key: string;
-            /**
-             * Schema Version
-             * @default 3
-             */
-            schema_version: number;
-            /**
-             * Sha256
-             * @default
-             */
-            sha256: string;
-            /**
-             * Size Chars
-             * @description Size of the RESULTING document in CHARACTERS (Unicode code points) — the same unit as cap_chars. Named `size` until 2026-07-31, when the owner ruled a size field must carry its unit in its name.
-             * @default 0
-             */
-            size_chars: number;
-        };
-        /**
-         * LessonsReceiptDTO
-         * @description Bounded receipt returned after replace_lessons (T-91). LessonsPatchResultDTO minus ``applied_edits``, ``owner_id`` and ``schema_version`` - patch_lessons is the template this whole package copies, and it has never echoed the journal. The role lessons doc is one of the two that actually fill up (its cap is the adjustable ``doc_cap_chars_learning``), so ``size_chars`` against ``cap_chars`` is the field a writer reads, not the text it just sent. There is no reset twin for this document. GET /api/lessons/{role_key} for the text. TWO KINDS OF FIELD WERE DROPPED HERE AND THEY ARE NOT THE SAME. The pure metadata (named in the sentence that follows this one) has NO consumer anywhere - searched across frontend, Go, conformance, e2e and the ocagent CLI, every zero-hit backed by a positive control on the same query shape. The CONTENT fields were the opposite: they HAD live consumers when this receipt was drafted. The cockpit adopted these write responses straight into rendered state and conformance asserted on them, so dropping the content was not additive - those consumers had to move to a follow-up read FIRST, which is why the frontend change was written up as a hard prerequisite step of this package rather than a cleanup after it. THAT STEP HAS SHIPPED, in this same package: the cockpit writes then re-reads. This paragraph is history, not a condition still outstanding. Owner direction, 2026-09-05: a write answers with identity, the size numbers, and what the write itself decides.
-         */
-        LessonsReceiptDTO: {
-            /**
-             * Cap Chars
-             * @description The lessons ceiling in force (settings key doc_cap_chars_learning). Paired with ``size_chars`` so a writer knows how much room is left without a second call - the question every lessons write actually has.
-             * @default 0
-             */
-            cap_chars: number;
-            /**
-             * Role Key
-             * @description Whose lessons this write landed on - the caller's own path parameter, kept as the address of the document (owner's ruling leaves ids in). ``is_default`` was on an earlier draft and has been REMOVED: this receipt serves replace_lessons only, and api_roles.go:803 stamps ``IsDefault: false`` unconditionally on that path, so the field could never have carried anything but false.
-             * @default
-             */
-            role_key: string;
-            /**
-             * Sha256
-             * @description Hex sha256 over the document AS STORED. This is what replaces the text echo: hash what you sent and compare, at 64 characters instead of the document. It is also the only way to notice the trim above.
-             * @default
-             */
-            sha256: string;
-            /**
-             * Size Chars
-             * @description Size of the lessons document AS STORED after this write, in characters (Unicode code points) - the unit the cap is enforced in. Server-derived: the handler trims before storing, so what the caller sent and what landed can differ.
-             * @default 0
-             */
-            size_chars: number;
-        };
-        /**
-         * LessonsReplaceDTO
-         * @description Whole-doc replace of a lessons doc (§3.4 #28): ``{text}``. ``text`` is REQUIRED — a whole-doc replace must never infer "empty" from a missing key (T-2d99). ``allow_shrink`` (default false) must be set explicitly to replace existing content with an empty doc — the r-76 wipe-guard posture.
-         */
-        LessonsReplaceDTO: {
-            /**
-             * Allow Shrink
-             * @default false
-             */
-            allow_shrink: boolean;
-            /**
-             * Text
-             * @default
-             */
-            text: string;
         };
         /**
          * LoginDTO
@@ -7497,7 +7237,7 @@ export interface components {
         };
         /**
          * ResumeRosterMemberDTO
-         * @description One roster entry in the wake snapshot — who else is in the studio and how to reach them (owner ruling rc-4e98c0481852, 2026-08-03, verbatim: "All members and contractors and their online / offline status"). ``id`` is what you address a message to — names are editable and roles repeat, so NEVER address by name. ``kind`` separates permanent members from disposable contractors (a contractor's id is retired with its one task). ``duty`` is the role's own definition text, capped at 1000 characters with ``…`` marking a cut (owner 2026-08-03: 「1000字 多的截斷」), applied to the definition MINUS its own leading title line (a role doc opens with its own title, which would otherwise spend the budget restating ``role_name``; exactly ONE leading ATX heading line is removed — never an inner heading, never a chosen line, and a title-only doc is returned whole). It is NOT summarized and NOT reduced to a chosen line — a heuristic that picks WHICH line to show would silently change what a role appears responsible for whenever its author reorders their own doc, whereas a flat cap can only cut the tail and says so. The cap happens to be the SAME number the owner set for the cap on a duty document itself (「After separation of insight duty should not exceed 1000」), but the two are INDEPENDENT values: this one is a fixed wire constant, that one is an owner-adjustable setting, and raising the setting does not move this. Whether this cap binds at all depends on how long each role's duty happens to be at the moment — that is runtime state, not part of this frozen contract. Do NOT lower this number: the cost was put to the owner in rc-d88c445397a3 — an independent review argued for 150–200 until the separation lands — and he ruled to keep 1000. How often this cap actually fires is deliberately NOT recorded here: that is a runtime reading of one deployment, it goes stale, and nothing in a frozen wire spec can re-derive or correct it. Such measurements live — each carrying the date it was taken — in the server-side comments, where they can be re-checked and revised. NO insight and NO learning ride here — both are readable by ANY authenticated identity, so their absence is a deliberate owner ruling (2026-08-02 「之後應該給 duty 就好，不要給 insight / learning」) and NOT a gap left by lack of access; do not helpfully fill it in later. ``machine`` is the live binding (which machine that member runs on); ``presence`` is the online/offline status the ruling asks for. Contractors carry no role, so their ``role_name`` and ``duty`` are ``''`` — instead they carry ``current_task``, the TITLE of the one task that contractor is bound to, HARD-TRUNCATED (owner ruling rc-a02d8bc7fe23, 2026-08-03: 正職給職責、外包給任務標題): a contractor id is minted per task, so its task title IS its duty. The truncation is not cosmetic — measured task titles average ~99 chars and reach 147, so five untruncated contractor titles alone outweigh the whole machine block. Members carry ``duty`` and leave ``current_task`` ``''``: duty is stable and answers "is this the right person to ask", whereas a member's task changes daily and would churn every agent's boot for less signal. ``task_status``/``waiting_reason``/``progress_done``/``progress_total`` are the bound task's progress for contractors only (owner ruling rc-6935feeb293a 選①, T-925f): status and waiting_reason ride the SAME task row already loaded to build ``current_task``, and progress comes from one roster-wide grouped step-count query. Members leave all four at their zero value — the same 正職給職責、外包給任務標題 ruling that keeps ``current_task`` bare for members applies here, since progress churns even faster than a task title. A contractor reading ``0/0`` is AMBIGUOUS — a bound task with no steps yet, or no bound task at all — and ``task_status`` is what tells them apart (non-empty vs ``''``).
+         * @description One roster entry in the wake snapshot — who else is in the studio and how to reach them (owner ruling rc-4e98c0481852, 2026-08-03, verbatim: "All members and contractors and their online / offline status"). ``id`` is what you address a message to — names are editable and roles repeat, so NEVER address by name. ``kind`` separates permanent members from disposable contractors (a contractor's id is retired with its one task). ``duty`` is the role's own definition text, capped at 1000 characters with ``…`` marking a cut (owner 2026-08-03: 「1000字 多的截斷」), applied to the definition MINUS its own leading title line (a role doc opens with its own title, which would otherwise spend the budget restating ``role_name``; exactly ONE leading ATX heading line is removed — never an inner heading, never a chosen line, and a title-only doc is returned whole). It is NOT summarized and NOT reduced to a chosen line — a heuristic that picks WHICH line to show would silently change what a role appears responsible for whenever its author reorders their own doc, whereas a flat cap can only cut the tail and says so. The cap happens to be the SAME number the owner set for the cap on a duty document itself (「After separation of insight duty should not exceed 1000」), but the two are INDEPENDENT values: this one is a fixed wire constant, that one is an owner-adjustable setting, and raising the setting does not move this. Whether this cap binds at all depends on how long each role's duty happens to be at the moment — that is runtime state, not part of this frozen contract. Do NOT lower this number: the cost was put to the owner in rc-d88c445397a3 — an independent review argued for 150–200 until the separation lands — and he ruled to keep 1000. How often this cap actually fires is deliberately NOT recorded here: that is a runtime reading of one deployment, it goes stale, and nothing in a frozen wire spec can re-derive or correct it. Such measurements live — each carrying the date it was taken — in the server-side comments, where they can be re-checked and revised. NO insight rides here — it is readable by ANY authenticated identity, so its absence is a deliberate owner ruling (2026-08-02 「之後應該給 duty 就好，不要給 insight / learning」) and NOT a gap left by lack of access; do not helpfully fill it in later. ``machine`` is the live binding (which machine that member runs on); ``presence`` is the online/offline status the ruling asks for. Contractors carry no role, so their ``role_name`` and ``duty`` are ``''`` — instead they carry ``current_task``, the TITLE of the one task that contractor is bound to, HARD-TRUNCATED (owner ruling rc-a02d8bc7fe23, 2026-08-03: 正職給職責、外包給任務標題): a contractor id is minted per task, so its task title IS its duty. The truncation is not cosmetic — measured task titles average ~99 chars and reach 147, so five untruncated contractor titles alone outweigh the whole machine block. Members carry ``duty`` and leave ``current_task`` ``''``: duty is stable and answers "is this the right person to ask", whereas a member's task changes daily and would churn every agent's boot for less signal. ``task_status``/``waiting_reason``/``progress_done``/``progress_total`` are the bound task's progress for contractors only (owner ruling rc-6935feeb293a 選①, T-925f): status and waiting_reason ride the SAME task row already loaded to build ``current_task``, and progress comes from one roster-wide grouped step-count query. Members leave all four at their zero value — the same 正職給職責、外包給任務標題 ruling that keeps ``current_task`` bare for members applies here, since progress churns even faster than a task title. A contractor reading ``0/0`` is AMBIGUOUS — a bound task with no steps yet, or no bound task at all — and ``task_status`` is what tells them apart (non-empty vs ``''``).
          */
         ResumeRosterMemberDTO: {
             /** Current Task */
@@ -7564,9 +7304,9 @@ export interface components {
          *         each with its online/offline status, the machine it runs on, and its duty
          *         capped at 1000 chars — the cap applied AFTER the role doc's own leading
          *         title line is removed (owner ruling rc-4e98c0481852, 2026-08-03). The
-         *         point is knowing who to ask for help on waking, so it carries NO insight and
-         *         NO learning — see ``ResumeRosterMemberDTO``, whose absence of those two is a
-         *         deliberate ruling, not a missing feature.
+         *         point is knowing who to ask for help on waking, so it carries NO insight — see
+         *         ``ResumeRosterMemberDTO``, whose absence of it is a deliberate ruling, not a
+         *         missing feature.
          *       - ``machines``: the machine LIST plus ``you_are_on``, the caller's
          *         server-recorded machine binding (owner ruling rc-09476f535b59, 2026-08-03).
          *         Never derive "which machine am I on" from a hostname — our hosts report the
@@ -7773,7 +7513,7 @@ export interface components {
          *     delete handler re-enforces it (never UI-only).
          *
          *     ``size_chars`` / ``cap_chars`` (T-ae38) are the Duty doc's own budget, the same
-         *     pair Lessons and Insight have carried since T-3aeb. Duty had NEITHER field on
+         *     pair Insight has carried since T-3aeb. Duty had NEITHER field on
          *     the wire and NO cap at all until T-ae38, which is why an agent tidying its own
          *     role definition could not tell how much room was left without asking someone
          *     else to measure it.
@@ -7941,7 +7681,7 @@ export interface components {
          *     status="removed" soft-remove path — that stays the dismiss seam). The counts
          *     let the caller (and the tests) assert the cascade actually cleared each
          *     category that exists in this office: chat messages (+ their attachment
-         *     blobs), chat read receipts, and the role's lessons overlay.
+         *     blobs) and chat read receipts.
          */
         RoleDeleteResultDTO: {
             /**
@@ -7960,11 +7700,6 @@ export interface components {
              */
             deleted_chat_reads: number;
             /**
-             * Deleted Lessons
-             * @default 0
-             */
-            deleted_lessons: number;
-            /**
              * Removed Member Ids
              * @default []
              */
@@ -7974,18 +7709,15 @@ export interface components {
         };
         /**
          * RoleDocSizesDTO
-         * @description The three capped documents of ONE role, by size only: ``duty`` (the role
-         *     definition, get_role), ``insight`` (get_insight) and ``lessons`` (get_lessons — a role has
-         *     exactly ONE lessons document since T-2 removed the ``task_type`` axis, so this
-         *     is that document, whole). ``role_key`` is how to go read whichever one
-         *     turns out to be nearly full. Sizes are measured on the FOLDED document — the
-         *     owner overlay ⊕ file seed a caller actually reads and edits — so they match what
-         *     the per-document GETs report. No text of any kind.
+         * @description The two capped documents of ONE role, by size only: ``duty`` (the role
+         *     definition, get_role) and ``insight`` (get_insight). ``role_key`` is how to go
+         *     read whichever one turns out to be nearly full. Sizes are measured on the
+         *     FOLDED document — the owner overlay ⊕ file seed a caller actually reads and
+         *     edits — so they match what the per-document GETs report. No text of any kind.
          */
         RoleDocSizesDTO: {
             duty: components["schemas"]["DocSizeDTO"];
             insight: components["schemas"]["DocSizeDTO"];
-            lessons: components["schemas"]["DocSizeDTO"];
             /** Role Key */
             role_key: string;
         };
@@ -8476,20 +8208,8 @@ export interface components {
              */
             doc_cap_chars_insight: number;
             /**
-             * Doc Cap Chars Learning
-             * @description The size cap on a role's LEARNING doc (the lessons doc), in CHARACTERS (Unicode code points). The floor of the adjustable range is this segment's shipped default (the `default` field above), the ceiling is 100000.
-             * @default 15000
-             */
-            doc_cap_chars_learning: number;
-            /**
-             * Doc Cap Chars Manual Learnings
-             * @description The size cap on a TASK MANUAL's LEARNINGS doc, in CHARACTERS (Unicode code points). The floor of the adjustable range is this segment's shipped default (the `default` field above), the ceiling is 100000. Task manuals are keyed by type_key — assets of a task TYPE, not of a role journal — which is why they answer to their own knobs rather than to any of the three role-journal segments. T-30f1 split the single doc.cap_chars.manual knob into this one and doc_cap_chars_manual_sop; migration 00049 copied the stored value to BOTH, so no installation's effective cap was lowered.
-             * @default 15000
-             */
-            doc_cap_chars_manual_learnings: number;
-            /**
              * Doc Cap Chars Manual Sop
-             * @description The size cap on a TASK MANUAL's SOP doc (sop_md), in CHARACTERS (Unicode code points). The floor of the adjustable range is this segment's shipped default (the `default` field above), the ceiling is 100000. Independent of doc_cap_chars_manual_learnings: the SOP is a written-once-then-refined blueprint while learnings accumulate, so the two documents are sized against separate budgets since T-30f1.
+             * @description The size cap on a TASK MANUAL's SOP doc (sop_md), in CHARACTERS (Unicode code points). The floor of the adjustable range is this segment's shipped default (the `default` field above), the ceiling is 100000.
              * @default 15000
              */
             doc_cap_chars_manual_sop: number;
@@ -8592,7 +8312,7 @@ export interface components {
             lore_cap_chars_role: number;
             /**
              * Lore Cap Chars Manual
-             * @description How many characters of 傳承 ``get_task_manual`` appends after a type's ``learnings`` (T-33) — spent by whoever opens that manual, staff and outsource alike, since this fold enters no boot document. INDEPENDENT of ``lore_cap_chars_role``. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry has NO edit path at all, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 100..100000.
+             * @description How many characters of 傳承 ``get_task_manual`` carries for a type (T-33) — spent by whoever opens that manual, staff and outsource alike, since this fold enters no boot document. INDEPENDENT of ``lore_cap_chars_role``. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry has NO edit path at all, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 100..100000.
              * @default 10000
              */
             lore_cap_chars_manual: number;
@@ -8699,16 +8419,6 @@ export interface components {
              */
             doc_cap_chars_insight?: number | null;
             /**
-             * Doc Cap Chars Learning
-             * @description The size cap on a role's LEARNING doc (the lessons doc), in CHARACTERS (Unicode code points). Must be at least this segment's shipped default (see `SettingsDTO.doc_cap_chars_learning`, whose `default` is that floor) and at most 100000.
-             */
-            doc_cap_chars_learning?: number | null;
-            /**
-             * Doc Cap Chars Manual Learnings
-             * @description The size cap on a TASK MANUAL's learnings doc, in CHARACTERS (Unicode code points). Must be at least this segment's shipped default (see `SettingsDTO.doc_cap_chars_manual_learnings`, whose `default` is that floor) and at most 100000.
-             */
-            doc_cap_chars_manual_learnings?: number | null;
-            /**
              * Doc Cap Chars Manual Sop
              * @description The size cap on a TASK MANUAL's sop_md doc, in CHARACTERS (Unicode code points). Must be at least this segment's shipped default (see `SettingsDTO.doc_cap_chars_manual_sop`, whose `default` is that floor) and at most 100000.
              */
@@ -8793,7 +8503,7 @@ export interface components {
             lore_cap_chars_role?: number | null;
             /**
              * Lore Cap Chars Manual
-             * @description How many characters of 傳承 ``get_task_manual`` appends after a type's ``learnings`` (T-33) — spent by whoever opens that manual, staff and outsource alike, since this fold enters no boot document. INDEPENDENT of ``lore_cap_chars_role``. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry has NO edit path at all, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 100..100000.
+             * @description How many characters of 傳承 ``get_task_manual`` carries for a type (T-33) — spent by whoever opens that manual, staff and outsource alike, since this fold enters no boot document. INDEPENDENT of ``lore_cap_chars_role``. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry has NO edit path at all, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 100..100000.
              */
             lore_cap_chars_manual?: number | null;
             /**
@@ -9388,98 +9098,6 @@ export interface components {
             title?: string | null;
         };
         /**
-         * TaskLearningsPatchDTO
-         * @description Anchor-addressed PATCH of a type's learnings (MCP ``patch_task_learnings`` — the learnings twin of ``patch_lessons``): ``{edits: [{old, new}], allow_shrink?}``. The write cost scales with the CHANGE, not the doc — a whole-doc ``write_task_learnings`` stops fitting in one model output as the learnings grow (30k chars observed), so this is the primary write seam and whole-doc replace stays the last resort. ATOMIC — edits apply sequentially to an in-memory copy and any failing anchor (absent or ambiguous ``old``) rejects the ENTIRE batch with a flat 400 and ZERO writes. ``allow_shrink`` (default false) must be set explicitly for a patch that empties the doc or shrinks it to under a tenth of its size — the r-76 wipe-guard posture.
-         */
-        TaskLearningsPatchDTO: {
-            /**
-             * Allow Shrink
-             * @default false
-             */
-            allow_shrink: boolean;
-            /** Edits */
-            edits: components["schemas"]["LessonsEditDTO"][];
-        };
-        /**
-         * TaskLearningsPatchResultDTO
-         * @description Receipt of a task-learnings PATCH (MCP ``patch_task_learnings``). ``size`` (CHARACTERS — Unicode code points, the SAME unit as the ``doc.cap_chars.manual_learnings`` cap the write is judged against; it counted UTF-8 BYTES until 2026-07-31, when the owner ruled the receipt must speak the cap's unit) and ``sha256`` (hex) are lightweight verification anchors over the RESULTING learnings text, so the caller can confirm the write landed without re-reading the full doc. ``applied_edits`` is the number of edits that changed the text THEY were handed (a no-op append/replace does not count), so "0 applied" is expressible and a silent no-op cannot masquerade as success. It is not a report on whether the document ended up different from where it started: a batch whose edits undo one another (``anchor → middle`` then ``middle → anchor``) reports the full count over learnings that never moved, and nothing is written in that case. To decide whether the doc actually changed, compare ``sha256`` against the value you held before the call.
-         */
-        TaskLearningsPatchResultDTO: {
-            /**
-             * Applied Edits
-             * @default 0
-             */
-            applied_edits: number;
-            /**
-             * Cap Chars
-             * @description The document size cap in force when this write was judged, in CHARACTERS (the doc.cap_chars.manual_learnings setting — this face only ever writes learnings). Returned so a caller can see its remaining budget without a second request — the cap is adjustable and agents cannot read the settings surface.
-             * @default 0
-             */
-            cap_chars: number;
-            /**
-             * Sha256
-             * @default
-             */
-            sha256: string;
-            /**
-             * Size Chars
-             * @description Size of the RESULTING document in CHARACTERS (Unicode code points) — the same unit as cap_chars. Named `size` until 2026-07-31, when the owner ruled a size field must carry its unit in its name.
-             * @default 0
-             */
-            size_chars: number;
-            /**
-             * Type Key
-             * @default
-             */
-            type_key: string;
-        };
-        /**
-         * TaskLearningsReplaceDTO
-         * @description Whole-doc replace of a type's learnings (MCP ``write_task_learnings`` — the agent's task-close write-back; the replace_lessons shape). ``text`` is REQUIRED — a whole-doc replace must never infer "empty" from a missing key (T-2d99). ``allow_shrink`` (default false) must be set explicitly to replace existing content with an empty doc — the r-76 wipe-guard posture.
-         */
-        TaskLearningsReplaceDTO: {
-            /**
-             * Allow Shrink
-             * @default false
-             */
-            allow_shrink: boolean;
-            /**
-             * Text
-             * @default
-             */
-            text: string;
-        };
-        /**
-         * TaskLearningsWriteReceiptDTO
-         * @description Bounded receipt returned after write_task_learnings (T-91). This route writes ONE document wholesale, so it answers with that document's numbers and nothing else - deliberately the same four fields as TaskLearningsPatchResultDTO minus ``applied_edits``, so the wholesale writer and the patch writer of the same document answer in the same vocabulary. It does NOT reuse TaskManualReceiptDTO: that face can carry the SOP group too, and a learnings write has no business reporting on a document it did not touch (owner direction, 2026-09-05). ``size_chars``/``cap_chars`` are CHARACTERS (Unicode code points), the unit the cap is enforced in; get_task_manual serves the text.
-         */
-        TaskLearningsWriteReceiptDTO: {
-            /**
-             * Cap Chars
-             * @description The learnings ceiling this write was judged against (settings key doc_cap_chars_manual_learnings).
-             * @default 0
-             */
-            cap_chars: number;
-            /**
-             * Sha256
-             * @description Hex sha256 over the learnings document as stored after this write.
-             * @default
-             */
-            sha256: string;
-            /**
-             * Size Chars
-             * @description Size of the learnings document as stored after this write. The field a writer actually reads - it says how much room is left, which the text it just sent does not.
-             * @default 0
-             */
-            size_chars: number;
-            /**
-             * Type Key
-             * @description The manual this write landed on.
-             * @default
-             */
-            type_key: string;
-        };
-        /**
          * TaskListItemDTO
          * @description One task in the LIGHT list projection (``GET /api/tasks`` / MCP ``list_tasks``): the fields the 任務清單 card needs to render collapsed. Drops the heavy per-task detail (``steps``, ``description``, ``inputs``) which the list never shows collapsed — fetch the full ``TaskDTO`` with ``GET /api/tasks/{task_id}`` (MCP ``get_task``) to read those. ``progress_done``/``progress_total`` are still counted (from step leaves) so the card's progress bar renders without the steps payload. ``current_step_id``/``current_step_name`` are the same kind of pre-resolved summary — the step the task is on right now, resolved server-side in ONE grouped query over the whole population (never a per-task step read), carrying only the step's id and name and never its ``dod``. ``creator_id`` is the verified token sub of the task's creator (a member id, an outsource worker id, or the literal "owner"); "" on rows created before the column existed.
          */
@@ -9613,7 +9231,7 @@ export interface components {
         };
         /**
          * TaskManualDTO
-         * @description One task manual (任務手冊 — a task type / playbook): purpose (Q1), input fields (Q2; is_key fields form the dedupe identity key), the SOP markdown (Q3 — the plan blueprint), the accumulated learnings, and the type's executor assignee setting ({} = unset). An outsource assignee is {"kind":"outsource","runtime":"claude|codex","model":…,"effort":…,"copies":N,"machine":…}; absent runtime means claude. `copies` is the per-type parallel-worker cap — an integer >= 1, or 0 = 無限 (UNLIMITED: no per-type cap; the global outsource_max_parallel still applies); `machine` is the machine the type's workers boot on — a machine id that must resolve to a real machine; absent means the type names none. A machine that is offline or lacks the selected runtime at spawn time is NOT substituted: nothing is dispatched and the worker row carries the reason (last_op_reason).
+         * @description One task manual (任務手冊 — a task type / playbook): purpose (Q1), input fields (Q2; is_key fields form the dedupe identity key), the SOP markdown (Q3 — the plan blueprint), and the type's executor assignee setting ({} = unset). An outsource assignee is {"kind":"outsource","runtime":"claude|codex","model":…,"effort":…,"copies":N,"machine":…}; absent runtime means claude. `copies` is the per-type parallel-worker cap — an integer >= 1, or 0 = 無限 (UNLIMITED: no per-type cap; the global outsource_max_parallel still applies); `machine` is the machine the type's workers boot on — a machine id that must resolve to a real machine; absent means the type names none. A machine that is offline or lacks the selected runtime at spawn time is NOT substituted: nothing is dispatched and the worker row carries the reason (last_op_reason).
          */
         TaskManualDTO: {
             /** Assignee */
@@ -9621,36 +9239,12 @@ export interface components {
                 [key: string]: unknown;
             };
             /**
-             * Cap Chars
-             * @description DEPRECATED since T-30f1 — read learnings_cap_chars or sop_md_cap_chars instead. The manual's SOP and learnings are judged by two SEPARATE caps now, and one field cannot report both: this one carries the LEARNINGS cap (doc.cap_chars.manual_learnings) only, and says nothing about sop_md. Kept so existing clients keep reading a real number rather than a zero.
-             * @default 0
-             */
-            cap_chars: number;
-            /**
              * Display Name
              * @default
              */
             display_name: string;
             /** Fields */
             fields: components["schemas"]["TaskManualFieldDTO"][];
-            /**
-             * Learnings
-             * @description The manual's LEARNINGS DOCUMENT — the stored text a write face writes, and nothing else. 🔴 IT NO LONGER CARRIES THE 傳承 BLOCK. Lore used to be appended onto this field, which left it full of text while ``learnings_chars`` (which counts the STORED document) reported 0, and nothing on the wire said which half of the field that number was about. Owner ruling 2026-09-07 split them: the block is served on ``lore``, beside this field. A reader that wants what a member effectively sees concatenates the two ITSELF — and can then see that it did, which is exactly what the merged field took away.
-             * @default
-             */
-            learnings: string;
-            /**
-             * Learnings Cap Chars
-             * @description The cap on `learnings` now in force, in CHARACTERS (the doc.cap_chars.manual_learnings setting). Served on the READ face so an agent can size an edit BEFORE writing it. Independent of sop_md_cap_chars since T-30f1.
-             * @default 0
-             */
-            learnings_cap_chars: number;
-            /**
-             * Learnings Chars
-             * @description Size of `learnings` in CHARACTERS. Reported PER CAPPED DOCUMENT rather than as one total, because learnings and sop_md are judged separately — against their own caps since T-30f1. The listing carries the same measurement without the text (TaskManualListItemDTO).
-             * @default 0
-             */
-            learnings_chars: number;
             /**
              * Purpose
              * @default
@@ -9663,13 +9257,13 @@ export interface components {
             sop_md: string;
             /**
              * Sop Md Cap Chars
-             * @description The cap on `sop_md` now in force, in CHARACTERS (the doc.cap_chars.manual_sop setting). See learnings_cap_chars.
+             * @description The cap on `sop_md` now in force, in CHARACTERS (the doc.cap_chars.manual_sop setting).
              * @default 0
              */
             sop_md_cap_chars: number;
             /**
              * Sop Md Chars
-             * @description Size of `sop_md` in CHARACTERS. See learnings_chars.
+             * @description Size of `sop_md` in CHARACTERS.
              * @default 0
              */
             sop_md_chars: number;
@@ -9682,13 +9276,13 @@ export interface components {
             updated_ts: number;
             /**
              * Lore
-             * @description The rendered 傳承 block for this manual's task type: the entries selected for it, newest first, under a ``# 傳承`` heading. EMPTY STRING when the type has no live entries — a real answer, not an omission. 🔴 IT IS NOT PART OF ``learnings`` AND IS NOT STORED ANYWHERE. It is assembled per read from the lore entries, so a caller that reads it and writes it back into the learnings document duplicates it on every cycle; the learnings write faces strip a trailing block for that exact reason. Read it, do not re-send it. 🔴 IF YOU ARE FOLLOWING A WRITTEN PROCEDURE THAT ONLY MENTIONS ``learnings``, THIS FIELD IS THE PART THAT PROCEDURE PREDATES — the type's accumulated experience lives here now.
+             * @description The rendered 傳承 block for this manual's task type: the entries selected for it, newest first, under a ``# 傳承`` heading. EMPTY STRING when the type has no live entries — a real answer, not an omission. 🔴 IT IS NOT STORED ANYWHERE. It is assembled per read from the lore entries, so it is read-only: read it, do not send it back. The type's accumulated experience lives here.
              * @default
              */
             lore: string;
             /**
              * Lore Chars
-             * @description Size of ``lore`` in CHARACTERS. A SEPARATE number from ``learnings_chars`` on purpose: the two fields are written by different paths and judged against different caps, so ``learnings_chars`` sizes what a writer may edit while this one sizes what the server assembled. Neither substitutes for the other, and it is their SUM that approximates what a member effectively reads.
+             * @description Size of ``lore`` in CHARACTERS — the block the server assembled for this read, which is a different thing from ``sop_md_chars`` (what a writer may edit).
              * @default 0
              */
             lore_chars: number;
@@ -9705,13 +9299,12 @@ export interface components {
         };
         /**
          * TaskManualDocSizesDTO
-         * @description The two capped documents of ONE task manual, by size only: ``sop`` (sop_md)
-         *     and ``learnings``. ``type_key`` is how to go read whichever one turns out to be
-         *     nearly full (get_task_manual). No text of any kind — which is the whole point:
-         *     the manual bodies are the bulk of what makes list_task_manuals unreadable.
+         * @description The capped document of ONE task manual, by size only: ``sop`` (sop_md).
+         *     ``type_key`` is how to go read it when it turns out to be nearly full
+         *     (get_task_manual). No text of any kind — which is the whole point: the manual
+         *     bodies are the bulk of what makes list_task_manuals unreadable.
          */
         TaskManualDocSizesDTO: {
-            learnings: components["schemas"]["DocSizeDTO"];
             sop: components["schemas"]["DocSizeDTO"];
             /** Type Key */
             type_key: string;
@@ -9738,26 +9331,20 @@ export interface components {
          * TaskManualListItemDTO
          * @description One row of the TASK-MANUAL LISTING: the type's identity and its dispatch
          *     setting — ``type_key`` / ``display_name`` / ``purpose`` / ``fields`` /
-         *     ``assignee`` / ``updated_ts`` — plus the SIZES of the two long documents it
-         *     does NOT carry and the cap each is judged against.
+         *     ``assignee`` / ``updated_ts`` — plus the SIZE of the long document it does NOT
+         *     carry and the cap it is judged against.
          *
-         *     ``sop_md`` and ``learnings`` are deliberately ABSENT rather than served empty:
-         *     they are the bulk that made a listing unreadable, and an empty string in a
-         *     field that normally holds the SOP reads as "this type has no SOP". Their
-         *     sizes are measured on the STORED rows, so the row still answers "which manual
-         *     is nearly full" — read the one you picked with get_task_manual.
+         *     ``sop_md`` is deliberately ABSENT rather than served empty: it is the bulk that
+         *     made a listing unreadable, and an empty string in a field that normally holds
+         *     the SOP reads as "this type has no SOP". Its size is measured on the STORED
+         *     row, so the row still answers "which manual is nearly full" — read the one you
+         *     picked with get_task_manual.
          */
         TaskManualListItemDTO: {
             /** Assignee */
             assignee: {
                 [key: string]: unknown;
             };
-            /**
-             * Cap Chars
-             * @description DEPRECATED since T-30f1 — read learnings_cap_chars or sop_md_cap_chars instead. The manual's SOP and learnings are judged by two SEPARATE caps now, and one field cannot report both: this one carries the LEARNINGS cap (doc.cap_chars.manual_learnings) only, and says nothing about sop_md. Kept so existing clients keep reading a real number rather than a zero.
-             * @default 0
-             */
-            cap_chars: number;
             /**
              * Display Name
              * @default
@@ -9766,31 +9353,19 @@ export interface components {
             /** Fields */
             fields: components["schemas"]["TaskManualFieldDTO"][];
             /**
-             * Learnings Cap Chars
-             * @description The cap on the type's learnings now in force, in CHARACTERS (the doc.cap_chars.manual_learnings setting). Served on the READ face so an agent can size an edit BEFORE writing it. Independent of sop_md_cap_chars since T-30f1.
-             * @default 0
-             */
-            learnings_cap_chars: number;
-            /**
-             * Learnings Chars
-             * @description Size of the type's learnings in CHARACTERS, measured on the STORED document — which this row does not carry. Reported PER CAPPED DOCUMENT rather than as one total, because learnings and sop_md are judged against their own caps since T-30f1.
-             * @default 0
-             */
-            learnings_chars: number;
-            /**
              * Purpose
              * @default
              */
             purpose: string;
             /**
              * Sop Md Cap Chars
-             * @description The cap on the type's sop_md now in force, in CHARACTERS (the doc.cap_chars.manual_sop setting). See learnings_cap_chars.
+             * @description The cap on the type's sop_md now in force, in CHARACTERS (the doc.cap_chars.manual_sop setting).
              * @default 0
              */
             sop_md_cap_chars: number;
             /**
              * Sop Md Chars
-             * @description Size of the type's sop_md in CHARACTERS, measured on the STORED document. See learnings_chars.
+             * @description Size of the type's sop_md in CHARACTERS, measured on the STORED document.
              * @default 0
              */
             sop_md_chars: number;
@@ -9804,37 +9379,22 @@ export interface components {
         };
         /**
          * TaskManualReceiptDTO
-         * @description Bounded receipt returned after create_task_manual and update_task_manual (T-91). update_task_manual is a PARTIAL write - every field of its body is nullable and the handler acts only on the ones present - so this receipt reports ONLY the documents THIS call actually wrote. Send just ``sop_md`` and the three ``sop_md_*`` fields come back and the three ``learnings_*`` fields are ABSENT; send just ``learnings`` and the reverse; send neither (a create, or an update of display_name alone) and neither group appears. That absence is the answer, not a gap: reporting numbers for a document this call did not touch is the shape owner rejected verbatim on 2026-09-05 ("為什麼還是要回這麼多訊息"). The manual's configuration - display_name, purpose, assignee, fields - is NOT here either: the caller just sent it, and get_task_manual serves it. ``type_key`` always rides back because create MINTS it server-side, so it is the one thing the caller cannot know. Measured before this change, the old whole-manual answer was 74,402 bytes with learnings at 17,114 characters and sop_md at 16,016.
+         * @description Bounded receipt returned after create_task_manual and update_task_manual (T-91). update_task_manual is a PARTIAL write - every field of its body is nullable and the handler acts only on the ones present - so this receipt reports ONLY the document THIS call actually wrote. Send ``sop_md`` and the three ``sop_md_*`` fields come back; send neither (a create, or an update of display_name alone) and none of them appears. That absence is the answer, not a gap: reporting numbers for a document this call did not touch is the shape owner rejected verbatim on 2026-09-05 ("為什麼還是要回這麼多訊息"). The manual's configuration - display_name, purpose, assignee, fields - is NOT here either: the caller just sent it, and get_task_manual serves it. ``type_key`` always rides back because create MINTS it server-side, so it is the one thing the caller cannot know.
          */
         TaskManualReceiptDTO: {
             /**
-             * Learnings Cap Chars
-             * @description The learnings ceiling in force (settings key doc_cap_chars_manual_learnings). Present ONLY when this call wrote the learnings document. No ``default``, not required - see ``learnings_chars`` for why.
-             */
-            learnings_cap_chars?: number;
-            /**
-             * Learnings Chars
-             * @description Size of the LEARNINGS document as stored, in CHARACTERS (Unicode code points). Present ONLY when this call wrote the learnings document; absent otherwise. It carries NO ``default`` and is NOT required on purpose: a default makes the generated field non-optional, which serialises 0 for a document this call never touched, and 0 is indistinguishable from an empty document that WAS written. The station already spells absence this way in 18 places (e.g. ``ChatListDTO.next_cursor``).
-             */
-            learnings_chars?: number;
-            /**
-             * Learnings Sha256
-             * @description Hex sha256 over the learnings document as stored. Present ONLY when this call wrote it. This is what replaces the text echo: hash what you sent and compare, at 64 characters instead of the document. No ``default``, not required - an empty-string default would answer with a hash-shaped blank for a document this call never wrote.
-             */
-            learnings_sha256?: string;
-            /**
              * Sop Md Cap Chars
-             * @description The SOP ceiling in force (settings key doc_cap_chars_manual_sop). Present ONLY when this call wrote the SOP document. Separate from the learnings cap on purpose: the two documents are judged against independent budgets, so one must never be read as evidence about the other. No ``default``, not required - see ``learnings_chars`` for why.
+             * @description The SOP ceiling in force (settings key doc_cap_chars_manual_sop). Present ONLY when this call wrote the SOP document. No ``default``, not required.
              */
             sop_md_cap_chars?: number;
             /**
              * Sop Md Chars
-             * @description Size of the SOP document as stored, in CHARACTERS. Present ONLY when this call wrote the SOP document; absent otherwise. No ``default``, not required - see ``learnings_chars`` for why.
+             * @description Size of the SOP document as stored, in CHARACTERS. Present ONLY when this call wrote the SOP document; absent otherwise. No ``default``, not required.
              */
             sop_md_chars?: number;
             /**
              * Sop Md Sha256
-             * @description Hex sha256 over the SOP document as stored. Present ONLY when this call wrote it. No ``default``, not required - see ``learnings_sha256`` for why.
+             * @description Hex sha256 over the SOP document as stored. Present ONLY when this call wrote it. No ``default``, not required.
              */
             sop_md_sha256?: string;
             /**
@@ -9871,11 +9431,6 @@ export interface components {
              * @default null
              */
             fields: components["schemas"]["TaskManualFieldDTO"][] | null;
-            /**
-             * Learnings
-             * @default null
-             */
-            learnings: string | null;
             /**
              * Purpose
              * @default null
@@ -10044,7 +9599,7 @@ export interface components {
         };
         /**
          * TaskSopPatchDTO
-         * @description Anchor-addressed PATCH of a type's SOP (MCP ``patch_task_sop`` — the sop_md twin of ``patch_task_learnings``): ``{edits: [{old, new}], allow_shrink?}``. It exists to stop CONCURRENT OVERWRITE: the only sop_md write face was ``update_task_manual.sop_md``, a whole-doc replace, so a caller holding a stale copy silently deletes whatever landed in between — and because the stale copy is usually the LONGER one, the shrink guard never fires and the loss carries no signal at all. An anchor patch cannot express that write: each non-empty ``old`` must match the current sop_md EXACTLY ONCE, so a concurrent write that moved or duplicated the anchor turns the batch into a visible refusal. ATOMIC — edits apply sequentially to an in-memory copy and any failing anchor (absent or ambiguous ``old``) rejects the ENTIRE batch with a flat 400 and ZERO writes. ``allow_shrink`` (default false) must be set explicitly for a patch that empties the doc or shrinks it to under a tenth of its size — the r-76 wipe-guard posture.
+         * @description Anchor-addressed PATCH of a type's SOP (MCP ``patch_task_sop``): ``{edits: [{old, new}], allow_shrink?}``. It exists to stop CONCURRENT OVERWRITE: the only sop_md write face was ``update_task_manual.sop_md``, a whole-doc replace, so a caller holding a stale copy silently deletes whatever landed in between — and because the stale copy is usually the LONGER one, the shrink guard never fires and the loss carries no signal at all. An anchor patch cannot express that write: each non-empty ``old`` must match the current sop_md EXACTLY ONCE, so a concurrent write that moved or duplicated the anchor turns the batch into a visible refusal. ATOMIC — edits apply sequentially to an in-memory copy and any failing anchor (absent or ambiguous ``old``) rejects the ENTIRE batch with a flat 400 and ZERO writes. ``allow_shrink`` (default false) must be set explicitly for a patch that empties the doc or shrinks it to under a tenth of its size — the r-76 wipe-guard posture.
          */
         TaskSopPatchDTO: {
             /**
@@ -10299,7 +9854,7 @@ export interface components {
             cap_chars: number;
             /**
              * Sha256
-             * @description Hex sha256 over the note AS STORED after this write (T-91). Present so a caller can confirm what landed WITHOUT the text riding back - the same verification anchor patch_step_note, patch_lessons, patch_insight and patch_task_sop already carry.
+             * @description Hex sha256 over the note AS STORED after this write (T-91). Present so a caller can confirm what landed WITHOUT the text riding back - the same verification anchor patch_step_note, patch_insight and patch_task_sop already carry.
              * @default
              */
             sha256: string;
@@ -10390,7 +9945,7 @@ export interface components {
         };
         /**
          * TaskWriteReceiptDTO
-         * @description Bounded receipt returned after the task WRITE verbs that used to answer with the whole ticket - update_task (and its HTTP-only title / description twins), claim_task, reassign_task, mark_task_done, mark_task_terminated, mark_task_duplicated, force_task_done and set_task_deps. Same posture as TaskPriorityReceiptDTO and TaskArtifactReceiptDTO: the write answers with what the write DID and with the parts the caller cannot predict, not with the task. Measured on one real ticket the old shape was 12,666 characters, of which the step rows were 5,676 and the description another 5,668, leaving 822 for everything a caller actually reads back - so the step rows are reported here as progress_done / progress_total and the artifact set as artifact_count, the same index-not-rows split T-66 made on get_task. ``description_size_chars`` / ``description_sha256`` replace the description ECHO for a reason that is not size alone: the three doors that actually WRITE a description (update_task and the HTTP-only description / title twins) TRIM what they store while create_task does not, so the stored text can differ from the text that was sent, and a size + hash pair answers exactly that question. On the five verbs that never touch the description - claim, reassign, terminate, duplicate, deps - the pair is simply the current state - the same anchor pair patch_lessons, patch_insight and patch_task_sop already carry. ``title`` rides back in full because it is ONE LINE and it is the row the task list shows. An earlier draft of this sentence added "and it is trimmed by this same write" as if that held for all six verbs; it does not. Only update_task and the HTTP-only title twin write a title at all (api_tasks_fields.go:173 is where the trim happens); on claim, reassign, terminate, duplicate and deps the title is a stored value nobody on this call touched - which is precisely why it is worth sending, since those five are driven by task id and their caller may never have seen the ticket. GET the task itself when full detail is needed; the artifacts route serves the artifact rows. NOTE the GET on this same path is UNCHANGED and still answers TaskDTO - only the write verbs moved. TWO KINDS OF FIELD WERE DROPPED HERE AND THEY ARE NOT THE SAME. The pure metadata (named in the sentence that follows this one) has NO consumer anywhere - searched across frontend, Go, conformance, e2e and the ocagent CLI, every zero-hit backed by a positive control on the same query shape. The CONTENT fields are the opposite: conformance asserts on them, so dropping the content is NOT additive and those assertions move with this shape. THE COCKPIT, HOWEVER, DOES NOT READ THIS ONE - and the sentence that used to stand here said it did. useTasks.ts:258-303 awaits each of these six writes, DISCARDS the value and refetches; the general claim was copied onto every receipt in this package without being checked against the task hooks, which is the same failure this ticket already produced thirteen times over. The frontend prerequisite is real for the document and roster families; it is not this receipt that needs it. Owner direction, 2026-09-05: a write answers with identity, the size numbers, and what the write itself decides. The two dropped here - type_key and dedupe_key - are not writable by any of these verbs and both are known from create_task onward, so neither could ever be this write's news.
+         * @description Bounded receipt returned after the task WRITE verbs that used to answer with the whole ticket - update_task (and its HTTP-only title / description twins), claim_task, reassign_task, mark_task_done, mark_task_terminated, mark_task_duplicated, force_task_done and set_task_deps. Same posture as TaskPriorityReceiptDTO and TaskArtifactReceiptDTO: the write answers with what the write DID and with the parts the caller cannot predict, not with the task. Measured on one real ticket the old shape was 12,666 characters, of which the step rows were 5,676 and the description another 5,668, leaving 822 for everything a caller actually reads back - so the step rows are reported here as progress_done / progress_total and the artifact set as artifact_count, the same index-not-rows split T-66 made on get_task. ``description_size_chars`` / ``description_sha256`` replace the description ECHO for a reason that is not size alone: the three doors that actually WRITE a description (update_task and the HTTP-only description / title twins) TRIM what they store while create_task does not, so the stored text can differ from the text that was sent, and a size + hash pair answers exactly that question. On the five verbs that never touch the description - claim, reassign, terminate, duplicate, deps - the pair is simply the current state - the same anchor pair patch_insight and patch_task_sop already carry. ``title`` rides back in full because it is ONE LINE and it is the row the task list shows. An earlier draft of this sentence added "and it is trimmed by this same write" as if that held for all six verbs; it does not. Only update_task and the HTTP-only title twin write a title at all (api_tasks_fields.go:173 is where the trim happens); on claim, reassign, terminate, duplicate and deps the title is a stored value nobody on this call touched - which is precisely why it is worth sending, since those five are driven by task id and their caller may never have seen the ticket. GET the task itself when full detail is needed; the artifacts route serves the artifact rows. NOTE the GET on this same path is UNCHANGED and still answers TaskDTO - only the write verbs moved. TWO KINDS OF FIELD WERE DROPPED HERE AND THEY ARE NOT THE SAME. The pure metadata (named in the sentence that follows this one) has NO consumer anywhere - searched across frontend, Go, conformance, e2e and the ocagent CLI, every zero-hit backed by a positive control on the same query shape. The CONTENT fields are the opposite: conformance asserts on them, so dropping the content is NOT additive and those assertions move with this shape. THE COCKPIT, HOWEVER, DOES NOT READ THIS ONE - and the sentence that used to stand here said it did. useTasks.ts:258-303 awaits each of these six writes, DISCARDS the value and refetches; the general claim was copied onto every receipt in this package without being checked against the task hooks, which is the same failure this ticket already produced thirteen times over. The frontend prerequisite is real for the document and roster families; it is not this receipt that needs it. Owner direction, 2026-09-05: a write answers with identity, the size numbers, and what the write itself decides. The two dropped here - type_key and dedupe_key - are not writable by any of these verbs and both are known from create_task onward, so neither could ever be this write's news.
          */
         TaskWriteReceiptDTO: {
             /**
@@ -13464,161 +13019,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["InsightReceiptDTO"];
-                };
-            };
-            /** @description Validation error (unified error envelope). */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
-                };
-            };
-            /** @description Client error (unified error envelope). */
-            "4XX": {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
-                };
-            };
-            /** @description Server error (unified error envelope). */
-            "5XX": {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
-                };
-            };
-        };
-    };
-    handle_get_lessons_api_lessons__role_key__get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                role_key: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["LessonsDTO"];
-                };
-            };
-            /** @description Validation error (unified error envelope). */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
-                };
-            };
-            /** @description Client error (unified error envelope). */
-            "4XX": {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
-                };
-            };
-            /** @description Server error (unified error envelope). */
-            "5XX": {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
-                };
-            };
-        };
-    };
-    handle_replace_lessons_api_lessons__role_key__post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                role_key: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["LessonsReplaceDTO"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["LessonsReceiptDTO"];
-                };
-            };
-            /** @description Validation error (unified error envelope). */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
-                };
-            };
-            /** @description Client error (unified error envelope). */
-            "4XX": {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
-                };
-            };
-            /** @description Server error (unified error envelope). */
-            "5XX": {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
-                };
-            };
-        };
-    };
-    handle_patch_lessons_api_lessons__role_key__patch_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                role_key: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["LessonsPatchDTO"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["LessonsPatchResultDTO"];
                 };
             };
             /** @description Validation error (unified error envelope). */
@@ -17885,112 +17285,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TaskManualDeleteResultDTO"];
-                };
-            };
-            /** @description Validation error (unified error envelope). */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
-                };
-            };
-            /** @description Client error (unified error envelope). */
-            "4XX": {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
-                };
-            };
-            /** @description Server error (unified error envelope). */
-            "5XX": {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
-                };
-            };
-        };
-    };
-    handle_write_task_learnings_api_task_manuals__type_key__learnings_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                type_key: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["TaskLearningsReplaceDTO"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TaskLearningsWriteReceiptDTO"];
-                };
-            };
-            /** @description Validation error (unified error envelope). */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
-                };
-            };
-            /** @description Client error (unified error envelope). */
-            "4XX": {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
-                };
-            };
-            /** @description Server error (unified error envelope). */
-            "5XX": {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
-                };
-            };
-        };
-    };
-    handle_patch_task_learnings_api_task_manuals__type_key__learnings_patch_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                type_key: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["TaskLearningsPatchDTO"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TaskLearningsPatchResultDTO"];
                 };
             };
             /** @description Validation error (unified error envelope). */

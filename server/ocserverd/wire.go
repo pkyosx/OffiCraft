@@ -111,17 +111,14 @@ type settingsDTO struct {
 	WardenCredentialLifetimeSecs int `json:"warden_credential_lifetime_secs"`
 	// DocCapChars* are the live size caps on the accumulating context
 	// documents, in CHARACTERS (runes) — the same unit the patch receipts and
-	// the refusal message speak (T-3aeb). FIVE independent knobs: a role's
-	// Duty / Insight / Learning since T-ae38, plus the task manual's two long
-	// docs, which T-30f1 gave a knob EACH (keyed by type_key, so assets of a
-	// task TYPE rather than of a journal). Every wire name carries its suffix
-	// for the same reason the DB keys do — an unsuffixed one, or a bare
-	// `manual` beside the two it was split into, reads as a global default.
-	DocCapCharsDuty            int `json:"doc_cap_chars_duty"`
-	DocCapCharsInsight         int `json:"doc_cap_chars_insight"`
-	DocCapCharsLearning        int `json:"doc_cap_chars_learning"`
-	DocCapCharsManualSop       int `json:"doc_cap_chars_manual_sop"`
-	DocCapCharsManualLearnings int `json:"doc_cap_chars_manual_learnings"`
+	// the refusal message speak (T-3aeb). THREE independent knobs: a role's
+	// Duty / Insight since T-ae38, plus the task manual's SOP (keyed by
+	// type_key, so an asset of a task TYPE rather than of a journal). Every wire
+	// name carries its suffix for the same reason the DB keys do — an
+	// unsuffixed one reads as a global default.
+	DocCapCharsDuty      int `json:"doc_cap_chars_duty"`
+	DocCapCharsInsight   int `json:"doc_cap_chars_insight"`
+	DocCapCharsManualSop int `json:"doc_cap_chars_manual_sop"`
 	// The two boot-context document kinds, editable since T-791e. One knob per
 	// kind, and the boot-sequence one is shared by the claude and codex
 	// documents (each measured on its own text).
@@ -134,8 +131,8 @@ type settingsDTO struct {
 	// own (tied to resumeChatFetch, see domain.go).
 	// The four 傳承 knobs (T-33; lore.cap_chars.*). Two FOLD budgets — how much
 	// lore a staff boot document carries for one role, and how much
-	// get_task_manual appends after a type's learnings — and two ENTRY bounds on
-	// one write's title and body.
+	// get_task_manual carries for a type — and two ENTRY bounds on one write's
+	// title and body.
 	//
 	// 🔴 The two fold budgets are NEVER summed. They are spent by different
 	// readers at different moments, so one shared number would make a role's
@@ -959,7 +956,7 @@ type bootDocDTO struct {
 
 type roleDefDTO struct {
 	// SizeChars / CapChars are the Duty doc's own budget (T-ae38) — the same
-	// pair lessonsDTO and insightDTO have carried since T-3aeb, and for the
+	// pair insightDTO has carried since T-3aeb, and for the
 	// same reason: the settings surface holding the cap is admin-only, so
 	// without them the only way to learn the limit is to be refused by it.
 	//
@@ -1047,34 +1044,28 @@ type docSizeDTO struct {
 	CapChars  int `json:"cap_chars"`
 }
 
-// roleDocSizesDTO is one role's three capped documents, sizes only. Measured on
+// roleDocSizesDTO is one role's two capped documents, sizes only. Measured on
 // the FOLDED doc (overlay ⊕ seed) — the same text the per-document GETs report,
 // because the sizes come from the very same fold* helpers those handlers use.
-// Lessons is one row per role, whole: T-2 removed the task_type axis, so there
-// is no longer a second BUCKET a write could spend the same cap under while
-// staying off this wire.
 //
 // 🔴 THAT IS NOT THE SAME AS "everything capped is on this wire", and the
 // distinction is worth a line because an earlier draft of peek_doc_sizes' tool
 // description collapsed the two into a promise a single call falsifies. This
-// DTO is keyed by ROLE: the handler walks listRoleKeys(). The lessons write
-// face never compares role_key against that roster (see replace_lessons, whose
-// own description says so), so an admin or the owner can create a lessons
-// document under a name no role carries — it spends the same cap and has no
-// role to hang off, so it never appears here. Measured in
+// DTO is keyed by ROLE: the handler walks listRoleKeys(). The INSIGHT write
+// face never compares role_key against that roster, so an admin or the owner
+// can create an insight document under a name no role carries — it spends the
+// same cap and has no role to hang off, so it never appears here. Measured in
 // TestPeekDocSizesDescriptionDoesNotPromiseCoverageItCannotGive.
 type roleDocSizesDTO struct {
 	RoleKey string     `json:"role_key"`
 	Duty    docSizeDTO `json:"duty"`
 	Insight docSizeDTO `json:"insight"`
-	Lessons docSizeDTO `json:"lessons"`
 }
 
-// taskManualDocSizesDTO is one task manual's two capped documents, sizes only.
+// taskManualDocSizesDTO is one task manual's capped document, sizes only.
 type taskManualDocSizesDTO struct {
-	TypeKey   string     `json:"type_key"`
-	Sop       docSizeDTO `json:"sop"`
-	Learnings docSizeDTO `json:"learnings"`
+	TypeKey string     `json:"type_key"`
+	Sop     docSizeDTO `json:"sop"`
 }
 
 // docSizesDTO is the station-wide capped-document size overview
@@ -1091,37 +1082,10 @@ type roleDeleteResultDTO struct {
 	DeletedChatMessages    int      `json:"deleted_chat_messages"`
 	DeletedChatAttachments int      `json:"deleted_chat_attachments"`
 	DeletedChatReads       int      `json:"deleted_chat_reads"`
-	DeletedLessons         int      `json:"deleted_lessons"`
 }
 
-type lessonsDTO struct {
-	// SizeChars / CapChars let a caller size its NEXT edit before making it
-	// (T-3aeb). Without them the only way to learn the limit is to be refused,
-	// and the settings surface that holds it is admin-only — a worker cannot
-	// look it up.
-	SizeChars     int    `json:"size_chars"`
-	CapChars      int    `json:"cap_chars"`
-	RoleKey       string `json:"role_key"`
-	Text          string `json:"text"`
-	OwnerID       string `json:"owner_id"`
-	SchemaVersion int    `json:"schema_version"`
-	IsDefault     bool   `json:"is_default"`
-}
-
-// lessonsPatchResultDTO is the patch_lessons receipt (T-8327): size
-// (CHARACTERS — runes) + sha256 (hex) are verification anchors over the
-// RESULTING doc text so the caller can confirm the write without re-reading the
-// full doc.
-//
-// size counted BYTES until T-3aeb (owner 2026-07-31). It now speaks the same
-// unit as the doc.cap_chars.learning cap the write was just judged against, so a caller
-// can compare the two directly — which is the whole point of a receipt on a
-// capped write. Two units for one subject was the defect, not the field.
-// insightDTO is the per-role INSIGHT doc on the wire (T-3809) — the third block
-// of the role journal, beside Duty (role_def) and Learning (lessons).
-//
-// Deliberately NOT lessonsDTO minus a field: the seed — added by T-e1e3 — is PER-ROLE
-// (`seeds/insight_<roleKey>.md`), never lessons' one-shared-file.
+// insightDTO is the per-role INSIGHT doc on the wire (T-3809) — the second
+// block of the role journal, beside Duty (role_def).
 //
 // IsDefault means "this role has never written its own insight". 🔴 It no
 // longer implies Text=="": a role WITH a seed reads the factory wording with
@@ -1130,10 +1094,9 @@ type lessonsDTO struct {
 // now wrong — the cockpit must read this field, or it renders factory wording
 // as if a person had written it.
 type insightDTO struct {
-	// SizeChars / CapChars let a caller size its NEXT edit before making it,
-	// for the same reason lessonsDTO carries them: the settings surface that
-	// holds the cap is admin-only, so being refused would otherwise be the
-	// only way to learn the limit.
+	// SizeChars / CapChars let a caller size its NEXT edit before making it:
+	// the settings surface that holds the cap is admin-only, so being refused
+	// would otherwise be the only way to learn the limit.
 	SizeChars     int    `json:"size_chars"`
 	CapChars      int    `json:"cap_chars"`
 	RoleKey       string `json:"role_key"`
@@ -1165,10 +1128,9 @@ type insightDTO struct {
 	HasSeed bool `json:"has_seed"`
 }
 
-// insightPatchResultDTO is the patch_insight receipt — the insight twin of
-// lessonsPatchResultDTO. SizeChars is CHARACTERS (runes), the
-// cap's unit, per the owner's 2026-07-31 ruling that a size field must carry
-// its unit in its name.
+// insightPatchResultDTO is the patch_insight receipt. SizeChars is CHARACTERS
+// (runes), the cap's unit, per the owner's 2026-07-31 ruling that a size field
+// must carry its unit in its name.
 type insightPatchResultDTO struct {
 	RoleKey       string `json:"role_key"`
 	AppliedEdits  int    `json:"applied_edits"`
@@ -1180,40 +1142,12 @@ type insightPatchResultDTO struct {
 	IsDefault     bool   `json:"is_default"`
 }
 
-type lessonsPatchResultDTO struct {
-	RoleKey       string `json:"role_key"`
-	AppliedEdits  int    `json:"applied_edits"`
-	SizeChars     int    `json:"size_chars"`
-	CapChars      int    `json:"cap_chars"`
-	Sha256        string `json:"sha256"`
-	OwnerID       string `json:"owner_id"`
-	SchemaVersion int    `json:"schema_version"`
-	IsDefault     bool   `json:"is_default"`
-}
-
-// taskLearningsPatchResultDTO is the patch_task_learnings receipt (T-9ffd): the
-// task-manual learnings twin of lessonsPatchResultDTO. size (CHARACTERS —
-// runes, the cap's unit since T-3aeb) + sha256 (hex) are verification anchors
-// over the RESULTING learnings text so the caller can confirm the write
-// without re-reading the full doc;
-// applied_edits is the count of edits that changed the text THEY were handed (a
-// no-op does not count) — NOT a report on whether the document ended up
-// different from where it started, which a batch that undoes itself does not.
-// Compare sha256 to answer that. No owner_id/is_default — a manual's learnings
-// is not a per-owner overlay the way a role's lessons doc is.
-type taskLearningsPatchResultDTO struct {
-	TypeKey      string `json:"type_key"`
-	AppliedEdits int    `json:"applied_edits"`
-	SizeChars    int    `json:"size_chars"`
-	CapChars     int    `json:"cap_chars"`
-	Sha256       string `json:"sha256"`
-}
-
-// taskSopPatchResultDTO is the patch_task_sop receipt (T-1667): the sop_md twin
-// of taskLearningsPatchResultDTO, field-for-field identical because it reports
-// the same three things about a different document — how many edits landed, and
-// the size/sha256 of the result so the caller can confirm the write without
-// re-reading the doc. cap_chars is the sop_md cap, not the learnings one.
+// taskSopPatchResultDTO is the patch_task_sop receipt (T-1667): applied_edits
+// is how many edits landed, and size_chars/sha256 describe the result so the
+// caller can confirm the write without re-reading the doc. applied_edits counts
+// edits that changed the text THEY were handed (a no-op does not count) — NOT a
+// report on whether the document ended up different from where it started,
+// which a batch that undoes itself does not. Compare sha256 to answer that.
 type taskSopPatchResultDTO struct {
 	TypeKey      string `json:"type_key"`
 	AppliedEdits int    `json:"applied_edits"`
@@ -1380,13 +1314,13 @@ type resumeSummaryDTO struct {
 // 大家的 context」 — so every text field here is BOUNDED, and the block carries
 // only what answers "is this the right person, and can I reach them now".
 //
-// 🔴 Insight and Learning are DELIBERATELY absent, and the reason matters more
-// than the fact: they are NOT withheld for lack of access — role insight is
-// readable by ANY authenticated identity (the same floor Duty sits on), so
-// nothing technical stops this struct from carrying them. They are absent
-// because the owner ruled them out on 2026-08-02 (「之後應該給 duty 就好，不要給
-// insight / learning」). Anyone who later notices "we can read insight here"
-// and helpfully adds it is reversing an owner decision, not filling a gap.
+// 🔴 Insight is DELIBERATELY absent, and the reason matters more than the fact:
+// it is NOT withheld for lack of access — role insight is readable by ANY
+// authenticated identity (the same floor Duty sits on), so nothing technical
+// stops this struct from carrying it. It is absent because the owner ruled it
+// out on 2026-08-02 (「之後應該給 duty 就好，不要給 insight / learning」). Anyone
+// who later notices "we can read insight here" and helpfully adds it is
+// reversing an owner decision, not filling a gap.
 type resumeRosterMemberDTO struct {
 	// ID is the ADDRESS. Names are editable and role names repeat, so a
 	// message is only ever addressed by id — that is why it leads the row.
@@ -1656,7 +1590,7 @@ type taskStepNoteReceiptDTO struct {
 	SizeChars int `json:"size_chars"`
 	CapChars  int `json:"cap_chars"`
 	// Sha256 over the note AS STORED after this write (T-91) — the same
-	// verification anchor patch_step_note, patch_lessons, patch_insight and
+	// verification anchor patch_step_note, patch_insight and
 	// patch_task_sop already carry. It arrives in the SAME change that removes
 	// `note`, deliberately: dropping the echo first and adding the hash later
 	// would leave a window in which a caller could neither read the stored text
@@ -1816,23 +1750,6 @@ type insightReceiptDTO struct {
 	SizeChars int `json:"size_chars"`
 	CapChars  int `json:"cap_chars"`
 	// Sha256 over the insight AS STORED — and the only way to notice the trim.
-	Sha256 string `json:"sha256"`
-}
-
-// lessonsReceiptDTO answers replace_lessons.
-//
-// `is_default` was on an earlier draft and is deliberately ABSENT: this receipt
-// serves replace_lessons only, and that path stamps IsDefault false
-// unconditionally, so the field could never have carried anything but false.
-type lessonsReceiptDTO struct {
-	// RoleKey is the address of the document — the caller's own path parameter.
-	RoleKey string `json:"role_key"`
-	// SizeChars is server-derived (the handler trims before storing); CapChars
-	// is doc_cap_chars_learning. Paired so a writer knows how much room is left
-	// without a second call — the question every lessons write actually has.
-	SizeChars int `json:"size_chars"`
-	CapChars  int `json:"cap_chars"`
-	// Sha256 over the document AS STORED — also the only way to notice the trim.
 	Sha256 string `json:"sha256"`
 }
 
@@ -2176,30 +2093,14 @@ const (
 	stopEffectAlreadyReported = "already_reported"
 )
 
-// taskLearningsWriteReceiptDTO answers write_task_learnings. The whole
-// taskManualDTO — SOP included, a document this write never touched — used to
-// ride back.
-type taskLearningsWriteReceiptDTO struct {
-	// TypeKey is the manual this write landed on.
-	TypeKey string `json:"type_key"`
-	// SizeChars is the field a writer actually reads — it says how much room is
-	// left, which the text it just sent does not. CapChars is the ceiling this
-	// write was judged against (doc_cap_chars_manual_learnings).
-	SizeChars int `json:"size_chars"`
-	CapChars  int `json:"cap_chars"`
-	// Sha256 over the learnings document as stored after this write.
-	Sha256 string `json:"sha256"`
-}
-
 // taskManualReceiptDTO answers create_task_manual and update_task_manual — three
 // faces onto one shape.
 //
-// 🔴 THE OPTIONAL PAIRS ARE POINTERS ON PURPOSE. learnings_* is present ONLY
-// when this call wrote the learnings document and sop_md_* ONLY when it wrote
-// the SOP. A value type would serialise 0 (or "") for a document this call
-// never touched, and 0 is indistinguishable from an empty document that WAS
-// written. The station already spells absence this way in 18 places (e.g.
-// chatListDTO.next_cursor).
+// 🔴 THE OPTIONAL TRIPLE IS POINTERS ON PURPOSE. sop_md_* is present ONLY when
+// this call wrote the SOP. A value type would serialise 0 (or "") for a
+// document this call never touched, and 0 is indistinguishable from an empty
+// document that WAS written. The station already spells absence this way in 18
+// places (e.g. chatListDTO.next_cursor).
 type taskManualReceiptDTO struct {
 	// TypeKey is always present. It is only NEWS on one of the three faces: the
 	// display_name create path MINTS it server-side. On the legacy create path
@@ -2209,14 +2110,8 @@ type taskManualReceiptDTO struct {
 	TypeKey string `json:"type_key"`
 	// UpdatedTS is when the manual was stamped by this write. Server-derived.
 	UpdatedTS float64 `json:"updated_ts"`
-	// The learnings triple. Sha256 is what replaces the text echo.
-	LearningsChars    *int    `json:"learnings_chars,omitempty"`
-	LearningsCapChars *int    `json:"learnings_cap_chars,omitempty"`
-	LearningsSha256   *string `json:"learnings_sha256,omitempty"`
-	// The SOP triple. Its cap is SEPARATE from the learnings cap on purpose —
-	// the two documents are judged against independent budgets
-	// (doc_cap_chars_manual_sop vs doc_cap_chars_manual_learnings), so one must
-	// never be read as evidence about the other.
+	// The SOP triple. Sha256 is what replaces the text echo. Its cap is
+	// doc_cap_chars_manual_sop.
 	SopMdChars    *int    `json:"sop_md_chars,omitempty"`
 	SopMdCapChars *int    `json:"sop_md_cap_chars,omitempty"`
 	SopMdSha256   *string `json:"sop_md_sha256,omitempty"`
@@ -2863,40 +2758,20 @@ type taskCountDTO struct {
 }
 
 type taskManualDTO struct {
-	// Per-CAPPED-DOCUMENT sizes AND, since T-30f1, per-capped-document caps:
-	// learnings and sop_md are judged by two independent settings, so a single
-	// cap number could only ever be right for one of them.
-	//
-	// CapChars is the DEPRECATED pre-split field. It is kept on the wire (its
-	// removal is a separate, owner-approved step) and carries the LEARNINGS cap
-	// — the segment that actually accumulates, and the one every pre-split
-	// caller was watching. A client reading it about sop_md gets a number that
-	// is merely stale rather than absent, which is why the split fields are the
-	// ones the descriptions point at.
-	LearningsChars    int           `json:"learnings_chars"`
-	SopMDChars        int           `json:"sop_md_chars"`
-	LearningsCapChars int           `json:"learnings_cap_chars"`
-	SopMDCapChars     int           `json:"sop_md_cap_chars"`
-	CapChars          int           `json:"cap_chars"`
-	TypeKey           string        `json:"type_key"`
-	DisplayName       string        `json:"display_name"`
-	Purpose           string        `json:"purpose"`
-	Fields            []ManualField `json:"fields"`
-	SopMD             string        `json:"sop_md"`
-	Learnings         string        `json:"learnings"`
+	// The SOP's size and the cap it is judged against (doc_cap_chars_manual_sop).
+	SopMDChars    int           `json:"sop_md_chars"`
+	SopMDCapChars int           `json:"sop_md_cap_chars"`
+	TypeKey       string        `json:"type_key"`
+	DisplayName   string        `json:"display_name"`
+	Purpose       string        `json:"purpose"`
+	Fields        []ManualField `json:"fields"`
+	SopMD         string        `json:"sop_md"`
 	// Lore is the rendered lore block for this manual, and it is a FIELD OF ITS
-	// OWN rather than text appended to Learnings (owner ruling 2026-09-07:
-	// 「get_task_manual 應該 learning 跟 lore 還是分開的欄位」).
-	//
-	// 🔴 THE OLD SHAPE PRODUCED A FIELD THAT LIED ABOUT ITSELF. Lore used to be
-	// concatenated onto Learnings, while LearningsChars kept counting only the
-	// STORED document — deliberately, because a writer sizes an edit against
-	// what it can edit. The result reached the owner as a manual whose
-	// learnings field was full of text and whose learnings_chars said 0, with
-	// nothing marking which half was which. Two things in one field cannot both
-	// be measured by one number; splitting the field is what makes both numbers
-	// honest, so LoreChars counts THIS field and LearningsChars is once again
-	// the size of the thing the write face writes.
+	// OWN (owner ruling 2026-09-07: 「get_task_manual 應該 learning 跟 lore 還是
+	// 分開的欄位」). LoreChars counts THIS field, so the two numbers on this DTO
+	// each measure exactly one thing. The learning field that ruling wanted kept
+	// separate was itself removed in T-186; what survives is its conclusion —
+	// lore does NOT fold into sop_md.
 	Lore      string         `json:"lore"`
 	LoreChars int            `json:"lore_chars"`
 	Assignee  map[string]any `json:"assignee"`
@@ -2904,26 +2779,23 @@ type taskManualDTO struct {
 }
 
 // taskManualListItemDTO is one row of GET /api/task-manuals: the type's
-// identity, its input fields and its assignee setting — plus the SIZES of the
-// two long documents and the cap each is judged against.
+// identity, its input fields and its assignee setting — plus the SIZE of the
+// long document and the cap it is judged against.
 //
-// sop_md and learnings are ABSENT from the wire, not served as "". They are the
-// bulk that made this listing unreadable, and an empty string in the field that
-// normally holds the SOP reads as "this type has no SOP". The sizes are still
-// measured on the STORED row (see newTaskManualListItemDTO), because a zero that
-// looks like a measurement is worse than the omission it describes.
+// sop_md is ABSENT from the wire, not served as "". It is the bulk that made
+// this listing unreadable, and an empty string in the field that normally holds
+// the SOP reads as "this type has no SOP". The size is still measured on the
+// STORED row (see newTaskManualListItemDTO), because a zero that looks like a
+// measurement is worse than the omission it describes.
 type taskManualListItemDTO struct {
-	LearningsChars    int            `json:"learnings_chars"`
-	SopMDChars        int            `json:"sop_md_chars"`
-	LearningsCapChars int            `json:"learnings_cap_chars"`
-	SopMDCapChars     int            `json:"sop_md_cap_chars"`
-	CapChars          int            `json:"cap_chars"`
-	TypeKey           string         `json:"type_key"`
-	DisplayName       string         `json:"display_name"`
-	Purpose           string         `json:"purpose"`
-	Fields            []ManualField  `json:"fields"`
-	Assignee          map[string]any `json:"assignee"`
-	UpdatedTS         float64        `json:"updated_ts"`
+	SopMDChars    int            `json:"sop_md_chars"`
+	SopMDCapChars int            `json:"sop_md_cap_chars"`
+	TypeKey       string         `json:"type_key"`
+	DisplayName   string         `json:"display_name"`
+	Purpose       string         `json:"purpose"`
+	Fields        []ManualField  `json:"fields"`
+	Assignee      map[string]any `json:"assignee"`
+	UpdatedTS     float64        `json:"updated_ts"`
 }
 
 type taskManualDeleteResultDTO struct {
@@ -3500,7 +3372,7 @@ func newTaskDepRefDTOs(deps []string, byID map[string]Task) []taskDepRefDTO {
 
 // newTaskManualDTO projects one manual row onto the wire (stored JSON blobs
 // parsed; a corrupt blob is an error, never a silent empty).
-func newTaskManualDTO(m TaskManual, sopCapChars, learningsCapChars int) (taskManualDTO, error) {
+func newTaskManualDTO(m TaskManual, sopCapChars int) (taskManualDTO, error) {
 	fields, err := ParseManualFields(m.Fields)
 	if err != nil {
 		return taskManualDTO{}, err
@@ -3516,26 +3388,22 @@ func newTaskManualDTO(m TaskManual, sopCapChars, learningsCapChars int) (taskMan
 		}
 	}
 	return taskManualDTO{
-		LearningsChars:    utf8.RuneCountInString(m.Learnings),
-		SopMDChars:        utf8.RuneCountInString(m.SopMD),
-		LearningsCapChars: learningsCapChars,
-		SopMDCapChars:     sopCapChars,
-		CapChars:          learningsCapChars,
-		TypeKey:           m.TypeKey,
-		DisplayName:       m.DisplayName,
-		Purpose:           m.Purpose,
-		Fields:            fields,
-		SopMD:             m.SopMD,
-		Learnings:         m.Learnings,
-		Assignee:          assignee,
-		UpdatedTS:         m.UpdatedTS,
+		SopMDChars:    utf8.RuneCountInString(m.SopMD),
+		SopMDCapChars: sopCapChars,
+		TypeKey:       m.TypeKey,
+		DisplayName:   m.DisplayName,
+		Purpose:       m.Purpose,
+		Fields:        fields,
+		SopMD:         m.SopMD,
+		Assignee:      assignee,
+		UpdatedTS:     m.UpdatedTS,
 	}, nil
 }
 
 // newTaskManualListItemDTO is the ONLY projection GET /api/task-manuals serves:
 // the type identity the 類型 filter reads (type_key / display_name / purpose +
-// updated_ts), the input fields, the assignee setting, and the SIZES + caps of
-// the two long documents it omits.
+// updated_ts), the input fields, the assignee setting, and the SIZE + cap of
+// the long document it omits.
 //
 // fields and assignee are the REAL parsed values, not the honest-empty
 // placeholders the old ?view=list row carried: they are small, bounded, and
@@ -3544,9 +3412,9 @@ func newTaskManualDTO(m TaskManual, sopCapChars, learningsCapChars int) (taskMan
 // parses the stored JSON blobs and, like newTaskManualDTO, fails loudly on a
 // corrupt one rather than answering with a silent empty.
 //
-// The sizes are measured on the STORED row, not on the omitted wire fields: a
+// The size is measured on the STORED row, not on the omitted wire field: a
 // zero that looks like a measurement is worse than the omission it describes.
-func newTaskManualListItemDTO(m TaskManual, sopCapChars, learningsCapChars int) (taskManualListItemDTO, error) {
+func newTaskManualListItemDTO(m TaskManual, sopCapChars int) (taskManualListItemDTO, error) {
 	fields, err := ParseManualFields(m.Fields)
 	if err != nil {
 		return taskManualListItemDTO{}, err
@@ -3562,17 +3430,14 @@ func newTaskManualListItemDTO(m TaskManual, sopCapChars, learningsCapChars int) 
 		}
 	}
 	return taskManualListItemDTO{
-		LearningsChars:    utf8.RuneCountInString(m.Learnings),
-		SopMDChars:        utf8.RuneCountInString(m.SopMD),
-		LearningsCapChars: learningsCapChars,
-		SopMDCapChars:     sopCapChars,
-		CapChars:          learningsCapChars,
-		TypeKey:           m.TypeKey,
-		DisplayName:       m.DisplayName,
-		Purpose:           m.Purpose,
-		Fields:            fields,
-		Assignee:          assignee,
-		UpdatedTS:         m.UpdatedTS,
+		SopMDChars:    utf8.RuneCountInString(m.SopMD),
+		SopMDCapChars: sopCapChars,
+		TypeKey:       m.TypeKey,
+		DisplayName:   m.DisplayName,
+		Purpose:       m.Purpose,
+		Fields:        fields,
+		Assignee:      assignee,
+		UpdatedTS:     m.UpdatedTS,
 	}, nil
 }
 

@@ -1,5 +1,5 @@
-// T-100 — the 「已用 / 上限」 readouts on the two task-manual documents, in a
-// REAL browser, at phone and desktop widths.
+// T-100 — the 「已用 / 上限」 readout on the task-manual SOP, in a REAL browser,
+// at phone and desktop widths.
 //
 // 🔴 WHAT ONLY A BROWSER CAN ANSWER HERE.
 //   · The SOP readout is a new item in `.manual-sec__head`, a flex ROW that
@@ -14,8 +14,8 @@
 //     assertion stays green — only computed style says so, and only here.
 //
 // ⚠️ WHAT THE COMPUTED-STYLE CHECK BELOW DOES NOT PROVE, measured rather than
-// assumed: deleting `DocUsage`'s own `import "./settings.css"` leaves all four
-// of these tests GREEN, because the sheet still arrives through another module
+// assumed: deleting `DocUsage`'s own `import "./settings.css"` leaves all of
+// these tests GREEN, because the sheet still arrives through another module
 // in this page's import graph. That is precisely the free-riding
 // styleOwnership.test.ts exists for — and `settings.css` is not in its
 // OWNED_SHEETS list, so nothing mechanically holds that import in place. The
@@ -30,30 +30,23 @@ const WIDTHS = [
   { name: "wide-1280", px: 1280 },
 ];
 
-const DOCS = [
-  { doc: "definition" as const, testId: "manual-sop-usage", text: "15796 / 18000" },
-  {
-    doc: "learnings" as const,
-    testId: "manual-learnings-usage",
-    text: "16999 / 17000",
-  },
-];
+const DOC = { testId: "manual-sop-usage", text: "15796 / 18000" };
 
 for (const w of WIDTHS) {
-  for (const d of DOCS) {
-    test(`${d.doc} 的已用/上限看得到、不換行、不把頁面撐橫 — ${w.name}`, async ({
+  {
+    test(`任務定義的已用/上限看得到、不換行、不把頁面撐橫 — ${w.name}`, async ({
       mount,
       page,
     }) => {
       await page.setViewportSize({ width: Math.max(w.px, 400), height: 900 });
-      await mount(<ManualDocUsageStory doc={d.doc} widthPx={w.px} />);
+      await mount(<ManualDocUsageStory widthPx={w.px} />);
 
-      const usage = page.getByTestId(d.testId);
+      const usage = page.getByTestId(DOC.testId);
       // ON SCREEN, not merely in the DOM — a readout with no box is the same as
       // no readout, and it is the state a lost stylesheet import produces.
       await expect(usage).toBeVisible();
       await expect(usage).toBeInViewport();
-      await expect(usage).toHaveText(d.text);
+      await expect(usage).toHaveText(DOC.text);
 
       const box = await usage.boundingBox();
       expect(box, "讀數要有實際的框").not.toBeNull();

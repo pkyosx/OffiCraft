@@ -113,16 +113,13 @@ type apiServer struct {
 	// the Phase 2 assignment scheduler.
 	outsourceMaxParallel int
 	// docCapChars* are the live size caps on the accumulating context documents
-	// (DB doc.cap_chars.{duty,insight,learning,manual_sop,manual_learnings};
-	// T-3aeb owner ruling 2026-07-31, split four ways by T-ae38 owner ruling
-	// 2026-08-03, and the manual's one split into two by T-30f1) — read by every
+	// (DB doc.cap_chars.{duty,insight,manual_sop}; T-3aeb owner ruling
+	// 2026-07-31, split by T-ae38 owner ruling 2026-08-03) — read by every
 	// DocCapBlocked call site through the matching accessor (dutyCap /
-	// insightCap / learningCap / manualSopCap / manualLearningsCap).
-	docCapCharsDuty            int
-	docCapCharsInsight         int
-	docCapCharsLearning        int
-	docCapCharsManualSop       int
-	docCapCharsManualLearnings int
+	// insightCap / manualSopCap).
+	docCapCharsDuty      int
+	docCapCharsInsight   int
+	docCapCharsManualSop int
 	// The two boot-context document kinds, editable since T-791e (DB
 	// doc.cap_chars.{system_interaction,boot_sequence}). bootSequence is ONE cap
 	// serving both runtimes. The 〈停止〉 document (T-c9c0) joins them with its
@@ -630,18 +627,16 @@ func (s *apiServer) outsourceParallelCap() int {
 	return s.outsourceMaxParallel
 }
 
-// dutyCap / insightCap / learningCap / manualSopCap / manualLearningsCap return
-// the live cap, in runes, on each accumulating context document (T-3aeb; split
-// four ways in T-ae38; the manual's one split in two by T-30f1). Every
-// DocCapBlocked / docCapRefusal call site reads its OWN one HERE, at request
-// time, rather than caching it: a PATCH to a setting takes effect on the next
-// write with no restart, and there is no second copy to drift.
+// dutyCap / insightCap / manualSopCap return the live cap, in runes, on each
+// accumulating context document (T-3aeb; split in T-ae38). Every DocCapBlocked
+// / docCapRefusal call site reads its OWN one HERE, at request time, rather
+// than caching it: a PATCH to a setting takes effect on the next write with no
+// restart, and there is no second copy to drift.
 //
-// FIVE accessors and no generic docCap(caller-picks-a-segment) on purpose: the
-// segment a write belongs to is a property of the write seam, not a runtime
-// argument, so making it a parameter would let a call site pass the wrong one
-// and compile. The names are the only thing a reviewer has to check — which is
-// exactly why the manual's two did NOT become manualCap(kind).
+// One accessor per segment and no generic docCap(caller-picks-a-segment) on
+// purpose: the segment a write belongs to is a property of the write seam, not
+// a runtime argument, so making it a parameter would let a call site pass the
+// wrong one and compile. The names are the only thing a reviewer has to check.
 func (s *apiServer) dutyCap() int {
 	s.settingsMu.RLock()
 	defer s.settingsMu.RUnlock()
@@ -654,22 +649,10 @@ func (s *apiServer) insightCap() int {
 	return s.docCapCharsInsight
 }
 
-func (s *apiServer) learningCap() int {
-	s.settingsMu.RLock()
-	defer s.settingsMu.RUnlock()
-	return s.docCapCharsLearning
-}
-
 func (s *apiServer) manualSopCap() int {
 	s.settingsMu.RLock()
 	defer s.settingsMu.RUnlock()
 	return s.docCapCharsManualSop
-}
-
-func (s *apiServer) manualLearningsCap() int {
-	s.settingsMu.RLock()
-	defer s.settingsMu.RUnlock()
-	return s.docCapCharsManualLearnings
 }
 
 // systemInteractionCap / bootSequenceCap are the same accessor shape for the

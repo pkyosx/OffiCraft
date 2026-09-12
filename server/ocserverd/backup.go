@@ -4,7 +4,7 @@ package main
 //
 // WHY this exists at all (T-ada9, owner 2026-07-31): until this landed the
 // studio had NO backup of any kind. Every task, chat message, reply card,
-// lessons doc and task manual lives in a single SQLite file, so a corrupt or
+// insight doc and task manual lives in a single SQLite file, so a corrupt or
 // deleted file meant there was nothing to go back to. That was the one failure
 // mode with no retreat.
 //

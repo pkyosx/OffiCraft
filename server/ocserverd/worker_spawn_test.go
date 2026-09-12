@@ -140,7 +140,7 @@ func TestBuildWorkerBootContext(t *testing.T) {
 		other.TypeKey = "customs"
 		withManual, err := api.buildWorkerBootContext(w, other, &TaskManual{
 			TypeKey: "customs", DisplayName: "Customs", Purpose: "clear it",
-			SopMD: "# SOP\nstep one", Learnings: "watch the tariff codes",
+			SopMD: "# SOP\nstep one",
 		})
 		if err != nil {
 			t.Fatalf("buildWorkerBootContext: %v", err)

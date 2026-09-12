@@ -104,30 +104,6 @@
               "description": "The size cap on a role's INSIGHT doc, in CHARACTERS (Unicode code points). Must be at least this segment's shipped default and at most 100000. Read the current values from get_settings rather than assuming a number.",
               "title": "Doc Cap Chars Insight"
             },
-            "doc_cap_chars_learning": {
-              "anyOf": [
-                {
-                  "type": "integer"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "The size cap on a role's LEARNING doc (the lessons doc), in CHARACTERS (Unicode code points). Must be at least this segment's shipped default and at most 100000. Read the current values from get_settings rather than assuming a number.",
-              "title": "Doc Cap Chars Learning"
-            },
-            "doc_cap_chars_manual_learnings": {
-              "anyOf": [
-                {
-                  "type": "integer"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "The size cap on a TASK MANUAL's learnings doc, in CHARACTERS (Unicode code points). Must be at least this segment's shipped default and at most 100000. Read the current values from get_settings rather than assuming a number.",
-              "title": "Doc Cap Chars Manual Learnings"
-            },
             "doc_cap_chars_manual_sop": {
               "anyOf": [
                 {
@@ -429,7 +405,7 @@
                   "type": "null"
                 }
               ],
-              "description": "How many characters of 傳承 get_task_manual appends after a type's learnings (T-33) — spent by whoever opens that manual, staff and outsource alike, since this fold enters no boot document. INDEPENDENT of lore_cap_chars_role. Unlike the doc_cap_chars_* knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry has NO edit path at all, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 100..100000.",
+              "description": "How many characters of 傳承 get_task_manual carries for a type (T-33) — spent by whoever opens that manual, staff and outsource alike, since this fold enters no boot document. INDEPENDENT of lore_cap_chars_role. Unlike the doc_cap_chars_* knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry has NO edit path at all, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 100..100000.",
               "title": "Lore Cap Chars Manual"
             },
             "lore_cap_chars_title": {
@@ -2217,7 +2193,7 @@
       "name": "list_roles"
     },
     {
-      "description": "Size-only overview of the capped documents on the station: each role's role definition / insight / lessons, and each task manual's SOP / learnings, as size_chars plus the cap_chars in force for THAT segment (the five segments have five separate caps — each is reported against its own). THE LISTING IS KEYED BY ROLE, AND THAT IS ITS LIMIT. T-2 removed the lessons task_type axis, so a role now has exactly ONE lessons document and it is the one reported here — the old 'default bucket only' gap is gone. What remains is narrower still and it is now INSIGHT-ONLY: nothing validates a role_key against the roster on the INSIGHT write face, so an admin or the owner can write insight under a role_key no role carries; such a document spends the insight cap and, having no role to hang off, never appears here. The LESSONS write face no longer has that gap — replace_lessons and patch_lessons refuse with 404 any role_key that nothing could read: neither a role that folds (which is what this listing walks, and what every boot loads) nor a member carrying that role_key (which cannot boot, but can be minted a token that reads the doc). A role_key on neither list now fails instead of silently producing an unreachable document. list_roles is the roster this listing is derived from — a document under a name that is not on it is not on this page either. Carries NO document text, so it costs a few hundred bytes. Use it to find which long-lived document is nearly full, then read only that one (get_role / get_insight / get_lessons / get_task_manual). It is the only way to see insight and lessons sizes in bulk — no listing reports those at any price; the manual sizes and caps are also on every list_task_manuals row, and a role definition's size and cap are already on every list_roles row.",
+      "description": "Size-only overview of the capped documents on the station: each role's role definition / insight, and each task manual's SOP, as size_chars plus the cap_chars in force for THAT segment (the three segments have three separate caps — each is reported against its own). THE LISTING IS KEYED BY ROLE, AND THAT IS ITS LIMIT: nothing validates a role_key against the roster on the INSIGHT write face, so an admin or the owner can write insight under a role_key no role carries; such a document spends the insight cap and, having no role to hang off, never appears here. list_roles is the roster this listing is derived from — a document under a name that is not on it is not on this page either. Carries NO document text, so it costs a few hundred bytes. Use it to find which long-lived document is nearly full, then read only that one (get_role / get_insight / get_task_manual). It is the only way to see insight sizes in bulk — no listing reports those at any price; the manual sizes and caps are also on every list_task_manuals row, and a role definition's size and cap are already on every list_roles row.",
       "inputSchema": {
         "properties": {},
         "type": "object"
@@ -2386,7 +2362,7 @@
       "name": "delete_role"
     },
     {
-      "description": "Read a per-role insight doc - this role's accumulated judgement calls and trade-offs (per role_key). A role may ship with a factory seed, and that seed is PER-ROLE (seeds/insight_<role_key>.md) - today only the assistant has one; a role without one reads genuinely empty until it writes. is_default=true means THIS ROLE has never written its own, whether what you are reading is the factory wording or nothing at all. Separate from the lessons doc on purpose: lessons record what happened and what to do next time, insight records how this role weighs a call. Like lessons, reading is unrestricted: any authenticated identity may read ANY role's insight - it is SEPARATE, not private.",
+      "description": "Read a per-role insight doc - this role's accumulated judgement calls and trade-offs (per role_key). A role may ship with a factory seed, and that seed is PER-ROLE (seeds/insight_<role_key>.md) - today only the assistant has one; a role without one reads genuinely empty until it writes. is_default=true means THIS ROLE has never written its own, whether what you are reading is the factory wording or nothing at all. Reading is unrestricted: any authenticated identity may read ANY role's insight - it is SEPARATE, not private.",
       "inputSchema": {
         "properties": {
           "role_key": {
@@ -2475,95 +2451,7 @@
       "name": "reset_insight"
     },
     {
-        "description": "Read a per-role lessons doc (per role_key; overlay \u2295 seed).",
-        "inputSchema": {
-          "properties": {
-            "role_key": {
-              "description": "Names WHOSE lessons to read. Reads are unrestricted and the key is not checked against the roster at all, so a role_key no role carries is not an error: the call answers 200 carrying the factory seed text, which is what a real role that has never written its own lessons also answers. The response echoes the role_key you sent - that echo confirms your input, never that anyone answers to that name. Treat a seed-looking answer as ambiguous between 'this role has written nothing' and 'this role does not exist', and settle it against the roster rather than against this response.\n\nTHERE IS NO task_type. A lessons doc is addressed by role_key ALONE. The task_type axis was removed in T-2 and sending the field is REFUSED with a 400 naming it - it is never accepted and never quietly dropped, because a silently-ignored bucket name is exactly the failure this removal exists to end: the caller believed it had written one classification and the write went somewhere else.",
-              "type": "string"
-            }
-          },
-          "required": [
-            "role_key"
-          ],
-          "type": "object"
-        },
-        "name": "get_lessons"
-      },
-    {
-        "description": "Replace the WHOLE per-role lessons document. text is REQUIRED and unknown keys are rejected; only that role's agent or an admin may write it; role_key must be addressable — a role that folds (list_roles), or a member carrying that role_key (list_members) — or the write is refused 404, so a lessons doc can no longer be created under a name nothing on this station could ever read; emptying or sharply shrinking it needs allow_shrink=true; and the result is still judged against the lessons cap. Answers with a bounded receipt (``role_key``, ``size_chars``, ``cap_chars``, ``sha256``), not the journal — call ``get_lessons`` when you need the rest.",
-        "inputSchema": {
-          "properties": {
-            "allow_shrink": {
-              "default": false,
-              "title": "Allow Shrink",
-              "type": "boolean"
-            },
-            "role_key": {
-              "description": "Names WHOSE lessons this replaces. Nothing checks the key against the roster - it goes straight into the storage key - so who catches a typo depends entirely on WHO YOU ARE. An ordinary member is saved by authorization: it may only write its own role, so a misspelling is refused with 403 and the mistake announces itself. An ADMIN OR THE OWNER may write any role, and for them a misspelling is not refused at all: it creates a lessons document under a role nobody answers to, answers 200, and fans a delta for it. The role you meant is untouched and unmentioned. The higher your privilege, the quieter this fails.\n\nTHERE IS NO task_type. A lessons doc is addressed by role_key ALONE. The task_type axis was removed in T-2 and sending the field is REFUSED with a 400 naming it - it is never accepted and never quietly dropped, because a silently-ignored bucket name is exactly the failure this removal exists to end: the caller believed it had written one classification and the write went somewhere else. That refusal closes a second, narrower door on this tool in particular: this write face has never validated a bucket name, so before T-2 one mistyped task_type answered 200 and left an extra classification behind with nothing going red.",
-              "type": "string"
-            },
-            "text": {
-              "default": "",
-              "title": "Text",
-              "type": "string"
-            }
-          },
-          "required": [
-            "role_key",
-            "text"
-          ],
-          "additionalProperties": false,
-          "type": "object"
-        },
-        "name": "replace_lessons"
-      },
-    {
-        "description": "Patch a per-role lessons doc by unique anchors ({edits:[{old,new}]}). role_key must be addressable — a role that folds (list_roles), or a member carrying that role_key (list_members) — or the patch is refused 404.",
-        "inputSchema": {
-          "properties": {
-            "allow_shrink": {
-              "default": false,
-              "title": "Allow Shrink",
-              "type": "boolean"
-            },
-            "edits": {
-              "items": {
-                "properties": {
-                  "new": {
-                    "default": "",
-                    "title": "New",
-                    "type": "string"
-                  },
-                  "old": {
-                    "default": "",
-                    "title": "Old",
-                    "type": "string"
-                  }
-                },
-                "title": "LessonsEditDTO",
-                "type": "object",
-                "additionalProperties": false
-              },
-              "title": "Edits",
-              "type": "array"
-            },
-            "role_key": {
-              "description": "Names WHOSE lessons to edit. Nothing checks the key against the roster, so who catches a typo depends on WHO YOU ARE: an ordinary member may only write its own role and is refused with 403, while an admin or the owner may write any role and gets no refusal at all. For them the edit form decides what happens next - an edit with a non-empty old cannot find its anchor in an empty document and fails with 400, but an edit with an EMPTY old (the append form) has no anchor to miss and CREATES a lessons document under a role nobody answers to, answering 200 while the role you meant stays untouched.\n\nTHERE IS NO task_type. A lessons doc is addressed by role_key ALONE. The task_type axis was removed in T-2 and sending the field is REFUSED with a 400 naming it - it is never accepted and never quietly dropped, because a silently-ignored bucket name is exactly the failure this removal exists to end: the caller believed it had written one classification and the write went somewhere else.",
-              "type": "string"
-            }
-          },
-          "required": [
-            "role_key",
-            "edits"
-          ],
-          "additionalProperties": false,
-          "type": "object"
-        },
-        "name": "patch_lessons"
-      },
-    {
-      "description": "Bounded LIGHT wake snapshot for the caller (identity-locked; recent chat + light open-task rows + size overview — peek sizes first, pull detail via get_task). CHAT is packed newest-first under a CHARACTER BUDGET, not a fixed message count, and stopping at the last message that still fits; each message carries from_name/to_name beside the ids and ts_display (full date + time + zone offset) beside the epoch ts, and folds in its reply card as `card` when it has one — read every ts_display against the top-level `generated_at`. TWO DIFFERENT things can be missing and they are marked DIFFERENTLY: `body_omitted_chars` > 0 means THAT message is here with that many characters COLLAPSED away (another agent's line — the owner's line and your own hand-off notes to yourself are carried in full), re-read it with get_chat; `chat_earlier_omitted` is the other kind and it is a MAYBE, not a fact: that line was cut at a read or budget limit and nothing looked past the cut, so whole messages may be missing from this payload entirely — it is raised even when there is in fact nothing older. Its hint tells you how to CHECK and fetch them. The two are asymmetric ON PURPOSE: the collapse marker is CERTAIN (that message IS here, shortened, exact count); this one is not, and only the fetch settles it. Also carries the STUDIO FLOOR you wake up onto: roster (every member and contractor, each with online/offline status, the machine it runs on, and its duty capped at 1000 chars with `…` marking a cut, the cap applied after the doc's own leading title line is removed — who to ask for help; no insight/learning by owner ruling. Contractors additionally carry their bound task's status, waiting_reason, and step progress (progress_done/progress_total) — members leave these at their zero value; a contractor's 0/0 is ambiguous (a task with no steps yet, or no task at all) and task_status is what tells them apart, non-empty vs empty) and machines (the machine list plus you_are_on, your server-recorded machine binding — never derive it from a hostname).",
+      "description": "Bounded LIGHT wake snapshot for the caller (identity-locked; recent chat + light open-task rows + size overview — peek sizes first, pull detail via get_task). CHAT is packed newest-first under a CHARACTER BUDGET, not a fixed message count, and stopping at the last message that still fits; each message carries from_name/to_name beside the ids and ts_display (full date + time + zone offset) beside the epoch ts, and folds in its reply card as `card` when it has one — read every ts_display against the top-level `generated_at`. TWO DIFFERENT things can be missing and they are marked DIFFERENTLY: `body_omitted_chars` > 0 means THAT message is here with that many characters COLLAPSED away (another agent's line — the owner's line and your own hand-off notes to yourself are carried in full), re-read it with get_chat; `chat_earlier_omitted` is the other kind and it is a MAYBE, not a fact: that line was cut at a read or budget limit and nothing looked past the cut, so whole messages may be missing from this payload entirely — it is raised even when there is in fact nothing older. Its hint tells you how to CHECK and fetch them. The two are asymmetric ON PURPOSE: the collapse marker is CERTAIN (that message IS here, shortened, exact count); this one is not, and only the fetch settles it. Also carries the STUDIO FLOOR you wake up onto: roster (every member and contractor, each with online/offline status, the machine it runs on, and its duty capped at 1000 chars with `…` marking a cut, the cap applied after the doc's own leading title line is removed — who to ask for help; no insight by owner ruling. Contractors additionally carry their bound task's status, waiting_reason, and step progress (progress_done/progress_total) — members leave these at their zero value; a contractor's 0/0 is ambiguous (a task with no steps yet, or no task at all) and task_status is what tells them apart, non-empty vs empty) and machines (the machine list plus you_are_on, your server-recorded machine binding — never derive it from a hostname).",
       "inputSchema": {
         "properties": {},
         "type": "object"
@@ -3613,7 +3501,7 @@
       "name": "set_outsource_worker_model"
     },
     {
-      "description": "List task types WITHOUT their long documents: each row is the type identity (type_key / display_name / purpose), its input fields and its assignee setting, plus the SIZES of sop_md and learnings and the cap each is judged against. The SOP and the learnings text are not on this answer at all — read the one type you picked with get_task_manual.",
+      "description": "List task types WITHOUT their long documents: each row is the type identity (type_key / display_name / purpose), its input fields and its assignee setting, plus the SIZE of sop_md and the cap it is judged against. The SOP text is not on this answer at all — read the one type you picked with get_task_manual.",
       "inputSchema": {
         "properties": {},
         "type": "object"
@@ -3621,7 +3509,7 @@
       "name": "list_task_manuals"
     },
     {
-      "description": "Create a task type: pass display_name; the server mints and returns the tm- type_key id (legacy explicit type_key still accepted; duplicate \u2192 409; assignee = owner/admin agent). An outsource assignee may select runtime claude/codex; absent = claude. Answers with a bounded receipt (``type_key``, ``updated_ts``, ``learnings_chars``, ``learnings_cap_chars``, ``learnings_sha256``, ``sop_md_chars``, ``sop_md_cap_chars``, ``sop_md_sha256``), not the manual \u2014 call ``get_task_manual`` when you need the rest.",
+      "description": "Create a task type: pass display_name; the server mints and returns the tm- type_key id (legacy explicit type_key still accepted; duplicate \u2192 409; assignee = owner/admin agent). An outsource assignee may select runtime claude/codex; absent = claude. Answers with a bounded receipt (``type_key``, ``updated_ts``, ``sop_md_chars``, ``sop_md_cap_chars``, ``sop_md_sha256``), not the manual \u2014 call ``get_task_manual`` when you need the rest.",
       "inputSchema": {
         "properties": {
           "assignee": {
@@ -3671,7 +3559,7 @@
       "name": "create_task_manual"
     },
     {
-      "description": "Read one task manual (purpose/fields/SOP/learnings/assignee). The SOP and the learnings are judged by two SEPARATE caps: read sop_md_cap_chars and learnings_cap_chars. The older cap_chars is DEPRECATED — it carries the LEARNINGS cap only and says nothing about sop_md, so read sop_md_cap_chars for the SOP.",
+      "description": "Read one task manual (purpose/fields/SOP/assignee). The SOP is judged against sop_md_cap_chars.",
       "inputSchema": {
         "properties": {
           "type_key": {
@@ -3686,7 +3574,7 @@
       "name": "get_task_manual"
     },
     {
-      "description": "Edit a task manual (partial; content fields agent-editable; assignee = owner/admin agent). An outsource assignee may select runtime claude/codex; absent = claude. Only the fields you name change, so omitting a field is safe — but unknown keys are rejected rather than dropped: the learnings doc goes in learnings (NOT text — that is write_task_learnings' field name). The SOP and the learnings are judged by two SEPARATE caps: read sop_md_cap_chars and learnings_cap_chars. The older cap_chars is DEPRECATED — it carries the LEARNINGS cap only and says nothing about sop_md, so read sop_md_cap_chars for the SOP. Answers with a bounded receipt (``type_key``, ``updated_ts``, ``learnings_chars``, ``learnings_cap_chars``, ``learnings_sha256``, ``sop_md_chars``, ``sop_md_cap_chars``, ``sop_md_sha256``), not the manual — call ``get_task_manual`` when you need the rest.",
+      "description": "Edit a task manual (partial; content fields agent-editable; assignee = owner/admin agent). An outsource assignee may select runtime claude/codex; absent = claude. Only the fields you name change, so omitting a field is safe — but unknown keys are rejected rather than dropped. The SOP is judged against sop_md_cap_chars. Answers with a bounded receipt (``type_key``, ``updated_ts``, ``sop_md_chars``, ``sop_md_cap_chars``, ``sop_md_sha256``), not the manual — call ``get_task_manual`` when you need the rest.",
       "inputSchema": {
         "properties": {
           "assignee": {
@@ -3751,19 +3639,6 @@
             "default": null,
             "title": "Fields"
           },
-          "learnings": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Learnings",
-            "description": "Replaces the WHOLE learnings doc of this manual - and unlike write_task_learnings, which writes the same document, this path has NO wipe guard. write_task_learnings refuses to empty a doc that had content unless allow_shrink is set; here {\"learnings\": \"\"} is simply accepted and answers 200 with the document gone. Only the character cap is checked. Because both calls write the same doc, the safety you get depends purely on which one you happened to use, and nothing in either response says which protections applied. Omit the field to leave the doc alone; send the full current text with your change folded in when you do mean to write. Also note the field names are NOT interchangeable between the two calls: this one is 'learnings', write_task_learnings takes 'text'."
-          },
           "purpose": {
             "anyOf": [
               {
@@ -3787,7 +3662,7 @@
               }
             ],
             "default": null,
-            "description": "Replaces the WHOLE SOP of this manual, and it is the only way in - there is no patch-by-anchor counterpart for this document the way patch_task_learnings exists for the learnings half. The only guard is the character cap: unlike write_task_learnings, there is NO wipe guard here, so an empty string is accepted and clears the SOP, and a fragment silently replaces everything else. Both answer 200. Read the current SOP first and fold your change into it. Omit the field to leave it alone.",
+            "description": "Replaces the WHOLE SOP of this manual. Prefer patch_task_sop when you are amending an SOP that already has content. The only guard here is the character cap: there is NO wipe guard, so an empty string is accepted and clears the SOP, and a fragment silently replaces everything else. Both answer 200. Read the current SOP first and fold your change into it. Omit the field to leave it alone.",
             "title": "Sop Md"
           },
           "type_key": {
@@ -3816,77 +3691,6 @@
         "type": "object"
       },
       "name": "delete_task_manual"
-    },
-    {
-      "description": "Whole-doc replace of a type's learnings (task-close write-back). The doc text goes in text (NOT learnings — that is update_task_manual's field name); text is REQUIRED and unknown keys are rejected. Wiping existing learnings needs allow_shrink=true. Answers with a bounded receipt (``type_key``, ``size_chars``, ``cap_chars``, ``sha256``), not the learnings text — call ``get_task_manual`` when you need the rest.",
-      "inputSchema": {
-        "properties": {
-          "allow_shrink": {
-            "default": false,
-            "title": "Allow Shrink",
-            "type": "boolean"
-          },
-          "text": {
-            "default": "",
-            "title": "Text",
-            "type": "string",
-            "description": "The ENTIRE learnings doc, not an addition to it: whatever you send becomes the whole document and everything else is gone. The field name says 'text' but the seam is a whole-doc replace, so sending the paragraph you wanted to add answers 200 and permanently drops the rest. Read the current doc first and send it back with your change folded in, or use patch_task_learnings, which edits by anchor instead. TWO guards stand here and they behave differently. The wipe guard catches only the extreme case - emptying a doc that had content - and allow_shrink=true switches it off; either way, a replace that merely loses most of the text passes without comment. The second is the learnings size cap, and it is UNCONDITIONAL: allow_shrink is not a bypass for it, it refuses any text over the cap that is not shorter than what is stored, and its refusal names your length, the cap and the current length. Note the sibling update_task_manual writes this same document through its 'learnings' field: it enforces the same cap, but it has NO wipe guard, so an empty string sent there erases the doc without asking."
-          },
-          "type_key": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "type_key",
-          "text"
-        ],
-        "additionalProperties": false,
-        "type": "object"
-      },
-      "name": "write_task_learnings"
-    },
-    {
-      "description": "Patch a type's learnings by unique anchors ({edits:[{old,new}]}) — the learnings twin of patch_lessons, so the write cost scales with the CHANGE, not the whole (30k-char) doc, and re-typing the whole doc can no longer silently drop content. Edits apply in order; a non-empty old must match the current learnings EXACTLY ONCE (0 or >1 hits reject the WHOLE batch with a 400, zero writes — the unique anchor also acts as an optimistic lock); an empty old appends. Wiping the doc, or shrinking it below a tenth, needs allow_shrink=true.",
-      "inputSchema": {
-        "properties": {
-          "allow_shrink": {
-            "default": false,
-            "title": "Allow Shrink",
-            "type": "boolean"
-          },
-          "edits": {
-            "items": {
-              "properties": {
-                "new": {
-                  "default": "",
-                  "title": "New",
-                  "type": "string"
-                },
-                "old": {
-                  "default": "",
-                  "title": "Old",
-                  "type": "string"
-                }
-              },
-              "title": "LessonsEditDTO",
-              "type": "object",
-              "additionalProperties": false
-            },
-            "title": "Edits",
-            "type": "array"
-          },
-          "type_key": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "type_key",
-          "edits"
-        ],
-        "additionalProperties": false,
-        "type": "object"
-      },
-      "name": "patch_task_learnings"
     },
     {
       "description": "Patch a type's SOP (sop_md) by unique anchors ({edits:[{old,new}]}) — send only the section that changed, instead of re-typing the whole SOP. USE THIS WHENEVER YOU ARE AMENDING AN SOP THAT ALREADY HAS CONTENT. update_task_manual{sop_md} is a wholesale replace, so if anyone else edited the SOP between your read and your write, your copy is stale and the replace silently deletes their section — and because your stale copy is usually the LONGER one, no guard fires and nothing tells you. A patch cannot do that: a non-empty old must match the current sop_md EXACTLY ONCE (0 or >1 hits reject the WHOLE batch with a 400 that names which edit failed and which tool to re-read with, zero writes), so a concurrent write turns into a refusal you can see. Edits apply in order; an empty old appends. Wiping the doc, or shrinking it below a tenth, needs allow_shrink=true — for an honest rewrite from scratch use update_task_manual. The sop_md cap is judged on the RESULT and allow_shrink is not a bypass. Re-read with get_task_manual after a refusal.",
@@ -3935,7 +3739,7 @@
       "description": "READ the CATALOGUE of retained versions of one editable document: which versions exist, when each was replaced and by whom, whether each was a tombstone, and HOW LONG each of its fields was. It does NOT carry the versions themselves — a version list is how you CHOOSE one, and choosing does not need the prose; fetch the one you picked with get_document_version. Read-only, newest first, and only the most recent few are kept — HOW MANY is per-document and is not stated here, because it differs by kind and this sentence would go stale silently; what you get back is the answer. Putting a version BACK is deliberately not an agent tool — the owner does that from the cockpit — so this cannot change anything.\n\nWHICH DOCUMENTS THIS COVERS, AND WHAT `key` LOOKS LIKE FOR EACH, ARE DELIBERATELY NOT LISTED HERE. A list of kinds — or of key shapes — written into a description goes stale the moment a new editable document ships, and NOTHING turns red when it does: this description used to enumerate six kinds and a key shape per kind, and both had already gone stale before the lists were taken out. Two rules you can actually execute replace them.\n\nADDRESSING: `kind` and `key` are validated by the same server-side gate that answers get_document_seed, so whatever that tool can address, this one can too, and the two can never silently disagree. A `kind` this server does not know is refused with 400; a retired kind is refused with 400 naming the series that replaced it. Some kinds also police the shape of `key` before answering — a key this kind does not serve, or one that fails that kind's required shape, is refused with 400 naming the problem. Neither is something to guess at: ask and read the answer.\n\nCOVERAGE: a syntactically valid `key` that simply has no retained versions yet is not an error — it returns an empty list, the honest 'nothing has been saved here', not a gap to work around.",
       "inputSchema": {
         "properties": {
-          "key": {"description": "Which document of that kind to list revisions for. How strictly it is checked depends entirely on kind, so an empty list means different things in different places. For system_interaction and boot_sequence, a key this server does not serve is 400 and the message names the legal key(s). For lessons the key is the bare role_key and nothing else: T-2 removed the task_type axis, so a key of the old 'role_key::task_type' shape names nothing and is refused with 400 - and that shape check is the ONLY check the key gets. Past it nothing looks the role up (the one remaining gate there is a WRITE authorisation, which a list never reaches), so a well-formed name for a role nobody has ever written, 'r-nobody', is 200 with an EMPTY list. The retired kind task_manual is 400 whatever the key, naming task_manual_sop and task_manual_learnings instead. For every REMAINING kind - global_context, role_definition, insight, the two task_manual series, task_description, task_title - the value is used as a plain equality condition and nothing checks that it names anything, so a key that names no document answers 200 with an EMPTY list too. That is the same answer a real document with no retained revisions gives, so on lessons and on all of those an empty list cannot tell you 'this document has never been edited' apart from 'you named it wrong'; only system_interaction, boot_sequence and the retired task_manual are loud about a WELL-FORMED name that points at nothing. A MALFORMED lessons key - one CARRYING '::' - is 400 and never reaches the empty list at all. Note which way round that runs: before T-2 it was the key WITHOUT '::' that was refused, so a key shape remembered from an older description is now exactly inverted.", "type": "string"},
+          "key": {"description": "Which document of that kind to list revisions for. How strictly it is checked depends entirely on kind, so an empty list means different things in different places. For system_interaction and boot_sequence, a key this server does not serve is 400 and the message names the legal key(s). The retired kind task_manual is 400 whatever the key, naming task_manual_sop instead. For every REMAINING kind - global_context, role_definition, insight, task_manual_sop, task_description, task_title - the value is used as a plain equality condition and nothing checks that it names anything, so a key that names no document answers 200 with an EMPTY list. That is the same answer a real document with no retained revisions gives, so on those an empty list cannot tell you 'this document has never been edited' apart from 'you named it wrong'; only system_interaction, boot_sequence and the retired task_manual are loud about a WELL-FORMED name that points at nothing.", "type": "string"},
           "kind": {"type": "string"}
         },
         "required": ["kind", "key"],
@@ -3944,7 +3748,7 @@
       "name": "list_document_history"
     },
     {
-      "description": "READ the SHIPPED DEFAULT of one editable document — the text a reset would put back, i.e. the 初始版本 entry of that document's version list. Read-only: this tool writes nothing, so reading the default can never replace the live document. Putting the default BACK is deliberately not an agent tool — the owner does that from the cockpit — exactly as with list_document_history. ``content`` carries the SAME field names a retained version carries, so the same reader can compare a default against the live document.\n\nWHICH DOCUMENTS THIS COVERS IS DELIBERATELY NOT LISTED HERE. A list of kinds written into a description goes stale the moment a new editable document ships and NOTHING turns red when it does — this one had gone wrong about three kinds before the list was taken out. Two rules you can actually execute replace it.\n\nADDRESSING: ``kind`` and ``key`` name a document exactly as they do for list_document_history — the same server-side gate answers both routes, so whatever that tool addresses is addressable here, and a ``kind`` this server does not know is refused with 400 while a ``key`` that names no document of that kind is refused with 404 that names it. Neither is something to guess at: ask and read the answer.\n\nCOVERAGE: whether THAT document ships a default is answered by asking for it. 200 means it does, and ``content`` is that text. 404 means it has none at all — a role the owner created, a task manual, per-role lessons — which is the same set whose reset the server also 404s, so it is the honest 'there is nothing to go back to', not a gap to work around. 400 on a retired kind names the series that replaced it.",
+      "description": "READ the SHIPPED DEFAULT of one editable document — the text a reset would put back, i.e. the 初始版本 entry of that document's version list. Read-only: this tool writes nothing, so reading the default can never replace the live document. Putting the default BACK is deliberately not an agent tool — the owner does that from the cockpit — exactly as with list_document_history. ``content`` carries the SAME field names a retained version carries, so the same reader can compare a default against the live document.\n\nWHICH DOCUMENTS THIS COVERS IS DELIBERATELY NOT LISTED HERE. A list of kinds written into a description goes stale the moment a new editable document ships and NOTHING turns red when it does — this one had gone wrong about three kinds before the list was taken out. Two rules you can actually execute replace it.\n\nADDRESSING: ``kind`` and ``key`` name a document exactly as they do for list_document_history — the same server-side gate answers both routes, so whatever that tool addresses is addressable here, and a ``kind`` this server does not know is refused with 400 while a ``key`` that names no document of that kind is refused with 404 that names it. Neither is something to guess at: ask and read the answer.\n\nCOVERAGE: whether THAT document ships a default is answered by asking for it. 200 means it does, and ``content`` is that text. 404 means it has none at all — a role the owner created, a task manual — which is the same set whose reset the server also 404s, so it is the honest 'there is nothing to go back to', not a gap to work around. 400 on a retired kind names the series that replaced it.",
       "inputSchema": {
         "properties": {
           "key": {"description": "Which document of that kind to fetch the shipped default for. For most kinds a key nothing carries answers 404 and names it, so the mistake surfaces - but kind=global_context is the exception: there the key is NEVER READ. Any non-empty key answers 200 with the one global-context seed, so a caller who asked for a specific document gets a document that has nothing to do with the name it asked for, and the response echoes the key back as though it had been honoured. When the kind is global_context, do not read the key you sent as evidence of what you received.", "type": "string"},

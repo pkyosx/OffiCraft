@@ -1,10 +1,10 @@
 // components/DocUsage.tsx — the 「已用 / 上限」 readout for a capped document
 // that is edited OUTSIDE `DocCard` (T-100).
 //
-// It exists because the two task-manual documents — 任務定義 (the SOP) and
-// 學習經驗 — are edited by hand-rolled cards inside `TaskManualsPage`, not by
-// `DocCard`, so they showed the owner NO budget at all. He met the cap by being
-// refused after he had already written the thing.
+// It exists because the task manual's 任務定義 (the SOP) is edited by a
+// hand-rolled card inside `TaskManualsPage`, not by `DocCard`, so it showed the
+// owner NO budget at all. He met the cap by being refused after he had already
+// written the thing.
 //
 // Two decisions worth stating, because both are easy to undo by accident:
 //

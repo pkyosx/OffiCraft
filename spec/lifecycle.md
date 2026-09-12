@@ -616,8 +616,7 @@ payload) — they MUST produce byte-identical context for the same inputs.
 
 `role_key := explicit role param → member.role_key → "assistant"`. The
 resolved role folds as: owner overlay (non-tombstoned) wins; else the file seed; neither →
-fail (HTTP 404 on the bootstrap endpoint; the reconcile producer fails closed with no START). Lessons
-fold per `role_key` alone (T-2 removed the `task_type` axis): overlay wins, else the shared file seed.
+fail (HTTP 404 on the bootstrap endpoint; the reconcile producer fails closed with no START).
 The user-custom block folds from the owner's user-context row; absent/tombstoned → empty.
 
 ### 2.2 Assembly order — normative
@@ -628,25 +627,14 @@ The boot context is these blocks, in this order, joined into one document:
 2. **使用者自訂** — the owner's additive block;
 3. **角色定義** (`# Role:`) — what this role does;
 4. **判準** (`# Insight`) — how this role weighs things;
-5. **學習筆記** (`# Lessons`) — what it has learned doing it;
-6. **啟動步驟** — the boot-sequence file seed, selected by the READER'S OWN runtime
+5. **啟動步驟** — the boot-sequence file seed, selected by the READER'S OWN runtime
    (`claude | codex`, blank folding to `claude`), and carrying that runtime's 執行環境
    section. It is LAST — the recency-authoritative tail — and nothing may be appended
    after it.
 
-Blocks 3-5 are the persona. Two blocks are dropped entirely when they fold blank —
+Blocks 3-4 are the persona. Two blocks are dropped entirely when they fold blank —
 使用者自訂 and 判準 — so a role that has never written a 判準 simply has no such section,
 rather than an empty heading.
-
-One normative BEHAVIOUR of the 學習筆記 block is stated here rather than delegated,
-because it is a contract and not a formatting detail: the title injection MUST be
-**idempotent** (T-8327). A generation that treats its own boot segment as the document
-base and writes it back turns the injected title into document content, so an assembler
-that blindly prepends stacks one more title per generation. The assembler MUST strip any
-leading copies of the exact title line before prepending exactly one. ⚠️ This rule is
-pinned by `server/ocserverd/api_lessons_patch_test.go`, **not** by the conformance suite —
-no conformance case feeds in a lessons doc that already starts with its own title, so
-satisfying conformance alone does NOT get you this behaviour.
 
 **The remaining assembly rules are deliberately not restated here.** The exact section
 titles, string formats, separator and trailing newline, and the seed placeholder
@@ -657,9 +645,9 @@ goes stale in silence — this very section did exactly that when 判準 was add
 fold and the list here was not updated.
 
 An outsource worker's boot context is this same document **with the persona removed** —
-it has no role, so it carries no 角色定義, no 判準 and no 學習筆記 — in this same order,
-with no outsource-specific document of any kind. 使用者自訂 used to sit between 學習筆記
-and 啟動步驟; T-4595 moved it above the persona so that the staff and outsource
+it has no role, so it carries no 角色定義 and no 判準 — in this same order,
+with no outsource-specific document of any kind. 使用者自訂 used to sit at the end of the
+persona, just before 啟動步驟; T-4595 moved it above the persona so that the staff and outsource
 assemblies would line up, leaving the persona as their only difference.
 
 "No outsource-specific document of any kind" is normative and exhaustive: the outsource

@@ -10,7 +10,6 @@ import {
   MOCK_OWNER_ID,
   SEED_SYSTEM_INTERACTION_MD,
   SEED_ROLE_ASSISTANT_MD,
-  SEED_LESSONS_MD,
   SEED_INSIGHT_ASSISTANT_MD,
   SEED_BOOT_SEQUENCE_MD,
   SEED_BOOT_SEQUENCE_CODEX_MD,
@@ -21,7 +20,6 @@ import {
 // assertions compare the exported constant against a FRESH read of the file.
 import SYSTEM_INTERACTION_RAW from "../../../seeds/system_interaction.md?raw";
 import ROLE_ASSISTANT_RAW from "../../../seeds/role_def_assistant.md?raw";
-import LESSONS_RAW from "../../../seeds/lessons.md?raw";
 import INSIGHT_ASSISTANT_RAW from "../../../seeds/insight_assistant.md?raw";
 import BOOT_SEQUENCE_RAW from "../../../seeds/boot_sequence.md?raw";
 import BOOT_SEQUENCE_CODEX_RAW from "../../../seeds/boot_sequence_codex.md?raw";
@@ -40,11 +38,10 @@ describe("seeds constants track seeds/*.md by construction", () => {
   const cases: SeedCase[] = [
     { name: "system_interaction", exported: SEED_SYSTEM_INTERACTION_MD, raw: SYSTEM_INTERACTION_RAW },
     { name: "role_def_assistant", exported: SEED_ROLE_ASSISTANT_MD, raw: ROLE_ASSISTANT_RAW },
-    { name: "lessons", exported: SEED_LESSONS_MD, raw: LESSONS_RAW },
     // T-e1e3. ⚠️ The name carries the ROLE KEY on purpose — insight seeds are
-    // PER-ROLE (seeds/insight_<roleKey>.md), unlike the one shared lessons.md
-    // one row above it. A future `SEED_INSIGHT_MD` with no role in its name
-    // would be the shared-seed mistake showing up in this list.
+    // PER-ROLE (seeds/insight_<roleKey>.md). A future `SEED_INSIGHT_MD` with no
+    // role in its name would be the shared-seed mistake showing up in this
+    // list.
     { name: "insight_assistant", exported: SEED_INSIGHT_ASSISTANT_MD, raw: INSIGHT_ASSISTANT_RAW },
     { name: "boot_sequence", exported: SEED_BOOT_SEQUENCE_MD, raw: BOOT_SEQUENCE_RAW },
     { name: "boot_sequence_codex", exported: SEED_BOOT_SEQUENCE_CODEX_MD, raw: BOOT_SEQUENCE_CODEX_RAW },

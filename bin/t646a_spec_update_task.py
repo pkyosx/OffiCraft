@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""T-646a — fold update_task_title + update_task_description into one update_task.
+"""⚠️ T-186: this script can no longer run at all — its step-2 anchor DTO
+(TaskLearningsPatchDTO) was removed from spec/openapi.json together with the
+legacy memory surface, so the anchor check below fails by design. Kept for the
+reproducibility of the diff it already produced; do not "repair" the anchor.
+
+T-646a — fold update_task_title + update_task_description into one update_task.
 
 Edits spec/openapi.json as TEXT rather than reserialising it. The file is
 hand-maintained and its layout is house style (compact leaf objects, deliberate

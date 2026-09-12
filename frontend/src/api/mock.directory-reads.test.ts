@@ -3,7 +3,7 @@
 //
 // 🔴 WHY THIS FILE IS ABOUT THE MOCK. Every component and hook test in this
 // repo runs against `api/mock.ts`. If the mock kept serving `definition_md` /
-// `sop_md` / `learnings` / a revision's `content` on its list answers, every
+// `sop_md` / a revision's `content` on its list answers, every
 // surface that still read a document off a list row would stay GREEN against a
 // fake server the real one no longer resembles — the "generous fake" failure
 // api/dtoParity.ts was written for, in its list-shaped form. So the assertions
@@ -47,14 +47,13 @@ describe("mockApi.listRoles", () => {
 });
 
 describe("mockApi.listTaskManuals", () => {
-  it("answers list rows WITHOUT sop_md/learnings, and getTaskManual carries them", async () => {
+  it("answers list rows WITHOUT sop_md, and getTaskManual carries it", async () => {
     __injectMockTaskManual({
       typeKey: "tm-000000000001",
       displayName: "審查 PR",
       purpose: "審一份 PR",
       fields: [],
       sopMd: "# 步驟\n\n先讀 diff。",
-      learnings: "小心 flaky 測試。",
       assignee: null,
       updatedTs: 1,
     });
@@ -64,13 +63,11 @@ describe("mockApi.listTaskManuals", () => {
     expect(row.displayName).toBe("審查 PR");
     expect(row.purpose).toBe("審一份 PR");
     expect(row.assignee).toBeNull();
-    // …and neither long document is.
+    // …and the long document is not.
     expect(row).not.toHaveProperty("sopMd");
-    expect(row).not.toHaveProperty("learnings");
 
     const manual = await mockApi.getTaskManual("tm-000000000001");
     expect(manual.sopMd).toBe("# 步驟\n\n先讀 diff。");
-    expect(manual.learnings).toBe("小心 flaky 測試。");
     expect(manual.purpose).toBe(row.purpose);
   });
 });

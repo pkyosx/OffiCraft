@@ -207,7 +207,7 @@ export interface MemberRelocateResult {
 
 /**
  * `/api/bootstrap` preview: the assembled agent boot persona (role definition ⊕
- * global context ⊕ lessons). Excludes the member JWT BY DESIGN — a UI preview
+ * global context ⊕ insight). Excludes the member JWT BY DESIGN — a UI preview
  * mints no token and must never carry an agent credential (see WireBootstrap).
  */
 export interface BootstrapView {
@@ -217,42 +217,15 @@ export interface BootstrapView {
 }
 
 /**
- * The folded PER-ROLE lessons doc for one `roleKey` — the WHOLE address since
- * T-2 removed the `task_type` axis. Agents sharing a role share it, but a
- * researcher's learnings no longer pollute an assistant's. Kept minimal (like `BootstrapView` drops token): the UI needs
- * only the text + `isDefault`, so `owner_id` / `schema_version` are dropped BY
- * DESIGN. `isDefault` true → the text IS the file seed (dal/seeds/lessons.md).
- */
-export interface LessonsView {
-  roleKey: string;
-  text: string;
-  isDefault: boolean;
-  /** Size of `text` in CHARACTERS (Unicode code points) — cap_chars' unit. */
-  sizeChars: number;
-  /** The `doc.cap_chars.learning` setting now in force, in the same unit.
-   *
-   * T-ae38: these two were on the wire since T-3aeb and the mapper threw them
-   * away, so the Learning card was the only journal block that showed no usage
-   * — an agent found out it was full by being refused, which happens in the
-   * last minutes before a handover, taking the round's learnings with it. */
-  capChars: number;
-}
-
-/**
  * The folded PER-ROLE insight doc for one `roleKey` (T-3809) — the role
- * journal's third block, beside Duty (the role definition) and Learning (the
- * lessons doc).
+ * journal's second block, beside Duty (the role definition).
  *
  * ⚠️ This carries `sizeChars` / `capChars`, and that is load-bearing rather
- * than tidy. (This line used to say "UNLIKE `LessonsView`" — false since T-ae38
- * gave Learning the same pair for the same reason; corrected in T-100, which
- * found it while adding the readout to the two task-manual documents.)
- * `capChars` is the live `doc.cap_chars.insight`
- * setting (its OWN one since T-ae38 — it no longer shares a number with Learning),
- * and the settings surface that otherwise shows it is admin-only — the insight
- * card's header is the one place an owner sees the number a write will be judged
- * against without being refused first. Dropping these two fields the way
- * `LessonsView` drops `owner_id` would quietly delete that.
+ * than tidy. `capChars` is the live `doc.cap_chars.insight` setting, and the
+ * settings surface that otherwise shows it is admin-only — the insight card's
+ * header is the one place an owner sees the number a write will be judged
+ * against without being refused first. Dropping these two fields would quietly
+ * delete that.
  *
  * `isDefault` means "this role has never written its own insight". 🔴 Since
  * T-e1e3 that no longer implies an empty `text`: insight folds against a
@@ -658,9 +631,8 @@ export interface GlobalContextView {
 /**
  * Which editable long-form document a retained revision belongs to. The
  * companion `key` is "global" for global_context, the role key for
- * role_definition, the role key for lessons too (T-2 dropped the
- * "<role_key>::<task_type>" composite), the type_key for
- * every task_manual kind, and the TASK id for task_description / task_title.
+ * role_definition and insight, the type_key for every task_manual kind, and the
+ * TASK id for task_description / task_title.
  *
  * `task_description` (T-e271) is the odd one out in what it keys on: every
  * other kind names a document that belongs to a TYPE or a role, this one names
@@ -668,23 +640,20 @@ export interface GlobalContextView {
  * the ruling was to reuse the shipped version history, not to grow a second
  * one — so listing and restoring it are the same two routes.
  *
- * `task_manual` is the RETIRED four-field bundle: T-1f39 split a manual's SOP
- * and learnings into their own series (purpose and the identifier fields are no
- * longer versioned at all), migration 00044 deleted every existing row, and
- * BOTH document-history routes now answer 400 for it, naming the two
- * replacements. The name stays in this union only so the cockpit can still
- * spell what the server refuses — nothing may list, restore or write it.
+ * `task_manual` is the RETIRED four-field bundle: T-1f39 split the manual's SOP
+ * into its own series (purpose and the identifier fields are no longer versioned
+ * at all), migration 00044 deleted every existing row, and BOTH document-history
+ * routes now answer 400 for it, naming `task_manual_sop`. The name stays in this
+ * union only so the cockpit can still spell what the server refuses — nothing
+ * may list, restore or write it.
  */
 export type DocumentKind =
   | "global_context"
   | "role_definition"
-  | "lessons"
-  // T-3809: the role journal's third block. Its key is the BARE role_key —
-  // which since T-2 is also what lessons uses.
+  // T-3809: the role journal's second block. Its key is the BARE role_key.
   | "insight"
   | "task_manual"
   | "task_manual_sop"
-  | "task_manual_learnings"
   | "task_description"
   // T-2ebe: the description's twin, keyed on the task id in the same way. A
   // SEPARATE series over that shared key — restoring a title never disturbs the
@@ -718,7 +687,7 @@ export type DocumentKind =
 
 /** The DocumentKinds that carry a seeded boot-context / lifecycle document
  * (T-791e, widened by T-3201). Narrower than DocumentKind on purpose: the
- * adapter's boot-doc methods take THIS, so no caller can address `lessons`
+ * adapter's boot-doc methods take THIS, so no caller can address a role journal
  * through them.
  *
  * 🔴 THIS UNION IS ONE HALF OF A PAIR, AND THE WIRE HOLDS THE OTHER HALF. It

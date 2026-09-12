@@ -23,8 +23,7 @@
 //     doc.cap_chars.insight setting, and the settings surface that otherwise shows it is
 //     admin-only; this header is the only place it is readable without being
 //     refused by it first. It is also the field most likely to be dropped as
-//     "bookkeeping noise" while mapping the wire — LessonsView drops exactly
-//     these two, and copying that mapper is the natural mistake.
+//     "bookkeeping noise" while mapping the wire.
 //
 // ⚠️ What this file does NOT cover, stated so nobody reads it as more: it does
 // not prove the cockpit hears an `insight` SSE delta. The server test proves the
@@ -62,24 +61,21 @@ const insightCard = (utils: { container: HTMLElement }) =>
   utils.container.querySelector(".mp-insight") as HTMLElement | null;
 
 describe("SettingsPage · InsightCard (T-3809)", () => {
-  it("mounts on a SEED role's page, beside — not instead of — the lessons card", async () => {
+  it("mounts on a SEED role's page, beside — not instead of — the role definition", async () => {
     const utils = await openRolePage(zh.office.role.assistant);
 
     const card = insightCard(utils);
     expect(card).toBeTruthy();
     expect(within(card!).getByText(mp.insight)).toBeTruthy();
 
-    // Beside, not instead of: the lessons card must still be there. A fragment
-    // that replaced rather than appended would satisfy every assertion above.
-    const lessons = utils.container.querySelector(
-      ".mp-lessons:not(.mp-insight)"
-    );
-    expect(lessons).toBeTruthy();
-    // Insight goes BEFORE Learning (Duty → Insight → Learning, owner ruling
-    // 2026-08-03).
+    // Beside, not instead of: the role-definition card must still be there. A
+    // page that replaced rather than appended would satisfy every assertion
+    // above.
+    const duty = utils.container.querySelector(".doc-card");
+    expect(duty).toBeTruthy();
+    // Insight goes AFTER Duty (Duty → Insight, owner ruling 2026-08-03).
     expect(
-      lessons!.compareDocumentPosition(card!) &
-        Node.DOCUMENT_POSITION_PRECEDING
+      card!.compareDocumentPosition(duty!) & Node.DOCUMENT_POSITION_PRECEDING
     ).toBeTruthy();
   });
 
@@ -141,8 +137,8 @@ describe("SettingsPage · InsightCard (T-3809)", () => {
   it("a seed is PER-ROLE — a custom role never inherits the assistant's", async () => {
     // 🔴 The shape this ticket is most likely to be got wrong, mirrored on the
     // client: `api/mock.ts` must fold a MAP keyed by role, not one shared
-    // constant. A mock that copied the lessons shape would make the cockpit
-    // look correct against a server that is wrong in the same way.
+    // constant. A mock that folded one shared seed for every role would make
+    // the cockpit look correct against a server that is wrong in the same way.
     const { roleKey } = await mockApi.createRole({ name: "測試員" });
     const mine = await mockApi.getInsight(roleKey);
     const assistant = await mockApi.getInsight("assistant");
@@ -201,7 +197,7 @@ describe("SettingsPage · InsightCard (T-3809)", () => {
   it("carries a version-history entry keyed on the BARE role_key", async () => {
     // 🔴 This entry is the trigger face of the ticket's one silent bug: a
     // restore that publishes no `insight` delta still returns 200 and still
-    // writes the database. Keying it on the lessons-style composite
+    // writes the database. Keying it on a composite
     // "<role>::<task_type>" would address a document that does not exist —
     // which also fails silently, as an empty version list.
     await mockApi.saveInsight("assistant", "第零版");

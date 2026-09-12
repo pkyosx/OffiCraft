@@ -29,13 +29,11 @@ import {
   TaskManualsList,
   TaskManualHub,
   TaskManualDefinitionPage,
-  TaskManualLearningsPage,
 } from "./TaskManualsPage";
 import type { TaskManualPatch } from "../api/adapter";
 import { isHttpStatus } from "../api/errors";
 import { BootDocPage } from "./BootDocPage";
 import { DocCard } from "./DocCard";
-import { LessonsCard } from "./LessonsCard";
 import { InsightCard } from "./InsightCard";
 import { navigateHash } from "../lib/hashRoute";
 import { DOC_CAP_CHARS_MIN } from "../api/docCap";
@@ -60,8 +58,8 @@ import {
 } from "../api/suggestedReplies";
 
 /** The adjustable document caps (T-ae38, widened by T-30f1), in the order the
- * parameters card lists them: the three role-journal segments in journal order
- * (Duty → Insight → Learning), then the task manual's pair. The key IS the ServerSettingsView /
+ * parameters card lists them: the two role-journal segments in journal order
+ * (Duty → Insight), then the task manual's SOP. The key IS the ServerSettingsView /
  * ServerSettingsPatch field, so the row cannot read one setting and write
  * another.
  *
@@ -76,27 +74,21 @@ import {
 type DocCapField =
   | "docCapCharsDuty"
   | "docCapCharsInsight"
-  | "docCapCharsLearning"
-  | "docCapCharsManualSop"
-  | "docCapCharsManualLearnings";
+  | "docCapCharsManualSop";
 
 const DOC_CAP_FIELDS: Record<
   DocCapField,
-  { min: number; inputId: string; labelKey: "docCapDuty" | "docCapInsight" | "docCapLearning" | "docCapManualSop" | "docCapManualLearnings"; subKey: "docCapDutySub" | "docCapInsightSub" | "docCapLearningSub" | "docCapManualSopSub" | "docCapManualLearningsSub" }
+  { min: number; inputId: string; labelKey: "docCapDuty" | "docCapInsight" | "docCapManualSop"; subKey: "docCapDutySub" | "docCapInsightSub" | "docCapManualSopSub" }
 > = {
   docCapCharsDuty: { min: DOC_CAP_CHARS_MIN, inputId: "param-doc-cap-duty", labelKey: "docCapDuty", subKey: "docCapDutySub" },
   docCapCharsInsight: { min: DOC_CAP_CHARS_MIN, inputId: "param-doc-cap-insight", labelKey: "docCapInsight", subKey: "docCapInsightSub" },
-  docCapCharsLearning: { min: DOC_CAP_CHARS_MIN, inputId: "param-doc-cap-learning", labelKey: "docCapLearning", subKey: "docCapLearningSub" },
   docCapCharsManualSop: { min: DOC_CAP_CHARS_MIN, inputId: "param-doc-cap-manual-sop", labelKey: "docCapManualSop", subKey: "docCapManualSopSub" },
-  docCapCharsManualLearnings: { min: DOC_CAP_CHARS_MIN, inputId: "param-doc-cap-manual-learnings", labelKey: "docCapManualLearnings", subKey: "docCapManualLearningsSub" },
 };
 
 const DOC_CAP_ORDER: DocCapField[] = [
   "docCapCharsDuty",
   "docCapCharsInsight",
-  "docCapCharsLearning",
   "docCapCharsManualSop",
-  "docCapCharsManualLearnings",
 ];
 
 /** The four 傳承 knobs (T-33), in the order the parameters card lists them: the
@@ -456,11 +448,10 @@ type View =
   | { kind: "bootDoc"; docKind: BootDocKind; docKey: string }
   | { kind: "role"; key: string }
   | { kind: "manuals" }
-  // 任務手冊詳情 = hub (摘要卡 + 任務規劃入口卡): the two 任務規劃 cards
-  // (任務定義/學習經驗) PUSH their own sub-page (owner 2026-07-20).
+  // 任務手冊詳情 = hub (摘要卡 + 任務規劃入口卡): the 任務規劃 card
+  // (任務定義) PUSHES its own sub-page (owner 2026-07-20).
   | { kind: "manual"; key: string }
-  | { kind: "manualDef"; key: string }
-  | { kind: "manualLearnings"; key: string };
+  | { kind: "manualDef"; key: string };
 
 export function SettingsPage({
   initialManualKey,
@@ -526,11 +517,7 @@ export function SettingsPage({
   // is on screen (`""` requests nothing). Called unconditionally here because
   // hooks must be; the branches below just consume the result.
   const roleDoc = useRole(view.kind === "role" ? view.key : "");
-  const manualDoc = useTaskManual(
-    view.kind === "manualDef" || view.kind === "manualLearnings"
-      ? view.key
-      : ""
-  );
+  const manualDoc = useTaskManual(view.kind === "manualDef" ? view.key : "");
 
   // ── unified breadcrumb navigation (T-8f6e) ──
   // Crumb jumps move the internal view via setView; where the target segment
@@ -671,15 +658,14 @@ export function SettingsPage({
         ]}
         onSave={(patch) => manualsH.update(key, patch)}
         onOpenDefinition={() => setView({ kind: "manualDef", key })}
-        onOpenLearnings={() => setView({ kind: "manualLearnings", key })}
       />
     );
   }
 
-  // 任務定義 / 學習經驗 sub-pages (owner 2026-07-20) — pushed from the hub. Both
-  // self-heal to the manuals list on an unknown/deleted key (the hub's rule),
-  // and their breadcrumb's <type> segment jumps back to the hub.
-  if (view.kind === "manualDef" || view.kind === "manualLearnings") {
+  // 任務定義 sub-page (owner 2026-07-20) — pushed from the hub. It
+  // self-heals to the manuals list on an unknown/deleted key (the hub's rule),
+  // and its breadcrumb's <type> segment jumps back to the hub.
+  if (view.kind === "manualDef") {
     const key = view.key;
     const manual = manualsH.manuals.find((m) => m.typeKey === key);
     if (!manual) {
@@ -703,12 +689,7 @@ export function SettingsPage({
         mono: !manual.displayName,
         onClick: () => setView({ kind: "manual", key }),
       },
-      {
-        label:
-          view.kind === "manualDef"
-            ? t.settings.manualTabDefinition
-            : t.settings.manualTabLearnings,
-      },
+      { label: t.settings.manualTabDefinition },
     ];
     // WRITE THEN RE-READ (T-91). This page used to adopt the update's echo —
     // the manual AFTER the edit — but the receipt that write is moving to
@@ -737,16 +718,8 @@ export function SettingsPage({
       await manualDoc.refetch();
       await manualsH.refetch();
     };
-    return view.kind === "manualDef" ? (
+    return (
       <TaskManualDefinitionPage
-        manual={manualDoc.manual}
-        loadError={manualDoc.error}
-        crumbs={subCrumbs}
-        onSave={onSave}
-        onRestored={onRestored}
-      />
-    ) : (
-      <TaskManualLearningsPage
         manual={manualDoc.manual}
         loadError={manualDoc.error}
         crumbs={subCrumbs}
@@ -959,12 +932,10 @@ export function SettingsPage({
 
   if (view.kind === "role") {
     const role = rolesH.roles.find((r) => r.key === view.key);
-    // The persona page: role definition (top) + this role's OWN lessons
-    // (per-role-learnings step1). The lessons card is the SAME shared
-    // <LessonsCard> the app uses everywhere — scoped here to view.key so the
-    // owner edits exactly this persona's accumulated learnings. `extra` renders
-    // inside DocCard's <div className="settings"> so the card inherits page
-    // width/gutters and sits directly under the role_def card.
+    // The persona page: role definition (top) + this role's OWN insight,
+    // scoped to view.key. `extra` renders inside DocCard's
+    // <div className="settings"> so the card inherits page width/gutters and
+    // sits directly under the role_def card.
     //
     // Localized role label (matches the office/monitor roster + mockup 助理),
     // NOT the raw seed DTO.name ("Assistant"): the whole app localizes role
@@ -1096,7 +1067,7 @@ export function SettingsPage({
           kind: "role_definition",
           docKey: view.key,
           // This page carries TWO versioned documents (the definition and,
-          // below it, the lessons), so a list headed plain 「版本紀錄」 cannot
+          // below it, the insight), so a list headed plain 「版本紀錄」 cannot
           // say which one it holds.
           title: t.settings.historyRoleDefTitle,
           // The definition text alone: the role's name is not versioned
@@ -1115,18 +1086,11 @@ export function SettingsPage({
             await rolesH.refetch();
           },
         }}
-        // Duty (the role_def card above) → Insight → Learning: the three
-        // blocks of the role journal, in the order the owner ruled on
-        // 2026-08-03 — Insight is what the role decided it believes, so it sits
-        // directly under the duty it interprets, and Learning (the longest,
-        // most append-only of the three) closes the page. `extra` is a
-        // ReactNode, so a fragment needs no prop or type change here.
-        extra={
-          <>
-            <InsightCard roleKey={view.key} />
-            <LessonsCard roleKey={view.key} />
-          </>
-        }
+        // Duty (the role_def card above) → Insight: the two blocks of the role
+        // journal, in the order the owner ruled on 2026-08-03 — Insight is what
+        // the role decided it believes, so it sits directly under the duty it
+        // interprets.
+        extra={<InsightCard roleKey={view.key} />}
       />
     );
   }
@@ -1954,8 +1918,8 @@ function ServerParams({
           {/* T-33 傳承 caps — LAST of the character caps, immediately before the
               backup row, and NOT up with the doc caps where they started.
               🔴 SettingsPage.step-note-cap-t119.test.tsx asserts that the
-              step-note row is the IMMEDIATE next sibling of the task-manual
-              learnings row, and its comment records why: the owner reviewed the
+              step-note row is the IMMEDIATE next sibling of the last document
+              cap row, and its comment records why: the owner reviewed the
               shipped page and asked for that position by name, so it is an
               acceptance condition rather than styling. Four rows inserted above
               it broke that adjacency, and the cheap fix — editing the assertion

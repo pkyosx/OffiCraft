@@ -17,10 +17,9 @@ func TestHistoryKeyParts(t *testing.T) {
 		primary string
 		valid   bool
 	}{
-		"a lessons key without the retired separator names the role": {kind: "lessons", key: "engineer", primary: "engineer", valid: true},
-		"a lessons key with the retired separator names nothing":     {kind: "lessons", key: "engineer::build", primary: "engineer::build", valid: false},
-		"the separator is ordinary in another kind":                  {kind: "role_definition", key: "engineer::build", primary: "engineer::build", valid: true},
-		"an empty key names nothing":                                 {kind: "global_context", key: "", primary: "", valid: false},
+		"a key names the document it addresses": {kind: "role_definition", key: "engineer", primary: "engineer", valid: true},
+		"a separator is ordinary in a key":      {kind: "role_definition", key: "engineer::build", primary: "engineer::build", valid: true},
+		"an empty key names nothing":            {kind: "global_context", key: "", primary: "", valid: false},
 	} {
 		t.Run(name, func(t *testing.T) {
 			primary, valid := historyKeyParts(tc.kind, tc.key)
@@ -182,27 +181,6 @@ func TestRoleDefHistorySnapshot(t *testing.T) {
 	}
 }
 
-func TestLessonsHistorySnapshot(t *testing.T) {
-	for name, tc := range map[string]struct {
-		current *Lessons
-		want    string
-	}{
-		"no row":           {current: nil, want: `{}`},
-		"a live empty row": {current: &Lessons{RoleKey: "engineer", Text: "", Tombstoned: false}, want: `{"text":"","tombstoned":"false"}`},
-		"a tombstoned row": {current: &Lessons{RoleKey: "engineer", Text: "經驗", Tombstoned: true}, want: `{"text":"經驗","tombstoned":"true"}`},
-	} {
-		t.Run(name, func(t *testing.T) {
-			got, err := lessonsHistorySnapshot(tc.current)
-			if err != nil {
-				t.Fatalf("lessonsHistorySnapshot: %v", err)
-			}
-			if got != tc.want {
-				t.Fatalf("snapshot = %q, want %q", got, tc.want)
-			}
-		})
-	}
-}
-
 func TestUserContextSnapshotIn(t *testing.T) {
 	t.Run("the transaction reader returns the live text and tombstone", func(t *testing.T) {
 		_, h, d, owner := newAPITestServer(t)
@@ -257,53 +235,24 @@ func TestRoleDefSnapshotIn(t *testing.T) {
 	})
 }
 
-func TestLessonsSnapshotIn(t *testing.T) {
-	t.Run("the transaction reader returns the addressed lessons document", func(t *testing.T) {
-		_, _, d, _ := newAPITestServer(t)
-		if err := d.PutLessons(Lessons{
-			RoleKey: "engineer", Text: "實測經驗", Tombstoned: true,
-		}); err != nil {
-			t.Fatalf("PutLessons: %v", err)
-		}
-		got, err := lessonsSnapshotIn("engineer")(d.rdb)
-		if err != nil {
-			t.Fatalf("lessonsSnapshotIn: %v", err)
-		}
-		if got != `{"text":"實測經驗","tombstoned":"true"}` {
-			t.Fatalf("snapshot = %q, want %q", got, `{"text":"實測經驗","tombstoned":"true"}`)
-		}
-	})
-
-	t.Run("the transaction reader represents an absent lessons document as the empty object", func(t *testing.T) {
-		_, _, d, _ := newAPITestServer(t)
-		got, err := lessonsSnapshotIn("r-missing")(d.rdb)
-		if err != nil {
-			t.Fatalf("lessonsSnapshotIn: %v", err)
-		}
-		if got != `{}` {
-			t.Fatalf("snapshot = %q, want %q", got, `{}`)
-		}
-	})
-}
-
 func TestManualSnapshotIn(t *testing.T) {
 	t.Run("the transaction reader gives the current manual to the requested projection", func(t *testing.T) {
 		_, _, d, _ := newAPITestServer(t)
 		if err := d.PutTaskManual(TaskManual{
 			TypeKey: "tm-history", DisplayName: "歷史", Purpose: "目的",
-			Fields: "[]", SopMD: "SOP 目前版", Learnings: "學習目前版",
+			Fields: "[]", SopMD: "SOP 目前版",
 			Assignee: "{}", UpdatedTS: 7,
 		}); err != nil {
 			t.Fatalf("PutTaskManual: %v", err)
 		}
 		got, err := manualSnapshotIn("tm-history", func(m TaskManual) (string, error) {
-			return m.SopMD + " / " + m.Learnings, nil
+			return m.Purpose + " / " + m.SopMD, nil
 		})(d.rdb)
 		if err != nil {
 			t.Fatalf("manualSnapshotIn: %v", err)
 		}
-		if got != "SOP 目前版 / 學習目前版" {
-			t.Fatalf("snapshot = %q, want %q", got, "SOP 目前版 / 學習目前版")
+		if got != "目的 / SOP 目前版" {
+			t.Fatalf("snapshot = %q, want %q", got, "目的 / SOP 目前版")
 		}
 	})
 
@@ -345,17 +294,14 @@ func TestManualSnapshotIn(t *testing.T) {
 
 func TestTaskManualHistoryStreams(t *testing.T) {
 	for name, tc := range map[string]struct {
-		sopChanged       bool
-		learningsChanged bool
-		wantKinds        []string
+		sopChanged bool
+		wantKinds  []string
 	}{
-		"neither versioned document changed": {sopChanged: false, learningsChanged: false, wantKinds: nil},
-		"only the SOP changed":               {sopChanged: true, learningsChanged: false, wantKinds: []string{docKindTaskManualSop}},
-		"only the learnings changed":         {sopChanged: false, learningsChanged: true, wantKinds: []string{docKindTaskManualLearnings}},
-		"both versioned documents changed":   {sopChanged: true, learningsChanged: true, wantKinds: []string{docKindTaskManualSop, docKindTaskManualLearnings}},
+		"the versioned document did not change": {sopChanged: false, wantKinds: nil},
+		"the SOP changed":                       {sopChanged: true, wantKinds: []string{docKindTaskManualSop}},
 	} {
 		t.Run(name, func(t *testing.T) {
-			got := taskManualHistoryStreams("tm-history", "owner", tc.sopChanged, tc.learningsChanged)
+			got := taskManualHistoryStreams("tm-history", "owner", tc.sopChanged)
 			if len(got) != len(tc.wantKinds) || (got == nil) != (tc.wantKinds == nil) {
 				t.Fatalf("stream count/nil = %d/%v, want %d/%v", len(got), got == nil, len(tc.wantKinds), tc.wantKinds == nil)
 			}
@@ -371,17 +317,17 @@ func TestTaskManualHistoryStreams(t *testing.T) {
 	t.Run("the selected streams read their own current fields", func(t *testing.T) {
 		_, _, d, _ := newAPITestServer(t)
 		if err := d.PutTaskManual(TaskManual{
-			TypeKey: "tm-history", Fields: "[]", SopMD: "SOP 目前版", Learnings: "學習目前版", Assignee: "{}",
+			TypeKey: "tm-history", Fields: "[]", SopMD: "SOP 目前版", Assignee: "{}",
 		}); err != nil {
 			t.Fatalf("PutTaskManual: %v", err)
 		}
-		gotStreams := taskManualHistoryStreams("tm-history", "owner", true, true)
-		wantSnapshots := []string{`{"sop_md":"SOP 目前版"}`, `{"learnings":"學習目前版"}`}
-		if len(gotStreams) != 2 {
-			t.Fatalf("stream count = %d, want 2", len(gotStreams))
+		gotStreams := taskManualHistoryStreams("tm-history", "owner", true)
+		wantSnapshots := []string{`{"sop_md":"SOP 目前版"}`}
+		if len(gotStreams) != 1 {
+			t.Fatalf("stream count = %d, want 1", len(gotStreams))
 		}
 		for i, stream := range gotStreams {
-			wantKind := []string{docKindTaskManualSop, docKindTaskManualLearnings}[i]
+			wantKind := []string{docKindTaskManualSop}[i]
 			if stream.Kind != wantKind || stream.Key != "tm-history" || stream.ActorID != "owner" {
 				t.Fatalf("stream[%d] identity = {%q, %q, %q}, want {%q, %q, %q}",
 					i, stream.Kind, stream.Key, stream.ActorID, wantKind, "tm-history", "owner")
@@ -451,29 +397,36 @@ func TestDocumentHistoryAllowed(t *testing.T) {
 		"unknown kind": {
 			kind: "bogus", key: "global", message: "unknown document history kind",
 		},
-		"malformed lessons key": {
-			kind: "lessons", key: "engineer::build", message: malformedLessonsKeyMsg,
-		},
 		"retired task manual kind": {
 			kind: docKindTaskManual, key: "tm-history", message: legacyTaskManualKindMsg,
 		},
+		"retired lessons kind": {
+			kind: "lessons", key: "r-design", message: legacyMemoryKindsMsg,
+		},
+		"retired task manual learnings kind": {
+			kind: "task_manual_learnings", key: "tm-history", message: legacyMemoryKindsMsg,
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			api, _, _, _ := newAPITestServer(t)
-			req := httptest.NewRequest("GET", "/api/document-history/"+tc.kind+"/"+tc.key, nil)
-			rec := httptest.NewRecorder()
+			// Both faces, because they fail differently when a kind is put
+			// back: list would answer an empty 200 and restore would write.
+			for _, write := range []bool{false, true} {
+				api, _, _, _ := newAPITestServer(t)
+				req := httptest.NewRequest("GET", "/api/document-history/"+tc.kind+"/"+tc.key, nil)
+				rec := httptest.NewRecorder()
 
-			if api.documentHistoryAllowed(rec, req, tc.kind, tc.key, false) {
-				t.Fatal("documentHistoryAllowed allowed an invalid document address")
+				if api.documentHistoryAllowed(rec, req, tc.kind, tc.key, write) {
+					t.Fatalf("documentHistoryAllowed allowed an invalid document address (write=%v)", write)
+				}
+				if rec.Code != http.StatusBadRequest {
+					t.Fatalf("status = %d, want 400 (write=%v, %s)", rec.Code, write, rec.Body.String())
+				}
+				var body map[string]any
+				if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+					t.Fatalf("non-JSON error: %s", rec.Body.String())
+				}
+				apiWantError(t, body, "validation_error", tc.message)
 			}
-			if rec.Code != http.StatusBadRequest {
-				t.Fatalf("status = %d, want 400 (%s)", rec.Code, rec.Body.String())
-			}
-			var body map[string]any
-			if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
-				t.Fatalf("non-JSON error: %s", rec.Body.String())
-			}
-			apiWantError(t, body, "validation_error", tc.message)
 		})
 	}
 
@@ -554,19 +507,26 @@ func TestHandleListDocumentHistoryApiDocumentHistoryKindKeyGet(t *testing.T) {
 			t.Fatalf("want 400, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "validation_error",
-			`document history kind "task_manual" was retired: use "task_manual_sop" or "task_manual_learnings"`)
+			`document history kind "task_manual" was retired: use "task_manual_sop"`)
 	})
 
-	t.Run("a lessons key carrying the retired separator answers 400 naming the removed axis", func(t *testing.T) {
-		_, h, _, owner := newAPITestServer(t)
+	for name, kind := range map[string]string{
+		"lessons":               "lessons",
+		"task manual learnings": "task_manual_learnings",
+	} {
+		t.Run("the retired "+name+" kind answers 400 saying the documents were dropped", func(t *testing.T) {
+			_, h, _, owner := newAPITestServer(t)
 
-		status, data := apiJSON(t, h, "GET", "/api/document-history/lessons/engineer::build", owner, "")
-		if status != 400 {
-			t.Fatalf("want 400, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "validation_error",
-			`invalid lessons document history key: T-2 removed the task_type axis, so a lessons key is the bare role_key and one carrying "::" names nothing`)
-	})
+			status, data := apiJSON(t, h, "GET", "/api/document-history/"+kind+"/r-design", owner, "")
+			if status != 400 {
+				t.Fatalf("want 400, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "validation_error",
+				`document history kinds "lessons" and "task_manual_learnings" were retired: `+
+					`the legacy memory documents and their retained revisions were dropped `+
+					`from the database, so there is nothing left to list or restore`)
+		})
+	}
 
 	t.Run("a request without a token answers 401", func(t *testing.T) {
 		_, h, _, _ := newAPITestServer(t)
@@ -699,17 +659,6 @@ func TestDocumentSeedContent(t *testing.T) {
 		}
 	})
 
-	t.Run("lessons has no shipped seed", func(t *testing.T) {
-		api, _, _, _ := newAPITestServer(t)
-		got, hasSeed, err := api.documentSeedContent("lessons", "engineer")
-		if err != nil {
-			t.Fatalf("documentSeedContent: %v", err)
-		}
-		if got != nil || hasSeed {
-			t.Fatalf("documentSeedContent = %#v, %v; want nil, false", got, hasSeed)
-		}
-	})
-
 	t.Run("a seeded insight returns its text field and tombstone", func(t *testing.T) {
 		api, _, _, _ := newAPITestServer(t)
 		got, hasSeed, err := api.documentSeedContent("insight", "assistant")
@@ -779,17 +728,6 @@ func TestHandleGetDocumentSeedApiDocumentHistoryKindKeySeedGet(t *testing.T) {
 		}
 		apiWantError(t, data, "not_found",
 			"document 'role_definition/r-design' has no shipped default to compare against")
-	})
-
-	t.Run("a lessons doc has no shipped default and answers 404 naming the document", func(t *testing.T) {
-		_, h, _, owner := newAPITestServer(t)
-
-		status, data := apiJSON(t, h, "GET", "/api/document-history/lessons/engineer/seed", owner, "")
-		if status != 404 {
-			t.Fatalf("want 404, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "not_found",
-			"document 'lessons/engineer' has no shipped default to compare against")
 	})
 
 	t.Run("a kind this server does not serve answers 400", func(t *testing.T) {
@@ -939,43 +877,6 @@ func TestHandleRestoreDocumentHistoryApiDocumentHistoryKindKeyIdRestorePost(t *t
 		bystander.wantFrames()
 	})
 
-	t.Run("restoring a lessons revision fans the owner-only lessons delta", func(t *testing.T) {
-		api, h, d, owner := newAPITestServer(t)
-		if err := d.PutRoleDef(RoleDef{RoleKey: "r-design", Name: "Design", DefinitionMD: "# Duty"}); err != nil {
-			t.Fatalf("PutRoleDef: %v", err)
-		}
-		apiJSON(t, h, "POST", "/api/lessons/r-design", owner, `{"text":"v1"}`)
-		apiJSON(t, h, "POST", "/api/lessons/r-design", owner, `{"text":"v2"}`)
-		dashboard := apiTestListen(t, api, "")
-		bystander := apiTestListen(t, api, "kip")
-
-		status, data := apiJSON(t, h, "POST", "/api/document-history/lessons/r-design/1/restore", owner, "")
-		if status != 200 {
-			t.Fatalf("want 200, got %d (%v)", status, data)
-		}
-		apiWantBody(t, data, map[string]any{
-			"id":         1,
-			"created_ts": apiAnyNumber,
-			"actor_id":   "owner",
-			"content":    map[string]any{"text": "v1", "tombstoned": "false"},
-		})
-		dashboard.wantFrames(map[string]any{
-			"seq":   3,
-			"topic": "lessons",
-			"op":    "patch",
-			"data": map[string]any{
-				"entity":  "lessons",
-				"key":     "owner::r-design",
-				"epoch":   3,
-				"deleted": false,
-				"payload": nil,
-			},
-			"ts":      apiAnyNumber,
-			"trigger": "owner",
-		})
-		bystander.wantFrames()
-	})
-
 	t.Run("restoring an insight revision fans the owner-only insight delta", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		if err := d.PutRoleDef(RoleDef{RoleKey: "r-design", Name: "Design", DefinitionMD: "# Duty"}); err != nil {
@@ -1062,21 +963,6 @@ func TestHandleRestoreDocumentHistoryApiDocumentHistoryKindKeyIdRestorePost(t *t
 		dashboard.wantFrames()
 	})
 
-	t.Run("an agent restoring another role's lessons answers 403 and fans nothing", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
-		apiJSON(t, h, "POST", "/api/lessons/assistant", owner, `{"text":"v1"}`)
-		apiJSON(t, h, "POST", "/api/lessons/assistant", owner, `{"text":"v2"}`)
-		agent := apiTestAgentToken(t, api, "kip", "")
-		dashboard := apiTestListen(t, api, "")
-
-		status, data := apiJSON(t, h, "POST", "/api/document-history/lessons/assistant/1/restore", agent, "")
-		if status != 403 {
-			t.Fatalf("want 403, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "forbidden", "an agent may only write its own role's lessons")
-		dashboard.wantFrames()
-	})
-
 	t.Run("an agent restoring another role's insight answers 403 and fans nothing", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		apiJSON(t, h, "POST", "/api/insight/assistant", owner, `{"text":"v1"}`)
@@ -1101,7 +987,7 @@ func TestHandleRestoreDocumentHistoryApiDocumentHistoryKindKeyIdRestorePost(t *t
 			t.Fatalf("want 400, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "validation_error",
-			`document history kind "task_manual" was retired: use "task_manual_sop" or "task_manual_learnings"`)
+			`document history kind "task_manual" was retired: use "task_manual_sop"`)
 		dashboard.wantFrames()
 	})
 
@@ -1147,15 +1033,13 @@ func TestPublishDocumentHistoryRestore(t *testing.T) {
 		payload          any
 		executorReceives bool
 	}{
-		"global context":        {kind: "global_context", key: "global", seq: 1, topic: "global_context", entity: "global_context", wireKey: "owner", payload: nil},
-		"role definition":       {kind: "role_definition", key: "r-design", seq: 1, topic: "role_def", entity: "role_def", wireKey: "owner::r-design", payload: nil},
-		"lessons":               {kind: "lessons", key: "engineer", seq: 1, topic: "lessons", entity: "lessons", wireKey: "owner::engineer", payload: nil},
-		"insight":               {kind: "insight", key: "assistant", seq: 1, topic: "insight", entity: "insight", wireKey: "owner::assistant", payload: nil},
-		"boot document":         {kind: "offboard", key: "global", seq: 1, topic: "global_context", entity: "global_context", wireKey: "owner", payload: nil},
-		"task manual SOP":       {kind: docKindTaskManualSop, key: "tm-history", seq: 1, topic: "task_manual", entity: "task_manual", wireKey: "owner::tm-history", payload: nil},
-		"task manual learnings": {kind: docKindTaskManualLearnings, key: "tm-history", seq: 1, topic: "task_manual", entity: "task_manual", wireKey: "owner::tm-history", payload: nil},
-		"task description":      {kind: docKindTaskDescription, key: "T-1", task: true, seq: 2, topic: "task", entity: "task", wireKey: "owner::T-1", payload: map[string]any{"id": "T-1", "priority": "mid", "status": "not_started"}, executorReceives: true},
-		"task title":            {kind: docKindTaskTitle, key: "T-1", task: true, seq: 2, topic: "task", entity: "task", wireKey: "owner::T-1", payload: map[string]any{"id": "T-1", "priority": "mid", "status": "not_started"}, executorReceives: true},
+		"global context":   {kind: "global_context", key: "global", seq: 1, topic: "global_context", entity: "global_context", wireKey: "owner", payload: nil},
+		"role definition":  {kind: "role_definition", key: "r-design", seq: 1, topic: "role_def", entity: "role_def", wireKey: "owner::r-design", payload: nil},
+		"insight":          {kind: "insight", key: "assistant", seq: 1, topic: "insight", entity: "insight", wireKey: "owner::assistant", payload: nil},
+		"boot document":    {kind: "offboard", key: "global", seq: 1, topic: "global_context", entity: "global_context", wireKey: "owner", payload: nil},
+		"task manual SOP":  {kind: docKindTaskManualSop, key: "tm-history", seq: 1, topic: "task_manual", entity: "task_manual", wireKey: "owner::tm-history", payload: nil},
+		"task description": {kind: docKindTaskDescription, key: "T-1", task: true, seq: 2, topic: "task", entity: "task", wireKey: "owner::T-1", payload: map[string]any{"id": "T-1", "priority": "mid", "status": "not_started"}, executorReceives: true},
+		"task title":       {kind: docKindTaskTitle, key: "T-1", task: true, seq: 2, topic: "task", entity: "task", wireKey: "owner::T-1", payload: map[string]any{"id": "T-1", "priority": "mid", "status": "not_started"}, executorReceives: true},
 	} {
 		t.Run(name, func(t *testing.T) {
 			api, h, d, owner := newAPITestServer(t)
@@ -1310,9 +1194,9 @@ func TestRestoreTaskManualField(t *testing.T) {
 		agent := apiTestAgentToken(t, api, "kip", "")
 		apiTestCreateTaskManual(t, h, agent, `{"type_key":"tm-history","display_name":"歷史"}`)
 		apiJSON(t, h, "POST", "/api/task-manuals/tm-history", agent,
-			`{"purpose":"原目的","fields":[{"name":"客戶","required":true,"is_key":true}],"sop_md":"SOP 舊版","learnings":"學習舊版"}`)
+			`{"purpose":"原目的","fields":[{"name":"客戶","required":true,"is_key":true}],"sop_md":"SOP 舊版"}`)
 		apiJSON(t, h, "POST", "/api/task-manuals/tm-history", agent,
-			`{"purpose":"新目的","sop_md":"SOP 新版","learnings":"學習新版"}`)
+			`{"purpose":"新目的","sop_md":"SOP 新版"}`)
 		dashboard := apiTestListen(t, api, "")
 		agentListener := apiTestListen(t, api, "kip")
 
@@ -1333,11 +1217,10 @@ func TestRestoreTaskManualField(t *testing.T) {
 		apiWantBody(t, data, map[string]any{
 			"type_key": "tm-history", "display_name": "歷史", "purpose": "新目的",
 			"fields": []any{map[string]any{"name": "客戶", "required": true, "is_key": true}},
-			"sop_md": "SOP 舊版", "learnings": "學習新版", "assignee": map[string]any{},
+			"sop_md": "SOP 舊版", "assignee": map[string]any{},
 			"lore": "", "lore_chars": 0,
-			"learnings_chars": 4, "sop_md_chars": 6,
-			"learnings_cap_chars": 15000, "sop_md_cap_chars": 15000,
-			"cap_chars": 15000, "updated_ts": apiAnyNumber,
+			"sop_md_chars": 6, "sop_md_cap_chars": 15000,
+			"updated_ts": apiAnyNumber,
 		})
 	})
 }

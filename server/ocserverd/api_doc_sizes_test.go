@@ -25,12 +25,11 @@ func apiSeededAssistantRow() map[string]any {
 		"role_key": "assistant",
 		"duty":     map[string]any{"size_chars": 169, "cap_chars": 1000},
 		"insight":  map[string]any{"size_chars": 1089, "cap_chars": 15000},
-		"lessons":  map[string]any{"size_chars": 14, "cap_chars": 15000},
 	}
 }
 
 func TestHandlePeekDocSizesApiDocSizesGet(t *testing.T) {
-	t.Run("an out-of-box station reports its one seeded role's three documents and no task manual at all", func(t *testing.T) {
+	t.Run("an out-of-box station reports its one seeded role's two documents and no task manual at all", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		dashboard := apiTestListen(t, api, "")
 
@@ -61,14 +60,12 @@ func TestHandlePeekDocSizesApiDocSizesGet(t *testing.T) {
 					"role_key": roleKey,
 					"duty":     map[string]any{"size_chars": 155, "cap_chars": 1000},
 					"insight":  map[string]any{"size_chars": 0, "cap_chars": 15000},
-					"lessons":  map[string]any{"size_chars": 14, "cap_chars": 15000},
 				},
 			},
 			"task_manuals": []any{
 				map[string]any{
-					"type_key":  "crate",
-					"sop":       map[string]any{"size_chars": 0, "cap_chars": 15000},
-					"learnings": map[string]any{"size_chars": 0, "cap_chars": 15000},
+					"type_key": "crate",
+					"sop":      map[string]any{"size_chars": 0, "cap_chars": 15000},
 				},
 			},
 		})
@@ -88,14 +85,13 @@ func TestHandlePeekDocSizesApiDocSizesGet(t *testing.T) {
 				"role_key": "assistant",
 				"duty":     map[string]any{"size_chars": 169, "cap_chars": 1000},
 				"insight":  map[string]any{"size_chars": 13, "cap_chars": 15000},
-				"lessons":  map[string]any{"size_chars": 14, "cap_chars": 15000},
 			}},
 			"task_manuals": []any{},
 		})
 		dashboard.wantFrames()
 	})
 
-	t.Run("each of the five segments is quoted against its OWN cap, so raising one moves that one number and no other", func(t *testing.T) {
+	t.Run("each of the three segments is quoted against its OWN cap, so raising one moves that one number and no other", func(t *testing.T) {
 		_, h, _, owner := newAPITestServer(t)
 		if status, data := apiJSON(t, h, "POST", "/api/task-manuals", owner,
 			`{"type_key":"crate","display_name":"裝箱"}`); status != 200 {
@@ -111,12 +107,10 @@ func TestHandlePeekDocSizesApiDocSizesGet(t *testing.T) {
 				"role_key": "assistant",
 				"duty":     map[string]any{"size_chars": 169, "cap_chars": 1000},
 				"insight":  map[string]any{"size_chars": 1089, "cap_chars": 20000},
-				"lessons":  map[string]any{"size_chars": 14, "cap_chars": 15000},
 			}},
 			"task_manuals": []any{map[string]any{
-				"type_key":  "crate",
-				"sop":       map[string]any{"size_chars": 0, "cap_chars": 30000},
-				"learnings": map[string]any{"size_chars": 0, "cap_chars": 15000},
+				"type_key": "crate",
+				"sop":      map[string]any{"size_chars": 0, "cap_chars": 30000},
 			}},
 		})
 	})

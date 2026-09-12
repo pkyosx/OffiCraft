@@ -115,10 +115,9 @@ func TestBuildWorkerBootContext_FullAssembly(t *testing.T) {
 	}
 	manual := &TaskManual{
 		TypeKey: "review-pr", DisplayName: "審查 PR",
-		Purpose:   "review 一個 PR",
-		Fields:    `[{"name":"pr_url","required":true,"is_key":true}]`,
-		SopMD:     "先看 diff 再留結論",
-		Learnings: "大 PR 先分檔看",
+		Purpose: "review 一個 PR",
+		Fields:  `[{"name":"pr_url","required":true,"is_key":true}]`,
+		SopMD:   "先看 diff 再留結論",
 	}
 	got, err := s.buildWorkerBootContext(w, task, manual)
 	if err != nil {
@@ -290,10 +289,9 @@ func TestWorkerBootContextIsInvariantToTheTaskAndItsManual(t *testing.T) {
 
 	manual := &TaskManual{
 		TypeKey: "x", DisplayName: "審查 PR",
-		Purpose:   "review 一個 PR",
-		Fields:    `[{"name":"pr_url","required":true,"is_key":true}]`,
-		SopMD:     "先看 diff 再留結論",
-		Learnings: "大 PR 先分檔看",
+		Purpose: "review 一個 PR",
+		Fields:  `[{"name":"pr_url","required":true,"is_key":true}]`,
+		SopMD:   "先看 diff 再留結論",
 	}
 
 	base, err := s.buildWorkerBootContext(w, plain, nil)

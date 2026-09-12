@@ -20,7 +20,7 @@ This file is read by Claude Code agents working in this repo.
 
 4. **授權單一化**：caller 身分永遠取自 verified token 的 `sub`；`member_id`／`agent_id` 只表示 target，不能表示 caller。principal 由單一 resolver 分類，路由在 `server/ocserverd/routes.go` 宣告最低 `requires`，不得由各 handler 各自猜權限。
 
-   owner 與 admin agent 才能做治理操作；普通 agent 只能做被授權的自身操作。lessons 的 self-role 寫入與跨 role 寫入依同一授權模型，沒有 role 的 worker 不能藉空字串取得寫入權；read 不因 caller 是誰而放寬。warden 不是治理 principal。每條 route 都要在註冊時通過 boot-time fail-closed assertion；漏寫或寫未知 floor 不能靠「目前沒有 agent 知道這條路」當安全邊界。
+   owner 與 admin agent 才能做治理操作；普通 agent 只能做被授權的自身操作。per-role 文件（Insight）的 self-role 寫入與跨 role 寫入依同一授權模型，沒有 role 的 worker 不能藉空字串取得寫入權；read 不因 caller 是誰而放寬。warden 不是治理 principal。每條 route 都要在註冊時通過 boot-time fail-closed assertion；漏寫或寫未知 floor 不能靠「目前沒有 agent 知道這條路」當安全邊界。
 
    - **同一事實的複本檢查(開發)**:改動一段敘述或契約前,先找**同一事實在樹上的其他表示**(生成物、schema、DTO、測試、seed 或對外文件);修一份不等於修好事實。能選 canonical source 就讓其他位置指向它;必須保留拷貝時,在**同一個 commit** 更新並從各讀者入口驗證。⚠️ **會漂移的量(份數、編號、清單、版本)不要寫進文字**——那一格的規則本體是下面的〈文件鐵律〉,本條不重述、不摘要。
 

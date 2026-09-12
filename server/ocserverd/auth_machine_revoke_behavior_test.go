@@ -406,7 +406,7 @@ func TestMachineRevocationSparesEveryLegitimateCaller(t *testing.T) {
 		{liveCall{"an outsource worker writing up its close-out", "POST",
 			"/api/tasks/t-closeout", `{"description":"close-out notes"}`}, closeoutTok},
 		{liveCall{"a closing-out outsource worker writing chat", "POST",
-			"/api/chat", `{"to":"owner","body":"learnings written"}`}, closeoutTok},
+			"/api/chat", `{"to":"owner","body":"close-out notes written"}`}, closeoutTok},
 	}
 
 	// Before the delete — the positive control for every arm.

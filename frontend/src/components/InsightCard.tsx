@@ -1,10 +1,8 @@
 // components/InsightCard.tsx — the per-role INSIGHT card (T-3809): the role
-// journal's third block, rendered beside Duty (the role_definition doc this
-// page already shows) and Learning (LessonsCard).
+// journal's second block, rendered beside Duty (the role_definition doc this
+// page already shows).
 //
-// Built against LessonsCard rather than beside it, because the two are the same
-// editor over different documents. Two deliberate differences, each with a
-// reason that is not "tidier":
+// Two deliberate properties, each with a reason that is not "tidier":
 //
 //  1. The header carries {size_chars} / {cap_chars}. It is the only place in
 //     the cockpit an owner reads the live doc.cap_chars.insight value without
@@ -12,9 +10,11 @@
 //     and the alternative way to learn the limit is to be refused by it.
 //     ⚠️ THAT IS TRUE OF THE INSIGHT CAP, NOT OF CAPS IN GENERAL. This comment
 //     used to claim the header was the cockpit's ONLY doc-cap readout, and that
-//     stopped being true long before anyone noticed: the Duty card and the role
-//     page's Learning card both carry one now, and T-100 added the two
-//     task-manual documents. Do not read this line as "add nothing elsewhere".
+//     stopped being true long before anyone noticed: the Duty card carries one
+//     too, and T-100 added the task-manual SOP readout. (The role page's
+//     Learning card and the manual's learnings readout were both removed with
+//     the legacy memory surface in T-186.) Do not read this line as "add
+//     nothing elsewhere".
 //     🔴 What this card still does NOT do, and what a reader is most likely to
 //     assume it does: the number here counts the SAVED document, so it does not
 //     move while the owner types. `DocCard` (and `DocUsage`, which the manual
@@ -215,8 +215,8 @@ export function InsightCard({ roleKey }: InsightCardProps) {
             type="button"
             className="doc-btn doc-btn--edit"
             onClick={startEdit}
-            // Same load gate as LessonsCard (T-2d99): you cannot edit what has
-            // not arrived, or the first commit is a whole-doc replace of "".
+            // Load gate (T-2d99): you cannot edit what has not arrived, or
+            // the first commit is a whole-doc replace of "".
             disabled={loading || error}
           >
             <PencilIcon size={14} />

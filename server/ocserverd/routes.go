@@ -1055,7 +1055,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Summary:    "Download the prebuilt ocagent binary (octet-stream) for an agent.",
 			MCPExclude: true, // a binary download, not an agent tool
 		}),
-		// ── User context / roles / lessons / bootstrap ───────────────────────
+		// ── User context / roles / bootstrap ────────────────────────────────
 		Gated(principalMachine, routeDef{
 			Method:  "GET",
 			Path:    "/api/global-context",
@@ -1221,10 +1221,10 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Path:    "/api/doc-sizes",
 			Handler: w.HandlePeekDocSizesApiDocSizesGet,
 			// The machine floor, matching the READ face of every document it
-			// sizes (list_roles / get_insight / get_lessons / list_task_manuals
+			// sizes (list_roles / get_insight / list_task_manuals
 			// are all machine). It cannot leak more than those already do — it
 			// carries strictly less than any of them.
-			Summary: "Size-only overview of the capped documents on the station: each role's role definition / insight / lessons, and each task manual's SOP / learnings, as size_chars plus the cap_chars in force for THAT segment (the five segments have five separate caps — each is reported against its own). THE LISTING IS KEYED BY ROLE, AND THAT IS ITS LIMIT. T-2 removed the lessons task_type axis, so a role now has exactly ONE lessons document and it is the one reported here — the old 'default bucket only' gap is gone. What remains is narrower still and it is now INSIGHT-ONLY: nothing validates a role_key against the roster on the INSIGHT write face, so an admin or the owner can write insight under a role_key no role carries; such a document spends the insight cap and, having no role to hang off, never appears here. The LESSONS write face no longer has that gap — replace_lessons and patch_lessons refuse with 404 any role_key that nothing could read: neither a role that folds (which is what this listing walks, and what every boot loads) nor a member carrying that role_key (which cannot boot, but can be minted a token that reads the doc). A role_key on neither list now fails instead of silently producing an unreachable document. list_roles is the roster this listing is derived from — a document under a name that is not on it is not on this page either. Carries NO document text, so it costs a few hundred bytes. Use it to find which long-lived document is nearly full, then read only that one (get_role / get_insight / get_lessons / get_task_manual). It is the only way to see insight and lessons sizes in bulk — no listing reports those at any price; the manual sizes and caps are also on every list_task_manuals row, and a role definition's size and cap are already on every list_roles row.",
+			Summary: "Size-only overview of the capped documents on the station: each role's role definition / insight, and each task manual's SOP, as size_chars plus the cap_chars in force for THAT segment (the three segments have three separate caps — each is reported against its own). THE LISTING IS KEYED BY ROLE, AND THAT IS ITS LIMIT: nothing validates a role_key against the roster on the INSIGHT write face, so an admin or the owner can write insight under a role_key no role carries; such a document spends the insight cap and, having no role to hang off, never appears here. list_roles is the roster this listing is derived from — a document under a name that is not on it is not on this page either. Carries NO document text, so it costs a few hundred bytes. Use it to find which long-lived document is nearly full, then read only that one (get_role / get_insight / get_task_manual). It is the only way to see insight sizes in bulk — no listing reports those at any price; the manual sizes and caps are also on every list_task_manuals row, and a role definition's size and cap are already on every list_roles row.",
 			MCPTool: "peek_doc_sizes",
 		}),
 		Gated(principalAdminAgent, routeDef{
@@ -1266,26 +1266,25 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Method:  "GET",
 			Path:    "/api/insight/{role_key}",
 			Handler: w.HandleGetInsightApiInsightRoleKeyGet,
-			// T-3809. READ stays on the machine floor, matching Duty and
-			// Learning: the owner ruled on 2026-08-02 (rc-dc171587220c, option
+			// T-3809. READ stays on the machine floor, matching Duty: the
+			// owner ruled on 2026-08-02 (rc-dc171587220c, option
 			// ①, verbatim 「包含 Insight：這一輪不關任何讀取」) that this release
 			// closes nothing on the read face. Insight is SEPARATE, not
 			// private — say it in every surface a reader can reach, because
 			// the word "insight" implies confidentiality that nobody promised.
-			Summary: "Read a per-role insight doc - this role's accumulated judgement calls and trade-offs (per role_key). A role may ship with a factory seed, and that seed is PER-ROLE (seeds/insight_<role_key>.md) - today only the assistant has one; a role without one reads genuinely empty until it writes. is_default=true means THIS ROLE has never written its own, whether what you are reading is the factory wording or nothing at all. Separate from the lessons doc on purpose: lessons record what happened and what to do next time, insight records how this role weighs a call. Like lessons, reading is unrestricted: any authenticated identity may read ANY role's insight - it is SEPARATE, not private.",
+			Summary: "Read a per-role insight doc - this role's accumulated judgement calls and trade-offs (per role_key). A role may ship with a factory seed, and that seed is PER-ROLE (seeds/insight_<role_key>.md) - today only the assistant has one; a role without one reads genuinely empty until it writes. is_default=true means THIS ROLE has never written its own, whether what you are reading is the factory wording or nothing at all. Reading is unrestricted: any authenticated identity may read ANY role's insight - it is SEPARATE, not private.",
 			MCPTool: "get_insight",
 		}),
 		Gated(principalAgent, routeDef{
 			Method:  "POST",
 			Path:    "/api/insight/{role_key}",
 			Handler: w.HandleReplaceInsightApiInsightRoleKeyPost,
-			// principalAgent is the honest floor, for the reason spelled out at
-			// the lessons write rows below: per-ROLE authz cannot be expressed
-			// by the ladder, so it lives in the handler (insightWriteAuthz) and
-			// the row must not declare a floor lower than the gate it actually
-			// has. A warden-kind member is ranked machine regardless of
-			// role_key (classifyMember), so it cannot write insight even if it
-			// carries one — the same delineation the lessons rows document.
+			// principalAgent is the honest floor: per-ROLE authz cannot be
+			// expressed by the ladder, so it lives in the handler
+			// (insightWriteAuthz) and the row must not declare a floor lower
+			// than the gate it actually has. A warden-kind member is ranked
+			// machine regardless of role_key (classifyMember), so it cannot
+			// write insight even if it carries one.
 			Summary: "Whole-doc replace of a per-role insight doc ({text}). text is REQUIRED; unknown keys are rejected. Replacing existing content with an empty doc needs allow_shrink=true. Only the role's own agents (and admin) may WRITE it. Answers with a bounded receipt (``role_key``, ``is_default``, ``has_seed``, ``size_chars``, ``cap_chars``, ``sha256``), not the folded doc — call ``get_insight`` when you need the rest.",
 			MCPTool: "replace_insight",
 		}),
@@ -1312,60 +1311,9 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 		}),
 		Gated(principalMachine, routeDef{
 			Method:  "GET",
-			Path:    "/api/lessons/{role_key}",
-			Handler: w.HandleGetLessonsApiLessonsRoleKeyGet,
-			Summary: "Read a per-role lessons doc (per role_key; overlay ⊕ seed).",
-			MCPTool: "get_lessons",
-		}),
-		Gated(principalAgent, routeDef{
-			Method:  "POST",
-			Path:    "/api/lessons/{role_key}",
-			Handler: w.HandleReplaceLessonsApiLessonsRoleKeyPost,
-			// T-5336: the two lessons WRITE rows sat on the machine FLOOR while
-			// 100% of their RBAC lived in the handler (buildHandler skips
-			// requirePrincipalClass for principalMachine) — the route table
-			// declared "any authenticated principal" on rows whose real gate it
-			// could not see. principalAgent is the honest floor.
-			// ⚠️ THIS IS A REAL NARROWING, NOT A NO-OP — say it plainly, because
-			// an earlier draft of this comment claimed the opposite and an
-			// independent review disproved it by building the row. Both
-			// PRODUCTION warden creation points leave role_key empty
-			// (api_machines.go onboard, dbseed.go), and such a warden was
-			// already 403'd by the handler's self-role compare. But a warden row
-			// CAN carry a role_key: POST /api/members takes kind and role_key in
-			// the SAME body and cross-checks neither (a privilege-bearing hire —
-			// owner/admin only). That row's token is agent-scoped like every
-			// member token, so the old self-role compare matched and it could
-			// write its OWN role_key's lessons; measured across the two commits
-			// that same request went 200 → 403 (classifyMember ranks
-			// kind=="warden" as machine regardless of role_key). Nothing this
-			// office builds for itself loses a write; a deliberately hired
-			// role-bearing warden loses exactly one CAPABILITY — writing its own
-			// role's lessons — which it loses across BOTH of these rows at once
-			// (replace and patch share lessonsWriteAuthz), so counted as requests
-			// it is two. (Whether that kind/role_key
-			// combination should be refused at ingest at all is a separate
-			// question, deliberately not answered here.)
-			// Per-ROLE authz stays in the handler (lessonsWriteAuthz) — the
-			// ladder cannot express "own role only".
-			Summary: "Replace the WHOLE per-role lessons document. text is REQUIRED and unknown keys are rejected; only that role's agent or an admin may write it; role_key must be addressable — a role that folds (list_roles), or a member carrying that role_key (list_members) — or the write is refused 404, so a lessons doc can no longer be created under a name nothing on this station could ever read; emptying or sharply shrinking it needs allow_shrink=true; and the result is still judged against the lessons cap. Answers with a bounded receipt (``role_key``, ``size_chars``, ``cap_chars``, ``sha256``), not the journal — call ``get_lessons`` when you need the rest.",
-			MCPTool: "replace_lessons",
-		}),
-		Gated(principalAgent, routeDef{
-			Method:  "POST",
-			Path:    "/api/lessons/{role_key}/patch",
-			Handler: w.HandlePatchLessonsApiLessonsRoleKeyPatchPost,
-			// T-5336: same honest floor as the whole-doc replace above (the two
-			// share lessonsWriteAuthz). READ stays on the machine floor — any
-			// authenticated identity may read any role's lessons.
-			Summary: "Patch a per-role lessons doc by unique anchors ({edits:[{old,new}]}). role_key must be addressable — a role that folds (list_roles), or a member carrying that role_key (list_members) — or the patch is refused 404.",
-			MCPTool: "patch_lessons",
-		}),
-		Gated(principalMachine, routeDef{
-			Method:  "GET",
 			Path:    "/api/resume-summary",
 			Handler: w.HandleResumeSummaryApiResumeSummaryGet,
-			Summary: "Bounded LIGHT wake snapshot for the caller (identity-locked; recent chat + light open-task rows + size overview — peek sizes first, pull detail via get_task). CHAT is packed newest-first under a CHARACTER BUDGET, not a fixed message count, and stopping at the last message that still fits; each message carries from_name/to_name beside the ids and ts_display (full date + time + zone offset) beside the epoch ts, and folds in its reply card as `card` when it has one — read every ts_display against the top-level `generated_at`. TWO DIFFERENT things can be missing and they are marked DIFFERENTLY: `body_omitted_chars` > 0 means THAT message is here with that many characters COLLAPSED away (another agent's line — the owner's line and your own hand-off notes to yourself are carried in full), re-read it with get_chat; `chat_earlier_omitted` is the other kind and it is a MAYBE, not a fact: that line was cut at a read or budget limit and nothing looked past the cut, so whole messages may be missing from this payload entirely — it is raised even when there is in fact nothing older. Its hint tells you how to CHECK and fetch them. The two are asymmetric ON PURPOSE: the collapse marker is CERTAIN (that message IS here, shortened, exact count); this one is not, and only the fetch settles it. Also carries the STUDIO FLOOR you wake up onto: roster (every member and contractor, each with online/offline status, the machine it runs on, and its duty capped at 1000 chars with `…` marking a cut, the cap applied after the doc's own leading title line is removed — who to ask for help; no insight/learning by owner ruling. Contractors additionally carry their bound task's status, waiting_reason, and step progress (progress_done/progress_total) — members leave these at their zero value; a contractor's 0/0 is ambiguous (a task with no steps yet, or no task at all) and task_status is what tells them apart, non-empty vs empty) and machines (the machine list plus you_are_on, your server-recorded machine binding — never derive it from a hostname).",
+			Summary: "Bounded LIGHT wake snapshot for the caller (identity-locked; recent chat + light open-task rows + size overview — peek sizes first, pull detail via get_task). CHAT is packed newest-first under a CHARACTER BUDGET, not a fixed message count, and stopping at the last message that still fits; each message carries from_name/to_name beside the ids and ts_display (full date + time + zone offset) beside the epoch ts, and folds in its reply card as `card` when it has one — read every ts_display against the top-level `generated_at`. TWO DIFFERENT things can be missing and they are marked DIFFERENTLY: `body_omitted_chars` > 0 means THAT message is here with that many characters COLLAPSED away (another agent's line — the owner's line and your own hand-off notes to yourself are carried in full), re-read it with get_chat; `chat_earlier_omitted` is the other kind and it is a MAYBE, not a fact: that line was cut at a read or budget limit and nothing looked past the cut, so whole messages may be missing from this payload entirely — it is raised even when there is in fact nothing older. Its hint tells you how to CHECK and fetch them. The two are asymmetric ON PURPOSE: the collapse marker is CERTAIN (that message IS here, shortened, exact count); this one is not, and only the fetch settles it. Also carries the STUDIO FLOOR you wake up onto: roster (every member and contractor, each with online/offline status, the machine it runs on, and its duty capped at 1000 chars with `…` marking a cut, the cap applied after the doc's own leading title line is removed — who to ask for help; no insight by owner ruling. Contractors additionally carry their bound task's status, waiting_reason, and step progress (progress_done/progress_total) — members leave these at their zero value; a contractor's 0/0 is ambiguous (a task with no steps yet, or no task at all) and task_status is what tells them apart, non-empty vs empty) and machines (the machine list plus you_are_on, your server-recorded machine binding — never derive it from a hostname).",
 			MCPTool: "resume_summary",
 		}),
 		Gated(principalMachine, routeDef{
@@ -1817,35 +1765,35 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			MCPTool: "set_outsource_worker_model",
 		}),
 		// ── Task manuals (M3) — agents create manuals + edit the CONTENT fields
-		// (purpose / fields / SOP / learnings); the assignee face and delete are
+		// (purpose / fields / SOP); the assignee face and delete are
 		// GOVERNANCE, floor admin_agent since T-6020 (owner 2026-07-26; the
 		// in-handler assignee gate answers 403 below that floor)
 		Gated(principalMachine, routeDef{
 			Method:  "GET",
 			Path:    "/api/task-manuals",
 			Handler: w.HandleListTaskManualsApiTaskManualsGet,
-			Summary: "List task types WITHOUT their long documents: each row is the type identity (type_key / display_name / purpose), its input fields and its assignee setting, plus the SIZES of sop_md and learnings and the cap each is judged against. The SOP and the learnings text are not on this answer at all — read the one type you picked with get_task_manual.",
+			Summary: "List task types WITHOUT their long document: each row is the type identity (type_key / display_name / purpose), its input fields and its assignee setting, plus the SIZE of sop_md and the cap it is judged against. The SOP text is not on this answer at all — read the one type you picked with get_task_manual.",
 			MCPTool: "list_task_manuals",
 		}),
 		Gated(principalAgent, routeDef{
 			Method:  "POST",
 			Path:    "/api/task-manuals",
 			Handler: w.HandleCreateTaskManualApiTaskManualsPost,
-			Summary: "Create a task type: pass display_name; the server mints and returns the tm- type_key id (legacy explicit type_key still accepted; duplicate → 409; assignee = owner/admin agent). An outsource assignee may select runtime claude/codex; absent = claude. Answers with a bounded receipt (``type_key``, ``updated_ts``, ``learnings_chars``, ``learnings_cap_chars``, ``learnings_sha256``, ``sop_md_chars``, ``sop_md_cap_chars``, ``sop_md_sha256``), not the manual — call ``get_task_manual`` when you need the rest.",
+			Summary: "Create a task type: pass display_name; the server mints and returns the tm- type_key id (legacy explicit type_key still accepted; duplicate → 409; assignee = owner/admin agent). An outsource assignee may select runtime claude/codex; absent = claude. Answers with a bounded receipt (``type_key``, ``updated_ts``, ``sop_md_chars``, ``sop_md_cap_chars``, ``sop_md_sha256``), not the manual — call ``get_task_manual`` when you need the rest.",
 			MCPTool: "create_task_manual",
 		}),
 		Gated(principalMachine, routeDef{
 			Method:  "GET",
 			Path:    "/api/task-manuals/{type_key}",
 			Handler: w.HandleGetTaskManualApiTaskManualsTypeKeyGet,
-			Summary: "Read one task manual (purpose/fields/SOP/learnings/assignee). The SOP and the learnings are judged by two SEPARATE caps: read sop_md_cap_chars and learnings_cap_chars. The older cap_chars is DEPRECATED — it carries the LEARNINGS cap only and says nothing about sop_md, so read sop_md_cap_chars for the SOP.",
+			Summary: "Read one task manual (purpose/fields/SOP/assignee). The SOP is judged against sop_md_cap_chars.",
 			MCPTool: "get_task_manual",
 		}),
 		Gated(principalAgent, routeDef{
 			Method:  "POST",
 			Path:    "/api/task-manuals/{type_key}",
 			Handler: w.HandleUpdateTaskManualApiTaskManualsTypeKeyPost,
-			Summary: "Edit a task manual (partial; content fields agent-editable; assignee = owner/admin agent). An outsource assignee may select runtime claude/codex; absent = claude. Only the fields you name change, so omitting a field is safe — but unknown keys are rejected rather than dropped: the learnings doc goes in learnings (NOT text — that is write_task_learnings' field name). The SOP and the learnings are judged by two SEPARATE caps: read sop_md_cap_chars and learnings_cap_chars. The older cap_chars is DEPRECATED — it carries the LEARNINGS cap only and says nothing about sop_md, so read sop_md_cap_chars for the SOP. Answers with a bounded receipt (``type_key``, ``updated_ts``, ``learnings_chars``, ``learnings_cap_chars``, ``learnings_sha256``, ``sop_md_chars``, ``sop_md_cap_chars``, ``sop_md_sha256``), not the manual — call ``get_task_manual`` when you need the rest.",
+			Summary: "Edit a task manual (partial; content fields agent-editable; assignee = owner/admin agent). An outsource assignee may select runtime claude/codex; absent = claude. Only the fields you name change, so omitting a field is safe — but unknown keys are rejected rather than dropped. The SOP is judged against sop_md_cap_chars. Answers with a bounded receipt (``type_key``, ``updated_ts``, ``sop_md_chars``, ``sop_md_cap_chars``, ``sop_md_sha256``), not the manual — call ``get_task_manual`` when you need the rest.",
 			MCPTool: "update_task_manual",
 		}),
 		Gated(principalAdminAgent, routeDef{
@@ -1855,20 +1803,6 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler: w.HandleDeleteTaskManualApiTaskManualsTypeKeyDelete,
 			Summary: "Delete a task type (open tasks of the type → 409).",
 			MCPTool: "delete_task_manual",
-		}),
-		Gated(principalAgent, routeDef{
-			Method:  "POST",
-			Path:    "/api/task-manuals/{type_key}/learnings",
-			Handler: w.HandleWriteTaskLearningsApiTaskManualsTypeKeyLearningsPost,
-			Summary: "Whole-doc replace of a type's learnings (task-close write-back). The doc text goes in text (NOT learnings — that is update_task_manual's field name); text is REQUIRED and unknown keys are rejected. Wiping existing learnings needs allow_shrink=true. Answers with a bounded receipt (``type_key``, ``size_chars``, ``cap_chars``, ``sha256``), not the learnings text — call ``get_task_manual`` when you need the rest.",
-			MCPTool: "write_task_learnings",
-		}),
-		Gated(principalAgent, routeDef{
-			Method:  "POST",
-			Path:    "/api/task-manuals/{type_key}/learnings/patch",
-			Handler: w.HandlePatchTaskLearningsApiTaskManualsTypeKeyLearningsPatchPost,
-			Summary: "Patch a type's learnings by unique anchors ({edits:[{old,new}]}) — the learnings twin of patch_lessons, so the write cost scales with the CHANGE, not the whole (30k-char) doc, and re-typing the whole doc can no longer silently drop content. Edits apply in order; a non-empty old must match the current learnings EXACTLY ONCE (0 or >1 hits reject the WHOLE batch with a 400, zero writes — the unique anchor also acts as an optimistic lock); an empty old appends. Wiping the doc, or shrinking it below a tenth, needs allow_shrink=true.",
-			MCPTool: "patch_task_learnings",
 		}),
 		Gated(principalAgent, routeDef{
 			Method:  "POST",
@@ -1882,7 +1816,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 		}),
 		// ── Retained history of the editable documents above ────────────────
 		// One read + one restore for EVERY overwritable long-form document
-		// (global context, role definition, lessons, task manual), which is why
+		// (global context, role definition, task manual), which is why
 		// they sit after the last of those write faces instead of inside any one
 		// group. Restore is a write, so it takes the agent floor.
 		Gated(principalMachine, routeDef{
@@ -1896,7 +1830,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Method:  "GET",
 			Path:    "/api/document-history/{kind}/{key}/seed",
 			Handler: w.HandleGetDocumentSeedApiDocumentHistoryKindKeySeedGet,
-			Summary: "READ the SHIPPED DEFAULT of one editable document — the text a reset would put back, i.e. the 初始版本 entry of that document's version list. Read-only: this tool writes nothing, so reading the default can never replace the live document. Putting the default BACK is deliberately not an agent tool — the owner does that from the cockpit — exactly as with list_document_history. ``content`` carries the SAME field names a retained version carries, so the same reader can compare a default against the live document.\n\nWHICH DOCUMENTS THIS COVERS IS DELIBERATELY NOT LISTED HERE. A list of kinds written into a description goes stale the moment a new editable document ships and NOTHING turns red when it does — this one had gone wrong about three kinds before the list was taken out. Two rules you can actually execute replace it.\n\nADDRESSING: ``kind`` and ``key`` name a document exactly as they do for list_document_history — the same server-side gate answers both routes, so whatever that tool addresses is addressable here, and a ``kind`` this server does not know is refused with 400 while a ``key`` that names no document of that kind is refused with 404 that names it. Neither is something to guess at: ask and read the answer.\n\nCOVERAGE: whether THAT document ships a default is answered by asking for it. 200 means it does, and ``content`` is that text. 404 means it has none at all — a role the owner created, a task manual, per-role lessons — which is the same set whose reset the server also 404s, so it is the honest 'there is nothing to go back to', not a gap to work around. 400 on a retired kind names the series that replaced it.",
+			Summary: "READ the SHIPPED DEFAULT of one editable document — the text a reset would put back, i.e. the 初始版本 entry of that document's version list. Read-only: this tool writes nothing, so reading the default can never replace the live document. Putting the default BACK is deliberately not an agent tool — the owner does that from the cockpit — exactly as with list_document_history. ``content`` carries the SAME field names a retained version carries, so the same reader can compare a default against the live document.\n\nWHICH DOCUMENTS THIS COVERS IS DELIBERATELY NOT LISTED HERE. A list of kinds written into a description goes stale the moment a new editable document ships and NOTHING turns red when it does — this one had gone wrong about three kinds before the list was taken out. Two rules you can actually execute replace it.\n\nADDRESSING: ``kind`` and ``key`` name a document exactly as they do for list_document_history — the same server-side gate answers both routes, so whatever that tool addresses is addressable here, and a ``kind`` this server does not know is refused with 400 while a ``key`` that names no document of that kind is refused with 404 that names it. Neither is something to guess at: ask and read the answer.\n\nCOVERAGE: whether THAT document ships a default is answered by asking for it. 200 means it does, and ``content`` is that text. 404 means it has none at all — a role the owner created, a task manual — which is the same set whose reset the server also 404s, so it is the honest 'there is nothing to go back to', not a gap to work around. 400 on a retired kind names the series that replaced it.",
 			// A TOOL, by owner ruling rc-b7d29de0eb9c ("開放,照你 7/30 那句話
 			// 一律給"). This row first landed MCPExclude, argued from "an agent
 			// gains nothing here" — a role definition's seed is the very text

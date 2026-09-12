@@ -1721,7 +1721,7 @@ func TestCloseTask(t *testing.T) {
 		)
 	})
 
-	t.Run("an ad-hoc task with no manual to fold learnings into is still sent the close-out notice", func(t *testing.T) {
+	t.Run("an ad-hoc task with no manual behind its type is still sent the close-out notice", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
 		task, err := api.resolveTask("T-1")

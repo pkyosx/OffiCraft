@@ -26,8 +26,7 @@ Third conformance batch. What this file pins, MUST by MUST:
         has no live entries that fit the cap).
         This suite is the VERBATIM authority for that assembly — spec §2.2
         carries the shape and delegates the exact formatting here;
-  * §2  bootstrap == the same fold regardless of overlay state (overlay-wins
-        exercised via a lessons overlay written through the API);
+  * §2  bootstrap == the same fold regardless of overlay state;
   * in-memory #2 observed position: agents_on_machine drives the machine
         teardown guard (409 while a claimed agent holds a live SSE; clear
         after disconnect).
@@ -276,11 +275,8 @@ def _seed(name: str) -> str:
     # The seed loader substitutes the `{OWNER_ID}` placeholder with the fixed
     # single-tenant owner id "owner" before the fold. This used to be logged
     # here as a spec gap; it is now BY DESIGN that §2.2 does not state it —
-    # that section carries the shape plus ONE stated behaviour (the lessons-title
-    # idempotency rule, which §2.2 states itself and which
-    # `server/ocserverd/api_lessons_patch_test.go` pins, NOT this suite), and
-    # delegates every other verbatim rule — this one included — to
-    # buildBootContext and to this suite.
+    # that section carries the shape, and delegates every verbatim rule — this
+    # one included — to buildBootContext and to this suite.
     return (SEEDS / name).read_text(encoding="utf-8").replace("{OWNER_ID}", "owner")
 
 
@@ -301,7 +297,7 @@ def _rendered(text: str, join: str = "\n\n") -> str:
 
 
 def _expected_lore_block(client, owner_token, member_id: str) -> str:
-    """Rebuild the 傳承 block (T-33) the staff fold appends after 長期筆記.
+    """Rebuild the 傳承 block (T-33) the staff fold appends after the persona.
 
     🔴 KEYED BY THE MEMBER, NOT BY THE ROLE, AND THE EMPTY-STRING CASE IS THE
     ONE TO READ CAREFULLY. The owner collapsed the 傳承 scopes to two on
@@ -319,8 +315,7 @@ def _expected_lore_block(client, owner_token, member_id: str) -> str:
 
     🔴 THE RENDERING AND THE SELECTION ARE HAND-WRITTEN HERE, on purpose. Only
     the DATA comes from the wire (`GET /api/lore`) — exactly the way this file
-    treats Insight and Lessons: it takes the text and spells the heading out
-    itself. Asking the server for a ready-made block and pasting it in would
+    treats Insight: it takes the text and spells the heading out itself. Asking the server for a ready-made block and pasting it in would
     make this assertion true against ANY implementation, which is the same as
     not asserting it.
 
@@ -425,25 +420,20 @@ def _expected_context(
     client, owner_token, role_key: str, user_text: str, member_id: str = ""
 ) -> str:
     role = client.get(f"/api/roles/{role_key}", headers=_auth(owner_token)).json()
-    lessons = client.get(
-        f"/api/lessons/{role_key}", headers=_auth(owner_token)
-    ).json()
     insight = client.get(
         f"/api/insight/{role_key}", headers=_auth(owner_token)
     ).json()
     # 🔴 THIS FUNCTION IS THE VERBATIM AUTHORITY. spec/lifecycle.md §2.2 gives
-    # the SHAPE — which blocks, in what order — plus one stated behaviour that
-    # is NOT pinned here (lessons-title idempotency; its guard lives in
-    # `server/ocserverd/api_lessons_patch_test.go`), and explicitly delegates
-    # the exact titles, string formats, separator and trailing newline here and
-    # to buildBootContext. So do not "fix" this to match a prose description:
+    # the SHAPE — which blocks, in what order — and explicitly delegates the
+    # exact titles, string formats, separator and trailing newline here and to
+    # buildBootContext. So do not "fix" this to match a prose description:
     # if this file and §2.2 ever disagree about the ORDER, that is a real bug in
     # one of them; if they disagree about FORMATTING, this file wins by design.
     #
     # Order (must match §2.2): 系統互動 → 使用者自訂 → 角色定義 → 判準 →
-    # 學習筆記 → 傳承 → 啟動步驟.
+    # 傳承 → 啟動步驟.
     #
-    # 傳承 (T-33) sits between 長期筆記 and the recency-authoritative 啟動步驟
+    # 傳承 (T-33) sits between the persona and the recency-authoritative 啟動步驟
     # tail (server/ocserverd/assets.go) and, like 使用者自訂 and 判準, is dropped
     # ENTIRELY — no header, no blank line — when it is empty.
     #
@@ -468,7 +458,6 @@ def _expected_context(
     )
     if insight["text"].strip():
         parts.append(f"# Insight ({role_key})\n\n{insight['text'].strip()}")
-    parts.append(f"# Lessons ({role_key})\n\n{lessons['text'].strip()}")
     if lore := _expected_lore_block(client, owner_token, member_id):
         parts.append(lore)
     parts.append(_rendered(_seed("boot_sequence.md")).strip())
@@ -479,11 +468,10 @@ def _bootstrap_context(client, owner_token) -> tuple[str, str]:
     r = client.post("/api/bootstrap", json={}, headers=_auth(owner_token))
     assert r.status_code == 200, r.text
     data = r.json()
-    # T-2 removed task_type from BootstrapDTO along with the lessons axis it
-    # named. Asserted rather than merely not-read: an echo that came back would
-    # mean the field survived somewhere.
+    # T-2 removed task_type from BootstrapDTO. Asserted rather than merely
+    # not-read: an echo that came back would mean the field survived somewhere.
     assert "task_type" not in data, (
-        "the bootstrap receipt still carries task_type — T-2 removed the lessons "
+        "the bootstrap receipt still carries task_type — T-2 removed the "
         f"classification axis this field named: {sorted(data)}"
     )
     return data["context"], data["role"]
@@ -522,22 +510,54 @@ def test_boot_fold_bytes_blank_user_block_skipped(client, owner_token) -> None:
     assert context == expected
 
 
-def test_boot_fold_lessons_overlay_wins(client, owner_token) -> None:
-    """§2.1: the lessons fold is overlay-wins — an API-written lessons doc for
-    the role must appear verbatim inside the boot context."""
+def test_boot_fold_written_insight_appears_under_its_own_header(
+    client, owner_token
+) -> None:
+    """§2.1: the 判準 fold is overlay-wins — an insight doc written through the
+    API appears VERBATIM in the boot context, under its own header.
+
+    🔴 THIS TEST WRITES THE OVERLAY ITSELF, and that is the point rather than
+    setup convenience. Coverage that depends on some OTHER file in the suite
+    having written first is coverage that vanishes when the suite is reordered
+    or that file is deleted, and nothing would say so — the assertion would
+    still pass, against a document somebody else happened to fill in.
+
+    The 使用者自訂 overlay is reset first for the same reason: the byte-for-byte
+    comparison below asks for the fold with NO user block, so this test puts
+    the station into that state instead of inheriting it from the row above.
+    """
+    r = client.post("/api/global-context/reset", headers=_auth(owner_token))
+    assert r.status_code == 200, r.text
+
     _, role_key = _bootstrap_context(client, owner_token)
-    marker = f"conf lessons overlay {uuid.uuid4().hex[:8]}"
+    marker = f"conf insight overlay {uuid.uuid4().hex[:8]}"
     r = client.post(
-        f"/api/lessons/{role_key}",
+        f"/api/insight/{role_key}",
         json={"text": marker},
         headers=_auth(owner_token),
     )
     assert r.status_code == 200, r.text
-    context, role_key2 = _bootstrap_context(client, owner_token)
-    assert role_key2 == role_key
-    assert f"# Lessons ({role_key})\n\n{marker}" in context
-    expected = _expected_context(client, owner_token, role_key, "")
-    assert context == expected
+    try:
+        context, role_key2 = _bootstrap_context(client, owner_token)
+        assert role_key2 == role_key
+        assert f"# Insight ({role_key})\n\n{marker}" in context, (
+            "the insight overlay just written is absent from the boot context, "
+            "or is not under its own header — the fold is not overlay-wins. "
+            f"Served context: {context!r}"
+        )
+        expected = _expected_context(client, owner_token, role_key, "")
+        assert context == expected, (
+            "boot context does not reproduce the §2.2 assembly byte-for-byte "
+            f"(len served={len(context)} vs expected={len(expected)})"
+        )
+    finally:
+        # Same cleanup gesture the 使用者自訂 row above uses on its own overlay:
+        # put the document back to its factory seed so this marker cannot leak
+        # into another file's byte-for-byte comparison.
+        reset = client.post(
+            f"/api/insight/{role_key}/reset", headers=_auth(owner_token)
+        )
+        assert reset.status_code == 200, reset.text
 
 
 def test_bootstrap_unknown_role_404(client, owner_token) -> None:

@@ -22,11 +22,9 @@ export const DOC_FIELD_ORDER: Record<DocumentKind, readonly string[]> = {
   // is not a field of a revision. Rows written before that ruling still carry
   // one; see IGNORED_FIELDS.
   role_definition: ["definition_md"],
-  lessons: ["text"],
   insight: ["text"],
-  task_manual: ["purpose", "fields", "sop_md", "learnings"],
+  task_manual: ["purpose", "fields", "sop_md"],
   task_manual_sop: ["sop_md"],
-  task_manual_learnings: ["learnings"],
   // T-e271. One field, because a task's description IS one field — there is no
   // second thing a revision of it could carry.
   task_description: ["description"],

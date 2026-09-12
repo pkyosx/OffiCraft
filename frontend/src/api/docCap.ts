@@ -22,23 +22,20 @@
 // Guessing was not an option for WHICH FIELD each kind caps, so it is
 // transcribed from restoreDocumentHistory (api_document_history.go), not from
 // the shape of the DTO: global_context is NOT capped at all (its restore calls
-// DocCapBlocked nowhere), lessons and insight cap `text`, role_definition caps
+// DocCapBlocked nowhere), insight caps `text`, role_definition caps
 // `definition_md` (T-ae38 — it was uncapped on BOTH doors until then, so
 // restoring an old long revision was the way around the edit door), and
-// task_manual caps `learnings` AND `sop_md` — either one over the cap refuses
-// the whole restore.
+// task_manual_sop caps `sop_md`.
 //
 // T-ae38 also made the cap PER SEGMENT: which number applies is a property of
 // the kind, transcribed here from the same switch. Judging a Duty revision
-// against the Learning cap would mark a 4,000-char role definition as
-// restorable when the server refuses it at 1,000. T-30f1 split the manual's one
-// number into two, so the manual's two streams no longer share an answer here
-// either.
+// against the Insight cap would mark a 4,000-char role definition as
+// restorable when the server refuses it at 1,000.
 
 import type { BootDocKind, DocumentKind } from "../types";
 
 /** One live number per CAPPED SEGMENT — the set `capForKind` routes a kind to.
- * Total over every segment the server caps: the five role/manual ones
+ * Total over every segment the server caps: the role/manual ones
  * (server/ocserverd/domain.go: dutyCapCharsDefault + contextDocMaxCharsDefault)
  * and, since T-791e, the two boot-context blocks. Since T-3aeb the live values
  * are the `doc.cap_chars.*` settings, so callers pass them in; the constants
@@ -47,9 +44,7 @@ import type { BootDocKind, DocumentKind } from "../types";
 export interface DocCaps {
   duty: number;
   insight: number;
-  learning: number;
   manualSop: number;
-  manualLearnings: number;
   systemInteraction: number;
   bootSequence: number;
   offboard: number;
@@ -110,9 +105,7 @@ export const BOOT_DOC_CAP_CHARS_DEFAULTS: Record<BootDocKind, number> = {
 export const DOC_CAP_CHARS_DEFAULTS: DocCaps = {
   duty: 1000,
   insight: 15000,
-  learning: 15000,
   manualSop: 15000,
-  manualLearnings: 15000,
   // Not restated: the boot blocks' numbers are stated once, above.
   systemInteraction: BOOT_DOC_CAP_CHARS_DEFAULTS.system_interaction,
   bootSequence: BOOT_DOC_CAP_CHARS_DEFAULTS.boot_sequence,
@@ -149,7 +142,7 @@ export const BOOT_DOC_HISTORY_KEPT = 10;
 /** The single number the shared fixture (bin/tests/fixtures/doc-cap-cases.tsv)
  * anchors its rows to. That table tests the PREDICATE, which takes the cap as a
  * parameter and is unchanged by any of the splits, so it keeps one anchor. */
-export const DOC_CAP_CHARS_DEFAULT = DOC_CAP_CHARS_DEFAULTS.learning;
+export const DOC_CAP_CHARS_DEFAULT = DOC_CAP_CHARS_DEFAULTS.insight;
 
 /** Length in UNICODE CODE POINTS — the unit the server measures in
  * (utf8.RuneCountInString). `String.length` is UTF-16 units and would count an
@@ -169,8 +162,8 @@ export function runeLength(s: string): number {
  * the whole reason this function exists. A readout fed `storedSize` alone is
  * frozen at what was last SAVED: it moves only after the write the owner was
  * trying to decide about, which is the wrong order — he asked for it so he
- * could pull back BEFORE being refused. `InsightCard` and the role page's
- * `LessonsCard` were both that frozen kind before T-100.
+ * could pull back BEFORE being refused. `InsightCard` was that frozen kind
+ * before T-100.
  *
  * 🔴 WHAT THE DRAFT DOES NOT COUNT. `storedSize` is the size of the STORED
  * document; where the editor holds only PART of it (a read-only head), the
@@ -252,7 +245,6 @@ export const CAPPED_FIELDS: Record<DocumentKind, readonly string[]> = {
   // one door alone would have been decorative — edit the definition down to
   // 999 and restore a 4,000-char earlier revision and the cap is gone.
   role_definition: ["definition_md"],
-  lessons: ["text"],
   // T-3809: insight's restore runs the cap over `text` too, and deliberately —
   // an older, larger revision is still a write, so letting history walk the doc
   // back over the limit would make the cap a suggestion
@@ -260,12 +252,10 @@ export const CAPPED_FIELDS: Record<DocumentKind, readonly string[]> = {
   insight: ["text"],
   // The retired bundle has no restore path left at all (both routes 400 since
   // T-1f39); its entry is kept only because this table is total over
-  // DocumentKind. The two split kinds each write back exactly ONE field, and
-  // restoreTaskManualField judges the cap on that field alone — an over-cap
-  // learnings doc no longer blocks a SOP restore.
-  task_manual: ["learnings", "sop_md"],
+  // DocumentKind. The split kind writes back exactly ONE field, and
+  // restoreTaskManualField judges the cap on that field alone.
+  task_manual: ["sop_md"],
   task_manual_sop: ["sop_md"],
-  task_manual_learnings: ["learnings"],
   // EMPTY on purpose (T-e271): the description has never had a length cap on
   // the create side either, so the server runs no cap on this restore. A cap
   // listed here would mark revisions as unrestorable that the server would
@@ -359,10 +349,9 @@ export function contentSizes(
  * are never refused on size, so a caller cannot accidentally judge them by
  * whichever number happened to be nearest.
  *
- * The task manual's two documents answer to `manualSop` / `manualLearnings`,
- * NOT to any of the three role-journal segments: they are keyed by type_key, so
- * they are assets of a task TYPE rather than entries in a role's journal, and
- * since T-30f1 they answer to one number EACH. */
+ * The task manual's SOP answers to `manualSop`, NOT to any role-journal
+ * segment: it is keyed by type_key, so it is an asset of a task TYPE rather
+ * than an entry in a role's journal. */
 export function capForKind(
   kind: DocumentKind,
   caps: DocCaps
@@ -372,17 +361,12 @@ export function capForKind(
       return caps.duty;
     case "insight":
       return caps.insight;
-    case "lessons":
-      return caps.learning;
+    // The retired bundle kind has no restore path left at all, so nothing
+    // reaches its arm today; it answers to the SOP's number — the one document
+    // the bundle still had when T-1f39 split it.
+    case "task_manual":
     case "task_manual_sop":
       return caps.manualSop;
-    // The retired bundle kind covers BOTH documents, and one number cannot
-    // judge two. It gets the learnings cap for the same reason the wire's
-    // deprecated `cap_chars` does — and it has no restore path left at all, so
-    // nothing reaches this arm today.
-    case "task_manual":
-    case "task_manual_learnings":
-      return caps.manualLearnings;
     case "global_context":
     case "task_description":
     case "task_title":

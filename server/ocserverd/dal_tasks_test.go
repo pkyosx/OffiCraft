@@ -1871,7 +1871,7 @@ func TestPutTaskManualOn(t *testing.T) {
 		edited := TaskManual{
 			TypeKey: "sync-jira", DisplayName: "Sync Jira, edited", Purpose: "a new purpose",
 			Fields: `[{"name":"ticket","required":true,"is_key":true}]`, SopMD: "# new sop",
-			Learnings: "what we learned", Assignee: `{"kind":"outsource"}`, UpdatedTS: 1800000000,
+			Assignee: `{"kind":"outsource"}`, UpdatedTS: 1800000000,
 		}
 		if err := putTaskManualOn(d.wdb, edited); err != nil {
 			t.Fatalf("putTaskManualOn: %v", err)
@@ -1911,7 +1911,6 @@ func TestDeleteTaskManual(t *testing.T) {
 		dalPutManual(t, d, dalTestManual("sync-jira"))
 		bystander := dalPutManual(t, d, dalTestManual("ship-order"))
 		dalSeedManualHistory(t, d, "sync-jira", docKindTaskManualSop)
-		dalSeedManualHistory(t, d, "sync-jira", docKindTaskManualLearnings)
 		dalSeedManualHistory(t, d, "ship-order", docKindTaskManualSop)
 
 		deleted, err := d.DeleteTaskManual("sync-jira")
@@ -2226,7 +2225,6 @@ func dalTestManual(typeKey string) TaskManual {
 		Purpose:     "what this task type is for",
 		Fields:      `[{"name":"ticket","required":true,"is_key":true}]`,
 		SopMD:       "# how to do it",
-		Learnings:   "what went wrong last time",
 		Assignee:    `{"kind":"staff","id":"ann"}`,
 		UpdatedTS:   1700000001,
 	}
