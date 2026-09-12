@@ -222,9 +222,14 @@ export function toMember(w: WireMember): Member {
     id: w.id, // wire id (attribution key)
     avatarUrl: w.avatar_url ?? "",
     name: w.name, // direct
-    // role_key is the wire role; view model narrows to the RoleKey union. Fall
-    // back to "assistant" (the only M1 role) when the wire leaves it blank.
-    role: (w.role_key || "assistant") as RoleKey,
+    // role_key is the wire role; view model narrows to the RoleKey union. A
+    // BLANK wire role passes through blank — it used to fall back to
+    // "assistant", which dates from the era when that was the only role, and
+    // once roles became custom that fallback stopped meaning "the only role"
+    // and started meaning "the admin role": a role-less member was drawn as
+    // the 特助, given its avatar, and sorted to the top of the roster. The
+    // server never says a member is an assistant unless it is one.
+    role: w.role_key as RoleKey,
     // The role's display TITLE resolved server-side (seed title, or the custom
     // role's own name). UI shows the i18n label for known seed keys, else this.
     roleName: w.role_name,
@@ -1064,7 +1069,10 @@ function toMonSession(w: WireMonSession): MonSessionView {
   return {
     id: w.id,
     name: w.name,
-    role: (w.role || "assistant") as RoleKey,
+    // Blank passes through blank, same as `toMember` — a session whose actor
+    // carries no role is not an assistant, and the monitor's orphan-session row
+    // prints this value as its only identity line.
+    role: w.role as RoleKey,
     model: w.model,
     effort: w.effort || "", // live self-reported effort; "" passes through → "—"
     machine: w.machine,

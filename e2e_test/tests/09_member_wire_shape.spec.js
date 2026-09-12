@@ -44,6 +44,7 @@ const {
   // own `name` into what it hands back, and this spec must see the hire's wire
   // answer verbatim. It POSTs /api/members itself.
   listMembers,
+  scratchRoleKey,
 } = require('../lib/fixtures');
 
 // The retired wire keys — their reappearance is a regression, full stop.
@@ -131,7 +132,11 @@ test.describe('D1 · Member read-face wire shape — roster_status + slim-down s
     // sends it.
     const hireRes = await request.post(`${BASE}/api/members`, {
       headers: authHeaders(token),
-      data: { name: 'WireShape Probe', kind: 'staff' },
+      data: {
+        name: 'WireShape Probe',
+        kind: 'staff',
+        role_key: await scratchRoleKey(request, token),
+      },
     });
     expect(hireRes.status(), 'hiring must succeed').toBe(200);
     const hired = await hireRes.json();

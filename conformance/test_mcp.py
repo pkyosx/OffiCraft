@@ -275,7 +275,12 @@ def test_call_write_route_body_split(client, owner_token) -> None:
     a server that echoed the request body without ever persisting it.
     """
     name = f"conf-mcp-hire-{uuid.uuid4().hex[:8]}"
-    result = _call(client, owner_token, "hire_member", {"name": name})
+    result = _call(
+        client,
+        owner_token,
+        "hire_member",
+        {"name": name, "role_key": f"conf-role-{uuid.uuid4().hex[:8]}"},
+    )
     assert result["isError"] is False, result
     body = json.loads(_text(result))
     assert set(body) == {"id"}, body
@@ -284,6 +289,25 @@ def test_call_write_route_body_split(client, owner_token) -> None:
     hired = _call(client, owner_token, "get_member", {"member_id": body["id"]})
     assert hired["isError"] is False, hired
     assert json.loads(_text(hired))["name"] == name, hired
+
+
+def test_call_write_route_validation_is_the_handler_s(client, owner_token) -> None:
+    """The MCP tool is a loopback onto the REST handler, so the handler's own
+    validation is what a tool call meets: a STAFF hire with no role_key is the
+    same 422 here as it is over REST, and nothing is hired.
+
+    This is the cross-language half of that guard — the Go tests cover the REST
+    door, and this one proves the tool surface did not grow a second door.
+    """
+    name = f"conf-mcp-roleless-{uuid.uuid4().hex[:8]}"
+    result = _call(client, owner_token, "hire_member", {"name": name})
+    assert result["isError"] is True, result
+    body = json.loads(_text(result))
+    assert body["error"]["code"] == "validation_error", body
+    assert body["error"]["message"] == (
+        "a staff member requires a role_key; hire the member through "
+        "POST /api/roles, which mints a role and its member together"
+    ), body
 
 
 def test_call_get_route_query_split(client, owner_token, agent_a) -> None:

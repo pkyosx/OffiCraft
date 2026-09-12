@@ -203,9 +203,27 @@ test.describe('C1 · machine onboarding → agent spawn → warden-log START', (
       );
 
       // ---- STEP 4: hire an assistant --------------------------------------
+      // A staff hire requires a role, and this member gets ACTIVATED — so the
+      // role has to be REAL: a member whose role names nothing cannot fold a
+      // boot context, and the START frame would never be dispatched.
+      const roleRes = await request.post(`${BASE}/api/roles`, {
+        headers: auth,
+        data: { name: `${AGENT_NAME} Role` },
+      });
+      expect(roleRes.status(), 'creating the agent role must succeed').toBe(200);
+      const { role_key: roleKey } = await roleRes.json();
+      expect(roleKey, 'the created role must carry a key').toBeTruthy();
+
       const hire = await request.post(`${BASE}/api/members`, {
         headers: auth,
-        data: { name: AGENT_NAME, kind: 'staff', model: MODEL },
+        data: {
+          name: AGENT_NAME,
+          kind: 'staff',
+          model: MODEL,
+          // A staff hire requires a role, and this one gets ACTIVATED — so the
+          // role has to be one the boot fold can actually resolve.
+          role_key: roleKey,
+        },
       });
       expect(hire.status(), 'hire assistant must succeed').toBe(200);
       const hBody = await hire.json();

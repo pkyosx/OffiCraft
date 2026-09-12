@@ -79,6 +79,33 @@ class AgentIdentity:
     role_key: str
 
 
+_SCRATCH_ROLE: dict[int, str] = {}
+
+
+def _shared_scratch_role(client: httpx.Client, owner_token: str) -> str:
+    """One REAL non-admin role per target, created once and shared.
+
+    It has to be real, not a made-up string: a member whose role names nothing
+    cannot fold a boot context, so `POST /api/bootstrap` answers 404 and the
+    reconcile START frame is never dispatched — two failures that look nothing
+    like "this fixture picked a bad role". `POST /api/roles` is the only door
+    that creates one, and it mints a founding member alongside; that extra
+    roster row is the price of the fixture being honest.
+    """
+    cached = _SCRATCH_ROLE.get(id(client))
+    if cached is not None:
+        return cached
+    r = client.post(
+        "/api/roles",
+        json={"name": f"Conf Scratch {uuid.uuid4().hex[:8]}"},
+        headers=_auth(owner_token),
+    )
+    assert r.status_code == 200, f"scratch role failed: {r.status_code} {r.text}"
+    key = r.json()["role_key"]
+    _SCRATCH_ROLE[id(client)] = key
+    return key
+
+
 def hire_member(
     client: httpx.Client,
     owner_token: str,
@@ -89,6 +116,12 @@ def hire_member(
     """HTTP hire — returns the server-minted member id. ``role_key``/``kind`` are
     privilege-bearing (RBAC hire guard); the OWNER token carries them here."""
     body: dict[str, object] = {"name": name}
+    if role_key is None and kind in (None, "staff"):
+        # A STAFF hire REQUIRES a role: a role-less staff member is a state the
+        # server refuses (422), so every fixture that just wants "a member"
+        # gets one rather than repeating it at 29 call sites. A test that means
+        # to exercise the refusal sends role_key="" itself.
+        role_key = _shared_scratch_role(client, owner_token)
     if role_key is not None:
         body["role_key"] = role_key
     if kind is not None:
