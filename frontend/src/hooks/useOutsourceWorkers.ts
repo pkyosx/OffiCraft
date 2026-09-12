@@ -1,15 +1,15 @@
 // hooks/useOutsourceWorkers.ts — the office 外包 panel's data (SPEC §4): the
-// LIVE outsource-worker roster (codename · 任務狀態 + 任務標題 + the bound task's
-// 任務編號 / type / created stamp, ALL riding the worker DTO), ordered 依任務建立
+// LIVE outsource members (name · 任務狀態 + 任務標題 + the bound task's
+// 任務編號 / type / created stamp, all riding MemberDTO), ordered 依任務建立
 // 時間新→舊, plus the global parallel cap (settings.outsource_max_parallel)
 // behind the panel's 「N / 上限」 + 齒輪.
 //
-// Reconcile-by-refetch (contract B): "outsource_worker" (assignment / release)
+// Reconcile-by-refetch (contract B): "member" (assignment / release)
 // and "task" (the bound task's status/title/type echo + the created_ts sort key)
-// re-pull the SAME small list — `GET /api/outsource-workers`, nothing else.
+// re-pull `GET /api/members` and keep `kind=outsource`.
 //
 // "chat" / "chat_read" affect ONE row's unread badge and nothing else, so since
-// T-8115 they re-read just that row (`GET /api/outsource-workers/{id}`) when the
+// T-8115 they re-read just that row (`GET /api/members/{id}`) when the
 // delta names a worker on the rail, and do NOTHING when it names a peer that is
 // not on it — a chat line can neither assign nor release a worker. See
 // frontend/CLAUDE.md 「一則通知 = 一次『只抓它碰到的那一項』」.
@@ -72,21 +72,16 @@ function sortWorkers(workers: OutsourceWorkerView[]): OutsourceWorkerView[] {
 }
 
 // The topics whose ONLY effect on a row is its unread badge
-// (OutsourceWorkerDTO.unread_count). A chat line cannot assign or release a
+// (MemberDTO.unread_count). A chat line cannot assign or release a
 // worker, and cannot move a row: the order is the BOUND TASK's created_ts, which
 // no chat line touches. So a chat delta naming a worker we already hold is one
-// GET /api/outsource-workers/{id}, not the whole list. "outsource_worker" and
+// GET /api/members/{id}, not the whole list. "member" and
 // "task" stay full re-pulls — the first IS list membership (assignment /
 // release), and the second can change the sort key and the row's labels.
 const BADGE_ONLY_TOPICS = new Set(["chat", "chat_read"]);
 
 // The topics this panel reconciles on (four, all through ONE path).
-const WORKER_TOPICS = new Set([
-  "outsource_worker",
-  "task",
-  "chat",
-  "chat_read",
-]);
+const WORKER_TOPICS = new Set(["member", "task", "chat", "chat_read"]);
 
 export function useOutsourceWorkers(): UseOutsourceWorkers {
   const [workers, setWorkers] = useState<OutsourceWorkerView[]>([]);
@@ -162,11 +157,11 @@ export function useOutsourceWorkers(): UseOutsourceWorkers {
           return;
         }
         // 🔴 T-b17f: the rail's badge is the SAME `UnreadCounts(…, owner)` fold
-        // (`api_outsource.go` :136/:199/:358 all pass `currentActor(r)`), so a
+        // (the shared member list/item handlers pass `currentActor(r)`), so a
         // chat line NOT addressed to the owner cannot move it — and each of
         // those handlers pays a full `ListChat()` table scan to answer. This
         // rail sees plenty of such traffic: a member talking to a worker names
-        // that worker, and used to cost one `GET /api/outsource-workers/{id}`
+        // that worker, and used to cost one `GET /api/members/{id}`
         // for a row whose number could not have changed.
         //
         // ⚠️ It really is only that half. `ow-1 → owner` is a GENUINE refetch —
@@ -175,7 +170,7 @@ export function useOutsourceWorkers(): UseOutsourceWorkers {
         // worker was named. There is a control test for exactly that shape.
         if (burstMovesNoOwnerUnread(batch, mine)) return;
         // Named somebody, none of them a worker on this rail: a chat line cannot
-        // assign or release a worker (that is the "outsource_worker" topic), so
+        // assign or release a worker (that is the "member" topic), so
         // every chat line between the owner and a MEMBER used to re-pull this
         // whole list for a badge that could not move.
         if (touched.length > 0) void patchOne(touched);

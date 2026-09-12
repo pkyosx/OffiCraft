@@ -16,8 +16,8 @@ import { burstMovesNoOwnerUnread } from "../lib/ownerUnread";
 // set = non-removed members ∪ live outsource workers (api_chat.go
 // HandleChatUnreadCount's live[] filter). So the total moves on a new message /
 // read (chat / chat_read) AND when the live SET itself changes — a member
-// removed/added ("member") or a worker spawned/released ("outsource_worker").
-// Missing either lifecycle topic left the parent badge stale behind the 正職/
+// removed/added or a worker spawned/released (both use "member"). Missing the
+// lifecycle topic left the parent badge stale behind the 正職/
 // 外包 sub-tabs (which useMembers/useOutsourceWorkers DO subscribe to) until a
 // manual reload — the bug in T-b86c. This is exported so the test asserts the
 // wiring against THIS set (fail-closed: adding a topic here is one edit and the
@@ -28,7 +28,6 @@ export const OFFICE_TOTAL_TOPICS = new Set([
   "chat",
   "chat_read",
   "member",
-  "outsource_worker",
 ]);
 
 export function useChatUnread(): number {
@@ -50,7 +49,7 @@ export function useChatUnread(): number {
   //
   // ⚠️ THE GAP THIS LEAVES OPEN, VERBATIM AND ON PURPOSE:
   // 「下一個事件來就補」意味著:如果那條線之後再也沒有任何事件,就還是不會補。
-  // If no further chat / chat_read / member / outsource_worker delta ever
+  // If no further chat / chat_read / member delta ever
   // arrives on this connection, the stale count STAYS stale until something
   // else remounts or reconnects. That residual is a KNOWN, ACCEPTED trade made
   // by the owner in exchange for a smaller change (2026-08-20). Do not read the
@@ -111,7 +110,7 @@ export function useChatUnread(): number {
     //     for why the predicate is exactly `to` / `reader`.
     //
     // The gate is deliberately narrow: it fires only when EVERY topic of ours in
-    // this burst is chat/chat_read. `member` / `outsource_worker` change the
+    // this burst is chat/chat_read. `member` changes the
     // LIVE SET itself (a removed member drops their leftovers out of the sum),
     // so a burst carrying either still refetches whatever else it also carried.
     const unsubscribe = api.subscribeEvents(

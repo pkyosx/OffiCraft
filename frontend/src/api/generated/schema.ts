@@ -1626,7 +1626,7 @@ export interface paths {
          * @description - The request body is the raw image bytes — not base64 and not multipart.
          *     - PNG, JPEG or WEBP only, at most 64 KiB decoded; SVG is rejected and a declared `mime` must match the bytes.
          *     - Owner only: agents and machine tokens cannot change anyone's avatar.
-         *     - Emits a `member` or `outsource_worker` event; a client holding the stream learns of this without polling.
+         *     - Emits a `member` event; a client holding the stream learns of this without polling.
          */
         put: operations["handle_put_member_avatar_api_members__member_id__avatar_put"];
         post?: never;
@@ -1635,7 +1635,7 @@ export interface paths {
          * @description - Removes the personal avatar and returns the member to the fallback chain: the active theme's role avatar, then the built-in glyph.
          *     - Owner only: admin agents, ordinary agents and machine tokens cannot alter another actor's appearance.
          *     - Idempotent when there is no personal avatar.
-         *     - Emits a `member` or `outsource_worker` event; a client holding the stream learns of this without polling.
+         *     - Emits a `member` event; a client holding the stream learns of this without polling.
          */
         delete: operations["handle_delete_member_avatar_api_members__member_id__avatar_delete"];
         options?: never;
@@ -2079,48 +2079,6 @@ export interface paths {
          *     - Resetting an already-default block writes nothing.
          */
         post: operations["handle_reset_offboard_api_offboard_reset_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/outsource-workers": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List live outsource workers (codename, model, effort, task).
-         * @description - Live workers only: a released worker drops off this list, though its row and chat history survive.
-         *     - Each row carries its bound task's title and status.
-         */
-        get: operations["handle_list_outsource_workers_api_outsource_workers_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/outsource-workers/{id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Read one outsource worker by id (detail-panel refresh).
-         * @description - One outsource worker by id (its JWT sub) — the same projection the list serves.
-         *     - 404 when the worker id is unknown.
-         */
-        get: operations["handle_get_outsource_worker_api_outsource_workers__id__get"];
-        put?: never;
-        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -4820,7 +4778,7 @@ export interface components {
          *
          *     This is a receipt, NOT an undo: nothing is retained server-side and there is no route that puts the figure back (owner ruling rc-7dea0deefa63, option 0 「最小、不可逆」). It only lets whoever pressed the button see what they destroyed.
          *
-         *     The two fields mirror `MonitoringSessionDTO` / `OutsourceWorkerDTO` field-for-field, including their null semantics, so a client reuses ONE summing rule instead of growing a second one: null means there was nothing to clear on that half — not that zero was cleared. Resetting an actor with nothing measured therefore answers 200 with both null, which honestly reads as 'nothing was destroyed'. A deliberate consequence of that mirroring is that the same rule the cockpit already applies to the read side (both null → `—`) also describes this receipt.
+         *     The two fields mirror `MonitoringSessionDTO` / `MemberDTO` field-for-field, including their null semantics, so a client reuses ONE summing rule instead of growing a second one: null means there was nothing to clear on that half — not that zero was cleared. Resetting an actor with nothing measured therefore answers 200 with both null, which honestly reads as 'nothing was destroyed'. A deliberate consequence of that mirroring is that the same rule the cockpit already applies to the read side (both null → `—`) also describes this receipt.
          */
         CostResetDTO: {
             /**
@@ -5744,6 +5702,22 @@ export interface components {
              * @description Authenticated URL of this stable member id's personal raster avatar. Empty means no personal image; clients fall back to the active theme's role avatar, then the built-in glyph. Additive-optional for older clients.
              */
             avatar_url?: string;
+            /** Account */
+            account?: string | null;
+            /** Banked Cost */
+            banked_cost?: number | null;
+            /** Compaction Count */
+            compaction_count?: number | null;
+            /** Context Pct */
+            context_pct?: number | null;
+            /** Cost */
+            cost?: number | null;
+            /** Created Ts */
+            created_ts?: number;
+            /** Creator Id */
+            creator_id?: string;
+            /** Delegated By */
+            delegated_by?: string;
             /**
              * Desired Machine Id
              * @default m-server-self
@@ -5860,6 +5834,22 @@ export interface components {
              * @default 3
              */
             schema_version: number;
+            /** Status */
+            status?: string;
+            /** Task Created Ts */
+            task_created_ts?: number;
+            /** Task Id */
+            task_id?: string;
+            /** Task No */
+            task_no?: string;
+            /** Task Status */
+            task_status?: string;
+            /** Task Title */
+            task_title?: string;
+            /** Task Type Key */
+            task_type_key?: string;
+            /** Task Type Name */
+            task_type_name?: string;
             /**
              * Unread Count
              * @default 0
@@ -6307,231 +6297,6 @@ export interface components {
              * @default
              */
             reason: string;
-        };
-        /**
-         * OutsourceWorkerDTO
-         * @description One outsource worker row of the panel (SPEC §4.1): the anonymous codename (model prefix + sequence), runtime/model/effort, lifecycle status (assigned → active → released), and its ONE bound task's id / title / status.
-         */
-        OutsourceWorkerDTO: {
-            /**
-             * Account
-             * @description The Claude account this worker's session runs under (telemetry entry keyed by the worker's actor id — the SAME per-actor telemetry the member roster reads). null when the worker has not reported one (never fabricated). T-f190 additive-optional.
-             */
-            account?: string | null;
-            /**
-             * Actual Effort
-             * @description The effort level this worker's session is REPORTED to be running at — the same durably-persisted roster field ``MemberDTO.actual_effort`` serves (an ``ow-`` row IS a member row with ``kind=outsource``). Empty means nothing has ever reported one. Separate from, and NEVER a fallback to, the owner-configured ``effort`` launch setting this DTO round-trips (T-7f28).
-             * @default
-             */
-            actual_effort: string;
-            /**
-             * Actual Machine
-             * @description The machine this worker was LAST OBSERVED running on, durably persisted — the offline-surviving twin of the live ``machine`` projection. Empty means it has never been observed anywhere. Separate from, and NEVER a fallback to, ``desired_machine_id`` (T-7f28).
-             * @default
-             */
-            actual_machine: string;
-            /**
-             * Actual Model
-             * @description The model this worker's session is REPORTED to be running — the same durably-persisted roster field ``MemberDTO.actual_model`` serves. Empty means nothing has ever reported one. WAS: absent from this DTO entirely, so the worker detail panel had to join ``GET /api/monitoring`` to show a reported model at all, and had no reported value to compare the configured ``model`` against (T-7f28).
-             * @default
-             */
-            actual_model: string;
-            /**
-             * Actual Runtime
-             * @description The AI CLI runtime this worker's session is REPORTED to be running — the same durably-persisted roster field ``MemberDTO.actual_runtime`` serves. Empty means nothing has ever reported one. Separate from, and NEVER a fallback to, the owner-configured ``runtime`` launch setting this DTO round-trips (T-7f28).
-             * @default
-             */
-            actual_runtime: string;
-            /**
-             * Avatar Url
-             * @description Authenticated URL of this stable outsource-worker id's personal raster avatar. Empty means the client uses the outsource theme avatar or built-in glyph. Additive-optional.
-             */
-            avatar_url?: string;
-            /**
-             * Banked Cost
-             * @description The worker's persistent historical cumulative cost (migrations/00021), the DIRECT twin of member banked_cost: the live cost is banked through the SAME bankLiveCost fold on every session end / kill+respawn (refocus / model change / relocate / stop / auto-handover), so a handover never zeroes the owner-visible spend. null when nothing banked yet. The panel shows live + banked summed, the member presentation. T-ba6b additive-optional.
-             */
-            banked_cost?: number | null;
-            /** Codename */
-            codename: string;
-            /**
-             * Compaction Count
-             * @description Codex App Server compactions in this worker's live session; null when unavailable.
-             */
-            compaction_count?: number | null;
-            /**
-             * Context Pct
-             * @description The worker's live context-window fill %, read from the SAME gauge the member roster reads (POST /api/agent/context, keyed by actor id). null when unreported. T-f190 additive-optional.
-             */
-            context_pct?: number | null;
-            /**
-             * Cost
-             * @description The worker's live session cost (telemetry `cost`, keyed by actor id) — the CURRENT session only, kept separate from banked_cost (never overlapping). null when unreported. T-f190 additive-optional.
-             */
-            cost?: number | null;
-            /**
-             * Created Ts
-             * @default 0
-             */
-            created_ts: number;
-            /**
-             * Creator Id
-             * @description The verified token sub of the bound task's creator (a member id, the literal "owner", or "" on pre-column / server-scheduled rows) — the RAW id behind delegated_by, so the client can honestly distinguish owner vs member vs unassigned rather than fabricating a delegator. T-f190 additive-optional.
-             * @default
-             */
-            creator_id: string;
-            /**
-             * Delegated By
-             * @description The RESOLVED display name of the bound task's creator (member or owner) — the real 委託人, replacing the former hardcoded "System owner" placeholder. "" when the task's creator_id is blank (pre-column / server-scheduled rows) → the client shows an honest fallback. T-f190 additive-optional.
-             * @default
-             */
-            delegated_by: string;
-            /**
-             * Desired Machine Id
-             * @description The OWNER-PINNED machine placement (relocate target), the worker twin of member.desired_machine_id: "" = unpinned, so the task-side sources decide instead — an EXPLICIT 發包 target on the task row outranks the type manual's assignee, while a manual-driven task's row carries only a creator snapshot and the LIVE manual outranks THAT (T-8a67) — or a concrete machine id. T-f190 additive-optional.
-             * @default
-             */
-            desired_machine_id: string;
-            /**
-             * Desired State
-             * @description Run-intent, a direct mirror of member.desired_state: 'online' (system wants it running) or 'offline' (owner-explicit stop — held down; presence is then 'stopping'/'stopped', every scheduler auto-revival path skips it). The stop/restart toggle key. Additive-optional.
-             * @default online
-             */
-            desired_state: string;
-            /**
-             * Effort
-             * @default medium
-             */
-            effort: string;
-            /** Id */
-            id: string;
-            /**
-             * Last Op
-             * @description The last folded warden command receipt verb (worker_start / worker_stop) — the worker twin of member.last_op. "" when none folded yet. T-f190 additive-optional (durable since T-9ccf migrations/00017).
-             * @default
-             */
-            last_op: string;
-            /**
-             * Last Op At
-             * @description Epoch seconds of the last folded warden receipt; 0 when none. T-f190 additive-optional.
-             * @default 0
-             */
-            last_op_at: number;
-            /**
-             * Last Op Log
-             * @description The last warden receipt's verbatim log (surfaced on failure, collapsible) — the worker twin of member.last_op_log. T-f190 additive-optional.
-             * @default
-             */
-            last_op_log: string;
-            /**
-             * Last Op Ok
-             * @description Whether the last warden receipt succeeded (three-valued: null = no receipt folded yet), the worker twin of member.last_op_ok. T-f190 additive-optional.
-             */
-            last_op_ok?: boolean | null;
-            /**
-             * Last Op Reason
-             * @description The last warden receipt's structured one-line failure reason — the worker twin of member.last_op_reason. T-f190 additive-optional.
-             * @default
-             */
-            last_op_reason: string;
-            /**
-             * Machine
-             * @description The machine the worker's session was ACTUALLY dispatched to (last_spawn_target resolved to its registry display name) — the REAL placement result, NOT the manual's preference. "" when never dispatched (未分配 — the panel renders "尚未分配", never a fabricated machine). T-f190 additive-optional.
-             * @default
-             */
-            machine: string;
-            /**
-             * Model
-             * @description The owner-CONFIGURED launch model this worker was (or will be) started with — the intent the 喚醒／更改 dialog round-trips and saves. Deliberately NOT the reported one: that is ``actual_model`` on this same DTO since T-7f28 (also ``MemberDTO.actual_model`` / ``MonitoringSessionDTO.model``) — the panel now shows both, side by side, so a change that has not taken effect is legible as pending. The two must never be merged into one cell — this DTO exists to round-trip the setting, and a settings editor that displayed reported state could not save.
-             * @default
-             */
-            model: string;
-            /**
-             * Presence
-             * @description REAL-liveness projection on the ONE member presence vocabulary (A案 P6 — deriveLiveness; replaces the retired ``spawn_state`` closed set starting/stuck/online/stopped). Distinct from lifecycle ``status`` so a worker whose session is not actually up is not rendered as a live green row. Uses the same SSE-presence authority (hub.IsOnline) the member roster reads. Closed set: ``online`` (holding a live SSE connection), ``waking`` (not online with a fresh wake in flight — last start dispatch / row birth within the waking TTL), ``offline`` (not online and no fresh wake — a silently-failing spawn or a died-after-claim session; the FSM rescue owns recovery), ``stopping``/``stopped`` (owner-explicit stop: held down, no auto-revival), ``""`` (released; off-panel). Optional-with-default: absent reads as "" for older clients.
-             * @default
-             */
-            presence: string;
-            /**
-             * Refocus Deadline
-             * @description Epoch seconds by which the in-flight wind-down is force-collected (the anchor + the reconcile recycle grace). THE ANCHOR IS THE ARM, not always ``refocus_since``: a 換手 (``desired_state`` stays online) anchors on ``refocus_since``; a 下線 (``desired_state=offline``) carries no ``refocus_since`` at all and anchors on ``stopping_since``, which is what an owner-pressed 加速停止 re-stamps on that arm. ZERO CARRIES TWO MEANINGS, and a client that reads it as one of them will be wrong about the other: no handover is in flight, OR a handover is in flight that NOTHING collects on a clock at all — which is now the NORMAL case rather than a carve-out: every cause except ``context_high`` and ``accelerated_stop`` is collected only by the agent's own ``report_stopped`` or by the owner pressing force-stop, and carries no deadline (owner 2026-08-21). ``refocus_op`` is what tells the two apart. Rendering no deadline is correct for both, and the sentence a client shows for an in-flight no-clock handover must not quote a time at all. Workers read the SAME judgement as members — there is no separate worker rule: one function (``winddownDeadlineOf``) answers BOTH arms for BOTH kinds, and the worker face reaches it through the same ``memberFromWorker`` projection its presence word already goes through. It used to read only the 換手 half, so an owner-pressed 加速停止 on a 下線 worker started a countdown the reconcile tick honours while this field reported 0 (T-14). Derived at read time, never stored. A CEILING, not a prediction: the collection fires the instant the worker answers ``report_stopped`` (T-7f28). Additive-optional.
-             * @default 0
-             */
-            refocus_deadline: number;
-            /**
-             * Refocus Op
-             * @description Which owner operation opened the in-flight handover stamped in ``refocus_since``, empty when none is in flight. A SUBSET of ``MemberDTO.refocus_op``: ``relocate``, ``runtime/model``, ``refocus``, ``restart_self``, ``context_high`` and ``accelerated_stop``. EVERY one of those causes can appear here. Two clauses that used to stand in this sentence are gone because both were false: ``context_notice`` has appeared on workers since T-72dd, when the worker projection was fed into the shared ``stampContextHighRecycle`` and inherited BOTH thresholds (pinned by worker_single_collector_t72dd_test.go), and ``token_expiry`` has appeared since T-170e, when the same projection was extended to the token-expiry pass — a worker's session token is minted by the same ``mintAgentToken`` with the same ``auth.agent_token_ttl`` a staff token is, so it expires identically. Stamped and cleared in lockstep with ``refocus_since`` (T-7f28). Additive-optional.
-             * @default
-             */
-            refocus_op: string;
-            /**
-             * Refocus Since
-             * @description Epoch seconds of the in-flight context-handover stamp (T-32e1), 0 when none. >0 = a refocus (owner 換手 OR context-high auto-handover) is mid-flight; the FE maps 0→null. Additive-optional.
-             * @default 0
-             */
-            refocus_since: number;
-            /**
-             * Runtime Key
-             * @description The worker's selected AI CLI runtime. Existing rows default to ``claude``.
-             * @default claude
-             */
-            runtime: components["schemas"]["AgentRuntime"];
-            /** Status */
-            status: string;
-            /**
-             * Task Created Ts
-             * @description The bound task's ``created_ts`` — the panel orders its rows 依任務建立時間新→舊 and used to get this key by downloading the ENTIRE task list on every worker/chat delta just to sort five rows (T-a3e4). 0.0 when the task cannot be resolved; the client then falls back to the worker's own mint stamp (an honest proxy, never fabricated). additive-optional.
-             * @default 0
-             */
-            task_created_ts: number;
-            /** Task Id */
-            task_id: string;
-            /**
-             * Task No
-             * @description The bound task's display number, which IS its id (T-5291) — the panel row's third line, previously joined client-side from ``GET /api/tasks`` (T-a3e4). "" when the task cannot be resolved. additive-optional.
-             * @default
-             */
-            task_no: string;
-            /**
-             * Task Status
-             * @default
-             */
-            task_status: string;
-            /**
-             * Task Title
-             * @default
-             */
-            task_title: string;
-            /**
-             * Task Type Key
-             * @description The bound task's ``type_key`` — the panel row's second line (外包沒有角色名, the task type IS its role line). "" = 自由代辦 / unresolvable task. Previously a client-side join against ``GET /api/tasks`` (T-a3e4). additive-optional.
-             * @default
-             */
-            task_type_key: string;
-            /**
-             * Task Type Name
-             * @description The DISPLAY name of ``task_type_key`` as the task manual currently spells it (T-fa76's label, resolved here so the panel no longer pulls the whole manuals list to translate one key — T-a3e4). "" when the manual is gone or names nothing; the client then falls back to the raw ``task_type_key``. additive-optional.
-             * @default
-             */
-            task_type_name: string;
-            /**
-             * Unread Count
-             * @description The CALLER's unread chat-message count for this worker's conversation (the same chat_read watermark inverse the member roster serves) — the office 外包 row's red badge. Optional-with-default: absent reads as 0 for older clients.
-             * @default 0
-             */
-            unread_count: number;
-            /**
-             * Terminal Attach Command
-             * @description The COMPLETE, ready-to-paste shell command that attaches a terminal to this row's tmux session, composed server-side and served verbatim (T-139). Clients display and copy it AS-IS and MUST NOT assemble one of their own out of the parts: the ``tmux -L`` socket is the bare ``officraft`` only on the main instance and ``officraft-<ns>`` on a namespaced one (``[server].namespace``, the same value this station bakes into every warden it installs), so a client-side socket literal attaches to a DIFFERENT tmux server and silently drops the owner into another station's sessions.
-             *
-             *     ALWAYS SERVED, on every row, with no liveness or desired-state gate — the cockpit has always shown this line unconditionally, and making it conditional would delete something the owner can see today. An empty string therefore means exactly ONE thing: a server too old to serve the field. A client reading it empty MUST fall back to showing nothing (or saying this server provides none) and MUST NOT reconstruct the command — the reconstruction is the defect.
-             *
-             *     IT RESTS ON A NAMED CHEAP ASSUMPTION (owner 2026-09-08): that the tmux server holding this row's session is a warden THIS station installed, so this station's namespace keys it. An agent living on a warden some OTHER station installed gets a socket name that does not exist on that host, and the attach fails to find a server. That is not a regression — see WAS.
-             *
-             *     WAS: every client re-derived ``tmux -L officraft attach -t member-<id>`` from its own hardcoded socket and session-name literals — correct only for the unnamespaced instance, and one more copy to drift each time. Additive-optional.
-             * @default
-             */
-            terminal_attach_command: string;
         };
         /**
          * ProbeVersionDTO
@@ -14965,102 +14730,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BootDocumentReceiptDTO"];
-                };
-            };
-            /** @description Validation error (unified error envelope). */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
-                };
-            };
-            /** @description Client error (unified error envelope). */
-            "4XX": {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
-                };
-            };
-            /** @description Server error (unified error envelope). */
-            "5XX": {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
-                };
-            };
-        };
-    };
-    handle_list_outsource_workers_api_outsource_workers_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["OutsourceWorkerDTO"][];
-                };
-            };
-            /** @description Validation error (unified error envelope). */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
-                };
-            };
-            /** @description Client error (unified error envelope). */
-            "4XX": {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
-                };
-            };
-            /** @description Server error (unified error envelope). */
-            "5XX": {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
-                };
-            };
-        };
-    };
-    handle_get_outsource_worker_api_outsource_workers__id__get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["OutsourceWorkerDTO"];
                 };
             };
             /** @description Validation error (unified error envelope). */

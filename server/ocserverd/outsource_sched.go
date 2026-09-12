@@ -34,7 +34,7 @@ package main
 // fold — 外包＝正職; codename via the domain derivation over EVERY codename the
 // member table has ever carried, removed rows included, so a codename is never
 // reused; model/effort from the manual assignee), writes task.executor_id, and
-// fans the task + outsource_worker SSE deltas. The worker then sits in
+// fans the task + member SSE deltas. The worker then sits in
 // 'assigned' until its first report_waking flips it 'active' (T-4595 moved that
 // claim off the retired GET /api/self/task onto the shared boot verb).
 //

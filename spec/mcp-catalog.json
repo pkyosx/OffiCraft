@@ -3383,14 +3383,6 @@
       "name": "list_task_artifacts"
     },
     {
-      "description": "List live outsource workers (codename, model, effort, task).",
-      "inputSchema": {
-        "properties": {},
-        "type": "object"
-      },
-      "name": "list_outsource_workers"
-    },
-    {
       "description": "Read an outsource worker's boot-context preview (owner/admin agent).",
       "inputSchema": {
         "properties": {

@@ -25,7 +25,7 @@ import type { ChatMessage, OutsourceWorkerView } from "../api/adapter";
 let messages: ChatMessage[] = [];
 
 // Released-worker codename cache: the REAL hook lazily fetches
-// GET /api/outsource-workers/{id}; here it is a fixed map (the hook has its
+// GET /api/members/{id}; here it is a fixed map (the hook has its
 // own tests) — "ow-rel" is a RELEASED worker, resolvable only through it.
 vi.mock("../hooks/useWorkerCodenames", () => ({
   useWorkerCodenames: (ids: readonly string[]) =>

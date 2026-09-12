@@ -967,20 +967,6 @@
   },
   {
     "auth": "gated",
-    "mcp_tool": "list_outsource_workers",
-    "method": "GET",
-    "path": "/api/outsource-workers",
-    "requires": "machine"
-  },
-  {
-    "auth": "gated",
-    "mcp_tool": null,
-    "method": "GET",
-    "path": "/api/outsource-workers/{id}",
-    "requires": "machine"
-  },
-  {
-    "auth": "gated",
     "mcp_tool": "get_outsource_worker_boot_context",
     "method": "GET",
     "path": "/api/outsource-workers/{id}/boot-context",

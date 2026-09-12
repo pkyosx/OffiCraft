@@ -42,7 +42,7 @@ describe("mock personal-avatar mutation parity", () => {
       "blob:mock-avatar",
     );
     await mockApi.removeMemberAvatar("ow-avatar");
-    expect(seen).toEqual(["outsource_worker", "outsource_worker"]);
+    expect(seen).toEqual(["member", "member"]);
     expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:mock-avatar");
 
     unsubscribe();

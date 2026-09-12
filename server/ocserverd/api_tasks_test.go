@@ -328,7 +328,7 @@ func TestDefaultedDispatchSpec(t *testing.T) {
 }
 
 func TestPublishOutsourceWorker(t *testing.T) {
-	t.Run("the worker delta is fanned to the owner cockpit alone as an id/codename/status hint", func(t *testing.T) {
+	t.Run("the worker delta uses the member projection for the dashboard and worker", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusAssigned)
 		worker, err := d.GetOutsourceWorker("ow-abc123")
@@ -341,24 +341,11 @@ func TestPublishOutsourceWorker(t *testing.T) {
 
 		api.publishOutsourceWorker(*worker, "owner")
 
-		dashboard.wantFrames(map[string]any{
-			"seq":   2,
-			"topic": "outsource_worker",
-			"op":    "patch",
-			"data": map[string]any{
-				"entity":  "outsource_worker",
-				"key":     "owner::ow-abc123",
-				"epoch":   2,
-				"deleted": false,
-				"payload": map[string]any{
-					"id": "ow-abc123", "codename": "Contractor", "status": "assigned",
-				},
-			},
-			"ts":      apiAnyNumber,
-			"trigger": "owner",
-		})
+		frame := apiTestMemberFrame(2, "patch", "ow-abc123",
+			apiTestMemberPayload("ow-abc123", "Contractor", "active", ""), "owner")
+		dashboard.wantFrames(frame)
 		executor.wantFrames()
-		theWorkerItself.wantFrames()
+		theWorkerItself.wantFrames(frame)
 	})
 }
 
@@ -1672,22 +1659,7 @@ func TestCloseTask(t *testing.T) {
 				"ts":      apiAnyNumber,
 				"trigger": "owner",
 			},
-			map[string]any{
-				"seq":   8,
-				"topic": "outsource_worker",
-				"op":    "patch",
-				"data": map[string]any{
-					"entity":  "outsource_worker",
-					"key":     "owner::ow-abc123",
-					"epoch":   8,
-					"deleted": false,
-					"payload": map[string]any{
-						"id": "ow-abc123", "codename": "Contractor", "status": "released",
-					},
-				},
-				"ts":      apiAnyNumber,
-				"trigger": "owner",
-			},
+			apiTestWorkerDelta(8, "released", "owner"),
 			map[string]any{
 				"seq":   9,
 				"topic": "task",
@@ -4300,14 +4272,14 @@ func TestHandleCreateTaskApiTasksPost(t *testing.T) {
 			},
 			map[string]any{
 				"seq":   2,
-				"topic": "outsource_worker",
+				"topic": "member",
 				"op":    "patch",
 				"data": map[string]any{
-					"entity":  "outsource_worker",
+					"entity":  "member",
 					"key":     apiAnyString,
 					"epoch":   2,
 					"deleted": false,
-					"payload": map[string]any{"id": apiAnyString, "codename": "X-1", "status": "assigned"},
+					"payload": map[string]any{"id": apiAnyString, "name": "X-1", "status": "assigned", "desired_state": "online", "owner_id": "owner"},
 				},
 				"ts":      apiAnyNumber,
 				"trigger": "server",
@@ -4328,14 +4300,14 @@ func TestHandleCreateTaskApiTasksPost(t *testing.T) {
 			},
 			map[string]any{
 				"seq":   4,
-				"topic": "outsource_worker",
+				"topic": "member",
 				"op":    "patch",
 				"data": map[string]any{
-					"entity":  "outsource_worker",
+					"entity":  "member",
 					"key":     apiAnyString,
 					"epoch":   4,
 					"deleted": false,
-					"payload": map[string]any{"id": apiAnyString, "codename": "X-1", "status": "assigned"},
+					"payload": map[string]any{"id": apiAnyString, "name": "X-1", "status": "assigned", "desired_state": "online", "owner_id": "owner"},
 				},
 				"ts":      apiAnyNumber,
 				"trigger": "server",

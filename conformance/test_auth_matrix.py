@@ -1726,16 +1726,6 @@ MATRIX: dict[str, Route] = {
             *_matrix_task_artifact(ctx)),
     ),
     # ── outsource panel (M3) ────────────────────────────────────────────────
-    "GET /api/outsource-workers": Route(requires="machine"),
-    "GET /api/outsource-workers/{id}": Route(
-        # T-f190 detail-panel single read. NO black-box identity has a worker row
-        # (the Phase 2 scheduler mints them), so every at-floor face is an honest
-        # 404 — the anonymous 401 is the gate's teeth.
-        requires="machine",
-        path=lambda _ctx, _i: "/api/outsource-workers/ow-nope",
-        overrides={"warden": 404, "agent_self": 404, "agent_other": 404,
-                   "admin_agent": 404, "owner": 404},
-    ),
     "GET /api/outsource-workers/{id}/boot-context": Route(
         # T-ba6b initial-prompt preview — floor admin_agent since T-6020 (the
         # text embeds the full task + manual). Below-floor faces are a flat 403

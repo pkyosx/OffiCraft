@@ -1110,7 +1110,7 @@ describe("WorkerDetailPanel — lifecycle ops (T-32e1/T-f190)", () => {
         expect.objectContaining({ model: "claude-opus-4-8" }),
       ),
     );
-    // …and the panel adopts it after the outsource_worker refetch. Read back
+    // …and the panel adopts it after the member refetch. Read back
     // from the DIALOG, not the 模型 cell: since T-e12c that cell states the
     // SELF-REPORTED model, which does not change just because a new launch
     // intent was stored (the running session is still on the old one until it

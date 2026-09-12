@@ -1,5 +1,5 @@
 // useWorkerCodenames — the lazy released-worker codename cache (T-3ed8).
-// GET /api/outsource-workers/{id} serves released rows, so an ow- id missing
+// GET /api/members/{id} serves released rows, so an ow- id missing
 // from every list the caller holds still resolves to its codename; a failed
 // fetch is negative-cached (raw-id fallback, no refetch loop).
 

@@ -728,12 +728,12 @@ describe("one delta re-pulls only what it named (T-8115)", () => {
     expect(h.counts.listTasks).toBe(1);
   });
 
-  it("an outsource_worker delta still re-pulls the rail — release is list membership", async () => {
+  it("a member delta re-pulls the worker rail — release is list membership", async () => {
     const view = await mountedCockpit();
     h.workers = [worker("ow-2")]; // ow-1 was released → it drops out
 
     emit({
-      topic: "outsource_worker",
+      topic: "member",
       names: { id: "ow-1" },
       ids: ["ow-1"],
     });

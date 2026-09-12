@@ -558,6 +558,15 @@ func (s *apiServer) unreadCountsForRequest(r *http.Request) (map[string]int, err
 }
 
 func (s *apiServer) newMemberDTO(m Member, roleName, observedMachine string, unreadCount int) memberDTO {
+	return newMemberDTO(m, roleName, observedMachine, unreadCount,
+		PresenceState(m, nowSecs(), s.hub.IsOnline(m.ID)),
+		winddownDeadlineOf(m, s.reconcileConfigLive()),
+		terminalAttachCommand(s.namespace, m.ID))
+}
+
+func newMemberDTO(m Member, roleName, observedMachine string, unreadCount int,
+	presence string, refocusDeadline float64, terminalAttach string,
+) memberDTO {
 	return memberDTO{
 		ID:               m.ID,
 		AvatarURL:        memberAvatarURL(m.AvatarAttachmentID),
@@ -575,7 +584,7 @@ func (s *apiServer) newMemberDTO(m Member, roleName, observedMachine string, unr
 		DesiredState:     m.DesiredState,
 		DesiredMachineID: m.DesiredMachineID,
 		Machine:          observedMachine,
-		Presence:         PresenceState(m, nowSecs(), s.hub.IsOnline(m.ID)),
+		Presence:         presence,
 		RefocusSince:     m.RefocusSince,
 		RefocusOp:        m.RefocusOp,
 		// The grace this member's epoch is ACTUALLY collected on, and 0 when
@@ -585,7 +594,7 @@ func (s *apiServer) newMemberDTO(m Member, roleName, observedMachine string, unr
 		// must show NO deadline rather than a time the owner would watch pass with
 		// nothing happening. Reading RecycleGrace straight would report exactly
 		// that kind of ceiling, for most of the closed set.
-		RefocusDeadline: winddownDeadlineOf(m, s.reconcileConfigLive()),
+		RefocusDeadline: refocusDeadline,
 		LastOp:          m.LastOp,
 		LastOpOK:        m.LastOpOK,
 		LastOpLog:       m.LastOpLog,
@@ -600,7 +609,7 @@ func (s *apiServer) newMemberDTO(m Member, roleName, observedMachine string, unr
 		// used to hold a hardcoded `tmux -L officraft` that is wrong on every
 		// namespaced station. Unconditional (no presence gate): see
 		// terminal_attach.go.
-		TerminalAttachCommand: terminalAttachCommand(s.namespace, m.ID),
+		TerminalAttachCommand: terminalAttach,
 	}
 }
 

@@ -688,15 +688,9 @@ func (s *apiServer) consumeRestartAfterStop(m *Member, now float64) bool {
 //	            (重新聚焦 / 改機器 / 換 model) sets it.
 //
 // WHY THESE ARE WORKER FUNCTIONS RATHER THAN CALLS INTO THE STAFF ONES. The
-// projection would allow it — an ow- row IS a member row — but the PERSISTENCE
-// would not. putMember fans a MEMBER delta, and persistMemberOpReceipt's own
-// header states the rule this obeys: an ow- id's changes travel on the
-// outsource_worker projection, so worker callers write the receipt through
-// s.dal.SetMemberOpReceipt and publish through publishOutsourceWorker. Routing a
-// worker through consumeRestartAfterStop would fan the wrong topic at the wrong
-// audience and re-open the question of whether putMember is safe under
-// outsourceMu (measured: it is — api_members.go touches that mutex nowhere — but
-// that is a property nothing enforces, and this way nothing has to).
+// transport is shared, but a worker's one-task restart/release semantics and
+// outsourceMu serialization are not. These functions keep that task-bound
+// state transition atomic, then publish through the common member topic.
 
 // queueWorkerRestartAfterStop is the WORKER half of stampRestartIntent, gate
 // included: it records 「這一輪下線收口之後把它帶起來」 on a stopped worker and

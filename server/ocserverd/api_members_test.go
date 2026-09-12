@@ -952,7 +952,7 @@ func TestPublishMemberAvatarChanged(t *testing.T) {
 		dashboard.wantFrames(apiTestMemberFrame(1, "patch", "kip", payload, "owner"))
 	})
 
-	t.Run("an outsource member's change rides the outsource_worker topic and reaches the owner alone", func(t *testing.T) {
+	t.Run("an outsource member's change rides the member topic to the dashboard and that member", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
 		m := apiTestMemberRow(t, d, "ow-abc123")
@@ -961,8 +961,10 @@ func TestPublishMemberAvatarChanged(t *testing.T) {
 
 		api.publishMemberAvatarChanged(m, "owner")
 
-		dashboard.wantFrames(apiTestWorkerDelta(2, "active", "owner"))
-		self.wantFrames()
+		frame := apiTestMemberFrame(2, "patch", "ow-abc123",
+			apiTestMemberPayload("ow-abc123", "Contractor", "active", ""), "owner")
+		dashboard.wantFrames(frame)
+		self.wantFrames(frame)
 	})
 }
 
@@ -1580,6 +1582,7 @@ func TestHandleGetMemberApiMembersMemberIdGet(t *testing.T) {
 			"forced_stop_at": 0, "unread_count": 0, "roster_status": "active",
 			"owner_id": "owner", "schema_version": 3,
 			"terminal_attach_command": "tmux -L officraft attach -t member-ow-abc123",
+			"status":                  "active",
 		})
 		dashboard.wantFrames()
 	})

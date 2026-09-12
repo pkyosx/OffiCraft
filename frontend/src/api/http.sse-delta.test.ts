@@ -56,10 +56,10 @@ describe("toSseDelta", () => {
     expect(JSON.stringify(d)).not.toContain("high");
   });
 
-  it("drops a worker's codename and status", () => {
-    const d = toSseDelta("outsource_worker", {
+  it("drops a worker member's name and status", () => {
+    const d = toSseDelta("member", {
       id: "ow-3",
-      codename: "O-7",
+      name: "O-7",
       status: "released",
     });
     expect(d.names).toEqual({ id: "ow-3" });

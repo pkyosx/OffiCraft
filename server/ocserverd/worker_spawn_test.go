@@ -525,7 +525,7 @@ func TestStampWorkerPlacementBlocked(t *testing.T) {
 	})
 
 	t.Run("a worker released since the snapshot was loaded is left alone, so a stale copy cannot resurrect it", func(t *testing.T) {
-		api, h, _, owner, w := wsWorkerSpawnFixture(t, WorkerStatusActive)
+		api, h, d, owner, w := wsWorkerSpawnFixture(t, WorkerStatusActive)
 		released := w
 		released.Status = WorkerStatusReleased
 		if err := api.dal.PutOutsourceWorker(released); err != nil {
@@ -535,9 +535,7 @@ func TestStampWorkerPlacementBlocked(t *testing.T) {
 
 		api.stampWorkerPlacementBlocked(&w, "no_machine_selected: nobody picked a machine", 500)
 
-		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
-			"status": "released", "presence": "",
-		}))
+		apiTestWantReleasedWorker(t, d, h, owner, "ow-abc123")
 		dashboard.wantFrames()
 	})
 
@@ -1057,7 +1055,7 @@ func TestNotifyWorkerSpawn(t *testing.T) {
 
 	t.Run("the frame carries the worker's OWN runtime, model and effort, so a codex worker boots as codex", func(t *testing.T) {
 		api, h, d, owner, _ := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
-		if code, data := apiJSON(t, h, "POST", "/api/outsource-workers/ow-abc123/model", owner,
+		if code, data := apiJSON(t, h, "PATCH", "/api/members/ow-abc123", owner,
 			`{"model":"gpt-5-codex","runtime":"codex","effort":"high"}`); code != 200 {
 			t.Fatalf("set runtime: %d %v", code, data)
 		}
@@ -1867,10 +1865,9 @@ func TestOpenOwnerOpHandover(t *testing.T) {
 			"refocus_since": apiAnyNumber, "refocus_op": "runtime/model",
 		}))
 		dashboard.wantFrames(
-			apiTestWorkerDelta(2, "active", "server"),
-			apiTestHandoverDelta(3, "online", apiTestOffboardNotice, "server"),
+			apiTestHandoverDelta(2, "online", apiTestOffboardNotice, "server"),
 		)
-		contractor.wantFrames(apiTestHandoverDelta(3, "online", apiTestOffboardNotice, "server"))
+		contractor.wantFrames(apiTestHandoverDelta(2, "online", apiTestOffboardNotice, "server"))
 	})
 
 	t.Run("a worker already further along the ladder keeps its own deadline: nothing is stamped and nothing is fanned", func(t *testing.T) {
@@ -2438,7 +2435,6 @@ func TestWorkerReportWaking(t *testing.T) {
 		}))
 		dashboard.wantFrames(
 			wsWakingDelta(2),
-			apiTestWorkerDelta(3, "active", "server"),
 		)
 	})
 
@@ -2647,7 +2643,7 @@ func TestWorkerRestartSelf(t *testing.T) {
 			"refocus_since": 4242, "refocus_op": "restart_self",
 		}))
 		contractor.wantFrames(
-			apiTestHandoverDelta(3, "online", apiTestOffboardNotice, "server"),
+			apiTestHandoverDelta(2, "online", apiTestOffboardNotice, "server"),
 		)
 	})
 
@@ -2741,7 +2737,7 @@ func TestReclaimWorkerSession(t *testing.T) {
 
 func TestDismissOutsourceWorkersForTask(t *testing.T) {
 	t.Run("every worker bound to the task is released and its session reclaimed on the spot", func(t *testing.T) {
-		api, h, _, owner, _ := wsWorkerSpawnFixture(t, WorkerStatusActive)
+		api, h, d, owner, _ := wsWorkerSpawnFixture(t, WorkerStatusActive)
 		apiTestListen(t, api, ServerSelfHost)
 		api.outsourceMu.Lock()
 		api.workerSpawnTarget["ow-abc123"] = ServerSelfHost
@@ -2751,14 +2747,12 @@ func TestDismissOutsourceWorkersForTask(t *testing.T) {
 		api.dismissOutsourceWorkersForTask("T-1", 7777, triggerServer)
 
 		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"))
-		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
-			"status": "released", "presence": "", "machine": "m-server-self",
-		}))
+		apiTestWantReleasedWorker(t, d, h, owner, "ow-abc123")
 		dashboard.wantFrames(apiTestWorkerDelta(2, "released", "server"))
 	})
 
 	t.Run("a second dismissal is a no-op: the row is already released and the session already reclaimed", func(t *testing.T) {
-		api, h, _, owner, _ := wsWorkerSpawnFixture(t, WorkerStatusActive)
+		api, h, d, owner, _ := wsWorkerSpawnFixture(t, WorkerStatusActive)
 		apiTestListen(t, api, ServerSelfHost)
 		api.dismissOutsourceWorkersForTask("T-1", 7777, triggerServer)
 		wsDrainWardenFrames(t, api, ServerSelfHost)
@@ -2767,9 +2761,7 @@ func TestDismissOutsourceWorkersForTask(t *testing.T) {
 		api.dismissOutsourceWorkersForTask("T-1", 8888, triggerServer)
 
 		wsWantWardenFrames(t, api, ServerSelfHost)
-		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
-			"status": "released", "presence": "",
-		}))
+		apiTestWantReleasedWorker(t, d, h, owner, "ow-abc123")
 		dashboard.wantFrames()
 	})
 
@@ -2805,11 +2797,9 @@ func TestDismissOutsourceWorkerByID(t *testing.T) {
 		api.dismissOutsourceWorkerByID("ow-abc123", 7777, triggerServer)
 
 		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"))
-		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
-			"status": "released", "presence": "", "machine": "m-server-self",
-		}))
+		apiTestWantReleasedWorker(t, d, h, owner, "ow-abc123")
 		apiTestWantWorker(t, h, owner, "ow-def456", apiTestWorkerRow(t, map[string]any{
-			"id": "ow-def456", "codename": "Stevedore", "status": "active",
+			"id": "ow-def456", "name": "Stevedore", "status": "active",
 		}))
 	})
 

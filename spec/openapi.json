@@ -1458,7 +1458,7 @@
       },
       "CostResetDTO": {
         "additionalProperties": false,
-        "description": "Receipt of a cost reset (`POST /api/members/{member_id}/cost/reset`, owner-gated): WHAT WAS DESTROYED, read from the actor immediately before the write.\n\n🔴 It carries the PRE-reset figures on purpose, and the reason is the same reason the reset is dangerous. Spend lives in exactly TWO accumulators and there is no per-charge ledger anywhere in this system, so once they are cleared the discarded amount is not recoverable from any other record — this response is the LAST MOMENT that number exists. Answering with the post-reset state instead would make the receipt of an irreversible operation say nothing at all.\n\nThis is a receipt, NOT an undo: nothing is retained server-side and there is no route that puts the figure back (owner ruling rc-7dea0deefa63, option 0 「最小、不可逆」). It only lets whoever pressed the button see what they destroyed.\n\nThe two fields mirror `MonitoringSessionDTO` / `OutsourceWorkerDTO` field-for-field, including their null semantics, so a client reuses ONE summing rule instead of growing a second one: null means there was nothing to clear on that half — not that zero was cleared. Resetting an actor with nothing measured therefore answers 200 with both null, which honestly reads as 'nothing was destroyed'. A deliberate consequence of that mirroring is that the same rule the cockpit already applies to the read side (both null → `—`) also describes this receipt.",
+        "description": "Receipt of a cost reset (`POST /api/members/{member_id}/cost/reset`, owner-gated): WHAT WAS DESTROYED, read from the actor immediately before the write.\n\n🔴 It carries the PRE-reset figures on purpose, and the reason is the same reason the reset is dangerous. Spend lives in exactly TWO accumulators and there is no per-charge ledger anywhere in this system, so once they are cleared the discarded amount is not recoverable from any other record — this response is the LAST MOMENT that number exists. Answering with the post-reset state instead would make the receipt of an irreversible operation say nothing at all.\n\nThis is a receipt, NOT an undo: nothing is retained server-side and there is no route that puts the figure back (owner ruling rc-7dea0deefa63, option 0 「最小、不可逆」). It only lets whoever pressed the button see what they destroyed.\n\nThe two fields mirror `MonitoringSessionDTO` / `MemberDTO` field-for-field, including their null semantics, so a client reuses ONE summing rule instead of growing a second one: null means there was nothing to clear on that half — not that zero was cleared. Resetting an actor with nothing measured therefore answers 200 with both null, which honestly reads as 'nothing was destroyed'. A deliberate consequence of that mirroring is that the same rule the cockpit already applies to the read side (both null → `—`) also describes this receipt.",
         "properties": {
           "cleared_banked_cost": {
             "anyOf": [
@@ -2635,6 +2635,29 @@
             "title": "Avatar Url",
             "type": "string"
           },
+          "account": {
+            "anyOf": [{"type": "string"}, {"type": "null"}],
+            "title": "Account"
+          },
+          "banked_cost": {
+            "anyOf": [{"type": "number"}, {"type": "null"}],
+            "title": "Banked Cost"
+          },
+          "compaction_count": {
+            "anyOf": [{"type": "integer"}, {"type": "null"}],
+            "title": "Compaction Count"
+          },
+          "context_pct": {
+            "anyOf": [{"type": "number"}, {"type": "null"}],
+            "title": "Context Pct"
+          },
+          "cost": {
+            "anyOf": [{"type": "number"}, {"type": "null"}],
+            "title": "Cost"
+          },
+          "created_ts": {"title": "Created Ts", "type": "number"},
+          "creator_id": {"title": "Creator Id", "type": "string"},
+          "delegated_by": {"title": "Delegated By", "type": "string"},
           "desired_machine_id": {
             "default": "m-server-self",
             "title": "Desired Machine Id",
@@ -2768,6 +2791,14 @@
             "title": "Schema Version",
             "type": "integer"
           },
+          "status": {"title": "Status", "type": "string"},
+          "task_created_ts": {"title": "Task Created Ts", "type": "number"},
+          "task_id": {"title": "Task Id", "type": "string"},
+          "task_no": {"title": "Task No", "type": "string"},
+          "task_status": {"title": "Task Status", "type": "string"},
+          "task_title": {"title": "Task Title", "type": "string"},
+          "task_type_key": {"title": "Task Type Key", "type": "string"},
+          "task_type_name": {"title": "Task Type Name", "type": "string"},
           "unread_count": {
             "default": 0,
             "title": "Unread Count",
@@ -3559,287 +3590,6 @@
           "name"
         ],
         "title": "OnboardingStepDTO",
-        "type": "object"
-      },
-      "OutsourceWorkerDTO": {
-        "additionalProperties": false,
-        "description": "One outsource worker row of the panel (SPEC §4.1): the anonymous codename (model prefix + sequence), runtime/model/effort, lifecycle status (assigned → active → released), and its ONE bound task's id / title / status.",
-        "properties": {
-          "account": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "The Claude account this worker's session runs under (telemetry entry keyed by the worker's actor id — the SAME per-actor telemetry the member roster reads). null when the worker has not reported one (never fabricated). T-f190 additive-optional.",
-            "title": "Account"
-          },
-          "actual_effort": {
-            "default": "",
-            "description": "The effort level this worker's session is REPORTED to be running at — the same durably-persisted roster field ``MemberDTO.actual_effort`` serves (an ``ow-`` row IS a member row with ``kind=outsource``). Empty means nothing has ever reported one. Separate from, and NEVER a fallback to, the owner-configured ``effort`` launch setting this DTO round-trips (T-7f28).",
-            "title": "Actual Effort",
-            "type": "string"
-          },
-          "actual_machine": {
-            "default": "",
-            "description": "The machine this worker was LAST OBSERVED running on, durably persisted — the offline-surviving twin of the live ``machine`` projection. Empty means it has never been observed anywhere. Separate from, and NEVER a fallback to, ``desired_machine_id`` (T-7f28).",
-            "title": "Actual Machine",
-            "type": "string"
-          },
-          "actual_model": {
-            "default": "",
-            "description": "The model this worker's session is REPORTED to be running — the same durably-persisted roster field ``MemberDTO.actual_model`` serves. Empty means nothing has ever reported one. WAS: absent from this DTO entirely, so the worker detail panel had to join ``GET /api/monitoring`` to show a reported model at all, and had no reported value to compare the configured ``model`` against (T-7f28).",
-            "title": "Actual Model",
-            "type": "string"
-          },
-          "actual_runtime": {
-            "default": "",
-            "description": "The AI CLI runtime this worker's session is REPORTED to be running — the same durably-persisted roster field ``MemberDTO.actual_runtime`` serves. Empty means nothing has ever reported one. Separate from, and NEVER a fallback to, the owner-configured ``runtime`` launch setting this DTO round-trips (T-7f28).",
-            "title": "Actual Runtime",
-            "type": "string"
-          },
-          "avatar_url": {
-            "description": "Authenticated URL of this stable outsource-worker id's personal raster avatar. Empty means the client uses the outsource theme avatar or built-in glyph. Additive-optional.",
-            "title": "Avatar Url",
-            "type": "string"
-          },
-          "banked_cost": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "The worker's persistent historical cumulative cost (migrations/00021), the DIRECT twin of member banked_cost: the live cost is banked through the SAME bankLiveCost fold on every session end / kill+respawn (refocus / model change / relocate / stop / auto-handover), so a handover never zeroes the owner-visible spend. null when nothing banked yet. The panel shows live + banked summed, the member presentation. T-ba6b additive-optional.",
-            "title": "Banked Cost"
-          },
-          "codename": {
-            "title": "Codename",
-            "type": "string"
-          },
-          "compaction_count": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Codex App Server compactions in this worker's live session; null when unavailable.",
-            "title": "Compaction Count"
-          },
-          "context_pct": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "The worker's live context-window fill %, read from the SAME gauge the member roster reads (POST /api/agent/context, keyed by actor id). null when unreported. T-f190 additive-optional.",
-            "title": "Context Pct"
-          },
-          "cost": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "The worker's live session cost (telemetry `cost`, keyed by actor id) — the CURRENT session only, kept separate from banked_cost (never overlapping). null when unreported. T-f190 additive-optional.",
-            "title": "Cost"
-          },
-          "created_ts": {
-            "default": 0.0,
-            "title": "Created Ts",
-            "type": "number"
-          },
-          "creator_id": {
-            "default": "",
-            "description": "The verified token sub of the bound task's creator (a member id, the literal \"owner\", or \"\" on pre-column / server-scheduled rows) — the RAW id behind delegated_by, so the client can honestly distinguish owner vs member vs unassigned rather than fabricating a delegator. T-f190 additive-optional.",
-            "title": "Creator Id",
-            "type": "string"
-          },
-          "delegated_by": {
-            "default": "",
-            "description": "The RESOLVED display name of the bound task's creator (member or owner) — the real 委託人, replacing the former hardcoded \"System owner\" placeholder. \"\" when the task's creator_id is blank (pre-column / server-scheduled rows) → the client shows an honest fallback. T-f190 additive-optional.",
-            "title": "Delegated By",
-            "type": "string"
-          },
-          "desired_machine_id": {
-            "default": "",
-            "description": "The OWNER-PINNED machine placement (relocate target), the worker twin of member.desired_machine_id: \"\" = unpinned, so the task-side sources decide instead — an EXPLICIT 發包 target on the task row outranks the type manual's assignee, while a manual-driven task's row carries only a creator snapshot and the LIVE manual outranks THAT (T-8a67) — or a concrete machine id. T-f190 additive-optional.",
-            "title": "Desired Machine Id",
-            "type": "string"
-          },
-          "desired_state": {
-            "default": "online",
-            "description": "Run-intent, a direct mirror of member.desired_state: 'online' (system wants it running) or 'offline' (owner-explicit stop — held down; presence is then 'stopping'/'stopped', every scheduler auto-revival path skips it). The stop/restart toggle key. Additive-optional.",
-            "title": "Desired State",
-            "type": "string"
-          },
-          "effort": {
-            "default": "medium",
-            "title": "Effort",
-            "type": "string"
-          },
-          "id": {
-            "title": "Id",
-            "type": "string"
-          },
-          "last_op": {
-            "default": "",
-            "description": "The last folded warden command receipt verb (worker_start / worker_stop) — the worker twin of member.last_op. \"\" when none folded yet. T-f190 additive-optional (durable since T-9ccf migrations/00017).",
-            "title": "Last Op",
-            "type": "string"
-          },
-          "last_op_at": {
-            "default": 0.0,
-            "description": "Epoch seconds of the last folded warden receipt; 0 when none. T-f190 additive-optional.",
-            "title": "Last Op At",
-            "type": "number"
-          },
-          "last_op_log": {
-            "default": "",
-            "description": "The last warden receipt's verbatim log (surfaced on failure, collapsible) — the worker twin of member.last_op_log. T-f190 additive-optional.",
-            "title": "Last Op Log",
-            "type": "string"
-          },
-          "last_op_ok": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Whether the last warden receipt succeeded (three-valued: null = no receipt folded yet), the worker twin of member.last_op_ok. T-f190 additive-optional.",
-            "title": "Last Op Ok"
-          },
-          "last_op_reason": {
-            "default": "",
-            "description": "The last warden receipt's structured one-line failure reason — the worker twin of member.last_op_reason. T-f190 additive-optional.",
-            "title": "Last Op Reason",
-            "type": "string"
-          },
-          "machine": {
-            "default": "",
-            "description": "The machine the worker's session was ACTUALLY dispatched to (last_spawn_target resolved to its registry display name) — the REAL placement result, NOT the manual's preference. \"\" when never dispatched (未分配 — the panel renders \"尚未分配\", never a fabricated machine). T-f190 additive-optional.",
-            "title": "Machine",
-            "type": "string"
-          },
-          "model": {
-            "default": "",
-            "description": "The owner-CONFIGURED launch model this worker was (or will be) started with — the intent the 喚醒／更改 dialog round-trips and saves. Deliberately NOT the reported one: that is ``actual_model`` on this same DTO since T-7f28 (also ``MemberDTO.actual_model`` / ``MonitoringSessionDTO.model``) — the panel now shows both, side by side, so a change that has not taken effect is legible as pending. The two must never be merged into one cell — this DTO exists to round-trip the setting, and a settings editor that displayed reported state could not save.",
-            "title": "Model",
-            "type": "string"
-          },
-          "presence": {
-            "default": "",
-            "description": "REAL-liveness projection on the ONE member presence vocabulary (A案 P6 — deriveLiveness; replaces the retired ``spawn_state`` closed set starting/stuck/online/stopped). Distinct from lifecycle ``status`` so a worker whose session is not actually up is not rendered as a live green row. Uses the same SSE-presence authority (hub.IsOnline) the member roster reads. Closed set: ``online`` (holding a live SSE connection), ``waking`` (not online with a fresh wake in flight — last start dispatch / row birth within the waking TTL), ``offline`` (not online and no fresh wake — a silently-failing spawn or a died-after-claim session; the FSM rescue owns recovery), ``stopping``/``stopped`` (owner-explicit stop: held down, no auto-revival), ``\"\"`` (released; off-panel). Optional-with-default: absent reads as \"\" for older clients.",
-            "title": "Presence",
-            "type": "string"
-          },
-          "refocus_deadline": {
-            "default": 0.0,
-            "description": "Epoch seconds by which the in-flight wind-down is force-collected (the anchor + the reconcile recycle grace). THE ANCHOR IS THE ARM, not always ``refocus_since``: a 換手 (``desired_state`` stays online) anchors on ``refocus_since``; a 下線 (``desired_state=offline``) carries no ``refocus_since`` at all and anchors on ``stopping_since``, which is what an owner-pressed 加速停止 re-stamps on that arm. ZERO CARRIES TWO MEANINGS, and a client that reads it as one of them will be wrong about the other: no handover is in flight, OR a handover is in flight that NOTHING collects on a clock at all — which is now the NORMAL case rather than a carve-out: every cause except ``context_high`` and ``accelerated_stop`` is collected only by the agent's own ``report_stopped`` or by the owner pressing force-stop, and carries no deadline (owner 2026-08-21). ``refocus_op`` is what tells the two apart. Rendering no deadline is correct for both, and the sentence a client shows for an in-flight no-clock handover must not quote a time at all. Workers read the SAME judgement as members — there is no separate worker rule: one function (``winddownDeadlineOf``) answers BOTH arms for BOTH kinds, and the worker face reaches it through the same ``memberFromWorker`` projection its presence word already goes through. It used to read only the 換手 half, so an owner-pressed 加速停止 on a 下線 worker started a countdown the reconcile tick honours while this field reported 0 (T-14). Derived at read time, never stored. A CEILING, not a prediction: the collection fires the instant the worker answers ``report_stopped`` (T-7f28). Additive-optional.",
-            "title": "Refocus Deadline",
-            "type": "number"
-          },
-          "refocus_op": {
-            "default": "",
-            "description": "Which owner operation opened the in-flight handover stamped in ``refocus_since``, empty when none is in flight. A SUBSET of ``MemberDTO.refocus_op``: ``relocate``, ``runtime/model``, ``refocus``, ``restart_self``, ``context_high`` and ``accelerated_stop``. EVERY one of those causes can appear here. Two clauses that used to stand in this sentence are gone because both were false: ``context_notice`` has appeared on workers since T-72dd, when the worker projection was fed into the shared ``stampContextHighRecycle`` and inherited BOTH thresholds (pinned by worker_single_collector_t72dd_test.go), and ``token_expiry`` has appeared since T-170e, when the same projection was extended to the token-expiry pass — a worker's session token is minted by the same ``mintAgentToken`` with the same ``auth.agent_token_ttl`` a staff token is, so it expires identically. Stamped and cleared in lockstep with ``refocus_since`` (T-7f28). Additive-optional.",
-            "title": "Refocus Op",
-            "type": "string"
-          },
-          "refocus_since": {
-            "default": 0.0,
-            "description": "Epoch seconds of the in-flight context-handover stamp (T-32e1), 0 when none. >0 = a refocus (owner 換手 OR context-high auto-handover) is mid-flight; the FE maps 0→null. Additive-optional.",
-            "title": "Refocus Since",
-            "type": "number"
-          },
-          "runtime": {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/AgentRuntime"
-              }
-            ],
-            "default": "claude",
-            "description": "The worker's selected AI CLI runtime. Existing rows default to ``claude``.",
-            "title": "Runtime Key"
-          },
-          "status": {
-            "title": "Status",
-            "type": "string"
-          },
-          "task_created_ts": {
-            "default": 0.0,
-            "description": "The bound task's ``created_ts`` — the panel orders its rows 依任務建立時間新→舊 and used to get this key by downloading the ENTIRE task list on every worker/chat delta just to sort five rows (T-a3e4). 0.0 when the task cannot be resolved; the client then falls back to the worker's own mint stamp (an honest proxy, never fabricated). additive-optional.",
-            "title": "Task Created Ts",
-            "type": "number"
-          },
-          "task_id": {
-            "title": "Task Id",
-            "type": "string"
-          },
-          "task_no": {
-            "default": "",
-            "description": "The bound task's display number, which IS its id (T-5291) — the panel row's third line, previously joined client-side from ``GET /api/tasks`` (T-a3e4). \"\" when the task cannot be resolved. additive-optional.",
-            "title": "Task No",
-            "type": "string"
-          },
-          "task_status": {
-            "default": "",
-            "title": "Task Status",
-            "type": "string"
-          },
-          "task_title": {
-            "default": "",
-            "title": "Task Title",
-            "type": "string"
-          },
-          "task_type_key": {
-            "default": "",
-            "description": "The bound task's ``type_key`` — the panel row's second line (外包沒有角色名, the task type IS its role line). \"\" = 自由代辦 / unresolvable task. Previously a client-side join against ``GET /api/tasks`` (T-a3e4). additive-optional.",
-            "title": "Task Type Key",
-            "type": "string"
-          },
-          "task_type_name": {
-            "default": "",
-            "description": "The DISPLAY name of ``task_type_key`` as the task manual currently spells it (T-fa76's label, resolved here so the panel no longer pulls the whole manuals list to translate one key — T-a3e4). \"\" when the manual is gone or names nothing; the client then falls back to the raw ``task_type_key``. additive-optional.",
-            "title": "Task Type Name",
-            "type": "string"
-          },
-          "unread_count": {
-            "default": 0,
-            "description": "The CALLER's unread chat-message count for this worker's conversation (the same chat_read watermark inverse the member roster serves) — the office 外包 row's red badge. Optional-with-default: absent reads as 0 for older clients.",
-            "title": "Unread Count",
-            "type": "integer"
-          },
-          "terminal_attach_command": {
-            "default": "",
-            "description": "The COMPLETE, ready-to-paste shell command that attaches a terminal to this row's tmux session, composed server-side and served verbatim (T-139). Clients display and copy it AS-IS and MUST NOT assemble one of their own out of the parts: the ``tmux -L`` socket is the bare ``officraft`` only on the main instance and ``officraft-<ns>`` on a namespaced one (``[server].namespace``, the same value this station bakes into every warden it installs), so a client-side socket literal attaches to a DIFFERENT tmux server and silently drops the owner into another station's sessions.\n\nALWAYS SERVED, on every row, with no liveness or desired-state gate — the cockpit has always shown this line unconditionally, and making it conditional would delete something the owner can see today. An empty string therefore means exactly ONE thing: a server too old to serve the field. A client reading it empty MUST fall back to showing nothing (or saying this server provides none) and MUST NOT reconstruct the command — the reconstruction is the defect.\n\nIT RESTS ON A NAMED CHEAP ASSUMPTION (owner 2026-09-08): that the tmux server holding this row's session is a warden THIS station installed, so this station's namespace keys it. An agent living on a warden some OTHER station installed gets a socket name that does not exist on that host, and the attach fails to find a server. That is not a regression — see WAS.\n\nWAS: every client re-derived ``tmux -L officraft attach -t member-<id>`` from its own hardcoded socket and session-name literals — correct only for the unnamespaced instance, and one more copy to drift each time. Additive-optional.",
-            "title": "Terminal Attach Command",
-            "type": "string"
-          }
-        },
-        "required": [
-          "codename",
-          "id",
-          "status",
-          "task_id"
-        ],
-        "title": "OutsourceWorkerDTO",
         "type": "object"
       },
       "ProbeVersionDTO": {
@@ -10898,7 +10648,7 @@
             "descriptor": "{\n      \"description\": \"Read one block of the boot context by kind/key, folded (the owner's edit ⊕ the shipped seed). Carries size_chars/cap_chars so an edit can be sized before it is made, is_default/has_seed to tell an edited block from the shipped one, and read_only for the blocks that are shown but may never be edited. An unknown kind or key is a 404 that names the keys that exist.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"key\": {\n            \"description\": \"The second half of the address. Most kinds serve exactly one key; a kind that serves more does so because the documents genuinely differ, so the key is never a formality — an unknown one is a 404 that names the keys that exist.\",\n            \"type\": \"string\"\n          },\n          \"kind\": {\n            \"description\": \"The first half of the address, and one of the values this ENUM lists — also the document-history kind this block's retained versions are filed under. The enum IS the list: a kind outside it is not served, and a kind that ships is added to it in the same change, so there is nothing to look up and nothing to go stale.\",\n            \"enum\": [\n              \"system_interaction\",\n              \"boot_sequence\",\n              \"offboard\",\n              \"accelerated_stop\",\n              \"task_closeout\",\n              \"task_reassign_predecessor\",\n              \"task_takeover_with_predecessor\",\n              \"task_takeover_fresh\",\n              \"task_unblocked\",\n              \"task_ready_for_done\"\n            ],\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"kind\",\n          \"key\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"get_boot_doc\"\n    }"
           },
           "name": "get_boot_doc",
-          "order": 108
+"order": 107
         }
       },
       "post": {
@@ -10983,7 +10733,7 @@
             "descriptor": "{\n      \"description\": \"Replace the EDITABLE HALF of one boot-context block ({kind, key, body}) — text every agent reads at boot, or is sent when a lifecycle event happens to it. body is REQUIRED and unknown keys are rejected; emptying a body that had content needs allow_shrink=true. The stored result is judged against that block's own cap. A read-only block refuses with 405 for every caller. The read-only head is NOT sent and cannot be: the server joins the shipped head back on, so no caller has any way to write it. Owner or admin assistant only. Answers with a bounded receipt (``kind``, ``key``, ``is_default``, ``size_chars``, ``cap_chars``, ``sha256``), not the document — call ``get_boot_doc`` when you need the rest.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"allow_shrink\": {\n            \"type\": \"boolean\"\n          },\n          \"body\": {\n            \"description\": \"The ENTIRE editable half, not an addition to it. Sending a fragment answers 200 and permanently replaces the rest of the body, so read the current body with get_boot_doc first and fold your change into it. The read-only head is not part of this and cannot be sent — the server joins the shipped one back on — so the only thing you can lose here is your own half. The guards catch only the extremes: emptying a body that had content needs allow_shrink, the character cap is enforced on the stored result, and a read-only block refuses outright. A {name} in braces is refused ONLY on the blocks that declare variables — the ones that declare none (the 系統互動 block quotes JSON in its body) store braces as typed and every agent reads them that way, so this is not a net. Losing most of the body is none of those: it passes without comment, and every agent that reads this block afterwards reads the shortened text as though it were the whole thing.\",\n            \"type\": \"string\"\n          },\n          \"key\": {\n            \"description\": \"The second half of the address. Most kinds serve exactly one key; a kind that serves more does so because the documents genuinely differ, so the key is never a formality — an unknown one is a 404 that names the keys that exist.\",\n            \"type\": \"string\"\n          },\n          \"kind\": {\n            \"description\": \"The first half of the address, and one of the values this ENUM lists — also the document-history kind this block's retained versions are filed under. The enum IS the list: a kind outside it is not served, and a kind that ships is added to it in the same change, so there is nothing to look up and nothing to go stale.\",\n            \"enum\": [\n              \"system_interaction\",\n              \"boot_sequence\",\n              \"offboard\",\n              \"accelerated_stop\",\n              \"task_closeout\",\n              \"task_reassign_predecessor\",\n              \"task_takeover_with_predecessor\",\n              \"task_takeover_fresh\",\n              \"task_unblocked\",\n              \"task_ready_for_done\"\n            ],\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"kind\",\n          \"key\",\n          \"body\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"replace_boot_doc\"\n    }"
           },
           "name": "replace_boot_doc",
-          "order": 109
+          "order": 108
         }
       }
     },
@@ -11060,7 +10810,7 @@
             "descriptor": "{\n      \"description\": \"Restore one boot-context block to the FACTORY text shipped with this build (idempotent tombstone of the overlay). No length cap applies on this path — the way back to factory text is never blocked by a setting, which is what makes it the recovery route after an edit that stopped agents from booting. The discarded overlay is retained in the document history. Owner or admin assistant only. Answers with a bounded receipt (``kind``, ``key``, ``is_default``, ``size_chars``, ``cap_chars``, ``sha256``), not the document — call ``get_boot_doc`` when you need the rest.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"key\": {\n            \"description\": \"The second half of the address. Most kinds serve exactly one key; a kind that serves more does so because the documents genuinely differ, so the key is never a formality — an unknown one is a 404 that names the keys that exist.\",\n            \"type\": \"string\"\n          },\n          \"kind\": {\n            \"description\": \"The first half of the address, and one of the values this ENUM lists — also the document-history kind this block's retained versions are filed under. The enum IS the list: a kind outside it is not served, and a kind that ships is added to it in the same change, so there is nothing to look up and nothing to go stale.\",\n            \"enum\": [\n              \"system_interaction\",\n              \"boot_sequence\",\n              \"offboard\",\n              \"accelerated_stop\",\n              \"task_closeout\",\n              \"task_reassign_predecessor\",\n              \"task_takeover_with_predecessor\",\n              \"task_takeover_fresh\",\n              \"task_unblocked\",\n              \"task_ready_for_done\"\n            ],\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"kind\",\n          \"key\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"reset_boot_doc\"\n    }"
           },
           "name": "reset_boot_doc",
-          "order": 110
+          "order": 109
         }
       }
     },
@@ -11129,7 +10879,7 @@
             "descriptor": "{\n      \"description\": \"Read one runtime's 啟動步驟 block — the boot checklist that ends that runtime's boot context. runtime_key is 'claude' or 'codex'; they are separate documents because step 3 of the two says opposite things (claude mounts its own `ocagent listen`, codex must not — the sidecar owns it), so any other value is a 404 rather than a silent fallback to claude. Folded: the owner's edit when one exists, otherwise the shipped factory seed. The reply carries size_chars/cap_chars (this document's own size limit, in characters) and is_default/has_seed, so a caller can size an edit before making it and can tell an edited block from the shipped one.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"runtime_key\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"runtime_key\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"get_boot_sequence\"\n    }"
           },
           "name": "get_boot_sequence",
-          "order": 102
+          "order": 101
         }
       },
       "post": {
@@ -11206,7 +10956,7 @@
             "descriptor": "{\n      \"description\": \"Replace the EDITABLE HALF of the 啟動步驟 block of ONE runtime ({runtime_key, body}). runtime_key is 'claude' or 'codex' and the two are separate documents whose step 3 contradicts each other, so writing the wrong one leaves those agents unable to come online — and nothing that never boots reports it. body is REQUIRED and unknown keys are rejected; emptying a body that had content needs allow_shrink=true. Neither runtime's document carries a read-only head today (T-6f44, owner's decision 4 removed it), so the body IS the whole document; the head machinery still exists for the kinds that do carry one, and there is no way to write a head on any face. The stored result is judged against the doc.cap_chars.boot_sequence cap (one cap, both runtimes, each measured on its own text); the refusal tells you what you wrote, the cap, and what is stored. The shipped seed is never overwritten, so reset_boot_sequence always gets the factory text back. Owner or admin assistant only. Answers with a bounded receipt (``kind``, ``key``, ``is_default``, ``size_chars``, ``cap_chars``, ``sha256``), not the document — call ``get_boot_sequence`` when you need the rest.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"allow_shrink\": {\n            \"type\": \"boolean\"\n          },\n          \"body\": {\n            \"description\": \"The ENTIRE editable half of the boot-sequence document for that runtime, not an addition to it. Sending a fragment answers 200 and permanently replaces the rest of the body. This document is read by agents while they are starting up, so a bad write is felt at the worst possible moment: an agent missing a boot step does not report an error, it simply never finishes coming online, and an agent that never comes online cannot be asked what went wrong. Read the current body with get_boot_sequence first and fold your change into it. The read-only head is not part of this and cannot be sent. The guards catch only the extremes (emptying a body that had content needs allow_shrink; the character cap is enforced); losing most of the body is neither.\",\n            \"type\": \"string\"\n          },\n          \"runtime_key\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"runtime_key\",\n          \"body\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"replace_boot_sequence\"\n    }"
           },
           "name": "replace_boot_sequence",
-          "order": 103
+          "order": 102
         }
       }
     },
@@ -11275,7 +11025,7 @@
             "descriptor": "{\n      \"description\": \"Restore ONE runtime's 啟動步驟 block to the FACTORY text shipped with this build (idempotent tombstone of the overlay). runtime_key is 'claude' or 'codex'; anything else is a 404. No length cap is applied on this path — the factory text is part of the product, so no setting can block the way back to it, which is what makes this the recovery route when a bad edit has stopped agents from booting. The overlay being discarded is retained in the document history. Owner or admin assistant only. Answers with a bounded receipt (``kind``, ``key``, ``is_default``, ``size_chars``, ``cap_chars``, ``sha256``), not the document — call ``get_boot_sequence`` when you need the rest.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"runtime_key\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"runtime_key\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"reset_boot_sequence\"\n    }"
           },
           "name": "reset_boot_sequence",
-          "order": 104
+          "order": 103
         }
       }
     },
@@ -12460,7 +12210,7 @@
             "descriptor": "{\n      \"description\": \"List the product-guide docs (slug + title).\",\n      \"inputSchema\": {\n        \"properties\": {},\n        \"type\": \"object\"\n      },\n      \"name\": \"list_docs\"\n    }"
           },
           "name": "list_docs",
-          "order": 97
+          "order": 96
         }
       }
     },
@@ -12594,7 +12344,7 @@
             "descriptor": "{\n      \"description\": \"Read one product-guide doc in full (markdown; unknown slug → 404).\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"slug\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"slug\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"get_doc\"\n    }"
           },
           "name": "get_doc",
-          "order": 98
+          "order": 97
         }
       }
     },
@@ -12642,7 +12392,7 @@
             "descriptor": "{\n      \"description\": \"READ the CATALOGUE of retained versions of one editable document: which versions exist, when each was replaced and by whom, whether each was a tombstone, and HOW LONG each of its fields was. It does NOT carry the versions themselves — a version list is how you CHOOSE one, and choosing does not need the prose; fetch the one you picked with get_document_version. Read-only, newest first, and only the most recent few are kept — HOW MANY is per-document and is not stated here, because it differs by kind and this sentence would go stale silently; what you get back is the answer. Putting a version BACK is deliberately not an agent tool — the owner does that from the cockpit — so this cannot change anything.\\n\\nWHICH DOCUMENTS THIS COVERS, AND WHAT `key` LOOKS LIKE FOR EACH, ARE DELIBERATELY NOT LISTED HERE. A list of kinds — or of key shapes — written into a description goes stale the moment a new editable document ships, and NOTHING turns red when it does: this description used to enumerate six kinds and a key shape per kind, and both had already gone stale before the lists were taken out. Two rules you can actually execute replace them.\\n\\nADDRESSING: `kind` and `key` are validated by the same server-side gate that answers get_document_seed, so whatever that tool can address, this one can too, and the two can never silently disagree. A `kind` this server does not know is refused with 400; a retired kind is refused with 400 naming the series that replaced it. Some kinds also police the shape of `key` before answering — a key this kind does not serve, or one that fails that kind's required shape, is refused with 400 naming the problem. Neither is something to guess at: ask and read the answer.\\n\\nCOVERAGE: a syntactically valid `key` that simply has no retained versions yet is not an error — it returns an empty list, the honest 'nothing has been saved here', not a gap to work around.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"key\": {\"description\": \"Which document of that kind to list revisions for. How strictly it is checked depends entirely on kind, so an empty list means different things in different places. For system_interaction and boot_sequence, a key this server does not serve is 400 and the message names the legal key(s). The retired kind task_manual is 400 whatever the key, naming task_manual_sop instead. For every REMAINING kind - global_context, role_definition, insight, task_manual_sop, task_description, task_title - the value is used as a plain equality condition and nothing checks that it names anything, so a key that names no document answers 200 with an EMPTY list. That is the same answer a real document with no retained revisions gives, so on those an empty list cannot tell you 'this document has never been edited' apart from 'you named it wrong'; only system_interaction, boot_sequence and the retired task_manual are loud about a WELL-FORMED name that points at nothing.\", \"type\": \"string\"},\n          \"kind\": {\"type\": \"string\"}\n        },\n        \"required\": [\"kind\", \"key\"],\n        \"type\": \"object\"\n      },\n      \"name\": \"list_document_history\"\n    }"
           },
           "name": "list_document_history",
-          "order": 94
+          "order": 93
         }
       }
     },
@@ -12688,7 +12438,7 @@
             "descriptor": "{\n      \"description\": \"READ the SHIPPED DEFAULT of one editable document — the text a reset would put back, i.e. the 初始版本 entry of that document's version list. Read-only: this tool writes nothing, so reading the default can never replace the live document. Putting the default BACK is deliberately not an agent tool — the owner does that from the cockpit — exactly as with list_document_history. ``content`` carries the SAME field names a retained version carries, so the same reader can compare a default against the live document.\\n\\nWHICH DOCUMENTS THIS COVERS IS DELIBERATELY NOT LISTED HERE. A list of kinds written into a description goes stale the moment a new editable document ships and NOTHING turns red when it does — this one had gone wrong about three kinds before the list was taken out. Two rules you can actually execute replace it.\\n\\nADDRESSING: ``kind`` and ``key`` name a document exactly as they do for list_document_history — the same server-side gate answers both routes, so whatever that tool addresses is addressable here, and a ``kind`` this server does not know is refused with 400 while a ``key`` that names no document of that kind is refused with 404 that names it. Neither is something to guess at: ask and read the answer.\\n\\nCOVERAGE: whether THAT document ships a default is answered by asking for it. 200 means it does, and ``content`` is that text. 404 means it has none at all — a role the owner created, a task manual — which is the same set whose reset the server also 404s, so it is the honest 'there is nothing to go back to', not a gap to work around. 400 on a retired kind names the series that replaced it.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"key\": {\"description\": \"Which document of that kind to fetch the shipped default for. For most kinds a key nothing carries answers 404 and names it, so the mistake surfaces - but kind=global_context is the exception: there the key is NEVER READ. Any non-empty key answers 200 with the one global-context seed, so a caller who asked for a specific document gets a document that has nothing to do with the name it asked for, and the response echoes the key back as though it had been honoured. When the kind is global_context, do not read the key you sent as evidence of what you received.\", \"type\": \"string\"},\n          \"kind\": {\"type\": \"string\"}\n        },\n        \"required\": [\"kind\", \"key\"],\n        \"type\": \"object\"\n      },\n      \"name\": \"get_document_seed\"\n    }"
           },
           "name": "get_document_seed",
-          "order": 95
+          "order": 94
         }
       }
     },
@@ -12742,7 +12492,7 @@
             "descriptor": "{\n      \"description\": \"READ the BODY of one named retained version of an editable document — the ``content`` map that version was stored with, exactly as it was stored. Read-only: this fetches text, it never puts it back; restoring stays out of the agent tool surface, as it does for list_document_history.\\n\\nTHIS IS THE SECOND HALF OF A PAIR. list_document_history answers WHICH versions exist and how big each field of each one is, and carries no prose at all; this answers WHAT ONE OF THEM SAID. Name the ``id`` you read off that list. Asking for every version's text is the cost that pairing exists to remove, so fetch the one you actually mean to read.\\n\\nADDRESSING: ``kind`` and ``key`` name a document exactly as they do for list_document_history — the same server-side gate answers all three routes, so whatever that tool can address, this one can too, and they can never silently disagree. A ``kind`` this server does not know is refused with 400; a retired kind is refused with 400 naming the series that replaced it; a ``key`` that fails its kind's required shape is refused with 400 naming the problem. An ``id`` that is not a retained version of THAT document is a 404 — including an id that belongs to some other document, which is why the address is the whole triple and not the id alone.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"id\": {\"description\": \"WHICH retained version to read, as the id list_document_history reported for it. It is scoped to the kind/key pair you also send: an id that names a version of a DIFFERENT document is a 404, not that other document's text.\", \"type\": \"integer\"},\n          \"key\": {\"description\": \"Which document of that kind the version belongs to - addressed exactly as list_document_history addresses it, by the same server-side gate.\", \"type\": \"string\"},\n          \"kind\": {\"type\": \"string\"}\n        },\n        \"required\": [\"kind\", \"key\", \"id\"],\n        \"type\": \"object\"\n      },\n      \"name\": \"get_document_version\"\n    }"
           },
           "name": "get_document_version",
-          "order": 96
+          "order": 95
         }
       }
     },
@@ -14643,7 +14393,7 @@
             "descriptor": "{\n      \"description\": \"\\u52a0\\u901f\\u505c\\u6b62: put an ALREADY-OPEN wind-down on the stop.accelerated_grace_secs clock and tell the member. 409 if nothing is winding down -- press \\u505c\\u6b62 first. Middle rung of \\u505c\\u6b62 -> \\u52a0\\u901f\\u505c\\u6b62 -> \\u5f37\\u5236\\u505c\\u6b62. Answers with a bounded receipt (``id``), not the roster row \\u2014 call ``get_member`` when you need the rest.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"member_id\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"member_id\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"accelerated_stop_member\"\n    }"
           },
           "name": "accelerated_stop_member",
-          "order": 115
+          "order": 114
         }
       }
     },
@@ -14728,7 +14478,7 @@
     },
     "/api/members/{member_id}/avatar": {
       "delete": {
-        "description": "- Removes the personal avatar and returns the member to the fallback chain: the active theme's role avatar, then the built-in glyph.\n- Owner only: admin agents, ordinary agents and machine tokens cannot alter another actor's appearance.\n- Idempotent when there is no personal avatar.\n- Emits a `member` or `outsource_worker` event; a client holding the stream learns of this without polling.",
+        "description": "- Removes the personal avatar and returns the member to the fallback chain: the active theme's role avatar, then the built-in glyph.\n- Owner only: admin agents, ordinary agents and machine tokens cannot alter another actor's appearance.\n- Idempotent when there is no personal avatar.\n- Emits a `member` event; a client holding the stream learns of this without polling.",
         "operationId": "handle_delete_member_avatar_api_members__member_id__avatar_delete",
         "parameters": [
           {
@@ -14789,7 +14539,7 @@
         }
       },
       "put": {
-        "description": "- The request body is the raw image bytes — not base64 and not multipart.\n- PNG, JPEG or WEBP only, at most 64 KiB decoded; SVG is rejected and a declared `mime` must match the bytes.\n- Owner only: agents and machine tokens cannot change anyone's avatar.\n- Emits a `member` or `outsource_worker` event; a client holding the stream learns of this without polling.",
+        "description": "- The request body is the raw image bytes — not base64 and not multipart.\n- PNG, JPEG or WEBP only, at most 64 KiB decoded; SVG is rejected and a declared `mime` must match the bytes.\n- Owner only: agents and machine tokens cannot change anyone's avatar.\n- Emits a `member` event; a client holding the stream learns of this without polling.",
         "operationId": "handle_put_member_avatar_api_members__member_id__avatar_put",
         "parameters": [
           {
@@ -16250,7 +16000,7 @@
             "descriptor": "{\n      \"description\": \"Read the 〈停止〉 block — the wrap-up checklist the server hands an agent at the moment it is about to collect that session. It is a SINGLETON: one document for every agent and every runtime, keyed `global` like the 系統互動 block. Folded: the owner's edit when one exists, otherwise the shipped factory seed, with is_default saying which of the two you are holding and has_seed saying a factory version exists to go back to. The reply carries size_chars/cap_chars (this document's own size limit, in characters) and is_default/has_seed, so a caller can size an edit before making it and can tell an edited block from the shipped one.\",\n      \"inputSchema\": {\n        \"properties\": {},\n        \"type\": \"object\"\n      },\n      \"name\": \"get_offboard\"\n    }"
           },
           "name": "get_offboard",
-          "order": 105
+          "order": 104
         }
       },
       "post": {
@@ -16316,7 +16066,7 @@
             "descriptor": "{\n      \"description\": \"Replace the EDITABLE HALF of the 〈停止〉 block ({body}) — the wrap-up checklist an agent is handed when its session is being collected. body is REQUIRED and unknown keys are rejected; emptying a body that had content needs allow_shrink=true. This document carries NO read-only head today (T-6f44, owner's decision 4 removed it), so the body IS the whole document; the head machinery still exists for the kinds that do carry one, and there is no way to write a head on any face. The stored result is judged against the doc.cap_chars.offboard cap unconditionally, and the refusal tells you what you wrote, the cap, and what is already stored. The shipped seed is never overwritten, so reset_offboard always gets the factory text back; the version this write replaces is retained in the document history (a save that changes nothing retains nothing). Owner or admin assistant only. Answers with a bounded receipt (``kind``, ``key``, ``is_default``, ``size_chars``, ``cap_chars``, ``sha256``), not the document — call ``get_offboard`` when you need the rest.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"allow_shrink\": {\n            \"type\": \"boolean\"\n          },\n          \"body\": {\n            \"description\": \"The ENTIRE editable half of the offboard document, not an addition to it - and this is the one an agent reads while it is being collected, when there is no time left to ask anyone. Sending a fragment answers 200 and permanently drops the rest of the body, so read the current body with get_offboard first and fold your change into it. The read-only head is not part of this and cannot be sent. The guards catch only the extremes: emptying a body that had content needs allow_shrink, and the character cap is enforced. A write that keeps a few steps and loses the rest is neither, and passes without comment - while every agent shut down afterwards reads the shortened checklist as though it were the whole procedure.\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"body\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"replace_offboard\"\n    }"
           },
           "name": "replace_offboard",
-          "order": 106
+          "order": 105
         }
       }
     },
@@ -16374,136 +16124,10 @@
             "descriptor": "{\n      \"description\": \"Restore the 〈停止〉 block to the FACTORY text shipped with this build (idempotent tombstone of the overlay). No length cap is applied on this path — the factory text is part of the product, so no setting can block the way back to it. The overlay being discarded is retained in the document history, so the reset is itself recoverable. Owner or admin assistant only. Answers with a bounded receipt (``kind``, ``key``, ``is_default``, ``size_chars``, ``cap_chars``, ``sha256``), not the document — call ``get_offboard`` when you need the rest.\",\n      \"inputSchema\": {\n        \"properties\": {},\n        \"type\": \"object\"\n      },\n      \"name\": \"reset_offboard\"\n    }"
           },
           "name": "reset_offboard",
-          "order": 107
+          "order": 106
         }
       }
     },
-    "/api/outsource-workers": {
-      "get": {
-        "description": "- Live workers only: a released worker drops off this list, though its row and chat history survive.\n- Each row carries its bound task's title and status.",
-        "operationId": "handle_list_outsource_workers_api_outsource_workers_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/OutsourceWorkerDTO"
-                  },
-                  "title": "Response Handle List Outsource Workers Api Outsource Workers Get",
-                  "type": "array"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
-                }
-              }
-            },
-            "description": "Validation error (unified error envelope)."
-          },
-          "4XX": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
-                }
-              }
-            },
-            "description": "Client error (unified error envelope)."
-          },
-          "5XX": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
-                }
-              }
-            },
-            "description": "Server error (unified error envelope)."
-          }
-        },
-        "summary": "List live outsource workers (codename, model, effort, task).",
-        "x-mcp": {
-          "description": "List live outsource workers (codename, model, effort, task).",
-          "include": true,
-          "legacy": {
-            "descriptor": "{\n      \"description\": \"List live outsource workers (codename, model, effort, task).\",\n      \"inputSchema\": {\n        \"properties\": {},\n        \"type\": \"object\"\n      },\n      \"name\": \"list_outsource_workers\"\n    }"
-          },
-          "name": "list_outsource_workers",
-          "order": 86
-        }
-      }
-    },
-    "/api/outsource-workers/{id}": {
-      "get": {
-        "description": "- One outsource worker by id (its JWT sub) — the same projection the list serves.\n- 404 when the worker id is unknown.",
-        "operationId": "handle_get_outsource_worker_api_outsource_workers__id__get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "title": "Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/OutsourceWorkerDTO"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
-                }
-              }
-            },
-            "description": "Validation error (unified error envelope)."
-          },
-          "4XX": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
-                }
-              }
-            },
-            "description": "Client error (unified error envelope)."
-          },
-          "5XX": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
-                }
-              }
-            },
-            "description": "Server error (unified error envelope)."
-          }
-        },
-        "summary": "Read one outsource worker by id (detail-panel refresh).",
-        "x-mcp": {
-          "include": false
-        }
-      }
-    },
-
     "/api/outsource-workers/{id}/boot-context": {
       "get": {
         "description": "Read the outsource worker's boot-context PREVIEW (T-ba6b): the server re-assembles the boot text with the SAME fold the spawn path uses (buildWorkerBootContext), WITHOUT minting any token. Since T-4595 that fold is the STAFF boot context minus the persona slot — 系統互動 + 使用者自訂 + the boot sequence for the worker's own runtime, with no outsource-only document, no 你的身分 block, no bound task and no type manual — but WITH that worker's own 傳承 block (T-33, LoreScopeAgent keyed on its member id), which is the one part that differs from worker to worker. Owner/admin-agent cockpit read (T-6020; the floor is unchanged, and it is now the only thing keeping this read narrow — the text no longer embeds the task or the manual). 404 for an unknown worker or a worker whose bound task is gone. HONEST caveat the UI must carry: this is today's re-assembly, not a verbatim spawn-time record — nothing is stored (no prompt column, no migration).",
@@ -16569,7 +16193,7 @@
             "descriptor": "{\n      \"description\": \"Read an outsource worker's boot-context preview (owner/admin agent).\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"id\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"id\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"get_outsource_worker_boot_context\"\n    }"
           },
           "name": "get_outsource_worker_boot_context",
-          "order": 87
+          "order": 86
         }
       }
     },
@@ -18231,7 +17855,7 @@
             "descriptor": "{\n      \"description\": \"Read the 系統互動 block of the boot context — the shared studio handbook every agent reads at boot. Folded: the owner's edit when one exists, otherwise the shipped factory seed, with is_default saying which of the two you are holding and has_seed saying a factory version exists to go back to. The reply carries size_chars/cap_chars (this document's own size limit, in characters) and is_default/has_seed, so a caller can size an edit before making it and can tell an edited block from the shipped one.\",\n      \"inputSchema\": {\n        \"properties\": {},\n        \"type\": \"object\"\n      },\n      \"name\": \"get_system_interaction\"\n    }"
           },
           "name": "get_system_interaction",
-          "order": 99
+          "order": 98
         }
       },
       "post": {
@@ -18297,7 +17921,7 @@
             "descriptor": "{\n      \"description\": \"Replace the EDITABLE HALF of the 系統互動 block of the boot context ({body}) — the handbook every agent reads at boot. body is REQUIRED and unknown keys are rejected; emptying a body that had content needs allow_shrink=true. This document carries NO read-only head today (T-6f44, owner's decision 4 removed it), so the body IS the whole document; the head machinery still exists for the kinds that do carry one, and there is no way to write a head on any face. The stored result is judged against the doc.cap_chars.system_interaction cap unconditionally, and the refusal tells you what you wrote, the cap, and what is already stored. The shipped seed is never overwritten, so reset_system_interaction always gets the factory text back; the version this write replaces is retained in the document history (a save that changes nothing retains nothing). Owner or admin assistant only. Answers with a bounded receipt (``kind``, ``key``, ``is_default``, ``size_chars``, ``cap_chars``, ``sha256``), not the document — call ``get_system_interaction`` when you need the rest.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"allow_shrink\": {\n            \"type\": \"boolean\"\n          },\n          \"body\": {\n            \"description\": \"The ENTIRE editable half of the system-interaction document, not an addition to it - and this is the one every agent reads while booting. Sending a fragment answers 200 and permanently drops the rest of the body, so read the current body with get_system_interaction first and fold your change into it. The read-only head is not part of this and cannot be sent. The guards catch only the extremes: emptying a body that had content needs allow_shrink, and the character cap is enforced. A write that keeps a few paragraphs and loses the rest is neither, and passes without comment - while every agent that boots afterwards reads the shortened version as though it were the whole rulebook.\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"body\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"replace_system_interaction\"\n    }"
           },
           "name": "replace_system_interaction",
-          "order": 100
+          "order": 99
         }
       }
     },
@@ -18355,7 +17979,7 @@
             "descriptor": "{\n      \"description\": \"Restore the 系統互動 block to the FACTORY text shipped with this build (idempotent tombstone of the overlay). No length cap is applied on this path — the factory text is part of the product, so no setting can block the way back to it. The overlay being discarded is retained in the document history, so the reset is itself recoverable. Owner or admin assistant only. Answers with a bounded receipt (``kind``, ``key``, ``is_default``, ``size_chars``, ``cap_chars``, ``sha256``), not the document — call ``get_system_interaction`` when you need the rest.\",\n      \"inputSchema\": {\n        \"properties\": {},\n        \"type\": \"object\"\n      },\n      \"name\": \"reset_system_interaction\"\n    }"
           },
           "name": "reset_system_interaction",
-          "order": 101
+          "order": 100
         }
       }
     },
@@ -18417,7 +18041,7 @@
             "descriptor": "{\n      \"description\": \"List task types WITHOUT their long documents: each row is the type identity (type_key / display_name / purpose), its input fields and its assignee setting, plus the SIZE of sop_md and the cap it is judged against. The SOP text is not on this answer at all — read the one type you picked with get_task_manual.\",\n      \"inputSchema\": {\n        \"properties\": {},\n        \"type\": \"object\"\n      },\n      \"name\": \"list_task_manuals\"\n    }"
           },
           "name": "list_task_manuals",
-          "order": 88
+          "order": 87
         }
       },
       "post": {
@@ -18483,7 +18107,7 @@
             "descriptor": "{\n      \"description\": \"Create a task type: pass display_name; the server mints and returns the tm- type_key id (legacy explicit type_key still accepted; duplicate \\u2192 409; assignee = owner/admin agent). An outsource assignee may select runtime claude/codex; absent = claude. Answers with a bounded receipt (``type_key``, ``updated_ts``, ``sop_md_chars``, ``sop_md_cap_chars``, ``sop_md_sha256``), not the manual \\u2014 call ``get_task_manual`` when you need the rest.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"assignee\": {\n            \"anyOf\": [\n              {\n                \"additionalProperties\": true,\n                \"type\": \"object\"\n              },\n              {\n                \"type\": \"null\"\n              }\n            ],\n            \"default\": null,\n            \"description\": \"Who executes tasks of this type. Supplying it at all is governance - a caller below admin-agent is a 403 - and the sub-keys the server KNOWS are checked properly: kind must be 'staff' or 'outsource' (400 otherwise), an outsource runtime, effort and copies are each validated against their own range, and an outsource machine must actually resolve. What is not checked is anything else you put in the object: unknown sub-keys are neither rejected nor read, just marshalled into the stored blob, so 'copys' or 'mashine' are accepted with 200 and then never take effect. TWO known keys also escape checking, and the second one is the expensive one. member_id is only tested for being non-empty, never looked up in the roster. model is never mentioned by the validator at all - yet it is what a spawn reads, and by two routes: every task this manual itself routes to outsource, AND an explicit target on create_task/reassign_task that left model unset on a task of this type, which inherits this one (the manual's model rides along when the two runtimes agree). So an unusable model name is stored with 200 and surfaces much later as a spawn that fails. A model that is not a string is not refused either: it is dropped as if you had never set it, and the field then falls through to the creator snapshot written on the task row when the task was created, reaching the launcher default only when that is empty too. Compare runtime and effort in this same object, which refuse a value they do not recognise.\",\n            \"title\": \"Assignee\"\n          },\n          \"display_name\": {\n            \"anyOf\": [\n              {\n                \"type\": \"string\"\n              },\n              {\n                \"type\": \"null\"\n              }\n            ],\n            \"default\": null,\n            \"description\": \"Human-readable label for the type. Whether a blank one is refused depends entirely on the OTHER field: with no type_key this is the only input there is, so blank is a 400; with a type_key supplied, a blank display_name is silently backfilled with that type_key and answers 200. The failure is therefore not an error message but a type list in which one row is labelled with its raw id while every other row carries a real name.\",\n            \"title\": \"Display Name\"\n          },\n          \"type_key\": {\n            \"anyOf\": [\n              {\n                \"type\": \"string\"\n              },\n              {\n                \"type\": \"null\"\n              }\n            ],\n            \"default\": null,\n            \"description\": \"Stable id for the new task type, and the legacy compatibility path: supply it and it is taken verbatim as the id, an existing one being a 409. OMITTING it is not a validation error - the server mints an id of its own ('tm-' plus twelve hex characters) and creates the manual under that, 200 - so a caller who meant to set a memorable key ends up with a random one and finds out only by reading type_key back out of the response. On that minting path display_name becomes mandatory (blank is a 400); on the legacy path a blank display_name is silently backfilled with this key.\",\n            \"title\": \"Type Key\"\n          }\n        },\n        \"additionalProperties\": false,\n        \"type\": \"object\"\n      },\n      \"name\": \"create_task_manual\"\n    }"
           },
           "name": "create_task_manual",
-          "order": 89
+          "order": 88
         }
       }
     },
@@ -18552,7 +18176,7 @@
             "descriptor": "{\n      \"description\": \"Delete a task type (open tasks of the type \\u2192 409).\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"type_key\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"type_key\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"delete_task_manual\"\n    }"
           },
           "name": "delete_task_manual",
-          "order": 92
+          "order": 91
         }
       },
       "get": {
@@ -18619,7 +18243,7 @@
             "descriptor": "{\n      \"description\": \"Read one task manual (purpose/fields/SOP/assignee). The SOP is judged against sop_md_cap_chars.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"type_key\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"type_key\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"get_task_manual\"\n    }"
           },
           "name": "get_task_manual",
-          "order": 90
+          "order": 89
         }
       },
       "post": {
@@ -18696,7 +18320,7 @@
             "descriptor": "{\n      \"description\": \"Edit a task manual (partial; content fields agent-editable; assignee = owner/admin agent). An outsource assignee may select runtime claude/codex; absent = claude. Only the fields you name change, so omitting a field is safe — but unknown keys are rejected rather than dropped. The SOP is judged against sop_md_cap_chars. Answers with a bounded receipt (``type_key``, ``updated_ts``, ``sop_md_chars``, ``sop_md_cap_chars``, ``sop_md_sha256``), not the manual — call ``get_task_manual`` when you need the rest.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"assignee\": {\n            \"anyOf\": [\n              {\n                \"additionalProperties\": true,\n                \"type\": \"object\"\n              },\n              {\n                \"type\": \"null\"\n              }\n            ],\n            \"default\": null,\n            \"description\": \"Replacement assignee object for the type - governance, so a caller below admin-agent supplying it is a 403. It is a WHOLE-OBJECT replacement, not a merge: what you send becomes the entire assignee, so an outsource assignee re-sent as kind plus machine silently drops the copies and effort that were there before, and an empty object clears the assignee altogether. Both answer 200. The same checks as the create face apply - kind must be 'staff' or 'outsource', an outsource runtime, effort and copies are range-checked and machine must resolve - and so does the same gap: unknown sub-keys are stored verbatim and never read, and member_id is only tested for being non-empty, never looked up.\",\n            \"title\": \"Assignee\"\n          },\n          \"display_name\": {\n            \"anyOf\": [\n              {\n                \"type\": \"string\"\n              },\n              {\n                \"type\": \"null\"\n              }\n            ],\n            \"default\": null,\n            \"description\": \"The manual's human-facing name — what list_task_manuals shows and what people match on when they pick a type — as opposed to type_key, the immutable id you address it by. Pass it to rename a type without breaking anything that references the key (leading/trailing whitespace is trimmed). Omitted leaves the stored name untouched, like every other field on this partial update.\",\n            \"title\": \"Display Name\"\n          },\n          \"fields\": {\n            \"anyOf\": [\n              {\n                \"items\": {\n                  \"properties\": {\n                    \"is_key\": {\n                      \"default\": false,\n                      \"title\": \"Is Key\",\n                      \"type\": \"boolean\"\n                    },\n                    \"name\": {\n                      \"title\": \"Name\",\n                      \"type\": \"string\"\n                    },\n                    \"required\": {\n                      \"default\": false,\n                      \"title\": \"Required\",\n                      \"type\": \"boolean\"\n                    }\n                  },\n                  \"required\": [\n                    \"name\"\n                  ],\n                  \"type\": \"object\",\n                  \"additionalProperties\": false\n                },\n                \"type\": \"array\"\n              },\n              {\n                \"type\": \"null\"\n              }\n            ],\n            \"default\": null,\n            \"title\": \"Fields\"\n          },\n          \"purpose\": {\n            \"anyOf\": [\n              {\n                \"type\": \"string\"\n              },\n              {\n                \"type\": \"null\"\n              }\n            ],\n            \"default\": null,\n            \"description\": \"Replaces the manual's whole purpose text. Nothing validates it - no cap, no wipe guard, no format check - so an empty string clears it and a fragment replaces the rest, both answering 200. Omit the field to leave it alone; send the full text when you do mean to write.\",\n            \"title\": \"Purpose\"\n          },\n          \"sop_md\": {\n            \"anyOf\": [\n              {\n                \"type\": \"string\"\n              },\n              {\n                \"type\": \"null\"\n              }\n            ],\n            \"default\": null,\n            \"description\": \"Replaces the WHOLE SOP of this manual. Prefer patch_task_sop when you are amending an SOP that already has content. The only guard here is the character cap: there is NO wipe guard, so an empty string is accepted and clears the SOP, and a fragment silently replaces everything else. Both answer 200. Read the current SOP first and fold your change into it. Omit the field to leave it alone.\",\n            \"title\": \"Sop Md\"\n          },\n          \"type_key\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"type_key\"\n        ],\n        \"additionalProperties\": false,\n        \"type\": \"object\"\n      },\n      \"name\": \"update_task_manual\"\n    }"
           },
           "name": "update_task_manual",
-          "order": 91
+          "order": 90
         }
       }
     },
@@ -18775,7 +18399,7 @@
             "descriptor": "{\n      \"description\": \"Patch a type's SOP (sop_md) by unique anchors ({edits:[{old,new}]}) — send only the section that changed, instead of re-typing the whole SOP. USE THIS WHENEVER YOU ARE AMENDING AN SOP THAT ALREADY HAS CONTENT. update_task_manual{sop_md} is a wholesale replace, so if anyone else edited the SOP between your read and your write, your copy is stale and the replace silently deletes their section — and because your stale copy is usually the LONGER one, no guard fires and nothing tells you. A patch cannot do that: a non-empty old must match the current sop_md EXACTLY ONCE (0 or >1 hits reject the WHOLE batch with a 400 that names which edit failed and which tool to re-read with, zero writes), so a concurrent write turns into a refusal you can see. Edits apply in order; an empty old appends. Wiping the doc, or shrinking it below a tenth, needs allow_shrink=true — for an honest rewrite from scratch use update_task_manual. The sop_md cap is judged on the RESULT and allow_shrink is not a bypass. Re-read with get_task_manual after a refusal.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"allow_shrink\": {\n            \"default\": false,\n            \"title\": \"Allow Shrink\",\n            \"type\": \"boolean\"\n          },\n          \"edits\": {\n            \"items\": {\n              \"properties\": {\n                \"new\": {\n                  \"default\": \"\",\n                  \"title\": \"New\",\n                  \"type\": \"string\"\n                },\n                \"old\": {\n                  \"default\": \"\",\n                  \"title\": \"Old\",\n                  \"type\": \"string\"\n                }\n              },\n              \"title\": \"LessonsEditDTO\",\n              \"type\": \"object\",\n              \"additionalProperties\": false\n            },\n            \"title\": \"Edits\",\n            \"type\": \"array\"\n          },\n          \"type_key\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"type_key\",\n          \"edits\"\n        ],\n        \"additionalProperties\": false,\n        \"type\": \"object\"\n      },\n      \"name\": \"patch_task_sop\"\n    }"
           },
           "name": "patch_task_sop",
-          "order": 93
+          "order": 92
         }
       }
     },
@@ -19501,7 +19125,7 @@
             "descriptor": "{\n      \"description\": \"Replace the CONTENT of one already-pinned deliverable while its artifact id stays exactly the same — the card keeps pointing at the same artifact and what sits behind it changes. Use this instead of remove+add whenever you are shipping a corrected version of something you already pinned: remove+add mints a NEW id, so anyone holding the old one is left pointing at nothing. For a file/image whose new bytes are on disk the one-call door is the task-scoped upload (POST /api/tasks/{task_id}/artifact/{artifact_id}/replace/upload, raw body); use THIS call to point a file/image at a blob already in the store (attachment_id), or to change a link's target (url). THE KIND CANNOT CHANGE ACROSS VERSIONS: a file artifact stays a file artifact, so sending a url for one (or an attachment_id for a link, or an explicit kind that differs from what is pinned) is a 400 — un-pin it and register a new artifact if the kind is what you meant to change. name and description are optional here and an omitted one is CARRIED FORWARD: a replacement is a corrected version of the same deliverable, so you never re-type either just to swap the content. Sending one replaces it, and the length caps (48 runes for name, 256 for description) are checked ONLY against a value you actually send — omit the field and whatever is stored stands, however long it is. A blank name is refused, because every deliverable has a name; a blank description clears it. ⚠️ Some clients serialise an empty string as an omitted field, so \\\"omit to keep\\\" is reliable and \\\"send blank to clear\\\" is not — do not build on the latter. The version you replaced is KEPT and readable, but only the most recent few are retained: the oldest falls off the end for good when a newer one arrives, and the file it pointed at is deleted with it, so a version that has scrolled off is not recoverable from anywhere. ONLY WHILE THE TASK IS STILL OPEN: once a task closes (done / terminated / duplicated) its deliverable set is frozen in every direction — replace is refused with the same 409 as add and remove, and admin/owner are not exempt. For a link, the url must begin with https:// or http:// and be at most 2048 characters (Unicode runes), refused with a 400 otherwise; and UNLIKE name and description it is re-validated on EVERY call - it has no carry-forward - so a caller that only means to change the name must still send back a url that passes. Answers with a bounded receipt (task_id, artifact_id, artifact_count, version_count), not the whole task.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"task_id\": {\n            \"type\": \"string\"\n          },\n          \"artifact_id\": {\n            \"type\": \"string\"\n          },\n          \"kind\": {\n            \"anyOf\": [\n              {\n                \"type\": \"string\"\n              },\n              {\n                \"type\": \"null\"\n              }\n            ],\n            \"default\": null,\n            \"description\": \"OPTIONAL, and an ASSERTION rather than an instruction: the only value accepted is the kind the artifact already has. It exists so a caller that believes it is replacing a link can be told exactly that, instead of being handed a 400 about a missing attachment_id. Omit it and the pinned kind is simply used.\",\n            \"title\": \"Kind\"\n          },\n          \"attachment_id\": {\n            \"anyOf\": [\n              {\n                \"type\": \"string\"\n              },\n              {\n                \"type\": \"null\"\n              }\n            ],\n            \"default\": null,\n            \"description\": \"The replacement blob, read ONLY when the pinned artifact's kind is 'file' or 'image' - where it IS required, a blank one being a 400. Upload the bytes first (the chat-attachments upload) and send the id it returns; an id that resolves to no stored blob is a 400 and nothing is replaced. Sending it for a LINK artifact is refused rather than ignored, because such a request means the caller believes the kind can change.\",\n            \"title\": \"Attachment Id\"\n          },\n          \"url\": {\n            \"anyOf\": [\n              {\n                \"type\": \"string\"\n              },\n              {\n                \"type\": \"null\"\n              }\n            ],\n            \"default\": null,\n            \"description\": \"The replacement link target, read ONLY when the pinned artifact's kind is 'link' - where it IS required, a blank one being a 400. It is CHECKED, but never fetched: it must begin with https:// or http:// (case-insensitive) and be at most 2048 characters (Unicode runes, not bytes), and anything else is a 400 - never a silent truncation. Unlike name and description, url has NO carry-forward branch here: replace re-validates it on EVERY call, so a caller that only means to rename the deliverable must send back a url that passes both checks. Past those two checks it is stored exactly as sent and still never fetched, so a typo replaces a working deliverable with one that leads nowhere. The two checks bind NEW writes only: stored urls predating them are left as they are. Sending it for a file/image artifact is refused rather than ignored, because such a request means the caller believes the kind can change.\",\n            \"title\": \"Url\"\n          },\n          \"name\": {\n            \"anyOf\": [\n              {\n                \"type\": \"string\"\n              },\n              {\n                \"type\": \"null\"\n              }\n            ],\n            \"default\": null,\n            \"description\": \"The NEW version's display name. OPTIONAL, and an omitted one CARRIES THE PINNED NAME FORWARD - a replacement is a corrected version of the same deliverable, so you never re-type the display name just to swap the content - and JSON null is read as omitted rather than as a value. Sending one replaces it, and the 48-rune cap is checked ONLY against a value you actually send: omit the field and whatever is stored stands, however long it is. A blank one is REFUSED, because every deliverable has a name. ⚠️ Some clients serialise an empty string as an omitted field, so \\\"omit to keep\\\" is reliable in a way \\\"send blank\\\" is not.\",\n            \"title\": \"Name\"\n          },\n          \"description\": {\n            \"anyOf\": [\n              {\n                \"type\": \"string\"\n              },\n              {\n                \"type\": \"null\"\n              }\n            ],\n            \"default\": null,\n            \"description\": \"The NEW version's prose. OPTIONAL, omitted = carried forward, JSON null read as omitted, 256-rune cap checked only against a value actually sent (T-92). Unlike ``name`` a blank one is ACCEPTED and CLEARS it - plenty of deliverables need no explanation - but see the warning on ``name``: a client that turns an empty string into an omitted field will silently keep the old prose instead, so do not build on clearing.\",\n            \"title\": \"Description\"\n          }\n        },\n        \"required\": [\n          \"task_id\",\n          \"artifact_id\"\n        ],\n        \"additionalProperties\": false,\n        \"type\": \"object\"\n      },\n      \"name\": \"replace_task_artifact\"\n    }"
           },
           "name": "replace_task_artifact",
-          "order": 116
+          "order": 115
         }
       }
     },
@@ -21222,7 +20846,7 @@
             "descriptor": "{\n      \"description\": \"List the saved custom themes — id and name only, in list order (owner/admin agent).\",\n      \"inputSchema\": {\n        \"properties\": {},\n        \"required\": [],\n        \"additionalProperties\": false,\n        \"type\": \"object\"\n      },\n      \"name\": \"list_themes\"\n    }"
           },
           "name": "list_themes",
-          "order": 111
+          "order": 110
         }
       }
     },
@@ -21291,7 +20915,7 @@
             "descriptor": "{\n      \"description\": \"Delete one custom theme; deleting the active one resets display_theme to \\\"\\\".\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"theme_id\": {\n            \"description\": \"Which theme to act on. It is the KEY the bundle is filed under, and for a write it must equal the bundle's own `id` \\u2014 a mismatched pair is refused rather than silently re-keyed.\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"theme_id\"\n        ],\n        \"additionalProperties\": false,\n        \"type\": \"object\"\n      },\n      \"name\": \"delete_theme\"\n    }"
           },
           "name": "delete_theme",
-          "order": 114
+          "order": 113
         }
       },
       "get": {
@@ -21358,7 +20982,7 @@
             "descriptor": "{\n      \"description\": \"Read one saved custom theme (unknown id \\u2192 404).\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"theme_id\": {\n            \"description\": \"Which theme to act on. It is the KEY the bundle is filed under, and for a write it must equal the bundle's own `id` \\u2014 a mismatched pair is refused rather than silently re-keyed.\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"theme_id\"\n        ],\n        \"additionalProperties\": false,\n        \"type\": \"object\"\n      },\n      \"name\": \"get_theme\"\n    }"
           },
           "name": "get_theme",
-          "order": 112
+          "order": 111
         }
       },
       "put": {
@@ -21435,7 +21059,7 @@
             "descriptor": "{\n      \"description\": \"Create or replace ONE custom theme; the bundle's id must match the path (owner/admin agent).\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"theme_id\": {\n            \"description\": \"Which theme to act on. It is the KEY the bundle is filed under, and for a write it must equal the bundle's own `id` \\u2014 a mismatched pair is refused rather than silently re-keyed.\",\n            \"type\": \"string\"\n          },\n          \"id\": {\n            \"title\": \"Id\",\n            \"type\": \"string\"\n          },\n          \"name\": {\n            \"title\": \"Name\",\n            \"type\": \"string\"\n          },\n          \"colors\": {\n            \"additionalProperties\": {\n              \"type\": \"string\"\n            },\n            \"title\": \"Colors\",\n            \"type\": \"object\"\n          },\n          \"fonts\": {\n            \"additionalProperties\": {\n              \"type\": \"string\"\n            },\n            \"description\": \"Optional font-family choices (T-16a1 P4). Maps a `--font-*` token name (`--font-sans` / `--font-title` only) to a font-family stack string. The value is NOT an arbitrary string: it must be one of a small CLOSED allowlist of safe, built-in font-family stacks (themeFonts.source.json \\u2014 the same set the theme editor's font dropdown offers); no url(), no @font-face, no external font, no CSS structure characters. Absent = the theme keeps the default fonts. The server 422s any fonts that violates the token set or the safe-family allowlist.\",\n            \"title\": \"Fonts\",\n            \"type\": \"object\"\n          },\n          \"wording\": {\n            \"additionalProperties\": {\n              \"additionalProperties\": {\n                \"type\": \"string\"\n              },\n              \"title\": \"Wording Lang\",\n              \"type\": \"object\"\n            },\n            \"description\": \"Optional per-language wording overrides (T-16a1 P3). Outer key = UI language (`zh` / `en` only); inner map = an i18n message-key (an internal code path such as `nav.tasks`, drawn from the generated messageKeys whitelist) -> the owner's replacement PLAIN TEXT. Values are plain text only (trimmed, <=200 runes, control chars / newlines rejected, per-language entry count capped); no HTML/CSS. Absent = no overrides. The server 422s any wording that violates the language set or the value rules. A code OUTSIDE the messageKeys whitelist is NOT a 422: it is DROPPED from the overlay and the request succeeds, so only the surviving codes are stored - and NOTHING IN THE RESPONSE SAYS WHICH. This used to read 'the response echoes a pruned `wording`', which was true while put_theme answered the theme; T-91 made it answer ThemeWriteReceiptDTO (`created`, `id`, `order_idx`, `updated_at`), so the pruned overlay is no longer visible on the write. GET the theme back to see which codes survived (an already-imported theme pack stays usable when the whitelist shrinks; the accepted cost is that a typo'd code silently does nothing).\",\n            \"title\": \"Wording\",\n            \"type\": \"object\"\n          },\n          \"avatars\": {\n            \"additionalProperties\": {\n              \"type\": \"string\"\n            },\n            \"description\": \"Optional per-role avatar images (T-16a1 P5; extended per role in T-ea81). Keys are the closed set `member` (\\u4e00\\u822c\\u6b63\\u8077 member) / `outsource` (\\u5916\\u5305 outsource worker) / `owner` (the human CEO / owner) / `assistant` (a member whose role is `assistant`, e.g. Mira). Each value is an EMBEDDED image encoded as a base64 `data:` URI so the image travels inside the bundle on export/import. The value is NOT arbitrary: only a `data:image/<mime>;base64,<...>` URI whose mime is a whitelisted RASTER format (`image/png` / `image/jpeg` / `image/webp`) is accepted. SVG (`image/svg+xml`) is REJECTED (it can carry script/onload \\u2014 XSS). The base64 must decode, the decoded byte size is capped (<=64 KiB) and the string length capped, and the leading magic bytes must match the declared mime (PNG `89 50 4E 47`, JPEG `FF D8 FF`, WEBP `RIFF....WEBP`) \\u2014 a value that declares one mime but carries another is rejected. Absent = that role falls back to the built-in avatar glyph (office never degrades). The server 422s any avatars that violates the key set, the mime whitelist, the size caps, the base64, or the magic-byte check.\",\n            \"title\": \"Avatars\",\n            \"type\": \"object\"\n          },\n          \"logo\": {\n            \"description\": \"Optional studio logo image (T-ea81). A single EMBEDDED image encoded as a base64 `data:` URI that replaces the built-in logo mark shown in the top bar. Same strict image gate as `avatars`: only a `data:image/<mime>;base64,<...>` URI whose mime is a whitelisted RASTER format (`image/png` / `image/jpeg` / `image/webp`) is accepted; SVG (`image/svg+xml`) is REJECTED (script/onload XSS); the base64 must decode, the decoded byte size is capped (<=64 KiB) and the string length capped, and the leading magic bytes must match the declared mime (PNG `89 50 4E 47`, JPEG `FF D8 FF`, WEBP `RIFF....WEBP`). Absent = the built-in logo mark is used (office never degrades). The server 422s any logo that violates the mime whitelist, the size caps, the base64, or the magic-byte check.\",\n            \"title\": \"Logo\",\n            \"type\": \"string\"\n          },\n          \"navIcons\": {\n            \"additionalProperties\": {\n              \"type\": \"string\"\n            },\n            \"description\": \"Optional per-tab navigation icon images (T-ea81). Keys are the closed set of the five nav tabs `office` (\\u8fa6\\u516c\\u5ba4) / `replies` (\\u8acb\\u793a) / `tasks` (\\u4efb\\u52d9) / `monitor` (\\u76e3\\u63a7) / `guide` (\\u4f7f\\u7528\\u8aaa\\u660e); each value is an EMBEDDED image encoded as a base64 `data:` URI that replaces that tab's built-in icon. Same strict image gate as `avatars`: only a `data:image/<mime>;base64,<...>` URI whose mime is a whitelisted RASTER format (`image/png` / `image/jpeg` / `image/webp`) is accepted; SVG (`image/svg+xml`) is REJECTED (script/onload XSS); the base64 must decode, the decoded byte size is capped (<=64 KiB) and the string length capped, and the leading magic bytes must match the declared mime (PNG `89 50 4E 47`, JPEG `FF D8 FF`, WEBP `RIFF....WEBP`). Absent = that tab falls back to its built-in icon (office never degrades). The server 422s any navIcons that violates the key set, the mime whitelist, the size caps, the base64, or the magic-byte check.\",\n            \"title\": \"Nav Icons\",\n            \"type\": \"object\"\n          },\n          \"backgrounds\": {\n            \"additionalProperties\": {\n              \"type\": \"string\"\n            },\n            \"description\": \"Optional background images for the cockpit's chrome (T-081b). Keys are a CLOSED set holding exactly one zone today: `canvas` \\u2014 the OUTERMOST canvas, i.e. the page background behind the centred content column. In `tile` / `sides` mode only the area BESIDE that column shows it, which is nothing on a phone, in a narrow window, or in the wide layout (all of which leave no side gutter); in `cover` mode the image fills the viewport and shows through wherever the theme gives the chrome zone colours translucent values. The zone tokens above it (`--color-topbar-bg` / `--color-nav-bg` / `--color-main-bg`) deliberately take NO image: they sit under text, and text over a busy pattern has no readability guarantee. Each value is an EMBEDDED image encoded as a base64 `data:` URI laid on top of the solid `--color-bg`, which still shows through wherever the image does not cover; HOW it is laid down is `backgroundModes` (default `tile`). Same strict image gate as `avatars`: only a `data:image/<mime>;base64,<...>` URI whose mime is a whitelisted RASTER format (`image/png` / `image/jpeg` / `image/webp`) is accepted; SVG (`image/svg+xml`) is REJECTED (script/onload XSS); the base64 must decode, and the leading magic bytes must match the declared mime (PNG `89 50 4E 47`, JPEG `FF D8 FF`, WEBP `RIFF....WEBP`). The SIZE caps are the one place backgrounds differ from `avatars`: the decoded byte size is capped at <=512 KiB (with the raw data-URI string capped above the base64-inflated form of that), NOT the <=64 KiB that applies to `avatars` / `logo` / `navIcons`. A background is stretched or tiled across the whole viewport, where the glyph-sized 64 KiB cap read as visibly blurry; that cap \\u2014 and the T-081b ruling that a background must never exceed it \\u2014 was overturned by the owner on 2026-08-03, and the small-glyph fields keep 64 KiB. Absent = the outer canvas is the plain `--color-bg` colour, exactly as before this field existed. The server 422s any backgrounds that violates the key set, the mime whitelist, the size caps, the base64, or the magic-byte check.\",\n            \"title\": \"Backgrounds\",\n            \"type\": \"object\"\n          },\n          \"backgroundModes\": {\n            \"additionalProperties\": {\n              \"type\": \"string\"\n            },\n            \"description\": \"Optional per-zone DISPLAY MODE for the images in `backgrounds` (T-081b). Same CLOSED zone-key set as `backgrounds` (today: `canvas`); each value is one of a CLOSED set of three: `tile` \\u2014 repeat the image in both axes over the whole canvas (the ONLY behaviour before this field existed, and the default for any zone this map omits, so an older bundle renders identically); `sides` \\u2014 do NOT repeat at all: pin ONE copy of the image against the LEFT viewport edge and one against the RIGHT, both at natural size, aligned to the viewport bottom, with `--color-bg` filling whatever the image does not reach; `cover` \\u2014 ONE copy scaled (`background-size: cover`) to fill the whole viewport, centred. `sides` exists for art that reads as a pair of standing objects (e.g. a tree either side) rather than a texture; the product does NOT mirror the right-hand copy \\u2014 a theme wanting left/right symmetry bakes it into the image (owner 2026-07-27). `sides` and `cover` are pinned to the VIEWPORT (`background-attachment: fixed`) because the canvas background otherwise scrolls with the document, which would bring a second copy into view down a long page. `cover` is only VISIBLE where the theme also gives the chrome zone colours (`--color-topbar-bg` / `--color-nav-bg` / `--color-main-bg`) translucent values \\u2014 the colour grammar already admits `#RRGGBBAA` and `rgba()` \\u2014 and that is also where its risk lives: those zones sit under text, so the image's contrast against that text is the theme's own responsibility (owner accepted this trade-off on 2026-07-27). A mode for a zone that carries no image is a 422 (a mode alone paints nothing, so it is a mistake worth naming rather than ignoring). Absent = every zone tiles, exactly as before this field existed. NOTE both modes are invisible at viewport widths where the content column leaves no gutter (phones, narrow windows) \\u2014 that is a property of the outer canvas, not of the mode.\",\n            \"title\": \"Background Modes\",\n            \"type\": \"object\"\n          }\n        },\n        \"required\": [\n          \"theme_id\",\n          \"id\",\n          \"name\",\n          \"colors\"\n        ],\n        \"additionalProperties\": false,\n        \"type\": \"object\"\n      },\n      \"name\": \"put_theme\"\n    }"
           },
           "name": "put_theme",
-          "order": 113
+          "order": 112
         }
       }
     },
@@ -22062,7 +21686,7 @@
         "summary": "List 傳承 entries, filtered SERVER-SIDE and paged in the fixed order pinned -> active -> retired, newest first inside each group. The order is not configurable; the filter is.",
         "x-mcp": {
           "include": true,
-          "order": 118,
+          "order": 117,
           "name": "list_lore_entries",
           "description": "List 傳承 entries, filtered SERVER-SIDE and paged in the fixed order pinned -> active -> retired, newest first inside each group. The order is not configurable; the filter is.",
           "legacy": {
@@ -22128,7 +21752,7 @@
         "summary": "Write ONE 傳承 entry (never editable afterwards). ``task_id`` picks the scope, and there is ALWAYS somewhere for it to land: a task that carries a TYPE files under that type's manual; no task at all, OR a task with no type (臨時任務), files into your OWN boot document -- your role if you are staff, yourself if you are an outsource member (who has no role for a role scope to name). The untyped-task case answers a ``scope_note`` saying where it actually went, because you asked for a manual and did not get one. Only a caller with no roster row at all is a 400 -- there is no boot document to file into. An over-cap title or body is a 400 that writes nothing.",
         "x-mcp": {
           "include": true,
-          "order": 117,
+          "order": 116,
           "name": "write_lore_entry",
           "description": "Write ONE 傳承 entry (never editable afterwards). ``task_id`` picks the scope, and there is ALWAYS somewhere for it to land: a task that carries a TYPE files under that type's manual; no task at all, OR a task with no type (臨時任務), files into your OWN boot document -- your role if you are staff, yourself if you are an outsource member (who has no role for a role scope to name). The untyped-task case answers a ``scope_note`` saying where it actually went, because you asked for a manual and did not get one. Only a caller with no roster row at all is a 400 -- there is no boot document to file into. An over-cap title or body is a 400 that writes nothing.",
           "legacy": {
@@ -22207,7 +21831,7 @@
         "summary": "Move one 傳承 entry to active / pinned / retired. 置頂 and un-置頂 are ADMIN-ONLY (owner ruling): a pinned entry sorts ahead of every other entry in its scope and so survives the cap at the others' expense. 失效 and 生效 are open to the entry's own AUTHOR -- anyone else is a 403 -- and admin capability is unrestricted. Retiring is not deleting: the entry keeps its id and can be moved back; ``retire_reason`` is stored only with retired and cleared by the other two.",
         "x-mcp": {
           "include": true,
-          "order": 119,
+          "order": 118,
           "name": "set_lore_entry_state",
           "description": "Move one 傳承 entry to active / pinned / retired. 置頂 and un-置頂 are ADMIN-ONLY (owner ruling): a pinned entry sorts ahead of every other entry in its scope and so survives the cap at the others' expense. 失效 and 生效 are open to the entry's own AUTHOR -- anyone else is a 403 -- and admin capability is unrestricted. Retiring is not deleting: the entry keeps its id and can be moved back; ``retire_reason`` is stored only with retired and cleared by the other two.",
           "legacy": {
@@ -22276,7 +21900,7 @@
         "summary": "提到最新: set one 傳承 entry's ``effective_ts`` to now so it sorts to the front of its group. Only the entry's own AUTHOR may bump it (admin capability is unrestricted) -- a bump moves an entry ahead of other people's under a shared cap, so it spends somebody else's room. ``created_ts`` is NOT touched, which is what makes this reversible.",
         "x-mcp": {
           "include": true,
-          "order": 120,
+          "order": 119,
           "name": "bump_lore_entry",
           "description": "提到最新: set one 傳承 entry's ``effective_ts`` to now so it sorts to the front of its group. Only the entry's own AUTHOR may bump it (admin capability is unrestricted) -- a bump moves an entry ahead of other people's under a shared cap, so it spends somebody else's room. ``created_ts`` is NOT touched, which is what makes this reversible.",
           "legacy": {

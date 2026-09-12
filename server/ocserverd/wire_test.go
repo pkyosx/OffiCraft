@@ -908,7 +908,7 @@ func TestFoldActorRuntime(t *testing.T) {
 	})
 }
 
-func TestNewOutsourceWorkerDTO(t *testing.T) {
+func TestApiServerNewOutsourceMemberDTO(t *testing.T) {
 	okTrue := true
 	worker := OutsourceWorker{
 		ID: "w-1", Codename: "O-7", Runtime: "", Model: "claude-opus-4-6", Effort: "high",
@@ -934,12 +934,12 @@ func TestNewOutsourceWorkerDTO(t *testing.T) {
 		CreatorID: "ann", CreatedTS: 50, TypeKey: "bugfix"}
 
 	t.Run("a bound worker projects whole: runtime facts fold, the machine and account resolve, the task rides along", func(t *testing.T) {
-		got := newOutsourceWorkerDTO(worker, task, proj)
+		got := (&apiServer{}).newOutsourceMemberDTO(worker, task, proj)
 		wantCost, wantPct, wantBanked := 2.5, 30.0, 3.5
 		wantCompaction := 2
 		wantAccount := "Studio acct-1"
-		want := outsourceWorkerDTO{
-			ID: "w-1", AvatarURL: "/api/chat/attachment/att-9", Codename: "O-7",
+		want := memberDTO{
+			ID: "w-1", AvatarURL: "/api/chat/attachment/att-9", Name: "O-7", Kind: KindOutsource,
 			Runtime: "claude", Model: "claude-opus-4-6", Effort: "high",
 			ActualModel: "claude-opus-4-5", ActualRuntime: "claude", ActualEffort: "medium",
 			Status: "active", TaskID: "t-1", TaskTitle: "Fix the thing",
@@ -953,65 +953,66 @@ func TestNewOutsourceWorkerDTO(t *testing.T) {
 			LastOpAt: 150, CreatorID: "ann", DelegatedBy: "Ann",
 			RefocusSince: 900, RefocusOp: refocusOpAcceleratedStop,
 			RefocusDeadline: 960, DesiredState: "online",
+			RosterStatus: RosterStatusActive, OwnerID: wireOwnerID, SchemaVersion: wireSchemaVersion,
 		}
-		if !wireWorkerDTOEqual(got, want) {
-			t.Fatalf("newOutsourceWorkerDTO(bound worker):\n got %+v\nwant %+v", got, want)
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("newOutsourceMemberDTO(bound worker):\n got %+v\nwant %+v", got, want)
 		}
 	})
 
 	t.Run("a nil task leaves every task field honest-empty and the row still lists", func(t *testing.T) {
-		got := newOutsourceWorkerDTO(worker, nil, proj)
+		got := (&apiServer{}).newOutsourceMemberDTO(worker, nil, proj)
 		if got.TaskTitle != "" || got.TaskStatus != "" || got.TaskNo != "" ||
 			got.TaskCreatedTS != 0 || got.TaskTypeKey != "" || got.TaskTypeName != "" ||
 			got.CreatorID != "" {
-			t.Fatalf("newOutsourceWorkerDTO(nil task) fabricated task facts: %+v", got)
+			t.Fatalf("newOutsourceMemberDTO(nil task) fabricated task facts: %+v", got)
 		}
 		if got.ID != "w-1" || got.TaskID != "t-1" || got.Presence != "online" {
-			t.Fatalf("newOutsourceWorkerDTO(nil task) dropped the row itself: %+v", got)
+			t.Fatalf("newOutsourceMemberDTO(nil task) dropped the row itself: %+v", got)
 		}
 	})
 
 	t.Run("nothing observed and nothing reported leaves the machine, account and runtime facts empty", func(t *testing.T) {
 		bare := OutsourceWorker{ID: "w-2", Status: WorkerStatusAssigned}
-		got := newOutsourceWorkerDTO(bare, nil, outsourceWorkerProjection{now: 1000})
+		got := (&apiServer{}).newOutsourceMemberDTO(bare, nil, outsourceWorkerProjection{now: 1000})
 		if got.Machine != "" {
-			t.Fatalf("newOutsourceWorkerDTO(nothing dispatched).Machine = %q, want the empty string", got.Machine)
+			t.Fatalf("newOutsourceMemberDTO(nothing dispatched).Machine = %q, want the empty string", got.Machine)
 		}
 		if got.Account != nil || got.Cost != nil || got.ContextPct != nil ||
 			got.BankedCost != nil || got.CompactionCount != nil {
-			t.Fatalf("newOutsourceWorkerDTO(nothing reported) fabricated runtime facts: %+v", got)
+			t.Fatalf("newOutsourceMemberDTO(nothing reported) fabricated runtime facts: %+v", got)
 		}
 		if got.AvatarURL != "" {
-			t.Fatalf("newOutsourceWorkerDTO(no avatar).AvatarURL = %q, want the empty string", got.AvatarURL)
+			t.Fatalf("newOutsourceMemberDTO(no avatar).AvatarURL = %q, want the empty string", got.AvatarURL)
 		}
 		if got.Runtime != "claude" {
-			t.Fatalf("newOutsourceWorkerDTO(blank runtime).Runtime = %q, want the normalised default", got.Runtime)
+			t.Fatalf("newOutsourceMemberDTO(blank runtime).Runtime = %q, want the normalised default", got.Runtime)
 		}
 		if got.Presence != "offline" {
-			t.Fatalf("newOutsourceWorkerDTO(offline, no anchor).Presence = %q, want %q", got.Presence, "offline")
+			t.Fatalf("newOutsourceMemberDTO(offline, no anchor).Presence = %q, want %q", got.Presence, "offline")
 		}
 		if got.RefocusDeadline != 0 {
-			t.Fatalf("newOutsourceWorkerDTO(no wind-down).RefocusDeadline = %v, want 0", got.RefocusDeadline)
+			t.Fatalf("newOutsourceMemberDTO(no wind-down).RefocusDeadline = %v, want 0", got.RefocusDeadline)
 		}
 	})
 
 	t.Run("a resolved account key that has no readable name is served as null, not as the raw key", func(t *testing.T) {
 		p := proj
 		p.accountDisplay = func(string) string { return "" }
-		if got := newOutsourceWorkerDTO(worker, nil, p); got.Account != nil {
-			t.Fatalf("newOutsourceWorkerDTO(unreadable account).Account = %v, want nil", got.Account)
+		if got := (&apiServer{}).newOutsourceMemberDTO(worker, nil, p); got.Account != nil {
+			t.Fatalf("newOutsourceMemberDTO(unreadable account).Account = %v, want nil", got.Account)
 		}
 		p.accountDisplay = nil
-		if got := newOutsourceWorkerDTO(worker, nil, p); got.Account != nil {
-			t.Fatalf("newOutsourceWorkerDTO(no resolver).Account = %v, want nil", got.Account)
+		if got := (&apiServer{}).newOutsourceMemberDTO(worker, nil, p); got.Account != nil {
+			t.Fatalf("newOutsourceMemberDTO(no resolver).Account = %v, want nil", got.Account)
 		}
 	})
 
 	t.Run("a spawn target with no machine resolver leaves the machine label empty", func(t *testing.T) {
 		p := proj
 		p.machineDisplay = nil
-		if got := newOutsourceWorkerDTO(worker, nil, p); got.Machine != "" {
-			t.Fatalf("newOutsourceWorkerDTO(no machine resolver).Machine = %q, want the empty string", got.Machine)
+		if got := (&apiServer{}).newOutsourceMemberDTO(worker, nil, p); got.Machine != "" {
+			t.Fatalf("newOutsourceMemberDTO(no machine resolver).Machine = %q, want the empty string", got.Machine)
 		}
 	})
 
@@ -1020,44 +1021,14 @@ func TestNewOutsourceWorkerDTO(t *testing.T) {
 		w.DesiredState = DesiredStateOffline
 		w.StoppingSince = 800
 		w.RefocusOp = refocusOpAcceleratedStop
-		got := newOutsourceWorkerDTO(w, nil, proj)
+		got := (&apiServer{}).newOutsourceMemberDTO(w, nil, proj)
 		if got.RefocusDeadline != 860 {
-			t.Fatalf("newOutsourceWorkerDTO(stopping).RefocusDeadline = %v, want 860", got.RefocusDeadline)
+			t.Fatalf("newOutsourceMemberDTO(stopping).RefocusDeadline = %v, want 860", got.RefocusDeadline)
 		}
 		if got.Presence != "stopping" {
-			t.Fatalf("newOutsourceWorkerDTO(stopping, online).Presence = %q, want %q", got.Presence, "stopping")
+			t.Fatalf("newOutsourceMemberDTO(stopping, online).Presence = %q, want %q", got.Presence, "stopping")
 		}
 	})
-}
-
-// wireWorkerDTOEqual compares two worker DTOs by VALUE, dereferencing the five
-// nullable fields so a pointer identity difference is never mistaken for a
-// payload difference.
-func wireWorkerDTOEqual(a, b outsourceWorkerDTO) bool {
-	eqStr := func(x, y *string) bool {
-		return (x == nil) == (y == nil) && (x == nil || *x == *y)
-	}
-	eqF := func(x, y *float64) bool {
-		return (x == nil) == (y == nil) && (x == nil || *x == *y)
-	}
-	eqI := func(x, y *int) bool {
-		return (x == nil) == (y == nil) && (x == nil || *x == *y)
-	}
-	eqB := func(x, y *bool) bool {
-		return (x == nil) == (y == nil) && (x == nil || *x == *y)
-	}
-	if !eqStr(a.Account, b.Account) || !eqF(a.ContextPct, b.ContextPct) ||
-		!eqI(a.CompactionCount, b.CompactionCount) || !eqF(a.Cost, b.Cost) ||
-		!eqF(a.BankedCost, b.BankedCost) || !eqB(a.LastOpOK, b.LastOpOK) {
-		return false
-	}
-	a.Account, b.Account = nil, nil
-	a.ContextPct, b.ContextPct = nil, nil
-	a.CompactionCount, b.CompactionCount = nil, nil
-	a.Cost, b.Cost = nil, nil
-	a.BankedCost, b.BankedCost = nil, nil
-	a.LastOpOK, b.LastOpOK = nil, nil
-	return reflect.DeepEqual(a, b)
 }
 
 func TestWorkerPresence(t *testing.T) {

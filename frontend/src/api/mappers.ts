@@ -792,12 +792,12 @@ export function toOutsourceWorker(w: WireOutsourceWorker): OutsourceWorkerView {
   return {
     id: w.id,
     avatarUrl: w.avatar_url ?? "",
-    codename: w.codename,
+    codename: w.name,
     runtime: (w.runtime || "claude") as "claude" | "codex",
     model: w.model ?? "",
     effort: w.effort ?? "",
     status: w.status ?? "",
-    taskId: w.task_id,
+    taskId: w.task_id ?? "",
     taskTitle: w.task_title ?? "",
     taskStatus: w.task_status ?? "",
     // The bound task's number / type / created stamp are WIRE fields since

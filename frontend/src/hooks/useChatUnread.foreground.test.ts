@@ -91,7 +91,7 @@ afterEach(() => {
 });
 
 describe("useChatUnread — end-to-end convergence with no reload (T-b86c)", () => {
-  // A: a roster/worker lifecycle delta (member / outsource_worker) changes the
+  // A: a roster/worker lifecycle member delta changes the
   // office total. Pre-fix the badge subscribed to only chat/chat_read and stayed
   // stale. MUTANT: drop "member" from OFFICE_TOTAL_TOPICS → count stays 8.
   it("a 'member' delta moves the badge from its stale value to the fresh backend truth", async () => {
@@ -108,14 +108,14 @@ describe("useChatUnread — end-to-end convergence with no reload (T-b86c)", () 
     await waitFor(() => expect(result.current).toBe(10));
   });
 
-  it("an 'outsource_worker' delta also moves the badge (worker spawn/release changes live set)", async () => {
+  it("a 'member' delta moves the badge when worker spawn/release changes the live set", async () => {
     h.getChatUnreadCount.mockResolvedValue(8);
     const { result } = renderHook(() => useChatUnread());
     await waitFor(() => expect(result.current).toBe(8));
 
     h.getChatUnreadCount.mockResolvedValue(9);
     act(() => {
-      FakeEventSource.instances[0].emit("outsource_worker");
+      FakeEventSource.instances[0].emit("member");
     });
 
     await waitFor(() => expect(result.current).toBe(9));

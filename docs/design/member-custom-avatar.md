@@ -25,7 +25,7 @@ the existing 390 px, 768 px, and desktop layouts.
   `filename` and `mime` query parameters preserve source metadata.
 - `DELETE /api/members/{member_id}/avatar` is idempotent.
 - Both routes require the owner principal and are excluded from MCP exposure.
-- `MemberDTO.avatar_url` and `OutsourceWorkerDTO.avatar_url` are optional, so
+- `MemberDTO.avatar_url` is optional for both staff and outsource members, so
   old records and clients preserve the existing fallback behavior.
 - Uploads accept PNG, JPEG, or WebP up to 64 KiB. The server checks magic bytes
   and rejects an SVG, arbitrary data, or a declared MIME mismatch with `422`;
@@ -52,9 +52,8 @@ an avatar replacement. General member upserts also leave the avatar pointer
 untouched; only the dedicated avatar mutators may replace or clear it, so a
 stale lifecycle snapshot cannot erase a newer avatar.
 
-The route publishes `member` SSE after a staff mutation and
-`outsource_worker` SSE after an outsource mutation. Existing consumers refetch
-their lightweight DTOs; image bytes never enter SSE.
+The route publishes `member` SSE after either staff or outsource mutation.
+Existing consumers refetch their lightweight DTOs; image bytes never enter SSE.
 
 ## Compatibility, rollback, and verification
 

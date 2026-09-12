@@ -410,13 +410,13 @@ export function OfficePage({
             ? () => setRoute({ page: "tasks", taskId: workerDetail.taskId })
             : undefined
         }
-        // 改機器 (T-f190; admin-gated since P7c): fire the relocate; the outsource_worker SSE
+        // 改機器 (T-f190; admin-gated since P7c): fire the relocate; the member SSE
         // delta refetches the worker list so the panel adopts the new placement.
         onRelocate={async (machineId) => {
           await api.relocateMember(workerDetail.id, machineId);
         }}
         // T-32e1/T-f190 lifecycle ops (owner/admin-agent floor since T-6020). Each fires the mutation; the
-        // outsource_worker SSE delta refetches so the panel adopts the new state.
+        // member SSE delta refetches so the panel adopts the new state.
         onRefocus={async () => {
           await api.refocusMember(workerDetail.id);
         }}

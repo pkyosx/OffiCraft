@@ -418,7 +418,6 @@ export const SSE_RESYNC_TOPICS = [
   "chat_read",
   "reply_card",
   "task",
-  "outsource_worker",
   "task_manual",
   "global_context",
   "role_def",
@@ -1924,20 +1923,14 @@ export const httpApi: Api = {
   },
 
   async listOutsourceWorkers(): Promise<OutsourceWorkerView[]> {
-    // GET /api/outsource-workers -> OutsourceWorkerDTO[]. LIVE workers only —
-    // released ones drop off (their tasks then render the bare 外包 label;
-    // honest, never a fabricated codename).
-    const wire = unwrap(await client.GET("/api/outsource-workers"));
-    return wire.map(toOutsourceWorker);
+    const wire = unwrap(await client.GET("/api/members"));
+    return wire.filter((member) => member.kind === "outsource").map(toOutsourceWorker);
   },
 
   async getOutsourceWorker(id: string): Promise<OutsourceWorkerView> {
-    // GET /api/outsource-workers/{id} -> OutsourceWorkerDTO. The SAME projection
-    // the list serves, for the detail panel's post-relocate refresh. Unknown /
-    // released → 404 (unwrap throws ApiError; the panel self-heals to the roster).
     const wire = unwrap(
-      await client.GET("/api/outsource-workers/{id}", {
-        params: { path: { id } },
+      await client.GET("/api/members/{member_id}", {
+        params: { path: { member_id: id } },
       }),
     );
     return toOutsourceWorker(wire);

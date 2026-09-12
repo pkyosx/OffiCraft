@@ -3,12 +3,12 @@
 //
 // Why it exists: GET /api/members DOES carry kind='outsource' rows, but it
 // drops every roster_status='removed' one — and release sets exactly that —
-// and GET /api/outsource-workers serves LIVE workers only. So a RELEASED
+// and the filtered GET /api/members list serves LIVE workers only. So a RELEASED
 // worker's id (task closed / reassigned away) resolves to nothing client-side
 // and every display point degraded to the raw ow- id (chat sender labels,
 // 任務卡 前任/建立者 chips, 請示卡 identity row) while the left rail showed the
 // codename.
-// The per-id GET /api/outsource-workers/{id} DOES serve released rows, so this
+// The per-id GET /api/members/{id} DOES serve released rows, so this
 // hook resolves unknown ow- ids through it, once each, into a module-level
 // cache shared by every display point.
 //

@@ -614,7 +614,7 @@ func (s *apiServer) sseStopGateRefusal(memberID string) string {
 // a fresh anchor. The whole fleet then read as seconds old for ten minutes.
 func (s *apiServer) onFirstConnect(memberID string) {
 	// Worker presence is projected from this connection edge. The owner's live
-	// worker list subscribes to outsource_worker, so fan its canonical delta
+	// worker list subscribes to member, so fan its canonical delta
 	// even when no durable member field changed (the common case).
 	s.publishOutsourcePresenceEdge(memberID)
 	if m, err := s.dal.GetMember(memberID); err == nil && m != nil && m.WakingSince > 0 {
@@ -884,8 +884,8 @@ func (s *apiServer) onLastDisconnect(memberID string) {
 
 // publishOutsourcePresenceEdge makes the worker-list projection converge after
 // a real SSE online edge. Presence lives only in Hub, so no durable write is
-// guaranteed to accompany a clean connect/disconnect; the existing
-// outsource_worker delta is the owner cockpit's canonical invalidation signal.
+// guaranteed to accompany a clean connect/disconnect; the member delta is the
+// owner cockpit's canonical invalidation signal.
 func (s *apiServer) publishOutsourcePresenceEdge(memberID string) {
 	worker, err := s.dal.GetOutsourceWorker(memberID)
 	if err != nil || worker == nil || worker.Status == WorkerStatusReleased {
@@ -917,8 +917,7 @@ func (s *apiServer) bankLiveCost(actorID string) {
 		delete(entry, "cost")
 		s.telemetry.Set(actorID, entry)
 	}
-	// An outsource member banks through the WORKER branch below (its delta fans
-	// on the outsource_worker topic, never as a member patch — pre-fold parity).
+	// An outsource member banks through the worker branch below.
 	if m, err := s.dal.GetMember(actorID); err == nil && m != nil && m.Kind != KindOutsource {
 		pop()
 		if err := s.dal.AddMemberBankedCost(actorID, cost); err != nil {
@@ -934,8 +933,8 @@ func (s *apiServer) bankLiveCost(actorID string) {
 	}
 	if w, err := s.dal.GetOutsourceWorker(actorID); err == nil && w != nil {
 		pop()
-		// No delta on purpose (pre-fold parity): a worker's changes ride the
-		// outsource_worker projection, never a member patch naming an ow- id.
+		// The presence-edge publisher emits the shared member invalidation after
+		// this fold returns.
 		if err := s.dal.AddMemberBankedCost(actorID, cost); err != nil {
 			fmt.Fprintf(os.Stderr, "[bank] cost bank failed for worker %q: %v\n", actorID, err)
 		}

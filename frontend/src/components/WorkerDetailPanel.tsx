@@ -50,7 +50,7 @@ interface WorkerDetailPanelProps {
   onOpenTask?: () => void;
   /** Relocate the worker to a machine (owner 改機器 — T-f190). Undefined ⇒ the
    * 改機器 affordance is hidden (the office entry always wires it; a caller that
-   * cannot relocate simply omits it). The panel leans on the outsource_worker
+   * cannot relocate simply omits it). The panel leans on the member
    * SSE refetch for the post-move refresh, so the handler need only fire. */
   onRelocate?: (machineId: string) => Promise<void>;
   /** Refocus (換手 — T-32e1): kill+respawn the session onto the SAME task. The

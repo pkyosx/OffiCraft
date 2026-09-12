@@ -1877,7 +1877,6 @@ func (s *apiServer) openOwnerOpHandover(w OutsourceWorker, op string) bool {
 		s.respawnWorkerForOwnerOpNow(w, op)
 		return true
 	}
-	s.publishOutsourceWorker(w, triggerServer)
 	s.openWorkerHandoverGrace(w, triggerServer)
 	if grace, clocked := recycleGraceFor(op, s.reconcileConfigLive()); clocked {
 		outsourceLog("%s %s (%s): wind-down opened — collect on stopped-report or +%.0fs",
@@ -2344,7 +2343,7 @@ func (s *apiServer) resolveLiveWorker(id string) (*OutsourceWorker, error) {
 // claim are the same event again instead of two. WorkerStatusAssigned is a
 // projection of activated_ts == 0 (memberFromWorker stamps it), so the flip is
 // durable through the ordinary putMember write below — and it publishes an
-// outsource_worker delta so the cockpit panel moves on the same edge it always
+// member delta so the cockpit panel moves on the same edge it always
 // did. Idempotent: a repeat report on an already-active worker changes nothing
 // and fans no worker delta.
 // Takes s.outsourceMu.
@@ -2369,12 +2368,6 @@ func (s *apiServer) workerReportWaking(id string, model *string, trigger string)
 	}
 	if err := s.putMember(m, trigger); err != nil {
 		return nil, err
-	}
-	if claimed {
-		// memberFromWorker minted the activated_ts; echo it back onto the row we
-		// publish so the delta's status is the one that was just persisted.
-		w.ActivatedTS = m.ActivatedTS
-		s.publishOutsourceWorker(*w, trigger)
 	}
 	return &m, nil
 }
@@ -2548,7 +2541,6 @@ func (s *apiServer) workerRestartSelf(id string, now float64, trigger string) (*
 	if err := s.dal.PutOutsourceWorker(*w); err != nil {
 		return nil, err
 	}
-	s.publishOutsourceWorker(*w, trigger)
 	s.openWorkerHandoverGrace(*w, trigger)
 	m := memberFromWorker(*w)
 	return &m, nil

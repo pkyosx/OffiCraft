@@ -1,7 +1,7 @@
 package main
 
-// api_outsource.go — the 外包 panel read face (M3 contract §C.4) + the detail
-// panel's runtime projection and 改機器 operation (T-f190). The panel is a live
+// api_outsource.go — outsource-specific projection overlays and operations.
+// The panel is a live
 // view of every NOT-yet-released worker joined to its one bound task (title +
 // status); a task hitting a terminal state releases its worker (api_tasks.go
 // closeTask) and the row drops off here — the DB row itself is the audit trail.
@@ -14,7 +14,7 @@ package main
 // account, context %, live cost, and last warden receipt — all from the SAME
 // per-actor telemetry/gauge maps the member roster reads (keyed by actor id;
 // see api_monitoring.go). The owner or admin agent can 改機器 via POST .../relocate,
-// mirroring the member activate machine-bind; a single GET .../{id} backs the
+// mirroring the member activate machine-bind; the common member GET backs the
 // panel's post-relocate refresh.
 
 import (
@@ -22,8 +22,8 @@ import (
 	"strings"
 )
 
-// projectWorker builds one worker DTO with the T-f190 runtime fold. Shared by
-// the list loop and the single GET so both serve the identical projection.
+// projectWorker overlays worker/task facts on the common member projection.
+// The member list and single GET both call it.
 // tele/gauge are the snapshot maps (keyed by actor id); machineNames resolves a
 // warden id to its owner-edited display label; accountDisplay is the shared
 // raw→readable account fold (account_display.go — "" ⇒ the DTO serves null,
@@ -35,7 +35,7 @@ func (s *apiServer) projectWorker(
 	worker OutsourceWorker, task *Task, unread int, now float64,
 	tele, gauge map[string]map[string]any, machineNames map[string]string,
 	accountDisplay func(string) string, typeNames map[string]string,
-) outsourceWorkerDTO {
+) memberDTO {
 	spawnTarget, _ := s.workerSpawnObs(worker.ID)
 	// T-c23a: the spawn observation is IN-MEMORY (P7d fold) — a server re-exec
 	// forgets it, and a HEALTHY live worker is never re-dispatched, so the
@@ -51,7 +51,7 @@ func (s *apiServer) projectWorker(
 	if machineObserved == "" {
 		machineObserved = s.observedWorkerHost(worker.ID, tele[worker.ID])
 	}
-	return newOutsourceWorkerDTO(worker, task, outsourceWorkerProjection{
+	return s.newOutsourceMemberDTO(worker, task, outsourceWorkerProjection{
 		cfg:         s.reconcileConfigLive(),
 		unread:      unread,
 		now:         now,
@@ -76,7 +76,7 @@ func (s *apiServer) projectWorker(
 }
 
 // taskTypeDisplayNames folds the manuals into type_key → display label, the
-// resolution behind outsourceWorkerDTO.task_type_name (T-a3e4). ONE query for
+// resolution behind MemberDTO.task_type_name (T-a3e4). ONE query for
 // the whole response — the panel used to pull the entire manuals list itself
 // just to translate one key per row. A manual with a blank display_name is
 // omitted, so the client's raw-key fallback still applies (same rule the FE's
@@ -111,121 +111,6 @@ func (s *apiServer) workerDelegatedName(task *Task) string {
 	return ""
 }
 
-// GET /api/outsource-workers — live workers (assigned + active), each with
-// its bound task's title and status, plus the CALLER's unread chat count for
-// that worker's conversation (the same watermark inverse the member roster
-// serves — owner report 2026-07-14: 外包列也要有未讀紅點).
-//
-// 🔴 The unread number comes from s.unreadCountsForRequest — the ONE entry point
-// every unread face shares (api_helpers.go), which is the only thing allowed to
-// reach the DAL aggregate. All three unread sites in this file used to read the
-// WHOLE chat_message table plus the caller's whole chat_read set into Go and
-// fold them with domain.UnreadCounts (T-48). This one is the cockpit's
-// contractor panel: the owner pays it on every single cockpit open.
-func (s *apiServer) HandleListOutsourceWorkersApiOutsourceWorkersGet(w http.ResponseWriter, r *http.Request) {
-	workers, err := s.dal.ListOutsourceWorkers()
-	if err != nil {
-		internalError(w, err)
-		return
-	}
-	machineNames, err := s.dal.MachineDisplayNames()
-	if err != nil {
-		internalError(w, err)
-		return
-	}
-	unread, err := s.unreadCountsForRequest(r)
-	if err != nil {
-		internalError(w, err)
-		return
-	}
-	// Runtime facts fold from the SAME per-actor maps the member session loop
-	// reads (api_monitoring.go): telemetry (account/cost) + gauge (context_pct),
-	// snapshot once for the whole list.
-	tele := s.telemetry.Snapshot()
-	gauge := s.gauge.Snapshot()
-	accountDisplay, err := s.accountDisplayFold(r, tele)
-	if err != nil {
-		internalError(w, err)
-		return
-	}
-	now := nowSecs()
-	typeNames := s.taskTypeDisplayNames()
-	out := []outsourceWorkerDTO{}
-	for _, worker := range workers {
-		if worker.Status == WorkerStatusReleased {
-			continue
-		}
-		task, err := s.dal.GetTask(worker.TaskID)
-		if err != nil {
-			internalError(w, err)
-			return
-		}
-		out = append(out, s.projectWorker(worker, task, unread[worker.ID], now, tele, gauge, machineNames, accountDisplay, typeNames))
-	}
-	writeJSON(w, http.StatusOK, out)
-}
-
-// GET /api/outsource-workers/{id} — read ONE worker (the same projection the
-// list serves), for the detail panel's post-relocate refresh (T-f190). 404 when
-// the worker id is unknown (a released row still reads — the panel that reached
-// it via a stale route renders 「已釋放」, never a blank).
-func (s *apiServer) HandleGetOutsourceWorkerApiOutsourceWorkersIdGet(w http.ResponseWriter, r *http.Request, id string) {
-	worker, err := s.dal.GetOutsourceWorker(id)
-	if err != nil {
-		internalError(w, err)
-		return
-	}
-	if worker == nil {
-		writeResolveError(w, errNotFound, "outsource worker", id)
-		return
-	}
-	machineNames, err := s.dal.MachineDisplayNames()
-	if err != nil {
-		internalError(w, err)
-		return
-	}
-	task, err := s.dal.GetTask(worker.TaskID)
-	if err != nil {
-		internalError(w, err)
-		return
-	}
-	unread, err := s.unreadCountsForRequest(r)
-	if err != nil {
-		internalError(w, err)
-		return
-	}
-	tele := s.telemetry.Snapshot()
-	gauge := s.gauge.Snapshot()
-	accountDisplay, err := s.accountDisplayFold(r, tele)
-	if err != nil {
-		internalError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK,
-		s.projectWorker(*worker, task, unread[worker.ID], nowSecs(), tele, gauge, machineNames, accountDisplay,
-			s.taskTypeDisplayNames()))
-}
-
-// GET /api/outsource-workers/{id}/boot-context — the worker detail panel's
-// initial-prompt PREVIEW (T-ba6b), the worker twin of the member panel's
-// POST /api/bootstrap {role} preview. Nothing is stored at spawn time (the
-// persona rides the worker_start frame and is dropped — worker_spawn.go), so
-// the server re-runs the SAME buildWorkerBootContext fold and returns the text
-// — NO token is minted (parity with the member preview's no-member_id branch).
-//
-// 🔴 T-4595 CHANGED WHAT "PREVIEW" MEANS HERE, and the old caveat is now the
-// wrong one. A worker's boot context is the staff fold minus the persona slot:
-// it does NOT contain the bound task or the type manual any more, so it does
-// not vary with them. The honest caveat is no longer "this is today's rows, not
-// the spawn-time text" — it is that the SEEDS may have changed since spawn.
-//
-// The worker and its bound task are still resolved, because the 404 contract
-// below is unchanged and is what tells the cockpit the row is stale; they are
-// still handed to the fold so that reinstating any per-task text shows up here
-// too rather than only on the spawn path.
-//
-// 404 for an unknown worker or a gone bound task; a RELEASED worker still reads
-// (its rows are the audit trail, same as the single GET).
 func (s *apiServer) HandleGetWorkerBootContextApiOutsourceWorkersIdBootContextGet(w http.ResponseWriter, r *http.Request, id string) {
 	worker, err := s.dal.GetOutsourceWorker(id)
 	if err != nil {
@@ -360,7 +245,7 @@ func (s *apiServer) relocateWorkerByID(w http.ResponseWriter, r *http.Request, i
 	// for the ow- ids it forwards here. The two flags are the entire news of this
 	// write; everything the projection carried besides them (placement,
 	// telemetry, cost, the bound task) is the stored row, which
-	// list_outsource_workers serves.
+	// list_members serves.
 	writeJSON(w, http.StatusOK, agentRelocateReceiptDTO{
 		ID:                 worker.ID,
 		RelocationPending:  outcome.Pending(),
@@ -977,11 +862,11 @@ func (s *apiServer) handleRestartOutsourceWorker(w http.ResponseWriter, r *http.
 	// the shape T-ba62 called 「整個 bug」 when it fixed the staff twin. WHICH
 	// cause is on last_op_reason, in the shared reason-code family (#14).
 	//
-	// T-91: it rides a RECEIPT now instead of the whole OutsourceWorkerDTO. The
+	// T-91: it rides a receipt now instead of the whole member projection. The
 	// three fields here are the entire news of this write — which worker, whether
 	// the restart was decided but not delivered, and which cause. Everything else
 	// that projection carried (placement, telemetry, cost, the bound task) is
-	// readable through get_outsource_worker / list_outsource_workers, and none of
+	// readable through get_member / list_members, and none of
 	// it is what this write produced. activation_pending is omitted when the
 	// restart actually landed, so its presence is the signal.
 	writeJSON(w, http.StatusOK, outsourceRestartReceiptDTO{

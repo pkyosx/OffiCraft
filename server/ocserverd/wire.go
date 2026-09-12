@@ -290,7 +290,23 @@ type memberDTO struct {
 	// contains. The socket half is namespace-dependent, so a client that keeps
 	// assembling one from its own literals attaches to another station's tmux
 	// server (T-139).
-	TerminalAttachCommand string `json:"terminal_attach_command"`
+	TerminalAttachCommand string   `json:"terminal_attach_command"`
+	CreatedTS             float64  `json:"created_ts,omitempty"`
+	Status                string   `json:"status,omitempty"`
+	TaskID                string   `json:"task_id,omitempty"`
+	TaskTitle             string   `json:"task_title,omitempty"`
+	TaskStatus            string   `json:"task_status,omitempty"`
+	TaskNo                string   `json:"task_no,omitempty"`
+	TaskCreatedTS         float64  `json:"task_created_ts,omitempty"`
+	TaskTypeKey           string   `json:"task_type_key,omitempty"`
+	TaskTypeName          string   `json:"task_type_name,omitempty"`
+	Account               *string  `json:"account,omitempty"`
+	ContextPct            *float64 `json:"context_pct,omitempty"`
+	CompactionCount       *int     `json:"compaction_count,omitempty"`
+	Cost                  *float64 `json:"cost,omitempty"`
+	BankedCost            *float64 `json:"banked_cost,omitempty"`
+	CreatorID             string   `json:"creator_id,omitempty"`
+	DelegatedBy           string   `json:"delegated_by,omitempty"`
 }
 
 type machineDTO struct {
@@ -1788,7 +1804,7 @@ type outsourceRestartReceiptDTO struct {
 // exactly five places — the activation_pending arm in HandleActivateMember and
 // the relocation_pending/relocation_deferred pairs on the two relocates — and
 // each of those three routes has a receipt of its own below. Nothing else on
-// this wire was unrecoverable: get_member and list_outsource_workers serve it,
+// this wire was unrecoverable: get_member and list_members serve it,
 // at the moment a caller actually wants it instead of at the moment it wrote.
 type agentLifecycleReceiptDTO struct {
 	// ID is the agent this write acted on. On eleven of the twelve it is the
@@ -2865,123 +2881,12 @@ type docDTO struct {
 	MarkdownMD string `json:"markdown_md"`
 }
 
-type outsourceWorkerDTO struct {
-	ID        string `json:"id"`
-	AvatarURL string `json:"avatar_url"`
-	Codename  string `json:"codename"`
-	Runtime   string `json:"runtime"`
-	Model     string `json:"model"`
-	Effort    string `json:"effort"`
-	// Actual* are the REPORTED twins of the three configured launch fields
-	// above, read off the same roster row the member DTO serves. "" = nothing
-	// has ever reported one; they never fall back to the configured value, so
-	// the panel can tell "you changed this, it has not taken effect yet" from
-	// "this is what it is running" (T-7f28).
-	ActualModel   string `json:"actual_model"`
-	ActualRuntime string `json:"actual_runtime"`
-	ActualEffort  string `json:"actual_effort"`
-	Status        string `json:"status"`
-	TaskID        string `json:"task_id"`
-	TaskTitle     string `json:"task_title"`
-	TaskStatus    string `json:"task_status"`
-	// The bound task's display number / created stamp / type — what the office
-	// 外包 row prints and orders by (T-a3e4). They were a CLIENT-side join
-	// against the unfiltered GET /api/tasks (the whole task history pulled on
-	// every worker/chat delta to label a handful of rows); the server owns the
-	// join now. task_type_name is the manual's human label for task_type_key,
-	// "" when the manual is gone — the client then shows the raw key, the same
-	// honest fallback it had when it held the manuals list itself. All four are
-	// zero/"" when the bound task cannot be resolved.
-	TaskNo        string  `json:"task_no"`
-	TaskCreatedTS float64 `json:"task_created_ts"`
-	TaskTypeKey   string  `json:"task_type_key"`
-	TaskTypeName  string  `json:"task_type_name"`
-	CreatedTS     float64 `json:"created_ts"`
-	// The caller's unread count for this worker's chat — the SAME chat_read
-	// watermark inverse the member roster serves (UnreadCounts); the office
-	// 外包 row's red badge (owner report 2026-07-14: 外包也要有未讀紅點).
-	UnreadCount int `json:"unread_count"`
-	// Presence is the REAL-liveness projection (A案 P6 — the ONE member liveness
-	// vocabulary, deriveLiveness; it replaces the retired spawn_state closed set
-	// starting/stuck/online/stopped). Distinct from the lifecycle Status so the
-	// cockpit never renders a worker whose session is not actually up as a live
-	// green row (O-19). Closed set (the member presence vocabulary):
-	//   "online"   — the worker holds a live SSE connection (hub.IsOnline) —
-	//                the SAME presence authority the member roster uses;
-	//   "waking"   — not online, with a fresh wake in flight (the last start
-	//                dispatch — or the row's birth while placement is pending —
-	//                within WakingTTLSecs);
-	//   "offline"  — not online and no fresh wake (a failed/silent spawn, or a
-	//                session that died after claiming — the states the retired
-	//                spawn_state called "stuck"; the FSM rescue owns recovery);
-	//   "stopping" / "stopped" — owner-explicit stop (desired_state=="offline"):
-	//                held down, no auto-revival — stopping while the session
-	//                still winds down, stopped once it is gone;
-	//   ""         — released (filtered off the panel; never rendered).
-	Presence string `json:"presence"`
-	// ── T-f190: the detail-panel alignment fields (外包詳情頁對齊成員詳情) ──────
-	// Machine is the ACTUAL dispatch target (the in-memory spawn target
-	// resolved to its registry display name — P7d moved the observation off the
-	// durable row), NOT the manual's placement preference: "" when the worker
-	// was never dispatched this server run (未分配 — the panel shows 「尚未分配」,
-	// never a fabricated machine name). DesiredMachineID is the owner-pinned placement
-	// (relocate target; the picker's bound machine) — raw id, resolved FE-side.
-	Machine          string `json:"machine"`
-	DesiredMachineID string `json:"desired_machine_id"`
-	// ActualMachine is the DURABLE last-observed machine (last_machine_id), the
-	// offline-surviving twin of Machine: a relocation stays legible as pending
-	// while the worker is down, which the in-memory Machine cannot express.
-	ActualMachine string `json:"actual_machine"`
-	// Account / ContextPct / Cost are RUNTIME facts folded from the SAME
-	// per-actor telemetry+gauge the member roster reads (keyed by the worker's
-	// actor id). Nullable — nil serialises null → the panel shows a bare dash,
-	// never a fabricated value (parity with monitoringSessionDTO's honest gate).
-	Account         *string  `json:"account"`
-	ContextPct      *float64 `json:"context_pct"`
-	CompactionCount *int     `json:"compaction_count,omitempty"`
-	Cost            *float64 `json:"cost"`
-	// BankedCost mirrors member banked_cost (T-ba6b, migrations/00021): the
-	// durable cumulative spend banked on every session end / kill+respawn.
-	// nil when zero (nothing banked yet) → the panel adds nothing; the view
-	// sums live + banked, the member presentation.
-	BankedCost *float64 `json:"banked_cost"`
-	// last_op* mirror the member last_op* fold (durable since T-9ccf 00017): the
-	// last warden command receipt, surfaced as the panel's 「最近操作」 block.
-	// LastOpOK is three-valued (nil = no receipt folded yet).
-	LastOp       string  `json:"last_op"`
-	LastOpOK     *bool   `json:"last_op_ok"`
-	LastOpLog    string  `json:"last_op_log"`
-	LastOpReason string  `json:"last_op_reason"`
-	LastOpAt     float64 `json:"last_op_at"`
-	// CreatorID is the RAW verified sub of the bound task's creator (a member id,
-	// the literal "owner", or "" on pre-column/server-scheduled rows); DelegatedBy
-	// is the RESOLVED member display name (or "" — the owner and unknown cases
-	// carry no member name). Together they let the client honestly distinguish
-	// owner vs member vs unassigned, replacing the former unconditional hardcoded
-	// "System owner" placeholder (T-f190 item 2).
-	CreatorID   string `json:"creator_id"`
-	DelegatedBy string `json:"delegated_by"`
-	// RefocusSince is the in-flight context-handover stamp (T-32e1), epoch seconds
-	// mirroring member.refocus_since: 0.0 = unset, >0 = stamp time (the mapper
-	// converts 0→null so the panel shows no 換手中 line rather than a fabricated
-	// time). DesiredState mirrors member.desired_state ("online"/"offline"): the
-	// run-intent the stop/restart toggle drives; spawn_state is "stopped" while
-	// "offline".
-	RefocusSince float64 `json:"refocus_since"`
-	// RefocusOp names which operation opened that window ("" when none is in
-	// flight); RefocusDeadline is the epoch it is force-collected by. Together
-	// they let the panel say "winding down so your change can take effect, by
-	// HH:MM" instead of "last handover", which reads as history (T-7f28).
-	RefocusOp       string  `json:"refocus_op"`
-	RefocusDeadline float64 `json:"refocus_deadline"`
-	DesiredState    string  `json:"desired_state"`
-	// TerminalAttachCommand is the whole shell command, composed server-side
-	// (terminal_attach.go) and served verbatim. The SAME derivation the member
-	// DTO serves, on the SAME "member-<id>" session namespace a worker has
-	// booted under since P5b — one function, two DTOs, never two rules (T-139).
-	TerminalAttachCommand string `json:"terminal_attach_command"`
-}
-
+// The three intentional outsource differences are: creation by the capped
+// scheduler instead of staff hiring, one-task binding (including codename and
+// release semantics), and worker-only task/delegator controls in the cockpit.
+// They exist because a worker is a disposable executor for one task; identity,
+// lifecycle, projection transport, and SSE are otherwise member mechanisms.
+//
 // outsourceWorkerProjection carries the per-worker runtime facts the DTO folds
 // on top of the durable row: the caller's unread count, wall clock, SSE
 // presence, the worker's own telemetry/gauge entries (keyed by actor id — the
@@ -3021,8 +2926,8 @@ type outsourceWorkerProjection struct {
 	// terminalAttach is the fully-composed attach command for this worker
 	// (T-139). CARRIED, not derived here: the namespace half of it is the
 	// SERVER's ([server].namespace) and this projection is built by a method
-	// that has it, while newOutsourceWorkerDTO is a free function that does
-	// not — deriving it downstream would need a second copy of the namespace.
+	// that has it; deriving it downstream would need a second copy of the
+	// namespace.
 	terminalAttach string
 }
 
@@ -3479,39 +3384,19 @@ func foldActorRuntime(tele, gauge map[string]any, banked float64, actorRuntime s
 	return f
 }
 
-// newOutsourceWorkerDTO projects one worker + its bound task onto the panel
+// newOutsourceMemberDTO projects one worker + its bound task onto the member
 // wire (nil task = honest empty title/status; the row still lists). unread is
 // the caller's watermark-inverse count for this worker's conversation (the
 // handler computes it with the same UnreadCounts fold the member roster uses).
-func newOutsourceWorkerDTO(w OutsourceWorker, task *Task, p outsourceWorkerProjection) outsourceWorkerDTO {
-	dto := outsourceWorkerDTO{
-		ID:            w.ID,
-		AvatarURL:     memberAvatarURL(w.AvatarAttachmentID),
-		Codename:      w.Codename,
-		Runtime:       NormalizeRuntime(w.Runtime),
-		Model:         w.Model,
-		Effort:        w.Effort,
-		ActualModel:   w.ActualModel,
-		ActualRuntime: w.ActualRuntime,
-		ActualEffort:  w.ActualEffort,
-		ActualMachine: w.LastMachineID,
-		Status:        w.Status,
-		TaskID:        w.TaskID,
-		CreatedTS:     w.CreatedTS,
-		UnreadCount:   p.unread,
-		Presence:      workerPresence(w, p.now, p.online),
-		// Machine = the worker's OBSERVED host (dispatch target, or the
-		// restart-proof fallback folded upstream in projectWorker — T-c23a)
-		// resolved to a display label; "" when nothing is observed — the panel
-		// renders 「尚未分配」.
-		DesiredMachineID: w.DesiredMachineID,
-		LastOp:           w.LastOp,
-		LastOpOK:         w.LastOpOK,
-		LastOpLog:        w.LastOpLog,
-		LastOpReason:     w.LastOpReason,
-		LastOpAt:         w.LastOpAt,
-		DelegatedBy:      p.delegatedBy,
-	}
+func (s *apiServer) newOutsourceMemberDTO(w OutsourceWorker, task *Task, p outsourceWorkerProjection) memberDTO {
+	m := memberFromWorker(w)
+	dto := newMemberDTO(m, "", "", p.unread,
+		workerPresence(w, p.now, p.online),
+		winddownDeadlineOf(m, p.cfg), p.terminalAttach)
+	dto.Status = w.Status
+	dto.TaskID = w.TaskID
+	dto.CreatedTS = w.CreatedTS
+	dto.DelegatedBy = p.delegatedBy
 	if p.spawnTarget != "" && p.machineDisplay != nil {
 		dto.Machine = p.machineDisplay(p.spawnTarget)
 	}
@@ -3522,7 +3407,6 @@ func newOutsourceWorkerDTO(w OutsourceWorker, task *Task, p outsourceWorkerProje
 	rt := foldActorRuntime(p.tele, p.gaugeEntry, w.BankedCost, w.Runtime)
 	dto.Cost = rt.cost
 	dto.ContextPct = rt.contextPct
-	dto.CompactionCount = rt.compactionCount
 	dto.CompactionCount = rt.compactionCount
 	dto.BankedCost = rt.bankedCost
 	// Account serves the RESOLVED readable name only (owner alias → owner-

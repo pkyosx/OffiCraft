@@ -354,10 +354,6 @@ def test_every_closed_topic_emits(client, owner_token, agent_a, fresh_member, ow
     """
     tag = uuid.uuid4().hex[:8]
     member = fresh_member()
-    # A kind='outsource' roster row IS an outsource worker (the P7d fold — the
-    # worker table lives in `member`), so the ordinary worker write face below
-    # has a subject without needing the scheduler's spawn seam.
-    worker = hire_member(client, owner_token, f"conf-topic-worker-{tag}", kind="outsource")
     # The member row's PATCH body is a NAMED VALUE, not an inline literal, so
     # the assertion below can bind to the very field this write sets instead of
     # to a value re-typed next to it. See the identity check in the loop: if
@@ -380,18 +376,14 @@ def test_every_closed_topic_emits(client, owner_token, agent_a, fresh_member, ow
             json={"kind": "decision", "summary": f"topic probe {tag}",
                   "options": [{"text": "AI pick"}, {"text": "other"}], "linked_task": None},
             headers=_auth(agent_a.token))),
-        # The three M3 task-batch topics, each through an ORDINARY write face
-        # (task creation / a worker field edit / manual creation) — not a
+        # The M3 task-batch topics, each through an ORDINARY write face
+        # (task / manual creation) — not a
         # side-door: these are the same seams the cockpit and the MCP tools use.
         ("task", lambda: client.post(
             "/api/tasks",
             json={"title": f"topic probe {tag}",
                   "executor_member_id": agent_a.member_id},
             headers=_auth(agent_a.token))),
-        ("outsource_worker", lambda: client.post(
-            f"/api/outsource-workers/{worker}/model",
-            json={"effort": "high"},
-            headers=_auth(owner_token))),
         ("task_manual", lambda: client.post(
             "/api/task-manuals", json={"type_key": f"conf-topic-{tag}"},
             headers=_auth(owner_token))),
@@ -419,7 +411,7 @@ def test_every_closed_topic_emits(client, owner_token, agent_a, fresh_member, ow
     expected_op = {
         "member": "patch", "chat": "patch", "chat_read": "patch",
         "reply_card": "patch",
-        "task": "patch", "outsource_worker": "patch", "task_manual": "patch",
+        "task": "patch", "task_manual": "patch",
         "global_context": "patch", "role_def": "patch",
         "insight": "patch",
         "context": "signal", "monitoring": "signal",

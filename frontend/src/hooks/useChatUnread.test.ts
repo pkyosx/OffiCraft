@@ -5,7 +5,7 @@
 // outsource workers (server api_chat.go HandleChatUnreadCount's live[] filter).
 // So the total moves not only on a new message / read ("chat" / "chat_read")
 // but ALSO when the live SET changes — a member removed/added ("member") or a
-// worker spawned/released ("outsource_worker"). The sibling 正職/外包 tab hooks
+// worker spawned/released (the shared "member" topic). The sibling 正職/外包 tab hooks
 // already subscribe to those, so they self-healed; this badge subscribed to
 // ONLY chat/chat_read, went deaf to roster/worker lifecycle, and the two badges
 // diverged until a manual reload.
@@ -59,12 +59,12 @@ describe("useChatUnread", () => {
   // The load-bearing EXISTENCE assertion: the lifecycle topics MUST be in the
   // set. The it.each below is self-referential — it iterates the set itself, so
   // dropping "member" merely drops that case and stays green; it CANNOT catch a
-  // removal. This pins the removal directly: drop "member"/"outsource_worker"
+  // removal. This pins the removal directly: drop "member"
   // from OFFICE_TOTAL_TOPICS and this reddens (the pre-fix bug). The removal is
   // ALSO guarded end-to-end by useChatUnread.foreground.test.ts's hardcoded
-  // emit("member") / emit("outsource_worker").
+  // emit("member").
   it("OFFICE_TOTAL_TOPICS contains the lifecycle topics that move the office total", () => {
-    for (const t of ["chat", "chat_read", "member", "outsource_worker"]) {
+    for (const t of ["chat", "chat_read", "member"]) {
       expect(OFFICE_TOTAL_TOPICS.has(t)).toBe(true);
     }
   });

@@ -1180,14 +1180,14 @@ func (d *DAL) GetOutsourceWorker(id string) (*OutsourceWorker, error) {
 
 // PutOutsourceWorker upserts one worker as its kind='outsource' member row
 // (memberFromWorker mapping). Pure DAL — no member SSE delta: the outsource
-// wire keeps its own owner-only outsource_worker topic (publishOutsourceWorker).
+// wire publishes the common member topic (publishOutsourceWorker).
 func (d *DAL) PutOutsourceWorker(w OutsourceWorker) error {
 	return d.PutMember(memberFromWorker(w))
 }
 
 // ReleaseWorkersForTask flips every not-yet-released worker bound to taskID
 // to released (the task-terminal side effect) and returns the flipped rows —
-// the handler fans one outsource_worker delta per row. Row retention is the
+// the handler fans one member delta per row. Row retention is the
 // audit trail; idempotent (already-released rows are untouched).
 func (d *DAL) ReleaseWorkersForTask(taskID string, now float64) ([]OutsourceWorker, error) {
 	rows, err := d.rdb.Query(`SELECT `+memberColumns+` FROM member

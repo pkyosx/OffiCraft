@@ -241,11 +241,7 @@ _ACTIVATE_KEYS = {"id", "activation_pending", "last_op_reason"}
 _RELOCATE_KEYS = {"id", "relocation_pending", "relocation_deferred"}
 
 # ── the READ faces, pinned the same way and for the mirror-image reason ──────
-# The three flags above were also DECLARED on MemberDTO and OutsourceWorkerDTO,
-# where no handler ever set them once the receipts existed — six fields that
-# were permanently absent while their own text said "set ONLY on the activate /
-# relocate response", a response that had stopped answering those DTOs. They
-# were deleted; these two sets are what keeps them deleted.
+# The three flags above must stay off the unified MemberDTO read contract.
 #
 # 🔴 EQUALITY, NOT CONTAINMENT, and the choice is the whole value of the
 # assertion: a check that only asserts the keys it wants stays green when a
@@ -253,8 +249,8 @@ _RELOCATE_KEYS = {"id", "relocation_pending", "relocation_deferred"}
 # whole reshape. Equality reddens on a re-added field AND on a silently dropped
 # one, and the failure prints which of the two by diffing the sets.
 #
-# The member set is exact (memberDTO carries no `omitempty`). The worker set is
-# a CEILING: `compaction_count` is the one omitempty on outsourceWorkerDTO.
+# The base member set is exact for staff. Worker-only fields are optional on the
+# same MemberDTO, so outsource rows sit between the base and declared sets.
 _MEMBER_READ_KEYS = {
     "actual_effort", "actual_machine", "actual_model", "actual_runtime",
     "avatar_url", "desired_machine_id", "desired_state", "effort",
@@ -264,16 +260,11 @@ _MEMBER_READ_KEYS = {
     "role_name", "roster_status", "runtime", "schema_version",
     "terminal_attach_command", "unread_count",
 }
-_WORKER_READ_KEYS = {
-    "account", "actual_effort", "actual_machine", "actual_model",
-    "actual_runtime", "avatar_url", "banked_cost", "codename",
-    "compaction_count", "context_pct", "cost", "created_ts", "creator_id",
-    "delegated_by", "desired_machine_id", "desired_state", "effort", "id",
-    "last_op", "last_op_at", "last_op_log", "last_op_ok", "last_op_reason",
-    "machine", "model", "presence", "refocus_deadline", "refocus_op",
-    "refocus_since", "runtime", "status", "task_created_ts", "task_id",
-    "task_no", "task_status", "task_title", "task_type_key", "task_type_name",
-    "terminal_attach_command", "unread_count",
+_MEMBER_DECLARED_KEYS = _MEMBER_READ_KEYS | {
+    "account", "banked_cost", "compaction_count", "context_pct", "cost",
+    "created_ts", "creator_id", "delegated_by", "status", "task_created_ts",
+    "task_id", "task_no", "task_status", "task_title", "task_type_key",
+    "task_type_name",
 }
 
 _DEAD_ON_READ = {"activation_pending", "relocation_pending", "relocation_deferred"}
@@ -306,31 +297,10 @@ def _check_member_list(_ctx: HCtx, r: httpx.Response) -> None:
     rows = r.json()
     assert isinstance(rows, list) and rows, "expected a non-empty list"
     for row in rows:
-        _member_row_keys(row)
-
-
-def _check_worker_list(_ctx: HCtx, r: httpx.Response) -> None:
-    """The worker list, key-set-pinned PER ROW when there are rows.
-
-    🔴 A worker row is mintable only by the Phase 2 assignment scheduler, so
-    this harness usually sees an empty list and this loop asserts nothing —
-    stated here rather than left for a reader to discover, because a silent
-    zero-iteration loop reads like coverage it is not. The claim that
-    OutsourceWorkerDTO carries no dead pending flags is therefore pinned in
-    Go instead (read_face_key_sets_t91_test.go,
-    TestOutsourceWorkerDTOReadFaceKeySet_T91), where a row can be built. The
-    loop stays because it costs nothing and becomes real the day this suite
-    can mint a worker.
-    """
-    rows = r.json()
-    assert isinstance(rows, list), rows
-    for row in rows:
-        assert set(row) <= _WORKER_READ_KEYS, (
-            "OutsourceWorkerDTO read-face key set changed: unexpected "
-            f"{sorted(set(row) - _WORKER_READ_KEYS)}. "
-            "The three pending flags live on the relocate / restart receipts, "
-            "never on a worker row (T-91)."
-        )
+        if row["kind"] == "outsource":
+            assert _MEMBER_READ_KEYS <= set(row) <= _MEMBER_DECLARED_KEYS
+        else:
+            _member_row_keys(row)
 
 
 def _receipt_then_member(keys: set[str], predicate=None, *, required: set[str] | None = None):
@@ -3356,10 +3326,6 @@ HAPPY: dict[str, Happy] = {
             and d[0]["filename"] == "report.md",
         ),
     ),
-    # ── outsource panel (M3) ─────────────────────────────────────────────────
-    "GET /api/outsource-workers": Happy(
-        check=_check_worker_list,
-    ),
     # ── task manuals (M3) ────────────────────────────────────────────────────
     "GET /api/task-manuals": Happy(),
     "POST /api/task-manuals": Happy(
@@ -3548,19 +3514,11 @@ SKIPPED_HAPPY: dict[str, str] = {
         "the old binary untouched) in the server unit tests "
         "(update_check_test.go / upgrade_test.go)."
     ),
-    "GET /api/outsource-workers/{id}": (
-        "the positive face needs a LIVE worker row, mintable only by the Phase 2 "
-        "assignment scheduler (no black-box mint path). The unknown-404 / "
-        "anonymous-401 faces are pinned in the "
-        "auth matrix; the projection fold (machine/account/context/cost/"
-        "delegated_by) in the server unit tests (api_outsource_test.go, "
-        "TestListOutsourceWorkers_RuntimeFold)."
-    ),
     "GET /api/outsource-workers/{id}/boot-context": (
         "T-ba6b initial-prompt preview: the positive face needs a LIVE worker "
         "row + its bound task, mintable only by the Phase 2 assignment scheduler "
-        "(no black-box mint path — same reasoning as GET /api/outsource-workers/"
-        "{id}). The below-owner-403 / owner-404 faces are pinned in the auth "
+        "(no black-box mint path — the common member GET is covered separately). "
+        "The below-owner-403 / owner-404 faces are pinned in the auth "
         "matrix; the re-assembled boot-context fold (codename/task/identity, "
         "never a token, unknown-worker 404) in the server unit tests "
         "(api_outsource_test.go, TestGetWorkerBootContext / "

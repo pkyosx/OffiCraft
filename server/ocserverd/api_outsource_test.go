@@ -29,26 +29,34 @@ func apiTestWorkerFixture(t *testing.T, h http.Handler, d *DAL, owner, id, statu
 func apiTestWorkerRow(t *testing.T, over map[string]any) map[string]any {
 	t.Helper()
 	row := map[string]any{
-		"id": "ow-abc123", "avatar_url": "", "codename": "Contractor",
+		"id": "ow-abc123", "avatar_url": "", "name": "Contractor", "kind": "outsource",
+		"role_key": "", "role_name": "",
 		"runtime": "claude", "model": "sonnet", "effort": "medium",
 		"actual_model": "", "actual_runtime": "", "actual_effort": "",
-		"status": "assigned", "task_id": "T-1", "task_title": "Ship the crate",
+		"actual_machine": "",
+		"status":         "assigned", "task_id": "T-1", "task_title": "Ship the crate",
 		"task_status": "not_started", "task_no": "T-1",
-		"task_created_ts": apiAnyNumber, "task_type_key": "", "task_type_name": "",
-		"created_ts": 0, "unread_count": 0, "presence": "offline",
-		"machine": "", "desired_machine_id": "", "actual_machine": "",
-		"account": nil, "context_pct": nil, "cost": nil, "banked_cost": nil,
+		"task_created_ts": apiAnyNumber, "unread_count": 0, "presence": "offline",
+		"machine": "", "desired_machine_id": "",
 		"last_op": "", "last_op_ok": nil, "last_op_log": "", "last_op_reason": "",
-		"last_op_at": 0, "creator_id": "owner", "delegated_by": "",
+		"last_op_at": 0, "creator_id": "owner",
 		"refocus_since": 0, "refocus_op": "", "refocus_deadline": 0,
-		"desired_state":           "",
+		"desired_state": "", "forced_stop_at": 0, "roster_status": "active",
+		"owner_id": "owner", "schema_version": 3,
 		"terminal_attach_command": "tmux -L officraft attach -t member-ow-abc123",
 	}
+	allowed := map[string]bool{
+		"account": true, "banked_cost": true, "compaction_count": true,
+		"context_pct": true, "cost": true, "created_ts": true,
+		"delegated_by": true, "task_type_key": true, "task_type_name": true,
+	}
 	for k, v := range over {
-		if _, named := row[k]; !named {
+		if _, named := row[k]; !named && !allowed[k] {
 			t.Fatalf("apiTestWorkerRow: %q is not a field of this projection", k)
 		}
-		row[k] = v
+		if v != nil {
+			row[k] = v
+		}
 	}
 	// The server always serves this command, even for an offline worker. Keep
 	// the expected session tied to the row id when a test reads a second worker.
@@ -60,22 +68,41 @@ func apiTestWorkerRow(t *testing.T, over map[string]any) map[string]any {
 
 func apiTestWantWorker(t *testing.T, h http.Handler, owner, workerID string, want map[string]any) {
 	t.Helper()
-	status, data := apiJSON(t, h, "GET", "/api/outsource-workers/"+workerID, owner, "")
+	status, data := apiJSON(t, h, "GET", "/api/members/"+workerID, owner, "")
 	if status != 200 {
 		t.Fatalf("read back %s: %d %v", workerID, status, data)
 	}
 	apiWantBody(t, data, want)
 }
 
+func apiTestWantReleasedWorker(t *testing.T, d *DAL, h http.Handler, owner, workerID string) *OutsourceWorker {
+	t.Helper()
+	worker, err := d.GetOutsourceWorker(workerID)
+	if err != nil || worker == nil || worker.Status != WorkerStatusReleased {
+		t.Fatalf("released worker %s = %+v, err=%v", workerID, worker, err)
+	}
+	status, _ := apiJSON(t, h, http.MethodGet, "/api/members/"+workerID, owner, "")
+	if status != http.StatusNotFound {
+		t.Fatalf("released member %s remained on the shared roster: status %d", workerID, status)
+	}
+	return worker
+}
+
 func apiTestWantWorkerList(t *testing.T, h http.Handler, credential string, want ...map[string]any) {
 	t.Helper()
-	rec := apiRequest(t, h, "GET", "/api/outsource-workers", credential, "")
+	rec := apiRequest(t, h, "GET", "/api/members", credential, "")
 	if rec.Code != 200 {
 		t.Fatalf("want 200, got %d (%s)", rec.Code, rec.Body.String())
 	}
-	var got any
-	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+	var all []map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &all); err != nil {
 		t.Fatalf("non-JSON body: %s", rec.Body.String())
+	}
+	got := make([]any, 0, len(all))
+	for _, row := range all {
+		if row["kind"] == KindOutsource {
+			got = append(got, row)
+		}
 	}
 	rows := make([]any, len(want))
 	for i := range want {
@@ -85,13 +112,18 @@ func apiTestWantWorkerList(t *testing.T, h http.Handler, credential string, want
 }
 
 func apiTestWorkerDelta(seq int, status, trigger string) map[string]any {
+	rosterStatus := RosterStatusActive
+	if status == WorkerStatusReleased {
+		rosterStatus = RosterStatusRemoved
+	}
 	return map[string]any{
-		"seq": seq, "topic": "outsource_worker", "op": "patch",
+		"seq": seq, "topic": "member", "op": "patch",
 		"data": map[string]any{
-			"entity": "outsource_worker", "key": "owner::ow-abc123",
+			"entity": "member", "key": "owner::ow-abc123",
 			"epoch": seq, "deleted": false,
 			"payload": map[string]any{
-				"id": "ow-abc123", "codename": "Contractor", "status": status,
+				"id": "ow-abc123", "name": "Contractor", "status": rosterStatus,
+				"desired_state": "", "owner_id": "owner",
 			},
 		},
 		"ts": apiAnyNumber, "trigger": trigger,
@@ -201,194 +233,6 @@ func TestWorkerDelegatedName(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestHandleListOutsourceWorkersApiOutsourceWorkersGet(t *testing.T) {
-	t.Run("every live worker is served as a full projection row joined to its bound task", func(t *testing.T) {
-		api, h, d, owner := newAPITestServer(t)
-		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusAssigned)
-		dashboard := apiTestListen(t, api, "")
-
-		apiTestWantWorkerList(t, h, owner, apiTestWorkerRow(t, nil))
-		dashboard.wantFrames()
-	})
-
-	t.Run("an office that has hired nobody answers an empty array", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
-		dashboard := apiTestListen(t, api, "")
-
-		apiTestWantWorkerList(t, h, owner)
-		dashboard.wantFrames()
-	})
-
-	t.Run("a released worker drops off the panel while its row still reads", func(t *testing.T) {
-		_, h, d, owner := newAPITestServer(t)
-		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusReleased)
-
-		apiTestWantWorkerList(t, h, owner)
-		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
-			"status": "released", "presence": "",
-		}))
-	})
-
-	t.Run("the bound task's type carries the manual's display label and the creator's real name", func(t *testing.T) {
-		api, h, d, owner := newAPITestServer(t)
-		if code, data := apiJSON(t, h, "POST", "/api/task-manuals", owner,
-			`{"type_key":"crate","display_name":"裝箱"}`); code != 200 {
-			t.Fatalf("create manual: %d %v", code, data)
-		}
-		kip := apiTestAgentToken(t, api, "kip", "")
-		if code, data := apiJSON(t, h, "POST", "/api/tasks", kip,
-			`{"title":"Ship the crate","type_key":"crate","executor_member_id":"kip"}`); code != 200 {
-			t.Fatalf("create task: %d %v", code, data)
-		}
-		if err := d.PutOutsourceWorker(OutsourceWorker{
-			ID: "ow-abc123", Codename: "Contractor", TaskID: "T-1",
-			Status: WorkerStatusAssigned, Runtime: "claude", Model: "sonnet",
-			Effort: "medium",
-		}); err != nil {
-			t.Fatalf("PutOutsourceWorker: %v", err)
-		}
-
-		apiTestWantWorkerList(t, h, owner, apiTestWorkerRow(t, map[string]any{
-			"task_type_key": "crate", "task_type_name": "裝箱",
-			"creator_id": "kip", "delegated_by": "Kip",
-		}))
-	})
-
-	t.Run("the caller's own unread count for that worker's conversation rides its row", func(t *testing.T) {
-		api, h, d, owner := newAPITestServer(t)
-		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
-		contractor := apiTestAgentToken(t, api, "ow-abc123", "")
-		if code, data := apiJSON(t, h, "POST", "/api/chat", contractor,
-			`{"to":"owner","body":"報告"}`); code != 200 {
-			t.Fatalf("post chat: %d %v", code, data)
-		}
-
-		apiTestWantWorkerList(t, h, owner, apiTestWorkerRow(t, map[string]any{
-			"status": "active", "unread_count": 1,
-		}))
-	})
-
-	t.Run("a plain agent identity is served the same roster, because this row sits at the machine floor", func(t *testing.T) {
-		api, h, d, owner := newAPITestServer(t)
-		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusAssigned)
-		housekeeper := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
-
-		apiTestWantWorkerList(t, h, housekeeper, apiTestWorkerRow(t, nil))
-	})
-
-	t.Run("a request without a token answers 401", func(t *testing.T) {
-		_, h, _, _ := newAPITestServer(t)
-
-		status, data := apiJSON(t, h, "GET", "/api/outsource-workers", "", "")
-		if status != 401 {
-			t.Fatalf("want 401, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "unauthorized", "missing credentials")
-	})
-
-	t.Run("a malformed body is ignored and the live worker list remains fully observable", func(t *testing.T) {
-		api, h, d, owner := newAPITestServer(t)
-		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusAssigned)
-		dashboard := apiTestListen(t, api, "")
-
-		rec := apiRequest(t, h, "GET", "/api/outsource-workers", owner, `{{{`)
-		if rec.Code != 200 {
-			t.Fatalf("want 200, got %d (%s)", rec.Code, rec.Body.String())
-		}
-		var got any
-		if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
-			t.Fatalf("non-JSON body: %s", rec.Body.String())
-		}
-		apiWantValue(t, "body", got, []any{apiTestWorkerRow(t, nil)})
-		dashboard.wantFrames()
-	})
-}
-
-func TestHandleGetOutsourceWorkerApiOutsourceWorkersIdGet(t *testing.T) {
-	t.Run("one worker is served as the identical projection the list serves", func(t *testing.T) {
-		api, h, d, owner := newAPITestServer(t)
-		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusAssigned)
-		dashboard := apiTestListen(t, api, "")
-
-		status, data := apiJSON(t, h, "GET", "/api/outsource-workers/ow-abc123", owner, "")
-		if status != 200 {
-			t.Fatalf("want 200, got %d (%v)", status, data)
-		}
-		apiWantBody(t, data, apiTestWorkerRow(t, nil))
-		dashboard.wantFrames()
-	})
-
-	t.Run("the id in the path picks the row, and the other worker is not what comes back", func(t *testing.T) {
-		_, h, d, owner := newAPITestServer(t)
-		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusAssigned)
-		if err := d.PutOutsourceWorker(OutsourceWorker{
-			ID: "ow-def456", Codename: "Stevedore", TaskID: "T-1",
-			Status: WorkerStatusActive, Runtime: "codex", Model: "opus",
-			Effort: "high",
-		}); err != nil {
-			t.Fatalf("PutOutsourceWorker: %v", err)
-		}
-
-		status, data := apiJSON(t, h, "GET", "/api/outsource-workers/ow-def456", owner, "")
-		if status != 200 {
-			t.Fatalf("want 200, got %d (%v)", status, data)
-		}
-		apiWantBody(t, data, apiTestWorkerRow(t, map[string]any{
-			"id": "ow-def456", "codename": "Stevedore", "runtime": "codex",
-			"model": "opus", "effort": "high", "status": "active",
-		}))
-	})
-
-	t.Run("an id nothing carries answers 404 naming it and fans nothing", func(t *testing.T) {
-		api, h, d, owner := newAPITestServer(t)
-		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusAssigned)
-		dashboard := apiTestListen(t, api, "")
-
-		status, data := apiJSON(t, h, "GET", "/api/outsource-workers/ow-nope", owner, "")
-		if status != 404 {
-			t.Fatalf("want 404, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "not_found", "member 'ow-nope' not found")
-		dashboard.wantFrames()
-	})
-
-	t.Run("a plain agent identity reads it too, because this row sits at the machine floor", func(t *testing.T) {
-		api, h, d, owner := newAPITestServer(t)
-		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusAssigned)
-		housekeeper := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
-
-		status, data := apiJSON(t, h, "GET", "/api/outsource-workers/ow-abc123", housekeeper, "")
-		if status != 200 {
-			t.Fatalf("want 200, got %d (%v)", status, data)
-		}
-		apiWantBody(t, data, apiTestWorkerRow(t, nil))
-	})
-
-	t.Run("a request without a token answers 401", func(t *testing.T) {
-		_, h, d, owner := newAPITestServer(t)
-		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusAssigned)
-
-		status, data := apiJSON(t, h, "GET", "/api/outsource-workers/ow-abc123", "", "")
-		if status != 401 {
-			t.Fatalf("want 401, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "unauthorized", "missing credentials")
-	})
-
-	t.Run("a malformed body is ignored and the worker detail remains fully observable", func(t *testing.T) {
-		api, h, d, owner := newAPITestServer(t)
-		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusAssigned)
-		dashboard := apiTestListen(t, api, "")
-
-		status, data := apiJSON(t, h, "GET", "/api/outsource-workers/ow-abc123", owner, `{{{`)
-		if status != 200 {
-			t.Fatalf("want 200, got %d (%v)", status, data)
-		}
-		apiWantBody(t, data, apiTestWorkerRow(t, nil))
-		dashboard.wantFrames()
-	})
 }
 
 func TestHandleGetWorkerBootContextApiOutsourceWorkersIdBootContextGet(t *testing.T) {

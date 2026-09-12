@@ -2650,7 +2650,7 @@ const mockApiImpl = {
         URL.revokeObjectURL(worker.avatarUrl);
       }
       worker.avatarUrl = url;
-      emitTopic("outsource_worker");
+      emitTopic("member");
       return url;
     }
     const member = findWire(id);
@@ -2669,7 +2669,7 @@ const mockApiImpl = {
         URL.revokeObjectURL(worker.avatarUrl);
       }
       worker.avatarUrl = "";
-      emitTopic("outsource_worker");
+      emitTopic("member");
       return;
     }
     const member = findWire(id);
@@ -2775,7 +2775,7 @@ const mockApiImpl = {
     if (worker) {
       worker.cost = null;
       worker.bankedCost = null;
-      emitTopic("outsource_worker");
+      emitTopic("member");
     }
     // The production route fans a `monitoring` signal so the cockpit refetches.
     // Without it here the mock reports success and nothing on screen moves.
@@ -4040,7 +4040,7 @@ const mockApiImpl = {
     t.updatedTs = t.closedTs;
     outsourceWorkers = outsourceWorkers.filter((w) => w.taskId !== id);
     emitTopic("task");
-    emitTopic("outsource_worker");
+      emitTopic("member");
     // T-91: the write answers a RECEIPT, not the object. The mock's own store
     // is still the one that changed above, so a read-back sees the write; the
     // response just stops carrying what nobody may render from it.
@@ -4098,7 +4098,7 @@ const mockApiImpl = {
     t.updatedTs = t.closedTs;
     outsourceWorkers = outsourceWorkers.filter((w) => w.taskId !== id);
     emitTopic("task");
-    emitTopic("outsource_worker");
+      emitTopic("member");
     // T-91: the write answers a RECEIPT, not the object. The mock's own store
     // is still the one that changed above, so a read-back sees the write; the
     // response just stops carrying what nobody may render from it.
@@ -4406,7 +4406,7 @@ const mockApiImpl = {
       });
     }
     emitTopic("task");
-    emitTopic("outsource_worker");
+      emitTopic("member");
     // T-91: the write answers a RECEIPT, not the object. The mock's own store
     // is still the one that changed above, so a read-back sees the write; the
     // response just stops carrying what nobody may render from it.
@@ -4532,13 +4532,13 @@ const mockApiImpl = {
   },
 
   async getOutsourceWorker(id: string): Promise<OutsourceWorkerView> {
-    // The single-worker read (T-f190) — the SAME projection the list serves.
+    // The unified member read — the SAME projection the list serves.
     // Unknown → 404, matching the http adapter (the panel self-heals to the
     // roster). Live unread is computed the same way as the list.
     const w = outsourceWorkers.find((x) => x.id === id);
     if (!w) {
       throw mockApiError(
-        `http 404 for GET /api/outsource-workers/${id}`,
+        `http 404 for GET /api/members/${id}`,
         404,
         `outsource worker ${id} not found`
       );
@@ -4574,7 +4574,7 @@ const mockApiImpl = {
       // here the picker only offers real online machines, so resolve honestly.
       w.machine = m ? m.name : machineId;
     }
-    emitTopic("outsource_worker");
+      emitTopic("member");
     // T-91: the write answers a RECEIPT, not the worker. The receipt DOES carry
     // relocation_pending / relocation_deferred (it is the member arm's shape),
     // but the worker adapter reads neither, so the mock has nothing left to
@@ -4608,7 +4608,7 @@ const mockApiImpl = {
       );
     }
     w.refocusSince = Date.now() / 1000;
-    emitTopic("outsource_worker");
+      emitTopic("member");
     // T-91: the write answers a RECEIPT, not the worker; the store above is what
     // changed and the panel refetches.
   },
@@ -4630,7 +4630,7 @@ const mockApiImpl = {
     w.refocusSince = null;
     w.refocusOp = undefined;
     w.presence = w.presence === "online" ? "stopping" : "stopped";
-    emitTopic("outsource_worker");
+      emitTopic("member");
     // T-91: the write answers a RECEIPT, not the worker; the store above is what
     // changed and the panel refetches.
   },
@@ -4672,7 +4672,7 @@ const mockApiImpl = {
     const stamps = acceleratedStopStamps(w.desiredState === "offline");
     if (stamps.since !== null) w.refocusSince = stamps.since;
     w.refocusDeadline = stamps.deadline;
-    emitTopic("outsource_worker");
+      emitTopic("member");
     // T-91: the write answers a RECEIPT, not the worker; the store above is what
     // changed and the panel refetches.
   },
@@ -4691,7 +4691,7 @@ const mockApiImpl = {
     w.refocusSince = null;
     w.refocusOp = undefined;
     w.presence = "stopped";
-    emitTopic("outsource_worker");
+      emitTopic("member");
     // T-91: the write answers a RECEIPT, not the worker; the store above is what
     // changed and the panel refetches.
   },
@@ -4724,7 +4724,7 @@ const mockApiImpl = {
     }
     w.desiredState = "online";
     w.presence = "waking";
-    emitTopic("outsource_worker");
+      emitTopic("member");
     // Mock ↔ http parity (T-ed79 #12): the mock always "dispatches", so it never
     // reports activation_pending. The flag is deliberately NOT faked here — a
     // mock that invents a pending state teaches the panel a story the server
@@ -4751,7 +4751,7 @@ const mockApiImpl = {
     if (patch.runtime !== undefined) w.runtime = patch.runtime;
     w.model = patch.model;
     if (patch.effort !== undefined && patch.effort !== "") w.effort = patch.effort;
-    emitTopic("outsource_worker");
+      emitTopic("member");
     // T-91: the write answers a RECEIPT, not the worker; the store above is what
     // changed and the panel refetches.
   },
@@ -6859,7 +6859,7 @@ export function __injectMockMonitoringSession(s: WireMonSession): void {
 // one task), the way the server's assignment would surface it.
 export function __injectMockOutsourceWorker(w: OutsourceWorkerView): void {
   outsourceWorkers.push(w);
-  emitTopic("outsource_worker");
+      emitTopic("member");
 }
 
 // Test-only hook: inject a row as GET /api/members would return it.  Keeping

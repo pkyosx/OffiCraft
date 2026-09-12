@@ -1658,23 +1658,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 		// T-4595: GET /api/self/task (get_my_task) is RETIRED — see the note in
 		// api_tasks.go. A worker reads its task through get_task like everyone
 		// else, and reports its wake through report_waking like everyone else.
-		// ── Outsource panel (M3) ─────────────────────────────────────────────
-		Gated(principalMachine, routeDef{
-			Method:  "GET",
-			Path:    "/api/outsource-workers",
-			Handler: w.HandleListOutsourceWorkersApiOutsourceWorkersGet,
-			Summary: "List live outsource workers (codename, model, effort, task).",
-			MCPTool: "list_outsource_workers",
-		}),
-		Gated(principalMachine, routeDef{
-			// T-f190: single-worker read for the detail panel's post-relocate
-			// refresh. A cockpit read face, not an agent tool → MCPExclude.
-			Method:     "GET",
-			Path:       "/api/outsource-workers/{id}",
-			Handler:    w.HandleGetOutsourceWorkerApiOutsourceWorkersIdGet,
-			Summary:    "Read one outsource worker by id (detail-panel refresh).",
-			MCPExclude: true,
-		}),
+		// ── Outsource-only boot preview ──────────────────────────────────────
 		Gated(principalAdminAgent, routeDef{
 			// T-ba6b: the detail panel's initial-prompt preview — a live
 			// re-assembly of the worker boot context (the member /api/bootstrap

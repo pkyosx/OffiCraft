@@ -1805,7 +1805,7 @@ export interface WebhookUpdate {
  * moves (the freeze in root CLAUDE.md §13 stands).
  */
 export interface SseDeltaNames {
-  /** `member` / `task` / `reply_card` / `outsource_worker` / `chat` (message id). */
+  /** `member` / `task` / `reply_card` / `chat` (message id). */
   id?: string;
   /** `chat`: the message's sender / recipient. */
   from?: string;
@@ -2487,13 +2487,13 @@ export interface Api {
   postTaskMessage(id: string, msg: TaskMessageInput): Promise<void>;
   /**
    * List LIVE (not-yet-released) outsource workers
-   * (`GET /api/outsource-workers`): codename / model / effort + the bound
+   * (`GET /api/members`, filtered to kind=outsource): name / model / effort + the bound
    * task id. The task card resolves its 外包 executor display through this;
    * released workers drop off, so a CLOSED outsource task honestly renders
    * the bare 外包 label instead of a fabricated codename.
    */
   listOutsourceWorkers(): Promise<OutsourceWorkerView[]>;
-  /** Read ONE live worker (`GET /api/outsource-workers/{id}`) — the SAME
+  /** Read ONE worker (`GET /api/members/{member_id}`) — the SAME
    * projection the list serves, for the detail panel's post-relocate refresh.
    * A released / unknown worker → 404 (throws ApiError). (T-f190) */
   getOutsourceWorker(id: string): Promise<OutsourceWorkerView>;

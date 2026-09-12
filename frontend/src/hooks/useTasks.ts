@@ -2,8 +2,8 @@
 // outsource-worker roster + the task-type list, kept fresh the same way as
 // useReplyCards. Reconcile-by-refetch (contract B): a "task" SSE delta (create
 // / plan / status / priority / terminate, from ANY entry point) → REFETCH the
-// list, never merge an event payload; "outsource_worker" refreshes the worker
-// roster (assignment / release) and "task_manual" the type-filter options. The
+// list, never merge an event payload; "member" refreshes the worker roster
+// (assignment / release) and "task_manual" the type-filter options. The
 // owner actions (terminate / priority / reassign / message) also refetch
 // directly so the mock behaves identically.
 //
@@ -267,7 +267,7 @@ export function useTasks(
           );
         }
         const listTopics = [...batch.topics].filter(
-          (t) => t === "task" || t === "outsource_worker"
+          (t) => t === "task" || t === "member"
         );
         if (listTopics.length === 0) return;
         void full();

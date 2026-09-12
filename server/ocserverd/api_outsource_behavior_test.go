@@ -130,12 +130,18 @@ func TestListOutsourceWorkers_AccountLabelOwnerGate(t *testing.T) {
 	// A non-owner (agent-scope) caller: the label overlay stays empty and the
 	// fold must NOT degrade to the raw key — honest null.
 	rec := httptest.NewRecorder()
-	api.HandleListOutsourceWorkersApiOutsourceWorkersGet(rec,
-		taskReq(t, "GET", "/api/outsource-workers", nil, "mira", "agent"))
+	api.HandleListMembersApiMembersGet(rec,
+		taskReq(t, "GET", "/api/members", nil, "mira", "agent"), HandleListMembersApiMembersGetParams{})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("agent list workers: %d %s", rec.Code, rec.Body.String())
 	}
-	agentRows := decodeBody[[]outsourceWorkerDTO](t, rec)
+	all := decodeBody[[]memberDTO](t, rec)
+	agentRows := make([]memberDTO, 0, len(all))
+	for _, member := range all {
+		if member.Kind == KindOutsource {
+			agentRows = append(agentRows, member)
+		}
+	}
 	if agentRows[0].Account != nil {
 		t.Fatalf("non-owner must not see label or raw key, got %q", *agentRows[0].Account)
 	}
@@ -920,7 +926,7 @@ func TestRelocateToSameMachine(t *testing.T) {
 	}
 }
 
-// TestNewOutsourceWorkerDTO_Presence (A案 P6 — the ONE member liveness
+// TestNewOutsourceMemberDTO_Presence (A案 P6 — the ONE member liveness
 // vocabulary, replacing the retired spawn_state): the DTO projects presence
 // distinct from lifecycle status so the cockpit can tell apart
 //   - "online"  : truly alive — holding a live SSE connection (the SAME
@@ -938,7 +944,7 @@ func TestRelocateToSameMachine(t *testing.T) {
 // Two table rows carry that change — a row that was minted but never dispatched
 // no longer claims 「喚醒中」 off its own birth (nothing was ever asked to
 // start), and an anchor stamped before a re-exec still does.
-func TestNewOutsourceWorkerDTO_Presence(t *testing.T) {
+func TestNewOutsourceMemberDTO_Presence(t *testing.T) {
 	const now = 1_000_000.0
 	cases := []struct {
 		name         string
@@ -981,7 +987,7 @@ func TestNewOutsourceWorkerDTO_Presence(t *testing.T) {
 			w := OutsourceWorker{ID: "ow-1", Codename: "O-7", Status: c.status,
 				TaskID: "t-1", CreatedTS: c.createdTS, WakingSince: c.wakingSince,
 				DesiredState: c.desiredState}
-			dto := newOutsourceWorkerDTO(w, nil,
+			dto := (&apiServer{}).newOutsourceMemberDTO(w, nil,
 				outsourceWorkerProjection{now: now, online: c.online})
 			if dto.Presence != c.want {
 				t.Fatalf("presence = %q, want %q", dto.Presence, c.want)
@@ -1098,16 +1104,23 @@ func TestListOutsourceWorkers_MachineSurvivesReexec(t *testing.T) {
 	}
 }
 
-// listWorkersAs GETs /api/outsource-workers through the handler as `sub`.
-func listWorkersAs(t *testing.T, api *apiServer, sub string) []outsourceWorkerDTO {
+// listWorkersAs reads the unified member roster as `sub` and keeps workers.
+func listWorkersAs(t *testing.T, api *apiServer, sub string) []memberDTO {
 	t.Helper()
 	rec := httptest.NewRecorder()
-	api.HandleListOutsourceWorkersApiOutsourceWorkersGet(rec,
-		taskReq(t, "GET", "/api/outsource-workers", nil, sub, "owner"))
+	api.HandleListMembersApiMembersGet(rec,
+		taskReq(t, "GET", "/api/members", nil, sub, "owner"), HandleListMembersApiMembersGetParams{})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("list workers: %d %s", rec.Code, rec.Body.String())
 	}
-	return decodeBody[[]outsourceWorkerDTO](t, rec)
+	all := decodeBody[[]memberDTO](t, rec)
+	workers := make([]memberDTO, 0, len(all))
+	for _, member := range all {
+		if member.Kind == KindOutsource {
+			workers = append(workers, member)
+		}
+	}
+	return workers
 }
 
 func TestListOutsourceWorkersCarriesUnreadCount(t *testing.T) {
@@ -1159,19 +1172,16 @@ func TestListOutsourceWorkersCarriesUnreadCount(t *testing.T) {
 	}
 }
 
-// getWorkerAs drives the SINGLE-worker detail GET (GET /api/outsource-workers/{id})
-// — the exact endpoint the 外包 detail panel fetches — and decodes the one DTO the
-// panel binds its Claude Account cell from. Sibling of listWorkersAs for the
-// detail path.
-func getWorkerAs(t *testing.T, api *apiServer, sub, id string) outsourceWorkerDTO {
+// getWorkerAs drives the unified member detail GET.
+func getWorkerAs(t *testing.T, api *apiServer, sub, id string) memberDTO {
 	t.Helper()
 	rec := httptest.NewRecorder()
-	api.HandleGetOutsourceWorkerApiOutsourceWorkersIdGet(rec,
-		taskReq(t, "GET", "/api/outsource-workers/"+id, nil, sub, "owner"), id)
+	api.HandleGetMemberApiMembersMemberIdGet(rec,
+		taskReq(t, "GET", "/api/members/"+id, nil, sub, "owner"), id)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("get worker %s: %d %s", id, rec.Code, rec.Body.String())
 	}
-	return decodeBody[outsourceWorkerDTO](t, rec)
+	return decodeBody[memberDTO](t, rec)
 }
 
 func TestOutsourceWorker_RuntimeAccountNeverBorrowsAnotherRuntime(t *testing.T) {
@@ -1239,11 +1249,11 @@ func TestGetOutsourceWorker_AccountResolvedOnDetailPath(t *testing.T) {
 	}
 }
 
-// TestNewOutsourceWorkerDTO_GoldenWireShape pins the EXACT serialised wire
-// shape of the worker DTO (P7b read-path convergence): the goldens below were
+// TestNewOutsourceMemberDTO_GoldenWireShape pins the exact serialised member
+// shape for a worker projection. The goldens below were
 // captured from the pre-convergence builder, so the shared-fold refactor must
 // reproduce them byte-for-byte — field order, names, null-vs-value, everything.
-func TestNewOutsourceWorkerDTO_GoldenWireShape(t *testing.T) {
+func TestNewOutsourceMemberDTO_GoldenWireShape(t *testing.T) {
 	ok := true
 	fullWorker := OutsourceWorker{
 		ID:               "ow-1",
@@ -1310,7 +1320,7 @@ func TestNewOutsourceWorkerDTO_GoldenWireShape(t *testing.T) {
 		{
 			name: "every field populated",
 			w:    fullWorker, task: fullTask, p: fullProjection,
-			want: `{"id":"ow-1","avatar_url":"","codename":"O-7","runtime":"claude","model":"claude-sonnet-4-5","effort":"high","actual_model":"claude-opus-5","actual_runtime":"codex","actual_effort":"medium","status":"active","task_id":"t-1","task_title":"review 1","task_status":"in_progress","task_no":"t-1","task_created_ts":900,"task_type_key":"tm-review","task_type_name":"程式碼審查 (tm-review)","created_ts":1000,"unread_count":4,"presence":"online","machine":"Mac Studio (mac-1)","desired_machine_id":"mac-2","actual_machine":"mac-1","account":"alice@example.com","context_pct":42,"cost":1.5,"banked_cost":3.25,"last_op":"worker_start","last_op_ok":true,"last_op_log":"spawned ok","last_op_reason":"","last_op_at":1501,"creator_id":"m-9","delegated_by":"Bob","refocus_since":1600,"refocus_op":"context_high","refocus_deadline":1720,"desired_state":"online","terminal_attach_command":"tmux -L officraft-seth attach -t member-ow-1"}`,
+			want: `{"id":"ow-1","avatar_url":"","name":"O-7","kind":"outsource","role_key":"","role_name":"","runtime":"claude","model":"claude-sonnet-4-5","actual_model":"claude-opus-5","actual_runtime":"codex","actual_effort":"medium","actual_machine":"mac-1","effort":"high","desired_state":"online","desired_machine_id":"mac-2","machine":"Mac Studio (mac-1)","presence":"online","refocus_since":1600,"refocus_op":"context_high","refocus_deadline":1720,"last_op":"worker_start","last_op_ok":true,"last_op_log":"spawned ok","last_op_reason":"","last_op_at":1501,"forced_stop_at":0,"unread_count":4,"roster_status":"active","owner_id":"owner","schema_version":3,"terminal_attach_command":"tmux -L officraft-seth attach -t member-ow-1","created_ts":1000,"status":"active","task_id":"t-1","task_title":"review 1","task_status":"in_progress","task_no":"t-1","task_created_ts":900,"task_type_key":"tm-review","task_type_name":"程式碼審查 (tm-review)","account":"alice@example.com","context_pct":42,"cost":1.5,"banked_cost":3.25,"creator_id":"m-9","delegated_by":"Bob"}`,
 		},
 		{
 			name: "bare row honest empties",
@@ -1323,12 +1333,12 @@ func TestNewOutsourceWorkerDTO_GoldenWireShape(t *testing.T) {
 			// none — the builder must NOT invent one from the id (T-139); the
 			// composition happens in projectWorker, where the namespace is.
 			task: nil, p: outsourceWorkerProjection{now: 2000.0},
-			want: `{"id":"ow-2","avatar_url":"","codename":"O-8","runtime":"claude","model":"claude-haiku-4-5","effort":"","actual_model":"","actual_runtime":"","actual_effort":"","status":"assigned","task_id":"t-2","task_title":"","task_status":"","task_no":"","task_created_ts":0,"task_type_key":"","task_type_name":"","created_ts":1999,"unread_count":0,"presence":"offline","machine":"","desired_machine_id":"","actual_machine":"","account":null,"context_pct":null,"cost":null,"banked_cost":null,"last_op":"","last_op_ok":null,"last_op_log":"","last_op_reason":"","last_op_at":0,"creator_id":"","delegated_by":"","refocus_since":0,"refocus_op":"","refocus_deadline":0,"desired_state":"","terminal_attach_command":""}`,
+			want: `{"id":"ow-2","avatar_url":"","name":"O-8","kind":"outsource","role_key":"","role_name":"","runtime":"claude","model":"claude-haiku-4-5","actual_model":"","actual_runtime":"","actual_effort":"","actual_machine":"","effort":"","desired_state":"","desired_machine_id":"","machine":"","presence":"offline","refocus_since":0,"refocus_op":"","refocus_deadline":0,"last_op":"","last_op_ok":null,"last_op_log":"","last_op_reason":"","last_op_at":0,"forced_stop_at":0,"unread_count":0,"roster_status":"active","owner_id":"owner","schema_version":3,"terminal_attach_command":"","created_ts":1999,"status":"assigned","task_id":"t-2"}`,
 		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got, err := json.Marshal(newOutsourceWorkerDTO(c.w, c.task, c.p))
+			got, err := json.Marshal((&apiServer{}).newOutsourceMemberDTO(c.w, c.task, c.p))
 			if err != nil {
 				t.Fatalf("marshal: %v", err)
 			}

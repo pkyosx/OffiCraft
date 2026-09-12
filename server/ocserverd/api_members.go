@@ -89,7 +89,7 @@ func (s *apiServer) collectMemberStop(m *Member, trigger string) error {
 // database does not hold is worse than no delta at all.
 //
 // ⚠️ MEMBER ROWS ONLY. The outsource half deliberately does not fan a member
-// patch for an `ow-` id (its changes travel on the outsource_worker projection),
+// patch for an `ow-` id (its changes travel on the same member projection),
 // so worker callers write through s.dal.SetMemberOpReceipt directly and keep
 // whatever publish they already had.
 func (s *apiServer) persistMemberOpReceipt(m Member, trigger string) error {
@@ -691,12 +691,7 @@ func (s *apiServer) resolveAvatarMember(memberID string) (*Member, error) {
 }
 
 func (s *apiServer) publishMemberAvatarChanged(m Member, trigger string) {
-	if m.Kind == KindOutsource {
-		s.publishOutsourceWorker(workerFromMember(m), trigger)
-		return
-	}
-	s.hub.Publish("member", "patch", "member", wireOwnerID+"::"+m.ID,
-		s.offboardDeltaPayload(m), audienceMembers(m.ID), trigger)
+	s.publishMemberPatch(m, trigger)
 }
 
 func memberAvatarResult(m Member, mime string, filename *string) MemberAvatarDTO {
@@ -843,6 +838,26 @@ func (s *apiServer) HandleListMembersApiMembersGet(w http.ResponseWriter, r *htt
 			return
 		}
 	}
+	var machineNames map[string]string
+	var tele, gauge map[string]map[string]any
+	var accountDisplay func(string) string
+	var typeNames map[string]string
+	now := nowSecs()
+	if !light {
+		machineNames, err = s.dal.MachineDisplayNames()
+		if err != nil {
+			internalError(w, err)
+			return
+		}
+		tele = s.telemetry.Snapshot()
+		gauge = s.gauge.Snapshot()
+		accountDisplay, err = s.accountDisplayFold(r, tele)
+		if err != nil {
+			internalError(w, err)
+			return
+		}
+		typeNames = s.taskTypeDisplayNames()
+	}
 
 	out := []memberDTO{}
 	for _, m := range members {
@@ -856,6 +871,16 @@ func (s *apiServer) HandleListMembersApiMembersGet(w http.ResponseWriter, r *htt
 		}
 		if light {
 			out = append(out, s.newMemberLightDTO(m, roleName))
+			continue
+		}
+		if m.Kind == KindOutsource {
+			worker := workerFromMember(m)
+			task, err := s.dal.GetTask(worker.TaskID)
+			if err != nil {
+				internalError(w, err)
+				return
+			}
+			out = append(out, s.projectWorker(worker, task, unread[m.ID], now, tele, gauge, machineNames, accountDisplay, typeNames))
 			continue
 		}
 		out = append(out, s.newMemberDTO(m, roleName, s.observedHost(m), unread[m.ID]))
@@ -980,6 +1005,28 @@ func (s *apiServer) HandleGetMemberApiMembersMemberIdGet(w http.ResponseWriter, 
 	unread, err := s.unreadCountsForRequest(r)
 	if err != nil {
 		internalError(w, err)
+		return
+	}
+	if m.Kind == KindOutsource {
+		worker := workerFromMember(*m)
+		task, err := s.dal.GetTask(worker.TaskID)
+		if err != nil {
+			internalError(w, err)
+			return
+		}
+		machineNames, err := s.dal.MachineDisplayNames()
+		if err != nil {
+			internalError(w, err)
+			return
+		}
+		tele := s.telemetry.Snapshot()
+		gauge := s.gauge.Snapshot()
+		accountDisplay, err := s.accountDisplayFold(r, tele)
+		if err != nil {
+			internalError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, s.projectWorker(worker, task, unread[m.ID], nowSecs(), tele, gauge, machineNames, accountDisplay, s.taskTypeDisplayNames()))
 		return
 	}
 	writeJSON(w, http.StatusOK, s.newMemberDTO(*m, roleName, s.observedHost(*m), unread[m.ID]))

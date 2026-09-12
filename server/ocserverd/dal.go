@@ -551,8 +551,7 @@ func (d *DAL) PutMember(m Member) error {
 //
 // It does NOT fan a member delta: the delta is the service layer's job, the
 // same split PutMember documents. bankLiveCost's member branch publishes one;
-// its worker branch deliberately does not (a worker's changes ride the
-// outsource_worker projection).
+// its worker branch is followed by the shared member presence-edge publisher.
 //
 // A missing row is a clean no-op (0 rows affected, no error).
 func (d *DAL) AddMemberBankedCost(id string, delta float64) error {
@@ -679,7 +678,7 @@ func (d *DAL) SetMemberSessionBootTS(id string, ts float64) error {
 // and the placement-block stamps immediately after it re-read the row and write
 // it back whole, so a snapshot write here would be clobbered by them. Touching
 // exactly one column cannot be. The first reason does NOT apply — presence IS on
-// the wire, and the dispatch fans its own outsource_worker delta right after.
+// the wire, and the dispatch fans its own member delta right after.
 //
 // A missing row is a clean no-op (0 rows affected, no error).
 func (d *DAL) SetMemberWakingSince(id string, ts float64) error {

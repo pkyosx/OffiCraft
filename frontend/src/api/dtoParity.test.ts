@@ -154,7 +154,7 @@ describe("per-item DTO gaps are what the adapter really does (T-8115 follow-up)"
     expect(perItemRefetchIsFaithful("task")).toBe(false);
   });
 
-  it("GET /api/outsource-workers/{id} IS a faithful superset — the one per-item path that stands", async () => {
+  it("GET /api/members/{id} faithfully serves an outsource member", async () => {
     __injectMockTask({ ...blankTask("t-parity-bound"), title: "bound" });
     __injectMockOutsourceWorker({
       id: "ow-parity",
