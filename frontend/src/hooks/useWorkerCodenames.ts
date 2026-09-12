@@ -18,10 +18,19 @@
 // negative-cached for the session so an unresolvable id never hammers the
 // server — the caller's raw-id fallback stays, honest as before.
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api";
+import type { OutsourceWorkerView } from "../api/adapter";
+import { createDeltaSink } from "../lib/deltaSink";
 
-type WorkerIdentity = { codename: string; avatarUrl?: string };
+// The WHOLE worker row is kept, not the two fields the first cut stored
+// (T-196). `GET /api/outsource-workers/{id}` already answers the complete
+// projection — codename, avatar AND the bound task (taskId / taskNo /
+// taskTitle / taskTypeName) — so a display point that needs the worker's
+// CURRENT TASK is one accessor on this cache, not a second read and not a
+// second rule. Keeping only `{codename, avatarUrl}` was what forced the reply
+// card list to have no answer for "which task is this outsource on".
+type WorkerIdentity = OutsourceWorkerView;
 
 // id → identity; null = fetch attempted, unresolvable (negative cache).
 const cache = new Map<string, WorkerIdentity | null>();
@@ -73,8 +82,7 @@ export function useWorkerCodenames(ids: readonly string[]): Map<string, string> 
       api
         .getOutsourceWorker(id)
         .then(
-          (w) =>
-            cache.set(id, { codename: w.codename, avatarUrl: w.avatarUrl }),
+          (w) => cache.set(id, w),
           () => cache.set(id, null), // honest miss — raw id stays
         )
         .then(() => {
@@ -96,6 +104,82 @@ export function useWorkerCodenames(ids: readonly string[]): Map<string, string> 
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, wanted, tick, cache.size]);
+}
+
+// The topics that can change WHICH TASK a worker is on: assignment / release
+// ("outsource_worker") and the task's own labels or closure ("task") — the same
+// two the rail treats as full re-pulls. `chat` / `chat_read` move only the
+// unread badge, which no consumer of THIS accessor renders.
+//
+// ⚠️ Deliberately NOT narrowed by the batch's ids: a "task" delta names the
+// TASK, and this cache is keyed by WORKER. Matching worker ids against it would
+// answer "none of them are mine" for every task event and the line would then
+// never update at all — the silent-staleness shape, not a saving.
+const CURRENT_TASK_TOPICS = new Set(["outsource_worker", "task"]);
+
+/**
+ * The worker rows behind a set of ids, for display points that render a
+ * worker's CURRENT TASK (T-196: the reply card list's identity row, beside the
+ * office rail's outsource row).
+ *
+ * Same per-id read and same module cache as the codename/avatar accessors, so
+ * one card cannot say 代號 while disagreeing about the task beside it — and it
+ * covers RELEASED workers, which `GET /api/outsource-workers` drops on purpose
+ * (`api_outsource.go`) and which every reply card list holds plenty of.
+ *
+ * 🔴 It ALSO subscribes, and that is the difference from the accessors above: a
+ * codename and an avatar do not change while the page is open, a current task
+ * does. Without this the line would be a fact that was true when the page
+ * loaded, rendered as if it were true now — and nothing on screen would say so.
+ * Only the ids THIS caller asked for are re-read, so no other consumer of the
+ * cache pays for the subscription.
+ */
+export function useWorkerCurrentTasks(
+  ids: readonly string[],
+): Map<string, OutsourceWorkerView> {
+  const base = useWorkerCodenames(ids); // one fetch path, shared cache
+  const key = ids.filter((id) => id.startsWith("ow-")).sort().join("|");
+  const [tick, setTick] = useState(0);
+  // The ids to re-read, readable from the SSE callback without a stale closure.
+  const wantedRef = useRef<string[]>([]);
+  wantedRef.current = key ? key.split("|") : [];
+
+  useEffect(() => {
+    let alive = true;
+    const unsubscribe = api.subscribeEvents(
+      createDeltaSink((batch) => {
+        if (![...batch.topics].some((t) => CURRENT_TASK_TOPICS.has(t))) return;
+        const mine = wantedRef.current.filter((id) => cache.get(id));
+        if (mine.length === 0) return;
+        void Promise.all(
+          mine.map((id) =>
+            api.getOutsourceWorker(id).then(
+              (w) => cache.set(id, w),
+              // Keep the last known row: a failed re-read is not evidence the
+              // worker is gone, and blanking the line would say it is.
+              () => {},
+            ),
+          ),
+        ).then(() => {
+          if (alive) setTick((n) => n + 1);
+        });
+      }),
+    );
+    return () => {
+      alive = false;
+      unsubscribe();
+    };
+  }, []);
+
+  return useMemo(() => {
+    const out = new Map<string, OutsourceWorkerView>();
+    for (const id of ids) {
+      const identity = cache.get(id);
+      if (identity) out.set(id, identity);
+    }
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, base, tick]);
 }
 
 /** Personal avatar URLs from the same per-id identity fetch/cache. */

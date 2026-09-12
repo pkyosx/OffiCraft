@@ -56,10 +56,13 @@ import { useReplyCards } from "../hooks/useReplyCards";
 import {
   useWorkerAvatarUrls,
   useWorkerCodenames,
+  useWorkerCurrentTasks,
 } from "../hooks/useWorkerCodenames";
 import { useHashRoute } from "../lib/hashRoute";
 import { avatarKindForMember } from "../lib/avatarKind";
 import { ReplyCardAvatarButton } from "./ReplyCardAvatarButton";
+import { CurrentTaskTitle } from "./CurrentTaskTitle";
+import { OutsourceTaskLine } from "./OutsourcePanel";
 import { ChevronRightIcon } from "./icons";
 import { FilterPanel } from "./FilterPanel";
 import { IdFilterInput } from "./IdFilterInput";
@@ -563,6 +566,12 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   const workerIds = [...waiting, ...handled].map((c) => c.from);
   const codenames = useWorkerCodenames(workerIds);
   const workerAvatarUrls = useWorkerAvatarUrls(workerIds);
+  // T-196 (owner rc-dce285c5274c:「只在 UI 上補上顯示就好 就像在 chat 那邊 使用者
+  // 列表上 outsource worker 會顯示他在進行的工作是哪一個」): the asker's CURRENT
+  // task — the worker's own, NOT `row.task`, which is the task this CARD was
+  // bound to and is null on a plain chat ask. Same read and same cache as the
+  // codename/avatar above, so the identity row speaks with one voice.
+  const workerTasks = useWorkerCurrentTasks(workerIds);
 
   // Resolve the initiating member for a card's identity row. A card can
   // outlive its member (removed roster row) — fall back to the outsource
@@ -758,6 +767,47 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
     }
   }
 
+  /** The asking OUTSOURCE worker's current task, under its 代號 (T-196).
+   *
+   * owner rc-dce285c5274c, on a card whose weight he could not judge:「我覺得只在
+   * UI 上補上顯示就好 就像在 chat 那邊 使用者列表上 outsource worker 會顯示他在
+   * 進行的工作是哪一個」— so this renders the office rail's own two pieces,
+   * `OutsourceTaskLine` (clickable 任務編號 chip → #tasks/<id>, then the task
+   * type) and `CurrentTaskTitle` (the real title, clamped + hover), NOT a second
+   * rendering of the same fact. The rail's presence dot is left off, exactly as
+   * the worker chat header leaves it off: presence lives in the rail, and this
+   * page never grows a second presence source.
+   *
+   * 🔴 NOT `row.task`: that is the task the CARD is bound to, which the owner
+   * explicitly ruled out of this ticket (the binding logic is untouched) and
+   * which is null on a plain chat ask. This line is the WORKER's, so it shows
+   * even on a card bound to nothing, and it shows the SAME task the rail does.
+   *
+   * A staff asker renders nothing here: `MemberDTO` carries no task at all, so
+   * there is no such fact to tell for a member — see the ResumeRoster ruling
+   * (正職給職責, 外包給任務標題). A worker whose id never resolved renders
+   * nothing either: silence is honest, a placeholder would assert "no task" on
+   * evidence we do not have. The placeholder IS shown once the worker resolved
+   * and the task is genuinely empty — an unassigned worker really has none. */
+  function renderAskerCurrentTask(row: ReplyCardRow) {
+    const worker = workerTasks.get(row.from);
+    if (!worker) return null;
+    return (
+      <span className="reply-card__worker-task">
+        <OutsourceTaskLine
+          worker={worker}
+          onOpenTask={(taskId) => setRoute({ page: "tasks", taskId })}
+          idPrefix={`reply-card-${row.id}`}
+        />
+        <CurrentTaskTitle
+          title={worker.taskTitle ?? ""}
+          clamp
+          testid={`reply-card-task-title-${row.id}`}
+        />
+      </span>
+    );
+  }
+
   /** The card's head — and, since owner 2026-09-11, the COLLAPSED ROW itself:
    * 「折疊起來那一列的內容不要另外設計」. It is drawn from the LIGHT ROW, so it
    * costs no read: avatar, name + role, 跳到原訊息, 標為過期, then the stamp. */
@@ -783,6 +833,7 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
         <div className="reply-card__who">
           <span className="reply-card__name">{who.name}</span>
           {who.role && <span className="reply-card__role">{who.role}</span>}
+          {renderAskerCurrentTask(row)}
         </div>
         <button
           type="button"
