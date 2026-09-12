@@ -2114,7 +2114,8 @@ func TestHandleMcpApiMcpPost(t *testing.T) {
 	})
 
 	t.Run("tools/list serves the frozen catalog and leaves the two transport rows out of it", func(t *testing.T) {
-		_, h, owner := apiTestMCPServer(t)
+		api, h, owner := apiTestMCPServer(t)
+		wantTools := api.mcpCatalogTools()
 
 		status, data := apiMCP(t, h, owner, `{"jsonrpc":"2.0","id":9,"method":"tools/list"}`)
 
@@ -2129,8 +2130,8 @@ func TestHandleMcpApiMcpPost(t *testing.T) {
 			t.Fatalf("tools/list result must carry tools and nothing else, got %v", result)
 		}
 		tools, _ := result["tools"].([]any)
-		if len(tools) != 127 {
-			t.Fatalf("want the frozen catalog's 127 descriptors, got %d", len(tools))
+		if len(tools) != len(wantTools) {
+			t.Fatalf("want the frozen catalog's %d descriptors, got %d", len(wantTools), len(tools))
 		}
 		listed := map[string]any{}
 		for _, raw := range tools {
