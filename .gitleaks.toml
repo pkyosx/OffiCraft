@@ -15,7 +15,7 @@ title = "open-company gitleaks policy"
 [extend]
 useDefault = true
 
-[allowlist]
+[[allowlists]]
 description = "Synthetic unit-test fixtures — deterministic signing material, not real secrets."
 paths = [
   # bin/ocwarden — the committed, stripped Go executor binary (the go-forward
@@ -91,4 +91,24 @@ regexes = [
   # the last place in the tree that should stop being scanned. A real TOTP secret
   # is 20 random bytes and will not match this string.
   '''GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ''',
+]
+
+# ---------------------------------------------------------------------------
+# A second allowlist table, matched against the whole LINE rather than the
+# extracted secret. The block above matches on the secret itself, which is why a
+# generated digest cannot be named there: the digest is the secret, and it
+# changes every time the tool surface changes.
+[[allowlists]]
+description = "The pinned MCP tool-surface digest in server_test.go — a hash of the committed catalog, not a credential."
+regexTarget = "line"
+regexes = [
+  # server/ocserverd/server_test.go asserts `api.catalogHash` against a pinned
+  # 16-hex digest so the tool surface cannot change silently. gitleaks'
+  # generic-api-key rule keys off the `api` receiver sitting beside a quoted
+  # high-entropy literal (the same shape the m-ed79-refocus note above
+  # describes), and fires only when the digest happens to clear the 3.5 entropy
+  # floor — luck of the draw, so the identical assertion passes for one digest
+  # and fails for the next. Line-scoped to this one assertion shape, never the
+  # file and never the rule, so real secrets in server_test.go stay scanned.
+  '''catalogHash''',
 ]
