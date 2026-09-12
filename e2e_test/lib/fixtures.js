@@ -117,10 +117,35 @@ async function ownerToken(request) {
 // OTHER field the old DTO carried is genuinely gone from this answer: a spec
 // that needs roster_status / presence / machine / runtime must read it from
 // `GET /api/members/{id}`, which still serves the full DTO.
+// One REAL non-admin role per run, created lazily and shared by every hire.
+//
+// 🔴 It has to be REAL, not an invented string: a staff hire REQUIRES a role
+// (a role-less staff member is a refused state), and a member whose role names
+// nothing cannot fold a boot context — so it would hire fine here and then fail
+// far away, at bootstrap (404) or as a START frame that is never dispatched.
+// `POST /api/roles` is the only door that creates a role; it mints a founding
+// member alongside, which is why this is cached rather than called per hire.
+let scratchRolePromise = null;
+async function scratchRoleKey(request, token) {
+  if (scratchRolePromise === null) {
+    scratchRolePromise = (async () => {
+      const res = await request.post(`${BASE}/api/roles`, {
+        headers: authHeaders(token),
+        data: { name: uniqueName('E2E Scratch') },
+      });
+      expect(res.status(), 'creating the scratch role must succeed').toBe(200);
+      const { role_key: roleKey } = await res.json();
+      expect(roleKey, 'the scratch role must carry a key').toBeTruthy();
+      return roleKey;
+    })();
+  }
+  return scratchRolePromise;
+}
+
 async function hireMember(request, token, name) {
   const res = await request.post(`${BASE}/api/members`, {
     headers: authHeaders(token),
-    data: { name, kind: 'staff' },
+    data: { name, kind: 'staff', role_key: await scratchRoleKey(request, token) },
   });
   expect(res.status(), `hiring member "${name}" must succeed`).toBe(200);
   const receipt = await res.json();
@@ -251,6 +276,7 @@ module.exports = {
   authHeaders,
   ownerToken,
   hireMember,
+  scratchRoleKey,
   mintMemberToken,
   postChatAs,
   markChatRead,

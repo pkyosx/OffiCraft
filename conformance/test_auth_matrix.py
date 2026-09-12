@@ -758,9 +758,19 @@ MATRIX: dict[str, Route] = {
     "POST /api/members": Route(
         requires="machine",
         body={"name": "conf-hire-scratch"},
+        overrides={
+            "warden": 422,
+            "agent_self": 422,
+            "agent_other": 422,
+            "admin_agent": 422,
+            "owner": 422,
+        },
         notes=(
-            "a PLAIN hire (name only) stays open at the machine floor; the "
-            "privilege-bearing kind/role_key faces are pinned in "
+            "the machine floor still says WHO may knock — below it is still a "
+            "flat 403 — but a PLAIN hire (name only) now succeeds for nobody: "
+            "kind defaults to staff and a staff member requires a role_key "
+            "(422). Naming one is privilege-bearing, so the only hire that can "
+            "answer 200 is an admin's; those faces are pinned in "
             "test_hire_escalation_denied below"
         ),
     ),
