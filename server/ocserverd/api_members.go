@@ -913,6 +913,24 @@ func (s *apiServer) HandleHireMemberApiMembersPost(w http.ResponseWriter, r *htt
 		writeError(w, http.StatusUnprocessableEntity, err.Error())
 		return
 	}
+	// A STAFF member without a role is a state the product does not define
+	// (owner 2026-09-12, rc-beac3f5b355c / rc-564e5f39b6f5): nothing downstream
+	// knows what such a member IS, so every reader invents an answer — the
+	// cockpit drew it as the 特助 (the admin role) and the boot fold handed it
+	// the 特助 persona, while authz kept refusing it. Refuse the state at the
+	// only door that can create it instead of teaching each reader a new one.
+	// A warden carries no role by design (it is a machine principal, classified
+	// by kind), and an outsource worker is born through the spawn path, not
+	// here — so the refusal is scoped to staff.
+	// The check is on the TRIMMED value, matching the privilege gate above: a
+	// whitespace-only role_key is not admin-gated there (it trims to empty), so
+	// accepting it here would let the refused state back in through a space.
+	if kind == KindStaff && trimmedOrEmpty(body.RoleKey) == "" {
+		writeError(w, http.StatusUnprocessableEntity,
+			"a staff member requires a role_key; hire the member through "+
+				"POST /api/roles, which mints a role and its member together")
+		return
+	}
 	effort := strOrEmpty(body.Effort)
 	if effort == "" {
 		effort = "medium"

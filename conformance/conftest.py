@@ -89,6 +89,12 @@ def hire_member(
     """HTTP hire — returns the server-minted member id. ``role_key``/``kind`` are
     privilege-bearing (RBAC hire guard); the OWNER token carries them here."""
     body: dict[str, object] = {"name": name}
+    if role_key is None and kind in (None, "staff"):
+        # A STAFF hire REQUIRES a role: a role-less staff member is a state the
+        # server refuses (422), so every fixture that just wants "a member"
+        # gets a throwaway non-admin role rather than repeating it 29 times.
+        # A test that means to exercise the refusal sends role_key="" itself.
+        role_key = f"conf-role-{uuid.uuid4().hex[:8]}"
     if role_key is not None:
         body["role_key"] = role_key
     if kind is not None:
