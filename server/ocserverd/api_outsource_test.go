@@ -112,19 +112,30 @@ func apiTestWantWorkerList(t *testing.T, h http.Handler, credential string, want
 }
 
 func apiTestWorkerDelta(seq int, status, trigger string) map[string]any {
+	return apiTestWorkerStateDelta(seq, status, "", trigger)
+}
+
+func apiTestWorkerStateDelta(seq int, status, desiredState, trigger string) map[string]any {
 	rosterStatus := RosterStatusActive
+	op := "patch"
+	deleted := false
+	var payload any = map[string]any{
+		"id": "ow-abc123", "name": "Contractor", "status": rosterStatus,
+		"desired_state": desiredState, "owner_id": "owner",
+	}
 	if status == WorkerStatusReleased {
 		rosterStatus = RosterStatusRemoved
+		op = "remove"
+		deleted = true
+		payload = nil
+	} else {
+		payload.(map[string]any)["status"] = rosterStatus
 	}
 	return map[string]any{
-		"seq": seq, "topic": "member", "op": "patch",
+		"seq": seq, "topic": "member", "op": op,
 		"data": map[string]any{
 			"entity": "member", "key": "owner::ow-abc123",
-			"epoch": seq, "deleted": false,
-			"payload": map[string]any{
-				"id": "ow-abc123", "name": "Contractor", "status": rosterStatus,
-				"desired_state": "", "owner_id": "owner",
-			},
+			"epoch": seq, "deleted": deleted, "payload": payload,
 		},
 		"ts": apiAnyNumber, "trigger": trigger,
 	}
@@ -957,9 +968,12 @@ func TestHandleStopOutsourceWorkerApiOutsourceWorkersIdStopPost(t *testing.T) {
 		}))
 		dashboard.wantFrames(
 			apiTestHandoverDelta(2, "offline", apiTestOffboardNotice, "owner"),
-			apiTestWorkerDelta(3, "active", "owner"),
+			apiTestHandoverDelta(3, "offline", apiTestOffboardNotice, "owner"),
 		)
-		contractor.wantFrames(apiTestHandoverDelta(2, "offline", apiTestOffboardNotice, "owner"))
+		contractor.wantFrames(
+			apiTestHandoverDelta(2, "offline", apiTestOffboardNotice, "owner"),
+			apiTestHandoverDelta(3, "offline", apiTestOffboardNotice, "owner"),
+		)
 		bystander.wantFrames()
 		push()
 	})
@@ -979,7 +993,7 @@ func TestHandleStopOutsourceWorkerApiOutsourceWorkersIdStopPost(t *testing.T) {
 		}))
 		dashboard.wantFrames(
 			apiTestHandoverDelta(2, "offline", apiTestOffboardNotice, "owner"),
-			apiTestWorkerDelta(3, "active", "owner"),
+			apiTestHandoverDelta(3, "offline", apiTestOffboardNotice, "owner"),
 		)
 	})
 
@@ -1002,7 +1016,7 @@ func TestHandleStopOutsourceWorkerApiOutsourceWorkersIdStopPost(t *testing.T) {
 		}))
 		dashboard.wantFrames(
 			apiTestHandoverDelta(4, "offline", apiTestOffboardNotice, "owner"),
-			apiTestWorkerDelta(5, "active", "owner"),
+			apiTestHandoverDelta(5, "offline", apiTestOffboardNotice, "owner"),
 		)
 	})
 
@@ -1095,16 +1109,19 @@ func TestHandleStopOutsourceWorkerApiOutsourceWorkersIdStopPost(t *testing.T) {
 		}))
 		dashboard.wantFrames(
 			apiTestHandoverDelta(2, "offline", apiTestOffboardNotice, "owner"),
-			apiTestWorkerDelta(3, "active", "owner"),
+			apiTestHandoverDelta(3, "offline", apiTestOffboardNotice, "owner"),
 		)
-		contractor.wantFrames(apiTestHandoverDelta(2, "offline", apiTestOffboardNotice, "owner"))
+		contractor.wantFrames(
+			apiTestHandoverDelta(2, "offline", apiTestOffboardNotice, "owner"),
+			apiTestHandoverDelta(3, "offline", apiTestOffboardNotice, "owner"),
+		)
 		bystander.wantFrames()
 		push()
 	})
 }
 
 func TestHandleForceStopOutsourceWorkerApiOutsourceWorkersIdForceStopPost(t *testing.T) {
-	t.Run("強制停止 cuts a live session off, tells it nothing and patches only the cockpit", func(t *testing.T) {
+	t.Run("強制停止 cuts a live session off and publishes the shared offline state without an offboard notice", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
 		contractor := apiTestListen(t, api, "ow-abc123")
@@ -1119,9 +1136,10 @@ func TestHandleForceStopOutsourceWorkerApiOutsourceWorkersIdForceStopPost(t *tes
 		apiWantBody(t, data, map[string]any{"id": "ow-abc123"})
 		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
 			"status": "active", "presence": "stopping", "desired_state": "offline",
+			"forced_stop_at": apiAnyNumber,
 		}))
-		dashboard.wantFrames(apiTestWorkerDelta(2, "active", "owner"))
-		contractor.wantFrames()
+		dashboard.wantFrames(apiTestWorkerStateDelta(2, "active", "offline", "owner"))
+		contractor.wantFrames(apiTestWorkerStateDelta(2, "active", "offline", "owner"))
 		bystander.wantFrames()
 		push()
 	})
@@ -1138,8 +1156,9 @@ func TestHandleForceStopOutsourceWorkerApiOutsourceWorkersIdForceStopPost(t *tes
 		apiWantBody(t, data, map[string]any{"id": "ow-abc123"})
 		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
 			"status": "active", "presence": "stopped", "desired_state": "offline",
+			"forced_stop_at": apiAnyNumber,
 		}))
-		dashboard.wantFrames(apiTestWorkerDelta(2, "active", "owner"))
+		dashboard.wantFrames(apiTestWorkerStateDelta(2, "active", "offline", "owner"))
 	})
 
 	t.Run("強制停止 pressed on an in-flight 換手 ends it down, clearing the epoch", func(t *testing.T) {
@@ -1158,8 +1177,9 @@ func TestHandleForceStopOutsourceWorkerApiOutsourceWorkersIdForceStopPost(t *tes
 		apiWantBody(t, data, map[string]any{"id": "ow-abc123"})
 		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
 			"status": "active", "presence": "stopping", "desired_state": "offline",
+			"forced_stop_at": apiAnyNumber,
 		}))
-		dashboard.wantFrames(apiTestWorkerDelta(4, "active", "owner"))
+		dashboard.wantFrames(apiTestWorkerStateDelta(4, "active", "offline", "owner"))
 	})
 
 	t.Run("a released worker answers 404 naming the id from the path", func(t *testing.T) {
@@ -1227,9 +1247,10 @@ func TestHandleForceStopOutsourceWorkerApiOutsourceWorkersIdForceStopPost(t *tes
 		apiWantBody(t, data, map[string]any{"id": "ow-abc123"})
 		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
 			"status": "active", "presence": "stopping", "desired_state": "offline",
+			"forced_stop_at": apiAnyNumber,
 		}))
-		dashboard.wantFrames(apiTestWorkerDelta(2, "active", "owner"))
-		contractor.wantFrames()
+		dashboard.wantFrames(apiTestWorkerStateDelta(2, "active", "offline", "owner"))
+		contractor.wantFrames(apiTestWorkerStateDelta(2, "active", "offline", "owner"))
 		bystander.wantFrames()
 		push()
 	})
@@ -1258,15 +1279,16 @@ func TestHandleRestartOutsourceWorkerApiOutsourceWorkersIdRestartPost(t *testing
 		})
 		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
 			"status": "active", "desired_state": "online",
-			"last_op": "start", "last_op_ok": false, "last_op_at": apiAnyNumber,
+			"forced_stop_at": apiAnyNumber,
+			"last_op":        "start", "last_op_ok": false, "last_op_at": apiAnyNumber,
 			"last_op_reason": "no_machine_selected: no machine is selected for this " +
 				"worker — pick one on the worker (改機器) or on the task type's 手冊 " +
 				"assignee; there is no automatic placement",
 		}))
 		dashboard.wantFrames(
-			apiTestWorkerDelta(3, "active", "server"),
-			apiTestWorkerDelta(4, "active", "server"),
-			apiTestWorkerDelta(5, "active", "owner"),
+			apiTestWorkerStateDelta(3, "active", "online", "server"),
+			apiTestWorkerStateDelta(4, "active", "online", "server"),
+			apiTestWorkerStateDelta(5, "active", "online", "owner"),
 		)
 		bystander.wantFrames()
 		push()
@@ -1297,8 +1319,8 @@ func TestHandleRestartOutsourceWorkerApiOutsourceWorkersIdRestartPost(t *testing
 				"換手 already under way on it, are untouched. To end the current session " +
 				"and start a fresh one, press 強制停止 first, then 喚醒",
 		}))
-		dashboard.wantFrames(apiTestWorkerDelta(2, "active", "owner"))
-		contractor.wantFrames()
+		dashboard.wantFrames(apiTestWorkerStateDelta(2, "active", "online", "owner"))
+		contractor.wantFrames(apiTestWorkerStateDelta(2, "active", "online", "owner"))
 	})
 
 	t.Run("喚醒 on a live worker leaves an 加速停止 already under way running", func(t *testing.T) {
@@ -1395,6 +1417,7 @@ func TestHandleRestartOutsourceWorkerApiOutsourceWorkersIdRestartPost(t *testing
 			"invalid request body: invalid character '{' looking for beginning of object key string")
 		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
 			"status": "active", "presence": "stopped", "desired_state": "offline",
+			"forced_stop_at": apiAnyNumber,
 		}))
 		dashboard.wantFrames()
 		bystander.wantFrames()
@@ -1440,11 +1463,13 @@ func TestHandleSetOutsourceWorkerModelApiOutsourceWorkersIdModelPost(t *testing.
 			"refocus_since": apiAnyNumber, "refocus_op": "runtime/model",
 		}))
 		dashboard.wantFrames(
-			apiTestWorkerDelta(2, "active", "server"),
-			apiTestHandoverDelta(3, "", apiTestOffboardNotice, "server"),
-			apiTestWorkerDelta(4, "active", "owner"),
+			apiTestHandoverDelta(2, "", apiTestOffboardNotice, "server"),
+			apiTestHandoverDelta(3, "", apiTestOffboardNotice, "owner"),
 		)
-		contractor.wantFrames(apiTestHandoverDelta(3, "", apiTestOffboardNotice, "server"))
+		contractor.wantFrames(
+			apiTestHandoverDelta(2, "", apiTestOffboardNotice, "server"),
+			apiTestHandoverDelta(3, "", apiTestOffboardNotice, "owner"),
+		)
 	})
 
 	t.Run("re-saving the value the worker already runs on stores it again and opens no session", func(t *testing.T) {

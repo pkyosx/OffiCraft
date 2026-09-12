@@ -670,6 +670,22 @@ var authzOutsideRouteTable = map[string]string{
 // the fix is the type-aware scan the header names — not a longer map. The
 // reason on each entry says WHAT the kind belongs to and why it is not identity.
 var nonCallerKindPredicates = map[string]string{
+	"api_members.go :: HandleAcceleratedStopMemberApiMembersMemberIdAcceleratedStopPost :: m.Kind == KindOutsource": "" +
+		"the kind of the TARGET member selects the outsource accelerated-stop implementation; the caller's privilege was already decided by the route floor.",
+	"api_members.go :: HandleActivateMemberApiMembersMemberIdActivatePost :: m.Kind == KindOutsource": "" +
+		"the kind of the TARGET member selects the outsource activation implementation; it does not classify the authenticated caller.",
+	"api_members.go :: HandleDeactivateMemberApiMembersMemberIdDeactivatePost :: m.Kind == KindOutsource": "" +
+		"the kind of the TARGET member selects the outsource deactivation implementation; it does not classify the authenticated caller.",
+	"api_members.go :: HandleForceStopMemberApiMembersMemberIdForceStopPost :: m.Kind == KindOutsource": "" +
+		"the kind of the TARGET member selects the outsource force-stop implementation; the caller's privilege comes from the route table.",
+	"api_members.go :: HandleGetMemberApiMembersMemberIdGet :: m.Kind == KindOutsource": "" +
+		"the kind of the member being READ selects the outsource detail projection; it is not an identity or privilege test on the caller.",
+	"api_members.go :: HandleListMembersApiMembersGet :: m.Kind == KindOutsource": "" +
+		"the kind of each listed member selects its outsource detail projection; it does not classify or authorize the authenticated caller.",
+	"api_members.go :: HandleRefocusMemberApiMembersMemberIdRefocusPost :: m.Kind == KindOutsource": "" +
+		"the kind of the TARGET member selects the outsource refocus implementation; the caller's privilege was already decided by the route floor.",
+	"api_members.go :: HandleUpdateMemberApiMembersMemberIdPatch :: m.Kind == KindOutsource": "" +
+		"the kind of the TARGET member selects the fields and persistence path for that row; it does not classify the authenticated caller.",
 	"api_members.go :: HandleHireMemberApiMembersPost :: kind == KindStaff": "" +
 		"the kind of the member being HIRED, read off the request body — not the " +
 		"caller's. It picks which validation rule applies to the row about to be " +
@@ -878,16 +894,6 @@ var machineFloorWriteRulings = map[string]machineFloorRuling{
 			"colleague's name/model/effort is housekeeping, not governance. The asymmetry " +
 			"with DELETE on the same {member_id} (admin_agent) is known and accepted. " +
 			"Full reasoning on the row in routes.go.",
-	},
-	"POST /api/outsource-workers/{id}/model": {
-		Ruling: "T-ed79 · owner 2026-08-21 · rc-376a41719e62",
-		Why: "brought DOWN two rungs to meet the staff face of the same act. The owner " +
-			"ruled 「如果原本正職可以改 model 外包就應該可以改…mira 是特殊的意義，他代替 " +
-			"owner 執行高權限動作」: the floor of 改 model is whatever PATCH " +
-			"/api/members/{member_id} carries (machine, T-5336), because it is the same " +
-			"housekeeping act on the other side of the roster, and admin_agent is " +
-			"reserved for acts delegated on the owner's behalf. The other four worker " +
-			"lifecycle rows were NOT moved. Full reasoning on the row in routes.go.",
 	},
 	"PATCH /api/accounts/{account_id}": {
 		Ruling: "T-5336 裁定 3 · owner 2026-07-27",

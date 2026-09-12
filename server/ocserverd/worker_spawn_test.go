@@ -2456,7 +2456,7 @@ func TestWorkerReportWaking(t *testing.T) {
 			"status": "active", "presence": "online", "desired_state": "online",
 			"machine": "m-server-self", "actual_model": "claude-opus-5",
 		}))
-		dashboard.wantFrames(wsWakingDelta(4))
+		dashboard.wantFrames(wsWakingDelta(3))
 	})
 
 	t.Run("a caller with no live worker row is refused not-found and nothing is written", func(t *testing.T) {
