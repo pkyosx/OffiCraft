@@ -1,7 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"errors"
+	"fmt"
+	"os/exec"
 	"reflect"
 	"strings"
 	"testing"
@@ -20,15 +23,61 @@ type wardenRunner struct {
 	script   map[string]wardenRun
 	fallback wardenRun
 	calls    []string
+	// shellPassthrough makes an UNSCRIPTED `<shell> -c <script>` argv really run,
+	// combined output and all. Opt-in per test: a rendered shell fragment asserted
+	// as text passes just as happily when it word-splits wrong, matches the wrong
+	// pattern, or resolves no binary, so the fragments that decide the child's
+	// config home are exercised instead of read.
+	shellPassthrough bool
 }
 
 func (r *wardenRunner) Run(name string, args ...string) (string, error) {
+	return r.answer(name, args, false)
+}
+
+// RunCombined is the double's half of the CombinedCmdRunner seam.
+func (r *wardenRunner) RunCombined(name string, args ...string) (string, error) {
+	return r.answer(name, args, true)
+}
+
+func (r *wardenRunner) answer(name string, args []string, combined bool) (string, error) {
 	key := strings.Join(append([]string{name}, args...), " ")
 	r.calls = append(r.calls, key)
 	if res, ok := r.script[key]; ok {
 		return res.out, res.err
 	}
+	if r.shellPassthrough && len(args) == 2 && args[0] == "-c" {
+		return r.passthrough(name, args, combined)
+	}
 	return r.fallback.out, r.fallback.err
+}
+
+// passthrough really runs the shell line AND LOSES WHAT THE PRODUCTION SEAM WOULD
+// HAVE LOST. This used to return CombinedOutput for both halves, which made the
+// double strictly more generous than execRunner: a command that exits non-zero
+// and answers on stderr came back with its answer here and as "" in production,
+// so the pre-trust probe's whole test suite was green while every real spawn was
+// refused. Run therefore mirrors execRunner.Run (stdout dropped on a non-zero
+// exit, stderr folded into the error) and only RunCombined keeps both.
+func (r *wardenRunner) passthrough(name string, args []string, combined bool) (string, error) {
+	var out, errb bytes.Buffer
+	cmd := exec.Command(name, args...)
+	cmd.Stdout = &out
+	cmd.Stderr = &errb
+	if combined {
+		cmd.Stderr = &out
+	}
+	err := cmd.Run()
+	if combined {
+		return out.String(), err
+	}
+	if err != nil {
+		if msg := strings.TrimSpace(errb.String()); msg != "" {
+			return "", fmt.Errorf("%w: %s", err, msg)
+		}
+		return "", err
+	}
+	return out.String(), nil
 }
 
 func TestTmuxClassifyAbsent(t *testing.T) {

@@ -214,9 +214,9 @@ func validateTeardownTarget(env func(string) string, canonicalExplicit bool) err
 // member only on exit 0 (CONFIRM-THEN-REMOVE).
 func teardownCmd(env func(string) string, out io.Writer, canonicalExplicit bool) int {
 	// Same single host seam as install (see hostSeam in install.go): production
-	// gets the real launchctl/filesystem, the test binary gets a recording fake
-	// bound in TestMain — so no test can bootout the live warden even if every
-	// guard below is wrong.
+	// gets the real launchctl/filesystem, and a test binary reaching this line dies
+	// inside realHostSeam (refuseInTestBinary) — so no test can bootout the live
+	// warden even if every guard below is wrong.
 	i := &installer{out: out, tag: "teardown", dryRun: env(dryRunEnv) == "1", sys: newHostSeam().sys}
 	// FAIL CLOSED BEFORE ANY PATH IS DERIVED: an absent OC_NAMESPACE must not
 	// silently resolve the canonical instance (T-2257).

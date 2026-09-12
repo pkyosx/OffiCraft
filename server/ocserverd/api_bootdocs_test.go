@@ -444,8 +444,8 @@ func TestSystemInteractionText(t *testing.T) {
 			t.Fatalf("the boot fold and the read face disagree (%d vs %d runes)",
 				utf8.RuneCountInString(got), utf8.RuneCountInString(data["text"].(string)))
 		}
-		if n := utf8.RuneCountInString(got); n != 17047 {
-			t.Fatalf("the shipped block is %d runes, want 17047", n)
+		if n := utf8.RuneCountInString(got); n != 17085 {
+			t.Fatalf("the shipped block is %d runes, want 17085", n)
 		}
 	})
 
@@ -1447,7 +1447,7 @@ func TestHandleGetSystemInteractionApiSystemInteractionGet(t *testing.T) {
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
-		apiWantValue(t, "size_chars", data["size_chars"], 17047)
+		apiWantValue(t, "size_chars", data["size_chars"], 17085)
 		apiWantValue(t, "cap_chars", data["cap_chars"], 60000)
 		apiWantValue(t, "kind", data["kind"], "system_interaction")
 		apiWantValue(t, "key", data["key"], "global")
@@ -1457,8 +1457,8 @@ func TestHandleGetSystemInteractionApiSystemInteractionGet(t *testing.T) {
 		apiWantValue(t, "has_seed", data["has_seed"], true)
 		apiWantValue(t, "schema_version", data["schema_version"], 3)
 		text, ok := data["text"].(string)
-		if !ok || utf8.RuneCountInString(text) != 17047 {
-			t.Fatalf("the shipped system-interaction text has %d runes, want 17047", utf8.RuneCountInString(text))
+		if !ok || utf8.RuneCountInString(text) != 17085 {
+			t.Fatalf("the shipped system-interaction text has %d runes, want 17085", utf8.RuneCountInString(text))
 		}
 	})
 
@@ -1612,9 +1612,9 @@ func TestHandleResetSystemInteractionApiSystemInteractionResetPost(t *testing.T)
 			"kind":       "system_interaction",
 			"key":        "global",
 			"is_default": true,
-			"size_chars": 17047,
+			"size_chars": 17085,
 			"cap_chars":  60000,
-			"sha256":     "d2d4d08344aaf520ea318e1ebc8364693b58778552990e614fe02b43fec50e1b",
+			"sha256":     "415818ae5153578b912329ecb3ee12bc08c8c9564426b684238f4951789139c9",
 		})
 		dashboard.wantFrames(map[string]any{
 			"seq":   2,
@@ -1645,9 +1645,9 @@ func TestHandleResetSystemInteractionApiSystemInteractionResetPost(t *testing.T)
 			"kind":       "system_interaction",
 			"key":        "global",
 			"is_default": true,
-			"size_chars": 17047,
+			"size_chars": 17085,
 			"cap_chars":  60000,
-			"sha256":     "d2d4d08344aaf520ea318e1ebc8364693b58778552990e614fe02b43fec50e1b",
+			"sha256":     "415818ae5153578b912329ecb3ee12bc08c8c9564426b684238f4951789139c9",
 		})
 		dashboard.wantFrames()
 	})
@@ -1673,7 +1673,7 @@ func TestHandleGetOffboardApiOffboardGet(t *testing.T) {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
 		apiWantBody(t, data, map[string]any{
-			"size_chars":     1805,
+			"size_chars":     1819,
 			"cap_chars":      15000,
 			"kind":           "offboard",
 			"key":            "global",
@@ -1810,9 +1810,9 @@ func TestHandleResetOffboardApiOffboardResetPost(t *testing.T) {
 			"kind":       "offboard",
 			"key":        "global",
 			"is_default": true,
-			"size_chars": 1805,
+			"size_chars": 1819,
 			"cap_chars":  15000,
-			"sha256":     "49f67a2aa2e8755f4652fc648ae333a0d31024d0cba232ae553a220387ddb3ae",
+			"sha256":     "52fe07d9e55c759562ce40dc9b56a774c37e6c97686f345fcaa0ebbb441ca292",
 		})
 		dashboard.wantFrames(map[string]any{
 			"seq":   2,

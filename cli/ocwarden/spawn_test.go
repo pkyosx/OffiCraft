@@ -1,9 +1,11 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -34,17 +36,23 @@ type spawnHarness struct {
 	slept     []time.Duration
 	pretrusts int
 	pretrustE error
+	verifies  [][2]string
+	verifyE   error
 	purges    int
 }
 
 func (h *spawnHarness) deps() SpawnDeps {
 	return SpawnDeps{
-		Runner:    h.runner,
-		Base:      "http://127.0.0.1:7755/",
-		Socket:    "officraft",
-		Home:      "/w",
-		ClaudeBin: "/usr/local/bin/claude",
-		RepoRoot:  "/repo",
+		Runner: h.runner,
+		Base:   "http://127.0.0.1:7755/",
+		Socket: "officraft",
+		Home:   "/w",
+		// The warden's own HOME, deliberately NOT the agents root above: the two
+		// are different things and a fixture that spelled them the same could not
+		// tell a launch line that exported the wrong one.
+		ClaudeHome: claudeHome{Home: "/Users/wardenowner"},
+		ClaudeBin:  "/usr/local/bin/claude",
+		RepoRoot:   "/repo",
 		ResolveOcAgentBin: func() (string, bool) {
 			return "/Users/eva/.officraft/warden/ocagent", true
 		},
@@ -70,8 +78,12 @@ func (h *spawnHarness) deps() SpawnDeps {
 			}
 			return os.ErrNotExist
 		},
-		Logf:       func(format string, a ...any) { h.logs = append(h.logs, fmt.Sprintf(format, a...)) },
-		Pretrust:   func() error { h.pretrusts++; return h.pretrustE },
+		Logf:     func(format string, a ...any) { h.logs = append(h.logs, fmt.Sprintf(format, a...)) },
+		Pretrust: func() error { h.pretrusts++; return h.pretrustE },
+		VerifyPretrust: func(workdir, envRendered string) error {
+			h.verifies = append(h.verifies, [2]string{workdir, envRendered})
+			return h.verifyE
+		},
 		PurgeTrash: func() { h.purges++ },
 		Sleep:      func(d time.Duration) { h.slept = append(h.slept, d) },
 	}
@@ -92,8 +104,15 @@ func startParamsM1() StartParams {
 	return StartParams{MemberID: "m1", PersonaContext: "you are m1", MemberToken: "jwt-m1", Role: "builder"}
 }
 
-const goldenLaunchM1 = `cd /w/m1; export OC_TOKEN="$(/bin/cat /w/m1/.oc-token)" ` +
-	`OC_BASE=http://127.0.0.1:7755 OC_SESSION=member-m1 OC_TMUX_SOCKET=officraft OC_EFFORT=medium; ` +
+// goldenClaudePurge is the CLAUDE_* family purge as it must appear on every
+// claude launch line — TYPED OUT HERE rather than called from
+// claudeEnvPurgeFragment, so a change to the fragment has to be re-justified
+// against a literal instead of agreeing with itself.
+const goldenClaudePurge = `for __oc_e in $(/usr/bin/env); do case $__oc_e in CLAUDE_CODE_USE_BEDROCK=*|CLAUDE_CODE_USE_VERTEX=*) continue;; CLAUDE_*=*) ;; *) continue;; esac; __oc_n=${__oc_e%%=*}; case $__oc_n in *[!A-Za-z0-9_]*) continue;; esac; unset "$__oc_n"; done; unset __oc_e __oc_n; `
+
+const goldenLaunchM1 = `cd /w/m1; ` + goldenClaudePurge + `unset CLAUDE_CONFIG_DIR; export OC_TOKEN="$(/bin/cat /w/m1/.oc-token)" ` +
+	`OC_BASE=http://127.0.0.1:7755 OC_SESSION=member-m1 OC_TMUX_SOCKET=officraft OC_EFFORT=medium ` +
+	`HOME=/Users/wardenowner; ` +
 	`export PATH=/w/m1:"$PATH"; ` +
 	`exec /usr/local/bin/claude --dangerously-skip-permissions ` +
 	`--disallowedTools AskUserQuestion --mcp-config /w/m1/.mcp.json --effort medium ` +
@@ -185,12 +204,31 @@ func TestBuildStatuslineSettings(t *testing.T) {
           }
         ]
       }
+    ],
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "ocagent guard-permission"
+          }
+        ]
+      }
     ]
   }
 }
 `
 	if got := buildStatuslineSettings(); got != want {
 		t.Errorf("buildStatuslineSettings =\n%q\nwant\n%q", got, want)
+	}
+
+	// The golden only says the two strings are equal, so a comma dropped from
+	// this hand-assembled JSON survives it the moment somebody refreshes the
+	// golden from the output. An unparsable settings.json is rejected whole:
+	// statusLine and both guard hooks go down together.
+	var parsed any
+	if err := json.Unmarshal([]byte(buildStatuslineSettings()), &parsed); err != nil {
+		t.Fatalf("the settings.json written for every member is not valid JSON: %v", err)
 	}
 }
 
@@ -233,64 +271,209 @@ func TestOcAgentTarget(t *testing.T) {
 }
 
 func TestBuildLaunchCommand(t *testing.T) {
-	want := `cd /w/m1; export OC_TOKEN="$(/bin/cat /w/m1/.oc-token)" ` +
-		`OC_BASE=http://127.0.0.1:7755 OC_SESSION=member-m1 OC_TMUX_SOCKET=officraft; ` +
+	want := `cd /w/m1; ` + goldenClaudePurge + `unset CLAUDE_CONFIG_DIR; export OC_TOKEN="$(/bin/cat /w/m1/.oc-token)" ` +
+		`OC_BASE=http://127.0.0.1:7755 OC_SESSION=member-m1 OC_TMUX_SOCKET=officraft ` +
+		`HOME=/Users/wardenowner; ` +
 		`export PATH=/w/m1:"$PATH"; ` +
 		`exec /usr/local/bin/claude --dangerously-skip-permissions --disallowedTools AskUserQuestion ` +
 		`--mcp-config /w/m1/.mcp.json --effort medium --append-system-prompt APPEND`
 	got := buildLaunchCommand("/usr/local/bin/claude", "/w/m1", "/w/m1/.mcp.json", "APPEND",
-		"/w/m1/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft", "", "", "")
+		"/w/m1/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft", "", "", "",
+		claudeHome{Home: "/Users/wardenowner"})
 	if got != want {
 		t.Errorf("launch line =\n%s\nwant\n%s", got, want)
 	}
 
-	wantFull := `cd /w/m1; export OC_TOKEN="$(/bin/cat /w/m1/.oc-token)" ` +
-		`OC_BASE=http://127.0.0.1:7755 OC_SESSION=member-m1 OC_TMUX_SOCKET=officraft; ` +
+	wantFull := `cd /w/m1; ` + goldenClaudePurge + `unset CLAUDE_CONFIG_DIR; export OC_TOKEN="$(/bin/cat /w/m1/.oc-token)" ` +
+		`OC_BASE=http://127.0.0.1:7755 OC_SESSION=member-m1 OC_TMUX_SOCKET=officraft ` +
+		`HOME=/Users/wardenowner; ` +
 		`export PATH=/w/m1:"$PATH"; ` +
 		`exec /usr/local/bin/claude --dangerously-skip-permissions --disallowedTools AskUserQuestion ` +
 		`--mcp-config /w/m1/.mcp.json --effort high --append-system-prompt APPEND ` +
 		`--model opus --settings /w/m1/settings.json`
 	got = buildLaunchCommand("/usr/local/bin/claude", "/w/m1", "/w/m1/.mcp.json", "APPEND",
 		"/w/m1/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft",
-		"opus", "high", "/w/m1/settings.json")
+		"opus", "high", "/w/m1/settings.json", claudeHome{Home: "/Users/wardenowner"})
 	if got != wantFull {
 		t.Errorf("launch line =\n%s\nwant\n%s", got, wantFull)
 	}
 }
 
 func TestBuildLaunchCommandWithEnv(t *testing.T) {
-	want := `cd /w/m1; [ -f /w/m1/.oc-env ] && . /w/m1/.oc-env; ` +
+	home := claudeHome{Home: "/Users/wardenowner"}
+	want := `cd /w/m1; [ -f /w/m1/.oc-env ] && . /w/m1/.oc-env; ` + goldenClaudePurge + `unset CLAUDE_CONFIG_DIR; ` +
 		`export OC_TOKEN="$(/bin/cat /w/m1/.oc-token)" ` +
 		`OC_BASE=http://127.0.0.1:7755 OC_SESSION=member-m1 OC_TMUX_SOCKET=officraft-lab ` +
-		`OC_AGENT_HOME=/w OC_EFFORT=medium; ` +
+		`OC_AGENT_HOME=/w OC_EFFORT=medium HOME=/Users/wardenowner; ` +
 		`export PATH=/w/m1:"$PATH"; ` +
 		`exec /usr/local/bin/claude --dangerously-skip-permissions --disallowedTools AskUserQuestion ` +
 		`--mcp-config /w/m1/.mcp.json --effort medium --append-system-prompt APPEND ` +
 		`--settings /w/m1/settings.json`
 	got := buildLaunchCommandWithEnv("/usr/local/bin/claude", "/w/m1", "/w/m1/.mcp.json", "APPEND",
 		"/w/m1/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft-lab", "", "medium",
-		"/w/m1/settings.json", [][2]string{{"OC_AGENT_HOME", "/w"}, {"OC_EFFORT", "medium"}}, "/w/m1/.oc-env")
+		"/w/m1/settings.json", [][2]string{{"OC_AGENT_HOME", "/w"}, {"OC_EFFORT", "medium"}}, "/w/m1/.oc-env", home)
 	if got != want {
 		t.Errorf("launch line =\n%s\nwant\n%s", got, want)
 	}
 
 	plain := buildLaunchCommandWithEnv("/usr/local/bin/claude", "/w/m1", "/w/m1/.mcp.json", "APPEND",
-		"/w/m1/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft", "", "", "", nil, "")
+		"/w/m1/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft", "", "", "", nil, "", home)
 	if plain != buildLaunchCommand("/usr/local/bin/claude", "/w/m1", "/w/m1/.mcp.json", "APPEND",
-		"/w/m1/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft", "", "", "") {
+		"/w/m1/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft", "", "", "", home) {
 		t.Errorf("no extra env must be byte-identical to the plain line, got\n%s", plain)
 	}
 
 	spaced := buildLaunchCommandWithEnv("/opt/my claude/claude", "/w/a b", "/w/a b/.mcp.json", "it's me",
-		"/w/a b/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft", "", "", "", nil, "/w/a b/.oc-env")
-	wantSpaced := `cd '/w/a b'; [ -f '/w/a b/.oc-env' ] && . '/w/a b/.oc-env'; ` +
+		"/w/a b/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft", "", "", "", nil, "/w/a b/.oc-env",
+		claudeHome{Home: "/Users/warden owner"})
+	wantSpaced := `cd '/w/a b'; [ -f '/w/a b/.oc-env' ] && . '/w/a b/.oc-env'; ` + goldenClaudePurge + `unset CLAUDE_CONFIG_DIR; ` +
 		`export OC_TOKEN="$(/bin/cat '/w/a b/.oc-token')" ` +
-		`OC_BASE=http://127.0.0.1:7755 OC_SESSION=member-m1 OC_TMUX_SOCKET=officraft; ` +
+		`OC_BASE=http://127.0.0.1:7755 OC_SESSION=member-m1 OC_TMUX_SOCKET=officraft ` +
+		`HOME='/Users/warden owner'; ` +
 		`export PATH='/w/a b':"$PATH"; ` +
 		`exec '/opt/my claude/claude' --dangerously-skip-permissions --disallowedTools AskUserQuestion ` +
 		`--mcp-config '/w/a b/.mcp.json' --effort medium --append-system-prompt 'it'"'"'s me'`
 	if spaced != wantSpaced {
 		t.Errorf("launch line =\n%s\nwant\n%s", spaced, wantSpaced)
+	}
+
+	t.Run("a redirected config home is exported instead of unset", func(t *testing.T) {
+		line := buildLaunchCommandWithEnv("/usr/local/bin/claude", "/w/m1", "/w/m1/.mcp.json", "APPEND",
+			"/w/m1/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft", "", "", "", nil, "/w/m1/.oc-env",
+			claudeHome{Home: "/Users/wardenowner", ConfigDir: "/tmp/box"})
+		if !strings.Contains(line, "CLAUDE_CONFIG_DIR=/tmp/box") {
+			t.Errorf("a stated config dir must be exported:\n%s", line)
+		}
+		if strings.Contains(line, "unset CLAUDE_CONFIG_DIR") {
+			t.Errorf("exporting it and unsetting it are exclusive:\n%s", line)
+		}
+	})
+
+	t.Run("the config-home pins come after the sourced agent env", func(t *testing.T) {
+		// The whole guarantee is positional: these exports overrule the owner's
+		// file because they run later. Emitted before the source line they are
+		// silently erased by it, and every other assertion here still passes.
+		line := buildLaunchCommandWithEnv("/usr/local/bin/claude", "/w/m1", "/w/m1/.mcp.json", "APPEND",
+			"/w/m1/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft", "", "", "", nil, "/w/m1/.oc-env",
+			claudeHome{Home: "/Users/wardenowner", ConfigDir: "/tmp/box"})
+		source := strings.Index(line, ". /w/m1/.oc-env")
+		pinHome := strings.Index(line, "HOME=/Users/wardenowner")
+		pinDir := strings.Index(line, "CLAUDE_CONFIG_DIR=/tmp/box")
+		if source < 0 || pinHome < 0 || pinDir < 0 {
+			t.Fatalf("line is missing the source or a pin:\n%s", line)
+		}
+		if source > pinHome || source > pinDir {
+			t.Errorf("source at %d must precede the pins (HOME=%d, CLAUDE_CONFIG_DIR=%d):\n%s", source, pinHome, pinDir, line)
+		}
+		unsetLine := buildLaunchCommandWithEnv("/usr/local/bin/claude", "/w/m1", "/w/m1/.mcp.json", "APPEND",
+			"/w/m1/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft", "", "", "", nil, "/w/m1/.oc-env",
+			claudeHome{Home: "/Users/wardenowner"})
+		if src, un := strings.Index(unsetLine, ". /w/m1/.oc-env"), strings.Index(unsetLine, "unset CLAUDE_CONFIG_DIR"); src < 0 || un < 0 || src > un {
+			t.Errorf("the unset must follow the source (source=%d unset=%d):\n%s", src, un, unsetLine)
+		}
+	})
+
+	t.Run("an unknown CLAUDE_ variable does not survive into the child environment", func(t *testing.T) {
+		// THE FALSIFIABLE CONDITION for the whole shape. Three reviews each broke
+		// the previous version by finding one more variable that redirects the
+		// child's config read, so this test names a variable that does not exist
+		// and never will: if the line only deleted the names we know about, this
+		// is where that shows up.
+		//
+		// It runs the REAL launch line in a REAL shell rather than asserting on
+		// the string. A string assertion cannot tell a purge that works from one
+		// that word-splits wrong, matches the wrong pattern, or resolves no
+		// binary — all of which look identical in the emitted text.
+		//
+		// AND IN EVERY SHELL THAT COULD RUN IT, not just /bin/sh. tmux runs the
+		// launch line under its default-shell, which on these machines is
+		// /bin/zsh — so a suite pinned to /bin/sh measures a dialect production
+		// never uses, and claudehome.go's "verified under zsh/bash/sh/dash" line
+		// would be prose nobody re-runs. The loop is what makes that sentence a
+		// measurement.
+		workdir := t.TempDir()
+		render := filepath.Join(workdir, ".oc-env")
+		if err := os.WriteFile(render, []byte("export CLAUDE_FROM_THE_ENV_FILE=1\n"), 0o600); err != nil {
+			t.Fatalf("seed render: %v", err)
+		}
+		line := buildLaunchCommandWithEnv("/usr/local/bin/claude", workdir, "/w/m1/.mcp.json", "APPEND",
+			"/dev/null", "m1", "http://127.0.0.1:7755", "member-m1", "officraft", "", "", "", nil, render,
+			claudeHome{Home: "/Users/wardenowner"})
+		execAt := strings.Index(line, "; exec ")
+		if execAt < 0 {
+			t.Fatalf("launch line has no exec clause:\n%s", line)
+		}
+		// Everything the line does to the environment, then a dump instead of claude.
+		script := line[:execAt] + "; /usr/bin/env"
+		for _, shell := range []string{"/bin/zsh", "/bin/bash", "/bin/sh", "/bin/dash"} {
+			if _, err := os.Stat(shell); err != nil {
+				continue
+			}
+			t.Run(shell, func(t *testing.T) { assertPurgedUnder(t, shell, script) })
+		}
+	})
+
+	t.Run("a pin cannot be overridden by an extra env pair of the same name", func(t *testing.T) {
+		line := buildLaunchCommandWithEnv("/usr/local/bin/claude", "/w/m1", "/w/m1/.mcp.json", "APPEND",
+			"/w/m1/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft", "", "", "",
+			[][2]string{{"HOME", "/Volumes/scratch/home"}}, "", claudeHome{Home: "/Users/wardenowner"})
+		early := strings.Index(line, "HOME=/Volumes/scratch/home")
+		late := strings.Index(line, "HOME=/Users/wardenowner")
+		if late < 0 || (early >= 0 && early > late) {
+			t.Errorf("the stated HOME must be the LAST assignment in the export list:\n%s", line)
+		}
+	})
+}
+
+// assertPurgedUnder runs the launch line's env prologue under one shell and
+// checks what survived into the child's environment.
+func assertPurgedUnder(t *testing.T, shell, script string) {
+	t.Helper()
+	cmd := exec.Command(shell, "-c", script)
+	cmd.Env = []string{
+		// PATH IS DELIBERATELY BROKEN. The owner's env file is sourced
+		// earlier on this same line and may leave PATH in any state at all
+		// (the measured reason OC_TOKEN uses an absolute /bin/cat). With a
+		// resolvable PATH this test passes just as happily against a purge
+		// written with a bare `env`, which on a real host would be a SILENT
+		// no-op and the whole defect back.
+		"PATH=/nonexistent",
+		"HOME=/Volumes/scratch/home",
+		"CLAUDE_SOMETHING_NEW=redirect-me",
+		"CLAUDE_CODE_CUSTOM_OAUTH_URL=https://example.invalid",
+		"CLAUDE_CONFIG_DIR=/Volumes/scratch/cfg",
+		"CLAUDE_WEIRD=a b c",
+		// A value carrying its own `=`: the name is everything before the
+		// FIRST one, and a shortest-suffix strip silently yields a
+		// non-identifier that the purge then skips.
+		"CLAUDE_HAS_EQUALS=a=b",
+		"CLAUDE_CODE_USE_BEDROCK=1",
+		"ANTHROPIC_API_KEY=sk-keep-me",
+	}
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("running the launch line's env prologue: %v\n%s", err, out)
+	}
+	var survivors []string
+	var home, anthropic string
+	for _, kv := range strings.Split(string(out), "\n") {
+		switch {
+		case strings.HasPrefix(kv, "CLAUDE_"):
+			survivors = append(survivors, kv)
+		case strings.HasPrefix(kv, "HOME="):
+			home = kv
+		case strings.HasPrefix(kv, "ANTHROPIC_API_KEY="):
+			anthropic = kv
+		}
+	}
+	if want := []string{"CLAUDE_CODE_USE_BEDROCK=1"}; !reflect.DeepEqual(survivors, want) {
+		t.Errorf("surviving CLAUDE_* = %v, want exactly %v — anything else is a variable the child could read a config from", survivors, want)
+	}
+	if home != "HOME=/Users/wardenowner" {
+		t.Errorf("%q, want the stated HOME", home)
+	}
+	if anthropic != "ANTHROPIC_API_KEY=sk-keep-me" {
+		t.Errorf("%q, want ANTHROPIC_* untouched — purging it logs the child out and no measurement says it moves the config read", anthropic)
 	}
 }
 
@@ -663,6 +846,31 @@ func TestPretrustWorkdir(t *testing.T) {
 		}
 	})
 
+	t.Run("a workdir reached through a symlink is trusted under the path claude resolves", func(t *testing.T) {
+		box, err := filepath.EvalSymlinks(t.TempDir())
+		if err != nil {
+			t.Fatalf("resolve tempdir: %v", err)
+		}
+		real := filepath.Join(box, "real", "m1")
+		if err := os.MkdirAll(real, 0o700); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+		if err := os.Symlink(filepath.Join(box, "real"), filepath.Join(box, "link")); err != nil {
+			t.Fatalf("symlink: %v", err)
+		}
+		path := filepath.Join(box, ".claude.json")
+		if err := pretrustWorkdir(path, filepath.Join(box, "link", "m1")); err != nil {
+			t.Fatalf("err = %v, want nil", err)
+		}
+		got := read(t, path)
+		if !strings.Contains(got, `"`+real+`": {`) {
+			t.Errorf("the trusted key must be the resolved path %s — claude looks up the cwd it resolves, so a literal key is written where it never reads. got\n%s", real, got)
+		}
+		if strings.Contains(got, filepath.Join(box, "link")) {
+			t.Errorf("the literal symlink path is not a key claude ever looks up:\n%s", got)
+		}
+	})
+
 	t.Run("an unreadable file is surfaced, never clobbered", func(t *testing.T) {
 		dir := t.TempDir()
 		if err := pretrustWorkdir(dir, "/w/m1"); err == nil {
@@ -705,22 +913,6 @@ func TestAtomicWriteFile(t *testing.T) {
 	}
 }
 
-func TestDefaultClaudeJSONPath(t *testing.T) {
-	t.Setenv("HOME", "/Users/eva")
-	if got := defaultClaudeJSONPath(func(string) string { return "" }); got != "/Users/eva/.claude.json" {
-		t.Errorf("default = %q, want /Users/eva/.claude.json", got)
-	}
-	got := defaultClaudeJSONPath(func(k string) string {
-		if k == "OC_CLAUDE_JSON" {
-			return "/tmp/throwaway.json"
-		}
-		return ""
-	})
-	if got != "/tmp/throwaway.json" {
-		t.Errorf("OC_CLAUDE_JSON = %q, want /tmp/throwaway.json", got)
-	}
-}
-
 func TestWithPerSpawn(t *testing.T) {
 	baseClock := 0
 	basePretrust := 0
@@ -735,19 +927,24 @@ func TestWithPerSpawn(t *testing.T) {
 		},
 	}
 
-	perPretrust, perPurge := 0, 0
+	perPretrust, perVerify, perPurge := 0, 0, 0
 	got := base.withPerSpawn(
 		func() error { perPretrust++; return errors.New("boom") },
+		func(string, string) error { perVerify++; return nil },
 		func() { perPurge++ })
 
 	if err := got.Pretrust(); err == nil || err.Error() != "boom" {
 		t.Errorf("Pretrust err = %v, want boom", err)
 	}
+	if got.VerifyPretrust == nil {
+		t.Fatal("the per-spawn verifier must be bound alongside the write it verifies")
+	}
+	_ = got.VerifyPretrust("/w/m1", "")
 	got.PurgeTrash()
 	got.Sleep(time.Second)
-	if perPretrust != 1 || perPurge != 1 || baseClock != 1 {
-		t.Errorf("perPretrust=%d perPurge=%d baseClock=%d, want 1/1/1 (the base clock is carried through)",
-			perPretrust, perPurge, baseClock)
+	if perPretrust != 1 || perVerify != 1 || perPurge != 1 || baseClock != 1 {
+		t.Errorf("perPretrust=%d perVerify=%d perPurge=%d baseClock=%d, want 1/1/1/1 (the base clock is carried through)",
+			perPretrust, perVerify, perPurge, baseClock)
 	}
 	if basePretrust != 0 || basePurge != 0 {
 		t.Errorf("the base seams were called: pretrust=%d purge=%d", basePretrust, basePurge)
@@ -791,6 +988,9 @@ func TestStart(t *testing.T) {
 		}
 		if h.pretrusts != 1 || h.purges != 1 {
 			t.Errorf("pretrusts=%d purges=%d, want 1/1", h.pretrusts, h.purges)
+		}
+		if want := [][2]string{{"/w/m1", ""}}; !reflect.DeepEqual(h.verifies, want) {
+			t.Errorf("verifies = %v, want %v", h.verifies, want)
 		}
 		wantCalls := []string{
 			"tmux -L officraft has-session -t member-m1",
@@ -843,11 +1043,17 @@ func TestStart(t *testing.T) {
 		if rendered.content != want || rendered.mode != 0o600 {
 			t.Errorf(".oc-env = %q mode %04o, want %q mode 0600", rendered.content, rendered.mode, want)
 		}
+		// The pre-trust probe has to be asked under the SAME render the launch
+		// line sources. Asked without it, it measures an environment no child
+		// ever runs in and still answers yes.
+		if want := [][2]string{{"/w/m1", "/w/m1/.oc-env"}}; !reflect.DeepEqual(h.verifies, want) {
+			t.Errorf("verifies = %v, want %v", h.verifies, want)
+		}
 		wantLaunch := "tmux -L officraft new-session -d -s member-m1 -x 160 -y 50 " +
-			`cd /w/m1; [ -f /w/m1/.oc-env ] && . /w/m1/.oc-env; ` +
+			`cd /w/m1; [ -f /w/m1/.oc-env ] && . /w/m1/.oc-env; ` + goldenClaudePurge + `unset CLAUDE_CONFIG_DIR; ` +
 			`export OC_TOKEN="$(/bin/cat /w/m1/.oc-token)" ` +
 			`OC_BASE=http://127.0.0.1:7755 OC_SESSION=member-m1 OC_TMUX_SOCKET=officraft ` +
-			`OC_AGENT_HOME=/w OC_EFFORT=high; ` +
+			`OC_AGENT_HOME=/w OC_EFFORT=high HOME=/Users/wardenowner; ` +
 			`export PATH=/w/m1:"$PATH"; ` +
 			`exec /usr/local/bin/claude --dangerously-skip-permissions --disallowedTools AskUserQuestion ` +
 			`--mcp-config /w/m1/.mcp.json --effort high ` +
@@ -863,6 +1069,96 @@ func TestStart(t *testing.T) {
 			if strings.Contains(line, "ghp_abc") {
 				t.Errorf("a credential value reached the log: %q", line)
 			}
+		}
+	})
+
+	t.Run("an agent env that moves the config home is overwritten, not obeyed", func(t *testing.T) {
+		dir := t.TempDir()
+		envFile := filepath.Join(dir, "env")
+		// Both variables that decide which claude.json the child reads, set by the
+		// owner's own file — the exact pair that walked through the previous shape.
+		if err := os.WriteFile(envFile, []byte("HOME=/Volumes/scratch/home\nCLAUDE_CONFIG_DIR=/Volumes/scratch/cfg\n"), 0o600); err != nil {
+			t.Fatalf("seed env file: %v", err)
+		}
+		h := newSpawnHarness()
+		d := h.deps()
+		d.EnvFile = envFile
+
+		if got := d.start(startParamsM1()); !got.OK {
+			t.Fatalf("outcome = %+v, want OK — the launch line states the config home, so this spawn is safe", got)
+		}
+		var line string
+		for _, call := range h.runner.calls {
+			if strings.Contains(call, "new-session") {
+				line = call
+			}
+		}
+		if line == "" {
+			t.Fatal("no session was started")
+		}
+		source := strings.Index(line, ". /w/m1/.oc-env")
+		unset := strings.Index(line, "unset CLAUDE_CONFIG_DIR")
+		pin := strings.Index(line, "HOME=/Users/wardenowner")
+		if source < 0 || unset < 0 || pin < 0 {
+			t.Fatalf("launch line is missing the source or the pins:\n%s", line)
+		}
+		// ORDER, not mere presence: a pin emitted BEFORE the source is erased by
+		// the very file it exists to overrule, and the line still contains both.
+		if !(source < unset && source < pin) {
+			t.Errorf("the config-home pins must come AFTER the agent env is sourced (source=%d unset=%d pin=%d):\n%s",
+				source, unset, pin, line)
+		}
+		if strings.Contains(line, "HOME=/Volumes/scratch/home") || strings.Contains(line, "CLAUDE_CONFIG_DIR=/Volumes/scratch/cfg") {
+			t.Errorf("the owner's values must not be exported by the launch line itself:\n%s", line)
+		}
+	})
+
+	t.Run("a claude spawn with no stated config home is refused", func(t *testing.T) {
+		h := newSpawnHarness()
+		d := h.deps()
+		d.ClaudeHome = claudeHome{}
+
+		got := d.start(startParamsM1())
+		if got.OK || !strings.Contains(got.Reason, "claude_home_unresolved") {
+			t.Fatalf("outcome = %+v, want a claude_home_unresolved refusal — an unstated config home leaves the child inheriting one", got)
+		}
+		if h.pretrusts != 0 {
+			t.Errorf("pretrusts = %d, want 0 — nothing may be written into a file we cannot point the child at", h.pretrusts)
+		}
+		for _, call := range h.runner.calls {
+			if strings.Contains(call, "new-session") {
+				t.Errorf("a session was started anyway: %q", call)
+			}
+		}
+	})
+
+	t.Run("a codex spawn with no stated config home still launches", func(t *testing.T) {
+		// SISTER OF THE REFUSAL ABOVE, and the reason it exists: with only that
+		// one, deleting `runtimeName == "claude" &&` from the config-home gate
+		// leaves every test green while every CODEX member on a host with no
+		// stated HOME becomes unstartable — refused over a claude.json codex
+		// never reads. A guard that cannot tell the two runtimes apart is not a
+		// guard, it is an outage waiting for a host with an empty HOME.
+		h := newSpawnHarness()
+		d := h.deps()
+		d.ClaudeHome = claudeHome{}
+		d.CodexBin = "/usr/local/bin/codex"
+		d.WardenBin = "/Users/eva/.officraft/warden/ocwarden"
+		p := startParamsM1()
+		p.Runtime = "codex"
+
+		got := d.start(p)
+		if want := (SpawnOutcome{OK: true, SessionID: "member-m1", PID: "500"}); got != want {
+			t.Fatalf("outcome = %+v, want %+v — codex does not read claude.json, so an unstated claude config home is none of its business", got, want)
+		}
+		launched := false
+		for _, call := range h.runner.calls {
+			if strings.Contains(call, "new-session") {
+				launched = true
+			}
+		}
+		if !launched {
+			t.Errorf("no session was started: %v", h.runner.calls)
 		}
 	})
 
@@ -963,6 +1259,15 @@ func TestStart(t *testing.T) {
 			{"a pretrust that failed", func(h *spawnHarness, _ *SpawnDeps, _ *StartParams) {
 				h.pretrustE = errors.New("permission denied")
 			}, "pretrust_failed: marking workdir trusted in claude.json: permission denied"},
+			// Writing the flag is not the guarantee; the child reading THAT file
+			// is. A spawn that wrote one nobody reads is the exact shape four
+			// reviews kept finding, and it must cost the spawn, not a log line.
+			{"a trust flag the child would not read", func(h *spawnHarness, _ *SpawnDeps, _ *StartParams) {
+				h.verifyE = errors.New("claude reads a different file")
+			}, "pretrust_unverified: claude reads a different file"},
+			{"a warden built with no way to verify the flag", func(_ *spawnHarness, d *SpawnDeps, _ *StartParams) {
+				d.VerifyPretrust = nil
+			}, "pretrust_unverified: a trust flag was written but no verifier is wired, so nothing establishes that the spawned claude reads the file it was written to"},
 			{"a tmux that refused the session", func(h *spawnHarness, _ *SpawnDeps, _ *StartParams) {
 				h.runner.script["tmux -L officraft new-session -d -s member-m1 -x 160 -y 50 "+goldenLaunchM1] =
 					wardenRun{err: errors.New("no server running")}
@@ -1084,6 +1389,38 @@ func TestStart(t *testing.T) {
 			wardenRun{err: errors.New("can't find session")}
 		if got := (h.deps().start(startParamsM1())); got != (SpawnOutcome{OK: true, SessionID: "member-m1"}) {
 			t.Errorf("outcome = %+v, want OK with an empty pid", got)
+		}
+	})
+}
+
+func TestClaudeChildEnvPrologue(t *testing.T) {
+	t.Run("the family purge runs on every path, redirected or not", func(t *testing.T) {
+		// Mu-B, from the fourth review: wrapping the purge in "only when
+		// OC_CLAUDE_JSON did not redirect us" left the whole suite green. The
+		// redirect moves WHERE the trust file is; it says nothing about whether
+		// the owner's shell is carrying a variable that moves it again, so the
+		// two have to stay independent.
+		purge := claudeEnvPurgeFragment()
+		for _, ch := range []claudeHome{
+			{Home: "/Users/owner"},
+			{Home: "/Users/owner", ConfigDir: "/tmp/box"},
+		} {
+			got := claudeChildEnvPrologue("/w/m1", "/w/m1/.oc-env", ch)
+			if !strings.Contains(got, purge) {
+				t.Errorf("ConfigDir=%q prologue does not purge the CLAUDE_* family:\n%s", ch.ConfigDir, got)
+			}
+			if src := strings.Index(got, ". /w/m1/.oc-env"); src < 0 || src > strings.Index(got, purge) {
+				t.Errorf("ConfigDir=%q purges before sourcing the owner's env, which clears nothing:\n%s", ch.ConfigDir, got)
+			}
+		}
+	})
+
+	t.Run("only the default layout unsets CLAUDE_CONFIG_DIR", func(t *testing.T) {
+		if got := claudeChildEnvPrologue("/w/m1", "", claudeHome{Home: "/Users/owner"}); !strings.Contains(got, "unset CLAUDE_CONFIG_DIR") {
+			t.Errorf("the default layout must unset it even if the purge no-ops:\n%s", got)
+		}
+		if got := claudeChildEnvPrologue("/w/m1", "", claudeHome{Home: "/Users/owner", ConfigDir: "/tmp/box"}); strings.Contains(got, "unset CLAUDE_CONFIG_DIR") {
+			t.Errorf("a redirected layout exports it; unsetting it too is contradictory:\n%s", got)
 		}
 	})
 }

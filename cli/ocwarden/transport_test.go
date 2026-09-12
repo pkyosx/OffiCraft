@@ -783,6 +783,134 @@ func TestBuildCommandDeps(t *testing.T) {
 		t.Error("the update/renew kicks belong to the updater, so this constructor must leave them nil")
 	}
 
+	t.Run("a spawn pre-trusts the file the launch line points the child at", func(t *testing.T) {
+		box := t.TempDir()
+		envFile := filepath.Join(box, "env")
+		// The pair that walked through the predicting shape: the owner's file moves
+		// HOME, and the interactive-shell capture can carry CLAUDE_CONFIG_DIR the
+		// same way (seth-m1's ~/.zshrc exports one). Neither decides anything now —
+		// the launch line states both AFTER sourcing this render.
+		if err := os.WriteFile(envFile, []byte("HOME=/Volumes/scratch/home\nCLAUDE_CONFIG_DIR=/Volumes/scratch/cfg\n"), 0o600); err != nil {
+			t.Fatalf("seed env file: %v", err)
+		}
+		// A claude that really resolves its config file the measured way, so the
+		// spawn's own pre-trust probe is answered by the file the child would
+		// read rather than by a scripted string.
+		claudeBin := stageResolvingClaude(t, filepath.Join(box, "bin", "claude"))
+		// The spawn refuses earlier when it cannot find ocagent, which would make
+		// this test pass for the wrong reason. Publish the sibling the production
+		// resolver looks for first.
+		exe, err := os.Executable()
+		if err != nil {
+			t.Fatalf("executable: %v", err)
+		}
+		ocagent := filepath.Join(filepath.Dir(exe), "ocagent")
+		if err := os.WriteFile(ocagent, []byte("#!/bin/sh\n"), 0o755); err != nil {
+			t.Skipf("cannot publish an ocagent beside the test binary: %v", err)
+		}
+		t.Cleanup(func() { os.Remove(ocagent) })
+		// HOME is a throwaway box, so the pre-trust write never touches the real
+		// ~/.claude.json of whoever runs the suite.
+		wardenHome := filepath.Join(box, "home")
+		if err := os.MkdirAll(wardenHome, 0o700); err != nil {
+			t.Fatalf("mkdir home: %v", err)
+		}
+		spawnEnv := envMap(map[string]string{
+			"HOME": wardenHome, "OC_AGENT_HOME": filepath.Join(box, "agents"),
+			"OC_AGENT_ENV_FILE": envFile, "OC_AGENT_ENV_INHERIT": "0",
+			"OC_CLAUDE_CRED_CHECK": "0", "OC_CLAUDE_BIN": claudeBin,
+		})
+		runner := &wardenRunner{shellPassthrough: true, script: map[string]wardenRun{
+			"tmux -L officraft has-session -t member-m1": {err: errors.New("can't find session: member-m1")},
+		}}
+		d := buildCommandDeps(Config{Base: "https://station.example"}, spawnEnv, runner)
+
+		got := d.Spawn(StartParams{MemberID: "m1", PersonaContext: "p", MemberToken: "jwt", Role: "builder"})
+		if !got.OK {
+			t.Fatalf("outcome = %+v, want OK", got)
+		}
+		// The pre-trust landed in the file the launch line states, not in the one
+		// the agent env asked for.
+		trusted := filepath.Join(wardenHome, ".claude.json")
+		raw, err := os.ReadFile(trusted)
+		if err != nil {
+			t.Fatalf("pre-trust did not write %s: %v", trusted, err)
+		}
+		if !strings.Contains(string(raw), "hasTrustDialogAccepted") {
+			t.Errorf("%s = %s, want the workdir marked trusted", trusted, raw)
+		}
+		var launch string
+		for _, call := range runner.calls {
+			if strings.Contains(call, "new-session") {
+				launch = call
+			}
+		}
+		if launch == "" {
+			t.Fatal("no session was started")
+		}
+		source := strings.Index(launch, "] && . ")
+		pin := strings.Index(launch, "HOME="+wardenHome)
+		unset := strings.Index(launch, "unset CLAUDE_CONFIG_DIR")
+		if source < 0 || pin < 0 || unset < 0 {
+			t.Fatalf("launch line lacks the source or the pins:\n%s", launch)
+		}
+		if source > pin || source > unset {
+			t.Errorf("the pins must follow the sourced render (source=%d HOME=%d unset=%d):\n%s", source, pin, unset, launch)
+		}
+	})
+
+	t.Run("a redirected pre-trust target is the one the launch line exports", func(t *testing.T) {
+		// Without this case the wiring could compute the write target from HOME
+		// directly: with no redirect that answer is identical to the stated one, so
+		// a second resolution here would read exactly like the shared one.
+		box := t.TempDir()
+		claudeBin := stageResolvingClaude(t, filepath.Join(box, "bin", "claude"))
+		exe, err := os.Executable()
+		if err != nil {
+			t.Fatalf("executable: %v", err)
+		}
+		ocagent := filepath.Join(filepath.Dir(exe), "ocagent")
+		if err := os.WriteFile(ocagent, []byte("#!/bin/sh\n"), 0o755); err != nil {
+			t.Skipf("cannot publish an ocagent beside the test binary: %v", err)
+		}
+		t.Cleanup(func() { os.Remove(ocagent) })
+		wardenHome := filepath.Join(box, "home")
+		configDir := filepath.Join(box, "cfg")
+		for _, dir := range []string{wardenHome, configDir} {
+			if err := os.MkdirAll(dir, 0o700); err != nil {
+				t.Fatalf("mkdir %s: %v", dir, err)
+			}
+		}
+		spawnEnv := envMap(map[string]string{
+			"HOME": wardenHome, "OC_AGENT_HOME": filepath.Join(box, "agents"),
+			"OC_AGENT_ENV_INHERIT": "0", "OC_CLAUDE_CRED_CHECK": "0", "OC_CLAUDE_BIN": claudeBin,
+			"OC_CLAUDE_JSON": filepath.Join(configDir, ".claude.json"),
+		})
+		runner := &wardenRunner{shellPassthrough: true, script: map[string]wardenRun{
+			"tmux -L officraft has-session -t member-m1": {err: errors.New("can't find session: member-m1")},
+		}}
+		d := buildCommandDeps(Config{Base: "https://station.example"}, spawnEnv, runner)
+
+		if got := d.Spawn(StartParams{MemberID: "m1", PersonaContext: "p", MemberToken: "jwt", Role: "builder"}); !got.OK {
+			t.Fatalf("outcome = %+v, want OK", got)
+		}
+		if _, err := os.Stat(filepath.Join(configDir, ".claude.json")); err != nil {
+			t.Errorf("pre-trust did not write the redirected file: %v", err)
+		}
+		if _, err := os.Stat(filepath.Join(wardenHome, ".claude.json")); err == nil {
+			t.Error("pre-trust wrote $HOME/.claude.json, which is not the file the launch line points the child at")
+		}
+		var launch string
+		for _, call := range runner.calls {
+			if strings.Contains(call, "new-session") {
+				launch = call
+			}
+		}
+		if !strings.Contains(launch, "CLAUDE_CONFIG_DIR="+configDir) {
+			t.Errorf("launch line must export the redirected config home:\n%s", launch)
+		}
+	})
+
 	homeless := buildCommandDeps(Config{}, envMap(map[string]string{}), &wardenRunner{})
 	ok, log := homeless.Teardown()
 	if ok || log != "[ocwarden teardown] cannot resolve paths: HOME must be set\n" {

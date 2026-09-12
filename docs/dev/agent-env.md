@@ -46,7 +46,8 @@ agent 不是你手動開的 shell。它由 launchd 啟動 → `tmux new-session`
 | `SHLVL` / `_` | shell 簿記,搬過去沒有意義 |
 | `OC_*` | warden 自己的身分命名空間(`OC_TOKEN` / `OC_BASE` / `OC_SESSION` …)。`.zshrc` 裡不小心 export 到不能改到 agent 的身分 |
 
-**其他全給** —— 包含全部憑證,正職與外包一致。
+**其他全給** —— 包含全部憑證,正職與外包一致。唯一的例外是 `HOME`,以及**整族
+`CLAUDE_*`**:啟動列會在 source 之後把它們清掉,只留白名單那幾個(見下面第 5 點)。
 
 ### 關掉自動繼承
 
@@ -147,6 +148,74 @@ MY_MESSAGE="有 空 格 要 用 引號"          # 單雙引號等價,會被剝�
 
 `OC_TOKEN`、`OC_BASE`、`OC_SESSION` 等是 warden 用來標定 agent 身分的,
 在這裡設會被直接忽略並記錄原因(否則這個檔就能冒充其他成員或把 agent 指向別的 server)。
+
+### 5. `HOME` 與**整族 `CLAUDE_*`** 設了也不會生效
+
+warden 在 spawn 前要先把 workdir 寫進 claude 的信任檔(pretrust，沒有它 claude 會彈信任對話框、
+吃掉開機 nudge、成員一秒內死掉)。所以**子行程去讀的那一份，必須是我們寫的那一份**——而這件事
+**不是靠推論輸入來保證的**，是每次 spawn 實測出來的。
+
+決定 claude 去讀哪一份的東西**不只兩個，而且不全是環境變數**(實測 claude 2.1.268，2026-09-11)：
+
+| 形狀 | 效果 |
+|---|---|
+| `HOME` / `CLAUDE_CONFIG_DIR` | 決定設定目錄 |
+| `CLAUDE_CODE_CUSTOM_OAUTH_URL` | 把目錄裡讀的**檔名**換掉 |
+| `<設定目錄>/.config.json` | **這個檔只要存在**，claude 就讀它、完全不碰 `.claude.json`。**它不是環境變數**，清環境碰不到它 |
+
+同一顆執行檔裡可辨識的 `CLAUDE_*` / `ANTHROPIC_*` 名字有 841 個，每次改版都會變，所以這裡
+**不逐個點名**。啟動列在 source 完這個檔**之後**做兩件事：
+
+1. 把子行程環境裡**整族 `CLAUDE_*` 刪掉**，只留白名單(目前是
+   `CLAUDE_CODE_USE_BEDROCK`、`CLAUDE_CODE_USE_VERTEX` —— 由 `claudeCredEnvKeys` 推導，
+   它們是 warden 自己認得的憑證來源，砍掉會讓 Bedrock/Vertex 主機變成未登入的子行程)；
+2. 明確 `export HOME=`(並在 `OC_CLAUDE_JSON` 改指時明確 export `CLAUDE_CONFIG_DIR`)。
+
+**然後——這一步才是保證**——warden 寫完信任旗標之後，會在**同一份檔**裡多寫一個
+由 workdir 推導出來的見證項(一個指向 `/usr/bin/false` 的 MCP server 條目)，然後用
+**子行程同一段環境前置**去問 `claude` 執行檔本身一個**唯讀**問題：
+
+```
+claude mcp get oc-trust-probe-missing     # 這個名字永遠不會被種下去
+→ No MCP server named "…". Configured servers: <它讀到的那份檔裡有哪些名字>
+```
+
+**只有那個見證項回來才會啟動**，然後見證項立刻被移除。答不出來、名字沒回來、指令不見了、
+逾時、崩潰——一律**具名拒絕這次 spawn**(`pretrust_unverified: …`，訊息裡會同時寫出我們寫的
+那一份路徑與 claude 實際回了什麼)，不會靜默地盡力而為。
+
+> **為什麼動詞是 `get` 而不是 `project purge --dry-run`。** 後者是唯一會報告
+> `projects[<dir>]` 的指令，但它的動詞是**破壞性**的；`--dry-run` 今天有效是行為不是契約，
+> 而這整包的存在理由就是我們已經四次賭錯「claude 的行為跟我們以為的一樣」。實測
+> (2026-09-12，2.1.268，獨立重量)：`mcp get` 問一個不存在的名字時**不連線任何 server**
+> (種一個會建立標記檔的 server，問不存在的名字沒有標記檔；問存在的名字就有——對照組會動)，
+> 而且**永遠不刪東西**：我們寫進 `projects[<workdir>]` 的旗標與見證項每次都原封不動回來。
+>
+> ⚠️ 但它**不是完全零寫入**，先前這裡寫「連 backups 輪替都沒有」是**錯的**。對一個 claude
+> 還沒初始化過的設定目錄(也就是 warden 幫新成員開的那種)，**第一次** `mcp get` 會改寫
+> `.claude.json`(inode 換掉、568 → 1115 bytes)補上 claude 自己的首次啟動欄位
+> (`firstStartTime`／`machineID`／`userID`／`migrationVersion`)並輪替一份到 `backups/`。
+> 第二、三次再問就真的一個 byte 都不動(size／inode／mtime 到奈秒全同)。
+> 也就是說那一次寫入是 claude 在初始化自己，不是動我們的資料——而「不刪」正是換動詞要買的性質，
+> `project purge --dry-run` 買不到，因為它的無害性押在旗標有沒有被遵守上。
+>
+> 為什麼不是在 Go 裡重寫 claude 的解析邏輯？因為那是第五次預測。它會隨 claude 改版而漂移，
+> 而漂移的時候不會有任何東西紅。權威是 `cli/ocwarden/claudetrust.go` 與 `claudehome.go`。
+
+**清不到的那一個注入點：user / managed settings 的 `env` 區塊。** claude 執行檔自帶的說明字串
+逐字寫著「a `CLAUDE_CONFIG_DIR` set in user or managed settings is honored」——也就是
+`~/.claude/settings.json` 的 `env` 是一條**不經過 shell** 的路，整族清除在結構上碰不到它。
+實測(2026-09-11)：在 `~/.claude/settings.json` 裡把 `CLAUDE_CONFIG_DIR` 指到別的目錄，claude 的
+**狀態目錄真的搬過去了**(backups 落在新目錄)，但同一次呼叫讀專案條目時仍然讀
+`$HOME/.claude.json`。**沒有實測的是 TUI 的信任檢查走哪一條**，所以這條路目前算「已具名、只量了一半」。
+
+> 反過來說：**想保留 `CLAUDE_CODE_*` 調校，走 `~/.claude/settings.json` 的 `env` 是有效的**——
+> 那條路不被啟動列清掉。這個檔(`~/.officraft/env`)裡寫 `CLAUDE_*` 則一定不會生效。
+
+`ANTHROPIC_*` **不清**：實測 `ANTHROPIC_CONFIG_DIR` 不會搬動設定目錄，而這一族裝著
+`ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN`，清掉只會讓主機登出。
+
+（兩層的其他變數照舊全給，`OC_*` 照舊被拒絕。）
 
 ## 其他規則
 

@@ -213,13 +213,21 @@ func buildMCPConfig(base, token string) string {
 // Code settings.json wiring the statusLine to the context reporter (json.dumps
 // indent=2 + a trailing newline).
 //
-// It also carries the PreToolUse hook, because this file is the ONE place a
+// It also carries the two guard hooks, because this file is the ONE place a
 // member's settings.json is written and a hook declared anywhere else would
-// reach nobody. The hook is named bare — `ocagent guard-bash`, the way statusLine
-// names `ocagent context-report` — because the launch command puts the workdir
-// holding the ocagent symlink at the front of PATH, so neither hardcodes a path
-// that differs per machine. What it refuses, and why the refusal is worded the
-// way it is, lives in cli/ocagent/guardbash.go.
+// reach nobody. Both are named bare — `ocagent guard-bash`, `ocagent
+// guard-permission`, the way statusLine names `ocagent context-report` — because
+// the launch command puts the workdir holding the ocagent symlink at the front of
+// PATH, so none of them hardcodes a path that differs per machine.
+//
+// The two are a front-and-back pair against the same defect — a confirmation prompt
+// --dangerously-skip-permissions cannot waive, with nobody at the keyboard to
+// answer it. PreToolUse→guard-bash keeps the prompt from being raised;
+// PermissionRequest→guard-permission answers it once it has been. Neither
+// replaces the other. PermissionRequest carries no matcher: every question that
+// reaches it is one nobody can answer, whatever tool raised it. What each
+// refuses, and why the refusals are worded the way they are, lives in
+// cli/ocagent/guardbash.go and cli/ocagent/guardpermission.go.
 func buildStatuslineSettings() string {
 	return "{\n" +
 		"  \"statusLine\": {\n" +
@@ -234,6 +242,16 @@ func buildStatuslineSettings() string {
 		"          {\n" +
 		"            \"type\": \"command\",\n" +
 		"            \"command\": \"ocagent guard-bash\"\n" +
+		"          }\n" +
+		"        ]\n" +
+		"      }\n" +
+		"    ],\n" +
+		"    \"PermissionRequest\": [\n" +
+		"      {\n" +
+		"        \"hooks\": [\n" +
+		"          {\n" +
+		"            \"type\": \"command\",\n" +
+		"            \"command\": \"ocagent guard-permission\"\n" +
 		"          }\n" +
 		"        ]\n" +
 		"      }\n" +
@@ -329,13 +347,21 @@ func (d SpawnDeps) ocAgentTarget() (string, bool) {
 // T-426d G-1). Same pattern as the warden's own
 // exec-warden tokfile (main.go readTokfile).
 //
+// The child's config home is STATED, not inherited: after the agent env render
+// is sourced, the line DELETES THE WHOLE CLAUDE_* FAMILY except the credential
+// names claudeEnvAllowedNames lets through, then exports HOME and either exports
+// or unsets CLAUDE_CONFIG_DIR. See claudehome.go — the file pre-trust writes is
+// derived from the same value, which is why the two can no longer disagree, and
+// the purge is what makes that hold against a redirect variable nobody here has
+// heard of yet.
+//
 // The workdir is prepended to PATH so a bare `ocagent` resolves — the ocagent
 // binary itself is published into the workdir by Phase 4 wiring (the golang
 // ocagent, agent-cli's T2.4 artifact), NOT by this pure builder. Until that
 // wiring lands, a spawned agent on a clean host has no ocagent on PATH.
-func buildLaunchCommand(claudeBin, workdir, mcpConfigPath, appendSys, tokenFile, agentID, base, session, socket, model, effort, settingsPath string) string {
+func buildLaunchCommand(claudeBin, workdir, mcpConfigPath, appendSys, tokenFile, agentID, base, session, socket, model, effort, settingsPath string, ch claudeHome) string {
 	return buildLaunchCommandWithEnv(claudeBin, workdir, mcpConfigPath, appendSys,
-		tokenFile, agentID, base, session, socket, model, effort, settingsPath, nil, "")
+		tokenFile, agentID, base, session, socket, model, effort, settingsPath, nil, "", ch)
 }
 
 // buildLaunchCommandWithEnv is buildLaunchCommand plus optional EXTRA env pairs
@@ -357,17 +383,70 @@ func buildLaunchCommand(claudeBin, workdir, mcpConfigPath, appendSys, tokenFile,
 // env-file PATH rather than being erased by it. The source is guarded by a
 // `[ -f ]` test so a file deleted between render and exec degrades to "no extra
 // env" instead of a shell error on the agent's very first line.
-func buildLaunchCommandWithEnv(claudeBin, workdir, mcpConfigPath, appendSys, tokenFile, agentID, base, session, socket, model, effort, settingsPath string, extraEnv [][2]string, envRendered string) string {
-	cd := "cd " + shellQuote(workdir) + "; "
+// claudeChildEnvPrologue is everything a claude child's line does to its
+// environment BEFORE the OC_* exports: enter the workdir, source the owner's
+// rendered agent env, then clear the CLAUDE_* family on top of it.
+//
+// ⚠️ ORDER IS THE WHOLE GUARANTEE: the purge and the HOME/CLAUDE_CONFIG_DIR
+// exports come AFTER the render is sourced, so they overwrite whatever the
+// owner's shell or agent env file carried instead of being overwritten by it.
+// Move either above the source line and the child is back to inheriting a config
+// home nobody chose — which is the defect, not a tidiness nit.
+//
+// The purge is the structural half: the ENTIRE CLAUDE_* family is deleted and
+// only claudeEnvAllowedNames survives, so a variable that redirects the child's
+// config read is stopped whether or not anyone here has heard of it. See
+// claudehome.go for what was measured and why ANTHROPIC_* is left alone.
+//
+// 🔴 IT IS SHARED WITH THE PRE-TRUST PROBE ON PURPOSE (claudetrust.go). The probe
+// only means anything if it runs under the environment the child gets; a second
+// copy of these lines would be a second thing to drift. Anything added here is
+// added to both ends at once.
+func claudeChildEnvPrologue(workdir, envRendered string, ch claudeHome) string {
+	s := "cd " + shellQuote(workdir) + "; "
 	if envRendered != "" {
-		cd += "[ -f " + shellQuote(envRendered) + " ] && . " + shellQuote(envRendered) + "; "
+		s += "[ -f " + shellQuote(envRendered) + " ] && . " + shellQuote(envRendered) + "; "
 	}
+	s += claudeEnvPurgeFragment()
+	// FALLBACK, not the mechanism. The purge already removed CLAUDE_CONFIG_DIR,
+	// but it is the one variable that relocates the credentials file along with
+	// the trust file, and the purge depends on /usr/bin/env resolving — a host
+	// without it degrades to a SILENT no-op. One explicit line keeps the single
+	// worst variable covered in that degraded case.
+	if ch.ConfigDir == "" {
+		s += "unset CLAUDE_CONFIG_DIR; "
+	}
+	return s
+}
+
+// claudeHomeExportPairs is the config-home statement itself: HOME always, and
+// CLAUDE_CONFIG_DIR only for an explicit OC_CLAUDE_JSON redirect. Shared with the
+// probe for the same reason as the prologue above.
+//
+// An empty Home emits nothing rather than `HOME=”`: start() refuses such a spawn
+// outright (claude_home_unresolved), so this stays unreachable in production and
+// a test fixture does not get a broken HOME.
+func claudeHomeExportPairs(ch claudeHome) [][2]string {
+	var pairs [][2]string
+	if ch.Home != "" {
+		pairs = append(pairs, [2]string{"HOME", ch.Home})
+	}
+	if ch.ConfigDir != "" {
+		pairs = append(pairs, [2]string{"CLAUDE_CONFIG_DIR", ch.ConfigDir})
+	}
+	return pairs
+}
+
+func buildLaunchCommandWithEnv(claudeBin, workdir, mcpConfigPath, appendSys, tokenFile, agentID, base, session, socket, model, effort, settingsPath string, extraEnv [][2]string, envRendered string, ch claudeHome) string {
+	cd := claudeChildEnvPrologue(workdir, envRendered, ch)
 	pairs := [][2]string{
 		{"OC_BASE", base},
 		{"OC_SESSION", session},
 		{"OC_TMUX_SOCKET", socket},
 	}
 	pairs = append(pairs, extraEnv...)
+	// LAST in the export list, so a same-named pair from extraEnv cannot win.
+	pairs = append(pairs, claudeHomeExportPairs(ch)...)
 	kvs := make([]string, 0, len(pairs)+1)
 	// OC_TOKEN reads the 0600 token file at exec time — only the PATH rides the
 	// argv, never the token value (the tmux command line is visible machine-wide).
@@ -743,18 +822,52 @@ func osWriteFile(path, content string, mode os.FileMode) error {
 // pretrustWorkdir pre-marks workdir trusted in the claude.json at claudeJSONPath
 // BEFORE launch, so the fresh TUI lands on the composer instead of blocking on the
 // "trust this folder?" dialog (which would eat the boot nudge → dead-on-boot).
-// LOAD-BEARING. Semantic port of pretrust_launch_cwd — read-modify-write SAFELY:
-// preserve every existing top-level key, ensure projects["<abs workdir>"] exists,
-// and set only hasTrustDialogAccepted=true. A missing or unparsable file starts from
-// an empty config (only an absent/corrupt file is replaced — good data is NEVER
-// clobbered); any other read error (permission etc.) is surfaced, not swallowed.
-// Idempotent: re-trusting the same workdir is a no-op change. The write is ATOMIC
-// (temp file in the same dir + rename) at mode 0600, so a crash mid-write can never
-// truncate a live ~/.claude.json.
+// LOAD-BEARING. Semantic port of pretrust_launch_cwd. Idempotent: re-trusting the
+// same workdir is a no-op change.
+//
+// 🔴 IT IS ONLY HALF THE JOB. Writing the flag says nothing about whether the
+// spawned claude READS this file; claudetrust.go establishes that separately and
+// refuses the spawn when it cannot.
 //
 // The path is INJECTED (production passes the real ~/.claude.json; tests pass a temp
 // file) so a test can NEVER touch the live ~/.claude.json.
 func pretrustWorkdir(claudeJSONPath, workdir string) error {
+	return editClaudeProjectEntry(claudeJSONPath, workdir, func(entry map[string]any) {
+		entry["hasTrustDialogAccepted"] = true
+	})
+}
+
+// claudeProjectKey is the name claude files a workdir under: THE SYMLINK-RESOLVED
+// PATH, because claude keys a project by the cwd it resolves, not by the string
+// the launcher was given. Measured A/B on one directory reached two ways: the real
+// path is trusted, the same directory reached through a symlinked parent is not —
+// so on a host whose agent workdirs have any symlink component, a literal key
+// means the flag is written where claude never looks and EVERY spawn is refused.
+//
+// Best-effort, and the same shape kill.go's ocagentPIDsByCwd uses for the same
+// reason: a workdir that cannot be resolved (it does not exist yet, or a component
+// is unreadable) keeps its literal string, which is exactly today's behaviour.
+func claudeProjectKey(workdir string) string {
+	if resolved, err := filepath.EvalSymlinks(workdir); err == nil {
+		return resolved
+	}
+	return workdir
+}
+
+// editClaudeProjectEntry is the read-modify-write both pretrustWorkdir and the
+// pre-trust probe's seed/clear go through, so there is one implementation of
+// "touch one project's entry without disturbing anything else" — and one place
+// where the project KEY is settled (claudeProjectKey), so the flag and the probe's
+// witness can never land under two different names for one directory.
+//
+// SAFELY: preserve every existing top-level key, create projects["<abs workdir>"]
+// only when absent, and hand fn that ONE entry to change. A missing or unparsable
+// file starts from an empty config (only an absent/corrupt file is replaced — good
+// data is NEVER clobbered); any other read error (permission etc.) is surfaced,
+// not swallowed. The write is ATOMIC (temp file in the same dir + rename) at mode
+// 0600, so a crash mid-write can never truncate a live ~/.claude.json.
+func editClaudeProjectEntry(claudeJSONPath, workdir string, fn func(entry map[string]any)) error {
+	workdir = claudeProjectKey(workdir)
 	data := map[string]any{}
 	raw, err := os.ReadFile(claudeJSONPath)
 	switch {
@@ -773,8 +886,6 @@ func pretrustWorkdir(claudeJSONPath, workdir string) error {
 		return err
 	}
 
-	// projects["<abs workdir>"].hasTrustDialogAccepted = true, creating the nested
-	// maps only when absent — every other existing key/entry is left untouched.
 	projects, ok := data["projects"].(map[string]any)
 	if !ok {
 		projects = map[string]any{}
@@ -785,7 +896,7 @@ func pretrustWorkdir(claudeJSONPath, workdir string) error {
 		entry = map[string]any{}
 		projects[workdir] = entry
 	}
-	entry["hasTrustDialogAccepted"] = true
+	fn(entry)
 
 	// Encode with HTML escaping OFF (mirrors json.dump(ensure_ascii=False)) and a
 	// 2-space indent (matches the python indent=2), then write atomically.
@@ -821,17 +932,6 @@ func atomicWriteFile(path string, data []byte, mode os.FileMode) error {
 		return err
 	}
 	return os.Rename(tmpName, path)
-}
-
-// defaultClaudeJSONPath resolves the claude.json to pre-trust: OC_CLAUDE_JSON
-// overrides (a PoC safety valve so a live run can be pointed at a throwaway file),
-// else ~/.claude.json (mirrors pretrust_launch_cwd's os.path.expanduser default).
-func defaultClaudeJSONPath(env func(string) string) string {
-	if p := env("OC_CLAUDE_JSON"); p != "" {
-		return p
-	}
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".claude.json")
 }
 
 // ---------------------------------------------------------------------------
@@ -878,7 +978,15 @@ type SpawnDeps struct {
 	Logf      func(string, ...any)
 	ClaudeBin string // pre-resolved claude executable (Phase 4 resolves it)
 	CodexBin  string // pre-resolved codex executable
-	WardenBin string // this ocwarden executable; runs the codex-session sidecar
+	// ClaudeHome is the config location the launch line STATES to the claude
+	// child — it exports HOME, and exports or unsets CLAUDE_CONFIG_DIR — and the
+	// file Pretrust writes is ClaudeHome.ClaudeJSONPath(). One value feeding both
+	// ends is what keeps the write and the read on the same file; see
+	// claudehome.go for why this replaced a pair of env predictions. An
+	// unresolved Home refuses a claude spawn rather than launching one whose
+	// trust file nothing reads.
+	ClaudeHome claudeHome
+	WardenBin  string // this ocwarden executable; runs the codex-session sidecar
 	// ClaudeCreds (T-ba62, nil-skipped) is the spawn-time "is claude logged in?"
 	// existence probe. Resolvable-but-logged-out was the ONE prerequisite with no
 	// gate anywhere: the TUI starts, the nudge is delivered into a login prompt,
@@ -927,10 +1035,26 @@ type SpawnDeps struct {
 	// (LOAD-BEARING, mirrors pretrust_launch_cwd). nil in Phase 2 (seam only — Phase
 	// 4 wires the real ~/.claude.json write); a nil seam is skipped, a failing one
 	// aborts the spawn (a live trust gate WOULD eat the nudge → dead-on-boot).
+	//
+	// It takes no argument: WHICH claude.json it writes is ClaudeHome's answer,
+	// and the launch line states that same answer to the child, so there is
+	// nothing about this spawn's environment left for the seam to be told.
 	Pretrust func() error
+	// VerifyPretrust establishes the RESULT Pretrust only attempted: that the
+	// config file the spawned claude actually reads is one that carries the flag
+	// just written. It asks the claude binary itself, under the child's own
+	// environment prologue — see claudetrust.go for why nothing here models
+	// claude's resolution.
+	//
+	// 🔴 IT IS NOT NIL-SKIPPED. A nil seam WITH Pretrust wired refuses the spawn:
+	// "wrote a flag, verified nothing" is precisely the shape four reviews kept
+	// finding, so it must not be reachable by leaving a field out. Only a
+	// Pretrust-less deps literal (the Phase-2 seam-only shape, and tests that
+	// never write a flag) skips both.
+	VerifyPretrust func(workdir, envRendered string) error
 	// PurgeTrash (T-684c, nil-skipped) reaps <workdir>/trash at spawn time — the
 	// scratch the PREVIOUS generation of this agent mv'd there instead of rm-ing it
-	// (the harness's un-waivable dangerous-rm prompt hangs a headless agent; see
+	// (the harness's un-waivable dangerous-rm prompt stands in front of an agent's own rm; see
 	// trash.go). Bound PER-SPAWN by the transport wiring because it needs this
 	// member's workdir, exactly like Pretrust. Purely best-effort: it never fails
 	// a spawn.
@@ -975,8 +1099,9 @@ type SpawnDeps struct {
 // here without a decision. It closes two known shapes and makes the third
 // visible; it does not close the family. The earlier fallback comment in
 // tmuxDeliverNudge claimed a family was closed and was wrong — do not repeat it.
-func (d SpawnDeps) withPerSpawn(pretrust func() error, purgeTrash func()) SpawnDeps {
+func (d SpawnDeps) withPerSpawn(pretrust func() error, verifyPretrust func(workdir, envRendered string) error, purgeTrash func()) SpawnDeps {
 	d.Pretrust = pretrust
+	d.VerifyPretrust = verifyPretrust
 	d.PurgeTrash = purgeTrash
 	return d
 }
@@ -1055,6 +1180,14 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 		// intended to use. The runtime is a per-member setting, so the
 		// cheapest fix is usually neither of the other two; it is named first.
 		return SpawnOutcome{OK: false, Reason: claudeBinUnresolvedReason}
+	}
+	// The launch line has to STATE the child's config home (claudehome.go); an
+	// unresolved one would leave it stating nothing, and the child would be back to
+	// inheriting whatever the owner's shell carried — the defect this whole shape
+	// exists to remove. Refuse instead of launching a member whose trust file
+	// nothing reads.
+	if runtimeName == "claude" && d.ClaudeHome.Home == "" {
+		return SpawnOutcome{OK: false, Reason: "claude_home_unresolved: the launch line cannot state the child's HOME, so the pre-trusted claude.json may not be the file it reads — set HOME in the warden's environment"}
 	}
 	if runtimeName == "codex" {
 		if d.CodexBin == "" {
@@ -1292,7 +1425,8 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 			extraEnv, envRendered, d.logf)
 	} else {
 		command = buildLaunchCommandWithEnv(d.ClaudeBin, workdir, mcpConfigPath, appendSys,
-			tokenFile, p.MemberID, base, session, socket, p.Model, p.Effort, settingsPath, extraEnv, envRendered)
+			tokenFile, p.MemberID, base, session, socket, p.Model, p.Effort, settingsPath, extraEnv, envRendered,
+			d.ClaudeHome)
 	}
 
 	// pretrust the workdir BEFORE launch (LOAD-BEARING): without it claude's trust
@@ -1303,6 +1437,15 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 		if err := d.Pretrust(); err != nil {
 			return SpawnOutcome{OK: false, Reason: fmt.Sprintf(
 				"pretrust_failed: marking workdir trusted in claude.json: %v", err)}
+		}
+		// Writing the flag is not the guarantee; the child reading THAT file is.
+		// A missing verifier is a wiring hole, not a "skip this step" option —
+		// refuse rather than spawn the exact shape this ticket exists to kill.
+		if d.VerifyPretrust == nil {
+			return SpawnOutcome{OK: false, Reason: "pretrust_unverified: a trust flag was written but no verifier is wired, so nothing establishes that the spawned claude reads the file it was written to"}
+		}
+		if err := d.VerifyPretrust(workdir, envRendered); err != nil {
+			return SpawnOutcome{OK: false, Reason: fmt.Sprintf("pretrust_unverified: %v", err)}
 		}
 	}
 
