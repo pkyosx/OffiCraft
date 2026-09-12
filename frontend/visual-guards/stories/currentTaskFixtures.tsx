@@ -14,6 +14,13 @@ import type { OutsourceWorkerView } from "../../src/api/adapter";
 export const LONG_TITLE =
   "成員列表顯示每個成員「當前任務 title」：列表列 1–2 行加上超出時的「…」截斷、hover 顯示完整全文；成員詳情 header（聊天區頂端選中成員那一條）顯示完整 title 不截斷，Staff 與 Outsource 兩個 tab 都要適用且窄版不破版";
 
+// T-196 adds a THIRD surface whose box is far wider than the rail: the 請示卡
+// head spans the whole page, so LONG_TITLE above fits inside two lines at 1280
+// and the clamp assertion there measures nothing (clientHeight == scrollHeight
+// even unclamped — the same vacuous-guard trap the note above describes, one
+// surface later). This one is long enough to overflow two lines at 1280 too.
+export const VERY_LONG_TITLE = LONG_TITLE + " " + LONG_TITLE;
+
 export function mkWorker(
   over: Partial<OutsourceWorkerView>,
 ): OutsourceWorkerView {

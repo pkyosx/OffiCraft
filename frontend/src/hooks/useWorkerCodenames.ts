@@ -124,8 +124,16 @@ const CURRENT_TASK_TOPICS = new Set(["outsource_worker", "task"]);
  *
  * Same per-id read and same module cache as the codename/avatar accessors, so
  * one card cannot say 代號 while disagreeing about the task beside it — and it
- * covers RELEASED workers, which `GET /api/outsource-workers` drops on purpose
+ * RESOLVES released workers, which `GET /api/outsource-workers` drops on purpose
  * (`api_outsource.go`) and which every reply card list holds plenty of.
+ *
+ * ⚠️ Resolving one is not the same as it HAVING a current task. Release flips
+ * the status and leaves `task_id` alone, so a released row still carries the
+ * task it finished — a true record, and a false answer to "what is it on now".
+ * This accessor hands back the row as the server tells it; deciding what a
+ * released row means is the display point's job, and the reply card list reads
+ * `status` to make it (a caller that forgets will silently show finished work
+ * as current).
  *
  * 🔴 It ALSO subscribes, and that is the difference from the accessors above: a
  * codename and an avatar do not change while the page is open, a current task
@@ -143,6 +151,8 @@ export function useWorkerCurrentTasks(
   // The ids to re-read, readable from the SSE callback without a stale closure.
   const wantedRef = useRef<string[]>([]);
   wantedRef.current = key ? key.split("|") : [];
+  // True while a refresh round is in flight — see the burst note below.
+  const refreshingRef = useRef(false);
 
   useEffect(() => {
     let alive = true;
@@ -151,6 +161,14 @@ export function useWorkerCurrentTasks(
         if (![...batch.topics].some((t) => CURRENT_TASK_TOPICS.has(t))) return;
         const mine = wantedRef.current.filter((id) => cache.get(id));
         if (mine.length === 0) return;
+        // One round in flight at a time. A refresh costs one read PER held id
+        // (the per-id endpoint is the only one that covers released workers),
+        // and task deltas arrive in bursts — without this, a busy studio turns
+        // a page holding N askers into N reads per burst, several bursts deep.
+        // Dropping a burst that lands mid-round loses nothing: the round now
+        // finishing reads the same current state, and the NEXT burst re-reads.
+        if (refreshingRef.current) return;
+        refreshingRef.current = true;
         void Promise.all(
           mine.map((id) =>
             api.getOutsourceWorker(id).then(
@@ -161,7 +179,15 @@ export function useWorkerCurrentTasks(
             ),
           ),
         ).then(() => {
-          if (alive) setTick((n) => n + 1);
+          refreshingRef.current = false;
+          if (!alive) return;
+          setTick((n) => n + 1);
+          // The cache is shared, so a re-read that only woke THIS hook would
+          // leave every other mounted consumer (codename / avatar) memoised on
+          // the row it read at mount. `cache.size` does not move on an
+          // overwrite, so nothing would recompute — the same reason
+          // `updateCachedWorkerAvatar` notifies rather than mutating quietly.
+          notifyAll();
         });
       }),
     );

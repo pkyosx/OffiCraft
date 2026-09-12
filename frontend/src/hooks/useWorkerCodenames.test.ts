@@ -217,4 +217,60 @@ describe("useWorkerCodenames", () => {
 
     expect(getOutsourceWorker).toHaveBeenCalledTimes(1);
   });
+  it("wakes the OTHER cache consumers after a re-read, not just itself", async () => {
+    // The cache is shared and `cache.size` does not move on an overwrite, so a
+    // re-read that notified nobody would leave a mounted codename/avatar
+    // consumer memoised on the row it read at mount.
+    getOutsourceWorker.mockResolvedValue({
+      id: "ow-abc",
+      codename: "X-1",
+      taskId: "T-9",
+      avatarUrl: "/api/chat/attachment/ava-old",
+    });
+    const tasks = renderHook(() => useWorkerCurrentTasks(["ow-abc"]));
+    const avatars = renderHook(() => useWorkerAvatarUrls(["ow-abc"]));
+    await waitFor(() =>
+      expect(avatars.result.current.get("ow-abc")).toContain("ava-old"),
+    );
+
+    getOutsourceWorker.mockResolvedValue({
+      id: "ow-abc",
+      codename: "X-1",
+      taskId: "T-9",
+      avatarUrl: "/api/chat/attachment/ava-new",
+    });
+    await emit("task");
+
+    await waitFor(() =>
+      expect(avatars.result.current.get("ow-abc")).toContain("ava-new"),
+    );
+    expect(tasks.result.current.get("ow-abc")?.taskId).toBe("T-9");
+  });
+
+  it("coalesces bursts: a second delta arriving mid-round does not start a second round", async () => {
+    // A round costs one read PER held id, and task deltas arrive in bursts.
+    let release: (() => void) | null = null;
+    getOutsourceWorker.mockResolvedValueOnce({ id: "ow-abc", codename: "X-1", taskId: "T-9" });
+    renderHook(() => useWorkerCurrentTasks(["ow-abc"]));
+    await waitFor(() => expect(getOutsourceWorker).toHaveBeenCalledTimes(1));
+
+    getOutsourceWorker.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          release = () => resolve({ id: "ow-abc", codename: "X-1", taskId: "T-10" });
+        }),
+    );
+    await emit("task"); // starts the round, which now hangs
+    expect(getOutsourceWorker).toHaveBeenCalledTimes(2);
+    await emit("task"); // lands mid-round — must be dropped, not queued
+    expect(getOutsourceWorker).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      release?.();
+      await Promise.resolve();
+    });
+    // …and the guard lifts, so the NEXT burst is served.
+    await emit("task");
+    await waitFor(() => expect(getOutsourceWorker).toHaveBeenCalledTimes(3));
+  });
 });

@@ -194,15 +194,51 @@ describe("RepliesPage — the asking outsource worker's current task", () => {
     expect(card.getAttribute("aria-expanded")).toBe("false");
   });
 
-  it("a worker with no current task shows the placeholder, not a chip and not blank", async () => {
-    workerRows = [mkWorker({ taskId: "", taskNo: "", taskTitle: "" })];
+  it("a worker with no current task shows ONLY the placeholder — no chip, and no 自由代辦 beside it", async () => {
+    // 🔴 Every task field empty, which is what "no task" actually looks like on
+    // the wire. An earlier fixture cleared taskId/taskNo/taskTitle but left
+    // taskTypeName set — a state the server cannot produce — and it hid the
+    // real bug: OutsourceTaskLine ALWAYS draws its type slot, falling back to
+    // 自由代辦, so the row said 自由代辦 and 無當前任務 at the same time.
+    workerRows = [
+      mkWorker({ taskId: "", taskNo: "", taskTitle: "", taskTypeName: "" }),
+    ];
     __injectMockReplyCard(mkCard({}));
 
-    const { findByTestId, queryByTestId } = renderPage();
+    const { findByTestId, queryByTestId, queryByText } = renderPage();
 
     const title = await findByTestId("reply-card-task-title-rc-1");
     expect(title.textContent).toBe("無當前任務");
     expect(queryByTestId("reply-card-rc-1-task-ow-a")).toBeNull();
+    expect(queryByTestId("reply-card-rc-1-type-ow-a")).toBeNull();
+    expect(queryByText("自由代辦")).toBeNull();
+  });
+
+  it("a RELEASED worker shows nothing — its row still carries the task it finished", async () => {
+    // Release flips the status and leaves task_id alone, and the per-id read
+    // serves released rows in full — which is exactly why this page can resolve
+    // them. So the row is a true record of FINISHED work and a false answer to
+    // 「現在在做什麼」. The office rail cannot make this mistake: its list skips
+    // released workers outright. This surface has to say so itself.
+    workerRows = [mkWorker({ status: "released" })];
+    __injectMockReplyCard(mkCard({}));
+
+    const { queryByTestId } = renderPage();
+
+    await findCard();
+    expect(queryByTestId("reply-card-rc-1-task-ow-a")).toBeNull();
+    expect(queryByTestId("reply-card-task-title-rc-1")).toBeNull();
+  });
+
+  it("a live worker with an ad-hoc task still shows 自由代辦 — the fallback is only wrong when there is NO task", async () => {
+    workerRows = [mkWorker({ taskTypeName: "", taskTypeKey: "" })];
+    __injectMockReplyCard(mkCard({}));
+
+    const { findByTestId } = renderPage();
+
+    expect((await findByTestId("reply-card-rc-1-type-ow-a")).textContent).toBe(
+      "自由代辦",
+    );
   });
 
   it("renders nothing for a STAFF asker — a member has no such fact", async () => {
@@ -216,7 +252,7 @@ describe("RepliesPage — the asking outsource worker's current task", () => {
   });
 
   it("renders nothing for a worker that never resolved — silence, not an asserted 'no task'", async () => {
-    workerRows = []; // the per-id read missed (released + 404, or still in flight)
+    workerRows = []; // the per-id read has not landed, or answered 404
     __injectMockReplyCard(mkCard({}));
 
     const { queryByTestId } = renderPage();

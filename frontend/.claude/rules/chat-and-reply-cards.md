@@ -21,6 +21,8 @@ paths:
   # depends on. Whoever edits that hook is one of the people the rule is
   # written for, and could not see it.
   - "src/hooks/useWorkerCodenames*"
+  - "visual-guards/reply-card-worker-task*"
+  - "visual-guards/stories/ReplyCardWorkerTaskStory*"
   - "src/hooks/useScheduledMessages.ts"
   - "src/lib/composerKeys.ts"
   - "src/lib/autosize.ts"
@@ -155,7 +157,13 @@ class 名 `.reply-tag--ai` / `.reply-option--ai` **不要改**:`TaskReplyCard` �
 
 ⚠️ **它是唯一不來自輕量列的抬頭內容**，所以上面那句「全部來自輕量列」對它不成立：資料來自 `useWorkerCurrentTasks`，也就是 `useWorkerCodenames` 那份 per-id identity cache（`GET /api/outsource-workers/{id}`）——**同一支讀取**，代號與頭像本來就走它，不是為了任務多打一支。選它而不選 `useOutsourceWorkers` 清單是因為**清單會跳過已釋出的外包**（`api_outsource.go` 明確 `continue`），而這一頁滿是已釋出的開卡人；用清單會讓同一列出現「代號有、任務沒有」的兩套說法。
 
-⚠️ **只有這個 accessor 訂 SSE（`task` / `outsource_worker`），另外兩個不訂，這是刻意的**：代號與頭像開著頁面不會變，當前任務會變，不重讀的話那一行是載入當下的舊事實，而畫面上沒有任何東西講得出來。它**不照 batch 的 ids 收窄**——`task` delta 名的是任務、這份 cache 以 worker 為鍵，拿 worker id 去比會對每一次任務事件答「都不是我的」，那一行就永遠不更新。重讀失敗時**保留上一列**：讀失敗不是任務不見了的證據。`kind === "outsource"` 以外的開卡人這一行**什麼都不畫**（`MemberDTO` 根本沒有任務欄位）；worker id 沒解析出來時**也什麼都不畫**——沉默是誠實的，畫空狀態等於用沒有的證據宣稱「它沒有任務」。釘住的是 `RepliesPage.worker-task.test.tsx` 與 `useWorkerCodenames.test.ts`。
+⚠️ **只有這個 accessor 訂 SSE（`task` / `outsource_worker`），另外兩個不訂，這是刻意的**：代號與頭像開著頁面不會變，當前任務會變，不重讀的話那一行是載入當下的舊事實，而畫面上沒有任何東西講得出來。它**不照 batch 的 ids 收窄**——`task` delta 名的是任務、這份 cache 以 worker 為鍵，拿 worker id 去比會對每一次任務事件答「都不是我的」，那一行就永遠不更新。重讀失敗時**保留上一列**：讀失敗不是任務不見了的證據。`kind === "outsource"` 以外的開卡人這一行**什麼都不畫**（`MemberDTO` 根本沒有任務欄位）；worker id 沒解析出來時**也什麼都不畫**——沉默是誠實的，畫空狀態等於用沒有的證據宣稱「它沒有任務」。
+
+🔴 **已釋出（released）的外包這一行也什麼都不畫，而這一格是獨立審查打穿過的。** 釋出只翻 status、**`task_id` 原封不動**（`dal_tasks.go` 的 `ReleaseWorkerByID`），而 per-id 讀取又完整服務已釋出的列——也就是這一頁能解析它們的原因。所以那一列是「它做完的那張票」的真實紀錄，同時是「它現在在做什麼」的假話，照畫會配一顆活的可點 chip。左欄不會犯這個錯，因為**清單端點直接跳過已釋出的**；這一面沒有那道過濾，就得自己讀 `status`。**不要改成顯示「已釋出」**：那句話已經有家（聊天室橫幅），i18n 檔自己的註解明令不要複製第二份。
+
+⚠️ **沒有任務時，整條 `OutsourceTaskLine` 不畫，只留空狀態那一行。** 那個元件的 type 欄位是**無條件**渲染的，全空時 fallback 成 `自由代辦`——在左欄為真（列出來的外包一定有票，那句話的意思是「這張票沒有類型」），在這一面是假的，會變成同一列同時說「自由代辦」和「無當前任務」。第一版的測試 fixture 剛好留著 `taskTypeName`（一個 server 產不出來的狀態），把這個洞蓋住了。
+
+釘住的是 `RepliesPage.worker-task.test.tsx`、`useWorkerCodenames.test.ts` 與 `visual-guards/reply-card-worker-task.ct.spec.tsx`（截斷與 hover 全文只有真瀏覽器量得到；那支 spec 的檔頭記了哪兩顆 mutant 會紅、以及哪一顆**不會**）。
 
 輕量列只帶 title/status/時間戳/task ref —— 不要把它補成 `ReplyCard`（body/options/chat message id 在單張才有，補成 "" 會畫出一張問題不見了的卡而且不會丟錯）。等待卡的 expire 規則以 server 為準：owner/admin 或卡片作者可過期自己的 waiting 卡；其他人 403，已回答 409。
 

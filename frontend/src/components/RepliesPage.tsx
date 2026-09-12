@@ -792,13 +792,36 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   function renderAskerCurrentTask(row: ReplyCardRow) {
     const worker = workerTasks.get(row.from);
     if (!worker) return null;
+    // 🔴 A RELEASED worker has no current task, and its row still CARRIES the
+    // old one: release flips the status and leaves task_id alone
+    // (`dal_tasks.go` ReleaseWorkerByID), while the per-id read serves released
+    // rows in full — which is the very reason this page can resolve them at
+    // all. So the row is not evidence of current work, and drawing it would
+    // say "O-9 is on T-42" about a worker that finished and left, with a live
+    // chip beside it. The rail can't make this mistake because the LIST skips
+    // released workers outright (`api_outsource.go`); this surface has to say
+    // so itself or the two drift in meaning while sharing the components.
+    // Silence, not 「無當前任務」: the placeholder is for a worker we know holds
+    // no task, and neither is this page a place to announce 已釋出 — that
+    // sentence already has one home (the chat header banner) and the repo's own
+    // i18n note forbids a second copy of it.
+    if (worker.status === "released") return null;
+    // An empty taskId is the other honest nothing: the worker holds no task, or
+    // the server could not resolve the one it holds. `OutsourceTaskLine` always
+    // draws its type slot, falling back to 自由代辦 — true on the rail, where a
+    // listed worker always HAS a task and the fallback means "a task with no
+    // type", but a plain lie here, where it would sit above 無當前任務 and the
+    // same row would claim both.
+    const bound = Boolean(worker.taskId);
     return (
       <span className="reply-card__worker-task">
-        <OutsourceTaskLine
-          worker={worker}
-          onOpenTask={(taskId) => setRoute({ page: "tasks", taskId })}
-          idPrefix={`reply-card-${row.id}`}
-        />
+        {bound && (
+          <OutsourceTaskLine
+            worker={worker}
+            onOpenTask={(taskId) => setRoute({ page: "tasks", taskId })}
+            idPrefix={`reply-card-${row.id}`}
+          />
+        )}
         <CurrentTaskTitle
           title={worker.taskTitle ?? ""}
           clamp
