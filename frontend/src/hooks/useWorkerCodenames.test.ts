@@ -211,11 +211,12 @@ describe("useWorkerCodenames", () => {
     // 🔴 The latch decides whether ANY future delta is served, so leaving it
     // stuck means the line freezes on a stale fact with nothing to show for it.
     //
-    // ⚠️ Measured: removing EITHER protection alone leaves this green, because
-    // each covers the other — a per-read handler that swallows the rejection,
-    // and a `finally` that lifts the latch even if one gets through. That is
-    // what the pair is for, and it is also why this assertion cannot tell you
-    // which one is load-bearing. Removing BOTH reddens exactly this case.
+    // ⚠️ Measured, and the two halves do NOT fail the same way. Removing BOTH
+    // protections reddens exactly this assertion. Removing only the `finally`
+    // is the SILENT one: every assertion still passes and the run exits 0.
+    // Removing only the per-read reject handler passes every assertion too but
+    // fails the run on an unhandled rejection — loud, just not here. So this
+    // case pins the pair; the `finally` is the half nothing else would catch.
     getOutsourceWorker.mockResolvedValueOnce({ id: "ow-abc", codename: "X-1", taskId: "T-9" });
     renderHook(() => useWorkerCurrentTasks(["ow-abc"]));
     await waitFor(() => expect(getOutsourceWorker).toHaveBeenCalledTimes(1));

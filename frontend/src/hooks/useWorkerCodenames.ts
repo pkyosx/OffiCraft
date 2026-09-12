@@ -159,6 +159,18 @@ export function useWorkerCurrentTasks(
   useEffect(() => {
     let alive = true;
 
+    /** What every pass publishes once its reads have landed. */
+    const settleRound = () => {
+      // The cache is shared and global, so this wakes EVERY mounted consumer
+      // (codename / avatar) — `cache.size` does not move on an overwrite, so
+      // nothing recomputes on its own. It runs even when THIS hook has since
+      // unmounted: the other consumers are still on screen holding the row we
+      // just replaced, and the same reasoning is why `updateCachedWorkerAvatar`
+      // notifies rather than mutating quietly.
+      notifyAll();
+      if (alive) setTick((n) => n + 1);
+    };
+
     /** One refresh round over the ids this caller holds; runs again if a burst
      * arrived while it was in flight. */
     const runRound = async (): Promise<void> => {
@@ -195,17 +207,6 @@ export function useWorkerCurrentTasks(
       }
     };
 
-    /** What every pass publishes once its reads have landed. */
-    const settleRound = () => {
-      // The cache is shared and global, so this wakes EVERY mounted consumer
-      // (codename / avatar) — `cache.size` does not move on an overwrite, so
-      // nothing recomputes on its own. It runs even when THIS hook has since
-      // unmounted: the other consumers are still on screen holding the row we
-      // just replaced, and the same reasoning is why `updateCachedWorkerAvatar`
-      // notifies rather than mutating quietly.
-      notifyAll();
-      if (alive) setTick((n) => n + 1);
-    };
 
     const unsubscribe = api.subscribeEvents(
       createDeltaSink((batch) => {
