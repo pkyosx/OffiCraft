@@ -679,6 +679,17 @@ var authzOutsideRouteTable = map[string]string{
 // the fix is the type-aware scan the header names — not a longer map. The
 // reason on each entry says WHAT the kind belongs to and why it is not identity.
 var nonCallerKindPredicates = map[string]string{
+	"api_members.go :: HandleHireMemberApiMembersPost :: kind == KindStaff": "" +
+		"the kind of the member being HIRED, read off the request body — not the " +
+		"caller's. It picks which validation rule applies to the row about to be " +
+		"written (a staff row needs a role, a warden row is role-less by design). " +
+		"The caller-side privilege test on the same body is the RBAC line above it, " +
+		"which is a separate predicate.",
+	"api_members.go :: HandleHireMemberApiMembersPost :: trimmedOrEmpty(body.RoleKey) == \"\"": "" +
+		"the ABSENCE of a role on the row being written, which is a required-field " +
+		"check rather than a classification of anybody: nothing is granted or refused " +
+		"by identity here, the write is simply refused as incomplete (422). Naming a " +
+		"role_key IS privilege-bearing, and that decision is made above this line.",
 	"api_tasks.go :: HandleReplaceTaskArtifactApiTasksTaskIdArtifactArtifactIdReplacePost :: kind != art.Kind": "" +
 		"a task ARTIFACT's content kind (file/image/link) versus the kind the replace " +
 		"body asked for — the immutability rule for a pinned deliverable. No principal " +
