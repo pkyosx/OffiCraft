@@ -1504,13 +1504,14 @@ export interface paths {
         get: operations["handle_list_members_api_members_get"];
         put?: never;
         /**
-         * Hire a member (server mints the id). An omitted runtime is stored UNSET and resolved from the target host's reported runtime capabilities at first placement (a codex-only host grows a codex member) rather than written as claude; only claude/codex are accepted when you do name one; effort defaults to medium and is validated; a hire that names kind or role_key is admin-gated. A STAFF hire REQUIRES a role_key (422 without one) — a role-less staff member is a state nothing downstream defines; create one through ``POST /api/roles``, which mints a role and its member together. Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.
+         * Hire a member (server mints the id). An omitted runtime is stored UNSET and resolved from the target host's reported runtime capabilities at first placement (a codex-only host grows a codex member) rather than written as claude; only claude/codex are accepted when you do name one; effort defaults to medium and is validated; a hire that names kind or role_key is admin-gated. This door hires STAFF ONLY — any other kind is a 422 that names where that kind is really born (a warden through ``POST /api/machines``, an outsource worker by the outsource scheduler when a task is handed out). A staff hire REQUIRES a role_key (422 without one) — a role-less staff member is a state nothing downstream defines; create one through ``POST /api/roles``, which mints a role and its member together. Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.
          * @description - Hires a roster row only; it spawns no runtime and the member starts offline.
          *     - The server mints the `id`; it is never client-supplied.
          *     - `runtime` is claude/codex; omitted, it resolves at first placement from the host.
          *     - A blank `name` or an invalid runtime is a 422.
-         *     - A staff hire with no `role_key` is a 422: nothing writes the roster row, and `POST /api/roles` is the path that creates a 正職 (role + member in one call). Wardens carry no role by design and are unaffected.
-         *     - Sending `kind` or `role_key` needs admin capability (403): they mint machine and admin principals.
+         *     - This door hires STAFF and nothing else: any other `kind` is a 422 naming the birth path that kind really has. A warden is born by onboarding its machine (`POST /api/machines`); an outsource worker is minted by the outsource scheduler when a task is handed out.
+         *     - A staff hire with no `role_key` is a 422: nothing writes the roster row, and `POST /api/roles` is the path that creates a 正職 (role + member in one call).
+         *     - Sending `kind` or `role_key` needs admin capability (403), and that check runs FIRST: a non-admin naming a kind gets the 403, not the kind refusal.
          */
         post: operations["handle_hire_member_api_members_post"];
         delete?: never;

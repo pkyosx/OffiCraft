@@ -689,6 +689,16 @@ var nonCallerKindPredicates = map[string]string{
 		"the kind of the TARGET member selects the outsource force-stop implementation; the caller's privilege comes from the route table.",
 	"api_members.go :: HandleGetMemberApiMembersMemberIdGet :: m.Kind == KindOutsource": "" +
 		"the kind of the member being READ selects the outsource detail projection; it is not an identity or privilege test on the caller.",
+	"api_members.go :: HandleHireMemberApiMembersPost :: kind != KindStaff": "" +
+		"the same request-body kind as the entry below — the kind of the member being " +
+		"HIRED, never the caller's — now read once more to close this door to every " +
+		"kind but staff (owner 2026-09-13, rc-3989498e0c8f). Nobody is granted or " +
+		"refused by WHO they are here: an owner calling with kind=outsource is refused " +
+		"exactly like anyone else, because the refusal is about the ROW being written " +
+		"(a warden is born by onboarding its machine, an outsource worker by the " +
+		"outsource scheduler). The caller-side privilege test on the same body is the " +
+		"RBAC line further up, which is a separate predicate already listed in " +
+		"authzOutsideRouteTable.",
 	"api_members.go :: HandleListMembersApiMembersGet :: m.Kind == KindOutsource": "" +
 		"the kind of each listed member selects its outsource detail projection; it does not classify or authorize the authenticated caller.",
 	"api_members.go :: HandleRefocusMemberApiMembersMemberIdRefocusPost :: m.Kind == KindOutsource": "" +
