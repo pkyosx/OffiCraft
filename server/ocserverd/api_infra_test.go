@@ -2115,7 +2115,10 @@ func TestHandleMcpApiMcpPost(t *testing.T) {
 
 	t.Run("tools/list serves the frozen catalog and leaves the two transport rows out of it", func(t *testing.T) {
 		api, h, owner := apiTestMCPServer(t)
-		wantTools := api.mcpCatalogTools()
+		wantTools, err := api.mcpCatalogTools()
+		if err != nil {
+			t.Fatalf("mcpCatalogTools: %v", err)
+		}
 
 		status, data := apiMCP(t, h, owner, `{"jsonrpc":"2.0","id":9,"method":"tools/list"}`)
 
