@@ -47,6 +47,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, fireEvent, waitFor, within } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { zh } from "../i18n/locales/zh";
+import { en } from "../i18n/locales/en";
 import { TasksPage } from "./TasksPage";
 import { TaskCard } from "./TaskCard";
 import { __resetMock, __injectMockTask, mockApi } from "../api/mock";
@@ -129,7 +130,46 @@ beforeEach(() => {
   __resetMock();
   vi.restoreAllMocks();
   window.location.hash = "";
+  // The en-locale arms below park `oc.language` in localStorage, which the
+  // I18nProvider reads at mount. Clearing here keeps every zh test independent
+  // of run order (and of an en test that failed before its own cleanup).
+  localStorage.clear();
 });
+
+// ── polarity helpers (see ①b / ③c) ──────────────────────────────────────────
+// 🔴 WHY A CLAUSE, NOT THE WHOLE STRING. Every literal assertion in this file
+// before ①b/③c was of the form `toContain("按鈕")` / `toContain("費用")` — the
+// WORD is present. A word-presence assertion cannot tell 「沒有那顆按鈕」 from
+// 「就有那顆按鈕」, nor 「會產生費用」 from 「不會產生費用」: both sides of the
+// flip contain the word. Two independently-run mutants exploited exactly that
+// and the whole suite stayed green.
+//
+// So these cut the sentence into clauses, pick the ONE clause that talks about
+// the thing, and assert its POLARITY. A flip moves the negation into (or out
+// of) that clause and reddens. `clauseCount` is the positive control: if the
+// wording is rewritten so the subject appears in zero or several clauses, the
+// test fails LOUDLY instead of silently asserting about the wrong clause.
+const ZH_BREAK = /[,;、。?!，；：]|——/;
+/** English clauses: sentence/segment punctuation, plus a conjoined ", and …". */
+const EN_BREAK = /[.;:—]|,\s+and\s+/;
+
+function clausesWith(text: string, sep: RegExp, needle: RegExp): string[] {
+  return text
+    .split(sep)
+    .map((s) => s.trim())
+    .filter((s) => needle.test(s));
+}
+
+/** The single clause of `text` that talks about `needle` — fails if there is
+ * not exactly one, so a rewording can never make this guard vacuous. */
+function theClauseAbout(text: string, sep: RegExp, needle: RegExp): string {
+  const hits = clausesWith(text, sep, needle);
+  expect(
+    hits,
+    `expected exactly ONE clause about ${needle} in: ${text}`
+  ).toHaveLength(1);
+  return hits[0];
+}
 
 describe("① 可結案: the card says it is waiting — and offers no close button", () => {
   it("shows the waiting line on a COLLAPSED ready_for_done card — and offers NO close button there", async () => {
@@ -684,6 +724,58 @@ describe("⑤ a refused close ANSWERS THE REFUSAL", () => {
     expect(err.textContent).toContain(zh.tasks.closeStateError);
     expect(err.textContent).toContain(zh.tasks.status.waiting_owner);
   });
+
+  // ── the branch key: HTTP CODE, not the card's terminality ────────────────
+  // 🔴 THE SURVIVING MUTANT M2. `if (isHttpStatus(e, 409))` was replaced with
+  // `if (TERMINAL.has(status))` — the "equivalent" the surrounding comment
+  // invites, since the handler's only 409 IS `TaskIsTerminal(t.Status)`. The
+  // whole suite stayed green, because every arm above varies the two together:
+  // 409 always arrived with a terminal re-read, and the non-409 arm always
+  // arrived with a non-terminal one. Nothing separated the wire's answer from
+  // the ticket's state, so both predicates gave the same answer everywhere.
+  //
+  // They are NOT the same predicate. The re-read is a SECOND, LATER request
+  // with its own outcome — it can fail (the catch swallows it and keeps the
+  // card's stale copy), it can race, and the error being reported may not have
+  // come from this endpoint at all. The two arms below are the two ways that
+  // costs the reader:
+  //   * a 500 / dropped connection on a ticket that happens to read terminal
+  //     would be reported as 「已經結束了,不需要再結一次」 — an unknown failure
+  //     dressed up as a benign one, and the reader stops looking.
+  //   * a real 409 whose re-read has not caught up would fall through to the
+  //     generic line, which opens 「這張票沒有被結案」 about a task the server
+  //     just refused BECAUSE it is closed — the exact self-contradiction ⑤
+  //     exists to remove.
+  it("🔴 an UNKNOWN failure on a task that reads TERMINAL is still reported as unknown", async () => {
+    __injectMockTask(mkTask({ title: "500 但票剛好已經結束" }));
+    const err = await refuseWith(new Error("boom"), {
+      status: "done",
+      closedTs: 1,
+    });
+    // Terminal re-read, NOT a 409 ⇒ the honest generic line, not the
+    // already-closed reassurance.
+    expect(err.textContent).toContain(zh.tasks.closeStateError);
+    expect(err.textContent).toContain(zh.tasks.status.done);
+    expect(err.textContent).not.toContain(zh.tasks.closeAlreadyClosedLead);
+    expect(err.textContent).not.toContain("已經結束了");
+  });
+
+  it("🔴 a real 409 is answered as already-closed even when the re-read is NOT terminal", async () => {
+    // The mirror arm. The re-read is a second request and can come back stale
+    // or from a replica that has not seen the close; the REFUSAL is the fact
+    // that is certain here, so it is what picks the sentence. (This is also
+    // what the card does when the re-read throws outright — it falls back to
+    // its own stale copy, which is non-terminal on an open card.)
+    __injectMockTask(mkTask({ title: "409 但讀回來還沒追上" }));
+    const err = await refuseWith(
+      Object.assign(new Error("http 409"), { status: 409 }),
+      { status: "waiting_owner" }
+    );
+    expect(err.textContent).toContain(zh.tasks.closeAlreadyClosedLead);
+    expect(err.textContent).toContain(zh.tasks.closeAlreadyClosedTail);
+    expect(err.textContent).not.toContain(zh.tasks.closeStateError);
+    expect(err.textContent).not.toContain("沒有被結案");
+  });
 });
 
 describe("⑥ no generic set-status entry (ticket DoD)", () => {
@@ -712,5 +804,288 @@ describe("⑥ no generic set-status entry (ticket DoD)", () => {
     expect(
       Object.keys(mockApi).filter((k) => /^setTaskStatus$|^updateTaskStatus$/.test(k))
     ).toEqual([]);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// The four cells below were each opened by an independently-run mutation round
+// that killed nothing. Every one of them is the same shape of hole: the file
+// asserted that a WORD was present, or that a DOM node was absent, and neither
+// of those can see a sentence that has been turned around, or a value that was
+// read from the wrong source, or a default that was flipped.
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** Render the page with the UI in `locale`. The provider reads `oc.language`
+ * from localStorage at mount; the file's beforeEach clears it again. */
+function renderPageIn(locale: "zh" | "en") {
+  localStorage.setItem("oc.language", locale);
+  return renderPage();
+}
+
+describe("①b the banner's SENTENCE and the screen agree — polarity, in BOTH locales", () => {
+  // 🔴 THE SURVIVING MUTANT M8, AND IT IS THE REASON THIS PACKAGE EXISTS.
+  // `readyForDoneHint` was flipped from 「一般結案只有負責人本人做得到,這個畫面
+  // 上沒有那顆按鈕」 to 「一般結案你自己也做得到,這個畫面上就有那顆按鈕」 — a
+  // sentence that sends the reader hunting for a control that is not there, and
+  // tells them they hold a permission the route floor 403s them for. The whole
+  // suite stayed green.
+  //
+  // It survived because ① asserted (a) the WORDS 負責人 / 你 / 強制結案 are
+  // present — all three are still present after the flip — and (b) the DOM has
+  // no <button> in the banner — which is about the SCREEN, not about what the
+  // sentence CLAIMS about the screen. Two false drafts were already sent back
+  // for exactly this defect before the flip re-introduced it silently.
+  //
+  // These arms assert the two claims the sentence makes, by polarity:
+  //   (i) the ordinary close belongs to the ASSIGNEE and not to the reader;
+  //   (ii) there is NO button for it on this screen — checked against the DOM
+  //        in the same test, so the sentence and the screen must agree.
+  it("zh: the ordinary close is the assignee's, and the banner says the button is NOT here", async () => {
+    __injectMockTask(mkTask({ title: "文案不能指向不存在的按鈕" }));
+    const { findByTestId } = renderPageIn("zh");
+    const card = await findByTestId("task-card");
+    const text = within(card).getByTestId("task-ready-done").textContent ?? "";
+
+    // positive control: this IS the zh string, so a locale mix-up fails here
+    // rather than vacuously passing the polarity checks below.
+    expect(text).toContain(zh.tasks.readyForDoneHint);
+
+    // (i) WHO may call the ordinary close. It is exclusive to the assignee,
+    //     and the reader is explicitly NOT in that set — the route floor 403s
+    //     the executor for 強制結案 and 403s everyone else for the ordinary
+    //     close, so a line that offers the ordinary close to "you" is false.
+    const whoClause = theClauseAbout(text, ZH_BREAK, /一般結案/);
+    expect(whoClause).toMatch(/只有.*負責人/);
+    expect(whoClause).not.toMatch(/你/);
+    expect(whoClause).not.toMatch(/也做得到|都做得到/);
+
+    // (ii) WHAT IS ON THIS SCREEN. The clause that mentions a button must deny
+    //      that one is here.
+    const buttonClause = theClauseAbout(text, ZH_BREAK, /按鈕/);
+    expect(buttonClause).toMatch(/沒有/);
+    // The negation must be ATTACHED to the button: 「沒有…按鈕」 passes,
+    // 「就有…按鈕」/「有那顆按鈕」 does not. A bare /有.*按鈕/ would match the
+    // 沒有 form too — the lookbehind is what makes this an assertion about
+    // polarity rather than about the character 有.
+    expect(buttonClause).not.toMatch(/(?<![沒不無])有(那顆|這顆|一顆)?按鈕/);
+
+    // …and the screen agrees with the sentence. Asserted together on purpose:
+    // the defect this package was opened for is the two DISAGREEING.
+    expect(card.querySelector('[data-testid="task-mark-done"]')).toBeNull();
+    expect(
+      within(card).getByTestId("task-ready-done").querySelector("button")
+    ).toBeNull();
+  });
+
+  it("en: same two claims, same polarity — the en string had no test anchor at all", async () => {
+    // 🔴 THE EN PATH WAS NEVER MEASURED. Every anchor in this file was a zh
+    // literal, so `en.tasks.readyForDoneHint` could have said anything — the
+    // suite would not have noticed. An en reader is exactly as capable of
+    // going to look for a button that is not there.
+    __injectMockTask(mkTask({ title: "en banner polarity" }));
+    const { findByTestId } = renderPageIn("en");
+    const card = await findByTestId("task-card");
+    const text = within(card).getByTestId("task-ready-done").textContent ?? "";
+
+    expect(text).toContain(en.tasks.readyForDoneHint);
+    expect(text).not.toContain(zh.tasks.readyForDoneHint);
+
+    // (i) the ordinary close is the assignee's call, not the reader's.
+    const whoClause = theClauseAbout(text, EN_BREAK, /ordinary close/i);
+    expect(whoClause).toMatch(/assignee/i);
+    expect(whoClause).not.toMatch(/\byou(r|rself)?\b/i);
+    expect(text).toMatch(/only the assignee can/i);
+
+    // (ii) the clause about a button denies that one is on this screen.
+    const buttonClause = theClauseAbout(text, EN_BREAK, /button/i);
+    expect(buttonClause).toMatch(/\bno button\b/i);
+    expect(buttonClause).not.toMatch(/\bis a button\b|\bthere is the button\b/i);
+
+    expect(card.querySelector('[data-testid="task-mark-done"]')).toBeNull();
+    expect(
+      within(card).getByTestId("task-ready-done").querySelector("button")
+    ).toBeNull();
+  });
+});
+
+describe("①c the banner reads the HYDRATED status, not the list row's", () => {
+  // 🔴 THE SURVIVING MUTANT M4. The banner's condition source was changed from
+  // `view.status` to `task.status` and the suite stayed green. The file comment
+  // beside the banner CLAIMS the `view` reading is deliberate ("an expanded
+  // card whose hydrate has moved the status shows the hydrated truth") — an
+  // unpinned claim. ① already opens a card, but its hydrate answers with the
+  // SAME status the list row carried, so both sources agreed and neither test
+  // could tell them apart.
+  //
+  // It matters because the list row is the STALE one: the row was fetched with
+  // the page, the hydrate happens on expand, and the most likely way to arrive
+  // at 強制結案 is opening a ticket to look at its steps. A card whose steps
+  // just came back finished must start saying it is waiting; a card whose work
+  // restarted must stop.
+  function renderWithHydrate(taskStatus: string, hydratedStatus: string) {
+    const noop = async () => {};
+    return render(
+      <I18nProvider>
+        <TaskCard
+          task={mkTask({ id: "t-hydrate", title: "狀態來源", status: taskStatus })}
+          allTasks={[]}
+          members={[]}
+          workers={[]}
+          nowTs={Date.now() / 1000}
+          onTerminate={noop}
+          onMarkDuplicate={noop}
+          onSetPriority={noop}
+          onReassign={noop}
+          onSendMessage={noop}
+          onHydrate={async (id) => mkTask({ id, status: hydratedStatus })}
+          onForceDone={noop}
+          canForceDone
+        />
+      </I18nProvider>
+    );
+  }
+
+  it("the banner APPEARS when the hydrate reports ready_for_done on a row that said in_progress", async () => {
+    const { findByTestId } = renderWithHydrate("in_progress", "ready_for_done");
+    const card = await findByTestId("task-card");
+    // The list row's status ⇒ no banner yet. (Positive control for the arm: if
+    // the banner were unconditional this would already fail.)
+    expect(card.querySelector('[data-testid="task-ready-done"]')).toBeNull();
+
+    expandCard(card);
+    await waitFor(() =>
+      expect(card.getAttribute("aria-expanded")).toBe("true")
+    );
+    // Reading `task.status` here leaves the banner absent forever.
+    await waitFor(() =>
+      expect(card.querySelector('[data-testid="task-ready-done"]')).toBeTruthy()
+    );
+  });
+
+  it("the banner DISAPPEARS when the hydrate reports the task moved off ready_for_done", async () => {
+    const { findByTestId } = renderWithHydrate("ready_for_done", "in_progress");
+    const card = await findByTestId("task-card");
+    expect(card.querySelector('[data-testid="task-ready-done"]')).toBeTruthy();
+
+    expandCard(card);
+    await waitFor(() =>
+      expect(card.getAttribute("aria-expanded")).toBe("true")
+    );
+    // Reading `task.status` here keeps saying "waiting for a close" about a
+    // ticket that is being worked on again.
+    await waitFor(() =>
+      expect(card.querySelector('[data-testid="task-ready-done"]')).toBeNull()
+    );
+  });
+});
+
+describe("②b canForceDone DEFAULTS to the safe shape — a caller that says nothing offers nothing", () => {
+  // 🔴 THE SURVIVING MUTANT M5. `canForceDone = false` was changed to
+  // `= true` and the suite stayed green: ② states BOTH arms, but always by
+  // PASSING the prop, so the default was never the value under test. The prop's
+  // own doc comment calls the false default "deliberate… a hand-built fixture
+  // or a future caller that forgets to pass it gets the SAFE shape" — that
+  // sentence was, until now, unguarded.
+  //
+  // The failure it prevents is silent in exactly the way that matters: a new
+  // call site that omits the prop renders a destructive, irreversible,
+  // money-spending action for a principal nobody decided to offer it to, and
+  // the only thing that says no afterwards is a 403 from the server.
+  it("a TaskCard rendered WITHOUT the prop shows no 強制結案 — absent, not greyed", async () => {
+    const noop = async () => {};
+    const { findByTestId } = render(
+      <I18nProvider>
+        <TaskCard
+          task={mkTask({ title: "忘記傳 canForceDone", status: "in_progress" })}
+          allTasks={[]}
+          members={[]}
+          workers={[]}
+          nowTs={Date.now() / 1000}
+          onTerminate={noop}
+          onMarkDuplicate={noop}
+          onSetPriority={noop}
+          onReassign={noop}
+          onSendMessage={noop}
+          onHydrate={async (id) => mkTask({ id })}
+          onForceDone={noop}
+          /* canForceDone deliberately NOT passed — the default is the subject */
+        />
+      </I18nProvider>
+    );
+
+    fireEvent.click(await findByTestId("task-status"));
+    const menu = await findByTestId("task-status-options");
+    expect(menu.querySelector('[data-testid="task-force-done"]')).toBeNull();
+    expect(menu.textContent).not.toContain(zh.tasks.forceDone);
+    // positive control: the menu really rendered, so the absence above is a
+    // decision and not an empty DOM.
+    expect(within(menu).getByTestId("task-terminate")).toBeTruthy();
+  });
+});
+
+describe("③c the dialog's consequences are AFFIRMATIVE — polarity, in BOTH locales", () => {
+  // 🔴 THE SURVIVING MUTANT M3. `forceDoneConfirmBody` was flipped from
+  // 「…會在這一刻起一位新的 worker,那會產生費用」 to 「…不會…所以不會產生
+  // 費用」 and the suite stayed green: ③b asserts that the WORDS 下游 /
+  // 解除阻擋 / 新的 worker / 費用 are present, and every one of them is still
+  // present after the flip. A guard built out of word-presence can stop the
+  // disclosure being DELETED; it cannot stop it being REVERSED — and a dialog
+  // that actively promises there is no charge is worse than one that says
+  // nothing, because it answers the reader's question with the wrong answer.
+  async function openConfirmBody(locale: "zh" | "en"): Promise<string> {
+    const { findByTestId } = renderPageIn(locale);
+    fireEvent.click(await findByTestId("task-status"));
+    fireEvent.click(await findByTestId("task-force-done"));
+    return (await findByTestId("force-done-confirm")).textContent ?? "";
+  }
+
+  it("zh: the spawn and its price are both stated as things that WILL happen", async () => {
+    __injectMockTask(mkTask({ title: "費用要講成會發生", status: "in_progress" }));
+    const body = await openConfirmBody("zh");
+    expect(body).toContain(zh.tasks.forceDoneConfirmBody);
+
+    // The clause that mints the worker: affirmative.
+    const spawnClause = theClauseAbout(body, ZH_BREAK, /新的 worker/);
+    // 「不會在…起」 still contains 「會在」 as a substring, so the positive
+    // form needs the lookbehind too. (「還沒有負責人」 legitimately carries a
+    // 沒有 in this clause — it is about the DEPENDENT having no assignee, not
+    // about the spawn — so 沒有 is not in the negative set here.)
+    expect(spawnClause).toMatch(/(?<![不未])會(在|起)/);
+    expect(spawnClause).not.toMatch(/不會|不再|未必/);
+
+    // The clause that bills: affirmative. `toContain("會產生費用")` would NOT
+    // do — 「不會產生費用」 contains it as a substring, which is precisely how
+    // the flip could have survived a naive tightening of ③b.
+    const costClause = theClauseAbout(body, ZH_BREAK, /費用/);
+    expect(costClause).toMatch(/會產生費用/);
+    expect(costClause).not.toMatch(/不會|免費|不收/);
+    expect(body).not.toContain("不會產生費用");
+  });
+
+  it("en: same two clauses, same polarity — the en dialog had no test anchor at all", async () => {
+    __injectMockTask(mkTask({ title: "en dialog polarity", status: "in_progress" }));
+    const body = await openConfirmBody("en");
+    expect(body).toContain(en.tasks.forceDoneConfirmBody);
+    expect(body).not.toContain(zh.tasks.forceDoneConfirmBody);
+
+    // The spawn-and-bill clause, affirmative in both halves.
+    const costClause = theClauseAbout(body, EN_BREAK, /costs?\b/i);
+    expect(costClause).toMatch(/spawns a new worker/i);
+    expect(costClause).toMatch(/costs money/i);
+    expect(costClause).not.toMatch(
+      /\bdoes not\b|\bwill not\b|\bno new worker\b|\bnever\b|\bfree\b|\bcosts nothing\b|\bno cost\b/i
+    );
+
+    // …and the consequences ③b pins in zh are disclosed in en too. These were
+    // never asserted on the en string before, so it could have been missing any
+    // of them.
+    expect(body).toMatch(/outsource worker/i);
+    expect(body).toMatch(/dismissed/i);
+    expect(body).toMatch(/frozen/i);
+    expect(body).toMatch(/reply card/i);
+    expect(body).toMatch(/expired/i);
+    expect(body).toMatch(/cannot be resumed/i);
+    expect(body).toMatch(/downstream/i);
+    expect(body).toMatch(/released/i);
   });
 });
