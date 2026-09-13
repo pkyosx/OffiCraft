@@ -335,7 +335,7 @@ def test_call_write_route_body_split(client, owner_token) -> None:
         client,
         owner_token,
         "hire_member",
-        {"name": name, "role_key": f"conf-role-{uuid.uuid4().hex[:8]}"},
+        {"name": name, "role_key": "assistant"},
     )
     assert result["isError"] is False, result
     body = json.loads(_text(result))
@@ -364,6 +364,25 @@ def test_call_write_route_validation_is_the_handler_s(client, owner_token) -> No
         "a staff member requires a role_key; hire the member through "
         "POST /api/roles, which mints a role and its member together"
     ), body
+
+
+def test_call_write_route_rejects_unknown_role_without_hiring(client, owner_token) -> None:
+    """An invalid staff role meets the same shared 422 guard over MCP and
+    leaves the roster unchanged."""
+    before = json.loads(_text(_call(client, owner_token, "get_members", {})))
+    name = f"conf-mcp-unknown-role-{uuid.uuid4().hex[:8]}"
+    result = _call(
+        client,
+        owner_token,
+        "hire_member",
+        {"name": name, "role_key": "conf-mcp-no-such-role"},
+    )
+    assert result["isError"] is True, result
+    body = json.loads(_text(result))
+    assert body["error"]["code"] == "validation_error", body
+    assert body["error"]["message"] == "role 'conf-mcp-no-such-role' not found", body
+    after = json.loads(_text(_call(client, owner_token, "get_members", {})))
+    assert len(after) == len(before), (len(before), len(after))
 
 
 def test_call_get_route_query_split(client, owner_token, agent_a) -> None:

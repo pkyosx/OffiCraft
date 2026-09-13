@@ -468,7 +468,7 @@
       "name": "get_members"
     },
     {
-      "description": "Hire a member (server mints the id). An omitted runtime is stored UNSET and resolved from the target host's reported runtime capabilities at first placement (a codex-only host grows a codex member) rather than written as claude; only claude/codex are accepted when you do name one; effort defaults to medium and is validated; a hire that names kind or role_key is admin-gated. This door hires STAFF ONLY \u2014 any other kind is a 422 that names where that kind is really born (a warden through ``POST /api/machines``, an outsource worker by the outsource scheduler when a task is handed out); a staff hire REQUIRES a role_key, and ``POST /api/roles`` mints a role and its member together. Answers with a bounded receipt (``id``), not the roster row \u2014 call ``get_member`` when you need the rest.",
+      "description": "Hire a member (server mints the id). An omitted runtime is stored UNSET and resolved from the target host's reported runtime capabilities at first placement (a codex-only host grows a codex member) rather than written as claude; only claude/codex are accepted when you do name one; effort defaults to medium and is validated; a hire that names kind or role_key is admin-gated. This door hires STAFF ONLY \u2014 any other kind is a 422 that names where that kind is really born (a warden through ``POST /api/machines``, an outsource worker by the outsource scheduler when a task is handed out); a STAFF hire requires a currently available seed or custom role_key: an unknown or removed role answers 422 before any roster write, while a role-less staff hire is also 422; create a role + member through POST /api/roles. Answers with a bounded receipt (``id``), not the roster row \u2014 call ``get_member`` when you need the rest.",
       "inputSchema": {
         "properties": {
           "effort": {
@@ -522,7 +522,7 @@
               }
             ],
             "default": null,
-            "description": "Role to hire the member into. Supplying it at all is privilege-bearing - a caller below admin-agent is a flat 403 - but the value itself is never checked against the role table: a key nobody defined is stored verbatim and the member is created, 200. Your role_key is echoed back unchanged, so the only thing in the response that separates a typo from a real role is role_name, which comes back as an empty string.",
+            "description": "For a STAFF hire, this must name a currently available seed or live custom role; an unknown or removed role returns 422 before any member is written. Supplying it at all is privilege-bearing - a caller below admin-agent is a flat 403. Warden hires are intentionally roleless, so the field remains optional.",
             "title": "Role Key"
           },
           "runtime": {

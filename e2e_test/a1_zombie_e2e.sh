@@ -356,16 +356,22 @@ ACT_JSON="$(api_post_logged "/api/members/$TARGET_AGENT/activate" "{\"machine_id
 log "activated TARGET $TARGET_AGENT on $SERVER_SELF_ID"
 
 # 4b. CONTROL: HIRE a fresh healthy member (the DB seeds only mira + server-self,
-#     so the control must be created). A bare hire (name only, no kind/role_key)
-#     folds to KindStaff and is NOT privilege-bearing → owner token suffices;
-#     the server mints its id (m-<hex12>) and answers a receipt carrying it
+#     so the control must be created). Create a live custom role first, then hire
+#     under it: STAFF hires must name an available seed or custom role, and this
+#     non-admin role keeps the control on the ordinary principal floor. The
+#     server mints the member id (m-<hex12>) and answers a receipt carrying it
 #     (T-91 narrowed this route from the whole DTO down to `{id}`).
+CONTROL_ROLE_JSON="$(api_post_logged /api/roles "$(py -c '
+import json,sys; print(json.dumps({"name": sys.argv[1]}))' "$CONTROL_NAME role")" || echo '{}')"
+CONTROL_ROLE="$(printf '%s' "$CONTROL_ROLE_JSON" | json_field role_key)"
+[[ -n "$CONTROL_ROLE" ]] \
+  || fail_stage "POST /api/roles for control '$CONTROL_NAME' returned no role_key — cannot hire the control member"
 HIRE_JSON="$(api_post_logged /api/members "$(py -c '
-import json,sys; print(json.dumps({"name": sys.argv[1]}))' "$CONTROL_NAME")" || echo '{}')"
+import json,sys; print(json.dumps({"name": sys.argv[1], "role_key": sys.argv[2]}))' "$CONTROL_NAME" "$CONTROL_ROLE")" || echo '{}')"
 CONTROL_AGENT="$(printf '%s' "$HIRE_JSON" | json_field id)"
 [[ -n "$CONTROL_AGENT" && "$CONTROL_AGENT" != "$TARGET_AGENT" ]] \
   || fail_stage "hire control '$CONTROL_NAME' returned no distinct member id (got '$CONTROL_AGENT') — cannot run the control leg"
-log "hired CONTROL member id=$CONTROL_AGENT (name='$CONTROL_NAME', kind folds to staff)"
+log "hired CONTROL member id=$CONTROL_AGENT (name='$CONTROL_NAME', role_key=$CONTROL_ROLE, kind=staff)"
 ACT2_JSON="$(api_post_logged "/api/members/$CONTROL_AGENT/activate" "{\"machine_id\":\"$SERVER_SELF_ID\"}" || echo '{}')"
 [[ -n "$(printf '%s' "$ACT2_JSON" | json_field id)" ]] \
   || fail_stage "activate control $CONTROL_AGENT on $SERVER_SELF_ID returned no id on its receipt"

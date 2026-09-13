@@ -1504,13 +1504,14 @@ export interface paths {
         get: operations["handle_list_members_api_members_get"];
         put?: never;
         /**
-         * Hire a member (server mints the id). An omitted runtime is stored UNSET and resolved from the target host's reported runtime capabilities at first placement (a codex-only host grows a codex member) rather than written as claude; only claude/codex are accepted when you do name one; effort defaults to medium and is validated; a hire that names kind or role_key is admin-gated. This door hires STAFF ONLY — any other kind is a 422 that names where that kind is really born (a warden through ``POST /api/machines``, an outsource worker by the outsource scheduler when a task is handed out). A staff hire REQUIRES a role_key (422 without one) — a role-less staff member is a state nothing downstream defines; create one through ``POST /api/roles``, which mints a role and its member together. Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.
+         * Hire a member (server mints the id). An omitted runtime is stored UNSET and resolved from the target host's reported runtime capabilities at first placement (a codex-only host grows a codex member) rather than written as claude; only claude/codex are accepted when you do name one; effort defaults to medium and is validated; a hire that names kind or role_key is admin-gated. This door hires STAFF ONLY — any other kind is a 422 that names where that kind is really born (a warden through ``POST /api/machines``, an outsource worker by the outsource scheduler when a task is handed out); a STAFF hire requires a currently available seed or custom role_key: an unknown or removed role answers 422 before any roster write, while a role-less staff hire is also 422; create a role + member through POST /api/roles. Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.
          * @description - Hires a roster row only; it spawns no runtime and the member starts offline.
          *     - The server mints the `id`; it is never client-supplied.
          *     - `runtime` is claude/codex; omitted, it resolves at first placement from the host.
          *     - A blank `name` or an invalid runtime is a 422.
          *     - This door hires STAFF and nothing else: any other `kind` is a 422 naming the birth path that kind really has. A warden is born by onboarding its machine (`POST /api/machines`); an outsource worker is minted by the outsource scheduler when a task is handed out.
          *     - A staff hire with no `role_key` is a 422: nothing writes the roster row, and `POST /api/roles` is the path that creates a 正職 (role + member in one call).
+         *     - A STAFF hire requires a currently available seed or custom role_key: an unknown or removed role is a 422 before any roster write.
          *     - Sending `kind` or `role_key` needs admin capability (403), and that check runs FIRST: a non-admin naming a kind gets the 403, not the kind refusal.
          */
         post: operations["handle_hire_member_api_members_post"];
@@ -5873,7 +5874,7 @@ export interface components {
          * MemberHireDTO
          * @description Hire (create) a roster member (§3.4 #9; pure seam, no UI). The owner assigns
          *     a display ``name``; the server mints the ``id`` (never client-supplied — it is
-         *     the attribution key). ``kind``/``runtime``/``model``/``effort``/``role_key`` are optional; an omitted ``runtime`` is stored UNSET and resolved at first placement from the target host's reported runtime capabilities (a codex-only host grows a codex member); the response still reads back ``claude`` until that resolution lands.
+         *     the attribution key). ``kind``/``runtime``/``model``/``effort``/``role_key`` are optional in the wire schema because wardens are intentionally roleless; a STAFF hire must name a currently available seed or live custom role, and an unknown or removed role is rejected with 422 before any member write; an omitted ``runtime`` is stored UNSET and resolved at first placement from the target host's reported runtime capabilities (a codex-only host grows a codex member); the response still reads back ``claude`` until that resolution lands.
          */
         MemberHireDTO: {
             /** Effort */
@@ -5884,7 +5885,10 @@ export interface components {
             model?: string | null;
             /** Name */
             name: string;
-            /** Role Key */
+            /**
+             * Role Key
+             * @description For a STAFF hire, this must name a currently available seed or live custom role; an unknown or removed role returns 422 before any member is written. Warden hires are intentionally roleless, so the field remains optional in this schema.
+             */
             role_key?: string | null;
             /**
              * Runtime Key

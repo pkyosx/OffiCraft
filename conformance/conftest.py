@@ -145,9 +145,10 @@ def mint_member_token(
 
 
 def _make_agent(client: httpx.Client, owner_token: str, tag: str) -> AgentIdentity:
-    # A throwaway NON-admin role_key: is_admin keys on role_key == "assistant",
-    # so a fresh string keeps these identities ordinary agents (the deny face).
-    role_key = f"conf-role-{tag}"
+    # A live custom NON-admin role: is_admin keys on role_key == "assistant", so
+    # the shared scratch role keeps these identities ordinary agents (the deny
+    # face) while still satisfying the hire endpoint's role-existence guard.
+    role_key = _shared_scratch_role(client, owner_token)
     member_id = hire_member(client, owner_token, f"conf-agent-{tag}", role_key)
     token = mint_member_token(client, owner_token, member_id, ttl_days=1)
     return AgentIdentity(member_id=member_id, token=token, role_key=role_key)

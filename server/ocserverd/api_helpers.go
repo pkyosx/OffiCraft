@@ -455,6 +455,17 @@ func (s *apiServer) memberRoleName(m Member) (string, error) {
 	return "", nil
 }
 
+// hireRoleKeyAvailable uses the same folded role roster as the role GET and
+// boot-context paths. A nil fold means the role is unknown or tombstoned;
+// errors are reserved for failures reading the role sources.
+func (s *apiServer) hireRoleKeyAvailable(roleKey string) (bool, error) {
+	role, err := s.foldRoleDefDTO(roleKey)
+	if err != nil {
+		return false, err
+	}
+	return role != nil, nil
+}
+
 // refocusDeadline is the epoch by which an in-flight wind-down is force-
 // collected — the CEILING the cockpit quotes when it says when a pending launch
 // change takes effect at the latest. 0 in, 0 out (no window, no deadline).
