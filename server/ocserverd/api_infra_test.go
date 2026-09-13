@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -2474,6 +2475,48 @@ func TestHandleMcpApiMcpPost(t *testing.T) {
 			})
 		}
 		dashboard.wantFrames()
+	})
+
+	// 🔴 EVERY TOOL NAME A RETIREMENT MESSAGE SENDS THE CALLER TO MUST EXIST.
+	// The whole value of these three sentences is the onward path they name; a
+	// refusal that points at a tool nobody serves is worse than the bare
+	// "unknown tool" it replaced, because the reader now has a next move and it
+	// is a dead end. Nothing else binds the message text to the live catalog:
+	// an independent review planted the pair-mutant (rename the tool in the
+	// table AND in the expectation, together) and every one of the 30 subtests
+	// stayed green — same-source verification's one failure mode. So the check
+	// reads the names OUT OF the messages and asks the real tool table, rather
+	// than comparing one hand-typed string against another.
+	t.Run("every tool a retirement message names is really served", func(t *testing.T) {
+		api, h, _, _ := newAPITestServer(t)
+		api.loopback = h
+
+		quoted := regexp.MustCompile(`'([a-z0-9_]+)'`)
+		checked := 0
+		for retiredName, message := range retiredMCPTools {
+			for _, m := range quoted.FindAllStringSubmatch(message, -1) {
+				named := m[1]
+				// The message quotes its own retired name too; that one is
+				// supposed to be gone.
+				if named == retiredName {
+					continue
+				}
+				if _, served := api.mcpTools[named]; !served {
+					t.Errorf("the retirement message for %q sends the caller to %q, "+
+						"which is not in the served tool table — a refusal that names a "+
+						"dead end is worse than the bare unknown-tool answer it replaced",
+						retiredName, named)
+				}
+				checked++
+			}
+		}
+		// Zero onward names would make every assertion above vacuous, and the
+		// regexp quietly matching nothing looks exactly like three clean passes.
+		if checked != len(retiredMCPTools) {
+			t.Fatalf("checked %d onward tool names across %d retirement messages, "+
+				"want one per message — either a message stopped naming a way "+
+				"forward, or the pattern stopped matching", checked, len(retiredMCPTools))
+		}
 	})
 
 	t.Run("no caller class is served a retired name in tools/list", func(t *testing.T) {
