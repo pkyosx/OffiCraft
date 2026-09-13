@@ -1492,15 +1492,51 @@ func TestHandleHireMemberApiMembersPost(t *testing.T) {
 		dashboard.wantFrames()
 	})
 
-	t.Run("a warden hire carries no role_key and is still hired", func(t *testing.T) {
-		_, h, _, owner := newAPITestServer(t)
+	// This door hires staff and nothing else (owner 2026-09-13, rc-3989498e0c8f).
+	// The two kinds refused here each have a birth path of their own, and the
+	// message must NAME that path: a refusal that points nowhere costs the
+	// reader more than the old silent acceptance did. The literal wording is
+	// asserted on purpose — the value of this gate is entirely in what the
+	// message tells the caller to do instead.
+	t.Run("a warden hire answers 422 naming POST /api/machines and hires nobody", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		dashboard := apiTestListen(t, api, "")
 
 		status, data := apiJSON(t, h, "POST", "/api/members", owner, `{"name":"box","kind":"warden"}`)
-		if status != 200 {
-			t.Fatalf("want 200, got %d (%v)", status, data)
+		if status != 422 {
+			t.Fatalf("want 422, got %d (%v)", status, data)
 		}
-		apiWantBody(t, data, map[string]any{"id": apiAnyString})
+		apiWantError(t, data, "validation_error",
+			"POST /api/members hires staff only; got kind 'warden'. "+
+				"A warden is born by onboarding its machine through POST /api/machines "+
+				"(the machine id becomes the warden's member id); an outsource worker is "+
+				"minted by the outsource scheduler when a task is handed out. "+
+				"Neither can be created here")
+		dashboard.wantFrames()
 	})
+
+	t.Run("an outsource hire answers 422 naming the scheduler and hires nobody", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/members", owner, `{"name":"shell","kind":"outsource"}`)
+		if status != 422 {
+			t.Fatalf("want 422, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error",
+			"POST /api/members hires staff only; got kind 'outsource'. "+
+				"A warden is born by onboarding its machine through POST /api/machines "+
+				"(the machine id becomes the warden's member id); an outsource worker is "+
+				"minted by the outsource scheduler when a task is handed out. "+
+				"Neither can be created here")
+		dashboard.wantFrames()
+	})
+
+	// The negative control for the two refusals above lives at the top of this
+	// function ("a hire answers the minted id and fans the new member's own
+	// delta"): a staff hire carrying a role_key still answers 200. If the kind
+	// gate ever narrows the door it was meant to leave alone, that subtest is
+	// the one that goes red.
 
 	t.Run("an agent hiring with kind or role_key answers 403 and hires nobody", func(t *testing.T) {
 		api, h, _, _ := newAPITestServer(t)

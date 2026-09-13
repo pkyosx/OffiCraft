@@ -2234,7 +2234,7 @@ def test_dispatch_target_machine_must_resolve(
                      {"kind": "outsource", "machine": machine}).status_code == 200
 
 
-def test_reassign_guards(client, owner_token, executor):
+def test_reassign_guards(client, owner_token, executor, fresh_machine):
     """T-160e guards: frozen 400, terminal 409, warden/unknown target 400,
     same-executor 409. ② the route is opened to `agent` + an executor guard —
     a NON-executor agent is 403. 正職授權矩陣 (T-23cf) rule 7: the OWN executor (a
@@ -2264,7 +2264,10 @@ def test_reassign_guards(client, owner_token, executor):
     # target == current executor → 409.
     assert _reassign(client, owner_token, task["id"], member_target).status_code == 409
     # warden target / unknown member → 400.
-    warden_id = hire_member(client, owner_token, "conf-reassign-warden", kind="warden")
+    # A warden is born by onboarding a machine, not by hiring (POST /api/members
+    # refuses every kind but staff since owner 2026-09-13, rc-3989498e0c8f).
+    # What this line needs is unchanged: the id of a warden-kind member.
+    warden_id = fresh_machine()
     assert _reassign(client, owner_token, task["id"],
                      {"kind": "staff", "member_id": warden_id}).status_code == 400
     assert _reassign(client, owner_token, task["id"],
