@@ -5766,7 +5766,7 @@ export interface components {
             last_op_ok?: boolean | null;
             /**
              * Last Op Reason
-             * @description Structured one-line cause of the most recent warden op (the warden's ``<code>: <detail>`` refusal/failure/warning summary, e.g. ``session_already_exists: ...``) — distinct from the free-form ``last_op_log`` dump. Empty when the receipt carried no reason; consumers then fall back to status-only display. ⚠️ A NON-EMPTY REASON DOES NOT MEAN THE OP FAILED — read ``last_op_ok`` for that. Since T-201 a SUCCEEDED op may carry one: the pre-trust verdict no longer refuses the spawn, it reports through this field, so a successful start can arrive with ``pretrust_unverified: ...`` on it. Conversely the warden no longer sends a template reason for an ordinary successful stop/uninstall, so an empty value on a success means only that nothing wanted saying (as it does for a pre-T-201 warden, which never sent this field at all).
+             * @description Structured one-line cause of the most recent warden op (the warden's refusal/failure/warning summary) — distinct from the free-form last_op_log dump. Empty when the receipt carried no reason; consumers then fall back to status-only display. A non-empty reason does not mean the operation failed: read last_op_ok. Successful operations may carry advisory context, including receipts from older wardens. Ordinary successful stop/uninstall operations carry no template reason.
              * @default
              */
             last_op_reason: string;

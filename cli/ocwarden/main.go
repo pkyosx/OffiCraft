@@ -190,37 +190,16 @@ type CmdRunner interface {
 	Run(name string, args ...string) (string, error)
 }
 
-// CombinedCmdRunner is CmdRunner plus the one call whose OUTPUT SURVIVES A
-// NON-ZERO EXIT.
-//
-// 🔴 WHY THIS EXISTS AT ALL. Run returns "" on any non-zero exit — deliberately,
-// because every other caller only classifies the error. That is useless for a
-// caller whose ANSWER is carried by a command that always exits non-zero:
-// `claude mcp get <absent name>` exits 1 and prints "No MCP server named …
-// Configured servers: …" on STDERR. Through Run the pre-trust probe therefore
-// read an empty string on every production spawn and refused every member, while
-// its unit tests passed because the double returned stdout regardless of exit
-// code — the receipt came from the wrapper, not from the thing under test.
-//
-// The fix is stated HERE, in the seam's type, rather than by loosening the probe:
-// a caller that needs the answer has to ask for a runner that can give one, and
-// the compiler is what enforces it. Run is untouched, so the process choke point
-// and every launchctl/plutil/tmux caller behind it behave exactly as before.
-type CombinedCmdRunner interface {
-	CmdRunner
-	RunCombined(name string, args ...string) (string, error)
-}
-
 // execRunner is the real (os/exec) runner: timeout-boxed, stdout on success.
 type execRunner struct{ timeout time.Duration }
 
 // newCmdRunner is the SINGLE production construction point for the real exec
 // runner, and — like newHostSeam (install.go) — it is a package-level var so a
 // test CAN rebind it. Nothing in this tree does; what actually stops a test binary
-// from reaching a real process is the refusal inside Run/RunCombined below.
+// from reaching a real process is the refusal inside Run below.
 // Production code must obtain its runner from here, never by writing
 // `execRunner{…}` inline.
-var newCmdRunner = func(timeout time.Duration) CombinedCmdRunner { return execRunner{timeout: timeout} }
+var newCmdRunner = func(timeout time.Duration) CmdRunner { return execRunner{timeout: timeout} }
 
 // Run execs one argv. THIS IS THE PROCESS CHOKE POINT OF THE WHOLE BINARY: every
 // launchctl bootout/bootstrap/kickstart, every plutil, every tmux and probe call
@@ -243,8 +222,8 @@ var newCmdRunner = func(timeout time.Duration) CombinedCmdRunner { return execRu
 // struct was assembled, the subprocess still has to be started here. So a test
 // binary that reaches a real exec dies here, before exec.Command runs. Those static
 // guards are no longer in the tree, which makes this the only layer left — and the
-// reason a test that needs to OBSERVE Run/RunCombined has to build a non-test binary
-// to do it (TestExecRunnerRunCombined).
+// reason a test that needs to OBSERVE Run has to build a non-test binary
+// to do it (TestExecRunnerFailureOutput).
 func (r execRunner) Run(name string, args ...string) (string, error) {
 	refuseInTestBinary("execRunner.Run(" + name + ")")
 	to := r.timeout
@@ -277,45 +256,6 @@ func (r execRunner) Run(name string, args ...string) (string, error) {
 		_ = cmd.Process.Kill()
 		<-done
 		return "", fmt.Errorf("timeout after %s", to)
-	}
-}
-
-// RunCombined execs one argv and returns STDOUT AND STDERR INTERLEAVED, WHATEVER
-// THE EXIT CODE WAS, alongside the same error Run would have produced. It is a
-// second door onto the same choke point, not a wider one: it starts a subprocess,
-// so it opens with the same refuseInTestBinary, and it is timeout-boxed by the
-// same budget. The only difference is that a caller which judges the ANSWER
-// rather than the exit status can still see the answer.
-//
-// It does NOT reuse Run: Run's non-zero path is load-bearing for every other
-// caller in the binary (telemetry checks err==nil, the tmux three-way probe reads
-// stderr out of the error text), and a shared implementation is how that gets
-// changed for them by accident.
-func (r execRunner) RunCombined(name string, args ...string) (string, error) {
-	refuseInTestBinary("execRunner.RunCombined(" + name + ")")
-	to := r.timeout
-	if to == 0 {
-		to = subprocessBudget
-	}
-	var both bytes.Buffer
-	cmd := exec.Command(name, args...)
-	cmd.Stdout = &both
-	cmd.Stderr = &both
-	done := make(chan error, 1)
-	if err := cmd.Start(); err != nil {
-		return "", err
-	}
-	go func() { done <- cmd.Wait() }()
-	select {
-	case err := <-done:
-		return both.String(), err
-	case <-time.After(to):
-		_ = cmd.Process.Kill()
-		<-done
-		// Whatever it managed to say before the kill is still returned: a probe
-		// that judges content needs the partial answer to be able to say it was
-		// not an answer.
-		return both.String(), fmt.Errorf("timeout after %s", to)
 	}
 }
 

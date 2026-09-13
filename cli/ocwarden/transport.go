@@ -674,7 +674,7 @@ func buildSpawnDeps(cfg Config, env func(string) string, runner CmdRunner, socke
 	}
 }
 
-func buildCommandDeps(cfg Config, env func(string) string, runner CombinedCmdRunner) CommandDeps {
+func buildCommandDeps(cfg Config, env func(string) string, runner CmdRunner) CommandDeps {
 	// The instance namespace keys the tmux socket + agent home (validated at
 	// process entry — realMain refuses an invalid OC_NAMESPACE before any
 	// transport is built, so the error case here is unreachable).
@@ -696,14 +696,8 @@ func buildCommandDeps(cfg Config, env func(string) string, runner CombinedCmdRun
 			// workdir pair. purgeTrash re-derives and re-validates the whole shape
 			// itself (direct-child containment, symlink refusal) — passing the root
 			// is what lets it do the containment check at all.
-			// The verifier is what turns the write above into a guarantee: it
-			// asks the claude binary itself, under this child's own environment
-			// prologue, whether the flag is visible to it. See claudetrust.go.
-			verify := newClaudePretrustVerifier(runner, socket, spawnDeps.ClaudeBin,
-				spawnDeps.ClaudeHome, stderrLogf)
 			return spawnDeps.withPerSpawn(
 				func() error { return pretrustWorkdir(claudeJSONPath, workdir) },
-				verify,
 				func() { purgeTrash(spawnDeps.Home, workdir, stderrLogf) },
 			).start(p)
 		},
@@ -822,7 +816,7 @@ func newCommandReporter(cfg Config) func(CommandResult) error {
 // client, the real dispatch deps, real time.Sleep backoff, and a stderr/out
 // logger. Constructing it does NOT connect — run(ctx) does — so this is inert
 // until main.go's gate explicitly starts it.
-func newCommandTransport(cfg Config, env func(string) string, runner CombinedCmdRunner,
+func newCommandTransport(cfg Config, env func(string) string, runner CmdRunner,
 	logf func(string, ...any)) *sseTransport {
 	return &sseTransport{
 		base:            cfg.Base,
