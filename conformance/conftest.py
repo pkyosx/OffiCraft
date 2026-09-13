@@ -180,8 +180,19 @@ def admin_agent(client: httpx.Client, owner_token: str) -> AgentIdentity:
 @pytest.fixture(scope="session")
 def warden_agent(client: httpx.Client, owner_token: str) -> AgentIdentity:
     """A MACHINE-class principal: kind="warden" member (the per-machine executor,
-    the capability FLOOR). Owner-hired — kind is privilege-bearing, same guard."""
-    member_id = hire_member(client, owner_token, "conf-warden", kind="warden")
+    the capability FLOOR). Born the way a warden is actually born — by onboarding
+    a machine, whose member id IS the machine id. It used to be hired through
+    POST /api/members with kind="warden"; that door now refuses every kind but
+    staff (owner 2026-09-13, rc-3989498e0c8f), and hiring was never how a real
+    warden arrives anyway. What this fixture provides is unchanged: a warden-kind
+    member id plus a token for it."""
+    r = client.post(
+        "/api/machines",
+        json={"display_name": "conf-warden"},
+        headers=_auth(owner_token),
+    )
+    assert r.status_code == 200, f"onboard failed: {r.status_code} {r.text}"
+    member_id = r.json()["machine_id"]
     token = mint_member_token(client, owner_token, member_id, ttl_days=1)
     return AgentIdentity(member_id=member_id, token=token, role_key="")
 

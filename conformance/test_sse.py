@@ -355,9 +355,40 @@ def test_every_closed_topic_emits(client, owner_token, agent_a, fresh_member, ow
     tag = uuid.uuid4().hex[:8]
     member = fresh_member()
     # A kind='outsource' roster row IS an outsource worker (the P7d fold — the
-    # worker table lives in `member`), so the ordinary worker write face below
-    # has a subject without needing the scheduler's spawn seam.
-    worker = hire_member(client, owner_token, f"conf-topic-worker-{tag}", kind="outsource")
+    # worker table lives in `member`). It used to be hired straight through
+    # POST /api/members; that door refuses every kind but staff since owner
+    # 2026-09-13 (rc-3989498e0c8f), and hiring was never how a worker is born
+    # anyway. So dispatch a task to 外包 and let the SCHEDULER mint it — the
+    # real birth path. The assignment rides the SSE deltas rather than the
+    # create receipt, so poll the worker roster for the row bound to this task.
+    dispatched = client.post(
+        "/api/tasks",
+        json={
+            "title": f"conf-topic-dispatch-{tag}",
+            "description": "outsource_worker topic probe",
+            "target": {"kind": "outsource", "model": "sonnet", "effort": "low"},
+        },
+        headers=_auth(owner_token),
+    )
+    assert dispatched.status_code == 200, (
+        f"dispatch failed: {dispatched.status_code} {dispatched.text}")
+    dispatched_task = dispatched.json()["task_id"]
+    worker = ""
+    deadline = time.time() + 10.0
+    while time.time() < deadline:
+        r = client.get("/api/outsource-workers", headers=_auth(owner_token))
+        assert r.status_code == 200, f"{r.status_code} {r.text}"
+        for row in r.json():
+            if row.get("task_id") == dispatched_task:
+                worker = row["id"]
+                break
+        if worker:
+            break
+        time.sleep(0.1)
+    assert worker, (
+        "the scheduler minted no worker for the dispatched task within 10s — "
+        "if this is now the expected behaviour, this topic needs a new subject, "
+        "not a weaker assertion")
     # The member row's PATCH body is a NAMED VALUE, not an inline literal, so
     # the assertion below can bind to the very field this write sets instead of
     # to a value re-typed next to it. See the identity check in the loop: if
