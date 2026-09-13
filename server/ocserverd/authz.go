@@ -379,6 +379,19 @@ func principalAtLeast(principal, minimum principalClass) bool {
 	return principalRank[principal] >= principalRank[minimum]
 }
 
+// routeReachableBy treats public as reachable without adding it to the
+// principal ladder. Unknown authorization floors fail closed.
+func routeReachableBy(principal, requires principalClass) bool {
+	if requires == requiresPublic {
+		return true
+	}
+	minimum, declared := principalRank[requires]
+	if !declared {
+		return false
+	}
+	return principalRank[principal] >= minimum
+}
+
 // requirePrincipalClass wraps a handler with the ONE RBAC enforcement choke the
 // route table attaches (service.authz.require_principal_class): the request's
 // principal (resolved from the claims the auth middleware stashed + the roster

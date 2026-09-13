@@ -138,6 +138,18 @@
   font-size: 12px;
   color: var(--color-text-muted);
 }
+/* T-196 — the asking outsource worker's CURRENT TASK, in the slot a 正職's role
+ * occupies (an outsource has no role name; that span is empty for one). The two
+ * lines inside are the office rail's own `.outsource-row__task-line` and
+ * `.current-task-title`, drawn by the rail's components and styled by the rail's
+ * rules in office.css — including the `+` rule that spaces them. This block only
+ * stacks them; it must never restate their appearance, or the two surfaces drift
+ * on the next change to either. */
+.reply-card__worker-task {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
 /* Jump-to-origin — a quiet text button (secondary action). */
 .reply-card__jump {
   flex: none;

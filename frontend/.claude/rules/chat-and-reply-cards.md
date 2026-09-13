@@ -15,6 +15,14 @@ paths:
   - "visual-guards/stories/ReplyIdFilter*"
   - "src/hooks/useChat*"
   - "src/hooks/useReplyCard*"
+  # 🔴 THE IDENTITY CACHE IS IN SCOPE (T-196). The 請示卡列表 draws an outsource
+  # asker's 代號, avatar AND current task from `useWorkerCodenames`'s per-id
+  # read — the one read that covers RELEASED workers, which the rule below
+  # depends on. Whoever edits that hook is one of the people the rule is
+  # written for, and could not see it.
+  - "src/hooks/useWorkerCodenames*"
+  - "visual-guards/reply-card-worker-task*"
+  - "visual-guards/stories/ReplyCardWorkerTaskStory*"
   - "src/hooks/useScheduledMessages.ts"
   - "src/lib/composerKeys.ts"
   - "src/lib/autosize.ts"
@@ -143,7 +151,21 @@ parity 的 roll-call 不列卡片內部欄位。守著這一切的只有
 class 名 `.reply-tag--ai` / `.reply-option--ai` **不要改**:`TaskReplyCard` 借用前者
 畫自己的徽章。
 
-`GET /api/reply-cards` 只回一種形狀 —— 輕量列（`ReplyCardRow`），`?view=full` 已經移除（owner 2026-09-07）。**pane 的卡預設收合，點開才打單張 `getReplyCard`**，跟聊天串內嵌卡（`ChatReplyCard`）同一套做法；再點一次會收合，收合會把讀回來的卡丟掉，所以重開是一次新的讀。🔴 **例外已經沒有了**：待回覆第一張自己打開那套（`autoOpenOffRef`）被 owner 2026-09-11「預設全部折疊」推翻，連同 `rc-cd351785b83d`／`rc-fa7e4c9bce42` 的行為一起刪掉；進頁面時**一支 `getReplyCard` 都不會發**，這件事由 `RepliesPage.id-filter.test.tsx` 的兩支「arrival must read no card at all」守著。今天仍會自己打開的只有**深連結指名的那一張**（`#replies/card/<id>`）——那是明確要求，不是預設。🔴 **折疊列＝卡自己的抬頭，不是另一套版面**（owner 2026-09-11「折疊起來那一列的內容不要另外設計」）：頭像、名字＋角色、跳到原訊息、標為過期、`已等你 <時長>`（在標為過期**右方**），下面是任務標題列與請示卡標題。這些全部來自輕量列，所以收合狀態一個請求都不用；點開只是在下面**補上問題內容**（body、附件、選項），抬頭不重畫、標題不重印。⚠️ **`跳到原訊息` 是例外**：輕量列沒有 `chatMessageId`（wire 的 `ReplyCardListItemDTO` 也沒有），所以那顆按鈕在還沒讀過的卡上是**按下去才讀**一次再導頁——不是 render 時讀。🔴 **卡頭沒有絕對時間**（owner 2026-09-11「我不想知道絕對時間 相對時間已經夠了」）：`data-testid="opened-at"` 這個節點不存在了，e2e `15_card_waited_time.spec.js` 反過來守它不可以回來；絕對時間只剩近期已處理那一段的 `已回覆／已過期 <時間>`。⚠️ **整張卡是開關**（`role="button"` ＋ `onCardToggleClick` 的互動過濾），做法照抄 `TaskCard`；卡內任何 button/a/input/`[role=button]` 的點擊都不翻卡。測試要點開卡就點 article 本身（`[data-reply-card-id][aria-expanded]`）。
+`GET /api/reply-cards` 只回一種形狀 —— 輕量列（`ReplyCardRow`），`?view=full` 已經移除（owner 2026-09-07）。**pane 的卡預設收合，點開才打單張 `getReplyCard`**，跟聊天串內嵌卡（`ChatReplyCard`）同一套做法；再點一次會收合，收合會把讀回來的卡丟掉，所以重開是一次新的讀。🔴 **例外已經沒有了**：待回覆第一張自己打開那套（`autoOpenOffRef`）被 owner 2026-09-11「預設全部折疊」推翻，連同 `rc-cd351785b83d`／`rc-fa7e4c9bce42` 的行為一起刪掉；進頁面時**一支 `getReplyCard` 都不會發**，這件事由 `RepliesPage.id-filter.test.tsx` 的兩支「arrival must read no card at all」守著。今天仍會自己打開的只有**深連結指名的那一張**（`#replies/card/<id>`）——那是明確要求，不是預設。🔴 **折疊列＝卡自己的抬頭，不是另一套版面**（owner 2026-09-11「折疊起來那一列的內容不要另外設計」）：頭像、名字＋角色、跳到原訊息、標為過期、`已等你 <時長>`（在標為過期**右方**），下面是任務標題列與請示卡標題。這些全部來自輕量列；點開只是在下面**補上問題內容**（body、附件、選項），抬頭不重畫、標題不重印。⚠️ **`跳到原訊息` 是例外**：輕量列沒有 `chatMessageId`（wire 的 `ReplyCardListItemDTO` 也沒有），所以那顆按鈕在還沒讀過的卡上是**按下去才讀**一次再導頁——不是 render 時讀。🔴 **卡頭沒有絕對時間**（owner 2026-09-11「我不想知道絕對時間 相對時間已經夠了」）：`data-testid="opened-at"` 這個節點不存在了，e2e `15_card_waited_time.spec.js` 反過來守它不可以回來；絕對時間只剩近期已處理那一段的 `已回覆／已過期 <時間>`。⚠️ **整張卡是開關**（`role="button"` ＋ `onCardToggleClick` 的互動過濾），做法照抄 `TaskCard`；卡內任何 button/a/input/`[role=button]` 的點擊都不翻卡。測試要點開卡就點 article 本身（`[data-reply-card-id][aria-expanded]`）。
+
+🔴 **抬頭上那一行「這個外包正在做哪張任務」是 WORKER 的，不是卡的**（T-196，owner `rc-dce285c5274c`：「我覺得只在 UI 上補上顯示就好 就像在 chat 那邊 使用者列表上 outsource worker 會顯示他在進行的工作是哪一個」）。它畫在 `.reply-card__who` 裡、正職角色名那一格的位置（外包沒有角色名，那一格本來是空的），用的是辦公室左欄外包列**自己的兩個元件**：`OutsourceTaskLine`（可點的任務編號 chip → `#tasks/<id>`，加任務類型）與 `CurrentTaskTitle`（真實標題、兩行截斷、hover 全文、沒有任務時的灰字空狀態）。**不要為這一面另寫一份**——那兩個元件的檔頭注解逐字寫著它們存在的理由就是「兩個 surface 不能漂移」，再加一份就是這個 repo 那個「同一件事在外包與正職各寫一份」的缺陷族。
+
+⚠️ **它是唯一不來自輕量列的抬頭內容**，所以上面那句「全部來自輕量列」對它不成立：資料來自 `useWorkerCurrentTasks`，也就是 `useWorkerCodenames` 那份 per-id identity cache（`GET /api/outsource-workers/{id}`）——**同一支讀取**，代號與頭像本來就走它，不是為了任務多打一支。選它而不選 `useOutsourceWorkers` 清單是因為**清單會跳過已釋出的外包**（`api_outsource.go` 明確 `continue`），而這一頁滿是已釋出的開卡人；用清單會讓同一列出現「代號有、任務沒有」的兩套說法。
+
+⚠️ **只有這個 accessor 訂 SSE（`task` / `outsource_worker`），另外兩個不訂，這是刻意的**：代號與頭像開著頁面不會變，當前任務會變，不重讀的話那一行是載入當下的舊事實，而畫面上沒有任何東西講得出來。它**不照 batch 的 ids 收窄**——`task` delta 名的是任務、這份 cache 以 worker 為鍵，拿 worker id 去比會對每一次任務事件答「都不是我的」，那一行就永遠不更新。重讀失敗時**保留上一列**：讀失敗不是任務不見了的證據。`kind === "outsource"` 以外的開卡人這一行**什麼都不畫**（`MemberDTO` 根本沒有任務欄位）；worker id 沒解析出來時**也什麼都不畫**——沉默是誠實的，畫空狀態等於用沒有的證據宣稱「它沒有任務」。
+
+🔴 **這一行只在成員 `status` 是 `assigned` 或 `active` 時才畫 —— 白名單，不是把終態列出來。** 列終態是預測：server 之後多一個終態，它就會以「還活著」的樣子出現在這一面。已釋出（released）的外包因此什麼都不畫，而這一格是獨立審查打穿過的。 釋出只翻 status、**`task_id` 原封不動**（`dal_tasks.go` 的 `ReleaseWorkerByID`），而 per-id 讀取又完整服務已釋出的列——也就是這一頁能解析它們的原因。所以那一列是「它做完的那張票」的真實紀錄，同時是「它現在在做什麼」的假話，照畫會配一顆活的可點 chip。左欄不會犯這個錯，因為**清單端點直接跳過已釋出的**；這一面沒有那道過濾，就得自己讀 `status`。**不要改成顯示「已釋出」**：那句話已經有家（聊天室橫幅），i18n 檔自己的註解明令不要複製第二份。
+
+⚠️ **沒有任務時，整條 `OutsourceTaskLine` 不畫，只留空狀態那一行；判準是 `taskNo` 不是 `taskId`。** server 無條件寫 `task_id`，但 `task_no`／`task_title`／`task_type_*` 只有在它解析得到那張票時才填，所以拿 `taskId` 當判準會讓「票解析不到」那條路原地復活同一個矛盾。 那個元件的 type 欄位是**無條件**渲染的，全空時 fallback 成 `自由代辦`——在左欄為真（列出來的外包一定有票，那句話的意思是「這張票沒有類型」），在這一面是假的，會變成同一列同時說「自由代辦」和「無當前任務」。第一版的測試 fixture 剛好留著 `taskTypeName`（一個 server 產不出來的狀態），把這個洞蓋住了。
+
+⚠️ **SSE 重讀是「合併成一輪補跑」，不是「丟掉」。** 一輪還在飛的時候又來一批 delta，那一輪的請求是在 delta **之前**送出的，帶不回它報的改變；只讓那一輪跑完就等於把新狀態丟掉，要等下一批**不相干的** delta 才會修正 —— 而安靜的工作室裡，螢幕上那個外包被釋出很可能就是那一小時的最後一個事件，「下一批」等於沒有。所以被超車的那一輪結束後再跑一次，就一次。
+
+釘住的是 `RepliesPage.worker-task.test.tsx`、`useWorkerCodenames.test.ts` 與 `visual-guards/reply-card-worker-task.ct.spec.tsx`（截斷與 hover 全文只有真瀏覽器量得到；那支 spec 的檔頭記了哪兩顆 mutant 會紅、以及哪一顆**不會**）。
 
 輕量列只帶 title/status/時間戳/task ref —— 不要把它補成 `ReplyCard`（body/options/chat message id 在單張才有，補成 "" 會畫出一張問題不見了的卡而且不會丟錯）。等待卡的 expire 規則以 server 為準：owner/admin 或卡片作者可過期自己的 waiting 卡；其他人 403，已回答 409。
 

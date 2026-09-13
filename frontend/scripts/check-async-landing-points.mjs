@@ -491,9 +491,23 @@ const REGISTRY = [
   {
     file: "hooks/useWorkerCodenames.ts",
     kind: ".then/.catch/.finally",
-    count: 2,
+    count: 3,
     verdict:
-      "module-level cache keyed by globally-unique `ow-` ids; setTick only asks for a repaint",
+      "module-level cache keyed by globally-unique `ow-` ids; setTick only asks for a repaint. Two of the four are the T-196 current-task refresh: a worker id names the same worker in every room, so a landing writes the value the new mount would write anyway — there is no room for it to land in the wrong one. The refresh keeps its own `alive` latch (setState after unmount only) and clears its in-flight latch BEFORE that check, so a round that finishes after the page is gone cannot wedge the next one",
+  },
+  {
+    file: "hooks/useWorkerCodenames.ts",
+    kind: "await",
+    count: 1,
+    verdict:
+      "the T-196 refresh round, awaiting its per-id reads inside a do/while that runs one more pass when a burst overtook it. Landings go to the same globally-keyed cache — a worker id names the same worker in every room — so a late landing writes what a fresh mount would write anyway. The round clears its in-flight latch before it can recurse, and `notifyAll` runs whether or not THIS hook is still mounted, because the other consumers of that cache are the ones holding the row it just replaced",
+  },
+  {
+    file: "hooks/useWorkerCodenames.ts",
+    kind: "subscribe",
+    count: 1,
+    verdict:
+      "the T-196 current-task accessor's SSE subscription: it re-reads only the `ow-` ids its own caller asked for, into the same globally-keyed cache, and unsubscribes on unmount — nothing it writes is per conversation",
   },
   {
     file: "lib/deltaSink.ts",
