@@ -35,9 +35,17 @@ Owner 目前要求盡快協助 Brad／Tzu-Hui 恢復使用；外部恢復仍未�
 
 本輪已執行 `bash e2e_test/teardown.sh` 並以 exit 0 完成：精確停止 `oc-e2e-937a21d4f0eb4e0f914e7ece87ec51a0` private tmux session、釋放 8791、刪除隔離 DB/state、將 `server/ocserverd/webdist` 還原為 pristine；輸出明確列出正式 7755／8770／8780／8766 未管理且未碰觸。
 
+### 暫存清理證據
+
+- 對原始 `/tmp/t201-mcp-counts3.dnTiMl`、`/tmp/t201-mcp-counts.YEunIH` 直接執行 `ocagent clean` 時，工具以 exit 2 拒絕，明確回報路徑在 agent workdir 外，且 `NOTHING was moved`。
+- 將這兩個已確認的 exact fixture 移入 `/Users/seth_wang/.officraft/agents/m-f339ccc950b7/tmp/` 後重試成功：兩者均 exit 0，分別 quarantine 至 `trash/tmp/t201-mcp-counts3.dnTiMl` 與 `trash/tmp/t201-mcp-counts.YEunIH`；未使用 `rm -rf`。
+- 候選 git worktree 的報告已先提交並推送；接手者可依 branch／SHA 重新取得，不把唯一證據留在暫存目錄。
+
 ## artifact 權限交接
 
 報告與原始數量控制記錄已存入 chat attachment：`att-c8df886ff2f9`、`att-fc62b8b65736`。嘗試由本成員直接釘到 T-201 時，server 回覆 `caller is not the task's executor`；T-201 executor Kyle 需使用上述 attachment id 釘成 task artifacts。
+
+Kyle 另提供 #498 固定 SHA 的補充本機紅綠證據 attachment `att-24418f9f2424`；內容明確標示不是獨立審查或 UI 通過，下一代仍須從固定 SHA 進行獨立 review。
 
 ## 未涵蓋範圍
 
