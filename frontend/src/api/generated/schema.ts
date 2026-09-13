@@ -1527,7 +1527,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Read one member row — STAFF OR OUTSOURCE, matching what GET /api/members already lists (removed → 404). It answered 404 for an ow- id until 2026-08-28, which cost the cockpit one guaranteed failed request plus a whole-roster refetch on every contractor chat line; the write verbs on this same {member_id} keep refusing outsource and say so themselves.
+         * Read one member row — STAFF OR OUTSOURCE, matching what GET /api/members already lists (removed → 404). It answered 404 for an ow- id until 2026-08-28, which cost the cockpit one guaranteed failed request plus a whole-roster refetch on every contractor chat line. The write verbs on this same {member_id} take an ow- id too -- update, activate, deactivate, force-stop, accelerated-stop and refocus each dispatch to the worker body; dismiss is the one that still refuses, with a 404.
          * @description - Reads one roster member.
          *     - `machine` is the OBSERVED position, not the pinned one — same as the list endpoint.
          *     - 404 if the member is absent or soft-removed.
@@ -1536,7 +1536,7 @@ export interface paths {
         put?: never;
         post?: never;
         /**
-         * Dismiss a member (soft delete). Pure seam, no UI (§9.1). Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.
+         * Dismiss a member (soft delete). Pure seam, no UI (§9.1). Staff only -- an outsource-worker id is a 404: a worker leaves by being RELEASED with its task, not by being dismissed. Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.
          * @description - Soft delete: `status` becomes `removed` and the member is asked offline, but the row survives so attribution and audit still work.
          *     - Writes intent only; the live session is torn down asynchronously, so expect a winding-down phase.
          *     - Owner token or admin-role member only; an ordinary agent is 403.
@@ -1545,7 +1545,7 @@ export interface paths {
         options?: never;
         head?: never;
         /**
-         * Partially update a member's name / runtime / model / effort. Blank name, invalid runtime or invalid effort → 422, and changing a launch-intent field arms a graceful handover. Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.
+         * Partially update a member's name / runtime / model / effort. Blank name, invalid runtime or invalid effort → 422, and changing a launch-intent field arms a graceful handover. Also accepts an outsource-worker id: the same edit changes the worker's runtime / model / effort, but a worker's codename is task-bound, so naming one is a 422. Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.
          * @description - Only the fields you send change: name, runtime, model, effort.
          *     - A blank `name`, a runtime outside claude/codex, or an effort outside low/medium/high/xhigh/max is a 422.
          *     - A runtime change applies at the next wake or recycle, not immediately.
@@ -1564,7 +1564,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * 加速停止: put an ALREADY-OPEN wind-down on the stop.accelerated_grace_secs clock and tell the member. 409 if nothing is winding down -- press 停止 first. Middle rung of 停止 -> 加速停止 -> 強制停止. Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.
+         * 加速停止: put an ALREADY-OPEN wind-down on the stop.accelerated_grace_secs clock and tell the member. 409 if nothing is winding down -- press 停止 first. Middle rung of 停止 -> 加速停止 -> 強制停止. Also accepts an outsource-worker id: the same verb puts the worker's ALREADY-OPEN wind-down (a stop or a handover) on that clock and tells it; 409 when none is open. Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.
          * @description - Puts an already-open wind-down on a clock (default 120 s) and tells the member, quoting the deadline.
          *     - It does not open one: not yet asked to stop, no live session, or already force-stopped is a 409.
          *     - The clock runs from this press, not from the earlier stop.
@@ -1588,7 +1588,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Activate: write desired_state=online intent (does NOT flip online). A live member clears stopping_since/waking_since and consumes restart_after_stop while preserving its active refocus/stopped epoch; it updates the owner roster only without killing/reconciling or sending a lifecycle notice. An offline generation clears its old wind-down, banks live cost, and uses stop-before-start. Answers with a bounded receipt (``id``, ``activation_pending``, ``last_op_reason``), not the roster row — call ``get_member`` when you need the rest.
+         * Activate: write desired_state=online intent (does NOT flip online). A live member clears stopping_since/waking_since and consumes restart_after_stop while preserving its active refocus/stopped epoch; it updates the owner roster only without killing/reconciling or sending a lifecycle notice. An offline generation clears its old wind-down, banks live cost, and uses stop-before-start. Also accepts an outsource-worker id: the same wake verb restarts the worker (one that is still running is LEFT ALONE, neither restarted nor refused). Answers with a bounded receipt (``id``, ``activation_pending``, ``last_op_reason``), not the roster row — call ``get_member`` when you need the rest.
          * @description Activate a member (§3.4 #12): write the owner's INTENT ``desired_state="online"``
          *     (and bind the reconciling ``host`` when named). Sets intent ONLY — does NOT
          *     flip ``online`` (the ACTUAL state). The server can't reach the host, so the
@@ -1677,7 +1677,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Deactivate: desired_state=offline + stamp stopping_since (retains row); with no live session, immediately collect/bank/dispatch the stop. Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.
+         * Deactivate: desired_state=offline + stamp stopping_since (retains row); with no live session, immediately collect/bank/dispatch the stop. Also accepts an outsource-worker id: the same verb is the worker's GRACEFUL close-out -- it asks the worker to work its stop document and waits for the worker's own report_stopped; only an OFFLINE worker takes the immediate kill. Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.
          * @description Deactivate a member (handover 層3): write the owner's INTENT
          *     ``desired_state="offline"`` and stamp ``stopping_since`` — a graceful STOP that
          *     RETAINS the roster row (``status`` stays ``active``), in contrast to dismiss
@@ -1711,7 +1711,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Force-stop: robust STOP now. On the offboard arm the server starts no clock of its own -- collection is the agent's report_stopped, the deadline the owner opens with 加速停止, or this. Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.
+         * Force-stop: robust STOP now. On the offboard arm the server starts no clock of its own -- collection is the agent's report_stopped, the deadline the owner opens with 加速停止, or this. Also accepts an outsource-worker id: the same verb kills the worker's session NOW and holds it down, saying nothing to it. Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.
          * @description Force-stop a member: IMMEDIATELY kill the live session.
          *
          *     🔴 This is NOT a shortcut past a countdown the SERVER started — it starts none.
@@ -1768,7 +1768,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Refocus a member's context (online-only, else 409). Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.
+         * Refocus a member's context (online-only, else 409). Also accepts an outsource-worker id: the same handover verb hands the worker over. Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.
          * @description - Records a refocus intent; the compaction itself is the agent's job, which reads the marker and clears it.
          *     - 409 unless the member's derived presence is online — compacting with no live session is meaningless.
          *     - Owner token or admin-role member only; an ordinary agent gets 403.

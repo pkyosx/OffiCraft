@@ -551,7 +551,7 @@
       "name": "hire_member"
     },
     {
-      "description": "Read one member row — STAFF OR OUTSOURCE, matching what GET /api/members already lists (removed \u2192 404). It answered 404 for an ow- id until 2026-08-28, which cost the cockpit one guaranteed failed request plus a whole-roster refetch on every contractor chat line; the write verbs on this same {member_id} keep refusing outsource and say so themselves.",
+      "description": "Read one member row — STAFF OR OUTSOURCE, matching what GET /api/members already lists (removed \u2192 404). It answered 404 for an ow- id until 2026-08-28, which cost the cockpit one guaranteed failed request plus a whole-roster refetch on every contractor chat line. The write verbs on this same {member_id} take an ow- id too -- update, activate, deactivate, force-stop, accelerated-stop and refocus each dispatch to the worker body; dismiss is the one that still refuses, with a 404.",
       "inputSchema": {
         "properties": {
           "member_id": {
@@ -566,7 +566,7 @@
       "name": "get_member"
     },
     {
-      "description": "Partially update a member's name / runtime / model / effort. Blank name, invalid runtime or invalid effort → 422, and changing a launch-intent field arms a graceful handover. Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.",
+      "description": "Partially update a member's name / runtime / model / effort. Blank name, invalid runtime or invalid effort → 422, and changing a launch-intent field arms a graceful handover. Also accepts an outsource-worker id: the same edit changes the worker's runtime / model / effort, but a worker's codename is task-bound, so naming one is a 422. Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.",
       "inputSchema": {
         "properties": {
           "effort": {
@@ -635,7 +635,7 @@
       "name": "update_member"
     },
     {
-      "description": "Activate: write desired_state=online intent (does NOT flip online). A live member clears stopping_since/waking_since and consumes restart_after_stop while preserving its active refocus/stopped epoch; it updates the owner roster only without killing/reconciling or sending a lifecycle notice. An offline generation clears its old wind-down, banks live cost, and uses stop-before-start. Answers with a bounded receipt (``id``, ``activation_pending``, ``last_op_reason``), not the roster row \u2014 call ``get_member`` when you need the rest.",
+      "description": "Activate: write desired_state=online intent (does NOT flip online). A live member clears stopping_since/waking_since and consumes restart_after_stop while preserving its active refocus/stopped epoch; it updates the owner roster only without killing/reconciling or sending a lifecycle notice. An offline generation clears its old wind-down, banks live cost, and uses stop-before-start. Also accepts an outsource-worker id: the same wake verb restarts the worker (one that is still running is LEFT ALONE, neither restarted nor refused). Answers with a bounded receipt (``id``, ``activation_pending``, ``last_op_reason``), not the roster row \u2014 call ``get_member`` when you need the rest.",
       "inputSchema": {
         "properties": {
           "machine_id": {
@@ -684,7 +684,7 @@
       "name": "relocate_member"
     },
     {
-      "description": "Deactivate: desired_state=offline + stamp stopping_since (retains row); with no live session, immediately collect/bank/dispatch the stop. Answers with a bounded receipt (``id``), not the roster row \u2014 call ``get_member`` when you need the rest.",
+      "description": "Deactivate: desired_state=offline + stamp stopping_since (retains row); with no live session, immediately collect/bank/dispatch the stop. Also accepts an outsource-worker id: the same verb is the worker's GRACEFUL close-out -- it asks the worker to work its stop document and waits for the worker's own report_stopped; only an OFFLINE worker takes the immediate kill. Answers with a bounded receipt (``id``), not the roster row \u2014 call ``get_member`` when you need the rest.",
       "inputSchema": {
         "properties": {
           "member_id": {
@@ -700,7 +700,7 @@
       "name": "deactivate_member"
     },
     {
-      "description": "Force-stop: robust STOP now. On the offboard arm the server starts no clock of its own -- collection is the agent's report_stopped, the deadline the owner opens with 加速停止, or this. Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.",
+      "description": "Force-stop: robust STOP now. On the offboard arm the server starts no clock of its own -- collection is the agent's report_stopped, the deadline the owner opens with 加速停止, or this. Also accepts an outsource-worker id: the same verb kills the worker's session NOW and holds it down, saying nothing to it. Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.",
       "inputSchema": {
         "properties": {
           "member_id": {
@@ -780,7 +780,7 @@
       "name": "restart_self"
     },
     {
-      "description": "Refocus a member's context (online-only, else 409). Answers with a bounded receipt (``id``), not the roster row \u2014 call ``get_member`` when you need the rest.",
+      "description": "Refocus a member's context (online-only, else 409). Also accepts an outsource-worker id: the same handover verb hands the worker over. Answers with a bounded receipt (``id``), not the roster row \u2014 call ``get_member`` when you need the rest.",
       "inputSchema": {
         "properties": {
           "member_id": {
@@ -796,7 +796,7 @@
       "name": "refocus_member"
     },
     {
-      "description": "Dismiss a member (soft delete). Pure seam, no UI (\u00a79.1). Answers with a bounded receipt (``id``), not the roster row \u2014 call ``get_member`` when you need the rest.",
+      "description": "Dismiss a member (soft delete). Pure seam, no UI (\u00a79.1). Staff only -- an outsource-worker id is a 404: a worker leaves by being RELEASED with its task, not by being dismissed. Answers with a bounded receipt (``id``), not the roster row \u2014 call ``get_member`` when you need the rest.",
       "inputSchema": {
         "properties": {
           "member_id": {
@@ -4059,7 +4059,7 @@
       "name": "delete_theme"
     },
     {
-      "description": "\u52a0\u901f\u505c\u6b62: put an ALREADY-OPEN wind-down on the stop.accelerated_grace_secs clock and tell the member. 409 if nothing is winding down -- press \u505c\u6b62 first. Middle rung of \u505c\u6b62 -> \u52a0\u901f\u505c\u6b62 -> \u5f37\u5236\u505c\u6b62. Answers with a bounded receipt (``id``), not the roster row \u2014 call ``get_member`` when you need the rest.",
+      "description": "\u52a0\u901f\u505c\u6b62: put an ALREADY-OPEN wind-down on the stop.accelerated_grace_secs clock and tell the member. 409 if nothing is winding down -- press \u505c\u6b62 first. Middle rung of \u505c\u6b62 -> \u52a0\u901f\u505c\u6b62 -> \u5f37\u5236\u505c\u6b62. Also accepts an outsource-worker id: the same verb puts the worker's ALREADY-OPEN wind-down (a stop or a handover) on that clock and tells it; 409 when none is open. Answers with a bounded receipt (``id``), not the roster row \u2014 call ``get_member`` when you need the rest.",
       "inputSchema": {
         "properties": {
           "member_id": {

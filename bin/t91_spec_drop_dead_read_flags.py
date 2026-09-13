@@ -2,6 +2,17 @@
 """T-91 follow-through (owner 2026-09-06, rc-9fa492c6b7b5 [0]) — drop the six
 read-face flags that can no longer have a value.
 
+⚠️ SPENT SCRIPT, AND THE SHAPE IT DESCRIBES IS GONE (T-197). It already ran and
+its edits are committed in spec/openapi.json. Everything below is a RECORD of
+what T-91's follow-through did, not a description of today's spec. T-197 folded the outsource
+middle layer into the member one: the worker-namespaced routes
+(/api/outsource-workers/{id}/stop | model | refocus | force-stop |
+accelerated-stop | relocate) and the MCP tools named after them no longer exist,
+OutsourceWorkerDTO no longer exists (both kinds read back MemberDTO), and the
+SSE topic outsource_worker is gone. So every such name below is the name it had
+AT THE TIME. Re-running this would not reproduce today's spec — read
+spec/openapi.json.
+
 WHAT AND WHY. The lifecycle-receipt reshape moved `activation_pending`,
 `relocation_pending` and `relocation_deferred` off the two READ structures and
 onto the three receipts that actually compute them (MemberActivateReceiptDTO,
