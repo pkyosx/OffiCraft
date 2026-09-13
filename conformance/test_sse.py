@@ -186,11 +186,15 @@ def test_topic_asset_reader_fails_loud() -> None:
     WRONG REASON on a missing heading; the parser is gone, the discipline is not.
     """
     real = (HERE.parent / _TOPIC_ASSET).read_text(encoding="utf-8")
-    # Deliberately a floor, not the exact count: the closed set grows (it was 12
-    # when its ancestor was written, 13 today), and a hard-coded size here would
-    # be one more stale number to chase — the EQUALITY that pins the set lives in
-    # test_every_closed_topic_emits, this is only a positive control.
-    assert len(_parse_closed_topics(real)) >= 12, "positive control: the real asset parses"
+    # NOT a check on the size of the closed set: this line only proves the parser
+    # returned something rather than an empty set, which is what makes the
+    # fail-loud cases below mean anything. Any number above 1 here would be a
+    # second, unowned copy of the set's size — it would redden every time the set
+    # moves (it grew for years; T-197 shrank it by folding `outsource_worker`
+    # into `member`), and whoever fixed it would have to re-decide each time
+    # whether they were weakening a test or aligning one. The set itself is
+    # pinned by EQUALITY in test_every_closed_topic_emits — change the set there.
+    assert len(_parse_closed_topics(real)) >= 1, "positive control: the real asset parses"
 
     for broken in (
         "{not json",

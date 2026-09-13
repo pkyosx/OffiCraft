@@ -3760,19 +3760,23 @@ def test_activate_requires_a_machine_that_resolves(hctx: HCtx) -> None:
 def test_outsource_worker_relocate_requires_a_machine_that_resolves(
     hctx: HCtx,
 ) -> None:
-    """The worker twin of the member rule. No black-box path mints a worker, so
-    the positive face is DEGRADED to "the machine resolve passed and the WORKER
-    is what 404s" — distinguishable because a refused machine names the machine
-    in the error message, while a resolved one names the worker."""
+    """The worker FACE of the member rule. T-197 folded the worker-namespaced
+    relocate route away, so an ``ow-`` id now travels the SAME
+    ``/api/members/{id}/relocate`` door as a staff id — and this pins that the
+    fold did not reorder the two resolves behind it: the machine is still
+    resolved BEFORE the row. No black-box path mints a worker, so the positive
+    face is DEGRADED to "the machine resolve passed and the ROW is what 404s" —
+    distinguishable because a refused machine names the machine in the error
+    message, while a resolved one names the missing member."""
     h = _auth(hctx.owner_token)
     for bad in ("auto", "warden-nope"):
         r = hctx.client.post(
-            "/api/outsource-workers/ow-nope/relocate",
+            "/api/members/ow-nope/relocate",
             json={"machine_id": bad}, headers=h)
         assert r.status_code == 404, f"{bad!r}: {r.status_code} {r.text[:200]}"
         assert f"machine '{bad}' not found" in r.text, r.text
     r = hctx.client.post(
-        "/api/outsource-workers/ow-nope/relocate",
+        "/api/members/ow-nope/relocate",
         json={"machine_id": hctx.machine_id}, headers=h)
     assert r.status_code == 404, r.text
     assert "machine" not in r.json()["error"]["message"], (
