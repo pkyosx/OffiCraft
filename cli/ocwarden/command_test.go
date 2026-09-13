@@ -236,6 +236,24 @@ func TestDispatchCommand(t *testing.T) {
 		}
 	})
 
+	t.Run("a spawn that went ahead with something to say carries it on the receipt", func(t *testing.T) {
+		s := &dispatchSpy{spawnOut: SpawnOutcome{
+			OK: true, SessionID: "member-m1", PID: "500",
+			Note: "pretrust_unverified: claude reads a different file",
+		}}
+		if err := dispatchCommand(&Command{RPC: "start", Args: startArgs}, s.deps()); err != nil {
+			t.Fatalf("err = %v, want nil", err)
+		}
+		want := CommandResult{
+			MemberID: "m1", RPC: "start", OK: true,
+			Reason: "pretrust_unverified: claude reads a different file",
+			Log:    "pretrust_unverified: claude reads a different file",
+		}
+		if got := s.receipt(t); got != want {
+			t.Errorf("receipt = %+v, want %+v", got, want)
+		}
+	})
+
 	t.Run("a refused spawn is an error carrying the reason, and still reported", func(t *testing.T) {
 		s := &dispatchSpy{spawnOut: SpawnOutcome{Reason: "ocagent_not_found: no ocagent binary at /x"}}
 		err := dispatchCommand(&Command{RPC: "start", Args: startArgs}, s.deps())
@@ -310,11 +328,42 @@ func TestDispatchCommand(t *testing.T) {
 			t.Errorf("stops = %v, want %v", s.stops, want)
 		}
 		want := CommandResult{
-			MemberID: "m1", RPC: "stop", OK: true, Reason: "stopped",
+			// Reason is EMPTY on a plain successful stop: the cockpit renders
+			// last_op_reason beside successes now, so boilerplate there would be
+			// amber noise. The Log still carries the record.
+			MemberID: "m1", RPC: "stop", OK: true, Reason: "",
 			Log: "session=member-m1: stopped",
 		}
 		if got := s.receipt(t); got != want {
 			t.Errorf("receipt = %+v, want %+v", got, want)
+		}
+	})
+
+	// THE INVARIANT this package now owns: Reason means "there is something to
+	// say", never "an op happened". The cockpit renders member.last_op_reason
+	// whenever the station sends one -- on a SUCCESS too -- so that a pre-trust
+	// verdict riding a successful start reaches the operator. Boilerplate on the
+	// ordinary stop path would put an amber note on every normal stop and bury it.
+	// Log is the other channel and MUST keep the record: this test fails if a
+	// future edit either re-adds the template reason or "fixes" it by deleting
+	// the log line too.
+	t.Run("a successful non-no-op stop reports no reason but still logs the stop", func(t *testing.T) {
+		s := &dispatchSpy{stopOK: true}
+		if err := dispatchCommand(&Command{RPC: "stop", Args: map[string]any{
+			"member_id": "m1", "session_name": "member-m1",
+		}}, s.deps()); err != nil {
+			t.Fatalf("err = %v, want nil", err)
+		}
+		got := s.receipt(t)
+		if !got.OK {
+			t.Fatalf("OK = false, want true (this test is about the SUCCESS path)")
+		}
+		if got.Reason != "" {
+			t.Errorf("Reason = %q, want \"\" -- a plain successful stop must not put "+
+				"boilerplate on member.last_op_reason", got.Reason)
+		}
+		if !strings.Contains(got.Log, "stopped") {
+			t.Errorf("Log = %q, want it to still record the stop (%q)", got.Log, "stopped")
 		}
 	})
 
@@ -388,8 +437,38 @@ func TestDispatchCommand(t *testing.T) {
 			t.Errorf("stops = %v, want %v", s.stops, want)
 		}
 		want := CommandResult{
-			WorkerID: "ow-78173e", RPC: "worker_stop", OK: true, Reason: "stopped",
+			WorkerID: "ow-78173e", RPC: "worker_stop", OK: true, Reason: "",
 			Log: "session=worker-ow-78173e: stopped",
+		}
+		if got := s.receipt(t); got != want {
+			t.Errorf("receipt = %+v, want %+v", got, want)
+		}
+	})
+
+	// 🔴 THE NO-OP EXEMPTION ON *THIS* ARM HAD NO TEST AT ALL, and an
+	// independent review found it by planting the mutation a competent author
+	// is most likely to make: writing `if ok {` instead of `if ok && !noop {`
+	// when clearing the boilerplate reason. Planted on the member arm it goes
+	// red; planted here alone the whole package stayed green.
+	//
+	// What the empty reason would cost is not cosmetic. `no_such_session:` is a
+	// PREFIX the server keys on: with it gone, the fold records a plain
+	// successful stop — the shape of the 2026-07-20 incident, a kill story for
+	// a session that was never there — and the retry loop never learns it can
+	// stop, because that prefix is the one verdict that ends it.
+	t.Run("an idempotent no-op worker_stop keeps the no_such_session reason", func(t *testing.T) {
+		s := &dispatchSpy{stopOK: true, stopNoop: true}
+		if err := dispatchCommand(&Command{RPC: "worker_stop",
+			Args: map[string]any{"worker_id": "ow-78173e"}}, s.deps()); err != nil {
+			t.Fatalf("err = %v, want nil", err)
+		}
+		// The reason is spelled out rather than read from stopNoopReason: the
+		// expectation and the implementation must not be able to drift
+		// together, which is exactly how the same-source failure mode works.
+		want := CommandResult{
+			WorkerID: "ow-78173e", RPC: "worker_stop", OK: true,
+			Reason: "no_such_session: stop was a no-op (no session, no member process on this warden)",
+			Log:    "session=worker-ow-78173e: no_such_session: stop was a no-op (no session, no member process on this warden)",
 		}
 		if got := s.receipt(t); got != want {
 			t.Errorf("receipt = %+v, want %+v", got, want)
@@ -467,7 +546,7 @@ func TestDispatchCommand(t *testing.T) {
 			t.Errorf("teardowns = %d, want 1", s.teardowns)
 		}
 		want := CommandResult{
-			MemberID: "m1", RPC: "uninstall", OK: true, Reason: "uninstalled",
+			MemberID: "m1", RPC: "uninstall", OK: true, Reason: "",
 			Log: "launchd bootout ok; tokfile removed; plist removed",
 		}
 		if got := s.receipt(t); got != want {
@@ -520,7 +599,7 @@ func TestDispatchCommand(t *testing.T) {
 			t.Fatalf("err = %v, want nil", err)
 		}
 		want := CommandResult{
-			MemberID: "m1", RPC: "uninstall", OK: true, Reason: "uninstalled",
+			MemberID: "m1", RPC: "uninstall", OK: true, Reason: "",
 			Log: "uninstall: teardown seam not wired",
 		}
 		if got := s.receipt(t); got != want {
