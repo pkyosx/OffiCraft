@@ -414,7 +414,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Method:  "POST",
 			Path:    "/api/members",
 			Handler: w.HandleHireMemberApiMembersPost,
-			Summary: "Hire a member (server mints the id). An omitted runtime is stored UNSET and resolved from the target host's reported runtime capabilities at first placement (a codex-only host grows a codex member) rather than written as claude; only claude/codex are accepted when you do name one; effort defaults to medium and is validated; a hire that names kind or role_key is admin-gated. Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.",
+			Summary: "Hire a member (server mints the id). An omitted runtime is stored UNSET and resolved from the target host's reported runtime capabilities at first placement (a codex-only host grows a codex member) rather than written as claude; only claude/codex are accepted when you do name one; effort defaults to medium and is validated; a hire that names kind or role_key is admin-gated. This door hires STAFF ONLY — any other kind is a 422 that names where that kind is really born (a warden through ``POST /api/machines``, an outsource worker by the outsource scheduler when a task is handed out); a staff hire REQUIRES a role_key, and ``POST /api/roles`` mints a role and its member together. Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.",
 			MCPTool: "hire_member",
 		}),
 		Gated(principalMachine, routeDef{
