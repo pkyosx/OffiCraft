@@ -277,6 +277,26 @@ func TestVerifyClaudeSeesPretrust(t *testing.T) {
 		if err == nil {
 			t.Fatal("err = nil, want a refusal — the witness never came back")
 		}
+		// ⛔ ".config.json" IS SPELLED OUT HERE, NOT REFERENCED AS
+		// claudeShadowConfigName. Every other assertion about this clue in this
+		// file cites the constant, which means a wrong constant moves the
+		// assertion with it and nothing anywhere turns red — a verification list
+		// that shares its source with the thing it verifies is not verifying it.
+		// That is not theoretical: changing the constant to ".settings.json"
+		// left all nine subtests green, and the ONLY value this whole branch has
+		// is that the operator is told a filename they can actually go and look
+		// for. A wrong name here is worse than no name: it sends someone hunting
+		// a file that does not exist, with the suite green behind them.
+		//
+		// The measurement behind the literal is recorded on the constant itself
+		// (claude 2.1.268, measured in both directions). If claude renames this
+		// file, this line is SUPPOSED to go red and be re-measured — do not
+		// "fix" it by pointing it back at the constant.
+		if !strings.Contains(err.Error(), ".config.json") {
+			t.Errorf("refusal %q does not name %q literally — the one actionable\n"+
+				"clue this branch exists to deliver must be a filename the operator\n"+
+				"can actually find; claudeShadowConfigName = %q", err, ".config.json", claudeShadowConfigName)
+		}
 		for _, want := range []string{"does NOT read", claudeShadowConfigName} {
 			if !strings.Contains(err.Error(), want) {
 				t.Errorf("refusal %q does not carry %q — this is the sentence that\n"+
