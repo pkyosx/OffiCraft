@@ -679,6 +679,16 @@ var authzOutsideRouteTable = map[string]string{
 // the fix is the type-aware scan the header names — not a longer map. The
 // reason on each entry says WHAT the kind belongs to and why it is not identity.
 var nonCallerKindPredicates = map[string]string{
+	"api_members.go :: HandleHireMemberApiMembersPost :: kind != KindStaff": "" +
+		"the same request-body kind as the entry below — the kind of the member being " +
+		"HIRED, never the caller's — now read once more to close this door to every " +
+		"kind but staff (owner 2026-09-13, rc-3989498e0c8f). Nobody is granted or " +
+		"refused by WHO they are here: an owner calling with kind=outsource is refused " +
+		"exactly like anyone else, because the refusal is about the ROW being written " +
+		"(a warden is born by onboarding its machine, an outsource worker by the " +
+		"outsource scheduler). The caller-side privilege test on the same body is the " +
+		"RBAC line further up, which is a separate predicate already listed in " +
+		"authzOutsideRouteTable.",
 	"api_members.go :: HandleHireMemberApiMembersPost :: kind == KindStaff": "" +
 		"the kind of the member being HIRED, read off the request body — not the " +
 		"caller's. It picks which validation rule applies to the row about to be " +
