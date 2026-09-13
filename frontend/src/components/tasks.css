@@ -1306,6 +1306,97 @@ button.task-card__waiting--dep:focus-visible {
   color: var(--color-status-duplicated);
 }
 
+/* ── 可結案 banner (T-192) ──
+   Sits under the title on EVERY card in ready_for_done, collapsed ones
+   included: the whole point is to tell a parked ticket from a working one in
+   the list, and a banner you must expand the card to find cannot do that.
+   Borrows the status axis's own --color-ready-for-done so the line and the
+   badge above it read as the same fact, not two. */
+.task-card__ready-done {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 10px;
+  border: 1px solid
+    color-mix(in srgb, var(--color-ready-for-done) 45%, transparent);
+  background: color-mix(in srgb, var(--color-ready-for-done) 12%, transparent);
+  color: var(--color-ready-for-done);
+  font-size: 12.5px;
+}
+.task-card__ready-done-text {
+  /* Shrinkable so the button never clips at 390px — the sentence wraps, the
+     control stays whole (same rule as the 負責人 chip / 轉派 icon pair). */
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.task-card__ready-done-btn {
+  flex: none;
+  padding: 5px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--color-ready-for-done);
+  background: transparent;
+  color: var(--color-ready-for-done);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.task-card__ready-done-btn:hover {
+  background: color-mix(in srgb, var(--color-ready-for-done) 20%, transparent);
+}
+
+/* ── force-closed read-back (T-192) ──
+   Who forced the close, and the reason if one was given. The reason is
+   OPTIONAL server-side (owner ruling rc-a92a6252c3bd), so the absent case gets
+   its own muted styling rather than being dropped: a row that hid it would be
+   indistinguishable from a row that never rendered. */
+.task-card__forced-done {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--color-danger);
+}
+.task-card__forced-done-by {
+  font-weight: 600;
+}
+.task-card__forced-done-reason {
+  min-width: 0;
+  color: var(--color-text);
+  /* A reason is free text an agent wrote — it must wrap, never widen the card
+     (the long-token trap this stylesheet fights everywhere else). */
+  overflow-wrap: anywhere;
+}
+.task-card__forced-done-reason--none {
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+/* ── 強制結案 form (inside the confirm modal) ── */
+.task-card__force-done-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  text-align: left;
+}
+.task-card__force-done-label {
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+}
+.task-card__force-done-reason-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-size: 13px;
+  font-family: inherit;
+  resize: vertical;
+}
+
 /* ── mark-duplicate picker (inside the confirm modal) ── */
 .task-card__dup-picker {
   display: flex;

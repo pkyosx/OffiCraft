@@ -1417,9 +1417,21 @@ func (s *apiServer) HandleMarkTaskTerminatedApiTasksTaskIdMarkTerminatedPost(w h
 // simply has mark_task_done without a precondition, and the precondition is the
 // whole point of the state.
 //
-// `reason` is required and refused blank: a forced close is the one close nobody
-// can reconstruct from the steps afterwards, because the steps do not agree that
-// the work is finished.
+// `reason` is OPTIONAL — owner ruling rc-a92a6252c3bd (2026-09-13),「可以不給
+// 理由」. It used to be REQUIRED and refused blank, and the design note for that
+// still reads well: a forced close is the one close nobody can reconstruct from
+// the steps afterwards, because the steps do not agree that the work is
+// finished. That argument is why the cockpit still ASKS for a reason. It is no
+// longer why the server DEMANDS one — the owner's later ruling outranks the
+// earlier design note, so do not "restore" the 422 from reading the paragraph
+// above.
+//
+// ⚠️ WHAT DID NOT CHANGE: `forced_done_by` / `forced_done_reason` behave exactly
+// as before. A reason that IS given is trimmed, stored and served on every later
+// read; only the refusal went away. An omitted / blank / whitespace-only reason
+// stores "" and `forced_done_by` is stamped either way, so a forced close is
+// still distinguishable from a self-closed one WITHOUT the reason carrying that
+// weight.
 //
 // THE 403 IS THE ROUTE FLOOR AND ONLY THE ROUTE FLOOR (routes.go:
 // Gated(principalAdminAgent, …)). There is deliberately no second principal
@@ -1427,19 +1439,15 @@ func (s *apiServer) HandleMarkTaskTerminatedApiTasksTaskIdMarkTerminatedPost(w h
 // carries is a rule with two homes, and authz_surface_behavior_test.go refuses
 // exactly that — a decision that CAN be a route floor belongs on the row.
 //
-// Guard order: 422 body → 404 → 409 terminal. The blank-reason 422 leads because
-// it is a fault in the request itself and does not depend on which task it
-// names.
+// Guard order: 422 body → 404 → 409 terminal. The 422 that leads is now the
+// DECODE one only (malformed JSON / an unknown key — still fail-closed); the
+// blank-reason 422 that used to lead is gone with the requirement.
 func (s *apiServer) HandleForceTaskDoneApiTasksTaskIdForceDonePost(w http.ResponseWriter, r *http.Request, taskId string) {
 	var body TaskForceDoneDTO
-	if !decodeJSONBodyRequired(w, r, &body, "reason") {
+	if !decodeJSONBody(w, r, &body) {
 		return
 	}
-	reason := trimString(body.Reason)
-	if reason == "" {
-		writeError(w, http.StatusUnprocessableEntity, "reason must not be blank")
-		return
-	}
+	reason := trimString(strOrEmpty(body.Reason))
 	t, err := s.resolveTask(taskId)
 	if err != nil {
 		writeResolveError(w, err, "task", taskId)

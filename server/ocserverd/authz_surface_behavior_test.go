@@ -575,9 +575,10 @@ var authzOutsideRouteTable = map[string]string{
 		"T-182: mark_task_done is the EXECUTOR's door and only the executor's — " +
 		"deliberately NOT callerMayDriveTask, which widens to admin capability. " +
 		"The owner and the admin assistant close a task they do not execute " +
-		"through force_task_done, which demands a reason and stamps " +
-		"forced_done_by; letting them through here would be the same close with " +
-		"nothing recorded. A caller-vs-resource comparison, not a route floor.",
+		"through force_task_done, which ALWAYS stamps forced_done_by (and asks " +
+		"for a reason it no longer demands — owner ruling rc-a92a6252c3bd); " +
+		"letting them through here would be the same close with nothing " +
+		"recorded. A caller-vs-resource comparison, not a route floor.",
 	"api_tasks.go :: callerMayEditTaskText :: currentActor(r) == t.CreatorID": "" +
 		"T-52, owner 2026-09-02 card rc-1bb6e01c4bf7. While a task has NO executor at " +
 		"all (executor_id == ''), its CREATOR counts as the executor — at the " +

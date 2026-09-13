@@ -1777,6 +1777,33 @@ export const httpApi: Api = {
     });
   },
 
+  async markTaskDone(id: string): Promise<void> {
+    // POST /api/tasks/{task_id}/mark-done -> TaskWriteReceiptDTO. NO BODY —
+    // the route declares none. The precondition (ready_for_done) and the authz
+    // (the task's OWN executor; the owner is a 403 here) are both the server's;
+    // a refusal arrives as an ApiError through the client middleware and the
+    // card renders the status the 409 names.
+    await client.POST("/api/tasks/{task_id}/mark-done", {
+      params: { path: { task_id: id } },
+    });
+  },
+
+  async forceTaskDone(id: string, reason: string): Promise<void> {
+    // POST /api/tasks/{task_id}/force-done {reason?} -> TaskWriteReceiptDTO.
+    //
+    // 🔴 THE KEY IS OMITTED WHEN THE REASON IS BLANK, rather than sent as "".
+    // Both are accepted today (the server trims and stores ""), and the wire
+    // now declares `reason` optional — but sending `reason: ""` states that the
+    // caller HAS a reason and it is the empty string, which is not what an
+    // empty textarea means. Omitting says "no reason given", which is the thing
+    // owner ruling rc-a92a6252c3bd made expressible.
+    const trimmed = reason.trim();
+    await client.POST("/api/tasks/{task_id}/force-done", {
+      params: { path: { task_id: id } },
+      body: trimmed === "" ? {} : { reason: trimmed },
+    });
+  },
+
   async markTaskDuplicate(id: string, duplicateOf: string): Promise<void> {
     // POST /api/tasks/{task_id}/mark-duplicated {duplicate_of} ->
     // TaskWriteReceiptDTO (T-182 renamed the route; the tool is now

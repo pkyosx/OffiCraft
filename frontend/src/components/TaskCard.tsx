@@ -159,6 +159,9 @@ export function TaskCard({
   onSendMessage,
   onHydrate,
   onRemoveArtifact,
+  onMarkDone,
+  onForceDone,
+  canForceDone = false,
 }: {
   task: TaskView;
   /** The whole loaded list — the 重複於 link resolves its target's task_no
@@ -197,6 +200,27 @@ export function TaskCard({
   /** Owner/admin un-pin of one artifact (T-3dc5). Absent ⇒ the artifact popover
    * is display-only (no × affordance). */
   onRemoveArtifact?: (taskId: string, artifactId: string) => Promise<void>;
+  /** Close a ready_for_done task as done (T-192, MCP `mark_task_done`). Absent
+   * ⇒ the 結案 button is not rendered; the 可結案 LINE still is, because that
+   * line is information about where the task is stuck and is true whether or
+   * not this particular surface can act on it. */
+  onMarkDone?: (id: string) => Promise<void>;
+  /** Force a task closed over its precondition (T-192, MCP `force_task_done`).
+   * `reason` may be "" — optional since owner ruling rc-a92a6252c3bd. */
+  onForceDone?: (id: string, reason: string) => Promise<void>;
+  /** Whether THIS VIEWER may force a close — `viewerMayForceTaskDone()` from
+   * `api/index.ts`, threaded down rather than read here so the card stays a
+   * pure render of what it is given (and so a test can state the other arm).
+   *
+   * 🔴 IT IS NOT A PERMISSION CHECK. The server's route floor
+   * (`Gated(principalAdminAgent, …)`) is what refuses a plain member, and it
+   * refuses them whatever this says. This only decides whether the cockpit
+   * OFFERS a control that, for anyone below that floor, could only 403.
+   *
+   * DEFAULTS FALSE, and that direction is deliberate: a hand-built fixture or a
+   * future caller that forgets to pass it gets the SAFE shape (no 強制結案 in
+   * the menu), never an offered button nobody decided to offer. */
+  canForceDone?: boolean;
 }) {
   const { t, msg } = useI18n();
   const closed = TERMINAL.has(task.status);
@@ -668,6 +692,15 @@ export function TaskCard({
   // rule onto the other control reddens that control's guard.
   const prioRef = useRef<HTMLDivElement>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  // 結案 / 強制結案 (T-192). Two separate confirms because they are two
+  // different actions with two different servers-side doors — collapsing them
+  // into one dialog with a checkbox would be exactly the "generic set-status
+  // entry" this ticket's DoD forbids.
+  const [markDoneOpen, setMarkDoneOpen] = useState(false);
+  const [forceOpen, setForceOpen] = useState(false);
+  // The 強制結案 reason draft. Starts empty and MAY STAY EMPTY: owner ruling
+  // rc-a92a6252c3bd made it optional, so nothing here blocks the confirm on it.
+  const [forceReason, setForceReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   // 轉派 (T-160e): the reassign dialog owns its own draft/busy/error.
@@ -748,6 +781,75 @@ export function TaskCard({
       console.warn("TaskCard: terminate failed", e);
       setActionError(t.tasks.actionError);
       setConfirmOpen(false);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // A REFUSED CLOSE HAS TO NAME A STATUS (T-192 DoD:「按下去要講出這張票現在在
+  // 哪個狀態」), and the status this card is holding may be exactly the stale
+  // value that produced the refusal — a `mark_task_done` 409 means the task is
+  // no longer in ready_for_done, which is to say the card's copy is wrong.
+  // So re-read the ONE task before speaking, and fall back to what the card
+  // holds only if that read also fails. Either way the sentence names a status;
+  // never a bare 操作失敗, which tells the owner nothing about what to do next.
+  async function reportCloseRefused(e: unknown) {
+    console.warn("TaskCard: close refused", e);
+    let status = view.status;
+    try {
+      const fresh = await onHydrate(task.id);
+      setDetail(fresh);
+      status = fresh.status;
+    } catch (e2) {
+      console.warn("TaskCard: post-refusal hydrate failed", e2);
+    }
+    setActionError(
+      `${t.tasks.closeStateError}${t.tasks.status[status] ?? status}`
+    );
+  }
+
+  async function doMarkDone() {
+    if (!onMarkDone) return;
+    setBusy(true);
+    try {
+      await onMarkDone(task.id);
+      setMarkDoneOpen(false);
+      setActionError(null);
+    } catch (e) {
+      setMarkDoneOpen(false);
+      await reportCloseRefused(e);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function doForceDone() {
+    if (!onForceDone) return;
+    setBusy(true);
+    try {
+      // "" IS A LEGAL ARGUMENT HERE — no blank guard, by owner ruling
+      // rc-a92a6252c3bd. The dialog asks for a reason; it does not demand one.
+      await onForceDone(task.id, forceReason);
+      setForceOpen(false);
+      setForceReason("");
+      setActionError(null);
+      // 🔴 THE LIST REFETCH THE HOOK JUST DID CANNOT SHOW THE RESULT.
+      // `forced_done_by` / `forced_done_reason` are declared on `TaskDTO` and
+      // NOT on `TaskListItemDTO`, so the row that comes back from the list read
+      // carries neither — the card would close the dialog and then say nothing
+      // about who forced it, which is precisely the thing the owner asked to
+      // see. Hydrating the ONE task reads the projection that does carry them,
+      // and `view` renders from that. This is a read-back of the server's
+      // answer, not a local echo of what we just sent.
+      try {
+        const fresh = await onHydrate(task.id);
+        setDetail(fresh);
+      } catch (e2) {
+        console.warn("TaskCard: post-force-done hydrate failed", e2);
+      }
+    } catch (e) {
+      setForceOpen(false);
+      await reportCloseRefused(e);
     } finally {
       setBusy(false);
     }
@@ -1299,6 +1401,46 @@ export function TaskCard({
                   >
                     {t.tasks.terminate}
                   </button>
+                  {/* 強制結案 (T-192) — APPENDED LAST, and the position is the
+                      conservative choice rather than a judgement that it is the
+                      least important item. Owner ruled on this menu's order
+                      twice (2026-07-17: the badge always drops the menu and
+                      標記重複 leads the non-jump items; T-c514 2026-07-20: both
+                      jumps go ABOVE them). Adding at the end is the only
+                      insertion that leaves BOTH rulings literally true. If the
+                      owner wants it higher, that is a ruling to take, not a
+                      tidy-up to perform.
+
+                      Gated on `canForceDone`: the server floor admits the owner
+                      and the admin assistant only, so for anyone else this
+                      button could only ever 403. The gate HIDES rather than
+                      disables, unlike 標記重複/終止 below-the-line greying: a
+                      greyed item says "this is yours, but not right now", and
+                      for a principal that may never force a close that sentence
+                      would be false.
+
+                      On a CLOSED card it is greyed + disabled like its two
+                      neighbours — same reason, same server answer (409). ── */}
+                  {canForceDone && onForceDone && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className={`task-card__menu-item task-card__menu-item--danger${
+                        closed ? " task-card__menu-item--disabled" : ""
+                      }`}
+                      data-testid="task-force-done"
+                      disabled={closed}
+                      aria-disabled={closed}
+                      onClick={() => {
+                        setStatusOpen(false);
+                        setActionError(null);
+                        setForceReason("");
+                        setForceOpen(true);
+                      }}
+                    >
+                      {t.tasks.forceDone}
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -1416,6 +1558,45 @@ export function TaskCard({
         <div className="task-card__title-line">
           <h3 className="task-card__title">{task.title}</h3>
         </div>
+
+        {/* ── 可結案: the window that used to be invisible (T-192) ──
+            A task whose every step is reported done settles in ready_for_done
+            and STAYS there — the server has no timer and chases nobody. Until
+            this line the card rendered that as one more status word in the
+            badge row, so a ticket parked waiting for a human looked exactly
+            like a ticket being worked on.
+
+            🔴 IT IS OUTSIDE THE `expanded &&` BLOCK ON PURPOSE. The whole
+            complaint is "you cannot tell which tickets are waiting for
+            somebody" — a banner you have to open the card to find answers a
+            different question. It also reads from `view`, so an expanded card
+            whose hydrate has moved the status shows the hydrated truth.
+
+            The 結案 button is the EXECUTOR's door (`mark_task_done`): the
+            server admits the task's own executor and 403s the owner. The
+            cockpit renders it because the DoD asks for「按得到結案」on this
+            surface; a caller the server refuses gets the 409/403 named back
+            through reportCloseRefused rather than a silent nothing. ── */}
+        {view.status === "ready_for_done" && (
+          <div className="task-card__ready-done" data-testid="task-ready-done">
+            <span className="task-card__ready-done-text">
+              {t.tasks.readyForDoneHint}
+            </span>
+            {onMarkDone && (
+              <button
+                type="button"
+                className="task-card__ready-done-btn"
+                data-testid="task-mark-done"
+                onClick={() => {
+                  setActionError(null);
+                  setMarkDoneOpen(true);
+                }}
+              >
+                {t.tasks.markDone}
+              </button>
+            )}
+          </div>
+        )}
 
         {/* Below the badge row: an aligned label column (任務類型 / 負責人 /
             建立者 / 識別鍵) — task_no left the stack for the badge row (v2)
@@ -1843,6 +2024,37 @@ export function TaskCard({
         </div>
       )}
 
+      {/* ── force-closed: who did it, and why if they said ──
+           Rendered on a TRUTHY forcedDoneBy only. The light list declares
+           neither field, so a collapsed, never-hydrated row reads `undefined`
+           here — and `undefined` is "this projection cannot answer", NOT "this
+           close was not forced". Printing a 強制結案 row from it, or printing
+           「不是強制結案」from it, would both be claims the data does not carry.
+           The full task read (getTask) DOES declare both, so an expanded card —
+           and a card that just forced a close, which hydrates itself — shows it.
+
+           The reason may legitimately be empty on a forced close (owner ruling
+           rc-a92a6252c3bd made it optional), and empty is shown AS empty rather
+           than hidden: a row that silently dropped the reason line would read
+           identically to one that was never rendered. ── */}
+      {view.forcedDoneBy && (
+        <div className="task-card__forced-done" data-testid="task-forced-done">
+          <span className="task-card__meta-label">{t.tasks.forcedDoneLabel}</span>
+          <span className="task-card__forced-done-by">
+            {members.find((m) => m.id === view.forcedDoneBy)?.name ??
+              view.forcedDoneBy}
+          </span>
+          <span
+            className={`task-card__forced-done-reason${
+              view.forcedDoneReason ? "" : " task-card__forced-done-reason--none"
+            }`}
+            data-testid="task-forced-done-reason"
+          >
+            {view.forcedDoneReason || t.tasks.forcedDoneNoReason}
+          </span>
+        </div>
+      )}
+
       {actionError && <div className="task-card__error">{actionError}</div>}
 
       {/* ── message box (owner → executor) ── */}
@@ -2079,6 +2291,61 @@ export function TaskCard({
           danger
           onCancel={() => setConfirmOpen(false)}
           onConfirm={() => void doTerminate()}
+        />
+      )}
+
+      {markDoneOpen && (
+        <ConfirmModal
+          testId="mark-done-confirm"
+          confirmTestId="mark-done-confirm-btn"
+          body={t.tasks.markDoneConfirmBody}
+          cancelLabel={t.common.cancel}
+          confirmLabel={t.tasks.markDoneConfirm}
+          busy={busy}
+          onCancel={() => setMarkDoneOpen(false)}
+          onConfirm={() => void doMarkDone()}
+        />
+      )}
+
+      {forceOpen && (
+        <ConfirmModal
+          testId="force-done-confirm"
+          confirmTestId="force-done-confirm-btn"
+          body={
+            <div className="task-card__force-done-form">
+              <div>{t.tasks.forceDoneConfirmBody}</div>
+              <label
+                className="task-card__force-done-label"
+                htmlFor={`force-reason-${task.id}`}
+              >
+                {t.tasks.forceDoneReasonLabel}
+              </label>
+              {/* 🔴 NOT `required`, and the confirm button is NOT disabled on an
+                  empty value. Owner ruling rc-a92a6252c3bd:「可以不給理由」, and
+                  the server was relaxed in the same change — a client-side
+                  requirement would put the refusal back one layer up, where
+                  nobody would find it. The label says (optional) so that
+                  leaving it blank is a visible choice, not a stuck form. */}
+              <textarea
+                id={`force-reason-${task.id}`}
+                className="task-card__force-done-reason-input"
+                data-testid="force-done-reason"
+                rows={3}
+                value={forceReason}
+                placeholder={t.tasks.forceDoneReasonPlaceholder}
+                onChange={(e) => setForceReason(e.target.value)}
+              />
+            </div>
+          }
+          cancelLabel={t.common.cancel}
+          confirmLabel={t.tasks.forceDoneConfirm}
+          busy={busy}
+          danger
+          onCancel={() => {
+            setForceOpen(false);
+            setForceReason("");
+          }}
+          onConfirm={() => void doForceDone()}
         />
       )}
 

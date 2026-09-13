@@ -48,6 +48,13 @@ interface UseTasks {
   error: boolean;
   /** Terminate (owner double-confirmed upstream), then refetch. */
   terminate: (id: string) => Promise<void>;
+  /** Close a ready_for_done task as done (T-192), then refetch. Rejects with
+   * the server's ApiError when the precondition is not met (409, naming the
+   * status) so the caller can say WHERE the task went. */
+  markDone: (id: string) => Promise<void>;
+  /** Force a task closed over its precondition (T-192), then refetch. `reason`
+   * may be "" — optional since owner ruling rc-a92a6252c3bd. */
+  forceDone: (id: string, reason: string) => Promise<void>;
   /** Mark a task a duplicate of the original (T-02c9), then refetch. */
   markDuplicate: (id: string, duplicateOf: string) => Promise<void>;
   /** Priority change incl. freeze/unfreeze, then refetch. */
@@ -297,6 +304,38 @@ export function useTasks(
     [refetch]
   );
 
+  const markDone = useCallback(
+    async (id: string) => {
+      await api.markTaskDone(id);
+      // The close is written; the list re-read only decides when the card
+      // catches up, exactly as terminate has always treated it.
+      try {
+        await refetch();
+      } catch (e) {
+        console.warn(
+          "useTasks: post-mark-done refetch failed (the task was closed)",
+          e
+        );
+      }
+    },
+    [refetch]
+  );
+
+  const forceDone = useCallback(
+    async (id: string, reason: string) => {
+      await api.forceTaskDone(id, reason);
+      try {
+        await refetch();
+      } catch (e) {
+        console.warn(
+          "useTasks: post-force-done refetch failed (the task was closed)",
+          e
+        );
+      }
+    },
+    [refetch]
+  );
+
   const markDuplicate = useCallback(
     async (id: string, duplicateOf: string) => {
       await api.markTaskDuplicate(id, duplicateOf);
@@ -411,6 +450,8 @@ export function useTasks(
     loading,
     error,
     terminate,
+    markDone,
+    forceDone,
     markDuplicate,
     setPriority,
     updateDescription,

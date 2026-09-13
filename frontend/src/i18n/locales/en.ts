@@ -347,6 +347,38 @@ export const en: Dict = {
     duplicateOfLabel: "Duplicate of",
     duplicateJump: "Jump to the original",
     actionError: "The action failed. Please try again.",
+    // ── ready_for_done: the window nobody could see (T-192) ──────────────────
+    // A finished plan lands in ready_for_done and STAYS there until somebody
+    // closes it — the server has no timer and chases nobody. The card used to
+    // render that as just another status word, so a task parked waiting for a
+    // human read exactly like a task being worked on. This line is what says
+    // "the work is done, the close has not happened".
+    readyForDoneHint:
+      "Every step is reported done — this task is waiting for its executor to close it.",
+    markDone: "Close as done",
+    markDoneConfirmBody:
+      "Close this task as done? It moves to Done and cannot be resumed.",
+    markDoneConfirm: "Close as done",
+    // ── force close (T-192) ─────────────────────────────────────────────────
+    // The way out for a task whose executor is never coming back. Owner and
+    // admin assistant only — the server's route floor is the real gate; this
+    // menu item only stops offering a button that could not work.
+    forceDone: "Force close",
+    forceDoneConfirmBody:
+      "Force this task closed, over the precondition its own steps have not met? It moves to Done and cannot be resumed. Who forced it is recorded on the task.",
+    // Optional since the owner's ruling rc-a92a6252c3bd. The label says so, so
+    // that leaving it empty is a visible choice rather than a stuck form.
+    forceDoneReasonLabel: "Reason (optional)",
+    forceDoneReasonPlaceholder: "Why is this being closed without its steps?",
+    forceDoneConfirm: "Force close",
+    // How a forced close reads back afterwards. A task closed by force always
+    // says so; the reason may be absent, and absent is shown as absent.
+    forcedDoneLabel: "Force-closed by",
+    forcedDoneNoReason: "No reason given",
+    // Shown when a close is refused: the card says which status the task is
+    // ACTUALLY in, because "the action failed" alone does not tell the owner
+    // whether to retry, expand the card, or do nothing.
+    closeStateError: "The task was not closed. Its status is now: ",
     // Reassign (T-160e, owner + assistant only): hand the task to another staff
     // member, or mint a fresh outsource worker on the spot (the same model /
     // effort / machine knobs the task type's assignee carries). The task enters

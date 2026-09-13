@@ -112,7 +112,11 @@ type Task struct {
 	KickoffNotifiedTo string
 	// ForcedDoneBy / ForcedDoneReason record a close that skipped its own
 	// precondition (T-182, migrations/00102): the verified actor of the
-	// force_task_done write and the reason it demanded. Both are '' on every
+	// force_task_done write and the reason it ASKED for (owner ruling
+	// rc-a92a6252c3bd made the reason optional; ForcedDoneReason is therefore ''
+	// on a forced close that was given none, while ForcedDoneBy is stamped on
+	// EVERY forced close — that stamp, not the reason, is what distinguishes a
+	// forced close from a self-closed one). Both are '' on every
 	// other task, including one closed with mark_task_done — which is the
 	// point: a done task always says whether it got there by itself. A forced
 	// close is the one close nobody can reconstruct from the steps afterwards,

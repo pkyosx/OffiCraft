@@ -653,6 +653,26 @@ export interface TaskView {
   updatedTs: number;
   /** Epoch when the task closed (done/terminated/duplicated); null while open. */
   closedTs: number | null;
+  /** Who forced this task closed and why (wire `forced_done_by` /
+   * `forced_done_reason`, T-182 — surfaced on the card by T-192). Non-empty
+   * ONLY on a task closed through `force_task_done`; a task that closed itself
+   * through `mark_task_done` carries "" on both, which is exactly how the card
+   * tells the two apart.
+   *
+   * 🔴 THE LIGHT LIST DOES NOT CARRY THEM. `TaskListItemDTO` declares neither
+   * field (`spec/openapi.json`), so `toTaskListItem` sets neither and they read
+   * `undefined` on every collapsed row that has not been hydrated. That is NOT
+   * the same as "" — "" is the server saying "this close was not forced", while
+   * `undefined` is "this projection does not answer the question", and the card
+   * must not print 強制結案 information from a projection that cannot deny it.
+   * Optional for that reason, and the card renders the row only on a truthy
+   * `forcedDoneBy` (so `undefined` renders nothing, never a blank 強制結案 row).
+   *
+   * The reason may be "" on a task that IS force-closed: the owner's ruling
+   * rc-a92a6252c3bd made it optional server-side. `forcedDoneBy` is the carrier
+   * of "this was forced"; the reason never was. */
+  forcedDoneBy?: string;
+  forcedDoneReason?: string;
   progressDone: number;
   progressTotal: number;
   steps: TaskStepView[];
@@ -2357,6 +2377,38 @@ export interface Api {
    * caller refetches (the SSE delta also fans).
    */
   terminateTask(id: string): Promise<void>;
+  /**
+   * Close a task as done (`POST /api/tasks/{id}/mark-done` / MCP
+   * `mark_task_done`) — the action `ready_for_done` waits for. NO BODY.
+   *
+   * PRECONDITION: the task must be in `ready_for_done`; anything else is a 409
+   * that NAMES the status the task is actually in (ApiError, thrown). The
+   * cockpit only offers the button from that status, so the 409 is the race
+   * (an SSE delta moved the task under the open menu), not the normal path —
+   * and the card surfaces the named status rather than a bare "failed".
+   *
+   * 🔴 AUTHZ IS THE EXECUTOR'S, NOT THE OWNER'S. The server admits the task's
+   * OWN executor here and 403s everyone else, the owner included. This method
+   * exists on the cockpit's port anyway because the port is the wire's shape,
+   * not the caller's permissions — see `forceTaskDone` for the owner's door.
+   */
+  markTaskDone(id: string): Promise<void>;
+  /**
+   * Force a task closed (`POST /api/tasks/{id}/force-done` / MCP
+   * `force_task_done`) — the exit for a task nobody is going to close: an
+   * executor that is gone, or a plan whose remaining steps will never be
+   * reported.
+   *
+   * WHO: the owner and the admin assistant only; every other principal is a
+   * 403, the task's own executor included (an executor that could force its own
+   * task would simply have `markTaskDone` with no precondition).
+   *
+   * `reason` is OPTIONAL (owner ruling rc-a92a6252c3bd): pass "" and the task
+   * still closes, with `forcedDoneReason` reading back "". Whatever IS passed
+   * is trimmed and stored, and `forcedDoneBy` is stamped either way. Any
+   * non-terminal status is accepted; an already-terminal task is a 409 (throws).
+   */
+  forceTaskDone(id: string, reason: string): Promise<void>;
   /**
    * Mark a task duplicated (`POST /api/tasks/{id}/duplicate`), pointing at the
    * ORIGINAL it duplicates — so whoever spots the duplicate closes it instead of

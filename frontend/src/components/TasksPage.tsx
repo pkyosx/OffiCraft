@@ -30,6 +30,7 @@
 import { useEffect, useState } from "react";
 import { useI18n } from "../i18n";
 import type { TaskView } from "../api/adapter";
+import { viewerMayForceTaskDone } from "../api";
 import { useTasks } from "../hooks/useTasks";
 import { useTaskCount } from "../hooks/useTaskCount";
 import { useMembers } from "../hooks/useMembers";
@@ -104,6 +105,8 @@ export function TasksPage() {
     loading,
     error,
     terminate,
+    markDone,
+    forceDone,
     markDuplicate,
     setPriority,
     reassign,
@@ -625,6 +628,14 @@ export function TasksPage() {
         nowTs={nowTs}
         located={idApplied && task.id === appliedId}
         onTerminate={terminate}
+        onMarkDone={markDone}
+        onForceDone={forceDone}
+        // Read HERE, once per render, rather than inside the card: the card
+        // stays a pure function of its props, and the arm where this is false
+        // is statable in a test without stubbing a module the card imports.
+        // What it means and what it does NOT defend is documented on
+        // `viewerMayForceTaskDone` itself — the server's route floor is the gate.
+        canForceDone={viewerMayForceTaskDone()}
         onMarkDuplicate={markDuplicate}
         onSetPriority={setPriority}
         onReassign={reassign}

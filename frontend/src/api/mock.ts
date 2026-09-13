@@ -3880,6 +3880,15 @@ export const mockApi: Api = {
       // literals, and these arrive through a spread), so destructuring is what
       // makes the type system enforce this instead of a comment.
       artifactCount: (stored ?? []).length,
+      // forced_done_by / forced_done_reason are declared on TaskDTO and NOT on
+      // TaskListItemDTO (spec/openapi.json), so the light list must not carry
+      // them — same rule, same reason, as depTasks being dropped in getTask
+      // below. Undefined rather than "": "" would be the server DENYING a
+      // forced close, and this projection cannot deny anything. A card that
+      // rendered 強制結案 from a list row would be reading a field the real
+      // wire never sends.
+      forcedDoneBy: undefined,
+      forcedDoneReason: undefined,
     }));
   },
 
@@ -4003,6 +4012,64 @@ export const mockApi: Api = {
     // T-91: the write answers a RECEIPT, not the object. The mock's own store
     // is still the one that changed above, so a read-back sees the write; the
     // response just stops carrying what nobody may render from it.
+  },
+
+  async markTaskDone(id: string): Promise<void> {
+    // Mirrors HandleMarkTaskDone: the action ready_for_done waits for. The
+    // PRECONDITION is the whole point — anything other than ready_for_done is a
+    // 409 that NAMES the status the task is actually in, so the cockpit can say
+    // where the task went instead of "the action failed".
+    //
+    // ⚠️ THE AUTHZ IS NOT MODELLED, and it is the one that would 403 THIS
+    // caller: the server admits the task's OWN executor here and refuses the
+    // owner. The mock has no caller identity (the same limitation terminateTask
+    // documents), so it answers as the cockpit's token — do NOT read a green
+    // mock-backed test as evidence that the owner may mark_task_done.
+    const t = findTask(id);
+    if (t.status !== "ready_for_done") {
+      throw mockApiError(
+        `http 409 for POST /api/tasks/${id}/mark-done`,
+        409,
+        `task '${id}' is not ready for done (${t.status})`
+      );
+    }
+    t.status = "done";
+    t.closedTs = Date.now() / 1000;
+    t.updatedTs = t.closedTs;
+    outsourceWorkers = outsourceWorkers.filter((w) => w.taskId !== id);
+    emitTopic("task");
+    emitTopic("outsource_worker");
+  },
+
+  async forceTaskDone(id: string, reason: string): Promise<void> {
+    // Mirrors HandleForceTaskDone: closes ANY non-terminal task as done, over
+    // the ready_for_done precondition. An already-terminal task is a 409 —
+    // this forces the precondition, not the terminal wall.
+    //
+    // `reason` is OPTIONAL (owner ruling rc-a92a6252c3bd): blank closes the task
+    // and leaves forcedDoneReason "". What does NOT depend on the reason is the
+    // forcedDoneBy stamp — it is written on every forced close, which is what
+    // makes a forced close distinguishable from a self-closed one at all.
+    //
+    // ⚠️ THE OWNER/ADMIN-ONLY FLOOR IS NOT MODELLED HERE either (no caller
+    // identity). The route floor is the real gate; the cockpit's menu gate is
+    // only about not offering an impossible button.
+    const t = findTask(id);
+    if (TERMINAL_TASK_STATUSES.has(t.status)) {
+      throw mockApiError(
+        `http 409 for POST /api/tasks/${id}/force-done`,
+        409,
+        `task '${id}' is already closed (${t.status})`
+      );
+    }
+    t.status = "done";
+    t.closedTs = Date.now() / 1000;
+    t.updatedTs = t.closedTs;
+    t.forcedDoneBy = MOCK_OWNER_ID;
+    t.forcedDoneReason = reason.trim();
+    outsourceWorkers = outsourceWorkers.filter((w) => w.taskId !== id);
+    emitTopic("task");
+    emitTopic("outsource_worker");
   },
 
   async markTaskDuplicate(id: string, duplicateOf: string): Promise<void> {
