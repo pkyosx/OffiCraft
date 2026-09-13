@@ -69,6 +69,10 @@ import type {
   OutsourceWorkerView,
 } from "../api/adapter";
 import { api } from "../api";
+// The one sanctioned way to branch on a refusal's HTTP status (api/errors.ts).
+// `reportCloseRefused` needs it because force-done's three refusals want three
+// different sentences; see that function.
+import { isHttpStatus } from "../api/errors";
 import { formatDuration } from "../lib/duration";
 import { copyText } from "../lib/clipboard";
 import { resolveStepBadge } from "../lib/stepBadge";
@@ -779,15 +783,48 @@ export function TaskCard({
     }
   }
 
-  // A REFUSED CLOSE HAS TO NAME A STATUS (T-192 DoD:「按下去要講出這張票現在在
-  // 哪個狀態」), and the status this card is holding may be exactly the stale
-  // value that produced the refusal — a `mark_task_done` 409 means the task is
-  // no longer in ready_for_done, which is to say the card's copy is wrong.
-  // So re-read the ONE task before speaking, and fall back to what the card
-  // holds only if that read also fails. Either way the sentence names a status;
-  // never a bare 操作失敗, which tells the owner nothing about what to do next.
+  // A REFUSED CLOSE HAS TO ANSWER THE REFUSAL (T-192 DoD:「按下去要講出這張票
+  // 現在在哪個狀態」), and "name a status" is only the RIGHT answer for some of
+  // the ways this can fail. An earlier cut said one sentence to every error —
+  // 「這張票沒有被結案。它現在的狀態是:已完成」 — which on the one refusal this
+  // screen can actually produce contradicts itself end to end.
+  //
+  // 🔴 THE REFUSAL SET IS ENUMERABLE, so the branches are not guesses.
+  // `HandleForceTaskDone` (server/ocserverd/api_tasks.go) refuses in exactly
+  // three ways and no others — there is no authz check in its body at all, the
+  // route floor is the gate:
+  //   422 — decodeJSONBody: malformed JSON or an unknown key. The page and the
+  //         wire disagree; the same payload will be refused again, so the line
+  //         must NOT invite a retry and must NOT name a status (the task was
+  //         never looked at).
+  //   404 — resolveTask: no such task. There is no status to name, and saying
+  //         「它現在的狀態是:」 about a task that does not exist would be a
+  //         claim the server just refused to make.
+  //   409 — TaskIsTerminal(t.Status). Necessary AND sufficient: the task has
+  //         ALREADY ended. So "the task was not closed" is exactly backwards
+  //         here; what the presser needs to hear is that there is nothing left
+  //         to close, and WHICH of the three terminal states it reached
+  //         (done / terminated / duplicated imply different next moves).
+  //
+  // The re-read stays, and only the 409 branch uses it: the status this card is
+  // holding is exactly the stale value that produced the refusal, so the card's
+  // own copy is the one thing that must not be trusted to name it. The card's
+  // copy remains the fallback for when that read ALSO fails — a stale terminal
+  // name beats no name.
+  //
+  // Anything else (500, offline, a throw from outside the adapters) keeps the
+  // original sentence: it is the honest one when the reason is unknown, because
+  // it says what did not happen and where the task stands.
   async function reportCloseRefused(e: unknown) {
     console.warn("TaskCard: close refused", e);
+    if (isHttpStatus(e, 404)) {
+      setActionError(t.tasks.closeGoneError);
+      return;
+    }
+    if (isHttpStatus(e, 422)) {
+      setActionError(t.tasks.closeBadRequestError);
+      return;
+    }
     let status = view.status;
     try {
       const fresh = await onHydrate(task.id);
@@ -796,9 +833,14 @@ export function TaskCard({
     } catch (e2) {
       console.warn("TaskCard: post-refusal hydrate failed", e2);
     }
-    setActionError(
-      `${t.tasks.closeStateError}${t.tasks.status[status] ?? status}`
-    );
+    const statusText = t.tasks.status[status] ?? status;
+    if (isHttpStatus(e, 409)) {
+      setActionError(
+        `${t.tasks.closeAlreadyClosedLead}${statusText}${t.tasks.closeAlreadyClosedTail}`
+      );
+      return;
+    }
+    setActionError(`${t.tasks.closeStateError}${statusText}`);
   }
 
   async function doForceDone() {

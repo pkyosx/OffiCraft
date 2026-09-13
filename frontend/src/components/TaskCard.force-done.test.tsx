@@ -144,20 +144,60 @@ describe("① 可結案: the card says it is waiting — and offers no close but
     expect(banner.textContent).toContain(zh.tasks.readyForDoneHint);
 
     // 🔴 THE SENTENCE HAS TO BE TRUE IN THE CASE THIS TICKET EXISTS FOR, and
-    // these two literals are the anchor that says so. Asserting only
+    // these literals are the anchor that says so. Asserting only
     // `toContain(zh.tasks.readyForDoneHint)` above reads the SAME constant the
-    // component reads, so it would pass just as happily on a sentence that
-    // said the opposite — which is exactly how the false 「正在等負責人按結案」
-    // survived: the owner CANNOT press the ordinary close (403), so that named
-    // the wrong party. The line must name the EXECUTOR as who is being waited
-    // for, and 強制結案 as the way out when that executor is gone.
-    expect(banner.textContent).toContain("執行者");
+    // component reads, so it would pass just as happily on a sentence that said
+    // the opposite — which is how two false drafts in a row survived.
+    //
+    // Draft 1 said 「正在等負責人按結案」: false, because the owner cannot press
+    // the ordinary close at all (403).
+    // Draft 2 said 「等它的執行者按下結案;…由負責人用『強制結案』收掉」: false
+    // TWICE OVER. (a) 「負責人」 is this UI's word for the EXECUTOR — the card
+    // prints 「負責人:某某」 two rows below, from the same `assigneeLabel` —
+    // so to a zh reader that line said "waiting for this person; when this
+    // person is gone, this person forces it", while the route floor
+    // (`Gated(principalAdminAgent, …)`) 403s exactly that person. (b) it
+    // described pressing a 結案 button that this package REMOVED.
+    //
+    // So the line must: name the waited-for party with the card's OWN noun,
+    // say that the ordinary close is not a control on this screen, and address
+    // the way out to the reader in the second person.
+    expect(banner.textContent).toContain("負責人");
+    expect(banner.textContent).toContain("你");
     expect(banner.textContent).toContain("強制結案");
+    // 🔴 AND NOT with a second noun for the same human. 「執行者」 appeared in
+    // exactly one user-visible zh string — this one — while every other surface
+    // called that person 負責人; a card that uses both words for one person
+    // cannot be read at all. (The naming itself is out of this package's scope,
+    // which is why this line conforms to it rather than changing it.)
+    expect(banner.textContent).not.toContain("執行者");
 
     // …and there is no close button on the banner. The 結案 one is out of
     // scope AND could only ever 403 from this cockpit.
     expect(card.querySelector('[data-testid="task-mark-done"]')).toBeNull();
     expect(banner.querySelector("button")).toBeNull();
+  });
+
+  it("keeps the waiting line after the card is EXPANDED — it is not a collapsed-only affordance", async () => {
+    // 🔴 THE REVIEWER'S SURVIVING MUTANT M4. Narrowing the banner's condition
+    // to `!expanded` made the line vanish the moment anyone opened the card,
+    // and the whole suite stayed green: every assertion on it was made on a
+    // COLLAPSED card. Opening a ticket to look at its steps is the most likely
+    // way to arrive at the decision to force it closed, so that is precisely
+    // when the sentence has to still be on screen.
+    __injectMockTask(mkTask({ title: "展開也要看得到" }));
+    const { findByTestId } = renderPage();
+
+    const card = await findByTestId("task-card");
+    expect(within(card).getByTestId("task-ready-done")).toBeTruthy();
+
+    expandCard(card);
+    await waitFor(() =>
+      expect(card.getAttribute("aria-expanded")).toBe("true")
+    );
+    const banner = within(card).getByTestId("task-ready-done");
+    expect(banner.textContent).toContain(zh.tasks.readyForDoneHint);
+    expect(banner.textContent).toContain("強制結案");
   });
 
   it("shows no 可結案 line on a status that has not reached the precondition", async () => {
@@ -331,9 +371,120 @@ describe("③b the confirm discloses what the press actually destroys", () => {
     // The consequence that WAS already disclosed stays disclosed.
     expect(body).toContain("無法恢復");
   });
+
+  it("names the reply cards this close retires — the owner's own questions die here", async () => {
+    // 🔴 VERIFIED SERVER-SIDE, AND IT WAS NOT DECLARED. closeTask ->
+    // expireWaitingCardsForTask (api_tasks.go:684 -> api_replycards.go:931)
+    // retires EVERY card this task still has waiting. Those cards are the
+    // owner's OWN 等我回覆 pane: a question this ticket asked disappears from
+    // it at that moment and can never be answered again. The person pressing
+    // 強制結案 is very often not the person who knows what the ticket asked,
+    // which is exactly why the dialog has to say it rather than the route doc.
+    __injectMockTask(mkTask({ title: "請示卡會過期", status: "in_progress" }));
+    const { findByTestId } = renderPage();
+
+    fireEvent.click(await findByTestId("task-status"));
+    fireEvent.click(await findByTestId("task-force-done"));
+    const body = (await findByTestId("force-done-confirm")).textContent ?? "";
+
+    expect(body).toContain("請示卡");
+    expect(body).toContain("過期");
+    // The pane it names is the one the owner actually looks at — the same
+    // literal the status dictionary uses for waiting_owner.
+    expect(body).toContain(zh.tasks.status.waiting_owner);
+  });
+
+  it("🔴 names the worker this close can MINT — the one consequence that bills", async () => {
+    // The dialog already declared that the press DISMISSES an outsource worker.
+    // closeTask -> releaseDependentsOnClose (api_tasks.go:718 ->
+    // api_tasks_handoff.go:363) releases the tasks this one was blocking and,
+    // when a dependent is outsource-with-no-executor, calls tickOutsource —
+    // whose own comment says that tick is "what actually turns \"design done\"
+    // into \"dev worker spawned\"".
+    //
+    // ⇒ Same button, opposite direction, and THIS half spends money. A dialog
+    // that discloses the free consequence and hides the billed one is worse
+    // than one that discloses neither: it reads as complete.
+    __injectMockTask(mkTask({ title: "可能會再生一個", status: "in_progress" }));
+    const { findByTestId } = renderPage();
+
+    fireEvent.click(await findByTestId("task-status"));
+    fireEvent.click(await findByTestId("task-force-done"));
+    const body = (await findByTestId("force-done-confirm")).textContent ?? "";
+
+    expect(body).toContain("下游");
+    expect(body).toContain("解除阻擋");
+    // The spawn and its price, both stated. "會產生費用" is the half a reader
+    // cannot infer from "起一位新的 worker" if they do not know how billing
+    // works here.
+    expect(body).toContain("新的 worker");
+    expect(body).toContain("費用");
+  });
 });
 
 describe("④ what the server recorded comes back onto the card", () => {
+  it("🔴 RE-READS the one task after a successful force close — the list row cannot carry the stamp", async () => {
+    // THE REVIEWER'S SURVIVING MUTANT M1: deleting the whole read-back block in
+    // `doForceDone()` left all 3331 tests green. Every other test in ④ expands
+    // the card to read the 強制結案 row, and EXPANDING HYDRATES — so the
+    // read-back was covered by a gesture that would have fetched the data
+    // anyway. Nothing pinned the case the block exists for: the owner forces a
+    // close and looks at the card WITHOUT touching it again.
+    //
+    // The block is not a nicety. `forced_done_by` / `forced_done_reason` are
+    // declared on `TaskDTO` and NOT on `TaskListItemDTO` (spec/openapi.json),
+    // so the refetch `useTasks` does after the write brings back a row that
+    // carries NEITHER. Without the hydrate the dialog closes and the card says
+    // nothing about who forced it — which is precisely what the owner asked to
+    // see.
+    //
+    // Driven on a bare TaskCard so the hydrate seam is the assertion's subject
+    // rather than a side effect of the page: the fake answers with the fields
+    // only the full projection has, and NOTHING in this test expands the card.
+    const hydrate = vi.fn(async (id: string) =>
+      mkTask({
+        id,
+        status: "done",
+        closedTs: 1,
+        forcedDoneBy: "owner",
+        forcedDoneReason: "讀回來的理由",
+      })
+    );
+    const forceDone = vi.fn(async () => {});
+    const { findByTestId, getByTestId } = render(
+      <I18nProvider>
+        <TaskCard
+          task={mkTask({ id: "task-readback", title: "要讀回來" })}
+          allTasks={[]}
+          members={[]}
+          workers={[]}
+          nowTs={Date.now() / 1000}
+          onTerminate={async () => {}}
+          onMarkDuplicate={async () => {}}
+          onSetPriority={async () => {}}
+          onReassign={async () => {}}
+          onSendMessage={async () => {}}
+          onHydrate={hydrate}
+          onForceDone={forceDone}
+          canForceDone
+        />
+      </I18nProvider>
+    );
+
+    fireEvent.click(await findByTestId("task-status"));
+    fireEvent.click(await findByTestId("task-force-done"));
+    fireEvent.click(await findByTestId("force-done-confirm-btn"));
+
+    await waitFor(() => expect(forceDone).toHaveBeenCalledTimes(1));
+    // The read-back happened, and it read THE TASK THAT WAS JUST CLOSED.
+    await waitFor(() => expect(hydrate).toHaveBeenCalledWith("task-readback"));
+    // …and what it answered is on screen, with the card still COLLAPSED — no
+    // expand gesture anywhere in this test to do the fetching for it.
+    const row = await findByTestId("task-forced-done");
+    expect(row.textContent).toContain("讀回來的理由");
+    expect(getByTestId("task-card").getAttribute("aria-expanded")).toBe("false");
+  });
+
   it("a forced close with a reason shows WHO forced it and WHY", async () => {
     __injectMockTask(mkTask({ title: "有理由", status: "in_progress" }));
     const { findByTestId } = renderPage();
@@ -413,41 +564,125 @@ describe("④ what the server recorded comes back onto the card", () => {
   });
 });
 
-describe("⑤ a refused close says WHERE the task actually is", () => {
-  it("names the status instead of a bare 操作失敗", async () => {
-    // The race this exists for: the menu was opened on an open card, and by
-    // the time the confirm landed somebody else had already closed the task.
-    // The mock answers the same 409 the server does. Driven through 強制結案
-    // because that is the only close this surface still has — `reportCloseRefused`
-    // is shared, so this is the same code path the removed button used.
-    __injectMockTask(mkTask({ title: "被拒絕的結案" }));
+describe("⑤ a refused close ANSWERS THE REFUSAL", () => {
+  // 🔴 WHY THIS BLOCK WAS REWRITTEN. Its previous single test was called "a
+  // refused close says WHERE the task actually is" and seeded
+  // `status: "waiting_owner"` as the state the post-refusal read came back
+  // with. force_task_done CANNOT ANSWER 409 FOR THAT STATE — the handler's
+  // only 409 is `if TaskIsTerminal(t.Status)`, and `waiting_owner` is not
+  // terminal; that call would have SUCCEEDED. So the test pinned a sentence
+  // against a situation nobody can construct, while the sentence the owner
+  // would really see on the only reachable 409 read:
+  //   「這張票沒有被結案。它現在的狀態是:已完成」
+  // — which says it was not closed and then says it is Done.
+  //
+  // The three refusals are enumerable (422 decode / 404 / 409 terminal), so
+  // each gets its own arm here, each seeded with a state that ACTUALLY
+  // produces it.
+  /** Open the 強制結案 dialog on the one card on screen, and answer the close
+   * with `err`. Returns the error line the card ends up rendering. */
+  async function refuseWith(
+    err: unknown,
+    fresh?: Partial<TaskView>
+  ): Promise<HTMLElement> {
     const { findByTestId } = renderPage();
-
     fireEvent.click(await findByTestId("task-status"));
     fireEvent.click(await findByTestId("task-force-done"));
-    // Move it under the open dialog — now the close cannot succeed.
     const id = (await findByTestId("task-card")).getAttribute("data-task-id");
-    vi.spyOn(mockApi, "forceTaskDone").mockRejectedValue(
-      Object.assign(new Error("http 409"), { status: 409 })
-    );
-    vi.spyOn(mockApi, "getTask").mockResolvedValue(
-      mkTask({ id: id ?? "task-1", status: "waiting_owner" })
-    );
+    vi.spyOn(mockApi, "forceTaskDone").mockRejectedValue(err);
+    if (fresh) {
+      vi.spyOn(mockApi, "getTask").mockResolvedValue(
+        mkTask({ id: id ?? "task-1", ...fresh })
+      );
+    }
     fireEvent.click(await findByTestId("force-done-confirm-btn"));
-
-    const err = await waitFor(() => {
+    return await waitFor(() => {
       const el = document.querySelector(".task-card__error");
       expect(el).toBeTruthy();
-      return el!;
+      return el as HTMLElement;
     });
-    expect(err.textContent).toContain(zh.tasks.closeStateError);
+  }
+
+  it("409 — says the task has ALREADY ENDED, and does not also claim it was not closed", async () => {
+    // THE ONLY 409 THAT EXISTS HERE, and the only refusal this screen can
+    // realistically produce: the menu was opened on an open card and by the
+    // time the confirm landed somebody else had closed the task. The freshly
+    // read status is therefore TERMINAL — that is what makes it a 409 at all.
+    __injectMockTask(mkTask({ title: "已經被別人結掉了" }));
+    const err = await refuseWith(
+      Object.assign(new Error("http 409"), { status: 409 }),
+      { status: "done", closedTs: 1 }
+    );
+
+    expect(err.textContent).toContain(zh.tasks.closeAlreadyClosedLead);
+    expect(err.textContent).toContain(zh.tasks.closeAlreadyClosedTail);
     // 🔴 THE STATUS IT NAMES IS THE FRESHLY READ ONE, not the one the card was
     // holding when the click happened — the card's copy is exactly what the
-    // refusal proves wrong.
-    expect(err.textContent).toContain(zh.tasks.status.waiting_owner);
+    // refusal proves wrong. And WHICH terminal state matters: done /
+    // terminated / duplicated imply different next moves.
+    expect(err.textContent).toContain(zh.tasks.status.done);
     expect(err.textContent).not.toContain(zh.tasks.status.ready_for_done);
-    // And the generic line is NOT what was rendered.
+    // 🔴 THE SELF-CONTRADICTION IS GONE, asserted as a LITERAL rather than
+    // through the constant the component reads. This is the defect: the old
+    // line opened with 「這張票沒有被結案」 and closed with 「狀態是:已完成」
+    // on the same breath, on the one path that can actually be reached.
+    expect(err.textContent).not.toContain("沒有被結案");
+    expect(err.textContent).not.toContain(zh.tasks.closeStateError);
+    expect(err.textContent).toContain("已經結束了");
     expect(err.textContent).not.toBe(zh.tasks.actionError);
+  });
+
+  it("409 on a TERMINATED task names that state, not a generic 'closed'", async () => {
+    // The second reachable shape of the same 409. Lumping the three terminal
+    // states into one word would put the reader back where 「操作失敗」 left
+    // them: something ended, and no way to tell what.
+    __injectMockTask(mkTask({ title: "其實是被終止的" }));
+    const err = await refuseWith(
+      Object.assign(new Error("http 409"), { status: 409 }),
+      { status: "terminated", closedTs: 1 }
+    );
+    expect(err.textContent).toContain(zh.tasks.status.terminated);
+    expect(err.textContent).not.toContain(zh.tasks.status.done);
+  });
+
+  it("404 — says the task is gone, and names NO status", async () => {
+    // resolveTask's refusal. There is no status to report, and the old shared
+    // sentence would have ended 「它現在的狀態是:」 with whatever stale value
+    // the card was holding — asserting a fact about a task the server just
+    // said does not exist.
+    __injectMockTask(mkTask({ title: "票不見了" }));
+    const err = await refuseWith(
+      Object.assign(new Error("http 404"), { status: 404 })
+    );
+    expect(err.textContent).toBe(zh.tasks.closeGoneError);
+    expect(err.textContent).not.toContain(zh.tasks.closeStateError);
+    expect(err.textContent).not.toContain(zh.tasks.status.ready_for_done);
+  });
+
+  it("422 — says the request could not be understood, and does not invite a retry", async () => {
+    // decodeJSONBody's refusal: malformed JSON or an unknown key. The task was
+    // never even looked at, so naming its status answers a question nobody
+    // asked; and because the same payload will be refused again, the line must
+    // not tell the reader to try again (which is exactly what the shared
+    // 操作失敗 line does).
+    __injectMockTask(mkTask({ title: "送出的內容伺服器看不懂" }));
+    const err = await refuseWith(
+      Object.assign(new Error("http 422"), { status: 422 })
+    );
+    expect(err.textContent).toBe(zh.tasks.closeBadRequestError);
+    expect(err.textContent).not.toContain(zh.tasks.closeStateError);
+    expect(err.textContent).not.toContain("重試");
+  });
+
+  it("an UNKNOWN failure keeps the status line — it is the honest answer when the reason is not known", async () => {
+    // A 500 / offline / a throw from outside the adapters. Nothing can be said
+    // about WHY, so the card says what did not happen and where the task
+    // stands — which is the sentence that was wrong only for the three
+    // enumerated codes, not wrong in general.
+    __injectMockTask(mkTask({ title: "伺服器掛了" }));
+    const err = await refuseWith(new Error("boom"), { status: "waiting_owner" });
+    expect(err.textContent).toContain(zh.tasks.closeStateError);
+    expect(err.textContent).toContain(zh.tasks.status.waiting_owner);
   });
 });
 
