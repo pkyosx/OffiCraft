@@ -353,8 +353,18 @@ export const en: Dict = {
     // render that as just another status word, so a task parked waiting for a
     // human read exactly like a task being worked on. This line is what says
     // "the work is done, the close has not happened".
+    //
+    // 🔴 IT HAS TO BE TRUE IN BOTH CASES, and that is why it names TWO parties.
+    // The ordinary close (`mark_task_done`) admits the task's OWN EXECUTOR and
+    // 403s everyone else — so "waiting for its executor" is the accurate first
+    // half. But the case this whole ticket exists for is the executor that is
+    // never coming back (an outsource worker released, a member gone), and for
+    // that task the first half alone would be a dead end the line does not
+    // admit to. The second half names the way out and who holds it. An earlier
+    // draft said only 「正在等負責人按結案」, which was false in exactly the
+    // main case: the owner cannot press the ordinary close at all.
     readyForDoneHint:
-      "Every step is reported done — this task is waiting for its executor to close it.",
+      "Every step is reported done — this task is waiting for its executor to close it. If that executor has left or is stuck, an owner or admin can use Force close instead.",
     // ── force close (T-192) ─────────────────────────────────────────────────
     // The way out for a task whose executor is never coming back. Owner and
     // admin assistant only — the server's route floor is the real gate; this

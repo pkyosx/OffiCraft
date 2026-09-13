@@ -143,6 +143,17 @@ describe("① 可結案: the card says it is waiting — and offers no close but
     const banner = within(card).getByTestId("task-ready-done");
     expect(banner.textContent).toContain(zh.tasks.readyForDoneHint);
 
+    // 🔴 THE SENTENCE HAS TO BE TRUE IN THE CASE THIS TICKET EXISTS FOR, and
+    // these two literals are the anchor that says so. Asserting only
+    // `toContain(zh.tasks.readyForDoneHint)` above reads the SAME constant the
+    // component reads, so it would pass just as happily on a sentence that
+    // said the opposite — which is exactly how the false 「正在等負責人按結案」
+    // survived: the owner CANNOT press the ordinary close (403), so that named
+    // the wrong party. The line must name the EXECUTOR as who is being waited
+    // for, and 強制結案 as the way out when that executor is gone.
+    expect(banner.textContent).toContain("執行者");
+    expect(banner.textContent).toContain("強制結案");
+
     // …and there is no close button on the banner. The 結案 one is out of
     // scope AND could only ever 403 from this cockpit.
     expect(card.querySelector('[data-testid="task-mark-done"]')).toBeNull();
