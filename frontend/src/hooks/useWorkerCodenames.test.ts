@@ -168,14 +168,34 @@ describe("useWorkerCodenames", () => {
     );
   });
 
-  it("re-reads on outsource_worker too — assignment and release move the task", async () => {
+  it("re-reads on member too — assignment and release move the task", async () => {
+    getOutsourceWorker.mockResolvedValue({ id: "ow-abc", codename: "X-1", taskId: "T-9" });
+    renderHook(() => useWorkerCurrentTasks(["ow-abc"]));
+    await waitFor(() => expect(getOutsourceWorker).toHaveBeenCalledTimes(1));
+
+    // 🔴 "member" is the topic the SERVER really publishes for assignment /
+    // claim / release since T-197 folded the worker middle layer in. Emitting
+    // the retired "outsource_worker" name here would pass against ANY topic
+    // set — the fake bus has no vocabulary — while the real subscription heard
+    // nothing at all, which is the exact shape this test used to have.
+    await emit("member");
+
+    await waitFor(() => expect(getOutsourceWorker).toHaveBeenCalledTimes(2));
+  });
+
+  it("does NOT re-read on the retired outsource_worker topic — the server no longer publishes it", async () => {
+    // The negative half of the pair above. `hub.go` drops any topic outside
+    // the closed vocabulary SILENTLY, so a hook still listening for the old
+    // name would look identical to a healthy one on the wire; only this
+    // assertion separates "subscribed to the live topic" from "subscribed to a
+    // name nothing can ever send".
     getOutsourceWorker.mockResolvedValue({ id: "ow-abc", codename: "X-1", taskId: "T-9" });
     renderHook(() => useWorkerCurrentTasks(["ow-abc"]));
     await waitFor(() => expect(getOutsourceWorker).toHaveBeenCalledTimes(1));
 
     await emit("outsource_worker");
 
-    await waitFor(() => expect(getOutsourceWorker).toHaveBeenCalledTimes(2));
+    expect(getOutsourceWorker).toHaveBeenCalledTimes(1);
   });
 
   it("ignores chat topics — they move only the unread badge, which this line never draws", async () => {
@@ -346,7 +366,7 @@ describe("useWorkerCodenames", () => {
       taskId: "T-9",
       taskTitle: "還在做",
     });
-    await emit("outsource_worker");
+    await emit("member");
     await act(async () => {
       first();
       await Promise.resolve();
