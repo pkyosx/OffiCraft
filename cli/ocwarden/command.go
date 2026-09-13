@@ -368,12 +368,24 @@ func dispatchCommand(cmd *Command, deps CommandDeps) error {
 			// Receipt of the EXECUTED start — still TOOTHLESS over the spawn itself
 			// (reported AFTER the spawn ran, never gating it). The reason doubles as
 			// the log so a refusal cause is visible server-side.
+			//
+			// A SPAWN THAT WENT AHEAD CAN STILL CARRY A REASON. SpawnOutcome.Note is
+			// the OK=true channel (spawn.go): the pre-trust verdict stopped being a
+			// gate, so its "the child may not read the file we trusted" finding has to
+			// arrive somewhere the operator actually looks. This is that somewhere —
+			// the server folds it onto member.last_op_reason either way, so the
+			// cockpit shows it beside a successful start instead of it living only in
+			// this host's warden log.
+			text := out.Reason
+			if out.OK {
+				text = out.Note
+			}
 			receiptErr := deps.report(CommandResult{
 				MemberID: params.MemberID,
 				RPC:      rpcStart,
 				OK:       out.OK,
-				Reason:   out.Reason,
-				Log:      out.Reason,
+				Reason:   text,
+				Log:      text,
 			})
 			if !out.OK {
 				reason := out.Reason
@@ -417,11 +429,24 @@ func dispatchCommand(cmd *Command, deps CommandDeps) error {
 		if !ok {
 			stopReason = "stop incomplete (session still present / sweep survivor)"
 		}
+		// Reason and Log are DIFFERENT channels and stopped being the same string
+		// here. Log is the operation record (always written); Reason is folded onto
+		// member.last_op_reason, which the cockpit now renders whenever the station
+		// sends one -- including beside a SUCCESSFUL op. Boilerplate there ("stopped")
+		// would paint an amber note on every ordinary stop and bury the notes that
+		// actually need eyes (the pre-trust verdict on the start arm). So: a plain
+		// successful stop says NOTHING. The no-op reason is NOT boilerplate -- the
+		// server fold keys on its "no_such_session:" prefix to skip the last_op
+		// overwrite -- and !ok reasons are the actionable case; both are preserved.
+		receiptReason := stopReason
+		if ok && !noop {
+			receiptReason = ""
+		}
 		receiptErr := deps.report(CommandResult{
 			WorkerID: workerID,
 			RPC:      rpcWorkerStop,
 			OK:       ok,
-			Reason:   stopReason,
+			Reason:   receiptReason,
 			Log:      fmt.Sprintf("session=%s: %s", session, stopReason),
 		})
 		if !ok {
@@ -487,11 +512,20 @@ func dispatchCommand(cmd *Command, deps CommandDeps) error {
 			if !ok {
 				reason = "stop incomplete (session still present / broken probe / member process survived the sweep)"
 			}
+			// Reason and Log are DIFFERENT channels (see worker_stop above). A plain
+			// successful, non-no-op stop reports NO reason: the cockpit renders
+			// last_op_reason on success too, and boilerplate there would drown the
+			// notes that must be seen. The no-op reason (fold keys on its prefix) and
+			// the !ok reason are both preserved; the Log keeps the full record.
+			receiptReason := reason
+			if ok && !noop {
+				receiptReason = ""
+			}
 			receiptErr := deps.report(CommandResult{
 				MemberID: memberID,
 				RPC:      rpcStop,
 				OK:       ok,
-				Reason:   reason,
+				Reason:   receiptReason,
 				Log:      fmt.Sprintf("session=%s: %s", session, reason),
 			})
 			if receiptErr != nil {
@@ -529,7 +563,10 @@ func dispatchCommand(cmd *Command, deps CommandDeps) error {
 		if deps.Teardown != nil {
 			ok, log = deps.Teardown()
 		}
-		reason := "uninstalled"
+		// Reason and Log are DIFFERENT channels (see the stop arms above). A clean
+		// uninstall reports NO reason -- the teardown log below is the record. Only
+		// an INCOMPLETE teardown has something the operator must read.
+		reason := ""
 		if !ok {
 			reason = "teardown incomplete (a required artifact could not be removed)"
 		}

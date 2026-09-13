@@ -220,12 +220,15 @@ func TestWardenTelemetryUplinkBodies(t *testing.T) {
 	wantReceipts := map[string]map[string]any{
 		"command_result-start": {"member_id": "m-1", "worker_id": "", "rpc": "start",
 			"ok": true, "reason": "", "log": ""},
+		// reason is EMPTY on every plain SUCCESSFUL op (start included): the cockpit
+		// renders last_op_reason on success too, so only a real finding may ride it.
+		// The log keeps the operation record on all three.
 		"command_result-worker_stop": {"member_id": "", "worker_id": "ow-9", "rpc": "worker_stop",
-			"ok": true, "reason": "stopped", "log": "session=worker-ow-9: stopped"},
+			"ok": true, "reason": "", "log": "session=worker-ow-9: stopped"},
 		"command_result-stop": {"member_id": "m-5", "worker_id": "", "rpc": "stop",
-			"ok": true, "reason": "stopped", "log": "session=member-m-5: stopped"},
+			"ok": true, "reason": "", "log": "session=member-m-5: stopped"},
 		"command_result-uninstall": {"member_id": "m-5", "worker_id": "", "rpc": "uninstall",
-			"ok": true, "reason": "uninstalled", "log": "teardown complete\n"},
+			"ok": true, "reason": "", "log": "teardown complete\n"},
 	}
 	for _, name := range []string{"command_result-start", "command_result-worker_stop",
 		"command_result-stop", "command_result-uninstall"} {
