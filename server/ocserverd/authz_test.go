@@ -301,3 +301,32 @@ func TestPrincipalAtLeast(t *testing.T) {
 		})
 	}
 }
+
+func TestRouteReachableBy(t *testing.T) {
+	for _, tc := range []struct {
+		name               string
+		principal, minimum principalClass
+		want               bool
+	}{
+		{name: "agent does not reach an admin agent row", principal: principalAgent, minimum: principalAdminAgent, want: false},
+		{name: "admin agent reaches an admin agent row", principal: principalAdminAgent, minimum: principalAdminAgent, want: true},
+		{name: "machine does not reach an agent row", principal: principalMachine, minimum: principalAgent, want: false},
+		{name: "owner reaches an admin agent row", principal: principalOwner, minimum: principalAdminAgent, want: true},
+		{name: "the capability floor reaches a public row", principal: principalMachine, minimum: requiresPublic, want: true},
+		{name: "a plain agent reaches a public row", principal: principalAgent, minimum: requiresPublic, want: true},
+		{name: "an undeclared floor is refused rather than treated as the ladder's bottom",
+			principal: principalOwner, minimum: principalClass{"superuser"}, want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := routeReachableBy(tc.principal, tc.minimum); got != tc.want {
+				t.Fatalf("routeReachableBy(%v, %v) = %v, want %v", tc.principal, tc.minimum, got, tc.want)
+			}
+		})
+	}
+
+	t.Run("public stays off the rank ladder so a public row cannot be written as a class choke", func(t *testing.T) {
+		if _, found := principalRank[requiresPublic]; found {
+			t.Fatal("requiresPublic was added to principalRank — requirePrincipalClass would stop refusing it")
+		}
+	})
+}

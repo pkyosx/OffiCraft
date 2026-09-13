@@ -511,7 +511,7 @@ def _check_binary(_ctx: HCtx, r: httpx.Response) -> None:
 
 
 def _check_mcp_tools_list(_ctx: HCtx, r: httpx.Response) -> None:
-    # mcp.md: JSON-RPC over HTTP 200; tools/list serves the committed catalog.
+    # The happy-path client is owner-scoped and therefore sees the whole catalog.
     payload = r.json()
     assert payload.get("jsonrpc") == "2.0" and payload.get("id") == 1, payload
     assert "error" not in payload, payload

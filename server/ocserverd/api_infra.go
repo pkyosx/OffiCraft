@@ -13,7 +13,8 @@ package main
 //
 //   * POST /api/mcp — the JSON-RPC face (spec/mcp.md): parse errors,
 //     initialize/ping, notifications → 202, tools/list from the FROZEN
-//     catalog (spec/mcp-catalog.json — the wire SSOT), tools/call params
+//     catalog (spec/mcp-catalog.json — the wire SSOT) narrowed to the
+//     caller's principal class, tools/call params
 //     validation + the in-process LOOPBACK (mcp.go): split the arguments,
 //     re-enter the route through the app's own mux with the caller's
 //     Authorization forwarded, wrap the sub-response as a CallToolResult.
@@ -1295,18 +1296,8 @@ func rpcResult(w http.ResponseWriter, id any, result any) {
 	})
 }
 
-// mcpCatalogTools loads the FROZEN tool catalog (spec/mcp-catalog.json — the
-// committed wire SSOT the Python tools/list serves byte-equal descriptors of).
-// Kept as the tools/list DESCRIPTOR source on purpose: spec/mcp.md §4 makes
-// byte-equality against the snapshot the contract (derivation mechanism free),
-// and deriving the inputSchema bodies statically in Go would duplicate every
-// DTO schema — a second drifting list. The tool NAME surface (tools/call
-// routing + catalog_hash) IS table-derived (mcp.go mcpToolIndex), and the
-// conformance suite pins snapshot ≡ live list ≡ table order, so the two views
-// cannot drift silently. EMBED-ONLY — the bindist copy is the sole source and
-// disk is never consulted (assets.go readMCPCatalogFrom). This sentence used to
-// say "disk-first with the embed as fallback"; it was wrong, and a reviewer
-// reading it "corrected" a correct implementation on its authority.
+// mcpCatalogTools loads the complete frozen descriptor catalog from the
+// embedded bindist. Request handlers narrow the result with toolsVisibleTo.
 func (s *apiServer) mcpCatalogTools() ([]any, error) {
 	raw, err := s.root.readMCPCatalogFrom(bindistFS())
 	if err != nil {
@@ -1319,6 +1310,25 @@ func (s *apiServer) mcpCatalogTools() ([]any, error) {
 		return nil, err
 	}
 	return catalog.Tools, nil
+}
+
+// toolsVisibleTo preserves catalog order while filtering by the route table's
+// authorization floor. Route middleware remains the enforcement boundary.
+func (s *apiServer) toolsVisibleTo(principal principalClass, tools []any) []any {
+	visible := make([]any, 0, len(tools))
+	for _, raw := range tools {
+		descriptor, isObj := raw.(map[string]any)
+		if !isObj {
+			continue
+		}
+		name, _ := descriptor["name"].(string)
+		spec, known := s.mcpTools[name]
+		if !known || !routeReachableBy(principal, spec.Requires) {
+			continue
+		}
+		visible = append(visible, raw)
+	}
+	return visible
 }
 
 func (s *apiServer) HandleMcpApiMcpPost(w http.ResponseWriter, r *http.Request) {
@@ -1378,7 +1388,7 @@ func (s *apiServer) HandleMcpApiMcpPost(w http.ResponseWriter, r *http.Request) 
 			rpcError(w, id, rpcInternalError, "catalog unavailable: "+err.Error())
 			return
 		}
-		rpcResult(w, id, map[string]any{"tools": tools})
+		rpcResult(w, id, map[string]any{"tools": s.toolsVisibleTo(s.principalOfRequest(r), tools)})
 		return
 
 	case "tools/call":
