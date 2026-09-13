@@ -375,6 +375,15 @@ describe("④ what the server recorded comes back onto the card", () => {
     // read identically to a row that was never rendered, which is the one thing
     // an optional field must never be allowed to look like.
     expect(reason.textContent).toBe(zh.tasks.forcedDoneNoReason);
+    // 🔴 AND THE SAME FACT AGAIN AS A LITERAL — the line above is NOT enough on
+    // its own, because it reads the SAME constant the component renders. Invert
+    // that constant's meaning (「未填理由」→「已填理由」) and the assertion
+    // follows it happily; the reviewer's mutant did exactly that and this whole
+    // file stayed green. A literal is the one anchor that does not move when the
+    // constant does. The constant assertion is KEPT (it still pins that the
+    // component reads the locale rather than hardcoding a string) — this is an
+    // extra anchor, not a replacement.
+    expect(reason.textContent).toBe("未填理由");
   });
 
   it("a task closed NORMALLY carries no 強制結案 row — the stamp is what tells the two closes apart", async () => {
