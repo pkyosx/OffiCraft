@@ -358,11 +358,23 @@ func TestHandleRelocateOutsourceWorkerApiOutsourceWorkersIdRelocatePost(t *testi
 			"refocus_since":      apiAnyNumber, "refocus_op": "relocate",
 		}))
 		dashboard.wantFrames(
-			apiTestWorkerDelta(2, "active", "server"),
-			apiTestHandoverDelta(3, "", apiTestOffboardNotice, "server"),
-			apiTestWorkerDelta(4, "active", "owner"),
+			apiTestHandoverDelta(2, "", apiTestOffboardNotice, "server"),
+			apiTestHandoverDelta(3, "", apiTestOffboardNotice, "owner"),
 		)
-		contractor.wantFrames(apiTestHandoverDelta(3, "", apiTestOffboardNotice, "server"))
+		// T-197: the worker's own stream carries BOTH frames, not one. Before the
+		// convergence the dashboard read an owner-scoped worker topic and the
+		// contractor read a separate handover topic, so each saw a different
+		// subset; now there is one member topic and one payload, and the
+		// contractor is simply another subscriber to it. What this line exists
+		// to pin has not moved: the worker being relocated RECEIVES the offboard
+		// notice on its own stream — that is asserted on the first frame, which
+		// is the server-triggered one. The second is the owner-triggered patch
+		// of the same row, carrying the same notice; a subscriber seeing its own
+		// row change twice is the ordinary shape here, not a duplicate delivery.
+		contractor.wantFrames(
+			apiTestHandoverDelta(2, "", apiTestOffboardNotice, "server"),
+			apiTestHandoverDelta(3, "", apiTestOffboardNotice, "owner"),
+		)
 		bystander.wantFrames()
 		push()
 	})
