@@ -250,12 +250,96 @@ func TestVerifyClaudeSeesPretrust(t *testing.T) {
 			return "No MCP server named \"x\". Configured servers:\n", nil
 		}, nil, "/bin/claude", "/w/m1", "", ch)
 		if err == nil {
-			t.Fatal("claude holding none of our witness must refuse the spawn")
+			t.Fatal("claude holding none of our witness must be reported as a verdict")
 		}
 		for _, want := range []string{ch.ClaudeJSONPath(), "/w/m1", claudeShadowConfigName} {
 			if !strings.Contains(err.Error(), want) {
 				t.Errorf("refusal %q does not name %q", err, want)
 			}
+		}
+	})
+
+	// 🔴 THE TWO ERROR SENTENCES ARE CHOSEN BY "DID CLAUDE ANSWER", NOT BY err.
+	// The probe asks `claude mcp get <absent name>`, which exits 1 EVERY TIME, so
+	// production's ask (execRunner.RunCombined) returns a non-nil err on every
+	// single run. Branching the message on err made the "does NOT read" sentence
+	// unreachable, and with it the only actionable clue this probe has
+	// (.config.json). An external machine hit exactly the shape in the first
+	// subtest below and its operator was told the question could not be asked.
+	t.Run("an ANSWER that lacks the witness says does NOT read, even though the probe exited 1", func(t *testing.T) {
+		ch := newHome(t)
+		// The real shape: combined output IS there, and err is the *ExitError
+		// that `claude mcp get <absent name>` produces on every invocation.
+		err := verifyClaudeSeesPretrust(func(string) (string, error) {
+			return "No MCP server named \"x\". Configured servers:\n  some-other-server\n",
+				errors.New("exit status 1")
+		}, nil, "/bin/claude", "/w/m1", "", ch)
+		if err == nil {
+			t.Fatal("err = nil, want a refusal — the witness never came back")
+		}
+		// ⛔ ".config.json" IS SPELLED OUT HERE, NOT REFERENCED AS
+		// claudeShadowConfigName. Every other assertion about this clue in this
+		// file cites the constant, which means a wrong constant moves the
+		// assertion with it and nothing anywhere turns red — a verification list
+		// that shares its source with the thing it verifies is not verifying it.
+		// That is not theoretical: changing the constant to ".settings.json"
+		// left all nine subtests green, and the ONLY value this whole branch has
+		// is that the operator is told a filename they can actually go and look
+		// for. A wrong name here is worse than no name: it sends someone hunting
+		// a file that does not exist, with the suite green behind them.
+		//
+		// The measurement behind the literal is recorded on the constant itself
+		// (claude 2.1.268, measured in both directions). If claude renames this
+		// file, this line is SUPPOSED to go red and be re-measured — do not
+		// "fix" it by pointing it back at the constant.
+		if !strings.Contains(err.Error(), ".config.json") {
+			t.Errorf("refusal %q does not name %q literally — the one actionable\n"+
+				"clue this branch exists to deliver must be a filename the operator\n"+
+				"can actually find; claudeShadowConfigName = %q", err, ".config.json", claudeShadowConfigName)
+		}
+		for _, want := range []string{"does NOT read", claudeShadowConfigName} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("refusal %q does not carry %q — this is the sentence that\n"+
+					"tells the operator where to look, and the exit-1 err must not\n"+
+					"divert the message to \"could not be asked\"", err, want)
+			}
+		}
+		if strings.Contains(err.Error(), "could not be asked") {
+			t.Errorf("refusal %q reports an unasked question; claude ANSWERED, "+
+				"it just answered that it reads another file", err)
+		}
+	})
+
+	t.Run("NO answer at all still says could not be asked", func(t *testing.T) {
+		// The other direction, so the fix above cannot be satisfied by collapsing
+		// both arms into one sentence: claude produced nothing (crash, timeout,
+		// killed), and there is genuinely nothing to conclude about which file it
+		// reads.
+		ch := newHome(t)
+		err := verifyClaudeSeesPretrust(func(string) (string, error) {
+			return "   \n", errors.New("signal: killed")
+		}, nil, "/bin/claude", "/w/m1", "", ch)
+		if err == nil {
+			t.Fatal("err = nil, want a refusal")
+		}
+		if !strings.Contains(err.Error(), "could not be asked") {
+			t.Errorf("refusal %q does not report an unasked question", err)
+		}
+		if strings.Contains(err.Error(), "does NOT read") {
+			t.Errorf("refusal %q concludes which file claude reads from silence", err)
+		}
+	})
+
+	t.Run("the witness still clears the spawn when the probe exited non-zero", func(t *testing.T) {
+		// POSITIVE CONTROL for the change above: exit 1 is the NORMAL state of
+		// this probe, so a non-nil err must not turn a good answer into a refusal
+		// either. This is existing behaviour; it is pinned here because the fix
+		// moved the code that sits right next to it.
+		ch := newHome(t)
+		if err := verifyClaudeSeesPretrust(func(string) (string, error) {
+			return "Configured servers: " + witness, errors.New("exit status 1")
+		}, nil, "/bin/claude", "/w/m1", "", ch); err != nil {
+			t.Errorf("err = %v, want nil — the witness came back", err)
 		}
 	})
 

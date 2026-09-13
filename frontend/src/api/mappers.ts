@@ -305,9 +305,14 @@ export function toMember(w: WireMember): Member {
     // `undefined` — coalesce to null (the "no op yet" state), never fabricate.
     lastOpOk: w.last_op_ok ?? null,
     lastOpLog: w.last_op_log,
-    // Structured failure cause ("<code>: <detail>" from the warden receipt,
-    // server-folded onto last_op_reason). Older records never carried one —
-    // a defaulted-away field coalesces to "" and the panel shows status-only.
+    // Structured cause ("<code>: <detail>" from the warden receipt,
+    // server-folded onto last_op_reason). ⚠️ NOT a failure cause: since T-201 a
+    // SUCCEEDED op may carry one (the pre-trust verdict reports here instead of
+    // refusing the spawn), so read `lastOpOk` for the outcome and never infer it
+    // from this being non-empty. Empty means only that nothing wanted saying —
+    // an ordinary successful stop sends no reason, and a pre-T-201 warden never
+    // sent the field at all — and a defaulted-away field coalesces to "" so the
+    // panel shows status-only.
     lastOpReason: w.last_op_reason ?? "",
     lastOpAt: w.last_op_at > 0 ? w.last_op_at : null,
 
