@@ -1331,6 +1331,48 @@ func (s *apiServer) toolsVisibleTo(principal principalClass, tools []any) []any 
 	return visible
 }
 
+// The MCP tool names that USED to exist and have been removed. They are
+// refused BY NAME, the way api_document_history.go refuses its retired
+// document kinds, because "you mistyped" and "that mechanism is gone" are not
+// the same answer and only one of them is the caller's to act on. Measured on
+// the live station, all three answered byte-for-byte what a nonsense name
+// answers — code -32602, "unknown tool: '<name>'" — so a caller holding a
+// retired name was told to check its spelling.
+//
+// 🔴 THIS IS A REFUSAL TABLE AND IT IS DELIBERATELY NEITHER A ROUTE NOR A ROW
+// IN mcpTools. A route would re-render these names into the generated MCP
+// catalog and the OpenAPI spec, and the drift gates would then ENFORCE that
+// re-listing — putting retired tools back on the advertised surface is exactly
+// what this change must not do. A placeholder row in mcpTools would make the
+// lookup below SUCCEED and forward the call to whatever that row named. The
+// names stay unlisted and uncallable; only the sentence changes.
+//
+// The messages name no migration NUMBER, the same discipline the document
+// kinds keep: a number is claimed rather than checked, and a renumbering would
+// rot the sentence without reddening anything.
+var retiredMCPTools = map[string]string{
+	"replace_lessons": "retired tool: 'replace_lessons' was removed together with the lessons " +
+		"document, which no longer exists — record what you learned with 'write_lore_entry'",
+	"patch_lessons": "retired tool: 'patch_lessons' was removed together with the lessons " +
+		"document, which no longer exists — record what you learned with 'write_lore_entry'",
+	"patch_task_learnings": "retired tool: 'patch_task_learnings' was removed together with the " +
+		"task manual's learnings document, which no longer exists — record what you learned " +
+		"with 'write_lore_entry'",
+}
+
+// retiredToolMessage reports the named refusal for a tool that used to exist.
+//
+// The match is EXACT and case-sensitive on purpose: the whole value of the
+// table is that it distinguishes a retired name from a mistyped one, and a
+// loose match (case-folded, prefix, substring) would swallow mistyped names
+// back into the retirement answer and destroy the distinction it was added to
+// create. Anything that is not one of these three strings is an unknown name
+// like any other.
+func retiredToolMessage(name string) (string, bool) {
+	message, retired := retiredMCPTools[name]
+	return message, retired
+}
+
 func (s *apiServer) HandleMcpApiMcpPost(w http.ResponseWriter, r *http.Request) {
 	var payload any
 	dec := json.NewDecoder(r.Body)
@@ -1400,6 +1442,16 @@ func (s *apiServer) HandleMcpApiMcpPost(w http.ResponseWriter, r *http.Request) 
 		name, nameIsStr := params["name"].(string)
 		if !nameIsStr {
 			rpcError(w, id, rpcInvalidParams, "invalid params: name must be a string")
+			return
+		}
+		// BEFORE the mcpTools lookup, and that placement is the whole point:
+		// a retired name is on no route row, so after the lookup the
+		// unknown-tool branch below has already answered and this table is
+		// unreachable. Same code (-32602) as that branch — the code is the
+		// contract, the wording is not — so conformance's "every parameter
+		// violation is -32602" pin is untouched.
+		if message, retired := retiredToolMessage(name); retired {
+			rpcError(w, id, rpcInvalidParams, message)
 			return
 		}
 		arguments := map[string]any{}
