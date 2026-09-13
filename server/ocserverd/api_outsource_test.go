@@ -81,10 +81,13 @@ func apiTestWantReleasedWorker(t *testing.T, d *DAL, h http.Handler, owner, work
 	if err != nil || worker == nil || worker.Status != WorkerStatusReleased {
 		t.Fatalf("released worker %s = %+v, err=%v", workerID, worker, err)
 	}
-	status, _ := apiJSON(t, h, http.MethodGet, "/api/members/"+workerID, owner, "")
-	if status != http.StatusNotFound {
-		t.Fatalf("released member %s remained on the shared roster: status %d", workerID, status)
-	}
+	apiTestWantWorker(t, h, owner, workerID, apiTestWorkerRow(t, map[string]any{
+		"id": workerID, "status": WorkerStatusReleased,
+		"roster_status": RosterStatusRemoved, "presence": "",
+	}))
+	// A released worker remains addressable as durable identity through the
+	// item read, but it must no longer appear in the live roster collection.
+	apiTestWantWorkerList(t, h, owner)
 	return worker
 }
 
@@ -481,11 +484,9 @@ func TestHandleRelocateOutsourceWorkerApiOutsourceWorkersIdRelocatePost(t *testi
 			t.Fatalf("want 404, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "not_found", "member 'ow-abc123' not found")
-		// A released worker is off the shared roster, so it cannot be read back
-		// through GET /api/members/{id} — its row survives only as the audit
-		// trail the DAL still carries (apiTestWantReleasedWorker pins both
-		// halves; apiTestWantWorker would demand a 200 the unified read face
-		// deliberately no longer gives).
+		// Lifecycle resolution still refuses a released worker, while the item
+		// read preserves its durable identity and the live roster omits it.
+		// apiTestWantReleasedWorker pins all three sides of that boundary.
 		apiTestWantReleasedWorker(t, d, h, owner, "ow-abc123")
 		dashboard.wantFrames()
 	})
