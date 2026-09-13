@@ -1,61 +1,16 @@
 package main
 
-// claudehome.go — WHICH claude.json the spawned child reads, decided by the
-// warden instead of predicted from the environment (T-180).
+// claudehome.go defines the expected config location for the trust write and
+// child launch. Both use the same resolved HOME and optional OC_CLAUDE_JSON
+// redirect. The launch prologue applies them after sourcing the agent env file.
 //
-// The pre-trust write (spawn.go pretrustWorkdir) and the child's read have to
-// land on the same file, or the trust dialog fires, eats the boot nudge, and the
-// member is dead within a second while every receipt says the spawn succeeded.
+// Claude can additionally select a config through its own settings. These
+// exports do not prove that the trust flag was consumed. Actual member wake
+// acknowledgement and the server's timeout/retry path determine startup health.
 //
-// HOW MANY INPUTS DECIDE THE CHILD'S ANSWER: more than anyone here can list.
-// An earlier draft of this comment said "two environment variables decide it"
-// and named them; that sentence was pinned to one afternoon's measurement and
-// was already false by the next review. HOME and CLAUDE_CONFIG_DIR place the
-// config home, CLAUDE_CODE_CUSTOM_OAUTH_URL swaps the FILENAME read inside it,
-// and `strings` on claude 2.1.268 lists 841 distinct CLAUDE_*/ANTHROPIC_* names
-// whose membership changes every release. The layout is not symmetric between
-// the two placing variables either (measured 2026-09-11, claude 2.1.268):
-//
-//	CLAUDE_CONFIG_DIR unset → $HOME/.claude.json, everything else $HOME/.claude/
-//	CLAUDE_CONFIG_DIR=D     → D/.claude.json, and D holds projects/ sessions/
-//	                          backups/ .credentials.json too
-//
-// So the guarantee cannot be "we know every input", and — measured 2026-09-11 —
-// it cannot be about inputs at all: `<config dir>/.config.json`, when that file
-// merely EXISTS, is read INSTEAD of .claude.json, and no environment is involved
-// in that at all. Two things therefore carry the load, and neither is a
-// prediction:
-//
-//	INPUT SIDE   the child's environment holds no CLAUDE_* we did not put there
-//	             — the family purge at the bottom of this file.
-//	RESULT SIDE  the file the spawned claude REALLY reads carries the flag —
-//	             established per spawn by asking the claude binary itself, and a
-//	             spawn whose answer is anything other than yes is refused by
-//	             name. See claudetrust.go.
-//
-// The earlier shape of this fix PREDICTED what the child's environment would
-// become (HOME read back, "last export wins" modelled in Go) and refused a run
-// whose prediction did not match the write target. Two independent reviews each
-// walked through it, the second one with CLAUDE_CONFIG_DIR: it moves the whole
-// config home while HOME does not move at all, so every comparison stayed green
-// and the original defect came back whole. A prediction cannot be made complete
-// by adding the variable that was just found — the next variable has the same
-// shape.
-//
-// So the launch line STATES both instead: it exports HOME and either exports
-// CLAUDE_CONFIG_DIR or unsets it, AFTER it has sourced the agent env render, and
-// the file pre-trust writes is derived from those same two values by
-// ClaudeJSONPath. Whatever the owner's interactive shell, ~/.zshrc or agent env
-// file carried is then irrelevant — not because we checked, because we overwrote
-// it. That is causal rather than predicted FOR THE ENVIRONMENT, which is all it
-// was ever able to be: overwriting a variable does nothing about a file whose
-// existence alone moves the read, which is why the result-side check exists.
-//
-// ⚠️ CLAUDE_CONFIG_DIR is exported ONLY for an explicit OC_CLAUDE_JSON redirect,
-// and moving it MOVES THE CREDENTIALS FILE with it (.credentials.json lives in
-// the config home) — a child pointed at a fresh directory is a LOGGED-OUT child.
-// The default path therefore unsets the variable rather than setting it to
-// anything, so the child's layout is byte-for-byte the default one.
+// CLAUDE_CONFIG_DIR is exported only for an explicit redirect: changing it also
+// moves Claude's credentials file, so a fresh config directory can be logged out.
+// Without a redirect the variable is unset and Claude uses its default layout.
 
 import (
 	"fmt"
@@ -80,13 +35,7 @@ type claudeHome struct {
 // ClaudeJSONPath is the file this end WRITES: pretrustWorkdir's target, derived
 // from the two values the launch line exports.
 //
-// 🔴 IT IS NOT A PREDICTION OF WHAT THE CHILD READS, and the earlier sentence
-// here that said no second resolution could disagree with it was measured wrong
-// on 2026-09-11: claude reads `<config dir>/.config.json` instead of
-// `.claude.json` whenever that file exists, which this function cannot see and
-// no environment hygiene can reach. What closes the gap is asking claude, after
-// the write, whether it can see the flag — claudetrust.go — not anything
-// asserted here.
+// Claude may choose a different file through its own settings.
 func (c claudeHome) ClaudeJSONPath() string {
 	if c.ConfigDir != "" {
 		return filepath.Join(c.ConfigDir, claudeJSONName)
@@ -290,8 +239,7 @@ func claudeEnvAllowedNames() []string {
 //   - `typeset -r` / `readonly`. A CLAUDE_* variable marked read-only survives
 //     `unset`, and the shell prints its complaint on the agent's FIRST LINE —
 //     so the variable keeps redirecting the child AND the member opens with an
-//     error banner. The result-side check in claudetrust.go is what turns this
-//     from a silent survival into a named refusal.
+//     error banner. The server still requires an actual wake acknowledgement.
 func claudeEnvPurgeFragment() string {
 	var b strings.Builder
 	b.WriteString("for __oc_e in $(/usr/bin/env); do case $__oc_e in ")

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -793,10 +794,8 @@ func TestBuildCommandDeps(t *testing.T) {
 		if err := os.WriteFile(envFile, []byte("HOME=/Volumes/scratch/home\nCLAUDE_CONFIG_DIR=/Volumes/scratch/cfg\n"), 0o600); err != nil {
 			t.Fatalf("seed env file: %v", err)
 		}
-		// A claude that really resolves its config file the measured way, so the
-		// spawn's own pre-trust probe is answered by the file the child would
-		// read rather than by a scripted string.
-		claudeBin := stageResolvingClaude(t, filepath.Join(box, "bin", "claude"))
+		// The process runner models tmux; only executable resolution needs a file.
+		claudeBin := stageBinary(t, filepath.Join(box, "bin", "claude"), "#!/bin/sh\nexit 1\n")
 		// The spawn refuses earlier when it cannot find ocagent, which would make
 		// this test pass for the wrong reason. Publish the sibling the production
 		// resolver looks for first.
@@ -814,6 +813,27 @@ func TestBuildCommandDeps(t *testing.T) {
 		wardenHome := filepath.Join(box, "home")
 		if err := os.MkdirAll(wardenHome, 0o700); err != nil {
 			t.Fatalf("mkdir home: %v", err)
+		}
+		// A populated user configuration must survive startup unchanged apart from trust.
+		servers := map[string]any{}
+		for i := 0; i < 12; i++ {
+			servers[fmt.Sprintf("user-server-%02d", i)] = map[string]any{"command": "/usr/bin/false"}
+		}
+		workdir := filepath.Join(box, "agents", "m1")
+		if err := os.MkdirAll(workdir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		projectKey, err := filepath.EvalSymlinks(workdir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		seed := map[string]any{"projects": map[string]any{projectKey: map[string]any{"mcpServers": servers}}}
+		seedBytes, err := json.Marshal(seed)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(wardenHome, ".claude.json"), seedBytes, 0o600); err != nil {
+			t.Fatal(err)
 		}
 		spawnEnv := envMap(map[string]string{
 			"HOME": wardenHome, "OC_AGENT_HOME": filepath.Join(box, "agents"),
@@ -838,6 +858,17 @@ func TestBuildCommandDeps(t *testing.T) {
 		}
 		if !strings.Contains(string(raw), "hasTrustDialogAccepted") {
 			t.Errorf("%s = %s, want the workdir marked trusted", trusted, raw)
+		}
+		var config map[string]any
+		if err := json.Unmarshal(raw, &config); err != nil {
+			t.Fatal(err)
+		}
+		entry := config["projects"].(map[string]any)[projectKey].(map[string]any)
+		if !reflect.DeepEqual(entry["mcpServers"], servers) || entry["hasTrustDialogAccepted"] != true {
+			t.Fatalf("startup changed user MCP settings or failed to trust workdir: %s", raw)
+		}
+		if got.Note != "" {
+			t.Fatalf("unexpected startup warning: %s", got.Note)
 		}
 		var launch string
 		for _, call := range runner.calls {
@@ -864,7 +895,7 @@ func TestBuildCommandDeps(t *testing.T) {
 		// directly: with no redirect that answer is identical to the stated one, so
 		// a second resolution here would read exactly like the shared one.
 		box := t.TempDir()
-		claudeBin := stageResolvingClaude(t, filepath.Join(box, "bin", "claude"))
+		claudeBin := stageBinary(t, filepath.Join(box, "bin", "claude"), "#!/bin/sh\nexit 1\n")
 		exe, err := os.Executable()
 		if err != nil {
 			t.Fatalf("executable: %v", err)
