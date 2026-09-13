@@ -312,10 +312,18 @@ const (
 	//   - mint / bootstrap: a contractor's token TTL and its boot document both
 	//     come from the worker path; the staff path would hand it the WRONG
 	//     document, not merely too much authority.
-	//   - activate / deactivate / force-stop / accelerated-stop / refocus: the
-	//     contractor equivalents live under /api/outsource-workers/* and drive a
-	//     DIFFERENT kill funnel. Two funnels onto one latch is the double-kill
-	//     that T-72dd fixed.
+	//   ⚠️ activate / deactivate / force-stop / accelerated-stop / refocus ARE NO
+	//     LONGER ON THIS LIST, and this comment used to claim they were. Until
+	//     T-197 they passed staffOnly because "the contractor equivalents live
+	//     under /api/outsource-workers/* and drive a DIFFERENT kill funnel". That
+	//     second route family is gone: each of those five now resolves
+	//     anyMember and branches on `m.Kind == KindOutsource` into the SAME
+	//     worker body the retired route used to reach (api_members.go). The
+	//     double-kill T-72dd fixed is still what the branch prevents — one
+	//     funnel per kind — but the thing selecting the funnel is that explicit
+	//     branch, not a 404 from here. Grep staffOnly before trusting any list
+	//     in this block: today's callers are mint / bootstrap, relocate and
+	//     dismiss, and nothing else.
 	//   - dismiss (DELETE): a contractor leaves by being RELEASED with its task,
 	//     not by being fired; soft-deleting the row under a live task strands it.
 	//   - relocate: 🔴 SPECIAL — this one needs errNotFound as CONTROL FLOW. Its
@@ -357,6 +365,23 @@ func (s *apiServer) resolveMember(memberID string, scope memberScope) (*Member, 
 		return nil, errNotFound
 	}
 	if scope == staffOnly && m.Kind == KindOutsource {
+		return nil, errNotFound
+	}
+	return m, nil
+}
+
+// resolveMemberForItemRead is the read-only identity lookup behind
+// GET /api/members/{id}. A released outsource worker remains addressable here
+// because chats, tasks and lore keep its durable codename after release. The
+// same roster_status value means dismissal for staff and teardown for wardens,
+// so those kinds still read as not found. Lifecycle and write handlers keep
+// using resolveMember and therefore cannot revive a released worker.
+func (s *apiServer) resolveMemberForItemRead(memberID string) (*Member, error) {
+	m, err := s.dal.GetMember(memberID)
+	if err != nil {
+		return nil, err
+	}
+	if m == nil || (m.RosterStatus == RosterStatusRemoved && m.Kind != KindOutsource) {
 		return nil, errNotFound
 	}
 	return m, nil
@@ -558,6 +583,15 @@ func (s *apiServer) unreadCountsForRequest(r *http.Request) (map[string]int, err
 }
 
 func (s *apiServer) newMemberDTO(m Member, roleName, observedMachine string, unreadCount int) memberDTO {
+	return newMemberDTO(m, roleName, observedMachine, unreadCount,
+		PresenceState(m, nowSecs(), s.hub.IsOnline(m.ID)),
+		winddownDeadlineOf(m, s.reconcileConfigLive()),
+		terminalAttachCommand(s.namespace, m.ID))
+}
+
+func newMemberDTO(m Member, roleName, observedMachine string, unreadCount int,
+	presence string, refocusDeadline float64, terminalAttach string,
+) memberDTO {
 	return memberDTO{
 		ID:               m.ID,
 		AvatarURL:        memberAvatarURL(m.AvatarAttachmentID),
@@ -575,7 +609,7 @@ func (s *apiServer) newMemberDTO(m Member, roleName, observedMachine string, unr
 		DesiredState:     m.DesiredState,
 		DesiredMachineID: m.DesiredMachineID,
 		Machine:          observedMachine,
-		Presence:         PresenceState(m, nowSecs(), s.hub.IsOnline(m.ID)),
+		Presence:         presence,
 		RefocusSince:     m.RefocusSince,
 		RefocusOp:        m.RefocusOp,
 		// The grace this member's epoch is ACTUALLY collected on, and 0 when
@@ -585,7 +619,7 @@ func (s *apiServer) newMemberDTO(m Member, roleName, observedMachine string, unr
 		// must show NO deadline rather than a time the owner would watch pass with
 		// nothing happening. Reading RecycleGrace straight would report exactly
 		// that kind of ceiling, for most of the closed set.
-		RefocusDeadline: winddownDeadlineOf(m, s.reconcileConfigLive()),
+		RefocusDeadline: refocusDeadline,
 		LastOp:          m.LastOp,
 		LastOpOK:        m.LastOpOK,
 		LastOpLog:       m.LastOpLog,
@@ -600,7 +634,7 @@ func (s *apiServer) newMemberDTO(m Member, roleName, observedMachine string, unr
 		// used to hold a hardcoded `tmux -L officraft` that is wrong on every
 		// namespaced station. Unconditional (no presence gate): see
 		// terminal_attach.go.
-		TerminalAttachCommand: terminalAttachCommand(s.namespace, m.ID),
+		TerminalAttachCommand: terminalAttach,
 	}
 }
 

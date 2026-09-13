@@ -928,8 +928,10 @@ export interface OutsourceWorkerView {
    * a bounded receipt instead — `AgentRelocateReceiptDTO` and
    * `OutsourceRestartReceiptDTO` carry the three flags — so the only builders of
    * this type are the read faces (`listOutsourceWorkers`, `getOutsourceWorker`),
-   * where the server never set them. `OutsourceWorkerDTO` stopped declaring them
+   * where the server never set them. The worker read DTO stopped declaring them
    * in the same change, so there is nothing left for a mapper to pass through.
+   * (T-197 then removed that DTO outright — both kinds read back `MemberDTO`,
+   * which does not carry the three flags either.)
    * If you need "was this move dispatched?", read the relocate's own answer. */
 }
 
@@ -1825,7 +1827,7 @@ export interface WebhookUpdate {
  * moves (the freeze in root CLAUDE.md §13 stands).
  */
 export interface SseDeltaNames {
-  /** `member` / `task` / `reply_card` / `outsource_worker` / `chat` (message id). */
+  /** `member` / `task` / `reply_card` / `chat` (message id). */
   id?: string;
   /** `chat`: the message's sender / recipient. */
   from?: string;
@@ -2539,83 +2541,17 @@ export interface Api {
   postTaskMessage(id: string, msg: TaskMessageInput): Promise<void>;
   /**
    * List LIVE (not-yet-released) outsource workers
-   * (`GET /api/outsource-workers`): codename / model / effort + the bound
+   * (`GET /api/members`, filtered to kind=outsource): name / model / effort + the bound
    * task id. The task card resolves its 外包 executor display through this;
-   * released workers drop off, so a CLOSED outsource task honestly renders
-   * the bare 外包 label instead of a fabricated codename.
+   * released workers drop off this list, but their durable identity remains
+   * available through getOutsourceWorker for lazy chat/task/lore attribution.
    */
   listOutsourceWorkers(): Promise<OutsourceWorkerView[]>;
-  /** Read ONE worker (`GET /api/outsource-workers/{id}`) — the SAME projection
-   * the list serves, for the detail panel's post-relocate refresh.
-   * 🔴 A RELEASED worker READS FINE here; only an UNKNOWN id is 404 (throws
-   * ApiError). That asymmetry with the LIST — which skips released rows on
-   * purpose — is the whole reason the lazy identity cache exists, and it is
-   * also why a released row still carries the task it finished: a caller asking
-   * "what is this worker on NOW" must read `status` and not assume the row it
-   * got back describes current work. (T-f190, corrected T-196) */
+  /** Read ONE worker (`GET /api/members/{member_id}`) — the SAME
+   * projection the list serves, for the detail panel's post-relocate refresh.
+   * Released rows remain readable for durable identity attribution; an unknown
+   * worker still → 404 (throws ApiError). (T-f190) */
   getOutsourceWorker(id: string): Promise<OutsourceWorkerView>;
-  /** Relocate a worker to a machine (`POST /api/outsource-workers/{id}/relocate`
-   * {machine_id}, admin-gated since P7c — the member relocate floor) — the
-   * cockpit's 改機器, the worker twin of the
-   * member machine-bind. Writes the owner-pinned placement, kills the current
-   * session, and clears pacing so the next tick re-spawns on the chosen machine
-   * (no lifecycle change). machineId = a concrete machine id that must resolve,
-   * or "" (clear the pin).
-   *
-   * Resolves VOID. The write answers the SAME AgentRelocateReceiptDTO the member
-   * arm gets (T-91), flags and all — but this arm reads none of them: unlike
-   * {@link relocateMember} there is no worker-side 移動中… notice to keep put, and
-   * the only caller awaits and discards. The caller refetches / leans on the
-   * outsource_worker SSE delta, exactly as it already did. (T-f190) */
-  relocateWorker(id: string, machineId: string): Promise<void>;
-  /** Refocus a worker (`POST /api/outsource-workers/{id}/refocus`, owner/admin-agent) —
-   * the cockpit's 換手, the worker twin of refocusMember. Kills the current
-   * session and re-spawns a fresh worker onto the SAME task. ONLINE-ONLY (409
-   * otherwise); stopped → 409; unknown/released → 404. Resolves VOID: the write
-   * answers a bounded receipt (`{id}`, T-91), not the worker, and the caller
-   * refetches. (T-32e1) */
-  refocusWorker(id: string): Promise<void>;
-  /** Stop a worker (`POST /api/outsource-workers/{id}/stop`, owner/admin-agent) — the
-   * FIRST rung of 停止 → 加速停止 → 強制停止 and, since T-ed79, a GRACEFUL
-   * CLOSE-OUT rather than a kill (owner 2026-08-21 「往正職靠：外包那顆改成優雅
-   * 停止」): it holds the worker down (desired offline, presence
-   * "stopping"/"stopped", no auto-revival), shows it the 〈停止〉 and WAITS for
-   * its own report_stopped. No deadline unless the owner escalates. The bound
-   * task stays put. Idempotent; unknown/released → 404. Resolves VOID: the write
-   * answers a bounded receipt (`{id}`, T-91), not the worker, and the caller
-   * refetches. (T-f190, T-ed79) */
-  stopWorker(id: string): Promise<void>;
-  /** 加速停止 a worker (`POST /api/outsource-workers/{id}/accelerated-stop`,
-   * owner/admin-agent) — the MIDDLE rung. Puts the wind-down that is ALREADY open
-   * (a 停止 or a 換手) on the server's `stop.accelerated_grace_secs` clock and
-   * TELLS the worker; it is not a kill, so the worker can still finish early.
-   * 409 when nothing is winding down, when the worker is offline/released, or
-   * when it was force-stopped. Resolves VOID: the write answers a bounded
-   * receipt (`{id}`, T-91), not the worker, and the caller refetches. (T-ed79) */
-  acceleratedStopWorker(id: string): Promise<void>;
-  /** 強制停止 a worker (`POST /api/outsource-workers/{id}/force-stop`,
-   * owner/admin-agent) — the THIRD rung, and the body /stop used to have: kill the
-   * session NOW and hold it down. It says NOTHING to the worker (the recipient is
-   * about to stop existing). Idempotent; unknown/released → 404. Resolves VOID:
-   * the write answers a bounded receipt (`{id}`, T-91), not the worker, and the
-   * caller refetches. (T-ed79) */
-  forceStopWorker(id: string): Promise<void>;
-  /** WAKE a worker with no live session (`POST /api/outsource-workers/{id}/restart`,
-   * owner/admin-agent) — clear the stop and re-dispatch. ⚠️ The owner-facing word
-   * is 喚醒 since T-7526 (「重啟」 retired, one verb across both panels); the
-   * ENDPOINT keeps its frozen name, so the adapter method does too. The guard is LIVENESS,
-   * not intent (T-7526): 409 only when the worker is BOTH not held down and
-   * currently online, so a worker whose session died on its own is revivable.
-   * unknown/released → 404. (T-f190) */
-  restartWorker(id: string): Promise<void>;
-  /** Change a worker's model/effort (`POST /api/outsource-workers/{id}/model`,
-   * owner/admin-agent) — active+online → kill+respawn to take effect now, otherwise
-   * persist for the next spawn. Resolves VOID: the write answers a bounded
-   * receipt (`{id}`, T-91), not the worker, and the caller refetches. (T-f190) */
-  setWorkerModel(
-    id: string,
-    patch: { runtime?: "claude" | "codex"; model: string; effort?: string },
-  ): Promise<void>;
   /** Read a worker's boot-context PREVIEW (`GET
    * /api/outsource-workers/{id}/boot-context`, owner/admin-agent) — the worker twin
    * of getBootstrap's role preview: the server re-assembles the persona text

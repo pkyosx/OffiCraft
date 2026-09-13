@@ -307,9 +307,8 @@ func (s *apiServer) foldCommandResult(commandResult map[string]any, trigger, rep
 	}
 	// P5b convergence: a worker start/stop now rides the member verbs, so its
 	// receipt arrives keyed member_id == the ow- id. Route it to the worker fold
-	// (PutOutsourceWorker + the owner-only outsource_worker delta) — never the
-	// member putMember fold, whose member-topic fan-out would leak an outsource
-	// row onto the staff roster wire.
+	// (PutOutsourceWorker + the shared member delta), preserving the worker's
+	// task-specific command fold.
 	if m.Kind == KindOutsource {
 		s.foldWorkerCommandResult(memberID, commandResult, trigger)
 		return
@@ -399,11 +398,11 @@ func (s *apiServer) foldCommandResult(commandResult map[string]any, trigger, rep
 }
 
 // foldWorkerCommandResult folds ONE warden worker command_result receipt
-// (worker_start / worker_stop, T-9ccf) onto the addressed outsource_worker
+// (worker_start / worker_stop, T-9ccf) onto the addressed outsource member
 // row's last_op* fields — the worker twin of foldCommandResult's member fold,
 // reusing the SAME clamps and three-valued ok. Fail-safe: an unknown worker or
 // any storage fault is logged and swallowed (an observation fold must never
-// 500), and it fans an owner-only outsource_worker delta so the cockpit sees
+// 500), and it fans a member delta so the cockpit sees
 // the fresh reason immediately. It deliberately does NOT touch lifecycle
 // (status / released_ts) — a receipt is an observation, never a state change.
 //
@@ -1234,7 +1233,7 @@ func (s *apiServer) HandleGetMonitoringApiMonitoringGet(w http.ResponseWriter, r
 
 	// sessions = EVERY live AI session, staff and outsource alike (owner ruling
 	// rc-1f8156f25b7a ①). The cockpit's 「AI 會話」 table used to JOIN this list
-	// with GET /api/outsource-workers, and the two wires do not mean the same
+	// with a separate worker list, and the two wires did not mean the same
 	// thing by the same column name: the worker DTO's `effort`/`model` are the
 	// owner's CONFIGURED launch intent (its editor round-trips them), while a
 	// session row's are what the session itself REPORTED. Merging two such lists

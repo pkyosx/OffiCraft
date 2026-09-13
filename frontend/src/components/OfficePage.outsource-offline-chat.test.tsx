@@ -235,11 +235,11 @@ describe("OfficePage — an outsource worker's chat room", () => {
     // 「喚醒中…」 is set by ChatArea BEFORE the promise settles, so an
     // `onWake={async () => {}}` that never touches the adapter renders exactly
     // the same thing — measured: the button-text assertion alone stays GREEN
-    // with the `api.restartWorker` line deleted. That is the T-7fa1 shape (a
+    // with the `api.activateMember` line deleted. That is the T-7fa1 shape (a
     // real signal, produced correctly, dropped in the middle), so the wake is
     // measured at the SEAM, spying through to the real mock rather than
     // replacing it.
-    const restart = vi.spyOn(api, "restartWorker");
+    const restart = vi.spyOn(api, "activateMember");
     injectWorker("stopped");
     const { query } = await openWorkerChat();
     const btn = query().wakeBtn!;
@@ -314,9 +314,6 @@ describe("OfficePage — an outsource worker's chat room", () => {
           "conflict",
           "nope",
         );
-      const restart = vi
-        .spyOn(api, "restartWorker")
-        .mockRejectedValue(reject());
       const activate = vi
         .spyOn(api, "activateMember")
         .mockRejectedValue(reject());
@@ -326,7 +323,7 @@ describe("OfficePage — an outsource worker's chat room", () => {
 
       const worker = await openWorkerChat();
       const afterWorker = await wakeAndReadBack(worker);
-      expect(restart).toHaveBeenCalledWith(WORKER_ID);
+      expect(activate).toHaveBeenCalledWith(WORKER_ID);
       worker.unmount();
 
       const staff = await openStaffChat();

@@ -2613,7 +2613,7 @@ let mockSigningKeys: WireSigningKeys["keys"] = structuredClone(
   MOCK_WIRE_SIGNING_KEYS,
 );
 
-export const mockApi: Api = {
+const mockApiImpl = {
   async listMembers(_opts?: { light?: boolean }): Promise<Member[]> {
     // Mirror the backend roster: dismissed (status="removed") rows are excluded.
     // `unread_count` is COMPUTED live per member (the same watermark-inverse
@@ -2632,9 +2632,12 @@ export const mockApi: Api = {
   },
 
   async getMember(id: string): Promise<Member> {
-    // A removed member reads as 404 (mirror handle_get_member).
+    // Released outsource rows stay readable for durable identity attribution;
+    // dismissed staff and removed wardens still read as 404.
     const w = findWire(id);
-    if (w.roster_status === "removed") throw new Error(`mock: member removed: ${id}`);
+    if (w.roster_status === "removed" && w.kind !== "outsource") {
+      throw new Error(`mock: member removed: ${id}`);
+    }
     // unread_count is COMPUTED here exactly as listMembers computes it — the Go
     // single-member handler runs the same `unreadCountsForRequest` as the list
     // (T-8115 review). Serving the static fixture value instead would make the
@@ -2650,7 +2653,7 @@ export const mockApi: Api = {
         URL.revokeObjectURL(worker.avatarUrl);
       }
       worker.avatarUrl = url;
-      emitTopic("outsource_worker");
+      emitTopic("member");
       return url;
     }
     const member = findWire(id);
@@ -2669,7 +2672,7 @@ export const mockApi: Api = {
         URL.revokeObjectURL(worker.avatarUrl);
       }
       worker.avatarUrl = "";
-      emitTopic("outsource_worker");
+      emitTopic("member");
       return;
     }
     const member = findWire(id);
@@ -2684,6 +2687,11 @@ export const mockApi: Api = {
     id: string,
     machineId?: string,
   ): Promise<MemberActivateResult> {
+    if (outsourceWorkers.some((worker) => worker.id === id)) {
+      if (machineId !== undefined) await mockApiImpl.relocateOutsourceMember(id, machineId);
+      await mockApiImpl.activateOutsourceMember(id);
+      return { activationPending: false };
+    }
     // Presence contract: write desired_state=online INTENT and enter WAKING. When a
     // machineId is given, BIND the agent to that machine (persist it on
     // `desired_machine_id`, which carries the machine binding id) — the spawn/wake path
@@ -2713,6 +2721,10 @@ export const mockApi: Api = {
     id: string,
     machineId: string,
   ): Promise<MemberRelocateResult> {
+    if (outsourceWorkers.some((worker) => worker.id === id)) {
+      await mockApiImpl.relocateOutsourceMember(id, machineId);
+      return { relocationPending: false, relocationDeferred: false };
+    }
     // 改機器 (mirror handle_relocate_member): PLACEMENT ONLY — re-pin
     // `desired_machine_id` and NOTHING else. Unlike activateMember it never
     // touches `desired_state`/presence (a relocate is not a wake). The real
@@ -2729,6 +2741,10 @@ export const mockApi: Api = {
   },
 
   async deactivateMember(id: string): Promise<void> {
+    if (outsourceWorkers.some((worker) => worker.id === id)) {
+      await mockApiImpl.stopOutsourceMember(id);
+      return;
+    }
     // Graceful STOP intent: write desired_state=offline. The mock has no live agent to
     // wind down (it is never online), so there is no honest `stopping`/
     // `stopped` phase to enter — a stop / wake-cancel simply falls back to
@@ -2762,7 +2778,7 @@ export const mockApi: Api = {
     if (worker) {
       worker.cost = null;
       worker.bankedCost = null;
-      emitTopic("outsource_worker");
+      emitTopic("member");
     }
     // The production route fans a `monitoring` signal so the cockpit refetches.
     // Without it here the mock reports success and nothing on screen moves.
@@ -2789,6 +2805,10 @@ export const mockApi: Api = {
   },
 
   async forceStopMember(id: string): Promise<void> {
+    if (outsourceWorkers.some((worker) => worker.id === id)) {
+      await mockApiImpl.forceStopOutsourceMember(id);
+      return;
+    }
     // Immediate kill escalation (mirror handle_force_stop_member): write
     // desired_state=offline and fall to offline. The mock has no live agent/warden to
     // SIGKILL, so — like deactivate — it simply lands offline; the real backend
@@ -2799,6 +2819,10 @@ export const mockApi: Api = {
   },
 
   async acceleratedStopMember(id: string): Promise<void> {
+    if (outsourceWorkers.some((worker) => worker.id === id)) {
+      await mockApiImpl.acceleratedStopOutsourceMember(id);
+      return;
+    }
     // 加速停止 (mirror handle_accelerated_stop_member): the MIDDLE rung. It
     // ESCALATES a wind-down that is already open — the mock reproduces the 409
     // gate rather than the clock, because the gate is the part a cockpit can get
@@ -2833,6 +2857,22 @@ export const mockApi: Api = {
   },
 
   async patchMember(id: string, patch: MemberPatch): Promise<void> {
+    const outsourceWorker = outsourceWorkers.find((worker) => worker.id === id);
+    if (outsourceWorker) {
+      if (patch.name !== undefined) {
+        throw mockApiError(
+          `http 422 for PATCH /api/members/${id}`,
+          422,
+          "an outsource worker's codename is task-bound and cannot be renamed",
+        );
+      }
+      await mockApiImpl.patchOutsourceMember(id, {
+        runtime: patch.runtime,
+        model: patch.model ?? outsourceWorker.model,
+        effort: patch.effort,
+      });
+      return;
+    }
     // T-91: the write answers a RECEIPT (`{id}`), not the member row. The mock's
     // own store is still the one that changed below, so a read-back sees the
     // write; the response just stops carrying what nobody may render from it.
@@ -2854,6 +2894,10 @@ export const mockApi: Api = {
   },
 
   async refocusMember(id: string): Promise<void> {
+    if (outsourceWorkers.some((worker) => worker.id === id)) {
+      await mockApiImpl.refocusOutsourceMember(id);
+      return;
+    }
     // Server-side refocus is online-only; the mock member is never online, so
     // this is a no-op that simply records the intent timestamp.
     const w = findWire(id);
@@ -4008,7 +4052,7 @@ export const mockApi: Api = {
     t.updatedTs = t.closedTs;
     outsourceWorkers = outsourceWorkers.filter((w) => w.taskId !== id);
     emitTopic("task");
-    emitTopic("outsource_worker");
+      emitTopic("member");
     // T-91: the write answers a RECEIPT, not the object. The mock's own store
     // is still the one that changed above, so a read-back sees the write; the
     // response just stops carrying what nobody may render from it.
@@ -4124,7 +4168,7 @@ export const mockApi: Api = {
     t.updatedTs = t.closedTs;
     outsourceWorkers = outsourceWorkers.filter((w) => w.taskId !== id);
     emitTopic("task");
-    emitTopic("outsource_worker");
+      emitTopic("member");
     // T-91: the write answers a RECEIPT, not the object. The mock's own store
     // is still the one that changed above, so a read-back sees the write; the
     // response just stops carrying what nobody may render from it.
@@ -4432,7 +4476,7 @@ export const mockApi: Api = {
       });
     }
     emitTopic("task");
-    emitTopic("outsource_worker");
+      emitTopic("member");
     // T-91: the write answers a RECEIPT, not the object. The mock's own store
     // is still the one that changed above, so a read-back sees the write; the
     // response just stops carrying what nobody may render from it.
@@ -4558,13 +4602,13 @@ export const mockApi: Api = {
   },
 
   async getOutsourceWorker(id: string): Promise<OutsourceWorkerView> {
-    // The single-worker read (T-f190) — the SAME projection the list serves.
+    // The unified member read — the SAME projection the list serves.
     // Unknown → 404, matching the http adapter (the panel self-heals to the
     // roster). Live unread is computed the same way as the list.
     const w = outsourceWorkers.find((x) => x.id === id);
     if (!w) {
       throw mockApiError(
-        `http 404 for GET /api/outsource-workers/${id}`,
+        `http 404 for GET /api/members/${id}`,
         404,
         `outsource worker ${id} not found`
       );
@@ -4575,7 +4619,7 @@ export const mockApi: Api = {
     };
   },
 
-  async relocateWorker(id: string, machineId: string): Promise<void> {
+  async relocateOutsourceMember(id: string, machineId: string): Promise<void> {
     // 改機器 (T-f190). The mock has no scheduler, so it models the SERVER's
     // observable outcome honestly: write the owner-pinned desired_machine_id and,
     // for a CONCRETE machine id, reflect it as the new `machine` (the dispatch
@@ -4586,7 +4630,7 @@ export const mockApi: Api = {
     const w = outsourceWorkers.find((x) => x.id === id);
     if (!w || w.status === "released") {
       throw mockApiError(
-        `http 404 for POST /api/outsource-workers/${id}/relocate`,
+        `http 404 for POST /api/members/${id}/relocate`,
         404,
         `outsource worker ${id} not found`
       );
@@ -4600,7 +4644,7 @@ export const mockApi: Api = {
       // here the picker only offers real online machines, so resolve honestly.
       w.machine = m ? m.name : machineId;
     }
-    emitTopic("outsource_worker");
+      emitTopic("member");
     // T-91: the write answers a RECEIPT, not the worker. The receipt DOES carry
     // relocation_pending / relocation_deferred (it is the member arm's shape),
     // but the worker adapter reads neither, so the mock has nothing left to
@@ -4609,7 +4653,7 @@ export const mockApi: Api = {
     // return value no caller took. The store above is what changed.
   },
 
-  async refocusWorker(id: string): Promise<void> {
+  async refocusOutsourceMember(id: string): Promise<void> {
     // 換手 (T-32e1). The mock models the server's observable outcome: online-only
     // (409 unless presence "online"), stopped → 409, unknown/released → 404. On
     // success stamp refocus_since (the panel's 換手中 acknowledgement); the actual
@@ -4617,29 +4661,29 @@ export const mockApi: Api = {
     const w = outsourceWorkers.find((x) => x.id === id);
     if (!w || w.status === "released") {
       throw mockApiError(
-        `http 404 for POST /api/outsource-workers/${id}/refocus`,
+        `http 404 for POST /api/members/${id}/refocus`,
         404, `outsource worker ${id} not found`
       );
     }
     if (w.desiredState === "offline") {
       throw mockApiError(
-        `http 409 for POST /api/outsource-workers/${id}/refocus`,
+        `http 409 for POST /api/members/${id}/refocus`,
         409, "worker is stopped — restart it before refocusing"
       );
     }
     if (w.presence !== "online") {
       throw mockApiError(
-        `http 409 for POST /api/outsource-workers/${id}/refocus`,
+        `http 409 for POST /api/members/${id}/refocus`,
         409, "refocus requires the worker to be online"
       );
     }
     w.refocusSince = Date.now() / 1000;
-    emitTopic("outsource_worker");
+      emitTopic("member");
     // T-91: the write answers a RECEIPT, not the worker; the store above is what
     // changed and the panel refetches.
   },
 
-  async stopWorker(id: string): Promise<void> {
+  async stopOutsourceMember(id: string): Promise<void> {
     // 停止 (T-f190; a GRACEFUL close-out since T-ed79). Held down: desired_state
     // offline (member parity) and the in-flight refocus cleared — but NO kill.
     // The worker is shown its 〈停止〉 and keeps its session until it reports
@@ -4648,7 +4692,7 @@ export const mockApi: Api = {
     const w = outsourceWorkers.find((x) => x.id === id);
     if (!w || w.status === "released") {
       throw mockApiError(
-        `http 404 for POST /api/outsource-workers/${id}/stop`,
+        `http 404 for POST /api/members/${id}/deactivate`,
         404, `outsource worker ${id} not found`
       );
     }
@@ -4656,20 +4700,20 @@ export const mockApi: Api = {
     w.refocusSince = null;
     w.refocusOp = undefined;
     w.presence = w.presence === "online" ? "stopping" : "stopped";
-    emitTopic("outsource_worker");
+      emitTopic("member");
     // T-91: the write answers a RECEIPT, not the worker; the store above is what
     // changed and the panel refetches.
   },
 
-  async acceleratedStopWorker(id: string): Promise<void> {
+  async acceleratedStopOutsourceMember(id: string): Promise<void> {
     // 加速停止 (T-ed79) — the MIDDLE rung. It escalates a wind-down that is
     // ALREADY open, so its refusal is what makes it an escalation rather than a
     // second stop button; the message names the rungs below it, mirroring the
-    // server's acceleratedStopWorkerNeedsAnOpenWindDownMsg.
+    // server's acceleratedStopOutsourceMemberNeedsAnOpenWindDownMsg.
     const w = outsourceWorkers.find((x) => x.id === id);
     if (!w || w.status === "released") {
       throw mockApiError(
-        `http 404 for POST /api/outsource-workers/${id}/accelerated-stop`,
+        `http 404 for POST /api/members/${id}/accelerated-stop`,
         404, `outsource worker ${id} not found`
       );
     }
@@ -4678,13 +4722,13 @@ export const mockApi: Api = {
       (w.refocusSince ?? 0) > 0;
     if (w.presence !== "online" && w.presence !== "stopping") {
       throw mockApiError(
-        `http 409 for POST /api/outsource-workers/${id}/accelerated-stop`,
+        `http 409 for POST /api/members/${id}/accelerated-stop`,
         409, "加速停止 requires the worker to be online (no live session to accelerate)"
       );
     }
     if (!windingDown) {
       throw mockApiError(
-        `http 409 for POST /api/outsource-workers/${id}/accelerated-stop`,
+        `http 409 for POST /api/members/${id}/accelerated-stop`,
         409,
         "加速停止 escalates a wind-down that is already open — this worker has not " +
           "been asked to stop. Press 停止 or 重新聚焦 first"
@@ -4698,18 +4742,18 @@ export const mockApi: Api = {
     const stamps = acceleratedStopStamps(w.desiredState === "offline");
     if (stamps.since !== null) w.refocusSince = stamps.since;
     w.refocusDeadline = stamps.deadline;
-    emitTopic("outsource_worker");
+      emitTopic("member");
     // T-91: the write answers a RECEIPT, not the worker; the store above is what
     // changed and the panel refetches.
   },
 
-  async forceStopWorker(id: string): Promise<void> {
+  async forceStopOutsourceMember(id: string): Promise<void> {
     // 強制停止 (T-ed79) — the THIRD rung, and the body /stop used to have: the
     // session is killed on the spot, so the worker lands in "stopped" directly.
     const w = outsourceWorkers.find((x) => x.id === id);
     if (!w || w.status === "released") {
       throw mockApiError(
-        `http 404 for POST /api/outsource-workers/${id}/force-stop`,
+        `http 404 for POST /api/members/${id}/force-stop`,
         404, `outsource worker ${id} not found`
       );
     }
@@ -4717,12 +4761,12 @@ export const mockApi: Api = {
     w.refocusSince = null;
     w.refocusOp = undefined;
     w.presence = "stopped";
-    emitTopic("outsource_worker");
+      emitTopic("member");
     // T-91: the write answers a RECEIPT, not the worker; the store above is what
     // changed and the panel refetches.
   },
 
-  async restartWorker(id: string): Promise<void> {
+  async activateOutsourceMember(id: string): Promise<void> {
     // 喚醒 (T-f190; the word since T-7526 — the path stays /restart). Inverse of stop: set desired_state back online + re-dispatch.
     // 409 only when the worker is actually ALIVE (T-7526 — see the guard below);
     // unknown/released → 404. The mock reflects the observable re-spawn as presence
@@ -4730,7 +4774,7 @@ export const mockApi: Api = {
     const w = outsourceWorkers.find((x) => x.id === id);
     if (!w || w.status === "released") {
       throw mockApiError(
-        `http 404 for POST /api/outsource-workers/${id}/restart`,
+        `http 404 for POST /api/members/${id}/activate`,
         404, `outsource worker ${id} not found`
       );
     }
@@ -4750,7 +4794,7 @@ export const mockApi: Api = {
     }
     w.desiredState = "online";
     w.presence = "waking";
-    emitTopic("outsource_worker");
+      emitTopic("member");
     // Mock ↔ http parity (T-ed79 #12): the mock always "dispatches", so it never
     // reports activation_pending. The flag is deliberately NOT faked here — a
     // mock that invents a pending state teaches the panel a story the server
@@ -4761,22 +4805,23 @@ export const mockApi: Api = {
     // response just stops carrying what nobody may render from it.
   },
 
-  async setWorkerModel(
+  async patchOutsourceMember(
     id: string,
-    patch: { model: string; effort?: string }
+    patch: { runtime?: "claude" | "codex"; model: string; effort?: string }
   ): Promise<void> {
     // 換 model (T-f190). Persist model/effort; the respawn-to-take-effect-now is
     // server-side (invisible here). unknown/released → 404.
     const w = outsourceWorkers.find((x) => x.id === id);
     if (!w || w.status === "released") {
       throw mockApiError(
-        `http 404 for POST /api/outsource-workers/${id}/model`,
+        `http 404 for POST /api/members/${id}`,
         404, `outsource worker ${id} not found`
       );
     }
+    if (patch.runtime !== undefined) w.runtime = patch.runtime;
     w.model = patch.model;
     if (patch.effort !== undefined && patch.effort !== "") w.effort = patch.effort;
-    emitTopic("outsource_worker");
+      emitTopic("member");
     // T-91: the write answers a RECEIPT, not the worker; the store above is what
     // changed and the panel refetches.
   },
@@ -6750,6 +6795,8 @@ export const mockApi: Api = {
   },
 };
 
+export const mockApi: Api = mockApiImpl;
+
 // Reset hook for tests / hot-reload determinism (not used by the UI).
 export function __resetMock(): void {
   // The ring is MUTATED by rotate/remove, so it belongs here: without this a
@@ -6882,7 +6929,7 @@ export function __injectMockMonitoringSession(s: WireMonSession): void {
 // one task), the way the server's assignment would surface it.
 export function __injectMockOutsourceWorker(w: OutsourceWorkerView): void {
   outsourceWorkers.push(w);
-  emitTopic("outsource_worker");
+      emitTopic("member");
 }
 
 // Test-only hook: inject a row as GET /api/members would return it.  Keeping

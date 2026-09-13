@@ -7,7 +7,7 @@ function batch(deltas: SseDelta[], unnamed = false) {
 }
 
 describe("burstMovesNoOwnerUnread fail-open boundary", () => {
-  it.each(["member", "outsource_worker"])(
+  it.each(["member"])(
     "a %s in the relevant topics is not unread-only, so a refetch is required",
     (topic) => {
       expect(
