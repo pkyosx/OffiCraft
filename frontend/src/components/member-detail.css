@@ -400,8 +400,8 @@
   color: var(--color-text-muted);
   font-size: 12px;
 }
-/* Structured failure cause — the one-line "<code>: <detail>" summary shown
- * ALWAYS on a failed op (the collapsible log below stays the long-form
+/* Structured cause — the one-line "<code>: <detail>" summary shown whenever
+ * the station sent a reason (the collapsible log below stays the long-form
  * detail). Wraps rather than truncates: the reason is the load-bearing WHY. */
 .mp-lastop__reason {
   margin-top: 6px;
@@ -409,6 +409,13 @@
   line-height: 1.5;
   color: var(--color-danger);
   word-break: break-word;
+}
+/* The same line on a SUCCEEDED op: the op worked, something just wants
+ * saying (T-201's pre-trust verdict reports here instead of refusing the
+ * spawn). Amber — the colour this cockpit already means "attention" with —
+ * so it never reads as the red of a failed op. */
+.mp-lastop__reason--note {
+  color: var(--color-warn-fg);
 }
 .mp-lastop__logwrap {
   margin-top: 8px;
