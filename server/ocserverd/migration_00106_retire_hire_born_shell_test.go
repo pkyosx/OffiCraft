@@ -88,8 +88,24 @@ func TestMigration00106CollectsOnlyTheUnboundOutsourceShell(t *testing.T) {
 	t202SeedMember(t, db, "ow-busy0000001", "outsource", "T-999")
 	// ③ a staff member — must not move.
 	t202SeedMember(t, db, "m-staff0000001", "staff", "")
+	// ④ THE ONLY GUARD ON `id = '…'` ITSELF, and it is a different question
+	// from ② and ③. Those two disqualify themselves on the OTHER clauses, so
+	// with the id clause deleted the WHERE still passes over them and this test
+	// still goes green — measured: with `id = 'm-51110698e801'` removed from the
+	// migration, every test in this package PASSED.
+	//
+	// What the id clause is actually holding back is the owner's explicit NO:
+	// 「直接處理掉這個worker ... 不用另外開可以移除的功能」(rc-3989498e0c8f) — collect
+	// THIS row, do not build a general remover. Without the literal id this
+	// migration IS that general remover: it would sweep up every idle outsource
+	// worker on the station in one shot. So the neighbour that measures it has to
+	// be a row that satisfies EVERY OTHER clause and differs only in its id —
+	// alive, kind='outsource', bound to no task. It must come out untouched.
+	t202SeedMember(t, db, "ow-idle0000001", "outsource", "")
 
-	for _, id := range []string{t202TargetID, "ow-busy0000001", "m-staff0000001"} {
+	for _, id := range []string{
+		t202TargetID, "ow-busy0000001", "m-staff0000001", "ow-idle0000001",
+	} {
 		if status, _ := t202ReadMember(t, db, id); status != "active" {
 			t.Fatalf("precondition: %s seeded as %q, want active", id, status)
 		}
@@ -120,6 +136,14 @@ func TestMigration00106CollectsOnlyTheUnboundOutsourceShell(t *testing.T) {
 	}
 	if status, released := t202ReadMember(t, db, "m-staff0000001"); status != "active" || released != 0 {
 		t.Fatalf("the staff member moved: status %q released_ts %v", status, released)
+	}
+	if status, released := t202ReadMember(t, db, "ow-idle0000001"); status != "active" || released != 0 {
+		t.Fatalf("an UNRELATED idle outsource worker was collected: status %q "+
+			"released_ts %v. This row differs from the target ONLY in its id, so "+
+			"this is the `id = '%s'` clause failing — and without that clause the "+
+			"migration is the general \"remove an outsource worker\" feature the "+
+			"owner refused (rc-3989498e0c8f), applied to the whole roster at once",
+			status, released, t202TargetID)
 	}
 }
 
