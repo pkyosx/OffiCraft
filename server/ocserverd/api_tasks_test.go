@@ -7342,15 +7342,73 @@ func TestHandleForceTaskDoneApiTasksTaskIdForceDonePost(t *testing.T) {
 		}
 	})
 
-	t.Run("a blank or missing reason is a 422 and the task stays open", func(t *testing.T) {
+	// ⚠️ THIS SUBTEST USED TO PIN THE OPPOSITE (422 on a blank or missing
+	// reason). Owner ruling rc-a92a6252c3bd —「可以不給理由」— inverted exactly
+	// that one cell and nothing else, so the assertions below still check
+	// everything the old ones did EXCEPT the refusal: the close lands, and the
+	// task carries the forcing principal afterwards even with no reason to carry.
+	// forced_done_by is what distinguishes a forced close from a self-closed one;
+	// the reason never was, and now that it can be absent that matters more, not
+	// less. Each body gets its OWN server: a second force against a task the
+	// first one closed would be a 409 about the terminal wall, not about reasons.
+	t.Run("a blank or missing reason closes the task anyway and still stamps the forcing principal", func(t *testing.T) {
+		for _, body := range []string{`{"reason":"   "}`, `{}`, ``} {
+			api, h, _, owner := newAPITestServer(t)
+			forcedTask(t, api, h, owner)
+
+			status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/force-done", owner, body)
+			if status != 200 {
+				t.Fatalf("body %q: want 200, got %d (%v)", body, status, data)
+			}
+			if data["status"] != TaskStatusDone || data["closed_ts"] == nil {
+				t.Fatalf("body %q: the receipt must report the closed task, got %v", body, data)
+			}
+			_, view := apiJSON(t, h, "GET", "/api/tasks/T-1", owner, "")
+			if view["status"] != TaskStatusDone {
+				t.Fatalf("body %q: the force must close the task, got %v", body, view["status"])
+			}
+			// The reason is absent, so it reads back EMPTY — never fabricated,
+			// never the whitespace the caller sent.
+			if view["forced_done_reason"] != "" {
+				t.Fatalf("body %q: a reasonless force must read back '', got %v",
+					body, view["forced_done_reason"])
+			}
+			// …and the stamp that survived the ruling is still there.
+			if view["forced_done_by"] != wireOwnerID {
+				t.Fatalf("body %q: the forcing principal must be recorded even without a reason, got %v",
+					body, view["forced_done_by"])
+			}
+		}
+	})
+
+	// The requirement went; the STORAGE did not. Kept as its own cell so a
+	// future reader can see the two halves were separated deliberately.
+	t.Run("a reason that IS given is still trimmed, stored and served", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		forcedTask(t, api, h, owner)
 
-		for _, body := range []string{`{"reason":"   "}`, `{}`} {
-			status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/force-done", owner, body)
-			if status != 422 {
-				t.Fatalf("body %s: want 422, got %d (%v)", body, status, data)
-			}
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/force-done", owner,
+			`{"reason":"  kip retired mid-plan  "}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		_, view := apiJSON(t, h, "GET", "/api/tasks/T-1", owner, "")
+		if view["forced_done_reason"] != "kip retired mid-plan" {
+			t.Fatalf("the given reason must be stored trimmed, got %v", view["forced_done_reason"])
+		}
+	})
+
+	// Optional is not "anything goes": the body is still strictly decoded, so a
+	// misspelled key is a 422 rather than a silently reasonless close. This is
+	// the guard the removed required-check used to stand in front of.
+	t.Run("an unknown body key is still a 422 and the task stays open", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		forcedTask(t, api, h, owner)
+
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/force-done", owner,
+			`{"resaon":"typo"}`)
+		if status != 422 {
+			t.Fatalf("want 422, got %d (%v)", status, data)
 		}
 		_, view := apiJSON(t, h, "GET", "/api/tasks/T-1", owner, "")
 		if view["status"] == TaskStatusDone {

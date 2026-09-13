@@ -347,6 +347,113 @@ export const en: Dict = {
     duplicateOfLabel: "Duplicate of",
     duplicateJump: "Jump to the original",
     actionError: "The action failed. Please try again.",
+    // ── ready_for_done: the window nobody could see (T-192) ──────────────────
+    // A finished plan lands in ready_for_done and STAYS there until somebody
+    // closes it — the server has no timer and chases nobody. The card used to
+    // render that as just another status word, so a task parked waiting for a
+    // human read exactly like a task being worked on. This line is what says
+    // "the work is done, the close has not happened".
+    //
+    // 🔴 THREE CONSTRAINTS, EACH MEASURED. This line was sent back twice for
+    // describing an operation that does not exist, or for handing the way out
+    // to the one principal the server refuses.
+    //
+    // (1) WHO IS BEING WAITED FOR is the task's ASSIGNEE, in the card's own
+    //     word. `callerMayMarkTaskDone` is literally
+    //     `t.ExecutorID != "" && currentActor(r) == t.ExecutorID` — no admin
+    //     exemption, the owner included. The word this UI already uses for that
+    //     person is the one on the card's own field row (`assigneeLabel`), so
+    //     the line uses it rather than minting a second noun for the same
+    //     human. (The zh side had exactly that bug: it invented 「執行者」,
+    //     which appeared in no other user-visible string, while the card
+    //     printed 「負責人」 for the same person two rows below.)
+    //
+    // (2) THAT CLOSE IS NOT A BUTTON ON THIS SCREEN. This package removed the
+    //     out-of-scope 結案 button, and nothing in the frontend product code
+    //     calls `api.markTaskDone` any more (the port method survives only so a
+    //     reverse guard can spy on it). Saying "waiting for someone to press
+    //     close" would send the owner hunting for a control that is not there;
+    //     what actually happens is the assignee calling the close itself.
+    //
+    // (3) THE WAY OUT IS ADDRESSED TO "YOU". Force close's route floor is
+    //     `Gated(principalAdminAgent, …)` and the assignee is a 403 there
+    //     ("the task's own executor is a 403 HERE"). Naming a role here is what
+    //     produced the last defect; second person avoids the role vocabulary
+    //     altogether and is TRUE, because this cockpit has exactly one
+    //     principal — `AuthGate` and `viewerMayForceTaskDone` share the
+    //     predicate `USE_MOCK || hasToken()`, so anyone who can see this card is
+    //     inside the set that floor admits.
+    readyForDoneHint:
+      "Every step is reported done — this task is waiting for its assignee to call the ordinary close itself. Only the assignee can make that call, and there is no button for it on this screen. If the assignee has left or is stuck, you can use Force close to end it here.",
+    // ── force close (T-192) ─────────────────────────────────────────────────
+    // The way out for a task whose executor is never coming back. Owner and
+    // admin assistant only — the server's route floor is the real gate; this
+    // menu item only stops offering a button that could not work.
+    forceDone: "Force close",
+    // 🔴 THE WORKER DISMISSAL IS THE EXPENSIVE HALF AND IT WAS NOT DISCLOSED.
+    // Every close funnels through `closeTask` (server/ocserverd/api_tasks.go),
+    // which calls `dismissOutsourceWorkersForTask` — `ReleaseWorkersForTask`
+    // (the roster row) AND `reclaimWorkerSession` (the live session), together,
+    // with no opt-out for this door. The typical moment to reach for 強制結案
+    // is "this ticket looks stuck", and a worker that is mid-run but has not
+    // reported is indistinguishable from a stuck one ON THIS SCREEN — so the
+    // press that looks like tidying up a dead ticket can cut a working
+    // contractor off mid-sentence. The second consequence is the record: `done`
+    // satisfies `TaskRecordFrozen` (domain.go), so the artifact verbs and the
+    // step-note write all answer 409 from then on.
+    //
+    // 🔴 TWO MORE THE SECOND REVIEW FOUND — `closeTask` does both and the
+    // dialog declared neither:
+    // (3) `expireWaitingCardsForTask` (api_tasks.go:684 → api_replycards.go:931)
+    //     retires EVERY reply card this task still has waiting. Questions this
+    //     task raised vanish from the owner's 等我回覆 pane at that moment and
+    //     can never be answered — and whoever presses this usually does not
+    //     know what the task asked.
+    // (4) `releaseDependentsOnClose` (api_tasks.go:718 →
+    //     api_tasks_handoff.go:363) releases and notifies the tasks this one was
+    //     blocking, and when a dependent is outsource-with-no-assignee it calls
+    //     `tickOutsource` — whose own comment says that tick is "what actually
+    //     turns \"design done\" into \"dev worker spawned\"".
+    //     ⇒ The dialog already declared that this press DISMISSES an outsource
+    //     worker while saying nothing about it MINTING one. Opposite directions,
+    //     and the second one bills. It is the only consequence of this button
+    //     that spends money, so leaving it out is not a rounding error.
+    forceDoneConfirmBody:
+      "Force this task closed, over the precondition its own steps have not met? It moves to Done and cannot be resumed, and who forced it is recorded on the task. Any outsource worker bound to this task is dismissed at that moment — its roster row is released and its session reclaimed, even if it is still working — and the task's deliverables and step notes are frozen from then on. Every reply card this task still has waiting is expired: the questions it raised disappear from the Awaiting my reply pane and can never be answered. The downstream tasks this one was blocking are released and notified, and any of them that is outsourced with no assignee yet spawns a NEW worker at that moment, which costs money.",
+    // Optional since the owner's ruling rc-a92a6252c3bd. The label says so, so
+    // that leaving it empty is a visible choice rather than a stuck form.
+    forceDoneReasonLabel: "Reason (optional)",
+    forceDoneReasonPlaceholder: "Why is this being closed without its steps?",
+    forceDoneConfirm: "Force close",
+    // How a forced close reads back afterwards. A task closed by force always
+    // says so; the reason may be absent, and absent is shown as absent.
+    forcedDoneLabel: "Force-closed by",
+    forcedDoneNoReason: "No reason given",
+    // Shown when a close is refused: the card says which status the task is
+    // ACTUALLY in, because "the action failed" alone does not tell the owner
+    // whether to retry, expand the card, or do nothing.
+    //
+    // 🔴 NAMING A STATUS IS NOT THE SAME AS ANSWERING THE REFUSAL, and this
+    // cell was sent back once for the difference. `HandleForceTaskDone` refuses
+    // in exactly three ways: 422 (decode / unknown field), 404, and 409 (the
+    // task is ALREADY terminal). 409's necessary-and-sufficient condition is
+    // "this task has already ended" — so on that path the line below contradicts
+    // itself end to end ("was not closed … status is now: Done"), and 409 is the
+    // only refusal this screen can actually produce. Each code answers its own
+    // reason now:
+    closeStateError: "The task was not closed. Its status is now: ",
+    // 409: it HAS ended, so "was not closed" is the wrong sentence — the useful
+    // one is "there is nothing left to close". The status sits in the middle
+    // because the three terminal states imply different next moves.
+    closeAlreadyClosedLead: "This task has already ended (",
+    closeAlreadyClosedTail: "), so there is nothing left to close.",
+    // 404: the task is gone; its status cannot be read, so this one names none.
+    closeGoneError: "This task no longer exists — it may have been deleted.",
+    // 422: the server could not parse the request (bad JSON / an unknown field).
+    // The page and the wire disagree; retrying the same payload cannot help, so
+    // the line must not ask for a retry.
+    closeBadRequestError:
+      "The server could not understand this close request, and the task was not touched. The page and the server disagree about the wire — please report this.",
     // Reassign (T-160e, owner + assistant only): hand the task to another staff
     // member, or mint a fresh outsource worker on the spot (the same model /
     // effort / machine knobs the task type's assignee carries). The task enters
