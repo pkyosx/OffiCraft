@@ -145,14 +145,8 @@ type SpawnOutcome struct {
 	// the 2026-07-13 Mira incident showed the owner a reason-less ✗ start).
 	// Empty on OK.
 	Reason string
-	// Note is the OK=true counterpart: something the operator has to know about a
-	// spawn that WENT AHEAD. Only the pre-trust verification writes it today, and
-	// it exists because that check stopped being a gate (owner ruling 2026-09-13,
-	// rc-4e9937772d77): an unanswerable probe now costs a loud line, not the
-	// member. command.go carries it on the command_result receipt exactly as it
-	// carries Reason, so it lands on member.last_op_reason and is visible in the
-	// cockpit rather than only in this machine's warden log — which on an external
-	// user's machine nobody reads. Empty when there is nothing to say.
+	// Note carries optional advisory context on successful receipts. Older
+	// wardens used it for pre-trust warnings; the command/UI path retains support.
 	Note string
 }
 
@@ -412,11 +406,6 @@ func buildLaunchCommand(claudeBin, workdir, mcpConfigPath, appendSys, tokenFile,
 // only claudeEnvAllowedNames survives, so a variable that redirects the child's
 // config read is stopped whether or not anyone here has heard of it. See
 // claudehome.go for what was measured and why ANTHROPIC_* is left alone.
-//
-// 🔴 IT IS SHARED WITH THE PRE-TRUST PROBE ON PURPOSE (claudetrust.go). The probe
-// only means anything if it runs under the environment the child gets; a second
-// copy of these lines would be a second thing to drift. Anything added here is
-// added to both ends at once.
 func claudeChildEnvPrologue(workdir, envRendered string, ch claudeHome) string {
 	s := "cd " + shellQuote(workdir) + "; "
 	if envRendered != "" {
@@ -435,8 +424,7 @@ func claudeChildEnvPrologue(workdir, envRendered string, ch claudeHome) string {
 }
 
 // claudeHomeExportPairs is the config-home statement itself: HOME always, and
-// CLAUDE_CONFIG_DIR only for an explicit OC_CLAUDE_JSON redirect. Shared with the
-// probe for the same reason as the prologue above.
+// CLAUDE_CONFIG_DIR only for an explicit OC_CLAUDE_JSON redirect.
 //
 // An empty Home emits nothing rather than `HOME=”`: start() refuses such a spawn
 // outright (claude_home_unresolved), so this stays unreachable in production and
@@ -840,9 +828,9 @@ func osWriteFile(path, content string, mode os.FileMode) error {
 // LOAD-BEARING. Semantic port of pretrust_launch_cwd. Idempotent: re-trusting the
 // same workdir is a no-op change.
 //
-// 🔴 IT IS ONLY HALF THE JOB. Writing the flag says nothing about whether the
-// spawned claude READS this file; claudetrust.go establishes that separately, and
-// what it finds is reported on the outcome rather than gating the spawn.
+// The write prepares the expected config. Startup completion is established by
+// the member's actual wake acknowledgement; a missing acknowledgement follows
+// the server's existing timeout and retry path.
 //
 // The path is INJECTED (production passes the real ~/.claude.json; tests pass a temp
 // file) so a test can NEVER touch the live ~/.claude.json.
@@ -869,11 +857,8 @@ func claudeProjectKey(workdir string) string {
 	return workdir
 }
 
-// editClaudeProjectEntry is the read-modify-write both pretrustWorkdir and the
-// pre-trust probe's seed/clear go through, so there is one implementation of
-// "touch one project's entry without disturbing anything else" — and one place
-// where the project KEY is settled (claudeProjectKey), so the flag and the probe's
-// witness can never land under two different names for one directory.
+// editClaudeProjectEntry updates one project entry without disturbing other
+// settings, using the canonical project key settled by claudeProjectKey.
 //
 // SAFELY: preserve every existing top-level key, create projects["<abs workdir>"]
 // only when absent, and hand fn that ONE entry to change. A missing or unparsable
@@ -1055,20 +1040,6 @@ type SpawnDeps struct {
 	// and the launch line states that same answer to the child, so there is
 	// nothing about this spawn's environment left for the seam to be told.
 	Pretrust func() error
-	// VerifyPretrust establishes the RESULT Pretrust only attempted: that the
-	// config file the spawned claude actually reads is one that carries the flag
-	// just written. It asks the claude binary itself, under the child's own
-	// environment prologue — see claudetrust.go for why nothing here models
-	// claude's resolution.
-	//
-	// 🔴 IT IS NOT NIL-SKIPPED INTO SILENCE. A nil seam WITH Pretrust wired still
-	// says so on the outcome: "wrote a flag, verified nothing" is precisely the
-	// shape four reviews kept finding, so leaving the field out must not be a quiet
-	// way to opt out of the question. It no longer costs the spawn (see
-	// claudetrust.go for the owner ruling behind that). Only a Pretrust-less deps
-	// literal (the Phase-2 seam-only shape, and tests that never write a flag)
-	// skips both.
-	VerifyPretrust func(workdir, envRendered string) error
 	// PurgeTrash (T-684c, nil-skipped) reaps <workdir>/trash at spawn time — the
 	// scratch the PREVIOUS generation of this agent mv'd there instead of rm-ing it
 	// (the harness's un-waivable dangerous-rm prompt stands in front of an agent's own rm; see
@@ -1116,9 +1087,8 @@ type SpawnDeps struct {
 // here without a decision. It closes two known shapes and makes the third
 // visible; it does not close the family. The earlier fallback comment in
 // tmuxDeliverNudge claimed a family was closed and was wrong — do not repeat it.
-func (d SpawnDeps) withPerSpawn(pretrust func() error, verifyPretrust func(workdir, envRendered string) error, purgeTrash func()) SpawnDeps {
+func (d SpawnDeps) withPerSpawn(pretrust func() error, purgeTrash func()) SpawnDeps {
 	d.Pretrust = pretrust
-	d.VerifyPretrust = verifyPretrust
 	d.PurgeTrash = purgeTrash
 	return d
 }
@@ -1318,9 +1288,8 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 			"write_file_failed: .mcp.json: %v", err)}
 	}
 	// Keep the 0600 settings.json artifact for inspection, but do not launch from
-	// it. A writable path between the successful pre-trust probe and exec allowed
-	// env.CLAUDE_CONFIG_DIR to redirect the real child after the gate approved a
-	// different config home; the launch command receives settingsJSON inline.
+	// it. Passing settingsJSON inline prevents a later file edit from redirecting
+	// the real child to a different config home through env.CLAUDE_CONFIG_DIR.
 	if err := d.WriteFile(settingsPath, buildStatuslineSettings(), 0o600); err != nil {
 		return SpawnOutcome{OK: false, Reason: fmt.Sprintf(
 			"write_file_failed: settings.json: %v", err)}
@@ -1453,10 +1422,6 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 			d.ClaudeHome)
 	}
 
-	// pretrustNote carries a pre-trust verdict that did not stop the spawn out to
-	// the OK outcome below; empty means the probe answered yes.
-	var pretrustNote string
-
 	// pretrust the workdir BEFORE launch (LOAD-BEARING): without it claude's trust
 	// dialog can intercept and eat the boot nudge → dead-on-boot. Phase 2 leaves the
 	// seam nil (Phase 4 wires the real ~/.claude.json write); a nil seam is skipped,
@@ -1466,40 +1431,8 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 			return SpawnOutcome{OK: false, Reason: fmt.Sprintf(
 				"pretrust_failed: marking workdir trusted in claude.json: %v", err)}
 		}
-		// Writing the flag is not the guarantee; the child reading THAT file is.
-		// THIS REPORTS, IT DOES NOT BLOCK (owner ruling 2026-09-13, rc-4e9937772d77).
-		// The blocking version shipped on 2026-09-12 and took an external station's
-		// whole claude roster down within hours: one host where the probe could not
-		// be answered meant every claude member on it refused to start, with no
-		// switch to turn the check off and a self-update that pulls the new build
-		// back every 15 minutes. What it was bought for — "the member dies on boot
-		// and every receipt says success" — was never actually silent: the server
-		// still stamps wake_timeout when a dispatched start never comes online, and
-		// retries. So the trade was a guaranteed outage against a few minutes of an
-		// already-detected failure. The verdict itself is unchanged and still
-		// positive-answer-only; only its CONSEQUENCE moved, from refusing the spawn
-		// to a line the operator can see in the cockpit.
-		switch {
-		case d.VerifyPretrust == nil:
-			pretrustNote = "pretrust_unverified: a trust flag was written but no verifier is wired, so nothing establishes that the spawned claude reads the file it was written to"
-		default:
-			if err := d.VerifyPretrust(workdir, envRendered); err != nil {
-				pretrustNote = fmt.Sprintf("pretrust_unverified: %v", err)
-			}
-		}
-		if pretrustNote != "" {
-			d.logf("[ocwarden spawn] %s", pretrustNote)
-		}
 	}
 
-	// 🔴 EVERYTHING ABOVE THIS LINE HAPPENS BEFORE THE CHILD EXISTS, AND THE
-	// PRE-TRUST VERDICT HAS TO STAY UP THERE. The probe works by planting a
-	// witness entry in the very ~/.claude.json the child is about to read and
-	// then removing it; asked after the launch below it proves nothing (the
-	// child has already read the file) and its plant/remove pair races a live
-	// reader. Nothing in the types enforces this — it is line order — so
-	// TestStartAsksThePretrustVerdictBeforeCreatingTheSession is what holds it.
-	//
 	// STAGE-A: detached provider session in tmux at the pinned geometry.
 	if err := tmuxNewSession(d.Runner, socket, session, command); err != nil {
 		return SpawnOutcome{OK: false, Reason: fmt.Sprintf(
@@ -1513,5 +1446,5 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 	}
 
 	pid := tmuxPanePID(d.Runner, socket, session)
-	return SpawnOutcome{OK: true, SessionID: session, PID: pid, Note: pretrustNote}
+	return SpawnOutcome{OK: true, SessionID: session, PID: pid}
 }
