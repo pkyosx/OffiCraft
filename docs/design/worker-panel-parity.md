@@ -30,6 +30,25 @@
 > 這份文件仍然是**下面那些逐項裁定的家**（哪些差異是刻意的、理由是什麼）——那是型別答不出來的。
 > 設計與 mutant 證據見 `T-0b4f-exhaustive-slots-mutants.md`。
 
+> ## ⚠️ T-197 起，下面表格裡出現的**外包專屬 wire 名詞全部不存在了**
+>
+> 中間那一層收成一條之後：
+>
+> - **沒有 `OutsourceWorkerDTO`**。外包與正職共用 `MemberDTO` 一份投影（`GET /api/members`
+>   ＋`kind=outsource` 篩選，單筆是 `GET /api/members/{member_id}`）。漏一個欄位現在是編譯
+>   錯誤，不是靜默清成零值。
+> - **沒有 `/api/outsource-workers/{id}/…` 這一族路由**（list／單筆讀／relocate／refocus／
+>   stop／restart／model／accelerated-stop／force-stop 九條），也**沒有與它們同名的 MCP 工具**。
+>   唯一留著 worker 命名空間的是 `GET /api/outsource-workers/{id}/boot-context`。動作打的是
+>   同名的 member 路由，member handler 看 `kind == outsource` 分流進原本的 worker body；
+>   **語意未變，變的是路徑**。
+> - **沒有 `outsource_worker` SSE topic**（closed set 從 12 收成 11）；外包的指派／認領／釋出
+>   走 `member` topic。
+>
+> ⇒ 下面每一格裡的 `OutsourceWorkerDTO` 與 `/api/outsource-workers/{id}/…` 都要讀成
+> 「**當時**的名字」。外包與正職今天只剩三處刻意的差異（怎麼被生出來、任務綁定的那幾個欄位、
+> 只有外包才有的那幾張卡），每一處在碼裡具名寫了理由。
+
 ⚠️ **下面這段是本文件寫成當時（`acac15a`）的觀察，其中一半已經不成立**（T-0b4f 逐句核對）：
 
 - ~~`AgentDetailVM.onSaveModelEffort` 未傳 ⇒ 模型格不長編輯鈕（`AgentDetailPanel.tsx` 的
@@ -239,9 +258,12 @@ CT 護欄因此改成量**四種形狀**，五顆那個最寬的 case 原封不�
 `t.workerDetail.restart` / `restarting` 兩片葉子刪掉；外包的喚醒字直接用正職那一份
 `t.lifecycle.action.spawn`＝「喚醒」。**兩個面板同一個葉子**，主題包換詞只換一次。
 
-🔴 **REST 路徑一個字都沒動**：仍是 `POST /api/outsource-workers/{id}/restart`
+🔴 **當時 REST 路徑一個字都沒動**：是 `POST /api/outsource-workers/{id}/restart`
 （凍結 wire，§13），`api.restartWorker` 也維持原名。只有 panel 的 prop 從
 `onRestart` 改成 `onWake`——那是顯示層的名字，不是契約。
+⚠️ **T-197 之後那句話不再成立**：worker 專屬的那條路由連同其他六條一起收掉了，喚醒打的是
+`POST /api/members/{member_id}/activate`（member handler 看 `kind == outsource` 分流進
+`handleRestartOutsourceWorker`）。**語意仍然一個字沒變**，變的只有路徑。
 
 ### ④ 「喚醒時四格應該先預設跟原本一樣」＋「將外包統一跟正職一樣，不是釘死」
 

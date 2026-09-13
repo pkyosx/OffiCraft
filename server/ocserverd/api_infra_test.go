@@ -1886,8 +1886,8 @@ func TestMcpCatalogTools(t *testing.T) {
 		if err != nil {
 			t.Fatalf("mcpCatalogTools: %v", err)
 		}
-		if len(tools) != 127 {
-			t.Fatalf("want the frozen catalog's 127 descriptors, got %d", len(tools))
+		if len(tools) == 0 {
+			t.Fatal("the frozen catalog is empty")
 		}
 		names := []string{}
 		seen := map[string]bool{}
@@ -1943,6 +1943,10 @@ func TestMcpCatalogTools(t *testing.T) {
 
 	t.Run("an owner's tools/list still covers the frozen catalog when the disk root has none", func(t *testing.T) {
 		api, h, owner := apiTestMCPServer(t)
+		wantTools, err := api.mcpCatalogTools()
+		if err != nil {
+			t.Fatalf("mcpCatalogTools: %v", err)
+		}
 		api.root = assetRoot(t.TempDir())
 
 		status, data := apiMCP(t, h, owner, `{"jsonrpc":"2.0","id":2,"method":"tools/list"}`)
@@ -1951,9 +1955,10 @@ func TestMcpCatalogTools(t *testing.T) {
 		}
 		result, _ := data["result"].(map[string]any)
 		tools, ok := result["tools"].([]any)
-		if !ok || len(tools) != 127 {
-			t.Fatalf("want the embedded catalog's 127 descriptors, got %#v", result["tools"])
+		if !ok {
+			t.Fatalf("want the embedded catalog descriptors, got %#v", result["tools"])
 		}
+		apiWantValue(t, "embedded catalog", tools, wantTools)
 		first, _ := tools[0].(map[string]any)
 		last, _ := tools[len(tools)-1].(map[string]any)
 		if first["name"] != "get_version" || last["name"] != "bump_lore_entry" {
@@ -2004,24 +2009,24 @@ func TestToolsVisibleTo(t *testing.T) {
 	}{
 		{
 			principal: principalMachine,
-			want:      49,
+			want:      47,
 			listed:    []string{"get_version", "get_task", "post_chat", "report_waking"},
 			hidden:    []string{"create_task", "update_step_status", "update_settings", "dismiss_member"},
 		},
 		{
 			principal: principalAgent,
-			want:      76,
+			want:      74,
 			listed:    []string{"get_version", "get_task", "create_task", "update_step_status"},
 			hidden:    []string{"update_settings", "dismiss_member", "upgrade_station"},
 		},
 		{
 			principal: principalAdminAgent,
-			want:      127,
+			want:      120,
 			listed:    []string{"get_version", "get_task", "create_task", "update_settings", "dismiss_member"},
 		},
 		{
 			principal: principalOwner,
-			want:      127,
+			want:      120,
 			listed:    []string{"get_version", "get_task", "create_task", "update_settings", "dismiss_member"},
 		},
 	} {
@@ -2255,17 +2260,17 @@ func TestHandleMcpApiMcpPost(t *testing.T) {
 			hidden []string
 		}{
 			{
-				class: principalMachine, id: "m-t195-warden", want: 49,
+				class: principalMachine, id: "m-t195-warden", want: 47,
 				listed: []string{"get_version", "get_task", "report_waking"},
 				hidden: []string{"create_task", "update_settings"},
 			},
 			{
-				class: principalAgent, id: "m-t195-agent", want: 76,
+				class: principalAgent, id: "m-t195-agent", want: 74,
 				listed: []string{"get_version", "get_task", "create_task", "update_step_status"},
 				hidden: []string{"update_settings", "dismiss_member"},
 			},
 			{
-				class: principalAdminAgent, id: "m-t195-mira", want: 127,
+				class: principalAdminAgent, id: "m-t195-mira", want: 120,
 				listed: []string{"get_version", "create_task", "update_settings", "dismiss_member"},
 			},
 		} {
@@ -2295,8 +2300,8 @@ func TestHandleMcpApiMcpPost(t *testing.T) {
 		}
 
 		t.Run("owner", func(t *testing.T) {
-			if names := apiMCPListedNames(t, h, owner); len(names) != 127 {
-				t.Fatalf("the owner is served %d tools, want the whole catalog's 127", len(names))
+			if names := apiMCPListedNames(t, h, owner); len(names) != 120 {
+				t.Fatalf("the owner is served %d tools, want the whole catalog's 120", len(names))
 			}
 		})
 	})
@@ -2324,8 +2329,12 @@ func TestHandleMcpApiMcpPost(t *testing.T) {
 		}
 	})
 
-	t.Run("an owner is served the whole frozen catalog, the two transport rows excepted", func(t *testing.T) {
-		_, h, owner := apiTestMCPServer(t)
+	t.Run("tools/list serves the frozen catalog and leaves the two transport rows out of it", func(t *testing.T) {
+		api, h, owner := apiTestMCPServer(t)
+		wantTools, err := api.mcpCatalogTools()
+		if err != nil {
+			t.Fatalf("mcpCatalogTools: %v", err)
+		}
 
 		status, data := apiMCP(t, h, owner, `{"jsonrpc":"2.0","id":9,"method":"tools/list"}`)
 
@@ -2340,8 +2349,8 @@ func TestHandleMcpApiMcpPost(t *testing.T) {
 			t.Fatalf("tools/list result must carry tools and nothing else, got %v", result)
 		}
 		tools, _ := result["tools"].([]any)
-		if len(tools) != 127 {
-			t.Fatalf("want the frozen catalog's 127 descriptors, got %d", len(tools))
+		if len(tools) != len(wantTools) {
+			t.Fatalf("want the frozen catalog's %d descriptors, got %d", len(wantTools), len(tools))
 		}
 		listed := map[string]any{}
 		for _, raw := range tools {
@@ -2405,8 +2414,8 @@ func TestHandleMcpApiMcpPost(t *testing.T) {
 		api, h, owner := apiTestMCPServer(t)
 		dashboard := apiTestListen(t, api, "")
 
-		if len(retiredMCPTools) != 3 {
-			t.Fatalf("the retirement table holds %d names, want the three this test enumerates: %v",
+		if len(retiredMCPTools) != 10 {
+			t.Fatalf("the retirement table holds %d names, want the ten this test enumerates: %v",
 				len(retiredMCPTools), retiredMCPTools)
 		}
 		for _, probe := range []struct{ name, message string }{
@@ -2417,6 +2426,30 @@ func TestHandleMcpApiMcpPost(t *testing.T) {
 			{"patch_task_learnings", "retired tool: 'patch_task_learnings' was removed together with the " +
 				"task manual's learnings document, which no longer exists — record what you learned " +
 				"with 'write_lore_entry'"},
+			// T-197 folded the outsource-only middle layer away. These seven
+			// are the merge-point half: the table and the removal landed from
+			// different directions, so nothing on either side was ever red.
+			{"list_outsource_workers", "retired tool: 'list_outsource_workers' was removed together with the " +
+				"outsource-only worker surface, which no longer exists — outsource members are listed by the " +
+				"same roster read as everyone else, so use 'get_members'"},
+			{"refocus_outsource_worker", "retired tool: 'refocus_outsource_worker' was removed together with " +
+				"the outsource-only worker surface, which no longer exists — refocus an outsource member " +
+				"through the same door as staff, so use 'refocus_member'"},
+			{"stop_outsource_worker", "retired tool: 'stop_outsource_worker' was removed together with the " +
+				"outsource-only worker surface, which no longer exists — take an outsource member down " +
+				"through the same door as staff, so use 'deactivate_member'"},
+			{"restart_outsource_worker", "retired tool: 'restart_outsource_worker' was removed together with " +
+				"the outsource-only worker surface, which no longer exists — bring an outsource member back " +
+				"up through the same door as staff, so use 'activate_member'"},
+			{"set_outsource_worker_model", "retired tool: 'set_outsource_worker_model' was removed together " +
+				"with the outsource-only worker surface, which no longer exists — the model of an outsource " +
+				"member is edited by the same write as the model of a staff member, so use 'update_member'"},
+			{"accelerated_stop_outsource_worker", "retired tool: 'accelerated_stop_outsource_worker' was " +
+				"removed together with the outsource-only worker surface, which no longer exists — the " +
+				"accelerated stop is the same act on both sides now, so use 'accelerated_stop_member'"},
+			{"force_stop_outsource_worker", "retired tool: 'force_stop_outsource_worker' was removed together " +
+				"with the outsource-only worker surface, which no longer exists — the forced stop is the " +
+				"same act on both sides now, so use 'force_stop_member'"},
 		} {
 			status, data := apiMCP(t, h, owner,
 				`{"jsonrpc":"2.0","id":20,"method":"tools/call","params":{"name":"`+probe.name+`","arguments":{}}}`)
@@ -2459,6 +2492,13 @@ func TestHandleMcpApiMcpPost(t *testing.T) {
 			"replace_lesson",
 			"replace_lessons_v2",
 			"write_lessons",
+			// The same near-miss control for the T-197 family: the plural /
+			// singular slip and the wrong-suffix slip are the two a caller
+			// actually makes, and both must stay plain typos.
+			"list_outsource_worker",
+			"stop_outsource_workers",
+			"Stop_Outsource_Worker",
+			"set_outsource_worker_effort",
 		} {
 			status, data := apiMCP(t, h, owner,
 				`{"jsonrpc":"2.0","id":21,"method":"tools/call","params":{"name":"`+name+`","arguments":{}}}`)
@@ -2478,7 +2518,7 @@ func TestHandleMcpApiMcpPost(t *testing.T) {
 	})
 
 	// 🔴 EVERY TOOL NAME A RETIREMENT MESSAGE SENDS THE CALLER TO MUST EXIST.
-	// The whole value of these three sentences is the onward path they name; a
+	// The whole value of these sentences is the onward path they name; a
 	// refusal that points at a tool nobody serves is worse than the bare
 	// "unknown tool" it replaced, because the reader now has a next move and it
 	// is a dead end. Nothing else binds the message text to the live catalog:
@@ -2523,8 +2563,8 @@ func TestHandleMcpApiMcpPost(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		api.loopback = h
 
-		if len(retiredMCPTools) != 3 {
-			t.Fatalf("the retirement table holds %d names, want 3", len(retiredMCPTools))
+		if len(retiredMCPTools) != 10 {
+			t.Fatalf("the retirement table holds %d names, want 10", len(retiredMCPTools))
 		}
 		for _, caller := range []struct {
 			class      principalClass

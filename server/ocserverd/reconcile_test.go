@@ -2189,8 +2189,8 @@ func TestReconcileTickMemberLocked(t *testing.T) {
 			Phase: reconcilePhaseStarting, LastCommand: reconcileCmdStart,
 			LastCommandAt: reconcileTestNow, OfflineSince: reconcileTestNow,
 		}
-		if api.reconcileStates["runner"] != wantState {
-			t.Fatalf("stored state:\n got %+v\nwant %+v", api.reconcileStates["runner"], wantState)
+		if api.lifecycleStates["runner"] != wantState {
+			t.Fatalf("stored state:\n got %+v\nwant %+v", api.lifecycleStates["runner"], wantState)
 		}
 		wantRow := before
 		wantRow.WakingSince = reconcileTestNow
@@ -2204,7 +2204,7 @@ func TestReconcileTickMemberLocked(t *testing.T) {
 	t.Run("a stall the decider names is stamped onto the row the cockpit reads", func(t *testing.T) {
 		api, d := reconcileTestServer(t)
 		reconcileTestPut(t, d, Member{ID: "stalled", Name: "Stalled", Kind: KindStaff, RoleKey: "assistant", DesiredState: DesiredStateOnline})
-		api.reconcileStates["stalled"] = reconcileState{
+		api.lifecycleStates["stalled"] = reconcileState{
 			Phase: reconcilePhaseBackoff, LastCommand: reconcileCmdNone, BackoffUntil: reconcileTestNow + 5,
 		}
 		before := reconcileTestRow(t, d, "stalled")
@@ -2233,7 +2233,7 @@ func TestReconcileTickMemberLocked(t *testing.T) {
 			ID: "lapsed", Name: "Lapsed", Kind: KindStaff, RoleKey: "assistant",
 			DesiredState: DesiredStateOnline, DesiredMachineID: "m-box", WakingSince: reconcileTestNow - 200,
 		})
-		api.reconcileStates["lapsed"] = reconcileState{
+		api.lifecycleStates["lapsed"] = reconcileState{
 			Phase: reconcilePhaseStarting, LastCommand: reconcileCmdStart, LastCommandAt: reconcileTestNow - 121,
 		}
 		before := reconcileTestRow(t, d, "lapsed")
@@ -2584,67 +2584,6 @@ func TestStampTokenExpiryWinddown(t *testing.T) {
 	})
 }
 
-func TestClearRecycleMarkersOnRespawn(t *testing.T) {
-	t.Run("a member wanted online but observed offline has every wind-down anchor cleared and the break logged", func(t *testing.T) {
-		api, d := reconcileTestServer(t)
-		reconcileTestPut(t, d, Member{
-			ID: "respawning", Name: "Respawning", Kind: KindStaff, RoleKey: "assistant",
-			DesiredState: DesiredStateOnline, RefocusSince: 19000, RefocusOp: "refocus",
-			StoppingSince: 19100, StoppedSince: 19200,
-		})
-		before := reconcileTestRow(t, d, "respawning")
-		out := hubTestStderr(t, func() { api.clearRecycleMarkersOnRespawn([]Member{before}) })
-		want := "[reconcile] recycle: loop-break — cleared recycle markers on respawn for respawning\n"
-		if out != want {
-			t.Fatalf("stderr:\n got %q\nwant %q", out, want)
-		}
-		wantRow := before
-		wantRow.RefocusSince = 0
-		wantRow.RefocusOp = ""
-		wantRow.StoppingSince = 0
-		wantRow.StoppedSince = 0
-		reconcileTestWantRow(t, d, "respawning", wantRow)
-	})
-
-	t.Run("a still-online member is a recycle in flight, a desired-offline member is not this pass's business, and a clean member has nothing to clear", func(t *testing.T) {
-		api, d := reconcileTestServer(t)
-		reconcileTestPut(t, d, Member{
-			ID: "dumping", Name: "Dumping", Kind: KindStaff, RoleKey: "assistant",
-			DesiredState: DesiredStateOnline, RefocusSince: 19000,
-		})
-		reconcileTestOnline(t, api, "dumping", "m-box")
-		reconcileTestPut(t, d, Member{
-			ID: "leaving", Name: "Leaving", Kind: KindStaff, RoleKey: "assistant",
-			DesiredState: DesiredStateOffline, RefocusSince: 19000, StoppedSince: 19100,
-		})
-		reconcileTestPut(t, d, Member{ID: "clean", Name: "Clean", Kind: KindStaff, RoleKey: "assistant", DesiredState: DesiredStateOnline})
-		for _, id := range []string{"dumping", "leaving", "clean"} {
-			before := reconcileTestRow(t, d, id)
-			out := hubTestStderr(t, func() { api.clearRecycleMarkersOnRespawn([]Member{before}) })
-			if out != "" {
-				t.Fatalf("%s: stderr = %q, want nothing", id, out)
-			}
-			reconcileTestWantRow(t, d, id, before)
-		}
-	})
-
-	t.Run("a stopped latch with no epoch at all is cleared too, so it cannot sit on a desired-online member forever", func(t *testing.T) {
-		api, d := reconcileTestServer(t)
-		reconcileTestPut(t, d, Member{
-			ID: "latched", Name: "Latched", Kind: KindStaff, RoleKey: "assistant",
-			DesiredState: DesiredStateOnline, StoppedSince: 19200,
-		})
-		before := reconcileTestRow(t, d, "latched")
-		out := hubTestStderr(t, func() { api.clearRecycleMarkersOnRespawn([]Member{before}) })
-		if out != "[reconcile] recycle: loop-break — cleared recycle markers on respawn for latched\n" {
-			t.Fatalf("stderr = %q", out)
-		}
-		wantRow := before
-		wantRow.StoppedSince = 0
-		reconcileTestWantRow(t, d, "latched", wantRow)
-	})
-}
-
 func TestConsumeUninstallIntentOnOffline(t *testing.T) {
 	t.Run("an offline warden still carrying the intent has converged: the intent is spent and the record kept", func(t *testing.T) {
 		api, d := reconcileTestServer(t)
@@ -2817,7 +2756,7 @@ func TestRunReconcileTick(t *testing.T) {
 		wantRow.Runtime = RuntimeClaude
 		reconcileTestWantRow(t, d, "runner", wantRow)
 		for _, id := range []string{"kip", "mira"} {
-			if st := api.reconcileStates[id]; st.Phase != reconcilePhaseOffline {
+			if st := api.lifecycleStates[id]; st.Phase != reconcilePhaseOffline {
 				t.Fatalf("%s state = %+v, want the converged offline state", id, st)
 			}
 		}
@@ -2863,7 +2802,7 @@ func TestRunReconcileTick(t *testing.T) {
 
 	t.Run("a fault inside the tick is caught and named rather than raised into the cadence loop", func(t *testing.T) {
 		api, _ := reconcileTestServer(t)
-		api.reconcileStates = nil
+		api.lifecycleStates = nil
 		out := hubTestStderr(t, func() { api.runReconcileTick(reconcileTestNow) })
 		if !strings.Contains(out, "[reconcile] tick FAULT: ") {
 			t.Fatalf("the fault was not caught and logged:\n%s", out)
@@ -2887,7 +2826,7 @@ func TestReconcileMemberNow(t *testing.T) {
 		if !strings.Contains(out, "[reconcile] runner: desired=online command=start — spawn: desired_state online, no live session\n") {
 			t.Fatalf("stderr:\n%s", out)
 		}
-		if st := api.reconcileStates["runner"]; st.LastCommand != reconcileCmdStart {
+		if st := api.lifecycleStates["runner"]; st.LastCommand != reconcileCmdStart {
 			t.Fatalf("the shared store did not record the dispatch: %+v", st)
 		}
 		if n := api.hub.PendingWardenCommandsFor("m-box", "runner"); n != 1 {
@@ -2924,7 +2863,7 @@ func TestReconcileMemberNow(t *testing.T) {
 			if before != nil {
 				reconcileTestWantRow(t, d, id, *before)
 			}
-			if _, seen := api.reconcileStates[id]; seen {
+			if _, seen := api.lifecycleStates[id]; seen {
 				t.Fatalf("%s must not get a store entry", id)
 			}
 		}
@@ -2954,7 +2893,7 @@ func TestNoteRobustStopDispatched(t *testing.T) {
 		api.noteRobustStopDispatched("kip", reconcileTestNow)
 		want := newReconcileState()
 		want.RobustStopPendingAt = reconcileTestNow
-		if got := api.reconcileStates["kip"]; got != want {
+		if got := api.lifecycleStates["kip"]; got != want {
 			t.Fatalf("state:\n got %+v\nwant %+v", got, want)
 		}
 	})
@@ -2966,11 +2905,11 @@ func TestNoteRobustStopDispatched(t *testing.T) {
 			CircuitCooldownUntil: 9, LastCommand: reconcileCmdStart, LastCommandAt: 3,
 			StopDeadline: 4, RobustStopPendingAt: 1, OfflineSince: 2,
 		}
-		api.reconcileStates["kip"] = existing
+		api.lifecycleStates["kip"] = existing
 		api.noteRobustStopDispatched("kip", reconcileTestNow)
 		want := existing
 		want.RobustStopPendingAt = reconcileTestNow
-		if got := api.reconcileStates["kip"]; got != want {
+		if got := api.lifecycleStates["kip"]; got != want {
 			t.Fatalf("state:\n got %+v\nwant %+v", got, want)
 		}
 	})
@@ -2998,7 +2937,7 @@ func TestDispatchRobustStopNow(t *testing.T) {
 		if n := api.hub.PendingWardenCommands("m-box"); n != 0 {
 			t.Fatalf("the pinned machine must not be addressed, it holds %d frame(s)", n)
 		}
-		if got := api.reconcileStates["collect"].RobustStopPendingAt; got <= 0 {
+		if got := api.lifecycleStates["collect"].RobustStopPendingAt; got <= 0 {
 			t.Fatalf("the at-least-once retry was not armed: %v", got)
 		}
 		wantRow := before
@@ -3021,7 +2960,7 @@ func TestDispatchRobustStopNow(t *testing.T) {
 		if n := api.hub.PendingWardenCommands("m-box"); n != 0 {
 			t.Fatalf("nothing may be queued, got %d frame(s)", n)
 		}
-		if got := api.reconcileStates["stranded"].RobustStopPendingAt; got <= 0 {
+		if got := api.lifecycleStates["stranded"].RobustStopPendingAt; got <= 0 {
 			t.Fatalf("the retry must be armed anyway: %v", got)
 		}
 	})
@@ -3042,7 +2981,7 @@ func TestDispatchRobustStopNow(t *testing.T) {
 		if n := api.hub.PendingWardenCommands("m-box"); n != 0 {
 			t.Fatalf("the warden queue holds %d frame(s)", n)
 		}
-		if _, seen := api.reconcileStates["kept"]; seen {
+		if _, seen := api.lifecycleStates["kept"]; seen {
 			t.Fatalf("no retry may be armed")
 		}
 		reconcileTestWantRow(t, d, "kept", before)

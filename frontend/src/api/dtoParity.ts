@@ -36,10 +36,8 @@
 //    not `[]`: the card renders "nobody resolved this dep" vs "查無此任務"
 //    DIFFERENTLY on purpose (`components/TaskCard.tsx`), so a per-item refetch
 //    silently degrades every dep row on that card to a bare short id.
-//  - `GET /api/outsource-workers/{id}` — SAFE, and the reason is worth copying:
-//    the single-item handler calls the SAME `projectWorker` with the same real
-//    `unread[worker.ID]` as the list handler
-//    (`server/ocserverd/api_outsource.go`). Nothing is dropped.
+//  - `GET /api/members/{id}` for kind=outsource — SAFE: the single-item handler
+//    calls the same worker projection with the same unread fold as the list.
 //
 // The remaining gap cannot be closed on the client at all: `dep_tasks` is a field
 // the frozen wire does not carry, so closing it is an additive spec change and is
@@ -126,7 +124,7 @@ export const PER_ITEM_DTO_GAPS = {
   member: [] as string[],
   /** `GET /api/tasks/{id}`: dep_tasks is not a field of TaskDTO. */
   task: ["depTasks"],
-  /** `GET /api/outsource-workers/{id}`: same projection as the list. */
+  /** `GET /api/members/{id}` for an outsource member: same projection as the list. */
   outsourceWorker: [] as string[],
 } as const;
 

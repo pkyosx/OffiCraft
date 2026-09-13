@@ -3,7 +3,7 @@
 //
 // 🔴 THE INVARIANT IT ENCODES. Every unread number in the cockpit — the roster
 // card badge (`MemberDTO.unread_count`), the 外包 rail badge
-// (`OutsourceWorkerDTO.unread_count`) and the nav total
+// (`MemberDTO.unread_count` for kind=outsource) and the nav total
 // (`GET /api/chat/unread-count`) — is the same fold: `UnreadCounts`
 // (server/ocserverd/domain.go:411-425), which counts a message ONLY when
 // `m.Recipient == reader`, against a watermark map filled ONLY from receipts
@@ -37,7 +37,7 @@
 // ⚠️ Any other topic answers FALSE, and that is only safe because every caller
 // applies this predicate ONLY after establishing that the topics it actually
 // reconciles on in this burst are all badge-only. A `member` /
-// `outsource_worker` / `task` delta absolutely can change what these views
+// `member` / `task` delta absolutely can change what these views
 // render, and each caller keeps its own full-refetch path for those.
 //
 // 🔴 PER-DELTA, NOT PER-BURST. This answers a question about ONE delta. The

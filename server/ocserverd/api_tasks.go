@@ -225,13 +225,7 @@ func defaultedDispatchSpec(spec dispatchSpec) dispatchSpec {
 }
 
 func (s *apiServer) publishOutsourceWorker(w OutsourceWorker, trigger string) {
-	// No agent consumes outsource_worker on the wire (an ow- member row is kept
-	// off every agent-facing roster surface); only the owner cockpit renders
-	// the panel — owner-only.
-	s.hub.Publish("outsource_worker", "patch", "outsource_worker",
-		wireOwnerID+"::"+w.ID,
-		map[string]any{"id": w.ID, "codename": w.Codename, "status": w.Status},
-		audienceOwnerOnly(), trigger)
+	s.publishMemberPatch(memberFromWorker(w), trigger)
 }
 
 func (s *apiServer) publishTaskManual(typeKey, trigger string) {
@@ -2542,7 +2536,7 @@ func (s *apiServer) HandleCreateTaskApiTasksPost(w http.ResponseWriter, r *http.
 		// an unassigned outsource task just landed — assign it NOW rather than
 		// up to a cadence period later. The response deliberately serves the
 		// created (unassigned) row; the assignment rides the task /
-		// outsource_worker SSE deltas (reconcile-by-refetch).
+		// member SSE deltas (reconcile-by-refetch).
 		s.outsourceTickNow()
 	}
 	// T-91: no title and no status on a FRESH create. The title is the caller's

@@ -438,28 +438,12 @@ type knownDivergence struct {
 
 var knownDivergences = []knownDivergence{
 	{
-		verb: "重新聚焦", field: "noticed",
-		why: "包② CONVERGED THE ROW AND THE SENTENCE DID NOT COME WITH IT. Both faces " +
-			"now answer 200 through the same queue-the-起來 branch and write the same " +
-			"restart_after_stop; what differs is that the 正職 branch writes the row TWICE " +
-			"through publishers that fan (putMember at api_members.go:1613 and " +
-			"persistMemberOpReceipt at :1619, both reaching publishMemberPatch at :129), " +
-			"and the row is desired-offline with stopping_since in the past and no forced " +
-			"epoch — so gracefulStopEpochOpen is true and EVERY one of those deltas carries " +
-			"the soft 預告 of the stop ALREADY in flight. The 外包 branch returns at " +
-			"api_outsource.go:455 after persistWorkerRestartIntent + publishOutsourceWorker, " +
-			"and publishOutsourceWorker is owner-audience with a {id, codename, status} " +
-			"payload — it carries offboard_notice never (the handler's own 🔴 block at " +
-			":632-635 says exactly this), so the :529 openWorkerHandoverGrace on the OTHER " +
-			"branch is the only thing that could have spoken and it is not on this path. " +
-			"⚠️ WHAT THIS ROW IS AND IS NOT: it is NOT 「the worker should be told too」. " +
-			"Neither side OPENED anything here — both queued a 起來 behind a stop that was " +
-			"already running — so the honest reading is that 正職 RE-announces a sentence " +
-			"the agent has already had, on a press that changed nothing it describes, and " +
-			"the client de-duplicates by keying on the text (api_members.go:160-164). The " +
-			"defensible convergence is therefore in EITHER direction and nobody has ruled " +
-			"which; this row exists so that the next person to look does not have to " +
-			"rediscover that 包② left a difference behind.",
+		verb: "起來", field: "noticed",
+		why: "a live staff activation deliberately uses putMemberOwnerOnly because it " +
+			"preserves the running session and its existing wind-down epoch; the worker " +
+			"restart persists through publishOutsourceWorker, whose unified member delta " +
+			"reaches the worker as well as the owner and therefore carries the preserved " +
+			"soft notice",
 	},
 }
 
@@ -872,13 +856,9 @@ func parityCases() []verbCase {
 				// No session ends, so respawnWorkerNow's bank-before-kill is never
 				// reached and the live figure is still on the row.
 				Cost: costUntouched,
-				// NOTHING is said: openWorkerHandoverGrace is not called on either arm
-				// of this handler, api_outsource.go calls putMember nowhere at all
-				// (0 call sites, measured T-65 包⑤), and PutOutsourceWorker
-				// deliberately fans no member patch (dal.go:512). ⚠️ NOT because
-				// openWorkerHandoverGrace is "the worker's ONLY member-topic
-				// publisher" — that claim is false, see noticedNothing above.
-				Noticed: noticedNothing,
+				// The unified member projection publishes the preserved wind-down epoch,
+				// so the worker receives the same soft notice as the staff member.
+				Noticed: noticedNotice,
 			},
 		},
 		{
@@ -1300,12 +1280,9 @@ func parityCases() []verbCase {
 				// gated off wholesale by noOutsource (outsource_sched.go:744-748).
 				Dispatched: dispatchedNothing,
 				Cost:       costUntouched,
-				// the worker face answers the same 200 through the same branch and says
-				// NOTHING: api_outsource.go:455 returns after queueWorkerRestartAfterStop
-				// and persistWorkerRestartIntent, so the :529 openWorkerHandoverGrace on
-				// the other branch is never reached, and publishOutsourceWorker is
-				// owner-only. 包② converged the ROW here; the sentence did not come with it.
-				Noticed: noticedNothing,
+				// The unified member projection re-announces the stop already in flight,
+				// matching the staff path's soft notice.
+				Noticed: noticedNotice,
 			},
 		},
 		{

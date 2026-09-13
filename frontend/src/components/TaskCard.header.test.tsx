@@ -26,7 +26,7 @@ import {
 import type { TaskView } from "../api/adapter";
 
 // Released-worker codename cache (T-3ed8): the REAL hook lazily fetches
-// GET /api/outsource-workers/{id} (which serves released rows); here it is a
+// GET /api/members/{id} (which serves released rows); here it is a
 // fixed map (the hook has its own tests) — only "ow-rel" resolves, so the
 // unresolvable-raw-id cases below stay honest.
 vi.mock("../hooks/useWorkerCodenames", () => ({

@@ -3,6 +3,17 @@
 that the previous commit's deletions left pointing at text that no longer
 exists.
 
+⚠️ SPENT SCRIPT, AND THE SHAPE IT DESCRIBES IS GONE (T-197). It already ran and
+its edits are committed in spec/openapi.json. Everything below is a RECORD of
+what T-91's follow-through did, not a description of today's spec. T-197 folded the outsource
+middle layer into the member one: the worker-namespaced routes
+(/api/outsource-workers/{id}/stop | model | refocus | force-stop |
+accelerated-stop | relocate) and the MCP tools named after them no longer exist,
+OutsourceWorkerDTO no longer exists (both kinds read back MemberDTO), and the
+SSE topic outsource_worker is gone. So every such name below is the name it had
+AT THE TIME. Re-running this would not reproduce today's spec — read
+spec/openapi.json.
+
 WHAT AND WHY.
 
 (1) AgentRelocateReceiptDTO.relocation_deferred lost a detail in the move. The

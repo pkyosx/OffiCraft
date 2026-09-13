@@ -3,12 +3,12 @@
 //
 // Why it exists: GET /api/members DOES carry kind='outsource' rows, but it
 // drops every roster_status='removed' one — and release sets exactly that —
-// and GET /api/outsource-workers serves LIVE workers only. So a RELEASED
+// and the filtered GET /api/members list serves LIVE workers only. So a RELEASED
 // worker's id (task closed / reassigned away) resolves to nothing client-side
 // and every display point degraded to the raw ow- id (chat sender labels,
 // 任務卡 前任/建立者 chips, 請示卡 identity row) while the left rail showed the
 // codename.
-// The per-id GET /api/outsource-workers/{id} DOES serve released rows, so this
+// The per-id GET /api/members/{id} DOES serve released rows, so this
 // hook resolves unknown ow- ids through it, once each, into a module-level
 // cache shared by every display point.
 //
@@ -24,7 +24,7 @@ import type { OutsourceWorkerView } from "../api/adapter";
 import { createDeltaSink } from "../lib/deltaSink";
 
 // The WHOLE worker row is kept, not the two fields the first cut stored
-// (T-196). `GET /api/outsource-workers/{id}` already answers the complete
+// (T-196). `GET /api/members/{id}` already answers the complete
 // projection — codename, avatar AND the bound task (taskId / taskNo /
 // taskTitle / taskTypeName) — so a display point that needs the worker's
 // CURRENT TASK is one accessor on this cache, not a second read and not a
@@ -107,15 +107,23 @@ export function useWorkerCodenames(ids: readonly string[]): Map<string, string> 
 }
 
 // The topics that can change WHICH TASK a worker is on: assignment / release
-// ("outsource_worker") and the task's own labels or closure ("task") — the same
-// two the rail treats as full re-pulls. `chat` / `chat_read` move only the
-// unread badge, which no consumer of THIS accessor renders.
+// ("member") and the task's own labels or closure ("task") — the same two the
+// rail treats as full re-pulls (`useOutsourceWorkers.ts`). `chat` / `chat_read`
+// move only the unread badge, which no consumer of THIS accessor renders.
+//
+// 🔴 IT IS "member", NOT "outsource_worker". T-197 folded the worker middle
+// layer into the member one and the dedicated `outsource_worker` SSE topic was
+// removed from the closed vocabulary (`hub.go` sseTopics / `spec/sse-topics.json`);
+// assignment, claim and release now publish "member". A topic outside that
+// vocabulary is dropped SILENTLY at the publish seam, so listening for the old
+// name is not an error anywhere — the line just stops updating, which is the
+// silent-staleness shape this subscription exists to prevent.
 //
 // ⚠️ Deliberately NOT narrowed by the batch's ids: a "task" delta names the
 // TASK, and this cache is keyed by WORKER. Matching worker ids against it would
 // answer "none of them are mine" for every task event and the line would then
 // never update at all — the silent-staleness shape, not a saving.
-const CURRENT_TASK_TOPICS = new Set(["outsource_worker", "task"]);
+const CURRENT_TASK_TOPICS = new Set(["member", "task"]);
 
 /**
  * The worker rows behind a set of ids, for display points that render a
@@ -124,8 +132,9 @@ const CURRENT_TASK_TOPICS = new Set(["outsource_worker", "task"]);
  *
  * Same per-id read and same module cache as the codename/avatar accessors, so
  * one card cannot say 代號 while disagreeing about the task beside it — and it
- * RESOLVES released workers, which `GET /api/outsource-workers` drops on purpose
- * (`api_outsource.go`) and which every reply card list holds plenty of.
+ * RESOLVES released workers, which the `GET /api/members` LIST drops on purpose
+ * (`api_members.go`, the roster_status='removed' skip) and which every reply
+ * card list holds plenty of.
  *
  * ⚠️ Resolving one is not the same as it HAVING a current task. Release flips
  * the status and leaves `task_id` alone, so a released row still carries the
