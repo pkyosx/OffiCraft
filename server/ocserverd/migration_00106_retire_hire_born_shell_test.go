@@ -17,13 +17,15 @@ package main
 //     when a worker actually stopped.
 //
 // None of those produce an error, a failed migration, or a red test anywhere
-// else in this package. So the three inputs the DoD names are seeded side by
-// side in ONE database and asserted after ONE run: the target moves, and the
-// two neighbours do not.
+// else in this package. So the inputs the DoD names are seeded side by side in
+// ONE database and asserted after ONE run: the target moves, and none of the
+// neighbours do.
 //
-// The neighbours are not decoration. A migration that moved all three rows and
-// a migration that moved only the right one are indistinguishable when the
-// fixture holds the target alone.
+// The neighbours are not decoration. A migration that moved every row and a
+// migration that moved only the right one are indistinguishable when the
+// fixture holds the target alone. Nor is one neighbour per clause enough: the
+// id clause needs TWO, in two different id namespaces, for the reason spelled
+// out at ④+⑤ below.
 
 import (
 	"database/sql"
@@ -88,7 +90,7 @@ func TestMigration00106CollectsOnlyTheUnboundOutsourceShell(t *testing.T) {
 	t202SeedMember(t, db, "ow-busy0000001", "outsource", "T-999")
 	// ③ a staff member — must not move.
 	t202SeedMember(t, db, "m-staff0000001", "staff", "")
-	// ④ THE ONLY GUARD ON `id = '…'` ITSELF, and it is a different question
+	// ④+⑤ THE GUARDS ON `id = '…'` ITSELF, and that is a different question
 	// from ② and ③. Those two disqualify themselves on the OTHER clauses, so
 	// with the id clause deleted the WHERE still passes over them and this test
 	// still goes green — measured: with `id = 'm-51110698e801'` removed from the
@@ -99,12 +101,30 @@ func TestMigration00106CollectsOnlyTheUnboundOutsourceShell(t *testing.T) {
 	// THIS row, do not build a general remover. Without the literal id this
 	// migration IS that general remover: it would sweep up every idle outsource
 	// worker on the station in one shot. So the neighbour that measures it has to
-	// be a row that satisfies EVERY OTHER clause and differs only in its id —
-	// alive, kind='outsource', bound to no task. It must come out untouched.
+	// be a row that satisfies EVERY OTHER clause — alive, kind='outsource', bound
+	// to no task — and differ ONLY in its id. It must come out untouched.
+	//
+	// 🔴 IT TAKES TWO SUCH NEIGHBOURS, IN TWO DIFFERENT ID NAMESPACES, AND THE
+	// SECOND ONE IS THE LOAD-BEARING ONE. ④ is a real worker's id shape: the
+	// scheduler mints workers as `ow-…`, while the target is an `m-…` row that
+	// the hire door malformed into existence. So ④ alone measures only "the id
+	// clause exists at all" — it is blind to every PREFIX- or PATTERN-shaped
+	// rewrite, which is precisely what a wrong id clause looks like in the wild.
+	// Measured (independent review, before ⑤ was seeded): rewriting the clause to
+	// `id LIKE 'm-%'` — still keyed "by id", still one row on the live station —
+	// left all four TestMigration00106* tests PASSING, because no `m-` prefixed
+	// row in this fixture also satisfied the other three clauses.
+	//
+	// ⑤ closes that: same namespace as the target, same kind, same active
+	// status, bound to nothing — differing in the LAST CHARACTER of the id and
+	// nothing else. Any WHERE that is not an exact equality on the literal id
+	// sweeps it up too, and this test says so.
 	t202SeedMember(t, db, "ow-idle0000001", "outsource", "")
+	t202SeedMember(t, db, "m-51110698e802", "outsource", "")
 
 	for _, id := range []string{
 		t202TargetID, "ow-busy0000001", "m-staff0000001", "ow-idle0000001",
+		"m-51110698e802",
 	} {
 		if status, _ := t202ReadMember(t, db, id); status != "active" {
 			t.Fatalf("precondition: %s seeded as %q, want active", id, status)
@@ -144,6 +164,17 @@ func TestMigration00106CollectsOnlyTheUnboundOutsourceShell(t *testing.T) {
 			"migration is the general \"remove an outsource worker\" feature the "+
 			"owner refused (rc-3989498e0c8f), applied to the whole roster at once",
 			status, released, t202TargetID)
+	}
+	if status, released := t202ReadMember(t, db, "m-51110698e802"); status != "active" || released != 0 {
+		t.Fatalf("an UNRELATED idle outsource row IN THE TARGET'S OWN ID "+
+			"NAMESPACE was collected: status %q released_ts %v. m-51110698e802 "+
+			"differs from %s in its LAST CHARACTER and in nothing else — same "+
+			"kind, same active status, bound to no task. So the id clause is no "+
+			"longer an exact equality on the literal id: a prefix or LIKE/GLOB "+
+			"pattern will pass this row, and on the live station it would collect "+
+			"workers the owner never agreed to touch. Do not widen the WHERE to "+
+			"make this green (rc-3989498e0c8f: collect THIS row, do not build a "+
+			"general remover)", status, released, t202TargetID)
 	}
 }
 
