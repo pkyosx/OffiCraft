@@ -723,6 +723,14 @@ export function toTask(w: WireTask): TaskView {
     createdTs: w.created_ts ?? 0,
     updatedTs: w.updated_ts ?? 0,
     closedTs: w.closed_ts,
+    // Who forced this close and why (T-182 wire, T-192 surface). `?? ""` is
+    // right HERE and would be a lie in `toTaskListItem`: `TaskDTO` always
+    // declares both, so an absent value on this response means "not forced",
+    // while the light list does not declare them at all — see the field docs on
+    // TaskView. The full task can therefore DENY a forced close; the list row
+    // can only fail to mention one.
+    forcedDoneBy: w.forced_done_by ?? "",
+    forcedDoneReason: w.forced_done_reason ?? "",
     progressDone: w.progress_done,
     progressTotal: w.progress_total,
     steps: (w.steps ?? [])

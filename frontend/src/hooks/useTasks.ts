@@ -48,6 +48,9 @@ interface UseTasks {
   error: boolean;
   /** Terminate (owner double-confirmed upstream), then refetch. */
   terminate: (id: string) => Promise<void>;
+  /** Force a task closed over its precondition (T-192), then refetch. `reason`
+   * may be "" — optional since owner ruling rc-a92a6252c3bd. */
+  forceDone: (id: string, reason: string) => Promise<void>;
   /** Mark a task a duplicate of the original (T-02c9), then refetch. */
   markDuplicate: (id: string, duplicateOf: string) => Promise<void>;
   /** Priority change incl. freeze/unfreeze, then refetch. */
@@ -297,6 +300,21 @@ export function useTasks(
     [refetch]
   );
 
+  const forceDone = useCallback(
+    async (id: string, reason: string) => {
+      await api.forceTaskDone(id, reason);
+      try {
+        await refetch();
+      } catch (e) {
+        console.warn(
+          "useTasks: post-force-done refetch failed (the task was closed)",
+          e
+        );
+      }
+    },
+    [refetch]
+  );
+
   const markDuplicate = useCallback(
     async (id: string, duplicateOf: string) => {
       await api.markTaskDuplicate(id, duplicateOf);
@@ -411,6 +429,7 @@ export function useTasks(
     loading,
     error,
     terminate,
+    forceDone,
     markDuplicate,
     setPriority,
     updateDescription,
