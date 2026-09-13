@@ -1410,17 +1410,21 @@ func TestFoldActorRuntime_Mainline(t *testing.T) {
 }
 
 // TestRelocateOutsourceWorker_AdminGated (P7c 外包對齊正職): the route's floor
-// dropped from owner to admin_agent — the exact member relocate floor. Pinned
-// through the FULL wired stack: a plain agent is a flat 403 envelope; the
-// admin (seeded Mira, role assistant) and the owner both pass the gate and
-// land the honest 404 on an unknown worker (no worker rows in this fixture).
+// dropped from owner to admin_agent — the exact member relocate floor. Since
+// the unification there is no separate /api/outsource-workers/{id}/relocate to
+// gate: a worker id rides the SHARED member verb, so that is the face this
+// pins. Pinned through the FULL wired stack (real router, real JWTs) — which
+// is what distinguishes it from the in-handler 403 case in api_outsource_test.go:
+// a plain agent is a flat 403 envelope; the admin (seeded Mira, role assistant)
+// and the owner both pass the gate and land the honest 404 on an unknown worker
+// (no worker rows in this fixture).
 func TestRelocateOutsourceWorker_AdminGated(t *testing.T) {
 	srv, secret, _ := newWiredTestServer(t)
 	now := time.Now().Unix()
 
 	relocate := func(token string) (int, string) {
 		t.Helper()
-		req, err := http.NewRequest("POST", srv.URL+"/api/outsource-workers/ow-nope/relocate",
+		req, err := http.NewRequest("POST", srv.URL+"/api/members/ow-nope/relocate",
 			strings.NewReader(`{"machine_id":"auto"}`))
 		if err != nil {
 			t.Fatal(err)

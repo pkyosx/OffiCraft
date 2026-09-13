@@ -2424,7 +2424,10 @@ func TestHandleForceStopMemberApiMembersMemberIdForceStopPost(t *testing.T) {
 		if worker.DesiredState != DesiredStateOffline || worker.ForcedStopAt <= 0 {
 			t.Fatalf("worker was not force-stopped: %+v", worker)
 		}
-		dashboard.wantFrames(apiTestWorkerDelta(1, WorkerStatusActive, "owner"))
+		// The force-stop is what this row asserts two lines above (the stored
+		// worker must carry desired_state=offline), so the member delta it fans
+		// carries that same value — the shared payload is not a blank one.
+		dashboard.wantFrames(apiTestWorkerStateDelta(1, WorkerStatusActive, DesiredStateOffline, "owner"))
 	})
 
 	t.Run("an authenticated agent identity answers 403 because this row requires admin_agent", func(t *testing.T) {

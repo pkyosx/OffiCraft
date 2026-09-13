@@ -469,9 +469,12 @@ func TestHandleRelocateOutsourceWorkerApiOutsourceWorkersIdRelocatePost(t *testi
 			t.Fatalf("want 404, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "not_found", "member 'ow-abc123' not found")
-		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
-			"status": "released", "presence": "",
-		}))
+		// A released worker is off the shared roster, so it cannot be read back
+		// through GET /api/members/{id} — its row survives only as the audit
+		// trail the DAL still carries (apiTestWantReleasedWorker pins both
+		// halves; apiTestWantWorker would demand a 200 the unified read face
+		// deliberately no longer gives).
+		apiTestWantReleasedWorker(t, d, h, owner, "ow-abc123")
 		dashboard.wantFrames()
 	})
 
@@ -591,11 +594,17 @@ func TestHandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost(t *testing
 			"status": "active", "presence": "online",
 			"refocus_since": apiAnyNumber, "refocus_op": "refocus",
 		}))
+		// BOTH frames carry the notice: it rides EVERY write to a row whose
+		// wind-down is open, not just the one that opened it (offboardDeltaPayload,
+		// owner 2026-08-16) — the client de-duplicates.
 		dashboard.wantFrames(
 			apiTestHandoverDelta(2, "", apiTestOffboardNotice, "owner"),
-			apiTestWorkerDelta(3, "active", "owner"),
+			apiTestHandoverDelta(3, "", apiTestOffboardNotice, "owner"),
 		)
-		contractor.wantFrames(apiTestHandoverDelta(2, "", apiTestOffboardNotice, "owner"))
+		contractor.wantFrames(
+			apiTestHandoverDelta(2, "", apiTestOffboardNotice, "owner"),
+			apiTestHandoverDelta(3, "", apiTestOffboardNotice, "owner"),
+		)
 		bystander.wantFrames()
 		push()
 	})
@@ -621,7 +630,9 @@ func TestHandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost(t *testing
 				"being stopped — the stop in flight is honoured as-is, and it will be " +
 				"started again once it is down",
 		}))
-		dashboard.wantFrames(apiTestWorkerDelta(4, "active", "owner"))
+		// The 停止 in flight is itself an open wind-down, so this write carries
+		// the 〈停止〉 notice too (offboardDeltaPayload).
+		dashboard.wantFrames(apiTestHandoverDelta(4, DesiredStateOffline, apiTestOffboardNotice, "owner"))
 	})
 
 	t.Run("換手 on a worker nobody ever asked to stop answers 409 naming 重啟 instead", func(t *testing.T) {
@@ -764,11 +775,17 @@ func TestHandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost(t *testing
 			"status": "active", "presence": "online",
 			"refocus_since": apiAnyNumber, "refocus_op": "refocus",
 		}))
+		// BOTH frames carry the notice: it rides EVERY write to a row whose
+		// wind-down is open, not just the one that opened it (offboardDeltaPayload,
+		// owner 2026-08-16) — the client de-duplicates.
 		dashboard.wantFrames(
 			apiTestHandoverDelta(2, "", apiTestOffboardNotice, "owner"),
-			apiTestWorkerDelta(3, "active", "owner"),
+			apiTestHandoverDelta(3, "", apiTestOffboardNotice, "owner"),
 		)
-		contractor.wantFrames(apiTestHandoverDelta(2, "", apiTestOffboardNotice, "owner"))
+		contractor.wantFrames(
+			apiTestHandoverDelta(2, "", apiTestOffboardNotice, "owner"),
+			apiTestHandoverDelta(3, "", apiTestOffboardNotice, "owner"),
+		)
 		bystander.wantFrames()
 		push()
 	})
@@ -797,11 +814,16 @@ func TestHandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcceleratedSto
 			"refocus_since": apiAnyNumber, "refocus_op": "accelerated_stop",
 			"refocus_deadline": apiAnyNumber,
 		}))
+		// Both writes ride the open (now accelerated) wind-down, so both carry a
+		// notice — the second one is not a bare roster patch.
 		dashboard.wantFrames(
 			apiTestHandoverDelta(4, "", apiAnyString, "owner"),
-			apiTestWorkerDelta(5, "active", "owner"),
+			apiTestHandoverDelta(5, "", apiAnyString, "owner"),
 		)
-		contractor.wantFrames(apiTestHandoverDelta(4, "", apiAnyString, "owner"))
+		contractor.wantFrames(
+			apiTestHandoverDelta(4, "", apiAnyString, "owner"),
+			apiTestHandoverDelta(5, "", apiAnyString, "owner"),
+		)
 		bystander.wantFrames()
 		push()
 	})
@@ -827,9 +849,12 @@ func TestHandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcceleratedSto
 		}))
 		dashboard.wantFrames(
 			apiTestHandoverDelta(4, "offline", apiAnyString, "owner"),
-			apiTestWorkerDelta(5, "active", "owner"),
+			apiTestHandoverDelta(5, "offline", apiAnyString, "owner"),
 		)
-		contractor.wantFrames(apiTestHandoverDelta(4, "offline", apiAnyString, "owner"))
+		contractor.wantFrames(
+			apiTestHandoverDelta(4, "offline", apiAnyString, "owner"),
+			apiTestHandoverDelta(5, "offline", apiAnyString, "owner"),
+		)
 	})
 
 	t.Run("escalating a worker nobody has asked to stop answers 409 naming the rung below", func(t *testing.T) {
@@ -939,11 +964,16 @@ func TestHandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcceleratedSto
 			"refocus_since": apiAnyNumber, "refocus_op": "accelerated_stop",
 			"refocus_deadline": apiAnyNumber,
 		}))
+		// Both writes ride the open (now accelerated) wind-down, so both carry a
+		// notice — the second one is not a bare roster patch.
 		dashboard.wantFrames(
 			apiTestHandoverDelta(4, "", apiAnyString, "owner"),
-			apiTestWorkerDelta(5, "active", "owner"),
+			apiTestHandoverDelta(5, "", apiAnyString, "owner"),
 		)
-		contractor.wantFrames(apiTestHandoverDelta(4, "", apiAnyString, "owner"))
+		contractor.wantFrames(
+			apiTestHandoverDelta(4, "", apiAnyString, "owner"),
+			apiTestHandoverDelta(5, "", apiAnyString, "owner"),
+		)
 		bystander.wantFrames()
 		push()
 	})
