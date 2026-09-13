@@ -539,6 +539,27 @@ var identityGateLedger = map[string]string{
 		"widen lifecycle or write resolution (those still use resolveMember), so it " +
 		"is a wire/read projection distinction rather than differentiated lifecycle " +
 		"treatment under the 2026-08-26 外包＝正職 ruling.",
+	// ── the hire door hires staff only (owner 2026-09-13, rc-3989498e0c8f) ──
+	//
+	// The 2026-08-26 ruling asks for a CONVERSATION before a new 正職／外包
+	// branch. That conversation happened, later than the rule: on 2026-09-13 the
+	// owner read the hire door's staff-only scoping and ruled "if we only expect
+	// staff to come through here, it should throw for every other kind — make it
+	// a protection, not a comment" (rc-3989498e0c8f). This entry records that
+	// ruling; it is not a silent addition.
+	"api_members.go :: HandleHireMemberApiMembersPost :: kind != KindStaff": "" +
+		"the kind of the row being CREATED, not of the caller, and not a post-hire " +
+		"difference in how 正職 and 外包 are TREATED: it is a BIRTH-PATH rule. Each " +
+		"kind has exactly one door that can mint it — a warden's member id is the " +
+		"machine id assigned by POST /api/machines, and an outsource worker is minted " +
+		"by the outsource scheduler when a task is handed out — and a row minted here " +
+		"with either kind is born unusable rather than born equal: the outsource shell " +
+		"that prompted the ruling was bound to no task, so the scheduler refused to " +
+		"start it every round while it held an outsource concurrency slot for good. " +
+		"外包＝正職 is not at stake: nothing about how an outsource row is treated " +
+		"once it exists differs by this predicate, which only refuses to create one " +
+		"through the wrong door. (Migration 00106 in this same package retires the one " +
+		"shell that door already produced.)",
 	// ── the hire door's required-field rule (owner 2026-09-12, rc-564e5f39b6f5) ──
 	"api_members.go :: HandleHireMemberApiMembersPost :: kind == KindStaff": "" +
 		"the kind of the row being CREATED, not of the caller, and not a lifecycle " +
