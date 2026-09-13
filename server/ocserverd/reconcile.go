@@ -1914,6 +1914,22 @@ func (s *apiServer) stampWakeObservability(m *Member, decision reconcileDecision
 // boundary does not move: the owner asked for the red line to go, and deleting a
 // green one would silently widen a narrow ruling.
 //
+// 🔴 SINCE T-201 THE PANEL PAINTS A THIRD THING, AND THIS FUNCTION DELIBERATELY
+// DOES NOT COVER IT. A SUCCEEDED op that carried a reason now renders that
+// reason as an amber NOTE line (AgentDetailPanel.tsx — the pre-trust verdict
+// reports through last_op_reason instead of refusing the spawn). So the comment
+// above no longer enumerates every condition under which the panel writes on
+// screen; it enumerates the conditions under which the panel paints a FAILURE,
+// which is the only question these clears are allowed to ask.
+//
+// That note line is therefore NOT auto-cleared, and it does not need to be: the
+// next receipt for that member overwrites all five columns unconditionally
+// (foldCommandResult), and a wake whose verdict is clean carries reason "" —
+// so the note lives exactly until the next operation on that member, which is
+// also the next moment anyone could act on it. Widening these clears to delete
+// it would require an owner ruling; rc-f2e963132fc5 [1] covers the red line
+// only.
+//
 // It is also what makes the clears non-churning: after one runs, last_op is ""
 // and last_op_at is 0, so every later converged tick answers false and writes
 // nothing.

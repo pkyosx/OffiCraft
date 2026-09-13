@@ -368,12 +368,24 @@ func dispatchCommand(cmd *Command, deps CommandDeps) error {
 			// Receipt of the EXECUTED start — still TOOTHLESS over the spawn itself
 			// (reported AFTER the spawn ran, never gating it). The reason doubles as
 			// the log so a refusal cause is visible server-side.
+			//
+			// A SPAWN THAT WENT AHEAD CAN STILL CARRY A REASON. SpawnOutcome.Note is
+			// the OK=true channel (spawn.go): the pre-trust verdict stopped being a
+			// gate, so its "the child may not read the file we trusted" finding has to
+			// arrive somewhere the operator actually looks. This is that somewhere —
+			// the server folds it onto member.last_op_reason either way, so the
+			// cockpit shows it beside a successful start instead of it living only in
+			// this host's warden log.
+			text := out.Reason
+			if out.OK {
+				text = out.Note
+			}
 			receiptErr := deps.report(CommandResult{
 				MemberID: params.MemberID,
 				RPC:      rpcStart,
 				OK:       out.OK,
-				Reason:   out.Reason,
-				Log:      out.Reason,
+				Reason:   text,
+				Log:      text,
 			})
 			if !out.OK {
 				reason := out.Reason

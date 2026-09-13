@@ -236,6 +236,24 @@ func TestDispatchCommand(t *testing.T) {
 		}
 	})
 
+	t.Run("a spawn that went ahead with something to say carries it on the receipt", func(t *testing.T) {
+		s := &dispatchSpy{spawnOut: SpawnOutcome{
+			OK: true, SessionID: "member-m1", PID: "500",
+			Note: "pretrust_unverified: claude reads a different file",
+		}}
+		if err := dispatchCommand(&Command{RPC: "start", Args: startArgs}, s.deps()); err != nil {
+			t.Fatalf("err = %v, want nil", err)
+		}
+		want := CommandResult{
+			MemberID: "m1", RPC: "start", OK: true,
+			Reason: "pretrust_unverified: claude reads a different file",
+			Log:    "pretrust_unverified: claude reads a different file",
+		}
+		if got := s.receipt(t); got != want {
+			t.Errorf("receipt = %+v, want %+v", got, want)
+		}
+	})
+
 	t.Run("a refused spawn is an error carrying the reason, and still reported", func(t *testing.T) {
 		s := &dispatchSpy{spawnOut: SpawnOutcome{Reason: "ocagent_not_found: no ocagent binary at /x"}}
 		err := dispatchCommand(&Command{RPC: "start", Args: startArgs}, s.deps())

@@ -145,6 +145,15 @@ type SpawnOutcome struct {
 	// the 2026-07-13 Mira incident showed the owner a reason-less ✗ start).
 	// Empty on OK.
 	Reason string
+	// Note is the OK=true counterpart: something the operator has to know about a
+	// spawn that WENT AHEAD. Only the pre-trust verification writes it today, and
+	// it exists because that check stopped being a gate (owner ruling 2026-09-13,
+	// rc-4e9937772d77): an unanswerable probe now costs a loud line, not the
+	// member. command.go carries it on the command_result receipt exactly as it
+	// carries Reason, so it lands on member.last_op_reason and is visible in the
+	// cockpit rather than only in this machine's warden log — which on an external
+	// user's machine nobody reads. Empty when there is nothing to say.
+	Note string
 }
 
 // ---------------------------------------------------------------------------
@@ -832,8 +841,8 @@ func osWriteFile(path, content string, mode os.FileMode) error {
 // same workdir is a no-op change.
 //
 // 🔴 IT IS ONLY HALF THE JOB. Writing the flag says nothing about whether the
-// spawned claude READS this file; claudetrust.go establishes that separately and
-// refuses the spawn when it cannot.
+// spawned claude READS this file; claudetrust.go establishes that separately, and
+// what it finds is reported on the outcome rather than gating the spawn.
 //
 // The path is INJECTED (production passes the real ~/.claude.json; tests pass a temp
 // file) so a test can NEVER touch the live ~/.claude.json.
@@ -1052,11 +1061,13 @@ type SpawnDeps struct {
 	// environment prologue — see claudetrust.go for why nothing here models
 	// claude's resolution.
 	//
-	// 🔴 IT IS NOT NIL-SKIPPED. A nil seam WITH Pretrust wired refuses the spawn:
-	// "wrote a flag, verified nothing" is precisely the shape four reviews kept
-	// finding, so it must not be reachable by leaving a field out. Only a
-	// Pretrust-less deps literal (the Phase-2 seam-only shape, and tests that
-	// never write a flag) skips both.
+	// 🔴 IT IS NOT NIL-SKIPPED INTO SILENCE. A nil seam WITH Pretrust wired still
+	// says so on the outcome: "wrote a flag, verified nothing" is precisely the
+	// shape four reviews kept finding, so leaving the field out must not be a quiet
+	// way to opt out of the question. It no longer costs the spawn (see
+	// claudetrust.go for the owner ruling behind that). Only a Pretrust-less deps
+	// literal (the Phase-2 seam-only shape, and tests that never write a flag)
+	// skips both.
 	VerifyPretrust func(workdir, envRendered string) error
 	// PurgeTrash (T-684c, nil-skipped) reaps <workdir>/trash at spawn time — the
 	// scratch the PREVIOUS generation of this agent mv'd there instead of rm-ing it
@@ -1442,6 +1453,10 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 			d.ClaudeHome)
 	}
 
+	// pretrustNote carries a pre-trust verdict that did not stop the spawn out to
+	// the OK outcome below; empty means the probe answered yes.
+	var pretrustNote string
+
 	// pretrust the workdir BEFORE launch (LOAD-BEARING): without it claude's trust
 	// dialog can intercept and eat the boot nudge → dead-on-boot. Phase 2 leaves the
 	// seam nil (Phase 4 wires the real ~/.claude.json write); a nil seam is skipped,
@@ -1452,16 +1467,39 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 				"pretrust_failed: marking workdir trusted in claude.json: %v", err)}
 		}
 		// Writing the flag is not the guarantee; the child reading THAT file is.
-		// A missing verifier is a wiring hole, not a "skip this step" option —
-		// refuse rather than spawn the exact shape this ticket exists to kill.
-		if d.VerifyPretrust == nil {
-			return SpawnOutcome{OK: false, Reason: "pretrust_unverified: a trust flag was written but no verifier is wired, so nothing establishes that the spawned claude reads the file it was written to"}
+		// THIS REPORTS, IT DOES NOT BLOCK (owner ruling 2026-09-13, rc-4e9937772d77).
+		// The blocking version shipped on 2026-09-12 and took an external station's
+		// whole claude roster down within hours: one host where the probe could not
+		// be answered meant every claude member on it refused to start, with no
+		// switch to turn the check off and a self-update that pulls the new build
+		// back every 15 minutes. What it was bought for — "the member dies on boot
+		// and every receipt says success" — was never actually silent: the server
+		// still stamps wake_timeout when a dispatched start never comes online, and
+		// retries. So the trade was a guaranteed outage against a few minutes of an
+		// already-detected failure. The verdict itself is unchanged and still
+		// positive-answer-only; only its CONSEQUENCE moved, from refusing the spawn
+		// to a line the operator can see in the cockpit.
+		switch {
+		case d.VerifyPretrust == nil:
+			pretrustNote = "pretrust_unverified: a trust flag was written but no verifier is wired, so nothing establishes that the spawned claude reads the file it was written to"
+		default:
+			if err := d.VerifyPretrust(workdir, envRendered); err != nil {
+				pretrustNote = fmt.Sprintf("pretrust_unverified: %v", err)
+			}
 		}
-		if err := d.VerifyPretrust(workdir, envRendered); err != nil {
-			return SpawnOutcome{OK: false, Reason: fmt.Sprintf("pretrust_unverified: %v", err)}
+		if pretrustNote != "" {
+			d.logf("[ocwarden spawn] %s", pretrustNote)
 		}
 	}
 
+	// 🔴 EVERYTHING ABOVE THIS LINE HAPPENS BEFORE THE CHILD EXISTS, AND THE
+	// PRE-TRUST VERDICT HAS TO STAY UP THERE. The probe works by planting a
+	// witness entry in the very ~/.claude.json the child is about to read and
+	// then removing it; asked after the launch below it proves nothing (the
+	// child has already read the file) and its plant/remove pair races a live
+	// reader. Nothing in the types enforces this — it is line order — so
+	// TestStartAsksThePretrustVerdictBeforeCreatingTheSession is what holds it.
+	//
 	// STAGE-A: detached provider session in tmux at the pinned geometry.
 	if err := tmuxNewSession(d.Runner, socket, session, command); err != nil {
 		return SpawnOutcome{OK: false, Reason: fmt.Sprintf(
@@ -1475,5 +1513,5 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 	}
 
 	pid := tmuxPanePID(d.Runner, socket, session)
-	return SpawnOutcome{OK: true, SessionID: session, PID: pid}
+	return SpawnOutcome{OK: true, SessionID: session, PID: pid, Note: pretrustNote}
 }

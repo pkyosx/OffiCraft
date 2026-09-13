@@ -715,18 +715,28 @@ export function AgentDetailPanel({
               <span className="mp-lastop__at">· {lastOpAtText}</span>
             )}
           </div>
-          {/* On failure surface the structured REASON first — a bare「✕ 啟動
-              失敗」tells the owner nothing; absent reason renders status-only
-              (honest, never fabricated). */}
-          {!vm.lastOpOk && lastOpReason && (
+          {/* The structured REASON is rendered WHENEVER the station sent one —
+              on failure (a bare「✕ 啟動失敗」tells the owner nothing) and on
+              SUCCESS too. A successful op carries a reason only when something
+              wanted saying out loud: the pre-trust verdict that no longer
+              refuses the spawn reports itself through exactly this field
+              (T-201), and this panel is the ONLY renderer of last_op_reason —
+              gating it on failure would put the value in the database, visible
+              to anything reading the API, and nowhere a human looks.
+              Absent reason renders status-only (honest, never fabricated).
+              The colour differs by outcome (amber note vs danger) so a
+              succeeded-with-a-warning op never reads as a failed one. */}
+          {lastOpReason && (
             <div
-              className="mp-lastop__reason"
+              className={`mp-lastop__reason${
+                vm.lastOpOk ? " mp-lastop__reason--note" : ""
+              }`}
               data-testid={`${p}-lastop-reason`}
             >
               {vm.lastOpReason}
             </div>
           )}
-          {!vm.lastOpOk && lastOpLog && lastOpLog !== lastOpReason && (
+          {lastOpLog && lastOpLog !== lastOpReason && (
             <div className="mp-lastop__logwrap">
               <button
                 type="button"

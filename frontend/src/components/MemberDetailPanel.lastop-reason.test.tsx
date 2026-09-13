@@ -6,7 +6,12 @@
 //      incident showed a bare "✕ 啟動 失敗" tells the owner nothing).
 //   2. An old record WITHOUT a reason renders status-only, exactly as before
 //      (no fabricated cause), while the collapsible log stays available.
-//   3. A SUCCESSFUL op never renders a reason line.
+//   3. A SUCCEEDED op that carried a reason RENDERS it too, in the amber
+//      note style rather than the danger style (T-201: the pre-trust verdict
+//      no longer refuses the spawn, it reports through last_op_reason, and
+//      this panel is the only renderer of that field — gating the line on
+//      failure would leave the value visible to the API and to nobody).
+//   4. A SUCCEEDED op with no reason still renders status-only.
 
 import { describe, it, expect } from "vitest";
 import { render } from "@testing-library/react";
@@ -94,10 +99,47 @@ describe("MemberDetailPanel 最近操作 failure reason", () => {
     expect(container.querySelector(".mp-lastop__toggle")).not.toBeNull();
   });
 
-  it("renders no reason line on a successful op", () => {
+  it("renders no reason line on a successful op that carried none", () => {
     const { queryByTestId } = renderPanel(
       mkMember({ lastOpOk: true, lastOpLog: "", lastOpReason: "" }),
     );
     expect(queryByTestId("mp-lastop-reason")).toBeNull();
+  });
+
+  // T-201. The pre-trust verdict reports instead of refusing the spawn, so the
+  // member comes up OK and the verdict rides along on the receipt. If this
+  // line is gated on failure the owner sees only "✓ 喚醒 成功" and the verdict
+  // exists solely in the database — a silent failure traded for a loud one.
+  const VERDICT =
+    "pretrust_unverified: claude did not confirm the pre-trust marker; claude said: (empty)";
+
+  it("shows the reason on a SUCCEEDED op, styled as a note rather than a failure", () => {
+    const { getByTestId, container } = renderPanel(
+      mkMember({ lastOpOk: true, lastOpLog: "", lastOpReason: VERDICT }),
+    );
+    const line = getByTestId("mp-lastop-reason");
+    expect(line.textContent).toBe(VERDICT);
+    // Amber note, not the danger red of a failed op.
+    expect(line.className).toContain("mp-lastop__reason--note");
+    expect(container.querySelector(".mp-lastop__head--ok")).not.toBeNull();
+    expect(container.querySelector(".mp-lastop__head--fail")).toBeNull();
+  });
+
+  it("keeps the failure reason in the danger style (no note modifier)", () => {
+    const { getByTestId } = renderPanel(mkMember());
+    expect(getByTestId("mp-lastop-reason").className).not.toContain(
+      "mp-lastop__reason--note",
+    );
+  });
+
+  it("offers the collapsible log on a SUCCEEDED op that carried one", () => {
+    const { container } = renderPanel(
+      mkMember({
+        lastOpOk: true,
+        lastOpReason: VERDICT,
+        lastOpLog: "claude said: (empty)\nmarker file was never read",
+      }),
+    );
+    expect(container.querySelector(".mp-lastop__toggle")).not.toBeNull();
   });
 });
