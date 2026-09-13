@@ -1486,3 +1486,56 @@ func TestClaudeChildEnvPrologue(t *testing.T) {
 		}
 	})
 }
+
+// The pre-trust verdict is only worth anything if it is asked BEFORE the child
+// is launched (T-201, (b2)).
+//
+// The probe works by planting a witness entry in the very ~/.claude.json the
+// child is about to read and then deleting it again. Run it after
+// `tmux new-session` and it is no longer a probe of anything: the child has
+// already read the file, so a "yes" says nothing about what the child saw, and
+// the plant/delete pair now races a live reader. Until this test existed the
+// ordering was held up by nothing but the line order in start() — moving the
+// whole verify block below the launch left every test in this package green.
+//
+// Both controls matter and both are asserted: that the verifier really ran (or
+// the flag below is vacuously false) and that the session really was created
+// (or "no session yet at verify time" is true because there was never a
+// session at all).
+func TestStartAsksThePretrustVerdictBeforeCreatingTheSession(t *testing.T) {
+	h := newSpawnHarness()
+	d := h.deps()
+	verified := false
+	sessionExistedAtVerifyTime := false
+	d.VerifyPretrust = func(workdir, envRendered string) error {
+		verified = true
+		for _, c := range h.runner.calls {
+			if strings.Contains(c, " new-session ") {
+				sessionExistedAtVerifyTime = true
+			}
+		}
+		return nil
+	}
+
+	out := d.start(startParamsM1())
+
+	if !out.OK {
+		t.Fatalf("spawn failed: %+v", out)
+	}
+	if !verified {
+		t.Fatal("the verifier never ran — the ordering assertion below proves nothing")
+	}
+	sessionCreated := false
+	for _, c := range h.runner.calls {
+		if strings.Contains(c, " new-session ") {
+			sessionCreated = true
+		}
+	}
+	if !sessionCreated {
+		t.Fatal("no session was ever created — the ordering assertion below proves nothing")
+	}
+	if sessionExistedAtVerifyTime {
+		t.Error("the pre-trust verdict was taken AFTER tmux new-session: it plants a witness " +
+			"in the file the child has already read, so its answer is about nothing")
+	}
+}

@@ -1492,6 +1492,14 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 		}
 	}
 
+	// 🔴 EVERYTHING ABOVE THIS LINE HAPPENS BEFORE THE CHILD EXISTS, AND THE
+	// PRE-TRUST VERDICT HAS TO STAY UP THERE. The probe works by planting a
+	// witness entry in the very ~/.claude.json the child is about to read and
+	// then removing it; asked after the launch below it proves nothing (the
+	// child has already read the file) and its plant/remove pair races a live
+	// reader. Nothing in the types enforces this — it is line order — so
+	// TestStartAsksThePretrustVerdictBeforeCreatingTheSession is what holds it.
+	//
 	// STAGE-A: detached provider session in tmux at the pinned geometry.
 	if err := tmuxNewSession(d.Runner, socket, session, command); err != nil {
 		return SpawnOutcome{OK: false, Reason: fmt.Sprintf(
