@@ -75,19 +75,37 @@ func apiTestWantWorker(t *testing.T, h http.Handler, owner, workerID string, wan
 	apiWantBody(t, data, want)
 }
 
-func apiTestWantReleasedWorker(t *testing.T, d *DAL, h http.Handler, owner, workerID string) *OutsourceWorker {
+func apiTestWantReleasedWorker(t *testing.T, d *DAL, h http.Handler, owner, workerID string, over ...map[string]any) *OutsourceWorker {
 	t.Helper()
 	worker, err := d.GetOutsourceWorker(workerID)
 	if err != nil || worker == nil || worker.Status != WorkerStatusReleased {
 		t.Fatalf("released worker %s = %+v, err=%v", workerID, worker, err)
 	}
-	apiTestWantWorker(t, h, owner, workerID, apiTestWorkerRow(t, map[string]any{
+	want := map[string]any{
 		"id": workerID, "status": WorkerStatusReleased,
 		"roster_status": RosterStatusRemoved, "presence": "",
-	}))
+	}
+	for _, fields := range over {
+		for key, value := range fields {
+			want[key] = value
+		}
+	}
+	apiTestWantWorker(t, h, owner, workerID, apiTestWorkerRow(t, want))
 	// A released worker remains addressable as durable identity through the
 	// item read, but it must no longer appear in the live roster collection.
-	apiTestWantWorkerList(t, h, owner)
+	rec := apiRequest(t, h, http.MethodGet, "/api/members", owner, "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list members: want 200, got %d (%s)", rec.Code, rec.Body.String())
+	}
+	var roster []map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &roster); err != nil {
+		t.Fatalf("list members returned non-JSON body: %s", rec.Body.String())
+	}
+	for _, row := range roster {
+		if row["id"] == workerID {
+			t.Fatalf("released member %s remained in the live roster: %v", workerID, row)
+		}
+	}
 	return worker
 }
 

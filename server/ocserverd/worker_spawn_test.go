@@ -2747,7 +2747,9 @@ func TestDismissOutsourceWorkersForTask(t *testing.T) {
 		api.dismissOutsourceWorkersForTask("T-1", 7777, triggerServer)
 
 		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"))
-		apiTestWantReleasedWorker(t, d, h, owner, "ow-abc123")
+		apiTestWantReleasedWorker(t, d, h, owner, "ow-abc123", map[string]any{
+			"machine": ServerSelfHost,
+		})
 		dashboard.wantFrames(apiTestWorkerDelta(2, "released", "server"))
 	})
 
@@ -2797,7 +2799,9 @@ func TestDismissOutsourceWorkerByID(t *testing.T) {
 		api.dismissOutsourceWorkerByID("ow-abc123", 7777, triggerServer)
 
 		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"))
-		apiTestWantReleasedWorker(t, d, h, owner, "ow-abc123")
+		apiTestWantReleasedWorker(t, d, h, owner, "ow-abc123", map[string]any{
+			"machine": ServerSelfHost,
+		})
 		apiTestWantWorker(t, h, owner, "ow-def456", apiTestWorkerRow(t, map[string]any{
 			"id": "ow-def456", "name": "Stevedore", "status": "active",
 		}))

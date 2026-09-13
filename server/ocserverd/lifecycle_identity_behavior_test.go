@@ -532,6 +532,13 @@ var identityGateExpectedCount = map[string]int{
 // The fix applied here was to put the predicate back where the scanners can see
 // it (at each call site) and re-register it, not to widen the scanners.
 var identityGateLedger = map[string]string{
+	"api_helpers.go :: resolveMemberForItemRead :: m.Kind != KindOutsource": "" +
+		"the read-only durable-identity exception required by T-197: a released " +
+		"outsource worker keeps its codename for chats, tasks and lore, while a " +
+		"dismissed staff member or removed warden remains unreadable. This does not " +
+		"widen lifecycle or write resolution (those still use resolveMember), so it " +
+		"is a wire/read projection distinction rather than differentiated lifecycle " +
+		"treatment under the 2026-08-26 外包＝正職 ruling.",
 	// ── the hire door's required-field rule (owner 2026-09-12, rc-564e5f39b6f5) ──
 	"api_members.go :: HandleHireMemberApiMembersPost :: kind == KindStaff": "" +
 		"the kind of the row being CREATED, not of the caller, and not a lifecycle " +
