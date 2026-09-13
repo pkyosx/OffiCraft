@@ -1527,10 +1527,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Read one member row — STAFF OR OUTSOURCE, matching what GET /api/members already lists (removed → 404). It answered 404 for an ow- id until 2026-08-28, which cost the cockpit one guaranteed failed request plus a whole-roster refetch on every contractor chat line. The write verbs on this same {member_id} take an ow- id too -- update, activate, deactivate, force-stop, accelerated-stop and refocus each dispatch to the worker body; dismiss is the one that still refuses, with a 404.
-         * @description - Reads one roster member.
+         * Read one member row — STAFF OR OUTSOURCE. Released outsource rows remain readable so durable chat, task and lore attribution keeps the worker codename; dismissed staff and removed wardens answer 404. The write verbs on this same {member_id} take an active ow- id too -- update, activate, deactivate, force-stop, accelerated-stop and refocus each dispatch to the worker body; release remains task-bound and dismiss refuses an ow- id with 404.
+         * @description - Reads one roster member, including a released outsource row for durable identity attribution.
          *     - `machine` is the OBSERVED position, not the pinned one — same as the list endpoint.
-         *     - 404 if the member is absent or soft-removed.
+         *     - 404 if the member is absent, or if a staff/warden row is soft-removed.
          */
         get: operations["handle_get_member_api_members__member_id__get"];
         put?: never;

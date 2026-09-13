@@ -370,6 +370,23 @@ func (s *apiServer) resolveMember(memberID string, scope memberScope) (*Member, 
 	return m, nil
 }
 
+// resolveMemberForItemRead is the read-only identity lookup behind
+// GET /api/members/{id}. A released outsource worker remains addressable here
+// because chats, tasks and lore keep its durable codename after release. The
+// same roster_status value means dismissal for staff and teardown for wardens,
+// so those kinds still read as not found. Lifecycle and write handlers keep
+// using resolveMember and therefore cannot revive a released worker.
+func (s *apiServer) resolveMemberForItemRead(memberID string) (*Member, error) {
+	m, err := s.dal.GetMember(memberID)
+	if err != nil {
+		return nil, err
+	}
+	if m == nil || (m.RosterStatus == RosterStatusRemoved && m.Kind != KindOutsource) {
+		return nil, errNotFound
+	}
+	return m, nil
+}
+
 // resolveMachine returns the live ACTIVE kind=="warden" member whose id IS
 // machineID (errNotFound otherwise).
 func (s *apiServer) resolveMachine(machineID string) (*Member, error) {

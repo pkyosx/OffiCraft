@@ -976,15 +976,13 @@ func (s *apiServer) HandleHireMemberApiMembersPost(w http.ResponseWriter, r *htt
 	writeJSON(w, http.StatusOK, agentLifecycleReceiptDTO{ID: m.ID})
 }
 
-// GET /api/members/{member_id} — one roster member (removed → 404); machine
-// is the OBSERVED position. SELF-READ exception (T-ea82): an outsource worker
-// reading its OWN row (memberId == the verified sub) resolves — the ocagent
-// recycle/wind-down hooks refetch GET /api/members/<self> and must see the
-// worker's desired_state/refocus_since. Since 2026-08-28 the item door is
-// anyMember, so an ow- target resolves for ANY caller — the self-read branch
-// below is now only the fallback for a row this scope cannot see.
+// GET /api/members/{member_id} — one roster member; a released outsource row
+// remains readable for durable identity attribution, while dismissed staff and
+// removed wardens answer 404. machine is the OBSERVED position. The self-read
+// fallback remains for lifecycle compatibility with a row the ordinary item
+// lookup cannot expose.
 func (s *apiServer) HandleGetMemberApiMembersMemberIdGet(w http.ResponseWriter, r *http.Request, memberId string) {
-	m, err := s.resolveMember(memberId, anyMember)
+	m, err := s.resolveMemberForItemRead(memberId)
 	if errors.Is(err, errNotFound) && memberId == currentActor(r) {
 		m, err = s.resolveSelf(r)
 	}

@@ -14184,7 +14184,7 @@
         }
       },
       "get": {
-        "description": "- Reads one roster member.\n- `machine` is the OBSERVED position, not the pinned one — same as the list endpoint.\n- 404 if the member is absent or soft-removed.",
+        "description": "- Reads one roster member, including a released outsource row for durable identity attribution.\n- `machine` is the OBSERVED position, not the pinned one — same as the list endpoint.\n- 404 if the member is absent, or if a staff/warden row is soft-removed.",
         "operationId": "handle_get_member_api_members__member_id__get",
         "parameters": [
           {
@@ -14239,12 +14239,12 @@
             "description": "Server error (unified error envelope)."
           }
         },
-        "summary": "Read one member row — STAFF OR OUTSOURCE, matching what GET /api/members already lists (removed → 404). It answered 404 for an ow- id until 2026-08-28, which cost the cockpit one guaranteed failed request plus a whole-roster refetch on every contractor chat line. The write verbs on this same {member_id} take an ow- id too -- update, activate, deactivate, force-stop, accelerated-stop and refocus each dispatch to the worker body; dismiss is the one that still refuses, with a 404.",
+        "summary": "Read one member row — STAFF OR OUTSOURCE. Released outsource rows remain readable so durable chat, task and lore attribution keeps the worker codename; dismissed staff and removed wardens answer 404. The write verbs on this same {member_id} take an active ow- id too -- update, activate, deactivate, force-stop, accelerated-stop and refocus each dispatch to the worker body; release remains task-bound and dismiss refuses an ow- id with 404.",
         "x-mcp": {
-          "description": "Read one member row — STAFF OR OUTSOURCE, matching what GET /api/members already lists (removed → 404). It answered 404 for an ow- id until 2026-08-28, which cost the cockpit one guaranteed failed request plus a whole-roster refetch on every contractor chat line. The write verbs on this same {member_id} take an ow- id too -- update, activate, deactivate, force-stop, accelerated-stop and refocus each dispatch to the worker body; dismiss is the one that still refuses, with a 404.",
+          "description": "Read one member row — STAFF OR OUTSOURCE. Released outsource rows remain readable so durable chat, task and lore attribution keeps the worker codename; dismissed staff and removed wardens answer 404. The write verbs on this same {member_id} take an active ow- id too -- update, activate, deactivate, force-stop, accelerated-stop and refocus each dispatch to the worker body; release remains task-bound and dismiss refuses an ow- id with 404.",
           "include": true,
           "legacy": {
-            "descriptor": "{\n      \"description\": \"Read one member row — STAFF OR OUTSOURCE, matching what GET /api/members already lists (removed \\u2192 404). It answered 404 for an ow- id until 2026-08-28, which cost the cockpit one guaranteed failed request plus a whole-roster refetch on every contractor chat line. The write verbs on this same {member_id} take an ow- id too -- update, activate, deactivate, force-stop, accelerated-stop and refocus each dispatch to the worker body; dismiss is the one that still refuses, with a 404.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"member_id\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"member_id\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"get_member\"\n    }"
+            "descriptor": "{\n      \"description\": \"Read one member row — STAFF OR OUTSOURCE. Released outsource rows remain readable so durable chat, task and lore attribution keeps the worker codename; dismissed staff and removed wardens answer 404. The write verbs on this same {member_id} take an active ow- id too -- update, activate, deactivate, force-stop, accelerated-stop and refocus each dispatch to the worker body; release remains task-bound and dismiss refuses an ow- id with 404.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"member_id\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"member_id\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"get_member\"\n    }"
           },
           "name": "get_member",
           "order": 7

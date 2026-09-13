@@ -1587,6 +1587,36 @@ func TestHandleGetMemberApiMembersMemberIdGet(t *testing.T) {
 		dashboard.wantFrames()
 	})
 
+	t.Run("a released outsource worker keeps its full durable identity projection", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		if err := d.PutOutsourceWorker(OutsourceWorker{
+			ID: "ow-abc123", Codename: "Contractor", Status: WorkerStatusReleased,
+		}); err != nil {
+			t.Fatalf("PutOutsourceWorker: %v", err)
+		}
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "GET", "/api/members/ow-abc123", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"id": "ow-abc123", "avatar_url": "", "name": "Contractor",
+			"kind": "outsource", "role_key": "", "role_name": "", "runtime": "claude",
+			"model": "", "actual_model": "", "actual_runtime": "",
+			"actual_effort": "", "actual_machine": "", "effort": "",
+			"desired_state": "", "desired_machine_id": "", "machine": "",
+			"presence": "", "refocus_since": 0, "refocus_op": "",
+			"refocus_deadline": 0, "last_op": "", "last_op_ok": nil,
+			"last_op_log": "", "last_op_reason": "", "last_op_at": 0,
+			"forced_stop_at": 0, "unread_count": 0, "roster_status": "removed",
+			"owner_id": "owner", "schema_version": 3,
+			"terminal_attach_command": "tmux -L officraft attach -t member-ow-abc123",
+			"status":                  "released",
+		})
+		dashboard.wantFrames()
+	})
+
 	t.Run("a dismissed member answers 404 naming it, as does an id nothing carries", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		if status, data := apiJSON(t, h, "DELETE", "/api/members/kip", owner, ""); status != 200 {

@@ -34,6 +34,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { components } from "./generated/schema";
 import {
   __injectMockChat,
+  __injectMockMember,
   __injectMockOutsourceWorker,
   __injectMockTask,
   __resetMock,
@@ -126,6 +127,30 @@ describe("per-item DTO gaps are what the adapter really does (T-8115 follow-up)"
     expect(single.kind).toBe("outsource");
     // Same row through both doors — the property the 404 broke.
     expect(single.name).toBe(worker.name);
+  });
+
+  it("keeps a released outsource identity readable without exposing dismissed staff", async () => {
+    __injectMockMember({
+      id: "ow-released",
+      kind: "outsource",
+      name: "Archived codename",
+      roster_status: "removed",
+    });
+    __injectMockMember({
+      id: "m-dismissed",
+      kind: "staff",
+      name: "Dismissed member",
+      roster_status: "removed",
+    });
+
+    expect((await mockApi.listMembers()).some((m) => m.id === "ow-released")).toBe(false);
+    const released = await mockApi.getMember("ow-released");
+    expect(released.id).toBe("ow-released");
+    expect(released.kind).toBe("outsource");
+    expect(released.name).toBe("Archived codename");
+    await expect(mockApi.getMember("m-dismissed")).rejects.toThrow(
+      "mock: member removed: m-dismissed"
+    );
   });
 
   it("GET /api/tasks/{id} carries no dep join; GET /api/tasks does", async () => {

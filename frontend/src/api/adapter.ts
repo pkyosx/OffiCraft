@@ -2491,13 +2491,14 @@ export interface Api {
    * List LIVE (not-yet-released) outsource workers
    * (`GET /api/members`, filtered to kind=outsource): name / model / effort + the bound
    * task id. The task card resolves its 外包 executor display through this;
-   * released workers drop off, so a CLOSED outsource task honestly renders
-   * the bare 外包 label instead of a fabricated codename.
+   * released workers drop off this list, but their durable identity remains
+   * available through getOutsourceWorker for lazy chat/task/lore attribution.
    */
   listOutsourceWorkers(): Promise<OutsourceWorkerView[]>;
   /** Read ONE worker (`GET /api/members/{member_id}`) — the SAME
    * projection the list serves, for the detail panel's post-relocate refresh.
-   * A released / unknown worker → 404 (throws ApiError). (T-f190) */
+   * Released rows remain readable for durable identity attribution; an unknown
+   * worker still → 404 (throws ApiError). (T-f190) */
   getOutsourceWorker(id: string): Promise<OutsourceWorkerView>;
   /** Read a worker's boot-context PREVIEW (`GET
    * /api/outsource-workers/{id}/boot-context`, owner/admin-agent) — the worker twin

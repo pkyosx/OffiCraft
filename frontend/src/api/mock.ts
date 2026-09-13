@@ -2632,9 +2632,12 @@ const mockApiImpl = {
   },
 
   async getMember(id: string): Promise<Member> {
-    // A removed member reads as 404 (mirror handle_get_member).
+    // Released outsource rows stay readable for durable identity attribution;
+    // dismissed staff and removed wardens still read as 404.
     const w = findWire(id);
-    if (w.roster_status === "removed") throw new Error(`mock: member removed: ${id}`);
+    if (w.roster_status === "removed" && w.kind !== "outsource") {
+      throw new Error(`mock: member removed: ${id}`);
+    }
     // unread_count is COMPUTED here exactly as listMembers computes it — the Go
     // single-member handler runs the same `unreadCountsForRequest` as the list
     // (T-8115 review). Serving the static fixture value instead would make the
