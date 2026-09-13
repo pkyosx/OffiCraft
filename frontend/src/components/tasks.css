@@ -1326,23 +1326,14 @@ button.task-card__waiting--dep:focus-visible {
   font-size: 12.5px;
 }
 .task-card__ready-done-text {
-  /* Shrinkable so the button never clips at 390px — the sentence wraps, the
-     control stays whole (same rule as the 負責人 chip / 轉派 icon pair). */
+  /* Shrinkable so a long sentence wraps inside the banner instead of widening
+     it — `min-width: 0` is what lets a flex item go below min-content here.
+     The banner carries NO button (the 結案 one was out of scope and could only
+     ever 403 from this cockpit — see TaskCard.tsx), so this is the only child;
+     the flex row is kept because the sentence is still the thing that has to
+     shrink, and a future icon would belong on the same row. */
   flex: 1 1 auto;
   min-width: 0;
-}
-.task-card__ready-done-btn {
-  flex: none;
-  padding: 5px 12px;
-  border-radius: 8px;
-  border: 1px solid var(--color-ready-for-done);
-  background: transparent;
-  color: var(--color-ready-for-done);
-  font-size: 12.5px;
-  cursor: pointer;
-}
-.task-card__ready-done-btn:hover {
-  background: color-mix(in srgb, var(--color-ready-for-done) 20%, transparent);
 }
 
 /* ── force-closed read-back (T-192) ──

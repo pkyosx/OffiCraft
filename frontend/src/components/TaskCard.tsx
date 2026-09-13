@@ -159,7 +159,6 @@ export function TaskCard({
   onSendMessage,
   onHydrate,
   onRemoveArtifact,
-  onMarkDone,
   onForceDone,
   canForceDone = false,
 }: {
@@ -200,11 +199,6 @@ export function TaskCard({
   /** Owner/admin un-pin of one artifact (T-3dc5). Absent ⇒ the artifact popover
    * is display-only (no × affordance). */
   onRemoveArtifact?: (taskId: string, artifactId: string) => Promise<void>;
-  /** Close a ready_for_done task as done (T-192, MCP `mark_task_done`). Absent
-   * ⇒ the 結案 button is not rendered; the 可結案 LINE still is, because that
-   * line is information about where the task is stuck and is true whether or
-   * not this particular surface can act on it. */
-  onMarkDone?: (id: string) => Promise<void>;
   /** Force a task closed over its precondition (T-192, MCP `force_task_done`).
    * `reason` may be "" — optional since owner ruling rc-a92a6252c3bd. */
   onForceDone?: (id: string, reason: string) => Promise<void>;
@@ -692,11 +686,10 @@ export function TaskCard({
   // rule onto the other control reddens that control's guard.
   const prioRef = useRef<HTMLDivElement>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
-  // 結案 / 強制結案 (T-192). Two separate confirms because they are two
-  // different actions with two different servers-side doors — collapsing them
-  // into one dialog with a checkbox would be exactly the "generic set-status
-  // entry" this ticket's DoD forbids.
-  const [markDoneOpen, setMarkDoneOpen] = useState(false);
+  // 強制結案 (T-192) gets its own confirm rather than sharing one with
+  // 標記重複/終止: collapsing named closes into one dialog with a status
+  // picker would be exactly the "generic set-status entry" this ticket's DoD
+  // forbids.
   const [forceOpen, setForceOpen] = useState(false);
   // The 強制結案 reason draft. Starts empty and MAY STAY EMPTY: owner ruling
   // rc-a92a6252c3bd made it optional, so nothing here blocks the confirm on it.
@@ -806,21 +799,6 @@ export function TaskCard({
     setActionError(
       `${t.tasks.closeStateError}${t.tasks.status[status] ?? status}`
     );
-  }
-
-  async function doMarkDone() {
-    if (!onMarkDone) return;
-    setBusy(true);
-    try {
-      await onMarkDone(task.id);
-      setMarkDoneOpen(false);
-      setActionError(null);
-    } catch (e) {
-      setMarkDoneOpen(false);
-      await reportCloseRefused(e);
-    } finally {
-      setBusy(false);
-    }
   }
 
   async function doForceDone() {
@@ -1572,29 +1550,29 @@ export function TaskCard({
             different question. It also reads from `view`, so an expanded card
             whose hydrate has moved the status shows the hydrated truth.
 
-            The 結案 button is the EXECUTOR's door (`mark_task_done`): the
-            server admits the task's own executor and 403s the owner. The
-            cockpit renders it because the DoD asks for「按得到結案」on this
-            surface; a caller the server refuses gets the 409/403 named back
-            through reportCloseRefused rather than a silent nothing. ── */}
+            🔴 THE LINE CARRIES NO 結案 BUTTON, and that is a scope ruling, not
+            an omission. An earlier cut of this ticket put one here wired to
+            `mark_task_done`. Two things were wrong with it. (a) SCOPE: the AC
+            that read「owner 可以直接按下結案」was withdrawn — the ticket now
+            lists 強制結案 and nothing else. (b) IT COULD ONLY EVER FAIL: that
+            route admits the task's OWN EXECUTOR and 403s everyone else, and
+            this cockpit authenticates as exactly one principal, the owner, who
+            is never the executor. So the button was unpressable by
+            construction. The same rule already governs 強制結案 in the 狀態
+            menu (`canForceDone` hides rather than greys it); this line was the
+            one place it had not been applied. Do not re-add the button without
+            a member-scoped cockpit to press it.
+
+            WHAT THE LINE STILL HAS TO DO is say who is being waited for — the
+            AC asks for「看得出來它在等誰做什麼」— and `readyForDoneHint` is
+            where that sentence lives. See the locale files for why it names the
+            EXECUTOR and then names 強制結案 as the way out: the executor being
+            gone is the main case this ticket exists for. ── */}
         {view.status === "ready_for_done" && (
           <div className="task-card__ready-done" data-testid="task-ready-done">
             <span className="task-card__ready-done-text">
               {t.tasks.readyForDoneHint}
             </span>
-            {onMarkDone && (
-              <button
-                type="button"
-                className="task-card__ready-done-btn"
-                data-testid="task-mark-done"
-                onClick={() => {
-                  setActionError(null);
-                  setMarkDoneOpen(true);
-                }}
-              >
-                {t.tasks.markDone}
-              </button>
-            )}
           </div>
         )}
 
@@ -2291,19 +2269,6 @@ export function TaskCard({
           danger
           onCancel={() => setConfirmOpen(false)}
           onConfirm={() => void doTerminate()}
-        />
-      )}
-
-      {markDoneOpen && (
-        <ConfirmModal
-          testId="mark-done-confirm"
-          confirmTestId="mark-done-confirm-btn"
-          body={t.tasks.markDoneConfirmBody}
-          cancelLabel={t.common.cancel}
-          confirmLabel={t.tasks.markDoneConfirm}
-          busy={busy}
-          onCancel={() => setMarkDoneOpen(false)}
-          onConfirm={() => void doMarkDone()}
         />
       )}
 

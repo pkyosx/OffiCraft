@@ -9,9 +9,19 @@
 // ticket being worked on, and a ticket whose executor had already left could
 // not be closed from this screen at all.
 //
+// 🔴 SCOPE, AND WHY THERE IS NO 結案 BUTTON IN THIS FILE. An earlier cut put
+// one in the 可結案 banner, wired to `mark_task_done`. The AC that asked for it
+// (「owner 可以直接按下結案」) was WITHDRAWN — the ticket now lists 強制結案 and
+// nothing else — and the button was unpressable anyway: that route admits the
+// task's OWN EXECUTOR and 403s everyone else, and this cockpit authenticates as
+// exactly one principal, the owner, who is never the executor. The same "do not
+// offer a button that could only ever fail" rule already governs 強制結案 via
+// `canForceDone`. ① below now pins the banner WITHOUT a button, and pins that
+// no close button is offered there — so re-adding one reddens this file.
+//
 // Locked here:
 //   ① a ready_for_done card SAYS it is waiting, on the COLLAPSED card, and
-//     offers 結案 (mark_task_done). Any other status offers neither.
+//     offers NO close button. Any other status shows no line at all.
 //   ② owner / admin assistant get 強制結案 in the 狀態 menu; a viewer the route
 //     floor would refuse does not — the item is absent, not greyed.
 //   ③ the 強制結案 confirm is a SECOND step (the menu item alone closes
@@ -121,8 +131,8 @@ beforeEach(() => {
   window.location.hash = "";
 });
 
-describe("① 可結案: the card says it is waiting, and offers 結案", () => {
-  it("shows the waiting line and the 結案 button on a COLLAPSED ready_for_done card", async () => {
+describe("① 可結案: the card says it is waiting — and offers no close button", () => {
+  it("shows the waiting line on a COLLAPSED ready_for_done card — and offers NO close button there", async () => {
     __injectMockTask(mkTask({ title: "等人按結案" }));
     const { findByTestId } = renderPage();
 
@@ -132,15 +142,14 @@ describe("① 可結案: the card says it is waiting, and offers 結案", () => 
     expect(card.getAttribute("aria-expanded")).toBe("false");
     const banner = within(card).getByTestId("task-ready-done");
     expect(banner.textContent).toContain(zh.tasks.readyForDoneHint);
-    // Not the raw status identifier, and not a bare status word either: the
-    // line has to say who is being waited for.
-    expect(banner.textContent).toContain("負責人");
-    expect(within(card).getByTestId("task-mark-done").textContent).toContain(
-      zh.tasks.markDone
-    );
+
+    // …and there is no close button on the banner. The 結案 one is out of
+    // scope AND could only ever 403 from this cockpit.
+    expect(card.querySelector('[data-testid="task-mark-done"]')).toBeNull();
+    expect(banner.querySelector("button")).toBeNull();
   });
 
-  it("offers neither the line nor 結案 on a status that has not reached the precondition", async () => {
+  it("shows no 可結案 line on a status that has not reached the precondition", async () => {
     for (const status of ["not_started", "in_progress", "waiting_owner", "waiting_external"]) {
       __injectMockTask(mkTask({ title: `不可結案-${status}`, status }));
     }
@@ -153,20 +162,18 @@ describe("① 可結案: the card says it is waiting, and offers 結案", () => 
     }
   });
 
-  it("結案 is a two-step: the button opens a confirm, and only the confirm calls mark_task_done", async () => {
-    __injectMockTask(mkTask({ title: "兩步結案" }));
+  it("the cockpit never calls mark_task_done — the banner has no door to it", async () => {
+    // The negative form of the scope ruling, stated where it can actually
+    // fail: re-adding the button (or any other caller) reddens this.
+    __injectMockTask(mkTask({ title: "沒有一般結案" }));
     const spy = vi.spyOn(mockApi, "markTaskDone");
     const { findByTestId } = renderPage();
 
-    fireEvent.click(await findByTestId("task-mark-done"));
-    // Opened, and NOTHING sent yet — a one-click terminal close is exactly the
-    // thing every other close on this card refuses to be.
-    expect(await findByTestId("mark-done-confirm")).toBeTruthy();
+    const card = await findByTestId("task-card");
+    const banner = within(card).getByTestId("task-ready-done");
+    for (const b of banner.querySelectorAll("button")) fireEvent.click(b);
+    fireEvent.click(banner);
     expect(spy).not.toHaveBeenCalled();
-
-    fireEvent.click(await findByTestId("mark-done-confirm-btn"));
-    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
-    expect(spy.mock.calls[0][0]).toMatch(/^task-/);
   });
 });
 
@@ -206,7 +213,6 @@ describe("② 強制結案 is offered to the principals the route floor admits �
           onReassign={noop}
           onSendMessage={noop}
           onHydrate={async (id) => mkTask({ id })}
-          onMarkDone={noop}
           onForceDone={noop}
           canForceDone={false}
         />
@@ -328,12 +334,15 @@ describe("④ what the server recorded comes back onto the card", () => {
   });
 
   it("a task closed NORMALLY carries no 強制結案 row — the stamp is what tells the two closes apart", async () => {
-    __injectMockTask(mkTask({ title: "自己結案的" }));
+    // Injected already-done rather than closed through the UI: the cockpit no
+    // longer HAS an ordinary-close button (scope, see the header), and the
+    // subject here was never the button — it is that `forcedDoneBy` is what
+    // distinguishes the two closes on a card that has the full projection.
+    __injectMockTask(
+      mkTask({ title: "自己結案的", status: "done", closedTs: 1 })
+    );
     const { findByTestId } = renderPage();
     showDone();
-
-    fireEvent.click(await findByTestId("task-mark-done"));
-    fireEvent.click(await findByTestId("mark-done-confirm-btn"));
     await openClosedSection();
     // Expanded, so the card HAS the projection that could show a 強制結案 row —
     // this is the arm where the absence is evidence rather than ignorance.
@@ -353,22 +362,25 @@ describe("④ what the server recorded comes back onto the card", () => {
 
 describe("⑤ a refused close says WHERE the task actually is", () => {
   it("names the status instead of a bare 操作失敗", async () => {
-    // The race this exists for: the menu was opened on a ready_for_done card,
-    // and by the time the confirm landed the task had moved. The mock answers
-    // the same 409 the server does.
+    // The race this exists for: the menu was opened on an open card, and by
+    // the time the confirm landed somebody else had already closed the task.
+    // The mock answers the same 409 the server does. Driven through 強制結案
+    // because that is the only close this surface still has — `reportCloseRefused`
+    // is shared, so this is the same code path the removed button used.
     __injectMockTask(mkTask({ title: "被拒絕的結案" }));
     const { findByTestId } = renderPage();
 
-    fireEvent.click(await findByTestId("task-mark-done"));
+    fireEvent.click(await findByTestId("task-status"));
+    fireEvent.click(await findByTestId("task-force-done"));
     // Move it under the open dialog — now the close cannot succeed.
     const id = (await findByTestId("task-card")).getAttribute("data-task-id");
-    vi.spyOn(mockApi, "markTaskDone").mockRejectedValue(
+    vi.spyOn(mockApi, "forceTaskDone").mockRejectedValue(
       Object.assign(new Error("http 409"), { status: 409 })
     );
     vi.spyOn(mockApi, "getTask").mockResolvedValue(
       mkTask({ id: id ?? "task-1", status: "waiting_owner" })
     );
-    fireEvent.click(await findByTestId("mark-done-confirm-btn"));
+    fireEvent.click(await findByTestId("force-done-confirm-btn"));
 
     const err = await waitFor(() => {
       const el = document.querySelector(".task-card__error");

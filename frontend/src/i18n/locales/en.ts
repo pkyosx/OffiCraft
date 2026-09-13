@@ -355,10 +355,6 @@ export const en: Dict = {
     // "the work is done, the close has not happened".
     readyForDoneHint:
       "Every step is reported done — this task is waiting for its executor to close it.",
-    markDone: "Close as done",
-    markDoneConfirmBody:
-      "Close this task as done? It moves to Done and cannot be resumed.",
-    markDoneConfirm: "Close as done",
     // ── force close (T-192) ─────────────────────────────────────────────────
     // The way out for a task whose executor is never coming back. Owner and
     // admin assistant only — the server's route floor is the real gate; this

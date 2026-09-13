@@ -105,7 +105,6 @@ export function TasksPage() {
     loading,
     error,
     terminate,
-    markDone,
     forceDone,
     markDuplicate,
     setPriority,
@@ -628,7 +627,6 @@ export function TasksPage() {
         nowTs={nowTs}
         located={idApplied && task.id === appliedId}
         onTerminate={terminate}
-        onMarkDone={markDone}
         onForceDone={forceDone}
         // Read HERE, once per render, rather than inside the card: the card
         // stays a pure function of its props, and the arm where this is false
