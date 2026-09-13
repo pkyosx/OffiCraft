@@ -56,8 +56,8 @@ func TestVerifyDiffShareSig(t *testing.T) {
 func TestRouteSpecs(t *testing.T) {
 	api, _, _, _ := newAPITestServer(t)
 	specs := routeSpecs(&ServerInterfaceWrapper{Handler: api})
-	if len(specs) != 183 {
-		t.Fatalf("routeSpecs returned %d rows, want 183", len(specs))
+	if len(specs) != 174 {
+		t.Fatalf("routeSpecs returned %d rows, want 174", len(specs))
 	}
 
 	seen := make(map[string]bool, len(specs))
@@ -85,6 +85,18 @@ func TestRouteSpecs(t *testing.T) {
 		default:
 			t.Fatalf("route %q has unknown auth class %q", key, spec.Auth)
 		}
+	}
+
+	for _, key := range []string{
+		http.MethodGet + " /api/outsource-workers",
+		http.MethodGet + " /api/outsource-workers/{id}",
+	} {
+		if seen[key] {
+			t.Fatalf("retired route %q remains callable", key)
+		}
+	}
+	if !seen[http.MethodGet+" /api/outsource-workers/{id}/boot-context"] {
+		t.Fatal("worker-specific boot-context route is missing")
 	}
 
 	for _, tc := range []struct {

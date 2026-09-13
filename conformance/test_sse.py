@@ -186,11 +186,15 @@ def test_topic_asset_reader_fails_loud() -> None:
     WRONG REASON on a missing heading; the parser is gone, the discipline is not.
     """
     real = (HERE.parent / _TOPIC_ASSET).read_text(encoding="utf-8")
-    # Deliberately a floor, not the exact count: the closed set grows (it was 12
-    # when its ancestor was written, 13 today), and a hard-coded size here would
-    # be one more stale number to chase — the EQUALITY that pins the set lives in
-    # test_every_closed_topic_emits, this is only a positive control.
-    assert len(_parse_closed_topics(real)) >= 12, "positive control: the real asset parses"
+    # NOT a check on the size of the closed set: this line only proves the parser
+    # returned something rather than an empty set, which is what makes the
+    # fail-loud cases below mean anything. Any number above 1 here would be a
+    # second, unowned copy of the set's size — it would redden every time the set
+    # moves (it grew for years; T-197 shrank it by folding `outsource_worker`
+    # into `member`), and whoever fixed it would have to re-decide each time
+    # whether they were weakening a test or aligning one. The set itself is
+    # pinned by EQUALITY in test_every_closed_topic_emits — change the set there.
+    assert len(_parse_closed_topics(real)) >= 1, "positive control: the real asset parses"
 
     for broken in (
         "{not json",
@@ -209,55 +213,6 @@ def _fresh_agent(client, owner_token, tag: str) -> AgentIdentity:
     member_id = hire_member(client, owner_token, f"conf-sse-{tag}")
     token = mint_member_token(client, owner_token, member_id, ttl_days=1)
     return AgentIdentity(member_id=member_id, token=token, role_key="")
-
-
-def _an_outsource_worker(client, owner_token, tag: str) -> dict[str, Any]:
-    """One outsource worker ROW, for the write faces whose subject must be one.
-
-    PREFERS a row that already exists, and that preference is the point: the
-    Phase 2 assignment scheduler is the only path that MINTS a worker, and its
-    admission is gated by the suite-wide global cap task.outsource_max_parallel
-    (default 3) counted over every live worker on the server. A test that mints
-    is therefore at the mercy of how many workers the tests before it left
-    running. Addressing a row that is already there costs no slot at all.
-
-    The dispatch below is the fallback for an empty roster — the one state in
-    which there is certainly a free slot, and the one in which there is nothing
-    to borrow. It fails loudly rather than handing back a subject-less caller:
-    a probe with no subject has to be a red, not a softened assertion.
-    """
-    r = client.get("/api/outsource-workers", headers=_auth(owner_token))
-    assert r.status_code == 200, f"{r.status_code} {r.text}"
-    existing = [w for w in r.json() if w.get("status") != "released"]
-    if existing:
-        return existing[0]
-
-    dispatched = client.post(
-        "/api/tasks",
-        json={
-            "title": f"conf-topic-dispatch-{tag}",
-            "description": "outsource_worker topic probe",
-            "target": {"kind": "outsource", "model": "sonnet", "effort": "low"},
-        },
-        headers=_auth(owner_token),
-    )
-    assert dispatched.status_code == 200, (
-        f"dispatch failed: {dispatched.status_code} {dispatched.text}")
-    task_id = dispatched.json()["task_id"]
-    deadline = time.time() + 10.0
-    while time.time() < deadline:
-        r = client.get("/api/outsource-workers", headers=_auth(owner_token))
-        assert r.status_code == 200, f"{r.status_code} {r.text}"
-        for row in r.json():
-            if row.get("task_id") == task_id:
-                return row
-        time.sleep(0.1)
-    raise AssertionError(
-        "the roster held no outsource worker, and the scheduler minted none for "
-        f"a freshly dispatched 外包 task ({task_id}) within 10s — the "
-        "outsource_worker topic has no subject to write to. If this is now the "
-        "expected behaviour, this topic needs a new subject, not a weaker "
-        "assertion")
 
 
 def _presence(client, owner_token, member_id: str) -> str:
@@ -403,285 +358,218 @@ def test_every_closed_topic_emits(client, owner_token, agent_a, fresh_member, ow
     """
     tag = uuid.uuid4().hex[:8]
     member = fresh_member()
-    # ── the outsource_worker row this topic's write face addresses ───────────
+    # The member row's PATCH body is a NAMED VALUE, not an inline literal, so
+    # the assertion below can bind to the very field this write sets instead of
+    # to a value re-typed next to it. See the identity check in the loop: if
+    # this body ever stops writing `name`, that check FAILS LOUDLY instead of
+    # silently degrading into something a stale frame satisfies.
+    member_patch_body: dict[str, Any] = {"name": f"conf-topic-{tag}"}
+    triggers: list[tuple[str, Any]] = [
+        ("member", lambda: client.patch(
+            f"/api/members/{member}", json=member_patch_body,
+            headers=_auth(owner_token))),
+        ("chat", lambda: client.post(
+            "/api/chat", json={"to": agent_a.member_id, "body": "topic probe"},
+            headers=_auth(owner_token))),
+        ("chat_read", lambda: client.post(
+            "/api/chat/mark-read",
+            json={"peer": agent_a.member_id, "last_read_ts": time.time()},
+            headers=_auth(owner_token))),
+        ("reply_card", lambda: client.post(
+            "/api/reply-cards",
+            json={"kind": "decision", "summary": f"topic probe {tag}",
+                  "options": [{"text": "AI pick"}, {"text": "other"}], "linked_task": None},
+            headers=_auth(agent_a.token))),
+        # The M3 task-batch topics, each through an ORDINARY write face
+        # (task / manual creation) — not a
+        # side-door: these are the same seams the cockpit and the MCP tools use.
+        ("task", lambda: client.post(
+            "/api/tasks",
+            json={"title": f"topic probe {tag}",
+                  "executor_member_id": agent_a.member_id},
+            headers=_auth(agent_a.token))),
+        ("task_manual", lambda: client.post(
+            "/api/task-manuals", json={"type_key": f"conf-topic-{tag}"},
+            headers=_auth(owner_token))),
+        ("global_context", lambda: client.post(
+            "/api/global-context", json={"text": f"topic probe {tag}"},
+            headers=_auth(owner_token))),
+        ("role_def", lambda: client.post(
+            "/api/roles", json={"name": f"Conf Topic Role {tag}"},
+            headers=_auth(owner_token))),
+        # insight — the ORDINARY write face (replace_insight), not the restore
+        # path. Pinned here because a doc write that reaches the DB but never
+        # publishes is invisible from HTTP alone (200 + row changed + cockpit
+        # stuck on the old value).
+        ("insight", lambda: client.post(
+            "/api/insight/assistant", json={"text": f"topic probe {tag}"},
+            headers=_auth(owner_token))),
+        ("context", lambda: client.post(
+            "/api/agent/context", json={"context_pct": 7},
+            headers=_auth(agent_a.token))),
+        ("monitoring", lambda: client.post(
+            "/api/monitoring/telemetry",
+            json={"rate_limits": {"primary_used_pct": 2}},
+            headers=_auth(agent_a.token))),
+    ]
+    expected_op = {
+        "member": "patch", "chat": "patch", "chat_read": "patch",
+        "reply_card": "patch",
+        "task": "patch", "task_manual": "patch",
+        "global_context": "patch", "role_def": "patch",
+        "insight": "patch",
+        "context": "signal", "monitoring": "signal",
+    }
+    # ── the self-confrontation: this table IS the closed set, not a subset ────
+    closed = _closed_topic_set()
+    covered = {topic for topic, _ in triggers}
+    missing, extra = sorted(closed - covered), sorted(covered - closed)
+    assert not missing and not extra, (
+        "the trigger table MUST equal the closed topic set the server itself "
+        "declares (spec/sse-topics.json, generated from hub.go's sseTopics).\n"
+        f"  never triggered here (their publish seam could be deleted and this "
+        f"suite would stay green): {missing}\n"
+        f"  triggered here but NOT in the closed set (a phantom topic, or the "
+        f"contract lost one): {extra}"
+    )
+    assert sorted(expected_op) == sorted(covered), (
+        "every triggered topic needs its expected frame kind pinned; "
+        f"missing: {sorted(covered - set(expected_op))}, "
+        f"stale: {sorted(set(expected_op) - covered)}"
+    )
+    # ── BARRIER: the loop below may only ever see frames IT triggered ─────────
     #
-    # A kind='outsource' roster row IS an outsource worker (the P7d fold — the
-    # worker table lives in `member`). This probe used to conjure one straight
-    # through POST /api/members with kind='outsource'; that door hires staff
-    # only since owner 2026-09-13 (rc-3989498e0c8f), and it was never how a
-    # worker is born.
+    # ``wait_for_frame`` drains from the FRONT of the connection's queue, so it
+    # will happily hand back a delta that was already sitting there before the
+    # trigger ran. This test's setup writes to the roster (``fresh_member()``,
+    # ``hire_member(...)``) while ``owner_sse`` is ALREADY OPEN, so without this
+    # barrier the first row (``member``) consumed one of those setup frames and
+    # its assertion was VACUOUSLY TRUE: deleting putMember's publish seam
+    # outright (write straight to the store, HTTP still 200, wire silent)
+    # left this row — and the whole suite — green. Reviewed and reproduced;
+    # that is the exact failure this test exists to catch.
     #
-    # The real birth path — dispatch a task and wait for the Phase 2 scheduler
-    # — is NOT something this test may depend on, and the reason is not that it
-    # is slow. Admission is gated by the GLOBAL cap task.outsource_max_parallel
-    # (default 3), counted over every LIVE (assigned+active) worker in the whole
-    # server. That cap is SUITE-WIDE STATE: by the time this file runs, other
-    # files have normally spent it on outsource tasks they left open — measured
-    # on a full run, 3 of 3 held by three unrelated not_started tasks — so a
-    # dispatch here is simply never admitted, and whether this topic gets a
-    # subject at all would be decided by the run order of tests that have
-    # nothing to do with SSE.
+    # This must NOT be "downgraded" to moving those two setup writes above the
+    # connection. That fixes today's two writes and nothing else: the next
+    # person to add a third setup write re-poisons every row here SILENTLY,
+    # because a stale frame produces a PASS, and nothing in the suite would
+    # object. The barrier swallows whatever backlog exists (any count) and
+    # returns only once the stream has gone quiet, so the property is
+    # count-independent instead of resting on "setup only writes twice".
     #
-    # So use a subject that costs NO slot: a worker row that ALREADY exists.
-    # Writing to one mints nothing and the cap never enters the picture. The
-    # dispatch below is the fallback for the one case where the roster is empty
-    # (this file run on its own) — which is also the only case where a slot is
-    # certainly free.
-    worker = _an_outsource_worker(client, owner_token, tag)
-    # A REAL field edit on that row, not a re-save of what it already holds: an
-    # effort it is not currently on, put back in the `finally` below — on EVERY
-    # path, not just the passing one — so a borrowed row is left exactly as
-    # found. (Both values are valid efforts, so neither write can 422; the
-    # worker is not online in this suite, so neither can trigger a respawn.)
-    worker_effort_before = worker.get("effort") or ""
-    assert worker_effort_before, (
-        "the worker row carries no configured effort, so this probe has nothing "
-        "to put back after its edit — every minted worker gets one "
-        f"(defaultedDispatchSpec). Row: {worker}")
-    worker_effort_probe = "high" if worker_effort_before != "high" else "low"
-    # 🔴 EVERYTHING BELOW RUNS UNDER try/finally BECAUSE THE RESTORE IS A
-    # PROMISE MADE TO THE REST OF THE SUITE, NOT A TIDY-UP.
-    # `worker` is usually a row ANOTHER test created (see the acquisition
-    # note above: this probe prefers an existing row precisely so it costs no
-    # outsource slot). The comment on worker_effort_before says the borrowed
-    # row is "left exactly as found" — with a bare restore at the END of the
-    # function that sentence is TRUE ONLY ON THE HAPPY PATH: any failure
-    # between the outsource_worker trigger and the last line leaves the row
-    # parked on the probe effort for whatever runs next. A red test must not
-    # also be a mutation.
+    # ⚠️ The barrier is the SECONDARY guard. It is blind, by construction, to
+    # any write that happens AFTER it returns (see sse_client.drain_backlog's
+    # note — that is true of every absorbing barrier, so a "setup write inserted
+    # below the barrier" experiment can only ever produce an uninformative
+    # green). The PRIMARY guard is the value binding on the `member` row below.
     #
-    # (Blast radius today, measured rather than assumed: no test READS a
-    # worker's effort — the other conformance files address a non-existent
-    # worker id, and the list checks pin the KEY SET, not the values — so
-    # nothing currently observes the leak. The claim is being made true
-    # anyway: it is the claim the next reader will rely on, and the next
-    # reader is the one who adds the test that reads it.)
-    try:
-        # The member row's PATCH body is a NAMED VALUE, not an inline literal, so
-        # the assertion below can bind to the very field this write sets instead of
-        # to a value re-typed next to it. See the identity check in the loop: if
-        # this body ever stops writing `name`, that check FAILS LOUDLY instead of
-        # silently degrading into something a stale frame satisfies.
-        member_patch_body: dict[str, Any] = {"name": f"conf-topic-{tag}"}
-        triggers: list[tuple[str, Any]] = [
-            ("member", lambda: client.patch(
-                f"/api/members/{member}", json=member_patch_body,
-                headers=_auth(owner_token))),
-            ("chat", lambda: client.post(
-                "/api/chat", json={"to": agent_a.member_id, "body": "topic probe"},
-                headers=_auth(owner_token))),
-            ("chat_read", lambda: client.post(
-                "/api/chat/mark-read",
-                json={"peer": agent_a.member_id, "last_read_ts": time.time()},
-                headers=_auth(owner_token))),
-            ("reply_card", lambda: client.post(
-                "/api/reply-cards",
-                json={"kind": "decision", "summary": f"topic probe {tag}",
-                      "options": [{"text": "AI pick"}, {"text": "other"}], "linked_task": None},
-                headers=_auth(agent_a.token))),
-            # The three M3 task-batch topics, each through an ORDINARY write face
-            # (task creation / a worker field edit / manual creation) — not a
-            # side-door: these are the same seams the cockpit and the MCP tools use.
-            ("task", lambda: client.post(
-                "/api/tasks",
-                json={"title": f"topic probe {tag}",
-                      "executor_member_id": agent_a.member_id},
-                headers=_auth(agent_a.token))),
-            ("outsource_worker", lambda: client.post(
-                f"/api/outsource-workers/{worker['id']}/model",
-                json={"effort": worker_effort_probe},
-                headers=_auth(owner_token))),
-            ("task_manual", lambda: client.post(
-                "/api/task-manuals", json={"type_key": f"conf-topic-{tag}"},
-                headers=_auth(owner_token))),
-            ("global_context", lambda: client.post(
-                "/api/global-context", json={"text": f"topic probe {tag}"},
-                headers=_auth(owner_token))),
-            ("role_def", lambda: client.post(
-                "/api/roles", json={"name": f"Conf Topic Role {tag}"},
-                headers=_auth(owner_token))),
-            # insight — the ORDINARY write face (replace_insight), not the restore
-            # path. Pinned here because a doc write that reaches the DB but never
-            # publishes is invisible from HTTP alone (200 + row changed + cockpit
-            # stuck on the old value).
-            ("insight", lambda: client.post(
-                "/api/insight/assistant", json={"text": f"topic probe {tag}"},
-                headers=_auth(owner_token))),
-            ("context", lambda: client.post(
-                "/api/agent/context", json={"context_pct": 7},
-                headers=_auth(agent_a.token))),
-            ("monitoring", lambda: client.post(
-                "/api/monitoring/telemetry",
-                json={"rate_limits": {"primary_used_pct": 2}},
-                headers=_auth(agent_a.token))),
-        ]
-        expected_op = {
-            "member": "patch", "chat": "patch", "chat_read": "patch",
-            "reply_card": "patch",
-            "task": "patch", "outsource_worker": "patch", "task_manual": "patch",
-            "global_context": "patch", "role_def": "patch",
-            "insight": "patch",
-            "context": "signal", "monitoring": "signal",
-        }
-        # ── the self-confrontation: this table IS the closed set, not a subset ────
-        closed = _closed_topic_set()
-        covered = {topic for topic, _ in triggers}
-        missing, extra = sorted(closed - covered), sorted(covered - closed)
-        assert not missing and not extra, (
-            "the trigger table MUST equal the closed topic set the server itself "
-            "declares (spec/sse-topics.json, generated from hub.go's sseTopics).\n"
-            f"  never triggered here (their publish seam could be deleted and this "
-            f"suite would stay green): {missing}\n"
-            f"  triggered here but NOT in the closed set (a phantom topic, or the "
-            f"contract lost one): {extra}"
-        )
-        assert sorted(expected_op) == sorted(covered), (
-            "every triggered topic needs its expected frame kind pinned; "
-            f"missing: {sorted(covered - set(expected_op))}, "
-            f"stale: {sorted(set(expected_op) - covered)}"
-        )
-        # ── BARRIER: the loop below may only ever see frames IT triggered ─────────
-        #
-        # ``wait_for_frame`` drains from the FRONT of the connection's queue, so it
-        # will happily hand back a delta that was already sitting there before the
-        # trigger ran. This test's setup writes to the roster (``fresh_member()``,
-        # ``hire_member(...)``) while ``owner_sse`` is ALREADY OPEN, so without this
-        # barrier the first row (``member``) consumed one of those setup frames and
-        # its assertion was VACUOUSLY TRUE: deleting putMember's publish seam
-        # outright (write straight to the store, HTTP still 200, wire silent)
-        # left this row — and the whole suite — green. Reviewed and reproduced;
-        # that is the exact failure this test exists to catch.
-        #
-        # This must NOT be "downgraded" to moving those two setup writes above the
-        # connection. That fixes today's two writes and nothing else: the next
-        # person to add a third setup write re-poisons every row here SILENTLY,
-        # because a stale frame produces a PASS, and nothing in the suite would
-        # object. The barrier swallows whatever backlog exists (any count) and
-        # returns only once the stream has gone quiet, so the property is
-        # count-independent instead of resting on "setup only writes twice".
-        #
-        # ⚠️ The barrier is the SECONDARY guard. It is blind, by construction, to
-        # any write that happens AFTER it returns (see sse_client.drain_backlog's
-        # note — that is true of every absorbing barrier, so a "setup write inserted
-        # below the barrier" experiment can only ever produce an uninformative
-        # green). The PRIMARY guard is the value binding on the `member` row below.
-        #
-        # 🔴 WHAT IS *NOT* PROVEN HERE — read this before trusting the other rows.
-        # Only the `member` row binds the frame to the write that triggered it. The
-        # other ELEVEN rows still assert no more than "a frame with this topic
-        # arrived", so their non-vacuity is BORROWED from this barrier having
-        # emptied the backlog — it is not proven. Two measured facts make that a
-        # live risk rather than a theoretical one:
-        #   * a single trigger in this table can fan MORE THAN ONE topic. Measured
-        #     (review round 2, full-frame trace): creating a reply_card also fans
-        #     `chat`; creating a role also fans `member`.
-        #   * today no row is poisoned by that cross-talk ONLY because the
-        #     cross-talking topics happen to sit EARLIER in this table, so their
-        #     frames are already consumed by the time the later row waits.
-        # That is an ORDERING ACCIDENT, not a property: REORDERING THIS TABLE CAN
-        # SILENTLY MAKE A ROW VACUOUS AGAIN, and nothing here would object. If you
-        # reorder, or add a trigger with cross-talk, bind that row to its own write
-        # the way the `member` row does — do not assume the barrier covers you.
-        owner_sse.drain_backlog(quiet_for=1.0, timeout=5.0, label="before the closed-topic loop")
+    # 🔴 WHAT IS *NOT* PROVEN HERE — read this before trusting the other rows.
+    # Only the `member` row binds the frame to the write that triggered it. The
+    # other ELEVEN rows still assert no more than "a frame with this topic
+    # arrived", so their non-vacuity is BORROWED from this barrier having
+    # emptied the backlog — it is not proven. Two measured facts make that a
+    # live risk rather than a theoretical one:
+    #   * a single trigger in this table can fan MORE THAN ONE topic. Measured
+    #     (review round 2, full-frame trace): creating a reply_card also fans
+    #     `chat`; creating a role also fans `member`.
+    #   * today no row is poisoned by that cross-talk ONLY because the
+    #     cross-talking topics happen to sit EARLIER in this table, so their
+    #     frames are already consumed by the time the later row waits.
+    # That is an ORDERING ACCIDENT, not a property: REORDERING THIS TABLE CAN
+    # SILENTLY MAKE A ROW VACUOUS AGAIN, and nothing here would object. If you
+    # reorder, or add a trigger with cross-talk, bind that row to its own write
+    # the way the `member` row does — do not assume the barrier covers you.
+    owner_sse.drain_backlog(quiet_for=1.0, timeout=5.0, label="before the closed-topic loop")
 
-        for topic, fire in triggers:
-            r = fire()
-            assert r.status_code == 200, f"{topic} trigger failed: {r.status_code} {r.text[:200]}"
-            # NAME THE TOPIC on the miss: the bare TimeoutError from wait_for_frame
-            # says only "no matching SSE event", so a red CI run left the reader to
-            # infer WHICH topic from this table's order. That inference is exactly
-            # the hand-reasoning this test exists to abolish — the whole point of
-            # the confrontation above is that the failure names names.
-            try:
-                frame = owner_sse.wait_for_frame(topic)["frame"]
-            except TimeoutError as exc:
-                raise AssertionError(
-                    f"topic {topic!r} was triggered (HTTP 200) but NO delta arrived "
-                    f"within 5s — its publish seam is missing (the write happened, "
-                    f"the wire stayed silent)"
-                ) from exc
-            assert frame["op"] == expected_op[topic], (topic, frame)
-            assert frame["op"] in {"patch", "remove", "signal"}, frame
-            if topic == "member":
-                # VALUE BINDING — the row's real guard, and the reason this row does
-                # not need a mutant to prove it is not vacuous.
-                #
-                # "a member frame arrived" was satisfiable by ANY member frame,
-                # including one this test's own setup produced seconds earlier; that
-                # is how the row stayed green with putMember's publish seam bypassed
-                # entirely.
-                #
-                # 🔴 CORRECTION (independent review round 2, MEASURED — the previous
-                # version of this comment claimed, verbatim:
-                #     "a stale frame is inherently about a DIFFERENT member (a
-                #      scratch hire, some other test's roster write), so it can
-                #      never satisfy this"
-                # and that the check "holds no matter WHERE a future stray write is
-                # added". **The first claim is false and is quoted here so nobody
-                # trusts it again.** The polluting frame comes from `fresh_member()`
-                # — and `member` IS that member, so `payload["id"] == member` is
-                # TRUE for the stale frame (measured: `'m-ca96…' == 'm-ca96…'`).
-                # The SUBJECT does not discriminate at all.
-                #
-                # What actually discriminates is the VALUE this PATCH just wrote:
-                # the payload is an eager snapshot taken inside hub.Publish, so a
-                # frame published BEFORE this write cannot carry the name this write
-                # sets. The id check below is kept only as a sanity check (right
-                # entity), NOT as the guard — do not lean on it.
-                #
-                # ⚠️ DEGRADATION CONDITION, stated so it cannot be re-discovered the
-                # hard way: this guard is only as strong as "the row PATCHes a field
-                # whose value the frame echoes back". If the row is ever changed to
-                # PATCH something else (desired_state, role, …), value binding is
-                # gone and the row falls back to "some member delta arrived" — the
-                # vacuous state this whole ticket exists to remove. That is why the
-                # body is a named dict and why the first assertion below is about
-                # the TEST ITSELF: change the body without re-binding this check and
-                # the row goes RED with instructions, instead of going quietly
-                # green.
-                assert "name" in member_patch_body, (
-                    "the member row no longer PATCHes `name`, so the value binding "
-                    "below has nothing to bind to. Do NOT delete the binding: pick "
-                    "a field this write actually sets AND that the member payload "
-                    "echoes back, and assert that instead. Dropping it silently "
-                    "returns this row to 'any member frame will do', which a stale "
-                    f"setup frame satisfies. Current body: {member_patch_body}"
-                )
-                payload = frame["data"]["payload"]
-                assert payload["id"] == member, (
-                    f"member row: delta for the wrong entity (expected {member!r}). "
-                    f"Got payload: {payload}"
-                )
-                assert payload["name"] == member_patch_body["name"], (
-                    f"the member row observed a delta that does NOT carry the value "
-                    f"the PATCH it just issued wrote (expected name "
-                    f"{member_patch_body['name']!r}) — this is the stale-frame "
-                    f"failure mode: without this check the row passes while the "
-                    f"write's publish seam is missing. Note the subject alone would "
-                    f"NOT have caught it: the polluting frame is about this very "
-                    f"member. Got payload: {payload}"
-                )
-            if frame["op"] == "signal":
-                # §3.2: volatile in-memory store change — payload always null.
-                assert frame["data"]["payload"] is None, (topic, frame)
-        # §2.2: global_context / role_def deltas carry payload null.
-        # (Their frames were consumed above; re-fire one to pin it explicitly.)
-        r = client.post(
-            "/api/global-context", json={"text": f"payload-null probe {tag}"},
-            headers=_auth(owner_token),
-        )
-        assert r.status_code == 200
-        frame = owner_sse.wait_for_frame("global_context")["frame"]
-        assert frame["data"]["payload"] is None, frame
-    finally:
-        # Put the worker row back on the effort it arrived with. The subject may be
-        # a row another test created (see the acquisition note at the top), and this
-        # probe has no business leaving a field it only needed a delta from.
-        assert client.post(
-            f"/api/outsource-workers/{worker['id']}/model",
-            json={"effort": worker_effort_before},
-            headers=_auth(owner_token),
-        ).status_code == 200
+    for topic, fire in triggers:
+        r = fire()
+        assert r.status_code == 200, f"{topic} trigger failed: {r.status_code} {r.text[:200]}"
+        # NAME THE TOPIC on the miss: the bare TimeoutError from wait_for_frame
+        # says only "no matching SSE event", so a red CI run left the reader to
+        # infer WHICH topic from this table's order. That inference is exactly
+        # the hand-reasoning this test exists to abolish — the whole point of
+        # the confrontation above is that the failure names names.
+        try:
+            frame = owner_sse.wait_for_frame(topic)["frame"]
+        except TimeoutError as exc:
+            raise AssertionError(
+                f"topic {topic!r} was triggered (HTTP 200) but NO delta arrived "
+                f"within 5s — its publish seam is missing (the write happened, "
+                f"the wire stayed silent)"
+            ) from exc
+        assert frame["op"] == expected_op[topic], (topic, frame)
+        assert frame["op"] in {"patch", "remove", "signal"}, frame
+        if topic == "member":
+            # VALUE BINDING — the row's real guard, and the reason this row does
+            # not need a mutant to prove it is not vacuous.
+            #
+            # "a member frame arrived" was satisfiable by ANY member frame,
+            # including one this test's own setup produced seconds earlier; that
+            # is how the row stayed green with putMember's publish seam bypassed
+            # entirely.
+            #
+            # 🔴 CORRECTION (independent review round 2, MEASURED — the previous
+            # version of this comment claimed, verbatim:
+            #     "a stale frame is inherently about a DIFFERENT member (a
+            #      scratch hire, some other test's roster write), so it can
+            #      never satisfy this"
+            # and that the check "holds no matter WHERE a future stray write is
+            # added". **The first claim is false and is quoted here so nobody
+            # trusts it again.** The polluting frame comes from `fresh_member()`
+            # — and `member` IS that member, so `payload["id"] == member` is
+            # TRUE for the stale frame (measured: `'m-ca96…' == 'm-ca96…'`).
+            # The SUBJECT does not discriminate at all.
+            #
+            # What actually discriminates is the VALUE this PATCH just wrote:
+            # the payload is an eager snapshot taken inside hub.Publish, so a
+            # frame published BEFORE this write cannot carry the name this write
+            # sets. The id check below is kept only as a sanity check (right
+            # entity), NOT as the guard — do not lean on it.
+            #
+            # ⚠️ DEGRADATION CONDITION, stated so it cannot be re-discovered the
+            # hard way: this guard is only as strong as "the row PATCHes a field
+            # whose value the frame echoes back". If the row is ever changed to
+            # PATCH something else (desired_state, role, …), value binding is
+            # gone and the row falls back to "some member delta arrived" — the
+            # vacuous state this whole ticket exists to remove. That is why the
+            # body is a named dict and why the first assertion below is about
+            # the TEST ITSELF: change the body without re-binding this check and
+            # the row goes RED with instructions, instead of going quietly
+            # green.
+            assert "name" in member_patch_body, (
+                "the member row no longer PATCHes `name`, so the value binding "
+                "below has nothing to bind to. Do NOT delete the binding: pick "
+                "a field this write actually sets AND that the member payload "
+                "echoes back, and assert that instead. Dropping it silently "
+                "returns this row to 'any member frame will do', which a stale "
+                f"setup frame satisfies. Current body: {member_patch_body}"
+            )
+            payload = frame["data"]["payload"]
+            assert payload["id"] == member, (
+                f"member row: delta for the wrong entity (expected {member!r}). "
+                f"Got payload: {payload}"
+            )
+            assert payload["name"] == member_patch_body["name"], (
+                f"the member row observed a delta that does NOT carry the value "
+                f"the PATCH it just issued wrote (expected name "
+                f"{member_patch_body['name']!r}) — this is the stale-frame "
+                f"failure mode: without this check the row passes while the "
+                f"write's publish seam is missing. Note the subject alone would "
+                f"NOT have caught it: the polluting frame is about this very "
+                f"member. Got payload: {payload}"
+            )
+        if frame["op"] == "signal":
+            # §3.2: volatile in-memory store change — payload always null.
+            assert frame["data"]["payload"] is None, (topic, frame)
+    # §2.2: global_context / role_def deltas carry payload null.
+    # (Their frames were consumed above; re-fire one to pin it explicitly.)
+    r = client.post(
+        "/api/global-context", json={"text": f"payload-null probe {tag}"},
+        headers=_auth(owner_token),
+    )
+    assert r.status_code == 200
+    frame = owner_sse.wait_for_frame("global_context")["frame"]
+    assert frame["data"]["payload"] is None, frame
 
 
 # ── §4 per-recipient routing (T-30d7) ────────────────────────────────────────

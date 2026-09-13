@@ -393,8 +393,8 @@ func updatableMemberFields(fields []memberField) []memberField {
 //
 // It fans NO SSE delta. That is the split publishMemberPatch documents and it
 // is load-bearing here: PutOutsourceWorker reaches this door too, and an
-// outsource row's changes travel on the outsource_worker projection, so a delta
-// bound to the write itself would push a member frame that path has never sent.
+// outsource row's changes also travel on the member projection, but the service
+// layer still decides when the durable write is ready to publish.
 // The service layer decides who publishes; the write layer only writes.
 //
 // 🔑 THAT GUARANTEE IS STRUCTURAL, AND THERE IS DELIBERATELY NO TEST FOR IT.

@@ -34,7 +34,7 @@ package main
 // fold — 外包＝正職; codename via the domain derivation over EVERY codename the
 // member table has ever carried, removed rows included, so a codename is never
 // reused; model/effort from the manual assignee), writes task.executor_id, and
-// fans the task + outsource_worker SSE deltas. The worker then sits in
+// fans the task + member SSE deltas. The worker then sits in
 // 'assigned' until its first report_waking flips it 'active' (T-4595 moved that
 // claim off the retired GET /api/self/task onto the shared boot verb).
 //
@@ -502,8 +502,7 @@ func (s *apiServer) runOutsourceTick(now float64) {
 		case WorkerStatusActive:
 			// T-32e1: the context-high auto-handover — an ACTIVE worker whose
 			// gauge crosses the HANDOVER band is refocused (kill+respawn) using
-			// the SAME ctxHighConfig the members use; also runs the refocus
-			// loop-break so a completed (manual OR auto) handover clears itself.
+			// the SAME ctxHighConfig the members use.
 			// autoHandoverWorker self-guards a stopped worker (its row re-read
 			// returns early on StoppedSince>0), so owner-explicit stop dominates
 			// here too — no separate guard needed (that would only mask the
@@ -530,14 +529,8 @@ func (s *apiServer) runOutsourceTick(now float64) {
 			// nothing (measured cell-by-cell in
 			// worker_obs_unblind_t72dd_test.go).
 			//
-			// 🔴 RE-READ FIRST. autoHandoverWorker's loop-break may have just
-			// cleared this row's epoch (respawn landed), and `w` is a snapshot
-			// taken before that write. Handing the stale copy to the FSM would
-			// show it refocus_since > 0 ∧ stopped_since > 0 on a worker whose
-			// handover is ALREADY finished — decideUp's recycle arm would then
-			// robust-STOP the session that just came up. Re-reading is what keeps
-			// "the epoch is over" and "collect the epoch" from being decided off
-			// two different versions of one row.
+			// Re-read after the stop driver: it may have persisted new wind-down
+			// anchors, and the FSM must decide from that current row.
 			fresh, ferr := s.dal.GetOutsourceWorker(w.ID)
 			if ferr != nil || fresh == nil || fresh.Status == WorkerStatusReleased {
 				continue

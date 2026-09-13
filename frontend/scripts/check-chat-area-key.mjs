@@ -4,8 +4,8 @@
 //
 // 🔴 WHAT THIS GUARDS, AND WHY IT IS WORTH A CI STEP OF ITS OWN.
 //
-// `OfficePage` renders `<ChatArea>` from three branches of ONE conditional
-// expression. Without a `key`, React reuses a single component instance across
+// `OfficePage` renders every peer kind through ONE `<ChatArea>` mount. Without
+// a `key`, React reuses that single component instance across
 // every conversation, so a switch is nothing but a prop change: the message
 // list, the composer, the jump reactor, the read watermark, every latch in
 // `useChat`, every in-flight fetch and every open overlay carry straight over
@@ -84,7 +84,10 @@ function walk(dir) {
 function stripComments(code) {
   return code
     .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "))
-    .replace(/(^|[^:])\/\/[^\n]*/g, (m, p1) => p1 + " ".repeat(m.length - p1.length));
+    .replace(
+      /(^|[^:])\/\/[^\n]*/g,
+      (m, p1) => p1 + " ".repeat(m.length - p1.length),
+    );
 }
 
 /** Every `<ChatArea …>` element in the file, as {line, text} — the element's
@@ -135,7 +138,8 @@ function keyValue(text) {
 
 /** `{a.b.id}` / `{a?.b.id}` — an identifier chain ending in `.id`. A literal
  * (`"chat"`, `{"chat"}`, `{1}`) and a bare identifier are both rejected. */
-const KEY_SHAPE = /^\{\s*([A-Za-z_$][\w$]*)((?:\??\.[A-Za-z_$][\w$]*)*\.id)\s*\}$/;
+const KEY_SHAPE =
+  /^\{\s*([A-Za-z_$][\w$]*)((?:\??\.[A-Za-z_$][\w$]*)*\.id)\s*\}$/;
 
 const missing = [];
 const constant = [];
@@ -163,7 +167,9 @@ for (const file of walk(SRC)) {
     const root = shape[1];
     const rest = el.text.replace(key, "");
     if (!new RegExp(`(^|[^\\w$.])${root}(?![\\w$])`).test(rest)) {
-      constant.push(`${where}  key=${key} (\`${root}\` appears nowhere else on this element)`);
+      constant.push(
+        `${where}  key=${key} (\`${root}\` appears nowhere else on this element)`,
+      );
     }
   }
 }

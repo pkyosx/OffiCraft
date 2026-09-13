@@ -89,7 +89,7 @@ func (s *apiServer) collectMemberStop(m *Member, trigger string) error {
 // database does not hold is worse than no delta at all.
 //
 // ⚠️ MEMBER ROWS ONLY. The outsource half deliberately does not fan a member
-// patch for an `ow-` id (its changes travel on the outsource_worker projection),
+// patch for an `ow-` id (its changes travel on the same member projection),
 // so worker callers write through s.dal.SetMemberOpReceipt directly and keep
 // whatever publish they already had.
 func (s *apiServer) persistMemberOpReceipt(m Member, trigger string) error {
@@ -176,16 +176,13 @@ func (s *apiServer) persistMemberWindDownAnchors(m Member) error {
 //	persistMemberWindDownAnchors / persistWorkerWindDownAnchors (this file, the
 //	  two value params above), collectWorkerHandover, collectWorkerStop.
 //
-// POINTER-shaped (10) — the row aliases the caller's row:
+// POINTER-shaped (8) — the row aliases the caller's row:
 //
 //	*Member (5): HandleForceStopMember…, HandleReportStopping…,
 //	  HandleReportStopped… (all three this file, `m` from resolveMember /
 //	  resolveSelf); consumeRestartAfterStop (member_ownerop_winddown.go, `m` is
-//	  its own PARAMETER, so the mutation escapes to ITS caller);
-//	  clearRecycleMarkersOnRespawn (reconcile.go, `m := &members[i]` — the
-//	  mutation lands in the CALLER'S SLICE).
-//	*OutsourceWorker (5): clearWorkerRefocus (`fresh` from the DAL),
-//	  workerReportWaking, workerReportStopping, workerReportStopped (all
+//	  its own PARAMETER, so the mutation escapes to ITS caller).
+//	*OutsourceWorker (4): workerReportWaking, workerReportStopping, workerReportStopped (all
 //	  worker_spawn.go, `w` from resolveLiveWorker); consumeWorkerRestartAfterStop
 //	  (member_ownerop_winddown.go, `w` is its own PARAMETER — same escape).
 //
@@ -694,12 +691,7 @@ func (s *apiServer) resolveAvatarMember(memberID string) (*Member, error) {
 }
 
 func (s *apiServer) publishMemberAvatarChanged(m Member, trigger string) {
-	if m.Kind == KindOutsource {
-		s.publishOutsourceWorker(workerFromMember(m), trigger)
-		return
-	}
-	s.hub.Publish("member", "patch", "member", wireOwnerID+"::"+m.ID,
-		s.offboardDeltaPayload(m), audienceMembers(m.ID), trigger)
+	s.publishMemberPatch(m, trigger)
 }
 
 func memberAvatarResult(m Member, mime string, filename *string) MemberAvatarDTO {
@@ -846,6 +838,26 @@ func (s *apiServer) HandleListMembersApiMembersGet(w http.ResponseWriter, r *htt
 			return
 		}
 	}
+	var machineNames map[string]string
+	var tele, gauge map[string]map[string]any
+	var accountDisplay func(string) string
+	var typeNames map[string]string
+	now := nowSecs()
+	if !light {
+		machineNames, err = s.dal.MachineDisplayNames()
+		if err != nil {
+			internalError(w, err)
+			return
+		}
+		tele = s.telemetry.Snapshot()
+		gauge = s.gauge.Snapshot()
+		accountDisplay, err = s.accountDisplayFold(r, tele)
+		if err != nil {
+			internalError(w, err)
+			return
+		}
+		typeNames = s.taskTypeDisplayNames()
+	}
 
 	out := []memberDTO{}
 	for _, m := range members {
@@ -859,6 +871,16 @@ func (s *apiServer) HandleListMembersApiMembersGet(w http.ResponseWriter, r *htt
 		}
 		if light {
 			out = append(out, s.newMemberLightDTO(m, roleName))
+			continue
+		}
+		if m.Kind == KindOutsource {
+			worker := workerFromMember(m)
+			task, err := s.dal.GetTask(worker.TaskID)
+			if err != nil {
+				internalError(w, err)
+				return
+			}
+			out = append(out, s.projectWorker(worker, task, unread[m.ID], now, tele, gauge, machineNames, accountDisplay, typeNames))
 			continue
 		}
 		out = append(out, s.newMemberDTO(m, roleName, s.observedHost(m), unread[m.ID]))
@@ -972,15 +994,13 @@ func (s *apiServer) HandleHireMemberApiMembersPost(w http.ResponseWriter, r *htt
 	writeJSON(w, http.StatusOK, agentLifecycleReceiptDTO{ID: m.ID})
 }
 
-// GET /api/members/{member_id} — one roster member (removed → 404); machine
-// is the OBSERVED position. SELF-READ exception (T-ea82): an outsource worker
-// reading its OWN row (memberId == the verified sub) resolves — the ocagent
-// recycle/wind-down hooks refetch GET /api/members/<self> and must see the
-// worker's desired_state/refocus_since. Since 2026-08-28 the item door is
-// anyMember, so an ow- target resolves for ANY caller — the self-read branch
-// below is now only the fallback for a row this scope cannot see.
+// GET /api/members/{member_id} — one roster member; a released outsource row
+// remains readable for durable identity attribution, while dismissed staff and
+// removed wardens answer 404. machine is the OBSERVED position. The self-read
+// fallback remains for lifecycle compatibility with a row the ordinary item
+// lookup cannot expose.
 func (s *apiServer) HandleGetMemberApiMembersMemberIdGet(w http.ResponseWriter, r *http.Request, memberId string) {
-	m, err := s.resolveMember(memberId, anyMember)
+	m, err := s.resolveMemberForItemRead(memberId)
 	if errors.Is(err, errNotFound) && memberId == currentActor(r) {
 		m, err = s.resolveSelf(r)
 	}
@@ -1003,6 +1023,28 @@ func (s *apiServer) HandleGetMemberApiMembersMemberIdGet(w http.ResponseWriter, 
 		internalError(w, err)
 		return
 	}
+	if m.Kind == KindOutsource {
+		worker := workerFromMember(*m)
+		task, err := s.dal.GetTask(worker.TaskID)
+		if err != nil {
+			internalError(w, err)
+			return
+		}
+		machineNames, err := s.dal.MachineDisplayNames()
+		if err != nil {
+			internalError(w, err)
+			return
+		}
+		tele := s.telemetry.Snapshot()
+		gauge := s.gauge.Snapshot()
+		accountDisplay, err := s.accountDisplayFold(r, tele)
+		if err != nil {
+			internalError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, s.projectWorker(worker, task, unread[m.ID], nowSecs(), tele, gauge, machineNames, accountDisplay, s.taskTypeDisplayNames()))
+		return
+	}
 	writeJSON(w, http.StatusOK, s.newMemberDTO(*m, roleName, s.observedHost(*m), unread[m.ID]))
 }
 
@@ -1013,9 +1055,18 @@ func (s *apiServer) HandleUpdateMemberApiMembersMemberIdPatch(w http.ResponseWri
 	if !decodeJSONBody(w, r, &body) {
 		return
 	}
-	m, err := s.resolveMember(memberId, staffOnly)
+	m, err := s.resolveMember(memberId, anyMember)
 	if err != nil {
 		writeResolveError(w, err, "member", memberId)
+		return
+	}
+	if m.Kind == KindOutsource {
+		if body.Name != nil {
+			writeError(w, http.StatusUnprocessableEntity,
+				"an outsource worker's codename is task-bound and cannot be renamed")
+			return
+		}
+		s.handleSetOutsourceWorkerModel(w, r, memberId, body)
 		return
 	}
 	if body.Name != nil {
@@ -1222,9 +1273,13 @@ func (s *apiServer) HandleActivateMemberApiMembersMemberIdActivatePost(w http.Re
 	if !decodeJSONBody(w, r, &body) {
 		return
 	}
-	m, err := s.resolveMember(memberId, staffOnly)
+	m, err := s.resolveMember(memberId, anyMember)
 	if err != nil {
 		writeResolveError(w, err, "member", memberId)
+		return
+	}
+	if m.Kind == KindOutsource {
+		s.handleRestartOutsourceWorker(w, r, memberId, body)
 		return
 	}
 	sessionAlive := s.hub.IsOnline(m.ID)
@@ -1718,9 +1773,13 @@ func applyStopVerbRow(row stopVerbRow, snapshot Member, now float64) {
 // handler writes offline two statements from here. The sweep only ever sees the
 // self-driven arm (report_stopping, which touches no desired_state at all).
 func (s *apiServer) HandleDeactivateMemberApiMembersMemberIdDeactivatePost(w http.ResponseWriter, r *http.Request, memberId string) {
-	m, err := s.resolveMember(memberId, staffOnly)
+	m, err := s.resolveMember(memberId, anyMember)
 	if err != nil {
 		writeResolveError(w, err, "member", memberId)
+		return
+	}
+	if m.Kind == KindOutsource {
+		s.HandleStopOutsourceWorkerApiOutsourceWorkersIdStopPost(w, r, memberId)
 		return
 	}
 	// 🔴 CANCELLING A WAKE IS NOT A GRACEFUL STOP (T-7526). Read BEFORE the
@@ -1796,9 +1855,13 @@ func (s *apiServer) HandleDeactivateMemberApiMembersMemberIdDeactivatePost(w htt
 // it does not reopen the ruling), and this endpoint. See the endpoint's
 // description in spec/openapi.json, which says the same at length.
 func (s *apiServer) HandleForceStopMemberApiMembersMemberIdForceStopPost(w http.ResponseWriter, r *http.Request, memberId string) {
-	m, err := s.resolveMember(memberId, staffOnly)
+	m, err := s.resolveMember(memberId, anyMember)
 	if err != nil {
 		writeResolveError(w, err, "member", memberId)
+		return
+	}
+	if m.Kind == KindOutsource {
+		s.HandleForceStopOutsourceWorkerApiOutsourceWorkersIdForceStopPost(w, r, memberId)
 		return
 	}
 	m.DesiredState = DesiredStateOffline
@@ -1882,9 +1945,13 @@ const acceleratedStopNeedsAnOpenWindDownMsg = "加速停止 escalates a wind-dow
 // A force-stopped epoch is refused: that session was cut off deliberately and is
 // not working a close-out, so a deadline addressed to it has no reader.
 func (s *apiServer) HandleAcceleratedStopMemberApiMembersMemberIdAcceleratedStopPost(w http.ResponseWriter, r *http.Request, memberId string) {
-	m, err := s.resolveMember(memberId, staffOnly)
+	m, err := s.resolveMember(memberId, anyMember)
 	if err != nil {
 		writeResolveError(w, err, "member", memberId)
+		return
+	}
+	if m.Kind == KindOutsource {
+		s.HandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcceleratedStopPost(w, r, memberId)
 		return
 	}
 	// A live session is required for the same reason 重新聚焦 requires one: the
@@ -1947,9 +2014,13 @@ func (s *apiServer) HandleAcceleratedStopMemberApiMembersMemberIdAcceleratedStop
 // `stopping`, and refusing the owner there would mean 重新聚焦 stops working on
 // an agent that is mid-hand-off — the moment he is most likely to press it.
 func (s *apiServer) HandleRefocusMemberApiMembersMemberIdRefocusPost(w http.ResponseWriter, r *http.Request, memberId string) {
-	m, err := s.resolveMember(memberId, staffOnly)
+	m, err := s.resolveMember(memberId, anyMember)
 	if err != nil {
 		writeResolveError(w, err, "member", memberId)
+		return
+	}
+	if m.Kind == KindOutsource {
+		s.HandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost(w, r, memberId)
 		return
 	}
 	// 下線 → 重啟 (T-14 項目 7). The stamp genuinely would not reach the agent —

@@ -525,7 +525,7 @@ func TestStampWorkerPlacementBlocked(t *testing.T) {
 	})
 
 	t.Run("a worker released since the snapshot was loaded is left alone, so a stale copy cannot resurrect it", func(t *testing.T) {
-		api, h, _, owner, w := wsWorkerSpawnFixture(t, WorkerStatusActive)
+		api, h, d, owner, w := wsWorkerSpawnFixture(t, WorkerStatusActive)
 		released := w
 		released.Status = WorkerStatusReleased
 		if err := api.dal.PutOutsourceWorker(released); err != nil {
@@ -535,9 +535,7 @@ func TestStampWorkerPlacementBlocked(t *testing.T) {
 
 		api.stampWorkerPlacementBlocked(&w, "no_machine_selected: nobody picked a machine", 500)
 
-		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
-			"status": "released", "presence": "",
-		}))
+		apiTestWantReleasedWorker(t, d, h, owner, "ow-abc123")
 		dashboard.wantFrames()
 	})
 
@@ -837,7 +835,7 @@ func TestNotifyWorkerSpawn(t *testing.T) {
 			"at":     api.workerSpawnAt["ow-abc123"],
 			"tries":  float64(api.workerSpawnAttempts["ow-abc123"]),
 		}), any(map[string]any{"target": "m-server-self", "at": 1000.0, "tries": 1.0}))
-		state := api.workerReconcileStates["ow-abc123"]
+		state := api.lifecycleStates["ow-abc123"]
 		apiWantValue(t, "fsm state", any(map[string]any{
 			"phase": state.Phase, "last_command": state.LastCommand, "at": state.LastCommandAt,
 			"attempts": float64(state.Attempts), "circuit_open": state.CircuitOpen,
@@ -1057,7 +1055,7 @@ func TestNotifyWorkerSpawn(t *testing.T) {
 
 	t.Run("the frame carries the worker's OWN runtime, model and effort, so a codex worker boots as codex", func(t *testing.T) {
 		api, h, d, owner, _ := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
-		if code, data := apiJSON(t, h, "POST", "/api/outsource-workers/ow-abc123/model", owner,
+		if code, data := apiJSON(t, h, "PATCH", "/api/members/ow-abc123", owner,
 			`{"model":"gpt-5-codex","runtime":"codex","effort":"high"}`); code != 200 {
 			t.Fatalf("set runtime: %d %v", code, data)
 		}
@@ -1867,10 +1865,9 @@ func TestOpenOwnerOpHandover(t *testing.T) {
 			"refocus_since": apiAnyNumber, "refocus_op": "runtime/model",
 		}))
 		dashboard.wantFrames(
-			apiTestWorkerDelta(2, "active", "server"),
-			apiTestHandoverDelta(3, "online", apiTestOffboardNotice, "server"),
+			apiTestHandoverDelta(2, "online", apiTestOffboardNotice, "server"),
 		)
-		contractor.wantFrames(apiTestHandoverDelta(3, "online", apiTestOffboardNotice, "server"))
+		contractor.wantFrames(apiTestHandoverDelta(2, "online", apiTestOffboardNotice, "server"))
 	})
 
 	t.Run("a worker already further along the ladder keeps its own deadline: nothing is stamped and nothing is fanned", func(t *testing.T) {
@@ -2130,43 +2127,6 @@ func wsVerbs(t *testing.T, api *apiServer, machineID string) []any {
 	return out
 }
 
-func TestClearWorkerRefocus(t *testing.T) {
-	t.Run("the loop-break zeroes the epoch AND both wind-down latches, so a stale one cannot bleed into the next handover", func(t *testing.T) {
-		api, h, _, owner, _ := wsWindDown(t, WorkerStatusActive, DesiredStateOnline, "relocate", 100, 110, 120, false)
-		dashboard := apiTestListen(t, api, "")
-
-		api.clearWorkerRefocus("ow-abc123", "respawn landed")
-
-		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
-			"status": "active", "desired_state": "online",
-		}))
-		dashboard.wantFrames(apiTestWorkerDelta(2, "active", "server"))
-	})
-
-	t.Run("a row with nothing to clear, and an id nothing carries, write nothing and fan nothing", func(t *testing.T) {
-		api, h, _, owner, _ := wsWindDown(t, WorkerStatusActive, DesiredStateOnline, "", 0, 0, 0, false)
-		dashboard := apiTestListen(t, api, "")
-
-		api.clearWorkerRefocus("ow-abc123", "respawn landed")
-		api.clearWorkerRefocus("ow-nope", "ghost")
-
-		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
-			"status": "active", "desired_state": "online",
-		}))
-		dashboard.wantFrames()
-	})
-
-	t.Run("a stopped latch with no epoch is still cleared, because all three anchors go together", func(t *testing.T) {
-		api, h, _, owner, _ := wsWindDown(t, WorkerStatusActive, DesiredStateOnline, "", 0, 0, 120, false)
-
-		api.clearWorkerRefocus("ow-abc123", "respawn landed")
-
-		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
-			"status": "active", "desired_state": "online",
-		}))
-	})
-}
-
 func TestCollectWorkerHandover(t *testing.T) {
 	t.Run("the 收口 latches the dump-done marker and then kills and respawns through the worker's single kill funnel", func(t *testing.T) {
 		api, h, _, owner, w := wsWindDown(t, WorkerStatusActive, DesiredStateOnline, "relocate", 100, 0, 0, true)
@@ -2186,7 +2146,7 @@ func TestCollectWorkerHandover(t *testing.T) {
 		}))
 	})
 
-	t.Run("a deferred collect on a session that is GONE rolls the WHOLE epoch back, so the ordinary FSM rescue can take over", func(t *testing.T) {
+	t.Run("a deferred collect on a session that is gone preserves the epoch while the shared FSM starts its replacement", func(t *testing.T) {
 		api, h, _, owner, w := wsWindDown(t, WorkerStatusActive, DesiredStateOnline, "relocate", 100, 0, 0, false)
 		apiTestListen(t, api, ServerSelfHost)
 
@@ -2198,6 +2158,7 @@ func TestCollectWorkerHandover(t *testing.T) {
 		apiWantValue(t, "the verbs dispatched", any(wsVerbs(t, api, ServerSelfHost)), any([]any{}))
 		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
 			"status": "active", "desired_state": "online",
+			"refocus_since": 100, "refocus_op": "relocate",
 			"last_op": "start", "last_op_ok": false, "last_op_at": apiAnyNumber,
 			"last_op_reason": "respawn_deferred: the fsm-recycle could not clear this worker's " +
 				"previous session — it is marked active but neither the server's spawn memory " +
@@ -2370,7 +2331,7 @@ func TestAutoHandoverWorker(t *testing.T) {
 		apiWantValue(t, "the verbs dispatched", any(wsVerbs(t, api, ServerSelfHost)), any([]any{}))
 	})
 
-	t.Run("a session that booted AFTER the epoch was stamped breaks the loop: the whole epoch is cleared and nothing is dispatched", func(t *testing.T) {
+	t.Run("a session that booted after the epoch keeps the epoch until report_waking", func(t *testing.T) {
 		api, h, _, owner, w := wsWindDown(t, WorkerStatusActive, DesiredStateOnline, "relocate", 100, 110, 120, true)
 		api.gauge.Set("ow-abc123", map[string]any{"boot_ts": 200.0})
 		apiTestListen(t, api, ServerSelfHost)
@@ -2382,8 +2343,9 @@ func TestAutoHandoverWorker(t *testing.T) {
 
 		apiWantValue(t, "the verbs dispatched", any(wsVerbs(t, api, ServerSelfHost)), any([]any{}))
 		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
-			"status": "active", "presence": "online", "desired_state": "online",
-			"machine": "m-server-self",
+			"status": "active", "presence": "stopping", "desired_state": "online",
+			"machine":       "m-server-self",
+			"refocus_since": 100, "refocus_op": "relocate",
 		}))
 	})
 
@@ -2473,7 +2435,6 @@ func TestWorkerReportWaking(t *testing.T) {
 		}))
 		dashboard.wantFrames(
 			wsWakingDelta(2),
-			apiTestWorkerDelta(3, "active", "server"),
 		)
 	})
 
@@ -2495,7 +2456,7 @@ func TestWorkerReportWaking(t *testing.T) {
 			"status": "active", "presence": "online", "desired_state": "online",
 			"machine": "m-server-self", "actual_model": "claude-opus-5",
 		}))
-		dashboard.wantFrames(wsWakingDelta(4))
+		dashboard.wantFrames(wsWakingDelta(3))
 	})
 
 	t.Run("a caller with no live worker row is refused not-found and nothing is written", func(t *testing.T) {
@@ -2682,7 +2643,7 @@ func TestWorkerRestartSelf(t *testing.T) {
 			"refocus_since": 4242, "refocus_op": "restart_self",
 		}))
 		contractor.wantFrames(
-			apiTestHandoverDelta(3, "online", apiTestOffboardNotice, "server"),
+			apiTestHandoverDelta(2, "online", apiTestOffboardNotice, "server"),
 		)
 	})
 
@@ -2736,10 +2697,10 @@ func TestReclaimWorkerSession(t *testing.T) {
 
 		api.outsourceMu.Lock()
 		api.workerSpawnTarget["ow-abc123"] = ServerSelfHost
-		api.workerReconcileStates["ow-abc123"] = reconcileState{Phase: reconcilePhaseStarting}
+		api.lifecycleStates["ow-abc123"] = reconcileState{Phase: reconcilePhaseStarting}
 		api.reclaimWorkerSession(w)
 		reclaimed := api.workerReclaimed["ow-abc123"]
-		states := len(api.workerReconcileStates)
+		states := len(api.lifecycleStates)
 		api.outsourceMu.Unlock()
 
 		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"))
@@ -2776,7 +2737,7 @@ func TestReclaimWorkerSession(t *testing.T) {
 
 func TestDismissOutsourceWorkersForTask(t *testing.T) {
 	t.Run("every worker bound to the task is released and its session reclaimed on the spot", func(t *testing.T) {
-		api, h, _, owner, _ := wsWorkerSpawnFixture(t, WorkerStatusActive)
+		api, h, d, owner, _ := wsWorkerSpawnFixture(t, WorkerStatusActive)
 		apiTestListen(t, api, ServerSelfHost)
 		api.outsourceMu.Lock()
 		api.workerSpawnTarget["ow-abc123"] = ServerSelfHost
@@ -2786,14 +2747,14 @@ func TestDismissOutsourceWorkersForTask(t *testing.T) {
 		api.dismissOutsourceWorkersForTask("T-1", 7777, triggerServer)
 
 		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"))
-		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
-			"status": "released", "presence": "", "machine": "m-server-self",
-		}))
+		apiTestWantReleasedWorker(t, d, h, owner, "ow-abc123", map[string]any{
+			"machine": ServerSelfHost,
+		})
 		dashboard.wantFrames(apiTestWorkerDelta(2, "released", "server"))
 	})
 
 	t.Run("a second dismissal is a no-op: the row is already released and the session already reclaimed", func(t *testing.T) {
-		api, h, _, owner, _ := wsWorkerSpawnFixture(t, WorkerStatusActive)
+		api, h, d, owner, _ := wsWorkerSpawnFixture(t, WorkerStatusActive)
 		apiTestListen(t, api, ServerSelfHost)
 		api.dismissOutsourceWorkersForTask("T-1", 7777, triggerServer)
 		wsDrainWardenFrames(t, api, ServerSelfHost)
@@ -2802,9 +2763,7 @@ func TestDismissOutsourceWorkersForTask(t *testing.T) {
 		api.dismissOutsourceWorkersForTask("T-1", 8888, triggerServer)
 
 		wsWantWardenFrames(t, api, ServerSelfHost)
-		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
-			"status": "released", "presence": "",
-		}))
+		apiTestWantReleasedWorker(t, d, h, owner, "ow-abc123")
 		dashboard.wantFrames()
 	})
 
@@ -2840,11 +2799,11 @@ func TestDismissOutsourceWorkerByID(t *testing.T) {
 		api.dismissOutsourceWorkerByID("ow-abc123", 7777, triggerServer)
 
 		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"))
-		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
-			"status": "released", "presence": "", "machine": "m-server-self",
-		}))
+		apiTestWantReleasedWorker(t, d, h, owner, "ow-abc123", map[string]any{
+			"machine": ServerSelfHost,
+		})
 		apiTestWantWorker(t, h, owner, "ow-def456", apiTestWorkerRow(t, map[string]any{
-			"id": "ow-def456", "codename": "Stevedore", "status": "active",
+			"id": "ow-def456", "name": "Stevedore", "status": "active",
 		}))
 	})
 
@@ -2894,7 +2853,7 @@ func TestReconcileWorkerLiveness(t *testing.T) {
 
 		api.outsourceMu.Lock()
 		api.reconcileWorkerLiveness(w, 1000)
-		state := api.workerReconcileStates["ow-abc123"]
+		state := api.lifecycleStates["ow-abc123"]
 		api.outsourceMu.Unlock()
 
 		apiWantValue(t, "the verbs dispatched", any(wsVerbs(t, api, ServerSelfHost)), any([]any{"start"}))
@@ -2914,7 +2873,7 @@ func TestReconcileWorkerLiveness(t *testing.T) {
 
 		api.outsourceMu.Lock()
 		api.reconcileWorkerLiveness(w, 1000)
-		state := api.workerReconcileStates["ow-abc123"]
+		state := api.lifecycleStates["ow-abc123"]
 		api.outsourceMu.Unlock()
 
 		apiWantValue(t, "the verbs dispatched", any(wsVerbs(t, api, ServerSelfHost)), any([]any{}))
@@ -2935,7 +2894,7 @@ func TestReconcileWorkerLiveness(t *testing.T) {
 		api.outsourceMu.Lock()
 		api.workerSpawnTarget["ow-abc123"] = ServerSelfHost
 		api.reconcileWorkerLiveness(w, 1000)
-		state := api.workerReconcileStates["ow-abc123"]
+		state := api.lifecycleStates["ow-abc123"]
 		api.outsourceMu.Unlock()
 
 		apiWantValue(t, "the verbs dispatched", any(wsVerbs(t, api, ServerSelfHost)), any([]any{"stop", "start"}))
@@ -2949,7 +2908,7 @@ func TestReconcileWorkerLiveness(t *testing.T) {
 		apiTestListen(t, api, ServerSelfHost)
 
 		api.outsourceMu.Lock()
-		api.workerReconcileStates["ow-abc123"] = reconcileState{
+		api.lifecycleStates["ow-abc123"] = reconcileState{
 			Phase: reconcilePhaseStarting, LastCommand: reconcileCmdStart, LastCommandAt: 500,
 		}
 		api.reconcileWorkerLiveness(w, 1000)
@@ -2972,7 +2931,7 @@ func TestReconcileWorkerLiveness(t *testing.T) {
 
 		api.outsourceMu.Lock()
 		api.workerSpawnTarget["ow-abc123"] = ServerSelfHost
-		api.workerReconcileStates["ow-abc123"] = reconcileState{
+		api.lifecycleStates["ow-abc123"] = reconcileState{
 			Phase: reconcilePhaseStarting, LastCommand: reconcileCmdStart, LastCommandAt: 500,
 		}
 		api.reconcileWorkerLiveness(w, 1000)
@@ -3000,7 +2959,7 @@ func TestReconcileWorkerLiveness(t *testing.T) {
 		api.outsourceMu.Lock()
 		api.hub.EnqueueWardenCommandFor(ServerSelfHost, "ow-abc123", frame)
 		api.workerSpawnTarget["ow-abc123"] = ServerSelfHost
-		api.workerReconcileStates["ow-abc123"] = reconcileState{
+		api.lifecycleStates["ow-abc123"] = reconcileState{
 			Phase: reconcilePhaseStarting, LastCommand: reconcileCmdStart, LastCommandAt: 500,
 		}
 		api.reconcileWorkerLiveness(w, 1000)
@@ -3029,7 +2988,7 @@ func TestReconcileWorkerLiveness(t *testing.T) {
 		api.outsourceMu.Lock()
 		api.workerSpawnAt["ow-abc123"] = 1
 		api.workerSpawnTarget["ow-abc123"] = ServerSelfHost
-		api.workerReconcileStates["ow-abc123"] = reconcileState{
+		api.lifecycleStates["ow-abc123"] = reconcileState{
 			Phase: reconcilePhaseStarting, LastCommand: reconcileCmdStart, LastCommandAt: 500,
 		}
 		api.reconcileWorkerLiveness(w, 1000)
@@ -3053,12 +3012,12 @@ func TestReconcileWorkerLiveness(t *testing.T) {
 
 		api.outsourceMu.Lock()
 		api.workerSpawnTarget["ow-abc123"] = ServerSelfHost
-		api.workerReconcileStates["ow-abc123"] = reconcileState{
+		api.lifecycleStates["ow-abc123"] = reconcileState{
 			Phase: reconcilePhaseStarting, LastCommand: reconcileCmdStart,
 			LastCommandAt: 500, OfflineSince: 100,
 		}
 		api.reconcileWorkerLiveness(w, 1000)
-		state := api.workerReconcileStates["ow-abc123"]
+		state := api.lifecycleStates["ow-abc123"]
 		bench := wsBenchBook(api)
 		pace := len(api.workerSpawnAt)
 		api.outsourceMu.Unlock()
@@ -3083,12 +3042,12 @@ func TestReconcileWorkerLiveness(t *testing.T) {
 
 		api.outsourceMu.Lock()
 		api.workerSpawnTarget["ow-abc123"] = ServerSelfHost
-		api.workerReconcileStates["ow-abc123"] = reconcileState{
+		api.lifecycleStates["ow-abc123"] = reconcileState{
 			Phase: reconcilePhaseStarting, LastCommand: reconcileCmdStart,
 			LastCommandAt: 500, OfflineSince: 950,
 		}
 		api.reconcileWorkerLiveness(w, 1000)
-		state := api.workerReconcileStates["ow-abc123"]
+		state := api.lifecycleStates["ow-abc123"]
 		bench := wsBenchBook(api)
 		api.outsourceMu.Unlock()
 
@@ -3105,12 +3064,12 @@ func TestReconcileWorkerLiveness(t *testing.T) {
 		apiTestListen(t, api, ServerSelfHost)
 
 		api.outsourceMu.Lock()
-		api.workerReconcileStates["ow-abc123"] = reconcileState{
+		api.lifecycleStates["ow-abc123"] = reconcileState{
 			Phase: reconcilePhaseStarting, LastCommand: reconcileCmdStart,
 			LastCommandAt: 500, OfflineSince: 100,
 		}
 		api.reconcileWorkerLiveness(w, 1000)
-		state := api.workerReconcileStates["ow-abc123"]
+		state := api.lifecycleStates["ow-abc123"]
 		bench := wsBenchBook(api)
 		api.outsourceMu.Unlock()
 
@@ -3131,9 +3090,9 @@ func TestReconcileWorkerLiveness(t *testing.T) {
 		unplaced.DesiredState = DesiredStateOnline
 
 		api.outsourceMu.Lock()
-		api.workerReconcileStates["ow-abc123"] = reconcileState{Phase: reconcilePhaseOffline}
+		api.lifecycleStates["ow-abc123"] = reconcileState{Phase: reconcilePhaseOffline}
 		api.reconcileWorkerLiveness(unplaced, 1000)
-		state := api.workerReconcileStates["ow-abc123"]
+		state := api.lifecycleStates["ow-abc123"]
 		api.outsourceMu.Unlock()
 
 		apiWantValue(t, "fsm phase", any(state.Phase), any("offline"))

@@ -1,5 +1,26 @@
 #!/usr/bin/env python3
 """T-91 (scope extension, owner 2026-09-06) — the 15 agent-lifecycle writes answer
+
+⚠️ SPENT SCRIPT, AND THE SHAPE IT DESCRIBES IS GONE (T-197). It already ran and
+its edits are committed in spec/openapi.json. Everything below is a RECORD of
+what T-91 (scope extension, owner 2026-09-06) did, not a description of today's spec. T-197 folded the outsource
+middle layer into the member one: the worker-namespaced routes
+(/api/outsource-workers/{id}/stop | model | refocus | force-stop |
+accelerated-stop | relocate) and the MCP tools named after them no longer exist,
+OutsourceWorkerDTO no longer exists (both kinds read back MemberDTO), and the
+SSE topic outsource_worker is gone. So every such name below is the name it had
+AT THE TIME. Re-running this would not reproduce today's spec — read
+spec/openapi.json.
+
+⚠️ ITS ROUTES TABLE AND ITS PROSE NO LONGER AGREE, on purpose. T-197 removed the
+six worker rows from ROUTES below, so the table is seven staff routes while the
+LIFECYCLE_SCHEMA text still says "TWELVE ... five worker routes ... the whole
+OutsourceWorkerDTO, 42 fields". Those counts are T-91-era and are kept because
+they are what the receipt was argued from; the table is kept current because a
+stale route list is the half somebody would act on. The descriptions this script
+wrote have since been REPLACED in the spec by shorter ones — compare
+components.schemas.AgentLifecycleReceiptDTO in spec/openapi.json before quoting
+anything here.
 a bounded receipt instead of the whole roster row they just wrote.
 
 Owner ruling: c-7bd47b89b409 ("既然沒什麼人在用，是不是我們可以一起收掉？") answered
@@ -64,12 +85,6 @@ ROUTES = [
     ("/api/members/{member_id}/refocus", "post", "MemberDTO", LIFECYCLE_DTO, "get_member"),
     ("/api/members/{member_id}/force-stop", "post", "MemberDTO", LIFECYCLE_DTO, "get_member"),
     ("/api/members/{member_id}/accelerated-stop", "post", "MemberDTO", LIFECYCLE_DTO, "get_member"),
-    ("/api/outsource-workers/{id}/stop", "post", "OutsourceWorkerDTO", LIFECYCLE_DTO, "list_outsource_workers"),
-    ("/api/outsource-workers/{id}/model", "post", "OutsourceWorkerDTO", LIFECYCLE_DTO, "list_outsource_workers"),
-    ("/api/outsource-workers/{id}/refocus", "post", "OutsourceWorkerDTO", LIFECYCLE_DTO, "list_outsource_workers"),
-    ("/api/outsource-workers/{id}/force-stop", "post", "OutsourceWorkerDTO", LIFECYCLE_DTO, "list_outsource_workers"),
-    ("/api/outsource-workers/{id}/accelerated-stop", "post", "OutsourceWorkerDTO", LIFECYCLE_DTO, "list_outsource_workers"),
-    ("/api/outsource-workers/{id}/relocate", "post", "OutsourceWorkerDTO", RELOCATE_DTO, "list_outsource_workers"),
 ]
 
 FIELDS = {

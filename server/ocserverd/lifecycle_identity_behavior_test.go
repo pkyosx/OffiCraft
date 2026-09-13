@@ -532,6 +532,13 @@ var identityGateExpectedCount = map[string]int{
 // The fix applied here was to put the predicate back where the scanners can see
 // it (at each call site) and re-register it, not to widen the scanners.
 var identityGateLedger = map[string]string{
+	"api_helpers.go :: resolveMemberForItemRead :: m.Kind != KindOutsource": "" +
+		"the read-only durable-identity exception required by T-197: a released " +
+		"outsource worker keeps its codename for chats, tasks and lore, while a " +
+		"dismissed staff member or removed warden remains unreadable. This does not " +
+		"widen lifecycle or write resolution (those still use resolveMember), so it " +
+		"is a wire/read projection distinction rather than differentiated lifecycle " +
+		"treatment under the 2026-08-26 外包＝正職 ruling.",
 	// ── the hire door hires staff only (owner 2026-09-13, rc-3989498e0c8f) ──
 	//
 	// The 2026-08-26 ruling asks for a CONVERSATION before a new 正職／外包
@@ -646,13 +653,6 @@ var identityGateLedger = map[string]string{
 		"the parallel cap; the guard used to sit below those, which was harmless only " +
 		"while it was a no-op. Same tooth as the reconcile entry above: delete the " +
 		"guard and this key goes stale.",
-	"lifecycle_roster.go :: lifecycleRosterPasses :: m.Kind != KindOutsource": "" +
-		"recycle_loop_break's AppliesTo — THE one declared staff-only formality, and " +
-		"the mechanism working as designed: a worker already has a loop-break in " +
-		"autoHandoverWorker arm (1) asking a different question, and two collectors on " +
-		"one latch is the double-kill T-72dd removed. Read back by name in " +
-		"lifecyclePassContractedReach; converging the two rules needs its own " +
-		"owner-gated step.",
 	"lifecycle_roster.go :: lifecycleRosterPasses :: m.Kind == KindWarden": "" +
 		"uninstall_intent_consume's AppliesTo. Warden-only, and it always was — the " +
 		"pass's own loop opened with the same test; hoisting it into the list changed " +
@@ -753,21 +753,41 @@ var identityGateLedger = map[string]string{
 		"must 404 as a machine rather than soft-delete a colleague. Also in " +
 		"authzOutsideRouteTable.",
 
-	// ── self-ops: the outsource fold, one handler face at a time ────────────
-	//
-	// These five are the SAME decision five times, and that is on purpose rather
-	// than a copy-paste smell: each handler folds an ow- caller onto the worker
-	// funnel (which takes outsourceMu) instead of the member putMember path,
-	// because a member-topic fan-out would leak a worker row onto the staff
-	// roster wire. Converging them would mean one funnel that both locks and
-	// does not lock, which is a behaviour change.
+	// ── shared member face: the three intentional outsource differences ─────
+	"api_members.go :: HandleListMembersApiMembersGet :: m.Kind == KindOutsource": "" +
+		"the shared collection overlays the worker's one bound task and worker runtime " +
+		"facts onto MemberDTO. Staff has no bound-task row to join; this is the declared " +
+		"one-task-binding difference, not a second wire contract.",
+	"api_members.go :: HandleGetMemberApiMembersMemberIdGet :: m.Kind == KindOutsource": "" +
+		"the single-row face performs the same one-task and runtime overlay as the list. " +
+		"Both return MemberDTO and both publish and refetch through the member topic.",
+	"api_members.go :: HandleUpdateMemberApiMembersMemberIdPatch :: m.Kind == KindOutsource": "" +
+		"a worker's codename is allocated with its one bound task and cannot be renamed " +
+		"independently. Other member fields use this shared PATCH face.",
+	"api_members.go :: HandleActivateMemberApiMembersMemberIdActivatePost :: m.Kind == KindOutsource": "" +
+		"activation enters the worker control funnel because it recreates the disposable " +
+		"executor for its one bound task; this is the declared worker-control difference.",
+	"api_members.go :: HandleDeactivateMemberApiMembersMemberIdDeactivatePost :: m.Kind == KindOutsource": "" +
+		"deactivation enters the worker control funnel so stopping preserves the bound " +
+		"task and release semantics; the route and member event contract remain shared.",
+	"api_members.go :: HandleForceStopMemberApiMembersMemberIdForceStopPost :: m.Kind == KindOutsource": "" +
+		"force-stop uses the worker kill funnel that owns its disposable task executor. " +
+		"This is the declared one-task lifecycle difference behind a shared member route.",
+	"api_members.go :: HandleAcceleratedStopMemberApiMembersMemberIdAcceleratedStopPost :: m.Kind == KindOutsource": "" +
+		"accelerated stop uses the worker handover funnel because its successor is tied " +
+		"to the same task; the public route and resulting member event are shared.",
+	"api_members.go :: HandleRefocusMemberApiMembersMemberIdRefocusPost :: m.Kind == KindOutsource": "" +
+		"refocus uses the worker handover funnel because replacement and release follow " +
+		"the one bound task; the public route and resulting member event are shared.",
+
+	// The self-report handlers make the same task-bound write-funnel choice.
 	"api_members.go :: HandleReportWakingApiSelfWakingPost :: m.Kind == KindOutsource": "" +
 		"self-report waking, outsource fold (T-ea82): clear the recycle markers through " +
 		"the worker funnel under outsourceMu — a member-path putMember here would race " +
 		"the outsource tick's read-modify-write and lose the fold.",
 	"api_members.go :: HandleReportStoppingApiSelfStoppingPost :: m.Kind == KindOutsource": "" +
 		"same self-report fold, stopping face: workerReportStopping rather than the " +
-		"member path, for the same lock and the same fan-out topic reason.",
+		"member path, for the same serialized task-bound write reason.",
 	"api_members.go :: HandleReportStoppedApiSelfStoppedPost :: m.Kind == KindOutsource": "" +
 		"same self-report fold, stopped face — and this one also runs the worker 收口 " +
 		"(kill+respawn on the first stopped-report of a refocus-marked worker), which " +
@@ -776,11 +796,6 @@ var identityGateLedger = map[string]string{
 		"same fold on the self-refocus face: stamp the epoch and open the graceful " +
 		"window through the worker funnel, the same shape the owner's refocus button " +
 		"takes.",
-	"api_members.go :: publishMemberAvatarChanged :: m.Kind == KindOutsource": "" +
-		"publish the change on the outsource_worker topic instead of the member topic. " +
-		"A WIRE-topic split (workers are owner-only on the wire), not a difference in " +
-		"what happens to the row.",
-
 	// ── personal-avatar target scoping (T-c826) ─────────────────────────────
 	"api_members.go :: HandlePutMemberAvatarApiMembersMemberIdAvatarPut :: m.Kind == KindWarden": "" +
 		"T-c826 owner ruling: wardens are infrastructure, not people with personal " +
@@ -890,9 +905,10 @@ var identityGateLedger = map[string]string{
 		"sequence keeps its SSE. Excluded for wardens because a warden has no offboard " +
 		"sequence to work — machine-vs-person.",
 	"api_infra.go :: bankLiveCost :: m.Kind != KindOutsource": "" +
-		"cost banking fans on the member topic for staff and on the outsource_worker " +
-		"topic for workers (pre-fold wire parity, owner-only visibility). The AMOUNT " +
-		"banked is identical; only the topic differs.",
+		"staff banking writes and publishes immediately, while an outsource member " +
+		"uses the worker write funnel and lets the presence edge publish the same " +
+		"member invalidation after this fold returns. The stored amount and public " +
+		"topic are identical; only the serialized write path differs.",
 
 	"api_infra.go :: HandleResetCostApiMembersMemberIdCostResetPost :: m.Kind != KindOutsource": "" +
 		"T-53 成本歸零 is the INVERSE of the fold above and splits for the same reason " +
