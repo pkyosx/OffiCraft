@@ -720,9 +720,16 @@ export function AgentDetailPanel({
               SUCCESS too. A successful op carries a reason only when something
               wanted saying out loud: the pre-trust verdict that no longer
               refuses the spawn reports itself through exactly this field
-              (T-201), and this panel is the ONLY renderer of last_op_reason —
-              gating it on failure would put the value in the database, visible
-              to anything reading the API, and nowhere a human looks.
+              (T-201), and this panel is the only renderer of last_op_reason
+              that a SUCCEEDED op reaches — gating it on failure would put the
+              value in the database, visible to anything reading the API, and
+              nowhere a human looks. (It is not the only renderer of the field
+              as such: WorkerDetailPanel folds the same string in under the
+              identity card's presence dot. That one is gated on the worker
+              reading OFFLINE, and this block is gated on `hasLastOp`, so in
+              practice the two do not both paint — a start that was never
+              dispatched has no receipt for this block to show, which is the
+              case the worker panel exists to cover.)
               Absent reason renders status-only (honest, never fabricated).
               The colour differs by outcome (amber note vs danger) so a
               succeeded-with-a-warning op never reads as a failed one. */}
