@@ -300,6 +300,39 @@ describe("③ the reason is asked for, not demanded (owner ruling rc-a92a6252c3b
   });
 });
 
+describe("③b the confirm discloses what the press actually destroys", () => {
+  it("names the outsource dismissal AND the record freeze, not just 'cannot be resumed'", async () => {
+    // 🔴 WHY THIS IS ASSERTED IN LITERALS. Both facts are verified server-side
+    // and neither was on the dialog before:
+    //   * closeTask() -> dismissOutsourceWorkersForTask() fires
+    //     ReleaseWorkersForTask (the roster row) AND reclaimWorkerSession (the
+    //     live session), on this door with no opt-out;
+    //   * `done` satisfies TaskRecordFrozen(), so the artifact verbs and the
+    //     step-note write answer 409 from then on.
+    // The moment a person reaches for 強制結案 is "this ticket looks stuck",
+    // and a worker that is mid-run but has not reported looks IDENTICAL to a
+    // stuck one on this screen — so the cost has to be on the dialog, not in
+    // the route description nobody opens.
+    //
+    // Literals rather than `toContain(zh.tasks.forceDoneConfirmBody)`: that
+    // form reads the same constant the component reads and would survive the
+    // whole sentence being deleted from the locale.
+    __injectMockTask(mkTask({ title: "要講清楚後果", status: "in_progress" }));
+    const { findByTestId } = renderPage();
+
+    fireEvent.click(await findByTestId("task-status"));
+    fireEvent.click(await findByTestId("task-force-done"));
+    const body = (await findByTestId("force-done-confirm")).textContent ?? "";
+
+    expect(body).toContain("外包");
+    expect(body).toContain("遣散");
+    expect(body).toContain("工作階段");
+    expect(body).toContain("凍結");
+    // The consequence that WAS already disclosed stays disclosed.
+    expect(body).toContain("無法恢復");
+  });
+});
+
 describe("④ what the server recorded comes back onto the card", () => {
   it("a forced close with a reason shows WHO forced it and WHY", async () => {
     __injectMockTask(mkTask({ title: "有理由", status: "in_progress" }));

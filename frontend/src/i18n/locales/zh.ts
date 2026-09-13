@@ -389,8 +389,16 @@ export const zh = {
     // 把關的是伺服器那道 route floor,這裡不顯示只是不端出一個按了也不會成功
     // 的按鈕。
     forceDone: "強制結案",
+    // 🔴 最貴的那一項後果本來沒講:遣散外包。四種結案都走 closeTask
+    // (server/ocserverd/api_tasks.go),它一律呼叫 dismissOutsourceWorkersForTask
+    // ——ReleaseWorkersForTask(名冊列)與 reclaimWorkerSession(工作階段)同時
+    // 發生,這道門沒有豁免。而按下強制結案最典型的時機就是「這張票看起來卡住
+    // 了」,偏偏「worker 正在跑但還沒回報」跟「真的卡住」在這個畫面上長得一模
+    // 一樣,所以一次看似只是收拾死票的點擊,可能把還在做事的外包攔腰砍斷。第二
+    // 項是紀錄:done 落在 TaskRecordFrozen(domain.go)裡,交付物三個動詞與步驟
+    // 備註的寫入從此都回 409。
     forceDoneConfirmBody:
-      "確定要略過「步驟尚未全部完成」這個前提,強制把這張票結案嗎?結案後無法恢復,是誰強制的會記在票上。",
+      "確定要略過「步驟尚未全部完成」這個前提,強制把這張票結案嗎?結案後無法恢復,是誰強制的會記在票上。這張票綁定的外包 worker 會在這一刻被遣散——名冊列釋出、工作階段一併回收,即使它還在跑;交付物與步驟備註也從此凍結,不能再寫。",
     // 自 owner 裁定 rc-a92a6252c3bd 起改為選填。標籤直接寫出「可不填」,
     // 讓留空是一個看得見的選擇,而不是一個卡住的表單。
     forceDoneReasonLabel: "理由(可不填)",

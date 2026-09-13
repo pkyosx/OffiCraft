@@ -370,8 +370,19 @@ export const en: Dict = {
     // admin assistant only — the server's route floor is the real gate; this
     // menu item only stops offering a button that could not work.
     forceDone: "Force close",
+    // 🔴 THE WORKER DISMISSAL IS THE EXPENSIVE HALF AND IT WAS NOT DISCLOSED.
+    // Every close funnels through `closeTask` (server/ocserverd/api_tasks.go),
+    // which calls `dismissOutsourceWorkersForTask` — `ReleaseWorkersForTask`
+    // (the roster row) AND `reclaimWorkerSession` (the live session), together,
+    // with no opt-out for this door. The typical moment to reach for 強制結案
+    // is "this ticket looks stuck", and a worker that is mid-run but has not
+    // reported is indistinguishable from a stuck one ON THIS SCREEN — so the
+    // press that looks like tidying up a dead ticket can cut a working
+    // contractor off mid-sentence. The second consequence is the record: `done`
+    // satisfies `TaskRecordFrozen` (domain.go), so the artifact verbs and the
+    // step-note write all answer 409 from then on.
     forceDoneConfirmBody:
-      "Force this task closed, over the precondition its own steps have not met? It moves to Done and cannot be resumed. Who forced it is recorded on the task.",
+      "Force this task closed, over the precondition its own steps have not met? It moves to Done and cannot be resumed, and who forced it is recorded on the task. Any outsource worker bound to this task is dismissed at that moment — its roster row is released and its session reclaimed, even if it is still working — and the task's deliverables and step notes are frozen from then on.",
     // Optional since the owner's ruling rc-a92a6252c3bd. The label says so, so
     // that leaving it empty is a visible choice rather than a stuck form.
     forceDoneReasonLabel: "Reason (optional)",
