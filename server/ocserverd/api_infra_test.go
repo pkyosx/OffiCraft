@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -2407,6 +2408,158 @@ func TestHandleMcpApiMcpPost(t *testing.T) {
 			})
 		}
 		dashboard.wantFrames()
+	})
+
+	t.Run("a retired tool name is refused BY NAME, not as a name nobody recognises", func(t *testing.T) {
+		api, h, owner := apiTestMCPServer(t)
+		dashboard := apiTestListen(t, api, "")
+
+		if len(retiredMCPTools) != 3 {
+			t.Fatalf("the retirement table holds %d names, want the three this test enumerates: %v",
+				len(retiredMCPTools), retiredMCPTools)
+		}
+		for _, probe := range []struct{ name, message string }{
+			{"replace_lessons", "retired tool: 'replace_lessons' was removed together with the lessons " +
+				"document, which no longer exists — record what you learned with 'write_lore_entry'"},
+			{"patch_lessons", "retired tool: 'patch_lessons' was removed together with the lessons " +
+				"document, which no longer exists — record what you learned with 'write_lore_entry'"},
+			{"patch_task_learnings", "retired tool: 'patch_task_learnings' was removed together with the " +
+				"task manual's learnings document, which no longer exists — record what you learned " +
+				"with 'write_lore_entry'"},
+		} {
+			status, data := apiMCP(t, h, owner,
+				`{"jsonrpc":"2.0","id":20,"method":"tools/call","params":{"name":"`+probe.name+`","arguments":{}}}`)
+			if status != 200 {
+				t.Fatalf("%s: want 200, got %d (%v)", probe.name, status, data)
+			}
+			// The code is unchanged (-32602, the same refusal class every
+			// other parameter violation answers); only the sentence differs,
+			// and the sentence is the deliverable: it must NOT be the one a
+			// mistyped name gets.
+			apiWantBody(t, data, map[string]any{
+				"jsonrpc": "2.0",
+				"id":      20,
+				"error": map[string]any{
+					"code":    -32602,
+					"message": probe.message,
+				},
+			})
+			errObj, _ := data["error"].(map[string]any)
+			if got, _ := errObj["message"].(string); got == "unknown tool: '"+probe.name+"'" {
+				t.Fatalf("%s is answered as an unrecognised name — the caller cannot tell retirement from a typo", probe.name)
+			}
+		}
+		// A refusal that never reached a route also never published anything.
+		dashboard.wantFrames()
+	})
+
+	t.Run("every other unknown name still answers exactly what it answered before", func(t *testing.T) {
+		api, h, owner := apiTestMCPServer(t)
+		dashboard := apiTestListen(t, api, "")
+
+		// The near-misses are the load-bearing rows: a retirement table that
+		// matched loosely — case-folded, by prefix, by substring — would eat
+		// these too and give back the retirement sentence for what really is
+		// a typo, which is the very confusion this change exists to remove.
+		for _, name := range []string{
+			"zzz_no_such_tool_control",
+			"REPLACE_LESSONS",
+			"Patch_Lessons",
+			"replace_lesson",
+			"replace_lessons_v2",
+			"write_lessons",
+		} {
+			status, data := apiMCP(t, h, owner,
+				`{"jsonrpc":"2.0","id":21,"method":"tools/call","params":{"name":"`+name+`","arguments":{}}}`)
+			if status != 200 {
+				t.Fatalf("%s: want 200, got %d (%v)", name, status, data)
+			}
+			apiWantBody(t, data, map[string]any{
+				"jsonrpc": "2.0",
+				"id":      21,
+				"error": map[string]any{
+					"code":    -32602,
+					"message": "unknown tool: '" + name + "'",
+				},
+			})
+		}
+		dashboard.wantFrames()
+	})
+
+	// 🔴 EVERY TOOL NAME A RETIREMENT MESSAGE SENDS THE CALLER TO MUST EXIST.
+	// The whole value of these three sentences is the onward path they name; a
+	// refusal that points at a tool nobody serves is worse than the bare
+	// "unknown tool" it replaced, because the reader now has a next move and it
+	// is a dead end. Nothing else binds the message text to the live catalog:
+	// an independent review planted the pair-mutant (rename the tool in the
+	// table AND in the expectation, together) and every one of the 30 subtests
+	// stayed green — same-source verification's one failure mode. So the check
+	// reads the names OUT OF the messages and asks the real tool table, rather
+	// than comparing one hand-typed string against another.
+	t.Run("every tool a retirement message names is really served", func(t *testing.T) {
+		api, h, _, _ := newAPITestServer(t)
+		api.loopback = h
+
+		quoted := regexp.MustCompile(`'([a-z0-9_]+)'`)
+		checked := 0
+		for retiredName, message := range retiredMCPTools {
+			for _, m := range quoted.FindAllStringSubmatch(message, -1) {
+				named := m[1]
+				// The message quotes its own retired name too; that one is
+				// supposed to be gone.
+				if named == retiredName {
+					continue
+				}
+				if _, served := api.mcpTools[named]; !served {
+					t.Errorf("the retirement message for %q sends the caller to %q, "+
+						"which is not in the served tool table — a refusal that names a "+
+						"dead end is worse than the bare unknown-tool answer it replaced",
+						retiredName, named)
+				}
+				checked++
+			}
+		}
+		// Zero onward names would make every assertion above vacuous, and the
+		// regexp quietly matching nothing looks exactly like three clean passes.
+		if checked != len(retiredMCPTools) {
+			t.Fatalf("checked %d onward tool names across %d retirement messages, "+
+				"want one per message — either a message stopped naming a way "+
+				"forward, or the pattern stopped matching", checked, len(retiredMCPTools))
+		}
+	})
+
+	t.Run("no caller class is served a retired name in tools/list", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		api.loopback = h
+
+		if len(retiredMCPTools) != 3 {
+			t.Fatalf("the retirement table holds %d names, want 3", len(retiredMCPTools))
+		}
+		for _, caller := range []struct {
+			class      principalClass
+			credential string
+		}{
+			{principalMachine, apiTestPrincipalToken(t, api, d, principalMachine, "m-t157-warden")},
+			{principalAgent, apiTestPrincipalToken(t, api, d, principalAgent, "m-t157-agent")},
+			{principalAdminAgent, apiTestPrincipalToken(t, api, d, principalAdminAgent, "m-t157-mira")},
+			{principalOwner, owner},
+		} {
+			t.Run(caller.class.String(), func(t *testing.T) {
+				names := apiMCPListedNames(t, h, caller.credential)
+
+				// Absence proves nothing against an empty list: pin that this
+				// caller was served a real catalog first.
+				if len(names) < 40 {
+					t.Fatalf("%v is served only %d tools — too few for absence to mean anything", caller.class, len(names))
+				}
+				for _, name := range names {
+					if _, retired := retiredMCPTools[name]; retired {
+						t.Fatalf("%v is advertised %q, a retired tool — the refusal must not put it back on the surface",
+							caller.class, name)
+					}
+				}
+			})
+		}
 	})
 
 	t.Run("a path argument that is missing, or one that could be cleaned into another route, is refused as a tool-level result", func(t *testing.T) {
