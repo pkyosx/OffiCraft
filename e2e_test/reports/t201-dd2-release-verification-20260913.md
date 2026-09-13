@@ -1,5 +1,7 @@
 # T-201 v0.5.369 驗證交接
 
+Owner 目前要求盡快協助 Brad／Tzu-Hui 恢復使用；外部恢復仍未確認，本交接不能以 setup、版本或 API 證據代替 Brad／Tzu-Hui 的實際回覆。
+
 ## 狀態
 
 候選／發布版驗證尚未完成；本輪收到 `context-high` 後交接，未宣稱出貨通過。
@@ -30,6 +32,12 @@
 - 隔離 listener 當時為本工作樹 `.state/ocserverd`，PID `89031`；private tmux identity 記錄在 `.state/tmux.socket`／`.state/tmux.session`。
 - 尚未完成：真實 candidate warden／Claude consumer 的啟動收據、successful-with-warning 的真實 UI 可見性、probe-positive 的 successful-without-warning 正控制。
 - 接手者應先以本工作樹的 `e2e_test/teardown.sh` 精確收掉隔離 tmux／listener，再執行 `ocagent clean` 清理本輪 `/tmp` 暫存；不可碰正式站或保留站。
+
+本輪已執行 `bash e2e_test/teardown.sh` 並以 exit 0 完成：精確停止 `oc-e2e-937a21d4f0eb4e0f914e7ece87ec51a0` private tmux session、釋放 8791、刪除隔離 DB/state、將 `server/ocserverd/webdist` 還原為 pristine；輸出明確列出正式 7755／8770／8780／8766 未管理且未碰觸。
+
+## artifact 權限交接
+
+報告與原始數量控制記錄已存入 chat attachment：`att-c8df886ff2f9`、`att-fc62b8b65736`。嘗試由本成員直接釘到 T-201 時，server 回覆 `caller is not the task's executor`；T-201 executor Kyle 需使用上述 attachment id 釘成 task artifacts。
 
 ## 未涵蓋範圍
 
