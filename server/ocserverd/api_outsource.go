@@ -118,7 +118,11 @@ func (s *apiServer) HandleGetWorkerBootContextApiOutsourceWorkersIdBootContextGe
 		return
 	}
 	if worker == nil {
-		writeResolveError(w, errNotFound, "outsource worker", id)
+		// The noun is "member", not "outsource worker": an ow- row IS a member
+		// row (00025), every other face resolves it under that name, and a lone
+		// survivor speaking the old vocabulary would put the fork nobody looks
+		// at — an error string — back into the one worker-namespaced route left.
+		writeResolveError(w, errNotFound, "member", id)
 		return
 	}
 	task, err := s.dal.GetTask(worker.TaskID)
