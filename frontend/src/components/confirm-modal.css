@@ -22,6 +22,34 @@
   border-radius: var(--radius-card);
   border: 1px solid color-mix(in srgb, var(--color-overlay) 12%, transparent);
   background: var(--color-card);
+  /* T-192 — THE BOX IS THE SCROLLER, and it is capped against the viewport.
+   * Before this, neither .confirm-modal nor this box declared any overflow, and
+   * the box's height came only from its content: the 強制結案 body measures
+   * 499.2px (en) / 394.6px (zh) at every viewport. Under `align-items: center`
+   * a box taller than the scrim is centred THROUGH it, so on a window shorter
+   * than that the TOP of the body is above y=0 — and with no scroll container
+   * anywhere (measured: `scrollHeight - clientHeight === 0` on both the box and
+   * the page) there is no way to bring it back. That paragraph's whole job is
+   * to be read before an irreversible action, so losing it is losing the
+   * dialog's reason to exist.
+   *
+   * The cap is stated TWICE, exactly as .md-preview__panel does it and for the
+   * same reason: the percentage needs the parent's height to resolve, the dvh
+   * form needs nothing from anyone. Both come to the same number — the scrim's
+   * content box is already the viewport minus its two 20px insets.
+   * 🔴 The 40 is `2 * 20` WRITTEN OUT, never `var()`: a declaration containing
+   * var() is not syntax-checked at parse time, so on an engine that does not
+   * know `dvh` the cap would compute to `none` with the fallback already having
+   * lost the cascade — see the header of md-preview.css.
+   *
+   * Content that FITS is untouched: the box is sized by its content as before,
+   * the cap never binds, and `auto` paints no scrollbar. */
+  max-height: 100%;
+  max-height: calc(100dvh - 40px);
+  overflow-y: auto;
+  /* Reaching the end of this box must not start scrolling whatever is behind
+   * the scrim (same as .md-preview__body). */
+  overscroll-behavior: contain;
 }
 .confirm-modal__box--danger {
   border-color: color-mix(in srgb, var(--color-danger-soft) 35%, transparent);
