@@ -615,7 +615,7 @@ func (s *apiServer) sseStopGateRefusal(memberID string) string {
 // a fresh anchor. The whole fleet then read as seconds old for ten minutes.
 func (s *apiServer) onFirstConnect(memberID string) {
 	// Worker presence is projected from this connection edge. The owner's live
-	// worker list subscribes to outsource_worker, so fan its canonical delta
+	// worker list subscribes to member, so fan its canonical delta
 	// even when no durable member field changed (the common case).
 	s.publishOutsourcePresenceEdge(memberID)
 	if m, err := s.dal.GetMember(memberID); err == nil && m != nil && m.WakingSince > 0 {
@@ -885,8 +885,8 @@ func (s *apiServer) onLastDisconnect(memberID string) {
 
 // publishOutsourcePresenceEdge makes the worker-list projection converge after
 // a real SSE online edge. Presence lives only in Hub, so no durable write is
-// guaranteed to accompany a clean connect/disconnect; the existing
-// outsource_worker delta is the owner cockpit's canonical invalidation signal.
+// guaranteed to accompany a clean connect/disconnect; the member delta is the
+// owner cockpit's canonical invalidation signal.
 func (s *apiServer) publishOutsourcePresenceEdge(memberID string) {
 	worker, err := s.dal.GetOutsourceWorker(memberID)
 	if err != nil || worker == nil || worker.Status == WorkerStatusReleased {
@@ -918,8 +918,7 @@ func (s *apiServer) bankLiveCost(actorID string) {
 		delete(entry, "cost")
 		s.telemetry.Set(actorID, entry)
 	}
-	// An outsource member banks through the WORKER branch below (its delta fans
-	// on the outsource_worker topic, never as a member patch — pre-fold parity).
+	// An outsource member banks through the worker branch below.
 	if m, err := s.dal.GetMember(actorID); err == nil && m != nil && m.Kind != KindOutsource {
 		pop()
 		if err := s.dal.AddMemberBankedCost(actorID, cost); err != nil {
@@ -935,8 +934,8 @@ func (s *apiServer) bankLiveCost(actorID string) {
 	}
 	if w, err := s.dal.GetOutsourceWorker(actorID); err == nil && w != nil {
 		pop()
-		// No delta on purpose (pre-fold parity): a worker's changes ride the
-		// outsource_worker projection, never a member patch naming an ow- id.
+		// The presence-edge publisher emits the shared member invalidation after
+		// this fold returns.
 		if err := s.dal.AddMemberBankedCost(actorID, cost); err != nil {
 			fmt.Fprintf(os.Stderr, "[bank] cost bank failed for worker %q: %v\n", actorID, err)
 		}
@@ -1335,7 +1334,7 @@ func (s *apiServer) toolsVisibleTo(principal principalClass, tools []any) []any 
 // refused BY NAME, the way api_document_history.go refuses its retired
 // document kinds, because "you mistyped" and "that mechanism is gone" are not
 // the same answer and only one of them is the caller's to act on. Measured on
-// the live station, all three answered byte-for-byte what a nonsense name
+// the live station, the first three answered byte-for-byte what a nonsense name
 // answers — code -32602, "unknown tool: '<name>'" — so a caller holding a
 // retired name was told to check its spelling.
 //
@@ -1350,6 +1349,17 @@ func (s *apiServer) toolsVisibleTo(principal principalClass, tools []any) []any 
 // The messages name no migration NUMBER, the same discipline the document
 // kinds keep: a number is claimed rather than checked, and a renumbering would
 // rot the sentence without reddening anything.
+//
+// 🔴 THE SEVEN outsource-worker NAMES BELOW WERE ADDED AT A MERGE POINT, and
+// neither side would have caught their absence. This table landed on main while
+// T-197 removed the outsource-only middle layer on a branch: each half was
+// correct and green on its own, and only their INTERSECTION was wrong — after
+// the merge a caller still holding one of those names would have been handed
+// "unknown tool: '<name>'", which is precisely the answer this table exists to
+// stop giving. Every one of them folds onto the member entry point that already
+// served the staff face of the same act (routes.go, the member lifecycle rows),
+// so the onward name is not a substitute mechanism: it IS the same act, now
+// with one door instead of two.
 var retiredMCPTools = map[string]string{
 	"replace_lessons": "retired tool: 'replace_lessons' was removed together with the lessons " +
 		"document, which no longer exists — record what you learned with 'write_lore_entry'",
@@ -1358,6 +1368,27 @@ var retiredMCPTools = map[string]string{
 	"patch_task_learnings": "retired tool: 'patch_task_learnings' was removed together with the " +
 		"task manual's learnings document, which no longer exists — record what you learned " +
 		"with 'write_lore_entry'",
+	"list_outsource_workers": "retired tool: 'list_outsource_workers' was removed together with the " +
+		"outsource-only worker surface, which no longer exists — outsource members are listed by the " +
+		"same roster read as everyone else, so use 'get_members'",
+	"refocus_outsource_worker": "retired tool: 'refocus_outsource_worker' was removed together with " +
+		"the outsource-only worker surface, which no longer exists — refocus an outsource member " +
+		"through the same door as staff, so use 'refocus_member'",
+	"stop_outsource_worker": "retired tool: 'stop_outsource_worker' was removed together with the " +
+		"outsource-only worker surface, which no longer exists — take an outsource member down " +
+		"through the same door as staff, so use 'deactivate_member'",
+	"restart_outsource_worker": "retired tool: 'restart_outsource_worker' was removed together with " +
+		"the outsource-only worker surface, which no longer exists — bring an outsource member back " +
+		"up through the same door as staff, so use 'activate_member'",
+	"set_outsource_worker_model": "retired tool: 'set_outsource_worker_model' was removed together " +
+		"with the outsource-only worker surface, which no longer exists — the model of an outsource " +
+		"member is edited by the same write as the model of a staff member, so use 'update_member'",
+	"accelerated_stop_outsource_worker": "retired tool: 'accelerated_stop_outsource_worker' was " +
+		"removed together with the outsource-only worker surface, which no longer exists — the " +
+		"accelerated stop is the same act on both sides now, so use 'accelerated_stop_member'",
+	"force_stop_outsource_worker": "retired tool: 'force_stop_outsource_worker' was removed together " +
+		"with the outsource-only worker surface, which no longer exists — the forced stop is the " +
+		"same act on both sides now, so use 'force_stop_member'",
 }
 
 // retiredToolMessage reports the named refusal for a tool that used to exist.
@@ -1366,7 +1397,7 @@ var retiredMCPTools = map[string]string{
 // table is that it distinguishes a retired name from a mistyped one, and a
 // loose match (case-folded, prefix, substring) would swallow mistyped names
 // back into the retirement answer and destroy the distinction it was added to
-// create. Anything that is not one of these three strings is an unknown name
+// create. Anything that is not one of the table's exact keys is an unknown name
 // like any other.
 func retiredToolMessage(name string) (string, bool) {
 	message, retired := retiredMCPTools[name]

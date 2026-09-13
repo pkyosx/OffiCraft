@@ -384,8 +384,8 @@ export function ChatArea({
   // "no queue path at all": a synthetic released/removed peer (read-only, T-661b
   // — it must never grow a typable composer or a false "will queue" promise),
   // which is the ONE shape OfficePage deliberately passes no onWake. A LIVE
-  // outsource worker used to be the second (T-128 wired its 喚醒 —
-  // restartWorker — so it now takes this same queue path when non-online).
+  // outsource worker used to be the second; T-128 wired its 喚醒, so it now
+  // takes this same queue path when non-online.
   //
   // This REVERSES T-94c1's extra lock on waking/stopping (owner 2026-07-17),
   // which was the intermittent "sometimes offline can't be messaged" bug: an
@@ -2495,10 +2495,9 @@ export function ChatArea({
              * message will queue" notice plus an in-place ⚡喚醒 button. Sits
              * ABOVE the composer so the input row stays full-width (owner
              * mockup). The button is wired only when the caller passes onWake;
-             * WHAT that fires is the caller's business and differs by peer kind
-             * (activateMember for a 正職, restartWorker for an outsource worker
-             * since T-128) — this component only knows there is a wake to
-             * offer. */}
+             * WHAT that fires is the caller's business; both staff and outsource
+             * workers now use activateMember. This component only knows there is
+             * a wake to offer. */}
             {offlineQueue && (
               <div className="chat__wake-row">
                 <span className="chat__wake-row__hint">

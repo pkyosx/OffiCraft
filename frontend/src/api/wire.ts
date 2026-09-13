@@ -264,10 +264,9 @@ export type WireTaskArtifactVersion =
  * task count behind the tasks nav badge. */
 export type WireTaskCount = components["schemas"]["TaskCountDTO"];
 
-/** Mirrors `OutsourceWorkerDTO` (`GET /api/outsource-workers`): one LIVE
- * (not-yet-released) outsource worker — codename / model / effort + its ONE
- * bound task. Released workers drop off the list. */
-export type WireOutsourceWorker = components["schemas"]["OutsourceWorkerDTO"];
+/** The `kind=outsource` MemberDTO view: one LIVE worker with its bound task.
+ * Released workers are filtered from the list adapter. */
+export type WireOutsourceWorker = WireMember;
 
 /** Mirrors `TaskManualDTO` (`GET /api/task-manuals`): one task type / playbook.
  * The tasks page reads only type_key (+ purpose) for its type filter; the

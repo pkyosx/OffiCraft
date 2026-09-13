@@ -67,6 +67,45 @@ func TestRunLifecycleTick(t *testing.T) {
 			t.Fatalf("workers after disabled outsource half = %d, want 0", len(workers))
 		}
 	})
+
+	t.Run("one offline outsource row receives one start in a whole lifecycle cycle", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		workerID := "ow-one-start"
+		if err := d.PutTask(Task{
+			ID: "T-one-start", Title: "One start", Inputs: map[string]any{},
+			Status: TaskStatusNotStarted, Priority: TaskPriorityHigh,
+			ExecutorKind: TaskExecutorOutsource, ExecutorID: workerID,
+			CreatorID: wireOwnerID, CreatedTS: 1700000000, UpdatedTS: 1700000000,
+		}); err != nil {
+			t.Fatalf("PutTask: %v", err)
+		}
+		if err := d.PutOutsourceWorker(OutsourceWorker{
+			ID: workerID, Codename: "OneStart", TaskID: "T-one-start",
+			Status: WorkerStatusActive, Runtime: RuntimeClaude, Model: "sonnet",
+			Effort: "medium", DesiredState: DesiredStateOnline,
+			DesiredMachineID: ServerSelfHost,
+		}); err != nil {
+			t.Fatalf("PutOutsourceWorker: %v", err)
+		}
+		warden, err := api.hub.Connect(ServerSelfHost, ServerSelfHost)
+		if err != nil {
+			t.Fatalf("hub.Connect(server-self): %v", err)
+		}
+		t.Cleanup(func() { api.hub.Disconnect(warden) })
+		api.workerSpawnTarget[workerID] = ServerSelfHost
+
+		api.runLifecycleTick(1700000100)
+
+		frames := wsDrainWardenFrames(t, api, ServerSelfHost)
+		if len(frames) != 1 {
+			t.Fatalf("warden command count = %d, want exactly one start: %+v", len(frames), frames)
+		}
+		data, _ := frames[0]["data"].(map[string]any)
+		args, _ := data["args"].(map[string]any)
+		if data["rpc"] != reconcileCmdStart || args["member_id"] != workerID {
+			t.Fatalf("warden command = %+v, want one start for %s", frames[0], workerID)
+		}
+	})
 }
 
 func TestStartLifecycleCadence(t *testing.T) {

@@ -7,7 +7,7 @@
 // workaround for a client-side JOIN which should never have been the client's:
 // the panel needed the bound task's created_ts (sort) and its 任務編號 / type
 // labels, so it pulled the ENTIRE unfiltered task history on every
-// task/outsource_worker delta. T-a3e4 folded those fields into the worker DTO,
+// task/member delta. T-a3e4 folded those fields into the worker projection,
 // so the join — and the two-path refetch that existed to dodge it — are gone.
 //
 // The assertions therefore have to be TWO-SIDED: "no task list is fetched" alone
@@ -86,7 +86,7 @@ describe("useOutsourceWorkers (T-a3e4)", () => {
     );
     for (const [i, topic] of [
       "task",
-      "outsource_worker",
+      "member",
       "chat",
       "chat_read",
     ].entries()) {

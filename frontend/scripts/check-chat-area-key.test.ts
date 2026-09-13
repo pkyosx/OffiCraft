@@ -2,9 +2,9 @@
 //
 // This lint is the ONLY thing that goes red when `<ChatArea>`'s `key` is
 // removed, and a dozen behaviours now rest on that key. So the removal is
-// replayed here, one branch at a time: the real sources are copied to a temp
-// tree, one `key=` is deleted, and the script must exit non-zero naming the
-// line. CHAT_AREA_KEY_SRC exists for exactly this.
+// replayed here: the real sources are copied to a temp tree, the shared
+// `key=` is deleted, and the script must exit non-zero naming the line.
+// CHAT_AREA_KEY_SRC exists for exactly this.
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { execFileSync } from "node:child_process";
@@ -57,18 +57,15 @@ function run(
 const OFFICE = "components/OfficePage.tsx";
 
 describe("check-chat-area-key", () => {
-  it("passes on the tree as shipped, and finds all three mounts", () => {
+  it("passes on the tree as shipped, and finds the shared mount", () => {
     const { code, out } = run();
     expect(out, out).toContain("[chat-area-key] ok");
-    expect(out).toContain("3 <ChatArea> mounts");
+    expect(out).toContain("1 <ChatArea> mount");
     expect(code).toBe(0);
   });
 
-  it.each([
-    ["the member branch", "key={selected.id}"],
-    ["the outsource-worker branch", "key={workerPeer.id}"],
-    ["the released-peer branch", "key={releasedPeer.id}"],
-  ])("reddens when %s loses its key", (_name, keyProp) => {
+  it("reddens when the shared mount loses its key", () => {
+    const keyProp = "key={chatProjection.member.id}";
     const { code, out } = run((edit) =>
       edit(OFFICE, (code) => {
         expect(code).toContain(keyProp);
@@ -91,9 +88,9 @@ describe("check-chat-area-key", () => {
   });
 
   it.each([
-    ['a string literal', 'key={selected.id}', 'key="chat"'],
-    ['a braced literal', 'key={selected.id}', 'key={"chat"}'],
-    ['a bare identifier', 'key={selected.id}', "key={selectedId}"],
+    ["a string literal", "key={chatProjection.member.id}", 'key="chat"'],
+    ["a braced literal", "key={chatProjection.member.id}", 'key={"chat"}'],
+    ["a bare identifier", "key={chatProjection.member.id}", "key={selectedId}"],
   ])("reddens when the key is %s", (_name, from, to) => {
     // A constant key is one instance for every room — the same defect as no key,
     // and the one edit a `has a key=` rule cannot see.
@@ -110,8 +107,11 @@ describe("check-chat-area-key", () => {
   it("reddens when the key names something this element never mentions", () => {
     const { code, out } = run((edit) =>
       edit(OFFICE, (code) => {
-        expect(code).toContain("key={selected.id}");
-        return code.replace("key={selected.id}", "key={someRoster.id}");
+        expect(code).toContain("key={chatProjection.member.id}");
+        return code.replace(
+          "key={chatProjection.member.id}",
+          "key={someRoster.id}",
+        );
       }),
     );
     expect(code, out).not.toBe(0);
@@ -125,7 +125,7 @@ describe("check-chat-area-key", () => {
       edit(OFFICE, (code) => `// a bare <ChatArea /> in prose\n${code}`),
     );
     expect(out, out).toContain("[chat-area-key] ok");
-    expect(out).toContain("3 <ChatArea> mounts");
+    expect(out).toContain("1 <ChatArea> mount");
     expect(code).toBe(0);
   });
 });

@@ -810,8 +810,9 @@ def verify():
     if orders != list(range(len(orders))):
         fail(f"x-mcp order sequence is not 0..{len(orders) - 1}")
     # Only the routes this script rewrote. Three OTHER routes on origin/main already
-    # carry four copies that disagree (/api/outsource-workers/{id}/refocus and the two
-    # reply-card verbs) — pre-existing, out of this ticket's scope, reported separately;
+    # carry four copies that disagree (/api/outsource-workers/{id}/refocus — a route
+    # T-197 has since removed — and the two reply-card verbs) — pre-existing, out of
+    # this ticket's scope, reported separately;
     # a spec-wide assertion here would fail on somebody else's drift.
     for path, m in (("/api/tasks/{task_id}", "get"),
                     ("/api/tasks/{task_id}/artifact", "post"),

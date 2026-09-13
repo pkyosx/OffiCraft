@@ -570,7 +570,7 @@ func TestConsumeWorkerRestartAfterStop(t *testing.T) {
 			"last_op_at":     1234.5,
 			"desired_state":  "online",
 		}))
-		dashboard.wantFrames(apiTestWorkerDelta(2, "active", "server"))
+		dashboard.wantFrames(apiTestWorkerStateDelta(2, "active", "online", "server"))
 		bystander.wantFrames()
 	})
 
