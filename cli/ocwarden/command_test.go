@@ -445,6 +445,36 @@ func TestDispatchCommand(t *testing.T) {
 		}
 	})
 
+	// 🔴 THE NO-OP EXEMPTION ON *THIS* ARM HAD NO TEST AT ALL, and an
+	// independent review found it by planting the mutation a competent author
+	// is most likely to make: writing `if ok {` instead of `if ok && !noop {`
+	// when clearing the boilerplate reason. Planted on the member arm it goes
+	// red; planted here alone the whole package stayed green.
+	//
+	// What the empty reason would cost is not cosmetic. `no_such_session:` is a
+	// PREFIX the server keys on: with it gone, the fold records a plain
+	// successful stop — the shape of the 2026-07-20 incident, a kill story for
+	// a session that was never there — and the retry loop never learns it can
+	// stop, because that prefix is the one verdict that ends it.
+	t.Run("an idempotent no-op worker_stop keeps the no_such_session reason", func(t *testing.T) {
+		s := &dispatchSpy{stopOK: true, stopNoop: true}
+		if err := dispatchCommand(&Command{RPC: "worker_stop",
+			Args: map[string]any{"worker_id": "ow-78173e"}}, s.deps()); err != nil {
+			t.Fatalf("err = %v, want nil", err)
+		}
+		// The reason is spelled out rather than read from stopNoopReason: the
+		// expectation and the implementation must not be able to drift
+		// together, which is exactly how the same-source failure mode works.
+		want := CommandResult{
+			WorkerID: "ow-78173e", RPC: "worker_stop", OK: true,
+			Reason: "no_such_session: stop was a no-op (no session, no member process on this warden)",
+			Log:    "session=worker-ow-78173e: no_such_session: stop was a no-op (no session, no member process on this warden)",
+		}
+		if got := s.receipt(t); got != want {
+			t.Errorf("receipt = %+v, want %+v", got, want)
+		}
+	})
+
 	t.Run("an incomplete worker_stop is an error", func(t *testing.T) {
 		s := &dispatchSpy{}
 		err := dispatchCommand(&Command{RPC: "worker_stop",
