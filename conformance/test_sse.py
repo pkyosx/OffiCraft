@@ -211,6 +211,55 @@ def _fresh_agent(client, owner_token, tag: str) -> AgentIdentity:
     return AgentIdentity(member_id=member_id, token=token, role_key="")
 
 
+def _an_outsource_worker(client, owner_token, tag: str) -> dict[str, Any]:
+    """One outsource worker ROW, for the write faces whose subject must be one.
+
+    PREFERS a row that already exists, and that preference is the point: the
+    Phase 2 assignment scheduler is the only path that MINTS a worker, and its
+    admission is gated by the suite-wide global cap task.outsource_max_parallel
+    (default 3) counted over every live worker on the server. A test that mints
+    is therefore at the mercy of how many workers the tests before it left
+    running. Addressing a row that is already there costs no slot at all.
+
+    The dispatch below is the fallback for an empty roster — the one state in
+    which there is certainly a free slot, and the one in which there is nothing
+    to borrow. It fails loudly rather than handing back a subject-less caller:
+    a probe with no subject has to be a red, not a softened assertion.
+    """
+    r = client.get("/api/outsource-workers", headers=_auth(owner_token))
+    assert r.status_code == 200, f"{r.status_code} {r.text}"
+    existing = [w for w in r.json() if w.get("status") != "released"]
+    if existing:
+        return existing[0]
+
+    dispatched = client.post(
+        "/api/tasks",
+        json={
+            "title": f"conf-topic-dispatch-{tag}",
+            "description": "outsource_worker topic probe",
+            "target": {"kind": "outsource", "model": "sonnet", "effort": "low"},
+        },
+        headers=_auth(owner_token),
+    )
+    assert dispatched.status_code == 200, (
+        f"dispatch failed: {dispatched.status_code} {dispatched.text}")
+    task_id = dispatched.json()["task_id"]
+    deadline = time.time() + 10.0
+    while time.time() < deadline:
+        r = client.get("/api/outsource-workers", headers=_auth(owner_token))
+        assert r.status_code == 200, f"{r.status_code} {r.text}"
+        for row in r.json():
+            if row.get("task_id") == task_id:
+                return row
+        time.sleep(0.1)
+    raise AssertionError(
+        "the roster held no outsource worker, and the scheduler minted none for "
+        f"a freshly dispatched 外包 task ({task_id}) within 10s — the "
+        "outsource_worker topic has no subject to write to. If this is now the "
+        "expected behaviour, this topic needs a new subject, not a weaker "
+        "assertion")
+
+
 def _presence(client, owner_token, member_id: str) -> str:
     r = client.get(f"/api/members/{member_id}", headers=_auth(owner_token))
     assert r.status_code == 200, r.text
@@ -354,41 +403,42 @@ def test_every_closed_topic_emits(client, owner_token, agent_a, fresh_member, ow
     """
     tag = uuid.uuid4().hex[:8]
     member = fresh_member()
+    # ── the outsource_worker row this topic's write face addresses ───────────
+    #
     # A kind='outsource' roster row IS an outsource worker (the P7d fold — the
-    # worker table lives in `member`). It used to be hired straight through
-    # POST /api/members; that door refuses every kind but staff since owner
-    # 2026-09-13 (rc-3989498e0c8f), and hiring was never how a worker is born
-    # anyway. So dispatch a task to 外包 and let the SCHEDULER mint it — the
-    # real birth path. The assignment rides the SSE deltas rather than the
-    # create receipt, so poll the worker roster for the row bound to this task.
-    dispatched = client.post(
-        "/api/tasks",
-        json={
-            "title": f"conf-topic-dispatch-{tag}",
-            "description": "outsource_worker topic probe",
-            "target": {"kind": "outsource", "model": "sonnet", "effort": "low"},
-        },
-        headers=_auth(owner_token),
-    )
-    assert dispatched.status_code == 200, (
-        f"dispatch failed: {dispatched.status_code} {dispatched.text}")
-    dispatched_task = dispatched.json()["task_id"]
-    worker = ""
-    deadline = time.time() + 10.0
-    while time.time() < deadline:
-        r = client.get("/api/outsource-workers", headers=_auth(owner_token))
-        assert r.status_code == 200, f"{r.status_code} {r.text}"
-        for row in r.json():
-            if row.get("task_id") == dispatched_task:
-                worker = row["id"]
-                break
-        if worker:
-            break
-        time.sleep(0.1)
-    assert worker, (
-        "the scheduler minted no worker for the dispatched task within 10s — "
-        "if this is now the expected behaviour, this topic needs a new subject, "
-        "not a weaker assertion")
+    # worker table lives in `member`). This probe used to conjure one straight
+    # through POST /api/members with kind='outsource'; that door hires staff
+    # only since owner 2026-09-13 (rc-3989498e0c8f), and it was never how a
+    # worker is born.
+    #
+    # The real birth path — dispatch a task and wait for the Phase 2 scheduler
+    # — is NOT something this test may depend on, and the reason is not that it
+    # is slow. Admission is gated by the GLOBAL cap task.outsource_max_parallel
+    # (default 3), counted over every LIVE (assigned+active) worker in the whole
+    # server. That cap is SUITE-WIDE STATE: by the time this file runs, other
+    # files have normally spent it on outsource tasks they left open — measured
+    # on a full run, 3 of 3 held by three unrelated not_started tasks — so a
+    # dispatch here is simply never admitted, and whether this topic gets a
+    # subject at all would be decided by the run order of tests that have
+    # nothing to do with SSE.
+    #
+    # So use a subject that costs NO slot: a worker row that ALREADY exists.
+    # Writing to one mints nothing and the cap never enters the picture. The
+    # dispatch below is the fallback for the one case where the roster is empty
+    # (this file run on its own) — which is also the only case where a slot is
+    # certainly free.
+    worker = _an_outsource_worker(client, owner_token, tag)
+    # A REAL field edit on that row, not a re-save of what it already holds: an
+    # effort it is not currently on, put back at the end of the test so a
+    # borrowed row is left exactly as found. (Both values are valid efforts, so
+    # neither write can 422; the worker is not online in this suite, so neither
+    # can trigger a respawn.)
+    worker_effort_before = worker.get("effort") or ""
+    assert worker_effort_before, (
+        "the worker row carries no configured effort, so this probe has nothing "
+        "to put back after its edit — every minted worker gets one "
+        f"(defaultedDispatchSpec). Row: {worker}")
+    worker_effort_probe = "high" if worker_effort_before != "high" else "low"
     # The member row's PATCH body is a NAMED VALUE, not an inline literal, so
     # the assertion below can bind to the very field this write sets instead of
     # to a value re-typed next to it. See the identity check in the loop: if
@@ -420,8 +470,8 @@ def test_every_closed_topic_emits(client, owner_token, agent_a, fresh_member, ow
                   "executor_member_id": agent_a.member_id},
             headers=_auth(agent_a.token))),
         ("outsource_worker", lambda: client.post(
-            f"/api/outsource-workers/{worker}/model",
-            json={"effort": "high"},
+            f"/api/outsource-workers/{worker['id']}/model",
+            json={"effort": worker_effort_probe},
             headers=_auth(owner_token))),
         ("task_manual", lambda: client.post(
             "/api/task-manuals", json={"type_key": f"conf-topic-{tag}"},
@@ -605,6 +655,14 @@ def test_every_closed_topic_emits(client, owner_token, agent_a, fresh_member, ow
     assert r.status_code == 200
     frame = owner_sse.wait_for_frame("global_context")["frame"]
     assert frame["data"]["payload"] is None, frame
+    # Put the worker row back on the effort it arrived with. The subject may be
+    # a row another test created (see the acquisition note at the top), and this
+    # probe has no business leaving a field it only needed a delta from.
+    assert client.post(
+        f"/api/outsource-workers/{worker['id']}/model",
+        json={"effort": worker_effort_before},
+        headers=_auth(owner_token),
+    ).status_code == 200
 
 
 # ── §4 per-recipient routing (T-30d7) ────────────────────────────────────────
