@@ -123,6 +123,77 @@ func TestMigration00106CollectsOnlyTheUnboundOutsourceShell(t *testing.T) {
 	}
 }
 
+// 🔴 THE THREE PRECONDITIONS CAN ONLY BE TESTED ON THE KEYED ROW ITSELF.
+// The test above seeds a task-bound worker and a staff member as NEIGHBOURS,
+// and that does prove no collateral damage — but it has ZERO power over the
+// kind and linked_task_id clauses, because the WHERE is keyed by a literal id
+// first and those neighbours carry different ids. Measured, not reasoned: with
+// the `linked_task_id` clause deleted from the migration, the test above still
+// PASSED. A neighbour can never be collected no matter what the other clauses
+// say.
+//
+// So each disqualifying attribute is put on the TARGET ID itself, one per case.
+// This is the only fixture shape in which dropping a clause goes red.
+func TestMigration00106LeavesTheTargetIDAloneWhenAnyPreconditionFails(t *testing.T) {
+	cases := []struct {
+		name       string
+		kind       string
+		status     string
+		linkedTask string
+		why        string
+	}{
+		{
+			name: "bound to a task", kind: "outsource", status: "active", linkedTask: "T-999",
+			why: "a worker that IS bound to a task is doing its job; collecting " +
+				"it abandons the task mid-flight, and the task keeps pointing at a " +
+				"member the roster no longer lists",
+		},
+		{
+			name: "staff, not outsource", kind: "staff", status: "active", linkedTask: "",
+			why: "a staff row carrying this id would be somebody else's member; " +
+				"the roster would simply be one member shorter and nothing would error",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			db := t202OpenJustBefore106(t, "t202-precondition.db")
+			t202SeedMember(t, db, t202TargetID, c.kind, c.linkedTask)
+
+			if err := goose.UpTo(db, "migrations", 106); err != nil {
+				t.Fatalf("goose up to 106: %v", err)
+			}
+			status, released := t202ReadMember(t, db, t202TargetID)
+			if status != "active" || released != 0 {
+				t.Fatalf("the row moved (status %q, released_ts %v) although it is %s — %s",
+					status, released, c.name, c.why)
+			}
+		})
+	}
+}
+
+// Re-running the migration must not re-stamp released_ts on a row that is
+// already collected: that timestamp records when a worker actually stopped, and
+// moving it later would rewrite a fact. This is what the roster_status='active'
+// clause is for, and like the two above it can only be tested on the keyed id.
+func TestMigration00106DoesNotRestampAnAlreadyCollectedRow(t *testing.T) {
+	db := t202OpenJustBefore106(t, "t202-restamp.db")
+	t202SeedMember(t, db, t202TargetID, "outsource", "")
+	if _, err := db.Exec(
+		`UPDATE member SET roster_status = 'removed', released_ts = 1000.0 WHERE id = ?`,
+		t202TargetID); err != nil {
+		t.Fatalf("seed an already-collected row: %v", err)
+	}
+
+	if err := goose.UpTo(db, "migrations", 106); err != nil {
+		t.Fatalf("goose up to 106: %v", err)
+	}
+	status, released := t202ReadMember(t, db, t202TargetID)
+	if status != "removed" || released != 1000.0 {
+		t.Fatalf("the already-collected row was touched: status %q released_ts %v, "+
+			"want removed / 1000 unchanged", status, released)
+	}
+}
+
 // A station that never had the row — every fresh install and every CI database
 // — must run this migration and be unchanged. The migration relies on an UPDATE
 // whose WHERE matches nothing being a successful no-op rather than an error, so
