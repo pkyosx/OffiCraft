@@ -151,62 +151,12 @@ MY_MESSAGE="有 空 格 要 用 引號"          # 單雙引號等價,會被剝�
 
 ### 5. `HOME` 與**整族 `CLAUDE_*`** 設了也不會生效
 
-warden 在 spawn 前要先把 workdir 寫進 claude 的信任檔(pretrust，沒有它 claude 會彈信任對話框、
-吃掉開機 nudge、成員一秒內死掉)。所以**子行程去讀的那一份，必須是我們寫的那一份**——而這件事
-**不是靠推論輸入來保證的**，是每次 spawn 實測出來的。
+warden 在啟動前，會把工作目錄的信任旗標寫入預期的 Claude 設定檔，減少無人操作時停在信任確認畫面的情況。
+信任設定的寫入位置與啟動環境使用同一份解析結果；啟動列在載入成員環境檔之後，清除非白名單的 `CLAUDE_*`，再明確設定 `HOME`。只有指定 `OC_CLAUDE_JSON` 時才設定 `CLAUDE_CONFIG_DIR`，否則解除該變數，維持 Claude 預設設定與憑證位置。
 
-決定 claude 去讀哪一份的東西**不只兩個，而且不全是環境變數**(實測 claude 2.1.268，2026-09-11)：
+Claude 自己的設定仍可能影響讀取位置，因此寫入成功不代表成員已完成開機。成員的實際開機回報是成功依據；沒有在期限內回報時，Server 依既有開機逾時流程記錄並重試。信任旗標寫入失敗仍會回報啟動失敗。
 
-| 形狀 | 效果 |
-|---|---|
-| `HOME` / `CLAUDE_CONFIG_DIR` | 決定設定目錄 |
-| `CLAUDE_CODE_CUSTOM_OAUTH_URL` | 把目錄裡讀的**檔名**換掉 |
-| `<設定目錄>/.config.json` | **這個檔只要存在**，claude 就讀它、完全不碰 `.claude.json`。**它不是環境變數**，清環境碰不到它 |
-
-同一顆執行檔裡可辨識的 `CLAUDE_*` / `ANTHROPIC_*` 名字有 841 個，每次改版都會變，所以這裡
-**不逐個點名**。啟動列在 source 完這個檔**之後**做兩件事：
-
-1. 把子行程環境裡**整族 `CLAUDE_*` 刪掉**，只留白名單(目前是
-   `CLAUDE_CODE_USE_BEDROCK`、`CLAUDE_CODE_USE_VERTEX` —— 由 `claudeCredEnvKeys` 推導，
-   它們是 warden 自己認得的憑證來源，砍掉會讓 Bedrock/Vertex 主機變成未登入的子行程)；
-2. 明確 `export HOME=`(並在 `OC_CLAUDE_JSON` 改指時明確 export `CLAUDE_CONFIG_DIR`)。
-
-**然後——這一步才是保證**——warden 寫完信任旗標之後，會在**同一份檔**裡多寫一個
-由 workdir 推導出來的見證項(一個指向 `/usr/bin/false` 的 MCP server 條目)，然後用
-**子行程同一段環境前置**去問 `claude` 執行檔本身一個**唯讀**問題：
-
-```
-claude mcp get oc-trust-probe-missing     # 這個名字永遠不會被種下去
-→ No MCP server named "…". Configured servers: <它讀到的那份檔裡有哪些名字>
-```
-
-見證項回來就代表我們寫旗標的那一份檔，就是 claude 自己讀的那一份；問完見證項立刻被移除。
-答不出來、名字沒回來、指令不見了、逾時、崩潰——一律**具名回報**(`pretrust_unverified: …`，
-訊息裡會同時寫出我們寫的那一份路徑與 claude 實際回了什麼)，不會靜默地盡力而為。
-
-**這個回報不會擋住啟動**(owner 2026-09-13 於 `rc-4e9937772d77` 裁定)。擋住啟動的版本
-2026-09-12 上線，當天就讓一個外部站台的 claude 成員全部起不來：那台機器答不出這個問題，
-而沒有任何開關可以關掉檢查，自更新每 15 分鐘又把新版拉回來。它換來的那件事本來就不是
-無聲的——派下去的啟動沒有上線時，server 本來就會蓋一筆 `wake_timeout` 並重試。所以現在
-成員照常啟動，判定結果走 warden log 與 start 收據的 `last_op_reason`，在駕駛艙上看得到。
-
-> **為什麼動詞是 `get` 而不是 `project purge --dry-run`。** 後者是唯一會報告
-> `projects[<dir>]` 的指令，但它的動詞是**破壞性**的；`--dry-run` 今天有效是行為不是契約，
-> 而這整包的存在理由就是我們已經四次賭錯「claude 的行為跟我們以為的一樣」。實測
-> (2026-09-12，2.1.268，獨立重量)：`mcp get` 問一個不存在的名字時**不連線任何 server**
-> (種一個會建立標記檔的 server，問不存在的名字沒有標記檔；問存在的名字就有——對照組會動)，
-> 而且**永遠不刪東西**：我們寫進 `projects[<workdir>]` 的旗標與見證項每次都原封不動回來。
->
-> ⚠️ 但它**不是完全零寫入**，先前這裡寫「連 backups 輪替都沒有」是**錯的**。對一個 claude
-> 還沒初始化過的設定目錄(也就是 warden 幫新成員開的那種)，**第一次** `mcp get` 會改寫
-> `.claude.json`(inode 換掉、568 → 1115 bytes)補上 claude 自己的首次啟動欄位
-> (`firstStartTime`／`machineID`／`userID`／`migrationVersion`)並輪替一份到 `backups/`。
-> 第二、三次再問就真的一個 byte 都不動(size／inode／mtime 到奈秒全同)。
-> 也就是說那一次寫入是 claude 在初始化自己，不是動我們的資料——而「不刪」正是換動詞要買的性質，
-> `project purge --dry-run` 買不到，因為它的無害性押在旗標有沒有被遵守上。
->
-> 為什麼不是在 Go 裡重寫 claude 的解析邏輯？因為那是第五次預測。它會隨 claude 改版而漂移，
-> 而漂移的時候不會有任何東西紅。權威是 `cli/ocwarden/claudetrust.go` 與 `claudehome.go`。
+啟動流程不再透過 MCP 名稱清單推斷信任設定是否被讀取，也不會為診斷而在設定檔植入臨時 MCP 項目。實作依據為 `cli/ocwarden/claudehome.go` 與 `spawn.go`。
 
 **清不到的那一個注入點：user / managed settings 的 `env` 區塊。** claude 執行檔自帶的說明字串
 逐字寫著「a `CLAUDE_CONFIG_DIR` set in user or managed settings is honored」——也就是

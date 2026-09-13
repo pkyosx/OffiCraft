@@ -8,7 +8,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -37,8 +36,6 @@ type spawnHarness struct {
 	slept     []time.Duration
 	pretrusts int
 	pretrustE error
-	verifies  [][2]string
-	verifyE   error
 	purges    int
 }
 
@@ -79,12 +76,8 @@ func (h *spawnHarness) deps() SpawnDeps {
 			}
 			return os.ErrNotExist
 		},
-		Logf:     func(format string, a ...any) { h.logs = append(h.logs, fmt.Sprintf(format, a...)) },
-		Pretrust: func() error { h.pretrusts++; return h.pretrustE },
-		VerifyPretrust: func(workdir, envRendered string) error {
-			h.verifies = append(h.verifies, [2]string{workdir, envRendered})
-			return h.verifyE
-		},
+		Logf:       func(format string, a ...any) { h.logs = append(h.logs, fmt.Sprintf(format, a...)) },
+		Pretrust:   func() error { h.pretrusts++; return h.pretrustE },
 		PurgeTrash: func() { h.purges++ },
 		Sleep:      func(d time.Duration) { h.slept = append(h.slept, d) },
 	}
@@ -937,24 +930,19 @@ func TestWithPerSpawn(t *testing.T) {
 		},
 	}
 
-	perPretrust, perVerify, perPurge := 0, 0, 0
+	perPretrust, perPurge := 0, 0
 	got := base.withPerSpawn(
 		func() error { perPretrust++; return errors.New("boom") },
-		func(string, string) error { perVerify++; return nil },
 		func() { perPurge++ })
 
 	if err := got.Pretrust(); err == nil || err.Error() != "boom" {
 		t.Errorf("Pretrust err = %v, want boom", err)
 	}
-	if got.VerifyPretrust == nil {
-		t.Fatal("the per-spawn verifier must be bound alongside the write it verifies")
-	}
-	_ = got.VerifyPretrust("/w/m1", "")
 	got.PurgeTrash()
 	got.Sleep(time.Second)
-	if perPretrust != 1 || perVerify != 1 || perPurge != 1 || baseClock != 1 {
-		t.Errorf("perPretrust=%d perVerify=%d perPurge=%d baseClock=%d, want 1/1/1/1 (the base clock is carried through)",
-			perPretrust, perVerify, perPurge, baseClock)
+	if perPretrust != 1 || perPurge != 1 || baseClock != 1 {
+		t.Errorf("perPretrust=%d perPurge=%d baseClock=%d, want 1/1/1 (the base clock is carried through)",
+			perPretrust, perPurge, baseClock)
 	}
 	if basePretrust != 0 || basePurge != 0 {
 		t.Errorf("the base seams were called: pretrust=%d purge=%d", basePretrust, basePurge)
@@ -998,9 +986,6 @@ func TestStart(t *testing.T) {
 		}
 		if h.pretrusts != 1 || h.purges != 1 {
 			t.Errorf("pretrusts=%d purges=%d, want 1/1", h.pretrusts, h.purges)
-		}
-		if want := [][2]string{{"/w/m1", ""}}; !reflect.DeepEqual(h.verifies, want) {
-			t.Errorf("verifies = %v, want %v", h.verifies, want)
 		}
 		wantCalls := []string{
 			"tmux -L officraft has-session -t member-m1",
@@ -1058,12 +1043,6 @@ func TestStart(t *testing.T) {
 			"export GH_TOKEN=ghp_abc\nexport EDITOR=vim\n"
 		if rendered.content != want || rendered.mode != 0o600 {
 			t.Errorf(".oc-env = %q mode %04o, want %q mode 0600", rendered.content, rendered.mode, want)
-		}
-		// The pre-trust probe has to be asked under the SAME render the launch
-		// line sources. Asked without it, it measures an environment no child
-		// ever runs in and still answers yes.
-		if want := [][2]string{{"/w/m1", "/w/m1/.oc-env"}}; !reflect.DeepEqual(h.verifies, want) {
-			t.Errorf("verifies = %v, want %v", h.verifies, want)
 		}
 		wantLaunch := "tmux -L officraft new-session -d -s member-m1 -x 160 -y 50 " +
 			`cd /w/m1; [ -f /w/m1/.oc-env ] && . /w/m1/.oc-env; ` + goldenClaudePurge + `unset CLAUDE_CONFIG_DIR; ` +
@@ -1300,61 +1279,6 @@ func TestStart(t *testing.T) {
 		}
 	})
 
-	t.Run("a pre-trust verdict that is not yes launches the member anyway and says so on the outcome", func(t *testing.T) {
-		cases := []struct {
-			name   string
-			mutate func(*spawnHarness, *SpawnDeps)
-			want   string
-		}{
-			{"claude answers that it reads a different file", func(h *spawnHarness, _ *SpawnDeps) {
-				h.verifyE = errors.New("claude reads a different file")
-			}, "pretrust_unverified: claude reads a different file"},
-			{"this warden has no verifier wired at all", func(_ *spawnHarness, d *SpawnDeps) {
-				d.VerifyPretrust = nil
-			}, "pretrust_unverified: a trust flag was written but no verifier is wired, so nothing establishes that the spawned claude reads the file it was written to"},
-		}
-		for _, c := range cases {
-			h := newSpawnHarness()
-			d := h.deps()
-			c.mutate(h, &d)
-
-			got := d.start(startParamsM1())
-
-			want := SpawnOutcome{OK: true, SessionID: "member-m1", PID: "500", Note: c.want}
-			if got != want {
-				t.Errorf("%s: outcome = %+v, want %+v", c.name, got, want)
-			}
-			if !slices.Contains(h.logs, "[ocwarden spawn] "+c.want) {
-				t.Errorf("%s: the verdict is not on the warden log: %v", c.name, h.logs)
-			}
-			var nudged bool
-			for _, call := range h.runner.calls {
-				if strings.Contains(call, "send-keys") {
-					nudged = true
-				}
-			}
-			if !nudged {
-				t.Errorf("%s: the member was launched but never nudged: %v", c.name, h.runner.calls)
-			}
-		}
-	})
-
-	t.Run("a pre-trust verdict of yes leaves the outcome with nothing to say", func(t *testing.T) {
-		h := newSpawnHarness()
-		d := h.deps()
-
-		got := d.start(startParamsM1())
-
-		if want := (SpawnOutcome{OK: true, SessionID: "member-m1", PID: "500"}); got != want {
-			t.Errorf("outcome = %+v, want %+v", got, want)
-		}
-		for _, line := range h.logs {
-			if strings.Contains(line, "pretrust_unverified") {
-				t.Errorf("an answered probe wrote a verdict line: %v", h.logs)
-			}
-		}
-	})
-
 	t.Run("a codex spawn runs the sidecar and never sends terminal keystrokes", func(t *testing.T) {
 		h := newSpawnHarness()
 		d := h.deps()
@@ -1485,57 +1409,4 @@ func TestClaudeChildEnvPrologue(t *testing.T) {
 			t.Errorf("a redirected layout exports it; unsetting it too is contradictory:\n%s", got)
 		}
 	})
-}
-
-// The pre-trust verdict is only worth anything if it is asked BEFORE the child
-// is launched (T-201, (b2)).
-//
-// The probe works by planting a witness entry in the very ~/.claude.json the
-// child is about to read and then deleting it again. Run it after
-// `tmux new-session` and it is no longer a probe of anything: the child has
-// already read the file, so a "yes" says nothing about what the child saw, and
-// the plant/delete pair now races a live reader. Until this test existed the
-// ordering was held up by nothing but the line order in start() — moving the
-// whole verify block below the launch left every test in this package green.
-//
-// Both controls matter and both are asserted: that the verifier really ran (or
-// the flag below is vacuously false) and that the session really was created
-// (or "no session yet at verify time" is true because there was never a
-// session at all).
-func TestStartAsksThePretrustVerdictBeforeCreatingTheSession(t *testing.T) {
-	h := newSpawnHarness()
-	d := h.deps()
-	verified := false
-	sessionExistedAtVerifyTime := false
-	d.VerifyPretrust = func(workdir, envRendered string) error {
-		verified = true
-		for _, c := range h.runner.calls {
-			if strings.Contains(c, " new-session ") {
-				sessionExistedAtVerifyTime = true
-			}
-		}
-		return nil
-	}
-
-	out := d.start(startParamsM1())
-
-	if !out.OK {
-		t.Fatalf("spawn failed: %+v", out)
-	}
-	if !verified {
-		t.Fatal("the verifier never ran — the ordering assertion below proves nothing")
-	}
-	sessionCreated := false
-	for _, c := range h.runner.calls {
-		if strings.Contains(c, " new-session ") {
-			sessionCreated = true
-		}
-	}
-	if !sessionCreated {
-		t.Fatal("no session was ever created — the ordering assertion below proves nothing")
-	}
-	if sessionExistedAtVerifyTime {
-		t.Error("the pre-trust verdict was taken AFTER tmux new-session: it plants a witness " +
-			"in the file the child has already read, so its answer is about nothing")
-	}
 }
