@@ -40,13 +40,26 @@ package main
 // comes back a fifth time, not how it stops.
 //
 // WHY THE PROBE CANNOT DRIFT SILENTLY. It is a POSITIVE-ANSWER-ONLY check: the
-// spawn proceeds only when claude's own output names this workdir as a project it
+// answer is yes only when claude's own output names this workdir as a project it
 // holds. Anything else — a changed output format, a removed subcommand, a crash,
 // a timeout, an unresolvable binary, or a genuine "I read a different file" — is
-// NOT a positive answer, so it refuses the spawn by name. Drift therefore shows
-// up as a loud refusal naming both files, never as a silent pass. That direction
-// is the whole design: this ticket exists to kill a silent failure, so every
-// unknown has to land on the refusing side.
+// NOT a positive answer, so it is reported by name. Drift therefore shows up as a
+// loud line naming both files, never as a silent pass. That direction is the
+// whole design: this ticket exists to kill a silent failure, so every unknown has
+// to land on the speaking side.
+//
+// 🔴 THE VERDICT REPORTS, IT DOES NOT GATE (owner ruling 2026-09-13,
+// rc-4e9937772d77). The first shipped form REFUSED the spawn, and within hours it
+// had taken an external station's whole claude roster offline: that host could not
+// answer the probe, there was no switch to turn the check off, and self-update
+// pulled the refusing build back every 15 minutes, so the machine could not be
+// rolled back either. What the refusal was bought against — "the member dies on
+// boot and every receipt says success" — was never actually silent: the server
+// stamps wake_timeout when a dispatched start never comes online, and retries. A
+// guaranteed outage was being traded for a few minutes of an already-detected
+// failure. So spawn.go carries this verdict out on SpawnOutcome.Note instead of
+// refusing, and the start receipt puts it on the member's last_op_reason where an
+// operator sees it. Nothing about the JUDGEMENT changed — only its consequence.
 //
 // THE QUESTION IS A READ, AND THE VERB HAS NO DESTRUCTIVE READING. An earlier
 // draft of this file asked `claude project purge <dir> --dry-run`, because that
@@ -98,7 +111,7 @@ import (
 )
 
 // claudeShadowConfigName is the fourth-round finding, kept here as a NAME so the
-// refusal can say what to look for. When this file exists inside the config
+// report can say what to look for. When this file exists inside the config
 // directory, claude 2.1.268 reads it and never opens .claude.json — measured in
 // both directions (with it present the trust record landed in it and .claude.json
 // was not touched by a single byte; with it absent the record landed in
@@ -194,7 +207,7 @@ func claudeTrustProbeScript(claudeBin, workdir, envRendered string, ch claudeHom
 //
 // This does NOT loosen the judgement. The verdict is still positive-answer-only:
 // a crash, a timeout, a changed format or a genuine "different file" all arrive
-// here as output that does not contain the witness, and all refuse.
+// here as output that does not contain the witness, and all come back as an error.
 //
 // verifyClaudeSeesPretrust seeds a witness into the file pre-trust just wrote,
 // asks claude to read its own project config back, and returns nil ONLY when the
@@ -204,9 +217,9 @@ func claudeTrustProbeScript(claudeBin, workdir, envRendered string, ch claudeHom
 // question stopped working".
 //
 // The seed is removed on every exit path. A clear that fails is LOUD on warden
-// stderr but does not fail the spawn: the leftover is one inert entry, and
-// refusing to launch a member over cosmetic residue would trade a real outage for
-// a tidiness problem. That is the one best-effort step in this file, and it is
+// stderr and is not returned as the verdict: the leftover is one inert entry, and
+// reporting cosmetic residue as a trust finding would bury the finding that
+// matters under one that does not. That is the one best-effort step in this file, and it is
 // best-effort about CLEANUP, never about the answer.
 func verifyClaudeSeesPretrust(ask func(script string) (string, error), logf func(string, ...any), claudeBin, workdir, envRendered string, ch claudeHome) error {
 	wrote := ch.ClaudeJSONPath()
@@ -232,7 +245,7 @@ func verifyClaudeSeesPretrust(ask func(script string) (string, error), logf func
 		return nil
 	}
 	if err != nil {
-		return fmt.Errorf("%s could not be asked which config it reads for %s (%v); the trust flag was written to %s, and an unanswered question is refused rather than spawned into — claude said: %s",
+		return fmt.Errorf("%s could not be asked which config it reads for %s (%v); the trust flag was written to %s, and an unanswered question is reported rather than treated as a yes — claude said: %s",
 			claudeBin, workdir, err, wrote, oneLineExcerpt(out))
 	}
 	return fmt.Errorf("%s does NOT read %s: the witness written there for %s never came back, so the file it reads is a different one — look for a %s in the config directory, which claude reads instead of .claude.json whenever it exists; claude said: %s",
@@ -272,7 +285,7 @@ func clearTrustProbeWitness(claudeJSONPath, workdir, name string) error {
 	})
 }
 
-// oneLineExcerpt folds claude's answer onto one line and bounds it, so a refusal
+// oneLineExcerpt folds claude's answer onto one line and bounds it, so a verdict
 // stays a one-line last_op_reason. Only the probe's own output reaches here, and
 // the probe is scoped to one workdir, so it carries no other project's paths.
 func oneLineExcerpt(s string) string {
@@ -302,9 +315,9 @@ func tmuxLaunchShell(r CmdRunner, socket string, logf func(string, ...any)) stri
 	// 🔴 SAY IT OUT LOUD. This is a KNOWN, ACCEPTED divergence, not a neutral
 	// default: the probe is about to measure the child's environment in a
 	// different shell than the child will run in. It is accepted because the tmux
-	// server is usually not up before the FIRST spawn on a host, and refusing
-	// there would make every host's first member unlaunchable. Accepted is not the
-	// same as invisible — an operator debugging a pre-trust refusal has to be able
+	// server is usually not up before the FIRST spawn on a host, and this dialect
+	// question is not worth a second unknown on that path. Accepted is not the
+	// same as invisible — an operator debugging a pre-trust report has to be able
 	// to see that this spawn's probe ran in the wrong dialect.
 	if logf != nil {
 		reason := fmt.Sprintf("answered %q, which is not an absolute path", shell)

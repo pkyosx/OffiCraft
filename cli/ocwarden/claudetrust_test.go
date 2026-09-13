@@ -250,7 +250,7 @@ func TestVerifyClaudeSeesPretrust(t *testing.T) {
 			return "No MCP server named \"x\". Configured servers:\n", nil
 		}, nil, "/bin/claude", "/w/m1", "", ch)
 		if err == nil {
-			t.Fatal("claude holding none of our witness must refuse the spawn")
+			t.Fatal("claude holding none of our witness must be reported as a verdict")
 		}
 		for _, want := range []string{ch.ClaudeJSONPath(), "/w/m1", claudeShadowConfigName} {
 			if !strings.Contains(err.Error(), want) {

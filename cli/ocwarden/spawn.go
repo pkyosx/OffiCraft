@@ -841,8 +841,8 @@ func osWriteFile(path, content string, mode os.FileMode) error {
 // same workdir is a no-op change.
 //
 // 🔴 IT IS ONLY HALF THE JOB. Writing the flag says nothing about whether the
-// spawned claude READS this file; claudetrust.go establishes that separately and
-// refuses the spawn when it cannot.
+// spawned claude READS this file; claudetrust.go establishes that separately, and
+// what it finds is reported on the outcome rather than gating the spawn.
 //
 // The path is INJECTED (production passes the real ~/.claude.json; tests pass a temp
 // file) so a test can NEVER touch the live ~/.claude.json.
@@ -1061,11 +1061,13 @@ type SpawnDeps struct {
 	// environment prologue — see claudetrust.go for why nothing here models
 	// claude's resolution.
 	//
-	// 🔴 IT IS NOT NIL-SKIPPED. A nil seam WITH Pretrust wired refuses the spawn:
-	// "wrote a flag, verified nothing" is precisely the shape four reviews kept
-	// finding, so it must not be reachable by leaving a field out. Only a
-	// Pretrust-less deps literal (the Phase-2 seam-only shape, and tests that
-	// never write a flag) skips both.
+	// 🔴 IT IS NOT NIL-SKIPPED INTO SILENCE. A nil seam WITH Pretrust wired still
+	// says so on the outcome: "wrote a flag, verified nothing" is precisely the
+	// shape four reviews kept finding, so leaving the field out must not be a quiet
+	// way to opt out of the question. It no longer costs the spawn (see
+	// claudetrust.go for the owner ruling behind that). Only a Pretrust-less deps
+	// literal (the Phase-2 seam-only shape, and tests that never write a flag)
+	// skips both.
 	VerifyPretrust func(workdir, envRendered string) error
 	// PurgeTrash (T-684c, nil-skipped) reaps <workdir>/trash at spawn time — the
 	// scratch the PREVIOUS generation of this agent mv'd there instead of rm-ing it
