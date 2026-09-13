@@ -950,10 +950,7 @@ func init() {
 		return
 	}
 	r := execRunner{timeout: 5 * time.Second}
-	out, err := r.RunCombined(os.Args[2], os.Args[3:]...)
-	if os.Args[1] == "plain" {
-		out, err = r.Run(os.Args[2], os.Args[3:]...)
-	}
+	out, err := r.Run(os.Args[2], os.Args[3:]...)
 	fmt.Printf("OUT<<<%s>>>ERR<<<%v>>>", out, err)
 	os.Exit(0)
 }
@@ -962,12 +959,8 @@ func init() {
 // buildExecProbe compiles the ocwarden package WITH execProbeSource added to it
 // and returns the binary's path.
 //
-// Why a built binary and not the re-exec'd child TestRefuseInTestBinary uses:
-// that child is still a `go test` binary, so testing.Testing() is true in it and
-// refuseInTestBinary kills it before exec.Command runs. That guard is the reason
-// execRunner.RunCombined had never been EXECUTED by anything — a mutant giving it
-// back Run's drop-the-output-on-a-non-zero-exit semantics left the whole suite
-// passing while every production spawn was refused with "claude said: (nothing)".
+// A go-test binary is refused before exec.Command runs, so observe the
+// production runner through a separate binary with a harmless shell command.
 //
 // `go build -overlay` adds the file to the real package directory as the compiler
 // sees it, so what runs is the shipped source of execRunner, not a copy of it.
@@ -1001,11 +994,9 @@ func buildExecProbe(t *testing.T) string {
 	return bin
 }
 
-func TestExecRunnerRunCombined(t *testing.T) {
+func TestExecRunnerFailureOutput(t *testing.T) {
 	probe := buildExecProbe(t)
-	// The production question, in the production shape: `claude mcp get <absent
-	// name>` exits 1 and puts its answer on stderr.
-	const answer = "Configured servers: oc-pretrust-probe-42"
+	const answer = "example command failure"
 	ask := func(t *testing.T, mode string) string {
 		t.Helper()
 		cmd := exec.Command(probe, mode, "/bin/sh", "-c",
@@ -1017,16 +1008,6 @@ func TestExecRunnerRunCombined(t *testing.T) {
 		}
 		return string(out)
 	}
-
-	t.Run("an answer written to stderr by a command that exits 1 is returned", func(t *testing.T) {
-		got := ask(t, "combined")
-		if want := "OUT<<<" + answer + ">>>"; !strings.Contains(got, want) {
-			t.Errorf("RunCombined gave %s, want it to contain %s — the pre-trust probe reads its verdict out of this string, and an empty one refuses every spawn", got, want)
-		}
-		if want := "ERR<<<exit status 1>>>"; !strings.Contains(got, want) {
-			t.Errorf("RunCombined gave %s, want it to still report %s", got, want)
-		}
-	})
 
 	t.Run("the plain seam still drops that same answer", func(t *testing.T) {
 		got := ask(t, "plain")

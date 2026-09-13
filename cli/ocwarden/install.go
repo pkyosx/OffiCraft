@@ -197,7 +197,7 @@ func realSysOps() sysOps {
 // `sysOps{` / `execRunner{` composite literals by structure, both run from a TestMain
 // before m.Run(). They are recorded here because what remains is the layer they were
 // in front of, not because they are a defence anyone still has:
-//   - main.go's execRunner.Run and execRunner.RunCombined open with
+//   - main.go's execRunner.Run opens with
 //     refuseInTestBinary. Whatever assembled the struct, the subprocess still has to
 //     start there, so this fires BEFORE exec.Command — verified at the time by
 //     deleting the scan layers and re-running the same mutant: it died at
