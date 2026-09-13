@@ -212,7 +212,7 @@ func (s *apiServer) relocateWorkerByID(w http.ResponseWriter, r *http.Request, i
 	}
 	if worker == nil || worker.Status == WorkerStatusReleased {
 		s.outsourceMu.Unlock()
-		writeResolveError(w, errNotFound, "outsource worker", id)
+		writeResolveError(w, errNotFound, "member", id)
 		return
 	}
 	worker.DesiredMachineID = machineID
@@ -283,7 +283,7 @@ func (s *apiServer) HandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost
 	}
 	if worker == nil || worker.Status == WorkerStatusReleased {
 		s.outsourceMu.Unlock()
-		writeResolveError(w, errNotFound, "outsource worker", id)
+		writeResolveError(w, errNotFound, "member", id)
 		return
 	}
 	// 🔴 THIS USED TO BE A FLAT 409 「refocus requires a live worker — this one is
@@ -433,7 +433,7 @@ func (s *apiServer) HandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcc
 	}
 	if worker == nil || worker.Status == WorkerStatusReleased {
 		s.outsourceMu.Unlock()
-		writeResolveError(w, errNotFound, "outsource worker", id)
+		writeResolveError(w, errNotFound, "member", id)
 		return
 	}
 	if worker.Status != WorkerStatusActive || !s.hub.IsOnline(worker.ID) {
@@ -550,7 +550,7 @@ func (s *apiServer) HandleStopOutsourceWorkerApiOutsourceWorkersIdStopPost(w htt
 	}
 	if worker == nil || worker.Status == WorkerStatusReleased {
 		s.outsourceMu.Unlock()
-		writeResolveError(w, errNotFound, "outsource worker", id)
+		writeResolveError(w, errNotFound, "member", id)
 		return
 	}
 	// 🔴 THE ROW WRITES ARE NO LONGER WRITTEN OUT HERE (T-65 包③). All five —
@@ -621,7 +621,7 @@ func (s *apiServer) HandleForceStopOutsourceWorkerApiOutsourceWorkersIdForceStop
 	}
 	if worker == nil || worker.Status == WorkerStatusReleased {
 		s.outsourceMu.Unlock()
-		writeResolveError(w, errNotFound, "outsource worker", id)
+		writeResolveError(w, errNotFound, "member", id)
 		return
 	}
 	worker.DesiredState = DesiredStateOffline
@@ -686,7 +686,7 @@ func (s *apiServer) handleRestartOutsourceWorker(w http.ResponseWriter, r *http.
 	}
 	if worker == nil || worker.Status == WorkerStatusReleased {
 		s.outsourceMu.Unlock()
-		writeResolveError(w, errNotFound, "outsource worker", id)
+		writeResolveError(w, errNotFound, "member", id)
 		return
 	}
 	if body.MachineId != nil && *body.MachineId != "" {
@@ -905,7 +905,7 @@ func (s *apiServer) handleSetOutsourceWorkerModel(w http.ResponseWriter, r *http
 	}
 	if worker == nil || worker.Status == WorkerStatusReleased {
 		s.outsourceMu.Unlock()
-		writeResolveError(w, errNotFound, "outsource worker", id)
+		writeResolveError(w, errNotFound, "member", id)
 		return
 	}
 	// The three LAUNCH INTENTS, compared old-against-new — the staff face's rule
