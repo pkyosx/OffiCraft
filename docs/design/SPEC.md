@@ -567,7 +567,7 @@ DB 三個 key（`suggested_replies.reply_card` / `suggested_replies.task_message
   「裁掉一位正職」今天的做法是在 設定 › 角色誌 刪掉那個角色。
 - **雇用（Hire）對話框** —— 沒有這個 UI。「招攬新成員」是路由到角色誌新增角色（正職）
   或打開外包上限 popover（外包）；`hire_member` 只有 MCP 面。
-  ⚠️ 那條 MCP 面**不能生出沒有角色的正職**：`hire_member` 缺 `role_key` 的 staff 招募回 422。
+  ⚠️ 那條 MCP 面**不能生出沒有角色的正職**：`hire_member` 缺 `role_key` 的 staff 招募回 422；帶不存在或已移除的 `role_key` 也回 422，且不寫入成員。
   角色誌那條路一次產生角色與綁著它的成員，所以正職恆有角色；warden 依設計沒有角色，不受此限。
 - 「任務執行者(PM) 分組」
 
