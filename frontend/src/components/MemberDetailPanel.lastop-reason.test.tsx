@@ -9,11 +9,15 @@
 //   3. A SUCCEEDED op that carried a reason RENDERS it too, in the amber
 //      note style rather than the danger style (T-201: the pre-trust verdict
 //      no longer refuses the spawn, it reports through last_op_reason, and
-//      this panel is the only renderer of that field — gating the line on
-//      failure would leave the value visible to the API and to nobody).
+//      this panel is the only renderer a SUCCEEDED op's reason reaches —
+//      gating the line on failure would leave the value visible to the API
+//      and to nobody. WorkerDetailPanel renders the same field too, but only
+//      when the worker reads offline, which is the never-dispatched-start
+//      case this receipt block cannot cover).
 //   4. A SUCCEEDED op with no reason still renders status-only.
 
 import { describe, it, expect } from "vitest";
+import { readFile } from "node:fs/promises";
 import { render } from "@testing-library/react";
 import { vi } from "vitest";
 import { I18nProvider } from "../i18n";
@@ -130,6 +134,47 @@ describe("MemberDetailPanel 最近操作 failure reason", () => {
     expect(getByTestId("mp-lastop-reason").className).not.toContain(
       "mp-lastop__reason--note",
     );
+  });
+
+  // ⛔ THE CLASS NAME IS NOT THE COLOUR. jsdom applies no stylesheet, so every
+  // assertion above can only see that the element carries
+  // "mp-lastop__reason--note" — it is blind to whether that class resolves to
+  // anything at all. Rename or delete the rule in member-detail.css and the
+  // note line silently falls back to the BASE rule's --color-danger, i.e. it
+  // becomes character-for-character the same red as a failed op, and the whole
+  // point of T-201 (a succeeded-with-a-warning op must not read as a failure)
+  // is gone with the suite still green. Same move as
+  // MonitorPage.cutover-effect.test.tsx: read the stylesheet itself.
+  // Read from the repo path, not through `import.meta.url` — vitest does not
+  // hand test modules a file: URL.
+  it("resolves the note modifier to the warn token, not the danger one", async () => {
+    const css = await readFile("src/components/member-detail.css", "utf8");
+    const ruleFor = (cls: string) => {
+      const m = css.match(new RegExp(`\\.${cls}\\s*\\{([^}]*)\\}`));
+      return m === null ? null : m[1];
+    };
+
+    const note = ruleFor("mp-lastop__reason--note");
+    if (note === null) {
+      throw new Error(
+        "no .mp-lastop__reason--note rule in member-detail.css — the note line " +
+          "renders in the failure colour, and no DOM assertion can see it",
+      );
+    }
+    expect(note).toContain("var(--color-warn-fg)");
+    expect(
+      note,
+      "the note modifier must OVERRIDE the base danger colour, not repeat it",
+    ).not.toContain("var(--color-danger)");
+
+    // The other direction: the base rule is what a FAILURE gets, and it must
+    // stay the danger colour — otherwise the two states converge from the
+    // other side.
+    const base = ruleFor("mp-lastop__reason");
+    if (base === null) {
+      throw new Error("no .mp-lastop__reason rule in member-detail.css");
+    }
+    expect(base).toContain("var(--color-danger)");
   });
 
   it("offers the collapsible log on a SUCCEEDED op that carried one", () => {
