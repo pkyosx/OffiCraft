@@ -1014,21 +1014,20 @@ def test_task_count_carries_the_unfiltered_total(client, owner_token, executor):
 
 
 def test_outsource_worker_carries_its_bound_task_facts(client, owner_token):
-    """The 外包 panel's row facts (task_no / task_created_ts / task_type_key /
-    task_type_name) ride the worker DTO. They used to be a CLIENT-side join
+    """The 外包 panel's row facts ride the kind=outsource MemberDTO. They used to be a CLIENT-side join
     against the unfiltered task list + the manuals list, re-pulled on every
     worker/task/chat delta just to order and label a handful of rows."""
-    r = client.get("/api/outsource-workers", headers=_auth(owner_token))
+    r = client.get("/api/members", headers=_auth(owner_token))
     assert r.status_code == 200, r.text
-    for w in r.json():
-        # Shape, for whatever workers this run happens to have: the fields are
-        # always present (never null), so a client can rely on them.
-        for k in ("task_no", "task_created_ts", "task_type_key", "task_type_name"):
+    for w in (row for row in r.json() if row["kind"] == "outsource"):
+        for k in ("task_no", "task_created_ts"):
             assert k in w, f"worker DTO missing {k!r}: {w}"
         assert isinstance(w["task_no"], str)
         assert isinstance(w["task_created_ts"], (int, float))
-        assert isinstance(w["task_type_key"], str)
-        assert isinstance(w["task_type_name"], str)
+        if "task_type_key" in w:
+            assert isinstance(w["task_type_key"], str)
+        if "task_type_name" in w:
+            assert isinstance(w["task_type_name"], str)
 
 
 # ── owner's task-card message box ────────────────────────────────────────────

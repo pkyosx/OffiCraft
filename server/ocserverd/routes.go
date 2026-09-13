@@ -421,7 +421,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Method:  "GET",
 			Path:    "/api/members/{member_id}",
 			Handler: w.HandleGetMemberApiMembersMemberIdGet,
-			Summary: "Read one member row — STAFF OR OUTSOURCE, matching what GET /api/members already lists (removed → 404). It answered 404 for an ow- id until 2026-08-28, which cost the cockpit one guaranteed failed request plus a whole-roster refetch on every contractor chat line; the write verbs on this same {member_id} keep refusing outsource and say so themselves.",
+			Summary: "Read one member row — STAFF OR OUTSOURCE. Released outsource rows remain readable so durable chat, task and lore attribution keeps the worker codename; dismissed staff and removed wardens answer 404. The write verbs on this same {member_id} take an active ow- id too -- update, activate, deactivate, force-stop, accelerated-stop and refocus each dispatch to the worker body; release remains task-bound and dismiss refuses an ow- id with 404.",
 			MCPTool: "get_member",
 		}),
 		// ⚠️ update_member sits at the machine FLOOR **deliberately** — owner
@@ -443,7 +443,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Method:  "PATCH",
 			Path:    "/api/members/{member_id}",
 			Handler: w.HandleUpdateMemberApiMembersMemberIdPatch,
-			Summary: "Partially update a member's name / runtime / model / effort. Blank name, invalid runtime or invalid effort → 422, and changing a launch-intent field arms a graceful handover. Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.",
+			Summary: "Partially update a member's name / runtime / model / effort. Blank name, invalid runtime or invalid effort → 422, and changing a launch-intent field arms a graceful handover. Also accepts an outsource-worker id: the same edit changes the worker's runtime / model / effort, but a worker's codename is task-bound, so naming one is a 422. Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.",
 			MCPTool: "update_member",
 		}),
 		Gated(principalOwner, routeDef{
@@ -469,7 +469,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Method:  "POST",
 			Path:    "/api/members/{member_id}/activate",
 			Handler: w.HandleActivateMemberApiMembersMemberIdActivatePost,
-			Summary: "Activate: write desired_state=online intent (does NOT flip online). A live member clears stopping_since/waking_since and consumes restart_after_stop while preserving its active refocus/stopped epoch; it updates the owner roster only without killing/reconciling or sending a lifecycle notice. An offline generation clears its old wind-down, banks live cost, and uses stop-before-start. Answers with a bounded receipt (``id``, ``activation_pending``, ``last_op_reason``), not the roster row — call ``get_member`` when you need the rest.",
+			Summary: "Activate: write desired_state=online intent (does NOT flip online). A live member clears stopping_since/waking_since and consumes restart_after_stop while preserving its active refocus/stopped epoch; it updates the owner roster only without killing/reconciling or sending a lifecycle notice. An offline generation clears its old wind-down, banks live cost, and uses stop-before-start. Also accepts an outsource-worker id: the same wake verb restarts the worker (one that is still running is LEFT ALONE, neither restarted nor refused). Answers with a bounded receipt (``id``, ``activation_pending``, ``last_op_reason``), not the roster row — call ``get_member`` when you need the rest.",
 			MCPTool: "activate_member",
 		}),
 		Gated(principalAdminAgent, routeDef{
@@ -483,14 +483,14 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Method:  "POST",
 			Path:    "/api/members/{member_id}/deactivate",
 			Handler: w.HandleDeactivateMemberApiMembersMemberIdDeactivatePost,
-			Summary: "Deactivate: desired_state=offline + stamp stopping_since (retains row); with no live session, immediately collect/bank/dispatch the stop. Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.",
+			Summary: "Deactivate: desired_state=offline + stamp stopping_since (retains row); with no live session, immediately collect/bank/dispatch the stop. Also accepts an outsource-worker id: the same verb is the worker's GRACEFUL close-out -- it asks the worker to work its stop document and waits for the worker's own report_stopped; only an OFFLINE worker takes the immediate kill. Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.",
 			MCPTool: "deactivate_member",
 		}),
 		Gated(principalAdminAgent, routeDef{
 			Method:  "POST",
 			Path:    "/api/members/{member_id}/force-stop",
 			Handler: w.HandleForceStopMemberApiMembersMemberIdForceStopPost,
-			Summary: "Force-stop: robust STOP now. On the offboard arm the server starts no clock of its own -- collection is the agent's report_stopped, the deadline the owner opens with 加速停止, or this. Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.",
+			Summary: "Force-stop: robust STOP now. On the offboard arm the server starts no clock of its own -- collection is the agent's report_stopped, the deadline the owner opens with 加速停止, or this. Also accepts an outsource-worker id: the same verb kills the worker's session NOW and holds it down, saying nothing to it. Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.",
 			MCPTool: "force_stop_member",
 		}),
 		Gated(principalOwner, routeDef{
@@ -560,14 +560,14 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Method:  "POST",
 			Path:    "/api/members/{member_id}/refocus",
 			Handler: w.HandleRefocusMemberApiMembersMemberIdRefocusPost,
-			Summary: "Refocus a member's context (online-only, else 409). Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.",
+			Summary: "Refocus a member's context (online-only, else 409). Also accepts an outsource-worker id: the same handover verb hands the worker over. Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.",
 			MCPTool: "refocus_member",
 		}),
 		Gated(principalAdminAgent, routeDef{
 			Method:  "DELETE",
 			Path:    "/api/members/{member_id}",
 			Handler: w.HandleDismissMemberApiMembersMemberIdDelete,
-			Summary: "Dismiss a member (soft delete). Pure seam, no UI (§9.1). Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.",
+			Summary: "Dismiss a member (soft delete). Pure seam, no UI (§9.1). Staff only -- an outsource-worker id is a 404: a worker leaves by being RELEASED with its task, not by being dismissed. Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.",
 			MCPTool: "dismiss_member",
 		}),
 		// ── Webhooks — a member's 回呼端點 (M4) ─────────────────────────────────
@@ -1658,23 +1658,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 		// T-4595: GET /api/self/task (get_my_task) is RETIRED — see the note in
 		// api_tasks.go. A worker reads its task through get_task like everyone
 		// else, and reports its wake through report_waking like everyone else.
-		// ── Outsource panel (M3) ─────────────────────────────────────────────
-		Gated(principalMachine, routeDef{
-			Method:  "GET",
-			Path:    "/api/outsource-workers",
-			Handler: w.HandleListOutsourceWorkersApiOutsourceWorkersGet,
-			Summary: "List live outsource workers (codename, model, effort, task).",
-			MCPTool: "list_outsource_workers",
-		}),
-		Gated(principalMachine, routeDef{
-			// T-f190: single-worker read for the detail panel's post-relocate
-			// refresh. A cockpit read face, not an agent tool → MCPExclude.
-			Method:     "GET",
-			Path:       "/api/outsource-workers/{id}",
-			Handler:    w.HandleGetOutsourceWorkerApiOutsourceWorkersIdGet,
-			Summary:    "Read one outsource worker by id (detail-panel refresh).",
-			MCPExclude: true,
-		}),
+		// ── Outsource-only boot preview ──────────────────────────────────────
 		Gated(principalAdminAgent, routeDef{
 			// T-ba6b: the detail panel's initial-prompt preview — a live
 			// re-assembly of the worker boot context (the member /api/bootstrap
@@ -1687,56 +1671,18 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Summary: "Read an outsource worker's boot-context preview (owner/admin agent).",
 			MCPTool: "get_outsource_worker_boot_context",
 		}),
-		Gated(principalAdminAgent, routeDef{
-			// T-f190 改機器; P7c (gate rc-2786636f30e5) drops the floor to
-			// admin_agent — 外包對齊正職, the exact member relocate floor, so an
-			// admin 助理 can move a worker too. STAYS MCPExclude on purpose: the
-			// MCP channel is the EXISTING relocate_member tool (its handler falls
-			// through to the worker table for an ow-… id), so no worker-specific
-			// tool grows here (P7d 合表後此 route 自然消失) and the catalog hash
-			// (non-exclude METHOD+path set) is unchanged.
-			Method:     "POST",
-			Path:       "/api/outsource-workers/{id}/relocate",
-			Handler:    w.HandleRelocateOutsourceWorkerApiOutsourceWorkersIdRelocatePost,
-			Summary:    "Relocate an outsource worker to a machine (admin-gated). Answers with a bounded receipt (``id``, ``relocation_pending``, ``relocation_deferred``), not the roster row — call ``list_outsource_workers`` when you need the rest.",
-			MCPExclude: true,
-		}),
-		Gated(principalAdminAgent, routeDef{
-			// T-32e1/T-f190 worker lifecycle ops — owner mental model "外包只是
-			// 系統會幫我產生跟刪除的正職員工", so each reuses a member mechanism.
-			// T-6020 (owner 2026-07-26) put FOUR of them at the SAME admin_agent
-			// floor relocate already had in P7c — 外包對齊正職, one floor for the
-			// worker lifecycle. Plain agents remain 403 on those.
-			//
-			// ⚠️ "all four" is what this note used to say, and since T-ed79 it is
-			// FALSE: /model left that floor (owner 2026-08-21, rc-376a41719e62 —
-			// the full ruling is on that row below). THREE of the T-6020 four are
-			// still here: refocus, stop, restart. /relocate is the fifth worker
-			// lifecycle row and it sits at admin_agent too, but it got there in
-			// P7c, not from this ruling.
-			Method:  "POST",
-			Path:    "/api/outsource-workers/{id}/refocus",
-			Handler: w.HandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost,
-			Summary: "Refocus (換手) an outsource worker (owner/admin agent). Needs a live session, 409 otherwise — EXCEPT on a worker whose stop is in flight or has landed, where it answers 200 and QUEUES the restart (restart_after_stop); the stop itself is honoured as-is. A worker nobody ever asked to stop is still a 409. Answers with a bounded receipt (``id``), not the roster row — call ``list_outsource_workers`` when you need the rest.",
-			MCPTool: "refocus_outsource_worker",
-		}),
-		Gated(principalAdminAgent, routeDef{
-			Method:  "POST",
-			Path:    "/api/outsource-workers/{id}/stop",
-			Handler: w.HandleStopOutsourceWorkerApiOutsourceWorkersIdStopPost,
-			Summary: "Stop (停止) an outsource worker: ask it to work its 〈停止〉 document and wait for its own report_stopped -- no kill, no deadline (owner/admin agent). Answers with a bounded receipt (``id``), not the roster row — call ``list_outsource_workers`` when you need the rest.",
-			MCPTool: "stop_outsource_worker",
-		}),
-		Gated(principalAdminAgent, routeDef{
-			Method:  "POST",
-			Path:    "/api/outsource-workers/{id}/restart",
-			Handler: w.HandleRestartOutsourceWorkerApiOutsourceWorkersIdRestartPost,
-			Summary: "Restart (重啟) an outsource worker (owner/admin agent; a worker that is still running is LEFT ALONE, not restarted and not refused). Answers with a bounded receipt (``id``, ``activation_pending``, ``last_op_reason``), not the worker — call ``list_outsource_workers`` when you need the rest.",
-			MCPTool: "restart_outsource_worker",
-		}),
-		// ⚠️ set_outsource_worker_model sits at the machine FLOOR since T-ed79,
-		// and it is the ONE T-6020 row that left the admin_agent floor. owner
-		// 2026-08-21 (rc-376a41719e62) was asked whether changing a worker's
+		// ⚠️ THE WORKER MODEL EDIT NO LONGER HAS A ROW OF ITS OWN, and the ruling
+		// below is why that is the right outcome rather than a lost floor. Until
+		// T-197 it was `POST /api/outsource-workers/{id}/model`
+		// (set_outsource_worker_model) at the machine FLOOR since T-ed79 — the ONE
+		// T-6020 row that left the admin_agent floor. T-197 folded it into
+		// `PATCH /api/members/{member_id}` (update_member), which the ruling itself
+		// names as the floor this act must match, so the two are now the SAME row
+		// and cannot drift apart. The other worker verbs folded the same way
+		// (/deactivate, /force-stop, /accelerated-stop, /refocus, /relocate,
+		// /activate), each onto the staff row it was already aligned with.
+		//
+		// owner 2026-08-21 (rc-376a41719e62) was asked whether changing a worker's
 		// model is governance, and ruled, VERBATIM:
 		//
 		//	「如果原本正職可以改 model 外包就應該可以改，如果只有 mira 可以改，那就
@@ -1750,20 +1696,13 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 		// admin_agent rank is reserved for acts the owner delegates, which this
 		// is not.
 		//
-		// 🔴 ONLY THIS ROW MOVED. refocus / relocate / stop / restart were already
+		// 🔴 ONLY THAT ROW MOVED. refocus / relocate / stop / restart were already
 		// at the same floor as their staff twins before this ruling, and the
 		// ruling did not touch them — do not "finish the job" by lowering them.
 		//
 		// This note exists so the NEXT permission audit does not re-open the
 		// question, the way this one had to re-open T-5336's. Raising this row
 		// needs a fresh owner ruling, not a tidy-up commit.
-		Gated(principalMachine, routeDef{
-			Method:  "POST",
-			Path:    "/api/outsource-workers/{id}/model",
-			Handler: w.HandleSetOutsourceWorkerModelApiOutsourceWorkersIdModelPost,
-			Summary: "Change (換 model) an outsource worker's model/effort (same floor as the staff model edit). On a worker whose stop is IN FLIGHT OR HAS LANDED it ALSO queues the restart (restart_after_stop), so the worker comes back up ON THE NEW MODEL once the stop converges — an edit is no longer only a save. A worker nobody ever asked to stop is still only persisted. Answers with a bounded receipt (``id``), not the roster row — call ``list_outsource_workers`` when you need the rest.",
-			MCPTool: "set_outsource_worker_model",
-		}),
 		// ── Task manuals (M3) — agents create manuals + edit the CONTENT fields
 		// (purpose / fields / SOP); the assignee face and delete are
 		// GOVERNANCE, floor admin_agent since T-6020 (owner 2026-07-26; the
@@ -1982,22 +1921,8 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Method:  "POST",
 			Path:    "/api/members/{member_id}/accelerated-stop",
 			Handler: w.HandleAcceleratedStopMemberApiMembersMemberIdAcceleratedStopPost,
-			Summary: "加速停止: put an ALREADY-OPEN wind-down on the stop.accelerated_grace_secs clock and tell the member. 409 if nothing is winding down -- press 停止 first. Middle rung of 停止 -> 加速停止 -> 強制停止. Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.",
+			Summary: "加速停止: put an ALREADY-OPEN wind-down on the stop.accelerated_grace_secs clock and tell the member. 409 if nothing is winding down -- press 停止 first. Middle rung of 停止 -> 加速停止 -> 強制停止. Also accepts an outsource-worker id: the same verb puts the worker's ALREADY-OPEN wind-down (a stop or a handover) on that clock and tells it; 409 when none is open. Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.",
 			MCPTool: "accelerated_stop_member",
-		}),
-		Gated(principalAdminAgent, routeDef{
-			Method:  "POST",
-			Path:    "/api/outsource-workers/{id}/accelerated-stop",
-			Handler: w.HandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcceleratedStopPost,
-			Summary: "加速停止 an outsource worker: put its ALREADY-OPEN wind-down (a 停止 or a 換手) on the stop.accelerated_grace_secs clock and tell it. 409 if none is open. Answers with a bounded receipt (``id``), not the roster row — call ``list_outsource_workers`` when you need the rest.",
-			MCPTool: "accelerated_stop_outsource_worker",
-		}),
-		Gated(principalAdminAgent, routeDef{
-			Method:  "POST",
-			Path:    "/api/outsource-workers/{id}/force-stop",
-			Handler: w.HandleForceStopOutsourceWorkerApiOutsourceWorkersIdForceStopPost,
-			Summary: "強制停止 an outsource worker: kill the session NOW and hold it down; says nothing to it. Third rung of 停止 -> 加速停止 -> 強制停止. Answers with a bounded receipt (``id``), not the roster row — call ``list_outsource_workers`` when you need the rest.",
-			MCPTool: "force_stop_outsource_worker",
 		}),
 		// ── 傳承 (T-33) ─────────────────────────────────────────────────────
 		// These rows are appended to preserve the shared route/MCP order. The

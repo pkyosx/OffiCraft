@@ -25,10 +25,8 @@ import (
 	"testing"
 )
 
-// TestResolveMember_ReadsOutsource pins the widened READ door, and pins the
-// write door NEXT TO IT so the pair can never drift into "everything opened".
-// Mutant: putting the kind='outsource' arm back into resolveMember → the read
-// half goes red; pointing PATCH at resolveMember → the write half goes red.
+// TestResolveMember_ReadsOutsource pins the shared member door. Reads resolve
+// the worker row, while PATCH applies the worker-specific field rules.
 func TestResolveMember_ReadsOutsource(t *testing.T) {
 	api := newTasksTestServer(t)
 	api.noOutsource = true
@@ -55,13 +53,14 @@ func TestResolveMember_ReadsOutsource(t *testing.T) {
 		t.Fatalf("read DTO = %+v, want the worker's own row", dto)
 	}
 
-	// ...and the write door does NOT.
+	// The shared write door resolves the same row, then rejects a field whose
+	// ownership remains task-bound for workers.
 	rec = httptest.NewRecorder()
 	api.HandleUpdateMemberApiMembersMemberIdPatch(rec,
 		taskReq(t, "PATCH", "/api/members/"+workerID,
 			map[string]any{"name": "hijack"}, wireOwnerID, "owner"), workerID)
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("PATCH /api/members/{ow-}: want 404, got %d %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("PATCH /api/members/{ow-}: want 422, got %d %s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -90,16 +89,11 @@ func TestResolveMember_UnsetScopeRefuses(t *testing.T) {
 	}
 }
 
-// TestStaffOnlyVerbsStillRefuseOutsource is the other half of the ticket, and
-// the half nobody would notice breaking: each of these verbs passes staffOnly,
-// and a future edit that "tidies" one to anyMember opens it silently — an agent
-// that can be force-stopped through two different funnels, or handed a staff
-// boot document, does not report it.
+// TestStaffOnlyVerbsStillRefuseOutsource pins the two member operations that
+// remain staff-only after lifecycle management moved onto the shared routes.
 //
 // 🔴 Deliberately a TABLE over the whole set rather than one test per verb: a
 // new member verb that copies the wrong resolver is caught by adding one row.
-// The set is every staffOnly call site — activate, deactivate, dismiss,
-// bootstrap, force-stop, accelerated-stop, refocus.
 //
 // 🔴 THE FOUR WEBHOOK ROWS LEFT THIS TABLE IN T-140, and their absence is a
 // RULING, not an omission: webhook create / update / revoke and the public /in
@@ -122,14 +116,6 @@ func TestStaffOnlyVerbsStillRefuseOutsource(t *testing.T) {
 		// is not visible in the status line.
 		also func(*testing.T)
 	}{
-		{name: "activate", wantCode: http.StatusNotFound, call: func(rec *httptest.ResponseRecorder) {
-			api.HandleActivateMemberApiMembersMemberIdActivatePost(rec,
-				taskReq(t, "POST", "/api/members/"+workerID+"/activate", nil, wireOwnerID, "owner"), workerID)
-		}},
-		{name: "deactivate", wantCode: http.StatusNotFound, call: func(rec *httptest.ResponseRecorder) {
-			api.HandleDeactivateMemberApiMembersMemberIdDeactivatePost(rec,
-				taskReq(t, "POST", "/api/members/"+workerID+"/deactivate", nil, wireOwnerID, "owner"), workerID)
-		}},
 		{name: "dismiss", wantCode: http.StatusNotFound, call: func(rec *httptest.ResponseRecorder) {
 			api.HandleDismissMemberApiMembersMemberIdDelete(rec,
 				taskReq(t, "DELETE", "/api/members/"+workerID, nil, wireOwnerID, "owner"), workerID)
@@ -142,18 +128,6 @@ func TestStaffOnlyVerbsStillRefuseOutsource(t *testing.T) {
 				taskReq(t, "POST", "/api/bootstrap",
 					map[string]any{"member_id": workerID, "role": seedRoleAssistant},
 					wireOwnerID, "owner"))
-		}},
-		{name: "force-stop", wantCode: http.StatusNotFound, call: func(rec *httptest.ResponseRecorder) {
-			api.HandleForceStopMemberApiMembersMemberIdForceStopPost(rec,
-				taskReq(t, "POST", "/api/members/"+workerID+"/force-stop", nil, wireOwnerID, "owner"), workerID)
-		}},
-		{name: "accelerated-stop", wantCode: http.StatusNotFound, call: func(rec *httptest.ResponseRecorder) {
-			api.HandleAcceleratedStopMemberApiMembersMemberIdAcceleratedStopPost(rec,
-				taskReq(t, "POST", "/api/members/"+workerID+"/accelerated-stop", nil, wireOwnerID, "owner"), workerID)
-		}},
-		{name: "refocus", wantCode: http.StatusNotFound, call: func(rec *httptest.ResponseRecorder) {
-			api.HandleRefocusMemberApiMembersMemberIdRefocusPost(rec,
-				taskReq(t, "POST", "/api/members/"+workerID+"/refocus", nil, wireOwnerID, "owner"), workerID)
 		}},
 	}
 	for _, c := range cases {

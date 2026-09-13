@@ -241,11 +241,7 @@ _ACTIVATE_KEYS = {"id", "activation_pending", "last_op_reason"}
 _RELOCATE_KEYS = {"id", "relocation_pending", "relocation_deferred"}
 
 # ── the READ faces, pinned the same way and for the mirror-image reason ──────
-# The three flags above were also DECLARED on MemberDTO and OutsourceWorkerDTO,
-# where no handler ever set them once the receipts existed — six fields that
-# were permanently absent while their own text said "set ONLY on the activate /
-# relocate response", a response that had stopped answering those DTOs. They
-# were deleted; these two sets are what keeps them deleted.
+# The three flags above must stay off the unified MemberDTO read contract.
 #
 # 🔴 EQUALITY, NOT CONTAINMENT, and the choice is the whole value of the
 # assertion: a check that only asserts the keys it wants stays green when a
@@ -253,8 +249,8 @@ _RELOCATE_KEYS = {"id", "relocation_pending", "relocation_deferred"}
 # whole reshape. Equality reddens on a re-added field AND on a silently dropped
 # one, and the failure prints which of the two by diffing the sets.
 #
-# The member set is exact (memberDTO carries no `omitempty`). The worker set is
-# a CEILING: `compaction_count` is the one omitempty on outsourceWorkerDTO.
+# The base member set is exact for staff. Worker-only fields are optional on the
+# same MemberDTO, so outsource rows sit between the base and declared sets.
 _MEMBER_READ_KEYS = {
     "actual_effort", "actual_machine", "actual_model", "actual_runtime",
     "avatar_url", "desired_machine_id", "desired_state", "effort",
@@ -264,16 +260,11 @@ _MEMBER_READ_KEYS = {
     "role_name", "roster_status", "runtime", "schema_version",
     "terminal_attach_command", "unread_count",
 }
-_WORKER_READ_KEYS = {
-    "account", "actual_effort", "actual_machine", "actual_model",
-    "actual_runtime", "avatar_url", "banked_cost", "codename",
-    "compaction_count", "context_pct", "cost", "created_ts", "creator_id",
-    "delegated_by", "desired_machine_id", "desired_state", "effort", "id",
-    "last_op", "last_op_at", "last_op_log", "last_op_ok", "last_op_reason",
-    "machine", "model", "presence", "refocus_deadline", "refocus_op",
-    "refocus_since", "runtime", "status", "task_created_ts", "task_id",
-    "task_no", "task_status", "task_title", "task_type_key", "task_type_name",
-    "terminal_attach_command", "unread_count",
+_MEMBER_DECLARED_KEYS = _MEMBER_READ_KEYS | {
+    "account", "banked_cost", "compaction_count", "context_pct", "cost",
+    "created_ts", "creator_id", "delegated_by", "status", "task_created_ts",
+    "task_id", "task_no", "task_status", "task_title", "task_type_key",
+    "task_type_name",
 }
 
 _DEAD_ON_READ = {"activation_pending", "relocation_pending", "relocation_deferred"}
@@ -306,31 +297,10 @@ def _check_member_list(_ctx: HCtx, r: httpx.Response) -> None:
     rows = r.json()
     assert isinstance(rows, list) and rows, "expected a non-empty list"
     for row in rows:
-        _member_row_keys(row)
-
-
-def _check_worker_list(_ctx: HCtx, r: httpx.Response) -> None:
-    """The worker list, key-set-pinned PER ROW when there are rows.
-
-    🔴 A worker row is mintable only by the Phase 2 assignment scheduler, so
-    this harness usually sees an empty list and this loop asserts nothing —
-    stated here rather than left for a reader to discover, because a silent
-    zero-iteration loop reads like coverage it is not. The claim that
-    OutsourceWorkerDTO carries no dead pending flags is therefore pinned in
-    Go instead (read_face_key_sets_t91_test.go,
-    TestOutsourceWorkerDTOReadFaceKeySet_T91), where a row can be built. The
-    loop stays because it costs nothing and becomes real the day this suite
-    can mint a worker.
-    """
-    rows = r.json()
-    assert isinstance(rows, list), rows
-    for row in rows:
-        assert set(row) <= _WORKER_READ_KEYS, (
-            "OutsourceWorkerDTO read-face key set changed: unexpected "
-            f"{sorted(set(row) - _WORKER_READ_KEYS)}. "
-            "The three pending flags live on the relocate / restart receipts, "
-            "never on a worker row (T-91)."
-        )
+        if row["kind"] == "outsource":
+            assert _MEMBER_READ_KEYS <= set(row) <= _MEMBER_DECLARED_KEYS
+        else:
+            _member_row_keys(row)
 
 
 def _receipt_then_member(keys: set[str], predicate=None, *, required: set[str] | None = None):
@@ -3356,10 +3326,6 @@ HAPPY: dict[str, Happy] = {
             and d[0]["filename"] == "report.md",
         ),
     ),
-    # ── outsource panel (M3) ─────────────────────────────────────────────────
-    "GET /api/outsource-workers": Happy(
-        check=_check_worker_list,
-    ),
     # ── task manuals (M3) ────────────────────────────────────────────────────
     "GET /api/task-manuals": Happy(),
     "POST /api/task-manuals": Happy(
@@ -3548,40 +3514,15 @@ SKIPPED_HAPPY: dict[str, str] = {
         "the old binary untouched) in the server unit tests "
         "(update_check_test.go / upgrade_test.go)."
     ),
-    "GET /api/outsource-workers/{id}": (
-        "the positive face needs a LIVE worker row, mintable only by the Phase 2 "
-        "assignment scheduler (no black-box mint path). The unknown-404 / "
-        "anonymous-401 faces are pinned in the "
-        "auth matrix; the projection fold (machine/account/context/cost/"
-        "delegated_by) in the server unit tests (api_outsource_test.go, "
-        "TestListOutsourceWorkers_RuntimeFold)."
-    ),
     "GET /api/outsource-workers/{id}/boot-context": (
         "T-ba6b initial-prompt preview: the positive face needs a LIVE worker "
         "row + its bound task, mintable only by the Phase 2 assignment scheduler "
-        "(no black-box mint path — same reasoning as GET /api/outsource-workers/"
-        "{id}). The below-owner-403 / owner-404 faces are pinned in the auth "
+        "(no black-box mint path — the common member GET is covered separately). "
+        "The below-owner-403 / owner-404 faces are pinned in the auth "
         "matrix; the re-assembled boot-context fold (codename/task/identity, "
         "never a token, unknown-worker 404) in the server unit tests "
         "(api_outsource_test.go, TestGetWorkerBootContext / "
         "TestGetWorkerBootContext_UnknownWorker404)."
-    ),
-    "POST /api/outsource-workers/{id}/relocate": (
-        "T-f190 owner 改機器: the positive face needs a LIVE worker row + an "
-        "online target warden, neither of which the black-box harness can mint. "
-        "The below-owner-403 / owner-404 / unknown-machine faces are pinned in "
-        "the auth matrix; the full relocate semantics (pin write + old-session "
-        "stop + pinned-host start re-spawn — the P5b member verbs, no lifecycle "
-        "change) in "
-        "the server unit tests (api_outsource_test.go, TestRelocateOutsourceWorker)."
-    ),
-    "POST /api/outsource-workers/{id}/refocus": (
-        "T-32e1 owner 換手: the positive face needs a LIVE, online worker row, "
-        "mintable only by the Phase 2 scheduler (no black-box mint path — same "
-        "reasoning as relocate). The below-owner-403 / owner-404 faces are pinned "
-        "in the auth matrix; the online-only 409, refocus_since stamp, and "
-        "kill+respawn in the server unit tests (worker_lifecycle_test.go, "
-        "TestRefocusWorker_*)."
     ),
     "POST /api/members/{member_id}/accelerated-stop": (
         "T-ed79 owner 加速停止 (the middle rung): every face of it needs a member "
@@ -3591,50 +3532,6 @@ SKIPPED_HAPPY: dict[str, str] = {
         "anchor, the refocus_op=accelerated_stop write and the deadline the tick "
         "then collects on are pinned in the server unit tests "
         "(accelerated_stop_endpoint_ted79_test.go)."
-    ),
-    "POST /api/outsource-workers/{id}/accelerated-stop": (
-        "T-ed79 加速停止 for a worker: the same two prerequisites as the member "
-        "twin above (a live worker session and an open wind-down), and a worker row "
-        "is mintable only by the Phase 2 scheduler. The below-owner-403 / "
-        "owner-404 faces are pinned in the auth matrix; both arms (下線 and 換手), "
-        "the 409s and the collect on the deadline in the server unit tests "
-        "(worker_graceful_stop_ted79_test.go "
-        "TestWorkerStop_AcceleratedStopEscalatesTheStopEpochAndIsHonoured)."
-    ),
-    "POST /api/outsource-workers/{id}/stop": (
-        "T-f190 owner 停止, a GRACEFUL close-out since T-ed79: the positive face "
-        "needs a LIVE worker row (no black-box mint path). The below-owner-403 / "
-        "owner-404 faces are pinned in the auth matrix; the desired_state=offline "
-        "set + refocus clear + 〈停止〉 notice + NO kill + collection on the "
-        "worker's own report_stopped in the server unit tests "
-        "(worker_graceful_stop_ted79_test.go, TestWorkerStop_* / "
-        "TestStoppedWorker_TickNeverRevives)."
-    ),
-    "POST /api/outsource-workers/{id}/force-stop": (
-        "T-ed79 owner 強制停止 (the third rung; the body /stop used to have): the "
-        "positive face needs a LIVE worker row (no black-box mint path). The "
-        "below-owner-403 / owner-404 faces are pinned in the auth matrix; the "
-        "forced anchors + immediate session kill + no-revive + the SILENCE of the "
-        "forced arm in the server unit tests (worker_lifecycle_test.go "
-        "TestForceStopWorker_KillsAndHoldsDown, "
-        "worker_forced_stop_parity_tc996_test.go)."
-    ),
-    "POST /api/outsource-workers/{id}/restart": (
-        "T-f190 owner 重啟: the positive face needs a STOPPED worker row (no "
-        "black-box mint path). The below-owner-403 / owner-404 faces are pinned in "
-        "the auth matrix; the still-alive-409 (T-7526: the guard is LIVENESS, not "
-        "'did anyone press stop' — a worker whose session died on its own IS "
-        "restartable) + desired_state=online set + re-dispatch in the server unit "
-        "tests (worker_lifecycle_test.go, TestRestartWorker_ClearsAndRedispatches / "
-        "TestRestartWorker_RevivesAWorkerWhoseSessionDiedOnItsOwn)."
-    ),
-    "POST /api/outsource-workers/{id}/model": (
-        "T-f190 owner 換 model: the positive face needs a LIVE worker row (no "
-        "black-box mint path). The all-identities-404 faces are pinned in "
-        "the auth matrix (T-ed79 dropped this row to the machine floor, so there "
-        "is no below-floor 403 face left); the model/effort persist + active-respawn / "
-        "assigned-persist-only in the server unit tests (worker_lifecycle_test.go, "
-        "TestSetWorkerModel_*)."
     ),
     "GET /api/docs/assets/{name}": (
         "probed with a missing asset name (404 across identities) in the auth "
@@ -3863,19 +3760,23 @@ def test_activate_requires_a_machine_that_resolves(hctx: HCtx) -> None:
 def test_outsource_worker_relocate_requires_a_machine_that_resolves(
     hctx: HCtx,
 ) -> None:
-    """The worker twin of the member rule. No black-box path mints a worker, so
-    the positive face is DEGRADED to "the machine resolve passed and the WORKER
-    is what 404s" — distinguishable because a refused machine names the machine
-    in the error message, while a resolved one names the worker."""
+    """The worker FACE of the member rule. T-197 folded the worker-namespaced
+    relocate route away, so an ``ow-`` id now travels the SAME
+    ``/api/members/{id}/relocate`` door as a staff id — and this pins that the
+    fold did not reorder the two resolves behind it: the machine is still
+    resolved BEFORE the row. No black-box path mints a worker, so the positive
+    face is DEGRADED to "the machine resolve passed and the ROW is what 404s" —
+    distinguishable because a refused machine names the machine in the error
+    message, while a resolved one names the missing member."""
     h = _auth(hctx.owner_token)
     for bad in ("auto", "warden-nope"):
         r = hctx.client.post(
-            "/api/outsource-workers/ow-nope/relocate",
+            "/api/members/ow-nope/relocate",
             json={"machine_id": bad}, headers=h)
         assert r.status_code == 404, f"{bad!r}: {r.status_code} {r.text[:200]}"
         assert f"machine '{bad}' not found" in r.text, r.text
     r = hctx.client.post(
-        "/api/outsource-workers/ow-nope/relocate",
+        "/api/members/ow-nope/relocate",
         json={"machine_id": hctx.machine_id}, headers=h)
     assert r.status_code == 404, r.text
     assert "machine" not in r.json()["error"]["message"], (

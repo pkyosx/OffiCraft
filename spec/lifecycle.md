@@ -859,7 +859,14 @@ decides that time is up.
 - There is no separate force-kill RPC either way: the warden self-escalates the kill.
 - 🔴 **An OUTSOURCE worker now has all three arms too (T-ed79, owner 2026-08-21
   「往正職靠：外包那顆改成優雅停止，強制殺移到第三顆按鈕」).**
-  `POST /api/outsource-workers/{id}/stop` is a GRACEFUL close-out: it sets
+  ⚠️ **T-197 folded the worker-namespaced routes away — the VERBS are unchanged, only the
+  paths are.** A worker is reached through the member route for the same verb
+  (`/deactivate` for 停止, `/force-stop`, `/accelerated-stop`, `/refocus`, `/relocate`,
+  `/activate` for 重啟, `PATCH /api/members/{member_id}` for 換 model); the member handler
+  dispatches on `kind == outsource` into the worker body. The paragraphs below describe
+  those bodies, so read every old `/api/outsource-workers/{id}/…` path in them as the
+  member route named next to it.
+  `POST /api/members/{member_id}/deactivate` on a worker is a GRACEFUL close-out: it sets
   `desired_state=offline`, stamps `stopping_since`, clears any in-flight refocus epoch,
   fans the 〈停止〉 notice at the worker's own session and **returns**. It does **not**
   kill and it does **not** stamp `forced_stop_at` — that anchor is what keeps the FORCED
@@ -867,9 +874,9 @@ decides that time is up.
   worker's own `report_stopped`, exactly as on the staff 下線 arm. An OFFLINE worker (no
   session to hear the notice) still takes the immediate kill.
   ⚠️ **The kill moved, it was not removed**: it is now
-  `POST /api/outsource-workers/{id}/force-stop`, which stamps `forced_stop_at` **and**
+  `POST /api/members/{member_id}/force-stop`, which stamps `forced_stop_at` **and**
   `stopping_since` (T-c996's pairing, unchanged) and says nothing. The middle rung
-  `POST /api/outsource-workers/{id}/accelerated-stop` covers BOTH worker arms — it used
+  `POST /api/members/{member_id}/accelerated-stop` covers BOTH worker arms — it used
   to 409 on a `desired_state=offline` worker, which was right while 停止 killed on the
   spot and would be a dead rung now.
   ⚠️ **The gap this bullet used to record is closed**: there IS now a verb that gives an
@@ -878,7 +885,7 @@ decides that time is up.
   outsource **重新聚焦** used to be collected on a flat 120 s clock — `autoHandoverWorker`
   (`worker_spawn.go`) timed a worker's in-flight handover out at
   `refocus_since + StoppingTimeoutSecs` and **never read `refocus_op`** — while the notice
-  that worker was sent said nothing about time. Both the in-flight arm and the worker DTO's
+  that worker was sent said nothing about time. Both the in-flight arm and the worker's member DTO's
   `refocus_deadline` now read the SAME `refocus_op`-aware judgement the staff side reads —
   each at its own layer, not both through both: the in-flight arm asks `recycleGraceFor`
   directly, while the DTO asks `winddownDeadlineOf`, the two-axis expression that wraps it
@@ -888,7 +895,7 @@ decides that time is up.
   owner-pressed `accelerated_stop`.) The owner ruled the two kinds identical and rejected the asymmetry argument that had
   been offered for keeping the clock (「如果正職只有一個任務 那跟外包的代價不一樣嗎」): a
   staff member holding a single task pays exactly what a worker holding one pays.
-  ⚠️ **That parity was half-kept until T-14 item 3**: the worker DTO read only the 換手 axis
+  ⚠️ **That parity was half-kept until T-14 item 3**: the worker's member DTO read only the 換手 axis
   (`refocusDeadlineOf` on `refocus_since`), so an owner-pressed 加速停止 on a **下線** worker
   — which re-anchors `stopping_since`, not `refocus_since` — quoted `refocus_deadline = 0`
   while `runOutsourceTick`'s stop arm was collecting it at `stopping_since + grace`. Neither

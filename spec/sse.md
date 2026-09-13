@@ -79,7 +79,8 @@ data: {"seq":42,"topic":"member","op":"patch","data":{"entity":"member","key":"o
   rule and is named as an exception**: `offboard_notice` (below) is the only payload key that
   a refetch CANNOT recover — no DTO carries it — so it is the one thing a client may act on
   straight off the delta:
-  - `member`: `{id, name, status, desired_state, owner_id}`, plus `offboard_notice` on
+  - `member`: `{id, name, status, desired_state, owner_id}` for staff lifecycle and
+    outsource assignment / claim / release, plus `offboard_notice` on
     the deltas that carry a collection order (T-c9c0). That field is the sentence telling
     the agent it is being collected, `\n`-joined with the WHOLE 〈停止〉 document as the
     server holds it — the server PUSHES the checklist; the agent never fetches it back.
@@ -113,12 +114,11 @@ data: {"seq":42,"topic":"member","op":"patch","data":{"entity":"member","key":"o
     answer)
   - `task`: `{id, status, priority}` (any durable task write — status/priority/plan/
     steps/deps/executor; one topic per task entity, the member granularity)
-  - `outsource_worker`: `{id, codename, status}` (assignment / claim / release)
   - `task_manual`: `payload` is `null` (manual create/edit/delete)
   - `global_context` / `role_def`: `payload` is `null`
   - `context` / `monitoring` signals: `payload` is `null`
 - `key` MUST be treated as an **opaque change hint**. Current key formats (clients MUST NOT
-  parse them): `{owner}::{id}` for member/chat/reply_card/task/outsource_worker/role_def,
+  parse them): `{owner}::{id}` for member/chat/reply_card/task/role_def,
   `{owner}::{type_key}` for task_manual,
   `{owner}::{reader}::{peer}` for chat_read,
   `{owner}::{role_key}` for insight, the bare owner id for global_context, the bare agent id for context/monitoring signals.
@@ -206,11 +206,11 @@ data: {"seq":42,"topic":"member","op":"patch","data":{"entity":"member","key":"o
 
 ## 3. Topic and op vocabulary
 
-### 3.1 Topics — the closed set (12 topics)
+### 3.1 Topics — the closed set (11 topics)
 
 The server MUST emit deltas on exactly these topics and no others (`reply_card`
-joined the set in the M2 reply-card batch; `task` / `outsource_worker` /
-`task_manual` joined in the M3 task batch — the owner-tasked M3 scope [SPEC.md
+joined the set in the M2 reply-card batch; `task` / `task_manual` joined in the
+M3 task batch — the owner-tasked M3 scope [SPEC.md
 M3 任務系統] covers the task surface wholesale, these are its necessary
 delta topics; `insight` joined in T-3809, which split the role journal's judgement
 block into its own document and therefore needed its own delta rather than
@@ -218,12 +218,11 @@ riding a topic that names a different document; everything else is the M1 freeze
 
 | topic | trigger | op |
 |---|---|---|
-| `member` | any roster write (upsert / hard delete) | patch / remove |
+| `member` | any roster write, including outsource assignment / claim / release | patch / remove |
 | `chat` | message append; cascade delete | patch |
 | `chat_read` | read-watermark advance; cascade delete | patch |
 | `reply_card` | reply-card create / answer / answer revision / expire | patch |
 | `task` | any durable task write (create / status / priority / plan / step / deps / executor assignment / terminate) | patch |
-| `outsource_worker` | worker assignment / first claim (active) / release | patch |
 | `task_manual` | manual create / edit / delete | patch |
 | `global_context` | user-context overlay write/reset | patch |
 | `role_def` | role overlay write/reset/delete | patch |
@@ -280,12 +279,11 @@ server's own deps-fulfill, not by eavesdropping on another member's stream):
 
 | topic | agent audience (owner always receives) |
 |---|---|
-| `member` | the subject member (its own delta drives the wind-down / recycle hooks) |
+| `member` | the subject member, including an outsource worker (its own delta drives the wind-down / recycle hooks) |
 | `chat` | the sender and the recipient |
 | `chat_read` | — (no agent consumes it; owner cockpit only) |
 | `reply_card` | the initiator (`from`) |
 | `task` | the executor ONLY (NOT the creator, NOT dependents); a reassign additionally fans one delta to the OLD executor — the row's executor just changed, so the person unassigned would otherwise be silently dropped from the audience |
-| `outsource_worker` | — (owner cockpit only; an `ow-` id has no roster/presence) |
 | `task_manual` | — (owner cockpit only) |
 | `global_context` / `role_def` / `insight` | — (owner cockpit only) |
 | `context` / `monitoring` | — (owner cockpit only; `context` also drives the server-side §6 band) |

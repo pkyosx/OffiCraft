@@ -63,7 +63,7 @@ let messages: ChatMessage[] = [];
 const send = vi.fn(() => Promise.resolve());
 
 // Released-worker codename cache. The REAL hook lazily fetches
-// GET /api/outsource-workers/{id}; here it is a fixed map keyed off the ids it
+// GET /api/members/{id}; here it is a fixed map keyed off the ids it
 // is HANDED — which is exactly the seam the quoted-sender test below needs, and
 // the reason it is a filter rather than a constant map: an id the component
 // never puts into `unknownOwIds` never reaches this mock and never resolves.

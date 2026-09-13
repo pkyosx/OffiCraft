@@ -672,7 +672,7 @@ func TestNotifyWorkerSpawn_StampsSpawnObservation(t *testing.T) {
 	// A案 P6: a successful dispatch stamps the shared-FSM in-flight state so
 	// reconcileWorkerLiveness never doubles (and never zombie-misreads) a start
 	// it did not decide itself.
-	st := s.workerReconcileStates["ow-9"]
+	st := s.lifecycleStates["ow-9"]
 	if st.LastCommand != reconcileCmdStart || st.Phase != reconcilePhaseStarting {
 		t.Fatalf("FSM state after dispatch = %+v, want start/starting", st)
 	}
@@ -1327,7 +1327,7 @@ func TestReconcileWorkerLiveness_ClobberedStartZombieTakeover(t *testing.T) {
 	s.outsourceMu.Lock()
 	s.workerSpawnAt["ow-g"] = now - 5 // recently paced (must not block the reap path)
 	s.workerSpawnTarget["ow-g"] = ServerSelfHost
-	s.workerReconcileStates["ow-g"] = reconcileState{
+	s.lifecycleStates["ow-g"] = reconcileState{
 		Phase: reconcilePhaseStarting, LastCommand: reconcileCmdStart, LastCommandAt: now - 10,
 		// T-9adc: the takeover STOP now requires a SUSTAINED offline record —
 		// this fixture is a long-confirmed ghost, past the second-confirm grace.
@@ -1379,7 +1379,7 @@ func TestReconcileWorkerLiveness_InFlightStartAwaitsPresence(t *testing.T) {
 	s.outsourceMu.Lock()
 	s.workerSpawnAt["ow-f"] = now - 5
 	s.workerSpawnTarget["ow-f"] = ServerSelfHost
-	s.workerReconcileStates["ow-f"] = reconcileState{
+	s.lifecycleStates["ow-f"] = reconcileState{
 		Phase: reconcilePhaseStarting, LastCommand: reconcileCmdStart, LastCommandAt: now - 5,
 	}
 	s.reconcileWorkerLiveness(w, now)
@@ -1403,12 +1403,12 @@ func TestReconcileWorkerLiveness_SilentTimeoutBacksOffThenRespawns(t *testing.T)
 	now := 1_000_000.0
 	w := fsmWorkerFixture(t, s, "ow-b", WorkerStatusAssigned, now-500)
 	s.outsourceMu.Lock()
-	s.workerReconcileStates["ow-b"] = reconcileState{
+	s.lifecycleStates["ow-b"] = reconcileState{
 		Phase: reconcilePhaseStarting, LastCommand: reconcileCmdStart,
 		LastCommandAt: now - (s.reconcileCfg.StartTimeout + 1),
 	}
 	s.reconcileWorkerLiveness(w, now) // timeout folds → backoff armed, nothing sent
-	st := s.workerReconcileStates["ow-b"]
+	st := s.lifecycleStates["ow-b"]
 	s.outsourceMu.Unlock()
 	if got := len(s.hub.DrainWardenCommands(ServerSelfHost)); got != 0 {
 		t.Fatalf("a just-timed-out start must back off, not instantly re-dispatch (got %d)", got)
@@ -1453,7 +1453,7 @@ func TestReconcileWorkerLiveness_LegacyWorkerStartReceiptStillDetectsZombie(t *t
 	}
 	s.outsourceMu.Lock()
 	s.workerSpawnTarget["ow-l"] = ServerSelfHost
-	s.workerReconcileStates["ow-l"] = reconcileState{
+	s.lifecycleStates["ow-l"] = reconcileState{
 		Phase: reconcilePhaseStarting, LastCommand: reconcileCmdStart, LastCommandAt: now - 10,
 		// T-9adc: past the zombie second-confirm grace (sustained offline).
 		OfflineSince: now - s.reconcileCfg.ZombieConfirmGrace - 1,
@@ -1769,7 +1769,7 @@ func TestReconcileWorkerLiveness_OtherMembersBacklogIsNotOurs(t *testing.T) {
 //
 // Honest scope: the state is forced here (the spawn ledger is cleared directly).
 // No production path is known that empties workerSpawnTarget while
-// workerReconcileStates still holds a dispatched START — a re-exec clears both.
+// lifecycleStates still holds a dispatched START — a re-exec clears both.
 // The guard is kept because the COST of the wrong message is a wild goose chase
 // and the cost of the guard is one branch, not because reachability is proven.
 func TestReconcileWorkerLiveness_UnknownTargetNamesNoMachine(t *testing.T) {

@@ -508,7 +508,7 @@ func TestFoldCommandResult(t *testing.T) {
 }
 
 func TestFoldWorkerCommandResult(t *testing.T) {
-	t.Run("a worker receipt persists the five outcome fields, leaves lifecycle alone, and reaches only the owner", func(t *testing.T) {
+	t.Run("a worker receipt persists the five outcome fields, leaves lifecycle alone, and reaches the owner and the worker's own session", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusAssigned)
 		before, err := d.GetOutsourceWorker("ow-abc123")
@@ -534,8 +534,13 @@ func TestFoldWorkerCommandResult(t *testing.T) {
 			t.Fatalf("GetOutsourceWorker after: %v %v", after, err)
 		}
 		apiTestWantEqual(t, "stored worker", *after, want)
+		// The receipt now folds onto the SHARED member row, so its delta is a
+		// member delta — and a member delta is addressed to the member itself as
+		// well as the owner cockpit (publishMemberPatch). The worker's own
+		// session seeing its fresh last_op is the unified behaviour, not a leak:
+		// this is exactly what a staff member's receipt does.
 		dashboard.wantFrames(apiTestWorkerDelta(2, "assigned", "warden-1"))
-		workerListener.wantFrames()
+		workerListener.wantFrames(apiTestWorkerDelta(2, "assigned", "warden-1"))
 	})
 
 	t.Run("a no-such-session worker stop leaves the existing receipt untouched and fans nothing", func(t *testing.T) {
