@@ -151,7 +151,9 @@ func (s *apiServer) HandleGetWorkerBootContextApiOutsourceWorkersIdBootContextGe
 	writeJSON(w, http.StatusOK, WorkerBootContextDTO{Context: context})
 }
 
-// POST /api/outsource-workers/{id}/relocate — the cockpit's 改機器 for a worker
+// The outsource arm of POST /api/members/{member_id}/relocate — the cockpit's
+// 改機器 for a worker (T-197 retired the worker-namespaced route; the member
+// handler branches here on kind==outsource)
 // (route Requires=admin_agent since P7c — 外包對齊正職, the exact member relocate
 // floor). Writes the worker's pinned desired_machine_id, then puts it through
 // relocateWorkerNow → respawnWorkerForOwnerOp, WITHOUT touching lifecycle (the
@@ -257,8 +259,10 @@ func (s *apiServer) relocateWorkerByID(w http.ResponseWriter, r *http.Request, i
 	})
 }
 
-// POST /api/outsource-workers/{id}/refocus — the cockpit's 換手 (owner/admin agent since T-6020,
-// route Requires=owner). The worker twin of refocus_member, member-shaped since
+// The outsource arm of POST /api/members/{member_id}/refocus (T-197 retired the
+// worker-namespaced route) — the cockpit's 換手 (owner/admin agent since T-6020;
+// the member route it now shares is Requires=admin_agent, NOT owner — an older
+// version of this line said owner and was wrong even before the fold). The worker twin of refocus_member, member-shaped since
 // T-ea82: stamp refocus_since + fan the SOP 預告 at the worker's own session
 // (openWorkerHandoverGrace) and RETURN — the kill+respawn is owned by the 收口
 // drivers, which for THIS handler are exactly TWO: the worker's report_stopped,
@@ -383,7 +387,8 @@ func (s *apiServer) HandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost
 	writeJSON(w, http.StatusOK, agentLifecycleReceiptDTO{ID: worker.ID})
 }
 
-// POST /api/outsource-workers/{id}/accelerated-stop — the symmetric twin of the
+// The outsource arm of POST /api/members/{member_id}/accelerated-stop (T-197
+// retired the worker-namespaced route) — the symmetric twin of the
 // member 加速停止 (T-ed79, owner 2026-08-21 「停止 → 加速停止 → 強制停止」).
 //
 // 🔴 IT NOW COVERS BOTH ARMS, because since T-ed79 the worker's 停止 is itself a
@@ -498,7 +503,8 @@ func (s *apiServer) HandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcc
 	writeJSON(w, http.StatusOK, agentLifecycleReceiptDTO{ID: worker.ID})
 }
 
-// POST /api/outsource-workers/{id}/stop — the cockpit's 停止 (owner/admin agent
+// The outsource arm of POST /api/members/{member_id}/deactivate (T-197 retired
+// the worker-namespaced /stop route) — the cockpit's 停止 (owner/admin agent
 // since T-6020), and since T-ed79 a GRACEFUL CLOSE-OUT rather than a kill
 // (owner 2026-08-21 「往正職靠：外包那顆改成優雅停止，強制殺移到第三顆按鈕」).
 //
@@ -592,7 +598,8 @@ func (s *apiServer) HandleStopOutsourceWorkerApiOutsourceWorkersIdStopPost(w htt
 	writeJSON(w, http.StatusOK, agentLifecycleReceiptDTO{ID: worker.ID})
 }
 
-// POST /api/outsource-workers/{id}/force-stop — the THIRD rung of the owner's
+// The outsource arm of POST /api/members/{member_id}/force-stop (T-197 retired
+// the worker-namespaced route) — the THIRD rung of the owner's
 // escalation 停止 → 加速停止 → 強制停止, and the worker twin of
 // HandleForceStopMember (T-ed79, owner 2026-08-21 「強制殺移到第三顆按鈕」).
 //
@@ -654,7 +661,8 @@ func (s *apiServer) HandleForceStopOutsourceWorkerApiOutsourceWorkersIdForceStop
 	writeJSON(w, http.StatusOK, agentLifecycleReceiptDTO{ID: worker.ID})
 }
 
-// POST /api/outsource-workers/{id}/restart — the cockpit's 喚醒 (owner/admin agent
+// The outsource arm of POST /api/members/{member_id}/activate (T-197 retired the
+// worker-namespaced /restart route) — the cockpit's 喚醒 (owner/admin agent
 // since T-6020), the inverse of stop: set desired_state back to "online" and, IF
 // THE SESSION IS NOT ALREADY UP, dispatch a fresh worker_start onto the pinned /
 // preferred machine.
@@ -880,8 +888,12 @@ func (s *apiServer) handleRestartOutsourceWorker(w http.ResponseWriter, r *http.
 	})
 }
 
-// POST /api/outsource-workers/{id}/model — the owner cockpit's runtime/model
-// edit (owner/admin agent since T-6020), the worker twin of the member runtime/model/effort edit.
+// The outsource arm of PATCH /api/members/{member_id} (T-197 retired the
+// worker-namespaced /model route) — the owner cockpit's runtime/model
+// edit. ⚠️ THE FLOOR CHANGED WITH THE FOLD: this is no longer a T-6020
+// admin_agent row but the machine floor PATCH /api/members/{member_id}
+// (update_member) carries — which is exactly what owner rc-376a41719e62 ruled
+// it should match (「正職跟外包一樣」); see the note on that row in routes.go.
 // Persist the new values; when the worker is ACTIVE + online AND a launch intent
 // actually changed, hand it over so the new model takes effect on the next
 // session, otherwise (assigned / stopped / nothing changed) only persist — the

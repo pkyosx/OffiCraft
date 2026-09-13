@@ -1769,9 +1769,11 @@ type insightReceiptDTO struct {
 	Sha256 string `json:"sha256"`
 }
 
-// outsourceRestartReceiptDTO answers restart_outsource_worker. The whole
-// OutsourceWorkerDTO used to ride back for a write whose news is one bit and
-// one sentence.
+// outsourceRestartReceiptDTO answers activate_member (POST
+// /api/members/{member_id}/activate) when the target is an outsource row — the
+// dedicated restart_outsource_worker tool it used to answer was folded away in
+// T-197. A whole roster row used to ride back for a write whose news is one bit
+// and one sentence.
 type outsourceRestartReceiptDTO struct {
 	// ID is the worker this restart was aimed at — the caller's own path
 	// parameter, kept because a receipt that cannot say which worker it acted
@@ -1791,12 +1793,16 @@ type outsourceRestartReceiptDTO struct {
 	LastOpReason string `json:"last_op_reason,omitempty"`
 }
 
-// agentLifecycleReceiptDTO answers the TWELVE owner/agent lifecycle writes that
-// used to hand back the whole roster row they had just written — seven staff
-// routes (hire, update, dismiss, deactivate, refocus, force-stop,
-// accelerated-stop) and five worker routes (stop, model, refocus, force-stop,
-// accelerated-stop). MemberDTO is 33 fields and OutsourceWorkerDTO is 42; all
-// twelve are agent-callable, so those answers landed in a model's context.
+// agentLifecycleReceiptDTO answers the owner/agent lifecycle writes that used to
+// hand back the whole roster row they had just written. When T-91 introduced it
+// there were TWELVE of them — seven staff routes (hire, update, dismiss,
+// deactivate, refocus, force-stop, accelerated-stop) and five worker routes
+// (stop, model, refocus, force-stop, accelerated-stop) answering a separate
+// 42-field worker DTO. T-197 then folded the worker routes into the staff ones
+// (a worker is reached through the member route and the handler branches on
+// kind), so today it is the SEVEN member routes, one shape, and the second
+// roster DTO is gone. All of them are agent-callable, so those answers landed
+// in a model's context.
 //
 // 🔴 WHY AN ID IS THE WHOLE OF THE NEWS HERE, and it is checkable rather than
 // asserted: every one of the twelve ended on a plain projection of the stored
@@ -1840,9 +1846,11 @@ type memberActivateReceiptDTO struct {
 // 🔴 ONE RECEIPT FOR THE TWO IS WHAT MAKES THE WIRE TRUE, not a tidy-up.
 // HandleRelocateMember takes an ow- id as well (the verb is "move one agent")
 // and hands it to relocateWorkerByID, which wrote the WORKER projection — so
-// that route could answer an OutsourceWorkerDTO while spec/openapi.json said
-// MemberDTO. Same three fields whichever kind of agent was named, and the
-// disagreement is gone instead of documented.
+// that route could answer a separate 42-field worker DTO while spec/openapi.json
+// said MemberDTO. Same three fields whichever kind of agent was named, and the
+// disagreement is gone instead of documented. (T-197 removed the second
+// projection outright, so the two can no longer diverge at all; "BOTH relocate
+// routes" above is now ONE route with two arms.)
 type agentRelocateReceiptDTO struct {
 	// ID is the agent this relocate was aimed at.
 	ID string `json:"id"`

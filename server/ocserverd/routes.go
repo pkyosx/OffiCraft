@@ -1671,9 +1671,18 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Summary: "Read an outsource worker's boot-context preview (owner/admin agent).",
 			MCPTool: "get_outsource_worker_boot_context",
 		}),
-		// ⚠️ set_outsource_worker_model sits at the machine FLOOR since T-ed79,
-		// and it is the ONE T-6020 row that left the admin_agent floor. owner
-		// 2026-08-21 (rc-376a41719e62) was asked whether changing a worker's
+		// ⚠️ THE WORKER MODEL EDIT NO LONGER HAS A ROW OF ITS OWN, and the ruling
+		// below is why that is the right outcome rather than a lost floor. Until
+		// T-197 it was `POST /api/outsource-workers/{id}/model`
+		// (set_outsource_worker_model) at the machine FLOOR since T-ed79 — the ONE
+		// T-6020 row that left the admin_agent floor. T-197 folded it into
+		// `PATCH /api/members/{member_id}` (update_member), which the ruling itself
+		// names as the floor this act must match, so the two are now the SAME row
+		// and cannot drift apart. The other worker verbs folded the same way
+		// (/deactivate, /force-stop, /accelerated-stop, /refocus, /relocate,
+		// /activate), each onto the staff row it was already aligned with.
+		//
+		// owner 2026-08-21 (rc-376a41719e62) was asked whether changing a worker's
 		// model is governance, and ruled, VERBATIM:
 		//
 		//	「如果原本正職可以改 model 外包就應該可以改，如果只有 mira 可以改，那就
@@ -1687,7 +1696,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 		// admin_agent rank is reserved for acts the owner delegates, which this
 		// is not.
 		//
-		// 🔴 ONLY THIS ROW MOVED. refocus / relocate / stop / restart were already
+		// 🔴 ONLY THAT ROW MOVED. refocus / relocate / stop / restart were already
 		// at the same floor as their staff twins before this ruling, and the
 		// ruling did not touch them — do not "finish the job" by lowering them.
 		//

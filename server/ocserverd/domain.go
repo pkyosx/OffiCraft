@@ -1453,7 +1453,8 @@ const (
 // The outsource worker lifecycle closed set — a DERIVED projection over the
 // member row since the P7d fold (roster_status + activated_ts; see
 // dal_tasks.go workerStatusFromMember), no longer a stored column. The wire
-// vocabulary is frozen (outsourceWorkerDTO.status), so the set stays.
+// vocabulary is frozen (memberDTO.status, which since T-197 is the ONE
+// projection both kinds are served through), so the set stays.
 const (
 	WorkerStatusAssigned = "assigned"
 	WorkerStatusActive   = "active"

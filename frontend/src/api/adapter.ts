@@ -908,8 +908,10 @@ export interface OutsourceWorkerView {
    * a bounded receipt instead — `AgentRelocateReceiptDTO` and
    * `OutsourceRestartReceiptDTO` carry the three flags — so the only builders of
    * this type are the read faces (`listOutsourceWorkers`, `getOutsourceWorker`),
-   * where the server never set them. `OutsourceWorkerDTO` stopped declaring them
+   * where the server never set them. The worker read DTO stopped declaring them
    * in the same change, so there is nothing left for a mapper to pass through.
+   * (T-197 then removed that DTO outright — both kinds read back `MemberDTO`,
+   * which does not carry the three flags either.)
    * If you need "was this move dispatched?", read the relocate's own answer. */
 }
 

@@ -312,10 +312,18 @@ const (
 	//   - mint / bootstrap: a contractor's token TTL and its boot document both
 	//     come from the worker path; the staff path would hand it the WRONG
 	//     document, not merely too much authority.
-	//   - activate / deactivate / force-stop / accelerated-stop / refocus: the
-	//     contractor equivalents live under /api/outsource-workers/* and drive a
-	//     DIFFERENT kill funnel. Two funnels onto one latch is the double-kill
-	//     that T-72dd fixed.
+	//   ⚠️ activate / deactivate / force-stop / accelerated-stop / refocus ARE NO
+	//     LONGER ON THIS LIST, and this comment used to claim they were. Until
+	//     T-197 they passed staffOnly because "the contractor equivalents live
+	//     under /api/outsource-workers/* and drive a DIFFERENT kill funnel". That
+	//     second route family is gone: each of those five now resolves
+	//     anyMember and branches on `m.Kind == KindOutsource` into the SAME
+	//     worker body the retired route used to reach (api_members.go). The
+	//     double-kill T-72dd fixed is still what the branch prevents — one
+	//     funnel per kind — but the thing selecting the funnel is that explicit
+	//     branch, not a 404 from here. Grep staffOnly before trusting any list
+	//     in this block: today's callers are mint / bootstrap, relocate and
+	//     dismiss, and nothing else.
 	//   - dismiss (DELETE): a contractor leaves by being RELEASED with its task,
 	//     not by being fired; soft-deleting the row under a live task strands it.
 	//   - relocate: 🔴 SPECIAL — this one needs errNotFound as CONTROL FLOW. Its
