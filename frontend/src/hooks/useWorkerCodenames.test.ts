@@ -7,16 +7,38 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { act, renderHook, waitFor } from "@testing-library/react";
 
 const getOutsourceWorker = vi.fn();
+// The SSE seam, held so a test can push a topic the way the transport would.
+// `useWorkerCurrentTasks` is the only subscriber here (T-196).
+let sinks: ((topic: string, delta?: { ids: string[] }) => void)[] = [];
 vi.mock("../api", () => ({
-  api: { getOutsourceWorker: (id: string) => getOutsourceWorker(id) },
+  api: {
+    getOutsourceWorker: (id: string) => getOutsourceWorker(id),
+    subscribeEvents: (
+      sink: (topic: string, delta?: { ids: string[] }) => void,
+    ) => {
+      sinks.push(sink);
+      return () => {
+        sinks = sinks.filter((s) => s !== sink);
+      };
+    },
+  },
 }));
 
 import {
   useWorkerAvatarUrls,
   useWorkerCodenames,
+  useWorkerCurrentTasks,
   updateCachedWorkerAvatar,
   __resetWorkerCodenameCache,
 } from "./useWorkerCodenames";
+
+/** Push one SSE topic and let the sink's microtask batch run. */
+async function emit(topic: string) {
+  await act(async () => {
+    for (const s of [...sinks]) s(topic, { ids: ["whatever"] });
+    await Promise.resolve();
+  });
+}
 
 describe("useWorkerCodenames", () => {
   beforeEach(() => {
@@ -97,5 +119,241 @@ describe("useWorkerCodenames", () => {
     const second = renderHook(() => useWorkerCodenames(["ow-abc"]));
     expect(second.result.current.get("ow-abc")).toBe("X-1");
     expect(getOutsourceWorker).toHaveBeenCalledTimes(1);
+  });
+  // ── T-196: the current-task accessor ───────────────────────────────────────
+  // The same per-id read now feeds a THIRD display fact (the worker's bound
+  // task), and unlike a codename or an avatar that fact CHANGES while a page is
+  // open — so this accessor subscribes where the others do not.
+
+  it("keeps the WHOLE worker row from the identity read, not just codename + avatar", async () => {
+    getOutsourceWorker.mockResolvedValue({
+      id: "ow-abc",
+      codename: "X-1",
+      taskId: "T-9",
+      taskNo: "T-9",
+      taskTitle: "把那一列補上",
+      taskTypeName: "OffiCraft · 開發",
+    });
+    const { result } = renderHook(() => useWorkerCurrentTasks(["ow-abc"]));
+    await waitFor(() => {
+      expect(result.current.get("ow-abc")?.taskTitle).toBe("把那一列補上");
+    });
+    expect(result.current.get("ow-abc")?.taskNo).toBe("T-9");
+    // Still ONE read — the task rides the fetch the codename already paid for.
+    expect(getOutsourceWorker).toHaveBeenCalledTimes(1);
+  });
+
+  it("re-reads the worker when a task delta lands, so the line is not a fact from page-load", async () => {
+    getOutsourceWorker.mockResolvedValue({
+      id: "ow-abc",
+      codename: "X-1",
+      taskId: "T-9",
+      taskTitle: "舊的那一張",
+    });
+    const { result } = renderHook(() => useWorkerCurrentTasks(["ow-abc"]));
+    await waitFor(() =>
+      expect(result.current.get("ow-abc")?.taskTitle).toBe("舊的那一張"),
+    );
+
+    getOutsourceWorker.mockResolvedValue({
+      id: "ow-abc",
+      codename: "X-1",
+      taskId: "T-10",
+      taskTitle: "現在這一張",
+    });
+    await emit("task");
+
+    await waitFor(() =>
+      expect(result.current.get("ow-abc")?.taskTitle).toBe("現在這一張"),
+    );
+  });
+
+  it("re-reads on outsource_worker too — assignment and release move the task", async () => {
+    getOutsourceWorker.mockResolvedValue({ id: "ow-abc", codename: "X-1", taskId: "T-9" });
+    renderHook(() => useWorkerCurrentTasks(["ow-abc"]));
+    await waitFor(() => expect(getOutsourceWorker).toHaveBeenCalledTimes(1));
+
+    await emit("outsource_worker");
+
+    await waitFor(() => expect(getOutsourceWorker).toHaveBeenCalledTimes(2));
+  });
+
+  it("ignores chat topics — they move only the unread badge, which this line never draws", async () => {
+    getOutsourceWorker.mockResolvedValue({ id: "ow-abc", codename: "X-1", taskId: "T-9" });
+    renderHook(() => useWorkerCurrentTasks(["ow-abc"]));
+    await waitFor(() => expect(getOutsourceWorker).toHaveBeenCalledTimes(1));
+
+    await emit("chat");
+    await emit("chat_read");
+
+    expect(getOutsourceWorker).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the last known row when a re-read fails — a failed read is not evidence the task is gone", async () => {
+    getOutsourceWorker.mockResolvedValue({
+      id: "ow-abc",
+      codename: "X-1",
+      taskId: "T-9",
+      taskTitle: "還在做的那一張",
+    });
+    const { result } = renderHook(() => useWorkerCurrentTasks(["ow-abc"]));
+    await waitFor(() =>
+      expect(result.current.get("ow-abc")?.taskTitle).toBe("還在做的那一張"),
+    );
+
+    getOutsourceWorker.mockRejectedValue(new Error("offline"));
+    await emit("task");
+
+    expect(result.current.get("ow-abc")?.taskTitle).toBe("還在做的那一張");
+  });
+
+  it("a round whose reads REJECT still lifts the latch — the next delta is served", async () => {
+    // 🔴 The latch decides whether ANY future delta is served, so leaving it
+    // stuck means the line freezes on a stale fact with nothing to show for it.
+    //
+    // ⚠️ Measured, and the two halves do NOT fail the same way. Removing BOTH
+    // protections reddens exactly this assertion. Removing only the `finally`
+    // is the SILENT one: every assertion still passes and the run exits 0.
+    // Removing only the per-read reject handler passes every assertion too but
+    // fails the run on an unhandled rejection — loud, just not here. So this
+    // case pins the pair; the `finally` is the half nothing else would catch.
+    getOutsourceWorker.mockResolvedValueOnce({ id: "ow-abc", codename: "X-1", taskId: "T-9" });
+    renderHook(() => useWorkerCurrentTasks(["ow-abc"]));
+    await waitFor(() => expect(getOutsourceWorker).toHaveBeenCalledTimes(1));
+
+    getOutsourceWorker.mockRejectedValue(new Error("offline"));
+    await emit("task");
+    await waitFor(() => expect(getOutsourceWorker).toHaveBeenCalledTimes(2));
+
+    getOutsourceWorker.mockResolvedValue({ id: "ow-abc", codename: "X-1", taskId: "T-10" });
+    await emit("task");
+
+    await waitFor(() => expect(getOutsourceWorker).toHaveBeenCalledTimes(3));
+  });
+
+  it("never re-reads an id that resolved to nothing — the negative cache still holds", async () => {
+    getOutsourceWorker.mockRejectedValue(new Error("404"));
+    const { result } = renderHook(() => useWorkerCurrentTasks(["ow-gone"]));
+    await waitFor(() => expect(getOutsourceWorker).toHaveBeenCalledTimes(1));
+    expect(result.current.get("ow-gone")).toBeUndefined();
+
+    await emit("task");
+
+    expect(getOutsourceWorker).toHaveBeenCalledTimes(1);
+  });
+  it("wakes the OTHER cache consumers after a re-read, not just itself", async () => {
+    // The cache is shared and `cache.size` does not move on an overwrite, so a
+    // re-read that notified nobody would leave a mounted codename/avatar
+    // consumer memoised on the row it read at mount.
+    getOutsourceWorker.mockResolvedValue({
+      id: "ow-abc",
+      codename: "X-1",
+      taskId: "T-9",
+      avatarUrl: "/api/chat/attachment/ava-old",
+    });
+    const tasks = renderHook(() => useWorkerCurrentTasks(["ow-abc"]));
+    const avatars = renderHook(() => useWorkerAvatarUrls(["ow-abc"]));
+    await waitFor(() =>
+      expect(avatars.result.current.get("ow-abc")).toContain("ava-old"),
+    );
+
+    getOutsourceWorker.mockResolvedValue({
+      id: "ow-abc",
+      codename: "X-1",
+      taskId: "T-9",
+      avatarUrl: "/api/chat/attachment/ava-new",
+    });
+    await emit("task");
+
+    await waitFor(() =>
+      expect(avatars.result.current.get("ow-abc")).toContain("ava-new"),
+    );
+    expect(tasks.result.current.get("ow-abc")?.taskId).toBe("T-9");
+  });
+
+  it("coalesces bursts into ONE trailing round — a delta that lands mid-round is not lost", async () => {
+    // 🔴 The mid-round burst must NOT simply be dropped. The reads already in
+    // flight were sent BEFORE it, so they cannot carry what it reports; letting
+    // the round finish and stopping there writes back the state as it was a
+    // moment ago. In a quiet studio the next unrelated delta may never come, so
+    // "it will refresh eventually" means "never". One trailing round, no more.
+    let settle: (() => void) | null = null;
+    getOutsourceWorker.mockResolvedValueOnce({ id: "ow-abc", codename: "X-1", taskId: "T-9" });
+    renderHook(() => useWorkerCurrentTasks(["ow-abc"]));
+    await waitFor(() => expect(getOutsourceWorker).toHaveBeenCalledTimes(1));
+
+    getOutsourceWorker.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          settle = () => resolve({ id: "ow-abc", codename: "X-1", taskId: "T-10" });
+        }),
+    );
+    await emit("task"); // starts the round, which now hangs
+    expect(getOutsourceWorker).toHaveBeenCalledTimes(2);
+    await emit("task"); // lands mid-round
+    await emit("task"); // and another — still ONE trailing round, not two
+    expect(getOutsourceWorker, "no second round while one is in flight").toHaveBeenCalledTimes(2);
+
+    const first = settle!;
+    getOutsourceWorker.mockResolvedValue({ id: "ow-abc", codename: "X-1", taskId: "T-11" });
+    await act(async () => {
+      first();
+      await Promise.resolve();
+    });
+    // The round that was overtaken runs again — exactly once for both bursts.
+    await waitFor(() => expect(getOutsourceWorker).toHaveBeenCalledTimes(3));
+  });
+
+  it("a worker released DURING a refresh round is still seen: the trailing round is the one that reports it", async () => {
+    // The race the coalescing exists for. The reads in flight were sent while
+    // the worker was still on the job; without the trailing round the cache
+    // keeps that row and the reply card list keeps drawing finished work as
+    // current — permanently, if nothing else happens in the studio.
+    let settle: (() => void) | null = null;
+    getOutsourceWorker.mockResolvedValueOnce({
+      id: "ow-abc",
+      codename: "X-1",
+      status: "active",
+      taskId: "T-9",
+      taskTitle: "還在做",
+    });
+    const { result } = renderHook(() => useWorkerCurrentTasks(["ow-abc"]));
+    await waitFor(() =>
+      expect(result.current.get("ow-abc")?.status).toBe("active"),
+    );
+
+    // A round starts and hangs; it will answer with the PRE-release row.
+    getOutsourceWorker.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          settle = () => resolve({
+            id: "ow-abc",
+            codename: "X-1",
+            status: "active",
+            taskId: "T-9",
+            taskTitle: "還在做",
+          });
+        }),
+    );
+    await emit("task");
+
+    // The release lands while that round is still in flight.
+    const first = settle!;
+    getOutsourceWorker.mockResolvedValue({
+      id: "ow-abc",
+      codename: "X-1",
+      status: "released",
+      taskId: "T-9",
+      taskTitle: "還在做",
+    });
+    await emit("outsource_worker");
+    await act(async () => {
+      first();
+      await Promise.resolve();
+    });
+
+    await waitFor(() =>
+      expect(result.current.get("ow-abc")?.status).toBe("released"),
+    );
   });
 });

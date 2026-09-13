@@ -56,10 +56,13 @@ import { useReplyCards } from "../hooks/useReplyCards";
 import {
   useWorkerAvatarUrls,
   useWorkerCodenames,
+  useWorkerCurrentTasks,
 } from "../hooks/useWorkerCodenames";
 import { useHashRoute } from "../lib/hashRoute";
 import { avatarKindForMember } from "../lib/avatarKind";
 import { ReplyCardAvatarButton } from "./ReplyCardAvatarButton";
+import { CurrentTaskTitle } from "./CurrentTaskTitle";
+import { OutsourceTaskLine } from "./OutsourcePanel";
 import { ChevronRightIcon } from "./icons";
 import { FilterPanel } from "./FilterPanel";
 import { IdFilterInput } from "./IdFilterInput";
@@ -75,7 +78,10 @@ import {
 } from "./ReplyCardBody";
 import { formatDuration } from "../lib/duration";
 import { formatAbsolute } from "../lib/dateFormat";
-import "./office.css"; // chat composer classes the ReplyComposer reuses
+import "./office.css"; // chat composer classes the ReplyComposer reuses, AND
+// the rail's `.outsource-row__*` / `.current-task-title` rules the asker's
+// current-task line is drawn with (T-196) — removing this import as an
+// unused-looking tidy-up unstyles that line, and no vitest test can see it.
 import "./replies.css";
 
 const HANDLED_WINDOW_SECONDS = 24 * 3600;
@@ -563,6 +569,12 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   const workerIds = [...waiting, ...handled].map((c) => c.from);
   const codenames = useWorkerCodenames(workerIds);
   const workerAvatarUrls = useWorkerAvatarUrls(workerIds);
+  // T-196 (owner rc-dce285c5274c:「只在 UI 上補上顯示就好 就像在 chat 那邊 使用者
+  // 列表上 outsource worker 會顯示他在進行的工作是哪一個」): the asker's CURRENT
+  // task — the worker's own, NOT `row.task`, which is the task this CARD was
+  // bound to and is null on a plain chat ask. Same read and same cache as the
+  // codename/avatar above, so the identity row speaks with one voice.
+  const workerTasks = useWorkerCurrentTasks(workerIds);
 
   // Resolve the initiating member for a card's identity row. A card can
   // outlive its member (removed roster row) — fall back to the outsource
@@ -758,6 +770,81 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
     }
   }
 
+  /** The asking OUTSOURCE worker's current task, under its 代號 (T-196).
+   *
+   * owner rc-dce285c5274c, on a card whose weight he could not judge:「我覺得只在
+   * UI 上補上顯示就好 就像在 chat 那邊 使用者列表上 outsource worker 會顯示他在
+   * 進行的工作是哪一個」— so this renders the office rail's own two pieces,
+   * `OutsourceTaskLine` (clickable 任務編號 chip → #tasks/<id>, then the task
+   * type) and `CurrentTaskTitle` (the real title, clamped + hover), NOT a second
+   * rendering of the same fact. The rail's presence dot is left off, exactly as
+   * the worker chat header leaves it off: presence lives in the rail, and this
+   * page never grows a second presence source.
+   *
+   * 🔴 NOT `row.task`: that is the task the CARD is bound to, which the owner
+   * explicitly ruled out of this ticket (the binding logic is untouched) and
+   * which is null on a plain chat ask. This line is the WORKER's, so it shows
+   * even on a card bound to nothing, and it shows the SAME task the rail does.
+   *
+   * A staff asker renders nothing here: `MemberDTO` carries no task at all, so
+   * there is no such fact to tell for a member — see the ResumeRoster ruling
+   * (正職給職責, 外包給任務標題). A worker whose id never resolved renders
+   * nothing either: silence is honest, a placeholder would assert "no task" on
+   * evidence we do not have. The placeholder IS shown once the worker resolved
+   * and the task is genuinely empty — an unassigned worker really has none. */
+  function renderAskerCurrentTask(row: ReplyCardRow) {
+    const worker = workerTasks.get(row.from);
+    if (!worker) return null;
+    // 🔴 A RELEASED worker has no current task, and its row still CARRIES the
+    // old one: release flips the status and leaves task_id alone
+    // (`dal_tasks.go` ReleaseWorkerByID), while the per-id read serves released
+    // rows in full — which is the very reason this page can resolve them at
+    // all. So the row is not evidence of current work, and drawing it would
+    // say "O-9 is on T-42" about a worker that finished and left, with a live
+    // chip beside it. The rail can't make this mistake because the LIST skips
+    // released workers outright (`api_outsource.go`); this surface has to say
+    // so itself or the two drift in meaning while sharing the components.
+    // Silence, not 「無當前任務」: the placeholder is for a worker we know holds
+    // no task, and neither is this page a place to announce 已釋出 — that
+    // sentence already has one home (the chat header banner) and the repo's own
+    // i18n note forbids a second copy of it.
+    // An ALLOWLIST, not a denylist: only the two statuses that mean "this
+    // worker is on the job" draw the line. Naming the terminal one instead
+    // would be a prediction — the next terminal status added server-side would
+    // reach this surface as a live-looking row, which is precisely the defect
+    // this check exists for. An absent status (an older server) falls on the
+    // silent side too: not knowing is not evidence of current work.
+    if (worker.status !== "assigned" && worker.status !== "active") return null;
+    // An empty taskId is the other honest nothing: the worker holds no task, or
+    // the server could not resolve the one it holds. `OutsourceTaskLine` always
+    // draws its type slot, falling back to 自由代辦 — true on the rail, where a
+    // listed worker always HAS a task and the fallback means "a task with no
+    // type", but a plain lie here, where it would sit above 無當前任務 and the
+    // same row would claim both.
+    // Keyed on `taskNo`, NOT `taskId`: the server writes task_id
+    // unconditionally but fills task_no / task_title / task_type_* only when it
+    // could RESOLVE the task, so a task_id whose task is gone would pass a
+    // taskId test and then render 自由代辦 over 無當前任務 — the contradiction
+    // above, one field later.
+    const bound = Boolean(worker.taskNo);
+    return (
+      <span className="reply-card__worker-task">
+        {bound && (
+          <OutsourceTaskLine
+            worker={worker}
+            onOpenTask={(taskId) => setRoute({ page: "tasks", taskId })}
+            idPrefix={`reply-card-${row.id}`}
+          />
+        )}
+        <CurrentTaskTitle
+          title={worker.taskTitle ?? ""}
+          clamp
+          testid={`reply-card-task-title-${row.id}`}
+        />
+      </span>
+    );
+  }
+
   /** The card's head — and, since owner 2026-09-11, the COLLAPSED ROW itself:
    * 「折疊起來那一列的內容不要另外設計」. It is drawn from the LIGHT ROW, so it
    * costs no read: avatar, name + role, 跳到原訊息, 標為過期, then the stamp. */
@@ -783,6 +870,7 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
         <div className="reply-card__who">
           <span className="reply-card__name">{who.name}</span>
           {who.role && <span className="reply-card__role">{who.role}</span>}
+          {renderAskerCurrentTask(row)}
         </div>
         <button
           type="button"

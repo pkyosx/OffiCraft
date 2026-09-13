@@ -56,6 +56,10 @@ vi.mock("../hooks/useWorkerCodenames", () => ({
         .filter((id) => id === "ow-rel")
         .map((id) => [id, "/api/chat/attachment/ava-worker"]),
     ),
+  // T-196: the asker's current-task line resolves nothing here — the cards in
+  // THIS file are about identity, status and the answer flow. The line's own
+  // behaviour (and its empty state) is pinned in RepliesPage.worker-task.test.tsx.
+  useWorkerCurrentTasks: () => new Map(),
 }));
 
 function mkCard(over: Partial<ReplyCard>): ReplyCard {
