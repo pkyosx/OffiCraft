@@ -244,12 +244,33 @@ func verifyClaudeSeesPretrust(ask func(script string) (string, error), logf func
 	if strings.Contains(out, claudeTrustWitness(workdir)) {
 		return nil
 	}
-	if err != nil {
-		return fmt.Errorf("%s could not be asked which config it reads for %s (%v); the trust flag was written to %s, and an unanswered question is reported rather than treated as a yes — claude said: %s",
-			claudeBin, workdir, err, wrote, oneLineExcerpt(out))
+	// 🔴 THE BRANCH IS "DID CLAUDE ANSWER AT ALL", NEVER "WAS THERE AN err". A
+	// NON-NIL err IS THIS PROBE'S NORMAL STATE: the question is `claude mcp get
+	// <absent name>`, which exits 1 EVERY TIME (the header above says so in as
+	// many words), and production's ask is execRunner.RunCombined (main.go),
+	// which hands back cmd.Wait()'s *ExitError ALONGSIDE the combined output.
+	// So `err != nil` was true on every single run and the "does NOT read" arm
+	// below was unreachable — in a file whose whole subject is a gate that can
+	// deadlock closed while its unit tests stay green.
+	//
+	// What that cost, concretely: on an external machine every claude member
+	// refused to start, and the operator was told the question COULD NOT BE
+	// ASKED. It had been asked and answered — the answer was that claude reads a
+	// different file. The one line that turns that into an action ("look for a
+	// .config.json in the config directory") lives in the arm below and could
+	// never be printed, so the conclusion four rounds of investigation had
+	// already reached sat in the source and never reached the person stuck on it.
+	//
+	// ⛔ THE VERDICT IS NOT LOOSENED BY ONE NOTCH. It is still positive-answer-
+	// only: `return nil` above is still reached only by the witness coming back,
+	// and everything else below is an error. All that changes is WHICH sentence
+	// an error carries. err is kept in both messages as context; it never decides.
+	if strings.TrimSpace(out) == "" {
+		return fmt.Errorf("%s could not be asked which config it reads for %s (%v); the trust flag was written to %s, and an unanswered question is reported rather than treated as a yes — claude said nothing at all",
+			claudeBin, workdir, err, wrote)
 	}
-	return fmt.Errorf("%s does NOT read %s: the witness written there for %s never came back, so the file it reads is a different one — look for a %s in the config directory, which claude reads instead of .claude.json whenever it exists; claude said: %s",
-		claudeBin, wrote, workdir, claudeShadowConfigName, oneLineExcerpt(out))
+	return fmt.Errorf("%s does NOT read %s: the witness written there for %s never came back, so the file it reads is a different one — look for a %s in the config directory, which claude reads instead of .claude.json whenever it exists; claude said (probe exit %v): %s",
+		claudeBin, wrote, workdir, claudeShadowConfigName, err, oneLineExcerpt(out))
 }
 
 // seedTrustProbeWitness writes the witness entry into the file pre-trust wrote.
