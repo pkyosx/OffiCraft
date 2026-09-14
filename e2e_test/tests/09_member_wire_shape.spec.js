@@ -2,31 +2,21 @@
 // D1 · Member read-face wire-shape seal (API-only — runs fine under
 // OC_E2E_SKIP_BUILD=1).
 //
-// WHY: the M2 wire rename `status` → `roster_status` (cb61f9f) and the wire
-// slim-down that removed `online` / `waking_since` / `stopping_timed_out`
-// (b8f883f — FE only consumes the derived `presence`) have NO e2e seal: the FE
-// mapper carries `?? 0` / fallback defaults, so a silent server-side rollback
-// of the wire shape would not turn any existing spec red. This spec pins the
+// WHY: the FE mapper carries `?? 0` / fallback defaults, so a server-side
+// change to the wire shape would not turn any FE spec red. This spec pins the
 // contract AT THE WIRE:
 //   • every roster row carries `roster_status` (∈ {active, removed}),
 //     `presence` (string), and `unread_count` (a number, ALWAYS present);
-//   • the retired keys `status` / `online` / `waking_since` /
-//     `stopping_timed_out` NEVER reappear on the wire.
+//   • a roster member's row carries no `status`: memberDTO fills that key only
+//     for an outsource worker (wire.go newOutsourceMemberDTO), and a staff
+//     member's lifecycle word is `roster_status`.
 //
-// 🔴 WHERE THE PROBE LIVES, AND WHY IT MOVED (T-91). This file used to take its
-// wire-shape sample off the WRITE answers — the POST /api/members hire and the
-// DELETE /api/members/{id} dismiss — because those routes echoed back the whole
-// roster row they had just written. Since T-91 the fifteen lifecycle writes
-// answer a bounded receipt instead (hire and dismiss: `{id}` and nothing else),
-// so a probe there would be worse than useless: the "present" half would fail
-// outright, and the "retired keys must be absent" half would pass VACUOUSLY on
-// a one-field object — a green that proves nothing about the DTO. The probe
-// therefore runs against the READ faces, `GET /api/members` and
-// `GET /api/members/{id}`, which are unchanged by T-91 and are the only places
-// the full MemberDTO still reaches a client. That is also where the FE mapper
-// actually gets its rows, so it is the honest place to seal them.
+// The probe runs against the READ faces, `GET /api/members` and
+// `GET /api/members/{id}` — the only places the full MemberDTO reaches a client
+// and where the FE mapper gets its rows. The lifecycle writes answer a bounded
+// receipt (T-91), which would make a shape probe there vacuous.
 //
-// The write legs stay, pinning what they NOW answer:
+// The write legs pin what they answer:
 //   • the hire and the dismiss each answer a receipt — `id` present, and none
 //     of the roster-row fields riding along uninvited;
 //   • the "dismiss flips the lifecycle to removed" claim can no longer be read
@@ -46,9 +36,6 @@ const {
   listMembers,
   scratchRoleKey,
 } = require('../lib/fixtures');
-
-// The retired wire keys — their reappearance is a regression, full stop.
-const RETIRED_KEYS = ['status', 'online', 'waking_since', 'stopping_timed_out'];
 
 function assertMemberWireShape(row, label) {
   // Present-and-typed: the M2 fields every consumer relies on.
@@ -72,19 +59,13 @@ function assertMemberWireShape(row, label) {
     typeof row.unread_count,
     `${label}: unread_count must be a number`,
   ).toBe('number');
-  // Absent: the retired keys must never come back.
-  for (const key of RETIRED_KEYS) {
-    expect(
-      Object.prototype.hasOwnProperty.call(row, key),
-      `${label}: retired wire key "${key}" must NOT reappear`,
-    ).toBe(false);
-  }
+  expect(
+    Object.prototype.hasOwnProperty.call(row, 'status'),
+    `${label}: a roster member row carries roster_status, not the outsource-only status`,
+  ).toBe(false);
 }
 
-// The T-91 receipt shape: `id` and nothing from the roster row. Asserting the
-// roster fields are ABSENT here is not a duplicate of RETIRED_KEYS above — it
-// is what keeps a future "just echo the row again, it's convenient" from
-// sliding back in unnoticed.
+// The T-91 receipt shape: `id` and nothing from the roster row.
 const ROSTER_ROW_KEYS = ['roster_status', 'presence', 'unread_count', 'name'];
 
 function assertLifecycleReceipt(body, label) {
@@ -100,8 +81,8 @@ function assertLifecycleReceipt(body, label) {
   }
 }
 
-test.describe('D1 · Member read-face wire shape — roster_status + slim-down seal', () => {
-  test('every roster row carries the M2 shape and none of the retired keys', async ({
+test.describe('D1 · Member read-face wire shape', () => {
+  test('every roster row carries roster_status, presence and unread_count, and no outsource status', async ({
     request,
   }) => {
     const token = await ownerToken(request);
