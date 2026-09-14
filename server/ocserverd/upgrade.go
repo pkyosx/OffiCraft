@@ -174,8 +174,9 @@ func httpGetAsset(url string, budget time.Duration) (*http.Response, *upgradeFai
 // upgradeStallTimeout bounds how long the asset body may go WITHOUT delivering
 // a single byte. It replaces a wall-clock ceiling on the whole request, which
 // cut downloads that were slow but making steady progress: on 2026-09-14 the
-// 20MB release asset over a ~200KB/s link needed 108s against a 120s ceiling
-// and every one of 20 consecutive auto-upgrades failed mid-stream. Progress,
+// 20MB release asset over a ~200KB/s link needed around 108s on average, which
+// left no headroom under the 120s ceiling, and auto-upgrades repeatedly failed
+// mid-stream. Progress,
 // not elapsed time, is what separates a slow link from a dead one, and this
 // bound does not tighten as the release grows. A var, not a const, only so a
 // test can lower it and exercise the guard through httpGetAsset itself.
@@ -209,6 +210,8 @@ var (
 // upgradeAssetSharedClient is built ONCE. A client per call would leave an
 // orphan Transport behind on every upgrade, each holding idle connections and
 // their read loops until the far end hung up.
+var upgradeDialer = &net.Dialer{Timeout: upgradeDialTimeout}
+
 var upgradeAssetSharedClient = &http.Client{
 	// Deliberately 0: the per-call budget rides on the request context instead,
 	// so the tiny metadata fetch and the multi-megabyte body can be bounded
@@ -217,7 +220,7 @@ var upgradeAssetSharedClient = &http.Client{
 	Timeout: 0,
 	Transport: &http.Transport{
 		Proxy:                 http.ProxyFromEnvironment,
-		DialContext:           (&net.Dialer{Timeout: upgradeDialTimeout}).DialContext,
+		DialContext:           upgradeDialer.DialContext,
 		TLSHandshakeTimeout:   upgradeDialTimeout,
 		ResponseHeaderTimeout: upgradeHeaderTimeout,
 		// A hand-rolled Transport that supplies DialContext does NOT negotiate
