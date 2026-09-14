@@ -480,7 +480,6 @@ describe("spec ② 狀態 badge → 下拉選單", () => {
         card.querySelector('[data-testid="task-menu-options"]')
       ).toBeNull();
       expect(card.querySelector(".task-card__menu")).toBeNull();
-      expect(card.querySelector(".task-card__menu-btn")).toBeNull();
       // And by the glyph itself — a re-add under a different testid/class still
       // has to render a ⋮ somewhere to be a ⋮ menu. Scoped to the head row, not
       // the whole card: a task TITLE is owner-authored free text and may

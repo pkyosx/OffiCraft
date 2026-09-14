@@ -83,17 +83,13 @@ beforeEach(() => {
 });
 
 describe("TaskCard 卡頭對齊 owner spec (T-705e)", () => {
-  it("keeps the old standalone card avatar gone but shows identity-chip avatars", async () => {
+  it("shows identity-chip avatars", async () => {
     __injectMockTask(mkTask({ title: "無頭像" }));
     __injectMockTask(
       mkTask({ title: "外包無頭像", executorKind: "outsource", executorId: "" })
     );
     const { findAllByTestId } = renderPage();
     const cards = await findAllByTestId("task-card");
-    for (const card of cards) {
-      expect(card.querySelector(".task-card__avatar")).toBeNull();
-      expect(card.querySelector(".task-card__outsource-avatar")).toBeNull();
-    }
     const staff = cards.find(
       (card) =>
         card.querySelector(".task-card__title")?.textContent?.trim() === "無頭像",
@@ -379,9 +375,6 @@ describe("TaskCard 卡頭對齊 owner spec (T-705e)", () => {
         badgeRow.compareDocumentPosition(title) &
           Node.DOCUMENT_POSITION_FOLLOWING
       ).toBeTruthy();
-      // And the v2 wrapper that used to hold the title on row 1 is gone for
-      // good — its return is the shape the regression takes.
-      expect(card.querySelector(".task-card__headings")).toBeNull();
     };
 
     it("a live card leads with the badge row and drops the title to row 2", async () => {

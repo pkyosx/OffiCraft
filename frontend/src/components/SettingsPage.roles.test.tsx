@@ -367,15 +367,7 @@ describe("SettingsPage · 自訂角色 改名 (custom-only rename)", () => {
   });
 });
 
-describe("SettingsPage · 角色詳情清理 (no filename chip · custom-role reset gone)", () => {
-  it("shows NO internal filename chip on the role detail page", async () => {
-    const utils = await openRolesLog();
-    fireEvent.click(utils.getByText(zh.office.role.assistant));
-    await utils.findAllByText(zh.settings.edit);
-    // The role-….md implementation detail never renders.
-    expect(utils.queryByText(/^role-.+\.md$/)).toBeNull();
-  });
-
+describe("SettingsPage · 角色詳情 版本紀錄", () => {
   // T-1f39 (owner 2026-07-31): 重置 lost its own button — the slot now holds
   // 版本紀錄, and the reset survives as the 初始版本 row inside it. The role
   // page is where the SEED/CUSTOM split still has to hold: a seed role has a

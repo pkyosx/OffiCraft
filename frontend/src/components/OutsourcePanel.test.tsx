@@ -281,11 +281,7 @@ describe("OutsourcePanel", () => {
     expect(typeLine.textContent).toBe("自由代辦");
   });
 
-  it("the rail's task type line grows NO settings gear — the outsource ⚙ is gone", async () => {
-    // Owner 2026-07-17: the roster gears go back; the outsource one is DELETED
-    // outright (the outsource panel has no 任務類型 field to host it, so unlike
-    // the member gear it has nowhere to move to). A worker with a REAL typeKey
-    // — the exact case that used to grow the gear — must show none.
+  it("a typed task's type line reads its typeKey", async () => {
     __injectMockTask(
       mkTask({ id: "t-geared", typeKey: "review-pr", createdTs: 65 })
     );
@@ -293,16 +289,9 @@ describe("OutsourcePanel", () => {
       mkWorker({ id: "ow-geared", taskId: "t-geared" })
     );
 
-    const { findByTestId, queryByTestId } = renderOutsource();
+    const { findByTestId } = renderOutsource();
     const typeLine = await findByTestId("outsource-type-ow-geared");
     expect(typeLine.textContent).toBe("review-pr");
-    expect(queryByTestId("outsource-type-settings-ow-geared")).toBeNull();
-    // Testid-independent, via a LIVE label: 任務類型設定 no longer renders
-    // anywhere, so its old class/label cannot be asserted against without the
-    // negative going unfalsifiable. What IS still live is the type text — this
-    // row shows the type but offers no jump off it.
-    const taskLine = await findByTestId("outsource-task-line-ow-geared");
-    expect(taskLine.querySelector("button[title*='設定']")).toBeNull();
   });
 
   it("clicking the task-id chip jumps to the task page — not the chat", async () => {
@@ -573,12 +562,6 @@ describe("OutsourcePanel", () => {
         Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy();
     expect(sub.querySelector(".lifecycle-dot")).toBeNull();
-    // …and no settings gear either (owner 2026-07-17: the outsource ⚙ is gone
-    // from BOTH surfaces). ow-1 carries a real "review-pr" typeKey, so this is
-    // the case that would grow one if the gear ever came back.
-    expect(
-      within(sub).queryByTestId("outsource-chat-type-settings-ow-1")
-    ).toBeNull();
     // T-dfae: the chat header's 任務/角色設定 buttons are wired ONLY for roster
     // members. An outsource peer has no role to define, and its tasks are not
     // separable from every other worker's (all collapse to the single

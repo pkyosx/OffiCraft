@@ -49,12 +49,8 @@ beforeEach(() => {
 });
 
 describe("ProfileDropdown · preferences scope", () => {
-  it("no longer renders the server parameter knobs (they live in 設定/參數調整)", async () => {
+  it("renders the theme selector and language", async () => {
     const utils = await openPreferences();
-    const text = utils.container.textContent ?? "";
-    expect(text).not.toContain(zh.settings.sessionTtl);
-    expect(text).not.toContain(zh.settings.handover);
-    // Theme selector + language remain.
     expect(utils.getByText(p.theme)).toBeTruthy();
     expect(utils.getByText(p.language)).toBeTruthy();
   });

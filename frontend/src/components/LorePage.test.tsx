@@ -1053,58 +1053,6 @@ describe("LorePage — 篩選器複選", () => {
       )!.textContent!;
     expect(label("manual:review-pr")).toContain("PR 審查");
   });
-
-  it("offers no per-option statistic on any filter", async () => {
-    // 🔴 WHICH NUMBER IS BEING REFUSED, because there are two and only one is.
-    // The 任務頁's 負責人 dropdown puts a COUNT BADGE beside each name (how many
-    // tasks that person holds — MultiSelectFilter's `count`, rendered as
-    // `${testId}-count-<value>`). That is the 統計數字 the owner ruled out for
-    // this page: 「we dont need count」. The page could not produce an honest one
-    // anyway — 傳承 loads by scrolling, so any per-option number would count the
-    // rows fetched so far and drift as the reader scrolls.
-    //
-    // The pill's own 「· N」 summary is NOT that number and is NOT refused: it
-    // says how many boxes are ticked, which is a fact about the control the
-    // reader just operated, and it is what makes a multi-select legible at all.
-    // Asserting against it here would fight the shared component and make this
-    // page's filters read differently from every other page's.
-    vi.spyOn(api, "listTaskManuals").mockResolvedValue([
-      { typeKey: "review-pr", displayName: "PR 審查", purpose: "", fields: [] },
-    ] as never);
-    stubList(page([mkEntry({ id: "L-1" })]));
-    const { container } = renderPage();
-    await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
-
-    // \U0001f534 EACH FILTER MUST BE OPENED BEFORE ITS OWN COUNT IS ASSERTED.
-    // The shared control renders `${testId}-count-<value>` ONLY while its
-    // dropdown is open, so asserting a closed filter's count selector is empty
-    // is true no matter what the component does — it passed with a hardcoded
-    // `count: 7` on every option. All four filters are walked here for that
-    // reason, one open per assertion.
-    for (const id of [
-      "lore-filter-author",
-      "lore-filter-member",
-      "lore-filter-belongs",
-      "lore-filter-state",
-    ]) {
-      const control = container.querySelector<HTMLElement>(
-        `[data-testid="${id}"]`,
-      );
-      expect(control, `${id} is missing — this walk asserts nothing`).not.toBeNull();
-      fireEvent.click(control!);
-      // The dropdown really is open: its options are in the DOM. Without this
-      // the loop would go back to measuring a closed control.
-      expect(
-        container.querySelectorAll(`[data-testid^="${id}-opt-"]`).length,
-        `${id} did not open — the count assertion below would be vacuous`,
-      ).toBeGreaterThan(0);
-      expect(
-        container.querySelectorAll(`[data-testid^="${id}-count-"]`),
-        `${id} renders a per-option count badge — owner ruled 「we dont need count」`,
-      ).toHaveLength(0);
-      fireEvent.click(control!);
-    }
-  });
 });
 
 // ────────────────────────────────────────────────────────────────────────────

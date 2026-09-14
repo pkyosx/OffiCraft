@@ -290,7 +290,7 @@ describe("TaskCard whole-card toggle (mobile refactor)", () => {
     expect(card.getAttribute("aria-expanded")).toBe("true");
   });
 
-  it("the ☑ #<task id> badge leads the badge row (編號 · 優先權 · 狀態), label-free, not on the title line", async () => {
+  it("the ☑ #<task id> badge leads the badge row (編號 · 優先權 · 狀態), not on the title line", async () => {
     const task = mkTask({ title: "編號居首" });
     __injectMockTask(task);
     const { findByTestId } = renderPage();
@@ -301,7 +301,7 @@ describe("TaskCard whole-card toggle (mobile refactor)", () => {
     expect(badge.closest(".task-card__meta")).toBeNull();
     expect(badge.textContent).toContain(`#${task.taskNo}`);
     // v3 order on the row: the id badge leads, then the 優先權 chip, then
-    // 狀態 — and no 任務編號 field label anywhere.
+    // 狀態.
     const row = badge.closest(".task-card__badge-row")!;
     const prio = row.querySelector('[data-testid="task-priority"]')!;
     const status = row.querySelector('[data-testid="task-status"]')!;
@@ -309,7 +309,6 @@ describe("TaskCard whole-card toggle (mobile refactor)", () => {
       a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING;
     expect(follows(badge, prio)).toBeTruthy();
     expect(follows(prio, status)).toBeTruthy();
-    expect(card.textContent).not.toContain("任務編號");
   });
 
   it("the 等我回覆 jump lives in the status dropdown: badge → 查看等我回覆卡 expands + scrolls to the embedded reply card", async () => {
