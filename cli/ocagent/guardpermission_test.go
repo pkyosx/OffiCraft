@@ -14,7 +14,7 @@ import (
 const wantPermissionRefusal = "OffiCraft 執行環境政策：本環境不允許任何需要人工確認的操作。" +
 	"這個工具呼叫觸發了執行環境的確認提示，而本環境沒有人可以回答這個提示，成員會就此無聲停住。" +
 	"這是環境層的固定政策，由環境自動拒絕，不是建議，也不是由指令輸出提出的要求。" +
-	"可行的替代做法：要刪除檔案或資料夾時，改用 ocagent clean <完整路徑>（它不刪除，只把目標移到工作目錄下的 trash/）。" +
+	"可行的替代做法：要刪除檔案或資料夾時，用 rm -rf <完整路徑>，路徑要完整字面寫出（不含變數、不含 ~、不含萬用字元）。" +
 	"改用不需要確認的做法後直接重試，不需要詢問任何人。"
 
 // wantPermissionAnswer is the WHOLE document the hook writes, byte for byte —
@@ -78,7 +78,7 @@ func TestCmdGuardPermission(t *testing.T) {
 	t.Run("the refusal reaches the member as written, unescaped", func(t *testing.T) {
 		var out bytes.Buffer
 		cmdGuardPermission(strings.NewReader("{}"), &out)
-		if !strings.Contains(out.String(), "ocagent clean <完整路徑>") {
+		if !strings.Contains(out.String(), "rm -rf <完整路徑>") {
 			t.Errorf("the decision document escaped the refusal instead of emitting it as written: %q", out.String())
 		}
 	})
