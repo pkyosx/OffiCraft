@@ -41,6 +41,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -100,9 +101,41 @@ const (
 // avatarKindAllowed is the closed set of member-type keys an avatars overlay
 // may carry. Any other key is a 422. Extended in T-ea81: owner (the human CEO)
 // and assistant (a member whose role is assistant, e.g. Mira) join the original
-// member / outsource kinds.
+// member / outsource kinds. T-57 renamed the 正職 key `member` -> `staff`.
+//
+// 🔴 THIS MAP IS THE ONLY COPY OF THE SET, AND THAT IS THE POINT. The 422 body
+// used to hard-write the list as prose — "(only member, outsource, owner,
+// assistant)" — a SECOND copy that nothing compared against this one. T-57
+// changed the set, and that sentence would have gone on naming a key the server
+// refuses, with no test, no compile error and no log line objecting. The message
+// is now DERIVED (avatarKindsAllowedList), so "edit the set, forget the message"
+// is not a state this file can be in.
 var avatarKindAllowed = map[string]bool{
-	"member": true, "outsource": true, "owner": true, "assistant": true,
+	"staff": true, "outsource": true, "owner": true, "assistant": true,
+}
+
+// avatarKindRetired maps a kind this product ONCE accepted to what it is called
+// today (T-57: member -> staff). It is what makes the hard cut LEGIBLE.
+//
+// The owner ruled the rename is a hard cut: a theme bundle exported before it
+// is dead, and nothing migrates the file on the owner's disk. Dead is fine;
+// SILENTLY dead is not. Without this map an old bundle's `member` key falls into
+// the generic "is not allowed" line, which tells whoever exported it nothing
+// about why yesterday's file stopped working — and the failure this ticket
+// exists to remove is precisely the quiet one (old key present, new key absent,
+// avatar falls back to the built-in glyph and no one is told).
+var avatarKindRetired = map[string]string{"member": "staff"}
+
+// avatarKindsAllowedList renders avatarKindAllowed for a human, sorted so the
+// message is stable across map-iteration order. Twin of AVATAR_KINDS_PROSE in
+// frontend/src/lib/themeBundleCore.ts.
+func avatarKindsAllowedList() string {
+	kinds := make([]string, 0, len(avatarKindAllowed))
+	for k := range avatarKindAllowed {
+		kinds = append(kinds, k)
+	}
+	sort.Strings(kinds)
+	return strings.Join(kinds, ", ")
 }
 
 // avatarMimeMagic maps each whitelisted RASTER mime to a predicate over the
@@ -217,8 +250,15 @@ func validateAvatars(avatars *map[string]string, where string) error {
 	}
 	for kind, value := range *avatars {
 		if !avatarKindAllowed[kind] {
+			if renamedTo, retired := avatarKindRetired[kind]; retired {
+				return fmt.Errorf(
+					"%s: avatar kind %q was renamed to %q — this theme bundle was exported by an "+
+						"older version of OffiCraft and is no longer importable. Re-export it from "+
+						"the theme editor after upgrading, or rename the key by hand (only %s)",
+					where, kind, renamedTo, avatarKindsAllowedList())
+			}
 			return fmt.Errorf(
-				"%s: avatar kind %q is not allowed (only member, outsource, owner, assistant)", where, kind)
+				"%s: avatar kind %q is not allowed (only %s)", where, kind, avatarKindsAllowedList())
 		}
 		if err := validAvatarValue(value); err != nil {
 			return fmt.Errorf("%s: avatars[%s] %v", where, kind, err)

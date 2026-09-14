@@ -1,5 +1,5 @@
 // CT stories (T-3738): the avatar-KIND mapping at each render site under a
-// custom theme that carries BOTH per-member-type images (member=正職,
+// custom theme that carries BOTH per-member-type images (staff=正職,
 // outsource=外包). jsdom sees the Avatar pick a `kind`, but only a real browser
 // paints the resulting <img src>; these stories mount the REAL components
 // (MemberCard / OutsourcePanel / ChatArea) so a mutant that hands the wrong
@@ -26,7 +26,7 @@ const THEME: ThemeBundle = {
   name: "修仙",
   colors: { "--color-accent": "#7a5cff" },
   avatars: {
-    member: MEMBER_IMG,
+    staff: MEMBER_IMG,
     outsource: OUTSOURCE_IMG,
     assistant: ASSISTANT_IMG,
   },

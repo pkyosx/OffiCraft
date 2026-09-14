@@ -26,7 +26,9 @@ export interface ThemeBundle {
   fonts?: Record<string, string>;
   /** Optional per-role avatar images (T-16a1 P5; extended per role in T-ea81).
    * Each value is an EMBEDDED image as a base64 `data:` URI so the picture
-   * travels inside the bundle on export/import. `member` = 一般正職, `outsource`
+   * travels inside the bundle on export/import. `staff` = 一般正職 (T-57: this
+   * key was called `member` until the rename; a bundle carrying the old key is
+   * REFUSED, not silently defaulted), `outsource`
    * = 外包, `owner` = the human CEO/owner, `assistant` = a member whose role is
    * assistant (e.g. Mira). Absent → the built-in avatar glyph is used (office
    * never degrades). */
@@ -55,8 +57,11 @@ export interface ThemeBundle {
 }
 
 /** The roles an avatars overlay may key on (正職 / 外包 / owner / assistant) —
- * the character-for-character twin of the Go avatarKinds set (T-ea81). */
-export const AVATAR_KINDS = ["member", "outsource", "owner", "assistant"] as const;
+ * the character-for-character twin of the Go avatarKindAllowed set (T-ea81).
+ * T-57 renamed the 正職 key `member` → `staff`; because `AvatarKind` is derived
+ * from THIS array, writing `kind: "member"` anywhere else in the tree is a
+ * COMPILE ERROR rather than a silently-missing image. */
+export const AVATAR_KINDS = ["staff", "outsource", "owner", "assistant"] as const;
 export type AvatarKind = (typeof AVATAR_KINDS)[number];
 
 /** The nav tabs a navIcons overlay may key on — the closed set of the main nav
@@ -280,6 +285,22 @@ export function validateFonts(fonts: unknown, where = "theme"): string | null {
 }
 
 const AVATAR_KIND_SET = new Set<string>(AVATAR_KINDS);
+
+/** The allowed-kind list AS PROSE, DERIVED from AVATAR_KINDS rather than
+ * retyped (T-57). The refusal message used to hard-write "(only member,
+ * outsource, owner, assistant)"; when the set changed, that sentence became a
+ * lie and NOTHING failed. Deriving it makes "edit the set, forget the message"
+ * unrepresentable — the twin of avatarKindsAllowedList() in
+ * server/ocserverd/avatar_bundle.go. */
+const AVATAR_KINDS_PROSE = [...AVATAR_KINDS].sort().join(", ");
+
+/** Kinds this product USED to accept, mapped to what they are called today
+ * (T-57). A bundle exported before the rename carries `member`. It must be
+ * refused — the hard cut was the owner's ruling — but refused in a way the
+ * owner can act on, because the alternative failure (accept it, then silently
+ * paint the built-in glyph) is the exact bug this rename exists to remove.
+ * Twin of avatarKindRetired in server/ocserverd/avatar_bundle.go. */
+const AVATAR_KIND_RETIRED: Record<string, string> = { member: "staff" };
 const NAV_ICON_KEY_SET = new Set<string>(NAV_ICON_KEYS);
 const BACKGROUND_KEY_SET = new Set<string>(BACKGROUND_KEYS);
 const BACKGROUND_MODE_SET = new Set<string>(BACKGROUND_MODES);
@@ -376,7 +397,11 @@ export function validateAvatars(avatars: unknown, where = "theme"): string | nul
   }
   for (const [kind, value] of Object.entries(avatars as Record<string, unknown>)) {
     if (!AVATAR_KIND_SET.has(kind)) {
-      return `${where}: avatar kind "${kind}" is not allowed (only member, outsource, owner, assistant)`;
+      const renamedTo = AVATAR_KIND_RETIRED[kind];
+      if (renamedTo !== undefined) {
+        return `${where}: avatar kind "${kind}" was renamed to "${renamedTo}" — this theme bundle was exported by an older version of OffiCraft and is no longer importable. Re-export it from that version's theme editor after upgrading, or rename the key by hand (only ${AVATAR_KINDS_PROSE})`;
+      }
+      return `${where}: avatar kind "${kind}" is not allowed (only ${AVATAR_KINDS_PROSE})`;
     }
     if (typeof value !== "string" || !isValidAvatarValue(value)) {
       return `${where}: avatars[${kind}] is not a valid image — only a base64 data: URI of a PNG / JPEG / WEBP (≤ 64 KiB) is accepted`;
