@@ -14,7 +14,6 @@
 // whose content has to scroll.
 import { useState } from "react";
 import { I18nProvider } from "../../src/i18n";
-import { api } from "../../src/api";
 import {
   __resetMock,
   __injectMockTask,
@@ -172,10 +171,13 @@ export function TaskArtifactVersionsStory() {
       {/* The page the reader has to cover — tall, with a target where the panel
         * lands. */}
       <div style={{ padding: 16 }} data-surface="page">
-        <TaskArtifactsBadge
-          task={{ id: "t-art", artifactCount: ARTIFACTS.length, artifacts: [] }}
-          onHydrate={(id) => api.getTask(id)}
-        />
+        {/* ⚠️ `artifacts: []` and `onHydrate` are GONE (c867f432): the badge now
+          * takes ONLY `{ id, artifactCount }` and does its own fetching — the card
+          * carries no artifact rows to hand it (T-66/T-92) and there is no hydrate
+          * hook to inject. Both are unexpressable, not merely unused, so there is
+          * nothing left here to keep in sync. The popover still reads the SAME
+          * seeded mock task, so this story measures exactly what it did before. */}
+        <TaskArtifactsBadge task={{ id: "t-art", artifactCount: ARTIFACTS.length }} />
         <div
           data-testid="page-behind"
           style={{ height: 1200, background: "var(--color-surface-sunken, #222)" }}

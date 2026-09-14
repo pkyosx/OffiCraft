@@ -1,14 +1,19 @@
 // CT story (T-7bc2): the chat message's .md attachment preview — real-browser
-// layout/keyboard the jsdom suite can't see. Mounts the REAL AttachmentStrip +
-// MarkdownPreviewOverlay wired EXACTLY the way ChatArea.tsx wires them (same
-// classnames, same onPreviewMarkdown knob) — not the whole ChatArea component,
-// which would need a full API mock to render (see ChatMessagesStory's own
-// comment for the same reasoning: real classnames, no function-prop mock).
-// A mutant in AttachmentStrip's shared onPreviewMarkdown wiring reddens this
-// guard exactly as it would in the real chat bubble.
-import { useState } from "react";
+// layout/keyboard the jsdom suite can't see. Mounts the REAL AttachmentStrip
+// with the SAME classnames ChatArea.tsx gives it — not the whole ChatArea
+// component, which would need a full API mock to render (see ChatMessagesStory's
+// own comment for the same reasoning: real classnames, no function-prop mock).
+// A mutant in AttachmentStrip's chip/overlay wiring reddens this guard exactly
+// as it would in the real chat bubble.
+//
+// ⚠️ The `onPreviewMarkdown` knob and the caller-owned MarkdownPreviewOverlay
+// this story used to mount beside the strip are GONE (T-f014). The strip now
+// OWNS its preview: it renders the overlay itself and no caller can route the
+// preview anywhere else, so the prop is unexpressable and the second overlay
+// could never open — it was the exact "a mounted overlay that has no way to be
+// opened" shape AttachmentStrip's own header comment describes. What the guard
+// clicks and what appears are now the same component's, which is the point.
 import { AttachmentStrip } from "../../src/components/AttachmentStrip";
-import { MarkdownPreviewOverlay } from "../../src/components/MarkdownPreviewOverlay";
 import { I18nProvider } from "../../src/i18n";
 import type { ChatAttachmentView } from "../../src/api/adapter";
 import "../../src/components/office.css";
@@ -19,9 +24,6 @@ const MD = ["# design-proposal.md", "", "## 目標", "把 .md 預覽接到聊天
 const MD_DATA_URL = "data:text/markdown;charset=utf-8," + encodeURIComponent(MD);
 
 export function ChatMdPreviewStory() {
-  const [mdPreview, setMdPreview] = useState<{ title: string; url: string } | null>(
-    null,
-  );
   const atts: ChatAttachmentView[] = [
     {
       id: "att-md",
@@ -49,22 +51,11 @@ export function ChatMdPreviewStory() {
                 className="chat__msg-attachments"
                 itemClassName="chat__msg-attachment"
                 imageClassName="chat__msg-image chat__msg-image--clickable"
-                onPreviewMarkdown={(att: ChatAttachmentView) =>
-                  setMdPreview({ title: att.filename || "", url: att.url })
-                }
               />
             </div>
           </div>
         </div>
       </div>
-      {mdPreview && (
-        <MarkdownPreviewOverlay
-          title={mdPreview.title}
-          url={mdPreview.url}
-          attachmentId="att-1"
-          onClose={() => setMdPreview(null)}
-        />
-      )}
     </I18nProvider>
   );
 }

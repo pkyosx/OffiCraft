@@ -32,9 +32,23 @@ const NOOP_LABEL = (s: string) => s;
 
 const baseVM: Omit<AgentDetailVM, "testIdPrefix"> = {
   online: true,
+  // These three became REQUIRED after this story was written; the excess
+  // `modelEffortNote` above was masking their absence (one error per literal),
+  // so removing it surfaced them. Filled with the ordinary steady state: a
+  // Claude-configured agent that has reported Claude back, and a station that
+  // did send an attach command (so the fallback text is never the one on
+  // screen here).
+  runtime: "claude",
+  reportedRuntime: "claude",
+  terminalUnavailable: "",
   model: "claude-opus-4-8",
   effort: "high",
-  modelEffortNote: "note",
+  // ⚠️ `modelEffortNote` is GONE (T-7f28): it was the caption under the in-place
+  // 模型/思考強度 editor, and that editor hung off an `onSaveModelEffort` prop no
+  // caller ever passed — so the field could not reach the screen at all. Not
+  // merely unused here: unexpressable, because `AgentDetailVM` no longer has it.
+  // Today's equivalent — 「設定改了但還沒生效」 — is the `pending` hint line, and
+  // it has its OWN guard (`pending-change-hints.ct.spec`), not this one.
   machineText: "MBP 5",
   accountText: "shawn-claude",
   contextPct: 42,
