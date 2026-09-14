@@ -400,7 +400,7 @@ export function validateAvatars(avatars: unknown, where = "theme"): string | nul
     if (!AVATAR_KIND_SET.has(kind)) {
       const renamedTo = AVATAR_KIND_RETIRED[kind];
       if (renamedTo !== undefined) {
-        return `${where}: avatar kind "${kind}" was renamed to "${renamedTo}" — this theme bundle was exported by an older version of OffiCraft and is no longer importable. Re-export it from that version's theme editor after upgrading, or rename the key by hand (only ${AVATAR_KINDS_PROSE})`;
+        return `${where}: avatar kind "${kind}" was renamed to "${renamedTo}" — this theme bundle was exported by an older version of OffiCraft and is no longer importable. Re-export it from the theme editor after upgrading, or rename the key by hand (only ${AVATAR_KINDS_PROSE})`;
       }
       return `${where}: avatar kind "${kind}" is not allowed (only ${AVATAR_KINDS_PROSE})`;
     }
