@@ -122,9 +122,9 @@ describe("what the surfaces do with a role-less member", () => {
     expect(container.textContent).toContain(zh.office.role.assistant);
   });
 
-  it("the avatar is the ordinary member face, not the assistant's", () => {
+  it("the avatar is the ordinary staff face, not the assistant's", () => {
     expect(avatarKindForMember(toMember(mkWireMember({ role_key: "" })))).toBe(
-      "member"
+      "staff"
     );
     expect(
       avatarKindForMember(toMember(mkWireMember({ role_key: "assistant" })))
