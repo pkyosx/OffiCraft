@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -212,7 +213,7 @@ func TestHttpGetAsset(t *testing.T) {
 		}))
 		defer srv.Close()
 
-		resp, fail := httpGetAsset(srv.URL + "/redirect")
+		resp, fail := httpGetAsset(srv.URL+"/redirect", upgradeBodyBudget)
 		if fail != nil {
 			t.Fatalf("want no failure, got %d %q", fail.status, fail.message)
 		}
@@ -232,7 +233,7 @@ func TestHttpGetAsset(t *testing.T) {
 		}))
 		defer srv.Close()
 
-		resp, fail := httpGetAsset(srv.URL + "/missing")
+		resp, fail := httpGetAsset(srv.URL+"/missing", upgradeBodyBudget)
 		if resp != nil {
 			t.Fatalf("response: %#v", resp)
 		}
@@ -263,6 +264,110 @@ func TestHttpGetAsset(t *testing.T) {
 		if tr.ResponseHeaderTimeout != upgradeHeaderTimeout {
 			t.Errorf("ResponseHeaderTimeout = %v, want %v", tr.ResponseHeaderTimeout, upgradeHeaderTimeout)
 		}
+		if tr.Proxy == nil {
+			t.Error("Proxy = nil — a machine behind a corporate proxy would fail to download, silently")
+		}
+		if !tr.ForceAttemptHTTP2 {
+			t.Error("ForceAttemptHTTP2 = false — a hand-rolled Transport with DialContext drops HTTP/2, which this path had via DefaultTransport")
+		}
+		if tr.IdleConnTimeout == 0 {
+			t.Error("IdleConnTimeout = 0 — idle connections would never be reaped")
+		}
+		if upgradeAssetClient() != upgradeAssetClient() {
+			t.Error("a fresh client per call leaves an orphan Transport behind on every upgrade")
+		}
+	})
+
+	t.Run("the per-call budget is what bounds the request, and the two assets get different ones", func(t *testing.T) {
+		// Guards the REGRESSION this whole change exists to prevent: a ceiling
+		// put back on the request. The shape test above cannot see that — it
+		// only reads the client object, while the deadline lives on the context
+		// httpGetAsset builds. A hardcoded duration here ignores the budget and
+		// this fails.
+		defer func(d time.Duration) { upgradeBodyBudget = d }(upgradeBodyBudget)
+		upgradeBodyBudget = 120 * time.Millisecond
+		defer func(d time.Duration) { upgradeStallTimeout = d }(upgradeStallTimeout)
+		upgradeStallTimeout = 10 * time.Second // far away: the budget must be what bites
+
+		// The handler also stops on this, not only on the request context: if a
+		// regression makes the budget long, teardown must not wait it out.
+		stop := make(chan struct{})
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Never silent, so the stall guard never fires: only the budget can end this.
+			for {
+				select {
+				case <-r.Context().Done():
+					return
+				case <-stop:
+					return
+				default:
+				}
+				if _, err := w.Write([]byte("x")); err != nil {
+					return
+				}
+				w.(http.Flusher).Flush()
+				time.Sleep(10 * time.Millisecond)
+			}
+		}))
+		defer srv.Close()
+		defer close(stop)
+
+		resp, fail := httpGetAsset(srv.URL+"/asset", upgradeBodyBudget)
+		if fail != nil {
+			t.Fatalf("want the response, got %d %q", fail.status, fail.message)
+		}
+		defer resp.Body.Close()
+		done := make(chan error, 1)
+		go func() { _, err := io.ReadAll(resp.Body); done <- err }()
+		select {
+		case err := <-done:
+			if err == nil {
+				t.Fatal("a stream that never goes silent read to completion — the per-call budget is not bounding the request")
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("the read never returned — the per-call budget is not bounding the request")
+		}
+	})
+
+	t.Run("the checksums fetch keeps a bound of its own", func(t *testing.T) {
+		// The tarball's reason for having no tight ceiling (a multi-megabyte
+		// body on a slow link) does not apply to a few hundred bytes. Dropping
+		// its bound would be a regression that bought nothing.
+		defer func(d time.Duration) { upgradeMetaBudget = d }(upgradeMetaBudget)
+		upgradeMetaBudget = 120 * time.Millisecond
+		defer func(d time.Duration) { upgradeStallTimeout = d }(upgradeStallTimeout)
+		upgradeStallTimeout = 10 * time.Second
+
+		stop := make(chan struct{})
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			for {
+				select {
+				case <-r.Context().Done():
+					return
+				case <-stop:
+					return
+				default:
+				}
+				if _, err := w.Write([]byte("0")); err != nil {
+					return
+				}
+				w.(http.Flusher).Flush()
+				time.Sleep(10 * time.Millisecond)
+			}
+		}))
+		defer srv.Close()
+		defer close(stop)
+
+		rel := githubRelease{TagName: "v1.2.3", Assets: []githubReleaseAsset{
+			{Name: checksumsAssetName, BrowserDownloadURL: srv.URL + "/checksums.txt"},
+		}}
+		done := make(chan *upgradeFailure, 1)
+		go func() { _, fail := fetchExpectedSHA(rel, "target.tar.gz"); done <- fail }()
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			t.Fatal("the checksums fetch never returned — it is riding the tarball's budget, or none at all")
+		}
 	})
 
 	t.Run("a host that answers and then goes silent aborts the download", func(t *testing.T) {
@@ -283,7 +388,7 @@ func TestHttpGetAsset(t *testing.T) {
 		defer srv.Close()
 		defer close(release)
 
-		resp, fail := httpGetAsset(srv.URL + "/asset")
+		resp, fail := httpGetAsset(srv.URL+"/asset", upgradeBodyBudget)
 		if fail != nil {
 			t.Fatalf("want the response, got %d %q", fail.status, fail.message)
 		}
@@ -309,10 +414,10 @@ func TestHttpGetAsset(t *testing.T) {
 
 func TestStallGuard(t *testing.T) {
 	t.Run("a slow but progressing stream is never cancelled", func(t *testing.T) {
-		const every = 80 * time.Millisecond
-		cancelled := false
-		body := newStallGuard(io.NopCloser(&pacedReader{chunks: 5, gap: every / 2}),
-			func() { cancelled = true }, every)
+		const every = 200 * time.Millisecond
+		var cancelled atomic.Bool
+		body := newStallGuard(io.NopCloser(&pacedReader{chunks: 5, gap: every / 8}),
+			func() { cancelled.Store(true) }, every)
 		got, err := io.ReadAll(body)
 		if err != nil {
 			t.Fatalf("read: %v", err)
@@ -321,11 +426,42 @@ func TestStallGuard(t *testing.T) {
 			t.Fatalf("body = %q, want %q", got, "xxxxx")
 		}
 		// Total elapsed is well past `every`; only the gap BETWEEN bytes matters.
-		if cancelled {
+		if cancelled.Load() {
 			t.Error("cancelled a stream that kept delivering bytes — this is the 2026-09-14 failure")
 		}
 		if err := body.Close(); err != nil {
 			t.Fatalf("close: %v", err)
+		}
+	})
+
+	t.Run("a read that returns no bytes is not progress", func(t *testing.T) {
+		// (0, nil) is a legal read that delivered nothing. Renewing on every
+		// Read instead of on every BYTE makes a source that spins without
+		// sending look alive forever — and the two are indistinguishable to a
+		// reader that always hands back a byte.
+		const every = 60 * time.Millisecond
+		fired := make(chan struct{})
+		body := newStallGuard(io.NopCloser(emptyReader{}), func() { close(fired) }, every)
+		go func() { _, _ = io.ReadAll(body) }()
+		select {
+		case <-fired:
+		case <-time.After(3 * time.Second):
+			t.Fatal("never cancelled — empty reads are being treated as progress")
+		}
+	})
+
+	t.Run("Close releases the request context", func(t *testing.T) {
+		// The guard owns the cancel once httpGetAsset hands the body back, so
+		// Close is the only thing that ever releases it. Nothing else — not the
+		// compiler, not go vet — notices if it stops doing so.
+		var released atomic.Bool
+		body := newStallGuard(io.NopCloser(&pacedReader{chunks: 1, gap: 0}),
+			func() { released.Store(true) }, time.Hour)
+		if err := body.Close(); err != nil {
+			t.Fatalf("close: %v", err)
+		}
+		if !released.Load() {
+			t.Error("Close did not release the request context — every fetch would leak one, plus an armed timer")
 		}
 	})
 
@@ -343,6 +479,14 @@ func TestStallGuard(t *testing.T) {
 			t.Fatal("never cancelled — a host that answers its headers and then trickles nothing would hold runUpgrade's lock forever")
 		}
 	})
+}
+
+// emptyReader always answers (0, nil): a read that legally delivered nothing.
+type emptyReader struct{}
+
+func (emptyReader) Read(p []byte) (int, error) {
+	time.Sleep(5 * time.Millisecond)
+	return 0, nil
 }
 
 // pacedReader hands back one byte per Read, waiting `gap` before each one, then

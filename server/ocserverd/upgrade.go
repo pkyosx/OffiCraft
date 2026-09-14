@@ -148,8 +148,8 @@ func findReleaseAsset(rel githubRelease, name string) (githubReleaseAsset, *upgr
 
 // httpGetAsset performs one bounded anonymous GET (redirect-following — the
 // browser_download_url redirects to GitHub's CDN).
-func httpGetAsset(url string) (*http.Response, *upgradeFailure) {
-	ctx, cancel := context.WithCancel(context.Background())
+func httpGetAsset(url string, budget time.Duration) (*http.Response, *upgradeFailure) {
+	ctx, cancel := context.WithTimeout(context.Background(), budget)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		cancel()
@@ -181,24 +181,58 @@ func httpGetAsset(url string) (*http.Response, *upgradeFailure) {
 // test can lower it and exercise the guard through httpGetAsset itself.
 var upgradeStallTimeout = 60 * time.Second
 
-// upgradeAssetClient builds the HTTP client every asset fetch uses. The total
-// Timeout is deliberately 0: a multi-megabyte body on a slow link must not be
-// cut mid-stream by a wall-clock deadline. Connect and response-header phases
-// keep their own bounded timeouts so a dead host still fails fast, and the
-// body is wrapped in a stall guard so a live host that stops sending cannot
-// wedge the upgrade forever. Same shape as ocagent's newStreamingClient
-// (cli/ocagent/download.go) and the SSE stream clients.
-func upgradeAssetClient() *http.Client {
-	return &http.Client{
-		Timeout: 0,
-		Transport: &http.Transport{
-			Proxy:                 http.ProxyFromEnvironment,
-			DialContext:           (&net.Dialer{Timeout: upgradeDialTimeout}).DialContext,
-			TLSHandshakeTimeout:   upgradeDialTimeout,
-			ResponseHeaderTimeout: upgradeHeaderTimeout,
-		},
-	}
+// upgradeMetaBudget bounds the checksums.txt fetch end to end. That asset is
+// read through a 1MB LimitReader and runs a few hundred bytes, so the reason
+// the tarball may not carry a wall-clock ceiling — a multi-megabyte body on a
+// slow link — does not apply to it at all. Dropping its ceiling would have been
+// a regression that bought nothing.
+//
+// upgradeBodyBudget is the tarball's BACKSTOP, not a throughput requirement.
+// The stall guard below is what catches a dead stream, and it catches it in a
+// minute; this exists only for the case the stall guard cannot see — a source
+// that keeps dribbling just fast enough to look alive. runUpgrade holds its
+// lock for the whole upgrade, so an unbounded one of those means the machine
+// silently never upgrades again.
+//
+// ⚠️ Honest limit: unlike the stall bound, this one DOES tighten as the release
+// grows. At today's ~20MB asset it is an ~11KB/s floor, far under any usable
+// link; if the asset ever approaches upgradeMaxBytes this number needs revisiting.
+//
+// Both are vars, not consts, only so a test can lower them and exercise the
+// real path through httpGetAsset.
+var (
+	upgradeMetaBudget = 2 * time.Minute
+	upgradeBodyBudget = 30 * time.Minute
+)
+
+// upgradeAssetSharedClient is built ONCE. A client per call would leave an
+// orphan Transport behind on every upgrade, each holding idle connections and
+// their read loops until the far end hung up.
+var upgradeAssetSharedClient = &http.Client{
+	// Deliberately 0: the per-call budget rides on the request context instead,
+	// so the tiny metadata fetch and the multi-megabyte body can be bounded
+	// differently. A single client-wide ceiling cannot tell them apart — that
+	// is what broke the upgrade on 2026-09-14.
+	Timeout: 0,
+	Transport: &http.Transport{
+		Proxy:                 http.ProxyFromEnvironment,
+		DialContext:           (&net.Dialer{Timeout: upgradeDialTimeout}).DialContext,
+		TLSHandshakeTimeout:   upgradeDialTimeout,
+		ResponseHeaderTimeout: upgradeHeaderTimeout,
+		// A hand-rolled Transport that supplies DialContext does NOT negotiate
+		// HTTP/2 unless asked; http.DefaultTransport, which this path used
+		// before, does. Kept on so the swap changes no wire behaviour.
+		ForceAttemptHTTP2: true,
+		IdleConnTimeout:   90 * time.Second,
+	},
 }
+
+// upgradeAssetClient is the client every asset fetch uses. Connect and
+// response-header phases keep their own bounded timeouts so a dead host still
+// fails fast; the body is wrapped in a stall guard so a live host that stops
+// sending cannot wedge the upgrade. Same shape as ocagent's newStreamingClient
+// (cli/ocagent/download.go) and the SSE stream clients.
+func upgradeAssetClient() *http.Client { return upgradeAssetSharedClient }
 
 // stallGuard wraps an asset body and cancels the request when the stream stops
 // delivering bytes for `every`. Without it, dropping the request-wide timeout
@@ -217,8 +251,11 @@ func newStallGuard(inner io.ReadCloser, stop context.CancelFunc, every time.Dura
 	return &stallGuard{inner: inner, timer: time.AfterFunc(every, stop), every: every, stop: stop}
 }
 
-// Read resets the deadline on every byte that actually arrives, so a slow but
-// progressing stream renews itself indefinitely while a silent one does not.
+// Read resets the deadline on every byte that ACTUALLY arrives — a (0, nil)
+// read is not progress and must not renew it. A slow but progressing stream
+// therefore renews itself indefinitely while a silent one does not. Note the
+// bound is on SILENCE, not on throughput: a source dribbling one byte just
+// under `every` never trips this, which is what upgradeBodyBudget is for.
 func (g *stallGuard) Read(p []byte) (int, error) {
 	n, err := g.inner.Read(p)
 	if n > 0 {
@@ -227,6 +264,10 @@ func (g *stallGuard) Read(p []byte) (int, error) {
 	return n, err
 }
 
+// Close stops the timer and releases the request context. The context is the
+// caller's to release and this is the ONLY place that does it: a caller that
+// forgets to Close the body leaks the context and leaves an armed timer, and
+// nothing — not the compiler, not go vet — will say so.
 func (g *stallGuard) Close() error {
 	g.timer.Stop()
 	g.stop()
@@ -241,7 +282,7 @@ func fetchExpectedSHA(rel githubRelease, assetName string) (string, *upgradeFail
 	if fail != nil {
 		return "", fail
 	}
-	resp, fail := httpGetAsset(sums.BrowserDownloadURL)
+	resp, fail := httpGetAsset(sums.BrowserDownloadURL, upgradeMetaBudget)
 	if fail != nil {
 		return "", fail
 	}
@@ -293,7 +334,7 @@ func (s *apiServer) upgradeTargetPath() (string, error) {
 // hashing while copying, and verifies the digest against the checksums.txt
 // entry. Returns the temp path; every failure removes the temp file itself.
 func downloadUpgradeTarball(asset githubReleaseAsset, expectedSHA, dir string) (string, *upgradeFailure) {
-	resp, fail := httpGetAsset(asset.BrowserDownloadURL)
+	resp, fail := httpGetAsset(asset.BrowserDownloadURL, upgradeBodyBudget)
 	if fail != nil {
 		return "", fail
 	}
