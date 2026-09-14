@@ -77,9 +77,11 @@ import (
 )
 
 const (
-	// upgradeDialTimeout bounds connection setup (TCP + TLS) for every asset
-	// fetch, so a host that is gone still fails fast.
+	// upgradeDialTimeout bounds the TCP connect for every asset fetch, so a
+	// host that is gone still fails fast.
 	upgradeDialTimeout = 10 * time.Second
+	// upgradeTLSHandshakeTimeout bounds the TLS handshake that follows it.
+	upgradeTLSHandshakeTimeout = 10 * time.Second
 	// upgradeHeaderTimeout bounds the wait for the response headers once the
 	// request is sent — the phase that catches a server which accepted the
 	// connection and then said nothing.
@@ -176,9 +178,8 @@ func httpGetAsset(url string, budget time.Duration) (*http.Response, *upgradeFai
 // cut downloads that were slow but making steady progress: on 2026-09-14 the
 // 20MB release asset over a ~200KB/s link needed around 108s on average, which
 // left no headroom under the 120s ceiling, and auto-upgrades repeatedly failed
-// mid-stream. Progress,
-// not elapsed time, is what separates a slow link from a dead one, and this
-// bound does not tighten as the release grows.
+// mid-stream. Progress, not elapsed time, is what separates a slow link from a
+// dead one, and this bound does not tighten as the release grows.
 const upgradeStallTimeout = 60 * time.Second
 
 // upgradeMetaBudget bounds the checksums.txt fetch end to end. That asset is
@@ -217,7 +218,7 @@ var upgradeAssetSharedClient = &http.Client{
 	Transport: &http.Transport{
 		Proxy:                 http.ProxyFromEnvironment,
 		DialContext:           upgradeDialer.DialContext,
-		TLSHandshakeTimeout:   upgradeDialTimeout,
+		TLSHandshakeTimeout:   upgradeTLSHandshakeTimeout,
 		ResponseHeaderTimeout: upgradeHeaderTimeout,
 		// A hand-rolled Transport that supplies DialContext does NOT negotiate
 		// HTTP/2 unless asked; http.DefaultTransport, which this path used
@@ -227,7 +228,7 @@ var upgradeAssetSharedClient = &http.Client{
 	},
 }
 
-// upgradeAssetClient is the client every asset fetch uses. Connect and
+// upgradeAssetClient is the client every asset fetch uses. Connect, TLS and
 // response-header phases keep their own bounded timeouts so a dead host still
 // fails fast; the body is wrapped in a stall guard so a live host that stops
 // sending cannot wedge the upgrade. Same shape as ocagent's newStreamingClient
