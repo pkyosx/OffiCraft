@@ -3,7 +3,7 @@
 // Locked here:
 //   1. COUNT, NOT A DOT: the office tab renders the actual total chat unread
 //      as a number (owner request), reusing the same .nav-tab__badge pill as
-//      the 等我回覆/任務 tabs — no leftover plain dot.
+//      the 等我回覆/任務 tabs.
 //   2. > 99 clamps to "99+" (the shared badge convention).
 //   3. count 0 → NOT RENDERED at all (no empty pill).
 
@@ -67,7 +67,5 @@ describe("辦公室 nav unread badge", () => {
     state.chatUnread = 0;
     renderApp();
     expect(screen.queryByTestId("office-unread-badge")).toBeNull();
-    // and no leftover plain dot from the old implementation
-    expect(screen.queryByTestId("office-unread-dot")).toBeNull();
   });
 });

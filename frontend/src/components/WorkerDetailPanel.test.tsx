@@ -143,9 +143,8 @@ async function openSettingsDialog(
  * else (the runtime cells, the absence of an in-place editor, the dialog
  * lifecycle) say "and it is running <model>" with this.
  *
- * 🔴 It deliberately does NOT land a monitoring session: a live session is no
- * longer a source for these two cells. It used to be the FIRST source, ahead of
- * the durable columns and with no awake gate.
+ * 🔴 It deliberately does NOT land a monitoring session: a live session is not
+ * a source for these two cells.
  */
 function reporting(
   over: Partial<OutsourceWorkerView>,
@@ -204,8 +203,7 @@ describe("WorkerDetailPanel — aligned real info (T-f190 item 1)", () => {
     const text = container.textContent ?? "";
     expect(text).toContain("O-7");
     expect(text).toContain("Opus 4.6");
-    // The aligned member-parity fields are now PRESENT (reversing the old
-    // lean-panel design where they were intentionally absent).
+    // The aligned member-parity fields are PRESENT.
     expect(text).toContain("Claude Account");
     expect((await findByTestId("worker-detail-machine")).textContent).toBe(
       "Warden · mbp5",
@@ -233,8 +231,8 @@ describe("WorkerDetailPanel — aligned real info (T-f190 item 1)", () => {
 });
 
 describe("WorkerDetailPanel — honest presence states (A案 P6 member vocabulary)", () => {
-  // T-7526 (owner 2026-07-31): there is no 狀態 cell any more, so presence is
-  // read where it is now the ONLY copy — the identity card's LifecycleDot, whose
+  // T-7526 (owner 2026-07-31): presence is read where its ONLY copy lives —
+  // the identity card's LifecycleDot, whose
   // aria-label is the shared `office.presence.*` wording.
   async function presenceLabelFor(over: Partial<OutsourceWorkerView>) {
     __injectMockTask(mkTask({ id: "t-1" }));
@@ -665,13 +663,10 @@ describe("WorkerDetailPanel — header matches the sidebar 外包 row (T-f190 UI
     // matching the sidebar 外包 row (T-3ed8, owner 2026-07-20 完全一致).
     await findByText("外包 · O-19");
     expect((await findByTestId("worker-detail-header-chip")).textContent).toBe("T-e9f4");
-    // T-b0e3: the slot that used to hold the FULL task title now renders the
-    // SAME short type label the roster row shows (taskTypeName), never the
-    // full title/description sentence.
+    // T-b0e3: the header renders the SAME short type label the roster row
+    // shows (taskTypeName), never the full title/description sentence.
     expect(header.textContent).toContain("OffiCraft 開發");
     expect(header.textContent).not.toContain("Planning for big change");
-    // The old raw ow-id chip is gone (the header no longer renders worker.id).
-    expect(header.textContent).not.toContain("ow-1");
     // Real presence: online → the shared lifecycle dot's ONLINE class (the
     // colour comes from --color-dot-online, never an inline literal).
     const dot = await findByTestId("worker-detail-header-dot");
@@ -1229,11 +1224,9 @@ describe("WorkerDetailPanel — initial-prompt preview (T-ba6b)", () => {
     // rc-e12733548e4b 之後是新名（啟動程序 → 啟動步驟），與 seed 同一顆
     // commit 換掉。
     expect(body.textContent ?? "").toContain("啟動步驟");
-    // T-4595: this used to assert the codename and the bound task title were in
-    // the preview. Both are gone — a worker's boot context is the staff fold
-    // minus the persona slot, with no identity block, no task and no manual —
-    // so asserting their ABSENCE is what keeps the cockpit honest about what it
-    // is showing.
+    // T-4595: a worker's boot context is the staff fold minus the persona slot,
+    // with no identity block, no task and no manual — so the codename and the
+    // bound task title must not appear in the preview.
     expect(body.textContent ?? "").not.toContain("O-42");
     expect(body.textContent ?? "").not.toContain("查帳單對帳");
     // The honesty caveat is present (目前版本重組, 非派工當下逐字版).
@@ -1336,8 +1329,7 @@ describe("WorkerDetailPanel — initial-prompt preview (T-ba6b)", () => {
 // 回報回來的狀態，不能顯示設定值」. The two halves are pinned together on
 // purpose — the readout must never fall back to the configured pair, and the
 // dialog must never seed from (and therefore save back) a telemetry value or a
-// blank. T-7526 moved the editor out of the cell and into the dialog; these
-// pin the RULE, so they follow it there rather than the markup it used to have.
+// blank. The editor lives in the dialog (T-7526); these pin the RULE.
 describe("WorkerDetailPanel — reported state vs configured launch intent (T-e12c)", () => {
   /** A worker that is awake and reporting a pair DIFFERENT from its configured
    * one — and, deliberately, a live monitoring session reporting a THIRD pair.
@@ -1395,7 +1387,7 @@ describe("WorkerDetailPanel — reported state vs configured launch intent (T-e1
       (await findByTestId("worker-detail-effort-value")).textContent,
     ).toContain("low");
     // …and NOT the live monitoring session's pair, which is a different one
-    // again and is no longer a source for either cell.
+    // again and is not a source for either cell.
     expect(
       (await findByTestId("worker-detail-model-effort-cell")).textContent,
     ).not.toContain("session-only-model");

@@ -12,11 +12,8 @@
 //      while 轉給-轉外包, which has two cells, keeps the flex row. The GEOMETRY
 //      is a CSS grid (untestable in jsdom); what is locked here is the modifier
 //      class that switches it on.
-//      投入程度 used to be pinned here too — it shared the chip row's shape, and
-//      at 390px it wrapped into 低/中/高 then 最高 alone at w=292 of a 302-wide
-//      group. It is no longer a chip row at all: T-131 made it a dropdown
-//      (owner 2026-09-08), so there is no modifier class left to assert and its
-//      contract is now the option-list guard in this file.
+//      投入程度 is a dropdown (T-131); its contract is the option-list guard in
+//      this file.
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, fireEvent, within, waitFor } from "@testing-library/react";
@@ -184,7 +181,7 @@ describe("模型 picker — grid modifier + active-class wiring", () => {
   });
 });
 
-describe("機器選擇 — 移除自動分配、明選必填 (owner 2026-07-19)", () => {
+describe("機器選擇 — 外包必須明選機器才能送出 (owner 2026-07-19)", () => {
   function renderDialog(onReassign = vi.fn().mockResolvedValue(undefined)) {
     const onClose = vi.fn();
     const utils = render(

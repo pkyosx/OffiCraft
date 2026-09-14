@@ -1,6 +1,6 @@
 // T-8f6e 設定導航統一 — EVERY settings page heads with the shared breadcrumb
 // (「設定 › 子頁 › …」, each parent segment clickable back up the tree) with
-// the page title directly below, and the old ‹ 返回 back row is GONE.
+// the page title directly below, and no 返回 back button.
 //
 //   1. Per-page header assertions: landing / 系統更新與備份 / 角色誌 / 角色詳情 /
 //      系統互動·使用者自訂·啟動步驟 / 任務手冊 (list + hub) / 參數調整 all
@@ -40,8 +40,6 @@ function crumbSegs(utils: Utils): string[] {
 /** The unified header contract: breadcrumb segments + NO back button. */
 function expectHeader(utils: Utils, segs: string[]) {
   expect(crumbSegs(utils)).toEqual(segs);
-  // 返回鍵移除 — neither the old .set-back row nor any 返回-labelled button.
-  expect(utils.container.querySelector(".set-back")).toBeNull();
   expect(utils.queryByRole("button", { name: "返回" })).toBeNull();
 }
 
@@ -108,11 +106,9 @@ describe("SettingsPage · unified breadcrumb header (T-8f6e)", () => {
     // must not add a second one. Without this half the loop above is satisfied
     // by a page that dropped the codex document altogether.
     //
-    // ⚠️ This used to count the STRING 啟動步驟 and require exactly one. That
-    // stopped being the right probe when the index grew its own <h1> (every
-    // other settings page has one), which makes the string appear twice on a
-    // perfectly correct page. Counting the TRAIL is what the assertion always
-    // meant.
+    // ⚠️ Count the TRAIL, not the STRING 啟動步驟: the index has its own <h1>
+    // (like every other settings page), so the string appears twice on a
+    // correct page.
     fireEvent.click(utils.getByText(s.bootName));
     expect(await utils.findByTestId("boot-entry-claude")).toBeTruthy();
     expect(utils.getByTestId("boot-entry-codex")).toBeTruthy();

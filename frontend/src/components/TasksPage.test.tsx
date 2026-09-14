@@ -735,7 +735,7 @@ describe("TasksPage", () => {
     __injectMockTask(mkTask({ title: "要被終止的" }));
     const { findByTestId, queryByTestId } = renderPage();
 
-    // v5: 終止 lives on the 狀態 badge dropdown, no longer under the ⋮.
+    // v5: 終止 lives on the 狀態 badge dropdown.
     fireEvent.click(await findByTestId("task-status"));
     fireEvent.click(await findByTestId("task-terminate"));
     // Second step: the ConfirmModal — cancelling does nothing yet.
@@ -1006,28 +1006,15 @@ describe("TasksPage", () => {
     });
 
     it("KEEPS the #tasks/<id> anchor and says the id DOES NOT EXIST when the server answers 404", async () => {
-      // owner 2026-09-05 (rc-428906235337, 「這一包一起改」). Before this, a
-      // link whose task does not exist stripped its OWN hash and the page
-      // settled on the ordinary list with nothing said — so a broken link and a
-      // link that was never filtering looked identical, and the owner could not
-      // tell which one he was looking at. The anchor now stays and the page
-      // answers.
+      // owner 2026-09-05 (rc-428906235337) / 2026-09-06 option ①. A broken link
+      // must be told apart from a link that was never filtering, and 「不存在」
+      // from 「在，只是沒被載進來」: the shared 沒有符合篩選條件的任務 empty
+      // state is what the page shows for a real task outside the loaded page,
+      // so a 404 gets its own words.
       //
-      // 🔴 WHAT THIS SPEC NOW ASSERTS, AND WHY IT CHANGED (T-93 round 3, owner
-      // 2026-09-06 option ①). It used to expect the shared
-      // 沒有符合篩選條件的任務 empty state. That sentence is exactly the defect
-      // this ticket exists for: it is ALSO what the page said when the task was
-      // real but simply outside the loaded page, so 「不存在」 and 「在，只是沒被
-      // 載進來」 read identically — and it fooled the owner in review. A 404 is
-      // an ANSWER from the server, so the page now says so in its own words.
-      //
-      // ⚠️ The old behaviour WAS guarded, just not from here: deleting the
-      // stripping effect left all 35 tests in THIS file green, and the two that
-      // went red live in TasksPage.jump.test.tsx and TasksPage.anchor-fetch.
-      // Both were rewritten to the new expectation in the same commit. Recorded
-      // because "I ran the obvious file and it was green" is exactly how a
-      // deleted behaviour gets called unguarded — the denominator is every file
-      // that renders this page, not the one named after it.
+      // ⚠️ Anchor handling is also pinned in TasksPage.jump.test.tsx and
+      // TasksPage.anchor-fetch; the denominator for this behaviour is every
+      // file that renders this page, not only this one.
       __injectMockTask(mkTask({ title: "工作室裡確實有一張票" }));
       // The real failure path: GET /api/tasks/{id} rejects (404 / deleted), and
       // useTasks resolves the anchor WITH the id and a null task, so
@@ -1230,11 +1217,9 @@ describe("TasksPage filter enhancements (T-be18)", () => {
 
     // Tick 已完成 in the 狀態 filter → Mira's count grows to 3 (the count basis
     // follows the status filter, T-be18 #3).
-    // 🔁 WAS followed by a re-open click on 負責人, because 套用篩選 used to close
-    // the whole panel. T-118 removed the panel (owner 2026-09-06,
-    // c-c3d681fe05da), so the dropdown is still open and that click would now
-    // SHUT it. The count basis is also the applied set rather than a draft one
-    // now — there is no draft — which is why the number moves on the tick.
+    // The dropdown stays open across the tick (a click on 負責人 would SHUT it),
+    // and the count basis is the applied set — there is no draft — so the
+    // number moves on the tick.
     toggleFilter("filter-status", "done");
     await waitFor(() => expect(countOf("mira")).toBe("3"));
   });
@@ -1305,12 +1290,8 @@ describe("TasksPage filter enhancements (T-be18)", () => {
     await waitFor(() => expect(optOf("outsource")).not.toBeNull());
 
     // 勾選 外包 while it still has a task.
-    // 🔁 EVERY `fireEvent.click(filter-executor)` THAT USED TO FOLLOW A TOGGLE
-    // IS GONE from this test. Round 3's 套用篩選 closed the whole panel, so each
-    // read had to reopen the dropdown; owner 2026-09-06 (c-c3d681fe05da)
-    // removed the panel, so the popover stays open and that click would now
-    // SHUT it — the reads below would then find nothing and the test would fail
-    // for a reason unrelated to what it guards.
+    // The popover stays open across toggles; clicking filter-executor again
+    // would SHUT it and the reads below would find nothing.
     toggleFilter("filter-executor", "outsource");
     await waitFor(() => expect(checkOf("outsource")?.checked).toBe(true));
 
@@ -1372,12 +1353,7 @@ describe("TasksPage 顯示全部 semantics (T-50bb)", () => {
   };
 
   it("the DEFAULT view already narrows: the terminals it hides are absent from the list", async () => {
-    // 🔁 REPLACES 「shows 清除篩選 already in the DEFAULT view」. That test proved
-    // the default view counts as a filter BY THE PRESENCE OF THE BUTTON, and
-    // the button is gone (owner 2026-09-06, c-c3d681fe05da). The fact it was
-    // really pinning — that the default status set is a real constraint, not
-    // "no filter" — is asserted here directly instead, which is what it should
-    // have measured all along.
+    // The default status set is a real constraint, not "no filter".
     injectMixedTasks();
     const { findByText, queryByText } = renderPage();
     await findByText("活的");
@@ -1401,10 +1377,9 @@ describe("TasksPage 顯示全部 semantics (T-50bb)", () => {
     await findByText("完成的");
     await findByText("終止的");
     expect((await findByText("活的")).textContent).toContain("活的");
-    // Nothing narrows the list any more, and the 狀態 dropdown reads as
-    // unconstrained (all boxes unchecked) — with the 已篩選 strip gone, the
-    // dropdown's own state is what says so, which is the property that made
-    // removing the strip safe.
+    // Nothing narrows the list, and the 狀態 dropdown reads as unconstrained
+    // (all boxes unchecked) — there is no 已篩選 strip, so the dropdown's own
+    // state is what says so.
     expect(queryByTestId("tasks-filter-clear")).toBeNull();
     fireEvent.click(await findByTestId("filter-status"));
     const checkOf = (v: string) =>
