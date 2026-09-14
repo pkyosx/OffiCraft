@@ -60,6 +60,20 @@ function artifact(over: Partial<TaskArtifactView>): TaskArtifactView {
     mime: "text/plain",
     createdTs: 1753776180,
     createdBy: "mira",
+    // T-57 — the blob's own name, and it has to sit in the BASE literal rather
+    // than being left to `over`: a field that only ever arrives through
+    // `Partial<TaskArtifactView>` types as `string | undefined`, which is the
+    // error this fixes. The value is the same `.txt` the stub serves under
+    // `text/plain`, so the two facts about these bytes agree. Note the versions
+    // modal reads the LIVE side under `name`, not this (see its own comment),
+    // so this value is not what task-artifact-versions.ct.spec.tsx binds to —
+    // it is what keeps the row honest for the popover's `blobFilename`.
+    filename: "交付說明.txt",
+    // Left at 2 deliberately: `VersionsButton` renders only above 1, and
+    // task-artifact-versions.ct.spec.tsx reaches the whole reader through
+    // `getByTestId("task-artifact-versions-ta-file")` and then asserts the
+    // 「2版」 chip is wider than 26px and unclipped. Drop this to 1 and there is
+    // no entry to click.
     versionCount: 2,
     ...over,
   };
@@ -74,6 +88,9 @@ const ARTIFACTS = [
     name: "PR #2",
     description: "",
     mime: "text/uri-list",
+    // A link carries none — without this override it would inherit the base
+    // row's `.txt`, which is simply not true of this row's bytes.
+    filename: "",
   }),
 ];
 
@@ -97,6 +114,17 @@ function seed() {
       name: "交付說明.txt",
       description: "",
       filename: "交付說明.txt",
+      // T-57 — this version's OWN facts, matched to what the story's stubbed
+      // fetch actually answers for `/api/chat/attachment/att-old`:
+      // `text/plain; charset=utf-8`. That agreement is what keeps
+      // task-artifact-versions.ct.spec.tsx on its TEXT path, where
+      // `ta-versions-content-text` exists and `.ta-versions__body` has 60 lines
+      // to scroll (its 「wide」 test asserts `bodyScrolled > 0`).
+      // ⚠️ Measured, not assumed: `loadArtifactPayload` decides from the
+      // RESPONSE's content-type plus the name, never from this field — so this
+      // value is honest bookkeeping rather than the thing the guard binds to.
+      mime: "text/plain",
+      isImage: false,
       attachmentId: "att-old",
       createdTs: 1753689780,
       createdBy: "mira",
@@ -110,6 +138,12 @@ function seed() {
       name: "PR #1",
       description: "",
       filename: "",
+      // T-57 — a LINK version is the documented asymmetry (adapter.ts): the
+      // server resolves only the uri-list's BYTES into `url` and leaves
+      // mime/filename/isImage empty, so "" / false is this row's real shape,
+      // not a placeholder. `filename: ""` above was already spelled that way.
+      mime: "",
+      isImage: false,
       attachmentId: "",
       createdTs: 1753689780,
       createdBy: "mira",
