@@ -1,6 +1,6 @@
 package main
 
-// migration_00199_avatar_kind_test.go — T-57.
+// migration_00107_avatar_kind_test.go — T-57.
 //
 // 🔴 THE FIRST TEST IN THIS FILE IS THE ONE THE TICKET IS ABOUT, and it is
 // written the way it is on purpose. The bug T-57 removes is that a station whose
@@ -19,14 +19,13 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"os"
 	"strings"
 	"testing"
 )
 
 const avatarKindTestImage = "data:image/png;base64,AAAA-the-owners-正職-picture"
 
-func TestMigration00199AvatarKindRename(t *testing.T) {
+func TestMigration00107AvatarKindRename(t *testing.T) {
 	t.Run("an old bundle's member image is readable as staff after the migration", func(t *testing.T) {
 		d := newAPITestDAL(t)
 		seedAvatarKindTheme(t, d, "dusk", map[string]string{
@@ -194,29 +193,15 @@ func TestMigration00199AvatarKindRename(t *testing.T) {
 	})
 }
 
-// TestMigration00199ProvisionalNumberIsDeclared is the mechanical half of the
-// "do not merge on a provisional number" rule. It cannot allocate the number,
-// but it CAN refuse to let the placeholder pass as a decision: the file must say
-// out loud that 00199 is provisional. Whoever reallocates deletes this test with
-// the marker.
-func TestMigration00199ProvisionalNumberIsDeclared(t *testing.T) {
-	src := readMigration00199Source(t)
-	if !strings.Contains(src, "PROVISIONAL AND MUST BE REALLOCATED BEFORE THIS MERGES") {
-		t.Fatalf("migration 00199 carries a provisional number; the file must declare it so the " +
-			"number is reallocated at merge time rather than shipped as picked")
-	}
-}
+// The number is no longer provisional: this migration was allocated 00107 at
+// merge time. The test that used to stand here — ProvisionalNumberIsDeclared —
+// asserted the source still carried the "PROVISIONAL AND MUST BE REALLOCATED"
+// marker, and its own comment said to delete it together with that marker. It
+// is gone, along with the source reader that existed only to feed it. It was
+// removed because its premise expired, not to make it green: keeping it would
+// have required the file to keep claiming a decision it has now made.
 
 // ── helpers ─────────────────────────────────────────────────────────────────
-
-func readMigration00199Source(t *testing.T) string {
-	t.Helper()
-	b, err := os.ReadFile("migration_00199_avatar_kind_member_to_staff.go")
-	if err != nil {
-		t.Fatalf("read the migration source: %v", err)
-	}
-	return string(b)
-}
 
 func seedAvatarKindTheme(t *testing.T, d *DAL, id string, avatars map[string]string) {
 	t.Helper()

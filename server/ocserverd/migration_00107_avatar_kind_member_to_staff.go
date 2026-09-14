@@ -1,33 +1,47 @@
 package main
 
-// migration_00199_avatar_kind_member_to_staff.go — T-57, the DATA half of
+// migration_00107_avatar_kind_member_to_staff.go — T-57, the DATA half of
 // renaming the avatar kind `member` to `staff`.
 //
-// 🔴 THE NUMBER 00199 IS PROVISIONAL AND MUST BE REALLOCATED BEFORE THIS MERGES.
-// Taking a migration number is the LAST action before a merge, not the first:
-// the door is shared, and a number picked at the start of a branch is a number
-// somebody else has taken by the end of it. 00199 is deliberately far above the
-// live range (main's maximum was 00106 when this was written) so it is obviously
-// a placeholder rather than a plausible neighbour.
+// ── THE MIGRATION NUMBER ────────────────────────────────────────────────────
 //
-// Whoever reallocates it must change SEVEN things, in one pass. The count is
-// spelled out because an earlier draft of this paragraph listed five and quietly
-// omitted two of them — and a checklist that is one item short reads exactly
-// like a complete one:
+// 00107 is the FINAL number. It was allocated at merge time, replacing the
+// provisional placeholder this file carried while the branch was in flight (the
+// commit that made this change records the old number): taking a
+// migration number is the LAST action before a merge, not the first, because
+// the door is shared and a number picked at the start of a branch is a number
+// somebody else has taken by the end of it.
+//
+// Allocated 2026-09-14 against origin/main, whose highest migration was
+// migrations/00106_retire_the_hire_born_outsource_shell.sql (the highest Go
+// migration was 00100), and against every remote branch: no tree anywhere
+// carried 00107 or above except this one's own placeholder.
+//
+// The reallocation touched SEVEN things, in one pass. The count is spelled out
+// because an earlier draft of this paragraph listed five and quietly omitted
+// two of them — and a checklist that is one item short reads exactly like a
+// complete one:
 //
 //  1. this file's NAME;
 //  2. the string passed to AddNamedMigrationContext below;
-//  3. every "00199" inside the error and log messages in this file;
+//  3. every "00107" inside the error and log messages in this file;
 //  4. the VALUE of avatarKindSkipRecordKey — it carries the number INSIDE a
 //     settings key, so a rename here changes a string that has already been
-//     written into real databases by any station that ran the placeholder;
-//  5. the TEST FILE'S OWN NAME (migration_00199_avatar_kind_test.go);
+//     written into real databases by any station that ran the placeholder.
+//     No station ever ran the placeholder: it only ever existed on this
+//     unmerged branch, so no database anywhere holds a placeholder-keyed row;
+//  5. the TEST FILE'S OWN NAME (migration_00107_avatar_kind_test.go);
 //  6. the expectations inside that test file, including the filename literal
-//     readMigration00199Source() opens — it reads this source by hard-coded
-//     path and will fail to find it the moment item 1 happens;
+//     the test's source reader opens — it read this source by hard-coded path
+//     and would have failed to find it the moment item 1 happened. That reader
+//     existed only for the ProvisionalNumberIsDeclared test, which
+//     asserted the provisional marker was present and whose own comment said
+//     to delete it together with the marker; both are now gone, because the
+//     number is no longer provisional and a test asserting otherwise would
+//     have to be made to lie to stay green;
 //  7. then regenerate server/ocserverd/migration.lock with bin/gen-migration-lock.
 //
-// `grep -rn 00199 server/ocserverd` enumerates 1-6; item 7 is not greppable.
+// `grep -rn 00107 server/ocserverd` enumerates 1-6; item 7 is not greppable.
 // 🔴 A number BELOW the station's current version makes goose return an error
 // and a number that COLLIDES makes it panic while collecting migrations — both
 // of which mean the server does not come up. The acceptance test is "the server
@@ -115,7 +129,7 @@ import (
 )
 
 func init() {
-	goose.AddNamedMigrationContext("00199_avatar_kind_member_to_staff.go",
+	goose.AddNamedMigrationContext("00107_avatar_kind_member_to_staff.go",
 		upAvatarKindMemberToStaff, downAvatarKindMemberToStaff)
 }
 
@@ -155,8 +169,8 @@ const (
 // decision and a separate ticket — do not quietly add one here, and do not
 // quietly write a sentence claiming it already has one.
 //
-// 🔴 REALLOCATING THE NUMBER MUST RENAME THIS KEY TOO — it carries 00199.
-const avatarKindSkipRecordKey = "display.custom_theme.avatar_kind_skipped_by_00199"
+// 🔴 REALLOCATING THE NUMBER MUST RENAME THIS KEY TOO — it carries 00107.
+const avatarKindSkipRecordKey = "display.custom_theme.avatar_kind_skipped_by_00107"
 
 // avatarKindSkip is one custom_theme row the rewrite declined to touch.
 type avatarKindSkip struct {
@@ -187,7 +201,7 @@ func renameAvatarKind(ctx context.Context, tx *sql.Tx, from, to string) error {
 	rows, err := tx.QueryContext(ctx,
 		`SELECT theme_id, bundle FROM custom_theme ORDER BY theme_id`)
 	if err != nil {
-		return fmt.Errorf("migration 00199: read custom_theme: %w", err)
+		return fmt.Errorf("migration 00107: read custom_theme: %w", err)
 	}
 	type pending struct {
 		themeID string
@@ -198,23 +212,23 @@ func renameAvatarKind(ctx context.Context, tx *sql.Tx, from, to string) error {
 		var p pending
 		if err := rows.Scan(&p.themeID, &p.bundle); err != nil {
 			rows.Close()
-			return fmt.Errorf("migration 00199: scan custom_theme row: %w", err)
+			return fmt.Errorf("migration 00107: scan custom_theme row: %w", err)
 		}
 		all = append(all, p)
 	}
 	if err := rows.Err(); err != nil {
 		rows.Close()
-		return fmt.Errorf("migration 00199: iterate custom_theme: %w", err)
+		return fmt.Errorf("migration 00107: iterate custom_theme: %w", err)
 	}
 	if err := rows.Close(); err != nil {
-		return fmt.Errorf("migration 00199: close custom_theme: %w", err)
+		return fmt.Errorf("migration 00107: close custom_theme: %w", err)
 	}
 
 	var skipped []avatarKindSkip
 	skip := func(themeID, why string) {
 		skipped = append(skipped, avatarKindSkip{ThemeID: themeID, Reason: why})
 		fmt.Fprintf(avatarKindMigrationLog,
-			"migration 00199: theme %q left as it is — %s\n", themeID, why)
+			"migration 00107: theme %q left as it is — %s\n", themeID, why)
 	}
 
 	for _, p := range all {
@@ -251,17 +265,17 @@ func renameAvatarKind(ctx context.Context, tx *sql.Tx, from, to string) error {
 		avatars[to] = img
 		reAvatars, err := json.Marshal(avatars)
 		if err != nil {
-			return fmt.Errorf("migration 00199: re-encode avatars for theme %q: %w", p.themeID, err)
+			return fmt.Errorf("migration 00107: re-encode avatars for theme %q: %w", p.themeID, err)
 		}
 		doc["avatars"] = reAvatars
 		reBundle, err := json.Marshal(doc)
 		if err != nil {
-			return fmt.Errorf("migration 00199: re-encode bundle for theme %q: %w", p.themeID, err)
+			return fmt.Errorf("migration 00107: re-encode bundle for theme %q: %w", p.themeID, err)
 		}
 		if _, err := tx.ExecContext(ctx,
 			`UPDATE custom_theme SET bundle = ? WHERE theme_id = ?`,
 			string(reBundle), p.themeID); err != nil {
-			return fmt.Errorf("migration 00199: rewrite theme %q: %w", p.themeID, err)
+			return fmt.Errorf("migration 00107: rewrite theme %q: %w", p.themeID, err)
 		}
 	}
 	return recordAvatarKindSkips(ctx, tx, skipped)
@@ -283,13 +297,13 @@ func recordAvatarKindSkips(ctx context.Context, tx *sql.Tx, skipped []avatarKind
 	}
 	blob, err := json.Marshal(skipped)
 	if err != nil {
-		return fmt.Errorf("migration 00199: record skips: %w", err)
+		return fmt.Errorf("migration 00107: record skips: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx,
 		`INSERT INTO setting (key, value, updated_at) VALUES (?, ?, 0)
 		 ON CONFLICT (key) DO UPDATE SET value = excluded.value`,
 		avatarKindSkipRecordKey, string(blob)); err != nil {
-		return fmt.Errorf("migration 00199: record skips: %w", err)
+		return fmt.Errorf("migration 00107: record skips: %w", err)
 	}
 	return nil
 }
