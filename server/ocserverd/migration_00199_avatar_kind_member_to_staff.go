@@ -8,10 +8,26 @@ package main
 // the door is shared, and a number picked at the start of a branch is a number
 // somebody else has taken by the end of it. 00199 is deliberately far above the
 // live range (main's maximum was 00106 when this was written) so it is obviously
-// a placeholder rather than a plausible neighbour. Whoever reallocates it must
-// change, in one pass: this file's NAME, the string in AddNamedMigrationContext
-// below, every "00199" in the messages, the test file's expectations, and then
-// regenerate server/ocserverd/migration.lock with bin/gen-migration-lock.
+// a placeholder rather than a plausible neighbour.
+//
+// Whoever reallocates it must change SEVEN things, in one pass. The count is
+// spelled out because an earlier draft of this paragraph listed five and quietly
+// omitted two of them — and a checklist that is one item short reads exactly
+// like a complete one:
+//
+//  1. this file's NAME;
+//  2. the string passed to AddNamedMigrationContext below;
+//  3. every "00199" inside the error and log messages in this file;
+//  4. the VALUE of avatarKindSkipRecordKey — it carries the number INSIDE a
+//     settings key, so a rename here changes a string that has already been
+//     written into real databases by any station that ran the placeholder;
+//  5. the TEST FILE'S OWN NAME (migration_00199_avatar_kind_test.go);
+//  6. the expectations inside that test file, including the filename literal
+//     readMigration00199Source() opens — it reads this source by hard-coded
+//     path and will fail to find it the moment item 1 happens;
+//  7. then regenerate server/ocserverd/migration.lock with bin/gen-migration-lock.
+//
+// `grep -rn 00199 server/ocserverd` enumerates 1-6; item 7 is not greppable.
 // 🔴 A number BELOW the station's current version makes goose return an error
 // and a number that COLLIDES makes it panic while collecting migrations — both
 // of which mean the server does not come up. The acceptance test is "the server
@@ -125,6 +141,19 @@ const (
 // 00059 established for `display.custom_themes.skipped_by_00059`. Settings are
 // read one key at a time and nothing enumerates the key space, so an extra row
 // is inert to settings load, to GET /api/settings and to the cockpit.
+//
+// 🔴 NOTHING IN THIS TREE READS THIS ROW TODAY, AND THAT IS STATED HERE SO THE
+// NEXT PERSON DOES NOT ASSUME A SAFETY NET THAT IS NOT THERE. Measured, not
+// argued: the only mentions of this key anywhere are this file and its test
+// (`grep -rn avatarKindSkipRecordKey`). There is no startup check, no admin
+// surface, no health signal and no API face that surfaces it — so on a real
+// station a skip is visible ONLY in the stderr line that scrolls past during
+// the upgrade, plus this row for whoever later thinks to query the setting
+// table by hand. The row is written so the evidence EXISTS at all, which is
+// strictly better than a silent skip; it is not a mechanism that will bring a
+// skip to anybody's attention on its own. Giving it a reader is a separate
+// decision and a separate ticket — do not quietly add one here, and do not
+// quietly write a sentence claiming it already has one.
 //
 // 🔴 REALLOCATING THE NUMBER MUST RENAME THIS KEY TOO — it carries 00199.
 const avatarKindSkipRecordKey = "display.custom_theme.avatar_kind_skipped_by_00199"

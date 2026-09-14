@@ -9,6 +9,13 @@
   // uses import.meta.env); without it tsc has no vite/client types.
   "include": [
     "paint-guards",
+    // [T-57] visual-guards was in NO tsconfig either, which made the avatar-kind
+    // type guard's reach smaller than the sentence describing it: AvatarKind is
+    // derived from AVATAR_KINDS so `kind: "member"` is a compile error — but
+    // only where a compiler actually looks, and three live `kind="member"` props
+    // sat in this directory clearing both typechecks. Covering the directory is
+    // what makes "anywhere in the tree" true, rather than narrowing the claim.
+    "visual-guards",
     // The Playwright configs themselves were in no tsconfig either
     // (tsconfig.node.json only includes vite.config.ts), so a type error in the
     // config that HOSTS the guards was as invisible as one inside them.
