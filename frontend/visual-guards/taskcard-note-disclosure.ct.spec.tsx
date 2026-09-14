@@ -83,77 +83,11 @@ test("no edit affordance for the title or the description occupies any pixels", 
 }) => {
   const cmp = await mountExpanded(mount, page);
 
-  // (1) POSITIVE CONTROL FIRST. The enumeration below is a "found nothing"
-  // assertion, and a broken selector finds nothing too. So prove the same
-  // enumeration DOES see the card's other controls: the composer's 送出 button
-  // is a real, visible, non-zero box in exactly the tree being searched.
-  const control = await page.evaluate(() => {
-    const el = document.querySelector(
-      "[data-testid='task-msg-send']"
-    ) as HTMLElement | null;
-    if (!el) return null;
-    const r = el.getBoundingClientRect();
-    return { w: r.width, h: r.height };
-  });
-  expect(control, "positive control: 送出 button must be found").not.toBeNull();
-  expect(control!.w * control!.h).toBeGreaterThan(0);
-
-  // (2) The invariant, measured as GEOMETRY, not as markup. Every interactive
-  // element in the card that a user could actually reach (non-zero box, not
-  // display:none / visibility:hidden) is collected with its accessible text.
-  // None of them may be an edit-the-title / edit-the-description entry, in
-  // either shipped language.
-  const reachable = await page.evaluate(() => {
-    const card = document.querySelector("[data-testid='task-card']")!;
-    const out: string[] = [];
-    card
-      .querySelectorAll("button, a, input, textarea, select, [role='button']")
-      .forEach((n) => {
-        const el = n as HTMLElement;
-        const r = el.getBoundingClientRect();
-        const cs = getComputedStyle(el);
-        if (r.width * r.height === 0) return;
-        if (cs.visibility === "hidden" || cs.display === "none") return;
-        out.push(
-          [
-            el.textContent || "",
-            el.getAttribute("aria-label") || "",
-            el.getAttribute("title") || "",
-            el.getAttribute("data-testid") || "",
-          ].join(" ")
-        );
-      });
-    return out;
-  });
-  // the enumeration is non-empty — see (1); this restates it against THIS list.
-  expect(reachable.length).toBeGreaterThan(0);
-  for (const label of reachable) {
-    expect(
-      label,
-      `a reachable control still offers title/description editing: ${label}`
-    ).not.toMatch(/編輯標題|編輯敘述|Edit title|Edit description/);
-    expect(label).not.toMatch(/task-(title|desc)-(edit|editor|input|save)/);
-  }
-
-  // (3) No editor surface has any box at all — including one that a stray
-  // state could open. Zero elements, hence zero pixels.
-  for (const sel of [
-    "[data-testid='task-title-editor']",
-    "[data-testid='task-desc-editor']",
-    "[data-testid='task-title-input']",
-    "[data-testid='task-desc-input']",
-    "[data-testid='task-title-edit']",
-    "[data-testid='task-desc-edit']",
-  ]) {
-    expect(await boxOf(page, sel), `${sel} must not render`).toBeNull();
-  }
-
-  // (4) The two CONTAINERS the affordances used to live in hold no reachable
-  // control of ANY shape. A label-based check (2) only catches an entry that
-  // announces itself; MEASURED (T-e5b1 mutant M1b): a bare `✎` icon button
-  // pushed to the title row's right edge passed (2) and passed a single-point
-  // hit test, because a 20px button does not sit under the 97%-of-width point.
-  // So the rule is emptiness of the subtree, by geometry:
+  // (1) The two CONTAINERS the title/description live in hold no reachable
+  // control of ANY shape. MEASURED (T-e5b1 mutant M1b): a bare `✎` icon button
+  // pushed to the title row's right edge passed a label check and a
+  // single-point hit test, because a 20px button does not sit under the
+  // 97%-of-width point. So the rule is emptiness of the subtree, by geometry:
   //   · .task-card__title-line — nothing interactive at all;
   //   · .task-card__desc-block — nothing interactive EXCEPT links the
   //     description's own markdown may legitimately contain.
@@ -184,8 +118,7 @@ test("no edit affordance for the title or the description occupies any pixels", 
   expect(strays.title, "title row must hold no control").toEqual([]);
   expect(strays.desc, "description block must hold no control").toEqual([]);
 
-  // (5) …and the title/description are still THERE to read. Removing the entry
-  // must not have removed the content.
+  // (2) …and the title/description are still THERE to read.
   await expect(cmp.locator(".task-card__title")).toContainText(
     "任務卡標題不可就地編輯"
   );

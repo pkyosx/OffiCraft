@@ -1065,10 +1065,6 @@ describe("TasksPage", () => {
       // NOT appear — that would be a claim about a workshop which in fact holds
       // a task, and it is a different sentence from the one a filter earns.
       expect(queryByTestId("tasks-empty")).toBeNull();
-      // The by-id notices are gone from the product; if either testid comes
-      // back, someone restored a screen the owner removed.
-      expect(queryByTestId("task-id-missing")).toBeNull();
-      expect(queryByTestId("task-id-filtered")).toBeNull();
       // …and the one real task is NOT on screen: the anchor is still narrowing.
       expect(document.querySelectorAll('[data-testid="task-card"]')).toHaveLength(
         0

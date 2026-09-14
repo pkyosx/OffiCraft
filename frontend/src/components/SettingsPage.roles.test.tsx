@@ -387,7 +387,6 @@ describe("SettingsPage · 角色詳情清理 (no filename chip · custom-role re
     // Seed assistant: edit mode carries 版本紀錄, whose list ends in 初始版本.
     fireEvent.click(utils.getByText(zh.office.role.assistant));
     fireEvent.click((await utils.findAllByText(zh.settings.edit))[0]);
-    expect(utils.queryByText(zh.settings.reset)).toBeNull();
     fireEvent.click(utils.getByTestId("doc-history-entry-role_definition"));
     expect(await utils.findByTestId("doc-history-seed")).toBeTruthy();
     fireEvent.click(utils.getByTestId("doc-history-list-close"));

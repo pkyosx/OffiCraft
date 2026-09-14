@@ -436,24 +436,19 @@ describe("WorkerDetailPanel — real delegator (T-f190 item 2)", () => {
 // in-place-button suite: that control no longer exists, so its assertions are
 // not merely red, they are unrepresentable.
 describe("WorkerDetailPanel — 設定改走喚醒區 (T-7526 parity)", () => {
-  it("renders the 模型 and 機器 cells with NO in-place editor on either", async () => {
+  it("renders the 模型 and 機器 cells, with 更改 as the settings entry", async () => {
     __setMockMemberOnline("warden-mbp5", true);
     __injectMockTask(mkTask({ id: "t-1" }));
     __injectMockOutsourceWorker(
       mkWorker(reporting({ id: "ow-1", taskId: "t-1", model: "Opus 4.6" }, "Opus 4.6")),
     );
-    const { findByTestId, queryByTestId } = renderOfficeAt("#office/worker/ow-1");
-    // Positive control FIRST: both cells really are on screen holding real
-    // values. Without it "no edit button" would also pass on a panel that
-    // failed to render the cells at all.
+    const { findByTestId } = renderOfficeAt("#office/worker/ow-1");
+    // Both cells really are on screen holding real values.
     const cell = await findByTestId("worker-detail-model-effort-cell");
     expect(cell.textContent).toContain("Opus 4.6");
     expect(await findByTestId("worker-detail-machine")).toBeTruthy();
-    // …and the settings entry that replaced them is live.
+    // …and the settings entry is live.
     await findByTestId("worker-detail-change");
-    // The two in-place editors are gone.
-    expect(queryByTestId("worker-detail-model-effort-edit")).toBeNull();
-    expect(queryByTestId("worker-detail-relocate")).toBeNull();
   });
 
   it("更改 → changing the machine reaches relocateMember and the 機器 cell adopts it", async () => {

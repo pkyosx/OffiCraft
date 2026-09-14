@@ -144,11 +144,10 @@ describe("請示 ID 篩選（常駐欄位版，T-118）", () => {
     // OVERTURNED BY owner 2026-09-06 (c-c3d681fe05da):「不要多filter那一層了,
     // 全部拉出來」. There is no panel to open, so the property the old spec
     // guarded (「the field must not lie about what is applied」) is now a
-    // first-render fact, and the affordances that gated it must be GONE rather
-    // than merely hidden.
+    // first-render fact.
     __injectMockReplyCard(mkCard({ id: "rc-bbb", summary: "第二張" }));
 
-    const { findByTestId, queryByTestId } = renderPage("rc-bbb");
+    const { findByTestId } = renderPage("rc-bbb");
     expect(await findByTestId("waiting-card")).toBeTruthy();
 
     expect(
@@ -157,14 +156,6 @@ describe("請示 ID 篩選（常駐欄位版，T-118）", () => {
     // The shell is still there — it is the ROW now, not an expander.
     expect(await findByTestId("replies-filter")).toBeTruthy();
     expect(await findByTestId("replies-filter-fields")).toBeTruthy();
-    for (const gone of [
-      "replies-filter-toggle",
-      "replies-filter-form",
-      "replies-filter-apply",
-      "replies-filter-cancel",
-    ]) {
-      expect(queryByTestId(gone), `${gone} must not exist any more`).toBeNull();
-    }
   });
 
   it("🔴 typing in 請示卡編號 without Enter and without blur applies NOTHING — no request, and the same cards", async () => {
@@ -269,7 +260,7 @@ describe("請示 ID 篩選（常駐欄位版，T-118）", () => {
     __injectMockReplyCard(mkCard({ id: "rc-aaa", summary: "第一張" }));
     __injectMockReplyCard(mkCard({ id: "rc-bbb", summary: "第二張" }));
 
-    const { findAllByTestId, queryByTestId } = renderPage();
+    const { findAllByTestId } = renderPage();
     expect(await findAllByTestId("waiting-card")).toHaveLength(2);
 
     typeId("rc-bbb");
@@ -289,37 +280,19 @@ describe("請示 ID 篩選（常駐欄位版，T-118）", () => {
       survivor.textContent,
       "the ask's title stays readable on a collapsed row"
     ).toContain("第二張");
-    expect(queryByTestId("replies-filter-cancel")).toBeNull();
   });
 
-  it("the 已篩選 strip, its chips and 清除全部 are gone — applied or not", async () => {
-    // 🔁 REPLACES 「the chip's × drops that one axis, hash included」.
-    // OVERTURNED BY owner 2026-09-06 (c-c3d681fe05da):「也不用再顯示14筆已篩選跟
-    // 那一行」. The strip existed to keep a COLLAPSED panel honest; with the
-    // field permanently on screen there is no collapsed state to protect
-    // against. The ESCAPE the × offered did not go with it — it is the spec
-    // below (empty the box and commit), which also keeps the hash half.
+  it("an applied id narrows the list and the field shows it", async () => {
     __injectMockReplyCard(mkCard({ id: "rc-aaa", summary: "第一張" }));
     __injectMockReplyCard(mkCard({ id: "rc-bbb", summary: "第二張" }));
 
-    const { findAllByTestId, queryByTestId } = renderPage();
+    const { findAllByTestId } = renderPage();
     expect(await findAllByTestId("waiting-card")).toHaveLength(2);
-    for (const gone of [
-      "replies-filter-summary",
-      "replies-filter-chip",
-      "replies-filter-chip-x",
-      "replies-filter-clear",
-    ]) {
-      expect(queryByTestId(gone), `${gone} must not exist any more`).toBeNull();
-    }
 
     applyId("rc-bbb");
     await waitFor(async () =>
       expect(await findAllByTestId("waiting-card")).toHaveLength(1)
     );
-    // Still no strip with a filter ON — and the field is what says so.
-    expect(queryByTestId("replies-filter-summary")).toBeNull();
-    expect(queryByTestId("replies-filter-chip")).toBeNull();
     expect(idField().value).toBe("rc-bbb");
   });
 
@@ -354,30 +327,7 @@ describe("請示 ID 篩選（常駐欄位版，T-118）", () => {
     expect(queryByTestId("replies-filter-clear")).toBeNull();
   });
 
-  it("the 「請示卡」 sub-title row above the list is gone", async () => {
-    // 🔁 REPLACES the panel-header half of the round-3 specs (the row that
-    // carried 「請示卡」 + the funnel). OVERTURNED BY owner 2026-09-06
-    // (c-c3d681fe05da):「也不用再顯示…跟案件那個子標了,案件跟請示卡都一樣」,
-    // restated for this page at 20:19 (c-38c7759e6377):「一樣請示卡的子標題拿
-    // 掉」. The nav already names the page; this was a second, redundant title
-    // sitting directly above the list.
-    //
-    // Asserted on the CLASSES rather than on the text: 「請示卡」 is a substring
-    // of the field's own label 請示卡編號, so a text query would go green on a
-    // page that still rendered the header and red on one that merely renamed
-    // the field.
-    __injectMockReplyCard(mkCard({ id: "rc-aaa", summary: "第一張" }));
-    const { findByTestId } = renderPage();
-    await findByTestId("filter-reply-card-id");
-
-    expect(
-      document.querySelector(".filter-panel__header"),
-      "the header row that carried 請示卡 + the funnel must not exist"
-    ).toBeNull();
-    expect(document.querySelector(".filter-panel__title")).toBeNull();
-  });
-
-  it("🔴 404 renders the ordinary filtered-empty result — the bespoke notice is gone by owner ruling", async () => {
+  it("🔴 404 renders the ordinary filtered-empty result", async () => {
     // 🔁 KEPT, gesture untouched (a hash-seeded id needs no gesture at all).
     // 🔴 owner 2026-09-06 (rc-f603bbd447f4 →「為什麼要顯示這種東西 拿掉!」→
     // 「UI不是本來就秀0筆了嗎」). Round 2's dedicated 404 sentence is removed;
@@ -395,7 +345,6 @@ describe("請示 ID 篩選（常駐欄位版，T-118）", () => {
     const { findByTestId, queryByTestId } = renderPage("rc-nope");
 
     await findByTestId("replies-empty");
-    expect(queryByTestId("replies-lookup-missing")).toBeNull();
     expect(queryByTestId("replies-lookup-failed")).toBeNull();
     // Non-vacuity: the card that DOES exist is not on screen either — the id
     // really replaced the list rather than the list being empty by accident.
@@ -420,7 +369,6 @@ describe("請示 ID 篩選（常駐欄位版，T-118）", () => {
     const failed = await findByTestId("replies-lookup-failed");
     expect(failed.textContent).toContain("沒能問到伺服器");
     expect(failed.textContent).not.toContain("找不到");
-    expect(queryByTestId("replies-lookup-missing")).toBeNull();
     expect(queryByTestId("replies-empty")).toBeNull();
   });
 

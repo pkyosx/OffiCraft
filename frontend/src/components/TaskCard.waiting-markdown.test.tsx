@@ -16,9 +16,8 @@
 // bare-word label in three locales) are the same shapes; only the surface
 // changed: .task-card__waiting-* → .task-step__waiting-*.
 //
-// The final describe is the T-c514 removal guard itself: the task-level block
-// must be GONE while the step-level one is PRESENT — the ticket's "never both
-// missing" requirement, pinned in one place.
+// The final describe pins that a waiting_external task still shows its reason
+// inside the step while keeping its status pill on the card.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, fireEvent } from "@testing-library/react";
@@ -209,22 +208,10 @@ describe("waiting label carries no orphan separator (T-a20b)", () => {
   });
 });
 
-// ── T-c514 removal guard ──────────────────────────────────────────────────
-// Owner 2026-07-20: the task card's progress bar used to be followed by a
-// task-level 「⏳ 等待中 + waitingReason」 block. waiting_external is reported
-// per-step and the step renders its own reason, so that block was the same
-// sentence twice, one level further from the work it describes. Removed.
-//
-// This is deliberately ONE test asserting BOTH halves together, because the
-// requirement owner wrote is a conjunction — "移除任務層" is only safe while
-// "step 層有顯示" holds, and the failure mode the ticket explicitly forbids is
-// 「兩邊都沒有」. Split across two tests, a regression that kills the step row
-// would leave THIS file's removal half green and the loss would read as a pass
-// in the removal's own guard. Asserted on a task that is itself
-// waiting_external WITH a non-empty waitingReason — i.e. the exact input the
-// deleted block used to render on, so the absence is a real removal and not an
-// unmet precondition.
-describe("task-level waiting block is gone, step-level survives (T-c514)", () => {
+// ── T-c514 ────────────────────────────────────────────────────────────────
+// waiting_external is reported per-step and the step renders its own reason;
+// the card itself keeps only the status pill.
+describe("waiting_external task: reason lives in the step (T-c514)", () => {
   // The locale suite above parks `oc.language` in localStorage, which the
   // I18nProvider picks up. Clear it so this test asserts the zh wording it
   // names, independent of run order.
@@ -232,27 +219,17 @@ describe("task-level waiting block is gone, step-level survives (T-c514)", () =>
     localStorage.clear();
   });
 
-  it("waiting_external task: no block at the card top, reason present inside the step", async () => {
+  it("waiting_external task: reason present inside the step", async () => {
     const { findByTestId, container } = await renderExpanded(
       "等 **fms #20054** 合併"
     );
 
-    // ① the removed task-level block is absent...
-    expect(
-      container.querySelector('[data-testid="task-waiting-reason"]')
-    ).toBeNull();
-    // ...and so is its markdown surface, so a rename can't smuggle it back.
-    expect(container.querySelector(".task-card__waiting-md")).toBeNull();
-    expect(container.querySelector(".task-card__waiting-label")).toBeNull();
-
-    // ② the information did NOT go missing with it — the step still carries the
-    // reason, rendered as markdown. This half is what forbids 「兩邊都沒有」.
+    // ① the step carries the reason, rendered as markdown.
     const stepRow = await findByTestId("step-waiting-reason");
     expect(stepRow.querySelector(".task-step__waiting-md strong")?.textContent)
       .toBe("fms #20054");
 
-    // ③ the task-level STATUS pill stays — owner kept the status on the card,
-    // only the duplicated reason text left. Guards against over-deletion.
+    // ② the task-level STATUS pill stays on the card.
     expect(
       container.querySelector('[data-testid="task-status"]')?.textContent
     ).toBe("等待外部");

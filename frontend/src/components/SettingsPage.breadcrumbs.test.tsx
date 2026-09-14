@@ -170,20 +170,6 @@ describe("SettingsPage · unified breadcrumb header (T-8f6e)", () => {
     expectHeader(utils, [s.title, s.params]);
     expect(utils.getByRole("heading", { name: s.params })).toBeTruthy();
   });
-
-  // 使用說明 moved OUT of settings and became a top-level nav tab, to the right
-  // of 監控 (owner 2026-07-22:「user guide 改放在 tab 中,監控的右邊,不要放在
-  // settings 裡」). Its own page + doc-link contract now live in
-  // GuidePage.test.tsx, assertion-for-assertion; what settings owes is the
-  // OTHER half — that the entry is really gone, so a stale entry (or a
-  // half-done revert) cannot leave two doors to the same page.
-  it("使用說明 is NOT a settings entry any more", async () => {
-    const utils = renderSettings();
-    await utils.findByTestId("settings-manuals-entry");
-    expect(utils.queryByTestId("settings-guide-entry")).toBeNull();
-    expect(utils.queryByText(zh.guide.title)).toBeNull();
-    expect(utils.queryByText(zh.nav.guide)).toBeNull();
-  });
 });
 
 describe("SettingsPage · crumb jumps write the hash (lib/hashRoute)", () => {

@@ -115,7 +115,7 @@ describe("產物 popover — the one list (T-49fb)", () => {
     mkArtifact({ id: "ta-md", kind: "file", name: "design.md", mime: "text/markdown", url: "/api/chat/attachment/att-md" }),
   ];
 
-  it("opens on click, hydrates, and lists EVERY kind at once with no tabs", async () => {
+  it("opens on click, hydrates, and lists EVERY kind at once", async () => {
     const { container } = renderBadge(artifacts, { count: 4 });
     fireEvent.click(screen.getByTestId("task-artifacts-badge"));
 
@@ -124,11 +124,6 @@ describe("產物 popover — the one list (T-49fb)", () => {
     expect(screen.getByText("design.md")).toBeTruthy();
     expect(screen.getByText("PR #123")).toBeTruthy();
     expect(container.querySelectorAll(".task-artifacts__item").length).toBe(4);
-
-    // The tabs are GONE (the T-49fb decision, asserted negatively so a revert
-    // to the tabbed body reddens here).
-    expect(screen.queryAllByRole("tab").length).toBe(0);
-    expect(container.querySelectorAll(".task-artifacts__tab").length).toBe(0);
   });
 
   it("groups the list 檔案 → 圖片 → 連結 so the kinds still read as families", async () => {

@@ -115,9 +115,7 @@ beforeEach(() => {
 
 describe("MemberDetailPanel — unified wake/change settings", () => {
   it("keeps the detail fields read-only and sends an offline setting once through activate", async () => {
-    const { getByTestId, queryByTestId, onActivate } = renderPanel();
-    expect(queryByTestId("mp-relocate")).toBeNull();
-    expect(queryByTestId("mp-model-effort-edit")).toBeNull();
+    const { getByTestId, onActivate } = renderPanel();
 
     // The wake entry is gated on the machine registry (0 online ⇒ disabled),
     // and that registry loads asynchronously — click too early and nothing

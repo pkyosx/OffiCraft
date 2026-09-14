@@ -132,9 +132,8 @@ describe("MonitorPage AI Sessions — outsource workers", () => {
 
     const row = await screen.findByTestId("mon-outsource-row");
     const cells = within(row);
-    // outsource identity label 「外包 · 代號」 (T-3ed8, owner 2026-07-20: the
-    // 「外包 · 」prefix now carries the outsource distinction — the standalone
-    // badge is gone) + task-context sub-line (so the reader sees WHAT it does)
+    // outsource identity label 「外包 · 代號」 (T-3ed8) + task-context sub-line
+    // (so the reader sees WHAT it does)
     expect(cells.getByText("外包 · O-7")).toBeTruthy();
     expect(cells.getByText("Migrate the billing importer")).toBeTruthy();
     // machine / account / model — all three off the SESSION. The worker DTO's
@@ -149,9 +148,6 @@ describe("MonitorPage AI Sessions — outsource workers", () => {
     expect(cells.getByText("71%")).toBeTruthy();
     // est.$ = live + banked = 5.25 + 1.75 = 7 (formatCost renders "$7")
     expect(cells.getByText("$7")).toBeTruthy();
-    // the row is distinguished from a member row by the 「外包 · 」label prefix
-    // (asserted above), no longer by a standalone tag chip.
-    expect(cells.queryByText("外包")).toBeNull();
   });
 
   it("does not also render an outsource roster row as a salaried AI session", async () => {

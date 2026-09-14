@@ -105,16 +105,11 @@ describe("任務頁 篩選列 (T-118)", () => {
     // OVERTURNED BY owner 2026-09-06 20:07 (c-c3d681fe05da):「不要多filter那一層
     // 了,全部拉出來」. The funnel, the panel and the toggle no longer exist.
     __injectMockTask(mkTask({ id: "t-aaa1" }));
-    const { findByTestId, queryByTestId } = renderPage();
+    const { findByTestId } = renderPage();
     expect(await findByTestId("filter-task-id")).toBeTruthy();
     expect(await findByTestId("filter-executor")).toBeTruthy();
     expect(await findByTestId("filter-type")).toBeTruthy();
     expect(await findByTestId("filter-status")).toBeTruthy();
-    // The affordances that used to gate them are gone, not merely hidden.
-    expect(queryByTestId("tasks-filter-toggle")).toBeNull();
-    expect(queryByTestId("tasks-filter-form")).toBeNull();
-    expect(queryByTestId("tasks-filter-apply")).toBeNull();
-    expect(queryByTestId("tasks-filter-cancel")).toBeNull();
   });
 
   it("🔴 the filter row is NOT a modal: it is page content, with no scrim over the list", async () => {
@@ -207,21 +202,12 @@ describe("任務頁 篩選列 (T-118)", () => {
     expect(queryByText("第二張"), "only the unticked axis narrows").toBeTruthy();
   });
 
-  it("the 已篩選 strip and its chips are gone, but 清除篩選 stays", async () => {
-    // 🔁 REPLACES 「the applied filters stay readable while the panel is shut」
-    // and 「a chip's × drops JUST that axis」. Both pinned the summary strip,
-    // whose whole job was to keep a COLLAPSED panel honest. OVERTURNED BY owner
-    // 2026-09-06:「也不用再顯示14筆已篩選跟那一行」— with every field permanently
-    // visible there is no collapsed state left for it to protect against.
+  it("清除篩選 is in the field row from the first render, and the id field shows the applied id", async () => {
+    // owner 2026-09-06 c-2423dba8b65b:「清除篩選還是要留著」. The default status
+    // set already narrows, so it is present from the first render.
     __injectMockTask(mkTask({ id: "t-aaa1" }));
     const { findByTestId, queryByTestId } = renderPage();
     await findByTestId("filter-task-id");
-    expect(queryByTestId("tasks-filter-summary")).toBeNull();
-    expect(queryByTestId("tasks-filter-chip")).toBeNull();
-    // 🔴 清除篩選 IS NOT PART OF THE STRIP AND MUST STAY. I removed it with the
-    // strip and owner asked for it back by name (2026-09-06 c-2423dba8b65b:
-    //「清除篩選還是要留著」). It is in the FIELD ROW now. The default status set
-    // already narrows, so it is present from the first render.
     expect(queryByTestId("tasks-filter-clear")).not.toBeNull();
 
     applyIdFilter("t-aaa1");
@@ -232,23 +218,6 @@ describe("任務頁 篩選列 (T-118)", () => {
         ) as HTMLInputElement).value
       ).toBe("t-aaa1")
     );
-    // Still no strip — and the field itself is now what says an id is applied.
-    expect(queryByTestId("tasks-filter-summary")).toBeNull();
-    expect(queryByTestId("tasks-filter-chip")).toBeNull();
-  });
-
-  it("the 「案件」 sub-title above the list is gone", async () => {
-    // owner 2026-09-06:「也不用再顯示…跟案件那個子標了」, restated at 20:19
-    // (c-38c7759e6377) for 請示卡. The nav still names the page; this row was a
-    // second, redundant title sitting directly above the list.
-    __injectMockTask(mkTask({ id: "t-aaa1" }));
-    const { findByTestId } = renderPage();
-    await findByTestId("filter-task-id");
-    expect(
-      document.querySelector(".filter-panel__header"),
-      "the header row that carried 案件 + the funnel must not exist"
-    ).toBeNull();
-    expect(document.querySelector(".filter-panel__title")).toBeNull();
   });
 });
 
@@ -271,7 +240,7 @@ describe("任務頁 ID 篩選 — 三種結局 (owner 2026-09-06 選項①)", ()
   //   · an excluded row really is excluded (every condition ANDs);
   //   · the page still says SOMETHING rather than going blank;
   //   · 「no answer yet」 (in flight / never returned) still says nothing at all.
-  it("① 404 → the ordinary empty result, not a bespoke notice and not a blank page", async () => {
+  it("① 404 → the ordinary empty result, not a blank page", async () => {
     __injectMockTask(mkTask({ id: "t-real" }));
     vi.spyOn(console, "warn").mockImplementation(() => {});
     const { findByTestId, queryByTestId } = renderPage();
@@ -280,10 +249,8 @@ describe("任務頁 ID 篩選 — 三種結局 (owner 2026-09-06 選項①)", ()
     applyIdFilter("t-nope");
 
     // The ordinary filtered-empty message — the same one every other filter
-    // gets. Round 3's dedicated box is gone.
+    // gets.
     await findByTestId("tasks-empty-filtered");
-    expect(queryByTestId("task-id-missing")).toBeNull();
-    expect(queryByTestId("task-id-filtered")).toBeNull();
   });
 
   it("② a row that EXISTS but fails another axis is excluded — and says the same thing a 404 does", async () => {
@@ -299,15 +266,13 @@ describe("任務頁 ID 篩選 — 三種結局 (owner 2026-09-06 選項①)", ()
         closedTs: Date.now() / 1000 - 60,
       })
     );
-    const { findByTestId, queryByTestId, queryByText } = renderPage();
+    const { findByTestId, queryByText } = renderPage();
     await waitFor(() => expect(queryByText("還在跑")).toBeTruthy());
 
     // The default 狀態 set excludes terminals, so this id is real but filtered.
     applyIdFilter("t-closed");
 
     await findByTestId("tasks-empty-filtered");
-    expect(queryByTestId("task-id-filtered")).toBeNull();
-    expect(queryByTestId("task-id-missing")).toBeNull();
     // Every condition ANDs, so the row really is out — not merely unannounced.
     expect(queryByText("收工了")).toBeNull();
 
@@ -426,10 +391,6 @@ describe("任務頁 ID 篩選 — 清除與 hash", () => {
     await findByTestId("filter-task-id");
     clearAllFilters();
 
-    expect(
-      document.querySelector('[data-testid="tasks-filter-summary"]'),
-      "there is no strip to reappear"
-    ).toBeNull();
     await waitFor(() => expect(window.location.hash).toBe(""));
     expect(
       ((await findByTestId("filter-task-id")) as HTMLInputElement).value

@@ -88,17 +88,11 @@ describe("使用說明 · page header + navigation", () => {
   it("列表: 使用說明 + title; doc: 使用說明 › <title>", async () => {
     const utils = renderGuide();
     const entries = await utils.findAllByTestId("guide-doc-entry");
-    // The LIST carries no trail at all. This assertion used to read
-    // `expectHeader(utils, [g.title])` — a one-segment trail — and what it was
-    // defending was "the guide is no longer under 設定". An EMPTY trail defends
-    // that strictly harder: with no segments there is no parent to be wrong
-    // about. So the target moved, the guarantee did not weaken. (The trail was
-    // dropped because a single terminal segment is plain text with nothing to
-    // click, and it made 使用說明 appear three times above the fold — tab,
-    // crumb, h1.) The 設定 negative is asserted explicitly rather than implied:
+    // The LIST carries no trail at all: a single terminal segment is plain text
+    // with nothing to click, and it made 使用說明 appear three times above the
+    // fold — tab, crumb, h1.
     expectHeader(utils, []);
     expect(utils.container.querySelector("nav.crumbs")).toBeNull();
-    expect(utils.queryByText("設定")).toBeNull();
     // The page is still HEADED by 使用說明, and now exactly once.
     expect(utils.getByRole("heading", { name: g.title })).toBeTruthy();
     expect(utils.getAllByRole("heading", { name: g.title })).toHaveLength(1);

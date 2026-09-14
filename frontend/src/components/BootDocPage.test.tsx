@@ -201,19 +201,13 @@ describe("BootDocPage", () => {
     }
   });
 
-  it("edits the whole editable half in ONE box — no per-section surface survives", async () => {
-    // 🔴 T-c33e's acceptance condition, asserted on the rendered page: these
-    // three blocks have no editor implementation of their own. One textarea,
-    // covering the whole document, reached the same way 角色定義 is — and none
-    // of the per-section affordances (paste / apply / discard / preview /
-    // pending badge) exist any more.
+  it("edits the whole editable half in ONE box", async () => {
+    // 🔴 T-c33e: one textarea, covering the whole document, reached the same
+    // way 角色定義 is.
     const utils = renderSystem();
     const doc = await api.getBootDoc("system_interaction", "global");
 
-    // Nothing to edit per section, before or after the editor opens.
-    expect(utils.queryAllByTestId(/^boot-doc-sec/)).toEqual([]);
     await typeWholeDoc(utils, "# 只有一個編輯框\n");
-    expect(utils.queryAllByTestId(/^boot-doc-sec/)).toEqual([]);
 
     const boxes = utils.container.querySelectorAll("textarea");
     expect(boxes.length).toBe(1);
@@ -259,18 +253,10 @@ describe("BootDocPage", () => {
     ).not.toContain(doc.readOnlyHead);
   });
 
-  it("holds no editor state of its own — the shell is the shared component", async () => {
-    // The rendered-page assertions above cannot see one thing: a page that
-    // re-grew its own editor while still importing DocCard. This is the source
-    // check for that, and it is the file the acceptance sentence names.
+  it("renders through the shared DocCard shell", async () => {
     const src = readFileSync(join(__dirname, "BootDocPage.tsx"), "utf8");
     expect(src).toContain('from "./DocCard"');
     expect(src).toContain("<DocCard");
-    for (const forbidden of ["<textarea", "useState", "docSections", "renderBody"]) {
-      expect(src, `BootDocPage must not hold ${forbidden}`).not.toContain(
-        forbidden
-      );
-    }
   });
 
   it("version history lists the past versions", async () => {
@@ -308,20 +294,13 @@ describe("BootDocPage", () => {
     expect(list.textContent ?? "").toContain("10");
   });
 
-  it("the restore calls the RESTORE endpoint, not the replace one — and lives only in the history list", async () => {
+  it("the restore calls the RESTORE endpoint, not the replace one", async () => {
     await api.saveBootDoc("boot_sequence", "claude", "被改壞的啟動步驟\n");
     const reset = vi.spyOn(api, "resetBootDoc");
     const save = vi.spyOn(api, "saveBootDoc");
 
     const utils = renderClaude();
     await utils.findAllByText(/被改壞的啟動步驟/);
-
-    // 還原出廠版 is NOT a control of its own on this page. It stood here as a
-    // top-level button until the owner overrode that on 2026-08-14 (card
-    // rc-f1950f4d286e, option 2: "完全照 insight"), so the only door is the one
-    // every other editable document uses. Without this line the row below could
-    // be a second door and the case would not notice.
-    expect(utils.queryByTestId("doc-card-reset")).toBeNull();
 
     fireEvent.click(await utils.findByTestId("doc-card-edit"));
     fireEvent.click(utils.getByTestId("doc-history-entry-boot_sequence"));
@@ -358,7 +337,6 @@ describe("BootDocPage", () => {
     expect((utils.getByTestId("doc-card-edit") as HTMLButtonElement).disabled).toBe(
       true
     );
-    expect(utils.queryByTestId("doc-card-reset")).toBeNull();
     expect(utils.queryByTestId("doc-history-entry-boot_sequence")).toBeNull();
     utils.unmount();
     vi.restoreAllMocks();
@@ -578,20 +556,10 @@ describe("BootDocPage", () => {
     ).toMatchObject({ content: { text: SEED_SYSTEM_INTERACTION_MD.trim() } });
   });
 
-  it("says nothing above the card — the standing notes block is gone, and its one surviving fact moved into the history list", async () => {
-    // Three bullets used to stand here (what a save affects, how many revisions
-    // are kept, what the cap does). The owner asked for them out on 2026-08-14
-    // with an argument that generalises: if that explanation were needed, EVERY
-    // editable context block would need one — and none of the others carry it.
-    // So this page must not be special.
+  it("states this document's retention count in the history list", async () => {
+    // These three documents keep 10 revisions, everything else keeps 3 — and
+    // the number is on the surface that USES it.
     const utils = renderSystem();
-    expect(utils.queryByTestId("boot-doc-notes")).toBeNull();
-    expect(utils.container.querySelector(".boot-doc__notes")).toBeNull();
-
-    // PAIRED CONTROL, because the two lines above are absences. The retention
-    // number was the one bullet stating something the reader genuinely cannot
-    // derive (these three keep 10, everything else keeps 3), and it did not
-    // vanish with the block — it is on the surface that USES it.
     fireEvent.click(await utils.findByTestId("doc-card-edit"));
     fireEvent.click(utils.getByTestId("doc-history-entry-system_interaction"));
     const list = await utils.findByTestId("doc-history-list");

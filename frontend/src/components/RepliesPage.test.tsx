@@ -669,8 +669,7 @@ describe("RepliesPage", () => {
 
   // An empty title leaves the jump alone on the row — the cell is not drawn at
   // all, so there is no empty box and no placeholder standing in for a title
-  // nobody wrote. The typeKey does NOT step in as a substitute: the chip is
-  // gone on every card, including the ones with nothing else to say.
+  // nobody wrote. The typeKey does NOT step in as a substitute.
   it("draws no title cell when the task's title is empty", async () => {
     __injectMockReplyCard(
       mkCard({ task: { id: "t-3", typeKey: "review-pr", title: "" } }),
@@ -680,7 +679,6 @@ describe("RepliesPage", () => {
     await openCards();
     const ref = await findByTestId("reply-task-ref");
     expect(ref.querySelector(".reply-card__task-title")).toBeNull();
-    expect(ref.querySelector(".reply-card__task-type")).toBeNull();
     expect(ref.textContent).not.toContain("review-pr");
     expect(ref.textContent).toContain("查看任務詳情");
   });

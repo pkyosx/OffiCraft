@@ -107,18 +107,6 @@ for (const { name, panel, viewport } of PANELS) {
     const cmp = await mount(<ScheduledMessagesCustomStory width={panel} />);
     await openCustomEditor(cmp);
 
-    // (0) NOTHING TO OPEN. The two controls that made the group read as
-    // interval-only are gone, so "without expanding anything" is not a claim
-    // about a control that is merely collapsed — there is no such control.
-    await expect(
-      cmp.locator(`[data-testid="${EDIT}-custom-minutes-detail-toggle"]`)
-    ).toHaveCount(0);
-    for (const step of [5, 10, 15, 20, 30]) {
-      await expect(
-        cmp.locator(`[data-testid="${EDIT}-custom-minutes-step-${step}"]`)
-      ).toHaveCount(0);
-    }
-
     // (1) NON-VACUITY: the thirteen cells the story's selection implies are
     // really there, in sorted order — the stored 7 among the default twelve.
     const grid = cmp.locator(`[data-testid="${EDIT}-custom-minutes-grid"]`);

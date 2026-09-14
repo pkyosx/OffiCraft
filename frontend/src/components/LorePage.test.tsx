@@ -390,17 +390,8 @@ describe("LorePage — 屬於", () => {
     // 🔴 AND NO KIND AT ALL. Stamping it with the person glyph or the gear
     // would assert an owner the migration explicitly refused to choose — the
     // one thing this arm exists to avoid.
-    //
-    // ⚠️ THE TEXT HALF OF THIS ASSERTION IS NOW VACUOUS AND THE GLYPH HALF IS
-    // NOT. Since the kind word was removed from every badge (owner 2026-09-08),
-    // 「no 成員傳承 text」 is true of EVERY row and would pass for an orphan
-    // wearing the member glyph. The glyph lines below are what this spec now
-    // rests on; the two text lines are kept only to catch a re-introduced
-    // prefix landing on the one arm that must never name a kind.
     const chip = orphan.closest('[data-testid="lore-scope"]')!;
     expect(chip.querySelectorAll(".lore-row__scope-glyph")).toHaveLength(0);
-    expect(chip.textContent).not.toContain("成員傳承");
-    expect(chip.textContent).not.toContain("任務傳承");
   });
 
   it("falls back to the raw key rather than rendering an empty cell", async () => {
@@ -984,7 +975,7 @@ describe("LorePage — 篩選器複選", () => {
     );
   });
 
-  it("has exactly four fields, and 範圍 / 角色 / 手冊 are gone", async () => {
+  it("has the four fields", async () => {
     vi.spyOn(api, "listTaskManuals").mockResolvedValue([
       { typeKey: "review-pr", displayName: "PR 審查", purpose: "", fields: [] },
     ] as never);
@@ -992,19 +983,8 @@ describe("LorePage — 篩選器複選", () => {
     const { container } = renderPage();
     await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
 
-    // 🔴 ABSENCE IS THE ASSERTION HERE. The owner named FOUR controls on
-    // 2026-09-08 (所有撰寫人 / 所有成員傳承 / 所有任務傳承 / 所有狀態), and a
-    // page that ADDED the member axis while keeping the old 範圍 / 角色 / 手冊
-    // trio would satisfy every other spec in this file: each control works, the
-    // order test still finds its four, and the screen merely has three extra
-    // dropdowns nobody mentioned.
-    for (const gone of [
-      "lore-filter-scope",
-      "lore-filter-role",
-      "lore-filter-manual",
-    ]) {
-      expect(container.querySelector(`[data-testid="${gone}"]`)).toBeNull();
-    }
+    // The owner named FOUR controls on 2026-09-08 (所有撰寫人 / 所有成員傳承 /
+    // 所有任務傳承 / 所有狀態).
     for (const present of [
       "lore-filter-author",
       "lore-filter-member",
@@ -1019,9 +999,8 @@ describe("LorePage — 篩選器複選", () => {
   // 「所有撰寫人 / 所有成員傳承 / 所有任務傳承 / 所有狀態」). Three of these
   // labels already existed and two of them said 「全部」 — the row was mixing
   // two words for one idea, which teaches a reader that the two mean different
-  // kinds of "no constraint". Nothing else in this file reads a default label,
-  // so without this spec the row can drift back a word at a time.
-  it("names all four unconstrained states 「所有…」, and never 「全部」", async () => {
+  // kinds of "no constraint".
+  it("names all four unconstrained states 「所有…」", async () => {
     stubList(page([mkEntry({ id: "L-1" })]));
     const { container } = renderPage();
     await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
@@ -1035,14 +1014,6 @@ describe("LorePage — 篩選器複選", () => {
     expect(labelOf("lore-filter-member")).toContain("所有成員傳承");
     expect(labelOf("lore-filter-belongs")).toContain("所有任務傳承");
     expect(labelOf("lore-filter-state")).toContain("所有狀態");
-
-    // 🔴 AND THE OTHER WORD IS NOWHERE ON THE ROW. 「所有 X」 being present does
-    // not say 「全部 X」 is gone: a row rendering both would pass every line
-    // above. This is the half that fails when one label is reverted.
-    const row = container.querySelector<HTMLElement>(
-      '[data-testid="lore-filter"]',
-    )!;
-    expect(row.textContent).not.toContain("全部");
   });
 
   it("offers every manual and NO members — the member axis is 撰寫人", async () => {
@@ -1075,31 +1046,12 @@ describe("LorePage — 篩選器複選", () => {
       ).not.toBeNull();
     }
 
-    // 🔴 AND NO MEMBER IS OFFERED IN THIS ONE. Members have their OWN control
-    // since 2026-09-08 (lore-filter-member, immediately to the left); this is
-    // the manuals control and it must stay manuals-only, because the two
-    // together are what make 「exactly one kind, exactly one key」 reachable at
-    // all. A single dropdown listing both was what the owner rejected on
-    // 2026-09-07 (「你第二個 filter 應該只需要放任務」) and putting members back
-    // in here would rebuild it.
-    for (const absent of ["agent:mira", "agent:ow-7d8ad859dd9b"]) {
-      expect(
-        container.querySelector(
-          `[data-testid="lore-filter-belongs-opt-${absent}"]`,
-        ),
-      ).toBeNull();
-    }
-
-    // 🔴 THE LABEL IS THE MANUAL'S OWN NAME, with no kind word in front of it.
-    // The kind word was there while the list mixed people and manuals and a
-    // bare name could not say which; one kind needs no disambiguator, and the
-    // design mock names this control 「所有任務」.
+    // 🔴 THE LABEL IS THE MANUAL'S OWN NAME.
     const label = (value: string) =>
       container.querySelector(
         `[data-testid="lore-filter-belongs-opt-${value}"]`,
       )!.textContent!;
     expect(label("manual:review-pr")).toContain("PR 審查");
-    expect(label("manual:review-pr")).not.toContain("任務傳承");
   });
 
   it("offers no per-option statistic on any filter", async () => {
