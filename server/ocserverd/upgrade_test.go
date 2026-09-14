@@ -264,8 +264,12 @@ func TestHttpGetAsset(t *testing.T) {
 		if tr.ResponseHeaderTimeout != upgradeHeaderTimeout {
 			t.Errorf("ResponseHeaderTimeout = %v, want %v", tr.ResponseHeaderTimeout, upgradeHeaderTimeout)
 		}
-		if tr.Proxy == nil {
-			t.Error("Proxy = nil — a machine behind a corporate proxy would fail to download, silently")
+		// Identity, not non-nil: any non-nil function passes a nil check,
+		// including one that resolves no proxy at all, and the machine behind a
+		// corporate proxy fails silently just the same.
+		if tr.Proxy == nil ||
+			reflect.ValueOf(tr.Proxy).Pointer() != reflect.ValueOf(http.ProxyFromEnvironment).Pointer() {
+			t.Error("Proxy is not http.ProxyFromEnvironment — a machine behind a corporate proxy would fail to download, silently")
 		}
 		if !tr.ForceAttemptHTTP2 {
 			t.Error("ForceAttemptHTTP2 = false — a hand-rolled Transport with DialContext drops HTTP/2, which this path had via DefaultTransport")
@@ -273,8 +277,12 @@ func TestHttpGetAsset(t *testing.T) {
 		if tr.IdleConnTimeout == 0 {
 			t.Error("IdleConnTimeout = 0 — idle connections would never be reaped")
 		}
-		if upgradeAssetClient() != upgradeAssetClient() {
-			t.Error("a fresh client per call leaves an orphan Transport behind on every upgrade")
+		// The Transport is what must be shared — it owns the connection pool and
+		// the read loops. Comparing the *Client pointers reports on the wrong
+		// object: a fresh Client wrapping the one shared Transport would fail
+		// that comparison while leaking nothing.
+		if a, b := upgradeAssetClient(), upgradeAssetClient(); a.Transport != b.Transport {
+			t.Error("each call builds its own Transport — every upgrade leaves an orphan behind, holding idle connections and their read loops")
 		}
 	})
 
@@ -441,7 +449,8 @@ func TestStallGuard(t *testing.T) {
 		// reader that always hands back a byte.
 		const every = 60 * time.Millisecond
 		fired := make(chan struct{})
-		body := newStallGuard(io.NopCloser(emptyReader{}), func() { close(fired) }, every)
+		// 400 empty reads ≈ 2s of them: far past `every`, and bounded.
+		body := newStallGuard(io.NopCloser(&emptyReader{reads: 400}), func() { close(fired) }, every)
 		go func() { _, _ = io.ReadAll(body) }()
 		select {
 		case <-fired:
@@ -481,10 +490,16 @@ func TestStallGuard(t *testing.T) {
 	})
 }
 
-// emptyReader always answers (0, nil): a read that legally delivered nothing.
-type emptyReader struct{}
+// emptyReader answers (0, nil) — a read that legally delivered nothing — and
+// then reports EOF. The count is what keeps the draining goroutine bounded:
+// io.ReadAll never gives up on (0, nil), so an endless one outlives the test.
+type emptyReader struct{ reads int }
 
-func (emptyReader) Read(p []byte) (int, error) {
+func (r *emptyReader) Read(p []byte) (int, error) {
+	if r.reads <= 0 {
+		return 0, io.EOF
+	}
+	r.reads--
 	time.Sleep(5 * time.Millisecond)
 	return 0, nil
 }
@@ -649,6 +664,93 @@ func TestDownloadUpgradeTarball(t *testing.T) {
 		}
 		if got := upgradeTestDirEntries(t, dir); len(got) != 0 {
 			t.Fatalf("staging directory: %v", got)
+		}
+	})
+
+	t.Run("the tarball is bounded by the body budget, not by the metadata one", func(t *testing.T) {
+		// Guards WHICH budget this callsite hands over. The budget subtests in
+		// TestHttpGetAsset call httpGetAsset directly, so swapping this callsite
+		// to upgradeMetaBudget leaves every one of them green while putting the
+		// multi-megabyte asset back under the short metadata ceiling — the exact
+		// shape of the 2026-09-14 failure. The mirror case (checksums.txt
+		// reaching for the body budget) was already covered; this side was not.
+		defer func(d time.Duration) { upgradeBodyBudget = d }(upgradeBodyBudget)
+		defer func(d time.Duration) { upgradeMetaBudget = d }(upgradeMetaBudget)
+		defer func(d time.Duration) { upgradeStallTimeout = d }(upgradeStallTimeout)
+		upgradeBodyBudget = 150 * time.Millisecond
+		upgradeMetaBudget = 20 * time.Second // far away: only the body budget may end this
+		upgradeStallTimeout = 20 * time.Second
+
+		stop := make(chan struct{})
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Never silent, so the stall guard never fires.
+			for {
+				select {
+				case <-r.Context().Done():
+					return
+				case <-stop:
+					return
+				default:
+				}
+				if _, err := w.Write([]byte("x")); err != nil {
+					return
+				}
+				w.(http.Flusher).Flush()
+				time.Sleep(10 * time.Millisecond)
+			}
+		}))
+		defer srv.Close()
+		defer close(stop)
+		dir := t.TempDir()
+
+		done := make(chan *upgradeFailure, 1)
+		go func() {
+			_, fail := downloadUpgradeTarball(githubReleaseAsset{
+				Name: "release.tar.gz", BrowserDownloadURL: srv.URL,
+			}, wantSHA, dir)
+			done <- fail
+		}()
+		select {
+		case fail := <-done:
+			if fail == nil {
+				t.Fatal("a stream that never went silent read to completion — nothing bounded this download at all")
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("the download outlasted the body budget — this callsite is riding the metadata budget, or none at all")
+		}
+	})
+}
+
+// TestUpgradeShippedBounds is the one place the values that actually ship are
+// covered: every other subtest lowers them to run fast, so each of them keeps
+// passing no matter what the defaults are changed to.
+func TestUpgradeShippedBounds(t *testing.T) {
+	t.Run("silence is caught first, the metadata fetch next, the tarball last", func(t *testing.T) {
+		// The three bounds only mean anything in this order. Let the metadata
+		// budget grow past the tarball's backstop and a dribbling checksums.txt
+		// — a few hundred bytes — may hold runUpgrade's lock for as long as a
+		// whole 20MB download is allowed to take.
+		if upgradeStallTimeout >= upgradeMetaBudget {
+			t.Errorf("upgradeStallTimeout = %v, upgradeMetaBudget = %v — silence must be caught before either fetch's budget expires, or the stall guard never gets to act",
+				upgradeStallTimeout, upgradeMetaBudget)
+		}
+		if upgradeMetaBudget >= upgradeBodyBudget {
+			t.Errorf("upgradeMetaBudget = %v, upgradeBodyBudget = %v — the few-hundred-byte fetch must be bounded more tightly than the multi-megabyte one, which is the whole reason they are two budgets",
+				upgradeMetaBudget, upgradeBodyBudget)
+		}
+	})
+
+	t.Run("silence and the metadata fetch are bounded in minutes, not hours", func(t *testing.T) {
+		// runUpgrade holds its lock for the whole upgrade, so both of these are
+		// also the window in which the machine cannot upgrade at all. Neither
+		// has any reason to reach the tarball's scale: the stall bound watches
+		// for silence, and checksums.txt is read through a 1MB LimitReader.
+		const ceiling = 5 * time.Minute
+		if upgradeStallTimeout > ceiling {
+			t.Errorf("upgradeStallTimeout = %v, want at most %v — a dead source would wedge the upgrade for that long", upgradeStallTimeout, ceiling)
+		}
+		if upgradeMetaBudget > ceiling {
+			t.Errorf("upgradeMetaBudget = %v, want at most %v — a trickling checksums.txt would wedge the upgrade for that long", upgradeMetaBudget, ceiling)
 		}
 	})
 }

@@ -264,10 +264,12 @@ func (g *stallGuard) Read(p []byte) (int, error) {
 	return n, err
 }
 
-// Close stops the timer and releases the request context. The context is the
-// caller's to release and this is the ONLY place that does it: a caller that
-// forgets to Close the body leaks the context and leaves an armed timer, and
-// nothing — not the compiler, not go vet — will say so.
+// Close stops the timer and releases the request context. This is the only
+// place that releases it EARLY: a caller that forgets to Close holds the
+// context and an armed timer until that fetch's own per-call budget expires.
+// Bounded, then — but for the tarball that bound is the long backstop, and
+// nothing says so: not the compiler, and not go vet, whose lostcancel check is
+// satisfied the moment the cancel is handed to another function.
 func (g *stallGuard) Close() error {
 	g.timer.Stop()
 	g.stop()
