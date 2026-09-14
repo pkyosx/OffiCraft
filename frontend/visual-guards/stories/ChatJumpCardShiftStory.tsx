@@ -78,7 +78,7 @@ log.sort((a, b) => a.ts - b.ts);
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 api.listChat = async (
-  withId: string,
+  _withId: string,
   limit?: number,
   cursor?: { beforeTs: number; beforeId: string },
 ) => {

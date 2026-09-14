@@ -61,6 +61,7 @@ export function ChatMdPreviewStory() {
         <MarkdownPreviewOverlay
           title={mdPreview.title}
           url={mdPreview.url}
+          attachmentId="att-1"
           onClose={() => setMdPreview(null)}
         />
       )}

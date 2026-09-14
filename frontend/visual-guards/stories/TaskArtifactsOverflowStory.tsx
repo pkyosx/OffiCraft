@@ -69,6 +69,7 @@ export function TaskArtifactsOverflowStory() {
                   onMarkDuplicate={NOOP as never}
                   onSetPriority={NOOP as never}
                   onSendMessage={NOOP as never}
+                  onReassign={NOOP as never}
                   onHydrate={(async () => OWNER_LINK) as never}
                   onRemoveArtifact={NOOP as never}
                 />
