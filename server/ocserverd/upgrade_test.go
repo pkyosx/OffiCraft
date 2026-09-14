@@ -240,6 +240,126 @@ func TestHttpGetAsset(t *testing.T) {
 			t.Fatalf("failure: %#v", fail)
 		}
 	})
+
+	t.Run("the client puts no wall-clock ceiling on the whole request", func(t *testing.T) {
+		// The ceiling is what broke the upgrade on 2026-09-14: a 20MB asset over
+		// a slow link needed 108s against a 120s total Timeout, so every attempt
+		// died mid-stream. Connection setup and the wait for headers stay bounded
+		// so a dead host still fails fast.
+		c := upgradeAssetClient()
+		if c.Timeout != 0 {
+			t.Errorf("Timeout = %v, want 0 — a multi-megabyte body on a slow link must not be cut by a wall-clock deadline", c.Timeout)
+		}
+		tr, ok := c.Transport.(*http.Transport)
+		if !ok {
+			t.Fatalf("Transport = %T, want *http.Transport", c.Transport)
+		}
+		if tr.DialContext == nil {
+			t.Error("DialContext = nil, want the bounded dialer — connection SETUP must stay bounded")
+		}
+		if tr.TLSHandshakeTimeout != upgradeDialTimeout {
+			t.Errorf("TLSHandshakeTimeout = %v, want %v", tr.TLSHandshakeTimeout, upgradeDialTimeout)
+		}
+		if tr.ResponseHeaderTimeout != upgradeHeaderTimeout {
+			t.Errorf("ResponseHeaderTimeout = %v, want %v", tr.ResponseHeaderTimeout, upgradeHeaderTimeout)
+		}
+	})
+
+	t.Run("a host that answers and then goes silent aborts the download", func(t *testing.T) {
+		// Guards the WIRING, not the guard: newStallGuard has its own tests, and
+		// they all keep passing if nothing ever calls it. Without the wiring, a
+		// source that sends its headers and then trickles nothing would hold
+		// runUpgrade's lock forever and the machine would silently stop
+		// upgrading.
+		defer func(d time.Duration) { upgradeStallTimeout = d }(upgradeStallTimeout)
+		upgradeStallTimeout = 60 * time.Millisecond
+
+		release := make(chan struct{})
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, _ = w.Write([]byte("x"))
+			w.(http.Flusher).Flush()
+			<-release
+		}))
+		defer srv.Close()
+		defer close(release)
+
+		resp, fail := httpGetAsset(srv.URL + "/asset")
+		if fail != nil {
+			t.Fatalf("want the response, got %d %q", fail.status, fail.message)
+		}
+		defer resp.Body.Close()
+
+		// Bounded on purpose: unwired, the read blocks forever, and a hanging
+		// test reads exactly like a slow one.
+		done := make(chan error, 1)
+		go func() {
+			_, err := io.ReadAll(resp.Body)
+			done <- err
+		}()
+		select {
+		case err := <-done:
+			if err == nil {
+				t.Fatal("reading a silent body returned no error — the stall guard is not wired into httpGetAsset")
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("the read never returned — the stall guard is not wired into httpGetAsset, so a source that answers and then goes silent would hold runUpgrade's lock forever")
+		}
+	})
+}
+
+func TestStallGuard(t *testing.T) {
+	t.Run("a slow but progressing stream is never cancelled", func(t *testing.T) {
+		const every = 80 * time.Millisecond
+		cancelled := false
+		body := newStallGuard(io.NopCloser(&pacedReader{chunks: 5, gap: every / 2}),
+			func() { cancelled = true }, every)
+		got, err := io.ReadAll(body)
+		if err != nil {
+			t.Fatalf("read: %v", err)
+		}
+		if string(got) != "xxxxx" {
+			t.Fatalf("body = %q, want %q", got, "xxxxx")
+		}
+		// Total elapsed is well past `every`; only the gap BETWEEN bytes matters.
+		if cancelled {
+			t.Error("cancelled a stream that kept delivering bytes — this is the 2026-09-14 failure")
+		}
+		if err := body.Close(); err != nil {
+			t.Fatalf("close: %v", err)
+		}
+	})
+
+	t.Run("a stream that goes silent is cancelled", func(t *testing.T) {
+		const every = 40 * time.Millisecond
+		fired := make(chan struct{})
+		body := newStallGuard(io.NopCloser(&pacedReader{chunks: 1, gap: 0}),
+			func() { close(fired) }, every)
+		if _, err := body.Read(make([]byte, 1)); err != nil {
+			t.Fatalf("first read: %v", err)
+		}
+		select {
+		case <-fired:
+		case <-time.After(2 * time.Second):
+			t.Fatal("never cancelled — a host that answers its headers and then trickles nothing would hold runUpgrade's lock forever")
+		}
+	})
+}
+
+// pacedReader hands back one byte per Read, waiting `gap` before each one, then
+// reports EOF. It stands in for a link that is slow but alive.
+type pacedReader struct {
+	chunks int
+	gap    time.Duration
+}
+
+func (r *pacedReader) Read(p []byte) (int, error) {
+	if r.chunks == 0 {
+		return 0, io.EOF
+	}
+	time.Sleep(r.gap)
+	r.chunks--
+	p[0] = 'x'
+	return 1, nil
 }
 
 func TestFetchExpectedSHA(t *testing.T) {

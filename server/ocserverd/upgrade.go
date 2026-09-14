@@ -59,12 +59,14 @@ import (
 	"archive/tar"
 	"bufio"
 	"compress/gzip"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -75,9 +77,13 @@ import (
 )
 
 const (
-	// upgradeDownloadTimeout bounds each asset download (the tarball runs
-	// ~25MB; two minutes is generous even over a slow connection).
-	upgradeDownloadTimeout = 2 * time.Minute
+	// upgradeDialTimeout bounds connection setup (TCP + TLS) for every asset
+	// fetch, so a host that is gone still fails fast.
+	upgradeDialTimeout = 10 * time.Second
+	// upgradeHeaderTimeout bounds the wait for the response headers once the
+	// request is sent — the phase that catches a server which accepted the
+	// connection and then said nothing.
+	upgradeHeaderTimeout = 30 * time.Second
 	// upgradeMaxBytes caps every download/extraction so a misbehaving release
 	// cannot fill the disk through this path.
 	upgradeMaxBytes = 256 << 20
@@ -143,22 +149,88 @@ func findReleaseAsset(rel githubRelease, name string) (githubReleaseAsset, *upgr
 // httpGetAsset performs one bounded anonymous GET (redirect-following — the
 // browser_download_url redirects to GitHub's CDN).
 func httpGetAsset(url string) (*http.Response, *upgradeFailure) {
-	req, err := http.NewRequest(http.MethodGet, url, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
+		cancel()
 		return nil, upgradeFail(http.StatusBadGateway, "cannot build the download request: %v", err)
 	}
-	client := &http.Client{Timeout: upgradeDownloadTimeout}
-	resp, err := client.Do(req)
+	resp, err := upgradeAssetClient().Do(req)
 	if err != nil {
+		cancel()
 		return nil, upgradeFail(http.StatusBadGateway,
 			"downloading %s failed — nothing was changed: %v", url, err)
 	}
 	if resp.StatusCode != http.StatusOK {
 		resp.Body.Close()
+		cancel()
 		return nil, upgradeFail(http.StatusBadGateway,
 			"the asset download answered %d for %s — nothing was changed", resp.StatusCode, url)
 	}
+	resp.Body = newStallGuard(resp.Body, cancel, upgradeStallTimeout)
 	return resp, nil
+}
+
+// upgradeStallTimeout bounds how long the asset body may go WITHOUT delivering
+// a single byte. It replaces a wall-clock ceiling on the whole request, which
+// cut downloads that were slow but making steady progress: on 2026-09-14 the
+// 20MB release asset over a ~200KB/s link needed 108s against a 120s ceiling
+// and every one of 20 consecutive auto-upgrades failed mid-stream. Progress,
+// not elapsed time, is what separates a slow link from a dead one, and this
+// bound does not tighten as the release grows. A var, not a const, only so a
+// test can lower it and exercise the guard through httpGetAsset itself.
+var upgradeStallTimeout = 60 * time.Second
+
+// upgradeAssetClient builds the HTTP client every asset fetch uses. The total
+// Timeout is deliberately 0: a multi-megabyte body on a slow link must not be
+// cut mid-stream by a wall-clock deadline. Connect and response-header phases
+// keep their own bounded timeouts so a dead host still fails fast, and the
+// body is wrapped in a stall guard so a live host that stops sending cannot
+// wedge the upgrade forever. Same shape as ocagent's newStreamingClient
+// (cli/ocagent/download.go) and the SSE stream clients.
+func upgradeAssetClient() *http.Client {
+	return &http.Client{
+		Timeout: 0,
+		Transport: &http.Transport{
+			Proxy:                 http.ProxyFromEnvironment,
+			DialContext:           (&net.Dialer{Timeout: upgradeDialTimeout}).DialContext,
+			TLSHandshakeTimeout:   upgradeDialTimeout,
+			ResponseHeaderTimeout: upgradeHeaderTimeout,
+		},
+	}
+}
+
+// stallGuard wraps an asset body and cancels the request when the stream stops
+// delivering bytes for `every`. Without it, dropping the request-wide timeout
+// would remove something the old ceiling was doing by accident: runUpgrade
+// holds a TryLock for the whole upgrade, so one download that connects, answers
+// its headers and then trickles nothing would hold that lock forever and the
+// machine would silently never upgrade again.
+type stallGuard struct {
+	inner io.ReadCloser
+	timer *time.Timer
+	every time.Duration
+	stop  context.CancelFunc
+}
+
+func newStallGuard(inner io.ReadCloser, stop context.CancelFunc, every time.Duration) io.ReadCloser {
+	return &stallGuard{inner: inner, timer: time.AfterFunc(every, stop), every: every, stop: stop}
+}
+
+// Read resets the deadline on every byte that actually arrives, so a slow but
+// progressing stream renews itself indefinitely while a silent one does not.
+func (g *stallGuard) Read(p []byte) (int, error) {
+	n, err := g.inner.Read(p)
+	if n > 0 {
+		g.timer.Reset(g.every)
+	}
+	return n, err
+}
+
+func (g *stallGuard) Close() error {
+	g.timer.Stop()
+	g.stop()
+	return g.inner.Close()
 }
 
 // fetchExpectedSHA downloads the release's checksums.txt and extracts the
