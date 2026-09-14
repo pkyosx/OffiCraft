@@ -821,7 +821,7 @@ func TestDownloadUpgradeTarball(t *testing.T) {
 		{name: "a tarball that sends its headers and then nothing is cut at the stall timeout after its headers, not before", length: len(body)},
 		{name: "a tarball that goes silent part way is cut at the stall timeout after its headers, not before", length: len(body), sent: []string{body[:4]}},
 		{name: "a chunked tarball that goes silent part way is cut at the stall timeout after its headers, not before", length: -1, sent: []string{body[:4]}},
-		{name: "a redirected tarball that goes silent part way is cut at the stall timeout after the final hop's headers, not before", length: len(body), sent: []string{body[:4]}, redirect: true},
+		{name: "a redirected tarball that sends its headers and then nothing is cut at the stall timeout after the final hop's headers, not before", length: len(body), redirect: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
