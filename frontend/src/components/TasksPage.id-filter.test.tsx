@@ -1,38 +1,17 @@
-// 任務頁 — the ID 篩選 field, third pass (T-93).
+// 任務頁 — the ID 篩選 field (T-93, T-118).
 //
-// WHY THIS FILE EXISTS. Round 1 shipped the field on 請示卡頁 only; owner opened
-// the trial station and answered 「任務沒有出現同樣的filter, 而且好像太寬了」, so
-// round 2 added it here. Round 3 is the owner rejecting the SHAPE of both:
-//
-//   「很常我們要找一張任務或票而已，但每次都要全部都撈回來才濾不合理 你可以設計成
-//     要給完搜尋條件要再按 search 的版本嗎」            (rejected the 篩選列)
-//   「按搜尋時不要再跳出新modal」                        (rejected the overlay)
-//   「一起搬」                    (ALL the dropdowns move into the panel too)
-//   and, on the id itself, option ①: EVERY CONDITION ANDS, THE ID INCLUDED.
-//
-// 🔴 WHAT ROUND 2 GOT WRONG, AND WHAT THESE SPECS NOW EXIST TO PREVENT. The
-// field filtered the ALREADY-LOADED rows by substring. So an id that named a
-// real task the page had not downloaded (a 已完成 one, under the default status
-// filter) produced the same screen as an id that names nothing at all —
-// 沒有符合篩選條件的任務, both times. The owner read a live task as a deleted one
-// in review. Under option ① the id is answered by `GET /api/tasks/{id}` and the
-// page has THREE separate endings, pinned separately below:
-//   · 404              → 「不存在」, and it says the server was asked.
-//   · found, fails the other applied axes → says so, NAMES them, and offers
-//     「只用編號再找一次」.
+// Every applied condition ANDs, the id included (owner option ①). An applied id
+// is answered by `GET /api/tasks/{id}`, never by filtering the rows the page has
+// already loaded — filtering loaded rows made a real task the page had not
+// downloaded (a 已完成 one, under the default status filter) look the same as an
+// id that names nothing. Endings once an id is applied:
+//   · 404, or found but excluded by another applied axis → the ordinary
+//     `tasks-empty-filtered`, never `tasks-empty`.
 //   · found and passes → that one row.
-// A fourth, non-404 failure, is NOT a miss: nothing was reached, so nothing may
-// be claimed.
-//
-// ⚠️ TWO ASSERTIONS FROM ROUND 2 ARE DELIBERATELY GONE, because the owner
-// overruled the behaviour they pinned:
-//   · 「typing NEVER asks the server」 — typing still asks nothing (the fetch
-//     rides the APPLIED id), but pressing 套用篩選 now DOES ask, exactly once.
-//     The spec is rewritten to that rule rather than deleted; the must-fix it
-//     came from (「一個字元一個請求」) is still what it guards.
-//   · SUBSTRING matching — `GET /api/tasks/{id}` answers about one id, so the
-//     field is exact-match now. A half-typed id names no task, which is the
-//     same thing the substring rule was hand-waving at.
+//   · any other failure (500 / offline) is NOT a miss: nothing was reached, so
+//     nothing may be claimed.
+// Typing asks the server nothing; the draft id commits (and asks exactly once)
+// on Enter or blur. Matching is exact, not substring.
 
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import { render, fireEvent, waitFor } from "@testing-library/react";
@@ -100,10 +79,6 @@ afterEach(() => {
 
 describe("任務頁 篩選列 (T-118)", () => {
   it("all four fields are on the page from the first render — there is nothing to open", async () => {
-    // 🔁 REPLACES 「the fields are BEHIND the funnel」. That test pinned T-93
-    // round 3, where 「一起搬」 meant every axis hid behind a funnel button.
-    // OVERTURNED BY owner 2026-09-06 20:07 (c-c3d681fe05da):「不要多filter那一層
-    // 了,全部拉出來」. The funnel, the panel and the toggle no longer exist.
     __injectMockTask(mkTask({ id: "t-aaa1" }));
     const { findByTestId } = renderPage();
     expect(await findByTestId("filter-task-id")).toBeTruthy();
@@ -113,8 +88,7 @@ describe("任務頁 篩選列 (T-118)", () => {
   });
 
   it("🔴 the filter row is NOT a modal: it is page content, with no scrim over the list", async () => {
-    // owner c-3b5a0aa66550:「按搜尋時不要再跳出新modal」— NOT overturned by
-    // T-118; 「全部拉出來」 is the opposite of floating it. Same rule, new node.
+    // owner c-3b5a0aa66550:「按搜尋時不要再跳出新modal」.
     __injectMockTask(mkTask({ id: "t-aaa1", title: "還看得見我" }));
     const { findByText, findByTestId, queryByRole } = renderPage();
     await findByText("還看得見我");
@@ -126,25 +100,17 @@ describe("任務頁 篩選列 (T-118)", () => {
   });
 
   it("🔴 typing in 任務編號 without Enter or blur applies NOTHING — the list does not move", async () => {
-    // 🆕 T-118's own guard, and the reason it exists: owner rejected a version
-    // where every keystroke took effect, and 「按enter或是點外面就視為apply了」 is
-    // the only timing he named this round. The dropdowns are immediate now, so
-    // without this assertion the id field would look like the odd one out and
-    // the next person would "fix" it back onto onChange.
+    // 「按enter或是點外面就視為apply了」. The dropdowns are immediate, so the id
+    // field looks like the odd one out — but every commit is a server request.
     __injectMockTask(mkTask({ id: "t-aaa1", title: "第一張" }));
     __injectMockTask(mkTask({ id: "t-bbb2", title: "第二張" }));
     const { queryByText } = renderPage();
     await waitFor(() => expect(queryByText("第一張")).toBeTruthy());
 
     typeIdFilter("t-aaa1");
-    // 🔴 WAIT ON A REAL CLOCK, NOT ONE MICROTASK. This assertion used to be
-    // `await Promise.resolve()`, and an independent review broke it: a commit
-    // wrapped in `setTimeout(…, 300)` — a debounced per-keystroke apply, which
-    // is the very shape owner rejected, just slower — passed every guard in
-    // this file. A microtask cannot observe a timer, so "nothing happened yet"
-    // was being read as "nothing will happen". 600ms is twice the debounce that
-    // defeated it; anything that eventually applies without Enter or blur has
-    // to land inside it.
+    // 🔴 WAIT ON A REAL CLOCK, NOT ONE MICROTASK: a microtask cannot observe a
+    // `setTimeout`-debounced per-keystroke apply. Anything that eventually
+    // applies without Enter or blur has to land inside 600ms.
     await new Promise((r) => setTimeout(r, 600));
     expect(queryByText("第一張")).toBeTruthy();
     expect(
@@ -180,11 +146,7 @@ describe("任務頁 篩選列 (T-118)", () => {
     expect(queryByText("第一張")).toBeTruthy();
   });
 
-  it("a dropdown takes effect on the click — there is no 套用篩選", async () => {
-    // 🔁 REPLACES 「typing changes NOTHING until 套用篩選」 for the DROPDOWN half.
-    // That test pinned round 3's draft/apply split; owner 2026-09-06 removed
-    // both buttons, so a tick IS the condition. The id half of the old test
-    // survives, strengthened, as the three tests above.
+  it("a dropdown takes effect on the click", async () => {
     __injectMockTask(
       mkTask({ id: "t-aaa1", title: "第一張", status: "in_progress" })
     );
@@ -195,8 +157,7 @@ describe("任務頁 篩選列 (T-118)", () => {
     await waitFor(() => expect(queryByText("第一張")).toBeTruthy());
     expect(queryByText("第二張")).toBeTruthy();
 
-    // Untick 進行中. Under round 3 this changed nothing until 套用篩選 was
-    // pressed; now the click IS the condition.
+    // Untick 進行中; the click IS the condition.
     toggleFilter("filter-status", "in_progress");
     await waitFor(() => expect(queryByText("第一張")).toBeNull());
     expect(queryByText("第二張"), "only the unticked axis narrows").toBeTruthy();
@@ -222,24 +183,11 @@ describe("任務頁 篩選列 (T-118)", () => {
 });
 
 describe("任務頁 ID 篩選 — 三種結局 (owner 2026-09-06 選項①)", () => {
-  // 🔴 OWNER REMOVED THE TWO BY-ID NOTICES — 2026-09-06, rc-f603bbd447f4 and
-  // c-2580b547d1a1 / c-a497d775aa4b / c-86c129855835. Round 3 gave this view its
-  // own sentences (「找不到「X」。這是跟伺服器要過的結果…」 and 「找到了，但不符合
-  // 你目前的狀態條件…只用編號再找一次」). He saw the first on the trial station:
-  //   「為什麼要顯示這種東西 拿掉!」 →「UI不是本來就秀0筆了嗎」
-  //   →「任務那邊也可以用同樣的方式就好,不用特別再多個顯示框」
-  // The second was put to him explicitly — a task that EXISTS but is excluded by
-  // another axis would read as deleted, the confusion this ticket was opened to
-  // end — and he overruled it: 「不用 比數本來就是要顯示篩選過的數量」. The
-  // conditions in force are on screen in the 已篩選 strip beside the count.
-  //
-  // SO THE TWO CASES NOW RENDER THE SAME SCREEN, AND THAT IS THE DECISION, NOT A
-  // BUG. What these specs still hold is everything that decision did NOT touch:
-  //   · the id is answered by the SERVER, not by filtering the loaded rows —
-  //     that is what made round 2 dishonest, and it is untouched;
-  //   · an excluded row really is excluded (every condition ANDs);
-  //   · the page still says SOMETHING rather than going blank;
-  //   · 「no answer yet」 (in flight / never returned) still says nothing at all.
+  // A 404 and a found-but-excluded task render the same ordinary filtered-empty
+  // screen; the count shows the filtered number (owner rc-f603bbd447f4). What
+  // these specs hold: the id is answered by the SERVER; an excluded row really is
+  // excluded; the page still says something rather than going blank; 「no answer
+  // yet」 (in flight / never returned) says nothing at all.
   it("① 404 → the ordinary empty result, not a blank page", async () => {
     __injectMockTask(mkTask({ id: "t-real" }));
     vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -338,15 +286,8 @@ describe("任務頁 ID 篩選 — 三種結局 (owner 2026-09-06 選項①)", ()
   });
 
   it("🔴 typing asks the server NOTHING; Enter asks exactly once", async () => {
-    // The rewritten form of round 2's 「typing NEVER asks the server」. The
-    // must-fix it came from (an independent review's 「一個字元一個請求」 on
-    // 請示卡頁) is still the thing guarded — what changed is that a COMMITTED id
-    // is now allowed to cost exactly one request, which is what makes ① and ②
-    // distinguishable at all.
-    // T-118: the COMMIT is now Enter rather than 套用篩選. The keystroke half of
-    // this assertion is untouched, and it is the half that matters — owner's
-    // 「按enter或是點外面就視為apply了」 is exactly a rule about when the request
-    // is allowed to leave.
+    // 「一個字元一個請求」 is what this guards. A COMMITTED id costs exactly one
+    // request; 「按enter或是點外面就視為apply了」 is a rule about when it may leave.
     const spy = vi.spyOn(api, "getTask");
     __injectMockTask(mkTask({ id: "t-abcdef" }));
     const { findByTestId } = renderPage();
@@ -379,11 +320,6 @@ describe("任務頁 ID 篩選 — 三種結局 (owner 2026-09-06 選項①)", ()
 
 describe("任務頁 ID 篩選 — 清除與 hash", () => {
   it("emptying every field leaves nothing narrowing the list", async () => {
-    // 🔁 WAS 「清除全部 empties the field and every other axis」. That button
-    // lived on the 已篩選 strip and was REMOVED WITH IT by owner 2026-09-06
-    // (「也不用再顯示14筆已篩選跟那一行」). The BEHAVIOUR it guarded is still
-    // required — it just has no single control any more, so the gesture is
-    // clearing each field, which is what `clearAllFilters` now performs.
     __injectMockTask(mkTask({ id: "t-real" }));
     const { findByTestId } = renderPage();
 
@@ -404,9 +340,8 @@ describe("任務頁 ID 篩選 — 清除與 hash", () => {
     window.location.hash = "#tasks/t-seed";
     const { findByTestId } = renderPage();
 
-    // 🔁 WAS asserted through the 已篩選 strip, which T-118 removed. The hash
-    // seeds the APPLIED id, and the permanently-visible field is now where that
-    // is readable — which is the property that made removing the strip safe.
+    // The hash seeds the APPLIED id, and the always-visible field is where that
+    // is readable.
     await waitFor(() =>
       expect(
         (document.querySelector(
@@ -427,23 +362,16 @@ describe("任務頁 ID 篩選 — 清除與 hash", () => {
   });
 
   it("the field's width comes from the id's LENGTH, not from a literal", async () => {
-    // owner 2026-09-06: the old field was a flat 200px chosen with no reference
-    // to its content, which is why it read as too wide. This asserts the
+    // This asserts the
     // MECHANISM (a ch-based count the caller supplies), not a pixel count —
     // jsdom computes no layout, so a pixel assertion here would be theatre.
     // The real geometry is measured by the CT guard in visual-guards/.
     //
-    // 🔁 THIS TEST USED TO READ THE COUNT OFF THE INPUT, AND USED TO EXPECT 10.
-    // Both halves were overturned on 2026-09-07 and by the same person:
-    //   · the NUMBER, by owner `rc-b2beb7b1fd3c` 「ID寬度要合理…任務可先假設到
-    //     萬位數」 ⇒ 「T-」 + 5 digits = 7. The 10 it replaced was owner's own
-    //     hand-set figure from the day before, not a measurement.
-    //   · the ELEMENT, by owner `rc-e2edbb0fff01` 「寬度取編號跟標籤的較大者」.
-    //     The label is this field's only label (it is the placeholder), and on
-    //     this page it is the wider of the two, so the box can no longer be
-    //     sized off the id alone. The count now rides the WRAPPER, which hands
-    //     it to a hidden copy of the label as a `min-width`; the browser takes
-    //     the max. Reading it off the input would assert a spec nobody holds.
+    //   · the NUMBER: owner `rc-b2beb7b1fd3c` 「ID寬度要合理…任務可先假設到萬位數」
+    //     ⇒ 「T-」 + 5 digits = 7.
+    //   · the ELEMENT: owner `rc-e2edbb0fff01` 「寬度取編號跟標籤的較大者」. The
+    //     count rides the WRAPPER, which hands it to a hidden copy of the label
+    //     (the placeholder) as a `min-width`; the browser takes the max.
     const { findByTestId } = renderPage();
     const input = (await findByTestId("filter-task-id")) as HTMLInputElement;
     const field = input.parentElement as HTMLElement;

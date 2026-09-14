@@ -1,39 +1,18 @@
-// 請示 page — the ID 篩選 (T-93 round 2/3, re-pinned for T-118).
+// 請示 page — the ID 篩選 (T-93, T-118).
 //
-// ⚠️ THIS FILE HAS BEEN REWRITTEN TWICE, AND THE SECOND REWRITE IS THE ONE YOU
-// ARE READING. Round 1 pinned a 篩選列 that narrowed the ALREADY-LOADED cards on
-// every keystroke; round 2/3 replaced it with a funnel button, an in-page
-// expanding panel, a DRAFT committed by 套用篩選, and a 「N 筆 · 已篩選：<chip ×>
-// · 清除全部」 strip. owner 2026-09-06 20:07 (c-c3d681fe05da) then overturned
-// THAT shape too, in his own words:
+// The filter fields are always on the page (owner c-c3d681fe05da:「不要多filter
+// 那一層了,全部拉出來」); the 編號 field commits on Enter or blur.
 //
-//   「我想改一下,不要多filter那一層了,全部拉出來,而任務編號那邊就是按enter
-//     或是點外面就視為apply了,然後也不用再顯示14筆已篩選跟那一行跟案件那個
-//     子標了,案件跟請示卡都一樣」
-//
-// restated for this page at 20:19 (c-38c7759e6377):「請示卡跟任務都要改成一樣的
-// 呈現方式,一樣請示卡的子標題拿掉」.
-//
-// So the funnel, the panel, 取消／套用篩選, the 已篩選 strip with its chips and
-// 清除全部, and the 「請示卡」 sub-title above the list are all GONE. Every spec
-// that pinned one of them is REPLACED below — in place, with a marker saying
-// what it used to hold and who overturned it — never deleted, because a deleted
-// spec is a behaviour nobody is watching any more.
-//
-// 🔴 WHAT DID **NOT** CHANGE, and must not be weakened by this rewrite:
+// 🔴 Must not be weakened:
 //   · the id is ASKED OF THE SERVER (`api.getReplyCard`), not matched against
-//     the rows the page happens to hold. Round 1 was dishonest precisely
-//     because it filtered loaded rows: a card older than the handled pane's 24h
-//     window came back as 「沒有符合篩選條件的請示」— the same sentence a card
-//     that does not exist produces. The owner read that collapse as "no such
-//     card" in review, and it is the whole reason this ticket exists.
+//     the rows the page happens to hold. Filtering loaded rows made a card older
+//     than the handled pane's 24h window come back as 「沒有符合篩選條件的請示」—
+//     the same sentence a card that does not exist produces.
 //   · found / 404 / server-never-reached stay THREE distinguishable screens.
 //   · 近期已處理 stays on screen saying 0 while a filter is applied.
 //   · a card no pane carries is still findable.
-//   · typing is still inert. What changed is only WHEN a draft commits: Enter
-//     or blur (「按enter或是點外面就視為apply了」) instead of 套用篩選. An applied
-//     id is a server request, so a commit per keystroke is a fetch per
-//     keystroke — the shape owner rejected twice before this round.
+//   · typing is inert. An applied id is a server request, so a commit per
+//     keystroke is a fetch per keystroke.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, fireEvent, waitFor } from "@testing-library/react";
@@ -80,13 +59,8 @@ function idField(): HTMLInputElement {
   ) as HTMLInputElement;
 }
 
-/** Type an id into 請示卡編號 and COMMIT it with Enter.
- *
- * 🔁 WAS 「open the funnel → type → press 套用篩選」. OVERTURNED BY owner
- * 2026-09-06 (c-c3d681fe05da):「不要多filter那一層了…按enter或是點外面就視為
- * apply了」— there is nothing to open and no button to press. Mirrors
- * `src/test/tasksFilter.ts#applyIdFilter`, deliberately: the two pages wear the
- * same gesture now, and a helper that drifted would hide that. */
+/** Type an id into 請示卡編號 and COMMIT it with Enter. Mirrors
+ * `src/test/tasksFilter.ts#applyIdFilter`: the two pages wear the same gesture. */
 function applyId(id: string) {
   fireEvent.change(idField(), { target: { value: id } });
   fireEvent.keyDown(idField(), { key: "Enter" });
@@ -117,12 +91,6 @@ afterEach(() => {
 
 describe("請示 ID 篩選（常駐欄位版，T-118）", () => {
   it("a link carrying a card id shows only that card, out of several waiting", async () => {
-    // 🔁 KEPT — the link behaviour survives untouched. What changed is the last
-    // assertion: it used to read the 已篩選 chip (「編號：rc-bbb」), because a
-    // COLLAPSED panel could otherwise hide a live filter. OVERTURNED BY owner
-    // 2026-09-06 (c-c3d681fe05da):「也不用再顯示14筆已篩選跟那一行」— with the
-    // field permanently on screen the field itself is what says an id is
-    // applied, which is exactly what made removing the strip safe.
     __injectMockReplyCard(mkCard({ id: "rc-aaa", summary: "第一張" }));
     __injectMockReplyCard(mkCard({ id: "rc-bbb", summary: "第二張" }));
     __injectMockReplyCard(mkCard({ id: "rc-ccc", summary: "第三張" }));
@@ -139,12 +107,7 @@ describe("請示 ID 篩選（常駐欄位版，T-118）", () => {
   });
 
   it("the 編號 field is on the page from the first render, already holding the applied id", async () => {
-    // 🔁 REPLACES 「opening the panel shows the APPLIED id in the field, not a
-    // blank one」. That spec pinned the funnel + draft-replay of round 2/3.
-    // OVERTURNED BY owner 2026-09-06 (c-c3d681fe05da):「不要多filter那一層了,
-    // 全部拉出來」. There is no panel to open, so the property the old spec
-    // guarded (「the field must not lie about what is applied」) is now a
-    // first-render fact.
+    // The field must not lie about what is applied.
     __injectMockReplyCard(mkCard({ id: "rc-bbb", summary: "第二張" }));
 
     const { findByTestId } = renderPage("rc-bbb");
@@ -181,11 +144,8 @@ describe("請示 ID 篩選（常駐欄位版，T-118）", () => {
 
     const { findAllByTestId, queryAllByText } = renderPage();
     expect(await findAllByTestId("waiting-card")).toHaveLength(2);
-    // 🔁 The counter used to be cleared here, because the leading card opened
-    // itself on arrival and that open was a read. owner 2026-09-11 ruled every
-    // card starts collapsed, so arrival now costs ZERO reads — asserted rather
-    // than assumed, since a silent auto-open would make the keystroke count
-    // below unreadable.
+    // Every card starts collapsed, so arrival costs ZERO reads; a silent
+    // auto-open would make the keystroke count below unreadable.
     expect(getSpy, "arrival must read no card at all").not.toHaveBeenCalled();
 
     for (const value of ["r", "rc", "rc-", "rc-b", "rc-bb", "rc-bbb"]) {
@@ -211,11 +171,7 @@ describe("請示 ID 篩選（常駐欄位版，T-118）", () => {
   });
 
   it("Enter applies the typed id, and asks the server for it exactly once", async () => {
-    // 🔁 REPLACES 「typing changes NOTHING until 套用篩選」. That spec pinned the
-    // draft/apply split of round 2/3. OVERTURNED BY owner 2026-09-06
-    // (c-c3d681fe05da): the commit is Enter now, not a button. The half that
-    // matters is UNCHANGED and lives in the spec above — typing costs nothing;
-    // this one holds the other half, that a COMMITTED id costs exactly one read.
+    // Typing costs nothing (spec above); a COMMITTED id costs exactly one read.
     const getSpy = vi.spyOn(api, "getReplyCard");
     const now = Date.now() / 1000;
     __injectMockReplyCard(
@@ -240,23 +196,16 @@ describe("請示 ID 篩選（常駐欄位版，T-118）", () => {
       survivor.textContent,
       "the ask's title stays readable on a collapsed row"
     ).toContain("第二張");
-    // ONE commit = ONE read: the lookup for that id. 🔁 There used to be a
-    // second — the pane opened the card it was now showing and that open was a
-    // read — and it went with the auto-open (owner 2026-09-11「預設全部折疊」).
-    // Six keystrokes' worth of ids would stand right here; that is what this
-    // list is watching for.
+    expect(idField().value).toBe("rc-bbb");
+    // ONE commit = ONE read. A per-keystroke commit would put every partial id
+    // in this list.
     await waitFor(() =>
       expect(getSpy.mock.calls.map(([id]) => id)).toEqual(["rc-bbb"])
     );
   });
 
   it("clicking away from the field applies it too (「點外面」)", async () => {
-    // 🔁 REPLACES 「Cancel commits nothing, and the abandoned draft does not
-    // survive to the next open」. That spec pinned 取消 and the panel's
-    // draft-replay. OVERTURNED BY owner 2026-09-06 (c-c3d681fe05da): both
-    // buttons are gone, so there is no abandon — the second door he named is
-    // blur, and a version that wires only Enter passes the spec above while
-    // still failing him.
+    // A version that wires only Enter passes the spec above while failing this.
     __injectMockReplyCard(mkCard({ id: "rc-aaa", summary: "第一張" }));
     __injectMockReplyCard(mkCard({ id: "rc-bbb", summary: "第二張" }));
 
@@ -282,28 +231,10 @@ describe("請示 ID 篩選（常駐欄位版，T-118）", () => {
     ).toContain("第二張");
   });
 
-  it("an applied id narrows the list and the field shows it", async () => {
-    __injectMockReplyCard(mkCard({ id: "rc-aaa", summary: "第一張" }));
-    __injectMockReplyCard(mkCard({ id: "rc-bbb", summary: "第二張" }));
-
-    const { findAllByTestId } = renderPage();
-    expect(await findAllByTestId("waiting-card")).toHaveLength(2);
-
-    applyId("rc-bbb");
-    await waitFor(async () =>
-      expect(await findAllByTestId("waiting-card")).toHaveLength(1)
-    );
-    expect(idField().value).toBe("rc-bbb");
-  });
-
   it("清除篩選 appears once an id is applied and clears it, hash included", async () => {
-    // 🔴 THIS CONTROL WAS DELETED AND PUT BACK BY NAME. owner 2026-09-06 named
-    // the 「N 筆 · 已篩選：<chip ×> · 清除全部」 strip for removal
-    // (c-c3d681fe05da); the button was deleted with it, and he asked for it
-    // back on seeing the row without one (c-2423dba8b65b:「清除篩選還是要留著」).
-    // It now lives in the FIELD ROW, and only while something narrows — the
-    // 請示卡頁 starts unfiltered, so it starts absent. That "absent when
-    // nothing is on" half is what makes its presence mean something.
+    // owner c-2423dba8b65b:「清除篩選還是要留著」. It lives in the field row, and
+    // only while something narrows — "absent when nothing is on" is what makes
+    // its presence mean something.
     __injectMockReplyCard(mkCard({ id: "rc-aaa", summary: "第一張" }));
     __injectMockReplyCard(mkCard({ id: "rc-bbb", summary: "第二張" }));
     const { findAllByTestId, queryByTestId, getByTestId } = renderPage();
@@ -328,18 +259,10 @@ describe("請示 ID 篩選（常駐欄位版，T-118）", () => {
   });
 
   it("🔴 404 renders the ordinary filtered-empty result", async () => {
-    // 🔁 KEPT, gesture untouched (a hash-seeded id needs no gesture at all).
-    // 🔴 owner 2026-09-06 (rc-f603bbd447f4 →「為什麼要顯示這種東西 拿掉!」→
-    // 「UI不是本來就秀0筆了嗎」). Round 2's dedicated 404 sentence is removed;
-    // a 404 now falls through to 沒有符合篩選條件的請示.
-    //
-    // WHAT THIS SPEC STILL HOLDS, and why removing the sentence did not undo
-    // round 1's defect: round 1 was dishonest because the page FILTERED THE
-    // CARDS IT HAPPENED TO HOLD, so a card that merely had not been fetched and
-    // a card that does not exist produced the same screen as a matter of fact.
-    // The by-id lookup asks the SERVER, so those are now two different facts —
-    // and the spec below this one pins the half that must still look different:
-    // a server we never reached may NOT render this sentence.
+    // A 404 falls through to 沒有符合篩選條件的請示 (owner rc-f603bbd447f4). The
+    // by-id lookup asks the SERVER, so an unfetched card and a missing one are
+    // different facts; the spec below pins that a server never reached may NOT
+    // render this sentence.
     __injectMockReplyCard(mkCard({ id: "rc-aaa", summary: "第一張" }));
 
     const { findByTestId, queryByTestId } = renderPage("rc-nope");
@@ -352,8 +275,6 @@ describe("請示 ID 篩選（常駐欄位版，T-118）", () => {
   });
 
   it("🔴 a non-404 failure says the server was never reached, and never says 找不到", async () => {
-    // 🔁 KEPT — only the GESTURE moved (funnel → type → 套用篩選 became type →
-    // Enter, owner 2026-09-06 c-c3d681fe05da). The rule is untouched.
     // MUTANT (and the exact wrong thing to do): treat every rejection as
     // "missing". Then an offline cockpit tells the owner a card he is looking
     // at in another window does not exist.
@@ -373,7 +294,7 @@ describe("請示 ID 篩選（常駐欄位版，T-118）", () => {
   });
 
   it("with no filter at all the ✓ copy is still the one that shows", async () => {
-    // 🔁 KEPT verbatim. Non-vacuity control: the copies really are different
+    // Non-vacuity control: the copies really are different
     // strings and this page really can still produce the ✓ one.
     const { findByTestId } = renderPage();
     expect((await findByTestId("replies-empty")).textContent).toBe(
@@ -382,12 +303,6 @@ describe("請示 ID 篩選（常駐欄位版，T-118）", () => {
   });
 
   it("emptying the 編號 field and clicking away restores every card AND drops the id from the URL", async () => {
-    // 🔁 REPLACES 「清除全部 restores every card AND drops the id from the URL」.
-    // That button lived on the 已篩選 strip and was REMOVED WITH IT by owner
-    // 2026-09-06 (c-c3d681fe05da). The BEHAVIOUR it guarded is still required
-    // and is still the owner's only escape from a filter he did not mean to
-    // apply — it just has no dedicated control any more, so the gesture is
-    // emptying the box where the reader is already looking.
     // 🔴 The URL half is the part that must not be lost: leave the id in the
     // hash and a refresh re-applies the filter, which reads as "clear is
     // broken". This one clears by BLUR; the spec below clears by Enter, because
@@ -409,12 +324,8 @@ describe("請示 ID 篩選（常駐欄位版，T-118）", () => {
   });
 
   it("committing an EMPTY field with Enter clears the filter and the hash with it", async () => {
-    // 🔁 KEPT — only the GESTURE moved (「套用篩選」 → Enter, owner 2026-09-06
-    // c-c3d681fe05da). 🔴 The round-1 version of this hole: the owner could
-    // delete the value by hand and be left on #replies/card/<id> with the hash
-    // still filtering after a reload. The draft/applied split moves the hole
-    // rather than closing it — committing an empty draft must take the stale
-    // hash id with it, or the next reload seeds the old card straight back.
+    // 🔴 Committing an empty draft must take the stale hash id with it, or the
+    // next reload seeds the old card straight back.
     __injectMockReplyCard(mkCard({ id: "rc-aaa", summary: "第一張" }));
     __injectMockReplyCard(mkCard({ id: "rc-bbb", summary: "第二張" }));
     window.location.hash = "#replies/card/rc-bbb";
@@ -431,12 +342,9 @@ describe("請示 ID 篩選（常駐欄位版，T-118）", () => {
   });
 
   it("a link to a WAITING card does not fetch the handled pane", async () => {
-    // 🔁 KEPT verbatim — no gesture at all in this one. Still true, and still
-    // worth pinning: the handled lists are two requests for a pane the owner
-    // never asked about. What CHANGED from round 1 is the 「· N」 — with a
-    // filter applied it is now「how many cards match」(0 here), not the server's
-    // whole-pane count, because the id is answered by a single by-id read
-    // rather than by narrowing loaded rows.
+    // The handled lists are two requests for a pane the owner never asked
+    // about. With a filter applied 「· N」 is「how many cards match」(0 here), not
+    // the server's whole-pane count.
     const listSpy = vi.spyOn(api, "listReplyCards");
     __injectMockReplyCard(mkCard({ id: "rc-live", summary: "還在等的" }));
     __injectMockReplyCard(
@@ -463,7 +371,6 @@ describe("請示 ID 篩選（常駐欄位版，T-118）", () => {
   });
 
   it("keeps 近期已處理 on screen, saying 0, while a filter is applied", async () => {
-    // 🔁 KEPT — only the GESTURE moved (owner 2026-09-06, c-c3d681fe05da).
     // Hiding the section on that 0 removes the only handle for opening the
     // pane and makes "no match" indistinguishable from "this pane does not
     // exist". MUTANT: restore a bare `handledShown > 0` render condition.
@@ -489,8 +396,7 @@ describe("請示 ID 篩選（常駐欄位版，T-118）", () => {
     );
   });
 
-  it("🔴 finds a card NO pane carries — answered three days ago, invisible to round 1", async () => {
-    // 🔁 KEPT — only the GESTURE moved (owner 2026-09-06, c-c3d681fe05da).
+  it("🔴 finds a card NO pane carries — answered three days ago", async () => {
     // THE WHOLE TICKET. The panes hold waiting cards plus the last 24h of
     // handled ones, so this card was unreachable while LOOKING exactly like a
     // card that does not exist. It is now the server's answer, and it lands on
@@ -526,7 +432,7 @@ describe("請示 ID 篩選（常駐欄位版，T-118）", () => {
   });
 
   it("a found card in the COLLAPSED handled pane is rendered, not hidden behind the fold", async () => {
-    // 🔁 KEPT verbatim — the 「找到了但畫面上沒有」 guard on its own: arrive with
+    // The 「找到了但畫面上沒有」 guard on its own: arrive with
     // the pane shut (its default) and never touch the toggle.
     const now = Date.now() / 1000;
     __injectMockReplyCard(

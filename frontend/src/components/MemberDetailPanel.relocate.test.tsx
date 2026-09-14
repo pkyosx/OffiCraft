@@ -1,12 +1,8 @@
-// MemberDetailPanel · 改機器 (relocate) control.
+// MemberDetailPanel · machine placement through the wake/更改 settings dialog.
 //
-// Locked here (mirrors the worker panel's 改機器, but placement-only for a
-// roster member):
-//   1. The 機器 label carries a 改機器 button (data-testid mp-relocate) whenever
-//      onRelocate is wired.
-//   2. With 2+ online machines the button opens the machine picker; confirming a
-//      pick calls onRelocate with the chosen machineId (→ relocateMember at the
-//      call site). It NEVER goes through activateMember — a relocate is not a wake.
+// A roster member's machine is chosen in the same dialog that wakes it (offline →
+// onActivate) or changes it (awake → onRelocate). A relocate is not a wake: the
+// awake path NEVER goes through activateMember.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, fireEvent, waitFor } from "@testing-library/react";
@@ -114,7 +110,7 @@ beforeEach(() => {
 });
 
 describe("MemberDetailPanel — unified wake/change settings", () => {
-  it("keeps the detail fields read-only and sends an offline setting once through activate", async () => {
+  it("sends an offline member's chosen machine once through activate", async () => {
     const { getByTestId, onActivate } = renderPanel();
 
     // The wake entry is gated on the machine registry (0 online ⇒ disabled),

@@ -432,9 +432,7 @@ describe("WorkerDetailPanel — real delegator (T-f190 item 2)", () => {
 });
 
 // ── T-7526: the panel is READ-ONLY and every setting goes through the 更改
-// dialog (the member panel's shape since T-927a). These replace the old 改機器
-// in-place-button suite: that control no longer exists, so its assertions are
-// not merely red, they are unrepresentable.
+// dialog (the member panel's shape since T-927a).
 describe("WorkerDetailPanel — 設定改走喚醒區 (T-7526 parity)", () => {
   it("renders the 模型 and 機器 cells, with 更改 as the settings entry", async () => {
     __setMockMemberOnline("warden-mbp5", true);
@@ -443,11 +441,9 @@ describe("WorkerDetailPanel — 設定改走喚醒區 (T-7526 parity)", () => {
       mkWorker(reporting({ id: "ow-1", taskId: "t-1", model: "Opus 4.6" }, "Opus 4.6")),
     );
     const { findByTestId } = renderOfficeAt("#office/worker/ow-1");
-    // Both cells really are on screen holding real values.
     const cell = await findByTestId("worker-detail-model-effort-cell");
     expect(cell.textContent).toContain("Opus 4.6");
     expect(await findByTestId("worker-detail-machine")).toBeTruthy();
-    // …and the settings entry is live.
     await findByTestId("worker-detail-change");
   });
 

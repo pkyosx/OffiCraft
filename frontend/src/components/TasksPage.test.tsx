@@ -1059,11 +1059,9 @@ describe("TasksPage", () => {
 
       // The anchor survives: the hash still carries the id the owner clicked.
       expect(window.location.hash).toBe("#tasks/t-does-not-exist");
-      // 🔴 The bespoke 404 sentence this used to assert was removed by owner on
-      // 2026-09-06 (rc-f603bbd447f4 / c-2580b547d1a1); a 404 renders the
-      // ordinary 沒有符合篩選條件的任務, awaited above. 目前沒有任務 still may
-      // NOT appear — that would be a claim about a workshop which in fact holds
-      // a task, and it is a different sentence from the one a filter earns.
+      // A 404 renders the ordinary 沒有符合篩選條件的任務, awaited above. 目前沒有
+      // 任務 may NOT appear — that would be a claim about a workshop which in
+      // fact holds a task.
       expect(queryByTestId("tasks-empty")).toBeNull();
       // …and the one real task is NOT on screen: the anchor is still narrowing.
       expect(document.querySelectorAll('[data-testid="task-card"]')).toHaveLength(

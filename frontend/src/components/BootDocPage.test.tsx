@@ -23,9 +23,7 @@
 // 🔴 AND THE T-c33e CLAIM, which is what the ticket is bought on: THESE THREE
 // PAGES HAVE NO EDITOR OF THEIR OWN. They draw the shared <DocCard> — one
 // textarea over the whole document, the same as 角色定義 and 使用者自訂 — and
-// the per-section paste/apply/preview surface is gone. Two of the cases below
-// assert that against the RENDERED page rather than against the source, because
-// a page that grew its own editor back would still import DocCard.
+// the per-section paste/apply/preview surface is gone.
 //
 // Everything runs against `api/mock.ts` — the shared adapter, never a
 // hand-rolled fake. A fake that answered these calls itself would be measuring

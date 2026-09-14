@@ -1,20 +1,11 @@
 // 等待外部 reason — markdown render + label contract.
 //
-// ORIGINALLY T-a20b, on the TASK-level waiting block: waitingReason is
-// agent-authored free text and must render through the shared, XSS-safe
-// `Markdown` component (owner's screenshot showed `**fms #20054**` and
-// `` `919fe961` `` as literal asterisks/backticks). The interesting constraint:
-// the label is an i18n TEMPLATE, so feeding `等待中 · ${reason}` into <Markdown>
+// waitingReason is agent-authored free text, rendered per STEP (.task-step__waiting-*)
+// through the shared, XSS-safe `Markdown` component (owner's screenshot showed
+// `**fms #20054**` and `` `919fe961` `` as literal asterisks/backticks). The
+// label is an i18n TEMPLATE, so feeding `等待中 · ${reason}` into <Markdown>
 // whole would hand the prefix to the parser — the label must stay OUTSIDE the
 // markdown container.
-//
-// T-c514 (owner 2026-07-20) REMOVED the task-level block as a duplicate: the
-// reason is reported per-STEP and the step already renders it inside the node.
-// Every contract above still holds — it just has exactly one carrier now, the
-// step row — so this suite was MOVED down a level rather than deleted. The
-// shapes asserted (bold/code, label-outside-markdown, fenced code, sanitize,
-// bare-word label in three locales) are the same shapes; only the surface
-// changed: .task-card__waiting-* → .task-step__waiting-*.
 //
 // The final describe pins that a waiting_external task still shows its reason
 // inside the step while keeping its status pill on the card.

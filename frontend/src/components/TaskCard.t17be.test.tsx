@@ -477,7 +477,6 @@ describe("T-17be deps 區塊: 不是 status、不上第一排", () => {
     const card = byTitle(await findAllByTestId("task-card"), "被擋");
     const dep = card.querySelector('[data-testid="task-dep"]')!;
 
-    // It renders and says the right thing.
     expect(dep.querySelector(".task-card__dep-no")?.textContent).toBe(
       "等 T-70fc"
     );

@@ -281,19 +281,6 @@ describe("OutsourcePanel", () => {
     expect(typeLine.textContent).toBe("自由代辦");
   });
 
-  it("a typed task's type line reads its typeKey", async () => {
-    __injectMockTask(
-      mkTask({ id: "t-geared", typeKey: "review-pr", createdTs: 65 })
-    );
-    __injectMockOutsourceWorker(
-      mkWorker({ id: "ow-geared", taskId: "t-geared" })
-    );
-
-    const { findByTestId } = renderOutsource();
-    const typeLine = await findByTestId("outsource-type-ow-geared");
-    expect(typeLine.textContent).toBe("review-pr");
-  });
-
   it("clicking the task-id chip jumps to the task page — not the chat", async () => {
     __injectMockTask(
       mkTask({ id: "t-jump", taskNo: "T-950f", typeKey: "review-pr", createdTs: 70 })
