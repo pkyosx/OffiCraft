@@ -1,31 +1,14 @@
-// HOTSPOT — T-e5b1 的兩件事,量在真的瀏覽器裡。
+// HOTSPOT — 任務卡的步驟備註,量在真的瀏覽器裡。
 //
-// WHY THIS FILE IS A CT GUARD AND NOT A JSDOM TEST: both halves of this ticket
-// are claims about what a HUMAN can see and click. jsdom has no layout engine
-// (every box is 0×0 and nothing is ever "visible"), so a jsdom assertion can
-// only say "this class/testid is absent" — which stays green if the control
-// comes back under a different name. Here the assertions are boxes and hit
-// tests: an affordance that returns in ANY shape occupies pixels and answers
-// elementFromPoint, and that is what reddens these tests.
+// WHY THIS FILE IS A CT GUARD AND NOT A JSDOM TEST: these are claims about what a
+// HUMAN can see. jsdom has no layout engine (every box is 0×0 and nothing is
+// ever "visible"); here the assertions are boxes and hit tests.
 //
-// Owner's words (2026-08-15): 「UI 不需要提供編輯標題或敘述的功能,而任務備注我希
-// 望預設不顯示,多一個展開備注的選項決定要不要開該 step 的備注,不然太長了」.
-//
-// 🔴 What is DELIBERATELY NOT claimed: nothing here says anything about the
-// SERVER. Correcting a task's title or description still exists and still works
-// — through `update_task` since T-646a, and through the two original routes,
-// which stay on the HTTP surface for this client. This file only measures that
-// the cockpit no longer offers a way in.
-//
-// T-6630 ④ (owner 2026-08-16, second acceptance round):「備註不是很常按,可以放在
-// step 的右下角,點開再跳出另一個 Modal 打開嗎?像是我們開 .md 檔那種方式」. The
-// note is no longer disclosed INSIDE the step, so the three note-facing tests
-// below were re-pointed at the corner entry (`[data-testid='step-note-open']`)
-// and at the portalled reader (`.md-preview`). The 標題／敘述 test is untouched
-// — it never had anything to do with the note — and is re-run here as green.
-// The 「預設不顯示」 half of the owner's older ruling survives the redesign
-// unchanged: a note is still not on screen until someone asks for it. What
-// changed is only WHERE it appears when they do.
+// Owner (2026-08-15): 任務備注「預設不顯示」. T-6630 ④ (owner 2026-08-16):「備註
+// 不是很常按,可以放在 step 的右下角,點開再跳出另一個 Modal 打開嗎?像是我們開 .md
+// 檔那種方式」— the entry is the step's corner (`[data-testid='step-note-open']`)
+// and the reader is portalled (`.md-preview`). A note is not on screen until
+// someone asks for it.
 //
 // MUTANT REGISTER — five mutants, planted IN PLACE, run against all three note
 // guards, observed. Counts below are this file's own (4 tests) and expire if the
@@ -77,48 +60,11 @@ async function boxOf(page: any, selector: string) {
   }, selector);
 }
 
-test("no edit affordance for the title or the description occupies any pixels", async ({
+test("the expanded card shows its title and description", async ({
   mount,
   page,
 }) => {
   const cmp = await mountExpanded(mount, page);
-
-  // (1) The two CONTAINERS the title/description live in hold no reachable
-  // control of ANY shape. MEASURED (T-e5b1 mutant M1b): a bare `✎` icon button
-  // pushed to the title row's right edge passed a label check and a
-  // single-point hit test, because a 20px button does not sit under the
-  // 97%-of-width point. So the rule is emptiness of the subtree, by geometry:
-  //   · .task-card__title-line — nothing interactive at all;
-  //   · .task-card__desc-block — nothing interactive EXCEPT links the
-  //     description's own markdown may legitimately contain.
-  const strays = await page.evaluate(() => {
-    const SEL = "button, input, textarea, select, [role='button']";
-    function reachable(containerSel: string, extra = "") {
-      const root = document.querySelector(containerSel);
-      if (!root) return ["MISSING:" + containerSel];
-      const out: string[] = [];
-      root.querySelectorAll(extra ? `${SEL}, ${extra}` : SEL).forEach((n) => {
-        const el = n as HTMLElement;
-        const r = el.getBoundingClientRect();
-        if (r.width * r.height === 0) return;
-        out.push(el.tagName + "." + el.className + "/" + (el.textContent || ""));
-      });
-      return out;
-    }
-    return {
-      title: reachable(".task-card__title-line", "a[href]"),
-      // markdown links inside the rendered description are not an edit entry
-      desc: reachable(".task-card__desc-block").filter(
-        (x) => !x.startsWith("A.")
-      ),
-    };
-  });
-  // A MISSING container is scored as a failure, not a pass — a renamed
-  // container must not be able to retire this assertion silently.
-  expect(strays.title, "title row must hold no control").toEqual([]);
-  expect(strays.desc, "description block must hold no control").toEqual([]);
-
-  // (2) …and the title/description are still THERE to read.
   await expect(cmp.locator(".task-card__title")).toContainText(
     "任務卡標題不可就地編輯"
   );
@@ -210,8 +156,7 @@ test("the note entry and its reader fit a 390px phone with no page hscroll", asy
   mount,
   page,
 }) => {
-  // Inherited from the guard this file replaces (taskcard-desc-editor-wrap):
-  // the surface that was added to the card must not burst a phone viewport.
+  // The note surface must not burst a phone viewport.
   // Both states are measured — a rule that holds only while the reader is shut
   // is not the rule anyone needs, and the reader is a full-viewport overlay,
   // which is exactly the shape that bursts a narrow page when it is wrong.

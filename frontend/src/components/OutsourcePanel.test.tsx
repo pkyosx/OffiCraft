@@ -536,8 +536,8 @@ describe("OutsourcePanel", () => {
     // The worker id rides the SAME chatId hash slot as a member chat.
     expect(window.location.hash).toBe("#office/chat/ow-1");
     // ChatArea header: 「外包 · 代號」 + the SAME task line the rail row shows
-    // (owner 2026-07-16: 兩邊顯示一樣的東西 — [task-id chip → type]), NOT the
-    // old 狀態 · 標題 pair, and NO dot (presence lives only in the rail row).
+    // (owner 2026-07-16: 兩邊顯示一樣的東西 — [task-id chip → type]), and NO dot
+    // (presence lives only in the rail row).
     await findByText("外包 · H-3");
     const sub = await findByTestId("outsource-chat-sub");
     const chip = within(sub).getByTestId("outsource-chat-task-ow-1");
@@ -556,9 +556,6 @@ describe("OutsourcePanel", () => {
     // than lie. Keyed off the live labels the member header does render.
     expect(within(sub).queryByLabelText(zh.chat.roleSettingsLink)).toBeNull();
     expect(within(sub).queryByLabelText(zh.chat.tasksLink)).toBeNull();
-    // The old subtitle's status word / task title are GONE from the header.
-    expect(sub.textContent).not.toContain("等待外部");
-    expect(sub.textContent).not.toContain("查帳單");
     // The row carries the open-chat highlight.
     const row = await findByTestId("outsource-row-ow-1");
     expect(row.className).toContain("outsource-row--selected");

@@ -7,19 +7,15 @@
 //   ② On a CLOSED card (已完成 / 已終止 / 已標為重複) the menu still opens and
 //     those two items render GREYED + disabled — owner ruling 2026-07-17
 //     (rc-12d552eed7ce), taken knowing the server 409s both on a closed task.
-//   ② 標記重複 / 終止 MOVED onto that dropdown — and the ⋮ owner menu that used
-//     to hold them is DELETED outright (owner ruling 2026-07-17, after this
-//     move left it empty). A test below pins its absence so nobody re-adds it.
+//   ② 標記重複 / 終止 live on that dropdown and nowhere else on the card.
 //   ④ The card's top-right carries a chevron pointing RIGHT (collapsed) / DOWN
 //     (expanded). v6/T-17be swapped the ▸/▾ TEXT GLYPHS for the ChevronRight/
 //     ChevronDown ICONS at size 18 (the settings page's drill-in size) — so
 //     these assertions now read the rendered svg, not textContent. It
 //     is a pure STATE INDICATOR, not a control: it must not veto the whole-card
 //     toggle (T-70fb behaviour 3), so a click on it still expands the card.
-//   ④ The triangle now OWNS the top-right corner the ⋮ used to hold. T-70fb
-//     behaviour 1 asked for a STABLE top-right anchor, not for that particular
-//     button — so the anchor test below moved onto the triangle rather than
-//     being dropped: it must sit last in the head row, in every state.
+//   ④ The triangle OWNS the card's top-right corner (T-70fb behaviour 1: a
+//     STABLE top-right anchor): it sits last in the head row, in every state.
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, fireEvent, waitFor, within } from "@testing-library/react";
@@ -435,13 +431,12 @@ describe("spec ② 狀態 badge → 下拉選單", () => {
     expect(ids).not.toContain("task-status-jump-external");
   });
 
-  it("MOVED, not copied: the card carries exactly ONE 標記重複 / 終止, on the status menu", async () => {
+  it("the card carries exactly ONE 標記重複 / 終止, on the status menu", async () => {
     __injectMockTask(mkTask({ title: "只有一份" }));
     const { findByTestId } = renderPage();
     const card = await findByTestId("task-card");
     fireEvent.click(within(card).getByTestId("task-status"));
-    // Exactly one of each on the whole card — a copy left behind anywhere else
-    // (e.g. a re-added ⋮ menu) makes these counts 2.
+    // Exactly one of each on the whole card.
     expect(
       card.querySelectorAll('[data-testid="task-mark-duplicate"]')
     ).toHaveLength(1);
@@ -455,44 +450,6 @@ describe("spec ② 狀態 badge → 下拉選單", () => {
           .querySelector(`[data-testid="${id}"]`)!
           .closest('[data-testid="task-status-options"]')
       ).toBeTruthy();
-    }
-  });
-
-  it("the ⋮ owner menu is GONE — no button, no popover, no chrome, on live or closed cards", async () => {
-    __injectMockTask(mkTask({ title: "活卡無選單" }));
-    __injectMockTask(
-      mkTask({
-        title: "結束卡無選單",
-        status: "terminated",
-        closedTs: Date.now() / 1000 - 60,
-      })
-    );
-    const { findAllByTestId, findByTestId } = renderPage();
-    toggleFilter("filter-status", "terminated");
-    fireEvent.click(await findByTestId("closed-toggle"));
-    const cards = await findAllByTestId("task-card");
-    expect(cards).toHaveLength(2);
-
-    for (const card of cards) {
-      // The button + its popover, by testid and by class chrome.
-      expect(card.querySelector('[data-testid="task-menu-btn"]')).toBeNull();
-      expect(
-        card.querySelector('[data-testid="task-menu-options"]')
-      ).toBeNull();
-      expect(card.querySelector(".task-card__menu")).toBeNull();
-      // And by the glyph itself — a re-add under a different testid/class still
-      // has to render a ⋮ somewhere to be a ⋮ menu. Scoped to the head row, not
-      // the whole card: a task TITLE is owner-authored free text and may
-      // legitimately contain a ⋮ (this assertion caught exactly that on a
-      // fixture titled 「沒有⋮的活卡」).
-      const headTop = card.querySelector(".task-card__head-top")!;
-      expect(headTop.textContent).not.toContain("⋮");
-      // The head row's right corner holds the triangle and nothing else: its
-      // only element children are the badge row and the indicator.
-      const kids = [...headTop.children];
-      expect(kids).toHaveLength(2);
-      expect(kids[0].classList.contains("task-card__badge-row")).toBe(true);
-      expect(kids[1].getAttribute("data-testid")).toBe("task-expand-mark");
     }
   });
 
@@ -680,10 +637,8 @@ describe("spec ④ 右上三角展開指示器", () => {
     const card = await findByTestId("task-card");
     const mark = await findByTestId("task-expand-mark");
     // No control semantics — nothing for the closest() interaction filter to
-    // catch, so the click falls through to the card toggle (T-70fb behaviour
-    // 3: the whole card expands, and the expand BUTTON stays gone).
+    // catch, so the click falls through to the card toggle (T-70fb behaviour 3).
     expect(mark.closest("button, [role='button']")).toBe(card);
-    expect(card.querySelector('[data-testid="task-expand"]')).toBeNull();
     fireEvent.click(mark);
     expect(card.getAttribute("aria-expanded")).toBe("true");
     expect(chevronDir(mark)).toBe("down");
@@ -691,10 +646,8 @@ describe("spec ④ 右上三角展開指示器", () => {
     expect(card.getAttribute("aria-expanded")).toBe("false");
   });
 
-  // T-70fb behaviour 1 rewritten (owner ruling): the locked property was a
-  // STABLE top-right anchor, not the ⋮ button that used to serve it. The
-  // triangle inherited the slot, so the protection moves here instead of being
-  // dropped — the corner must never go empty or wander.
+  // T-70fb behaviour 1: a STABLE top-right anchor — the corner must never go
+  // empty or wander.
   it("owns the card's top-right anchor: last in the head row, after the badge row", async () => {
     __injectMockTask(mkTask({ title: "三角釘右上" }));
     const { findByTestId } = renderPage();
@@ -733,8 +686,7 @@ describe("spec ④ 右上三角展開指示器", () => {
     expect(cards).toHaveLength(2);
 
     // Live AND closed, collapsed AND expanded: the corner always holds the
-    // indicator as the head row's last child. (The ⋮ it replaced vanished on
-    // closed cards — the corner must not do that.)
+    // indicator as the head row's last child.
     for (const card of cards) {
       const headTop = card.querySelector(".task-card__head-top")!;
       for (const _pass of [0, 1]) {

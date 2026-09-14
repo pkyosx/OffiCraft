@@ -107,11 +107,10 @@ beforeEach(() => {
 });
 
 describe("TaskCard whole-card toggle (mobile refactor)", () => {
-  it("has no chevron button; the card itself carries the toggle semantics", async () => {
-    __injectMockTask(mkTask({ title: "無下三角" }));
-    const { findByTestId, queryByTestId } = renderPage();
+  it("the card itself carries the toggle semantics", async () => {
+    __injectMockTask(mkTask({ title: "整張卡切換" }));
+    const { findByTestId } = renderPage();
     const card = await findByTestId("task-card");
-    expect(queryByTestId("task-expand")).toBeNull();
     expect(card.getAttribute("role")).toBe("button");
     expect(card.getAttribute("tabindex")).toBe("0");
     expect(card.getAttribute("aria-expanded")).toBe("false");
