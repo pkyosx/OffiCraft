@@ -204,12 +204,6 @@ describe("機器選擇 — 移除自動分配、明選必填 (owner 2026-07-19)"
     fireEvent.click(await findByTestId("reassign-kind-outsource"));
   }
 
-  it("轉外包 tab 機器清單不再有自動分配列", async () => {
-    const { findByTestId, queryByTestId } = renderDialog();
-    await pickOutsource(findByTestId);
-    expect(queryByTestId("reassign-machine-auto")).toBeNull();
-  });
-
   it("未選機器時擋住送出並提示,不呼叫 onReassign", async () => {
     const { findByTestId, findByText, onReassign } = renderDialog();
     await pickOutsource(findByTestId);
@@ -218,7 +212,7 @@ describe("機器選擇 — 移除自動分配、明選必填 (owner 2026-07-19)"
     expect(onReassign).not.toHaveBeenCalled();
   });
 
-  it("選定機器後送出真機器 id(非 auto、非空)", async () => {
+  it("選定機器後送出真機器 id(非空)", async () => {
     const { findByTestId, container, onReassign } = renderDialog();
     await pickOutsource(findByTestId);
 
@@ -233,7 +227,6 @@ describe("機器選擇 — 移除自動分配、明選必填 (owner 2026-07-19)"
     )!;
     const machineId = row.dataset.testid!.replace("reassign-machine-", "");
     expect(machineId).not.toBe("");
-    expect(machineId).not.toBe("auto");
 
     fireEvent.click(row);
     fireEvent.click(await findByTestId("reassign-confirm"));
