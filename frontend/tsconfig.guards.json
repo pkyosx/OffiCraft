@@ -21,6 +21,13 @@
     // config that HOSTS the guards was as invisible as one inside them.
     "playwright-paint.config.ts",
     "playwright-ct.config.ts",
-    "src/vite-env.d.ts"
+    "src/vite-env.d.ts",
+    // [T-57] src/paint/prePaint.ts is the only place that declares
+    // `window.__ocPaintTokens` (a `declare global` on Window). It is loaded by
+    // index.html, not imported from src, so nothing under this config pulled it
+    // in — and i18n/index.tsx, which READS that property, therefore failed to
+    // typecheck here while passing tsconfig.json. Listing it puts the
+    // declaration and its one reader under the same compiler.
+    "src/paint/prePaint.ts"
   ]
 }

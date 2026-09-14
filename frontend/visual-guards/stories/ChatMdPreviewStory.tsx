@@ -49,7 +49,7 @@ export function ChatMdPreviewStory() {
                 className="chat__msg-attachments"
                 itemClassName="chat__msg-attachment"
                 imageClassName="chat__msg-image chat__msg-image--clickable"
-                onPreviewMarkdown={(att) =>
+                onPreviewMarkdown={(att: ChatAttachmentView) =>
                   setMdPreview({ title: att.filename || "", url: att.url })
                 }
               />
