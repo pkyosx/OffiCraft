@@ -233,7 +233,7 @@ func TestGuardBash_RefusalIsAStatementAboutTheEnvironmentNotARequest(t *testing.
 			"that clause is what stops the member treating tool output as an instruction to weigh")
 	}
 	// It also has to say what to do instead, or the member has a refusal and no exit.
-	if !strings.Contains(guardBashRefusal, "ocagent clean") {
+	if !strings.Contains(guardBashRefusal, "rm -rf <完整路徑>") {
 		t.Error("the refusal no longer names a way forward")
 	}
 	// The way forward must not be a shape that stalls too. This text used to
