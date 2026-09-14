@@ -354,37 +354,34 @@ export const en: Dict = {
     // human read exactly like a task being worked on. This line is what says
     // "the work is done, the close has not happened".
     //
-    // 🔴 THREE CONSTRAINTS, EACH MEASURED. This line was sent back twice for
+    // 🔴 IT SAYS THE STATE AND NOTHING ELSE. This line was sent back twice for
     // describing an operation that does not exist, or for handing the way out
-    // to the one principal the server refuses.
+    // to the one principal the server refuses. The owner read the surviving
+    // draft on 2026-09-14 and ruled it out for a third reason: the clauses that
+    // fixed those defects were explaining how the permission split works —
+    // developer-facing justification on a user's card. So the line now carries
+    // two facts and no mechanism: every step is done, and the assignee is who
+    // it is waiting on. Nothing about who may call the ordinary close, nothing
+    // about whether a button is on this screen, no pointer to Force close.
     //
-    // (1) WHO IS BEING WAITED FOR is the task's ASSIGNEE, in the card's own
-    //     word. `callerMayMarkTaskDone` is literally
-    //     `t.ExecutorID != "" && currentActor(r) == t.ExecutorID` — no admin
-    //     exemption, the owner included. The word this UI already uses for that
-    //     person is the one on the card's own field row (`assigneeLabel`), so
-    //     the line uses it rather than minting a second noun for the same
-    //     human. (The zh side had exactly that bug: it invented 「執行者」,
-    //     which appeared in no other user-visible string, while the card
-    //     printed 「負責人」 for the same person two rows below.)
+    // THE ONE SURVIVING CONSTRAINT is that the waited-for party is the task's
+    // ASSIGNEE, in the card's own word. `callerMayMarkTaskDone` is literally
+    // `t.ExecutorID != "" && currentActor(r) == t.ExecutorID` — no admin
+    // exemption, the owner included — so "waiting for its assignee" is true and
+    // any phrasing that hands the wrap-up to "you" would be false. The word this
+    // UI already uses for that person is the one on the card's own field row
+    // (`assigneeLabel`), so the line uses it rather than minting a second noun
+    // for the same human. (The zh side had exactly that bug: it invented
+    // 「執行者」, which appeared in no other user-visible string, while the card
+    // printed 「負責人」 for the same person two rows below.)
     //
-    // (2) THAT CLOSE IS NOT A BUTTON ON THIS SCREEN. This package removed the
-    //     out-of-scope 結案 button, and nothing in the frontend product code
-    //     calls `api.markTaskDone` any more (the port method survives only so a
-    //     reverse guard can spy on it). Saying "waiting for someone to press
-    //     close" would send the owner hunting for a control that is not there;
-    //     what actually happens is the assignee calling the close itself.
-    //
-    // (3) THE WAY OUT IS ADDRESSED TO "YOU". Force close's route floor is
-    //     `Gated(principalAdminAgent, …)` and the assignee is a 403 there
-    //     ("the task's own executor is a 403 HERE"). Naming a role here is what
-    //     produced the last defect; second person avoids the role vocabulary
-    //     altogether and is TRUE, because this cockpit has exactly one
-    //     principal — `AuthGate` and `viewerMayForceTaskDone` share the
-    //     predicate `USE_MOCK || hasToken()`, so anyone who can see this card is
-    //     inside the set that floor admits.
+    // DROPPING THE BUTTON SENTENCE DID NOT ADD A BUTTON. The out-of-scope 結案
+    // control is still absent and nothing in the frontend product code calls
+    // `api.markTaskDone` (the port method survives only so a reverse guard can
+    // spy on it). That fact is now held by the DOM assertions in
+    // TaskCard.force-done.test.tsx alone, instead of being restated in prose.
     readyForDoneHint:
-      "Every step is reported done — this task is waiting for its assignee to call the ordinary close itself. Only the assignee can make that call, and there is no button for it on this screen. If the assignee has left or is stuck, you can use Force close to end it here.",
+      "Every step is done — this task is waiting for its assignee to wrap it up.",
     // ── force close (T-192) ─────────────────────────────────────────────────
     // The way out for a task whose executor is never coming back. Owner and
     // admin assistant only — the server's route floor is the real gate; this
