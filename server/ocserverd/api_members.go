@@ -960,16 +960,29 @@ func (s *apiServer) HandleHireMemberApiMembersPost(w http.ResponseWriter, r *htt
 	// cockpit drew it as the 特助 (the admin role) and the boot fold handed it
 	// the 特助 persona, while authz kept refusing it. Refuse the state at the
 	// only door that can create it instead of teaching each reader a new one.
-	// The refusal below is scoped to staff because staff is now the ONLY kind
-	// this door creates — see the kind gate above.
-	// The check is on the TRIMMED value, matching the privilege gate above: a
-	// whitespace-only role_key is not admin-gated there (it trims to empty), so
-	// accepting it here would let the refused state back in through a space.
-	if kind == KindStaff && trimmedOrEmpty(body.RoleKey) == "" {
-		writeError(w, http.StatusUnprocessableEntity,
-			"a staff member requires a role_key; hire the member through "+
-				"POST /api/roles, which mints a role and its member together")
-		return
+	// A warden carries no role by design (it is a machine principal, classified
+	// by kind), and an outsource worker is born through the spawn path, not
+	// here — so the refusal is scoped to staff. The check is on the TRIMMED
+	// value, matching the privilege gate above: a whitespace-only role_key is
+	// not admin-gated there (it trims to empty), so accepting it here would let
+	// the refused state back in through a space.
+	if kind == KindStaff {
+		roleKey := strOrEmpty(body.RoleKey)
+		if trimmedOrEmpty(body.RoleKey) == "" {
+			writeError(w, http.StatusUnprocessableEntity,
+				"a staff member requires a role_key; hire the member through "+
+					"POST /api/roles, which mints a role and its member together")
+			return
+		}
+		available, err := s.hireRoleKeyAvailable(roleKey)
+		if err != nil {
+			internalError(w, err)
+			return
+		}
+		if !available {
+			writeError(w, http.StatusUnprocessableEntity, "role '"+roleKey+"' not found")
+			return
+		}
 	}
 	effort := strOrEmpty(body.Effort)
 	if effort == "" {

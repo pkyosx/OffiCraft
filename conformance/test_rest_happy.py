@@ -2137,9 +2137,9 @@ HAPPY: dict[str, Happy] = {
         # role_key is REQUIRED for a staff hire (a role-less staff member is a
         # refused state) and naming it is admin-gated — which this happy face
         # already is, since it runs as the owner.
-        body=lambda _ctx: {
+        body=lambda ctx: {
             "name": f"conf-happy-hire-{uuid.uuid4().hex[:8]}",
-            "role_key": f"conf-role-{uuid.uuid4().hex[:8]}",
+            "role_key": ctx.fresh_role(),
         },
         # The minted id is the whole of the news on a hire, and the follow-up
         # read is what proves the row it names actually exists.

@@ -1395,7 +1395,8 @@ MATRIX: dict[str, Route] = {
         # `assistant` ships an insight seed (the presence of
         # seeds/insight_<role_key>.md IS the roster), so it is the ONLY role on
         # which this route can answer 2xx at all. The conformance agents carry
-        # throwaway role keys (conf-role-a/b), which is why:
+        # the shared live custom scratch role, which is non-admin and has no
+        # insight seed, which is why:
         #   * owner / admin_agent aim at `assistant` → 200. admin_agent is the
         #     interesting one: its role IS assistant, so this cell would still
         #     pass if the cross-role admin write were lost — the cross-role
@@ -1827,7 +1828,8 @@ MATRIX: dict[str, Route] = {
         # TestWriteLoreWithNoRosterRowIs400 (api_lore_t33_test.go).
         #
         # Every OTHER at-floor identity has a roster row WITH a role_key
-        # (admin_agent: "assistant"; agent A and agent B: conf-role-a/b), so
+        # (admin_agent: "assistant"; agent A and agent B: the shared live
+        # custom scratch role), so
         # all three take `case m.RoleKey != "":`, file under scope role, and
         # answer 200. There is no per-caller authz above the declared floor on
         # this door — the 400 is a scope-resolution outcome, not a refusal

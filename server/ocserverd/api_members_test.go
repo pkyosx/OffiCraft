@@ -1386,7 +1386,7 @@ func TestHandleHireMemberApiMembersPost(t *testing.T) {
 		dashboard := apiTestListen(t, api, "")
 		bystander := apiTestListen(t, api, "kip")
 
-		status, data := apiJSON(t, h, "POST", "/api/members", owner, `{"name":"Ada","kind":"staff","role_key":"engineer"}`)
+		status, data := apiJSON(t, h, "POST", "/api/members", owner, `{"name":"Ada","kind":"staff","role_key":"assistant"}`)
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
@@ -1412,6 +1412,62 @@ func TestHandleHireMemberApiMembersPost(t *testing.T) {
 			"trigger": "owner",
 		})
 		bystander.wantFrames()
+	})
+
+	t.Run("a staff hire with a live custom role answers 200", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		if err := d.PutRoleDef(RoleDef{RoleKey: "r-design", Name: "Design", DefinitionMD: "# Duty"}); err != nil {
+			t.Fatalf("PutRoleDef: %v", err)
+		}
+		before := apiTestRosterSize(t, h, owner)
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/members", owner, `{"name":"Ada Custom","kind":"staff","role_key":"r-design"}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{"id": apiAnyString})
+		id, _ := data["id"].(string)
+		dashboard.wantFrames(apiTestMemberFrame(1, "patch", id,
+			apiTestMemberPayload(id, "Ada Custom", "active", "offline"), "owner"))
+		if after := apiTestRosterSize(t, h, owner); after != before+1 {
+			t.Fatalf("roster size after valid custom-role hire = %d, want %d", after, before+1)
+		}
+	})
+
+	t.Run("a staff hire with an unknown role answers 422 and writes nothing", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		before := apiTestRosterSize(t, h, owner)
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/members", owner, `{"name":"Ada Unknown","kind":"staff","role_key":"r-no-such-role"}`)
+		if status != 422 {
+			t.Fatalf("want 422, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error", "role 'r-no-such-role' not found")
+		dashboard.wantFrames()
+		if after := apiTestRosterSize(t, h, owner); after != before {
+			t.Fatalf("roster changed on an unknown-role hire: %d → %d", before, after)
+		}
+	})
+
+	t.Run("a staff hire with a tombstoned custom role answers 422 and writes nothing", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		if err := d.PutRoleDef(RoleDef{RoleKey: "r-gone", Name: "Gone", Tombstoned: true}); err != nil {
+			t.Fatalf("PutRoleDef: %v", err)
+		}
+		before := apiTestRosterSize(t, h, owner)
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/members", owner, `{"name":"Ada Removed","kind":"staff","role_key":"r-gone"}`)
+		if status != 422 {
+			t.Fatalf("want 422, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error", "role 'r-gone' not found")
+		dashboard.wantFrames()
+		if after := apiTestRosterSize(t, h, owner); after != before {
+			t.Fatalf("roster changed on a removed-role hire: %d → %d", before, after)
+		}
 	})
 
 	t.Run("a name that is only whitespace answers 422 and hires nobody", func(t *testing.T) {

@@ -1807,12 +1807,14 @@ type MemberDTO struct {
 
 // MemberHireDTO Hire (create) a roster member (§3.4 #9; pure seam, no UI). The owner assigns
 // a display “name“; the server mints the “id“ (never client-supplied — it is
-// the attribution key). “kind“/“runtime“/“model“/“effort“/“role_key“ are optional; an omitted “runtime“ is stored UNSET and resolved at first placement from the target host's reported runtime capabilities (a codex-only host grows a codex member); the response still reads back “claude“ until that resolution lands.
+// the attribution key). “kind“/“runtime“/“model“/“effort“/“role_key“ are optional in the wire schema because wardens are intentionally roleless; a STAFF hire must name a currently available seed or live custom role, and an unknown or removed role is rejected with 422 before any member write; an omitted “runtime“ is stored UNSET and resolved at first placement from the target host's reported runtime capabilities (a codex-only host grows a codex member); the response still reads back “claude“ until that resolution lands.
 type MemberHireDTO struct {
-	Effort  *string `json:"effort,omitempty"`
-	Kind    *string `json:"kind,omitempty"`
-	Model   *string `json:"model,omitempty"`
-	Name    string  `json:"name"`
+	Effort *string `json:"effort,omitempty"`
+	Kind   *string `json:"kind,omitempty"`
+	Model  *string `json:"model,omitempty"`
+	Name   string  `json:"name"`
+
+	// RoleKey For a STAFF hire, this must name a currently available seed or live custom role; an unknown or removed role returns 422 before any member is written. Warden hires are intentionally roleless, so the field remains optional in this schema.
 	RoleKey *string `json:"role_key,omitempty"`
 
 	// Runtime Optional provider runtime; null/omitted is stored UNSET and resolved at first placement from the host's reported runtime capabilities, never written as a concrete ``claude`` at hire time; it reads back as ``claude`` until then.
@@ -4585,7 +4587,7 @@ type ServerInterface interface {
 	// List every member that has not been removed, including outsource members by default (presence-derived MemberDTO[]). fields=light returns an identity-only projection that preserves kind.
 	// (GET /api/members)
 	HandleListMembersApiMembersGet(w http.ResponseWriter, r *http.Request, params HandleListMembersApiMembersGetParams)
-	// Hire a member (server mints the id). An omitted runtime is stored UNSET and resolved from the target host's reported runtime capabilities at first placement (a codex-only host grows a codex member) rather than written as claude; only claude/codex are accepted when you do name one; effort defaults to medium and is validated; a hire that names kind or role_key is admin-gated. This door hires STAFF ONLY — any other kind is a 422 that names where that kind is really born (a warden through “POST /api/machines“, an outsource worker by the outsource scheduler when a task is handed out). A staff hire REQUIRES a role_key (422 without one) — a role-less staff member is a state nothing downstream defines; create one through “POST /api/roles“, which mints a role and its member together. Answers with a bounded receipt (“id“), not the roster row — call “get_member“ when you need the rest.
+	// Hire a member (server mints the id). An omitted runtime is stored UNSET and resolved from the target host's reported runtime capabilities at first placement (a codex-only host grows a codex member) rather than written as claude; only claude/codex are accepted when you do name one; effort defaults to medium and is validated; a hire that names kind or role_key is admin-gated. This door hires STAFF ONLY — any other kind is a 422 that names where that kind is really born (a warden through “POST /api/machines“, an outsource worker by the outsource scheduler when a task is handed out); a STAFF hire requires a currently available seed or custom role_key: an unknown or removed role answers 422 before any roster write, while a role-less staff hire is also 422; create a role + member through POST /api/roles. Answers with a bounded receipt (“id“), not the roster row — call “get_member“ when you need the rest.
 	// (POST /api/members)
 	HandleHireMemberApiMembersPost(w http.ResponseWriter, r *http.Request)
 	// Dismiss a member (soft delete). Pure seam, no UI (§9.1). Staff only -- an outsource-worker id is a 404: a worker leaves by being RELEASED with its task, not by being dismissed. Answers with a bounded receipt (“id“), not the roster row — call “get_member“ when you need the rest.

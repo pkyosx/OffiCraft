@@ -480,15 +480,21 @@ log "manual content patched (owner): fields[output_file(key),number] + sop_md"
 #   → admin_agent. The seeded $TEST_AGENT (mira) IS the assistant, so it sits
 #   ABOVE this floor and its assignee write is a correct 200 — asserting 403 with
 #   that token made the 403 unreachable and left the rule with no test at all. A
-#   bare hire (name only, no kind/role_key) folds to kind=staff with an empty
-#   role_key → principalAgent, which is the identity the 403 belongs to. It is
-#   hired offline and never activated, so it spawns nothing and burns no token.
+#   a member under a LIVE NON-ADMIN custom role is the identity the 403 belongs
+#   to. The role is created through the public role API first because a STAFF
+#   hire must name an available seed or custom role. It is hired offline and
+#   never activated, so it spawns nothing and burns no token.
+PLAIN_ROLE_HIRE="$(api_post_logged /api/roles "$(py -c '
+import json, sys; print(json.dumps({"name": sys.argv[1]}))' "E2E Plain Role")" || echo '{}')"
+PLAIN_ROLE="$(printf '%s' "$PLAIN_ROLE_HIRE" | json_field role_key)"
+[[ -n "$PLAIN_ROLE" ]] \
+  || fail_stage "POST /api/roles for the plain-member fixture returned no role_key — the assignee 403 arm has no non-admin role to hire under"
 PLAIN_HIRE="$(api_post_logged /api/members "$(py -c '
-import json, sys; print(json.dumps({"name": sys.argv[1]}))' "E2E Plain Member")" || echo '{}')"
+import json, sys; print(json.dumps({"name": sys.argv[1], "role_key": sys.argv[2]}))' "E2E Plain Member" "$PLAIN_ROLE")" || echo '{}')"
 PLAIN_MEMBER="$(printf '%s' "$PLAIN_HIRE" | json_field id)"
 [[ -n "$PLAIN_MEMBER" ]] \
-  || fail_stage "POST /api/members {name} returned no id — the assignee 403 arm has no identity below the governance floor to assert with"
-log "hired plain member id=$PLAIN_MEMBER (bare hire → kind=staff, role_key empty → principalAgent)"
+  || fail_stage "POST /api/members {name,role_key} returned no id — the assignee 403 arm has no identity below the governance floor to assert with"
+log "hired plain member id=$PLAIN_MEMBER (custom role=$PLAIN_ROLE → principalAgent)"
 
 PLAIN_MINT="$(api_post_logged /api/mint "{\"member_id\":\"$PLAIN_MEMBER\",\"ttl_days\":1}" || echo '{}')"
 PLAIN_TOKEN="$(printf '%s' "$PLAIN_MINT" | json_field token)"
