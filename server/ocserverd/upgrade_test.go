@@ -372,7 +372,10 @@ func TestHttpGetAsset(t *testing.T) {
 		done := make(chan *upgradeFailure, 1)
 		go func() { _, fail := fetchExpectedSHA(rel, "target.tar.gz"); done <- fail }()
 		select {
-		case <-done:
+		case fail := <-done:
+			if fail == nil {
+				t.Fatal("an endless checksums.txt produced a digest — nothing bounded this fetch at all")
+			}
 		case <-time.After(5 * time.Second):
 			t.Fatal("the checksums fetch never returned — it is riding the tarball's budget, or none at all")
 		}
@@ -521,6 +524,25 @@ func (r *pacedReader) Read(p []byte) (int, error) {
 	return 1, nil
 }
 
+// tricklingHandler serves body one flushed byte at a time, gap apart: a link
+// that is slow end to end but never silent for long.
+func tricklingHandler(body string, gap time.Duration) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.(http.Flusher).Flush()
+		for i := 0; i < len(body); i++ {
+			select {
+			case <-r.Context().Done():
+				return
+			case <-time.After(gap):
+			}
+			if _, err := w.Write([]byte{body[i]}); err != nil {
+				return
+			}
+			w.(http.Flusher).Flush()
+		}
+	}
+}
+
 func TestFetchExpectedSHA(t *testing.T) {
 	const digest = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 	t.Run("extracts the matching digest and tolerates binary mode", func(t *testing.T) {
@@ -537,6 +559,25 @@ func TestFetchExpectedSHA(t *testing.T) {
 
 		if fail != nil {
 			t.Fatalf("want no failure, got %d %q", fail.status, fail.message)
+		}
+		if got != digest {
+			t.Fatalf("digest: %q", got)
+		}
+	})
+
+	t.Run("a slow but progressing checksums.txt still yields its digest under the shipped bounds", func(t *testing.T) {
+		line := digest + "  target.tar.gz\n"
+		srv := httptest.NewServer(tricklingHandler(line, 20*time.Millisecond))
+		defer srv.Close()
+
+		rel := githubRelease{
+			TagName: "v1.2.3",
+			Assets:  []githubReleaseAsset{{Name: checksumsAssetName, BrowserDownloadURL: srv.URL}},
+		}
+		got, fail := fetchExpectedSHA(rel, "target.tar.gz")
+
+		if fail != nil {
+			t.Fatalf("a %d-byte checksums.txt taking ~%v was cut: %d %q", len(line), time.Duration(len(line))*20*time.Millisecond, fail.status, fail.message)
 		}
 		if got != digest {
 			t.Fatalf("digest: %q", got)
@@ -642,6 +683,29 @@ func TestDownloadUpgradeTarball(t *testing.T) {
 		}
 		if filepath.Dir(path) != dir || !strings.HasPrefix(filepath.Base(path), ".officraft-upgrade-") {
 			t.Fatalf("staged path: %q", path)
+		}
+	})
+
+	t.Run("a slow but progressing download completes under the shipped bounds", func(t *testing.T) {
+		const gap = 75 * time.Millisecond
+		srv := httptest.NewServer(tricklingHandler(body, gap))
+		defer srv.Close()
+		dir := t.TempDir()
+
+		path, fail := downloadUpgradeTarball(githubReleaseAsset{
+			Name: "release.tar.gz", BrowserDownloadURL: srv.URL,
+		}, wantSHA, dir)
+
+		if fail != nil {
+			t.Fatalf("a download taking ~%v, never silent for more than %v, was cut: %d %q — this is the 2026-09-14 failure",
+				time.Duration(len(body))*gap, gap, fail.status, fail.message)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read staged body: %v", err)
+		}
+		if string(data) != body {
+			t.Fatalf("staged body: %q", data)
 		}
 	})
 
@@ -751,6 +815,35 @@ func TestUpgradeShippedBounds(t *testing.T) {
 		}
 		if upgradeMetaBudget > ceiling {
 			t.Errorf("upgradeMetaBudget = %v, want at most %v — a trickling checksums.txt would wedge the upgrade for that long", upgradeMetaBudget, ceiling)
+		}
+	})
+
+	t.Run("a release of upgradeMaxBytes finishes within the tarball budget at the 2026-09-14 link rate", func(t *testing.T) {
+		const incidentBytesPerSecond = 198 * 1000
+		need := time.Duration(upgradeMaxBytes) * time.Second / incidentBytesPerSecond
+		if upgradeBodyBudget < need {
+			t.Errorf("upgradeBodyBudget = %v, want at least %v — the largest release this path accepts would be cut mid-download on the link that failed 33 times", upgradeBodyBudget, need)
+		}
+	})
+
+	t.Run("no bound gives up inside TCP's retransmission backoff", func(t *testing.T) {
+		// RFC 6298 puts the minimum retransmission timeout at 1s and doubles it per
+		// loss. A connect, header or metadata phase must survive two losses
+		// (1s+2s); silence on a live body must survive four (1+2+4+8s).
+		const phaseFloor, silenceFloor = 3 * time.Second, 15 * time.Second
+		for _, b := range []struct {
+			name  string
+			got   time.Duration
+			floor time.Duration
+		}{
+			{"upgradeDialTimeout", upgradeDialTimeout, phaseFloor},
+			{"upgradeHeaderTimeout", upgradeHeaderTimeout, phaseFloor},
+			{"upgradeMetaBudget", upgradeMetaBudget, phaseFloor},
+			{"upgradeStallTimeout", upgradeStallTimeout, silenceFloor},
+		} {
+			if b.got < b.floor {
+				t.Errorf("%s = %v, want at least %v — a lossy but working link would fail the upgrade", b.name, b.got, b.floor)
+			}
 		}
 	})
 }

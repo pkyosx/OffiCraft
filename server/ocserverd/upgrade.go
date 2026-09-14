@@ -195,8 +195,9 @@ var upgradeStallTimeout = 60 * time.Second
 // silently never upgrades again.
 //
 // ⚠️ Honest limit: unlike the stall bound, this one DOES tighten as the release
-// grows. At today's ~20MB asset it is an ~11KB/s floor, far under any usable
-// link; if the asset ever approaches upgradeMaxBytes this number needs revisiting.
+// grows. At today's ~20MB asset it is an ~11KB/s floor; at upgradeMaxBytes it
+// is ~149KB/s, which must stay under the 2026-09-14 link's ~198KB/s —
+// TestUpgradeShippedBounds holds it there.
 //
 // Both are vars, not consts, only so a test can lower them and exercise the
 // real path through httpGetAsset.
