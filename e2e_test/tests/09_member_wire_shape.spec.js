@@ -19,12 +19,11 @@
 // The write legs pin what they answer:
 //   • the hire and the dismiss each answer a receipt — `id` present, and none
 //     of the roster-row fields riding along uninvited;
-//   • the "dismiss flips the lifecycle to removed" claim can no longer be read
-//     off any response: the DELETE says only `id`, and there is NO read face
-//     that serves the dismissed row — `GET /api/members/{id}` 404s afterwards
-//     (the audit row survives server-side, off the wire). So the claim is
-//     proved the only way that is still honest: the row drops off the roster
-//     list AND the direct GET is an honest 404.
+//   • a dismissed row is served by no response: the DELETE says only `id`, and
+//     no read face serves the dismissed row — `GET /api/members/{id}` 404s
+//     afterwards (the audit row survives server-side, off the wire). The
+//     dismiss is proved by its observable consequences: the row drops off the
+//     roster list AND the direct GET is an honest 404.
 const { test, expect } = require('@playwright/test');
 const {
   BASE,
@@ -59,10 +58,12 @@ function assertMemberWireShape(row, label) {
     typeof row.unread_count,
     `${label}: unread_count must be a number`,
   ).toBe('number');
-  expect(
-    Object.prototype.hasOwnProperty.call(row, 'status'),
-    `${label}: a roster member row carries roster_status, not the outsource-only status`,
-  ).toBe(false);
+  if (row.kind !== 'outsource') {
+    expect(
+      Object.prototype.hasOwnProperty.call(row, 'status'),
+      `${label}: a roster member row carries roster_status, not the outsource-only status`,
+    ).toBe(false);
+  }
 }
 
 // The T-91 receipt shape: `id` and nothing from the roster row.
@@ -144,11 +145,9 @@ test.describe('D1 · Member read-face wire shape', () => {
       'the dismiss receipt must name the member it dismissed',
     ).toBe(hired.id);
 
-    // roster_status === "removed" is NOT readable anywhere any more (see the
-    // header): the receipt does not carry it and no read face serves the
-    // dismissed row. The two observable consequences of the flip are asserted
-    // instead — the removed row drops off the roster list (audit row survives
-    // server-side)…
+    // No response carries roster_status === "removed" (see the header): the
+    // receipt does not carry it and no read face serves the dismissed row. The
+    // removed row drops off the roster list (audit row survives server-side)…
     const after = await listMembers(request, token);
     expect(
       after.find((m) => m.id === hired.id),
