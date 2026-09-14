@@ -3,7 +3,7 @@
 // outsource=外包). jsdom sees the Avatar pick a `kind`, but only a real browser
 // paints the resulting <img src>; these stories mount the REAL components
 // (MemberCard / OutsourcePanel / ChatArea) so a mutant that hands the wrong
-// `kind` at a site (member for an outsource subject, or a hard-coded glyph that
+// `kind` at a site (staff for an outsource subject, or a hard-coded glyph that
 // bypasses Avatar) shows the WRONG image src and reddens the guard.
 //
 // The theme is driven straight through the REAL i18n context (T-83ef: setTheme

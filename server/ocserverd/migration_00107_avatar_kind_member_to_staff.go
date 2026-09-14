@@ -41,7 +41,11 @@ package main
 //     have to be made to lie to stay green;
 //  7. then regenerate server/ocserverd/migration.lock with bin/gen-migration-lock.
 //
-// `grep -rn 00107 server/ocserverd` enumerates 1-6; item 7 is not greppable.
+// `grep -rn 00107 server/ocserverd` enumerates 1-6. It ALSO prints
+// migration.lock — item 7's file — so the grep is not the check for item 7:
+// the lock is generated, and its containing the number says only that some
+// version of it was rendered, never that it was re-rendered after items 1-6.
+// `make drift-migration-lock` (bin/check-migration-lock) is what answers that.
 // 🔴 A number BELOW the station's current version makes goose return an error
 // and a number that COLLIDES makes it panic while collecting migrations — both
 // of which mean the server does not come up. The acceptance test is "the server

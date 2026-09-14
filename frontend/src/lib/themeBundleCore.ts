@@ -387,7 +387,8 @@ export function isValidBackgroundValue(v: string): boolean {
 }
 
 /** Validate a bundle's optional `avatars` overlay (T-16a1 P5; T-ea81) — the
- * twin of the Go validateAvatars. Key ∈ {member, outsource, owner, assistant},
+ * twin of the Go validateAvatars. Key ∈ {staff, outsource, owner, assistant}
+ * (the retired `member` spelling is refused by name, not accepted),
  * value ∈ {whitelisted-raster base64 data URI}. Returns an error message, or
  * null when admissible (an absent overlay is admissible). */
 export function validateAvatars(avatars: unknown, where = "theme"): string | null {

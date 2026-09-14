@@ -4,9 +4,11 @@ package main
 // optional `avatars` overlay (per-member-type avatar images). The overlay is
 // `{ <kind>: "<data-URI>" }`:
 //
-//   - the KIND key is `member` (正職), `outsource` (外包), `owner` (the human
+//   - the KIND key is `staff` (正職), `outsource` (外包), `owner` (the human
 //     CEO) or `assistant` (a member whose role is assistant, e.g. Mira) — a
-//     closed set (owner/assistant added in T-ea81);
+//     closed set (owner/assistant added in T-ea81; the 正職 key was called
+//     `member` until T-57 renamed it, and the old name is now REFUSED — see
+//     avatarKindRetired below);
 //   - the VALUE is an EMBEDDED image: a base64 `data:` URI so the picture
 //     travels INSIDE the bundle on export/import (owner ruling: the image
 //     follows the theme). It is NOT an arbitrary string. This is a NEW attack
