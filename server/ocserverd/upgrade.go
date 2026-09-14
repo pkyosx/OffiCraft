@@ -178,9 +178,8 @@ func httpGetAsset(url string, budget time.Duration) (*http.Response, *upgradeFai
 // left no headroom under the 120s ceiling, and auto-upgrades repeatedly failed
 // mid-stream. Progress,
 // not elapsed time, is what separates a slow link from a dead one, and this
-// bound does not tighten as the release grows. A var, not a const, only so a
-// test can lower it and exercise the guard through httpGetAsset itself.
-var upgradeStallTimeout = 60 * time.Second
+// bound does not tighten as the release grows.
+const upgradeStallTimeout = 60 * time.Second
 
 // upgradeMetaBudget bounds the checksums.txt fetch end to end. That asset is
 // read through a 1MB LimitReader and runs a few hundred bytes, so the reason
@@ -199,19 +198,16 @@ var upgradeStallTimeout = 60 * time.Second
 // grows. At today's ~20MB asset it is an ~11KB/s floor; at upgradeMaxBytes it
 // is ~149KB/s, which must stay under the 2026-09-14 link's ~198KB/s —
 // TestUpgradeShippedBounds holds it there.
-//
-// Both are vars, not consts, only so a test can lower them and exercise the
-// real path through httpGetAsset.
-var (
+const (
 	upgradeMetaBudget = 2 * time.Minute
 	upgradeBodyBudget = 30 * time.Minute
 )
 
+var upgradeDialer = &net.Dialer{Timeout: upgradeDialTimeout}
+
 // upgradeAssetSharedClient is built ONCE. A client per call would leave an
 // orphan Transport behind on every upgrade, each holding idle connections and
 // their read loops until the far end hung up.
-var upgradeDialer = &net.Dialer{Timeout: upgradeDialTimeout}
-
 var upgradeAssetSharedClient = &http.Client{
 	// Deliberately 0: the per-call budget rides on the request context instead,
 	// so the tiny metadata fetch and the multi-megabyte body can be bounded

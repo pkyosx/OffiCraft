@@ -9,9 +9,11 @@ import (
 	"compress/gzip"
 	"context"
 	"crypto/sha256"
+	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -19,8 +21,11 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
+	"testing/synctest"
 	"time"
 )
 
@@ -204,7 +209,7 @@ func TestFindReleaseAsset(t *testing.T) {
 }
 
 func TestHttpGetAsset(t *testing.T) {
-	t.Run("follows a redirect and returns the successful response, guarded by the stall timeout", func(t *testing.T) {
+	t.Run("follows a redirect and returns the successful response", func(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.URL.Path == "/redirect" {
 				http.Redirect(w, r, "/asset", http.StatusFound)
@@ -226,72 +231,30 @@ func TestHttpGetAsset(t *testing.T) {
 		if string(body) != "release bytes" {
 			t.Fatalf("body: %q", body)
 		}
-		guard, ok := resp.Body.(*stallGuard)
-		if !ok {
-			t.Fatalf("body = %T, want the stall guard", resp.Body)
-		}
-		if guard.every != upgradeStallTimeout {
-			t.Errorf("stall threshold = %v, want upgradeStallTimeout (%v)", guard.every, upgradeStallTimeout)
-		}
 	})
 
-	t.Run("a non-200 answer is refused and the body is closed", func(t *testing.T) {
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			http.Error(w, "not found", http.StatusNotFound)
-		}))
-		defer srv.Close()
+	t.Run("a non-200 answer is refused and its body is closed", func(t *testing.T) {
+		body := &closeRecordingBody{Reader: strings.NewReader("not found")}
+		serveAssetResponse(t, http.StatusNotFound, func(context.Context) io.ReadCloser { return body })
 
-		resp, fail := httpGetAsset(srv.URL+"/missing", upgradeBodyBudget)
+		resp, fail := httpGetAsset("https://example.invalid/missing", upgradeBodyBudget)
 		if resp != nil {
 			t.Fatalf("response: %#v", resp)
 		}
-		if fail == nil || fail.status != http.StatusBadGateway || fail.Error() != "the asset download answered 404 for "+srv.URL+"/missing — nothing was changed" {
+		if fail == nil || fail.status != http.StatusBadGateway || fail.Error() != "the asset download answered 404 for https://example.invalid/missing — nothing was changed" {
 			t.Fatalf("failure: %#v", fail)
+		}
+		if !body.closed.Load() {
+			t.Error("the refused response's body was left open")
 		}
 	})
 
-	t.Run("the client puts no wall-clock ceiling on the whole request", func(t *testing.T) {
-		// The ceiling is what broke the upgrade on 2026-09-14: a 20MB asset over
-		// a slow link needed around 108s on average, no headroom under a 120s
-		// total Timeout, and attempts repeatedly died mid-stream. Connection setup
-		// and the wait for headers stay bounded so a dead host still fails fast.
-		c := upgradeAssetClient()
-		if c.Timeout != 0 {
-			t.Errorf("Timeout = %v, want 0 — a multi-megabyte body on a slow link must not be cut by a wall-clock deadline", c.Timeout)
-		}
-		tr, ok := c.Transport.(*http.Transport)
+	t.Run("the client resolves proxies from the environment, keeps HTTP/2, reaps idle connections and shares one Transport", func(t *testing.T) {
+		tr, ok := upgradeAssetClient().Transport.(*http.Transport)
 		if !ok {
-			t.Fatalf("Transport = %T, want *http.Transport", c.Transport)
+			t.Fatalf("Transport = %T, want *http.Transport", upgradeAssetClient().Transport)
 		}
-		if upgradeDialer.Timeout != upgradeDialTimeout {
-			t.Errorf("dial Timeout = %v, want %v — a host that is gone would hang the connect", upgradeDialer.Timeout, upgradeDialTimeout)
-		}
-		if tr.DialContext == nil {
-			t.Fatal("DialContext = nil, want upgradeDialer's — connection SETUP must stay bounded")
-		}
-		// Shrinking upgradeDialer's timeout to nothing must break the Transport's
-		// dial to a live local listener; a Transport dialing through any other
-		// dialer ignores upgradeDialer.Timeout entirely.
-		ln := httptest.NewServer(http.NotFoundHandler())
-		defer ln.Close()
-		func() {
-			defer func(d time.Duration) { upgradeDialer.Timeout = d }(upgradeDialer.Timeout)
-			upgradeDialer.Timeout = time.Nanosecond
-			conn, err := tr.DialContext(context.Background(), "tcp", ln.Listener.Addr().String())
-			if err == nil {
-				conn.Close()
-				t.Error("the Transport dialed through a dialer other than upgradeDialer — its connect timeout is not the one checked above")
-			}
-		}()
-		if tr.TLSHandshakeTimeout != upgradeDialTimeout {
-			t.Errorf("TLSHandshakeTimeout = %v, want %v", tr.TLSHandshakeTimeout, upgradeDialTimeout)
-		}
-		if tr.ResponseHeaderTimeout != upgradeHeaderTimeout {
-			t.Errorf("ResponseHeaderTimeout = %v, want %v", tr.ResponseHeaderTimeout, upgradeHeaderTimeout)
-		}
-		// Identity, not non-nil: any non-nil function passes a nil check,
-		// including one that resolves no proxy at all, and the machine behind a
-		// corporate proxy fails silently just the same.
+		// Identity, not non-nil: a function that resolves no proxy at all passes a nil check.
 		if tr.Proxy == nil ||
 			reflect.ValueOf(tr.Proxy).Pointer() != reflect.ValueOf(http.ProxyFromEnvironment).Pointer() {
 			t.Error("Proxy is not http.ProxyFromEnvironment — a machine behind a corporate proxy would fail to download, silently")
@@ -302,167 +265,74 @@ func TestHttpGetAsset(t *testing.T) {
 		if tr.IdleConnTimeout == 0 {
 			t.Error("IdleConnTimeout = 0 — idle connections would never be reaped")
 		}
-		// The Transport is what must be shared — it owns the connection pool and
-		// the read loops. Comparing the *Client pointers reports on the wrong
-		// object: a fresh Client wrapping the one shared Transport would fail
-		// that comparison while leaking nothing.
 		if a, b := upgradeAssetClient(), upgradeAssetClient(); a.Transport != b.Transport {
 			t.Error("each call builds its own Transport — every upgrade leaves an orphan behind, holding idle connections and their read loops")
 		}
 	})
 
-	t.Run("the per-call budget is what bounds the request, and the two assets get different ones", func(t *testing.T) {
-		// Guards the REGRESSION this whole change exists to prevent: a ceiling
-		// put back on the request. The shape test above cannot see that — it
-		// only reads the client object, while the deadline lives on the context
-		// httpGetAsset builds. A hardcoded duration here ignores the budget and
-		// this fails.
-		defer func(d time.Duration) { upgradeBodyBudget = d }(upgradeBodyBudget)
-		upgradeBodyBudget = 120 * time.Millisecond
-		defer func(d time.Duration) { upgradeStallTimeout = d }(upgradeStallTimeout)
-		upgradeStallTimeout = 10 * time.Second // far away: the budget must be what bites
-
-		// The handler also stops on this, not only on the request context: if a
-		// regression makes the budget long, teardown must not wait it out.
-		stop := make(chan struct{})
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Never silent, so the stall guard never fires: only the budget can end this.
-			for {
-				select {
-				case <-r.Context().Done():
-					return
-				case <-stop:
-					return
-				default:
-				}
-				if _, err := w.Write([]byte("x")); err != nil {
-					return
-				}
-				w.(http.Flusher).Flush()
-				time.Sleep(10 * time.Millisecond)
+	t.Run("a connect that never completes is abandoned at upgradeDialTimeout, not before", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			defer func(c func(context.Context, string, string, syscall.RawConn) error) {
+				upgradeDialer.ControlContext = c
+			}(upgradeDialer.ControlContext)
+			upgradeDialer.ControlContext = func(ctx context.Context, _, _ string, _ syscall.RawConn) error {
+				<-ctx.Done()
+				return ctx.Err()
 			}
-		}))
-		defer srv.Close()
-		defer close(stop)
 
-		resp, fail := httpGetAsset(srv.URL+"/asset", upgradeBodyBudget)
-		if fail != nil {
-			t.Fatalf("want the response, got %d %q", fail.status, fail.message)
-		}
-		defer resp.Body.Close()
-		done := make(chan error, 1)
-		go func() { _, err := io.ReadAll(resp.Body); done <- err }()
-		select {
-		case err := <-done:
-			if err == nil {
-				t.Fatal("a stream that never goes silent read to completion — the per-call budget is not bounding the request")
+			started := time.Now()
+			resp, fail := httpGetAsset("http://127.0.0.1:1/checksums.txt", upgradeMetaBudget)
+			if resp != nil {
+				resp.Body.Close()
+				t.Fatal("a connect that never completed answered a response")
 			}
-		case <-time.After(5 * time.Second):
-			t.Fatal("the read never returned — the per-call budget is not bounding the request")
-		}
+			if fail == nil || fail.status != http.StatusBadGateway {
+				t.Fatalf("failure: %#v", fail)
+			}
+			wantCutAt(t, time.Since(started), upgradeDialTimeout)
+		})
 	})
 
-	t.Run("a slow body that outlives the stall timeout is not cut while bytes keep arriving", func(t *testing.T) {
-		defer func(d time.Duration) { upgradeStallTimeout = d }(upgradeStallTimeout)
-		upgradeStallTimeout = 150 * time.Millisecond
-		const payload, gap = "twenty bytes of body", 30 * time.Millisecond
-
-		srv := httptest.NewServer(tricklingHandler(payload, gap))
+	t.Run("a TLS handshake and a response-header wait each as slow as two TCP retransmissions still succeed", func(t *testing.T) {
+		srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			select {
+			case <-time.After(upgradeTestPhaseFloor):
+			case <-r.Context().Done():
+				return
+			}
+			_, _ = io.WriteString(w, "release bytes")
+		}))
+		srv.Listener = &slowServerHelloListener{Listener: srv.Listener, delay: upgradeTestPhaseFloor}
+		srv.StartTLS()
 		defer srv.Close()
+		tr := upgradeAssetSharedClient.Transport.(*http.Transport)
+		defer func(c *tls.Config) {
+			tr.TLSClientConfig = c
+			tr.CloseIdleConnections()
+		}(tr.TLSClientConfig)
+		tr.TLSClientConfig = srv.Client().Transport.(*http.Transport).TLSClientConfig.Clone()
 
 		started := time.Now()
-		resp, fail := httpGetAsset(srv.URL+"/asset", upgradeBodyBudget)
+		resp, fail := httpGetAsset(srv.URL+"/asset", upgradeMetaBudget)
 		if fail != nil {
-			t.Fatalf("want the response, got %d %q", fail.status, fail.message)
+			t.Fatalf("a fetch whose handshake and headers each took %v was cut: %d %q", upgradeTestPhaseFloor, fail.status, fail.message)
 		}
 		defer resp.Body.Close()
-		got, err := io.ReadAll(resp.Body)
-		elapsed := time.Since(started)
+		body, err := io.ReadAll(resp.Body)
 		if err != nil {
-			t.Fatalf("a body never silent for more than %v was cut after %v: %v", gap, elapsed, err)
+			t.Fatalf("read body: %v", err)
 		}
-		if string(got) != payload {
-			t.Fatalf("body = %q, want %q", got, payload)
+		if string(body) != "release bytes" {
+			t.Fatalf("body: %q", body)
 		}
-		if elapsed <= upgradeStallTimeout {
-			t.Fatalf("the read took %v, not past the stall timeout %v — this case proves nothing", elapsed, upgradeStallTimeout)
-		}
-	})
-
-	t.Run("a host that answers and then goes silent aborts the download", func(t *testing.T) {
-		// Guards the WIRING, not the guard: newStallGuard has its own tests, and
-		// they all keep passing if nothing ever calls it. Without the wiring, a
-		// source that sends its headers and then trickles nothing would hold
-		// runUpgrade's lock forever and the machine would silently stop
-		// upgrading.
-		defer func(d time.Duration) { upgradeStallTimeout = d }(upgradeStallTimeout)
-		upgradeStallTimeout = 60 * time.Millisecond
-
-		release := make(chan struct{})
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			_, _ = w.Write([]byte("x"))
-			w.(http.Flusher).Flush()
-			<-release
-		}))
-		defer srv.Close()
-		defer close(release)
-
-		resp, fail := httpGetAsset(srv.URL+"/asset", upgradeBodyBudget)
-		if fail != nil {
-			t.Fatalf("want the response, got %d %q", fail.status, fail.message)
-		}
-		defer resp.Body.Close()
-
-		// Bounded on purpose: unwired, the read blocks forever, and a hanging
-		// test reads exactly like a slow one.
-		done := make(chan error, 1)
-		go func() {
-			_, err := io.ReadAll(resp.Body)
-			done <- err
-		}()
-		select {
-		case err := <-done:
-			if err == nil {
-				t.Fatal("reading a silent body returned no error — the stall guard is not wired into httpGetAsset")
-			}
-		case <-time.After(5 * time.Second):
-			t.Fatal("the read never returned — the stall guard is not wired into httpGetAsset, so a source that answers and then goes silent would hold runUpgrade's lock forever")
+		if elapsed := time.Since(started); elapsed < 2*upgradeTestPhaseFloor {
+			t.Fatalf("the fetch took %v, less than the two delayed phases — this case proves nothing", elapsed)
 		}
 	})
 }
 
 func TestStallGuard(t *testing.T) {
-	t.Run("a slow but progressing stream is never cancelled", func(t *testing.T) {
-		const every = 200 * time.Millisecond
-		var cancelled atomic.Bool
-		const chunks = 16
-		started := time.Now()
-		body := newStallGuard(io.NopCloser(&pacedReader{chunks: chunks, gap: every / 8}),
-			func() { cancelled.Store(true) }, every)
-		got, err := io.ReadAll(body)
-		elapsed := time.Since(started)
-		if err != nil {
-			t.Fatalf("read: %v", err)
-		}
-		if want := strings.Repeat("x", chunks); string(got) != want {
-			t.Fatalf("body = %q, want %q", got, want)
-		}
-		if elapsed <= every {
-			t.Fatalf("the stream took %v, not past every (%v) — this case proves nothing", elapsed, every)
-		}
-		if cancelled.Load() {
-			t.Error("cancelled a stream that kept delivering bytes — this is the 2026-09-14 failure")
-		}
-		if err := body.Close(); err != nil {
-			t.Fatalf("close: %v", err)
-		}
-	})
-
 	t.Run("a read that returns no bytes is not progress", func(t *testing.T) {
-		// (0, nil) is a legal read that delivered nothing. Renewing on every
-		// Read instead of on every BYTE makes a source that spins without
-		// sending look alive forever — and the two are indistinguishable to a
-		// reader that always hands back a byte.
 		const every = 60 * time.Millisecond
 		fired := make(chan struct{})
 		// 400 empty reads ≈ 2s of them: far past `every`, and bounded.
@@ -476,32 +346,14 @@ func TestStallGuard(t *testing.T) {
 	})
 
 	t.Run("Close releases the request context", func(t *testing.T) {
-		// The guard owns the cancel once httpGetAsset hands the body back, so
-		// Close is the only thing that ever releases it. Nothing else — not the
-		// compiler, not go vet — notices if it stops doing so.
 		var released atomic.Bool
-		body := newStallGuard(io.NopCloser(&pacedReader{chunks: 1, gap: 0}),
+		body := newStallGuard(io.NopCloser(strings.NewReader("x")),
 			func() { released.Store(true) }, time.Hour)
 		if err := body.Close(); err != nil {
 			t.Fatalf("close: %v", err)
 		}
 		if !released.Load() {
 			t.Error("Close did not release the request context — every fetch would leak one, plus an armed timer")
-		}
-	})
-
-	t.Run("a stream that goes silent is cancelled", func(t *testing.T) {
-		const every = 40 * time.Millisecond
-		fired := make(chan struct{})
-		body := newStallGuard(io.NopCloser(&pacedReader{chunks: 1, gap: 0}),
-			func() { close(fired) }, every)
-		if _, err := body.Read(make([]byte, 1)); err != nil {
-			t.Fatalf("first read: %v", err)
-		}
-		select {
-		case <-fired:
-		case <-time.After(2 * time.Second):
-			t.Fatal("never cancelled — a host that answers its headers and then trickles nothing would hold runUpgrade's lock forever")
 		}
 	})
 }
@@ -520,44 +372,144 @@ func (r *emptyReader) Read(p []byte) (int, error) {
 	return 0, nil
 }
 
-// pacedReader hands back one byte per Read, waiting `gap` before each one, then
-// reports EOF. It stands in for a link that is slow but alive.
-type pacedReader struct {
-	chunks int
-	gap    time.Duration
+// upgradeTestPhaseFloor and upgradeTestSilenceFloor are RFC 6298's backoff
+// after two and four losses from its 1s minimum retransmission timeout.
+const (
+	upgradeTestPhaseFloor   = 3 * time.Second
+	upgradeTestSilenceFloor = 15 * time.Second
+)
+
+// serveAssetResponse answers every asset fetch for the rest of the test with
+// status and the body newBody builds from that request's context, in place of
+// the network.
+func serveAssetResponse(t *testing.T, status int, newBody func(ctx context.Context) io.ReadCloser) {
+	t.Helper()
+	shipped := upgradeAssetSharedClient.Transport
+	upgradeAssetSharedClient.Transport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: status,
+			Header:     http.Header{},
+			Body:       newBody(req.Context()),
+			Request:    req,
+		}, nil
+	})
+	t.Cleanup(func() { upgradeAssetSharedClient.Transport = shipped })
 }
 
-func (r *pacedReader) Read(p []byte) (int, error) {
-	if r.chunks == 0 {
-		return 0, io.EOF
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
+
+// pacedBody delivers chunks gap apart; once they run out it ends, or when
+// silent it never sends again. Like a body read off a real connection, a Read
+// gives up the moment the request is cancelled or the body is closed.
+type pacedBody struct {
+	ctx     context.Context
+	gap     time.Duration
+	chunks  []string
+	silent  bool
+	pending []byte
+	closed  chan struct{}
+	once    sync.Once
+}
+
+func pacedAsset(gap time.Duration, chunks []string, silent bool) func(context.Context) io.ReadCloser {
+	return func(ctx context.Context) io.ReadCloser {
+		return &pacedBody{ctx: ctx, gap: gap, chunks: chunks, silent: silent, closed: make(chan struct{})}
 	}
-	time.Sleep(r.gap)
-	r.chunks--
-	p[0] = 'x'
-	return 1, nil
 }
 
-// tricklingHandler serves body one flushed byte at a time, gap apart: a link
-// that is slow end to end but never silent for long.
-func tricklingHandler(body string, gap time.Duration) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		w.(http.Flusher).Flush()
-		for i := 0; i < len(body); i++ {
-			select {
-			case <-r.Context().Done():
-				return
-			case <-time.After(gap):
-			}
-			if _, err := w.Write([]byte{body[i]}); err != nil {
-				return
-			}
-			w.(http.Flusher).Flush()
+func (b *pacedBody) Read(p []byte) (int, error) {
+	if len(b.pending) == 0 {
+		if len(b.chunks) == 0 && !b.silent {
+			return 0, io.EOF
 		}
+		var next <-chan time.Time
+		if len(b.chunks) > 0 {
+			next = time.After(b.gap)
+		}
+		select {
+		case <-b.ctx.Done():
+			return 0, b.ctx.Err()
+		case <-b.closed:
+			return 0, net.ErrClosed
+		case <-next:
+		}
+		b.pending, b.chunks = []byte(b.chunks[0]), b.chunks[1:]
+	}
+	n := copy(p, b.pending)
+	b.pending = b.pending[n:]
+	return n, nil
+}
+
+func (b *pacedBody) Close() error {
+	b.once.Do(func() { close(b.closed) })
+	return nil
+}
+
+func byteChunks(s string) []string {
+	chunks := make([]string, len(s))
+	for i := range s {
+		chunks[i] = s[i : i+1]
+	}
+	return chunks
+}
+
+type closeRecordingBody struct {
+	io.Reader
+	closed atomic.Bool
+}
+
+func (b *closeRecordingBody) Close() error {
+	b.closed.Store(true)
+	return nil
+}
+
+// slowServerHelloListener holds back each accepted connection's first write —
+// the server's side of the TLS handshake — by delay.
+type slowServerHelloListener struct {
+	net.Listener
+	delay time.Duration
+}
+
+func (l *slowServerHelloListener) Accept() (net.Conn, error) {
+	c, err := l.Listener.Accept()
+	if err != nil {
+		return nil, err
+	}
+	return &slowFirstWriteConn{Conn: c, delay: l.delay}, nil
+}
+
+type slowFirstWriteConn struct {
+	net.Conn
+	delay time.Duration
+	once  sync.Once
+}
+
+func (c *slowFirstWriteConn) Write(p []byte) (int, error) {
+	c.once.Do(func() { time.Sleep(c.delay) })
+	return c.Conn.Write(p)
+}
+
+// wantCutAt requires a fetch to have been cut at bound: not before it, and not
+// meaningfully after.
+func wantCutAt(t *testing.T, elapsed, bound time.Duration) {
+	t.Helper()
+	const slack = time.Second
+	if elapsed < bound {
+		t.Errorf("cut after %v, before its bound of %v", elapsed, bound)
+	} else if elapsed > bound+slack {
+		t.Errorf("cut after %v, more than %v past its bound of %v", elapsed, slack, bound)
 	}
 }
 
 func TestFetchExpectedSHA(t *testing.T) {
 	const digest = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	sumsRelease := githubRelease{
+		TagName: "v1.2.3",
+		Assets:  []githubReleaseAsset{{Name: checksumsAssetName, BrowserDownloadURL: "https://example.invalid/checksums.txt"}},
+	}
+
 	t.Run("extracts the matching digest and tolerates binary mode", func(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			_, _ = io.WriteString(w, "not a checksum line\n"+digest+"  *target.tar.gz\n")
@@ -578,44 +530,56 @@ func TestFetchExpectedSHA(t *testing.T) {
 		}
 	})
 
-	t.Run("a slow but progressing checksums.txt still yields its digest under the shipped bounds", func(t *testing.T) {
-		line := digest + "  target.tar.gz\n"
-		srv := httptest.NewServer(tricklingHandler(line, 20*time.Millisecond))
-		defer srv.Close()
+	t.Run("a checksums.txt that keeps arriving within the metadata budget yields its digest", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			const gap = 50 * time.Second
+			line := digest + "  target.tar.gz\n"
+			serveAssetResponse(t, http.StatusOK, pacedAsset(gap, []string{line[:40], line[40:]}, false))
 
-		rel := githubRelease{
-			TagName: "v1.2.3",
-			Assets:  []githubReleaseAsset{{Name: checksumsAssetName, BrowserDownloadURL: srv.URL}},
-		}
-		got, fail := fetchExpectedSHA(rel, "target.tar.gz")
+			started := time.Now()
+			got, fail := fetchExpectedSHA(sumsRelease, "target.tar.gz")
+			elapsed := time.Since(started)
 
-		if fail != nil {
-			t.Fatalf("a %d-byte checksums.txt taking ~%v was cut: %d %q", len(line), time.Duration(len(line))*20*time.Millisecond, fail.status, fail.message)
-		}
-		if got != digest {
-			t.Fatalf("digest: %q", got)
-		}
+			if fail != nil {
+				t.Fatalf("a checksums.txt taking %v, never silent for more than %v, was cut: %d %q", elapsed, gap, fail.status, fail.message)
+			}
+			if got != digest {
+				t.Fatalf("digest: %q", got)
+			}
+			if elapsed < 2*gap {
+				t.Fatalf("the fetch took %v, not the paced %v — this case proves nothing", elapsed, 2*gap)
+			}
+		})
 	})
 
-	t.Run("the checksums request's deadline is the metadata budget", func(t *testing.T) {
-		rec := installDeadlineRecorder(t, digest+"  target.tar.gz\n")
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			_, _ = io.WriteString(w, digest+"  target.tar.gz\n")
-		}))
-		defer srv.Close()
-		rel := githubRelease{
-			TagName: "v1.2.3",
-			Assets:  []githubReleaseAsset{{Name: checksumsAssetName, BrowserDownloadURL: srv.URL}},
-		}
+	t.Run("a checksums.txt that never finishes is cut at the metadata budget, not before", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			const gap = 30 * time.Second
+			trickle := byteChunks(strings.Repeat("x", int(2*upgradeMetaBudget/gap)))
+			serveAssetResponse(t, http.StatusOK, pacedAsset(gap, trickle, false))
 
-		started := time.Now()
-		_, fail := fetchExpectedSHA(rel, "target.tar.gz")
-		finished := time.Now()
+			started := time.Now()
+			_, fail := fetchExpectedSHA(sumsRelease, "target.tar.gz")
 
-		if fail != nil {
-			t.Fatalf("want no failure, got %d %q", fail.status, fail.message)
-		}
-		rec.assertDeadlineIsBudget(t, started, finished, upgradeMetaBudget)
+			if fail == nil || fail.status != http.StatusBadGateway {
+				t.Fatalf("failure: %#v", fail)
+			}
+			wantCutAt(t, time.Since(started), upgradeMetaBudget)
+		})
+	})
+
+	t.Run("a checksums.txt that goes silent is cut at the stall timeout, not before", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			serveAssetResponse(t, http.StatusOK, pacedAsset(0, []string{digest[:8]}, true))
+
+			started := time.Now()
+			_, fail := fetchExpectedSHA(sumsRelease, "target.tar.gz")
+
+			if fail == nil || fail.status != http.StatusBadGateway {
+				t.Fatalf("failure: %#v", fail)
+			}
+			wantCutAt(t, time.Since(started), upgradeStallTimeout)
+		})
 	})
 
 	t.Run("a checksum entry for another asset is refused", func(t *testing.T) {
@@ -693,6 +657,7 @@ func TestDownloadUpgradeTarball(t *testing.T) {
 	const body = "verified release bytes"
 	checksum := sha256.Sum256([]byte(body))
 	wantSHA := hex.EncodeToString(checksum[:])
+	tarball := githubReleaseAsset{Name: "release.tar.gz", BrowserDownloadURL: "https://example.invalid/release.tar.gz"}
 
 	t.Run("streams the body into the requested directory and verifies its digest", func(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -720,27 +685,32 @@ func TestDownloadUpgradeTarball(t *testing.T) {
 		}
 	})
 
-	t.Run("a slow but progressing download completes under the shipped bounds", func(t *testing.T) {
-		const gap = 75 * time.Millisecond
-		srv := httptest.NewServer(tricklingHandler(body, gap))
-		defer srv.Close()
-		dir := t.TempDir()
+	t.Run("a tarball that keeps arriving until just short of the body budget completes", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			const gap = 30 * time.Second
+			payload := strings.Repeat("r", int((upgradeBodyBudget-time.Minute)/gap))
+			sum := sha256.Sum256([]byte(payload))
+			serveAssetResponse(t, http.StatusOK, pacedAsset(gap, byteChunks(payload), false))
+			dir := t.TempDir()
 
-		path, fail := downloadUpgradeTarball(githubReleaseAsset{
-			Name: "release.tar.gz", BrowserDownloadURL: srv.URL,
-		}, wantSHA, dir)
+			started := time.Now()
+			path, fail := downloadUpgradeTarball(tarball, hex.EncodeToString(sum[:]), dir)
+			elapsed := time.Since(started)
 
-		if fail != nil {
-			t.Fatalf("a download taking ~%v, never silent for more than %v, was cut: %d %q — this is the 2026-09-14 failure",
-				time.Duration(len(body))*gap, gap, fail.status, fail.message)
-		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatalf("read staged body: %v", err)
-		}
-		if string(data) != body {
-			t.Fatalf("staged body: %q", data)
-		}
+			if fail != nil {
+				t.Fatalf("a download taking %v, never silent for more than %v, was cut: %d %q", elapsed, gap, fail.status, fail.message)
+			}
+			if want := time.Duration(len(payload)) * gap; elapsed < want {
+				t.Fatalf("the download took %v, not the paced %v — this case proves nothing", elapsed, want)
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("read staged body: %v", err)
+			}
+			if string(data) != payload {
+				t.Fatalf("staged body: %q", data)
+			}
+		})
 	})
 
 	t.Run("a digest mismatch removes the partial staging file", func(t *testing.T) {
@@ -765,80 +735,45 @@ func TestDownloadUpgradeTarball(t *testing.T) {
 		}
 	})
 
-	t.Run("the tarball request's deadline is the body budget", func(t *testing.T) {
-		rec := installDeadlineRecorder(t, body)
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			_, _ = io.WriteString(w, body)
-		}))
-		defer srv.Close()
+	t.Run("a tarball that never finishes is cut at the body budget, not before, and stages nothing", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			const gap = 30 * time.Second
+			trickle := byteChunks(strings.Repeat("r", int(2*upgradeBodyBudget/gap)))
+			serveAssetResponse(t, http.StatusOK, pacedAsset(gap, trickle, false))
+			dir := t.TempDir()
 
-		started := time.Now()
-		_, fail := downloadUpgradeTarball(githubReleaseAsset{
-			Name: "release.tar.gz", BrowserDownloadURL: srv.URL,
-		}, wantSHA, t.TempDir())
-		finished := time.Now()
+			started := time.Now()
+			path, fail := downloadUpgradeTarball(tarball, wantSHA, dir)
 
-		if fail != nil {
-			t.Fatalf("want no failure, got %d %q", fail.status, fail.message)
-		}
-		rec.assertDeadlineIsBudget(t, started, finished, upgradeBodyBudget)
+			if path != "" || fail == nil || fail.status != http.StatusBadGateway {
+				t.Fatalf("path %q, failure %#v", path, fail)
+			}
+			wantCutAt(t, time.Since(started), upgradeBodyBudget)
+			if got := upgradeTestDirEntries(t, dir); len(got) != 0 {
+				t.Fatalf("staging directory: %v", got)
+			}
+		})
+	})
+
+	t.Run("a tarball that goes silent is cut at the stall timeout, not before", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			serveAssetResponse(t, http.StatusOK, pacedAsset(0, []string{body[:4]}, true))
+
+			started := time.Now()
+			path, fail := downloadUpgradeTarball(tarball, wantSHA, t.TempDir())
+
+			if path != "" || fail == nil || fail.status != http.StatusBadGateway {
+				t.Fatalf("path %q, failure %#v", path, fail)
+			}
+			wantCutAt(t, time.Since(started), upgradeStallTimeout)
+		})
 	})
 }
 
-// deadlineRecorder stands in for the shared asset client's Transport, answering
-// every request with body and recording the deadline its context carries.
-type deadlineRecorder struct {
-	body      string
-	deadlines []time.Time
-}
-
-func installDeadlineRecorder(t *testing.T, body string) *deadlineRecorder {
-	t.Helper()
-	rec := &deadlineRecorder{body: body}
-	shipped := upgradeAssetSharedClient.Transport
-	upgradeAssetSharedClient.Transport = rec
-	t.Cleanup(func() { upgradeAssetSharedClient.Transport = shipped })
-	return rec
-}
-
-func (r *deadlineRecorder) RoundTrip(req *http.Request) (*http.Response, error) {
-	deadline, _ := req.Context().Deadline()
-	r.deadlines = append(r.deadlines, deadline)
-	return &http.Response{
-		StatusCode:    http.StatusOK,
-		Header:        http.Header{},
-		Body:          io.NopCloser(strings.NewReader(r.body)),
-		ContentLength: int64(len(r.body)),
-		Request:       req,
-	}, nil
-}
-
-// assertDeadlineIsBudget requires exactly one request, whose deadline was set
-// to budget from some moment between started and finished — a shorter bound
-// is the 2026-09-14 failure, a missing one never gives up.
-func (r *deadlineRecorder) assertDeadlineIsBudget(t *testing.T, started, finished time.Time, budget time.Duration) {
-	t.Helper()
-	if len(r.deadlines) != 1 {
-		t.Fatalf("recorded %d requests, want 1 — the asset client's Transport was not the one used", len(r.deadlines))
-	}
-	deadline := r.deadlines[0]
-	if deadline.IsZero() {
-		t.Fatalf("the request carried no deadline, want %v", budget)
-	}
-	if deadline.Before(started.Add(budget)) || deadline.After(finished.Add(budget)) {
-		t.Errorf("the request's deadline is %v after the call started, want %v", deadline.Sub(started).Round(time.Millisecond), budget)
-	}
-}
-
-// TestUpgradeShippedBounds is the one place the values that actually ship are
-// covered: every other subtest lowers them to run fast, so each of them keeps
-// passing no matter what the defaults are changed to.
 func TestUpgradeShippedBounds(t *testing.T) {
 	t.Run("silence is caught first, the metadata fetch next, the tarball last", func(t *testing.T) {
-		// The three bounds only mean anything in this order. Let the metadata
-		// budget grow past the tarball's backstop and a dribbling checksums.txt
-		// — a few hundred bytes — may hold runUpgrade's lock for as long as a
-		// whole 20MB download is allowed to take.
+		// Let the metadata budget grow past the tarball's backstop and a dribbling
+		// checksums.txt may hold runUpgrade's lock as long as a whole download.
 		if upgradeStallTimeout >= upgradeMetaBudget {
 			t.Errorf("upgradeStallTimeout = %v, upgradeMetaBudget = %v — silence must be caught before either fetch's budget expires, or the stall guard never gets to act",
 				upgradeStallTimeout, upgradeMetaBudget)
@@ -850,10 +785,6 @@ func TestUpgradeShippedBounds(t *testing.T) {
 	})
 
 	t.Run("silence and the metadata fetch are bounded in minutes, not hours", func(t *testing.T) {
-		// runUpgrade holds its lock for the whole upgrade, so both of these are
-		// also the window in which the machine cannot upgrade at all. Neither
-		// has any reason to reach the tarball's scale: the stall bound watches
-		// for silence, and checksums.txt is read through a 1MB LimitReader.
 		const ceiling = 5 * time.Minute
 		if upgradeStallTimeout > ceiling {
 			t.Errorf("upgradeStallTimeout = %v, want at most %v — a dead source would wedge the upgrade for that long", upgradeStallTimeout, ceiling)
@@ -879,18 +810,14 @@ func TestUpgradeShippedBounds(t *testing.T) {
 	})
 
 	t.Run("no bound gives up inside TCP's retransmission backoff", func(t *testing.T) {
-		// RFC 6298 puts the minimum retransmission timeout at 1s and doubles it per
-		// loss. A connect or header phase must survive two losses (1s+2s); silence
-		// on a live body must survive four (1+2+4+8s).
-		const phaseFloor, silenceFloor = 3 * time.Second, 15 * time.Second
 		for _, b := range []struct {
 			name  string
 			got   time.Duration
 			floor time.Duration
 		}{
-			{"upgradeDialTimeout", upgradeDialTimeout, phaseFloor},
-			{"upgradeHeaderTimeout", upgradeHeaderTimeout, phaseFloor},
-			{"upgradeStallTimeout", upgradeStallTimeout, silenceFloor},
+			{"upgradeDialTimeout", upgradeDialTimeout, upgradeTestPhaseFloor},
+			{"upgradeHeaderTimeout", upgradeHeaderTimeout, upgradeTestPhaseFloor},
+			{"upgradeStallTimeout", upgradeStallTimeout, upgradeTestSilenceFloor},
 		} {
 			if b.got < b.floor {
 				t.Errorf("%s = %v, want at least %v — a lossy but working link would fail the upgrade", b.name, b.got, b.floor)
