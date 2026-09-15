@@ -1535,6 +1535,9 @@ func TestSubmitPlanRelistingDoneStepsDoesNotDuplicate(t *testing.T) {
 	if v2.Steps[1].Name != "two" || v2.Steps[1].Status != StepStatusPending {
 		t.Fatalf("re-listed 'two' must be a fresh pending, got %+v", v2.Steps[1])
 	}
+	if v2.Steps[1].ID == v1.Steps[1].ID {
+		t.Fatalf("re-listed unfinished 'two' must get a new id, still %q", v2.Steps[1].ID)
+	}
 	if v2.Steps[2].Name != "three" {
 		t.Fatalf("fresh 'three' must follow, got %+v", v2.Steps[2])
 	}
@@ -1808,7 +1811,7 @@ func TestSubmitPlanRelistingAnsweredCardStepContinuesTheLiveRow(t *testing.T) {
 		t.Fatalf("answer: %d %s", rec.Code, rec.Body.String())
 	}
 	v2 := submitPlan(t, api, task.ID, "m-exec", []map[string]any{
-		{"name": "ask direction", "dod": "owner answered"},
+		{"name": "ask direction", "dod": "a different dod", "is_gate": true},
 		{"name": "execute", "dod": "d"},
 	})
 	if len(v2.Steps) != 2 {
@@ -1820,6 +1823,9 @@ func TestSubmitPlanRelistingAnsweredCardStepContinuesTheLiveRow(t *testing.T) {
 	}
 	if cont.ReplyCardID != card.ID {
 		t.Fatalf("the continued row keeps its card pointer: %+v", cont)
+	}
+	if cont.DoD != "owner answered" || cont.IsGate {
+		t.Fatalf("the relisted entry's dod and is_gate must not be written: %+v", cont)
 	}
 	if v2.ProgressDone != 0 || v2.ProgressTotal != 2 {
 		t.Fatalf("progress: want 0/2, got %d/%d", v2.ProgressDone, v2.ProgressTotal)
