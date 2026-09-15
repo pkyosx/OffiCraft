@@ -49,7 +49,7 @@ func (s *apiServer) HandleUpdateTaskStepNoteApiTasksTaskIdStepsStepIdNotePost(w 
 	if !ok {
 		return
 	}
-	if !s.storeStepNote(w, r, t, step, note, true) {
+	if !s.storeStepNote(w, r, t, step, note) {
 		return
 	}
 	writeJSON(w, http.StatusOK, taskStepNoteReceiptDTO{
@@ -58,6 +58,13 @@ func (s *apiServer) HandleUpdateTaskStepNoteApiTasksTaskIdStepsStepIdNotePost(w 
 		Sha256: receiptSha256(step.Note),
 	})
 }
+
+// stepNotePatchRetryLimit bounds patch_step_note's compare-and-set loop, so a
+// note that never stops moving fails the request loudly instead of pinning it.
+// Same value as mintRetryLimit and loreMintRetryLimit: the write pool is one
+// connection, so exhausting it takes 64 other note writes landing inside this
+// one request and is not expected in practice.
+const stepNotePatchRetryLimit = 64
 
 // POST /api/tasks/{task_id}/steps/{step_id}/note/patch — anchor-addressed patch
 // of one step's working note (T-1667; MCP patch_step_note). ApplyDocEdits is
@@ -78,23 +85,31 @@ func (s *apiServer) HandleUpdateTaskStepNoteApiTasksTaskIdStepsStepIdNotePost(w 
 // note as it stands when this request reads it. A concurrent write that moved or
 // duplicated the anchor turns this batch into a visible 400 instead.
 //
-// WHAT IS STILL OPEN. Concurrent edits to DIFFERENT anchors survive TOGETHER
-// once the two requests serialise — each is spliced onto whatever the note says
-// at its own read. What remains is the read-then-write gap INSIDE one request,
-// which is milliseconds wide rather than handover-long, but is not zero: an
-// interleaving there still eats one side's edit silently.
-// Concretely: resolveStepForNoteWrite reads the step from the read pool and
-// storeStepNote writes it through the write pool, with no transaction spanning
-// the two, no version compare, and an UPDATE that carries no old value. Two
-// patch requests interleaving in the server (A reads → B reads → A writes →
-// B writes) still lose A's edit silently. SetTaskStepNote being a SINGLE-column
-// UPDATE is not a defence here — that is what stops the whole-row step writers
-// from replaying a note they read earlier (T-e271, api_tasks_note_race_test.go)
-// — because both patches compute their new text from the same base. Closing it
-// needs the read and the write under one transaction, or a version/etag compare
-// at the write boundary. Tracked separately. The patch_task_sop twin carries
-// the same gap AND a wider one — its write is a whole-row upsert, so read that
-// face's own caveat rather than assuming the two are equivalent.
+// THE READ-THEN-WRITE GAP INSIDE ONE REQUEST (T-223). resolveStepForNoteWrite
+// reads the step from the read pool and the write goes through the write pool
+// with no transaction spanning the two, so another write can land in between
+// (A reads → B writes → A writes). The write is therefore a compare-and-set on
+// the note this attempt spliced onto: zero rows means the note moved (or the
+// step is gone), and the request re-runs the guard chain and re-applies its
+// edits to what is there now — so edits to different anchors both survive, and
+// an anchor the competing write removed or duplicated is the ordinary 400 with
+// nothing written. An append (empty old) is re-applied too, so a competing
+// write that appended the same text leaves it twice. stepNotePatchRetryLimit
+// bounds the loop; a note that keeps moving past it answers 409 with nothing
+// written. No transaction and no lock: the task delta is published after the
+// write, never inside a critical section.
+//
+// ⚠️ What this closes is the NOTE's lost update, nothing wider. The guards are
+// re-checked only when the note moved. A task closed or reassigned between the
+// guard chain and the write, with the note itself untouched, still lets the
+// write land and answer 200 — that guard-to-write window predates T-223 and is
+// not closed here.
+// The patch_task_sop twin still has this gap AND a wider one — its write is a
+// whole-row upsert, so read that face's own caveat rather than assuming the two
+// are equivalent.
+//
+// The wholesale face above takes no compare-and-set on purpose: it replaces the
+// note without reading a base, so there is no computed-from copy to go stale.
 //
 // Guards are the wholesale write's, called through the SAME two helpers rather
 // than restated — two faces onto one field must not be able to disagree about
@@ -121,63 +136,91 @@ func (s *apiServer) HandlePatchTaskStepNoteApiTasksTaskIdStepsStepIdNotePatchPos
 	if !ok {
 		return
 	}
-	// get_task_step — not another document's read tool — and, since T-66, no longer get_task: the
-	// anchor-miss message tells the caller where to look next, and get_task
-	// stopped carrying the note TEXT. Sending a caller to a read that reports
-	// only the note's SIZE is the exact misdirection ApplyDocEdits takes this
-	// parameter to prevent — it would re-anchor against nothing and miss again,
-	// silently.
-	next, applied, err := ApplyDocEdits(step.Note, edits, "get_task_step")
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
 	allowShrink := body.AllowShrink != nil && *body.AllowShrink
-	if !allowShrink && LessonsShrinkBlocked(step.Note, next) {
-		writeError(w, http.StatusBadRequest,
-			"patch would empty (or shrink to under a tenth of) the step note — pass allow_shrink=true if this is intended, or use update_step_note; nothing was written")
+	for attempt := 1; ; attempt++ {
+		// get_task_step — not another document's read tool — and, since T-66, no longer get_task: the
+		// anchor-miss message tells the caller where to look next, and get_task
+		// stopped carrying the note TEXT. Sending a caller to a read that reports
+		// only the note's SIZE is the exact misdirection ApplyDocEdits takes this
+		// parameter to prevent — it would re-anchor against nothing and miss again,
+		// silently.
+		next, applied, err := ApplyDocEdits(step.Note, edits, "get_task_step")
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if !allowShrink && LessonsShrinkBlocked(step.Note, next) {
+			writeError(w, http.StatusBadRequest,
+				"patch would empty (or shrink to under a tenth of) the step note — pass allow_shrink=true if this is intended, or use update_step_note; nothing was written")
+			return
+		}
+		if !s.stepNoteWithinLimit(w, next) {
+			return
+		}
+		// 🔴 `next` byte-identical to the stored note → there is nothing to ANNOUNCE.
+		// The gate is that text comparison and NOT applied > 0: `applied` counts edits
+		// that moved the INTERMEDIATE result, so a batch whose edits undo one another
+		// reports applied != 0 over a note that never changed (ApplyDocEdits in
+		// domain.go marks `applied > 0` as the exact reasoning error the earlier patch
+		// faces were built on). A step note keeps no document history, so no retention
+		// is at stake here; what an unconditional ANNOUNCEMENT costs is an SSE task
+		// delta about a change that never happened — every cockpit card holding this
+		// task refetches and gets back the text it already had — plus an updated_ts
+		// bump that misdates the task's last real movement.
+		//
+		// The gate holds back the announcement ONLY, never the write: that UPDATE is
+		// also the one place a step deleted by a concurrent submit_plan is noticed
+		// (the compare-and-set affects zero rows, the re-read finds no step → 404).
+		// Skipping it on a no-op would make
+		// this the single path that answers 200 with a note and a sha256 for a step
+		// that no longer exists — a false statement about current state, in a face
+		// that exists FOR concurrency safety. It stores nothing new (the bytes are
+		// byte-identical), so re-running it costs a WAL frame and buys the one check
+		// worth having; two detection seams, one per path, could disagree.
+		//
+		// Deliberately not carried into the wholesale face: it says "the note is now
+		// this" and owes the same unconditional delta as the other wholesale faces
+		// (update_task_manual). Only a patch face reports a count
+		// of edits, and only a patch face can report a non-zero one over a document
+		// that never moved.
+		if s.stepNotePatchBeforeWrite != nil {
+			s.stepNotePatchBeforeWrite()
+		}
+		base := step.Note
+		swapped, err := s.dal.SetTaskStepNoteIfUnchanged(step.ID, base, next)
+		if err != nil {
+			internalError(w, err)
+			return
+		}
+		if !swapped {
+			if attempt == stepNotePatchRetryLimit {
+				writeError(w, http.StatusConflict, "step note kept changing under this patch ("+
+					strconv.Itoa(stepNotePatchRetryLimit)+" attempts) — re-read (get_task_step) and retry; nothing was written")
+				return
+			}
+			// The whole guard chain, not just the step read: whatever moved the
+			// note may also have closed the task or changed its executor. It writes
+			// the 404/403/409 itself.
+			if t, step, ok = s.resolveStepForNoteWrite(w, r, taskId, stepId); !ok {
+				return
+			}
+			continue
+		}
+		step.Note = next
+		if next != base && !s.announceStepNote(w, r, t) {
+			return
+		}
+		writeJSON(w, http.StatusOK, taskStepNotePatchResultDTO{
+			TaskID:       t.ID,
+			StepID:       step.ID,
+			StepStatus:   step.Status,
+			AppliedEdits: applied,
+			SizeChars:    utf8.RuneCountInString(next),
+			CapChars:     s.stepNoteCap(),
+			Sha256:       receiptSha256(next),
+		})
 		return
 	}
-	if !s.stepNoteWithinLimit(w, next) {
-		return
-	}
-	// 🔴 `next` byte-identical to the stored note → there is nothing to ANNOUNCE.
-	// The gate is that text comparison and NOT applied > 0: `applied` counts edits
-	// that moved the INTERMEDIATE result, so a batch whose edits undo one another
-	// reports applied != 0 over a note that never changed (ApplyDocEdits in
-	// domain.go marks `applied > 0` as the exact reasoning error the earlier patch
-	// faces were built on). A step note keeps no document history, so no retention
-	// is at stake here; what an unconditional ANNOUNCEMENT costs is an SSE task
-	// delta about a change that never happened — every cockpit card holding this
-	// task refetches and gets back the text it already had — plus an updated_ts
-	// bump that misdates the task's last real movement.
-	//
-	// The gate holds back the announcement ONLY, never the write: that UPDATE is
-	// also the one place a step deleted by a concurrent submit_plan is noticed
-	// (SetTaskStepNote affects zero rows → 404). Skipping it on a no-op would make
-	// this the single path that answers 200 with a note and a sha256 for a step
-	// that no longer exists — a false statement about current state, in a face
-	// that exists FOR concurrency safety. It stores nothing new (the bytes are
-	// byte-identical), so re-running it costs a WAL frame and buys the one check
-	// worth having; two detection seams, one per path, could disagree.
-	//
-	// Deliberately not carried into the wholesale face: it says "the note is now
-	// this" and owes the same unconditional delta as the other wholesale faces
-	// (update_task_manual). Only a patch face reports a count
-	// of edits, and only a patch face can report a non-zero one over a document
-	// that never moved.
-	if !s.storeStepNote(w, r, t, step, next, next != step.Note) {
-		return
-	}
-	writeJSON(w, http.StatusOK, taskStepNotePatchResultDTO{
-		TaskID:       t.ID,
-		StepID:       step.ID,
-		StepStatus:   step.Status,
-		AppliedEdits: applied,
-		SizeChars:    utf8.RuneCountInString(next),
-		CapChars:     s.stepNoteCap(),
-		Sha256:       receiptSha256(next),
-	})
 }
 
 // stepNoteWithinLimit holds a would-be note to the field's ceiling, writing the
@@ -265,14 +308,10 @@ func (s *apiServer) resolveStepForNoteWrite(w http.ResponseWriter, r *http.Reque
 	return t, step, true
 }
 
-// storeStepNote persists the note and, when announce is set, fans the task
-// delta; shared by both write faces. It mutates step.Note and t.UpdatedTS in
-// place so the caller's receipt echoes what was STORED.
-//
-// announce=false is the patch face's no-op batch: the note is written anyway
-// (identical bytes, and the row-count is how a concurrently deleted step is
-// caught) but nothing is told the cockpit about a change that did not happen.
-func (s *apiServer) storeStepNote(w http.ResponseWriter, r *http.Request, t *Task, step *TaskStep, note string, announce bool) bool {
+// storeStepNote persists the wholesale face's note and fans the task delta. It
+// mutates step.Note and t.UpdatedTS in place so the caller's receipt echoes what
+// was STORED.
+func (s *apiServer) storeStepNote(w http.ResponseWriter, r *http.Request, t *Task, step *TaskStep, note string) bool {
 	ok, err := s.dal.SetTaskStepNote(step.ID, note)
 	if err != nil {
 		internalError(w, err)
@@ -285,9 +324,12 @@ func (s *apiServer) storeStepNote(w http.ResponseWriter, r *http.Request, t *Tas
 		return false
 	}
 	step.Note = note
-	if !announce {
-		return true
-	}
+	return s.announceStepNote(w, r, t)
+}
+
+// announceStepNote tells the cockpit a step note changed; shared by both write
+// faces. Called only after the write, never inside a transaction.
+func (s *apiServer) announceStepNote(w http.ResponseWriter, r *http.Request, t *Task) bool {
 	// Move updated_ts so the cockpit actually shows this. The SSE task delta
 	// carries only id/status/priority and the list it refreshes carries no
 	// steps, so a card the owner ALREADY has open re-reads its step-bearing

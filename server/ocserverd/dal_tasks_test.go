@@ -1011,6 +1011,63 @@ func TestSetTaskStepNote(t *testing.T) {
 	})
 }
 
+func TestSetTaskStepNoteIfUnchanged(t *testing.T) {
+	d := newAPITestDAL(t)
+	stored := dalPutStep(t, d, dalTestStep("st-1", "T-1"))
+	if _, err := d.SetTaskStepNote("st-1", "halfway"); err != nil {
+		t.Fatalf("SetTaskStepNote: %v", err)
+	}
+
+	t.Run("a note still holding the expected text moves and reports true", func(t *testing.T) {
+		ok, err := d.SetTaskStepNoteIfUnchanged("st-1", "halfway", "done")
+		if err != nil {
+			t.Fatalf("SetTaskStepNoteIfUnchanged: %v", err)
+		}
+		if !ok {
+			t.Fatalf("SetTaskStepNoteIfUnchanged: want true, got false")
+		}
+		want := stored
+		want.Note = "done"
+		dalWantStep(t, d, want)
+	})
+
+	t.Run("a note that no longer holds the expected text reports false and is left alone", func(t *testing.T) {
+		ok, err := d.SetTaskStepNoteIfUnchanged("st-1", "halfway", "overwritten from a stale base")
+		if err != nil {
+			t.Fatalf("SetTaskStepNoteIfUnchanged: %v", err)
+		}
+		if ok {
+			t.Fatalf("SetTaskStepNoteIfUnchanged: want false, got true")
+		}
+		want := stored
+		want.Note = "done"
+		dalWantStep(t, d, want)
+	})
+
+	t.Run("an identical rewrite of the expected text still reports true", func(t *testing.T) {
+		ok, err := d.SetTaskStepNoteIfUnchanged("st-1", "done", "done")
+		if err != nil {
+			t.Fatalf("SetTaskStepNoteIfUnchanged: %v", err)
+		}
+		if !ok {
+			t.Fatalf("SetTaskStepNoteIfUnchanged: want true, got false")
+		}
+	})
+
+	t.Run("a step that is gone reports false and is not resurrected", func(t *testing.T) {
+		ok, err := d.SetTaskStepNoteIfUnchanged("st-ghost", "", "a note for nobody")
+		if err != nil {
+			t.Fatalf("SetTaskStepNoteIfUnchanged(st-ghost): %v", err)
+		}
+		if ok {
+			t.Fatalf("SetTaskStepNoteIfUnchanged(st-ghost): want false, got true")
+		}
+		if got := dalStepIDs(t, d); !reflect.DeepEqual(got, []string{"st-1"}) {
+			t.Fatalf("steps after writing a note to an unknown id: got %v", got)
+		}
+	})
+}
+
 func TestSetTaskDescriptionOn(t *testing.T) {
 	t.Run("the description and the updated stamp move, and nothing else on the row does", func(t *testing.T) {
 		d := newAPITestDAL(t)

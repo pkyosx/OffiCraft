@@ -62,6 +62,12 @@ type apiServer struct {
 	// the production value — means time.Now; only this package's tests set it,
 	// so a test about the interval expiring does not have to spend the interval.
 	keyRenewClock func() time.Time
+	// stepNotePatchBeforeWrite runs inside patch_step_note after the edits were
+	// applied to the note it read and before that result is written back. nil —
+	// the production value — does nothing; only this package's tests set it, to
+	// land a competing write in exactly that gap instead of hoping a scheduler
+	// does.
+	stepNotePatchBeforeWrite func()
 	// settingsMu guards the LIVE settings snapshot below (passwordHash /
 	// passwordChangedAt / ownerTokenTTL / agentTokenTTL / ctxhigh): the boot-time DB snapshot is
 	// updated IN PLACE by the B3 owner endpoints (set-password /

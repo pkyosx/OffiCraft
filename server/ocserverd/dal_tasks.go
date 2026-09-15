@@ -762,6 +762,24 @@ func (d *DAL) SetTaskStepNote(id, note string) (bool, error) {
 	return n > 0, nil
 }
 
+// SetTaskStepNoteIfUnchanged is SetTaskStepNote with a compare-and-set on the
+// note the caller computed from: the row is written only while it still holds
+// `expected`, the same `UPDATE ... WHERE ... AND <col> = <what I read>` shape
+// mintTaskNumber uses. false means nothing was written — the note moved or the
+// step is gone, and the caller re-reads to tell which.
+func (d *DAL) SetTaskStepNoteIfUnchanged(id, expected, note string) (bool, error) {
+	res, err := d.wdb.Exec(
+		`UPDATE task_step SET note = ? WHERE id = ? AND note = ?`, note, id, expected)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return n > 0, nil
+}
+
 // SetTaskDescriptionOn writes ONE task's description (plus the updated_ts that
 // makes an already-open cockpit card re-read it) and nothing else, through the
 // caller's executer — so the description edit and the document_history revision
@@ -903,7 +921,8 @@ func (d *DAL) TouchTaskUpdatedTS(id string, ts float64) error {
 // ALREADY EXISTS, the column is written by exactly one statement —
 // SetTaskStepNote, a single-column UPDATE. Single-writer columns cannot be
 // clobbered by a stale whole-row copy, because no stale whole-row copy of them
-// exists. Guarded by TestTaskStepNoteRaceGuardHasTeeth.
+// exists. Guarded by TestPutTaskStep ("an upsert carries every column onto an
+// existing row EXCEPT the note").
 //
 // ⚠️ Do not read the surviving INSERT half as a second writer. NO production
 // caller reaches it deliberately: all four load an existing row first
