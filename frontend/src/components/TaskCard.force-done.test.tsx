@@ -184,27 +184,21 @@ describe("① 可結案: the card says it is waiting — and offers no close but
     expect(banner.textContent).toContain(zh.tasks.readyForDoneHint);
 
     // 🔴 THE SENTENCE HAS TO BE TRUE IN THE CASE THIS TICKET EXISTS FOR, and
-    // these literals are the anchor that says so. Asserting only
+    // this literal is the anchor that says so. Asserting only
     // `toContain(zh.tasks.readyForDoneHint)` above reads the SAME constant the
     // component reads, so it would pass just as happily on a sentence that said
     // the opposite — which is how two false drafts in a row survived.
     //
-    // Draft 1 said 「正在等負責人按結案」: false, because the owner cannot press
-    // the ordinary close at all (403).
-    // Draft 2 said 「等它的執行者按下結案;…由負責人用『強制結案』收掉」: false
-    // TWICE OVER. (a) 「負責人」 is this UI's word for the EXECUTOR — the card
-    // prints 「負責人:某某」 two rows below, from the same `assigneeLabel` —
-    // so to a zh reader that line said "waiting for this person; when this
-    // person is gone, this person forces it", while the route floor
-    // (`Gated(principalAdminAgent, …)`) 403s exactly that person. (b) it
-    // described pressing a 結案 button that this package REMOVED.
+    // The line now states the STATE only (owner ruling 2026-09-14): every step
+    // is done, and the assignee is who it is waiting on. The clauses that used
+    // to say who may call the ordinary close and that no button for it is on
+    // this screen were removed as developer-facing justification, so the
+    // anchors that read them (「你」/「強制結案」, and the polarity arms in ①b)
+    // went with them — see ①b for what took over.
     //
-    // So the line must: name the waited-for party with the card's OWN noun,
-    // say that the ordinary close is not a control on this screen, and address
-    // the way out to the reader in the second person.
+    // What survives here: the waited-for party is named with the card's OWN
+    // noun.
     expect(banner.textContent).toContain("負責人");
-    expect(banner.textContent).toContain("你");
-    expect(banner.textContent).toContain("強制結案");
     // 🔴 AND NOT with a second noun for the same human. 「執行者」 appeared in
     // exactly one user-visible zh string — this one — while every other surface
     // called that person 負責人; a card that uses both words for one person
@@ -237,7 +231,6 @@ describe("① 可結案: the card says it is waiting — and offers no close but
     );
     const banner = within(card).getByTestId("task-ready-done");
     expect(banner.textContent).toContain(zh.tasks.readyForDoneHint);
-    expect(banner.textContent).toContain("強制結案");
   });
 
   it("shows no 可結案 line on a status that has not reached the precondition", async () => {
@@ -822,8 +815,8 @@ function renderPageIn(locale: "zh" | "en") {
   return renderPage();
 }
 
-describe("①b the banner's SENTENCE and the screen agree — polarity, in BOTH locales", () => {
-  // 🔴 THE SURVIVING MUTANT M8, AND IT IS THE REASON THIS PACKAGE EXISTS.
+describe("①b the banner's SENTENCE and the screen agree — in BOTH locales", () => {
+  // 🔴 THE SURVIVING MUTANT M8 IS WHY THIS BLOCK EXISTS.
   // `readyForDoneHint` was flipped from 「一般結案只有負責人本人做得到,這個畫面
   // 上沒有那顆按鈕」 to 「一般結案你自己也做得到,這個畫面上就有那顆按鈕」 — a
   // sentence that sends the reader hunting for a control that is not there, and
@@ -833,56 +826,54 @@ describe("①b the banner's SENTENCE and the screen agree — polarity, in BOTH 
   // It survived because ① asserted (a) the WORDS 負責人 / 你 / 強制結案 are
   // present — all three are still present after the flip — and (b) the DOM has
   // no <button> in the banner — which is about the SCREEN, not about what the
-  // sentence CLAIMS about the screen. Two false drafts were already sent back
-  // for exactly this defect before the flip re-introduced it silently.
+  // sentence CLAIMS about the screen.
   //
-  // These arms assert the two claims the sentence makes, by polarity:
-  //   (i) the ordinary close belongs to the ASSIGNEE and not to the reader;
-  //   (ii) there is NO button for it on this screen — checked against the DOM
-  //        in the same test, so the sentence and the screen must agree.
-  it("zh: the ordinary close is the assignee's, and the banner says the button is NOT here", async () => {
-    __injectMockTask(mkTask({ title: "文案不能指向不存在的按鈕" }));
+  // ⚠️ THE SENTENCE THOSE TWO ARMS GUARDED IS GONE (owner ruling 2026-09-14:
+  // the permission and button clauses were developer-facing justification, not
+  // status). The line now claims one thing only, so the arms that read the
+  // 一般結案 clause and the 按鈕 clause lost their subject and were REMOVED
+  // rather than loosened — a loosened polarity check on a clause that no longer
+  // exists is vacuous, which is the exact failure mode this block was opened
+  // for. What is asserted instead, in each locale:
+  //   (i) THE SENTENCE: the clause naming the waited-for party names the
+  //       ASSIGNEE, and does NOT hand the wrap-up to the reader. This still
+  //       kills the M8 family: 「你自己就可以收尾」 either drops 負責人 out of
+  //       the clause (theClauseAbout fails loudly at 0 hits) or puts 你 into it.
+  //  (ii) THE SCREEN: there is still no ordinary-close control in the banner or
+  //       on the card. The sentence no longer restates this, so the DOM
+  //       assertion is now the ONLY thing holding it — which is why it stays.
+  it("zh: the banner says it is waiting on the ASSIGNEE, not on the reader", async () => {
+    __injectMockTask(mkTask({ title: "文案只講狀態" }));
     const { findByTestId } = renderPageIn("zh");
     const card = await findByTestId("task-card");
     const text = within(card).getByTestId("task-ready-done").textContent ?? "";
 
     // positive control: this IS the zh string, so a locale mix-up fails here
-    // rather than vacuously passing the polarity checks below.
+    // rather than vacuously passing the checks below.
     expect(text).toContain(zh.tasks.readyForDoneHint);
 
-    // (i) WHO may call the ordinary close. It is exclusive to the assignee,
-    //     and the reader is explicitly NOT in that set — the route floor 403s
-    //     the executor for 強制結案 and 403s everyone else for the ordinary
-    //     close, so a line that offers the ordinary close to "you" is false.
-    const whoClause = theClauseAbout(text, ZH_BREAK, /一般結案/);
-    expect(whoClause).toMatch(/只有.*負責人/);
+    // (i) WHO is being waited for. `callerMayMarkTaskDone` is
+    //     `t.ExecutorID != "" && currentActor(r) == t.ExecutorID` — no admin
+    //     exemption, the owner included — so the wrap-up is the assignee's and
+    //     a line that offers it to 「你」 is false.
+    const whoClause = theClauseAbout(text, ZH_BREAK, /負責人/);
+    expect(whoClause).toMatch(/等.*負責人/);
     expect(whoClause).not.toMatch(/你/);
-    expect(whoClause).not.toMatch(/也做得到|都做得到/);
 
-    // (ii) WHAT IS ON THIS SCREEN. The clause that mentions a button must deny
-    //      that one is here.
-    const buttonClause = theClauseAbout(text, ZH_BREAK, /按鈕/);
-    expect(buttonClause).toMatch(/沒有/);
-    // The negation must be ATTACHED to the button: 「沒有…按鈕」 passes,
-    // 「就有…按鈕」/「有那顆按鈕」 does not. A bare /有.*按鈕/ would match the
-    // 沒有 form too — the lookbehind is what makes this an assertion about
-    // polarity rather than about the character 有.
-    expect(buttonClause).not.toMatch(/(?<![沒不無])有(那顆|這顆|一顆)?按鈕/);
-
-    // …and the screen agrees with the sentence. Asserted together on purpose:
-    // the defect this package was opened for is the two DISAGREEING.
+    // …and the screen still carries no ordinary-close control. The sentence
+    // used to say so too; now this is the only assertion that does.
     expect(card.querySelector('[data-testid="task-mark-done"]')).toBeNull();
     expect(
       within(card).getByTestId("task-ready-done").querySelector("button")
     ).toBeNull();
   });
 
-  it("en: same two claims, same polarity — the en string had no test anchor at all", async () => {
+  it("en: same claim, same subject — the en string had no test anchor at all", async () => {
     // 🔴 THE EN PATH WAS NEVER MEASURED. Every anchor in this file was a zh
     // literal, so `en.tasks.readyForDoneHint` could have said anything — the
     // suite would not have noticed. An en reader is exactly as capable of
-    // going to look for a button that is not there.
-    __injectMockTask(mkTask({ title: "en banner polarity" }));
+    // being told they can wrap up a task the server 403s them for.
+    __injectMockTask(mkTask({ title: "en banner subject" }));
     const { findByTestId } = renderPageIn("en");
     const card = await findByTestId("task-card");
     const text = within(card).getByTestId("task-ready-done").textContent ?? "";
@@ -890,16 +881,10 @@ describe("①b the banner's SENTENCE and the screen agree — polarity, in BOTH 
     expect(text).toContain(en.tasks.readyForDoneHint);
     expect(text).not.toContain(zh.tasks.readyForDoneHint);
 
-    // (i) the ordinary close is the assignee's call, not the reader's.
-    const whoClause = theClauseAbout(text, EN_BREAK, /ordinary close/i);
-    expect(whoClause).toMatch(/assignee/i);
+    // (i) the wrap-up is the assignee's, not the reader's.
+    const whoClause = theClauseAbout(text, EN_BREAK, /assignee/i);
+    expect(whoClause).toMatch(/waiting for its assignee/i);
     expect(whoClause).not.toMatch(/\byou(r|rself)?\b/i);
-    expect(text).toMatch(/only the assignee can/i);
-
-    // (ii) the clause about a button denies that one is on this screen.
-    const buttonClause = theClauseAbout(text, EN_BREAK, /button/i);
-    expect(buttonClause).toMatch(/\bno button\b/i);
-    expect(buttonClause).not.toMatch(/\bis a button\b|\bthere is the button\b/i);
 
     expect(card.querySelector('[data-testid="task-mark-done"]')).toBeNull();
     expect(
