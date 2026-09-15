@@ -1,18 +1,30 @@
 package main
 
 import (
+	"bufio"
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"io"
+	"math/big"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"syscall"
 	"testing"
+	"testing/synctest"
 	"time"
 )
 
@@ -177,6 +189,386 @@ func TestHttpGetter(t *testing.T) {
 	status, data, err = httpGetter(reply(200, body("x"), nil), "http://station.example\n", "")(versionPath)
 	if status != 0 || data != nil || err == nil {
 		t.Errorf("an unbuildable request = (%d, %q, %v), want (0, nil, an error)", status, data, err)
+	}
+}
+
+func TestHttpDownloader(t *testing.T) {
+	const binary = "served-agent-v9"
+
+	t.Run("a binary that keeps arriving for longer than the request budget completes", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			const gap = 30 * time.Second
+			payload := strings.Repeat("a", int(5*selfUpdateRequestBudget/gap))
+			var seen atomic.Pointer[http.Request]
+			pipeStationServer(t, pacedStationServer(http.StatusOK, len(payload), 0, gap, byteChunks(payload), &seen))
+
+			started := time.Now()
+			status, data, err := httpDownloader(pipeStationBase, jwtWardenOne)(agentBinaryPath)
+			elapsed := time.Since(started)
+
+			if err != nil || status != http.StatusOK {
+				t.Fatalf("a download taking %v, never silent for more than %v, was cut: (%d, %v)", elapsed, gap, status, err)
+			}
+			if want := time.Duration(len(payload)) * gap; elapsed < want {
+				t.Fatalf("the download took %v, not the paced %v — this case proves nothing", elapsed, want)
+			}
+			if string(data) != payload {
+				t.Fatalf("body = %q, want %q", data, payload)
+			}
+			wantStationHeaders(t, seen.Load())
+		})
+	})
+
+	t.Run("a binary that never finishes is cut at the download budget, not before", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			const gap = 30 * time.Second
+			trickle := byteChunks(strings.Repeat("a", int(2*selfUpdateDownloadBudget/gap)))
+			pipeStationServer(t, pacedStationServer(http.StatusOK, len(trickle)+1, 0, gap, trickle, nil))
+
+			started := time.Now()
+			_, data, err := httpDownloader(pipeStationBase, jwtWardenOne)(agentBinaryPath)
+
+			if err == nil || data != nil {
+				t.Fatalf("a download that never finishes = (%q, %v), want (nil, an error)", data, err)
+			}
+			wantCutAt(t, time.Since(started), selfUpdateDownloadBudget)
+		})
+	})
+
+	const headerDelay = 20 * time.Second
+	for _, c := range []struct {
+		name   string
+		length int
+		sent   []string
+	}{
+		{name: "a binary that sends its headers and then nothing is cut at the stall timeout after its headers, not before", length: len(binary)},
+		{name: "a binary that goes silent part way is cut at the stall timeout after its headers, not before", length: len(binary), sent: []string{binary[:4]}},
+		{name: "a chunked binary that goes silent part way is cut at the stall timeout after its headers, not before", length: -1, sent: []string{binary[:4]}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				pipeStationServer(t, pacedStationServer(http.StatusOK, c.length, headerDelay, 0, c.sent, nil))
+
+				started := time.Now()
+				_, data, err := httpDownloader(pipeStationBase, jwtWardenOne)(agentBinaryPath)
+
+				if err == nil || data != nil {
+					t.Fatalf("a stalled download = (%q, %v), want (nil, an error)", data, err)
+				}
+				wantCutAt(t, time.Since(started)-headerDelay, selfUpdateStallTimeout)
+			})
+		})
+	}
+
+	t.Run("a station that never answers the request is cut at the response header timeout, not before", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			pipeStationServer(t, func(conn net.Conn) {
+				defer conn.Close()
+				if tc, _, ok := acceptPipeRequest(conn); ok {
+					_, _ = io.Copy(io.Discard, tc)
+				}
+			})
+
+			started := time.Now()
+			status, _, err := httpDownloader(pipeStationBase, jwtWardenOne)(agentBinaryPath)
+
+			if err == nil || status != 0 {
+				t.Fatalf("an unanswered request = (%d, %v), want (0, an error)", status, err)
+			}
+			wantCutAt(t, time.Since(started), selfUpdateHeaderTimeout)
+		})
+	})
+
+	t.Run("a TLS handshake that never completes is cut at the TLS handshake timeout, not before", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			pipeStationServer(t, func(conn net.Conn) {
+				defer conn.Close()
+				_, _ = io.Copy(io.Discard, conn)
+			})
+
+			started := time.Now()
+			status, _, err := httpDownloader(pipeStationBase, jwtWardenOne)(agentBinaryPath)
+
+			if err == nil || status != 0 {
+				t.Fatalf("a stuck handshake = (%d, %v), want (0, an error)", status, err)
+			}
+			wantCutAt(t, time.Since(started), selfUpdateTLSHandshakeTimeout)
+		})
+	})
+
+	t.Run("a connect that never completes is abandoned at the dial timeout, not before", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			defer func(c func(context.Context, string, string, syscall.RawConn) error) {
+				selfUpdateDialer.ControlContext = c
+			}(selfUpdateDialer.ControlContext)
+			selfUpdateDialer.ControlContext = func(ctx context.Context, _, _ string, _ syscall.RawConn) error {
+				<-ctx.Done()
+				return ctx.Err()
+			}
+			tr := selfUpdateTransport
+			defer func(p func(*http.Request) (*url.URL, error)) { tr.Proxy = p }(tr.Proxy)
+			tr.Proxy = nil
+
+			started := time.Now()
+			status, _, err := httpDownloader("http://127.0.0.1:1", jwtWardenOne)(agentBinaryPath)
+
+			if err == nil || status != 0 {
+				t.Fatalf("a stuck connect = (%d, %v), want (0, an error)", status, err)
+			}
+			wantCutAt(t, time.Since(started), selfUpdateDialTimeout)
+		})
+	})
+
+	t.Run("both station clients share one transport that dials with selfUpdateDialer and resolves proxies from the environment", func(t *testing.T) {
+		if selfUpdateDownloadClient.Transport != selfUpdateTransport || selfUpdateRequestClient.Transport != selfUpdateTransport {
+			t.Error("a station client runs on its own Transport — its phases are not the bounded ones")
+		}
+		if reflect.ValueOf(selfUpdateTransport.DialContext).Pointer() != reflect.ValueOf(selfUpdateDialer.DialContext).Pointer() {
+			t.Error("the transport does not dial with selfUpdateDialer itself")
+		}
+		if selfUpdateTransport.Proxy == nil ||
+			reflect.ValueOf(selfUpdateTransport.Proxy).Pointer() != reflect.ValueOf(http.ProxyFromEnvironment).Pointer() {
+			t.Error("Proxy is not http.ProxyFromEnvironment — a warden behind a proxy would silently stop updating")
+		}
+		if !selfUpdateTransport.ForceAttemptHTTP2 {
+			t.Error("ForceAttemptHTTP2 is off — http.DefaultTransport, which these requests used before, negotiates HTTP/2")
+		}
+	})
+}
+
+func TestStallGuard(t *testing.T) {
+	t.Run("a read that returns no bytes is not progress", func(t *testing.T) {
+		const every = 60 * time.Millisecond
+		fired := make(chan struct{})
+		released := make(chan struct{})
+		defer close(released)
+		body := newStallGuard(io.NopCloser(emptyReader{released: released}), func() { close(fired) }, every)
+		go func() { _, _ = io.ReadAll(body) }()
+		select {
+		case <-fired:
+		case <-time.After(3 * time.Second):
+			t.Fatal("never cancelled — empty reads are being treated as progress")
+		}
+	})
+
+	t.Run("Close releases the request context", func(t *testing.T) {
+		var released atomic.Bool
+		body := newStallGuard(io.NopCloser(strings.NewReader("x")), func() { released.Store(true) }, time.Hour)
+		if err := body.Close(); err != nil {
+			t.Fatalf("close: %v", err)
+		}
+		if !released.Load() {
+			t.Error("Close did not release the request context")
+		}
+	})
+}
+
+func TestSelfUpdateShippedBounds(t *testing.T) {
+	if selfUpdateStallTimeout >= selfUpdateDownloadBudget {
+		t.Errorf("selfUpdateStallTimeout = %v, selfUpdateDownloadBudget = %v — silence must be caught before the backstop, or the stall guard never acts",
+			selfUpdateStallTimeout, selfUpdateDownloadBudget)
+	}
+	const ceiling = 5 * time.Minute
+	for name, got := range map[string]time.Duration{
+		"selfUpdateStallTimeout":  selfUpdateStallTimeout,
+		"selfUpdateRequestBudget": selfUpdateRequestBudget,
+	} {
+		if got > ceiling {
+			t.Errorf("%s = %v, want at most %v — a dead station would wedge the poll loop, and credential renewal with it, for that long", name, got, ceiling)
+		}
+	}
+	if phases := selfUpdateDialTimeout + selfUpdateTLSHandshakeTimeout + selfUpdateHeaderTimeout; selfUpdateRequestBudget < phases {
+		t.Errorf("selfUpdateRequestBudget = %v, want at least dial + TLS + header = %v, or it cuts a request its own phases still allow",
+			selfUpdateRequestBudget, phases)
+	}
+	for _, b := range []struct {
+		name  string
+		got   time.Duration
+		floor time.Duration
+	}{
+		{"selfUpdateDialTimeout", selfUpdateDialTimeout, selfUpdateTestPhaseFloor},
+		{"selfUpdateTLSHandshakeTimeout", selfUpdateTLSHandshakeTimeout, selfUpdateTestPhaseFloor},
+		{"selfUpdateHeaderTimeout", selfUpdateHeaderTimeout, selfUpdateTestPhaseFloor},
+		{"selfUpdateStallTimeout", selfUpdateStallTimeout, selfUpdateTestSilenceFloor},
+	} {
+		if b.got < b.floor {
+			t.Errorf("%s = %v, want at least %v — a lossy but working link would fail every update", b.name, b.got, b.floor)
+		}
+	}
+}
+
+// selfUpdateTestPhaseFloor and selfUpdateTestSilenceFloor are RFC 6298's backoff
+// after two and four losses from its 1s minimum retransmission timeout.
+const (
+	selfUpdateTestPhaseFloor   = 3 * time.Second
+	selfUpdateTestSilenceFloor = 15 * time.Second
+)
+
+// emptyReader answers (0, nil) for as long as the stream is open, and EOF once
+// released. It must not end on its own: a stream that ends stops the reads, and
+// a timer renewed by every read would then fire anyway.
+type emptyReader struct{ released <-chan struct{} }
+
+func (r emptyReader) Read(p []byte) (int, error) {
+	select {
+	case <-r.released:
+		return 0, io.EOF
+	case <-time.After(5 * time.Millisecond):
+		return 0, nil
+	}
+}
+
+const pipeStationBase = "https://station.invalid"
+
+// pipeStationServer routes every station request for the rest of the test to
+// serve over an in-memory connection. Only the byte source is replaced: the
+// shipped Transport still runs its own TLS handshake, header wait and body
+// framing, on the synctest clock. Proxies are switched off, or a proxy in the
+// environment would be sent a CONNECT this server does not speak.
+func pipeStationServer(t *testing.T, serve func(conn net.Conn)) {
+	t.Helper()
+	tr := selfUpdateTransport
+	dial, shipped, proxy := tr.DialContext, tr.TLSClientConfig, tr.Proxy
+	tr.Proxy = nil
+	tr.DialContext = func(context.Context, string, string) (net.Conn, error) {
+		client, server := net.Pipe()
+		go serve(server)
+		return client, nil
+	}
+	cfg := &tls.Config{}
+	if shipped != nil {
+		cfg = shipped.Clone()
+	}
+	_, cfg.RootCAs = pipeStationCert()
+	cfg.ServerName = "station.invalid"
+	tr.TLSClientConfig = cfg
+	t.Cleanup(func() {
+		tr.CloseIdleConnections()
+		tr.DialContext, tr.TLSClientConfig, tr.Proxy = dial, shipped, proxy
+	})
+}
+
+var pipeStationCert = sync.OnceValues(func() (tls.Certificate, *x509.CertPool) {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		panic(err)
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		DNSNames:     []string{"station.invalid"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(100 * 365 * 24 * time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		panic(err)
+	}
+	leaf, err := x509.ParseCertificate(der)
+	if err != nil {
+		panic(err)
+	}
+	pool := x509.NewCertPool()
+	pool.AddCert(leaf)
+	return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key, Leaf: leaf}, pool
+})
+
+// acceptPipeRequest completes the server side of the TLS handshake and reads
+// the request, answering false once the client has gone.
+func acceptPipeRequest(conn net.Conn) (net.Conn, *http.Request, bool) {
+	cert, _ := pipeStationCert()
+	tc := tls.Server(conn, &tls.Config{Certificates: []tls.Certificate{cert}})
+	req, err := http.ReadRequest(bufio.NewReader(tc))
+	if err != nil {
+		return nil, nil, false
+	}
+	return tc, req, true
+}
+
+// pacedStationServer answers status headerDelay after the request, with a body
+// framed by Content-Length, or chunked when length is negative, and writes
+// chunks gap apart, each gap preceding its chunk. Whatever the framing still
+// owes is never sent. seen, when set, is handed the request as the station read it.
+func pacedStationServer(status, length int, headerDelay, gap time.Duration, chunks []string, seen *atomic.Pointer[http.Request]) func(net.Conn) {
+	framing := fmt.Sprintf("Content-Length: %d", length)
+	if length < 0 {
+		framing = "Transfer-Encoding: chunked"
+	}
+	return func(conn net.Conn) {
+		defer conn.Close()
+		tc, req, ok := acceptPipeRequest(conn)
+		if !ok {
+			return
+		}
+		if seen != nil {
+			seen.Store(req)
+		}
+		// A pipe has no buffer: unless something keeps reading, the client's
+		// close_notify blocks behind our write and the bubble never drains.
+		gone := make(chan struct{})
+		go func() {
+			_, _ = io.Copy(io.Discard, tc)
+			close(gone)
+		}()
+		select {
+		case <-gone:
+			return
+		case <-time.After(headerDelay):
+		}
+		if _, err := fmt.Fprintf(tc, "HTTP/1.1 %d %s\r\n%s\r\n\r\n", status, http.StatusText(status), framing); err != nil {
+			return
+		}
+		for _, c := range chunks {
+			select {
+			case <-gone:
+				return
+			case <-time.After(gap):
+			}
+			if length < 0 {
+				c = fmt.Sprintf("%x\r\n%s\r\n", len(c), c)
+			}
+			if _, err := io.WriteString(tc, c); err != nil {
+				return
+			}
+		}
+		<-gone
+	}
+}
+
+func byteChunks(s string) []string {
+	chunks := make([]string, len(s))
+	for i := range s {
+		chunks[i] = s[i : i+1]
+	}
+	return chunks
+}
+
+// wantStationHeaders requires the request the station read to carry the warden's
+// User-Agent — the edge in front of the station refuses some agents — and its
+// bearer credential.
+func wantStationHeaders(t *testing.T, req *http.Request) {
+	t.Helper()
+	if req == nil {
+		t.Fatal("the station never read a request")
+	}
+	if got := req.Header.Get("User-Agent"); got != "ocwarden/0.1" {
+		t.Errorf("User-Agent = %q, want %q", got, "ocwarden/0.1")
+	}
+	if got := req.Header.Get("Authorization"); got != "Bearer "+jwtWardenOne {
+		t.Errorf("Authorization = %q, want the warden's bearer line", got)
+	}
+}
+
+// wantCutAt requires a request to have been cut at bound: not before it, and
+// not a second or more after.
+func wantCutAt(t *testing.T, elapsed, bound time.Duration) {
+	t.Helper()
+	const slack = time.Second
+	if elapsed < bound {
+		t.Errorf("cut after %v, before its bound of %v", elapsed, bound)
+	} else if elapsed >= bound+slack {
+		t.Errorf("cut after %v, %v or more past its bound of %v", elapsed, slack, bound)
 	}
 }
 
@@ -379,6 +771,7 @@ func TestCheckOnce(t *testing.T) {
 	newUpdater := func(paths *servedPaths, root string) *updater {
 		return &updater{
 			get:       paths.get,
+			download:  paths.get,
 			ops:       swapOps{inner: osUpdaterOps{}},
 			selfPath:  filepath.Join(root, "ocwarden"),
 			agentPath: filepath.Join(root, "ocagent"),
@@ -573,10 +966,10 @@ func TestReconcileBinary(t *testing.T) {
 		paths := &servedPaths{answers: map[string]httpAnswer{wardenBinaryPath: answer}}
 		var log []string
 		u := &updater{
-			get:  paths.get,
-			ops:  swapOps{inner: osUpdaterOps{}, failOn: failOn},
-			logf: func(format string, a ...any) { log = append(log, fmt.Sprintf(format, a...)) },
-			now:  func() time.Time { return time.Date(2026, 9, 8, 10, 30, 0, 0, time.UTC) },
+			download: paths.get,
+			ops:      swapOps{inner: osUpdaterOps{}, failOn: failOn},
+			logf:     func(format string, a ...any) { log = append(log, fmt.Sprintf(format, a...)) },
+			now:      func() time.Time { return time.Date(2026, 9, 8, 10, 30, 0, 0, time.UTC) },
 		}
 		_ = root
 		return u, paths, &log
@@ -625,7 +1018,7 @@ func TestReconcileBinary(t *testing.T) {
 		root := t.TempDir()
 		live := filepath.Join(root, "ocagent")
 		u, _, _ := newUpdater(root, httpAnswer{status: 200, body: "served-agent-v9"}, "")
-		u.get = (&servedPaths{answers: map[string]httpAnswer{
+		u.download = (&servedPaths{answers: map[string]httpAnswer{
 			agentBinaryPath: {status: 200, body: "served-agent-v9"}}}).get
 		swapped, err := u.reconcileBinary(agentBinaryPath, live, "ocagent")
 		if !swapped || err != nil {
@@ -882,7 +1275,7 @@ func TestBuildSelfUpdater(t *testing.T) {
 		t.Errorf("agentID = %q, want %q", u.agentID, "warden-1")
 	}
 	for name, wired := range map[string]bool{
-		"get": u.get != nil, "ops": u.ops != nil, "sleep": u.sleep != nil, "exit": u.exit != nil,
+		"get": u.get != nil, "download": u.download != nil, "ops": u.ops != nil, "sleep": u.sleep != nil, "exit": u.exit != nil,
 		"post": u.post != nil, "now": u.now != nil, "execSelf": u.execSelf != nil,
 		"renew": u.renew != nil, "verify": u.verify != nil, "writeTok": u.writeTok != nil,
 	} {
@@ -918,4 +1311,54 @@ func TestBuildSelfUpdater(t *testing.T) {
 	if bare.envToken != "" {
 		t.Errorf("envToken = %q, want \"\" when nobody exported one", bare.envToken)
 	}
+
+	onPipe := buildSelfUpdater(Config{Base: pipeStationBase, Token: jwtWardenOne, ID: "warden-1"},
+		rawEnv{lookup: envMap(map[string]string{"HOME": home})},
+		logf, func() (string, error) { return exePath, nil }, execImage)
+
+	t.Run("the wired binary download survives a slow but progressing body past the request budget", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			const gap = 30 * time.Second
+			payload := strings.Repeat("w", int(3*selfUpdateRequestBudget/gap))
+			var seen atomic.Pointer[http.Request]
+			pipeStationServer(t, pacedStationServer(http.StatusOK, len(payload), 0, gap, byteChunks(payload), &seen))
+
+			started := time.Now()
+			status, data, err := onPipe.download(wardenBinaryPath)
+			elapsed := time.Since(started)
+
+			if err != nil || status != http.StatusOK || string(data) != payload {
+				t.Fatalf("a download taking %v, never silent for more than %v = (%d, %q, %v), want (200, %q, nil)",
+					elapsed, gap, status, data, err, payload)
+			}
+			wantStationHeaders(t, seen.Load())
+		})
+	})
+
+	t.Run("the wired version gate is cut at the request budget even while bytes keep arriving", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			const gap = 10 * time.Second
+			trickle := byteChunks(strings.Repeat("v", int(2*selfUpdateRequestBudget/gap)))
+			serve := pacedStationServer(http.StatusOK, len(trickle)+1, 0, gap, trickle, nil)
+			// Hanging up well past the budget turns an unbounded gate into a named
+			// failure instead of a bubble deadlock.
+			pipeStationServer(t, func(conn net.Conn) {
+				served := make(chan struct{})
+				go func() { defer close(served); serve(conn) }()
+				select {
+				case <-served:
+				case <-time.After(4 * selfUpdateRequestBudget):
+					_ = conn.Close()
+				}
+			})
+
+			started := time.Now()
+			_, data, err := onPipe.get(versionPath)
+
+			if err == nil || data != nil {
+				t.Fatalf("a version answer that never finishes = (%q, %v), want (nil, an error)", data, err)
+			}
+			wantCutAt(t, time.Since(started), selfUpdateRequestBudget)
+		})
+	})
 }
