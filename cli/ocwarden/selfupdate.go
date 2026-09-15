@@ -92,6 +92,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -136,9 +137,30 @@ const (
 	// failed cycle so a hard-down / auth-rejecting server is not hammered.
 	selfUpdateBackoffStart = 1 * time.Minute
 	selfUpdateBackoffCap   = 30 * time.Minute
-	// selfUpdateHTTPTimeout bounds a single request. Generous because the binary
-	// downloads are multi-MB; the /api/version gate is tiny and well within it.
-	selfUpdateHTTPTimeout = 60 * time.Second
+	// selfUpdateRequestBudget bounds a small station request end to end: the
+	// /api/version gate, the credential calls, and — through install's seam — the
+	// install-time ocagent fetch. The self-update binary downloads do NOT use it:
+	// a wall-clock ceiling cut a slow but progressing ocagent download mid-body on
+	// seth-m5 (2026-08-03, 2026-08-04). They use selfUpdateDownloadClient instead.
+	selfUpdateRequestBudget = 60 * time.Second
+
+	// selfUpdateDialTimeout, selfUpdateTLSHandshakeTimeout and
+	// selfUpdateHeaderTimeout bound the phases before a body exists, so a dead
+	// station still fails fast on the download client that has no overall ceiling.
+	selfUpdateDialTimeout         = 10 * time.Second
+	selfUpdateTLSHandshakeTimeout = 10 * time.Second
+	selfUpdateHeaderTimeout       = 30 * time.Second
+	// selfUpdateStallTimeout bounds how long a binary body may go without
+	// delivering a single byte. Progress, not elapsed time, is what separates a
+	// slow link from a dead one.
+	selfUpdateStallTimeout = 60 * time.Second
+	// selfUpdateDownloadBudget is the binary download's BACKSTOP, not a throughput
+	// requirement: it exists only for a source that dribbles just fast enough to
+	// keep the stall guard quiet. The poll loop runs credential renewal on the same
+	// goroutine, so an unbounded download of that kind would stop this machine
+	// renewing as well as updating.
+	selfUpdateDownloadBudget = 30 * time.Minute
+
 	// selfUpdateProbeBudget bounds the verify-before-swap `--help` exec.
 	selfUpdateProbeBudget = 10 * time.Second
 )
@@ -182,21 +204,96 @@ func httpGetter(client *http.Client, base, token string) getter {
 		if err != nil {
 			return 0, nil, err
 		}
-		req.Header.Set("User-Agent", userAgent)
-		if token != "" {
-			req.Header.Set("Authorization", "Bearer "+token)
-		}
-		resp, err := client.Do(req)
+		return sendStationGet(client, req, token, nil)
+	}
+}
+
+// httpDownloader is httpGetter for the multi-megabyte binaries: it runs on
+// selfUpdateDownloadClient, which has no overall ceiling, and wraps the body in a
+// stall guard under the selfUpdateDownloadBudget backstop.
+func httpDownloader(base, token string) getter {
+	return func(path string) (int, []byte, error) {
+		ctx, cancel := context.WithTimeout(context.Background(), selfUpdateDownloadBudget)
+		defer cancel()
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+path, nil)
 		if err != nil {
 			return 0, nil, err
 		}
-		defer resp.Body.Close()
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return resp.StatusCode, nil, err
-		}
-		return resp.StatusCode, body, nil
+		return sendStationGet(selfUpdateDownloadClient, req, token, func(body io.ReadCloser) io.ReadCloser {
+			return newStallGuard(body, cancel, selfUpdateStallTimeout)
+		})
 	}
+}
+
+func sendStationGet(client *http.Client, req *http.Request, token string, wrap func(io.ReadCloser) io.ReadCloser) (int, []byte, error) {
+	req.Header.Set("User-Agent", userAgent)
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return 0, nil, err
+	}
+	body := resp.Body
+	if wrap != nil {
+		body = wrap(body)
+	}
+	defer body.Close()
+	data, err := io.ReadAll(body)
+	if err != nil {
+		return resp.StatusCode, nil, err
+	}
+	return resp.StatusCode, data, nil
+}
+
+var selfUpdateDialer = &net.Dialer{Timeout: selfUpdateDialTimeout}
+
+// selfUpdateTransport is shared by both station clients, so the phase bounds
+// apply to the small requests too and no call leaves an orphan Transport behind.
+var selfUpdateTransport = &http.Transport{
+	Proxy:                 http.ProxyFromEnvironment,
+	DialContext:           selfUpdateDialer.DialContext,
+	TLSHandshakeTimeout:   selfUpdateTLSHandshakeTimeout,
+	ResponseHeaderTimeout: selfUpdateHeaderTimeout,
+	// A Transport that supplies its own DialContext does not negotiate HTTP/2
+	// unless asked; http.DefaultTransport, which these requests used before, does.
+	ForceAttemptHTTP2: true,
+	IdleConnTimeout:   90 * time.Second,
+}
+
+var (
+	selfUpdateRequestClient  = &http.Client{Timeout: selfUpdateRequestBudget, Transport: selfUpdateTransport}
+	selfUpdateDownloadClient = &http.Client{Timeout: 0, Transport: selfUpdateTransport}
+)
+
+// stallGuard cancels the request when the body stops delivering bytes for
+// `every`. Same shape as server/ocserverd/upgrade.go's; copied because the two
+// live in separate Go modules.
+type stallGuard struct {
+	inner io.ReadCloser
+	timer *time.Timer
+	every time.Duration
+	stop  context.CancelFunc
+}
+
+func newStallGuard(inner io.ReadCloser, stop context.CancelFunc, every time.Duration) io.ReadCloser {
+	return &stallGuard{inner: inner, timer: time.AfterFunc(every, stop), every: every, stop: stop}
+}
+
+// Read renews the deadline only on bytes that actually arrived: a (0, nil) read
+// is not progress.
+func (g *stallGuard) Read(p []byte) (int, error) {
+	n, err := g.inner.Read(p)
+	if n > 0 {
+		g.timer.Reset(g.every)
+	}
+	return n, err
+}
+
+func (g *stallGuard) Close() error {
+	g.timer.Stop()
+	g.stop()
+	return g.inner.Close()
 }
 
 // ---------------------------------------------------------------------------
@@ -244,7 +341,8 @@ func (o osUpdaterOps) probe(bin string) error {
 // ---------------------------------------------------------------------------
 
 type updater struct {
-	get       getter
+	get       getter // small station requests (the /api/version gate)
+	download  getter // the ocagent / ocwarden binaries
 	ops       updaterOps
 	selfPath  string // live ocwarden (our own executable, symlinks resolved)
 	agentPath string // live ocagent (home sibling, selfUpdateAgentPath)
@@ -587,7 +685,7 @@ func (u *updater) serverSHA() (string, error) {
 // in. Returns (swapped, error). Any download / verify / write failure NEVER swaps:
 // the live binary is untouched and the error propagates so the caller retries.
 func (u *updater) reconcileBinary(path, livePath, name string) (bool, error) {
-	status, body, err := u.get(path)
+	status, body, err := u.download(path)
 	if err != nil {
 		return false, fmt.Errorf("download %s: %w", name, err)
 	}
@@ -836,12 +934,12 @@ func buildSelfUpdater(cfg Config, env rawEnv, logf func(string, ...any), executa
 	selfPath := resolveSelfExe(executable)
 	agentPath := selfUpdateAgentPath(executable)
 
-	client := &http.Client{Timeout: selfUpdateHTTPTimeout}
-	// Separate, short-timeout client for the best-effort announce so a slow announce
-	// can never eat into the generous multi-MB download budget on the swap→exit path.
+	// Separate, short-timeout client for the best-effort announce: it runs on the
+	// swap→exec path, where a hung station must not hold up the exec.
 	reportClient := &http.Client{Timeout: selfUpdateReportBudget}
 	u := &updater{
-		get:          httpGetter(client, cfg.Base, cfg.Token),
+		get:          httpGetter(selfUpdateRequestClient, cfg.Base, cfg.Token),
+		download:     httpDownloader(cfg.Base, cfg.Token),
 		ops:          osUpdaterOps{runner: newCmdRunner(selfUpdateProbeBudget)},
 		selfPath:     selfPath,
 		agentPath:    agentPath,
@@ -870,7 +968,7 @@ func buildSelfUpdater(cfg Config, env rawEnv, logf func(string, ...any), executa
 	// anything filled in HERE is filled in unobserved. See renewapply.go.
 	//
 	// It builds its own HTTP client rather than being handed one of the two here:
-	// the short announce budget beside the generous download client is one
+	// the short announce budget beside the station request client is one
 	// character away, and nothing could have told the two apart from a test.
 	u.apply(newRenewalWiring(cfg, env.lookup))
 	return u
