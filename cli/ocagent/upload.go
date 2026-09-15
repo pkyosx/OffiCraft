@@ -64,8 +64,9 @@ Streams one local file into the station's attachment store and prints the id
 it was stored under. Put that id in the `+"`attachments`"+` of post_chat (or a reply
 card, or a task artifact) instead of pasting the file's contents.
 
---mime <type>  declare the media type. Without it the server decides: image
-               magic bytes first, then the file name's extension, else
+--mime <type>  declare the media type. Without it the server decides: PNG,
+               JPEG, GIF and WebP are recognised by their bytes, a name
+               ending in .json is application/json, and everything else is
                application/octet-stream.
 
 The stored filename is the path's basename. The flag may come before or after
@@ -80,7 +81,8 @@ Exit codes:
   0  stored
   1  the file could not be opened or is a directory, or the request never got
      an answer (network)
-  2  usage: missing <path>, more than one path, or an unknown flag
+  2  usage: --help itself, an unknown flag, a flag missing its value, missing
+     <path>, or more than one path
   3  no OC_TOKEN or no OC_BASE in the environment, or the server answered
      401/403
   4  the server refused the file (HTTP 400): it is empty, over the size limit,

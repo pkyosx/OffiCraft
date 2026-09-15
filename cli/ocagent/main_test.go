@@ -101,22 +101,24 @@ func TestRealMain(t *testing.T) {
 			"line 1  the attachment id (att-…)",
 			"line 2  the server's JSON for it: {\"id\": …, \"mime\": …, \"filename\": …}",
 			"4  the server refused the file (HTTP 400): it is empty, over the size limit,",
+			"a name\n               ending in .json is application/json, and everything else is\n               application/octet-stream.",
 		}},
 		{"download", []string{
 			"usage: ocagent download <attachment-id> [--out <dir>]\n",
-			"tmp/attachments/ under the current directory (your workdir)",
+			"tmp/attachments/ under the current directory.",
 			"stdout on success: one line, the absolute path of the written file.",
-			"4  no attachment with that id (HTTP 404)",
+			"4  HTTP 404: no attachment with that id on the station OC_BASE points at\n     (which may be the wrong station)",
 		}},
 		{"clean", []string{
 			"usage: ocagent clean <path>...\n",
 			"Nothing is deleted: each path is moved\nunder trash/ in your workdir",
+			"OC_AGENT_HOME when set, else ~/.officraft/agents",
 			"if one is refused, NOTHING is\nmoved.",
 		}},
 		{"suicide", []string{
 			"usage: ocagent suicide\n",
 			"kills the tmux session named by OC_SESSION",
-			"Exit code: always 0.",
+			"2  --help itself, or any other flag parse error (an unknown flag); nothing\n     is killed",
 		}},
 		{"diff", []string{
 			"usage: ocagent diff <before> <after> [--label-before <text>] [--label-after <text>] [--external]\n",

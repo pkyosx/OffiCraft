@@ -39,9 +39,13 @@ no phase is reported on your behalf.
 
 stdout: one line naming the session it is about to kill, or saying why it
 did nothing (no OC_SESSION, or tmux could not be found). If the kill itself
-fails (the session is already gone), a second line says so.
+fails (e.g. the session is already gone), a second line says so.
 
-Exit code: always 0. A successful kill ends this process before it can exit.
+Exit codes:
+  0  every run that gets past flag parsing, whether or not anything was
+     killed. A successful kill ends this process before it can exit.
+  2  --help itself, or any other flag parse error (an unknown flag); nothing
+     is killed
 `)
 }
 
