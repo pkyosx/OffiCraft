@@ -46,7 +46,7 @@ function SuccessEditor() {
   const [src, setSrc] = useState<string>();
   return (
     <AvatarEditor
-      kind="member"
+      kind="staff"
       src={src}
       onUpload={async () => setSrc(MEMBER_IMG)}
       onRemove={async () => setSrc(undefined)}
@@ -87,7 +87,7 @@ export function AvatarEditorStory() {
         <Fixture title="上傳處理中">
           <div data-testid="loading-editor">
             <AvatarEditor
-              kind="member"
+              kind="staff"
               onUpload={neverSettles}
               onRemove={async () => {}}
             />
@@ -96,7 +96,7 @@ export function AvatarEditorStory() {
         <Fixture title="儲存失敗">
           <div data-testid="error-editor">
             <AvatarEditor
-              kind="member"
+              kind="staff"
               onUpload={async () => {
                 throw new Error("fixture failure");
               }}

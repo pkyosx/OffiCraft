@@ -22,7 +22,12 @@ const DATA_URL = "data:text/markdown;charset=utf-8," + encodeURIComponent(MD);
 export function MarkdownPreviewStory() {
   return (
     <I18nProvider>
-      <MarkdownPreviewOverlay title="架構設計.md" url={DATA_URL} onClose={() => {}} />
+      <MarkdownPreviewOverlay
+        title="架構設計.md"
+        url={DATA_URL}
+        attachmentId="att-1"
+        onClose={() => {}}
+      />
     </I18nProvider>
   );
 }
@@ -52,6 +57,7 @@ export function MarkdownPreviewLongStory() {
       <MarkdownPreviewOverlay
         title="架構設計-長文件.md"
         url={LONG_DATA_URL}
+        attachmentId="att-2"
         onClose={() => {}}
       />
     </I18nProvider>

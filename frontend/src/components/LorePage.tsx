@@ -96,6 +96,7 @@ import {
   useWorkerCodenames,
 } from "../hooks/useWorkerCodenames";
 import { avatarKindForMember } from "../lib/avatarKind";
+import type { AvatarKind } from "../lib/themeBundle";
 import { copyText } from "../lib/clipboard";
 import { formatAbsolute } from "../lib/dateFormat";
 import { autosizeTextarea } from "../lib/autosize";
@@ -935,7 +936,7 @@ function LoreRow({
   entry: LoreEntryView;
   dimmed: boolean;
   author: AuthorIdentity;
-  avatar: { src?: string; kind: "member" | "outsource" | "owner" | "assistant" } | null;
+  avatar: { src?: string; kind: AvatarKind } | null;
   /** 屬於, already resolved. `manualKey` non-empty is the ONLY thing that makes
    * the pill clickable — the row never re-derives that from `entry.scopeKind`,
    * so there is one place that decides it (resolveScope). `kind` is what picks
@@ -1577,7 +1578,7 @@ function LoreAuthorChip({
   onOpenChat,
 }: {
   author: AuthorIdentity;
-  avatar: { src?: string; kind: "member" | "outsource" | "owner" | "assistant" } | null;
+  avatar: { src?: string; kind: AvatarKind } | null;
   onOpenChat: (peerId: string) => void;
 }): ReactNode {
   const { t } = useI18n();

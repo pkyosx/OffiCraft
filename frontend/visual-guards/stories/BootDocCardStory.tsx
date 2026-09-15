@@ -68,6 +68,7 @@ export function BootDocCardStory() {
               docKey="claude"
               title={zh.settings.bootClaudeName}
               historyTitle={zh.settings.historyBootClaudeTitle}
+              confirmSaveBody={zh.settings.bootDocSaveConfirmBoot}
               crumbs={[{ label: zh.settings.title }]}
             />
           )}

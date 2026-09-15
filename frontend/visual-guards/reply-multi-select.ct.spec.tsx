@@ -22,6 +22,7 @@
 // only `.reply-option` for the label mutant (`.reply-option` is `width: 100%`,
 // so its own box is pinned to the card whatever the text inside it does).
 import { test, expect } from "@playwright/experimental-ct-react";
+import type { Locator } from "@playwright/test";
 import { ReplyMultiSelectStory } from "./stories/ReplyMultiSelectStory";
 
 // Narrow and wide: the count line is the only new block-level row, and a row
@@ -153,8 +154,8 @@ test("the AI pick is told by its tag alone, and the card kind by what leads the 
   const multi = cmp.getByTestId("card-multi");
   const single = cmp.getByTestId("card-single");
 
-  const bg = (loc) => loc.evaluate((el) => getComputedStyle(el).backgroundColor);
-  const radius = (loc) => loc.evaluate((el) => getComputedStyle(el).borderTopLeftRadius);
+  const bg = (loc: Locator) => loc.evaluate((el) => getComputedStyle(el).backgroundColor);
+  const radius = (loc: Locator) => loc.evaluate((el) => getComputedStyle(el).borderTopLeftRadius);
 
   // The story's ai_pick sits on the SECOND option; chip 2 carries nothing.
   const aiChip = multi.locator(".reply-option").nth(1);
@@ -233,7 +234,7 @@ test("on a multi card, ticked and unticked are told apart by shape, not only by 
   await page.setViewportSize({ width: 390, height: 1200 });
   const cmp = await mount(<ReplyMultiSelectStory />);
 
-  const glyphArea = (loc) =>
+  const glyphArea = (loc: Locator) =>
     loc.evaluate((el) => {
       const a = getComputedStyle(el, "::after");
       return (parseFloat(a.width) || 0) * (parseFloat(a.height) || 0);

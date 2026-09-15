@@ -33,9 +33,9 @@
 import {
   test,
   expect,
-  type Locator,
-  type Page,
+  type ComponentFixtures,
 } from "@playwright/experimental-ct-react";
+import type { Locator, Page } from "@playwright/test";
 import {
   ManualCodexChipsStory,
   ReassignCodexChipsStory,
@@ -161,7 +161,7 @@ async function assertNoOrphanChip(
   ).toEqual([]);
 }
 
-type Mount = Parameters<Parameters<typeof test>[1]>[0]["mount"];
+type Mount = ComponentFixtures["mount"];
 
 async function openReassignCodex(mount: Mount, page: Page, width: number) {
   await page.setViewportSize({ width, height: 900 });

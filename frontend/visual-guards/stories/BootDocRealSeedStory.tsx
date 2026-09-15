@@ -61,6 +61,7 @@ export function BootDocRealSeedStory() {
             docKey="global"
             title={zh.settings.systemName}
             historyTitle={zh.settings.historyBootSystemTitle}
+            confirmSaveBody={zh.settings.bootDocSaveConfirmSystem}
             crumbs={[{ label: zh.settings.title }]}
           />
         </main>
@@ -109,6 +110,7 @@ export function BootDocHeadSeedStory() {
             docKey="global"
             title={zh.settings.acceleratedStopName}
             historyTitle={zh.settings.historyAcceleratedStopTitle}
+            confirmSaveBody={zh.settings.bootDocSaveConfirmAcceleratedStop}
             crumbs={[{ label: zh.settings.title }]}
           />
         </main>
