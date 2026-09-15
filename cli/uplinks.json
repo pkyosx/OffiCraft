@@ -446,7 +446,7 @@
     {
       "id": "ocagent-run-6",
       "source": "cli/ocagent/listen_run.go",
-      "callsite": "drainChat(l.api, l.cfg, l.out, l.drainWarn, l.ack)",
+      "callsite": "drainChat(l.api, l.cfg, l.out, l.drainWarn, l.ack, l.clock)",
       "kind": "seam",
       "seam_reason": "hop: the ONE place chat is drained since T-48 — both entrances (every connect and a chat delta) call l.drainChatNow(), which calls this. It is a GET (fetchChat), and since T-48 there IS a POST below it: the read receipt filed after the lines are printed. That POST is claimed by ocagent-chat-mark-read; this row stays a seam because the body is built there, not here."
     },

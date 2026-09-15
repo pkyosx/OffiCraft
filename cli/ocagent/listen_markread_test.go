@@ -83,7 +83,9 @@ func markReadCfg(base, home string) Config {
 // while at most one warning is ever printed.
 func TestDrainChatFilesReadReceipts(t *testing.T) {
 	declared := frozenIngestProperties(t, "MarkChatReadDTO")
-	now := float64(time.Now().Unix())
+	fixed := time.Unix(1787148244, 0)
+	clock := func() time.Time { return fixed }
+	now := float64(fixed.Unix())
 	list := "[" + strings.Join([]string{
 		chatMessage("a1", "alice", now-90),
 		chatMessage("b1", "bob", now-80),
@@ -97,7 +99,7 @@ func TestDrainChatFilesReadReceipts(t *testing.T) {
 		var out bytes.Buffer
 
 		printed := drainChat(srv.Client(), markReadCfg(srv.URL, t.TempDir()), &out,
-			&drainWarner{}, nil)
+			&drainWarner{}, nil, clock)
 
 		if printed != 3 {
 			t.Errorf("drainChat reported %d unread lines, want 3", printed)
@@ -131,7 +133,7 @@ func TestDrainChatFilesReadReceipts(t *testing.T) {
 		var out bytes.Buffer
 
 		printed := drainChat(srv.Client(), markReadCfg(srv.URL, t.TempDir()), &out,
-			&drainWarner{}, nil)
+			&drainWarner{}, nil, clock)
 
 		if printed != 3 {
 			t.Errorf("drainChat reported %d unread lines, want 3 — a refused receipt must "+
@@ -157,7 +159,7 @@ func TestDrainChatFilesReadReceipts(t *testing.T) {
 		var out bytes.Buffer
 
 		printed := drainChat(srv.Client(), markReadCfg(srv.URL, t.TempDir()), &out,
-			&drainWarner{}, nil)
+			&drainWarner{}, nil, clock)
 
 		if printed != 0 {
 			t.Errorf("drainChat reported %d unread lines, want 0", printed)
@@ -176,7 +178,7 @@ func TestDrainChatFilesReadReceipts(t *testing.T) {
 		var out bytes.Buffer
 
 		printed := drainChat(srv.Client(), markReadCfg(srv.URL, t.TempDir()), &out,
-			&drainWarner{}, nil)
+			&drainWarner{}, nil, clock)
 
 		if printed != 0 {
 			t.Errorf("drainChat reported %d unread lines, want 0", printed)
@@ -199,7 +201,7 @@ func TestDrainChatFilesReadReceipts(t *testing.T) {
 		var out bytes.Buffer
 
 		printed := drainChat(srv.Client(), markReadCfg(srv.URL, t.TempDir()), &out,
-			&drainWarner{}, nil)
+			&drainWarner{}, nil, clock)
 
 		if printed != 2 {
 			t.Errorf("drainChat reported %d unread lines, want 2", printed)
@@ -228,7 +230,7 @@ func TestDrainChatFilesReadReceipts(t *testing.T) {
 		var out bytes.Buffer
 
 		printed := drainChat(srv.Client(), markReadCfg(srv.URL, t.TempDir()), &out,
-			&drainWarner{}, nil)
+			&drainWarner{}, nil, clock)
 
 		if printed != 1 {
 			t.Errorf("drainChat reported %d unread lines, want 1 — a self-sent row is "+
