@@ -455,7 +455,7 @@
       "name": "upgrade_station"
     },
     {
-      "description": "List every member that has not been removed, including outsource members by default (presence-derived MemberDTO[]). fields=light returns an identity-only projection that preserves kind.",
+      "description": "List every member that has not been removed, including outsource members and warden rows (kind=warden, one per machine) by default (presence-derived MemberDTO[]). A warden row is not a chat address: post_chat to its id is a 404. fields=light returns an identity-only projection that preserves kind.",
       "inputSchema": {
         "properties": {
           "fields": {
@@ -757,7 +757,7 @@
       "name": "report_stopped"
     },
     {
-      "description": "restart_self(): self-triggered recycle (online-only 409; min-liveness 429; wind-down-ladder 409). Answers with a bounded receipt (``id``, ``desired_state``, ``refocus_op``, ``refocus_deadline``), not the member row — call ``get_member`` when you need the rest.",
+      "description": "restart_self(): ask for your own session to be stopped and started again. This call only records the request; it stops nothing itself. Your session is woken with the 〈停止〉 document, and the server stops and respawns the session only after you work that procedure and call ``report_stopped``. Refused with 409 when you have no live event-stream connection or your desired state is not online, with 429 within 600 seconds of the current session connecting, and with 409 when you are already further along the wind-down ladder (下線 → 加速 → 強制). Answers with a bounded receipt (``id``, ``desired_state``, ``refocus_op``, ``refocus_deadline``), not the member row — call ``get_member`` when you need the rest.",
       "inputSchema": {
         "properties": {
           "reason": {
@@ -812,7 +812,7 @@
       "name": "dismiss_member"
     },
     {
-      "description": "Last 5 raw /in requests of one webhook endpoint (debug).",
+      "description": "Last 5 raw /in requests of one webhook endpoint, newest first (debug). /in answers 200 {\"status\":\"ok\"} whether or not anything was delivered (only a Slack URL-verification handshake gets its challenge echoed instead), so this log is the only place the outcome shows: ``delivered``, ``challenge``, ``ping`` (a verified GitHub ping, not delivered), or ``dropped:<reason>`` with reason ``disabled``, ``sig_failed`` or ``member_gone``. A request with a missing or unknown token matches no endpoint and is logged nowhere.",
       "inputSchema": {
         "properties": {
           "endpoint_id": {
@@ -1227,7 +1227,7 @@
       "name": "get_member_resume_summary"
     },
     {
-      "description": "Post a chat message (sender = verified JWT sub; auto SSE fan-out). ``to`` must name the owner or an active AI member; unknown, removed, and machine ids are rejected. Presence is not a gate: an offline member keeps its durable mailbox. Answers with a bounded receipt (``id``, ``ts``, ``to``, ``attachments``), not the message — call ``get_chat`` when you need the rest.",
+      "description": "Post a chat message (sender = verified JWT sub; auto SSE fan-out). ``to`` must name the owner or an active staff or outsource member; an unknown id, a removed member, a warden (machine) id and a synthetic sender such as ``hook:<endpoint_id>`` are all a 404. Presence is not a gate: an offline member keeps its durable mailbox. Answers with a bounded receipt (``id``, ``ts``, ``to``, ``attachments``), not the message — call ``get_chat`` when you need the rest.",
       "inputSchema": {
         "$defs": {
           "ChatAttachmentInputDTO": {
@@ -1290,7 +1290,7 @@
           },
           "body": {
             "default": "",
-            "description": "The message text. Almost nothing is checked: only the character cap, and a refusal when the message is empty AND carries no attachments. Everything else - formatting, whether the content matches the recipient, whether you meant to send it here - is accepted as sent. Note the recipient bears the cost of whatever you write: the whole body enters their context, so keep it to what they must do or know and send bulk material as an attachment instead.",
+            "description": "The message text. Almost nothing is checked: only the character cap (4,000 characters counted as Unicode code points, not bytes; a longer body is a 400 that stores nothing, and a message the owner posts is not capped), and a refusal when the message is empty AND carries no attachments. Everything else - formatting, whether the content matches the recipient, whether you meant to send it here - is accepted as sent. Note the recipient bears the cost of whatever you write: the whole body enters their context, so keep it to what they must do or know and send bulk material as an attachment instead.",
             "title": "Body",
             "type": "string"
           },
@@ -1441,7 +1441,7 @@
       "name": "get_chat_reads"
     },
     {
-      "description": "Open a reply card: an ask the owner must answer (options \u22644 on a single card, \u226420 on a multi card, each carrying its own ai_pick flag; select_mode single|multi). linked_task is REQUIRED and has no default \u2014 every card must SAY whether it is about a task, because the server no longer infers one. Send linked_task={\"task_id\": ..., \"step_id\": ...} to bind the ask to the step it is about: that step (and its task) enters waiting_owner until the owner answers. Send linked_task=null when the ask is not about a task \u2014 it opens as a plain unbound \u8acb\u793a. BOTH ids are required in the object form: a task_id with NO step_id is a 400, because a card bound to a task but to no step places no \u7b49\u6211\u56de\u8986 hold, so the task would finish underneath your question and the owner's answer would then be rejected for good. Omitting linked_task entirely is a 400 that names both legal shapes. Optional attachments ride the question (same shape as post_chat: {id} from `ocagent upload` / POST /api/chat/attachments, or inline data_b64). Answers with a bounded receipt (``id``, ``chat_message_id``, ``created_ts``, ``attachments``), not the card \u2014 call ``get_reply_card`` when you need the rest.",
+      "description": "Open a reply card: an ask the owner must answer (at least one option; options \u22644 on a single card, \u226420 on a multi card, each carrying its own ai_pick flag; select_mode single|multi). linked_task is REQUIRED and has no default \u2014 every card must SAY whether it is about a task, because the server no longer infers one. Send linked_task={\"task_id\": ..., \"step_id\": ...} to bind the ask to the step it is about: that step (and its task) enters waiting_owner until the owner answers. Send linked_task=null when the ask is not about a task \u2014 it opens as a plain unbound \u8acb\u793a. BOTH ids are required in the object form: a task_id with NO step_id is a 400, because a card bound to a task but to no step places no \u7b49\u6211\u56de\u8986 hold, so the task would finish underneath your question and the owner's answer would then be rejected for good. Omitting linked_task entirely is a 400 that names both legal shapes. With both ids present the bind is still refused, before anything is written, when the task does not exist (404), when you are not the task's executor and not the owner or an admin agent (403), when the task is not in_progress or waiting_owner, for example not_started or ready_for_done (409), when the step does not belong to that task (404), and when the step is already done or superseded (409). Optional attachments, at most 10, ride the question (same shape as post_chat: {id} from `ocagent upload` / POST /api/chat/attachments, or inline data_b64). Answers with a bounded receipt (``id``, ``chat_message_id``, ``created_ts``, ``attachments``), not the card \u2014 call ``get_reply_card`` when you need the rest.",
       "inputSchema": {
         "$defs": {
           "ReplyCardOptionDTO": {
@@ -1602,7 +1602,7 @@
       "name": "create_reply_card"
     },
     {
-      "description": "List light reply-card rows (summary and decision digest, without the full body/options). status is waiting (the default, longest-waiting first), answered (the last 24 hours) or expired (the last 24 hours); a positive limit is applied after each pane is ordered. Read one card in full with get_reply_card.",
+      "description": "List light reply-card rows (summary and decision digest, without the full body/options). status is waiting (the default, longest-waiting first), answered (the last 24 hours) or expired (the last 24 hours); a positive limit is applied after each pane is ordered. Every pane covers every card on the station, not only the cards you opened. Read one card in full with get_reply_card.",
       "inputSchema": {
         "properties": {
           "limit": {
@@ -1665,7 +1665,7 @@
       "name": "get_diff_share_link"
     },
     {
-      "description": "Read one reply card (full context: options, status, answer).",
+      "description": "Read one reply card (full context: options, status, answer). status is waiting, answered or expired; an expired card was closed without an answer. Any authenticated caller may read any card by id, not only a card it opened or one bound to its own task; an unknown id is a 404.",
       "inputSchema": {
         "properties": {
           "card_id": {
@@ -2696,7 +2696,7 @@
       "name": "get_task"
     },
     {
-        "description": "Close this task as done — the action ``ready_for_done`` waits for. A task whose every step is reported done NO LONGER CLOSES ITSELF: it settles in ``ready_for_done`` and stays there, which is the one window in which the close-out can actually happen (pin the deliverables, finish the step notes, write the learnings back) — every one of those writes is refused once the task is terminal, and until this ticket the task went terminal in the same call that reported the last step. THIS call is what ends it. WHO: the task's OWN executor, staff member and outsource worker alike — the close-out is the executor's work, so whoever does it must be able to say it is finished. The owner and the admin assistant do not share this door; theirs is ``force_task_done``, which records that it was forced. PRECONDITION: the task must be in ``ready_for_done``. Anything else is a 409 that NAMES the status the task is actually in, because the two ways to fail here need different answers — a task still in a work state has a step nobody has reported, and a terminal one is already closed. NOBODY IS CHASED AND THERE IS NO TIMER: a task nobody closes simply stays in ``ready_for_done``. That is the deliberate price of never closing a task underneath the agent that is still packing it up; ``force_task_done`` is the way out. Answers with a bounded receipt (``artifact_count``, ``closed_ts``, ``deps``, ``description_sha256``, ``description_size_chars``, ``duplicate_of``, ``executor_id``, ``executor_kind``, ``lock``, ``progress_done``, ``progress_total``, ``status``, ``task_id``, ``title``), not the task — call ``get_task`` when you need the rest. THE BOUND OUTSOURCE WORKER IS DISMISSED HERE, and here is the only place it happens: the row releases AND the session is reclaimed at once, on all four closes alike. It used to wait for a separate close-out report, which is gone — the close-out now happens while the task is still open, so once a close lands there is nothing the worker is still allowed to do on it.",
+        "description": "Close this task as done — the action ``ready_for_done`` waits for. A task whose every step is reported done NO LONGER CLOSES ITSELF: it settles in ``ready_for_done`` and stays there, which is the one window in which the close-out can actually happen (pin the deliverables, finish the step notes, write the learnings back) — every one of those writes is refused once the task is terminal, and until this ticket the task went terminal in the same call that reported the last step. THIS call is what ends it. WHO: the task's OWN executor, staff member and outsource worker alike — the close-out is the executor's work, so whoever does it must be able to say it is finished. The owner and the admin assistant do not share this door; theirs is ``force_task_done``, which records that it was forced. PRECONDITION: the task must be in ``ready_for_done``. Anything else is a 409 that NAMES the status the task is actually in, because the two ways to fail here need different answers — a task still in a work state has a step nobody has reported, and a terminal one is already closed. T-74f8 交棒閘 is checked here too: when the task's creator is not its executor, no handover has been declared, and no non-terminal task depends on this one, the close is refused with 422 before anything is written. This call carries no handoff field, so the way out is to create the successor task and point its ``blocked_by`` at this task, after which the gate stands aside by itself. A handover declared on the ``update_step_status`` report that finished the last step already satisfies this check. NOBODY IS CHASED AND THERE IS NO TIMER: a task nobody closes simply stays in ``ready_for_done``. That is the deliberate price of never closing a task underneath the agent that is still packing it up; ``force_task_done`` is the way out. Answers with a bounded receipt (``artifact_count``, ``closed_ts``, ``deps``, ``description_sha256``, ``description_size_chars``, ``duplicate_of``, ``executor_id``, ``executor_kind``, ``lock``, ``progress_done``, ``progress_total``, ``status``, ``task_id``, ``title``), not the task — call ``get_task`` when you need the rest. THE BOUND OUTSOURCE WORKER IS DISMISSED HERE, and here is the only place it happens: the row releases AND the session is reclaimed at once, on all four closes alike. It used to wait for a separate close-out report, which is gone — the close-out now happens while the task is still open, so once a close lands there is nothing the worker is still allowed to do on it.",
         "inputSchema": {
           "properties": {
             "task_id": {
@@ -2962,12 +2962,12 @@
         "name": "mark_task_duplicated"
       },
     {
-      "description": "Report a step status (pending/in_progress/waiting_external/done). Entering waiting_external requires a non-blank waiting_reason (422 otherwise); the task status is derived from its steps. T-74f8 交棒閘: if this report would CLOSE the task (every step done) AND the task's creator is not its executor, the call is REFUSED with 422 unless you say where the ball goes IN THIS SAME CALL — handoff='return_to_creator' (recorded on the task and nothing else — no task is opened and nobody is notified), handoff='follow_up' + handoff_task_id=<a successor task you already created> (the server hangs this task off it as a dependency, and closing this one releases it), or handoff='none' + handoff_note=<why nothing follows>. The gate stands aside by itself when a non-terminal task already depends on this one — you never see it if the handover is already real. It refuses BEFORE writing anything, so a refused report leaves the plan fully editable: create the successor task, then re-send this same report with the declaration. This is your LAST chance — once the task closes it can never be replanned (submit_plan becomes a permanent 409).",
+      "description": "Report a step status (pending/in_progress/waiting_external/done). Reporting waiting_owner or superseded is a 400 (neither is agent-reportable), a transition the step state machine does not allow is a 409, and entering waiting_external requires a non-blank waiting_reason (422 otherwise); the task status is derived from its steps. T-74f8 交棒閘: if this report would FINISH the task (every step that is not superseded done, so the task lands in ``ready_for_done``; only ``mark_task_done`` closes it) AND the task's creator is not its executor, the call is REFUSED with 422 unless you say where the ball goes IN THIS SAME CALL — handoff='return_to_creator' (recorded on the task and nothing else — no task is opened and nobody is notified), handoff='follow_up' + handoff_task_id=<a successor task you already created> (the server hangs this task off it as a dependency, and closing this one releases it), or handoff='none' + handoff_note=<why nothing follows>. The gate stands aside by itself when a non-terminal task already depends on this one — you never see it if the handover is already real. It refuses BEFORE writing anything, so a refused report leaves the plan fully editable: create the successor task, then re-send this same report with the declaration. This report is the only call that carries a declaration: neither ``submit_plan`` nor ``mark_task_done`` accepts one, and once the task closes it can never be replanned (submit_plan becomes a permanent 409).",
       "inputSchema": {
         "properties": {
           "handoff": {
             "default": "",
-            "description": "Where the ball goes when this report closes the task: 'return_to_creator' | 'follow_up' | 'none'. Read ONLY on the report that would close the task; ignored otherwise.",
+            "description": "Where the ball goes when this report finishes the task (every step that is not superseded done): 'return_to_creator' | 'follow_up' | 'none'. Read ONLY on that report; ignored otherwise.",
             "title": "Handoff",
             "type": "string"
           },
@@ -3045,7 +3045,7 @@
       "name": "update_step_note"
     },
     {
-      "description": "Patch this step's working note by unique anchors ({edits:[{old,new}]}) — send only the part that changed, instead of re-typing the whole note. USE THIS WHENEVER YOU ARE AMENDING A NOTE THAT ALREADY HAS CONTENT. update_step_note is a wholesale replace, so if anyone else wrote to the step between your read and your write, your copy is stale and the replace silently deletes their text — and because your stale copy is usually the LONGER one, no guard fires and nothing tells you. A patch cannot do that: a non-empty old must match the current note EXACTLY ONCE (0 or >1 hits reject the WHOLE batch with a 400 that names which edit failed and which tool to re-read with, zero writes), so a concurrent write turns into a refusal you can see. Edits apply in order; an empty old appends. Wiping the note, or shrinking it below a tenth, needs allow_shrink=true — for an honest rewrite from scratch use update_step_note. Same executor/admin gate, same any-step-status generality, same closed-task 409 as update_step_note. Re-read with get_task_step after a refusal — get_task reports each step's note SIZE (note_size_chars) but since T-66 no longer carries its text. Answers with a bounded receipt (``task_id``, ``step_id``, ``step_status``, ``applied_edits``, ``size_chars``, ``cap_chars``, ``sha256``), not the note — call ``get_task_step`` when you need the rest.",
+      "description": "Patch this step's working note by unique anchors ({edits:[{old,new}]}) — send only the part that changed, instead of re-typing the whole note. USE THIS WHENEVER YOU ARE AMENDING A NOTE THAT ALREADY HAS CONTENT. update_step_note is a wholesale replace, so if anyone else wrote to the step between your read and your write, your copy is stale and the replace silently deletes their text — and because your stale copy is usually the LONGER one, no guard fires and nothing tells you. A patch sends no base copy, so it cannot overwrite from a stale read: each edit is applied to the note as it stands when the server reads it for this request, and a non-empty old must match that note EXACTLY ONCE (0 or >1 hits reject the WHOLE batch with a 400 that names which edit failed and which tool to re-read with, zero writes), so a concurrent write that removed or duplicated your anchor turns into a refusal you can see. It does not cover two writes processed at the same moment: the read and the write of one request share no transaction and no version check, so a write that lands between them is lost and both calls answer 200. Edits apply in order; an empty old appends. Wiping the note, or shrinking it below a tenth, needs allow_shrink=true — for an honest rewrite from scratch use update_step_note. Same executor/admin gate, same any-step-status generality, same closed-task 409 as update_step_note. Re-read with get_task_step after a refusal — get_task reports each step's note SIZE (note_size_chars) but since T-66 no longer carries its text. Answers with a bounded receipt (``task_id``, ``step_id``, ``step_status``, ``applied_edits``, ``size_chars``, ``cap_chars``, ``sha256``), not the note — call ``get_task_step`` when you need the rest.",
       "inputSchema": {
         "properties": {
           "allow_shrink": {
@@ -4158,7 +4158,7 @@
       "name": "replace_task_artifact"
     },
     {
-        "description": "Write ONE 傳承 entry (never editable afterwards). ``task_id`` picks the scope, and there is ALWAYS somewhere for it to land: a task that carries a TYPE files under that type's manual; no task at all, OR a task with no type (臨時任務), files into your OWN boot document -- your role if you are staff, yourself if you are an outsource member (who has no role for a role scope to name). The untyped-task case answers a ``scope_note`` saying where it actually went, because you asked for a manual and did not get one. Only a caller with no roster row at all is a 400 -- there is no boot document to file into. An over-cap title or body is a 400 that writes nothing.",
+        "description": "Write ONE 傳承 entry (never editable afterwards). ``task_id`` picks the scope, and there is ALWAYS somewhere for it to land: a task that carries a TYPE files under that type's manual; no task at all, OR a task with no type (臨時任務), files into your OWN boot document, under your own member id (scope ``agent``), staff and outsource members alike. The untyped-task case answers a ``scope_note`` saying where it actually went, because you asked for a manual and did not get one. Only a caller with no roster row at all is a 400 -- there is no boot document to file into. Title and body are capped in characters (Unicode code points) by the settings ``lore.cap_chars.title`` and ``lore.cap_chars.body``, 80 and 500 unless the owner has changed them; an over-cap title or body is a 400 that writes nothing and states the cap in force.",
         "inputSchema": {
           "properties": {
             "title": {
@@ -4180,7 +4180,7 @@
         "name": "write_lore_entry"
       },
     {
-        "description": "List 傳承 entries, filtered SERVER-SIDE and paged in the fixed order pinned -> active -> retired, newest first inside each group. The order is not configurable; the filter is.",
+        "description": "List 傳承 entries, filtered SERVER-SIDE and paged in the fixed order pinned -> active -> retired, newest first inside each group. The order is not configurable; the filter is. Nothing is narrowed by who is calling: with no author or scope filter, every caller sees the entries of every member and every manual.",
         "inputSchema": {
           "properties": {
             "scope_kinds": {
@@ -4245,7 +4245,7 @@
         "name": "list_lore_entries"
       },
     {
-        "description": "Move one 傳承 entry to active / pinned / retired. 置頂 and un-置頂 are ADMIN-ONLY (owner ruling): a pinned entry sorts ahead of every other entry in its scope and so survives the cap at the others' expense. 失效 and 生效 are open to the entry's own AUTHOR -- anyone else is a 403 -- and admin capability is unrestricted. Retiring is not deleting: the entry keeps its id and can be moved back; ``retire_reason`` is stored only with retired and cleared by the other two.",
+        "description": "Move one 傳承 entry to active / pinned / retired. 置頂 and un-置頂 are ADMIN-ONLY (owner ruling): a pinned entry sorts ahead of every other entry in its scope and so survives the cap at the others' expense. 失效 and 生效 are open to the entry's own AUTHOR -- anyone else is a 403 -- and admin capability is unrestricted. A PINNED entry is outside its author's reach as well: until an admin un-pins it, every move a non-admin requests on it, the author's included, is a 403. Retiring is not deleting: the entry keeps its id and can be moved back; ``retire_reason`` is stored only with retired and cleared by the other two.",
         "inputSchema": {
           "properties": {
             "entry_id": {
