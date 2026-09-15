@@ -28,6 +28,27 @@ import (
 // same lightweight leg the warden's killSession uses) — it takes down the whole
 // pane tree INCLUDING the process running `suicide`.
 
+func suicideUsage(w io.Writer) {
+	fmt.Fprint(w, `usage: ocagent suicide
+
+Ends your own session: kills the tmux session named by OC_SESSION on the
+OC_TMUX_SOCKET socket (default "officraft"). That takes down everything running
+in it, this command and your ocagent listen included, so the station sees you
+go offline. It takes no flags, contacts no station and reports nothing to it:
+no phase is reported on your behalf.
+
+stdout: one line naming the session it is about to kill, or saying why it
+did nothing (no OC_SESSION, or tmux could not be found). If the kill itself
+fails (e.g. the session is already gone), a second line says so.
+
+Exit codes:
+  0  every run that gets past flag parsing, whether or not anything was
+     killed. A successful kill ends this process before it can exit.
+  2  --help itself, or any other flag parse error (an unknown flag); nothing
+     is killed
+`)
+}
+
 // tmuxKiller runs `tmux -L <socket> kill-session -t <session>` and returns any
 // error. Injected so a test asserts the argv without spawning tmux (the real one
 // SIGHUPs this very process, so a successful kill never returns).

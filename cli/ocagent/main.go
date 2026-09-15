@@ -125,6 +125,7 @@ func realMain(argv []string, env func(string) string, in io.Reader, out io.Write
 		// a documented manual lever. See suicide.go.
 		fs := flag.NewFlagSet("ocagent suicide", flag.ContinueOnError)
 		fs.SetOutput(out)
+		fs.Usage = func() { suicideUsage(out) }
 		if err := fs.Parse(rest); err != nil {
 			return 2
 		}
@@ -139,6 +140,7 @@ func realMain(argv []string, env func(string) string, in io.Reader, out io.Write
 		// (see download.go). See download.go for the streaming/naming contract.
 		fs := flag.NewFlagSet("ocagent download", flag.ContinueOnError)
 		fs.SetOutput(out)
+		fs.Usage = func() { downloadUsage(out) }
 		outDir := fs.String("out", "", "destination directory (default: tmp/attachments/ under the agent workdir)")
 		if err := fs.Parse(rest); err != nil {
 			return 2
@@ -167,6 +169,7 @@ func realMain(argv []string, env func(string) string, in io.Reader, out io.Write
 		// its own context. See upload.go for the streaming/exit-code contract.
 		fs := flag.NewFlagSet("ocagent upload", flag.ContinueOnError)
 		fs.SetOutput(out)
+		fs.Usage = func() { uploadUsage(out) }
 		mimeType := fs.String("mime", "", "declared media type (default: server-side sniff)")
 		if err := fs.Parse(rest); err != nil {
 			return 2
@@ -233,6 +236,7 @@ func realMain(argv []string, env func(string) string, in io.Reader, out io.Write
 		// phrase, so it is part of the contract, not just a default. See clean.go.
 		fs := flag.NewFlagSet("ocagent clean", flag.ContinueOnError)
 		fs.SetOutput(out)
+		fs.Usage = func() { cleanUsage(out) }
 		if err := fs.Parse(rest); err != nil {
 			return 2
 		}
