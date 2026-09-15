@@ -496,15 +496,16 @@ func (s *apiServer) HandleDeleteTaskManualApiTaskManualsTypeKeyDelete(w http.Res
 // transaction, or a version/etag compare at the write boundary. Tracked
 // separately.
 //
-// 🔴 AND THAT WINDOW IS WIDER HERE THAN ON THE patch_step_note TWIN, which is
-// why this caveat is not a copy of that one. putTaskManualOn is a WHOLE-ROW
+// 🔴 AND THAT WINDOW IS WIDER HERE THAN IT EVER WAS ON THE patch_step_note
+// TWIN, which since T-223 has no window at all — its write is a compare-and-set
+// on the note it spliced onto, so this caveat is no longer shared by that face.
+// putTaskManualOn is a WHOLE-ROW
 // upsert: it writes back purpose, fields, display_name and assignee from the
 // copy resolveTaskManual read at the top of this request, not just sop_md. So
 // an interleaving in the same window also REVERTS a concurrent write to any of
 // those other fields — an update_task_manual landing between this face's read
 // and its write is silently undone, and the caller of that write already got
-// its 200. The step-note twin does not have this: SetTaskStepNote
-// is a SINGLE-column UPDATE, so its window can only cost the note itself.
+// its 200.
 // The narrow fix is to make this face write sop_md alone; that is out of
 // T-1667's scope and is recorded here rather than done.
 //

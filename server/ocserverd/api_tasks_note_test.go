@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -337,6 +338,127 @@ func TestHandlePatchTaskStepNoteApiTasksTaskIdStepsStepIdNotePatchPost(t *testin
 		dashboard.wantFrames(taskFrame)
 		executor.wantFrames(taskFrame)
 		bystander.wantFrames()
+	})
+
+	t.Run("a patch that lands between another patch's read and its write survives alongside it", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/plan", agent,
+			`{"steps":[{"name":"Draft","dod":"a draft exists"}]}`)
+		stepID := apiTestOnlyStepID(t, h, owner, "T-1")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/note", agent,
+			`{"note":"draft: halfway\nreview: not started"}`)
+		interleaved := false
+		api.stepNotePatchBeforeWrite = func() {
+			if interleaved {
+				return
+			}
+			interleaved = true
+			status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/note/patch", agent,
+				`{"edits":[{"old":"not started","new":"booked for friday"}]}`)
+			if status != 200 {
+				t.Fatalf("competing patch: want 200, got %d (%v)", status, data)
+			}
+		}
+
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/note/patch", agent,
+			`{"edits":[{"old":"halfway","new":"done"}]}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		_, step := apiJSON(t, h, "GET", "/api/tasks/T-1/steps/"+stepID, owner, "")
+		apiWantValue(t, "step.note", step["note"], "draft: done\nreview: booked for friday")
+		apiWantValue(t, "body.applied_edits", data["applied_edits"], 1)
+		apiWantValue(t, "body.sha256", data["sha256"], receiptSha256("draft: done\nreview: booked for friday"))
+	})
+
+	t.Run("a note that keeps moving under the patch answers 409 after the retry limit and keeps the last competing write", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/plan", agent,
+			`{"steps":[{"name":"Draft","dod":"a draft exists"}]}`)
+		stepID := apiTestOnlyStepID(t, h, owner, "T-1")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/note", agent, `{"note":"halfway, revision 0"}`)
+		competing := 0
+		api.stepNotePatchBeforeWrite = func() {
+			competing++
+			status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/note", agent,
+				`{"note":"halfway, revision `+strconv.Itoa(competing)+`"}`)
+			if status != 200 {
+				t.Fatalf("competing write: want 200, got %d (%v)", status, data)
+			}
+		}
+
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/note/patch", agent,
+			`{"edits":[{"old":"halfway","new":"done"}]}`)
+		if status != 409 {
+			t.Fatalf("want 409, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "conflict",
+			"step note kept changing under this patch (8 attempts) — re-read (get_task_step) and retry; nothing was written")
+		if competing != stepNotePatchRetryLimit {
+			t.Fatalf("competing writes: want %d, got %d", stepNotePatchRetryLimit, competing)
+		}
+
+		_, step := apiJSON(t, h, "GET", "/api/tasks/T-1/steps/"+stepID, owner, "")
+		apiWantValue(t, "step.note", step["note"], "halfway, revision 8")
+	})
+
+	t.Run("an anchor a competing write duplicated answers 400 on the re-read and writes nothing", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/plan", agent,
+			`{"steps":[{"name":"Draft","dod":"a draft exists"}]}`)
+		stepID := apiTestOnlyStepID(t, h, owner, "T-1")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/note", agent, `{"note":"draft: halfway"}`)
+		competing := 0
+		api.stepNotePatchBeforeWrite = func() {
+			competing++
+			if competing > 1 {
+				return
+			}
+			apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/note", agent,
+				`{"note":"draft: halfway\nreview: halfway"}`)
+		}
+
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/note/patch", agent,
+			`{"edits":[{"old":"halfway","new":"done"}]}`)
+		if status != 400 {
+			t.Fatalf("want 400, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error",
+			"edits[0]: old matches 2 locations — re-read (get_task_step) and widen the anchor until it is unique; nothing was written")
+		if competing != 1 {
+			t.Fatalf("competing writes: want 1, got %d", competing)
+		}
+
+		_, step := apiJSON(t, h, "GET", "/api/tasks/T-1/steps/"+stepID, owner, "")
+		apiWantValue(t, "step.note", step["note"], "draft: halfway\nreview: halfway")
+	})
+
+	t.Run("a step a re-plan deleted between the patch's read and its write answers 404", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/plan", agent,
+			`{"steps":[{"name":"Draft","dod":"a draft exists"}]}`)
+		stepID := apiTestOnlyStepID(t, h, owner, "T-1")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/note", agent, `{"note":"halfway through"}`)
+		api.stepNotePatchBeforeWrite = func() {
+			api.stepNotePatchBeforeWrite = nil
+			apiJSON(t, h, "POST", "/api/tasks/T-1/plan", agent,
+				`{"steps":[{"name":"Rewrite","dod":"a new draft exists"}]}`)
+		}
+
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/note/patch", agent,
+			`{"edits":[{"old":"halfway","new":"most of the way"}]}`)
+		if status != 404 {
+			t.Fatalf("want 404, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "not_found", "step '"+stepID+"' not found")
 	})
 
 	t.Run("an anchor the note does not carry answers 400 and the note stands", func(t *testing.T) {
