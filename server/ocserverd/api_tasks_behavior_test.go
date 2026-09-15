@@ -1409,7 +1409,7 @@ func TestCreateTypedTaskWithManualOutsourceAssigneeIsNotADispatch(t *testing.T) 
 // ── submit_plan keeps done steps ─────────────────────────────────────────────
 
 func TestSubmitPlanDescriptionWarnsAboutDiscardedUnfinishedNotes(t *testing.T) {
-	const warning = "Resubmitting permanently deletes every unfinished step and its working note; deleted notes cannot be recovered."
+	const warning = "Resubmitting permanently deletes every unfinished step that is not kept (see below), together with its working note; deleted notes cannot be recovered."
 	var matches []RouteSpec
 	for _, spec := range defaultRouteSpecs() {
 		if spec.Method == http.MethodPost && spec.Path == "/api/tasks/{task_id}/plan" &&
