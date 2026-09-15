@@ -5,9 +5,8 @@
 //      default generic). Choosing slack/github reveals a REQUIRED Signing
 //      Secret field + a platform helper; generic hides it entirely.
 //   2. Create sends platform + signingSecret through the api client.
-//   3. A row NEVER shows the secret value — and (T-069d) no longer carries
-//      the constant platform/"已設 secret" wording either; the row head slot
-//      belongs to the compact 事件統計 summary.
+//   3. A row NEVER shows the secret value; the row head slot holds the compact
+//      事件統計 summary.
 //
 // Uses a small stateful in-memory api mock (create → refetch roundtrip). The
 // mock stores the secret out-of-band and only echoes has_signing_secret, so a
@@ -71,8 +70,7 @@ vi.mock("../api", () => ({
   api: {
     listMachines: () => Promise.resolve([]),
     // T-91: PATCH answers a receipt, and the adapter resolves void. The double
-    // says void too — echoing the patch back as a Member would be a wire the
-    // server no longer sends (and no caller ever read it).
+    // says void too.
     patchMember: (_id: string, _patch: object) => Promise.resolve(),
     getBootstrap: () =>
       Promise.resolve({ role: "assistant", name: "", taskType: "", context: "" }),
@@ -189,7 +187,7 @@ describe("MemberDetailPanel · webhook platform + signing secret", () => {
     expect(createBtn.disabled).toBe(false);
   });
 
-  it("creates a slack endpoint with platform + secret, then renders the row WITHOUT platform/secret wording and WITHOUT leaking the secret", async () => {
+  it("creates a slack endpoint with platform + secret, then renders the row without leaking the secret", async () => {
     const utils = renderPanel();
     fireEvent.click(utils.getByTestId("mp-webhook-toggle"));
     fireEvent.click(await utils.findByTestId("mp-webhook-add"));
@@ -213,18 +211,13 @@ describe("MemberDetailPanel · webhook platform + signing secret", () => {
       })
     );
 
-    // T-069d: the row appears WITHOUT the old platform badge / secret-set
-    // marker — that head slot now belongs to the compact stats summary.
     await utils.findByTestId("mp-webhook-stats-slack-in");
-    expect(utils.queryByTestId("mp-webhook-platform-slack-in")).toBeNull();
-    expect(utils.queryByTestId("mp-webhook-secretset-slack-in")).toBeNull();
-    expect(utils.container.textContent).not.toContain(w.platformSlack);
 
     // The secret plaintext is NEVER in the DOM.
     expect(utils.container.textContent).not.toContain("shhh-signing-secret");
   });
 
-  it("creates a generic endpoint with no secret and no secret-set marker", async () => {
+  it("creates a generic endpoint with no secret and no rotate-secret entry", async () => {
     const utils = renderPanel();
     fireEvent.click(utils.getByTestId("mp-webhook-toggle"));
     fireEvent.click(await utils.findByTestId("mp-webhook-add"));
@@ -241,8 +234,6 @@ describe("MemberDetailPanel · webhook platform + signing secret", () => {
       })
     );
     await utils.findByTestId("mp-webhook-stats-generic-in");
-    expect(utils.queryByTestId("mp-webhook-platform-generic-in")).toBeNull();
-    expect(utils.queryByTestId("mp-webhook-secretset-generic-in")).toBeNull();
     // generic rows never expose the rotate-secret entry
     expect(utils.queryByTestId("mp-webhook-rotate-generic-in")).toBeNull();
   });

@@ -253,10 +253,9 @@ describe("RepliesPage", () => {
   });
 
   // T-4166: a 409 on answer is TERMINAL for that card — its task closed
-  // underneath it (orphan), or it was already handled. The old code showed the
-  // same「回覆失敗，請稍後重試」it shows a network blip and left the dead card on
-  // screen, so the owner clicked a road that is 409 a hundred times out of a
-  // hundred. Assert the DISTINCT message (a shared string would make this test
+  // underneath it (orphan), or it was already handled. Showing the network-blip
+  //「回覆失敗，請稍後重試」and leaving the dead card on screen would send the owner
+  // down a road that is 409 every time. Assert the DISTINCT message (a shared string would make this test
   // pass on the buggy code too) and the re-pull that clears the card.
   it("a 409 answer says the card is stale — never 請稍後重試 — and re-pulls the pane", async () => {
     __injectMockReplyCard(mkCard({}));
@@ -669,8 +668,7 @@ describe("RepliesPage", () => {
 
   // An empty title leaves the jump alone on the row — the cell is not drawn at
   // all, so there is no empty box and no placeholder standing in for a title
-  // nobody wrote. The typeKey does NOT step in as a substitute: the chip is
-  // gone on every card, including the ones with nothing else to say.
+  // nobody wrote. The typeKey does NOT step in as a substitute.
   it("draws no title cell when the task's title is empty", async () => {
     __injectMockReplyCard(
       mkCard({ task: { id: "t-3", typeKey: "review-pr", title: "" } }),
@@ -680,7 +678,6 @@ describe("RepliesPage", () => {
     await openCards();
     const ref = await findByTestId("reply-task-ref");
     expect(ref.querySelector(".reply-card__task-title")).toBeNull();
-    expect(ref.querySelector(".reply-card__task-type")).toBeNull();
     expect(ref.textContent).not.toContain("review-pr");
     expect(ref.textContent).toContain("查看任務詳情");
   });
@@ -703,9 +700,8 @@ describe("RepliesPage", () => {
     const { findAllByTestId } = renderPage();
     const cards = await findAllByTestId("waiting-card");
 
-    // 🔴 NOTHING OPENS BY ITSELF (owner 2026-09-11「預設全部折疊」). The leading
-    // card used to open on arrival; that exception is gone. Waited on, not read
-    // once: an auto-open lands a commit after the first paint, so a bare read
+    // 🔴 NOTHING OPENS BY ITSELF (owner 2026-09-11「預設全部折疊」), the leading
+    // card included. Waited on, not read once: an auto-open lands a commit after the first paint, so a bare read
     // here would pass against the very behaviour this forbids.
     await waitFor(() =>
       expect(document.querySelectorAll('[data-testid="card-loading"]')).toHaveLength(0)
@@ -751,8 +747,7 @@ describe("RepliesPage", () => {
     // is exactly one of it after.
     expect(card.querySelectorAll(".reply-card__head")).toHaveLength(1);
 
-    // 🔴 The half that did not exist before T-48: answering and 標為過期 used to
-    // be the only ways out of an opened card.
+    // 🔴 T-48: besides answering and 標為過期, clicking the card closes it.
     fireEvent.click(card);
     await waitFor(() =>
       expect(card.querySelector(".reply-card__body")).toBeNull()

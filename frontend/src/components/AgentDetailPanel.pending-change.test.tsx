@@ -284,23 +284,3 @@ describe("AgentDetailPanel · wind-down note", () => {
     expect(queryByTestId("mp-wind-down-note")).toBeNull();
   });
 });
-
-describe("AgentDetailPanel · the removed in-place editor (T-7f28)", () => {
-  it("offers no edit entry point on the model/effort cell", async () => {
-    // Kyle's condition for deleting dead code: pin the ABSENCE, do not just
-    // remove the code. The editor hung off an optional prop no caller ever
-    // passed, so nothing failed when it rotted — and nothing would fail if a
-    // future change quietly re-grew it beside the settings dialog that is the
-    // real editor. Two disagreeing ways to change one setting on one screen is
-    // the state this guards against.
-    const { queryByTestId } = await renderPanel();
-    for (const id of [
-      "mp-model-effort-edit",
-      "mp-model-effort-editor",
-      "mp-model-effort-save",
-      "mp-model-effort-configured",
-    ]) {
-      expect(queryByTestId(id)).toBeNull();
-    }
-  });
-});

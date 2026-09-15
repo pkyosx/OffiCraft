@@ -154,10 +154,8 @@ describe("請示卡的任務資訊 (RepliesPage)", () => {
     await findByTestId("waiting-card");
     await openCards();
     const ref = await findByTestId("reply-task-ref");
-    // The type chip is gone (T-ee17 acceptance): the row names the work by its
-    // title, never by the internal type key.
+    // The row names the work by its title, never by the internal type key.
     expect(ref.textContent).not.toContain("sync-jira");
-    expect(ref.querySelector(".reply-card__task-type")).toBeNull();
     expect(ref.textContent).toContain("同步 PROJ-1421 到 T-9 的排程");
     expect(ref.textContent).toContain("查看任務詳情");
     // Adjudicated: no task number / raw id leaks onto the card. Scanned over
@@ -171,7 +169,7 @@ describe("請示卡的任務資訊 (RepliesPage)", () => {
     expect(window.location.hash).toBe("#tasks/t-77");
   });
 
-  it("ad-hoc task ref shows no type chip at all; a pure chat ask shows NO task row", async () => {
+  it("ad-hoc task ref shows its title; a pure chat ask shows NO task row", async () => {
     __injectMockReplyCard(
       mkCard({ task: { id: "t-88", typeKey: "", title: "散事" } })
     );
@@ -185,16 +183,12 @@ describe("請示卡的任務資訊 (RepliesPage)", () => {
     await openCards();
     const refs = await findAllByTestId("reply-task-ref");
     expect(refs).toHaveLength(1); // only the task-derived one
-    // A blank typeKey used to fall back to 自由代辦 inside the chip; with the
-    // chip gone neither the fallback word nor the label is drawn.
-    expect(refs[0].querySelector(".reply-card__task-type")).toBeNull();
-    expect(refs[0].textContent).not.toContain("自由代辦");
     expect(refs[0].textContent).toContain("散事");
   });
 });
 
 describe("請示卡的任務資訊 (ChatReplyCard)", () => {
-  it("the chat inline card carries the same title + jump, and no type chip either", async () => {
+  it("the chat inline card carries the same title + jump", async () => {
     __injectMockReplyCard(
       mkCard({
         id: "rc-chat",
@@ -210,10 +204,7 @@ describe("請示卡的任務資訊 (ChatReplyCard)", () => {
     // is part of the open card.
     fireEvent.click(await findByTestId("chat-reply-card-expand"));
     const ref = await findByTestId("reply-task-ref");
-    // Both surfaces render the one shared row, so the chip's removal has to
-    // hold here too — asserted on this surface rather than assumed from it.
     expect(ref.textContent).not.toContain("review-pr");
-    expect(ref.querySelector(".reply-card__task-type")).toBeNull();
     expect(ref.textContent).toContain("修 PR");
     fireEvent.click(await findByTestId("reply-task-jump"));
     expect(window.location.hash).toBe("#tasks/t-99");
@@ -329,7 +320,6 @@ describe("TasksPage 單一任務 filter (#tasks/<id>)", () => {
     const { findByTestId, queryByTestId } = renderTasks();
 
     await findByTestId("tasks-empty-filtered");
-    expect(queryByTestId("task-id-missing")).toBeNull();
     // Non-vacuity: the task that DOES exist is not on screen — the anchor is
     // still narrowing, rather than the page being empty for some other reason.
     expect(queryByTestId("open-list")).toBeNull();

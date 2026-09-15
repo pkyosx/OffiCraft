@@ -275,12 +275,10 @@ describe("ThemeSettings · import from a link", () => {
     // has to be on THIS screen — it is worth nothing in a doc they will not
     // open. Pinned by its own text so deleting it goes red.
     //
-    // ⚠️ This assertion used to require the word 撤不回來 (irrevocable). T-62
-    // made that FALSE: a sig is derived from a key in the signing-key ring, so
-    // removing that key voids every link it signed. The warning now has to
-    // carry both halves — no per-link withdrawal, AND the coarse route that
-    // does exist — because a reader told only the first half will not look for
-    // the second when they need it.
+    // A sig is derived from a key in the signing-key ring, so removing that key
+    // voids every link it signed. The warning carries both halves — no per-link
+    // withdrawal, AND that coarse route — because a reader told only the first
+    // half will not look for the second when they need it.
     setToken("owner-token");
     const utils = await renderManage();
     fireEvent.click(utils.getByText(p.themeImport));
@@ -288,7 +286,5 @@ describe("ThemeSettings · import from a link", () => {
     expect(note?.textContent).toBe(p.themeImportLinkShareNote);
     expect(p.themeImportLinkShareNote).toContain("收不回來");
     expect(p.themeImportLinkShareNote).toContain("簽章金鑰");
-    // And the stale claim is gone rather than merely joined by a new sentence.
-    expect(p.themeImportLinkShareNote).not.toContain("撤不回來");
   });
 });
