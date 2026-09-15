@@ -1976,7 +1976,7 @@
         },
         "self_update": {
             "default": null,
-            "description": "Self-update status for the reporting binary. The ONLY check is that the value is an object - anything else is a flat 400, 'self_update must be an object' - and nothing inside it is checked. What you send is kept only on this reporter's IN-MEMORY telemetry entry, plus one summary line on the SERVER's stderr that prints the reporter, binary, old_hash, new_hash and at, substituting '?' for whatever is missing. Nothing reads it back: the bounded receipt (agent_id, machine, ts) does not echo it, and neither get_monitoring nor any other read tool returns it, so a misspelled sub-key goes unnoticed. The entry is gone the moment the server re-execs, and because this endpoint MERGES, omitting self_update does not clear the previous value.",
+            "description": "Self-update status for the reporting binary. The ONLY check is that the value is an object - anything else is a flat 400, 'self_update must be an object' - and nothing inside it is checked. What you send is kept only on this reporter's IN-MEMORY telemetry entry, plus one summary line on the SERVER's stderr that prints the reporter, binary, old_hash, new_hash and at, substituting '?' for whatever is missing. Nothing reads it back: the bounded receipt (agent_id, machine, ts) does not echo it, and neither get_monitoring nor any other read tool returns it, so a misspelled sub-key goes unnoticed by the caller. The entry is gone the moment the server re-execs, and because this endpoint MERGES, omitting self_update does not clear the previous value.",
             "title": "Self Update"
           },
           "tokens": {
