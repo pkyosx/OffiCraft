@@ -199,7 +199,8 @@ func TestHttpDownloader(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
 			const gap = 30 * time.Second
 			payload := strings.Repeat("a", int(5*selfUpdateRequestBudget/gap))
-			pipeStationServer(t, pacedStationServer(http.StatusOK, len(payload), 0, gap, byteChunks(payload)))
+			var seen atomic.Pointer[http.Request]
+			pipeStationServer(t, pacedStationServer(http.StatusOK, len(payload), 0, gap, byteChunks(payload), &seen))
 
 			started := time.Now()
 			status, data, err := httpDownloader(pipeStationBase, jwtWardenOne)(agentBinaryPath)
@@ -214,6 +215,7 @@ func TestHttpDownloader(t *testing.T) {
 			if string(data) != payload {
 				t.Fatalf("body = %q, want %q", data, payload)
 			}
+			wantStationHeaders(t, seen.Load())
 		})
 	})
 
@@ -221,7 +223,7 @@ func TestHttpDownloader(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
 			const gap = 30 * time.Second
 			trickle := byteChunks(strings.Repeat("a", int(2*selfUpdateDownloadBudget/gap)))
-			pipeStationServer(t, pacedStationServer(http.StatusOK, len(trickle)+1, 0, gap, trickle))
+			pipeStationServer(t, pacedStationServer(http.StatusOK, len(trickle)+1, 0, gap, trickle, nil))
 
 			started := time.Now()
 			_, data, err := httpDownloader(pipeStationBase, jwtWardenOne)(agentBinaryPath)
@@ -245,7 +247,7 @@ func TestHttpDownloader(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
-				pipeStationServer(t, pacedStationServer(http.StatusOK, c.length, headerDelay, 0, c.sent))
+				pipeStationServer(t, pacedStationServer(http.StatusOK, c.length, headerDelay, 0, c.sent, nil))
 
 				started := time.Now()
 				_, data, err := httpDownloader(pipeStationBase, jwtWardenOne)(agentBinaryPath)
@@ -262,7 +264,7 @@ func TestHttpDownloader(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
 			pipeStationServer(t, func(conn net.Conn) {
 				defer conn.Close()
-				if tc, ok := acceptPipeRequest(conn); ok {
+				if tc, _, ok := acceptPipeRequest(conn); ok {
 					_, _ = io.Copy(io.Discard, tc)
 				}
 			})
@@ -474,29 +476,33 @@ var pipeStationCert = sync.OnceValues(func() (tls.Certificate, *x509.CertPool) {
 
 // acceptPipeRequest completes the server side of the TLS handshake and reads
 // the request, answering false once the client has gone.
-func acceptPipeRequest(conn net.Conn) (net.Conn, bool) {
+func acceptPipeRequest(conn net.Conn) (net.Conn, *http.Request, bool) {
 	cert, _ := pipeStationCert()
 	tc := tls.Server(conn, &tls.Config{Certificates: []tls.Certificate{cert}})
-	if _, err := http.ReadRequest(bufio.NewReader(tc)); err != nil {
-		return nil, false
+	req, err := http.ReadRequest(bufio.NewReader(tc))
+	if err != nil {
+		return nil, nil, false
 	}
-	return tc, true
+	return tc, req, true
 }
 
 // pacedStationServer answers status headerDelay after the request, with a body
 // framed by Content-Length, or chunked when length is negative, and writes
 // chunks gap apart, each gap preceding its chunk. Whatever the framing still
-// owes is never sent.
-func pacedStationServer(status, length int, headerDelay, gap time.Duration, chunks []string) func(net.Conn) {
+// owes is never sent. seen, when set, is handed the request as the station read it.
+func pacedStationServer(status, length int, headerDelay, gap time.Duration, chunks []string, seen *atomic.Pointer[http.Request]) func(net.Conn) {
 	framing := fmt.Sprintf("Content-Length: %d", length)
 	if length < 0 {
 		framing = "Transfer-Encoding: chunked"
 	}
 	return func(conn net.Conn) {
 		defer conn.Close()
-		tc, ok := acceptPipeRequest(conn)
+		tc, req, ok := acceptPipeRequest(conn)
 		if !ok {
 			return
+		}
+		if seen != nil {
+			seen.Store(req)
 		}
 		// A pipe has no buffer: unless something keeps reading, the client's
 		// close_notify blocks behind our write and the bubble never drains.
@@ -536,6 +542,22 @@ func byteChunks(s string) []string {
 		chunks[i] = s[i : i+1]
 	}
 	return chunks
+}
+
+// wantStationHeaders requires the request the station read to carry the warden's
+// User-Agent — the edge in front of the station refuses some agents — and its
+// bearer credential.
+func wantStationHeaders(t *testing.T, req *http.Request) {
+	t.Helper()
+	if req == nil {
+		t.Fatal("the station never read a request")
+	}
+	if got := req.Header.Get("User-Agent"); got != "ocwarden/0.1" {
+		t.Errorf("User-Agent = %q, want %q", got, "ocwarden/0.1")
+	}
+	if got := req.Header.Get("Authorization"); got != "Bearer "+jwtWardenOne {
+		t.Errorf("Authorization = %q, want the warden's bearer line", got)
+	}
 }
 
 // wantCutAt requires a request to have been cut at bound: not before it, and
@@ -1298,7 +1320,8 @@ func TestBuildSelfUpdater(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
 			const gap = 30 * time.Second
 			payload := strings.Repeat("w", int(3*selfUpdateRequestBudget/gap))
-			pipeStationServer(t, pacedStationServer(http.StatusOK, len(payload), 0, gap, byteChunks(payload)))
+			var seen atomic.Pointer[http.Request]
+			pipeStationServer(t, pacedStationServer(http.StatusOK, len(payload), 0, gap, byteChunks(payload), &seen))
 
 			started := time.Now()
 			status, data, err := onPipe.download(wardenBinaryPath)
@@ -1308,6 +1331,7 @@ func TestBuildSelfUpdater(t *testing.T) {
 				t.Fatalf("a download taking %v, never silent for more than %v = (%d, %q, %v), want (200, %q, nil)",
 					elapsed, gap, status, data, err, payload)
 			}
+			wantStationHeaders(t, seen.Load())
 		})
 	})
 
@@ -1315,7 +1339,7 @@ func TestBuildSelfUpdater(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
 			const gap = 10 * time.Second
 			trickle := byteChunks(strings.Repeat("v", int(2*selfUpdateRequestBudget/gap)))
-			serve := pacedStationServer(http.StatusOK, len(trickle)+1, 0, gap, trickle)
+			serve := pacedStationServer(http.StatusOK, len(trickle)+1, 0, gap, trickle, nil)
 			// Hanging up well past the budget turns an unbounded gate into a named
 			// failure instead of a bubble deadlock.
 			pipeStationServer(t, func(conn net.Conn) {

@@ -159,6 +159,12 @@ const (
 	// keep the stall guard quiet. The poll loop runs credential renewal on the same
 	// goroutine, so an unbounded download of that kind would stop this machine
 	// renewing as well as updating.
+	//
+	// ⚠️ It is PER BINARY, and one checkOnce fetches the version gate, then ocagent,
+	// then ocwarden. A cycle can therefore hold the loop for up to
+	// selfUpdateRequestBudget + 2 × selfUpdateDownloadBudget, and a credential
+	// renewal that falls due — or a RenewNow demand raised — during it waits that
+	// long for the next turn.
 	selfUpdateDownloadBudget = 30 * time.Minute
 
 	// selfUpdateProbeBudget bounds the verify-before-swap `--help` exec.
