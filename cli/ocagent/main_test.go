@@ -92,6 +92,51 @@ func TestRealMain(t *testing.T) {
 		}
 	})
 
+	for _, tc := range []struct {
+		name  string
+		wants []string
+	}{
+		{"upload", []string{
+			"usage: ocagent upload <path> [--mime <type>]\n",
+			"line 1  the attachment id (att-…)",
+			"line 2  the server's JSON for it: {\"id\": …, \"mime\": …, \"filename\": …}",
+			"4  the server refused the file (HTTP 400): it is empty, over the size limit,",
+		}},
+		{"download", []string{
+			"usage: ocagent download <attachment-id> [--out <dir>]\n",
+			"tmp/attachments/ under the current directory (your workdir)",
+			"stdout on success: one line, the absolute path of the written file.",
+			"4  no attachment with that id (HTTP 404)",
+		}},
+		{"clean", []string{
+			"usage: ocagent clean <path>...\n",
+			"Nothing is deleted: each path is moved\nunder trash/ in your workdir",
+			"if one is refused, NOTHING is\nmoved.",
+		}},
+		{"suicide", []string{
+			"usage: ocagent suicide\n",
+			"kills the tmux session named by OC_SESSION",
+			"Exit code: always 0.",
+		}},
+		{"diff", []string{
+			"usage: ocagent diff <before> <after> [--label-before <text>] [--label-after <text>] [--external]\n",
+		}},
+	} {
+		t.Run("`"+tc.name+" --help` prints the subcommand's own reference, not the bare flag list", func(t *testing.T) {
+			var out bytes.Buffer
+			realMain([]string{tc.name, "--help"}, testEnv(nil), strings.NewReader(""), &out)
+			got := out.String()
+			if !strings.HasPrefix(got, tc.wants[0]) {
+				t.Errorf("%s --help starts %q, want it to start %q", tc.name, got[:min(len(got), len(tc.wants[0]))], tc.wants[0])
+			}
+			for _, want := range tc.wants[1:] {
+				if !strings.Contains(got, want) {
+					t.Errorf("%s --help is missing %q; printed:\n%s", tc.name, want, got)
+				}
+			}
+		})
+	}
+
 	t.Run("an unparseable flag exits 2 without running the subcommand", func(t *testing.T) {
 		var out bytes.Buffer
 		rc := realMain([]string{"context-report", "--bogus"}, testEnv(nil),

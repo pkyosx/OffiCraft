@@ -52,6 +52,35 @@ const (
 	downloadHeaderTimeout = 30 * time.Second
 )
 
+func downloadUsage(w io.Writer) {
+	fmt.Fprint(w, `usage: ocagent download <attachment-id> [--out <dir>]
+
+Fetches one stored attachment (an att-… id from a chat message, a reply card
+or a task artifact) and writes it to a local file, streamed straight to disk.
+
+--out <dir>  directory to write into, created if missing. Default:
+             tmp/attachments/ under the current directory (your workdir).
+
+The file is named after the attachment's stored filename, reduced to its last
+path component; an image, or an attachment with no usable name, is named after
+its id. A file already at that path is overwritten. The flag may come before
+or after the id.
+
+stdout on success: one line, the absolute path of the written file.
+Diagnostics, including a one-line summary of what was written, go to stderr.
+
+Exit codes:
+  0  written
+  1  the request never got an answer (network), or the directory or file could
+     not be created or written (a partial file is removed)
+  2  usage: missing <attachment-id>, more than one argument, or an unknown flag
+  3  no OC_TOKEN or no OC_BASE in the environment, or the server answered
+     401/403
+  4  no attachment with that id (HTTP 404)
+  5  any other HTTP status
+`)
+}
+
 // newStreamingClient builds the HTTP client both blob directions share
 // (download's fetch, upload's send). Total Timeout is deliberately 0 — a
 // multi-megabyte body on a slow link must not be cut mid-stream by a
