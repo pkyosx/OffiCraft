@@ -921,7 +921,8 @@ func (d *DAL) TouchTaskUpdatedTS(id string, ts float64) error {
 // ALREADY EXISTS, the column is written by exactly one statement —
 // SetTaskStepNote, a single-column UPDATE. Single-writer columns cannot be
 // clobbered by a stale whole-row copy, because no stale whole-row copy of them
-// exists. Guarded by TestTaskStepNoteRaceGuardHasTeeth.
+// exists. Guarded by TestPutTaskStep ("an upsert carries every column onto an
+// existing row EXCEPT the note").
 //
 // ⚠️ Do not read the surviving INSERT half as a second writer. NO production
 // caller reaches it deliberately: all four load an existing row first

@@ -397,13 +397,41 @@ func TestHandlePatchTaskStepNoteApiTasksTaskIdStepsStepIdNotePatchPost(t *testin
 			t.Fatalf("want 409, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "conflict",
-			"step note kept changing under this patch (8 attempts) — re-read (get_task_step) and retry; nothing was written")
+			"step note kept changing under this patch (64 attempts) — re-read (get_task_step) and retry; nothing was written")
 		if competing != stepNotePatchRetryLimit {
 			t.Fatalf("competing writes: want %d, got %d", stepNotePatchRetryLimit, competing)
 		}
 
 		_, step := apiJSON(t, h, "GET", "/api/tasks/T-1/steps/"+stepID, owner, "")
-		apiWantValue(t, "step.note", step["note"], "halfway, revision 8")
+		apiWantValue(t, "step.note", step["note"], "halfway, revision 64")
+	})
+
+	t.Run("a task closed alongside a competing note write answers 409 on the retry and the note stands", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/plan", agent,
+			`{"steps":[{"name":"Draft","dod":"a draft exists"}]}`)
+		stepID := apiTestOnlyStepID(t, h, owner, "T-1")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/note", agent, `{"note":"draft: halfway"}`)
+		api.stepNotePatchBeforeWrite = func() {
+			api.stepNotePatchBeforeWrite = nil
+			apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/note", agent,
+				`{"note":"draft: halfway, handed over"}`)
+			if status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/mark-terminated", owner, ""); status != 200 {
+				t.Fatalf("mark-terminated: want 200, got %d (%v)", status, data)
+			}
+		}
+
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/note/patch", agent,
+			`{"edits":[{"old":"halfway","new":"done"}]}`)
+		if status != 409 {
+			t.Fatalf("want 409, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "conflict", "task 'T-1' is already closed (terminated)")
+
+		_, step := apiJSON(t, h, "GET", "/api/tasks/T-1/steps/"+stepID, owner, "")
+		apiWantValue(t, "step.note", step["note"], "draft: halfway, handed over")
 	})
 
 	t.Run("an anchor a competing write duplicated answers 400 on the re-read and writes nothing", func(t *testing.T) {

@@ -497,8 +497,10 @@ func (s *apiServer) HandleDeleteTaskManualApiTaskManualsTypeKeyDelete(w http.Res
 // separately.
 //
 // 🔴 AND THAT WINDOW IS WIDER HERE THAN IT EVER WAS ON THE patch_step_note
-// TWIN, which since T-223 has no window at all — its write is a compare-and-set
-// on the note it spliced onto, so this caveat is no longer shared by that face.
+// TWIN, which since T-223 no longer loses a concurrent NOTE edit — its write is
+// a compare-and-set on the note it spliced onto. (Its guard-to-write window, a
+// task closed or reassigned without the note changing, is still open; see that
+// face's comment.)
 // putTaskManualOn is a WHOLE-ROW
 // upsert: it writes back purpose, fields, display_name and assignee from the
 // copy resolveTaskManual read at the top of this request, not just sop_md. So

@@ -61,7 +61,10 @@ func (s *apiServer) HandleUpdateTaskStepNoteApiTasksTaskIdStepsStepIdNotePost(w 
 
 // stepNotePatchRetryLimit bounds patch_step_note's compare-and-set loop, so a
 // note that never stops moving fails the request loudly instead of pinning it.
-const stepNotePatchRetryLimit = 8
+// Same value as mintRetryLimit and loreMintRetryLimit: the write pool is one
+// connection, so exhausting it takes 64 other note writes landing inside this
+// one request and is not expected in practice.
+const stepNotePatchRetryLimit = 64
 
 // POST /api/tasks/{task_id}/steps/{step_id}/note/patch — anchor-addressed patch
 // of one step's working note (T-1667; MCP patch_step_note). ApplyDocEdits is
@@ -90,9 +93,17 @@ const stepNotePatchRetryLimit = 8
 // step is gone), and the request re-runs the guard chain and re-applies its
 // edits to what is there now — so edits to different anchors both survive, and
 // an anchor the competing write removed or duplicated is the ordinary 400 with
-// nothing written. stepNotePatchRetryLimit bounds the loop; a note that keeps
-// moving past it answers 409 with nothing written. No transaction and no lock:
-// the task delta is published after the write, never inside a critical section.
+// nothing written. An append (empty old) is re-applied too, so a competing
+// write that appended the same text leaves it twice. stepNotePatchRetryLimit
+// bounds the loop; a note that keeps moving past it answers 409 with nothing
+// written. No transaction and no lock: the task delta is published after the
+// write, never inside a critical section.
+//
+// ⚠️ What this closes is the NOTE's lost update, nothing wider. The guards are
+// re-checked only when the note moved. A task closed or reassigned between the
+// guard chain and the write, with the note itself untouched, still lets the
+// write land and answer 200 — that guard-to-write window predates T-223 and is
+// not closed here.
 // The patch_task_sop twin still has this gap AND a wider one — its write is a
 // whole-row upsert, so read that face's own caveat rather than assuming the two
 // are equivalent.
@@ -187,9 +198,9 @@ func (s *apiServer) HandlePatchTaskStepNoteApiTasksTaskIdStepsStepIdNotePatchPos
 					strconv.Itoa(stepNotePatchRetryLimit)+" attempts) — re-read (get_task_step) and retry; nothing was written")
 				return
 			}
-			// Re-run the whole guard chain, not just the step read: the note moved
-			// or the step is gone, and the task may have closed or changed hands
-			// in the same window. It writes the 404/403/409 itself.
+			// The whole guard chain, not just the step read: whatever moved the
+			// note may also have closed the task or changed its executor. It writes
+			// the 404/403/409 itself.
 			if t, step, ok = s.resolveStepForNoteWrite(w, r, taskId, stepId); !ok {
 				return
 			}
