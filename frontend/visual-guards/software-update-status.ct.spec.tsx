@@ -170,6 +170,24 @@ for (const vp of VIEWPORTS) {
 // pill's own backdrop. The CONTROL is asserted alongside: the composited
 // backdrop must equal the pill's own declared background-color. If they ever
 // diverge, the number being reported is a wash artefact, not the pill.
+/** What CONTRAST_PROBE's own `return` statements produce, read off the JS
+ * below field by field: `null` on the early `if (!link) return null`, otherwise
+ * the object literal at the end. `pillBg` keeps the `| null` because it is
+ * `parse(...)`, which returns null on an unparseable colour — the probe then
+ * reads `.a` off it, so a null there is a real (unhandled) runtime failure, not
+ * something the type should hide. `composited` is `over(...)`, which always
+ * fills all four channels. */
+type ProbeRgba = { r: number; g: number; b: number; a: number };
+type ContrastProbeResult = {
+  color: string;
+  decoration: string;
+  composited: ProbeRgba;
+  pillBg: ProbeRgba | null;
+  pillOpaque: boolean;
+  ratioComposited: number;
+  ratioPillOnly: number;
+};
+
 const CONTRAST_PROBE = `(() => {
   const parse = (c) => {
     const m = c.match(/rgba?\\(([^)]+)\\)/);
@@ -236,7 +254,9 @@ for (const theme of ["office", "xian"] as const) {
     await openAndCheck(page);
     await expect(page.getByText("查看 release")).toBeVisible();
 
-    const m = await page.evaluate(CONTRAST_PROBE);
+    const m = await page.evaluate<ContrastProbeResult | null>(
+      CONTRAST_PROBE
+    );
     expect(m, "the link must exist inside the pill").not.toBeNull();
     const r = m as NonNullable<typeof m>;
     // eslint-disable-next-line no-console

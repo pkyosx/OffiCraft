@@ -54,6 +54,18 @@ const TASK = serveArtifacts(
       mime: "text/markdown",
       createdTs: 0,
       createdBy: "mira",
+      // The BLOB's name — same `.md` suffix the `name` above carries, so the
+      // overlay's type detection reaches the same answer from `blobFilename`
+      // as it does from the mime. artifacts-stacking.ct.spec.tsx clicks
+      // `getByRole("button", { name: "Global Context.md" })` and requires
+      // `.md-preview` to become visible; a suffix this overlay cannot render
+      // would leave it on the un-previewable body instead.
+      filename: n === 1 ? "Global Context.md" : `產物-${n}.md`,
+      // Never replaced ⇒ no 「N版」 entry. The stacking probe counts the card's
+      // rows (`rows.length > 40`, `overlapping.length > 30`) and names the
+      // elements it finds, so six extra version buttons would change the very
+      // population it walks.
+      versionCount: 1,
     })),
   })
 );

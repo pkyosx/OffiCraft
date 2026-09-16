@@ -3508,6 +3508,7 @@ export interface paths {
          *     - The payload arrives as ONE chat message to the member and never wakes it.
          *     - Unknown, disabled and missing tokens all answer the SAME silent 200 — you cannot probe for one.
          *     - Verification by platform: `slack` (challenge echo + X-Slack-Signature), `github` (X-Hub-Signature-256); a failure is silently discarded.
+         *     - A body over the 1 MiB cap is REFUSED 413 before the token is looked at — nothing is delivered and nothing is truncated.
          */
         post: operations["handle_receive_webhook_in_post"];
         delete?: never;
@@ -9574,7 +9575,7 @@ export interface components {
         ThemeBundleDTO: {
             /**
              * Avatars
-             * @description Optional per-role avatar images (T-16a1 P5; extended per role in T-ea81). Keys are the closed set `member` (一般正職 member) / `outsource` (外包 outsource worker) / `owner` (the human CEO / owner) / `assistant` (a member whose role is `assistant`, e.g. Mira). Each value is an EMBEDDED image encoded as a base64 `data:` URI so the image travels inside the bundle on export/import. The value is NOT arbitrary: only a `data:image/<mime>;base64,<...>` URI whose mime is a whitelisted RASTER format (`image/png` / `image/jpeg` / `image/webp`) is accepted. SVG (`image/svg+xml`) is REJECTED (it can carry script/onload — XSS). The base64 must decode, the decoded byte size is capped (<=64 KiB) and the string length capped, and the leading magic bytes must match the declared mime (PNG `89 50 4E 47`, JPEG `FF D8 FF`, WEBP `RIFF....WEBP`) — a value that declares one mime but carries another is rejected. Absent = that role falls back to the built-in avatar glyph (office never degrades). The server 422s any avatars that violates the key set, the mime whitelist, the size caps, the base64, or the magic-byte check.
+             * @description Optional per-role avatar images (T-16a1 P5; extended per role in T-ea81). Keys are the closed set `staff` (一般正職 staff; this key was called `member` until T-57 renamed it. The rename is a HARD CUT: a bundle exported before it carries `member` and is REFUSED with a 422 naming the rename, never silently defaulted to the built-in glyph) / `outsource` (外包 outsource worker) / `owner` (the human CEO / owner) / `assistant` (a member whose role is `assistant`, e.g. Mira). Each value is an EMBEDDED image encoded as a base64 `data:` URI so the image travels inside the bundle on export/import. The value is NOT arbitrary: only a `data:image/<mime>;base64,<...>` URI whose mime is a whitelisted RASTER format (`image/png` / `image/jpeg` / `image/webp`) is accepted. SVG (`image/svg+xml`) is REJECTED (it can carry script/onload — XSS). The base64 must decode, the decoded byte size is capped (<=64 KiB) and the string length capped, and the leading magic bytes must match the declared mime (PNG `89 50 4E 47`, JPEG `FF D8 FF`, WEBP `RIFF....WEBP`) — a value that declares one mime but carries another is rejected. Absent = that role falls back to the built-in avatar glyph (office never degrades). The server 422s any avatars that violates the key set, the mime whitelist, the size caps, the base64, or the magic-byte check.
              */
             avatars?: {
                 [key: string]: string;
@@ -9821,7 +9822,7 @@ export interface components {
             has_signing_secret: boolean;
             /**
              * Last Drop Reason
-             * @description Coarse classification of the most recent silent drop: `sig_failed` (Slack/GitHub signature or timestamp verification failed), `disabled` (endpoint was disabled), or `member_gone` (the bound member no longer resolves). Empty string when nothing was ever dropped.
+             * @description Coarse classification of the most recent undelivered call: `sig_failed` (Slack/GitHub signature or timestamp verification failed), `disabled` (endpoint was disabled), `member_gone` (the bound member no longer resolves), or `oversize` (the body exceeded the 1 MiB cap). The first three are silent drops the caller still saw a 200 for; `oversize` is the one the caller was refused to its face with a 413. `oversize` also OUTRANKS the others: an over-cap body is refused before the endpoint's status or signature is consulted, so a disabled endpoint handed an over-cap body records `oversize`, not `disabled`. Empty string when nothing was ever dropped.
              * @default
              */
             last_drop_reason: string;
@@ -9853,7 +9854,7 @@ export interface components {
         };
         /**
          * WebhookRequestLogDTO
-         * @description One row of a webhook endpoint's /in debug ring buffer (GET /api/members/{member_id}/webhooks/{endpoint_id}/requests, newest first, at most 5 rows kept per endpoint). Records EVERY request /in resolved to the endpoint's token, whatever the outcome: `delivered` (verified payload landed as a chat), `dropped:sig_failed` / `dropped:disabled` / `dropped:member_gone` (silent drops with their coarse reason), `challenge` (the Slack url_verification handshake), `ping` (a verified GitHub ping). An unknown token has no endpoint to log against, by construction. `headers` is the JSON-serialised request header map (truncated at 4 KiB); `body` is the raw payload text (truncated at 16 KiB); `truncated` marks that either was cut. Governance-gated debug wire (requires=admin_agent since T-6020) - raw external payloads never ride any public or PLAIN-agent-facing surface, and the public /in response stays byte-identical regardless of logging.
+         * @description One row of a webhook endpoint's /in debug ring buffer (GET /api/members/{member_id}/webhooks/{endpoint_id}/requests, newest first, at most 5 rows kept per endpoint). Records EVERY request /in resolved to the endpoint's token, whatever the outcome: `delivered` (verified payload landed as a chat), `dropped:sig_failed` / `dropped:disabled` / `dropped:member_gone` (silent drops with their coarse reason), `dropped:oversize` (a body over the 1 MiB cap, refused 413 rather than truncated), `challenge` (the Slack url_verification handshake), `ping` (a verified GitHub ping). An unknown token has no endpoint to log against, by construction. `headers` is the JSON-serialised request header map (truncated at 4 KiB); `body` is the raw payload text (truncated at 16 KiB); `truncated` marks that either was cut. Governance-gated debug wire (requires=admin_agent since T-6020) - raw external payloads never ride any public or PLAIN-agent-facing surface, and the public /in response stays byte-identical regardless of logging.
          */
         WebhookRequestLogDTO: {
             /** Body */
@@ -18383,6 +18384,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": Record<string, never>;
+                };
+            };
+            /** @description Payload exceeds the 1 MiB cap. */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
                 };
             };
         };

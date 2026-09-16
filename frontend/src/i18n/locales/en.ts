@@ -387,36 +387,10 @@ export const en: Dict = {
     // admin assistant only — the server's route floor is the real gate; this
     // menu item only stops offering a button that could not work.
     forceDone: "Force close",
-    // 🔴 THE WORKER DISMISSAL IS THE EXPENSIVE HALF AND IT WAS NOT DISCLOSED.
-    // Every close funnels through `closeTask` (server/ocserverd/api_tasks.go),
-    // which calls `dismissOutsourceWorkersForTask` — `ReleaseWorkersForTask`
-    // (the roster row) AND `reclaimWorkerSession` (the live session), together,
-    // with no opt-out for this door. The typical moment to reach for 強制結案
-    // is "this ticket looks stuck", and a worker that is mid-run but has not
-    // reported is indistinguishable from a stuck one ON THIS SCREEN — so the
-    // press that looks like tidying up a dead ticket can cut a working
-    // contractor off mid-sentence. The second consequence is the record: `done`
-    // satisfies `TaskRecordFrozen` (domain.go), so the artifact verbs and the
-    // step-note write all answer 409 from then on.
-    //
-    // 🔴 TWO MORE THE SECOND REVIEW FOUND — `closeTask` does both and the
-    // dialog declared neither:
-    // (3) `expireWaitingCardsForTask` (api_tasks.go:684 → api_replycards.go:931)
-    //     retires EVERY reply card this task still has waiting. Questions this
-    //     task raised vanish from the owner's 等我回覆 pane at that moment and
-    //     can never be answered — and whoever presses this usually does not
-    //     know what the task asked.
-    // (4) `releaseDependentsOnClose` (api_tasks.go:718 →
-    //     api_tasks_handoff.go:363) releases and notifies the tasks this one was
-    //     blocking, and when a dependent is outsource-with-no-assignee it calls
-    //     `tickOutsource` — whose own comment says that tick is "what actually
-    //     turns \"design done\" into \"dev worker spawned\"".
-    //     ⇒ The dialog already declared that this press DISMISSES an outsource
-    //     worker while saying nothing about it MINTING one. Opposite directions,
-    //     and the second one bills. It is the only consequence of this button
-    //     that spends money, so leaving it out is not a rounding error.
-    forceDoneConfirmBody:
-      "Force this task closed, over the precondition its own steps have not met? It moves to Done and cannot be resumed, and who forced it is recorded on the task. Any outsource worker bound to this task is dismissed at that moment — its roster row is released and its session reclaimed, even if it is still working — and the task's deliverables and step notes are frozen from then on. Every reply card this task still has waiting is expired: the questions it raised disappear from the Awaiting my reply pane and can never be answered. The downstream tasks this one was blocking are released and notified, and any of them that is outsourced with no assignee yet spawns a NEW worker at that moment, which costs money.",
+    // The owner's ruling rc-bdfd2fc07305 replaced the long consequence list
+    // (worker dismissal, record freeze, expired reply cards, a downstream that
+    // may mint a new worker) with one sentence: irreversible, then the question.
+    forceDoneConfirmBody: "Force-closing cannot be undone. Close this task anyway?",
     // Optional since the owner's ruling rc-a92a6252c3bd. The label says so, so
     // that leaving it empty is a visible choice rather than a stuck form.
     forceDoneReasonLabel: "Reason (optional)",

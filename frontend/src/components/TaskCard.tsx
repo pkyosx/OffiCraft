@@ -2324,7 +2324,14 @@ export function TaskCard({
           confirmTestId="force-done-confirm-btn"
           body={
             <div className="task-card__force-done-form">
-              <div>{t.tasks.forceDoneConfirmBody}</div>
+              {/* Its own testid so a test can assert the body EXACTLY. The
+                  modal's testid covers the copy, the reason field and the
+                  buttons, so on that node only `toContain` is possible — and a
+                  containment check cannot see the body growing back into the
+                  paragraph the owner cut (ruling rc-bdfd2fc07305). */}
+              <div data-testid="force-done-copy">
+                {t.tasks.forceDoneConfirmBody}
+              </div>
               <label
                 className="task-card__force-done-label"
                 htmlFor={`force-reason-${task.id}`}

@@ -91,7 +91,7 @@ const FONT_SLOTS = [
   { token: "--font-title", labelKey: "themeFontTitle" },
 ] as const;
 
-// The four avatar slots the editor offers (T-16a1 P5; T-ea81): 正職 member /
+// The four avatar slots the editor offers (T-16a1 P5; T-ea81): 正職 staff /
 // 外包 outsource / owner CEO / assistant 助理. Each accepts one uploaded image
 // (validated client-side, embedded as a base64 data URI so it travels inside
 // the bundle).
@@ -101,7 +101,7 @@ type AvatarLabelKey =
   | "themeAvatarOwner"
   | "themeAvatarAssistant";
 const AVATAR_SLOTS: { kind: AvatarKind; labelKey: AvatarLabelKey }[] = [
-  { kind: "member", labelKey: "themeAvatarMember" },
+  { kind: "staff", labelKey: "themeAvatarMember" },
   { kind: "outsource", labelKey: "themeAvatarOutsource" },
   { kind: "owner", labelKey: "themeAvatarOwner" },
   { kind: "assistant", labelKey: "themeAvatarAssistant" },
@@ -175,7 +175,7 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
   // Font choices (T-16a1 P4): token → chosen family stack. An absent/"" entry
   // means "keep the theme default".
   const [editFonts, setEditFonts] = useState<Record<string, string>>({});
-  // Avatar choices (T-16a1 P5): member/outsource → embedded base64 data URI. An
+  // Avatar choices (T-16a1 P5): staff/outsource → embedded base64 data URI. An
   // absent entry means "no avatar for this kind" (falls back to the built-in
   // glyph). Per-kind upload error surfaced inline.
   const [editAvatars, setEditAvatars] = useState<
@@ -183,7 +183,7 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
   >({});
   const [avatarError, setAvatarError] = useState("");
   const avatarInputRefs = {
-    member: useRef<HTMLInputElement>(null),
+    staff: useRef<HTMLInputElement>(null),
     outsource: useRef<HTMLInputElement>(null),
     owner: useRef<HTMLInputElement>(null),
     assistant: useRef<HTMLInputElement>(null),

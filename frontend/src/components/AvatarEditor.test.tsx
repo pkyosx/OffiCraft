@@ -12,7 +12,7 @@ function renderEditor(
     ...render(
       <I18nProvider>
         <AvatarEditor
-          kind="member"
+          kind="staff"
           src={src}
           onUpload={onUpload}
           onRemove={onRemove}
