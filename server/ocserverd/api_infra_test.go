@@ -2239,7 +2239,7 @@ func TestHandleMcpApiMcpPost(t *testing.T) {
 		})
 	})
 
-	t.Run("each principal class is served the tools its own class can call, and no others", func(t *testing.T) {
+	t.Run("every non-owner principal class is served the tools its own class can call, and no others", func(t *testing.T) {
 		api, h, d, _ := newAPITestServer(t)
 		api.loopback = h
 
@@ -2285,7 +2285,6 @@ func TestHandleMcpApiMcpPost(t *testing.T) {
 				}
 			})
 		}
-
 	})
 
 	t.Run("a hidden tool is still refused on call rather than reported unknown", func(t *testing.T) {
