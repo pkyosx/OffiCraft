@@ -136,13 +136,12 @@ beforeEach(() => {
   localStorage.clear();
 });
 
-// ── polarity helpers (see ①b / ③c) ──────────────────────────────────────────
+// ── polarity helpers (see ①b) ───────────────────────────────────────────────
 // 🔴 WHY A CLAUSE, NOT THE WHOLE STRING. Every literal assertion in this file
-// before ①b/③c was of the form `toContain("按鈕")` / `toContain("費用")` — the
-// WORD is present. A word-presence assertion cannot tell 「沒有那顆按鈕」 from
-// 「就有那顆按鈕」, nor 「會產生費用」 from 「不會產生費用」: both sides of the
-// flip contain the word. Two independently-run mutants exploited exactly that
-// and the whole suite stayed green.
+// before ①b was of the form `toContain("按鈕")` — the WORD is present. A
+// word-presence assertion cannot tell 「沒有那顆按鈕」 from 「就有那顆按鈕」:
+// both sides of the flip contain the word. An independently-run mutant
+// exploited exactly that and the whole suite stayed green.
 //
 // So these cut the sentence into clauses, pick the ONE clause that talks about
 // the thing, and assert its POLARITY. A flip moves the negation into (or out
@@ -373,85 +372,53 @@ describe("③ the reason is asked for, not demanded (owner ruling rc-a92a6252c3b
   });
 });
 
-describe("③b the confirm discloses what the press actually destroys", () => {
-  it("names the outsource dismissal AND the record freeze, not just 'cannot be resumed'", async () => {
-    // 🔴 WHY THIS IS ASSERTED IN LITERALS. Both facts are verified server-side
-    // and neither was on the dialog before:
-    //   * closeTask() -> dismissOutsourceWorkersForTask() fires
-    //     ReleaseWorkersForTask (the roster row) AND reclaimWorkerSession (the
-    //     live session), on this door with no opt-out;
-    //   * `done` satisfies TaskRecordFrozen(), so the artifact verbs and the
-    //     step-note write answer 409 from then on.
-    // The moment a person reaches for 強制結案 is "this ticket looks stuck",
-    // and a worker that is mid-run but has not reported looks IDENTICAL to a
-    // stuck one on this screen — so the cost has to be on the dialog, not in
-    // the route description nobody opens.
-    //
-    // Literals rather than `toContain(zh.tasks.forceDoneConfirmBody)`: that
-    // form reads the same constant the component reads and would survive the
-    // whole sentence being deleted from the locale.
-    __injectMockTask(mkTask({ title: "要講清楚後果", status: "in_progress" }));
-    const { findByTestId } = renderPage();
-
+describe("③b the confirm body is the owner's short sentence — in BOTH locales", () => {
+  // The dialog used to enumerate what the press destroys: the outsource
+  // dismissal, the record freeze, the expired reply cards, and the downstream
+  // dependent that can mint a billed worker. The owner's ruling
+  // rc-bdfd2fc07305 cut all of it — the body now says only that the close
+  // cannot be undone, and asks. The assertions that read those clauses were
+  // REMOVED rather than reworded: there is no clause left for them to be about,
+  // and a check aimed at a clause that no longer exists is vacuous.
+  /** The copy element itself, not the dialog. The dialog's testid covers the
+   * body, the reason field and the buttons, so only containment is possible on
+   * it — and containment cannot see the sentence growing. This ticket is about
+   * the body being SHORT, so the measurement has to be an equality. */
+  async function openConfirmCopy(locale: "zh" | "en"): Promise<HTMLElement> {
+    const { findByTestId } = renderPageIn(locale);
     fireEvent.click(await findByTestId("task-status"));
     fireEvent.click(await findByTestId("task-force-done"));
-    const body = (await findByTestId("force-done-confirm")).textContent ?? "";
+    return await findByTestId("force-done-copy");
+  }
 
-    expect(body).toContain("外包");
-    expect(body).toContain("遣散");
-    expect(body).toContain("工作階段");
-    expect(body).toContain("凍結");
-    // The consequence that WAS already disclosed stays disclosed.
-    expect(body).toContain("無法恢復");
+  it("zh: the dialog opens carrying exactly the ruled sentence, and nothing after it", async () => {
+    __injectMockTask(mkTask({ title: "短文案", status: "in_progress" }));
+    const copy = await openConfirmCopy("zh");
+
+    // 🔴 THE LITERAL IS THE ANCHOR, AND `toBe` IS WHAT MAKES IT A CEILING.
+    // `toContain(zh.tasks.forceDoneConfirmBody)` reads the SAME constant the
+    // component reads, so on its own it survives any rewrite of the locale;
+    // and a containment check of the literal still passes on a body that has
+    // the ruled sentence with the old paragraph appended after it, which is
+    // the direction this ticket was opened to close. The constant assertion is
+    // kept beside it because it is what pins the component to the dictionary
+    // rather than to a hardcoded string.
+    expect(copy.textContent).toBe("強制結案無法復原，確定要結案嗎？");
+    expect(copy.textContent).toBe(zh.tasks.forceDoneConfirmBody);
+    // …and it is really the zh arm: a locale mix-up fails here rather than
+    // passing vacuously against the wrong dictionary.
+    expect(copy.textContent).not.toContain(en.tasks.forceDoneConfirmBody);
   });
 
-  it("names the reply cards this close retires — the owner's own questions die here", async () => {
-    // 🔴 VERIFIED SERVER-SIDE, AND IT WAS NOT DECLARED. closeTask ->
-    // expireWaitingCardsForTask (api_tasks.go:684 -> api_replycards.go:931)
-    // retires EVERY card this task still has waiting. Those cards are the
-    // owner's OWN 等我回覆 pane: a question this ticket asked disappears from
-    // it at that moment and can never be answered again. The person pressing
-    // 強制結案 is very often not the person who knows what the ticket asked,
-    // which is exactly why the dialog has to say it rather than the route doc.
-    __injectMockTask(mkTask({ title: "請示卡會過期", status: "in_progress" }));
-    const { findByTestId } = renderPage();
+  it("en: the same claim and no more — irreversibility, then the question", async () => {
+    __injectMockTask(mkTask({ title: "en short body", status: "in_progress" }));
+    const copy = await openConfirmCopy("en");
 
-    fireEvent.click(await findByTestId("task-status"));
-    fireEvent.click(await findByTestId("task-force-done"));
-    const body = (await findByTestId("force-done-confirm")).textContent ?? "";
-
-    expect(body).toContain("請示卡");
-    expect(body).toContain("過期");
-    // The pane it names is the one the owner actually looks at — the same
-    // literal the status dictionary uses for waiting_owner.
-    expect(body).toContain(zh.tasks.status.waiting_owner);
-  });
-
-  it("🔴 names the worker this close can MINT — the one consequence that bills", async () => {
-    // The dialog already declared that the press DISMISSES an outsource worker.
-    // closeTask -> releaseDependentsOnClose (api_tasks.go:718 ->
-    // api_tasks_handoff.go:363) releases the tasks this one was blocking and,
-    // when a dependent is outsource-with-no-executor, calls tickOutsource —
-    // whose own comment says that tick is "what actually turns \"design done\"
-    // into \"dev worker spawned\"".
-    //
-    // ⇒ Same button, opposite direction, and THIS half spends money. A dialog
-    // that discloses the free consequence and hides the billed one is worse
-    // than one that discloses neither: it reads as complete.
-    __injectMockTask(mkTask({ title: "可能會再生一個", status: "in_progress" }));
-    const { findByTestId } = renderPage();
-
-    fireEvent.click(await findByTestId("task-status"));
-    fireEvent.click(await findByTestId("task-force-done"));
-    const body = (await findByTestId("force-done-confirm")).textContent ?? "";
-
-    expect(body).toContain("下游");
-    expect(body).toContain("解除阻擋");
-    // The spawn and its price, both stated. "會產生費用" is the half a reader
-    // cannot infer from "起一位新的 worker" if they do not know how billing
-    // works here.
-    expect(body).toContain("新的 worker");
-    expect(body).toContain("費用");
+    expect(copy.textContent).toBe(
+      "Force-closing cannot be undone. Close this task anyway?"
+    );
+    expect(copy.textContent).toBe(en.tasks.forceDoneConfirmBody);
+    expect(copy.textContent).not.toContain(zh.tasks.forceDoneConfirmBody);
   });
 });
 
@@ -801,7 +768,7 @@ describe("⑥ no generic set-status entry (ticket DoD)", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-// The four cells below were each opened by an independently-run mutation round
+// The three cells below were each opened by an independently-run mutation round
 // that killed nothing. Every one of them is the same shape of hole: the file
 // asserted that a WORD was present, or that a DOM node was absent, and neither
 // of those can see a sentence that has been turned around, or a value that was
@@ -1008,69 +975,3 @@ describe("②b canForceDone DEFAULTS to the safe shape — a caller that says no
   });
 });
 
-describe("③c the dialog's consequences are AFFIRMATIVE — polarity, in BOTH locales", () => {
-  // 🔴 THE SURVIVING MUTANT M3. `forceDoneConfirmBody` was flipped from
-  // 「…會在這一刻起一位新的 worker,那會產生費用」 to 「…不會…所以不會產生
-  // 費用」 and the suite stayed green: ③b asserts that the WORDS 下游 /
-  // 解除阻擋 / 新的 worker / 費用 are present, and every one of them is still
-  // present after the flip. A guard built out of word-presence can stop the
-  // disclosure being DELETED; it cannot stop it being REVERSED — and a dialog
-  // that actively promises there is no charge is worse than one that says
-  // nothing, because it answers the reader's question with the wrong answer.
-  async function openConfirmBody(locale: "zh" | "en"): Promise<string> {
-    const { findByTestId } = renderPageIn(locale);
-    fireEvent.click(await findByTestId("task-status"));
-    fireEvent.click(await findByTestId("task-force-done"));
-    return (await findByTestId("force-done-confirm")).textContent ?? "";
-  }
-
-  it("zh: the spawn and its price are both stated as things that WILL happen", async () => {
-    __injectMockTask(mkTask({ title: "費用要講成會發生", status: "in_progress" }));
-    const body = await openConfirmBody("zh");
-    expect(body).toContain(zh.tasks.forceDoneConfirmBody);
-
-    // The clause that mints the worker: affirmative.
-    const spawnClause = theClauseAbout(body, ZH_BREAK, /新的 worker/);
-    // 「不會在…起」 still contains 「會在」 as a substring, so the positive
-    // form needs the lookbehind too. (「還沒有負責人」 legitimately carries a
-    // 沒有 in this clause — it is about the DEPENDENT having no assignee, not
-    // about the spawn — so 沒有 is not in the negative set here.)
-    expect(spawnClause).toMatch(/(?<![不未])會(在|起)/);
-    expect(spawnClause).not.toMatch(/不會|不再|未必/);
-
-    // The clause that bills: affirmative. `toContain("會產生費用")` would NOT
-    // do — 「不會產生費用」 contains it as a substring, which is precisely how
-    // the flip could have survived a naive tightening of ③b.
-    const costClause = theClauseAbout(body, ZH_BREAK, /費用/);
-    expect(costClause).toMatch(/會產生費用/);
-    expect(costClause).not.toMatch(/不會|免費|不收/);
-    expect(body).not.toContain("不會產生費用");
-  });
-
-  it("en: same two clauses, same polarity — the en dialog had no test anchor at all", async () => {
-    __injectMockTask(mkTask({ title: "en dialog polarity", status: "in_progress" }));
-    const body = await openConfirmBody("en");
-    expect(body).toContain(en.tasks.forceDoneConfirmBody);
-    expect(body).not.toContain(zh.tasks.forceDoneConfirmBody);
-
-    // The spawn-and-bill clause, affirmative in both halves.
-    const costClause = theClauseAbout(body, EN_BREAK, /costs?\b/i);
-    expect(costClause).toMatch(/spawns a new worker/i);
-    expect(costClause).toMatch(/costs money/i);
-    expect(costClause).not.toMatch(
-      /\bdoes not\b|\bwill not\b|\bno new worker\b|\bnever\b|\bfree\b|\bcosts nothing\b|\bno cost\b/i
-    );
-
-    // …and the consequences ③b pins in zh are disclosed in en too. These were
-    // never asserted on the en string before, so it could have been missing any
-    // of them.
-    expect(body).toMatch(/outsource worker/i);
-    expect(body).toMatch(/dismissed/i);
-    expect(body).toMatch(/frozen/i);
-    expect(body).toMatch(/reply card/i);
-    expect(body).toMatch(/expired/i);
-    expect(body).toMatch(/cannot be resumed/i);
-    expect(body).toMatch(/downstream/i);
-    expect(body).toMatch(/released/i);
-  });
-});
