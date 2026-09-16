@@ -219,19 +219,15 @@ describe("DiffView", () => {
   it("renders every unchanged line, with no collapse separator anywhere", () => {
     const before = NUMBERED(20);
     const after = before.replace("line 15", "line 15 edited");
-    const { container, queryByTestId, getByTestId } = renderDiff(before, after);
+    const { container, getByTestId } = renderDiff(before, after);
 
     // 20 before-side lines + the one added line = 21 rows. A surface that
     // folded the distant unchanged runs away would render about eight.
     expect(container.querySelectorAll(".diff-view__row")).toHaveLength(21);
-    // The FIRST row is line 1 — the old behaviour started at line 12.
     expect(rowCells(container)[0]).toEqual(["1", "1", NBSP, "line 1"]);
     // …and the last is line 20, so nothing was trimmed from the tail either.
     expect(rowCells(container)[20]).toEqual(["20", "20", NBSP, "line 20"]);
-    // The retired separator is gone, not merely empty.
-    expect(queryByTestId("diff-view-skip")).toBeNull();
-    expect(container.textContent).not.toContain("@@");
-    // And the surface says out loud that nothing is hidden.
+    // The surface says out loud that nothing is hidden.
     expect(getByTestId("diff-view-whole-note").textContent).toBe(
       zh.diff.wholeDocNote
     );

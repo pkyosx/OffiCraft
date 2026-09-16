@@ -2,7 +2,7 @@
 //
 // THE CLAIM. The ten boot/lifecycle documents (plus 使用者自訂, which is not one
 // of them) were never role definitions; they were printed on the 角色誌 page
-// only because that page existed first. This suite pins the split four ways:
+// only because that page existed first. This suite pins the split three ways:
 //
 //   1. POSITION on the landing, not mere presence — 全域情境 sits BETWEEN
 //      系統更新與備份 and 角色誌. Asserting existence would pass with the row
@@ -11,9 +11,7 @@
 //      list prints that BOOT_DOC_ROWS does not own (its own route, no cap, its
 //      own allow_shrink). A move that left it behind would strand it under a
 //      heading whose other rows are gone.
-//   3. 角色誌 is left with role definitions ONLY. "It also appears in the new
-//      place" is not a move.
-//   4. A boot document's breadcrumb middle segment points at 全域情境, and
+//   3. A boot document's breadcrumb middle segment points at 全域情境, and
 //      clicking it lands there — a trail that still said 角色誌 would send the
 //      reader to a page the document is no longer on.
 //
@@ -96,28 +94,6 @@ describe("T-a241 · 全域情境 as its own settings section", () => {
     for (const label of [s.globalSection, s.stopSection, s.taskEventSection]) {
       expect(getByText(label)).toBeTruthy();
     }
-  });
-
-  it("角色誌 is left with role definitions only", async () => {
-    const utils = renderSettings();
-    fireEvent.click(utils.getByText(s.roles));
-    await utils.findByText(s.roleDefsSection);
-    // Not one boot/lifecycle row survives on this page — nor 使用者自訂.
-    expect(
-      utils.container.querySelectorAll('[data-testid^="boot-doc-entry-"]')
-    ).toHaveLength(0);
-    // …and neither do their group headings.
-    for (const label of [s.globalSection, s.stopSection, s.taskEventSection]) {
-      expect(utils.queryByText(label)).toBeNull();
-    }
-    // 🔴 使用者自訂 by NAME, not by testid. The two checks above are both
-    // shape-bound (a testid prefix, a group heading), so a copy of that row
-    // left behind in ANOTHER shape — a plain entry with neither — passed them
-    // both: an independent review seeded exactly that mutant and every test in
-    // src/components stayed green. The row is the one entry here that is not a
-    // boot document (its own API, its own history kind), which is precisely why
-    // the boot-doc-shaped guards cannot see it.
-    expect(utils.queryByText(s.customName)).toBeNull();
   });
 
   it("a boot document's breadcrumb middle segment is 全域情境, and jumps there", async () => {

@@ -185,6 +185,18 @@ export const MIRA = { id: "mira", name: "Mira", kind: "agent" } as unknown as Me
 export const NOOP = async () => {};
 export const WORKERS: OutsourceWorkerView[] = [];
 
+// T-57 — every artifact row below carries the two fields TaskArtifactView
+// requires, filled from what each guard actually asserts rather than from what
+// the compiler was missing:
+//   · `filename` is the BLOB's own name (adapter.ts: read for its EXTENSION and
+//     nothing else, "" for a link). Every file row here already declares a mime
+//     the preview can answer from, so the suffix kept here agrees with it
+//     instead of quietly contradicting it.
+//   · `versionCount: 1` on ALL of them = never replaced, which is what makes
+//     `VersionsButton` return null (TaskArtifactsPopover: `<= 1` ⇒ no entry).
+//     Load-bearing, not a default: artifacts-badge.ct.spec.tsx compares the two
+//     FILE rows' `.task-artifacts__actions` LEFT edges, so one row growing a
+//     「N版」 entry its neighbour lacks would redden that guard.
 // T-3dc5 artifact-set fixtures. WITH_ARTIFACTS carries all three kinds so each
 // of the popover's 檔案/圖片/連結 GROUPS has a row (T-49fb folded the three tabs
 // into one grouped list); NO_ARTIFACTS asserts the
@@ -206,6 +218,8 @@ export const WITH_ARTIFACTS: MockTaskRow = serveArtifacts(mkTask({
       mime: "text/markdown",
       createdTs: 0,
       createdBy: "mira",
+      filename: "design.md",
+      versionCount: 1,
     },
     {
       id: "ta-img",
@@ -216,6 +230,8 @@ export const WITH_ARTIFACTS: MockTaskRow = serveArtifacts(mkTask({
       mime: "image/png",
       createdTs: 0,
       createdBy: "mira",
+      filename: "shot.png",
+      versionCount: 1,
     },
     {
       id: "ta-link",
@@ -228,6 +244,8 @@ export const WITH_ARTIFACTS: MockTaskRow = serveArtifacts(mkTask({
       mime: "text/uri-list",
       createdTs: 0,
       createdBy: "mira",
+      filename: "",
+      versionCount: 1,
     },
   ],
 }));
@@ -265,6 +283,8 @@ export const RAGGED_ARTIFACTS: MockTaskRow = serveArtifacts(mkTask({
       mime: "text/markdown",
       createdTs: 0,
       createdBy: "mira",
+      filename: "a.md",
+      versionCount: 1,
     },
     {
       id: "ta-long",
@@ -276,6 +296,8 @@ export const RAGGED_ARTIFACTS: MockTaskRow = serveArtifacts(mkTask({
       mime: "text/markdown",
       createdTs: 0,
       createdBy: "mira",
+      filename: "really-long-artifact-filename.md",
+      versionCount: 1,
     },
     {
       id: "ta-img-long",
@@ -288,6 +310,8 @@ export const RAGGED_ARTIFACTS: MockTaskRow = serveArtifacts(mkTask({
       mime: "image/png",
       createdTs: 0,
       createdBy: "mira",
+      filename: "artifacts-popover-alignment-before.png",
+      versionCount: 1,
     },
     {
       id: "ta-link-long",
@@ -298,6 +322,8 @@ export const RAGGED_ARTIFACTS: MockTaskRow = serveArtifacts(mkTask({
       mime: "text/uri-list",
       createdTs: 0,
       createdBy: "mira",
+      filename: "",
+      versionCount: 1,
     },
   ],
 }));
@@ -327,6 +353,8 @@ export const SAME_NAME_ARTIFACTS: MockTaskRow = serveArtifacts(mkTask({
       mime: "video/mp4",
       createdTs: 1784550000,
       createdBy: "mira",
+      filename: "DEMO-CUST_demo.mp4",
+      versionCount: 1,
     },
     {
       id: "ta-demo4d5e6f",
@@ -337,6 +365,8 @@ export const SAME_NAME_ARTIFACTS: MockTaskRow = serveArtifacts(mkTask({
       mime: "video/mp4",
       createdTs: 1784550000,
       createdBy: "mira",
+      filename: "DEMO-CUST_demo.mp4",
+      versionCount: 1,
     },
   ],
 }));

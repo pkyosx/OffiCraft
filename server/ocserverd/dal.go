@@ -2856,12 +2856,15 @@ const (
 )
 
 // WebhookDropReason closed set — the coarse classification stamped on
-// last_drop_reason by the /in inlet's silent-drop paths (migrations/00014).
+// last_drop_reason by the /in inlet's non-delivering paths (migrations/00014).
+// All but one are SILENT drops (the caller still sees the 200 ack); `oversize`
+// is the exception — that call is refused to its face with a 413 (T-222).
 // An unknown token has no endpoint row to record against, by construction.
 const (
 	WebhookDropReasonSigFailed  = "sig_failed"
 	WebhookDropReasonDisabled   = "disabled"
 	WebhookDropReasonMemberGone = "member_gone"
+	WebhookDropReasonOversize   = "oversize"
 )
 
 // WebhookEndpoint mirrors the webhook_endpoint table: one external trigger

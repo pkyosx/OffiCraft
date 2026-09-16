@@ -57,6 +57,41 @@ import (
 //   4 rejected (400 — over the size cap, empty file)
 //   5 any other unexpected HTTP status
 
+func uploadUsage(w io.Writer) {
+	fmt.Fprint(w, `usage: ocagent upload <path> [--mime <type>]
+
+Streams one local file into the station's attachment store and prints the id
+it was stored under. Put that id in the `+"`attachments`"+` of post_chat (or a reply
+card, or a task artifact) instead of pasting the file's contents.
+
+--mime <type>  declare the media type. Without it the server decides: PNG,
+               JPEG, GIF and WebP are recognised by their bytes, a name
+               ending in .json is application/json, and everything else is
+               application/octet-stream.
+
+The stored filename is the path's basename. The flag may come before or after
+<path>.
+
+stdout on success, two lines:
+  line 1  the attachment id (att-…)
+  line 2  the server's JSON for it: {"id": …, "mime": …, "filename": …}
+Diagnostics, including a one-line summary of what was stored, go to stderr.
+
+Exit codes:
+  0  stored
+  1  the file could not be opened or is a directory, or the request never got
+     an answer (network)
+  2  usage: --help itself, an unknown flag, a flag missing its value, missing
+     <path>, or more than one path
+  3  no OC_TOKEN or no OC_BASE in the environment, or the server answered
+     401/403
+  4  the server refused the file (HTTP 400): it is empty, over the size limit,
+     or its filename is too long. The limits are the server's; its message
+     says which one was hit.
+  5  any other HTTP status, or a 200 whose body is not an attachment ref
+`)
+}
+
 // uploadedRef is the light ref the attachments route mints for a stored blob.
 type uploadedRef struct {
 	ID       string `json:"id"`

@@ -1967,7 +1967,7 @@ function SessionRow({
         <div className="mon-member">
           <Avatar
             size={34}
-            kind={roster ? avatarKindForMember(roster) : "member"}
+            kind={roster ? avatarKindForMember(roster) : "staff"}
             src={roster?.avatarUrl}
           />
           <div className="mon-member__body">

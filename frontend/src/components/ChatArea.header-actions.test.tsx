@@ -1,14 +1,9 @@
 // T-dfae 聊天 header 的兩顆跳轉圖示 — 任務 / 角色設定 (owner 2026-07-17, 紅框
-// 指在 header 最右角). This is the POSITIVE home of the role-settings jump:
-// MemberCard.click.test.tsx §4 and OutsourcePanel.test.tsx both assert it is
-// NOT on their surface and name THIS file as where it does live. Those two
-// negatives are only meaningful while the label they key off is really rendered
-// by a real control somewhere — that "somewhere" is here. If this file's
-// positives ever go, those negatives quietly become unfalsifiable.
+// 指在 header 最右角). This is the home of the role-settings jump.
 //
 // Locked here:
-//   1. Both buttons render for a roster member, each carrying the live label
-//      the negatives key off, and each fires its own callback.
+//   1. Both buttons render for a roster member, each carrying its label, and
+//      each fires its own callback.
 //   2. Neither click bubbles into the clickable header (open-detail) — the
 //      gallery toggle's stopPropagation pattern, which is load-bearing because
 //      the whole header is a click target.

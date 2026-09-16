@@ -1607,9 +1607,13 @@ export function TaskCard({
 
             WHAT THE LINE STILL HAS TO DO is say who is being waited for — the
             AC asks for「看得出來它在等誰做什麼」— and `readyForDoneHint` is
-            where that sentence lives. See the locale files for why it names the
-            EXECUTOR and then names 強制結案 as the way out: the executor being
-            gone is the main case this ticket exists for. ── */}
+            where that sentence lives. It names the ASSIGNEE and stops there:
+            the owner ruled on 2026-09-14 that the clauses spelling out who may
+            call the ordinary close, and that no button for it is here, were
+            explaining the permission split to a developer rather than telling a
+            user what is going on. The line is now state only; the absence of
+            the button is held by TaskCard.force-done.test.tsx, not by prose.
+            ── */}
         {view.status === "ready_for_done" && (
           <div className="task-card__ready-done" data-testid="task-ready-done">
             <span className="task-card__ready-done-text">
@@ -2320,7 +2324,14 @@ export function TaskCard({
           confirmTestId="force-done-confirm-btn"
           body={
             <div className="task-card__force-done-form">
-              <div>{t.tasks.forceDoneConfirmBody}</div>
+              {/* Its own testid so a test can assert the body EXACTLY. The
+                  modal's testid covers the copy, the reason field and the
+                  buttons, so on that node only `toContain` is possible — and a
+                  containment check cannot see the body growing back into the
+                  paragraph the owner cut (ruling rc-bdfd2fc07305). */}
+              <div data-testid="force-done-copy">
+                {t.tasks.forceDoneConfirmBody}
+              </div>
               <label
                 className="task-card__force-done-label"
                 htmlFor={`force-reason-${task.id}`}

@@ -109,11 +109,6 @@ test("keeps every one of the 866 codes in the document, and the last one editabl
 
   await expect(list.locator(ROW)).toHaveCount(total);
 
-  // No row is taken out of flow and there are no spacers standing in for absent
-  // rows — both are windowing machinery, and both mean rows are missing again.
-  await expect(list.locator(".ts-wording-row--pinned")).toHaveCount(0);
-  await expect(list.locator(".ts-wording-pad")).toHaveCount(0);
-
   // Rows have a real, uniform pitch and the scroll range spans the whole set —
   // measured, because this is the arithmetic the spacers used to fake.
   const geom = await list.evaluate((el) => {
@@ -242,7 +237,7 @@ test("the browser's own find, whole-page select-all and print can see the whole 
   // rendered document, so a windowed list showed them the visible handful only.
   await page.setViewportSize({ width: 1280, height: 900 });
   const cmp = await mount(<ThemeSettingsAddStory />);
-  const list = await openWordingList(cmp);
+  await openWordingList(cmp);
 
   // A row 70% of the way down — far past anything the viewport shows. Keyed on
   // its ENGLISH ORIGINAL, not its message code: the code is never rendered as

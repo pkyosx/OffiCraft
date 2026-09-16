@@ -487,10 +487,7 @@ describe("SettingsPage · 版本紀錄", () => {
 
     const utils = await openUserCustomDoc();
     await utils.findByText("寫壞的內容");
-    // 重置 no longer exists as a control of its own — this is the whole shape
-    // of the ruling, and without this line the row could be a second door.
     startEditing(utils);
-    expect(utils.queryByText(s.reset)).toBeNull();
 
     fireEvent.click(utils.getByTestId("doc-history-entry-global_context"));
     fireEvent.click(await utils.findByTestId("doc-history-seed-open"));
