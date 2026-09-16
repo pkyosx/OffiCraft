@@ -59,6 +59,43 @@ import (
 	"strings"
 )
 
+func cleanUsage(w io.Writer) {
+	fmt.Fprint(w, `usage: ocagent clean <path>...
+
+Gets rid of files or folders you made. Nothing is deleted: each path is moved
+under trash/ in your workdir, keeping its path relative to the workdir, and
+stays readable there. If that spot in trash/ is taken, the new copy gets -2,
+-3, … appended instead of replacing it.
+
+Your workdir is the directory named after your member id (lowercased) under
+the agents home: OC_AGENT_HOME when set, else ~/.officraft/agents
+(~/.officraft-<OC_NAMESPACE>/agents when OC_NAMESPACE is set). Every path must be strictly inside it; the workdir
+itself and anything already in trash/ are refused. A symlink is moved as the
+link and what it points to is not touched; a link that resolves to something
+outside the workdir is refused.
+
+All paths are checked before any is moved: if one is refused, NOTHING is
+moved. A path that does not exist is reported as already gone, not an error.
+
+stdout: one line per path —
+  [ocagent] clean: <path> → <where it now is>
+  [ocagent] clean: <path> — already gone
+  [ocagent] clean: <path> — <why it could not be placed in trash/>
+  [ocagent] clean: <path> — not moved: <error>
+or, when refused, a line naming your workdir followed by one line per refused
+path and the reason. With no usable identity the only line is
+  [ocagent] clean: no agent id (OC_ID / OC_TOKEN): cannot tell which workdir is mine
+(or the same shape naming the agents home).
+
+Exit codes:
+  0  every path was moved or already gone
+  1  at least one move failed after checking passed (the others still moved)
+  2  --help itself or any other flag (clean takes none); no path given; no member id (OC_ID / OC_TOKEN); no agents home (your home
+     directory cannot be resolved, or OC_NAMESPACE is not a valid namespace);
+     or a path was refused
+`)
+}
+
 // quarantineDirName is where this command decides the quarantine location, and
 // the intent is that it becomes the ONLY place — move it here and every agent
 // follows on the next binary, which is the entire point of turning the
