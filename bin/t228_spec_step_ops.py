@@ -79,7 +79,14 @@ DELETE_DESC = (
     "create the successor task and point its blocked_by at this task (the gate "
     "then stands aside by itself), or keep this step and declare the handover on "
     "the update_step_status report that finishes it. A delete that still leaves "
-    "unfinished work in the plan is never gated. "
+    "unfinished work in the plan is never gated. ⚠️ A step CAN be deleted while "
+    "it is holding a reply card the owner has not answered — waiting_owner is not "
+    "a finished state, and this call does not look at the card. The card stays in "
+    "the owner's queue with no step behind it and the later answer lands as a safe "
+    "no-op, which is exactly what submit_plan has always done to a replaced "
+    "waiting-card step; this door just makes it cheaper to reach one step at a "
+    "time. If the question no longer matters, expire the card yourself rather than "
+    "leaving it sitting there. "
     + NO_OVERWRITE_GUARD
     + " Answers with a bounded receipt (`task_id`, `steps_total`, "
     "`progress_done`, `progress_total`), not the plan; call get_task to read the "
@@ -121,6 +128,7 @@ DELETE_BULLETS = (
     "- Removes ONE unfinished step; every other step is untouched.\n"
     "- 404 unknown step; 409 done/superseded step; 400 when it would leave zero steps.\n"
     "- 422 when removing it would finish a creator≠executor task with no handover.\n"
+    "- A step holding an UNANSWERED reply card is deletable; the card is orphaned.\n"
     "- 403 unless you are the executor (admin/owner excepted); 409 closed task.\n"
     "- No overwrite protection: concurrent writes are last-writer-wins, silently."
 )

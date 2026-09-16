@@ -313,6 +313,55 @@ func TestHandleInsertTaskStepApiTasksTaskIdStepsPost(t *testing.T) {
 		}
 	})
 
+	// The wedge case above only exercises rule 2 (contiguity), which reads the
+	// whole timeline. Rules 1 and 3 read the FRESH row alone, so dropping the
+	// second argument to ValidatePlanParallelShape leaves contiguity working and
+	// silently admits both of these — measured: 400 becomes 200 for each.
+	t.Run("a new step may not be a gate inside a parallel group", func(t *testing.T) {
+		api := newTasksTestServer(t)
+		task := createAdHocTask(t, api, "m-exec")
+		v1 := submitPlan(t, api, task.ID, "m-exec", []map[string]any{
+			{"name": "lane a", "dod": "d", "parallel_group": "g1"},
+			{"name": "lane b", "dod": "d", "parallel_group": "g1"},
+		})
+		rec := insertStep(t, api, task.ID, "m-exec", map[string]any{
+			"name": "ask the owner", "dod": "d",
+			"parallel_group": "g1", "is_gate": true,
+			"before_step_id": v1.Steps[0].ID,
+		})
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("a gate inside a group must 400, got %d %s", rec.Code, rec.Body.String())
+		}
+		want := "step 'ask the owner': a gate step cannot sit inside a parallel group — " +
+			"put the gate on its own step after the group's join step"
+		if got := decodeBody[ErrorEnvelopeDTO](t, rec).Error.Message; got != want {
+			t.Fatalf("refusal:\n got %q\nwant %q", got, want)
+		}
+		if v := getTaskView(t, api, task.ID); len(v.Steps) != 2 {
+			t.Fatalf("a refused insert must write nothing, got %v", stepNames(v.Steps))
+		}
+	})
+
+	t.Run("a new step may not open a parallel group of its own", func(t *testing.T) {
+		api := newTasksTestServer(t)
+		task := createAdHocTask(t, api, "m-exec")
+		submitPlan(t, api, task.ID, "m-exec", []map[string]any{{"name": "one", "dod": "d"}})
+		rec := insertStep(t, api, task.ID, "m-exec", map[string]any{
+			"name": "solo lane", "dod": "d", "parallel_group": "gnew",
+		})
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("a one-lane group must 400, got %d %s", rec.Code, rec.Body.String())
+		}
+		want := "parallel_group 'gnew' holds only one step — running in parallel takes " +
+			"at least two; drop the parallel_group to keep the step sequential"
+		if got := decodeBody[ErrorEnvelopeDTO](t, rec).Error.Message; got != want {
+			t.Fatalf("refusal:\n got %q\nwant %q", got, want)
+		}
+		if v := getTaskView(t, api, task.ID); len(v.Steps) != 1 {
+			t.Fatalf("a refused insert must write nothing, got %v", stepNames(v.Steps))
+		}
+	})
+
 	t.Run("only the executor may insert, and never into a closed task", func(t *testing.T) {
 		api := newTasksTestServer(t)
 		task := createAdHocTask(t, api, "m-exec")
@@ -461,6 +510,44 @@ func TestHandleDeleteTaskStepApiTasksTaskIdStepsStepIdDeletePost(t *testing.T) {
 		}
 	})
 
+	// The 422 case proves the gate REFUSES; this one proves the admitted path
+	// still WRITES the handover. Dropping applyHandoffPlan leaves the delete
+	// answering 200 with the three handoff fields empty, and no other test looks
+	// at them — a side effect nobody asserts is a side effect nothing guards.
+	t.Run("a live dependent satisfies the gate and the handover is recorded", func(t *testing.T) {
+		api := newTasksTestServer(t)
+		task := createDelegatedTask(t, api, "owner", "m-exec")
+		successor := createAdHocTask(t, api, "m-exec")
+		if err := api.dal.AddTaskDep(successor.ID, task.ID); err != nil {
+			t.Fatalf("AddTaskDep: %v", err)
+		}
+		v1 := submitPlan(t, api, task.ID, "m-exec", []map[string]any{
+			{"name": "done work", "dod": "d1"},
+			{"name": "abandoned", "dod": "d2"},
+		})
+		for _, status := range []string{"in_progress", "done"} {
+			if rec := driveStepStatus(t, api, task.ID, v1.Steps[0].ID, "m-exec",
+				status); rec.Code != http.StatusOK {
+				t.Fatalf("drive %s: %d %s", status, rec.Code, rec.Body.String())
+			}
+		}
+		if rec := deleteStep(t, api, task.ID, v1.Steps[1].ID,
+			"m-exec"); rec.Code != http.StatusOK {
+			t.Fatalf("delete with a live dependent: %d %s", rec.Code, rec.Body.String())
+		}
+		stored, err := api.dal.GetTask(task.ID)
+		if err != nil || stored == nil {
+			t.Fatalf("GetTask: %+v %v", stored, err)
+		}
+		if stored.Handoff != HandoffFollowUp || stored.HandoffTaskID != successor.ID {
+			t.Fatalf("the handover must be recorded: handoff=%q task=%q note=%q",
+				stored.Handoff, stored.HandoffTaskID, stored.HandoffNote)
+		}
+		if stored.HandoffNote == "" {
+			t.Fatalf("an automatic handover must say why it stood aside, got an empty note")
+		}
+	})
+
 	t.Run("the gate stands aside when the creator is the executor", func(t *testing.T) {
 		api := newTasksTestServer(t)
 		task := createAdHocTask(t, api, "m-exec")
@@ -525,15 +612,20 @@ func TestHandleReorderTaskStepsApiTasksTaskIdStepsReorderPost(t *testing.T) {
 		}
 	})
 
+	// 🔴 THE FINISHED STEP SITS IN THE MIDDLE, and that is the whole test. With it
+	// at index 0, "keep the finished step where it is" and "push the finished
+	// steps to the front" produce the SAME timeline, so the assertion cannot tell
+	// the two apart — measured: an implementation that squeezes finished rows to
+	// the front passes a version of this test that parks the done step first.
 	t.Run("finished steps keep their positions and must not be listed", func(t *testing.T) {
 		api := newTasksTestServer(t)
 		task := createAdHocTask(t, api, "m-exec")
 		v1 := submitPlan(t, api, task.ID, "m-exec", []map[string]any{
-			{"name": "done", "dod": "d1"},
-			{"name": "x", "dod": "d2"},
+			{"name": "x", "dod": "d1"},
+			{"name": "done", "dod": "d2"},
 			{"name": "y", "dod": "d3"},
 		})
-		done, x, y := v1.Steps[0], v1.Steps[1], v1.Steps[2]
+		x, done, y := v1.Steps[0], v1.Steps[1], v1.Steps[2]
 		for _, status := range []string{"in_progress", "done"} {
 			if rec := driveStepStatus(t, api, task.ID, done.ID, "m-exec",
 				status); rec.Code != http.StatusOK {
@@ -545,8 +637,8 @@ func TestHandleReorderTaskStepsApiTasksTaskIdStepsReorderPost(t *testing.T) {
 			t.Fatalf("reorder: %d %s", rec.Code, rec.Body.String())
 		}
 		v2 := getTaskView(t, api, task.ID)
-		if got := stepNames(v2.Steps); !sameStrings(got, []string{"done", "y", "x"}) {
-			t.Fatalf("the finished step must stay put: want [done y x], got %v", got)
+		if got := stepNames(v2.Steps); !sameStrings(got, []string{"y", "done", "x"}) {
+			t.Fatalf("the finished step must stay at index 1: want [y done x], got %v", got)
 		}
 		assertStepOrderContiguous(t, "reorder_steps (with finished history)", v2.Steps)
 

@@ -382,9 +382,13 @@ def judge(scene, samples):
 
     # ④ 提出計畫 — a task carries plan steps. submit_plan is no longer the only
     # writer of steps[] (T-228 added insert_step / delete_step / reorder_steps),
-    # but it is still the only way to get the FIRST one: the three single-step
-    # writes all need a task that already has a plan to edit, and this cell only
-    # ever asks whether a plan exists at all.
+    # and it is not even the only way to get the FIRST one: insert_step on a task
+    # with no plan yet answers 200 and writes step 1 (measured — nothing in
+    # resolveTaskForStepEdit looks at the step count, and the insert position
+    # falls out as 0). That is deliberate, not a hole. This cell is unaffected
+    # either way: it asks whether a plan exists at all, not which door wrote it,
+    # so it stays named after submit_plan because that is the door the boot
+    # context teaches and the one a planning agent actually uses.
     steps = (task or {}).get("steps") or []
     out.append(("submit_plan", "提出計畫", bool(task) and len(steps) > 0,
                 "task %s carries %d plan step(s)" % (task.get("id"), len(steps)) if steps
