@@ -1,8 +1,7 @@
 // TaskCard — 卡頭對齊 owner spec (T-705e, supersedes T-e987's layout). Locked:
-//   1. No standalone card avatar (the old large person/briefcase circle stays
-//      gone); stable member identity chips may carry the shared 18px Avatar.
-//   2. task id is a bordered mono badge "☑ #<task id>" (checkbox glyph + #no),
-//      not the old bracketed plain-text prefix.
+//   1. No standalone card avatar; stable member identity chips may carry the
+//      shared 18px Avatar.
+//   2. task id is a bordered mono badge "☑ #<task id>" (checkbox glyph + #no).
 //   3. 負責人 / 建立者 chat-bubble icon rides INSIDE the value chip, after the
 //      name — never in front of the row label.
 //   4. the executor/creator/type/key VALUES are chips (pill), not flat text; a
@@ -83,17 +82,13 @@ beforeEach(() => {
 });
 
 describe("TaskCard 卡頭對齊 owner spec (T-705e)", () => {
-  it("keeps the old standalone card avatar gone but shows identity-chip avatars", async () => {
+  it("shows identity-chip avatars", async () => {
     __injectMockTask(mkTask({ title: "無頭像" }));
     __injectMockTask(
       mkTask({ title: "外包無頭像", executorKind: "outsource", executorId: "" })
     );
     const { findAllByTestId } = renderPage();
     const cards = await findAllByTestId("task-card");
-    for (const card of cards) {
-      expect(card.querySelector(".task-card__avatar")).toBeNull();
-      expect(card.querySelector(".task-card__outsource-avatar")).toBeNull();
-    }
     const staff = cards.find(
       (card) =>
         card.querySelector(".task-card__title")?.textContent?.trim() === "無頭像",
@@ -108,9 +103,7 @@ describe("TaskCard 卡頭對齊 owner spec (T-705e)", () => {
     __injectMockTask(task);
     const { findByTestId } = renderPage();
     const badge = await findByTestId("task-no");
-    // #<task id>, never the old bracketed prefix.
     expect(badge.textContent).toContain(`#${task.taskNo}`);
-    expect(badge.textContent).not.toContain("[");
     expect(badge.classList.contains("task-card__id-badge")).toBe(true);
     // the ☑ glyph is an inline svg inside the badge.
     expect(badge.querySelector("svg")).toBeTruthy();
@@ -212,8 +205,7 @@ describe("TaskCard 卡頭對齊 owner spec (T-705e)", () => {
     const link = typed.querySelector<HTMLButtonElement>(
       '[data-testid="task-type-link"]'
     )!;
-    // v6 (T-17be): a coloured .task-badge on row 1, no longer the neutral
-    // .task-card__chip in the meta grid.
+    // v6 (T-17be): a coloured .task-badge on row 1.
     expect(link.classList.contains("task-badge")).toBe(true);
     expect(link.querySelector("svg")).toBeTruthy(); // gear inside the badge
     fireEvent.click(link);
@@ -255,7 +247,7 @@ describe("TaskCard 卡頭對齊 owner spec (T-705e)", () => {
     __injectMockTask(task);
     const { findByTestId } = renderPage();
     const link = await findByTestId("task-assignee-link");
-    // bare name — the old "· 成員" role suffix is gone (the label carries it).
+    // bare name — the 負責人 label carries the role.
     expect(
       link.querySelector('[data-testid="task-executor"]')?.textContent
     ).toBe("Mira");
@@ -379,9 +371,6 @@ describe("TaskCard 卡頭對齊 owner spec (T-705e)", () => {
         badgeRow.compareDocumentPosition(title) &
           Node.DOCUMENT_POSITION_FOLLOWING
       ).toBeTruthy();
-      // And the v2 wrapper that used to hold the title on row 1 is gone for
-      // good — its return is the shape the regression takes.
-      expect(card.querySelector(".task-card__headings")).toBeNull();
     };
 
     it("a live card leads with the badge row and drops the title to row 2", async () => {

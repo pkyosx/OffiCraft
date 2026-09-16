@@ -6,6 +6,7 @@ package main
 import (
 	"bytes"
 	"encoding/base64"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -62,7 +63,7 @@ func TestValidateAvatars(t *testing.T) {
 	if err := validateAvatars(nil, "theme[0]"); err != nil {
 		t.Fatalf("validateAvatars(nil): %v", err)
 	}
-	values := map[string]string{"member": valid, "outsource": valid, "owner": valid, "assistant": valid}
+	values := map[string]string{"staff": valid, "outsource": valid, "owner": valid, "assistant": valid}
 	if err := validateAvatars(&values, "theme[0]"); err != nil {
 		t.Fatalf("validateAvatars(valid): %v", err)
 	}
@@ -72,7 +73,7 @@ func TestValidateAvatars(t *testing.T) {
 		want string
 	}{
 		{name: "unknown kind", data: map[string]string{"robot": valid}, want: "not allowed"},
-		{name: "invalid image", data: map[string]string{"member": "not-an-image"}, want: "avatars[member]"},
+		{name: "invalid image", data: map[string]string{"staff": "not-an-image"}, want: "avatars[staff]"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			if err := validateAvatars(&tt.data, "theme[0]"); err == nil || !strings.Contains(err.Error(), tt.want) {
@@ -181,4 +182,70 @@ func TestValidateNavIcons(t *testing.T) {
 
 func imageDataURI(mime string, raw []byte) string {
 	return "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(raw)
+}
+
+// TestAvatarKindSetIsStaffNotMember is the guard that NAMES the site (T-57).
+//
+// 🔴 WHY IT SPELLS THE SET OUT. The type system cannot help here — Go's map keys
+// are strings — so unlike the frontend, where AvatarKind is DERIVED from
+// AVATAR_KINDS and writing "member" is a compile error, this side needs one
+// assertion that says what the set is. Putting "member" back into
+// avatarKindAllowed fails HERE, and the failure names the map and the key rather
+// than surfacing as some unrelated theme test going red.
+func TestAvatarKindSetIsStaffNotMember(t *testing.T) {
+	want := map[string]bool{"staff": true, "outsource": true, "owner": true, "assistant": true}
+	if !reflect.DeepEqual(avatarKindAllowed, want) {
+		t.Fatalf("avatarKindAllowed = %v, want %v — T-57 renamed the 正職 avatar kind "+
+			"`member` to `staff`; putting `member` back here silently strands every "+
+			"bundle the migration rewrote", avatarKindAllowed, want)
+	}
+	if avatarKindAllowed["member"] {
+		t.Fatalf("avatarKindAllowed still accepts the retired key \"member\"")
+	}
+}
+
+// TestAvatarKindRefusalMessageIsDerivedFromTheMap is the structural half: the
+// 422 body must not contain a SECOND copy of the set.
+//
+// Before T-57 the message hard-wrote "(only member, outsource, owner,
+// assistant)". Changing the map left that sentence naming a key the server
+// refuses, and nothing objected. This test compares the message against the map
+// itself, so the two cannot disagree.
+func TestAvatarKindRefusalMessageIsDerivedFromTheMap(t *testing.T) {
+	data := map[string]string{"robot": "not-an-image"}
+	err := validateAvatars(&data, "theme[0]")
+	if err == nil {
+		t.Fatalf("an unknown avatar kind must be refused")
+	}
+	for kind := range avatarKindAllowed {
+		if !strings.Contains(err.Error(), kind) {
+			t.Fatalf("the refusal names %q nowhere: %v — the allowed list in the message "+
+				"must be DERIVED from avatarKindAllowed, never retyped", kind, err)
+		}
+	}
+	if strings.Contains(err.Error(), "member") {
+		t.Fatalf("the refusal still names the retired key `member`: %v", err)
+	}
+}
+
+// TestRetiredAvatarKindIsRefusedLegibly — the import side of the hard cut.
+//
+// 🔴 A 422 IS THE POINT, AND SO IS WHAT IT SAYS. The owner ruled that bundles
+// exported before the rename are dead. Dead is acceptable; dying quietly is not,
+// and quiet is the DEFAULT here: the read path does not validate avatar kinds, so
+// an old key that slips through simply stops painting. This asserts the import
+// path refuses it AND tells the reader what happened and what to do.
+func TestRetiredAvatarKindIsRefusedLegibly(t *testing.T) {
+	valid := imageDataURI("image/png", []byte{0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a})
+	data := map[string]string{"member": valid}
+	err := validateAvatars(&data, "theme[0]")
+	if err == nil {
+		t.Fatalf("a pre-T-57 bundle carrying `member` must be REFUSED, not accepted")
+	}
+	for _, want := range []string{"member", "staff", "renamed", "older version", "Re-export"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("the refusal must say %q so the owner knows why yesterday's file stopped "+
+				"working and what to do; got: %v", want, err)
+		}
+	}
 }

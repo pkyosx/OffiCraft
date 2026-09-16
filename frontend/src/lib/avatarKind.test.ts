@@ -18,8 +18,8 @@ describe("avatarKindForMember", () => {
     );
   });
 
-  it("returns member for a plain staff member", () => {
-    expect(avatarKindForMember({ id: "m-1", role: "r-abc" })).toBe("member");
+  it("returns staff for a plain staff member", () => {
+    expect(avatarKindForMember({ id: "m-1", role: "r-abc" })).toBe("staff");
   });
 
   it("prefers outsource over assistant when both signals collide", () => {

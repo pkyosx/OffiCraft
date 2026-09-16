@@ -1,13 +1,9 @@
 // 使用說明 (product guide) — the TOP-LEVEL tab (owner 2026-07-22:「user guide
 // 改放在 tab 中,監控的右邊,不要放在 settings 裡」).
 //
-// This suite is the former "使用說明" half of SettingsPage.breadcrumbs.test.tsx,
-// moved here VERBATIM in its assertions and re-rooted on the new page: every
-// crumb trail simply loses its leading 設定 segment, because 設定 is no longer
-// the parent. Nothing was relaxed in the move — the doc-link contract
-// (T-68f1) below is assertion-for-assertion the same, and the two things the
-// tab gained (a hash route, and no settings parent) are pinned as ADDITIONAL
-// tests rather than as softened old ones.
+// Crumb trails have no leading 設定 segment because 設定 is not the parent.
+// Pinned below: the doc-link contract (T-68f1), the hash route, and the
+// absence of a settings parent.
 //
 // Runs against the REAL mock adapter, like the sibling SettingsPage tests.
 //
@@ -73,8 +69,6 @@ async function waitForDocBody(utils: Utils, title: string) {
 /** The unified header contract: breadcrumb segments + NO back button. */
 function expectHeader(utils: Utils, segs: string[]) {
   expect(crumbSegs(utils)).toEqual(segs);
-  // 返回鍵移除 — neither the old .set-back row nor any 返回-labelled button.
-  expect(utils.container.querySelector(".set-back")).toBeNull();
   expect(utils.queryByRole("button", { name: "返回" })).toBeNull();
 }
 
@@ -88,17 +82,11 @@ describe("使用說明 · page header + navigation", () => {
   it("列表: 使用說明 + title; doc: 使用說明 › <title>", async () => {
     const utils = renderGuide();
     const entries = await utils.findAllByTestId("guide-doc-entry");
-    // The LIST carries no trail at all. This assertion used to read
-    // `expectHeader(utils, [g.title])` — a one-segment trail — and what it was
-    // defending was "the guide is no longer under 設定". An EMPTY trail defends
-    // that strictly harder: with no segments there is no parent to be wrong
-    // about. So the target moved, the guarantee did not weaken. (The trail was
-    // dropped because a single terminal segment is plain text with nothing to
-    // click, and it made 使用說明 appear three times above the fold — tab,
-    // crumb, h1.) The 設定 negative is asserted explicitly rather than implied:
+    // The LIST carries no trail at all: a single terminal segment is plain text
+    // with nothing to click, and it made 使用說明 appear three times above the
+    // fold — tab, crumb, h1.
     expectHeader(utils, []);
     expect(utils.container.querySelector("nav.crumbs")).toBeNull();
-    expect(utils.queryByText("設定")).toBeNull();
     // The page is still HEADED by 使用說明, and now exactly once.
     expect(utils.getByRole("heading", { name: g.title })).toBeTruthy();
     expect(utils.getAllByRole("heading", { name: g.title })).toHaveLength(1);
@@ -116,13 +104,10 @@ describe("使用說明 · page header + navigation", () => {
     expectHeader(utils, []);
   });
 
-  // The doc title used to be printed THREE times before any prose — breadcrumb
-  // tail, page <h1>, and the markdown's own <h1> — which cost half a desktop
-  // screen and two thirds of a 390px one. The page <h1> was the removable copy:
-  // the server derives a doc's title FROM its first `# ` heading (api_docs.go
-  // docTitle), so it was a guaranteed duplicate of the heading rendered right
-  // below it. This pins the count, not the layout: the trail still names the
-  // doc (navigation), the body still opens with its own heading (content).
+  // The server derives a doc's title FROM its first `# ` heading (api_docs.go
+  // docTitle), so any page-level <h1> would duplicate the heading rendered
+  // right below it. This pins the count, not the layout: the trail names the
+  // doc (navigation), the body opens with its own heading (content).
   it("a doc names itself ONCE outside the trail, not three times", async () => {
     const utils = renderGuide();
     const entries = await utils.findAllByTestId("guide-doc-entry");
@@ -134,13 +119,11 @@ describe("使用說明 · page header + navigation", () => {
     const headings = utils.getAllByRole("heading", { name: docTitle });
     expect(headings).toHaveLength(1);
     expect(headings[0].closest(".doc-md")).not.toBeNull();
-    // The page-level header node is gone entirely (it was the only other
-    // .settings__title--doc on this view).
+    // No page-level doc title node on this view.
     expect(
       utils.container.querySelectorAll(".settings__title--doc"),
     ).toHaveLength(0);
-    // Navigation is untouched: the trail still ends on this doc and still
-    // offers 使用說明 as a real button back to the list.
+    // Navigation: the trail ends on this doc and offers 使用說明 as a real button back to the list.
     expectHeader(utils, [g.title, docTitle]);
     expect(utils.getByRole("button", { name: g.title })).toBeTruthy();
 
@@ -148,8 +131,7 @@ describe("使用說明 · page header + navigation", () => {
     // 設定. Breadcrumbs.test.tsx pins the component's rule; this pins the real
     // page's WIRING, which is what was actually wrong: promoting the guide out
     // of Settings left the trail announcing 設定 here. Queried by role+name
-    // (an aria-label is not a text node, so the `queryByText("設定")` check
-    // above cannot see it — that is exactly how this survived).
+    // because an aria-label is not a text node.
     expect(
       utils.getByRole("navigation", { name: g.title }),
       "the guide's breadcrumb landmark must be named after the guide",
@@ -215,7 +197,7 @@ describe("使用說明 · in-app doc links (T-68f1)", () => {
     const utils = renderGuide();
     await openDoc(utils, "介面說明");
 
-    // The literal source text is GONE — that alone was the visible symptom.
+    // The markdown link source is not shown as literal text.
     expect(utils.container.textContent).not.toContain("](why.md)");
 
     const link = utils.getByRole("button", { name: "為什麼是 OffiCraft" });

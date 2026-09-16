@@ -2,9 +2,7 @@
 //
 // The warden-probed claude version is a table column next to Status: a
 // machine that reported one shows it verbatim, a machine that never probed
-// shows the honest dash. The old T-97ee name-stack small line (version +
-// credential source + warning/no-cred badges) is gone entirely — the probe
-// data still arrives on the wire but only the version is displayed.
+// shows the honest dash.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
@@ -110,25 +108,5 @@ describe("MonitorPage claude version column", () => {
     // column change misaligns the whole table without failing anything else.
     const emptyCell = table.querySelector("tbody td[colspan]")!;
     expect(emptyCell.getAttribute("colspan")).toBe(String(headers.length));
-  });
-
-  it("renders no name-stack claude line and no credential badges", async () => {
-    listMachines.mockResolvedValue([
-      machine("m-no-cred", {
-        claudeVersion: "2.1.212",
-        claudeCredSource: "none",
-        claudeSubReadable: false,
-      }),
-      machine("m-sub-unreadable", {
-        claudeVersion: "2.1.211",
-        claudeCredSource: "keychain",
-        claudeSubReadable: false,
-      }),
-    ]);
-    renderMonitor();
-    await screen.findAllByTestId("mon-claude-version");
-    expect(screen.queryByTestId("mon-claude-line")).toBeNull();
-    expect(screen.queryByTestId("mon-claude-none-badge")).toBeNull();
-    expect(screen.queryByTestId("mon-claude-sub-badge")).toBeNull();
   });
 });

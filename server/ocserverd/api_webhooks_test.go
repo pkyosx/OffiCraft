@@ -789,6 +789,193 @@ func TestHandleReceiveWebhookInPost(t *testing.T) {
 			"last_drop_reason":   "sig_failed",
 		})
 	})
+
+	t.Run("a body one byte over the cap is refused to the sender's face, reaches the member not at all, and is recorded as oversize", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		token := apiTestWebhookToken(t, h, owner, "kip", `{"endpoint_id":"alerts","purpose":"CI"}`)
+		dashboard := apiTestListen(t, api, "")
+		recipient := apiTestListen(t, api, "kip")
+
+		status, data := apiJSON(t, h, "POST", "/in?t="+token, "",
+			strings.Repeat("a", 1048577))
+		if status != 413 {
+			t.Fatalf("want 413, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "client_error",
+			"webhook payload is too large (max 1048576 bytes)")
+		dashboard.wantFrames()
+		recipient.wantFrames()
+		apiWantNoChatWithKip(t, h, owner)
+		apiWantWebhookRow(t, h, owner, map[string]any{
+			"endpoint_id":        "alerts",
+			"purpose":            "CI",
+			"status":             "enabled",
+			"created_ts":         apiAnyNumber,
+			"token":              token,
+			"platform":           "generic",
+			"has_signing_secret": false,
+			"last_received_ts":   apiAnyNumber,
+			"delivered_count":    0,
+			"dropped_count":      1,
+			"last_drop_reason":   "oversize",
+		})
+		apiWantWebhookRequests(t, h, owner, "alerts", map[string]any{
+			"ts":        apiAnyNumber,
+			"outcome":   "dropped:oversize",
+			"headers":   `{"Content-Type":["application/json"]}`,
+			"body":      strings.Repeat("a", 16384),
+			"truncated": true,
+		})
+	})
+
+	t.Run("a body exactly at the cap still delivers, unchanged", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		token := apiTestWebhookToken(t, h, owner, "kip", `{"endpoint_id":"alerts","purpose":"CI"}`)
+		dashboard := apiTestListen(t, api, "")
+		recipient := apiTestListen(t, api, "kip")
+
+		status, data := apiJSON(t, h, "POST", "/in?t="+token, "",
+			strings.Repeat("a", 1048576))
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{"status": "ok"})
+		frame := map[string]any{
+			"seq":   1,
+			"topic": "chat",
+			"op":    "patch",
+			"data": map[string]any{
+				"entity":  "chat",
+				"key":     apiAnyString,
+				"epoch":   1,
+				"deleted": false,
+				"payload": map[string]any{
+					"id":   apiAnyString,
+					"from": "hook:alerts",
+					"to":   "kip",
+				},
+			},
+			"ts":      apiAnyNumber,
+			"trigger": "server",
+		}
+		dashboard.wantFrames(frame)
+		recipient.wantFrames(frame)
+		apiWantWebhookRow(t, h, owner, map[string]any{
+			"endpoint_id":        "alerts",
+			"purpose":            "CI",
+			"status":             "enabled",
+			"created_ts":         apiAnyNumber,
+			"token":              token,
+			"platform":           "generic",
+			"has_signing_secret": false,
+			"last_received_ts":   apiAnyNumber,
+			"delivered_count":    1,
+			"dropped_count":      0,
+			"last_drop_reason":   "",
+		})
+	})
+
+	t.Run("an over-cap call to a disabled endpoint is refused for its size, and size is what gets recorded", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		token := apiTestWebhookToken(t, h, owner, "kip", `{"endpoint_id":"alerts","purpose":"CI"}`)
+		apiJSON(t, h, "PATCH", "/api/members/kip/webhooks/alerts", owner, `{"status":"disabled"}`)
+		dashboard := apiTestListen(t, api, "")
+		recipient := apiTestListen(t, api, "kip")
+
+		status, data := apiJSON(t, h, "POST", "/in?t="+token, "", strings.Repeat("a", 1048577))
+		if status != 413 {
+			t.Fatalf("want 413, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "client_error",
+			"webhook payload is too large (max 1048576 bytes)")
+		dashboard.wantFrames()
+		recipient.wantFrames()
+		apiWantNoChatWithKip(t, h, owner)
+		// Size outranks status deliberately: the body was refused before anyone
+		// asked whether this endpoint was accepting, so `disabled` would be a
+		// reason nobody actually reached. The silent face is not lost either —
+		// an over-cap call to an UNKNOWN token answers this same 413.
+		apiWantWebhookRow(t, h, owner, map[string]any{
+			"endpoint_id":        "alerts",
+			"purpose":            "CI",
+			"status":             "disabled",
+			"created_ts":         apiAnyNumber,
+			"token":              token,
+			"platform":           "generic",
+			"has_signing_secret": false,
+			"last_received_ts":   apiAnyNumber,
+			"delivered_count":    0,
+			"dropped_count":      1,
+			"last_drop_reason":   "oversize",
+		})
+	})
+
+	t.Run("an over-cap refusal is byte-identical for a live token and a token nobody minted", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+		token := apiTestWebhookToken(t, h, owner, "kip", `{"endpoint_id":"alerts","purpose":"CI"}`)
+		oversize := strings.Repeat("a", 1048577)
+
+		// 🔴 THE POINT IS THAT THESE TWO ANSWERS CANNOT BE TOLD APART. Asserting
+		// only that they are EQUAL would stay green if both collapsed to the
+		// silent 200, so each is pinned to the written-out 413 as well.
+		live := apiRequest(t, h, "POST", "/in?t="+token, "", oversize)
+		unknown := apiRequest(t, h, "POST", "/in?t=nobody-minted-this", "", oversize)
+
+		for _, probe := range []struct {
+			name string
+			rec  *httptest.ResponseRecorder
+		}{{"live token", live}, {"unknown token", unknown}} {
+			if probe.rec.Code != 413 {
+				t.Fatalf("%s: status = %d, want 413", probe.name, probe.rec.Code)
+			}
+			wantBody := `{"error":{"code":"client_error","message":"webhook payload is too large (max 1048576 bytes)"}}`
+			if got := probe.rec.Body.String(); got != wantBody {
+				t.Fatalf("%s: body = %q, want %q", probe.name, got, wantBody)
+			}
+			if got := probe.rec.Header().Get("Content-Type"); got != "application/json" {
+				t.Fatalf("%s: Content-Type = %q, want %q", probe.name, got, "application/json")
+			}
+		}
+		if live.Code != unknown.Code ||
+			live.Body.String() != unknown.Body.String() ||
+			live.Header().Get("Content-Type") != unknown.Header().Get("Content-Type") {
+			t.Fatalf("the two refusals differ: live %d %q %q, unknown %d %q %q",
+				live.Code, live.Body.String(), live.Header().Get("Content-Type"),
+				unknown.Code, unknown.Body.String(), unknown.Header().Get("Content-Type"))
+		}
+	})
+
+	t.Run("an over-cap call to a signed endpoint is refused for its size, never misclassified as a bad signature", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		token := apiTestWebhookToken(t, h, owner, "kip",
+			`{"endpoint_id":"slackin","platform":"slack","signing_secret":"s3cret"}`)
+		dashboard := apiTestListen(t, api, "")
+		recipient := apiTestListen(t, api, "kip")
+
+		status, data := apiJSON(t, h, "POST", "/in?t="+token, "",
+			strings.Repeat("a", 1048577))
+		if status != 413 {
+			t.Fatalf("want 413, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "client_error",
+			"webhook payload is too large (max 1048576 bytes)")
+		dashboard.wantFrames()
+		recipient.wantFrames()
+		apiWantNoChatWithKip(t, h, owner)
+		apiWantWebhookRow(t, h, owner, map[string]any{
+			"endpoint_id":        "slackin",
+			"purpose":            "",
+			"status":             "enabled",
+			"created_ts":         apiAnyNumber,
+			"token":              token,
+			"platform":           "slack",
+			"has_signing_secret": true,
+			"last_received_ts":   apiAnyNumber,
+			"delivered_count":    0,
+			"dropped_count":      1,
+			"last_drop_reason":   "oversize",
+		})
+	})
 }
 
 func apiTestWebhookToken(t *testing.T, h http.Handler, owner, memberID, body string) string {

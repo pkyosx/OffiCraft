@@ -1409,7 +1409,7 @@ func TestCreateTypedTaskWithManualOutsourceAssigneeIsNotADispatch(t *testing.T) 
 // ── submit_plan keeps done steps ─────────────────────────────────────────────
 
 func TestSubmitPlanDescriptionWarnsAboutDiscardedUnfinishedNotes(t *testing.T) {
-	const warning = "Resubmitting permanently deletes every unfinished step and its working note; deleted notes cannot be recovered."
+	const warning = "Resubmitting permanently deletes every unfinished step that is not kept (see below), together with its working note; deleted notes cannot be recovered."
 	var matches []RouteSpec
 	for _, spec := range defaultRouteSpecs() {
 		if spec.Method == http.MethodPost && spec.Path == "/api/tasks/{task_id}/plan" &&
@@ -1511,12 +1511,13 @@ func TestSubmitPlanRelistingDoneStepsDoesNotDuplicate(t *testing.T) {
 	// genuinely new step. The done node must survive exactly once (the kept
 	// prefix), not be duplicated as a fresh pending copy.
 	v2 := submitPlan(t, api, task.ID, "m-exec", []map[string]any{
-		{"name": "one", "dod": "d1"},
+		{"name": " one ", "dod": "a different dod", "is_gate": true, "parallel_group": "g1"},
 		{"name": "two", "dod": "d2"},
 		{"name": "three", "dod": "d3"},
+		{"name": "One", "dod": "d4"},
 	})
-	if len(v2.Steps) != 3 {
-		t.Fatalf("want 3 steps (done 'one' kept once + fresh 'two','three'), got %d: %+v",
+	if len(v2.Steps) != 4 {
+		t.Fatalf("want 4 steps (done 'one' kept once + fresh 'two','three','One'), got %d: %+v",
 			len(v2.Steps), v2.Steps)
 	}
 	nameCount := map[string]int{}
@@ -1532,14 +1533,23 @@ func TestSubmitPlanRelistingDoneStepsDoesNotDuplicate(t *testing.T) {
 	if v2.Steps[0].ID != stepOne.ID || v2.Steps[0].Status != StepStatusDone {
 		t.Fatalf("done step must be kept (same id) in front: %+v", v2.Steps[0])
 	}
+	if v2.Steps[0].DoD != "d1" || v2.Steps[0].IsGate || v2.Steps[0].ParallelGroup != "" {
+		t.Fatalf("the relisted ' one ' entry must not write dod/is_gate/parallel_group: %+v", v2.Steps[0])
+	}
 	if v2.Steps[1].Name != "two" || v2.Steps[1].Status != StepStatusPending {
 		t.Fatalf("re-listed 'two' must be a fresh pending, got %+v", v2.Steps[1])
+	}
+	if v2.Steps[1].ID == v1.Steps[1].ID {
+		t.Fatalf("re-listed unfinished 'two' must get a new id, still %q", v2.Steps[1].ID)
 	}
 	if v2.Steps[2].Name != "three" {
 		t.Fatalf("fresh 'three' must follow, got %+v", v2.Steps[2])
 	}
-	if v2.ProgressDone != 1 || v2.ProgressTotal != 3 {
-		t.Fatalf("progress: want 1/3, got %d/%d", v2.ProgressDone, v2.ProgressTotal)
+	if v2.Steps[3].Name != "One" || v2.Steps[3].Status != StepStatusPending || v2.Steps[3].ID == stepOne.ID {
+		t.Fatalf("'One' differs from 'one' by case and must be a fresh pending step, got %+v", v2.Steps[3])
+	}
+	if v2.ProgressDone != 1 || v2.ProgressTotal != 4 {
+		t.Fatalf("progress: want 1/4, got %d/%d", v2.ProgressDone, v2.ProgressTotal)
 	}
 }
 
@@ -1808,7 +1818,7 @@ func TestSubmitPlanRelistingAnsweredCardStepContinuesTheLiveRow(t *testing.T) {
 		t.Fatalf("answer: %d %s", rec.Code, rec.Body.String())
 	}
 	v2 := submitPlan(t, api, task.ID, "m-exec", []map[string]any{
-		{"name": "ask direction", "dod": "owner answered"},
+		{"name": "ask direction", "dod": "a different dod", "is_gate": true},
 		{"name": "execute", "dod": "d"},
 	})
 	if len(v2.Steps) != 2 {
@@ -1820,6 +1830,9 @@ func TestSubmitPlanRelistingAnsweredCardStepContinuesTheLiveRow(t *testing.T) {
 	}
 	if cont.ReplyCardID != card.ID {
 		t.Fatalf("the continued row keeps its card pointer: %+v", cont)
+	}
+	if cont.DoD != "owner answered" || cont.IsGate {
+		t.Fatalf("the relisted entry's dod and is_gate must not be written: %+v", cont)
 	}
 	if v2.ProgressDone != 0 || v2.ProgressTotal != 2 {
 		t.Fatalf("progress: want 0/2, got %d/%d", v2.ProgressDone, v2.ProgressTotal)

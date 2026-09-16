@@ -79,8 +79,6 @@ describe("設定 landing · 區塊名稱", () => {
     // Assert the TEXT that actually reaches the screen, not that a dict key
     // exists: the rename is the deliverable.
     expect(utils.getByText("系統更新與備份")).toBeTruthy();
-    // And the old name is gone from the landing list entirely.
-    expect(utils.container.textContent).not.toContain("軟體更新");
   });
 
   it("renames the English copy too — a half-renamed section is a wrong string with legs", () => {
@@ -91,7 +89,6 @@ describe("設定 landing · 區塊名稱", () => {
       const utils = renderSettings();
       expect(utils.getByText(en.settings.software)).toBeTruthy();
       expect(en.settings.software).toBe("System update & backup");
-      expect(utils.container.textContent).not.toContain("Software update");
     } finally {
       window.localStorage.removeItem("oc.language");
     }

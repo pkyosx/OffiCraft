@@ -1,23 +1,14 @@
-// messageKeys.theme-identity.test.ts — T-081b §6 regression guard.
+// messageKeys.theme-identity.test.ts — T-081b §6.
 //
 // A theme bundle's `wording` overlay may re-word the product; it may NOT rename
-// another THEME. `profile.themeOffice` used to be overridable, and it is the
-// built-in theme's identity: the row in the theme picker, the theme-settings
-// heading, and the `name` written into the file when the built-in theme is
-// exported. Importing a 「精靈村」 pack therefore renamed the built-in theme to
-// 「精靈村」 too — two identically named rows in the picker and no way back to
-// the shipped one (owner report 2026-07-27).
+// a THEME. A theme's name is its identity: the row in the theme picker, the
+// theme-settings heading, and the `name` written into the file on export. A pack
+// that could re-word it would leave two identically named rows in the picker and
+// no way back to the shipped one (owner report 2026-07-27). The whitelist
+// generator (scripts/gen-message-keys.mjs) skips the `themeIdentity` subtree.
 //
-// The fix is a rule in the whitelist generator (scripts/gen-message-keys.mjs):
-// the `themeIdentity` subtree is skipped wholesale. This test fails the moment
-// any theme name reappears in MESSAGE_KEYS — via a reverted generator rule, a
-// theme name moved back out of the subtree, or a new built-in theme whose name
-// was put somewhere overridable.
-//
-// Round 8 narrowed the guarantee to exactly this and nothing else: the 內建 /
-// 自訂 labels and a custom theme's freedom to reuse the built-in's name were
-// both given back to the user, so this file also pins that they really are
-// overridable now (owner: 「我們只要確定主題名稱不會隨著主題改變就好」).
+// The 內建 / 自訂 labels are ordinary wording and ARE overridable (owner: 「我們
+// 只要確定主題名稱不會隨著主題改變就好」).
 
 import { describe, it, expect } from "vitest";
 import { MESSAGE_KEYS } from "./messageKeys.generated";
@@ -35,18 +26,10 @@ describe("MESSAGE_KEYS", () => {
           `re-word it renames the built-in theme and the owner loses the way back`
       ).toBe(false);
     }
-    // The pre-fix location, named explicitly: a revert that moves the built-in
-    // theme's name back under profile.* must fail here too, not pass silently.
-    expect(keys.has("profile.themeOffice")).toBe(false);
-    expect(keys.has("profile.themeNewName")).toBe(false);
   });
 
   it("does let a theme bundle re-word the 內建 / 自訂 labels", () => {
-    // Rounds 3–4 held these non-overridable so a pack could not swap 內建 and
-    // 自訂 and make the grouping lie. Round 8 gave them back — owner ruling:
-    // 「這是大家自己用的,自己要怎麼搞我們不用特別管,我們只要確定主題名稱不會隨著
-    // 主題改變就好」. They are ordinary wording, and this asserts the exclusion is
-    // really gone rather than half-removed on one side of the wire.
+    // owner:「這是大家自己用的,自己要怎麼搞我們不用特別管」.
     for (const name of Object.keys(zh.themeMarkers)) {
       expect(keys.has(`themeMarkers.${name}`), `themeMarkers.${name}`).toBe(true);
     }

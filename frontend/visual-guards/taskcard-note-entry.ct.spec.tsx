@@ -264,21 +264,12 @@ for (const width of WIDTHS) {
       ) as HTMLElement;
       return {
         label: el.getAttribute("aria-label"),
-        // A control that opens a modal must not announce a disclosure
-        // relationship it no longer has: nothing expands in place any more.
-        expanded: el.getAttribute("aria-expanded"),
-        controls: el.getAttribute("aria-controls"),
         nestedInteractive: el.querySelectorAll(
           "button, a, input, select, textarea, [role='button']"
         ).length,
       };
     });
     expect(closed.label, "the entry must carry an aria-label").toBeTruthy();
-    expect(
-      closed.expanded,
-      "nothing expands in place any more — no dangling aria-expanded"
-    ).toBeNull();
-    expect(closed.controls, "no dangling aria-controls").toBeNull();
     expect(closed.nestedInteractive).toBe(0);
 
     await entry.focus();

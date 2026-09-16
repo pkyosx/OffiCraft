@@ -126,7 +126,7 @@ function pngURIOfSize(n: number): string {
 function feedPurpose(purpose: string, value: string): string | null {
   switch (purpose) {
     case "avatar":
-      return validateAvatars({ member: value });
+      return validateAvatars({ staff: value });
     case "logo":
       return validateLogo(value);
     case "navicon":

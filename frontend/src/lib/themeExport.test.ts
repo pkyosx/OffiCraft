@@ -186,6 +186,36 @@ describe("nextCustomThemeId", () => {
 });
 
 describe("parseImportedBundle", () => {
+  // T-57 — the DoD item: importing a file exported before the rename must be a
+  // REFUSAL SOMEONE CAN READ, not a silent fall back to the built-in glyph.
+  // This is the real entry point the import button uses, so it also proves the
+  // legible message is reachable from there and not only from validateAvatars.
+  it("refuses a pre-T-57 export and explains the rename", () => {
+    const res = parseImportedBundle(
+      JSON.stringify({
+        id: "old",
+        name: "Old",
+        colors: { "--color-accent": "#0b1020" },
+        avatars: {
+          member:
+            "data:image/png;base64," +
+            btoa(String.fromCharCode(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a)),
+        },
+      })
+    );
+    if (!("error" in res)) {
+      throw new Error(
+        "a bundle carrying the retired `member` avatar key was ACCEPTED — the image " +
+          "would then be stored under a key nothing reads, and the avatar would " +
+          "vanish with no error anywhere"
+      );
+    }
+    expect(res.error).toContain("member");
+    expect(res.error).toContain("staff");
+    expect(res.error).toContain("renamed");
+    expect(res.error).toContain("Re-export");
+  });
+
   it("returns the normalized bundle for admissible JSON", () => {
     const res = parseImportedBundle(
       JSON.stringify({

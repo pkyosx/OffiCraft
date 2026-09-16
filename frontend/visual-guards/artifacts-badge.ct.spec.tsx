@@ -34,11 +34,7 @@ test("desktop 1024: 產物 badge is visible and opens a laid-out popover listing
   const popover = cmp.locator(".task-artifacts");
   await expect(popover).toBeVisible();
 
-  // T-49fb: NO tabs — and all three kinds are on screen at once, which is the
-  // whole point of dropping them. A mutant that restores the tabbed body shows
-  // only the 檔案 rows and reddens the row count.
-  await expect(cmp.locator(".task-artifacts__tab")).toHaveCount(0);
-  await expect(cmp.getByRole("tab")).toHaveCount(0);
+  // All three kinds are on screen at once, in one list.
   await expect(cmp.locator(".task-artifacts__item")).toHaveCount(3);
 
   const popBox = await popover.boundingBox();

@@ -1147,9 +1147,9 @@ func clearChatFetchFault(warn *drainWarner, out io.Writer) {
 // could not get into the model's conversation is never receipted — and, since
 // the receipt is the only thing that would have moved the server's watermark, it
 // comes back on the next drain by itself. See ackGate.
-func drainChat(client httpClient, cfg Config, out io.Writer, warn *drainWarner, gate *ackGate) int {
+func drainChat(client httpClient, cfg Config, out io.Writer, warn *drainWarner, gate *ackGate, clock func() time.Time) int {
 	sid := strings.ToLower(strings.TrimSpace(cfg.ID))
-	now := float64(time.Now().Unix())
+	now := float64(clock().Unix())
 	msgs := fetchChat(client, cfg, cfg.ID)
 	if msgs.rows == nil {
 		// TOTAL FAULT: nothing was fetched, so nothing prints and nothing is

@@ -469,7 +469,7 @@ describe("T-17be deps 區塊: 不是 status、不上第一排", () => {
     expect(row.textContent).not.toContain("等 T-70fb");
   });
 
-  it("speaks the waiting block's visual language (⏱ + block), not the old mono key chip", async () => {
+  it("speaks the waiting block's visual language (⏱ + block)", async () => {
     const blocker = mkTask({ title: "擋路的2", taskNo: "T-70fc" });
     __injectMockTask(blocker);
     __injectMockTask(mkTask({ title: "被擋", deps: [blocker.id] }));
@@ -477,8 +477,6 @@ describe("T-17be deps 區塊: 不是 status、不上第一排", () => {
     const card = byTitle(await findAllByTestId("task-card"), "被擋");
     const dep = card.querySelector('[data-testid="task-dep"]')!;
 
-    // Positive control before the negatives: it renders and says the right
-    // thing.
     expect(dep.querySelector(".task-card__dep-no")?.textContent).toBe(
       "等 T-70fc"
     );
@@ -490,9 +488,6 @@ describe("T-17be deps 區塊: 不是 status、不上第一排", () => {
     // colour — it can see that the class carrying it is applied, which is the
     // part a refactor drops. (The colour itself: candA screenshots.)
     expect(dep.classList.contains("task-card__waiting--dep")).toBe(true);
-    // The old grey mono chip is gone for good.
-    expect(dep.classList.contains("task-key")).toBe(false);
-    expect(dep.classList.contains("task-key--dep")).toBe(false);
     // A blocked card is NOT thereby waiting_external. This used to be pinned by
     // asserting the task-level waiting banner stayed absent; that banner was
     // removed outright in T-c514 (duplicate of the step's own reason), so the

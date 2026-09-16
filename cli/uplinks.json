@@ -191,11 +191,32 @@
       "skip_reason": "GET with a nil body — asks the server which release is current."
     },
     {
+      "id": "warden-binary-download",
+      "source": "cli/ocwarden/selfupdate.go",
+      "callsite": "req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+path, nil)",
+      "kind": "skip",
+      "skip_reason": "GET with a nil body — downloads the ocagent / ocwarden binary."
+    },
+    {
       "id": "warden-release-check-do",
       "source": "cli/ocwarden/selfupdate.go",
       "callsite": "resp, err := client.Do(req)",
       "kind": "skip",
-      "skip_reason": "The send half of the release check above."
+      "skip_reason": "The send half of the release check and the binary download above (sendStationGet)."
+    },
+    {
+      "id": "warden-getter-send",
+      "source": "cli/ocwarden/selfupdate.go",
+      "callsite": "return sendStationGet(client, req, token, nil)",
+      "kind": "skip",
+      "skip_reason": "httpGetter handing its GET request (nil body) to sendStationGet."
+    },
+    {
+      "id": "warden-downloader-send",
+      "source": "cli/ocwarden/selfupdate.go",
+      "callsite": "return sendStationGet(selfUpdateDownloadClient, req, token, func(body io.ReadCloser) io.ReadCloser {",
+      "kind": "skip",
+      "skip_reason": "httpDownloader handing its GET request (nil body) to sendStationGet."
     },
     {
       "id": "codex-post-seam",
@@ -346,16 +367,23 @@
     {
       "id": "warden-install-getter",
       "source": "cli/ocwarden/install.go",
-      "callsite": "return httpGetter(&http.Client{Timeout: selfUpdateHTTPTimeout}, base, token)",
+      "callsite": "return httpGetter(&http.Client{Timeout: selfUpdateRequestBudget}, base, token)",
       "kind": "skip",
       "skip_reason": "Constructs the release-check GETTER. GETs only, no body out."
     },
     {
       "id": "warden-selfupdate-getter",
       "source": "cli/ocwarden/selfupdate.go",
-      "callsite": "get:          httpGetter(client, cfg.Base, cfg.Token),",
+      "callsite": "get:          httpGetter(selfUpdateRequestClient, cfg.Base, cfg.Token),",
       "kind": "skip",
       "skip_reason": "The same GET-only getter, wired into the self-updater."
+    },
+    {
+      "id": "warden-selfupdate-downloader",
+      "source": "cli/ocwarden/selfupdate.go",
+      "callsite": "download:     httpDownloader(cfg.Base, cfg.Token),",
+      "kind": "skip",
+      "skip_reason": "The GET-only binary downloader, wired into the self-updater."
     },
     {
       "id": "warden-transport-connectonce",
@@ -446,7 +474,7 @@
     {
       "id": "ocagent-run-6",
       "source": "cli/ocagent/listen_run.go",
-      "callsite": "drainChat(l.api, l.cfg, l.out, l.drainWarn, l.ack)",
+      "callsite": "drainChat(l.api, l.cfg, l.out, l.drainWarn, l.ack, l.clock)",
       "kind": "seam",
       "seam_reason": "hop: the ONE place chat is drained since T-48 — both entrances (every connect and a chat delta) call l.drainChatNow(), which calls this. It is a GET (fetchChat), and since T-48 there IS a POST below it: the read receipt filed after the lines are printed. That POST is claimed by ocagent-chat-mark-read; this row stays a seam because the body is built there, not here."
     },
@@ -636,14 +664,14 @@
       "source": "cli/ocwarden/selfupdate.go",
       "callsite": "if _, err := u.reconcileBinary(agentBinaryPath, u.agentPath, \"ocagent\"); err != nil {",
       "kind": "seam",
-      "seam_reason": "hop: reconciles one binary against the server's copy. Its only request is the release download GET (u.get) — no body, and no self_update POST below it."
+      "seam_reason": "hop: reconciles one binary against the server's copy. Its only request is the binary download GET (u.download) — no body, and no self_update POST below it."
     },
     {
       "id": "warden-selfupdate-5",
       "source": "cli/ocwarden/selfupdate.go",
       "callsite": "wardenSwapped, err = u.reconcileBinary(wardenBinaryPath, u.selfPath, \"ocwarden\")",
       "kind": "seam",
-      "seam_reason": "hop: reconciles one binary against the server's copy. Its only request is the release download GET (u.get) — no body, and no self_update POST below it."
+      "seam_reason": "hop: reconciles one binary against the server's copy. Its only request is the binary download GET (u.download) — no body, and no self_update POST below it."
     },
     {
       "id": "warden-selfupdate-6",
@@ -655,9 +683,9 @@
     {
       "id": "warden-selfupdate-7",
       "source": "cli/ocwarden/selfupdate.go",
-      "callsite": "status, body, err := u.get(path)",
+      "callsite": "status, body, err := u.download(path)",
       "kind": "skip",
-      "skip_reason": "GET through the warden getter (warden-selfupdate-getter) — a download, no request body"
+      "skip_reason": "GET through the warden downloader (warden-selfupdate-downloader) — a download, no request body"
     },
     {
       "id": "warden-transport-1",

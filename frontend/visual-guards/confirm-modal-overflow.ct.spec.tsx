@@ -1,18 +1,25 @@
 // HOTSPOT (T-192) — the shared confirm dialog must stay READABLE on a short
-// window, because the only reason its body exists is to be read before an
-// irreversible action (強制結案 expires every waiting reply card, dismisses the
-// bound outsource worker, and releases downstream tasks — one of which can mint
-// a NEW worker and spend money).
+// window, because the only reason a confirm body exists is to be read before an
+// irreversible action.
+//
+// 🔴 THE FIXTURE IS THE GUARD'S OWN. This file used to mount the real
+// `forceDoneConfirmBody` copy, on the reasoning that the defect was a property
+// of that paragraph's height (499.2px en / 394.6px zh, measured in a real
+// browser). Owner ruling rc-bdfd2fc07305 then cut that body to one sentence,
+// which FITS — and a body that fits makes "the box must scroll" a claim about
+// nothing. The subject here is the shared shell's behaviour when any caller
+// passes more content than the window holds, so the story now owns an over-tall
+// fixture and no product string can shorten this guard into vacuity.
 //
 // THE DEFECT, measured in a real browser before the fix: `.confirm-modal` is
 // `position: fixed` + `align-items: center`, and NEITHER it nor
 // `.confirm-modal__box` declared any `overflow-y`. The box's height comes only
-// from its content (499.2px en / 394.6px zh) and does not track the viewport,
-// so on a window shorter than that the box is centred THROUGH the scrim and the
-// TOP of the paragraph sits above y=0 — with `scrollHeight - clientHeight === 0`
-// on the box AND on the page, i.e. nothing anywhere can scroll it back. The
-// buttons stay clickable down to ~397px, so the danger is silent: the dialog
-// looks operable while the consequences it names are off-screen.
+// from its content and does not track the viewport, so on a window shorter than
+// that the box is centred THROUGH the scrim and the TOP of the paragraph sits
+// above y=0 — with `scrollHeight - clientHeight === 0` on the box AND on the
+// page, i.e. nothing anywhere can scroll it back. The buttons stay clickable
+// down to ~397px, so the danger is silent: the dialog looks operable while the
+// body it carries is off-screen.
 //
 // WHY CT AND NOT jsdom: every term in that sentence is layout. jsdom applies no
 // layout engine — `scrollHeight`/`clientHeight` are 0, `getBoundingClientRect()`
@@ -42,7 +49,7 @@ import {
 
 const BOX = ".confirm-modal__box";
 
-/** Short enough that the en body (499.2px) cannot fit, and still wide/tall
+/** Short enough that the story's fixture body cannot fit, and still wide/tall
  * enough to be a window a person really uses (a half-height laptop split, a
  * landscape phone). */
 const SHORT = { width: 900, height: 420 };
@@ -52,7 +59,7 @@ test("the confirm box scrolls, and its body starts on screen, at a short window"
   page,
 }) => {
   await page.setViewportSize(SHORT);
-  const cmp = await mount(<ConfirmModalOverflowStory locale="en" />);
+  const cmp = await mount(<ConfirmModalOverflowStory />);
 
   const box = cmp.locator(BOX);
   await expect(box).toBeVisible();
@@ -98,11 +105,11 @@ test("the confirm box scrolls, and its body starts on screen, at a short window"
   // The paragraph's own first pixel row, not just the box's: the copy element
   // must begin inside the visible slice of the box.
   const copyTop = await cmp
-    .locator('[data-testid="force-done-copy"]')
+    .locator('[data-testid="overflow-copy"]')
     .evaluate((el) => el.getBoundingClientRect().top);
   expect(
     copyTop,
-    "the consequence paragraph must START on screen, not above it"
+    "the body paragraph must START on screen, not above it"
   ).toBeGreaterThanOrEqual(m.rectTop - 1);
   expect(copyTop, "…and inside the window").toBeLessThan(SHORT.height);
 
@@ -118,7 +125,7 @@ test("the confirm box scrolls, and its body starts on screen, at a short window"
   ).toBeGreaterThan(0);
 
   // With the box scrolled to the end, the ACTIONS row is on screen — the
-  // reader can reach the decision after reading the consequences.
+  // reader can reach the decision after reading the body.
   const actions = await cmp
     .locator(".confirm-modal__actions")
     .evaluate((el) => el.getBoundingClientRect());

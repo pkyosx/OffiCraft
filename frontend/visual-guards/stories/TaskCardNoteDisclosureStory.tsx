@@ -1,12 +1,7 @@
-// CT story (T-e5b1): an expanded TaskCard carrying BOTH halves of the ticket.
-//
-// It replaces TaskCardDescEditorStory, which existed only to hold the
-// description editor open — that editor is gone, and with it the layout
-// problem that guard measured.
+// CT story (T-e5b1): an expanded TaskCard with step notes.
 //
 // What this story is built to make measurable:
-//   * the card renders a description and a title with NO edit affordance,
-//     because the props that used to create them no longer exist on TaskCard;
+//   * the card renders a title and a description;
 //   * two steps whose names are the SAME LENGTH, one WITH a note and one
 //     WITHOUT — so a height difference between the two collapsed rows can only
 //     come from the disclosure control, not from the names;

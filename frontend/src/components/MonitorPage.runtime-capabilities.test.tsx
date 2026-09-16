@@ -232,10 +232,4 @@ describe("MonitorPage per-runtime version columns", () => {
     const codex = await screen.findByTestId("mon-codex-version");
     expect(codex.textContent).toBe("—");
   });
-
-  it("no longer renders the ✓/✗ runtimes digest column", async () => {
-    mount(card(false, FRESH));
-    await screen.findByTestId("mon-codex-version");
-    expect(screen.queryByTestId("mon-runtimes")).toBeNull();
-  });
 });

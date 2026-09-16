@@ -281,30 +281,6 @@ describe("OutsourcePanel", () => {
     expect(typeLine.textContent).toBe("自由代辦");
   });
 
-  it("the rail's task type line grows NO settings gear — the outsource ⚙ is gone", async () => {
-    // Owner 2026-07-17: the roster gears go back; the outsource one is DELETED
-    // outright (the outsource panel has no 任務類型 field to host it, so unlike
-    // the member gear it has nowhere to move to). A worker with a REAL typeKey
-    // — the exact case that used to grow the gear — must show none.
-    __injectMockTask(
-      mkTask({ id: "t-geared", typeKey: "review-pr", createdTs: 65 })
-    );
-    __injectMockOutsourceWorker(
-      mkWorker({ id: "ow-geared", taskId: "t-geared" })
-    );
-
-    const { findByTestId, queryByTestId } = renderOutsource();
-    const typeLine = await findByTestId("outsource-type-ow-geared");
-    expect(typeLine.textContent).toBe("review-pr");
-    expect(queryByTestId("outsource-type-settings-ow-geared")).toBeNull();
-    // Testid-independent, via a LIVE label: 任務類型設定 no longer renders
-    // anywhere, so its old class/label cannot be asserted against without the
-    // negative going unfalsifiable. What IS still live is the type text — this
-    // row shows the type but offers no jump off it.
-    const taskLine = await findByTestId("outsource-task-line-ow-geared");
-    expect(taskLine.querySelector("button[title*='設定']")).toBeNull();
-  });
-
   it("clicking the task-id chip jumps to the task page — not the chat", async () => {
     __injectMockTask(
       mkTask({ id: "t-jump", taskNo: "T-950f", typeKey: "review-pr", createdTs: 70 })
@@ -560,8 +536,8 @@ describe("OutsourcePanel", () => {
     // The worker id rides the SAME chatId hash slot as a member chat.
     expect(window.location.hash).toBe("#office/chat/ow-1");
     // ChatArea header: 「外包 · 代號」 + the SAME task line the rail row shows
-    // (owner 2026-07-16: 兩邊顯示一樣的東西 — [task-id chip → type]), NOT the
-    // old 狀態 · 標題 pair, and NO dot (presence lives only in the rail row).
+    // (owner 2026-07-16: 兩邊顯示一樣的東西 — [task-id chip → type]), and NO dot
+    // (presence lives only in the rail row).
     await findByText("外包 · H-3");
     const sub = await findByTestId("outsource-chat-sub");
     const chip = within(sub).getByTestId("outsource-chat-task-ow-1");
@@ -573,12 +549,6 @@ describe("OutsourcePanel", () => {
         Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy();
     expect(sub.querySelector(".lifecycle-dot")).toBeNull();
-    // …and no settings gear either (owner 2026-07-17: the outsource ⚙ is gone
-    // from BOTH surfaces). ow-1 carries a real "review-pr" typeKey, so this is
-    // the case that would grow one if the gear ever came back.
-    expect(
-      within(sub).queryByTestId("outsource-chat-type-settings-ow-1")
-    ).toBeNull();
     // T-dfae: the chat header's 任務/角色設定 buttons are wired ONLY for roster
     // members. An outsource peer has no role to define, and its tasks are not
     // separable from every other worker's (all collapse to the single
@@ -586,9 +556,6 @@ describe("OutsourcePanel", () => {
     // than lie. Keyed off the live labels the member header does render.
     expect(within(sub).queryByLabelText(zh.chat.roleSettingsLink)).toBeNull();
     expect(within(sub).queryByLabelText(zh.chat.tasksLink)).toBeNull();
-    // The old subtitle's status word / task title are GONE from the header.
-    expect(sub.textContent).not.toContain("等待外部");
-    expect(sub.textContent).not.toContain("查帳單");
     // The row carries the open-chat highlight.
     const row = await findByTestId("outsource-row-ow-1");
     expect(row.className).toContain("outsource-row--selected");

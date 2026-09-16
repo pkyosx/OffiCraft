@@ -46,6 +46,16 @@ const OWNER_LINK = serveArtifacts(
         mime: "text/uri-list",
         createdTs: 0,
         createdBy: "mira",
+        // A link's blob is the uri-list itself, so it carries NO filename of
+        // its own ("" is the honest value, adapter.ts). `versionCount: 1` keeps
+        // the row's action column at the single × this guard measures against:
+        // artifacts-badge.ct.spec.tsx ("narrow 375: … grows NO horizontal
+        // scroll") asserts the FIRST `.task-artifacts__chip`'s right edge stays
+        // inside the panel, and a 「N版」 entry would take width from exactly
+        // that chip — testing the entry's width instead of the long name's
+        // truncation, which is what this story exists for.
+        filename: "",
+        versionCount: 1,
       },
     ],
   })
@@ -69,6 +79,7 @@ export function TaskArtifactsOverflowStory() {
                   onMarkDuplicate={NOOP as never}
                   onSetPriority={NOOP as never}
                   onSendMessage={NOOP as never}
+                  onReassign={NOOP as never}
                   onHydrate={(async () => OWNER_LINK) as never}
                   onRemoveArtifact={NOOP as never}
                 />

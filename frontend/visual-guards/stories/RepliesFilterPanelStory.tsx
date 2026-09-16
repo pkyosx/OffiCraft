@@ -35,6 +35,7 @@
 // element — so the guard can ask the same question twice under the two theme
 // families without the story re-implementing theming.
 import { I18nProvider } from "../../src/i18n";
+import { zh } from "../../src/i18n/locales/zh";
 import { RepliesPage } from "../../src/components/RepliesPage";
 import App from "../../src/App";
 import { ReplyCardsProvider } from "../../src/hooks/useReplyCards";
@@ -116,7 +117,10 @@ export function FilterFieldsStory({ theme }: { theme: "light" | "dark" }) {
     <I18nProvider>
       <div className="app" style={{ width: "100vw", maxWidth: "100vw" }}>
         <main className="app__main">
-          <FilterPanel testId="replies-filter">
+          <FilterPanel
+            testId="replies-filter"
+            clearLabel={zh.replies.clearFilters}
+          >
             <IdFilterInput
               value=""
               onChange={noop}
