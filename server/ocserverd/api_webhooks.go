@@ -17,6 +17,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"time"
@@ -25,6 +26,13 @@ import (
 // webhookPayloadMaxBytes caps a single /in payload. Webhook payloads are small
 // control/event blobs, so this sits FAR below chat's 100 MB attachment ceiling
 // — a public unauthenticated inlet must not be an amplification / memory sink.
+//
+// 🔴 OVER-CAP IS A REFUSAL, NOT A TRUNCATION (T-222, owner rc-a40ef8c66781
+// 「超過上限直接拒絕」). Cutting the body at the cap and carrying on delivered
+// half a payload the member could not tell was half, told the sender it had
+// succeeded, and — worse — fed the TRUNCATED bytes to the slack/github HMAC
+// gates, so a perfectly legitimate signed call was classified sig_failed and
+// thrown away. Nothing reaches the member now; the sender is told.
 const webhookPayloadMaxBytes = 1 << 20 // 1 MiB
 
 // Request-log caps (migrations/00014 webhook_request_log): the ring buffer
@@ -73,6 +81,26 @@ func (s *apiServer) logWebhookRequest(token string, r *http.Request, payload []b
 		Body:      string(body),
 		Truncated: truncated,
 	})
+}
+
+// recordWebhookOversizeRejection leaves the over-cap refusal in the endpoint's
+// existing observability fields — dropped_count / last_drop_reason on the
+// endpoint row plus one `dropped:oversize` row in the request-log ring buffer,
+// its body cut at the log's own 16 KiB ceiling like every other row's.
+//
+// It runs AFTER the 413 verdict and can change nothing about it: the token is
+// resolved here only to find somewhere to write, and an unresolvable one simply
+// has no endpoint to record against — the same by-construction gap every other
+// outcome has. Errors are swallowed, as everywhere else on this inlet.
+func (s *apiServer) recordWebhookOversizeRejection(token string, r *http.Request, payload []byte) {
+	e, err := s.dal.GetWebhookByToken(token)
+	if err != nil || e == nil {
+		return
+	}
+	ts := nowSecs()
+	_ = s.dal.MarkWebhookDropped(e.Token, WebhookDropReasonOversize, ts)
+	s.logWebhookRequest(e.Token, r, payload,
+		webhookOutcomeDroppedPrefix+WebhookDropReasonOversize, ts)
 }
 
 // newWebhookToken mints a high-entropy, unguessable, URL-safe opaque token
@@ -249,14 +277,31 @@ func (s *apiServer) resolveWebhook(memberID, endpointID string, scope memberScop
 // an unknown/disabled token, an absent member, or a missing token all answer
 // the SAME silent 200 (never reveal whether an endpoint exists). An accepted
 // call synthesises exactly ONE chat_message to the member (投遞方式 A).
+//
+// The ONE non-200 face is an over-cap body: refused 413 before identity is
+// looked at, so it reveals nothing either (T-222).
 func (s *apiServer) HandleReceiveWebhookInPost(w http.ResponseWriter, r *http.Request, params HandleReceiveWebhookInPostParams) {
-	// Read + cap the untrusted body regardless of token validity so a client
-	// never learns anything from timing/short-circuit differences.
-	payload, _ := io.ReadAll(io.LimitReader(r.Body, webhookPayloadMaxBytes))
+	// Read the untrusted body regardless of token validity so a client never
+	// learns anything from timing/short-circuit differences. Bounded at cap+1:
+	// one extra byte proves over-cap without ever buffering an unbounded body
+	// (the chat-attachment and avatar upload seams read the same way).
+	payload, _ := io.ReadAll(io.LimitReader(r.Body, webhookPayloadMaxBytes+1))
 
 	token := ""
 	if params.T != nil {
 		token = *params.T
+	}
+	// 🔴 THE SIZE VERDICT IS REACHED BEFORE ANY IDENTITY OR SIGNATURE WORK, and
+	// the refusal below consults no endpoint row, so an over-cap caller learns
+	// exactly what an over-cap caller with a garbage token learns: the same
+	// 413, byte for byte. It must also stay ahead of the platform gates for a
+	// second reason — an HMAC computed over a cut body is a lie about the
+	// sender, not a verdict on it (T-222).
+	if len(payload) > webhookPayloadMaxBytes {
+		s.recordWebhookOversizeRejection(token, r, payload)
+		writeError(w, http.StatusRequestEntityTooLarge,
+			fmt.Sprintf("webhook payload is too large (max %d bytes)", webhookPayloadMaxBytes))
+		return
 	}
 	e, err := s.dal.GetWebhookByToken(token)
 	if err != nil {

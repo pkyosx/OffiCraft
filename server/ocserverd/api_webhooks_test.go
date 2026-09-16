@@ -789,6 +789,123 @@ func TestHandleReceiveWebhookInPost(t *testing.T) {
 			"last_drop_reason":   "sig_failed",
 		})
 	})
+
+	t.Run("a body one byte over the cap is refused to the sender's face, reaches the member not at all, and is recorded as oversize", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		token := apiTestWebhookToken(t, h, owner, "kip", `{"endpoint_id":"alerts","purpose":"CI"}`)
+		dashboard := apiTestListen(t, api, "")
+		recipient := apiTestListen(t, api, "kip")
+
+		status, data := apiJSON(t, h, "POST", "/in?t="+token, "",
+			strings.Repeat("a", webhookPayloadMaxBytes+1))
+		if status != 413 {
+			t.Fatalf("want 413, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "client_error",
+			"webhook payload is too large (max 1048576 bytes)")
+		dashboard.wantFrames()
+		recipient.wantFrames()
+		apiWantNoChatWithKip(t, h, owner)
+		apiWantWebhookRow(t, h, owner, map[string]any{
+			"endpoint_id":        "alerts",
+			"purpose":            "CI",
+			"status":             "enabled",
+			"created_ts":         apiAnyNumber,
+			"token":              token,
+			"platform":           "generic",
+			"has_signing_secret": false,
+			"last_received_ts":   apiAnyNumber,
+			"delivered_count":    0,
+			"dropped_count":      1,
+			"last_drop_reason":   "oversize",
+		})
+		apiWantWebhookRequests(t, h, owner, "alerts", map[string]any{
+			"ts":        apiAnyNumber,
+			"outcome":   "dropped:oversize",
+			"headers":   `{"Content-Type":["application/json"]}`,
+			"body":      strings.Repeat("a", webhookLogBodyMaxBytes),
+			"truncated": true,
+		})
+	})
+
+	t.Run("a body exactly at the cap still delivers, unchanged", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		token := apiTestWebhookToken(t, h, owner, "kip", `{"endpoint_id":"alerts","purpose":"CI"}`)
+		dashboard := apiTestListen(t, api, "")
+		recipient := apiTestListen(t, api, "kip")
+
+		status, data := apiJSON(t, h, "POST", "/in?t="+token, "",
+			strings.Repeat("a", webhookPayloadMaxBytes))
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{"status": "ok"})
+		frame := map[string]any{
+			"seq":   1,
+			"topic": "chat",
+			"op":    "patch",
+			"data": map[string]any{
+				"entity":  "chat",
+				"key":     apiAnyString,
+				"epoch":   1,
+				"deleted": false,
+				"payload": map[string]any{
+					"id":   apiAnyString,
+					"from": "hook:alerts",
+					"to":   "kip",
+				},
+			},
+			"ts":      apiAnyNumber,
+			"trigger": "server",
+		}
+		dashboard.wantFrames(frame)
+		recipient.wantFrames(frame)
+		apiWantWebhookRow(t, h, owner, map[string]any{
+			"endpoint_id":        "alerts",
+			"purpose":            "CI",
+			"status":             "enabled",
+			"created_ts":         apiAnyNumber,
+			"token":              token,
+			"platform":           "generic",
+			"has_signing_secret": false,
+			"last_received_ts":   apiAnyNumber,
+			"delivered_count":    1,
+			"dropped_count":      0,
+			"last_drop_reason":   "",
+		})
+	})
+
+	t.Run("an over-cap call to a signed endpoint is refused for its size, never misclassified as a bad signature", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		token := apiTestWebhookToken(t, h, owner, "kip",
+			`{"endpoint_id":"slackin","platform":"slack","signing_secret":"s3cret"}`)
+		dashboard := apiTestListen(t, api, "")
+		recipient := apiTestListen(t, api, "kip")
+
+		status, data := apiJSON(t, h, "POST", "/in?t="+token, "",
+			strings.Repeat("a", webhookPayloadMaxBytes+1))
+		if status != 413 {
+			t.Fatalf("want 413, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "client_error",
+			"webhook payload is too large (max 1048576 bytes)")
+		dashboard.wantFrames()
+		recipient.wantFrames()
+		apiWantNoChatWithKip(t, h, owner)
+		apiWantWebhookRow(t, h, owner, map[string]any{
+			"endpoint_id":        "slackin",
+			"purpose":            "",
+			"status":             "enabled",
+			"created_ts":         apiAnyNumber,
+			"token":              token,
+			"platform":           "slack",
+			"has_signing_secret": true,
+			"last_received_ts":   apiAnyNumber,
+			"delivered_count":    0,
+			"dropped_count":      1,
+			"last_drop_reason":   "oversize",
+		})
+	})
 }
 
 func apiTestWebhookToken(t *testing.T, h http.Handler, owner, memberID, body string) string {

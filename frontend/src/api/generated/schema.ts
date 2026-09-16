@@ -3508,6 +3508,7 @@ export interface paths {
          *     - The payload arrives as ONE chat message to the member and never wakes it.
          *     - Unknown, disabled and missing tokens all answer the SAME silent 200 — you cannot probe for one.
          *     - Verification by platform: `slack` (challenge echo + X-Slack-Signature), `github` (X-Hub-Signature-256); a failure is silently discarded.
+         *     - A body over the 1 MiB cap is REFUSED 413 before the token is looked at — nothing is delivered and nothing is truncated.
          */
         post: operations["handle_receive_webhook_in_post"];
         delete?: never;
@@ -9821,7 +9822,7 @@ export interface components {
             has_signing_secret: boolean;
             /**
              * Last Drop Reason
-             * @description Coarse classification of the most recent silent drop: `sig_failed` (Slack/GitHub signature or timestamp verification failed), `disabled` (endpoint was disabled), or `member_gone` (the bound member no longer resolves). Empty string when nothing was ever dropped.
+             * @description Coarse classification of the most recent undelivered call: `sig_failed` (Slack/GitHub signature or timestamp verification failed), `disabled` (endpoint was disabled), `member_gone` (the bound member no longer resolves), or `oversize` (the body exceeded the 1 MiB cap). The first three are silent drops the caller still saw a 200 for; `oversize` is the one the caller was refused to its face with a 413. Empty string when nothing was ever dropped.
              * @default
              */
             last_drop_reason: string;
@@ -9853,7 +9854,7 @@ export interface components {
         };
         /**
          * WebhookRequestLogDTO
-         * @description One row of a webhook endpoint's /in debug ring buffer (GET /api/members/{member_id}/webhooks/{endpoint_id}/requests, newest first, at most 5 rows kept per endpoint). Records EVERY request /in resolved to the endpoint's token, whatever the outcome: `delivered` (verified payload landed as a chat), `dropped:sig_failed` / `dropped:disabled` / `dropped:member_gone` (silent drops with their coarse reason), `challenge` (the Slack url_verification handshake), `ping` (a verified GitHub ping). An unknown token has no endpoint to log against, by construction. `headers` is the JSON-serialised request header map (truncated at 4 KiB); `body` is the raw payload text (truncated at 16 KiB); `truncated` marks that either was cut. Governance-gated debug wire (requires=admin_agent since T-6020) - raw external payloads never ride any public or PLAIN-agent-facing surface, and the public /in response stays byte-identical regardless of logging.
+         * @description One row of a webhook endpoint's /in debug ring buffer (GET /api/members/{member_id}/webhooks/{endpoint_id}/requests, newest first, at most 5 rows kept per endpoint). Records EVERY request /in resolved to the endpoint's token, whatever the outcome: `delivered` (verified payload landed as a chat), `dropped:sig_failed` / `dropped:disabled` / `dropped:member_gone` (silent drops with their coarse reason), `dropped:oversize` (a body over the 1 MiB cap, refused 413 rather than truncated), `challenge` (the Slack url_verification handshake), `ping` (a verified GitHub ping). An unknown token has no endpoint to log against, by construction. `headers` is the JSON-serialised request header map (truncated at 4 KiB); `body` is the raw payload text (truncated at 16 KiB); `truncated` marks that either was cut. Governance-gated debug wire (requires=admin_agent since T-6020) - raw external payloads never ride any public or PLAIN-agent-facing surface, and the public /in response stays byte-identical regardless of logging.
          */
         WebhookRequestLogDTO: {
             /** Body */
@@ -18383,6 +18384,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": Record<string, never>;
+                };
+            };
+            /** @description Payload exceeds the 1 MiB cap. */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
                 };
             };
         };
