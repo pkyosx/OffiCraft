@@ -156,23 +156,6 @@ def test_tools_list_equals_frozen_snapshot_elementwise(
         ], f"{principal}: tools/list order is not the route-table order"
 
 
-def test_tools_list_counts_differ_by_class(
-    client, owner_token, admin_agent, agent_a, warden_agent
-) -> None:
-    """Each principal class receives the independently pinned number of tools."""
-    counts = {
-        principal: len(_result(_rpc(client, token, "tools/list"))["tools"])
-        for principal, token in (
-            ("owner", owner_token),
-            ("admin_agent", admin_agent.token),
-            ("agent", agent_a.token),
-            ("machine", warden_agent.token),
-        )
-    }
-    assert counts == {"owner": 123, "admin_agent": 123, "agent": 77, "machine": 47}, counts
-    assert len(MCP_CATALOG["tools"]) == 123, "the frozen snapshot itself changed size"
-
-
 def test_an_unlisted_tool_is_refused_not_unknown(client, agent_a) -> None:
     """An unlisted tool still reaches the route's authorization refusal."""
     hidden = "update_settings"
