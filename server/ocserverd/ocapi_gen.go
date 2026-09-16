@@ -3705,6 +3705,33 @@ type TaskStepDetailDTO struct {
 	WaitingReason   *string  `json:"waiting_reason,omitempty"`
 }
 
+// TaskStepInsertDTO One step to insert into an existing plan (MCP `insert_step`). The step's own fields are the same four a submit_plan node carries — `name` and `dod` are required and must be non-blank — plus `before_step_id`, which says WHERE it lands. Parallel (fork-join) shape is validated over the resulting timeline (400 otherwise), the same rules submit_plan applies: steps sharing a non-empty `parallel_group` must sit consecutively and number at least two, and a gate step must not carry a `parallel_group`.
+type TaskStepInsertDTO struct {
+	// BeforeStepId The step the new one goes IN FRONT OF. Omitted or "" appends at the end of the timeline. An id that names no step on this task is a 404; one that names a done or superseded step is a 409 — nothing is inserted into finished work.
+	BeforeStepId  *string `json:"before_step_id,omitempty"`
+	Dod           string  `json:"dod"`
+	IsGate        *bool   `json:"is_gate,omitempty"`
+	Name          string  `json:"name"`
+	ParallelGroup *string `json:"parallel_group,omitempty"`
+}
+
+// TaskStepInsertReceiptDTO Bounded receipt returned after `insert_step`. `step_id` is the id the server minted for the new step — the caller could not know it, and it is the handle every later note, status report or delete takes. The counters are the STORED timeline's, kept done/superseded history included. Fetch GET /api/tasks/{task_id} for the step rows themselves.
+type TaskStepInsertReceiptDTO struct {
+	ProgressDone  int    `json:"progress_done"`
+	ProgressTotal int    `json:"progress_total"`
+	StepId        string `json:"step_id"`
+	StepsTotal    int    `json:"steps_total"`
+	TaskId        string `json:"task_id"`
+}
+
+// TaskStepMutationReceiptDTO Bounded receipt returned after `delete_step` and `reorder_steps`. Neither call mints anything, so the receipt carries only what the caller could not know: how many steps the STORED timeline now holds (kept done/superseded history included) and where the leaf progress landed. Fetch GET /api/tasks/{task_id} for the step rows themselves.
+type TaskStepMutationReceiptDTO struct {
+	ProgressDone  int    `json:"progress_done"`
+	ProgressTotal int    `json:"progress_total"`
+	StepsTotal    int    `json:"steps_total"`
+	TaskId        string `json:"task_id"`
+}
+
 // TaskStepNotePatchDTO Anchor-addressed PATCH of one step's working note (MCP “patch_step_note“): “{edits: [{old, new}], allow_shrink?}“. It exists to stop CONCURRENT OVERWRITE: “update_step_note“ is a whole-doc replace, so a caller that read the note earlier and writes it back silently deletes whatever a second writer added in between — and because the stale copy is usually the LONGER one, no shrink guard fires and the loss carries no signal at all. An anchor patch cannot express that write: each non-empty “old“ must match the current note EXACTLY ONCE, so a concurrent write that moved or duplicated the anchor turns the batch into a refusal. ATOMIC — edits apply sequentially to an in-memory copy and any failing anchor (absent or ambiguous “old“) rejects the ENTIRE batch with a flat 400 and ZERO writes; an empty “old“ appends “new“. “allow_shrink“ (default false) must be set explicitly for a patch that empties the note or shrinks it to under a tenth of its size — the r-76 wipe-guard posture; use “update_step_note“ for an honest wholesale rewrite.
 type TaskStepNotePatchDTO struct {
 	AllowShrink *bool            `json:"allow_shrink,omitempty"`
@@ -3742,6 +3769,12 @@ type TaskStepNoteReceiptDTO struct {
 // TaskStepNoteUpdateDTO Write one step's working note (MCP “update_step_note“, T-cc3e). WHAT TO WRITE — three things, then stop: (1) STATE — one sentence on where this step actually got to; (2) NEXT — one sentence on what whoever takes over does next; (3) EVIDENCE POINTERS — version ids, file and log paths, what you verified YOURSELF versus what you are taking on someone's word, and the limits of what was NOT done. Long narrative does not live here: reasoning and scope belong in the task description, reports and diffs belong on the task as artifacts. The note is the current state — not a report, not an append-only log. Accepted in ANY STEP status — pending, in_progress, waiting_owner, waiting_external, done and superseded alike, for as long as the TASK itself is open — because the note records where the work stands, which is orthogonal to the state machine; that generality is the whole point, since the previous two note-shaped fields were each locked to one moment (“waiting_reason“ to waiting_external, the handoff fields to the closing report). Deliberately its OWN endpoint and its OWN tool rather than another parameter on update_step_status (charter §14 intent-per-tool): writing a note is a different intent from reporting a transition, and one field with two write paths is exactly the ambiguity this ticket exists to remove. The write is wholesale — the body's “note“ replaces whatever was there; sending “""“ clears it.
 type TaskStepNoteUpdateDTO struct {
 	Note string `json:"note"`
+}
+
+// TaskStepReorderDTO The reorder_steps request body. `step_ids` is the complete ordered list of the task's UNFINISHED step ids; done and superseded steps keep the timeline positions they already hold and must not appear. A list that is not exactly that set is a 400 and nothing is written.
+type TaskStepReorderDTO struct {
+	// StepIds The complete ordered list of this task's UNFINISHED step ids — all of them, in the order you want them, and nothing else. Done and superseded steps keep the positions they already hold and must not appear here.
+	StepIds []string `json:"step_ids"`
 }
 
 // TaskStepStatusReceiptDTO Bounded receipt returned after updating one task step. Fetch GET /api/tasks/{task_id} when full task detail is needed.
@@ -4341,6 +4374,12 @@ type HandleSetTaskPriorityApiTasksTaskIdPriorityPostJSONRequestBody = TaskPriori
 // HandleReassignTaskApiTasksTaskIdReassignPostJSONRequestBody defines body for HandleReassignTaskApiTasksTaskIdReassignPost for application/json ContentType.
 type HandleReassignTaskApiTasksTaskIdReassignPostJSONRequestBody = TaskReassignDTO
 
+// HandleInsertTaskStepApiTasksTaskIdStepsPostJSONRequestBody defines body for HandleInsertTaskStepApiTasksTaskIdStepsPost for application/json ContentType.
+type HandleInsertTaskStepApiTasksTaskIdStepsPostJSONRequestBody = TaskStepInsertDTO
+
+// HandleReorderTaskStepsApiTasksTaskIdStepsReorderPostJSONRequestBody defines body for HandleReorderTaskStepsApiTasksTaskIdStepsReorderPost for application/json ContentType.
+type HandleReorderTaskStepsApiTasksTaskIdStepsReorderPostJSONRequestBody = TaskStepReorderDTO
+
 // HandleUpdateTaskStepNoteApiTasksTaskIdStepsStepIdNotePostJSONRequestBody defines body for HandleUpdateTaskStepNoteApiTasksTaskIdStepsStepIdNotePost for application/json ContentType.
 type HandleUpdateTaskStepNoteApiTasksTaskIdStepsStepIdNotePostJSONRequestBody = TaskStepNoteUpdateDTO
 
@@ -4846,7 +4885,7 @@ type ServerInterface interface {
 	// Message the task's executor (owner/admin agent; task context auto-attached). Answers with a bounded receipt (“id“, “ts“, “to“, “attachments“), not the message — call “get_chat“ when you need the rest. “to“ is the executor the server delivered to: you did not name it (you named a task), and a later read cannot recompute it, because the executor can change between two calls.
 	// (POST /api/tasks/{task_id}/message)
 	HandlePostTaskMessageApiTasksTaskIdMessagePost(w http.ResponseWriter, r *http.Request, taskId string)
-	// Submit/replace the workflow plan. ⚠️ Resubmitting permanently deletes every unfinished step that is not kept (see below), together with its working note; deleted notes cannot be recovered. Done steps, superseded steps, and unfinished steps whose most recently opened reply card is answered or expired are kept in their original order, and every step of the new plan is placed after them. Names match exactly and case-sensitively after surrounding whitespace is trimmed from each submitted name. Relisting a done step or an answered/expired-card step under the same name keeps that existing row (same id, note and status) and drops the relisted entry, so nothing in it (dod, is_gate, parallel_group) is written. Relisting any other unfinished step under the same name creates a new pending step with a new id, so copy any note you need before resubmitting; relisting a superseded step's name likewise creates a new pending step and leaves the superseded row as history. An answered/expired-card step whose name the new plan leaves out is frozen as superseded instead of deleted, so leaving its name out keeps its history without continuing the step. T-74f8 交棒閘 (second door): a plan is a step-set write and the task status is DERIVED from the step set, so a plan that leaves at least one step that is not superseded, and every such step done, FINISHES the task: it lands in “ready_for_done“, exactly as the final step report does. Neither closes the task — “mark_task_done“ does, and that close cannot be undone. If that task's creator is not its executor and no handover is declared or already real, the replan is refused with 422 BEFORE anything is written (the plan stays fully editable). A plan carries no handoff field, so the way out is to hand over first: create the successor task and point its “blocked_by“ at this task (the gate then stands aside by itself), or keep one unfinished step and declare the handover on the “update_step_status“ report that finishes it. A replan that still leaves work in the plan is never gated. Answers with a bounded receipt (task_id, steps_total, progress_done, progress_total), not the plan you just sent — use get_task to read the stored step rows back.
+	// Submit/replace the workflow plan. ⚠️ Resubmitting permanently deletes every unfinished step that is not kept (see below), together with its working note; deleted notes cannot be recovered. If what you want is to change ONE step, do not resubmit the plan: “insert_step“, “delete_step“ and “reorder_steps“ each touch the single row you name and leave every other step's note, status and bound card exactly as they are. Done steps, superseded steps, and unfinished steps whose most recently opened reply card is answered or expired are kept in their original order, and every step of the new plan is placed after them. Names match exactly and case-sensitively after surrounding whitespace is trimmed from each submitted name. Relisting a done step or an answered/expired-card step under the same name keeps that existing row (same id, note and status) and drops the relisted entry, so nothing in it (dod, is_gate, parallel_group) is written. Relisting any other unfinished step under the same name creates a new pending step with a new id, so copy any note you need before resubmitting; relisting a superseded step's name likewise creates a new pending step and leaves the superseded row as history. An answered/expired-card step whose name the new plan leaves out is frozen as superseded instead of deleted, so leaving its name out keeps its history without continuing the step. T-74f8 交棒閘 (second door): a plan is a step-set write and the task status is DERIVED from the step set, so a plan that leaves at least one step that is not superseded, and every such step done, FINISHES the task: it lands in “ready_for_done“, exactly as the final step report does. Neither closes the task — “mark_task_done“ does, and that close cannot be undone. If that task's creator is not its executor and no handover is declared or already real, the replan is refused with 422 BEFORE anything is written (the plan stays fully editable). A plan carries no handoff field, so the way out is to hand over first: create the successor task and point its “blocked_by“ at this task (the gate then stands aside by itself), or keep one unfinished step and declare the handover on the “update_step_status“ report that finishes it. A replan that still leaves work in the plan is never gated. Answers with a bounded receipt (task_id, steps_total, progress_done, progress_total), not the plan you just sent — use get_task to read the stored step rows back.
 	// (POST /api/tasks/{task_id}/plan)
 	HandleSubmitTaskPlanApiTasksTaskIdPlanPost(w http.ResponseWriter, r *http.Request, taskId string)
 	// Set a task's priority (owner/admin agent any value on any task; the task's own executor any value on their task — frozen INCLUDED, and whoever may freeze may unfreeze, T-6020). The actor who sets frozen is recorded on the task as frozen_by and the field clears when the task leaves frozen. Anyone else is a flat 403. Answers with a bounded receipt (task_id, priority, frozen_by), not the whole task — use get_task when you need the rest.
@@ -4855,9 +4894,18 @@ type ServerInterface interface {
 	// Reassign a task to a staff member or a fresh outsource worker (executor-guarded: a plain agent may reassign only a task it executes; owner/admin drive any task). Caller authorization (正職授權矩陣, T-23cf): owner/admin may hand a task to any active member or 發包 it to a fresh outsource worker; a 一般正職 may only turn its own task into a 發包 (a staff target is 403); an outsource worker may not reassign at all. An outsource target uses target.runtime claude/codex (absent = claude), lands the task unassigned for the scheduler to spawn under the global parallel cap, and enters the reassigning handover state. Answers with a bounded receipt (“artifact_count“, “closed_ts“, “deps“, “description_sha256“, “description_size_chars“, “duplicate_of“, “executor_id“, “executor_kind“, “lock“, “progress_done“, “progress_total“, “status“, “task_id“, “title“), not the task — call “get_task“ when you need the rest.
 	// (POST /api/tasks/{task_id}/reassign)
 	HandleReassignTaskApiTasksTaskIdReassignPost(w http.ResponseWriter, r *http.Request, taskId string)
+	// Insert ONE step into this task's plan, in front of a step you name. WHY IT EXISTS: submit_plan is a WHOLESALE replace — it permanently deletes every unfinished step together with its working note — so adding one step mid-task used to mean destroying the steps already under way, the notes on them, and the gate step still waiting for the owner's answer. This call moves nothing else: every other step keeps its id, its status, its note and its bound reply card, so a step sitting in waiting_owner goes on waiting and the owner's answer still lands on it. WHERE IT LANDS: `before_step_id` names the step the new one goes IN FRONT OF; omit it (or send "") to append at the END of the timeline. An id that names no step on this task is a 404, and one that names a FINISHED step (done / superseded) is a 409 — finished work is history and nothing is inserted into it. `name` and `dod` must both be non-blank (400), the same quality gate a submitted plan carries. The resulting timeline must still satisfy the parallel-group shape rules (400): steps sharing a parallel_group sit consecutively and number at least two, and a gate step carries no parallel_group. WHO: the task's own executor, or an admin/owner — anyone else is a flat 403; a CLOSED task is a 409. ⚠️ THERE IS NO OVERWRITE PROTECTION, and that is an owner ruling (rc-5160b97384c4, 2026-09-16): this call carries no version, compares nothing and retries nothing. When two writes to the same plan land at the same moment THE LATER WRITE WINS and the earlier one is simply gone — no error, no signal, and nothing to read afterwards that says it happened. Answers with a bounded receipt (`task_id`, `step_id` — the new step's id — `steps_total`, `progress_done`, `progress_total`), not the plan; call get_task to read the step rows back.
+	// (POST /api/tasks/{task_id}/steps)
+	HandleInsertTaskStepApiTasksTaskIdStepsPost(w http.ResponseWriter, r *http.Request, taskId string)
+	// Reorder this task's UNFINISHED steps. Nothing is rebuilt: every step keeps its id, its status, its working note and its bound reply card — only the positions change. That is the whole difference from submit_plan, where re-listing a step under the same name mints a NEW step with a new id and the old note is gone. `step_ids` is the COMPLETE ordered list of this task's unfinished step ids: all of them, in the order you want them, and nothing else. FINISHED steps (done / superseded) do not appear in it and do not move — they keep the timeline positions they already hold, and the unfinished steps fill the positions that are left, in the order given. A `step_ids` that is not exactly the set of this task's unfinished steps is a 400 — one missing, one repeated, one that names no step on this task, or one that names a finished step, each refuses the whole call and nothing is written. The resulting timeline must still satisfy the parallel-group shape rules (400). WHO: the task's own executor, or an admin/owner — anyone else is a flat 403; a CLOSED task is a 409. ⚠️ THERE IS NO OVERWRITE PROTECTION, and that is an owner ruling (rc-5160b97384c4, 2026-09-16): this call carries no version, compares nothing and retries nothing. When two writes to the same plan land at the same moment THE LATER WRITE WINS and the earlier one is simply gone — no error, no signal, and nothing to read afterwards that says it happened. Answers with a bounded receipt (`task_id`, `steps_total`, `progress_done`, `progress_total`), not the plan; call get_task to read the step rows back.
+	// (POST /api/tasks/{task_id}/steps/reorder)
+	HandleReorderTaskStepsApiTasksTaskIdStepsReorderPost(w http.ResponseWriter, r *http.Request, taskId string)
 	// Read ONE step of one task IN FULL — the companion read to “get_task“, which answers a SUMMARY. This response declares “detail_level“ = “full“ and carries that single step's ENTIRE working note (“note“) alongside its “note_size_chars“ / “note_cap_chars“, its status, DoD, “waiting_reason“, gate flags, “parallel_group“, bound “reply_card_id“ and that card's live “reply_card_status“. It carries NOTHING about the task itself and NOTHING about any other step, and that is the point: “get_task“ tells you WHICH steps have a note (“note_size_chars“ > 0) and exactly how big it is, and this tool fetches one of them without dragging the whole ticket along. Same read floor as “get_task“ — any authenticated principal may read any task's step; there is no executor gate on a READ. 404 for an unknown task, and 404 for a step id that exists but belongs to a DIFFERENT task: a step is only ever readable through its own task, so a wrong task_id never leaks somebody else's step.
 	// (GET /api/tasks/{task_id}/steps/{step_id})
 	HandleGetTaskStepApiTasksTaskIdStepsStepIdGet(w http.ResponseWriter, r *http.Request, taskId string, stepId string)
+	// Delete ONE unfinished step from this task's plan, leaving every other step exactly as it is — id, status, working note and bound reply card all untouched. WHY IT EXISTS: the only way to drop a step used to be submit_plan, which replaces the whole plan and permanently deletes every unfinished step's note along the way. WHAT IT REFUSES: a step id that names no step on this task is a 404; a FINISHED step (done / superseded) is a 409, because terminal rows are immutable history; deleting the last remaining step is a 400, because a planned task cannot have zero steps. WHO: the task's own executor, or an admin/owner — anyone else is a flat 403; a CLOSED task is a 409. 🔴 T-74f8 交棒閘, THIRD DOOR: removing the last UNFINISHED step leaves every remaining step done, which FINISHES the work — the task lands in ready_for_done, one mark_task_done away from a close that can never be undone. So when this task's creator is not its executor and no handover is declared or already real, the delete is refused with 422 BEFORE anything is written. This call carries no handoff field, so hand the ball over first: create the successor task and point its blocked_by at this task (the gate then stands aside by itself), or keep this step and declare the handover on the update_step_status report that finishes it. A delete that still leaves unfinished work in the plan is never gated. ⚠️ A step CAN be deleted while it is holding a reply card the owner has not answered — waiting_owner is not a finished state, and this call does not look at the card. The card stays in the owner's queue with no step behind it and the later answer lands as a safe no-op, which is exactly what submit_plan has always done to a replaced waiting-card step; this door just makes it cheaper to reach one step at a time. If the question no longer matters, expire the card yourself rather than leaving it sitting there. ⚠️ THERE IS NO OVERWRITE PROTECTION, and that is an owner ruling (rc-5160b97384c4, 2026-09-16): this call carries no version, compares nothing and retries nothing. When two writes to the same plan land at the same moment THE LATER WRITE WINS and the earlier one is simply gone — no error, no signal, and nothing to read afterwards that says it happened. Answers with a bounded receipt (`task_id`, `steps_total`, `progress_done`, `progress_total`), not the plan; call get_task to read the step rows back.
+	// (POST /api/tasks/{task_id}/steps/{step_id}/delete)
+	HandleDeleteTaskStepApiTasksTaskIdStepsStepIdDeletePost(w http.ResponseWriter, r *http.Request, taskId string, stepId string)
 	// Write this step's working note: where the work stands and what comes next — the field the handover SOP means by 「把還在進行中的工作寫回 task step note」. WHAT TO WRITE — three things, then stop: (1) STATE — one sentence on where this step actually got to; (2) NEXT — one sentence on what whoever takes over does next; (3) EVIDENCE POINTERS — version ids, file and log paths, what you verified YOURSELF versus what you are taking on someone's word, and the limits of what was NOT done. Long narrative does not live here: reasoning and scope belong in the task description, reports and diffs belong on the task as artifacts. The note is the current state — not a report, not an append-only log. Writable in ANY step status (pending, in_progress, waiting_owner, waiting_external, done, superseded), unlike `waiting_reason`, which is locked to waiting_external. Wholesale write: `note` replaces whatever was there and "" clears it, so rewrite it as the work moves rather than appending; a note over the step note cap (counted in runes) is refused — that ceiling is the `task.step_note_cap_chars` setting, and every face that carries a note reports the live value as `note_cap_chars` — read it rather than assuming a number, because the setting is adjustable and this sentence is not regenerated when it moves. Same executor/admin gate as every other task-driving write (403 otherwise). ⚠️ Notes stay writable through “ready_for_done“ — a task whose last step is reported done no longer closes itself, and that window is where the close-out writing belongs. What still 409s is a task someone has actually closed (“mark_task_done“/“mark_task_terminated“/“mark_task_duplicated“/“force_task_done“), so write the note before that call, not after. The receipt carries `size_chars` / `cap_chars`, so the room left is on every write instead of only on the 400 that refuses one; `get_task` reports the same pair per step as `note_size_chars` / `note_cap_chars`, but since T-66 it no longer carries the note TEXT — read a note back with `get_task_step(task_id, step_id)`, which answers that one step in full.
 	// (POST /api/tasks/{task_id}/steps/{step_id}/note)
 	HandleUpdateTaskStepNoteApiTasksTaskIdStepsStepIdNotePost(w http.ResponseWriter, r *http.Request, taskId string, stepId string)
@@ -9056,6 +9104,58 @@ func (siw *ServerInterfaceWrapper) HandleReassignTaskApiTasksTaskIdReassignPost(
 	handler.ServeHTTP(w, r)
 }
 
+// HandleInsertTaskStepApiTasksTaskIdStepsPost operation middleware
+func (siw *ServerInterfaceWrapper) HandleInsertTaskStepApiTasksTaskIdStepsPost(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "task_id" -------------
+	var taskId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "task_id", r.PathValue("task_id"), &taskId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "task_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleInsertTaskStepApiTasksTaskIdStepsPost(w, r, taskId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleReorderTaskStepsApiTasksTaskIdStepsReorderPost operation middleware
+func (siw *ServerInterfaceWrapper) HandleReorderTaskStepsApiTasksTaskIdStepsReorderPost(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "task_id" -------------
+	var taskId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "task_id", r.PathValue("task_id"), &taskId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "task_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleReorderTaskStepsApiTasksTaskIdStepsReorderPost(w, r, taskId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // HandleGetTaskStepApiTasksTaskIdStepsStepIdGet operation middleware
 func (siw *ServerInterfaceWrapper) HandleGetTaskStepApiTasksTaskIdStepsStepIdGet(w http.ResponseWriter, r *http.Request) {
 
@@ -9082,6 +9182,41 @@ func (siw *ServerInterfaceWrapper) HandleGetTaskStepApiTasksTaskIdStepsStepIdGet
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.HandleGetTaskStepApiTasksTaskIdStepsStepIdGet(w, r, taskId, stepId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleDeleteTaskStepApiTasksTaskIdStepsStepIdDeletePost operation middleware
+func (siw *ServerInterfaceWrapper) HandleDeleteTaskStepApiTasksTaskIdStepsStepIdDeletePost(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "task_id" -------------
+	var taskId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "task_id", r.PathValue("task_id"), &taskId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "task_id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "step_id" -------------
+	var stepId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "step_id", r.PathValue("step_id"), &stepId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "step_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleDeleteTaskStepApiTasksTaskIdStepsStepIdDeletePost(w, r, taskId, stepId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -9754,7 +9889,10 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/tasks/{task_id}/plan", wrapper.HandleSubmitTaskPlanApiTasksTaskIdPlanPost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/tasks/{task_id}/priority", wrapper.HandleSetTaskPriorityApiTasksTaskIdPriorityPost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/tasks/{task_id}/reassign", wrapper.HandleReassignTaskApiTasksTaskIdReassignPost)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/tasks/{task_id}/steps", wrapper.HandleInsertTaskStepApiTasksTaskIdStepsPost)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/tasks/{task_id}/steps/reorder", wrapper.HandleReorderTaskStepsApiTasksTaskIdStepsReorderPost)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/tasks/{task_id}/steps/{step_id}", wrapper.HandleGetTaskStepApiTasksTaskIdStepsStepIdGet)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/tasks/{task_id}/steps/{step_id}/delete", wrapper.HandleDeleteTaskStepApiTasksTaskIdStepsStepIdDeletePost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/tasks/{task_id}/steps/{step_id}/note", wrapper.HandleUpdateTaskStepNoteApiTasksTaskIdStepsStepIdNotePost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/tasks/{task_id}/steps/{step_id}/note/patch", wrapper.HandlePatchTaskStepNoteApiTasksTaskIdStepsStepIdNotePatchPost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/tasks/{task_id}/steps/{step_id}/status", wrapper.HandleUpdateTaskStepStatusApiTasksTaskIdStepsStepIdStatusPost)

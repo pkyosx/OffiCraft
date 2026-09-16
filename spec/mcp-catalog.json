@@ -2836,7 +2836,7 @@
       "name": "post_task_message"
     },
     {
-      "description": "Submit/replace the workflow plan. ⚠️ Resubmitting permanently deletes every unfinished step that is not kept (see below), together with its working note; deleted notes cannot be recovered. Done steps, superseded steps, and unfinished steps whose most recently opened reply card is answered or expired are kept in their original order, and every step of the new plan is placed after them. Names match exactly and case-sensitively after surrounding whitespace is trimmed from each submitted name. Relisting a done step or an answered/expired-card step under the same name keeps that existing row (same id, note and status) and drops the relisted entry, so nothing in it (dod, is_gate, parallel_group) is written. Relisting any other unfinished step under the same name creates a new pending step with a new id, so copy any note you need before resubmitting; relisting a superseded step's name likewise creates a new pending step and leaves the superseded row as history. An answered/expired-card step whose name the new plan leaves out is frozen as superseded instead of deleted, so leaving its name out keeps its history without continuing the step. T-74f8 交棒閘 (second door): a plan is a step-set write and the task status is DERIVED from the step set, so a plan that leaves at least one step that is not superseded, and every such step done, FINISHES the task: it lands in ``ready_for_done``, exactly as the final step report does. Neither closes the task — ``mark_task_done`` does, and that close cannot be undone. If that task's creator is not its executor and no handover is declared or already real, the replan is refused with 422 BEFORE anything is written (the plan stays fully editable). A plan carries no handoff field, so the way out is to hand over first: create the successor task and point its ``blocked_by`` at this task (the gate then stands aside by itself), or keep one unfinished step and declare the handover on the ``update_step_status`` report that finishes it. A replan that still leaves work in the plan is never gated. Answers with a bounded receipt (task_id, steps_total, progress_done, progress_total), not the plan you just sent — use get_task to read the stored step rows back.",
+      "description": "Submit/replace the workflow plan. ⚠️ Resubmitting permanently deletes every unfinished step that is not kept (see below), together with its working note; deleted notes cannot be recovered. If what you want is to change ONE step, do not resubmit the plan: ``insert_step``, ``delete_step`` and ``reorder_steps`` each touch the single row you name and leave every other step's note, status and bound card exactly as they are. Done steps, superseded steps, and unfinished steps whose most recently opened reply card is answered or expired are kept in their original order, and every step of the new plan is placed after them. Names match exactly and case-sensitively after surrounding whitespace is trimmed from each submitted name. Relisting a done step or an answered/expired-card step under the same name keeps that existing row (same id, note and status) and drops the relisted entry, so nothing in it (dod, is_gate, parallel_group) is written. Relisting any other unfinished step under the same name creates a new pending step with a new id, so copy any note you need before resubmitting; relisting a superseded step's name likewise creates a new pending step and leaves the superseded row as history. An answered/expired-card step whose name the new plan leaves out is frozen as superseded instead of deleted, so leaving its name out keeps its history without continuing the step. T-74f8 交棒閘 (second door): a plan is a step-set write and the task status is DERIVED from the step set, so a plan that leaves at least one step that is not superseded, and every such step done, FINISHES the task: it lands in ``ready_for_done``, exactly as the final step report does. Neither closes the task — ``mark_task_done`` does, and that close cannot be undone. If that task's creator is not its executor and no handover is declared or already real, the replan is refused with 422 BEFORE anything is written (the plan stays fully editable). A plan carries no handoff field, so the way out is to hand over first: create the successor task and point its ``blocked_by`` at this task (the gate then stands aside by itself), or keep one unfinished step and declare the handover on the ``update_step_status`` report that finishes it. A replan that still leaves work in the plan is never gated. Answers with a bounded receipt (task_id, steps_total, progress_done, progress_total), not the plan you just sent — use get_task to read the stored step rows back.",
       "inputSchema": {
         "properties": {
           "steps": {
@@ -4280,6 +4280,107 @@
           "type": "object"
         },
         "name": "bump_lore_entry"
-      }
+      },
+    {
+      "description": "Insert ONE step into this task's plan, in front of a step you name. WHY IT EXISTS: submit_plan is a WHOLESALE replace — it permanently deletes every unfinished step together with its working note — so adding one step mid-task used to mean destroying the steps already under way, the notes on them, and the gate step still waiting for the owner's answer. This call moves nothing else: every other step keeps its id, its status, its note and its bound reply card, so a step sitting in waiting_owner goes on waiting and the owner's answer still lands on it. WHERE IT LANDS: `before_step_id` names the step the new one goes IN FRONT OF; omit it (or send \"\") to append at the END of the timeline. An id that names no step on this task is a 404, and one that names a FINISHED step (done / superseded) is a 409 — finished work is history and nothing is inserted into it. `name` and `dod` must both be non-blank (400), the same quality gate a submitted plan carries. The resulting timeline must still satisfy the parallel-group shape rules (400): steps sharing a parallel_group sit consecutively and number at least two, and a gate step carries no parallel_group. WHO: the task's own executor, or an admin/owner — anyone else is a flat 403; a CLOSED task is a 409. ⚠️ THERE IS NO OVERWRITE PROTECTION, and that is an owner ruling (rc-5160b97384c4, 2026-09-16): this call carries no version, compares nothing and retries nothing. When two writes to the same plan land at the same moment THE LATER WRITE WINS and the earlier one is simply gone — no error, no signal, and nothing to read afterwards that says it happened. Answers with a bounded receipt (`task_id`, `step_id` — the new step's id — `steps_total`, `progress_done`, `progress_total`), not the plan; call get_task to read the step rows back.",
+      "inputSchema": {
+        "properties": {
+          "before_step_id": {
+            "default": "",
+            "description": "The step the new one goes IN FRONT OF. Omitted or \"\" appends at the end of the timeline. An id that names no step on this task is a 404; one that names a done or superseded step is a 409 — nothing is inserted into finished work.",
+            "title": "Before Step Id",
+            "type": "string"
+          },
+          "dod": {
+            "title": "Dod",
+            "type": "string"
+          },
+          "is_gate": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Is Gate"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "parallel_group": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Parallel Group"
+          },
+          "task_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "task_id",
+          "name",
+          "dod"
+        ],
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "name": "insert_step"
+    },
+    {
+      "description": "Delete ONE unfinished step from this task's plan, leaving every other step exactly as it is — id, status, working note and bound reply card all untouched. WHY IT EXISTS: the only way to drop a step used to be submit_plan, which replaces the whole plan and permanently deletes every unfinished step's note along the way. WHAT IT REFUSES: a step id that names no step on this task is a 404; a FINISHED step (done / superseded) is a 409, because terminal rows are immutable history; deleting the last remaining step is a 400, because a planned task cannot have zero steps. WHO: the task's own executor, or an admin/owner — anyone else is a flat 403; a CLOSED task is a 409. 🔴 T-74f8 交棒閘, THIRD DOOR: removing the last UNFINISHED step leaves every remaining step done, which FINISHES the work — the task lands in ready_for_done, one mark_task_done away from a close that can never be undone. So when this task's creator is not its executor and no handover is declared or already real, the delete is refused with 422 BEFORE anything is written. This call carries no handoff field, so hand the ball over first: create the successor task and point its blocked_by at this task (the gate then stands aside by itself), or keep this step and declare the handover on the update_step_status report that finishes it. A delete that still leaves unfinished work in the plan is never gated. ⚠️ A step CAN be deleted while it is holding a reply card the owner has not answered — waiting_owner is not a finished state, and this call does not look at the card. The card stays in the owner's queue with no step behind it and the later answer lands as a safe no-op, which is exactly what submit_plan has always done to a replaced waiting-card step; this door just makes it cheaper to reach one step at a time. If the question no longer matters, expire the card yourself rather than leaving it sitting there. ⚠️ THERE IS NO OVERWRITE PROTECTION, and that is an owner ruling (rc-5160b97384c4, 2026-09-16): this call carries no version, compares nothing and retries nothing. When two writes to the same plan land at the same moment THE LATER WRITE WINS and the earlier one is simply gone — no error, no signal, and nothing to read afterwards that says it happened. Answers with a bounded receipt (`task_id`, `steps_total`, `progress_done`, `progress_total`), not the plan; call get_task to read the step rows back.",
+      "inputSchema": {
+        "properties": {
+          "step_id": {
+            "type": "string"
+          },
+          "task_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "task_id",
+          "step_id"
+        ],
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "name": "delete_step"
+    },
+    {
+      "description": "Reorder this task's UNFINISHED steps. Nothing is rebuilt: every step keeps its id, its status, its working note and its bound reply card — only the positions change. That is the whole difference from submit_plan, where re-listing a step under the same name mints a NEW step with a new id and the old note is gone. `step_ids` is the COMPLETE ordered list of this task's unfinished step ids: all of them, in the order you want them, and nothing else. FINISHED steps (done / superseded) do not appear in it and do not move — they keep the timeline positions they already hold, and the unfinished steps fill the positions that are left, in the order given. A `step_ids` that is not exactly the set of this task's unfinished steps is a 400 — one missing, one repeated, one that names no step on this task, or one that names a finished step, each refuses the whole call and nothing is written. The resulting timeline must still satisfy the parallel-group shape rules (400). WHO: the task's own executor, or an admin/owner — anyone else is a flat 403; a CLOSED task is a 409. ⚠️ THERE IS NO OVERWRITE PROTECTION, and that is an owner ruling (rc-5160b97384c4, 2026-09-16): this call carries no version, compares nothing and retries nothing. When two writes to the same plan land at the same moment THE LATER WRITE WINS and the earlier one is simply gone — no error, no signal, and nothing to read afterwards that says it happened. Answers with a bounded receipt (`task_id`, `steps_total`, `progress_done`, `progress_total`), not the plan; call get_task to read the step rows back.",
+      "inputSchema": {
+        "properties": {
+          "step_ids": {
+            "description": "The complete ordered list of this task's UNFINISHED step ids — all of them, in the order you want them, and nothing else. Done and superseded steps keep the positions they already hold and must not appear here.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Step Ids",
+            "type": "array"
+          },
+          "task_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "task_id",
+          "step_ids"
+        ],
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "name": "reorder_steps"
+    }
   ]
 }

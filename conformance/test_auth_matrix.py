@@ -92,6 +92,7 @@ class Ctx:
     fresh_machine: Callable[[], str]
     fresh_role: Callable[[], str]
     _avatar_delete_urls: dict[str, str] = field(default_factory=dict, repr=False)
+    _reorder_step_ids: dict[str, list[str]] = field(default_factory=dict, repr=False)
 
     def token(self, identity: str) -> str | None:
         return {
@@ -456,6 +457,43 @@ def _matrix_ready_task(ctx: Ctx) -> str:
             f"/api/tasks/{task_id}/steps/{step_id}/status", json=body, headers=h)
         assert r.status_code == 200, f"scratch step report failed: {r.status_code} {r.text}"
     return task_id
+
+
+def _matrix_task_two_steps(ctx: Ctx) -> tuple[str, list[str]]:
+    """A fresh task with TWO planned PENDING steps; (task_id, [step ids]).
+
+    Two rather than one because both callers need a plan that survives what
+    they do to it: deleting the LAST remaining step is a 400 (a planned task
+    cannot have zero steps), and a one-step reorder cannot express an order."""
+    h = {"Authorization": f"Bearer {ctx.owner_token}"}
+    task_id = _matrix_task(ctx)
+    r = ctx.client.post(
+        f"/api/tasks/{task_id}/plan",
+        json={"steps": [{"name": "conf a", "dod": "asserted"},
+                        {"name": "conf b", "dod": "asserted"}]},
+        headers=h,
+    )
+    assert r.status_code == 200, f"scratch plan failed: {r.status_code} {r.text}"
+    steps = ctx.client.get(f"/api/tasks/{task_id}", headers=h).json()["steps"]
+    return task_id, [st["id"] for st in steps]
+
+
+def _matrix_delete_path(ctx: Ctx, _identity: str) -> str:
+    """Aims at the FIRST of two pending steps, so the delete leaves a plan
+    behind."""
+    task_id, step_ids = _matrix_task_two_steps(ctx)
+    return f"/api/tasks/{task_id}/steps/{step_ids[0]}/delete"
+
+
+def _matrix_reorder_path(ctx: Ctx, identity: str) -> str:
+    """Stashes the REVERSED id list for the body lambda to send. Path is
+    resolved before body (the same handshake the avatar DELETE row uses), and
+    one fixture per identity keeps the cells independent. Reversed rather than
+    as-is: a no-op order would pass on an implementation that ignored the body
+    entirely."""
+    task_id, step_ids = _matrix_task_two_steps(ctx)
+    ctx._reorder_step_ids[identity] = list(reversed(step_ids))
+    return f"/api/tasks/{task_id}/steps/reorder"
 
 
 def _matrix_closed_task(ctx: Ctx) -> str:
@@ -1583,6 +1621,33 @@ MATRIX: dict[str, Route] = {
         path=lambda ctx, _i: "/api/tasks/{}/steps/{}/note/patch".format(
             *_matrix_task_step(ctx)),
         body={"edits": [{"old": "", "new": "conf matrix note patch"}]},
+    ),
+    "POST /api/tasks/{task_id}/steps": Route(
+        # T-228 insert. Same executor-or-admin gate as every other task-driving
+        # write, so the face is the status route's. No before_step_id, which
+        # appends — the scratch task has no plan yet and an append is the one
+        # shape that needs no second fixture.
+        requires="agent",
+        overrides={"agent_other": 403},
+        path=lambda ctx, _i: f"/api/tasks/{_matrix_task(ctx)}/steps",
+        body={"name": "conf matrix inserted", "dod": "asserted"},
+    ),
+    "POST /api/tasks/{task_id}/steps/{step_id}/delete": Route(
+        # T-228 delete. Same gate again. Each cell gets its own fresh task with
+        # TWO pending steps and drops the first: one step would answer 400
+        # (a planned task cannot have zero steps) rather than the authz face
+        # this row is here to read.
+        requires="agent",
+        overrides={"agent_other": 403},
+        path=_matrix_delete_path,
+    ),
+    "POST /api/tasks/{task_id}/steps/reorder": Route(
+        # T-228 reorder. Same gate. The body has to name the very steps the path
+        # just created, so the fixture hands them over through ctx.
+        requires="agent",
+        overrides={"agent_other": 403},
+        path=_matrix_reorder_path,
+        body=lambda ctx, i: {"step_ids": ctx._reorder_step_ids.pop(i)},
     ),
     "GET /api/tasks/{task_id}/steps/{step_id}": Route(
         # T-66. A READ, so it carries GET /api/tasks/{task_id}'s floor and NOT

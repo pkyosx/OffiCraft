@@ -1912,7 +1912,7 @@ func TestMcpCatalogTools(t *testing.T) {
 			seen[name] = true
 			names = append(names, name)
 		}
-		if names[0] != "get_version" || names[len(names)-1] != "bump_lore_entry" {
+		if names[0] != "get_version" || names[len(names)-1] != "reorder_steps" {
 			t.Fatalf("the catalog order moved: first %q, last %q", names[0], names[len(names)-1])
 		}
 		apiWantValue(t, "get_version", tools[0], map[string]any{
@@ -1961,7 +1961,7 @@ func TestMcpCatalogTools(t *testing.T) {
 		apiWantValue(t, "embedded catalog", tools, wantTools)
 		first, _ := tools[0].(map[string]any)
 		last, _ := tools[len(tools)-1].(map[string]any)
-		if first["name"] != "get_version" || last["name"] != "bump_lore_entry" {
+		if first["name"] != "get_version" || last["name"] != "reorder_steps" {
 			t.Fatalf("the catalog order moved: first %#v, last %#v", first["name"], last["name"])
 		}
 	})
@@ -2015,18 +2015,18 @@ func TestToolsVisibleTo(t *testing.T) {
 		},
 		{
 			principal: principalAgent,
-			want:      74,
+			want:      77,
 			listed:    []string{"get_version", "get_task", "create_task", "update_step_status"},
 			hidden:    []string{"update_settings", "dismiss_member", "upgrade_station"},
 		},
 		{
 			principal: principalAdminAgent,
-			want:      120,
+			want:      123,
 			listed:    []string{"get_version", "get_task", "create_task", "update_settings", "dismiss_member"},
 		},
 		{
 			principal: principalOwner,
-			want:      120,
+			want:      123,
 			listed:    []string{"get_version", "get_task", "create_task", "update_settings", "dismiss_member"},
 		},
 	} {
@@ -2265,12 +2265,12 @@ func TestHandleMcpApiMcpPost(t *testing.T) {
 				hidden: []string{"create_task", "update_settings"},
 			},
 			{
-				class: principalAgent, id: "m-t195-agent", want: 74,
+				class: principalAgent, id: "m-t195-agent", want: 77,
 				listed: []string{"get_version", "get_task", "create_task", "update_step_status"},
 				hidden: []string{"update_settings", "dismiss_member"},
 			},
 			{
-				class: principalAdminAgent, id: "m-t195-mira", want: 120,
+				class: principalAdminAgent, id: "m-t195-mira", want: 123,
 				listed: []string{"get_version", "create_task", "update_settings", "dismiss_member"},
 			},
 		} {
@@ -2300,8 +2300,8 @@ func TestHandleMcpApiMcpPost(t *testing.T) {
 		}
 
 		t.Run("owner", func(t *testing.T) {
-			if names := apiMCPListedNames(t, h, owner); len(names) != 120 {
-				t.Fatalf("the owner is served %d tools, want the whole catalog's 120", len(names))
+			if names := apiMCPListedNames(t, h, owner); len(names) != 123 {
+				t.Fatalf("the owner is served %d tools, want the whole catalog's 123", len(names))
 			}
 		})
 	})

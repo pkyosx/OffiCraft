@@ -169,8 +169,8 @@ def test_tools_list_counts_differ_by_class(
             ("machine", warden_agent.token),
         )
     }
-    assert counts == {"owner": 120, "admin_agent": 120, "agent": 74, "machine": 47}, counts
-    assert len(MCP_CATALOG["tools"]) == 120, "the frozen snapshot itself changed size"
+    assert counts == {"owner": 123, "admin_agent": 123, "agent": 77, "machine": 47}, counts
+    assert len(MCP_CATALOG["tools"]) == 123, "the frozen snapshot itself changed size"
 
 
 def test_an_unlisted_tool_is_refused_not_unknown(client, agent_a) -> None:

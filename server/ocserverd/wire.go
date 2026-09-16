@@ -1573,6 +1573,29 @@ type taskPlanReceiptDTO struct {
 	ProgressTotal int    `json:"progress_total"`
 }
 
+// taskStepInsertReceiptDTO is the bounded confirmation returned after
+// insert_step. step_id rides along because the SERVER minted it — it is the one
+// thing the caller could not have known, and it is the handle every later note,
+// status report or delete on that step takes. The counters describe the stored
+// timeline, kept history included.
+type taskStepInsertReceiptDTO struct {
+	TaskID        string `json:"task_id"`
+	StepID        string `json:"step_id"`
+	StepsTotal    int    `json:"steps_total"`
+	ProgressDone  int    `json:"progress_done"`
+	ProgressTotal int    `json:"progress_total"`
+}
+
+// taskStepMutationReceiptDTO is the bounded confirmation returned after
+// delete_step and reorder_steps. Neither mints anything, so there is no id to
+// hand back — what the caller cannot know is where the stored timeline landed.
+type taskStepMutationReceiptDTO struct {
+	TaskID        string `json:"task_id"`
+	StepsTotal    int    `json:"steps_total"`
+	ProgressDone  int    `json:"progress_done"`
+	ProgressTotal int    `json:"progress_total"`
+}
+
 // taskPriorityReceiptDTO is the bounded confirmation returned after
 // set_task_priority. frozen_by rides along because it is DERIVED by the write
 // (stamped entering frozen, cleared leaving it), so it is exactly the part the

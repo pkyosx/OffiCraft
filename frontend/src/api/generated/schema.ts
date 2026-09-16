@@ -3098,7 +3098,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Submit/replace the workflow plan. ⚠️ Resubmitting permanently deletes every unfinished step that is not kept (see below), together with its working note; deleted notes cannot be recovered. Done steps, superseded steps, and unfinished steps whose most recently opened reply card is answered or expired are kept in their original order, and every step of the new plan is placed after them. Names match exactly and case-sensitively after surrounding whitespace is trimmed from each submitted name. Relisting a done step or an answered/expired-card step under the same name keeps that existing row (same id, note and status) and drops the relisted entry, so nothing in it (dod, is_gate, parallel_group) is written. Relisting any other unfinished step under the same name creates a new pending step with a new id, so copy any note you need before resubmitting; relisting a superseded step's name likewise creates a new pending step and leaves the superseded row as history. An answered/expired-card step whose name the new plan leaves out is frozen as superseded instead of deleted, so leaving its name out keeps its history without continuing the step. T-74f8 交棒閘 (second door): a plan is a step-set write and the task status is DERIVED from the step set, so a plan that leaves at least one step that is not superseded, and every such step done, FINISHES the task: it lands in ``ready_for_done``, exactly as the final step report does. Neither closes the task — ``mark_task_done`` does, and that close cannot be undone. If that task's creator is not its executor and no handover is declared or already real, the replan is refused with 422 BEFORE anything is written (the plan stays fully editable). A plan carries no handoff field, so the way out is to hand over first: create the successor task and point its ``blocked_by`` at this task (the gate then stands aside by itself), or keep one unfinished step and declare the handover on the ``update_step_status`` report that finishes it. A replan that still leaves work in the plan is never gated. Answers with a bounded receipt (task_id, steps_total, progress_done, progress_total), not the plan you just sent — use get_task to read the stored step rows back.
+         * Submit/replace the workflow plan. ⚠️ Resubmitting permanently deletes every unfinished step that is not kept (see below), together with its working note; deleted notes cannot be recovered. If what you want is to change ONE step, do not resubmit the plan: ``insert_step``, ``delete_step`` and ``reorder_steps`` each touch the single row you name and leave every other step's note, status and bound card exactly as they are. Done steps, superseded steps, and unfinished steps whose most recently opened reply card is answered or expired are kept in their original order, and every step of the new plan is placed after them. Names match exactly and case-sensitively after surrounding whitespace is trimmed from each submitted name. Relisting a done step or an answered/expired-card step under the same name keeps that existing row (same id, note and status) and drops the relisted entry, so nothing in it (dod, is_gate, parallel_group) is written. Relisting any other unfinished step under the same name creates a new pending step with a new id, so copy any note you need before resubmitting; relisting a superseded step's name likewise creates a new pending step and leaves the superseded row as history. An answered/expired-card step whose name the new plan leaves out is frozen as superseded instead of deleted, so leaving its name out keeps its history without continuing the step. T-74f8 交棒閘 (second door): a plan is a step-set write and the task status is DERIVED from the step set, so a plan that leaves at least one step that is not superseded, and every such step done, FINISHES the task: it lands in ``ready_for_done``, exactly as the final step report does. Neither closes the task — ``mark_task_done`` does, and that close cannot be undone. If that task's creator is not its executor and no handover is declared or already real, the replan is refused with 422 BEFORE anything is written (the plan stays fully editable). A plan carries no handoff field, so the way out is to hand over first: create the successor task and point its ``blocked_by`` at this task (the gate then stands aside by itself), or keep one unfinished step and declare the handover on the ``update_step_status`` report that finishes it. A replan that still leaves work in the plan is never gated. Answers with a bounded receipt (task_id, steps_total, progress_done, progress_total), not the plan you just sent — use get_task to read the stored step rows back.
          * @description - Wholesale replace; non-preserved steps are overwritten, new ones open `pending`.
          *     - Preserved, in original order ahead of the new steps: done, superseded, and unfinished steps whose bound card is settled. Only those settled-card steps freeze to `superseded`, and only when not re-listed by name.
          *     - A step holding a still-waiting card is replaced like any other.
@@ -3160,6 +3160,56 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/tasks/{task_id}/steps": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Insert ONE step into this task's plan, in front of a step you name. WHY IT EXISTS: submit_plan is a WHOLESALE replace — it permanently deletes every unfinished step together with its working note — so adding one step mid-task used to mean destroying the steps already under way, the notes on them, and the gate step still waiting for the owner's answer. This call moves nothing else: every other step keeps its id, its status, its note and its bound reply card, so a step sitting in waiting_owner goes on waiting and the owner's answer still lands on it. WHERE IT LANDS: `before_step_id` names the step the new one goes IN FRONT OF; omit it (or send "") to append at the END of the timeline. An id that names no step on this task is a 404, and one that names a FINISHED step (done / superseded) is a 409 — finished work is history and nothing is inserted into it. `name` and `dod` must both be non-blank (400), the same quality gate a submitted plan carries. The resulting timeline must still satisfy the parallel-group shape rules (400): steps sharing a parallel_group sit consecutively and number at least two, and a gate step carries no parallel_group. WHO: the task's own executor, or an admin/owner — anyone else is a flat 403; a CLOSED task is a 409. ⚠️ THERE IS NO OVERWRITE PROTECTION, and that is an owner ruling (rc-5160b97384c4, 2026-09-16): this call carries no version, compares nothing and retries nothing. When two writes to the same plan land at the same moment THE LATER WRITE WINS and the earlier one is simply gone — no error, no signal, and nothing to read afterwards that says it happened. Answers with a bounded receipt (`task_id`, `step_id` — the new step's id — `steps_total`, `progress_done`, `progress_total`), not the plan; call get_task to read the step rows back.
+         * @description - Adds ONE step; every other step keeps its id, status, note and bound card.
+         *     - `before_step_id` is the step it goes in front of; omit it to append at the end.
+         *     - 404 unknown `before_step_id`; 409 when it names a done/superseded step.
+         *     - 400 blank `name`/`dod` or an illegal parallel-group shape.
+         *     - 403 unless you are the executor (admin/owner excepted); 409 closed task.
+         *     - No overwrite protection: concurrent writes are last-writer-wins, silently.
+         */
+        post: operations["handle_insert_task_step_api_tasks__task_id__steps_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tasks/{task_id}/steps/reorder": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reorder this task's UNFINISHED steps. Nothing is rebuilt: every step keeps its id, its status, its working note and its bound reply card — only the positions change. That is the whole difference from submit_plan, where re-listing a step under the same name mints a NEW step with a new id and the old note is gone. `step_ids` is the COMPLETE ordered list of this task's unfinished step ids: all of them, in the order you want them, and nothing else. FINISHED steps (done / superseded) do not appear in it and do not move — they keep the timeline positions they already hold, and the unfinished steps fill the positions that are left, in the order given. A `step_ids` that is not exactly the set of this task's unfinished steps is a 400 — one missing, one repeated, one that names no step on this task, or one that names a finished step, each refuses the whole call and nothing is written. The resulting timeline must still satisfy the parallel-group shape rules (400). WHO: the task's own executor, or an admin/owner — anyone else is a flat 403; a CLOSED task is a 409. ⚠️ THERE IS NO OVERWRITE PROTECTION, and that is an owner ruling (rc-5160b97384c4, 2026-09-16): this call carries no version, compares nothing and retries nothing. When two writes to the same plan land at the same moment THE LATER WRITE WINS and the earlier one is simply gone — no error, no signal, and nothing to read afterwards that says it happened. Answers with a bounded receipt (`task_id`, `steps_total`, `progress_done`, `progress_total`), not the plan; call get_task to read the step rows back.
+         * @description - Reorders unfinished steps in place; no row is rebuilt, ids and notes survive.
+         *     - `step_ids` is the complete ordered list of the unfinished steps, nothing else.
+         *     - Done/superseded steps keep their timeline positions and must not be listed.
+         *     - 400 on a mismatched set or an illegal parallel-group shape.
+         *     - 403 unless you are the executor (admin/owner excepted); 409 closed task.
+         *     - No overwrite protection: concurrent writes are last-writer-wins, silently.
+         */
+        post: operations["handle_reorder_task_steps_api_tasks__task_id__steps_reorder_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/tasks/{task_id}/steps/{step_id}": {
         parameters: {
             query?: never;
@@ -3177,6 +3227,31 @@ export interface paths {
         get: operations["handle_get_task_step_api_tasks__task_id__steps__step_id__get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tasks/{task_id}/steps/{step_id}/delete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Delete ONE unfinished step from this task's plan, leaving every other step exactly as it is — id, status, working note and bound reply card all untouched. WHY IT EXISTS: the only way to drop a step used to be submit_plan, which replaces the whole plan and permanently deletes every unfinished step's note along the way. WHAT IT REFUSES: a step id that names no step on this task is a 404; a FINISHED step (done / superseded) is a 409, because terminal rows are immutable history; deleting the last remaining step is a 400, because a planned task cannot have zero steps. WHO: the task's own executor, or an admin/owner — anyone else is a flat 403; a CLOSED task is a 409. 🔴 T-74f8 交棒閘, THIRD DOOR: removing the last UNFINISHED step leaves every remaining step done, which FINISHES the work — the task lands in ready_for_done, one mark_task_done away from a close that can never be undone. So when this task's creator is not its executor and no handover is declared or already real, the delete is refused with 422 BEFORE anything is written. This call carries no handoff field, so hand the ball over first: create the successor task and point its blocked_by at this task (the gate then stands aside by itself), or keep this step and declare the handover on the update_step_status report that finishes it. A delete that still leaves unfinished work in the plan is never gated. ⚠️ A step CAN be deleted while it is holding a reply card the owner has not answered — waiting_owner is not a finished state, and this call does not look at the card. The card stays in the owner's queue with no step behind it and the later answer lands as a safe no-op, which is exactly what submit_plan has always done to a replaced waiting-card step; this door just makes it cheaper to reach one step at a time. If the question no longer matters, expire the card yourself rather than leaving it sitting there. ⚠️ THERE IS NO OVERWRITE PROTECTION, and that is an owner ruling (rc-5160b97384c4, 2026-09-16): this call carries no version, compares nothing and retries nothing. When two writes to the same plan land at the same moment THE LATER WRITE WINS and the earlier one is simply gone — no error, no signal, and nothing to read afterwards that says it happened. Answers with a bounded receipt (`task_id`, `steps_total`, `progress_done`, `progress_total`), not the plan; call get_task to read the step rows back.
+         * @description - Removes ONE unfinished step; every other step is untouched.
+         *     - 404 unknown step; 409 done/superseded step; 400 when it would leave zero steps.
+         *     - 422 when removing it would finish a creator≠executor task with no handover.
+         *     - A step holding an UNANSWERED reply card is deletable; the card is orphaned.
+         *     - 403 unless you are the executor (admin/owner excepted); 409 closed task.
+         *     - No overwrite protection: concurrent writes are last-writer-wins, silently.
+         */
+        post: operations["handle_delete_task_step_api_tasks__task_id__steps__step_id__delete_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -9340,6 +9415,62 @@ export interface components {
             waiting_reason: string;
         };
         /**
+         * TaskStepInsertDTO
+         * @description One step to insert into an existing plan (MCP `insert_step`). The step's own fields are the same four a submit_plan node carries — `name` and `dod` are required and must be non-blank — plus `before_step_id`, which says WHERE it lands. Parallel (fork-join) shape is validated over the resulting timeline (400 otherwise), the same rules submit_plan applies: steps sharing a non-empty `parallel_group` must sit consecutively and number at least two, and a gate step must not carry a `parallel_group`.
+         */
+        TaskStepInsertDTO: {
+            /**
+             * Before Step Id
+             * @description The step the new one goes IN FRONT OF. Omitted or "" appends at the end of the timeline. An id that names no step on this task is a 404; one that names a done or superseded step is a 409 — nothing is inserted into finished work.
+             * @default
+             */
+            before_step_id: string;
+            /** Dod */
+            dod: string;
+            /**
+             * Is Gate
+             * @default null
+             */
+            is_gate: boolean | null;
+            /** Name */
+            name: string;
+            /**
+             * Parallel Group
+             * @default null
+             */
+            parallel_group: string | null;
+        };
+        /**
+         * TaskStepInsertReceiptDTO
+         * @description Bounded receipt returned after `insert_step`. `step_id` is the id the server minted for the new step — the caller could not know it, and it is the handle every later note, status report or delete takes. The counters are the STORED timeline's, kept done/superseded history included. Fetch GET /api/tasks/{task_id} for the step rows themselves.
+         */
+        TaskStepInsertReceiptDTO: {
+            /** Progress Done */
+            progress_done: number;
+            /** Progress Total */
+            progress_total: number;
+            /** Step Id */
+            step_id: string;
+            /** Steps Total */
+            steps_total: number;
+            /** Task Id */
+            task_id: string;
+        };
+        /**
+         * TaskStepMutationReceiptDTO
+         * @description Bounded receipt returned after `delete_step` and `reorder_steps`. Neither call mints anything, so the receipt carries only what the caller could not know: how many steps the STORED timeline now holds (kept done/superseded history included) and where the leaf progress landed. Fetch GET /api/tasks/{task_id} for the step rows themselves.
+         */
+        TaskStepMutationReceiptDTO: {
+            /** Progress Done */
+            progress_done: number;
+            /** Progress Total */
+            progress_total: number;
+            /** Steps Total */
+            steps_total: number;
+            /** Task Id */
+            task_id: string;
+        };
+        /**
          * TaskStepNotePatchDTO
          * @description Anchor-addressed PATCH of one step's working note (MCP ``patch_step_note``): ``{edits: [{old, new}], allow_shrink?}``. It exists to stop CONCURRENT OVERWRITE: ``update_step_note`` is a whole-doc replace, so a caller that read the note earlier and writes it back silently deletes whatever a second writer added in between — and because the stale copy is usually the LONGER one, no shrink guard fires and the loss carries no signal at all. An anchor patch cannot express that write: each non-empty ``old`` must match the current note EXACTLY ONCE, so a concurrent write that moved or duplicated the anchor turns the batch into a refusal. ATOMIC — edits apply sequentially to an in-memory copy and any failing anchor (absent or ambiguous ``old``) rejects the ENTIRE batch with a flat 400 and ZERO writes; an empty ``old`` appends ``new``. ``allow_shrink`` (default false) must be set explicitly for a patch that empties the note or shrinks it to under a tenth of its size — the r-76 wipe-guard posture; use ``update_step_note`` for an honest wholesale rewrite.
          */
@@ -9425,6 +9556,17 @@ export interface components {
              * @default
              */
             note: string;
+        };
+        /**
+         * TaskStepReorderDTO
+         * @description The reorder_steps request body. `step_ids` is the complete ordered list of the task's UNFINISHED step ids; done and superseded steps keep the timeline positions they already hold and must not appear. A list that is not exactly that set is a 400 and nothing is written.
+         */
+        TaskStepReorderDTO: {
+            /**
+             * Step Ids
+             * @description The complete ordered list of this task's UNFINISHED step ids — all of them, in the order you want them, and nothing else. Done and superseded steps keep the positions they already hold and must not appear here.
+             */
+            step_ids: string[];
         };
         /**
          * TaskStepStatusReceiptDTO
@@ -17566,6 +17708,112 @@ export interface operations {
             };
         };
     };
+    handle_insert_task_step_api_tasks__task_id__steps_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TaskStepInsertDTO"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskStepInsertReceiptDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_reorder_task_steps_api_tasks__task_id__steps_reorder_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TaskStepReorderDTO"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskStepMutationReceiptDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
     handle_get_task_step_api_tasks__task_id__steps__step_id__get: {
         parameters: {
             query?: never;
@@ -17585,6 +17833,56 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TaskStepDetailDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_delete_task_step_api_tasks__task_id__steps__step_id__delete_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+                step_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskStepMutationReceiptDTO"];
                 };
             };
             /** @description Validation error (unified error envelope). */

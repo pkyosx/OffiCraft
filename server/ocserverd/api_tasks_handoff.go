@@ -123,6 +123,11 @@ const (
 	// handoffDoorMarkDone is T-182's door: mark_task_done, the call that now
 	// performs the irreversible close the other two only used to lead to.
 	handoffDoorMarkDone = "mark_done"
+	// handoffDoorStepDelete is T-228's door: delete_step. Removing the last
+	// unfinished step finishes the work without reporting anything done, so
+	// without this door the delete would be the way around a refusal at the
+	// step-report door — refuse the close, delete the step instead.
+	handoffDoorStepDelete = "step_delete"
 )
 
 // handoffGateReason is the 422 body the gate answers with. It is the whole
@@ -179,6 +184,30 @@ func handoffGateReason(t Task, door string) string {
 			"requires you to be the successor's executor (or an owner), so this " +
 			"route only works when the successor is assigned to you; otherwise " +
 			"it answers 403 and you want route (1)."
+	}
+	if door == handoffDoorStepDelete {
+		// Like the replan door, this call carries no declaration field, so the
+		// refusal must not tell the caller to declare HERE. Unlike the replan
+		// door, route (1) is not "keep one unfinished step in the plan you are
+		// sending" — there is no plan in this request, there is one step and the
+		// caller asked for it to go — so route (1) is to leave it alone.
+		return who + ": it is the LAST unfinished step, so removing it FINISHES " +
+			"the task — it lands in " + TaskStatusReadyForDone + ", one " +
+			"mark_task_done away from a close that can never be undone. " +
+			"delete_step carries no handoff declaration, so hand the ball over " +
+			"first, one of two ways: " +
+			"(1) keep this step, do the work and declare the handover on the " +
+			"update_step_status report that finishes it (handoff='" +
+			HandoffReturnToCreator + "' | '" + HandoffFollowUp +
+			"' + handoff_task_id | '" + HandoffNone + "' + handoff_note) — " +
+			"this route always works, and the server adds the dependency edge " +
+			"itself; or " +
+			"(2) create the successor task (create_task) and point its blocked_by " +
+			"at this task (set_task_deps), then delete this step — the gate " +
+			"stands aside by itself once the handover is real. NOTE: " +
+			"set_task_deps requires you to be the successor's executor (or an " +
+			"owner), so this route only works when the successor is assigned to " +
+			"you; otherwise it answers 403 and you want route (1)."
 	}
 	if door == handoffDoorMarkDone {
 		// This door carries NO declaration field (mark_task_done takes a task id

@@ -380,7 +380,15 @@ def judge(scene, samples):
                 else "no task on the server carries creator_id=%s — this agent "
                      "never opened a ticket" % agent))
 
-    # ④ 提出計畫 — submit_plan is the only writer of steps[] on a task.
+    # ④ 提出計畫 — a task carries plan steps. submit_plan is no longer the only
+    # writer of steps[] (T-228 added insert_step / delete_step / reorder_steps),
+    # and it is not even the only way to get the FIRST one: insert_step on a task
+    # with no plan yet answers 200 and writes step 1 (measured — nothing in
+    # resolveTaskForStepEdit looks at the step count, and the insert position
+    # falls out as 0). That is deliberate, not a hole. This cell is unaffected
+    # either way: it asks whether a plan exists at all, not which door wrote it,
+    # so it stays named after submit_plan because that is the door the boot
+    # context teaches and the one a planning agent actually uses.
     steps = (task or {}).get("steps") or []
     out.append(("submit_plan", "提出計畫", bool(task) and len(steps) > 0,
                 "task %s carries %d plan step(s)" % (task.get("id"), len(steps)) if steps
@@ -411,8 +419,12 @@ def judge(scene, samples):
     #         (dal_tasks.go ReplaceTaskPlan), while DeriveTaskStatus and
     #         TaskProgress both SKIP them. A superseded row therefore sits BEFORE
     #         later done rows, and a prefix test fails after any replan — and the
-    #         boot context teaches agents to replan (seeds/system_interaction.md:
-    #         「重新規劃——用 submit_plan 重交 plan」).
+    #         boot context teaches agents to replan (seeds/system_interaction.md
+    #         §3.3, 「計畫送出之後要改，先分清楚是『改一步』還是『重新規劃』」).
+    #         ⚠️ The sentence quoted here until T-228 (「重新規劃——用 submit_plan
+    #         重交 plan」) was not in that file, and a grep for it across seeds/
+    #         and docs/ finds nothing — so the quote had already gone stale
+    #         before this ticket touched it, with nothing to say so.
     #       * PARALLEL. SPEC §3.1: every step row is one leaf and parallel items
     #         are separate rows, so nodes in a parallel group finish in whatever
     #         order they finish. An order test calls that "back-filled".
