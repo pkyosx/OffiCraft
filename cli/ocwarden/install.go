@@ -223,7 +223,7 @@ func realHostSeam() hostSeam {
 		sys:         realSysOps(),
 		claudeProbe: realClaudeProbe,
 		agentGet: func(base, token string) getter {
-			return httpGetter(&http.Client{Timeout: selfUpdateHTTPTimeout}, base, token)
+			return httpGetter(&http.Client{Timeout: selfUpdateRequestBudget}, base, token)
 		},
 		agentProbe: probeOps.probe,
 	}
