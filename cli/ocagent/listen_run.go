@@ -685,7 +685,7 @@ func (l *listener) drainChatNow() int {
 	if l.drainWarn == nil {
 		l.drainWarn = &drainWarner{}
 	}
-	return drainChat(l.api, l.cfg, l.out, l.drainWarn, l.ack)
+	return drainChat(l.api, l.cfg, l.out, l.drainWarn, l.ack, l.clock)
 }
 
 // run is the always-online listen loop. It blocks until ctx is cancelled or a self-exit

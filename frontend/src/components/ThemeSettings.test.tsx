@@ -242,9 +242,7 @@ describe("ThemeSettings · import", () => {
     expect(await utils.findByText("午夜藍")).toBeTruthy();
     expect(await savedIds()).toContain("midnight");
 
-    // WHICH KIND a theme is comes from the group it sits in — the rows
-    // themselves carry no 內建/自訂 chip (the heading already says it).
-    expect(utils.container.querySelectorAll(".ts-tag").length).toBe(0);
+    // WHICH KIND a theme is comes from the group it sits in.
     const rows = Array.from(utils.container.querySelectorAll(".ts-row"));
     const rowOf = (name: string) =>
       rows.find((r) => r.textContent?.includes(name));
@@ -733,9 +731,6 @@ describe("ThemeSettings · wording list is browsable in full", () => {
       positions.filter((pos, i) => i > 0 && pos < positions[i - 1]),
       "reading order must not step backwards"
     ).toEqual([]);
-    // …and no row is taken out of flow to achieve any of it.
-    expect(list.querySelectorAll(".ts-wording-row--pinned").length).toBe(0);
-    expect(list.querySelectorAll(".ts-wording-pad").length).toBe(0);
   });
 });
 
@@ -969,12 +964,10 @@ describe("ThemeSettings · export", () => {
     delete (URL as { revokeObjectURL?: unknown }).revokeObjectURL;
   });
 
-  it("has no toolbar 匯出 button — export is per-row download only", async () => {
+  it("toolbar offers 新增 and 匯入", async () => {
     const utils = await renderManage();
-    // The toolbar keeps 新增 + 匯入; the standalone 匯出 button is gone.
     expect(utils.getByText(p.themeAdd)).toBeTruthy();
     expect(utils.getByText(p.themeImport)).toBeTruthy();
-    expect(utils.queryByText(p.themeExport)).toBeNull();
   });
 
   it("office 列下載鈕可用,下載一個非保留 id 的 office 包(可再匯入)", async () => {

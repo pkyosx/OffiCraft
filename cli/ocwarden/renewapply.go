@@ -131,14 +131,14 @@ func newRenewalWiring(cfg Config, env func(string) string) renewalWiring {
 	// the self-update constructor it sat beside a 10s announce client, one
 	// character away, with nothing able to tell the two apart.
 	//
-	// ⚠️ NO TEST WATCHES WHICH BUDGET THIS IS. Swapping selfUpdateHTTPTimeout for
+	// ⚠️ NO TEST WATCHES WHICH BUDGET THIS IS. Swapping selfUpdateRequestBudget for
 	// selfUpdateReportBudget here leaves the whole package green — measured. An
 	// earlier version of this comment claimed the move put the choice "inside a
 	// function tests can call", which was true of the location and false of the
 	// coverage. Observing it would mean waiting out a real timeout, and a field
 	// carrying the value for a test to read is the decoy this constructor already
 	// grew once and had removed. Stated rather than faked.
-	client := &http.Client{Timeout: selfUpdateHTTPTimeout}
+	client := &http.Client{Timeout: selfUpdateRequestBudget}
 	return renewalWiring{
 		renew:       httpCredentialRenewer(client, cfg.Base, cfg.Token),
 		verify:      httpCredentialVerifier(client, cfg.Base),

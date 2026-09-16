@@ -21,6 +21,7 @@ import {
   MAX_AVATAR_BYTES,
   MAX_BACKGROUND_BYTES,
   MAX_WORDING_ENTRIES_PER_LANG,
+  AVATAR_KINDS,
 } from "./themeBundle";
 import { THEME_COLOR_TOKENS } from "../styles/themeTokens.generated";
 import { SAFE_FONT_FAMILIES } from "../styles/themeFonts.generated";
@@ -337,21 +338,41 @@ describe("isValidAvatarValue", () => {
 });
 
 describe("validateAvatars", () => {
-  it("accepts undefined (optional) and a legal member/outsource/owner/assistant overlay", () => {
+  it("accepts undefined (optional) and a legal staff/outsource/owner/assistant overlay", () => {
     expect(validateAvatars(undefined)).toBeNull();
     expect(
-      validateAvatars({ member: okPng, outsource: okWebp, owner: okJpeg, assistant: okPng })
+      validateAvatars({ staff: okPng, outsource: okWebp, owner: okJpeg, assistant: okPng })
     ).toBeNull();
   });
 
   it("rejects a non-object, an unknown kind, and an invalid image", () => {
     expect(validateAvatars([])).toMatch(/must be an object/);
     expect(validateAvatars({ boss: okPng })).toMatch(
-      /not allowed \(only member, outsource, owner, assistant\)/
+      /not allowed \(only assistant, outsource, owner, staff\)/
     );
+    // T-57: the list in that message is DERIVED from AVATAR_KINDS, so this
+    // assertion is what catches a future edit to the set that forgets the prose.
+    for (const kind of AVATAR_KINDS) {
+      expect(validateAvatars({ boss: okPng })).toContain(kind);
+    }
     expect(
-      validateAvatars({ member: avatarURI("image/svg+xml", [0x3c]) })
+      validateAvatars({ staff: avatarURI("image/svg+xml", [0x3c]) })
     ).toMatch(/not a valid image/);
+  });
+
+  // T-57 — the IMPORT side of the hard cut. A bundle exported before the rename
+  // carries `member`; the owner ruled those files are dead. This asserts they
+  // die LOUDLY: the alternative (accept the key, then find nothing under
+  // `staff` at paint time) is the silent fallback to the built-in glyph that
+  // this ticket exists to remove, and nothing anywhere would report it.
+  it("refuses a pre-T-57 `member` key and says what happened", () => {
+    const msg = validateAvatars({ member: okPng });
+    expect(msg).not.toBeNull();
+    expect(msg).toContain("member");
+    expect(msg).toContain("staff");
+    expect(msg).toContain("renamed");
+    expect(msg).toContain("older version of OffiCraft");
+    expect(msg).toContain("Re-export");
   });
 
   it("flows through validateThemeBundle", () => {
@@ -362,7 +383,7 @@ describe("validateAvatars", () => {
       avatars: { owner: okPng, assistant: okWebp },
     };
     expect(validateThemeBundle(good)).toBeNull();
-    const bad = { ...good, avatars: { member: avatarURI("image/svg+xml", [0x3c]) } };
+    const bad = { ...good, avatars: { staff: avatarURI("image/svg+xml", [0x3c]) } };
     expect(validateThemeBundle(bad)).toMatch(/not a valid image/);
   });
 });
@@ -470,7 +491,7 @@ describe("validateBackgrounds", () => {
     expect(validateBackgrounds({ canvas: pastAvatarCap })).toBeNull();
     // And an avatar of that same size is STILL refused — the relaxation did not
     // leak across, which is the whole point of splitting the caps.
-    expect(validateAvatars({ member: pastAvatarCap })).toMatch(
+    expect(validateAvatars({ staff: pastAvatarCap })).toMatch(
       /not a valid image/
     );
 
@@ -553,13 +574,13 @@ describe("validateBackgroundModes", () => {
 });
 
 describe("validateThemeBundle backward compatibility", () => {
-  it("accepts a legacy member/outsource-only bundle with no logo/navIcons/backgrounds", () => {
+  it("accepts a legacy staff/outsource-only bundle with no logo/navIcons/backgrounds", () => {
     expect(
       validateThemeBundle({
         id: "legacy",
         name: "Legacy",
         colors: { [aToken]: "#101018" },
-        avatars: { member: okPng, outsource: okWebp },
+        avatars: { staff: okPng, outsource: okWebp },
       })
     ).toBeNull();
   });

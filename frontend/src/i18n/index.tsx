@@ -134,7 +134,7 @@ interface I18nContextValue {
   /** The active custom theme's per-role avatar images (T-16a1 P5; T-ea81), or
    * undefined when the active theme carries none (the built-in office, or a
    * custom theme with no avatars overlay). The Avatar component reads this to
-   * render a member/outsource/owner/assistant avatar image, falling back to the
+   * render a staff/outsource/owner/assistant avatar image, falling back to the
    * built-in glyph when absent. */
   activeAvatars?: Partial<Record<AvatarKind, string>>;
   /** The active custom theme's studio logo image (T-ea81), or undefined when the

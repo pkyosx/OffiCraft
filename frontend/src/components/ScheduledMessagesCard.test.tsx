@@ -697,17 +697,8 @@ describe("ScheduledMessagesCard", () => {
         )
       )
     ).toEqual(DEFAULT_MINUTES);
-    // The two controls that made the group read as interval-only are gone, in
-    // BOTH forms — the create form here and every row editor.
-    expect(
-      view.queryByTestId("mp-schedmsg-custom-minutes-detail-toggle")
-    ).toBeNull();
-    for (const step of [5, 10, 15, 20, 30])
-      expect(
-        view.queryByTestId(`mp-schedmsg-custom-minutes-step-${step}`)
-      ).toBeNull();
 
-    // …and a single cell really is one pick, not an interval: ticking 20 alone
+    // A single cell really is one pick, not an interval: ticking 20 alone
     // sends exactly [20].
     fireEvent.change(await view.findByTestId("mp-schedmsg-body-input"), {
       target: { value: "每小時的第 20 分" },

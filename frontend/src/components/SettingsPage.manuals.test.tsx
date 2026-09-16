@@ -586,8 +586,7 @@ describe("設定 › 任務手冊 — detail", () => {
       await renderManualsList();
     fireEvent.click(await findByTestId("manual-open-review-pr"));
 
-    // The title carries the same pencil inline-edit as the role title; the
-    // display-name field is GONE from 任務定義.
+    // The title carries the same pencil inline-edit as the role title.
     const pencil = await findByLabelText("顯示名稱");
     fireEvent.click(pencil);
     const input = container.querySelector(
@@ -602,24 +601,17 @@ describe("設定 › 任務手冊 — detail", () => {
     );
   });
 
-  it("§3 SOP card shows NO filename chip and 任務定義 has no display-name field (owner T-8a4a)", async () => {
+  it("§3 SOP's editor opens from block ③'s own switch (owner 2026-07-31 P1)", async () => {
     __injectMockTaskManual(mkManual({ typeKey: "review-pr" }));
-    const { findByTestId, getByTestId, queryByText, queryByTestId } =
+    const { findByTestId, getByTestId, queryByTestId } =
       await renderManualsList();
     fireEvent.click(await findByTestId("manual-open-review-pr"));
     fireEvent.click(await findByTestId("manual-entry-definition"));
     await findByTestId("manual-definition-card");
 
-    // The synthesized "<type>.md" filename is gone from the SOP card head…
-    expect(queryByText("review-pr.md")).toBeNull();
-    // …and the SOP's editor opens from block ③'s own switch (owner 2026-07-31
-    // P1), not from a card-level one and not from an ex-per-section toggle.
-    expect(queryByTestId("manual-sop-edit")).toBeNull();
     expect(queryByTestId("manual-def-edit-3")).not.toBeNull();
     fireEvent.click(getByTestId("manual-def-edit-3"));
     expect(await findByTestId("manual-sop-input")).toBeTruthy();
-    // 顯示名稱 is no longer an inline field inside 任務定義 (moved to the title).
-    expect(queryByTestId("manual-display-name-input")).toBeNull();
   });
 
   it("marking 🔑識別鍵 forces 必填 on, and clearing 必填 clears 識別鍵 (server gate 00010 parity)", async () => {

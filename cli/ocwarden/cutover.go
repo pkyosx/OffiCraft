@@ -134,7 +134,7 @@ const (
 	//
 	//	claude resolve   <= 2 x claudeProbeBudget (20s)        =  40s
 	//	codex resolve    <= 2 x claudeProbeBudget (20s)        =  40s
-	//	ocagent download <= selfUpdateHTTPTimeout (60s)        =  60s
+	//	ocagent download <= selfUpdateRequestBudget (60s)      =  60s
 	//	bootout poll     <= bootoutPollAttempts x Interval     =   5s
 	//	verify           <= 30 x 1s + 6 x 1s                   =  36s
 	//	                                                   total ~181s

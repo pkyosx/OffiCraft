@@ -31,9 +31,22 @@ const NOOP_LABEL = (s: string) => s;
 
 const baseVM: Omit<AgentDetailVM, "testIdPrefix"> = {
   online: true,
+  // These three became REQUIRED after this story was written; the excess
+  // `modelEffortNote` above was masking their absence (one error per literal),
+  // so removing it surfaced them. Filled with the ordinary steady state: a
+  // Claude-configured agent that has reported Claude back, and a station that
+  // did send an attach command (so the fallback text is never the one on
+  // screen here).
+  runtime: "claude",
+  reportedRuntime: "claude",
+  terminalUnavailable: "",
   model: "claude-opus-4-8",
   effort: "high",
-  modelEffortNote: "note",
+  // ⚠️ `modelEffortNote` is GONE (T-7f28) — see the same note in
+  // AgentDetailConvergenceStory: the in-place model/effort editor it captioned
+  // was dead code (no caller ever passed `onSaveModelEffort`), so the field is
+  // unexpressable, not just unused. This story is about 成本歸零 anyway; the
+  // replacement pending-change hint is guarded by `pending-change-hints.ct.spec`.
   machineText: "MBP 5",
   accountText: "shawn-claude",
   contextPct: 42,

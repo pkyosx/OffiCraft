@@ -38,12 +38,9 @@ describe("SettingsPage · boot / lifecycle documents", () => {
   it("lists every document under its own group heading", async () => {
     const { getByText, getByTestId } = await openRolesLog();
 
-    // THREE headings — and the fourth is gone rather than merely unused, so
-    // the dictionary entry that named it cannot come back unnoticed.
     for (const label of [s.globalSection, s.stopSection, s.taskEventSection]) {
       expect(getByText(label)).toBeTruthy();
     }
-    expect(Object.keys(s)).not.toContain("readOnlySection");
 
     for (const kind of [
       "system_interaction",

@@ -17,6 +17,7 @@ export function TaskCardProgressStory() {
         onMarkDuplicate={NOOP as never}
         onSetPriority={NOOP as never}
         onSendMessage={NOOP as never}
+        onReassign={NOOP as never}
         onHydrate={(async () => REPLANNED_2_OF_5) as never}
       />
     </I18nProvider>
