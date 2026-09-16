@@ -24,14 +24,15 @@
   background: var(--color-card);
   /* T-192 — THE BOX IS THE SCROLLER, and it is capped against the viewport.
    * Before this, neither .confirm-modal nor this box declared any overflow, and
-   * the box's height came only from its content: the 強制結案 body measures
-   * 499.2px (en) / 394.6px (zh) at every viewport. Under `align-items: center`
-   * a box taller than the scrim is centred THROUGH it, so on a window shorter
-   * than that the TOP of the body is above y=0 — and with no scroll container
-   * anywhere (measured: `scrollHeight - clientHeight === 0` on both the box and
-   * the page) there is no way to bring it back. That paragraph's whole job is
-   * to be read before an irreversible action, so losing it is losing the
-   * dialog's reason to exist.
+   * the box's height came only from its content. Under `align-items: center` a
+   * box taller than the scrim is centred THROUGH it, so on a window shorter
+   * than the content the TOP of the body is above y=0 — and with no scroll
+   * container anywhere (measured: `scrollHeight - clientHeight === 0` on both
+   * the box and the page) there is no way to bring it back. A confirm body's
+   * whole job is to be read before an irreversible action, so losing it is
+   * losing the dialog's reason to exist. The arm that measures this is
+   * visual-guards/confirm-modal-overflow.ct.spec.tsx, which carries its own
+   * over-tall fixture rather than any shipped copy.
    *
    * The cap is stated TWICE, exactly as .md-preview__panel does it and for the
    * same reason: the percentage needs the parent's height to resolve, the dvh

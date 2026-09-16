@@ -51,7 +51,14 @@ function mkMember(over: Partial<Member> = {}): Member {
 }
 
 const roster: Member[] = [
-  mkMember({ id: "mira", name: "Mira", status: "online", lifecycle: "online-awake" }),
+  // `lifecycle` is the backend's five-state presence union (types.ts), so the
+  // ONLINE member's honest value is "online". "online-awake" — what this said —
+  // is the panel's VISUAL projection of that same state (`online → online-awake`),
+  // produced downstream in the component; the backend never emits it, so seeding
+  // it here staged a roster row the real system cannot produce. This guard
+  // measures sidebar WIDTH (tab layout, underline, unread badge, name ellipsis)
+  // and never reads the lifecycle value, so the correction changes no pixel.
+  mkMember({ id: "mira", name: "Mira", status: "online", lifecycle: "online" }),
   mkMember({ id: "beto", name: "Beto", status: "waking", lifecycle: "waking" }),
   mkMember({
     id: "long",

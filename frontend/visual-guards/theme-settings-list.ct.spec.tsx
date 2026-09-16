@@ -17,7 +17,12 @@
 //
 // Both are proven against the REAL app CSS + real ancestor chain (.app__main),
 // with a custom theme seeded the way production seeds it (see the story).
-import { test, expect } from "@playwright/experimental-ct-react";
+import {
+  test,
+  expect,
+  type ComponentFixtures,
+} from "@playwright/experimental-ct-react";
+import type { Page } from "@playwright/test";
 import { ThemeSettingsListStory } from "./stories/ThemeSettingsListStory";
 
 // ── colour helpers (run in Node, on strings pulled from getComputedStyle) ──
@@ -100,7 +105,11 @@ async function sampleColours(cmp: import("@playwright/test").Locator) {
   return { fg, bg, ratio: contrast(fg, bg) };
 }
 
-async function mountSeeded(mount: any, page: any, width: number) {
+async function mountSeeded(
+  mount: ComponentFixtures["mount"],
+  page: Page,
+  width: number,
+) {
   await page.setViewportSize({ width, height: 900 });
   const cmp = await mount(<ThemeSettingsListStory />);
   await cmp.getByTestId("seed").click();
