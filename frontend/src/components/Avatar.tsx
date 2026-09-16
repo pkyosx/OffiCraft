@@ -7,7 +7,7 @@ import { authedAttachmentUrl } from "../api/http";
 interface AvatarProps {
   size?: number;
   /** The role this avatar stands for (T-16a1 P5; extended per role in T-ea81):
-   * 正職 "member" (the default) / 外包 "outsource" / CEO "owner" / 助理
+   * 正職 "staff" (the default) / 外包 "outsource" / CEO "owner" / 助理
    * "assistant". Selects which of the active theme's avatar images to render;
    * when the theme carries none for this kind, the built-in UserIcon glyph is
    * used (office never degrades). */
@@ -30,7 +30,7 @@ interface AvatarProps {
 // image is decorative (alt="" + aria-hidden): callers that need an accessible
 // name label the button/container that wraps the Avatar (e.g.
 // .member-card__avatar), so that wrapper's label stays the only accessible name.
-export function Avatar({ size = 40, kind = "member", src }: AvatarProps) {
+export function Avatar({ size = 40, kind = "staff", src }: AvatarProps) {
   const avatars = useActiveAvatars();
   const personal = authedAttachmentUrl(src);
   const theme = avatars?.[kind];

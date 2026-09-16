@@ -234,7 +234,7 @@ test("collapsed, a step WITH a note is visibly taller than one without", async (
   // the same character length, so a height difference can only come from the
   // corner entry. Moving the note into an overlay makes this the ONLY on-card
   // trace a note leaves, which is why it survives the redesign.
-  const cmp = await mountExpanded(mount, page);
+  await mountExpanded(mount, page);
 
   const sizes = await page.evaluate(() => {
     const pick = (id: string) => {

@@ -27,6 +27,7 @@ function Card({ task }: { task: typeof WITH_ARTIFACTS }) {
         onMarkDuplicate={NOOP as never}
         onSetPriority={NOOP as never}
         onSendMessage={NOOP as never}
+        onReassign={NOOP as never}
         onHydrate={(async () => task) as never}
         onRemoveArtifact={NOOP as never}
       />

@@ -11,7 +11,7 @@ import type { AvatarKind } from "../lib/themeBundle";
 export function ReplyCardAvatarButton({
   onClick,
   size = 34,
-  kind = "member",
+  kind = "staff",
   src,
 }: {
   onClick: () => void;

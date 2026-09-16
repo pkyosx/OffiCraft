@@ -12,17 +12,17 @@
 // a wrong-kind mutant paints the wrong image and reddens the matching test.
 //
 // MUTANTS (each verified red on exactly its own test; see task report):
-//   * OutsourcePanel `kind="outsource"` → `kind="member"`   reddens ONLY
+//   * OutsourcePanel `kind="outsource"` → `kind="staff"`   reddens ONLY
 //     "rail: outsource row paints the outsource image".
 //   * OutsourcePanel `<Avatar…/>` → `<BriefcaseIcon/>` (the original bug)
 //     removes the img entirely → same test reddens (no src to match).
-//   * WorkerDetailPanel `<Avatar kind="outsource"/>` → `kind="member"` reddens
+//   * WorkerDetailPanel `<Avatar kind="outsource"/>` → `kind="staff"` reddens
 //     ONLY "worker detail: identity paints the outsource image"; restoring the
 //     hard `<BriefcaseIcon/>` removes the img entirely → same test reddens.
-//   * ChatArea header `member.id.startsWith("ow-") ? "outsource" : "member"`
-//     → hard `"member"` reddens ONLY "chat header: outsource peer …".
+//   * ChatArea header `member.id.startsWith("ow-") ? "outsource" : "staff"`
+//     → hard `"staff"` reddens ONLY "chat header: outsource peer …".
 //   * The 正職 tests stay green under those mutants and redden only if a
-//     member site is flipped to outsource — so no assertion masks another.
+//     staff site is flipped to outsource — so no assertion masks another.
 import { test, expect } from "@playwright/experimental-ct-react";
 import {
   AvatarRailStory,
