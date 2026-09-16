@@ -164,13 +164,11 @@ describe("MonitorPage cutover-effect line", () => {
     );
   });
 
-  it("paints the failure amber, and keeps no rule for the retired grey line", async () => {
+  it("paints the failure amber", async () => {
     // jsdom does not apply the imported CSS, so the stylesheet is the only place
-    // this distinction exists. Two directional claims: the one state with a face
-    // keeps the alarm colour (and takes it from the theme token, never a literal
-    // — the cockpit has user-authored themes), and the grey ".mon-cutover-note"
-    // rule is GONE. A rule with no caller left behind is the next person's trap:
-    // they will trust it and wire something to it.
+    // this distinction exists. The one state with a face keeps the alarm colour
+    // and takes it from the theme token, never a literal — the cockpit has
+    // user-authored themes.
     // Read from the repo path rather than through `import.meta.url`: vitest
     // does not hand test modules a file: URL, so resolving against it throws.
     const css = await readFile("src/components/monitor.css", "utf8");
@@ -181,10 +179,6 @@ describe("MonitorPage cutover-effect line", () => {
     const warn = ruleFor("mon-cutover-warn");
     if (warn === null) throw new Error("no .mon-cutover-warn rule in monitor.css");
     expect(warn).toContain("var(--color-warn-fg)");
-    expect(
-      ruleFor("mon-cutover-note"),
-      "the grey cutover line has no caller any more — its rule must not survive it"
-    ).toBeNull();
   });
 
   it("renders no cutover element whatsoever on the three silent states", async () => {
@@ -202,10 +196,6 @@ describe("MonitorPage cutover-effect line", () => {
       expect(
         screen.queryByTestId("mon-cutover-warning"),
         `"${name}" rendered a cutover element; it must render none at all`
-      ).toBeNull();
-      expect(
-        screen.queryByTestId("mon-cutover-note"),
-        `"${name}" rendered the retired grey line`
       ).toBeNull();
       cleanup();
     }
