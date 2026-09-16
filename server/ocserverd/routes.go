@@ -1957,6 +1957,35 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Summary: "提到最新: set one 傳承 entry's ``effective_ts`` to now so it sorts to the front of its group. Only the entry's own AUTHOR may bump it (admin capability is unrestricted) -- a bump moves an entry ahead of other people's under a shared cap, so it spends somebody else's room. ``created_ts`` is NOT touched, which is what makes this reversible.",
 			MCPTool: "bump_lore_entry",
 		}),
+		// ── 計畫步驟的單筆編輯 (T-228) ──────────────────────────────────────
+		// APPENDED, not placed beside the other /api/tasks/{task_id}/steps rows
+		// they read next to. The MCP tool surface has ONE order shared by this
+		// table, spec/openapi.json's x-mcp.order and
+		// conformance/routes_manifest.json, and x-mcp.order must be the
+		// consecutive range 0..N-1 — so a new tool is appended or every tool
+		// after it is renumbered. The rule is stated in full at the custom-themes
+		// block above.
+		Gated(principalAgent, routeDef{
+			Method:  "POST",
+			Path:    "/api/tasks/{task_id}/steps",
+			Handler: w.HandleInsertTaskStepApiTasksTaskIdStepsPost,
+			Summary: "Insert ONE step into this task's plan, in front of a step you name. WHY IT EXISTS: submit_plan is a WHOLESALE replace — it permanently deletes every unfinished step together with its working note — so adding one step mid-task used to mean destroying the steps already under way, the notes on them, and the gate step still waiting for the owner's answer. This call moves nothing else: every other step keeps its id, its status, its note and its bound reply card, so a step sitting in waiting_owner goes on waiting and the owner's answer still lands on it. WHERE IT LANDS: `before_step_id` names the step the new one goes IN FRONT OF; omit it (or send \"\") to append at the END of the timeline. An id that names no step on this task is a 404, and one that names a FINISHED step (done / superseded) is a 409 — finished work is history and nothing is inserted into it. `name` and `dod` must both be non-blank (400), the same quality gate a submitted plan carries. The resulting timeline must still satisfy the parallel-group shape rules (400): steps sharing a parallel_group sit consecutively and number at least two, and a gate step carries no parallel_group. WHO: the task's own executor, or an admin/owner — anyone else is a flat 403; a CLOSED task is a 409. ⚠️ THERE IS NO OVERWRITE PROTECTION, and that is an owner ruling (rc-5160b97384c4, 2026-09-16): this call carries no version, compares nothing and retries nothing. When two writes to the same plan land at the same moment THE LATER WRITE WINS and the earlier one is simply gone — no error, no signal, and nothing to read afterwards that says it happened. Answers with a bounded receipt (`task_id`, `step_id` — the new step's id — `steps_total`, `progress_done`, `progress_total`), not the plan; call get_task to read the step rows back.",
+			MCPTool: "insert_step",
+		}),
+		Gated(principalAgent, routeDef{
+			Method:  "POST",
+			Path:    "/api/tasks/{task_id}/steps/{step_id}/delete",
+			Handler: w.HandleDeleteTaskStepApiTasksTaskIdStepsStepIdDeletePost,
+			Summary: "Delete ONE unfinished step from this task's plan, leaving every other step exactly as it is — id, status, working note and bound reply card all untouched. WHY IT EXISTS: the only way to drop a step used to be submit_plan, which replaces the whole plan and permanently deletes every unfinished step's note along the way. WHAT IT REFUSES: a step id that names no step on this task is a 404; a FINISHED step (done / superseded) is a 409, because terminal rows are immutable history; deleting the last remaining step is a 400, because a planned task cannot have zero steps. WHO: the task's own executor, or an admin/owner — anyone else is a flat 403; a CLOSED task is a 409. 🔴 T-74f8 交棒閘, THIRD DOOR: removing the last UNFINISHED step leaves every remaining step done, which FINISHES the work — the task lands in ready_for_done, one mark_task_done away from a close that can never be undone. So when this task's creator is not its executor and no handover is declared or already real, the delete is refused with 422 BEFORE anything is written. This call carries no handoff field, so hand the ball over first: create the successor task and point its blocked_by at this task (the gate then stands aside by itself), or keep this step and declare the handover on the update_step_status report that finishes it. A delete that still leaves unfinished work in the plan is never gated. ⚠️ THERE IS NO OVERWRITE PROTECTION, and that is an owner ruling (rc-5160b97384c4, 2026-09-16): this call carries no version, compares nothing and retries nothing. When two writes to the same plan land at the same moment THE LATER WRITE WINS and the earlier one is simply gone — no error, no signal, and nothing to read afterwards that says it happened. Answers with a bounded receipt (`task_id`, `steps_total`, `progress_done`, `progress_total`), not the plan; call get_task to read the step rows back.",
+			MCPTool: "delete_step",
+		}),
+		Gated(principalAgent, routeDef{
+			Method:  "POST",
+			Path:    "/api/tasks/{task_id}/steps/reorder",
+			Handler: w.HandleReorderTaskStepsApiTasksTaskIdStepsReorderPost,
+			Summary: "Reorder this task's UNFINISHED steps. Nothing is rebuilt: every step keeps its id, its status, its working note and its bound reply card — only the positions change. That is the whole difference from submit_plan, where re-listing a step under the same name mints a NEW step with a new id and the old note is gone. `step_ids` is the COMPLETE ordered list of this task's unfinished step ids: all of them, in the order you want them, and nothing else. FINISHED steps (done / superseded) do not appear in it and do not move — they keep the timeline positions they already hold, and the unfinished steps fill the positions that are left, in the order given. A `step_ids` that is not exactly the set of this task's unfinished steps is a 400 — one missing, one repeated, one that names no step on this task, or one that names a finished step, each refuses the whole call and nothing is written. The resulting timeline must still satisfy the parallel-group shape rules (400). WHO: the task's own executor, or an admin/owner — anyone else is a flat 403; a CLOSED task is a 409. ⚠️ THERE IS NO OVERWRITE PROTECTION, and that is an owner ruling (rc-5160b97384c4, 2026-09-16): this call carries no version, compares nothing and retries nothing. When two writes to the same plan land at the same moment THE LATER WRITE WINS and the earlier one is simply gone — no error, no signal, and nothing to read afterwards that says it happened. Answers with a bounded receipt (`task_id`, `steps_total`, `progress_done`, `progress_total`), not the plan; call get_task to read the step rows back.",
+			MCPTool: "reorder_steps",
+		}),
 	}
 	out := make([]RouteSpec, len(rows))
 	for i, r := range rows {

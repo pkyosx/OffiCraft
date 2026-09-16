@@ -1629,6 +1629,14 @@ func TestRecomputeTaskStatus(t *testing.T) {
 	})
 }
 
+// timelineOf is the stored order an APPENDING write produces — what submit_plan
+// hands the validator. insert_step does not append, so it builds its own.
+func timelineOf(kept, fresh []TaskStep) []TaskStep {
+	out := make([]TaskStep, 0, len(kept)+len(fresh))
+	out = append(out, kept...)
+	return append(out, fresh...)
+}
+
 func TestValidatePlanParallelShape(t *testing.T) {
 	t.Run("a plain sequential plan and a well-formed parallel group are both legal", func(t *testing.T) {
 		fresh := []TaskStep{
@@ -1638,7 +1646,7 @@ func TestValidatePlanParallelShape(t *testing.T) {
 			{Name: "join"},
 			{Name: "gate", IsGate: true},
 		}
-		if msg := ValidatePlanParallelShape(nil, fresh); msg != "" {
+		if msg := ValidatePlanParallelShape(fresh, fresh); msg != "" {
 			t.Fatalf("ValidatePlanParallelShape(legal plan) = %q, want the empty string", msg)
 		}
 	})
@@ -1650,12 +1658,12 @@ func TestValidatePlanParallelShape(t *testing.T) {
 		}
 		want := "step 'ask the owner': a gate step cannot sit inside a parallel group — " +
 			"put the gate on its own step after the group's join step"
-		if msg := ValidatePlanParallelShape(nil, fresh); msg != want {
+		if msg := ValidatePlanParallelShape(fresh, fresh); msg != want {
 			t.Fatalf("ValidatePlanParallelShape(gate in a group):\n got %q\nwant %q", msg, want)
 		}
 	})
 
-	t.Run("a split group is refused, and the check runs over the kept prefix joined to the fresh plan", func(t *testing.T) {
+	t.Run("a split group is refused, and the check runs over the whole stored timeline", func(t *testing.T) {
 		fresh := []TaskStep{
 			{Name: "a", ParallelGroup: "g1"},
 			{Name: "b"},
@@ -1663,17 +1671,36 @@ func TestValidatePlanParallelShape(t *testing.T) {
 		}
 		want := "steps sharing parallel_group 'g1' must sit next to each other — " +
 			"move them together, or give the later run a different group key"
-		if msg := ValidatePlanParallelShape(nil, fresh); msg != want {
+		if msg := ValidatePlanParallelShape(fresh, fresh); msg != want {
 			t.Fatalf("ValidatePlanParallelShape(split group):\n got %q\nwant %q", msg, want)
 		}
 		kept := []TaskStep{{Name: "kept", ParallelGroup: "g1"}}
 		spaced := []TaskStep{{Name: "x"}, {Name: "y", ParallelGroup: "g1"}}
-		if msg := ValidatePlanParallelShape(kept, spaced); msg != want {
+		if msg := ValidatePlanParallelShape(timelineOf(kept, spaced), spaced); msg != want {
 			t.Fatalf("ValidatePlanParallelShape(kept prefix splits the group):\n got %q\nwant %q", msg, want)
 		}
 		adjacent := []TaskStep{{Name: "y", ParallelGroup: "g1"}, {Name: "x"}}
-		if msg := ValidatePlanParallelShape(kept, adjacent); msg != "" {
+		if msg := ValidatePlanParallelShape(timelineOf(kept, adjacent), adjacent); msg != "" {
 			t.Fatalf("ValidatePlanParallelShape(kept prefix adjoins the group) = %q, want the empty string", msg)
+		}
+	})
+
+	// T-228: insert_step puts its one new row in the MIDDLE of the timeline, so
+	// the two arguments are the RESULT and the new rows — not "old" and "new"
+	// to be concatenated. A validator that rebuilt the order by appending fresh
+	// to everything else would read this exact case as legal, because appended
+	// to the end the new step no longer sits between the two lanes.
+	t.Run("a new step wedged between two lanes splits the group", func(t *testing.T) {
+		wedge := TaskStep{Name: "wedge"}
+		timeline := []TaskStep{
+			{Name: "lane a", ParallelGroup: "g1"},
+			wedge,
+			{Name: "lane b", ParallelGroup: "g1"},
+		}
+		want := "steps sharing parallel_group 'g1' must sit next to each other — " +
+			"move them together, or give the later run a different group key"
+		if msg := ValidatePlanParallelShape(timeline, []TaskStep{wedge}); msg != want {
+			t.Fatalf("ValidatePlanParallelShape(new step wedged into a group):\n got %q\nwant %q", msg, want)
 		}
 	})
 
@@ -1681,14 +1708,16 @@ func TestValidatePlanParallelShape(t *testing.T) {
 		fresh := []TaskStep{{Name: "solo", ParallelGroup: "g1"}, {Name: "next"}}
 		want := "parallel_group 'g1' holds only one step — running in parallel takes " +
 			"at least two; drop the parallel_group to keep the step sequential"
-		if msg := ValidatePlanParallelShape(nil, fresh); msg != want {
+		if msg := ValidatePlanParallelShape(fresh, fresh); msg != want {
 			t.Fatalf("ValidatePlanParallelShape(one-lane group):\n got %q\nwant %q", msg, want)
 		}
 		kept := []TaskStep{{Name: "legacy", ParallelGroup: "old"}}
-		if msg := ValidatePlanParallelShape(kept, []TaskStep{{Name: "fresh"}}); msg != "" {
+		plain := []TaskStep{{Name: "fresh"}}
+		if msg := ValidatePlanParallelShape(timelineOf(kept, plain), plain); msg != "" {
 			t.Fatalf("ValidatePlanParallelShape(legacy kept-only group) = %q, want the empty string", msg)
 		}
-		if msg := ValidatePlanParallelShape(kept, []TaskStep{{Name: "fresh", ParallelGroup: "old"}}); msg != "" {
+		joiner := []TaskStep{{Name: "fresh", ParallelGroup: "old"}}
+		if msg := ValidatePlanParallelShape(timelineOf(kept, joiner), joiner); msg != "" {
 			t.Fatalf("ValidatePlanParallelShape(fresh step joins the kept group) = %q, want the empty string", msg)
 		}
 	})

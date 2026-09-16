@@ -206,6 +206,8 @@ def descriptor(name, desc, props, required):
 
 
 def operation(op_id, summary, bullets, body_ref, receipt_ref, params, mcp):
+    """body_ref None = the operation takes NO request body, the shape /claim and
+    the other option-less task verbs already use."""
     responses = error_responses()
     responses["200"] = {
         "content": {
@@ -213,22 +215,24 @@ def operation(op_id, summary, bullets, body_ref, receipt_ref, params, mcp):
         },
         "description": "Successful Response",
     }
-    return {
+    op = {
         "description": bullets,
         "operationId": op_id,
         "parameters": params,
-        "requestBody": {
+        "responses": responses,
+        "summary": summary,
+        "x-mcp": mcp,
+    }
+    if body_ref is not None:
+        op["requestBody"] = {
             "content": {
                 "application/json": {
                     "schema": {"$ref": "#/components/schemas/" + body_ref}
                 }
             },
             "required": True,
-        },
-        "responses": responses,
-        "summary": summary,
-        "x-mcp": mcp,
-    }
+        }
+    return op
 
 
 TASK_ID_PROP = {"type": "string"}
@@ -281,7 +285,7 @@ DELETE_OP = operation(
     "handle_delete_task_step_api_tasks__task_id__steps__step_id__delete_post",
     DELETE_DESC,
     DELETE_BULLETS,
-    "TaskStepDeleteDTO",
+    None,
     "TaskStepMutationReceiptDTO",
     [path_param("task_id", "Task Id"), path_param("step_id", "Step Id")],
     {
@@ -332,20 +336,6 @@ REORDER_OP = operation(
 )
 
 SCHEMAS = {
-    "TaskStepDeleteDTO": {
-        "additionalProperties": False,
-        "description": (
-            "The delete_step request body. It carries NOTHING: the task and the "
-            "step are both in the path, and the call takes no options — in "
-            "particular no handoff declaration, which is why the 交棒閘 refusal "
-            "on this door tells the caller to hand over somewhere else rather "
-            "than to declare here. Kept as a typed empty object so the route has "
-            "the same request shape as every other task write."
-        ),
-        "properties": {},
-        "title": "TaskStepDeleteDTO",
-        "type": "object",
-    },
     "TaskStepInsertDTO": {
         "additionalProperties": False,
         "description": (
@@ -483,11 +473,6 @@ def main():
         block("TaskStepInsertDTO", SCHEMAS["TaskStepInsertDTO"], 8)
         + block("TaskStepInsertReceiptDTO", SCHEMAS["TaskStepInsertReceiptDTO"], 8)
         + block("TaskStepMutationReceiptDTO", SCHEMAS["TaskStepMutationReceiptDTO"], 8),
-    )
-    text = insert_before(
-        text,
-        '      "TaskStepDetailDTO": {\n',
-        block("TaskStepDeleteDTO", SCHEMAS["TaskStepDeleteDTO"], 8),
     )
     text = insert_before(
         text,

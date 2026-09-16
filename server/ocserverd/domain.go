@@ -1768,26 +1768,30 @@ func RecomputeTaskStatus(t *Task, steps []TaskStep) {
 //  3. a group the fresh plan uses must hold at least two steps overall — a
 //     one-lane "parallel" stage is noise (drop the group key instead).
 //
-// kept is the task's preserved prefix (submit_plan keeps done AND
-// answered-card steps — frozen to superseded or re-listed alive — ahead of
-// the fresh plan; dal.ReplaceTaskPlan), fresh the submitted steps; checks
-// 2/3 run over the COMBINED timeline exactly as it will be stored and
-// rendered, while 1 and the rule-3 trigger look only at fresh so a legacy
-// kept-only group never blocks a legitimate replan. Returns "" when the
+// timeline is the task's step rows in the order they are ABOUT TO BE STORED —
+// the whole of it, not a fragment — and fresh is the subset of them this write
+// introduces. Checks 2/3 run over the timeline exactly as it will be stored and
+// rendered, while 1 and the rule-3 trigger look only at fresh so a legacy group
+// already on the timeline never blocks a legitimate write. Returns "" when the
 // shape is legal, else the human 400 message.
-func ValidatePlanParallelShape(kept, fresh []TaskStep) string {
+//
+// 🔴 THE TWO ARGUMENTS ARE NOT "OLD ROWS" AND "NEW ROWS": the caller passes the
+// RESULT, and the new rows a second time. submit_plan appends, so for it the
+// result happens to be kept++fresh — but insert_step (T-228) puts its one row in
+// the MIDDLE, and a function that rebuilt the timeline by concatenating would
+// validate an order that is never stored. Reading the shape off a reconstruction
+// of the timeline instead of the timeline itself is how a contiguity check goes
+// silently blind, so this function does not reconstruct anything.
+func ValidatePlanParallelShape(timeline, fresh []TaskStep) string {
 	for _, st := range fresh {
 		if st.IsGate && st.ParallelGroup != "" {
 			return "step '" + st.Name + "': a gate step cannot sit inside a parallel group — " +
 				"put the gate on its own step after the group's join step"
 		}
 	}
-	combined := make([]TaskStep, 0, len(kept)+len(fresh))
-	combined = append(combined, kept...)
-	combined = append(combined, fresh...)
 	lastIdx := map[string]int{}
 	count := map[string]int{}
-	for i, st := range combined {
+	for i, st := range timeline {
 		g := st.ParallelGroup
 		if g == "" {
 			continue

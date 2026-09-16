@@ -8372,13 +8372,6 @@
         "title": "TaskStepDTO",
         "type": "object"
       },
-        "TaskStepDeleteDTO": {
-          "additionalProperties": false,
-          "description": "The delete_step request body. It carries NOTHING: the task and the step are both in the path, and the call takes no options — in particular no handoff declaration, which is why the 交棒閘 refusal on this door tells the caller to hand over somewhere else rather than to declare here. Kept as a typed empty object so the route has the same request shape as every other task write.",
-          "properties": {},
-          "title": "TaskStepDeleteDTO",
-          "type": "object"
-        },
       "TaskStepDetailDTO": {
         "additionalProperties": false,
         "description": "ONE step of one task, IN FULL (T-66) — the counterpart to TaskStepDTO, which is the summary row ``get_task`` serves. Everything TaskStepDTO carries is here, plus the one thing it deliberately does not: ``note``, the step's whole working-note text. ``detail_level`` is ``full`` so a reader can tell the two responses apart without inspecting which fields happen to be present. It describes the STEP and nothing else — no task fields, no sibling steps — because the whole point of the split is that a caller who wants one note does not pay for the ticket.",
@@ -20572,16 +20565,6 @@
               }
             }
           ],
-          "requestBody": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TaskStepDeleteDTO"
-                }
-              }
-            },
-            "required": true
-          },
           "responses": {
             "200": {
               "content": {

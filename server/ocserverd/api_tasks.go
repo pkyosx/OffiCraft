@@ -2701,7 +2701,12 @@ func (s *apiServer) HandleSubmitTaskPlanApiTasksTaskIdPlanPost(w http.ResponseWr
 			"a plan must have at least one step")
 		return
 	}
-	if msg := ValidatePlanParallelShape(kept, fresh); msg != "" {
+	// The stored timeline is the kept prefix followed by the fresh plan — a plan
+	// always appends — so that concatenation IS the order about to be written.
+	timeline := make([]TaskStep, 0, len(kept)+len(fresh))
+	timeline = append(timeline, kept...)
+	timeline = append(timeline, fresh...)
+	if msg := ValidatePlanParallelShape(timeline, fresh); msg != "" {
 		writeError(w, http.StatusBadRequest, msg)
 		return
 	}
