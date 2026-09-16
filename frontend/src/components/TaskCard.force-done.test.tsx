@@ -380,36 +380,45 @@ describe("③b the confirm body is the owner's short sentence — in BOTH locale
   // cannot be undone, and asks. The assertions that read those clauses were
   // REMOVED rather than reworded: there is no clause left for them to be about,
   // and a check aimed at a clause that no longer exists is vacuous.
-  async function openConfirmBody(locale: "zh" | "en"): Promise<string> {
+  /** The copy element itself, not the dialog. The dialog's testid covers the
+   * body, the reason field and the buttons, so only containment is possible on
+   * it — and containment cannot see the sentence growing. This ticket is about
+   * the body being SHORT, so the measurement has to be an equality. */
+  async function openConfirmCopy(locale: "zh" | "en"): Promise<HTMLElement> {
     const { findByTestId } = renderPageIn(locale);
     fireEvent.click(await findByTestId("task-status"));
     fireEvent.click(await findByTestId("task-force-done"));
-    return (await findByTestId("force-done-confirm")).textContent ?? "";
+    return await findByTestId("force-done-copy");
   }
 
-  it("zh: the dialog opens carrying exactly the ruled sentence", async () => {
+  it("zh: the dialog opens carrying exactly the ruled sentence, and nothing after it", async () => {
     __injectMockTask(mkTask({ title: "短文案", status: "in_progress" }));
-    const body = await openConfirmBody("zh");
+    const copy = await openConfirmCopy("zh");
 
-    // 🔴 THE LITERAL IS THE ANCHOR. `toContain(zh.tasks.forceDoneConfirmBody)`
-    // reads the SAME constant the component reads, so on its own it survives
-    // any rewrite of the locale — including a return to the long paragraph the
-    // ruling removed. The constant assertion is kept beside it because it is
-    // what pins the component to the dictionary rather than to a hardcoded
-    // string.
-    expect(body).toContain("強制結案無法復原，確定要結案嗎？");
-    expect(body).toContain(zh.tasks.forceDoneConfirmBody);
+    // 🔴 THE LITERAL IS THE ANCHOR, AND `toBe` IS WHAT MAKES IT A CEILING.
+    // `toContain(zh.tasks.forceDoneConfirmBody)` reads the SAME constant the
+    // component reads, so on its own it survives any rewrite of the locale;
+    // and a containment check of the literal still passes on a body that has
+    // the ruled sentence with the old paragraph appended after it, which is
+    // the direction this ticket was opened to close. The constant assertion is
+    // kept beside it because it is what pins the component to the dictionary
+    // rather than to a hardcoded string.
+    expect(copy.textContent).toBe("強制結案無法復原，確定要結案嗎？");
+    expect(copy.textContent).toBe(zh.tasks.forceDoneConfirmBody);
+    // …and it is really the zh arm: a locale mix-up fails here rather than
+    // passing vacuously against the wrong dictionary.
+    expect(copy.textContent).not.toContain(en.tasks.forceDoneConfirmBody);
   });
 
   it("en: the same claim and no more — irreversibility, then the question", async () => {
     __injectMockTask(mkTask({ title: "en short body", status: "in_progress" }));
-    const body = await openConfirmBody("en");
+    const copy = await openConfirmCopy("en");
 
-    expect(body).toContain(
+    expect(copy.textContent).toBe(
       "Force-closing cannot be undone. Close this task anyway?"
     );
-    expect(body).toContain(en.tasks.forceDoneConfirmBody);
-    expect(body).not.toContain(zh.tasks.forceDoneConfirmBody);
+    expect(copy.textContent).toBe(en.tasks.forceDoneConfirmBody);
+    expect(copy.textContent).not.toContain(zh.tasks.forceDoneConfirmBody);
   });
 });
 
