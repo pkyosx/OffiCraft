@@ -1877,8 +1877,72 @@ func TestRpcResult(t *testing.T) {
 	})
 }
 
+// codex-rs/tools/src/json_schema/compaction.rs MAX_COMPACT_TOOL_SCHEMA_BYTES
+// (codex rust-v0.154.0): a larger input schema has every description stripped.
+const codexCompactToolSchemaMaxBytes = 5000
+
+var jsonSchemaTypeNames = map[string]bool{
+	"string": true, "number": true, "integer": true, "boolean": true,
+	"object": true, "array": true, "null": true,
+}
+
+func untypedSchemaPaths(path string, schema map[string]any) []string {
+	var found []string
+	composed := false
+	if _, ok := schema["$ref"]; ok {
+		composed = true
+	}
+	for _, key := range []string{"anyOf", "oneOf", "allOf"} {
+		branches, ok := schema[key].([]any)
+		if !ok {
+			continue
+		}
+		composed = true
+		for i, raw := range branches {
+			branch, _ := raw.(map[string]any)
+			found = append(found, untypedSchemaPaths(fmt.Sprintf("%s.%s[%d]", path, key, i), branch)...)
+		}
+	}
+	if !composed && !validSchemaType(schema["type"]) {
+		found = append(found, path)
+	}
+	for _, key := range []string{"properties", "$defs", "definitions"} {
+		children, _ := schema[key].(map[string]any)
+		for child, raw := range children {
+			sub, _ := raw.(map[string]any)
+			found = append(found, untypedSchemaPaths(path+"."+child, sub)...)
+		}
+	}
+	for _, key := range []string{"items", "additionalProperties"} {
+		if sub, ok := schema[key].(map[string]any); ok {
+			found = append(found, untypedSchemaPaths(path+"."+key, sub)...)
+		}
+	}
+	sort.Strings(found)
+	return found
+}
+
+func validSchemaType(value any) bool {
+	switch v := value.(type) {
+	case string:
+		return jsonSchemaTypeNames[v]
+	case []any:
+		if len(v) == 0 {
+			return false
+		}
+		for _, item := range v {
+			name, _ := item.(string)
+			if !jsonSchemaTypeNames[name] {
+				return false
+			}
+		}
+		return true
+	}
+	return false
+}
+
 func TestMcpCatalogTools(t *testing.T) {
-	t.Run("the frozen catalog is served whole, every descriptor carrying exactly a name, a description and an input schema", func(t *testing.T) {
+	t.Run("the frozen catalog is served whole, every descriptor carrying exactly a name, a description and an input schema whose parameters are all typed and which fits the Codex compaction limit", func(t *testing.T) {
 		api, _, _, _ := newAPITestServer(t)
 
 		tools, err := api.mcpCatalogTools()
@@ -1906,6 +1970,17 @@ func TestMcpCatalogTools(t *testing.T) {
 				t.Fatalf("descriptor %d has no object input schema: %#v", i, tool["inputSchema"])
 			}
 			name, _ := tool["name"].(string)
+			for _, where := range untypedSchemaPaths(name, schema) {
+				t.Errorf("%s declares no valid type, so Codex clears its description", where)
+			}
+			encoded, err := json.Marshal(schema)
+			if err != nil {
+				t.Fatalf("%s: marshal input schema: %v", name, err)
+			}
+			if len(encoded) > codexCompactToolSchemaMaxBytes {
+				t.Errorf("%s input schema is %d bytes, over the %d Codex keeps descriptions for",
+					name, len(encoded), codexCompactToolSchemaMaxBytes)
+			}
 			if seen[name] {
 				t.Fatalf("%q is listed twice", name)
 			}
