@@ -65,7 +65,14 @@ export function ReplyCardMdPreviewStory() {
     <I18nProvider>
       <div className="replies" style={{ padding: 16 }}>
         <article className="reply-card" data-testid="waiting-card">
-          <ReplyCardQuestionAttachments card={card} onOpenImage={() => {}} />
+          {/* ⚠️ `onOpenImage` is GONE (T-f014): every item — image thumbnail and
+            * file chip alike — now opens the strip's OWN MarkdownPreviewOverlay,
+            * and `ReplyCardQuestionAttachments` takes `card` and nothing else. The
+            * caller-routed image lightbox it fed is unexpressable here, so passing
+            * a handler would be describing a route that no longer exists. (The
+            * still-live `onOpenImage` in the app belongs to a DIFFERENT component,
+            * ComposerAttachmentPreview, and is untouched by this.) */}
+          <ReplyCardQuestionAttachments card={card} />
         </article>
       </div>
     </I18nProvider>

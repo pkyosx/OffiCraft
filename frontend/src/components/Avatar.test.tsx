@@ -84,23 +84,23 @@ describe("Avatar avatars-by-kind (T-16a1 P5)", () => {
   });
 
   it("renders the built-in glyph (no <img>) under the office theme", async () => {
-    const { container } = await mount(<Avatar size={40} kind="member" />);
+    const { container } = await mount(<Avatar size={40} kind="staff" />);
     expect(container.querySelector("img.avatar__img")).toBeNull();
     // the fallback UserIcon is an <svg>
     expect(container.querySelector("svg")).not.toBeNull();
   });
 
-  it("selects the member image for kind=member and the outsource image for kind=outsource", async () => {
+  it("selects the 正職 image for kind=staff and the outsource image for kind=outsource", async () => {
     await seed({
       id: "portraits",
       name: "Portraits",
       colors: { "--color-bg": "#101018" },
-      avatars: { member: MEMBER_IMG, outsource: OUTSOURCE_IMG },
+      avatars: { staff: MEMBER_IMG, outsource: OUTSOURCE_IMG },
     });
     const { getByTestId } = await mount(
       <>
         <div data-testid="member">
-          <Avatar size={40} kind="member" />
+          <Avatar size={40} kind="staff" />
         </div>
         <div data-testid="outsource">
           <Avatar size={40} kind="outsource" />
@@ -151,7 +151,7 @@ describe("Avatar avatars-by-kind (T-16a1 P5)", () => {
       id: "memberonly",
       name: "MemberOnly",
       colors: { "--color-bg": "#101018" },
-      avatars: { member: MEMBER_IMG },
+      avatars: { staff: MEMBER_IMG },
     });
     const { getByTestId } = await mount(
       <>
@@ -170,17 +170,17 @@ describe("Avatar avatars-by-kind (T-16a1 P5)", () => {
     expect(getByTestId("assistant").querySelector("svg")).not.toBeNull();
   });
 
-  it("falls back per-kind: a theme with only a member image keeps the glyph for outsource", async () => {
+  it("falls back per-kind: a theme with only a staff image keeps the glyph for outsource", async () => {
     await seed({
       id: "half",
       name: "Half",
       colors: { "--color-bg": "#101018" },
-      avatars: { member: MEMBER_IMG },
+      avatars: { staff: MEMBER_IMG },
     });
     const { getByTestId } = await mount(
       <>
         <div data-testid="member">
-          <Avatar size={40} kind="member" />
+          <Avatar size={40} kind="staff" />
         </div>
         <div data-testid="outsource">
           <Avatar size={40} kind="outsource" />
@@ -201,10 +201,10 @@ describe("Avatar avatars-by-kind (T-16a1 P5)", () => {
       id: "fallback",
       name: "Fallback",
       colors: { "--color-bg": "#101018" },
-      avatars: { member: MEMBER_IMG },
+      avatars: { staff: MEMBER_IMG },
     });
     const { container } = await mount(
-      <Avatar size={40} kind="member" src="blob:personal-avatar" />
+      <Avatar size={40} kind="staff" src="blob:personal-avatar" />
     );
     await activate("fallback");
     const personal = container.querySelector("img.avatar__img");
