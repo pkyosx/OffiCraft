@@ -9210,7 +9210,7 @@
           },
           "last_drop_reason": {
             "default": "",
-            "description": "Coarse classification of the most recent silent drop: `sig_failed` (Slack/GitHub signature or timestamp verification failed), `disabled` (endpoint was disabled), or `member_gone` (the bound member no longer resolves). Empty string when nothing was ever dropped.",
+            "description": "Coarse classification of the most recent undelivered call: `sig_failed` (Slack/GitHub signature or timestamp verification failed), `disabled` (endpoint was disabled), `member_gone` (the bound member no longer resolves), or `oversize` (the body exceeded the 1 MiB cap). The first three are silent drops the caller still saw a 200 for; `oversize` is the one the caller was refused to its face with a 413. `oversize` also OUTRANKS the others: an over-cap body is refused before the endpoint's status or signature is consulted, so a disabled endpoint handed an over-cap body records `oversize`, not `disabled`. Empty string when nothing was ever dropped.",
             "title": "Last Drop Reason",
             "type": "string"
           },
@@ -9258,7 +9258,7 @@
       },
       "WebhookRequestLogDTO": {
         "additionalProperties": false,
-        "description": "One row of a webhook endpoint's /in debug ring buffer (GET /api/members/{member_id}/webhooks/{endpoint_id}/requests, newest first, at most 5 rows kept per endpoint). Records EVERY request /in resolved to the endpoint's token, whatever the outcome: `delivered` (verified payload landed as a chat), `dropped:sig_failed` / `dropped:disabled` / `dropped:member_gone` (silent drops with their coarse reason), `challenge` (the Slack url_verification handshake), `ping` (a verified GitHub ping). An unknown token has no endpoint to log against, by construction. `headers` is the JSON-serialised request header map (truncated at 4 KiB); `body` is the raw payload text (truncated at 16 KiB); `truncated` marks that either was cut. Governance-gated debug wire (requires=admin_agent since T-6020) - raw external payloads never ride any public or PLAIN-agent-facing surface, and the public /in response stays byte-identical regardless of logging.",
+        "description": "One row of a webhook endpoint's /in debug ring buffer (GET /api/members/{member_id}/webhooks/{endpoint_id}/requests, newest first, at most 5 rows kept per endpoint). Records EVERY request /in resolved to the endpoint's token, whatever the outcome: `delivered` (verified payload landed as a chat), `dropped:sig_failed` / `dropped:disabled` / `dropped:member_gone` (silent drops with their coarse reason), `dropped:oversize` (a body over the 1 MiB cap, refused 413 rather than truncated), `challenge` (the Slack url_verification handshake), `ping` (a verified GitHub ping). An unknown token has no endpoint to log against, by construction. `headers` is the JSON-serialised request header map (truncated at 4 KiB); `body` is the raw payload text (truncated at 16 KiB); `truncated` marks that either was cut. Governance-gated debug wire (requires=admin_agent since T-6020) - raw external payloads never ride any public or PLAIN-agent-facing surface, and the public /in response stays byte-identical regardless of logging.",
         "properties": {
           "body": {
             "title": "Body",
@@ -21281,7 +21281,7 @@
     },
     "/in": {
       "post": {
-        "description": "- Identity and purpose come SOLELY from the `?t=` token; the path cannot forge them.\n- The payload arrives as ONE chat message to the member and never wakes it.\n- Unknown, disabled and missing tokens all answer the SAME silent 200 — you cannot probe for one.\n- Verification by platform: `slack` (challenge echo + X-Slack-Signature), `github` (X-Hub-Signature-256); a failure is silently discarded.",
+        "description": "- Identity and purpose come SOLELY from the `?t=` token; the path cannot forge them.\n- The payload arrives as ONE chat message to the member and never wakes it.\n- Unknown, disabled and missing tokens all answer the SAME silent 200 — you cannot probe for one.\n- Verification by platform: `slack` (challenge echo + X-Slack-Signature), `github` (X-Hub-Signature-256); a failure is silently discarded.\n- A body over the 1 MiB cap is REFUSED 413 before the token is looked at \u2014 nothing is delivered and nothing is truncated.",
         "operationId": "handle_receive_webhook_in_post",
         "parameters": [
           {
@@ -21312,6 +21312,16 @@
               }
             },
             "description": "Silent acknowledgement (identical for accepted and ignored)."
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Payload exceeds the 1 MiB cap."
           }
         },
         "summary": "Public webhook inlet — token-only (member/endpoint/purpose) delivery.",
