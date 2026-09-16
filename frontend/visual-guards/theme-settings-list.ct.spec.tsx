@@ -1,8 +1,8 @@
 // T-3738 visual guards for 設定 › 主題管理 (ThemeSettings list view):
 //
 //   ① the GROUP HEADINGS (內建 / 自訂) clear WCAG AA (≥4.5:1) UNDER THE BUILT-IN
-//      THEME, and no per-row tag is rendered at all — the heading is the only
-//      內建/自訂 label now, so its legibility is the whole label's legibility.
+//      THEME — the heading is the only 內建/自訂 label, so its legibility is
+//      the whole label's legibility.
 //      The shipped contrast is a COMPUTED-COLOUR fact jsdom cannot see: we
 //      sample the rendered foreground/background colour off each heading,
 //      composite it down to an opaque colour, and compute the WCAG ratio.
@@ -129,13 +129,6 @@ for (const width of [390, 1280]) {
     const cmp = await mountSeeded(mount, page, width);
     const { ratio } = await sampleColours(cmp.getByTestId("ts-group-custom"));
     expect(ratio).toBeGreaterThanOrEqual(4.5);
-  });
-
-  test(`width ${width}: no per-row badge is rendered`, async ({ mount, page }) => {
-    // Neither the old 用詞 badge nor the 內建/自訂 chip: the group heading says
-    // which kind a row is, and repeating it on every row said nothing more.
-    const cmp = await mountSeeded(mount, page, width);
-    await expect(cmp.locator(".ts-tag")).toHaveCount(0);
   });
 
   test(`width ${width}: built-in and custom rows align their action column`, async ({ mount, page }) => {

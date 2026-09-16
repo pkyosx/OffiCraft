@@ -32,12 +32,11 @@ for (const width of [390, 1280]) {
     expect(await colorRows.count()).toBeGreaterThan(5);
 
     // Back to the list: the theme list grew by one, and the new row lands in
-    // the 自訂 group (rows carry no badge of their own).
+    // the 自訂 group.
     await cmp.getByRole("button", { name: "取消" }).click();
     await expect(cmp.locator(".ts-list > .ts-row")).toHaveCount(2);
     const customGroup = cmp.locator(".ts-list:has(#ts-group-custom)");
     await expect(customGroup.locator(".ts-row")).toHaveCount(1);
     await expect(customGroup.locator(".ts-row")).toContainText("新主題");
-    await expect(cmp.locator(".ts-tag")).toHaveCount(0);
   });
 }

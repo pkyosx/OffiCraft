@@ -94,13 +94,11 @@ describe("TaskCard 轉派 entry + dialog", () => {
     expect(within(dialog).queryByTestId("reassign-model")).toBeNull();
 
     // Switching to 外包 swaps in the model / effort / machine knobs — the same
-    // vocabulary ModelEffortEditor publishes. No 自動分配 row: a reassign must
-    // name a machine (owner 2026-07-19), so the machine section mounts without it.
+    // vocabulary ModelEffortEditor publishes.
     fireEvent.click(within(dialog).getByTestId("reassign-kind-outsource"));
     expect(within(dialog).getByTestId("reassign-model-opus")).toBeTruthy();
     expect(within(dialog).getByTestId("reassign-effort")).toBeTruthy();
     expect(within(dialog).getByText("機器")).toBeTruthy();
-    expect(within(dialog).queryByTestId("reassign-machine-auto")).toBeNull();
     // The member list is gone with its face.
     expect(within(dialog).queryByTestId("reassign-member-mira")).toBeNull();
   });

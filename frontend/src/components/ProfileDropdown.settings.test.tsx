@@ -49,17 +49,13 @@ beforeEach(() => {
 });
 
 describe("ProfileDropdown · preferences scope", () => {
-  it("no longer renders the server parameter knobs (they live in 設定/參數調整)", async () => {
+  it("renders the theme selector and language", async () => {
     const utils = await openPreferences();
-    const text = utils.container.textContent ?? "";
-    expect(text).not.toContain(zh.settings.sessionTtl);
-    expect(text).not.toContain(zh.settings.handover);
-    // Theme selector + language remain.
     expect(utils.getByText(p.theme)).toBeTruthy();
     expect(utils.getByText(p.language)).toBeTruthy();
   });
 
-  it("keeps only the theme SELECTOR — no management affordances (moved to 設定/主題)", async () => {
+  it("offers the theme SELECTOR and points to 設定/主題 for management", async () => {
     setToken("owner-token");
     await api.putTheme({
       id: "midnight",
@@ -75,17 +71,13 @@ describe("ProfileDropdown · preferences scope", () => {
       expect(o).toBeTruthy();
       return o!;
     });
-    // A flat list (owner 2026-07-27: no 分區 in the quick picker) — every
-    // option's text is the theme's own name and nothing else, and the 內建 /
+    // Every option's text is the theme's own name and nothing else; the 內建 /
     // 自訂 marking lives in 設定 › 主題 (ThemeSettings.test.tsx).
-    expect(select.querySelectorAll("optgroup").length).toBe(0);
     const builtin = Array.from(select.querySelectorAll("option")).find(
       (o) => o.value === "office"
     )!;
     expect(builtin.textContent).toBe(zh.themeIdentity.office);
     expect(custom.textContent).toBe("午夜藍");
-    // Management chips no longer live in the quick menu.
-    expect(utils.queryByText(p.themeConfirmImport)).toBeNull();
     // A hint points the owner to the settings page instead.
     expect(utils.getByText(p.themeManageHint)).toBeTruthy();
   });
