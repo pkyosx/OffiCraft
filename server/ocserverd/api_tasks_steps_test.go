@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -33,30 +35,50 @@ func assertStepOrderContiguous(t *testing.T, after string, steps []taskStepDTO) 
 	}
 }
 
+// stepRouteCall sends a request to one of the three single-step routes the way
+// a member reaches it: through the real route table and the real auth
+// middleware, carrying a token the production mint issued. Nothing about the
+// principal is hand-stamped, so an authorization refusal here is the one the
+// gate actually makes rather than one this test arranged.
+func stepRouteCall(t *testing.T, api *apiServer, method, path, actor string,
+	body map[string]any) *httptest.ResponseRecorder {
+	t.Helper()
+	h, err := buildHandler(specsFor(api), api.keys, api.dal.GetMember,
+		api.authPasswordChangedAt)
+	if err != nil {
+		t.Fatalf("buildHandler: %v", err)
+	}
+	var buf bytes.Buffer
+	if body != nil {
+		if err := json.NewEncoder(&buf).Encode(body); err != nil {
+			t.Fatalf("encode body: %v", err)
+		}
+	}
+	req := httptest.NewRequest(method, path, &buf)
+	req.Header.Set("Content-Type", "application/json")
+	if actor != "" {
+		req.Header.Set("Authorization", "Bearer "+apiTestAgentToken(t, api, actor, ""))
+	}
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	return rec
+}
+
 func insertStep(t *testing.T, api *apiServer, taskID, actor string, body map[string]any) *httptest.ResponseRecorder {
 	t.Helper()
-	rec := httptest.NewRecorder()
-	api.HandleInsertTaskStepApiTasksTaskIdStepsPost(rec,
-		taskReq(t, "POST", "/api/tasks/"+taskID+"/steps", body, actor, "agent"), taskID)
-	return rec
+	return stepRouteCall(t, api, "POST", "/api/tasks/"+taskID+"/steps", actor, body)
 }
 
 func deleteStep(t *testing.T, api *apiServer, taskID, stepID, actor string) *httptest.ResponseRecorder {
 	t.Helper()
-	rec := httptest.NewRecorder()
-	api.HandleDeleteTaskStepApiTasksTaskIdStepsStepIdDeletePost(rec,
-		taskReq(t, "POST", "/api/tasks/"+taskID+"/steps/"+stepID+"/delete", nil,
-			actor, "agent"), taskID, stepID)
-	return rec
+	return stepRouteCall(t, api, "POST",
+		"/api/tasks/"+taskID+"/steps/"+stepID+"/delete", actor, nil)
 }
 
 func reorderSteps(t *testing.T, api *apiServer, taskID, actor string, ids []string) *httptest.ResponseRecorder {
 	t.Helper()
-	rec := httptest.NewRecorder()
-	api.HandleReorderTaskStepsApiTasksTaskIdStepsReorderPost(rec,
-		taskReq(t, "POST", "/api/tasks/"+taskID+"/steps/reorder",
-			map[string]any{"step_ids": ids}, actor, "agent"), taskID)
-	return rec
+	return stepRouteCall(t, api, "POST", "/api/tasks/"+taskID+"/steps/reorder",
+		actor, map[string]any{"step_ids": ids})
 }
 
 func writeStepNote(t *testing.T, api *apiServer, taskID, stepID, actor, note string) {
@@ -168,6 +190,16 @@ func TestHandleInsertTaskStepApiTasksTaskIdStepsPost(t *testing.T) {
 		}
 		if v2.Steps[2].Status != StepStatusPending {
 			t.Fatalf("a new step opens pending, got %q", v2.Steps[2].Status)
+		}
+		// The whole stored row, not just the two easiest fields: a handler that
+		// dropped the dod, or opened the row as a gate, would pass an id-and-
+		// status check. Everything the request did not name must come back at
+		// its zero value rather than inherited from the neighbour it displaced.
+		if v2.Steps[2].DoD != "the new piece is done" ||
+			v2.Steps[2].IsGate || v2.Steps[2].ParallelGroup != "" ||
+			v2.Steps[2].ReplyCardID != "" || v2.Steps[2].ReplyCardStatus != "" ||
+			v2.Steps[2].WaitingReason != "" || v2.Steps[2].TaskID != task.ID {
+			t.Fatalf("the inserted row is not what was asked for: %+v", v2.Steps[2])
 		}
 		// Nothing else moved: same ids, same statuses, same notes, same card.
 		if v2.Steps[0].ID != build.ID || v2.Steps[1].ID != verify.ID ||
@@ -742,29 +774,4 @@ func TestHandleReorderTaskStepsApiTasksTaskIdStepsReorderPost(t *testing.T) {
 			t.Fatalf("a closed task must 409, got %d %s", rec.Code, rec.Body.String())
 		}
 	})
-}
-
-// TestSubmitPlanLeavesTheStepOrderContiguous holds submit_plan — the writer that
-// was already shipping — to the SAME invariant the three single-step writes are
-// held to, through the same assertion. Without it the rule would be guarded on
-// the new half only, and the old half is the one in use today.
-func TestSubmitPlanLeavesTheStepOrderContiguous(t *testing.T) {
-	api := newTasksTestServer(t)
-	task := createAdHocTask(t, api, "m-exec")
-	v1 := submitPlan(t, api, task.ID, "m-exec", []map[string]any{
-		{"name": "one", "dod": "d1"},
-		{"name": "two", "dod": "d2"},
-	})
-	assertStepOrderContiguous(t, "submit_plan (first plan)", v1.Steps)
-	for _, status := range []string{"in_progress", "done"} {
-		if rec := driveStepStatus(t, api, task.ID, v1.Steps[0].ID, "m-exec",
-			status); rec.Code != http.StatusOK {
-			t.Fatalf("drive %s: %d %s", status, rec.Code, rec.Body.String())
-		}
-	}
-	v2 := submitPlan(t, api, task.ID, "m-exec", []map[string]any{
-		{"name": "three", "dod": "d3"},
-		{"name": "four", "dod": "d4"},
-	})
-	assertStepOrderContiguous(t, "submit_plan (replan over a kept prefix)", v2.Steps)
 }

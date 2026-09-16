@@ -3623,8 +3623,18 @@ def _check_happy_step_inserted(ctx: HCtx, r: httpx.Response) -> None:
         f"/api/tasks/{data['task_id']}", headers=_auth(ctx.agent.token)
     ).json()["steps"]
     assert [s["id"] for s in steps] == [data["step_id"]], steps
+    # The whole stored row, not just the two easiest fields: a handler that
+    # dropped the dod or opened the row as a gate would pass a name-and-status
+    # check. Everything the request did not name comes back at its zero value.
     assert steps[0]["name"] == "conf happy inserted", steps
+    assert steps[0]["dod"] == "asserted", steps
     assert steps[0]["status"] == "pending", steps
+    assert steps[0]["is_gate"] is False, steps
+    assert steps[0]["parallel_group"] == "", steps
+    assert steps[0]["reply_card_id"] == "", steps
+    assert steps[0]["reply_card_status"] == "", steps
+    assert steps[0]["waiting_reason"] == "", steps
+    assert steps[0]["order_idx"] == 0, steps
 
 
 def _check_happy_step_deleted(ctx: HCtx, r: httpx.Response) -> None:

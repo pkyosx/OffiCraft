@@ -1432,6 +1432,7 @@ func TestSubmitPlanReplacesOnlyTheNotDoneSteps(t *testing.T) {
 		{"name": "one", "dod": "d1"},
 		{"name": "two", "dod": "d2"},
 	})
+	assertStepOrderContiguous(t, "submit_plan (first plan)", v1.Steps)
 	// Drive step "one" to done (this also derives the task to in_progress).
 	stepOne := v1.Steps[0]
 	for _, status := range []string{"in_progress", "done"} {
@@ -1480,6 +1481,10 @@ func TestSubmitPlanReplacesOnlyTheNotDoneSteps(t *testing.T) {
 	if v2.ProgressDone != 1 || v2.ProgressTotal != 4 {
 		t.Fatalf("progress: want 1/4, got %d/%d", v2.ProgressDone, v2.ProgressTotal)
 	}
+	// submit_plan is held to the same order_idx invariant as the three
+	// single-step writes, through the same assertion: the kept prefix and the
+	// fresh steps must come back as one contiguous 0..n-1 range.
+	assertStepOrderContiguous(t, "submit_plan (replan over a kept prefix)", v2.Steps)
 }
 
 // TestSubmitPlanRelistingDoneStepsDoesNotDuplicate pins the whole-replace-but-
