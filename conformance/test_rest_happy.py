@@ -132,6 +132,7 @@ class HCtx:
     _attachment: tuple[str, bytes] | None = field(default=None, repr=False)
     _put_theme_id: str | None = field(default=None, repr=False)
     _avatar_to_delete_url: str | None = field(default=None, repr=False)
+    _reorder_step_ids: list[str] = field(default_factory=list, repr=False)
 
     def token(self, identity: str) -> str | None:
         return {"owner": self.owner_token, "agent": self.agent.token, "none": None}[
@@ -882,6 +883,42 @@ def _happy_task(ctx: HCtx) -> str:
     assert r.status_code == 200, f"happy task failed: {r.status_code} {r.text}"
     # T-91: create answers taskCreateResultDTO — the minted id, not the task.
     return r.json()["task_id"]
+
+
+def _happy_task_two_steps(ctx: HCtx) -> tuple[str, list[str]]:
+    """A fresh task with TWO planned PENDING steps; (task_id, [step ids]).
+
+    Two rather than one because both callers need a plan that survives what
+    they do to it: deleting the LAST remaining step is a 400 (a planned task
+    cannot have zero steps), and a one-step reorder cannot express an order."""
+    h = _auth(ctx.agent.token)
+    task_id = _happy_task(ctx)
+    r = ctx.client.post(
+        f"/api/tasks/{task_id}/plan",
+        json={"steps": [{"name": "conf happy a", "dod": "asserted"},
+                        {"name": "conf happy b", "dod": "asserted"}]},
+        headers=h,
+    )
+    assert r.status_code == 200, f"happy plan failed: {r.status_code} {r.text}"
+    steps = ctx.client.get(f"/api/tasks/{task_id}", headers=h).json()["steps"]
+    return task_id, [st["id"] for st in steps]
+
+
+def _happy_delete_path(ctx: HCtx) -> str:
+    """Aims at the FIRST of two pending steps, so the delete leaves a plan
+    behind."""
+    task_id, step_ids = _happy_task_two_steps(ctx)
+    return f"/api/tasks/{task_id}/steps/{step_ids[0]}/delete"
+
+
+def _happy_reorder_path(ctx: HCtx) -> str:
+    """Stashes the REVERSED id list for the body lambda. Path is resolved
+    before body, so the row can name the very steps it just created. Reversed
+    rather than as-is: sending the existing order would pass on a handler that
+    ignored the body."""
+    task_id, step_ids = _happy_task_two_steps(ctx)
+    ctx._reorder_step_ids[:] = list(reversed(step_ids))
+    return f"/api/tasks/{task_id}/steps/reorder"
 
 
 def _happy_task_step(ctx: HCtx) -> tuple[str, str]:
@@ -3116,6 +3153,36 @@ HAPPY: dict[str, Happy] = {
             and d["closed_ts"] is not None,
         ),
     ),
+    "POST /api/tasks/{task_id}/steps": Happy(
+        # T-228 insert. Appended onto a task with no plan yet — the shape that
+        # needs no second fixture. The check reads the rows BACK rather than
+        # trusting the receipt: a handler that answered 200 and wrote nothing
+        # would pass a counts-only check.
+        identity="agent",
+        path=lambda ctx: f"/api/tasks/{_happy_task(ctx)}/steps",
+        body={"name": "conf happy inserted", "dod": "asserted"},
+        check=lambda ctx, r: _check_happy_step_inserted(ctx, r),
+    ),
+    "POST /api/tasks/{task_id}/steps/{step_id}/delete": Happy(
+        # T-228 delete. Drops the FIRST of two pending steps: aimed at a
+        # one-step plan the route would answer 400 (a planned task cannot have
+        # zero steps) rather than the success face this row is here to read.
+        # The check reads the rows back — the step must be GONE, and the one
+        # beside it untouched, not merely counted away.
+        identity="agent",
+        path=_happy_delete_path,
+        check=lambda ctx, r: _check_happy_step_deleted(ctx, r),
+    ),
+    "POST /api/tasks/{task_id}/steps/reorder": Happy(
+        # T-228 reorder. The body names the two steps the path just created, in
+        # reverse. The check reads the stored order back and compares it to what
+        # was sent — the receipt carries counts only, and counts do not move
+        # when a reorder does nothing.
+        identity="agent",
+        path=_happy_reorder_path,
+        body=lambda ctx: {"step_ids": list(ctx._reorder_step_ids)},
+        check=lambda ctx, r: _check_happy_steps_reordered(ctx, r),
+    ),
     "POST /api/tasks/{task_id}/steps/{step_id}/status": Happy(
         identity="agent",
         path=lambda ctx: "/api/tasks/{}/steps/{}/status".format(
@@ -3546,6 +3613,39 @@ SKIPPED_HAPPY: dict[str, str] = {
 def _expect(r: httpx.Response, predicate: Callable[[Any], Any]) -> None:
     data = r.json()
     assert predicate(data), f"semantic check failed on: {json.dumps(data)[:500]}"
+
+
+def _check_happy_step_inserted(ctx: HCtx, r: httpx.Response) -> None:
+    data = r.json()
+    assert data["steps_total"] == 1 and data["progress_total"] == 1, data
+    assert data["progress_done"] == 0 and data["step_id"], data
+    steps = ctx.client.get(
+        f"/api/tasks/{data['task_id']}", headers=_auth(ctx.agent.token)
+    ).json()["steps"]
+    assert [s["id"] for s in steps] == [data["step_id"]], steps
+    assert steps[0]["name"] == "conf happy inserted", steps
+    assert steps[0]["status"] == "pending", steps
+
+
+def _check_happy_step_deleted(ctx: HCtx, r: httpx.Response) -> None:
+    data = r.json()
+    assert data["steps_total"] == 1 and data["progress_total"] == 1, data
+    assert data["progress_done"] == 0, data
+    steps = ctx.client.get(
+        f"/api/tasks/{data['task_id']}", headers=_auth(ctx.agent.token)
+    ).json()["steps"]
+    assert [s["name"] for s in steps] == ["conf happy b"], steps
+    assert steps[0]["status"] == "pending", steps
+
+
+def _check_happy_steps_reordered(ctx: HCtx, r: httpx.Response) -> None:
+    data = r.json()
+    assert data["steps_total"] == 2 and data["progress_total"] == 2, data
+    steps = ctx.client.get(
+        f"/api/tasks/{data['task_id']}", headers=_auth(ctx.agent.token)
+    ).json()["steps"]
+    assert [s["id"] for s in steps] == list(ctx._reorder_step_ids), steps
+    assert [s["name"] for s in steps] == ["conf happy b", "conf happy a"], steps
 
 
 # ── plumbing ─────────────────────────────────────────────────────────────────
