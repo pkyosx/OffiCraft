@@ -9822,7 +9822,7 @@ export interface components {
             has_signing_secret: boolean;
             /**
              * Last Drop Reason
-             * @description Coarse classification of the most recent undelivered call: `sig_failed` (Slack/GitHub signature or timestamp verification failed), `disabled` (endpoint was disabled), `member_gone` (the bound member no longer resolves), or `oversize` (the body exceeded the 1 MiB cap). The first three are silent drops the caller still saw a 200 for; `oversize` is the one the caller was refused to its face with a 413. Empty string when nothing was ever dropped.
+             * @description Coarse classification of the most recent undelivered call: `sig_failed` (Slack/GitHub signature or timestamp verification failed), `disabled` (endpoint was disabled), `member_gone` (the bound member no longer resolves), or `oversize` (the body exceeded the 1 MiB cap). The first three are silent drops the caller still saw a 200 for; `oversize` is the one the caller was refused to its face with a 413. `oversize` also OUTRANKS the others: an over-cap body is refused before the endpoint's status or signature is consulted, so a disabled endpoint handed an over-cap body records `oversize`, not `disabled`. Empty string when nothing was ever dropped.
              * @default
              */
             last_drop_reason: string;

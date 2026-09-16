@@ -292,11 +292,18 @@ func (s *apiServer) HandleReceiveWebhookInPost(w http.ResponseWriter, r *http.Re
 		token = *params.T
 	}
 	// 🔴 THE SIZE VERDICT IS REACHED BEFORE ANY IDENTITY OR SIGNATURE WORK, and
-	// the refusal below consults no endpoint row, so an over-cap caller learns
-	// exactly what an over-cap caller with a garbage token learns: the same
-	// 413, byte for byte. It must also stay ahead of the platform gates for a
-	// second reason — an HMAC computed over a cut body is a lie about the
-	// sender, not a verdict on it (T-222).
+	// NOTHING ABOUT THE RESPONSE IS CONDITIONED ON WHAT THE TOKEN RESOLVES TO.
+	// The recording call below does read the endpoint row — it has to, to find
+	// somewhere to write — but the status, the message and the headers are
+	// fixed before it runs and cannot be reached by what it finds, so an
+	// over-cap caller holding a live token learns exactly what an over-cap
+	// caller holding a garbage one learns: the same 413, byte for byte. That
+	// equivalence is asserted, not asserted-by-reading — see the "byte-identical
+	// for a live token and a token nobody minted" case.
+	//
+	// It must also stay ahead of the platform gates for a second reason — an
+	// HMAC computed over a cut body is a lie about the sender, not a verdict on
+	// it (T-222).
 	if len(payload) > webhookPayloadMaxBytes {
 		s.recordWebhookOversizeRejection(token, r, payload)
 		writeError(w, http.StatusRequestEntityTooLarge,

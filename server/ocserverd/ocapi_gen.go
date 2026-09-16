@@ -3969,7 +3969,7 @@ type WebhookEndpointDTO struct {
 	// HasSigningSecret Whether this endpoint has a signing secret configured. The secret itself is NEVER echoed on any wire — not even masked; only this boolean is exposed (stricter than the `token` field, which the owner-facing panel still receives).
 	HasSigningSecret *bool `json:"has_signing_secret,omitempty"`
 
-	// LastDropReason Coarse classification of the most recent undelivered call: `sig_failed` (Slack/GitHub signature or timestamp verification failed), `disabled` (endpoint was disabled), `member_gone` (the bound member no longer resolves), or `oversize` (the body exceeded the 1 MiB cap). The first three are silent drops the caller still saw a 200 for; `oversize` is the one the caller was refused to its face with a 413. Empty string when nothing was ever dropped.
+	// LastDropReason Coarse classification of the most recent undelivered call: `sig_failed` (Slack/GitHub signature or timestamp verification failed), `disabled` (endpoint was disabled), `member_gone` (the bound member no longer resolves), or `oversize` (the body exceeded the 1 MiB cap). The first three are silent drops the caller still saw a 200 for; `oversize` is the one the caller was refused to its face with a 413. `oversize` also OUTRANKS the others: an over-cap body is refused before the endpoint's status or signature is consulted, so a disabled endpoint handed an over-cap body records `oversize`, not `disabled`. Empty string when nothing was ever dropped.
 	LastDropReason *string `json:"last_drop_reason,omitempty"`
 
 	// LastReceivedTs Epoch seconds of the LAST `/in` request that resolved to this token — delivered, dropped, or challenge/ping alike. 0.0 when the endpoint has never been called.
