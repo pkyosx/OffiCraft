@@ -19,7 +19,12 @@
 //
 // MUTANT 2（已驗紅）：把 `object-fit: scale-down` 換回 `contain`
 // ⇒ 「小圖不准被放大」那一條紅在畫出來的尺寸上：80x60 的圖被放大成 291x218。
-import { test, expect } from "@playwright/experimental-ct-react";
+import {
+  test,
+  expect,
+  type ComponentFixtures,
+} from "@playwright/experimental-ct-react";
+import type { Page } from "@playwright/test";
 import { ChatImageSizeStory } from "./stories/ChatImageSizeStory";
 
 /** A real, decodable PNG of a given size, as a data: URI. Built here rather than
@@ -35,8 +40,8 @@ function pngDataUri(w: number, h: number): string {
 
 /** Mount, measure the image row, load the image, measure again. */
 async function heightAcrossLoad(
-  mount: Parameters<Parameters<typeof test>[1]>[0]["mount"],
-  page: Parameters<Parameters<typeof test>[1]>[0]["page"],
+  mount: ComponentFixtures["mount"],
+  page: Page,
   width: number,
   aspect: { w: number; h: number },
 ) {
@@ -85,7 +90,7 @@ async function heightAcrossLoad(
  * decoder) and scanned for the fixture's fill colour. Desktop Chrome runs at
  * deviceScaleFactor 1, so one screenshot pixel is one CSS px. */
 async function paintedSize(
-  page: Parameters<Parameters<typeof test>[1]>[0]["page"],
+  page: Page,
   shot: Buffer,
 ) {
   return page.evaluate(async (b64) => {
