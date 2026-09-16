@@ -402,29 +402,11 @@ export const zh = {
     // 把關的是伺服器那道 route floor,這裡不顯示只是不端出一個按了也不會成功
     // 的按鈕。
     forceDone: "強制結案",
-    // 🔴 最貴的那一項後果本來沒講:遣散外包。四種結案都走 closeTask
-    // (server/ocserverd/api_tasks.go),它一律呼叫 dismissOutsourceWorkersForTask
-    // ——ReleaseWorkersForTask(名冊列)與 reclaimWorkerSession(工作階段)同時
-    // 發生,這道門沒有豁免。而按下強制結案最典型的時機就是「這張票看起來卡住
-    // 了」,偏偏「worker 正在跑但還沒回報」跟「真的卡住」在這個畫面上長得一模
-    // 一樣,所以一次看似只是收拾死票的點擊,可能把還在做事的外包攔腰砍斷。第二
-    // 項是紀錄:done 落在 TaskRecordFrozen(domain.go)裡,交付物三個動詞與步驟
-    // 備註的寫入從此都回 409。
-    //
-    // 🔴 第二輪審查補上的兩項,closeTask 一樣做了、一樣沒宣告:
-    // (3) expireWaitingCardsForTask(api_tasks.go:684 → api_replycards.go:931):
-    //     這張票底下每一張還在等回覆的請示卡會被整批標成過期。owner 自己
-    //     「等我回覆」面板上、由這張票發出的問題會當場消失,而且永遠無法再被
-    //     回答——按的人通常不知道這張票問過什麼。
-    // (4) releaseDependentsOnClose(api_tasks.go:718 → api_tasks_handoff.go:363):
-    //     被這張票擋住的下游任務會被釋放並發出通知;當下游是「外包但還沒有
-    //     負責人」時會 tickOutsource,而那個函式的註解逐字說這一 tick 就是
-    //     "what actually turns \"design done\" into \"dev worker spawned\""。
-    //     ⇒ 同一個對話框已經宣告「會遣散一個外包」,卻沒宣告「可能當場再生
-    //     一個」——方向相反,而且會產生費用。這是這個按鈕唯一會花錢的後果,
-    //     不講就等於沒講。
-    forceDoneConfirmBody:
-      "確定要略過「步驟尚未全部完成」這個前提,強制把這張票結案嗎?結案後無法恢復,是誰強制的會記在票上。這張票綁定的外包 worker 會在這一刻被遣散——名冊列釋出、工作階段一併回收,即使它還在跑;交付物與步驟備註也從此凍結,不能再寫。這張票底下還在等回覆的請示卡會全部標成過期——「等我回覆」面板上由這張票發出的問題會就此消失,再也無法回答。被這張票擋住的下游任務會同時解除阻擋並收到通知;其中還沒有負責人的外包任務會在這一刻起一位新的 worker,那會產生費用。",
+    // owner 裁定 rc-bdfd2fc07305 的逐字文案。先前那段列出四項後果的長文
+    // (遣散外包、凍結紀錄、請示卡過期、下游可能再生 worker)已整段撤掉:
+    // 這裡只講不可復原並提問,後果不列。
+    // 標點照 owner 給的全形原樣,不套本檔其他字串的半形習慣。
+    forceDoneConfirmBody: "強制結案無法復原，確定要結案嗎？",
     // 自 owner 裁定 rc-a92a6252c3bd 起改為選填。標籤直接寫出「可不填」,
     // 讓留空是一個看得見的選擇,而不是一個卡住的表單。
     forceDoneReasonLabel: "理由(可不填)",
