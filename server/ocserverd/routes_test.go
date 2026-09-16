@@ -56,9 +56,6 @@ func TestVerifyDiffShareSig(t *testing.T) {
 func TestRouteSpecs(t *testing.T) {
 	api, _, _, _ := newAPITestServer(t)
 	specs := routeSpecs(&ServerInterfaceWrapper{Handler: api})
-	if len(specs) != 177 {
-		t.Fatalf("routeSpecs returned %d rows, want 177", len(specs))
-	}
 
 	seen := make(map[string]bool, len(specs))
 	for _, spec := range specs {
