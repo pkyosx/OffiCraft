@@ -256,7 +256,7 @@ type sweepSeams struct {
 	workdir    string
 	sleep      func(time.Duration)
 	// purgeTrash (T-684c, nil-skipped) reaps <workdir>/trash after the kill ladder
-	// finishes — the teardown half of "agents mv, warden rm" (trash.go). Bound by
+	// finishes — the teardown half of the trash reaper (trash.go). Bound by
 	// the transport wiring over the SAME workdir resolved above, because only the
 	// wiring knows which root (agents/ vs the legacy workers/) this session belongs
 	// to. Runs unconditionally at the END of stop(), including on a partial stop:

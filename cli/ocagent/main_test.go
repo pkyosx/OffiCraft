@@ -17,7 +17,6 @@ subcommands:
   download        fetch a chat attachment blob to a local file (streaming; --out <dir>)
   upload          stream a local file into the attachment store (prints the att id; --mime <type>)
   diff            print a compare-screen URL for two attachment ids / document versions (--external mints a no-login link)
-  clean           get rid of a file or folder I made: quarantines it under my workdir (never rm)
   guard-bash      PreToolUse hook: refuse the removal shapes that stall a headless member
   guard-permission PermissionRequest hook: refuse every confirmation prompt nobody is here to answer
   version         print this build's identity: build.sha, VCS stamp when present, self-hash
@@ -108,12 +107,6 @@ func TestRealMain(t *testing.T) {
 			"tmp/attachments/ under the current directory.",
 			"stdout on success: one line, the absolute path of the written file.",
 			"4  HTTP 404: no attachment with that id on the station OC_BASE points at\n     (which may be the wrong station)",
-		}},
-		{"clean", []string{
-			"usage: ocagent clean <path>...\n",
-			"Nothing is deleted: each path is moved\nunder trash/ in your workdir",
-			"OC_AGENT_HOME when set, else ~/.officraft/agents",
-			"if one is refused, NOTHING is\nmoved.",
 		}},
 		{"suicide", []string{
 			"usage: ocagent suicide\n",

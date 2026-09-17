@@ -126,7 +126,6 @@ func TestGuardBash_AllowsEverythingElse(t *testing.T) {
 	// to the deny table is a deliberate edit, not a drift.
 	subs := strings.Repeat("$(echo a)", 65)
 	for name, command := range map[string]string{
-		"the quarantine command":        `ocagent clean /Users/x/.officraft/agents/alice/work/tmp`,
 		"relative path":                 `rm -f ./local.txt`,
 		"relative glob":                 `rm -f ./*.json`,
 		"a named directory":             `rm -rf node_modules`,

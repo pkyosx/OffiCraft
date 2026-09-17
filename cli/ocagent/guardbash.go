@@ -13,8 +13,9 @@ package main
 // prompt.
 //
 // 🔴 THE REFUSAL TEXT IS PART OF THE FUNCTION, NOT COPY. Measured on seth-m5,
-// 2026-09-10: worded as a request (「請改用 ocagent clean」) the member REFUSED to
-// comply, reasoning that text arriving in a tool result is not its operator
+// 2026-09-10: worded as a request (「請改用 ocagent clean」, a subcommand since
+// removed) the member REFUSED to comply, reasoning that text arriving in a tool
+// result is not its operator
 // speaking and must not be allowed to rewrite the command it runs. That instinct
 // is correct and must not be argued away. Worded as a statement about the
 // environment (「本環境不允許…」) the same member rewrote the path itself and
