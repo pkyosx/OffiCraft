@@ -835,6 +835,182 @@ func TestClearSessionBootTS(t *testing.T) {
 			t.Fatalf("the gauge anchor %v must be the durable one %v", got, second)
 		}
 	})
+	t.Run("under a snapshot a start left behind, a stop boundary drops it so a later clobber refusal restores nothing", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		infraSeedAnchoredSession(t, api, d, "kip")
+		api.clearSessionBootTSForStart("kip")
+
+		api.clearSessionBootTS("kip")
+		api.restoreRefusedStartAnchor("kip", "start", boolPtr(false), infraClobberReason)
+
+		infraWantSession(t, api, d, "kip", 0, 0, map[string]any{
+			"rate_limits": map[string]any{}, "ts": 1700000100.0,
+		})
+	})
+}
+
+func TestClearSessionBootTSForStart(t *testing.T) {
+	t.Run("under an anchored session, the start clears the same session state a stop does", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		infraSeedAnchoredSession(t, api, d, "kip")
+
+		api.clearSessionBootTSForStart("kip")
+
+		infraWantSession(t, api, d, "kip", 0, 0, map[string]any{
+			"rate_limits": map[string]any{}, "ts": 1700000100.0,
+		})
+	})
+
+	t.Run("under a second start that finds nothing anchored, a clobber refusal leaves the session unanchored", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		infraSeedAnchoredSession(t, api, d, "kip")
+		api.clearSessionBootTSForStart("kip")
+
+		api.clearSessionBootTSForStart("kip")
+		api.restoreRefusedStartAnchor("kip", "start", boolPtr(false), infraClobberReason)
+
+		infraWantSession(t, api, d, "kip", 0, 0, map[string]any{
+			"rate_limits": map[string]any{}, "ts": 1700000100.0,
+		})
+	})
+
+	t.Run("under a clobber refusal arriving while the start's clear is still writing, the refusal waits and restores the anchor", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		infraSeedAnchoredSession(t, api, d, "kip")
+		api.ctxGateDiagMu.Lock()
+		started := make(chan struct{})
+		go func() {
+			defer close(started)
+			api.clearSessionBootTSForStart("kip")
+		}()
+		deadline := time.Now().Add(5 * time.Second)
+		for api.gauge.Get("kip")["boot_ts"] != nil {
+			if time.Now().After(deadline) {
+				api.ctxGateDiagMu.Unlock()
+				t.Fatalf("premise: the start's clear never reached its gauge write")
+			}
+			time.Sleep(time.Millisecond)
+		}
+		refused := make(chan struct{})
+		go func() {
+			defer close(refused)
+			api.restoreRefusedStartAnchor("kip", "start", boolPtr(false), infraClobberReason)
+		}()
+		select {
+		case <-refused:
+		case <-time.After(200 * time.Millisecond):
+		}
+		api.ctxGateDiagMu.Unlock()
+		<-started
+		<-refused
+
+		infraWantSession(t, api, d, "kip", 1700000000, 1700000000, infraSeededGauge())
+	})
+
+	t.Run("under a gauge emptied by a re-exec, the durable anchor and claim are what a clobber refusal restores", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		if err := d.SetMemberSessionBootTS("kip", 1700000000); err != nil {
+			t.Fatalf("SetMemberSessionBootTS: %v", err)
+		}
+		if err := d.SetMemberHandoverNoticedTS("kip", 1700000000); err != nil {
+			t.Fatalf("SetMemberHandoverNoticedTS: %v", err)
+		}
+
+		api.clearSessionBootTSForStart("kip")
+		api.restoreRefusedStartAnchor("kip", "start", boolPtr(false), infraClobberReason)
+
+		infraWantSession(t, api, d, "kip", 1700000000, 1700000000, map[string]any{
+			"boot_ts": 1700000000.0,
+		})
+	})
+
+	t.Run("under no anchored session, a clobber refusal afterwards leaves it unanchored", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+
+		api.clearSessionBootTSForStart("kip")
+		api.restoreRefusedStartAnchor("kip", "start", boolPtr(false), infraClobberReason)
+
+		infraWantSession(t, api, d, "kip", 0, 0, nil)
+	})
+}
+
+func TestRestoreRefusedStartAnchor(t *testing.T) {
+	t.Run("under an agent that reconnected before the refusal, the original anchor wins and the claim taken on the reconnect moves with it", func(t *testing.T) {
+		api, h, d, _ := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		infraSeedAnchoredSession(t, api, d, "kip")
+		api.clearSessionBootTSForStart("kip")
+		api.onFirstConnect("kip")
+		if got := infraTestMember(t, d, "kip").SessionBootTS; got <= 1700000000 {
+			t.Fatalf("premise: the reconnect must mint a newer anchor, got %v", got)
+		}
+		if status, data := apiJSON(t, h, "POST", "/api/agent/context", agent,
+			`{"context_pct":12}`); status != 200 {
+			t.Fatalf("context ingest: want 200, got %d (%v)", status, data)
+		}
+		if !api.claimHandoverNotice("kip", api.gauge.Get("kip")) {
+			t.Fatalf("premise: the reconnected session must be granted its notice claim")
+		}
+		reported := api.gauge.Get("kip")
+
+		api.restoreRefusedStartAnchor("kip", "start", boolPtr(false), infraClobberReason)
+
+		infraWantSession(t, api, d, "kip", 1700000000, 1700000000, map[string]any{
+			"boot_ts":          1700000000.0,
+			"compaction_count": 3,
+			"context_pct":      12.0,
+			"context_pct_ts":   reported["context_pct_ts"],
+			"rate_limits":      map[string]any{},
+			"ts":               reported["ts"],
+		})
+		if api.claimHandoverNotice("kip", api.gauge.Get("kip")) {
+			t.Fatalf("the restored session must not be granted a second notice")
+		}
+	})
+
+	t.Run("under a session never noticed whose reconnect then took the notice, the refusal moves that claim to the original anchor", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		if err := d.SetMemberSessionBootTS("kip", 1700000000); err != nil {
+			t.Fatalf("SetMemberSessionBootTS: %v", err)
+		}
+		api.gauge.Set("kip", infraSeededGauge())
+		api.clearSessionBootTSForStart("kip")
+		api.onFirstConnect("kip")
+		if !api.claimHandoverNotice("kip", api.gauge.Get("kip")) {
+			t.Fatalf("premise: the reconnected session must be granted its notice claim")
+		}
+
+		api.restoreRefusedStartAnchor("kip", "start", boolPtr(false), infraClobberReason)
+
+		infraWantSession(t, api, d, "kip", 1700000000, 1700000000, infraSeededGauge())
+		if api.claimHandoverNotice("kip", api.gauge.Get("kip")) {
+			t.Fatalf("the restored session must not be granted a second notice")
+		}
+	})
+
+	t.Run("under a stop receipt arriving first, the snapshot waits for the start's own refusal", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		infraSeedAnchoredSession(t, api, d, "kip")
+		api.clearSessionBootTSForStart("kip")
+
+		api.restoreRefusedStartAnchor("kip", "stop", boolPtr(false), infraClobberReason)
+		infraWantSession(t, api, d, "kip", 0, 0, map[string]any{
+			"rate_limits": map[string]any{}, "ts": 1700000100.0,
+		})
+		api.restoreRefusedStartAnchor("kip", "start", boolPtr(false), infraClobberReason)
+
+		infraWantSession(t, api, d, "kip", 1700000000, 1700000000, infraSeededGauge())
+	})
+
+	t.Run("under a legacy worker_start refusal, the anchor is restored", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		infraSeedAnchoredSession(t, api, d, "kip")
+		api.clearSessionBootTSForStart("kip")
+
+		api.restoreRefusedStartAnchor("kip", "worker_start", boolPtr(false), infraClobberReason)
+
+		infraWantSession(t, api, d, "kip", 1700000000, 1700000000, infraSeededGauge())
+	})
 }
 
 func TestOnLastDisconnect(t *testing.T) {
@@ -3019,6 +3195,51 @@ func TestHandoverNoticeTick(t *testing.T) {
 			t.Fatalf("the notice must still be available")
 		}
 	})
+}
+
+const infraClobberReason = `session_already_exists: tmux session "member-kip" is already live (clobber-guard refused to stomp it)`
+
+// infraSeededGauge is the gauge entry infraSeedAnchoredSession leaves behind.
+func infraSeededGauge() map[string]any {
+	return map[string]any{
+		"boot_ts":          1700000000.0,
+		"compaction_count": 3,
+		"context_pct":      45.0,
+		"context_pct_ts":   1700000100.0,
+		"rate_limits":      map[string]any{},
+		"ts":               1700000100.0,
+	}
+}
+
+// infraSeedAnchoredSession gives id a running session anchored at 1700000000
+// whose one handover notice has already gone out.
+func infraSeedAnchoredSession(t *testing.T, api *apiServer, d *DAL, id string) {
+	t.Helper()
+	if err := d.SetMemberSessionBootTS(id, 1700000000); err != nil {
+		t.Fatalf("SetMemberSessionBootTS: %v", err)
+	}
+	if err := d.SetMemberHandoverNoticedTS(id, 1700000000); err != nil {
+		t.Fatalf("SetMemberHandoverNoticedTS: %v", err)
+	}
+	api.rememberHandoverClaim(id, 1700000000)
+	api.gauge.Set(id, infraSeededGauge())
+}
+
+// infraWantSession asserts an actor's whole session state: both durable
+// columns, the notice-claim cache and the gauge entry (nil = no entry).
+func infraWantSession(t *testing.T, api *apiServer, d *DAL, id string, bootTS, claim float64, gauge map[string]any) {
+	t.Helper()
+	m := infraTestMember(t, d, id)
+	if m.SessionBootTS != bootTS {
+		t.Fatalf("durable anchor: want %v, got %v", bootTS, m.SessionBootTS)
+	}
+	if m.HandoverNoticedTS != claim {
+		t.Fatalf("durable notice claim: want %v, got %v", claim, m.HandoverNoticedTS)
+	}
+	if got := api.cachedHandoverClaim(id); got != claim {
+		t.Fatalf("cached notice claim: want %v, got %v", claim, got)
+	}
+	apiTestWantEqual(t, "gauge entry", api.gauge.Get(id), gauge)
 }
 
 // infraTestMember reads one roster row back, for the durable half of an edge

@@ -505,6 +505,57 @@ func TestFoldCommandResult(t *testing.T) {
 			apiTestMemberFrame(2, "patch", "kip", payload, "telemetry"),
 		)
 	})
+	t.Run("under a start-cleared anchor, a clobber refusal folds the receipt and restores the session's anchor, notice claim and readings", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		infraSeedAnchoredSession(t, api, d, "kip")
+		api.clearSessionBootTSForStart("kip")
+
+		api.foldCommandResult(map[string]any{
+			"member_id": "kip", "rpc": "start", "ok": false,
+			"reason": infraClobberReason, "at": float64(1720000000),
+		}, "telemetry", "m-server-self")
+
+		infraWantSession(t, api, d, "kip", 1700000000, 1700000000, infraSeededGauge())
+		if m := apiTestMemberRow(t, d, "kip"); m.LastOp != "start" || m.LastOpReason != infraClobberReason {
+			t.Fatalf("the refusal must still fold onto last_op: %q %q", m.LastOp, m.LastOpReason)
+		}
+	})
+
+	t.Run("under a start-cleared anchor, a start refused for another reason leaves the session unanchored for good", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		infraSeedAnchoredSession(t, api, d, "kip")
+		api.clearSessionBootTSForStart("kip")
+
+		api.foldCommandResult(map[string]any{
+			"member_id": "kip", "rpc": "start", "ok": false,
+			"reason": "mkdir_failed: permission denied", "at": float64(1720000000),
+		}, "telemetry", "m-server-self")
+		api.restoreRefusedStartAnchor("kip", "start", boolPtr(false), infraClobberReason)
+
+		infraWantSession(t, api, d, "kip", 0, 0, map[string]any{
+			"rate_limits": map[string]any{}, "ts": 1700000100.0,
+		})
+	})
+
+	t.Run("under a start-cleared anchor, an accepted start leaves it cleared and the new session's connect mints a fresh anchor", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		infraSeedAnchoredSession(t, api, d, "kip")
+		api.clearSessionBootTSForStart("kip")
+
+		api.foldCommandResult(map[string]any{
+			"member_id": "kip", "rpc": "start", "ok": true,
+			"reason": "started", "at": float64(1720000000),
+		}, "telemetry", "m-server-self")
+
+		infraWantSession(t, api, d, "kip", 0, 0, map[string]any{
+			"rate_limits": map[string]any{}, "ts": 1700000100.0,
+		})
+		connectedAt := float64(time.Now().Unix())
+		api.onFirstConnect("kip")
+		if got := infraTestMember(t, d, "kip").SessionBootTS; got < connectedAt {
+			t.Fatalf("the new session must anchor at its own connect (>= %v), got %v", connectedAt, got)
+		}
+	})
 }
 
 func TestFoldWorkerCommandResult(t *testing.T) {
@@ -599,6 +650,36 @@ func TestFoldWorkerCommandResult(t *testing.T) {
 			t.Fatalf("the refused target was not benched")
 		}
 		dashboard.wantFrames(apiTestWorkerDelta(2, "assigned", "warden-1"))
+	})
+	t.Run("under a start-cleared anchor, a clobber refusal restores the worker's anchor, notice claim and readings", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusAssigned)
+		infraSeedAnchoredSession(t, api, d, "ow-abc123")
+		api.clearSessionBootTSForStart("ow-abc123")
+
+		api.foldWorkerCommandResult("ow-abc123", map[string]any{
+			"rpc": "start", "ok": false, "reason": infraClobberReason,
+			"at": float64(1720000200),
+		}, "warden-1")
+
+		infraWantSession(t, api, d, "ow-abc123", 1700000000, 1700000000, infraSeededGauge())
+	})
+
+	t.Run("under a start-cleared anchor, an accepted worker start leaves the worker unanchored", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusAssigned)
+		infraSeedAnchoredSession(t, api, d, "ow-abc123")
+		api.clearSessionBootTSForStart("ow-abc123")
+
+		api.foldWorkerCommandResult("ow-abc123", map[string]any{
+			"rpc": "start", "ok": true, "reason": "started",
+			"at": float64(1720000200),
+		}, "warden-1")
+		api.restoreRefusedStartAnchor("ow-abc123", "start", boolPtr(false), infraClobberReason)
+
+		infraWantSession(t, api, d, "ow-abc123", 0, 0, map[string]any{
+			"rate_limits": map[string]any{}, "ts": 1700000100.0,
+		})
 	})
 }
 
@@ -731,6 +812,23 @@ func TestHandleIngestTelemetryApiMonitoringTelemetryPost(t *testing.T) {
 			member["last_op_reason"] != "started" || member["last_op_at"] != float64(1767225600) {
 			t.Fatalf("the command_result did not fold onto the member: %v", member)
 		}
+	})
+
+	t.Run("under a start-cleared anchor, a posted clobber-refusal receipt answers 200 and puts the member's anchor back", func(t *testing.T) {
+		api, h, d, _ := newAPITestServer(t)
+		warden := apiTestAgentToken(t, api, "m-server-self", "m-server-self")
+		infraSeedAnchoredSession(t, api, d, "mira")
+		api.clearSessionBootTSForStart("mira")
+
+		status, data := apiJSON(t, h, "POST", "/api/monitoring/telemetry", warden,
+			`{"command_result":{"rpc":"start","member_id":"mira","ok":false,`+
+				`"reason":"session_already_exists: tmux session \"member-mira\" is already live (clobber-guard refused to stomp it)",`+
+				`"at":"2026-01-01T00:00:00Z"}}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+
+		infraWantSession(t, api, d, "mira", 1700000000, 1700000000, infraSeededGauge())
 	})
 
 	t.Run("a body carrying none of the declared blocks answers 400 naming them all", func(t *testing.T) {

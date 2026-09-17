@@ -122,8 +122,9 @@ type Member struct {
 	// migrations/00051): unix seconds of the moment this session's FIRST SSE
 	// connect landed, 0 when no session is anchored (offline, or the last one
 	// ended at a real spawn/stop boundary). It is the DURABLE twin of the gauge's
-	// boot_ts, written and cleared by the SAME two functions (onFirstConnect /
-	// clearSessionBootTS) so the two stores can never drift apart.
+	// boot_ts, written and cleared by the SAME functions (onFirstConnect /
+	// clearSessionBootTS / restoreRefusedStartAnchor) so the two stores can never
+	// drift apart.
 	//
 	// WHY IT HAS TO BE DURABLE: the gauge is in-memory by contract and a station
 	// re-exec empties it, but the AGENTS survive that re-exec — they just
@@ -658,10 +659,11 @@ func (d *DAL) SetMemberForcedStopAt(id string, ts float64) error {
 //     the fleet has. Two tests catch this directly if it regresses
 //     (TestOutsourceWorkerSSEEdgesPublishCanonicalPresence,
 //     TestEventsHandler_DeliveredWardenCommandsLeaveNoResidue).
-//   - NO WHOLE-ROW WRITE. The callers (onFirstConnect / clearSessionBootTS) run
-//     inside the reconcile tick and on the SSE edge, next to HTTP faces that
+//   - NO WHOLE-ROW WRITE. The callers (onFirstConnect / clearSessionBootTS /
+//     restoreRefusedStartAnchor) run inside the reconcile tick, on the SSE edge
+//     and in the command_result fold, next to HTTP faces that
 //     write member rows without holding reconcileMu. A whole-row write from
-//     either of those would put a snapshot back over whatever landed meanwhile;
+//     any of those would put a snapshot back over whatever landed meanwhile;
 //     touching exactly one column cannot.
 //
 // A missing row is a clean no-op (0 rows affected, no error).

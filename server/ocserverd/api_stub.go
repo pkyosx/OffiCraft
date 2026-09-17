@@ -235,6 +235,17 @@ type apiServer struct {
 	// settings lock across that I/O would stall every unrelated settings reader
 	// on a database round-trip. This lock protects one map and nothing else.
 	handoverNoticedMu sync.Mutex
+	// startClearedAnchors holds, per actor id, the session state a START
+	// dispatch cleared (clearSessionBootTSForStart), until that START's receipt
+	// says whether a new session really began.
+	startClearedAnchors map[string]sessionAnchorSnapshot
+	// startClearedAnchorsMu guards the map above AND is held for the whole of
+	// clearSessionBootTS, clearSessionBootTSForStart and
+	// restoreRefusedStartAnchor, so a refusal receipt can never interleave with
+	// a boundary's writes. Their callers may hold outsourceMu or reconcileMu;
+	// under this lock only leaf locks are taken (gauge, handoverNoticedMu,
+	// ctxGateDiagMu) plus DAL calls, none of which take either of those.
+	startClearedAnchorsMu sync.Mutex
 	// ctxGateDiagAt records, per actor id, WHEN stampContextHighRecycle last
 	// emitted its gate diagnostic for that actor AND WHICH gate it named — the
 	// throttle behind noteContextGateSkip (T-72dd 補觀測). Guarded by
@@ -860,10 +871,12 @@ func (s *apiServer) codexCompactionThresholdSetting() int {
 // database: once an agent is in the high band, this runs on every quiet tick
 // and every one of those calls after the first is a refusal.
 //
-// Both stores are written together and cleared together (clearSessionBootTS),
-// so the only drift a bug could produce is a map that has forgotten a claim the
-// column still holds — and that direction is caught by the read below rather
-// than turning into a second notice.
+// Both stores are written together and cleared together (clearSessionBootTS;
+// a refused START's restoreRefusedStartAnchor writes both back),
+// so drift comes only from a failed or skipped write. A map that has forgotten
+// a claim the column holds is caught by the read below; a claim the map holds
+// but the column lost (a failed durable write) lasts until the next re-exec,
+// which then re-notifies once.
 func (s *apiServer) claimHandoverNotice(agentID string, record map[string]any) bool {
 	bootTS, ok := gaugeBootTS(record)
 	if !ok || bootTS <= 0 {
