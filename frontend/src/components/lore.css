@@ -146,6 +146,7 @@
 }
 
 .lore-row__head {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -240,6 +241,96 @@ button.lore-row__scope-chip {
 }
 button.lore-row__scope-chip:hover {
   border-color: color-mix(in srgb, var(--color-task-type) 70%, transparent);
+}
+
+/* ── 適用範圍 (T-236): the badge is the menu trigger for a viewer who may switch
+ * scopes. The menu anchors to .lore-row__head (left:0; right:0) and caps its
+ * width, so a badge far from the row's left edge cannot push it off a phone
+ * screen (css-layout-traps: no vw clamp on an absolute pop). */
+button.lore-row__scope-chip--editable {
+  border-color: var(--color-accent);
+}
+button.lore-row__scope-chip--editable:hover {
+  border-color: var(--color-accent);
+  background: var(--color-accent-soft);
+}
+.lore-row__scope-caret {
+  flex: none;
+  color: var(--color-accent);
+}
+.lore-row__scope-glyph--everyone {
+  color: var(--color-task-type);
+}
+.lore-row__scope-pop {
+  left: 0;
+  right: 0;
+  width: auto;
+  max-width: 340px;
+}
+.lore-row__scope-pop-title {
+  padding: 4px 10px 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--color-text-muted);
+}
+.lore-row__scope-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.lore-row__scope-check {
+  flex: none;
+  width: 14px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  color: var(--color-accent);
+}
+.lore-row__scope-option-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.lore-row__scope-option-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  overflow-wrap: anywhere;
+}
+.lore-row__scope-tag {
+  flex: none;
+  padding: 0 6px;
+  border-radius: var(--radius-pill);
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 14%, transparent);
+  font-size: 10.5px;
+  font-weight: 700;
+  line-height: 16px;
+  white-space: nowrap;
+  color: var(--color-text-muted);
+}
+.lore-row__scope-tag--new {
+  border-color: color-mix(in srgb, var(--color-task-type) 40%, transparent);
+  color: var(--color-task-type);
+}
+.lore-row__scope-hint,
+.lore-row__scope-note {
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.45;
+  color: var(--color-text-muted);
+  overflow-wrap: anywhere;
+}
+.lore-row__scope-note {
+  color: var(--color-warn-fg);
+}
+.lore-row__scope-open-manual {
+  margin-top: 2px;
+  border-top: 1px solid color-mix(in srgb, var(--color-overlay) 8%, transparent);
+  border-radius: 0 0 8px 8px;
+  color: var(--color-text-muted);
+  font-size: 12.5px;
 }
 
 .lore-row__title {

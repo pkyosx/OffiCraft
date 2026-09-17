@@ -2629,6 +2629,10 @@ export interface Api {
    * what makes this reversible. Resolves to nothing — same receipt, same
    * refetch. */
   bumpLoreEntry(entryId: string): Promise<void>;
+  /** Move one entry to another scope (`POST /api/lore/{entry_id}/scope`,
+   * admin only). The server derives the scope key. Resolves to nothing —
+   * `LorePage` refetches. */
+  setLoreEntryScope(entryId: string, scopeKind: LoreScopeKind): Promise<void>;
   // ── Product guide (the 使用說明 nav tab) ──────────────────────────────────
   /** List the product-guide docs (`GET /api/docs`) — the 使用說明 landing
    * (slug + title cards). The same embed Mira reads via get_doc. */
@@ -3153,6 +3157,9 @@ export interface Api {
 /** The three mutually exclusive states one entry can be in. */
 export type LoreEntryState = "active" | "pinned" | "retired";
 
+/** The scopes the server has (`everyone` since T-236). */
+export type LoreScopeKind = "agent" | "manual" | "everyone";
+
 /** ONE 傳承 entry.
  *
  * 🔴 `title` and `body` ARE NEVER EDITABLE. No route changes them, so what is
@@ -3172,8 +3179,8 @@ export type LoreEntryState = "active" | "pinned" | "retired";
 export interface LoreEntryView {
   id: string;
   seq: number;
-  /** 🔴 THREE VALUES, AND THE THIRD IS NOT A SCOPE. "agent" | "manual" are the
-   * two scopes the server has; "unknown" is what this cockpit calls a scope it
+  /** 🔴 "unknown" IS NOT A SCOPE. "agent" | "manual" | "everyone" are the
+   * scopes the server has; "unknown" is what this cockpit calls a scope it
    * cannot name. It exists so that an unrecognised kind can be carried WITHOUT
    * being renamed into one of the real ones — see `toLoreEntry`. Nothing may be
    * requested as "unknown" (`LoreListOptions.scopeKind` deliberately omits it),
@@ -3189,8 +3196,12 @@ export interface LoreEntryView {
    * `role` onto `agent`: that would file an entry whose owner was explicitly
    * undetermined under a specific member, which is the exact guess the migration
    * refused to make. */
-  scopeKind: "agent" | "manual" | "unknown";
+  scopeKind: LoreScopeKind | "unknown";
   scopeKey: string;
+  /** The type_key a `manual` scope for this entry would key to, or "". */
+  taskTypeKey: string;
+  /** The scope kinds this entry may be switched to, in display order. */
+  scopeOptions: LoreScopeKind[];
   title: string;
   body: string;
   authorId: string;
@@ -3206,11 +3217,11 @@ export interface LoreEntryView {
  * parameter — see `Api.listLoreEntries` for why none of them may become a
  * client-side filter. */
 export interface LoreListOptions {
-  /** The two scopes that can be ASKED for. "unknown" is absent on purpose: it
+  /** The scopes that can be ASKED for. "unknown" is absent on purpose: it
    * is a reading of an answer, not a question anyone can pose. `role` is absent
    * because the server now REFUSES it with a 400 — sending it would turn a page
    * into an error rather than narrowing it. */
-  scopeKind?: "agent" | "manual";
+  scopeKind?: LoreScopeKind;
   scopeKey?: string;
   state?: LoreEntryState;
   authorId?: string;
@@ -3236,7 +3247,7 @@ export interface LoreListOptions {
    * exactly one — a budget belongs to a scope, and two scopes have two different
    * budgets with no single line between them. Tick two 範圍 and the page gets
    * 0 / "", which is the same honest answer an unfiltered page gets. */
-  scopeKinds?: ("agent" | "manual")[];
+  scopeKinds?: LoreScopeKind[];
   scopeKeys?: string[];
   states?: LoreEntryState[];
   authorIds?: string[];

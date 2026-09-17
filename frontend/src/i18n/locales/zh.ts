@@ -132,6 +132,22 @@ export const zh = {
     // 每個人的傳承都掛在自己的成員 id 上，正職與外包一視同仁。
     scopeKindAgent: "成員傳承",
     scopeKindManual: "任務傳承",
+    // 適用範圍徽章與選單（T-236）
+    scopeMenuLabel: "適用範圍",
+    scopeManualLead: "任務：",
+    scopeAgentLead: "建立者：",
+    scopeEveryone: "所有人",
+    scopeManualHintLead: "之後任何人開「",
+    scopeManualHintTail: "」這本任務手冊時會讀到（正職、外包都一樣）。",
+    scopeAgentHintLead: "只進 ",
+    scopeAgentHintTail: " 自己的開機檔，其他人讀不到。",
+    scopeOutsourceWarning: "這位外包離開後就沒有人讀得到，除非改成任務或所有人。",
+    scopeEveryoneHint: "進每一位成員的開機檔（所有正職＋所有外包）。",
+    scopeDerivedLead: "由承接中的 ",
+    scopeDerivedTail: " 推得",
+    scopeTagNew: "新",
+    scopeTagDefault: "預設",
+    scopeTagCurrent: "目前",
     // 具名上限線的其餘片段
     capLineSep: " · ",
     capLineMid: " 上限 ",

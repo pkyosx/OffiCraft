@@ -13,6 +13,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { httpApi } from "./http";
+import { codeForStatus } from "./errorCodes";
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -113,5 +114,47 @@ describe("httpApi.listLoreEntries · the multi-select sets go on the wire (T-33)
     const u = lastUrl();
     expect(u.searchParams.get("state")).toBe("active");
     expect(u.searchParams.getAll("states")).toEqual(["pinned", "retired"]);
+  });
+});
+
+describe("httpApi.setLoreEntryScope", () => {
+  it("posts only the target kind to the entry's scope route and resolves to nothing", async () => {
+    fetchMock.mockImplementation(async () =>
+      jsonResponse({
+        id: "L-7",
+        scope_kind: "everyone",
+        scope_key: "",
+        state: "active",
+        effective_ts: 1788400000,
+        updated_ts: 1788500000,
+      }),
+    );
+
+    const result = await httpApi.setLoreEntryScope("L-7", "everyone");
+
+    const req = (fetchMock.mock.calls as unknown as [Request][])[0][0];
+    expect(req.method).toBe("POST");
+    expect(new URL(req.url).pathname).toBe("/api/lore/L-7/scope");
+    expect(await req.json()).toEqual({ scope_kind: "everyone" });
+    expect(result).toBeUndefined();
+  });
+
+  it("rejects with the server's reason when the switch is refused", async () => {
+    fetchMock.mockImplementation(async () =>
+      jsonResponse(
+        {
+          error: {
+            code: codeForStatus(403),
+            message: "admin only",
+          },
+        },
+        403,
+      ),
+    );
+
+    await expect(httpApi.setLoreEntryScope("L-7", "manual")).rejects.toMatchObject({
+      status: 403,
+      serverMessage: "admin only",
+    });
   });
 });

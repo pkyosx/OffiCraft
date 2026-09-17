@@ -73,12 +73,13 @@ import {
   type ReactNode,
 } from "react";
 import { useI18n } from "../i18n";
-import { api } from "../api";
+import { api, viewerMaySetLoreScope } from "../api";
 import type {
   ChatAttachmentInput,
   LoreEntryState,
   LoreEntryView,
   LoreListOptions,
+  LoreScopeKind,
 } from "../api/adapter";
 import { isHttpStatus, serverMessageOf } from "../api/errors";
 import { useMembers } from "../hooks/useMembers";
@@ -118,6 +119,7 @@ import {
   PaperclipIcon,
   SendIcon,
   UserIcon,
+  UsersIcon,
 } from "./icons";
 import "./lore.css";
 // The staged-attachment preview strip (ComposerAttachmentPreview) draws the
@@ -161,9 +163,22 @@ interface AuthorIdentity {
   peerId: string;
 }
 
-/** The two scopes that can be ASKED for — the same closed set
- * `LoreListOptions.scopeKind` names. */
-type LoreScopeKind = NonNullable<LoreListOptions["scopeKind"]>;
+/** 所有人 has no scope key, so its filter value is the bare kind prefix. */
+const EVERYONE_VALUE = "everyone:";
+
+/** One choice in the 適用範圍 menu, resolved for display. */
+interface ScopeChoice {
+  kind: LoreScopeKind;
+  label: string;
+  hint: string;
+  notes: string[];
+  isNew: boolean;
+}
+
+interface ScopeMenu {
+  choices: ScopeChoice[];
+  defaultKind: LoreScopeKind;
+}
 
 /** 屬於 packs BOTH halves of a scope into one option value: `"<kind>:<key>"`.
  *
@@ -187,7 +202,11 @@ function splitBelongs(v: string): { kind: LoreScopeKind; key: string } {
   return { kind: v.slice(0, i) as LoreScopeKind, key: v.slice(i + 1) };
 }
 
-export function LorePage() {
+export function LorePage({
+  canSetScope = viewerMaySetLoreScope(),
+}: {
+  canSetScope?: boolean;
+} = {}) {
   const { t, msg } = useI18n();
   const { members } = useMembers();
   const { workers } = useOutsourceWorkers();
@@ -269,7 +288,7 @@ export function LorePage() {
     for (const v of belongs) {
       const { kind, key } = splitBelongs(v);
       kinds.add(kind);
-      keys.push(key);
+      if (kind !== "everyone") keys.push(key);
     }
     if (kinds.size > 0) next.scopeKinds = [...kinds];
     if (keys.length > 0) next.scopeKeys = keys;
@@ -297,19 +316,32 @@ export function LorePage() {
   // place that holds what was ticked, so the request and the two pills cannot
   // disagree about it.
   const ticksOfKind = useCallback(
-    (kind: LoreScopeKind) =>
-      new Set([...belongs].filter((v) => splitBelongs(v).kind === kind)),
+    (...kinds: LoreScopeKind[]) =>
+      new Set([...belongs].filter((v) => kinds.includes(splitBelongs(v).kind))),
     [belongs]
   );
+  // 所有人 carries no scope key, and the wire ANDs kinds with keys — so any
+  // keyed tick beside it would filter every 所有人 row out. Ticking it clears
+  // the keyed ticks, and ticking a keyed option clears it.
   const setTicksOfKind = useCallback(
     (kind: LoreScopeKind, next: Set<string>) =>
-      setBelongs(
-        (prev) =>
-          new Set([
-            ...[...prev].filter((v) => splitBelongs(v).kind !== kind),
-            ...next,
-          ])
-      ),
+      setBelongs((prev) => {
+        if (next.has(EVERYONE_VALUE) && !prev.has(EVERYONE_VALUE)) {
+          return new Set([EVERYONE_VALUE]);
+        }
+        const merged = new Set([
+          ...[...prev].filter((v) => {
+            const k = splitBelongs(v).kind;
+            return k !== kind && k !== "everyone";
+          }),
+          ...next,
+        ]);
+        const addedKeyed = [...merged].some(
+          (v) => v !== EVERYONE_VALUE && !prev.has(v)
+        );
+        if (addedKeyed) merged.delete(EVERYONE_VALUE);
+        return merged;
+      }),
     []
   );
 
@@ -571,6 +603,9 @@ export function LorePage() {
           manualKey: entry.scopeKey,
         };
       }
+      if (entry.scopeKind === "everyone") {
+        return { kind: "everyone", label: t.lore.scopeEveryone, manualKey: "" };
+      }
       // An unknown kind names no kind — inventing one here would state a fact
       // the server never sent.
       return {
@@ -579,7 +614,59 @@ export function LorePage() {
         manualKey: "",
       };
     },
-    [manuals, resolveAuthor, t.lore.scopeUnknown]
+    [manuals, resolveAuthor, t.lore.scopeUnknown, t.lore.scopeEveryone]
+  );
+
+  const resolveScopeMenu = useCallback(
+    (entry: LoreEntryView): ScopeMenu => {
+      const manualName =
+        manuals.find((x) => x.typeKey === entry.taskTypeKey)?.displayName ||
+        entry.taskTypeKey;
+      const authorName = resolveAuthor(entry.authorId).text;
+      const outsource = entry.authorId.startsWith("ow-");
+      const boundTask =
+        outsource && entry.sourceTaskId === ""
+          ? workers.find(
+              (w) =>
+                w.id === entry.authorId &&
+                w.taskId !== "" &&
+                w.taskTypeKey === entry.taskTypeKey
+            )
+          : undefined;
+      const choices = entry.scopeOptions.map((kind): ScopeChoice => {
+        if (kind === "manual") {
+          return {
+            kind,
+            label: msg.loreScopeManual(manualName),
+            hint: msg.loreScopeManualHint(manualName),
+            notes: boundTask
+              ? [msg.loreScopeDerivedFrom(boundTask.taskNo || boundTask.taskId)]
+              : [],
+            isNew: false,
+          };
+        }
+        if (kind === "agent") {
+          return {
+            kind,
+            label: msg.loreScopeAgent(authorName),
+            hint: msg.loreScopeAgentHint(authorName),
+            notes: outsource ? [t.lore.scopeOutsourceWarning] : [],
+            isNew: false,
+          };
+        }
+        return {
+          kind,
+          label: t.lore.scopeEveryone,
+          hint: t.lore.scopeEveryoneHint,
+          notes: [],
+          isNew: true,
+        };
+      });
+      const defaultKind: LoreScopeKind =
+        entry.sourceTaskId !== "" && entry.taskTypeKey !== "" ? "manual" : "agent";
+      return { choices, defaultKind };
+    },
+    [manuals, resolveAuthor, workers, msg, t.lore]
   );
 
   const authorAvatar = useCallback(
@@ -623,6 +710,11 @@ export function LorePage() {
   );
   const bumpEntry = useCallback(
     (id: string) => void runAction(() => api.bumpLoreEntry(id)),
+    [runAction]
+  );
+  const setEntryScope = useCallback(
+    (id: string, kind: LoreScopeKind) =>
+      void runAction(() => api.setLoreEntryScope(id, kind)),
     [runAction]
   );
 
@@ -707,7 +799,9 @@ export function LorePage() {
   const soleKind = opts.scopeKinds?.length === 1 ? opts.scopeKinds[0] : "";
   const soleKey = opts.scopeKeys?.length === 1 ? opts.scopeKeys[0] : "";
   const scopeName =
-    soleKind === "" || soleKey === ""
+    soleKind === "everyone"
+      ? t.lore.scopeEveryone
+      : soleKind === "" || soleKey === ""
       ? ""
       : soleKind === "manual"
         ? t.lore.scopeKindManual +
@@ -764,10 +858,13 @@ export function LorePage() {
   // prefixed `agent:` so the request says `scope_kinds=["agent"]` +
   // `scope_keys=[<member id>]`, which is the only shape the server will answer
   // a member's `capChars` for.
-  const memberScopeOptions = roster.map((r) => ({
-    value: belongsValue("agent", r.id),
-    label: r.label,
-  }));
+  const memberScopeOptions = [
+    { value: EVERYONE_VALUE, label: t.lore.scopeEveryone },
+    ...roster.map((r) => ({
+      value: belongsValue("agent", r.id),
+      label: r.label,
+    })),
+  ];
 
   return (
     <div className="lore" ref={scrollRef} data-testid="lore-page">
@@ -829,7 +926,7 @@ export function LorePage() {
           allLabel={t.lore.filterMemberAll}
           testId="lore-filter-member"
           options={memberScopeOptions}
-          selected={ticksOfKind("agent")}
+          selected={ticksOfKind("agent", "everyone")}
           onChange={(next) => setTicksOfKind("agent", next)}
         />
         {/* 任務傳承 — WHICH task manual. Same wire axes as the control above it;
@@ -896,9 +993,15 @@ export function LorePage() {
                     author={resolveAuthor(entry.authorId)}
                     avatar={authorAvatar(entry.authorId)}
                     scope={resolveScope(entry)}
+                    scopeMenu={
+                      canSetScope && entry.scopeOptions.length > 0
+                        ? resolveScopeMenu(entry)
+                        : null
+                    }
                     onOpenChat={openChat}
                     onOpenManual={openManual}
                     onSetState={setEntryState}
+                    onSetScope={setEntryScope}
                     onBump={bumpEntry}
                   />
                 </div>
@@ -928,9 +1031,11 @@ function LoreRow({
   author,
   avatar,
   scope,
+  scopeMenu,
   onOpenChat,
   onOpenManual,
   onSetState,
+  onSetScope,
   onBump,
 }: {
   entry: LoreEntryView;
@@ -945,12 +1050,41 @@ function LoreRow({
   onOpenChat: (peerId: string, entryId: string) => void;
   onOpenManual: (typeKey: string) => void;
   onSetState: (id: string, next: LoreEntryState) => void;
+  /** null ⇒ the viewer may not switch this entry's scope; the badge is inert. */
+  scopeMenu: ScopeMenu | null;
+  onSetScope: (id: string, kind: LoreScopeKind) => void;
   onBump: (id: string) => void;
 }) {
   const { t, msg } = useI18n();
   const [expanded, setExpanded] = useState(false);
   const [stateOpen, setStateOpen] = useState(false);
   const statusRef = useRef<HTMLDivElement>(null);
+  const [scopeOpen, setScopeOpen] = useState(false);
+  const scopeRef = useRef<HTMLSpanElement>(null);
+
+  useEffect(() => {
+    if (!scopeOpen) return;
+    function onDown(e: MouseEvent) {
+      if (!scopeRef.current?.contains(e.target as Node)) setScopeOpen(false);
+    }
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [scopeOpen]);
+
+  const scopeText =
+    scope.kind === "manual"
+      ? msg.loreScopeManual(scope.label)
+      : scope.kind === "agent"
+        ? msg.loreScopeAgent(scope.label)
+        : scope.label;
+  const scopeGlyph =
+    scope.kind === "manual" ? (
+      <GearIcon size={13} className="lore-row__scope-glyph lore-row__scope-glyph--task" />
+    ) : scope.kind === "agent" ? (
+      <UserIcon size={13} className="lore-row__scope-glyph lore-row__scope-glyph--member" />
+    ) : scope.kind === "everyone" ? (
+      <UsersIcon size={13} className="lore-row__scope-glyph lore-row__scope-glyph--everyone" />
+    ) : null;
 
   useEffect(() => {
     if (!stateOpen) return;
@@ -1144,27 +1278,29 @@ function LoreRow({
             rc-11734523eb52; the first attempt landed inside `expanded &&`).
             It is a <button> when it leads somewhere, so the row's closest()
             filter lets the click through to the manual instead of toggling. */}
-        <span className="lore-row__scope" data-testid="lore-scope">
-          {/* 🔴 THE TEXT PREFIX 「成員傳承 · 」/「任務傳承 · 」 IS GONE (owner
-              2026-09-08, screenshot with it circled: 「這個不必要」). What is
-              left is ONE badge, and the GLYPH carries the kind:
-                · 任務傳承 → 齒輪, and the badge is a <button> that opens the
-                  manual's settings page — unchanged.
-                · 成員傳承 → the person glyph, the same UserIcon the 任務卡's
-                  負責人 chip falls back to through <Avatar>. Not a button: a
-                  member has no page to land on, and a pill that looks clickable
-                  and goes nowhere is the dead affordance LoreAuthorChip exists
-                  to avoid.
-                · unknown → no glyph at all. There is no kind to name.
-              🔴 EXACTLY ONE ARM RUNS, BECAUSE `scope.kind` IS ONE VALUE. The
-              owner's rule 「一次只可能會出現一個」 is not enforced by a check
-              here; it is a property of the data — resolveScope returns a single
-              discriminator — and this chain is written as one if/else over it so
-              there is no arrangement of props that could show both.
-              The badge itself is the 任務卡's 類型 badge, copied value-for-value
-              under lore names (.lore-badge--type ← tasks.css .task-badge--type;
-              owner: 「傳承條目的樣子跟任務卡不一樣，我要它一樣」). */}
-          {scope.kind === "manual" ? (
+        <span className="lore-row__scope" data-testid="lore-scope" ref={scopeRef}>
+          {/* ONE badge naming the current scope (T-236 mockup): 任務：<手冊>
+              with the gear, 建立者：<作者> with the person glyph, 所有人 with the
+              group glyph; an unknown kind shows its raw key and no glyph.
+              For a viewer who may switch scopes the badge is the 適用範圍 menu
+              trigger, and the manual jump moves into that menu. Otherwise a
+              manual badge still opens the manual and the rest are plain text. */}
+          {scopeMenu ? (
+            <button
+              type="button"
+              className="lore-badge lore-badge--type lore-row__scope-chip lore-row__scope-chip--editable"
+              data-testid="lore-scope-name"
+              data-scope-kind={scope.kind}
+              aria-haspopup="menu"
+              aria-expanded={scopeOpen}
+              title={t.lore.scopeMenuLabel}
+              onClick={() => setScopeOpen((o) => !o)}
+            >
+              {scopeGlyph}
+              <span className="lore-row__scope-name">{scopeText}</span>
+              <ChevronDownIcon size={12} className="lore-row__scope-caret" />
+            </button>
+          ) : scope.kind === "manual" ? (
             <button
               type="button"
               className="lore-badge lore-badge--type lore-row__scope-chip"
@@ -1174,11 +1310,8 @@ function LoreRow({
               title={msg.loreOpenManual(scope.label)}
               onClick={() => onOpenManual(scope.manualKey)}
             >
-              <GearIcon
-                size={13}
-                className="lore-row__scope-glyph lore-row__scope-glyph--task"
-              />
-              <span className="lore-row__scope-name">{scope.label}</span>
+              {scopeGlyph}
+              <span className="lore-row__scope-name">{scopeText}</span>
             </button>
           ) : (
             <span
@@ -1186,14 +1319,95 @@ function LoreRow({
               data-testid="lore-scope-name"
               data-scope-kind={scope.kind}
             >
-              {scope.kind === "agent" && (
-                <UserIcon
-                  size={13}
-                  className="lore-row__scope-glyph lore-row__scope-glyph--member"
-                />
-              )}
-              <span className="lore-row__scope-name">{scope.label}</span>
+              {scopeGlyph}
+              <span className="lore-row__scope-name">{scopeText}</span>
             </span>
+          )}
+          {scopeMenu && scopeOpen && (
+            <div
+              className="lore-row__menu-pop lore-row__scope-pop"
+              role="menu"
+              aria-label={t.lore.scopeMenuLabel}
+              data-testid="lore-scope-options"
+            >
+              <div className="lore-row__scope-pop-title">{t.lore.scopeMenuLabel}</div>
+              {scopeMenu.choices.map((c) => {
+                const current = c.kind === entry.scopeKind;
+                const tag =
+                  c.kind === scopeMenu.defaultKind
+                    ? t.lore.scopeTagDefault
+                    : current
+                      ? t.lore.scopeTagCurrent
+                      : "";
+                return (
+                  <button
+                    key={c.kind}
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={current}
+                    className={`lore-row__menu-item lore-row__scope-option${
+                      current ? " lore-row__menu-item--active" : ""
+                    }`}
+                    data-testid={`lore-scope-${c.kind}`}
+                    onClick={() => {
+                      setScopeOpen(false);
+                      if (!current) onSetScope(entry.id, c.kind);
+                    }}
+                  >
+                    <span className="lore-row__scope-check" aria-hidden="true">
+                      {current && <CheckIcon size={14} />}
+                    </span>
+                    <span className="lore-row__scope-option-body">
+                      <span className="lore-row__scope-option-head">
+                        <span data-testid="lore-scope-option-label">{c.label}</span>
+                        {c.isNew && (
+                          <span className="lore-row__scope-tag lore-row__scope-tag--new">
+                            {t.lore.scopeTagNew}
+                          </span>
+                        )}
+                        {tag !== "" && (
+                          <span
+                            className="lore-row__scope-tag"
+                            data-testid="lore-scope-option-tag"
+                          >
+                            {tag}
+                          </span>
+                        )}
+                      </span>
+                      <span
+                        className="lore-row__scope-hint"
+                        data-testid="lore-scope-option-hint"
+                      >
+                        {c.hint}
+                      </span>
+                      {c.notes.map((n) => (
+                        <span
+                          key={n}
+                          className="lore-row__scope-note"
+                          data-testid="lore-scope-option-note"
+                        >
+                          {n}
+                        </span>
+                      ))}
+                    </span>
+                  </button>
+                );
+              })}
+              {scope.manualKey !== "" && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="lore-row__menu-item lore-row__scope-open-manual"
+                  data-testid="lore-scope-open-manual"
+                  onClick={() => {
+                    setScopeOpen(false);
+                    onOpenManual(scope.manualKey);
+                  }}
+                >
+                  {msg.loreOpenManual(scope.label)}
+                </button>
+              )}
+            </div>
           )}
         </span>
 

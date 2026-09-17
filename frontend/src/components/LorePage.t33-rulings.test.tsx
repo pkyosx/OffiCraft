@@ -45,6 +45,8 @@ function mkEntry(over: Partial<LoreEntryView> & { id: string }): LoreEntryView {
     seq: 1,
     scopeKind: "agent",
     scopeKey: "mira",
+    taskTypeKey: "",
+    scopeOptions: [],
     title: `標題 ${over.id}`,
     body: `內容 ${over.id}`,
     authorId: "mira",
@@ -221,5 +223,97 @@ describe("LorePage — 已離開的外包只留名牌，不留輸入框", () => 
       row.querySelector<HTMLElement>('[data-testid="lore-author-link"]')
         ?.textContent,
     ).toContain("O-1");
+  });
+});
+
+describe("LorePage — 外包條目的適用範圍選單", () => {
+  const LIVE = "ow-live";
+  const RELEASED = "ow-gone";
+
+  function boundWorker(id: string, codename: string): OutsourceWorkerView {
+    return {
+      id,
+      codename,
+      model: "claude-opus-5",
+      effort: "medium",
+      taskId: "T-42",
+      taskNo: "T-42",
+      taskTypeKey: "review-pr",
+    } as OutsourceWorkerView;
+  }
+
+  function outsourceEntry(id: string, authorId: string): LoreEntryView {
+    return mkEntry({
+      id,
+      authorId,
+      scopeKind: "agent",
+      scopeKey: authorId,
+      taskTypeKey: "review-pr",
+      scopeOptions: ["manual", "agent", "everyone"],
+    });
+  }
+
+  function readMenu(container: HTMLElement, entryId: string) {
+    const row = rowById(container, entryId);
+    fireEvent.click(row.querySelector('[data-testid="lore-scope-name"]')!);
+    const menu = row.querySelector<HTMLElement>(
+      '[data-testid="lore-scope-options"]',
+    )!;
+    const options = Array.from(
+      menu.querySelectorAll<HTMLElement>('[role="menuitemradio"]'),
+    ).map((item) => [
+      item.getAttribute("data-testid"),
+      item.querySelector('[data-testid="lore-scope-option-label"]')!.textContent,
+      item.querySelector('[data-testid="lore-scope-option-tag"]')?.textContent ??
+        "",
+      item.getAttribute("aria-checked"),
+      Array.from(
+        item.querySelectorAll('[data-testid="lore-scope-option-note"]'),
+      ).map((n) => n.textContent),
+    ]);
+    fireEvent.mouseDown(document.body);
+    return options;
+  }
+
+  it("names the bound task only for a worker still on the live roster, and warns for both", async () => {
+    vi.spyOn(api, "listTaskManuals").mockResolvedValue([
+      { typeKey: "review-pr", displayName: "PR 審查", purpose: "", fields: [] },
+    ] as never);
+    vi.spyOn(api, "listMembers").mockResolvedValue([]);
+    vi.spyOn(api, "listOutsourceWorkers").mockResolvedValue([
+      boundWorker(LIVE, "O-1"),
+    ]);
+    vi.spyOn(api, "getOutsourceWorker").mockImplementation(async (id) => {
+      if (id === RELEASED) return boundWorker(RELEASED, "O-9");
+      return boundWorker(LIVE, "O-1");
+    });
+    stubList([outsourceEntry("L-1", LIVE), outsourceEntry("L-2", RELEASED)]);
+    const { container } = render(
+      <I18nProvider>
+        <LorePage canSetScope />
+      </I18nProvider>,
+    );
+    await waitFor(() => {
+      expect(
+        rowById(container, "L-1").querySelector('[data-testid="lore-scope-name"]')!
+          .textContent,
+      ).toBe("建立者：外包 · O-1");
+      expect(
+        rowById(container, "L-2").querySelector('[data-testid="lore-scope-name"]')!
+          .textContent,
+      ).toBe("建立者：外包 · O-9");
+    });
+
+    const warning = "這位外包離開後就沒有人讀得到，除非改成任務或所有人。";
+    expect(readMenu(container, "L-1")).toEqual([
+      ["lore-scope-manual", "任務：PR 審查", "", "false", ["由承接中的 T-42 推得"]],
+      ["lore-scope-agent", "建立者：外包 · O-1", "預設", "true", [warning]],
+      ["lore-scope-everyone", "所有人", "", "false", []],
+    ]);
+    expect(readMenu(container, "L-2")).toEqual([
+      ["lore-scope-manual", "任務：PR 審查", "", "false", []],
+      ["lore-scope-agent", "建立者：外包 · O-9", "預設", "true", [warning]],
+      ["lore-scope-everyone", "所有人", "", "false", []],
+    ]);
   });
 });

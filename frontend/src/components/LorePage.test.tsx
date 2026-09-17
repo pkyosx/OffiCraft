@@ -42,6 +42,7 @@ import { api } from "../api";
 // same class the adapters throw — `runAction` branches on `status` and reads
 // `serverMessage`, neither of which a plain Error carries.
 import { ApiError } from "../api/errors";
+import { codeForStatus } from "../api/errorCodes";
 // The action-error copy is asserted by VALUE, not by "is non-empty": an error
 // line saying the wrong sentence is a line that passed a non-empty check.
 import { zh } from "../i18n/locales/zh";
@@ -56,6 +57,8 @@ function mkEntry(over: Partial<LoreEntryView> & { id: string }): LoreEntryView {
     seq: 1,
     scopeKind: "agent",
     scopeKey: "mira",
+    taskTypeKey: "",
+    scopeOptions: [],
     title: `標題 ${over.id}`,
     body: `內容 ${over.id}`,
     authorId: "mira",
@@ -85,10 +88,10 @@ function stubList(answer: LoreEntryPageView) {
   return vi.spyOn(api, "listLoreEntries").mockResolvedValue(answer);
 }
 
-function renderPage() {
+function renderPage(props: { canSetScope?: boolean } = {}) {
   return render(
     <I18nProvider>
-      <LorePage />
+      <LorePage {...props} />
     </I18nProvider>,
   );
 }
@@ -394,6 +397,79 @@ describe("LorePage — 屬於", () => {
     expect(chip.querySelectorAll(".lore-row__scope-glyph")).toHaveLength(0);
   });
 
+  it("labels an everyone entry 所有人 with the group glyph", async () => {
+    const everyone = await scopePillFor("everyone", "");
+    expect(everyone.tagName).toBe("SPAN");
+    expect(everyone.textContent).toBe("所有人");
+    const chip = everyone.closest('[data-testid="lore-scope"]')!;
+    expect(
+      Array.from(chip.querySelectorAll(".lore-row__scope-glyph")).map((g) =>
+        g.getAttribute("class"),
+      ),
+    ).toEqual(["lore-row__scope-glyph lore-row__scope-glyph--everyone"]);
+  });
+
+  it("gives a viewer who may not switch scopes an inert badge even when the entry has options", async () => {
+    stubList(
+      page([
+        mkEntry({
+          id: "s1",
+          scopeKind: "agent",
+          scopeKey: "mira",
+          scopeOptions: ["agent", "everyone"],
+        }),
+      ]),
+    );
+    const viewer = renderPage({ canSetScope: false });
+    await waitFor(() => expect(renderedIds(viewer.container)).toHaveLength(1));
+    const inert = viewer.container.querySelector<HTMLElement>(
+      '[data-testid="lore-scope-name"]',
+    )!;
+    expect(inert.tagName).toBe("SPAN");
+    expect(inert.textContent).toBe("建立者：Mira");
+    expect(inert.hasAttribute("aria-haspopup")).toBe(false);
+    expect(inert.querySelector(".lore-row__scope-caret")).toBeNull();
+    viewer.unmount();
+
+    const owner = renderPage({ canSetScope: true });
+    await waitFor(() => expect(renderedIds(owner.container)).toHaveLength(1));
+    const trigger = owner.container.querySelector<HTMLElement>(
+      '[data-testid="lore-scope-name"]',
+    )!;
+    expect(trigger.tagName).toBe("BUTTON");
+    expect(trigger.textContent).toBe("建立者：Mira");
+    expect(trigger.getAttribute("aria-haspopup")).toBe("menu");
+    expect(trigger.querySelector(".lore-row__scope-caret")).not.toBeNull();
+  });
+
+  it("keeps the manual jump on a non-owner's manual badge", async () => {
+    vi.spyOn(api, "listTaskManuals").mockResolvedValue([
+      { typeKey: "review-pr", displayName: "PR 審查", purpose: "", fields: [] },
+    ] as never);
+    stubList(
+      page([
+        mkEntry({
+          id: "s1",
+          scopeKind: "manual",
+          scopeKey: "review-pr",
+          taskTypeKey: "review-pr",
+          sourceTaskId: "T-5",
+          scopeOptions: ["manual", "agent", "everyone"],
+        }),
+      ]),
+    );
+    const { container } = renderPage({ canSetScope: false });
+    await waitFor(() =>
+      expect(
+        container.querySelector('[data-testid="lore-scope-name"]')?.textContent,
+      ).toBe("任務：PR 審查"),
+    );
+    window.location.hash = "";
+    fireEvent.click(container.querySelector('[data-testid="lore-scope-name"]')!);
+    expect(window.location.hash).toBe("#settings/manuals/review-pr");
+    expect(container.querySelector('[data-testid="lore-scope-options"]')).toBeNull();
+  });
+
   it("falls back to the raw key rather than rendering an empty cell", async () => {
     // A manual that has since been deleted. The entry still rides its type_key
     // and the reader must still be told WHICH one — a blank cell reads as a
@@ -580,14 +656,10 @@ describe("LorePage — 屬於 在收合的列上就說得出是哪一種", () =>
     const memberScope = scopeOf("L-1");
     const manualScope = scopeOf("L-2");
 
-    // 🔴 THE TEXT NO LONGER DISCRIMINATES AT ALL, AND THAT IS THE POINT OF THIS
-    // REWRITE. Until 2026-09-08 the badge carried a word prefix (「成員傳承 · 」
-    // / 「任務傳承 · 」) and this spec asserted on it. Owner removed the prefix
-    // (「這個不必要」), so both rows now read exactly 「Mira」 — the two are
-    // character-for-character identical and the GLYPH is the only thing left
-    // telling them apart. Assert that first, so this line fails if anyone drops
-    // an icon back out of the badge.
-    expect(memberScope.textContent!.trim()).toBe(manualScope.textContent!.trim());
+    // T-236 put the kind back into the text (任務： / 建立者：); the glyph still
+    // differs as well.
+    expect(memberScope.textContent).toBe("建立者：Mira");
+    expect(manualScope.textContent).toBe("任務：Mira");
 
     const member = memberScope.querySelector(".lore-row__scope-glyph--member");
     const task = manualScope.querySelector(".lore-row__scope-glyph--task");
@@ -611,10 +683,6 @@ describe("LorePage — 屬於 在收合的列上就說得出是哪一種", () =>
       manualScope.querySelector(".lore-row__scope-glyph--member"),
     ).toBeNull();
 
-    // The name itself is still there — a badge that lost the name and kept the
-    // glyph would pass every line above.
-    expect(memberScope.textContent).toContain("Mira");
-    expect(manualScope.textContent).toContain("Mira");
   });
 
   it("names an outsource member's entry the same way a staff member's is named", async () => {
@@ -958,6 +1026,60 @@ describe("LorePage — 篩選器複選", () => {
     tick(container, "lore-filter-belongs", "manual:review-pr");
     await waitFor(() => expect(lastOpts(spy).scopeKinds).toBeUndefined());
     expect(lastOpts(spy).scopeKeys).toBeUndefined();
+  });
+
+  it("offers 所有人 first under 成員傳承 and sends it as a kind with no key", async () => {
+    const spy = stubList(page([mkEntry({ id: "L-1" })]));
+    const { container } = renderPage();
+    await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
+
+    fireEvent.click(
+      container.querySelector<HTMLElement>('[data-testid="lore-filter-member"]')!,
+    );
+    await waitFor(() =>
+      expect(
+        container.querySelector('[data-testid="lore-filter-member-opt-agent:mira"]'),
+      ).not.toBeNull(),
+    );
+    const firstTwo = Array.from(
+      container.querySelectorAll('[data-testid^="lore-filter-member-opt-"]'),
+    )
+      .slice(0, 2)
+      .map((el) => [el.getAttribute("data-testid"), el.textContent]);
+    expect(firstTwo).toEqual([
+      ["lore-filter-member-opt-everyone:", "所有人"],
+      ["lore-filter-member-opt-agent:mira", "Mira"],
+    ]);
+
+    tick(container, "lore-filter-member", "everyone:");
+    await waitFor(() => expect(lastOpts(spy).scopeKinds).toEqual(["everyone"]));
+    expect(lastOpts(spy).scopeKeys).toBeUndefined();
+  });
+
+  it("never sends 所有人 together with a keyed scope", async () => {
+    vi.spyOn(api, "listTaskManuals").mockResolvedValue([
+      { typeKey: "review-pr", displayName: "PR 審查", purpose: "", fields: [] },
+    ] as never);
+    const spy = stubList(page([mkEntry({ id: "L-1" })]));
+    const { container } = renderPage();
+    await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
+
+    tick(container, "lore-filter-member", "agent:mira");
+    await waitFor(() => expect(lastOpts(spy).scopeKeys).toEqual(["mira"]));
+
+    tick(container, "lore-filter-member", "everyone:");
+    await waitFor(() => expect(lastOpts(spy).scopeKinds).toEqual(["everyone"]));
+    expect(lastOpts(spy).scopeKeys).toBeUndefined();
+
+    tick(container, "lore-filter-belongs", "manual:review-pr");
+    await waitFor(() => expect(lastOpts(spy).scopeKinds).toEqual(["manual"]));
+    expect(lastOpts(spy).scopeKeys).toEqual(["review-pr"]);
+
+    tick(container, "lore-filter-member", "everyone:");
+    await waitFor(() => expect(lastOpts(spy).scopeKinds).toEqual(["everyone"]));
+    tick(container, "lore-filter-member", "agent:mira");
+    await waitFor(() => expect(lastOpts(spy).scopeKinds).toEqual(["agent"]));
+    expect(lastOpts(spy).scopeKeys).toEqual(["mira"]);
   });
 
   it("sends a SET on the state axis, not the last thing ticked", async () => {
@@ -1339,6 +1461,36 @@ describe("LorePage — 成員傳承的上限線", () => {
     expect(line.textContent).toContain("8000");
   });
 
+  it("names the line 所有人 when only 所有人 is ticked", async () => {
+    vi.spyOn(api, "listLoreEntries").mockImplementation(async (o) => {
+      const everyone =
+        o?.scopeKinds?.length === 1 &&
+        o.scopeKinds[0] === "everyone" &&
+        o.scopeKeys === undefined;
+      return {
+        entries: [
+          mkEntry({ id: "L-1", scopeKind: "everyone", scopeKey: "" }),
+          mkEntry({ id: "L-2", scopeKind: "everyone", scopeKey: "" }),
+        ],
+        limit: 30,
+        offset: 0,
+        capChars: everyone ? 10000 : 0,
+        firstDroppedId: everyone ? "L-2" : "",
+      };
+    });
+    const { container } = renderPage();
+    await waitFor(() => expect(renderedIds(container)).toHaveLength(2));
+    expect(container.querySelector('[data-testid="lore-cap-line"]')).toBeNull();
+
+    tick(container, "lore-filter-member", "everyone:");
+
+    await waitFor(() =>
+      expect(
+        container.querySelector('[data-testid="lore-cap-line"]')?.textContent,
+      ).toBe("所有人 上限 10000 字，以下不會被載入"),
+    );
+  });
+
   it("② one member AND one manual ⇒ two kinds, two keys, and NO line", async () => {
     vi.spyOn(api, "listTaskManuals").mockResolvedValue([
       { typeKey: "review-pr", displayName: "PR 審查", purpose: "", fields: [] },
@@ -1716,5 +1868,264 @@ describe("LorePage — 可變動作面", () => {
     expect(badge()).toBe(zh.lore.stateActive);
     expect(renderedIds(container)).toEqual(["L-1", "L-2"]);
     expect(list).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("LorePage — 適用範圍選單", () => {
+  const MANUALS = [
+    { typeKey: "review-pr", displayName: "PR 審查", purpose: "", fields: [] },
+  ];
+
+  function openScopeMenu(container: HTMLElement, entryId: string): HTMLElement {
+    const row = rowById(container, entryId);
+    fireEvent.click(row.querySelector('[data-testid="lore-scope-name"]')!);
+    const menu = row.querySelector<HTMLElement>(
+      '[data-testid="lore-scope-options"]',
+    );
+    if (!menu) throw new Error(`no scope menu on ${entryId}`);
+    return menu;
+  }
+
+  /** Every option as [kind, label, tag, checked, hint, notes]. */
+  function readOptions(menu: HTMLElement) {
+    return Array.from(
+      menu.querySelectorAll<HTMLElement>('[role="menuitemradio"]'),
+    ).map((item) => [
+      item.getAttribute("data-testid"),
+      item.querySelector('[data-testid="lore-scope-option-label"]')!.textContent,
+      item.querySelector('[data-testid="lore-scope-option-tag"]')?.textContent ??
+        "",
+      item.getAttribute("aria-checked"),
+      item.querySelector('[data-testid="lore-scope-option-hint"]')!.textContent,
+      Array.from(
+        item.querySelectorAll('[data-testid="lore-scope-option-note"]'),
+      ).map((n) => n.textContent),
+    ]);
+  }
+
+  const taskBound = mkEntry({
+    id: "L-1",
+    scopeKind: "manual",
+    scopeKey: "review-pr",
+    taskTypeKey: "review-pr",
+    sourceTaskId: "T-5",
+    scopeOptions: ["manual", "agent", "everyone"],
+  });
+  const staffNoTask = mkEntry({
+    id: "L-2",
+    scopeKind: "agent",
+    scopeKey: "mira",
+    scopeOptions: ["agent", "everyone"],
+  });
+  const everyoneNow = mkEntry({
+    id: "L-3",
+    scopeKind: "everyone",
+    scopeKey: "",
+    scopeOptions: ["agent", "everyone"],
+  });
+
+  async function renderRows(entries: LoreEntryView[]) {
+    vi.spyOn(api, "listTaskManuals").mockResolvedValue(MANUALS as never);
+    const list = stubList(page(entries));
+    const { container } = renderPage({ canSetScope: true });
+    await waitFor(() =>
+      expect(renderedIds(container)).toHaveLength(entries.length),
+    );
+    await waitFor(() => {
+      const badges = Array.from(
+        container.querySelectorAll('[data-testid="lore-scope-name"]'),
+      ).map((el) => el.textContent ?? "");
+      expect(badges.filter((t) => /review-pr|：mira$/.test(t))).toEqual([]);
+    });
+    return { container, list };
+  }
+
+  it("lists a task-bound entry's three options in order, the task one checked and default", async () => {
+    const { container } = await renderRows([taskBound]);
+    expect(
+      rowById(container, "L-1").querySelector('[data-testid="lore-scope-name"]')!
+        .textContent,
+    ).toBe("任務：PR 審查");
+
+    const menu = openScopeMenu(container, "L-1");
+
+    expect(menu.getAttribute("role")).toBe("menu");
+    expect(menu.querySelector(".lore-row__scope-pop-title")!.textContent).toBe(
+      "適用範圍",
+    );
+    expect(readOptions(menu)).toEqual([
+      [
+        "lore-scope-manual",
+        "任務：PR 審查",
+        "預設",
+        "true",
+        "之後任何人開「PR 審查」這本任務手冊時會讀到（正職、外包都一樣）。",
+        [],
+      ],
+      [
+        "lore-scope-agent",
+        "建立者：Mira",
+        "",
+        "false",
+        "只進 Mira 自己的開機檔，其他人讀不到。",
+        [],
+      ],
+      [
+        "lore-scope-everyone",
+        "所有人",
+        "",
+        "false",
+        "進每一位成員的開機檔（所有正職＋所有外包）。",
+        [],
+      ],
+    ]);
+    expect(
+      Array.from(menu.querySelectorAll(".lore-row__menu-item--active")).map((el) =>
+        el.getAttribute("data-testid"),
+      ),
+    ).toEqual(["lore-scope-manual"]);
+    expect(
+      Array.from(menu.querySelectorAll(".lore-row__scope-tag--new")).map(
+        (el) => [el.closest('[role="menuitemradio"]')!.getAttribute("data-testid"), el.textContent],
+      ),
+    ).toEqual([["lore-scope-everyone", "新"]]);
+  });
+
+  it("lists a staff entry without a task as author and everyone only", async () => {
+    const { container } = await renderRows([staffNoTask]);
+    const menu = openScopeMenu(container, "L-2");
+    expect(readOptions(menu)).toEqual([
+      [
+        "lore-scope-agent",
+        "建立者：Mira",
+        "預設",
+        "true",
+        "只進 Mira 自己的開機檔，其他人讀不到。",
+        [],
+      ],
+      [
+        "lore-scope-everyone",
+        "所有人",
+        "",
+        "false",
+        "進每一位成員的開機檔（所有正職＋所有外包）。",
+        [],
+      ],
+    ]);
+    expect(menu.querySelector('[data-testid="lore-scope-open-manual"]')).toBeNull();
+  });
+
+  it("tags a non-default current scope 目前 and keeps 預設 on the default", async () => {
+    const { container } = await renderRows([everyoneNow]);
+    expect(
+      rowById(container, "L-3").querySelector('[data-testid="lore-scope-name"]')!
+        .textContent,
+    ).toBe("所有人");
+    const menu = openScopeMenu(container, "L-3");
+    expect(readOptions(menu).map((o) => [o[0], o[2], o[3]])).toEqual([
+      ["lore-scope-agent", "預設", "false"],
+      ["lore-scope-everyone", "目前", "true"],
+    ]);
+  });
+
+  it("switches the clicked entry's scope, closes the menu and re-reads the list", async () => {
+    const set = vi.spyOn(api, "setLoreEntryScope").mockResolvedValue(undefined);
+    const { container, list } = await renderRows([taskBound, staffNoTask]);
+    expect(list).toHaveBeenCalledTimes(1);
+
+    const menu = openScopeMenu(container, "L-2");
+    fireEvent.click(menu.querySelector('[data-testid="lore-scope-everyone"]')!);
+
+    await waitFor(() => expect(list).toHaveBeenCalledTimes(2));
+    expect(set.mock.calls).toEqual([["L-2", "everyone"]]);
+    expect(
+      container.querySelector('[data-testid="lore-scope-options"]'),
+    ).toBeNull();
+    expect(rowById(container, "L-2").getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("closes without a request when the current scope is picked again", async () => {
+    const set = vi.spyOn(api, "setLoreEntryScope").mockResolvedValue(undefined);
+    const { container, list } = await renderRows([staffNoTask]);
+
+    const menu = openScopeMenu(container, "L-2");
+    fireEvent.click(menu.querySelector('[data-testid="lore-scope-agent"]')!);
+
+    expect(
+      container.querySelector('[data-testid="lore-scope-options"]'),
+    ).toBeNull();
+    expect(set).not.toHaveBeenCalled();
+    expect(list).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(
+      openScopeMenu(container, "L-2").querySelector(
+        '[data-testid="lore-scope-everyone"]',
+      )!,
+    );
+    await waitFor(() => expect(set).toHaveBeenCalledTimes(1));
+  });
+
+  it("shows the server's reason when the switch is refused, and re-reads nothing", async () => {
+    vi.spyOn(api, "setLoreEntryScope").mockRejectedValue(
+      new ApiError(
+        "http 400 for POST /api/lore/L-2/scope",
+        400,
+        codeForStatus(400),
+        "lore entry L-2 has no task type to key a manual scope to",
+      ),
+    );
+    const { container, list } = await renderRows([staffNoTask]);
+    expect(container.querySelector('[data-testid="lore-action-error"]')).toBeNull();
+
+    fireEvent.click(
+      openScopeMenu(container, "L-2").querySelector(
+        '[data-testid="lore-scope-everyone"]',
+      )!,
+    );
+
+    await waitFor(() =>
+      expect(
+        container.querySelector('[data-testid="lore-action-error"]')?.textContent,
+      ).toBe("lore entry L-2 has no task type to key a manual scope to"),
+    );
+    expect(list).toHaveBeenCalledTimes(1);
+    expect(
+      rowById(container, "L-2").querySelector('[data-testid="lore-scope-name"]')!
+        .textContent,
+    ).toBe("建立者：Mira");
+  });
+
+  it("closes on a mousedown outside the badge and stays open on one inside the menu", async () => {
+    const { container } = await renderRows([staffNoTask]);
+    const menu = openScopeMenu(container, "L-2");
+
+    fireEvent.mouseDown(menu);
+    expect(
+      container.querySelector('[data-testid="lore-scope-options"]'),
+    ).not.toBeNull();
+
+    fireEvent.mouseDown(document.body);
+    expect(
+      container.querySelector('[data-testid="lore-scope-options"]'),
+    ).toBeNull();
+  });
+
+  it("opens the menu instead of the manual, and offers the manual jump inside it", async () => {
+    const { container } = await renderRows([taskBound]);
+    window.location.hash = "";
+
+    const menu = openScopeMenu(container, "L-1");
+    expect(window.location.hash).toBe("");
+    expect(rowById(container, "L-1").getAttribute("aria-expanded")).toBe("false");
+
+    const jump = menu.querySelector<HTMLElement>(
+      '[data-testid="lore-scope-open-manual"]',
+    )!;
+    expect(jump.textContent).toBe("開啟任務手冊 PR 審查");
+    fireEvent.click(jump);
+    expect(window.location.hash).toBe("#settings/manuals/review-pr");
+    expect(
+      container.querySelector('[data-testid="lore-scope-options"]'),
+    ).toBeNull();
   });
 });

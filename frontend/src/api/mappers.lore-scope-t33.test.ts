@@ -43,8 +43,10 @@ import type { components } from "./generated/schema";
 function wireEntry(
   scopeKind: string,
   scopeKey: string,
+  extra: Partial<components["schemas"]["LoreEntryDTO"]> = {},
 ): components["schemas"]["LoreEntryDTO"] {
   return {
+    ...extra,
     id: "L-1",
     seq: 1,
     scope_kind: scopeKind,
@@ -65,7 +67,7 @@ function wireEntry(
 }
 
 describe("toLoreEntry scope_kind", () => {
-  it("carries each of the two real scopes through under its own name", () => {
+  it("carries each of the three real scopes through under its own name", () => {
     // 🔴 `agent` IS THE ONE THIS FILE IS NAMED AFTER. Under the old narrowing
     // this line read "role" and every assertion about it passed elsewhere,
     // because nothing else looked.
@@ -73,6 +75,7 @@ describe("toLoreEntry scope_kind", () => {
       "agent",
     );
     expect(toLoreEntry(wireEntry("manual", "tm-mock")).scopeKind).toBe("manual");
+    expect(toLoreEntry(wireEntry("everyone", "")).scopeKind).toBe("everyone");
   });
 
   it("maps the RETIRED `role` scope to unknown, and never to agent", () => {
@@ -125,5 +128,31 @@ describe("toLoreEntry scope_kind", () => {
     // A truncated or defaulted row is the cheapest way to reintroduce the old
     // bug — `"" ? ... : "role"` is exactly the shape that was there.
     expect(toLoreEntry(wireEntry("", "")).scopeKind).toBe("unknown");
+  });
+});
+
+describe("toLoreEntry scope switching fields", () => {
+  it("carries task_type_key and scope_options in wire order", () => {
+    const view = toLoreEntry(
+      wireEntry("agent", "ow-7d8ad859dd9b", {
+        task_type_key: "review-pr",
+        scope_options: ["manual", "agent", "everyone"],
+      }),
+    );
+    expect(view.taskTypeKey).toBe("review-pr");
+    expect(view.scopeOptions).toEqual(["manual", "agent", "everyone"]);
+  });
+
+  it("reads an older server's missing fields as no type and no options", () => {
+    const view = toLoreEntry(wireEntry("agent", "mira"));
+    expect(view.taskTypeKey).toBe("");
+    expect(view.scopeOptions).toEqual([]);
+  });
+
+  it("drops an option this build cannot send and keeps the ones it can", () => {
+    const view = toLoreEntry(
+      wireEntry("agent", "mira", { scope_options: ["role", "agent", "station", "everyone"] }),
+    );
+    expect(view.scopeOptions).toEqual(["agent", "everyone"]);
   });
 });

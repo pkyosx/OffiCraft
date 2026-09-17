@@ -98,6 +98,7 @@ import type {
   LoreEntryState,
   LoreEntryWrite,
   LoreListOptions,
+  LoreScopeKind,
   DocView,
   RolePatch,
   RoleCreateInput,
@@ -2159,6 +2160,19 @@ export const httpApi: Api = {
     unwrap(
       await client.POST("/api/lore/{entry_id}/bump", {
         params: { path: { entry_id: entryId } },
+      }),
+    );
+  },
+
+  async setLoreEntryScope(
+    entryId: string,
+    scopeKind: LoreScopeKind,
+  ): Promise<void> {
+    // POST /api/lore/{entry_id}/scope -> LoreEntryScopeReceiptDTO, discarded.
+    unwrap(
+      await client.POST("/api/lore/{entry_id}/scope", {
+        params: { path: { entry_id: entryId } },
+        body: { scope_kind: scopeKind },
       }),
     );
   },
