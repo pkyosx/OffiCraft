@@ -427,17 +427,24 @@ type apiServer struct {
 	// like its siblings: after a restart the spawn retry honestly falls back
 	// to the manual preference.
 	workerMachinePref map[string]string // worker id → machine id
-	// workerMachineCooldown (T-9ccf DoD②, 換機重試) → "<worker id>|<machine id>"
-	// → cooldown-until ts. A machine that just FAILED to boot a worker (a
-	// worker_start receipt refused, or a stuck-worker ghost cleared off it) is
-	// benched for that worker until the stamped ts, so the very next pick skips
-	// it and lands the re-spawn on a DIFFERENT warden — the "挑中壞機 → 90s 後重挑
-	// 同一台恆失敗" loop (recon O-19 hypothesis 1) is broken. When EVERY online
-	// warden is cooling, the pick honestly returns "" (worker waits, visible as
-	// spawn_state=stuck) rather than hammering a known-bad host. In-memory like
-	// its siblings — a restart forgets the bench (worst case one re-pick of a
-	// still-bad machine, which re-benches on its next failure).
+	// workerMachineCooldown → "<worker id>|<machine id>" → cooldown-until ts. A
+	// machine that just FAILED to boot a worker (a start receipt refused for a
+	// reason other than session_already_exists, or a zombie takeover stopping a
+	// ghost on it) is benched for that worker until the stamped ts: the pinned
+	// placement answers machine_unavailable and the worker waits rather than
+	// hammering a known-bad host. In-memory like its siblings — a restart
+	// forgets the bench (worst case one retry on a still-bad machine, which
+	// re-benches on its next failure).
 	workerMachineCooldown map[string]float64
+	// workerTakeoverBench → worker id → the bench a zombie takeover placed. The
+	// takeover target's own OK stop receipt lifts exactly that bench
+	// (noteWorkerStopSucceeded); a bench placed for any other reason is left
+	// to run out. In-memory like its siblings.
+	workerTakeoverBench map[string]takeoverBench
+	// workerTakeoverLiftedAt → worker id → when the last takeover whose bench
+	// was lifted early ran; a repeat takeover inside one cooldown keeps its
+	// bench. In-memory like its siblings.
+	workerTakeoverLiftedAt map[string]float64
 	// workerOfflineSince (T-ed79 #13) → worker id → the ts of the FIRST offline
 	// observation in the current continuous-offline run; absent = last seen
 	// online. It is the de-bounce anchor for the wind-down collect arms, the

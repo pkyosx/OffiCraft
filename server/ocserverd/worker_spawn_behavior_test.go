@@ -481,7 +481,7 @@ func TestFoldWorkerCommandResult_RefusedStartBenchesTarget(t *testing.T) {
 	})
 	s.workerSpawnTarget["ow-rf"] = "m-bad" // in-memory spawn observation (P7d)
 	s.foldWorkerCommandResult("ow-rf", map[string]any{
-		"rpc": reconcileCmdStart, "ok": false, "reason": "session_already_exists",
+		"rpc": reconcileCmdStart, "ok": false, "reason": "insufficient memory",
 	}, triggerServer)
 
 	s.outsourceMu.Lock()
@@ -499,7 +499,7 @@ func TestFoldWorkerCommandResult_RefusedStartBenchesTarget(t *testing.T) {
 	})
 	s.workerSpawnTarget["ow-lg"] = "m-old"
 	s.foldWorkerCommandResult("ow-lg", map[string]any{
-		"rpc": legacyWardenCmdWorkerStart, "ok": false, "reason": "session_already_exists",
+		"rpc": legacyWardenCmdWorkerStart, "ok": false, "reason": "insufficient memory",
 	}, triggerServer)
 	s.outsourceMu.Lock()
 	cooling = s.workerMachineCoolingOn("ow-lg", "m-old", nowSecs())

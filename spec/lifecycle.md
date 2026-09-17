@@ -1248,7 +1248,11 @@ ONE-SHOT, never a standing order):
   answers with a STOP — not a START — to reap the squatting session. The window is anchored
   on continuous-offline time, so a reconnect inside it resets the wait; withholding is the
   point, because a presence-deaf zombie and a session mid-reconnect are indistinguishable at
-  that instant.
+  that instant. For an outsource worker that STOP also benches the machine (the pinned placement
+  answers `machine_unavailable`) until that machine's own `ok=true` stop receipt arrives; the
+  next tick after it then STARTs on the same machine (subject to the backoff above); a second takeover within one
+  cooldown of a lifted one keeps its bench for the full cooldown. A failed stop, or a receipt from any other
+  machine, leaves the bench to run out.
 
 ## 5. Installer / binary surface (one line — OpenAPI covers it)
 

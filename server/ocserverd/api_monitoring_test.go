@@ -651,6 +651,30 @@ func TestFoldWorkerCommandResult(t *testing.T) {
 		}
 		dashboard.wantFrames(apiTestWorkerDelta(2, "assigned", "warden-1"))
 	})
+	t.Run("a worker start refused because a live session holds the slot records its failure and benches nothing", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusAssigned)
+		api.workerSpawnTarget["ow-abc123"] = "m-server-self"
+
+		api.foldWorkerCommandResult("ow-abc123", map[string]any{
+			"rpc": "start", "ok": false, "reason": infraClobberReason,
+			"log": "start refused", "at": float64(1720000200),
+		}, "warden-1")
+
+		worker, err := d.GetOutsourceWorker("ow-abc123")
+		if err != nil || worker == nil {
+			t.Fatalf("GetOutsourceWorker: %v %v", worker, err)
+		}
+		apiWantValue(t, "receipt", any(map[string]any{
+			"op": worker.LastOp, "log": worker.LastOpLog, "reason": worker.LastOpReason,
+			"at": worker.LastOpAt, "ok": worker.LastOpOK != nil && !*worker.LastOpOK,
+		}), any(map[string]any{
+			"op": "start", "log": "start refused", "reason": infraClobberReason,
+			"at": 1720000200.0, "ok": true,
+		}))
+		apiWantValue(t, "bench book", any(wsBenchBook(api)), any(map[string]any{}))
+	})
+
 	t.Run("under a start-cleared anchor, a clobber refusal restores the worker's anchor, notice claim and readings", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusAssigned)
