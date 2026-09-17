@@ -3615,6 +3615,93 @@ func TestHandleReassignTaskApiTasksTaskIdReassignPost(t *testing.T) {
 		})
 	})
 
+	t.Run("under the hold the predecessor re-reassigning stays the stamped predecessor and the displaced successor is not told", func(t *testing.T) {
+		f := newHandoverFixture(t)
+		f.must(t, "POST", "/api/tasks/T-1/reassign", f.predecessor,
+			`{"target":{"kind":"outsource","model":"sonnet","effort":"high"}}`)
+
+		want := handoverUntouched("reassigning")
+		want.ExecutorKind, want.ExecutorID = "outsource", "ow-(minted)"
+		if got := f.view(t); !reflect.DeepEqual(got, want) {
+			t.Fatalf("T-1 after the re-reassign\ngot  %#v\nwant %#v", got, want)
+		}
+		status, data := apiJSON(t, f.h, "POST", "/api/tasks/T-1/priority", f.successor, `{"priority":"high"}`)
+		if status != 403 {
+			t.Fatalf("displaced successor: want 403, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "forbidden", "caller is not the task's executor")
+		f.must(t, "POST", "/api/tasks/T-1/priority", f.predecessor, `{"priority":"high"}`)
+
+		if got := len(t91ChatTo(t, f.api, "rex")); got != 1 {
+			t.Fatalf("the displaced successor keeps only its first takeover notice, got %d rows", got)
+		}
+		kip := t91ChatTo(t, f.api, "kip")
+		if len(kip) != 2 || !strings.HasPrefix(kip[1].Body, "[T-1] 此任務已轉派給新的接手人。") || kip[1].Sender != "system" {
+			t.Fatalf("the predecessor must get the second predecessor notice, got %+v", kip)
+		}
+	})
+
+	t.Run("under the hold an admin re-reassigning dismisses a bound outsource successor and keeps the predecessor stamped", func(t *testing.T) {
+		f := newHandoverFixture(t)
+		admin := apiTestAgentToken(t, f.api, "mira", "")
+		f.must(t, "POST", "/api/tasks/T-1/reassign", f.owner,
+			`{"target":{"kind":"outsource","model":"sonnet","effort":"high"}}`)
+		_, task := apiJSON(t, f.h, "GET", "/api/tasks/T-1", f.owner, "")
+		worker, _ := task["executor_id"].(string)
+		if !strings.HasPrefix(worker, "ow-") {
+			t.Fatalf("fixture: the outsource successor must be bound, got %v", task)
+		}
+
+		f.must(t, "POST", "/api/tasks/T-1/reassign", admin, `{"target":{"kind":"staff","member_id":"rex"}}`)
+
+		if got, want := f.view(t), handoverUntouched("reassigning"); !reflect.DeepEqual(got, want) {
+			t.Fatalf("T-1 after the admin re-reassign\ngot  %#v\nwant %#v", got, want)
+		}
+		_, member := apiJSON(t, f.h, "GET", "/api/members/"+worker, f.owner, "")
+		if member["status"] != "released" || member["roster_status"] != "removed" {
+			t.Fatalf("the displaced worker must be dismissed, got status %v roster %v",
+				member["status"], member["roster_status"])
+		}
+		if got := t91ChatTo(t, f.api, worker); len(got) != 0 {
+			t.Fatalf("the displaced worker must not be sent the predecessor notice, got %+v", got)
+		}
+		rex := t91ChatTo(t, f.api, "rex")
+		if len(rex) != 2 || !strings.HasPrefix(rex[1].Body, "[T-1] 你接手了這張任務，你的前任是 Kip（kip）。\n\n") {
+			t.Fatalf("the new successor's takeover notice must name the original predecessor, got %+v", rex)
+		}
+		f.must(t, "POST", "/api/tasks/T-1/priority", f.predecessor, `{"priority":"high"}`)
+	})
+
+	t.Run("without the hold a reassign stamps the current outsource executor and leaves it live", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner,
+			`{"title":"Contracted out","target":{"kind":"outsource","model":"sonnet","effort":"high"}}`)
+		_, task := apiJSON(t, h, "GET", "/api/tasks/T-1", owner, "")
+		worker, _ := task["executor_id"].(string)
+		if !strings.HasPrefix(worker, "ow-") || task["lock"] != "" {
+			t.Fatalf("fixture: want a bound outsource task with no lock, got %v", task)
+		}
+
+		if status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/reassign", owner,
+			`{"target":{"kind":"staff","member_id":"kip"}}`); status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		_, task = apiJSON(t, h, "GET", "/api/tasks/T-1", owner, "")
+		got := map[string]any{
+			"executor_id": task["executor_id"], "lock": task["lock"],
+			"reassigned_from": task["reassigned_from"], "reassigned_from_kind": task["reassigned_from_kind"],
+		}
+		apiWantValue(t, "task", any(got), any(map[string]any{
+			"executor_id": "kip", "lock": "reassigning",
+			"reassigned_from": worker, "reassigned_from_kind": "outsource",
+		}))
+		_, member := apiJSON(t, h, "GET", "/api/members/"+worker, owner, "")
+		if member["status"] != "assigned" || member["roster_status"] != "active" {
+			t.Fatalf("the predecessor worker stays live through the hold, got status %v roster %v",
+				member["status"], member["roster_status"])
+		}
+	})
+
 	t.Run("handing a planned task to the outsource lane resets its live steps and leaves it unassigned under the lock", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)

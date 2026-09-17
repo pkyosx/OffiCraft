@@ -1848,7 +1848,14 @@ func (s *apiServer) HandleReassignTaskApiTasksTaskIdReassignPost(w http.Response
 		}
 	}
 
+	// oldExecutor is who the task is handed over FROM. Under the hold that is
+	// the predecessor still holding it; the unclaimed successor it displaces is
+	// neither stamped nor notified.
 	oldKind, oldExecutor := t.ExecutorKind, t.ExecutorID
+	leaving, leavingKind := oldExecutor, oldKind
+	if predecessorHoldsTask(*t) {
+		oldKind, oldExecutor = t.ReassignedFromKind, actingExecutorOf(*t)
+	}
 
 	// 1. Expire every waiting card bound to the task — the exact semantics of
 	// the expire route (status flip + releaseCardHold + delta), run
@@ -1967,6 +1974,11 @@ func (s *apiServer) HandleReassignTaskApiTasksTaskIdReassignPost(w http.Response
 		internalError(w, err)
 		return
 	}
+	// A displaced successor worker never started the task, and nothing else
+	// would ever reap it: it is not the stamped predecessor.
+	if leaving != oldExecutor && leavingKind == TaskExecutorOutsource && leaving != "" {
+		s.dismissOutsourceWorkerByID(leaving, now, trigger)
+	}
 
 	// 5. Handover PAIRING messages (T-ba04). Both notices are SERVER-authored
 	// (sender = wireSystemSender, not currentActor): an automated handover must
@@ -2031,14 +2043,14 @@ func (s *apiServer) HandleReassignTaskApiTasksTaskIdReassignPost(w http.Response
 	}
 
 	// 6. Fan the task delta: publishTask reaches the NEW executor + owner (the
-	// creator is NOT in the audience — T-0eb5); the OLD executor just left
+	// creator is NOT in the audience — T-0eb5); the executor it replaced just left
 	// that audience, so fan them once more explicitly — their cockpit/agent
 	// view must learn the task moved away.
 	s.publishTask(*t, trigger)
-	if oldExecutor != "" && oldExecutor != t.ExecutorID {
+	if leaving != "" && leaving != t.ExecutorID {
 		s.hub.Publish("task", "patch", "task", wireOwnerID+"::"+t.ID,
 			map[string]any{"id": t.ID, "status": t.Status, "priority": t.Priority},
-			audienceMembers(oldExecutor), trigger)
+			audienceMembers(leaving), trigger)
 	}
 
 	// An outsource target landed the task unassigned — fire the event-driven

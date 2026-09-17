@@ -295,6 +295,7 @@ func (f handoverFixture) claim(t *testing.T) {
 // handoverView is T-1 as the successor reads it.
 type handoverView struct {
 	Title, Description, Priority, Status, Lock, ExecutorKind, ExecutorID string
+	ReassignedFrom, ReassignedFromKind                                   string
 	Deps, Steps, Artifacts                                               []string
 	StepOneNote                                                          string
 }
@@ -313,6 +314,8 @@ func (f handoverFixture) view(t *testing.T) handoverView {
 	v.Lock, _ = task["lock"].(string)
 	v.ExecutorKind, _ = task["executor_kind"].(string)
 	v.ExecutorID, _ = task["executor_id"].(string)
+	v.ReassignedFrom, _ = task["reassigned_from"].(string)
+	v.ReassignedFromKind, _ = task["reassigned_from_kind"].(string)
 	if strings.HasPrefix(v.ExecutorID, "ow-") {
 		v.ExecutorID = "ow-(minted)"
 	}
@@ -361,6 +364,7 @@ func handoverUntouched(lock string) handoverView {
 	return handoverView{
 		Title: "Ship it", Description: "second scope", Priority: "mid",
 		Status: "not_started", Lock: lock, ExecutorKind: "staff", ExecutorID: "rex",
+		ReassignedFrom: "kip", ReassignedFromKind: "staff",
 		Deps:      []string{},
 		Steps:     []string{"one:pending", "two:pending"},
 		Artifacts: []string{"PR 1:link:https://example.com/pr/1"},
@@ -411,6 +415,9 @@ func handoverDoors() []handoverDoor {
 		{name: "reassign_task",
 			call: handoverPost("/api/tasks/T-1/reassign", `{"target":{"kind":"outsource","model":"sonnet","effort":"high"}}`),
 			want: handoverWith(func(v *handoverView) {
+				if v.Lock == "" {
+					v.ReassignedFrom = "rex"
+				}
 				v.Lock, v.ExecutorKind, v.ExecutorID = "reassigning", "outsource", "ow-(minted)"
 			})},
 		{name: "mark_task_duplicated",
