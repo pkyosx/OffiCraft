@@ -923,8 +923,10 @@ func (s *apiServer) notifyWorkerSpawn(w OutsourceWorker, now float64) bool {
 	// START for a worker whose session died on its own (crash / machine reboot /
 	// a report_stopped outside a handover), or a handover whose stop deferred for
 	// lack of a kill target. Putting it on the dispatch makes "a start landed ⇒
-	// the old anchor is gone" true for every caller. The stop executor keeps its
-	// own clear: there the SESSION ENDS at the kill.
+	// the old anchor is gone" true for every caller. The one way back is the
+	// warden refusing this START as session_already_exists: the old session is
+	// still the live one, and restoreRefusedStartAnchor puts its anchor back.
+	// The stop executor keeps its own clear: there the SESSION ENDS at the kill.
 	//
 	// Ordering matters: the placement-block clear / stamp below re-READ the row
 	// (GetOutsourceWorker) and write it back whole, so they must run AFTER this

@@ -866,7 +866,8 @@ func (s *apiServer) codexCompactionThresholdSetting() int {
 // database: once an agent is in the high band, this runs on every quiet tick
 // and every one of those calls after the first is a refusal.
 //
-// Both stores are written together and cleared together (clearSessionBootTS),
+// Both stores are written together and cleared together (clearSessionBootTS;
+// a refused START's restoreRefusedStartAnchor writes both back),
 // so the only drift a bug could produce is a map that has forgotten a claim the
 // column still holds — and that direction is caught by the read below rather
 // than turning into a second notice.
