@@ -558,8 +558,9 @@ func (s *apiServer) systemInteractionText() (string, error) {
 // the soft document is therefore no longer a missing hint, it is a FLAT LIE:
 // 〈停止〉 opens with 「這類停止沒有收尾倒數，應先完整完成交接與收尾」 — an agent
 // under a running clock would be told, in words, that nobody is counting, and
-// would wait for its sub-agents inside a window that is already closing. The document is more explicit than it was, so sending the
-// wrong one is worse than it was.
+// would wait for its sub-agents inside a window that is already closing. The
+// document is more explicit than it was, so sending the wrong one is worse
+// than it was.
 //
 // It answers "" on ANY fault — an unreadable document, an undeclared name, a
 // declared name nothing filled — and every caller omits the notice rather than

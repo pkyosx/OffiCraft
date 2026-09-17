@@ -34,10 +34,14 @@ func openBootDocsBefore111(t *testing.T) *sql.DB {
 			t.Fatalf("seed document_history %s: %v", kind, err)
 		}
 	}
+	if _, err := db.Exec(`INSERT INTO boot_document (doc_kind, doc_key, text, tombstoned)
+		VALUES ('task_takeover_fresh_x', 'global', 'text of task_takeover_fresh_x', 0)`); err != nil {
+		t.Fatalf("seed a neighbouring boot_document kind: %v", err)
+	}
 	if _, err := db.Exec(`INSERT INTO document_history
 		(document_kind, document_key, content_json, created_ts, actor_id)
 		VALUES ('task_takeover_fresh_x', 'global', '{"text":"old"}', 1.5, 'owner')`); err != nil {
-		t.Fatalf("seed a neighbouring kind: %v", err)
+		t.Fatalf("seed a neighbouring document_history kind: %v", err)
 	}
 	return db
 }
@@ -77,6 +81,7 @@ func migrationRowsAsText(t *testing.T, db *sql.DB, query string) []string {
 var (
 	bootDocRowsAfter00111 = []string{
 		"task_closeout|global|text of task_closeout|0",
+		"task_takeover_fresh_x|global|text of task_takeover_fresh_x|0",
 		"task_takeover_with_predecessor|global|text of task_takeover_with_predecessor|0",
 	}
 	documentHistoryRowsAfter00111 = []string{

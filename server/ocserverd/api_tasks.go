@@ -1955,8 +1955,8 @@ func (s *apiServer) HandleReassignTaskApiTasksTaskIdReassignPost(w http.Response
 		t.HandoverNoteBy = currentActor(r)
 	}
 	// Stamp the PREDECESSOR (T-ba04): the executor the task just moved AWAY from
-	// — persisted so the successor's boot context / chat pairing message and the
-	// cockpit 任務卡 can name who to hand over WITH, and so the takeover dismiss
+	// — persisted so the successor can read it as `reassigned_from` via get_task,
+	// the cockpit 任務卡 can name who to hand over WITH, and the takeover dismiss
 	// knows which specific outsource worker to fire. Only when there WAS a prior
 	// executor (a not_started task with none leaves it blank).
 	if oldExecutor != "" {

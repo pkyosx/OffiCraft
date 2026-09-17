@@ -25,8 +25,9 @@ const (
 const apiTestBootDocMarker = "<!-- ↑唯讀區（程式產生，改不動）｜↓本體（可編輯，零變數） -->"
 
 // apiTestReassignPredecessorSeed is the 〈轉派程序（前任）〉 document exactly as
-// this build ships it — a split document with a single variable and a paragraph
-// join, so its whole text can be written down beside the folds that produce it.
+// this build ships it — a split document with a single variable and a
+// blank-line join, so its whole text can be written down beside the folds that
+// produce it.
 const (
 	apiTestReassignPredecessorSeed = "[{task_no}] 此任務已轉派給新的接手人。\n\n<!-- ↑唯讀區（程式產生，改不動）｜↓本體（可編輯，零變數） -->\n\n你收到這份說明，代表目前的任務需要交接給其他執行者。請停止推進並完成必要收尾，確保接手人能從遠端取得目前成果與完整脈絡：\n\n* 保存成果：將需要保留的 git commit 推送到 remote，需要保留的檔案以 `ocagent upload` 上傳後，把附件 id 寫進步驟備註，不要留下只有本機能取得的成果。\n* 寫入交接資訊：將目前進度、進行中的事項、需要注意的風險與下一步寫進任務的步驟備註。\n* 處理 sub-agent：若有正在執行的 sub-agent，要求其收尾並將結果寫回對應 task step。\n\n完成以上事項後即完成交接。若接手人已在線上並主動聯繫，再補充確認；否則不需要等待或主動尋找接手人。\n"
 	apiTestReassignPredecessorHead = "[{task_no}] 此任務已轉派給新的接手人。"
