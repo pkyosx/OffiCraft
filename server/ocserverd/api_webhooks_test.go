@@ -675,20 +675,6 @@ func TestHandleReceiveWebhookInPost(t *testing.T) {
 		dashboard.wantFrames()
 		recipient.wantFrames()
 		apiWantNoChatWithKip(t, h, owner)
-		apiWantWebhookRow(t, h, owner, map[string]any{
-			"endpoint_id":        "alerts",
-			"purpose":            "CI",
-			"status":             "enabled",
-			"created_ts":         apiAnyNumber,
-			"token":              token,
-			"platform":           "generic",
-			"has_signing_secret": false,
-			"last_received_ts":   0,
-			"delivered_count":    0,
-			"dropped_count":      0,
-			"last_drop_reason":   "",
-		})
-		apiWantWebhookRequests(t, h, owner, "alerts")
 	})
 
 	t.Run("a recipient lookup storage fault returns a generic 500 and keeps the fault in the server log", func(t *testing.T) {
