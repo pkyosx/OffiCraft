@@ -5,7 +5,8 @@
 // changes — that is the entire point of the seam.
 
 import type { Api } from "./adapter";
-import { hasToken } from "./auth";
+import { hasToken, ownerToken } from "./auth";
+import type { Member } from "../types";
 import { mockApi } from "./mock";
 import { httpApi } from "./http";
 
@@ -54,10 +55,36 @@ export function viewerMayForceTaskDone(): boolean {
   return USE_MOCK || hasToken();
 }
 
-/** May this viewer switch a 傳承 entry's scope (`POST /api/lore/{id}/scope`,
- * admin floor)? Same predicate and same caveats as `viewerMayForceTaskDone`. */
-export function viewerMaySetLoreScope(): boolean {
-  return viewerMayForceTaskDone();
+function tokenClaims(): Record<string, unknown> | null {
+  const payload = ownerToken().split(".")[1];
+  if (!payload) return null;
+  try {
+    const b64 = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+    const claims: unknown = JSON.parse(new TextDecoder().decode(bytes));
+    return claims && typeof claims === "object"
+      ? (claims as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/** May this viewer switch a 傳承 entry's scope (`POST /api/lore/{id}/scope`)?
+ * Mirrors the server's admin floor (`resolvePrincipal` in
+ * server/ocserverd/authz.go): an owner token, or a member token whose roster
+ * row holds the assistant role. Unlike `viewerMayForceTaskDone` it reads who
+ * the token belongs to, so a plain member's token is not offered the menu.
+ * Display only — the server still refuses everyone else. */
+export function viewerMaySetLoreScope(members: readonly Member[]): boolean {
+  if (USE_MOCK) return true;
+  const claims = tokenClaims();
+  if (!claims) return false;
+  if (claims.scope === "owner") return true;
+  const sub = typeof claims.sub === "string" ? claims.sub : "";
+  if (!sub) return false;
+  const me = members.find((m) => m.id === sub);
+  return !!me && me.kind !== "warden" && me.role === "assistant";
 }
 
 export type {

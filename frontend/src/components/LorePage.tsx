@@ -201,12 +201,13 @@ function splitBelongs(v: string): { kind: LoreScopeKind; key: string } {
 }
 
 export function LorePage({
-  canSetScope = viewerMaySetLoreScope(),
+  canSetScope: canSetScopeProp,
 }: {
   canSetScope?: boolean;
 } = {}) {
   const { t, msg } = useI18n();
   const { members } = useMembers();
+  const canSetScope = canSetScopeProp ?? viewerMaySetLoreScope(members);
   const { workers } = useOutsourceWorkers();
   const { manuals } = useTaskManuals();
 
