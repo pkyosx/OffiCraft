@@ -2635,6 +2635,7 @@ export interface paths {
          *     - `codex_notice_round`: The codex SOFT-notice compaction round (T-a9d6). 1..10, and strictly below codex_compaction_threshold.
          *     - `monitoring_refresh_seconds`: Minimum interval between monitoring and machine refreshes, in seconds (1 through 60).
          *     - `accelerated_grace_secs`: 加速停止 grace, in seconds. Must be 10 through 3600. Applies to every CLOCKED wind-down cause at once (the second context threshold and the owner-pressed 加速停止); it can never put a clock on a soft cause.
+         *     - `reassign_handover_timeout_secs`: Reassign handover timeout, in seconds. Must be 60 through 86400. How long an OUTSOURCE predecessor under the reassign hold may go with no update to the task before it is reclaimed (its hold rights revoked, its waiting reply cards bound to that task expired); every task update restarts the clock. Staff predecessors are never reclaimed by it.
          *     - `warden_credential_lifetime_secs`: How long a MACHINE (warden) credential is meant to live, in seconds. Must be 86400 through 34560000 (one day through 400 days). A warden renews its own credential once that credential is two thirds of this old, plus a per-machine stagger of up to one hour so that LOWERING this value does not put the whole fleet on the mint endpoint inside one poll. The floor is one day because the last third of the lifetime is the retry window: at the 15-minute poll a one-day lifetime still leaves about 32 attempts. Wardens pick a change up within one poll interval. It is ALSO the expiry stamped into the credential (`exp = iat + this`, T-fc53), so a machine that misses its whole retry window needs a hand re-install; lowering the value never shortens a credential already issued, because an `exp` is fixed at mint time. Read the current value from get_settings rather than assuming a number.
          *     - `org_name`: The studio display name (T-d693) — trimmed, max 80 runes; "" clears it back to the localized default. A value longer than 80 runes is a 422.
          *     - `owner_name`: The owner's display nickname (T-0b41) — trimmed, max 80 runes; "" clears it back to the localized default. A value longer than 80 runes is a 422.
@@ -7904,6 +7905,12 @@ export interface components {
              */
             accelerated_grace_secs: number;
             /**
+             * Reassign Handover Timeout Secs
+             * @description Reassign handover timeout, in seconds (60 through 86400): while a task sits under the reassign hold and its predecessor is an OUTSOURCE worker, the predecessor is reclaimed once this many seconds pass with no update to the task. The clock restarts on every task update, so a predecessor still writing its handover is not cut off mid-way. Staff predecessors are never reclaimed by it. Reclaiming revokes the predecessor's hold rights and expires its waiting reply cards bound to that task. Distinct from any close-out or accelerated-stop grace.
+             * @default 1800
+             */
+            reassign_handover_timeout_secs: number;
+            /**
              * Agent Token Ttl
              * @description Agent and outsource-worker JWT lifetime in seconds. Fresh installs default to 7 days.
              * @default 604800
@@ -8127,6 +8134,11 @@ export interface components {
              * @description 加速停止 grace, in seconds. Must be 10 through 3600. Applies to every CLOCKED wind-down cause at once (the second context threshold and the owner-pressed 加速停止); it can never put a clock on a soft cause.
              */
             accelerated_grace_secs?: number | null;
+            /**
+             * Reassign Handover Timeout Secs
+             * @description Reassign handover timeout, in seconds. Must be 60 through 86400. How long an OUTSOURCE predecessor under the reassign hold may go with no update to the task before it is reclaimed (its hold rights revoked, its waiting reply cards bound to that task expired); every task update restarts the clock. Staff predecessors are never reclaimed by it.
+             */
+            reassign_handover_timeout_secs?: number | null;
             /** Agent Token Ttl */
             agent_token_ttl?: number | null;
             /**
