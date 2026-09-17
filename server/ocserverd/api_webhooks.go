@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"time"
 )
@@ -43,6 +44,13 @@ const (
 	webhookLogHeadersMaxBytes = 4 << 10  // 4 KiB
 	webhookLogBodyMaxBytes    = 16 << 10 // 16 KiB
 )
+
+const webhookInternalErrorMessage = "internal server error"
+
+func writeWebhookInternalError(w http.ResponseWriter, err error) {
+	log.Printf("[webhook] internal error: %v", err)
+	writeError(w, http.StatusInternalServerError, webhookInternalErrorMessage)
+}
 
 // Webhook request-log outcome labels — the closed classification a resolved
 // /in request lands as. Drops carry their coarse reason as
@@ -313,7 +321,7 @@ func (s *apiServer) HandleReceiveWebhookInPost(w http.ResponseWriter, r *http.Re
 	}
 	e, err := s.dal.GetWebhookByToken(token)
 	if err != nil {
-		internalError(w, err)
+		writeWebhookInternalError(w, err)
 		return
 	}
 	// Silent acceptance for an unknown token (無效 沉默回應) — no endpoint row
@@ -405,7 +413,7 @@ func (s *apiServer) HandleReceiveWebhookInPost(w http.ResponseWriter, r *http.Re
 			s.writeWebhookAccepted(w)
 			return
 		}
-		internalError(w, err)
+		writeWebhookInternalError(w, err)
 		return
 	}
 	// ONE POST → at most ONE chat event (防放大). Synthetic sender + the
@@ -424,7 +432,7 @@ func (s *apiServer) HandleReceiveWebhookInPost(w http.ResponseWriter, r *http.Re
 		},
 	}
 	if err := s.dal.PutChat(msg); err != nil {
-		internalError(w, err)
+		writeWebhookInternalError(w, err)
 		return
 	}
 	// The same convenience payload every chat delta carries (spec/sse.md §2.2)
