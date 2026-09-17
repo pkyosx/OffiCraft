@@ -3549,6 +3549,12 @@ func TestHandleReportStoppedApiSelfStoppedPost(t *testing.T) {
 			"machine": "m-server-self", "desired_machine_id": "m-new",
 			"refocus_since": apiAnyNumber, "refocus_op": "relocate",
 		}))
+
+		api.hub.Disconnect(session)
+		api.runOutsourceTick(nowSecs())
+		wsWantWardenFrames(t, api, ServerSelfHost)
+		wsWantWardenFrames(t, api, "m-new",
+			wsStartFrame("ow-abc123", apiTestWorkerBootContext(t, h, owner), "claude", "sonnet", "medium"))
 	})
 
 	for _, stop := range []struct {
