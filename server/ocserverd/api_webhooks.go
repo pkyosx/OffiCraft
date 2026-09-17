@@ -278,8 +278,9 @@ func (s *apiServer) resolveWebhook(memberID, endpointID string, scope memberScop
 // the SAME silent 200 (never reveal whether an endpoint exists). An accepted
 // call synthesises exactly ONE chat_message to the member (投遞方式 A).
 //
-// The ONE non-200 face is an over-cap body: refused 413 before identity is
-// looked at, so it reveals nothing either (T-222).
+// An over-cap body is refused 413 before identity is looked at, so it reveals
+// nothing either (T-222). A repeated ?t= never reaches this handler: the
+// generated parameter binding refuses it 422, before anything is recorded.
 func (s *apiServer) HandleReceiveWebhookInPost(w http.ResponseWriter, r *http.Request, params HandleReceiveWebhookInPostParams) {
 	// Read the untrusted body regardless of token validity so a client never
 	// learns anything from timing/short-circuit differences. Bounded at cap+1:
