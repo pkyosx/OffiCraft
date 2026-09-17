@@ -569,11 +569,12 @@ var authzOutsideRouteTable = map[string]string{
 	"api_tasks.go :: callerMayDriveTask :: principalAtLeast(s.principalOfRequest(r), principalAdminAgent)": "" +
 		"admin+ may drive ANY task; below that only the task's own executor may — a " +
 		"caller-vs-resource comparison, not expressible as a route floor.",
-	"api_tasks.go :: callerMayDriveTask :: currentActor(r) == actingExecutorOf(t)": "" +
+	"api_tasks.go :: callerMayDriveTask :: currentActor(r) == s.actingExecutorOf(t)": "" +
 		"the self half of the same rule: the task's acting executor drives it — the " +
-		"executor, or while the `reassigning` lock is on the stamped predecessor " +
-		"(owner ruling 2026-09-17, cards rc-5ba4a6f802f4 / rc-0a0892e3588f). A " +
-		"per-task, per-moment fact, not a principal class.",
+		"executor, or while the `reassigning` lock is on the stamped predecessor as " +
+		"long as it is still on the roster, and nobody once it has left (owner " +
+		"ruling 2026-09-17, cards rc-5ba4a6f802f4 / rc-0a0892e3588f). A per-task, " +
+		"per-moment fact, not a principal class.",
 	"api_tasks.go :: callerMayClaimTask :: principalAtLeast(s.principalOfRequest(r), principalAdminAgent)": "" +
 		"claim_task's admin half: admin+ may take over any handed-over task, the same " +
 		"bypass callerMayDriveTask gives.",

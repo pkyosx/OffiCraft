@@ -488,23 +488,41 @@ func (s *apiServer) writeTaskStepStatusReceipt(w http.ResponseWriter, t Task, st
 // pinning the literal again in a test, silently takes a door back out of range.
 const executorGuardRefusal = "caller is not the task's executor"
 
-// predecessorHoldsTask reports whether the reassign predecessor, not the
-// executor, holds the executor's write rights on t: while the `reassigning`
-// lock is on and a predecessor is stamped (owner ruling 2026-09-17, cards
-// rc-5ba4a6f802f4 / rc-0a0892e3588f). Any further condition on the
-// predecessor belongs here.
-func predecessorHoldsTask(t Task) bool {
+// underHandover reports whether t sits under the reassign hold with a
+// predecessor stamped (owner ruling 2026-09-17, cards rc-5ba4a6f802f4 /
+// rc-0a0892e3588f). While it does, the successor has no write rights until
+// claim_task (callerMayClaimTask) clears the lock.
+func underHandover(t Task) bool {
 	return t.Lock == TaskLockReassigning && t.ReassignedFrom != ""
 }
 
+// predecessorHoldsTask reports whether the stamped predecessor, not the
+// executor, holds the executor's write rights on t: under the hold, and only
+// while the predecessor is still on the roster (a released worker and a
+// dismissed member are both roster_status=removed).
+//
+// FAIL-CLOSED on a lookup error, unlike authz.go's revocation gate: this
+// grants rights beyond the executor rule, and refusing a grant on a failed
+// read costs one retryable 403, never a fleet-wide outage.
+func (s *apiServer) predecessorHoldsTask(t Task) bool {
+	if !underHandover(t) {
+		return false
+	}
+	m, err := s.dal.GetMember(t.ReassignedFrom)
+	return err == nil && m != nil && m.RosterStatus != RosterStatusRemoved
+}
+
 // actingExecutorOf names the one actor with the executor's write rights on t
-// right now: the predecessor under the reassign hold, otherwise the executor.
-// The successor has none until claim_task (callerMayClaimTask) clears the lock.
-func actingExecutorOf(t Task) string {
-	if predecessorHoldsTask(t) {
+// right now: the predecessor while it holds the task, nobody under a hold
+// whose predecessor has left, otherwise the executor.
+func (s *apiServer) actingExecutorOf(t Task) string {
+	if !underHandover(t) {
+		return t.ExecutorID
+	}
+	if s.predecessorHoldsTask(t) {
 		return t.ReassignedFrom
 	}
-	return t.ExecutorID
+	return ""
 }
 
 // callerMayDriveTask enforces the executor guard on the agent report routes
@@ -517,7 +535,7 @@ func (s *apiServer) callerMayDriveTask(r *http.Request, t Task) bool {
 	if principalAtLeast(s.principalOfRequest(r), principalAdminAgent) {
 		return true
 	}
-	return currentActor(r) == actingExecutorOf(t)
+	return currentActor(r) == s.actingExecutorOf(t)
 }
 
 // callerMayClaimTask is the claim_task gate, the one write that stays with the
@@ -564,7 +582,7 @@ func (s *apiServer) callerMayEditTaskText(r *http.Request, t Task) bool {
 	if s.callerMayDriveTask(r, t) {
 		return true
 	}
-	if actingExecutorOf(t) != "" || t.CreatorID == "" {
+	if underHandover(t) || t.ExecutorID != "" || t.CreatorID == "" {
 		return false
 	}
 	return currentActor(r) == t.CreatorID
@@ -1283,7 +1301,7 @@ func (s *apiServer) callerMayTerminateTask(r *http.Request, t Task) (bool, strin
 	if c.member == nil {
 		return false, executorGuardRefusal
 	}
-	if c.actorID != actingExecutorOf(t) {
+	if c.actorID != s.actingExecutorOf(t) {
 		return false, executorGuardRefusal
 	}
 	if c.isOutsource() {
@@ -1357,7 +1375,7 @@ func (s *apiServer) HandleMarkTaskDoneApiTasksTaskIdMarkDonePost(w http.Response
 // forced_done_by — the exact thing force_task_done exists to make impossible to
 // do silently. Their door is force_task_done; this one is the executor's.
 func (s *apiServer) callerMayMarkTaskDone(r *http.Request, t Task) bool {
-	acting := actingExecutorOf(t)
+	acting := s.actingExecutorOf(t)
 	return acting != "" && currentActor(r) == acting
 }
 
@@ -1848,13 +1866,19 @@ func (s *apiServer) HandleReassignTaskApiTasksTaskIdReassignPost(w http.Response
 		}
 	}
 
-	// oldExecutor is who the task is handed over FROM. Under the hold that is
-	// the predecessor still holding it; the unclaimed successor it displaces is
-	// neither stamped nor notified.
+	// oldExecutor is who the task is handed over FROM. Under the hold that stays
+	// the stamped predecessor; the unclaimed successor it displaces is neither
+	// stamped nor notified. A predecessor that has left keeps its stamp but is
+	// neither notified nor named to the new successor.
 	oldKind, oldExecutor := t.ExecutorKind, t.ExecutorID
 	leaving, leavingKind := oldExecutor, oldKind
-	if predecessorHoldsTask(*t) {
-		oldKind, oldExecutor = t.ReassignedFromKind, actingExecutorOf(*t)
+	handingOver := oldExecutor
+	if underHandover(*t) {
+		oldKind, oldExecutor = t.ReassignedFromKind, t.ReassignedFrom
+		handingOver = ""
+		if s.predecessorHoldsTask(*t) {
+			handingOver = oldExecutor
+		}
 	}
 
 	// 1. Expire every waiting card bound to the task — the exact semantics of
@@ -2016,11 +2040,11 @@ func (s *apiServer) HandleReassignTaskApiTasksTaskIdReassignPost(w http.Response
 	// about it. It used to be this Go concatenation, which is exactly what the
 	// owner could not find when he went looking for the words an agent is sent.
 	// "" means it could not be rendered — post nothing rather than a template.
-	if oldExecutor != "" {
+	if handingOver != "" {
 		if notice := s.taskNoticeText(docKindTaskReassignPredecessor, map[string]string{
 			"task_no": no,
 		}); notice != "" {
-			s.postTaskChat(*t, wireSystemSender, oldExecutor, notice, trigger, nil)
+			s.postTaskChat(*t, wireSystemSender, handingOver, notice, trigger, nil)
 		}
 	}
 	// 🔴 THE HANDOVER NOTE IS NO LONGER PASTED IN, AND THAT IS THE OWNER'S
@@ -2032,10 +2056,10 @@ func (s *apiServer) HandleReassignTaskApiTasksTaskIdReassignPost(w http.Response
 	// AFTER the instructions leaves no prefix of facts to cut at.
 	if newExecutorID != "" {
 		predecessor := ""
-		if oldExecutor != "" {
+		if handingOver != "" {
 			// The id is not optional: the body's first instruction is to
 			// post_chat this person, and an id alone does not say who that is.
-			predecessor = nameWithIDSlot(s.executorLabel(oldKind, oldExecutor), oldExecutor)
+			predecessor = nameWithIDSlot(s.executorLabel(oldKind, handingOver), handingOver)
 		}
 		if notice := s.takeoverNoticeText(no, predecessor); notice != "" {
 			s.postTaskChat(*t, wireSystemSender, newExecutorID, notice, trigger, nil)

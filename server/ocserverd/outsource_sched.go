@@ -575,6 +575,11 @@ func (s *apiServer) runOutsourceTick(now float64) {
 			s.publishOutsourceWorker(*released, triggerServer)
 			outsourceLog("handover-timeout %s: predecessor %s never handed off "+
 				"(%.0fs) — reclaimed", t.ID, t.ReassignedFrom, now-t.UpdatedTS)
+			// Best-effort, like dismissal: the release already happened.
+			if _, err := s.expireWaitingCardsForTaskFrom(t.ID, t.ReassignedFrom, now, triggerServer); err != nil {
+				outsourceLog("handover-timeout %s: card sweep for %s failed: %v",
+					t.ID, t.ReassignedFrom, err)
+			}
 		}
 		if !s.workerReclaimed[t.ReassignedFrom] {
 			if w, err := s.dal.GetOutsourceWorker(t.ReassignedFrom); err == nil && w != nil {

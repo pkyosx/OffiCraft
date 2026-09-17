@@ -1260,6 +1260,71 @@ func TestCallerMayDriveTask(t *testing.T) {
 	})
 }
 
+func TestPredecessorHoldsTask(t *testing.T) {
+	held := func(t *testing.T) (*apiServer, *DAL, Task) {
+		t.Helper()
+		api, h, d, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+		apiJSON(t, h, "POST", "/api/tasks/T-1/reassign", owner, `{"target":{"kind":"staff","member_id":"mira"}}`)
+		task, err := api.resolveTask("T-1")
+		if err != nil {
+			t.Fatalf("resolveTask: %v", err)
+		}
+		return api, d, *task
+	}
+
+	t.Run("a predecessor still on the roster holds the task", func(t *testing.T) {
+		api, _, task := held(t)
+		if !api.predecessorHoldsTask(task) {
+			t.Fatal("want true")
+		}
+	})
+
+	t.Run("without the lock nobody but the executor holds the task", func(t *testing.T) {
+		api, _, task := held(t)
+		task.Lock = TaskLockNone
+		if api.predecessorHoldsTask(task) {
+			t.Fatal("want false")
+		}
+	})
+
+	t.Run("a removed predecessor no longer holds the task", func(t *testing.T) {
+		api, d, task := held(t)
+		m, err := d.GetMember("kip")
+		if err != nil || m == nil {
+			t.Fatalf("GetMember: %v", err)
+		}
+		m.RosterStatus = RosterStatusRemoved
+		if err := d.PutMember(*m); err != nil {
+			t.Fatalf("PutMember: %v", err)
+		}
+		if api.predecessorHoldsTask(task) {
+			t.Fatal("want false")
+		}
+	})
+
+	t.Run("a predecessor with no roster row does not hold the task", func(t *testing.T) {
+		api, _, task := held(t)
+		task.ReassignedFrom = "m-gone"
+		if api.predecessorHoldsTask(task) {
+			t.Fatal("want false")
+		}
+	})
+
+	t.Run("a failed roster lookup does not grant the hold", func(t *testing.T) {
+		api, d, task := held(t)
+		if _, err := d.wdb.Exec(`ALTER TABLE member RENAME TO member_unreadable`); err != nil {
+			t.Fatalf("break the roster read: %v", err)
+		}
+		if _, err := d.GetMember("kip"); err == nil {
+			t.Fatal("fixture: the roster read must fail")
+		}
+		if api.predecessorHoldsTask(task) {
+			t.Fatal("want false")
+		}
+	})
+}
+
 func TestCallerMayEditTaskText(t *testing.T) {
 	t.Run("the creator of a task with no executor at all may edit its text", func(t *testing.T) {
 		api, h, d, _ := newAPITestServer(t)
@@ -1329,6 +1394,14 @@ func TestCallerMayEditTaskText(t *testing.T) {
 		taskTestUnderCaller(t, api, d, apiTestAgentToken(t, api, "rex", ""), func(r *http.Request) {
 			if !api.callerMayEditTaskText(r, held) {
 				t.Fatal("the predecessor must be admitted")
+			}
+		})
+		if err := d.PutMember(Member{ID: "rex", Name: "Rex", Kind: KindStaff, RoleKey: "engineer", RosterStatus: RosterStatusRemoved}); err != nil {
+			t.Fatalf("PutMember: %v", err)
+		}
+		taskTestUnderCaller(t, api, d, agent, func(r *http.Request) {
+			if api.callerMayEditTaskText(r, held) {
+				t.Fatal("the hold stays on after the predecessor left, so the creator's window stays shut")
 			}
 		})
 	})
@@ -3670,6 +3743,38 @@ func TestHandleReassignTaskApiTasksTaskIdReassignPost(t *testing.T) {
 			t.Fatalf("the new successor's takeover notice must name the original predecessor, got %+v", rex)
 		}
 		f.must(t, "POST", "/api/tasks/T-1/priority", f.predecessor, `{"priority":"high"}`)
+	})
+
+	t.Run("under the hold after the predecessor left a re-reassign keeps its stamp but neither notifies nor names it", func(t *testing.T) {
+		f := newHandoverFixture(t)
+		f.dismissPredecessor(t)
+		kipBefore := len(t91ChatTo(t, f.api, "kip"))
+
+		f.must(t, "POST", "/api/tasks/T-1/reassign", f.owner, `{"target":{"kind":"staff","member_id":"zed"}}`)
+
+		want := handoverUntouched("reassigning")
+		want.ExecutorID = "zed"
+		if got := f.view(t); !reflect.DeepEqual(got, want) {
+			t.Fatalf("T-1 after the re-reassign\ngot  %#v\nwant %#v", got, want)
+		}
+		if got := len(t91ChatTo(t, f.api, "kip")); got != kipBefore {
+			t.Fatalf("a departed predecessor gets no new notice: %d rows before, %d after", kipBefore, got)
+		}
+		if got := len(t91ChatTo(t, f.api, "rex")); got != 1 {
+			t.Fatalf("the displaced successor keeps only its first notice, got %d rows", got)
+		}
+		zed := t91ChatTo(t, f.api, "zed")
+		if len(zed) != 1 || !strings.HasPrefix(zed[0].Body, "[T-1] 你接手了這張任務，這張任務沒有前任。\n\n") {
+			t.Fatalf("the new successor gets the no-predecessor takeover notice, got %+v", zed)
+		}
+		for who, token := range map[string]string{"kip": f.predecessor, "zed": f.outsider} {
+			status, data := apiJSON(t, f.h, "POST", "/api/tasks/T-1/priority", token, `{"priority":"high"}`)
+			if status != 403 {
+				t.Fatalf("%s: want 403, got %d %v", who, status, data)
+			}
+			apiWantError(t, data, "forbidden", "caller is not the task's executor")
+		}
+		f.must(t, "POST", "/api/tasks/T-1/claim", f.outsider, "")
 	})
 
 	t.Run("without the hold a reassign stamps the current outsource executor and leaves it live", func(t *testing.T) {

@@ -287,6 +287,11 @@ func (f handoverFixture) must(t *testing.T, method, target, token, body string) 
 	return data
 }
 
+func (f handoverFixture) dismissPredecessor(t *testing.T) {
+	t.Helper()
+	f.must(t, "DELETE", "/api/members/kip", f.owner, "")
+}
+
 func (f handoverFixture) claim(t *testing.T) {
 	t.Helper()
 	f.must(t, "POST", "/api/tasks/T-1/claim", f.successor, "")
@@ -580,6 +585,30 @@ func TestTaskWriteRightsFollowTheReassignHoldUntilTheSuccessorClaims(t *testing.
 			refused(t, door, f, prepared, "an outsider", f.outsider)
 		})
 	}
+
+	for _, door := range handoverDoors() {
+		t.Run("once the predecessor is dismissed under the hold nobody but the owner may "+door.name, func(t *testing.T) {
+			f := newHandoverFixture(t)
+			f.dismissPredecessor(t)
+			prepared := prepare(t, door, f)
+			refused(t, door, f, prepared, "the dismissed predecessor", f.predecessor)
+			refused(t, door, f, prepared, "the successor", f.successor)
+			refused(t, door, f, prepared, "an outsider", f.outsider)
+		})
+	}
+
+	t.Run("once the predecessor is dismissed the successor may still claim", func(t *testing.T) {
+		f := newHandoverFixture(t)
+		f.dismissPredecessor(t)
+		f.claim(t)
+		want := handoverUntouched("")
+		if got := f.view(t); !reflect.DeepEqual(got, want) {
+			t.Fatalf("the claim clears the hold\ngot  %#v\nwant %#v", got, want)
+		}
+		if status, data := apiJSON(t, f.h, "POST", "/api/tasks/T-1/priority", f.successor, `{"priority":"high"}`); status != http.StatusOK {
+			t.Fatalf("after the claim the successor drives the task, got %d %v", status, data)
+		}
+	})
 
 	t.Run("under the hold only the successor may claim", func(t *testing.T) {
 		f := newHandoverFixture(t)
