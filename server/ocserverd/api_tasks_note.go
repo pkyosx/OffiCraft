@@ -16,13 +16,9 @@ import (
 // the owner ruled (rc-15cf8df7cb7f, option 2) that the STEP layer gets its own
 // note rather than folding this into the editable task description.
 //
-// Why neither existing note-shaped field could serve:
-//   - waiting_reason is bound to ONE status: settable only entering
-//     waiting_external, cleared by the status handler on the way out.
-//   - the handoff_* fields live on the TASK and are read only on the report
-//     that closes it.
-//
-// Both are moment-locked. A handover lands at an arbitrary moment, so the note
+// Why waiting_reason could not serve: it is bound to ONE status, settable only
+// entering waiting_external and cleared by the status handler on the way out.
+// It is moment-locked. A handover lands at an arbitrary moment, so the note
 // has to be writable in ANY step status — that generality is the point, and
 // TestStepNoteWritableInEveryStepStatus pins it.
 //

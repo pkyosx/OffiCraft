@@ -1984,9 +1984,6 @@ func dalTestTask(id string) Task {
 		OutsourceEffort:     "high",
 		OutsourceMachine:    "mac-1",
 		OutsourceDispatched: true,
-		Handoff:             HandoffFollowUp,
-		HandoffNote:         "handoff note",
-		HandoffTaskID:       "T-901",
 		FrozenBy:            "eve",
 		KickoffNotifiedTo:   "ow-1",
 	}

@@ -659,7 +659,7 @@ func materializeBinary(dir, name string, data []byte) (string, error) {
 // 🔴 THE SEEDS ARE THE PROGRAM TEXT THESE NOTICES USED TO BE, MOVED WITHOUT A
 // WORD CHANGED. Every sentence in these six files was a Go string literal
 // (sse_bands.go's offboard sentence builder and decideTaskCloseNudge,
-// api_tasks.go's reassign notices, api_tasks_handoff.go's dependency-released
+// api_tasks.go's reassign notices, api_tasks_dependents.go's dependency-released
 // notice); the interpolation points are the ONLY thing that changed shape,
 // becoming the {name} variables this kind declares. Six are wired to their send
 // sites and the Go text they replaced is deleted: the two stop procedures, plus

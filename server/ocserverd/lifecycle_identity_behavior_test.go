@@ -142,7 +142,7 @@ package main
 //     NOT covered and never were. That is a scope, not a hole, but it is a
 //     scope somebody could misread.
 //   - THE `Kind:` STRUCT FIELD IS OVERLOADED IN THIS PACKAGE. Documents,
-//     artifacts, reply cards, chat rows and handoff plans all have a field
+//     artifacts, reply cards and chat rows all have a field
 //     literally named Kind carrying an unrelated vocabulary. The struct-literal
 //     shape therefore fires only when the VALUE is one of the member-kind
 //     constants (or when the field is ExecutorKind / ReassignedFromKind, which
@@ -1025,7 +1025,7 @@ var identityGateLedger = map[string]string{
 		"T-23cf 正職授權矩陣 helper over the already-resolved caller — it asks the seam " +
 		"rather than re-typing the comparison, which is the shape every other caller " +
 		"should copy. Also in authzOutsideRouteTable.",
-	"api_tasks_handoff.go :: releaseDependentsOnClose :: d.ExecutorKind == TaskExecutorOutsource": "" +
+	"api_tasks_dependents.go :: releaseDependentsOnClose :: d.ExecutorKind == TaskExecutorOutsource": "" +
 		"a dependent task unblocked by this close needs the scheduler ticked only if it " +
 		"is an unassigned 發包 task; a member-executed dependent has an executor already.",
 	"api_taskmanuals.go :: resolveManualAssigneeMachine :: kind != TaskExecutorOutsource": "" +
@@ -1208,12 +1208,6 @@ var identityGateLedger = map[string]string{
 		"NOT an identity gate — the same artifact kind read off a RETAINED VERSION " +
 		"row (T-60), deciding whether that version has a blob whose filename and mime " +
 		"the reader can resolve. The wire twin of the history handler's entry above.",
-	"api_tasks_handoff.go :: applyHandoffPlan :: plan.Kind switch case HandoffFollowUp": "" +
-		"NOT an identity gate — HANDOFF-PLAN kind (none / follow-up / return to " +
-		"creator). Caught by the switch shape, which exists for the member-kind switch " +
-		"nobody has written yet; kept listed so the shape's reach stays demonstrable.",
-	"api_tasks_handoff.go :: applyHandoffPlan :: plan.Kind switch case HandoffReturnToCreator": "" +
-		"NOT an identity gate — the other arm of the same handoff-plan switch.",
 	"api_members.go :: HandleHireMemberApiMembersPost :: trimmedOrEmpty(body.Kind) != \"\"": "" +
 		"the `privileged` predicate of the §4 hire 閉環: hiring WITH a kind is " +
 		"privilege-bearing (otherwise an agent hires itself a 'staff' colleague and walks up " +
@@ -1467,7 +1461,7 @@ func TestIdentityKindVocabularyIsComplete(t *testing.T) {
 	// than re-typed, so a NEW one enters the scan by being declared.
 	//
 	// ⚠️ `Kind*` is a prefix several unrelated vocabularies do NOT use (they
-	// spell theirs docKind* / ArtifactKind* / Handoff*), which is what makes the
+	// spell theirs docKind* / ArtifactKind*), which is what makes the
 	// prefix usable as a derivation. If that ever stops being true, this check
 	// starts reporting unrelated constants — which is the loud failure, not the
 	// silent one, and is the right way round.

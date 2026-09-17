@@ -131,10 +131,6 @@ func (s *apiServer) HandleInsertTaskStepApiTasksTaskIdStepsPost(
 		writeError(w, http.StatusBadRequest, msg)
 		return
 	}
-	// No 交棒閘 here, and that is not an omission: the gate exists to catch a
-	// write that FINISHES the work, and adding a pending step moves the step set
-	// strictly away from all-done. An insert can only ever re-open a task that
-	// had reached ready_for_done, never close one.
 	stored, err := s.dal.InsertTaskStep(t.ID, at, fresh)
 	if err != nil {
 		internalError(w, err)
@@ -196,34 +192,8 @@ func (s *apiServer) HandleDeleteTaskStepApiTasksTaskIdStepsStepIdDeletePost(
 		writeError(w, http.StatusBadRequest, msg)
 		return
 	}
-	// ── T-74f8 交棒閘, third door ────────────────────────────────────────────
-	// Removing the last UNFINISHED step leaves every remaining step done, and
-	// task.status is DERIVED from the step set, so this write FINISHES the work
-	// exactly as the final step report and an all-done replan do. Without this
-	// the delete would be a silent way around the two doors that already ask —
-	// refuse a close at the step report, then delete the step instead.
-	//
-	// Projected over the rows as they are about to be stored and BEFORE anything
-	// is written, so a refusal leaves the plan fully editable.
-	var deleteHandoff *handoffPlan
-	if DeriveTaskStatus(remaining) == TaskStatusReadyForDone {
-		p, code, msg := s.handoffGateVerdict(*t, handoffDoorStepDelete, "", "", "")
-		if code != 0 {
-			writeError(w, code, msg)
-			return
-		}
-		deleteHandoff = p
-	}
 	stored, err := s.dal.DeleteTaskStep(t.ID, stepId)
 	if err != nil {
-		internalError(w, err)
-		return
-	}
-	// Recorded BEFORE the derivation, the same ordering the other two doors use:
-	// the successor's dependency edge must exist by the time a later close walks
-	// the dependents. Only ever non-nil when the gate auto-satisfied off a live
-	// dependent, since a delete carries no declaration.
-	if err := s.applyHandoffPlan(t, deleteHandoff); err != nil {
 		internalError(w, err)
 		return
 	}
@@ -328,8 +298,6 @@ func (s *apiServer) HandleReorderTaskStepsApiTasksTaskIdStepsReorderPost(
 		writeError(w, http.StatusBadRequest, msg)
 		return
 	}
-	// No 交棒閘: a reorder changes no step's status, so the derived task status
-	// is the same before and after. It cannot finish the work.
 	orderedIDs := make([]string, len(ordered))
 	for i, st := range ordered {
 		orderedIDs[i] = st.ID

@@ -707,7 +707,7 @@ print(steps[0]["id"] if steps else "")
 ' 2>/dev/null || echo '')"
 [[ -n "$A7A_SID" ]] || fail_stage "could not read back the A7a step id"
 
-for _body in '{"status":"in_progress"}' '{"status":"done","handoff":"none","handoff_note":"nothing follows this"}'; do
+for _body in '{"status":"in_progress"}' '{"status":"done"}'; do
   A7A_RESP="$(post_as_token "$A7A_TOKEN" "/api/tasks/$A7A_TID/steps/$A7A_SID/status" "$_body")"
   [[ "${A7A_RESP##*$'\n'}" == "200" ]] \
     || fail_stage "step status $_body returned ${A7A_RESP##*$'\n'} for the A7a task"

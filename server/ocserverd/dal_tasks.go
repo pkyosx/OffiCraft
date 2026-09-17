@@ -75,15 +75,6 @@ type Task struct {
 	OutsourceEffort     string
 	OutsourceMachine    string
 	OutsourceDispatched bool
-	// Handoff / HandoffNote / HandoffTaskID is the DECLARED destination of the
-	// ball (T-74f8, migrations/00031): '' = never declared, else one of
-	// domain.go's HandoffReturnToCreator / HandoffFollowUp / HandoffNone. The
-	// close gate (api_tasks.go handoffGateVerdict) refuses to let a
-	// creator≠executor task close until this is set, so a finished task can no
-	// longer end with nobody holding anything.
-	Handoff       string
-	HandoffNote   string
-	HandoffTaskID string
 	// FrozenBy is WHO put this task into the frozen priority (T-6020,
 	// migrations/00037): the verified token sub of that write — the wireOwnerID
 	// literal for owner scope, else the member / outsource-worker id. '' means
@@ -143,7 +134,7 @@ const taskColumns = `id, type_key, title, dedupe_key, inputs, description,
 	handover_note, handover_note_ts, handover_note_by,
 	outsource_runtime, outsource_model, outsource_effort, outsource_machine,
 	outsource_dispatched,
-	handoff, handoff_note, handoff_task_id, frozen_by, kickoff_notified_to,
+	frozen_by, kickoff_notified_to,
 	forced_done_by, forced_done_reason, ready_for_done_visits`
 
 // sqlTerminalStatuses is the SQL IN-list of the terminal statuses — every
@@ -165,7 +156,7 @@ func scanTask(row interface{ Scan(...any) error }) (Task, error) {
 		&t.HandoverNote, &t.HandoverNoteTS, &t.HandoverNoteBy,
 		&t.OutsourceRuntime, &t.OutsourceModel, &t.OutsourceEffort, &t.OutsourceMachine,
 		&dispatched,
-		&t.Handoff, &t.HandoffNote, &t.HandoffTaskID, &t.FrozenBy,
+		&t.FrozenBy,
 		&t.KickoffNotifiedTo,
 		&t.ForcedDoneBy, &t.ForcedDoneReason, &t.ReadyForDoneVisits,
 	)
@@ -313,9 +304,7 @@ func (d *DAL) CountTasksDuplicatingOriginal(originalID string) (int, error) {
 // written ONLY by its own single-field setter (SetTaskDescriptionOn /
 // SetTaskTitleOn, each of which versions its column in the same transaction) and
 // by the INSERT half of this very statement, which is how create_task sets them
-// — it mints a fresh id, so it never reaches the conflict clause. (Until T-f265
-// the handoff follow-up was a second such INSERT; it no longer exists, which
-// removes a writer rather than adding one.) Single-writer columns cannot be clobbered by a stale
+// — it mints a fresh id, so it never reaches the conflict clause. Single-writer columns cannot be clobbered by a stale
 // whole-row copy, because no stale whole-row copy of them exists. Guarded by
 // TestTaskDescriptionRaceGuardHasTeeth and TestTaskTitleRaceGuardHasTeeth.
 //
@@ -328,9 +317,7 @@ func (d *DAL) CountTasksDuplicatingOriginal(originalID string) (int, error) {
 // happened to read a moment earlier and silently destroys a correction the title
 // endpoint has already answered 200 to. Verified at the time of the change that
 // no production path mutates Title on an EXISTING row (the only writers are the
-// create INSERT and the new setter; the handoff follow-up's INSERT was a third
-// until T-f265 removed it), so
-// dropping it from the conflict clause changes nothing for any existing caller —
+// create INSERT and the new setter), so dropping it from the conflict clause changes nothing for any existing caller —
 // it only removes the clobber.
 //
 // ⚠️ SCOPE, stated so nobody reads more safety into this than is here: this
@@ -395,7 +382,7 @@ func putTaskOn(ex sqlExecer, t Task, mode taskWriteMode) error {
 	// The mode only decides whether the conflict SUFFIX is appended.
 	stmt := `
 		INSERT INTO task (` + taskColumns + `)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 	if mode == taskWriteUpsert {
 		stmt += taskUpsertConflictClause
 	}
@@ -409,7 +396,7 @@ func putTaskOn(ex sqlExecer, t Task, mode taskWriteMode) error {
 		NormalizeRuntime(t.OutsourceRuntime),
 		t.OutsourceModel, t.OutsourceEffort, t.OutsourceMachine,
 		dispatched,
-		t.Handoff, t.HandoffNote, t.HandoffTaskID, t.FrozenBy,
+		t.FrozenBy,
 		t.KickoffNotifiedTo,
 		t.ForcedDoneBy, t.ForcedDoneReason, t.ReadyForDoneVisits,
 	)
@@ -448,9 +435,6 @@ const taskUpsertConflictClause = `
 			outsource_effort = excluded.outsource_effort,
 			outsource_machine = excluded.outsource_machine,
 			outsource_dispatched = excluded.outsource_dispatched,
-			handoff = excluded.handoff,
-			handoff_note = excluded.handoff_note,
-			handoff_task_id = excluded.handoff_task_id,
 			frozen_by = excluded.frozen_by,
 			kickoff_notified_to = excluded.kickoff_notified_to,
 			forced_done_by = excluded.forced_done_by,
@@ -500,7 +484,7 @@ func (d *DAL) AllTaskDeps() (map[string][]string, error) {
 }
 
 // ListTasksBlockedBy returns the tasks that name blockerID in their blocked_by
-// list — the REVERSE of ListTaskDeps, and the query behind the T-74f8 handover
+// list — the REVERSE of ListTaskDeps, and the query behind the T-74f8 dependency
 // half B: when a blocker reaches a terminal status, closeTask walks its
 // dependents to release + wake them. Deterministic order (task id).
 func (d *DAL) ListTasksBlockedBy(blockerID string) ([]Task, error) {
