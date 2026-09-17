@@ -828,6 +828,37 @@ func TestHandleReceiveWebhookInPost(t *testing.T) {
 		})
 	})
 
+	t.Run("a repeated token parameter is refused 422, reaches the member not at all, and is never recorded", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		token := apiTestWebhookToken(t, h, owner, "kip", `{"endpoint_id":"alerts","purpose":"CI"}`)
+		dashboard := apiTestListen(t, api, "")
+		recipient := apiTestListen(t, api, "kip")
+
+		status, data := apiJSON(t, h, "POST", "/in?t="+token+"&t="+token, "", `{"text":"build broke"}`)
+		if status != 422 {
+			t.Fatalf("want 422, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error",
+			"Invalid format for parameter t: multiple values for single value parameter 't'")
+		dashboard.wantFrames()
+		recipient.wantFrames()
+		apiWantNoChatWithKip(t, h, owner)
+		apiWantWebhookRow(t, h, owner, map[string]any{
+			"endpoint_id":        "alerts",
+			"purpose":            "CI",
+			"status":             "enabled",
+			"created_ts":         apiAnyNumber,
+			"token":              token,
+			"platform":           "generic",
+			"has_signing_secret": false,
+			"last_received_ts":   0,
+			"delivered_count":    0,
+			"dropped_count":      0,
+			"last_drop_reason":   "",
+		})
+		apiWantWebhookRequests(t, h, owner, "alerts")
+	})
+
 	t.Run("a body exactly at the cap still delivers, unchanged", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		token := apiTestWebhookToken(t, h, owner, "kip", `{"endpoint_id":"alerts","purpose":"CI"}`)
