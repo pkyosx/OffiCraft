@@ -547,16 +547,16 @@ func (s *apiServer) runOutsourceTick(now float64) {
 		}
 	}
 
-	// T-ba04 handover-timeout reaper: a task left in `reassigning` past the
-	// task.reassign_handover_timeout_secs setting means the successor never reported the
-	// takeover (reassigning→in_progress), so the PREDECESSOR outsource worker —
-	// kept live at reassign time to host the handover dialogue rather than being
-	// dismissed up front — would otherwise leak its session indefinitely.
+	// T-ba04 handover-timeout reaper: a task left in `reassigning` with no task
+	// update for task.reassign_handover_timeout_secs means the successor has not
+	// called claim_task, so the PREDECESSOR outsource worker — kept live at
+	// reassign time to write the handover — would otherwise leak its session.
 	// Release + reclaim that predecessor here, by its OWN id (never by task_id:
 	// an outsource→outsource takeover bound a fresh worker to the same task_id).
-	// The task stays `reassigning` (the owner still owns recovering it); only the
-	// orphaned predecessor session is reclaimed. A member predecessor is never
-	// reclaimed (it lives on its own member lifecycle) — outsource only.
+	// Releasing it also ends its hold write rights (predecessorHoldsTask), and
+	// its waiting reply cards bound to the task expire. The task stays
+	// `reassigning` until someone claims or re-reassigns it. A staff predecessor
+	// is never reclaimed here — outsource only.
 	timeout := float64(s.reassignHandoverTimeout())
 	for _, t := range tasks {
 		if t.Lock != TaskLockReassigning ||

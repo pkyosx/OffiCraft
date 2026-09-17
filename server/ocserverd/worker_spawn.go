@@ -2595,11 +2595,11 @@ func (s *apiServer) dismissOutsourceWorkersForTask(taskID string, now float64, t
 
 // dismissOutsourceWorkerByID fires ONE specific worker (release its row + kill
 // its session) — the deferred-handover twin of dismissOutsourceWorkersForTask
-// (T-ba04). The reassign path no longer dismisses the OLD outsource executor at
-// reassign time (that killed the predecessor before any handover dialogue could
-// happen); instead the predecessor stays live through the `reassigning` hold
-// and is fired HERE, the moment the successor reports reassigning→in_progress
-// (or the timeout reaper gives up on that report). By WORKER ID, never by
+// (T-ba04). The reassign path does not dismiss the previous outsource executor;
+// the predecessor stays live through the `reassigning` hold and is fired HERE
+// when the successor calls claim_task, when a re-reassign under the hold
+// displaces an unclaimed outsource successor, or on dismissal. The
+// handover-timeout reaper releases the row directly. By WORKER ID, never by
 // task_id: an outsource→outsource takeover has already bound the NEW worker to
 // the SAME task_id, so a by-task release would kill the successor too.
 // Idempotent (release + reclaim are both idempotent). Takes outsourceMu itself

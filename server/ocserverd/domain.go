@@ -1263,11 +1263,9 @@ func FoldUserContext(row *UserContext) (text string, isDefault bool) {
 // reassigning, T-160e). done/terminated/duplicated are TERMINAL. This set is
 // enforced in code alone (ValidTaskStatus) — migrations/00011 dropped the
 // DB-level status CHECK so a new state costs zero schema churn (owner-approved
-// design, T-02c9 point 4). duplicated is reached ONLY through mark_task_duplicated;
-// reassigning is entered ONLY through the owner/admin reassign action (POST
-// /api/tasks/{id}/reassign) — the handover hold while the NEW executor reads
-// up; the new executor alone leaves it (reassigning → in_progress on the
-// report table below, executor-guarded).
+// design, T-02c9 point 4). duplicated is reached ONLY through mark_task_duplicated.
+// reassigning is not a valid stored status (ValidTaskStatus); it survives only
+// as a list-filter name for the TaskLockReassigning hold below.
 const (
 	TaskStatusNotStarted      = "not_started"
 	TaskStatusInProgress      = "in_progress"
@@ -1292,9 +1290,11 @@ const (
 // derivation never sets nor clears. reassigning — the handover hold while a NEW
 // executor reads up — used to BE a status (freezing the derived work state); it
 // is now this lock, so the cockpit shows the honest derived status (e.g.
-// in_progress) AND the reassigning lock badge together. A lock is entered by the
-// reassign action and left ONLY by the new executor's dedicated claim action
-// (POST /api/tasks/{id}/claim — clears the lock, never a status report).
+// in_progress) AND the reassigning lock badge together. The lock is entered by
+// the reassign action (owner/admin, or an agent on a task it is the acting
+// executor of) and left ONLY through claim_task (POST /api/tasks/{id}/claim),
+// which only the successor or owner/admin may call. While it is on, the
+// stamped predecessor holds the executor's write rights (actingExecutorOf).
 const (
 	TaskLockNone        = ""
 	TaskLockReassigning = "reassigning"

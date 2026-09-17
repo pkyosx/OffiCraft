@@ -2200,7 +2200,8 @@ type taskWriteReceiptDTO struct {
 	// verified caller and on reassign it is what the caller named, but on the
 	// others it is a stored value the caller may not know — and it is what
 	// decides whether the caller is still allowed to drive this task at all,
-	// since every task-driving write is gated on being the executor.
+	// since every task-driving write is gated on being the acting executor (the
+	// stamped predecessor instead while the task is under the reassign hold).
 	ExecutorID string `json:"executor_id"`
 	// ExecutorKind is whether that executor is staff or a contractor.
 	// Server-derived from the roster rather than sent, and it changes how a

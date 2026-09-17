@@ -1879,11 +1879,10 @@ export const httpApi: Api = {
     // POST /api/tasks/{task_id}/reassign {target, note?} -> TaskWriteReceiptDTO.
     // The write answers with a bounded receipt (T-91), not the task; the
     // cockpit refetches, exactly as it already did. The whole
-    // handover is the server's (card expiry / step rewind / old-worker dismiss
-    // / fresh mint / both-sides notice); the FE only names the target. A closed
-    // task is a 409, a frozen one a 400, a bad member target a 400/409 — all
-    // throw via the client middleware. The task lands in `reassigning`; the NEW
-    // executor reports it back to in_progress.
+    // handover is the server's (card expiry / step rewind / lock / notices);
+    // the FE only names the target. A closed task is a 409, a bad member target
+    // a 400/409 — all throw via the client middleware. The task lands under the
+    // `reassigning` lock until the NEW executor calls claim_task.
     await client.POST("/api/tasks/{task_id}/reassign", {
       params: { path: { task_id: id } },
       body: fromTaskReassignInput(input),

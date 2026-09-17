@@ -18,9 +18,9 @@
 // row come free, and it is already the repo's dialog language.
 //
 // The dialog only NAMES the target. Everything the handover implies (card
-// expiry, step rewind, dismissing the old worker, minting the new one, notifying
-// both sides) is the server's, and the task lands in 轉派中 — the NEW executor
-// reports it back to 進行中 themselves. This dialog never flips a status.
+// expiry, step rewind, the lock, notices) is the server's, and the task lands
+// in 轉派中 until the NEW executor calls claim_task. This dialog never flips a
+// status.
 
 import { useState } from "react";
 import { useI18n } from "../i18n";

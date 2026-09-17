@@ -4307,11 +4307,12 @@ const mockApiImpl = {
   },
 
   async reassignTask(id: string, input: TaskReassignInput): Promise<void> {
-    // Mirrors handle_reassign_task (T-160e): expire the task's waiting cards,
-    // rewind non-terminal steps to pending, dismiss the OLD outsource worker,
-    // mint the new one when the target is 外包, move the task to `reassigning`
-    // and notify BOTH member sides to hand over. The NEW executor reports the
-    // task back to in_progress — the mock never flips it here either.
+    // Approximates the server's reassign: expire the task's waiting cards,
+    // rewind non-terminal steps to pending, mint the new worker inline when the
+    // target is 外包 (the server leaves that to the scheduler), move the task to
+    // `reassigning` and notify the member sides. Not modelled: the
+    // predecessor's write rights during the hold, card expiry on claim, and the
+    // handover timeout.
     const t = findTask(id);
     const badRequest = (detail: string) =>
       mockApiError(
@@ -4402,13 +4403,10 @@ const mockApiImpl = {
       if (TERMINAL_STEP_STATUSES.has(st.status)) continue;
       st.status = "pending";
     }
-    // T-ba04: the OLD outsource worker is NO LONGER dismissed here — it stays
-    // live through the `reassigning` hold so the successor can hand over WITH
-    // it; the server fires it only when the successor reports the takeover
-    // (reassigning→in_progress) or the timeout reaper gives up. The FE cockpit
-    // has no takeover action (agents flip the status via MCP), so the mock has
-    // no surface to model that dismiss — the predecessor simply persists here,
-    // which is exactly the reassigning-window state.
+    // The previous outsource worker is not dismissed here: on the server it
+    // stays live through the `reassigning` hold and is fired when the successor
+    // calls claim_task or the handover timeout reclaims it. The cockpit has no
+    // claim action, so the mock keeps the predecessor as-is.
     if (newWorker) {
       outsourceWorkers.push(newWorker);
       t.executorKind = "outsource";

@@ -1638,13 +1638,14 @@ func (s *apiServer) HandlePostTaskMessageApiTasksTaskIdMessagePost(w http.Respon
 	writeJSON(w, http.StatusOK, chatPostReceiptOf(msg))
 }
 
-// POST /api/tasks/{task_id}/reassign — the owner/admin handover action
-// (T-160e; MCP reassign_task, requires admin_agent — the owner and the
-// assistant both drive it, the assistant only lives on the MCP face). Hands
-// the task to a NEW executor: a roster member, or an UNASSIGNED outsource slot
-// the scheduler mints a fresh worker for under the global parallel cap (T-35e0:
-// no inline mint at reassign — the task lands unassigned + the reassigning lock;
-// the dialog's model/effort/machine ride the task's outsource_target for the mint).
+// POST /api/tasks/{task_id}/reassign — the handover action (T-160e; MCP
+// reassign_task). Owner/admin may reassign any task; an agent may reassign a
+// task it is the acting executor of, subject to the 正職授權矩陣 rules below.
+// Hands the task to a NEW executor: a roster member, or an UNASSIGNED outsource
+// slot the scheduler mints a fresh worker for under the global parallel cap
+// (T-35e0: no inline mint at reassign — the task lands unassigned + the
+// reassigning lock; the dialog's model/effort/machine ride the task's
+// outsource_target for the mint).
 //
 // Effects, in order:
 //  1. every WAITING reply card of the task expires (the ask was the OLD
@@ -1652,18 +1653,21 @@ func (s *apiServer) HandlePostTaskMessageApiTasksTaskIdMessagePost(w http.Respon
 //     step as superseded history — T-1aea);
 //  2. non-terminal steps fall back to pending (the new executor replans or
 //     re-drives them); done/superseded rows stay untouched;
-//  3. a previously bound outsource worker is dismissed (release + session
-//     reclaim — the close-out hook reused);
-//  4. the executor re-points and the task enters the `reassigning` handover
-//     hold; ONLY the new executor leaves it (reassigning → in_progress on
-//     the agent report table, executor-guarded);
-//  5. each MEMBER side gets a handover chat message (the old executor is
-//     told to stop + leave a handover summary; the new one to read up and
-//     flip the status back — `note` rides that message); a fresh worker gets
-//     the task through its boot context instead;
-//  6. the task delta fans to the NEW audience via publishTask AND once,
-//     explicitly, to the OLD executor (publishTask reads the row's current
-//     executor, which would silently drop the person just unassigned).
+//  3. the executor re-points and the task enters the `reassigning` handover
+//     hold. The previous executor is stamped as predecessor and keeps the
+//     executor's write rights (actingExecutorOf) until the successor calls
+//     claim_task or the predecessor leaves; the successor can only claim.
+//     A bound outsource predecessor is not dismissed here — claim_task or the
+//     handover-timeout reaper does that. Under an existing hold the stamp
+//     stays on the original predecessor, and a bound outsource successor it
+//     displaces is dismissed;
+//  4. `note` is stored on the task (handover_note), and server-authored chat
+//     notices go to the predecessor (write the handover) and to a staff
+//     successor (confirm with the predecessor, then claim_task); an outsource
+//     successor finds the task through its boot sequence instead;
+//  5. the task delta fans to the NEW audience via publishTask AND once,
+//     explicitly, to the executor it replaced (publishTask reads the row's
+//     current executor, which would silently drop that member).
 //
 // Identity is untouched: type/inputs/dedupe_key/task id/deps never change.
 // Guards: 404 unknown task; 409 terminal or target == current executor; 400 an
@@ -1923,17 +1927,15 @@ func (s *apiServer) HandleReassignTaskApiTasksTaskIdReassignPost(w http.Response
 		}
 	}
 
-	// 3. The OLD outsource worker is NO LONGER dismissed HERE (T-ba04). It used
-	// to be released + session-reclaimed at reassign time, which killed the
-	// predecessor BEFORE any handover dialogue with the successor could happen
-	// (the `reassigning` hold exists precisely to host that dialogue). Instead
-	// the predecessor stays live through the hold and is fired the moment the
-	// successor claims the task (claim_task handler),
-	// or when the timeout reaper gives up on that report — dismissed by its own
+	// A bound outsource predecessor is NOT dismissed here (T-ba04): it stays
+	// live through the hold to write the handover, and is fired when the
+	// successor calls claim_task or when the handover-timeout reaper reclaims it
+	// after task.reassign_handover_timeout_secs with no task update — by its own
 	// WORKER ID (dismissOutsourceWorkerByID), never by task_id, so an
-	// outsource→outsource takeover does not kill the fresh worker minted below
-	// onto the SAME task_id. A member predecessor was never dismissed and still
-	// is not — it lives on its own member lifecycle and can hand over in chat.
+	// outsource→outsource takeover does not kill the fresh worker minted onto
+	// the SAME task_id. A staff predecessor is never dismissed here either; it
+	// keeps the hold's write rights until the successor claims or it is
+	// dismissed from the roster.
 
 	// Re-read the row: the card pass (releaseCardHold) may have rewritten it.
 	t, err = s.resolveTask(taskId)
@@ -2008,8 +2010,8 @@ func (s *apiServer) HandleReassignTaskApiTasksTaskIdReassignPost(w http.Response
 	// (sender = wireSystemSender, not currentActor): an automated handover must
 	// not read as an owner DM. They pair the two sides into a DIALOGUE —
 	// predecessor: "go hand over TO the successor"; successor: "your
-	// predecessor is X, confirm the handover WITH them, THEN flip the status
-	// yourself". Meta carries the task linkage the task-message route
+	// predecessor is X, confirm the handover WITH them, THEN call claim_task".
+	// Meta carries the task linkage the task-message route
 	// established. The predecessor notice fires for a member OR an outsource
 	// predecessor (the outsource one is kept live through the hold, so it can
 	// answer). An outsource SUCCESSOR is not minted here anymore (T-35e0 — the
