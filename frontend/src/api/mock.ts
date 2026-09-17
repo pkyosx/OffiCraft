@@ -4449,15 +4449,12 @@ const mockApiImpl = {
         id: `mock-reassign-old-${stamp}`,
         from: "system",
         to: oldExecutor,
-        // 🔴 T-6f44：逐字跟著 seeds/task_reassign_predecessor.md。owner 2026-08-24
-        // 拿掉了接手人的身分（「讓他自己去查」「不管是不是 outsource」），本體也
-        // 改成「先把交接寫到票上，對接是 nice-to-have」—— 因為外包接手人是排程器
-        // 之後才生的，那段對話可能永遠不會發生，唯一留得住的是寫在票上的字。
-        body:
+        // 本體取自〈轉派・給前任〉文件（含 owner 的修改），首行與本體之間不空行，
+        // 同 server 的 taskNoticeText。
+        body: (
           `[${t.taskNo}] 此任務已轉派給新的接手人。` +
-          `請停止推進，先把交接資訊寫到這張任務上：目前進度、進行中的事項、有哪些雷要注意。` +
-          `**這一步不能省，它是接手人唯一保證讀得到的東西** —— 接手人可能還沒被建出來，也可能你已經下線了才輪到他。\n\n` +
-          `寫完就算交出去了。如果接手人剛好在線上來找你，就順便當面補齊；沒有的話不用等，也不用去找他。`,
+          foldBootDoc("task_reassign_predecessor", "global").body
+        ).trim(),
         ts: stamp / 1000,
         attachments: [],
         replyCardId: null,

@@ -237,7 +237,7 @@ func TestTaskReassignPredecessorDoc_HeadPlusBodyIsTodaysChatNotice(t *testing.T)
 	// trailing newline — a document is a file and ends with one, a chat row is
 	// one message, so the send site trims what it posts the way buildBootContext
 	// trims every block it staples.
-	want := "[T-7e91] 此任務已轉派給新的接手人。" + "請停止推進，先把交接資訊寫到這張任務上：目前進度、進行中的事項、有哪些雷要注意。**這一步不能省，它是接手人唯一保證讀得到的東西** —— 接手人可能還沒被建出來，也可能你已經下線了才輪到他。\n\n寫完就算交出去了。如果接手人剛好在線上來找你，就順便當面補齊；沒有的話不用等，也不用去找他。" + "\n"
+	want := "[T-7e91] 此任務已轉派給新的接手人。" + "你收到這份說明，代表目前的任務需要交接給其他執行者。請停止推進並完成必要收尾，確保接手人能從遠端取得目前成果與完整脈絡：\n\n* 保存成果：將需要保留的 git commit 推送到 remote，需要保留的檔案以 `ocagent upload` 上傳後，把附件 id 寫進步驟備註，不要留下只有本機能取得的成果。\n* 寫入交接資訊：將目前進度、進行中的事項、需要注意的風險與下一步寫進任務的步驟備註。\n* 處理 sub-agent：若有正在執行的 sub-agent，要求其收尾並將結果寫回對應 task step。\n\n完成以上事項後即完成交接。若接手人已在線上並主動聯繫，再補充確認；否則不需要等待或主動尋找接手人。" + "\n"
 	if got != want {
 		t.Fatalf("the folded document is not today's reassign notice:\n got %q\nwant %q", got, want)
 	}
@@ -686,10 +686,10 @@ func TestTaskTakeoverDocs_HeadPlusBodyIsTodaysChatNoticeWithoutTheHandoverNote(t
 		// rule finds it at 開機盤點 for a successor that never receives this
 		// message — the outsource arm never does, because no worker id exists yet.
 		want: "[T-7e91] 你接手了這張任務，你的前任是 銀月（mira）。\n\n" +
-			"你接手這個任務後，先完成以下準備再開始執行：\n\n" +
-			"* **讀取任務**：使用 `get_task` 讀取目前步驟的 DoD；有步驟備註（`note_size_chars` 非 0）時，使用 `get_task_step` 讀取全文。若尚未讀過對應的任務手冊，再使用 `get_task_manual` 讀取。\n" +
-			"* **完成交接**：若有 `reassigned_from`，先讀取 `handover_note` 與步驟備註，並 `post_chat` 向前任確認目前進度與進行中的事項。\n" +
-			"* **認領並執行**：完成準備後，自行呼叫 `claim_task` 認領任務，再依目前步驟的 DoD 開始執行。\n",
+			"你收到這份說明，代表有一張任務需要由你接手。完成以下準備後，認領並開始執行：\n\n" +
+			"* **讀取任務**：使用 `get_task` 讀取任務內容；已有步驟時，一併確認目前步驟的 DoD，並對 `note_size_chars` 非 0 的步驟使用 `get_task_step` 讀取完整備註。若尚未讀過對應的任務手冊，使用 `get_task_manual` 讀取。\n" +
+			"* **確認交接**：若有 `reassigned_from`，讀取 `handover_note`，並使用 `post_chat` 向前任確認目前進度與進行中的事項。若前任無法回覆，以任務上的交接資訊為準，不要停在這裡等待。\n" +
+			"* **認領並執行**：完成準備後，呼叫 `claim_task` 認領任務，再依任務目前狀態繼續規劃或執行。\n",
 	}} {
 		t.Run(tc.kind, func(t *testing.T) {
 			s := newEventProcServer(t)
@@ -718,18 +718,18 @@ func TestTaskTakeoverDocs_HeadPlusBodyIsTodaysChatNoticeWithoutTheHandoverNote(t
 	t.Run("a staff successor with no predecessor gets the same body under a head that names none", func(t *testing.T) {
 		s := newEventProcServer(t)
 		want := "[T-7e91] 你接手了這張任務，這張任務沒有前任。\n\n" +
-			"你接手這個任務後，先完成以下準備再開始執行：\n\n" +
-			"* **讀取任務**：使用 `get_task` 讀取目前步驟的 DoD；有步驟備註（`note_size_chars` 非 0）時，使用 `get_task_step` 讀取全文。若尚未讀過對應的任務手冊，再使用 `get_task_manual` 讀取。\n" +
-			"* **完成交接**：若有 `reassigned_from`，先讀取 `handover_note` 與步驟備註，並 `post_chat` 向前任確認目前進度與進行中的事項。\n" +
-			"* **認領並執行**：完成準備後，自行呼叫 `claim_task` 認領任務，再依目前步驟的 DoD 開始執行。"
+			"你收到這份說明，代表有一張任務需要由你接手。完成以下準備後，認領並開始執行：\n\n" +
+			"* **讀取任務**：使用 `get_task` 讀取任務內容；已有步驟時，一併確認目前步驟的 DoD，並對 `note_size_chars` 非 0 的步驟使用 `get_task_step` 讀取完整備註。若尚未讀過對應的任務手冊，使用 `get_task_manual` 讀取。\n" +
+			"* **確認交接**：若有 `reassigned_from`，讀取 `handover_note`，並使用 `post_chat` 向前任確認目前進度與進行中的事項。若前任無法回覆，以任務上的交接資訊為準，不要停在這裡等待。\n" +
+			"* **認領並執行**：完成準備後，呼叫 `claim_task` 認領任務，再依任務目前狀態繼續規劃或執行。"
 		if got := s.takeoverNoticeText("T-7e91", ""); got != want {
 			t.Fatalf("notice without a predecessor:\n got %q\nwant %q", got, want)
 		}
 		wantWithPredecessor := "[T-7e91] 你接手了這張任務，你的前任是 銀月（mira）。\n\n" +
-			"你接手這個任務後，先完成以下準備再開始執行：\n\n" +
-			"* **讀取任務**：使用 `get_task` 讀取目前步驟的 DoD；有步驟備註（`note_size_chars` 非 0）時，使用 `get_task_step` 讀取全文。若尚未讀過對應的任務手冊，再使用 `get_task_manual` 讀取。\n" +
-			"* **完成交接**：若有 `reassigned_from`，先讀取 `handover_note` 與步驟備註，並 `post_chat` 向前任確認目前進度與進行中的事項。\n" +
-			"* **認領並執行**：完成準備後，自行呼叫 `claim_task` 認領任務，再依目前步驟的 DoD 開始執行。"
+			"你收到這份說明，代表有一張任務需要由你接手。完成以下準備後，認領並開始執行：\n\n" +
+			"* **讀取任務**：使用 `get_task` 讀取任務內容；已有步驟時，一併確認目前步驟的 DoD，並對 `note_size_chars` 非 0 的步驟使用 `get_task_step` 讀取完整備註。若尚未讀過對應的任務手冊，使用 `get_task_manual` 讀取。\n" +
+			"* **確認交接**：若有 `reassigned_from`，讀取 `handover_note`，並使用 `post_chat` 向前任確認目前進度與進行中的事項。若前任無法回覆，以任務上的交接資訊為準，不要停在這裡等待。\n" +
+			"* **認領並執行**：完成準備後，呼叫 `claim_task` 認領任務，再依任務目前狀態繼續規劃或執行。"
 		if got := s.takeoverNoticeText("T-7e91", "銀月（mira）"); got != wantWithPredecessor {
 			t.Fatalf("notice with a predecessor:\n got %q\nwant %q", got, wantWithPredecessor)
 		}

@@ -545,8 +545,8 @@ func (s *apiServer) callerMayEditTaskText(r *http.Request, t Task) bool {
 // PREDECESSOR stamped on it may still write the handover record.
 //
 // 🔴 WHY IT IS NEEDED. The reassign re-points executor_id in the same handler
-// that posts the predecessor its instructions — 「請停止推進，先把交接資訊寫到這
-// 張任務上：目前進度、進行中的事項、有哪些雷要注意」 — so by the time that
+// that posts the predecessor its instructions — 「將目前進度、進行中的事項、需要
+// 注意的風險與下一步寫進任務的步驟備註」 — so by the time that
 // message exists, callerMayDriveTask already answers false for the person it is
 // addressed to. The system asked for a document and took away the pen in the
 // same transaction; measured, every step-note write from the predecessor after

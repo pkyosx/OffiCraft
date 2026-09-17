@@ -689,7 +689,7 @@ func (s *apiServer) takeoverNoticeText(taskNo, predecessor string) string {
 // and no warning either. The other three (the context-high band and the two task
 // chat rows) have no equivalent, so there a fragment and "" are equally silent
 // and the reason to refuse is simply that the fragment MISLEADS: 轉派程序's body
-// says 「請停止推進，改為去跟接手人做交接」 while WHICH task lives only in the
+// says 「請停止推進並完成必要收尾」 while WHICH task lives only in the
 // head, so a predecessor holding several would not know which one to stop.
 //
 // The 〈加速停止〉 arm is where that costs the most and it is not hypothetical:

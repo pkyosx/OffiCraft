@@ -28,9 +28,9 @@ const apiTestBootDocMarker = "<!-- ↑唯讀區（程式產生，改不動）｜
 // this build ships it — a split document with a single variable and a paragraph
 // join, so its whole text can be written down beside the folds that produce it.
 const (
-	apiTestReassignPredecessorSeed = "[{task_no}] 此任務已轉派給新的接手人。\n\n<!-- ↑唯讀區（程式產生，改不動）｜↓本體（可編輯，零變數） -->\n\n請停止推進，先把交接資訊寫到這張任務上：目前進度、進行中的事項、有哪些雷要注意。**這一步不能省，它是接手人唯一保證讀得到的東西** —— 接手人可能還沒被建出來，也可能你已經下線了才輪到他。\n\n寫完就算交出去了。如果接手人剛好在線上來找你，就順便當面補齊；沒有的話不用等，也不用去找他。\n"
+	apiTestReassignPredecessorSeed = "[{task_no}] 此任務已轉派給新的接手人。\n\n<!-- ↑唯讀區（程式產生，改不動）｜↓本體（可編輯，零變數） -->\n\n你收到這份說明，代表目前的任務需要交接給其他執行者。請停止推進並完成必要收尾，確保接手人能從遠端取得目前成果與完整脈絡：\n\n* 保存成果：將需要保留的 git commit 推送到 remote，需要保留的檔案以 `ocagent upload` 上傳後，把附件 id 寫進步驟備註，不要留下只有本機能取得的成果。\n* 寫入交接資訊：將目前進度、進行中的事項、需要注意的風險與下一步寫進任務的步驟備註。\n* 處理 sub-agent：若有正在執行的 sub-agent，要求其收尾並將結果寫回對應 task step。\n\n完成以上事項後即完成交接。若接手人已在線上並主動聯繫，再補充確認；否則不需要等待或主動尋找接手人。\n"
 	apiTestReassignPredecessorHead = "[{task_no}] 此任務已轉派給新的接手人。"
-	apiTestReassignPredecessorBody = "請停止推進，先把交接資訊寫到這張任務上：目前進度、進行中的事項、有哪些雷要注意。**這一步不能省，它是接手人唯一保證讀得到的東西** —— 接手人可能還沒被建出來，也可能你已經下線了才輪到他。\n\n寫完就算交出去了。如果接手人剛好在線上來找你，就順便當面補齊；沒有的話不用等，也不用去找他。\n"
+	apiTestReassignPredecessorBody = "你收到這份說明，代表目前的任務需要交接給其他執行者。請停止推進並完成必要收尾，確保接手人能從遠端取得目前成果與完整脈絡：\n\n* 保存成果：將需要保留的 git commit 推送到 remote，需要保留的檔案以 `ocagent upload` 上傳後，把附件 id 寫進步驟備註，不要留下只有本機能取得的成果。\n* 寫入交接資訊：將目前進度、進行中的事項、需要注意的風險與下一步寫進任務的步驟備註。\n* 處理 sub-agent：若有正在執行的 sub-agent，要求其收尾並將結果寫回對應 task step。\n\n完成以上事項後即完成交接。若接手人已在線上並主動聯繫，再補充確認；否則不需要等待或主動尋找接手人。\n"
 )
 
 // apiTestUnblockedHead / apiTestUnblockedBody are the two halves of 〈解除阻擋〉,
@@ -335,7 +335,7 @@ func TestFoldBootDocDTO(t *testing.T) {
 			t.Fatalf("foldBootDocDTO: %v", err)
 		}
 		apiWantValue(t, "dto", apiTestJSONOf(t, dto), map[string]any{
-			"size_chars":     210,
+			"size_chars":     376,
 			"cap_chars":      15000,
 			"kind":           "task_reassign_predecessor",
 			"key":            "global",
@@ -440,8 +440,8 @@ func TestSystemInteractionText(t *testing.T) {
 			t.Fatalf("the boot fold and the read face disagree (%d vs %d runes)",
 				utf8.RuneCountInString(got), utf8.RuneCountInString(data["text"].(string)))
 		}
-		if n := utf8.RuneCountInString(got); n != 13236 {
-			t.Fatalf("the shipped block is %d runes, want 13236", n)
+		if n := utf8.RuneCountInString(got); n != 13336 {
+			t.Fatalf("the shipped block is %d runes, want 13336", n)
 		}
 	})
 
@@ -1152,9 +1152,9 @@ func TestBootDocReceiptOf(t *testing.T) {
 			"kind":       "task_reassign_predecessor",
 			"key":        "global",
 			"is_default": true,
-			"size_chars": 210,
+			"size_chars": 376,
 			"cap_chars":  15000,
-			"sha256":     "de67512c0374c0eb251a7c7a8e5250aba8a06e933632eea9cbb0c83f25162d19",
+			"sha256":     "1c19c35bb9ecf44103dd41c272a5e59f5f67b7ec10095976bf156afdc1b8a580",
 		})
 	})
 
@@ -1355,9 +1355,9 @@ func TestResetBootDoc(t *testing.T) {
 			"kind":       "task_reassign_predecessor",
 			"key":        "global",
 			"is_default": true,
-			"size_chars": 210,
+			"size_chars": 376,
 			"cap_chars":  15000,
-			"sha256":     "de67512c0374c0eb251a7c7a8e5250aba8a06e933632eea9cbb0c83f25162d19",
+			"sha256":     "1c19c35bb9ecf44103dd41c272a5e59f5f67b7ec10095976bf156afdc1b8a580",
 		})
 		_, after := apiJSON(t, h, "GET", "/api/boot-docs/task_reassign_predecessor/global", owner, "")
 		apiWantValue(t, "text", after["text"], apiTestReassignPredecessorSeed)
@@ -1443,7 +1443,7 @@ func TestHandleGetSystemInteractionApiSystemInteractionGet(t *testing.T) {
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
-		apiWantValue(t, "size_chars", data["size_chars"], 13236)
+		apiWantValue(t, "size_chars", data["size_chars"], 13336)
 		apiWantValue(t, "cap_chars", data["cap_chars"], 60000)
 		apiWantValue(t, "kind", data["kind"], "system_interaction")
 		apiWantValue(t, "key", data["key"], "global")
@@ -1453,8 +1453,8 @@ func TestHandleGetSystemInteractionApiSystemInteractionGet(t *testing.T) {
 		apiWantValue(t, "has_seed", data["has_seed"], true)
 		apiWantValue(t, "schema_version", data["schema_version"], 3)
 		text, ok := data["text"].(string)
-		if !ok || utf8.RuneCountInString(text) != 13236 {
-			t.Fatalf("the shipped system-interaction text has %d runes, want 13236", utf8.RuneCountInString(text))
+		if !ok || utf8.RuneCountInString(text) != 13336 {
+			t.Fatalf("the shipped system-interaction text has %d runes, want 13336", utf8.RuneCountInString(text))
 		}
 	})
 
@@ -1608,9 +1608,9 @@ func TestHandleResetSystemInteractionApiSystemInteractionResetPost(t *testing.T)
 			"kind":       "system_interaction",
 			"key":        "global",
 			"is_default": true,
-			"size_chars": 13236,
+			"size_chars": 13336,
 			"cap_chars":  60000,
-			"sha256":     "8d43f6aafe27fc7626a76000c4a51e9918f439ad6592febc731e5625da9b4b55",
+			"sha256":     "283ad3349124d2bbd5010320503bc357b474a5b37479cfb10aa9dc2866f26ff0",
 		})
 		dashboard.wantFrames(map[string]any{
 			"seq":   2,
@@ -1641,9 +1641,9 @@ func TestHandleResetSystemInteractionApiSystemInteractionResetPost(t *testing.T)
 			"kind":       "system_interaction",
 			"key":        "global",
 			"is_default": true,
-			"size_chars": 13236,
+			"size_chars": 13336,
 			"cap_chars":  60000,
-			"sha256":     "8d43f6aafe27fc7626a76000c4a51e9918f439ad6592febc731e5625da9b4b55",
+			"sha256":     "283ad3349124d2bbd5010320503bc357b474a5b37479cfb10aa9dc2866f26ff0",
 		})
 		dashboard.wantFrames()
 	})
