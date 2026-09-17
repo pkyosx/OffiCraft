@@ -4638,7 +4638,7 @@ func TestHandleSubmitTaskPlanApiTasksTaskIdPlanPost(t *testing.T) {
 				"drop the parallel_group to keep the step sequential")
 	})
 
-	t.Run("a replan that leaves every step of a task somebody else opened done lands ready_for_done", func(t *testing.T) {
+	t.Run("a replan that leaves every step done answers the plan receipt, lands ready_for_done and fans the delta", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
 		agent := apiTestAgentToken(t, api, "kip", "")
@@ -4648,6 +4648,9 @@ func TestHandleSubmitTaskPlanApiTasksTaskIdPlanPost(t *testing.T) {
 		firstStepID, _ := planned["steps"].([]any)[0].(map[string]any)["id"].(string)
 		apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+firstStepID+"/status", agent, `{"status":"in_progress"}`)
 		apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+firstStepID+"/status", agent, `{"status":"done"}`)
+		dashboard := apiTestListen(t, api, "")
+		executor := apiTestListen(t, api, "kip")
+		bystander := apiTestListen(t, api, "mira")
 
 		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/plan", agent,
 			`{"steps":[{"name":"Draft","dod":"a draft exists"}]}`)
@@ -4662,6 +4665,38 @@ func TestHandleSubmitTaskPlanApiTasksTaskIdPlanPost(t *testing.T) {
 			t.Fatalf("want an open ready_for_done task, got status %v closed_ts %v",
 				view["status"], view["closed_ts"])
 		}
+
+		readyFrame := map[string]any{
+			"seq":   5,
+			"topic": "task",
+			"op":    "patch",
+			"data": map[string]any{
+				"entity":  "task",
+				"key":     "owner::T-1",
+				"epoch":   5,
+				"deleted": false,
+				"payload": map[string]any{"id": "T-1", "priority": "mid", "status": "ready_for_done"},
+			},
+			"ts":      apiAnyNumber,
+			"trigger": "kip",
+		}
+		readyNoticeFrame := map[string]any{
+			"seq":   6,
+			"topic": "chat",
+			"op":    "patch",
+			"data": map[string]any{
+				"entity":  "chat",
+				"key":     apiAnyString,
+				"epoch":   6,
+				"deleted": false,
+				"payload": map[string]any{"id": apiAnyString, "from": "system", "to": "kip"},
+			},
+			"ts":      apiAnyNumber,
+			"trigger": "kip",
+		}
+		dashboard.wantFrames(readyFrame, readyNoticeFrame)
+		executor.wantFrames(readyFrame, readyNoticeFrame)
+		bystander.wantFrames()
 	})
 
 	t.Run("a plan with no steps at all answers 400", func(t *testing.T) {
@@ -5089,7 +5124,7 @@ func TestHandleUpdateTaskStepStatusApiTasksTaskIdStepsStepIdStatusPost(t *testin
 		dashboard.wantFrames()
 	})
 
-	t.Run("the report that finishes the last step of a task somebody else opened lands ready_for_done, and mark_task_done is what closes it", func(t *testing.T) {
+	t.Run("the report that finishes the last step lands ready_for_done, and mark_task_done is what closes it", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
 		agent := apiTestAgentToken(t, api, "kip", "")
@@ -7130,7 +7165,7 @@ func TestCallerMayMarkTaskDone(t *testing.T) {
 }
 
 func TestHandleMarkTaskDoneApiTasksTaskIdMarkDonePost(t *testing.T) {
-	t.Run("a task somebody else opened, in ready_for_done, is closed by its executor, stamping closed_ts", func(t *testing.T) {
+	t.Run("a task in ready_for_done is closed by its executor, stamping closed_ts", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
 		agent := readyForDoneTask(t, api, h, owner, "T-1", "kip")

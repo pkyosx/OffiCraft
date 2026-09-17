@@ -503,7 +503,7 @@ func TestHandleDeleteTaskStepApiTasksTaskIdStepsStepIdDeletePost(t *testing.T) {
 		}
 	})
 
-	t.Run("deleting the last unfinished step of a delegated task lands ready_for_done", func(t *testing.T) {
+	t.Run("deleting the last unfinished step answers the receipt and lands ready_for_done", func(t *testing.T) {
 		api := newTasksTestServer(t)
 		task := createDelegatedTask(t, api, "owner", "m-exec")
 		v1 := submitPlan(t, api, task.ID, "m-exec", []map[string]any{
@@ -528,29 +528,6 @@ func TestHandleDeleteTaskStepApiTasksTaskIdStepsStepIdDeletePost(t *testing.T) {
 		if v2.Status != TaskStatusReadyForDone || v2.ClosedTS != nil {
 			t.Fatalf("want an open ready_for_done task, got %q closed_ts=%v",
 				v2.Status, v2.ClosedTS)
-		}
-	})
-
-	t.Run("deleting the last unfinished step of a self-created task lands ready_for_done", func(t *testing.T) {
-		api := newTasksTestServer(t)
-		task := createAdHocTask(t, api, "m-exec")
-		v1 := submitPlan(t, api, task.ID, "m-exec", []map[string]any{
-			{"name": "done work", "dod": "d1"},
-			{"name": "abandoned", "dod": "d2"},
-		})
-		for _, status := range []string{"in_progress", "done"} {
-			if rec := driveStepStatus(t, api, task.ID, v1.Steps[0].ID, "m-exec",
-				status); rec.Code != http.StatusOK {
-				t.Fatalf("drive %s: %d %s", status, rec.Code, rec.Body.String())
-			}
-		}
-		if rec := deleteStep(t, api, task.ID, v1.Steps[1].ID,
-			"m-exec"); rec.Code != http.StatusOK {
-			t.Fatalf("delete: %d %s", rec.Code, rec.Body.String())
-		}
-		v2 := getTaskView(t, api, task.ID)
-		if v2.Status != TaskStatusReadyForDone {
-			t.Fatalf("an all-done step set lands ready_for_done, got %q", v2.Status)
 		}
 		assertStepOrderContiguous(t, "delete_step (last unfinished)", v2.Steps)
 	})
