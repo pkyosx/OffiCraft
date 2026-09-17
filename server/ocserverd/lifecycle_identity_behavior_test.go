@@ -993,6 +993,11 @@ var identityGateLedger = map[string]string{
 		"write, so the successor is minted now rather than up to a cadence period " +
 		"later — the twin of create_task's seam. Both exist only on the 發包 arm " +
 		"because a member reassign has its executor in hand already.",
+	"api_tasks.go :: HandleReassignTaskApiTasksTaskIdReassignPost :: displacedKind == TaskExecutorOutsource": "" +
+		"T-248: the reassign-back-to-the-predecessor path. Same reason as the " +
+		"leavingKind entry below: a displaced unclaimed outsource successor exists " +
+		"only for this task and is dismissed by its own id; a staff member lives on " +
+		"its own lifecycle and must not be.",
 	"api_tasks.go :: HandleReassignTaskApiTasksTaskIdReassignPost :: leavingKind == TaskExecutorOutsource": "" +
 		"T-248: a re-reassign under the reassigning hold displaces an unclaimed " +
 		"successor that is never stamped as predecessor, so nothing else would ever " +

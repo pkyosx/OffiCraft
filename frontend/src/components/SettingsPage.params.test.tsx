@@ -134,12 +134,23 @@ describe("SettingsPage · 參數調整", () => {
       expect((await api.getServerSettings()).reassignHandoverTimeoutSecs).toBe(600),
     );
     expect(patch).toHaveBeenCalledWith({ reassignHandoverTimeoutSecs: 600 });
-    fireEvent.change(secs, { target: { value: "59" } });
-    fireEvent.blur(secs);
-    await utils.findByText(s.paramsSaveError);
-    expect(secs.value).toBe("600");
-    expect((await api.getServerSettings()).reassignHandoverTimeoutSecs).toBe(600);
-    expect(patch).toHaveBeenCalledTimes(1);
+    for (const edge of [60, 86400]) {
+      fireEvent.change(secs, { target: { value: String(edge) } });
+      fireEvent.blur(secs);
+      await waitFor(async () =>
+        expect((await api.getServerSettings()).reassignHandoverTimeoutSecs).toBe(edge),
+      );
+      expect(patch).toHaveBeenLastCalledWith({ reassignHandoverTimeoutSecs: edge });
+    }
+    expect(patch).toHaveBeenCalledTimes(3);
+    for (const outside of ["59", "86401"]) {
+      fireEvent.change(secs, { target: { value: outside } });
+      fireEvent.blur(secs);
+      await utils.findByText(s.paramsSaveError);
+      expect(secs.value).toBe("86400");
+    }
+    expect((await api.getServerSettings()).reassignHandoverTimeoutSecs).toBe(86400);
+    expect(patch).toHaveBeenCalledTimes(3);
     patch.mockRestore();
   });
 

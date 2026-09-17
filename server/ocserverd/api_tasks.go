@@ -1669,6 +1669,11 @@ func (s *apiServer) HandlePostTaskMessageApiTasksTaskIdMessagePost(w http.Respon
 //     explicitly, to the executor it replaced (publishTask reads the row's
 //     current executor, which would silently drop that member).
 //
+// A staff target naming the predecessor that still holds the task cancels the
+// handover instead: the task returns to it with the lock cleared, a bound
+// outsource successor is dismissed, and steps, cards and notices are left
+// alone.
+//
 // Identity is untouched: type/inputs/dedupe_key/task id/deps never change.
 // Guards: 404 unknown task; 409 terminal or target == current executor; 400 an
 // invalid target (unknown/inactive member, a warden, missing member_id, a bad
@@ -1870,6 +1875,48 @@ func (s *apiServer) HandleReassignTaskApiTasksTaskIdReassignPost(w http.Response
 		}
 	}
 
+	// Reassigning back to the predecessor that still holds the task cancels the
+	// handover: the work never left it, so its steps and cards stay as they are
+	// and nobody is sent a handover notice.
+	if newMember != nil && newMember.ID == t.ReassignedFrom && s.predecessorHoldsTask(*t) {
+		now := nowSecs()
+		trigger := requestTrigger(r)
+		displaced, displacedKind := t.ExecutorID, t.ExecutorKind
+		t.ExecutorKind = TaskExecutorStaff
+		t.ExecutorID = newMember.ID
+		t.OutsourceRuntime = RuntimeClaude
+		t.OutsourceModel, t.OutsourceEffort, t.OutsourceMachine = "", "", ""
+		t.OutsourceDispatched = false
+		t.Lock = TaskLockNone
+		steps, err := s.dal.ListTaskSteps(t.ID)
+		if err != nil {
+			internalError(w, err)
+			return
+		}
+		t.Status = DeriveTaskStatus(steps)
+		if note != "" {
+			t.HandoverNote = note
+			t.HandoverNoteTS = now
+			t.HandoverNoteBy = currentActor(r)
+		}
+		t.UpdatedTS = now
+		if err := s.dal.PutTask(*t); err != nil {
+			internalError(w, err)
+			return
+		}
+		if displacedKind == TaskExecutorOutsource && displaced != "" {
+			s.dismissOutsourceWorkerByID(displaced, now, trigger)
+		}
+		s.publishTask(*t, trigger)
+		if displaced != "" {
+			s.hub.Publish("task", "patch", "task", wireOwnerID+"::"+t.ID,
+				map[string]any{"id": t.ID, "status": t.Status, "priority": t.Priority},
+				audienceMembers(displaced), trigger)
+		}
+		s.writeTaskWriteReceipt(w, *t)
+		return
+	}
+
 	// oldExecutor is who the task is handed over FROM. Under the hold that stays
 	// the stamped predecessor; the unclaimed successor it displaces is neither
 	// stamped nor notified. A predecessor that has left keeps its stamp but is
@@ -1930,7 +1977,7 @@ func (s *apiServer) HandleReassignTaskApiTasksTaskIdReassignPost(w http.Response
 	// A bound outsource predecessor is NOT dismissed here (T-ba04): it stays
 	// live through the hold to write the handover, and is fired when the
 	// successor calls claim_task or when the handover-timeout reaper reclaims it
-	// after task.reassign_handover_timeout_secs with no task update — by its own
+	// after task.reassign_handover_timeout_secs without a change to the task's updated time — by its own
 	// WORKER ID (dismissOutsourceWorkerByID), never by task_id, so an
 	// outsource→outsource takeover does not kill the fresh worker minted onto
 	// the SAME task_id. A staff predecessor is never dismissed here either; it

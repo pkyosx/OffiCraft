@@ -547,8 +547,9 @@ func (s *apiServer) runOutsourceTick(now float64) {
 		}
 	}
 
-	// T-ba04 handover-timeout reaper: a task left in `reassigning` with no task
-	// update for task.reassign_handover_timeout_secs means the successor has not
+	// T-ba04 handover-timeout reaper: a task left in `reassigning` whose updated
+	// time has not moved for task.reassign_handover_timeout_secs (artifact
+	// writes do not move it) means the successor has not
 	// called claim_task, so the PREDECESSOR outsource worker — kept live at
 	// reassign time to write the handover — would otherwise leak its session.
 	// Release + reclaim that predecessor here, by its OWN id (never by task_id:

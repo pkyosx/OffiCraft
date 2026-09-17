@@ -164,7 +164,8 @@ const (
 	settingOutsourceMaxParallel = "task.outsource_max_parallel"
 	// settingReassignHandoverTimeoutSecs (T-248, owner rc-849a28792928 /
 	// rc-6ee43d22d6fd) is how long an OUTSOURCE predecessor under the reassign
-	// hold may go without a task update before the handover-timeout reaper
+	// hold may go without a change to the task's updated time before the
+	// handover-timeout reaper
 	// reclaims it, in seconds.
 	settingReassignHandoverTimeoutSecs = "task.reassign_handover_timeout_secs"
 	// settingDocCapChars* (T-3aeb, owner 2026-07-31; split four ways in T-ae38,
