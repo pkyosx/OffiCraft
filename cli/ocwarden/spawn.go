@@ -1040,10 +1040,9 @@ type SpawnDeps struct {
 	// and the launch line states that same answer to the child, so there is
 	// nothing about this spawn's environment left for the seam to be told.
 	Pretrust func() error
-	// PurgeTrash (T-684c, nil-skipped) reaps <workdir>/trash at spawn time — the
-	// scratch the PREVIOUS generation of this agent mv'd there instead of rm-ing it
-	// (the harness's un-waivable dangerous-rm prompt stands in front of an agent's own rm; see
-	// trash.go). Bound PER-SPAWN by the transport wiring because it needs this
+	// PurgeTrash (T-684c, nil-skipped) reaps <workdir>/trash at spawn time —
+	// whatever an earlier generation of this agent moved there (see trash.go for
+	// the retired procedure). Bound PER-SPAWN by the transport wiring because it needs this
 	// member's workdir, exactly like Pretrust. Purely best-effort: it never fails
 	// a spawn.
 	PurgeTrash func()
@@ -1257,9 +1256,8 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 		return SpawnOutcome{OK: false, Reason: fmt.Sprintf(
 			"mkdir_failed: workdir %s: %v", workdir, err)}
 	}
-	// T-684c: reap whatever the PREVIOUS generation of this agent mv'd into
-	// <workdir>/trash before the fresh session starts (see trash.go for the
-	// procedure that put files there).
+	// T-684c: reap whatever an earlier generation of this agent moved into
+	// <workdir>/trash before the fresh session starts (see trash.go).
 	// nil-skipped seam; a refusal/failure is logged inside purgeTrash and NEVER
 	// aborts the spawn — a stale trash dir must not be able to take an agent offline.
 	if d.PurgeTrash != nil {
