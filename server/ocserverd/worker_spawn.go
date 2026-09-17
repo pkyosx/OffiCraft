@@ -1766,7 +1766,7 @@ const (
 // ⚠️ THE EPOCH GUARD ON THAT THIRD ARM — the STALE-LATCH finding, which is the
 // hole the 收口-window finding's own fix opened. stopped_since is latched in TWO places and only one of them
 // is a handover: collectWorkerHandover latches it as the 收口 of a refocus
-// epoch, and workerReportStopped's ELSE arm latches it for a report arriving
+// epoch, and workerReportStopped latches it for a report arriving
 // outside any handover (an ordinary 停止 where the worker says it has finished).
 // The second one is latched with NO epoch to pair it with. (Until T-ed79 parity
 // #11 the restart handler wrote desired_state
@@ -2108,7 +2108,7 @@ func (s *apiServer) autoHandoverWorker(w OutsourceWorker, now float64) {
 	// desired-offline worker leaves here whatever else is on its row.
 	//
 	// What collects a 停止 is the worker's own report_stopped
-	// (workerReportStopped's stop arm) — same as staff. The two cases handled
+	// (workerReportStopped's desired-offline arm) — same as staff. The two cases handled
 	// here are the ones no report can ever answer:
 	//
 	//   * the session is CONFIRMED gone (workerOfflineConfirmGraceSecs of
@@ -2246,6 +2246,15 @@ func (s *apiServer) openWorkerHandoverGrace(w OutsourceWorker, trigger string) {
 // s.outsourceMu and pass a freshly-read row with refocus_since>0.
 func (s *apiServer) collectWorkerHandover(w *OutsourceWorker, reason, trigger string, now float64) bool {
 	_, prior := collectWindDownRow(windDownAnchorRowOfWorker(w), now)
+	return s.stopCollectedWorkerForHandover(w, prior, reason, trigger, now)
+}
+
+// stopCollectedWorkerForHandover is collectWorkerHandover after the latch: w
+// already carries stopped_since, prior is the anchor before it. A deferred
+// stop (no kill target) restores prior, so the worker's next stopped-report is
+// a first report again rather than an already_reported one. Callers hold
+// s.outsourceMu.
+func (s *apiServer) stopCollectedWorkerForHandover(w *OutsourceWorker, prior float64, reason, trigger string, now float64) bool {
 	if err := s.persistWorkerWindDownAnchors(*w); err != nil {
 		outsourceLog("handover collect %s (%s): stopped-latch ANCHOR write failed: %v", w.ID, reason, err)
 		return false
@@ -2379,19 +2388,10 @@ func (s *apiServer) workerReportStopping(id, trigger string) (*Member, error) {
 }
 
 // workerReportStopped is report_stopped for a kind='outsource' caller: the
-// FIRST stopped-report of a refocus-marked, desired-online worker latches
-// stopped_since for the shared FSM to collect on its next pass (the staff
-// shape); a repeat report, or one outside a handover, only anchors
-// stopped_since once and never dispatches. Takes s.outsourceMu.
-//
-// 🔴 RETURNS WHICH OF THE FOUR ARMS IT TOOK (the stop_effect enum, T-102). The
-// four are not variations on one outcome — two of them collect and two of them
-// do nothing a caller can rely on — and until this return existed they were
-// indistinguishable from outside: every one answered 200 with the same bytes.
-// The two silent ones are the bare latch below (nothing is watching
-// stopped_since on a row with no epoch and no offline intent) and the repeat
-// report (the whole body is skipped). A worker that reads "stopped" into either
-// of those is about to be woken again and keep spending.
+// shared decideStoppedReport decides, and the worker kill executes it. Desired
+// offline is held down (collectWorkerStop, whatever stop epoch is or is not
+// open); desired online goes through the handover funnel, whose replacement
+// START is the shared FSM's once the worker reads offline. Takes s.outsourceMu.
 func (s *apiServer) workerReportStopped(id, trigger string) (*Member, string, error) {
 	s.outsourceMu.Lock()
 	defer s.outsourceMu.Unlock()
@@ -2399,79 +2399,20 @@ func (s *apiServer) workerReportStopped(id, trigger string) (*Member, string, er
 	if err != nil {
 		return nil, "", err
 	}
-	// 🔴 THE FOURTH 收口 FUNNEL, and it is the one T-65 包⑤ nearly shipped a false
-	// sentence about: the shared body's header said "three funnels" while this
-	// one still hand-wrote both the once-only guard and the stamp, twice. The
-	// guard IS what collectWindDownRow owns, so it is the guard that moved, not
-	// just the two assignments — leaving the `if` here would have kept a second
-	// copy of the rule and made "four" as hollow as "three" was.
-	//
-	// ⚠️ ONE NARROW ORDERING CHANGE, named rather than hidden: the 停止 arm below
-	// now hands collectWorkerStop a row whose stopped_since is ALREADY stamped,
-	// so that call's own collectWindDownRow is a no-op and the persisted anchor
-	// carries THIS clock read instead of one taken a few microseconds later.
-	// Same value to every reader. The only place the two differ at all is the
-	// error path where the post-collect re-read fails: the receipt then reports
-	// this row rather than a zeroed one — which is the truer of the two, because
-	// collectWorkerStop did persist the latch before the re-read broke.
-	latched, _ := collectWindDownRow(windDownAnchorRowOfWorker(w), nowSecs())
-	if latched {
-		// 🔴 TWO 收口 ARMS, and the second one is the cell this ticket had to
-		// prove (T-ed79). The first arm alone was correct only while 停止 killed
-		// on the spot: it requires `desired online ∧ refocus_since > 0`, and a
-		// 停止 epoch is NEITHER — desired_state is offline and there is no
-		// refocus epoch (the stop clears it). With the graceful stop, a report
-		// arriving on that arm fell through to the bare latch below, which
-		// dispatches nothing at all: the worker would have said it was finished
-		// and then sat there alive on a closed-out session forever, which is
-		// strictly worse than the kill this verb used to do.
-		switch {
-		case w.DesiredState == DesiredStateOnline && w.RefocusSince > 0.0:
-			// LATCH ONLY — the staff contract: decideUp's recycle arm keys on
-			// this latch, STOPs the session on the next tick, and STARTs the
-			// replacement once the worker reads offline. One decider, one kill.
-			if err := s.persistWorkerWindDownAnchors(*w); err != nil {
-				return nil, "", err
-			}
-			if err := s.putMember(memberFromWorker(*w), trigger); err != nil {
-				return nil, "", err
-			}
-			m := memberFromWorker(*w)
-			return &m, stopEffectLatchedForCollect, nil
-		case w.DesiredState == DesiredStateOffline &&
-			gracefulStopEpochOpen(memberFromWorker(*w)):
-			// The 停止 arm: kill, never re-spawn. The forced epoch is excluded
-			// because a force-stopped session was cut off rather than asked —
-			// its kill already went out and nothing is waiting for a report.
-			// That exclusion is not spelled out here: it is the second half of
-			// gracefulStopEpochOpen (api_members.go), the same call every other
-			// site asks.
+	now := nowSecs()
+	collect, stopEffect, prior := decideStoppedReport(windDownAnchorRowOfWorker(w), now)
+	if collect {
+		if w.DesiredState == DesiredStateOffline {
 			s.collectWorkerStop(*w, "stopped-report", trigger)
-			if fresh, ferr := s.resolveLiveWorker(id); ferr == nil {
-				w = fresh
-			}
-			m := memberFromWorker(*w)
-			return &m, stopEffectCollected, nil
+		} else {
+			s.stopCollectedWorkerForHandover(w, prior, "stopped-report", trigger, now)
 		}
-		// 🔴 THE BARE LATCH — neither arm above matched, so stopped_since is
-		// written and NOTHING is dispatched or owed. There is no epoch for a
-		// tick to close and no offline intent to hold the worker down, so the
-		// FSM's next pass simply starts it again. The receipt says
-		// recorded_only for exactly that: the end of this session is on the
-		// record, and no one is coming.
-		if err := s.persistWorkerWindDownAnchors(*w); err != nil {
-			return nil, "", err
+		if fresh, ferr := s.resolveLiveWorker(id); ferr == nil {
+			w = fresh
 		}
-		if err := s.putMember(memberFromWorker(*w), trigger); err != nil {
-			return nil, "", err
-		}
-		m := memberFromWorker(*w)
-		return &m, stopEffectRecordedOnly, nil
 	}
-	// stopped_since was ALREADY anchored: the body above ran for an earlier
-	// report and this call changed nothing whatsoever.
 	m := memberFromWorker(*w)
-	return &m, stopEffectAlreadyReported, nil
+	return &m, stopEffect, nil
 }
 
 // workerRestartSelf is restart_self for a kind='outsource' caller: stamp a new

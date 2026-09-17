@@ -516,7 +516,7 @@ func forcedEpochLive(m Member) bool {
 //   - the COLLECT — the two worker-side arms that end a 停止 epoch without a
 //     report the server can wait for: autoHandoverWorker's stop arm (session
 //     confirmed gone, or the owner's accelerated deadline lapsed) and
-//     workerReportStopped's 停止 arm. A forced epoch's kill already went out,
+//     workerReportStopped's desired-offline arm. A forced epoch's kill already went out,
 //     so there is nothing left for either to collect. Both used to write the
 //     two terms out by hand; they were the copies this comment did not count.
 //     ⚠️ The staff twin of the first of those — decideDown's `accelerated`
@@ -2275,13 +2275,9 @@ func (s *apiServer) HandleReportStoppingApiSelfStoppingPost(w http.ResponseWrite
 }
 
 // POST /api/self/stopped — anchors stopped_since ONCE (never re-stamped).
-// For staff that FIRST report dispatches the stop at once rather than on the
-// next ~30s tick; a replacement, if any, starts once the session reads offline.
-// An outsource worker's report only latches the collect for the shared FSM
-// (workerReportStopped). It no longer matters what
-// opened the offboard: an agent that says it is done is collected either way
-// (owner rc-b08d49dc3b03), and desired_state alone decides whether a new
-// generation follows.
+// Staff and outsource workers share one decision (decideStoppedReport); only
+// the kill differs per kind. A replacement, if any, starts once the session
+// reads offline.
 func (s *apiServer) HandleReportStoppedApiSelfStoppedPost(w http.ResponseWriter, r *http.Request) {
 	m, err := s.resolveSelf(r)
 	if err != nil {
@@ -2289,10 +2285,6 @@ func (s *apiServer) HandleReportStoppedApiSelfStoppedPost(w http.ResponseWriter,
 		return
 	}
 	if m.Kind == KindOutsource {
-		// Worker 收口 (T-ea82): the first stopped-report of a refocus-marked
-		// worker latches stopped_since for the shared FSM to collect — the
-		// member recycle shape, riding the worker's own kill funnel instead of
-		// dispatchRobustStopNow.
 		fresh, stopEffect, werr := s.workerReportStopped(m.ID, requestTrigger(r))
 		if werr != nil {
 			writeResolveError(w, werr, "member", currentActor(r))
@@ -2318,7 +2310,7 @@ func (s *apiServer) HandleReportStoppedApiSelfStoppedPost(w http.ResponseWriter,
 	//
 	// desired_state decides what follows, and neither arm needs a special case
 	// here: online respawns on the next tick's plain START, offline stays down.
-	recycleKill, _ := collectWindDownRow(windDownAnchorRowOfMember(m), nowSecs())
+	collect, stopEffect, _ := decideStoppedReport(windDownAnchorRowOfMember(m), nowSecs())
 	if err := s.persistMemberWindDownAnchors(*m); err != nil {
 		internalError(w, err)
 		return
@@ -2329,19 +2321,23 @@ func (s *apiServer) HandleReportStoppedApiSelfStoppedPost(w http.ResponseWriter,
 	}
 	// Dispatch AFTER putMember so the marker persistence + member-delta fan
 	// (→ agent RecycleHook) has already landed before the STOP.
-	//
-	// 🔴 THE STAFF ARM HAS ONLY TWO OF THE FOUR OUTCOMES (T-102), and that is
-	// the ruling above restated on the wire: a staff stopped-report is ALWAYS
-	// collected, so the first one is `collected` and there is no
-	// recorded_only / latched_for_collect cell on this side. A repeat report is
-	// `already_reported` — the anchor is not re-stamped and no second STOP goes
-	// out, so nothing this call did changed the outcome of the first one.
-	stopEffect := stopEffectAlreadyReported
-	if recycleKill {
+	if collect {
 		s.dispatchRobustStopNow(m.ID)
-		stopEffect = stopEffectCollected
 	}
 	s.writeSelfReportStopReceipt(w, *m, stopEffect)
+}
+
+// decideStoppedReport is the report_stopped decision for BOTH kinds (owner
+// rc-b08d49dc3b03): the first report latches stopped_since and is always
+// collected; a repeat is already_reported and collects nothing. It never reads
+// desired_state — that only decides what the per-kind kill leaves behind.
+// prior is the pre-latch anchor, for a kill that has to roll the latch back.
+func decideStoppedReport(row windDownAnchorRow, now float64) (collect bool, stopEffect string, prior float64) {
+	latched, prior := collectWindDownRow(row, now)
+	if !latched {
+		return false, stopEffectAlreadyReported, prior
+	}
+	return true, stopEffectCollected, prior
 }
 
 // POST /api/self/refocus — restart_self(): the agent's SELF-TRIGGERED recycle

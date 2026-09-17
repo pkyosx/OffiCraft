@@ -2115,13 +2115,14 @@ type selfReportReceiptDTO struct {
 	StopEffect string `json:"stop_effect,omitempty"`
 }
 
-// The stop_effect enum on selfReportReceiptDTO — the four outcomes report_stopped
-// can have. The pairing that matters to a caller is: the first two mean somebody
-// is (or provably will be) collecting this session, the last two mean NOBODY is.
+// The stop_effect enum on selfReportReceiptDTO. Since T-251 decideStoppedReport
+// answers only collected / already_reported for both kinds;
+// latched_for_collect and recorded_only stay in the wire enum but are no longer
+// produced.
 const (
-	// stopEffectCollected — a collect was dispatched by THIS call: the staff
-	// arm's robust STOP, or the worker 停止 arm's collectWorkerStop (kill, no
-	// respawn). The session ends.
+	// stopEffectCollected — a collect was dispatched by THIS call (the staff
+	// robust STOP, or the worker kill). The session ends; desired_state decides
+	// whether a new one starts.
 	stopEffectCollected = "collected"
 	// stopEffectLatchedForCollect — nothing was dispatched here, but the latch
 	// this call wrote is the very thing the next reconcile tick keys on, so the

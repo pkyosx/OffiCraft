@@ -676,11 +676,11 @@ func TestHandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost(t *testing
 		if status, data := apiJSON(t, h, "POST", "/api/self/stopped", contractor, `{}`); status != 200 {
 			t.Fatalf("report_stopped: %d (%v)", status, data)
 		}
-		wsWantWardenFrames(t, api, ServerSelfHost)
+		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"))
 
 		now := nowSecs()
 		api.runOutsourceTick(now)
-		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"))
+		wsWantWardenFrames(t, api, ServerSelfHost)
 		api.runOutsourceTick(now + 30)
 		wsWantWardenFrames(t, api, ServerSelfHost)
 

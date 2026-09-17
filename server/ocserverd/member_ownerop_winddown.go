@@ -829,9 +829,7 @@ func (s *apiServer) consumeWorkerRestartAfterStop(w *OutsourceWorker, now float6
 // funnels around it need:
 //
 //   - `latched` says whether THIS call is the one that collected. BOTH
-//     report_stopped faces read it, and read it for the same purpose: 正職's
-//     HandleReportStoppedApiSelfStoppedPost as `recycleKill`, 外包's
-//     workerReportStopped as the gate over its whole body. First report ⇒
+//     report_stopped faces read it through decideStoppedReport. First report ⇒
 //     dispatch/collect and receipt `collected`; repeat ⇒ `already_reported`,
 //     no second kill, and the anchor NOT moved. The two collect funnels
 //     (collectWorkerHandover / collectWorkerStop) discard it — their callers
