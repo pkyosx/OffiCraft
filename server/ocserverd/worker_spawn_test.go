@@ -890,6 +890,22 @@ func TestNotifyWorkerSpawn(t *testing.T) {
 		apiWantValue(t, "armed kills", any(float64(len(api.workerStopLanded))), any(0))
 	})
 
+	t.Run("under a dispatched start, a session_already_exists refusal receipt restores the previous anchor", func(t *testing.T) {
+		api, _, d, _, w := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
+		apiTestListen(t, api, ServerSelfHost)
+		infraSeedAnchoredSession(t, api, d, "ow-abc123")
+
+		api.outsourceMu.Lock()
+		api.notifyWorkerSpawn(wsPinned(w), 1000)
+		api.outsourceMu.Unlock()
+		api.foldCommandResult(map[string]any{
+			"worker_id": "ow-abc123", "rpc": "start", "ok": false,
+			"reason": infraClobberReason, "at": float64(1001),
+		}, "telemetry", ServerSelfHost)
+
+		infraWantSession(t, api, d, "ow-abc123", 1700000000, 1700000000, infraSeededGauge())
+	})
+
 	t.Run("a start toward a DIFFERENT machine leaves the kills the old box still owes standing", func(t *testing.T) {
 		api, _, _, _, w := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
 		apiTestListen(t, api, ServerSelfHost)

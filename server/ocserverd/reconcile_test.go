@@ -2043,6 +2043,24 @@ func TestReconcileOne(t *testing.T) {
 		}
 	})
 
+	t.Run("under a dispatched start, a session_already_exists refusal receipt restores the previous anchor", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestOnline(t, api, "m-box", "")
+		reconcileTestPut(t, d, Member{ID: "runner", Name: "Runner", Kind: KindStaff, RoleKey: "assistant", DesiredState: DesiredStateOnline, DesiredMachineID: "m-box"})
+		infraSeedAnchoredSession(t, api, d, "runner")
+
+		got := api.reconcileOne(reconcileTestRow(t, d, "runner"), newReconcileState(), reconcileTestNow)
+		if got.Command != reconcileCmdStart {
+			t.Fatalf("premise: a START must be dispatched, got %+v", got)
+		}
+		api.foldCommandResult(map[string]any{
+			"member_id": "runner", "rpc": "start", "ok": false,
+			"reason": infraClobberReason, "at": reconcileTestNow + 1,
+		}, "telemetry", "m-box")
+
+		infraWantSession(t, api, d, "runner", 1700000000, 1700000000, infraSeededGauge())
+	})
+
 	t.Run("a member with no machine is downgraded to a no-op that reports unlanded, keeps the prior state and stamps the row", func(t *testing.T) {
 		api, d := reconcileTestServer(t)
 		reconcileTestPut(t, d, Member{ID: "nowhere", Name: "Nowhere", Kind: KindStaff, RoleKey: "assistant", DesiredState: DesiredStateOnline})
