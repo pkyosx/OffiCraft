@@ -488,12 +488,42 @@ func (s *apiServer) writeTaskStepStatusReceipt(w http.ResponseWriter, t Task, st
 // pinning the literal again in a test, silently takes a door back out of range.
 const executorGuardRefusal = "caller is not the task's executor"
 
+// predecessorHoldsTask reports whether the reassign predecessor, not the
+// executor, holds the executor's write rights on t: while the `reassigning`
+// lock is on and a predecessor is stamped (owner ruling 2026-09-17, cards
+// rc-5ba4a6f802f4 / rc-0a0892e3588f). Any further condition on the
+// predecessor belongs here.
+func predecessorHoldsTask(t Task) bool {
+	return t.Lock == TaskLockReassigning && t.ReassignedFrom != ""
+}
+
+// actingExecutorOf names the one actor with the executor's write rights on t
+// right now: the predecessor under the reassign hold, otherwise the executor.
+// The successor has none until claim_task (callerMayClaimTask) clears the lock.
+func actingExecutorOf(t Task) string {
+	if predecessorHoldsTask(t) {
+		return t.ReassignedFrom
+	}
+	return t.ExecutorID
+}
+
 // callerMayDriveTask enforces the executor guard on the agent report routes
 // (plan / status / step status / gate / deps): the caller must BE the task's
-// executor — the caller-identity convention (root CLAUDE.md §14: a non-admin
-// agent only ever operates itself; admin capability — owner or admin agent —
-// may act on any task). False → the caller writes the 403.
+// acting executor (actingExecutorOf) — the caller-identity convention (root
+// CLAUDE.md §14: a non-admin agent only ever operates itself; admin capability
+// — owner or admin agent — may act on any task). False → the caller writes the
+// 403.
 func (s *apiServer) callerMayDriveTask(r *http.Request, t Task) bool {
+	if principalAtLeast(s.principalOfRequest(r), principalAdminAgent) {
+		return true
+	}
+	return currentActor(r) == actingExecutorOf(t)
+}
+
+// callerMayClaimTask is the claim_task gate, the one write that stays with the
+// successor during the reassign hold: admin capability, or the task's executor
+// (the successor the reassign re-pointed to). The predecessor may not claim.
+func (s *apiServer) callerMayClaimTask(r *http.Request, t Task) bool {
 	if principalAtLeast(s.principalOfRequest(r), principalAdminAgent) {
 		return true
 	}
@@ -501,8 +531,8 @@ func (s *apiServer) callerMayDriveTask(r *http.Request, t Task) bool {
 }
 
 // callerMayEditTaskText is callerMayDriveTask widened by exactly one structural
-// fact: while a task has NO executor at all (executor_id == ""), its CREATOR
-// counts as the executor — but only at the text-only doors (T-52).
+// fact: while a task has NO acting executor at all, its CREATOR counts as the
+// executor — but only at the text-only doors (T-52).
 //
 // 🔴 WHY. create_task opens a 發包票 with executor_id empty and leaves it empty
 // until the scheduler binds a worker to it. Every task-driving write is gated on
@@ -513,20 +543,20 @@ func (s *apiServer) callerMayDriveTask(r *http.Request, t Task) bool {
 // assign loop runs without a transaction and only logs when PutTask fails, so a
 // task can sit unbound forever.
 //
-// 🔴 WHY IT CLOSES ON executor_id AND NOT ON ANYTHING ELSE. The moment a worker
-// is bound, the creator is back to a flat 403 — including when the creator is
-// the person who opened the ticket. Anything narrower that happens to be true
-// right now ("this is an outsource ticket", "no worker exists yet") would leave
-// the door open while somebody is already working to the text, which is the
-// failure this predicate exists to avoid: an unbound task has no work in flight
-// to be moved out from under.
+// 🔴 WHY IT CLOSES ON THE ACTING EXECUTOR AND NOT ON ANYTHING ELSE. The moment
+// someone holds the executor's rights — a bound worker, or a predecessor under
+// the reassign hold of a task reassigned to an unbound outsource slot — the
+// creator is back to a flat 403, including when the creator is the person who
+// opened the ticket. Anything narrower that happens to be true right now ("this
+// is an outsource ticket", "no worker exists yet") would leave the door open
+// while somebody is already working to the text.
 //
 // 🔴 WHY IT IS NOT callerMayDriveTask ITSELF. That predicate guards plan, step
-// status, deps, priority/freeze, reassign, claim, the four closes and
-// reply-card linkage as well. Owner ruled (2026-09-02, card
-// rc-1bb6e01c4bf7) 「只開『改文字類』那幾道（改描述／標題／產物增刪／步驟筆記），
-// 不含凍結、撤票、改派」, so the widening is a SECOND predicate applied at the
-// named doors only. Calling this from any other handler reverses that ruling.
+// status, deps, priority/freeze, reassign, the four closes and reply-card
+// linkage as well. Owner ruled (2026-09-02, card rc-1bb6e01c4bf7)
+// 「只開『改文字類』那幾道（改描述／標題／產物增刪／步驟筆記），不含凍結、撤票、改派」, so
+// the widening is a SECOND predicate applied at the named doors only. Calling
+// this from any other handler reverses that ruling.
 //
 // A row with no CreatorID (pre-column rows) admits nobody: the empty string is
 // not an actor.
@@ -534,43 +564,10 @@ func (s *apiServer) callerMayEditTaskText(r *http.Request, t Task) bool {
 	if s.callerMayDriveTask(r, t) {
 		return true
 	}
-	if t.ExecutorID != "" || t.CreatorID == "" {
+	if actingExecutorOf(t) != "" || t.CreatorID == "" {
 		return false
 	}
 	return currentActor(r) == t.CreatorID
-}
-
-// callerMayWriteHandover is callerMayDriveTask PLUS one narrow, time-boxed
-// exception (T-91): while a task sits under the `reassigning` lock, the
-// PREDECESSOR stamped on it may still write the handover record.
-//
-// 🔴 WHY IT IS NEEDED. The reassign re-points executor_id in the same handler
-// that posts the predecessor its instructions — 「將目前進度、進行中的事項、需要
-// 注意的風險與下一步寫進任務的步驟備註」 — so by the time that
-// message exists, callerMayDriveTask already answers false for the person it is
-// addressed to. The system asked for a document and took away the pen in the
-// same transaction; measured, every step-note write from the predecessor after
-// a reassign is a 403.
-//
-// 🔴 WHY IT IS THIS NARROW, and this is an owner ruling rather than caution.
-// He was offered the wide version — both sides fully authorised for the
-// duration of the handover — and REFUSED it, choosing to open the 「寫交接」 cell
-// alone. So two executors still never drive the same task before the handover
-// completes, and every other door callerMayDriveTask guards is unchanged: plan,
-// step STATUS, deps, priority, reassign, the four closes, artifacts and the
-// task's own text all still 403 for the predecessor. Widening this predicate to
-// another route is reversing that ruling, not extending it.
-//
-// The window closes by itself: claim_task clears the lock, and with it this
-// exception. Nothing here is time-based and nothing needs a reaper.
-func (s *apiServer) callerMayWriteHandover(r *http.Request, t Task) bool {
-	if s.callerMayDriveTask(r, t) {
-		return true
-	}
-	if t.Lock != TaskLockReassigning || t.ReassignedFrom == "" {
-		return false
-	}
-	return currentActor(r) == t.ReassignedFrom
 }
 
 // taskCaller captures the create/reassign caller's identity facets for the
@@ -1249,9 +1246,10 @@ func (s *apiServer) HandleGetTaskApiTasksTaskIdGet(w http.ResponseWriter, r *htt
 
 // ── C.2 owner actions ────────────────────────────────────────────────────────
 
-// callerMayTerminateTask is the terminate gate. It is callerMayDriveTask plus
-// ONE subtraction, and the subtraction is the whole reason it is a separate
-// function: an OUTSOURCE worker may not terminate its own task.
+// callerMayTerminateTask is the terminate gate. It is callerMayDriveTask (the
+// same acting executor, actingExecutorOf) plus ONE subtraction, and the
+// subtraction is the whole reason it is a separate function: an OUTSOURCE
+// worker may not terminate its own task.
 //
 // 🔴 WHY THE SUBTRACTION. Everywhere else "the task's own executor" is a safe
 // set to admit, because the executor is the one answering for the work. An
@@ -1285,7 +1283,7 @@ func (s *apiServer) callerMayTerminateTask(r *http.Request, t Task) (bool, strin
 	if c.member == nil {
 		return false, executorGuardRefusal
 	}
-	if c.actorID != t.ExecutorID {
+	if c.actorID != actingExecutorOf(t) {
 		return false, executorGuardRefusal
 	}
 	if c.isOutsource() {
@@ -1349,8 +1347,8 @@ func (s *apiServer) HandleMarkTaskDoneApiTasksTaskIdMarkDonePost(w http.Response
 	s.writeTaskWriteReceipt(w, *t)
 }
 
-// callerMayMarkTaskDone is the mark_task_done gate: BE the task's executor,
-// staff member and outsource worker alike. The close-out is the executor's
+// callerMayMarkTaskDone is the mark_task_done gate: BE the task's acting
+// executor (actingExecutorOf), staff member and outsource worker alike. The close-out is the executor's
 // work, so whoever does it must be able to say it is finished.
 //
 // 🔴 IT IS NOT callerMayDriveTask, and the difference is the whole ticket. That
@@ -1359,7 +1357,8 @@ func (s *apiServer) HandleMarkTaskDoneApiTasksTaskIdMarkDonePost(w http.Response
 // forced_done_by — the exact thing force_task_done exists to make impossible to
 // do silently. Their door is force_task_done; this one is the executor's.
 func (s *apiServer) callerMayMarkTaskDone(r *http.Request, t Task) bool {
-	return t.ExecutorID != "" && currentActor(r) == t.ExecutorID
+	acting := actingExecutorOf(t)
+	return acting != "" && currentActor(r) == acting
 }
 
 // POST /api/tasks/{task_id}/mark-terminated — the only status change that does
@@ -2055,10 +2054,11 @@ func (s *apiServer) HandleReassignTaskApiTasksTaskIdReassignPost(w http.Response
 // reassigned task (MCP claim_task; T-9ca5). It CLEARS the reassigning lock and
 // fires the predecessor outsource worker — the takeover the retired task-status
 // report used to do on the successor's reassigning→in_progress before
-// reassigning became a lock (status is DERIVED, never set here). Executor-guarded: only the
-// task's current executor (the successor the reassign re-pointed to) may claim;
-// owner/admin may drive any task. A task not under the reassigning lock → 409
-// (nothing to claim). Idempotent side effects: the predecessor dismiss is by
+// reassigning became a lock (status is DERIVED, never set here). Gated by
+// callerMayClaimTask: only the successor (or owner/admin) may claim, never the
+// predecessor. A task not under the reassigning lock → 409 (nothing to claim).
+// The predecessor's waiting cards bound to this task expire: their asker no
+// longer holds the task. Idempotent side effects: the predecessor dismiss is by
 // its OWN worker id, never by task_id (the successor may be a fresh worker on
 // the same task_id).
 func (s *apiServer) HandleClaimTaskApiTasksTaskIdClaimPost(w http.ResponseWriter, r *http.Request, taskId string) {
@@ -2067,7 +2067,7 @@ func (s *apiServer) HandleClaimTaskApiTasksTaskIdClaimPost(w http.ResponseWriter
 		writeResolveError(w, err, "task", taskId)
 		return
 	}
-	if !s.callerMayDriveTask(r, *t) {
+	if !s.callerMayClaimTask(r, *t) {
 		writeError(w, http.StatusForbidden, executorGuardRefusal)
 		return
 	}
@@ -2078,6 +2078,17 @@ func (s *apiServer) HandleClaimTaskApiTasksTaskIdClaimPost(w http.ResponseWriter
 	}
 	now := nowSecs()
 	trigger := requestTrigger(r)
+	if t.ReassignedFrom != "" {
+		if _, err := s.expireWaitingCardsForTaskFrom(t.ID, t.ReassignedFrom, now, trigger); err != nil {
+			internalError(w, err)
+			return
+		}
+		// Re-read: the card pass (releaseCardHold) may have re-derived the row.
+		if t, err = s.resolveTask(taskId); err != nil {
+			writeResolveError(w, err, "task", taskId)
+			return
+		}
+	}
 	predecessorWorker := ""
 	if t.ReassignedFromKind == TaskExecutorOutsource {
 		predecessorWorker = t.ReassignedFrom

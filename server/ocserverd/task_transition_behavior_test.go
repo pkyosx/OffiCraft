@@ -9,8 +9,8 @@ package main
 //
 //	Q1 轉派  → on the TICKET (lock + reassigned_from ride the wake snapshot);
 //	          the chat notice still goes out, demoted to a reminder.
-//	Q2 轉派後 → the predecessor keeps ONE cell of authority (write the handover),
-//	          and loses every other one. The owner refused the wide version.
+//	Q2 轉派後 → the predecessor keeps every executor right until the successor
+//	          claims; the successor has none but claim_task.
 //	Q3 被擋   → on the TICKET ONLY. No message, by explicit ruling.
 //	Q4 結案   → a DURABLE MESSAGE, because 開機盤點 lists only tasks that have not
 //	          ended — a closed ticket is absent from the list that Q3 relies on.
@@ -24,6 +24,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -219,227 +221,377 @@ func TestBootSequenceTellsBothIdentitiesToConfirmThenClaim(t *testing.T) {
 	}
 }
 
-// ── Q2: the narrow door ─────────────────────────────────────────────────────
+// ── Q2: the predecessor holds the task until the successor claims it ─────
 
-// t91StepOf submits a one-step plan as the task's CURRENT executor and returns
-// the step id.
-func t91StepOf(t *testing.T, api *apiServer, taskID, executor string) string {
+// handoverFixture is T-1, planned and edited by kip, handed by the owner to rex
+// (a plain agent, so no admin bypass hides the rule) and not yet claimed. T-2
+// is an unrelated task zed executes. Credentials come from the product's mint.
+type handoverFixture struct {
+	api                                     *apiServer
+	h                                       http.Handler
+	owner, predecessor, successor, outsider string
+	stepOne, stepTwo, artifact, descVersion string
+}
+
+func newHandoverFixture(t *testing.T) handoverFixture {
 	t.Helper()
-	rec := httptest.NewRecorder()
-	api.HandleSubmitTaskPlanApiTasksTaskIdPlanPost(rec, taskReq(t, "POST",
-		"/api/tasks/"+taskID+"/plan", map[string]any{
-			"steps": []map[string]any{{"name": "做事", "dod": "做完"}},
-		}, executor, "agent"), taskID)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("plan as %s: %d %s", executor, rec.Code, rec.Body.String())
-	}
-	steps, err := api.dal.ListTaskSteps(taskID)
-	if err != nil || len(steps) == 0 {
-		t.Fatalf("read back steps: %v", err)
-	}
-	return steps[0].ID
-}
-
-// t91WriteNote posts a step note as sub and returns the recorder.
-func t91WriteNote(t *testing.T, api *apiServer, taskID, stepID, sub, note string) *httptest.ResponseRecorder {
-	t.Helper()
-	rec := httptest.NewRecorder()
-	api.HandleUpdateTaskStepNoteApiTasksTaskIdStepsStepIdNotePost(rec,
-		taskReq(t, "POST", "/api/tasks/"+taskID+"/steps/"+stepID+"/note",
-			map[string]any{"note": note}, sub, "agent"), taskID, stepID)
-	return rec
-}
-
-// The system ORDERS the predecessor to write a handover onto the ticket and,
-// in the same transaction, re-points executor_id away from it — so every write
-// face it was told to use answered 403. This is the one cell the owner opened.
-func TestPredecessorMayStillWriteTheHandoverNoteUnderTheReassignHold(t *testing.T) {
-	api := newTasksTestServer(t)
-	task := t91Reassigned(t, api)
-	step := t91StepOf(t, api, task.ID, "m-new")
-
-	if rec := t91WriteNote(t, api, task.ID, step, "m-old", "做到一半，下一步是 X"); rec.Code != http.StatusOK {
-		t.Fatalf("the stamped PREDECESSOR must still be able to write the handover "+
-			"step note while the task is under the reassigning lock — the notice it "+
-			"was sent orders exactly this write; got %d %s", rec.Code, rec.Body.String())
-	}
-	steps, _ := api.dal.ListTaskSteps(task.ID)
-	if len(steps) == 0 || steps[0].Note != "做到一半，下一步是 X" {
-		t.Fatalf("the predecessor's handover note must actually be stored, got %+v", steps)
-	}
-	// The patch face shares the guard chain, so it opens with it.
-	rec := httptest.NewRecorder()
-	api.HandlePatchTaskStepNoteApiTasksTaskIdStepsStepIdNotePatchPost(rec,
-		taskReq(t, "POST", "/api/tasks/"+task.ID+"/steps/"+step+"/note/patch",
-			map[string]any{"edits": []map[string]any{{"old": "X", "new": "Y"}}},
-			"m-old", "agent"), task.ID, step)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("the anchor-patch note face must admit the predecessor on the "+
-			"same terms as the wholesale face, got %d %s", rec.Code, rec.Body.String())
-	}
-}
-
-// 🔴 THE OWNER REFUSED THE WIDE VERSION. He was offered "both sides fully
-// authorised during the handover" and chose to open the 「寫交接」 cell alone, so
-// two executors still never drive the same task before the handover completes.
-// Every one of these is the predecessor trying to DRIVE the task, and every one
-// must still be a flat 403.
-//
-// 🔴 THE CASE LIST IS THE PREDICATE'S OWN LIST. callerMayWriteHandover's comment
-// enumerates the doors that stay shut — plan, step status, deps, priority,
-// reassign, the four closes, artifacts, the task's own text — and this table
-// must cover ALL of them, because that comment is the only place the ruling is
-// written down and a door named there but missing here can be opened without
-// anything going red. Adding a name to that comment means adding a case here.
-func TestPredecessorStaysLockedOutOfEveryOtherTaskWrite(t *testing.T) {
-	api := newTasksTestServer(t)
-	task := t91Reassigned(t, api)
-	step := t91StepOf(t, api, task.ID, "m-new")
-	pred := "m-old"
-
-	cases := []struct {
-		what string
-		call func() *httptest.ResponseRecorder
-	}{
-		{"submit_plan", func() *httptest.ResponseRecorder {
-			rec := httptest.NewRecorder()
-			api.HandleSubmitTaskPlanApiTasksTaskIdPlanPost(rec, taskReq(t, "POST",
-				"/api/tasks/"+task.ID+"/plan", map[string]any{
-					"steps": []map[string]any{{"name": "換掉", "dod": "換完"}},
-				}, pred, "agent"), task.ID)
-			return rec
-		}},
-		{"update_step_status", func() *httptest.ResponseRecorder {
-			rec := httptest.NewRecorder()
-			api.HandleUpdateTaskStepStatusApiTasksTaskIdStepsStepIdStatusPost(rec,
-				taskReq(t, "POST", "/api/tasks/"+task.ID+"/steps/"+step+"/status",
-					map[string]any{"status": StepStatusInProgress}, pred, "agent"),
-				task.ID, step)
-			return rec
-		}},
-		{"set_task_deps", func() *httptest.ResponseRecorder {
-			rec := httptest.NewRecorder()
-			api.HandleSetTaskDepsApiTasksTaskIdDepsPost(rec, taskReq(t, "POST",
-				"/api/tasks/"+task.ID+"/deps", map[string]any{"blocked_by": []string{}},
-				pred, "agent"), task.ID)
-			return rec
-		}},
-		{"set_task_priority", func() *httptest.ResponseRecorder {
-			rec := httptest.NewRecorder()
-			api.HandleSetTaskPriorityApiTasksTaskIdPriorityPost(rec, taskReq(t, "POST",
-				"/api/tasks/"+task.ID+"/priority", map[string]any{"priority": "high"},
-				pred, "agent"), task.ID)
-			return rec
-		}},
-		{"claim_task", func() *httptest.ResponseRecorder {
-			rec := httptest.NewRecorder()
-			api.HandleClaimTaskApiTasksTaskIdClaimPost(rec, taskReq(t, "POST",
-				"/api/tasks/"+task.ID+"/claim", nil, pred, "agent"), task.ID)
-			return rec
-		}},
-		{"update_task", func() *httptest.ResponseRecorder {
-			rec := httptest.NewRecorder()
-			api.HandleUpdateTaskApiTasksTaskIdPost(rec, taskReq(t, "POST",
-				"/api/tasks/"+task.ID, map[string]any{"title": "改標題"},
-				pred, "agent"), task.ID)
-			return rec
-		}},
-		// The rest complete the predicate's own list. They were the gap:
-		// callerMayWriteHandover's comment named doors that must stay shut and
-		// only five of them had a case here, so widening the predicate onto the
-		// closes / artifacts / reassign was a silent change.
-		{"mark_task_terminated", func() *httptest.ResponseRecorder {
-			rec := httptest.NewRecorder()
-			api.HandleMarkTaskTerminatedApiTasksTaskIdMarkTerminatedPost(rec, taskReq(t, "POST",
-				"/api/tasks/"+task.ID+"/mark-terminated", nil, pred, "agent"), task.ID)
-			return rec
-		}},
-		{"mark_task_done", func() *httptest.ResponseRecorder {
-			rec := httptest.NewRecorder()
-			api.HandleMarkTaskDoneApiTasksTaskIdMarkDonePost(rec, taskReq(t,
-				"POST", "/api/tasks/"+task.ID+"/mark-done", nil, pred,
-				"agent"), task.ID)
-			return rec
-		}},
-		{"mark_task_duplicated", func() *httptest.ResponseRecorder {
-			rec := httptest.NewRecorder()
-			api.HandleMarkTaskDuplicatedApiTasksTaskIdMarkDuplicatedPost(rec, taskReq(t,
-				"POST", "/api/tasks/"+task.ID+"/mark-duplicated",
-				map[string]any{"duplicate_of": "t-elsewhere"}, pred,
-				"agent"), task.ID)
-			return rec
-		}},
-		{"add_task_artifact", func() *httptest.ResponseRecorder {
-			rec := httptest.NewRecorder()
-			api.HandleAddTaskArtifactApiTasksTaskIdArtifactPost(rec, taskReq(t, "POST",
-				"/api/tasks/"+task.ID+"/artifact",
-				map[string]any{"kind": "link", "url": "https://x/pr/1", "name": "PR #1"},
-				pred, "agent"), task.ID)
-			return rec
-		}},
-		{"remove_task_artifact", func() *httptest.ResponseRecorder {
-			rec := httptest.NewRecorder()
-			api.HandleRemoveTaskArtifactApiTasksTaskIdArtifactArtifactIdDelete(rec,
-				taskReq(t, "DELETE", "/api/tasks/"+task.ID+"/artifact/ta-nope", nil,
-					pred, "agent"), task.ID, "ta-nope")
-			return rec
-		}},
-		// 🔴 THE TARGET HAS TO BE AN OUTSOURCE ONE. With a member target this case
-		// is worthless as evidence: 正職授權矩陣 rule 7 refuses a member-kind
-		// reassign from any non-admin caller regardless of the executor guard, so
-		// the 403 arrives whether or not the handover exception has been widened
-		// onto this route — measured, a mutant that swaps this handler's guard for
-		// callerMayWriteHandover leaves the member-target case GREEN. 發包 is the
-		// one reassign shape rule 7 lets a 一般正職 do on its own task, which makes
-		// the executor guard the only thing standing between the predecessor and a
-		// 200.
-		{"reassign_task", func() *httptest.ResponseRecorder {
-			return reassign(t, api, task.ID, map[string]any{
-				"target": map[string]any{
-					"kind": "outsource", "model": "sonnet", "effort": "high",
-				},
-			}, pred, "agent")
-		}},
-	}
-	for _, c := range cases {
-		if rec := c.call(); rec.Code != http.StatusForbidden {
-			t.Fatalf("%s by the predecessor must stay a flat 403 — the owner opened "+
-				"the 「寫交接」 cell and refused the wide version; got %d %s",
-				c.what, rec.Code, rec.Body.String())
+	api, h, d, owner := newAPITestServer(t)
+	for _, id := range []string{"rex", "zed"} {
+		if err := d.PutMember(Member{
+			ID: id, Name: id, Kind: KindStaff, RoleKey: "engineer",
+			RosterStatus: RosterStatusActive,
+		}); err != nil {
+			t.Fatalf("PutMember(%s): %v", id, err)
 		}
 	}
+	f := handoverFixture{
+		api: api, h: h, owner: owner,
+		predecessor: apiTestAgentToken(t, api, "kip", ""),
+		successor:   apiTestAgentToken(t, api, "rex", ""),
+		outsider:    apiTestAgentToken(t, api, "zed", ""),
+	}
+	f.must(t, "POST", "/api/tasks", owner,
+		`{"title":"Ship it","description":"first scope","executor_member_id":"kip"}`)
+	f.must(t, "POST", "/api/tasks", owner, `{"title":"Original","executor_member_id":"zed"}`)
+	f.must(t, "POST", "/api/tasks/T-1/plan", f.predecessor,
+		`{"steps":[{"name":"one","dod":"d1"},{"name":"two","dod":"d2"}]}`)
+	pinned := f.must(t, "POST", "/api/tasks/T-1/artifact", f.predecessor,
+		`{"kind":"link","name":"PR 1","url":"https://example.com/pr/1"}`)
+	f.artifact, _ = pinned["artifact_id"].(string)
+	f.must(t, "POST", "/api/tasks/T-1/description", f.predecessor, `{"description":"second scope"}`)
+	history := apiRequest(t, h, "GET", "/api/document-history/task_description/T-1", owner, "")
+	var versions []struct {
+		ID int64 `json:"id"`
+	}
+	if err := json.Unmarshal(history.Body.Bytes(), &versions); err != nil || len(versions) != 1 {
+		t.Fatalf("description history must hold the one replaced text: %v %s", err, history.Body.String())
+	}
+	f.descVersion = strconv.FormatInt(versions[0].ID, 10)
+	f.must(t, "POST", "/api/tasks/T-1/reassign", owner, `{"target":{"kind":"staff","member_id":"rex"}}`)
+	_, task := apiJSON(t, h, "GET", "/api/tasks/T-1", owner, "")
+	steps, _ := task["steps"].([]any)
+	if len(steps) != 2 || task["lock"] != TaskLockReassigning || task["reassigned_from"] != "kip" {
+		t.Fatalf("fixture must leave T-1 planned and under the hold from kip, got %v", task)
+	}
+	f.stepOne, _ = steps[0].(map[string]any)["id"].(string)
+	f.stepTwo, _ = steps[1].(map[string]any)["id"].(string)
+	return f
 }
 
-// The window is bounded by the LOCK, not by a clock: claim_task closes it, and
-// nothing has to remember to.
-func TestTheHandoverDoorClosesWhenTheSuccessorClaims(t *testing.T) {
-	api := newTasksTestServer(t)
-	task := t91Reassigned(t, api)
-	step := t91StepOf(t, api, task.ID, "m-new")
-
-	rec := httptest.NewRecorder()
-	api.HandleClaimTaskApiTasksTaskIdClaimPost(rec, taskReq(t, "POST",
-		"/api/tasks/"+task.ID+"/claim", nil, "m-new", "agent"), task.ID)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("successor claim: %d %s", rec.Code, rec.Body.String())
+func (f handoverFixture) must(t *testing.T, method, target, token, body string) map[string]any {
+	t.Helper()
+	status, data := apiJSON(t, f.h, method, target, token, body)
+	if status != http.StatusOK {
+		t.Fatalf("%s %s: %d %v", method, target, status, data)
 	}
-	if rec := t91WriteNote(t, api, task.ID, step, "m-old", "太遲了"); rec.Code != http.StatusForbidden {
-		t.Fatalf("once the successor has claimed, the predecessor's handover door "+
-			"must be shut again (403), got %d %s", rec.Code, rec.Body.String())
+	return data
+}
+
+func (f handoverFixture) claim(t *testing.T) {
+	t.Helper()
+	f.must(t, "POST", "/api/tasks/T-1/claim", f.successor, "")
+}
+
+// handoverView is T-1 as the successor reads it.
+type handoverView struct {
+	Title, Description, Priority, Status, Lock, ExecutorKind, ExecutorID string
+	Deps, Steps, Artifacts                                               []string
+	StepOneNote                                                          string
+}
+
+func (f handoverFixture) view(t *testing.T) handoverView {
+	t.Helper()
+	status, task := apiJSON(t, f.h, "GET", "/api/tasks/T-1", f.successor, "")
+	if status != http.StatusOK {
+		t.Fatalf("successor read of T-1: %d %v", status, task)
+	}
+	v := handoverView{Deps: []string{}, Steps: []string{}, Artifacts: []string{}}
+	v.Title, _ = task["title"].(string)
+	v.Description, _ = task["description"].(string)
+	v.Priority, _ = task["priority"].(string)
+	v.Status, _ = task["status"].(string)
+	v.Lock, _ = task["lock"].(string)
+	v.ExecutorKind, _ = task["executor_kind"].(string)
+	v.ExecutorID, _ = task["executor_id"].(string)
+	if strings.HasPrefix(v.ExecutorID, "ow-") {
+		v.ExecutorID = "ow-(minted)"
+	}
+	deps, _ := task["deps"].([]any)
+	for _, d := range deps {
+		v.Deps = append(v.Deps, d.(string))
+	}
+	steps, _ := task["steps"].([]any)
+	for _, raw := range steps {
+		st := raw.(map[string]any)
+		v.Steps = append(v.Steps, st["name"].(string)+":"+st["status"].(string))
+	}
+	_, arts := apiJSON(t, f.h, "GET", "/api/tasks/T-1/artifacts", f.successor, "")
+	list, _ := arts["artifacts"].([]any)
+	for _, raw := range list {
+		a := raw.(map[string]any)
+		ref, _ := a["filename"].(string)
+		if ref == "" {
+			ref, _ = a["url"].(string)
+		}
+		v.Artifacts = append(v.Artifacts, a["name"].(string)+":"+a["kind"].(string)+":"+ref)
+	}
+	if status, step := apiJSON(t, f.h, "GET", "/api/tasks/T-1/steps/"+f.stepOne, f.successor, ""); status == http.StatusOK {
+		v.StepOneNote, _ = step["note"].(string)
+	}
+	return v
+}
+
+// handoverDoor is one task write. prep runs as the owner (who may drive any
+// task) and returns whatever id the call needs; want maps T-1 as it stood
+// before the fixture's claim/no-claim phase to T-1 after the write succeeds.
+type handoverDoor struct {
+	name string
+	prep func(t *testing.T, f handoverFixture) string
+	call func(t *testing.T, f handoverFixture, token, prepared string) (int, map[string]any)
+	want func(before handoverView) handoverView
+}
+
+func handoverPost(target, body string) func(*testing.T, handoverFixture, string, string) (int, map[string]any) {
+	return func(t *testing.T, f handoverFixture, token, _ string) (int, map[string]any) {
+		return apiJSON(t, f.h, "POST", target, token, body)
 	}
 }
 
-// A member who was never this task's predecessor gets nothing from the lock.
-func TestTheHandoverDoorAdmitsOnlyTheStampedPredecessor(t *testing.T) {
-	api := newTasksTestServer(t)
-	task := t91Reassigned(t, api)
-	step := t91StepOf(t, api, task.ID, "m-new")
-	putActiveMember(t, api, "m-stranger", "Stranger", KindStaff)
-
-	if rec := t91WriteNote(t, api, task.ID, step, "m-stranger", "路過"); rec.Code != http.StatusForbidden {
-		t.Fatalf("the reassigning lock must open the note door for the STAMPED "+
-			"predecessor only, got %d %s for a stranger", rec.Code, rec.Body.String())
+func handoverUntouched(lock string) handoverView {
+	return handoverView{
+		Title: "Ship it", Description: "second scope", Priority: "mid",
+		Status: "not_started", Lock: lock, ExecutorKind: "staff", ExecutorID: "rex",
+		Deps:      []string{},
+		Steps:     []string{"one:pending", "two:pending"},
+		Artifacts: []string{"PR 1:link:https://example.com/pr/1"},
 	}
+}
+
+func handoverWith(edit func(v *handoverView)) func(handoverView) handoverView {
+	return func(v handoverView) handoverView {
+		edit(&v)
+		return v
+	}
+}
+
+func handoverDoors() []handoverDoor {
+	return []handoverDoor{
+		{name: "insert_step",
+			call: handoverPost("/api/tasks/T-1/steps", `{"name":"three","dod":"d3"}`),
+			want: handoverWith(func(v *handoverView) { v.Steps = []string{"one:pending", "two:pending", "three:pending"} })},
+		{name: "delete_step",
+			call: func(t *testing.T, f handoverFixture, token, _ string) (int, map[string]any) {
+				return apiJSON(t, f.h, "POST", "/api/tasks/T-1/steps/"+f.stepTwo+"/delete", token, "")
+			},
+			want: handoverWith(func(v *handoverView) { v.Steps = []string{"one:pending"} })},
+		{name: "reorder_steps",
+			call: func(t *testing.T, f handoverFixture, token, _ string) (int, map[string]any) {
+				return apiJSON(t, f.h, "POST", "/api/tasks/T-1/steps/reorder", token,
+					`{"step_ids":["`+f.stepTwo+`","`+f.stepOne+`"]}`)
+			},
+			want: handoverWith(func(v *handoverView) { v.Steps = []string{"two:pending", "one:pending"} })},
+		{name: "submit_plan",
+			call: handoverPost("/api/tasks/T-1/plan", `{"steps":[{"name":"replanned","dod":"d"}]}`),
+			want: handoverWith(func(v *handoverView) { v.Steps = []string{"replanned:pending"} })},
+		{name: "update_step_status",
+			call: func(t *testing.T, f handoverFixture, token, _ string) (int, map[string]any) {
+				return apiJSON(t, f.h, "POST", "/api/tasks/T-1/steps/"+f.stepOne+"/status", token,
+					`{"status":"in_progress"}`)
+			},
+			want: handoverWith(func(v *handoverView) {
+				v.Status = "in_progress"
+				v.Steps = []string{"one:in_progress", "two:pending"}
+			})},
+		{name: "set_task_deps",
+			call: handoverPost("/api/tasks/T-1/deps", `{"blocked_by":["T-2"]}`),
+			want: handoverWith(func(v *handoverView) { v.Deps = []string{"T-2"} })},
+		{name: "set_task_priority",
+			call: handoverPost("/api/tasks/T-1/priority", `{"priority":"high"}`),
+			want: handoverWith(func(v *handoverView) { v.Priority = "high" })},
+		{name: "reassign_task",
+			call: handoverPost("/api/tasks/T-1/reassign", `{"target":{"kind":"outsource","model":"sonnet","effort":"high"}}`),
+			want: handoverWith(func(v *handoverView) {
+				v.Lock, v.ExecutorKind, v.ExecutorID = "reassigning", "outsource", "ow-(minted)"
+			})},
+		{name: "mark_task_duplicated",
+			call: handoverPost("/api/tasks/T-1/mark-duplicated", `{"duplicate_of":"T-2"}`),
+			want: handoverWith(func(v *handoverView) { v.Status = "duplicated" })},
+		{name: "create_reply_card bound to the task",
+			prep: func(t *testing.T, f handoverFixture) string {
+				f.must(t, "POST", "/api/tasks/T-1/steps/"+f.stepOne+"/status", f.owner, `{"status":"in_progress"}`)
+				return ""
+			},
+			call: func(t *testing.T, f handoverFixture, token, _ string) (int, map[string]any) {
+				return apiJSON(t, f.h, "POST", "/api/reply-cards", token,
+					`{"kind":"decision","summary":"ship?","options":[{"text":"yes"}],`+
+						`"linked_task":{"task_id":"T-1","step_id":"`+f.stepOne+`"}}`)
+			},
+			want: handoverWith(func(v *handoverView) {
+				v.Status = "waiting_owner"
+				v.Steps = []string{"one:waiting_owner", "two:pending"}
+			})},
+		{name: "add_task_artifact",
+			call: handoverPost("/api/tasks/T-1/artifact", `{"kind":"link","name":"PR 2","url":"https://example.com/pr/2"}`),
+			want: handoverWith(func(v *handoverView) {
+				v.Artifacts = []string{"PR 1:link:https://example.com/pr/1", "PR 2:link:https://example.com/pr/2"}
+			})},
+		{name: "remove_task_artifact",
+			call: func(t *testing.T, f handoverFixture, token, _ string) (int, map[string]any) {
+				return apiJSON(t, f.h, "DELETE", "/api/tasks/T-1/artifact/"+f.artifact, token, "")
+			},
+			want: handoverWith(func(v *handoverView) { v.Artifacts = []string{} })},
+		{name: "replace_task_artifact",
+			call: func(t *testing.T, f handoverFixture, token, _ string) (int, map[string]any) {
+				return apiJSON(t, f.h, "POST", "/api/tasks/T-1/artifact/"+f.artifact+"/replace", token,
+					`{"url":"https://example.com/pr/9"}`)
+			},
+			want: handoverWith(func(v *handoverView) { v.Artifacts = []string{"PR 1:link:https://example.com/pr/9"} })},
+		{name: "upload_task_artifact",
+			call: handoverPost("/api/tasks/T-1/artifacts/upload?name=notes&filename=notes.md&mime=text/markdown", "bytes"),
+			want: handoverWith(func(v *handoverView) {
+				v.Artifacts = []string{"PR 1:link:https://example.com/pr/1", "notes:file:notes.md"}
+			})},
+		{name: "replace_task_artifact upload",
+			prep: func(t *testing.T, f handoverFixture) string {
+				data := f.must(t, "POST", "/api/tasks/T-1/artifacts/upload?name=notes&filename=notes.md&mime=text/markdown",
+					f.owner, "bytes")
+				id, _ := data["artifact_id"].(string)
+				return id
+			},
+			call: func(t *testing.T, f handoverFixture, token, prepared string) (int, map[string]any) {
+				return apiJSON(t, f.h, "POST", "/api/tasks/T-1/artifact/"+prepared+
+					"/replace/upload?filename=notes-v2.md&mime=text/markdown", token, "bytes v2")
+			},
+			want: handoverWith(func(v *handoverView) {
+				v.Artifacts = []string{"PR 1:link:https://example.com/pr/1", "notes:file:notes-v2.md"}
+			})},
+		{name: "update_task",
+			call: handoverPost("/api/tasks/T-1", `{"title":"Renamed"}`),
+			want: handoverWith(func(v *handoverView) { v.Title = "Renamed" })},
+		{name: "update_task_description",
+			call: handoverPost("/api/tasks/T-1/description", `{"description":"third scope"}`),
+			want: handoverWith(func(v *handoverView) { v.Description = "third scope" })},
+		{name: "update_task_title",
+			call: handoverPost("/api/tasks/T-1/title", `{"title":"Retitled"}`),
+			want: handoverWith(func(v *handoverView) { v.Title = "Retitled" })},
+		{name: "restore task_description",
+			call: func(t *testing.T, f handoverFixture, token, _ string) (int, map[string]any) {
+				return apiJSON(t, f.h, "POST", "/api/document-history/task_description/T-1/"+f.descVersion+"/restore", token, "")
+			},
+			want: handoverWith(func(v *handoverView) { v.Description = "first scope" })},
+		{name: "update_step_note",
+			call: func(t *testing.T, f handoverFixture, token, _ string) (int, map[string]any) {
+				return apiJSON(t, f.h, "POST", "/api/tasks/T-1/steps/"+f.stepOne+"/note", token,
+					`{"note":"做到一半，下一步是 X"}`)
+			},
+			want: handoverWith(func(v *handoverView) { v.StepOneNote = "做到一半，下一步是 X" })},
+		{name: "patch_step_note",
+			prep: func(t *testing.T, f handoverFixture) string {
+				f.must(t, "POST", "/api/tasks/T-1/steps/"+f.stepOne+"/note", f.owner, `{"note":"next is X"}`)
+				return ""
+			},
+			call: func(t *testing.T, f handoverFixture, token, _ string) (int, map[string]any) {
+				return apiJSON(t, f.h, "POST", "/api/tasks/T-1/steps/"+f.stepOne+"/note/patch", token,
+					`{"edits":[{"old":"X","new":"Y"}]}`)
+			},
+			want: handoverWith(func(v *handoverView) { v.StepOneNote = "next is Y" })},
+		{name: "mark_task_terminated",
+			call: handoverPost("/api/tasks/T-1/mark-terminated", ""),
+			want: handoverWith(func(v *handoverView) { v.Status = "terminated" })},
+		{name: "mark_task_done",
+			prep: func(t *testing.T, f handoverFixture) string {
+				for _, step := range []string{f.stepOne, f.stepTwo} {
+					f.must(t, "POST", "/api/tasks/T-1/steps/"+step+"/status", f.owner, `{"status":"in_progress"}`)
+					f.must(t, "POST", "/api/tasks/T-1/steps/"+step+"/status", f.owner, `{"status":"done"}`)
+				}
+				return ""
+			},
+			call: handoverPost("/api/tasks/T-1/mark-done", ""),
+			want: handoverWith(func(v *handoverView) {
+				v.Status = "done"
+				v.Steps = []string{"one:done", "two:done"}
+			})},
+	}
+}
+
+// Between reassign and claim the predecessor keeps every executor right and the
+// successor has none but claim_task (owner ruling 2026-09-17, rc-5ba4a6f802f4 /
+// rc-0a0892e3588f). Claiming hands the rights over; nobody else ever has them.
+func TestTaskWriteRightsFollowTheReassignHoldUntilTheSuccessorClaims(t *testing.T) {
+	refused := func(t *testing.T, door handoverDoor, f handoverFixture, prepared, who, token string) {
+		t.Helper()
+		before := f.view(t)
+		status, data := door.call(t, f, token, prepared)
+		if status != http.StatusForbidden {
+			t.Fatalf("%s by %s: want 403, got %d %v", door.name, who, status, data)
+		}
+		apiWantError(t, data, "forbidden", "caller is not the task's executor")
+		if after := f.view(t); !reflect.DeepEqual(after, before) {
+			t.Fatalf("%s by %s was refused but T-1 changed:\nbefore %#v\nafter  %#v", door.name, who, before, after)
+		}
+	}
+	admitted := func(t *testing.T, door handoverDoor, f handoverFixture, prepared, token string, want handoverView) {
+		t.Helper()
+		if status, data := door.call(t, f, token, prepared); status != http.StatusOK {
+			t.Fatalf("%s: want 200, got %d %v", door.name, status, data)
+		}
+		if got := f.view(t); !reflect.DeepEqual(got, want) {
+			t.Fatalf("%s: T-1 as the successor reads it\ngot  %#v\nwant %#v", door.name, got, want)
+		}
+	}
+	prepare := func(t *testing.T, door handoverDoor, f handoverFixture) string {
+		t.Helper()
+		if door.prep == nil {
+			return ""
+		}
+		return door.prep(t, f)
+	}
+
+	for _, door := range handoverDoors() {
+		t.Run("under the hold the predecessor may "+door.name, func(t *testing.T) {
+			f := newHandoverFixture(t)
+			prepared := prepare(t, door, f)
+			admitted(t, door, f, prepared, f.predecessor, door.want(handoverUntouched("reassigning")))
+		})
+		t.Run("under the hold the successor and an outsider may not "+door.name, func(t *testing.T) {
+			f := newHandoverFixture(t)
+			prepared := prepare(t, door, f)
+			refused(t, door, f, prepared, "the successor", f.successor)
+			refused(t, door, f, prepared, "an outsider", f.outsider)
+		})
+		t.Run("after the claim the successor may "+door.name, func(t *testing.T) {
+			f := newHandoverFixture(t)
+			f.claim(t)
+			prepared := prepare(t, door, f)
+			admitted(t, door, f, prepared, f.successor, door.want(handoverUntouched("")))
+		})
+		t.Run("after the claim the predecessor and an outsider may not "+door.name, func(t *testing.T) {
+			f := newHandoverFixture(t)
+			f.claim(t)
+			prepared := prepare(t, door, f)
+			refused(t, door, f, prepared, "the predecessor", f.predecessor)
+			refused(t, door, f, prepared, "an outsider", f.outsider)
+		})
+	}
+
+	t.Run("under the hold only the successor may claim", func(t *testing.T) {
+		f := newHandoverFixture(t)
+		for who, token := range map[string]string{"the predecessor": f.predecessor, "an outsider": f.outsider} {
+			status, data := apiJSON(t, f.h, "POST", "/api/tasks/T-1/claim", token, "")
+			if status != http.StatusForbidden {
+				t.Fatalf("claim by %s: want 403, got %d %v", who, status, data)
+			}
+			apiWantError(t, data, "forbidden", "caller is not the task's executor")
+		}
+		if got := f.view(t); !reflect.DeepEqual(got, handoverUntouched("reassigning")) {
+			t.Fatalf("refused claims must leave the hold in place, got %#v", got)
+		}
+		f.claim(t)
+		want := handoverUntouched("")
+		if got := f.view(t); !reflect.DeepEqual(got, want) {
+			t.Fatalf("the successor's claim clears the hold\ngot  %#v\nwant %#v", got, want)
+		}
+	})
 }
 
 // ── Q3: the blocker's side is on the ticket, and is never a message ─────────

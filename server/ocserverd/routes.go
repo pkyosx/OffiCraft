@@ -1555,8 +1555,8 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			// reassigning LOCK and fires the predecessor worker (the takeover the
 			// retired task-status report used to perform on the successor's
 			// reassigning→in_progress before reassigning became a lock).
-			// Executor-guarded (callerMayDriveTask §14); status stays derived,
-			// never set here.
+			// Guarded by callerMayClaimTask (the successor, not the
+			// predecessor); status stays derived, never set here.
 			Method:  "POST",
 			Path:    "/api/tasks/{task_id}/claim",
 			Handler: w.HandleClaimTaskApiTasksTaskIdClaimPost,

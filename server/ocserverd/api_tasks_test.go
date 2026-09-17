@@ -1227,6 +1227,37 @@ func TestCallerMayDriveTask(t *testing.T) {
 			}
 		})
 	})
+
+	t.Run("under the reassign hold the predecessor drives the task and the successor does not", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		if err := d.PutMember(Member{ID: "rex", Name: "Rex", Kind: KindStaff, RoleKey: "engineer", RosterStatus: RosterStatusActive}); err != nil {
+			t.Fatalf("PutMember: %v", err)
+		}
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+		apiJSON(t, h, "POST", "/api/tasks/T-1/reassign", owner, `{"target":{"kind":"staff","member_id":"rex"}}`)
+		held, err := api.resolveTask("T-1")
+		if err != nil {
+			t.Fatalf("resolveTask: %v", err)
+		}
+		released := *held
+		released.Lock = TaskLockNone
+		for _, c := range []struct {
+			who  string
+			task Task
+			want bool
+		}{
+			{"kip", *held, true},
+			{"rex", *held, false},
+			{"kip", released, false},
+			{"rex", released, true},
+		} {
+			taskTestUnderCaller(t, api, d, apiTestAgentToken(t, api, c.who, ""), func(r *http.Request) {
+				if got := api.callerMayDriveTask(r, c.task); got != c.want {
+					t.Fatalf("%s on lock %q: want %v, got %v", c.who, c.task.Lock, c.want, got)
+				}
+			})
+		}
+	})
 }
 
 func TestCallerMayEditTaskText(t *testing.T) {
@@ -1267,6 +1298,37 @@ func TestCallerMayEditTaskText(t *testing.T) {
 		taskTestUnderCaller(t, api, d, agent, func(r *http.Request) {
 			if api.callerMayEditTaskText(r, bound) {
 				t.Fatal("a bound task closes the creator's door")
+			}
+		})
+	})
+
+	t.Run("the creator is refused while a predecessor holds a task reassigned to an unbound slot", func(t *testing.T) {
+		api, h, d, _ := newAPITestServer(t)
+		if err := d.PutMember(Member{ID: "rex", Name: "Rex", Kind: KindStaff, RoleKey: "engineer", RosterStatus: RosterStatusActive}); err != nil {
+			t.Fatalf("PutMember: %v", err)
+		}
+		agent := apiTestAgentToken(t, api, "kip", "")
+		apiJSON(t, h, "POST", "/api/tasks", agent, `{"title":"Contracted out","target":{"kind":"outsource"}}`)
+		task, err := api.resolveTask("T-1")
+		if err != nil {
+			t.Fatalf("resolveTask: %v", err)
+		}
+		held := *task
+		held.ExecutorID = ""
+		held.Lock = TaskLockReassigning
+		held.ReassignedFrom = "rex"
+		held.ReassignedFromKind = TaskExecutorStaff
+		if err := d.PutTask(held); err != nil {
+			t.Fatalf("PutTask: %v", err)
+		}
+		taskTestUnderCaller(t, api, d, agent, func(r *http.Request) {
+			if api.callerMayEditTaskText(r, held) {
+				t.Fatal("the predecessor holds the task, so the creator's window is shut")
+			}
+		})
+		taskTestUnderCaller(t, api, d, apiTestAgentToken(t, api, "rex", ""), func(r *http.Request) {
+			if !api.callerMayEditTaskText(r, held) {
+				t.Fatal("the predecessor must be admitted")
 			}
 		})
 	})
@@ -1314,92 +1376,6 @@ func TestCallerMayEditTaskText(t *testing.T) {
 				t.Fatal("owner scope still passes on the drive rule alone")
 			}
 		})
-	})
-}
-
-func TestCallerMayWriteHandover(t *testing.T) {
-	handedOver := func(t *testing.T) (*apiServer, http.Handler, *DAL, string) {
-		t.Helper()
-		api, h, d, owner := newAPITestServer(t)
-		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
-		apiJSON(t, h, "POST", "/api/tasks/T-1/reassign", owner,
-			`{"target":{"kind":"staff","member_id":"mira"}}`)
-		return api, h, d, owner
-	}
-
-	t.Run("the predecessor stamped on a task under the handover lock may still write it", func(t *testing.T) {
-		api, _, d, _ := handedOver(t)
-		task, err := api.resolveTask("T-1")
-		if err != nil {
-			t.Fatalf("resolveTask: %v", err)
-		}
-		if task.Lock != TaskLockReassigning || task.ReassignedFrom != "kip" {
-			t.Fatalf("want the reassigning lock stamped from kip, got lock %q from %q",
-				task.Lock, task.ReassignedFrom)
-		}
-		taskTestUnderCaller(t, api, d, apiTestAgentToken(t, api, "kip", ""), func(r *http.Request) {
-			if !api.callerMayWriteHandover(r, *task) {
-				t.Fatal("the predecessor must keep the pen for the handover record")
-			}
-			if api.callerMayDriveTask(r, *task) {
-				t.Fatal("the exception must not widen the drive guard")
-			}
-		})
-	})
-
-	t.Run("claiming the task closes the predecessor's window", func(t *testing.T) {
-		api, h, d, _ := handedOver(t)
-		successor := apiTestAgentToken(t, api, "mira", "")
-		if code, data := apiJSON(t, h, "POST", "/api/tasks/T-1/claim", successor, ""); code != 200 {
-			t.Fatalf("claim: %d %v", code, data)
-		}
-		task, err := api.resolveTask("T-1")
-		if err != nil {
-			t.Fatalf("resolveTask: %v", err)
-		}
-		if task.Lock != "" || task.ReassignedFrom != "kip" {
-			t.Fatalf("want the lock cleared with the predecessor still stamped, got lock %q from %q",
-				task.Lock, task.ReassignedFrom)
-		}
-		taskTestUnderCaller(t, api, d, apiTestAgentToken(t, api, "kip", ""), func(r *http.Request) {
-			if api.callerMayWriteHandover(r, *task) {
-				t.Fatal("the window closes with the lock")
-			}
-		})
-	})
-
-	t.Run("a third party under the same lock is refused", func(t *testing.T) {
-		api, _, d, _ := handedOver(t)
-		if err := d.PutMember(Member{
-			ID: "rex", Name: "Rex", Kind: KindStaff, RoleKey: "engineer",
-			RosterStatus: RosterStatusActive,
-		}); err != nil {
-			t.Fatalf("PutMember: %v", err)
-		}
-		task, err := api.resolveTask("T-1")
-		if err != nil {
-			t.Fatalf("resolveTask: %v", err)
-		}
-		taskTestUnderCaller(t, api, d, apiTestAgentToken(t, api, "rex", ""), func(r *http.Request) {
-			if api.callerMayWriteHandover(r, *task) {
-				t.Fatal("the exception names one predecessor, not everybody")
-			}
-		})
-	})
-
-	t.Run("the successor and owner scope pass on the drive rule alone", func(t *testing.T) {
-		api, _, d, owner := handedOver(t)
-		task, err := api.resolveTask("T-1")
-		if err != nil {
-			t.Fatalf("resolveTask: %v", err)
-		}
-		for _, token := range []string{owner, apiTestAgentToken(t, api, "mira", "")} {
-			taskTestUnderCaller(t, api, d, token, func(r *http.Request) {
-				if !api.callerMayWriteHandover(r, *task) {
-					t.Fatalf("%s must pass", currentActor(r))
-				}
-			})
-		}
 	})
 }
 
@@ -4056,6 +4032,111 @@ func TestHandleClaimTaskApiTasksTaskIdClaimPost(t *testing.T) {
 		}
 		apiWantError(t, data, "conflict", "task 'T-1' is not awaiting takeover (no reassigning lock)")
 		dashboard.wantFrames()
+	})
+
+	t.Run("the successor's claim expires only the predecessor's waiting cards bound to the task", func(t *testing.T) {
+		f := newHandoverFixture(t)
+		admin := apiTestAgentToken(t, f.api, "mira", "")
+		stepThree, _ := f.must(t, "POST", "/api/tasks/T-1/steps", f.owner, `{"name":"three","dod":"d3"}`)["step_id"].(string)
+		for _, step := range []string{f.stepOne, f.stepTwo, stepThree} {
+			f.must(t, "POST", "/api/tasks/T-1/steps/"+step+"/status", f.owner, `{"status":"in_progress"}`)
+		}
+		f.must(t, "POST", "/api/tasks", f.owner, `{"title":"Kip's other task","executor_member_id":"kip"}`)
+		f.must(t, "POST", "/api/tasks/T-3/plan", f.predecessor, `{"steps":[{"name":"elsewhere","dod":"d"}]}`)
+		_, other := apiJSON(t, f.h, "GET", "/api/tasks/T-3", f.owner, "")
+		otherStep, _ := other["steps"].([]any)[0].(map[string]any)["id"].(string)
+		f.must(t, "POST", "/api/tasks/T-3/steps/"+otherStep+"/status", f.predecessor, `{"status":"in_progress"}`)
+
+		open := func(token, summary, linked string) string {
+			t.Helper()
+			card := f.must(t, "POST", "/api/reply-cards", token,
+				`{"kind":"decision","summary":"`+summary+`","options":[{"text":"yes"}],"linked_task":`+linked+`}`)
+			id, _ := card["id"].(string)
+			return id
+		}
+		bound := func(task, step string) string {
+			return `{"task_id":"` + task + `","step_id":"` + step + `"}`
+		}
+		cards := map[string]string{
+			"kip on T-1 step one":   open(f.predecessor, "kip one", bound("T-1", f.stepOne)),
+			"kip on T-1 step three": open(f.predecessor, "kip three", bound("T-1", stepThree)),
+			"mira on T-1 step two":  open(admin, "mira two", bound("T-1", f.stepTwo)),
+			"kip on T-3":            open(f.predecessor, "kip elsewhere", bound("T-3", otherStep)),
+			"kip unbound":           open(f.predecessor, "kip plain", "null"),
+		}
+
+		status, data := apiJSON(t, f.h, "POST", "/api/tasks/T-1/claim", f.successor, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"task_id":                "T-1",
+			"title":                  "Ship it",
+			"status":                 "waiting_owner",
+			"executor_id":            "rex",
+			"executor_kind":          "staff",
+			"lock":                   "",
+			"closed_ts":              nil,
+			"duplicate_of":           "",
+			"deps":                   []any{},
+			"progress_done":          0,
+			"progress_total":         3,
+			"artifact_count":         1,
+			"description_size_chars": 12,
+			"description_sha256":     apiAnyString,
+		})
+
+		expired := map[string]any{"status": "expired", "expired_ts": apiAnyNumber, "answered_ts": nil, "answer": nil}
+		waiting := map[string]any{"status": "waiting", "expired_ts": nil, "answered_ts": nil, "answer": nil}
+		want := map[string]map[string]any{
+			"kip on T-1 step one":   expired,
+			"kip on T-1 step three": expired,
+			"mira on T-1 step two":  waiting,
+			"kip on T-3":            waiting,
+			"kip unbound":           waiting,
+		}
+		for name, id := range cards {
+			status, card := apiJSON(t, f.h, "GET", "/api/reply-cards/"+id, f.owner, "")
+			if status != 200 {
+				t.Fatalf("%s: read card: %d %v", name, status, card)
+			}
+			apiWantValue(t, name, any(map[string]any{
+				"status": card["status"], "expired_ts": card["expired_ts"],
+				"answered_ts": card["answered_ts"], "answer": card["answer"],
+			}), any(want[name]))
+		}
+
+		_, task := apiJSON(t, f.h, "GET", "/api/tasks/T-1", f.successor, "")
+		var steps []string
+		for _, raw := range task["steps"].([]any) {
+			st := raw.(map[string]any)
+			steps = append(steps, st["name"].(string)+":"+st["status"].(string)+":"+st["reply_card_status"].(string))
+		}
+		wantSteps := []string{"one:in_progress:expired", "two:waiting_owner:waiting", "three:in_progress:expired"}
+		if !reflect.DeepEqual(steps, wantSteps) {
+			t.Fatalf("expired cards release their steps and the other card still holds its own\ngot  %v\nwant %v", steps, wantSteps)
+		}
+	})
+
+	t.Run("a claim that expires the only waiting card leaves the task in progress", func(t *testing.T) {
+		f := newHandoverFixture(t)
+		f.must(t, "POST", "/api/tasks/T-1/steps/"+f.stepOne+"/status", f.owner, `{"status":"in_progress"}`)
+		f.must(t, "POST", "/api/reply-cards", f.predecessor,
+			`{"kind":"decision","summary":"ship?","options":[{"text":"yes"}],"linked_task":{"task_id":"T-1","step_id":"`+f.stepOne+`"}}`)
+
+		status, data := apiJSON(t, f.h, "POST", "/api/tasks/T-1/claim", f.successor, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		if data["status"] != "in_progress" {
+			t.Fatalf("claim receipt status: want in_progress, got %v", data["status"])
+		}
+		want := handoverUntouched("")
+		want.Status = "in_progress"
+		want.Steps = []string{"one:in_progress", "two:pending"}
+		if got := f.view(t); !reflect.DeepEqual(got, want) {
+			t.Fatalf("T-1 after the claim\ngot  %#v\nwant %#v", got, want)
+		}
 	})
 
 	t.Run("an agent that is not the task's executor answers 403", func(t *testing.T) {

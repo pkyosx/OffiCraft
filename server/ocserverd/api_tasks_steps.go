@@ -32,8 +32,7 @@ import (
 // back the task with its stored step rows in timeline order.
 //
 // callerMayDriveTask verbatim, deliberately: these are plan writes, not the
-// text-only doors, so neither the T-91 stamped-predecessor exception nor the
-// T-52 executor-less-creator window widens them.
+// text-only doors, so the T-52 executor-less-creator window does not widen them.
 func (s *apiServer) resolveTaskForStepEdit(
 	w http.ResponseWriter, r *http.Request, taskID string,
 ) (*Task, []TaskStep, bool) {

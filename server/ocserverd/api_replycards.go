@@ -953,6 +953,19 @@ func (s *apiServer) expireWaitingCardsFromMember(memberID string, now float64, t
 	}, now, trigger)
 }
 
+// expireWaitingCardsForTaskFrom sweeps the waiting cards one member opened on
+// one task, fired when a claim takes the task away from that member (the
+// reassign predecessor): its asks on the task no longer belong to whoever
+// holds it.
+func (s *apiServer) expireWaitingCardsForTaskFrom(taskID, memberID string, now float64, trigger string) (int, error) {
+	if taskID == "" || memberID == "" {
+		return 0, errors.New("expireWaitingCardsForTaskFrom: blank task or member id")
+	}
+	return s.expireWaitingCards(func(c ReplyCard) bool {
+		return c.TaskID == taskID && c.FromMember == memberID
+	}, now, trigger)
+}
+
 // reconcileOrphanReplyCardsOnBoot retires the EXISTING orphans (T-4166 存量): a
 // waiting card whose bound task is already terminal can never be answered (the
 // answer route 409s it) and can never leave the owner's pane on its own, so it
