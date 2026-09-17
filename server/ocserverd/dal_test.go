@@ -656,7 +656,7 @@ func TestAppendSQL(t *testing.T) {
 		{"participant is left to selectSQL", chatListFilter{participant: "ann"}, []string{"m1", "m2", "m3", "m4"}},
 		{"sender is one-sided", chatListFilter{sender: "ann"}, []string{"m1", "m3"}},
 		{"recipient is one-sided", chatListFilter{recipient: "bob"}, []string{"m1", "m4"}},
-		{"the three conjuncts AND", chatListFilter{participant: "ann", sender: "ann", recipient: "bob"}, []string{"m1"}},
+		{"the one-sided conjuncts AND and participant is left to selectSQL", chatListFilter{participant: "ann", sender: "ann", recipient: "bob"}, []string{"m1"}},
 		{"an unsatisfiable conjunction reads nothing", chatListFilter{sender: "ann", recipient: "ann"}, []string{}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1014,6 +1014,10 @@ func TestListChatUnread(t *testing.T) {
 			chatListFilter{participant: "ann"}, -1, []ChatMessage{fromA2}},
 		{"with= combines with a sender filter",
 			chatListFilter{participant: "owner", sender: "bob"}, -1, []ChatMessage{fromB1, fromB2}},
+		{"with= another member and a different sender filter reads nothing",
+			chatListFilter{participant: "ann", sender: "bob"}, -1, nil},
+		{"with= another member combines with a recipient filter",
+			chatListFilter{participant: "ann", recipient: "owner"}, -1, []ChatMessage{fromA2}},
 	} {
 		got, err := d.listChatUnread("owner", tc.f, nil, tc.limit)
 		if err != nil {
