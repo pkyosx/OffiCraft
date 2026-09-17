@@ -1357,7 +1357,7 @@ type LoreEntryDTO struct {
 	// 🔴 A THIRD VALUE, ``role``, WAS RETIRED ON 2026-09-07 (owner, card rc-a43100fd0486 [0]: 「只有成員跟任務傳承兩種」). Every role-scoped entry was rekeyed onto the one member under that role, and ``role`` is no longer writable and no longer an accepted ``scope_kinds`` filter value — sending it is a 400, not an empty page. READERS MUST STILL TOLERATE IT: the migration deliberately left in place any entry whose member could not be determined (no active member under that role, or more than one), so ``role`` can still come back on an unfiltered page and a client that switches exhaustively on the three live values must have a fallback arm rather than crashing or renaming it into one of them.
 	ScopeKind string `json:"scope_kind"`
 
-	// ScopeOptions The scope kinds this entry may be switched to with ``set_lore_entry_scope``, in display order: ``manual`` (only when ``task_type_key`` is non-empty), ``agent``, ``everyone``. COMPUTED AT READ TIME from the entry's source task and its author's roster row, not stored. It includes the entry's current kind; switching to it is a no-op. additive-optional.
+	// ScopeOptions The scope kinds this entry may be switched to with ``set_lore_entry_scope``, in display order: ``manual`` (only when ``task_type_key`` is non-empty), ``agent`` (only when the author has a roster row), ``everyone``. COMPUTED AT READ TIME from the entry's source task and its author's roster row, not stored. It includes the entry's current kind; switching to it is a no-op. additive-optional.
 	ScopeOptions *[]string `json:"scope_options,omitempty"`
 
 	// Seq The number behind the id — also the stable tie-break when two entries carry the same ``effective_ts``.
@@ -1369,7 +1369,7 @@ type LoreEntryDTO struct {
 	// State ``active`` | ``pinned`` | ``retired`` — exactly one, always. ``pinned`` sorts ahead of every active entry so it survives the fold's cap; ``retired`` is excluded from both folds but is NOT deleted and can be moved back.
 	State string `json:"state"`
 
-	// TaskTypeKey The task type a ``manual`` scope for this entry would key to, or "" when there is none. COMPUTED AT READ TIME: the type_key of ``source_task_id`` when that task carries one; otherwise, when the author is an outsource member, the type_key of the task that member was bound to; a 臨時任務 with no type gives "". additive-optional.
+	// TaskTypeKey The task type a ``manual`` scope for this entry would key to, or "" when there is none. COMPUTED AT READ TIME: the type_key of ``source_task_id`` when the entry has one; otherwise, when the author is an outsource member, the type_key of the task that member was bound to; a 臨時任務 with no type gives "". additive-optional.
 	TaskTypeKey *string `json:"task_type_key,omitempty"`
 	Title       string  `json:"title"`
 	UpdatedTs   float64 `json:"updated_ts"`

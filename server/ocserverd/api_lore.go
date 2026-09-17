@@ -508,7 +508,7 @@ func (s *apiServer) HandleListLoreEntriesApiLoreGet(w http.ResponseWriter, r *ht
 	for _, e := range entries {
 		ids = append(ids, e.ID)
 	}
-	typeKeys, err := s.dal.LoreTaskTypeKeys(ids)
+	facts, err := s.dal.LoreScopeFacts(ids)
 	if err != nil {
 		internalError(w, err)
 		return
@@ -516,7 +516,7 @@ func (s *apiServer) HandleListLoreEntriesApiLoreGet(w http.ResponseWriter, r *ht
 	out := LoreEntryListDTO{Entries: make([]LoreEntryDTO, 0, len(entries)),
 		Limit: limit, Offset: offset}
 	for _, e := range entries {
-		out.Entries = append(out.Entries, newLoreEntryDTO(e, typeKeys[e.ID]))
+		out.Entries = append(out.Entries, newLoreEntryDTO(e, facts[e.ID]))
 	}
 
 	// 上限線: which entry is the first one the fold will NOT carry. The cockpit
@@ -588,13 +588,16 @@ func validLoreScopeTarget(k string) bool {
 }
 
 // loreScopeOptions is the display-ordered set of kinds set_lore_entry_scope
-// accepts for an entry whose derivable task type is typeKey.
-func loreScopeOptions(typeKey string) []string {
+// accepts for an entry with these facts.
+func loreScopeOptions(f loreScopeFacts) []string {
 	opts := make([]string, 0, 3)
-	if typeKey != "" {
+	if f.TaskTypeKey != "" {
 		opts = append(opts, LoreScopeManual)
 	}
-	return append(opts, LoreScopeAgent, LoreScopeEveryone)
+	if f.AuthorOnRoster {
+		opts = append(opts, LoreScopeAgent)
+	}
+	return append(opts, LoreScopeEveryone)
 }
 
 // POST /api/lore/{entry_id}/scope — set_lore_entry_scope.
@@ -623,22 +626,30 @@ func (s *apiServer) HandleSetLoreEntryScopeApiLoreEntryIdScopePost(w http.Respon
 		return
 	}
 
+	allFacts, err := s.dal.LoreScopeFacts([]string{entryID})
+	if err != nil {
+		internalError(w, err)
+		return
+	}
+	facts := allFacts[entryID]
 	key := ""
 	switch kind {
 	case LoreScopeAgent:
-		key = current.AuthorID
-	case LoreScopeManual:
-		typeKeys, err := s.dal.LoreTaskTypeKeys([]string{entryID})
-		if err != nil {
-			internalError(w, err)
+		if !facts.AuthorOnRoster {
+			writeError(w, http.StatusBadRequest,
+				"lore entry "+entryID+" has no author on the roster (author_id "+
+					strconv.Quote(current.AuthorID)+"), so an agent scope would ride no "+
+					"boot document; choose everyone or, if it has a task type, manual")
 			return
 		}
-		key = typeKeys[entryID]
+		key = current.AuthorID
+	case LoreScopeManual:
+		key = facts.TaskTypeKey
 		if key == "" {
 			writeError(w, http.StatusBadRequest,
 				"lore entry "+entryID+" has no task type to key a manual scope to — its "+
-					"source task (if any) carries no type, and its author is not an "+
-					"outsource member bound to a typed task; choose agent or everyone")
+					"source task carries no type, or it has no source task and its author "+
+					"is not an outsource member bound to a typed task")
 			return
 		}
 	}
@@ -713,10 +724,11 @@ func loreFilterParamName(singular string, fromPlural bool) string {
 // because what a write can tell a caller is what the SERVER decided, and the
 // whole entry is what the caller already had.
 //
-// taskTypeKey is the entry's derivable task type (LoreTaskTypeKeys); the two
-// computed fields are always sent, "" / the two-option list included.
-func newLoreEntryDTO(e LoreEntry, taskTypeKey string) LoreEntryDTO {
-	options := loreScopeOptions(taskTypeKey)
+// facts come from LoreScopeFacts; the two computed fields are always sent,
+// "" and a shorter option list included.
+func newLoreEntryDTO(e LoreEntry, facts loreScopeFacts) LoreEntryDTO {
+	taskTypeKey := facts.TaskTypeKey
+	options := loreScopeOptions(facts)
 	return LoreEntryDTO{
 		Id:           e.ID,
 		Seq:          e.Seq,

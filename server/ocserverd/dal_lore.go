@@ -356,31 +356,45 @@ func (d *DAL) SetLoreEntryScope(id, scopeKind, scopeKey string, updatedTS float6
 	return n > 0, err
 }
 
-// LoreTaskTypeKeys answers, for each of the given entry ids, the task type a
-// 'manual' scope for that entry would key to ("" when there is none). It is the
-// ONE definition of that derivation — set_lore_entry_scope and the list face
+// loreScopeFacts is what the scope move needs to know about one entry beyond
+// its own row.
+type loreScopeFacts struct {
+	// TaskTypeKey is the type a 'manual' scope would key to, "" for none.
+	TaskTypeKey string
+	// AuthorOnRoster is whether author_id names a member row at all (any
+	// roster_status). The owner and legacy '' authors have none, so an
+	// 'agent' scope keyed to them would ride no boot document.
+	AuthorOnRoster bool
+}
+
+// LoreScopeFacts answers loreScopeFacts for each of the given entry ids. It is
+// the ONE definition of the derivation — set_lore_entry_scope and the list face
 // both read it — and it is one query for a whole page.
 //
-// The rule (T-236, owner): the type of the entry's source task when that task
-// carries one; otherwise, when the AUTHOR is an outsource member, the type of
-// the task that member is bound to. The member row is read whatever its
-// roster_status, because a released worker keeps its linked_task_id and is
-// still the author. An untyped (臨時) task contributes "".
+// The task-type rule (T-236, owner): an entry WITH a source task takes that
+// task's type and nothing else, so an untyped (臨時) source task gives "".
+// Only an entry with NO source task, written by an outsource member, falls
+// back to the task that member is bound to. The member row is read whatever
+// its roster_status, because a released worker keeps its linked_task_id and is
+// still the author.
 //
 // Ids with no row are absent from the map.
-func (d *DAL) LoreTaskTypeKeys(ids []string) (map[string]string, error) {
-	out := make(map[string]string, len(ids))
+func (d *DAL) LoreScopeFacts(ids []string) (map[string]loreScopeFacts, error) {
+	out := make(map[string]loreScopeFacts, len(ids))
 	if len(ids) == 0 {
 		return out, nil
 	}
 	clause, args := loreInClause("l.id", ids)
 	rows, err := d.rdb.Query(`
-		SELECT l.id, COALESCE(
-			NULLIF(TRIM(src.type_key), ''),
-			CASE WHEN m.kind = ? THEN NULLIF(TRIM(bound.type_key), '') END,
-			'')
+		SELECT l.id,
+			CASE
+				WHEN l.source_task_id != '' THEN COALESCE(TRIM(src.type_key), '')
+				WHEN m.kind = ? THEN COALESCE(TRIM(bound.type_key), '')
+				ELSE ''
+			END,
+			m.id IS NOT NULL
 		FROM lore_entry l
-		LEFT JOIN task src ON src.id = l.source_task_id AND l.source_task_id != ''
+		LEFT JOIN task src ON src.id = l.source_task_id
 		LEFT JOIN member m ON m.id = l.author_id
 		LEFT JOIN task bound ON bound.id = m.linked_task_id
 		WHERE 1=1`+clause, append([]any{KindOutsource}, args...)...)
@@ -389,11 +403,12 @@ func (d *DAL) LoreTaskTypeKeys(ids []string) (map[string]string, error) {
 	}
 	defer rows.Close() //nolint:errcheck
 	for rows.Next() {
-		var id, typeKey string
-		if err := rows.Scan(&id, &typeKey); err != nil {
+		var id string
+		var f loreScopeFacts
+		if err := rows.Scan(&id, &f.TaskTypeKey, &f.AuthorOnRoster); err != nil {
 			return nil, err
 		}
-		out[id] = typeKey
+		out[id] = f
 	}
 	return out, rows.Err()
 }

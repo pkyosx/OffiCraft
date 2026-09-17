@@ -10211,12 +10211,12 @@ export interface components {
             scope_key: string;
             /**
              * Scope Options
-             * @description The scope kinds this entry may be switched to with ``set_lore_entry_scope``, in display order: ``manual`` (only when ``task_type_key`` is non-empty), ``agent``, ``everyone``. COMPUTED AT READ TIME from the entry's source task and its author's roster row, not stored. It includes the entry's current kind; switching to it is a no-op. additive-optional.
+             * @description The scope kinds this entry may be switched to with ``set_lore_entry_scope``, in display order: ``manual`` (only when ``task_type_key`` is non-empty), ``agent`` (only when the author has a roster row), ``everyone``. COMPUTED AT READ TIME from the entry's source task and its author's roster row, not stored. It includes the entry's current kind; switching to it is a no-op. additive-optional.
              */
             scope_options?: string[];
             /**
              * Task Type Key
-             * @description The task type a ``manual`` scope for this entry would key to, or "" when there is none. COMPUTED AT READ TIME: the type_key of ``source_task_id`` when that task carries one; otherwise, when the author is an outsource member, the type_key of the task that member was bound to; a 臨時任務 with no type gives "". additive-optional.
+             * @description The task type a ``manual`` scope for this entry would key to, or "" when there is none. COMPUTED AT READ TIME: the type_key of ``source_task_id`` when the entry has one; otherwise, when the author is an outsource member, the type_key of the task that member was bound to; a 臨時任務 with no type gives "". additive-optional.
              */
             task_type_key?: string;
             /** Title */

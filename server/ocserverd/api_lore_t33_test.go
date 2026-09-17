@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -990,7 +991,7 @@ func TestSetLoreEntryScopeMovesTheEntryToEachKindWithTheServerDerivedKey(t *test
 	}
 }
 
-func TestSetLoreEntryScopeDerivesTheManualKeyFromTheSourceTaskThenTheOutsourceBinding(t *testing.T) {
+func TestSetLoreEntryScopeDerivesTheManualKeyFromTheSourceTaskElseTheOutsourceBinding(t *testing.T) {
 	st := newLoreScopeStack(t)
 	staff := hireLoreStaff(t, st.api, "m-scope-staff", "researcher")
 	typed := seedScopeTask(t, st.api, "tm-source")
@@ -1020,7 +1021,6 @@ func TestSetLoreEntryScopeDerivesTheManualKeyFromTheSourceTaskThenTheOutsourceBi
 	}{
 		{"typed source task, staff author", staff, typed, "tm-source"},
 		{"typed source task wins over the outsource binding", "ow-scope-live", typed, "tm-source"},
-		{"ad-hoc source task, outsource author bound to a typed task", "ow-scope-live", adhoc, "tm-bound"},
 		{"no source task, outsource author bound to a typed task", "ow-scope-live", "", "tm-bound"},
 		{"released outsource author keeps its binding", "ow-scope-gone", "", "tm-bound"},
 	} {
@@ -1039,6 +1039,7 @@ func TestSetLoreEntryScopeDerivesTheManualKeyFromTheSourceTaskThenTheOutsourceBi
 		name, author, source string
 	}{
 		{"ad-hoc source task, staff author", staff, adhoc},
+		{"ad-hoc source task decides even for an outsource author bound to a typed task", "ow-scope-live", adhoc},
 		{"no source task, staff author", staff, ""},
 		{"outsource author bound to an ad-hoc task", "ow-scope-adhoc", ""},
 		{"staff author whose row carries a typed task binding", "m-scope-linked", ""},
@@ -1049,8 +1050,8 @@ func TestSetLoreEntryScopeDerivesTheManualKeyFromTheSourceTaskThenTheOutsourceBi
 			t.Fatalf("%s: want 400, got %d %v", tc.name, status, data)
 		}
 		apiWantError(t, data, "validation_error", "lore entry "+id+" has no task type "+
-			"to key a manual scope to — its source task (if any) carries no type, and "+
-			"its author is not an outsource member bound to a typed task; choose agent or everyone")
+			"to key a manual scope to — its source task carries no type, or it has no "+
+			"source task and its author is not an outsource member bound to a typed task")
 		if row := storedScope(t, st.api, id); row.ScopeKind != LoreScopeAgent ||
 			row.ScopeKey != tc.author || row.UpdatedTS != 100 {
 			t.Fatalf("%s: a refused move changed the row: %+v", tc.name, row)
@@ -1215,4 +1216,30 @@ func TestListFiltersTheEveryoneScopeAndReportsTheMemberCapForIt(t *testing.T) {
 	}
 	apiWantValue(t, "agent cap_chars", data["cap_chars"], 5)
 	apiWantValue(t, "agent first_dropped_id", data["first_dropped_id"], mine)
+}
+
+func TestAnEntryWhoseAuthorHasNoRosterRowCannotMoveToAgent(t *testing.T) {
+	st := newLoreScopeStack(t)
+	typed := seedScopeTask(t, st.api, "tm-orphan")
+	for _, author := range []string{wireOwnerID, ""} {
+		id := seedScopedLore(t, st.api, author, typed, "沒有名冊列的撰寫人")
+		status, data := st.setScope(t, st.admin, id, LoreScopeAgent)
+		if status != http.StatusBadRequest {
+			t.Fatalf("author %q: want 400, got %d %v", author, status, data)
+		}
+		apiWantError(t, data, "validation_error", "lore entry "+id+" has no author on "+
+			"the roster (author_id "+strconv.Quote(author)+"), so an agent scope would "+
+			"ride no boot document; choose everyone or, if it has a task type, manual")
+
+		status, data = apiJSON(t, st.h, "GET", "/api/lore?entry_id="+id, st.user, "")
+		if status != http.StatusOK {
+			t.Fatalf("list: %d %v", status, data)
+		}
+		row := data["entries"].([]any)[0].(map[string]any)
+		apiWantValue(t, id+".scope_options", row["scope_options"], []any{"manual", "everyone"})
+
+		if status, data := st.setScope(t, st.admin, id, LoreScopeEveryone); status != http.StatusOK {
+			t.Fatalf("author %q: everyone must still be offered and accepted: %d %v", author, status, data)
+		}
+	}
 }

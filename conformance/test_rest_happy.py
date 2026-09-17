@@ -2077,8 +2077,9 @@ def _check_lore_scope_moved(ctx: HCtx, r: httpx.Response) -> None:
     (row,) = g.json()["entries"]
     assert row["scope_kind"] == "everyone" and row["scope_key"] == "", row
     assert row["title"] == _HAPPY_LORE_TITLE, row
-    want = (["manual"] if row["task_type_key"] else []) + ["agent", "everyone"]
-    assert row["scope_options"] == want, row
+    # Written by the scratch agent (a roster row) with no task: no manual option.
+    assert row["task_type_key"] == "", row
+    assert row["scope_options"] == ["agent", "everyone"], row
 
 
 HAPPY: dict[str, Happy] = {

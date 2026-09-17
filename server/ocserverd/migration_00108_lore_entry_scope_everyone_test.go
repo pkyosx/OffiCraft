@@ -97,3 +97,58 @@ func TestMigration00108AdmitsEveryoneAndKeepsEveryRowAndTheIndex(t *testing.T) {
 		t.Fatalf("index after 00108 = %q, want %q", indexSQL, wantIndex)
 	}
 }
+
+func loreMigrationState(t *testing.T, db *sql.DB) (version int64, rows int, rebuildLeft int, indexes int) {
+	t.Helper()
+	v, err := goose.GetDBVersion(db)
+	if err != nil {
+		t.Fatalf("GetDBVersion: %v", err)
+	}
+	for q, dst := range map[string]*int{
+		`SELECT COUNT(*) FROM lore_entry`:                                                                           &rows,
+		`SELECT COUNT(*) FROM sqlite_master WHERE name = 'lore_entry_rebuild'`:                                      &rebuildLeft,
+		`SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = 'idx_lore_entry_scope_state_effective'`: &indexes,
+	} {
+		if err := db.QueryRow(q).Scan(dst); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	return v, rows, rebuildLeft, indexes
+}
+
+func TestMigration00108DownRefusesWhileAnEveryoneRowExistsAndLeavesNothingBehind(t *testing.T) {
+	db := openLoreAt107(t)
+	if err := goose.UpTo(db, "migrations", 108); err != nil {
+		t.Fatalf("goose up to 108: %v", err)
+	}
+	if err := insertLoreKind(db, "L-1", 1, "agent", "m-a"); err != nil {
+		t.Fatalf("seed agent: %v", err)
+	}
+	if err := insertLoreKind(db, "L-2", 2, "everyone", ""); err != nil {
+		t.Fatalf("seed everyone: %v", err)
+	}
+
+	if err := goose.DownTo(db, "migrations", 107); err == nil {
+		t.Fatal("00108 Down succeeded with an everyone row present — that row was dropped or rewritten")
+	}
+	v, rows, rebuild, idx := loreMigrationState(t, db)
+	if v != 108 || rows != 2 || rebuild != 0 || idx != 1 {
+		t.Fatalf("after the refused Down: version=%d rows=%d rebuild tables=%d index=%d, "+
+			"want 108/2/0/1 — the failed batch was not rolled back whole", v, rows, rebuild, idx)
+	}
+
+	if _, err := db.Exec(`UPDATE lore_entry SET scope_kind = 'agent', scope_key = 'm-a' WHERE id = 'L-2'`); err != nil {
+		t.Fatalf("move off everyone: %v", err)
+	}
+	if err := goose.DownTo(db, "migrations", 107); err != nil {
+		t.Fatalf("00108 Down with no everyone row: %v", err)
+	}
+	v, rows, rebuild, idx = loreMigrationState(t, db)
+	if v != 107 || rows != 2 || rebuild != 0 || idx != 1 {
+		t.Fatalf("after the Down: version=%d rows=%d rebuild tables=%d index=%d, want 107/2/0/1",
+			v, rows, rebuild, idx)
+	}
+	if err := insertLoreKind(db, "L-3", 3, "everyone", ""); err == nil {
+		t.Fatal("after the Down the CHECK still admits 'everyone'")
+	}
+}
