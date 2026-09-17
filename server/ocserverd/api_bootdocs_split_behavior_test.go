@@ -623,7 +623,7 @@ func TestTaskUnblockedDoc_TheOwnersEditReachesTheSendSite(t *testing.T) {
 	}
 }
 
-// The three documents that could not be split are split now, each on its own
+// The documents that could not be split are split now, each on its own
 // owner ruling — so what is pinned here is the RULING, not the flag: a build
 // that dropped Split on any of them would go on rendering identical bytes
 // (DocRendered cuts at the marker whether or not the kind declared one), and
@@ -631,12 +631,11 @@ func TestTaskUnblockedDoc_TheOwnersEditReachesTheSendSite(t *testing.T) {
 // eventNoticeText and the head gate on the write face. Both are behavioural
 // cases below and in TestReplaceBootDoc_ChangingTheReadOnlyHeadIsRefusedAndNothingIsWritten;
 // this one names the declaration they all rest on.
-func TestBootDocRegistry_TheThreeFormerlyUnsplittableKindsAreSplitByRuling(t *testing.T) {
+func TestBootDocRegistry_TheFormerlyUnsplittableKindsAreSplitByRuling(t *testing.T) {
 	s := newEventProcServer(t)
 	for _, kind := range []string{
 		docKindTaskCloseout,
 		docKindTaskTakeoverWithPredecessor,
-		docKindTaskTakeoverFresh,
 	} {
 		t.Run(kind, func(t *testing.T) {
 			spec := s.mustBootDocSpec(kind, bootDocSingletonKey)
@@ -653,7 +652,7 @@ func TestBootDocRegistry_TheThreeFormerlyUnsplittableKindsAreSplitByRuling(t *te
 			if !ok {
 				t.Fatal("declared split, but the seed carries no marker line")
 			}
-			// The premise of every one of the three rulings: what stopped them
+			// The premise of every one of these rulings: what stopped them
 			// being split was a variable outside the leading run of facts, and
 			// none survives below the line now.
 			if bad := DocVarsIn(body); len(bad) > 0 {
@@ -676,13 +675,6 @@ func TestTaskTakeoverDocs_HeadPlusBodyIsTodaysChatNoticeWithoutTheHandoverNote(t
 		kind, want string
 		values     map[string]string
 	}{{
-		// {title} is gone from both (T-6f44): the number names the ticket, and
-		// 〈新任務〉's body opens 「請先讀任務內容」 — it is going to read the title.
-		kind:   docKindTaskTakeoverFresh,
-		values: map[string]string{"task_no": "T-7e91"},
-		want: "[T-7e91] 你接手了這張任務。請先讀任務內容，準備好後由你自己呼叫 " +
-			"claim_task（認領）解除轉派鎖再開始執行；任務狀態一律照步驟推導，不必也不能自己報。\n",
-	}, {
 		// {predecessor_label} + {old_executor_id} merged into ONE slot filled
 		// 「名字（id）」. The id could not be dropped — the body's first
 		// instruction is to post_chat this person — and neither could the name.
@@ -728,6 +720,25 @@ func TestTaskTakeoverDocs_HeadPlusBodyIsTodaysChatNoticeWithoutTheHandoverNote(t
 			}
 		})
 	}
+
+	t.Run("a staff successor with no predecessor gets the same body under a head that names none", func(t *testing.T) {
+		s := newEventProcServer(t)
+		want := "[T-7e91] 你接手了這張任務，這張任務沒有前任。" +
+			"這則訊息只是提醒，不是唯一路徑——同一件事在票上讀得到（`lock` 是 " +
+			"`reassigning`、`reassigned_from` 是前任），開機盤點就會看到，" +
+			"漏收這則也不會漏掉這張票。" +
+			"請先跟他確認交接完成（直接 post_chat 給他，問清楚目前進度與進行中的事項），" +
+			"確認後再由你自己呼叫 claim_task（認領）解除轉派鎖——只有你這個新負責人動得了；" +
+			"任務狀態一律照步驟推導，不必也不能自己報。"
+		if got := s.takeoverNoticeText("T-7e91", ""); got != want {
+			t.Fatalf("notice without a predecessor:\n got %q\nwant %q", got, want)
+		}
+		withPredecessor := s.takeoverNoticeText("T-7e91", "銀月（mira）")
+		if want := s.taskNoticeText(docKindTaskTakeoverWithPredecessor,
+			map[string]string{"task_no": "T-7e91", "predecessor": "銀月（mira）"}); withPredecessor != want {
+			t.Fatalf("notice with a predecessor:\n got %q\nwant %q", withPredecessor, want)
+		}
+	})
 }
 
 // 〈任務收尾〉 is the one of the three the owner allowed to be REWRITTEN
@@ -807,7 +818,6 @@ func TestTaskCloseoutDoc_IsTheApprovedRewriteWithBothNamesMovedIntoTheHead(t *te
 func TestTaskTakeoverNotice_AValueNothingSuppliesEmptiesTheNoticeAndTheSuccessorIsSentNothing(t *testing.T) {
 	s := newEventProcServer(t)
 	for kind, values := range map[string]map[string]string{
-		docKindTaskTakeoverFresh:           {"task_no": "T-7e91"},
 		docKindTaskTakeoverWithPredecessor: {"task_no": "T-7e91", "predecessor": "銀月（mira）"},
 	} {
 		t.Run(kind, func(t *testing.T) {

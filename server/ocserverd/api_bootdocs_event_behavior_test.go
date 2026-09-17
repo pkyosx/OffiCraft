@@ -68,13 +68,13 @@ func ownerPost(path string) *http.Request {
 func eventProcKinds() []string {
 	return []string{
 		docKindAcceleratedStop, docKindTaskCloseout, docKindTaskReassignPredecessor,
-		docKindTaskTakeoverWithPredecessor, docKindTaskTakeoverFresh, docKindTaskUnblocked,
+		docKindTaskTakeoverWithPredecessor, docKindTaskUnblocked,
 		docKindTaskReadyForDone,
 	}
 }
 
 // 🔴 THERE ARE NO READ-ONLY DOCUMENTS ANY MORE (T-6f44, owner's decision 2).
-// This used to return 〈新任務〉 and 〈擋著你手上任務的票解開了〉. It reads the
+// It reads the
 // REGISTRY now rather than a literal list, so it answers empty because the
 // registry says so — and every test below that consumes it says out loud what it
 // does when the answer is empty, instead of passing vacuously.
@@ -97,23 +97,21 @@ func readOnlyEventProcKinds() []string {
 // that no shipped document is behind it.
 func readOnlyProbeSpec(t *testing.T, s *apiServer) bootDocSpec {
 	t.Helper()
-	spec := s.mustBootDocSpec(docKindTaskTakeoverFresh, bootDocSingletonKey)
+	spec := s.mustBootDocSpec(docKindTaskUnblocked, bootDocSingletonKey)
 	spec.ReadOnly = true
 	return spec
 }
 
-// 🔴 THE OWNER'S DECISION 2, PINNED AS ITSELF. 「〈新任務〉與〈擋著你手上任務的票
-// 解開了〉改成跟其他八份一樣可編輯」— the reason the two were locked was recorded
-// as precedent (「以前 global context 是固定內容 我們也是會顯示 只是不給改」),
-// not as anything about their text, and 〈新任務〉 and 〈給接手人〉 are two halves
-// of one event that the owner could edit one of. Ten documents, no exception to
-// remember. The half that stays locked on all of them is the read-only HEAD.
+// 🔴 THE OWNER'S DECISION 2, PINNED AS ITSELF: every event document is editable.
+// The reason some were locked was recorded as precedent (「以前 global context 是
+// 固定內容 我們也是會顯示 只是不給改」), not as anything about their text. The
+// half that stays locked on all of them is the read-only HEAD.
 //
 // This is also the assertion that makes the empty readOnlyEventProcKinds() above
 // a statement rather than a hole.
 func TestBootDocRegistry_NoDocumentIsReadOnly(t *testing.T) {
 	if kinds := readOnlyEventProcKinds(); len(kinds) > 0 {
-		t.Errorf("these kinds are still read-only: %v — decision 2 made all ten editable, "+
+		t.Errorf("these kinds are still read-only: %v — decision 2 made all of them editable, "+
 			"and bin/tests/fixtures/boot-doc-registry.tsv has to agree in the same commit", kinds)
 	}
 }

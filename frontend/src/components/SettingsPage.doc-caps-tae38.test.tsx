@@ -267,7 +267,6 @@ describe("T-ae38 — capForKind routes each document kind to its own cap", () =>
     expect(capForKind("task_closeout", caps)).toBe(9);
     expect(capForKind("task_reassign_predecessor", caps)).toBe(9);
     expect(capForKind("task_takeover_with_predecessor", caps)).toBe(9);
-    expect(capForKind("task_takeover_fresh", caps)).toBe(9);
     expect(capForKind("task_unblocked", caps)).toBe(9);
     // The retired bundle kind has no restore path left; it takes the SOP's cap,
     // the one document the bundle still had when it was split.

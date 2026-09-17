@@ -103,7 +103,6 @@ describe("httpApi · boot-document wire methods", () => {
       "task_closeout",
       "task_reassign_predecessor",
       "task_takeover_with_predecessor",
-      "task_takeover_fresh",
       "task_unblocked",
     ] as const) {
       await httpApi.getBootDoc(kind, "global");

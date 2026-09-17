@@ -1915,9 +1915,9 @@ func (s *apiServer) HandleReassignTaskApiTasksTaskIdReassignPost(w http.Response
 	// 4. Re-point the executor + enter the reassigning handover hold. A member
 	// target binds directly; an outsource target lands UNASSIGNED (executor_id=''
 	// + the outsource_target on the row) and the scheduler mints the successor
-	// under the global parallel cap (T-35e0 — no inline mint here). The successor's
-	// boot context folds the same reassigning takeover instruction, so a headless
-	// worker learns whom to hand over WITH even though it is minted later.
+	// under the global parallel cap (T-35e0 — no inline mint here). That worker
+	// gets no takeover notice: its boot sequence has it look for tasks whose lock
+	// is reassigning and read the predecessor off reassigned_from.
 	if kind == TaskExecutorStaff {
 		t.ExecutorKind = TaskExecutorStaff
 		t.ExecutorID = newMember.ID
@@ -1979,8 +1979,8 @@ func (s *apiServer) HandleReassignTaskApiTasksTaskIdReassignPost(w http.Response
 	// predecessor (the outsource one is kept live through the hold, so it can
 	// answer). An outsource SUCCESSOR is not minted here anymore (T-35e0 — the
 	// scheduler mints it later under the cap), so there is no worker id to DM
-	// yet; its boot context folds the same takeover instruction, so the successor
-	// chat notice is a member-only step below.
+	// and the successor chat notice is a member-only step below; the worker finds
+	// the task through its boot sequence's reassigning-lock check instead.
 	// 🔴 THE PREDECESSOR NOTICE NAMES NOBODY ANY MORE (owner, 2026-08-24), so
 	// there is no successor LABEL to compose — only the id, and only for the
 	// arm that actually sends the successor a message. The composer that used
@@ -2019,24 +2019,15 @@ func (s *apiServer) HandleReassignTaskApiTasksTaskIdReassignPost(w http.Response
 	// with get_task; the copy stapled under the notice was a second one, and it
 	// was the copy that made these two documents unsplittable — a {note} slot
 	// AFTER the instructions leaves no prefix of facts to cut at.
-	if oldExecutor != "" && newExecutorID != "" {
-		if notice := s.taskNoticeText(docKindTaskTakeoverWithPredecessor, map[string]string{
-			"task_no": no,
-			// One slot, both facts — see newExecutorLabel above. The id is not
-			// optional here: the body's first instruction is to post_chat this
-			// person, and 「一串 id」 alone does not say who that is.
-			"predecessor": nameWithIDSlot(s.executorLabel(oldKind, oldExecutor), oldExecutor),
-		}); notice != "" {
-			s.postTaskChat(*t, wireSystemSender, newExecutorID, notice, trigger, nil)
+	if newExecutorID != "" {
+		predecessor := ""
+		if oldExecutor != "" {
+			// The id is not optional: the body's first instruction is to
+			// post_chat this person, and an id alone does not say who that is.
+			predecessor = nameWithIDSlot(s.executorLabel(oldKind, oldExecutor), oldExecutor)
 		}
-	} else if newMember != nil {
-		// A not_started task with no prior executor (no predecessor to hand over
-		// with) — the plain "you are now the executor" notice, member side only
-		// (a fresh worker learns it through the boot context).
-		if notice := s.taskNoticeText(docKindTaskTakeoverFresh, map[string]string{
-			"task_no": no,
-		}); notice != "" {
-			s.postTaskChat(*t, wireSystemSender, newMember.ID, notice, trigger, nil)
+		if notice := s.takeoverNoticeText(no, predecessor); notice != "" {
+			s.postTaskChat(*t, wireSystemSender, newExecutorID, notice, trigger, nil)
 		}
 	}
 

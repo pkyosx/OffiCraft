@@ -1362,7 +1362,6 @@ var documentHistoryKeepByKind = map[string]int{
 	docKindTaskCloseout:                10,
 	docKindTaskReassignPredecessor:     10,
 	docKindTaskTakeoverWithPredecessor: 10,
-	docKindTaskTakeoverFresh:           10,
 	docKindTaskUnblocked:               10,
 	docKindTaskReadyForDone:            10,
 }

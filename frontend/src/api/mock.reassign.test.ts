@@ -147,12 +147,19 @@ describe("mock reassign — member target", () => {
     // The NEW executor is told who its predecessor is and to claim the task
     // itself. A system message, never an owner DM (T-ba04).
     const inbox = await mockApi.listChat("mira");
-    expect(inbox.some((m) => m.from === "system")).toBe(true);
+    expect(inbox.map((m) => ({ from: m.from, to: m.to, body: m.body }))).toEqual([
+      {
+        from: "system",
+        to: "mira",
+        body:
+          "[T-2001] 你接手了這張任務，你的前任是 someone-else。" +
+          "這則訊息只是提醒，不是唯一路徑——同一件事在票上讀得到（`lock` 是 `reassigning`、`reassigned_from` 是前任），" +
+          "開機盤點就會看到，漏收這則也不會漏掉這張票。" +
+          "請先跟他確認交接完成（直接 post_chat 給他，問清楚目前進度與進行中的事項），" +
+          "確認後再由你自己呼叫 claim_task（認領）解除轉派鎖——只有你這個新負責人動得了；任務狀態一律照步驟推導，不必也不能自己報。",
+      },
+    ]);
     const notice = inbox.map((m) => m.body).join("\n");
-    expect(notice).toContain(task.taskNo);
-    expect(notice).toContain("你的前任是");
-    expect(notice).toContain("claim_task");
-    expect(notice).not.toContain("update_task_status");
     // 🔴 THE NOTE NO LONGER RIDES ALONG (rc-0c36d8739b8f: 「拿掉 —— 交接備註只留
     // 在任務上」). This used to assert the opposite; the assertion was inverted
     // rather than deleted, because a stapled copy AFTER the instructions is what
@@ -172,6 +179,27 @@ describe("mock reassign — member target", () => {
     expect(oldNotice).toContain("此任務已轉派給新的接手人");
     expect(oldNotice).toContain("先把交接資訊寫到這張任務上");
     expect(oldNotice).not.toContain("Mira");
+  });
+
+  it("tells a member taking over a task nobody executed that it has no predecessor", async () => {
+    const task = mkTask({ executorKind: "outsource", executorId: "" });
+    __injectMockTask(task);
+
+    await mockApi.reassignTask(task.id, { target: { kind: "staff", memberId: "mira" } });
+
+    const inbox = await mockApi.listChat("mira");
+    expect(inbox.map((m) => ({ from: m.from, to: m.to, body: m.body }))).toEqual([
+      {
+        from: "system",
+        to: "mira",
+        body:
+          "[T-2001] 你接手了這張任務，這張任務沒有前任。" +
+          "這則訊息只是提醒，不是唯一路徑——同一件事在票上讀得到（`lock` 是 `reassigning`、`reassigned_from` 是前任），" +
+          "開機盤點就會看到，漏收這則也不會漏掉這張票。" +
+          "請先跟他確認交接完成（直接 post_chat 給他，問清楚目前進度與進行中的事項），" +
+          "確認後再由你自己呼叫 claim_task（認領）解除轉派鎖——只有你這個新負責人動得了；任務狀態一律照步驟推導，不必也不能自己報。",
+      },
+    ]);
   });
 
   it("expires the task's waiting cards and rewinds non-terminal steps", async () => {

@@ -166,7 +166,7 @@ var bootDocRegistry = []bootDocReg{{
 	// 59%」 — a usage percentage that has nothing to do with how to close out —
 	// stapled to an instruction the body already gives. Removing the variable
 	// left a head with nothing in it that the body could not say itself, so the
-	// head went too: this is the FIRST of the ten documents with no read-only
+	// head went too: this is the FIRST of these documents with no read-only
 	// half, and the whole document is now the owner's.
 	//
 	// Three things had to happen in one commit (see system_interaction's row):
@@ -251,7 +251,7 @@ var bootDocRegistry = []bootDocReg{{
 	SeedFor: func(string) string { return taskReassignPredecessorSeedMD },
 	DocName: func(string) string { return "task reassignment document (to the predecessor)" },
 	Cap:     func(s *apiServer) int { return s.taskEventCap() },
-	// The cleanest cut of the ten: one sentence of fact, then three of
+	// The cleanest cut of these documents: one sentence of fact, then three of
 	// instruction, in that order, inside one paragraph — hence Join "".
 	// 🔴 THE SUCCESSOR IS NOT NAMED — ONE VARIABLE, NOT TWO (owner, 2026-08-24,
 	// verbatim: 「如果完全不提到接手人是誰呢」「讓他自己去查」「不管是不是
@@ -300,29 +300,6 @@ var bootDocRegistry = []bootDocReg{{
 	Join:  "",
 	Vars:  []string{"task_no", "predecessor"},
 }, {
-	// 🔴 NO LONGER READ-ONLY (T-6f44, owner's decision 2). The reason it was
-	// locked was recorded as 「以前 global context 是固定內容 我們也是會顯示 只是
-	// 不給改」 — precedent, not a property of this text. 〈新任務〉 and 〈給接手人〉
-	// are the two halves of one event, and the owner could edit one and not the
-	// other with nothing to say why. The half that SHOULD be locked already is:
-	// the read-only head, on all ten.
-	//
-	// ⚠️ read_only lives in bin/tests/fixtures/boot-doc-registry.tsv as well —
-	// the cockpit reads its own copy, and the mirror test on both sides is what
-	// makes a one-sided change red instead of invisible.
-	Kind:    docKindTaskTakeoverFresh,
-	Keys:    []string{taskTakeoverFreshDocKey},
-	SeedFor: func(string) string { return taskTakeoverFreshSeedMD },
-	DocName: func(string) string { return "new task document" },
-	Cap:     func(s *apiServer) int { return s.taskEventCap() },
-	// Split on the same ruling as its sibling above, and joined the same way:
-	// one sentence of fact, then the instructions, inside one paragraph.
-	Split: true,
-	Join:  "",
-	// {title} dropped: the number names the ticket, and the body's first
-	// instruction is 「請先讀任務內容」 — it is going to read the title anyway.
-	Vars: []string{"task_no"},
-}, {
 	Kind:    docKindTaskUnblocked,
 	Keys:    []string{taskUnblockedDocKey},
 	SeedFor: func(string) string { return taskUnblockedSeedMD },
@@ -330,7 +307,7 @@ var bootDocRegistry = []bootDocReg{{
 	Cap:     func(s *apiServer) int { return s.taskEventCap() },
 	Split:   true,
 	// A blank line, not "", because the body is a bullet list — the one
-	// document of the ten whose body is not today's sentence. owner approved
+	// one of these documents whose body is not today's sentence. owner approved
 	// the rewrite on 2026-08-22 (rc-8c0045ef7c38): the old single sentence
 	// 「請 get_task 讀內容、submit_plan 規劃步驟後開始執行」 hardcodes the
 	// assumption that a blocked ticket has not started, and there is live
@@ -344,9 +321,11 @@ var bootDocRegistry = []bootDocReg{{
 	// Two defects died with them, both visible in the old sentence: {blocker_
 	// status} rendered an UNTRANSLATED wire code into Chinese prose (「已經done
 	// 了」、「已經terminated了」), and the sentence used a HALFWIDTH comma — the
-	// only one in the ten.
+	// only one among these documents.
 	//
-	// ⚠️ Not read-only any more — see 〈新任務〉's row above and the shared table.
+	// ⚠️ read_only lives in bin/tests/fixtures/boot-doc-registry.tsv as well —
+	// the cockpit reads its own copy, and the mirror test on both sides is what
+	// makes a one-sided change red instead of invisible.
 	Vars: []string{"blocked_task_no"},
 }, {
 	Kind:    docKindTaskReadyForDone,
@@ -674,6 +653,22 @@ func (s *apiServer) taskNoticeText(kind string, values map[string]string) string
 		s.eventNoticeText(s.mustBootDocSpec(kind, bootDocSingletonKey), values))
 }
 
+// takeoverNoPredecessorHead replaces 〈給接手人〉's read-only head when the task
+// has no predecessor: the shipped head names one, and {predecessor} has nothing
+// to fill it with.
+const takeoverNoPredecessorHead = "[{task_no}] 你接手了這張任務，這張任務沒有前任。"
+
+// takeoverNoticeText is 〈給接手人〉 as posted to a staff successor. predecessor
+// "" means the task had none; the body is the same document either way.
+func (s *apiServer) takeoverNoticeText(taskNo, predecessor string) string {
+	values := map[string]string{"task_no": taskNo, "predecessor": predecessor}
+	spec := s.mustBootDocSpec(docKindTaskTakeoverWithPredecessor, bootDocSingletonKey)
+	if predecessor != "" {
+		return strings.TrimSpace(s.eventNoticeText(spec, values))
+	}
+	return strings.TrimSpace(s.eventNoticeTextWithHead(spec, takeoverNoPredecessorHead, values))
+}
+
 // eventNoticeText is the one road from a document to the bytes an agent reads:
 // fold the overlay over the seed, fill the names this kind declares, join the
 // halves. "" on any fault — see the two callers above for why every one of them
@@ -729,6 +724,13 @@ func (s *apiServer) taskNoticeText(kind string, values map[string]string) string
 // the rows already stored, which no write path visits until something writes
 // them.
 func (s *apiServer) eventNoticeText(spec bootDocSpec, values map[string]string) string {
+	return s.eventNoticeTextWithHead(spec, "", values)
+}
+
+// eventNoticeTextWithHead is eventNoticeText with the stored read-only head
+// swapped for head ("" keeps the stored one). The stored text must still be
+// split: the body is only trusted when the marker says where it starts.
+func (s *apiServer) eventNoticeTextWithHead(spec bootDocSpec, head string, values map[string]string) string {
 	dto, err := s.foldBootDocDTO(spec)
 	if err != nil || dto == nil {
 		return ""
@@ -736,9 +738,12 @@ func (s *apiServer) eventNoticeText(spec bootDocSpec, values map[string]string) 
 	if !spec.Split {
 		return dto.Text
 	}
-	head, body, split := DocSplitHeadBody(dto.Text)
+	storedHead, body, split := DocSplitHeadBody(dto.Text)
 	if !split {
 		return ""
+	}
+	if head == "" {
+		head = storedHead
 	}
 	head, err = RenderDocVars(head, spec.Vars, values)
 	if err != nil {

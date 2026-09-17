@@ -3439,9 +3439,24 @@ func TestHandlePostTaskMessageApiTasksTaskIdMessagePost(t *testing.T) {
 	})
 }
 
+// apiTestChatRows is every stored chat row as sender, recipient and body, in
+// the order the DAL lists them.
+func apiTestChatRows(t *testing.T, d *DAL) []any {
+	t.Helper()
+	msgs, err := d.ListChat()
+	if err != nil {
+		t.Fatalf("ListChat: %v", err)
+	}
+	rows := []any{}
+	for _, m := range msgs {
+		rows = append(rows, map[string]any{"from": m.Sender, "to": m.Recipient, "body": m.Body})
+	}
+	return rows
+}
+
 func TestHandleReassignTaskApiTasksTaskIdReassignPost(t *testing.T) {
 	t.Run("handing a task to another member answers the receipt under the reassigning lock and pairs both sides in chat", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
+		api, h, d, owner := newAPITestServer(t)
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
 		dashboard := apiTestListen(t, api, "")
 		predecessor := apiTestListen(t, api, "kip")
@@ -3528,6 +3543,51 @@ func TestHandleReassignTaskApiTasksTaskIdReassignPost(t *testing.T) {
 		dashboard.wantFrames(predecessorNotice, successorNotice, newAudienceDelta, oldAudienceDelta)
 		predecessor.wantFrames(predecessorNotice, oldAudienceDelta)
 		successor.wantFrames(successorNotice, newAudienceDelta)
+		apiWantValue(t, "chat", apiTestChatRows(t, d), []any{
+			map[string]any{
+				"from": "system",
+				"to":   "kip",
+				"body": "[T-1] 此任務已轉派給新的接手人。請停止推進，先把交接資訊寫到這張任務上：目前進度、進行中的事項、有哪些雷要注意。" +
+					"**這一步不能省，它是接手人唯一保證讀得到的東西** —— 接手人可能還沒被建出來，也可能你已經下線了才輪到他。\n\n" +
+					"寫完就算交出去了。如果接手人剛好在線上來找你，就順便當面補齊；沒有的話不用等，也不用去找他。",
+			},
+			map[string]any{
+				"from": "system",
+				"to":   "mira",
+				"body": "[T-1] 你接手了這張任務，你的前任是 Kip（kip）。" +
+					"這則訊息只是提醒，不是唯一路徑——同一件事在票上讀得到（`lock` 是 `reassigning`、`reassigned_from` 是前任），" +
+					"開機盤點就會看到，漏收這則也不會漏掉這張票。" +
+					"請先跟他確認交接完成（直接 post_chat 給他，問清楚目前進度與進行中的事項），" +
+					"確認後再由你自己呼叫 claim_task（認領）解除轉派鎖——只有你這個新負責人動得了；" +
+					"任務狀態一律照步驟推導，不必也不能自己報。",
+			},
+		})
+	})
+
+	t.Run("handing a task nobody has executed yet to a member tells the member the task has no predecessor", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		api.noOutsource = true
+		apiJSON(t, h, "POST", "/api/tasks", owner,
+			`{"title":"Contracted out","target":{"kind":"outsource","runtime":"claude","effort":"high"}}`)
+
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/reassign", owner,
+			`{"target":{"kind":"staff","member_id":"mira"}}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantValue(t, "body.executor_id", data["executor_id"], "mira")
+		apiWantValue(t, "chat", apiTestChatRows(t, d), []any{
+			map[string]any{
+				"from": "system",
+				"to":   "mira",
+				"body": "[T-1] 你接手了這張任務，這張任務沒有前任。" +
+					"這則訊息只是提醒，不是唯一路徑——同一件事在票上讀得到（`lock` 是 `reassigning`、`reassigned_from` 是前任），" +
+					"開機盤點就會看到，漏收這則也不會漏掉這張票。" +
+					"請先跟他確認交接完成（直接 post_chat 給他，問清楚目前進度與進行中的事項），" +
+					"確認後再由你自己呼叫 claim_task（認領）解除轉派鎖——只有你這個新負責人動得了；" +
+					"任務狀態一律照步驟推導，不必也不能自己報。",
+			},
+		})
 	})
 
 	t.Run("handing a planned task to the outsource lane resets its live steps and leaves it unassigned under the lock", func(t *testing.T) {

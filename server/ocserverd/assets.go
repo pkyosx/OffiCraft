@@ -703,10 +703,6 @@ const (
 	taskTakeoverWithPredecessorDocKey  = "global"
 	docKindTaskTakeoverWithPredecessor = "task_takeover_with_predecessor"
 
-	taskTakeoverFreshSeedMD  = "task_takeover_fresh.md"
-	taskTakeoverFreshDocKey  = "global"
-	docKindTaskTakeoverFresh = "task_takeover_fresh"
-
 	taskUnblockedSeedMD  = "task_unblocked.md"
 	taskUnblockedDocKey  = "global"
 	docKindTaskUnblocked = "task_unblocked"

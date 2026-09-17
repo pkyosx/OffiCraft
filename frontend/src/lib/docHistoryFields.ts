@@ -47,7 +47,6 @@ export const DOC_FIELD_ORDER: Record<DocumentKind, readonly string[]> = {
   task_closeout: ["text"],
   task_reassign_predecessor: ["text"],
   task_takeover_with_predecessor: ["text"],
-  task_takeover_fresh: ["text"],
   task_unblocked: ["text"],
   task_ready_for_done: ["text"],
 };
