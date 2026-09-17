@@ -83,6 +83,7 @@ func workerBootLoreFixture(t *testing.T) (staffDoc, workerDoc, workerID string) 
 	workerID = "ow-t33boot"
 	seedLore(t, s.dal, LoreScopeAgent, staffMember.ID, "STAFF-SCOPED-MARKER", LoreStateActive, 100)
 	seedLore(t, s.dal, LoreScopeAgent, workerID, "WORKER-SCOPED-MARKER", LoreStateActive, 100)
+	seedLore(t, s.dal, LoreScopeEveryone, "", "EVERYONE-SCOPED-MARKER", LoreStateActive, 50)
 
 	// Rebuild the staff document so it carries the entry seeded above.
 	staff, err = s.buildBootContext("", staffMember)
@@ -207,5 +208,78 @@ func TestNeitherBootPathCarriesTheOtherScopesLore(t *testing.T) {
 	if strings.Contains(workerDoc, "# Role: ") {
 		t.Errorf("the OUTSOURCE boot document carries the 角色說明 block — slot 3 on " +
 			"this path is that member's own 傳承 and nothing else")
+	}
+}
+
+func TestBothBootPathsCarryEveryoneLoreAheadOfTheMembersOwn(t *testing.T) {
+	staffDoc, workerDoc, _ := workerBootLoreFixture(t)
+	for _, doc := range []struct{ name, text, own string }{
+		{"staff", staffDoc, "STAFF-SCOPED-MARKER"},
+		{"outsource", workerDoc, "WORKER-SCOPED-MARKER"},
+	} {
+		everyoneAt := strings.Index(doc.text, "EVERYONE-SCOPED-MARKER")
+		ownAt := strings.Index(doc.text, doc.own)
+		if everyoneAt < 0 {
+			t.Fatalf("the %s boot document does not carry the everyone entry", doc.name)
+		}
+		if everyoneAt > ownAt {
+			t.Fatalf("the %s boot document puts the everyone entry (%d) after the "+
+				"member's own (%d)", doc.name, everyoneAt, ownAt)
+		}
+		if strings.Count(doc.text, loreBlockHeading+"\n") != 1 {
+			t.Fatalf("the %s boot document carries %d 傳承 sections, want one",
+				doc.name, strings.Count(doc.text, loreBlockHeading+"\n"))
+		}
+	}
+}
+
+func TestBootPathsSpendTheMemberCapOnEveryoneLoreFirst(t *testing.T) {
+	s := newWorkerTestServer(t)
+	mira := Member{ID: seedMiraID, Name: "Mira", Kind: KindStaff, RoleKey: defaultBootRole,
+		Runtime: RuntimeClaude, RosterStatus: RosterStatusActive}
+	if err := s.dal.PutMember(mira); err != nil {
+		t.Fatalf("PutMember: %v", err)
+	}
+	const workerID = "ow-t236cap"
+	everyone := seedLore(t, s.dal, LoreScopeEveryone, "", "EVERYONE-FITS", LoreStateActive, 50)
+	s.loreCapCharsRole = loreEntryChars(everyone) + 1
+	seedLore(t, s.dal, LoreScopeAgent, seedMiraID, "MIRA-OWN", LoreStateActive, 100)
+	seedLore(t, s.dal, LoreScopeAgent, workerID, "WORKER-OWN", LoreStateActive, 100)
+
+	staff, err := s.buildBootContext("", &mira)
+	if err != nil || staff == nil {
+		t.Fatalf("buildBootContext: %v", err)
+	}
+	worker, err := s.buildWorkerBootContext(
+		OutsourceWorker{ID: workerID, Codename: "O-9", Runtime: RuntimeClaude}, Task{}, nil)
+	if err != nil {
+		t.Fatalf("buildWorkerBootContext: %v", err)
+	}
+	for _, doc := range []struct{ name, text, own string }{
+		{"staff (mira)", staff.Context, "MIRA-OWN"},
+		{"outsource", worker, "WORKER-OWN"},
+	} {
+		if !strings.Contains(doc.text, "EVERYONE-FITS") {
+			t.Fatalf("the %s boot document lost the everyone entry that fits the cap", doc.name)
+		}
+		if strings.Contains(doc.text, doc.own) {
+			t.Fatalf("the %s boot document carries %s although the everyone entry "+
+				"already spent the shared cap", doc.name, doc.own)
+		}
+	}
+
+	s.loreCapCharsRole = 10000
+	staff, err = s.buildBootContext("", &mira)
+	if err != nil || staff == nil {
+		t.Fatalf("buildBootContext: %v", err)
+	}
+	worker, err = s.buildWorkerBootContext(
+		OutsourceWorker{ID: workerID, Codename: "O-9", Runtime: RuntimeClaude}, Task{}, nil)
+	if err != nil {
+		t.Fatalf("buildWorkerBootContext: %v", err)
+	}
+	if !strings.Contains(staff.Context, "MIRA-OWN") || !strings.Contains(worker, "WORKER-OWN") {
+		t.Fatalf("with room to spare a boot document still lacks its own entry — " +
+			"the truncation above proves nothing")
 	}
 }

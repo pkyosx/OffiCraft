@@ -2642,10 +2642,10 @@ export interface paths {
          *     - `suggested_replies_reply_card`: Replace the 建議回覆 list offered under a 請示卡 reply box (T-122) wholesale — one sentence per entry, the owner's own writing. At most 20 entries, each trimmed and at most 120 runes (Unicode code points); over either bound is a 422 that writes NOTHING, and the list is never silently truncated. An EXPLICIT EMPTY ARRAY IS LEGAL and means "offer no suggestions there" — unlike the scheduled-message custom_* sets, where [] is a 422. Blank entries are dropped. Read the current list from get_settings before sending: this replaces it, it does not append. 🔴 null is NOT "clear": an omitted field and an explicit null both mean LEAVE THIS LIST UNCHANGED, so an agent that sends null to empty the list gets a 200 and no change at all. To clear it, send [].
          *     - `suggested_replies_task_message`: Replace the 建議回覆 list offered under a 任務 message box (T-122) wholesale. Same bounds as suggested_replies_reply_card — at most 20 entries, each trimmed and at most 120 runes, over either is a 422 that writes nothing, and an explicit empty array is legal — but a SEPARATE list by owner ruling: answering a 請示卡 and writing to a task in progress are different conversations, and patching one list never touches the other. Read the current list from get_settings before sending: this replaces it, it does not append. 🔴 null is NOT "clear": an omitted field and an explicit null both mean LEAVE THIS LIST UNCHANGED, so an agent that sends null to empty the list gets a 200 and no change at all. To clear it, send [].
          *     - `suggested_replies_lore_message`: Replace the 建議回覆 list offered under a 傳承 entry's message box (T-33) wholesale — that box writes to the person who WROTE the entry. Same bounds as suggested_replies_reply_card — at most 20 entries, each trimmed and at most 120 runes, over either is a 422 that writes nothing, and an explicit empty array is legal — but a SEPARATE list by owner ruling: asking about a 傳承 entry, answering a 請示卡 and writing to a task in progress are three different conversations, and patching one list never touches another. Read the current list from get_settings before sending: this replaces it, it does not append. 🔴 null is NOT "clear": an omitted field and an explicit null both mean LEAVE THIS LIST UNCHANGED, so an agent that sends null to empty the list gets a 200 and no change at all. To clear it, send [].
-         *     - `lore_cap_chars_role`: How many characters of 傳承 a STAFF boot document carries for one role (T-33) — spent by every boot of that role. INDEPENDENT of lore_cap_chars_manual; the two are never summed, because they are paid by different readers at different moments. Unlike the doc_cap_chars_* knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry has NO edit path at all, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 100..100000.
-         *     - `lore_cap_chars_manual`: How many characters of 傳承 get_task_manual carries for a type (T-33) — spent by whoever opens that manual, staff and outsource alike, since this fold enters no boot document. INDEPENDENT of lore_cap_chars_role. Unlike the doc_cap_chars_* knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry has NO edit path at all, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 100..100000.
-         *     - `lore_cap_chars_title`: The longest title ONE 傳承 entry may be written with, in characters (T-33). An over-cap write is refused whole — nothing partial is stored and nothing is truncated. Unlike the doc_cap_chars_* knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry has NO edit path at all, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 10..10000.
-         *     - `lore_cap_chars_body`: The longest body ONE 傳承 entry may be written with, in characters (T-33). An over-cap write is refused whole; half a lesson is not a shorter lesson. Unlike the doc_cap_chars_* knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry has NO edit path at all, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 10..10000.
+         *     - `lore_cap_chars_role`: How many characters of 傳承 one member's boot document carries (T-33) — staff and outsource alike, spent by every boot of that member. ``everyone`` entries ride inside this same budget, ahead of the member's own (T-236). INDEPENDENT of lore_cap_chars_manual; the two are never summed, because they are paid by different readers at different moments. Unlike the doc_cap_chars_* knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry's title and body can never be edited, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 100..100000.
+         *     - `lore_cap_chars_manual`: How many characters of 傳承 get_task_manual carries for a type (T-33) — spent by whoever opens that manual, staff and outsource alike, since this fold enters no boot document. INDEPENDENT of lore_cap_chars_role. Unlike the doc_cap_chars_* knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry's title and body can never be edited, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 100..100000.
+         *     - `lore_cap_chars_title`: The longest title ONE 傳承 entry may be written with, in characters (T-33). An over-cap write is refused whole — nothing partial is stored and nothing is truncated. Unlike the doc_cap_chars_* knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry's title and body can never be edited, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 10..10000.
+         *     - `lore_cap_chars_body`: The longest body ONE 傳承 entry may be written with, in characters (T-33). An over-cap write is refused whole; half a lesson is not a shorter lesson. Unlike the doc_cap_chars_* knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry's title and body can never be edited, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 10..10000.
          * @description - Owner or admin agent; only the fields you send change.
          *     - Changes are durable and take effect at the next use: `owner_token_ttl` from the next login, `agent_token_ttl` from the next spawn or reconcile, offboard points from the next context report.
          *     - A TTL outside 12h/24h/7d/30d, `handover_pct` outside 40..90, or a notice point not strictly below its final one is a 422 and writes nothing.
@@ -3751,21 +3751,21 @@ export interface paths {
          * List 傳承 entries, filtered SERVER-SIDE and paged in the fixed order pinned -> active -> retired, newest first inside each group. The order is not configurable; the filter is.
          *
          *     PARAMETER NOTES. In the input schema the parameters below carry only a short summary; these are their full rules.
-         *     - `scope_kinds`: REPEATABLE scope-kind set (``?scope_kinds=agent&scope_kinds=manual``). Accepted values: ``agent``, ``manual``; ANY other element is a 400 that NAMES the offending value — never a silently dropped one, because 「查無資料」 and 「你打錯字」 look identical on the wire. 🔴 ``role`` IS NOW ONE OF THOSE REFUSED VALUES. It was the third scope until 2026-09-07 (owner, card rc-a43100fd0486 [0]) and every client written before then knows it, so it is the one wrong value likely to arrive from a real caller — answering 200-with-no-rows would tell them their 傳承 had been deleted rather than that their vocabulary is old. Refusing it does NOT hide the legacy rows the migration deliberately left at ``role``: those still come back on any page that does not constrain this axis. 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis. NOTE the 上限線: ``cap_chars`` / ``first_dropped_id`` are answered only when the EFFECTIVE scope_kind set holds exactly ONE value AND the effective scope_key set holds exactly ONE — a budget belongs to a scope, so a page spanning two or more has no single one to report and answers 0 / "". additive-optional.
+         *     - `scope_kinds`: REPEATABLE scope-kind set (``?scope_kinds=agent&scope_kinds=manual``). Accepted values: ``agent``, ``manual``, ``everyone`` (所有人 — its entries carry an empty scope_key, so filter it without a scope_key); ANY other element is a 400 that NAMES the offending value — never a silently dropped one, because 「查無資料」 and 「你打錯字」 look identical on the wire. 🔴 ``role`` IS NOW ONE OF THOSE REFUSED VALUES. It was the third scope until 2026-09-07 (owner, card rc-a43100fd0486 [0]) and every client written before then knows it, so it is the one wrong value likely to arrive from a real caller — answering 200-with-no-rows would tell them their 傳承 had been deleted rather than that their vocabulary is old. Refusing it does NOT hide the legacy rows the migration deliberately left at ``role``: those still come back on any page that does not constrain this axis. 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis. NOTE the 上限線: ``cap_chars`` / ``first_dropped_id`` are answered only when the EFFECTIVE scope_kind set holds exactly ONE value AND the effective scope_key set holds exactly ONE — a budget belongs to a scope, so a page spanning two or more has no single one to report and answers 0 / "". additive-optional.
          *     - `scope_keys`: REPEATABLE scope-key set (``?scope_keys=m-1a2b&scope_keys=tm-review``) — the multi-select twin of ``scope_key``. The keys are free-form (a member id or a manual's type_key, depending on the kind beside them), so there is no closed set to check against and no 400: a key nobody carries answers 200 with no rows for that key. 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis. NOTE the 上限線: ``cap_chars`` / ``first_dropped_id`` are answered only when the EFFECTIVE scope_kind set holds exactly ONE value AND the effective scope_key set holds exactly ONE — a budget belongs to a scope, so a page spanning two or more has no single one to report and answers 0 / "". additive-optional.
          *     - `entry_ids`: REPEATABLE 傳承編號 set (``?entry_ids=L-12&entry_ids=L-30``) — the multi-select twin of ``entry_id``, and the axis behind the 傳承編號 search box the design calls for (LORE_SPEC.md §6). 🔴 IT MATCHES THE WHOLE ID, EXACTLY — never a prefix and never a substring. Owner 2026-09-08 asked for it 「跟 task 一樣」, and 任務頁 resolves a committed id by asking for THAT ONE id (``useTasks.ts:201`` ``api.getTask(anchorId)``) and pairs it to a row by equality (``TasksPage.tsx:458`` ``x.id === appliedId``); nothing there ever compares part of an id. A substring axis would also interact badly with paging: ``L-1`` would drag L-10…L-19 into a batch that limit/offset then cuts, pushing the entry actually asked for off the end. 🔴 IT IS APPLIED IN SQL, WITH THE PAGE — like every other axis here, and for the reason the whole filter exists: this list is scroll-to-load, so an id narrowed client-side would make 「捲到底沒有了」 and 「真的沒有了」 the same picture and would draw the 上限線 in the wrong place. An id is an OPEN identifier space, so there is NO closed set to check and NO 400 — the same call ``scope_keys``/``author_ids`` make. An id no entry carries answers 200 with no rows, which is the true answer, and no ``L-`` + digits shape is enforced: it would refuse only the ids that could never match while still answering an empty page for ``L-99999``, the likelier miss. 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis, which is IDENTICAL to not sending the parameter at all (an empty set is 「do not narrow」, never 「match nothing」). NOTE the 上限線 is unaffected: ``cap_chars`` / ``first_dropped_id`` still depend only on the effective scope_kind and scope_key sets holding exactly one value each — a budget belongs to a scope, and naming one entry does not name a scope. additive-optional.
          * @description List 傳承 entries, filtered SERVER-SIDE and paged in the fixed order pinned -> active -> retired, newest first inside each group. The order is not configurable; the filter is.
          *
          *     PARAMETER NOTES. In the input schema the parameters below carry only a short summary; these are their full rules.
-         *     - `scope_kinds`: REPEATABLE scope-kind set (``?scope_kinds=agent&scope_kinds=manual``). Accepted values: ``agent``, ``manual``; ANY other element is a 400 that NAMES the offending value — never a silently dropped one, because 「查無資料」 and 「你打錯字」 look identical on the wire. 🔴 ``role`` IS NOW ONE OF THOSE REFUSED VALUES. It was the third scope until 2026-09-07 (owner, card rc-a43100fd0486 [0]) and every client written before then knows it, so it is the one wrong value likely to arrive from a real caller — answering 200-with-no-rows would tell them their 傳承 had been deleted rather than that their vocabulary is old. Refusing it does NOT hide the legacy rows the migration deliberately left at ``role``: those still come back on any page that does not constrain this axis. 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis. NOTE the 上限線: ``cap_chars`` / ``first_dropped_id`` are answered only when the EFFECTIVE scope_kind set holds exactly ONE value AND the effective scope_key set holds exactly ONE — a budget belongs to a scope, so a page spanning two or more has no single one to report and answers 0 / "". additive-optional.
+         *     - `scope_kinds`: REPEATABLE scope-kind set (``?scope_kinds=agent&scope_kinds=manual``). Accepted values: ``agent``, ``manual``, ``everyone`` (所有人 — its entries carry an empty scope_key, so filter it without a scope_key); ANY other element is a 400 that NAMES the offending value — never a silently dropped one, because 「查無資料」 and 「你打錯字」 look identical on the wire. 🔴 ``role`` IS NOW ONE OF THOSE REFUSED VALUES. It was the third scope until 2026-09-07 (owner, card rc-a43100fd0486 [0]) and every client written before then knows it, so it is the one wrong value likely to arrive from a real caller — answering 200-with-no-rows would tell them their 傳承 had been deleted rather than that their vocabulary is old. Refusing it does NOT hide the legacy rows the migration deliberately left at ``role``: those still come back on any page that does not constrain this axis. 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis. NOTE the 上限線: ``cap_chars`` / ``first_dropped_id`` are answered only when the EFFECTIVE scope_kind set holds exactly ONE value AND the effective scope_key set holds exactly ONE — a budget belongs to a scope, so a page spanning two or more has no single one to report and answers 0 / "". additive-optional.
          *     - `scope_keys`: REPEATABLE scope-key set (``?scope_keys=m-1a2b&scope_keys=tm-review``) — the multi-select twin of ``scope_key``. The keys are free-form (a member id or a manual's type_key, depending on the kind beside them), so there is no closed set to check against and no 400: a key nobody carries answers 200 with no rows for that key. 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis. NOTE the 上限線: ``cap_chars`` / ``first_dropped_id`` are answered only when the EFFECTIVE scope_kind set holds exactly ONE value AND the effective scope_key set holds exactly ONE — a budget belongs to a scope, so a page spanning two or more has no single one to report and answers 0 / "". additive-optional.
          *     - `entry_ids`: REPEATABLE 傳承編號 set (``?entry_ids=L-12&entry_ids=L-30``) — the multi-select twin of ``entry_id``, and the axis behind the 傳承編號 search box the design calls for (LORE_SPEC.md §6). 🔴 IT MATCHES THE WHOLE ID, EXACTLY — never a prefix and never a substring. Owner 2026-09-08 asked for it 「跟 task 一樣」, and 任務頁 resolves a committed id by asking for THAT ONE id (``useTasks.ts:201`` ``api.getTask(anchorId)``) and pairs it to a row by equality (``TasksPage.tsx:458`` ``x.id === appliedId``); nothing there ever compares part of an id. A substring axis would also interact badly with paging: ``L-1`` would drag L-10…L-19 into a batch that limit/offset then cuts, pushing the entry actually asked for off the end. 🔴 IT IS APPLIED IN SQL, WITH THE PAGE — like every other axis here, and for the reason the whole filter exists: this list is scroll-to-load, so an id narrowed client-side would make 「捲到底沒有了」 and 「真的沒有了」 the same picture and would draw the 上限線 in the wrong place. An id is an OPEN identifier space, so there is NO closed set to check and NO 400 — the same call ``scope_keys``/``author_ids`` make. An id no entry carries answers 200 with no rows, which is the true answer, and no ``L-`` + digits shape is enforced: it would refuse only the ids that could never match while still answering an empty page for ``L-99999``, the likelier miss. 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis, which is IDENTICAL to not sending the parameter at all (an empty set is 「do not narrow」, never 「match nothing」). NOTE the 上限線 is unaffected: ``cap_chars`` / ``first_dropped_id`` still depend only on the effective scope_kind and scope_key sets holding exactly one value each — a budget belongs to a scope, and naming one entry does not name a scope. additive-optional.
          */
         get: operations["handle_list_lore_entries_api_lore_get"];
         put?: never;
         /**
-         * Write ONE 傳承 entry (never editable afterwards). ``task_id`` picks the scope, and there is ALWAYS somewhere for it to land: a task that carries a TYPE files under that type's manual; no task at all, OR a task with no type (臨時任務), files into your OWN boot document -- your role if you are staff, yourself if you are an outsource member (who has no role for a role scope to name). The untyped-task case answers a ``scope_note`` saying where it actually went, because you asked for a manual and did not get one. Only a caller with no roster row at all is a 400 -- there is no boot document to file into. An over-cap title or body is a 400 that writes nothing.
-         * @description Write ONE 傳承 entry (never editable afterwards). ``task_id`` picks the scope, and there is ALWAYS somewhere for it to land: a task that carries a TYPE files under that type's manual; no task at all, OR a task with no type (臨時任務), files into your OWN boot document -- your role if you are staff, yourself if you are an outsource member (who has no role for a role scope to name). The untyped-task case answers a ``scope_note`` saying where it actually went, because you asked for a manual and did not get one. Only a caller with no roster row at all is a 400 -- there is no boot document to file into. An over-cap title or body is a 400 that writes nothing.
+         * Write ONE 傳承 entry (never editable afterwards). ``task_id`` picks the scope, and there is ALWAYS somewhere for it to land: a task that carries a TYPE files under that type's manual; no task at all, OR a task with no type (臨時任務), files into your OWN boot document -- an ``agent`` scope keyed to you, staff and outsource alike. A write never files to ``everyone`` (所有人): only an admin's set_lore_entry_scope moves an entry there. The untyped-task case answers a ``scope_note`` saying where it actually went, because you asked for a manual and did not get one. Only a caller with no roster row at all is a 400 -- there is no boot document to file into. An over-cap title or body is a 400 that writes nothing.
+         * @description Write ONE 傳承 entry (never editable afterwards). ``task_id`` picks the scope, and there is ALWAYS somewhere for it to land: a task that carries a TYPE files under that type's manual; no task at all, OR a task with no type (臨時任務), files into your OWN boot document -- an ``agent`` scope keyed to you, staff and outsource alike. A write never files to ``everyone`` (所有人): only an admin's set_lore_entry_scope moves an entry there. The untyped-task case answers a ``scope_note`` saying where it actually went, because you asked for a manual and did not get one. Only a caller with no roster row at all is a 400 -- there is no boot document to file into. An over-cap title or body is a 400 that writes nothing.
          */
         post: operations["handle_write_lore_entry_api_lore_post"];
         delete?: never;
@@ -3788,6 +3788,32 @@ export interface paths {
          * @description Move one 傳承 entry to active / pinned / retired. 置頂 and un-置頂 are ADMIN-ONLY (owner ruling): a pinned entry sorts ahead of every other entry in its scope and so survives the cap at the others' expense. 失效 and 生效 are open to the entry's own AUTHOR -- anyone else is a 403 -- and admin capability is unrestricted. Retiring is not deleting: the entry keeps its id and can be moved back; ``retire_reason`` is stored only with retired and cleared by the other two.
          */
         post: operations["handle_set_lore_entry_state_api_lore__entry_id__state_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/lore/{entry_id}/scope": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Move one 傳承 entry to a different scope — that is, change who receives it. ADMIN-ONLY: the owner or an admin agent; anyone else, the entry's own author included, is a 403. You send only the target ``scope_kind``, never a ``scope_key`` — the server derives the key. ``agent`` keys the entry to its AUTHOR, so it rides that member's own boot document. ``manual`` keys it to the entry's TASK TYPE, so it rides ``get_task_manual``: the type_key of the entry's ``source_task_id`` when that task carries one; otherwise, when the author is an outsource member, the type_key of the task that member was bound to. A 臨時任務 with no type gives no type, and ``manual`` on an entry with no derivable type is a 400. ``everyone`` (所有人) keys it to "" and puts it in the boot document of EVERY member — staff, outsource and mira alike; this call is the only way an entry reaches ``everyone``, because write_lore_entry never files there. Any other ``scope_kind`` is a 400; an unknown entry is a 404. The entry's ``scope_options`` (list_lore_entries) names exactly the kinds this call accepts for it. Asking for the scope the entry already has is a 200 that changes nothing. A legacy ``role`` entry can be moved to any offered kind, never back to ``role``. Nothing else about the entry moves: ``state``, ``effective_ts``, title and body stay as they are. The author is NOT notified and NO change history is kept; the move takes effect the next time a member boots. Answers with a bounded receipt (``id``, ``scope_kind``, ``scope_key``, ``state``, ``effective_ts``, ``updated_ts``), not the entry; call list_lore_entries for the rest of it.
+         *
+         *     PARAMETER NOTES. In the input schema the parameters below carry only a short summary; these are their full rules.
+         *     - `scope_kind`: The TARGET scope, one of ``agent``, ``manual``, ``everyone``. Anything else — the retired ``role`` included — is a 400 that names it. ``manual`` is also a 400 when the entry has no derivable task type; it is then absent from the entry's ``scope_options``. There is no ``scope_key`` field: the server derives the key itself (the author's member id / the task type_key / "").
+         * @description Move one 傳承 entry to a different scope — that is, change who receives it. ADMIN-ONLY: the owner or an admin agent; anyone else, the entry's own author included, is a 403. You send only the target ``scope_kind``, never a ``scope_key`` — the server derives the key. ``agent`` keys the entry to its AUTHOR, so it rides that member's own boot document. ``manual`` keys it to the entry's TASK TYPE, so it rides ``get_task_manual``: the type_key of the entry's ``source_task_id`` when that task carries one; otherwise, when the author is an outsource member, the type_key of the task that member was bound to. A 臨時任務 with no type gives no type, and ``manual`` on an entry with no derivable type is a 400. ``everyone`` (所有人) keys it to "" and puts it in the boot document of EVERY member — staff, outsource and mira alike; this call is the only way an entry reaches ``everyone``, because write_lore_entry never files there. Any other ``scope_kind`` is a 400; an unknown entry is a 404. The entry's ``scope_options`` (list_lore_entries) names exactly the kinds this call accepts for it. Asking for the scope the entry already has is a 200 that changes nothing. A legacy ``role`` entry can be moved to any offered kind, never back to ``role``. Nothing else about the entry moves: ``state``, ``effective_ts``, title and body stay as they are. The author is NOT notified and NO change history is kept; the move takes effect the next time a member boots. Answers with a bounded receipt (``id``, ``scope_kind``, ``scope_key``, ``state``, ``effective_ts``, ``updated_ts``), not the entry; call list_lore_entries for the rest of it.
+         *
+         *     PARAMETER NOTES. In the input schema the parameters below carry only a short summary; these are their full rules.
+         *     - `scope_kind`: The TARGET scope, one of ``agent``, ``manual``, ``everyone``. Anything else — the retired ``role`` included — is a 400 that names it. ``manual`` is also a 400 when the entry has no derivable task type; it is then absent from the entry's ``scope_options``. There is no ``scope_key`` field: the server derives the key itself (the author's member id / the task type_key / "").
+         */
+        post: operations["handle_set_lore_entry_scope_api_lore__entry_id__scope_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -8040,25 +8066,25 @@ export interface components {
             warden_credential_lifetime_secs: number;
             /**
              * Lore Cap Chars Role
-             * @description How many characters of 傳承 a STAFF boot document carries for one role (T-33) — spent by every boot of that role. INDEPENDENT of ``lore_cap_chars_manual``; the two are never summed, because they are paid by different readers at different moments. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry has NO edit path at all, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 100..100000.
+             * @description How many characters of 傳承 one member's boot document carries (T-33) — staff and outsource alike, spent by every boot of that member. ``everyone`` entries ride inside this same budget, ahead of the member's own (T-236). INDEPENDENT of ``lore_cap_chars_manual``; the two are never summed, because they are paid by different readers at different moments. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry's title and body can never be edited, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 100..100000.
              * @default 10000
              */
             lore_cap_chars_role: number;
             /**
              * Lore Cap Chars Manual
-             * @description How many characters of 傳承 ``get_task_manual`` carries for a type (T-33) — spent by whoever opens that manual, staff and outsource alike, since this fold enters no boot document. INDEPENDENT of ``lore_cap_chars_role``. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry has NO edit path at all, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 100..100000.
+             * @description How many characters of 傳承 ``get_task_manual`` carries for a type (T-33) — spent by whoever opens that manual, staff and outsource alike, since this fold enters no boot document. INDEPENDENT of ``lore_cap_chars_role``. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry's title and body can never be edited, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 100..100000.
              * @default 10000
              */
             lore_cap_chars_manual: number;
             /**
              * Lore Cap Chars Title
-             * @description The longest ``title`` ONE 傳承 entry may be written with, in characters (T-33). An over-cap write is refused whole — nothing partial is stored and nothing is truncated. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry has NO edit path at all, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 10..10000.
+             * @description The longest ``title`` ONE 傳承 entry may be written with, in characters (T-33). An over-cap write is refused whole — nothing partial is stored and nothing is truncated. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry's title and body can never be edited, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 10..10000.
              * @default 80
              */
             lore_cap_chars_title: number;
             /**
              * Lore Cap Chars Body
-             * @description The longest ``body`` ONE 傳承 entry may be written with, in characters (T-33). An over-cap write is refused whole; half a lesson is not a shorter lesson. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry has NO edit path at all, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 10..10000.
+             * @description The longest ``body`` ONE 傳承 entry may be written with, in characters (T-33). An over-cap write is refused whole; half a lesson is not a shorter lesson. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry's title and body can never be edited, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 10..10000.
              * @default 500
              */
             lore_cap_chars_body: number;
@@ -8232,22 +8258,22 @@ export interface components {
             warden_credential_lifetime_secs?: number | null;
             /**
              * Lore Cap Chars Role
-             * @description How many characters of 傳承 a STAFF boot document carries for one role (T-33) — spent by every boot of that role. INDEPENDENT of ``lore_cap_chars_manual``; the two are never summed, because they are paid by different readers at different moments. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry has NO edit path at all, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 100..100000.
+             * @description How many characters of 傳承 one member's boot document carries (T-33) — staff and outsource alike, spent by every boot of that member. ``everyone`` entries ride inside this same budget, ahead of the member's own (T-236). INDEPENDENT of ``lore_cap_chars_manual``; the two are never summed, because they are paid by different readers at different moments. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry's title and body can never be edited, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 100..100000.
              */
             lore_cap_chars_role?: number | null;
             /**
              * Lore Cap Chars Manual
-             * @description How many characters of 傳承 ``get_task_manual`` carries for a type (T-33) — spent by whoever opens that manual, staff and outsource alike, since this fold enters no boot document. INDEPENDENT of ``lore_cap_chars_role``. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry has NO edit path at all, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 100..100000.
+             * @description How many characters of 傳承 ``get_task_manual`` carries for a type (T-33) — spent by whoever opens that manual, staff and outsource alike, since this fold enters no boot document. INDEPENDENT of ``lore_cap_chars_role``. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry's title and body can never be edited, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 100..100000.
              */
             lore_cap_chars_manual?: number | null;
             /**
              * Lore Cap Chars Title
-             * @description The longest ``title`` ONE 傳承 entry may be written with, in characters (T-33). An over-cap write is refused whole — nothing partial is stored and nothing is truncated. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry has NO edit path at all, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 10..10000.
+             * @description The longest ``title`` ONE 傳承 entry may be written with, in characters (T-33). An over-cap write is refused whole — nothing partial is stored and nothing is truncated. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry's title and body can never be edited, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 10..10000.
              */
             lore_cap_chars_title?: number | null;
             /**
              * Lore Cap Chars Body
-             * @description The longest ``body`` ONE 傳承 entry may be written with, in characters (T-33). An over-cap write is refused whole; half a lesson is not a shorter lesson. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry has NO edit path at all, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 10..10000.
+             * @description The longest ``body`` ONE 傳承 entry may be written with, in characters (T-33). An over-cap write is refused whole; half a lesson is not a shorter lesson. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry's title and body can never be edited, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 10..10000.
              */
             lore_cap_chars_body?: number | null;
             /**
@@ -10169,18 +10195,30 @@ export interface components {
             seq: number;
             /**
              * Scope Kind
-             * @description ``agent`` or ``manual``, and the two are not interchangeable. An ``agent`` entry rides ONE member's own boot document — staff and outsource alike; a ``manual`` entry rides ``get_task_manual``.
+             * @description ``agent``, ``manual`` or ``everyone``, and they are not interchangeable. An ``agent`` entry rides ONE member's own boot document — staff and outsource alike; a ``manual`` entry rides ``get_task_manual``; an ``everyone`` entry (所有人) rides the boot document of EVERY member — staff, outsource and mira alike.
              *
-             *     Which one a write lands in is decided by ONE question — the EFFECTIVE RELATED TASK: the named task when it carries a type, and NULL otherwise, where "otherwise" covers BOTH naming no task and naming a 臨時任務 that carries no type. An effective task gives ``manual``; NULL gives ``agent``, keyed by the writer itself.
+             *     ``everyone`` is never produced by a write. Only ``set_lore_entry_scope`` (admin) moves an existing entry into or out of it, and the move takes effect the next time a member boots.
              *
-             *     🔴 A THIRD VALUE, ``role``, WAS RETIRED ON 2026-09-07 (owner, card rc-a43100fd0486 [0]: 「只有成員跟任務傳承兩種」). Every role-scoped entry was rekeyed onto the one member under that role, and ``role`` is no longer writable and no longer an accepted ``scope_kinds`` filter value — sending it is a 400, not an empty page. READERS MUST STILL TOLERATE IT: the migration deliberately left in place any entry whose member could not be determined (no active member under that role, or more than one), so ``role`` can still come back on an unfiltered page and a client that switches exhaustively on the two live values must have a fallback arm rather than crashing or renaming it into one of them.
+             *     Which of ``agent`` / ``manual`` a write lands in is decided by ONE question — the EFFECTIVE RELATED TASK: the named task when it carries a type, and NULL otherwise, where "otherwise" covers BOTH naming no task and naming a 臨時任務 that carries no type. An effective task gives ``manual``; NULL gives ``agent``, keyed by the writer itself.
+             *
+             *     🔴 A THIRD VALUE, ``role``, WAS RETIRED ON 2026-09-07 (owner, card rc-a43100fd0486 [0]: 「只有成員跟任務傳承兩種」). Every role-scoped entry was rekeyed onto the one member under that role, and ``role`` is no longer writable and no longer an accepted ``scope_kinds`` filter value — sending it is a 400, not an empty page. READERS MUST STILL TOLERATE IT: the migration deliberately left in place any entry whose member could not be determined (no active member under that role, or more than one), so ``role`` can still come back on an unfiltered page and a client that switches exhaustively on the three live values must have a fallback arm rather than crashing or renaming it into one of them.
              */
             scope_kind: string;
             /**
              * Scope Key
-             * @description The writer's own member id when ``scope_kind`` is ``agent``; the task manual's ``type_key`` when it is ``manual``. A surviving legacy ``role`` row (see ``scope_kind``) still carries a role_key here.
+             * @description The writer's own member id when ``scope_kind`` is ``agent``; the task manual's ``type_key`` when it is ``manual``; "" when it is ``everyone``. A surviving legacy ``role`` row (see ``scope_kind``) still carries a role_key here.
              */
             scope_key: string;
+            /**
+             * Scope Options
+             * @description The scope kinds this entry may be switched to with ``set_lore_entry_scope``, in display order: ``manual`` (only when ``task_type_key`` is non-empty), ``agent``, ``everyone``. COMPUTED AT READ TIME from the entry's source task and its author's roster row, not stored. It includes the entry's current kind; switching to it is a no-op. additive-optional.
+             */
+            scope_options?: string[];
+            /**
+             * Task Type Key
+             * @description The task type a ``manual`` scope for this entry would key to, or "" when there is none. COMPUTED AT READ TIME: the type_key of ``source_task_id`` when that task carries one; otherwise, when the author is an outsource member, the type_key of the task that member was bound to; a 臨時任務 with no type gives "". additive-optional.
+             */
+            task_type_key?: string;
             /** Title */
             title: string;
             /** Body */
@@ -10225,7 +10263,7 @@ export interface components {
          *     * a named task that carries a ``type_key`` ⇒ a MANUAL entry under that type.
          *     * anything else ⇒ an AGENT entry under the CALLER'S OWN member id, read from the roster by the verified token subject — never from a client field. "Anything else" covers BOTH naming no task and naming a 臨時任務 that carries no type: a task with no type is not a place an entry can hang, so it is the same input as naming none.
          *
-         *     Staff and outsource members take the same arm. They used to differ — staff filed under their role_key — until the owner collapsed the scopes to two on 2026-09-07 (card rc-a43100fd0486 [0]).
+         *     Staff and outsource members take the same arm. Neither arm produces ``everyone`` (所有人): a write never files there, and only ``set_lore_entry_scope`` (admin) moves an existing entry to it. They used to differ — staff filed under their role_key — until the owner collapsed the scopes to two on 2026-09-07 (card rc-a43100fd0486 [0]).
          *
          *     NEITHER ARM FALLS THROUGH TO THE OTHER. Filing an untyped task's lesson under a manual would charge a task TYPE for a lesson about work it will never do, while the writer who needed it kept nothing — and no error anywhere would say so. The one refusal left is a caller with NO ROSTER ROW at all (the owner): there is no boot document of his own for an entry to ride, so it is a 400.
          *
@@ -10248,7 +10286,7 @@ export interface components {
              * Task Id
              * @description The task whose TYPE this entry belongs to. Send a TASK id here, not a type_key — the server reads the type off the task, which is also what records where the lesson came from.
              *
-             *     What decides the scope is the EFFECTIVE RELATED TASK: this task when it carries a type, and NULL otherwise. NULL covers BOTH omitting this field and naming a 臨時任務 that carries no type, and it files the entry under the writer's OWN boot document — ``role`` for staff, ``agent`` for an outsource member (owner 2026-09-07, card rc-3c24fdc61ed3).
+             *     What decides the scope is the EFFECTIVE RELATED TASK: this task when it carries a type, and NULL otherwise. NULL covers BOTH omitting this field and naming a 臨時任務 that carries no type, and it files the entry under the writer's OWN boot document — an ``agent`` scope keyed to the writer, staff and outsource alike (the staff-to-``role`` arm is retired; see ``LoreEntryDTO.scope_kind``) (owner 2026-09-07, card rc-3c24fdc61ed3).
              *
              *     🔴 A task carrying no type used to be REFUSED here. It is not any more, and the refusal was retired rather than relaxed: the owner ruled that a task with no type is not a place an entry could hang in the first place, so naming one is the same input as naming none, not a request that got redirected. When that happens ``scope_note`` on the write receipt says so in one sentence, because the caller cannot otherwise tell the two 200s apart.
              */
@@ -10271,6 +10309,55 @@ export interface components {
              * @description Why it is being retired. Ignored — and any stored value cleared — for the other two states.
              */
             retire_reason?: string | null;
+        };
+        /**
+         * LoreEntryScopeDTO
+         * @description The set_lore_entry_scope request body (T-236): the TARGET scope kind and nothing else. The scope_key is derived by the server — the author's member id for ``agent``, the entry's derivable task type_key for ``manual``, "" for ``everyone`` — so a caller cannot point an entry at another member's boot document or at an unrelated manual.
+         */
+        LoreEntryScopeDTO: {
+            /**
+             * Scope Kind
+             * @description The TARGET scope, one of ``agent``, ``manual``, ``everyone``. Anything else — the retired ``role`` included — is a 400 that names it. ``manual`` is also a 400 when the entry has no derivable task type; it is then absent from the entry's ``scope_options``. There is no ``scope_key`` field: the server derives the key itself (the author's member id / the task type_key / "").
+             */
+            scope_kind: string;
+        };
+        /**
+         * LoreEntryScopeReceiptDTO
+         * @description Bounded receipt for ``POST /api/lore/{entry_id}/scope`` (set_lore_entry_scope) (T-236), under the same owner ruling as ``LoreEntryStateReceiptDTO`` (2026-09-07: 「不要回傳自己寫出去的 payload」): only the id and what the write itself decided ride home. ``scope_key`` is the one value the caller could not send or predict — the server derived it. ``state``, ``effective_ts`` and ``updated_ts`` carry the same meaning they do on the state/bump receipt, so the three governance doors answer with one vocabulary; this call never changes ``state`` or ``effective_ts``. ``title``, ``body``, ``author_id``, ``source_task_id`` and the timestamps of creation are dropped; call ``list_lore_entries`` (``GET /api/lore``) for the entry itself.
+         */
+        LoreEntryScopeReceiptDTO: {
+            /**
+             * Effective Ts
+             * Format: double
+             * @description The entry's ordering key, epoch seconds — untouched by a scope move.
+             */
+            effective_ts: number;
+            /**
+             * Id
+             * @description The entry that was moved, echoed from the path.
+             */
+            id: string;
+            /**
+             * Scope Key
+             * @description The key the SERVER derived: the author's member id for ``agent``, the task type_key for ``manual``, "" for ``everyone``.
+             */
+            scope_key: string;
+            /**
+             * Scope Kind
+             * @description ``agent`` | ``manual`` | ``everyone`` — the scope the entry is in AFTER this write, read back from the stored row. Equal to the request when the call was a no-op.
+             */
+            scope_kind: string;
+            /**
+             * State
+             * @description ``active`` | ``pinned`` | ``retired`` — unchanged by this call, read back from the stored row.
+             */
+            state: string;
+            /**
+             * Updated Ts
+             * Format: double
+             * @description The stored row's last-write stamp, epoch seconds, as it stands after this call.
+             */
+            updated_ts: number;
         };
         /**
          * LoreEntryListDTO
@@ -10325,7 +10412,7 @@ export interface components {
             seq: number;
             /**
              * Scope Kind
-             * @description ``agent`` or ``manual`` — WHERE THIS ENTRY WAS FILED, which the server decided and the caller did not ask for. The deciding question is the EFFECTIVE RELATED TASK: the named task when it carries a type, and NULL otherwise, where "otherwise" covers BOTH naming no task and naming a 臨時任務 that carries no type. An effective task gives ``manual``; NULL gives ``agent``, keyed by the writer's own member id — staff and outsource alike since the 2026-09-07 collapse (card rc-a43100fd0486 [0]). A write can never produce the retired ``role`` value.
+             * @description ``agent`` or ``manual`` — WHERE THIS ENTRY WAS FILED, which the server decided and the caller did not ask for. The deciding question is the EFFECTIVE RELATED TASK: the named task when it carries a type, and NULL otherwise, where "otherwise" covers BOTH naming no task and naming a 臨時任務 that carries no type. An effective task gives ``manual``; NULL gives ``agent``, keyed by the writer's own member id — staff and outsource alike since the 2026-09-07 collapse (card rc-a43100fd0486 [0]). A write can never produce the retired ``role`` value, nor ``everyone``, which only ``set_lore_entry_scope`` sets.
              */
             scope_kind: string;
             /**
@@ -18910,8 +18997,9 @@ export interface operations {
     handle_list_lore_entries_api_lore_get: {
         parameters: {
             query?: {
-                /** @description REPEATABLE scope-kind set (``?scope_kinds=agent&scope_kinds=manual``). Accepted values: ``agent``, ``manual``; ANY other element is a 400 that NAMES the offending value — never a silently dropped one, because 「查無資料」 and 「你打錯字」 look identical on the wire. 🔴 ``role`` IS NOW ONE OF THOSE REFUSED VALUES. It was the third scope until 2026-09-07 (owner, card rc-a43100fd0486 [0]) and every client written before then knows it, so it is the one wrong value likely to arrive from a real caller — answering 200-with-no-rows would tell them their 傳承 had been deleted rather than that their vocabulary is old. Refusing it does NOT hide the legacy rows the migration deliberately left at ``role``: those still come back on any page that does not constrain this axis. 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis. NOTE the 上限線: ``cap_chars`` / ``first_dropped_id`` are answered only when the EFFECTIVE scope_kind set holds exactly ONE value AND the effective scope_key set holds exactly ONE — a budget belongs to a scope, so a page spanning two or more has no single one to report and answers 0 / "". additive-optional. */
+                /** @description REPEATABLE scope-kind set (``?scope_kinds=agent&scope_kinds=manual``). Accepted values: ``agent``, ``manual``, ``everyone`` (所有人 — its entries carry an empty scope_key, so filter it without a scope_key); ANY other element is a 400 that NAMES the offending value — never a silently dropped one, because 「查無資料」 and 「你打錯字」 look identical on the wire. 🔴 ``role`` IS NOW ONE OF THOSE REFUSED VALUES. It was the third scope until 2026-09-07 (owner, card rc-a43100fd0486 [0]) and every client written before then knows it, so it is the one wrong value likely to arrive from a real caller — answering 200-with-no-rows would tell them their 傳承 had been deleted rather than that their vocabulary is old. Refusing it does NOT hide the legacy rows the migration deliberately left at ``role``: those still come back on any page that does not constrain this axis. 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis. NOTE the 上限線: ``cap_chars`` / ``first_dropped_id`` are answered only when the EFFECTIVE scope_kind set holds exactly ONE value AND the effective scope_key set holds exactly ONE — a budget belongs to a scope, so a page spanning two or more has no single one to report and answers 0 / "". additive-optional. */
                 scope_kinds?: string[];
+                /** @description Single-value twin of ``scope_kinds``. Accepted values: ``agent``, ``manual``, ``everyone``; any other value — the retired ``role`` included — is a 400 that names it. Ignored when ``scope_kinds`` is sent (PLURAL WINS). */
                 scope_kind?: string | null;
                 /** @description REPEATABLE scope-key set (``?scope_keys=m-1a2b&scope_keys=tm-review``) — the multi-select twin of ``scope_key``. The keys are free-form (a member id or a manual's type_key, depending on the kind beside them), so there is no closed set to check against and no 400: a key nobody carries answers 200 with no rows for that key. 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis. NOTE the 上限線: ``cap_chars`` / ``first_dropped_id`` are answered only when the EFFECTIVE scope_kind set holds exactly ONE value AND the effective scope_key set holds exactly ONE — a budget belongs to a scope, so a page spanning two or more has no single one to report and answers 0 / "". additive-optional. */
                 scope_keys?: string[];
@@ -19045,6 +19133,59 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LoreEntryStateReceiptDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_set_lore_entry_scope_api_lore__entry_id__scope_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entry_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LoreEntryScopeDTO"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoreEntryScopeReceiptDTO"];
                 };
             };
             /** @description Validation error (unified error envelope). */

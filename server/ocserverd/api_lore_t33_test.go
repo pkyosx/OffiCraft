@@ -676,24 +676,27 @@ func TestManualWithNoLoreIsUnchanged(t *testing.T) {
 // test can tell "two call sites of one function" from "two identical copies", and
 // a copy is exactly what this rule forbids.
 func TestBothExitsGoThroughTheOneSelector(t *testing.T) {
-	callers := map[string]string{
-		"assets.go":          "the staff boot document (角色傳承)",
-		"api_taskmanuals.go": "GET /api/task-manuals/{type_key} (任務傳承)",
+	callers := []struct{ file, selector, what string }{
+		{"assets.go", "selectMemberLore(", "the staff boot document"},
+		{"worker_spawn.go", "selectMemberLore(", "the outsource boot document"},
+		{"api_taskmanuals.go", "selectLoreForScope(", "GET /api/task-manuals/{type_key} (任務傳承)"},
 	}
-	for file, what := range callers {
-		src := readSourceForLoreGuard(t, file)
-		if !strings.Contains(src, "selectLoreForScope(") {
-			t.Fatalf("%s (%s) no longer calls selectLoreForScope — if the selection "+
-				"was reimplemented there, that is the second copy T-33 forbids",
-				file, what)
+	for _, c := range callers {
+		src := readSourceForLoreGuard(t, c.file)
+		if !strings.Contains(src, c.selector) {
+			t.Fatalf("%s (%s) no longer calls %s — if the selection was "+
+				"reimplemented there, that is the second copy T-33 forbids",
+				c.file, c.what, c.selector)
 		}
 	}
 	// And the rule itself lives in exactly one file.
-	for _, file := range []string{"assets.go", "api_taskmanuals.go", "api_lore.go"} {
+	for _, file := range []string{"assets.go", "worker_spawn.go", "api_taskmanuals.go", "api_lore.go"} {
 		src := readSourceForLoreGuard(t, file)
-		if strings.Contains(src, "func selectLoreForScope") {
-			t.Fatalf("selectLoreForScope is DEFINED in %s as well as lore_select.go — "+
-				"there must be exactly one definition", file)
+		for _, def := range []string{"func selectLoreForScope", "func selectMemberLore", "func selectLoreEntries"} {
+			if strings.Contains(src, def) {
+				t.Fatalf("%s is DEFINED in %s as well as lore_select.go — there must "+
+					"be exactly one definition", def, file)
+			}
 		}
 	}
 }
@@ -885,4 +888,331 @@ func TestGovernanceOnAnUnknownEntryIs404NotAForbidden(t *testing.T) {
 		map[string]any{"state": LoreStateRetired}); rec.Code != http.StatusNotFound {
 		t.Fatalf("state on an unknown id: want 404, got %d %s", rec.Code, rec.Body.String())
 	}
+}
+
+// ── set_lore_entry_scope (T-236) ────────────────────────────────────────────
+
+// loreScopeStack is a server reached through the real route table and auth
+// middleware, with an owner credential from set-password and an admin agent
+// and a plain agent whose credentials come from the production mint.
+type loreScopeStack struct {
+	api                *apiServer
+	h                  http.Handler
+	owner, admin, user string
+}
+
+const loreScopeAdminID = "m-scope-admin"
+
+func newLoreScopeStack(t *testing.T) loreScopeStack {
+	t.Helper()
+	api, h, d, owner := newAPITestServer(t)
+	return loreScopeStack{
+		api:   api,
+		h:     h,
+		owner: owner,
+		admin: apiTestPrincipalToken(t, api, d, principalAdminAgent, loreScopeAdminID),
+		user:  apiTestPrincipalToken(t, api, d, principalAgent, "m-scope-user"),
+	}
+}
+
+// seedScopedLore stores one agent-scoped entry by author, stamped at ts 100, so
+// a receipt's effective_ts and an untouched updated_ts are known literals.
+func seedScopedLore(t *testing.T, api *apiServer, author, sourceTaskID, title string) string {
+	t.Helper()
+	e, err := api.dal.CreateLoreEntryMintingID(LoreEntry{
+		ScopeKind: LoreScopeAgent, ScopeKey: author, Title: title, Body: "內容",
+		AuthorID: author, SourceTaskID: sourceTaskID, State: LoreStateActive,
+		EffectiveTS: 100, CreatedTS: 100, UpdatedTS: 100,
+	})
+	if err != nil {
+		t.Fatalf("CreateLoreEntryMintingID: %v", err)
+	}
+	return e.ID
+}
+
+func seedScopeTask(t *testing.T, api *apiServer, typeKey string) string {
+	t.Helper()
+	task, err := api.dal.CreateTaskMintingID(Task{
+		Title: "t", TypeKey: typeKey, ExecutorKind: TaskExecutorStaff,
+		Priority: TaskPriorityMid, CreatedTS: 1, UpdatedTS: 1,
+	}, nil)
+	if err != nil {
+		t.Fatalf("CreateTaskMintingID: %v", err)
+	}
+	return task.ID
+}
+
+func (st loreScopeStack) setScope(t *testing.T, token, entryID, kind string) (int, map[string]any) {
+	t.Helper()
+	return apiJSON(t, st.h, "POST", "/api/lore/"+entryID+"/scope", token,
+		`{"scope_kind":"`+kind+`"}`)
+}
+
+func storedScope(t *testing.T, api *apiServer, id string) LoreEntry {
+	t.Helper()
+	e, err := api.dal.GetLoreEntry(id)
+	if err != nil || e == nil {
+		t.Fatalf("GetLoreEntry(%s): %v / %v", id, e, err)
+	}
+	return *e
+}
+
+func TestSetLoreEntryScopeMovesTheEntryToEachKindWithTheServerDerivedKey(t *testing.T) {
+	st := newLoreScopeStack(t)
+	author := hireLoreStaff(t, st.api, "m-scope-author", "researcher")
+	typed := seedScopeTask(t, st.api, "tm-scope")
+	id := seedScopedLore(t, st.api, author, typed, "會搬家的傳承")
+
+	for _, step := range []struct {
+		token, kind, key string
+	}{
+		{st.admin, LoreScopeManual, "tm-scope"},
+		{st.owner, LoreScopeEveryone, ""},
+		{st.admin, LoreScopeAgent, author},
+	} {
+		status, data := st.setScope(t, step.token, id, step.kind)
+		if status != http.StatusOK {
+			t.Fatalf("move to %s: %d %v", step.kind, status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"id": id, "scope_kind": step.kind, "scope_key": step.key,
+			"state": LoreStateActive, "effective_ts": 100, "updated_ts": apiAnyNumber,
+		})
+		row := storedScope(t, st.api, id)
+		if row.ScopeKind != step.kind || row.ScopeKey != step.key {
+			t.Fatalf("stored scope after moving to %s = %s/%q, want %s/%q",
+				step.kind, row.ScopeKind, row.ScopeKey, step.kind, step.key)
+		}
+		if row.Title != "會搬家的傳承" || row.Body != "內容" || row.AuthorID != author ||
+			row.EffectiveTS != 100 || row.CreatedTS != 100 {
+			t.Fatalf("a scope move touched something besides the scope: %+v", row)
+		}
+	}
+}
+
+func TestSetLoreEntryScopeDerivesTheManualKeyFromTheSourceTaskThenTheOutsourceBinding(t *testing.T) {
+	st := newLoreScopeStack(t)
+	staff := hireLoreStaff(t, st.api, "m-scope-staff", "researcher")
+	typed := seedScopeTask(t, st.api, "tm-source")
+	adhoc := seedScopeTask(t, st.api, "")
+	bound := seedScopeTask(t, st.api, "tm-bound")
+	for _, w := range []OutsourceWorker{
+		{ID: "ow-scope-live", Codename: "O-81", TaskID: bound, Status: WorkerStatusActive, Runtime: RuntimeClaude},
+		{ID: "ow-scope-gone", Codename: "O-82", TaskID: bound, Status: WorkerStatusActive, Runtime: RuntimeClaude},
+		{ID: "ow-scope-adhoc", Codename: "O-83", TaskID: adhoc, Status: WorkerStatusActive, Runtime: RuntimeClaude},
+	} {
+		if err := st.api.dal.PutOutsourceWorker(w); err != nil {
+			t.Fatalf("PutOutsourceWorker(%s): %v", w.ID, err)
+		}
+	}
+	if w, err := st.api.dal.ReleaseWorkerByID("ow-scope-gone", 200); err != nil || w == nil {
+		t.Fatalf("ReleaseWorkerByID: %v / %v", w, err)
+	}
+	if err := st.api.dal.PutMember(Member{
+		ID: "m-scope-linked", Name: "Linked Staff", Kind: KindStaff, RoleKey: "researcher",
+		Runtime: RuntimeClaude, RosterStatus: RosterStatusActive, LinkedTaskID: &bound,
+	}); err != nil {
+		t.Fatalf("PutMember: %v", err)
+	}
+
+	for _, tc := range []struct {
+		name, author, source, wantKey string
+	}{
+		{"typed source task, staff author", staff, typed, "tm-source"},
+		{"typed source task wins over the outsource binding", "ow-scope-live", typed, "tm-source"},
+		{"ad-hoc source task, outsource author bound to a typed task", "ow-scope-live", adhoc, "tm-bound"},
+		{"no source task, outsource author bound to a typed task", "ow-scope-live", "", "tm-bound"},
+		{"released outsource author keeps its binding", "ow-scope-gone", "", "tm-bound"},
+	} {
+		id := seedScopedLore(t, st.api, tc.author, tc.source, tc.name)
+		status, data := st.setScope(t, st.admin, id, LoreScopeManual)
+		if status != http.StatusOK {
+			t.Fatalf("%s: %d %v", tc.name, status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"id": id, "scope_kind": LoreScopeManual, "scope_key": tc.wantKey,
+			"state": LoreStateActive, "effective_ts": 100, "updated_ts": apiAnyNumber,
+		})
+	}
+
+	for _, tc := range []struct {
+		name, author, source string
+	}{
+		{"ad-hoc source task, staff author", staff, adhoc},
+		{"no source task, staff author", staff, ""},
+		{"outsource author bound to an ad-hoc task", "ow-scope-adhoc", ""},
+		{"staff author whose row carries a typed task binding", "m-scope-linked", ""},
+	} {
+		id := seedScopedLore(t, st.api, tc.author, tc.source, tc.name)
+		status, data := st.setScope(t, st.admin, id, LoreScopeManual)
+		if status != http.StatusBadRequest {
+			t.Fatalf("%s: want 400, got %d %v", tc.name, status, data)
+		}
+		apiWantError(t, data, "validation_error", "lore entry "+id+" has no task type "+
+			"to key a manual scope to — its source task (if any) carries no type, and "+
+			"its author is not an outsource member bound to a typed task; choose agent or everyone")
+		if row := storedScope(t, st.api, id); row.ScopeKind != LoreScopeAgent ||
+			row.ScopeKey != tc.author || row.UpdatedTS != 100 {
+			t.Fatalf("%s: a refused move changed the row: %+v", tc.name, row)
+		}
+	}
+}
+
+func TestSetLoreEntryScopeRefusesAKindOutsideTheThreeTargets(t *testing.T) {
+	st := newLoreScopeStack(t)
+	author := hireLoreStaff(t, st.api, "m-scope-kind", "researcher")
+	id := seedScopedLore(t, st.api, author, "", "不動的傳承")
+
+	for _, kind := range []string{"role", "roles", ""} {
+		status, data := st.setScope(t, st.admin, id, kind)
+		if status != http.StatusBadRequest {
+			t.Fatalf("scope_kind %q: want 400, got %d %v", kind, status, data)
+		}
+		apiWantError(t, data, "validation_error",
+			`scope_kind must be agent, manual or everyone — got "`+kind+`"`)
+	}
+	if row := storedScope(t, st.api, id); row.ScopeKind != LoreScopeAgent ||
+		row.ScopeKey != author || row.UpdatedTS != 100 {
+		t.Fatalf("a refused move changed the row: %+v", row)
+	}
+}
+
+func TestSetLoreEntryScopeIsRefusedToEveryoneButOwnerAndAdmin(t *testing.T) {
+	st := newLoreScopeStack(t)
+	author := hireLoreStaff(t, st.api, "m-scope-writer", "researcher")
+	authorToken := apiTestAgentToken(t, st.api, author, "")
+	id := seedScopedLore(t, st.api, author, "", "作者自己的")
+
+	for _, tc := range []struct {
+		name, token string
+		status      int
+		code, msg   string
+	}{
+		{"the entry's own author", authorToken, http.StatusForbidden, "forbidden", "principal not permitted"},
+		{"another plain agent", st.user, http.StatusForbidden, "forbidden", "principal not permitted"},
+		{"no credential", "", http.StatusUnauthorized, "unauthorized", "missing credentials"},
+	} {
+		status, data := st.setScope(t, tc.token, id, LoreScopeEveryone)
+		if status != tc.status {
+			t.Fatalf("%s: want %d, got %d %v", tc.name, tc.status, status, data)
+		}
+		apiWantError(t, data, tc.code, tc.msg)
+	}
+	if row := storedScope(t, st.api, id); row.ScopeKind != LoreScopeAgent || row.UpdatedTS != 100 {
+		t.Fatalf("a refused move changed the row: %+v", row)
+	}
+
+	status, data := st.setScope(t, st.admin, "L-9999", LoreScopeEveryone)
+	if status != http.StatusNotFound {
+		t.Fatalf("unknown entry: want 404, got %d %v", status, data)
+	}
+	apiWantError(t, data, "not_found", "no such lore entry: L-9999")
+}
+
+func TestSetLoreEntryScopeToTheCurrentScopeChangesNothing(t *testing.T) {
+	st := newLoreScopeStack(t)
+	author := hireLoreStaff(t, st.api, "m-scope-noop", "researcher")
+	id := seedScopedLore(t, st.api, author, "", "原地不動")
+
+	status, data := st.setScope(t, st.admin, id, LoreScopeAgent)
+	if status != http.StatusOK {
+		t.Fatalf("no-op move: %d %v", status, data)
+	}
+	apiWantBody(t, data, map[string]any{
+		"id": id, "scope_kind": LoreScopeAgent, "scope_key": author,
+		"state": LoreStateActive, "effective_ts": 100, "updated_ts": 100,
+	})
+	if row := storedScope(t, st.api, id); row.UpdatedTS != 100 {
+		t.Fatalf("a no-op move stamped updated_ts: %v", row.UpdatedTS)
+	}
+
+	status, data = st.setScope(t, st.admin, id, LoreScopeEveryone)
+	if status != http.StatusOK {
+		t.Fatalf("real move: %d %v", status, data)
+	}
+	if row := storedScope(t, st.api, id); row.UpdatedTS == 100 {
+		t.Fatalf("a real move left updated_ts at 100 — the no-op check above proves nothing")
+	}
+}
+
+func TestSetLoreEntryScopeMovesALegacyRoleEntryOutOfRole(t *testing.T) {
+	st := newLoreScopeStack(t)
+	author := hireLoreStaff(t, st.api, "m-scope-legacy", "researcher")
+	e, err := st.api.dal.CreateLoreEntryMintingID(LoreEntry{
+		ScopeKind: "role", ScopeKey: "researcher", Title: "孤兒", Body: "內容",
+		AuthorID: author, State: LoreStatePinned,
+		EffectiveTS: 100, CreatedTS: 100, UpdatedTS: 100,
+	})
+	if err != nil {
+		t.Fatalf("seed role orphan: %v", err)
+	}
+	status, data := st.setScope(t, st.admin, e.ID, LoreScopeAgent)
+	if status != http.StatusOK {
+		t.Fatalf("move orphan: %d %v", status, data)
+	}
+	apiWantBody(t, data, map[string]any{
+		"id": e.ID, "scope_kind": LoreScopeAgent, "scope_key": author,
+		"state": LoreStatePinned, "effective_ts": 100, "updated_ts": apiAnyNumber,
+	})
+}
+
+func TestListCarriesEachEntrysTaskTypeAndScopeOptions(t *testing.T) {
+	st := newLoreScopeStack(t)
+	author := hireLoreStaff(t, st.api, "m-scope-list", "researcher")
+	typedID := seedScopedLore(t, st.api, author, seedScopeTask(t, st.api, "tm-listed"), "有類型")
+	adhocID := seedScopedLore(t, st.api, author, seedScopeTask(t, st.api, ""), "臨時任務")
+
+	status, data := apiJSON(t, st.h, "GET",
+		"/api/lore?scope_kind=agent&scope_key="+author, st.user, "")
+	if status != http.StatusOK {
+		t.Fatalf("list: %d %v", status, data)
+	}
+	entries, _ := data["entries"].([]any)
+	got := map[string][2]any{}
+	for _, raw := range entries {
+		e, _ := raw.(map[string]any)
+		got[e["id"].(string)] = [2]any{e["task_type_key"], e["scope_options"]}
+	}
+	apiWantValue(t, typedID, got[typedID][0], "tm-listed")
+	apiWantValue(t, typedID, got[typedID][1], []any{"manual", "agent", "everyone"})
+	apiWantValue(t, adhocID, got[adhocID][0], "")
+	apiWantValue(t, adhocID, got[adhocID][1], []any{"agent", "everyone"})
+	if len(got) != 2 {
+		t.Fatalf("the page carries %d entries, want the 2 seeded: %v", len(got), got)
+	}
+}
+
+func TestListFiltersTheEveryoneScopeAndReportsTheMemberCapForIt(t *testing.T) {
+	st := newLoreScopeStack(t)
+	author := hireLoreStaff(t, st.api, "m-scope-filter", "researcher")
+	st.api.loreCapCharsRole = 5
+	st.api.loreCapCharsManual = 9000
+	first := seedScopedLore(t, st.api, author, "", "甲甲甲")
+	second := seedScopedLore(t, st.api, author, "", "乙乙乙")
+	mine := seedScopedLore(t, st.api, author, "", "丙丙丙")
+	for _, id := range []string{first, second} {
+		if status, data := st.setScope(t, st.admin, id, LoreScopeEveryone); status != http.StatusOK {
+			t.Fatalf("move %s: %d %v", id, status, data)
+		}
+	}
+	// Equal effective_ts, so the fold orders by seq descending.
+	status, data := apiJSON(t, st.h, "GET", "/api/lore?scope_kinds=everyone", st.user, "")
+	if status != http.StatusOK {
+		t.Fatalf("list everyone: %d %v", status, data)
+	}
+	var ids []any
+	for _, raw := range data["entries"].([]any) {
+		ids = append(ids, raw.(map[string]any)["id"])
+	}
+	apiWantValue(t, "everyone ids", ids, []any{second, first})
+	apiWantValue(t, "cap_chars", data["cap_chars"], 5)
+	apiWantValue(t, "first_dropped_id", data["first_dropped_id"], first)
+
+	status, data = apiJSON(t, st.h, "GET",
+		"/api/lore?scope_kind=agent&scope_key="+author, st.user, "")
+	if status != http.StatusOK {
+		t.Fatalf("list agent: %d %v", status, data)
+	}
+	apiWantValue(t, "agent cap_chars", data["cap_chars"], 5)
+	apiWantValue(t, "agent first_dropped_id", data["first_dropped_id"], mine)
 }

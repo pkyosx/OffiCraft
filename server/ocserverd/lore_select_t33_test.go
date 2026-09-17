@@ -25,14 +25,23 @@ import (
 // order that the real query would produce and check the stop rule on its own.
 //
 // 🔴 It does NOT sort. If it sorted, this file would be testing the fake.
+//
+// byScope, when set, answers per "kind/key" instead, so a member selection's
+// two reads can be told apart; asked records the scopes read, in order.
 type fakeLoreLister struct {
 	entries []LoreEntry
+	byScope map[string][]LoreEntry
 	err     error
 	calls   int
+	asked   []string
 }
 
 func (f *fakeLoreLister) ListLoreEntriesLive(scopeKind, scopeKey string) ([]LoreEntry, error) {
 	f.calls++
+	f.asked = append(f.asked, scopeKind+"/"+scopeKey)
+	if f.byScope != nil {
+		return f.byScope[scopeKind+"/"+scopeKey], f.err
+	}
 	return f.entries, f.err
 }
 
@@ -227,6 +236,9 @@ func TestSelectLoreSurfacesTheListerError(t *testing.T) {
 		t.Fatalf("err = %v, want the lister's own error — an empty fold and a "+
 			"broken database must not look the same", err)
 	}
+	if _, err := selectMemberLore(&fakeLoreLister{err: boom}, "m-staff-1", 100); !errors.Is(err, boom) {
+		t.Fatalf("selectMemberLore err = %v, want the lister's own error", err)
+	}
 }
 
 // TestRenderLoreBlockIsEmptyForAnEmptySelection. Both exits append this
@@ -255,4 +267,101 @@ func TestRenderLoreBlockNamesEveryEntry(t *testing.T) {
 	if strings.Index(block, "L-7") > strings.Index(block, "L-9") {
 		t.Fatalf("rendered block reordered the selection:\n%s", block)
 	}
+}
+
+func loreFixtureOf(id, kind string, chars int) LoreEntry {
+	e := loreFixture(id, LoreStateActive, chars)
+	e.ScopeKind = kind
+	return e
+}
+
+func TestSelectMemberLoreWalksEveryoneBeforeTheMembersOwn(t *testing.T) {
+	lister := &fakeLoreLister{byScope: map[string][]LoreEntry{
+		"everyone/": {loreFixtureOf("L-5", LoreScopeEveryone, 10), loreFixtureOf("L-2", LoreScopeEveryone, 10)},
+		"agent/m-1": {loreFixtureOf("L-6", LoreScopeAgent, 10), loreFixtureOf("L-1", LoreScopeAgent, 10)},
+		"agent/m-2": {loreFixtureOf("L-9", LoreScopeAgent, 10)},
+	}}
+	sel, err := selectMemberLore(lister, "m-1", 1000)
+	if err != nil {
+		t.Fatalf("selectMemberLore: %v", err)
+	}
+	wantLoreIDs(t, sel.Entries, []string{"L-5", "L-2", "L-6", "L-1"})
+	if sel.FirstDroppedID != "" || len(sel.FirstDroppedByKind) != 0 || sel.UsedChars != 40 {
+		t.Fatalf("everything fits: got first dropped %q, by kind %v, used %d",
+			sel.FirstDroppedID, sel.FirstDroppedByKind, sel.UsedChars)
+	}
+	if strings.Join(lister.asked, ",") != "everyone/,agent/m-1" {
+		t.Fatalf("scopes read = %v, want [everyone/ agent/m-1]", lister.asked)
+	}
+}
+
+func TestSelectMemberLoreSpendsOneBudgetAcrossBothGroups(t *testing.T) {
+	lister := &fakeLoreLister{byScope: map[string][]LoreEntry{
+		"everyone/": {loreFixtureOf("L-1", LoreScopeEveryone, 60)},
+		"agent/m-1": {loreFixtureOf("L-2", LoreScopeAgent, 30), loreFixtureOf("L-3", LoreScopeAgent, 5)},
+	}}
+	sel, err := selectMemberLore(lister, "m-1", 80)
+	if err != nil {
+		t.Fatalf("selectMemberLore: %v", err)
+	}
+	wantLoreIDs(t, sel.Entries, []string{"L-1"})
+	if sel.FirstDroppedID != "L-2" || sel.UsedChars != 60 {
+		t.Fatalf("first dropped %q used %d, want L-2 and 60", sel.FirstDroppedID, sel.UsedChars)
+	}
+	if len(sel.FirstDroppedByKind) != 1 || sel.FirstDroppedByKind[LoreScopeAgent] != "L-2" {
+		t.Fatalf("FirstDroppedByKind = %v, want map[agent:L-2]", sel.FirstDroppedByKind)
+	}
+}
+
+func TestSelectMemberLoreStopsInsideEveryoneAndDropsAllOwnEntries(t *testing.T) {
+	lister := &fakeLoreLister{byScope: map[string][]LoreEntry{
+		"everyone/": {
+			loreFixtureOf("L-1", LoreScopeEveryone, 50),
+			loreFixtureOf("L-2", LoreScopeEveryone, 50),
+			loreFixtureOf("L-3", LoreScopeEveryone, 1),
+		},
+		"agent/m-1": {loreFixtureOf("L-4", LoreScopeAgent, 1)},
+	}}
+	sel, err := selectMemberLore(lister, "m-1", 60)
+	if err != nil {
+		t.Fatalf("selectMemberLore: %v", err)
+	}
+	wantLoreIDs(t, sel.Entries, []string{"L-1"})
+	if sel.FirstDroppedID != "L-2" {
+		t.Fatalf("FirstDroppedID = %q, want L-2", sel.FirstDroppedID)
+	}
+	if len(sel.FirstDroppedByKind) != 2 ||
+		sel.FirstDroppedByKind[LoreScopeEveryone] != "L-2" ||
+		sel.FirstDroppedByKind[LoreScopeAgent] != "L-4" {
+		t.Fatalf("FirstDroppedByKind = %v, want map[agent:L-4 everyone:L-2]", sel.FirstDroppedByKind)
+	}
+}
+
+func TestSelectMemberLoreWithNoMemberReadsNothing(t *testing.T) {
+	lister := &fakeLoreLister{byScope: map[string][]LoreEntry{
+		"everyone/": {loreFixtureOf("L-1", LoreScopeEveryone, 1)},
+	}}
+	sel, err := selectMemberLore(lister, "", 100)
+	if err != nil {
+		t.Fatalf("selectMemberLore: %v", err)
+	}
+	wantLoreIDs(t, sel.Entries, []string{})
+	if lister.calls != 0 {
+		t.Fatalf("the lister was called %d times with no member", lister.calls)
+	}
+}
+
+func TestSelectLoreForScopeAddressesOnlyEveryoneWithAnEmptyKey(t *testing.T) {
+	lister := &fakeLoreLister{entries: []LoreEntry{loreFixtureOf("L-1", LoreScopeEveryone, 1)}}
+	sel, err := selectLoreForScope(lister, LoreScopeEveryone, "", 100)
+	if err != nil {
+		t.Fatalf("selectLoreForScope: %v", err)
+	}
+	wantLoreIDs(t, sel.Entries, []string{"L-1"})
+
+	sel, err = selectLoreForScope(lister, LoreScopeAgent, "", 100)
+	if err != nil {
+		t.Fatalf("selectLoreForScope: %v", err)
+	}
+	wantLoreIDs(t, sel.Entries, []string{})
 }

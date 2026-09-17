@@ -7,8 +7,9 @@ package main
 // U. There is no UpdateLoreEntry and no method anywhere in this file that can
 // write `title` or `body` on a row that already exists: an entry is written once
 // and is thereafter a fixed piece of text. What moves is `state`,
-// `retire_reason` and `effective_ts`, and each of those has its own narrow
-// method saying so in its name. A generic updater would make the no-edit rule a
+// `retire_reason`, `effective_ts` and — since T-236, admin-only — the
+// `scope_kind`/`scope_key` pair, and each of those has its own narrow method
+// saying so in its name. A generic updater would make the no-edit rule a
 // convention that every future call site has to remember, instead of an absence
 // that will not compile.
 
@@ -24,7 +25,8 @@ import (
 type LoreEntry struct {
 	ID  string // "L-" + Seq
 	Seq int
-	// ⚠️ TWO KINDS ARE WRITABLE; A THIRD IS STILL READABLE. The Go vocabulary is
+	// ⚠️ TWO KINDS ARE WRITABLE BY A WRITE, A THIRD (everyone) ONLY BY
+	// SetLoreEntryScope, AND A FOURTH IS STILL READABLE. The write vocabulary is
 	// LoreScopeAgent | LoreScopeManual — owner collapsed the old trio on
 	// 2026-09-07 (card rc-a43100fd0486 [0]) and there is no longer a
 	// LoreScopeRole constant to name. But this field is a plain string scanned
@@ -33,10 +35,10 @@ type LoreEntry struct {
 	// value outside the two constants can and does come back out of the DB. Do
 	// not "narrow" this to a validated enum on the read path: that would turn
 	// the orphans 00100 chose to preserve into rows that fail to load.
-	ScopeKind string // LoreScopeAgent | LoreScopeManual (+ legacy 'role' orphans)
+	ScopeKind string // LoreScopeAgent | LoreScopeManual | LoreScopeEveryone (+ legacy 'role' orphans)
 	// The MEMBER's own id for 'agent' — every member-scoped entry, staff and
 	// outsource alike, since the collapse. Task-manual type_key for 'manual'.
-	// A legacy 'role' orphan still carries a role_key here.
+	// "" for 'everyone'. A legacy 'role' orphan still carries a role_key here.
 	ScopeKey string
 	Title    string
 	Body     string
@@ -333,4 +335,65 @@ func (d *DAL) BumpLoreEntryEffective(id string, ts float64) (bool, error) {
 	}
 	n, err := res.RowsAffected()
 	return n > 0, err
+}
+
+// SetLoreEntryScope moves one entry to (scopeKind, scopeKey) and stamps
+// updated_ts. It reports whether the row changed: an unknown id and a move to
+// the scope the entry already has both answer false, and the second leaves
+// updated_ts alone — the caller has already read the row, so it tells the two
+// apart itself.
+//
+// 🔴 It cannot touch title, body, state or effective_ts. See the file header.
+func (d *DAL) SetLoreEntryScope(id, scopeKind, scopeKey string, updatedTS float64) (bool, error) {
+	res, err := d.wdb.Exec(
+		`UPDATE lore_entry SET scope_kind = ?, scope_key = ?, updated_ts = ?
+		 WHERE id = ? AND NOT (scope_kind = ? AND scope_key = ?)`,
+		scopeKind, scopeKey, updatedTS, id, scopeKind, scopeKey)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
+}
+
+// LoreTaskTypeKeys answers, for each of the given entry ids, the task type a
+// 'manual' scope for that entry would key to ("" when there is none). It is the
+// ONE definition of that derivation — set_lore_entry_scope and the list face
+// both read it — and it is one query for a whole page.
+//
+// The rule (T-236, owner): the type of the entry's source task when that task
+// carries one; otherwise, when the AUTHOR is an outsource member, the type of
+// the task that member is bound to. The member row is read whatever its
+// roster_status, because a released worker keeps its linked_task_id and is
+// still the author. An untyped (臨時) task contributes "".
+//
+// Ids with no row are absent from the map.
+func (d *DAL) LoreTaskTypeKeys(ids []string) (map[string]string, error) {
+	out := make(map[string]string, len(ids))
+	if len(ids) == 0 {
+		return out, nil
+	}
+	clause, args := loreInClause("l.id", ids)
+	rows, err := d.rdb.Query(`
+		SELECT l.id, COALESCE(
+			NULLIF(TRIM(src.type_key), ''),
+			CASE WHEN m.kind = ? THEN NULLIF(TRIM(bound.type_key), '') END,
+			'')
+		FROM lore_entry l
+		LEFT JOIN task src ON src.id = l.source_task_id AND l.source_task_id != ''
+		LEFT JOIN member m ON m.id = l.author_id
+		LEFT JOIN task bound ON bound.id = m.linked_task_id
+		WHERE 1=1`+clause, append([]any{KindOutsource}, args...)...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close() //nolint:errcheck
+	for rows.Next() {
+		var id, typeKey string
+		if err := rows.Scan(&id, &typeKey); err != nil {
+			return nil, err
+		}
+		out[id] = typeKey
+	}
+	return out, rows.Err()
 }

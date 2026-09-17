@@ -1978,8 +1978,8 @@ func DisplayName(id string, names map[string]string) string {
 
 // ── T-33 傳承（lore） ────────────────────────────────────────────────────────
 
-// LoreScopeAgent / LoreScopeManual are the TWO scopes a lore entry can belong
-// to, and they are the whole set (owner 2026-09-07, card rc-a43100fd0486 [0]:
+// LoreScopeAgent / LoreScopeManual are the TWO scopes a WRITE can file a lore
+// entry under, and they are the whole set of those (owner 2026-09-07, card rc-a43100fd0486 [0]:
 // 「應該已經沒有角色傳承」「只有成員跟任務傳承兩種」).
 //
 // 🔴 THERE WAS A THIRD, `role`, AND IT IS GONE FROM THE GO VOCABULARY. Every
@@ -1996,14 +1996,15 @@ func DisplayName(id string, names map[string]string) string {
 // (member.role_key has no UNIQUE index and the hire face does not check), so this
 // is a property of the roster as it stands, not an invariant — see 00100's header.
 //
-// 🔴 THE DB CHECK IS STILL THE OLD TRIO, DELIBERATELY. migrations/00093 admits
-// ('role','agent','manual') and 00100 does NOT narrow it, because 00100 leaves
+// 🔴 THE DB CHECK STILL ADMITS 'role', DELIBERATELY. migrations/00093 admits
+// ('role','agent','manual'), 00108 only adds 'everyone', and neither 00100 nor
+// 00108 narrows it, because 00100 leaves
 // behind — on purpose — any 'role' row whose member was ambiguous. Those orphans
 // must stay STORABLE and READABLE; a tightened CHECK would have turned "we could
 // not tell whose this is" into "this row cannot exist", which is the silent
 // deletion the migration was written to avoid. An orphan reaches the cockpit on
 // the unfiltered page and renders through the client's unknown-kind arm, which is
-// how it stays visible without pretending to be one of the two live scopes.
+// how it stays visible without pretending to be one of the live scopes.
 //
 // 🔴 WHICH ONE A WRITE LANDS IN IS DECIDED BY ONE QUESTION, not by a chain of
 // fallbacks (owner 2026-09-07): what is the EFFECTIVE RELATED TASK — the named
@@ -2023,9 +2024,17 @@ func DisplayName(id string, names map[string]string) string {
 // Filing a one-off task's lesson under the writer would charge every one of its
 // future boots for it while the task type that needed such a lesson still got
 // nothing — and the write would answer 200, so nobody would ever look.
+//
+// LoreScopeEveryone (T-236, owner) is a third, READ-SIDE scope: scope_key is ""
+// and the entry rides every member's boot document under the member budget,
+// ahead of that member's own agent entries (selectMemberLore). No write lands
+// there — only set_lore_entry_scope (admin) moves an entry in or out — so the
+// one-question rule above is unchanged. migrations/00108 widened the CHECK to
+// admit it; 'role' is still admitted for the orphans.
 const (
-	LoreScopeAgent  = "agent"
-	LoreScopeManual = "manual"
+	LoreScopeAgent    = "agent"
+	LoreScopeManual   = "manual"
+	LoreScopeEveryone = "everyone"
 )
 
 // LoreStateActive / LoreStatePinned / LoreStateRetired are a lore entry's three

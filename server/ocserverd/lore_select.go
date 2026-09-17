@@ -3,10 +3,13 @@ package main
 // lore_select.go — T-33 傳承（lore）: 挑條目的邏輯，只有這一份.
 //
 // 🔴 THIS FILE IS THE ONLY PLACE THAT DECIDES WHICH LORE ENTRIES A READER GETS.
-// There are THREE exits, and every one of them calls selectLoreForScope:
-//   1. the STAFF boot document        — scope_kind='agent',  assets.go buildBootContext
-//   2. the OUTSOURCE boot document    — scope_kind='agent',  worker_spawn.go buildWorkerBootContext
-//   3. GET /api/task-manuals/{key}    — scope_kind='manual', api_taskmanuals.go writeTaskManual
+// There are THREE exits, and every one of them goes through selectLoreEntries:
+//   1. the STAFF boot document        — selectMemberLore,   assets.go buildBootContext
+//   2. the OUTSOURCE boot document    — selectMemberLore,   worker_spawn.go buildWorkerBootContext
+//   3. GET /api/task-manuals/{key}    — selectLoreForScope, api_taskmanuals.go writeTaskManual
+//
+// A member's boot document reads TWO scopes under ONE budget (T-236, owner):
+// scope_kind='everyone' first, then scope_kind='agent' keyed by that member.
 //
 // 🔴 EXITS 1 AND 2 NOW ASK FOR THE SAME SCOPE, and they are still listed
 // separately because they are still two independently written assemblies. Exit 1
@@ -63,6 +66,11 @@ type loreSelection struct {
 	// above this entry; without it the line would have to be re-derived from a
 	// count, and a count cannot say which row it falls above.
 	FirstDroppedID string
+	// FirstDroppedByKind is FirstDroppedID restricted to one scope_kind: the
+	// first entry OF THAT KIND that was not carried. On a member selection the
+	// overall first drop may be an everyone entry while the member's own list
+	// needs its line above its own first dropped entry.
+	FirstDroppedByKind map[string]string
 	// UsedChars is the character total of Entries — the same unit the cap is
 	// expressed in, so the two are comparable without re-measuring.
 	UsedChars int
@@ -115,28 +123,65 @@ func loreEntryChars(e LoreEntry) int {
 // this reachable only by lowering a cap after the fact, which is exactly the
 // case the owner said should affect nothing already stored.
 func selectLoreForScope(lister loreLister, scopeKind, scopeKey string, capChars int) (loreSelection, error) {
-	sel := loreSelection{Entries: []LoreEntry{}, CapChars: capChars}
-	if lister == nil || scopeKey == "" || capChars <= 0 {
+	// scope_key "" is how the everyone scope is addressed, and nothing else.
+	if lister == nil || capChars <= 0 || (scopeKey == "" && scopeKind != LoreScopeEveryone) {
 		// capChars <= 0 is "no room", not "unlimited". Reading a zero as
 		// unbounded is how a mis-loaded setting turns into an unbounded boot
 		// document, and the loader's floor means the value is never legitimately
 		// zero anyway.
-		return sel, nil
+		return selectLoreEntries(nil, capChars), nil
 	}
 	entries, err := lister.ListLoreEntriesLive(scopeKind, scopeKey)
 	if err != nil {
-		return sel, err
+		return loreSelection{Entries: []LoreEntry{}, CapChars: capChars}, err
 	}
+	return selectLoreEntries(entries, capChars), nil
+}
+
+// selectMemberLore is what ONE member's boot document carries: the everyone
+// scope, then that member's own agent scope, walked as one sequence against one
+// budget (owner T-236: everyone shares lore.cap_chars.role and comes first).
+// Each group keeps ListLoreEntriesLive's order. Because the walk stops at the
+// first entry that does not fit, an everyone entry that overflows also drops
+// every agent entry after it.
+//
+// memberID "" (the cockpit's role preview has no member) selects nothing.
+func selectMemberLore(lister loreLister, memberID string, capChars int) (loreSelection, error) {
+	if lister == nil || memberID == "" || capChars <= 0 {
+		return selectLoreEntries(nil, capChars), nil
+	}
+	everyone, err := lister.ListLoreEntriesLive(LoreScopeEveryone, "")
+	if err != nil {
+		return loreSelection{Entries: []LoreEntry{}, CapChars: capChars}, err
+	}
+	own, err := lister.ListLoreEntriesLive(LoreScopeAgent, memberID)
+	if err != nil {
+		return loreSelection{Entries: []LoreEntry{}, CapChars: capChars}, err
+	}
+	return selectLoreEntries(append(everyone, own...), capChars), nil
+}
+
+// selectLoreEntries is steps 3-4 of the rule over an already-ordered sequence.
+func selectLoreEntries(entries []LoreEntry, capChars int) loreSelection {
+	sel := loreSelection{Entries: []LoreEntry{}, CapChars: capChars,
+		FirstDroppedByKind: map[string]string{}}
+	stopped := false
 	for _, e := range entries {
-		cost := loreEntryChars(e)
-		if sel.UsedChars+cost > capChars {
+		if !stopped {
+			cost := loreEntryChars(e)
+			if capChars > 0 && sel.UsedChars+cost <= capChars {
+				sel.UsedChars += cost
+				sel.Entries = append(sel.Entries, e)
+				continue
+			}
+			stopped = true
 			sel.FirstDroppedID = e.ID
-			break
 		}
-		sel.UsedChars += cost
-		sel.Entries = append(sel.Entries, e)
+		if _, seen := sel.FirstDroppedByKind[e.ScopeKind]; !seen {
+			sel.FirstDroppedByKind[e.ScopeKind] = e.ID
+		}
 	}
-	return sel, nil
+	return sel
 }
 
 // loreBlockHeading is the title of the appended block. ONE string, used by both

@@ -202,6 +202,45 @@ func TestSetStateOnAnUnknownEntryReportsMiss(t *testing.T) {
 	if ok {
 		t.Fatal("BumpLoreEntryEffective reported a hit on an entry that does not exist")
 	}
+	ok, err = d.SetLoreEntryScope("L-999", LoreScopeEveryone, "", 1)
+	if err != nil {
+		t.Fatalf("SetLoreEntryScope: %v", err)
+	}
+	if ok {
+		t.Fatal("SetLoreEntryScope reported a hit on an entry that does not exist")
+	}
+}
+
+func TestSetScopeMovesOnlyWhenTheScopeDiffers(t *testing.T) {
+	d := newTestDAL(t)
+	e := seedLore(t, d, LoreScopeAgent, "m-1", "one", LoreStateActive, 10)
+
+	for _, tc := range []struct {
+		kind, key string
+		ts        float64
+		moved     bool
+		wantTS    float64
+	}{
+		{LoreScopeAgent, "m-1", 20, false, 10},
+		{LoreScopeAgent, "m-2", 30, true, 30},
+		{LoreScopeManual, "m-2", 40, true, 40},
+		{LoreScopeEveryone, "", 50, true, 50},
+		{LoreScopeEveryone, "", 60, false, 50},
+	} {
+		moved, err := d.SetLoreEntryScope(e.ID, tc.kind, tc.key, tc.ts)
+		if err != nil {
+			t.Fatalf("SetLoreEntryScope(%s/%s): %v", tc.kind, tc.key, err)
+		}
+		got, err := d.GetLoreEntry(e.ID)
+		if err != nil || got == nil {
+			t.Fatalf("GetLoreEntry: %v / %v", got, err)
+		}
+		if moved != tc.moved || got.ScopeKind != tc.kind || got.ScopeKey != tc.key ||
+			got.UpdatedTS != tc.wantTS || got.EffectiveTS != 10 || got.State != LoreStateActive {
+			t.Fatalf("after %s/%q at %v: moved=%v row=%+v, want moved=%v updated_ts=%v",
+				tc.kind, tc.key, tc.ts, moved, *got, tc.moved, tc.wantTS)
+		}
+	}
 }
 
 // TestLorePageOrderIsPinnedActiveRetired pins the LIST page's three groups, and

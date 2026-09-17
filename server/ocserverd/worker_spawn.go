@@ -186,12 +186,14 @@ func (s *apiServer) buildWorkerBootContext(w OutsourceWorker, t Task, manual *Ta
 	// assets.go used it; owner removed it on 2026-09-07 (card rc-a43100fd0486
 	// [0]) and the staff exit moved ONTO this shape. So this is no longer "the
 	// outsource special case" — it is the one member-scoped fold, and assets.go
-	// now calls selectLoreForScope with the same scope and the same knob.
+	// calls selectMemberLore with the same member scope and the same knob. That
+	// selection also carries the everyone scope first, under the same budget
+	// (T-236).
 	//
-	// 🔴 THE SELECTION IS NOT MADE HERE. selectLoreForScope (lore_select.go) is
-	// the one implementation of that rule; the staff exit in assets.go and the
-	// manual exit in api_taskmanuals.go call the same function with a different
-	// scope. Writing a second selection here is what the ticket's first hard
+	// 🔴 THE SELECTION IS NOT MADE HERE. lore_select.go holds the one
+	// implementation of that rule; the staff exit in assets.go calls the same
+	// function and the manual exit in api_taskmanuals.go the same walker with a
+	// different scope. Writing a second selection here is what the ticket's first hard
 	// condition forbids, and the way it would show up is one member's entry
 	// appearing in one exit and not the other, with no error anywhere.
 	//
@@ -203,7 +205,7 @@ func (s *apiServer) buildWorkerBootContext(w OutsourceWorker, t Task, manual *Ta
 	var b strings.Builder
 	b.WriteString(head)
 	b.WriteString("\n\n")
-	loreSel, err := selectLoreForScope(s.dal, LoreScopeAgent, w.ID, s.loreRoleCap())
+	loreSel, err := selectMemberLore(s.dal, w.ID, s.loreRoleCap())
 	if err != nil {
 		return "", err
 	}

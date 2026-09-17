@@ -1,13 +1,13 @@
 package main
 
-// api_lore.go — T-33 傳承（lore）: the four write/read faces, which are also the
-// four MCP tools (the tool surface IS the route table; see mcp.go).
+// api_lore.go — T-33 傳承（lore）: the write/read faces, which are also the MCP
+// tools (the tool surface IS the route table; see mcp.go).
 //
 // WRITING IS MCP-ONLY BY DESIGN. There is no cockpit compose form and this file
 // builds none: an entry is written by the agent that just learned the thing, in
 // the moment, out of the work — not typed into a box afterwards by somebody
-// reconstructing it. What the cockpit gets is the LIST plus the three
-// state-moving verbs, which is the governance half.
+// reconstructing it. What the cockpit gets is the LIST plus the state-moving
+// and scope-moving verbs, which is the governance half.
 //
 // 🔴 THE SELECTION RULE IS NOT IN THIS FILE. Reading lore for a reader is
 // selectLoreForScope (lore_select.go), called by the two folds. Nothing here
@@ -442,10 +442,10 @@ func (s *apiServer) HandleListLoreEntriesApiLoreGet(w http.ResponseWriter, r *ht
 	// constrain this axis — which is the page the cockpit opens on — so an
 	// orphan stays findable even though it can no longer be filtered FOR.
 	for _, k := range kinds {
-		if k != LoreScopeAgent && k != LoreScopeManual {
+		if !validLoreScopeTarget(k) {
 			writeError(w, http.StatusBadRequest,
 				loreFilterParamName("scope_kind", kindsPlural)+" must be "+
-					LoreScopeAgent+" or "+LoreScopeManual+" — got "+strconv.Quote(k))
+					loreScopeTargetList+" — got "+strconv.Quote(k))
 			return
 		}
 	}
@@ -503,10 +503,19 @@ func (s *apiServer) HandleListLoreEntriesApiLoreGet(w http.ResponseWriter, r *ht
 		internalError(w, err)
 		return
 	}
+	ids := make([]string, 0, len(entries))
+	for _, e := range entries {
+		ids = append(ids, e.ID)
+	}
+	typeKeys, err := s.dal.LoreTaskTypeKeys(ids)
+	if err != nil {
+		internalError(w, err)
+		return
+	}
 	out := LoreEntryListDTO{Entries: make([]LoreEntryDTO, 0, len(entries)),
 		Limit: limit, Offset: offset}
 	for _, e := range entries {
-		out.Entries = append(out.Entries, newLoreEntryDTO(e))
+		out.Entries = append(out.Entries, newLoreEntryDTO(e, typeKeys[e.ID]))
 	}
 
 	// 上限線: which entry is the first one the fold will NOT carry. The cockpit
@@ -533,21 +542,126 @@ func (s *apiServer) HandleListLoreEntriesApiLoreGet(w http.ResponseWriter, r *ht
 	// so there is no single cap_chars it could report and no single entry that
 	// is 「the first one dropped」. Two or more on EITHER axis ⇒ 0 / "", the same
 	// answer an unfiltered page gets, for the same reason.
-	if len(f.ScopeKinds) == 1 && len(f.ScopeKeys) == 1 {
-		scopeKind, scopeKey := f.ScopeKinds[0], f.ScopeKeys[0]
-		capChars := s.loreRoleCap()
-		if scopeKind == LoreScopeManual {
-			capChars = s.loreManualCap()
-		}
-		sel, err := selectLoreForScope(s.dal, scopeKind, scopeKey, capChars)
+	//
+	// 🔴 EVERYONE AND AGENT SHARE ONE BUDGET (T-236), so their lines are read off
+	// the selection a boot actually makes, not off each scope alone. everyone is
+	// addressed with NO scope_key (its key is "") and its line is the same for
+	// every member, because it is walked first. An agent line is where that
+	// member's OWN entries stop, which everyone entries ahead of them can move.
+	var sel loreSelection
+	answered := false
+	switch {
+	case len(f.ScopeKinds) == 1 && f.ScopeKinds[0] == LoreScopeEveryone && len(f.ScopeKeys) == 0:
+		sel, err = selectLoreForScope(s.dal, LoreScopeEveryone, "", s.loreRoleCap())
+		answered = true
+	case len(f.ScopeKinds) == 1 && f.ScopeKinds[0] == LoreScopeAgent && len(f.ScopeKeys) == 1:
+		sel, err = selectMemberLore(s.dal, f.ScopeKeys[0], s.loreRoleCap())
+		answered = true
+	case len(f.ScopeKinds) == 1 && f.ScopeKinds[0] == LoreScopeManual && len(f.ScopeKeys) == 1:
+		sel, err = selectLoreForScope(s.dal, f.ScopeKinds[0], f.ScopeKeys[0], s.loreManualCap())
+		answered = true
+	}
+	if err != nil {
+		internalError(w, err)
+		return
+	}
+	if answered {
+		out.CapChars = sel.CapChars
+		out.FirstDroppedId = sel.FirstDroppedByKind[f.ScopeKinds[0]]
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// loreScopeTargetList is the accepted scope_kind vocabulary, as a refusal names it.
+const loreScopeTargetList = LoreScopeAgent + ", " + LoreScopeManual + " or " + LoreScopeEveryone
+
+// validLoreScopeTarget is the closed set a caller may NAME — as a list filter or
+// as a set_lore_entry_scope target. The retired 'role' is outside it.
+func validLoreScopeTarget(k string) bool {
+	switch k {
+	case LoreScopeAgent, LoreScopeManual, LoreScopeEveryone:
+		return true
+	}
+	return false
+}
+
+// loreScopeOptions is the display-ordered set of kinds set_lore_entry_scope
+// accepts for an entry whose derivable task type is typeKey.
+func loreScopeOptions(typeKey string) []string {
+	opts := make([]string, 0, 3)
+	if typeKey != "" {
+		opts = append(opts, LoreScopeManual)
+	}
+	return append(opts, LoreScopeAgent, LoreScopeEveryone)
+}
+
+// POST /api/lore/{entry_id}/scope — set_lore_entry_scope.
+//
+// The admin floor is the route's (routes.go); nothing below re-checks it. The
+// caller names only the kind: the key is derived here, so an entry can only be
+// pointed at its own author, its own task type, or everyone.
+func (s *apiServer) HandleSetLoreEntryScopeApiLoreEntryIdScopePost(w http.ResponseWriter, r *http.Request, entryID string) {
+	var body LoreEntryScopeDTO
+	if !decodeJSONBodyStrict(w, r, &body, "scope_kind") {
+		return
+	}
+	kind := strings.TrimSpace(body.ScopeKind)
+	if !validLoreScopeTarget(kind) {
+		writeError(w, http.StatusBadRequest,
+			"scope_kind must be "+loreScopeTargetList+" — got "+strconv.Quote(kind))
+		return
+	}
+	current, err := s.dal.GetLoreEntry(entryID)
+	if err != nil {
+		internalError(w, err)
+		return
+	}
+	if current == nil {
+		writeError(w, http.StatusNotFound, "no such lore entry: "+entryID)
+		return
+	}
+
+	key := ""
+	switch kind {
+	case LoreScopeAgent:
+		key = current.AuthorID
+	case LoreScopeManual:
+		typeKeys, err := s.dal.LoreTaskTypeKeys([]string{entryID})
 		if err != nil {
 			internalError(w, err)
 			return
 		}
-		out.CapChars = capChars
-		out.FirstDroppedId = sel.FirstDroppedID
+		key = typeKeys[entryID]
+		if key == "" {
+			writeError(w, http.StatusBadRequest,
+				"lore entry "+entryID+" has no task type to key a manual scope to — its "+
+					"source task (if any) carries no type, and its author is not an "+
+					"outsource member bound to a typed task; choose agent or everyone")
+			return
+		}
 	}
-	writeJSON(w, http.StatusOK, out)
+
+	if _, err := s.dal.SetLoreEntryScope(entryID, kind, key, nowSecs()); err != nil {
+		internalError(w, err)
+		return
+	}
+	e, err := s.dal.GetLoreEntry(entryID)
+	if err != nil {
+		internalError(w, err)
+		return
+	}
+	if e == nil {
+		writeError(w, http.StatusNotFound, "no such lore entry: "+entryID)
+		return
+	}
+	writeJSON(w, http.StatusOK, LoreEntryScopeReceiptDTO{
+		Id:          e.ID,
+		ScopeKind:   e.ScopeKind,
+		ScopeKey:    e.ScopeKey,
+		State:       e.State,
+		EffectiveTs: e.EffectiveTS,
+		UpdatedTs:   e.UpdatedTS,
+	})
 }
 
 // loreFilterValues folds ONE axis's two wire spellings — the repeatable plural
@@ -596,7 +710,11 @@ func loreFilterParamName(singular string, fromPlural bool) string {
 // through here any more: they answer bounded receipts (T-33, owner 2026-09-07),
 // because what a write can tell a caller is what the SERVER decided, and the
 // whole entry is what the caller already had.
-func newLoreEntryDTO(e LoreEntry) LoreEntryDTO {
+//
+// taskTypeKey is the entry's derivable task type (LoreTaskTypeKeys); the two
+// computed fields are always sent, "" / the two-option list included.
+func newLoreEntryDTO(e LoreEntry, taskTypeKey string) LoreEntryDTO {
+	options := loreScopeOptions(taskTypeKey)
 	return LoreEntryDTO{
 		Id:           e.ID,
 		Seq:          e.Seq,
@@ -611,5 +729,7 @@ func newLoreEntryDTO(e LoreEntry) LoreEntryDTO {
 		EffectiveTs:  e.EffectiveTS,
 		CreatedTs:    e.CreatedTS,
 		UpdatedTs:    e.UpdatedTS,
+		TaskTypeKey:  &taskTypeKey,
+		ScopeOptions: &options,
 	}
 }
