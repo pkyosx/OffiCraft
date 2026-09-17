@@ -861,7 +861,7 @@ func TestClearSessionBootTSForStart(t *testing.T) {
 		})
 	})
 
-	t.Run("under a second start before the first receipt, a clobber refusal restores the first start's anchor", func(t *testing.T) {
+	t.Run("under a second start that finds nothing anchored, a clobber refusal leaves the session unanchored", func(t *testing.T) {
 		api, _, d, _ := newAPITestServer(t)
 		infraSeedAnchoredSession(t, api, d, "kip")
 		api.clearSessionBootTSForStart("kip")
@@ -869,7 +869,26 @@ func TestClearSessionBootTSForStart(t *testing.T) {
 		api.clearSessionBootTSForStart("kip")
 		api.restoreRefusedStartAnchor("kip", "start", boolPtr(false), infraClobberReason)
 
-		infraWantSession(t, api, d, "kip", 1700000000, 1700000000, infraSeededGauge())
+		infraWantSession(t, api, d, "kip", 0, 0, map[string]any{
+			"rate_limits": map[string]any{}, "ts": 1700000100.0,
+		})
+	})
+
+	t.Run("under a gauge emptied by a re-exec, the durable anchor and claim are what a clobber refusal restores", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		if err := d.SetMemberSessionBootTS("kip", 1700000000); err != nil {
+			t.Fatalf("SetMemberSessionBootTS: %v", err)
+		}
+		if err := d.SetMemberHandoverNoticedTS("kip", 1700000000); err != nil {
+			t.Fatalf("SetMemberHandoverNoticedTS: %v", err)
+		}
+
+		api.clearSessionBootTSForStart("kip")
+		api.restoreRefusedStartAnchor("kip", "start", boolPtr(false), infraClobberReason)
+
+		infraWantSession(t, api, d, "kip", 1700000000, 1700000000, map[string]any{
+			"boot_ts": 1700000000.0,
+		})
 	})
 
 	t.Run("under no anchored session, a clobber refusal afterwards leaves it unanchored", func(t *testing.T) {
@@ -911,6 +930,26 @@ func TestRestoreRefusedStartAnchor(t *testing.T) {
 			"rate_limits":      map[string]any{},
 			"ts":               reported["ts"],
 		})
+		if api.claimHandoverNotice("kip", api.gauge.Get("kip")) {
+			t.Fatalf("the restored session must not be granted a second notice")
+		}
+	})
+
+	t.Run("under a session never noticed whose reconnect then took the notice, the refusal moves that claim to the original anchor", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		if err := d.SetMemberSessionBootTS("kip", 1700000000); err != nil {
+			t.Fatalf("SetMemberSessionBootTS: %v", err)
+		}
+		api.gauge.Set("kip", infraSeededGauge())
+		api.clearSessionBootTSForStart("kip")
+		api.onFirstConnect("kip")
+		if !api.claimHandoverNotice("kip", api.gauge.Get("kip")) {
+			t.Fatalf("premise: the reconnected session must be granted its notice claim")
+		}
+
+		api.restoreRefusedStartAnchor("kip", "start", boolPtr(false), infraClobberReason)
+
+		infraWantSession(t, api, d, "kip", 1700000000, 1700000000, infraSeededGauge())
 		if api.claimHandoverNotice("kip", api.gauge.Get("kip")) {
 			t.Fatalf("the restored session must not be granted a second notice")
 		}

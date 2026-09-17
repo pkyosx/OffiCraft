@@ -779,6 +779,10 @@ func (s *apiServer) clearSessionBootTS(id string) {
 	s.startClearedAnchorsMu.Lock()
 	delete(s.startClearedAnchors, id)
 	s.startClearedAnchorsMu.Unlock()
+	s.clearSessionState(id)
+}
+
+func (s *apiServer) clearSessionState(id string) {
 	if entry := s.gauge.Get(id); entry != nil {
 		delete(entry, "boot_ts")
 		// Codex compaction count belongs to the old App Server thread. Carrying
@@ -898,26 +902,27 @@ var sessionAnchorGaugeKeys = []string{"compaction_count", "context_pct", "contex
 // clearSessionBootTSForStart is clearSessionBootTS for a START dispatch. The
 // START is only a request: the warden refuses it with session_already_exists
 // when the old session is still alive, and that session must keep its anchor
-// (restoreRefusedStartAnchor). A START that finds nothing anchored (a second
-// START before the first one's receipt) keeps the snapshot already held rather
-// than replacing it with an empty one.
+// (restoreRefusedStartAnchor).
+//
+// A START that finds nothing anchored drops any older snapshot: an earlier
+// START may have been accepted with its receipt lost, and a refusal of this one
+// would then name that new session, which must not inherit the older anchor.
+//
+// The snapshot is stored before the clear's writes so a refusal receipt racing
+// the clear still finds it.
 func (s *apiServer) clearSessionBootTSForStart(id string) {
 	snap, ok := s.currentSessionAnchor(id)
-	if !ok {
-		s.startClearedAnchorsMu.Lock()
-		snap, ok = s.startClearedAnchors[id]
-		s.startClearedAnchorsMu.Unlock()
-	}
-	s.clearSessionBootTS(id)
-	if !ok {
-		return
-	}
 	s.startClearedAnchorsMu.Lock()
-	if s.startClearedAnchors == nil {
-		s.startClearedAnchors = map[string]sessionAnchorSnapshot{}
+	if ok {
+		if s.startClearedAnchors == nil {
+			s.startClearedAnchors = map[string]sessionAnchorSnapshot{}
+		}
+		s.startClearedAnchors[id] = snap
+	} else {
+		delete(s.startClearedAnchors, id)
 	}
-	s.startClearedAnchors[id] = snap
 	s.startClearedAnchorsMu.Unlock()
+	s.clearSessionState(id)
 }
 
 func (s *apiServer) currentSessionAnchor(id string) (sessionAnchorSnapshot, bool) {

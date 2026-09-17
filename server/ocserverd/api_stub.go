@@ -868,9 +868,10 @@ func (s *apiServer) codexCompactionThresholdSetting() int {
 //
 // Both stores are written together and cleared together (clearSessionBootTS;
 // a refused START's restoreRefusedStartAnchor writes both back),
-// so the only drift a bug could produce is a map that has forgotten a claim the
-// column still holds — and that direction is caught by the read below rather
-// than turning into a second notice.
+// so drift comes only from a failed or skipped write. A map that has forgotten
+// a claim the column holds is caught by the read below; a claim the map holds
+// but the column lost (a failed durable write) lasts until the next re-exec,
+// which then re-notifies once.
 func (s *apiServer) claimHandoverNotice(agentID string, record map[string]any) bool {
 	bootTS, ok := gaugeBootTS(record)
 	if !ok || bootTS <= 0 {
