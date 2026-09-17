@@ -2631,9 +2631,12 @@ export interface Api {
    * refetch. */
   bumpLoreEntry(entryId: string): Promise<void>;
   /** Move one entry to another scope (`POST /api/lore/{entry_id}/scope`,
-   * admin only). The server derives the scope key. Resolves to nothing —
-   * `LorePage` refetches. */
-  setLoreEntryScope(entryId: string, scopeKind: LoreScopeKind): Promise<void>;
+   * admin only). The server derives the scope key; the receipt carries it so
+   * `LorePage` can patch the row in place. */
+  setLoreEntryScope(
+    entryId: string,
+    scopeKind: LoreScopeKind,
+  ): Promise<LoreScopeReceipt>;
   // ── Product guide (the 使用說明 nav tab) ──────────────────────────────────
   /** List the product-guide docs (`GET /api/docs`) — the 使用說明 landing
    * (slug + title cards). The same embed Mira reads via get_doc. */
@@ -3160,6 +3163,14 @@ export type LoreEntryState = "active" | "pinned" | "retired";
 
 /** The scopes the server has (`everyone` since T-236). */
 export type LoreScopeKind = "agent" | "manual" | "everyone";
+
+/** What `setLoreEntryScope` decided: where the entry is after the write. */
+export interface LoreScopeReceipt {
+  id: string;
+  scopeKind: LoreEntryView["scopeKind"];
+  scopeKey: string;
+  updatedTs: number;
+}
 
 /** ONE 傳承 entry.
  *

@@ -185,6 +185,7 @@ export const zh = {
     // 動作失敗要看得見(403 也是)——不要靜靜失敗
     actionFailed: "這個動作沒有成功，請稍後再試",
     forbidden: "你沒有權限做這個動作",
+    requeryFailed: "操作已完成，但重新讀取列表失敗，請重新整理頁面",
   },
   notifications: {
     dismiss: "關閉提示",

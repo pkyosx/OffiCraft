@@ -683,12 +683,7 @@ export function LorePage({
   );
 
   // ── mutations. A 403 must READ as a refusal, never as nothing happening ──
-  const runAction = useCallback(async (fn: () => Promise<unknown>) => {
-    setActionError(null);
-    try {
-      await fn();
-      setReloadNonce((n) => n + 1);
-    } catch (e) {
+  const reportActionError = useCallback((e: unknown) => {
       // 置頂/取消置頂 is admin-only and 失效/生效/提到最新 is author-or-admin, so
       // a 403 is a REACHABLE answer here, not a bug — and the server's own
       // sentence says which of the two rules refused. Fall back to our copy
@@ -697,10 +692,65 @@ export function LorePage({
       setActionError(
         reason || (isHttpStatus(e, 403) ? t.lore.forbidden : t.lore.actionFailed)
       );
-    }
     // t.lore is read through the closure; the callback is recreated when the
     // language changes, which is exactly when the fallback copy changes too.
   }, [t.lore.forbidden, t.lore.actionFailed]);
+
+  const runAction = useCallback(
+    async (fn: () => Promise<unknown>) => {
+      setActionError(null);
+      try {
+        await fn();
+        setReloadNonce((n) => n + 1);
+      } catch (e) {
+        reportActionError(e);
+      }
+    },
+    [reportActionError]
+  );
+
+  // Re-asks the loaded window under the current filter and swaps it in without
+  // emptying the list or raising the loading state, so rows stay mounted.
+  const quietRequery = useCallback(async () => {
+    const gen = genRef.current;
+    const limit = Math.max(PAGE, entriesRef.current.length);
+    try {
+      const page = await api.listLoreEntries({ ...optsRef.current, limit, offset: 0 });
+      if (gen !== genRef.current) return;
+      setEntries(page.entries);
+      setCap({ capChars: page.capChars, firstDroppedId: page.firstDroppedId });
+      setExhausted(page.entries.length < limit);
+    } catch (e) {
+      console.warn("LorePage: quiet re-query failed", e);
+      if (gen === genRef.current) setActionError(t.lore.requeryFailed);
+    }
+  }, [t.lore.requeryFailed]);
+
+  // A scope switch patches its row from the receipt instead of reloading the
+  // page (owner: the full reload flashed the list). Under a scope filter the
+  // row may no longer match and the cap line may move, so the loaded window
+  // is re-asked quietly.
+  const setEntryScope = useCallback(
+    async (id: string, kind: LoreScopeKind) => {
+      setActionError(null);
+      try {
+        const r = await api.setLoreEntryScope(id, kind);
+        setEntries((prev) =>
+          prev.map((e) =>
+            e.id === r.id
+              ? { ...e, scopeKind: r.scopeKind, scopeKey: r.scopeKey, updatedTs: r.updatedTs }
+              : e
+          )
+        );
+      } catch (e) {
+        reportActionError(e);
+        return;
+      }
+      const o = optsRef.current;
+      if (o.scopeKinds || o.scopeKeys) await quietRequery();
+    },
+    [reportActionError, quietRequery]
+  );
 
   const setEntryState = useCallback(
     (id: string, next: LoreEntryState) =>
@@ -709,11 +759,6 @@ export function LorePage({
   );
   const bumpEntry = useCallback(
     (id: string) => void runAction(() => api.bumpLoreEntry(id)),
-    [runAction]
-  );
-  const setEntryScope = useCallback(
-    (id: string, kind: LoreScopeKind) =>
-      void runAction(() => api.setLoreEntryScope(id, kind)),
     [runAction]
   );
 

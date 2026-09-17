@@ -101,6 +101,7 @@ import type {
   LoreEntryWrite,
   LoreListOptions,
   LoreScopeKind,
+  LoreScopeReceipt,
 } from "./adapter";
 import type {
   WireMember,
@@ -5181,7 +5182,10 @@ const mockApiImpl = {
     e.updatedTs = e.effectiveTs;
   },
 
-  async setLoreEntryScope(entryId: string, scopeKind: LoreScopeKind): Promise<void> {
+  async setLoreEntryScope(
+    entryId: string,
+    scopeKind: LoreScopeKind
+  ): Promise<LoreScopeReceipt> {
     const e = mockLoreEntries.find((x) => x.id === entryId);
     if (!e) {
       throw mockApiError(
@@ -5210,10 +5214,12 @@ const mockApiImpl = {
     }
     const key =
       scopeKind === "agent" ? e.authorId : scopeKind === "manual" ? e.taskTypeKey : "";
-    if (e.scopeKind === scopeKind && e.scopeKey === key) return;
-    e.scopeKind = scopeKind;
-    e.scopeKey = key;
-    e.updatedTs = Date.now() / 1000;
+    if (e.scopeKind !== scopeKind || e.scopeKey !== key) {
+      e.scopeKind = scopeKind;
+      e.scopeKey = key;
+      e.updatedTs = Date.now() / 1000;
+    }
+    return { id: e.id, scopeKind: e.scopeKind, scopeKey: e.scopeKey, updatedTs: e.updatedTs };
   },
 
   async listDocs(): Promise<DocSummaryView[]> {

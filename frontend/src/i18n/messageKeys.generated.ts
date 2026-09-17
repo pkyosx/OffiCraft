@@ -208,6 +208,7 @@ export const MESSAGE_KEYS: readonly string[] = [
   "lore.messageSend",
   "lore.messageSent",
   "lore.openManualLabel",
+  "lore.requeryFailed",
   "lore.retireReasonLabel",
   "lore.scopeAgentLead",
   "lore.scopeDerivedLead",

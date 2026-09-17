@@ -99,6 +99,7 @@ import type {
   LoreEntryWrite,
   LoreListOptions,
   LoreScopeKind,
+  LoreScopeReceipt,
   DocView,
   RolePatch,
   RoleCreateInput,
@@ -167,6 +168,7 @@ import {
   toThemeWriteReceipt,
   toThemeDeleteResult,
   toLoreEntryPage,
+  toLoreScopeReceipt,
 } from "./mappers";
 import { suggestedRepliesPatchFields } from "./suggestedReplies";
 import { ownerToken, setToken } from "./auth";
@@ -2167,13 +2169,14 @@ export const httpApi: Api = {
   async setLoreEntryScope(
     entryId: string,
     scopeKind: LoreScopeKind,
-  ): Promise<void> {
-    // POST /api/lore/{entry_id}/scope -> LoreEntryScopeReceiptDTO, discarded.
-    unwrap(
-      await client.POST("/api/lore/{entry_id}/scope", {
-        params: { path: { entry_id: entryId } },
-        body: { scope_kind: scopeKind },
-      }),
+  ): Promise<LoreScopeReceipt> {
+    return toLoreScopeReceipt(
+      unwrap(
+        await client.POST("/api/lore/{entry_id}/scope", {
+          params: { path: { entry_id: entryId } },
+          body: { scope_kind: scopeKind },
+        }),
+      ),
     );
   },
 

@@ -209,6 +209,7 @@ var messageKeys = map[string]bool{
 	"lore.messageSend":                                 true,
 	"lore.messageSent":                                 true,
 	"lore.openManualLabel":                             true,
+	"lore.requeryFailed":                               true,
 	"lore.retireReasonLabel":                           true,
 	"lore.scopeAgentLead":                              true,
 	"lore.scopeDerivedLead":                            true,
