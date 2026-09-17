@@ -1108,8 +1108,18 @@ func (s *apiServer) reconcileWorkerLiveness(w OutsourceWorker, now float64) bool
 		// own OK stop receipt lifts it (noteWorkerStopSucceeded); a stop that
 		// fails or never reports leaves it to run out.
 		s.benchWorkerMachine(w.ID, target, now)
+		// A second takeover within one cooldown of a lifted one means the slot
+		// keeps coming back occupied; that bench runs its full course so the
+		// START/STOP pair cannot cycle every tick.
+		if lifted, ok := s.workerTakeoverLiftedAt[w.ID]; ok && now-lifted < workerSpawnCooldownSecs {
+			delete(s.workerTakeoverBench, w.ID)
+			outsourceLog("rescue %s (%s): %s — robust stop → %s, %s benched (repeat takeover, full cooldown)",
+				w.ID, w.Codename, decision.Reason, target, target)
+			break
+		}
 		s.workerTakeoverBench[w.ID] = takeoverBench{
 			Machine: target,
+			At:      now,
 			Until:   s.workerMachineCooldown[workerMachineKey(w.ID, target)],
 		}
 		outsourceLog("rescue %s (%s): %s — robust stop → %s, %s benched until its stop receipt",
@@ -1374,6 +1384,7 @@ func (s *apiServer) stopWorkerSessionOrPark(target, workerID string, now float64
 // mistaken for it.
 type takeoverBench struct {
 	Machine string
+	At      float64 // when the takeover ran
 	Until   float64
 }
 
@@ -1401,6 +1412,7 @@ func (s *apiServer) noteWorkerStopSucceeded(workerID, reporter string) {
 		return
 	}
 	delete(s.workerMachineCooldown, key)
+	s.workerTakeoverLiftedAt[workerID] = tb.At
 	outsourceLog("worker_stop %s: %s confirmed the takeover stop — bench lifted, "+
 		"restart proceeds on the same machine", workerID, reporter)
 }

@@ -3006,8 +3006,6 @@ func wsFSMState(st reconcileState) map[string]any {
 	}
 }
 
-// wsWithReceipt stamps a warden receipt on the fixture worker and answers the
-// re-read row with the placement pin the spawn path needs.
 // wsBenchedReason is the stall the cockpit shows while m-server-self is benched
 // for ow-abc123.
 const wsBenchedReason = "machine_unavailable: machine 'm-server-self' was just benched " +
@@ -3032,6 +3030,8 @@ func wsTakenOver(t *testing.T, api *apiServer, d *DAL) OutsourceWorker {
 	return w
 }
 
+// wsWithReceipt stamps a warden receipt on the fixture worker and answers the
+// re-read row with the placement pin the spawn path needs.
 func wsWithReceipt(t *testing.T, api *apiServer, d *DAL, verb, reason string) OutsourceWorker {
 	t.Helper()
 	if err := d.SetMemberOpReceipt("ow-abc123", verb, nil, "", reason, 400); err != nil {
@@ -3239,6 +3239,7 @@ func TestReconcileWorkerLiveness(t *testing.T) {
 		for _, receipt := range []string{
 			`{"rpc":"stop","member_id":"ow-abc123","ok":true,"reason":"","log":"session=member-ow-abc123: stopped"}`,
 			`{"rpc":"stop","member_id":"ow-abc123","ok":true,"reason":"no_such_session: stop was a no-op","log":"no session"}`,
+			`{"rpc":"worker_stop","worker_id":"ow-abc123","ok":true,"reason":"","log":"session=worker-ow-abc123: stopped"}`,
 		} {
 			api, h, d, _, _ := wsWindDown(t, WorkerStatusActive, DesiredStateOnline, "", 0, 0, 0, false)
 			w := wsTakenOver(t, api, d)
@@ -3259,6 +3260,55 @@ func TestReconcileWorkerLiveness(t *testing.T) {
 			apiWantValue(t, "bench book", any(bench), any(map[string]any{}))
 			apiWantValue(t, "the verbs dispatched", any(wsVerbs(t, api, ServerSelfHost)), any([]any{"start"}))
 		}
+	})
+
+	t.Run("a second takeover within one cooldown of a lifted one keeps its bench through the OK stop receipt, and one after the cooldown is lifted again", func(t *testing.T) {
+		api, h, d, _, _ := wsWindDown(t, WorkerStatusActive, DesiredStateOnline, "", 0, 0, 0, false)
+		w := wsTakenOver(t, api, d)
+		machine := apiTestAgentToken(t, api, ServerSelfHost, "")
+		ok := `{"command_result":{"rpc":"stop","member_id":"ow-abc123","ok":true,"reason":""}}`
+		takeoverAt := func(at float64) OutsourceWorker {
+			t.Helper()
+			status, _ := apiJSON(t, h, "POST", "/api/monitoring/telemetry", machine, ok)
+			apiWantValue(t, "receipt status", any(float64(status)), any(200))
+			api.outsourceMu.Lock()
+			api.reconcileWorkerLiveness(w, at-30)
+			api.outsourceMu.Unlock()
+			apiWantValue(t, "the restart", any(wsVerbs(t, api, ServerSelfHost)), any([]any{"start"}))
+			fresh := wsWithReceipt(t, api, d, "start", "session_already_exists: a live session is holding the slot")
+			api.outsourceMu.Lock()
+			api.lifecycleStates["ow-abc123"] = reconcileState{
+				Phase: reconcilePhaseStarting, LastCommand: reconcileCmdStart,
+				LastCommandAt: at - 30, OfflineSince: 100,
+			}
+			api.reconcileWorkerLiveness(fresh, at)
+			api.outsourceMu.Unlock()
+			apiWantValue(t, "the repeat takeover", any(wsVerbs(t, api, ServerSelfHost)), any([]any{"stop"}))
+			return fresh
+		}
+
+		w = takeoverAt(1060)
+		status, _ := apiJSON(t, h, "POST", "/api/monitoring/telemetry", machine, ok)
+		apiWantValue(t, "receipt status", any(float64(status)), any(200))
+		api.outsourceMu.Lock()
+		bench := wsBenchBook(api)
+		api.reconcileWorkerLiveness(w, 1090)
+		api.outsourceMu.Unlock()
+		apiWantValue(t, "bench book", any(bench), any(map[string]any{"ow-abc123|m-server-self": 1420.0}))
+		apiWantValue(t, "the verbs dispatched", any(wsVerbs(t, api, ServerSelfHost)), any([]any{}))
+
+		api.outsourceMu.Lock()
+		delete(api.workerMachineCooldown, "ow-abc123|m-server-self")
+		api.outsourceMu.Unlock()
+		w = takeoverAt(1500)
+		status, _ = apiJSON(t, h, "POST", "/api/monitoring/telemetry", machine, ok)
+		apiWantValue(t, "receipt status", any(float64(status)), any(200))
+		api.outsourceMu.Lock()
+		bench = wsBenchBook(api)
+		api.reconcileWorkerLiveness(w, 1530)
+		api.outsourceMu.Unlock()
+		apiWantValue(t, "bench book", any(bench), any(map[string]any{}))
+		apiWantValue(t, "the verbs dispatched", any(wsVerbs(t, api, ServerSelfHost)), any([]any{"start"}))
 	})
 
 	t.Run("after a takeover, a failed stop receipt leaves the machine benched and the next pass starts nothing", func(t *testing.T) {

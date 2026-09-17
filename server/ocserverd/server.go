@@ -513,6 +513,7 @@ func newAPIServer(dal *DAL, hub *Hub, keys *keyring, tokenTTL int64, root assetR
 		workerMachinePref:            map[string]string{},
 		workerMachineCooldown:        map[string]float64{},
 		workerTakeoverBench:          map[string]takeoverBench{},
+		workerTakeoverLiftedAt:       map[string]float64{},
 		workerOfflineSince:           map[string]float64{},
 	}
 }

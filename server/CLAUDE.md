@@ -79,7 +79,7 @@
   - `ok=true reason="stopped"` —— 真的殺掉了，**目前不收工，重試會再送一刀**（已知邊界，這一輪不修）。它會自癒：既然真的殺掉了，重送的那一刀打在已死的 session 上，warden 下一輪回的就是 `no_such_session`，於是收工 —— 代價是**最多多一次重送**，不是無限重試，方向也在安全那一側（寧可多殺一次，不要留殘活 session）。要不要收窄是另一個決定。
   - `ok=true reason="no_such_session: …"` —— 唯一收工的一種。
   - `ok=false reason="stop incomplete (…)"` —— **相反**的證據（session 還在），必須繼續重試，絕不可折成收工。
-- zombie takeover 對目標機器下的 bench 也讀同一份 receipt：**目標機器**回的 `ok=true` stop（上面前兩種）解除那一筆 bench（`noteWorkerStopSucceeded`），`ok=false` 或別台回的都不解除。只解除 takeover 自己下的那一筆；之後因其他開機失敗下的 bench 不受影響。`session_already_exists` 的 START 拒絕本身不 bench。
+- zombie takeover 對目標機器下的 bench 也讀同一份 receipt：**目標機器**回的 `ok=true` stop（上面前兩種）解除那一筆 bench（`noteWorkerStopSucceeded`），`ok=false` 或別台回的都不解除。只解除 takeover 自己下的那一筆；之後因其他開機失敗下的 bench 不受影響。同一 worker 在一個冷卻期內再次被 takeover 時，那一次的 bench 不提前解除，以免 START／STOP 每一輪來回。`session_already_exists` 的 START 拒絕本身不 bench。
 
 ## 7. SQLite 與 backup
 

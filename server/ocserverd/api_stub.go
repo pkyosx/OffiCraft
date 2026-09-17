@@ -441,6 +441,10 @@ type apiServer struct {
 	// (noteWorkerStopSucceeded); a bench placed for any other reason is left
 	// to run out. In-memory like its siblings.
 	workerTakeoverBench map[string]takeoverBench
+	// workerTakeoverLiftedAt → worker id → when the last takeover whose bench
+	// was lifted early ran; a repeat takeover inside one cooldown keeps its
+	// bench. In-memory like its siblings.
+	workerTakeoverLiftedAt map[string]float64
 	// workerOfflineSince (T-ed79 #13) → worker id → the ts of the FIRST offline
 	// observation in the current continuous-offline run; absent = last seen
 	// online. It is the de-bounce anchor for the wind-down collect arms, the
