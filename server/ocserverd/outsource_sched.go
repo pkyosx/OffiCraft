@@ -501,8 +501,8 @@ func (s *apiServer) runOutsourceTick(now float64) {
 			s.reconcileWorkerLiveness(w, now)
 		case WorkerStatusActive:
 			// T-32e1: the context-high auto-handover — an ACTIVE worker whose
-			// gauge crosses the HANDOVER band is refocused (kill+respawn) using
-			// the SAME ctxHighConfig the members use.
+			// gauge crosses the HANDOVER band is refocused (stop, then start once
+			// offline) using the SAME ctxHighConfig the members use.
 			// autoHandoverWorker self-guards a stopped worker (its row re-read
 			// returns early on StoppedSince>0), so owner-explicit stop dominates
 			// here too — no separate guard needed (that would only mask the
@@ -510,7 +510,8 @@ func (s *apiServer) runOutsourceTick(now float64) {
 			s.autoHandoverWorker(w, now)
 			// A案 P6: the shared member FSM owns this worker's whole liveness
 			// story — respawn with backoff, zombie-takeover on a clobbered
-			// START, and (T-72dd) the RECYCLE 收口 of a wind-down epoch.
+			// START, and (T-72dd) the RECYCLE 收口 of a wind-down epoch: STOP
+			// while the worker is online, START once it reads offline.
 			//
 			// 🔴 TWO GUARDS WERE REMOVED HERE, and they were the blindfold's
 			// last two straps:

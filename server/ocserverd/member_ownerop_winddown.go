@@ -837,7 +837,7 @@ func (s *apiServer) consumeWorkerRestartAfterStop(w *OutsourceWorker, now float6
 //     (collectWorkerHandover / collectWorkerStop) discard it — their callers
 //     already checked the same anchor a layer up.
 //   - `prior` is the value that was there BEFORE, which is what
-//     collectWorkerHandover rolls the latch back to when the respawn finds no
+//     collectWorkerHandover rolls the latch back to when the stop finds no
 //     kill target and the session is still online. 🔴 IT MUST BE READ BEFORE THE
 //     STAMP, and both lines below are that one fact: `prior` is assigned first
 //     and the returns hand back THAT variable, never a second read of

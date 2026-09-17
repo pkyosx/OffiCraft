@@ -902,9 +902,9 @@ func (s *apiServer) publishOutsourcePresenceEdge(memberID string) {
 // resolves to (the outsource_worker table was folded into member in 00025, so
 // both kinds are the same column and the same sole writer). Callers: the
 // SSE last-disconnect edge (both kinds ride the same /api/events surface) and
-// every worker kill funnel (respawnWorkerNow / stopWorkerNow — refocus, 換
-// model, relocate, stop, auto-handover), so a kill+respawn no longer zeroes
-// the owner-visible spend. POP-AFTER-RESOLVE + pop-before-write keeps it
+// every worker kill funnel (stopWorkerSessionForHandover / stopWorkerNow —
+// refocus, 換 model, relocate, stop, auto-handover), so a handover no longer
+// zeroes the owner-visible spend. POP-AFTER-RESOLVE + pop-before-write keeps it
 // exactly-once AND loss-free: an id that resolves to neither kind leaves the
 // live figure in place (the old member-only fold silently destroyed a
 // worker's cost here). Best-effort — a failed write only logs.

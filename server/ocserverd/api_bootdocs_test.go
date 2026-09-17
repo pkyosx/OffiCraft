@@ -1673,7 +1673,7 @@ func TestHandleGetOffboardApiOffboardGet(t *testing.T) {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
 		apiWantBody(t, data, map[string]any{
-			"size_chars":     1914,
+			"size_chars":     1714,
 			"cap_chars":      15000,
 			"kind":           "offboard",
 			"key":            "global",
@@ -1810,9 +1810,9 @@ func TestHandleResetOffboardApiOffboardResetPost(t *testing.T) {
 			"kind":       "offboard",
 			"key":        "global",
 			"is_default": true,
-			"size_chars": 1914,
+			"size_chars": 1714,
 			"cap_chars":  15000,
-			"sha256":     "d389bda0754c89aeb25e00decb840d243e1b608af9c66c514062b44b23609a1d",
+			"sha256":     "54390a89a67c0d0987672fa4bbac6ef0409566f6dbe56a989814e6fbfe0f4106",
 		})
 		dashboard.wantFrames(map[string]any{
 			"seq":   2,

@@ -545,7 +545,7 @@ func (d *DAL) PutMember(m Member) error {
 // max() in SQL: a read-modify-write in Go loses to whichever caller writes
 // last, and here the loser is money the owner has already been shown. The
 // banking edges are exactly the ones that can overlap — an SSE last-disconnect
-// racing a kill funnel (respawnWorkerNow / stopWorkerNow) on the same actor —
+// racing a kill funnel (stopWorkerSessionForHandover / stopWorkerNow) on the same actor —
 // so `banked_cost + ?` is what makes the fold loss-free rather than merely
 // exactly-once.
 //

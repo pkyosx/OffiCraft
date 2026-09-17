@@ -1792,7 +1792,7 @@ func TestRespawnWorkerForOwnerOp(t *testing.T) {
 		}))
 	})
 
-	t.Run("a worker with nothing to flush is respawned on the spot, and the start goes out now", func(t *testing.T) {
+	t.Run("a worker with nothing to flush and no live session is started by the same call", func(t *testing.T) {
 		api, _, _, _, w := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
 		apiTestListen(t, api, ServerSelfHost)
 		pinned := w
@@ -1920,38 +1920,41 @@ func TestOpenOwnerOpHandover(t *testing.T) {
 	})
 }
 
-func TestRespawnWorkerForOwnerOpNow(t *testing.T) {
-	t.Run("an ACTIVE worker with no kill target still gets its start attempted, so an owner verb never ends in silence", func(t *testing.T) {
+func TestHandOverWorkerNow(t *testing.T) {
+	t.Run("an offline ACTIVE worker with no kill target still gets its start, so an owner verb never ends in silence", func(t *testing.T) {
 		api, h, _, owner, w := wsWorkerSpawnFixture(t, WorkerStatusActive)
 		apiTestListen(t, api, ServerSelfHost)
 		pinned := w
 		pinned.DesiredMachineID = ServerSelfHost
+		pinned.DesiredState = DesiredStateOnline
 
 		api.outsourceMu.Lock()
-		dispatched := api.respawnWorkerForOwnerOpNow(pinned, ownerOpRestart)
+		outcome := api.handOverWorkerNow(pinned, ownerOpRestart)
 		api.outsourceMu.Unlock()
 
-		apiWantValue(t, "dispatched", any(dispatched), any(true))
-		frames := wsDrainWardenFrames(t, api, ServerSelfHost)
-		verbs := []any{}
-		for _, f := range frames {
-			verbs = append(verbs, f["data"].(map[string]any)["rpc"])
-		}
-		apiWantValue(t, "the verbs dispatched", any(verbs), any([]any{"start"}))
+		apiWantValue(t, "outcome", any(wsOutcome(outcome)), any(map[string]any{
+			"dispatched": true, "wound_down": false, "held_down": false,
+			"already_running": false, "pending": false,
+		}))
+		apiWantValue(t, "the verbs dispatched", any(wsVerbs(t, api, ServerSelfHost)), any([]any{"start"}))
 		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
 			"status": "active", "machine": "m-server-self",
 			"last_op": "start", "last_op_ok": nil, "last_op_at": apiAnyNumber,
 		}))
 	})
 
-	t.Run("an ACTIVE worker with no kill target AND nowhere to boot ends with the deferral receipt standing", func(t *testing.T) {
+	t.Run("an ACTIVE worker with no kill target AND nowhere to boot ends with a receipt standing", func(t *testing.T) {
 		api, h, _, owner, w := wsWorkerSpawnFixture(t, WorkerStatusActive)
+		w.DesiredState = DesiredStateOnline
 
 		api.outsourceMu.Lock()
-		dispatched := api.respawnWorkerForOwnerOpNow(w, ownerOpRestart)
+		outcome := api.handOverWorkerNow(w, ownerOpRestart)
 		api.outsourceMu.Unlock()
 
-		apiWantValue(t, "dispatched", any(dispatched), any(false))
+		apiWantValue(t, "outcome", any(wsOutcome(outcome)), any(map[string]any{
+			"dispatched": false, "wound_down": false, "held_down": false,
+			"already_running": false, "pending": true,
+		}))
 		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
 			"status":  "active",
 			"last_op": "start", "last_op_ok": false, "last_op_at": apiAnyNumber,
@@ -1960,10 +1963,26 @@ func TestRespawnWorkerForOwnerOpNow(t *testing.T) {
 				"there is no automatic placement",
 		}))
 	})
+
+	t.Run("a worker whose session is still online is only stopped, and its start waits for it to go offline", func(t *testing.T) {
+		api, _, _, _, w := wsWindDown(t, WorkerStatusActive, DesiredStateOnline, "relocate", 100, 0, 150, true)
+		apiTestListen(t, api, ServerSelfHost)
+
+		api.outsourceMu.Lock()
+		api.workerSpawnTarget["ow-abc123"] = ServerSelfHost
+		outcome := api.handOverWorkerNow(w, ownerOpModel)
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "outcome", any(wsOutcome(outcome)), any(map[string]any{
+			"dispatched": false, "wound_down": true, "held_down": false,
+			"already_running": false, "pending": true,
+		}))
+		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"))
+	})
 }
 
-func TestRespawnWorkerNow(t *testing.T) {
-	t.Run("a live worker's old session is killed and a fresh start dispatched, in that order, onto the pinned machine", func(t *testing.T) {
+func TestStopWorkerSessionForHandover(t *testing.T) {
+	t.Run("a live worker's session is stopped and nothing is started, and the stop is recorded in the shared FSM", func(t *testing.T) {
 		api, h, _, owner, w := wsWorkerSpawnFixture(t, WorkerStatusActive)
 		apiTestListen(t, api, ServerSelfHost)
 		api.gauge.Set("ow-abc123", map[string]any{"boot_ts": 5.0})
@@ -1972,35 +1991,57 @@ func TestRespawnWorkerNow(t *testing.T) {
 
 		api.outsourceMu.Lock()
 		api.workerSpawnTarget["ow-abc123"] = ServerSelfHost
-		api.workerSpawnAt["ow-abc123"] = nowSecs()
-		respawned := api.respawnWorkerNow(pinned, "relocate")
+		api.workerSpawnAt["ow-abc123"] = 4242
+		stopped := api.stopWorkerSessionForHandover(pinned, "relocate", 5000)
+		spawnPace := len(api.workerSpawnAt)
+		armed := api.workerStopLanded["ow-abc123"]
+		st := api.lifecycleState("ow-abc123")
 		api.outsourceMu.Unlock()
 
-		apiWantValue(t, "respawned", any(respawned), any(true))
-		frames := wsDrainWardenFrames(t, api, ServerSelfHost)
-		verbs := []any{}
-		for _, f := range frames {
-			verbs = append(verbs, f["data"].(map[string]any)["rpc"])
-		}
-		apiWantValue(t, "the verbs dispatched", any(verbs), any([]any{"stop", "start"}))
+		apiWantValue(t, "stopped", any(stopped), any(true))
+		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"))
 		apiWantValue(t, "the dead session's boot anchor", any(api.gauge.Get("ow-abc123")), any(map[string]any{}))
+		apiWantValue(t, "the spawn pacing", any(float64(spawnPace)), any(0))
+		apiWantValue(t, "armed kill", any(map[string]any{"target": armed.Target, "at": armed.At}),
+			any(map[string]any{"target": "m-server-self", "at": 5000}))
+		apiWantValue(t, "fsm state", any(map[string]any{
+			"phase": st.Phase, "last_command": st.LastCommand, "last_command_at": st.LastCommandAt,
+		}), any(map[string]any{"phase": "stopping", "last_command": "stop", "last_command_at": 5000}))
 		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
 			"status": "active", "machine": "m-server-self",
 		}))
 	})
 
-	t.Run("an ACTIVE worker with no kill target defers the WHOLE cycle — no kill, no respawn — and leaves the deferral receipt", func(t *testing.T) {
+	t.Run("with spawn memory lost, the stop goes to the machine the live connection claims", func(t *testing.T) {
+		api, _, _, _, w := wsWorkerSpawnFixture(t, WorkerStatusActive)
+		wsOnline(t, api, "ow-abc123", ServerSelfHost)
+		apiTestListen(t, api, ServerSelfHost)
+
+		api.outsourceMu.Lock()
+		stopped := api.stopWorkerSessionForHandover(w, "auto-handover", 5000)
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "stopped", any(stopped), any(true))
+		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"))
+	})
+
+	t.Run("an ACTIVE worker with no kill target defers: nothing is sent, the log says why and the row carries the deferral receipt", func(t *testing.T) {
 		api, h, _, owner, w := wsWorkerSpawnFixture(t, WorkerStatusActive)
 		apiTestListen(t, api, ServerSelfHost)
 		pinned := w
 		pinned.DesiredMachineID = ServerSelfHost
 		dashboard := apiTestListen(t, api, "")
 
-		api.outsourceMu.Lock()
-		respawned := api.respawnWorkerNow(pinned, "relocate")
-		api.outsourceMu.Unlock()
+		var stopped bool
+		logged := captureStderr(t, func() {
+			api.outsourceMu.Lock()
+			stopped = api.stopWorkerSessionForHandover(pinned, "relocate", 5000)
+			api.outsourceMu.Unlock()
+		})
 
-		apiWantValue(t, "respawned", any(respawned), any(false))
+		apiWantValue(t, "stopped", any(stopped), any(false))
+		apiWantValue(t, "deferral logged", any(strings.Contains(logged,
+			"relocate deferred ow-abc123 (Contractor): no kill target (spawn memory empty, sse offline)")), any(true))
 		wsWantWardenFrames(t, api, ServerSelfHost)
 		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
 			"status":  "active",
@@ -2012,37 +2053,31 @@ func TestRespawnWorkerNow(t *testing.T) {
 		dashboard.wantFrames(apiTestWorkerDelta(2, "active", "server"))
 	})
 
-	t.Run("a worker that never claimed a session has nothing to kill, so an empty target only skips the stop", func(t *testing.T) {
+	t.Run("a worker that never claimed a session has nothing to kill, so an empty target sends nothing and still succeeds", func(t *testing.T) {
 		api, _, _, _, w := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
+		apiTestListen(t, api, ServerSelfHost)
+
+		api.outsourceMu.Lock()
+		stopped := api.stopWorkerSessionForHandover(w, "relocate", 5000)
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "stopped", any(stopped), any(true))
+		wsWantWardenFrames(t, api, ServerSelfHost)
+	})
+
+	t.Run("an unreachable kill target parks the kill rather than losing it, and nothing is started anywhere", func(t *testing.T) {
+		api, _, _, _, w := wsWorkerSpawnFixture(t, WorkerStatusActive)
 		apiTestListen(t, api, ServerSelfHost)
 		pinned := w
 		pinned.DesiredMachineID = ServerSelfHost
 
 		api.outsourceMu.Lock()
-		respawned := api.respawnWorkerNow(pinned, "relocate")
-		api.outsourceMu.Unlock()
-
-		apiWantValue(t, "respawned", any(respawned), any(true))
-		frames := wsDrainWardenFrames(t, api, ServerSelfHost)
-		verbs := []any{}
-		for _, f := range frames {
-			verbs = append(verbs, f["data"].(map[string]any)["rpc"])
-		}
-		apiWantValue(t, "the verbs dispatched", any(verbs), any([]any{"start"}))
-	})
-
-	t.Run("an unreachable kill target parks the kill rather than losing it, and the respawn is still attempted", func(t *testing.T) {
-		api, _, _, _, w := wsWorkerSpawnFixture(t, WorkerStatusActive)
-		pinned := w
-		pinned.DesiredMachineID = ServerSelfHost
-
-		api.outsourceMu.Lock()
 		api.workerSpawnTarget["ow-abc123"] = "m-elsewhere"
-		respawned := api.respawnWorkerNow(pinned, "relocate")
+		stopped := api.stopWorkerSessionForHandover(pinned, "relocate", 5000)
 		parked := api.workerStopPending["ow-abc123"]
 		api.outsourceMu.Unlock()
 
-		apiWantValue(t, "respawned", any(respawned), any(true))
+		apiWantValue(t, "stopped", any(stopped), any(true))
 		apiWantValue(t, "parked kill", any(parked), any("m-elsewhere"))
 		wsWantWardenFrames(t, api, ServerSelfHost)
 	})
@@ -2128,17 +2163,17 @@ func wsVerbs(t *testing.T, api *apiServer, machineID string) []any {
 }
 
 func TestCollectWorkerHandover(t *testing.T) {
-	t.Run("the 收口 latches the dump-done marker and then kills and respawns through the worker's single kill funnel", func(t *testing.T) {
+	t.Run("the 收口 latches the dump-done marker and stops the session without starting a replacement", func(t *testing.T) {
 		api, h, _, owner, w := wsWindDown(t, WorkerStatusActive, DesiredStateOnline, "relocate", 100, 0, 0, true)
 		apiTestListen(t, api, ServerSelfHost)
 
 		api.outsourceMu.Lock()
 		api.workerSpawnTarget["ow-abc123"] = ServerSelfHost
-		collected := api.collectWorkerHandover(w, "fsm-recycle", triggerServer)
+		collected := api.collectWorkerHandover(&w, "fsm-recycle", triggerServer, 5000)
 		api.outsourceMu.Unlock()
 
 		apiWantValue(t, "collected", any(collected), any(true))
-		apiWantValue(t, "the verbs dispatched", any(wsVerbs(t, api, ServerSelfHost)), any([]any{"stop", "start"}))
+		apiWantValue(t, "the verbs dispatched", any(wsVerbs(t, api, ServerSelfHost)), any([]any{"stop"}))
 		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
 			"status": "active", "presence": "online", "desired_state": "online",
 			"machine":       "m-server-self",
@@ -2151,7 +2186,7 @@ func TestCollectWorkerHandover(t *testing.T) {
 		apiTestListen(t, api, ServerSelfHost)
 
 		api.outsourceMu.Lock()
-		collected := api.collectWorkerHandover(w, "fsm-recycle", triggerServer)
+		collected := api.collectWorkerHandover(&w, "fsm-recycle", triggerServer, 5000)
 		api.outsourceMu.Unlock()
 
 		apiWantValue(t, "collected", any(collected), any(false))
@@ -2172,7 +2207,7 @@ func TestCollectWorkerHandover(t *testing.T) {
 		apiTestListen(t, api, ServerSelfHost)
 
 		api.outsourceMu.Lock()
-		collected := api.collectWorkerHandover(w, "fsm-recycle", triggerServer)
+		collected := api.collectWorkerHandover(&w, "fsm-recycle", triggerServer, 5000)
 		api.outsourceMu.Unlock()
 
 		apiWantValue(t, "collected", any(collected), any(false))
@@ -2239,7 +2274,7 @@ func TestOpenWorkerHandoverGrace(t *testing.T) {
 		bystander.wantFrames()
 	})
 
-	t.Run("an OFFLINE worker skips the window and is collected as a handover: killed and respawned", func(t *testing.T) {
+	t.Run("an OFFLINE worker skips the window: it is stopped and, already reading offline, started in the same call", func(t *testing.T) {
 		api, _, _, _, w := wsWindDown(t, WorkerStatusActive, DesiredStateOnline, "relocate", 100, 0, 0, false)
 		apiTestListen(t, api, ServerSelfHost)
 
@@ -2887,18 +2922,19 @@ func TestReconcileWorkerLiveness(t *testing.T) {
 		}))
 	})
 
-	t.Run("an online worker whose agent has filed its dump-done is COLLECTED: killed and respawned, and the stop anchor is restored", func(t *testing.T) {
+	t.Run("an online worker whose agent has filed its dump-done is COLLECTED: stopped, nothing started, and the stop anchor recorded", func(t *testing.T) {
 		api, _, _, _, w := wsWindDown(t, WorkerStatusActive, DesiredStateOnline, "relocate", 100, 0, 120, true)
 		apiTestListen(t, api, ServerSelfHost)
 
 		api.outsourceMu.Lock()
 		api.workerSpawnTarget["ow-abc123"] = ServerSelfHost
-		api.reconcileWorkerLiveness(w, 1000)
+		started := api.reconcileWorkerLiveness(w, 1000)
 		state := api.lifecycleStates["ow-abc123"]
 		api.outsourceMu.Unlock()
 
-		apiWantValue(t, "the verbs dispatched", any(wsVerbs(t, api, ServerSelfHost)), any([]any{"stop", "start"}))
-		apiWantValue(t, "the restored stop anchor", any(map[string]any{
+		apiWantValue(t, "started", any(started), any(false))
+		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"))
+		apiWantValue(t, "the stop anchor", any(map[string]any{
 			"last_command": state.LastCommand, "last_command_at": state.LastCommandAt,
 		}), any(map[string]any{"last_command": "stop", "last_command_at": 1000.0}))
 	})

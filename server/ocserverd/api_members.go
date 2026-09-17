@@ -2288,8 +2288,8 @@ func (s *apiServer) HandleReportStoppedApiSelfStoppedPost(w http.ResponseWriter,
 	}
 	if m.Kind == KindOutsource {
 		// Worker 收口 (T-ea82): the first stopped-report of a refocus-marked
-		// worker runs the collect funnel (kill+respawn NOW) — the member
-		// recycle-kill shape, riding the worker's own kill funnel instead of
+		// worker latches stopped_since for the shared FSM to collect — the
+		// member recycle shape, riding the worker's own kill funnel instead of
 		// dispatchRobustStopNow.
 		fresh, stopEffect, werr := s.workerReportStopped(m.ID, requestTrigger(r))
 		if werr != nil {
