@@ -85,9 +85,7 @@ const (
 	// stops on the budget long before this cap.
 	//
 	// 🔴 It replaces a PER-LINE quota of 40. On the measured member (~165 lines)
-	// that read 6,600 rows to fill one budget's worth; this reads at most 500. It is
-	// still ONE query and still a full chat_message scan (sender/recipient carry
-	// no index) — what changed is how many rows come back.
+	// that read 6,600 rows to fill one budget's worth; this reads at most 500.
 	//
 	// A caller whose stream fills this cap always reports the cut through
 	// chat_earlier_omitted.
