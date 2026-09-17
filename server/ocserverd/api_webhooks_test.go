@@ -621,53 +621,101 @@ func TestHandleReceiveWebhookInPost(t *testing.T) {
 			t.Fatalf("close read pool: %v", err)
 		}
 		var probe any
-		if err := d.rdb.QueryRow("SELECT 1").Scan(&probe); err == nil {
+		probeErr := d.rdb.QueryRow("SELECT 1").Scan(&probe)
+		if probeErr == nil {
 			t.Fatal("closed read pool unexpectedly accepted a query")
-		} else {
-			var logs bytes.Buffer
-			oldWriter := log.Writer()
-			oldFlags := log.Flags()
-			oldPrefix := log.Prefix()
-			log.SetOutput(&logs)
-			log.SetFlags(0)
-			log.SetPrefix("")
-			t.Cleanup(func() {
-				log.SetOutput(oldWriter)
-				log.SetFlags(oldFlags)
-				log.SetPrefix(oldPrefix)
-			})
+		}
+		logs := apiCaptureStandardLog(t)
 
-			rec := apiRequest(t, h, http.MethodPost, "/in?t=storage-fault", "", `{"text":"build broke"}`)
-			if rec.Code != http.StatusInternalServerError {
-				t.Fatalf("status = %d, want 500", rec.Code)
-			}
-			wantBody := `{"error":{"code":"internal_error","message":"internal server error"}}`
-			if got := rec.Body.String(); got != wantBody {
-				t.Fatalf("body = %q, want %q", got, wantBody)
-			}
-			if strings.Contains(rec.Body.String(), err.Error()) {
-				t.Fatalf("body leaked storage error %q", err)
-			}
-			if !strings.Contains(logs.String(), err.Error()) {
-				t.Fatalf("server log = %q, want storage error %q", logs.String(), err)
-			}
+		rec := apiRequest(t, h, http.MethodPost, "/in?t=storage-fault", "", `{"text":"build broke"}`)
+		if rec.Code != http.StatusInternalServerError {
+			t.Fatalf("status = %d, want 500", rec.Code)
+		}
+		if got := rec.Header().Get("Content-Type"); got != "application/json" {
+			t.Fatalf("Content-Type = %q, want %q", got, "application/json")
+		}
+		wantBody := `{"error":{"code":"internal_error","message":"internal server error"}}`
+		if got := rec.Body.String(); got != wantBody {
+			t.Fatalf("body = %q, want %q", got, wantBody)
+		}
+		if !strings.Contains(logs.String(), probeErr.Error()) {
+			t.Fatalf("server log = %q, want storage error %q", logs.String(), probeErr)
 		}
 	})
 
-	t.Run("a chat storage fault also returns the same generic 500", func(t *testing.T) {
-		_, h, d, owner := newAPITestServer(t)
+	t.Run("a chat write storage fault returns a generic 500 and records no delivery", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
 		token := apiTestWebhookToken(t, h, owner, "kip", `{"endpoint_id":"alerts","purpose":"CI"}`)
+		dashboard := apiTestListen(t, api, "")
+		recipient := apiTestListen(t, api, "kip")
 		if err := d.wdb.Close(); err != nil {
 			t.Fatalf("close write pool: %v", err)
 		}
+		var probe any
+		probeErr := d.wdb.QueryRow("SELECT 1").Scan(&probe)
+		if probeErr == nil {
+			t.Fatal("closed write pool unexpectedly accepted a query")
+		}
+		logs := apiCaptureStandardLog(t)
 
 		rec := apiRequest(t, h, http.MethodPost, "/in?t="+token, "", `{"text":"build broke"}`)
 		if rec.Code != http.StatusInternalServerError {
 			t.Fatalf("status = %d, want 500", rec.Code)
 		}
+		if got := rec.Header().Get("Content-Type"); got != "application/json" {
+			t.Fatalf("Content-Type = %q, want %q", got, "application/json")
+		}
 		wantBody := `{"error":{"code":"internal_error","message":"internal server error"}}`
 		if got := rec.Body.String(); got != wantBody {
 			t.Fatalf("body = %q, want %q", got, wantBody)
+		}
+		if !strings.Contains(logs.String(), probeErr.Error()) {
+			t.Fatalf("server log = %q, want storage error %q", logs.String(), probeErr)
+		}
+		dashboard.wantFrames()
+		recipient.wantFrames()
+		apiWantNoChatWithKip(t, h, owner)
+		apiWantWebhookRow(t, h, owner, map[string]any{
+			"endpoint_id":        "alerts",
+			"purpose":            "CI",
+			"status":             "enabled",
+			"created_ts":         apiAnyNumber,
+			"token":              token,
+			"platform":           "generic",
+			"has_signing_secret": false,
+			"last_received_ts":   0,
+			"delivered_count":    0,
+			"dropped_count":      0,
+			"last_drop_reason":   "",
+		})
+		apiWantWebhookRequests(t, h, owner, "alerts")
+	})
+
+	t.Run("a recipient lookup storage fault returns a generic 500 and keeps the fault in the server log", func(t *testing.T) {
+		_, h, d, owner := newAPITestServer(t)
+		token := apiTestWebhookToken(t, h, owner, "kip", `{"endpoint_id":"alerts","purpose":"CI"}`)
+		if _, err := d.wdb.Exec(`UPDATE member SET session_boot_ts = ? WHERE id = ?`, "not-a-number", "kip"); err != nil {
+			t.Fatalf("corrupt member read value: %v", err)
+		}
+		_, probeErr := d.GetMember("kip")
+		if probeErr == nil {
+			t.Fatal("malformed member read value unexpectedly scanned successfully")
+		}
+		logs := apiCaptureStandardLog(t)
+
+		rec := apiRequest(t, h, http.MethodPost, "/in?t="+token, "", `{"text":"build broke"}`)
+		if rec.Code != http.StatusInternalServerError {
+			t.Fatalf("status = %d, want 500", rec.Code)
+		}
+		if got := rec.Header().Get("Content-Type"); got != "application/json" {
+			t.Fatalf("Content-Type = %q, want %q", got, "application/json")
+		}
+		wantBody := `{"error":{"code":"internal_error","message":"internal server error"}}`
+		if got := rec.Body.String(); got != wantBody {
+			t.Fatalf("body = %q, want %q", got, wantBody)
+		}
+		if !strings.Contains(logs.String(), probeErr.Error()) {
+			t.Fatalf("server log = %q, want storage error %q", logs.String(), probeErr)
 		}
 	})
 
@@ -1065,6 +1113,23 @@ func TestHandleReceiveWebhookInPost(t *testing.T) {
 			"last_drop_reason":   "oversize",
 		})
 	})
+}
+
+func apiCaptureStandardLog(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	var logs bytes.Buffer
+	oldWriter := log.Writer()
+	oldFlags := log.Flags()
+	oldPrefix := log.Prefix()
+	log.SetOutput(&logs)
+	log.SetFlags(0)
+	log.SetPrefix("")
+	t.Cleanup(func() {
+		log.SetOutput(oldWriter)
+		log.SetFlags(oldFlags)
+		log.SetPrefix(oldPrefix)
+	})
+	return &logs
 }
 
 func apiTestWebhookToken(t *testing.T, h http.Handler, owner, memberID, body string) string {
