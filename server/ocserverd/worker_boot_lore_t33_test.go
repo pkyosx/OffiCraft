@@ -211,75 +211,73 @@ func TestNeitherBootPathCarriesTheOtherScopesLore(t *testing.T) {
 	}
 }
 
-func TestBothBootPathsCarryEveryoneLoreAheadOfTheMembersOwn(t *testing.T) {
-	staffDoc, workerDoc, _ := workerBootLoreFixture(t)
-	for _, doc := range []struct{ name, text, own string }{
-		{"staff", staffDoc, "STAFF-SCOPED-MARKER"},
-		{"outsource", workerDoc, "WORKER-SCOPED-MARKER"},
-	} {
-		everyoneAt := strings.Index(doc.text, "EVERYONE-SCOPED-MARKER")
-		ownAt := strings.Index(doc.text, doc.own)
-		if everyoneAt < 0 {
-			t.Fatalf("the %s boot document does not carry the everyone entry", doc.name)
-		}
-		if everyoneAt > ownAt {
-			t.Fatalf("the %s boot document puts the everyone entry (%d) after the "+
-				"member's own (%d)", doc.name, everyoneAt, ownAt)
-		}
-		if strings.Count(doc.text, loreBlockHeading+"\n") != 1 {
-			t.Fatalf("the %s boot document carries %d 傳承 sections, want one",
-				doc.name, strings.Count(doc.text, loreBlockHeading+"\n"))
-		}
+// loreBlockOf cuts the # 傳承 section out of an assembled boot document, or "".
+func loreBlockOf(doc string) string {
+	start := loreBlockAt(doc)
+	if start < 0 {
+		return ""
 	}
+	rest := doc[start:]
+	if end := strings.Index(rest[len(loreBlockHeading):], "\n\n# "); end >= 0 {
+		return rest[:len(loreBlockHeading)+end]
+	}
+	return strings.TrimRight(rest, "\n")
 }
 
-func TestBootPathsSpendTheMemberCapOnEveryoneLoreFirst(t *testing.T) {
-	s := newWorkerTestServer(t)
-	mira := Member{ID: seedMiraID, Name: "Mira", Kind: KindStaff, RoleKey: defaultBootRole,
-		Runtime: RuntimeClaude, RosterStatus: RosterStatusActive}
-	if err := s.dal.PutMember(mira); err != nil {
-		t.Fatalf("PutMember: %v", err)
-	}
-	const workerID = "ow-t236cap"
-	everyone := seedLore(t, s.dal, LoreScopeEveryone, "", "EVERYONE-FITS", LoreStateActive, 50)
-	s.loreCapCharsRole = loreEntryChars(everyone) + 1
-	seedLore(t, s.dal, LoreScopeAgent, seedMiraID, "MIRA-OWN", LoreStateActive, 100)
-	seedLore(t, s.dal, LoreScopeAgent, workerID, "WORKER-OWN", LoreStateActive, 100)
-
-	staff, err := s.buildBootContext("", &mira)
-	if err != nil || staff == nil {
-		t.Fatalf("buildBootContext: %v", err)
-	}
-	worker, err := s.buildWorkerBootContext(
-		OutsourceWorker{ID: workerID, Codename: "O-9", Runtime: RuntimeClaude}, Task{}, nil)
-	if err != nil {
-		t.Fatalf("buildWorkerBootContext: %v", err)
-	}
-	for _, doc := range []struct{ name, text, own string }{
-		{"staff (mira)", staff.Context, "MIRA-OWN"},
-		{"outsource", worker, "WORKER-OWN"},
-	} {
-		if !strings.Contains(doc.text, "EVERYONE-FITS") {
-			t.Fatalf("the %s boot document lost the everyone entry that fits the cap", doc.name)
+func TestMemberBootDocumentsCarryEveryoneLore(t *testing.T) {
+	t.Run("staff and outsource boots list everyone entries ahead of their own in one section", func(t *testing.T) {
+		staffDoc, workerDoc, _ := workerBootLoreFixture(t)
+		for _, tc := range []struct{ name, doc, want string }{
+			{"staff", staffDoc, "# 傳承\n\n## L-3 EVERYONE-SCOPED-MARKER\n\nbody of EVERYONE-SCOPED-MARKER" +
+				"\n\n## L-1 STAFF-SCOPED-MARKER\n\nbody of STAFF-SCOPED-MARKER"},
+			{"outsource", workerDoc, "# 傳承\n\n## L-3 EVERYONE-SCOPED-MARKER\n\nbody of EVERYONE-SCOPED-MARKER" +
+				"\n\n## L-2 WORKER-SCOPED-MARKER\n\nbody of WORKER-SCOPED-MARKER"},
+		} {
+			if got := loreBlockOf(tc.doc); got != tc.want {
+				t.Fatalf("%s 傳承 section =\n%q\nwant\n%q", tc.name, got, tc.want)
+			}
 		}
-		if strings.Contains(doc.text, doc.own) {
-			t.Fatalf("the %s boot document carries %s although the everyone entry "+
-				"already spent the shared cap", doc.name, doc.own)
-		}
-	}
+	})
 
-	s.loreCapCharsRole = 10000
-	staff, err = s.buildBootContext("", &mira)
-	if err != nil || staff == nil {
-		t.Fatalf("buildBootContext: %v", err)
-	}
-	worker, err = s.buildWorkerBootContext(
-		OutsourceWorker{ID: workerID, Codename: "O-9", Runtime: RuntimeClaude}, Task{}, nil)
-	if err != nil {
-		t.Fatalf("buildWorkerBootContext: %v", err)
-	}
-	if !strings.Contains(staff.Context, "MIRA-OWN") || !strings.Contains(worker, "WORKER-OWN") {
-		t.Fatalf("with room to spare a boot document still lacks its own entry — " +
-			"the truncation above proves nothing")
-	}
+	t.Run("everyone entries spend the shared member cap first, for mira and for an outsource worker", func(t *testing.T) {
+		s := newWorkerTestServer(t)
+		mira := Member{ID: seedMiraID, Name: "Mira", Kind: KindStaff, RoleKey: defaultBootRole,
+			Runtime: RuntimeClaude, RosterStatus: RosterStatusActive}
+		if err := s.dal.PutMember(mira); err != nil {
+			t.Fatalf("PutMember: %v", err)
+		}
+		const workerID = "ow-t236cap"
+		seedLore(t, s.dal, LoreScopeEveryone, "", "EVERYONE-FITS", LoreStateActive, 50)
+		seedLore(t, s.dal, LoreScopeAgent, seedMiraID, "MIRA-OWN", LoreStateActive, 100)
+		seedLore(t, s.dal, LoreScopeAgent, workerID, "WORKER-OWN", LoreStateActive, 100)
+		const everyoneOnly = "# 傳承\n\n## L-1 EVERYONE-FITS\n\nbody of EVERYONE-FITS"
+
+		for _, tc := range []struct {
+			cap                int
+			wantStaff, wantOut string
+		}{
+			// "EVERYONE-FITS" + "body of EVERYONE-FITS" is 34 characters.
+			{35, everyoneOnly, everyoneOnly},
+			{10000,
+				everyoneOnly + "\n\n## L-2 MIRA-OWN\n\nbody of MIRA-OWN",
+				everyoneOnly + "\n\n## L-3 WORKER-OWN\n\nbody of WORKER-OWN"},
+		} {
+			s.loreCapCharsRole = tc.cap
+			staff, err := s.buildBootContext("", &mira)
+			if err != nil || staff == nil {
+				t.Fatalf("buildBootContext: %v", err)
+			}
+			worker, err := s.buildWorkerBootContext(
+				OutsourceWorker{ID: workerID, Codename: "O-9", Runtime: RuntimeClaude}, Task{}, nil)
+			if err != nil {
+				t.Fatalf("buildWorkerBootContext: %v", err)
+			}
+			if got := loreBlockOf(staff.Context); got != tc.wantStaff {
+				t.Fatalf("cap %d: mira's 傳承 section =\n%q\nwant\n%q", tc.cap, got, tc.wantStaff)
+			}
+			if got := loreBlockOf(worker); got != tc.wantOut {
+				t.Fatalf("cap %d: the worker's 傳承 section =\n%q\nwant\n%q", tc.cap, got, tc.wantOut)
+			}
+		}
+	})
 }

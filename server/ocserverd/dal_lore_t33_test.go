@@ -202,18 +202,18 @@ func TestSetStateOnAnUnknownEntryReportsMiss(t *testing.T) {
 	if ok {
 		t.Fatal("BumpLoreEntryEffective reported a hit on an entry that does not exist")
 	}
-	ok, err = d.SetLoreEntryScope("L-999", LoreScopeEveryone, "", 1)
-	if err != nil {
-		t.Fatalf("SetLoreEntryScope: %v", err)
-	}
-	if ok {
-		t.Fatal("SetLoreEntryScope reported a hit on an entry that does not exist")
-	}
 }
 
-func TestSetScopeMovesOnlyWhenTheScopeDiffers(t *testing.T) {
+func TestLoreScopeWriteMovesTheRowOnlyWhenTheScopeDiffers(t *testing.T) {
 	d := newTestDAL(t)
 	e := seedLore(t, d, LoreScopeAgent, "m-1", "one", LoreStateActive, 10)
+
+	t.Run("an unknown entry reports no move", func(t *testing.T) {
+		moved, err := d.SetLoreEntryScope("L-999", LoreScopeEveryone, "", 1)
+		if err != nil || moved {
+			t.Fatalf("moved=%v err=%v, want false and nil", moved, err)
+		}
+	})
 
 	for _, tc := range []struct {
 		kind, key string

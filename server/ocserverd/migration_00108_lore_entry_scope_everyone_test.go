@@ -34,7 +34,7 @@ func insertLoreKind(db *sql.DB, id string, seq int, kind, key string) error {
 	return err
 }
 
-func TestMigration00108AdmitsEveryoneAndKeepsEveryRowAndTheIndex(t *testing.T) {
+func migration00108UpAdmitsEveryoneAndKeepsEveryRowAndTheIndex(t *testing.T) {
 	db := openLoreAt107(t)
 	if err := insertLoreKind(db, "L-9", 9, "everyone", ""); err == nil {
 		t.Fatal("before 00108 the CHECK admitted 'everyone' — nothing below tests the widening")
@@ -116,7 +116,7 @@ func loreMigrationState(t *testing.T, db *sql.DB) (version int64, rows int, rebu
 	return v, rows, rebuildLeft, indexes
 }
 
-func TestMigration00108DownRefusesWhileAnEveryoneRowExistsAndLeavesNothingBehind(t *testing.T) {
+func migration00108DownRefusesWhileAnEveryoneRowExistsThenRestoresTheOldCheck(t *testing.T) {
 	db := openLoreAt107(t)
 	if err := goose.UpTo(db, "migrations", 108); err != nil {
 		t.Fatalf("goose up to 108: %v", err)
@@ -151,4 +151,9 @@ func TestMigration00108DownRefusesWhileAnEveryoneRowExistsAndLeavesNothingBehind
 	if err := insertLoreKind(db, "L-3", 3, "everyone", ""); err == nil {
 		t.Fatal("after the Down the CHECK still admits 'everyone'")
 	}
+}
+
+func TestMigration00108(t *testing.T) {
+	t.Run("up admits everyone and keeps every row and the index", migration00108UpAdmitsEveryoneAndKeepsEveryRowAndTheIndex)
+	t.Run("down refuses and rolls back while an everyone row exists, then succeeds and restores the old check", migration00108DownRefusesWhileAnEveryoneRowExistsThenRestoresTheOldCheck)
 }
