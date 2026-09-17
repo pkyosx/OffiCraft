@@ -316,6 +316,7 @@ func TestRouteReachableBy(t *testing.T) {
 		{name: "a plain agent reaches a public row", principal: principalAgent, minimum: requiresPublic, want: true},
 		{name: "an undeclared floor is refused rather than treated as the ladder's bottom",
 			principal: principalOwner, minimum: principalClass{"superuser"}, want: false},
+		{name: "a blank floor is refused even to the owner", principal: principalOwner, minimum: principalClass{}, want: false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := routeReachableBy(tc.principal, tc.minimum); got != tc.want {

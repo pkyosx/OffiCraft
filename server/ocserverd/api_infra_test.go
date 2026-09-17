@@ -2140,11 +2140,16 @@ func TestToolsVisibleTo(t *testing.T) {
 	t.Run("a descriptor no route row backs is dropped for everyone, the owner included", func(t *testing.T) {
 		ghost := append([]any{map[string]any{"name": "retired_tool"}}, tools...)
 
-		visible := api.toolsVisibleTo(principalOwner, ghost)
-
-		if len(visible) != len(tools) {
-			t.Fatalf("owner sees %d of %d — a catalog entry with no route row is uncallable and must not be advertised",
-				len(visible), len(ghost))
+		for _, principal := range []principalClass{principalMachine, principalAgent, principalAdminAgent, principalOwner} {
+			names := map[string]bool{}
+			for _, raw := range api.toolsVisibleTo(principal, ghost) {
+				name, _ := raw.(map[string]any)["name"].(string)
+				names[name] = true
+			}
+			if names["retired_tool"] || !names["get_version"] {
+				t.Fatalf("%v: retired_tool shown=%v, get_version shown=%v — want the unbacked entry dropped and the rest kept",
+					principal, names["retired_tool"], names["get_version"])
+			}
 		}
 	})
 }
