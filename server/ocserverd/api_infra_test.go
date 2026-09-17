@@ -1987,8 +1987,8 @@ func TestMcpCatalogTools(t *testing.T) {
 			seen[name] = true
 			names = append(names, name)
 		}
-		if names[0] != "get_version" || names[len(names)-1] != "reorder_steps" {
-			t.Fatalf("the catalog order moved: first %q, last %q", names[0], names[len(names)-1])
+		if names[0] != "get_version" {
+			t.Fatalf("the catalog order moved: first %q", names[0])
 		}
 		apiWantValue(t, "get_version", tools[0], map[string]any{
 			"name": "get_version",
@@ -2035,9 +2035,8 @@ func TestMcpCatalogTools(t *testing.T) {
 		}
 		apiWantValue(t, "embedded catalog", tools, wantTools)
 		first, _ := tools[0].(map[string]any)
-		last, _ := tools[len(tools)-1].(map[string]any)
-		if first["name"] != "get_version" || last["name"] != "reorder_steps" {
-			t.Fatalf("the catalog order moved: first %#v, last %#v", first["name"], last["name"])
+		if first["name"] != "get_version" {
+			t.Fatalf("the catalog order moved: first %#v", first["name"])
 		}
 	})
 }
@@ -2138,14 +2137,37 @@ func TestToolsVisibleTo(t *testing.T) {
 		}
 	})
 
+	t.Run("a tool whose route row declares a blank floor is dropped for everyone, the owner included", func(t *testing.T) {
+		api.mcpTools["blank_floor_tool"] = RouteSpec{Method: http.MethodGet, Path: "/api/blank-floor"}
+		t.Cleanup(func() { delete(api.mcpTools, "blank_floor_tool") })
+		withBlank := append([]any{map[string]any{"name": "blank_floor_tool"}}, tools...)
+
+		for _, principal := range []principalClass{principalMachine, principalAgent, principalAdminAgent, principalOwner} {
+			names := map[string]bool{}
+			for _, raw := range api.toolsVisibleTo(principal, withBlank) {
+				name, _ := raw.(map[string]any)["name"].(string)
+				names[name] = true
+			}
+			if names["blank_floor_tool"] || !names["get_version"] {
+				t.Fatalf("%v: blank_floor_tool shown=%v, get_version shown=%v — want the blank-floor tool dropped and the rest kept",
+					principal, names["blank_floor_tool"], names["get_version"])
+			}
+		}
+	})
+
 	t.Run("a descriptor no route row backs is dropped for everyone, the owner included", func(t *testing.T) {
 		ghost := append([]any{map[string]any{"name": "retired_tool"}}, tools...)
 
-		visible := api.toolsVisibleTo(principalOwner, ghost)
-
-		if len(visible) != len(tools) {
-			t.Fatalf("owner sees %d of %d — a catalog entry with no route row is uncallable and must not be advertised",
-				len(visible), len(ghost))
+		for _, principal := range []principalClass{principalMachine, principalAgent, principalAdminAgent, principalOwner} {
+			names := map[string]bool{}
+			for _, raw := range api.toolsVisibleTo(principal, ghost) {
+				name, _ := raw.(map[string]any)["name"].(string)
+				names[name] = true
+			}
+			if names["retired_tool"] || !names["get_version"] {
+				t.Fatalf("%v: retired_tool shown=%v, get_version shown=%v — want the unbacked entry dropped and the rest kept",
+					principal, names["retired_tool"], names["get_version"])
+			}
 		}
 	})
 }

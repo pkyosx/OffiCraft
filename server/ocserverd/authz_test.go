@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -272,14 +273,16 @@ func TestRequirePrincipalClass(t *testing.T) {
 		})
 	}
 
-	t.Run("unknown minimum panics before serving", func(t *testing.T) {
-		defer func() {
-			if recover() == nil {
-				t.Fatal("requirePrincipalClass did not panic for an unknown class")
-			}
-		}()
-		requirePrincipalClass(principalClass{name: "unknown"}, lookup, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
-	})
+	for _, minimum := range []principalClass{{name: "unknown"}, {}} {
+		t.Run("minimum "+strconv.Quote(minimum.String())+" panics before serving", func(t *testing.T) {
+			defer func() {
+				if recover() == nil {
+					t.Fatalf("requirePrincipalClass did not panic for class %q", minimum)
+				}
+			}()
+			requirePrincipalClass(minimum, lookup, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+		})
+	}
 }
 
 func TestPrincipalAtLeast(t *testing.T) {
@@ -316,6 +319,7 @@ func TestRouteReachableBy(t *testing.T) {
 		{name: "a plain agent reaches a public row", principal: principalAgent, minimum: requiresPublic, want: true},
 		{name: "an undeclared floor is refused rather than treated as the ladder's bottom",
 			principal: principalOwner, minimum: principalClass{"superuser"}, want: false},
+		{name: "a blank floor is refused even to the owner", principal: principalOwner, minimum: principalClass{}, want: false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := routeReachableBy(tc.principal, tc.minimum); got != tc.want {
