@@ -484,7 +484,7 @@ func (d *DAL) AllTaskDeps() (map[string][]string, error) {
 }
 
 // ListTasksBlockedBy returns the tasks that name blockerID in their blocked_by
-// list — the REVERSE of ListTaskDeps, and the query behind the T-74f8 handover
+// list — the REVERSE of ListTaskDeps, and the query behind the T-74f8 dependency
 // half B: when a blocker reaches a terminal status, closeTask walks its
 // dependents to release + wake them. Deterministic order (task id).
 func (d *DAL) ListTasksBlockedBy(blockerID string) ([]Task, error) {
