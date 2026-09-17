@@ -874,6 +874,39 @@ func TestClearSessionBootTSForStart(t *testing.T) {
 		})
 	})
 
+	t.Run("under a clobber refusal arriving while the start's clear is still writing, the refusal waits and restores the anchor", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		infraSeedAnchoredSession(t, api, d, "kip")
+		api.ctxGateDiagMu.Lock()
+		started := make(chan struct{})
+		go func() {
+			defer close(started)
+			api.clearSessionBootTSForStart("kip")
+		}()
+		deadline := time.Now().Add(5 * time.Second)
+		for api.gauge.Get("kip")["boot_ts"] != nil {
+			if time.Now().After(deadline) {
+				api.ctxGateDiagMu.Unlock()
+				t.Fatalf("premise: the start's clear never reached its gauge write")
+			}
+			time.Sleep(time.Millisecond)
+		}
+		refused := make(chan struct{})
+		go func() {
+			defer close(refused)
+			api.restoreRefusedStartAnchor("kip", "start", boolPtr(false), infraClobberReason)
+		}()
+		select {
+		case <-refused:
+		case <-time.After(200 * time.Millisecond):
+		}
+		api.ctxGateDiagMu.Unlock()
+		<-started
+		<-refused
+
+		infraWantSession(t, api, d, "kip", 1700000000, 1700000000, infraSeededGauge())
+	})
+
 	t.Run("under a gauge emptied by a re-exec, the durable anchor and claim are what a clobber refusal restores", func(t *testing.T) {
 		api, _, d, _ := newAPITestServer(t)
 		if err := d.SetMemberSessionBootTS("kip", 1700000000); err != nil {

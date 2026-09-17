@@ -237,9 +237,14 @@ type apiServer struct {
 	handoverNoticedMu sync.Mutex
 	// startClearedAnchors holds, per actor id, the session state a START
 	// dispatch cleared (clearSessionBootTSForStart), until that START's receipt
-	// says whether a new session really began. Guarded by
-	// startClearedAnchorsMu, its own mutex for the reason handoverNoticedMu is.
-	startClearedAnchors   map[string]sessionAnchorSnapshot
+	// says whether a new session really began.
+	startClearedAnchors map[string]sessionAnchorSnapshot
+	// startClearedAnchorsMu guards the map above AND is held for the whole of
+	// clearSessionBootTS, clearSessionBootTSForStart and
+	// restoreRefusedStartAnchor, so a refusal receipt can never interleave with
+	// a boundary's writes. Their callers may hold outsourceMu or reconcileMu;
+	// under this lock only leaf locks are taken (gauge, handoverNoticedMu,
+	// ctxGateDiagMu) plus DAL calls, none of which take either of those.
 	startClearedAnchorsMu sync.Mutex
 	// ctxGateDiagAt records, per actor id, WHEN stampContextHighRecycle last
 	// emitted its gate diagnostic for that actor AND WHICH gate it named — the

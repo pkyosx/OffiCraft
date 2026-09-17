@@ -777,8 +777,8 @@ func (s *apiServer) stampLandedMachine(memberID, machineID string) {
 // clearSessionBootTSForStart.
 func (s *apiServer) clearSessionBootTS(id string) {
 	s.startClearedAnchorsMu.Lock()
+	defer s.startClearedAnchorsMu.Unlock()
 	delete(s.startClearedAnchors, id)
-	s.startClearedAnchorsMu.Unlock()
 	s.clearSessionState(id)
 }
 
@@ -907,12 +907,10 @@ var sessionAnchorGaugeKeys = []string{"compaction_count", "context_pct", "contex
 // A START that finds nothing anchored drops any older snapshot: an earlier
 // START may have been accepted with its receipt lost, and a refusal of this one
 // would then name that new session, which must not inherit the older anchor.
-//
-// The snapshot is stored before the clear's writes so a refusal receipt racing
-// the clear still finds it.
 func (s *apiServer) clearSessionBootTSForStart(id string) {
-	snap, ok := s.currentSessionAnchor(id)
 	s.startClearedAnchorsMu.Lock()
+	defer s.startClearedAnchorsMu.Unlock()
+	snap, ok := s.currentSessionAnchor(id)
 	if ok {
 		if s.startClearedAnchors == nil {
 			s.startClearedAnchors = map[string]sessionAnchorSnapshot{}
@@ -921,7 +919,6 @@ func (s *apiServer) clearSessionBootTSForStart(id string) {
 	} else {
 		delete(s.startClearedAnchors, id)
 	}
-	s.startClearedAnchorsMu.Unlock()
 	s.clearSessionState(id)
 }
 
@@ -961,9 +958,9 @@ func (s *apiServer) restoreRefusedStartAnchor(id, rpc string, ok *bool, reason s
 		return
 	}
 	s.startClearedAnchorsMu.Lock()
+	defer s.startClearedAnchorsMu.Unlock()
 	snap, had := s.startClearedAnchors[id]
 	delete(s.startClearedAnchors, id)
-	s.startClearedAnchorsMu.Unlock()
 	if !had || ok == nil || *ok || !strings.HasPrefix(reason, spawnClobberReasonPrefix) {
 		return
 	}
