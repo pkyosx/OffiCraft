@@ -7,8 +7,9 @@ package main
 // U. There is no UpdateLoreEntry and no method anywhere in this file that can
 // write `title` or `body` on a row that already exists: an entry is written once
 // and is thereafter a fixed piece of text. What moves is `state`,
-// `retire_reason` and `effective_ts`, and each of those has its own narrow
-// method saying so in its name. A generic updater would make the no-edit rule a
+// `retire_reason`, `effective_ts` and — since T-236, admin-only — the
+// `scope_kind`/`scope_key` pair, and each of those has its own narrow method
+// saying so in its name. A generic updater would make the no-edit rule a
 // convention that every future call site has to remember, instead of an absence
 // that will not compile.
 
@@ -24,7 +25,8 @@ import (
 type LoreEntry struct {
 	ID  string // "L-" + Seq
 	Seq int
-	// ⚠️ TWO KINDS ARE WRITABLE; A THIRD IS STILL READABLE. The Go vocabulary is
+	// ⚠️ TWO KINDS ARE WRITABLE BY A WRITE, A THIRD (everyone) ONLY BY
+	// SetLoreEntryScope, AND A FOURTH IS STILL READABLE. The write vocabulary is
 	// LoreScopeAgent | LoreScopeManual — owner collapsed the old trio on
 	// 2026-09-07 (card rc-a43100fd0486 [0]) and there is no longer a
 	// LoreScopeRole constant to name. But this field is a plain string scanned
@@ -33,10 +35,10 @@ type LoreEntry struct {
 	// value outside the two constants can and does come back out of the DB. Do
 	// not "narrow" this to a validated enum on the read path: that would turn
 	// the orphans 00100 chose to preserve into rows that fail to load.
-	ScopeKind string // LoreScopeAgent | LoreScopeManual (+ legacy 'role' orphans)
+	ScopeKind string // LoreScopeAgent | LoreScopeManual | LoreScopeEveryone (+ legacy 'role' orphans)
 	// The MEMBER's own id for 'agent' — every member-scoped entry, staff and
 	// outsource alike, since the collapse. Task-manual type_key for 'manual'.
-	// A legacy 'role' orphan still carries a role_key here.
+	// "" for 'everyone'. A legacy 'role' orphan still carries a role_key here.
 	ScopeKey string
 	Title    string
 	Body     string
@@ -333,4 +335,80 @@ func (d *DAL) BumpLoreEntryEffective(id string, ts float64) (bool, error) {
 	}
 	n, err := res.RowsAffected()
 	return n > 0, err
+}
+
+// SetLoreEntryScope moves one entry to (scopeKind, scopeKey) and stamps
+// updated_ts. It reports whether the row changed: an unknown id and a move to
+// the scope the entry already has both answer false, and the second leaves
+// updated_ts alone — the caller has already read the row, so it tells the two
+// apart itself.
+//
+// 🔴 It cannot touch title, body, state or effective_ts. See the file header.
+func (d *DAL) SetLoreEntryScope(id, scopeKind, scopeKey string, updatedTS float64) (bool, error) {
+	res, err := d.wdb.Exec(
+		`UPDATE lore_entry SET scope_kind = ?, scope_key = ?, updated_ts = ?
+		 WHERE id = ? AND NOT (scope_kind = ? AND scope_key = ?)`,
+		scopeKind, scopeKey, updatedTS, id, scopeKind, scopeKey)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
+}
+
+// loreScopeFacts is what the scope move needs to know about one entry beyond
+// its own row.
+type loreScopeFacts struct {
+	// TaskTypeKey is the type a 'manual' scope would key to, "" for none.
+	TaskTypeKey string
+	// AuthorOnRoster is whether author_id names a member row at all (any
+	// roster_status). The owner and legacy '' authors have none, so an
+	// 'agent' scope keyed to them would ride no boot document.
+	AuthorOnRoster bool
+}
+
+// LoreScopeFacts answers loreScopeFacts for each of the given entry ids. It is
+// the ONE definition of the derivation — set_lore_entry_scope and the list face
+// both read it — and it is one query for a whole page.
+//
+// The task-type rule (T-236, owner): an entry WITH a source task takes that
+// task's type and nothing else, so an untyped (臨時) source task gives "".
+// Only an entry with NO source task, written by an outsource member, falls
+// back to the task that member is bound to. The member row is read whatever
+// its roster_status, because a released worker keeps its linked_task_id and is
+// still the author.
+//
+// Ids with no row are absent from the map.
+func (d *DAL) LoreScopeFacts(ids []string) (map[string]loreScopeFacts, error) {
+	out := make(map[string]loreScopeFacts, len(ids))
+	if len(ids) == 0 {
+		return out, nil
+	}
+	clause, args := loreInClause("l.id", ids)
+	rows, err := d.rdb.Query(`
+		SELECT l.id,
+			CASE
+				WHEN l.source_task_id != '' THEN COALESCE(TRIM(src.type_key), '')
+				WHEN m.kind = ? THEN COALESCE(TRIM(bound.type_key), '')
+				ELSE ''
+			END,
+			m.id IS NOT NULL
+		FROM lore_entry l
+		LEFT JOIN task src ON src.id = l.source_task_id
+		LEFT JOIN member m ON m.id = l.author_id
+		LEFT JOIN task bound ON bound.id = m.linked_task_id
+		WHERE 1=1`+clause, append([]any{KindOutsource}, args...)...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close() //nolint:errcheck
+	for rows.Next() {
+		var id string
+		var f loreScopeFacts
+		if err := rows.Scan(&id, &f.TaskTypeKey, &f.AuthorOnRoster); err != nil {
+			return nil, err
+		}
+		out[id] = f
+	}
+	return out, rows.Err()
 }

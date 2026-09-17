@@ -1185,8 +1185,9 @@ export interface ServerSettingsView {
    * chat message body keep their own 4,000-character server constant. Default
    * and range in `stepNoteCap.ts` (mirroring server/ocserverd/domain.go). */
   stepNoteCapChars: number;
-  /** T-33: the four 傳承 knobs. The first two are FOLD budgets — how much 傳承 a
-   * staff boot document carries for one role, and how much `get_task_manual`
+  /** T-33: the four 傳承 knobs. The first two are FOLD budgets — how much 傳承
+   * one member's boot document carries (its `everyone` entries first, then its
+   * own, T-236), and how much `get_task_manual`
    * appends after a type's SOP. They are never summed: different readers
    * pay them at different moments. The last two bound ONE entry's title and
    * body at write time.
@@ -2629,6 +2630,10 @@ export interface Api {
    * what makes this reversible. Resolves to nothing — same receipt, same
    * refetch. */
   bumpLoreEntry(entryId: string): Promise<void>;
+  /** Move one entry to another scope (`POST /api/lore/{entry_id}/scope`,
+   * admin only). The server derives the scope key. Resolves to nothing —
+   * `LorePage` refetches. */
+  setLoreEntryScope(entryId: string, scopeKind: LoreScopeKind): Promise<void>;
   // ── Product guide (the 使用說明 nav tab) ──────────────────────────────────
   /** List the product-guide docs (`GET /api/docs`) — the 使用說明 landing
    * (slug + title cards). The same embed Mira reads via get_doc. */
@@ -3153,12 +3158,16 @@ export interface Api {
 /** The three mutually exclusive states one entry can be in. */
 export type LoreEntryState = "active" | "pinned" | "retired";
 
+/** The scopes the server has (`everyone` since T-236). */
+export type LoreScopeKind = "agent" | "manual" | "everyone";
+
 /** ONE 傳承 entry.
  *
  * 🔴 `title` and `body` ARE NEVER EDITABLE. No route changes them, so what is
  * read here is what was written. The mutable surface is `state`,
- * `retireReason` and `effectiveTs` — which is why the cockpit offers 失效 /
- * 生效 / 置頂 / 提到最新 and no edit affordance at all.
+ * `retireReason`, `effectiveTs` and — admin-only, T-236 — `scopeKind` /
+ * `scopeKey`, which is why the cockpit offers 失效 / 生效 / 置頂 / 提到最新
+ * and the owner's 適用範圍 menu, and no edit affordance at all.
  *
  * `effectiveTs` vs `createdTs`: `createdTs` is when it was written and never
  * moves; `effectiveTs` starts equal to it and is what 提到最新 sets to now. The
@@ -3172,8 +3181,8 @@ export type LoreEntryState = "active" | "pinned" | "retired";
 export interface LoreEntryView {
   id: string;
   seq: number;
-  /** 🔴 THREE VALUES, AND THE THIRD IS NOT A SCOPE. "agent" | "manual" are the
-   * two scopes the server has; "unknown" is what this cockpit calls a scope it
+  /** 🔴 "unknown" IS NOT A SCOPE. "agent" | "manual" | "everyone" are the
+   * scopes the server has; "unknown" is what this cockpit calls a scope it
    * cannot name. It exists so that an unrecognised kind can be carried WITHOUT
    * being renamed into one of the real ones — see `toLoreEntry`. Nothing may be
    * requested as "unknown" (`LoreListOptions.scopeKind` deliberately omits it),
@@ -3189,8 +3198,12 @@ export interface LoreEntryView {
    * `role` onto `agent`: that would file an entry whose owner was explicitly
    * undetermined under a specific member, which is the exact guess the migration
    * refused to make. */
-  scopeKind: "agent" | "manual" | "unknown";
+  scopeKind: LoreScopeKind | "unknown";
   scopeKey: string;
+  /** The type_key a `manual` scope for this entry would key to, or "". */
+  taskTypeKey: string;
+  /** The scope kinds this entry may be switched to, in display order. */
+  scopeOptions: LoreScopeKind[];
   title: string;
   body: string;
   authorId: string;
@@ -3206,11 +3219,11 @@ export interface LoreEntryView {
  * parameter — see `Api.listLoreEntries` for why none of them may become a
  * client-side filter. */
 export interface LoreListOptions {
-  /** The two scopes that can be ASKED for. "unknown" is absent on purpose: it
+  /** The scopes that can be ASKED for. "unknown" is absent on purpose: it
    * is a reading of an answer, not a question anyone can pose. `role` is absent
    * because the server now REFUSES it with a 400 — sending it would turn a page
    * into an error rather than narrowing it. */
-  scopeKind?: "agent" | "manual";
+  scopeKind?: LoreScopeKind;
   scopeKey?: string;
   state?: LoreEntryState;
   authorId?: string;
@@ -3233,10 +3246,11 @@ export interface LoreListOptions {
    * 🔴 `scopeKinds` / `scopeKeys` ALSO DECIDE WHETHER THERE IS A 上限線 AT ALL.
    * `capChars`/`firstDroppedId` come back non-empty only when the effective
    * scope_kind set holds EXACTLY ONE value and the effective scope_key set holds
-   * exactly one — a budget belongs to a scope, and two scopes have two different
+   * exactly one (or the kind is `everyone` alone with no key, since its key is
+   * "") — a budget belongs to a scope, and two scopes have two different
    * budgets with no single line between them. Tick two 範圍 and the page gets
    * 0 / "", which is the same honest answer an unfiltered page gets. */
-  scopeKinds?: ("agent" | "manual")[];
+  scopeKinds?: LoreScopeKind[];
   scopeKeys?: string[];
   states?: LoreEntryState[];
   authorIds?: string[];
@@ -3247,8 +3261,8 @@ export interface LoreListOptions {
 /** One page, plus where the 上限線 falls.
  *
  * 🔴 `firstDroppedId` IS NOT DERIVABLE HERE AND MUST NOT BE RECOMPUTED. The
- * server answers it from the same selector both folds run, over the WHOLE
- * scope; this page is cut by `limit`/`offset` long before the budget is spent,
+ * server answers it from the same selection the folds run, over the WHOLE
+ * scope (for a member scope that includes the `everyone` entries ahead of it); this page is cut by `limit`/`offset` long before the budget is spent,
  * so adding up the visible rows would draw the line in the wrong place on every
  * page but the first — and a line in the wrong place looks exactly like a line
  * in the right place.

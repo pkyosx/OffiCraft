@@ -16,6 +16,7 @@ package main
 
 import (
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -25,14 +26,21 @@ import (
 // order that the real query would produce and check the stop rule on its own.
 //
 // 🔴 It does NOT sort. If it sorted, this file would be testing the fake.
+//
+// byScope, when set, answers per "kind/key" instead, so a member selection's
+// two scopes hold different entries.
 type fakeLoreLister struct {
 	entries []LoreEntry
+	byScope map[string][]LoreEntry
 	err     error
 	calls   int
 }
 
 func (f *fakeLoreLister) ListLoreEntriesLive(scopeKind, scopeKey string) ([]LoreEntry, error) {
 	f.calls++
+	if f.byScope != nil {
+		return f.byScope[scopeKind+"/"+scopeKey], f.err
+	}
 	return f.entries, f.err
 }
 
@@ -254,5 +262,94 @@ func TestRenderLoreBlockNamesEveryEntry(t *testing.T) {
 	}
 	if strings.Index(block, "L-7") > strings.Index(block, "L-9") {
 		t.Fatalf("rendered block reordered the selection:\n%s", block)
+	}
+}
+
+func loreFixtureOf(id, kind string, chars int) LoreEntry {
+	e := loreFixture(id, LoreStateActive, chars)
+	e.ScopeKind = kind
+	return e
+}
+
+func TestSelectMemberLore(t *testing.T) {
+	e1 := loreFixtureOf("L-1", LoreScopeEveryone, 50)
+	e2 := loreFixtureOf("L-2", LoreScopeEveryone, 50)
+	a3 := loreFixtureOf("L-3", LoreScopeAgent, 30)
+	a4 := loreFixtureOf("L-4", LoreScopeAgent, 5)
+	other := loreFixtureOf("L-9", LoreScopeAgent, 5)
+	lister := func() *fakeLoreLister {
+		return &fakeLoreLister{byScope: map[string][]LoreEntry{
+			"everyone/": {e1, e2},
+			"agent/m-1": {a3, a4},
+			"agent/m-2": {other},
+		}}
+	}
+
+	for _, tc := range []struct {
+		name   string
+		member string
+		cap    int
+		want   loreSelection
+	}{
+		{"everything fits: everyone entries come first, then the member's own, and no other member's",
+			"m-1", 1000, loreSelection{
+				Entries: []LoreEntry{e1, e2, a3, a4}, UsedChars: 135, CapChars: 1000,
+				FirstDroppedByKind: map[string]string{},
+			}},
+		{"one budget across both groups: the member's first entry past the cap and all after it are dropped",
+			"m-1", 110, loreSelection{
+				Entries: []LoreEntry{e1, e2}, UsedChars: 100, CapChars: 110,
+				FirstDroppedID:     "L-3",
+				FirstDroppedByKind: map[string]string{LoreScopeAgent: "L-3"},
+			}},
+		{"a cap that stops inside everyone drops every own entry even if one would fit",
+			"m-1", 60, loreSelection{
+				Entries: []LoreEntry{e1}, UsedChars: 50, CapChars: 60,
+				FirstDroppedID:     "L-2",
+				FirstDroppedByKind: map[string]string{LoreScopeEveryone: "L-2", LoreScopeAgent: "L-3"},
+			}},
+		{"no member selects nothing",
+			"", 1000, loreSelection{
+				Entries: []LoreEntry{}, CapChars: 1000,
+				FirstDroppedByKind: map[string]string{},
+			}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := selectMemberLore(lister(), tc.member, tc.cap)
+			if err != nil {
+				t.Fatalf("select: %v", err)
+			}
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("selection =\n%+v\nwant\n%+v", got, tc.want)
+			}
+		})
+	}
+
+	t.Run("a failing read is returned as the error", func(t *testing.T) {
+		boom := errors.New("database is closed")
+		if _, err := selectMemberLore(&fakeLoreLister{err: boom}, "m-1", 100); !errors.Is(err, boom) {
+			t.Fatalf("err = %v, want the lister's own error", err)
+		}
+	})
+}
+
+func TestSelectLoreForScopeWithAnEmptyKeySelectsOnlyEveryone(t *testing.T) {
+	entry := loreFixtureOf("L-1", LoreScopeEveryone, 1)
+	for _, tc := range []struct {
+		kind string
+		want loreSelection
+	}{
+		{LoreScopeEveryone, loreSelection{Entries: []LoreEntry{entry}, UsedChars: 1, CapChars: 100,
+			FirstDroppedByKind: map[string]string{}}},
+		{LoreScopeAgent, loreSelection{Entries: []LoreEntry{}, CapChars: 100,
+			FirstDroppedByKind: map[string]string{}}},
+	} {
+		got, err := selectLoreForScope(&fakeLoreLister{entries: []LoreEntry{entry}}, tc.kind, "", 100)
+		if err != nil {
+			t.Fatalf("select %s: %v", tc.kind, err)
+		}
+		if !reflect.DeepEqual(got, tc.want) {
+			t.Fatalf("%s with an empty key =\n%+v\nwant\n%+v", tc.kind, got, tc.want)
+		}
 	}
 }

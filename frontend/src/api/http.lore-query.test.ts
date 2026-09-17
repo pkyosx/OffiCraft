@@ -115,3 +115,73 @@ describe("httpApi.listLoreEntries · the multi-select sets go on the wire (T-33)
     expect(u.searchParams.getAll("states")).toEqual(["pinned", "retired"]);
   });
 });
+
+describe("httpApi.setLoreEntryScope", () => {
+  it("a scope switch posts only the target kind to the entry's scope route and resolves to nothing", async () => {
+    fetchMock.mockImplementation(async () =>
+      jsonResponse({
+        id: "L-7",
+        scope_kind: "everyone",
+        scope_key: "",
+        state: "active",
+        effective_ts: 1788400000,
+        updated_ts: 1788500000,
+      }),
+    );
+
+    const result = await httpApi.setLoreEntryScope("L-7", "everyone");
+
+    const calls = fetchMock.mock.calls as unknown as [Request][];
+    expect(calls).toHaveLength(1);
+    const req = calls[0][0];
+    const url = new URL(req.url);
+    expect({
+      method: req.method,
+      path: url.pathname,
+      search: url.search,
+      contentType: req.headers.get("Content-Type"),
+      body: await req.text(),
+    }).toEqual({
+      method: "POST",
+      path: "/api/lore/L-7/scope",
+      search: "",
+      contentType: "application/json",
+      body: '{"scope_kind":"everyone"}',
+    });
+    expect(result).toBeUndefined();
+  });
+
+  it("a refused scope switch rejects with the server's status, code and reason", async () => {
+    fetchMock.mockImplementation(async () =>
+      jsonResponse(
+        {
+          error: {
+            code: "forbidden",
+            message: "admin only",
+          },
+        },
+        403,
+      ),
+    );
+
+    const err = await httpApi.setLoreEntryScope("L-7", "manual").then(
+      () => null,
+      (e: Record<string, unknown>) => e,
+    );
+    expect({
+      name: err?.name,
+      message: err?.message,
+      status: err?.status,
+      code: err?.code,
+      serverMessage: err?.serverMessage,
+      retryAfter: err?.retryAfter,
+    }).toEqual({
+      name: "ApiError",
+      message: "http 403 for POST /api/lore/L-7/scope",
+      status: 403,
+      code: "forbidden",
+      serverMessage: "admin only",
+      retryAfter: null,
+    });
+  });
+});

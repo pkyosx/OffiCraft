@@ -2056,6 +2056,32 @@ def _check_lore_list(_ctx: HCtx, r: httpx.Response) -> None:
     assert d["first_dropped_id"] == "", d
 
 
+def _check_lore_scope_moved(ctx: HCtx, r: httpx.Response) -> None:
+    # LoreEntryScopeReceiptDTO (T-236). The entry was written by the scratch
+    # agent with no task, so `everyone` keys to "" and nothing else moved.
+    d = r.json()
+    assert set(d) == {
+        "id", "scope_kind", "scope_key", "state", "effective_ts", "updated_ts"
+    }, d
+    assert d["scope_kind"] == "everyone" and d["scope_key"] == "", d
+    assert d["state"] == "active", d
+    assert d["updated_ts"] >= d["effective_ts"] > 0, d
+    # Read the row back: a receipt that says `everyone` over an unmoved row is
+    # the failure a receipt-only check cannot see.
+    g = ctx.client.get(
+        "/api/lore",
+        params={"entry_id": d["id"]},
+        headers=_auth(ctx.owner_token),
+    )
+    assert g.status_code == 200, (g.status_code, g.text)
+    (row,) = g.json()["entries"]
+    assert row["scope_kind"] == "everyone" and row["scope_key"] == "", row
+    assert row["title"] == _HAPPY_LORE_TITLE, row
+    # Written by the scratch agent (a roster row) with no task: no manual option.
+    assert row["task_type_key"] == "", row
+    assert row["scope_options"] == ["agent", "everyone"], row
+
+
 HAPPY: dict[str, Happy] = {
     # ── public ───────────────────────────────────────────────────────────────
     "GET /api/health": Happy(identity="none"),
@@ -3485,6 +3511,11 @@ HAPPY: dict[str, Happy] = {
         identity="agent",
         path=lambda ctx: f"/api/lore/{_happy_lore_entry(ctx)}/bump",
         check=_check_lore_bumped,
+    ),
+    "POST /api/lore/{entry_id}/scope": Happy(
+        path=lambda ctx: f"/api/lore/{_happy_lore_entry(ctx)}/scope",
+        body={"scope_kind": "everyone"},
+        check=_check_lore_scope_moved,
     ),
     "GET /api/docs/{slug}": Happy(
         path="/api/docs/why",

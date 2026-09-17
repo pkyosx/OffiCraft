@@ -118,8 +118,9 @@ const (
 //  3. the persona — staff read 角色說明 → 判準 → 長期筆記 → 角色傳承 here (the 判準
 //     block is itself skipped when that role's insight folds blank). A worker has
 //     no role, so it reads none of that. What it DOES read here, and the only
-//     thing, is its OWN 傳承 — the entries it wrote under LoreScopeAgent in
-//     earlier lives, keyed by its member id.
+//     thing, is the 傳承 block: the everyone scope first, then its OWN entries —
+//     the ones it wrote under LoreScopeAgent in earlier lives, keyed by its
+//     member id — under one budget (T-236).
 //  4. 啟動步驟   — the boot-sequence seed for the worker's OWN runtime, which
 //     carries that runtime's 執行環境 section. Recency-authoritative, LAST.
 //
@@ -186,12 +187,14 @@ func (s *apiServer) buildWorkerBootContext(w OutsourceWorker, t Task, manual *Ta
 	// assets.go used it; owner removed it on 2026-09-07 (card rc-a43100fd0486
 	// [0]) and the staff exit moved ONTO this shape. So this is no longer "the
 	// outsource special case" — it is the one member-scoped fold, and assets.go
-	// now calls selectLoreForScope with the same scope and the same knob.
+	// calls selectMemberLore with the same member scope and the same knob. That
+	// selection also carries the everyone scope first, under the same budget
+	// (T-236).
 	//
-	// 🔴 THE SELECTION IS NOT MADE HERE. selectLoreForScope (lore_select.go) is
-	// the one implementation of that rule; the staff exit in assets.go and the
-	// manual exit in api_taskmanuals.go call the same function with a different
-	// scope. Writing a second selection here is what the ticket's first hard
+	// 🔴 THE SELECTION IS NOT MADE HERE. lore_select.go holds the one
+	// implementation of that rule; the staff exit in assets.go calls the same
+	// function and the manual exit in api_taskmanuals.go the same walker with a
+	// different scope. Writing a second selection here is what the ticket's first hard
 	// condition forbids, and the way it would show up is one member's entry
 	// appearing in one exit and not the other, with no error anywhere.
 	//
@@ -203,7 +206,7 @@ func (s *apiServer) buildWorkerBootContext(w OutsourceWorker, t Task, manual *Ta
 	var b strings.Builder
 	b.WriteString(head)
 	b.WriteString("\n\n")
-	loreSel, err := selectLoreForScope(s.dal, LoreScopeAgent, w.ID, s.loreRoleCap())
+	loreSel, err := selectMemberLore(s.dal, w.ID, s.loreRoleCap())
 	if err != nil {
 		return "", err
 	}

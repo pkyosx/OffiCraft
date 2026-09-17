@@ -304,6 +304,10 @@ func TestCapLineAnswersForOneScopeAndGoesQuietForSeveral(t *testing.T) {
 		{"two of each", HandleListLoreEntriesApiLoreGetParams{
 			ScopeKinds: strsp(LoreScopeAgent, LoreScopeManual),
 			ScopeKeys:  strsp(me, "tm-multi")}},
+		{"everyone and agent", HandleListLoreEntriesApiLoreGetParams{
+			ScopeKinds: strsp(LoreScopeEveryone, LoreScopeAgent)}},
+		{"everyone with a key", HandleListLoreEntriesApiLoreGetParams{
+			ScopeKinds: strsp(LoreScopeEveryone), ScopeKeys: strsp(me)}},
 	} {
 		page := listLoreRaw(t, s, me, tc.params)
 		if page.Code != http.StatusOK {
@@ -319,6 +323,58 @@ func TestCapLineAnswersForOneScopeAndGoesQuietForSeveral(t *testing.T) {
 				"report and no honest place to draw a line", tc.name,
 				out.CapChars, out.FirstDroppedId)
 		}
+	}
+
+	// ── DIRECTION 3: everyone (所有人) is filtered WITHOUT a key, answers the
+	// member cap, and — walked ahead of every member's own entries under that
+	// same cap — moves the agent line above. ───────────────────────────────────
+	s.loreCapCharsManual = 9000
+	h, err := buildHandler(specsFor(s), s.keys, s.dal.GetMember, s.authPasswordChangedAt)
+	if err != nil {
+		t.Fatalf("buildHandler: %v", err)
+	}
+	token := apiTestAgentToken(t, s, me, "")
+	var everyoneRows []any
+	var oldest string
+	for i, ti := range []string{"壬一一", "壬二二", "壬三三", "壬四四", "壬五五"} {
+		e, err := s.dal.CreateLoreEntryMintingID(LoreEntry{
+			ScopeKind: LoreScopeEveryone, ScopeKey: "", Title: ti, Body: "內容",
+			AuthorID: me, State: LoreStateActive,
+			EffectiveTS: float64(200 + i), CreatedTS: float64(200 + i), UpdatedTS: float64(200 + i),
+		})
+		if err != nil {
+			t.Fatalf("seed everyone %s: %v", ti, err)
+		}
+		if i == 0 {
+			oldest = e.ID
+		}
+		everyoneRows = append([]any{map[string]any{
+			"id": e.ID, "seq": e.Seq, "scope_kind": "everyone", "scope_key": "",
+			"title": ti, "body": "內容", "author_id": me, "source_task_id": "",
+			"state": "active", "retire_reason": "", "effective_ts": 200 + i,
+			"created_ts": 200 + i, "updated_ts": 200 + i, "task_type_key": "",
+			"scope_options": []any{"agent", "everyone"},
+		}}, everyoneRows...)
+	}
+	status, data := apiJSON(t, h, "GET", "/api/lore?scope_kinds=everyone", token, "")
+	if status != http.StatusOK {
+		t.Fatalf("everyone page: %d %v", status, data)
+	}
+	apiWantBody(t, data, map[string]any{
+		"entries": everyoneRows, "limit": 30, "offset": 0,
+		"cap_chars": 20, "first_dropped_id": oldest,
+	})
+
+	status, data = apiJSON(t, h, "GET",
+		"/api/lore?scope_kinds=agent&scope_keys="+me, token, "")
+	if status != http.StatusOK {
+		t.Fatalf("agent page: %d %v", status, data)
+	}
+	if data["cap_chars"] != float64(20) || data["first_dropped_id"] != one.Entries[0].Id {
+		t.Fatalf("agent page after four everyone entries fill the 20-character member "+
+			"cap: cap_chars=%v first_dropped_id=%v, want 20 and %s, the member's own "+
+			"newest entry",
+			data["cap_chars"], data["first_dropped_id"], one.Entries[0].Id)
 	}
 }
 

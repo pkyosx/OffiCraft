@@ -296,8 +296,49 @@ def _rendered(text: str, join: str = "\n\n") -> str:
     return head + join + body if sep else text
 
 
+def _lore_scope_rows(client, owner_token, kind: str, key: str) -> tuple[list[dict], int]:
+    """Every entry of ONE scope, plus the `cap_chars` the list answered for it."""
+    params: dict = {"scope_kind": kind}
+    if key:
+        params["scope_key"] = key
+    entries: list[dict] = []
+    cap_chars = 0
+    limit, offset = 200, 0
+    while True:
+        r = client.get(
+            "/api/lore",
+            params={**params, "limit": limit, "offset": offset},
+            headers=_auth(owner_token),
+        )
+        assert r.status_code == 200, r.text
+        page = r.json()
+        # cap_chars is the `lore_cap_chars_role` SETTING in force, answered only
+        # because the filter converged on ONE scope. It is a number, not a
+        # decision: the walk that spends it is written out below.
+        #
+        # ⚠️ THE SETTING KEY STILL SAYS `role` AND THE SCOPE IS `agent`. The knob
+        # was not renamed when the scopes collapsed — renaming a live settings
+        # key is the owner's call — so the name is stale and the meaning is what
+        # this comment says: it is the budget every member-scoped fold spends.
+        cap_chars = page["cap_chars"]
+        entries += page["entries"]
+        if len(page["entries"]) < limit:
+            break
+        offset += limit
+    return entries, cap_chars
+
+
+def _fold_order(entries: list[dict]) -> list[dict]:
+    live = [e for e in entries if e["state"] != "retired"]
+    live.sort(key=lambda e: (0 if e["state"] == "pinned" else 1,
+                             -e["effective_ts"], -e["seq"]))
+    return live
+
+
 def _expected_lore_block(client, owner_token, member_id: str) -> str:
-    """Rebuild the 傳承 block (T-33) the staff fold appends after the persona.
+    """Rebuild the 傳承 block (T-33) the staff fold appends after the persona:
+    the `everyone` (所有人) entries first, then the member's own `agent` entries,
+    walked as ONE sequence against ONE budget (T-236, selectMemberLore).
 
     🔴 KEYED BY THE MEMBER, NOT BY THE ROLE, AND THE EMPTY-STRING CASE IS THE
     ONE TO READ CAREFULLY. The owner collapsed the 傳承 scopes to two on
@@ -336,7 +377,7 @@ def _expected_lore_block(client, owner_token, member_id: str) -> str:
       * selection order: pinned group first, — ListLoreEntriesLive's ORDER BY,
         then effective_ts DESC, seq DESC       server/ocserverd/dal_lore.go:168-178
       * retired entries are excluded          — same WHERE clause, dal_lore.go:171
-      * cap walk: accumulate title+body in    — selectLoreForScope,
+      * cap walk: accumulate title+body in    — selectLoreEntries,
         CHARACTERS (code points, never          lore_select.go:66-68 and 107-115
         bytes) and STOP at the first entry
         that does not fit — no skipping,
@@ -352,39 +393,11 @@ def _expected_lore_block(client, owner_token, member_id: str) -> str:
     this function does not lean on that: it drops `retired` itself and re-sorts
     with the fold's key.
     """
-    entries: list[dict] = []
-    cap_chars = 0
-    limit, offset = 200, 0
-    while True:
-        r = client.get(
-            "/api/lore",
-            params={
-                "scope_kind": "agent",
-                "scope_key": member_id,
-                "limit": limit,
-                "offset": offset,
-            },
-            headers=_auth(owner_token),
-        )
-        assert r.status_code == 200, r.text
-        page = r.json()
-        # cap_chars is the `lore_cap_chars_role` SETTING in force, answered only
-        # because the filter converged on ONE scope. It is a number, not a
-        # decision: the walk that spends it is written out below.
-        #
-        # ⚠️ THE SETTING KEY STILL SAYS `role` AND THE SCOPE IS `agent`. The knob
-        # was not renamed when the scopes collapsed — renaming a live settings
-        # key is the owner's call — so the name is stale and the meaning is what
-        # this comment says: it is the budget every member-scoped fold spends.
-        cap_chars = page["cap_chars"]
-        entries += page["entries"]
-        if len(page["entries"]) < limit:
-            break
-        offset += limit
-
-    live = [e for e in entries if e["state"] != "retired"]
-    live.sort(key=lambda e: (0 if e["state"] == "pinned" else 1,
-                             -e["effective_ts"], -e["seq"]))
+    if not member_id:
+        return ""
+    everyone, _ = _lore_scope_rows(client, owner_token, "everyone", "")
+    own, cap_chars = _lore_scope_rows(client, owner_token, "agent", member_id)
+    live = _fold_order(everyone) + _fold_order(own)
 
     chosen: list[dict] = []
     used = 0

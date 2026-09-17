@@ -100,6 +100,7 @@ import type {
   LoreEntryState,
   LoreEntryWrite,
   LoreListOptions,
+  LoreScopeKind,
 } from "./adapter";
 import type {
   WireMember,
@@ -1021,13 +1022,18 @@ function withManualSizes(m: StoredTaskManual): TaskManualView {
  * because it could not determine which member it belonged to. The wire still
  * sends those, `toLoreEntry` maps them to "unknown", and the page must render
  * them — so the fixture carries one. Without it the "unknown" arm has no
- * fixture at all and could be deleted with the whole suite staying green. */
+ * fixture at all and could be deleted with the whole suite staying green.
+ *
+ * L-7 is an `everyone` (所有人) row (T-236). L-4 / L-5 / L-2 are the three
+ * scope-menu cases: task-bound, outsource without a task, staff without one. */
 const mockLoreEntries: LoreEntryView[] = [
   {
     id: "L-1",
     seq: 1,
     scopeKind: "agent",
     scopeKey: "mira",
+    taskTypeKey: "",
+    scopeOptions: ["agent", "everyone"],
     title: "成功回應不代表資料完整",
     // 🔴 THE ONLY SEEDED BODY THAT IS MARKDOWN, AND IT IS SEEDED ON PURPOSE.
     // 傳承本體是 markdown 算繪的（T-33），而在這一筆之前六筆種子沒有任何一筆
@@ -1054,6 +1060,8 @@ const mockLoreEntries: LoreEntryView[] = [
     seq: 2,
     scopeKind: "agent",
     scopeKey: "mira",
+    taskTypeKey: "",
+    scopeOptions: ["agent", "everyone"],
     title: "零命中的預設解讀是查法寫錯了",
     body: "掃描回空的時候先跑一次陽性對照，確認量具本身還會命中，再去解釋那個零。",
     authorId: "mira",
@@ -1069,6 +1077,8 @@ const mockLoreEntries: LoreEntryView[] = [
     seq: 3,
     scopeKind: "agent",
     scopeKey: "mira",
+    taskTypeKey: "",
+    scopeOptions: ["agent", "everyone"],
     title: "退出碼要落檔再讀",
     body: "cmd 後面接 echo 的話，回報的退出碼是那一行 echo 的，紅的會跑成綠的。",
     authorId: "m-gone",
@@ -1084,6 +1094,8 @@ const mockLoreEntries: LoreEntryView[] = [
     seq: 4,
     scopeKind: "manual",
     scopeKey: "tm-mock",
+    taskTypeKey: "tm-mock",
+    scopeOptions: ["manual", "agent", "everyone"],
     title: "手冊傳承不進任何人的開機檔",
     body: "這一類條目只在讀那本手冊的時候拿得到，正職與外包一視同仁。",
     authorId: "mira",
@@ -1100,12 +1112,16 @@ const mockLoreEntries: LoreEntryView[] = [
   // worker: member lore is written by the member it loads into. Two distinct
   // member keys under ONE scope kind is what gives the 屬於 filter something to
   // discriminate with — with only one member on file, a filter that ignored the
-  // key entirely would look identical to one that honoured it.
+  // key entirely would look identical to one that honoured it. It has no source
+  // task, yet its taskTypeKey is set: the server derives it from the task the
+  // outsource author is bound to.
   {
     id: "L-5",
     seq: 5,
     scopeKind: "agent",
     scopeKey: "ow-7d8ad859dd9b",
+    taskTypeKey: "tm-mock",
+    scopeOptions: ["manual", "agent", "everyone"],
     title: "交接路徑要寫絕對路徑",
     body: "留給下一個人的路徑一律寫絕對路徑——對方在別的工作目錄下撲空，得到的訊息跟那一輪根本沒跑一模一樣。",
     authorId: "ow-7d8ad859dd9b",
@@ -1128,6 +1144,8 @@ const mockLoreEntries: LoreEntryView[] = [
     seq: 6,
     scopeKind: "unknown",
     scopeKey: "r-legacy-orphan",
+    taskTypeKey: "",
+    scopeOptions: ["agent", "everyone"],
     title: "留下來的孤兒不是壞掉的資料",
     body: "這一筆原本掛在一個角色底下，而那個角色現在沒有唯一一位在職成員，所以搬遷沒有動它。它讀得到、改得動，等有人決定它屬於誰。",
     authorId: "m-gone",
@@ -1137,6 +1155,23 @@ const mockLoreEntries: LoreEntryView[] = [
     effectiveTs: 1788440000,
     createdTs: 1788440000,
     updatedTs: 1788440000,
+  },
+  {
+    id: "L-7",
+    seq: 7,
+    scopeKind: "everyone",
+    scopeKey: "",
+    taskTypeKey: "",
+    scopeOptions: ["agent", "everyone"],
+    title: "回報前先讀一次自己寫的東西",
+    body: "送出前從頭讀一遍：錯字、漏掉的編號、貼錯的路徑，都是讀的人要多花一輪來回的地方。",
+    authorId: "mira",
+    sourceTaskId: "",
+    state: "active",
+    retireReason: "",
+    effectiveTs: 1788470000,
+    createdTs: 1788470000,
+    updatedTs: 1788470000,
   },
 ];
 
@@ -5026,7 +5061,8 @@ const mockApiImpl = {
     // unfiltered page gets.
     let capChars = 0;
     let firstDroppedId = "";
-    if (kinds.length === 1 && keys.length === 1) {
+    const everyoneOnly = kinds.length === 1 && kinds[0] === "everyone" && keys.length === 0;
+    if ((kinds.length === 1 && keys.length === 1) || everyoneOnly) {
       const scopeKind = kinds[0];
       // 🔴 TWO KINDS, TWO KNOBS, AND THE MEMBER KNOB STILL CARRIES THE OLD
       // NAME. `lore.cap_chars.role` is the budget every member-scoped fold
@@ -5042,17 +5078,28 @@ const mockApiImpl = {
       capChars =
         scopeKind === "manual"
           ? mockServerSettings.lore_cap_chars_manual
-          : scopeKind === "agent"
+          : scopeKind === "agent" || scopeKind === "everyone"
             ? mockServerSettings.lore_cap_chars_role
             : 0;
+      // A member's boot spends one budget on everyone entries first, then its
+      // own (server selectMemberLore), so an agent line starts after them.
+      const everyoneFirst =
+        scopeKind === "agent"
+          ? mockLoreEntries.filter((x) => x.scopeKind === "everyone").sort(mockLoreOrder)
+          : [];
       let used = 0;
-      for (const e of ordered.filter((x) => x.state !== "retired")) {
+      let stopped = false;
+      for (const e of [...everyoneFirst, ...ordered].filter((x) => x.state !== "retired")) {
         const cost = [...e.title].length + [...e.body].length;
-        if (used + cost > capChars) {
+        if (!stopped && used + cost <= capChars) {
+          used += cost;
+          continue;
+        }
+        stopped = true;
+        if (e.scopeKind === scopeKind) {
           firstDroppedId = e.id;
           break;
         }
-        used += cost;
       }
     }
 
@@ -5083,6 +5130,10 @@ const mockApiImpl = {
       // which is exactly the difference this line used to get wrong.
       scopeKind: entry.taskId ? "manual" : "agent",
       scopeKey: entry.taskId ? "tm-mock" : "mira",
+      taskTypeKey: entry.taskId ? "tm-mock" : "",
+      scopeOptions: entry.taskId
+        ? ["manual", "agent", "everyone"]
+        : ["agent", "everyone"],
       title: entry.title,
       body: entry.body,
       authorId: "mira",
@@ -5128,6 +5179,41 @@ const mockApiImpl = {
     // createdTs is NOT touched — that is what makes a bump reversible.
     e.effectiveTs = Date.now() / 1000;
     e.updatedTs = e.effectiveTs;
+  },
+
+  async setLoreEntryScope(entryId: string, scopeKind: LoreScopeKind): Promise<void> {
+    const e = mockLoreEntries.find((x) => x.id === entryId);
+    if (!e) {
+      throw mockApiError(
+        `http 404 for POST /api/lore/${entryId}/scope`,
+        404,
+        `no such lore entry: ${entryId}`
+      );
+    }
+    if (scopeKind === "manual" && e.taskTypeKey === "") {
+      throw mockApiError(
+        `http 400 for POST /api/lore/${entryId}/scope`,
+        400,
+        `lore entry ${entryId} has no task type to key a manual scope to — its ` +
+          "source task carries no type, or it has no source task and its author " +
+          "is not an outsource member bound to a typed task"
+      );
+    }
+    if (scopeKind === "agent" && !e.scopeOptions.includes("agent")) {
+      throw mockApiError(
+        `http 400 for POST /api/lore/${entryId}/scope`,
+        400,
+        `lore entry ${entryId} has no author on the roster (author_id ` +
+          `${JSON.stringify(e.authorId)}), so an agent scope would ride no boot ` +
+          "document; choose everyone or, if it has a task type, manual"
+      );
+    }
+    const key =
+      scopeKind === "agent" ? e.authorId : scopeKind === "manual" ? e.taskTypeKey : "";
+    if (e.scopeKind === scopeKind && e.scopeKey === key) return;
+    e.scopeKind = scopeKind;
+    e.scopeKey = key;
+    e.updatedTs = Date.now() / 1000;
   },
 
   async listDocs(): Promise<DocSummaryView[]> {

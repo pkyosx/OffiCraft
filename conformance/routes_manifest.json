@@ -1237,5 +1237,12 @@
     "method": "POST",
     "path": "/api/tasks/{task_id}/steps/reorder",
     "requires": "agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "set_lore_entry_scope",
+    "method": "POST",
+    "path": "/api/lore/{entry_id}/scope",
+    "requires": "admin_agent"
   }
 ]

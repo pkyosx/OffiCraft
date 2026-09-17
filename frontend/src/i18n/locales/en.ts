@@ -139,6 +139,12 @@ export const en: Dict = {
     // alike.
     scopeKindAgent: "Member lore",
     scopeKindManual: "Task lore",
+    scopeMenuLabel: "Scope",
+    scopeManualLead: "Task: ",
+    scopeAgentLead: "Author: ",
+    scopeEveryone: "Everyone",
+    scopeTagDefault: "Default",
+    scopeTagCurrent: "Current",
     // The remaining fragments of the named cap line.
     capLineSep: " · ",
     capLineMid: " cap ",
@@ -154,7 +160,9 @@ export const en: Dict = {
     // `capChars` when the request carries exactly one scope kind and exactly one
     // scope key. While members appeared only under 撰寫人, nothing on this page
     // could ask for a member's 上限線 at all. This field sends
-    // scope_kinds=[agent] + scope_keys=[<member id>], which is that route.
+    // scope_kinds=[agent] + scope_keys=[<member id>], which is that route; its
+    // 所有人 option (T-236) sends scope_kinds=[everyone] with no key, which the
+    // server also answers with a line.
     // It shares those two wire axes with the task field, so ticking one of each
     // sends two kinds and two keys and the server answers 0 — no line. That is
     // the honest answer, not a defect.

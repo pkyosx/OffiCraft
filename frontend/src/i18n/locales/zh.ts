@@ -132,6 +132,13 @@ export const zh = {
     // 每個人的傳承都掛在自己的成員 id 上，正職與外包一視同仁。
     scopeKindAgent: "成員傳承",
     scopeKindManual: "任務傳承",
+    // 適用範圍徽章與選單（T-236）
+    scopeMenuLabel: "適用範圍",
+    scopeManualLead: "任務：",
+    scopeAgentLead: "建立者：",
+    scopeEveryone: "所有人",
+    scopeTagDefault: "預設",
+    scopeTagCurrent: "目前",
     // 具名上限線的其餘片段
     capLineSep: " · ",
     capLineMid: " 上限 ",
@@ -148,7 +155,8 @@ export const zh = {
     // authorIds，那不會產生 scope；伺服器只在請求剛好一個 scope kind ＋ 剛好
     // 一個 scope key 時才回 capChars，所以在只有「撰寫人」的那個版本裡，成員
     // 傳承的上限線沒有任何路徑叫得出來。成員傳承這一格送的是
-    // scope_kinds=[agent] ＋ scope_keys=[成員 id]，上限線才回得來。
+    // scope_kinds=[agent] ＋ scope_keys=[成員 id]，上限線才回得來；這一格的
+    // 「所有人」（T-236）送 scope_kinds=[everyone]、不帶 key，伺服器同樣回上限線。
     // 它跟任務傳承那一格共用同兩條線上欄位，所以兩格各勾一個時會送出兩個 kind
     // ／兩個 key，伺服器照規則回 0——不畫線，這是誠實，不是缺陷。
     //

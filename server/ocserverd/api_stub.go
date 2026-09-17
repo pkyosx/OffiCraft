@@ -690,7 +690,8 @@ func (s *apiServer) taskEventCap() int {
 // 2026-09-07, rc-a43100fd0486 [0]) there is no role scope for it to be the
 // budget OF; it is what every member-scoped fold spends — the staff exit in
 // assets.go and the outsource exit in worker_spawn.go, which now ask for the
-// same scope. The function and its setting key keep the old name because
+// same scope — and, since T-236, the everyone scope both of them carry ahead of
+// the member's own entries inside this same budget. The function and its setting key keep the old name because
 // renaming a live settings key is the owner's call, not this ticket's.
 //
 // 🔴 THE TWO ARE INDEPENDENT AND ARE NEVER ADDED. One member's 傳承 is paid for

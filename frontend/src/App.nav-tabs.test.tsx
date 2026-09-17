@@ -17,7 +17,7 @@
 //      it, exactly like every sibling tab.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, fireEvent, screen } from "@testing-library/react";
+import { render, fireEvent, screen, waitFor } from "@testing-library/react";
 import { I18nProvider } from "./i18n";
 import { zh } from "./i18n/locales/zh";
 
@@ -33,7 +33,6 @@ vi.mock("./hooks/useOrgName", () => ({
 vi.mock("./components/OfficePage", () => ({ OfficePage: () => null }));
 vi.mock("./components/RepliesPage", () => ({ RepliesPage: () => null }));
 vi.mock("./components/TasksPage", () => ({ TasksPage: () => null }));
-vi.mock("./components/LorePage", () => ({ LorePage: () => null }));
 vi.mock("./components/MonitorPage", () => ({ MonitorPage: () => null }));
 vi.mock("./components/SettingsPage", () => ({ SettingsPage: () => null }));
 // The guide body itself is exercised in GuidePage.test.tsx; here we only need
@@ -110,5 +109,26 @@ describe("主導覽分頁", () => {
     expect(
       screen.getByText(zh.nav.guide).closest(".nav-tab")?.className,
     ).not.toContain("nav-tab--active");
+  });
+
+  it("a #lore deep link opens the Lore page with the owner's scope menu on each entry", async () => {
+    history.replaceState(null, "", window.location.pathname + "#lore");
+    renderApp();
+    const badge = await waitFor(() => {
+      const el = document.querySelector<HTMLElement>(
+        '[data-testid="lore-row"][data-entry-id="L-2"] [data-testid="lore-scope-name"]',
+      );
+      if (!el) throw new Error("L-2 has no scope badge yet");
+      return el;
+    });
+    expect(badge.tagName).toBe("BUTTON");
+    expect(badge.textContent).toBe("建立者：Mira");
+
+    fireEvent.click(badge);
+    expect(
+      document.querySelector(
+        '[data-testid="lore-row"][data-entry-id="L-2"] [data-testid="lore-scope-options"]',
+      )?.textContent,
+    ).toBe("適用範圍建立者：Mira預設所有人");
   });
 });

@@ -25,6 +25,8 @@ function mkEntry(over: Partial<LoreEntryView> & { id: string }): LoreEntryView {
     seq: 1,
     scopeKind: "agent",
     scopeKey: "mira",
+    taskTypeKey: "",
+    scopeOptions: [],
     title: `標題 ${over.id}`,
     body: `內容 ${over.id}`,
     authorId: "mira",

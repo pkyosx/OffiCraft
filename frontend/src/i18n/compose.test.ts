@@ -69,6 +69,8 @@ const EXPECTED: [Lang, string, (string | number | string[] | number[])[], string
     ["zh", "replyPickedOptions", [["寄出", "先不要"]], "寄出、先不要"],
     ["zh", "loreCopyEntryId", ["L-7"], "複製條目編號 L-7"],
     ["zh", "loreOpenManual", ["PR 審查"], "開啟任務手冊 PR 審查"],
+    ["zh", "loreScopeManual", ["PR 審查"], "任務：PR 審查"],
+    ["zh", "loreScopeAgent", ["Mira"], "建立者：Mira"],
     ["zh", "outsourceLabel", ["O-7"], "外包 · O-7"],
     ["zh", "workerRefocusSince", ["2 天"], "上次換手 2 天"],
     // 🔴 折疊,不是截斷。這一句只可以講「這則還在、只是折起來了」;
@@ -193,6 +195,8 @@ const EXPECTED: [Lang, string, (string | number | string[] | number[])[], string
     ["en", "replyPickedOptions", [["Send it", "Not yet"]], "Send it, Not yet"],
     ["en", "loreCopyEntryId", ["L-7"], "Copy entry id L-7"],
     ["en", "loreOpenManual", ["PR review"], "Open task manual PR review"],
+    ["en", "loreScopeManual", ["PR review"], "Task: PR review"],
+    ["en", "loreScopeAgent", ["Mira"], "Author: Mira"],
     ["en", "outsourceLabel", ["O-7"], "Outsource · O-7"],
     ["en", "workerRefocusSince", ["2 天"], "Last handover 2 天"],
     ["en", "resumeBodyOmitted", [1284], "folded 1284"],

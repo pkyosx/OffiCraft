@@ -54,6 +54,12 @@ export function viewerMayForceTaskDone(): boolean {
   return USE_MOCK || hasToken();
 }
 
+/** May this viewer switch a 傳承 entry's scope (`POST /api/lore/{id}/scope`,
+ * admin floor)? Same predicate and same caveats as `viewerMayForceTaskDone`. */
+export function viewerMaySetLoreScope(): boolean {
+  return viewerMayForceTaskDone();
+}
+
 export type {
   Api,
   SseConnectionState,

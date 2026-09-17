@@ -503,9 +503,14 @@ func (s *apiServer) buildBootContext(role string, member *Member) (*bootContext,
 	// swapping them would silently spend a task type's budget on a person. No knob
 	// was added or retuned here; see domain.go's note on the name.
 	//
-	// 🔴 The selection is NOT made here. selectLoreForScope (lore_select.go) is
-	// the one implementation of that rule and the manual exit calls the same
-	// function; see its header before adding a second one.
+	// 🔴 The selection is NOT made here. selectMemberLore (lore_select.go) walks
+	// the everyone scope and then this member's own agent scope under this one
+	// budget (T-236), through the same walker the manual exit uses; see its
+	// header before adding a second one.
+	//
+	// ⚠️ The preview path below therefore also omits everyone entries: without a
+	// member the budget split between the two groups is not the one any real
+	// boot makes.
 	//
 	// ⚠️ member IS NIL ON THE PREVIEW PATH. buildBootContext is also called with
 	// no member to render a ROLE's boot document for the cockpit (no member_id ⇒
@@ -516,7 +521,7 @@ func (s *apiServer) buildBootContext(role string, member *Member) (*bootContext,
 	// the preview stops claiming to show a 傳承 section it cannot address, rather
 	// than showing a wrong one.
 	if member != nil {
-		loreSel, err := selectLoreForScope(s.dal, LoreScopeAgent, member.ID, s.loreRoleCap())
+		loreSel, err := selectMemberLore(s.dal, member.ID, s.loreRoleCap())
 		if err != nil {
 			return nil, err
 		}

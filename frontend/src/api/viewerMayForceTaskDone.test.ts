@@ -101,3 +101,32 @@ describe("viewerMayForceTaskDone — mock mode", () => {
     expect(viewerMayForceTaskDone()).toBe(true);
   });
 });
+
+describe("viewerMaySetLoreScope", () => {
+  it("real mode without an owner token does not offer the scope menu", async () => {
+    vi.stubEnv("VITE_USE_MOCK", "false");
+    const { viewerMaySetLoreScope, USE_MOCK } = await loadGate();
+    expect(USE_MOCK).toBe(false);
+    expect(localStorage.getItem(TOKEN_KEY)).toBeNull();
+
+    expect(viewerMaySetLoreScope()).toBe(false);
+  });
+
+  it("real mode with an owner token offers the scope menu", async () => {
+    vi.stubEnv("VITE_USE_MOCK", "false");
+    localStorage.setItem(TOKEN_KEY, "owner-jwt");
+    const { viewerMaySetLoreScope, USE_MOCK } = await loadGate();
+    expect(USE_MOCK).toBe(false);
+
+    expect(viewerMaySetLoreScope()).toBe(true);
+  });
+
+  it("mock mode offers the scope menu without a token", async () => {
+    vi.stubEnv("VITE_USE_MOCK", "true");
+    const { viewerMaySetLoreScope, USE_MOCK } = await loadGate();
+    expect(USE_MOCK).toBe(true);
+    expect(localStorage.getItem(TOKEN_KEY)).toBeNull();
+
+    expect(viewerMaySetLoreScope()).toBe(true);
+  });
+});

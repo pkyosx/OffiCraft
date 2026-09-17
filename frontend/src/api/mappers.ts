@@ -153,6 +153,7 @@ import type {
   LoreEntryView,
   LoreEntryState,
   LoreEntryPageView,
+  LoreScopeKind,
 } from "./adapter";
 
 /** The five real presence words, as a runtime set — the type union's twin. */
@@ -2026,7 +2027,7 @@ export function toMemberResumeSummary(
 /** One wire entry → one view entry.
  *
  * `scope_kind` is narrowed from the wire's plain `string` to the union the UI
- * switches on. The two the server has are matched by name; anything else
+ * switches on. The scopes the server has are matched by name; anything else
  * becomes "unknown".
  *
  * 🔴 THIS USED TO SAY "role" INSTEAD OF "unknown", AND THAT WAS THE BUG.
@@ -2057,11 +2058,10 @@ export function toLoreEntry(
   return {
     id: w.id,
     seq: w.seq,
-    scopeKind:
-      w.scope_kind === "agent" || w.scope_kind === "manual"
-        ? w.scope_kind
-        : "unknown",
+    scopeKind: isLoreScopeKind(w.scope_kind) ? w.scope_kind : "unknown",
     scopeKey: w.scope_key,
+    taskTypeKey: w.task_type_key ?? "",
+    scopeOptions: (w.scope_options ?? []).filter(isLoreScopeKind),
     title: w.title,
     body: w.body,
     authorId: w.author_id,
@@ -2072,6 +2072,10 @@ export function toLoreEntry(
     createdTs: w.created_ts,
     updatedTs: w.updated_ts,
   };
+}
+
+function isLoreScopeKind(k: string): k is LoreScopeKind {
+  return k === "agent" || k === "manual" || k === "everyone";
 }
 
 /** The wire's `state` string → the three-value union.
