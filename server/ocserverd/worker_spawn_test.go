@@ -1979,6 +1979,108 @@ func TestHandOverWorkerNow(t *testing.T) {
 		}))
 		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"))
 	})
+
+	t.Run("an offline worker waiting out a start back-off is stopped, starts nothing, says so on its row, and starts once the window passes", func(t *testing.T) {
+		api, h, _, owner, w := wsWorkerSpawnFixture(t, WorkerStatusActive)
+		apiTestListen(t, api, ServerSelfHost)
+		pinned := w
+		pinned.DesiredMachineID = ServerSelfHost
+		pinned.DesiredState = DesiredStateOnline
+		backoffUntil := nowSecs() + 250
+		st := api.lifecycleState("ow-abc123")
+		st.Attempts = 6
+		st.BackoffUntil = backoffUntil
+		api.setLifecycleState("ow-abc123", st)
+
+		api.outsourceMu.Lock()
+		api.workerSpawnTarget["ow-abc123"] = ServerSelfHost
+		outcome := api.handOverWorkerNow(pinned, ownerOpRelocate)
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "outcome", any(wsOutcome(outcome)), any(map[string]any{
+			"dispatched": false, "wound_down": false, "held_down": false,
+			"already_running": false, "pending": true,
+		}))
+		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"))
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "active", "machine": "m-server-self",
+			"last_op": "start", "last_op_ok": false, "last_op_at": apiAnyNumber,
+			"last_op_reason": "backoff: the last start did not come up, so the next attempt " +
+				"is waiting out a back-off window — nothing is wrong with the button you " +
+				"pressed, the retry has not come round yet",
+		}))
+
+		api.outsourceMu.Lock()
+		started := api.reconcileWorkerLiveness(pinned, backoffUntil+10)
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "started after the window", any(started), any(true))
+		apiWantValue(t, "the verbs dispatched", any(wsVerbs(t, api, ServerSelfHost)), any([]any{"start"}))
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "active", "machine": "m-server-self",
+			"last_op": "start", "last_op_ok": nil, "last_op_at": apiAnyNumber,
+		}))
+	})
+
+	t.Run("an offline worker whose start circuit is open is stopped, starts nothing, and says so on its row", func(t *testing.T) {
+		api, h, _, owner, w := wsWorkerSpawnFixture(t, WorkerStatusActive)
+		apiTestListen(t, api, ServerSelfHost)
+		pinned := w
+		pinned.DesiredMachineID = ServerSelfHost
+		pinned.DesiredState = DesiredStateOnline
+		st := api.lifecycleState("ow-abc123")
+		st.Attempts = 6
+		st.CircuitOpen = true
+		st.CircuitCooldownUntil = nowSecs() + 120
+		api.setLifecycleState("ow-abc123", st)
+
+		api.outsourceMu.Lock()
+		api.workerSpawnTarget["ow-abc123"] = ServerSelfHost
+		outcome := api.handOverWorkerNow(pinned, ownerOpRestart)
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "outcome", any(wsOutcome(outcome)), any(map[string]any{
+			"dispatched": false, "wound_down": false, "held_down": false,
+			"already_running": false, "pending": true,
+		}))
+		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"))
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "active", "machine": "m-server-self",
+			"last_op": "start", "last_op_ok": false, "last_op_at": apiAnyNumber,
+			"last_op_reason": "circuit_open: too many failed starts in a row, so the server " +
+				"has stopped retrying this member for now — it will try again by itself; fix " +
+				"what is failing on its machine, or 停止 and 活化 to start over",
+		}))
+	})
+
+	t.Run("a back-off wait leaves the previous attempt's wake_timeout diagnosis on the row", func(t *testing.T) {
+		api, h, _, owner, w := wsWorkerSpawnFixture(t, WorkerStatusActive)
+		apiTestListen(t, api, ServerSelfHost)
+		pinned := w
+		pinned.DesiredMachineID = ServerSelfHost
+		pinned.DesiredState = DesiredStateOnline
+		st := api.lifecycleState("ow-abc123")
+		st.Attempts = 6
+		st.BackoffUntil = nowSecs() + 250
+		api.setLifecycleState("ow-abc123", st)
+
+		api.outsourceMu.Lock()
+		api.stampWorkerPlacementBlocked(&pinned, "wake_timeout: the start was collected but never came online", 4000)
+		api.workerSpawnTarget["ow-abc123"] = ServerSelfHost
+		outcome := api.handOverWorkerNow(pinned, ownerOpRelocate)
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "outcome", any(wsOutcome(outcome)), any(map[string]any{
+			"dispatched": false, "wound_down": false, "held_down": false,
+			"already_running": false, "pending": true,
+		}))
+		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"))
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "active", "machine": "m-server-self",
+			"last_op": "start", "last_op_ok": false, "last_op_at": 4000,
+			"last_op_reason": "wake_timeout: the start was collected but never came online",
+		}))
+	})
 }
 
 func TestStopWorkerSessionForHandover(t *testing.T) {
@@ -2202,15 +2304,22 @@ func TestCollectWorkerHandover(t *testing.T) {
 	})
 
 	t.Run("a deferred collect on a session that is still ONLINE rolls only the latch back, so the grace arm retries", func(t *testing.T) {
-		api, h, _, owner, w := wsWindDown(t, WorkerStatusActive, DesiredStateOnline, "relocate", 100, 0, 0, false)
+		api, h, d, owner, w := wsWindDown(t, WorkerStatusActive, DesiredStateOnline, "relocate", 100, 0, 0, false)
 		wsOnline(t, api, "ow-abc123", "")
 		apiTestListen(t, api, ServerSelfHost)
 
 		api.outsourceMu.Lock()
 		collected := api.collectWorkerHandover(&w, "fsm-recycle", triggerServer, 5000)
 		api.outsourceMu.Unlock()
+		stored, err := d.GetOutsourceWorker("ow-abc123")
+		if err != nil || stored == nil {
+			t.Fatalf("GetOutsourceWorker: %v (%v)", stored, err)
+		}
 
 		apiWantValue(t, "collected", any(collected), any(false))
+		apiWantValue(t, "stopped_since after rollback", any(map[string]any{
+			"stored": stored.StoppedSince, "caller": w.StoppedSince,
+		}), any(map[string]any{"stored": 0, "caller": 0}))
 		apiWantValue(t, "the verbs dispatched", any(wsVerbs(t, api, ServerSelfHost)), any([]any{}))
 		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
 			"status": "active", "presence": "online", "desired_state": "online",

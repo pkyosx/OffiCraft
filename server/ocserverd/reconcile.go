@@ -1654,6 +1654,16 @@ func isStopgapRetryReason(reason string) bool {
 		strings.HasPrefix(reason, spawnReasonCircuitOpen+":")
 }
 
+// stopgapRetryStampYields is the single-slot precedence rule both the staff and
+// the worker op-blocked stamps obey: a retry-loop wait (backoff / circuit_open)
+// must not overwrite a diagnosis of the PREVIOUS attempt — wake_timeout, or the
+// worker-only never_collected — on the row. prior is the row's stored reason.
+func stopgapRetryStampYields(prior, reason string) bool {
+	return isStopgapRetryReason(reason) &&
+		(strings.HasPrefix(prior, wakeTimeoutReasonCode+":") ||
+			strings.HasPrefix(prior, spawnReasonNeverCollected+":"))
+}
+
 // stampMemberOpBlocked records WHY a staff member the owner wants running is not
 // running, on the row the cockpit already reads — the staff twin of
 // stampWorkerPlacementBlocked, and the production end of T-ed79 #14.
@@ -1703,8 +1713,7 @@ func (s *apiServer) stampMemberOpBlocked(memberID, reason string, now float64) {
 	// strictly more informative than a wake_timeout from an attempt that has
 	// already failed — and a guard that read only the row swallowed those too,
 	// leaving the owner a stale sentence while the live fault went unsaid.
-	if isStopgapRetryReason(reason) &&
-		strings.HasPrefix(fresh.LastOpReason, wakeTimeoutReasonCode+":") {
+	if stopgapRetryStampYields(fresh.LastOpReason, reason) {
 		return
 	}
 	stampOpReceipt(&fresh.LastOp, &fresh.LastOpOK, &fresh.LastOpLog, &fresh.LastOpReason,

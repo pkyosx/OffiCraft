@@ -972,10 +972,12 @@ func (s *apiServer) handleSetOutsourceWorkerModel(w http.ResponseWriter, r *http
 	// is deliberately NOT re-asked here — respawnWorkerForOwnerOp owns that single
 	// branch point for all three owner verbs, and asking twice is how the two
 	// copies drift (this one used to skip silently, leaving no receipt).
-	// This runs BEFORE the setters below, and only for a worker that is ONLINE,
-	// so the funnel dispatches no START here: its immediate arm stops the old
-	// session and the tick starts the replacement once the worker reads offline,
-	// by which time the setters have stored the new launch intent on the row.
+	// This runs BEFORE the setters below, gated on the worker reading ONLINE: the
+	// funnel stops the old session and normally the tick starts the replacement
+	// once the worker reads offline, by which time the setters have stored the new
+	// launch intent on the row. If the session drops between the gate and the
+	// funnel, the funnel's reconcile starts it here instead, from *worker, which
+	// already carries the new model / runtime / effort.
 	if launchIntentChanged && worker.Status == WorkerStatusActive && s.hub.IsOnline(worker.ID) {
 		s.respawnWorkerForOwnerOp(*worker, ownerOpModel)
 	} else if launchIntentChanged && worker.DesiredState == DesiredStateOffline {
