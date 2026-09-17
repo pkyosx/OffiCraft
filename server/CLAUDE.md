@@ -6,7 +6,7 @@
 
 - `server/ocserverd/` 的 folder、Go module、production binary 都叫 `ocserverd`。binary fresh build，不能 commit；根目錄規則所列的 TCC 身分錨點是唯一例外。
 - `ocserverd` 是單一 daemon。seeds、prebuilt binaries、MCP catalog 走 `go:embed`，不從 CWD 的 `seeds/`、`spec/mcp-catalog.json` 或 `bin/ocwarden` 偷讀舊檔；`seedsdist/`、`bindist/` 是建置 staging，不是 source of truth。
-- 乾淨 worktree 手跑 server Go tests 前，先執行 `bash bin/build-seedsdist && bash bin/build-docsdist`；`bin/ci.sh` 會自動 staging。`build-bindist` 是單檔 boot/install 的前置，不是 `go test` 的前置。
+- 乾淨 worktree 手跑 server Go tests 前，先在 repo 根目錄執行 `make build-embed-assets`（`make test-go` 與 `bin/ci.sh` 會自動執行）。要 staging 哪些東西以 Makefile 為準，這裡不另列。只跑單一支測試也要先執行；少了這一步會出現看起來像程式壞掉的假紅（`open mcp-catalog.json: file does not exist`、`ocwarden binary is not available`）。
 - 有效 config 只有 `[server].port`、`[server].namespace`、`[storage].dsn`；部署用 `$OC_CONFIG`／`$OC_DATABASE_URL` 明確指定。預設 `oc.toml` 以 CWD 相對位置找，host 固定 loopback；不要把退役 key 或環境探測重新當成設定來源。
 - `bin/release`、release preflight 與「CI/main 不等於部署」遵守根檔；server 文件不另抄一份命令或 release 清單。
 - 🔴 **新增 migration 的號碼必須大於 `origin/main` 目前宣告的最大號**，兩個來源都算（`migrations/*.sql` 與 `goose.AddNamedMigration*` 註冊的 Go migration）。跳過的號碼永遠留著不補：低於已釋出最大號的新號會讓**已經在跑的站**下次開機在 `runMigrations` 停住、exit 1、不會 listen，而全新安裝完全看不出來（空白 DB 上「缺號」不存在）。**同樣不可逆的另一半：已經釋出的 migration 檔案內容不可以再改**——goose 一個版號只記一次、永不重跑，改動只會落在全新安裝上，兩種站從此 schema 不同而且沒有任何錯誤。要改就開新號。**這一半兩個來源都會紅**：`migrations/*.sql` 比對整個檔案，Go migration 比對它**整份原始碼檔**（不只 up/down 函式主體）——所以一個純機械的改動（改名波及、gofmt）也會叫，那時要由人決定怎麼辦，而不是由這道檢查默默放行。
