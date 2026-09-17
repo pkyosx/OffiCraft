@@ -13,7 +13,6 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { httpApi } from "./http";
-import { codeForStatus } from "./errorCodes";
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -118,7 +117,7 @@ describe("httpApi.listLoreEntries · the multi-select sets go on the wire (T-33)
 });
 
 describe("httpApi.setLoreEntryScope", () => {
-  it("posts only the target kind to the entry's scope route and resolves to nothing", async () => {
+  it("a scope switch posts only the target kind to the entry's scope route and resolves to nothing", async () => {
     fetchMock.mockImplementation(async () =>
       jsonResponse({
         id: "L-7",
@@ -132,19 +131,32 @@ describe("httpApi.setLoreEntryScope", () => {
 
     const result = await httpApi.setLoreEntryScope("L-7", "everyone");
 
-    const req = (fetchMock.mock.calls as unknown as [Request][])[0][0];
-    expect(req.method).toBe("POST");
-    expect(new URL(req.url).pathname).toBe("/api/lore/L-7/scope");
-    expect(await req.json()).toEqual({ scope_kind: "everyone" });
+    const calls = fetchMock.mock.calls as unknown as [Request][];
+    expect(calls).toHaveLength(1);
+    const req = calls[0][0];
+    const url = new URL(req.url);
+    expect({
+      method: req.method,
+      path: url.pathname,
+      search: url.search,
+      contentType: req.headers.get("Content-Type"),
+      body: await req.text(),
+    }).toEqual({
+      method: "POST",
+      path: "/api/lore/L-7/scope",
+      search: "",
+      contentType: "application/json",
+      body: '{"scope_kind":"everyone"}',
+    });
     expect(result).toBeUndefined();
   });
 
-  it("rejects with the server's reason when the switch is refused", async () => {
+  it("a refused scope switch rejects with the server's status, code and reason", async () => {
     fetchMock.mockImplementation(async () =>
       jsonResponse(
         {
           error: {
-            code: codeForStatus(403),
+            code: "forbidden",
             message: "admin only",
           },
         },
@@ -152,9 +164,24 @@ describe("httpApi.setLoreEntryScope", () => {
       ),
     );
 
-    await expect(httpApi.setLoreEntryScope("L-7", "manual")).rejects.toMatchObject({
+    const err = await httpApi.setLoreEntryScope("L-7", "manual").then(
+      () => null,
+      (e: Record<string, unknown>) => e,
+    );
+    expect({
+      name: err?.name,
+      message: err?.message,
+      status: err?.status,
+      code: err?.code,
+      serverMessage: err?.serverMessage,
+      retryAfter: err?.retryAfter,
+    }).toEqual({
+      name: "ApiError",
+      message: "http 403 for POST /api/lore/L-7/scope",
       status: 403,
+      code: "forbidden",
       serverMessage: "admin only",
+      retryAfter: null,
     });
   });
 });

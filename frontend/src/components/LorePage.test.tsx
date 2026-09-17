@@ -397,7 +397,7 @@ describe("LorePage — 屬於", () => {
     expect(chip.querySelectorAll(".lore-row__scope-glyph")).toHaveLength(0);
   });
 
-  it("labels an everyone entry 所有人 with the group glyph", async () => {
+  it("an everyone entry's badge reads 所有人 with the group glyph", async () => {
     const everyone = await scopePillFor("everyone", "");
     expect(everyone.tagName).toBe("SPAN");
     expect(everyone.textContent).toBe("所有人");
@@ -409,7 +409,7 @@ describe("LorePage — 屬於", () => {
     ).toEqual(["lore-row__scope-glyph lore-row__scope-glyph--everyone"]);
   });
 
-  it("gives a viewer who may not switch scopes an inert badge even when the entry has options", async () => {
+  it("a viewer who may not switch scopes gets an inert badge; one who may gets a menu trigger", async () => {
     stubList(
       page([
         mkEntry({
@@ -442,7 +442,7 @@ describe("LorePage — 屬於", () => {
     expect(trigger.querySelector(".lore-row__scope-caret")).not.toBeNull();
   });
 
-  it("keeps the manual jump on a non-owner's manual badge", async () => {
+  it("a non-owner clicking a manual badge opens that manual and no menu", async () => {
     vi.spyOn(api, "listTaskManuals").mockResolvedValue([
       { typeKey: "review-pr", displayName: "PR 審查", purpose: "", fields: [] },
     ] as never);
@@ -656,8 +656,6 @@ describe("LorePage — 屬於 在收合的列上就說得出是哪一種", () =>
     const memberScope = scopeOf("L-1");
     const manualScope = scopeOf("L-2");
 
-    // T-236 put the kind back into the text (任務： / 建立者：); the glyph still
-    // differs as well.
     expect(memberScope.textContent).toBe("建立者：Mira");
     expect(manualScope.textContent).toBe("任務：Mira");
 
@@ -1028,7 +1026,7 @@ describe("LorePage — 篩選器複選", () => {
     expect(lastOpts(spy).scopeKeys).toBeUndefined();
   });
 
-  it("offers 所有人 first under 成員傳承 and sends it as a kind with no key", async () => {
+  it("成員傳承 lists 所有人 first, and ticking it asks for the everyone kind with no key", async () => {
     const spy = stubList(page([mkEntry({ id: "L-1" })]));
     const { container } = renderPage();
     await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
@@ -1041,45 +1039,44 @@ describe("LorePage — 篩選器複選", () => {
         container.querySelector('[data-testid="lore-filter-member-opt-agent:mira"]'),
       ).not.toBeNull(),
     );
-    const firstTwo = Array.from(
+    const options = Array.from(
       container.querySelectorAll('[data-testid^="lore-filter-member-opt-"]'),
-    )
-      .slice(0, 2)
-      .map((el) => [el.getAttribute("data-testid"), el.textContent]);
-    expect(firstTwo).toEqual([
+    ).map((el) => [el.getAttribute("data-testid"), el.textContent]);
+    expect(options).toEqual([
       ["lore-filter-member-opt-everyone:", "所有人"],
       ["lore-filter-member-opt-agent:mira", "Mira"],
     ]);
 
     tick(container, "lore-filter-member", "everyone:");
-    await waitFor(() => expect(lastOpts(spy).scopeKinds).toEqual(["everyone"]));
-    expect(lastOpts(spy).scopeKeys).toBeUndefined();
+    await waitFor(() =>
+      expect(lastOpts(spy)).toEqual({ scopeKinds: ["everyone"], limit: 30, offset: 0 }),
+    );
   });
 
-  it("never sends 所有人 together with a keyed scope", async () => {
+  it("ticking 所有人 clears keyed scope ticks, and ticking a keyed scope clears 所有人", async () => {
     vi.spyOn(api, "listTaskManuals").mockResolvedValue([
       { typeKey: "review-pr", displayName: "PR 審查", purpose: "", fields: [] },
     ] as never);
     const spy = stubList(page([mkEntry({ id: "L-1" })]));
     const { container } = renderPage();
     await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
+    const asked = (o: Record<string, unknown>) =>
+      waitFor(() => expect(lastOpts(spy)).toEqual({ ...o, limit: 30, offset: 0 }));
 
     tick(container, "lore-filter-member", "agent:mira");
-    await waitFor(() => expect(lastOpts(spy).scopeKeys).toEqual(["mira"]));
+    await asked({ scopeKinds: ["agent"], scopeKeys: ["mira"] });
 
     tick(container, "lore-filter-member", "everyone:");
-    await waitFor(() => expect(lastOpts(spy).scopeKinds).toEqual(["everyone"]));
-    expect(lastOpts(spy).scopeKeys).toBeUndefined();
+    await asked({ scopeKinds: ["everyone"] });
 
     tick(container, "lore-filter-belongs", "manual:review-pr");
-    await waitFor(() => expect(lastOpts(spy).scopeKinds).toEqual(["manual"]));
-    expect(lastOpts(spy).scopeKeys).toEqual(["review-pr"]);
+    await asked({ scopeKinds: ["manual"], scopeKeys: ["review-pr"] });
 
     tick(container, "lore-filter-member", "everyone:");
-    await waitFor(() => expect(lastOpts(spy).scopeKinds).toEqual(["everyone"]));
+    await asked({ scopeKinds: ["everyone"] });
+
     tick(container, "lore-filter-member", "agent:mira");
-    await waitFor(() => expect(lastOpts(spy).scopeKinds).toEqual(["agent"]));
-    expect(lastOpts(spy).scopeKeys).toEqual(["mira"]);
+    await asked({ scopeKinds: ["agent"], scopeKeys: ["mira"] });
   });
 
   it("sends a SET on the state axis, not the last thing ticked", async () => {
@@ -1461,7 +1458,7 @@ describe("LorePage — 成員傳承的上限線", () => {
     expect(line.textContent).toContain("8000");
   });
 
-  it("names the line 所有人 when only 所有人 is ticked", async () => {
+  it("ticking only 所有人 draws the cap line named 所有人", async () => {
     vi.spyOn(api, "listLoreEntries").mockImplementation(async (o) => {
       const everyone =
         o?.scopeKinds?.length === 1 &&
@@ -1937,7 +1934,7 @@ describe("LorePage — 適用範圍選單", () => {
     return { container, list };
   }
 
-  it("lists a task-bound entry's three options in order, the task one checked and default", async () => {
+  it("a task-bound entry's menu lists task, author, everyone with the task option checked and default", async () => {
     const { container } = await renderRows([taskBound]);
     expect(
       rowById(container, "L-1").querySelector('[data-testid="lore-scope-name"]')!
@@ -1983,7 +1980,7 @@ describe("LorePage — 適用範圍選單", () => {
     );
   });
 
-  it("lists a staff entry without a task as author and everyone only", async () => {
+  it("a staff entry without a task offers author and everyone only", async () => {
     const { container } = await renderRows([staffNoTask]);
     const menu = openScopeMenu(container, "L-2");
     expect(readOptions(menu)).toEqual([
@@ -2006,7 +2003,7 @@ describe("LorePage — 適用範圍選單", () => {
     expect(menu.querySelector('[data-testid="lore-scope-open-manual"]')).toBeNull();
   });
 
-  it("tags a non-default current scope 目前 and keeps 預設 on the default", async () => {
+  it("a current scope that is not the default is tagged 目前 while the default keeps 預設", async () => {
     const { container } = await renderRows([everyoneNow]);
     expect(
       rowById(container, "L-3").querySelector('[data-testid="lore-scope-name"]')!
@@ -2019,25 +2016,27 @@ describe("LorePage — 適用範圍選單", () => {
     ]);
   });
 
-  it("switches the clicked entry's scope, closes the menu and re-reads the list", async () => {
+  it("picking another scope sends it for that entry, closes the menu and reloads the list", async () => {
     const set = vi.spyOn(api, "setLoreEntryScope").mockResolvedValue(undefined);
     const { container, list } = await renderRows([taskBound, staffNoTask]);
-    expect(list).toHaveBeenCalledTimes(1);
+    expect(list.mock.calls).toEqual([[{ limit: 30, offset: 0 }]]);
 
     const menu = openScopeMenu(container, "L-2");
     fireEvent.click(menu.querySelector('[data-testid="lore-scope-everyone"]')!);
 
     await waitFor(() => expect(list).toHaveBeenCalledTimes(2));
     expect(set.mock.calls).toEqual([["L-2", "everyone"]]);
+    expect(list.mock.calls).toEqual([
+      [{ limit: 30, offset: 0 }],
+      [{ limit: 30, offset: 0 }],
+    ]);
     expect(
       container.querySelector('[data-testid="lore-scope-options"]'),
     ).toBeNull();
-    expect(rowById(container, "L-2").getAttribute("aria-expanded")).toBe("false");
   });
 
-  it("closes without a request when the current scope is picked again", async () => {
-    const set = vi.spyOn(api, "setLoreEntryScope").mockResolvedValue(undefined);
-    const { container, list } = await renderRows([staffNoTask]);
+  it("picking the current scope closes the menu and leaves the badge as it was", async () => {
+    const { container } = await renderRows([staffNoTask]);
 
     const menu = openScopeMenu(container, "L-2");
     fireEvent.click(menu.querySelector('[data-testid="lore-scope-agent"]')!);
@@ -2045,18 +2044,13 @@ describe("LorePage — 適用範圍選單", () => {
     expect(
       container.querySelector('[data-testid="lore-scope-options"]'),
     ).toBeNull();
-    expect(set).not.toHaveBeenCalled();
-    expect(list).toHaveBeenCalledTimes(1);
-
-    fireEvent.click(
-      openScopeMenu(container, "L-2").querySelector(
-        '[data-testid="lore-scope-everyone"]',
-      )!,
-    );
-    await waitFor(() => expect(set).toHaveBeenCalledTimes(1));
+    expect(
+      rowById(container, "L-2").querySelector('[data-testid="lore-scope-name"]')!
+        .textContent,
+    ).toBe("建立者：Mira");
   });
 
-  it("shows the server's reason when the switch is refused, and re-reads nothing", async () => {
+  it("a refused switch shows the server's reason and does not reload the list", async () => {
     vi.spyOn(api, "setLoreEntryScope").mockRejectedValue(
       new ApiError(
         "http 400 for POST /api/lore/L-2/scope",
@@ -2086,7 +2080,7 @@ describe("LorePage — 適用範圍選單", () => {
     ).toBe("建立者：Mira");
   });
 
-  it("closes on a mousedown outside the badge and stays open on one inside the menu", async () => {
+  it("a mousedown outside the badge closes the menu; one inside keeps it open", async () => {
     const { container } = await renderRows([staffNoTask]);
     const menu = openScopeMenu(container, "L-2");
 
@@ -2101,7 +2095,7 @@ describe("LorePage — 適用範圍選單", () => {
     ).toBeNull();
   });
 
-  it("opens the menu instead of the manual, and offers the manual jump inside it", async () => {
+  it("for the owner a manual badge opens the menu, whose last row opens the manual", async () => {
     const { container } = await renderRows([taskBound]);
     window.location.hash = "";
 

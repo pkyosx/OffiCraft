@@ -67,7 +67,7 @@ function wireEntry(
 }
 
 describe("toLoreEntry scope_kind", () => {
-  it("carries each of the three real scopes through under its own name", () => {
+  it("each of the three real scopes keeps its own name", () => {
     // 🔴 `agent` IS THE ONE THIS FILE IS NAMED AFTER. Under the old narrowing
     // this line read "role" and every assertion about it passed elsewhere,
     // because nothing else looked.
@@ -75,7 +75,13 @@ describe("toLoreEntry scope_kind", () => {
       "agent",
     );
     expect(toLoreEntry(wireEntry("manual", "tm-mock")).scopeKind).toBe("manual");
-    expect(toLoreEntry(wireEntry("everyone", "")).scopeKind).toBe("everyone");
+    expect(toLoreEntry(wireEntry("everyone", ""))).toEqual({
+      ...VIEW,
+      scopeKind: "everyone",
+      scopeKey: "",
+      taskTypeKey: "",
+      scopeOptions: [],
+    });
   });
 
   it("maps the RETIRED `role` scope to unknown, and never to agent", () => {
@@ -131,28 +137,49 @@ describe("toLoreEntry scope_kind", () => {
   });
 });
 
+const VIEW = {
+  id: "L-1",
+  seq: 1,
+  scopeKind: "agent",
+  scopeKey: "ow-7d8ad859dd9b",
+  title: "交接路徑要寫絕對路徑",
+  body: "對方在別的工作目錄下撲空，訊息跟那一輪沒跑一模一樣。",
+  authorId: "ow-7d8ad859dd9b",
+  sourceTaskId: "",
+  state: "active",
+  retireReason: "",
+  effectiveTs: 1788460000,
+  createdTs: 1788460000,
+  updatedTs: 1788460000,
+};
+
 describe("toLoreEntry scope switching fields", () => {
-  it("carries task_type_key and scope_options in wire order", () => {
-    const view = toLoreEntry(
-      wireEntry("agent", "ow-7d8ad859dd9b", {
-        task_type_key: "review-pr",
-        scope_options: ["manual", "agent", "everyone"],
-      }),
-    );
-    expect(view.taskTypeKey).toBe("review-pr");
-    expect(view.scopeOptions).toEqual(["manual", "agent", "everyone"]);
+  it("a row with task_type_key and scope_options carries both, options in wire order", () => {
+    expect(
+      toLoreEntry(
+        wireEntry("agent", "ow-7d8ad859dd9b", {
+          task_type_key: "review-pr",
+          scope_options: ["manual", "agent", "everyone"],
+        }),
+      ),
+    ).toEqual({ ...VIEW, taskTypeKey: "review-pr", scopeOptions: ["manual", "agent", "everyone"] });
   });
 
-  it("reads an older server's missing fields as no type and no options", () => {
-    const view = toLoreEntry(wireEntry("agent", "mira"));
-    expect(view.taskTypeKey).toBe("");
-    expect(view.scopeOptions).toEqual([]);
+  it("a row from an older server without the two fields reads as no type and no options", () => {
+    expect(toLoreEntry(wireEntry("agent", "ow-7d8ad859dd9b"))).toEqual({
+      ...VIEW,
+      taskTypeKey: "",
+      scopeOptions: [],
+    });
   });
 
-  it("drops an option this build cannot send and keeps the ones it can", () => {
-    const view = toLoreEntry(
-      wireEntry("agent", "mira", { scope_options: ["role", "agent", "station", "everyone"] }),
-    );
-    expect(view.scopeOptions).toEqual(["agent", "everyone"]);
+  it("an option this build cannot send is dropped and the known ones are kept in order", () => {
+    expect(
+      toLoreEntry(
+        wireEntry("agent", "ow-7d8ad859dd9b", {
+          scope_options: ["role", "agent", "station", "everyone"],
+        }),
+      ),
+    ).toEqual({ ...VIEW, taskTypeKey: "", scopeOptions: ["agent", "everyone"] });
   });
 });
