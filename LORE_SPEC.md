@@ -12,7 +12,7 @@
 - **不自己合併、不自己上站、不自己調 cap 旋鈕。**
 - **檔名不要帶 `_token`**（`.gitignore` 會靜默吞掉，`git status` 也看不到）。
 - **產生檔只能用產生器**：`ocapi_gen.go` ← `bin/gen-ocapi`；`schema.ts` ← `npm run gen:api`；`mcp-catalog.json` ← `python3 bin/gen-mcp-catalog`（🔴 是 python，用 bash 會語法錯）；`migration.lock` ← `bin/gen-migration-lock`，**不准手改**。
-- **`server/ocserverd` 是獨立 go module** ⇒ `cd server/ocserverd && go test ./...`。新工作樹首跑前先 `bash bin/build-seedsdist`、`bash bin/build-docsdist`，否則會有假紅。
+- **`server/ocserverd` 是獨立 go module** ⇒ `cd server/ocserverd && go test ./...`。新工作樹首跑前先在 repo 根目錄執行 `make build-embed-assets`，否則會有假紅。
 - **退出碼一律落檔再讀**（`cmd > out.txt 2>&1; echo $? > rc.txt`）。`cmd; echo "rc=$?"` 回報的是 `echo` 的退出碼。
 - **零命中的預設解讀是「查法寫錯了」**，每次配陽性對照。
 - `wc -m` 在 `LC_CTYPE=C` 下數位元組 ⇒ 先 `export LC_ALL=en_US.UTF-8`。
