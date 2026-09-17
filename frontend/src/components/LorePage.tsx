@@ -171,7 +171,6 @@ const EVERYONE_VALUE = "everyone:";
 interface ScopeChoice {
   kind: LoreScopeKind;
   label: string;
-  hint: string;
   notes: string[];
   isNew: boolean;
 }
@@ -641,7 +640,6 @@ export function LorePage({
           return {
             kind,
             label: msg.loreScopeManual(manualName),
-            hint: msg.loreScopeManualHint(manualName),
             notes: boundTask
               ? [msg.loreScopeDerivedFrom(boundTask.taskNo || boundTask.taskId)]
               : [],
@@ -652,7 +650,6 @@ export function LorePage({
           return {
             kind,
             label: msg.loreScopeAgent(authorName),
-            hint: msg.loreScopeAgentHint(authorName),
             notes: outsource ? [t.lore.scopeOutsourceWarning] : [],
             isNew: false,
           };
@@ -660,7 +657,6 @@ export function LorePage({
         return {
           kind,
           label: t.lore.scopeEveryone,
-          hint: t.lore.scopeEveryoneHint,
           notes: [],
           isNew: true,
         };
@@ -1377,12 +1373,6 @@ function LoreRow({
                             {tag}
                           </span>
                         )}
-                      </span>
-                      <span
-                        className="lore-row__scope-hint"
-                        data-testid="lore-scope-option-hint"
-                      >
-                        {c.hint}
                       </span>
                       {c.notes.map((n) => (
                         <span

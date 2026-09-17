@@ -1886,7 +1886,7 @@ describe("LorePage — 適用範圍選單", () => {
     return menu;
   }
 
-  /** Every option as [kind, label, tag, checked, hint, notes]. */
+  /** Every option as [kind, label, tag, checked, full text, notes]. */
   function readOptions(menu: HTMLElement) {
     return Array.from(
       menu.querySelectorAll<HTMLElement>('[role="menuitemradio"]'),
@@ -1896,7 +1896,7 @@ describe("LorePage — 適用範圍選單", () => {
       item.querySelector('[data-testid="lore-scope-option-tag"]')?.textContent ??
         "",
       item.getAttribute("aria-checked"),
-      item.querySelector('[data-testid="lore-scope-option-hint"]')!.textContent,
+      item.textContent,
       Array.from(
         item.querySelectorAll('[data-testid="lore-scope-option-note"]'),
       ).map((n) => n.textContent),
@@ -1959,7 +1959,7 @@ describe("LorePage — 適用範圍選單", () => {
         "任務：PR 審查",
         "預設",
         "true",
-        "之後任何人開「PR 審查」這本任務手冊時會讀到（正職、外包都一樣）。",
+        "任務：PR 審查預設",
         [],
       ],
       [
@@ -1967,7 +1967,7 @@ describe("LorePage — 適用範圍選單", () => {
         "建立者：Mira",
         "",
         "false",
-        "只進 Mira 自己的開機檔，其他人讀不到。",
+        "建立者：Mira",
         [],
       ],
       [
@@ -1975,7 +1975,7 @@ describe("LorePage — 適用範圍選單", () => {
         "所有人",
         "",
         "false",
-        "進每一位成員的開機檔（所有正職＋所有外包）。",
+        "所有人新",
         [],
       ],
     ]);
@@ -2000,7 +2000,7 @@ describe("LorePage — 適用範圍選單", () => {
         "建立者：Mira",
         "預設",
         "true",
-        "只進 Mira 自己的開機檔，其他人讀不到。",
+        "建立者：Mira預設",
         [],
       ],
       [
@@ -2008,7 +2008,7 @@ describe("LorePage — 適用範圍選單", () => {
         "所有人",
         "",
         "false",
-        "進每一位成員的開機檔（所有正職＋所有外包）。",
+        "所有人新",
         [],
       ],
     ]);

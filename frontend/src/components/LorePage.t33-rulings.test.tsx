@@ -267,6 +267,7 @@ describe("LorePage — 外包條目的適用範圍選單", () => {
       item.querySelector('[data-testid="lore-scope-option-tag"]')?.textContent ??
         "",
       item.getAttribute("aria-checked"),
+      item.textContent,
       Array.from(
         item.querySelectorAll('[data-testid="lore-scope-option-note"]'),
       ).map((n) => n.textContent),
@@ -306,14 +307,14 @@ describe("LorePage — 外包條目的適用範圍選單", () => {
 
     const warning = "這位外包離開後就沒有人讀得到，除非改成任務或所有人。";
     expect(readMenu(container, "L-1")).toEqual([
-      ["lore-scope-manual", "任務：PR 審查", "", "false", ["由承接中的 T-42 推得"]],
-      ["lore-scope-agent", "建立者：外包 · O-1", "預設", "true", [warning]],
-      ["lore-scope-everyone", "所有人", "", "false", []],
+      ["lore-scope-manual", "任務：PR 審查", "", "false", "任務：PR 審查由承接中的 T-42 推得", ["由承接中的 T-42 推得"]],
+      ["lore-scope-agent", "建立者：外包 · O-1", "預設", "true", `建立者：外包 · O-1預設${warning}`, [warning]],
+      ["lore-scope-everyone", "所有人", "", "false", "所有人新", []],
     ]);
     expect(readMenu(container, "L-2")).toEqual([
-      ["lore-scope-manual", "任務：PR 審查", "", "false", []],
-      ["lore-scope-agent", "建立者：外包 · O-9", "預設", "true", [warning]],
-      ["lore-scope-everyone", "所有人", "", "false", []],
+      ["lore-scope-manual", "任務：PR 審查", "", "false", "任務：PR 審查", []],
+      ["lore-scope-agent", "建立者：外包 · O-9", "預設", "true", `建立者：外包 · O-9預設${warning}`, [warning]],
+      ["lore-scope-everyone", "所有人", "", "false", "所有人新", []],
     ]);
   });
 });

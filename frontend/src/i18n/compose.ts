@@ -69,8 +69,6 @@ export interface Messages {
   loreOpenManual: (manualName: string) => string;
   loreScopeManual: (manualName: string) => string;
   loreScopeAgent: (authorName: string) => string;
-  loreScopeManualHint: (manualName: string) => string;
-  loreScopeAgentHint: (authorName: string) => string;
   loreScopeDerivedFrom: (taskNo: string) => string;
   // ── office ──
   outsourceLabel: (codename: string) => string;
@@ -288,10 +286,6 @@ export function makeMessages(t: Dict, language: Lang): Messages {
       `${t.lore.openManualLabel} ${manualName}`,
     loreScopeManual: (manualName) => `${t.lore.scopeManualLead}${manualName}`,
     loreScopeAgent: (authorName) => `${t.lore.scopeAgentLead}${authorName}`,
-    loreScopeManualHint: (manualName) =>
-      `${t.lore.scopeManualHintLead}${manualName}${t.lore.scopeManualHintTail}`,
-    loreScopeAgentHint: (authorName) =>
-      `${t.lore.scopeAgentHintLead}${authorName}${t.lore.scopeAgentHintTail}`,
     loreScopeDerivedFrom: (taskNo) =>
       `${t.lore.scopeDerivedLead}${taskNo}${t.lore.scopeDerivedTail}`,
 

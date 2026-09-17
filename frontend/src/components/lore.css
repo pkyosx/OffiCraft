@@ -314,16 +314,12 @@ button.lore-row__scope-chip--editable:hover {
   border-color: color-mix(in srgb, var(--color-task-type) 40%, transparent);
   color: var(--color-task-type);
 }
-.lore-row__scope-hint,
 .lore-row__scope-note {
   font-size: 12px;
   font-weight: 400;
   line-height: 1.45;
-  color: var(--color-text-muted);
-  overflow-wrap: anywhere;
-}
-.lore-row__scope-note {
   color: var(--color-warn-fg);
+  overflow-wrap: anywhere;
 }
 .lore-row__scope-open-manual {
   margin-top: 2px;
