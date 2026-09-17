@@ -451,8 +451,8 @@ func TestEventNoticeText_SendsTheBodyTheOwnerEditedAndNotTheShippedSeed(t *testi
 // that returns "": every downstream "we did not send it" fallback reads a
 // non-empty notice as a delivered one and stays disarmed. On the 加速停止 arm
 // the sliced-off half is the only place the deadline appears, so an agent under
-// a running clock is handed a notice quoting no instant, and 〈停止〉 §1 tells it
-// to read that as a soft wind-down.
+// a running clock is handed a notice quoting no instant while its body tells it
+// to stop 「在指定的結束時刻前」.
 //
 // The row is seeded DIRECTLY here, and that is the honest fixture rather than a
 // shortcut: the write face cannot produce this shape, which is exactly why it

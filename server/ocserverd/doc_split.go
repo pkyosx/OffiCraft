@@ -75,14 +75,13 @@ func DocJoinHeadBody(head, body string) string {
 // DocRendered is what a READER gets: the marker line disappears and the two
 // halves are joined with the separator this document's send site uses today.
 //
-// 🔴 join IS PER DOCUMENT AND IS NOT COSMETIC. The live send shapes really are
-// four: buildBootContext joins its blocks with a blank line, the wind-down
-// notices staple the body under the sentence with a single "\n", 轉派程序 runs
-// head and body together inside ONE paragraph with nothing between them, and
-// 解除阻擋 takes a blank line because its body is a bullet LIST rather than a
-// sentence continuing the head. Rendering all of them the same way would change
-// what an agent reads on three of the four — which is exactly the silent content
-// change the verbatim test in api_bootdocs_split_t3201_test.go exists to catch.
+// 🔴 join IS PER DOCUMENT AND IS NOT COSMETIC. The live send shapes are two:
+// 加速停止 and 任務收尾 staple the body under the sentence with a single "\n",
+// and the other task notices (both 轉派 halves, 解除阻擋, 可以結案) take a blank
+// line because their bodies open a block of their own — a list, with or
+// without an intro line. Rendering all of them the same way would change what
+// an agent reads on one of the two — which is exactly the silent content change
+// the verbatim test in api_bootdocs_split_behavior_test.go exists to catch.
 func DocRendered(text, join string) string {
 	head, body, split := DocSplitHeadBody(text)
 	if !split {

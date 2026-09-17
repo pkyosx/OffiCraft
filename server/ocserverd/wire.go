@@ -2451,10 +2451,10 @@ type taskArtifactDTO struct {
 	//
 	// It was removed by T-92 as duplication of URL and put back by the owner on
 	// rc-91e29b576ad8. What the duplication argument missed: `ocagent diff`
-	// takes an att- id and system_interaction §2.1 tells members to pass the id
-	// a task artifact ALREADY HAS while forbidding hand-built addresses — so
-	// slicing it back out of URL is the move that document rules out, and a
-	// link has no blob path in URL to slice at all.
+	// takes an att- id and system_interaction §2.1 tells members to pass the
+	// attachment_id a task artifact ALREADY HAS — so slicing it back out of URL
+	// is the move that document rules out, and a link has no blob path in URL
+	// to slice at all.
 	AttachmentID string `json:"attachment_id"`
 	Name         string `json:"name"`
 	// Filename is the BLOB's own name, resolved read-time like URL and Mime and
