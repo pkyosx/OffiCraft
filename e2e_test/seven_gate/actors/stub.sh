@@ -34,8 +34,7 @@
 #     answers it (run.sh) to release the waiting_owner hold.
 #   ⑦ the close is its OWN call (T-182). Reporting the last step no longer
 #     closes anything — it parks the task in `ready_for_done` — so the last step
-#     must reach done first (the handoff declaration rides THAT call), and then
-#     mark_task_done actually ends it.
+#     must reach done first, and then mark_task_done actually ends it.
 #
 # OC_SG_SKIP_STEP=<key> makes exactly one step NOT happen (keys as in judge.py:
 # report_waking resume_scene create_task submit_plan step_done reply_card
@@ -181,9 +180,9 @@ if ! skipped peer_message; then
 fi
 
 # ⑦ 按下結案 — wait for the owner to answer (the server restores the step to
-# in_progress when the card is answered), finish the last step with the handoff
-# declared IN THAT CALL (T-74f8 交棒閘), which derives the task to
-# `ready_for_done` — and then PRESS the button, which is what closes it.
+# in_progress when the card is answered), finish the last step, which derives
+# the task to `ready_for_done` — and then PRESS the button, which is what
+# closes it.
 if [[ -n "$TASK" ]] && ! skipped closeout; then
   SID2="$(step_id_at 1)"
   if [[ -z "$SID2" ]]; then
@@ -205,7 +204,7 @@ if [[ -n "$TASK" ]] && ! skipped closeout; then
       sg_step close_start POST "/api/tasks/$TASK/steps/$SID2/status" '{"status":"in_progress"}' >/dev/null
     fi
     sg_step close_last_step POST "/api/tasks/$TASK/steps/$SID2/status" \
-      '{"status":"done","handoff":"none","handoff_note":"載體 run,無後續"}' >/dev/null
+      '{"status":"done"}' >/dev/null
     sg_step mark_done POST "/api/tasks/$TASK/mark-done" '{}' >/dev/null
   fi
 fi

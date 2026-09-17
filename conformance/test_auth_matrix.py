@@ -450,9 +450,7 @@ def _matrix_ready_task(ctx: Ctx) -> str:
     sits in ``ready_for_done`` — mark_task_done's precondition (T-182)."""
     task_id, step_id = _matrix_task_step(ctx)
     h = {"Authorization": f"Bearer {ctx.agent_a.token}"}
-    for body in ({"status": "in_progress"},
-                 {"status": "done", "handoff": "none",
-                  "handoff_note": "conf matrix: nothing follows"}):
+    for body in ({"status": "in_progress"}, {"status": "done"}):
         r = ctx.client.post(
             f"/api/tasks/{task_id}/steps/{step_id}/status", json=body, headers=h)
         assert r.status_code == 200, f"scratch step report failed: {r.status_code} {r.text}"

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 )
 
@@ -125,8 +124,7 @@ func sameStrings(a, b []string) bool {
 }
 
 // createDelegatedTask opens a task that somebody OTHER than its executor
-// created — the shape the 交棒閘 asks about, and the shape every outsource
-// ticket has.
+// created — the shape every outsource ticket has.
 func createDelegatedTask(t *testing.T, api *apiServer, creator, executor string) taskDTO {
 	t.Helper()
 	rec := httptest.NewRecorder()
@@ -505,7 +503,7 @@ func TestHandleDeleteTaskStepApiTasksTaskIdStepsStepIdDeletePost(t *testing.T) {
 		}
 	})
 
-	t.Run("deleting the last unfinished step of a delegated task is refused by the 交棒閘", func(t *testing.T) {
+	t.Run("deleting the last unfinished step of a delegated task lands ready_for_done", func(t *testing.T) {
 		api := newTasksTestServer(t)
 		task := createDelegatedTask(t, api, "owner", "m-exec")
 		v1 := submitPlan(t, api, task.ID, "m-exec", []map[string]any{
@@ -519,68 +517,21 @@ func TestHandleDeleteTaskStepApiTasksTaskIdStepsStepIdDeletePost(t *testing.T) {
 			}
 		}
 		rec := deleteStep(t, api, task.ID, v1.Steps[1].ID, "m-exec")
-		if rec.Code != http.StatusUnprocessableEntity {
-			t.Fatalf("deleting the last unfinished step of a delegated task must "+
-				"422, got %d %s", rec.Code, rec.Body.String())
+		if rec.Code != http.StatusOK {
+			t.Fatalf("delete: %d %s", rec.Code, rec.Body.String())
 		}
-		msg := decodeBody[ErrorEnvelopeDTO](t, rec).Error.Message
-		for _, fragment := range []string{
-			"it is the LAST unfinished step",
-			"delete_step carries no handoff declaration",
-			"update_step_status report that finishes it",
-			"set_task_deps",
-		} {
-			if !strings.Contains(msg, fragment) {
-				t.Fatalf("the refusal must name the way out (%q missing):\n%s",
-					fragment, msg)
-			}
+		if got, want := rec.Body.String(), `{"task_id":"`+task.ID+
+			`","steps_total":1,"progress_done":1,"progress_total":1}`; got != want {
+			t.Fatalf("receipt:\n got %s\nwant %s", got, want)
 		}
 		v2 := getTaskView(t, api, task.ID)
-		if len(v2.Steps) != 2 || v2.Status == TaskStatusReadyForDone {
-			t.Fatalf("a refused delete must write nothing: %d steps, status %q",
-				len(v2.Steps), v2.Status)
+		if v2.Status != TaskStatusReadyForDone || v2.ClosedTS != nil {
+			t.Fatalf("want an open ready_for_done task, got %q closed_ts=%v",
+				v2.Status, v2.ClosedTS)
 		}
 	})
 
-	// The 422 case proves the gate REFUSES; this one proves the admitted path
-	// still WRITES the handover. Dropping applyHandoffPlan leaves the delete
-	// answering 200 with the three handoff fields empty, and no other test looks
-	// at them — a side effect nobody asserts is a side effect nothing guards.
-	t.Run("a live dependent satisfies the gate and the handover is recorded", func(t *testing.T) {
-		api := newTasksTestServer(t)
-		task := createDelegatedTask(t, api, "owner", "m-exec")
-		successor := createAdHocTask(t, api, "m-exec")
-		if err := api.dal.AddTaskDep(successor.ID, task.ID); err != nil {
-			t.Fatalf("AddTaskDep: %v", err)
-		}
-		v1 := submitPlan(t, api, task.ID, "m-exec", []map[string]any{
-			{"name": "done work", "dod": "d1"},
-			{"name": "abandoned", "dod": "d2"},
-		})
-		for _, status := range []string{"in_progress", "done"} {
-			if rec := driveStepStatus(t, api, task.ID, v1.Steps[0].ID, "m-exec",
-				status); rec.Code != http.StatusOK {
-				t.Fatalf("drive %s: %d %s", status, rec.Code, rec.Body.String())
-			}
-		}
-		if rec := deleteStep(t, api, task.ID, v1.Steps[1].ID,
-			"m-exec"); rec.Code != http.StatusOK {
-			t.Fatalf("delete with a live dependent: %d %s", rec.Code, rec.Body.String())
-		}
-		stored, err := api.dal.GetTask(task.ID)
-		if err != nil || stored == nil {
-			t.Fatalf("GetTask: %+v %v", stored, err)
-		}
-		if stored.Handoff != HandoffFollowUp || stored.HandoffTaskID != successor.ID {
-			t.Fatalf("the handover must be recorded: handoff=%q task=%q note=%q",
-				stored.Handoff, stored.HandoffTaskID, stored.HandoffNote)
-		}
-		if stored.HandoffNote == "" {
-			t.Fatalf("an automatic handover must say why it stood aside, got an empty note")
-		}
-	})
-
-	t.Run("the gate stands aside when the creator is the executor", func(t *testing.T) {
+	t.Run("deleting the last unfinished step of a self-created task lands ready_for_done", func(t *testing.T) {
 		api := newTasksTestServer(t)
 		task := createAdHocTask(t, api, "m-exec")
 		v1 := submitPlan(t, api, task.ID, "m-exec", []map[string]any{

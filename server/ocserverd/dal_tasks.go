@@ -76,11 +76,8 @@ type Task struct {
 	OutsourceMachine    string
 	OutsourceDispatched bool
 	// Handoff / HandoffNote / HandoffTaskID is the DECLARED destination of the
-	// ball (T-74f8, migrations/00031): '' = never declared, else one of
-	// domain.go's HandoffReturnToCreator / HandoffFollowUp / HandoffNone. The
-	// close gate (api_tasks.go handoffGateVerdict) refuses to let a
-	// creator≠executor task close until this is set, so a finished task can no
-	// longer end with nobody holding anything.
+	// ball (migrations/00031): '' = never declared, else one of domain.go's
+	// HandoffReturnToCreator / HandoffFollowUp / HandoffNone.
 	Handoff       string
 	HandoffNote   string
 	HandoffTaskID string

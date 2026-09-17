@@ -884,9 +884,7 @@ func (s *apiServer) postReadyForDoneNotice(t Task, trigger string) {
 // have turned every server restart into a sweep that closed every task anyone
 // was still packing up, which is the exact opposite of the ticket. What used to
 // be the fourth, un-gated door to a terminal status is therefore simply gone;
-// reconcile writes a derived status and nothing else. (The undeclared-handoff
-// warning that hung off that branch went with it: there is no close here to
-// warn about.)
+// reconcile writes a derived status and nothing else.
 //
 // ⚠️ A ROW REPAIRED INTO ready_for_done HERE SENDS NO 〈任務可結案〉 NOTICE, and
 // that is deliberate rather than an omission. This loop is a one-shot repair
@@ -1342,12 +1340,6 @@ func (s *apiServer) HandleMarkTaskDoneApiTasksTaskIdMarkDonePost(w http.Response
 			"task '"+taskId+"' is in '"+t.Status+"', not '"+TaskStatusReadyForDone+
 				"' — every step has to be reported done before the task can be "+
 				"closed as done (or ask the owner for force_task_done)")
-		return
-	}
-	// T-74f8 交棒閘, re-timed by T-182. See api_tasks_handoff.go: the gate guards
-	// the moment the close becomes irreversible, and that moment moved here.
-	if _, code, msg := s.handoffGateVerdict(*t, handoffDoorMarkDone, "", "", ""); code != 0 {
-		writeError(w, code, msg)
 		return
 	}
 	if err := s.closeTask(t, TaskStatusDone, nowSecs(), requestTrigger(r)); err != nil {
@@ -2158,7 +2150,7 @@ func (s *apiServer) postTaskChat(t Task, sender, recipient, body, trigger string
 		Meta:      meta,
 	}
 	if err := s.dal.PutChat(msg); err != nil {
-		// Not only reassign any more — T-74f8's dependency release posts the
+		// Not only reassign any more — the dependency release posts the
 		// durable "you are unblocked" row through here too, and that row IS the
 		// handover. A log line naming the wrong caller is a log line nobody
 		// finds, so say which task and which recipient and leave it at that.
@@ -2710,66 +2702,8 @@ func (s *apiServer) HandleSubmitTaskPlanApiTasksTaskIdPlanPost(w http.ResponseWr
 		writeError(w, http.StatusBadRequest, msg)
 		return
 	}
-	// ── T-74f8 交棒閘,第二道門 ───────────────────────────────────────────────
-	// A replan is a step-set write, and task.status is DERIVED from the step
-	// set, so a plan that lands all-done finishes the WORK just as surely as the
-	// final step report does. The replan split keeps `done` rows and DROPS an
-	// unfinished card-less row, so "replan down to only the nodes I already
-	// finished" was a SILENT arrival at the close-out with handoff="" — the
-	// exact bug this ticket exists to kill, reachable by the very move a caller
-	// refused at the first door would try next.
-	//
-	// 🔴 THE PROJECTION COMPARES AGAINST ready_for_done (T-182), exactly as
-	// wouldFinishTask does. DeriveTaskStatus can no longer RETURN done, so a
-	// comparison against done here is a condition that is false forever: the
-	// gate would keep running, keep costing nothing, and never fire again.
-	//
-	// Same projection rule, same verdict function, same population — only the
-	// prose differs (a plan carries no declaration field). Run it over the
-	// timeline as it is about to be stored and BEFORE ReplaceTaskPlan writes
-	// anything, so a refusal leaves the plan fully editable.
-	//
-	// 🔴 The projection MUST apply the freeze itself. ReplaceTaskPlan flips
-	// every freezeIDs row to `superseded` (dal_tasks.go), and DeriveTaskStatus
-	// SKIPS superseded rows outright — so freezing moves the step set strictly
-	// CLOSER to all-done. A projection made of the pre-write rows reads
-	// "still working" (in_progress / waiting_owner) for a plan that lands
-	// "done": the error is one-directional and it is fail-OPEN — the task
-	// closes with handoff="", no 422, no log. That is the exact bug this gate
-	// exists to kill, so the projection is not allowed to be an approximation
-	// of the stored timeline; it has to BE it.
-	var replanHandoff *handoffPlan
-	frozen := make(map[string]bool, len(freezeIDs))
-	for _, id := range freezeIDs {
-		frozen[id] = true
-	}
-	projected := make([]TaskStep, 0, len(kept)+len(fresh))
-	for _, st := range kept {
-		if frozen[st.ID] {
-			st.Status = StepStatusSuperseded
-		}
-		projected = append(projected, st)
-	}
-	projected = append(projected, fresh...)
-	if DeriveTaskStatus(projected) == TaskStatusReadyForDone {
-		p, code, msg := s.handoffGateVerdict(*t, handoffDoorReplan, "", "", "")
-		if code != 0 {
-			writeError(w, code, msg)
-			return
-		}
-		replanHandoff = p
-	}
 	steps, err := s.dal.ReplaceTaskPlan(t.ID, retainIDs, freezeIDs, nowSecs(), fresh)
 	if err != nil {
-		internalError(w, err)
-		return
-	}
-	// Record the handover BEFORE the derivation — same ordering as the
-	// step-report door (the successor's dep edge must exist by the time a later
-	// close walks its dependents, and t's handoff fields ride the PutTask that
-	// close performs). Only ever non-nil when the gate auto-satisfied off a live
-	// dependent, since a replan cannot carry an explicit declaration.
-	if err := s.applyHandoffPlan(t, replanHandoff); err != nil {
 		internalError(w, err)
 		return
 	}
@@ -2869,28 +2803,6 @@ func (s *apiServer) HandleMarkTaskDuplicatedApiTasksTaskIdMarkDuplicatedPost(w h
 	}
 	t.DuplicateOf = originalID
 	t.WaitingReason = "" // duplicated is terminal; no lingering wait reason
-	// ── T-74f8 交棒閘,第三道門 ───────────────────────────────────────────────
-	// mark_task_duplicated is the agent's OTHER terminal key (routes.go: principalAgent
-	// + MCPTool) and it closes the task directly, so before this it reached a
-	// terminal status with handoff="" — silently, exactly like the two doors the
-	// gate does guard.
-	//
-	// This door does NOT refuse, because there is nothing to ask: a duplicate's
-	// ball is on the ORIGINAL by construction — that is what "duplicate of" MEANS
-	// — and the original is a live task on somebody's list. So the server states
-	// the fact it already knows instead of demanding the caller restate it: zero
-	// friction, zero new 422, and the semantics stop being unrecorded.
-	//
-	// Deliberately no task_dep edge: the original is not BLOCKED by its duplicate
-	// (the dep would be backwards, and it would litter the original's deps list).
-	// duplicate_of already carries the link; handoff_task_id makes it readable
-	// through the same field every other handover is read through.
-	if TaskNeedsHandoffDeclaration(t.CreatorID, t.ExecutorID, t.Handoff) {
-		t.Handoff = HandoffFollowUp
-		t.HandoffTaskID = originalID
-		t.HandoffNote = "duplicate of " + TaskNo(originalID) +
-			" — the work (and the ball) stays on that task"
-	}
 	if err := s.closeTask(t, TaskStatusDuplicated, nowSecs(), requestTrigger(r)); err != nil {
 		internalError(w, err)
 		return
@@ -2976,33 +2888,6 @@ func (s *apiServer) HandleUpdateTaskStepStatusApiTasksTaskIdStepsStepIdStatusPos
 	} else {
 		step.WaitingReason = ""
 	}
-	// ── T-74f8 交棒閘 ─────────────────────────────────────────────────────────
-	// The LAST instant a handover can be arranged. If applying this report would
-	// derive the task to done, the close is irreversible (closed_ts stamps →
-	// submit_plan is a permanent 409), so a creator≠executor task must say where
-	// the ball goes HERE. Run over a PROJECTION, before any row is written: a
-	// refused close leaves the plan fully editable, and a gate placed after the
-	// step write would deadlock the task (all steps done, no legal transition
-	// out, no replan). See api_tasks_handoff.go for the full rationale.
-	var plan *handoffPlan
-	if status == StepStatusDone {
-		allSteps, err := s.dal.ListTaskSteps(taskId)
-		if err != nil {
-			internalError(w, err)
-			return
-		}
-		if wouldFinishTask(allSteps, step.ID) {
-			p, code, msg := s.handoffGateVerdict(*t, handoffDoorStepReport,
-				trimmedOrEmpty(body.Handoff),
-				trimmedOrEmpty(body.HandoffNote),
-				trimmedOrEmpty(body.HandoffTaskId))
-			if code != 0 {
-				writeError(w, code, msg)
-				return
-			}
-			plan = p
-		}
-	}
 	now := nowSecs()
 	step.Status = status
 	if status == StepStatusInProgress && step.StartedTS == 0 {
@@ -3012,13 +2897,6 @@ func (s *apiServer) HandleUpdateTaskStepStatusApiTasksTaskIdStepsStepIdStatusPos
 		step.FinishedTS = now
 	}
 	if err := s.dal.PutTaskStep(*step); err != nil {
-		internalError(w, err)
-		return
-	}
-	// Record the handover BEFORE the derivation: the successor task (and its dep
-	// edge) must already exist when a later close walks its dependents, and t's
-	// handoff fields ride the PutTask that close performs.
-	if err := s.applyHandoffPlan(t, plan); err != nil {
 		internalError(w, err)
 		return
 	}

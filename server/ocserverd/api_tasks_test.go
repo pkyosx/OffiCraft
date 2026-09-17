@@ -1141,7 +1141,7 @@ func TestWriteTaskStepStatusReceipt(t *testing.T) {
 		}
 
 		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+lastStep+"/status", agent,
-			`{"status":"done","handoff":"none","handoff_note":"nothing follows this"}`)
+			`{"status":"done"}`)
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
@@ -4499,7 +4499,7 @@ func TestHandleSubmitTaskPlanApiTasksTaskIdPlanPost(t *testing.T) {
 		stepID, _ := planned["steps"].([]any)[0].(map[string]any)["id"].(string)
 		apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/status", agent, `{"status":"in_progress"}`)
 		apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/status", agent,
-			`{"status":"done","handoff":"none","handoff_note":"nothing follows"}`)
+			`{"status":"done"}`)
 		_, ready := apiJSON(t, h, "GET", "/api/tasks/T-1", owner, "")
 		if ready["status"] != "ready_for_done" {
 			t.Fatalf("setup: want ready_for_done, got %v", ready["status"])
@@ -4526,7 +4526,7 @@ func TestHandleSubmitTaskPlanApiTasksTaskIdPlanPost(t *testing.T) {
 		stepID, _ := planned["steps"].([]any)[0].(map[string]any)["id"].(string)
 		apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/status", agent, `{"status":"in_progress"}`)
 		apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/status", agent,
-			`{"status":"done","handoff":"none","handoff_note":"nothing follows"}`)
+			`{"status":"done"}`)
 		apiMarkDone(t, h, "T-1", agent)
 
 		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/plan", agent,
@@ -4647,7 +4647,7 @@ func TestHandleSubmitTaskPlanApiTasksTaskIdPlanPost(t *testing.T) {
 				"drop the parallel_group to keep the step sequential")
 	})
 
-	t.Run("a replan that would close a task somebody else opened is refused until the ball is declared", func(t *testing.T) {
+	t.Run("a replan that leaves every step of a task somebody else opened done lands ready_for_done", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
 		agent := apiTestAgentToken(t, api, "kip", "")
@@ -4657,28 +4657,20 @@ func TestHandleSubmitTaskPlanApiTasksTaskIdPlanPost(t *testing.T) {
 		firstStepID, _ := planned["steps"].([]any)[0].(map[string]any)["id"].(string)
 		apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+firstStepID+"/status", agent, `{"status":"in_progress"}`)
 		apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+firstStepID+"/status", agent, `{"status":"done"}`)
-		dashboard := apiTestListen(t, api, "")
 
 		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/plan", agent,
 			`{"steps":[{"name":"Draft","dod":"a draft exists"}]}`)
-		if status != 422 {
-			t.Fatalf("want 422, got %d (%v)", status, data)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
-		apiWantError(t, data, "validation_error",
-			"task 'T-1' was created by 'owner' but executed by 'kip': this plan leaves EVERY step "+
-				"done, which FINISHES the task — it lands in ready_for_done, one mark_task_done "+
-				"away from a close that can never be undone. A plan "+
-				"carries no handoff declaration, so hand the ball over first, one of two ways: "+
-				"(1) keep ONE unfinished step in this plan, then declare the handover on the "+
-				"update_step_status report that finishes it (handoff='return_to_creator' | "+
-				"'follow_up' + handoff_task_id | 'none' + handoff_note) — this route always works, "+
-				"and the server adds the dependency edge itself; or (2) create the successor task "+
-				"(create_task) and point its blocked_by at this task (set_task_deps) — this gate "+
-				"then stands aside by itself, and closing this task releases the successor. NOTE: "+
-				"set_task_deps requires you to be the successor's executor (or an owner), so this "+
-				"route only works when the successor is assigned to you; otherwise it answers 403 "+
-				"and you want route (1).")
-		dashboard.wantFrames()
+		apiWantBody(t, data, map[string]any{
+			"task_id": "T-1", "steps_total": 1, "progress_done": 1, "progress_total": 1,
+		})
+		_, view := apiJSON(t, h, "GET", "/api/tasks/T-1", owner, "")
+		if view["status"] != TaskStatusReadyForDone || view["closed_ts"] != nil {
+			t.Fatalf("want an open ready_for_done task, got status %v closed_ts %v",
+				view["status"], view["closed_ts"])
+		}
 	})
 
 	t.Run("a plan with no steps at all answers 400", func(t *testing.T) {
@@ -5106,7 +5098,7 @@ func TestHandleUpdateTaskStepStatusApiTasksTaskIdStepsStepIdStatusPost(t *testin
 		dashboard.wantFrames()
 	})
 
-	t.Run("the report that finishes the last step lands ready_for_done, and mark_task_done is what closes it", func(t *testing.T) {
+	t.Run("the report that finishes the last step of a task somebody else opened lands ready_for_done, and mark_task_done is what closes it", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
 		agent := apiTestAgentToken(t, api, "kip", "")
@@ -5120,7 +5112,7 @@ func TestHandleUpdateTaskStepStatusApiTasksTaskIdStepsStepIdStatusPost(t *testin
 		bystander := apiTestListen(t, api, "mira")
 
 		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/status", agent,
-			`{"status":"done","handoff":"none","handoff_note":"nothing follows this"}`)
+			`{"status":"done"}`)
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
@@ -5211,35 +5203,6 @@ func TestHandleUpdateTaskStepStatusApiTasksTaskIdStepsStepIdStatusPost(t *testin
 		dashboard.wantFrames(doneFrame, noticeFrame)
 		executor.wantFrames(doneFrame, noticeFrame)
 		bystander.wantFrames()
-	})
-
-	t.Run("the report that would close a task somebody else opened is refused until the ball is declared", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
-		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
-		agent := apiTestAgentToken(t, api, "kip", "")
-		apiJSON(t, h, "POST", "/api/tasks/T-1/plan", agent,
-			`{"steps":[{"name":"Draft","dod":"a draft exists"}]}`)
-		_, planned := apiJSON(t, h, "GET", "/api/tasks/T-1", owner, "")
-		stepID, _ := planned["steps"].([]any)[0].(map[string]any)["id"].(string)
-		apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/status", agent, `{"status":"in_progress"}`)
-		dashboard := apiTestListen(t, api, "")
-
-		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/status", agent,
-			`{"status":"done"}`)
-		if status != 422 {
-			t.Fatalf("want 422, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "validation_error",
-			"task 'T-1' was created by 'owner' but executed by 'kip': this report would FINISH it — "+
-				"every step done — and it is then one call (mark_task_done) from a close that can "+
-				"never be undone or replanned. Say where the ball goes, in THIS same "+
-				"update_step_status call, with one of: "+
-				"handoff='return_to_creator' (recorded on this task and nothing else — no task is "+
-				"opened and nobody is notified); handoff='follow_up' + handoff_task_id='<the "+
-				"successor task you already created>' (the server attaches this task to it as a "+
-				"dependency, and closing this one releases it); handoff='none' + "+
-				"handoff_note='<why nothing follows>' (an explicit end of the line, recorded).")
-		dashboard.wantFrames()
 	})
 
 	t.Run("a transition the step machine does not allow answers 409 naming both ends", func(t *testing.T) {
@@ -7127,7 +7090,7 @@ func readyForDoneTask(t *testing.T, api *apiServer, h http.Handler, owner, taskI
 	stepID, _ := planned["steps"].([]any)[0].(map[string]any)["id"].(string)
 	apiJSON(t, h, "POST", "/api/tasks/"+taskID+"/steps/"+stepID+"/status", agent, `{"status":"in_progress"}`)
 	apiJSON(t, h, "POST", "/api/tasks/"+taskID+"/steps/"+stepID+"/status", agent,
-		`{"status":"done","handoff":"none","handoff_note":"nothing follows"}`)
+		`{"status":"done"}`)
 	_, view := apiJSON(t, h, "GET", "/api/tasks/"+taskID, owner, "")
 	if view["status"] != TaskStatusReadyForDone {
 		t.Fatalf("setup: want %s, got %v", TaskStatusReadyForDone, view["status"])
@@ -7176,7 +7139,7 @@ func TestCallerMayMarkTaskDone(t *testing.T) {
 }
 
 func TestHandleMarkTaskDoneApiTasksTaskIdMarkDonePost(t *testing.T) {
-	t.Run("a task in ready_for_done is closed by its executor, stamping closed_ts", func(t *testing.T) {
+	t.Run("a task somebody else opened, in ready_for_done, is closed by its executor, stamping closed_ts", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
 		agent := readyForDoneTask(t, api, h, owner, "T-1", "kip")
@@ -7185,9 +7148,22 @@ func TestHandleMarkTaskDoneApiTasksTaskIdMarkDonePost(t *testing.T) {
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
-		if data["status"] != TaskStatusDone || data["closed_ts"] == nil {
-			t.Fatalf("the receipt must report the closed task, got %v", data)
-		}
+		apiWantBody(t, data, map[string]any{
+			"task_id":                "T-1",
+			"title":                  "Ship it",
+			"status":                 "done",
+			"executor_id":            "kip",
+			"executor_kind":          "staff",
+			"lock":                   "",
+			"closed_ts":              apiAnyNumber,
+			"duplicate_of":           "",
+			"deps":                   []any{},
+			"progress_done":          1,
+			"progress_total":         1,
+			"artifact_count":         0,
+			"description_size_chars": 0,
+			"description_sha256":     "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+		})
 		_, view := apiJSON(t, h, "GET", "/api/tasks/T-1", owner, "")
 		if view["status"] != TaskStatusDone {
 			t.Fatalf("the close must be durable, got %v", view["status"])
@@ -7227,42 +7203,6 @@ func TestHandleMarkTaskDoneApiTasksTaskIdMarkDonePost(t *testing.T) {
 			t.Fatalf("want 409, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "conflict", "task 'T-1' is already closed (done)")
-	})
-
-	t.Run("a task that reached ready_for_done with the ball undeclared is refused at the handoff gate and stays open", func(t *testing.T) {
-		api, h, d, owner := newAPITestServer(t)
-		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
-		agent := apiTestAgentToken(t, api, "kip", "")
-		apiJSON(t, h, "POST", "/api/tasks/T-1/plan", agent,
-			`{"steps":[{"name":"Draft","dod":"a draft exists"}]}`)
-		// Reaching ready_for_done WITHOUT passing the step-report door is what
-		// leaves handoff undeclared here — boot-reconcile is the route the
-		// gate's own door list names.
-		steps, err := d.ListTaskSteps("T-1")
-		if err != nil {
-			t.Fatalf("ListTaskSteps: %v", err)
-		}
-		steps[0].Status = StepStatusDone
-		if err := d.PutTaskStep(steps[0]); err != nil {
-			t.Fatalf("PutTaskStep: %v", err)
-		}
-		if _, err := api.reconcileTaskStatusesOnBoot(); err != nil {
-			t.Fatalf("reconcileTaskStatusesOnBoot: %v", err)
-		}
-
-		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/mark-done", agent, "")
-		if status != 422 {
-			t.Fatalf("want 422, got %d (%v)", status, data)
-		}
-		msg, _ := data["error"].(map[string]any)["message"].(string)
-		if !strings.Contains(msg, "force_task_done") {
-			t.Fatalf("the refusal must name the way out of a door that carries no "+
-				"declaration field, got %q", msg)
-		}
-		_, view := apiJSON(t, h, "GET", "/api/tasks/T-1", owner, "")
-		if view["status"] != TaskStatusReadyForDone {
-			t.Fatalf("a refused close must leave the task open, got %v", view["status"])
-		}
 	})
 
 	t.Run("a caller that is not the executor is a 403, the owner included", func(t *testing.T) {

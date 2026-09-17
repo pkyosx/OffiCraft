@@ -1351,26 +1351,6 @@ func ValidHandoff(h string) bool {
 	return false
 }
 
-// TaskNeedsHandoffDeclaration is the GATE PREDICATE — the precise population
-// the close gate asks: a task whose creator is a DIFFERENT actor from its
-// executor and that has not yet declared where the ball goes.
-//
-// Deliberately narrow (the fail-closed blast-radius rule). It is false for:
-//   - a self-created task (creator == executor) — the executor IS the asker,
-//     there is nobody to hand back to. 270 of the 392 live tasks;
-//   - a blank creator (pre-creator_id rows) or a blank executor — we cannot
-//     name the two sides, so we must not invent an obligation. 53 live rows;
-//   - an already-declared task (idempotent: a re-report never re-asks).
-//
-// It says nothing about WHEN to ask — the caller pairs it with "this write
-// would close the task" so a mid-plan step report is never touched.
-func TaskNeedsHandoffDeclaration(creatorID, executorID, handoff string) bool {
-	if creatorID == "" || executorID == "" || creatorID == executorID {
-		return false
-	}
-	return handoff == HandoffUndeclared
-}
-
 // The task priority closed set. Frozen is a PRIORITY (pause-pushing, sorts
 // last), deliberately not a status (SPEC §3.3).
 const (

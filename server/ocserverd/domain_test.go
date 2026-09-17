@@ -1242,40 +1242,6 @@ func TestValidHandoff(t *testing.T) {
 	}
 }
 
-func TestTaskNeedsHandoffDeclaration(t *testing.T) {
-	t.Run("creator and executor are different actors and nothing has been declared", func(t *testing.T) {
-		if !TaskNeedsHandoffDeclaration("owner", "ann", HandoffUndeclared) {
-			t.Fatal("TaskNeedsHandoffDeclaration(owner, ann, \"\") = false, want true")
-		}
-	})
-
-	t.Run("a self-created task has nobody to hand back to", func(t *testing.T) {
-		if TaskNeedsHandoffDeclaration("ann", "ann", HandoffUndeclared) {
-			t.Fatal("TaskNeedsHandoffDeclaration(ann, ann, \"\") = true, want false")
-		}
-	})
-
-	t.Run("a blank creator or a blank executor cannot name two sides, so no obligation is invented", func(t *testing.T) {
-		if TaskNeedsHandoffDeclaration("", "ann", HandoffUndeclared) {
-			t.Fatal("TaskNeedsHandoffDeclaration(\"\", ann, \"\") = true, want false")
-		}
-		if TaskNeedsHandoffDeclaration("owner", "", HandoffUndeclared) {
-			t.Fatal("TaskNeedsHandoffDeclaration(owner, \"\", \"\") = true, want false")
-		}
-		if TaskNeedsHandoffDeclaration("", "", HandoffUndeclared) {
-			t.Fatal("TaskNeedsHandoffDeclaration(\"\", \"\", \"\") = true, want false")
-		}
-	})
-
-	t.Run("an already-declared task is never re-asked, whatever the declaration says", func(t *testing.T) {
-		for _, h := range []string{HandoffReturnToCreator, HandoffFollowUp, HandoffNone} {
-			if TaskNeedsHandoffDeclaration("owner", "ann", h) {
-				t.Fatalf("TaskNeedsHandoffDeclaration(owner, ann, %q) = true, want false", h)
-			}
-		}
-	})
-}
-
 func TestCanonicalTaskExecutorKind(t *testing.T) {
 	t.Run("the two closed-set values pass through unchanged", func(t *testing.T) {
 		for _, kind := range []string{TaskExecutorStaff, TaskExecutorOutsource} {
