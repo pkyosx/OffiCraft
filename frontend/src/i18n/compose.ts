@@ -69,7 +69,6 @@ export interface Messages {
   loreOpenManual: (manualName: string) => string;
   loreScopeManual: (manualName: string) => string;
   loreScopeAgent: (authorName: string) => string;
-  loreScopeDerivedFrom: (taskNo: string) => string;
   // ── office ──
   outsourceLabel: (codename: string) => string;
   // ── worker detail ──
@@ -286,8 +285,6 @@ export function makeMessages(t: Dict, language: Lang): Messages {
       `${t.lore.openManualLabel} ${manualName}`,
     loreScopeManual: (manualName) => `${t.lore.scopeManualLead}${manualName}`,
     loreScopeAgent: (authorName) => `${t.lore.scopeAgentLead}${authorName}`,
-    loreScopeDerivedFrom: (taskNo) =>
-      `${t.lore.scopeDerivedLead}${taskNo}${t.lore.scopeDerivedTail}`,
 
     // The outsource identity label has ONE source of the word 外包 now: the
     // section title. It used to have two (a title leaf and an identically

@@ -256,27 +256,13 @@ describe("LorePage — 外包條目的適用範圍選單", () => {
   function readMenu(container: HTMLElement, entryId: string) {
     const row = rowById(container, entryId);
     fireEvent.click(row.querySelector('[data-testid="lore-scope-name"]')!);
-    const menu = row.querySelector<HTMLElement>(
-      '[data-testid="lore-scope-options"]',
-    )!;
-    const options = Array.from(
-      menu.querySelectorAll<HTMLElement>('[role="menuitemradio"]'),
-    ).map((item) => [
-      item.getAttribute("data-testid"),
-      item.querySelector('[data-testid="lore-scope-option-label"]')!.textContent,
-      item.querySelector('[data-testid="lore-scope-option-tag"]')?.textContent ??
-        "",
-      item.getAttribute("aria-checked"),
-      item.textContent,
-      Array.from(
-        item.querySelectorAll('[data-testid="lore-scope-option-note"]'),
-      ).map((n) => n.textContent),
-    ]);
+    const text = row.querySelector('[data-testid="lore-scope-options"]')!
+      .textContent;
     fireEvent.mouseDown(document.body);
-    return options;
+    return text;
   }
 
-  it("names the bound task only for a worker still on the live roster, and warns for both", async () => {
+  it("shows only labels and tags for an outsource entry, whether or not its author is still on the roster", async () => {
     vi.spyOn(api, "listTaskManuals").mockResolvedValue([
       { typeKey: "review-pr", displayName: "PR 審查", purpose: "", fields: [] },
     ] as never);
@@ -305,16 +291,11 @@ describe("LorePage — 外包條目的適用範圍選單", () => {
       ).toBe("建立者：外包 · O-9");
     });
 
-    const warning = "這位外包離開後就沒有人讀得到，除非改成任務或所有人。";
-    expect(readMenu(container, "L-1")).toEqual([
-      ["lore-scope-manual", "任務：PR 審查", "", "false", "任務：PR 審查由承接中的 T-42 推得", ["由承接中的 T-42 推得"]],
-      ["lore-scope-agent", "建立者：外包 · O-1", "預設", "true", `建立者：外包 · O-1預設${warning}`, [warning]],
-      ["lore-scope-everyone", "所有人", "", "false", "所有人新", []],
-    ]);
-    expect(readMenu(container, "L-2")).toEqual([
-      ["lore-scope-manual", "任務：PR 審查", "", "false", "任務：PR 審查", []],
-      ["lore-scope-agent", "建立者：外包 · O-9", "預設", "true", `建立者：外包 · O-9預設${warning}`, [warning]],
-      ["lore-scope-everyone", "所有人", "", "false", "所有人新", []],
-    ]);
+    expect(readMenu(container, "L-1")).toBe(
+      "適用範圍任務：PR 審查建立者：外包 · O-1預設所有人",
+    );
+    expect(readMenu(container, "L-2")).toBe(
+      "適用範圍任務：PR 審查建立者：外包 · O-9預設所有人",
+    );
   });
 });

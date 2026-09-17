@@ -286,13 +286,8 @@ button.lore-row__scope-chip--editable:hover {
   align-items: center;
   color: var(--color-accent);
 }
-.lore-row__scope-option-body {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
 .lore-row__scope-option-head {
+  min-width: 0;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -309,17 +304,6 @@ button.lore-row__scope-chip--editable:hover {
   line-height: 16px;
   white-space: nowrap;
   color: var(--color-text-muted);
-}
-.lore-row__scope-tag--new {
-  border-color: color-mix(in srgb, var(--color-task-type) 40%, transparent);
-  color: var(--color-task-type);
-}
-.lore-row__scope-note {
-  font-size: 12px;
-  font-weight: 400;
-  line-height: 1.45;
-  color: var(--color-warn-fg);
-  overflow-wrap: anywhere;
 }
 .lore-row__scope-open-manual {
   margin-top: 2px;

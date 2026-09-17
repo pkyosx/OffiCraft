@@ -1886,7 +1886,7 @@ describe("LorePage — 適用範圍選單", () => {
     return menu;
   }
 
-  /** Every option as [kind, label, tag, checked, full text, notes]. */
+  /** Every option as [kind, label, tag, checked, full text]. */
   function readOptions(menu: HTMLElement) {
     return Array.from(
       menu.querySelectorAll<HTMLElement>('[role="menuitemradio"]'),
@@ -1897,9 +1897,6 @@ describe("LorePage — 適用範圍選單", () => {
         "",
       item.getAttribute("aria-checked"),
       item.textContent,
-      Array.from(
-        item.querySelectorAll('[data-testid="lore-scope-option-note"]'),
-      ).map((n) => n.textContent),
     ]);
   }
 
@@ -1960,7 +1957,6 @@ describe("LorePage — 適用範圍選單", () => {
         "預設",
         "true",
         "任務：PR 審查預設",
-        [],
       ],
       [
         "lore-scope-agent",
@@ -1968,15 +1964,13 @@ describe("LorePage — 適用範圍選單", () => {
         "",
         "false",
         "建立者：Mira",
-        [],
       ],
       [
         "lore-scope-everyone",
         "所有人",
         "",
         "false",
-        "所有人新",
-        [],
+        "所有人",
       ],
     ]);
     expect(
@@ -1984,11 +1978,9 @@ describe("LorePage — 適用範圍選單", () => {
         el.getAttribute("data-testid"),
       ),
     ).toEqual(["lore-scope-manual"]);
-    expect(
-      Array.from(menu.querySelectorAll(".lore-row__scope-tag--new")).map(
-        (el) => [el.closest('[role="menuitemradio"]')!.getAttribute("data-testid"), el.textContent],
-      ),
-    ).toEqual([["lore-scope-everyone", "新"]]);
+    expect(menu.textContent).toBe(
+      "適用範圍任務：PR 審查預設建立者：Mira所有人開啟任務手冊 PR 審查",
+    );
   });
 
   it("lists a staff entry without a task as author and everyone only", async () => {
@@ -2001,17 +1993,16 @@ describe("LorePage — 適用範圍選單", () => {
         "預設",
         "true",
         "建立者：Mira預設",
-        [],
       ],
       [
         "lore-scope-everyone",
         "所有人",
         "",
         "false",
-        "所有人新",
-        [],
+        "所有人",
       ],
     ]);
+    expect(menu.textContent).toBe("適用範圍建立者：Mira預設所有人");
     expect(menu.querySelector('[data-testid="lore-scope-open-manual"]')).toBeNull();
   });
 

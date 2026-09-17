@@ -143,10 +143,6 @@ export const en: Dict = {
     scopeManualLead: "Task: ",
     scopeAgentLead: "Author: ",
     scopeEveryone: "Everyone",
-    scopeOutsourceWarning: "Once this contractor leaves, nobody can read it unless you switch it to a task or everyone.",
-    scopeDerivedLead: "Derived from ",
-    scopeDerivedTail: ", which they are working on",
-    scopeTagNew: "New",
     scopeTagDefault: "Default",
     scopeTagCurrent: "Current",
     // The remaining fragments of the named cap line.

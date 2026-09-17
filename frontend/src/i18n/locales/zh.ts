@@ -137,10 +137,6 @@ export const zh = {
     scopeManualLead: "任務：",
     scopeAgentLead: "建立者：",
     scopeEveryone: "所有人",
-    scopeOutsourceWarning: "這位外包離開後就沒有人讀得到，除非改成任務或所有人。",
-    scopeDerivedLead: "由承接中的 ",
-    scopeDerivedTail: " 推得",
-    scopeTagNew: "新",
     scopeTagDefault: "預設",
     scopeTagCurrent: "目前",
     // 具名上限線的其餘片段

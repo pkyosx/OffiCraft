@@ -171,8 +171,6 @@ const EVERYONE_VALUE = "everyone:";
 interface ScopeChoice {
   kind: LoreScopeKind;
   label: string;
-  notes: string[];
-  isNew: boolean;
 }
 
 interface ScopeMenu {
@@ -625,47 +623,22 @@ export function LorePage({
         manuals.find((x) => x.typeKey === entry.taskTypeKey)?.displayName ||
         entry.taskTypeKey;
       const authorName = resolveAuthor(entry.authorId).text;
-      const outsource = entry.authorId.startsWith("ow-");
-      const boundTask =
-        outsource && entry.sourceTaskId === ""
-          ? workers.find(
-              (w) =>
-                w.id === entry.authorId &&
-                w.taskId !== "" &&
-                w.taskTypeKey === entry.taskTypeKey
-            )
-          : undefined;
-      const choices = entry.scopeOptions.map((kind): ScopeChoice => {
-        if (kind === "manual") {
-          return {
-            kind,
-            label: msg.loreScopeManual(manualName),
-            notes: boundTask
-              ? [msg.loreScopeDerivedFrom(boundTask.taskNo || boundTask.taskId)]
-              : [],
-            isNew: false,
-          };
-        }
-        if (kind === "agent") {
-          return {
-            kind,
-            label: msg.loreScopeAgent(authorName),
-            notes: outsource ? [t.lore.scopeOutsourceWarning] : [],
-            isNew: false,
-          };
-        }
-        return {
+      const choices = entry.scopeOptions.map(
+        (kind): ScopeChoice => ({
           kind,
-          label: t.lore.scopeEveryone,
-          notes: [],
-          isNew: true,
-        };
-      });
+          label:
+            kind === "manual"
+              ? msg.loreScopeManual(manualName)
+              : kind === "agent"
+                ? msg.loreScopeAgent(authorName)
+                : t.lore.scopeEveryone,
+        })
+      );
       const defaultKind: LoreScopeKind =
         entry.sourceTaskId !== "" && entry.taskTypeKey !== "" ? "manual" : "agent";
       return { choices, defaultKind };
     },
-    [manuals, resolveAuthor, workers, msg, t.lore]
+    [manuals, resolveAuthor, msg, t.lore.scopeEveryone]
   );
 
   const authorAvatar = useCallback(
@@ -1357,32 +1330,16 @@ function LoreRow({
                     <span className="lore-row__scope-check" aria-hidden="true">
                       {current && <CheckIcon size={14} />}
                     </span>
-                    <span className="lore-row__scope-option-body">
-                      <span className="lore-row__scope-option-head">
-                        <span data-testid="lore-scope-option-label">{c.label}</span>
-                        {c.isNew && (
-                          <span className="lore-row__scope-tag lore-row__scope-tag--new">
-                            {t.lore.scopeTagNew}
-                          </span>
-                        )}
-                        {tag !== "" && (
-                          <span
-                            className="lore-row__scope-tag"
-                            data-testid="lore-scope-option-tag"
-                          >
-                            {tag}
-                          </span>
-                        )}
-                      </span>
-                      {c.notes.map((n) => (
+                    <span className="lore-row__scope-option-head">
+                      <span data-testid="lore-scope-option-label">{c.label}</span>
+                      {tag !== "" && (
                         <span
-                          key={n}
-                          className="lore-row__scope-note"
-                          data-testid="lore-scope-option-note"
+                          className="lore-row__scope-tag"
+                          data-testid="lore-scope-option-tag"
                         >
-                          {n}
+                          {tag}
                         </span>
-                      ))}
+                      )}
                     </span>
                   </button>
                 );
