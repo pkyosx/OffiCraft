@@ -118,7 +118,7 @@ describe("httpApi.listLoreEntries · the multi-select sets go on the wire (T-33)
 });
 
 describe("httpApi.setLoreEntryScope", () => {
-  it("posts only the target kind to the entry's scope route and returns where the entry landed", async () => {
+  it("posts only the target kind to the entry's scope route and resolves to nothing", async () => {
     fetchMock.mockImplementation(async () =>
       jsonResponse({
         id: "L-7",
@@ -136,12 +136,7 @@ describe("httpApi.setLoreEntryScope", () => {
     expect(req.method).toBe("POST");
     expect(new URL(req.url).pathname).toBe("/api/lore/L-7/scope");
     expect(await req.json()).toEqual({ scope_kind: "everyone" });
-    expect(result).toEqual({
-      id: "L-7",
-      scopeKind: "everyone",
-      scopeKey: "",
-      updatedTs: 1788500000,
-    });
+    expect(result).toBeUndefined();
   });
 
   it("rejects with the server's reason when the switch is refused", async () => {

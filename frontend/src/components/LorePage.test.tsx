@@ -2028,156 +2028,24 @@ describe("LorePage — 適用範圍選單", () => {
     ]);
   });
 
-  it("patches only the clicked row from the receipt, without reloading the list", async () => {
-    const set = vi.spyOn(api, "setLoreEntryScope").mockResolvedValue({
-      id: "L-2",
-      scopeKind: "everyone",
-      scopeKey: "",
-      updatedTs: 1788500000,
-    });
+  it("switches the clicked entry's scope, closes the menu and re-reads the list", async () => {
+    const set = vi.spyOn(api, "setLoreEntryScope").mockResolvedValue(undefined);
     const { container, list } = await renderRows([taskBound, staffNoTask]);
     expect(list).toHaveBeenCalledTimes(1);
-    fireEvent.click(rowById(container, "L-1"));
-    const openRow = rowById(container, "L-1");
-    const switchedRow = rowById(container, "L-2");
-    expect(openRow.getAttribute("aria-expanded")).toBe("true");
 
     const menu = openScopeMenu(container, "L-2");
     fireEvent.click(menu.querySelector('[data-testid="lore-scope-everyone"]')!);
 
-    await waitFor(() =>
-      expect(
-        rowById(container, "L-2").querySelector('[data-testid="lore-scope-name"]')!
-          .textContent,
-      ).toBe("所有人"),
-    );
+    await waitFor(() => expect(list).toHaveBeenCalledTimes(2));
     expect(set.mock.calls).toEqual([["L-2", "everyone"]]);
-    expect(list).toHaveBeenCalledTimes(1);
     expect(
       container.querySelector('[data-testid="lore-scope-options"]'),
     ).toBeNull();
-    expect(rowById(container, "L-2")).toBe(switchedRow);
-    expect(rowById(container, "L-1")).toBe(openRow);
-    expect(openRow.getAttribute("aria-expanded")).toBe("true");
-    expect(
-      rowById(container, "L-1").querySelector('[data-testid="lore-scope-name"]')!
-        .textContent,
-    ).toBe("任務：PR 審查");
-    expect(renderedIds(container)).toEqual(["L-1", "L-2"]);
-  });
-
-  it("under a scope filter re-asks the list quietly, keeping the other rows mounted", async () => {
-    vi.spyOn(api, "listTaskManuals").mockResolvedValue(MANUALS as never);
-    vi.spyOn(api, "setLoreEntryScope").mockResolvedValue({
-      id: "L-2",
-      scopeKind: "everyone",
-      scopeKey: "",
-      updatedTs: 1788500000,
-    });
-    const mira = mkEntry({
-      id: "L-9",
-      scopeKind: "agent",
-      scopeKey: "mira",
-      scopeOptions: ["agent", "everyone"],
-    });
-    let answer = page([staffNoTask, mira]);
-    const list = vi
-      .spyOn(api, "listLoreEntries")
-      .mockImplementation(async () => answer);
-    const { container } = renderPage({ canSetScope: true });
-    await waitFor(() => expect(renderedIds(container)).toEqual(["L-2", "L-9"]));
-    const trigger = container.querySelector<HTMLElement>(
-      '[data-testid="lore-filter-member"]',
-    )!;
-    fireEvent.click(trigger);
-    fireEvent.click(
-      container.querySelector<HTMLElement>(
-        '[data-testid="lore-filter-member-opt-agent:mira"] input',
-      )!,
-    );
-    await waitFor(() => expect(list).toHaveBeenCalledTimes(2));
-    await waitFor(() => expect(renderedIds(container)).toEqual(["L-2", "L-9"]));
-    const kept = rowById(container, "L-9");
-
-    answer = page([mira]);
-    fireEvent.click(
-      openScopeMenu(container, "L-2").querySelector(
-        '[data-testid="lore-scope-everyone"]',
-      )!,
-    );
-
-    await waitFor(() => expect(renderedIds(container)).toEqual(["L-9"]));
-    expect(list).toHaveBeenCalledTimes(3);
-    expect(list.mock.calls[2][0]).toEqual({
-      scopeKinds: ["agent"],
-      scopeKeys: ["mira"],
-      limit: 30,
-      offset: 0,
-    });
-    expect(rowById(container, "L-9")).toBe(kept);
-    expect(container.querySelector('[data-testid="lore-empty"]')).toBeNull();
-  });
-
-  it("keeps the rows and says so when the quiet re-query after a switch fails", async () => {
-    vi.spyOn(api, "listTaskManuals").mockResolvedValue(MANUALS as never);
-    vi.spyOn(api, "setLoreEntryScope").mockResolvedValue({
-      id: "L-2",
-      scopeKind: "everyone",
-      scopeKey: "",
-      updatedTs: 1788500000,
-    });
-    const mira = mkEntry({
-      id: "L-9",
-      scopeKind: "agent",
-      scopeKey: "mira",
-      scopeOptions: ["agent", "everyone"],
-    });
-    let fail = false;
-    const list = vi.spyOn(api, "listLoreEntries").mockImplementation(async () => {
-      if (fail) throw new Error("network down");
-      return page([staffNoTask, mira]);
-    });
-    const { container } = renderPage({ canSetScope: true });
-    await waitFor(() => expect(renderedIds(container)).toEqual(["L-2", "L-9"]));
-    fireEvent.click(
-      container.querySelector<HTMLElement>('[data-testid="lore-filter-member"]')!,
-    );
-    fireEvent.click(
-      container.querySelector<HTMLElement>(
-        '[data-testid="lore-filter-member-opt-agent:mira"] input',
-      )!,
-    );
-    await waitFor(() => expect(list).toHaveBeenCalledTimes(2));
-    await waitFor(() => expect(renderedIds(container)).toEqual(["L-2", "L-9"]));
-    expect(container.querySelector('[data-testid="lore-action-error"]')).toBeNull();
-
-    fail = true;
-    fireEvent.click(
-      openScopeMenu(container, "L-2").querySelector(
-        '[data-testid="lore-scope-everyone"]',
-      )!,
-    );
-
-    await waitFor(() =>
-      expect(
-        container.querySelector('[data-testid="lore-action-error"]')?.textContent,
-      ).toBe("操作已完成，但重新讀取列表失敗，請重新整理頁面"),
-    );
-    expect(list).toHaveBeenCalledTimes(3);
-    expect(renderedIds(container)).toEqual(["L-2", "L-9"]);
-    expect(
-      rowById(container, "L-2").querySelector('[data-testid="lore-scope-name"]')!
-        .textContent,
-    ).toBe("所有人");
+    expect(rowById(container, "L-2").getAttribute("aria-expanded")).toBe("false");
   });
 
   it("closes without a request when the current scope is picked again", async () => {
-    const set = vi.spyOn(api, "setLoreEntryScope").mockResolvedValue({
-      id: "L-2",
-      scopeKind: "everyone",
-      scopeKey: "",
-      updatedTs: 1788500000,
-    });
+    const set = vi.spyOn(api, "setLoreEntryScope").mockResolvedValue(undefined);
     const { container, list } = await renderRows([staffNoTask]);
 
     const menu = openScopeMenu(container, "L-2");

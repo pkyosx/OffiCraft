@@ -189,7 +189,6 @@ export const en: Dict = {
     // A failed action (403 included) must be visible — never a silent no-op.
     actionFailed: "That action did not go through. Please try again.",
     forbidden: "You do not have permission to do that.",
-    requeryFailed: "Done, but reloading the list failed. Please refresh the page.",
   },
   notifications: {
     dismiss: "Dismiss notification",

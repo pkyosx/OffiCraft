@@ -35,11 +35,7 @@ describe("mock setLoreEntryScope", () => {
   });
 
   it("derives the key from the entry for each target kind", async () => {
-    expect(await api.setLoreEntryScope("L-5", "manual")).toMatchObject({
-      id: "L-5",
-      scopeKind: "manual",
-      scopeKey: "tm-mock",
-    });
+    await api.setLoreEntryScope("L-5", "manual");
     expect(row((await api.listLoreEntries()).entries, "L-5").slice(0, 2)).toEqual([
       "manual",
       "tm-mock",

@@ -154,7 +154,6 @@ import type {
   LoreEntryState,
   LoreEntryPageView,
   LoreScopeKind,
-  LoreScopeReceipt,
 } from "./adapter";
 
 /** The five real presence words, as a runtime set — the type union's twin. */
@@ -2071,17 +2070,6 @@ export function toLoreEntry(
     retireReason: w.retire_reason,
     effectiveTs: w.effective_ts,
     createdTs: w.created_ts,
-    updatedTs: w.updated_ts,
-  };
-}
-
-export function toLoreScopeReceipt(
-  w: components["schemas"]["LoreEntryScopeReceiptDTO"],
-): LoreScopeReceipt {
-  return {
-    id: w.id,
-    scopeKind: isLoreScopeKind(w.scope_kind) ? w.scope_kind : "unknown",
-    scopeKey: w.scope_key,
     updatedTs: w.updated_ts,
   };
 }
