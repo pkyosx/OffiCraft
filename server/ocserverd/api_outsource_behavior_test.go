@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -494,46 +495,193 @@ func oneFrame(t *testing.T, api *apiServer, target string) (string, map[string]a
 	return decodeWardenFrame(t, frames[0].Frame)
 }
 
-// TestRelocateActiveWorker_MovesImmediately (T-f190 item 3, review gap): an
-// ACTIVE worker (already claimed its task) must move THE MOMENT the owner
-// relocates — NOT wait for a scheduler tick. The tick only re-spawns 'assigned'
-// workers (outsource_sched), so a tick-deferred relocate would strand an active
-// worker on the old machine forever. relocateWorkerNow dispatches immediately;
-// this pins that behaviour (drained WITHOUT running a tick) and that lifecycle
-// is untouched (a relocate is a placement change, not a state change).
-func TestRelocateActiveWorker_MovesImmediately(t *testing.T) {
-	api := newTasksTestServer(t)
-	api.noOutsource = true
-	workerID := assignOneWorker(t, api)
-
-	// Flip the worker ACTIVE (claimed) with a live session on an old online host.
+// liveRelocateWorker is an ACTIVE worker bound to a live task, pinned to and
+// running on m-old (its SSE carries that machine claim), with m-new registered
+// and its warden online. oldWardenUp decides whether m-old's warden is
+// connected. Returns the worker id and the worker's own SSE listener.
+func liveRelocateWorker(t *testing.T, api *apiServer, oldWardenUp bool) (string, *hubListener) {
+	t.Helper()
+	workerID := newActiveWorker(t, api, false)
+	api.hub.DrainWardenCommands(ServerSelfHost)
+	seedMachine(t, api, "m-old")
+	seedMachine(t, api, "m-new")
+	connectWarden(t, api, "m-new")
+	if oldWardenUp {
+		connectWarden(t, api, "m-old")
+	}
 	w, err := api.dal.GetOutsourceWorker(workerID)
 	if err != nil || w == nil {
 		t.Fatalf("get worker: %v", err)
 	}
-	w.Status = WorkerStatusActive
-	if err := api.dal.PutOutsourceWorker(*w); err != nil {
-		t.Fatalf("flip active: %v", err)
+	w.DesiredMachineID = "m-old"
+	if err := api.dal.SetMemberDesiredMachineID(workerID, "m-old"); err != nil {
+		t.Fatalf("pin m-old: %v", err)
 	}
-	seedMachine(t, api, "m-new")
-	connectWarden(t, api, "m-new")
-	connectWarden(t, api, "m-old")
 	api.workerSpawnTarget[workerID] = "m-old"
+	session, err := api.hub.Connect(workerID, "m-old")
+	if err != nil {
+		t.Fatalf("connect worker SSE: %v", err)
+	}
+	return workerID, session
+}
 
-	relocateOK(t, api, workerID, "m-new")
+// reportStoppedAs files report_stopped as the worker itself.
+func reportStoppedAs(t *testing.T, api *apiServer, workerID string) {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	api.HandleReportStoppedApiSelfStoppedPost(rec,
+		taskReq(t, "POST", "/api/self/stopped", map[string]any{}, workerID, "agent"))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("report_stopped: %d %s", rec.Code, rec.Body.String())
+	}
+}
 
-	// Immediate (no tick ran): old host cleared, new host re-spawned.
-	if rpc, args := oneFrame(t, api, "m-old"); rpc != reconcileCmdStop || args["member_id"] != workerID {
-		t.Errorf("old host frame = %s %v, want worker_stop for %s", rpc, args, workerID)
+// workerBootContextOf reads the boot context the cockpit previews for a worker —
+// the persona a START frame for it must carry verbatim.
+func workerBootContextOf(t *testing.T, api *apiServer, workerID string) string {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	api.HandleGetWorkerBootContextApiOutsourceWorkersIdBootContextGet(rec,
+		taskReq(t, "GET", "/api/outsource-workers/"+workerID+"/boot-context", nil,
+			wireOwnerID, "owner"), workerID)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("boot-context: %d %s", rec.Code, rec.Body.String())
 	}
-	if rpc, args := oneFrame(t, api, "m-new"); rpc != reconcileCmdStart || args["member_id"] != workerID {
-		t.Errorf("new host frame = %s %v, want worker_start for %s", rpc, args, workerID)
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("boot-context body: %v", err)
 	}
-	// Lifecycle stayed active — a relocate never demotes a claimed worker.
-	w, err = api.dal.GetOutsourceWorker(workerID)
-	if err != nil || w == nil || w.Status != WorkerStatusActive {
-		t.Fatalf("relocate must keep active lifecycle, got %+v", w)
+	return body["context"].(string)
+}
+
+func stopFrameFor(workerID string) drainedFrame {
+	return drainedFrame{Topic: wardenCommandTopic, RPC: reconcileCmdStop,
+		Args: map[string]any{"member_id": workerID}}
+}
+
+func wantDrained(t *testing.T, api *apiServer, machineID string, want ...drainedFrame) {
+	t.Helper()
+	got := drainFrames(t, api, machineID)
+	if want == nil {
+		want = []drainedFrame{}
 	}
+	if got == nil {
+		got = []drainedFrame{}
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("%s frames = %+v, want %+v", machineID, got, want)
+	}
+}
+
+func TestRelocateActiveWorker(t *testing.T) {
+	t.Run("a worker with no live session is stopped on the old machine and started on the new one in the same call, lifecycle untouched", func(t *testing.T) {
+		api := newTasksTestServer(t)
+		api.noOutsource = true
+		workerID, session := liveRelocateWorker(t, api, true)
+		api.hub.Disconnect(session)
+
+		relocateOK(t, api, workerID, "m-new")
+
+		wantDrained(t, api, "m-old", stopFrameFor(workerID))
+		if rpc, args := oneFrame(t, api, "m-new"); rpc != reconcileCmdStart || args["member_id"] != workerID {
+			t.Errorf("new host frame = %s %v, want start for %s", rpc, args, workerID)
+		}
+		w, err := api.dal.GetOutsourceWorker(workerID)
+		if err != nil || w == nil || w.Status != WorkerStatusActive {
+			t.Fatalf("relocate must keep active lifecycle, got %+v", w)
+		}
+	})
+
+	t.Run("a live worker gets no START on the new machine while it reads online; the STOP goes to the old machine and is re-sent past stop_retry; once it disconnects the next tick starts it on the new machine", func(t *testing.T) {
+		api := newTasksTestServer(t)
+		api.noOutsource = true
+		workerID, session := liveRelocateWorker(t, api, true)
+		persona := workerBootContextOf(t, api, workerID)
+		stopRetry := api.reconcileConfigLive().StopRetry
+
+		relocateOK(t, api, workerID, "m-new")
+		wantDrained(t, api, "m-old")
+		wantDrained(t, api, "m-new")
+
+		reportStoppedAs(t, api, workerID)
+		now := nowSecs()
+		api.runOutsourceTick(now)
+		wantDrained(t, api, "m-old", stopFrameFor(workerID))
+		wantDrained(t, api, "m-new")
+
+		api.runOutsourceTick(now + stopRetry - 1)
+		wantDrained(t, api, "m-old")
+		wantDrained(t, api, "m-new")
+
+		api.runOutsourceTick(now + stopRetry)
+		wantDrained(t, api, "m-old", stopFrameFor(workerID), stopFrameFor(workerID))
+		wantDrained(t, api, "m-new")
+
+		api.hub.Disconnect(session)
+		api.runOutsourceTick(now + stopRetry + 1)
+		wantDrained(t, api, "m-old")
+		frames := drainFrames(t, api, "m-new")
+		if len(frames) != 1 {
+			t.Fatalf("m-new frames = %+v, want exactly one start", frames)
+		}
+		token, _ := frames[0].Args["member_token"].(string)
+		if token == "" {
+			t.Fatalf("the start must carry a minted session token: %+v", frames[0])
+		}
+		frames[0].Args["member_token"] = "<minted>"
+		want := drainedFrame{Topic: wardenCommandTopic, RPC: reconcileCmdStart, Args: map[string]any{
+			"member_id":       workerID,
+			"persona_context": persona,
+			"member_token":    "<minted>",
+			"role":            "outsource-worker",
+			"runtime":         "claude",
+			"model":           "claude-sonnet-4-5",
+			"effort":          "medium",
+			"session_name":    "",
+		}}
+		if !reflect.DeepEqual(frames[0], want) {
+			t.Fatalf("m-new start = %+v, want %+v", frames[0], want)
+		}
+		if got := api.workerSpawnTarget[workerID]; got != "m-new" {
+			t.Errorf("spawn target = %q, want m-new", got)
+		}
+		w, err := api.dal.GetOutsourceWorker(workerID)
+		if err != nil || w == nil {
+			t.Fatalf("re-read worker: %v", err)
+		}
+		if w.Status != WorkerStatusActive || w.TaskID == "" || w.DesiredMachineID != "m-new" {
+			t.Errorf("worker after the move = status %q task %q pin %q, want active on its task pinned to m-new",
+				w.Status, w.TaskID, w.DesiredMachineID)
+		}
+	})
+
+	t.Run("an unreachable old machine keeps the STOP parked and re-fired while the agent is connected, no START goes out, and the START follows the disconnect", func(t *testing.T) {
+		api := newTasksTestServer(t)
+		api.noOutsource = true
+		workerID, session := liveRelocateWorker(t, api, false)
+
+		relocateOK(t, api, workerID, "m-new")
+		reportStoppedAs(t, api, workerID)
+		now := nowSecs()
+		for _, at := range []float64{now, now + 30, now + 120} {
+			api.runOutsourceTick(at)
+			wantDrained(t, api, "m-new")
+			if got := api.workerStopPending[workerID]; got != "m-old" {
+				t.Fatalf("tick at +%.0f: parked kill = %q, want m-old", at-now, got)
+			}
+		}
+
+		api.hub.Disconnect(session)
+		api.runOutsourceTick(now + 150)
+		if rpc, args := oneFrame(t, api, "m-new"); rpc != reconcileCmdStart || args["member_id"] != workerID {
+			t.Fatalf("new host frame = %s %v, want start for %s", rpc, args, workerID)
+		}
+
+		connectWarden(t, api, "m-old")
+		api.runOutsourceTick(now + 180)
+		wantDrained(t, api, "m-old", stopFrameFor(workerID))
+		wantDrained(t, api, "m-new")
+	})
 }
 
 // TestRelocateNeverDispatchedWorker (T-f190 item 3, review gap): relocating a
@@ -588,7 +736,7 @@ func x46Worker(t *testing.T, api *apiServer, pin string) string {
 
 // TestRelocateAssignedWorker_X46 (T-e0e3): the X-46 row, relocated onto its
 // concrete machine. The immediate path DOES dispatch here — status is `assigned`,
-// so respawnWorkerNow's active-only O-28 deferral never applies — which is exactly
+// so the stop executor's active-only O-28 deferral never applies — which is exactly
 // why the blank row was so misleading: the start went out and left no trace,
 // because worker spawn observability is in-memory by contract and nothing durable
 // was written until the boot was judged failed.
@@ -697,9 +845,8 @@ func TestRelocateNeverStoppedWorker_SavesPinWithoutReviving(t *testing.T) {
 
 // TestRestartWorker_NoKillTarget_StillAttemptsStart (owner ruling: fix the whole
 // class, one shared path): 重啟 is the verb whose entire intent is "be running",
-// yet it discarded respawnWorkerNow's bool exactly like relocate did — so in the
-// no-kill-target shape it wrote a receipt that LOOKED caught while dispatching
-// nothing. It now rides the same shared path and genuinely attempts the start.
+// and in the no-kill-target shape (offline, spawn memory lost) it must still
+// attempt the start rather than leave only a receipt.
 func TestRestartWorker_NoKillTarget_StillAttemptsStart(t *testing.T) {
 	api := newTasksTestServer(t)
 	api.noOutsource = true
@@ -776,10 +923,9 @@ func TestSetWorkerModel_StoppedWorkerNotRevived(t *testing.T) {
 // TestRelocateMintedOfflineWorker (T-e0e3 regression — the X-46 report): a worker
 // already MINTED and CLAIMED (status active) whose session then died, with the
 // server's spawn memory gone too (re-exec), relocated onto a concrete online
-// machine. respawnWorkerNow's O-28 deferral used to swallow this shape whole: the
-// pin landed, NOTHING was dispatched, and last_op/last_op_reason stayed BLANK —
-// the cockpit showed 尚未分配機器 with nothing to diagnose. An owner relocate onto
-// a concrete machine must actually ATTEMPT the start.
+// machine. The stop executor defers on this shape (no kill target), but the
+// worker reads offline, so the event-driven reconcile must still ATTEMPT the
+// start rather than leave the pin with nothing dispatched.
 func TestRelocateMintedOfflineWorker(t *testing.T) {
 	api := newTasksTestServer(t)
 	api.noOutsource = true // no cadence tick may heal this — the handler must
@@ -894,8 +1040,8 @@ func TestRelocateMintedOfflineWorker_BlankMachineRefusedAndStartsNothing(t *test
 
 // TestRelocateToSameMachine (T-f190 item 3, review gap): the code path is NOT a
 // no-op — relocating to the machine the worker already runs on kills the current
-// session and re-spawns it on that SAME machine (a deliberate "restart here", the
-// same 殺舊+重生 primitive). This pins the DEFINED behaviour so a future "skip
+// session and re-spawns it on that SAME machine (a deliberate "restart here": the
+// worker is offline, so the stop and the start both go out in the relocate call). This pins the DEFINED behaviour so a future "skip
 // when same" optimisation is a conscious change, not an accident.
 func TestRelocateToSameMachine(t *testing.T) {
 	api := newTasksTestServer(t)

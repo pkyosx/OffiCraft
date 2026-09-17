@@ -92,15 +92,15 @@ sequenceDiagram
 
 ⇒ 正確的切法是：**收案是兩個決策器；救援共用同一個。** 說「只有一個決策者」是錯的，說「worker 完全不經過正職那個決策器」也是錯的（**這是初稿改錯方向之後的第二版錯誤**）。
 
-### 🔴 上線這條**有**繞道，只是不在正職那邊
+### 🔴 上線這條沒有繞道：外包的 owner op 也是踢一輪決策
 
-下線有「強制下線」那種繞過決策器的直接投遞。上線這邊的對稱物是**外包的 owner op**（換機器、喚醒）：它**可以**直接投遞，不等下一個 tick。
+下線有「強制下線」那種繞過決策器的直接投遞。上線這邊，**外包的 owner op**（換機器、喚醒）不直接投遞 START：owner op 先送停止給舊 session，再**踢一輪同一顆決策器**（`handOverWorkerNow` → `reconcileWorkerNow`，正職 `reconcileMemberNow` 的外包版）。worker 已經讀成離線時，START 在同一次請求裡送出，照樣受決策器的退避與斷路器管；還在線上時，這一次不派 START，等 session 讀成離線後由 tick 起。
 
-⚠️ **但不是無條件的**：如果那個 op 不是「把已停的 worker 叫回來」、而該 worker 手上還有東西要寫回，它會先走一段**交接**（那一段的註解逐字寫「**這裡不發出任何 kill**」）。立即投遞是**另一支**。
+⚠️ **停舊、踢決策也不是無條件的**：如果那個 op 不是「把已停的 worker 叫回來」、而該 worker 手上還有東西要寫回，它會先走一段**交接**（那一段的註解逐字寫「**NO kill goes out here**」）。停舊、踢決策是**另一支**。
 
-🔴 **而「喚醒」自 T-65 包④ 起根本不再是這條繞道的成員之一，只要 session 還活著**（owner 2026-09-06 `rc-1f591528a6d0` 圈 [0]：「收斂成『正在跑就不動它』；真的要強制重來再另外給一個動作」）。handler 用 `hub.IsOnline` 分兩臂：**session 還在跑 ⇒ 一個 frame 都不派、也不殺**，只把 `desired_state` 記成 online、清掉 `stopping_since` / `waking_since`，並在列上蓋一句 `session_alive` 回執；**session 不在 ⇒ 才是原本那條直接投遞**。⇒ **「喚醒＝立即投遞」現在只對後面那一臂成立**，寫成通則會錯一半。
+🔴 **而「喚醒」只要 session 還活著，就根本不走上面那一支**（T-65 包④；owner 2026-09-06 `rc-1f591528a6d0` 圈 [0]：「收斂成『正在跑就不動它』；真的要強制重來再另外給一個動作」）。handler 用 `hub.IsOnline` 分兩臂：**session 還在跑 ⇒ 一個 frame 都不派、也不殺**，只把 `desired_state` 記成 online、清掉 `stopping_since` / `waking_since`，並在列上蓋一句 `session_alive` 回執；**session 不在 ⇒ 才走上面那一支（停舊、踢一輪決策）**。⇒ **「喚醒會派 START」只對後面那一臂成立**，寫成通則會錯一半。
 
-⇒ **正職沒有繞道；worker 有，但那扇門有條件。** 初稿寫成「上線這條沒有等價的繞道」，是把正職的形狀當成了全部。
+⇒ **START 在兩邊都由決策器發出；worker 的差別是 owner op 會先送停止，而且可能先走一段交接。**
 
 ---
 
@@ -139,7 +139,7 @@ worker 那邊**至少四種**：**排程收案時的 admission**、**owner op**�
 >
 > 新：按喚醒 → **什麼都不做**，只把 `desired_state` 記成 online 並清掉 `stopping_since` → agent 自己把收尾做完、`report_stopped` → 那一報落在 `workerReportStopped` 的**裸 latch**（兩支收口臂的前提都被前一步拿掉了：「停止」那臂要 desired offline，「換手」那臂要 `refocus_since > 0`）→ **下一輪 tick 看到「想要它在線上」而沒有 session，派一道普通 START。**
 
-⇒ **它還是會回來，但回來的是第四種觸發（救援 START），不是 owner op 的立即投遞。**代價是**多等一個 tick 加上收尾本身的時間**；換到的是「owner 按下去不會弄丟它寫到一半的東西」。這條時間軸由 `TestWakeOnAStoppingWorkerBringsItBackAfterTheCloseOut` 逐步釘住——中間**任何一步**退化，症狀都是同一個：**按了 200、然後它永遠不回來，畫面上沒有任何東西是紅的。**
+⇒ **它還是會回來，但回來的是第四種觸發（救援 START），不是 owner op 踢的那一輪決策。**代價是**多等一個 tick 加上收尾本身的時間**；換到的是「owner 按下去不會弄丟它寫到一半的東西」。這條時間軸由 `TestWakeOnAStoppingWorkerBringsItBackAfterTheCloseOut` 逐步釘住——中間**任何一步**退化，症狀都是同一個：**按了 200、然後它永遠不回來，畫面上沒有任何東西是紅的。**
 
 ### 🔴 換手重生不是一道 restart
 

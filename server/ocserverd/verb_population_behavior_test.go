@@ -853,7 +853,7 @@ func parityCases() []verbCase {
 				// call, so not making it IS the behaviour change.
 				// The staff and worker live arms both leave the running session alone.
 				Dispatched: dispatchedNothing,
-				// No session ends, so respawnWorkerNow's bank-before-kill is never
+				// No session ends, so stopWorkerSessionForHandover's bank-before-kill is never
 				// reached and the live figure is still on the row.
 				Cost: costUntouched,
 				// The unified member projection publishes the preserved wind-down epoch,
@@ -940,13 +940,13 @@ func parityCases() []verbCase {
 				// it only ever held on the arm that HAS a re-dispatch, which is this one.
 				Waking: anchorPast, RestartAfterStop: false,
 				DesiredMachineID: parityMachineA,
-				// respawnWorkerForOwnerOpNow → respawnWorkerNow resolves the remembered
-				// placement and kills it BEFORE dispatching the fresh START. SORTED, so
-				// "start+stop" — the emission order is stop-then-start.
+				// handOverWorkerNow → stopWorkerSessionForHandover resolves the remembered
+				// placement and stops it; the session is already offline, so the
+				// event-driven reconcile dispatches the START in the same call. SORTED,
+				// so "start+stop" — the emission order is stop-then-start.
 				Dispatched: "start+stop",
-				// respawnWorkerNow banks the dying session's live cost before the kill
-				// (「so the respawn never zeroes the visible spend」); the start+stop
-				// above is the same call's evidence.
+				// stopWorkerSessionForHandover banks the dying session's live cost
+				// before the kill; the start+stop above is the same call's evidence.
 				Cost: costBanked,
 				// openWorkerHandoverGrace is not called by this handler on either arm,
 				// api_outsource.go calls putMember nowhere at all (0 call sites,

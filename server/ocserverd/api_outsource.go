@@ -164,9 +164,9 @@ func (s *apiServer) HandleGetWorkerBootContextApiOutsourceWorkersIdBootContextGe
 // 🔴 IT DOES NOT KILL THE SESSION HERE, and this comment used to say it did.
 // Since T-98f4 a LIVE worker with anything to flush gets the graceful wind-down:
 // it keeps running ON THE OLD MACHINE until its own report_stopped (or the
-// owner's force-stop), and the kill+respawn onto the new pin happens at that
-// 收口. The immediate 殺舊 session + 清 pacing + 重生 path is what a worker with
-// nothing to flush takes. The old sentence described the verb this endpoint had
+// owner's force-stop); the 收口 stops it there, and the START onto the new pin
+// follows once the worker reads offline. A worker with nothing to flush takes the
+// immediate arm (handOverWorkerNow: stop, then one pass of the shared FSM). The old sentence described the verb this endpoint had
 // BEFORE that change; it is retracted here rather than deleted, because the same
 // claim also stood on the wire (spec/openapi.json) and in the MCP tool list, and
 // a reader who met it there should be able to find where it was withdrawn. 404 for an unknown / already-released worker (a released worker
@@ -185,7 +185,7 @@ func (s *apiServer) HandleRelocateOutsourceWorkerApiOutsourceWorkersIdRelocatePo
 }
 
 // relocateWorkerByID is the shared 改機器 core: validate the pin, persist it,
-// kill+re-dispatch, respond with the fresh projection. Called by the worker
+// stop and reconcile, respond with the fresh projection. Called by the worker
 // route handler and by the member relocate fallback (relocate_member accepts a
 // worker id — P7c), so both faces serve identical semantics.
 func (s *apiServer) relocateWorkerByID(w http.ResponseWriter, r *http.Request, id, machineID string) {
@@ -264,7 +264,7 @@ func (s *apiServer) relocateWorkerByID(w http.ResponseWriter, r *http.Request, i
 // the member route it now shares is Requires=admin_agent, NOT owner — an older
 // version of this line said owner and was wrong even before the fold). The worker twin of refocus_member, member-shaped since
 // T-ea82: stamp refocus_since + fan the SOP 預告 at the worker's own session
-// (openWorkerHandoverGrace) and RETURN — the kill+respawn is owned by the 收口
+// (openWorkerHandoverGrace) and RETURN — the stop is owned by the 收口
 // drivers, which for THIS handler are exactly TWO: the worker's report_stopped,
 // (T-72dd: the offline fallback that used to be named here is gone — an offline
 // worker has no session to collect). 🔴 There is NO grace deadline
@@ -375,8 +375,8 @@ func (s *apiServer) HandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost
 		return
 	}
 	// Graceful flush (T-ea82): 預告 only — no synchronous kill. When the online
-	// gate raced a disconnect, the grace open itself falls back to the immediate
-	// kill+respawn (nothing can hear the 預告).
+	// gate raced a disconnect, the grace open itself collects at once and
+	// reconciles (nothing can hear the 預告).
 	s.openWorkerHandoverGrace(*worker, requestTrigger(r))
 	if fresh, ferr := s.dal.GetOutsourceWorker(id); ferr == nil && fresh != nil {
 		worker = fresh
@@ -720,8 +720,8 @@ func (s *apiServer) handleRestartOutsourceWorker(w http.ResponseWriter, r *http.
 	//
 	// 🔴 T-65 包④ FINISHED THAT SENTENCE. Removing the 409 made the two verbs
 	// agree on the ANSWER (200, never refused) while they still disagreed on the
-	// CONSEQUENCE: this arm went on to respawnWorkerNow, which kills the current
-	// session before dispatching the next one, while the staff arm reaches
+	// CONSEQUENCE: this arm went on to kill the current session and dispatch the
+	// next one, while the staff arm reaches
 	// reconcile, gets `online: converged`, and sends no frame at all. Same word on
 	// both panels since owner 2026-07-31 「應該要統一」, opposite outcomes, and
 	// nothing on the screen said which one the owner was pressing — press it on a
@@ -828,7 +828,7 @@ func (s *apiServer) handleRestartOutsourceWorker(w http.ResponseWriter, r *http.
 	// 🔴 BEFORE THE RESPAWN, AND THE REASON IS STRONGER THAN "the response should
 	// see it". respawnWorkerForOwnerOp WRITES RECEIPTS OF ITS OWN — the held-down
 	// arm through stampWorkerPlacementBlocked, the deferred arm through
-	// respawnWorkerNow. Move this write after it and the handler's snapshot,
+	// stopWorkerSessionForHandover. Move this write after it and the handler's snapshot,
 	// taken at the top of the request, lands on top of the receipt the respawn
 	// just wrote: the owner is shown the older sentence, on a 200, with nothing
 	// red. Placing it first also happens to give the re-read below a row that
@@ -849,9 +849,9 @@ func (s *apiServer) handleRestartOutsourceWorker(w http.ResponseWriter, r *http.
 		}
 	}
 	// 🔴 正在跑就不動它 — the whole behaviour change is this branch (T-65 包④).
-	// respawnWorkerForOwnerOp is where the kill lives (→ respawnWorkerForOwnerOpNow
-	// → respawnWorkerNow, which resolves a kill target and ends the session before
-	// it dispatches). Not calling it is what makes 喚醒 a no-op on a live worker.
+	// respawnWorkerForOwnerOp is where the kill lives (→ handOverWorkerNow →
+	// stopWorkerSessionForHandover, which resolves a kill target and ends the
+	// session). Not calling it is what makes 喚醒 a no-op on a live worker.
 	//
 	// The outcome is built by hand rather than left as the zero value: the zero
 	// value answers Pending()==true, and a pending badge here would tell the owner
@@ -972,20 +972,12 @@ func (s *apiServer) handleSetOutsourceWorkerModel(w http.ResponseWriter, r *http
 	// is deliberately NOT re-asked here — respawnWorkerForOwnerOp owns that single
 	// branch point for all three owner verbs, and asking twice is how the two
 	// copies drift (this one used to skip silently, leaving no receipt).
-	// 🔴 THIS RUNS BEFORE THE SETTERS, SO THE FRAME IT MAY DISPATCH READS THE
-	// VALUE, NOT THE ROW — and that is now a load-bearing invariant.
-	// respawnWorkerForOwnerOp has two arms: the wind-down arm dispatches nothing,
-	// but the immediate arm (reached when the epoch has already been collected
-	// while the session is still online) kills and re-dispatches a START right
-	// here. It takes `*worker` BY VALUE and every step below it does too
-	// (respawnWorkerForOwnerOpNow → respawnWorkerNow → notifyWorkerSpawn), so the
-	// frame carries the intent this request just set, which has not reached the
-	// row yet.
-	// ⇒ notifyWorkerSpawn and everything under it must NEVER re-read the member
-	// row for the launch spec. Doing so would dispatch the OLD model while the
-	// setter below stores the new one, and the worker would run the old value
-	// with a 200, no receipt and nothing red — T-b6d9's bug through a third door.
-	// Pinned by TestSetWorkerModel_ImmediateRespawnCarriesTheNewModel.
+	// This runs BEFORE the setters below, gated on the worker reading ONLINE: the
+	// funnel stops the old session and normally the tick starts the replacement
+	// once the worker reads offline, by which time the setters have stored the new
+	// launch intent on the row. If the session drops between the gate and the
+	// funnel, the funnel's reconcile starts it here instead, from *worker, which
+	// already carries the new model / runtime / effort.
 	if launchIntentChanged && worker.Status == WorkerStatusActive && s.hub.IsOnline(worker.ID) {
 		s.respawnWorkerForOwnerOp(*worker, ownerOpModel)
 	} else if launchIntentChanged && worker.DesiredState == DesiredStateOffline {

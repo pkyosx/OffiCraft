@@ -291,8 +291,8 @@ server 的 `respawnWorkerForOwnerOp` 在 `desired_state=offline` 時只記錄、
 **沒有「只儲存，不喚醒」那顆鍵**，而且這一條**刻意不與正職對齊**：正職的「只儲存」是
 PATCH ＋ placement-only relocate，兩者都不啟動任何東西；外包的 relocate **不是** placement-only
 （`desired_state` 不是 offline 時它會重生 session —— 線上且有東西要 flush 的 worker 走的是
-T-98f4 的優雅收尾，session 留在舊機器上跑到它自己 report_stopped 才 kill + re-dispatch；
-沒東西要 flush 的才是當場 kill + re-dispatch），所以對「session 自己死掉、
+T-98f4 的優雅收尾，session 留在舊機器上跑到它自己 report_stopped 才被停掉；
+沒東西要 flush 的當場停掉；兩種都等 session 讀成離線才 re-dispatch），所以對「session 自己死掉、
 `desired_state` 仍是 online」的 worker，一顆說「存了但沒啟動」的鍵會是假話。
 要提供它得新增一條 pin-only 的外包端點＝動凍結 wire（§13）——**未做，列為 follow-up**。
 

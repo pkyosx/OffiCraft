@@ -26,6 +26,20 @@ func apiTestWorkerFixture(t *testing.T, h http.Handler, d *DAL, owner, id, statu
 	return id
 }
 
+// apiTestWorkerWantedOnline gives a fixture worker the desired_state every
+// worker the scheduler creates carries.
+func apiTestWorkerWantedOnline(t *testing.T, d *DAL, id string) {
+	t.Helper()
+	w, err := d.GetOutsourceWorker(id)
+	if err != nil || w == nil {
+		t.Fatalf("GetOutsourceWorker: %v (%v)", w, err)
+	}
+	w.DesiredState = DesiredStateOnline
+	if err := d.PutOutsourceWorker(*w); err != nil {
+		t.Fatalf("PutOutsourceWorker: %v", err)
+	}
+}
+
 func apiTestWorkerRow(t *testing.T, over map[string]any) map[string]any {
 	t.Helper()
 	row := map[string]any{
@@ -400,9 +414,10 @@ func TestHandleRelocateOutsourceWorkerApiOutsourceWorkersIdRelocatePost(t *testi
 		push()
 	})
 
-	t.Run("moving a worker with no live session pins the machine and answers the bare receipt", func(t *testing.T) {
+	t.Run("moving a worker with no live session onto a machine that is offline pins it and answers the move as pending", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusAssigned)
+		apiTestWorkerWantedOnline(t, d, "ow-abc123")
 		dashboard := apiTestListen(t, api, "")
 		bystander := apiTestListen(t, api, "kip")
 
@@ -411,16 +426,16 @@ func TestHandleRelocateOutsourceWorkerApiOutsourceWorkersIdRelocatePost(t *testi
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
-		apiWantBody(t, data, map[string]any{"id": "ow-abc123"})
+		apiWantBody(t, data, map[string]any{"id": "ow-abc123", "relocation_pending": true})
 		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
-			"desired_machine_id": "m-server-self",
-			"last_op":            "start", "last_op_ok": false, "last_op_at": apiAnyNumber,
+			"desired_state": "online", "desired_machine_id": "m-server-self",
+			"last_op": "start", "last_op_ok": false, "last_op_at": apiAnyNumber,
 			"last_op_reason": "machine_unavailable: machine 'm-server-self' is offline; " +
 				"no other machine is substituted",
 		}))
 		dashboard.wantFrames(
-			apiTestWorkerDelta(2, "assigned", "server"),
-			apiTestWorkerDelta(3, "assigned", "owner"),
+			apiTestWorkerStateDelta(2, "assigned", "online", "server"),
+			apiTestWorkerStateDelta(3, "assigned", "online", "owner"),
 		)
 		bystander.wantFrames()
 	})
@@ -431,7 +446,7 @@ func TestHandleRelocateOutsourceWorkerApiOutsourceWorkersIdRelocatePost(t *testi
 		if err := d.PutOutsourceWorker(OutsourceWorker{
 			ID: "ow-def456", Codename: "Stevedore", TaskID: "T-1",
 			Status: WorkerStatusAssigned, Runtime: "claude", Model: "sonnet",
-			Effort: "medium",
+			Effort: "medium", DesiredState: DesiredStateOnline,
 		}); err != nil {
 			t.Fatalf("PutOutsourceWorker: %v", err)
 		}
@@ -441,7 +456,7 @@ func TestHandleRelocateOutsourceWorkerApiOutsourceWorkersIdRelocatePost(t *testi
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
-		apiWantBody(t, data, map[string]any{"id": "ow-def456"})
+		apiWantBody(t, data, map[string]any{"id": "ow-def456", "relocation_pending": true})
 		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, nil))
 	})
 
@@ -638,6 +653,50 @@ func TestHandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost(t *testing
 		)
 		bystander.wantFrames()
 		push()
+	})
+
+	t.Run("換手 on a live worker is collected as a STOP only, and the replacement START goes out on the first tick after it reads offline", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
+		apiTestWorkerWantedOnline(t, d, "ow-abc123")
+		if err := d.SetMemberDesiredMachineID("ow-abc123", ServerSelfHost); err != nil {
+			t.Fatalf("SetMemberDesiredMachineID: %v", err)
+		}
+		apiTestListen(t, api, ServerSelfHost)
+		session, err := api.hub.Connect("ow-abc123", ServerSelfHost)
+		if err != nil {
+			t.Fatalf("hub.Connect: %v", err)
+		}
+		contractor := apiTestAgentToken(t, api, "ow-abc123", ServerSelfHost)
+
+		if status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/refocus", owner, ""); status != 200 {
+			t.Fatalf("refocus: %d (%v)", status, data)
+		}
+		wsWantWardenFrames(t, api, ServerSelfHost)
+		if status, data := apiJSON(t, h, "POST", "/api/self/stopped", contractor, `{}`); status != 200 {
+			t.Fatalf("report_stopped: %d (%v)", status, data)
+		}
+		wsWantWardenFrames(t, api, ServerSelfHost)
+
+		now := nowSecs()
+		api.runOutsourceTick(now)
+		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"))
+		api.runOutsourceTick(now + 30)
+		wsWantWardenFrames(t, api, ServerSelfHost)
+
+		api.hub.Disconnect(session)
+		status, boot := apiJSON(t, h, "GET", "/api/outsource-workers/ow-abc123/boot-context", owner, "")
+		if status != 200 {
+			t.Fatalf("boot-context preview: %d (%v)", status, boot)
+		}
+		api.runOutsourceTick(now + 31)
+		wsWantWardenFrames(t, api, ServerSelfHost,
+			wsStartFrame("ow-abc123", boot["context"].(string), "claude", "sonnet", "medium"))
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "active", "presence": "waking", "desired_state": "online",
+			"desired_machine_id": "m-server-self", "machine": "m-server-self",
+			"refocus_since": apiAnyNumber, "refocus_op": "refocus",
+		}))
 	})
 
 	t.Run("換手 on a worker whose 停止 is in flight answers 200 and queues the 起來 behind it", func(t *testing.T) {

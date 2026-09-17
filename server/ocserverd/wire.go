@@ -1881,12 +1881,13 @@ type agentRelocateReceiptDTO struct {
 	// pin is persisted before any dispatch, so a relocate never fails on
 	// dispatch — which is what made a clean 200 dangerous. Two non-landings reach
 	// it: a decided recycle STOP/START the warden would not accept, and a
-	// wind-down opened by design. Omitted means nothing was left undelivered; it
+	// move deferred by design. Omitted means nothing was left undelivered; it
 	// does NOT mean the agent is already running on the pin.
 	RelocationPending bool `json:"relocation_pending,omitempty"`
 	// RelocationDeferred says WHICH of the two causes it is. True is a
-	// deliberately deferred move — a wind-down is open and the agent keeps
-	// running on the old machine until its own 收口 — not a delivery failure, so
+	// deliberately deferred move — the agent's session is still live on the old
+	// machine (a wind-down is open, or an outsource worker's old session has been
+	// stopped and its START waits for it to read offline) — not a delivery failure, so
 	// a caller must hold back the "nothing was dispatched" alert for it.
 	RelocationDeferred bool `json:"relocation_deferred,omitempty"`
 }

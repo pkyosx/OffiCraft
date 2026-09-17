@@ -790,8 +790,9 @@ var identityGateLedger = map[string]string{
 		"member path, for the same serialized task-bound write reason.",
 	"api_members.go :: HandleReportStoppedApiSelfStoppedPost :: m.Kind == KindOutsource": "" +
 		"same self-report fold, stopped face — and this one also runs the worker 收口 " +
-		"(kill+respawn on the first stopped-report of a refocus-marked worker), which " +
-		"is the member recycle-kill shape riding the worker's own kill funnel.",
+		"(the first stopped-report of a refocus-marked worker latches the collect for " +
+		"the shared FSM), which is the member recycle shape riding the worker's own " +
+		"kill funnel.",
 	"api_members.go :: HandleRestartSelfApiSelfRefocusPost :: m.Kind == KindOutsource": "" +
 		"same fold on the self-refocus face: stamp the epoch and open the graceful " +
 		"window through the worker funnel, the same shape the owner's refocus button " +
