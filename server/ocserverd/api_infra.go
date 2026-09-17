@@ -769,8 +769,16 @@ func (s *apiServer) stampLandedMachine(memberID, machineID string) {
 // the dangerous direction — a genuinely new session would inherit its
 // predecessor's hours-old anchor and be waved through. Keeping the write and the
 // clear inside this one pair of functions is what makes drift impossible; do not
-// add a third writer.
+// add a third writer (restoreRefusedStartAnchor writes both stores together too,
+// and only ever puts back what a START cleared).
+//
+// This is the STOP-boundary entry: an ended session can never be restored, so
+// any snapshot a START left behind is dropped. START sites use
+// clearSessionBootTSForStart.
 func (s *apiServer) clearSessionBootTS(id string) {
+	s.startClearedAnchorsMu.Lock()
+	delete(s.startClearedAnchors, id)
+	s.startClearedAnchorsMu.Unlock()
 	if entry := s.gauge.Get(id); entry != nil {
 		delete(entry, "boot_ts")
 		// Codex compaction count belongs to the old App Server thread. Carrying
@@ -871,6 +879,137 @@ func (s *apiServer) clearSessionBootTS(id string) {
 	if m.HandoverNoticedTS != 0 {
 		if err := s.dal.SetMemberHandoverNoticedTS(id, 0); err != nil {
 			fmt.Fprintf(os.Stderr, "[sse] handover-notice claim clear failed for %q: %v\n", id, err)
+		}
+	}
+}
+
+// sessionAnchorSnapshot is what a START dispatch cleared and a refused START
+// puts back. The gauge readings ride along because they belong to the session
+// that turns out to still be running; ctxGateDiagAt is not kept, it only
+// throttles a log line.
+type sessionAnchorSnapshot struct {
+	bootTS            float64
+	handoverNoticedTS float64
+	gauge             map[string]any
+}
+
+var sessionAnchorGaugeKeys = []string{"compaction_count", "context_pct", "context_pct_ts"}
+
+// clearSessionBootTSForStart is clearSessionBootTS for a START dispatch. The
+// START is only a request: the warden refuses it with session_already_exists
+// when the old session is still alive, and that session must keep its anchor
+// (restoreRefusedStartAnchor). A START that finds nothing anchored (a second
+// START before the first one's receipt) keeps the snapshot already held rather
+// than replacing it with an empty one.
+func (s *apiServer) clearSessionBootTSForStart(id string) {
+	snap, ok := s.currentSessionAnchor(id)
+	if !ok {
+		s.startClearedAnchorsMu.Lock()
+		snap, ok = s.startClearedAnchors[id]
+		s.startClearedAnchorsMu.Unlock()
+	}
+	s.clearSessionBootTS(id)
+	if !ok {
+		return
+	}
+	s.startClearedAnchorsMu.Lock()
+	if s.startClearedAnchors == nil {
+		s.startClearedAnchors = map[string]sessionAnchorSnapshot{}
+	}
+	s.startClearedAnchors[id] = snap
+	s.startClearedAnchorsMu.Unlock()
+}
+
+func (s *apiServer) currentSessionAnchor(id string) (sessionAnchorSnapshot, bool) {
+	entry := s.gauge.Get(id)
+	snap := sessionAnchorSnapshot{gauge: map[string]any{}}
+	snap.bootTS, _ = gaugeBootTS(entry)
+	for _, key := range sessionAnchorGaugeKeys {
+		if v, has := entry[key]; has {
+			snap.gauge[key] = v
+		}
+	}
+	snap.handoverNoticedTS = s.cachedHandoverClaim(id)
+	if m, err := s.dal.GetMember(id); err == nil && m != nil {
+		if m.SessionBootTS > 0 {
+			snap.bootTS = m.SessionBootTS
+		}
+		if m.HandoverNoticedTS != 0 {
+			snap.handoverNoticedTS = m.HandoverNoticedTS
+		}
+	}
+	return snap, snap.bootTS > 0
+}
+
+// restoreRefusedStartAnchor settles the snapshot clearSessionBootTSForStart
+// took, on that START's receipt. Only a session_already_exists refusal puts it
+// back — the old session is still the live one — and every other START receipt
+// just drops it, leaving the cleared anchor for the new session to re-stamp.
+//
+// The agent may have reconnected before the receipt and minted a newer anchor;
+// the older one still wins, since it is the real start of this session. A
+// notice claim taken on that newer anchor is moved with it, so the session is
+// not told twice. Gauge readings the reconnected session already re-reported
+// are newer than the snapshot and are left alone.
+func (s *apiServer) restoreRefusedStartAnchor(id, rpc string, ok *bool, reason string) {
+	if rpc != reconcileCmdStart && rpc != legacyWardenCmdWorkerStart {
+		return
+	}
+	s.startClearedAnchorsMu.Lock()
+	snap, had := s.startClearedAnchors[id]
+	delete(s.startClearedAnchors, id)
+	s.startClearedAnchorsMu.Unlock()
+	if !had || ok == nil || *ok || !strings.HasPrefix(reason, spawnClobberReasonPrefix) {
+		return
+	}
+	m, err := s.dal.GetMember(id)
+	if err != nil || m == nil {
+		return
+	}
+	current := m.SessionBootTS
+	if current > 0 && current <= snap.bootTS {
+		return
+	}
+	if err := s.dal.SetMemberSessionBootTS(id, snap.bootTS); err != nil {
+		fmt.Fprintf(os.Stderr, "[sse] session-boot anchor restore failed for %q: %v\n", id, err)
+		return
+	}
+	entry := s.gauge.Get(id)
+	if entry == nil {
+		entry = map[string]any{}
+	}
+	entry["boot_ts"] = snap.bootTS
+	restoreAbsent := func(guard string, keys ...string) {
+		if _, has := entry[guard]; has {
+			return
+		}
+		for _, key := range keys {
+			if v, has := snap.gauge[key]; has {
+				entry[key] = v
+			}
+		}
+	}
+	restoreAbsent("compaction_count", "compaction_count")
+	restoreAbsent("context_pct_ts", "context_pct", "context_pct_ts")
+	s.gauge.Set(id, entry)
+
+	claim := snap.handoverNoticedTS
+	if current > 0 && m.HandoverNoticedTS == current {
+		claim = snap.bootTS
+	}
+	s.handoverNoticedMu.Lock()
+	if claim != 0 {
+		if s.handoverNoticed == nil {
+			s.handoverNoticed = map[string]float64{}
+		}
+		s.handoverNoticed[id] = claim
+	} else {
+		delete(s.handoverNoticed, id)
+	}
+	s.handoverNoticedMu.Unlock()
+	if claim != m.HandoverNoticedTS {
+		if err := s.dal.SetMemberHandoverNoticedTS(id, claim); err != nil {
+			fmt.Fprintf(os.Stderr, "[sse] handover-notice claim restore failed for %q: %v\n", id, err)
 		}
 	}
 }

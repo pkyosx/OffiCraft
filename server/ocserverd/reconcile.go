@@ -1394,7 +1394,7 @@ func (s *apiServer) reconcileOne(m Member, st reconcileState, now float64) recon
 		}
 		// A landed START begins a NEW session: drop any prior session's boot_ts
 		// anchor so the fresh agent's first connect re-stamps (T-8fb2 boot_ts fix).
-		s.clearSessionBootTS(m.ID)
+		s.clearSessionBootTSForStart(m.ID)
 		// The warden now owes a command_result for this START. Armed AFTER the
 		// accepted enqueue only — an unlanded frame is already explained by its
 		// own dispatch stamp (receipt_watch.go).

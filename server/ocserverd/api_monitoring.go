@@ -342,6 +342,7 @@ func (s *apiServer) foldCommandResult(commandResult map[string]any, trigger, rep
 			memberID, reason)
 		return
 	}
+	s.restoreRefusedStartAnchor(memberID, rpc, okPtr, reason)
 	// T-66a2: the five last_op* fields are ONE slot with TWO blind writers —
 	// this fold (an EXECUTION outcome: the machine received the order and acted)
 	// and stampWakeObservability (a DISPATCH-level diagnosis: nothing ever came
@@ -453,6 +454,7 @@ func (s *apiServer) foldWorkerCommandResult(workerID string, commandResult map[s
 			workerID, reason)
 		return
 	}
+	s.restoreRefusedStartAnchor(w.ID, rpc, okVal, reason)
 	w.LastOp = rpc
 	w.LastOpOK = okVal
 	w.LastOpLog = logText

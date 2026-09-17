@@ -930,7 +930,7 @@ func (s *apiServer) notifyWorkerSpawn(w OutsourceWorker, now float64) bool {
 	// (GetOutsourceWorker) and write it back whole, so they must run AFTER this
 	// single-column write, never before — otherwise the whole-row write would put
 	// the stale anchor straight back.
-	s.clearSessionBootTS(w.ID)
+	s.clearSessionBootTSForStart(w.ID)
 	// 🔴 A LANDED START STAMPS waking_since — the STAFF rule, verbatim, from the
 	// same seam (stampWakeObservability). It is what makes 「喚醒中」 ONE
 	// projection instead of two: PresenceState reads this column for both kinds,

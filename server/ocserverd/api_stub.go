@@ -235,6 +235,12 @@ type apiServer struct {
 	// settings lock across that I/O would stall every unrelated settings reader
 	// on a database round-trip. This lock protects one map and nothing else.
 	handoverNoticedMu sync.Mutex
+	// startClearedAnchors holds, per actor id, the session state a START
+	// dispatch cleared (clearSessionBootTSForStart), until that START's receipt
+	// says whether a new session really began. Guarded by
+	// startClearedAnchorsMu, its own mutex for the reason handoverNoticedMu is.
+	startClearedAnchors   map[string]sessionAnchorSnapshot
+	startClearedAnchorsMu sync.Mutex
 	// ctxGateDiagAt records, per actor id, WHEN stampContextHighRecycle last
 	// emitted its gate diagnostic for that actor AND WHICH gate it named — the
 	// throttle behind noteContextGateSkip (T-72dd 補觀測). Guarded by
