@@ -1,0 +1,15 @@
+-- +goose Up
+-- One index per side of a message, so a "chat involving X" read (built in
+-- dal.go as a UNION of a sender branch and a recipient branch) costs work
+-- proportional to X's own messages instead of walking idx_chat_message_ts.
+--
+-- ⚠️ With these indexes present, the plain `sender = ? OR recipient = ?` form
+-- makes the planner pick a MULTI-INDEX OR plus a temp sort, which measured ~590x
+-- slower than the ts walk for the busiest participant on real data. Keep the
+-- UNION form.
+CREATE INDEX idx_chat_message_sender_ts ON chat_message (sender, ts, id);
+CREATE INDEX idx_chat_message_recipient_ts ON chat_message (recipient, ts, id);
+
+-- +goose Down
+DROP INDEX IF EXISTS idx_chat_message_recipient_ts;
+DROP INDEX IF EXISTS idx_chat_message_sender_ts;

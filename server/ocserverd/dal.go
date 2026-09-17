@@ -936,15 +936,12 @@ type chatListFilter struct {
 	recipient   string // ?recipient= — one side only
 }
 
-// appendSQL appends this filter's conjuncts to a WHERE clause that already ends
-// in a condition. `col` prefixes the column names: "" for the single-table
-// reads, "m." for the unread read, which joins chat_read and must say which
-// table it means.
+// appendSQL appends this filter's ONE-SIDED conjuncts to a WHERE clause that
+// already ends in a condition. `participant` is not appended here: selectSQL
+// turns it into a UNION of two branches. `col` prefixes the column names: ""
+// for the single-table reads, "m." for the unread read, which joins chat_read
+// and must say which table it means.
 func (f chatListFilter) appendSQL(query *string, args *[]any, col string) {
-	if f.participant != "" {
-		*query += ` AND (` + col + `sender = ? OR ` + col + `recipient = ?)`
-		*args = append(*args, f.participant, f.participant)
-	}
 	if f.sender != "" {
 		*query += ` AND ` + col + `sender = ?`
 		*args = append(*args, f.sender)
@@ -953,6 +950,84 @@ func (f chatListFilter) appendSQL(query *string, args *[]any, col string) {
 		*query += ` AND ` + col + `recipient = ?`
 		*args = append(*args, f.recipient)
 	}
+}
+
+// selectSQL builds every listing read: the chat_message rows of `from` matching
+// `where` (+ its args) and this filter, in (ts, id) order — descending when
+// `desc` — capped at `limit` (negative = uncapped).
+//
+// With `participant` set it is a UNION of a `sender = ?` branch and a
+// `recipient = ?` branch, each ordered and capped on its own so each walks
+// idx_chat_message_sender_ts / idx_chat_message_recipient_ts, then ordered and
+// capped again outside. UNION, not UNION ALL: a message X sent to X is in both
+// branches and must come back once.
+//
+// 🔴 Do not fold the branches back into `sender = ? OR recipient = ?`. With
+// those two indexes present the planner answers the OR with a MULTI-INDEX OR
+// plus a temp sort, measured ~590x slower for the busiest participant on real
+// data.
+func (f chatListFilter) selectSQL(from, where string, args []any, col string, desc bool, limit int) (string, []any) {
+	dir := ""
+	if desc {
+		dir = " DESC"
+	}
+	branch := func(side string) (string, []any) {
+		q := `SELECT ` + col + `id, ` + col + `sender, ` + col + `recipient, ` +
+			col + `body, ` + col + `ts, ` + col + `meta FROM ` + from + ` WHERE (` + where + `)`
+		a := append([]any(nil), args...)
+		if side != "" {
+			q += ` AND ` + col + side + ` = ?`
+			a = append(a, f.participant)
+		}
+		f.appendSQL(&q, &a, col)
+		q += ` ORDER BY ` + col + `ts` + dir + `, ` + col + `id` + dir
+		if limit >= 0 {
+			q += ` LIMIT ?`
+			a = append(a, limit)
+		}
+		return q, a
+	}
+	if f.participant == "" {
+		return branch("")
+	}
+	sq, sa := branch("sender")
+	rq, ra := branch("recipient")
+	q := `SELECT * FROM (` + sq + `) UNION SELECT * FROM (` + rq + `) ORDER BY ts` + dir + `, id` + dir
+	a := append(sa, ra...)
+	if limit >= 0 {
+		q += ` LIMIT ?`
+		a = append(a, limit)
+	}
+	return q, a
+}
+
+// queryChats runs a selectSQL query and scans its rows in the order returned;
+// `reverse` flips a descending page back to oldest→newest.
+func (d *DAL) queryChats(query string, args []any, reverse bool) ([]ChatMessage, error) {
+	rows, err := d.rdb.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var got []ChatMessage
+	for rows.Next() {
+		m, err := scanChat(rows)
+		if err != nil {
+			return nil, err
+		}
+		got = append(got, m)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if !reverse {
+		return got, nil
+	}
+	out := make([]ChatMessage, len(got))
+	for i, m := range got {
+		out[len(got)-1-i] = m
+	}
+	return out, nil
 }
 
 // ListChatBefore returns the most recent `limit` messages strictly OLDER than
@@ -971,39 +1046,9 @@ func (d *DAL) listChatBefore(f chatListFilter, beforeTS float64, beforeID string
 	if limit == 0 {
 		return nil, nil
 	}
-	query := `
-		SELECT id, sender, recipient, body, ts, meta FROM chat_message
-		WHERE (ts < ? OR (ts = ? AND id < ?))`
-	args := []any{beforeTS, beforeTS, beforeID}
-	f.appendSQL(&query, &args, "")
-	query += ` ORDER BY ts DESC, id DESC`
-	if limit > 0 {
-		query += ` LIMIT ?`
-		args = append(args, limit)
-	}
-	rows, err := d.rdb.Query(query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var newestFirst []ChatMessage
-	for rows.Next() {
-		m, err := scanChat(rows)
-		if err != nil {
-			return nil, err
-		}
-		newestFirst = append(newestFirst, m)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	// SQL gave the page newest-first (DESC walks back from the cursor);
-	// re-sort ascending like the rest of the chat surface.
-	out := make([]ChatMessage, len(newestFirst))
-	for i, m := range newestFirst {
-		out[len(newestFirst)-1-i] = m
-	}
-	return out, nil
+	query, args := f.selectSQL(`chat_message`, `(ts < ? OR (ts = ? AND id < ?))`,
+		[]any{beforeTS, beforeTS, beforeID}, "", true, limit)
+	return d.queryChats(query, args, true)
 }
 
 // chatAnchor is one endpoint of a start_id/end_id window: the (ts, id) pair of
@@ -1059,53 +1104,22 @@ func (d *DAL) listChatWindow(f chatListFilter, start, end *chatAnchor, limit int
 	if limit <= 0 {
 		return nil, nil
 	}
-	query := `
-		SELECT id, sender, recipient, body, ts, meta FROM chat_message
-		WHERE 1=1`
+	where := `1=1`
 	var args []any
 	if start != nil {
-		query += ` AND (ts > ? OR (ts = ? AND id >= ?))`
+		where += ` AND (ts > ? OR (ts = ? AND id >= ?))`
 		args = append(args, start.TS, start.TS, start.ID)
 	}
 	if end != nil {
-		query += ` AND (ts < ? OR (ts = ? AND id <= ?))`
+		where += ` AND (ts < ? OR (ts = ? AND id <= ?))`
 		args = append(args, end.TS, end.TS, end.ID)
 	}
-	f.appendSQL(&query, &args, "")
 	// end present ⇒ anchor there and walk backwards (descending LIMIT, then
 	// reversed) so truncation eats the start_id/older side, which is what spec
 	// specifies for the both-anchors case. start-only ⇒ walk forwards.
 	descending := end != nil
-	if descending {
-		query += ` ORDER BY ts DESC, id DESC LIMIT ?`
-	} else {
-		query += ` ORDER BY ts, id LIMIT ?`
-	}
-	args = append(args, limit)
-	rows, err := d.rdb.Query(query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var got []ChatMessage
-	for rows.Next() {
-		m, err := scanChat(rows)
-		if err != nil {
-			return nil, err
-		}
-		got = append(got, m)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	if !descending {
-		return got, nil
-	}
-	out := make([]ChatMessage, len(got))
-	for i, m := range got {
-		out[len(got)-1-i] = m
-	}
-	return out, nil
+	query, args := f.selectSQL(`chat_message`, where, args, "", descending, limit)
+	return d.queryChats(query, args, descending)
 }
 
 // ListChatLatest returns the most recent `limit` messages, oldest→newest —
@@ -1119,22 +1133,6 @@ func (d *DAL) listChatWindow(f chatListFilter, start, end *chatAnchor, limit int
 // not merely equivalent — "the newest N of the stream's total (ts, id) order"
 // is the same set whether you take the last N ascending or the first N
 // descending-then-reverse, which is exactly what the two paths do.
-//
-// 🔴 DELIBERATELY NO SINGLE-COLUMN INDEX on (sender, recipient) or (ts):
-// measured on the same real table, adding one made the scrollback page
-// (listChatBefore) 23× SLOWER, and ANALYZE changed nothing. This scan is the
-// cheap side of that trade.
-//
-// ⚠️ T-48: a COMPOSITE index on (recipient, sender, ts) DOES now exist
-// (migration 00075) — do not read the paragraph above as "this table carries no
-// index". It is a different shape, added for a different query: it COVERS the
-// unread count (2.7× there) and leaves this path untouched, because the
-// scrollback query cannot use it at all and the planner keeps
-// idx_chat_message_ts. The two statements are about two different indexes; the
-// 23× result above still stands for the single-column one.
-// 🔑 The 00075 numbers are SYNTHETIC (owner ruled it in on that basis, knowingly
-// — rc-6b67aa1a331c). The 23× above is from a real-data copy. Do not quote them
-// as if they came from the same measurement.
 func (d *DAL) ListChatLatest(participant string, limit int) ([]ChatMessage, error) {
 	return d.listChatLatest(chatListFilter{participant: participant}, limit)
 }
@@ -1143,49 +1141,11 @@ func (d *DAL) listChatLatest(f chatListFilter, limit int) ([]ChatMessage, error)
 	if limit == 0 {
 		return nil, nil
 	}
-	query := `SELECT id, sender, recipient, body, ts, meta FROM chat_message WHERE 1=1`
-	var args []any
-	f.appendSQL(&query, &args, "")
-	if limit < 0 {
-		// Uncapped: no need for the DESC walk + reverse, ask for the order the
-		// caller wants directly.
-		rows, err := d.rdb.Query(query+` ORDER BY ts, id`, args...)
-		if err != nil {
-			return nil, err
-		}
-		defer rows.Close()
-		var out []ChatMessage
-		for rows.Next() {
-			m, err := scanChat(rows)
-			if err != nil {
-				return nil, err
-			}
-			out = append(out, m)
-		}
-		return out, rows.Err()
-	}
-	rows, err := d.rdb.Query(query+` ORDER BY ts DESC, id DESC LIMIT ?`,
-		append(args, limit)...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var newestFirst []ChatMessage
-	for rows.Next() {
-		m, err := scanChat(rows)
-		if err != nil {
-			return nil, err
-		}
-		newestFirst = append(newestFirst, m)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	out := make([]ChatMessage, len(newestFirst))
-	for i, m := range newestFirst {
-		out[len(newestFirst)-1-i] = m
-	}
-	return out, nil
+	// Uncapped: no need for the DESC walk + reverse, ask for the order the
+	// caller wants directly.
+	desc := limit > 0
+	query, args := f.selectSQL(`chat_message`, `1=1`, nil, "", desc, limit)
+	return d.queryChats(query, args, desc)
 }
 
 // listChatUnread answers `GET /api/chat?unread=true`: the messages `reader` has
@@ -1194,7 +1154,8 @@ func (d *DAL) listChatLatest(f chatListFilter, limit int) ([]ChatMessage, error)
 // 🔴 THE WATERMARK IS PER (reader, sender), AND THAT IS THE WHOLE POINT.
 // chat_read holds one row per (reader_id, peer_id) pair, so each message is
 // compared against ITS OWN sender's row — the LEFT JOIN is pinned on
-// `r.peer_id = m.sender` in the ON clause, exactly as UnreadCountsFor pins it.
+// `r.peer_id = m.sender` in the ON clause, the same per-sender watermark
+// UnreadCountsFor counts against.
 // Comparing every message against ONE watermark instead (the reader's newest
 // row, say, or a single scalar) is the mutant this shape exists to refuse: a
 // reader who is current with A and has never opened B would have B's whole
@@ -1230,35 +1191,16 @@ func (d *DAL) listChatUnread(reader string, f chatListFilter, after *chatAnchor,
 	if reader == "" || limit == 0 {
 		return nil, nil
 	}
-	query := `
-		SELECT m.id, m.sender, m.recipient, m.body, m.ts, m.meta FROM chat_message m
-		LEFT JOIN chat_read r ON r.reader_id = ? AND r.peer_id = m.sender
-		WHERE m.recipient = ? AND m.ts > COALESCE(r.last_read_ts, 0)`
+	where := `m.recipient = ? AND m.ts > COALESCE(r.last_read_ts, 0)`
 	args := []any{reader, reader}
 	if after != nil {
-		query += ` AND (m.ts > ? OR (m.ts = ? AND m.id > ?))`
+		where += ` AND (m.ts > ? OR (m.ts = ? AND m.id > ?))`
 		args = append(args, after.TS, after.TS, after.ID)
 	}
-	f.appendSQL(&query, &args, "m.")
-	query += ` ORDER BY m.ts, m.id`
-	if limit > 0 {
-		query += ` LIMIT ?`
-		args = append(args, limit)
-	}
-	rows, err := d.rdb.Query(query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []ChatMessage
-	for rows.Next() {
-		m, err := scanChat(rows)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, m)
-	}
-	return out, rows.Err()
+	query, args := f.selectSQL(`chat_message m
+		LEFT JOIN chat_read r ON r.reader_id = ? AND r.peer_id = m.sender`,
+		where, args, "m.", false, limit)
+	return d.queryChats(query, args, false)
 }
 
 // ListChatByIDs returns the messages carrying the given ids, oldest→newest in
@@ -1306,8 +1248,9 @@ func (d *DAL) ListChatByIDs(ids []string) ([]ChatMessage, error) {
 }
 
 // ListChatInvolving returns the most recent `limit` messages involving
-// `participant` (sender OR recipient), oldest→newest — the bounded
-// wake-snapshot read. A blank participant / non-positive limit reads nothing.
+// `participant` (sender OR recipient), oldest→newest in (ts, id) order — the
+// bounded wake-snapshot read. A blank participant / non-positive limit reads
+// nothing.
 //
 // 🔴 GLOBAL newest-N, and that is the point. A per-conversation-line quota
 // (ListChatPerPeerInvolving, removed 2026-08-13) existed to feed a per-line
@@ -1317,39 +1260,15 @@ func (d *DAL) ListChatByIDs(ids []string) ([]ChatMessage, error) {
 // would only return rows nobody can spend — the measured member read 6,600 rows
 // per wake to fill a 12,000-rune budget.
 //
-// COST: one query, one full chat_message scan (`sender`/`recipient` carry no
-// index) — unchanged. What changed is the row count it hands back: bounded by
-// `limit` outright rather than by limit × the caller's number of correspondents.
+// COST: at most 2 × `limit` index rows, one sender branch and one recipient
+// branch (selectSQL).
 func (d *DAL) ListChatInvolving(participant string, limit int) ([]ChatMessage, error) {
 	if participant == "" || limit <= 0 {
 		return nil, nil
 	}
-	rows, err := d.rdb.Query(`
-		SELECT id, sender, recipient, body, ts, meta FROM chat_message
-		WHERE sender = ? OR recipient = ?
-		ORDER BY ts DESC LIMIT ?`, participant, participant, limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var newestFirst []ChatMessage
-	for rows.Next() {
-		m, err := scanChat(rows)
-		if err != nil {
-			return nil, err
-		}
-		newestFirst = append(newestFirst, m)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	// SQL gave the newest `limit` (ts DESC); re-sort ascending like the rest
-	// of the chat surface.
-	out := make([]ChatMessage, len(newestFirst))
-	for i, m := range newestFirst {
-		out[len(newestFirst)-1-i] = m
-	}
-	return out, nil
+	query, args := chatListFilter{participant: participant}.selectSQL(
+		`chat_message`, `1=1`, nil, "", true, limit)
+	return d.queryChats(query, args, true)
 }
 
 // sqlExecer is the write seam shared by the standalone (d.wdb) and the
@@ -2124,25 +2043,33 @@ func (d *DAL) ListChatReads(reader, peer string) ([]ChatRead, error) {
 // newer than that sender's read watermark. Senders with nothing unread are
 // absent from the map — same shape the Go fold produces.
 //
-// It exists because both call sites (unreadCountsForRequest and the
-// unread-count endpoint) used to read the WHOLE chat_message table and the
-// reader's whole chat_read set into Go just to fold them down to a handful of
-// integers: 69.098ms on the measured real table, against 22.303ms here.
+// COST: proportional to the reader's DISTINCT senders plus their unread rows,
+// not to everything ever addressed to the reader. The recursive CTE is a loose
+// index scan over idx_chat_message_recipient_sender_ts (one seek per sender);
+// each sender's count then starts at its own watermark.
 //
-// 🔴 The LEFT JOIN + COALESCE(..., 0) IS the Go zero-value default: "no receipt
-// ⇒ watermark 0 ⇒ every addressed message counts". An INNER JOIN would silently
-// drop exactly the peers a reader has never opened — the ones whose unread
-// matters most. The join is pinned to `reader` in the ON clause (not the WHERE)
-// so a missing receipt still yields the row.
+// 🔴 COALESCE(..., 0) IS the Go zero-value default: "no receipt ⇒ watermark 0 ⇒
+// every addressed message counts". Dropping it turns a missing receipt into a
+// NULL comparison and silently loses exactly the peers a reader has never
+// opened — the ones whose unread matters most.
 //
 // domain.UnreadCounts is NOT dead: it is the pure fold this must agree with,
 // and the equivalence test drives both over the same fixtures.
 func (d *DAL) UnreadCountsFor(reader string) (map[string]int, error) {
 	rows, err := d.rdb.Query(`
-		SELECT m.sender, COUNT(*) FROM chat_message m
-		LEFT JOIN chat_read r ON r.reader_id = ? AND r.peer_id = m.sender
-		WHERE m.recipient = ? AND m.ts > COALESCE(r.last_read_ts, 0)
-		GROUP BY m.sender`, reader, reader)
+		WITH RECURSIVE s(sender) AS (
+			SELECT (SELECT min(sender) FROM chat_message WHERE recipient = ?)
+			UNION ALL
+			SELECT (SELECT min(sender) FROM chat_message WHERE recipient = ? AND sender > s.sender)
+			FROM s WHERE s.sender IS NOT NULL)
+		SELECT sender, n FROM (
+			SELECT s.sender, (
+				SELECT count(*) FROM chat_message m
+				WHERE m.recipient = ? AND m.sender = s.sender
+				AND m.ts > COALESCE((SELECT last_read_ts FROM chat_read WHERE reader_id = ? AND peer_id = s.sender), 0)
+			) AS n
+			FROM s WHERE s.sender IS NOT NULL)
+		WHERE n > 0`, reader, reader, reader, reader)
 	if err != nil {
 		return nil, err
 	}

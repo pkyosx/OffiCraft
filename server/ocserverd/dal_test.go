@@ -653,7 +653,7 @@ func TestAppendSQL(t *testing.T) {
 		want []string
 	}{
 		{"no filter at all", chatListFilter{}, []string{"m1", "m2", "m3", "m4"}},
-		{"participant matches either side", chatListFilter{participant: "ann"}, []string{"m1", "m2", "m3"}},
+		{"participant is left to selectSQL", chatListFilter{participant: "ann"}, []string{"m1", "m2", "m3", "m4"}},
 		{"sender is one-sided", chatListFilter{sender: "ann"}, []string{"m1", "m3"}},
 		{"recipient is one-sided", chatListFilter{recipient: "bob"}, []string{"m1", "m4"}},
 		{"the three conjuncts AND", chatListFilter{participant: "ann", sender: "ann", recipient: "bob"}, []string{"m1"}},
@@ -729,6 +729,38 @@ func TestListChatBefore(t *testing.T) {
 			t.Fatalf("listChatBefore with a compound filter: %v", err)
 		}
 		dalWantChats(t, "the equal-ts cursor is exclusive", got, []ChatMessage{m1})
+	})
+
+	t.Run("a participant page merges both sides behind the cursor", func(t *testing.T) {
+		d := newAPITestDAL(t)
+		l := dalPutAnnLine(t, d)
+		for _, tc := range []struct {
+			name  string
+			f     chatListFilter
+			bts   float64
+			bid   string
+			limit int
+			want  []ChatMessage
+		}{
+			{"the cursor excludes newer rows on both sides and the self-addressed row comes once",
+				chatListFilter{participant: "ann"}, 400, "a400", -1,
+				[]ChatMessage{l.s100, l.r200, l.r300, l.s300, l.self300}},
+			{"the limit cuts across both sides",
+				chatListFilter{participant: "ann"}, 400, "a400", 2,
+				[]ChatMessage{l.s300, l.self300}},
+			{"an equal-ts cursor tie-breaks on id across both sides",
+				chatListFilter{participant: "ann"}, 300, "d300", -1,
+				[]ChatMessage{l.s100, l.r200, l.r300, l.s300}},
+			{"a one-sided filter narrows both branches",
+				chatListFilter{participant: "ann", recipient: "ann"}, 500, "a500", -1,
+				[]ChatMessage{l.r200, l.r300, l.self300}},
+		} {
+			got, err := d.listChatBefore(tc.f, tc.bts, tc.bid, tc.limit)
+			if err != nil {
+				t.Fatalf("listChatBefore(%s): %v", tc.name, err)
+			}
+			dalWantChats(t, tc.name, got, tc.want)
+		}
 	})
 
 	t.Run("a line with no messages answers an empty page", func(t *testing.T) {
@@ -811,6 +843,37 @@ func TestListChatWindow(t *testing.T) {
 		t.Fatalf("listChatWindow(start past end): %v", err)
 	}
 	dalWantChats(t, "a start past its end selects nothing", got, []ChatMessage{})
+
+	t.Run("a participant window merges both sides", func(t *testing.T) {
+		d := newAPITestDAL(t)
+		l := dalPutAnnLine(t, d)
+		for _, tc := range []struct {
+			name       string
+			f          chatListFilter
+			start, end *chatAnchor
+			limit      int
+			want       []ChatMessage
+		}{
+			{"both anchors, the self-addressed row once",
+				chatListFilter{participant: "ann"}, at(l.r200), at(l.r500), 200,
+				[]ChatMessage{l.r200, l.r300, l.s300, l.self300, l.s400, l.r500}},
+			{"end only cuts the oldest end across both sides",
+				chatListFilter{participant: "ann"}, nil, at(l.s400), 3,
+				[]ChatMessage{l.s300, l.self300, l.s400}},
+			{"start only cuts the newest end across both sides, equal ts ordered by id",
+				chatListFilter{participant: "ann"}, at(l.r300), nil, 3,
+				[]ChatMessage{l.r300, l.s300, l.self300}},
+			{"a one-sided filter narrows both branches",
+				chatListFilter{participant: "ann", sender: "ann"}, at(l.s100), at(l.r500), 200,
+				[]ChatMessage{l.s100, l.s300, l.self300, l.s400}},
+		} {
+			got, err := d.listChatWindow(tc.f, tc.start, tc.end, tc.limit)
+			if err != nil {
+				t.Fatalf("listChatWindow(%s): %v", tc.name, err)
+			}
+			dalWantChats(t, tc.name, got, tc.want)
+		}
+	})
 }
 
 func TestListChatLatest(t *testing.T) {
@@ -859,6 +922,36 @@ func TestListChatLatest(t *testing.T) {
 		dalWantChats(t, "the newest message received by bob", got, []ChatMessage{m4})
 	})
 
+	t.Run("a participant page merges both sides", func(t *testing.T) {
+		d := newAPITestDAL(t)
+		l := dalPutAnnLine(t, d)
+		for _, tc := range []struct {
+			name  string
+			f     chatListFilter
+			limit int
+			want  []ChatMessage
+		}{
+			{"uncapped, equal ts ordered by id across sides and the self-addressed row once",
+				chatListFilter{participant: "ann"}, -1,
+				[]ChatMessage{l.s100, l.r200, l.r300, l.s300, l.self300, l.s400, l.r500}},
+			{"a limit below either side's count keeps the newest overall",
+				chatListFilter{participant: "ann"}, 3,
+				[]ChatMessage{l.self300, l.s400, l.r500}},
+			{"with a recipient filter",
+				chatListFilter{participant: "ann", recipient: "bob"}, -1,
+				[]ChatMessage{l.s100, l.s400}},
+			{"with a sender filter",
+				chatListFilter{participant: "ann", sender: "carl"}, 10,
+				[]ChatMessage{l.r300}},
+		} {
+			got, err := d.listChatLatest(tc.f, tc.limit)
+			if err != nil {
+				t.Fatalf("listChatLatest(%s): %v", tc.name, err)
+			}
+			dalWantChats(t, tc.name, got, tc.want)
+		}
+	})
+
 	t.Run("a line with no messages answers an empty page", func(t *testing.T) {
 		got, err := d.listChatLatest(chatListFilter{sender: "nobody"}, 10)
 		if err != nil {
@@ -905,6 +998,28 @@ func TestListChatUnread(t *testing.T) {
 		t.Fatalf("listChatUnread(limit 2): %v", err)
 	}
 	dalWantChats(t, "a positive limit caps the page at the oldest end", got, []ChatMessage{fromB1, fromA2})
+
+	for _, tc := range []struct {
+		name  string
+		f     chatListFilter
+		limit int
+		want  []ChatMessage
+	}{
+		{"with= the reader keeps the self-addressed message once",
+			chatListFilter{participant: "owner"}, -1, []ChatMessage{fromB1, fromA2, fromB2, toSelf}},
+		{"with= the reader caps across both sides",
+			chatListFilter{participant: "owner"}, 2, []ChatMessage{fromB1, fromA2}},
+		{"with= a sender keeps only what that sender sent the reader",
+			chatListFilter{participant: "ann"}, -1, []ChatMessage{fromA2}},
+		{"with= combines with a sender filter",
+			chatListFilter{participant: "owner", sender: "bob"}, -1, []ChatMessage{fromB1, fromB2}},
+	} {
+		got, err := d.listChatUnread("owner", tc.f, nil, tc.limit)
+		if err != nil {
+			t.Fatalf("listChatUnread(%s): %v", tc.name, err)
+		}
+		dalWantChats(t, tc.name, got, tc.want)
+	}
 
 	for _, tc := range []struct {
 		name   string
@@ -995,6 +1110,27 @@ func TestListChatInvolving(t *testing.T) {
 		}
 		dalWantChats(t, tc.name, got, tc.want)
 	}
+
+	t.Run("both sides merge in (ts, id) order", func(t *testing.T) {
+		d := newAPITestDAL(t)
+		l := dalPutAnnLine(t, d)
+		for _, tc := range []struct {
+			name  string
+			limit int
+			want  []ChatMessage
+		}{
+			{"the self-addressed row comes once", 10,
+				[]ChatMessage{l.s100, l.r200, l.r300, l.s300, l.self300, l.s400, l.r500}},
+			{"a limit cutting an equal-ts group keeps the larger ids", 4,
+				[]ChatMessage{l.s300, l.self300, l.s400, l.r500}},
+		} {
+			got, err := d.ListChatInvolving("ann", tc.limit)
+			if err != nil {
+				t.Fatalf("ListChatInvolving(%s): %v", tc.name, err)
+			}
+			dalWantChats(t, tc.name, got, tc.want)
+		}
+	})
 }
 
 func TestDocumentHistoryKeepFor(t *testing.T) {
@@ -1888,12 +2024,14 @@ func TestUnreadCountsFor(t *testing.T) {
 		t.Fatalf("a sender with nothing unread is absent: want %v, got %v", want, got)
 	}
 
-	got, err = d.UnreadCountsFor("nobody")
-	if err != nil {
-		t.Fatalf("UnreadCountsFor(nobody): %v", err)
-	}
-	if !reflect.DeepEqual(got, map[string]int{}) {
-		t.Fatalf("a reader nothing is addressed to counts nothing, got %v", got)
+	for _, reader := range []string{"nobody", ""} {
+		got, err = d.UnreadCountsFor(reader)
+		if err != nil {
+			t.Fatalf("UnreadCountsFor(%q): %v", reader, err)
+		}
+		if !reflect.DeepEqual(got, map[string]int{}) {
+			t.Fatalf("a reader nothing is addressed to counts nothing (%q), got %v", reader, got)
+		}
 	}
 }
 
@@ -4018,6 +4156,29 @@ func dalChat(id, sender, recipient string, ts float64) ChatMessage {
 		ID: id, Sender: sender, Recipient: recipient,
 		Body: "body of " + id, TS: ts, Meta: map[string]any{},
 	}
+}
+
+// dalAnnLine is a stream where ann is on both sides: s* she sent, r* she
+// received, self300 she sent herself, and an equal-ts group at 300 whose id
+// order interleaves the two sides.
+type dalAnnLine struct {
+	s100, r200, r300, s300, self300, other350, s400, r500 ChatMessage
+}
+
+func dalPutAnnLine(t *testing.T, d *DAL) dalAnnLine {
+	t.Helper()
+	l := dalAnnLine{
+		s100:     dalChat("a100", "ann", "bob", 100),
+		r200:     dalChat("a200", "bob", "ann", 200),
+		r300:     dalChat("b300", "carl", "ann", 300),
+		s300:     dalChat("c300", "ann", "carl", 300),
+		self300:  dalChat("d300", "ann", "ann", 300),
+		other350: dalChat("x350", "bob", "carl", 350),
+		s400:     dalChat("a400", "ann", "bob", 400),
+		r500:     dalChat("a500", "dee", "ann", 500),
+	}
+	dalPutChats(t, d, l.r500, l.other350, l.self300, l.s300, l.r300, l.s400, l.r200, l.s100)
+	return l
 }
 
 func dalPutChats(t *testing.T, d *DAL, msgs ...ChatMessage) {
