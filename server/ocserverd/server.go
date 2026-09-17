@@ -479,6 +479,7 @@ func newAPIServer(dal *DAL, hub *Hub, keys *keyring, tokenTTL int64, root assetR
 		ownerTokenTTL:                tokenTTL,
 		agentTokenTTL:                defaultAgentTokenTTL,
 		acceleratedGraceSecs:         acceleratedGraceSecsDefault,
+		reassignHandoverTimeoutSecs:  reassignHandoverTimeoutSecsDefault,
 		wardenCredLifetimeSecs:       wardenCredLifetimeSecsDefault,
 		outsourceMaxParallel:         defaultOutsourceMaxParallel,
 		docCapCharsDuty:              dutyCapCharsDefault,
@@ -668,6 +669,7 @@ func cmdServe(env func(string) string, noReconcile, noOutsource bool, out io.Wri
 	api.codexNoticeRound = auth.codexNoticeRound
 	api.monitoringRefreshSeconds = auth.monitoringRefreshSeconds
 	api.acceleratedGraceSecs = auth.acceleratedGraceSecs
+	api.reassignHandoverTimeoutSecs = auth.reassignHandoverTimeoutSecs
 	api.wardenCredLifetimeSecs = auth.wardenCredLifetimeSecs
 	api.outsourceMaxParallel = auth.outsourceMaxParallel
 	api.docCapCharsDuty = auth.docCapCharsDuty

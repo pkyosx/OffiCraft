@@ -106,6 +106,7 @@ func apiTestStack(t *testing.T, withSigningSecret bool) (*apiServer, http.Handle
 	api.codexNoticeRound = auth.codexNoticeRound
 	api.monitoringRefreshSeconds = auth.monitoringRefreshSeconds
 	api.acceleratedGraceSecs = auth.acceleratedGraceSecs
+	api.reassignHandoverTimeoutSecs = auth.reassignHandoverTimeoutSecs
 	api.wardenCredLifetimeSecs = auth.wardenCredLifetimeSecs
 	api.outsourceMaxParallel = auth.outsourceMaxParallel
 	api.docCapCharsDuty = auth.docCapCharsDuty

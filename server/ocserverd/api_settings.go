@@ -102,6 +102,17 @@ var wardenCredLifetimeRangeMsg = fmt.Sprintf(
 		"a working day of downtime",
 	minWardenCredLifetimeSecs, maxWardenCredLifetimeSecs)
 
+// reassignHandoverTimeoutInRange is the single source of truth for which
+// task.reassign_handover_timeout_secs values this build accepts; the PATCH
+// validator and the boot-time loader both call it.
+func reassignHandoverTimeoutInRange(n int) bool {
+	return n >= minReassignHandoverTimeoutSecs && n <= maxReassignHandoverTimeoutSecs
+}
+
+var reassignHandoverTimeoutRangeMsg = fmt.Sprintf(
+	"must be between %d and %d seconds",
+	minReassignHandoverTimeoutSecs, maxReassignHandoverTimeoutSecs)
+
 // acceleratedGraceRangeMsg is the ONE wording of that refusal, derived from the
 // constants so it can never quote a range the code does not enforce.
 var acceleratedGraceRangeMsg = fmt.Sprintf(
@@ -504,6 +515,12 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 			"accelerated_grace_secs "+acceleratedGraceRangeMsg)
 		return
 	}
+	if body.ReassignHandoverTimeoutSecs != nil &&
+		!reassignHandoverTimeoutInRange(*body.ReassignHandoverTimeoutSecs) {
+		writeError(w, http.StatusUnprocessableEntity,
+			"reassign_handover_timeout_secs "+reassignHandoverTimeoutRangeMsg)
+		return
+	}
 	if body.OutsourceMaxParallel != nil &&
 		!outsourceParallelInRange(*body.OutsourceMaxParallel) {
 		writeError(w, http.StatusUnprocessableEntity,
@@ -793,6 +810,15 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 		}
 		s.acceleratedGraceSecs = *body.AcceleratedGraceSecs
 	}
+	if body.ReassignHandoverTimeoutSecs != nil {
+		if err := s.dal.PutSetting(settingReassignHandoverTimeoutSecs,
+			strconv.Itoa(*body.ReassignHandoverTimeoutSecs)); err != nil {
+			s.settingsMu.Unlock()
+			internalError(w, err)
+			return
+		}
+		s.reassignHandoverTimeoutSecs = *body.ReassignHandoverTimeoutSecs
+	}
 	if body.WardenCredentialLifetimeSecs != nil {
 		if err := s.dal.PutSetting(settingWardenCredLifetimeSecs,
 			strconv.Itoa(*body.WardenCredentialLifetimeSecs)); err != nil {
@@ -1005,6 +1031,7 @@ func (s *apiServer) settingsView() settingsDTO {
 		CodexNoticeRound:             s.codexNoticeRound,
 		MonitoringRefreshSeconds:     s.monitoringRefreshSeconds,
 		AcceleratedGraceSecs:         s.acceleratedGraceSecs,
+		ReassignHandoverTimeoutSecs:  s.reassignHandoverTimeoutSecs,
 		WardenCredentialLifetimeSecs: s.wardenCredLifetimeSecs,
 		OutsourceMaxParallel:         s.outsourceMaxParallel,
 		DocCapCharsDuty:              s.docCapCharsDuty,

@@ -142,6 +142,9 @@ func TestLoadAuthSettings(t *testing.T) {
 		if got.ownerTokenTTL != defaultOwnerTokenTTL || got.agentTokenTTL != defaultAgentTokenTTL {
 			t.Fatalf("fresh token TTLs are wrong: owner=%d agent=%d", got.ownerTokenTTL, got.agentTokenTTL)
 		}
+		if got.reassignHandoverTimeoutSecs != 1800 {
+			t.Fatalf("fresh reassign handover timeout: want 1800, got %d", got.reassignHandoverTimeoutSecs)
+		}
 		again, secondLogs, err := settingsTestLoadAuth(t, d, defaultConfig())
 		if err != nil {
 			t.Fatalf("second loadAuthSettings: %v", err)
@@ -226,6 +229,7 @@ func TestLoadAuthSettings(t *testing.T) {
 			settingCtxHandoverPct:              "66",
 			settingCtxMinBootSecs:              "12.5",
 			settingCtxStaleGuard:               "false",
+			settingReassignHandoverTimeoutSecs: "900",
 			settingSuggestedRepliesReplyCard:   ` ["first"] `,
 			settingSuggestedRepliesTaskMessage: `["second","third"]`,
 		} {
@@ -243,6 +247,9 @@ func TestLoadAuthSettings(t *testing.T) {
 		}
 		if got.ownerTokenTTL != 7200 || got.agentTokenTTL != 1800 {
 			t.Fatalf("successor TTLs did not load independently: %+v", got)
+		}
+		if got.reassignHandoverTimeoutSecs != 900 {
+			t.Fatalf("reassign handover timeout did not load as stored: %d", got.reassignHandoverTimeoutSecs)
 		}
 		wantCtx := SseContextHighConfig{NoticePct: 41, HandoverPct: 66, MinBootSecs: 12.5, StaleGuard: false}
 		if got.ctxhigh != wantCtx {
@@ -262,6 +269,8 @@ func TestLoadAuthSettings(t *testing.T) {
 		}{
 			{name: "invalid signing secret", key: settingJWTSecret, value: "!", want: "settings auth.jwt_secret: not valid base64url: illegal base64 data at input byte 0"},
 			{name: "invalid owner token TTL", key: settingOwnerTokenTTL, value: "not-a-number", want: `settings auth.owner_token_ttl: not a positive integer: "not-a-number"`},
+			{name: "reassign handover timeout below range", key: settingReassignHandoverTimeoutSecs, value: "59", want: `settings task.reassign_handover_timeout_secs: must be between 60 and 86400 seconds: "59"`},
+			{name: "reassign handover timeout above range", key: settingReassignHandoverTimeoutSecs, value: "86401", want: `settings task.reassign_handover_timeout_secs: must be between 60 and 86400 seconds: "86401"`},
 			{name: "invalid suggested reply JSON", key: settingSuggestedRepliesTaskMessage, value: "not-json", want: `settings suggested_replies.task_message: must be a JSON array of strings: "not-json"`},
 		}
 		for _, tc := range cases {

@@ -52,6 +52,10 @@ describe("SettingsPage · 參數調整", () => {
     // number is the owner's, and docs/guide/members.md sends him HERE to change
     // it — until this row existed the only way to move it was the API.
     expect((utils.getByLabelText(s.acceleratedGrace) as HTMLInputElement).value).toBe("120");
+    const handover = utils.getByLabelText(s.reassignHandoverTimeout) as HTMLInputElement;
+    expect(handover.value).toBe("1800");
+    const rows = Array.from(utils.container.querySelectorAll("input.param-input"));
+    expect(rows.indexOf(handover)).toBe(rows.indexOf(utils.getByLabelText(s.acceleratedGrace)) + 1);
     // 機器憑證壽命 (T-fc53). The shipped 30 days must be readable HERE: a fleet
     // renews on this number whether or not anyone ever
     // opened the API, and since 第二段 the same number is the credential's expiry,
@@ -116,6 +120,25 @@ describe("SettingsPage · 參數調整", () => {
     fireEvent.blur(secs);
     await utils.findByText(s.paramsSaveError);
     expect((await api.getServerSettings()).acceleratedGraceSecs).toBe(300);
+    expect(patch).toHaveBeenCalledTimes(1);
+    patch.mockRestore();
+  });
+
+  it("persists the reassign handover timeout and refuses a value the server would 422", async () => {
+    const patch = vi.spyOn(api, "patchServerSettings");
+    const utils = await openParams();
+    const secs = utils.getByLabelText(s.reassignHandoverTimeout) as HTMLInputElement;
+    fireEvent.change(secs, { target: { value: "600" } });
+    fireEvent.blur(secs);
+    await waitFor(async () =>
+      expect((await api.getServerSettings()).reassignHandoverTimeoutSecs).toBe(600),
+    );
+    expect(patch).toHaveBeenCalledWith({ reassignHandoverTimeoutSecs: 600 });
+    fireEvent.change(secs, { target: { value: "59" } });
+    fireEvent.blur(secs);
+    await utils.findByText(s.paramsSaveError);
+    expect(secs.value).toBe("600");
+    expect((await api.getServerSettings()).reassignHandoverTimeoutSecs).toBe(600);
     expect(patch).toHaveBeenCalledTimes(1);
     patch.mockRestore();
   });

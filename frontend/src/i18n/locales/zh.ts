@@ -2178,6 +2178,9 @@ export const zh = {
     acceleratedGrace: "加速停止秒數",
     acceleratedGraceSub:
       "按下加速停止之後，成員還有多少秒可以收尾；記憶第二段門檻自動換手也走同一個時鐘。這個時刻會原文告訴成員（10–3600）",
+    reassignHandoverTimeout: "轉派交接逾時秒數",
+    reassignHandoverTimeoutSub:
+      "轉派後，外包前任多久沒有更新任務就會被回收；每次更新任務都會重新計時，正職前任不受影響（60–86400）",
     wardenCredentialLifetime: "機器憑證壽命",
     wardenCredentialLifetimeSub:
       "一台機器的憑證能活多久——這就是蓋在憑證上的到期時間，也是每台機器換發時對照的那個數字。每台機器會在自己的憑證用掉三分之二的時候自己換一張新的，並隨機錯開最多一小時，避免整批機器同一刻一起換。錯過剩下那三分之一的機器只能靠人重裝。調小不會縮短任何已經發出去的憑證（86400–34560000）",

@@ -2481,6 +2481,7 @@ export const httpApi: Api = {
       codex_compaction_threshold?: number;
       monitoring_refresh_seconds?: number;
       accelerated_grace_secs?: number;
+      reassign_handover_timeout_secs?: number;
       warden_credential_lifetime_secs?: number;
       outsource_max_parallel?: number;
       doc_cap_chars_duty?: number;
@@ -2520,6 +2521,8 @@ export const httpApi: Api = {
       body.monitoring_refresh_seconds = patch.monitoringRefreshSeconds;
     if (patch.acceleratedGraceSecs !== undefined)
       body.accelerated_grace_secs = patch.acceleratedGraceSecs;
+    if (patch.reassignHandoverTimeoutSecs !== undefined)
+      body.reassign_handover_timeout_secs = patch.reassignHandoverTimeoutSecs;
     if (patch.wardenCredentialLifetimeSecs !== undefined)
       body.warden_credential_lifetime_secs = patch.wardenCredentialLifetimeSecs;
     if (patch.outsourceMaxParallel !== undefined) {

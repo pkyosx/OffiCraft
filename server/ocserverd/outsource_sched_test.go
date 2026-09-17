@@ -454,7 +454,7 @@ func TestRunOutsourceTick(t *testing.T) {
 		adminBound := open(admin, `{"task_id":"T-3","step_id":"`+stepB+`"}`)
 		predUnbound := open(pred, "null")
 
-		f.api.runOutsourceTick(nowSecs() + reassignHandoverTimeoutSecs + 1)
+		f.api.runOutsourceTick(nowSecs() + 1801)
 
 		_, member := apiJSON(t, f.h, "GET", "/api/members/"+worker, f.owner, "")
 		if member["status"] != "released" || member["roster_status"] != "removed" {
@@ -499,6 +499,33 @@ func TestRunOutsourceTick(t *testing.T) {
 		f.must(t, "POST", "/api/tasks/T-3/priority", f.successor, `{"priority":"high"}`)
 	})
 
+	t.Run("the handover timeout follows the station setting", func(t *testing.T) {
+		f := newHandoverFixture(t)
+		f.must(t, "PATCH", "/api/settings", f.owner, `{"reassign_handover_timeout_secs":120}`)
+		f.must(t, "POST", "/api/tasks", f.owner,
+			`{"title":"Contracted out","target":{"kind":"outsource","model":"sonnet","effort":"high"}}`)
+		_, task := apiJSON(t, f.h, "GET", "/api/tasks/T-3", f.owner, "")
+		worker, _ := task["executor_id"].(string)
+		f.must(t, "POST", "/api/tasks/T-3/reassign", f.owner, `{"target":{"kind":"staff","member_id":"rex"}}`)
+		row, err := f.api.dal.GetTask("T-3")
+		if err != nil || row == nil {
+			t.Fatalf("GetTask: %v", err)
+		}
+		state := func() string {
+			_, member := apiJSON(t, f.h, "GET", "/api/members/"+worker, f.owner, "")
+			return member["status"].(string) + "/" + member["roster_status"].(string)
+		}
+
+		f.api.runOutsourceTick(row.UpdatedTS + 119)
+		if got := state(); got != "assigned/active" {
+			t.Fatalf("at 119s the predecessor must stay live, got %s", got)
+		}
+		f.api.runOutsourceTick(row.UpdatedTS + 120)
+		if got := state(); got != "released/removed" {
+			t.Fatalf("at 120s the predecessor must be reclaimed, got %s", got)
+		}
+	})
+
 	t.Run("before the handover timeout an outsource predecessor keeps the hold", func(t *testing.T) {
 		f := newHandoverFixture(t)
 		f.must(t, "POST", "/api/tasks", f.owner,
@@ -508,7 +535,7 @@ func TestRunOutsourceTick(t *testing.T) {
 		pred := apiTestAgentToken(t, f.api, worker, "")
 		f.must(t, "POST", "/api/tasks/T-3/reassign", f.owner, `{"target":{"kind":"staff","member_id":"rex"}}`)
 
-		f.api.runOutsourceTick(nowSecs() + reassignHandoverTimeoutSecs - 60)
+		f.api.runOutsourceTick(nowSecs() + 1740)
 
 		_, member := apiJSON(t, f.h, "GET", "/api/members/"+worker, f.owner, "")
 		if member["status"] != "assigned" || member["roster_status"] != "active" {

@@ -95,6 +95,9 @@ type settingsDTO struct {
 	// It cannot put a clock on a soft cause — winddownKindFor still decides WHO
 	// is clocked, and this only says HOW LONG.
 	AcceleratedGraceSecs int `json:"accelerated_grace_secs"`
+	// ReassignHandoverTimeoutSecs is the handover-timeout reaper clock
+	// (task.reassign_handover_timeout_secs; T-248).
+	ReassignHandoverTimeoutSecs int `json:"reassign_handover_timeout_secs"`
 
 	// WardenCredentialLifetimeSecs is how long a MACHINE credential is meant to
 	// live (auth.warden_credential_lifetime_secs; T-fc53). It drives BOTH halves

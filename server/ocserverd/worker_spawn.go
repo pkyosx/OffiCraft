@@ -90,14 +90,6 @@ const (
 	// It catches the leftovers — a row released by a path that is not a close,
 	// or a session the reclaim dispatch could not deliver.
 	workerReclaimGraceSecs = 120.0
-	// reassignHandoverTimeoutSecs bounds how long a task may sit in `reassigning`
-	// before the handover-timeout reaper (outsource_sched.go runOutsourceTick)
-	// gives up on the successor's takeover report and reclaims the PREDECESSOR
-	// outsource worker's leaked session (T-ba04). Deliberately generous — a real
-	// handover dialogue (successor boots, reads up, asks, predecessor answers)
-	// can take many minutes; this only bounds the resource leak when the report
-	// never comes. Owner-tunable decision (flagged for review): 30 minutes.
-	reassignHandoverTimeoutSecs = 1800.0
 	// workerSpawnCooldownSecs benches a machine for a worker after that machine
 	// FAILED to boot it (a refused start receipt, or an FSM zombie-takeover
 	// ghost-reap off it — that bench is lifted early by the target's OK stop

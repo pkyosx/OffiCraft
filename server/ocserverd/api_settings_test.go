@@ -53,6 +53,7 @@ func apiTestShippedSettings() map[string]any {
 		"monitoring_refresh_seconds":       5,
 		"outsource_max_parallel":           3,
 		"accelerated_grace_secs":           120,
+		"reassign_handover_timeout_secs":   1800,
 		"warden_credential_lifetime_secs":  2592000,
 		"doc_cap_chars_duty":               1000,
 		"doc_cap_chars_insight":            15000,
@@ -79,6 +80,25 @@ func apiTestShippedSettings() map[string]any {
 		"suggested_replies_task_message":   []any{},
 		"suggested_replies_lore_message":   []any{},
 		"onboarding":                       nil,
+	}
+}
+
+func TestReassignHandoverTimeoutInRange(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		value int
+		want  bool
+	}{
+		{name: "below minimum", value: 59},
+		{name: "minimum", value: 60, want: true},
+		{name: "maximum", value: 86400, want: true},
+		{name: "above maximum", value: 86401},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := reassignHandoverTimeoutInRange(tc.value); got != tc.want {
+				t.Fatalf("reassignHandoverTimeoutInRange(%d) = %v, want %v", tc.value, got, tc.want)
+			}
+		})
 	}
 }
 
@@ -495,6 +515,7 @@ func TestHandleUpdateSettingsApiSettingsPatch(t *testing.T) {
 			"codex_compaction_threshold":6,
 			"monitoring_refresh_seconds":30,
 			"accelerated_grace_secs":90,
+			"reassign_handover_timeout_secs":600,
 			"warden_credential_lifetime_secs":864000,
 			"outsource_max_parallel":-1,
 			"doc_cap_chars_duty":2000,
@@ -519,6 +540,7 @@ func TestHandleUpdateSettingsApiSettingsPatch(t *testing.T) {
 		want["codex_compaction_threshold"] = 6
 		want["monitoring_refresh_seconds"] = 30
 		want["accelerated_grace_secs"] = 90
+		want["reassign_handover_timeout_secs"] = 600
 		want["warden_credential_lifetime_secs"] = 864000
 		want["outsource_max_parallel"] = -1
 		want["doc_cap_chars_duty"] = 2000
@@ -699,6 +721,23 @@ func TestHandleUpdateSettingsApiSettingsPatch(t *testing.T) {
 			t.Fatalf("want 422, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "validation_error", "accelerated_grace_secs must be between 10 and 3600 seconds")
+	})
+
+	t.Run("a reassign_handover_timeout_secs outside its range answers 422 and writes nothing", func(t *testing.T) {
+		_, h, d, owner := newAPITestServer(t)
+
+		for _, body := range []string{`{"reassign_handover_timeout_secs":59}`, `{"reassign_handover_timeout_secs":86401}`} {
+			status, data := apiJSON(t, h, "PATCH", "/api/settings", owner, body)
+			if status != 422 {
+				t.Fatalf("%s: want 422, got %d (%v)", body, status, data)
+			}
+			apiWantError(t, data, "validation_error", "reassign_handover_timeout_secs must be between 60 and 86400 seconds")
+		}
+		if stored, err := d.GetSetting(settingReassignHandoverTimeoutSecs); err != nil || stored != nil {
+			t.Fatalf("a refused value must not be stored, got %v %v", stored, err)
+		}
+		_, served := apiJSON(t, h, "GET", "/api/settings", owner, "")
+		apiWantBody(t, served, apiTestShippedSettings())
 	})
 
 	t.Run("an outsource_max_parallel outside its range answers 422", func(t *testing.T) {
@@ -898,6 +937,7 @@ func TestSettingsView(t *testing.T) {
 		MonitoringRefreshSeconds:     5,
 		OutsourceMaxParallel:         3,
 		AcceleratedGraceSecs:         120,
+		ReassignHandoverTimeoutSecs:  1800,
 		WardenCredentialLifetimeSecs: 2592000,
 		DocCapCharsDuty:              1000,
 		DocCapCharsInsight:           15000,

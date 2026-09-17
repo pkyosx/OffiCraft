@@ -2093,6 +2093,8 @@ const DEFAULT_MOCK_SETTINGS = {
   monitoring_refresh_seconds: 5,
   // 加速停止 grace — mirrors the server's shipped default (StoppingTimeoutSecs).
   accelerated_grace_secs: 120,
+  // Mirrors the server's shipped reassign handover timeout.
+  reassign_handover_timeout_secs: 1800,
   // T-fc53 warden credential lifetime — mirrors the server's shipped default
   // (30 days). Hard-coded rather than derived so the mock still shows the fleet
   // default the day someone changes the constant on only one side.
@@ -5819,6 +5821,12 @@ const mockApiImpl = {
     ) {
       throw mockApiError("http 422 for PATCH /api/settings", 422, "accelerated_grace_secs must be between 10 and 3600 seconds");
     }
+    if (
+      patch.reassignHandoverTimeoutSecs !== undefined &&
+      (patch.reassignHandoverTimeoutSecs < 60 || patch.reassignHandoverTimeoutSecs > 86400)
+    ) {
+      throw mockApiError("http 422 for PATCH /api/settings", 422, "reassign_handover_timeout_secs must be between 60 and 86400 seconds");
+    }
     // T-fc53: the mock refuses exactly what the server refuses, so a UI that
     // only ever runs against the mock cannot ship a field that offers the owner
     // a number he would get a 422 for on a real install.
@@ -6053,6 +6061,9 @@ const mockApiImpl = {
     }
     if (patch.acceleratedGraceSecs !== undefined) {
       mockServerSettings.accelerated_grace_secs = patch.acceleratedGraceSecs;
+    }
+    if (patch.reassignHandoverTimeoutSecs !== undefined) {
+      mockServerSettings.reassign_handover_timeout_secs = patch.reassignHandoverTimeoutSecs;
     }
     if (patch.wardenCredentialLifetimeSecs !== undefined) {
       mockServerSettings.warden_credential_lifetime_secs = patch.wardenCredentialLifetimeSecs;

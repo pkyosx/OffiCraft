@@ -1000,6 +1000,8 @@ export const MESSAGE_KEYS: readonly string[] = [
   "settings.params",
   "settings.paramsLoadError",
   "settings.paramsSaveError",
+  "settings.reassignHandoverTimeout",
+  "settings.reassignHandoverTimeoutSub",
   "settings.receiveBeta",
   "settings.receiveBetaSub",
   "settings.renameRole",

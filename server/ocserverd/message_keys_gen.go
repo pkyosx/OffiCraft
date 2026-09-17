@@ -1001,6 +1001,8 @@ var messageKeys = map[string]bool{
 	"settings.params":                                  true,
 	"settings.paramsLoadError":                         true,
 	"settings.paramsSaveError":                         true,
+	"settings.reassignHandoverTimeout":                 true,
+	"settings.reassignHandoverTimeoutSub":              true,
 	"settings.receiveBeta":                             true,
 	"settings.receiveBetaSub":                          true,
 	"settings.renameRole":                              true,
