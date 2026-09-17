@@ -3764,8 +3764,8 @@ export interface paths {
         get: operations["handle_list_lore_entries_api_lore_get"];
         put?: never;
         /**
-         * Write ONE 傳承 entry (never editable afterwards). ``task_id`` picks the scope, and there is ALWAYS somewhere for it to land: a task that carries a TYPE files under that type's manual; no task at all, OR a task with no type (臨時任務), files into your OWN boot document -- an ``agent`` scope keyed to you, staff and outsource alike. A write never files to ``everyone`` (所有人): only an admin's set_lore_entry_scope moves an entry there. The untyped-task case answers a ``scope_note`` saying where it actually went, because you asked for a manual and did not get one. Only a caller with no roster row at all is a 400 -- there is no boot document to file into. An over-cap title or body is a 400 that writes nothing.
-         * @description Write ONE 傳承 entry (never editable afterwards). ``task_id`` picks the scope, and there is ALWAYS somewhere for it to land: a task that carries a TYPE files under that type's manual; no task at all, OR a task with no type (臨時任務), files into your OWN boot document -- an ``agent`` scope keyed to you, staff and outsource alike. A write never files to ``everyone`` (所有人): only an admin's set_lore_entry_scope moves an entry there. The untyped-task case answers a ``scope_note`` saying where it actually went, because you asked for a manual and did not get one. Only a caller with no roster row at all is a 400 -- there is no boot document to file into. An over-cap title or body is a 400 that writes nothing.
+         * Write ONE 傳承 entry (its title and body are never editable afterwards). ``task_id`` picks the scope, and there is ALWAYS somewhere for it to land: a task that carries a TYPE files under that type's manual; no task at all, OR a task with no type (臨時任務), files into your OWN boot document -- an ``agent`` scope keyed to you, staff and outsource alike. A write never files to ``everyone`` (所有人): only an admin's set_lore_entry_scope moves an entry there. The untyped-task case answers a ``scope_note`` saying where it actually went, because you asked for a manual and did not get one. Only a caller with no roster row at all is a 400 -- there is no boot document to file into. An over-cap title or body is a 400 that writes nothing.
+         * @description Write ONE 傳承 entry (its title and body are never editable afterwards). ``task_id`` picks the scope, and there is ALWAYS somewhere for it to land: a task that carries a TYPE files under that type's manual; no task at all, OR a task with no type (臨時任務), files into your OWN boot document -- an ``agent`` scope keyed to you, staff and outsource alike. A write never files to ``everyone`` (所有人): only an admin's set_lore_entry_scope moves an entry there. The untyped-task case answers a ``scope_note`` saying where it actually went, because you asked for a manual and did not get one. Only a caller with no roster row at all is a 400 -- there is no boot document to file into. An over-cap title or body is a 400 that writes nothing.
          */
         post: operations["handle_write_lore_entry_api_lore_post"];
         delete?: never;
@@ -10168,7 +10168,7 @@ export interface components {
         };
         /**
          * WorkerBootContextDTO
-         * @description The outsource worker's boot-context PREVIEW (GET /api/outsource-workers/{id}/boot-context, T-ba6b) — the worker twin of the member panel's /api/bootstrap preview. The server re-runs the SAME buildWorkerBootContext fold the spawn path uses. Since T-4595 that fold is the STAFF boot context minus the persona slot (系統互動 + 使用者自訂 + the boot sequence for the worker's own runtime); it carries no outsource-only document, no identity block, no bound task and no type manual, so it does not vary with them. It DOES carry this worker's own 傳承 block (T-33, LoreScopeAgent keyed on the worker's member id) — the one part of this text that differs from worker to worker, and it changes when that worker's entries are written, retired or bumped. HONEST: this is what the boot context would look like NOW — the seeds may have changed since spawn, and nothing is stored. Never carries a worker token.
+         * @description The outsource worker's boot-context PREVIEW (GET /api/outsource-workers/{id}/boot-context, T-ba6b) — the worker twin of the member panel's /api/bootstrap preview. The server re-runs the SAME buildWorkerBootContext fold the spawn path uses. Since T-4595 that fold is the STAFF boot context minus the persona slot (系統互動 + 使用者自訂 + the boot sequence for the worker's own runtime); it carries no outsource-only document, no identity block, no bound task and no type manual, so it does not vary with them. It DOES carry a 傳承 block (T-33): the ``everyone`` (所有人) entries first, then this worker's own (LoreScopeAgent keyed on the worker's member id), under one ``lore_cap_chars_role`` budget (T-236). The worker's own entries are the one part of this text that differs from worker to worker; the block changes when an entry in either scope is written, retired or bumped, or is moved into or out of them by ``set_lore_entry_scope``. HONEST: this is what the boot context would look like NOW — the seeds may have changed since spawn, and nothing is stored. Never carries a worker token.
          */
         WorkerBootContextDTO: {
             /** Context */
@@ -10176,7 +10176,7 @@ export interface components {
         };
         /**
          * LoreEntryDTO
-         * @description One 傳承 entry (T-33). Written once and NEVER edited: no route changes ``title`` or ``body``, so what you read here is what was written. The mutable surface is ``state`` (active / pinned / retired), ``retire_reason`` and ``effective_ts``.
+         * @description One 傳承 entry (T-33). Its text is written once and NEVER edited: no route changes ``title`` or ``body``, so what you read here is what was written. The mutable surface is ``state`` (active / pinned / retired), ``retire_reason``, ``effective_ts`` and — admin-only, through ``set_lore_entry_scope`` (T-236) — the ``scope_kind`` / ``scope_key`` pair.
          *
          *     ``effective_ts`` vs ``created_ts``: ``created_ts`` is when the entry was written and never moves; ``effective_ts`` starts equal to it and is what ``bump_lore_entry`` sets to now. The fold's selection order reads ``effective_ts``, so bumping is how an old entry is brought back to the front — and because ``created_ts`` survives, the bump is reversible and explicable afterwards.
          *
@@ -10380,14 +10380,14 @@ export interface components {
             offset: number;
             /**
              * Cap Chars
-             * @description The fold budget in force for the ONE scope this request's filter converged on — ``lore_cap_chars_role`` or ``lore_cap_chars_manual``. It is 0 when ``scope_kind`` and ``scope_key`` did not BOTH name a single scope, because a budget belongs to a scope and a page spanning several has no single one to report.
+             * @description The fold budget in force for the ONE scope this request's filter converged on — ``lore_cap_chars_role`` for ``agent`` and ``everyone``, ``lore_cap_chars_manual`` for ``manual``. It is 0 unless ``scope_kind`` and ``scope_key`` BOTH name a single scope — or ``scope_kind`` is ``everyone`` alone with no ``scope_key``, since that scope's key is "" — because a budget belongs to a scope and a page spanning several has no single one to report.
              */
             cap_chars: number;
             /**
              * First Dropped Id
              * @description The id of the first entry that does NOT fit inside ``cap_chars`` — the entry the 上限線 is drawn above. It is "" when the whole scope fits, and "" when ``cap_chars`` is 0.
              *
-             *     🔴 IT IS COMPUTED BY THE SAME ``selectLoreForScope`` THE TWO FOLDS RUN, over the WHOLE scope and not over this page. A client cannot derive it: paging cuts the list before the budget is spent, and re-adding the title/body lengths in the client would be a SECOND copy of the picking rule that drifts from the real one without anything turning red. Read this field; do not recompute it.
+             *     🔴 IT IS COMPUTED BY THE SAME SELECTION THE FOLDS RUN, over the WHOLE scope and not over this page: for an ``agent`` scope that is the member's boot selection (``everyone`` entries first, under the shared budget — so ``everyone`` entries can move this line), for ``everyone`` alone and for ``manual`` the scope by itself (T-236). A client cannot derive it: paging cuts the list before the budget is spent, and re-adding the title/body lengths in the client would be a SECOND copy of the picking rule that drifts from the real one without anything turning red. Read this field; do not recompute it.
              */
             first_dropped_id: string;
         };
@@ -10402,7 +10402,7 @@ export interface components {
         LoreEntryWriteReceiptDTO: {
             /**
              * Id
-             * @description ``L-<n>``, MINTED HERE, ``n`` ascending globally. The handle ``set_lore_entry_state`` and ``bump_lore_entry`` take as ``entry_id``, and the one thing the caller cannot compute.
+             * @description ``L-<n>``, MINTED HERE, ``n`` ascending globally. The handle ``set_lore_entry_state``, ``bump_lore_entry`` and ``set_lore_entry_scope`` take as ``entry_id``, and the one thing the caller cannot compute.
              */
             id: string;
             /**
