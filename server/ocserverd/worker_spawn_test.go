@@ -3203,6 +3203,70 @@ func TestReconcileWorkerLiveness(t *testing.T) {
 		}), any(map[string]any{"phase": "starting", "last_command": "start", "last_command_at": 500.0}))
 	})
 
+	t.Run("a bounce first seen inside the confirm window keeps its receipt, so the tick past the window still reaps the ghost", func(t *testing.T) {
+		api, h, d, owner, _ := wsWindDown(t, WorkerStatusActive, DesiredStateOnline, "", 0, 0, 0, false)
+		w := wsWithReceipt(t, api, d, "start", "session_already_exists: a live session is holding the slot")
+		apiTestListen(t, api, ServerSelfHost)
+
+		api.outsourceMu.Lock()
+		api.workerSpawnTarget["ow-abc123"] = ServerSelfHost
+		api.lifecycleStates["ow-abc123"] = reconcileState{
+			Phase: reconcilePhaseStarting, LastCommand: reconcileCmdStart,
+			LastCommandAt: 500, OfflineSince: 950,
+		}
+		api.reconcileWorkerLiveness(w, 1000)
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "the verbs dispatched inside the window", any(wsVerbs(t, api, ServerSelfHost)), any([]any{}))
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "active", "desired_state": "online", "machine": "m-server-self",
+			"last_op": "start", "last_op_ok": nil, "last_op_at": 400,
+			"last_op_reason": "session_already_exists: a live session is holding the slot",
+		}))
+
+		reread, err := d.GetOutsourceWorker("ow-abc123")
+		if err != nil || reread == nil {
+			t.Fatalf("GetOutsourceWorker: %v (%v)", reread, err)
+		}
+		reread.DesiredMachineID = ServerSelfHost
+
+		api.outsourceMu.Lock()
+		api.reconcileWorkerLiveness(*reread, 1200)
+		state := api.lifecycleStates["ow-abc123"]
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "the verbs dispatched past the window", any(wsVerbs(t, api, ServerSelfHost)), any([]any{"stop"}))
+		apiWantValue(t, "fsm state", any(map[string]any{
+			"phase": state.Phase, "last_command": state.LastCommand, "last_command_at": state.LastCommandAt,
+		}), any(map[string]any{"phase": "stopping", "last_command": "stop", "last_command_at": 1200.0}))
+	})
+
+	t.Run("a back-off tick leaves the previous attempt's never_collected diagnosis on the row", func(t *testing.T) {
+		api, h, _, owner, w := wsWorkerSpawnFixture(t, WorkerStatusActive)
+		apiTestListen(t, api, ServerSelfHost)
+		pinned := w
+		pinned.DesiredMachineID = ServerSelfHost
+		pinned.DesiredState = DesiredStateOnline
+		st := api.lifecycleState("ow-abc123")
+		st.Attempts = 1
+		st.BackoffUntil = nowSecs() + 250
+		api.setLifecycleState("ow-abc123", st)
+
+		api.outsourceMu.Lock()
+		api.workerSpawnTarget["ow-abc123"] = ServerSelfHost
+		api.stampWorkerPlacementBlocked(&pinned, "never_collected: the start frame is still queued", 4000)
+		started := api.reconcileWorkerLiveness(pinned, nowSecs())
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "started", any(started), any(false))
+		apiWantValue(t, "the verbs dispatched", any(wsVerbs(t, api, ServerSelfHost)), any([]any{}))
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "active", "machine": "m-server-self",
+			"last_op": "start", "last_op_ok": false, "last_op_at": 4000,
+			"last_op_reason": "never_collected: the start frame is still queued",
+		}))
+	})
+
 	t.Run("a takeover with no known target keeps the PRIOR state so the next tick retries, and benches nothing", func(t *testing.T) {
 		api, _, d, _, _ := wsWindDown(t, WorkerStatusActive, DesiredStateOnline, "", 0, 0, 0, false)
 		w := wsWithReceipt(t, api, d, "start", "session_already_exists: a live session is holding the slot")

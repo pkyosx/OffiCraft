@@ -1227,9 +1227,9 @@ func (s *apiServer) reconcileWorkerLiveness(w OutsourceWorker, now float64) bool
 				"that machine (warden log: ocwarden.out.log)", now)
 		}
 	} else if isStopgapRetryReason(decision.ReasonCode) {
-		// The staff tick stamps the same FSM code (reconcileTickMemberLocked), so an
-		// owner verb waiting out backoff / circuit-open says so on the row. Only the
-		// retry-loop codes: a zombie_suspect stamp would overwrite the
+		// The staff tick stamps the same FSM code (reconcileTickMemberLocked); as
+		// there, it yields to an earlier wake_timeout / never_collected diagnosis.
+		// Only the retry-loop codes: a zombie_suspect stamp would overwrite the
 		// session_already_exists receipt the zombie arm reads on the next tick.
 		s.stampWorkerPlacementBlocked(&w, decision.ReasonCode, now)
 	}
@@ -1501,8 +1501,10 @@ func (s *apiServer) retryUnlandedWorkerStop(workerID string, now float64) {
 //
 // An owner relocate must ALWAYS end in either a dispatch or a receipt: a
 // deferred stop (ACTIVE, no kill target) stamps respawn_deferred, a START the
-// FSM withholds for backoff / circuit-open stamps that code, and a START the FSM
-// decides but cannot deliver stamps its own placement cause.
+// FSM withholds for backoff / circuit-open stamps that code unless an earlier
+// attempt's wake_timeout / never_collected diagnosis is on the row (that one
+// stays, as for staff), and a START the FSM decides but cannot deliver stamps
+// its own placement cause.
 // Callers hold s.outsourceMu.
 func (s *apiServer) relocateWorkerNow(w OutsourceWorker) ownerOpOutcome {
 	return s.respawnWorkerForOwnerOp(w, ownerOpRelocate)
