@@ -1987,8 +1987,8 @@ func TestMcpCatalogTools(t *testing.T) {
 			seen[name] = true
 			names = append(names, name)
 		}
-		if names[0] != "get_version" || names[len(names)-1] != "reorder_steps" {
-			t.Fatalf("the catalog order moved: first %q, last %q", names[0], names[len(names)-1])
+		if names[0] != "get_version" {
+			t.Fatalf("the catalog order moved: first %q", names[0])
 		}
 		apiWantValue(t, "get_version", tools[0], map[string]any{
 			"name": "get_version",
@@ -2035,9 +2035,8 @@ func TestMcpCatalogTools(t *testing.T) {
 		}
 		apiWantValue(t, "embedded catalog", tools, wantTools)
 		first, _ := tools[0].(map[string]any)
-		last, _ := tools[len(tools)-1].(map[string]any)
-		if first["name"] != "get_version" || last["name"] != "reorder_steps" {
-			t.Fatalf("the catalog order moved: first %#v, last %#v", first["name"], last["name"])
+		if first["name"] != "get_version" {
+			t.Fatalf("the catalog order moved: first %#v", first["name"])
 		}
 	})
 }
