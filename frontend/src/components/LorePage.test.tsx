@@ -1869,6 +1869,12 @@ describe("LorePage — 可變動作面", () => {
 });
 
 describe("LorePage — 適用範圍選單", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+    localStorage.clear();
+  });
+
   const MANUALS = [
     { typeKey: "review-pr", displayName: "PR 審查", purpose: "", fields: [] },
   ];
@@ -2112,5 +2118,85 @@ describe("LorePage — 適用範圍選單", () => {
     expect(
       container.querySelector('[data-testid="lore-scope-options"]'),
     ).toBeNull();
+  });
+
+  function jwt(claims: Record<string, unknown>): string {
+    const b64url = (v: unknown) =>
+      btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify(v)))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    return `${b64url({ alg: "HS256", typ: "JWT" })}.${b64url(claims)}.sig`;
+  }
+
+  async function renderAs(token: string) {
+    vi.stubEnv("VITE_USE_MOCK", "false");
+    vi.stubEnv("VITE_OC_TOKEN", "");
+    localStorage.setItem("oc_token", token);
+    vi.resetModules();
+    const real = await import("../api");
+    const { LorePage: RealLorePage } = await import("./LorePage");
+    const { I18nProvider: RealI18nProvider } = await import("../i18n");
+    expect(real.USE_MOCK).toBe(false);
+    vi.spyOn(real.api, "subscribeEvents").mockReturnValue(() => {});
+    vi.spyOn(real.api, "getServerSettings").mockReturnValue(new Promise(() => {}));
+    vi.spyOn(real.api, "listThemes").mockReturnValue(new Promise(() => {}));
+    vi.spyOn(real.api, "listOutsourceWorkers").mockResolvedValue([]);
+    vi.spyOn(real.api, "listTaskManuals").mockResolvedValue([]);
+    vi.spyOn(real.api, "listMembers").mockResolvedValue([
+      { id: "mira", name: "Mira", role: "assistant", kind: "staff" },
+      { id: "m-kyle", name: "Kyle", role: "officraft-developer", kind: "staff" },
+    ] as never);
+    vi.spyOn(real.api, "listLoreEntries").mockResolvedValue(
+      page([
+        mkEntry({
+          id: "L-2",
+          scopeKind: "agent",
+          scopeKey: "mira",
+          scopeOptions: ["agent", "everyone"],
+        }),
+      ]),
+    );
+    const { container } = render(
+      <RealI18nProvider>
+        <RealLorePage />
+      </RealI18nProvider>,
+    );
+    await waitFor(() =>
+      expect(
+        rowById(container, "L-2").querySelector('[data-testid="lore-scope-name"]')!
+          .textContent,
+      ).toBe("建立者：Mira"),
+    );
+    return container;
+  }
+
+  it.each([
+    ["the owner", { scope: "owner", sub: "owner" }],
+    ["the assistant", { scope: "agent", sub: "mira" }],
+  ])("%s opens the menu from the badge", async (_label, claims) => {
+    const container = await renderAs(jwt(claims));
+    await waitFor(() =>
+      expect(
+        rowById(container, "L-2")
+          .querySelector('[data-testid="lore-scope-name"]')!
+          .getAttribute("aria-haspopup"),
+      ).toBe("menu"),
+    );
+    fireEvent.click(
+      rowById(container, "L-2").querySelector('[data-testid="lore-scope-name"]')!,
+    );
+    expect(
+      container.querySelector('[data-testid="lore-scope-options"]')?.textContent,
+    ).toBe("適用範圍建立者：Mira預設所有人");
+  });
+
+  it("a plain member sees the current scope as text and clicking it opens nothing", async () => {
+    const container = await renderAs(jwt({ scope: "agent", sub: "m-kyle" }));
+    const badge = rowById(container, "L-2").querySelector(
+      '[data-testid="lore-scope-name"]',
+    )!;
+    expect(badge.getAttribute("aria-haspopup")).toBeNull();
+    fireEvent.click(badge);
+    expect(container.querySelector('[data-testid="lore-scope-options"]')).toBeNull();
+    expect(container.querySelector('[data-testid="lore-scope-agent"]')).toBeNull();
+    expect(container.querySelector('[data-testid="lore-scope-everyone"]')).toBeNull();
   });
 });
