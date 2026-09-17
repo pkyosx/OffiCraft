@@ -1203,15 +1203,23 @@ func (d *DAL) listChatUnread(reader string, f chatListFilter, after *chatAnchor,
 	}
 	// Every row here already has recipient = reader, so `with=` needs no UNION:
 	// with=reader adds nothing and with=P narrows to sender = P.
+	bySender := f.sender != ""
 	if f.participant != "" && f.participant != reader {
 		query += ` AND m.sender = ?`
 		args = append(args, f.participant)
+		bySender = true
 	}
 	f.appendSQL(&query, &args, "m.")
-	// `+m.ts` keeps the planner on idx_chat_message_recipient_sender_ts; plain
-	// `m.ts` lets it pick idx_chat_message_recipient_ts for the order and read
-	// the reader's whole inbox (2x slower on real data, 5x with with=).
-	query += ` ORDER BY +m.ts, m.id`
+	// With a sender fixed, `+m.ts` keeps the planner on
+	// idx_chat_message_recipient_sender_ts (plain `m.ts` walked the whole inbox
+	// on idx_chat_message_recipient_ts: 4.7 ms -> 25 ms on real data). Without
+	// one, the ordered walk of idx_chat_message_recipient_ts is what lets a
+	// capped page stop early (a 31-row page: 20-45 ms with `+` vs 2.5 ms).
+	if bySender {
+		query += ` ORDER BY +m.ts, m.id`
+	} else {
+		query += ` ORDER BY m.ts, m.id`
+	}
 	if limit > 0 {
 		query += ` LIMIT ?`
 		args = append(args, limit)
