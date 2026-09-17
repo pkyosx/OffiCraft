@@ -194,13 +194,19 @@ const stopNoopReasonPrefix = "no_such_session"
 // session was never touched (T-9adc, the 2026-07-20 incident's misleading
 // last_op=stop/ok=true). Callers SKIP the last_op fold for these receipts.
 func isStopNoopReceipt(rpc string, ok *bool, reason string) bool {
-	if rpc != "stop" && rpc != "worker_stop" {
+	if !isStopRPC(rpc) {
 		return false
 	}
 	if ok == nil || !*ok {
 		return false // a FAILED stop is always folded — failure must stay visible
 	}
 	return strings.HasPrefix(reason, stopNoopReasonPrefix)
+}
+
+// isStopRPC reports whether a receipt answers a stop: the converged member
+// verb or the legacy worker verb.
+func isStopRPC(rpc string) bool {
+	return rpc == "stop" || rpc == "worker_stop"
 }
 
 // wakeTimeoutReasonCode is the reason CODE stampWakeObservability writes
@@ -284,6 +290,13 @@ func (s *apiServer) foldCommandResult(commandResult map[string]any, trigger, rep
 		s.noteWorkerStopNoSuchSession(strings.TrimSpace(workerIDRaw), reporter)
 		s.noteWorkerStopNoSuchSession(
 			strings.TrimSpace(memberIDRawOf(commandResult)), reporter)
+	}
+	if isStopRPC(stringOf(commandResult["rpc"])) {
+		if ok := boolPtrOf(commandResult["ok"]); ok != nil && *ok {
+			s.noteWorkerStopSucceeded(strings.TrimSpace(workerIDRaw), reporter)
+			s.noteWorkerStopSucceeded(
+				strings.TrimSpace(memberIDRawOf(commandResult)), reporter)
+		}
 	}
 	if workerID := strings.TrimSpace(workerIDRaw); workerID != "" {
 		s.foldWorkerCommandResult(workerID, commandResult, trigger)
@@ -470,15 +483,17 @@ func (s *apiServer) foldWorkerCommandResult(workerID string, commandResult map[s
 			"[monitoring] worker command_result fold failed for %q: %v\n", workerID, err)
 		return
 	}
-	// DoD② 換機: a REFUSED start means the last spawn target could not boot
-	// this worker (RAM/creds/ghost) — bench that machine for it so the next
-	// re-spawn rotates to a different warden instead of re-picking the same bad
-	// one. The target comes from the in-memory spawn map (notifyWorkerSpawn
-	// stamped it under this same lock; durable spawn columns retired in P7d).
-	// Both the converged member verb (`start`, P5b) and the legacy worker verb
-	// (an old warden in the transition window) count.
+	// A REFUSED start means the last spawn target could not boot this worker
+	// (RAM/creds) — bench that machine for it so the retry pauses instead of
+	// hammering it. The target comes from the in-memory spawn map
+	// (notifyWorkerSpawn stamped it under this same lock). Both the converged
+	// member verb (`start`) and the legacy worker verb count.
+	//
+	// A session_already_exists refusal is not benched: the old session is still
+	// alive, and what follows is either its reconnect or the zombie takeover,
+	// which benches the slot itself only until its stop is confirmed.
 	if (rpc == reconcileCmdStart || rpc == legacyWardenCmdWorkerStart) &&
-		okVal != nil && !*okVal {
+		okVal != nil && !*okVal && !strings.HasPrefix(reason, spawnClobberReasonPrefix) {
 		s.benchWorkerMachine(w.ID, s.workerSpawnTarget[w.ID], nowSecs())
 	}
 	s.publishOutsourceWorker(*w, trigger)

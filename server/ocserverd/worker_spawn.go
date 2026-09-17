@@ -100,9 +100,10 @@ const (
 	reassignHandoverTimeoutSecs = 1800.0
 	// workerSpawnCooldownSecs benches a machine for a worker after that machine
 	// FAILED to boot it (a refused start receipt, or an FSM zombie-takeover
-	// ghost-reap off it). While benched, resolveWorkerPlacement refuses that
-	// machine for that worker — this is a PAUSE, not the 換機 rotation it was
-	// under automatic placement: there is no other host to rotate to now that a
+	// ghost-reap off it — that bench is lifted early by the target's OK stop
+	// receipt). While benched, resolveWorkerPlacement refuses that machine for
+	// that worker — this is a PAUSE, not the 換機 rotation it was under
+	// automatic placement: there is no other host to rotate to now that a
 	// worker only ever boots where it was placed. Sized at 3× the re-dispatch
 	// pace so a known-bad boot is retried after a few cycles, not every retry.
 	workerSpawnCooldownSecs = 3 * workerSpawnRetrySecs
@@ -1095,24 +1096,23 @@ func (s *apiServer) reconcileWorkerLiveness(w OutsourceWorker, now float64) bool
 		//   * robust_resend — needs st.RobustStopPendingAt, which workerObservation
 		//                    deliberately does not populate.
 		// So the ONLY STOP that arrives here is the takeover, and the single line
-		// that says "a recycle must not bench" is the early return above — which
-		// is load-bearing and tested: delete it and the recycle falls into this
-		// block, benches, and
-		// TestWorkerStopArm_OnlyZombieTakeoverBenchesTheMachine_T72dd goes red.
+		// that says "a recycle must not bench" is the early return above.
 		//
 		// ⚠️ If a later change makes any of the three kinds above reachable here,
 		// the guard has to come BACK — with a test that reaches it. Benching is
 		// only correct for a slot known to be wedged.
 		//
-		// Why the takeover benches at all: that target kept a ghost the
-		// clobber-guard refused to overwrite, so a respawn onto it would bounce off
-		// the same ghost. Benching makes the next resolve answer machine_unavailable
-		// and the worker STANDS STILL until the cooldown expires (T-98f4: it does
-		// NOT rotate to another warden — the 2026-07-25 no-automatic-placement
-		// ruling deleted every rotation arm). That standstill is the accepted cost
-		// of not spinning against a wedged slot.
+		// Why the takeover benches at all: the next tick's START must not reach
+		// the target before the stop has reaped the ghost, or it bounces off the
+		// same clobber-guard. The bench holds the respawn only until the target's
+		// own OK stop receipt lifts it (noteWorkerStopSucceeded); a stop that
+		// fails or never reports leaves it to run out.
 		s.benchWorkerMachine(w.ID, target, now)
-		outsourceLog("rescue %s (%s): %s — robust stop → %s, %s benched",
+		s.workerTakeoverBench[w.ID] = takeoverBench{
+			Machine: target,
+			Until:   s.workerMachineCooldown[workerMachineKey(w.ID, target)],
+		}
+		outsourceLog("rescue %s (%s): %s — robust stop → %s, %s benched until its stop receipt",
 			w.ID, w.Codename, decision.Reason, target, target)
 	default:
 		s.setLifecycleState(w.ID, decision.State)
@@ -1367,6 +1367,42 @@ func (s *apiServer) stopWorkerSessionOrPark(target, workerID string, now float64
 	s.workerStopPending[workerID] = target
 	outsourceLog("worker_stop %s: target %s unreachable — parked, tick will re-fire",
 		workerID, target)
+}
+
+// takeoverBench is the bench a zombie takeover placed on Machine, identified by
+// its cooldown-until stamp so a later bench on the same machine is never
+// mistaken for it.
+type takeoverBench struct {
+	Machine string
+	Until   float64
+}
+
+// noteWorkerStopSucceeded lifts the takeover bench once the machine the
+// takeover stopped reports an OK stop — a kill, or no_such_session, both mean
+// the slot is clear — so the next tick restarts the worker there instead of
+// waiting out the cooldown. Only the takeover target's receipt counts (same
+// reporter rule as noteWorkerStopNoSuchSession); a failed stop reaches no one
+// here and the bench stands. A bench stamped after the takeover's is left alone.
+//
+// Takes s.outsourceMu itself.
+func (s *apiServer) noteWorkerStopSucceeded(workerID, reporter string) {
+	if workerID == "" || reporter == "" {
+		return
+	}
+	s.outsourceMu.Lock()
+	defer s.outsourceMu.Unlock()
+	tb, ok := s.workerTakeoverBench[workerID]
+	if !ok || tb.Machine != reporter {
+		return
+	}
+	delete(s.workerTakeoverBench, workerID)
+	key := workerMachineKey(workerID, reporter)
+	if until, benched := s.workerMachineCooldown[key]; !benched || until != tb.Until {
+		return
+	}
+	delete(s.workerMachineCooldown, key)
+	outsourceLog("worker_stop %s: %s confirmed the takeover stop — bench lifted, "+
+		"restart proceeds on the same machine", workerID, reporter)
 }
 
 // workerStopDispatch is ONE worker_stop a warden accepted, awaiting proof that

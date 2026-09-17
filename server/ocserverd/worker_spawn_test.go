@@ -1523,6 +1523,21 @@ func TestNoteWorkerStopNoSuchSession(t *testing.T) {
 	})
 }
 
+func TestNoteWorkerStopSucceeded(t *testing.T) {
+	t.Run("a late OK stop receipt does not lift a bench a refused start placed after the takeover's bench ran out", func(t *testing.T) {
+		api, _, _, _, _ := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
+		api.benchWorkerMachine("ow-abc123", ServerSelfHost, 1000)
+		api.workerTakeoverBench["ow-abc123"] = takeoverBench{Machine: ServerSelfHost, Until: 1360}
+		api.benchWorkerMachine("ow-abc123", ServerSelfHost, 2000)
+
+		api.noteWorkerStopSucceeded("ow-abc123", ServerSelfHost)
+
+		apiWantValue(t, "bench book", any(wsBenchBook(api)),
+			any(map[string]any{"ow-abc123|m-server-self": 2360.0}))
+		apiWantValue(t, "takeover benches", any(float64(len(api.workerTakeoverBench))), any(0))
+	})
+}
+
 func TestRetryPendingWorkerStop(t *testing.T) {
 	t.Run("a parked kill re-fires once the target is reachable, and the re-fire is armed against it", func(t *testing.T) {
 		api, _, _, _, _ := wsWorkerSpawnFixture(t, WorkerStatusActive)
@@ -2993,6 +3008,30 @@ func wsFSMState(st reconcileState) map[string]any {
 
 // wsWithReceipt stamps a warden receipt on the fixture worker and answers the
 // re-read row with the placement pin the spawn path needs.
+// wsBenchedReason is the stall the cockpit shows while m-server-self is benched
+// for ow-abc123.
+const wsBenchedReason = "machine_unavailable: machine 'm-server-self' was just benched " +
+	"after a failed boot of this worker; no other machine is substituted"
+
+// wsTakenOver runs the zombie takeover on ow-abc123 at t=1000: a START that
+// bounced off the clobber guard, past the confirm window, stopped on
+// m-server-self. The stop frame is drained so the caller sees only what follows.
+func wsTakenOver(t *testing.T, api *apiServer, d *DAL) OutsourceWorker {
+	t.Helper()
+	w := wsWithReceipt(t, api, d, "start", "session_already_exists: a live session is holding the slot")
+	apiTestListen(t, api, ServerSelfHost)
+	api.outsourceMu.Lock()
+	api.workerSpawnTarget["ow-abc123"] = ServerSelfHost
+	api.lifecycleStates["ow-abc123"] = reconcileState{
+		Phase: reconcilePhaseStarting, LastCommand: reconcileCmdStart,
+		LastCommandAt: 500, OfflineSince: 100,
+	}
+	api.reconcileWorkerLiveness(w, 1000)
+	api.outsourceMu.Unlock()
+	apiWantValue(t, "the takeover verbs", any(wsVerbs(t, api, ServerSelfHost)), any([]any{"stop"}))
+	return w
+}
+
 func wsWithReceipt(t *testing.T, api *apiServer, d *DAL, verb, reason string) OutsourceWorker {
 	t.Helper()
 	if err := d.SetMemberOpReceipt("ow-abc123", verb, nil, "", reason, 400); err != nil {
@@ -3193,6 +3232,115 @@ func TestReconcileWorkerLiveness(t *testing.T) {
 			"status": "active", "desired_state": "online", "machine": "m-server-self",
 			"last_op": "start", "last_op_ok": nil, "last_op_at": 400,
 			"last_op_reason": "session_already_exists: a live session is holding the slot",
+		}))
+	})
+
+	t.Run("after a takeover, an OK stop receipt from the stopped machine answers 200 and the next pass restarts the worker on that machine", func(t *testing.T) {
+		for _, receipt := range []string{
+			`{"rpc":"stop","member_id":"ow-abc123","ok":true,"reason":"","log":"session=member-ow-abc123: stopped"}`,
+			`{"rpc":"stop","member_id":"ow-abc123","ok":true,"reason":"no_such_session: stop was a no-op","log":"no session"}`,
+		} {
+			api, h, d, _, _ := wsWindDown(t, WorkerStatusActive, DesiredStateOnline, "", 0, 0, 0, false)
+			w := wsTakenOver(t, api, d)
+			machine := apiTestAgentToken(t, api, ServerSelfHost, "")
+
+			status, data := apiJSON(t, h, "POST", "/api/monitoring/telemetry", machine,
+				`{"command_result":`+receipt+`}`)
+			apiWantValue(t, "receipt status", any(float64(status)), any(200))
+			apiWantBody(t, data, map[string]any{
+				"agent_id": "m-server-self", "machine": nil, "ts": apiAnyNumber,
+			})
+
+			api.outsourceMu.Lock()
+			bench := wsBenchBook(api)
+			api.reconcileWorkerLiveness(w, 1030)
+			api.outsourceMu.Unlock()
+
+			apiWantValue(t, "bench book", any(bench), any(map[string]any{}))
+			apiWantValue(t, "the verbs dispatched", any(wsVerbs(t, api, ServerSelfHost)), any([]any{"start"}))
+		}
+	})
+
+	t.Run("after a takeover, a failed stop receipt leaves the machine benched and the next pass starts nothing", func(t *testing.T) {
+		api, h, d, owner, _ := wsWindDown(t, WorkerStatusActive, DesiredStateOnline, "", 0, 0, 0, false)
+		w := wsTakenOver(t, api, d)
+		machine := apiTestAgentToken(t, api, ServerSelfHost, "")
+
+		status, _ := apiJSON(t, h, "POST", "/api/monitoring/telemetry", machine,
+			`{"command_result":{"rpc":"stop","member_id":"ow-abc123","ok":false,`+
+				`"reason":"stop incomplete (session still present / broken probe / member process survived the sweep)",`+
+				`"at":1010}}`)
+		apiWantValue(t, "receipt status", any(float64(status)), any(200))
+
+		api.outsourceMu.Lock()
+		bench := wsBenchBook(api)
+		api.reconcileWorkerLiveness(w, 1030)
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "bench book", any(bench), any(map[string]any{"ow-abc123|m-server-self": 1360.0}))
+		apiWantValue(t, "the verbs dispatched", any(wsVerbs(t, api, ServerSelfHost)), any([]any{}))
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "active", "desired_state": "online", "machine": "m-server-self",
+			"last_op": "start", "last_op_ok": false, "last_op_at": 1030,
+			"last_op_reason": wsBenchedReason,
+		}))
+	})
+
+	t.Run("after a takeover, an OK stop receipt from a machine the takeover did not stop leaves the bench standing, and the stopped machine's own receipt still lifts it", func(t *testing.T) {
+		api, h, d, _, _ := wsWindDown(t, WorkerStatusActive, DesiredStateOnline, "", 0, 0, 0, false)
+		w := wsTakenOver(t, api, d)
+		noop := `{"command_result":{"rpc":"stop","member_id":"ow-abc123","ok":true,` +
+			`"reason":"no_such_session: stop was a no-op","log":"no session"}}`
+
+		status, _ := apiJSON(t, h, "POST", "/api/monitoring/telemetry",
+			apiTestAgentToken(t, api, "m-bystander", ""), noop)
+		apiWantValue(t, "bystander receipt status", any(float64(status)), any(200))
+		api.outsourceMu.Lock()
+		bench := wsBenchBook(api)
+		api.reconcileWorkerLiveness(w, 1030)
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "bench book", any(bench), any(map[string]any{"ow-abc123|m-server-self": 1360.0}))
+		apiWantValue(t, "the verbs dispatched", any(wsVerbs(t, api, ServerSelfHost)), any([]any{}))
+
+		status, _ = apiJSON(t, h, "POST", "/api/monitoring/telemetry",
+			apiTestAgentToken(t, api, ServerSelfHost, ""), noop)
+		apiWantValue(t, "target receipt status", any(float64(status)), any(200))
+		api.outsourceMu.Lock()
+		api.reconcileWorkerLiveness(w, 1060)
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "the verbs dispatched", any(wsVerbs(t, api, ServerSelfHost)), any([]any{"start"}))
+	})
+
+	t.Run("a machine benched by a refused start stays benched through an OK stop receipt from it, and the next pass starts nothing", func(t *testing.T) {
+		api, h, _, owner, w := wsWindDown(t, WorkerStatusActive, DesiredStateOnline, "", 0, 0, 0, false)
+		apiTestListen(t, api, ServerSelfHost)
+		machine := apiTestAgentToken(t, api, ServerSelfHost, "")
+		api.outsourceMu.Lock()
+		api.workerSpawnTarget["ow-abc123"] = ServerSelfHost
+		api.outsourceMu.Unlock()
+
+		status, _ := apiJSON(t, h, "POST", "/api/monitoring/telemetry", machine,
+			`{"command_result":{"rpc":"start","member_id":"ow-abc123","ok":false,`+
+				`"reason":"insufficient memory: 1.2 GiB free","at":1010}}`)
+		apiWantValue(t, "start receipt status", any(float64(status)), any(200))
+		status, _ = apiJSON(t, h, "POST", "/api/monitoring/telemetry", machine,
+			`{"command_result":{"rpc":"stop","member_id":"ow-abc123","ok":true,"reason":""}}`)
+		apiWantValue(t, "stop receipt status", any(float64(status)), any(200))
+
+		api.outsourceMu.Lock()
+		benched := api.workerMachineCoolingOn("ow-abc123", ServerSelfHost, nowSecs())
+		api.lifecycleStates["ow-abc123"] = reconcileState{Phase: reconcilePhaseOffline}
+		api.reconcileWorkerLiveness(w, nowSecs())
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "benched", any(benched), any(true))
+		apiWantValue(t, "the verbs dispatched", any(wsVerbs(t, api, ServerSelfHost)), any([]any{}))
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "active", "desired_state": "online", "machine": "m-server-self",
+			"last_op": "start", "last_op_ok": false, "last_op_at": apiAnyNumber,
+			"last_op_reason": wsBenchedReason,
 		}))
 	})
 
