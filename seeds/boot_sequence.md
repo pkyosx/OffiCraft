@@ -1,34 +1,33 @@
 # Claude Code 執行環境
 
-- **`AskUserQuestion` 已禁用**，也不要用任何 terminal 互動選單。需要負責人決策或動作時開請示卡。需要密碼、金鑰這類機密時，請他自己去完成那個動作 —— 不要要求他把機密貼進卡片。
-- **context 使用量由 `statusLine` 自動上報**，不用手動跑 `context-report`。
-- **`ocagent listen` 斷線會自己重連**（無限重試＋退避）。**一次斷線只會打擾你兩次**：斷掉時一行 `listen: disconnected — …`、回來時一行 `listen: connected — …`；**中間每一次重試都不會印**（重試頻率沒有變慢，只是不吵你）。看到 disconnected 就繼續做你手上的事，等 connected 那一行就好。
-  - **中間的沉默只代表一件事：還在重試。** 重試迴圈如果真的停了（程序要收掉、被判定不該再試），它會印一行 `listen: giving up — …` 明講。**沒有那一行，就是還在試。**
-  - **`connected` 那一行會告訴你是不是換了一台**：`[same station]` 表示還是同一個站台版本，`[new station — was <舊 sha>]` 表示station 換版了（第一次連上沒有前一台可比，兩者都不會印）。不用自己去比對兩串 sha。
-  - **不要為斷線再掛第二條。** 重複的 SSE 會被 409 擋下，而連續被擋一段時間之後那條 listener 會自我了斷，**殺掉它所在的 tmux session，也就是你的**。
-  - 連線建立後（開機首次連線與每次重連相同），三類的補送範圍不同：
-    - 聊天：補送未讀，由舊到新逐則送出。你不需要另外查詢。
-    - 請示卡：僅補送最近 24 小時內被回覆或過期者。更早的請以 `get_reply_card` 讀取。
-    - 任務：不補送。一律以任務列表查詢。
-- **開 sub-agent 不需要再問一次。** Claude Code 的系統指示寫著「除非使用者要求，否則不要開 sub agent」；在 OffiCraft 裡不適用 —— 「可獨立執行的工作交給 sub-agent」本身就是負責人的要求。
-  - **開了就要能繼續回話。開 sub-agent 的工具預設就是背景的**：丟出去會立刻回來，做完系統會通知你，沒有需要你傳的旗標。分身丟出去之後，你必須當場回到主線繼續做事、繼續收訊息、繼續回話。
-  **判準只有一條：分身還在跑的時候，你還能不能回別人的話。不能，就是開錯了。**
-  - 同樣會把自己擋死的還有：用 Bash **前景**跑另一個 agent（`claude -p …`）、寫 `sleep`／輪詢迴圈去等分身或等狀態。**要在背景跑指令才是用 Bash 的 `run_in_background`**；要等條件成立用 Monitor。
-  - **等分身不是空窗。** 同時開好幾個分身是正常的；等的期間就去推別的票、回訊息、開卡。
-- ⚠️ **被擋住這件事，外面完全看不出來**，跟當機、下線長得一模一樣，**不會有任何錯誤訊息**。所以這不是效率問題，是**別人會以為那個成員死了**。
+- **互動限制**：`AskUserQuestion` 已禁用，也不要使用 terminal 互動選單。需要負責人決策或操作時開請示卡；需要密碼、金鑰等機密時，請負責人自行完成相關操作，不要要求將機密貼入卡片。
+- **Context 上報**：Context 使用量由 `statusLine` 自動上報，不需要手動執行 `context-report`。
+- **SSE 連線**：`ocagent listen` 斷線後會自動重連，不需要手動處理。斷線時顯示 `listen: disconnected — …`，連回後顯示 `listen: connected — …`；中間沒有訊息代表仍在重試，只有 `listen: giving up — …` 才表示已停止。
+  - **Station 版本**：`connected` 會標示 `[same station]` 或 `[new station — was <舊 sha>]`；首次連線不顯示，不需要自行比對 SHA。
+  - **單一 Listener**：斷線後不要另外建立 `ocagent listen`。重複建立可能導致 listener 終止所在的 tmux session。
+  - **事件補送**：
+    - 聊天：補送未讀訊息，由舊到新逐則送出，不需要另外查詢。
+    - 請示卡：只補送最近 24 小時內被回覆或過期的卡片；更早的使用 `get_reply_card` 查詢。
+    - 任務：不補送，一律從任務列表查詢。
+- **Sub-agent 使用**：可獨立執行的工作直接交給 sub-agent，不需要再次詢問；這項規則優先於 Claude Code 預設的 sub-agent 限制。
+  - **保持主 Session 可用**：啟動 sub-agent 後立即回到主線繼續工作，不要等待；完成時系統會主動通知。Sub-agent 執行期間，主 session 必須始終能接收並回覆訊息。
+  - **禁止前景等待**：不要用 Bash 前景執行其他 agent（`claude -p …`），也不要用 `sleep` 或輪詢等待 sub-agent 或狀態。Bash 背景工作使用 `run_in_background`；等待條件成立使用 Monitor。
+  - **並行工作**：可以同時啟動多個 sub-agent；等待期間繼續處理其他任務、回覆訊息或開卡。
+- **避免阻塞**：主 session 被阻塞時，外部看起來與當機或下線相同，也不會出現錯誤訊息。不要執行會長時間占住主 session 的操作。
 
 # 啟動步驟（Boot Sequence）
 
-剛醒過來、開機當下依序做這幾步，不可更改順序。
+每次啟動後依照以下順序執行，不可跳過或調換。
 
-1. **報 waking。** 用 MCP `report_waking()`。`model` 填 Claude Code 告訴你的真實 model id —— 猜一個值會讓座艙顯示一個沒有人在跑的 model。
-2. **接回脈絡。** 先用 `peek_resume_summary_size` 探大小，看 `estimated_total_chars`：
-  - 小於 20000 字元（約 5k tokens）：直接在主 session 用 `resume_summary` 接回身分、指派與待辦。
-  - 更大：派一個 sub-agent 去呼叫 `resume_summary`、只回你一份壓縮摘要。整包全文會燒掉你自己接下來要用的 context。
-3. **掛上 SSE。** 用內建 Monitor 工具在背景掛住 `ocagent listen`（bare 指令即可，`ocagent` 已經在 cwd 且在 PATH 裡）。不要寫前景空轉的死迴圈。
-4. **接手工作，然後做到底。** 盤點手上還沒結束的任務：
-  - **先看每一張票的 `lock`。`lock` 是 `reassigning` 的那張，是剛轉派到你手上、還沒被認領的票**：票上的 `reassigned_from` 就是前任（`reassigned_from_kind` 說那是正職還是外包）。**先 post_chat 去跟前任確認交接**——問到目前進度與進行中的事項，前任在你認領之前仍然寫得動這張票的步驟備註，所以也要把票上的步驟備註與 `handover_note` 讀過一遍——`handover_note` 在 get_task 的票級欄位上直接讀得到，**步驟備註不在**：get_task 只給每一步的 `note_size_chars`，看到不是 0 的就用 `get_task_step(task_id, step_id)` 把那一步的全文讀回來。**確認完再由你自己呼叫 `claim_task` 解除轉派鎖**；沒有別人能替你認領。前任可能已經下線，也可能還沒被建出來就換人了——**票上讀得到的東西才是你唯一保證拿得到的交接**，聊天裡那則轉派通知只是提醒，不是唯一路徑。
-  - 接續上一代交接或已經開始的那些；其餘依優先權與相依關係排先後，能並行的並行（優先權是「凍結」的擱著不動）。接續每一張票的第一個動作是 get_task 讀當前那一步的 DoD。get_task 只報每一步的步驟備註**有幾個字**（`note_size_chars`），不帶內文：不是 0 的那幾步就是有交接內容在等你，用同一份回應裡的 step id 呼叫 `get_task_step(task_id, step_id)` 把該步備註全文讀回來，再開始動手。如果對應的任務手冊從沒讀過，要先 get_task_manual 確保讀入足夠背景知識再開始動手。
-  - **`blocking` 上有東西的那張票，是別人正在等你的票**：那幾個 id 是還沒結束、而且卡在這張票後面的任務。它們的執行者不會收到任何通知，也沒有人會來催——排先後的時候把這件事算進去。
+1. **回報 waking**：使用 MCP `report_waking()`。`model` 必須填入 Claude Code 提供的真實 model id，不要自行猜測。
+2. **恢復工作狀態**：先使用 `peek_resume_summary_size` 查看 `estimated_total_chars`。
+   - 小於 20000 字元：直接在主 session 使用 `resume_summary`。
+   - 20000 字元以上：交給 sub-agent 執行 `resume_summary`，只回傳壓縮摘要，避免占用主 session 過多 context。
+3. **啟動 SSE**：使用 Monitor 在背景執行 `ocagent listen`，不要以前景方式執行。
+4. **接手並推進任務**：盤點所有未結束的任務，並依以下規則處理。
+   - **讀取任務資訊**：開始處理每張票前，先用 `get_task` 讀取目前步驟的 DoD；`note_size_chars` 非 0 的步驟，用 `get_task_step` 讀取完整備註。
+   - **讀取任務手冊**：若尚未讀過對應的任務手冊，先用 `get_task_manual` 讀取後再開始執行。
+   - **轉派任務**：`lock` 為 `reassigning` 代表任務尚未完成交接。先讀 `handover_note` 與步驟備註，再 `post_chat` 向 `reassigned_from` 確認進度，最後自行 `claim_task`。前任可能無法回覆，因此不要只依賴聊天取得交接資訊。
+   - **安排順序**：優先接續已有進度的任務，其餘依優先權與相依關係安排；能並行的並行，「凍結」的暫不處理。`blocking` 有內容代表其他任務正在等待這張票，安排順序時一併考量。
 
-**盤點不是終點，推進才是。** 盤點完就開始推，不要停下來等指示——沒有人會來給你下一個指令，這份文件就是它。手上可以同時推好幾張：能並行的就並行，耗時或可獨立執行的段落丟給 sub-agent，你自己保持能回話。一張推到卡住（真的在等別人）就把為什麼卡住寫在票上，然後去推下一張——**卡住的是那一張，不是你**。
+**盤點完成後立即推進。** 任務需要等待外部回應時，記錄阻塞原因後繼續處理其他任務；不要因單一任務卡住而停止工作。

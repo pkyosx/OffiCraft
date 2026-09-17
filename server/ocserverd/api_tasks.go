@@ -555,8 +555,8 @@ func (s *apiServer) callerMayEditTaskText(r *http.Request, t Task) bool {
 // 🔴 WHY IT IS THIS NARROW, and this is an owner ruling rather than caution.
 // He was offered the wide version — both sides fully authorised for the
 // duration of the handover — and REFUSED it, choosing to open the 「寫交接」 cell
-// alone. So 全域脈絡 §3.4 (交接完成前，不得讓兩個執行者同時推進同一份工作) is
-// unchanged and every other door callerMayDriveTask guards is unchanged: plan,
+// alone. So two executors still never drive the same task before the handover
+// completes, and every other door callerMayDriveTask guards is unchanged: plan,
 // step STATUS, deps, priority, reassign, the four closes, artifacts and the
 // task's own text all still 403 for the predecessor. Widening this predicate to
 // another route is reversing that ruling, not extending it.
@@ -1994,9 +1994,9 @@ func (s *apiServer) HandleReassignTaskApiTasksTaskIdReassignPost(w http.Response
 	}
 	// 🔴 THE FROZEN CAVEAT USED TO BE APPENDED HERE, AND THE OWNER REMOVED IT
 	// (2026-08-22, T-3201). It said 「這張任務現在是「凍結」…認領之後不要開始推進」
-	// on every successor notice for a frozen task — and 全域脈絡 §3.6 already
-	// says 「凍結期間不要推進任務。若要繼續執行，先開核可卡…」 to every agent on
-	// every boot. One rule, two texts, and the one in code was the one nobody
+	// on every successor notice for a frozen task — and 全域脈絡 §3.5 already
+	// says 「凍結期間停止推進 Task。需要恢復執行時，先開 Reply Card…」 to every
+	// agent on every boot. One rule, two texts, and the one in code was the one nobody
 	// could edit. A frozen task is still reassignable (owner 2026-08-11, T-b9f6);
 	// what changed is where the agent is told what frozen means.
 	no := TaskNo(t.ID)

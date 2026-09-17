@@ -44,10 +44,7 @@ def read_fenced_blocks(text):
             continue
 
         if current is None:
-            language = line[3:].strip()
-            if not language:
-                fail(f"line {line_number}: fenced block has no language")
-            current = [line_number, None, language, []]
+            current = [line_number, None, line[3:].strip(), []]
         else:
             current[1] = line_number
             blocks.append(tuple(current))
@@ -58,7 +55,8 @@ def read_fenced_blocks(text):
     return blocks
 
 
-blocks = read_fenced_blocks(seed_path.read_text(encoding="utf-8"))
+seed_text = seed_path.read_text(encoding="utf-8")
+blocks = read_fenced_blocks(seed_text)
 mcp_annotation = re.compile(
     r"^// OffiCraft MCP tool:\s*([a-z][a-z0-9_]*)(?:（[^）]+）)?$"
 )
@@ -193,15 +191,30 @@ for start, end, language, content in blocks:
         else:
             command_lines.append(tokens[1])
 
-if not mcp_names:
-    fail("system_interaction.md contains no tagged MCP tool examples")
-if not schema_checked:
+if mcp_names and not schema_checked:
     fail("no documented MCP example was compared against a non-empty required "
          "list, so the argument/schema check above measured nothing — either the "
          "catalog stopped declaring required parameters or the examples stopped "
          "using tools that have any")
-if not command_names:
-    fail("system_interaction.md contains no tagged ocagent command examples")
+
+# The seed may also name tools inline (`post_chat`, `report_waking()`) instead
+# of in tagged examples. Every backticked snake_case name must be a catalog tool
+# unless it is listed here as a field or argument name.
+NON_TOOL_IDENTIFIERS = {"linked_task", "task_id"}
+inline_tools = set()
+for name in re.findall(r"`([a-z][a-z0-9]*(?:_[a-z0-9]+)+)(?:\(\))?`", seed_text):
+    if name in catalog_names:
+        inline_tools.add(name)
+    elif name not in NON_TOOL_IDENTIFIERS:
+        fail(f"`{name}` reads as an MCP tool but is absent from the current catalog "
+             f"— retired or misspelled. If it is a field name, add it to NON_TOOL_IDENTIFIERS.")
+for subcommand in re.findall(r"\bocagent\s+([a-z][a-z0-9-]*)", seed_text):
+    command_lines.append(subcommand)
+
+if not mcp_names and not inline_tools:
+    fail("system_interaction.md names no MCP tool at all, so the catalog check measured nothing")
+if not command_names and not command_lines:
+    fail("system_interaction.md names no ocagent subcommand, so the help check measured nothing")
 
 help_text = help_path.read_text(encoding="utf-8")
 for subcommand in sorted(set(command_names + command_lines)):
@@ -212,6 +225,7 @@ print(
     "[system-interaction-test] all green — "
     f"{len(mcp_names)} MCP examples match the current catalog "
     f"({schema_checked} confronted with required arguments); "
+    f"{len(inline_tools)} inline MCP tool names are in the catalog; "
     f"{len(set(command_names))} tagged CLI commands and {len(command_lines)} help examples match ocagent --help"
 )
 PY

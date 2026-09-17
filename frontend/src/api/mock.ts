@@ -4480,16 +4480,14 @@ const mockApiImpl = {
         id: `mock-reassign-new-${stamp}`,
         from: "system",
         to: newExecutorId,
-        // 逐字跟著 seeds/task_takeover_with_predecessor.md 的本體；唯讀首行在沒有
-        // 前任時換成 server 的 takeoverNoPredecessorHead。
-        body:
+        // 本體取自〈轉派・給接手人〉文件（含 owner 的修改）；唯讀首行在沒有前任時
+        // 換成 server 的 takeoverNoPredecessorHead。
+        body: (
           (predecessor
             ? `[${t.taskNo}] 你接手了這張任務，你的前任是 ${predecessor}。`
             : `[${t.taskNo}] 你接手了這張任務，這張任務沒有前任。`) +
-          `這則訊息只是提醒，不是唯一路徑——同一件事在票上讀得到（\`lock\` 是 \`reassigning\`、\`reassigned_from\` 是前任），` +
-          `開機盤點就會看到，漏收這則也不會漏掉這張票。` +
-          `請先跟他確認交接完成（直接 post_chat 給他，問清楚目前進度與進行中的事項），` +
-          `確認後再由你自己呼叫 claim_task（認領）解除轉派鎖——只有你這個新負責人動得了；任務狀態一律照步驟推導，不必也不能自己報。`,
+          foldBootDoc("task_takeover_with_predecessor", "global").body
+        ).trim(),
         ts: stamp / 1000,
         attachments: [],
         replyCardId: null,

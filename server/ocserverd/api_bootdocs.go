@@ -133,8 +133,9 @@ var bootDocRegistry = []bootDocReg{{
 	// body that CONTAINS the marker and the head — i.e. it turns the half nobody
 	// may edit into a half anybody may.
 	//
-	// Vars stays nil — the body quotes JSON (`{"id": "<attachment id>"}`) that
-	// the {name} syntax cannot tell from a variable.
+	// Vars stays nil — an owner-edited body may quote JSON
+	// (`{"id": "<attachment id>"}`) that the {name} syntax cannot tell from a
+	// variable.
 }, {
 	Kind: docKindBootSequence,
 	Keys: []string{bootSequenceKeyClaude, bootSequenceKeyCodex},
@@ -288,8 +289,8 @@ var bootDocRegistry = []bootDocReg{{
 	// puts it in the DTO, so the successor reads it with get_task. Dropping the
 	// copy leaves one sentence of fact and one of instruction, in that order.
 	//
-	// Join "" — the two halves run together inside ONE paragraph, exactly like
-	// 轉派程序（前任）: today's notice reads 「…（id `x`）。請先跟他確認交接完成…」.
+	// Join "" — the head sentence runs straight into the body's opening sentence
+	// inside ONE paragraph, exactly like 轉派程序（前任）.
 	// 🔴 FOUR NAMES DOWN TO TWO (T-6f44). {title} is on the ticket the number
 	// already names, so it goes; {predecessor_label} and {old_executor_id} merge
 	// into ONE slot filled 「銀月（mira）」 (owner's decision 1). Neither half of
@@ -554,10 +555,9 @@ func (s *apiServer) systemInteractionText() (string, error) {
 // That inference is GONE — decision 5 deleted the sniffing rule, and each
 // document now says outright which one it is. The cost of handing the hard arm
 // the soft document is therefore no longer a missing hint, it is a FLAT LIE:
-// 〈停止〉 §1 reads 「你讀到的是這一份，就代表**沒有人在對你倒數**：收尾照自己的
-// 節奏做完」 — an agent under a running clock would be told, in words, that
-// nobody is counting, and would let its sub-agents finish inside a window that
-// is already closing. The document is more explicit than it was, so sending the
+// 〈停止〉 opens with 「這類停止沒有收尾倒數，應先完整完成交接與收尾」 — an agent
+// under a running clock would be told, in words, that nobody is counting, and
+// would wait for its sub-agents inside a window that is already closing. The document is more explicit than it was, so sending the
 // wrong one is worse than it was.
 //
 // It answers "" on ANY fault — an unreadable document, an undeclared name, a
@@ -699,11 +699,11 @@ func (s *apiServer) takeoverNoticeText(taskNo, predecessor string) string {
 //
 // ⚠️ REWRITTEN WITH THE DOCUMENT (T-6f44). The old reason was that 〈停止〉 §1
 // told an agent to read "no instant" as soft — that rule is gone (decision 5).
-// What replaced it is WORSE for a headless notice, not better: 〈加速停止〉 §1 now
-// reads 「你讀到的是這一份，就代表**你在倒數中**：上面那一行的結束時刻就是死線」,
-// and 上面那一行 IS the head. Strip it and the body points at a line that is not
-// there — the agent is told it is counting down and then told to look at a
-// deadline nothing shows it.
+// What replaced it is WORSE for a headless notice, not better: 〈加速停止〉 now
+// opens with 「現在需要在指定的結束時刻前停止目前的 session」, and the only place
+// that instant is named IS the head. Strip it and the body points at a deadline
+// that is not there — the agent is told it is counting down and shown nothing to
+// count down to.
 //
 // 🔴 THE REACHABLE WAY IN IS AN OVERLAY WRITTEN BEFORE THE MARKER EXISTED.
 // docBodyMarker arrived with the split and NO migration rewrote the rows that

@@ -419,7 +419,7 @@ fi
 
 # ── single-source rule review digest (T-c19c) ────────────────────────────────
 # The "兩份權威打架" rule has one operational paragraph in
-# seeds/system_interaction.md §2.2. The guard records its last-reviewed digest
+# seeds/system_interaction.md ("遇到來源衝突時"). The guard records its last-reviewed digest
 # outside agent-facing documents; changing that paragraph turns CI red and
 # forces a human to re-read the owner-facing restatement before updating the
 # digest. It is a re-read reminder, not a semantic-fidelity proof.

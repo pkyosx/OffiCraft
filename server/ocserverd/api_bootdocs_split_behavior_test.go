@@ -18,7 +18,6 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -204,8 +203,8 @@ func TestAcceleratedStopDoc_ShipsTheSameBodyAsTheOffboardDoc(t *testing.T) {
 	// outright which one it is, so identical bodies are now the BUG. Each is
 	// therefore pinned to its own sentence, here, in one place.
 	for _, probe := range []struct{ body, want, reject string }{
-		{offboardBody, "沒有人在對你倒數", "你在倒數中"},
-		{acceleratedBody, "你在倒數中", "沒有人在對你倒數"},
+		{offboardBody, "**一般停止指令**", "**加速停止指令**"},
+		{acceleratedBody, "**加速停止指令**", "**一般停止指令**"},
 	} {
 		if !strings.Contains(probe.body, probe.want) {
 			t.Errorf("this body no longer says which notice it is (%q missing):\n%s", probe.want, probe.body)
@@ -682,20 +681,15 @@ func TestTaskTakeoverDocs_HeadPlusBodyIsTodaysChatNoticeWithoutTheHandoverNote(t
 		values: map[string]string{
 			"task_no": "T-7e91", "predecessor": "銀月（mira）",
 		},
-		// T-91 demoted this notice to a REMINDER: the same handover is now
-		// readable off the ticket (lock + reassigned_from) and off the wake
-		// snapshot, so a successor that never receives this message — the
-		// outsource arm never does, because no worker id exists yet — still
-		// finds the handover at 開機盤點. The added clause says so out loud,
-		// because an agent that believes a message is its only source waits
-		// for one instead of looking.
+		// T-91 demoted this notice to a REMINDER: the same handover is readable
+		// off the ticket (lock + reassigned_from), and the boot sequence's 轉派任務
+		// rule finds it at 開機盤點 for a successor that never receives this
+		// message — the outsource arm never does, because no worker id exists yet.
 		want: "[T-7e91] 你接手了這張任務，你的前任是 銀月（mira）。" +
-			"這則訊息只是提醒，不是唯一路徑——同一件事在票上讀得到（`lock` 是 " +
-			"`reassigning`、`reassigned_from` 是前任），開機盤點就會看到，" +
-			"漏收這則也不會漏掉這張票。" +
-			"請先跟他確認交接完成（直接 post_chat 給他，問清楚目前進度與進行中的事項），" +
-			"確認後再由你自己呼叫 claim_task（認領）解除轉派鎖——只有你這個新負責人動得了；" +
-			"任務狀態一律照步驟推導，不必也不能自己報。\n",
+			"你接手這個任務後，先完成以下準備再開始執行：\n\n" +
+			"* **讀取任務**：使用 `get_task` 讀取目前步驟的 DoD；有步驟備註（`note_size_chars` 非 0）時，使用 `get_task_step` 讀取全文。若尚未讀過對應的任務手冊，再使用 `get_task_manual` 讀取。\n" +
+			"* **完成交接**：若有 `reassigned_from`，先讀取 `handover_note` 與步驟備註，並 `post_chat` 向前任確認目前進度與進行中的事項。\n" +
+			"* **認領並執行**：完成準備後，自行呼叫 `claim_task` 認領任務，再依目前步驟的 DoD 開始執行。\n",
 	}} {
 		t.Run(tc.kind, func(t *testing.T) {
 			s := newEventProcServer(t)
@@ -724,12 +718,10 @@ func TestTaskTakeoverDocs_HeadPlusBodyIsTodaysChatNoticeWithoutTheHandoverNote(t
 	t.Run("a staff successor with no predecessor gets the same body under a head that names none", func(t *testing.T) {
 		s := newEventProcServer(t)
 		want := "[T-7e91] 你接手了這張任務，這張任務沒有前任。" +
-			"這則訊息只是提醒，不是唯一路徑——同一件事在票上讀得到（`lock` 是 " +
-			"`reassigning`、`reassigned_from` 是前任），開機盤點就會看到，" +
-			"漏收這則也不會漏掉這張票。" +
-			"請先跟他確認交接完成（直接 post_chat 給他，問清楚目前進度與進行中的事項），" +
-			"確認後再由你自己呼叫 claim_task（認領）解除轉派鎖——只有你這個新負責人動得了；" +
-			"任務狀態一律照步驟推導，不必也不能自己報。"
+			"你接手這個任務後，先完成以下準備再開始執行：\n\n" +
+			"* **讀取任務**：使用 `get_task` 讀取目前步驟的 DoD；有步驟備註（`note_size_chars` 非 0）時，使用 `get_task_step` 讀取全文。若尚未讀過對應的任務手冊，再使用 `get_task_manual` 讀取。\n" +
+			"* **完成交接**：若有 `reassigned_from`，先讀取 `handover_note` 與步驟備註，並 `post_chat` 向前任確認目前進度與進行中的事項。\n" +
+			"* **認領並執行**：完成準備後，自行呼叫 `claim_task` 認領任務，再依目前步驟的 DoD 開始執行。"
 		if got := s.takeoverNoticeText("T-7e91", ""); got != want {
 			t.Fatalf("notice without a predecessor:\n got %q\nwant %q", got, want)
 		}
@@ -1518,12 +1510,17 @@ func TestRestoreDocumentHistory_ABootDocRevisionGoesThroughTheWriteFacesGates(t 
 // way and nothing goes red. An independent review proved it by rewriting 〈停止〉's
 // §3 into 〈加速停止〉's wording and watching the whole suite stay green.
 //
-// The two documents are 95% the same text ON PURPOSE — the wind-down steps do
-// not depend on whether a clock is running. So the honest statement is not
-// 「different」 and not 「identical」, it is: they differ in EXACTLY the lines
-// listed in wantDiffs below, and nowhere else. That pins both directions at once:
-//   - a shared paragraph edited on one side only  → one more differing line → RED
-//   - one of the deliberate differences erased    → one fewer differing line → RED
+// The two documents share most of their text ON PURPOSE — the wind-down steps
+// do not depend on whether a clock is running. So the honest statement is not
+// 「different」 and not 「identical」, it is: aligned line by line (longest
+// common subsequence), each document has EXACTLY the one-sided lines listed in
+// wantDiffs below, and nowhere else. That pins both directions at once:
+//   - a shared paragraph edited on one side only  → one more one-sided line → RED
+//   - one of the deliberate differences erased    → one fewer one-sided line → RED
+//
+// The pair is aligned rather than compared index by index because 〈加速停止〉
+// has a line 〈停止〉 has no counterpart for (the sub-agent timeout rule), so the
+// two no longer have the same shape.
 //
 // The count lives ONLY in wantDiffs — deliberately not in this test's name — so
 // that adding a justified difference is an edit to the table plus its reason,
@@ -1531,72 +1528,100 @@ func TestRestoreDocumentHistory_ABootDocRevisionGoesThroughTheWriteFacesGates(t 
 //
 // ⚠️ IF YOU ARE HERE BECAUSE THIS TEST WENT RED: do not "fix" it by loosening
 // the count. Either you edited one document and meant to edit both, or you
-// introduced a 4th deliberate difference — in which case add it to the table
+// introduced another deliberate difference — in which case add it to the table
 // below and say why it must differ.
 func TestTheTwoStopProceduresDifferInEXACTLYTheLinesTheyAreMeantTo(t *testing.T) {
 	s := newEventProcServer(t)
 	_, soft := unsplitSeed(t, s, docKindOffboard)
 	_, _, hard := splitSeed(t, s, docKindAcceleratedStop)
 
-	softLines := strings.Split(soft, "\n")
-	hardLines := strings.Split(hard, "\n")
-	if len(softLines) != len(hardLines) {
-		t.Fatalf("the two stop procedures no longer have the same shape: 〈停止〉 has %d lines, "+
-			"〈加速停止〉 has %d. Either a shared section was added to one side only, or the pair "+
-			"was deliberately restructured — if the latter, rewrite this test to say what the new "+
-			"relationship is instead of deleting it", len(softLines), len(hardLines))
-	}
-
-	// Each deliberate difference, and the reason it has to be one.
+	// Each deliberate difference, and the reason it has to be one. "" means that
+	// side has no line of its own for this difference.
 	wantDiffs := []struct {
 		why        string
 		softNeedle string
 		hardNeedle string
 	}{
 		{"the title names which document you are holding", "# 停止", "# 加速停止"},
-		{"§1 states outright which kind of notice this is — the ruling that replaced " +
-			"sniffing another document's first line for `Your deadline is`",
-			"沒有人在對你倒數", "你在倒數中"},
-		{"§1's handover warning: BOTH documents must say that taking the handover " +
-			"path kills your token the moment the successor reports in (every later MCP " +
-			"call 401s, silently) — that hazard does not care whether a clock is running, " +
-			"so the paragraph is shared. Only its OPENING framing may differ, because the " +
-			"two readers are in opposite situations: 〈停止〉 has no clock at all, so its " +
-			"job is to say a missing clock is not a missing endpoint; 〈加速停止〉 already " +
-			"has one, so its job is to say that is not the ONLY endpoint and the other one " +
-			"may land FIRST. Copying either wording onto the other side would contradict " +
-			"the §1 sentence two lines above it",
-			"「沒有時鐘」不等於「沒有終點」", "不是唯一的終點"},
-		{"§3: with a clock running you cannot wait for sub-agents to finish on their own",
-			"等 sub agent 自己完成", "請 sub agent 立刻"},
+		{"the opening states outright which kind of stop this is — the ruling that " +
+			"replaced sniffing another document's first line for `Your deadline is`",
+			"**一般停止指令**", "**加速停止指令**"},
+		{"with no clock a waiting task is written back and the agent moves on to its " +
+			"other tasks before going offline; with a clock it only writes it back",
+			"若沒有其他任務可處理即可下線", "寫回任務，不要留在線上等待。"},
+		{"a cut-short wind-down also records the sub-agent work left unfinished",
+			"阻塞點、下一步。", "以及尚未完成的 sub-agent 工作"},
+		{"§2: with a clock running you cannot wait for sub-agents to finish on their own",
+			"等待完成：", "要求收尾："},
+		{"§2: a sub-agent that was told to stop ends rather than finishes",
+			"每個 sub-agent 完成後", "每個 sub-agent 結束後"},
+		{"§2: with a clock running a sub-agent that does not stop in time is not waited for",
+			"", "不等待逾時："},
+		{"§3: with a clock running there may be no time left to clean up",
+			"若無法刪除，記錄路徑", "若無法刪除或時間不足"},
 	}
 
-	var differing []int
-	for i := range softLines {
-		if softLines[i] != hardLines[i] {
-			differing = append(differing, i)
+	softOnly, hardOnly := oneSidedLines(strings.Split(soft, "\n"), strings.Split(hard, "\n"))
+	var wantSoft, wantHard []string
+	for _, d := range wantDiffs {
+		if d.softNeedle != "" {
+			wantSoft = append(wantSoft, d.softNeedle)
+		}
+		if d.hardNeedle != "" {
+			wantHard = append(wantHard, d.hardNeedle)
 		}
 	}
-	if len(differing) != len(wantDiffs) {
-		var lines []string
-		for _, i := range differing {
-			lines = append(lines, fmt.Sprintf("  line %d:\n    soft: %s\n    hard: %s", i+1, softLines[i], hardLines[i]))
+	for _, side := range []struct {
+		name    string
+		got     []string
+		needles []string
+	}{
+		{"〈停止〉", softOnly, wantSoft},
+		{"〈加速停止〉", hardOnly, wantHard},
+	} {
+		if len(side.got) != len(side.needles) {
+			t.Errorf("%s has %d lines the other document does not share, want exactly %d:\n  %s\n"+
+				"A shared paragraph edited on ONE side is the failure this test exists for: those "+
+				"sections are copies on purpose, and nothing else keeps them in step",
+				side.name, len(side.got), len(side.needles), strings.Join(side.got, "\n  "))
+			continue
 		}
-		t.Fatalf("the two stop procedures differ in %d lines, want exactly %d.\n%s\n"+
-			"A shared paragraph edited on ONE side is the failure this test exists for: those "+
-			"sections are copies on purpose, and nothing else keeps them in step",
-			len(differing), len(wantDiffs), strings.Join(lines, "\n"))
+		for i, needle := range side.needles {
+			if !strings.Contains(side.got[i], needle) {
+				t.Errorf("%s one-sided line %d no longer says %q:\n  %s", side.name, i+1, needle, side.got[i])
+			}
+		}
 	}
+}
 
-	for n, want := range wantDiffs {
-		i := differing[n]
-		if !strings.Contains(softLines[i], want.softNeedle) {
-			t.Errorf("difference %d (%s): 〈停止〉 line %d no longer says %q:\n  %s",
-				n+1, want.why, i+1, want.softNeedle, softLines[i])
-		}
-		if !strings.Contains(hardLines[i], want.hardNeedle) {
-			t.Errorf("difference %d (%s): 〈加速停止〉 line %d no longer says %q:\n  %s",
-				n+1, want.why, i+1, want.hardNeedle, hardLines[i])
+// oneSidedLines aligns a and b on their longest common subsequence of lines and
+// returns, in order, the lines of each that the alignment leaves unmatched.
+func oneSidedLines(a, b []string) (aOnly, bOnly []string) {
+	lcs := make([][]int, len(a)+1)
+	for i := range lcs {
+		lcs[i] = make([]int, len(b)+1)
+	}
+	for i := len(a) - 1; i >= 0; i-- {
+		for j := len(b) - 1; j >= 0; j-- {
+			if a[i] == b[j] {
+				lcs[i][j] = lcs[i+1][j+1] + 1
+			} else {
+				lcs[i][j] = max(lcs[i+1][j], lcs[i][j+1])
+			}
 		}
 	}
+	i, j := 0, 0
+	for i < len(a) && j < len(b) {
+		switch {
+		case a[i] == b[j]:
+			i, j = i+1, j+1
+		case lcs[i+1][j] >= lcs[i][j+1]:
+			aOnly = append(aOnly, a[i])
+			i++
+		default:
+			bOnly = append(bOnly, b[j])
+			j++
+		}
+	}
+	return append(aOnly, a[i:]...), append(bOnly, b[j:]...)
 }
