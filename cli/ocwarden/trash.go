@@ -1,4 +1,5 @@
-// T-684c: the warden-side trash reaper — the DELETE half of "agents mv, warden rm".
+// T-684c: the warden-side trash reaper — the DELETE half of the retired
+// "agents mv, warden rm" procedure.
 //
 // WHY THIS EXISTS (read before touching the guards):
 //
@@ -8,25 +9,24 @@
 // sitting in front of a headless agent to press Yes, so the agent hung SILENTLY
 // until it was reaped.
 //
-// Two hooks now stand between an agent's own rm and that prompt, both wired in
-// buildStatuslineSettings. `ocagent guard-bash` (PreToolUse) refuses some removal
-// shapes before they reach the check, so for those the prompt is never raised; it
-// refuses on SPELLING — see cli/ocagent/guardbash.go and the tables in its test —
-// which is not the same axis as the harness's own reasons, so plenty of shapes
-// still reach the prompt. `ocagent guard-permission` (PermissionRequest) then
-// refuses every prompt that IS raised, so the stall is no longer what happens at
-// the end of that road. What both hooks do is REFUSE — neither of them deletes
-// anything — so the quarantine in this file is still the only path by which an
-// agent's leftovers actually go away.
+// The first fix was WHO EXECUTES THE DELETE, not "mv is safer than rm" — an
+// experiment showed relative/absolute x mv/rm all behave identically in that
+// environment, so the verb has ZERO discriminating power. Agents moved their
+// scratch under <workdir>/trash/ and THIS file did the actual removal from
+// ocwarden — an independent Go daemon started by launchd with no claude in the
+// chain, so the harness gate simply does not apply.
 //
-// The fix is NOT "mv is safer than rm" — an experiment showed
-// relative/absolute x mv/rm all behave identically in that environment, so the verb
-// has ZERO discriminating power. The fix is WHO EXECUTES THE DELETE: agents move
-// their scratch aside and NEVER rm — since 2026-08-20 the seeds say that by naming
-// `ocagent clean <path>` rather than a directory, and that command quarantines
-// under <workdir>/trash/ — and THIS
-// file does the actual removal from ocwarden — an independent Go daemon started by
-// launchd with no claude in the chain, so the harness gate simply does not apply.
+// The seeds no longer teach that procedure: they tell agents to delete with
+// `rm -rf <full literal path>`. Two hooks wired in buildStatuslineSettings stand
+// between that rm and the prompt. `ocagent guard-bash` (PreToolUse) refuses some
+// removal shapes before they reach the check, so for those the prompt is never
+// raised; it refuses on SPELLING — see cli/ocagent/guardbash.go and the tables in
+// its test — which is not the same axis as the harness's own reasons, so plenty
+// of shapes still reach the prompt. `ocagent guard-permission`
+// (PermissionRequest) then refuses every prompt that IS raised, so the stall is
+// no longer what happens at the end of that road. This reaper still clears
+// whatever a workdir's trash/ holds, from the retired procedure or from an agent
+// that moved something there by hand.
 //
 // FAIL-CLOSED CONTRACT (this is the only destructive capability in the package):
 // purgeTrash removes <workdir>/trash and NOTHING else. Every shape that is not
@@ -45,11 +45,6 @@ import (
 // trashDirName is the ONE name this reaper will ever remove. Not configurable on
 // purpose — a configurable name is one more input that can be pointed somewhere
 // else.
-//
-// ⚠️ It is a SEPARATE literal from ocagent's quarantineDirName (cli/ocagent/clean.go),
-// not a shared constant: the two binaries ship independently, so they are two
-// declarations of the same agreement rather than one. Changing either alone
-// strands quarantined files instead of freeing them — change both, or neither.
 const trashDirName = "trash"
 
 // purgeTrash removes <workdir>/trashDirName, or refuses.

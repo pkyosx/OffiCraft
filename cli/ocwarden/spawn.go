@@ -1258,8 +1258,8 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 			"mkdir_failed: workdir %s: %v", workdir, err)}
 	}
 	// T-684c: reap whatever the PREVIOUS generation of this agent mv'd into
-	// <workdir>/trash before the fresh session starts (the seeds tell agents to mv,
-	// never rm — see trash.go for why the delete has to happen HERE, outside claude).
+	// <workdir>/trash before the fresh session starts (see trash.go for the
+	// procedure that put files there).
 	// nil-skipped seam; a refusal/failure is logged inside purgeTrash and NEVER
 	// aborts the spawn — a stale trash dir must not be able to take an agent offline.
 	if d.PurgeTrash != nil {

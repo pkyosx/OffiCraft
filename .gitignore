@@ -34,7 +34,7 @@ tmp-*.py
 
 # Agent scratch/debug dir — never commit
 scratchpad/
-# Agent quarantine dir for removed files (deletes go here, never `rm`)
+# Agent quarantine dir from the retired mv-to-trash procedure (ocwarden reaps it)
 trash/
 
 # M4 deploy artifact (SPA-embedded ocserverd built by bin/build) — never commit
