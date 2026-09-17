@@ -1894,8 +1894,6 @@ func (s *apiServer) HandleReassignTaskApiTasksTaskIdReassignPost(w http.Response
 	// handover: the work never left it, so its steps and cards stay as they are
 	// and nobody is sent a handover notice.
 	if newMember != nil && newMember.ID == t.ReassignedFrom && s.predecessorHoldsTask(*t) {
-		now := nowSecs()
-		trigger := requestTrigger(r)
 		displaced, displacedKind := t.ExecutorID, t.ExecutorKind
 		t.ExecutorKind = TaskExecutorStaff
 		t.ExecutorID = newMember.ID

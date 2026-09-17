@@ -3714,7 +3714,13 @@ func TestHandleReassignTaskApiTasksTaskIdReassignPost(t *testing.T) {
 		f.must(t, "POST", "/api/tasks/T-1/steps/"+f.stepOne+"/status", f.predecessor, `{"status":"in_progress"}`)
 		kipBefore, rexBefore := len(t91ChatTo(t, f.api, "kip")), len(t91ChatTo(t, f.api, "rex"))
 
-		status, data := apiJSON(t, f.h, "POST", "/api/tasks/T-1/reassign", admin, `{"target":{"kind":"staff","member_id":"kip"}}`)
+		status, data := apiJSON(t, f.h, "POST", "/api/tasks/T-1/reassign", f.predecessor, `{"target":{"kind":"staff","member_id":"kip"}}`)
+		if status != 403 {
+			t.Fatalf("the predecessor itself: want 403, got %d %v", status, data)
+		}
+		apiWantError(t, data, "forbidden", "only the owner or an admin agent may reassign a task to another member; 發包 to an outsource worker instead")
+
+		status, data = apiJSON(t, f.h, "POST", "/api/tasks/T-1/reassign", admin, `{"target":{"kind":"staff","member_id":"kip"}}`)
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
