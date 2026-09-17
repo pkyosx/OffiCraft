@@ -2275,8 +2275,10 @@ func (s *apiServer) HandleReportStoppingApiSelfStoppingPost(w http.ResponseWrite
 }
 
 // POST /api/self/stopped — anchors stopped_since ONCE (never re-stamped).
-// That FIRST report fires the event-driven collect, so kill→respawn happens
-// immediately rather than on the next ~30s tick. It no longer matters what
+// For staff that FIRST report dispatches the stop at once rather than on the
+// next ~30s tick; a replacement, if any, starts once the session reads offline.
+// An outsource worker's report only latches the collect for the shared FSM
+// (workerReportStopped). It no longer matters what
 // opened the offboard: an agent that says it is done is collected either way
 // (owner rc-b08d49dc3b03), and desired_state alone decides whether a new
 // generation follows.

@@ -165,8 +165,8 @@ func (s *apiServer) HandleGetWorkerBootContextApiOutsourceWorkersIdBootContextGe
 // Since T-98f4 a LIVE worker with anything to flush gets the graceful wind-down:
 // it keeps running ON THE OLD MACHINE until its own report_stopped (or the
 // owner's force-stop); the 收口 stops it there, and the START onto the new pin
-// follows once the worker reads offline. The immediate 殺舊 session + 清 pacing + 重生 path is what a worker with
-// nothing to flush takes. The old sentence described the verb this endpoint had
+// follows once the worker reads offline. A worker with nothing to flush takes the
+// immediate arm (handOverWorkerNow: stop, then one pass of the shared FSM). The old sentence described the verb this endpoint had
 // BEFORE that change; it is retracted here rather than deleted, because the same
 // claim also stood on the wire (spec/openapi.json) and in the MCP tool list, and
 // a reader who met it there should be able to find where it was withdrawn. 404 for an unknown / already-released worker (a released worker

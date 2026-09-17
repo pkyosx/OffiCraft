@@ -1040,8 +1040,8 @@ func TestRelocateMintedOfflineWorker_BlankMachineRefusedAndStartsNothing(t *test
 
 // TestRelocateToSameMachine (T-f190 item 3, review gap): the code path is NOT a
 // no-op — relocating to the machine the worker already runs on kills the current
-// session and re-spawns it on that SAME machine (a deliberate "restart here", the
-// same 殺舊+重生 primitive). This pins the DEFINED behaviour so a future "skip
+// session and re-spawns it on that SAME machine (a deliberate "restart here": the
+// worker is offline, so the stop and the start both go out in the relocate call). This pins the DEFINED behaviour so a future "skip
 // when same" optimisation is a conscious change, not an accident.
 func TestRelocateToSameMachine(t *testing.T) {
 	api := newTasksTestServer(t)

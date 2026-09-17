@@ -1298,7 +1298,7 @@ func canonicalWorkerLastOp(op string) string {
 // enqueueWorkerStop builds and enqueues ONE member `stop` frame toward target
 // for workerID — the shared "殺舊 session" primitive behind the FSM zombie
 // takeover (reconcileWorkerLiveness), reclaimWorkerSession (retire), and
-// relocateWorkerNow (owner 改機器). P5b convergence: the frame is the member
+// stopWorkerSessionForHandover (every worker handover, owner 改機器 included). P5b convergence: the frame is the member
 // {member_id} stop; the warden derives member-<ow-id> (and additionally sweeps
 // the legacy worker-<ow-id> residual — the transition guard), so a warden
 // without either session no-ops; nothing else can be killed by construction.
@@ -1607,8 +1607,9 @@ func (s *apiServer) respawnWorkerForOwnerOp(w OutsourceWorker, op string) ownerO
 type ownerOpOutcome struct {
 	// Dispatched: a worker_start actually went out to a warden.
 	Dispatched bool
-	// WoundDown: a graceful wind-down was opened instead. Nothing has been sent
-	// YET BY DESIGN — the move/model lands at the 收口. NOT a failure.
+	// WoundDown: the change is deferred by design, NOT a failure: either a
+	// graceful wind-down was opened and the move/model lands at the 收口, or the
+	// old session was sent a STOP and the START waits for it to read offline.
 	WoundDown bool
 	// HeldDown: desired_state is offline, so the change was saved and nothing was
 	// started. The row carries the held_down receipt.
