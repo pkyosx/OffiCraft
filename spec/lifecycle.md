@@ -1196,9 +1196,9 @@ ONE-SHOT, never a standing order):
   press killed it and spawned the replacement in the same breath. It now comes
   back the long way, and every step is load-bearing: the press flips
   `desired_state` to online and clears `stopping_since` → the agent finishes its
-  close-out and files `report_stopped`, which lands on `workerReportStopped`'s
-  **bare latch** (neither collect arm matches: the 停止 arm needs desired
-  offline, the 換手 arm needs `refocus_since > 0`) → the next `runOutsourceTick`
+  close-out and files `report_stopped`, whose first report is always collected:
+  `desired_state` is online, so the handover funnel stops the session on the
+  spot and starts nothing → the next `runOutsourceTick`
   sees an online intent with no session and dispatches a plain `start`. Pinned
   end to end by `TestWakeOnAStoppingWorkerBringsItBackAfterTheCloseOut`
   (`worker_wake_on_stopping_revives_t65_test.go`), because if any one of those

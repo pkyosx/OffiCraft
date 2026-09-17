@@ -2126,8 +2126,7 @@ const (
 	stopEffectCollected = "collected"
 	// stopEffectLatchedForCollect — nothing was dispatched here, but the latch
 	// this call wrote is the very thing the next reconcile tick keys on, so the
-	// collect is owed and the wait is bounded by the tick (one decider, one
-	// kill — see workerReportStopped's own note). The session ends.
+	// collect is owed and the wait is bounded by the tick. The session ends.
 	stopEffectLatchedForCollect = "latched_for_collect"
 	// stopEffectRecordedOnly — 🔴 THE SILENT ONE. stopped_since was recorded, so
 	// the end of this session is on the record, but NO collector is watching:

@@ -2246,22 +2246,24 @@ func (s *apiServer) openWorkerHandoverGrace(w OutsourceWorker, trigger string) {
 // s.outsourceMu and pass a freshly-read row with refocus_since>0.
 func (s *apiServer) collectWorkerHandover(w *OutsourceWorker, reason, trigger string, now float64) bool {
 	_, prior := collectWindDownRow(windDownAnchorRowOfWorker(w), now)
-	return s.stopCollectedWorkerForHandover(w, prior, reason, trigger, now)
+	stopped, _ := s.stopCollectedWorkerForHandover(w, prior, reason, trigger, now)
+	return stopped
 }
 
 // stopCollectedWorkerForHandover is collectWorkerHandover after the latch: w
-// already carries stopped_since, prior is the anchor before it. A deferred
-// stop (no kill target) restores prior, so the worker's next stopped-report is
-// a first report again rather than an already_reported one. Callers hold
-// s.outsourceMu.
-func (s *apiServer) stopCollectedWorkerForHandover(w *OutsourceWorker, prior float64, reason, trigger string, now float64) bool {
+// already carries stopped_since, prior is the anchor before it. An error means
+// the latch was not written and nothing was sent. A deferred stop (no kill
+// target) is (false, nil) and restores prior, so the worker's next
+// stopped-report is a first report again rather than an already_reported one.
+// Callers hold s.outsourceMu.
+func (s *apiServer) stopCollectedWorkerForHandover(w *OutsourceWorker, prior float64, reason, trigger string, now float64) (bool, error) {
 	if err := s.persistWorkerWindDownAnchors(*w); err != nil {
 		outsourceLog("handover collect %s (%s): stopped-latch ANCHOR write failed: %v", w.ID, reason, err)
-		return false
+		return false, err
 	}
 	if err := s.putMember(memberFromWorker(*w), trigger); err != nil {
 		outsourceLog("handover collect %s (%s): stopped latch failed: %v", w.ID, reason, err)
-		return false
+		return false, err
 	}
 	if !s.stopWorkerSessionForHandover(*w, reason, now) {
 		w.StoppedSince = prior
@@ -2273,9 +2275,9 @@ func (s *apiServer) stopCollectedWorkerForHandover(w *OutsourceWorker, prior flo
 			outsourceLog("handover collect %s (%s): latch rollback failed: %v",
 				w.ID, reason, err)
 		}
-		return false
+		return false, nil
 	}
-	return true
+	return true, nil
 }
 
 // collectWorkerStop is the 收口 of a 停止 epoch (T-ed79) — the twin of
@@ -2289,20 +2291,22 @@ func (s *apiServer) stopCollectedWorkerForHandover(w *OutsourceWorker, prior flo
 //
 // There is no rollback arm and no deferral: stopWorkerNow has no "no kill target"
 // failure to defer to — a missing target only means the session is already gone,
-// and desired_state=offline is what keeps it that way. Callers hold s.outsourceMu.
-func (s *apiServer) collectWorkerStop(w OutsourceWorker, reason, trigger string) {
+// and desired_state=offline is what keeps it that way. A returned error means
+// the latch was not written and no kill was sent. Callers hold s.outsourceMu.
+func (s *apiServer) collectWorkerStop(w OutsourceWorker, reason, trigger string) error {
 	collectWindDownRow(windDownAnchorRowOfWorker(&w), nowSecs())
 	if err := s.persistWorkerWindDownAnchors(w); err != nil {
 		outsourceLog("stop collect %s (%s): stopped-latch ANCHOR write failed: %v", w.ID, reason, err)
-		return
+		return err
 	}
 	if err := s.putMember(memberFromWorker(w), trigger); err != nil {
 		outsourceLog("stop collect %s (%s): stopped latch failed: %v", w.ID, reason, err)
-		return
+		return err
 	}
 	s.stopWorkerNow(w)
 	outsourceLog("stop collect %s (%s): close-out collected — session killed, held down",
 		w.ID, reason)
+	return nil
 }
 
 // ── worker self-reports (T-ea82 — the /api/self presence verbs for ow- subs) ──
@@ -2402,10 +2406,14 @@ func (s *apiServer) workerReportStopped(id, trigger string) (*Member, string, er
 	now := nowSecs()
 	collect, stopEffect, prior := decideStoppedReport(windDownAnchorRowOfWorker(w), now)
 	if collect {
+		var kerr error
 		if w.DesiredState == DesiredStateOffline {
-			s.collectWorkerStop(*w, "stopped-report", trigger)
+			kerr = s.collectWorkerStop(*w, "stopped-report", trigger)
 		} else {
-			s.stopCollectedWorkerForHandover(w, prior, "stopped-report", trigger, now)
+			_, kerr = s.stopCollectedWorkerForHandover(w, prior, "stopped-report", trigger, now)
+		}
+		if kerr != nil {
+			return nil, "", kerr
 		}
 		if fresh, ferr := s.resolveLiveWorker(id); ferr == nil {
 			w = fresh

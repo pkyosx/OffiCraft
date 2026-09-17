@@ -190,12 +190,13 @@ export function WorkerDetailPanel({
   // TestWakeOnAStoppingWorkerBringsItBackAfterTheCloseOut
   // (server/ocserverd/worker_wake_on_stopping_revives_t65_test.go): the press
   // flips desired_state to online and clears stopping_since → the agent
-  // finishes its close-out and files report_stopped, which lands on the bare
-  // latch and dispatches nothing → the next outsource tick sees an online
-  // intent with no session and sends a plain start. It is SLOWER than it was
-  // (one tick plus however long the close-out takes) and it no longer throws
-  // away the half-written work, which is the trade the owner asked for. If any
-  // step of that regresses, this line becomes a lie with no visible symptom:
+  // finishes its close-out and files report_stopped, which stops the session
+  // through the handover funnel and starts nothing → the next outsource tick
+  // sees an online intent with no session and sends a plain start. It is
+  // SLOWER than it was (one tick plus however long the close-out takes) and it
+  // no longer throws away the half-written work, which is the trade the owner
+  // asked for. If any step of that regresses, this line becomes a lie with no
+  // visible symptom:
   // the owner confirms, gets a 200, and the worker never comes back.
   const wakeMode = noLiveSession || stoppingNow;
   const machineText = worker.machine || t.workerDetail.notAssigned;

@@ -501,8 +501,8 @@ func forcedEpochLive(m Member) bool {
 // forcedEpochLive itself was never the duplicated rule; it has always had one
 // definition, and the worker side calls that same definition through
 // memberFromWorker. What WAS written out by hand, once per site, is this
-// two-term question. The call sites below are the FIVE things a graceful stop
-// epoch entitles a session to.
+// two-term question. The call sites below are what a graceful stop epoch
+// entitles a session to.
 //
 //   - the SENTENCE — offboardKindOf's desired-offline arm sends a 下線 notice
 //     only for a stop the recipient can still act on (a forced session is cut
@@ -513,13 +513,13 @@ func forcedEpochLive(m Member) bool {
 //     HandleAcceleratedStopOutsourceWorker…) refuses unless there is such an
 //     epoch to escalate: nothing to accelerate on a member nobody asked to
 //     stop, and no reader for a deadline addressed to a session already cut off.
-//   - the COLLECT — the two worker-side arms that end a 停止 epoch without a
-//     report the server can wait for: autoHandoverWorker's stop arm (session
-//     confirmed gone, or the owner's accelerated deadline lapsed) and
-//     workerReportStopped's desired-offline arm. A forced epoch's kill already went out,
-//     so there is nothing left for either to collect. Both used to write the
-//     two terms out by hand; they were the copies this comment did not count.
-//     ⚠️ The staff twin of the first of those — decideDown's `accelerated`
+//   - the COLLECT — autoHandoverWorker's stop arm, which ends a 停止 epoch
+//     without a report the server can wait for (session confirmed gone, or the
+//     owner's accelerated deadline lapsed). A forced epoch's kill already went
+//     out, so there is nothing left for it to collect. The worker's own
+//     report_stopped does NOT ask this question: workerReportStopped kills a
+//     desired-offline worker whatever stop epoch is open, forced included.
+//     ⚠️ The staff twin of autoHandoverWorker's arm — decideDown's `accelerated`
 //     arm in reconcile.go — does NOT ask this question (it tests
 //     StoppingSince > 0 with no forced term). That asymmetry is real and is
 //     deliberately left alone here: closing it CHANGES BEHAVIOUR, which is

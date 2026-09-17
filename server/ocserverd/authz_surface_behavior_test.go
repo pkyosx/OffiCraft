@@ -452,7 +452,9 @@ var authzOutsideRouteTable = map[string]string{
 	"api_members.go :: HandleReportStoppingApiSelfStoppingPost :: m.Kind == KindOutsource": "" +
 		"same outsource self-report refusal, stopping face.",
 	"api_members.go :: HandleReportStoppedApiSelfStoppedPost :: m.Kind == KindOutsource": "" +
-		"same outsource self-report refusal, stopped face.",
+		"the caller's OWN row kind, stopped face: an outsource caller's report goes " +
+		"through the worker kill funnel (workerReportStopped) instead of the staff " +
+		"robust STOP. Both kinds share one collect decision; no principal is on either side.",
 	"api_members.go :: HandleRestartSelfApiSelfRefocusPost :: m.Kind == KindOutsource": "" +
 		"same outsource refusal on the self-refocus face.",
 

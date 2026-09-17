@@ -3441,6 +3441,9 @@ func TestHandleReportStoppedApiSelfStoppedPost(t *testing.T) {
 
 	t.Run("a worker's first report with no epoch open is collected: its session is stopped, and started again once it reads offline", func(t *testing.T) {
 		api, h, d, owner, session, contractor := apiTestLiveWorker(t)
+		dashboard := apiTestListen(t, api, "")
+		self := &apiTestListener{t: t, hub: api.hub, l: session}
+		bystander := apiTestListen(t, api, "kip")
 
 		status, data := apiJSON(t, h, "POST", "/api/self/stopped", contractor, `{}`)
 		if status != 200 {
@@ -3453,8 +3456,16 @@ func TestHandleReportStoppedApiSelfStoppedPost(t *testing.T) {
 			"refocus_deadline": 0,
 			"stop_effect":      "collected",
 		})
+		frame := apiTestWorkerStateDelta(2, "active", "online", "ow-abc123")
+		dashboard.wantFrames(frame)
+		self.wantFrames(frame)
+		bystander.wantFrames()
 		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"))
 		apiTestWantStoppedSince(t, d, "ow-abc123")
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "active", "presence": "online", "desired_state": "online",
+			"machine": "m-server-self", "desired_machine_id": "m-server-self",
+		}))
 
 		now := nowSecs()
 		api.runOutsourceTick(now)
@@ -3466,11 +3477,16 @@ func TestHandleReportStoppedApiSelfStoppedPost(t *testing.T) {
 	})
 
 	t.Run("a worker's first report inside a 換手 is collected on the spot", func(t *testing.T) {
-		api, h, d, owner, _, contractor := apiTestLiveWorker(t)
+		api, h, d, owner, session, contractor := apiTestLiveWorker(t)
 		if status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/refocus", owner, ""); status != 200 {
 			t.Fatalf("refocus: %d (%v)", status, data)
 		}
 		wsWantWardenFrames(t, api, ServerSelfHost)
+		dashboard := apiTestListen(t, api, "")
+		self := &apiTestListener{t: t, hub: api.hub, l: session}
+		for session.pop() != nil {
+		}
+		bystander := apiTestListen(t, api, "kip")
 
 		status, data := apiJSON(t, h, "POST", "/api/self/stopped", contractor, `{}`)
 		if status != 200 {
@@ -3483,17 +3499,77 @@ func TestHandleReportStoppedApiSelfStoppedPost(t *testing.T) {
 			"refocus_deadline": 0,
 			"stop_effect":      "collected",
 		})
+		frame := apiTestHandoverDelta(4, "online", apiTestOffboardNotice, "ow-abc123")
+		dashboard.wantFrames(frame)
+		self.wantFrames(frame)
+		bystander.wantFrames()
 		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"))
 		apiTestWantStoppedSince(t, d, "ow-abc123")
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "active", "presence": "online", "desired_state": "online",
+			"machine": "m-server-self", "desired_machine_id": "m-server-self",
+			"refocus_since": apiAnyNumber, "refocus_op": "refocus",
+		}))
 	})
 
-	for _, stop := range []string{"deactivate", "force-stop"} {
-		t.Run("a worker's first report after "+stop+" is collected and the worker is held down", func(t *testing.T) {
+	t.Run("a worker's first report during a relocate stops the session on the machine it is leaving, at report time", func(t *testing.T) {
+		api, h, d, owner, session, contractor := apiTestLiveWorker(t)
+		putWarden(t, api, "m-new")
+		apiTestListen(t, api, "m-new")
+		if status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/relocate", owner,
+			`{"machine_id":"m-new"}`); status != 200 {
+			t.Fatalf("relocate: %d (%v)", status, data)
+		}
+		wsWantWardenFrames(t, api, ServerSelfHost)
+		wsWantWardenFrames(t, api, "m-new")
+		dashboard := apiTestListen(t, api, "")
+		self := &apiTestListener{t: t, hub: api.hub, l: session}
+		for session.pop() != nil {
+		}
+
+		status, data := apiJSON(t, h, "POST", "/api/self/stopped", contractor, `{}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"id":               "ow-abc123",
+			"desired_state":    "online",
+			"refocus_op":       "relocate",
+			"refocus_deadline": 0,
+			"stop_effect":      "collected",
+		})
+		frame := apiTestHandoverDelta(4, "online", apiTestOffboardNotice, "ow-abc123")
+		dashboard.wantFrames(frame)
+		self.wantFrames(frame)
+		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"))
+		wsWantWardenFrames(t, api, "m-new")
+		apiTestWantStoppedSince(t, d, "ow-abc123")
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "active", "presence": "online", "desired_state": "online",
+			"machine": "m-server-self", "desired_machine_id": "m-new",
+			"refocus_since": apiAnyNumber, "refocus_op": "relocate",
+		}))
+	})
+
+	for _, stop := range []struct {
+		path         string
+		frame        map[string]any
+		forcedStopAt any
+	}{
+		{"deactivate", apiTestHandoverDelta(4, "offline", apiTestOffboardNotice, "ow-abc123"), 0},
+		{"force-stop", apiTestWorkerStateDelta(3, "active", "offline", "ow-abc123"), apiAnyNumber},
+	} {
+		t.Run("a worker's first report after "+stop.path+" is collected and the worker is held down", func(t *testing.T) {
 			api, h, d, owner, session, contractor := apiTestLiveWorker(t)
-			if status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/"+stop, owner, ""); status != 200 {
-				t.Fatalf("%s: %d (%v)", stop, status, data)
+			if status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/"+stop.path, owner, ""); status != 200 {
+				t.Fatalf("%s: %d (%v)", stop.path, status, data)
 			}
 			wsDrainWardenFrames(t, api, ServerSelfHost)
+			dashboard := apiTestListen(t, api, "")
+			self := &apiTestListener{t: t, hub: api.hub, l: session}
+			for session.pop() != nil {
+			}
+			bystander := apiTestListen(t, api, "kip")
 
 			status, data := apiJSON(t, h, "POST", "/api/self/stopped", contractor, `{}`)
 			if status != 200 {
@@ -3506,8 +3582,16 @@ func TestHandleReportStoppedApiSelfStoppedPost(t *testing.T) {
 				"refocus_deadline": 0,
 				"stop_effect":      "collected",
 			})
+			dashboard.wantFrames(stop.frame)
+			self.wantFrames(stop.frame)
+			bystander.wantFrames()
 			wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"))
 			apiTestWantStoppedSince(t, d, "ow-abc123")
+			apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+				"status": "active", "presence": "stopping", "desired_state": "offline",
+				"machine": "m-server-self", "desired_machine_id": "m-server-self",
+				"forced_stop_at": stop.forcedStopAt,
+			}))
 
 			api.hub.Disconnect(session)
 			api.runOutsourceTick(nowSecs() + workerOfflineConfirmGraceSecs + 1)
@@ -3516,8 +3600,10 @@ func TestHandleReportStoppedApiSelfStoppedPost(t *testing.T) {
 	}
 
 	t.Run("a wanted-online worker whose connection already dropped is collected by starting it again", func(t *testing.T) {
-		api, h, _, owner, session, contractor := apiTestLiveWorker(t)
+		api, h, d, owner, session, contractor := apiTestLiveWorker(t)
 		api.hub.Disconnect(session)
+		dashboard := apiTestListen(t, api, "")
+		bystander := apiTestListen(t, api, "kip")
 
 		status, data := apiJSON(t, h, "POST", "/api/self/stopped", contractor, `{}`)
 		if status != 200 {
@@ -3530,7 +3616,25 @@ func TestHandleReportStoppedApiSelfStoppedPost(t *testing.T) {
 			"refocus_deadline": 0,
 			"stop_effect":      "collected",
 		})
+		dashboard.wantFrames(
+			apiTestWorkerStateDelta(2, "active", "online", "ow-abc123"),
+			apiTestWorkerStateDelta(3, "active", "online", "server"),
+		)
+		bystander.wantFrames()
 		wsWantWardenFrames(t, api, ServerSelfHost)
+		w, err := d.GetOutsourceWorker("ow-abc123")
+		if err != nil || w == nil {
+			t.Fatalf("GetOutsourceWorker: %v (%v)", w, err)
+		}
+		apiWantValue(t, "stopped anchor", any(w.StoppedSince), any(float64(0)))
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "active", "presence": "offline", "desired_state": "online",
+			"desired_machine_id": "m-server-self",
+			"last_op":            "start", "last_op_ok": false, "last_op_at": apiAnyNumber,
+			"last_op_reason": "respawn_deferred: the stopped-report could not clear this " +
+				"worker's previous session — it is marked active but neither the server's " +
+				"spawn memory nor a live connection knows which machine it is on; retrying",
+		}))
 
 		api.runOutsourceTick(nowSecs())
 		wsWantWardenFrames(t, api, ServerSelfHost,
@@ -3543,6 +3647,7 @@ func TestHandleReportStoppedApiSelfStoppedPost(t *testing.T) {
 			t.Fatalf("deactivate: %d (%v)", status, data)
 		}
 		api.hub.Disconnect(session)
+		dashboard := apiTestListen(t, api, "")
 
 		status, data := apiJSON(t, h, "POST", "/api/self/stopped", contractor, `{}`)
 		if status != 200 {
@@ -3555,19 +3660,117 @@ func TestHandleReportStoppedApiSelfStoppedPost(t *testing.T) {
 			"refocus_deadline": 0,
 			"stop_effect":      "collected",
 		})
+		dashboard.wantFrames(apiTestHandoverDelta(4, "offline", apiTestOffboardNotice, "ow-abc123"))
 		wsWantWardenFrames(t, api, ServerSelfHost)
 		apiTestWantStoppedSince(t, d, "ow-abc123")
 		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
 			"status": "active", "presence": "stopped", "desired_state": "offline",
 			"desired_machine_id": "m-server-self",
 		}))
+
+		if status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/activate", owner, ""); status != 200 {
+			t.Fatalf("activate: %d (%v)", status, data)
+		}
+		wsWantWardenFrames(t, api, ServerSelfHost,
+			wsStartFrame("ow-abc123", apiTestWorkerBootContext(t, h, owner), "claude", "sonnet", "medium"))
 	})
+
+	t.Run("a staff report whose close-out anchor cannot be written answers 500 and sends no stop", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		if status, data := apiJSON(t, h, "POST", "/api/members/kip/activate", owner, `{}`); status != 200 {
+			t.Fatalf("activate: %d %v", status, data)
+		}
+		if err := d.SetMemberDesiredMachineID("kip", ServerSelfHost); err != nil {
+			t.Fatalf("SetMemberDesiredMachineID: %v", err)
+		}
+		apiTestListen(t, api, ServerSelfHost)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		apiTestFailStoppedAnchorWrite(t, d, "kip")
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/self/stopped", agent, `{}`)
+		if status != 500 {
+			t.Fatalf("want 500, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "internal_error", "internal error: constraint failed: stopped anchor unwritable (1811)")
+		dashboard.wantFrames()
+		wsWantWardenFrames(t, api, ServerSelfHost)
+
+		apiTestRestoreStoppedAnchorWrite(t, d)
+		status, data = apiJSON(t, h, "POST", "/api/self/stopped", agent, `{}`)
+		if status != 200 {
+			t.Fatalf("want 200 once the anchor is writable, got %d (%v)", status, data)
+		}
+		apiWantValue(t, "stop_effect", data["stop_effect"], any("collected"))
+		dashboard.wantFrames(map[string]any{
+			"seq":   apiAnyNumber,
+			"topic": "member",
+			"op":    "patch",
+			"data": map[string]any{
+				"entity":  "member",
+				"key":     "owner::kip",
+				"epoch":   apiAnyNumber,
+				"deleted": false,
+				"payload": map[string]any{
+					"id":            "kip",
+					"name":          "Kip",
+					"status":        "active",
+					"desired_state": "online",
+					"owner_id":      "owner",
+				},
+			},
+			"ts":      apiAnyNumber,
+			"trigger": "kip",
+		})
+		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("kip"))
+	})
+
+	for _, tc := range []struct {
+		desired string
+		frame   map[string]any
+	}{
+		{"online", apiTestWorkerStateDelta(2, "active", "online", "ow-abc123")},
+		{"offline", apiTestHandoverDelta(4, "offline", apiTestOffboardNotice, "ow-abc123")},
+	} {
+		desired := tc.desired
+		t.Run("a desired-"+desired+" worker's report whose close-out anchor cannot be written answers 500 and sends no stop", func(t *testing.T) {
+			api, h, d, owner, _, contractor := apiTestLiveWorker(t)
+			if desired == "offline" {
+				if status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/deactivate", owner, ""); status != 200 {
+					t.Fatalf("deactivate: %d (%v)", status, data)
+				}
+			}
+			wsWantWardenFrames(t, api, ServerSelfHost)
+			apiTestFailStoppedAnchorWrite(t, d, "ow-abc123")
+			dashboard := apiTestListen(t, api, "")
+
+			status, data := apiJSON(t, h, "POST", "/api/self/stopped", contractor, `{}`)
+			if status != 500 {
+				t.Fatalf("want 500, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "internal_error",
+				"internal error: constraint failed: stopped anchor unwritable (1811)")
+			dashboard.wantFrames()
+			wsWantWardenFrames(t, api, ServerSelfHost)
+
+			apiTestRestoreStoppedAnchorWrite(t, d)
+			status, data = apiJSON(t, h, "POST", "/api/self/stopped", contractor, `{}`)
+			if status != 200 {
+				t.Fatalf("want 200 once the anchor is writable, got %d (%v)", status, data)
+			}
+			apiWantValue(t, "stop_effect", data["stop_effect"], any("collected"))
+			dashboard.wantFrames(tc.frame)
+			wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"))
+		})
+	}
 
 	t.Run("a worker's repeat report changes nothing and sends no second stop", func(t *testing.T) {
 		api, h, d, _, _, contractor := apiTestLiveWorker(t)
+		dashboard := apiTestListen(t, api, "")
 		if status, data := apiJSON(t, h, "POST", "/api/self/stopped", contractor, `{}`); status != 200 {
 			t.Fatalf("first stopped report: %d %v", status, data)
 		}
+		dashboard.wantFrames(apiTestWorkerStateDelta(2, "active", "online", "ow-abc123"))
 		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"))
 		first := apiTestWantStoppedSince(t, d, "ow-abc123")
 
@@ -3582,6 +3785,7 @@ func TestHandleReportStoppedApiSelfStoppedPost(t *testing.T) {
 			"refocus_deadline": 0,
 			"stop_effect":      "already_reported",
 		})
+		dashboard.wantFrames()
 		wsWantWardenFrames(t, api, ServerSelfHost)
 		apiWantValue(t, "stopped anchor", any(apiTestWantStoppedSince(t, d, "ow-abc123")), any(first))
 	})
@@ -3639,6 +3843,24 @@ func apiTestWorkerBootContext(t *testing.T, h http.Handler, owner string) string
 		t.Fatalf("boot-context preview: %d (%v)", status, boot)
 	}
 	return boot["context"].(string)
+}
+
+// apiTestFailStoppedAnchorWrite makes every write that moves id's
+// stopped_since fail, the way a full disk would.
+func apiTestFailStoppedAnchorWrite(t *testing.T, d *DAL, id string) {
+	t.Helper()
+	if _, err := d.wdb.Exec(`CREATE TRIGGER fail_stopped_anchor BEFORE UPDATE OF stopped_since ON member
+		WHEN NEW.id = '` + id + `' AND NEW.stopped_since != OLD.stopped_since
+		BEGIN SELECT RAISE(ABORT, 'stopped anchor unwritable'); END`); err != nil {
+		t.Fatalf("install failing trigger: %v", err)
+	}
+}
+
+func apiTestRestoreStoppedAnchorWrite(t *testing.T, d *DAL) {
+	t.Helper()
+	if _, err := d.wdb.Exec(`DROP TRIGGER fail_stopped_anchor`); err != nil {
+		t.Fatalf("drop failing trigger: %v", err)
+	}
 }
 
 func apiTestWantStoppedSince(t *testing.T, d *DAL, workerID string) float64 {
