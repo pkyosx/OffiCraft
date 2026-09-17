@@ -5081,14 +5081,25 @@ const mockApiImpl = {
           : scopeKind === "agent" || scopeKind === "everyone"
             ? mockServerSettings.lore_cap_chars_role
             : 0;
+      // A member's boot spends one budget on everyone entries first, then its
+      // own (server selectMemberLore), so an agent line starts after them.
+      const everyoneFirst =
+        scopeKind === "agent"
+          ? mockLoreEntries.filter((x) => x.scopeKind === "everyone").sort(mockLoreOrder)
+          : [];
       let used = 0;
-      for (const e of ordered.filter((x) => x.state !== "retired")) {
+      let stopped = false;
+      for (const e of [...everyoneFirst, ...ordered].filter((x) => x.state !== "retired")) {
         const cost = [...e.title].length + [...e.body].length;
-        if (used + cost > capChars) {
+        if (!stopped && used + cost <= capChars) {
+          used += cost;
+          continue;
+        }
+        stopped = true;
+        if (e.scopeKind === scopeKind) {
           firstDroppedId = e.id;
           break;
         }
-        used += cost;
       }
     }
 
@@ -5184,8 +5195,17 @@ const mockApiImpl = {
         `http 400 for POST /api/lore/${entryId}/scope`,
         400,
         `lore entry ${entryId} has no task type to key a manual scope to — its ` +
-          "source task (if any) carries no type, and its author is not an " +
-          "outsource member bound to a typed task; choose agent or everyone"
+          "source task carries no type, or it has no source task and its author " +
+          "is not an outsource member bound to a typed task"
+      );
+    }
+    if (scopeKind === "agent" && !e.scopeOptions.includes("agent")) {
+      throw mockApiError(
+        `http 400 for POST /api/lore/${entryId}/scope`,
+        400,
+        `lore entry ${entryId} has no author on the roster (author_id ` +
+          `${JSON.stringify(e.authorId)}), so an agent scope would ride no boot ` +
+          "document; choose everyone or, if it has a task type, manual"
       );
     }
     const key =

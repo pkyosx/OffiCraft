@@ -59,8 +59,8 @@ describe("mock setLoreEntryScope", () => {
       status: 400,
       serverMessage:
         "lore entry L-2 has no task type to key a manual scope to — its source task " +
-        "(if any) carries no type, and its author is not an outsource member bound " +
-        "to a typed task; choose agent or everyone",
+        "carries no type, or it has no source task and its author is not an " +
+        "outsource member bound to a typed task",
     });
     expect(row((await api.listLoreEntries()).entries, "L-2").slice(0, 2)).toEqual([
       "agent",
@@ -83,5 +83,20 @@ describe("mock setLoreEntryScope", () => {
 
     const mixed = await api.listLoreEntries({ scopeKinds: ["everyone", "agent"] });
     expect(mixed.capChars).toBe(0);
+  });
+
+  it("draws a member's agent line after the everyone entries that share its cap", async () => {
+    // The cap fits Mira's pinned L-1 on its own, but not after L-7 (所有人).
+    const own = (await api.listLoreEntries({ scopeKind: "agent", scopeKey: "mira" })).entries;
+    const l1 = own.find((e) => e.id === "L-1")!;
+    const cost = [...l1.title].length + [...l1.body].length;
+    await api.patchServerSettings({ loreCapCharsRole: cost });
+
+    const page = await api.listLoreEntries({ scopeKind: "agent", scopeKey: "mira" });
+    expect(page.capChars).toBe(cost);
+    expect(page.firstDroppedId).toBe("L-1");
+
+    const alone = await api.listLoreEntries({ scopeKinds: ["everyone"] });
+    expect(alone.firstDroppedId).toBe("");
   });
 });
