@@ -2137,6 +2137,24 @@ func TestToolsVisibleTo(t *testing.T) {
 		}
 	})
 
+	t.Run("a tool whose route row declares a blank floor is dropped for everyone, the owner included", func(t *testing.T) {
+		api.mcpTools["blank_floor_tool"] = RouteSpec{Method: http.MethodGet, Path: "/api/blank-floor"}
+		t.Cleanup(func() { delete(api.mcpTools, "blank_floor_tool") })
+		withBlank := append([]any{map[string]any{"name": "blank_floor_tool"}}, tools...)
+
+		for _, principal := range []principalClass{principalMachine, principalAgent, principalAdminAgent, principalOwner} {
+			names := map[string]bool{}
+			for _, raw := range api.toolsVisibleTo(principal, withBlank) {
+				name, _ := raw.(map[string]any)["name"].(string)
+				names[name] = true
+			}
+			if names["blank_floor_tool"] || !names["get_version"] {
+				t.Fatalf("%v: blank_floor_tool shown=%v, get_version shown=%v — want the blank-floor tool dropped and the rest kept",
+					principal, names["blank_floor_tool"], names["get_version"])
+			}
+		}
+	})
+
 	t.Run("a descriptor no route row backs is dropped for everyone, the owner included", func(t *testing.T) {
 		ghost := append([]any{map[string]any{"name": "retired_tool"}}, tools...)
 

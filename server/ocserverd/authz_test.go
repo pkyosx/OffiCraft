@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -272,14 +273,16 @@ func TestRequirePrincipalClass(t *testing.T) {
 		})
 	}
 
-	t.Run("unknown minimum panics before serving", func(t *testing.T) {
-		defer func() {
-			if recover() == nil {
-				t.Fatal("requirePrincipalClass did not panic for an unknown class")
-			}
-		}()
-		requirePrincipalClass(principalClass{name: "unknown"}, lookup, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
-	})
+	for _, minimum := range []principalClass{{name: "unknown"}, {}} {
+		t.Run("minimum "+strconv.Quote(minimum.String())+" panics before serving", func(t *testing.T) {
+			defer func() {
+				if recover() == nil {
+					t.Fatalf("requirePrincipalClass did not panic for class %q", minimum)
+				}
+			}()
+			requirePrincipalClass(minimum, lookup, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+		})
+	}
 }
 
 func TestPrincipalAtLeast(t *testing.T) {
