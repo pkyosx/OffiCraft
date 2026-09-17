@@ -938,7 +938,7 @@ type chatListFilter struct {
 
 // appendSQL appends this filter's ONE-SIDED conjuncts to a WHERE clause that
 // already ends in a condition. `participant` is not appended here: selectSQL
-// turns it into a UNION of two branches. `col` prefixes the column names: ""
+// turns it into a UNION of two branches, listChatUnread into `sender = ?`. `col` prefixes the column names: ""
 // for the single-table reads, "m." for the unread read, which joins chat_read
 // and must say which table it means.
 func (f chatListFilter) appendSQL(query *string, args *[]any, col string) {
@@ -952,7 +952,7 @@ func (f chatListFilter) appendSQL(query *string, args *[]any, col string) {
 	}
 }
 
-// selectSQL builds every listing read: the chat_message rows of `from` matching
+// selectSQL builds the listing reads except unread: the chat_message rows of `from` matching
 // `where` (+ its args) and this filter, in (ts, id) order — descending when
 // `desc` — capped at `limit` (negative = uncapped).
 //
@@ -964,8 +964,9 @@ func (f chatListFilter) appendSQL(query *string, args *[]any, col string) {
 //
 // 🔴 Do not fold the branches back into `sender = ? OR recipient = ?`. With
 // those two indexes present the planner answers the OR with a MULTI-INDEX OR
-// plus a temp sort, measured ~590x slower for the busiest participant on real
-// data.
+// plus a temp sort; on real data the busiest participant's latest page went
+// from 0.09 ms to 33 ms. Keep `where` cursors in row-value form ((ts, id) < (?, ?))
+// so they stay index ranges.
 func (f chatListFilter) selectSQL(from, where string, args []any, col string, desc bool, limit int) (string, []any) {
 	dir := ""
 	if desc {
@@ -1001,7 +1002,7 @@ func (f chatListFilter) selectSQL(from, where string, args []any, col string, de
 	return q, a
 }
 
-// queryChats runs a selectSQL query and scans its rows in the order returned;
+// queryChats runs a listing query and scans its rows in the order returned;
 // `reverse` flips a descending page back to oldest→newest.
 func (d *DAL) queryChats(query string, args []any, reverse bool) ([]ChatMessage, error) {
 	rows, err := d.rdb.Query(query, args...)
@@ -1034,7 +1035,7 @@ func (d *DAL) queryChats(query string, args []any, reverse bool) ([]ChatMessage,
 // the (beforeTS, beforeID) keyset cursor, optionally filtered to a
 // participant (sender OR recipient; "" = no filter), oldest→newest — the
 // scrollback history page. "Older" is the stream's total (ts, id) order
-// (`ts < :bts OR (ts = :bts AND id < :bid)`), so equal-ts collisions never
+// (`(ts, id) < (:bts, :bid)`), so equal-ts collisions never
 // drop or duplicate a message across page boundaries; messages are immutable,
 // so a cursor stays valid forever. The LIMIT lives in SQL (never a full-table
 // pull). A NEGATIVE limit disables the cap; limit 0 reads nothing.
@@ -1046,8 +1047,8 @@ func (d *DAL) listChatBefore(f chatListFilter, beforeTS float64, beforeID string
 	if limit == 0 {
 		return nil, nil
 	}
-	query, args := f.selectSQL(`chat_message`, `(ts < ? OR (ts = ? AND id < ?))`,
-		[]any{beforeTS, beforeTS, beforeID}, "", true, limit)
+	query, args := f.selectSQL(`chat_message`, `(ts, id) < (?, ?)`,
+		[]any{beforeTS, beforeID}, "", true, limit)
 	return d.queryChats(query, args, true)
 }
 
@@ -1107,12 +1108,12 @@ func (d *DAL) listChatWindow(f chatListFilter, start, end *chatAnchor, limit int
 	where := `1=1`
 	var args []any
 	if start != nil {
-		where += ` AND (ts > ? OR (ts = ? AND id >= ?))`
-		args = append(args, start.TS, start.TS, start.ID)
+		where += ` AND (ts, id) >= (?, ?)`
+		args = append(args, start.TS, start.ID)
 	}
 	if end != nil {
-		where += ` AND (ts < ? OR (ts = ? AND id <= ?))`
-		args = append(args, end.TS, end.TS, end.ID)
+		where += ` AND (ts, id) <= (?, ?)`
+		args = append(args, end.TS, end.ID)
 	}
 	// end present ⇒ anchor there and walk backwards (descending LIMIT, then
 	// reversed) so truncation eats the start_id/older side, which is what spec
@@ -1191,15 +1192,30 @@ func (d *DAL) listChatUnread(reader string, f chatListFilter, after *chatAnchor,
 	if reader == "" || limit == 0 {
 		return nil, nil
 	}
-	where := `m.recipient = ? AND m.ts > COALESCE(r.last_read_ts, 0)`
+	query := `
+		SELECT m.id, m.sender, m.recipient, m.body, m.ts, m.meta FROM chat_message m
+		LEFT JOIN chat_read r ON r.reader_id = ? AND r.peer_id = m.sender
+		WHERE m.recipient = ? AND m.ts > COALESCE(r.last_read_ts, 0)`
 	args := []any{reader, reader}
 	if after != nil {
-		where += ` AND (m.ts > ? OR (m.ts = ? AND m.id > ?))`
-		args = append(args, after.TS, after.TS, after.ID)
+		query += ` AND (m.ts, m.id) > (?, ?)`
+		args = append(args, after.TS, after.ID)
 	}
-	query, args := f.selectSQL(`chat_message m
-		LEFT JOIN chat_read r ON r.reader_id = ? AND r.peer_id = m.sender`,
-		where, args, "m.", false, limit)
+	// Every row here already has recipient = reader, so `with=` needs no UNION:
+	// with=reader adds nothing and with=P narrows to sender = P.
+	if f.participant != "" && f.participant != reader {
+		query += ` AND m.sender = ?`
+		args = append(args, f.participant)
+	}
+	f.appendSQL(&query, &args, "m.")
+	// `+m.ts` keeps the planner on idx_chat_message_recipient_sender_ts; plain
+	// `m.ts` lets it pick idx_chat_message_recipient_ts for the order and read
+	// the reader's whole inbox (2x slower on real data, 5x with with=).
+	query += ` ORDER BY +m.ts, m.id`
+	if limit > 0 {
+		query += ` LIMIT ?`
+		args = append(args, limit)
+	}
 	return d.queryChats(query, args, false)
 }
 

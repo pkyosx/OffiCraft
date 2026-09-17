@@ -969,7 +969,8 @@ func TestListChatUnread(t *testing.T) {
 	fromB2 := dalChat("b2", "bob", "owner", 400)
 	toSelf := dalChat("s1", "owner", "owner", 500)
 	elsewhere := dalChat("x1", "ann", "carl", 600)
-	dalPutChats(t, d, fromA1, fromA2, fromB1, fromB2, toSelf, elsewhere)
+	toAnn := dalChat("o1", "owner", "ann", 700)
+	dalPutChats(t, d, fromA1, fromA2, fromB1, fromB2, toSelf, elsewhere, toAnn)
 	if _, _, err := d.PutChatRead(ChatRead{ReaderID: "owner", PeerID: "ann", LastReadTS: 200}); err != nil {
 		t.Fatalf("PutChatRead: %v", err)
 	}
@@ -1009,7 +1010,7 @@ func TestListChatUnread(t *testing.T) {
 			chatListFilter{participant: "owner"}, -1, []ChatMessage{fromB1, fromA2, fromB2, toSelf}},
 		{"with= the reader caps across both sides",
 			chatListFilter{participant: "owner"}, 2, []ChatMessage{fromB1, fromA2}},
-		{"with= a sender keeps only what that sender sent the reader",
+		{"with= another member keeps only what they sent the reader, not their other mail nor the reader's replies",
 			chatListFilter{participant: "ann"}, -1, []ChatMessage{fromA2}},
 		{"with= combines with a sender filter",
 			chatListFilter{participant: "owner", sender: "bob"}, -1, []ChatMessage{fromB1, fromB2}},
