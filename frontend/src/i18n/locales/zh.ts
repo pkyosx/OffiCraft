@@ -1987,9 +1987,7 @@ export const zh = {
     taskReassignPredecessorName: "任務轉派 · 給前任",
     taskReassignPredecessorSub: "手上的任務被轉給別人時給 agent 的交接指示 · 可編輯",
     taskTakeoverWithPredecessorName: "任務轉派 · 給接手人",
-    taskTakeoverWithPredecessorSub: "接手別人做過的任務時給 agent 的指示 · 可編輯",
-    taskTakeoverFreshName: "新任務",
-    taskTakeoverFreshSub: "第一次被指派這個任務時給 agent 的指示 · 可編輯",
+    taskTakeoverWithPredecessorSub: "接手任務時給 agent 的指示（有沒有前任都用這份）· 可編輯",
     taskUnblockedName: "擋著你手上任務的票解開了",
     taskUnblockedSub: "依賴的任務放行時給 agent 的通知 · 可編輯",
     taskReadyForDoneName: "你手上的任務可以結案了",
@@ -2025,10 +2023,8 @@ export const zh = {
     historyTaskCloseoutTitle: "任務結案的版本紀錄",
     historyTaskReassignPredecessorTitle: "任務轉派 · 給前任的版本紀錄",
     historyTaskTakeoverWithPredecessorTitle: "任務轉派 · 給接手人的版本紀錄",
-    // T-6f44：這兩份**不再是唯讀的**（owner 的決定 2），所以它們跟其他八份
-    // 一樣真的會有版本紀錄。上一版這裡寫著「唯讀、永遠不會有第二個版本」，
-    // 那句話跟著決定 2 一起過期了。
-    historyTaskTakeoverFreshTitle: "新任務的版本紀錄",
+    // T-6f44：這份**不再是唯讀的**（owner 的決定 2），所以它跟其他文件
+    // 一樣真的會有版本紀錄。
     historyTaskUnblockedTitle: "擋著你手上任務的票解開了的版本紀錄",
     historyTaskReadyForDoneTitle: "你手上的任務可以結案了的版本紀錄",
     // seed vs owner-edited

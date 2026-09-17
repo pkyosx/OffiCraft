@@ -70,7 +70,6 @@ const TOPIC_OF: Record<DocumentKind, string> = {
   task_closeout: "global_context",
   task_reassign_predecessor: "global_context",
   task_takeover_with_predecessor: "global_context",
-  task_takeover_fresh: "global_context",
   task_unblocked: "global_context",
   task_ready_for_done: "global_context",
 };

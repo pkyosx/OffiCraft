@@ -24,13 +24,14 @@ const (
 
 const apiTestBootDocMarker = "<!-- ↑唯讀區（程式產生，改不動）｜↓本體（可編輯，零變數） -->"
 
-// apiTestTakeoverFreshSeed is the 〈新任務〉 document exactly as this build ships
-// it — the smallest split document, so its whole text can be written down beside
-// the folds that produce it.
+// apiTestReassignPredecessorSeed is the 〈轉派程序（前任）〉 document exactly as
+// this build ships it — a split document with a single variable and a
+// blank-line join, so its whole text can be written down beside the folds that
+// produce it.
 const (
-	apiTestTakeoverFreshSeed = "[{task_no}] 你接手了這張任務。\n\n<!-- ↑唯讀區（程式產生，改不動）｜↓本體（可編輯，零變數） -->\n\n請先讀任務內容，準備好後由你自己呼叫 claim_task（認領）解除轉派鎖再開始執行；任務狀態一律照步驟推導，不必也不能自己報。\n"
-	apiTestTakeoverFreshHead = "[{task_no}] 你接手了這張任務。"
-	apiTestTakeoverFreshBody = "請先讀任務內容，準備好後由你自己呼叫 claim_task（認領）解除轉派鎖再開始執行；任務狀態一律照步驟推導，不必也不能自己報。\n"
+	apiTestReassignPredecessorSeed = "[{task_no}] 此任務已轉派給新的接手人。\n\n<!-- ↑唯讀區（程式產生，改不動）｜↓本體（可編輯，零變數） -->\n\n你收到這份說明，代表目前的任務需要交接給其他執行者。請停止推進並完成必要收尾，確保接手人能從遠端取得目前成果與完整脈絡：\n\n* 保存成果：將需要保留的 git commit 推送到 remote，需要保留的檔案以 `ocagent upload` 上傳後，把附件 id 寫進步驟備註，不要留下只有本機能取得的成果。\n* 寫入交接資訊：將目前進度、進行中的事項、需要注意的風險與下一步寫進任務的步驟備註。若仍有等待 Owner 決策或操作的事項，也要一併說明；轉派後原本開出的 Reply Card 會自動過期，接手人需要依交接資訊重新開卡。\n* 處理 sub-agent：若有正在執行的 sub-agent，要求其收尾並將結果寫回對應 task step。\n\n完成以上事項後即完成交接。若接手人已在線上並主動聯繫，再補充確認；否則不需要等待或主動尋找接手人。\n"
+	apiTestReassignPredecessorHead = "[{task_no}] 此任務已轉派給新的接手人。"
+	apiTestReassignPredecessorBody = "你收到這份說明，代表目前的任務需要交接給其他執行者。請停止推進並完成必要收尾，確保接手人能從遠端取得目前成果與完整脈絡：\n\n* 保存成果：將需要保留的 git commit 推送到 remote，需要保留的檔案以 `ocagent upload` 上傳後，把附件 id 寫進步驟備註，不要留下只有本機能取得的成果。\n* 寫入交接資訊：將目前進度、進行中的事項、需要注意的風險與下一步寫進任務的步驟備註。若仍有等待 Owner 決策或操作的事項，也要一併說明；轉派後原本開出的 Reply Card 會自動過期，接手人需要依交接資訊重新開卡。\n* 處理 sub-agent：若有正在執行的 sub-agent，要求其收尾並將結果寫回對應 task step。\n\n完成以上事項後即完成交接。若接手人已在線上並主動聯繫，再補充確認；否則不需要等待或主動尋找接手人。\n"
 )
 
 // apiTestUnblockedHead / apiTestUnblockedBody are the two halves of 〈解除阻擋〉,
@@ -89,16 +90,12 @@ var apiTestBootDocRows = []apiTestBootDocRow{
 		kind: "task_reassign_predecessor", keys: []string{"global"},
 		seeds:    []string{"task_reassign_predecessor.md"},
 		docNames: []string{"task reassignment document (to the predecessor)"},
-		capChars: 15000, vars: []string{"task_no"}, split: true, join: "", readOnly: false,
+		capChars: 15000, vars: []string{"task_no"}, split: true, join: "\n\n", readOnly: false,
 	}, {
 		kind: "task_takeover_with_predecessor", keys: []string{"global"},
 		seeds:    []string{"task_takeover_with_predecessor.md"},
 		docNames: []string{"task reassignment document (to the successor)"},
-		capChars: 15000, vars: []string{"task_no", "predecessor"}, split: true, join: "", readOnly: false,
-	}, {
-		kind: "task_takeover_fresh", keys: []string{"global"},
-		seeds: []string{"task_takeover_fresh.md"}, docNames: []string{"new task document"},
-		capChars: 15000, vars: []string{"task_no"}, split: true, join: "", readOnly: false,
+		capChars: 15000, vars: []string{"task_no", "predecessor"}, split: true, join: "\n\n", readOnly: false,
 	}, {
 		kind: "task_unblocked", keys: []string{"global"},
 		seeds: []string{"task_unblocked.md"}, docNames: []string{"dependency-released notice"},
@@ -334,18 +331,18 @@ func TestFoldBootDocDTO(t *testing.T) {
 	t.Run("a split document nobody has edited folds the shipped seed into the whole text, its read-only head and the half a write takes", func(t *testing.T) {
 		api, _, _, _ := newAPITestServer(t)
 
-		dto, err := api.foldBootDocDTO(api.mustBootDocSpec("task_takeover_fresh", "global"))
+		dto, err := api.foldBootDocDTO(api.mustBootDocSpec("task_reassign_predecessor", "global"))
 		if err != nil {
 			t.Fatalf("foldBootDocDTO: %v", err)
 		}
 		apiWantValue(t, "dto", apiTestJSONOf(t, dto), map[string]any{
-			"size_chars":     127,
+			"size_chars":     445,
 			"cap_chars":      15000,
-			"kind":           "task_takeover_fresh",
+			"kind":           "task_reassign_predecessor",
 			"key":            "global",
-			"text":           apiTestTakeoverFreshSeed,
-			"read_only_head": apiTestTakeoverFreshHead,
-			"body":           apiTestTakeoverFreshBody,
+			"text":           apiTestReassignPredecessorSeed,
+			"read_only_head": apiTestReassignPredecessorHead,
+			"body":           apiTestReassignPredecessorBody,
 			"owner_id":       "owner",
 			"schema_version": 3,
 			"is_default":     true,
@@ -356,19 +353,19 @@ func TestFoldBootDocDTO(t *testing.T) {
 
 	t.Run("an overlay replaces the body under the shipped head and stops the document reading as the default", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
-		apiJSON(t, h, "POST", "/api/boot-docs/task_takeover_fresh/global", owner, `{"body":"F1"}`)
+		apiJSON(t, h, "POST", "/api/boot-docs/task_reassign_predecessor/global", owner, `{"body":"F1"}`)
 
-		dto, err := api.foldBootDocDTO(api.mustBootDocSpec("task_takeover_fresh", "global"))
+		dto, err := api.foldBootDocDTO(api.mustBootDocSpec("task_reassign_predecessor", "global"))
 		if err != nil {
 			t.Fatalf("foldBootDocDTO: %v", err)
 		}
 		apiWantValue(t, "dto", apiTestJSONOf(t, dto), map[string]any{
-			"size_chars":     63,
+			"size_chars":     67,
 			"cap_chars":      15000,
-			"kind":           "task_takeover_fresh",
+			"kind":           "task_reassign_predecessor",
 			"key":            "global",
-			"text":           apiTestTakeoverFreshHead + "\n\n" + apiTestBootDocMarker + "\n\nF1",
-			"read_only_head": apiTestTakeoverFreshHead,
+			"text":           apiTestReassignPredecessorHead + "\n\n" + apiTestBootDocMarker + "\n\nF1",
+			"read_only_head": apiTestReassignPredecessorHead,
 			"body":           "F1",
 			"owner_id":       "owner",
 			"schema_version": 3,
@@ -405,19 +402,19 @@ func TestFoldBootDocDTO(t *testing.T) {
 	t.Run("a stored row from before the marker existed folds head-less, and its whole text reads as the body", func(t *testing.T) {
 		api, _, d, _ := newAPITestServer(t)
 		if err := d.PutBootDocument(BootDocument{
-			Kind: "task_takeover_fresh", Key: "global", Text: "written before the marker existed",
+			Kind: "task_reassign_predecessor", Key: "global", Text: "written before the marker existed",
 		}); err != nil {
 			t.Fatalf("PutBootDocument: %v", err)
 		}
 
-		dto, err := api.foldBootDocDTO(api.mustBootDocSpec("task_takeover_fresh", "global"))
+		dto, err := api.foldBootDocDTO(api.mustBootDocSpec("task_reassign_predecessor", "global"))
 		if err != nil {
 			t.Fatalf("foldBootDocDTO: %v", err)
 		}
 		apiWantValue(t, "dto", apiTestJSONOf(t, dto), map[string]any{
 			"size_chars":     33,
 			"cap_chars":      15000,
-			"kind":           "task_takeover_fresh",
+			"kind":           "task_reassign_predecessor",
 			"key":            "global",
 			"text":           "written before the marker existed",
 			"read_only_head": "",
@@ -444,8 +441,8 @@ func TestSystemInteractionText(t *testing.T) {
 			t.Fatalf("the boot fold and the read face disagree (%d vs %d runes)",
 				utf8.RuneCountInString(got), utf8.RuneCountInString(data["text"].(string)))
 		}
-		if n := utf8.RuneCountInString(got); n != 19590 {
-			t.Fatalf("the shipped block is %d runes, want 19590", n)
+		if n := utf8.RuneCountInString(got); n != 13336 {
+			t.Fatalf("the shipped block is %d runes, want 13336", n)
 		}
 	})
 
@@ -526,9 +523,9 @@ func TestTaskEventBodyText(t *testing.T) {
 	t.Run("it answers the instructions alone, with neither the head's claim nor the document's trailing newline", func(t *testing.T) {
 		api, _, _, _ := newAPITestServer(t)
 
-		got := api.taskEventBodyText("task_takeover_fresh")
+		got := api.taskEventBodyText("task_reassign_predecessor")
 
-		if want := strings.TrimSuffix(apiTestTakeoverFreshBody, "\n"); got != want {
+		if want := strings.TrimSuffix(apiTestReassignPredecessorBody, "\n"); got != want {
 			t.Fatalf("body = %q, want %q", got, want)
 		}
 	})
@@ -557,14 +554,18 @@ func TestTaskEventBodyText(t *testing.T) {
 }
 
 func TestTaskNoticeText(t *testing.T) {
-	t.Run("the shipped 〈新任務〉 notice runs its filled head into its body inside one paragraph, trimmed to a single chat row", func(t *testing.T) {
+	t.Run("the shipped 〈轉派程序（前任）〉 notice puts a blank line between its filled head and its body, trimmed to a single chat row", func(t *testing.T) {
 		api, _, _, _ := newAPITestServer(t)
 		dashboard := apiTestListen(t, api, "")
 
-		got := api.taskNoticeText("task_takeover_fresh", map[string]string{"task_no": "T-9"})
+		got := api.taskNoticeText("task_reassign_predecessor", map[string]string{"task_no": "T-9"})
 
-		want := "[T-9] " + strings.TrimPrefix(apiTestTakeoverFreshHead, "[{task_no}] ") +
-			strings.TrimSuffix(apiTestTakeoverFreshBody, "\n")
+		want := "[T-9] 此任務已轉派給新的接手人。\n\n" +
+			"你收到這份說明，代表目前的任務需要交接給其他執行者。請停止推進並完成必要收尾，確保接手人能從遠端取得目前成果與完整脈絡：\n\n" +
+			"* 保存成果：將需要保留的 git commit 推送到 remote，需要保留的檔案以 `ocagent upload` 上傳後，把附件 id 寫進步驟備註，不要留下只有本機能取得的成果。\n" +
+			"* 寫入交接資訊：將目前進度、進行中的事項、需要注意的風險與下一步寫進任務的步驟備註。若仍有等待 Owner 決策或操作的事項，也要一併說明；轉派後原本開出的 Reply Card 會自動過期，接手人需要依交接資訊重新開卡。\n" +
+			"* 處理 sub-agent：若有正在執行的 sub-agent，要求其收尾並將結果寫回對應 task step。\n\n" +
+			"完成以上事項後即完成交接。若接手人已在線上並主動聯繫，再補充確認；否則不需要等待或主動尋找接手人。"
 		if got != want {
 			t.Fatalf("notice = %q, want %q", got, want)
 		}
@@ -601,9 +602,9 @@ func TestTaskNoticeText(t *testing.T) {
 	t.Run("a value the document never names is ignored rather than appended", func(t *testing.T) {
 		api, _, _, _ := newAPITestServer(t)
 
-		with := api.taskNoticeText("task_takeover_fresh",
+		with := api.taskNoticeText("task_reassign_predecessor",
 			map[string]string{"task_no": "T-9", "predecessor": "mira"})
-		without := api.taskNoticeText("task_takeover_fresh", map[string]string{"task_no": "T-9"})
+		without := api.taskNoticeText("task_reassign_predecessor", map[string]string{"task_no": "T-9"})
 
 		if with != without {
 			t.Fatalf("an unnamed value changed the notice: %q vs %q", with, without)
@@ -612,9 +613,8 @@ func TestTaskNoticeText(t *testing.T) {
 }
 
 func TestEventNoticeText(t *testing.T) {
-	t.Run("each kind joins its two halves its own way, so the same fold renders three shapes", func(t *testing.T) {
+	t.Run("each kind joins its two halves its own way, so the same fold renders two shapes", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
-		apiJSON(t, h, "POST", "/api/boot-docs/task_takeover_fresh/global", owner, `{"body":"F1"}`)
 		apiJSON(t, h, "POST", "/api/boot-docs/task_closeout/global", owner, `{"body":"C1"}`)
 		apiJSON(t, h, "POST", "/api/boot-docs/task_unblocked/global", owner, `{"body":"U1"}`)
 
@@ -623,8 +623,6 @@ func TestEventNoticeText(t *testing.T) {
 			values map[string]string
 			want   string
 		}{
-			"the paragraph join runs the head into the body": {
-				"task_takeover_fresh", map[string]string{"task_no": "T-9"}, "[T-9] 你接手了這張任務。F1"},
 			"the single-newline join stacks the body under the sentence": {
 				"task_closeout", map[string]string{"task_no": "T-1", "closed_by": "owner"},
 				apiTestCloseoutHeadFilled + "\nC1"},
@@ -696,8 +694,8 @@ func TestBootSequenceText(t *testing.T) {
 		if err != nil {
 			t.Fatalf("bootSequenceText(codex): %v", err)
 		}
-		if n := utf8.RuneCountInString(codex); n != 2786 {
-			t.Fatalf("the codex sequence is %d runes, want the shipped 2786", n)
+		if n := utf8.RuneCountInString(codex); n != 2151 {
+			t.Fatalf("the codex sequence is %d runes, want the shipped 2151", n)
 		}
 	})
 
@@ -728,8 +726,8 @@ func TestBootSequenceText(t *testing.T) {
 		if got != data["text"] {
 			t.Fatalf("the boot fold and the read face disagree (%d runes)", utf8.RuneCountInString(got))
 		}
-		if n := utf8.RuneCountInString(got); n != 2965 {
-			t.Fatalf("the shipped claude sequence is %d runes, want 2965", n)
+		if n := utf8.RuneCountInString(got); n != 2050 {
+			t.Fatalf("the shipped claude sequence is %d runes, want 2050", n)
 		}
 	})
 }
@@ -1098,7 +1096,7 @@ func TestReplaceBootDoc(t *testing.T) {
 		api, _, d, owner := newAPITestServer(t)
 		var req *http.Request
 		taskTestUnderCaller(t, api, d, owner, func(r *http.Request) { req = r })
-		spec := api.mustBootDocSpec("task_takeover_fresh", "global")
+		spec := api.mustBootDocSpec("task_reassign_predecessor", "global")
 		spec.ReadOnly = true
 		dashboard := apiTestListen(t, api, "")
 		rec := httptest.NewRecorder()
@@ -1109,10 +1107,10 @@ func TestReplaceBootDoc(t *testing.T) {
 			t.Fatalf("want 405, got %d (%s)", rec.Code, rec.Body.String())
 		}
 		apiWantError(t, apiTestDecodeJSONBody(t, rec), "method_not_allowed",
-			"the new task document is a read-only document — it is shown so you can see what "+
+			"the task reassignment document (to the predecessor) is a read-only document — it is shown so you can see what "+
 				"agents are told, but no caller may edit it and there is no version of it other "+
 				"than the shipped one; nothing was written")
-		stored, err := d.GetBootDocument("task_takeover_fresh", "global")
+		stored, err := d.GetBootDocument("task_reassign_predecessor", "global")
 		if err != nil || stored != nil {
 			t.Fatalf("an overlay row was written: %#v (%v)", stored, err)
 		}
@@ -1145,7 +1143,7 @@ func apiTestDecodeJSONBody(t *testing.T, rec *httptest.ResponseRecorder) map[str
 func TestBootDocReceiptOf(t *testing.T) {
 	t.Run("the receipt keeps the address, the default flag and the size and hash of the whole stored document", func(t *testing.T) {
 		api, _, _, _ := newAPITestServer(t)
-		dto, err := api.foldBootDocDTO(api.mustBootDocSpec("task_takeover_fresh", "global"))
+		dto, err := api.foldBootDocDTO(api.mustBootDocSpec("task_reassign_predecessor", "global"))
 		if err != nil {
 			t.Fatalf("foldBootDocDTO: %v", err)
 		}
@@ -1153,12 +1151,12 @@ func TestBootDocReceiptOf(t *testing.T) {
 		got := bootDocReceiptOf(dto)
 
 		apiWantValue(t, "receipt", apiTestJSONOf(t, got), map[string]any{
-			"kind":       "task_takeover_fresh",
+			"kind":       "task_reassign_predecessor",
 			"key":        "global",
 			"is_default": true,
-			"size_chars": 127,
+			"size_chars": 445,
 			"cap_chars":  15000,
-			"sha256":     "caeacca0168ce3f556c6770133957bf9c380696913f18b707c34ce18fc73772f",
+			"sha256":     "2d30d99cc592f18c19385cd027e31ab77dff8d763d0dc4d77929f9a60df01500",
 		})
 	})
 
@@ -1231,7 +1229,7 @@ func TestBootDocStoredText(t *testing.T) {
 func TestBootDocBodyOf(t *testing.T) {
 	t.Run("a split kind answers the half under the marker, and everything else answers the whole text", func(t *testing.T) {
 		api, _, _, _ := newAPITestServer(t)
-		split := api.mustBootDocSpec("task_takeover_fresh", "global")
+		split := api.mustBootDocSpec("task_reassign_predecessor", "global")
 		unsplit := api.mustBootDocSpec("offboard", "global")
 
 		for name, c := range map[string]struct {
@@ -1240,12 +1238,12 @@ func TestBootDocBodyOf(t *testing.T) {
 			want string
 		}{
 			"a split kind over a document carrying the marker": {
-				split, apiTestTakeoverFreshSeed, apiTestTakeoverFreshBody},
+				split, apiTestReassignPredecessorSeed, apiTestReassignPredecessorBody},
 			"a split kind over a row stored before the marker existed": {
 				split, "written before the marker existed", "written before the marker existed"},
 			"a split kind over an empty document": {split, "", ""},
 			"a kind with no read-only half, over a document that carries the marker anyway": {
-				unsplit, apiTestTakeoverFreshSeed, apiTestTakeoverFreshSeed},
+				unsplit, apiTestReassignPredecessorSeed, apiTestReassignPredecessorSeed},
 			"a kind with no read-only half, over its own document": {unsplit, "O1", "O1"},
 		} {
 			if got := bootDocBodyOf(c.spec, c.text); got != c.want {
@@ -1320,10 +1318,10 @@ func TestResetBootDoc(t *testing.T) {
 
 	t.Run("a read-only document is refused rather than answered with a no-op success", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
-		apiJSON(t, h, "POST", "/api/boot-docs/task_takeover_fresh/global", owner, `{"body":"F1"}`)
+		apiJSON(t, h, "POST", "/api/boot-docs/task_reassign_predecessor/global", owner, `{"body":"F1"}`)
 		var req *http.Request
 		taskTestUnderCaller(t, api, d, owner, func(r *http.Request) { req = r })
-		spec := api.mustBootDocSpec("task_takeover_fresh", "global")
+		spec := api.mustBootDocSpec("task_reassign_predecessor", "global")
 		spec.ReadOnly = true
 		dashboard := apiTestListen(t, api, "")
 		rec := httptest.NewRecorder()
@@ -1334,41 +1332,41 @@ func TestResetBootDoc(t *testing.T) {
 			t.Fatalf("want 405, got %d (%s)", rec.Code, rec.Body.String())
 		}
 		apiWantError(t, apiTestDecodeJSONBody(t, rec), "method_not_allowed",
-			"the new task document is a read-only document — it is shown so you can see what "+
+			"the task reassignment document (to the predecessor) is a read-only document — it is shown so you can see what "+
 				"agents are told, but no caller may edit it and there is no version of it other "+
 				"than the shipped one; nothing was written")
-		_, after := apiJSON(t, h, "GET", "/api/boot-docs/task_takeover_fresh/global", owner, "")
+		_, after := apiJSON(t, h, "GET", "/api/boot-docs/task_reassign_predecessor/global", owner, "")
 		apiWantValue(t, "body", after["body"], "F1")
 		dashboard.wantFrames()
 	})
 
 	t.Run("the reset falls the folded read back to the shipped seed and retains the edit it replaced", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
-		apiJSON(t, h, "POST", "/api/boot-docs/task_takeover_fresh/global", owner, `{"body":"F1"}`)
+		apiJSON(t, h, "POST", "/api/boot-docs/task_reassign_predecessor/global", owner, `{"body":"F1"}`)
 		var req *http.Request
 		taskTestUnderCaller(t, api, d, owner, func(r *http.Request) { req = r })
 		dashboard := apiTestListen(t, api, "")
 		rec := httptest.NewRecorder()
 
-		api.resetBootDoc(rec, req, api.mustBootDocSpec("task_takeover_fresh", "global"))
+		api.resetBootDoc(rec, req, api.mustBootDocSpec("task_reassign_predecessor", "global"))
 
 		if rec.Code != 200 {
 			t.Fatalf("want 200, got %d (%s)", rec.Code, rec.Body.String())
 		}
 		apiWantBody(t, apiTestDecodeJSONBody(t, rec), map[string]any{
-			"kind":       "task_takeover_fresh",
+			"kind":       "task_reassign_predecessor",
 			"key":        "global",
 			"is_default": true,
-			"size_chars": 127,
+			"size_chars": 445,
 			"cap_chars":  15000,
-			"sha256":     "caeacca0168ce3f556c6770133957bf9c380696913f18b707c34ce18fc73772f",
+			"sha256":     "2d30d99cc592f18c19385cd027e31ab77dff8d763d0dc4d77929f9a60df01500",
 		})
-		_, after := apiJSON(t, h, "GET", "/api/boot-docs/task_takeover_fresh/global", owner, "")
-		apiWantValue(t, "text", after["text"], apiTestTakeoverFreshSeed)
-		apiWantValue(t, "history", apiTestBootDocHistory(t, d, "task_takeover_fresh", "global"), []any{
+		_, after := apiJSON(t, h, "GET", "/api/boot-docs/task_reassign_predecessor/global", owner, "")
+		apiWantValue(t, "text", after["text"], apiTestReassignPredecessorSeed)
+		apiWantValue(t, "history", apiTestBootDocHistory(t, d, "task_reassign_predecessor", "global"), []any{
 			map[string]any{
 				"actor":   "owner",
-				"content": `{"text":"` + apiTestTakeoverFreshHead + `\n\n\u003c!-- ↑唯讀區（程式產生，改不動）｜↓本體（可編輯，零變數） --\u003e\n\nF1","tombstoned":"false"}`,
+				"content": `{"text":"` + apiTestReassignPredecessorHead + `\n\n\u003c!-- ↑唯讀區（程式產生，改不動）｜↓本體（可編輯，零變數） --\u003e\n\nF1","tombstoned":"false"}`,
 			},
 		})
 		dashboard.wantFrames(map[string]any{
@@ -1447,7 +1445,7 @@ func TestHandleGetSystemInteractionApiSystemInteractionGet(t *testing.T) {
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
-		apiWantValue(t, "size_chars", data["size_chars"], 19590)
+		apiWantValue(t, "size_chars", data["size_chars"], 13336)
 		apiWantValue(t, "cap_chars", data["cap_chars"], 60000)
 		apiWantValue(t, "kind", data["kind"], "system_interaction")
 		apiWantValue(t, "key", data["key"], "global")
@@ -1457,8 +1455,8 @@ func TestHandleGetSystemInteractionApiSystemInteractionGet(t *testing.T) {
 		apiWantValue(t, "has_seed", data["has_seed"], true)
 		apiWantValue(t, "schema_version", data["schema_version"], 3)
 		text, ok := data["text"].(string)
-		if !ok || utf8.RuneCountInString(text) != 19590 {
-			t.Fatalf("the shipped system-interaction text has %d runes, want 19590", utf8.RuneCountInString(text))
+		if !ok || utf8.RuneCountInString(text) != 13336 {
+			t.Fatalf("the shipped system-interaction text has %d runes, want 13336", utf8.RuneCountInString(text))
 		}
 	})
 
@@ -1612,9 +1610,9 @@ func TestHandleResetSystemInteractionApiSystemInteractionResetPost(t *testing.T)
 			"kind":       "system_interaction",
 			"key":        "global",
 			"is_default": true,
-			"size_chars": 19590,
+			"size_chars": 13336,
 			"cap_chars":  60000,
-			"sha256":     "b4921df0da650dde7f0d8f09c1315c733f069311a50ea45aae5f830198f42bc9",
+			"sha256":     "283ad3349124d2bbd5010320503bc357b474a5b37479cfb10aa9dc2866f26ff0",
 		})
 		dashboard.wantFrames(map[string]any{
 			"seq":   2,
@@ -1645,9 +1643,9 @@ func TestHandleResetSystemInteractionApiSystemInteractionResetPost(t *testing.T)
 			"kind":       "system_interaction",
 			"key":        "global",
 			"is_default": true,
-			"size_chars": 19590,
+			"size_chars": 13336,
 			"cap_chars":  60000,
-			"sha256":     "b4921df0da650dde7f0d8f09c1315c733f069311a50ea45aae5f830198f42bc9",
+			"sha256":     "283ad3349124d2bbd5010320503bc357b474a5b37479cfb10aa9dc2866f26ff0",
 		})
 		dashboard.wantFrames()
 	})
@@ -1673,7 +1671,7 @@ func TestHandleGetOffboardApiOffboardGet(t *testing.T) {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
 		apiWantBody(t, data, map[string]any{
-			"size_chars":     1714,
+			"size_chars":     1137,
 			"cap_chars":      15000,
 			"kind":           "offboard",
 			"key":            "global",
@@ -1810,9 +1808,9 @@ func TestHandleResetOffboardApiOffboardResetPost(t *testing.T) {
 			"kind":       "offboard",
 			"key":        "global",
 			"is_default": true,
-			"size_chars": 1714,
+			"size_chars": 1137,
 			"cap_chars":  15000,
-			"sha256":     "54390a89a67c0d0987672fa4bbac6ef0409566f6dbe56a989814e6fbfe0f4106",
+			"sha256":     "f14e50ab6e7df61604bcb348f2c643c14af166a810a4004065679c78e20aeb03",
 		})
 		dashboard.wantFrames(map[string]any{
 			"seq":   2,
@@ -1932,7 +1930,7 @@ func TestHandleGetBootSequenceApiBootSequenceRuntimeKeyGet(t *testing.T) {
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
-		apiWantValue(t, "size_chars", data["size_chars"], 2965)
+		apiWantValue(t, "size_chars", data["size_chars"], 2050)
 		apiWantValue(t, "cap_chars", data["cap_chars"], 15000)
 		apiWantValue(t, "kind", data["kind"], "boot_sequence")
 		apiWantValue(t, "key", data["key"], "claude")
@@ -1942,8 +1940,8 @@ func TestHandleGetBootSequenceApiBootSequenceRuntimeKeyGet(t *testing.T) {
 		apiWantValue(t, "has_seed", data["has_seed"], true)
 		apiWantValue(t, "schema_version", data["schema_version"], 3)
 		text, ok := data["text"].(string)
-		if !ok || utf8.RuneCountInString(text) != 2965 {
-			t.Fatalf("the shipped claude sequence has %d runes, want 2965", utf8.RuneCountInString(text))
+		if !ok || utf8.RuneCountInString(text) != 2050 {
+			t.Fatalf("the shipped claude sequence has %d runes, want 2050", utf8.RuneCountInString(text))
 		}
 	})
 
@@ -2031,9 +2029,9 @@ func TestHandleResetBootSequenceApiBootSequenceRuntimeKeyResetPost(t *testing.T)
 			"kind":       "boot_sequence",
 			"key":        "claude",
 			"is_default": true,
-			"size_chars": 2965,
+			"size_chars": 2050,
 			"cap_chars":  15000,
-			"sha256":     "a07cefcbbf849bed70edc1cfa8c407e77eadc7f75227a2b936f1061483db3d36",
+			"sha256":     "a6fb7c99005553c82e150cb340b906c138362691ad62201a27a2752877ba5381",
 		})
 		dashboard.wantFrames(map[string]any{
 			"seq":   2,
@@ -2094,7 +2092,7 @@ func TestWriteUnknownBootSequence(t *testing.T) {
 
 func TestBootDocReadOnlyRefusal(t *testing.T) {
 	t.Run("the refusal says what the document is rather than which permission the caller lacks", func(t *testing.T) {
-		for _, docName := range []string{"new task document", "dependency-released notice"} {
+		for _, docName := range []string{"task close-out procedure", "dependency-released notice"} {
 			got := bootDocReadOnlyRefusal(bootDocSpec{Kind: "k", Key: "g", DocName: docName})
 
 			want := "the " + docName + " is a read-only document — it is shown so you can see " +

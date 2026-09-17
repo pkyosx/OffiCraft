@@ -3439,9 +3439,24 @@ func TestHandlePostTaskMessageApiTasksTaskIdMessagePost(t *testing.T) {
 	})
 }
 
+// apiTestChatRows is every stored chat row as sender, recipient and body, in
+// the order the DAL lists them.
+func apiTestChatRows(t *testing.T, d *DAL) []any {
+	t.Helper()
+	msgs, err := d.ListChat()
+	if err != nil {
+		t.Fatalf("ListChat: %v", err)
+	}
+	rows := []any{}
+	for _, m := range msgs {
+		rows = append(rows, map[string]any{"from": m.Sender, "to": m.Recipient, "body": m.Body})
+	}
+	return rows
+}
+
 func TestHandleReassignTaskApiTasksTaskIdReassignPost(t *testing.T) {
 	t.Run("handing a task to another member answers the receipt under the reassigning lock and pairs both sides in chat", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
+		api, h, d, owner := newAPITestServer(t)
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
 		dashboard := apiTestListen(t, api, "")
 		predecessor := apiTestListen(t, api, "kip")
@@ -3528,10 +3543,104 @@ func TestHandleReassignTaskApiTasksTaskIdReassignPost(t *testing.T) {
 		dashboard.wantFrames(predecessorNotice, successorNotice, newAudienceDelta, oldAudienceDelta)
 		predecessor.wantFrames(predecessorNotice, oldAudienceDelta)
 		successor.wantFrames(successorNotice, newAudienceDelta)
+		apiWantValue(t, "chat", apiTestChatRows(t, d), []any{
+			map[string]any{
+				"from": "system",
+				"to":   "kip",
+				"body": "[T-1] 此任務已轉派給新的接手人。\n\n你收到這份說明，代表目前的任務需要交接給其他執行者。請停止推進並完成必要收尾，確保接手人能從遠端取得目前成果與完整脈絡：\n" +
+					"\n" +
+					"* 保存成果：將需要保留的 git commit 推送到 remote，需要保留的檔案以 `ocagent upload` 上傳後，把附件 id 寫進步驟備註，不要留下只有本機能取得的成果。\n" +
+					"* 寫入交接資訊：將目前進度、進行中的事項、需要注意的風險與下一步寫進任務的步驟備註。若仍有等待 Owner 決策或操作的事項，也要一併說明；轉派後原本開出的 Reply Card 會自動過期，接手人需要依交接資訊重新開卡。\n" +
+					"* 處理 sub-agent：若有正在執行的 sub-agent，要求其收尾並將結果寫回對應 task step。\n" +
+					"\n" +
+					"完成以上事項後即完成交接。若接手人已在線上並主動聯繫，再補充確認；否則不需要等待或主動尋找接手人。",
+			},
+			map[string]any{
+				"from": "system",
+				"to":   "mira",
+				"body": "[T-1] 你接手了這張任務，你的前任是 Kip（kip）。\n\n" +
+					"你收到這份說明，代表有一張任務需要由你接手。完成以下準備後，認領並開始執行：\n\n" +
+					"* **讀取任務**：使用 `get_task` 讀取任務內容；已有步驟時，一併確認目前步驟的 DoD，並對 `note_size_chars` 非 0 的步驟使用 `get_task_step` 讀取完整備註。若尚未讀過對應的任務手冊，使用 `get_task_manual` 讀取。\n" +
+					"* **確認交接**：若有 `reassigned_from`，先讀取 `handover_note`，再使用 `post_chat` 向前任確認目前進度與進行中的事項。最多等待 5 分鐘；前任已離線、無法聯繫或逾時未回覆時，直接以任務上的交接資訊繼續接手，不要停在這裡等待。\n" +
+					"* **認領並執行**：完成準備後，呼叫 `claim_task` 認領任務，再依任務目前狀態繼續規劃或執行。",
+			},
+		})
+	})
+
+	t.Run("handing a task nobody has executed yet to a member tells the member the task has no predecessor", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		api.noOutsource = true
+		apiJSON(t, h, "POST", "/api/tasks", owner,
+			`{"title":"Contracted out","target":{"kind":"outsource","runtime":"claude","effort":"high"}}`)
+		dashboard := apiTestListen(t, api, "")
+		successor := apiTestListen(t, api, "mira")
+
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/reassign", owner,
+			`{"target":{"kind":"staff","member_id":"mira"}}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"task_id":                "T-1",
+			"title":                  "Contracted out",
+			"status":                 "not_started",
+			"executor_id":            "mira",
+			"executor_kind":          "staff",
+			"lock":                   "reassigning",
+			"closed_ts":              nil,
+			"duplicate_of":           "",
+			"deps":                   []any{},
+			"progress_done":          0,
+			"progress_total":         0,
+			"artifact_count":         0,
+			"description_size_chars": 0,
+			"description_sha256":     "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+		})
+		successorNotice := map[string]any{
+			"seq":   2,
+			"topic": "chat",
+			"op":    "patch",
+			"data": map[string]any{
+				"entity":  "chat",
+				"key":     apiAnyString,
+				"epoch":   2,
+				"deleted": false,
+				"payload": map[string]any{"id": apiAnyString, "from": "system", "to": "mira"},
+			},
+			"ts":      apiAnyNumber,
+			"trigger": "owner",
+		}
+		taskDelta := map[string]any{
+			"seq":   3,
+			"topic": "task",
+			"op":    "patch",
+			"data": map[string]any{
+				"entity":  "task",
+				"key":     "owner::T-1",
+				"epoch":   3,
+				"deleted": false,
+				"payload": map[string]any{"id": "T-1", "priority": "mid", "status": "not_started"},
+			},
+			"ts":      apiAnyNumber,
+			"trigger": "owner",
+		}
+		dashboard.wantFrames(successorNotice, taskDelta)
+		successor.wantFrames(successorNotice, taskDelta)
+		apiWantValue(t, "chat", apiTestChatRows(t, d), []any{
+			map[string]any{
+				"from": "system",
+				"to":   "mira",
+				"body": "[T-1] 你接手了這張任務，這張任務沒有前任。\n\n" +
+					"你收到這份說明，代表有一張任務需要由你接手。完成以下準備後，認領並開始執行：\n\n" +
+					"* **讀取任務**：使用 `get_task` 讀取任務內容；已有步驟時，一併確認目前步驟的 DoD，並對 `note_size_chars` 非 0 的步驟使用 `get_task_step` 讀取完整備註。若尚未讀過對應的任務手冊，使用 `get_task_manual` 讀取。\n" +
+					"* **確認交接**：若有 `reassigned_from`，先讀取 `handover_note`，再使用 `post_chat` 向前任確認目前進度與進行中的事項。最多等待 5 分鐘；前任已離線、無法聯繫或逾時未回覆時，直接以任務上的交接資訊繼續接手，不要停在這裡等待。\n" +
+					"* **認領並執行**：完成準備後，呼叫 `claim_task` 認領任務，再依任務目前狀態繼續規劃或執行。",
+			},
+		})
 	})
 
 	t.Run("handing a planned task to the outsource lane resets its live steps and leaves it unassigned under the lock", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
+		api, h, d, owner := newAPITestServer(t)
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
 		agent := apiTestAgentToken(t, api, "kip", "")
 		apiJSON(t, h, "POST", "/api/tasks/T-1/plan", agent,
@@ -3539,6 +3648,8 @@ func TestHandleReassignTaskApiTasksTaskIdReassignPost(t *testing.T) {
 		_, planned := apiJSON(t, h, "GET", "/api/tasks/T-1", owner, "")
 		stepID, _ := planned["steps"].([]any)[0].(map[string]any)["id"].(string)
 		apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/status", agent, `{"status":"in_progress"}`)
+		dashboard := apiTestListen(t, api, "")
+		predecessor := apiTestListen(t, api, "kip")
 
 		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/reassign", owner,
 			`{"target":{"kind":"outsource","runtime":"claude","effort":"high"}}`)
@@ -3582,6 +3693,74 @@ func TestHandleReassignTaskApiTasksTaskIdReassignPost(t *testing.T) {
 		}})
 		apiWantValue(t, "body.reassigned_from", handedOver["reassigned_from"], "kip")
 		apiWantValue(t, "body.reassigned_from_kind", handedOver["reassigned_from_kind"], "staff")
+		taskDelta := func(seq int, trigger string) map[string]any {
+			return map[string]any{
+				"seq":   seq,
+				"topic": "task",
+				"op":    "patch",
+				"data": map[string]any{
+					"entity":  "task",
+					"key":     "owner::T-1",
+					"epoch":   seq,
+					"deleted": false,
+					"payload": map[string]any{"id": "T-1", "priority": "mid", "status": "not_started"},
+				},
+				"ts":      apiAnyNumber,
+				"trigger": trigger,
+			}
+		}
+		workerDelta := func(seq int) map[string]any {
+			return map[string]any{
+				"seq":   seq,
+				"topic": "member",
+				"op":    "patch",
+				"data": map[string]any{
+					"entity":  "member",
+					"key":     apiAnyString,
+					"epoch":   seq,
+					"deleted": false,
+					"payload": map[string]any{
+						"id":            apiAnyString,
+						"name":          "X-1",
+						"owner_id":      "owner",
+						"status":        "active",
+						"desired_state": "online",
+					},
+				},
+				"ts":      apiAnyNumber,
+				"trigger": "server",
+			}
+		}
+		predecessorNotice := map[string]any{
+			"seq":   4,
+			"topic": "chat",
+			"op":    "patch",
+			"data": map[string]any{
+				"entity":  "chat",
+				"key":     apiAnyString,
+				"epoch":   4,
+				"deleted": false,
+				"payload": map[string]any{"id": apiAnyString, "from": "system", "to": "kip"},
+			},
+			"ts":      apiAnyNumber,
+			"trigger": "owner",
+		}
+		dashboard.wantFrames(predecessorNotice, taskDelta(5, "owner"), taskDelta(6, "owner"),
+			workerDelta(7), taskDelta(8, "server"), workerDelta(9))
+		predecessor.wantFrames(predecessorNotice, taskDelta(6, "owner"))
+		apiWantValue(t, "chat", apiTestChatRows(t, d), []any{
+			map[string]any{
+				"from": "system",
+				"to":   "kip",
+				"body": "[T-1] 此任務已轉派給新的接手人。\n\n你收到這份說明，代表目前的任務需要交接給其他執行者。請停止推進並完成必要收尾，確保接手人能從遠端取得目前成果與完整脈絡：\n" +
+					"\n" +
+					"* 保存成果：將需要保留的 git commit 推送到 remote，需要保留的檔案以 `ocagent upload` 上傳後，把附件 id 寫進步驟備註，不要留下只有本機能取得的成果。\n" +
+					"* 寫入交接資訊：將目前進度、進行中的事項、需要注意的風險與下一步寫進任務的步驟備註。若仍有等待 Owner 決策或操作的事項，也要一併說明；轉派後原本開出的 Reply Card 會自動過期，接手人需要依交接資訊重新開卡。\n" +
+					"* 處理 sub-agent：若有正在執行的 sub-agent，要求其收尾並將結果寫回對應 task step。\n" +
+					"\n" +
+					"完成以上事項後即完成交接。若接手人已在線上並主動聯繫，再補充確認；否則不需要等待或主動尋找接手人。",
+			},
+		})
 	})
 
 	t.Run("an outsource target naming a machine nothing carries answers 404", func(t *testing.T) {

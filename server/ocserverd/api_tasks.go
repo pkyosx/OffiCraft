@@ -545,8 +545,8 @@ func (s *apiServer) callerMayEditTaskText(r *http.Request, t Task) bool {
 // PREDECESSOR stamped on it may still write the handover record.
 //
 // 🔴 WHY IT IS NEEDED. The reassign re-points executor_id in the same handler
-// that posts the predecessor its instructions — 「請停止推進，先把交接資訊寫到這
-// 張任務上：目前進度、進行中的事項、有哪些雷要注意」 — so by the time that
+// that posts the predecessor its instructions — 「將目前進度、進行中的事項、需要
+// 注意的風險與下一步寫進任務的步驟備註」 — so by the time that
 // message exists, callerMayDriveTask already answers false for the person it is
 // addressed to. The system asked for a document and took away the pen in the
 // same transaction; measured, every step-note write from the predecessor after
@@ -555,8 +555,8 @@ func (s *apiServer) callerMayEditTaskText(r *http.Request, t Task) bool {
 // 🔴 WHY IT IS THIS NARROW, and this is an owner ruling rather than caution.
 // He was offered the wide version — both sides fully authorised for the
 // duration of the handover — and REFUSED it, choosing to open the 「寫交接」 cell
-// alone. So 全域脈絡 §3.4 (交接完成前，不得讓兩個執行者同時推進同一份工作) is
-// unchanged and every other door callerMayDriveTask guards is unchanged: plan,
+// alone. So two executors still never drive the same task before the handover
+// completes, and every other door callerMayDriveTask guards is unchanged: plan,
 // step STATUS, deps, priority, reassign, the four closes, artifacts and the
 // task's own text all still 403 for the predecessor. Widening this predicate to
 // another route is reversing that ruling, not extending it.
@@ -1915,9 +1915,9 @@ func (s *apiServer) HandleReassignTaskApiTasksTaskIdReassignPost(w http.Response
 	// 4. Re-point the executor + enter the reassigning handover hold. A member
 	// target binds directly; an outsource target lands UNASSIGNED (executor_id=''
 	// + the outsource_target on the row) and the scheduler mints the successor
-	// under the global parallel cap (T-35e0 — no inline mint here). The successor's
-	// boot context folds the same reassigning takeover instruction, so a headless
-	// worker learns whom to hand over WITH even though it is minted later.
+	// under the global parallel cap (T-35e0 — no inline mint here). That worker
+	// gets no takeover notice: its boot sequence has it look for tasks whose lock
+	// is reassigning and read the predecessor off reassigned_from.
 	if kind == TaskExecutorStaff {
 		t.ExecutorKind = TaskExecutorStaff
 		t.ExecutorID = newMember.ID
@@ -1955,8 +1955,8 @@ func (s *apiServer) HandleReassignTaskApiTasksTaskIdReassignPost(w http.Response
 		t.HandoverNoteBy = currentActor(r)
 	}
 	// Stamp the PREDECESSOR (T-ba04): the executor the task just moved AWAY from
-	// — persisted so the successor's boot context / chat pairing message and the
-	// cockpit 任務卡 can name who to hand over WITH, and so the takeover dismiss
+	// — persisted so the successor can read it as `reassigned_from` via get_task,
+	// the cockpit 任務卡 can name who to hand over WITH, and the takeover dismiss
 	// knows which specific outsource worker to fire. Only when there WAS a prior
 	// executor (a not_started task with none leaves it blank).
 	if oldExecutor != "" {
@@ -1979,8 +1979,8 @@ func (s *apiServer) HandleReassignTaskApiTasksTaskIdReassignPost(w http.Response
 	// predecessor (the outsource one is kept live through the hold, so it can
 	// answer). An outsource SUCCESSOR is not minted here anymore (T-35e0 — the
 	// scheduler mints it later under the cap), so there is no worker id to DM
-	// yet; its boot context folds the same takeover instruction, so the successor
-	// chat notice is a member-only step below.
+	// and the successor chat notice is a member-only step below; the worker finds
+	// the task through its boot sequence's reassigning-lock check instead.
 	// 🔴 THE PREDECESSOR NOTICE NAMES NOBODY ANY MORE (owner, 2026-08-24), so
 	// there is no successor LABEL to compose — only the id, and only for the
 	// arm that actually sends the successor a message. The composer that used
@@ -1994,9 +1994,9 @@ func (s *apiServer) HandleReassignTaskApiTasksTaskIdReassignPost(w http.Response
 	}
 	// 🔴 THE FROZEN CAVEAT USED TO BE APPENDED HERE, AND THE OWNER REMOVED IT
 	// (2026-08-22, T-3201). It said 「這張任務現在是「凍結」…認領之後不要開始推進」
-	// on every successor notice for a frozen task — and 全域脈絡 §3.6 already
-	// says 「凍結期間不要推進任務。若要繼續執行，先開核可卡…」 to every agent on
-	// every boot. One rule, two texts, and the one in code was the one nobody
+	// on every successor notice for a frozen task — and 全域脈絡 §3.5 already
+	// says 「凍結期間停止推進 Task。需要恢復執行時，先開 Reply Card…」 to every
+	// agent on every boot. One rule, two texts, and the one in code was the one nobody
 	// could edit. A frozen task is still reassignable (owner 2026-08-11, T-b9f6);
 	// what changed is where the agent is told what frozen means.
 	no := TaskNo(t.ID)
@@ -2019,24 +2019,15 @@ func (s *apiServer) HandleReassignTaskApiTasksTaskIdReassignPost(w http.Response
 	// with get_task; the copy stapled under the notice was a second one, and it
 	// was the copy that made these two documents unsplittable — a {note} slot
 	// AFTER the instructions leaves no prefix of facts to cut at.
-	if oldExecutor != "" && newExecutorID != "" {
-		if notice := s.taskNoticeText(docKindTaskTakeoverWithPredecessor, map[string]string{
-			"task_no": no,
-			// One slot, both facts — see newExecutorLabel above. The id is not
-			// optional here: the body's first instruction is to post_chat this
-			// person, and 「一串 id」 alone does not say who that is.
-			"predecessor": nameWithIDSlot(s.executorLabel(oldKind, oldExecutor), oldExecutor),
-		}); notice != "" {
-			s.postTaskChat(*t, wireSystemSender, newExecutorID, notice, trigger, nil)
+	if newExecutorID != "" {
+		predecessor := ""
+		if oldExecutor != "" {
+			// The id is not optional: the body's first instruction is to
+			// post_chat this person, and an id alone does not say who that is.
+			predecessor = nameWithIDSlot(s.executorLabel(oldKind, oldExecutor), oldExecutor)
 		}
-	} else if newMember != nil {
-		// A not_started task with no prior executor (no predecessor to hand over
-		// with) — the plain "you are now the executor" notice, member side only
-		// (a fresh worker learns it through the boot context).
-		if notice := s.taskNoticeText(docKindTaskTakeoverFresh, map[string]string{
-			"task_no": no,
-		}); notice != "" {
-			s.postTaskChat(*t, wireSystemSender, newMember.ID, notice, trigger, nil)
+		if notice := s.takeoverNoticeText(no, predecessor); notice != "" {
+			s.postTaskChat(*t, wireSystemSender, newExecutorID, notice, trigger, nil)
 		}
 	}
 

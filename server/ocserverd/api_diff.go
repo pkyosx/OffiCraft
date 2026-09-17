@@ -256,7 +256,7 @@ func (s *apiServer) currentDocumentContent(kind, key string) (map[string]string,
 		return one("text", folded.Text, nil)
 	case docKindSystemInteraction, docKindBootSequence, docKindOffboard,
 		docKindAcceleratedStop, docKindTaskCloseout, docKindTaskReassignPredecessor,
-		docKindTaskTakeoverWithPredecessor, docKindTaskTakeoverFresh, docKindTaskUnblocked,
+		docKindTaskTakeoverWithPredecessor, docKindTaskUnblocked,
 		docKindTaskReadyForDone:
 		spec, ok := s.bootDocSpecFor(kind, key)
 		if !ok {

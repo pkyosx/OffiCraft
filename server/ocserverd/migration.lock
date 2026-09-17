@@ -17,7 +17,7 @@
 # WHY EACH LINE CARRIES A CONTENT HASH. Editing an already-shipped migration is
 # invisible to goose (one row per version, never revisited): new installs get the
 # edit, upgraded stations never do, and nothing errors. Only the hash sees it.
-roll sha256:a793ccf517efa67fdfc52066370613652a8175e4402625880fec3ffe565af12f
+roll sha256:43e3b55505ea37730faf48142c9cafd1ddf17e5b762e1789ee134a5ddd56de02
 00001 migrations/00001_schema.sql sha256:373a2a54ba46ba7fc3e10f592e663c639d7ca217ed9a50d4c93730c73e9f8298
 00002 migrations/00002_settings.sql sha256:800b45a9db1ba6fe7b79709f394a6990e270b4bdfda8d54f20e29f85f7ab089c
 00003 migrations/00003_reply_card.sql sha256:a5c9097852dbb2d953009b679e63c684331532648d92c229404f2b6748f78660
@@ -100,3 +100,4 @@ roll sha256:a793ccf517efa67fdfc52066370613652a8175e4402625880fec3ffe565af12f
 00108 migrations/00108_lore_entry_scope_everyone.sql sha256:ec9d0739e6ff74d413d152bbc7719586796294c95271c9f25afe37db6bd3609f
 00109 migrations/00109_chat_message_sender_recipient_ts.sql sha256:558369541b3a03e05377d5244df4eb6929be82792a853f36d26486e88b311f3a
 00110 migrations/00110_drop_task_handoff.sql sha256:cc471923147f50eaea6eb17e9ad7ca264d3aa16a01aa2f310739132605768099
+00111 migrations/00111_drop_task_takeover_fresh.sql sha256:e294f4b676d425ec75fb0a87536c11f91c7a4331541115f615196004abb6f283

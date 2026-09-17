@@ -27,7 +27,6 @@ import SEED_ACCELERATED_STOP_RAW from "../../../seeds/accelerated_stop.md?raw";
 import SEED_TASK_CLOSEOUT_RAW from "../../../seeds/task_closeout.md?raw";
 import SEED_TASK_REASSIGN_PREDECESSOR_RAW from "../../../seeds/task_reassign_predecessor.md?raw";
 import SEED_TASK_TAKEOVER_WITH_PREDECESSOR_RAW from "../../../seeds/task_takeover_with_predecessor.md?raw";
-import SEED_TASK_TAKEOVER_FRESH_RAW from "../../../seeds/task_takeover_fresh.md?raw";
 import SEED_TASK_UNBLOCKED_RAW from "../../../seeds/task_unblocked.md?raw";
 import SEED_TASK_READY_FOR_DONE_RAW from "../../../seeds/task_ready_for_done.md?raw";
 
@@ -69,8 +68,7 @@ export const SEED_OFFBOARD_MD = foldOwnerId(SEED_OFFBOARD_RAW);
  *
  * ⚠️ T-6f44 (owner's decision 2): ALL OF THEM ARE EDITABLE. This used to say
  * "the last two ship as READ-ONLY documents"; the owner ruled on 2026-08-24
- * that 〈新任務〉 and 〈擋著你手上任務的票解開了〉 become editable like the other
- * eight, and BOOT_DOC_READ_ONLY in mock.ts — which this note points at — has
+ * that every one of them is editable, and BOOT_DOC_READ_ONLY in mock.ts — which this note points at — has
  * been the EMPTY set since. The refusal machinery is kept there rather than
  * deleted, for the day a document ships read-only again. */
 export const SEED_ACCELERATED_STOP_MD = foldOwnerId(SEED_ACCELERATED_STOP_RAW);
@@ -80,9 +78,6 @@ export const SEED_TASK_REASSIGN_PREDECESSOR_MD = foldOwnerId(
 );
 export const SEED_TASK_TAKEOVER_WITH_PREDECESSOR_MD = foldOwnerId(
   SEED_TASK_TAKEOVER_WITH_PREDECESSOR_RAW
-);
-export const SEED_TASK_TAKEOVER_FRESH_MD = foldOwnerId(
-  SEED_TASK_TAKEOVER_FRESH_RAW
 );
 export const SEED_TASK_UNBLOCKED_MD = foldOwnerId(SEED_TASK_UNBLOCKED_RAW);
 export const SEED_TASK_READY_FOR_DONE_MD = foldOwnerId(SEED_TASK_READY_FOR_DONE_RAW);

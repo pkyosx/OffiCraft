@@ -197,9 +197,8 @@ import {
  * these documents (定稿 2026-08-24): an agent's life from the top
  * (上線 → 下線), then the things that happen to a TASK.
  *
- * ⚠️ THREE GROUPS, not four. The old 唯讀 group is gone and its two documents
- * (task_takeover_fresh / task_unblocked) are back with the other task events,
- * where they always belonged by subject. A group was never the right place to
+ * ⚠️ THREE GROUPS, not four. The old 唯讀 group is gone and task_unblocked is
+ * back with the other task events, where it always belonged by subject. A group was never the right place to
  * say "you may not edit this": whether a document may be edited is the
  * SERVER's answer, arrives on the document's own read (`readOnly`), and is what
  * BootDocPage acts on. A row's group only decides where it is printed. */
@@ -332,16 +331,6 @@ export const BOOT_DOC_ROWS: Record<
     tone: "purple",
     docKey: "global",
     historyKey: "historyTaskTakeoverWithPredecessorTitle",
-    confirmKey: "bootDocSaveConfirmTaskEvent",
-  },
-  task_takeover_fresh: {
-    group: "task",
-    nameKey: "taskTakeoverFreshName",
-    subKey: "taskTakeoverFreshSub",
-    Icon: UserIcon,
-    tone: "neutral",
-    docKey: "global",
-    historyKey: "historyTaskTakeoverFreshTitle",
     confirmKey: "bootDocSaveConfirmTaskEvent",
   },
   task_unblocked: {

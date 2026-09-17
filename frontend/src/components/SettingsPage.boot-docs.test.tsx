@@ -50,7 +50,6 @@ describe("SettingsPage · boot / lifecycle documents", () => {
       "task_closeout",
       "task_reassign_predecessor",
       "task_takeover_with_predecessor",
-      "task_takeover_fresh",
       "task_unblocked",
     ]) {
       expect(getByTestId(`boot-doc-entry-${kind}`)).toBeTruthy();
@@ -61,11 +60,10 @@ describe("SettingsPage · boot / lifecycle documents", () => {
     expect(getByTestId("boot-doc-entry-custom")).toBeTruthy();
   });
 
-  it("prints the two ex-唯讀 documents inside the task-event group", async () => {
-    // The MOVE itself, not just the vanished heading: 新任務 and 擋著你手上任務的
-    // 票解開了 are task events by subject, and the group they sit in says nothing
-    // about whether the server lets them be written — that answer is read off
-    // each document (the read-only case is asserted further down, unchanged).
+  it("prints every task-event document inside the task-event group", async () => {
+    // The group a document sits in says nothing about whether the server lets
+    // it be written — that answer is read off each document (the read-only
+    // case is asserted further down).
     const { container } = await openRolesLog();
     const heading = [...container.querySelectorAll(".set-group-label")].find(
       (el) => el.textContent === s.taskEventSection
@@ -76,7 +74,6 @@ describe("SettingsPage · boot / lifecycle documents", () => {
       "task_closeout",
       "task_reassign_predecessor",
       "task_takeover_with_predecessor",
-      "task_takeover_fresh",
       "task_unblocked",
     ]) {
       expect(
@@ -152,18 +149,14 @@ describe("SettingsPage · boot / lifecycle documents", () => {
     expect(utils.queryByTestId("doc-card-replace-note")).toBeNull();
   });
 
-  // 決定 2 itself, on the UI side: the two documents that used to be refused
-  // are editable now. Without this, the mock could quietly go back to calling
-  // them read-only and only the synthetic test above would still pass — it
-  // supplies its own read-only list, so it cannot notice.
-  it("offers the editor on the two documents that used to be read-only", async () => {
-    for (const kind of ["task_takeover_fresh", "task_unblocked"]) {
-      const utils = await openRolesLog();
-      fireEvent.click(utils.getByTestId(`boot-doc-entry-${kind}`));
-      expect(await utils.findByTestId("doc-card-edit")).toBeTruthy();
-      utils.unmount();
-      __resetMock();
-    }
+  // 決定 2 itself, on the UI side. Without this, the mock could quietly start
+  // calling the dependency-released notice read-only and only the synthetic
+  // test above would still pass — it supplies its own read-only list, so it
+  // cannot notice.
+  it("offers the editor on the dependency-released notice", async () => {
+    const utils = await openRolesLog();
+    fireEvent.click(utils.getByTestId("boot-doc-entry-task_unblocked"));
+    expect(await utils.findByTestId("doc-card-edit")).toBeTruthy();
   });
 
   it("keeps the editor for the documents the server does allow", async () => {

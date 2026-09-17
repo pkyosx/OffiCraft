@@ -82,7 +82,6 @@ describe("T-a241 · 全域情境 as its own settings section", () => {
       "task_closeout",
       "task_reassign_predecessor",
       "task_takeover_with_predecessor",
-      "task_takeover_fresh",
       "task_unblocked",
     ]) {
       expect(getByTestId(`boot-doc-entry-${kind}`)).toBeTruthy();

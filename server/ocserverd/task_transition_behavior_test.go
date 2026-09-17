@@ -281,7 +281,7 @@ func TestPredecessorMayStillWriteTheHandoverNoteUnderTheReassignHold(t *testing.
 
 // 🔴 THE OWNER REFUSED THE WIDE VERSION. He was offered "both sides fully
 // authorised during the handover" and chose to open the 「寫交接」 cell alone, so
-// 全域脈絡 §3.4 (交接完成前，不得讓兩個執行者同時推進同一份工作) is untouched.
+// two executors still never drive the same task before the handover completes.
 // Every one of these is the predecessor trying to DRIVE the task, and every one
 // must still be a flat 403.
 //

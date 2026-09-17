@@ -1975,10 +1975,7 @@ export const en: Dict = {
       "What an agent is told when a task it held is handed to somebody else · editable",
     taskTakeoverWithPredecessorName: "Task reassignment · to the successor",
     taskTakeoverWithPredecessorSub:
-      "What an agent is told when it picks up a task somebody else worked on · editable",
-    taskTakeoverFreshName: "New task",
-    taskTakeoverFreshSub:
-      "What an agent is told the first time a task is assigned to it · editable",
+      "What an agent is told when it takes over a task (the same document with or without a predecessor) · editable",
     taskUnblockedName: "The ticket blocking your task is released",
     taskUnblockedSub:
       "What an agent is told when the task blocking it is released · editable",
@@ -2016,7 +2013,6 @@ export const en: Dict = {
       "Task reassignment · to the predecessor · version history",
     historyTaskTakeoverWithPredecessorTitle:
       "Task reassignment · to the successor · version history",
-    historyTaskTakeoverFreshTitle: "New task · version history",
     historyTaskUnblockedTitle:
       "The ticket blocking your task is released · version history",
     historyTaskReadyForDoneTitle:

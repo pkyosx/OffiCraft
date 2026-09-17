@@ -40,7 +40,6 @@ const (
 	TaskCloseout                BootDocKind = "task_closeout"
 	TaskReadyForDone            BootDocKind = "task_ready_for_done"
 	TaskReassignPredecessor     BootDocKind = "task_reassign_predecessor"
-	TaskTakeoverFresh           BootDocKind = "task_takeover_fresh"
 	TaskTakeoverWithPredecessor BootDocKind = "task_takeover_with_predecessor"
 	TaskUnblocked               BootDocKind = "task_unblocked"
 )
@@ -61,8 +60,6 @@ func (e BootDocKind) Valid() bool {
 	case TaskReadyForDone:
 		return true
 	case TaskReassignPredecessor:
-		return true
-	case TaskTakeoverFresh:
 		return true
 	case TaskTakeoverWithPredecessor:
 		return true

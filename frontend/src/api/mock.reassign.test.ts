@@ -147,12 +147,19 @@ describe("mock reassign — member target", () => {
     // The NEW executor is told who its predecessor is and to claim the task
     // itself. A system message, never an owner DM (T-ba04).
     const inbox = await mockApi.listChat("mira");
-    expect(inbox.some((m) => m.from === "system")).toBe(true);
+    expect(inbox.map((m) => ({ from: m.from, to: m.to, body: m.body }))).toEqual([
+      {
+        from: "system",
+        to: "mira",
+        body:
+          "[T-2001] 你接手了這張任務，你的前任是 someone-else。\n\n" +
+          "你收到這份說明，代表有一張任務需要由你接手。完成以下準備後，認領並開始執行：\n\n" +
+          "* **讀取任務**：使用 `get_task` 讀取任務內容；已有步驟時，一併確認目前步驟的 DoD，並對 `note_size_chars` 非 0 的步驟使用 `get_task_step` 讀取完整備註。若尚未讀過對應的任務手冊，使用 `get_task_manual` 讀取。\n" +
+          "* **確認交接**：若有 `reassigned_from`，先讀取 `handover_note`，再使用 `post_chat` 向前任確認目前進度與進行中的事項。最多等待 5 分鐘；前任已離線、無法聯繫或逾時未回覆時，直接以任務上的交接資訊繼續接手，不要停在這裡等待。\n" +
+          "* **認領並執行**：完成準備後，呼叫 `claim_task` 認領任務，再依任務目前狀態繼續規劃或執行。",
+      },
+    ]);
     const notice = inbox.map((m) => m.body).join("\n");
-    expect(notice).toContain(task.taskNo);
-    expect(notice).toContain("你的前任是");
-    expect(notice).toContain("claim_task");
-    expect(notice).not.toContain("update_task_status");
     // 🔴 THE NOTE NO LONGER RIDES ALONG (rc-0c36d8739b8f: 「拿掉 —— 交接備註只留
     // 在任務上」). This used to assert the opposite; the assertion was inverted
     // rather than deleted, because a stapled copy AFTER the instructions is what
@@ -170,8 +177,29 @@ describe("mock reassign — member target", () => {
     expect(old.some((m) => m.from === "system")).toBe(true);
     const oldNotice = old.map((m) => m.body).join("\n");
     expect(oldNotice).toContain("此任務已轉派給新的接手人");
-    expect(oldNotice).toContain("先把交接資訊寫到這張任務上");
+    expect(oldNotice).toContain("將目前進度、進行中的事項、需要注意的風險與下一步寫進任務的步驟備註");
     expect(oldNotice).not.toContain("Mira");
+  });
+
+  it("tells a member taking over a task nobody executed that it has no predecessor", async () => {
+    const task = mkTask({ executorKind: "outsource", executorId: "" });
+    __injectMockTask(task);
+
+    await mockApi.reassignTask(task.id, { target: { kind: "staff", memberId: "mira" } });
+
+    const inbox = await mockApi.listChat("mira");
+    expect(inbox.map((m) => ({ from: m.from, to: m.to, body: m.body }))).toEqual([
+      {
+        from: "system",
+        to: "mira",
+        body:
+          "[T-2001] 你接手了這張任務，這張任務沒有前任。\n\n" +
+          "你收到這份說明，代表有一張任務需要由你接手。完成以下準備後，認領並開始執行：\n\n" +
+          "* **讀取任務**：使用 `get_task` 讀取任務內容；已有步驟時，一併確認目前步驟的 DoD，並對 `note_size_chars` 非 0 的步驟使用 `get_task_step` 讀取完整備註。若尚未讀過對應的任務手冊，使用 `get_task_manual` 讀取。\n" +
+          "* **確認交接**：若有 `reassigned_from`，先讀取 `handover_note`，再使用 `post_chat` 向前任確認目前進度與進行中的事項。最多等待 5 分鐘；前任已離線、無法聯繫或逾時未回覆時，直接以任務上的交接資訊繼續接手，不要停在這裡等待。\n" +
+          "* **認領並執行**：完成準備後，呼叫 `claim_task` 認領任務，再依任務目前狀態繼續規劃或執行。",
+      },
+    ]);
   });
 
   it("expires the task's waiting cards and rewinds non-terminal steps", async () => {
@@ -231,7 +259,7 @@ describe("mock reassign — member target", () => {
 });
 
 describe("mock reassign — outsource target", () => {
-  it("keeps the old worker live (deferred handover dismiss), stamps the predecessor, mints a fresh one, and pairs both", async () => {
+  it("keeps the old worker live (deferred handover dismiss), stamps the predecessor, mints a fresh one, and notifies only the predecessor", async () => {
     const task = mkTask({ title: "轉外包" });
     __injectMockTask(task);
     __injectMockOutsourceWorker(mkWorker({ taskId: task.id }));
@@ -264,16 +292,23 @@ describe("mock reassign — outsource target", () => {
     // The OLD outsource worker (now kept live) is told to hand over — a system
     // message, not an owner DM.
     const old = await mockApi.listChat("ow-old");
-    expect(old.some((m) => m.from === "system")).toBe(true);
-    expect(old.map((m) => m.body).join("\n")).toContain("此任務已轉派給");
-    // The freshly-minted worker gets its OWN pairing message (it used to get
-    // none) naming its predecessor + the self-flip protocol.
-    const mintedInbox = await mockApi.listChat(minted.id);
-    const mintedNotice = mintedInbox.map((m) => m.body).join("\n");
-    expect(mintedInbox.some((m) => m.from === "system")).toBe(true);
-    expect(mintedNotice).toContain("你的前任是");
-    expect(mintedNotice).toContain("claim_task");
-    expect(mintedNotice).not.toContain("update_task_status");
+    expect(old.map((m) => ({ from: m.from, to: m.to, body: m.body }))).toEqual([
+      {
+        from: "system",
+        to: "ow-old",
+        body:
+          "[T-2001] 此任務已轉派給新的接手人。\n\n你收到這份說明，代表目前的任務需要交接給其他執行者。請停止推進並完成必要收尾，確保接手人能從遠端取得目前成果與完整脈絡：\n" +
+          "\n" +
+          "* 保存成果：將需要保留的 git commit 推送到 remote，需要保留的檔案以 `ocagent upload` 上傳後，把附件 id 寫進步驟備註，不要留下只有本機能取得的成果。\n" +
+          "* 寫入交接資訊：將目前進度、進行中的事項、需要注意的風險與下一步寫進任務的步驟備註。若仍有等待 Owner 決策或操作的事項，也要一併說明；轉派後原本開出的 Reply Card 會自動過期，接手人需要依交接資訊重新開卡。\n" +
+          "* 處理 sub-agent：若有正在執行的 sub-agent，要求其收尾並將結果寫回對應 task step。\n" +
+          "\n" +
+          "完成以上事項後即完成交接。若接手人已在線上並主動聯繫，再補充確認；否則不需要等待或主動尋找接手人。",
+      },
+    ]);
+    // The minted worker is told nothing: it finds the task through its boot
+    // sequence's reassigning-lock check.
+    expect(await mockApi.listChat(minted.id)).toEqual([]);
   });
 
   it("defaults a blank effort to medium and rejects an out-of-vocabulary one", async () => {

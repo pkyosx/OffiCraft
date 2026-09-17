@@ -3935,7 +3935,6 @@
               "task_closeout",
               "task_reassign_predecessor",
               "task_takeover_with_predecessor",
-              "task_takeover_fresh",
               "task_unblocked",
               "task_ready_for_done"
             ],
@@ -3958,7 +3957,7 @@
             "type": "boolean"
           },
           "body": {
-            "description": "The ENTIRE editable half, not an addition to it. Sending a fragment answers 200 and permanently replaces the rest of the body, so read the current body with get_boot_doc first and fold your change into it. The read-only head is not part of this and cannot be sent — the server joins the shipped one back on — so the only thing you can lose here is your own half. The guards catch only the extremes: emptying a body that had content needs allow_shrink, the character cap is enforced on the stored result, and a read-only block refuses outright. A {name} in braces is refused ONLY on the blocks that declare variables — the ones that declare none (the 系統互動 block quotes JSON in its body) store braces as typed and every agent reads them that way, so this is not a net. Losing most of the body is none of those: it passes without comment, and every agent that reads this block afterwards reads the shortened text as though it were the whole thing.",
+            "description": "The ENTIRE editable half, not an addition to it. Sending a fragment answers 200 and permanently replaces the rest of the body, so read the current body with get_boot_doc first and fold your change into it. The read-only head is not part of this and cannot be sent — the server joins the shipped one back on — so the only thing you can lose here is your own half. The guards catch only the extremes: emptying a body that had content needs allow_shrink, the character cap is enforced on the stored result, and a read-only block refuses outright. A {name} in braces is refused ONLY on the blocks that declare variables — the ones that declare none store braces as typed and every agent reads them that way, so this is not a net. Losing most of the body is none of those: it passes without comment, and every agent that reads this block afterwards reads the shortened text as though it were the whole thing.",
             "type": "string"
           },
           "key": {
@@ -3975,7 +3974,6 @@
               "task_closeout",
               "task_reassign_predecessor",
               "task_takeover_with_predecessor",
-              "task_takeover_fresh",
               "task_unblocked",
               "task_ready_for_done"
             ],
@@ -4009,7 +4007,6 @@
               "task_closeout",
               "task_reassign_predecessor",
               "task_takeover_with_predecessor",
-              "task_takeover_fresh",
               "task_unblocked",
               "task_ready_for_done"
             ],

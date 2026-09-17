@@ -199,7 +199,6 @@ import {
   SEED_TASK_CLOSEOUT_MD,
   SEED_TASK_REASSIGN_PREDECESSOR_MD,
   SEED_TASK_TAKEOVER_WITH_PREDECESSOR_MD,
-  SEED_TASK_TAKEOVER_FRESH_MD,
   SEED_TASK_UNBLOCKED_MD,
   SEED_TASK_READY_FOR_DONE_MD,
 } from "./seeds";
@@ -658,7 +657,6 @@ const BOOT_DOC_SEEDS: Record<string, string> = {
   "task_reassign_predecessor/global": SEED_TASK_REASSIGN_PREDECESSOR_MD.trim(),
   "task_takeover_with_predecessor/global":
     SEED_TASK_TAKEOVER_WITH_PREDECESSOR_MD.trim(),
-  "task_takeover_fresh/global": SEED_TASK_TAKEOVER_FRESH_MD.trim(),
   "task_unblocked/global": SEED_TASK_UNBLOCKED_MD.trim(),
   "task_ready_for_done/global": SEED_TASK_READY_FOR_DONE_MD.trim(),
 };
@@ -666,12 +664,10 @@ const BOOT_DOC_SEEDS: Record<string, string> = {
 /** The documents the server SHOWS but refuses every write to.
  *
  * 🔴 EMPTY SINCE T-6f44, AND KEPT RATHER THAN DELETED. The owner ruled on
- * 2026-08-24 that 〈新任務〉 and 〈擋著你手上任務的票解開了〉 — the two that used to
- * be in here — become editable like the other eight. His earlier ruling
- * (「以前 global context 是固定內容 我們也是會顯示 只是不給改」) was 照舊, a
- * carry-over from when the boot context was fixed text, NOT a statement about
- * these two documents' content; and 〈新任務〉 is one half of the same event as
- * 〈任務轉派 · 給接手人〉, which he could always edit.
+ * 2026-08-24 that the documents that used to be in here become editable like
+ * the rest. His earlier ruling (「以前 global context 是固定內容 我們也是會顯示
+ * 只是不給改」) was 照舊, a carry-over from when the boot context was fixed
+ * text, NOT a statement about these documents' content.
  *
  * The set stays because the 405 machinery it drives is still real and still
  * reachable: a future document may ship read-only, and an empty set is how the
@@ -711,7 +707,6 @@ const BOOT_DOC_NAMES: Record<string, string> = {
     "task reassignment document (to the predecessor)",
   "task_takeover_with_predecessor/global":
     "task reassignment document (to the successor)",
-  "task_takeover_fresh/global": "new task document",
   "task_unblocked/global": "dependency-released notice",
   "task_ready_for_done/global": "ready-for-done notice",
 };
@@ -788,7 +783,6 @@ function bootDocCap(kind: BootDocKind): number {
     case "task_closeout":
     case "task_reassign_predecessor":
     case "task_takeover_with_predecessor":
-    case "task_takeover_fresh":
     case "task_unblocked":
     case "task_ready_for_done":
       return TASK_EVENT_CAP_CHARS_DEFAULT;
@@ -1815,7 +1809,6 @@ function snapshotDocument(
     case "task_closeout":
     case "task_reassign_predecessor":
     case "task_takeover_with_predecessor":
-    case "task_takeover_fresh":
     case "task_unblocked":
     case "task_ready_for_done": {
       if (bootDocSeed(kind, key) === null) return null;
@@ -4442,29 +4435,27 @@ const mockApiImpl = {
     // Handover PAIRING notices (T-ba04): SERVER-authored (from="system", not the
     // owner), pairing predecessor and successor into a handover DIALOGUE. The
     // predecessor notice fires for a member OR outsource predecessor (the
-    // outsource one is now kept live), the successor notice for a member OR a
-    // freshly-minted worker (whose boot context ALSO folds the same instruction).
+    // outsource one is now kept live), the successor notice for a member only:
+    // as on the server, a worker finds the task through its boot sequence's
+    // reassigning-lock check.
     // 🔴 THE SUCCESSOR'S LABEL IS GONE (T-6f44). The predecessor notice no longer
     // names who took the task, so there is nothing left to label — and that is
     // what killed the fabricated 「外包（待排程指派）」 placeholder: an outsource
     // successor is minted by the scheduler LATER, so at reassign time there was
     // nobody to name and a hardcoded status string sat in a person's grammatical
     // slot. Only the id survives, and only to address the message.
-    const newExecutorId = newMember ? newMember.id : newWorker!.id;
     if (oldExecutor) {
       chatLog.push({
         id: `mock-reassign-old-${stamp}`,
         from: "system",
         to: oldExecutor,
-        // 🔴 T-6f44：逐字跟著 seeds/task_reassign_predecessor.md。owner 2026-08-24
-        // 拿掉了接手人的身分（「讓他自己去查」「不管是不是 outsource」），本體也
-        // 改成「先把交接寫到票上，對接是 nice-to-have」—— 因為外包接手人是排程器
-        // 之後才生的，那段對話可能永遠不會發生，唯一留得住的是寫在票上的字。
-        body:
+        // 本體取自〈轉派・給前任〉文件（含 owner 的修改），首行與本體之間空一行，
+        // 同 server 的 taskNoticeText。
+        body: (
           `[${t.taskNo}] 此任務已轉派給新的接手人。` +
-          `請停止推進，先把交接資訊寫到這張任務上：目前進度、進行中的事項、有哪些雷要注意。` +
-          `**這一步不能省，它是接手人唯一保證讀得到的東西** —— 接手人可能還沒被建出來，也可能你已經下線了才輪到他。\n\n` +
-          `寫完就算交出去了。如果接手人剛好在線上來找你，就順便當面補齊；沒有的話不用等，也不用去找他。`,
+          "\n\n" +
+          foldBootDoc("task_reassign_predecessor", "global").body
+        ).trim(),
         ts: stamp / 1000,
         attachments: [],
         replyCardId: null,
@@ -4474,37 +4465,28 @@ const mockApiImpl = {
     // the handover note lives on the TASK and rides its DTO; stapling a copy under
     // the notice was the second one, and it was that copy which made these two
     // documents unsplittable.
-    if (oldExecutor) {
-      const predecessorLabel =
-        oldKind === "outsource"
-          ? `外包 ${outsourceWorkers.find((w) => w.id === oldExecutor)?.codename ?? oldExecutor}`
-          : wireMembers.find((m) => m.id === oldExecutor)?.name || oldExecutor;
-      chatLog.push({
-        id: `mock-reassign-new-${stamp}`,
-        from: "system",
-        to: newExecutorId,
-        // 🔴 T-6f44：這段逐字跟著 seeds/task_takeover_with_predecessor.md 走。
-        // {title} 走了（票號已經指名那張票），前任的名字與 id 併成一個 slot，
-        // 而 {note} 早就不再附在通知裡（交接備註只留在任務上）。這裡是每個前端
-        // 測試看到的替身，它演的形狀跟出貨的不一樣，那些測試就是在一個不存在的
-        // 世界裡綠 —— 上一版正是這樣，舊句子在這裡活到了 T-6f44 的收官掃描。
-        body:
-          `[${t.taskNo}] 你接手了這張任務，你的前任是 ${predecessorLabel}（${oldExecutor}）。` +
-          `請先跟他確認交接完成（直接 post_chat 給他，問清楚目前進度與進行中的事項），` +
-          `確認後再由你自己呼叫 claim_task（認領）解除轉派鎖——只有你這個新負責人動得了；任務狀態一律照步驟推導，不必也不能自己報。`,
-        ts: stamp / 1000,
-        attachments: [],
-        replyCardId: null,
-      });
-    } else if (newMember) {
+    if (newMember) {
+      let predecessor = "";
+      if (oldExecutor) {
+        const label =
+          oldKind === "outsource"
+            ? `外包 ${outsourceWorkers.find((w) => w.id === oldExecutor)?.codename ?? oldExecutor}`
+            : wireMembers.find((m) => m.id === oldExecutor)?.name || oldExecutor;
+        predecessor = label === oldExecutor ? label : `${label}（${oldExecutor}）`;
+      }
       chatLog.push({
         id: `mock-reassign-new-${stamp}`,
         from: "system",
         to: newMember.id,
-        // Same ruling as its sibling above (T-6f44): no {title}, no {note}.
-        body:
-          `[${t.taskNo}] 你接手了這張任務。請先讀任務內容，` +
-          `準備好後由你自己呼叫 claim_task（認領）解除轉派鎖再開始執行；任務狀態一律照步驟推導，不必也不能自己報。`,
+        // 本體取自〈轉派・給接手人〉文件（含 owner 的修改）；唯讀首行在沒有前任時
+        // 換成 server 的 takeoverNoPredecessorHead。
+        body: (
+          (predecessor
+            ? `[${t.taskNo}] 你接手了這張任務，你的前任是 ${predecessor}。`
+            : `[${t.taskNo}] 你接手了這張任務，這張任務沒有前任。`) +
+          "\n\n" +
+          foldBootDoc("task_takeover_with_predecessor", "global").body
+        ).trim(),
         ts: stamp / 1000,
         attachments: [],
         replyCardId: null,

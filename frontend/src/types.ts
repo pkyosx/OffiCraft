@@ -672,7 +672,7 @@ export type DocumentKind =
   | "offboard"
   // T-3201: the six lifecycle procedures that used to be Go string literals.
   // All singletons keyed "global".
-  // ⚠️ T-6f44 (owner's decision 2): the last two are NO LONGER read-only. The
+  // ⚠️ T-6f44 (owner's decision 2): none of these is read-only any more. The
   // reason they were locked was recorded as 「以前 global context 是固定內容 我們
   // 也是會顯示 只是不給改」 — precedent, not a property of the text. Read-only is
   // still a property of the DOCUMENT that arrives on its own read rather than a
@@ -681,7 +681,6 @@ export type DocumentKind =
   | "task_closeout"
   | "task_reassign_predecessor"
   | "task_takeover_with_predecessor"
-  | "task_takeover_fresh"
   | "task_unblocked"
   | "task_ready_for_done";
 
@@ -710,7 +709,6 @@ export type BootDocKind =
   | "task_closeout"
   | "task_reassign_predecessor"
   | "task_takeover_with_predecessor"
-  | "task_takeover_fresh"
   | "task_unblocked"
   | "task_ready_for_done";
 
