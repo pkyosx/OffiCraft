@@ -233,11 +233,10 @@ func TestTaskReassignPredecessorDoc_HeadPlusBodyIsTodaysChatNotice(t *testing.T)
 		"task_no": "T-7e91",
 	}) + spec.Join + body
 
-	// The literal api_tasks.go used to concatenate, plus the seed FILE's
-	// trailing newline — a document is a file and ends with one, a chat row is
-	// one message, so the send site trims what it posts the way buildBootContext
-	// trims every block it staples.
-	want := "[T-7e91] 此任務已轉派給新的接手人。" + "你收到這份說明，代表目前的任務需要交接給其他執行者。請停止推進並完成必要收尾，確保接手人能從遠端取得目前成果與完整脈絡：\n\n* 保存成果：將需要保留的 git commit 推送到 remote，需要保留的檔案以 `ocagent upload` 上傳後，把附件 id 寫進步驟備註，不要留下只有本機能取得的成果。\n* 寫入交接資訊：將目前進度、進行中的事項、需要注意的風險與下一步寫進任務的步驟備註。\n* 處理 sub-agent：若有正在執行的 sub-agent，要求其收尾並將結果寫回對應 task step。\n\n完成以上事項後即完成交接。若接手人已在線上並主動聯繫，再補充確認；否則不需要等待或主動尋找接手人。" + "\n"
+	// The chat notice plus the seed FILE's trailing newline — a document is a
+	// file and ends with one, a chat row is one message, so the send site trims
+	// what it posts the way buildBootContext trims every block it staples.
+	want := "[T-7e91] 此任務已轉派給新的接手人。\n\n" + "你收到這份說明，代表目前的任務需要交接給其他執行者。請停止推進並完成必要收尾，確保接手人能從遠端取得目前成果與完整脈絡：\n\n* 保存成果：將需要保留的 git commit 推送到 remote，需要保留的檔案以 `ocagent upload` 上傳後，把附件 id 寫進步驟備註，不要留下只有本機能取得的成果。\n* 寫入交接資訊：將目前進度、進行中的事項、需要注意的風險與下一步寫進任務的步驟備註。\n* 處理 sub-agent：若有正在執行的 sub-agent，要求其收尾並將結果寫回對應 task step。\n\n完成以上事項後即完成交接。若接手人已在線上並主動聯繫，再補充確認；否則不需要等待或主動尋找接手人。" + "\n"
 	if got != want {
 		t.Fatalf("the folded document is not today's reassign notice:\n got %q\nwant %q", got, want)
 	}

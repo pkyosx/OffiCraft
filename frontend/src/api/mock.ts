@@ -4449,10 +4449,11 @@ const mockApiImpl = {
         id: `mock-reassign-old-${stamp}`,
         from: "system",
         to: oldExecutor,
-        // 本體取自〈轉派・給前任〉文件（含 owner 的修改），首行與本體之間不空行，
+        // 本體取自〈轉派・給前任〉文件（含 owner 的修改），首行與本體之間空一行，
         // 同 server 的 taskNoticeText。
         body: (
           `[${t.taskNo}] 此任務已轉派給新的接手人。` +
+          "\n\n" +
           foldBootDoc("task_reassign_predecessor", "global").body
         ).trim(),
         ts: stamp / 1000,

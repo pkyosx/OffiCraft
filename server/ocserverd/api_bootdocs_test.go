@@ -89,7 +89,7 @@ var apiTestBootDocRows = []apiTestBootDocRow{
 		kind: "task_reassign_predecessor", keys: []string{"global"},
 		seeds:    []string{"task_reassign_predecessor.md"},
 		docNames: []string{"task reassignment document (to the predecessor)"},
-		capChars: 15000, vars: []string{"task_no"}, split: true, join: "", readOnly: false,
+		capChars: 15000, vars: []string{"task_no"}, split: true, join: "\n\n", readOnly: false,
 	}, {
 		kind: "task_takeover_with_predecessor", keys: []string{"global"},
 		seeds:    []string{"task_takeover_with_predecessor.md"},
@@ -553,14 +553,18 @@ func TestTaskEventBodyText(t *testing.T) {
 }
 
 func TestTaskNoticeText(t *testing.T) {
-	t.Run("the shipped 〈轉派程序（前任）〉 notice runs its filled head into its body inside one paragraph, trimmed to a single chat row", func(t *testing.T) {
+	t.Run("the shipped 〈轉派程序（前任）〉 notice puts a blank line between its filled head and its body, trimmed to a single chat row", func(t *testing.T) {
 		api, _, _, _ := newAPITestServer(t)
 		dashboard := apiTestListen(t, api, "")
 
 		got := api.taskNoticeText("task_reassign_predecessor", map[string]string{"task_no": "T-9"})
 
-		want := "[T-9] " + strings.TrimPrefix(apiTestReassignPredecessorHead, "[{task_no}] ") +
-			strings.TrimSuffix(apiTestReassignPredecessorBody, "\n")
+		want := "[T-9] 此任務已轉派給新的接手人。\n\n" +
+			"你收到這份說明，代表目前的任務需要交接給其他執行者。請停止推進並完成必要收尾，確保接手人能從遠端取得目前成果與完整脈絡：\n\n" +
+			"* 保存成果：將需要保留的 git commit 推送到 remote，需要保留的檔案以 `ocagent upload` 上傳後，把附件 id 寫進步驟備註，不要留下只有本機能取得的成果。\n" +
+			"* 寫入交接資訊：將目前進度、進行中的事項、需要注意的風險與下一步寫進任務的步驟備註。\n" +
+			"* 處理 sub-agent：若有正在執行的 sub-agent，要求其收尾並將結果寫回對應 task step。\n\n" +
+			"完成以上事項後即完成交接。若接手人已在線上並主動聯繫，再補充確認；否則不需要等待或主動尋找接手人。"
 		if got != want {
 			t.Fatalf("notice = %q, want %q", got, want)
 		}
@@ -608,9 +612,8 @@ func TestTaskNoticeText(t *testing.T) {
 }
 
 func TestEventNoticeText(t *testing.T) {
-	t.Run("each kind joins its two halves its own way, so the same fold renders three shapes", func(t *testing.T) {
+	t.Run("each kind joins its two halves its own way, so the same fold renders two shapes", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
-		apiJSON(t, h, "POST", "/api/boot-docs/task_reassign_predecessor/global", owner, `{"body":"F1"}`)
 		apiJSON(t, h, "POST", "/api/boot-docs/task_closeout/global", owner, `{"body":"C1"}`)
 		apiJSON(t, h, "POST", "/api/boot-docs/task_unblocked/global", owner, `{"body":"U1"}`)
 
@@ -619,8 +622,6 @@ func TestEventNoticeText(t *testing.T) {
 			values map[string]string
 			want   string
 		}{
-			"the paragraph join runs the head into the body": {
-				"task_reassign_predecessor", map[string]string{"task_no": "T-9"}, "[T-9] 此任務已轉派給新的接手人。F1"},
 			"the single-newline join stacks the body under the sentence": {
 				"task_closeout", map[string]string{"task_no": "T-1", "closed_by": "owner"},
 				apiTestCloseoutHeadFilled + "\nC1"},

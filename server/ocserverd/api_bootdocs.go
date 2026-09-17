@@ -252,8 +252,9 @@ var bootDocRegistry = []bootDocReg{{
 	SeedFor: func(string) string { return taskReassignPredecessorSeedMD },
 	DocName: func(string) string { return "task reassignment document (to the predecessor)" },
 	Cap:     func(s *apiServer) int { return s.taskEventCap() },
-	// The cleanest cut of these documents: one sentence of fact, then three of
-	// instruction, in that order, inside one paragraph — hence Join "".
+	// A blank line, not "", because the body is an intro line plus a bullet list,
+	// same as 〈擋著你手上任務的票解開了〉.
+	//
 	// 🔴 THE SUCCESSOR IS NOT NAMED — ONE VARIABLE, NOT TWO (owner, 2026-08-24,
 	// verbatim: 「如果完全不提到接手人是誰呢」「讓他自己去查」「不管是不是
 	// outsource」). This SUPERSEDES decision 1 of the same day for THIS document
@@ -274,7 +275,7 @@ var bootDocRegistry = []bootDocReg{{
 	// the grammatical position of a person. With the name gone the placeholder
 	// has nothing left to fill, and the whole branch goes with it.
 	Split: true,
-	Join:  "",
+	Join:  "\n\n",
 	Vars:  []string{"task_no"},
 }, {
 	Kind:    docKindTaskTakeoverWithPredecessor,
