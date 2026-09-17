@@ -3708,12 +3708,10 @@ func TestHandleReassignTaskApiTasksTaskIdReassignPost(t *testing.T) {
 		f.must(t, "POST", "/api/tasks/T-1/priority", f.predecessor, `{"priority":"high"}`)
 	})
 
-	t.Run("under the hold reassigning back to the predecessor cancels the handover and sends no notices", func(t *testing.T) {
+	t.Run("under the hold reassigning back to the predecessor cancels the handover, keeps its step progress and sends no notices", func(t *testing.T) {
 		f := newHandoverFixture(t)
 		admin := apiTestAgentToken(t, f.api, "mira", "")
 		f.must(t, "POST", "/api/tasks/T-1/steps/"+f.stepOne+"/status", f.predecessor, `{"status":"in_progress"}`)
-		card, _ := f.must(t, "POST", "/api/reply-cards", f.predecessor,
-			`{"kind":"decision","summary":"ship?","options":[{"text":"yes"}],"linked_task":{"task_id":"T-1","step_id":"`+f.stepOne+`"}}`)["id"].(string)
 		kipBefore, rexBefore := len(t91ChatTo(t, f.api, "kip")), len(t91ChatTo(t, f.api, "rex"))
 
 		status, data := apiJSON(t, f.h, "POST", "/api/tasks/T-1/reassign", admin, `{"target":{"kind":"staff","member_id":"kip"}}`)
@@ -3721,7 +3719,7 @@ func TestHandleReassignTaskApiTasksTaskIdReassignPost(t *testing.T) {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
 		apiWantBody(t, data, map[string]any{
-			"task_id": "T-1", "title": "Ship it", "status": "waiting_owner",
+			"task_id": "T-1", "title": "Ship it", "status": "in_progress",
 			"executor_id": "kip", "executor_kind": "staff", "lock": "",
 			"closed_ts": nil, "duplicate_of": "", "deps": []any{},
 			"progress_done": 0, "progress_total": 2, "artifact_count": 1,
@@ -3729,14 +3727,10 @@ func TestHandleReassignTaskApiTasksTaskIdReassignPost(t *testing.T) {
 		})
 		want := handoverUntouched("")
 		want.ExecutorID = "kip"
-		want.Status = "waiting_owner"
-		want.Steps = []string{"one:waiting_owner", "two:pending"}
+		want.Status = "in_progress"
+		want.Steps = []string{"one:in_progress", "two:pending"}
 		if got := f.view(t); !reflect.DeepEqual(got, want) {
 			t.Fatalf("T-1 after the reassign back\ngot  %#v\nwant %#v", got, want)
-		}
-		_, got := apiJSON(t, f.h, "GET", "/api/reply-cards/"+card, f.owner, "")
-		if got["status"] != "waiting" || got["expired_ts"] != nil {
-			t.Fatalf("the predecessor's card stays waiting, got %v/%v", got["status"], got["expired_ts"])
 		}
 		if k, r := len(t91ChatTo(t, f.api, "kip")), len(t91ChatTo(t, f.api, "rex")); k != kipBefore || r != rexBefore {
 			t.Fatalf("no notices: kip %d→%d, rex %d→%d", kipBefore, k, rexBefore, r)
@@ -4290,111 +4284,6 @@ func TestHandleClaimTaskApiTasksTaskIdClaimPost(t *testing.T) {
 		}
 		apiWantError(t, data, "conflict", "task 'T-1' is not awaiting takeover (no reassigning lock)")
 		dashboard.wantFrames()
-	})
-
-	t.Run("the successor's claim expires only the predecessor's waiting cards bound to the task", func(t *testing.T) {
-		f := newHandoverFixture(t)
-		admin := apiTestAgentToken(t, f.api, "mira", "")
-		stepThree, _ := f.must(t, "POST", "/api/tasks/T-1/steps", f.owner, `{"name":"three","dod":"d3"}`)["step_id"].(string)
-		for _, step := range []string{f.stepOne, f.stepTwo, stepThree} {
-			f.must(t, "POST", "/api/tasks/T-1/steps/"+step+"/status", f.owner, `{"status":"in_progress"}`)
-		}
-		f.must(t, "POST", "/api/tasks", f.owner, `{"title":"Kip's other task","executor_member_id":"kip"}`)
-		f.must(t, "POST", "/api/tasks/T-3/plan", f.predecessor, `{"steps":[{"name":"elsewhere","dod":"d"}]}`)
-		_, other := apiJSON(t, f.h, "GET", "/api/tasks/T-3", f.owner, "")
-		otherStep, _ := other["steps"].([]any)[0].(map[string]any)["id"].(string)
-		f.must(t, "POST", "/api/tasks/T-3/steps/"+otherStep+"/status", f.predecessor, `{"status":"in_progress"}`)
-
-		open := func(token, summary, linked string) string {
-			t.Helper()
-			card := f.must(t, "POST", "/api/reply-cards", token,
-				`{"kind":"decision","summary":"`+summary+`","options":[{"text":"yes"}],"linked_task":`+linked+`}`)
-			id, _ := card["id"].(string)
-			return id
-		}
-		bound := func(task, step string) string {
-			return `{"task_id":"` + task + `","step_id":"` + step + `"}`
-		}
-		cards := map[string]string{
-			"kip on T-1 step one":   open(f.predecessor, "kip one", bound("T-1", f.stepOne)),
-			"kip on T-1 step three": open(f.predecessor, "kip three", bound("T-1", stepThree)),
-			"mira on T-1 step two":  open(admin, "mira two", bound("T-1", f.stepTwo)),
-			"kip on T-3":            open(f.predecessor, "kip elsewhere", bound("T-3", otherStep)),
-			"kip unbound":           open(f.predecessor, "kip plain", "null"),
-		}
-
-		status, data := apiJSON(t, f.h, "POST", "/api/tasks/T-1/claim", f.successor, "")
-		if status != 200 {
-			t.Fatalf("want 200, got %d (%v)", status, data)
-		}
-		apiWantBody(t, data, map[string]any{
-			"task_id":                "T-1",
-			"title":                  "Ship it",
-			"status":                 "waiting_owner",
-			"executor_id":            "rex",
-			"executor_kind":          "staff",
-			"lock":                   "",
-			"closed_ts":              nil,
-			"duplicate_of":           "",
-			"deps":                   []any{},
-			"progress_done":          0,
-			"progress_total":         3,
-			"artifact_count":         1,
-			"description_size_chars": 12,
-			"description_sha256":     apiAnyString,
-		})
-
-		expired := map[string]any{"status": "expired", "expired_ts": apiAnyNumber, "answered_ts": nil, "answer": nil}
-		waiting := map[string]any{"status": "waiting", "expired_ts": nil, "answered_ts": nil, "answer": nil}
-		want := map[string]map[string]any{
-			"kip on T-1 step one":   expired,
-			"kip on T-1 step three": expired,
-			"mira on T-1 step two":  waiting,
-			"kip on T-3":            waiting,
-			"kip unbound":           waiting,
-		}
-		for name, id := range cards {
-			status, card := apiJSON(t, f.h, "GET", "/api/reply-cards/"+id, f.owner, "")
-			if status != 200 {
-				t.Fatalf("%s: read card: %d %v", name, status, card)
-			}
-			apiWantValue(t, name, any(map[string]any{
-				"status": card["status"], "expired_ts": card["expired_ts"],
-				"answered_ts": card["answered_ts"], "answer": card["answer"],
-			}), any(want[name]))
-		}
-
-		_, task := apiJSON(t, f.h, "GET", "/api/tasks/T-1", f.successor, "")
-		var steps []string
-		for _, raw := range task["steps"].([]any) {
-			st := raw.(map[string]any)
-			steps = append(steps, st["name"].(string)+":"+st["status"].(string)+":"+st["reply_card_status"].(string))
-		}
-		wantSteps := []string{"one:in_progress:expired", "two:waiting_owner:waiting", "three:in_progress:expired"}
-		if !reflect.DeepEqual(steps, wantSteps) {
-			t.Fatalf("expired cards release their steps and the other card still holds its own\ngot  %v\nwant %v", steps, wantSteps)
-		}
-	})
-
-	t.Run("a claim that expires the only waiting card leaves the task in progress", func(t *testing.T) {
-		f := newHandoverFixture(t)
-		f.must(t, "POST", "/api/tasks/T-1/steps/"+f.stepOne+"/status", f.owner, `{"status":"in_progress"}`)
-		f.must(t, "POST", "/api/reply-cards", f.predecessor,
-			`{"kind":"decision","summary":"ship?","options":[{"text":"yes"}],"linked_task":{"task_id":"T-1","step_id":"`+f.stepOne+`"}}`)
-
-		status, data := apiJSON(t, f.h, "POST", "/api/tasks/T-1/claim", f.successor, "")
-		if status != 200 {
-			t.Fatalf("want 200, got %d (%v)", status, data)
-		}
-		if data["status"] != "in_progress" {
-			t.Fatalf("claim receipt status: want in_progress, got %v", data["status"])
-		}
-		want := handoverUntouched("")
-		want.Status = "in_progress"
-		want.Steps = []string{"one:in_progress", "two:pending"}
-		if got := f.view(t); !reflect.DeepEqual(got, want) {
-			t.Fatalf("T-1 after the claim\ngot  %#v\nwant %#v", got, want)
-		}
 	})
 
 	t.Run("an agent that is not the task's executor answers 403", func(t *testing.T) {

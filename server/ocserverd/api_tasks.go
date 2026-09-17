@@ -548,6 +548,21 @@ func (s *apiServer) callerMayClaimTask(r *http.Request, t Task) bool {
 	return currentActor(r) == t.ExecutorID
 }
 
+// callerMayBindReplyCard is the gate for opening a reply card bound to t:
+// callerMayDriveTask, except that nobody below admin may bind one while t is
+// under the reassign hold — the predecessor may not open new asks on a task it
+// is handing over (owner ruling 2026-09-17, card rc-13a4d6e5d7e4), and the
+// successor has no rights until claim_task.
+func (s *apiServer) callerMayBindReplyCard(r *http.Request, t Task) bool {
+	if principalAtLeast(s.principalOfRequest(r), principalAdminAgent) {
+		return true
+	}
+	if underHandover(t) {
+		return false
+	}
+	return currentActor(r) == t.ExecutorID
+}
+
 // callerMayEditTaskText is callerMayDriveTask widened by exactly one structural
 // fact: while a task has NO acting executor at all, its CREATOR counts as the
 // executor — but only at the text-only doors (T-52).
@@ -2142,8 +2157,7 @@ func (s *apiServer) HandleReassignTaskApiTasksTaskIdReassignPost(w http.Response
 // reassigning became a lock (status is DERIVED, never set here). Gated by
 // callerMayClaimTask: only the successor (or owner/admin) may claim, never the
 // predecessor. A task not under the reassigning lock → 409 (nothing to claim).
-// The predecessor's waiting cards bound to this task expire: their asker no
-// longer holds the task. Idempotent side effects: the predecessor dismiss is by
+// Idempotent side effects: the predecessor dismiss is by
 // its OWN worker id, never by task_id (the successor may be a fresh worker on
 // the same task_id).
 func (s *apiServer) HandleClaimTaskApiTasksTaskIdClaimPost(w http.ResponseWriter, r *http.Request, taskId string) {
@@ -2163,17 +2177,6 @@ func (s *apiServer) HandleClaimTaskApiTasksTaskIdClaimPost(w http.ResponseWriter
 	}
 	now := nowSecs()
 	trigger := requestTrigger(r)
-	if t.ReassignedFrom != "" {
-		if _, err := s.expireWaitingCardsForTaskFrom(t.ID, t.ReassignedFrom, now, trigger); err != nil {
-			internalError(w, err)
-			return
-		}
-		// Re-read: the card pass (releaseCardHold) may have re-derived the row.
-		if t, err = s.resolveTask(taskId); err != nil {
-			writeResolveError(w, err, "task", taskId)
-			return
-		}
-	}
 	predecessorWorker := ""
 	if t.ReassignedFromKind == TaskExecutorOutsource {
 		predecessorWorker = t.ReassignedFrom

@@ -434,25 +434,11 @@ func TestRunOutsourceTick(t *testing.T) {
 			t.Fatalf("fixture: want a bound worker on T-3, got %v", task)
 		}
 		pred := apiTestAgentToken(t, f.api, worker, "")
-		admin := apiTestAgentToken(t, f.api, "mira", "")
 		f.must(t, "POST", "/api/tasks/T-3/plan", pred, `{"steps":[{"name":"a","dod":"d"},{"name":"b","dod":"d"}]}`)
 		f.must(t, "POST", "/api/tasks/T-3/reassign", f.owner, `{"target":{"kind":"staff","member_id":"rex"}}`)
 		_, task = apiJSON(t, f.h, "GET", "/api/tasks/T-3", f.owner, "")
 		steps := task["steps"].([]any)
 		stepA, _ := steps[0].(map[string]any)["id"].(string)
-		stepB, _ := steps[1].(map[string]any)["id"].(string)
-
-		f.must(t, "POST", "/api/tasks/T-3/steps/"+stepA+"/status", pred, `{"status":"in_progress"}`)
-		f.must(t, "POST", "/api/tasks/T-3/steps/"+stepB+"/status", pred, `{"status":"in_progress"}`)
-		open := func(token, linked string) string {
-			card := f.must(t, "POST", "/api/reply-cards", token,
-				`{"kind":"decision","summary":"q","options":[{"text":"yes"}],"linked_task":`+linked+`}`)
-			id, _ := card["id"].(string)
-			return id
-		}
-		predBound := open(pred, `{"task_id":"T-3","step_id":"`+stepA+`"}`)
-		adminBound := open(admin, `{"task_id":"T-3","step_id":"`+stepB+`"}`)
-		predUnbound := open(pred, "null")
 
 		f.api.runOutsourceTick(nowSecs() + 1801)
 
@@ -460,23 +446,6 @@ func TestRunOutsourceTick(t *testing.T) {
 		if member["status"] != "released" || member["roster_status"] != "removed" {
 			t.Fatalf("the reaped predecessor: want released/removed, got %v/%v", member["status"], member["roster_status"])
 		}
-		expired := map[string]any{"status": "expired", "expired_ts": apiAnyNumber, "answered_ts": nil, "answer": nil}
-		waiting := map[string]any{"status": "waiting", "expired_ts": nil, "answered_ts": nil, "answer": nil}
-		for name, c := range map[string]struct {
-			id   string
-			want map[string]any
-		}{
-			"the predecessor's card on T-3":  {predBound, expired},
-			"the admin's card on T-3":        {adminBound, waiting},
-			"the predecessor's unbound card": {predUnbound, waiting},
-		} {
-			_, card := apiJSON(t, f.h, "GET", "/api/reply-cards/"+c.id, f.owner, "")
-			apiWantValue(t, name, any(map[string]any{
-				"status": card["status"], "expired_ts": card["expired_ts"],
-				"answered_ts": card["answered_ts"], "answer": card["answer"],
-			}), any(c.want))
-		}
-
 		for _, door := range []struct{ method, path, body string }{
 			{"POST", "/api/tasks/T-3/priority", `{"priority":"high"}`},
 			{"POST", "/api/tasks/T-3/steps/" + stepA + "/note", `{"note":"late"}`},

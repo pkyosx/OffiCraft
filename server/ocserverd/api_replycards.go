@@ -467,7 +467,7 @@ const linkedTaskTaskRequiredMsg = "linked_task.task_id is required: name the tas
 // linked_task is REQUIRED (see the block above). null opens a plain unbound
 // 請示. {task_id, step_id} arms that step: the guards below are the ones the
 // retired open_gate route carried, moved here verbatim with it — caller must
-// drive the task (403), task must be in_progress|waiting_owner (409), the step
+// be allowed to bind a card to it (403, callerMayBindReplyCard — never under the reassign hold below admin), task must be in_progress|waiting_owner (409), the step
 // must belong to the task (404) and must not be terminal (409) — and then the
 // step (and its task) enters waiting_owner carrying the card (armStepWithCard).
 // A plain non-gate step is armable too: is_gate is a plan-declared property
@@ -507,7 +507,7 @@ func (s *apiServer) HandleCreateReplyCardApiReplyCardsPost(w http.ResponseWriter
 			writeResolveError(w, err, "task", taskID)
 			return
 		}
-		if !s.callerMayDriveTask(r, *t) {
+		if !s.callerMayBindReplyCard(r, *t) {
 			writeError(w, http.StatusForbidden, executorGuardRefusal)
 			return
 		}
@@ -950,19 +950,6 @@ func (s *apiServer) expireWaitingCardsFromMember(memberID string, now float64, t
 	}
 	return s.expireWaitingCards(func(c ReplyCard) bool {
 		return c.FromMember == memberID
-	}, now, trigger)
-}
-
-// expireWaitingCardsForTaskFrom sweeps the waiting cards one member opened on
-// one task, fired when a claim takes the task away from that member (the
-// reassign predecessor): its asks on the task no longer belong to whoever
-// holds it.
-func (s *apiServer) expireWaitingCardsForTaskFrom(taskID, memberID string, now float64, trigger string) (int, error) {
-	if taskID == "" || memberID == "" {
-		return 0, errors.New("expireWaitingCardsForTaskFrom: blank task or member id")
-	}
-	return s.expireWaitingCards(func(c ReplyCard) bool {
-		return c.TaskID == taskID && c.FromMember == memberID
 	}, now, trigger)
 }
 

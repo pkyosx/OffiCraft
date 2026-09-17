@@ -554,8 +554,8 @@ func (s *apiServer) runOutsourceTick(now float64) {
 	// reassign time to write the handover — would otherwise leak its session.
 	// Release + reclaim that predecessor here, by its OWN id (never by task_id:
 	// an outsource→outsource takeover bound a fresh worker to the same task_id).
-	// Releasing it also ends its hold write rights (predecessorHoldsTask), and
-	// its waiting reply cards bound to the task expire. The task stays
+	// Releasing it also ends its hold write rights (predecessorHoldsTask). The
+	// task stays
 	// `reassigning` until someone claims or re-reassigns it. A staff predecessor
 	// is never reclaimed here — outsource only.
 	timeout := float64(s.reassignHandoverTimeout())
@@ -577,11 +577,6 @@ func (s *apiServer) runOutsourceTick(now float64) {
 			s.publishOutsourceWorker(*released, triggerServer)
 			outsourceLog("handover-timeout %s: predecessor %s never handed off "+
 				"(%.0fs) — reclaimed", t.ID, t.ReassignedFrom, now-t.UpdatedTS)
-			// Best-effort, like dismissal: the release already happened.
-			if _, err := s.expireWaitingCardsForTaskFrom(t.ID, t.ReassignedFrom, now, triggerServer); err != nil {
-				outsourceLog("handover-timeout %s: card sweep for %s failed: %v",
-					t.ID, t.ReassignedFrom, err)
-			}
 		}
 		if !s.workerReclaimed[t.ReassignedFrom] {
 			if w, err := s.dal.GetOutsourceWorker(t.ReassignedFrom); err == nil && w != nil {
