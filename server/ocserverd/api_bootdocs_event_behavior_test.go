@@ -274,8 +274,8 @@ func TestReplaceBootDoc_DeclaredVariableIsAccepted(t *testing.T) {
 }
 
 // The three documents that shipped before this mechanism opt out of it: their
-// seeds carry JSON examples the {name} syntax cannot tell from a variable, so
-// validating them would refuse the factory text itself.
+// owner-edited bodies may quote JSON the {name} syntax cannot tell from a
+// variable, so validating them would refuse that text.
 func TestReplaceBootDoc_PreT3201KindsAreNotVariableValidated(t *testing.T) {
 	s := newEventProcServer(t)
 	spec := s.mustBootDocSpec(docKindSystemInteraction, systemInteractionDocKey)

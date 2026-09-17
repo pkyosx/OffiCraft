@@ -18,8 +18,8 @@ package main
 //   render   — RenderDocVars refuses a SEND whose declared name has no value
 //
 // 🔴 nil MEANS OFF, EMPTY MEANS ZERO. A kind whose Vars is nil predates this
-// mechanism and is not validated at all — system_interaction's seed carries
-// JSON examples like {"id": "<attachment id>"} that this syntax cannot tell
+// mechanism and is not validated at all — an owner-edited system_interaction
+// body may quote JSON like {"id": "<attachment id>"} that this syntax cannot tell
 // from a variable, and breaking a document that ships today to introduce a
 // guard for documents that do not is the wrong trade. A kind whose Vars is an
 // empty non-nil slice allows NO variable when its rendered text is checked.
