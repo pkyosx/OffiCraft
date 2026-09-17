@@ -4486,6 +4486,7 @@ const mockApiImpl = {
           (predecessor
             ? `[${t.taskNo}] 你接手了這張任務，你的前任是 ${predecessor}。`
             : `[${t.taskNo}] 你接手了這張任務，這張任務沒有前任。`) +
+          "\n\n" +
           foldBootDoc("task_takeover_with_predecessor", "global").body
         ).trim(),
         ts: stamp / 1000,

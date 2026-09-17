@@ -685,7 +685,7 @@ func TestTaskTakeoverDocs_HeadPlusBodyIsTodaysChatNoticeWithoutTheHandoverNote(t
 		// off the ticket (lock + reassigned_from), and the boot sequence's 轉派任務
 		// rule finds it at 開機盤點 for a successor that never receives this
 		// message — the outsource arm never does, because no worker id exists yet.
-		want: "[T-7e91] 你接手了這張任務，你的前任是 銀月（mira）。" +
+		want: "[T-7e91] 你接手了這張任務，你的前任是 銀月（mira）。\n\n" +
 			"你接手這個任務後，先完成以下準備再開始執行：\n\n" +
 			"* **讀取任務**：使用 `get_task` 讀取目前步驟的 DoD；有步驟備註（`note_size_chars` 非 0）時，使用 `get_task_step` 讀取全文。若尚未讀過對應的任務手冊，再使用 `get_task_manual` 讀取。\n" +
 			"* **完成交接**：若有 `reassigned_from`，先讀取 `handover_note` 與步驟備註，並 `post_chat` 向前任確認目前進度與進行中的事項。\n" +
@@ -717,7 +717,7 @@ func TestTaskTakeoverDocs_HeadPlusBodyIsTodaysChatNoticeWithoutTheHandoverNote(t
 
 	t.Run("a staff successor with no predecessor gets the same body under a head that names none", func(t *testing.T) {
 		s := newEventProcServer(t)
-		want := "[T-7e91] 你接手了這張任務，這張任務沒有前任。" +
+		want := "[T-7e91] 你接手了這張任務，這張任務沒有前任。\n\n" +
 			"你接手這個任務後，先完成以下準備再開始執行：\n\n" +
 			"* **讀取任務**：使用 `get_task` 讀取目前步驟的 DoD；有步驟備註（`note_size_chars` 非 0）時，使用 `get_task_step` 讀取全文。若尚未讀過對應的任務手冊，再使用 `get_task_manual` 讀取。\n" +
 			"* **完成交接**：若有 `reassigned_from`，先讀取 `handover_note` 與步驟備註，並 `post_chat` 向前任確認目前進度與進行中的事項。\n" +

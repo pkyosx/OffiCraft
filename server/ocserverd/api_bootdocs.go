@@ -287,10 +287,10 @@ var bootDocRegistry = []bootDocReg{{
 	// the facts were not a prefix — and the note it carried was a SECOND COPY:
 	// the reassign writes HandoverNote/TS/By onto the task itself and wire.go
 	// puts it in the DTO, so the successor reads it with get_task. Dropping the
-	// copy leaves one sentence of fact and one of instruction, in that order.
+	// copy leaves the fact sentence ahead of the instructions.
 	//
-	// Join "" — the head sentence runs straight into the body's opening sentence
-	// inside ONE paragraph, exactly like 轉派程序（前任）.
+	// A blank line, not "", because the body is an intro line plus a bullet list,
+	// same as 〈擋著你手上任務的票解開了〉.
 	// 🔴 FOUR NAMES DOWN TO TWO (T-6f44). {title} is on the ticket the number
 	// already names, so it goes; {predecessor_label} and {old_executor_id} merge
 	// into ONE slot filled 「銀月（mira）」 (owner's decision 1). Neither half of
@@ -298,7 +298,7 @@ var bootDocRegistry = []bootDocReg{{
 	// the predecessor, which needs the id, and a sentence carrying only an id
 	// does not tell a reader who it is talking about.
 	Split: true,
-	Join:  "",
+	Join:  "\n\n",
 	Vars:  []string{"task_no", "predecessor"},
 }, {
 	Kind:    docKindTaskUnblocked,

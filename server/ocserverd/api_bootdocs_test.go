@@ -94,7 +94,7 @@ var apiTestBootDocRows = []apiTestBootDocRow{
 		kind: "task_takeover_with_predecessor", keys: []string{"global"},
 		seeds:    []string{"task_takeover_with_predecessor.md"},
 		docNames: []string{"task reassignment document (to the successor)"},
-		capChars: 15000, vars: []string{"task_no", "predecessor"}, split: true, join: "", readOnly: false,
+		capChars: 15000, vars: []string{"task_no", "predecessor"}, split: true, join: "\n\n", readOnly: false,
 	}, {
 		kind: "task_unblocked", keys: []string{"global"},
 		seeds: []string{"task_unblocked.md"}, docNames: []string{"dependency-released notice"},
