@@ -2615,14 +2615,6 @@ type taskDTO struct {
 	// The count is exact, uncapped and never truncated — 0 means the task
 	// genuinely has nothing pinned, the same promise NoteSizeChars makes.
 	ArtifactCount int `json:"artifact_count"`
-	// Handoff / HandoffNote / HandoffTaskID: the DECLARED destination of the
-	// ball at close (T-74f8). "" = never declared (every task whose creator IS
-	// its executor, and every pre-column row); otherwise return_to_creator |
-	// follow_up | none. Served so the declaration is auditable — a gate whose
-	// answer is invisible is indistinguishable from no gate.
-	Handoff       string `json:"handoff"`
-	HandoffNote   string `json:"handoff_note"`
-	HandoffTaskID string `json:"handoff_task_id"`
 	// Blocking is the REVERSE of Deps (T-91): the NON-TERMINAL tasks that name
 	// THIS task in their own blocked_by. Always present ([] when nobody waits).
 	//
@@ -3094,9 +3086,6 @@ func newTaskDTO(t Task, steps []TaskStep, deps []string, cardStatus map[string]s
 		// result) honestly says "nobody is waiting", which is true of a task
 		// that was born one line ago.
 		Blocking:         []taskDepRefDTO{},
-		Handoff:          t.Handoff,
-		HandoffNote:      t.HandoffNote,
-		HandoffTaskID:    t.HandoffTaskID,
 		FrozenBy:         t.FrozenBy,
 		ForcedDoneBy:     t.ForcedDoneBy,
 		ForcedDoneReason: t.ForcedDoneReason,

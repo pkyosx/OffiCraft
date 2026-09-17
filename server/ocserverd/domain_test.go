@@ -1229,19 +1229,6 @@ func TestValidTaskLock(t *testing.T) {
 	}
 }
 
-func TestValidHandoff(t *testing.T) {
-	for _, h := range []string{"return_to_creator", "follow_up", "none"} {
-		if !ValidHandoff(h) {
-			t.Fatalf("ValidHandoff(%q) = false, want true", h)
-		}
-	}
-	for _, h := range []string{"", "None", "returnToCreator", "followup"} {
-		if ValidHandoff(h) {
-			t.Fatalf("ValidHandoff(%q) = true, want false", h)
-		}
-	}
-}
-
 func TestCanonicalTaskExecutorKind(t *testing.T) {
 	t.Run("the two closed-set values pass through unchanged", func(t *testing.T) {
 		for _, kind := range []string{TaskExecutorStaff, TaskExecutorOutsource} {

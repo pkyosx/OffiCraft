@@ -335,8 +335,7 @@ func TestNewTaskDTO(t *testing.T) {
 		CreatorID: "owner", ReassignedFrom: "bob", ReassignedFromKind: "staff",
 		HandoverNote: "picked up mid-flight", HandoverNoteTS: 90, HandoverNoteBy: "bob",
 		WaitingReason: "vendor", CreatedTS: 10, UpdatedTS: 20, ClosedTS: 0,
-		DuplicateOf: "", Handoff: HandoffFollowUp,
-		HandoffNote: "see t-next", HandoffTaskID: "t-next", FrozenBy: "",
+		DuplicateOf: "", FrozenBy: "",
 	}
 	steps := []TaskStep{
 		{ID: "s-1", TaskID: "t-abc", OrderIdx: 0, Name: "read", Status: StepStatusDone},
@@ -364,8 +363,7 @@ func TestNewTaskDTO(t *testing.T) {
 			},
 			DetailLevel: "summary", NotesIncluded: false,
 			ProgressDone: 1, ProgressTotal: 2,
-			ArtifactCount: 0, Handoff: "follow_up", HandoffNote: "see t-next",
-			HandoffTaskID: "t-next", Blocking: []taskDepRefDTO{}, FrozenBy: "",
+			ArtifactCount: 0, Blocking: []taskDepRefDTO{}, FrozenBy: "",
 		}
 		if !reflect.DeepEqual(got, want) {
 			t.Fatalf("newTaskDTO(open task):\n got %+v\nwant %+v", got, want)
