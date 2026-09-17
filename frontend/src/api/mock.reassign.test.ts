@@ -259,7 +259,7 @@ describe("mock reassign — member target", () => {
 });
 
 describe("mock reassign — outsource target", () => {
-  it("keeps the old worker live (deferred handover dismiss), stamps the predecessor, mints a fresh one, and pairs both", async () => {
+  it("keeps the old worker live (deferred handover dismiss), stamps the predecessor, mints a fresh one, and notifies only the predecessor", async () => {
     const task = mkTask({ title: "轉外包" });
     __injectMockTask(task);
     __injectMockOutsourceWorker(mkWorker({ taskId: task.id }));
@@ -292,16 +292,19 @@ describe("mock reassign — outsource target", () => {
     // The OLD outsource worker (now kept live) is told to hand over — a system
     // message, not an owner DM.
     const old = await mockApi.listChat("ow-old");
-    expect(old.some((m) => m.from === "system")).toBe(true);
-    expect(old.map((m) => m.body).join("\n")).toContain("此任務已轉派給");
-    // The freshly-minted worker gets its OWN pairing message (it used to get
-    // none) naming its predecessor + the self-flip protocol.
-    const mintedInbox = await mockApi.listChat(minted.id);
-    const mintedNotice = mintedInbox.map((m) => m.body).join("\n");
-    expect(mintedInbox.some((m) => m.from === "system")).toBe(true);
-    expect(mintedNotice).toContain("你的前任是");
-    expect(mintedNotice).toContain("claim_task");
-    expect(mintedNotice).not.toContain("update_task_status");
+    expect(old.map((m) => ({ from: m.from, to: m.to, body: m.body }))).toEqual([
+      {
+        from: "system",
+        to: "ow-old",
+        body:
+          "[T-2001] 此任務已轉派給新的接手人。請停止推進，先把交接資訊寫到這張任務上：目前進度、進行中的事項、有哪些雷要注意。" +
+          "**這一步不能省，它是接手人唯一保證讀得到的東西** —— 接手人可能還沒被建出來，也可能你已經下線了才輪到他。\n\n" +
+          "寫完就算交出去了。如果接手人剛好在線上來找你，就順便當面補齊；沒有的話不用等，也不用去找他。",
+      },
+    ]);
+    // The minted worker is told nothing: it finds the task through its boot
+    // sequence's reassigning-lock check.
+    expect(await mockApi.listChat(minted.id)).toEqual([]);
   });
 
   it("defaults a blank effort to medium and rejects an out-of-vocabulary one", async () => {

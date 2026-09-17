@@ -3568,13 +3568,60 @@ func TestHandleReassignTaskApiTasksTaskIdReassignPost(t *testing.T) {
 		api.noOutsource = true
 		apiJSON(t, h, "POST", "/api/tasks", owner,
 			`{"title":"Contracted out","target":{"kind":"outsource","runtime":"claude","effort":"high"}}`)
+		dashboard := apiTestListen(t, api, "")
+		successor := apiTestListen(t, api, "mira")
 
 		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/reassign", owner,
 			`{"target":{"kind":"staff","member_id":"mira"}}`)
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
-		apiWantValue(t, "body.executor_id", data["executor_id"], "mira")
+		apiWantBody(t, data, map[string]any{
+			"task_id":                "T-1",
+			"title":                  "Contracted out",
+			"status":                 "not_started",
+			"executor_id":            "mira",
+			"executor_kind":          "staff",
+			"lock":                   "reassigning",
+			"closed_ts":              nil,
+			"duplicate_of":           "",
+			"deps":                   []any{},
+			"progress_done":          0,
+			"progress_total":         0,
+			"artifact_count":         0,
+			"description_size_chars": 0,
+			"description_sha256":     "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+		})
+		successorNotice := map[string]any{
+			"seq":   2,
+			"topic": "chat",
+			"op":    "patch",
+			"data": map[string]any{
+				"entity":  "chat",
+				"key":     apiAnyString,
+				"epoch":   2,
+				"deleted": false,
+				"payload": map[string]any{"id": apiAnyString, "from": "system", "to": "mira"},
+			},
+			"ts":      apiAnyNumber,
+			"trigger": "owner",
+		}
+		taskDelta := map[string]any{
+			"seq":   3,
+			"topic": "task",
+			"op":    "patch",
+			"data": map[string]any{
+				"entity":  "task",
+				"key":     "owner::T-1",
+				"epoch":   3,
+				"deleted": false,
+				"payload": map[string]any{"id": "T-1", "priority": "mid", "status": "not_started"},
+			},
+			"ts":      apiAnyNumber,
+			"trigger": "owner",
+		}
+		dashboard.wantFrames(successorNotice, taskDelta)
+		successor.wantFrames(successorNotice, taskDelta)
 		apiWantValue(t, "chat", apiTestChatRows(t, d), []any{
 			map[string]any{
 				"from": "system",
@@ -3589,7 +3636,7 @@ func TestHandleReassignTaskApiTasksTaskIdReassignPost(t *testing.T) {
 	})
 
 	t.Run("handing a planned task to the outsource lane resets its live steps and leaves it unassigned under the lock", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
+		api, h, d, owner := newAPITestServer(t)
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
 		agent := apiTestAgentToken(t, api, "kip", "")
 		apiJSON(t, h, "POST", "/api/tasks/T-1/plan", agent,
@@ -3597,6 +3644,8 @@ func TestHandleReassignTaskApiTasksTaskIdReassignPost(t *testing.T) {
 		_, planned := apiJSON(t, h, "GET", "/api/tasks/T-1", owner, "")
 		stepID, _ := planned["steps"].([]any)[0].(map[string]any)["id"].(string)
 		apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/status", agent, `{"status":"in_progress"}`)
+		dashboard := apiTestListen(t, api, "")
+		predecessor := apiTestListen(t, api, "kip")
 
 		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/reassign", owner,
 			`{"target":{"kind":"outsource","runtime":"claude","effort":"high"}}`)
@@ -3640,6 +3689,70 @@ func TestHandleReassignTaskApiTasksTaskIdReassignPost(t *testing.T) {
 		}})
 		apiWantValue(t, "body.reassigned_from", handedOver["reassigned_from"], "kip")
 		apiWantValue(t, "body.reassigned_from_kind", handedOver["reassigned_from_kind"], "staff")
+		taskDelta := func(seq int, trigger string) map[string]any {
+			return map[string]any{
+				"seq":   seq,
+				"topic": "task",
+				"op":    "patch",
+				"data": map[string]any{
+					"entity":  "task",
+					"key":     "owner::T-1",
+					"epoch":   seq,
+					"deleted": false,
+					"payload": map[string]any{"id": "T-1", "priority": "mid", "status": "not_started"},
+				},
+				"ts":      apiAnyNumber,
+				"trigger": trigger,
+			}
+		}
+		workerDelta := func(seq int) map[string]any {
+			return map[string]any{
+				"seq":   seq,
+				"topic": "member",
+				"op":    "patch",
+				"data": map[string]any{
+					"entity":  "member",
+					"key":     apiAnyString,
+					"epoch":   seq,
+					"deleted": false,
+					"payload": map[string]any{
+						"id":            apiAnyString,
+						"name":          "X-1",
+						"owner_id":      "owner",
+						"status":        "active",
+						"desired_state": "online",
+					},
+				},
+				"ts":      apiAnyNumber,
+				"trigger": "server",
+			}
+		}
+		predecessorNotice := map[string]any{
+			"seq":   4,
+			"topic": "chat",
+			"op":    "patch",
+			"data": map[string]any{
+				"entity":  "chat",
+				"key":     apiAnyString,
+				"epoch":   4,
+				"deleted": false,
+				"payload": map[string]any{"id": apiAnyString, "from": "system", "to": "kip"},
+			},
+			"ts":      apiAnyNumber,
+			"trigger": "owner",
+		}
+		dashboard.wantFrames(predecessorNotice, taskDelta(5, "owner"), taskDelta(6, "owner"),
+			workerDelta(7), taskDelta(8, "server"), workerDelta(9))
+		predecessor.wantFrames(predecessorNotice, taskDelta(6, "owner"))
+		apiWantValue(t, "chat", apiTestChatRows(t, d), []any{
+			map[string]any{
+				"from": "system",
+				"to":   "kip",
+				"body": "[T-1] 此任務已轉派給新的接手人。請停止推進，先把交接資訊寫到這張任務上：目前進度、進行中的事項、有哪些雷要注意。" +
+					"**這一步不能省，它是接手人唯一保證讀得到的東西** —— 接手人可能還沒被建出來，也可能你已經下線了才輪到他。\n\n" +
+					"寫完就算交出去了。如果接手人剛好在線上來找你，就順便當面補齊；沒有的話不用等，也不用去找他。",
+			},
+		})
 	})
 
 	t.Run("an outsource target naming a machine nothing carries answers 404", func(t *testing.T) {

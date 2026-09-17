@@ -191,9 +191,8 @@ func TestListTaskRowAlreadyCarriedTheReassignHold(t *testing.T) {
 // replacement still compares byte for byte.
 //
 // The assertion is on MACHINE IDENTIFIERS (`claim_task`, the `reassigning` lock
-// value, the `reassigned_from` and `handover_note` field names), never on the
-// sentence around them: the prose is owner-editable, the tool name and the lock
-// value are not.
+// value, the `reassigned_from` field name), never on the sentence around them:
+// the prose is owner-editable, the tool name and the lock value are not.
 func TestBootSequenceTellsBothIdentitiesToConfirmThenClaim(t *testing.T) {
 	s := newWorkerTestServer(t)
 	staff, err := s.buildBootContext("", nil)
@@ -207,7 +206,7 @@ func TestBootSequenceTellsBothIdentitiesToConfirmThenClaim(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildWorkerBootContext: %v", err)
 	}
-	for _, token := range []string{"claim_task", TaskLockReassigning, "reassigned_from", "handover_note"} {
+	for _, token := range []string{"claim_task", TaskLockReassigning, "reassigned_from"} {
 		if !strings.Contains(staff.Context, token) {
 			t.Fatalf("the 正職 boot document must hand the agent %q — a takeover "+
 				"instruction that names no tool is not an instruction", token)

@@ -671,7 +671,7 @@ test-go: build-embed-assets
 test-system-interaction-examples:
 	@$(P) \
 	GO="$$(oc_go)"; \
-	echo "[test-system-interaction-examples] system_interaction.md MCP/CLI examples"; \
+	echo "[test-system-interaction-examples] system_interaction.md ocagent subcommands"; \
 	OC_GO="$$GO" bash bin/tests/system-interaction-examples.sh; \
 	$(DONE)
 

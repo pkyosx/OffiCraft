@@ -4435,15 +4435,15 @@ const mockApiImpl = {
     // Handover PAIRING notices (T-ba04): SERVER-authored (from="system", not the
     // owner), pairing predecessor and successor into a handover DIALOGUE. The
     // predecessor notice fires for a member OR outsource predecessor (the
-    // outsource one is now kept live), the successor notice for a member OR a
-    // freshly-minted worker.
+    // outsource one is now kept live), the successor notice for a member only:
+    // as on the server, a worker finds the task through its boot sequence's
+    // reassigning-lock check.
     // 🔴 THE SUCCESSOR'S LABEL IS GONE (T-6f44). The predecessor notice no longer
     // names who took the task, so there is nothing left to label — and that is
     // what killed the fabricated 「外包（待排程指派）」 placeholder: an outsource
     // successor is minted by the scheduler LATER, so at reassign time there was
     // nobody to name and a hardcoded status string sat in a person's grammatical
     // slot. Only the id survives, and only to address the message.
-    const newExecutorId = newMember ? newMember.id : newWorker!.id;
     if (oldExecutor) {
       chatLog.push({
         id: `mock-reassign-old-${stamp}`,
@@ -4467,7 +4467,7 @@ const mockApiImpl = {
     // the handover note lives on the TASK and rides its DTO; stapling a copy under
     // the notice was the second one, and it was that copy which made these two
     // documents unsplittable.
-    if (newMember || oldExecutor) {
+    if (newMember) {
       let predecessor = "";
       if (oldExecutor) {
         const label =
@@ -4479,7 +4479,7 @@ const mockApiImpl = {
       chatLog.push({
         id: `mock-reassign-new-${stamp}`,
         from: "system",
-        to: newExecutorId,
+        to: newMember.id,
         // 本體取自〈轉派・給接手人〉文件（含 owner 的修改）；唯讀首行在沒有前任時
         // 換成 server 的 takeoverNoPredecessorHead。
         body: (

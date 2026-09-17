@@ -622,7 +622,7 @@ func TestTaskUnblockedDoc_TheOwnersEditReachesTheSendSite(t *testing.T) {
 	}
 }
 
-// The documents that could not be split are split now, each on its own
+// The takeover and closeout documents are split, each on its own
 // owner ruling — so what is pinned here is the RULING, not the flag: a build
 // that dropped Split on any of them would go on rendering identical bytes
 // (DocRendered cuts at the marker whether or not the kind declared one), and
@@ -630,7 +630,7 @@ func TestTaskUnblockedDoc_TheOwnersEditReachesTheSendSite(t *testing.T) {
 // eventNoticeText and the head gate on the write face. Both are behavioural
 // cases below and in TestReplaceBootDoc_ChangingTheReadOnlyHeadIsRefusedAndNothingIsWritten;
 // this one names the declaration they all rest on.
-func TestBootDocRegistry_TheFormerlyUnsplittableKindsAreSplitByRuling(t *testing.T) {
+func TestBootDocRegistry_TheTakeoverAndCloseoutKindsAreSplitByRuling(t *testing.T) {
 	s := newEventProcServer(t)
 	for _, kind := range []string{
 		docKindTaskCloseout,
@@ -725,10 +725,13 @@ func TestTaskTakeoverDocs_HeadPlusBodyIsTodaysChatNoticeWithoutTheHandoverNote(t
 		if got := s.takeoverNoticeText("T-7e91", ""); got != want {
 			t.Fatalf("notice without a predecessor:\n got %q\nwant %q", got, want)
 		}
-		withPredecessor := s.takeoverNoticeText("T-7e91", "銀月（mira）")
-		if want := s.taskNoticeText(docKindTaskTakeoverWithPredecessor,
-			map[string]string{"task_no": "T-7e91", "predecessor": "銀月（mira）"}); withPredecessor != want {
-			t.Fatalf("notice with a predecessor:\n got %q\nwant %q", withPredecessor, want)
+		wantWithPredecessor := "[T-7e91] 你接手了這張任務，你的前任是 銀月（mira）。\n\n" +
+			"你接手這個任務後，先完成以下準備再開始執行：\n\n" +
+			"* **讀取任務**：使用 `get_task` 讀取目前步驟的 DoD；有步驟備註（`note_size_chars` 非 0）時，使用 `get_task_step` 讀取全文。若尚未讀過對應的任務手冊，再使用 `get_task_manual` 讀取。\n" +
+			"* **完成交接**：若有 `reassigned_from`，先讀取 `handover_note` 與步驟備註，並 `post_chat` 向前任確認目前進度與進行中的事項。\n" +
+			"* **認領並執行**：完成準備後，自行呼叫 `claim_task` 認領任務，再依目前步驟的 DoD 開始執行。"
+		if got := s.takeoverNoticeText("T-7e91", "銀月（mira）"); got != wantWithPredecessor {
+			t.Fatalf("notice with a predecessor:\n got %q\nwant %q", got, wantWithPredecessor)
 		}
 	})
 }

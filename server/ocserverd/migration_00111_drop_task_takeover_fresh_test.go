@@ -42,23 +42,49 @@ func openBootDocsBefore111(t *testing.T) *sql.DB {
 	return db
 }
 
-func bootDocKindsLeft(t *testing.T, db *sql.DB, query string) []string {
+func bootDocRowsLeft(t *testing.T, db *sql.DB) []string {
+	t.Helper()
+	return migrationRowsAsText(t, db,
+		`SELECT doc_kind || '|' || doc_key || '|' || text || '|' || tombstoned
+		   FROM boot_document ORDER BY doc_kind, doc_key`)
+}
+
+func documentHistoryRowsLeft(t *testing.T, db *sql.DB) []string {
+	t.Helper()
+	return migrationRowsAsText(t, db,
+		`SELECT id || '|' || document_kind || '|' || document_key || '|' || content_json || '|' || created_ts || '|' || actor_id
+		   FROM document_history ORDER BY id`)
+}
+
+func migrationRowsAsText(t *testing.T, db *sql.DB, query string) []string {
 	t.Helper()
 	rows, err := db.Query(query)
 	if err != nil {
 		t.Fatalf("%s: %v", query, err)
 	}
 	defer rows.Close()
-	kinds := []string{}
+	got := []string{}
 	for rows.Next() {
-		var k string
-		if err := rows.Scan(&k); err != nil {
+		var row string
+		if err := rows.Scan(&row); err != nil {
 			t.Fatalf("scan: %v", err)
 		}
-		kinds = append(kinds, k)
+		got = append(got, row)
 	}
-	return kinds
+	return got
 }
+
+var (
+	bootDocRowsAfter00111 = []string{
+		"task_closeout|global|text of task_closeout|0",
+		"task_takeover_with_predecessor|global|text of task_takeover_with_predecessor|0",
+	}
+	documentHistoryRowsAfter00111 = []string{
+		`2|task_takeover_with_predecessor|global|{"text":"old"}|1.5|owner`,
+		`3|task_closeout|global|{"text":"old"}|1.5|owner`,
+		`4|task_takeover_fresh_x|global|{"text":"old"}|1.5|owner`,
+	}
+)
 
 func TestMigration00111(t *testing.T) {
 	t.Run("up deletes the retired kind's overlay and history rows and nothing else", func(t *testing.T) {
@@ -68,15 +94,11 @@ func TestMigration00111(t *testing.T) {
 			t.Fatalf("goose up to 111: %v", err)
 		}
 
-		if got, want := bootDocKindsLeft(t, db,
-			`SELECT doc_kind FROM boot_document ORDER BY doc_kind`),
-			[]string{"task_closeout", "task_takeover_with_predecessor"}; !reflect.DeepEqual(got, want) {
-			t.Fatalf("boot_document kinds after 00111 = %v, want %v", got, want)
+		if got := bootDocRowsLeft(t, db); !reflect.DeepEqual(got, bootDocRowsAfter00111) {
+			t.Fatalf("boot_document after 00111 = %q, want %q", got, bootDocRowsAfter00111)
 		}
-		if got, want := bootDocKindsLeft(t, db,
-			`SELECT document_kind FROM document_history ORDER BY document_kind`),
-			[]string{"task_closeout", "task_takeover_fresh_x", "task_takeover_with_predecessor"}; !reflect.DeepEqual(got, want) {
-			t.Fatalf("document_history kinds after 00111 = %v, want %v", got, want)
+		if got := documentHistoryRowsLeft(t, db); !reflect.DeepEqual(got, documentHistoryRowsAfter00111) {
+			t.Fatalf("document_history after 00111 = %q, want %q", got, documentHistoryRowsAfter00111)
 		}
 	})
 
@@ -90,15 +112,11 @@ func TestMigration00111(t *testing.T) {
 			t.Fatalf("goose down to 110: %v", err)
 		}
 
-		if got, want := bootDocKindsLeft(t, db,
-			`SELECT doc_kind FROM boot_document ORDER BY doc_kind`),
-			[]string{"task_closeout", "task_takeover_with_predecessor"}; !reflect.DeepEqual(got, want) {
-			t.Fatalf("boot_document kinds after the Down = %v, want %v", got, want)
+		if got := bootDocRowsLeft(t, db); !reflect.DeepEqual(got, bootDocRowsAfter00111) {
+			t.Fatalf("boot_document after the Down = %q, want %q", got, bootDocRowsAfter00111)
 		}
-		if got, want := bootDocKindsLeft(t, db,
-			`SELECT document_kind FROM document_history ORDER BY document_kind`),
-			[]string{"task_closeout", "task_takeover_fresh_x", "task_takeover_with_predecessor"}; !reflect.DeepEqual(got, want) {
-			t.Fatalf("document_history kinds after the Down = %v, want %v", got, want)
+		if got := documentHistoryRowsLeft(t, db); !reflect.DeepEqual(got, documentHistoryRowsAfter00111) {
+			t.Fatalf("document_history after the Down = %q, want %q", got, documentHistoryRowsAfter00111)
 		}
 	})
 }
