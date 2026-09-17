@@ -118,8 +118,9 @@ const (
 //  3. the persona — staff read 角色說明 → 判準 → 長期筆記 → 角色傳承 here (the 判準
 //     block is itself skipped when that role's insight folds blank). A worker has
 //     no role, so it reads none of that. What it DOES read here, and the only
-//     thing, is its OWN 傳承 — the entries it wrote under LoreScopeAgent in
-//     earlier lives, keyed by its member id.
+//     thing, is the 傳承 block: the everyone scope first, then its OWN entries —
+//     the ones it wrote under LoreScopeAgent in earlier lives, keyed by its
+//     member id — under one budget (T-236).
 //  4. 啟動步驟   — the boot-sequence seed for the worker's OWN runtime, which
 //     carries that runtime's 執行環境 section. Recency-authoritative, LAST.
 //

@@ -1185,8 +1185,9 @@ export interface ServerSettingsView {
    * chat message body keep their own 4,000-character server constant. Default
    * and range in `stepNoteCap.ts` (mirroring server/ocserverd/domain.go). */
   stepNoteCapChars: number;
-  /** T-33: the four 傳承 knobs. The first two are FOLD budgets — how much 傳承 a
-   * staff boot document carries for one role, and how much `get_task_manual`
+  /** T-33: the four 傳承 knobs. The first two are FOLD budgets — how much 傳承
+   * one member's boot document carries (its `everyone` entries first, then its
+   * own, T-236), and how much `get_task_manual`
    * appends after a type's SOP. They are never summed: different readers
    * pay them at different moments. The last two bound ONE entry's title and
    * body at write time.
@@ -3164,8 +3165,9 @@ export type LoreScopeKind = "agent" | "manual" | "everyone";
  *
  * 🔴 `title` and `body` ARE NEVER EDITABLE. No route changes them, so what is
  * read here is what was written. The mutable surface is `state`,
- * `retireReason` and `effectiveTs` — which is why the cockpit offers 失效 /
- * 生效 / 置頂 / 提到最新 and no edit affordance at all.
+ * `retireReason`, `effectiveTs` and — admin-only, T-236 — `scopeKind` /
+ * `scopeKey`, which is why the cockpit offers 失效 / 生效 / 置頂 / 提到最新
+ * and the owner's 適用範圍 menu, and no edit affordance at all.
  *
  * `effectiveTs` vs `createdTs`: `createdTs` is when it was written and never
  * moves; `effectiveTs` starts equal to it and is what 提到最新 sets to now. The
@@ -3244,7 +3246,8 @@ export interface LoreListOptions {
    * 🔴 `scopeKinds` / `scopeKeys` ALSO DECIDE WHETHER THERE IS A 上限線 AT ALL.
    * `capChars`/`firstDroppedId` come back non-empty only when the effective
    * scope_kind set holds EXACTLY ONE value and the effective scope_key set holds
-   * exactly one — a budget belongs to a scope, and two scopes have two different
+   * exactly one (or the kind is `everyone` alone with no key, since its key is
+   * "") — a budget belongs to a scope, and two scopes have two different
    * budgets with no single line between them. Tick two 範圍 and the page gets
    * 0 / "", which is the same honest answer an unfiltered page gets. */
   scopeKinds?: LoreScopeKind[];
@@ -3258,8 +3261,8 @@ export interface LoreListOptions {
 /** One page, plus where the 上限線 falls.
  *
  * 🔴 `firstDroppedId` IS NOT DERIVABLE HERE AND MUST NOT BE RECOMPUTED. The
- * server answers it from the same selector both folds run, over the WHOLE
- * scope; this page is cut by `limit`/`offset` long before the budget is spent,
+ * server answers it from the same selection the folds run, over the WHOLE
+ * scope (for a member scope that includes the `everyone` entries ahead of it); this page is cut by `limit`/`offset` long before the budget is spent,
  * so adding up the visible rows would draw the line in the wrong place on every
  * page but the first — and a line in the wrong place looks exactly like a line
  * in the right place.

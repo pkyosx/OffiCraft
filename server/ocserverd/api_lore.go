@@ -10,7 +10,8 @@ package main
 // and scope-moving verbs, which is the governance half.
 //
 // 🔴 THE SELECTION RULE IS NOT IN THIS FILE. Reading lore for a reader is
-// selectLoreForScope (lore_select.go), called by the two folds. Nothing here
+// lore_select.go — selectMemberLore for the two boot folds, selectLoreForScope
+// for the manual read. Nothing here
 // re-implements it, and a future read face must call it rather than write its
 // own ORDER BY.
 
@@ -521,8 +522,9 @@ func (s *apiServer) HandleListLoreEntriesApiLoreGet(w http.ResponseWriter, r *ht
 	// 上限線: which entry is the first one the fold will NOT carry. The cockpit
 	// draws a line above it and greys everything below.
 	//
-	// 🔴 THE ANSWER COMES FROM selectLoreForScope — the same function both folds
-	// run — and NOT from a rule restated here or in the client. Two reasons, and
+	// 🔴 THE ANSWER COMES FROM lore_select.go — the same selection the folds run
+	// (selectMemberLore for an agent scope, selectLoreForScope otherwise) — and
+	// NOT from a rule restated here or in the client. Two reasons, and
 	// the second is the one that bites:
 	//   1. It is not derivable from this page. The page is cut by limit/offset
 	//      long before the budget is spent, so a client adding up the rows it can

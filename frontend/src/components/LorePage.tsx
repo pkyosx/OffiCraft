@@ -1,10 +1,11 @@
 // LorePage — the 傳承 tab (T-33, spec §6).
 //
 // WHAT THIS PAGE IS. A read-and-curate log. 傳承 entries are written by AGENTS
-// through MCP and are NEVER editable (adapter: no route changes `title`/`body`),
-// so there is no compose form and no edit affordance here. The four things the
-// owner can do to an entry are 失效 / 生效 / 置頂 / 提到最新, and that is the
-// whole mutable surface.
+// through MCP and their text is NEVER editable (adapter: no route changes
+// `title`/`body`), so there is no compose form and no edit affordance here. What
+// the owner can do to an entry is 失效 / 生效 / 置頂 / 提到最新 and — through the
+// 適用範圍 menu on the scope badge (T-236) — switch its scope; that is the whole
+// mutable surface.
 //
 // IT WEARS THE 任務卡 DESIGN LANGUAGE, COPIED FROM TaskCard.tsx RATHER THAN
 // SHARED. The classes below are `.lore-*` twins of `.task-card__*`, living in
@@ -537,19 +538,21 @@ export function LorePage({
 
   /** 屬於 — which scope this ONE entry rides, resolved for display.
    *
-   * The two scopes are not interchangeable and the row must not blur them:
+   * The scopes are not interchangeable and the row must not blur them:
    * `agent` rides ONE member's own boot document — staff and outsource alike
-   * since the scopes collapsed — and `manual` rides that task manual's
-   * response. Only `manual` is CLICKABLE, and the asymmetry is deliberate: a
-   * task manual has a settings page to land on, a member does not, and a pill
-   * that looks clickable but goes nowhere is worse than a plain one (owner did
-   * not overrule this on card rc-11734523eb52).
+   * since the scopes collapsed — `manual` rides that task manual's response,
+   * and `everyone` rides every member's boot document (T-236). For a viewer
+   * who may not switch scopes only `manual` is CLICKABLE, and the asymmetry is
+   * deliberate: a task manual has a settings page to land on, a member does
+   * not, and a pill that looks clickable but goes nowhere is worse than a plain
+   * one (owner did not overrule this on card rc-11734523eb52). For the owner
+   * the badge is the 適用範圍 menu instead, and the manual jump sits inside it.
    *
    * 🔴 EVERY UNRESOLVED CASE FALLS BACK TO THE RAW KEY, never to a blank and
    * never to a guess. A deleted manual and a departed member both still have
    * entries riding them, and 「rc-…」 tells the reader something whereas an
    * empty cell tells them the field is broken. `unknown` is the third arm and
-   * is NOT a scope, so it must never be renamed into one of the real two (see
+   * is NOT a scope, so it must never be renamed into one of the real ones (see
    * LoreEntryView.scopeKind).
    *
    * 🔴 `unknown` IS A LIVE ARM ON EVERY STATION, NOT A FUTURE-PROOFING HATCH.
@@ -741,7 +744,7 @@ export function LorePage({
 
   // 屬於 → the task-type settings hub, the SAME jump the 任務卡's 類型 chip
   // makes (TaskCard.openTypeSettings). Only a manual scope has a page to land
-  // on; role and agent scopes render as plain text and never call this.
+  // on; role, agent and everyone scopes never call this.
   function openManual(typeKey: string) {
     navigateHash({ page: "settings", manualKey: typeKey });
   }
@@ -1042,10 +1045,10 @@ function LoreRow({
   dimmed: boolean;
   author: AuthorIdentity;
   avatar: { src?: string; kind: AvatarKind } | null;
-  /** 屬於, already resolved. `manualKey` non-empty is the ONLY thing that makes
-   * the pill clickable — the row never re-derives that from `entry.scopeKind`,
-   * so there is one place that decides it (resolveScope). `kind` is what picks
-   * the glyph, and it comes from the same one place. */
+  /** 屬於, already resolved (resolveScope). `manualKey` non-empty is what
+   * offers the manual jump inside the 適用範圍 menu; `kind` picks the glyph and,
+   * without a menu, whether the pill is the manual button. Both come from that
+   * one place. */
   scope: { kind: "" | LoreScopeKind; label: string; manualKey: string };
   onOpenChat: (peerId: string, entryId: string) => void;
   onOpenManual: (typeKey: string) => void;
@@ -1276,8 +1279,9 @@ function LoreRow({
             a row to reach answers the question only for somebody who already
             went looking, which is not the person who was lost (owner, card
             rc-11734523eb52; the first attempt landed inside `expanded &&`).
-            It is a <button> when it leads somewhere, so the row's closest()
-            filter lets the click through to the manual instead of toggling. */}
+            It is a <button> when it leads somewhere — the 適用範圍 menu, or the
+            manual — so the row's closest() filter lets the click through
+            instead of toggling. */}
         <span className="lore-row__scope" data-testid="lore-scope" ref={scopeRef}>
           {/* ONE badge naming the current scope (T-236 mockup): 任務：<手冊>
               with the gear, 建立者：<作者> with the person glyph, 所有人 with the

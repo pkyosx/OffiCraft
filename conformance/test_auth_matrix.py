@@ -1875,9 +1875,9 @@ MATRIX: dict[str, Route] = {
         # No query string on purpose, so no cell can 400 for a reason that is
         # not identity: the filter stays empty (both closed-set checks are
         # skipped), limit/offset fall back to the in-range defaults 30/0, and
-        # the 上限線 block is skipped because it runs only when BOTH scope_kind
-        # and scope_key are set. The list's own semantics (the filter, the
-        # paging, first_dropped_id coming from selectLoreForScope) belong to
+        # the 上限線 block is skipped because it runs only when the filter names
+        # exactly one scope. The list's own semantics (the filter, the
+        # paging, first_dropped_id coming from lore_select.go) belong to
         # test_rest_happy.py and the server unit tests, not to this file.
         requires="agent",
     ),
