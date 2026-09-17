@@ -1947,6 +1947,14 @@ MATRIX: dict[str, Route] = {
         overrides={"agent_other": 403},
         path=lambda ctx, _i: f"/api/lore/{_matrix_lore_entry(ctx)}/bump",
     ),
+    "POST /api/lore/{entry_id}/scope": Route(
+        # T-236. Every transition is admin-only and the whole floor is on the
+        # route, so the entry's own author (agent_self — the fixture is agent
+        # A's) is a derived 403 like everyone else below admin_agent.
+        requires="admin_agent",
+        path=lambda ctx, _i: f"/api/lore/{_matrix_lore_entry(ctx)}/scope",
+        body={"scope_kind": "everyone"},
+    ),
 }
 
 # Manifest rows deliberately NOT in the matrix (must carry a reason — the
