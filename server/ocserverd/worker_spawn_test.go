@@ -2454,8 +2454,12 @@ func TestStopWorkerSessionForHandover(t *testing.T) {
 	})
 
 	t.Run("an ACTIVE worker no source can place is killed by broadcast rather than deferred", func(t *testing.T) {
+		// TWO wardens on purpose: one warden cannot tell a fan-out from an aimed
+		// kill, and the fan-out is what this case is named after.
 		api, h, _, owner, w := wsWorkerSpawnFixture(t, WorkerStatusActive)
 		apiTestListen(t, api, ServerSelfHost)
+		seedMachine(t, api, "m-other")
+		apiTestListen(t, api, "m-other")
 		pinned := w
 		pinned.DesiredMachineID = ServerSelfHost
 
@@ -2465,6 +2469,7 @@ func TestStopWorkerSessionForHandover(t *testing.T) {
 
 		apiWantValue(t, "stopped", any(stopped), any(true))
 		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"))
+		wsWantWardenFrames(t, api, "m-other", wsStopFrame("ow-abc123"))
 		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
 			"status": "active",
 		}))
@@ -2501,8 +2506,11 @@ func TestStopWorkerSessionForHandover(t *testing.T) {
 	})
 
 	t.Run("a worker that never claimed a session still broadcasts its harmless kill and succeeds", func(t *testing.T) {
+		// TWO wardens on purpose, as above.
 		api, _, _, _, w := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
 		apiTestListen(t, api, ServerSelfHost)
+		seedMachine(t, api, "m-other")
+		apiTestListen(t, api, "m-other")
 
 		api.outsourceMu.Lock()
 		stopped := api.stopWorkerSessionForHandover(w, "relocate", 5000)
@@ -2510,6 +2518,7 @@ func TestStopWorkerSessionForHandover(t *testing.T) {
 
 		apiWantValue(t, "stopped", any(stopped), any(true))
 		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"))
+		wsWantWardenFrames(t, api, "m-other", wsStopFrame("ow-abc123"))
 	})
 
 	// ── can a broadcast kill hit the REPLACEMENT? (T-253 乙) ─────────────────
@@ -2732,8 +2741,13 @@ func TestStopWorkerNow(t *testing.T) {
 	})
 
 	t.Run("with nothing naming the machine the kill is broadcast to every online warden", func(t *testing.T) {
+		// TWO wardens on purpose: with one, a broadcast and an aimed kill put the
+		// same frame on the same queue and the name of this case would be a claim
+		// nothing here could tell apart.
 		api, h, _, owner, w := wsWorkerSpawnFixture(t, WorkerStatusActive)
 		apiTestListen(t, api, ServerSelfHost)
+		seedMachine(t, api, "m-other")
+		apiTestListen(t, api, "m-other")
 		dashboard := apiTestListen(t, api, "")
 
 		api.outsourceMu.Lock()
@@ -2743,8 +2757,11 @@ func TestStopWorkerNow(t *testing.T) {
 		api.outsourceMu.Unlock()
 
 		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"))
+		wsWantWardenFrames(t, api, "m-other", wsStopFrame("ow-abc123"))
 		apiWantValue(t, "parked kills", any(float64(parked)), any(0))
-		apiWantValue(t, "armed kill target", any(armed.Target), any("m-server-self"))
+		// A fan-out is armed at NOBODY: naming one of the machines it happened to
+		// reach is the record that lets a single no_such_session disarm the retry.
+		apiWantValue(t, "armed kill target", any(armed.Target), any(""))
 		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
 			"status": "active",
 		}))
@@ -2802,7 +2819,6 @@ func wsWindDown(t *testing.T, status, desired, refocusOp string,
 	return api, h, d, owner, w
 }
 
-// wsVerbs is the ordered list of RPC verbs a warden's FIFO held.
 // wsStrings lifts a []string into the []any shape apiWantValue compares.
 func wsStrings(in []string) []any {
 	out := []any{}
@@ -2812,6 +2828,7 @@ func wsStrings(in []string) []any {
 	return out
 }
 
+// wsVerbs is the ordered list of RPC verbs a warden's FIFO held.
 func wsVerbs(t *testing.T, api *apiServer, machineID string) []any {
 	t.Helper()
 	out := []any{}

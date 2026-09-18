@@ -4361,10 +4361,6 @@ func apiTestFailWholeRowWrite(t *testing.T, d *DAL, id string) {
 	}
 }
 
-// apiTestFailWholeRowWriteAfter is apiTestFailWholeRowWrite for a handler that
-// writes the row MORE THAN ONCE: the first `skip` whole-row writes land and
-// every one after them fails. Deactivating a member writes the row itself and
-// then again inside the collect, and only the second one is the two-step trap.
 // apiTestReceiptOf is a row's five last_op* columns folded to the three a
 // reader compares, so a test can write the whole expected receipt as a literal.
 func apiTestReceiptOf(t *testing.T, d *DAL, id string) map[string]any {
@@ -4376,6 +4372,10 @@ func apiTestReceiptOf(t *testing.T, d *DAL, id string) map[string]any {
 	return map[string]any{"last_op": m.LastOp, "reason": m.LastOpReason, "at": m.LastOpAt}
 }
 
+// apiTestFailWholeRowWriteAfter is apiTestFailWholeRowWrite for a handler that
+// writes the row MORE THAN ONCE: the first `skip` whole-row writes land and
+// every one after them fails. Deactivating a member writes the row itself and
+// then again inside the collect, and only the second one is the two-step trap.
 func apiTestFailWholeRowWriteAfter(t *testing.T, d *DAL, id string, skip int) {
 	t.Helper()
 	for _, stmt := range []string{

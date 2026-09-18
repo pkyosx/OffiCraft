@@ -247,6 +247,10 @@ func TestDispatchShutdown(t *testing.T) {
 
 		api.dispatchShutdown("ow-no-such-row", "test")
 
+		// The kill itself still goes out — an unreadable row must not swallow the
+		// stop — and with no source able to name a machine it is the chain's
+		// fan-out that carries it.
+		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-no-such-row"))
 		apiWantValue(t, "the member producer's marker",
 			any(api.lifecycleState("ow-no-such-row").RobustStopPendingAt), any(float64(0)))
 	})
@@ -263,6 +267,7 @@ func TestDispatchShutdown(t *testing.T) {
 
 		api.dispatchShutdown("kip", "test")
 
+		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("kip"))
 		if got := api.lifecycleState("kip").RobustStopPendingAt; got <= 0 {
 			t.Fatalf("a staff shutdown must arm the marker, got %v", got)
 		}
