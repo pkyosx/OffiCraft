@@ -82,21 +82,33 @@ a green imply it:
   * A copy MORE than AFTER lines below (or BEFORE lines above) its field
     token. A long JSON schema whose `enum` is eight lines under its property
     key is outside the window and invisible.
-  * A copy with NO field token anywhere near it. `server/ocserverd/routes.go`
-    is the worked example: its route-table Summaries describe the reassign
-    verb as "to a staff member or a fresh outsource worker" without ever
-    naming `executor_kind`, so this guard does not see them. Pulling them in
-    would mean matching the bare English noun, which is the cry-wolf design
-    rejected above.
+  * A copy with NO field token anywhere near it. A sentence that describes the
+    reassign verb as "to a staff member or a fresh outsource worker" without
+    ever naming `executor_kind` is invisible here. Pulling those in would mean
+    matching the bare English noun, which is the cry-wolf design rejected
+    above.
 
-    🔴 DO NOT EDIT THE PUBLIC WIRE TEXT TO FEED THIS SCANNER. routes.go no
-    longer carries wire text at all: T-257 removed RouteSpec.Summary, the
-    second hand-written copy of every tool description, so the only copy is
-    x-mcp.description in spec/openapi.json — which IS scanned here (see the
-    json-enum-below-key control). A tool description that drifts to a retired
-    value is therefore caught directly, with no transitive hop to depend on,
-    and writing a description into routes.go is a compile error rather than a
-    second place this scanner would have to reach.
+    🔴 DO NOT EDIT THE PUBLIC WIRE TEXT TO FEED THIS SCANNER. The tool
+    descriptions agents read live in x-mcp.description in spec/openapi.json,
+    which IS scanned here (see the json-enum-below-key control), so a drift to
+    a retired value is caught in that file directly, with no transitive hop to
+    depend on. routes.go used to hold a second hand-written copy of each of
+    them, reachable only through a test that had already been deleted; T-257
+    removed the copy, and writing a description back into routes.go is now a
+    compile error rather than a second place this scanner would have to reach.
+
+    THE CONDITION THAT DIRECTNESS RESTS ON, stated so a green does not imply
+    more than it is: a line carrying the `kind-vocab-guard:legacy` marker is
+    exempt WHOLE, and some of those lines are themselves served wire text.
+    Measured at the time of writing: four such lines in spec/openapi.json —
+    three of them `create_task`'s own sentence (the operation summary, the
+    x-mcp.description and the legacy descriptor that repeats it) and one the
+    TaskCreateTargetDTO schema description. All four carry the retired word
+    because the sentence is quoting the value the server now answers with a
+    rename message, which is why they are waived. A retired value written into
+    one of those four lines for any OTHER reason is invisible here, and the
+    x-mcp.description and the descriptor that repeats it are served to agents
+    verbatim. Re-count rather than trusting this number.
   * A value assembled at runtime (string concatenation, strings.Join): there
     is no literal to read, so there is nothing to compare.
   * A file whose suffix is not in TEXT_SUFFIXES.
