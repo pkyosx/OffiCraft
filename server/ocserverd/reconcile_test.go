@@ -2152,6 +2152,83 @@ func TestReconcileOne(t *testing.T) {
 		}
 	})
 
+	t.Run("a decided STOP is enqueued on the running machine's warden and arms the receipt it now owes", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestPut(t, d, Member{ID: "m-away", Name: "Away", Kind: KindWarden})
+		reconcileTestOnline(t, api, "m-away", "")
+		reconcileTestPut(t, d, Member{
+			ID: "leaving", Name: "Leaving", Kind: KindStaff, RoleKey: "assistant",
+			DesiredState: DesiredStateOffline, DesiredMachineID: "m-away",
+		})
+		reconcileTestOnline(t, api, "leaving", "m-away")
+		prior := reconcileState{Phase: reconcilePhaseStopping, LastCommand: reconcileCmdNone, StopDeadline: reconcileTestNow - 1}
+		timed := api.reconcileCfg
+		timed.SoftOffboardGrace = 0
+		api.reconcileCfg = timed
+
+		got := api.reconcileOne(reconcileTestRow(t, d, "leaving"), prior, reconcileTestNow)
+
+		reconcileTestWantDecision(t, got, reconcileDecision{
+			Command: reconcileCmdStop, MemberID: "leaving",
+			Reason: "robust stop: grace elapsed, still online",
+			State: reconcileState{
+				Phase: reconcilePhaseStopping, LastCommand: reconcileCmdStop,
+				LastCommandAt: reconcileTestNow, StopDeadline: reconcileTestNow - 1,
+			},
+			StopKind: stopKindWinddown,
+		})
+		frame, _ := buildTargetFrame(reconcileCmdStop, "leaving")
+		queued := api.hub.DrainWardenCommands("m-away")
+		if !reflect.DeepEqual(queued, []wardenCmd{{Subject: "leaving", Frame: frame}}) {
+			t.Fatalf("queued = %+v", queued)
+		}
+
+		// The watch is the half this producer used to hand-write beside the
+		// enqueue and now shares with every other stop: let it lapse and the
+		// silence is on the row.
+		api.sweepLapsedReceipts(reconcileTestNow + receiptDeadlineSecs + 1)
+		after, err := d.GetMember("leaving")
+		if err != nil || after == nil {
+			t.Fatalf("GetMember: %v (%v)", after, err)
+		}
+		apiWantValue(t, "the receipt on the row", any(map[string]any{
+			"last_op": after.LastOp, "reason": after.LastOpReason,
+		}), any(map[string]any{
+			"last_op": "stop",
+			"reason": "receipt_missing: the stop was handed to machine \"m-away\" but no " +
+				"receipt came back within 90s — the op may or may not have run; this row's " +
+				"last state is UNKNOWN, not failed. Suspect the machine's link to the server " +
+				"(the receipt POST) before suspecting the op itself",
+		}))
+	})
+
+	t.Run("a STOP the warden refused arms nothing, so the lapse sweep has no silence to report", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestPut(t, d, Member{ID: "m-away", Name: "Away", Kind: KindWarden})
+		reconcileTestPut(t, d, Member{
+			ID: "leaving", Name: "Leaving", Kind: KindStaff, RoleKey: "assistant",
+			DesiredState: DesiredStateOffline, DesiredMachineID: "m-away",
+		})
+		reconcileTestOnline(t, api, "leaving", "m-away")
+		prior := reconcileState{Phase: reconcilePhaseStopping, LastCommand: reconcileCmdNone, StopDeadline: reconcileTestNow - 1}
+		timed := api.reconcileCfg
+		timed.SoftOffboardGrace = 0
+		api.reconcileCfg = timed
+
+		hubTestStderr(t, func() {
+			api.reconcileOne(reconcileTestRow(t, d, "leaving"), prior, reconcileTestNow)
+		})
+
+		api.sweepLapsedReceipts(reconcileTestNow + receiptDeadlineSecs + 1)
+		after, err := d.GetMember("leaving")
+		if err != nil || after == nil {
+			t.Fatalf("GetMember: %v (%v)", after, err)
+		}
+		apiWantValue(t, "the receipt on the row", any(map[string]any{
+			"last_op": after.LastOp, "reason": after.LastOpReason,
+		}), any(map[string]any{"last_op": "", "reason": ""}))
+	})
+
 	t.Run("a STOP the warden cannot take is downgraded to a no-op that keeps the prior state so the next tick re-dispatches", func(t *testing.T) {
 		api, d := reconcileTestServer(t)
 		reconcileTestPut(t, d, Member{ID: "m-away", Name: "Away", Kind: KindWarden})

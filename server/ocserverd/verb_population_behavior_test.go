@@ -1709,7 +1709,7 @@ func TestVerbPopulationParityFixtureLandsBothPopulationsOnOneWarden(t *testing.T
 	workerID := seedParityWorker(t, api, nil)
 
 	staffTarget := api.memberKillTargetWarden("m-parity-placement")
-	workerTarget := api.resolveWorkerKillTarget(workerID)
+	workerTarget := api.resolveWorkerKillTarget(workerID, "")
 
 	if staffTarget != parityMachineA {
 		t.Fatalf("staff kill frames are addressed to %q, but the matrix drains %q — "+

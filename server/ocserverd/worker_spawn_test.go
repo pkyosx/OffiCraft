@@ -1301,7 +1301,7 @@ func TestResolveWorkerKillTarget(t *testing.T) {
 		api.workerSpawnTarget["ow-abc123"] = "m-spawn"
 		api.outsourceMu.Unlock()
 
-		apiWantValue(t, "kill target", any(api.resolveWorkerKillTarget("ow-abc123")), any("m-spawn"))
+		apiWantValue(t, "kill target", any(api.resolveWorkerKillTarget("ow-abc123", "")), any("m-spawn"))
 	})
 
 	t.Run("with the spawn ledger empty the live SSE machine claim is used, and it loses to the ledger when both know", func(t *testing.T) {
@@ -1312,18 +1312,18 @@ func TestResolveWorkerKillTarget(t *testing.T) {
 		}
 		t.Cleanup(func() { api.hub.Disconnect(listener) })
 
-		apiWantValue(t, "kill target from the claim", any(api.resolveWorkerKillTarget("ow-abc123")), any("m-claim"))
+		apiWantValue(t, "kill target from the claim", any(api.resolveWorkerKillTarget("ow-abc123", "")), any("m-claim"))
 
 		api.outsourceMu.Lock()
 		api.workerSpawnTarget["ow-abc123"] = "m-spawn"
 		api.outsourceMu.Unlock()
-		apiWantValue(t, "kill target once the ledger knows", any(api.resolveWorkerKillTarget("ow-abc123")), any("m-spawn"))
+		apiWantValue(t, "kill target once the ledger knows", any(api.resolveWorkerKillTarget("ow-abc123", "")), any("m-spawn"))
 	})
 
 	t.Run("neither source knowing answers the empty string rather than guessing a machine", func(t *testing.T) {
 		api, _, _, _, _ := wsWorkerSpawnFixture(t, WorkerStatusActive)
 
-		apiWantValue(t, "kill target", any(api.resolveWorkerKillTarget("ow-abc123")), any(""))
+		apiWantValue(t, "kill target", any(api.resolveWorkerKillTarget("ow-abc123", "")), any(""))
 	})
 }
 
@@ -1460,7 +1460,7 @@ func TestStopWorkerSessionOrPark(t *testing.T) {
 		apiTestListen(t, api, ServerSelfHost)
 
 		api.outsourceMu.Lock()
-		api.stopWorkerSessionOrPark(ServerSelfHost, "ow-abc123", 1000)
+		api.stopWorkerSessionOrPark([]string{ServerSelfHost}, "ow-abc123", 1000)
 		armed := api.workerStopLanded["ow-abc123"]
 		parked := len(api.workerStopPending)
 		api.outsourceMu.Unlock()
@@ -1476,7 +1476,7 @@ func TestStopWorkerSessionOrPark(t *testing.T) {
 
 		api.outsourceMu.Lock()
 		api.workerStopLanded["ow-abc123"] = workerStopDispatch{Target: "m-old", At: 5}
-		api.stopWorkerSessionOrPark(ServerSelfHost, "ow-abc123", 1000)
+		api.stopWorkerSessionOrPark([]string{ServerSelfHost}, "ow-abc123", 1000)
 		armed := len(api.workerStopLanded)
 		parked := api.workerStopPending["ow-abc123"]
 		api.outsourceMu.Unlock()
@@ -1837,12 +1837,12 @@ func TestRespawnWorkerForOwnerOp(t *testing.T) {
 			"dispatched": true, "wound_down": false, "held_down": false,
 			"already_running": false, "pending": false,
 		}))
-		frames := wsDrainWardenFrames(t, api, ServerSelfHost)
-		if len(frames) != 1 {
-			t.Fatalf("want one start frame, got %d (%v)", len(frames), frames)
-		}
-		apiWantValue(t, "the dispatched verb",
-			any(frames[0]["data"].(map[string]any)["rpc"]), any("start"))
+		// The kill broadcast precedes the start since T-253: nothing named the
+		// machine this assigned worker might hold a residual session on, so the
+		// shared chain ends in a fleet-wide stop — a no-op on every warden that
+		// never hosted it — and only then does the start go to the pin.
+		apiWantValue(t, "the verbs dispatched",
+			any(wsVerbs(t, api, ServerSelfHost)), any([]any{"stop", "start"}))
 	})
 }
 
@@ -1862,11 +1862,14 @@ func TestRelocateWorkerNow(t *testing.T) {
 			"already_running": false, "pending": false,
 		}))
 		frames := wsDrainWardenFrames(t, api, ServerSelfHost)
-		if len(frames) != 1 {
-			t.Fatalf("want one relocate start frame, got %d (%v)", len(frames), frames)
+		if len(frames) != 2 {
+			t.Fatalf("want the kill broadcast then the relocate start, got %d (%v)", len(frames), frames)
 		}
-		apiWantValue(t, "dispatched verb", any(frames[0]["data"].(map[string]any)["rpc"]), any("start"))
-		apiWantValue(t, "dispatched subject", any(frames[0]["subject"]), any(worker.ID))
+		apiWantValue(t, "dispatched verbs", any([]any{
+			frames[0]["data"].(map[string]any)["rpc"], frames[1]["data"].(map[string]any)["rpc"],
+		}), any([]any{"stop", "start"}))
+		apiWantValue(t, "dispatched subjects",
+			any([]any{frames[0]["subject"], frames[1]["subject"]}), any([]any{worker.ID, worker.ID}))
 	})
 }
 
@@ -1952,7 +1955,7 @@ func TestOpenOwnerOpHandover(t *testing.T) {
 }
 
 func TestHandOverWorkerNow(t *testing.T) {
-	t.Run("an offline ACTIVE worker with no kill target still gets its start, so an owner verb never ends in silence", func(t *testing.T) {
+	t.Run("an offline ACTIVE worker with no named kill target still gets its start, so an owner verb never ends in silence", func(t *testing.T) {
 		api, h, _, owner, w := wsWorkerSpawnFixture(t, WorkerStatusActive)
 		apiTestListen(t, api, ServerSelfHost)
 		pinned := w
@@ -1967,10 +1970,12 @@ func TestHandOverWorkerNow(t *testing.T) {
 			"dispatched": true, "wound_down": false, "held_down": false,
 			"already_running": false, "pending": false,
 		}))
-		apiWantValue(t, "the verbs dispatched", any(wsVerbs(t, api, ServerSelfHost)), any([]any{"start"}))
+		apiWantValue(t, "the verbs dispatched", any(wsVerbs(t, api, ServerSelfHost)), any([]any{"stop", "start"}))
+		// No last_op receipt: the handover no longer defers here (the kill went out
+		// as a broadcast), so nothing stamped a placement-block explanation and the
+		// start that followed had none to clear.
 		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
 			"status": "active", "machine": "m-server-self",
-			"last_op": "start", "last_op_ok": nil, "last_op_at": apiAnyNumber,
 		}))
 	})
 
@@ -2158,9 +2163,25 @@ func TestStopWorkerSessionForHandover(t *testing.T) {
 		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"))
 	})
 
-	t.Run("an ACTIVE worker with no kill target defers: nothing is sent, the log says why and the row carries the deferral receipt", func(t *testing.T) {
+	t.Run("an ACTIVE worker no source can place is killed by broadcast rather than deferred", func(t *testing.T) {
 		api, h, _, owner, w := wsWorkerSpawnFixture(t, WorkerStatusActive)
 		apiTestListen(t, api, ServerSelfHost)
+		pinned := w
+		pinned.DesiredMachineID = ServerSelfHost
+
+		api.outsourceMu.Lock()
+		stopped := api.stopWorkerSessionForHandover(pinned, "relocate", 5000)
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "stopped", any(stopped), any(true))
+		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"))
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "active",
+		}))
+	})
+
+	t.Run("with nothing named AND no warden online the handover defers: nothing is sent, the log says why and the row carries the deferral receipt", func(t *testing.T) {
+		api, h, _, owner, w := wsWorkerSpawnFixture(t, WorkerStatusActive)
 		pinned := w
 		pinned.DesiredMachineID = ServerSelfHost
 		dashboard := apiTestListen(t, api, "")
@@ -2174,7 +2195,8 @@ func TestStopWorkerSessionForHandover(t *testing.T) {
 
 		apiWantValue(t, "stopped", any(stopped), any(false))
 		apiWantValue(t, "deferral logged", any(strings.Contains(logged,
-			"relocate deferred ow-abc123 (Contractor): no kill target (spawn memory empty, sse offline)")), any(true))
+			"relocate deferred ow-abc123 (Contractor): no kill target (spawn memory empty, "+
+				"sse offline, no last landing, no warden online)")), any(true))
 		wsWantWardenFrames(t, api, ServerSelfHost)
 		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
 			"status":  "active",
@@ -2186,7 +2208,7 @@ func TestStopWorkerSessionForHandover(t *testing.T) {
 		dashboard.wantFrames(apiTestWorkerDelta(2, "active", "server"))
 	})
 
-	t.Run("a worker that never claimed a session has nothing to kill, so an empty target sends nothing and still succeeds", func(t *testing.T) {
+	t.Run("a worker that never claimed a session still broadcasts its harmless kill and succeeds", func(t *testing.T) {
 		api, _, _, _, w := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
 		apiTestListen(t, api, ServerSelfHost)
 
@@ -2195,7 +2217,131 @@ func TestStopWorkerSessionForHandover(t *testing.T) {
 		api.outsourceMu.Unlock()
 
 		apiWantValue(t, "stopped", any(stopped), any(true))
+		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"))
+	})
+
+	// ── can a broadcast kill hit the REPLACEMENT? (T-253 乙) ─────────────────
+	//
+	// The worry is concrete: a handover is stop → start, and the stop now falls
+	// through to a fleet-wide broadcast when no source names a machine. If a new
+	// session were already up on one of those machines, the broadcast would find
+	// it — the frame is addressed by SESSION NAME, which the replacement reuses,
+	// so nothing about the frame could tell the two generations apart.
+	//
+	// The three subtests below measure the three ways it could happen rather
+	// than arguing about them.
+
+	t.Run("a live session claiming a machine is aimed at directly, so the fleet is never swept while a session exists to find", func(t *testing.T) {
+		api, _, _, _, w := wsWorkerSpawnFixture(t, WorkerStatusActive)
+		seedMachine(t, api, "m-new")
+		apiTestListen(t, api, "m-new")
+		apiTestListen(t, api, ServerSelfHost)
+		wsOnline(t, api, "ow-abc123", "m-new")
+
+		api.outsourceMu.Lock()
+		stopped := api.stopWorkerSessionForHandover(w, "relocate", 1000)
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "stopped", any(stopped), any(true))
+		// hub.MachineOf outranks the broadcast, so the kill is a single aimed
+		// frame. A session that is online and says where it is can never be
+		// reached by the fan-out.
+		wsWantWardenFrames(t, api, "m-new", wsStopFrame("ow-abc123"))
 		wsWantWardenFrames(t, api, ServerSelfHost)
+	})
+
+	t.Run("the broadcast cannot reach a replacement: the handover starts nothing, and the replacement's own start lands behind the kill and disarms every retry", func(t *testing.T) {
+		api, _, _, _, w := wsWorkerSpawnFixture(t, WorkerStatusActive)
+		w.DesiredState = DesiredStateOnline
+		w.DesiredMachineID = ServerSelfHost
+		seedMachine(t, api, "m-old")
+		apiTestListen(t, api, "m-old")
+		apiTestListen(t, api, ServerSelfHost)
+
+		// Nothing names a machine — no spawn memory, no live claim, no last
+		// landing — so this is the broadcast shape.
+		api.outsourceMu.Lock()
+		stopped := api.stopWorkerSessionForHandover(w, "relocate", 1000)
+		api.outsourceMu.Unlock()
+		apiWantValue(t, "stopped", any(stopped), any(true))
+
+		// THE REPLACEMENT IS STARTED AFTERWARDS, onto a machine the broadcast
+		// just reached, and claims it. This is the worst ordering available: the
+		// start is enqueued while the kill may still be sitting on the same FIFO.
+		api.outsourceMu.Lock()
+		started := api.notifyWorkerSpawn(w, 1100)
+		api.outsourceMu.Unlock()
+		apiWantValue(t, "the replacement start", any(started), any(true))
+		wsOnline(t, api, "ow-abc123", ServerSelfHost)
+
+		// The FIFO is ordered, so the warden executes the kill BEFORE the start it
+		// precedes — the replacement is created after the blade, never under it.
+		apiWantValue(t, "what the replacement's machine is told, in order",
+			any(wsVerbs(t, api, ServerSelfHost)), any([]any{"stop", "start"}))
+		apiWantValue(t, "what the other machine is told",
+			any(wsVerbs(t, api, "m-old")), any([]any{"stop"}))
+
+		// And every LATE re-fire path is disarmed by that start: nothing further
+		// is ever aimed at the live replacement.
+		api.outsourceMu.Lock()
+		api.retryPendingWorkerStop("ow-abc123", 5000)
+		api.retryUnlandedWorkerStop("ow-abc123", 5000)
+		parked := len(api.workerStopPending)
+		armed := len(api.workerStopLanded)
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "late kills at the replacement's machine",
+			any(wsVerbs(t, api, ServerSelfHost)), any([]any{}))
+		apiWantValue(t, "late kills elsewhere", any(wsVerbs(t, api, "m-old")), any([]any{}))
+		apiWantValue(t, "parked kills", any(float64(parked)), any(0))
+		apiWantValue(t, "armed kills", any(float64(armed)), any(0))
+	})
+
+	t.Run("a live session that does not say where it is IS reached by the broadcast — the one session a fan-out can find", func(t *testing.T) {
+		api, _, _, _, w := wsWorkerSpawnFixture(t, WorkerStatusActive)
+		seedMachine(t, api, "m-old")
+		apiTestListen(t, api, "m-old")
+		apiTestListen(t, api, ServerSelfHost)
+		// A connection with NO machine claim: online, but hub.MachineOf is blank,
+		// so the chain cannot aim and falls to the fan-out.
+		wsOnline(t, api, "ow-abc123", "")
+
+		api.outsourceMu.Lock()
+		stopped := api.stopWorkerSessionForHandover(w, "relocate", 1000)
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "stopped", any(stopped), any(true))
+		wsWantWardenFrames(t, api, "m-old", wsStopFrame("ow-abc123"))
+		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"))
+		// That session is the one the handover exists to end: the handover
+		// dispatches no start, so no replacement can be what this reaches.
+	})
+
+	t.Run("POSITIVE CONTROL: with no replacement start in between, the same late re-fire does aim another kill at the same machine", func(t *testing.T) {
+		api, _, _, _, w := wsWorkerSpawnFixture(t, WorkerStatusActive)
+		seedMachine(t, api, "m-old")
+		apiTestListen(t, api, "m-old")
+		apiTestListen(t, api, ServerSelfHost)
+
+		api.outsourceMu.Lock()
+		api.stopWorkerSessionForHandover(w, "relocate", 1000)
+		api.outsourceMu.Unlock()
+		wsVerbs(t, api, ServerSelfHost)
+		wsVerbs(t, api, "m-old")
+
+		// The session is STILL there, on the machine the broadcast's last landing
+		// armed — the shape the retry exists for.
+		armedTarget := ""
+		api.outsourceMu.Lock()
+		armedTarget = api.workerStopLanded["ow-abc123"].Target
+		api.outsourceMu.Unlock()
+		wsOnline(t, api, "ow-abc123", armedTarget)
+
+		api.outsourceMu.Lock()
+		api.retryUnlandedWorkerStop("ow-abc123", 5000)
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "the re-fired kill", any(wsVerbs(t, api, armedTarget)), any([]any{"stop"}))
 	})
 
 	t.Run("an unreachable kill target parks the kill rather than losing it, and nothing is started anywhere", func(t *testing.T) {
@@ -2239,9 +2385,28 @@ func TestStopWorkerNow(t *testing.T) {
 		}))
 	})
 
-	t.Run("with no kill target the stop is only loud: nothing is sent, nothing is parked and no receipt is written", func(t *testing.T) {
+	t.Run("with nothing naming the machine the kill is broadcast to every online warden", func(t *testing.T) {
 		api, h, _, owner, w := wsWorkerSpawnFixture(t, WorkerStatusActive)
 		apiTestListen(t, api, ServerSelfHost)
+		dashboard := apiTestListen(t, api, "")
+
+		api.outsourceMu.Lock()
+		api.stopWorkerNow(w)
+		parked := len(api.workerStopPending)
+		armed := api.workerStopLanded["ow-abc123"]
+		api.outsourceMu.Unlock()
+
+		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"))
+		apiWantValue(t, "parked kills", any(float64(parked)), any(0))
+		apiWantValue(t, "armed kill target", any(armed.Target), any("m-server-self"))
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "active",
+		}))
+		dashboard.wantFrames()
+	})
+
+	t.Run("with no warden online at all the stop is only loud: nothing is sent, nothing is parked and no receipt is written", func(t *testing.T) {
+		api, h, _, owner, w := wsWorkerSpawnFixture(t, WorkerStatusActive)
 		dashboard := apiTestListen(t, api, "")
 
 		api.outsourceMu.Lock()
@@ -2314,9 +2479,11 @@ func TestCollectWorkerHandover(t *testing.T) {
 		}))
 	})
 
+	// The two deferral arms below leave the fleet DARK on purpose: since T-253 a
+	// collect that can name no machine falls through to the broadcast, so "no
+	// warden is online" is now the only shape that still defers.
 	t.Run("a deferred collect on a session that is gone preserves the epoch while the shared FSM starts its replacement", func(t *testing.T) {
 		api, h, _, owner, w := wsWindDown(t, WorkerStatusActive, DesiredStateOnline, "relocate", 100, 0, 0, false)
-		apiTestListen(t, api, ServerSelfHost)
 
 		api.outsourceMu.Lock()
 		collected := api.collectWorkerHandover(&w, "fsm-recycle", triggerServer, 5000)
@@ -2337,7 +2504,6 @@ func TestCollectWorkerHandover(t *testing.T) {
 	t.Run("a deferred collect on a session that is still ONLINE rolls only the latch back, so the grace arm retries", func(t *testing.T) {
 		api, h, d, owner, w := wsWindDown(t, WorkerStatusActive, DesiredStateOnline, "relocate", 100, 0, 0, false)
 		wsOnline(t, api, "ow-abc123", "")
-		apiTestListen(t, api, ServerSelfHost)
 
 		api.outsourceMu.Lock()
 		collected := api.collectWorkerHandover(&w, "fsm-recycle", triggerServer, 5000)
@@ -2380,9 +2546,8 @@ func TestCollectWorkerStop(t *testing.T) {
 		}))
 	})
 
-	t.Run("a 停止 收口 with no kill target still latches the marker, and sends nothing", func(t *testing.T) {
+	t.Run("a 停止 收口 with no kill target and a dark fleet still latches the marker, and sends nothing", func(t *testing.T) {
 		api, h, _, owner, w := wsWindDown(t, WorkerStatusActive, DesiredStateOffline, "", 0, 200, 0, false)
-		apiTestListen(t, api, ServerSelfHost)
 
 		api.outsourceMu.Lock()
 		api.collectWorkerStop(w, "stop-session-gone", triggerServer)
