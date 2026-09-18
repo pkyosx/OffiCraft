@@ -919,6 +919,26 @@ func (s *apiServer) notifyWorkerSpawn(w OutsourceWorker, now float64) bool {
 		// machine that accepted and required MachineOf == that machine, so C
 		// disarmed instead), which is why widening the retry's liveness test
 		// without widening this disarm turned a wrong record into a wrong kill.
+		//
+		// 🔴 THE INVARIANT THIS RESTS ON, WRITTEN DOWN BECAUSE NOTHING ELSE STATES
+		// IT: a worker session comes into existence ONLY through this function.
+		// That is what makes "any landed START disarms the fan-out" safe — a
+		// replacement cannot appear without passing through here, so the arm is
+		// always dropped before there is anything new to shoot at. The case the
+		// rule deliberately does NOT cover is a session that comes back with no
+		// START at all (a residual reconnecting, or a warden reviving one on its
+		// own): nothing disarms the fan-out then, and the late re-send aims at it
+		// — which is correct TODAY, because such a session is precisely the
+		// 殘活體 the broadcast failed to kill.
+		//
+		// ⚠️ IF THAT INVARIANT EVER BREAKS — warden-side auto-revive, or any boot
+		// path that creates a session without calling notifyWorkerSpawn — THIS
+		// RULE HAS TO BE REDESIGNED, not patched: the two cases above become
+		// indistinguishable (a legitimate new session that never came through
+		// here looks exactly like a residual), the kill lands on the new one, and
+		// NO TEST IN THIS PACKAGE WILL GO RED, because every test that builds a
+		// replacement builds it through this function. Tie the arm to a session
+		// generation (the boot anchor) rather than to a machine if that day comes.
 		delete(s.workerStopLanded, w.ID)
 	}
 	// 🔴 A LANDED START BEGINS A NEW SESSION — drop the previous session's
