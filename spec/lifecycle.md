@@ -1283,7 +1283,7 @@ behaviour beyond the string templating.
 > code beats docs whenever the two disagree.** Each item below was decided once,
 > at freeze, and the decision is frozen with the spec; do not re-derive it. For a
 > discrepancy found *now*, the standing rule applies instead: stop and ask the
-> owner (`seeds/system_interaction.md` §4.1), because the reason code "won" here
+> owner (`seeds/system_interaction.md` §2.2.1「何時開卡」), because the reason code "won" here
 > was a freeze-time judgement about a shipped wire, not evidence that code is the
 > more trustworthy authority in general.
 

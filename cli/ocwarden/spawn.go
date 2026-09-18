@@ -274,11 +274,11 @@ func compactSettingsJSON(raw string) (string, error) {
 // channel (a durable local file), NEVER the command line (avoids leak / arg-length
 // limits).
 //
-// Single source of truth for the ordered boot procedure is now the office
-// global_context.md §5.1 (pre-fetched by the launcher into personaFile alongside the
-// persona / role doc). So this append-prompt no longer re-spells the boot steps
+// Single source of truth for the ordered boot procedure is now the runtime-specific
+// seeds/boot_sequence.md or seeds/boot_sequence_codex.md (pre-fetched by the launcher
+// into personaFile alongside the persona / role doc). So this append-prompt no longer re-spells the boot steps
 // (that second hardcode was the cross-language drift risk this step removes); it just
-// tells the fresh agent WHO it is and to LOAD personaFile and follow its 開機程序
+// tells the fresh agent WHO it is and to LOAD personaFile and follow its 啟動步驟（Boot Sequence）
 // section step by step. The full ordered SOP (report_waking → resume_summary →
 // ocagent listen, SSE-connect⟺ready) lives in personaFile, not here — loading
 // personaFile is THIS prompt's own instruction, not a boot-sequence step. base is

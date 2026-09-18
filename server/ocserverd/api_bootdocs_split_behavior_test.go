@@ -1,6 +1,6 @@
 package main
 
-// api_bootdocs_split_t3201_test.go — the read-only head / editable body split
+// api_bootdocs_split_behavior_test.go — the read-only head / editable body split
 // (T-3201, second package), and the one assertion this package exists to make:
 //
 //	RenderDocVars(head) + join + body  ==  the bytes the server sends TODAY
