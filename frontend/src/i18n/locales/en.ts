@@ -433,15 +433,14 @@ export const en: Dict = {
     // the line must not ask for a retry.
     closeBadRequestError:
       "The server could not understand this close request, and the task was not touched. The page and the server disagree about the wire — please report this.",
-    // Reassign (T-160e, owner + assistant only): hand the task to another staff
-    // member, or mint a fresh outsource worker on the spot (the same model /
-    // effort / machine knobs the task type's assignee carries). The task enters
-    // Reassigning and BOTH sides are notified; the new executor reports it back
-    // to in-progress themselves — the FE never flips it.
+    // Reassign: hand the task to another staff member, or to an outsource
+    // worker the server mints (the same model / effort / machine knobs the task
+    // type's assignee carries). The task enters Reassigning; the successor takes
+    // over with claim_task, and until then the predecessor keeps writing.
     reassign: "Reassign…",
     reassignTitleLabel: "Reassign",
     reassignBody:
-      "The task moves to Reassigning and both sides are notified to hand over. The new executor reports it back to in-progress once they have read the handover.",
+      "The task moves to Reassigning and both sides are notified to hand over. Until the new executor claims the task, the previous executor can still write the handover; after the claim, the new executor takes over.",
     reassignToMember: "To a member",
     reassignToOutsource: "To outsource",
     reassignPickMember: "Pick who takes it over",
@@ -2137,6 +2136,9 @@ export const en: Dict = {
     acceleratedGrace: "Accelerated stop deadline",
     acceleratedGraceSub:
       "How long an agent has once 加速停止 is pressed — and the same clock the second context threshold runs. The agent is told this exact instant (10–3600)",
+    reassignHandoverTimeout: "Reassign handover timeout",
+    reassignHandoverTimeoutSub:
+      "How long an outsource predecessor may go without updating the task after a reassign before it is reclaimed; every task update restarts the clock. Staff predecessors are not affected (60–86400)",
     wardenCredentialLifetime: "Machine credential lifetime",
     wardenCredentialLifetimeSub:
       "How long a machine's credential lives — this is the expiry stamped into it, and the number each machine renews against. Each machine replaces its own credential once that credential is two thirds of this old, spread out by up to an hour so the whole fleet does not renew at the same moment. A machine that misses the remaining third has to be re-installed by hand. Lowering it never shortens a credential already issued (86400–34560000)",

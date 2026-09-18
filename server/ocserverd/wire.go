@@ -95,6 +95,9 @@ type settingsDTO struct {
 	// It cannot put a clock on a soft cause — winddownKindFor still decides WHO
 	// is clocked, and this only says HOW LONG.
 	AcceleratedGraceSecs int `json:"accelerated_grace_secs"`
+	// ReassignHandoverTimeoutSecs is the handover-timeout reaper clock
+	// (task.reassign_handover_timeout_secs; T-248).
+	ReassignHandoverTimeoutSecs int `json:"reassign_handover_timeout_secs"`
 
 	// WardenCredentialLifetimeSecs is how long a MACHINE credential is meant to
 	// live (auth.warden_credential_lifetime_secs; T-fc53). It drives BOTH halves
@@ -2197,7 +2200,8 @@ type taskWriteReceiptDTO struct {
 	// verified caller and on reassign it is what the caller named, but on the
 	// others it is a stored value the caller may not know — and it is what
 	// decides whether the caller is still allowed to drive this task at all,
-	// since every task-driving write is gated on being the executor.
+	// since every task-driving write is gated on being the acting executor (the
+	// stamped predecessor instead while the task is under the reassign hold).
 	ExecutorID string `json:"executor_id"`
 	// ExecutorKind is whether that executor is staff or a contractor.
 	// Server-derived from the roster rather than sent, and it changes how a

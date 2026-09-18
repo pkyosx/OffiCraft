@@ -473,6 +473,17 @@ func TestReconcileConfigLive(t *testing.T) {
 	})
 }
 
+func TestReassignHandoverTimeout(t *testing.T) {
+	t.Run("thirty minutes ship as the reaper clock, and a patch takes effect on the next read", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+
+		apiWantValue(t, "reassign handover timeout", any(float64(api.reassignHandoverTimeout())), any(1800))
+
+		asPatchSettings(t, h, owner, `{"reassign_handover_timeout_secs":600}`)
+		apiWantValue(t, "reassign handover timeout", any(float64(api.reassignHandoverTimeout())), any(600))
+	})
+}
+
 func TestOutsourceParallelCap(t *testing.T) {
 	t.Run("three workers ship as the concurrency cap, and a patch takes effect on the next read", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)

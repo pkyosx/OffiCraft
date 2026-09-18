@@ -265,6 +265,9 @@ type apiServer struct {
 	// through the single recycleGraceFor pair. A second direct reader would be a
 	// second opinion about the same number, which is the split T-ed79 removed.
 	acceleratedGraceSecs int
+	// reassignHandoverTimeoutSecs is the live handover-timeout reaper clock
+	// (task.reassign_handover_timeout_secs), guarded by settingsMu.
+	reassignHandoverTimeoutSecs int
 	// wardenCredLifetimeSecs is the live machine-credential lifetime in seconds
 	// (auth.warden_credential_lifetime_secs; T-fc53), guarded by settingsMu like
 	// every other owner-adjustable number here.
@@ -630,6 +633,13 @@ func (s *apiServer) reconcileConfigLive() reconcileConfig {
 		cfg.RecycleGrace = float64(grace)
 	}
 	return cfg
+}
+
+// reassignHandoverTimeout returns the live handover-timeout reaper clock in seconds.
+func (s *apiServer) reassignHandoverTimeout() int {
+	s.settingsMu.RLock()
+	defer s.settingsMu.RUnlock()
+	return s.reassignHandoverTimeoutSecs
 }
 
 // outsourceParallelCap returns the live outsource-worker concurrency cap.

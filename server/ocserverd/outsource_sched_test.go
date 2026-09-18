@@ -379,48 +379,139 @@ func outsourceSchedTestQueuedTask(t *testing.T, d *DAL, id, typeKey string) Task
 }
 
 func TestRunOutsourceTick(t *testing.T) {
-	api, _, d, _ := newAPITestServer(t)
-	manual := TaskManual{
-		TypeKey:     "tm-scheduler",
-		DisplayName: "Scheduler manual",
-		Fields:      "[]",
-		Assignee:    `{"kind":"outsource","runtime":"codex","model":"gpt-5","effort":"high"}`,
-	}
-	dalPutManual(t, d, manual)
-	task := outsourceSchedTestQueuedTask(t, d, "T-scheduler", manual.TypeKey)
+	t.Run("a queued outsource task gets a freshly minted worker", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		manual := TaskManual{
+			TypeKey:     "tm-scheduler",
+			DisplayName: "Scheduler manual",
+			Fields:      "[]",
+			Assignee:    `{"kind":"outsource","runtime":"codex","model":"gpt-5","effort":"high"}`,
+		}
+		dalPutManual(t, d, manual)
+		task := outsourceSchedTestQueuedTask(t, d, "T-scheduler", manual.TypeKey)
 
-	api.runOutsourceTick(1700000100)
+		api.runOutsourceTick(1700000100)
 
-	gotTask, err := d.GetTask(task.ID)
-	if err != nil {
-		t.Fatalf("GetTask: %v", err)
-	}
-	if gotTask == nil {
-		t.Fatal("GetTask: no task")
-	}
-	if !strings.HasPrefix(gotTask.ExecutorID, "ow-") {
-		t.Fatalf("task executor_id = %q, want a minted outsource worker", gotTask.ExecutorID)
-	}
-	workers, err := d.ListOutsourceWorkers()
-	if err != nil {
-		t.Fatalf("ListOutsourceWorkers: %v", err)
-	}
-	if len(workers) != 1 {
-		t.Fatalf("worker count = %d, want 1", len(workers))
-	}
-	worker := workers[0]
-	if worker.ID != gotTask.ExecutorID || worker.TaskID != task.ID {
-		t.Fatalf("worker binding = (%q, %q), want (%q, %q)", worker.ID, worker.TaskID, gotTask.ExecutorID, task.ID)
-	}
-	if worker.Runtime != RuntimeCodex || worker.Model != "gpt-5" || worker.Effort != "high" {
-		t.Fatalf("worker launch spec = (%q, %q, %q), want (%q, %q, %q)", worker.Runtime, worker.Model, worker.Effort, RuntimeCodex, "gpt-5", "high")
-	}
-	if worker.Status != WorkerStatusAssigned || worker.DesiredState != DesiredStateOnline {
-		t.Fatalf("worker lifecycle = (%q, %q), want (%q, %q)", worker.Status, worker.DesiredState, WorkerStatusAssigned, DesiredStateOnline)
-	}
-	if worker.LastOp != reconcileCmdStart || !strings.HasPrefix(worker.LastOpReason, "no_machine_selected:") {
-		t.Fatalf("worker placement result = (%q, %q), want a no-machine fail-closed start stamp", worker.LastOp, worker.LastOpReason)
-	}
+		gotTask, err := d.GetTask(task.ID)
+		if err != nil {
+			t.Fatalf("GetTask: %v", err)
+		}
+		if gotTask == nil {
+			t.Fatal("GetTask: no task")
+		}
+		if !strings.HasPrefix(gotTask.ExecutorID, "ow-") {
+			t.Fatalf("task executor_id = %q, want a minted outsource worker", gotTask.ExecutorID)
+		}
+		workers, err := d.ListOutsourceWorkers()
+		if err != nil {
+			t.Fatalf("ListOutsourceWorkers: %v", err)
+		}
+		if len(workers) != 1 {
+			t.Fatalf("worker count = %d, want 1", len(workers))
+		}
+		worker := workers[0]
+		if worker.ID != gotTask.ExecutorID || worker.TaskID != task.ID {
+			t.Fatalf("worker binding = (%q, %q), want (%q, %q)", worker.ID, worker.TaskID, gotTask.ExecutorID, task.ID)
+		}
+		if worker.Runtime != RuntimeCodex || worker.Model != "gpt-5" || worker.Effort != "high" {
+			t.Fatalf("worker launch spec = (%q, %q, %q), want (%q, %q, %q)", worker.Runtime, worker.Model, worker.Effort, RuntimeCodex, "gpt-5", "high")
+		}
+		if worker.Status != WorkerStatusAssigned || worker.DesiredState != DesiredStateOnline {
+			t.Fatalf("worker lifecycle = (%q, %q), want (%q, %q)", worker.Status, worker.DesiredState, WorkerStatusAssigned, DesiredStateOnline)
+		}
+		if worker.LastOp != reconcileCmdStart || !strings.HasPrefix(worker.LastOpReason, "no_machine_selected:") {
+			t.Fatalf("worker placement result = (%q, %q), want a no-machine fail-closed start stamp", worker.LastOp, worker.LastOpReason)
+		}
+	})
+
+	t.Run("past the handover timeout an outsource predecessor is released and loses the hold", func(t *testing.T) {
+		f := newHandoverFixture(t)
+		f.must(t, "POST", "/api/tasks", f.owner,
+			`{"title":"Contracted out","target":{"kind":"outsource","model":"sonnet","effort":"high"}}`)
+		_, task := apiJSON(t, f.h, "GET", "/api/tasks/T-3", f.owner, "")
+		worker, _ := task["executor_id"].(string)
+		if !strings.HasPrefix(worker, "ow-") {
+			t.Fatalf("fixture: want a bound worker on T-3, got %v", task)
+		}
+		pred := apiTestAgentToken(t, f.api, worker, "")
+		f.must(t, "POST", "/api/tasks/T-3/plan", pred, `{"steps":[{"name":"a","dod":"d"},{"name":"b","dod":"d"}]}`)
+		f.must(t, "POST", "/api/tasks/T-3/reassign", f.owner, `{"target":{"kind":"staff","member_id":"rex"}}`)
+		_, task = apiJSON(t, f.h, "GET", "/api/tasks/T-3", f.owner, "")
+		steps := task["steps"].([]any)
+		stepA, _ := steps[0].(map[string]any)["id"].(string)
+
+		f.api.runOutsourceTick(nowSecs() + 1801)
+
+		_, member := apiJSON(t, f.h, "GET", "/api/members/"+worker, f.owner, "")
+		if member["status"] != "released" || member["roster_status"] != "removed" {
+			t.Fatalf("the reaped predecessor: want released/removed, got %v/%v", member["status"], member["roster_status"])
+		}
+		for _, door := range []struct{ method, path, body string }{
+			{"POST", "/api/tasks/T-3/priority", `{"priority":"high"}`},
+			{"POST", "/api/tasks/T-3/steps/" + stepA + "/note", `{"note":"late"}`},
+			{"POST", "/api/tasks/T-3/steps/" + stepA + "/status", `{"status":"done"}`},
+			{"POST", "/api/tasks/T-3/artifact", `{"kind":"link","name":"x","url":"https://example.com/x"}`},
+			{"POST", "/api/tasks/T-3/claim", ""},
+		} {
+			for who, token := range map[string]string{"the reaped predecessor": pred, "the successor": f.successor} {
+				if door.path == "/api/tasks/T-3/claim" && who == "the successor" {
+					continue
+				}
+				status, data := apiJSON(t, f.h, door.method, door.path, token, door.body)
+				if status != 403 {
+					t.Fatalf("%s %s by %s: want 403, got %d %v", door.method, door.path, who, status, data)
+				}
+				apiWantError(t, data, "forbidden", "caller is not the task's executor")
+			}
+		}
+		f.must(t, "POST", "/api/tasks/T-3/claim", f.successor, "")
+		f.must(t, "POST", "/api/tasks/T-3/priority", f.successor, `{"priority":"high"}`)
+	})
+
+	t.Run("the handover timeout follows the station setting", func(t *testing.T) {
+		f := newHandoverFixture(t)
+		f.must(t, "PATCH", "/api/settings", f.owner, `{"reassign_handover_timeout_secs":120}`)
+		f.must(t, "POST", "/api/tasks", f.owner,
+			`{"title":"Contracted out","target":{"kind":"outsource","model":"sonnet","effort":"high"}}`)
+		_, task := apiJSON(t, f.h, "GET", "/api/tasks/T-3", f.owner, "")
+		worker, _ := task["executor_id"].(string)
+		f.must(t, "POST", "/api/tasks/T-3/reassign", f.owner, `{"target":{"kind":"staff","member_id":"rex"}}`)
+		row, err := f.api.dal.GetTask("T-3")
+		if err != nil || row == nil {
+			t.Fatalf("GetTask: %v", err)
+		}
+		state := func() string {
+			_, member := apiJSON(t, f.h, "GET", "/api/members/"+worker, f.owner, "")
+			return member["status"].(string) + "/" + member["roster_status"].(string)
+		}
+
+		f.api.runOutsourceTick(row.UpdatedTS + 119)
+		if got := state(); got != "assigned/active" {
+			t.Fatalf("at 119s the predecessor must stay live, got %s", got)
+		}
+		f.api.runOutsourceTick(row.UpdatedTS + 120)
+		if got := state(); got != "released/removed" {
+			t.Fatalf("at 120s the predecessor must be reclaimed, got %s", got)
+		}
+	})
+
+	t.Run("before the handover timeout an outsource predecessor keeps the hold", func(t *testing.T) {
+		f := newHandoverFixture(t)
+		f.must(t, "POST", "/api/tasks", f.owner,
+			`{"title":"Contracted out","target":{"kind":"outsource","model":"sonnet","effort":"high"}}`)
+		_, task := apiJSON(t, f.h, "GET", "/api/tasks/T-3", f.owner, "")
+		worker, _ := task["executor_id"].(string)
+		pred := apiTestAgentToken(t, f.api, worker, "")
+		f.must(t, "POST", "/api/tasks/T-3/reassign", f.owner, `{"target":{"kind":"staff","member_id":"rex"}}`)
+
+		f.api.runOutsourceTick(nowSecs() + 1740)
+
+		_, member := apiJSON(t, f.h, "GET", "/api/members/"+worker, f.owner, "")
+		if member["status"] != "assigned" || member["roster_status"] != "active" {
+			t.Fatalf("the predecessor must stay live, got %v/%v", member["status"], member["roster_status"])
+		}
+		f.must(t, "POST", "/api/tasks/T-3/priority", pred, `{"priority":"high"}`)
+	})
 }
 
 func TestOutsourceTickNow(t *testing.T) {

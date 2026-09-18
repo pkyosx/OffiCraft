@@ -1227,6 +1227,65 @@ func TestCallerMayDriveTask(t *testing.T) {
 			}
 		})
 	})
+
+	t.Run("under the reassign hold the predecessor drives the task and the successor does not", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		if err := d.PutMember(Member{ID: "rex", Name: "Rex", Kind: KindStaff, RoleKey: "engineer", RosterStatus: RosterStatusActive}); err != nil {
+			t.Fatalf("PutMember: %v", err)
+		}
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+		apiJSON(t, h, "POST", "/api/tasks/T-1/reassign", owner, `{"target":{"kind":"staff","member_id":"rex"}}`)
+		held, err := api.resolveTask("T-1")
+		if err != nil {
+			t.Fatalf("resolveTask: %v", err)
+		}
+		released := *held
+		released.Lock = TaskLockNone
+		for _, c := range []struct {
+			who  string
+			task Task
+			want bool
+		}{
+			{"kip", *held, true},
+			{"rex", *held, false},
+			{"kip", released, false},
+			{"rex", released, true},
+		} {
+			taskTestUnderCaller(t, api, d, apiTestAgentToken(t, api, c.who, ""), func(r *http.Request) {
+				if got := api.callerMayDriveTask(r, c.task); got != c.want {
+					t.Fatalf("%s on lock %q: want %v, got %v", c.who, c.task.Lock, c.want, got)
+				}
+			})
+		}
+	})
+}
+
+func TestPredecessorHoldsTask(t *testing.T) {
+	t.Run("a failed roster lookup does not grant the hold", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		if status, data := apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`); status != 200 {
+			t.Fatalf("create: %d %v", status, data)
+		}
+		if status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/reassign", owner, `{"target":{"kind":"staff","member_id":"mira"}}`); status != 200 || data["lock"] != "reassigning" {
+			t.Fatalf("reassign: %d %v", status, data)
+		}
+		task, err := api.resolveTask("T-1")
+		if err != nil || task.ReassignedFrom != "kip" {
+			t.Fatalf("resolveTask: %v %+v", err, task)
+		}
+		if !api.predecessorHoldsTask(*task) {
+			t.Fatal("fixture: kip must hold the task before the roster read breaks")
+		}
+		if _, err := d.wdb.Exec(`ALTER TABLE member RENAME TO member_unreadable`); err != nil {
+			t.Fatalf("break the roster read: %v", err)
+		}
+		if _, err := d.GetMember("kip"); err == nil {
+			t.Fatal("fixture: the roster read must fail")
+		}
+		if api.predecessorHoldsTask(*task) {
+			t.Fatal("a failed roster lookup must not grant the hold")
+		}
+	})
 }
 
 func TestCallerMayEditTaskText(t *testing.T) {
@@ -1267,6 +1326,45 @@ func TestCallerMayEditTaskText(t *testing.T) {
 		taskTestUnderCaller(t, api, d, agent, func(r *http.Request) {
 			if api.callerMayEditTaskText(r, bound) {
 				t.Fatal("a bound task closes the creator's door")
+			}
+		})
+	})
+
+	t.Run("the creator is refused while a predecessor holds a task reassigned to an unbound slot", func(t *testing.T) {
+		api, h, d, _ := newAPITestServer(t)
+		if err := d.PutMember(Member{ID: "rex", Name: "Rex", Kind: KindStaff, RoleKey: "engineer", RosterStatus: RosterStatusActive}); err != nil {
+			t.Fatalf("PutMember: %v", err)
+		}
+		agent := apiTestAgentToken(t, api, "kip", "")
+		apiJSON(t, h, "POST", "/api/tasks", agent, `{"title":"Contracted out","target":{"kind":"outsource"}}`)
+		task, err := api.resolveTask("T-1")
+		if err != nil {
+			t.Fatalf("resolveTask: %v", err)
+		}
+		held := *task
+		held.ExecutorID = ""
+		held.Lock = TaskLockReassigning
+		held.ReassignedFrom = "rex"
+		held.ReassignedFromKind = TaskExecutorStaff
+		if err := d.PutTask(held); err != nil {
+			t.Fatalf("PutTask: %v", err)
+		}
+		taskTestUnderCaller(t, api, d, agent, func(r *http.Request) {
+			if api.callerMayEditTaskText(r, held) {
+				t.Fatal("the predecessor holds the task, so the creator's window is shut")
+			}
+		})
+		taskTestUnderCaller(t, api, d, apiTestAgentToken(t, api, "rex", ""), func(r *http.Request) {
+			if !api.callerMayEditTaskText(r, held) {
+				t.Fatal("the predecessor must be admitted")
+			}
+		})
+		if err := d.PutMember(Member{ID: "rex", Name: "Rex", Kind: KindStaff, RoleKey: "engineer", RosterStatus: RosterStatusRemoved}); err != nil {
+			t.Fatalf("PutMember: %v", err)
+		}
+		taskTestUnderCaller(t, api, d, agent, func(r *http.Request) {
+			if api.callerMayEditTaskText(r, held) {
+				t.Fatal("the hold stays on after the predecessor left, so the creator's window stays shut")
 			}
 		})
 	})
@@ -1314,92 +1412,6 @@ func TestCallerMayEditTaskText(t *testing.T) {
 				t.Fatal("owner scope still passes on the drive rule alone")
 			}
 		})
-	})
-}
-
-func TestCallerMayWriteHandover(t *testing.T) {
-	handedOver := func(t *testing.T) (*apiServer, http.Handler, *DAL, string) {
-		t.Helper()
-		api, h, d, owner := newAPITestServer(t)
-		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
-		apiJSON(t, h, "POST", "/api/tasks/T-1/reassign", owner,
-			`{"target":{"kind":"staff","member_id":"mira"}}`)
-		return api, h, d, owner
-	}
-
-	t.Run("the predecessor stamped on a task under the handover lock may still write it", func(t *testing.T) {
-		api, _, d, _ := handedOver(t)
-		task, err := api.resolveTask("T-1")
-		if err != nil {
-			t.Fatalf("resolveTask: %v", err)
-		}
-		if task.Lock != TaskLockReassigning || task.ReassignedFrom != "kip" {
-			t.Fatalf("want the reassigning lock stamped from kip, got lock %q from %q",
-				task.Lock, task.ReassignedFrom)
-		}
-		taskTestUnderCaller(t, api, d, apiTestAgentToken(t, api, "kip", ""), func(r *http.Request) {
-			if !api.callerMayWriteHandover(r, *task) {
-				t.Fatal("the predecessor must keep the pen for the handover record")
-			}
-			if api.callerMayDriveTask(r, *task) {
-				t.Fatal("the exception must not widen the drive guard")
-			}
-		})
-	})
-
-	t.Run("claiming the task closes the predecessor's window", func(t *testing.T) {
-		api, h, d, _ := handedOver(t)
-		successor := apiTestAgentToken(t, api, "mira", "")
-		if code, data := apiJSON(t, h, "POST", "/api/tasks/T-1/claim", successor, ""); code != 200 {
-			t.Fatalf("claim: %d %v", code, data)
-		}
-		task, err := api.resolveTask("T-1")
-		if err != nil {
-			t.Fatalf("resolveTask: %v", err)
-		}
-		if task.Lock != "" || task.ReassignedFrom != "kip" {
-			t.Fatalf("want the lock cleared with the predecessor still stamped, got lock %q from %q",
-				task.Lock, task.ReassignedFrom)
-		}
-		taskTestUnderCaller(t, api, d, apiTestAgentToken(t, api, "kip", ""), func(r *http.Request) {
-			if api.callerMayWriteHandover(r, *task) {
-				t.Fatal("the window closes with the lock")
-			}
-		})
-	})
-
-	t.Run("a third party under the same lock is refused", func(t *testing.T) {
-		api, _, d, _ := handedOver(t)
-		if err := d.PutMember(Member{
-			ID: "rex", Name: "Rex", Kind: KindStaff, RoleKey: "engineer",
-			RosterStatus: RosterStatusActive,
-		}); err != nil {
-			t.Fatalf("PutMember: %v", err)
-		}
-		task, err := api.resolveTask("T-1")
-		if err != nil {
-			t.Fatalf("resolveTask: %v", err)
-		}
-		taskTestUnderCaller(t, api, d, apiTestAgentToken(t, api, "rex", ""), func(r *http.Request) {
-			if api.callerMayWriteHandover(r, *task) {
-				t.Fatal("the exception names one predecessor, not everybody")
-			}
-		})
-	})
-
-	t.Run("the successor and owner scope pass on the drive rule alone", func(t *testing.T) {
-		api, _, d, owner := handedOver(t)
-		task, err := api.resolveTask("T-1")
-		if err != nil {
-			t.Fatalf("resolveTask: %v", err)
-		}
-		for _, token := range []string{owner, apiTestAgentToken(t, api, "mira", "")} {
-			taskTestUnderCaller(t, api, d, token, func(r *http.Request) {
-				if !api.callerMayWriteHandover(r, *task) {
-					t.Fatalf("%s must pass", currentActor(r))
-				}
-			})
-		}
 	})
 }
 
@@ -3550,7 +3562,7 @@ func TestHandleReassignTaskApiTasksTaskIdReassignPost(t *testing.T) {
 				"body": "[T-1] 此任務已轉派給新的接手人。\n\n你收到這份說明，代表目前的任務需要交接給其他執行者。請停止推進並完成必要收尾，確保接手人能從遠端取得目前成果與完整脈絡：\n" +
 					"\n" +
 					"* 保存成果：將需要保留的 git commit 推送到 remote，需要保留的檔案以 `ocagent upload` 上傳後，把附件 id 寫進步驟備註，不要留下只有本機能取得的成果。\n" +
-					"* 寫入交接資訊：將目前進度、進行中的事項、需要注意的風險與下一步寫進任務的步驟備註。若仍有等待 Owner 決策或操作的事項，也要一併說明；轉派後原本開出的 Reply Card 會自動過期，接手人需要依交接資訊重新開卡。\n" +
+					"* 寫入交接資訊：將目前進度、進行中的事項、需要注意的風險與下一步寫進任務的步驟備註；接手人認領之前都可以補寫，認領之後就無法再寫入。轉派前開出的 Reply Card 已自動過期；若仍有等待 Owner 決策或操作的事項，寫進步驟備註，由接手人認領後重新開卡。交接期間不要再開綁定這張任務的 Reply Card。\n" +
 					"* 處理 sub-agent：若有正在執行的 sub-agent，要求其收尾並將結果寫回對應 task step。\n" +
 					"\n" +
 					"完成以上事項後即完成交接。若接手人已在線上並主動聯繫，再補充確認；否則不需要等待或主動尋找接手人。",
@@ -3562,7 +3574,8 @@ func TestHandleReassignTaskApiTasksTaskIdReassignPost(t *testing.T) {
 					"你收到這份說明，代表有一張任務需要由你接手。完成以下準備後，認領並開始執行：\n\n" +
 					"* **讀取任務**：使用 `get_task` 讀取任務內容；已有步驟時，一併確認目前步驟的 DoD，並對 `note_size_chars` 非 0 的步驟使用 `get_task_step` 讀取完整備註。若尚未讀過對應的任務手冊，使用 `get_task_manual` 讀取。\n" +
 					"* **確認交接**：若有 `reassigned_from`，先讀取 `handover_note`，再使用 `post_chat` 向前任確認目前進度與進行中的事項。最多等待 5 分鐘；前任已離線、無法聯繫或逾時未回覆時，直接以任務上的交接資訊繼續接手，不要停在這裡等待。\n" +
-					"* **認領並執行**：完成準備後，呼叫 `claim_task` 認領任務，再依任務目前狀態繼續規劃或執行。",
+					"* **認領前只能讀**：呼叫 `claim_task` 之前，你只能讀取這張任務；前任在你認領前仍可寫入交接資訊。\n" +
+					"* **認領並執行**：完成準備後，呼叫 `claim_task` 認領任務，再依任務目前狀態繼續規劃或執行。轉派前開出的 Reply Card 已自動過期，交接資訊中仍需要 Owner 決定的事項，由你重新開卡。",
 			},
 		})
 	})
@@ -3634,9 +3647,232 @@ func TestHandleReassignTaskApiTasksTaskIdReassignPost(t *testing.T) {
 					"你收到這份說明，代表有一張任務需要由你接手。完成以下準備後，認領並開始執行：\n\n" +
 					"* **讀取任務**：使用 `get_task` 讀取任務內容；已有步驟時，一併確認目前步驟的 DoD，並對 `note_size_chars` 非 0 的步驟使用 `get_task_step` 讀取完整備註。若尚未讀過對應的任務手冊，使用 `get_task_manual` 讀取。\n" +
 					"* **確認交接**：若有 `reassigned_from`，先讀取 `handover_note`，再使用 `post_chat` 向前任確認目前進度與進行中的事項。最多等待 5 分鐘；前任已離線、無法聯繫或逾時未回覆時，直接以任務上的交接資訊繼續接手，不要停在這裡等待。\n" +
-					"* **認領並執行**：完成準備後，呼叫 `claim_task` 認領任務，再依任務目前狀態繼續規劃或執行。",
+					"* **認領前只能讀**：呼叫 `claim_task` 之前，你只能讀取這張任務；前任在你認領前仍可寫入交接資訊。\n" +
+					"* **認領並執行**：完成準備後，呼叫 `claim_task` 認領任務，再依任務目前狀態繼續規劃或執行。轉派前開出的 Reply Card 已自動過期，交接資訊中仍需要 Owner 決定的事項，由你重新開卡。",
 			},
 		})
+	})
+
+	t.Run("under the hold the predecessor re-reassigning stays the stamped predecessor and the displaced successor is not told", func(t *testing.T) {
+		f := newHandoverFixture(t)
+		f.must(t, "POST", "/api/tasks/T-1/reassign", f.predecessor,
+			`{"target":{"kind":"outsource","model":"sonnet","effort":"high"}}`)
+
+		want := handoverUntouched("reassigning")
+		want.ExecutorKind, want.ExecutorID = "outsource", "ow-(minted)"
+		if got := f.view(t); !reflect.DeepEqual(got, want) {
+			t.Fatalf("T-1 after the re-reassign\ngot  %#v\nwant %#v", got, want)
+		}
+		status, data := apiJSON(t, f.h, "POST", "/api/tasks/T-1/priority", f.successor, `{"priority":"high"}`)
+		if status != 403 {
+			t.Fatalf("displaced successor: want 403, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "forbidden", "caller is not the task's executor")
+		f.must(t, "POST", "/api/tasks/T-1/priority", f.predecessor, `{"priority":"high"}`)
+
+		if got := len(t91ChatTo(t, f.api, "rex")); got != 1 {
+			t.Fatalf("the displaced successor keeps only its first takeover notice, got %d rows", got)
+		}
+		kip := t91ChatTo(t, f.api, "kip")
+		if len(kip) != 2 || !strings.HasPrefix(kip[1].Body, "[T-1] 此任務已轉派給新的接手人。") || kip[1].Sender != "system" {
+			t.Fatalf("the predecessor must get the second predecessor notice, got %+v", kip)
+		}
+	})
+
+	t.Run("under the hold an admin re-reassigning dismisses a bound outsource successor and keeps the predecessor stamped", func(t *testing.T) {
+		f := newHandoverFixture(t)
+		admin := apiTestAgentToken(t, f.api, "mira", "")
+		f.must(t, "POST", "/api/tasks/T-1/reassign", f.owner,
+			`{"target":{"kind":"outsource","model":"sonnet","effort":"high"}}`)
+		_, task := apiJSON(t, f.h, "GET", "/api/tasks/T-1", f.owner, "")
+		worker, _ := task["executor_id"].(string)
+		if !strings.HasPrefix(worker, "ow-") {
+			t.Fatalf("fixture: the outsource successor must be bound, got %v", task)
+		}
+
+		f.must(t, "POST", "/api/tasks/T-1/reassign", admin, `{"target":{"kind":"staff","member_id":"rex"}}`)
+
+		if got, want := f.view(t), handoverUntouched("reassigning"); !reflect.DeepEqual(got, want) {
+			t.Fatalf("T-1 after the admin re-reassign\ngot  %#v\nwant %#v", got, want)
+		}
+		_, member := apiJSON(t, f.h, "GET", "/api/members/"+worker, f.owner, "")
+		if member["status"] != "released" || member["roster_status"] != "removed" {
+			t.Fatalf("the displaced worker must be dismissed, got status %v roster %v",
+				member["status"], member["roster_status"])
+		}
+		if got := t91ChatTo(t, f.api, worker); len(got) != 0 {
+			t.Fatalf("the displaced worker must not be sent the predecessor notice, got %+v", got)
+		}
+		rex := t91ChatTo(t, f.api, "rex")
+		if len(rex) != 2 || !strings.HasPrefix(rex[1].Body, "[T-1] 你接手了這張任務，你的前任是 Kip（kip）。\n\n") {
+			t.Fatalf("the new successor's takeover notice must name the original predecessor, got %+v", rex)
+		}
+		f.must(t, "POST", "/api/tasks/T-1/priority", f.predecessor, `{"priority":"high"}`)
+	})
+
+	t.Run("under the hold reassigning back to the predecessor cancels the handover, keeps its step progress and sends no notices", func(t *testing.T) {
+		f := newHandoverFixture(t)
+		admin := apiTestAgentToken(t, f.api, "mira", "")
+		f.must(t, "POST", "/api/tasks/T-1/steps/"+f.stepOne+"/status", f.predecessor, `{"status":"in_progress"}`)
+		kipBefore, rexBefore := len(t91ChatTo(t, f.api, "kip")), len(t91ChatTo(t, f.api, "rex"))
+
+		status, data := apiJSON(t, f.h, "POST", "/api/tasks/T-1/reassign", f.predecessor, `{"target":{"kind":"staff","member_id":"kip"}}`)
+		if status != 403 {
+			t.Fatalf("the predecessor itself: want 403, got %d %v", status, data)
+		}
+		apiWantError(t, data, "forbidden", "only the owner or an admin agent may reassign a task to another member; 發包 to an outsource worker instead")
+
+		status, data = apiJSON(t, f.h, "POST", "/api/tasks/T-1/reassign", admin, `{"target":{"kind":"staff","member_id":"kip"}}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"task_id": "T-1", "title": "Ship it", "status": "in_progress",
+			"executor_id": "kip", "executor_kind": "staff", "lock": "",
+			"closed_ts": nil, "duplicate_of": "", "deps": []any{},
+			"progress_done": 0, "progress_total": 2, "artifact_count": 1,
+			"description_size_chars": 12, "description_sha256": apiAnyString,
+		})
+		want := handoverUntouched("")
+		want.ExecutorID = "kip"
+		want.Status = "in_progress"
+		want.Steps = []string{"one:in_progress", "two:pending"}
+		if got := f.view(t); !reflect.DeepEqual(got, want) {
+			t.Fatalf("T-1 after the reassign back\ngot  %#v\nwant %#v", got, want)
+		}
+		if k, r := len(t91ChatTo(t, f.api, "kip")), len(t91ChatTo(t, f.api, "rex")); k != kipBefore || r != rexBefore {
+			t.Fatalf("no notices: kip %d→%d, rex %d→%d", kipBefore, k, rexBefore, r)
+		}
+		f.must(t, "POST", "/api/tasks/T-1/priority", f.predecessor, `{"priority":"high"}`)
+		status, data = apiJSON(t, f.h, "POST", "/api/tasks/T-1/priority", f.successor, `{"priority":"low"}`)
+		if status != 403 {
+			t.Fatalf("the displaced successor: want 403, got %d %v", status, data)
+		}
+		apiWantError(t, data, "forbidden", "caller is not the task's executor")
+		status, data = apiJSON(t, f.h, "POST", "/api/tasks/T-1/claim", f.predecessor, "")
+		if status != 409 {
+			t.Fatalf("nothing is left to claim: want 409, got %d %v", status, data)
+		}
+		apiWantError(t, data, "conflict", "task 'T-1' is not awaiting takeover (no reassigning lock)")
+	})
+
+	t.Run("under the hold reassigning back to the predecessor dismisses a bound outsource successor", func(t *testing.T) {
+		f := newHandoverFixture(t)
+		admin := apiTestAgentToken(t, f.api, "mira", "")
+		f.must(t, "POST", "/api/tasks/T-1/reassign", f.owner,
+			`{"target":{"kind":"outsource","model":"sonnet","effort":"high"}}`)
+		_, task := apiJSON(t, f.h, "GET", "/api/tasks/T-1", f.owner, "")
+		worker, _ := task["executor_id"].(string)
+		if !strings.HasPrefix(worker, "ow-") {
+			t.Fatalf("fixture: the outsource successor must be bound, got %v", task)
+		}
+		kipBefore := len(t91ChatTo(t, f.api, "kip"))
+
+		f.must(t, "POST", "/api/tasks/T-1/reassign", admin, `{"target":{"kind":"staff","member_id":"kip"}}`)
+
+		want := handoverUntouched("")
+		want.ExecutorID = "kip"
+		if got := f.view(t); !reflect.DeepEqual(got, want) {
+			t.Fatalf("T-1 after the reassign back\ngot  %#v\nwant %#v", got, want)
+		}
+		_, member := apiJSON(t, f.h, "GET", "/api/members/"+worker, f.owner, "")
+		if member["status"] != "released" || member["roster_status"] != "removed" {
+			t.Fatalf("the displaced worker must be dismissed, got %v/%v", member["status"], member["roster_status"])
+		}
+		if got := len(t91ChatTo(t, f.api, worker)); got != 0 {
+			t.Fatalf("the displaced worker gets no notice, got %d rows", got)
+		}
+		if got := len(t91ChatTo(t, f.api, "kip")); got != kipBefore {
+			t.Fatalf("the predecessor gets no notice: %d → %d", kipBefore, got)
+		}
+	})
+
+	t.Run("under the hold an admin re-reassigning to a third member keeps the handover", func(t *testing.T) {
+		f := newHandoverFixture(t)
+		admin := apiTestAgentToken(t, f.api, "mira", "")
+		rexBefore := len(t91ChatTo(t, f.api, "rex"))
+
+		f.must(t, "POST", "/api/tasks/T-1/reassign", admin, `{"target":{"kind":"staff","member_id":"zed"}}`)
+
+		want := handoverUntouched("reassigning")
+		want.ExecutorID = "zed"
+		if got := f.view(t); !reflect.DeepEqual(got, want) {
+			t.Fatalf("T-1 after the re-reassign\ngot  %#v\nwant %#v", got, want)
+		}
+		kip := t91ChatTo(t, f.api, "kip")
+		if len(kip) != 2 || !strings.HasPrefix(kip[1].Body, "[T-1] 此任務已轉派給新的接手人。") {
+			t.Fatalf("the predecessor gets a second predecessor notice, got %+v", kip)
+		}
+		zed := t91ChatTo(t, f.api, "zed")
+		if len(zed) != 1 || !strings.HasPrefix(zed[0].Body, "[T-1] 你接手了這張任務，你的前任是 Kip（kip）。\n\n") {
+			t.Fatalf("the new successor's notice names the predecessor, got %+v", zed)
+		}
+		if got := len(t91ChatTo(t, f.api, "rex")); got != rexBefore {
+			t.Fatalf("the displaced successor gets no notice: %d → %d", rexBefore, got)
+		}
+		f.must(t, "POST", "/api/tasks/T-1/priority", f.predecessor, `{"priority":"high"}`)
+	})
+
+	t.Run("under the hold after the predecessor left a re-reassign keeps its stamp but neither notifies nor names it", func(t *testing.T) {
+		f := newHandoverFixture(t)
+		f.dismissPredecessor(t)
+		kipBefore := len(t91ChatTo(t, f.api, "kip"))
+
+		f.must(t, "POST", "/api/tasks/T-1/reassign", f.owner, `{"target":{"kind":"staff","member_id":"zed"}}`)
+
+		want := handoverUntouched("reassigning")
+		want.ExecutorID = "zed"
+		if got := f.view(t); !reflect.DeepEqual(got, want) {
+			t.Fatalf("T-1 after the re-reassign\ngot  %#v\nwant %#v", got, want)
+		}
+		if got := len(t91ChatTo(t, f.api, "kip")); got != kipBefore {
+			t.Fatalf("a departed predecessor gets no new notice: %d rows before, %d after", kipBefore, got)
+		}
+		if got := len(t91ChatTo(t, f.api, "rex")); got != 1 {
+			t.Fatalf("the displaced successor keeps only its first notice, got %d rows", got)
+		}
+		zed := t91ChatTo(t, f.api, "zed")
+		if len(zed) != 1 || !strings.HasPrefix(zed[0].Body, "[T-1] 你接手了這張任務，這張任務沒有前任。\n\n") {
+			t.Fatalf("the new successor gets the no-predecessor takeover notice, got %+v", zed)
+		}
+		for who, token := range map[string]string{"kip": f.predecessor, "zed": f.outsider} {
+			status, data := apiJSON(t, f.h, "POST", "/api/tasks/T-1/priority", token, `{"priority":"high"}`)
+			if status != 403 {
+				t.Fatalf("%s: want 403, got %d %v", who, status, data)
+			}
+			apiWantError(t, data, "forbidden", "caller is not the task's executor")
+		}
+		f.must(t, "POST", "/api/tasks/T-1/claim", f.outsider, "")
+	})
+
+	t.Run("without the hold a reassign stamps the current outsource executor and leaves it live", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner,
+			`{"title":"Contracted out","target":{"kind":"outsource","model":"sonnet","effort":"high"}}`)
+		_, task := apiJSON(t, h, "GET", "/api/tasks/T-1", owner, "")
+		worker, _ := task["executor_id"].(string)
+		if !strings.HasPrefix(worker, "ow-") || task["lock"] != "" {
+			t.Fatalf("fixture: want a bound outsource task with no lock, got %v", task)
+		}
+
+		if status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/reassign", owner,
+			`{"target":{"kind":"staff","member_id":"kip"}}`); status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		_, task = apiJSON(t, h, "GET", "/api/tasks/T-1", owner, "")
+		got := map[string]any{
+			"executor_id": task["executor_id"], "lock": task["lock"],
+			"reassigned_from": task["reassigned_from"], "reassigned_from_kind": task["reassigned_from_kind"],
+		}
+		apiWantValue(t, "task", any(got), any(map[string]any{
+			"executor_id": "kip", "lock": "reassigning",
+			"reassigned_from": worker, "reassigned_from_kind": "outsource",
+		}))
+		_, member := apiJSON(t, h, "GET", "/api/members/"+worker, owner, "")
+		if member["status"] != "assigned" || member["roster_status"] != "active" {
+			t.Fatalf("the predecessor worker stays live through the hold, got status %v roster %v",
+				member["status"], member["roster_status"])
+		}
 	})
 
 	t.Run("handing a planned task to the outsource lane resets its live steps and leaves it unassigned under the lock", func(t *testing.T) {
@@ -3755,7 +3991,7 @@ func TestHandleReassignTaskApiTasksTaskIdReassignPost(t *testing.T) {
 				"body": "[T-1] 此任務已轉派給新的接手人。\n\n你收到這份說明，代表目前的任務需要交接給其他執行者。請停止推進並完成必要收尾，確保接手人能從遠端取得目前成果與完整脈絡：\n" +
 					"\n" +
 					"* 保存成果：將需要保留的 git commit 推送到 remote，需要保留的檔案以 `ocagent upload` 上傳後，把附件 id 寫進步驟備註，不要留下只有本機能取得的成果。\n" +
-					"* 寫入交接資訊：將目前進度、進行中的事項、需要注意的風險與下一步寫進任務的步驟備註。若仍有等待 Owner 決策或操作的事項，也要一併說明；轉派後原本開出的 Reply Card 會自動過期，接手人需要依交接資訊重新開卡。\n" +
+					"* 寫入交接資訊：將目前進度、進行中的事項、需要注意的風險與下一步寫進任務的步驟備註；接手人認領之前都可以補寫，認領之後就無法再寫入。轉派前開出的 Reply Card 已自動過期；若仍有等待 Owner 決策或操作的事項，寫進步驟備註，由接手人認領後重新開卡。交接期間不要再開綁定這張任務的 Reply Card。\n" +
 					"* 處理 sub-agent：若有正在執行的 sub-agent，要求其收尾並將結果寫回對應 task step。\n" +
 					"\n" +
 					"完成以上事項後即完成交接。若接手人已在線上並主動聯繫，再補充確認；否則不需要等待或主動尋找接手人。",

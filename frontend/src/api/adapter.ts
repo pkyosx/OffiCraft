@@ -1067,9 +1067,8 @@ export type TaskReassignTarget =
     };
 
 /** One reassign (轉派): the new executor + an optional handover note the server
- * appends to the new executor's notification chat message. The task enters
- * `reassigning` and the NEW executor reports it back to in_progress once the
- * handover is read — the FE never flips the status itself. */
+ * stores on the task (handover_note). The task enters the `reassigning` lock;
+ * the predecessor keeps writing until the NEW executor calls claim_task. */
 export interface TaskReassignInput {
   target: TaskReassignTarget;
   note?: string;
@@ -1139,6 +1138,9 @@ export interface ServerSettingsView {
    * collects on cannot be two different values. It says HOW LONG, never WHO: a
    * soft cause stays uncollected at any value. */
   acceleratedGraceSecs: number;
+  /** How long an outsource predecessor under the reassign hold may go without a
+   * task update before the server reclaims it, in seconds (60..86400; default 1800). */
+  reassignHandoverTimeoutSecs: number;
   /** T-fc53: how long a MACHINE (warden) credential is meant to live, in
    * seconds (86400..34560000; default 2592000 = 30 days). It is BOTH the
    * credential's expiry (the mint stamps `exp = iat + this`, T-fc53 第二段 — it
@@ -1295,6 +1297,8 @@ export interface ServerSettingsPatch {
   monitoringRefreshSeconds?: number;
   /** 加速停止 grace in seconds. Must be 10..3600. */
   acceleratedGraceSecs?: number;
+  /** Reassign handover timeout in seconds. Must be 60..86400. */
+  reassignHandoverTimeoutSecs?: number;
   /** T-fc53 warden credential lifetime in seconds. Must be 86400..34560000 —
    * the floor is one day because the last third of the lifetime is the retry
    * window, and at a 15-minute poll a one-day lifetime still leaves ~32
@@ -2497,12 +2501,12 @@ export interface Api {
   /**
    * Reassign a task (`POST /api/tasks/{id}/reassign`) — owner + 特助 only
    * (the server gates it; a member/worker caller is a 403). The server expires
-   * the task's waiting cards, rewinds non-terminal steps to pending, dismisses
-   * the OLD outsource worker, mints the new one when the target is 外包, moves
-   * the task to `reassigning` and notifies BOTH sides to hand over. A closed
-   * task is a 409, a frozen one a 400, and an inactive/warden/already-executor
-   * member target a 400/409 (all throw ApiError). Returns the task after the
-   * move; the caller refetches (the SSE delta also fans).
+   * the task's waiting cards, rewinds non-terminal steps to pending, puts the
+   * task under the `reassigning` lock (an outsource target is minted later by
+   * the scheduler) and notifies both sides. The predecessor keeps its write
+   * rights until the successor calls claim_task. A closed task is a 409, and an
+   * inactive/warden/already-executor member target a 400/409 (all throw
+   * ApiError). The caller refetches (the SSE delta also fans).
    */
   reassignTask(id: string, input: TaskReassignInput): Promise<void>;
   /**

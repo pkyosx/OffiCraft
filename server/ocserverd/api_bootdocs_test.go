@@ -29,9 +29,9 @@ const apiTestBootDocMarker = "<!-- ↑唯讀區（程式產生，改不動）｜
 // blank-line join, so its whole text can be written down beside the folds that
 // produce it.
 const (
-	apiTestReassignPredecessorSeed = "[{task_no}] 此任務已轉派給新的接手人。\n\n<!-- ↑唯讀區（程式產生，改不動）｜↓本體（可編輯，零變數） -->\n\n你收到這份說明，代表目前的任務需要交接給其他執行者。請停止推進並完成必要收尾，確保接手人能從遠端取得目前成果與完整脈絡：\n\n* 保存成果：將需要保留的 git commit 推送到 remote，需要保留的檔案以 `ocagent upload` 上傳後，把附件 id 寫進步驟備註，不要留下只有本機能取得的成果。\n* 寫入交接資訊：將目前進度、進行中的事項、需要注意的風險與下一步寫進任務的步驟備註。若仍有等待 Owner 決策或操作的事項，也要一併說明；轉派後原本開出的 Reply Card 會自動過期，接手人需要依交接資訊重新開卡。\n* 處理 sub-agent：若有正在執行的 sub-agent，要求其收尾並將結果寫回對應 task step。\n\n完成以上事項後即完成交接。若接手人已在線上並主動聯繫，再補充確認；否則不需要等待或主動尋找接手人。\n"
+	apiTestReassignPredecessorSeed = "[{task_no}] 此任務已轉派給新的接手人。\n\n<!-- ↑唯讀區（程式產生，改不動）｜↓本體（可編輯，零變數） -->\n\n你收到這份說明，代表目前的任務需要交接給其他執行者。請停止推進並完成必要收尾，確保接手人能從遠端取得目前成果與完整脈絡：\n\n* 保存成果：將需要保留的 git commit 推送到 remote，需要保留的檔案以 `ocagent upload` 上傳後，把附件 id 寫進步驟備註，不要留下只有本機能取得的成果。\n* 寫入交接資訊：將目前進度、進行中的事項、需要注意的風險與下一步寫進任務的步驟備註；接手人認領之前都可以補寫，認領之後就無法再寫入。轉派前開出的 Reply Card 已自動過期；若仍有等待 Owner 決策或操作的事項，寫進步驟備註，由接手人認領後重新開卡。交接期間不要再開綁定這張任務的 Reply Card。\n* 處理 sub-agent：若有正在執行的 sub-agent，要求其收尾並將結果寫回對應 task step。\n\n完成以上事項後即完成交接。若接手人已在線上並主動聯繫，再補充確認；否則不需要等待或主動尋找接手人。\n"
 	apiTestReassignPredecessorHead = "[{task_no}] 此任務已轉派給新的接手人。"
-	apiTestReassignPredecessorBody = "你收到這份說明，代表目前的任務需要交接給其他執行者。請停止推進並完成必要收尾，確保接手人能從遠端取得目前成果與完整脈絡：\n\n* 保存成果：將需要保留的 git commit 推送到 remote，需要保留的檔案以 `ocagent upload` 上傳後，把附件 id 寫進步驟備註，不要留下只有本機能取得的成果。\n* 寫入交接資訊：將目前進度、進行中的事項、需要注意的風險與下一步寫進任務的步驟備註。若仍有等待 Owner 決策或操作的事項，也要一併說明；轉派後原本開出的 Reply Card 會自動過期，接手人需要依交接資訊重新開卡。\n* 處理 sub-agent：若有正在執行的 sub-agent，要求其收尾並將結果寫回對應 task step。\n\n完成以上事項後即完成交接。若接手人已在線上並主動聯繫，再補充確認；否則不需要等待或主動尋找接手人。\n"
+	apiTestReassignPredecessorBody = "你收到這份說明，代表目前的任務需要交接給其他執行者。請停止推進並完成必要收尾，確保接手人能從遠端取得目前成果與完整脈絡：\n\n* 保存成果：將需要保留的 git commit 推送到 remote，需要保留的檔案以 `ocagent upload` 上傳後，把附件 id 寫進步驟備註，不要留下只有本機能取得的成果。\n* 寫入交接資訊：將目前進度、進行中的事項、需要注意的風險與下一步寫進任務的步驟備註；接手人認領之前都可以補寫，認領之後就無法再寫入。轉派前開出的 Reply Card 已自動過期；若仍有等待 Owner 決策或操作的事項，寫進步驟備註，由接手人認領後重新開卡。交接期間不要再開綁定這張任務的 Reply Card。\n* 處理 sub-agent：若有正在執行的 sub-agent，要求其收尾並將結果寫回對應 task step。\n\n完成以上事項後即完成交接。若接手人已在線上並主動聯繫，再補充確認；否則不需要等待或主動尋找接手人。\n"
 )
 
 // apiTestUnblockedHead / apiTestUnblockedBody are the two halves of 〈解除阻擋〉,
@@ -336,7 +336,7 @@ func TestFoldBootDocDTO(t *testing.T) {
 			t.Fatalf("foldBootDocDTO: %v", err)
 		}
 		apiWantValue(t, "dto", apiTestJSONOf(t, dto), map[string]any{
-			"size_chars":     445,
+			"size_chars":     491,
 			"cap_chars":      15000,
 			"kind":           "task_reassign_predecessor",
 			"key":            "global",
@@ -563,7 +563,7 @@ func TestTaskNoticeText(t *testing.T) {
 		want := "[T-9] 此任務已轉派給新的接手人。\n\n" +
 			"你收到這份說明，代表目前的任務需要交接給其他執行者。請停止推進並完成必要收尾，確保接手人能從遠端取得目前成果與完整脈絡：\n\n" +
 			"* 保存成果：將需要保留的 git commit 推送到 remote，需要保留的檔案以 `ocagent upload` 上傳後，把附件 id 寫進步驟備註，不要留下只有本機能取得的成果。\n" +
-			"* 寫入交接資訊：將目前進度、進行中的事項、需要注意的風險與下一步寫進任務的步驟備註。若仍有等待 Owner 決策或操作的事項，也要一併說明；轉派後原本開出的 Reply Card 會自動過期，接手人需要依交接資訊重新開卡。\n" +
+			"* 寫入交接資訊：將目前進度、進行中的事項、需要注意的風險與下一步寫進任務的步驟備註；接手人認領之前都可以補寫，認領之後就無法再寫入。轉派前開出的 Reply Card 已自動過期；若仍有等待 Owner 決策或操作的事項，寫進步驟備註，由接手人認領後重新開卡。交接期間不要再開綁定這張任務的 Reply Card。\n" +
 			"* 處理 sub-agent：若有正在執行的 sub-agent，要求其收尾並將結果寫回對應 task step。\n\n" +
 			"完成以上事項後即完成交接。若接手人已在線上並主動聯繫，再補充確認；否則不需要等待或主動尋找接手人。"
 		if got != want {
@@ -1154,9 +1154,9 @@ func TestBootDocReceiptOf(t *testing.T) {
 			"kind":       "task_reassign_predecessor",
 			"key":        "global",
 			"is_default": true,
-			"size_chars": 445,
+			"size_chars": 491,
 			"cap_chars":  15000,
-			"sha256":     "2d30d99cc592f18c19385cd027e31ab77dff8d763d0dc4d77929f9a60df01500",
+			"sha256":     "3637588437d25b98842f64cf21c3c1e592394ff20c7591dd15e8ec82007011b8",
 		})
 	})
 
@@ -1357,9 +1357,9 @@ func TestResetBootDoc(t *testing.T) {
 			"kind":       "task_reassign_predecessor",
 			"key":        "global",
 			"is_default": true,
-			"size_chars": 445,
+			"size_chars": 491,
 			"cap_chars":  15000,
-			"sha256":     "2d30d99cc592f18c19385cd027e31ab77dff8d763d0dc4d77929f9a60df01500",
+			"sha256":     "3637588437d25b98842f64cf21c3c1e592394ff20c7591dd15e8ec82007011b8",
 		})
 		_, after := apiJSON(t, h, "GET", "/api/boot-docs/task_reassign_predecessor/global", owner, "")
 		apiWantValue(t, "text", after["text"], apiTestReassignPredecessorSeed)

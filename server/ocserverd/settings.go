@@ -162,6 +162,12 @@ const (
 	// concurrently live (assigned + active) outsource workers — the Phase 2
 	// assignment scheduler's admission knob; member tasks never count (H7).
 	settingOutsourceMaxParallel = "task.outsource_max_parallel"
+	// settingReassignHandoverTimeoutSecs (T-248, owner rc-849a28792928 /
+	// rc-6ee43d22d6fd) is how long an OUTSOURCE predecessor under the reassign
+	// hold may go without a change to the task's updated time before the
+	// handover-timeout reaper
+	// reclaims it, in seconds.
+	settingReassignHandoverTimeoutSecs = "task.reassign_handover_timeout_secs"
 	// settingDocCapChars* (T-3aeb, owner 2026-07-31; split four ways in T-ae38,
 	// owner 2026-08-03; the manual's one split again in T-30f1) are the size
 	// caps on the accumulating context documents — see contextDocMaxCharsDefault
@@ -384,6 +390,14 @@ const (
 	maxAcceleratedGraceSecs     = 3600
 )
 
+// The task.reassign_handover_timeout_secs bounds (T-248, owner rc-6ee43d22d6fd).
+// The default is the 30 minutes the reaper had hard-coded.
+const (
+	reassignHandoverTimeoutSecsDefault = 1800
+	minReassignHandoverTimeoutSecs     = 60
+	maxReassignHandoverTimeoutSecs     = 86400
+)
+
 // The auth.warden_credential_lifetime_secs bounds (T-fc53).
 //
 // THE DEFAULT IS 30 DAYS (owner 2026-09-08, card rc-f2b96594c621, option [0],
@@ -477,6 +491,7 @@ type authSettings struct {
 	acceleratedGraceSecs         int    // stop.accelerated_grace_secs (default acceleratedGraceSecsDefault)
 	wardenCredLifetimeSecs       int    // auth.warden_credential_lifetime_secs (default wardenCredLifetimeSecsDefault)
 	outsourceMaxParallel         int    // task.outsource_max_parallel (default 3)
+	reassignHandoverTimeoutSecs  int    // task.reassign_handover_timeout_secs (default reassignHandoverTimeoutSecsDefault)
 	docCapCharsDuty              int    // doc.cap_chars.duty (default dutyCapCharsDefault)
 	docCapCharsInsight           int    // doc.cap_chars.insight (default contextDocMaxCharsDefault)
 	docCapCharsManualSop         int    // doc.cap_chars.manual_sop (default contextDocMaxCharsDefault)
@@ -597,13 +612,14 @@ func decodeSuggestedReplies(raw string) ([]string, error) {
 //   - ctx.*: DB overrides on top of the oc.toml/[defaults] config.
 func loadAuthSettings(d *DAL, cfg Config, logf func(string)) (authSettings, error) {
 	out := authSettings{
-		ownerTokenTTL:            defaultOwnerTokenTTL,
-		agentTokenTTL:            defaultAgentTokenTTL,
-		ctxhigh:                  cfg.SseContextHigh,
-		codexCompactionThreshold: defaultCodexCompactionThreshold,
-		monitoringRefreshSeconds: defaultMonitoringRefreshSeconds,
-		acceleratedGraceSecs:     acceleratedGraceSecsDefault,
-		wardenCredLifetimeSecs:   wardenCredLifetimeSecsDefault,
+		ownerTokenTTL:               defaultOwnerTokenTTL,
+		agentTokenTTL:               defaultAgentTokenTTL,
+		ctxhigh:                     cfg.SseContextHigh,
+		codexCompactionThreshold:    defaultCodexCompactionThreshold,
+		monitoringRefreshSeconds:    defaultMonitoringRefreshSeconds,
+		acceleratedGraceSecs:        acceleratedGraceSecsDefault,
+		wardenCredLifetimeSecs:      wardenCredLifetimeSecsDefault,
+		reassignHandoverTimeoutSecs: reassignHandoverTimeoutSecsDefault,
 	}
 
 	stored, err := d.GetSetting(settingJWTSecret)
@@ -795,6 +811,18 @@ func loadAuthSettings(d *DAL, cfg Config, logf func(string)) (authSettings, erro
 				settingAcceleratedGraceSecs, acceleratedGraceRangeMsg, *v)
 		}
 		out.acceleratedGraceSecs = n
+	}
+	// task.reassign_handover_timeout_secs — same bounds as the PATCH face
+	// (reassignHandoverTimeoutInRange).
+	if v, err := d.GetSetting(settingReassignHandoverTimeoutSecs); err != nil {
+		return out, err
+	} else if v != nil {
+		n, err := strconv.Atoi(*v)
+		if err != nil || !reassignHandoverTimeoutInRange(n) {
+			return out, fmt.Errorf("settings %s: %s: %q",
+				settingReassignHandoverTimeoutSecs, reassignHandoverTimeoutRangeMsg, *v)
+		}
+		out.reassignHandoverTimeoutSecs = n
 	}
 
 	// auth.warden_credential_lifetime_secs — range-checked at load against the

@@ -2093,6 +2093,8 @@ const DEFAULT_MOCK_SETTINGS = {
   monitoring_refresh_seconds: 5,
   // 加速停止 grace — mirrors the server's shipped default (StoppingTimeoutSecs).
   accelerated_grace_secs: 120,
+  // Mirrors the server's shipped reassign handover timeout.
+  reassign_handover_timeout_secs: 1800,
   // T-fc53 warden credential lifetime — mirrors the server's shipped default
   // (30 days). Hard-coded rather than derived so the mock still shows the fleet
   // default the day someone changes the constant on only one side.
@@ -4305,11 +4307,11 @@ const mockApiImpl = {
   },
 
   async reassignTask(id: string, input: TaskReassignInput): Promise<void> {
-    // Mirrors handle_reassign_task (T-160e): expire the task's waiting cards,
-    // rewind non-terminal steps to pending, dismiss the OLD outsource worker,
-    // mint the new one when the target is 外包, move the task to `reassigning`
-    // and notify BOTH member sides to hand over. The NEW executor reports the
-    // task back to in_progress — the mock never flips it here either.
+    // Approximates the server's reassign: expire the task's waiting cards,
+    // rewind non-terminal steps to pending, mint the new worker inline when the
+    // target is 外包 (the server leaves that to the scheduler), move the task to
+    // `reassigning` and notify the member sides. Not modelled: the
+    // predecessor's write rights during the hold and the handover timeout.
     const t = findTask(id);
     const badRequest = (detail: string) =>
       mockApiError(
@@ -4400,13 +4402,10 @@ const mockApiImpl = {
       if (TERMINAL_STEP_STATUSES.has(st.status)) continue;
       st.status = "pending";
     }
-    // T-ba04: the OLD outsource worker is NO LONGER dismissed here — it stays
-    // live through the `reassigning` hold so the successor can hand over WITH
-    // it; the server fires it only when the successor reports the takeover
-    // (reassigning→in_progress) or the timeout reaper gives up. The FE cockpit
-    // has no takeover action (agents flip the status via MCP), so the mock has
-    // no surface to model that dismiss — the predecessor simply persists here,
-    // which is exactly the reassigning-window state.
+    // The previous outsource worker is not dismissed here: on the server it
+    // stays live through the `reassigning` hold and is fired when the successor
+    // calls claim_task or the handover timeout reclaims it. The cockpit has no
+    // claim action, so the mock keeps the predecessor as-is.
     if (newWorker) {
       outsourceWorkers.push(newWorker);
       t.executorKind = "outsource";
@@ -5819,6 +5818,12 @@ const mockApiImpl = {
     ) {
       throw mockApiError("http 422 for PATCH /api/settings", 422, "accelerated_grace_secs must be between 10 and 3600 seconds");
     }
+    if (
+      patch.reassignHandoverTimeoutSecs !== undefined &&
+      (patch.reassignHandoverTimeoutSecs < 60 || patch.reassignHandoverTimeoutSecs > 86400)
+    ) {
+      throw mockApiError("http 422 for PATCH /api/settings", 422, "reassign_handover_timeout_secs must be between 60 and 86400 seconds");
+    }
     // T-fc53: the mock refuses exactly what the server refuses, so a UI that
     // only ever runs against the mock cannot ship a field that offers the owner
     // a number he would get a 422 for on a real install.
@@ -6053,6 +6058,9 @@ const mockApiImpl = {
     }
     if (patch.acceleratedGraceSecs !== undefined) {
       mockServerSettings.accelerated_grace_secs = patch.acceleratedGraceSecs;
+    }
+    if (patch.reassignHandoverTimeoutSecs !== undefined) {
+      mockServerSettings.reassign_handover_timeout_secs = patch.reassignHandoverTimeoutSecs;
     }
     if (patch.wardenCredentialLifetimeSecs !== undefined) {
       mockServerSettings.warden_credential_lifetime_secs = patch.wardenCredentialLifetimeSecs;

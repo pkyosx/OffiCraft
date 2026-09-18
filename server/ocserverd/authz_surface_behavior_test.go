@@ -569,10 +569,22 @@ var authzOutsideRouteTable = map[string]string{
 	"api_tasks.go :: callerMayDriveTask :: principalAtLeast(s.principalOfRequest(r), principalAdminAgent)": "" +
 		"admin+ may drive ANY task; below that only the task's own executor may — a " +
 		"caller-vs-resource comparison, not expressible as a route floor.",
-	"api_tasks.go :: callerMayDriveTask :: currentActor(r) == t.ExecutorID": "" +
-		"the self half of the same rule: the executor drives its own task.",
-	"api_tasks.go :: callerMayMarkTaskDone :: currentActor(r) == t.ExecutorID": "" +
-		"T-182: mark_task_done is the EXECUTOR's door and only the executor's — " +
+	"api_tasks.go :: callerMayDriveTask :: currentActor(r) == s.actingExecutorOf(t)": "" +
+		"the self half of the same rule: the task's acting executor drives it — the " +
+		"executor, or while the `reassigning` lock is on the stamped predecessor as " +
+		"long as it is still on the roster, and nobody once it has left (owner " +
+		"ruling 2026-09-17, cards rc-5ba4a6f802f4 / rc-0a0892e3588f). A per-task, " +
+		"per-moment fact, not a principal class.",
+	"api_tasks.go :: callerMayClaimTask :: principalAtLeast(s.principalOfRequest(r), principalAdminAgent)": "" +
+		"claim_task's admin half: admin+ may take over any handed-over task, the same " +
+		"bypass callerMayDriveTask gives.",
+	"api_tasks.go :: callerMayClaimTask :: currentActor(r) == t.ExecutorID": "" +
+		"claim_task is the one write the SUCCESSOR (the executor the reassign " +
+		"re-pointed to) keeps during the `reassigning` lock, and the predecessor " +
+		"may not make (owner ruling 2026-09-17, cards rc-5ba4a6f802f4 / " +
+		"rc-0a0892e3588f). Caller-vs-task, not a route floor.",
+	"api_tasks.go :: callerMayMarkTaskDone :: currentActor(r) == acting": "" +
+		"T-182: mark_task_done is the (acting) EXECUTOR's door and only theirs — " +
 		"deliberately NOT callerMayDriveTask, which widens to admin capability. " +
 		"The owner and the admin assistant close a task they do not execute " +
 		"through force_task_done, which ALWAYS stamps forced_done_by (and asks " +
@@ -581,7 +593,7 @@ var authzOutsideRouteTable = map[string]string{
 		"recorded. A caller-vs-resource comparison, not a route floor.",
 	"api_tasks.go :: callerMayEditTaskText :: currentActor(r) == t.CreatorID": "" +
 		"T-52, owner 2026-09-02 card rc-1bb6e01c4bf7. While a task has NO executor at " +
-		"all (executor_id == ''), its CREATOR counts as the executor — at the " +
+		"all (no acting executor), its CREATOR counts as the executor — at the " +
 		"text-only doors ONLY: update_task (title/description), the description and " +
 		"title routes, add/remove artifact, the two step-note write faces, and the " +
 		"task_description / task_title restores. A 發包票 is born unbound and stays " +
@@ -589,23 +601,14 @@ var authzOutsideRouteTable = map[string]string{
 		"awake can fix a typo in the brief the contractor will read on arrival. It " +
 		"cannot be a route floor: 'does this task have an executor yet' is a " +
 		"per-task, per-moment fact, not a principal class. 🔴 THE CONDITION IS " +
-		"executor_id == '' AND NOTHING ELSE, so the door SHUTS the instant a worker " +
-		"is bound — the creator is then a flat 403 again, exactly as before. Owner " +
+		"'no acting executor' AND NOTHING ELSE, so the door SHUTS the instant a worker " +
+		"is bound or a reassign predecessor holds the task — the creator is then a " +
+		"flat 403 again. Owner " +
 		"scoped this to 改文字類 and named the doors that stay shut (freeze/priority, " +
 		"the four closes, reassign, claim, plan, step status, " +
-		"deps, linked reply cards); those keep callerMayDriveTask verbatim. Calling " +
+		"deps, linked reply cards); those keep callerMayDriveTask (claim: callerMayClaimTask). Calling " +
 		"this predicate from another handler reverses that ruling rather than " +
 		"extending it.",
-	"api_tasks.go :: callerMayWriteHandover :: currentActor(r) == t.ReassignedFrom": "" +
-		"T-91, owner ruling: while a task sits under the `reassigning` lock, the " +
-		"stamped PREDECESSOR may still write the handover record (the step note the " +
-		"reassign notice orders it to write) — and nothing else. It cannot be a route " +
-		"floor: the subject is a per-task, per-moment fact (task.reassigned_from " +
-		"AND task.lock), not a principal class. 🔴 The owner was offered the WIDE " +
-		"version — both sides fully authorised during the handover — and refused it, " +
-		"so this predicate guards ONE door (the step-note write faces) and " +
-		"callerMayDriveTask still guards every other task write. Widening its call " +
-		"sites reverses that ruling; 全域脈絡 §3.4 is unchanged.",
 	"api_replycards.go :: callerMayExpireCard :: principalAtLeast(s.principalOfRequest(r), principalAdminAgent)": "" +
 		"T-1b88 (owner 2026-08-07, card rc-3ff94b116970) revised T-6020 for the expire " +
 		"row: admin+ may retire ANY reply card, and below that only the card's own " +

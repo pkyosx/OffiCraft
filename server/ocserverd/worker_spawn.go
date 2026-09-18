@@ -90,14 +90,6 @@ const (
 	// It catches the leftovers — a row released by a path that is not a close,
 	// or a session the reclaim dispatch could not deliver.
 	workerReclaimGraceSecs = 120.0
-	// reassignHandoverTimeoutSecs bounds how long a task may sit in `reassigning`
-	// before the handover-timeout reaper (outsource_sched.go runOutsourceTick)
-	// gives up on the successor's takeover report and reclaims the PREDECESSOR
-	// outsource worker's leaked session (T-ba04). Deliberately generous — a real
-	// handover dialogue (successor boots, reads up, asks, predecessor answers)
-	// can take many minutes; this only bounds the resource leak when the report
-	// never comes. Owner-tunable decision (flagged for review): 30 minutes.
-	reassignHandoverTimeoutSecs = 1800.0
 	// workerSpawnCooldownSecs benches a machine for a worker after that machine
 	// FAILED to boot it (a refused start receipt, or an FSM zombie-takeover
 	// ghost-reap off it — that bench is lifted early by the target's OK stop
@@ -2603,11 +2595,11 @@ func (s *apiServer) dismissOutsourceWorkersForTask(taskID string, now float64, t
 
 // dismissOutsourceWorkerByID fires ONE specific worker (release its row + kill
 // its session) — the deferred-handover twin of dismissOutsourceWorkersForTask
-// (T-ba04). The reassign path no longer dismisses the OLD outsource executor at
-// reassign time (that killed the predecessor before any handover dialogue could
-// happen); instead the predecessor stays live through the `reassigning` hold
-// and is fired HERE, the moment the successor reports reassigning→in_progress
-// (or the timeout reaper gives up on that report). By WORKER ID, never by
+// (T-ba04). The reassign path does not dismiss the previous outsource executor;
+// the predecessor stays live through the `reassigning` hold and is fired HERE
+// when the successor calls claim_task, when a re-reassign under the hold
+// displaces an unclaimed outsource successor, or on dismissal. The
+// handover-timeout reaper releases the row directly. By WORKER ID, never by
 // task_id: an outsource→outsource takeover has already bound the NEW worker to
 // the SAME task_id, so a by-task release would kill the successor too.
 // Idempotent (release + reclaim are both idempotent). Takes outsourceMu itself

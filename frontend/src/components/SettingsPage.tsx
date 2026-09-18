@@ -1425,6 +1425,7 @@ function ServerParams({
   const [codexNoticeDraft, setCodexNoticeDraft] = useState<string | null>(null);
   const [monitoringRefreshDraft, setMonitoringRefreshDraft] = useState<string | null>(null);
   const [acceleratedGraceDraft, setAcceleratedGraceDraft] = useState<string | null>(null);
+  const [reassignHandoverTimeoutDraft, setReassignHandoverTimeoutDraft] = useState<string | null>(null);
   const [wardenCredLifetimeDraft, setWardenCredLifetimeDraft] = useState<string | null>(null);
   // T-ae38, widened by T-30f1: five independent caps, so five independent
   // drafts. A shared draft would make typing in one field snap the others back.
@@ -1515,6 +1516,15 @@ function ServerParams({
     if (!Number.isInteger(n) || n < 10 || n > 3600) { setRangeError(true); setAcceleratedGraceDraft(null); return; }
     setAcceleratedGraceDraft(null);
     if (n !== settings.acceleratedGraceSecs) void onSave({ acceleratedGraceSecs: n });
+  }
+
+  // Range mirrors the server's 422 (settings.go: 60..86400).
+  function commitReassignHandoverTimeout() {
+    if (!settings || reassignHandoverTimeoutDraft === null) return;
+    const n = Number(reassignHandoverTimeoutDraft);
+    if (!Number.isInteger(n) || n < 60 || n > 86400) { setRangeError(true); setReassignHandoverTimeoutDraft(null); return; }
+    setReassignHandoverTimeoutDraft(null);
+    if (n !== settings.reassignHandoverTimeoutSecs) void onSave({ reassignHandoverTimeoutSecs: n });
   }
 
   // 機器憑證壽命 (T-fc53). A free-typed number rather than a dropdown of fixed
@@ -1817,6 +1827,21 @@ function ServerParams({
                 value={acceleratedGraceDraft ?? String(settings.acceleratedGraceSecs)}
                 onChange={(e) => { setRangeError(false); onClearSaveError(); setAcceleratedGraceDraft(e.target.value); }}
                 onBlur={commitAcceleratedGrace} onKeyDown={(e) => { if (e.key === "Enter") commitAcceleratedGrace(); }} />
+              <span className="param-pct__sign">{t.settings.seconds}</span>
+            </div>
+          </div>
+
+          <div className="param-row">
+            <div className="param-row__body">
+              <div className="param-row__name">{t.settings.reassignHandoverTimeout}</div>
+              <div className="param-row__sub">{t.settings.reassignHandoverTimeoutSub}</div>
+            </div>
+            <div className="param-pct">
+              <input id="param-reassign-handover-timeout" className="param-input" type="number" min={60} max={86400}
+                aria-label={t.settings.reassignHandoverTimeout}
+                value={reassignHandoverTimeoutDraft ?? String(settings.reassignHandoverTimeoutSecs)}
+                onChange={(e) => { setRangeError(false); onClearSaveError(); setReassignHandoverTimeoutDraft(e.target.value); }}
+                onBlur={commitReassignHandoverTimeout} onKeyDown={(e) => { if (e.key === "Enter") commitReassignHandoverTimeout(); }} />
               <span className="param-pct__sign">{t.settings.seconds}</span>
             </div>
           </div>

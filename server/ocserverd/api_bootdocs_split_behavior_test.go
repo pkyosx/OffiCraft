@@ -236,7 +236,7 @@ func TestTaskReassignPredecessorDoc_HeadPlusBodyIsTodaysChatNotice(t *testing.T)
 	// The chat notice plus the seed FILE's trailing newline — a document is a
 	// file and ends with one, a chat row is one message, so the send site trims
 	// what it posts the way buildBootContext trims every block it staples.
-	want := "[T-7e91] 此任務已轉派給新的接手人。\n\n" + "你收到這份說明，代表目前的任務需要交接給其他執行者。請停止推進並完成必要收尾，確保接手人能從遠端取得目前成果與完整脈絡：\n\n* 保存成果：將需要保留的 git commit 推送到 remote，需要保留的檔案以 `ocagent upload` 上傳後，把附件 id 寫進步驟備註，不要留下只有本機能取得的成果。\n* 寫入交接資訊：將目前進度、進行中的事項、需要注意的風險與下一步寫進任務的步驟備註。若仍有等待 Owner 決策或操作的事項，也要一併說明；轉派後原本開出的 Reply Card 會自動過期，接手人需要依交接資訊重新開卡。\n* 處理 sub-agent：若有正在執行的 sub-agent，要求其收尾並將結果寫回對應 task step。\n\n完成以上事項後即完成交接。若接手人已在線上並主動聯繫，再補充確認；否則不需要等待或主動尋找接手人。" + "\n"
+	want := "[T-7e91] 此任務已轉派給新的接手人。\n\n" + "你收到這份說明，代表目前的任務需要交接給其他執行者。請停止推進並完成必要收尾，確保接手人能從遠端取得目前成果與完整脈絡：\n\n* 保存成果：將需要保留的 git commit 推送到 remote，需要保留的檔案以 `ocagent upload` 上傳後，把附件 id 寫進步驟備註，不要留下只有本機能取得的成果。\n* 寫入交接資訊：將目前進度、進行中的事項、需要注意的風險與下一步寫進任務的步驟備註；接手人認領之前都可以補寫，認領之後就無法再寫入。轉派前開出的 Reply Card 已自動過期；若仍有等待 Owner 決策或操作的事項，寫進步驟備註，由接手人認領後重新開卡。交接期間不要再開綁定這張任務的 Reply Card。\n* 處理 sub-agent：若有正在執行的 sub-agent，要求其收尾並將結果寫回對應 task step。\n\n完成以上事項後即完成交接。若接手人已在線上並主動聯繫，再補充確認；否則不需要等待或主動尋找接手人。" + "\n"
 	if got != want {
 		t.Fatalf("the folded document is not today's reassign notice:\n got %q\nwant %q", got, want)
 	}
@@ -688,7 +688,8 @@ func TestTaskTakeoverDocs_HeadPlusBodyIsTodaysChatNoticeWithoutTheHandoverNote(t
 			"你收到這份說明，代表有一張任務需要由你接手。完成以下準備後，認領並開始執行：\n\n" +
 			"* **讀取任務**：使用 `get_task` 讀取任務內容；已有步驟時，一併確認目前步驟的 DoD，並對 `note_size_chars` 非 0 的步驟使用 `get_task_step` 讀取完整備註。若尚未讀過對應的任務手冊，使用 `get_task_manual` 讀取。\n" +
 			"* **確認交接**：若有 `reassigned_from`，先讀取 `handover_note`，再使用 `post_chat` 向前任確認目前進度與進行中的事項。最多等待 5 分鐘；前任已離線、無法聯繫或逾時未回覆時，直接以任務上的交接資訊繼續接手，不要停在這裡等待。\n" +
-			"* **認領並執行**：完成準備後，呼叫 `claim_task` 認領任務，再依任務目前狀態繼續規劃或執行。\n",
+			"* **認領前只能讀**：呼叫 `claim_task` 之前，你只能讀取這張任務；前任在你認領前仍可寫入交接資訊。\n" +
+			"* **認領並執行**：完成準備後，呼叫 `claim_task` 認領任務，再依任務目前狀態繼續規劃或執行。轉派前開出的 Reply Card 已自動過期，交接資訊中仍需要 Owner 決定的事項，由你重新開卡。\n",
 	}} {
 		t.Run(tc.kind, func(t *testing.T) {
 			s := newEventProcServer(t)
@@ -720,7 +721,8 @@ func TestTaskTakeoverDocs_HeadPlusBodyIsTodaysChatNoticeWithoutTheHandoverNote(t
 			"你收到這份說明，代表有一張任務需要由你接手。完成以下準備後，認領並開始執行：\n\n" +
 			"* **讀取任務**：使用 `get_task` 讀取任務內容；已有步驟時，一併確認目前步驟的 DoD，並對 `note_size_chars` 非 0 的步驟使用 `get_task_step` 讀取完整備註。若尚未讀過對應的任務手冊，使用 `get_task_manual` 讀取。\n" +
 			"* **確認交接**：若有 `reassigned_from`，先讀取 `handover_note`，再使用 `post_chat` 向前任確認目前進度與進行中的事項。最多等待 5 分鐘；前任已離線、無法聯繫或逾時未回覆時，直接以任務上的交接資訊繼續接手，不要停在這裡等待。\n" +
-			"* **認領並執行**：完成準備後，呼叫 `claim_task` 認領任務，再依任務目前狀態繼續規劃或執行。"
+			"* **認領前只能讀**：呼叫 `claim_task` 之前，你只能讀取這張任務；前任在你認領前仍可寫入交接資訊。\n" +
+			"* **認領並執行**：完成準備後，呼叫 `claim_task` 認領任務，再依任務目前狀態繼續規劃或執行。轉派前開出的 Reply Card 已自動過期，交接資訊中仍需要 Owner 決定的事項，由你重新開卡。"
 		if got := s.takeoverNoticeText("T-7e91", ""); got != want {
 			t.Fatalf("notice without a predecessor:\n got %q\nwant %q", got, want)
 		}
@@ -728,7 +730,8 @@ func TestTaskTakeoverDocs_HeadPlusBodyIsTodaysChatNoticeWithoutTheHandoverNote(t
 			"你收到這份說明，代表有一張任務需要由你接手。完成以下準備後，認領並開始執行：\n\n" +
 			"* **讀取任務**：使用 `get_task` 讀取任務內容；已有步驟時，一併確認目前步驟的 DoD，並對 `note_size_chars` 非 0 的步驟使用 `get_task_step` 讀取完整備註。若尚未讀過對應的任務手冊，使用 `get_task_manual` 讀取。\n" +
 			"* **確認交接**：若有 `reassigned_from`，先讀取 `handover_note`，再使用 `post_chat` 向前任確認目前進度與進行中的事項。最多等待 5 分鐘；前任已離線、無法聯繫或逾時未回覆時，直接以任務上的交接資訊繼續接手，不要停在這裡等待。\n" +
-			"* **認領並執行**：完成準備後，呼叫 `claim_task` 認領任務，再依任務目前狀態繼續規劃或執行。"
+			"* **認領前只能讀**：呼叫 `claim_task` 之前，你只能讀取這張任務；前任在你認領前仍可寫入交接資訊。\n" +
+			"* **認領並執行**：完成準備後，呼叫 `claim_task` 認領任務，再依任務目前狀態繼續規劃或執行。轉派前開出的 Reply Card 已自動過期，交接資訊中仍需要 Owner 決定的事項，由你重新開卡。"
 		if got := s.takeoverNoticeText("T-7e91", "銀月（mira）"); got != wantWithPredecessor {
 			t.Fatalf("notice with a predecessor:\n got %q\nwant %q", got, wantWithPredecessor)
 		}

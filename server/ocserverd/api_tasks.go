@@ -488,12 +488,60 @@ func (s *apiServer) writeTaskStepStatusReceipt(w http.ResponseWriter, t Task, st
 // pinning the literal again in a test, silently takes a door back out of range.
 const executorGuardRefusal = "caller is not the task's executor"
 
+// underHandover reports whether t sits under the reassign hold with a
+// predecessor stamped (owner ruling 2026-09-17, cards rc-5ba4a6f802f4 /
+// rc-0a0892e3588f). While it does, the successor has no write rights until
+// claim_task (callerMayClaimTask) clears the lock.
+func underHandover(t Task) bool {
+	return t.Lock == TaskLockReassigning && t.ReassignedFrom != ""
+}
+
+// predecessorHoldsTask reports whether the stamped predecessor, not the
+// executor, holds the executor's write rights on t: under the hold, and only
+// while the predecessor is still on the roster (a released worker and a
+// dismissed member are both roster_status=removed).
+//
+// FAIL-CLOSED on a lookup error, unlike authz.go's revocation gate: this
+// grants rights beyond the executor rule, and refusing a grant on a failed
+// read costs one retryable 403, never a fleet-wide outage.
+func (s *apiServer) predecessorHoldsTask(t Task) bool {
+	if !underHandover(t) {
+		return false
+	}
+	m, err := s.dal.GetMember(t.ReassignedFrom)
+	return err == nil && m != nil && m.RosterStatus != RosterStatusRemoved
+}
+
+// actingExecutorOf names the one actor with the executor's write rights on t
+// right now: the predecessor while it holds the task, nobody under a hold
+// whose predecessor has left, otherwise the executor.
+func (s *apiServer) actingExecutorOf(t Task) string {
+	if !underHandover(t) {
+		return t.ExecutorID
+	}
+	if s.predecessorHoldsTask(t) {
+		return t.ReassignedFrom
+	}
+	return ""
+}
+
 // callerMayDriveTask enforces the executor guard on the agent report routes
 // (plan / status / step status / gate / deps): the caller must BE the task's
-// executor — the caller-identity convention (root CLAUDE.md §14: a non-admin
-// agent only ever operates itself; admin capability — owner or admin agent —
-// may act on any task). False → the caller writes the 403.
+// acting executor (actingExecutorOf) — the caller-identity convention (root
+// CLAUDE.md §14: a non-admin agent only ever operates itself; admin capability
+// — owner or admin agent — may act on any task). False → the caller writes the
+// 403.
 func (s *apiServer) callerMayDriveTask(r *http.Request, t Task) bool {
+	if principalAtLeast(s.principalOfRequest(r), principalAdminAgent) {
+		return true
+	}
+	return currentActor(r) == s.actingExecutorOf(t)
+}
+
+// callerMayClaimTask is the claim_task gate, the one write that stays with the
+// successor during the reassign hold: admin capability, or the task's executor
+// (the successor the reassign re-pointed to). The predecessor may not claim.
+func (s *apiServer) callerMayClaimTask(r *http.Request, t Task) bool {
 	if principalAtLeast(s.principalOfRequest(r), principalAdminAgent) {
 		return true
 	}
@@ -501,8 +549,8 @@ func (s *apiServer) callerMayDriveTask(r *http.Request, t Task) bool {
 }
 
 // callerMayEditTaskText is callerMayDriveTask widened by exactly one structural
-// fact: while a task has NO executor at all (executor_id == ""), its CREATOR
-// counts as the executor — but only at the text-only doors (T-52).
+// fact: while a task has NO acting executor at all, its CREATOR counts as the
+// executor — but only at the text-only doors (T-52).
 //
 // 🔴 WHY. create_task opens a 發包票 with executor_id empty and leaves it empty
 // until the scheduler binds a worker to it. Every task-driving write is gated on
@@ -513,20 +561,20 @@ func (s *apiServer) callerMayDriveTask(r *http.Request, t Task) bool {
 // assign loop runs without a transaction and only logs when PutTask fails, so a
 // task can sit unbound forever.
 //
-// 🔴 WHY IT CLOSES ON executor_id AND NOT ON ANYTHING ELSE. The moment a worker
-// is bound, the creator is back to a flat 403 — including when the creator is
-// the person who opened the ticket. Anything narrower that happens to be true
-// right now ("this is an outsource ticket", "no worker exists yet") would leave
-// the door open while somebody is already working to the text, which is the
-// failure this predicate exists to avoid: an unbound task has no work in flight
-// to be moved out from under.
+// 🔴 WHY IT CLOSES ON THE ACTING EXECUTOR AND NOT ON ANYTHING ELSE. The moment
+// someone holds the executor's rights — a bound worker, or a predecessor under
+// the reassign hold of a task reassigned to an unbound outsource slot — the
+// creator is back to a flat 403, including when the creator is the person who
+// opened the ticket. Anything narrower that happens to be true right now ("this
+// is an outsource ticket", "no worker exists yet") would leave the door open
+// while somebody is already working to the text.
 //
 // 🔴 WHY IT IS NOT callerMayDriveTask ITSELF. That predicate guards plan, step
-// status, deps, priority/freeze, reassign, claim, the four closes and
-// reply-card linkage as well. Owner ruled (2026-09-02, card
-// rc-1bb6e01c4bf7) 「只開『改文字類』那幾道（改描述／標題／產物增刪／步驟筆記），
-// 不含凍結、撤票、改派」, so the widening is a SECOND predicate applied at the
-// named doors only. Calling this from any other handler reverses that ruling.
+// status, deps, priority/freeze, reassign, the four closes and reply-card
+// linkage as well. Owner ruled (2026-09-02, card rc-1bb6e01c4bf7)
+// 「只開『改文字類』那幾道（改描述／標題／產物增刪／步驟筆記），不含凍結、撤票、改派」, so
+// the widening is a SECOND predicate applied at the named doors only. Calling
+// this from any other handler reverses that ruling.
 //
 // A row with no CreatorID (pre-column rows) admits nobody: the empty string is
 // not an actor.
@@ -534,43 +582,10 @@ func (s *apiServer) callerMayEditTaskText(r *http.Request, t Task) bool {
 	if s.callerMayDriveTask(r, t) {
 		return true
 	}
-	if t.ExecutorID != "" || t.CreatorID == "" {
+	if underHandover(t) || t.ExecutorID != "" || t.CreatorID == "" {
 		return false
 	}
 	return currentActor(r) == t.CreatorID
-}
-
-// callerMayWriteHandover is callerMayDriveTask PLUS one narrow, time-boxed
-// exception (T-91): while a task sits under the `reassigning` lock, the
-// PREDECESSOR stamped on it may still write the handover record.
-//
-// 🔴 WHY IT IS NEEDED. The reassign re-points executor_id in the same handler
-// that posts the predecessor its instructions — 「將目前進度、進行中的事項、需要
-// 注意的風險與下一步寫進任務的步驟備註」 — so by the time that
-// message exists, callerMayDriveTask already answers false for the person it is
-// addressed to. The system asked for a document and took away the pen in the
-// same transaction; measured, every step-note write from the predecessor after
-// a reassign is a 403.
-//
-// 🔴 WHY IT IS THIS NARROW, and this is an owner ruling rather than caution.
-// He was offered the wide version — both sides fully authorised for the
-// duration of the handover — and REFUSED it, choosing to open the 「寫交接」 cell
-// alone. So two executors still never drive the same task before the handover
-// completes, and every other door callerMayDriveTask guards is unchanged: plan,
-// step STATUS, deps, priority, reassign, the four closes, artifacts and the
-// task's own text all still 403 for the predecessor. Widening this predicate to
-// another route is reversing that ruling, not extending it.
-//
-// The window closes by itself: claim_task clears the lock, and with it this
-// exception. Nothing here is time-based and nothing needs a reaper.
-func (s *apiServer) callerMayWriteHandover(r *http.Request, t Task) bool {
-	if s.callerMayDriveTask(r, t) {
-		return true
-	}
-	if t.Lock != TaskLockReassigning || t.ReassignedFrom == "" {
-		return false
-	}
-	return currentActor(r) == t.ReassignedFrom
 }
 
 // taskCaller captures the create/reassign caller's identity facets for the
@@ -1249,9 +1264,10 @@ func (s *apiServer) HandleGetTaskApiTasksTaskIdGet(w http.ResponseWriter, r *htt
 
 // ── C.2 owner actions ────────────────────────────────────────────────────────
 
-// callerMayTerminateTask is the terminate gate. It is callerMayDriveTask plus
-// ONE subtraction, and the subtraction is the whole reason it is a separate
-// function: an OUTSOURCE worker may not terminate its own task.
+// callerMayTerminateTask is the terminate gate. It is callerMayDriveTask (the
+// same acting executor, actingExecutorOf) plus ONE subtraction, and the
+// subtraction is the whole reason it is a separate function: an OUTSOURCE
+// worker may not terminate its own task.
 //
 // 🔴 WHY THE SUBTRACTION. Everywhere else "the task's own executor" is a safe
 // set to admit, because the executor is the one answering for the work. An
@@ -1285,7 +1301,7 @@ func (s *apiServer) callerMayTerminateTask(r *http.Request, t Task) (bool, strin
 	if c.member == nil {
 		return false, executorGuardRefusal
 	}
-	if c.actorID != t.ExecutorID {
+	if c.actorID != s.actingExecutorOf(t) {
 		return false, executorGuardRefusal
 	}
 	if c.isOutsource() {
@@ -1349,8 +1365,8 @@ func (s *apiServer) HandleMarkTaskDoneApiTasksTaskIdMarkDonePost(w http.Response
 	s.writeTaskWriteReceipt(w, *t)
 }
 
-// callerMayMarkTaskDone is the mark_task_done gate: BE the task's executor,
-// staff member and outsource worker alike. The close-out is the executor's
+// callerMayMarkTaskDone is the mark_task_done gate: BE the task's acting
+// executor (actingExecutorOf), staff member and outsource worker alike. The close-out is the executor's
 // work, so whoever does it must be able to say it is finished.
 //
 // 🔴 IT IS NOT callerMayDriveTask, and the difference is the whole ticket. That
@@ -1359,7 +1375,8 @@ func (s *apiServer) HandleMarkTaskDoneApiTasksTaskIdMarkDonePost(w http.Response
 // forced_done_by — the exact thing force_task_done exists to make impossible to
 // do silently. Their door is force_task_done; this one is the executor's.
 func (s *apiServer) callerMayMarkTaskDone(r *http.Request, t Task) bool {
-	return t.ExecutorID != "" && currentActor(r) == t.ExecutorID
+	acting := s.actingExecutorOf(t)
+	return acting != "" && currentActor(r) == acting
 }
 
 // POST /api/tasks/{task_id}/mark-terminated — the only status change that does
@@ -1621,13 +1638,14 @@ func (s *apiServer) HandlePostTaskMessageApiTasksTaskIdMessagePost(w http.Respon
 	writeJSON(w, http.StatusOK, chatPostReceiptOf(msg))
 }
 
-// POST /api/tasks/{task_id}/reassign — the owner/admin handover action
-// (T-160e; MCP reassign_task, requires admin_agent — the owner and the
-// assistant both drive it, the assistant only lives on the MCP face). Hands
-// the task to a NEW executor: a roster member, or an UNASSIGNED outsource slot
-// the scheduler mints a fresh worker for under the global parallel cap (T-35e0:
-// no inline mint at reassign — the task lands unassigned + the reassigning lock;
-// the dialog's model/effort/machine ride the task's outsource_target for the mint).
+// POST /api/tasks/{task_id}/reassign — the handover action (T-160e; MCP
+// reassign_task). Owner/admin may reassign any task; an agent may reassign a
+// task it is the acting executor of, subject to the 正職授權矩陣 rules below.
+// Hands the task to a NEW executor: a roster member, or an UNASSIGNED outsource
+// slot the scheduler mints a fresh worker for under the global parallel cap
+// (T-35e0: no inline mint at reassign — the task lands unassigned + the
+// reassigning lock; the dialog's model/effort/machine ride the task's
+// outsource_target for the mint).
 //
 // Effects, in order:
 //  1. every WAITING reply card of the task expires (the ask was the OLD
@@ -1635,18 +1653,26 @@ func (s *apiServer) HandlePostTaskMessageApiTasksTaskIdMessagePost(w http.Respon
 //     step as superseded history — T-1aea);
 //  2. non-terminal steps fall back to pending (the new executor replans or
 //     re-drives them); done/superseded rows stay untouched;
-//  3. a previously bound outsource worker is dismissed (release + session
-//     reclaim — the close-out hook reused);
-//  4. the executor re-points and the task enters the `reassigning` handover
-//     hold; ONLY the new executor leaves it (reassigning → in_progress on
-//     the agent report table, executor-guarded);
-//  5. each MEMBER side gets a handover chat message (the old executor is
-//     told to stop + leave a handover summary; the new one to read up and
-//     flip the status back — `note` rides that message); a fresh worker gets
-//     the task through its boot context instead;
-//  6. the task delta fans to the NEW audience via publishTask AND once,
-//     explicitly, to the OLD executor (publishTask reads the row's current
-//     executor, which would silently drop the person just unassigned).
+//  3. the executor re-points and the task enters the `reassigning` handover
+//     hold. The previous executor is stamped as predecessor and keeps the
+//     executor's write rights (actingExecutorOf) until the successor calls
+//     claim_task or the predecessor leaves; the successor can only claim.
+//     A bound outsource predecessor is not dismissed here — claim_task or the
+//     handover-timeout reaper does that. Under an existing hold the stamp
+//     stays on the original predecessor, and a bound outsource successor it
+//     displaces is dismissed;
+//  4. `note` is stored on the task (handover_note), and server-authored chat
+//     notices go to the predecessor (write the handover) and to a staff
+//     successor (confirm with the predecessor, then claim_task); an outsource
+//     successor finds the task through its boot sequence instead;
+//  5. the task delta fans to the NEW audience via publishTask AND once,
+//     explicitly, to the executor it replaced (publishTask reads the row's
+//     current executor, which would silently drop that member).
+//
+// A staff target naming the predecessor that still holds the task cancels the
+// handover instead: the task returns to it with the lock cleared, a bound
+// outsource successor is dismissed, and steps, cards and notices are left
+// alone.
 //
 // Identity is untouched: type/inputs/dedupe_key/task id/deps never change.
 // Guards: 404 unknown task; 409 terminal or target == current executor; 400 an
@@ -1849,7 +1875,60 @@ func (s *apiServer) HandleReassignTaskApiTasksTaskIdReassignPost(w http.Response
 		}
 	}
 
+	// Reassigning back to the predecessor that still holds the task cancels the
+	// handover: the work never left it, so its steps and cards stay as they are
+	// and nobody is sent a handover notice.
+	if newMember != nil && newMember.ID == t.ReassignedFrom && s.predecessorHoldsTask(*t) {
+		displaced, displacedKind := t.ExecutorID, t.ExecutorKind
+		t.ExecutorKind = TaskExecutorStaff
+		t.ExecutorID = newMember.ID
+		t.OutsourceRuntime = RuntimeClaude
+		t.OutsourceModel, t.OutsourceEffort, t.OutsourceMachine = "", "", ""
+		t.OutsourceDispatched = false
+		t.Lock = TaskLockNone
+		steps, err := s.dal.ListTaskSteps(t.ID)
+		if err != nil {
+			internalError(w, err)
+			return
+		}
+		t.Status = DeriveTaskStatus(steps)
+		if note != "" {
+			t.HandoverNote = note
+			t.HandoverNoteTS = now
+			t.HandoverNoteBy = currentActor(r)
+		}
+		t.UpdatedTS = now
+		if err := s.dal.PutTask(*t); err != nil {
+			internalError(w, err)
+			return
+		}
+		if displacedKind == TaskExecutorOutsource && displaced != "" {
+			s.dismissOutsourceWorkerByID(displaced, now, trigger)
+		}
+		s.publishTask(*t, trigger)
+		if displaced != "" {
+			s.hub.Publish("task", "patch", "task", wireOwnerID+"::"+t.ID,
+				map[string]any{"id": t.ID, "status": t.Status, "priority": t.Priority},
+				audienceMembers(displaced), trigger)
+		}
+		s.writeTaskWriteReceipt(w, *t)
+		return
+	}
+
+	// oldExecutor is who the task is handed over FROM. Under the hold that stays
+	// the stamped predecessor; the unclaimed successor it displaces is neither
+	// stamped nor notified. A predecessor that has left keeps its stamp but is
+	// neither notified nor named to the new successor.
 	oldKind, oldExecutor := t.ExecutorKind, t.ExecutorID
+	leaving, leavingKind := oldExecutor, oldKind
+	handingOver := oldExecutor
+	if underHandover(*t) {
+		oldKind, oldExecutor = t.ReassignedFromKind, t.ReassignedFrom
+		handingOver = ""
+		if s.predecessorHoldsTask(*t) {
+			handingOver = oldExecutor
+		}
+	}
 
 	// 1. Expire every waiting card bound to the task — the exact semantics of
 	// the expire route (status flip + releaseCardHold + delta), run
@@ -1893,17 +1972,15 @@ func (s *apiServer) HandleReassignTaskApiTasksTaskIdReassignPost(w http.Response
 		}
 	}
 
-	// 3. The OLD outsource worker is NO LONGER dismissed HERE (T-ba04). It used
-	// to be released + session-reclaimed at reassign time, which killed the
-	// predecessor BEFORE any handover dialogue with the successor could happen
-	// (the `reassigning` hold exists precisely to host that dialogue). Instead
-	// the predecessor stays live through the hold and is fired the moment the
-	// successor claims the task (claim_task handler),
-	// or when the timeout reaper gives up on that report — dismissed by its own
+	// A bound outsource predecessor is NOT dismissed here (T-ba04): it stays
+	// live through the hold to write the handover, and is fired when the
+	// successor calls claim_task or when the handover-timeout reaper reclaims it
+	// after task.reassign_handover_timeout_secs without a change to the task's updated time — by its own
 	// WORKER ID (dismissOutsourceWorkerByID), never by task_id, so an
-	// outsource→outsource takeover does not kill the fresh worker minted below
-	// onto the SAME task_id. A member predecessor was never dismissed and still
-	// is not — it lives on its own member lifecycle and can hand over in chat.
+	// outsource→outsource takeover does not kill the fresh worker minted onto
+	// the SAME task_id. A staff predecessor is never dismissed here either; it
+	// keeps the hold's write rights until the successor claims or it is
+	// dismissed from the roster.
 
 	// Re-read the row: the card pass (releaseCardHold) may have rewritten it.
 	t, err = s.resolveTask(taskId)
@@ -1968,13 +2045,18 @@ func (s *apiServer) HandleReassignTaskApiTasksTaskIdReassignPost(w http.Response
 		internalError(w, err)
 		return
 	}
+	// A displaced successor worker never started the task, and nothing else
+	// would ever reap it: it is not the stamped predecessor.
+	if leaving != oldExecutor && leavingKind == TaskExecutorOutsource && leaving != "" {
+		s.dismissOutsourceWorkerByID(leaving, now, trigger)
+	}
 
 	// 5. Handover PAIRING messages (T-ba04). Both notices are SERVER-authored
 	// (sender = wireSystemSender, not currentActor): an automated handover must
 	// not read as an owner DM. They pair the two sides into a DIALOGUE —
 	// predecessor: "go hand over TO the successor"; successor: "your
-	// predecessor is X, confirm the handover WITH them, THEN flip the status
-	// yourself". Meta carries the task linkage the task-message route
+	// predecessor is X, confirm the handover WITH them, THEN call claim_task".
+	// Meta carries the task linkage the task-message route
 	// established. The predecessor notice fires for a member OR an outsource
 	// predecessor (the outsource one is kept live through the hold, so it can
 	// answer). An outsource SUCCESSOR is not minted here anymore (T-35e0 — the
@@ -2005,11 +2087,11 @@ func (s *apiServer) HandleReassignTaskApiTasksTaskIdReassignPost(w http.Response
 	// about it. It used to be this Go concatenation, which is exactly what the
 	// owner could not find when he went looking for the words an agent is sent.
 	// "" means it could not be rendered — post nothing rather than a template.
-	if oldExecutor != "" {
+	if handingOver != "" {
 		if notice := s.taskNoticeText(docKindTaskReassignPredecessor, map[string]string{
 			"task_no": no,
 		}); notice != "" {
-			s.postTaskChat(*t, wireSystemSender, oldExecutor, notice, trigger, nil)
+			s.postTaskChat(*t, wireSystemSender, handingOver, notice, trigger, nil)
 		}
 	}
 	// 🔴 THE HANDOVER NOTE IS NO LONGER PASTED IN, AND THAT IS THE OWNER'S
@@ -2021,10 +2103,10 @@ func (s *apiServer) HandleReassignTaskApiTasksTaskIdReassignPost(w http.Response
 	// AFTER the instructions leaves no prefix of facts to cut at.
 	if newExecutorID != "" {
 		predecessor := ""
-		if oldExecutor != "" {
+		if handingOver != "" {
 			// The id is not optional: the body's first instruction is to
 			// post_chat this person, and an id alone does not say who that is.
-			predecessor = nameWithIDSlot(s.executorLabel(oldKind, oldExecutor), oldExecutor)
+			predecessor = nameWithIDSlot(s.executorLabel(oldKind, handingOver), handingOver)
 		}
 		if notice := s.takeoverNoticeText(no, predecessor); notice != "" {
 			s.postTaskChat(*t, wireSystemSender, newExecutorID, notice, trigger, nil)
@@ -2032,14 +2114,14 @@ func (s *apiServer) HandleReassignTaskApiTasksTaskIdReassignPost(w http.Response
 	}
 
 	// 6. Fan the task delta: publishTask reaches the NEW executor + owner (the
-	// creator is NOT in the audience — T-0eb5); the OLD executor just left
+	// creator is NOT in the audience — T-0eb5); the executor it replaced just left
 	// that audience, so fan them once more explicitly — their cockpit/agent
 	// view must learn the task moved away.
 	s.publishTask(*t, trigger)
-	if oldExecutor != "" && oldExecutor != t.ExecutorID {
+	if leaving != "" && leaving != t.ExecutorID {
 		s.hub.Publish("task", "patch", "task", wireOwnerID+"::"+t.ID,
 			map[string]any{"id": t.ID, "status": t.Status, "priority": t.Priority},
-			audienceMembers(oldExecutor), trigger)
+			audienceMembers(leaving), trigger)
 	}
 
 	// An outsource target landed the task unassigned — fire the event-driven
@@ -2055,10 +2137,10 @@ func (s *apiServer) HandleReassignTaskApiTasksTaskIdReassignPost(w http.Response
 // reassigned task (MCP claim_task; T-9ca5). It CLEARS the reassigning lock and
 // fires the predecessor outsource worker — the takeover the retired task-status
 // report used to do on the successor's reassigning→in_progress before
-// reassigning became a lock (status is DERIVED, never set here). Executor-guarded: only the
-// task's current executor (the successor the reassign re-pointed to) may claim;
-// owner/admin may drive any task. A task not under the reassigning lock → 409
-// (nothing to claim). Idempotent side effects: the predecessor dismiss is by
+// reassigning became a lock (status is DERIVED, never set here). Gated by
+// callerMayClaimTask: only the successor (or owner/admin) may claim, never the
+// predecessor. A task not under the reassigning lock → 409 (nothing to claim).
+// Idempotent side effects: the predecessor dismiss is by
 // its OWN worker id, never by task_id (the successor may be a fresh worker on
 // the same task_id).
 func (s *apiServer) HandleClaimTaskApiTasksTaskIdClaimPost(w http.ResponseWriter, r *http.Request, taskId string) {
@@ -2067,7 +2149,7 @@ func (s *apiServer) HandleClaimTaskApiTasksTaskIdClaimPost(w http.ResponseWriter
 		writeResolveError(w, err, "task", taskId)
 		return
 	}
-	if !s.callerMayDriveTask(r, *t) {
+	if !s.callerMayClaimTask(r, *t) {
 		writeError(w, http.StatusForbidden, executorGuardRefusal)
 		return
 	}
