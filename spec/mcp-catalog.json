@@ -1640,7 +1640,7 @@
               }
             ],
             "default": null,
-            "description": "Keep only the cards OPENED BY this member id. Omitted, the pane carries every card on the station \u2014 the rows have always named their opener, so what was missing is the filter, not the data. It is a plain string comparison against each card's opener and nothing resolves it, so an id nobody carries is NOT an error: it answers 200 with an EMPTY pane, byte for byte what a real member with no cards in that pane answers. An empty pane is therefore not evidence that nobody is waiting on you; it is equally evidence you misspelled the member.",
+            "description": "Keep only the cards OPENED BY this member id. Omitted, the pane carries every card on the station \u2014 the rows have always named their opener, so what was missing is the filter, not the data. It is a plain string comparison against each card's opener and nothing resolves it, so an id nobody carries is NOT an error: it answers 200 with an EMPTY pane, byte for byte what a real member with no cards in that pane answers. An empty pane is therefore not evidence that nobody is waiting on you; it is equally evidence you misspelled the member. An EMPTY string - or one that is only whitespace - counts as NOT passing the field at all: you get the WHOLE pane, every member's cards included, never an empty one. That is the same convention limit follows for 0, and it cuts the same way: an empty opened_by does not mean 'nobody', so if you pass a computed value that came out empty you fetch everyone, and nothing in the answer says the filter was dropped.",
             "title": "Opened By"
           },
           "status": {
