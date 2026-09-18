@@ -3974,17 +3974,17 @@ func TestHandleReportStoppedApiSelfStoppedPost(t *testing.T) {
 		// dropping boot_ts here would make restart_self's minimum-liveness gate and
 		// the boot-storm guard fail OPEN on a session that is still running.
 		infraWantSession(t, api, d, "ow-abc123", 1700000000, 1700000000, infraSeededGauge())
-		apiWantValue(t, "the receipt on the row", any(map[string]any{
-			"last_op": row.LastOp, "ok": row.LastOpOK != nil && *row.LastOpOK,
-			"reason": row.LastOpReason,
-		}), any(map[string]any{
-			"last_op": "start", "ok": false,
-			"reason": "respawn_deferred: the stopped-report could not clear this " +
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "active", "desired_state": "online",
+			// The seeded session gauge surfaces on this projection; naming it keeps
+			// the comparison whole instead of dropping to a field subset.
+			"compaction_count": 3, "context_pct": 45,
+			"last_op": "start", "last_op_ok": false, "last_op_at": apiAnyNumber,
+			"last_op_reason": "respawn_deferred: the stopped-report could not clear this " +
 				"worker's previous session — it is marked active but neither the server's " +
 				"spawn memory, a live connection, its last landing nor any online warden " +
 				"knows which machine it is on; retrying",
 		}))
-		_ = owner
 	})
 
 	t.Run("a HELD-DOWN worker's report on a dark fleet stays collected, with no rollback and no promise of a retry", func(t *testing.T) {
@@ -4195,8 +4195,16 @@ func TestHandleReportStoppedApiSelfStoppedPost(t *testing.T) {
 			t.Fatalf("non-JSON body (%d): %s", rec.Code, rec.Body.Bytes())
 		}
 		apiWantValue(t, "status", any(float64(rec.Code)), any(200))
-		// The wire answer carries the row the conclusion re-read. A pre-kill
-		// snapshot would say online here.
+		// 🔴 THE LINE BELOW IS THE ONE THAT DISCRIMINATES, and the body above is
+		// NOT — measured, not assumed. The conclusion ends on one more read
+		// (rereadWorker), so the row it ANSWERS with is fresh either way; feed it
+		// a pre-kill snapshot and this body still says offline. What the snapshot
+		// changes is the DECISION it made on the way there: the held-down arm is
+		// chosen from desired_state, so a stale read stamps the FSM `stopping` for
+		// a worker nothing is going to start again. That is what goes red under
+		// the stale-snapshot mutation, and it is why the phase assertion is here
+		// rather than the body being trusted to carry the whole proof.
+		apiWantValue(t, "the FSM phase", any(api.lifecycleState("ow-abc123").Phase), any("offline"))
 		apiWantBody(t, data, map[string]any{
 			"id":               "ow-abc123",
 			"desired_state":    "offline",
@@ -4204,10 +4212,6 @@ func TestHandleReportStoppedApiSelfStoppedPost(t *testing.T) {
 			"refocus_deadline": 0,
 			"stop_effect":      "collected",
 		})
-		// …and the held-down arm is the one that ran: the FSM is left where the
-		// disconnect put it rather than being stamped `stopping`, which is what a
-		// worker with a replacement coming would get (see the control below).
-		apiWantValue(t, "the FSM phase", any(api.lifecycleState("ow-abc123").Phase), any("offline"))
 	})
 
 	t.Run("CONTROL: with nothing changing in that window the same report answers the state it started with", func(t *testing.T) {

@@ -229,11 +229,19 @@ func TestDispatchShutdown(t *testing.T) {
 		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"))
 	})
 
-	t.Run("an id the roster cannot answer for is treated as a WORKER, so it is never handed the member producer's marker", func(t *testing.T) {
-		// 🔴 FAIL-CLOSED. The kind decides whether RobustStopPendingAt is armed,
-		// and arming it for a worker is the F1 defect (a suppressed START, then a
-		// benched machine). A row this server cannot read must therefore land on
-		// the cheap mistake, not the ruling-level one.
+	t.Run("an id the roster cannot answer for is treated as a WORKER, so nothing is left behind to suppress its next start", func(t *testing.T) {
+		// 🔴 FAIL-CLOSED. The kind decides whether the member producer's
+		// at-least-once marker is armed, and arming it for a worker is the F1
+		// defect: the worker tick's decider then holds the START that is due and,
+		// past stop_retry, benches the machine for a STOP it reads as a zombie
+		// takeover. A row this server cannot read must land on the cheap mistake,
+		// not the ruling-level one.
+		//
+		// The CONSEQUENCE — the next tick starting the replacement instead of
+		// waiting — is measured on a row that exists, in
+		// TestHandleReportStoppedApiSelfStoppedPost. Here there is no row by
+		// construction (that is the case under test), so no tick can run and the
+		// marker is all there is to read.
 		api, _, _, _ := newAPITestServer(t)
 		apiTestListen(t, api, ServerSelfHost)
 
@@ -243,7 +251,7 @@ func TestDispatchShutdown(t *testing.T) {
 			any(api.lifecycleState("ow-no-such-row").RobustStopPendingAt), any(float64(0)))
 	})
 
-	t.Run("CONTROL: an id the roster DOES answer for as staff is handed the marker", func(t *testing.T) {
+	t.Run("CONTROL: an id the roster DOES answer for as staff keeps the cadence's re-send of its kill", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		if status, data := apiJSON(t, h, "POST", "/api/members/kip/activate", owner, `{}`); status != 200 {
 			t.Fatalf("activate: %d %v", status, data)

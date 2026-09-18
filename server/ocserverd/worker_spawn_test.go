@@ -896,6 +896,15 @@ func TestNotifyWorkerSpawn(t *testing.T) {
 		// disarm on the machines it happened to reach left it armed when the
 		// replacement booted anywhere else — and the re-send then re-resolved the
 		// chain onto the live claim, which by then is the REPLACEMENT'S machine.
+		//
+		// ⚠️ THE ARM BELOW IS HAND-WRITTEN, not built by stopWorkerSessionOrPark.
+		// That is affordable only because the end-to-end case that DOES use the
+		// real writer goes red under the same mutation
+		// (TestStopWorkerSessionForHandover/the broadcast cannot reach a
+		// replacement that boots on a machine the fan-out never touched). If
+		// workerStopDispatch ever grows another field, these two hand-written
+		// records stop tracking the writer and quietly lose that alertness —
+		// re-point them at the writer then.
 		api, _, _, _, w := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
 		apiTestListen(t, api, ServerSelfHost)
 
@@ -909,6 +918,7 @@ func TestNotifyWorkerSpawn(t *testing.T) {
 	})
 
 	t.Run("CONTROL: an AIMED kill toward a different machine survives the start, because it knows which box it meant", func(t *testing.T) {
+		// Hand-written arm, same caveat as the case above.
 		api, _, _, _, w := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
 		apiTestListen(t, api, ServerSelfHost)
 
@@ -1683,6 +1693,14 @@ func TestNoteWorkerStopNoSuchSession(t *testing.T) {
 // The outcome is an ordinary parameter of this function, so handing it that
 // value is using the seam, not stubbing past it. Everything reachable from the
 // endpoint is tested there instead (TestHandleReportStoppedApiSelfStoppedPost).
+//
+// ⚠️ THE TWO CONTROLS BELOW ARE REACHABLE FROM THE ENDPOINT AND ARE ALSO TESTED
+// THERE — they are not an oversight and not duplication for its own sake. They
+// are here so the one case that ISN'T reachable has same-seam neighbours to be
+// read against: without them "recorded ⇒ no rollback" would be asserted a level
+// away from "not recorded ⇒ rollback", and a reader could not tell whether the
+// difference came from the outcome or from the layer. The endpoint twins are
+// TestHandleReportStoppedApiSelfStoppedPost's dark-fleet pair.
 func TestConcludeWorkerStoppedReport(t *testing.T) {
 	// wsReported latches a stopped-report's marker the way the handler does, and
 	// answers the pre-latch anchor the rollback would restore.
