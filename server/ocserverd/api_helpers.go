@@ -718,10 +718,12 @@ func (s *apiServer) writeSelfReportReceipt(w http.ResponseWriter, m Member) {
 // effect to name, and an empty string passed by hand at four sites is four
 // chances to pass the wrong one.
 //
-// 🔴 stop_effect is the ONLY thing that distinguishes the four outcomes of
-// report_stopped on the wire; both arms of the handler (staff and the outsource
-// fold) must name theirs. A new outcome added to either without a value here
-// re-creates the exact defect T-102 closed: a 200 that means nothing.
+// 🔴 stop_effect is the ONLY thing that distinguishes the outcomes of
+// report_stopped on the wire — since T-251 one shared decision answers
+// collected or already_reported — and both arms of the handler (staff and the
+// outsource fold) must name theirs. A new outcome added to either without a
+// value here re-creates the exact defect T-102 closed: a 200 that means
+// nothing.
 func (s *apiServer) writeSelfReportStopReceipt(
 	w http.ResponseWriter, m Member, stopEffect string,
 ) {

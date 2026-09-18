@@ -2904,14 +2904,12 @@ type SelfReportReceiptDTO struct {
 
 	// StopEffect 🔴 WHAT ``report_stopped`` ACTUALLY DID. Present ONLY on the ``/api/self/stopped`` face; absent on the other three, which are not stop reports and have no effect to name.
 	//
-	// It exists because that one verb has FOUR different internal outcomes and, until T-102, every one of them answered 200 with byte-identical bytes - so an agent that had just declared itself finished could not tell "someone is collecting me" from "nobody is". Two of the four are silent no-ops: the caller believes it has stopped, nothing kills its session, and the reconcile machine starts it again seconds later and it keeps spending.
+	// Staff and outsource workers go through one decision (T-251), so a report answers one of two values:
 	//
-	// The four values, and the pairing that matters - the first two mean a collect is under way or provably owed, the last two mean NOBODY is coming:
-	//
-	// * ``collected`` - a collect was dispatched BY THIS CALL. The staff arm's robust STOP, or the worker 停止 arm's kill-and-hold-down. The session ends.
-	// * ``latched_for_collect`` - nothing was dispatched here, but this call wrote the latch the next reconcile tick keys on, so the collect is owed and the wait is bounded by one tick. One decider, one kill. The session ends.
-	// * ``recorded_only`` - the end of this session was RECORDED and nothing else. ``stopped_since`` is on the row, but no wind-down epoch is open for a tick to close and this report carried no intent to stay down (``desired_state`` is still ``online``), so nothing is watching the latch and no kill will follow. An agent that reads this as "I have been stopped" is wrong: it has only been noted, and it will be woken again.
+	// * ``collected`` - this was your FIRST stopped-report, and this call dispatched the kill for your session (staff: the robust STOP; worker: the worker kill). ``desired_state`` alone decides what follows: ``online`` starts a new session once this one reads offline, ``offline`` stays down.
 	// * ``already_reported`` - THIS CALL DID NOTHING AT ALL. ``stopped_since`` was already anchored (anchor semantics - it is never re-stamped), so the whole handler body was skipped. Whatever the FIRST report set in motion, or failed to, still stands; repeating the call cannot change it.
+	//
+	// ``latched_for_collect`` and ``recorded_only`` stay in the enum so older clients keep parsing, but the server no longer produces them.
 	//
 	// Optional (T-102 adds it to a frozen DTO), so a client written before this field must keep working when it is absent - but a client that reads a stopped-report receipt WITHOUT reading this field is reading the exact ambiguity the field was added to remove.
 	StopEffect *SelfReportReceiptDTOStopEffect `json:"stop_effect,omitempty"`
@@ -2919,14 +2917,12 @@ type SelfReportReceiptDTO struct {
 
 // SelfReportReceiptDTOStopEffect 🔴 WHAT “report_stopped“ ACTUALLY DID. Present ONLY on the “/api/self/stopped“ face; absent on the other three, which are not stop reports and have no effect to name.
 //
-// It exists because that one verb has FOUR different internal outcomes and, until T-102, every one of them answered 200 with byte-identical bytes - so an agent that had just declared itself finished could not tell "someone is collecting me" from "nobody is". Two of the four are silent no-ops: the caller believes it has stopped, nothing kills its session, and the reconcile machine starts it again seconds later and it keeps spending.
+// Staff and outsource workers go through one decision (T-251), so a report answers one of two values:
 //
-// The four values, and the pairing that matters - the first two mean a collect is under way or provably owed, the last two mean NOBODY is coming:
-//
-// * “collected“ - a collect was dispatched BY THIS CALL. The staff arm's robust STOP, or the worker 停止 arm's kill-and-hold-down. The session ends.
-// * “latched_for_collect“ - nothing was dispatched here, but this call wrote the latch the next reconcile tick keys on, so the collect is owed and the wait is bounded by one tick. One decider, one kill. The session ends.
-// * “recorded_only“ - the end of this session was RECORDED and nothing else. “stopped_since“ is on the row, but no wind-down epoch is open for a tick to close and this report carried no intent to stay down (“desired_state“ is still “online“), so nothing is watching the latch and no kill will follow. An agent that reads this as "I have been stopped" is wrong: it has only been noted, and it will be woken again.
+// * “collected“ - this was your FIRST stopped-report, and this call dispatched the kill for your session (staff: the robust STOP; worker: the worker kill). “desired_state“ alone decides what follows: “online“ starts a new session once this one reads offline, “offline“ stays down.
 // * “already_reported“ - THIS CALL DID NOTHING AT ALL. “stopped_since“ was already anchored (anchor semantics - it is never re-stamped), so the whole handler body was skipped. Whatever the FIRST report set in motion, or failed to, still stands; repeating the call cannot change it.
+//
+// “latched_for_collect“ and “recorded_only“ stay in the enum so older clients keep parsing, but the server no longer produces them.
 //
 // Optional (T-102 adds it to a frozen DTO), so a client written before this field must keep working when it is absent - but a client that reads a stopped-report receipt WITHOUT reading this field is reading the exact ambiguity the field was added to remove.
 type SelfReportReceiptDTOStopEffect string
@@ -4876,12 +4872,10 @@ type ServerInterface interface {
 	// restart_self(): ask for your own session to be stopped and started again. This call only records the request; it stops nothing itself. Your session is woken with the 〈停止〉 document, and the server stops and respawns the session only after you work that procedure and call “report_stopped“. If the owner or an admin agent escalates to 加速停止 while you are working it, a deadline starts, you are sent the 〈加速停止〉 document naming it, and the server collects the session at that deadline even if “report_stopped“ has not been called. The owner or an admin agent can also end the session at once with 強制停止 (“force_stop_member“); that stop cancels the restart and leaves you down, with your desired state set to offline. Refused with 409 when you have no live event-stream connection or your desired state is not online, with 429 while the current session is younger than the minimum-liveness floor the refusal states, and with 409 when you are already further along the wind-down ladder (下線 → 加速 → 強制). Answers with a bounded receipt (“id“, “desired_state“, “refocus_op“, “refocus_deadline“), not the member row — call “get_member“ when you need the rest.
 	// (POST /api/self/refocus)
 	HandleRestartSelfApiSelfRefocusPost(w http.ResponseWriter, r *http.Request)
-	// report_stopped(): tell the server you have FINISHED your close-out. 🔴 THIS CALL DOES NOT, BY ITSELF, END YOUR SESSION, and it does not always cause anything to end it — which of the four things happened is in the receipt's “stop_effect“, and it is the only way to tell them apart:
+	// report_stopped(): tell the server you have FINISHED your close-out, then read the receipt's “stop_effect“:
 	//
-	// * “collected“ — a kill was dispatched by this call. You are being collected.
-	// * “latched_for_collect“ — nothing was sent yet, but the next reconcile tick collects you off the latch this call wrote. You are being collected, one tick later.
-	// * “recorded_only“ — 🔴 the end of this session was RECORDED AND NOTHING ELSE. No wind-down is open and nothing is holding you down, so NO KILL FOLLOWS and you will be started again. You have not been stopped, you have been noted. If you meant to stay down, someone with the authority to set your desired state has to do that — reporting again will not.
-	// * “already_reported“ — you had already reported stopped, so THIS CALL DID NOTHING AT ALL. Whatever your first report set in motion, or failed to, still stands. Calling a third time changes nothing either.
+	// * “collected“ — this was your first report, and this call dispatched the kill for your session. If your desired state is online, a new session is started once this one is gone; if it is offline, you stay down. If you are still alive and still being given work long after this, do NOT call again (see the next line) — tell someone with the authority to set your desired state.
+	// * “already_reported“ — you had already reported stopped, so THIS CALL DID NOTHING AT ALL. Whatever your first report set in motion, or failed to, still stands. Calling again changes nothing either.
 	//
 	// The rest of the receipt is “id“, “desired_state“, “refocus_op“ and “refocus_deadline“, not the member row — call “get_member“ when you need the rest.
 	// (POST /api/self/stopped)

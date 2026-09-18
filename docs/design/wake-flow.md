@@ -137,7 +137,7 @@ worker 那邊**至少四種**：**排程收案時的 admission**、**owner op**�
 
 > 舊：按喚醒 → **當場砍掉正在收尾的那一手** → 同一次請求裡派新的 START。
 >
-> 新：按喚醒 → **什麼都不做**，只把 `desired_state` 記成 online 並清掉 `stopping_since` → agent 自己把收尾做完、`report_stopped` → 那一報落在 `workerReportStopped` 的**裸 latch**（兩支收口臂的前提都被前一步拿掉了：「停止」那臂要 desired offline，「換手」那臂要 `refocus_since > 0`）→ **下一輪 tick 看到「想要它在線上」而沒有 session，派一道普通 START。**
+> 新：按喚醒 → **什麼都不做**，只把 `desired_state` 記成 online 並清掉 `stopping_since` → agent 自己把收尾做完、`report_stopped` → 第一次報停一律收：`desired_state` 是 online，所以那一報走換手 funnel 當場停掉這個 session（不起任何東西）→ **下一輪 tick 看到「想要它在線上」而沒有 session，派一道普通 START。**
 
 ⇒ **它還是會回來，但回來的是第四種觸發（救援 START），不是 owner op 踢的那一輪決策。**代價是**多等一個 tick 加上收尾本身的時間**；換到的是「owner 按下去不會弄丟它寫到一半的東西」。這條時間軸由 `TestWakeOnAStoppingWorkerBringsItBackAfterTheCloseOut` 逐步釘住——中間**任何一步**退化，症狀都是同一個：**按了 200、然後它永遠不回來，畫面上沒有任何東西是紅的。**
 

@@ -526,7 +526,7 @@ func (s *apiServer) HandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcc
 //   - NO kill. openWorkerHandoverGrace fans the member-topic 預告 at the
 //     worker's OWN session — the same machinery the 換手 arm has used since
 //     T-ea82, client-side unchanged — and the 收口 belongs to the worker's own
-//     report_stopped (workerReportStopped's stop arm). There is NO deadline
+//     report_stopped (workerReportStopped's desired-offline arm). There is NO deadline
 //     unless the owner presses 加速停止, exactly as on the staff 下線 arm
 //     (rc-27d1710174dd 「不要兜底」).
 //

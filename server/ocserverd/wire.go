@@ -2101,32 +2101,33 @@ type selfReportReceiptDTO struct {
 	// This is the one number that says how much time is left to close out.
 	RefocusDeadline float64 `json:"refocus_deadline"`
 	// StopEffect is 🔴 WHAT report_stopped ACTUALLY DID, and it exists because
-	// the four internal outcomes of that one verb were indistinguishable from
-	// the outside: all four answered 200 with a byte-identical receipt, and two
-	// of them are silent no-ops. An agent that has just declared itself finished
-	// cannot otherwise tell "someone is collecting me" from "nobody is, and I
-	// will be woken again in ~30s and keep spending", which is the exact failure
-	// this field is here to make legible (T-102).
+	// the internal outcomes of that one verb were indistinguishable from the
+	// outside: every one of them answered 200 with a byte-identical receipt,
+	// and two were silent no-ops. An agent that had just declared itself
+	// finished could not tell "someone is collecting me" from "nobody is, and I
+	// will be woken again in ~30s and keep spending", which is the failure this
+	// field was added to make legible (T-102). Since T-251 the two silent
+	// outcomes are gone and the answer is collected or already_reported.
 	//
 	// EMPTY on the other three faces (report_waking, report_stopping,
 	// restart_self) — they are not stop reports and have no effect to name; the
 	// field is `omitempty` so those receipts are byte-identical to what they
-	// answered before. See the stopEffect* constants below for the four values.
+	// answered before. See the stopEffect* constants below.
 	StopEffect string `json:"stop_effect,omitempty"`
 }
 
-// The stop_effect enum on selfReportReceiptDTO — the four outcomes report_stopped
-// can have. The pairing that matters to a caller is: the first two mean somebody
-// is (or provably will be) collecting this session, the last two mean NOBODY is.
+// The stop_effect enum on selfReportReceiptDTO. Since T-251 decideStoppedReport
+// answers only collected / already_reported for both kinds;
+// latched_for_collect and recorded_only stay in the wire enum but are no longer
+// produced.
 const (
-	// stopEffectCollected — a collect was dispatched by THIS call: the staff
-	// arm's robust STOP, or the worker 停止 arm's collectWorkerStop (kill, no
-	// respawn). The session ends.
+	// stopEffectCollected — a collect was dispatched by THIS call (the staff
+	// robust STOP, or the worker kill). The session ends; desired_state decides
+	// whether a new one starts.
 	stopEffectCollected = "collected"
 	// stopEffectLatchedForCollect — nothing was dispatched here, but the latch
 	// this call wrote is the very thing the next reconcile tick keys on, so the
-	// collect is owed and the wait is bounded by the tick (one decider, one
-	// kill — see workerReportStopped's own note). The session ends.
+	// collect is owed and the wait is bounded by the tick. The session ends.
 	stopEffectLatchedForCollect = "latched_for_collect"
 	// stopEffectRecordedOnly — 🔴 THE SILENT ONE. stopped_since was recorded, so
 	// the end of this session is on the record, but NO collector is watching:

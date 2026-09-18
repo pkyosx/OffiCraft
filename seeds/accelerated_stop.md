@@ -29,6 +29,4 @@
 3. 回報 stopped：呼叫 MCP `report_stopped()`，並依回應中的 `stop_effect` 處理：
 
    * `collected`：停止程序已啟動。若之後仍持續存活或收到新工作，不要再次呼叫 `report_stopped()`；使用 `post_chat` 通知有權調整 `desired_state` 的人。
-   * `latched_for_collect`：已排定由下一個 tick 停止，不需要其他操作。
-   * `recorded_only`：只記錄停止狀態，session 不會實際停止。使用 `post_chat` 通知有權調整 `desired_state` 的人，不要再次呼叫 `report_stopped()`。
    * `already_reported`：先前已回報停止，本次呼叫不會重新執行停止程序；依第一次 `report_stopped()` 的結果處理。
