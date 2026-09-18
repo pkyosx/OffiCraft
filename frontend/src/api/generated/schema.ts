@@ -7862,10 +7862,12 @@ export interface components {
              * Stop Effect
              * @description 🔴 WHAT ``report_stopped`` ACTUALLY DID. Present ONLY on the ``/api/self/stopped`` face; absent on the other three, which are not stop reports and have no effect to name.
              *
-             *     Staff and outsource workers go through one decision (T-251), so a report answers one of two values:
+             *     Staff and outsource workers go through one decision (T-251) and, since T-253, one shutdown dispatch, so a report answers one of two values:
              *
-             *     * ``collected`` - this was your FIRST stopped-report, and this call dispatched the kill for your session (staff: the robust STOP; worker: the worker kill). ``desired_state`` alone decides what follows: ``online`` starts a new session once this one reads offline, ``offline`` stays down.
-             *     * ``already_reported`` - THIS CALL DID NOTHING AT ALL. ``stopped_since`` was already anchored (anchor semantics - it is never re-stamped), so the whole handler body was skipped. Whatever the FIRST report set in motion, or failed to, still stands; repeating the call cannot change it.
+             *     * ``collected`` - this was your FIRST stopped-report, and this call dispatched the kill for your session. ``desired_state`` alone decides what follows: ``online`` starts a new session once this one reads offline, ``offline`` stays down.
+             *     * ``already_reported`` - THIS CALL DID NOTHING AT ALL. ``stopped_since`` was already anchored (anchor semantics - it is never re-stamped), so the whole handler body was skipped. What the FIRST report set in motion still stands; repeating the call cannot change it.
+             *
+             *     Reading ``already_reported`` is no longer a way to learn that no kill was ever sent: a first report whose two-step durable write FAILS now rolls the ``stopped_since`` latch back and answers 5xx, so the retry is a FIRST report again and does dispatch. One residue survives that - a rollback that itself fails to write. It is logged server-side, and it is the only case in which a later call can read ``already_reported`` over a session whose kill never went out.
              *
              *     ``latched_for_collect`` and ``recorded_only`` stay in the enum so older clients keep parsing, but the server no longer produces them.
              *

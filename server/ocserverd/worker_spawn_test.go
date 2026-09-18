@@ -881,7 +881,9 @@ func TestNotifyWorkerSpawn(t *testing.T) {
 
 		api.outsourceMu.Lock()
 		api.workerStopPending["ow-abc123"] = ServerSelfHost
-		api.workerStopLanded["ow-abc123"] = workerStopDispatch{Target: ServerSelfHost, At: 5}
+		api.workerStopLanded["ow-abc123"] = workerStopDispatch{
+			Target: ServerSelfHost, Fanout: []string{ServerSelfHost}, At: 5,
+		}
 		api.notifyWorkerSpawn(wsPinned(w), 1000)
 		api.outsourceMu.Unlock()
 
@@ -1485,12 +1487,77 @@ func TestStopWorkerSessionOrPark(t *testing.T) {
 		apiWantValue(t, "armed kills", any(float64(armed)), any(0))
 		apiWantValue(t, "parked kill", any(parked), any("m-server-self"))
 	})
+
+	// 🔴 THE ANSWER, NOT THE SENDING. The three shapes below are the three things
+	// that can become of one kill, and a caller's whole decision hangs on telling
+	// them apart: landed somewhere, owed to a machine we can name, or owed to
+	// nobody at all. Only the third means "this session was not killed and
+	// nothing will retry".
+	t.Run("a fan-out every warden refuses is recorded NOWHERE, and says so", func(t *testing.T) {
+		api, _, _, _, _ := wsWorkerSpawnFixture(t, WorkerStatusActive)
+		seedMachine(t, api, "m-one")
+		seedMachine(t, api, "m-two") // rostered, never connected
+
+		api.outsourceMu.Lock()
+		out := api.stopWorkerSessionOrPark([]string{"m-one", "m-two"}, "ow-abc123", 1000)
+		parked := len(api.workerStopPending)
+		armed := len(api.workerStopLanded)
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "the outcome", any(map[string]any{
+			"landed": wsStrings(out.Landed), "parked": out.Parked, "recorded": out.recorded(),
+		}), any(map[string]any{"landed": []any{}, "parked": "", "recorded": false}))
+		apiWantValue(t, "the ledgers", any(map[string]any{
+			"parked": float64(parked), "armed": float64(armed),
+		}), any(map[string]any{"parked": 0, "armed": 0}))
+		wsWantWardenFrames(t, api, "m-one")
+		wsWantWardenFrames(t, api, "m-two")
+	})
+
+	t.Run("CONTROL: one named target that refuses is recorded in the parked ledger", func(t *testing.T) {
+		api, _, _, _, _ := wsWorkerSpawnFixture(t, WorkerStatusActive)
+		seedMachine(t, api, "m-one")
+
+		api.outsourceMu.Lock()
+		out := api.stopWorkerSessionOrPark([]string{"m-one"}, "ow-abc123", 1000)
+		parked := api.workerStopPending["ow-abc123"]
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "the outcome", any(map[string]any{
+			"landed": wsStrings(out.Landed), "parked": out.Parked, "recorded": out.recorded(),
+		}), any(map[string]any{"landed": []any{}, "parked": "m-one", "recorded": true}))
+		apiWantValue(t, "the parked ledger", any(parked), any("m-one"))
+	})
+
+	t.Run("CONTROL: a fan-out one warden accepts is recorded on that warden", func(t *testing.T) {
+		api, _, _, _, _ := wsWorkerSpawnFixture(t, WorkerStatusActive)
+		seedMachine(t, api, "m-one")
+		apiTestListen(t, api, "m-one")
+		seedMachine(t, api, "m-two") // rostered, never connected
+
+		api.outsourceMu.Lock()
+		out := api.stopWorkerSessionOrPark([]string{"m-one", "m-two"}, "ow-abc123", 1000)
+		armed := api.workerStopLanded["ow-abc123"]
+		parked := len(api.workerStopPending)
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "the outcome", any(map[string]any{
+			"landed": wsStrings(out.Landed), "parked": out.Parked, "recorded": out.recorded(),
+		}), any(map[string]any{"landed": []any{"m-one"}, "parked": "", "recorded": true}))
+		apiWantValue(t, "the armed kill", any(map[string]any{
+			"target": armed.Target, "fanout": wsStrings(armed.Fanout), "at": armed.At,
+		}), any(map[string]any{"target": "", "fanout": []any{"m-one"}, "at": 1000.0}))
+		apiWantValue(t, "parked kills", any(float64(parked)), any(0))
+		wsWantWardenFrames(t, api, "m-one", wsStopFrame("ow-abc123"))
+	})
 }
 
 func TestNoteWorkerStopNoSuchSession(t *testing.T) {
 	t.Run("the machine the kill was aimed at reporting no_such_session disarms the retry", func(t *testing.T) {
 		api, _, _, _, _ := wsWorkerSpawnFixture(t, WorkerStatusActive)
-		api.workerStopLanded["ow-abc123"] = workerStopDispatch{Target: ServerSelfHost, At: 1000}
+		api.workerStopLanded["ow-abc123"] = workerStopDispatch{
+			Target: ServerSelfHost, Fanout: []string{ServerSelfHost}, At: 1000,
+		}
 
 		api.noteWorkerStopNoSuchSession("ow-abc123", ServerSelfHost)
 
@@ -1499,7 +1566,9 @@ func TestNoteWorkerStopNoSuchSession(t *testing.T) {
 
 	t.Run("a machine that never hosted the session cannot disarm it, because an identity sweep asks every warden", func(t *testing.T) {
 		api, _, _, _, _ := wsWorkerSpawnFixture(t, WorkerStatusActive)
-		api.workerStopLanded["ow-abc123"] = workerStopDispatch{Target: ServerSelfHost, At: 1000}
+		api.workerStopLanded["ow-abc123"] = workerStopDispatch{
+			Target: ServerSelfHost, Fanout: []string{ServerSelfHost}, At: 1000,
+		}
 
 		api.noteWorkerStopNoSuchSession("ow-abc123", "m-bystander")
 
@@ -1508,9 +1577,63 @@ func TestNoteWorkerStopNoSuchSession(t *testing.T) {
 			any(map[string]any{"target": "m-server-self", "at": 1000.0}))
 	})
 
+	t.Run("a fanned-out kill is disarmed by no receipt at all, because every machine it reached is a bystander", func(t *testing.T) {
+		// A broadcast happens precisely when NO source can name the machine, so
+		// every warden it reaches is one that may never have hosted the session —
+		// and each of them answers no_such_session as a matter of routine. Keying
+		// the disarm on any of those answers is the "abandon a genuinely
+		// undelivered kill on the word of a machine that was never involved"
+		// this function's own header forbids (殘活 session 零容忍).
+		// The arm is built by the REAL writer from a REAL fan-out, because the
+		// defect this pins was in what that writer recorded: it stamped the last
+		// machine that happened to accept the frame as the aimed target, and that
+		// machine — chosen for no reason but iteration order — could then disarm
+		// the whole retry with one routine no_such_session.
+		api, _, _, _, w := wsWorkerSpawnFixture(t, WorkerStatusActive)
+		seedMachine(t, api, "m-old")
+		apiTestListen(t, api, "m-old")
+		apiTestListen(t, api, ServerSelfHost)
+		api.outsourceMu.Lock()
+		api.stopWorkerSessionForHandover(w, "relocate", 1000)
+		api.outsourceMu.Unlock()
+		wsVerbs(t, api, "m-old")
+		wsVerbs(t, api, ServerSelfHost)
+
+		api.noteWorkerStopNoSuchSession("ow-abc123", "m-old")
+		api.noteWorkerStopNoSuchSession("ow-abc123", ServerSelfHost)
+
+		api.outsourceMu.Lock()
+		armed := api.workerStopLanded["ow-abc123"]
+		api.outsourceMu.Unlock()
+		apiWantValue(t, "armed kill", any(map[string]any{
+			"target": armed.Target, "fanout": wsStrings(armed.Fanout), "at": armed.At,
+		}), any(map[string]any{
+			"target": "", "fanout": []any{"m-old", "m-server-self"}, "at": 1000.0,
+		}))
+	})
+
+	t.Run("POSITIVE CONTROL: an AIMED kill is still disarmed by its own machine, built by the same writer", func(t *testing.T) {
+		api, _, _, _, w := wsWorkerSpawnFixture(t, WorkerStatusActive)
+		apiTestListen(t, api, ServerSelfHost)
+		api.outsourceMu.Lock()
+		api.workerSpawnTarget["ow-abc123"] = ServerSelfHost // one named source ⇒ aimed
+		api.stopWorkerSessionForHandover(w, "relocate", 1000)
+		api.outsourceMu.Unlock()
+		wsVerbs(t, api, ServerSelfHost)
+
+		api.noteWorkerStopNoSuchSession("ow-abc123", ServerSelfHost)
+
+		api.outsourceMu.Lock()
+		count := len(api.workerStopLanded)
+		api.outsourceMu.Unlock()
+		apiWantValue(t, "armed kills", any(float64(count)), any(0))
+	})
+
 	t.Run("an unidentified reporter, an unnamed worker and a worker with nothing armed all change nothing", func(t *testing.T) {
 		api, _, _, _, _ := wsWorkerSpawnFixture(t, WorkerStatusActive)
-		api.workerStopLanded["ow-abc123"] = workerStopDispatch{Target: ServerSelfHost, At: 1000}
+		api.workerStopLanded["ow-abc123"] = workerStopDispatch{
+			Target: ServerSelfHost, Fanout: []string{ServerSelfHost}, At: 1000,
+		}
 
 		api.noteWorkerStopNoSuchSession("ow-abc123", "")
 		api.noteWorkerStopNoSuchSession("", ServerSelfHost)
@@ -1520,6 +1643,73 @@ func TestNoteWorkerStopNoSuchSession(t *testing.T) {
 		apiWantValue(t, "armed kill", any(map[string]any{
 			"target": armed.Target, "at": armed.At, "count": float64(len(api.workerStopLanded)),
 		}), any(map[string]any{"target": "m-server-self", "at": 1000.0, "count": 1.0}))
+	})
+}
+
+func TestRestoreWorkerStoppedLatch(t *testing.T) {
+	t.Run("the latch goes back and nothing else on the row is touched, even from a stale snapshot", func(t *testing.T) {
+		// 🔴 THE CALLER'S SNAPSHOT CAN BE OLD. The stopped-report path drops
+		// outsourceMu across the kill, so any request that changed this row in
+		// that window has already landed by the time the rollback runs. A
+		// whole-row write from the pre-kill snapshot would revert every one of
+		// those columns; only the anchor is this function's to move.
+		api, _, d, _, w := wsWorkerSpawnFixture(t, WorkerStatusActive)
+		w.StoppedSince = 4242
+		if err := d.PutOutsourceWorker(w); err != nil {
+			t.Fatalf("PutOutsourceWorker: %v", err)
+		}
+		if err := d.SetMemberWindDownAnchors("ow-abc123", 0, 4242, 0, ""); err != nil {
+			t.Fatalf("SetMemberWindDownAnchors: %v", err)
+		}
+		stale := w // the photograph the caller took before the gap
+
+		// Meanwhile the owner changes the model and holds the worker down.
+		live, err := d.GetOutsourceWorker("ow-abc123")
+		if err != nil || live == nil {
+			t.Fatalf("GetOutsourceWorker: %v (%v)", live, err)
+		}
+		live.DesiredState = DesiredStateOffline
+		live.ActualModel = "claude-opus-4-8"
+		if err := d.PutOutsourceWorker(*live); err != nil {
+			t.Fatalf("PutOutsourceWorker: %v", err)
+		}
+
+		api.outsourceMu.Lock()
+		api.restoreWorkerStoppedLatch(&stale, 0, "stopped-report")
+		api.outsourceMu.Unlock()
+
+		after, err := d.GetOutsourceWorker("ow-abc123")
+		if err != nil || after == nil {
+			t.Fatalf("GetOutsourceWorker: %v (%v)", after, err)
+		}
+		apiWantValue(t, "the row after the rollback", any(map[string]any{
+			"stopped_since": after.StoppedSince,
+			"desired_state": after.DesiredState,
+			"actual_model":  after.ActualModel,
+		}), any(map[string]any{
+			"stopped_since": 0,
+			"desired_state": "offline",
+			"actual_model":  "claude-opus-4-8",
+		}))
+		apiWantValue(t, "the caller's own copy", any(stale.StoppedSince), any(float64(0)))
+	})
+
+	t.Run("POSITIVE CONTROL: a rollback to a NON-zero prior puts that value back, so the clear above is the rollback and not a no-op", func(t *testing.T) {
+		api, _, d, _, w := wsWorkerSpawnFixture(t, WorkerStatusActive)
+		if err := d.SetMemberWindDownAnchors("ow-abc123", 0, 4242, 0, ""); err != nil {
+			t.Fatalf("SetMemberWindDownAnchors: %v", err)
+		}
+		w.StoppedSince = 4242
+
+		api.outsourceMu.Lock()
+		api.restoreWorkerStoppedLatch(&w, 999, "stopped-report")
+		api.outsourceMu.Unlock()
+
+		after, err := d.GetOutsourceWorker("ow-abc123")
+		if err != nil || after == nil {
+			t.Fatalf("GetOutsourceWorker: %v (%v)", after, err)
+		}
+		apiWantValue(t, "stopped_since", any(after.StoppedSince), any(999))
 	})
 }
 
@@ -1581,7 +1771,9 @@ func TestRetryPendingWorkerStop(t *testing.T) {
 		apiTestListen(t, api, ServerSelfHost)
 
 		api.outsourceMu.Lock()
-		api.workerStopLanded["ow-abc123"] = workerStopDispatch{Target: ServerSelfHost, At: 1000}
+		api.workerStopLanded["ow-abc123"] = workerStopDispatch{
+			Target: ServerSelfHost, Fanout: []string{ServerSelfHost}, At: 1000,
+		}
 		api.retryPendingWorkerStop("ow-abc123", 1090)
 		armedAt := api.workerStopLanded["ow-abc123"].At
 		api.outsourceMu.Unlock()
@@ -1608,7 +1800,9 @@ func TestRetryUnlandedWorkerStop(t *testing.T) {
 		apiTestListen(t, api, ServerSelfHost)
 
 		api.outsourceMu.Lock()
-		api.workerStopLanded["ow-abc123"] = workerStopDispatch{Target: ServerSelfHost, At: 1000}
+		api.workerStopLanded["ow-abc123"] = workerStopDispatch{
+			Target: ServerSelfHost, Fanout: []string{ServerSelfHost}, At: 1000,
+		}
 		api.retryUnlandedWorkerStop("ow-abc123", 1090)
 		armed := api.workerStopLanded["ow-abc123"]
 		api.outsourceMu.Unlock()
@@ -1624,7 +1818,9 @@ func TestRetryUnlandedWorkerStop(t *testing.T) {
 		apiTestListen(t, api, ServerSelfHost)
 
 		api.outsourceMu.Lock()
-		api.workerStopLanded["ow-abc123"] = workerStopDispatch{Target: ServerSelfHost, At: 1000}
+		api.workerStopLanded["ow-abc123"] = workerStopDispatch{
+			Target: ServerSelfHost, Fanout: []string{ServerSelfHost}, At: 1000,
+		}
 		api.retryUnlandedWorkerStop("ow-abc123", 1089)
 		armed := api.workerStopLanded["ow-abc123"]
 		api.outsourceMu.Unlock()
@@ -1639,7 +1835,9 @@ func TestRetryUnlandedWorkerStop(t *testing.T) {
 		apiTestListen(t, api, ServerSelfHost)
 
 		api.outsourceMu.Lock()
-		api.workerStopLanded["ow-abc123"] = workerStopDispatch{Target: ServerSelfHost, At: 1000}
+		api.workerStopLanded["ow-abc123"] = workerStopDispatch{
+			Target: ServerSelfHost, Fanout: []string{ServerSelfHost}, At: 1000,
+		}
 		api.retryUnlandedWorkerStop("ow-abc123", 5000)
 		armed := len(api.workerStopLanded)
 		api.outsourceMu.Unlock()
@@ -1654,7 +1852,9 @@ func TestRetryUnlandedWorkerStop(t *testing.T) {
 		apiTestListen(t, api, ServerSelfHost)
 
 		api.outsourceMu.Lock()
-		api.workerStopLanded["ow-abc123"] = workerStopDispatch{Target: ServerSelfHost, At: 1000}
+		api.workerStopLanded["ow-abc123"] = workerStopDispatch{
+			Target: ServerSelfHost, Fanout: []string{ServerSelfHost}, At: 1000,
+		}
 		api.retryUnlandedWorkerStop("ow-abc123", 5000)
 		armed := len(api.workerStopLanded)
 		api.outsourceMu.Unlock()
@@ -1684,7 +1884,9 @@ func TestRetryUnlandedWorkerStop(t *testing.T) {
 		wsWorkerOn(t, api, ServerSelfHost)
 
 		api.outsourceMu.Lock()
-		api.workerStopLanded["ow-abc123"] = workerStopDispatch{Target: ServerSelfHost, At: 1000}
+		api.workerStopLanded["ow-abc123"] = workerStopDispatch{
+			Target: ServerSelfHost, Fanout: []string{ServerSelfHost}, At: 1000,
+		}
 		api.retryUnlandedWorkerStop("ow-abc123", 1090)
 		armed := len(api.workerStopLanded)
 		parked := api.workerStopPending["ow-abc123"]
@@ -2195,15 +2397,17 @@ func TestStopWorkerSessionForHandover(t *testing.T) {
 
 		apiWantValue(t, "stopped", any(stopped), any(false))
 		apiWantValue(t, "deferral logged", any(strings.Contains(logged,
-			"relocate deferred ow-abc123 (Contractor): no kill target (spawn memory empty, "+
-				"sse offline, no last landing, no warden online)")), any(true))
+			"relocate deferred ow-abc123 (Contractor): the kill is on no warden's FIFO "+
+				"and parked nowhere (targets [])")), any(true))
 		wsWantWardenFrames(t, api, ServerSelfHost)
 		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
 			"status":  "active",
 			"last_op": "start", "last_op_ok": false, "last_op_at": apiAnyNumber,
 			"last_op_reason": "respawn_deferred: the relocate could not clear this worker's " +
-				"previous session — it is marked active but neither the server's spawn memory " +
-				"nor a live connection knows which machine it is on; retrying",
+				"previous session — it is marked active, but the stop reached no machine: " +
+				"either nothing the server knows names one (its spawn memory, a live " +
+				"connection, the worker's last landing) and no warden is online, or every " +
+				"warden it was aimed at refused it; retrying",
 		}))
 		dashboard.wantFrames(apiTestWorkerDelta(2, "active", "server"))
 	})
@@ -2317,7 +2521,7 @@ func TestStopWorkerSessionForHandover(t *testing.T) {
 		// dispatches no start, so no replacement can be what this reaches.
 	})
 
-	t.Run("POSITIVE CONTROL: with no replacement start in between, the same late re-fire does aim another kill at the same machine", func(t *testing.T) {
+	t.Run("POSITIVE CONTROL: with no replacement start in between, the same late re-fire does send another kill", func(t *testing.T) {
 		api, _, _, _, w := wsWorkerSpawnFixture(t, WorkerStatusActive)
 		seedMachine(t, api, "m-old")
 		apiTestListen(t, api, "m-old")
@@ -2325,23 +2529,31 @@ func TestStopWorkerSessionForHandover(t *testing.T) {
 
 		api.outsourceMu.Lock()
 		api.stopWorkerSessionForHandover(w, "relocate", 1000)
+		armed := api.workerStopLanded["ow-abc123"]
 		api.outsourceMu.Unlock()
 		wsVerbs(t, api, ServerSelfHost)
 		wsVerbs(t, api, "m-old")
 
-		// The session is STILL there, on the machine the broadcast's last landing
-		// armed — the shape the retry exists for.
-		armedTarget := ""
-		api.outsourceMu.Lock()
-		armedTarget = api.workerStopLanded["ow-abc123"].Target
-		api.outsourceMu.Unlock()
-		wsOnline(t, api, "ow-abc123", armedTarget)
+		// A fan-out records WHO WAS TOLD and names no aimed machine — that is the
+		// record the retry has to work from.
+		apiWantValue(t, "the armed kill", any(map[string]any{
+			"target": armed.Target, "fanout": wsStrings(armed.Fanout),
+		}), any(map[string]any{
+			"target": "", "fanout": []any{"m-old", "m-server-self"},
+		}))
+
+		// The session is STILL there — with no machine claim, which is the only
+		// way it can be online and still unaimable.
+		wsOnline(t, api, "ow-abc123", "")
 
 		api.outsourceMu.Lock()
 		api.retryUnlandedWorkerStop("ow-abc123", 5000)
 		api.outsourceMu.Unlock()
 
-		apiWantValue(t, "the re-fired kill", any(wsVerbs(t, api, armedTarget)), any([]any{"stop"}))
+		// Still unaimable, so the re-send is a fan-out again rather than nothing.
+		apiWantValue(t, "the re-fired kill on m-old", any(wsVerbs(t, api, "m-old")), any([]any{"stop"}))
+		apiWantValue(t, "the re-fired kill on m-server-self",
+			any(wsVerbs(t, api, ServerSelfHost)), any([]any{"stop"}))
 	})
 
 	t.Run("an unreachable kill target parks the kill rather than losing it, and nothing is started anywhere", func(t *testing.T) {
@@ -2451,6 +2663,15 @@ func wsWindDown(t *testing.T, status, desired, refocusOp string,
 }
 
 // wsVerbs is the ordered list of RPC verbs a warden's FIFO held.
+// wsStrings lifts a []string into the []any shape apiWantValue compares.
+func wsStrings(in []string) []any {
+	out := []any{}
+	for _, v := range in {
+		out = append(out, v)
+	}
+	return out
+}
+
 func wsVerbs(t *testing.T, api *apiServer, machineID string) []any {
 	t.Helper()
 	out := []any{}
@@ -2496,8 +2717,10 @@ func TestCollectWorkerHandover(t *testing.T) {
 			"refocus_since": 100, "refocus_op": "relocate",
 			"last_op": "start", "last_op_ok": false, "last_op_at": apiAnyNumber,
 			"last_op_reason": "respawn_deferred: the fsm-recycle could not clear this worker's " +
-				"previous session — it is marked active but neither the server's spawn memory " +
-				"nor a live connection knows which machine it is on; retrying",
+				"previous session — it is marked active, but the stop reached no machine: " +
+				"either nothing the server knows names one (its spawn memory, a live " +
+				"connection, the worker's last landing) and no warden is online, or every " +
+				"warden it was aimed at refused it; retrying",
 		}))
 	})
 
@@ -2523,8 +2746,10 @@ func TestCollectWorkerHandover(t *testing.T) {
 			"refocus_since": 100, "refocus_op": "relocate",
 			"last_op": "start", "last_op_ok": false, "last_op_at": apiAnyNumber,
 			"last_op_reason": "respawn_deferred: the fsm-recycle could not clear this worker's " +
-				"previous session — it is marked active but neither the server's spawn memory " +
-				"nor a live connection knows which machine it is on; retrying",
+				"previous session — it is marked active, but the stop reached no machine: " +
+				"either nothing the server knows names one (its spawn memory, a live " +
+				"connection, the worker's last landing) and no warden is online, or every " +
+				"warden it was aimed at refused it; retrying",
 		}))
 	})
 }
@@ -3176,6 +3401,46 @@ func TestReconcileWorkerLiveness(t *testing.T) {
 		apiWantValue(t, "the stop anchor", any(map[string]any{
 			"last_command": state.LastCommand, "last_command_at": state.LastCommandAt,
 		}), any(map[string]any{"last_command": "stop", "last_command_at": 1000.0}))
+	})
+
+	t.Run("a STOP that is not a zombie takeover still kills, but benches nothing", func(t *testing.T) {
+		// The guard this reaches was deleted as dead code with an instruction
+		// attached: if any other StopKind ever becomes reachable here, bring it
+		// back WITH A TEST THAT REACHES IT. This is that test. lifecycleStates is
+		// ONE store for both populations, so anything that writes the member
+		// producer's robust-stop marker onto a worker id — as the shared shutdown
+		// briefly did — turns the next tick's decision into a robust_resend STOP,
+		// which this path would otherwise read as a wedged slot and bench.
+		api, _, _, _, w := wsWindDown(t, WorkerStatusActive, DesiredStateOnline, "", 0, 0, 0, true)
+		apiTestListen(t, api, ServerSelfHost)
+		stopRetry := api.reconcileConfigLive().StopRetry
+
+		api.outsourceMu.Lock()
+		api.workerSpawnTarget["ow-abc123"] = ServerSelfHost
+		api.lifecycleStates["ow-abc123"] = reconcileState{RobustStopPendingAt: 1000}
+		started := api.reconcileWorkerLiveness(w, 1000+stopRetry+1)
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "started", any(started), any(false))
+		// The kill goes out — a stop is never the wrong answer for a session the
+		// decider wants gone.
+		apiWantValue(t, "the verbs dispatched", any(wsVerbs(t, api, ServerSelfHost)), any([]any{"stop"}))
+		// …and the machine is NOT taken out of service for it.
+		apiWantValue(t, "bench book", any(wsBenchBook(api)), any(map[string]any{}))
+		apiWantValue(t, "takeover benches", any(float64(len(api.workerTakeoverBench))), any(0))
+	})
+
+	t.Run("POSITIVE CONTROL: a real zombie takeover does bench the machine it reaped", func(t *testing.T) {
+		api, _, d, _, _ := wsWindDown(t, WorkerStatusActive, DesiredStateOnline, "", 0, 0, 0, false)
+		wsTakenOver(t, api, d)
+
+		api.outsourceMu.Lock()
+		book := wsBenchBook(api)
+		benches := len(api.workerTakeoverBench)
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "bench book", any(book), any(map[string]any{"ow-abc123|m-server-self": apiAnyNumber}))
+		apiWantValue(t, "takeover benches", any(float64(benches)), any(1))
 	})
 
 	t.Run("a START that timed out with no remembered destination says only what is known, and names no machine", func(t *testing.T) {

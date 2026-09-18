@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -2393,6 +2394,52 @@ func TestHandleDeactivateMemberApiMembersMemberIdDeactivatePost(t *testing.T) {
 		bystander.wantFrames()
 	})
 
+	t.Run("a deactivation whose row write fails rolls the close-out back, so the retry really sends the stop", func(t *testing.T) {
+		// 🔴 THE SAME TWO-STEP TRAP AS THE STOPPED-REPORT, BEHIND A DIFFERENT DOOR.
+		// An offline member is collected right here (collectMemberStop): the anchor
+		// write lands, the whole-row write fails, the owner gets a 500 — and every
+		// later collect reads a non-zero prior, calls itself already-reported and
+		// dispatches nothing. Forever.
+		api, h, d, owner := newAPITestServer(t)
+		if status, data := apiJSON(t, h, "POST", "/api/members/kip/activate", owner, `{}`); status != 200 {
+			t.Fatalf("activate: %d %v", status, data)
+		}
+		if err := d.SetMemberDesiredMachineID("kip", ServerSelfHost); err != nil {
+			t.Fatalf("SetMemberDesiredMachineID: %v", err)
+		}
+		apiTestListen(t, api, ServerSelfHost)
+		wsWantWardenFrames(t, api, ServerSelfHost)
+		// The handler writes the row once itself and once more inside the collect;
+		// only the second is the step this guards, so the first must land.
+		apiTestFailWholeRowWriteAfter(t, d, "kip", 1)
+
+		status, data := apiJSON(t, h, "POST", "/api/members/kip/deactivate", owner, `{}`)
+		if status != 500 {
+			t.Fatalf("want 500, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "internal_error",
+			"internal error: constraint failed: whole row unwritable (1811)")
+		wsWantWardenFrames(t, api, ServerSelfHost)
+		rolled, err := d.GetMember("kip")
+		if err != nil || rolled == nil {
+			t.Fatalf("GetMember: %v (%v)", rolled, err)
+		}
+		apiWantValue(t, "the close-out anchor after the rollback",
+			any(rolled.StoppedSince), any(float64(0)))
+
+		apiTestRestoreWholeRowWriteAfter(t, d)
+		status, data = apiJSON(t, h, "POST", "/api/members/kip/deactivate", owner, `{}`)
+		if status != 200 {
+			t.Fatalf("want 200 once the row is writable, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{"id": "kip"})
+		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("kip"))
+		latched, err := d.GetMember("kip")
+		if err != nil || latched == nil || latched.StoppedSince <= 0 {
+			t.Fatalf("the retry must latch the close-out: %v (%v)", latched, err)
+		}
+	})
+
 	t.Run("a member id nothing carries answers 404 naming it and fans nothing", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		dashboard := apiTestListen(t, api, "")
@@ -3894,6 +3941,174 @@ func TestHandleReportStoppedApiSelfStoppedPost(t *testing.T) {
 		})
 	}
 
+	// ── the fleet is dark: nothing names a machine and no warden is online ───
+
+	t.Run("a wanted-online worker's report on a dark fleet is rolled back and says why", func(t *testing.T) {
+		api, h, d, owner, contractor := apiTestDarkWorker(t, DesiredStateOnline)
+		infraSeedAnchoredSession(t, api, d, "ow-abc123")
+
+		status, data := apiJSON(t, h, "POST", "/api/self/stopped", contractor, `{}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"id":               "ow-abc123",
+			"desired_state":    "online",
+			"refocus_op":       "",
+			"refocus_deadline": 0,
+			"stop_effect":      "collected",
+		})
+		wsWantWardenFrames(t, api, ServerSelfHost)
+		row, err := d.GetMember("ow-abc123")
+		if err != nil || row == nil {
+			t.Fatalf("GetMember: %v (%v)", row, err)
+		}
+		apiWantValue(t, "the close-out anchor after the rollback",
+			any(row.StoppedSince), any(float64(0)))
+		// 🔴 AND THE SESSION ANCHOR SURVIVES. Nothing was sent, so nothing died:
+		// dropping boot_ts here would make restart_self's minimum-liveness gate and
+		// the boot-storm guard fail OPEN on a session that is still running.
+		infraWantSession(t, api, d, "ow-abc123", 1700000000, 1700000000, infraSeededGauge())
+		apiWantValue(t, "the receipt on the row", any(map[string]any{
+			"last_op": row.LastOp, "ok": row.LastOpOK != nil && *row.LastOpOK,
+			"reason": row.LastOpReason,
+		}), any(map[string]any{
+			"last_op": "start", "ok": false,
+			"reason": "respawn_deferred: the stopped-report could not clear this " +
+				"worker's previous session — it is marked active but neither the server's " +
+				"spawn memory, a live connection, its last landing nor any online warden " +
+				"knows which machine it is on; retrying",
+		}))
+		_ = owner
+	})
+
+	t.Run("a HELD-DOWN worker's report on a dark fleet stays collected, with no rollback and no promise of a retry", func(t *testing.T) {
+		// 🔴 THE TWO ARMS DIVERGE HERE ON PURPOSE. A worker that is coming back has
+		// an unkilled session and must report again (above). A worker the owner is
+		// holding down has nothing coming: rolling the latch back would un-collect
+		// a close-out that IS complete, and the receipt would tell the cockpit
+		// 「retrying」 about a worker nothing intends to retry — while this very
+		// response says 「collected」.
+		api, h, d, owner, contractor := apiTestDarkWorker(t, DesiredStateOffline)
+
+		status, data := apiJSON(t, h, "POST", "/api/self/stopped", contractor, `{}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"id":               "ow-abc123",
+			"desired_state":    "offline",
+			"refocus_op":       "",
+			"refocus_deadline": 0,
+			"stop_effect":      "collected",
+		})
+		wsWantWardenFrames(t, api, ServerSelfHost)
+		apiTestWantStoppedSince(t, d, "ow-abc123")
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "active", "presence": "offline", "desired_state": "offline",
+		}))
+	})
+
+	t.Run("POSITIVE CONTROL: with one warden online the same report does clear the session anchor", func(t *testing.T) {
+		api, h, d, _, _, contractor := apiTestLiveWorker(t)
+		infraSeedAnchoredSession(t, api, d, "ow-abc123")
+
+		if status, data := apiJSON(t, h, "POST", "/api/self/stopped", contractor, `{}`); status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"))
+		// A real session boundary drops the whole session-scoped gauge, the durable
+		// anchor and the once-per-session handover claim with it.
+		infraWantSession(t, api, d, "ow-abc123", 0, 0, map[string]any{
+			"rate_limits": map[string]any{}, "ts": 1700000100.0,
+		})
+	})
+
+	// ── the two populations' retry ledgers stay their own (T-253 F1) ─────────
+
+	t.Run("a worker's stop arms the worker ledger and NOT the member producer's marker", func(t *testing.T) {
+		// 🔴 lifecycleStates IS ONE STORE FOR BOTH POPULATIONS. RobustStopPendingAt
+		// is the MEMBER producer's at-least-once arm; writing it for a worker hands
+		// the worker tick a marker its own decider acts on — suppressing the START
+		// that is due, then returning a STOP the worker path reads as a zombie
+		// takeover and benches the machine for.
+		api, h, d, owner, session, contractor := apiTestLiveWorker(t)
+
+		if status, data := apiJSON(t, h, "POST", "/api/self/stopped", contractor, `{}`); status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"))
+		apiWantValue(t, "the member producer's marker",
+			any(api.lifecycleState("ow-abc123").RobustStopPendingAt), any(float64(0)))
+
+		// The consequence, not just the field: the session goes away and the very
+		// next tick starts the replacement instead of waiting on a kill that was
+		// never the member producer's to re-send.
+		api.hub.Disconnect(session)
+		api.runOutsourceTick(nowSecs())
+		wsWantWardenFrames(t, api, ServerSelfHost,
+			wsStartFrame("ow-abc123", apiTestWorkerBootContext(t, h, owner), "claude", "sonnet", "medium"))
+		_ = d
+	})
+
+	t.Run("POSITIVE CONTROL: a staff stop does arm the member producer's marker", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		if status, data := apiJSON(t, h, "POST", "/api/members/kip/activate", owner, `{}`); status != 200 {
+			t.Fatalf("activate: %d %v", status, data)
+		}
+		if err := d.SetMemberDesiredMachineID("kip", ServerSelfHost); err != nil {
+			t.Fatalf("SetMemberDesiredMachineID: %v", err)
+		}
+		apiTestListen(t, api, ServerSelfHost)
+		agent := apiTestAgentToken(t, api, "kip", "")
+
+		if status, data := apiJSON(t, h, "POST", "/api/self/stopped", agent, `{}`); status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("kip"))
+		if got := api.lifecycleState("kip").RobustStopPendingAt; got <= 0 {
+			t.Fatalf("the member producer's marker must be armed, got %v", got)
+		}
+	})
+
+	// ── a report that had to broadcast leaves a usable retry record (F3) ─────
+
+	t.Run("a report that had to broadcast records who was told, so the retry still has something to re-send", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
+		apiTestWorkerWantedOnline(t, d, "ow-abc123")
+		shutdownWarden(t, api, d, "m-one")
+		shutdownWarden(t, api, d, "m-two")
+		// The worker never connected, so nothing names a machine — the fan-out case.
+		contractor := apiTestAgentToken(t, api, "ow-abc123", "")
+
+		if status, data := apiJSON(t, h, "POST", "/api/self/stopped", contractor, `{}`); status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		wsWantWardenFrames(t, api, "m-one", wsStopFrame("ow-abc123"))
+		wsWantWardenFrames(t, api, "m-two", wsStopFrame("ow-abc123"))
+
+		api.outsourceMu.Lock()
+		armed := api.workerStopLanded["ow-abc123"]
+		api.outsourceMu.Unlock()
+		apiWantValue(t, "the armed kill", any(map[string]any{
+			"target": armed.Target, "fanout": wsStrings(armed.Fanout), "at": armed.At,
+		}), any(map[string]any{
+			"target": "", "fanout": []any{"m-one", "m-two"}, "at": apiAnyNumber,
+		}))
+
+		// …and it is a record the retry can act on: the session turns out to be
+		// alive after all, so past stop_retry the kill goes out again.
+		if _, err := api.hub.Connect("ow-abc123", ""); err != nil {
+			t.Fatalf("hub.Connect: %v", err)
+		}
+		api.outsourceMu.Lock()
+		api.retryUnlandedWorkerStop("ow-abc123", armed.At+api.reconcileConfigLive().StopRetry+1)
+		api.outsourceMu.Unlock()
+		wsWantWardenFrames(t, api, "m-one", wsStopFrame("ow-abc123"))
+		wsWantWardenFrames(t, api, "m-two", wsStopFrame("ow-abc123"))
+	})
+
 	t.Run("a worker's repeat report changes nothing and sends no second stop", func(t *testing.T) {
 		api, h, d, _, _, contractor := apiTestLiveWorker(t)
 		dashboard := apiTestListen(t, api, "")
@@ -3947,6 +4162,25 @@ func TestHandleReportStoppedApiSelfStoppedPost(t *testing.T) {
 	})
 }
 
+// apiTestDarkWorker is an active worker with every way of naming a machine
+// removed and no warden online at all: no session of its own, no pin, no spawn
+// memory, no last landing. It is the only shape that still defers a kill since
+// the chain grew its broadcast tail.
+func apiTestDarkWorker(t *testing.T, desired string) (*apiServer, http.Handler, *DAL, string, string) {
+	t.Helper()
+	api, h, d, owner := newAPITestServer(t)
+	apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
+	w, err := d.GetOutsourceWorker("ow-abc123")
+	if err != nil || w == nil {
+		t.Fatalf("GetOutsourceWorker: %v (%v)", w, err)
+	}
+	w.DesiredState = desired
+	if err := d.PutOutsourceWorker(*w); err != nil {
+		t.Fatalf("PutOutsourceWorker: %v", err)
+	}
+	return api, h, d, owner, apiTestAgentToken(t, api, "ow-abc123", "")
+}
+
 // apiTestLiveWorker is an active, desired-online worker pinned to the server's
 // own warden, with a live session there and the session credential it boots with.
 func apiTestLiveWorker(t *testing.T) (*apiServer, http.Handler, *DAL, string, *hubListener, string) {
@@ -3997,6 +4231,41 @@ func apiTestFailWholeRowWrite(t *testing.T, d *DAL, id string) {
 		WHEN NEW.id = '` + id + `'
 		BEGIN SELECT RAISE(ABORT, 'whole row unwritable'); END`); err != nil {
 		t.Fatalf("install failing trigger: %v", err)
+	}
+}
+
+// apiTestFailWholeRowWriteAfter is apiTestFailWholeRowWrite for a handler that
+// writes the row MORE THAN ONCE: the first `skip` whole-row writes land and
+// every one after them fails. Deactivating a member writes the row itself and
+// then again inside the collect, and only the second one is the two-step trap.
+func apiTestFailWholeRowWriteAfter(t *testing.T, d *DAL, id string, skip int) {
+	t.Helper()
+	for _, stmt := range []string{
+		`CREATE TABLE ocs_row_write_count (n INTEGER)`,
+		`INSERT INTO ocs_row_write_count VALUES (0)`,
+		`CREATE TRIGGER fail_whole_row BEFORE UPDATE OF name ON member
+			WHEN NEW.id = '` + id + `' AND (SELECT n FROM ocs_row_write_count) >= ` +
+			strconv.Itoa(skip) + `
+			BEGIN SELECT RAISE(ABORT, 'whole row unwritable'); END`,
+		`CREATE TRIGGER count_whole_row AFTER UPDATE OF name ON member
+			WHEN NEW.id = '` + id + `'
+			BEGIN UPDATE ocs_row_write_count SET n = n + 1; END`,
+	} {
+		if _, err := d.wdb.Exec(stmt); err != nil {
+			t.Fatalf("install counting trigger (%s): %v", stmt, err)
+		}
+	}
+}
+
+func apiTestRestoreWholeRowWriteAfter(t *testing.T, d *DAL) {
+	t.Helper()
+	for _, stmt := range []string{
+		`DROP TRIGGER count_whole_row`, `DROP TRIGGER fail_whole_row`,
+		`DROP TABLE ocs_row_write_count`,
+	} {
+		if _, err := d.wdb.Exec(stmt); err != nil {
+			t.Fatalf("drop counting trigger (%s): %v", stmt, err)
+		}
 	}
 }
 

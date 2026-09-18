@@ -112,11 +112,17 @@ type Member struct {
 	// LastMachineID is the durable STICKY-PLACEMENT anchor (T-98f4,
 	// migrations/00039): the machine a confirmed session of this entity last
 	// connected from (the SSE token's machine claim, stamped in onFirstConnect),
-	// "" when it has never landed anywhere. Read by the outsource placement chain
-	// as a PREFERENCE below the owner pin and above the configured (task row /
-	// 手冊) arms — 手冊 decides the birthplace, the last landing decides every
-	// rebirth after it. Unlike DesiredMachineID it never stalls a worker: an
-	// undispatchable last landing falls through to the configured chain.
+	// "" when it has never landed anywhere. Two readers, and they are different
+	// questions:
+	//   - the outsource SPAWN placement chain, as a PREFERENCE below the owner pin
+	//     and above the configured (task row / 手冊) arms — 手冊 decides the
+	//     birthplace, the last landing decides every rebirth after it. Unlike
+	//     DesiredMachineID it never stalls a worker: an undispatchable last landing
+	//     falls through to the configured chain.
+	//   - the shared KILL target chain (T-253, shutdown.go killTargetChain), for
+	//     BOTH populations, behind the live claim and — on the staff side — AHEAD
+	//     of the desired pin, since it describes where the session being killed
+	//     actually is rather than where the owner wants the next one.
 	LastMachineID string
 	// SessionBootTS is the durable SESSION-START anchor (T-4235,
 	// migrations/00051): unix seconds of the moment this session's FIRST SSE

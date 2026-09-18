@@ -74,6 +74,28 @@ func shutdownStaff(t *testing.T, api *apiServer, h http.Handler, d *DAL,
 	return apiTestAgentToken(t, api, "kip", "")
 }
 
+// shutdownLockOrderRuling is the one sentence every failure of the lock-order
+// guard must print, whether it fails by assertion or by not finishing.
+const shutdownLockOrderRuling = "T-253 lock order: the scheduler lock is still held while the " +
+	"shutdown waits on the reconcile lock — that is the nested hold the T-14 ruling " +
+	"forbids (lock A → run A → drop → lock B → run B → drop)"
+
+// shutdownLockGuardWatchdog fails the test loudly if its body has not finished
+// within a window far shorter than the package timeout. The returned func stops
+// it and is meant to be deferred.
+func shutdownLockGuardWatchdog(t *testing.T) func() {
+	t.Helper()
+	done := make(chan struct{})
+	go func() {
+		select {
+		case <-done:
+		case <-time.After(30 * time.Second):
+			panic(shutdownLockOrderRuling + " — the guard itself never finished")
+		}
+	}()
+	return func() { close(done) }
+}
+
 func TestDispatchShutdown(t *testing.T) {
 	// ── the kill chain's two new sources (T-253 B) ──────────────────────────
 
@@ -276,6 +298,14 @@ func TestDispatchShutdown(t *testing.T) {
 		// it still held outsourceMu at that moment, no one else could ever take
 		// outsourceMu — so acquiring it is exactly the observation that the lock
 		// was dropped first.
+		//
+		// 🔴 IT CARRIES ITS OWN DEADLINE, WELL INSIDE THE PACKAGE TIMEOUT. A test
+		// that proves a lock ordering by waiting on locks can only fail by not
+		// finishing, and "did not finish" reaches a reader as a 10-minute package
+		// timeout panic with a goroutine dump — indistinguishable from a flaky
+		// hang, and it takes the whole package's result with it. The watchdog
+		// below turns that into a labelled failure that names the ruling.
+		defer shutdownLockGuardWatchdog(t)()
 		api, h, d, _, session, contractor := apiTestLiveWorker(t)
 		api.hub.Disconnect(session)
 
@@ -310,9 +340,8 @@ func TestDispatchShutdown(t *testing.T) {
 		select {
 		case <-free:
 		case <-time.After(5 * time.Second):
-			t.Fatal("the scheduler lock is still held while the shutdown waits on the " +
-				"reconcile lock — that is the nested hold the T-14 ruling forbids " +
-				"(lock A → run A → drop → lock B → run B → drop)")
+			api.reconcileMu.Unlock()
+			t.Fatal(shutdownLockOrderRuling)
 		}
 
 		// POSITIVE CONTROL: the sequence really is a sequence — release the second

@@ -494,6 +494,15 @@ data: {"topic":"warden-command","data":{"rpc":"start","args":{"member_id":"m-1a2
       idempotent. Secret-input requests become action cards and MUST NOT solicit the
       secret value in card text or answers.
   - `stop`: `{member_id}` — the single ROBUST stop; the warden self-escalates the kill.
+    The server addresses it to ONE warden whenever anything names the machine the
+    session is on; when nothing does, it MAY fan the same frame out to every online
+    warden instead. Since T-253 that applies to **both** populations — a staff
+    member's stop is broadcast on the same terms an outsource worker's always could
+    be (see the outsource bullet below), and the two now resolve their target
+    through one ordered chain. The fan-out is safe for the reason redundant delivery
+    is safe at all: the frame names the SUBJECT's own derived session, so a warden
+    that never hosted it has nothing matching to kill and answers a clean no-op.
+    Nothing else can be killed by a stop aimed this way.
   - `uninstall`: `{member_id}` — the warden removes itself from its box.
   - `update` (T-5f01 — the owner's one-click machine upgrade, pushed by
     `POST /api/machines/{member_id}/upgrade`): `{member_id}` — the warden kicks its OWN

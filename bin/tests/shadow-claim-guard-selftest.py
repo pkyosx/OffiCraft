@@ -45,6 +45,17 @@ GUARD = ROOT / "bin" / "shadow-claim-guard.py"
 # exercised only enqueueToWarden. Deleting enqueueWorkerStop from the guard left
 # both the guard and this control GREEN — the one deletion that matters most was
 # the one nothing here noticed.
+#
+# 🔴 THE T-253 SHAPE IS HERE FOR THE SAME REASON, and it is a DIFFERENT shape,
+# not a fourth name on the same one. Since T-253 the kill sites no longer call
+# enqueueToWarden themselves: they call sendStopFrames, which calls
+# enqueueStopFrames, which calls enqueueToWarden. So the tree keeps ONE bottom
+# frame either way and (A) stays non-empty whether or not the guard knows the two
+# new names — which is exactly why their absence would have been invisible. What
+# it costs is ATTRIBUTION: without them the guard names enqueueStopFrames() as
+# the dispatch site and never names dispatchShutdown() or reconcileOne(), so the
+# reader is pointed at the plumbing instead of at the callers. dispatchShutdown
+# below is the fixture's ungated caller of that chain.
 UNGATED_GO = '''package ocserverd
 
 func (s *apiServer) enqueueToWarden(memberID, warden string, frame []byte) bool {
@@ -55,12 +66,27 @@ func (s *apiServer) enqueueWardenFrame(memberID string, frame []byte) bool {
 	return s.enqueueToWarden(memberID, "", frame)
 }
 
+func (s *apiServer) enqueueStopFrames(id string, targets []string) []string {
+	for _, target := range targets {
+		s.enqueueToWarden(id, target, nil)
+	}
+	return targets
+}
+
+func (s *apiServer) sendStopFrames(id string, targets []string, now float64) []string {
+	return s.enqueueStopFrames(id, targets)
+}
+
 func (s *apiServer) enqueueWorkerStop(target, workerID string) bool {
-	return s.enqueueToWarden(workerID, target, nil)
+	return len(s.sendStopFrames(workerID, []string{target}, 0)) > 0
 }
 
 func (s *apiServer) stopWorkerSessionOrPark(target, workerID string) bool {
 	return s.enqueueWorkerStop(target, workerID)
+}
+
+func (s *apiServer) dispatchShutdown(id string) bool {
+	return len(s.sendStopFrames(id, []string{""}, 0)) > 0
 }
 
 func (s *apiServer) reconcileOne(memberID string) bool {
@@ -74,8 +100,19 @@ func (s *apiServer) enqueueToWarden(memberID, warden string, frame []byte) bool 
 	return true
 }
 
+func (s *apiServer) enqueueStopFrames(id string, targets []string) []string {
+	for _, target := range targets {
+		s.enqueueToWarden(id, target, nil)
+	}
+	return targets
+}
+
+func (s *apiServer) sendStopFrames(id string, targets []string, now float64) []string {
+	return s.enqueueStopFrames(id, targets)
+}
+
 func (s *apiServer) enqueueWorkerStop(target, workerID string) bool {
-	return s.enqueueToWarden(workerID, target, nil)
+	return len(s.sendStopFrames(workerID, []string{target}, 0)) > 0
 }
 
 func (s *apiServer) stopWorkerSessionOrPark(target, workerID string) bool {
@@ -83,6 +120,13 @@ func (s *apiServer) stopWorkerSessionOrPark(target, workerID string) bool {
 		return false
 	}
 	return s.enqueueWorkerStop(target, workerID)
+}
+
+func (s *apiServer) dispatchShutdown(id string) bool {
+	if s.noReconcile {
+		return false
+	}
+	return len(s.sendStopFrames(id, []string{""}, 0)) > 0
 }
 '''
 
@@ -302,14 +346,18 @@ def main() -> None:
     guard_src = GUARD.read_text(encoding="utf-8")
     decl = re.search(r"DISPATCH_HELPERS = \(([^)]*)\)", guard_src)
     declared = set(re.findall(r"\"(\w+)\"", decl.group(1))) if decl else set()
-    helpers = [h for h in ("enqueueWardenFrame", "enqueueToWarden", "enqueueWorkerStop")
-               if h in declared]
-    if len(helpers) != 3:
+    expected = ("enqueueWardenFrame", "enqueueToWarden", "enqueueWorkerStop",
+                "enqueueStopFrames", "sendStopFrames")
+    helpers = [h for h in expected if h in declared]
+    if len(helpers) != len(expected):
         failures.append(
-            "DISPATCH_HELPERS no longer names all three warden-dispatch helpers "
-            f"(found {helpers}). If one was renamed in the server, rename it here; "
-            "do NOT drop it — enqueueWorkerStop in particular is the chain T-941e "
-            "is about.")
+            "DISPATCH_HELPERS no longer names every warden-dispatch helper "
+            f"(found {helpers}, want {list(expected)}). If one was renamed in the "
+            "server, rename it here; do NOT drop it — enqueueWorkerStop is the "
+            "chain T-941e is about, and enqueueStopFrames / sendStopFrames are the "
+            "T-253 shared stop send, whose loss costs ATTRIBUTION rather than the "
+            "row itself (the chain still bottoms out in enqueueToWarden), which is "
+            "the kind of shrinkage a count alone cannot show.")
     for helper in helpers:
         hits = subprocess.run(
             ["git", "-C", str(ROOT), "grep", "-c", f"s.{helper}(", "--",

@@ -5,17 +5,21 @@ package main
 // 正職 and 外包 used to reach a warden STOP through two hand-kept bodies:
 // dispatchRobustStopNow (reconcile.go) for staff, and the
 // enqueueWorkerStop / stopWorkerSessionOrPark pair (worker_spawn.go) for
-// workers. They had drifted on four separate axes — the worker arm armed a
-// receipt watch and cleared the spawn pacing, the staff arm did neither; the
-// worker arm knew a second way to find the session's machine, the staff arm
-// knew one. None of those four differences had a reason: server/CLAUDE.md §3
+// workers. They had drifted on three separate axes — the worker arm armed a
+// receipt watch and cleared the spawn pacing, the staff arm did neither; and
+// the two disagreed about where to look for the session's machine (the worker
+// arm asked the spawn memory then the live claim, the staff arm asked the live
+// claim then the owner's pin — so only the worker arm had a second source that
+// OBSERVES where the session is, rather than one that states where it should
+// be). None of those three differences had a reason: server/CLAUDE.md §3
 // carries the owner ruling that the two populations must not differ on
 // stop / start / 換機器 at all, and names the only two deliberate exceptions
 // (their OBSERVED inputs, and worker-only task state). A stop is neither.
 //
 // So this file holds the one body. The only thing that still differs by
-// population is WHICH SOURCES can name the machine to kill on — the worker arm
-// has one extra, the server's in-memory memory of where it dispatched the spawn.
+// population is WHICH SOURCES can name the machine to kill on — each arm keeps
+// one the other does not (the worker's in-memory record of where the server
+// dispatched the spawn; the staff member's durable desired pin).
 // Everything after that point is identical by construction.
 //
 // 🔴 LOCK CONTRACT: dispatchShutdown's caller holds NEITHER outsourceMu NOR
@@ -39,6 +43,14 @@ type shutdownDispatch struct {
 	Broadcast bool
 	// Sent is true when at least one frame was accepted by the enqueue gate.
 	Sent bool
+	// Landed is every warden the enqueue gate ACCEPTED the frame on. It is what
+	// the worker retry ledger arms from: a broadcast has no single machine to
+	// name, so "which machines were told" is the only honest record of it.
+	Landed []string
+	// Outsource says the subject is a worker row, decided once from the roster
+	// read the target resolution already does. It gates the member producer's
+	// at-least-once marker; see dispatchShutdown.
+	Outsource bool
 	// Addressed is true when the chain produced at least one warden to aim at.
 	// FALSE is the deferral signal: nothing was even attempted, which is the
 	// only shape a caller that latched stopped_since must roll that latch back
@@ -97,14 +109,46 @@ func (s *apiServer) killTargetChain(id string, src killTargetSources) (targets [
 // twins (memberKillTargetWarden / resolveWorkerKillTarget) can ask the ordering
 // question without paying for a roster scan they would only throw away.
 func (s *apiServer) namedKillTarget(id string, src killTargetSources) string {
+	for _, cand := range s.killTargetCandidates(id, src) {
+		return cand
+	}
+	return ""
+}
+
+// killTargetCandidates is the ordered chain with the blanks dropped — the one
+// place the per-population ORDER is written down. Split out so the one site
+// that needs a different FILTER over the same order can share the order
+// (reclaimWorkerSession, which wants the first REACHABLE candidate; see
+// reachableKillTarget).
+func (s *apiServer) killTargetCandidates(id string, src killTargetSources) []string {
 	var chain []string
 	if src.Outsource {
 		chain = []string{src.SpawnTarget, s.hub.MachineOf(id), s.activeWardenAt(src.LastMachineID)}
 	} else {
 		chain = []string{s.hub.MachineOf(id), s.activeWardenAt(src.LastMachineID), s.wardenTargetOf(id)}
 	}
+	out := make([]string, 0, len(chain))
 	for _, cand := range chain {
 		if cand != "" {
+			out = append(out, cand)
+		}
+	}
+	return out
+}
+
+// reachableKillTarget is killTargetCandidates filtered by reachability: the
+// first candidate whose warden is online, "" when none is.
+//
+// 🔴 THE FILTER IS THE WHOLE DIFFERENCE AND IT BELONGS TO EXACTLY ONE CALLER.
+// Everywhere else a NAMED-but-offline machine still wins, because the kill is
+// owed THERE and gets parked until that machine comes back (stopWorkerSessionOrPark).
+// reclaimWorkerSession has no such future: the worker is released, the session
+// must die wherever it is, and parking a kill on a dark machine while another
+// one may be holding the session is the wrong trade. So it takes the first
+// candidate it can actually reach and otherwise fans out immediately.
+func (s *apiServer) reachableKillTarget(id string, src killTargetSources) string {
+	for _, cand := range s.killTargetCandidates(id, src) {
+		if s.hub.IsOnline(cand) {
 			return cand
 		}
 	}
@@ -160,7 +204,7 @@ func (s *apiServer) onlineWardens() []string {
 //
 // Takes outsourceMu itself and drops it before returning: the caller holds it
 // not at all.
-func (s *apiServer) resolveShutdownTargets(id string) ([]string, bool) {
+func (s *apiServer) resolveShutdownTargets(id string) (targets []string, broadcast, outsource bool) {
 	m, err := s.dal.GetMember(id)
 	src := killTargetSources{}
 	if err == nil && m != nil {
@@ -171,7 +215,8 @@ func (s *apiServer) resolveShutdownTargets(id string) ([]string, bool) {
 	src.SpawnTarget = s.workerSpawnTarget[id]
 	delete(s.workerSpawnAt, id)
 	s.outsourceMu.Unlock()
-	return s.killTargetChain(id, src)
+	targets, broadcast = s.killTargetChain(id, src)
+	return targets, broadcast, src.Outsource
 }
 
 // enqueueStopFrames is THE place in this package that builds a `stop` frame and
@@ -241,22 +286,43 @@ func (s *apiServer) sendStopFrames(id string, targets []string, now float64) []s
 //
 // See the lock contract at the head of this file.
 func (s *apiServer) dispatchShutdown(id, reason string) shutdownDispatch {
-	targets, broadcast := s.resolveShutdownTargets(id)
-	out := shutdownDispatch{Broadcast: broadcast, Addressed: len(targets) > 0}
+	targets, broadcast, outsource := s.resolveShutdownTargets(id)
+	out := shutdownDispatch{
+		Broadcast: broadcast, Outsource: outsource, Addressed: len(targets) > 0,
+	}
 	if !broadcast && len(targets) == 1 {
 		out.Target = targets[0]
 	}
 	now := nowSecs()
-	out.Sent = len(s.sendStopFrames(id, targets, now)) > 0
+	out.Landed = s.sendStopFrames(id, targets, now)
+	out.Sent = len(out.Landed) > 0
 	if len(targets) == 0 {
 		reconcileLog("shutdown %s (%s): no kill target — spawn memory, live claim, "+
 			"last landing and pin all silent, and no warden is online", id, reason)
 	}
-	// Armed UNCONDITIONALLY, including on a fail-closed refusal — an unreachable
-	// warden is exactly how a collect goes missing (T-ed79).
-	s.noteRobustStopDispatched(id, now)
-	// The session is over: drop its boot_ts so the respawn's first connect
-	// re-stamps a fresh anchor (T-8fb2).
-	s.clearSessionBootTS(id)
+	// 🔴 STAFF ONLY, AND THE GATE IS LOAD-BEARING. RobustStopPendingAt is the
+	// MEMBER producer's at-least-once arm, read by reconcileDecide — and
+	// lifecycleStates is one store shared by both populations, so writing it for
+	// a worker hands the worker tick a marker its own decider then acts on:
+	// reconcileWorkerLiveness feeds the same reconcileDecide, whose robust-stop
+	// arm suppresses the START that is due (robustStopWait) and then, past
+	// StopRetry, returns a STOP the worker path reads as a ZOMBIE TAKEOVER and
+	// benches the machine for (worker_spawn.go). The worker has its own
+	// at-least-once ledger — workerStopLanded / workerStopPending — and arming
+	// both would be two retries for one kill. Armed UNCONDITIONALLY for staff,
+	// including on a fail-closed refusal, because an unreachable warden is
+	// exactly how a collect goes missing (T-ed79).
+	if !out.Outsource {
+		s.noteRobustStopDispatched(id, now)
+	}
+	// 🔴 ONLY WHEN SOMETHING WAS ACTUALLY AIMED AT. Clearing the anchor says "a
+	// session ended here"; when the chain could name no machine and no warden was
+	// online, nothing was sent and the session — if there is one — is still
+	// running. Dropping its boot_ts there would make restart_self's minimum-liveness
+	// gate and the boot-storm guard fail OPEN on a live session (T-8fb2 is about
+	// the respawn re-stamping, not about forgetting a session that never died).
+	if out.Addressed {
+		s.clearSessionBootTS(id)
+	}
 	return out
 }
