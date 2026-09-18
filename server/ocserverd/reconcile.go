@@ -2943,8 +2943,16 @@ func (s *apiServer) dispatchRobustStopNow(memberID string) {
 	// 🔴 T-253: the body moved to dispatchShutdown (shutdown.go) and is now
 	// SHARED with the outsource population. What used to live here — resolve the
 	// kill target, enqueue, arm the at-least-once marker, drop the boot anchor —
-	// is unchanged in order and effect; what the merge ADDED to this arm is the
-	// receipt watch and the two extra target sources the worker arm already had.
+	// is there in the same order. Three things about this arm are NOT the same,
+	// and saying "unchanged" would paper over them: the merge ADDED the receipt
+	// watch and the two extra target sources the worker arm already had; it
+	// NARROWED the boot-anchor drop, which used to be unconditional and now
+	// happens only when the chain named at least one target (the difference is
+	// the one case where nothing could name a machine AND no warden was online —
+	// the new way keeps the anchor, which is the safe direction); and it REVERSED
+	// the frame-build failure path, which used to return before the marker and
+	// the anchor drop and now still arms the marker (that path needs a
+	// serialisation failure to reach at all).
 	// The --no-reconcile gate above stays at THIS caller deliberately: it is the
 	// producer kill switch, not a lifecycle rule, and api_stub.go documents that
 	// the outsource verbs have never consulted it.
