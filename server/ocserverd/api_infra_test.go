@@ -2176,6 +2176,34 @@ func TestMcpCatalogTools(t *testing.T) {
 		})
 	})
 
+	t.Run("submit_plan's served description still carries the sentence that says resubmitting destroys unfinished steps' notes", func(t *testing.T) {
+		// The warning is the only place an agent is told that a resubmit is
+		// destructive, and the plan route accepts one without asking again —
+		// so the sentence going missing costs a working note, silently. It is
+		// asserted on the SERVED descriptor, not on spec/openapi.json, because
+		// that is what an agent is handed.
+		const warning = "Resubmitting permanently deletes every unfinished step that is not kept (see below), together with its working note; deleted notes cannot be recovered."
+		api, _, _, _ := newAPITestServer(t)
+
+		tools, err := api.mcpCatalogTools()
+		if err != nil {
+			t.Fatalf("mcpCatalogTools: %v", err)
+		}
+		for _, raw := range tools {
+			tool, ok := raw.(map[string]any)
+			if !ok || tool["name"] != "submit_plan" {
+				continue
+			}
+			description, _ := tool["description"].(string)
+			if !strings.Contains(description, warning) {
+				t.Fatalf("submit_plan description lost the unfinished-note warning: %q", description)
+			}
+			return
+		}
+		t.Fatal("the served catalog has no submit_plan tool at all — no agent can reach the plan route, " +
+			"which is a larger failure than the missing warning")
+	})
+
 	t.Run("the descriptors are the same list tools/list serves an owner", func(t *testing.T) {
 		api, h, owner := apiTestMCPServer(t)
 
