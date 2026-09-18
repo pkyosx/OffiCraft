@@ -1779,8 +1779,9 @@ export interface paths {
          *     source can name one. The dispatch also arms an at-least-once marker, so a frame a
          *     single unreachable warden drops is re-sent by the cadence while the member is
          *     still online past ``stop_retry``. An ``ow-`` id never reaches that code: it is
-         *     handed to the outsource force-stop, which since T-253 walks the SAME ordered
-         *     chain but keeps its own re-send ledger — the marker is a STAFF-only arm, and
+         *     handed to the outsource force-stop, which since T-253 walks the same shared
+         *     chain with its own source list — this round's spawn target first, and no pin —
+         *     and keeps its own re-send ledger. The marker is a STAFF-only arm, and
          *     arming it on a worker suppresses the START that worker is owed and then benches
          *     its machine. The warden's ``stop()`` → ``escalateKill``
          *     ladder performs the SIGKILL (tmux kill-session
