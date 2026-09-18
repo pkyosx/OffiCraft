@@ -5809,6 +5809,12 @@
             "title": "Accelerated Grace Secs",
             "type": "integer"
           },
+          "outsource_closeout_secs": {
+            "default": 300,
+            "description": "外包結案收尾秒數, in seconds (10 through 3600): after a task closes, the bound outsource worker is RELEASED from the roster at once but its session is KEPT for this long, so it can finish the close-out it was just told to do — remove the resources it opened, stop what it started. It is collected EARLY the moment it reports the close-out finished AND the station confirms the session is genuinely gone: the report alone is a request, never the proof, because a worker that reports before it has torn down its trial station would otherwise leave it behind. During the window the worker shows as 停止中 and only leaves the roster when the session is actually collected. Distinct from ``stop.accelerated_grace_secs``, which times a WIND-DOWN the owner or a context threshold opened and applies to staff too: this one times a close-out nobody can cancel, and only outsource workers have it.",
+            "title": "Outsource Closeout Secs",
+            "type": "integer"
+          },
           "reassign_handover_timeout_secs": {
             "default": 1800,
             "description": "Reassign handover timeout, in seconds (60 through 86400): while a task sits under the reassign hold and its predecessor is an OUTSOURCE worker, the predecessor is reclaimed once this many seconds pass without a change to the task's updated time. That clock restarts when the task's plan, steps, step statuses or step notes, priority, dependencies, title or description change, or a reply card bound to one of its steps is opened or settled (only the owner or an admin agent can open one during the hold); pinning, replacing or removing artifacts does not restart it. Staff predecessors are never reclaimed by it. Reclaiming revokes the predecessor's hold rights. Distinct from any close-out or accelerated-stop grace.",
@@ -6050,6 +6056,18 @@
             ],
             "description": "加速停止 grace, in seconds. Must be 10 through 3600. Applies to every CLOCKED wind-down cause at once (the second context threshold and the owner-pressed 加速停止); it can never put a clock on a soft cause.",
             "title": "Accelerated Grace Secs"
+          },
+          "outsource_closeout_secs": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "外包結案收尾秒數, in seconds. Must be 10 through 3600. It times the window between a task close and the collection of the bound outsource worker's session; the worker is collected early when it reports the close-out finished and the station confirms the session is gone.",
+            "title": "Outsource Closeout Secs"
           },
           "reassign_handover_timeout_secs": {
             "anyOf": [
