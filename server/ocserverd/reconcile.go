@@ -1000,15 +1000,7 @@ func (s *apiServer) wardenTargetOf(memberID string) string {
 	if target != nil {
 		host = target.DesiredMachineID
 	}
-	if host == "" {
-		return ""
-	}
-	cand, err := s.dal.GetMember(host)
-	if err == nil && cand != nil && cand.Kind == KindWarden &&
-		cand.RosterStatus == RosterStatusActive {
-		return cand.ID
-	}
-	return ""
+	return s.activeWardenAt(host)
 }
 
 // enqueueWardenFrame pushes one command frame onto the target member's warden
@@ -1027,11 +1019,17 @@ func (s *apiServer) enqueueWardenFrame(memberID string, frame []byte) bool {
 // statement about where it should run NEXT. Honest fallback to the pin when
 // nothing claims the member (no live connection / an older agent that sends no
 // machine claim), which is exactly what this used to do unconditionally.
+//
+// T-253: the ORDERING moved into the shared killTargetChain (shutdown.go), so
+// staff and outsource ask one question. The last CONFIRMED landing now sits
+// between the live claim and the pin — see that file for why it outranks the
+// pin rather than trailing it.
 func (s *apiServer) memberKillTargetWarden(memberID string) string {
-	if running := s.hub.MachineOf(memberID); running != "" {
-		return running
+	last := ""
+	if m, err := s.dal.GetMember(memberID); err == nil && m != nil {
+		last = m.LastMachineID
 	}
-	return s.wardenTargetOf(memberID)
+	return s.namedKillTarget(memberID, killTargetSources{LastMachineID: last})
 }
 
 // enqueueToWarden pushes one frame onto an EXPLICIT warden's FIFO behind the
@@ -1401,10 +1399,41 @@ func (s *apiServer) reconcileOne(m Member, st reconcileState, now float64) recon
 		// own dispatch stamp (receipt_watch.go).
 		s.armReceiptWatch(m.ID, reconcileCmdStart, warden, now)
 		return decision
-	default: // STOP / UNINSTALL — member_id-only frames, same retry discipline
+	case reconcileCmdStop:
+		// 🔴 THE SEND IS NOT WRITTEN HERE ANY MORE (T-253). Building the frame,
+		// enqueueing it and arming the receipt watch were three lines this
+		// function kept in step with the outsource tick and the report-stopped
+		// path BY HAND; they are one body now (sendStopFrames, shutdown.go),
+		// which takes no scheduler lock and so is callable with reconcileMu held.
+		// What stays here is this producer's own bookkeeping: the unlanded retry
+		// discipline and the session-boundary anchor clear.
+		//
+		// A relocation STOP routes to the RUNNING machine's warden
+		// (DispatchWarden); a plain desired-offline stop routes via wardenTargetOf
+		// (the desired machine) — the same two arms as before, resolved once
+		// instead of once for the enqueue and again for the watch.
+		warden := decision.DispatchWarden
+		if warden == "" {
+			warden = s.wardenTargetOf(m.ID)
+		}
+		if len(s.sendStopFrames(m.ID, []string{warden}, now)) == 0 {
+			decision.Command = reconcileCmdNone
+			decision.State = st
+			decision.DispatchUnlanded = true
+			return decision
+		}
+		// A landed STOP ends the current session: drop its boot_ts so a later
+		// respawn's first connect re-stamps (T-8fb2).
+		s.clearSessionBootTS(m.ID)
+		return decision
+	default: // UNINSTALL — a member_id-only frame, same retry discipline
+		// 🔴 NOT ROUTED THROUGH THE SHARED STOP SEND, and not by oversight: an
+		// uninstall is a different verb, and it is deliberately NOT receipt-watched.
+		// Its receipt is already load-bearing on the warden side (the warden blocks
+		// on delivery and refuses to self-exit without a 2xx), and the reconcile
+		// keeps re-issuing it — an undelivered uninstall retries rather than going
+		// quiet, which is the failure mode that watch exists for.
 		frame, ok := buildTargetFrame(decision.Command, m.ID)
-		// A relocation STOP routes to the RUNNING machine's warden (DispatchWarden);
-		// every other command routes via wardenTargetOf (the desired machine).
 		accepted := false
 		if ok {
 			if decision.DispatchWarden != "" {
@@ -1419,23 +1448,7 @@ func (s *apiServer) reconcileOne(m Member, st reconcileState, now float64) recon
 			decision.DispatchUnlanded = true
 			return decision
 		}
-		// A landed STOP/UNINSTALL ends the current session (graceful desired-offline
-		// stop, or the relocation STOP routed to the running machine's warden): drop
-		// its boot_ts so a later respawn's first connect re-stamps (T-8fb2).
 		s.clearSessionBootTS(m.ID)
-		// STOP only (receipt_watch.go). UNINSTALL is deliberately NOT watched:
-		// its receipt is already load-bearing on the warden side (the warden
-		// blocks on delivery and refuses to self-exit without a 2xx), and the
-		// reconcile keeps re-issuing it — an undelivered uninstall retries
-		// rather than going quiet, which is the failure mode this watch exists
-		// for.
-		if decision.Command == reconcileCmdStop {
-			warden := decision.DispatchWarden
-			if warden == "" {
-				warden = s.wardenTargetOf(m.ID)
-			}
-			s.armReceiptWatch(m.ID, reconcileCmdStop, warden, now)
-		}
 		return decision
 	}
 }
@@ -2905,8 +2918,8 @@ func (s *apiServer) reconcileMemberNow(memberID string) reconcileDecision {
 	return s.reconcileTickMemberLocked(*m, nowSecs())
 }
 
-// dispatchRobustStopNow dispatches ONE robust STOP to the member's warden
-// RIGHT NOW — bypassing the cadence tick
+// dispatchRobustStopNow dispatches a robust STOP down the shared kill-target
+// chain RIGHT NOW — bypassing the cadence tick
 // (handlers._dispatch_robust_stop_now: the force-stop endpoint + the
 // event-driven recycle kill). Raw dispatch: it does not touch the reconcile
 // store. Best-effort + fire-and-forget; gated OFF wholesale by --no-reconcile.
@@ -2927,27 +2940,23 @@ func (s *apiServer) dispatchRobustStopNow(memberID string) {
 	if s.noReconcile {
 		return
 	}
-	frame, ok := buildTargetFrame(reconcileCmdStop, memberID)
-	if !ok {
-		return
-	}
-	// Addressed to the warden of the machine the session is ACTUALLY on, falling
-	// back to the desired machine when nothing claims it (the prior behaviour).
-	// Identical for a member sitting on its own pin; it diverges only after a
-	// T-b6d9 改機器 wind-down, where the pin has already moved to the DESTINATION
-	// while the session being collected still runs on the origin — addressing the
-	// destination there would leave the old session alive forever.
-	s.enqueueToWarden(memberID, s.memberKillTargetWarden(memberID), frame)
-	// Record the dispatch so the cadence can re-send it if it never lands
-	// (T-ed79). Armed UNCONDITIONALLY — including on the fail-closed refusal
-	// above, which is the case that needs it most: an unreachable warden is
-	// exactly how a collect goes missing. See reconcileState.RobustStopPendingAt
-	// and the arm at the top of reconcileDecide.
-	s.noteRobustStopDispatched(memberID, nowSecs())
-	// The robust kill (force-stop, report_stopped recycle, relocate) ends the
-	// current session: drop its boot_ts so the respawn's first connect re-stamps
-	// a fresh anchor (T-8fb2 boot_ts fix).
-	s.clearSessionBootTS(memberID)
+	// 🔴 T-253: the body moved to dispatchShutdown (shutdown.go) and is now
+	// SHARED with the outsource population. What used to live here — resolve the
+	// kill target, enqueue, arm the at-least-once marker, drop the boot anchor —
+	// is there in the same order. Three things about this arm are NOT the same,
+	// and saying "unchanged" would paper over them: the merge ADDED the receipt
+	// watch and the two extra target sources the worker arm already had; it
+	// NARROWED the boot-anchor drop, which used to be unconditional and now
+	// happens only when the chain named at least one target (the difference is
+	// the one case where nothing could name a machine AND no warden was online —
+	// the new way keeps the anchor, which is the safe direction); and it REVERSED
+	// the frame-build failure path, which used to return before the marker and
+	// the anchor drop and now still arms the marker (that path needs a
+	// serialisation failure to reach at all).
+	// The --no-reconcile gate above stays at THIS caller deliberately: it is the
+	// producer kill switch, not a lifecycle rule, and api_stub.go documents that
+	// the outsource verbs have never consulted it.
+	s.dispatchShutdown(memberID, "robust-stop")
 }
 
 // noteRobustStopDispatched arms the at-least-once retry for one out-of-band
@@ -2994,11 +3003,7 @@ func (s *apiServer) dispatchIdentitySweepNow(memberID, keepWarden string, now fl
 	if err != nil {
 		return
 	}
-	frame, ok := buildTargetFrame(reconcileCmdStop, memberID)
-	if !ok {
-		return
-	}
-	swept := false
+	targets := []string{}
 	for _, m := range members {
 		if m.Kind != KindWarden || m.RosterStatus != RosterStatusActive {
 			continue
@@ -3006,13 +3011,20 @@ func (s *apiServer) dispatchIdentitySweepNow(memberID, keepWarden string, now fl
 		if m.ID == keepWarden || !s.hub.IsOnline(m.ID) {
 			continue // never the 正身's own machine; only reachable wardens
 		}
-		if s.enqueueToWarden(memberID, m.ID, frame) {
-			swept = true
-			reconcileLog("identity-sweep: %s confirmed on desired machine %s — "+
-				"robust stop residual session on %s", memberID, keepWarden, m.ID)
-		}
+		targets = append(targets, m.ID)
 	}
-	if swept {
+	// 🔴 THE UNWATCHED HALF OF THE SHARED SEND (enqueueStopFrames, shutdown.go),
+	// and the ONLY caller that wants it that way: this fan-out reaches wardens
+	// that never hosted the session, every one of which answers no_such_session
+	// as a matter of routine, so a receipt deadline here would be waiting on an
+	// answer that says nothing about the residual we aimed at. The frame build
+	// and the enqueue are still the one body every other stop uses.
+	swept := s.enqueueStopFrames(memberID, targets)
+	for _, warden := range swept {
+		reconcileLog("identity-sweep: %s confirmed on desired machine %s — "+
+			"robust stop residual session on %s", memberID, keepWarden, warden)
+	}
+	if len(swept) > 0 {
 		s.identitySweepAt[memberID] = now
 	}
 }

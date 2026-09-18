@@ -1772,9 +1772,19 @@ export interface paths {
          *
          *     The handler writes the STOP intent (``desired_state=offline``
          *     + stamps ``stopping_since`` if unset or in the future, so presence reads coherently
-         *     and a stale future anchor cannot survive) and then dispatches the SINGLE robust STOP
-         *     straight to the member's warden via :func:`_dispatch_robust_stop_now` — the
-         *     warden's ``stop()`` → ``escalateKill`` ladder performs the SIGKILL (tmux kill-session
+         *     and a stale future anchor cannot survive) and then dispatches the robust STOP via
+         *     :func:`_dispatch_robust_stop_now`: it walks an ordered chain of target machines
+         *     — the member's live connection, then the machine it last landed on, then the
+         *     machine it is pinned to — and fans the frame out to every online warden when no
+         *     source can name one. The dispatch also arms an at-least-once marker, so a frame a
+         *     single unreachable warden drops is re-sent by the cadence while the member is
+         *     still online past ``stop_retry``. An ``ow-`` id never reaches that code: it is
+         *     handed to the outsource force-stop, which since T-253 walks the same shared
+         *     chain with its own source list — this round's spawn target first, and no pin —
+         *     and keeps its own re-send ledger. The marker is a STAFF-only arm, and
+         *     arming it on a worker suppresses the START that worker is owed and then benches
+         *     its machine. The warden's ``stop()`` → ``escalateKill``
+         *     ladder performs the SIGKILL (tmux kill-session
          *     → force killpg the process group). It also bypasses the ~30s reconcile cadence,
          *     which is the only wait it does skip.
          *
@@ -7862,10 +7872,12 @@ export interface components {
              * Stop Effect
              * @description 🔴 WHAT ``report_stopped`` ACTUALLY DID. Present ONLY on the ``/api/self/stopped`` face; absent on the other three, which are not stop reports and have no effect to name.
              *
-             *     Staff and outsource workers go through one decision (T-251), so a report answers one of two values:
+             *     Staff and outsource workers go through one decision (T-251) and, since T-253, one shutdown dispatch, so a report answers one of two values:
              *
-             *     * ``collected`` - this was your FIRST stopped-report, and this call dispatched the kill for your session (staff: the robust STOP; worker: the worker kill). ``desired_state`` alone decides what follows: ``online`` starts a new session once this one reads offline, ``offline`` stays down.
-             *     * ``already_reported`` - THIS CALL DID NOTHING AT ALL. ``stopped_since`` was already anchored (anchor semantics - it is never re-stamped), so the whole handler body was skipped. Whatever the FIRST report set in motion, or failed to, still stands; repeating the call cannot change it.
+             *     * ``collected`` - this was your FIRST stopped-report, and this call dispatched the kill for your session. ``desired_state`` alone decides what follows: ``online`` starts a new session once this one reads offline, ``offline`` stays down.
+             *     * ``already_reported`` - THIS CALL DID NOTHING AT ALL. ``stopped_since`` was already anchored (anchor semantics - it is never re-stamped), so the whole handler body was skipped. What the FIRST report set in motion still stands; repeating the call cannot change it.
+             *
+             *     Reading ``already_reported`` is no longer a way to learn that no kill was ever sent: a first report whose two-step durable write FAILS now rolls the ``stopped_since`` latch back and answers 5xx, so the retry is a FIRST report again and does dispatch. One residue survives that - a rollback that itself fails to write. It is logged server-side, and it is the only case in which a later call can read ``already_reported`` over a session whose kill never went out.
              *
              *     ``latched_for_collect`` and ``recorded_only`` stay in the enum so older clients keep parsing, but the server no longer produces them.
              *

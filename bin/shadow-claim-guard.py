@@ -81,7 +81,21 @@ DISPATCH_DIR = ROOT / "server" / "ocserverd"
 # The helpers that put a frame on a warden's FIFO. Discovered names, not a
 # manifest: each is defined in this package and every warden command in the
 # server funnels through one of them.
-DISPATCH_HELPERS = ("enqueueWardenFrame", "enqueueToWarden", "enqueueWorkerStop")
+#
+# 🔴 enqueueStopFrames / sendStopFrames JOINED IN T-253, and leaving them out
+# would have shrunk (A) silently. That ticket moved every `stop` send behind one
+# body: the kill sites (reconcileOne's STOP arm, dispatchShutdown, the identity
+# sweep, enqueueWorkerStop) stopped calling enqueueToWarden directly and now call
+# these two instead. The guard would still have been TECHNICALLY right — the send
+# bottoms out in enqueueToWarden, so (A) stayed non-empty via that one frame —
+# but it would have attributed every one of those dispatches to enqueueStopFrames
+# alone and stopped naming the callers a reader is supposed to go look at. The
+# sibling rule below (`name in DISPATCH_HELPERS` → skip) is what keeps the two
+# new names from reporting each other as dispatch sites.
+DISPATCH_HELPERS = (
+    "enqueueWardenFrame", "enqueueToWarden", "enqueueWorkerStop",
+    "enqueueStopFrames", "sendStopFrames",
+)
 
 FUNC_RE = re.compile(r"^func\s+(?:\([^)]*\)\s*)?(\w+)", re.M)
 CALL_RE = re.compile(r"\bs\.(" + "|".join(DISPATCH_HELPERS) + r")\s*\(")
