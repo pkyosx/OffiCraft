@@ -4174,8 +4174,9 @@ type HandlePutMemberAvatarApiMembersMemberIdAvatarPutParams struct {
 
 // HandleListReplyCardsApiReplyCardsGetParams defines parameters for HandleListReplyCardsApiReplyCardsGet.
 type HandleListReplyCardsApiReplyCardsGetParams struct {
-	Status *string `form:"status,omitempty" json:"status,omitempty"`
-	Limit  *int    `form:"limit,omitempty" json:"limit,omitempty"`
+	Status   *string `form:"status,omitempty" json:"status,omitempty"`
+	OpenedBy *string `form:"opened_by,omitempty" json:"opened_by,omitempty"`
+	Limit    *int    `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // HandleListTasksApiTasksGetParams defines parameters for HandleListTasksApiTasksGet.
@@ -4819,7 +4820,7 @@ type ServerInterface interface {
 	// Check GitHub Releases for a newer official OffiCraft version.
 	// (GET /api/release/check)
 	HandleCheckReleaseApiReleaseCheckGet(w http.ResponseWriter, r *http.Request)
-	// List light reply-card rows (summary and decision digest, without the full body/options). status is waiting (the default, longest-waiting first), answered (the last 24 hours) or expired (the last 24 hours); a positive limit is applied after each pane is ordered. Every pane covers every card on the station, not only the cards you opened. Read one card in full with get_reply_card.
+	// List light reply-card rows (summary and decision digest, without the full body/options). status is waiting (the default, longest-waiting first), answered (the last 24 hours) or expired (the last 24 hours); a positive limit is applied after each pane is ordered. Every pane covers every card on the station, not only the cards you opened — pass opened_by to narrow a pane to the cards ONE member opened. Read one card in full with get_reply_card.
 	// (GET /api/reply-cards)
 	HandleListReplyCardsApiReplyCardsGet(w http.ResponseWriter, r *http.Request, params HandleListReplyCardsApiReplyCardsGetParams)
 	// Open a reply card: an ask the owner must answer (at least one option; options ≤4 on a single card, ≤20 on a multi card, each carrying its own ai_pick flag; select_mode single|multi). linked_task is REQUIRED and has no default — every card must SAY whether it is about a task, because the server no longer infers one. Send linked_task={"task_id": ..., "step_id": ...} to bind the ask to the step it is about: that step (and its task) enters waiting_owner until the owner answers. Send linked_task=null when the ask is not about a task — it opens as a plain unbound 請示. BOTH ids are required in the object form: a task_id with NO step_id is a 400, because a card bound to a task but to no step places no 等我回覆 hold, so the task would finish underneath your question and the owner's answer would then be rejected for good. Omitting linked_task entirely is a 400 that names both legal shapes. With both ids present the bind is still refused, before anything is written, when the task does not exist (404), when you are not the task's acting executor (the predecessor while it holds the task under the reassign hold) and not the owner or an admin agent (403), when the task is not in_progress or waiting_owner, for example not_started or ready_for_done (409), when the step does not belong to that task (404), and when the step is already done or superseded (409). Optional attachments ride the question, up to a capped count that a refusal names (same shape as post_chat: {id} from `ocagent upload` / POST /api/chat/attachments, or inline data_b64). Answers with a bounded receipt (“id“, “chat_message_id“, “created_ts“, “attachments“), not the card — call “get_reply_card“ when you need the rest.
@@ -7910,6 +7911,19 @@ func (siw *ServerInterfaceWrapper) HandleListReplyCardsApiReplyCardsGet(w http.R
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "status"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "status", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "opened_by" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "opened_by", r.URL.Query(), &params.OpenedBy, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "opened_by"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "opened_by", Err: err})
 		}
 		return
 	}

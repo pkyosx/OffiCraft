@@ -1699,6 +1699,96 @@ func TestCloseTask(t *testing.T) {
 		)
 	})
 
+	t.Run("the dismissed worker's unbound cards expire while another member's card keeps waiting", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+		if err := d.PutOutsourceWorker(OutsourceWorker{
+			ID: "ow-abc123", Codename: "Contractor", TaskID: "T-1",
+			Status: WorkerStatusAssigned, Runtime: "claude", Model: "sonnet", Effort: "medium",
+		}); err != nil {
+			t.Fatalf("PutOutsourceWorker: %v", err)
+		}
+		cards := []ReplyCard{
+			{ID: "rc-worker", FromMember: "ow-abc123", Kind: "decision", Status: "waiting", CreatedTS: 10},
+			{ID: "rc-bystander", FromMember: "mira", Kind: "decision", Status: "waiting", CreatedTS: 11},
+		}
+		for _, card := range cards {
+			if err := d.PutReplyCard(card); err != nil {
+				t.Fatalf("PutReplyCard(%q): %v", card.ID, err)
+			}
+		}
+		task, err := api.resolveTask("T-1")
+		if err != nil {
+			t.Fatalf("resolveTask: %v", err)
+		}
+		dashboard := apiTestListen(t, api, "")
+
+		if err := api.closeTask(task, TaskStatusDone, 1750000000, "owner"); err != nil {
+			t.Fatalf("closeTask: %v", err)
+		}
+
+		got, err := d.ListReplyCards()
+		if err != nil {
+			t.Fatalf("ListReplyCards: %v", err)
+		}
+		want := []ReplyCard{
+			{ID: "rc-worker", FromMember: "ow-abc123", Kind: "decision", SelectMode: "single", Status: "expired", CreatedTS: 10, ExpiredTS: 1750000000, AnswerAttachments: []any{}, Attachments: []any{}, Options: []ReplyCardOption{}},
+			{ID: "rc-bystander", FromMember: "mira", Kind: "decision", SelectMode: "single", Status: "waiting", CreatedTS: 11, AnswerAttachments: []any{}, Attachments: []any{}, Options: []ReplyCardOption{}},
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("reply cards after the close = %#v, want %#v", got, want)
+		}
+		worker, err := d.GetOutsourceWorker("ow-abc123")
+		if err != nil || worker == nil {
+			t.Fatalf("GetOutsourceWorker: %v %#v", err, worker)
+		}
+		if worker.Status != "released" {
+			t.Fatalf("worker status: %q", worker.Status)
+		}
+		notices, err := d.ListChat()
+		if err != nil {
+			t.Fatalf("ListChat: %v", err)
+		}
+		if len(notices) != 1 {
+			t.Fatalf("want the one close-out notice, got %v", notices)
+		}
+		closeNotice := notices[0]
+		dashboard.wantFrames(
+			apiTestWorkerDelta(2, "released", "owner"),
+			apiTestReplyCardFrame(3, "rc-worker", "ow-abc123", "expired", "owner"),
+			map[string]any{
+				"seq":   4,
+				"topic": "task",
+				"op":    "patch",
+				"data": map[string]any{
+					"entity":  "task",
+					"key":     "owner::T-1",
+					"epoch":   4,
+					"deleted": false,
+					"payload": map[string]any{"id": "T-1", "priority": "mid", "status": "done"},
+				},
+				"ts":      apiAnyNumber,
+				"trigger": "owner",
+			},
+			map[string]any{
+				"seq":   5,
+				"topic": "chat",
+				"op":    "patch",
+				"data": map[string]any{
+					"entity":  "chat",
+					"key":     "owner::" + closeNotice.ID,
+					"epoch":   5,
+					"deleted": false,
+					"payload": map[string]any{
+						"id": closeNotice.ID, "from": wireSystemSender, "to": "kip",
+					},
+				},
+				"ts":      apiAnyNumber,
+				"trigger": "owner",
+			},
+		)
+	})
+
 	t.Run("an ad-hoc task with no manual behind its type is still sent the close-out notice", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)

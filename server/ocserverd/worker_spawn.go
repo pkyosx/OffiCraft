@@ -2519,27 +2519,38 @@ func (s *apiServer) reclaimWorkerSession(w OutsourceWorker) {
 // Safe for member-executed tasks (no worker rows → no-op) and safe to call
 // repeatedly (release + reclaim are both idempotent).
 // Takes outsourceMu itself — call it WITHOUT the scheduler lock held.
-func (s *apiServer) dismissOutsourceWorkersForTask(taskID string, now float64, trigger string) {
+//
+// 🔴 RETURNS THE FIRED IDS RATHER THAN SWEEPING THEIR CARDS ITSELF. A fired
+// worker's waiting cards must be retired the same way dismissOutsourceWorkerByID
+// retires them, but a card write reaches releaseCardHold, the task DAL and the
+// SSE hub — outward calls that must not happen under outsourceMu. So this
+// function hands the ids back and closeTask sweeps them with the lock released.
+// (dismissOutsourceWorkerByID does sweep inside the lock; that is pre-existing
+// debt, not the shape to copy into a loop.)
+func (s *apiServer) dismissOutsourceWorkersForTask(taskID string, now float64, trigger string) []string {
 	s.outsourceMu.Lock()
 	defer s.outsourceMu.Unlock()
 	released, err := s.dal.ReleaseWorkersForTask(taskID, now)
 	if err != nil {
 		outsourceLog("dismiss task %s: release failed: %v", taskID, err)
-		return
+		return nil
 	}
+	fired := []string{}
 	for _, w := range released {
+		fired = append(fired, w.ID)
 		s.publishOutsourceWorker(w, trigger)
 	}
 	workers, err := s.dal.ListOutsourceWorkers()
 	if err != nil {
 		outsourceLog("dismiss task %s: worker read failed: %v", taskID, err)
-		return
+		return fired
 	}
 	for _, w := range workers {
 		if w.TaskID == taskID && !s.workerReclaimed[w.ID] {
 			s.reclaimWorkerSession(w)
 		}
 	}
+	return fired
 }
 
 // dismissOutsourceWorkerByID fires ONE specific worker (release its row + kill
