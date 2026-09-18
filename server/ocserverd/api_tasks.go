@@ -721,7 +721,22 @@ func (s *apiServer) closeTask(t *Task, status string, now float64, trigger strin
 	// those two doors are for — they exist to end a task the executor is not
 	// going to end — but it is a behaviour change from the grace-period wait, so
 	// it is written down rather than discovered.
-	s.dismissOutsourceWorkersForTask(t.ID, now, trigger)
+	fired := s.dismissOutsourceWorkersForTask(t.ID, now, trigger)
+	// T-261: expireWaitingCardsForTask above only reaches the cards BOUND to this
+	// task. A dismissed contractor's UNBOUND 請示 (linked_task=null) is bound to
+	// nobody, so it survived the close and sat in the owner's 等我回覆 pane with
+	// an asker that no longer exists. The other two dismissal paths (member
+	// dismissal, deferred handover) already sweep by opener; this door did not.
+	// Same best-effort posture as the sweep above, and for the same reason — the
+	// terminal task row is already persisted and there is no transaction to roll
+	// back. Deliberately OUTSIDE dismissOutsourceWorkersForTask: card writes must
+	// not run under outsourceMu.
+	for _, workerID := range fired {
+		if _, err := s.expireWaitingCardsFromMember(workerID, now, trigger); err != nil {
+			taskLog("close %s: card sweep for dismissed worker %s failed: %v",
+				t.ID, workerID, err)
+		}
+	}
 	s.publishTask(*t, trigger)
 	// T-74f8 half B: a dep is no longer a display marker. Every task blocked BY
 	// this one whose blockers are now all terminal is released — durable notice

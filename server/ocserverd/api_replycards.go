@@ -617,7 +617,10 @@ func replyCardOptionWording(c ReplyCard) []string {
 // 24h, newest answer first) | ?status=expired (last 24h keyed expired_ts,
 // newest first — the ocagent drain's offline-expiry catch-up pane). ?limit=N
 // (N > 0) caps the rows AFTER the pane's ordering — the pane's first N
-// survive; absent / non-positive = the whole pane.
+// survive; absent / non-positive = the whole pane. ?opened_by=<member id>
+// keeps only the cards that member opened; it is a plain string comparison
+// against from_member, so an id nobody carries answers 200 with an empty pane
+// rather than an error. It is applied BEFORE ?limit, so the two compose.
 //
 // ONE SHAPE, AND IT IS THE LIGHT ROW. The ?view=full projection this route grew
 // in T-a3e4 is GONE (owner ruling 2026-09-07): one route answering with two
@@ -652,6 +655,19 @@ func (s *apiServer) HandleListReplyCardsApiReplyCardsGet(w http.ResponseWriter, 
 		pane = recentExpiredReplyCards(cards, nowSecs())
 	default:
 		pane = recentAnsweredReplyCards(cards, nowSecs())
+	}
+	// 🔴 BEFORE THE LIMIT, NEVER AFTER. Truncating first would let other people's
+	// cards eat the N slots and then be filtered away, so ?opened_by=X&limit=N
+	// would answer with FEWER rows than X actually has — and an empty answer is
+	// byte-for-byte what "X has no cards in this pane" looks like.
+	if openedBy := trimmedOrEmpty(params.OpenedBy); openedBy != "" {
+		kept := []ReplyCard{}
+		for _, c := range pane {
+			if c.FromMember == openedBy {
+				kept = append(kept, c)
+			}
+		}
+		pane = kept
 	}
 	if params.Limit != nil && *params.Limit > 0 && *params.Limit < len(pane) {
 		pane = pane[:*params.Limit]
