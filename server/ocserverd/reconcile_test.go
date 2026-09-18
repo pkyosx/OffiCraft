@@ -2350,6 +2350,87 @@ func TestReconcileTickMemberLocked(t *testing.T) {
 			"in on the target machine (warden log: ocwarden.out.log)"
 		reconcileTestWantRow(t, d, "lapsed", wantRow)
 	})
+
+	// ── can a broadcast kill hit the REPLACEMENT? (T-253 乙, staff half) ─────
+	//
+	// The outsource half of this question is measured in
+	// TestStopWorkerSessionForHandover. The two populations now share the kill
+	// chain and the send, but NOT their retry arms — the worker's
+	// retryUnlandedWorkerStop compares machines, while the member's
+	// RobustStopPendingAt arm keys on plain presence (reconcileDecide) — so
+	// "the same reasoning applies" is an inference, and this is the measurement.
+
+	t.Run("a staff broadcast kill cannot reach the replacement: the retry marker is cleared by the very offline tick that decides the start", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		shutdownWarden(t, api, d, "m-one")
+		shutdownWarden(t, api, d, "m-two")
+		// No pin, no live claim, no last landing: nothing can name a machine.
+		agent := shutdownStaff(t, api, h, d, owner, "", "m-one", "m-two")
+
+		if status, data := apiJSON(t, h, "POST", "/api/self/stopped", agent, `{}`); status != 200 {
+			t.Fatalf("stopped report: %d (%v)", status, data)
+		}
+		wsWantWardenFrames(t, api, "m-one", wsStopFrame("kip"))
+		wsWantWardenFrames(t, api, "m-two", wsStopFrame("kip"))
+
+		// The owner now places the replacement on m-one, and the tick that reads
+		// this member offline decides its START.
+		shutdownBootable(t, d, "kip", "m-one")
+		row, err := d.GetMember("kip")
+		if err != nil || row == nil {
+			t.Fatalf("GetMember: %v (%v)", row, err)
+		}
+		started := api.reconcileTickMemberLocked(*row, nowSecs()+10000)
+		apiWantValue(t, "the tick that saw it offline", any(map[string]any{
+			"command": started.Command, "robust_stop_pending": started.State.RobustStopPendingAt,
+		}), any(map[string]any{"command": "start", "robust_stop_pending": 0}))
+		apiWantValue(t, "what the replacement's machine was told",
+			any(wsVerbs(t, api, "m-one")), any([]any{"start"}))
+
+		// The replacement is now live on m-one. Every later tick, arbitrarily far
+		// past stop_retry, must leave it alone.
+		if _, err := api.hub.Connect("kip", "m-one"); err != nil {
+			t.Fatalf("hub.Connect: %v", err)
+		}
+		fresh, err := d.GetMember("kip")
+		if err != nil || fresh == nil {
+			t.Fatalf("GetMember: %v (%v)", fresh, err)
+		}
+		late := api.reconcileTickMemberLocked(*fresh, nowSecs()+20000)
+
+		apiWantValue(t, "the late tick", any(late.Command), any("none"))
+		apiWantValue(t, "late kills at the replacement's machine",
+			any(wsVerbs(t, api, "m-one")), any([]any{}))
+		apiWantValue(t, "late kills elsewhere", any(wsVerbs(t, api, "m-two")), any([]any{}))
+	})
+
+	t.Run("POSITIVE CONTROL: with no offline tick in between, the same retry does re-dispatch a kill at the machine the session claims", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		shutdownWarden(t, api, d, "m-one")
+		shutdownWarden(t, api, d, "m-two")
+		agent := shutdownStaff(t, api, h, d, owner, "", "m-one", "m-two")
+
+		if status, data := apiJSON(t, h, "POST", "/api/self/stopped", agent, `{}`); status != 200 {
+			t.Fatalf("stopped report: %d (%v)", status, data)
+		}
+		wsVerbs(t, api, "m-one")
+		wsVerbs(t, api, "m-two")
+
+		// The session the broadcast aimed at is STILL there — no tick ever read
+		// this member offline, which is the whole difference from the case above.
+		if _, err := api.hub.Connect("kip", "m-one"); err != nil {
+			t.Fatalf("hub.Connect: %v", err)
+		}
+		row, err := d.GetMember("kip")
+		if err != nil || row == nil {
+			t.Fatalf("GetMember: %v (%v)", row, err)
+		}
+		late := api.reconcileTickMemberLocked(*row, nowSecs()+10000)
+
+		apiWantValue(t, "the late tick", any(late.Command), any("stop"))
+		apiWantValue(t, "the re-fired kill", any(wsVerbs(t, api, "m-one")), any([]any{"stop"}))
+		apiWantValue(t, "and nowhere else", any(wsVerbs(t, api, "m-two")), any([]any{}))
+	})
 }
 
 func TestArmDecidedHandover(t *testing.T) {

@@ -206,7 +206,15 @@ func (s *apiServer) onlineWardens() []string {
 // not at all.
 func (s *apiServer) resolveShutdownTargets(id string) (targets []string, broadcast, outsource bool) {
 	m, err := s.dal.GetMember(id)
-	src := killTargetSources{}
+	// 🔴 FAIL-CLOSED TO "WORKER" WHEN THE ROSTER CANNOT BE READ (T-253 N5). This
+	// flag gates the member producer's at-least-once marker, and getting it wrong
+	// in the "staff" direction is the F1 defect itself: a worker handed
+	// RobustStopPendingAt has its START suppressed and then its machine benched
+	// by a decider that reads the STOP as a zombie takeover. Getting it wrong in
+	// the "worker" direction costs one staff kill its cadence re-send, which the
+	// stopped-report's own retry and the owner's force-stop both still cover. A
+	// read fault must land on the cheaper mistake, not the ruling-level one.
+	src := killTargetSources{Outsource: true}
 	if err == nil && m != nil {
 		src.LastMachineID = m.LastMachineID
 		src.Outsource = m.Kind == KindOutsource

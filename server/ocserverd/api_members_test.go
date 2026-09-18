@@ -3812,9 +3812,11 @@ func TestHandleReportStoppedApiSelfStoppedPost(t *testing.T) {
 	}
 
 	for _, tc := range []struct {
-		who     string
-		live    func(t *testing.T) (*apiServer, http.Handler, *DAL, string, string)
-		delta   map[string]any
+		who  string
+		live func(t *testing.T) (*apiServer, http.Handler, *DAL, string, string)
+		// receipt is the row's last_op* columns as this fixture leaves them,
+		// written out so "the sweep changed nothing" compares against a literal.
+		receipt map[string]any
 		desired string
 	}{
 		{
@@ -3831,6 +3833,14 @@ func TestHandleReportStoppedApiSelfStoppedPost(t *testing.T) {
 				apiTestListen(t, api, ServerSelfHost)
 				return api, h, d, "kip", apiTestAgentToken(t, api, "kip", "")
 			},
+			// The activate ran before any warden was listening, so it left the
+			// unreachable-warden receipt on the row.
+			receipt: map[string]any{
+				"last_op": "start", "at": apiAnyNumber,
+				"reason": "warden_unreachable: 活化 was recorded, but nothing has been " +
+					"dispatched yet — the machine's warden did not take the start. It will " +
+					"be retried; if it stays here, check that machine",
+			},
 			desired: "online",
 		},
 		{
@@ -3840,6 +3850,7 @@ func TestHandleReportStoppedApiSelfStoppedPost(t *testing.T) {
 				api, h, d, _, _, contractor := apiTestLiveWorker(t)
 				return api, h, d, "ow-abc123", contractor
 			},
+			receipt: map[string]any{"last_op": "", "reason": "", "at": float64(0)},
 			desired: "online",
 		},
 	} {
@@ -3922,22 +3933,16 @@ func TestHandleReportStoppedApiSelfStoppedPost(t *testing.T) {
 		// sweep running.
 		t.Run("a "+tc.who+" row the sweep was never armed for is left alone", func(t *testing.T) {
 			api, _, d, id, _ := tc.live(t)
-			before, err := d.GetMember(id)
-			if err != nil || before == nil {
-				t.Fatalf("GetMember(%q): %v (%v)", id, before, err)
-			}
+			// PREMISE, spelled out rather than captured: this fixture's row carries
+			// no receipt at all, so "unchanged" below is a literal, not a value
+			// read back off the thing under test.
+			apiWantValue(t, "the receipt before the sweep",
+				any(apiTestReceiptOf(t, d, id)), any(tc.receipt))
 
 			api.sweepLapsedReceipts(nowSecs() + receiptDeadlineSecs + 1)
 
-			after, err := d.GetMember(id)
-			if err != nil || after == nil {
-				t.Fatalf("GetMember(%q): %v (%v)", id, after, err)
-			}
-			apiWantValue(t, "the receipt on the row", any(map[string]any{
-				"last_op": after.LastOp, "reason": after.LastOpReason, "at": after.LastOpAt,
-			}), any(map[string]any{
-				"last_op": before.LastOp, "reason": before.LastOpReason, "at": before.LastOpAt,
-			}))
+			apiWantValue(t, "the receipt after the sweep",
+				any(apiTestReceiptOf(t, d, id)), any(tc.receipt))
 		})
 	}
 
@@ -4032,7 +4037,7 @@ func TestHandleReportStoppedApiSelfStoppedPost(t *testing.T) {
 		// the worker tick a marker its own decider acts on — suppressing the START
 		// that is due, then returning a STOP the worker path reads as a zombie
 		// takeover and benches the machine for.
-		api, h, d, owner, session, contractor := apiTestLiveWorker(t)
+		api, h, _, owner, session, contractor := apiTestLiveWorker(t)
 
 		if status, data := apiJSON(t, h, "POST", "/api/self/stopped", contractor, `{}`); status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
@@ -4048,7 +4053,6 @@ func TestHandleReportStoppedApiSelfStoppedPost(t *testing.T) {
 		api.runOutsourceTick(nowSecs())
 		wsWantWardenFrames(t, api, ServerSelfHost,
 			wsStartFrame("ow-abc123", apiTestWorkerBootContext(t, h, owner), "claude", "sonnet", "medium"))
-		_ = d
 	})
 
 	t.Run("POSITIVE CONTROL: a staff stop does arm the member producer's marker", func(t *testing.T) {
@@ -4069,11 +4073,30 @@ func TestHandleReportStoppedApiSelfStoppedPost(t *testing.T) {
 		if got := api.lifecycleState("kip").RobustStopPendingAt; got <= 0 {
 			t.Fatalf("the member producer's marker must be armed, got %v", got)
 		}
+		// The consequence, at the same level as the worker arm's: the session is
+		// still up (the warden has not drained the kill yet — the real ordering),
+		// and the very next member tick therefore holds its fire instead of
+		// deciding anything, because a kill this producer owns is already out and
+		// inside stop_retry.
+		apiTestListen(t, api, "kip")
+		row, err := d.GetMember("kip")
+		if err != nil || row == nil {
+			t.Fatalf("GetMember: %v (%v)", row, err)
+		}
+		next := api.reconcileTickMemberLocked(*row, nowSecs())
+		apiWantValue(t, "the next tick", any(map[string]any{
+			"command": next.Command, "reason": next.Reason,
+		}), any(map[string]any{
+			"command": "none",
+			"reason": "robust stop dispatched out-of-band — awaiting warden kill " +
+				"(within stop_retry)",
+		}))
+		wsWantWardenFrames(t, api, ServerSelfHost)
 	})
 
 	// ── a report that had to broadcast leaves a usable retry record (F3) ─────
 
-	t.Run("a report that had to broadcast records who was told, so the retry still has something to re-send", func(t *testing.T) {
+	t.Run("a report that had to broadcast is armed AT NOBODY, and the retry can still act on that", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
 		apiTestWorkerWantedOnline(t, d, "ow-abc123")
@@ -4091,11 +4114,12 @@ func TestHandleReportStoppedApiSelfStoppedPost(t *testing.T) {
 		api.outsourceMu.Lock()
 		armed := api.workerStopLanded["ow-abc123"]
 		api.outsourceMu.Unlock()
+		// AIMED AT NOBODY, and that is the record: a fan-out cannot name the
+		// machine that owes it a dead session, so the retry judges it by presence
+		// instead of by a machine comparison.
 		apiWantValue(t, "the armed kill", any(map[string]any{
-			"target": armed.Target, "fanout": wsStrings(armed.Fanout), "at": armed.At,
-		}), any(map[string]any{
-			"target": "", "fanout": []any{"m-one", "m-two"}, "at": apiAnyNumber,
-		}))
+			"target": armed.Target, "at": armed.At,
+		}), any(map[string]any{"target": "", "at": apiAnyNumber}))
 
 		// …and it is a record the retry can act on: the session turns out to be
 		// alive after all, so past stop_retry the kill goes out again.
@@ -4107,6 +4131,102 @@ func TestHandleReportStoppedApiSelfStoppedPost(t *testing.T) {
 		api.outsourceMu.Unlock()
 		wsWantWardenFrames(t, api, "m-one", wsStopFrame("ow-abc123"))
 		wsWantWardenFrames(t, api, "m-two", wsStopFrame("ow-abc123"))
+	})
+
+	t.Run("the conclusion reads the row as it is AFTER the kill, not as the handler last saw it", func(t *testing.T) {
+		// 🔴 A LOCK IS THE BARRIER, NOT A SLEEP. outsourceMu is open across the
+		// kill, so a request that lands in that window changes the row under the
+		// handler; deciding from the pre-kill photograph acts on a desired_state
+		// the owner has since changed. To make that window openable on demand the
+		// test holds receiptMu — armReceiptWatch is the FIRST thing after the
+		// frame is enqueued and the LAST thing before the conclusion, and nothing
+		// earlier in this path touches that lock.
+		//
+		// It also proves, in passing, the half the lock-order guard cannot reach
+		// from here: the enqueue below only happens if the handler got through
+		// dispatchShutdown's own re-acquire of outsourceMu, which self-deadlocks
+		// for a caller that kept it.
+		api, h, d, _, _, contractor := apiTestLiveWorker(t)
+
+		api.receiptMu.Lock()
+		released := false
+		release := func() {
+			if !released {
+				released = true
+				api.receiptMu.Unlock()
+			}
+		}
+		defer release()
+
+		answered := make(chan *httptest.ResponseRecorder, 1)
+		go func() {
+			answered <- apiRequest(t, h, "POST", "/api/self/stopped", contractor, `{}`)
+		}()
+
+		// The frame on the warden's queue means the handler is at the barrier.
+		if !shutdownWaitFor(t, func() bool {
+			return api.hub.PendingWardenCommandsFor(ServerSelfHost, "ow-abc123") > 0
+		}) {
+			release()
+			t.Fatal("the kill never reached the warden queue — the handler never got to the barrier")
+		}
+
+		// THE WINDOW: the owner holds this worker down while its kill is in flight.
+		w, err := d.GetOutsourceWorker("ow-abc123")
+		if err != nil || w == nil {
+			release()
+			t.Fatalf("GetOutsourceWorker: %v (%v)", w, err)
+		}
+		w.DesiredState = DesiredStateOffline
+		if err := d.PutOutsourceWorker(*w); err != nil {
+			release()
+			t.Fatalf("PutOutsourceWorker: %v", err)
+		}
+		release()
+
+		var rec *httptest.ResponseRecorder
+		select {
+		case rec = <-answered:
+		case <-time.After(5 * time.Second):
+			t.Fatal("the stopped-report never completed once the receipt lock was free")
+		}
+		var data map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &data); err != nil {
+			t.Fatalf("non-JSON body (%d): %s", rec.Code, rec.Body.Bytes())
+		}
+		apiWantValue(t, "status", any(float64(rec.Code)), any(200))
+		// The wire answer carries the row the conclusion re-read. A pre-kill
+		// snapshot would say online here.
+		apiWantBody(t, data, map[string]any{
+			"id":               "ow-abc123",
+			"desired_state":    "offline",
+			"refocus_op":       "",
+			"refocus_deadline": 0,
+			"stop_effect":      "collected",
+		})
+		// …and the held-down arm is the one that ran: the FSM is left where the
+		// disconnect put it rather than being stamped `stopping`, which is what a
+		// worker with a replacement coming would get (see the control below).
+		apiWantValue(t, "the FSM phase", any(api.lifecycleState("ow-abc123").Phase), any("offline"))
+	})
+
+	t.Run("CONTROL: with nothing changing in that window the same report answers the state it started with", func(t *testing.T) {
+		api, h, _, _, _, contractor := apiTestLiveWorker(t)
+
+		status, data := apiJSON(t, h, "POST", "/api/self/stopped", contractor, `{}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"id":               "ow-abc123",
+			"desired_state":    "online",
+			"refocus_op":       "",
+			"refocus_deadline": 0,
+			"stop_effect":      "collected",
+		})
+		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"))
+		apiWantValue(t, "the FSM phase",
+			any(api.lifecycleState("ow-abc123").Phase), any("stopping"))
 	})
 
 	t.Run("a worker's repeat report changes nothing and sends no second stop", func(t *testing.T) {
@@ -4238,6 +4358,17 @@ func apiTestFailWholeRowWrite(t *testing.T, d *DAL, id string) {
 // writes the row MORE THAN ONCE: the first `skip` whole-row writes land and
 // every one after them fails. Deactivating a member writes the row itself and
 // then again inside the collect, and only the second one is the two-step trap.
+// apiTestReceiptOf is a row's five last_op* columns folded to the three a
+// reader compares, so a test can write the whole expected receipt as a literal.
+func apiTestReceiptOf(t *testing.T, d *DAL, id string) map[string]any {
+	t.Helper()
+	m, err := d.GetMember(id)
+	if err != nil || m == nil {
+		t.Fatalf("GetMember(%q): %v (%v)", id, m, err)
+	}
+	return map[string]any{"last_op": m.LastOp, "reason": m.LastOpReason, "at": m.LastOpAt}
+}
+
 func apiTestFailWholeRowWriteAfter(t *testing.T, d *DAL, id string, skip int) {
 	t.Helper()
 	for _, stmt := range []string{
