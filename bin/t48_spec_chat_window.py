@@ -414,10 +414,9 @@ def main():
         f'          "name": "get_chat",\n          "description": "{esc(NEW_TOOL_DESC)}"',
         "x-mcp.description",
     )
-    # The operation SUMMARY carries the same one-liner, and that is mechanical
-    # rather than cosmetic: spec_catalog_conformance_test.go requires the
-    # OpenAPI summary, the routes.go route summary and x-mcp.description to be
-    # the same string (server/ocserverd/routes.go is edited to match by hand).
+    # The operation SUMMARY carries the same one-liner. When this script ran, a
+    # route summary in server/ocserverd/routes.go had to be hand-edited to the
+    # same string; T-257 removed that copy, so only the spec-side strings remain.
     op = sub1(
         op,
         f'        "summary": "{esc(OLD_TOOL_DESC)}",',

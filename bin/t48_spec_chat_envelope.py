@@ -28,9 +28,10 @@ component schema:
      watermark write), and the two participant-side filters.
   5. x-mcp.description + operation summary + x-mcp.legacy.descriptor — kept
      byte-consistent with each other (gen-mcp-catalog refuses a descriptor
-     whose description disagrees with x-mcp.description) and with
-     server/ocserverd/routes.go's Summary, which is edited by hand to match
-     (spec_catalog_conformance_test.go pins the three together).
+     whose description disagrees with x-mcp.description). When this script ran,
+     server/ocserverd/routes.go held a fourth copy that had to be hand-edited to
+     match; T-257 removed it, so the spec is now the only place the wording
+     lives.
 
 The owner ruling behind the envelope (rc-cb3f1b9b0528, verbatim):
 「這應該是這隻API就要提供的，要改介面」.

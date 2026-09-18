@@ -89,28 +89,14 @@ a green imply it:
     would mean matching the bare English noun, which is the cry-wolf design
     rejected above.
 
-    🔴 DO NOT CONCLUDE FROM THIS THAT routes.go IS UNGUARDED, AND DO NOT EDIT
-    THE PUBLIC WIRE TEXT TO FEED THIS SCANNER. It is covered TRANSITIVELY, in
-    two hops that between them leave no path:
-
-        RouteSpec.Summary must equal x-mcp.description ...... enforced by
-          TestEveryMCPToolDescriptionAgreesWithItsSources
-          (spec_catalog_conformance_test.go)
-        x-mcp.description lives in spec/openapi.json ......... which IS
-          scanned here (see the json-enum-below-key control)
-
-    So a Summary that drifts to a retired value has only two ways to go, and
-    both are loud: change routes.go alone and the agreement test reddens;
-    change both to the same wrong word and the spec copy is caught here.
-
-    THE CONDITION THAT PROTECTION RESTS ON, stated so a green does not imply
-    more than it is: that agreement test carries a baseline,
-    `knownToolDescriptionDrift`, whose entries are exempt from the first hop.
-    Measured at the time of writing: four entries, of which exactly ONE
-    (`update_settings`) is on the `route_summary` side, and its baselined
-    prose contains no executor-kind vocabulary — so the gap exists but has
-    nothing in it. Put a kind word into that baselined sentence and the hole
-    acquires contents. Re-read the table rather than trusting this count.
+    🔴 DO NOT EDIT THE PUBLIC WIRE TEXT TO FEED THIS SCANNER. routes.go no
+    longer carries wire text at all: T-257 removed RouteSpec.Summary, the
+    second hand-written copy of every tool description, so the only copy is
+    x-mcp.description in spec/openapi.json — which IS scanned here (see the
+    json-enum-below-key control). A tool description that drifts to a retired
+    value is therefore caught directly, with no transitive hop to depend on,
+    and writing a description into routes.go is a compile error rather than a
+    second place this scanner would have to reach.
   * A value assembled at runtime (string concatenation, strings.Join): there
     is no literal to read, so there is nothing to compare.
   * A file whose suffix is not in TEXT_SUFFIXES.
