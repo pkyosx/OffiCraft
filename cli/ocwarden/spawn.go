@@ -278,7 +278,7 @@ func compactSettingsJSON(raw string) (string, error) {
 // seeds/boot_sequence.md or seeds/boot_sequence_codex.md (pre-fetched by the launcher
 // into personaFile alongside the persona / role doc). So this append-prompt no longer re-spells the boot steps
 // (that second hardcode was the cross-language drift risk this step removes); it just
-// tells the fresh agent WHO it is and to LOAD personaFile and follow its 開機程序
+// tells the fresh agent WHO it is and to LOAD personaFile and follow its 啟動步驟（Boot Sequence）
 // section step by step. The full ordered SOP (report_waking → resume_summary →
 // ocagent listen, SSE-connect⟺ready) lives in personaFile, not here — loading
 // personaFile is THIS prompt's own instruction, not a boot-sequence step. base is
