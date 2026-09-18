@@ -354,12 +354,9 @@ func (f handoverFixture) view(t *testing.T) handoverView {
 // before the fixture's claim/no-claim phase to T-1 after the write succeeds.
 type handoverDoor struct {
 	name string
-	// predecessorRefused marks a door the predecessor may not use during the
-	// hold (owner ruling rc-13a4d6e5d7e4: no new bound reply cards).
-	predecessorRefused bool
-	prep               func(t *testing.T, f handoverFixture) string
-	call               func(t *testing.T, f handoverFixture, token, prepared string) (int, map[string]any)
-	want               func(before handoverView) handoverView
+	prep func(t *testing.T, f handoverFixture) string
+	call func(t *testing.T, f handoverFixture, token, prepared string) (int, map[string]any)
+	want func(before handoverView) handoverView
 }
 
 func handoverPost(target, body string) func(*testing.T, handoverFixture, string, string) (int, map[string]any) {
@@ -431,7 +428,7 @@ func handoverDoors() []handoverDoor {
 		{name: "mark_task_duplicated",
 			call: handoverPost("/api/tasks/T-1/mark-duplicated", `{"duplicate_of":"T-2"}`),
 			want: handoverWith(func(v *handoverView) { v.Status = "duplicated" })},
-		{name: "create_reply_card bound to the task", predecessorRefused: true,
+		{name: "create_reply_card bound to the task",
 			prep: func(t *testing.T, f handoverFixture) string {
 				f.must(t, "POST", "/api/tasks/T-1/steps/"+f.stepOne+"/status", f.owner, `{"status":"in_progress"}`)
 				return ""
@@ -563,20 +560,11 @@ func TestTaskWriteRightsFollowTheReassignHoldUntilTheSuccessorClaims(t *testing.
 	}
 
 	for _, door := range handoverDoors() {
-		if door.predecessorRefused {
-			t.Run("under the hold the predecessor may not "+door.name+" but an admin may", func(t *testing.T) {
-				f := newHandoverFixture(t)
-				prepared := prepare(t, door, f)
-				refused(t, door, f, prepared, "the predecessor", f.predecessor)
-				admitted(t, door, f, prepared, apiTestAgentToken(t, f.api, "mira", ""), door.want(handoverUntouched("reassigning")))
-			})
-		} else {
-			t.Run("under the hold the predecessor may "+door.name, func(t *testing.T) {
-				f := newHandoverFixture(t)
-				prepared := prepare(t, door, f)
-				admitted(t, door, f, prepared, f.predecessor, door.want(handoverUntouched("reassigning")))
-			})
-		}
+		t.Run("under the hold the predecessor may "+door.name, func(t *testing.T) {
+			f := newHandoverFixture(t)
+			prepared := prepare(t, door, f)
+			admitted(t, door, f, prepared, f.predecessor, door.want(handoverUntouched("reassigning")))
+		})
 		t.Run("under the hold the successor and an outsider may not "+door.name, func(t *testing.T) {
 			f := newHandoverFixture(t)
 			prepared := prepare(t, door, f)

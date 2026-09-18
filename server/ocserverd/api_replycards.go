@@ -467,7 +467,7 @@ const linkedTaskTaskRequiredMsg = "linked_task.task_id is required: name the tas
 // linked_task is REQUIRED (see the block above). null opens a plain unbound
 // 請示. {task_id, step_id} arms that step: the guards below are the ones the
 // retired open_gate route carried, moved here verbatim with it — caller must
-// be allowed to bind a card to it (403, callerMayBindReplyCard — never under the reassign hold below admin), task must be in_progress|waiting_owner (409), the step
+// drive the task (403), task must be in_progress|waiting_owner (409), the step
 // must belong to the task (404) and must not be terminal (409) — and then the
 // step (and its task) enters waiting_owner carrying the card (armStepWithCard).
 // A plain non-gate step is armable too: is_gate is a plan-declared property
@@ -507,7 +507,7 @@ func (s *apiServer) HandleCreateReplyCardApiReplyCardsPost(w http.ResponseWriter
 			writeResolveError(w, err, "task", taskID)
 			return
 		}
-		if !s.callerMayBindReplyCard(r, *t) {
+		if !s.callerMayDriveTask(r, *t) {
 			writeError(w, http.StatusForbidden, executorGuardRefusal)
 			return
 		}

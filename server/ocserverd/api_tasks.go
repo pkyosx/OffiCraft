@@ -548,21 +548,6 @@ func (s *apiServer) callerMayClaimTask(r *http.Request, t Task) bool {
 	return currentActor(r) == t.ExecutorID
 }
 
-// callerMayBindReplyCard is the gate for opening a reply card bound to t:
-// callerMayDriveTask, except that nobody below admin may bind one while t is
-// under the reassign hold — the predecessor may not open new asks on a task it
-// is handing over (owner ruling 2026-09-17, card rc-13a4d6e5d7e4), and the
-// successor has no rights until claim_task.
-func (s *apiServer) callerMayBindReplyCard(r *http.Request, t Task) bool {
-	if principalAtLeast(s.principalOfRequest(r), principalAdminAgent) {
-		return true
-	}
-	if underHandover(t) {
-		return false
-	}
-	return currentActor(r) == t.ExecutorID
-}
-
 // callerMayEditTaskText is callerMayDriveTask widened by exactly one structural
 // fact: while a task has NO acting executor at all, its CREATOR counts as the
 // executor — but only at the text-only doors (T-52).

@@ -4311,8 +4311,7 @@ const mockApiImpl = {
     // rewind non-terminal steps to pending, mint the new worker inline when the
     // target is 外包 (the server leaves that to the scheduler), move the task to
     // `reassigning` and notify the member sides. Not modelled: the
-    // predecessor's write rights during the hold, the ban on binding reply cards
-    // during the hold, and the handover timeout.
+    // predecessor's write rights during the hold and the handover timeout.
     const t = findTask(id);
     const badRequest = (detail: string) =>
       mockApiError(

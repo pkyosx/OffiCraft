@@ -575,15 +575,6 @@ var authzOutsideRouteTable = map[string]string{
 		"long as it is still on the roster, and nobody once it has left (owner " +
 		"ruling 2026-09-17, cards rc-5ba4a6f802f4 / rc-0a0892e3588f). A per-task, " +
 		"per-moment fact, not a principal class.",
-	"api_tasks.go :: callerMayBindReplyCard :: principalAtLeast(s.principalOfRequest(r), principalAdminAgent)": "" +
-		"binding a reply card to a task: admin+ may bind on any task, the same bypass " +
-		"callerMayDriveTask gives.",
-	"api_tasks.go :: callerMayBindReplyCard :: currentActor(r) == t.ExecutorID": "" +
-		"binding a reply card to a task is the executor's, and nobody below admin may " +
-		"do it while the task is under the `reassigning` hold (owner ruling " +
-		"2026-09-17, card rc-13a4d6e5d7e4: the predecessor may not open new asks on " +
-		"a task it is handing over; the successor has no rights until claim). " +
-		"Caller-vs-task, not a route floor.",
 	"api_tasks.go :: callerMayClaimTask :: principalAtLeast(s.principalOfRequest(r), principalAdminAgent)": "" +
 		"claim_task's admin half: admin+ may take over any handed-over task, the same " +
 		"bypass callerMayDriveTask gives.",
@@ -615,7 +606,7 @@ var authzOutsideRouteTable = map[string]string{
 		"flat 403 again. Owner " +
 		"scoped this to 改文字類 and named the doors that stay shut (freeze/priority, " +
 		"the four closes, reassign, claim, plan, step status, " +
-		"deps, linked reply cards); those keep callerMayDriveTask (claim: callerMayClaimTask; card binding: callerMayBindReplyCard). Calling " +
+		"deps, linked reply cards); those keep callerMayDriveTask (claim: callerMayClaimTask). Calling " +
 		"this predicate from another handler reverses that ruling rather than " +
 		"extending it.",
 	"api_replycards.go :: callerMayExpireCard :: principalAtLeast(s.principalOfRequest(r), principalAdminAgent)": "" +
