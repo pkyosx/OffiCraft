@@ -199,7 +199,7 @@ data: {"seq":42,"topic":"member","op":"patch","data":{"entity":"member","key":"o
     exemption: a chat message is printed content, not a lifecycle nudge;
   - *provenance* — this layer was implemented first (PR #24, in `drainChat`); the doc gap was
     escalated rather than settled by whoever noticed it, per the M1-freeze note closing §3.1
-    below and `seeds/system_interaction.md` §4.1, and the owner adjudicated on 2026-07-29 that
+    below and `seeds/system_interaction.md` §2.2.1「何時開卡」, and the owner adjudicated on 2026-07-29 that
     it be written into this spec. The adjudication came over Slack and reached this edit
     relayed, not first-hand, through task T-c98f — which is the record to follow back, as
     there is no reply card to cite.
@@ -241,7 +241,7 @@ directed band topics `context-high`, `token-expiry`, and `warden-command` (§6, 
 **"Resolved in favour of the wire" is the record of THIS one adjudication, made at the M1
 freeze — not a standing rule that the wire (or the code) beats the docs whenever they
 disagree.** A discrepancy found today goes to the owner instead of being decided in place;
-see `seeds/system_interaction.md` §4.1.
+see `seeds/system_interaction.md` §2.2.1「何時開卡」.
 
 - A delta build MUST never raise into the durable write it follows:
   fan-out failure must not fail the HTTP write that triggered it.
