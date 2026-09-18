@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -1408,21 +1409,38 @@ func TestCreateTypedTaskWithManualOutsourceAssigneeIsNotADispatch(t *testing.T) 
 
 // ── submit_plan keeps done steps ─────────────────────────────────────────────
 
+// It reads the SERVED CATALOG, not the route table. The route table used to
+// carry a second hand-written copy of every tool description and this assertion
+// used to read THAT one — so it was guarding a string no agent could ever
+// receive. T-257 removed the second copy; the description an agent is actually
+// handed comes from spec/mcp-catalog.json, which bin/gen-mcp-catalog copies out
+// of openapi.json's x-mcp.legacy.descriptor.
 func TestSubmitPlanDescriptionWarnsAboutDiscardedUnfinishedNotes(t *testing.T) {
 	const warning = "Resubmitting permanently deletes every unfinished step that is not kept (see below), together with its working note; deleted notes cannot be recovered."
-	var matches []RouteSpec
-	for _, spec := range defaultRouteSpecs() {
-		if spec.Method == http.MethodPost && spec.Path == "/api/tasks/{task_id}/plan" &&
-			spec.MCPTool == "submit_plan" {
-			matches = append(matches, spec)
+	raw, err := os.ReadFile("../../spec/mcp-catalog.json")
+	if err != nil {
+		t.Fatalf("read spec/mcp-catalog.json: %v", err)
+	}
+	var catalog struct {
+		Tools []struct {
+			Name        string `json:"name"`
+			Description string `json:"description"`
+		} `json:"tools"`
+	}
+	if err := json.Unmarshal(raw, &catalog); err != nil {
+		t.Fatalf("decode spec/mcp-catalog.json: %v", err)
+	}
+	for _, tool := range catalog.Tools {
+		if tool.Name != "submit_plan" {
+			continue
 		}
+		if !strings.Contains(tool.Description, warning) {
+			t.Fatalf("submit_plan description lost the unfinished-note warning: %q", tool.Description)
+		}
+		return
 	}
-	if len(matches) != 1 {
-		t.Fatalf("submit_plan route count = %d, want 1", len(matches))
-	}
-	if !strings.Contains(matches[0].Summary, warning) {
-		t.Fatalf("submit_plan description lost the unfinished-note warning: %q", matches[0].Summary)
-	}
+	t.Fatal("spec/mcp-catalog.json has no submit_plan tool at all — no agent can " +
+		"reach the plan route, which is a larger failure than the missing warning.")
 }
 
 func TestSubmitPlanReplacesOnlyTheNotDoneSteps(t *testing.T) {

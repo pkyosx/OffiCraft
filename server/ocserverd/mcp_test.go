@@ -78,8 +78,8 @@ func TestToolName(t *testing.T) {
 func TestMcpToolIndex(t *testing.T) {
 	rows := []RouteSpec{
 		{Method: http.MethodGet, Path: "/api/health", MCPExclude: true},
-		{Method: http.MethodGet, Path: "/api/members", Summary: "list members"},
-		{Method: http.MethodPost, Path: "/api/members", MCPTool: "hire_member", Summary: "hire member"},
+		{Method: http.MethodGet, Path: "/api/members"},
+		{Method: http.MethodPost, Path: "/api/members", MCPTool: "hire_member"},
 	}
 
 	got := mcpToolIndex(rows)
@@ -88,21 +88,20 @@ func TestMcpToolIndex(t *testing.T) {
 	}
 
 	for _, tt := range []struct {
-		name    string
-		method  string
-		path    string
-		summary string
+		name   string
+		method string
+		path   string
 	}{
-		{name: "get_members", method: http.MethodGet, path: "/api/members", summary: "list members"},
-		{name: "hire_member", method: http.MethodPost, path: "/api/members", summary: "hire member"},
+		{name: "get_members", method: http.MethodGet, path: "/api/members"},
+		{name: "hire_member", method: http.MethodPost, path: "/api/members"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			spec, ok := got[tt.name]
 			if !ok {
 				t.Fatalf("tool %q is missing from %#v", tt.name, got)
 			}
-			if spec.Method != tt.method || spec.Path != tt.path || spec.Summary != tt.summary {
-				t.Fatalf("tool %q = %#v, want method=%q path=%q summary=%q", tt.name, spec, tt.method, tt.path, tt.summary)
+			if spec.Method != tt.method || spec.Path != tt.path {
+				t.Fatalf("tool %q = %#v, want method=%q path=%q", tt.name, spec, tt.method, tt.path)
 			}
 		})
 	}

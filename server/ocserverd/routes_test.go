@@ -67,9 +67,6 @@ func TestRouteSpecs(t *testing.T) {
 		if spec.Handler == nil {
 			t.Fatalf("route %q has no generated wrapper handler", key)
 		}
-		if spec.Summary == "" {
-			t.Fatalf("route %q has no summary", key)
-		}
 		switch spec.Auth {
 		case authPublic:
 			if spec.Requires != requiresPublic {
