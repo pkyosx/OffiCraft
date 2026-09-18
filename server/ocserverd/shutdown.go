@@ -16,11 +16,24 @@ package main
 // stop / start / 換機器 at all, and names the only two deliberate exceptions
 // (their OBSERVED inputs, and worker-only task state). A stop is neither.
 //
-// So this file holds the one body. The only thing that still differs by
-// population is WHICH SOURCES can name the machine to kill on — each arm keeps
-// one the other does not (the worker's in-memory record of where the server
-// dispatched the spawn; the staff member's durable desired pin).
-// Everything after that point is identical by construction.
+// So this file holds the one body — but be precise about WHICH body, because
+// "both populations run the same code" is the kind of sentence that stays on
+// the page after it stops being true. Every kill of either population goes
+// through killTargetChain (resolve) and sendStopFrames (send + arm the receipt
+// watch). dispatchShutdown — resolve, send, arm the at-least-once dispatch
+// marker, drop the pacing, drop the boot anchor — has exactly TWO callers: the
+// staff out-of-band robust STOP and the worker's stopped-report conclusion.
+// The worker's other kills (handover, held-down stop, reclaim) enter at
+// stopWorkerSessionOrPark instead, which resolves through the same chain and
+// sends through the same sender, then keeps its OWN ledger.
+//
+// Two things still differ by population, both on purpose. WHICH SOURCES can
+// name the machine: each arm keeps one the other does not (the worker's
+// in-memory record of where the server dispatched the spawn; the staff member's
+// durable desired pin). And WHERE THE RE-SEND IS REMEMBERED: staff arm
+// RobustStopPendingAt for the cadence, workers keep workerStopLanded /
+// workerStopPending for their own tick — arming both would be two retries for
+// one kill, and arming the staff marker on a worker is the F1 defect below.
 //
 // 🔴 LOCK CONTRACT: dispatchShutdown's caller holds NEITHER outsourceMu NOR
 // reconcileMu. It takes them ONE AT A TIME, in the order the T-14 owner ruling
