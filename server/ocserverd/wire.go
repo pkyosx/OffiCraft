@@ -2101,17 +2101,18 @@ type selfReportReceiptDTO struct {
 	// This is the one number that says how much time is left to close out.
 	RefocusDeadline float64 `json:"refocus_deadline"`
 	// StopEffect is 🔴 WHAT report_stopped ACTUALLY DID, and it exists because
-	// the four internal outcomes of that one verb were indistinguishable from
-	// the outside: all four answered 200 with a byte-identical receipt, and two
-	// of them are silent no-ops. An agent that has just declared itself finished
-	// cannot otherwise tell "someone is collecting me" from "nobody is, and I
-	// will be woken again in ~30s and keep spending", which is the exact failure
-	// this field is here to make legible (T-102).
+	// the internal outcomes of that one verb were indistinguishable from the
+	// outside: every one of them answered 200 with a byte-identical receipt,
+	// and two were silent no-ops. An agent that had just declared itself
+	// finished could not tell "someone is collecting me" from "nobody is, and I
+	// will be woken again in ~30s and keep spending", which is the failure this
+	// field was added to make legible (T-102). Since T-251 the two silent
+	// outcomes are gone and the answer is collected or already_reported.
 	//
 	// EMPTY on the other three faces (report_waking, report_stopping,
 	// restart_self) — they are not stop reports and have no effect to name; the
 	// field is `omitempty` so those receipts are byte-identical to what they
-	// answered before. See the stopEffect* constants below for the four values.
+	// answered before. See the stopEffect* constants below.
 	StopEffect string `json:"stop_effect,omitempty"`
 }
 
