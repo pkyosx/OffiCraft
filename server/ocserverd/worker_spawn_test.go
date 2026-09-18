@@ -1949,6 +1949,26 @@ func TestRetryUnlandedWorkerStop(t *testing.T) {
 		apiWantValue(t, "parked kills", any(float64(parked)), any(0))
 	})
 
+	t.Run("a BROADCAST arm is judged by presence alone, so a session that moved is still re-pushed", func(t *testing.T) {
+		// The aimed cases above compare the machine claim. A broadcast has no
+		// machine to compare, and reading it the same way would disarm on the
+		// first worker that is online anywhere but "" — which is every worker
+		// that ever declared a machine. That is a lost kill, not a spare one.
+		api, _, _, _, _ := wsWorkerSpawnFixture(t, WorkerStatusActive)
+		wsWorkerOn(t, api, "m-elsewhere")
+
+		api.outsourceMu.Lock()
+		api.workerStopLanded["ow-abc123"] = workerStopDispatch{Target: "", At: 1000}
+		api.retryUnlandedWorkerStop("ow-abc123", 1090)
+		armed := len(api.workerStopLanded)
+		parked := api.workerStopPending["ow-abc123"]
+		api.outsourceMu.Unlock()
+
+		wsWantWardenFrames(t, api, ServerSelfHost)
+		apiWantValue(t, "armed kills", any(float64(armed)), any(0))
+		apiWantValue(t, "parked kill", any(parked), any("m-elsewhere"))
+	})
+
 	t.Run("a re-push toward an unreachable target parks the kill instead of losing it", func(t *testing.T) {
 		api, _, _, _, _ := wsWorkerSpawnFixture(t, WorkerStatusActive)
 		wsWorkerOn(t, api, ServerSelfHost)

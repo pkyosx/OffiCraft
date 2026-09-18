@@ -4122,7 +4122,10 @@ func TestHandleReportStoppedApiSelfStoppedPost(t *testing.T) {
 		}), any(map[string]any{"target": "", "at": apiAnyNumber}))
 
 		// …and it is a record the retry can act on: the session turns out to be
-		// alive after all, so past stop_retry the kill goes out again.
+		// alive after all, so past stop_retry the kill goes out again. This worker
+		// reconnects without naming a machine, so what the presence-only reading
+		// buys over a machine comparison is NOT measured here — the case that
+		// discriminates the two is TestRetryUnlandedWorkerStop's broadcast arm.
 		if _, err := api.hub.Connect("ow-abc123", ""); err != nil {
 			t.Fatalf("hub.Connect: %v", err)
 		}
