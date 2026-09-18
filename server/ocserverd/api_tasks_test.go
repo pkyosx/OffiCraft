@@ -1789,6 +1789,69 @@ func TestCloseTask(t *testing.T) {
 		)
 	})
 
+	t.Run("a worker read that faults after the release still reports the fired ids and retires their cards", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Elsewhere","executor_member_id":"kip"}`)
+		workers := []OutsourceWorker{
+			{ID: "ow-abc123", Codename: "Contractor", TaskID: "T-1",
+				Status: WorkerStatusAssigned, Runtime: "claude", Model: "sonnet", Effort: "medium"},
+			{ID: "ow-zzz999", Codename: "Bystander", TaskID: "T-2",
+				Status: WorkerStatusAssigned, Runtime: "claude", Model: "sonnet", Effort: "medium"},
+		}
+		for _, w := range workers {
+			if err := d.PutOutsourceWorker(w); err != nil {
+				t.Fatalf("PutOutsourceWorker(%q): %v", w.ID, err)
+			}
+		}
+		cards := []ReplyCard{
+			{ID: "rc-worker", FromMember: "ow-abc123", Kind: "decision", Status: "waiting", CreatedTS: 10},
+			{ID: "rc-bystander", FromMember: "mira", Kind: "decision", Status: "waiting", CreatedTS: 11},
+		}
+		for _, card := range cards {
+			if err := d.PutReplyCard(card); err != nil {
+				t.Fatalf("PutReplyCard(%q): %v", card.ID, err)
+			}
+		}
+		// The roster read faults only AFTER the release: ReleaseWorkersForTask
+		// selects T-1's row alone, while ListOutsourceWorkers scans every
+		// outsource row and trips over the corrupted one bound to T-2.
+		if _, err := d.wdb.Exec(`UPDATE member SET session_boot_ts = ? WHERE id = ?`,
+			"not-a-number", "ow-zzz999"); err != nil {
+			t.Fatalf("corrupt member read value: %v", err)
+		}
+		if _, err := d.ListOutsourceWorkers(); err == nil {
+			t.Fatal("fixture: the roster read must fail")
+		}
+		task, err := api.resolveTask("T-1")
+		if err != nil {
+			t.Fatalf("resolveTask: %v", err)
+		}
+
+		if err := api.closeTask(task, TaskStatusDone, 1750000000, "owner"); err != nil {
+			t.Fatalf("closeTask: %v", err)
+		}
+
+		got, err := d.ListReplyCards()
+		if err != nil {
+			t.Fatalf("ListReplyCards: %v", err)
+		}
+		want := []ReplyCard{
+			{ID: "rc-worker", FromMember: "ow-abc123", Kind: "decision", SelectMode: "single", Status: "expired", CreatedTS: 10, ExpiredTS: 1750000000, AnswerAttachments: []any{}, Attachments: []any{}, Options: []ReplyCardOption{}},
+			{ID: "rc-bystander", FromMember: "mira", Kind: "decision", SelectMode: "single", Status: "waiting", CreatedTS: 11, AnswerAttachments: []any{}, Attachments: []any{}, Options: []ReplyCardOption{}},
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("reply cards after the close = %#v, want %#v", got, want)
+		}
+		worker, err := d.GetOutsourceWorker("ow-abc123")
+		if err != nil || worker == nil {
+			t.Fatalf("GetOutsourceWorker: %v %#v", err, worker)
+		}
+		if worker.Status != "released" {
+			t.Fatalf("worker status: %q", worker.Status)
+		}
+	})
+
 	t.Run("an ad-hoc task with no manual behind its type is still sent the close-out notice", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
