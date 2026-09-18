@@ -1871,8 +1871,8 @@ func (s *apiServer) HandleDeactivateMemberApiMembersMemberIdDeactivatePost(w htt
 }
 
 // POST /api/members/{member_id}/force-stop — STOP intent now (stamps
-// stopping_since if unset or in the future) + the immediate robust-STOP dispatch straight
-// to the member's warden, bypassing the ~30s cadence
+// stopping_since if unset or in the future) + the immediate robust-STOP dispatch
+// down the shared kill-target chain, bypassing the ~30s cadence
 // (handlers.handle_force_stop_member).
 //
 // There is no grace clock here to bypass: the SERVER arms none on the 下線 arm

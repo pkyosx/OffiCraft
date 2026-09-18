@@ -1772,9 +1772,15 @@ export interface paths {
          *
          *     The handler writes the STOP intent (``desired_state=offline``
          *     + stamps ``stopping_since`` if unset or in the future, so presence reads coherently
-         *     and a stale future anchor cannot survive) and then dispatches the SINGLE robust STOP
-         *     straight to the member's warden via :func:`_dispatch_robust_stop_now` — the
-         *     warden's ``stop()`` → ``escalateKill`` ladder performs the SIGKILL (tmux kill-session
+         *     and a stale future anchor cannot survive) and then dispatches the robust STOP through the
+         *     shutdown both member populations have shared since T-253
+         *     (:func:`_dispatch_robust_stop_now`): it walks an ordered chain of target machines
+         *     — the member's live connection, then the machine it last landed on, then the
+         *     machine it is pinned to — and fans the frame out to every online warden when no
+         *     source can name one. The dispatch also arms an at-least-once marker, so a frame a
+         *     single unreachable warden drops is re-sent by the cadence while the member is
+         *     still online past ``stop_retry``. The warden's ``stop()`` → ``escalateKill``
+         *     ladder performs the SIGKILL (tmux kill-session
          *     → force killpg the process group). It also bypasses the ~30s reconcile cadence,
          *     which is the only wait it does skip.
          *

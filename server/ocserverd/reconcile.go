@@ -2918,8 +2918,8 @@ func (s *apiServer) reconcileMemberNow(memberID string) reconcileDecision {
 	return s.reconcileTickMemberLocked(*m, nowSecs())
 }
 
-// dispatchRobustStopNow dispatches ONE robust STOP to the member's warden
-// RIGHT NOW — bypassing the cadence tick
+// dispatchRobustStopNow dispatches a robust STOP down the shared kill-target
+// chain RIGHT NOW — bypassing the cadence tick
 // (handlers._dispatch_robust_stop_now: the force-stop endpoint + the
 // event-driven recycle kill). Raw dispatch: it does not touch the reconcile
 // store. Best-effort + fire-and-forget; gated OFF wholesale by --no-reconcile.

@@ -2121,9 +2121,10 @@ type selfReportReceiptDTO struct {
 // latched_for_collect and recorded_only stay in the wire enum but are no longer
 // produced.
 const (
-	// stopEffectCollected — a collect was dispatched by THIS call (the staff
-	// robust STOP, or the worker kill). The session ends; desired_state decides
-	// whether a new one starts.
+	// stopEffectCollected — a collect was dispatched by THIS call, through the
+	// ONE shutdown both populations have shared since T-253 (dispatchShutdown:
+	// resolve the target chain, send, arm the at-least-once record). The session
+	// ends; desired_state decides whether a new one starts.
 	stopEffectCollected = "collected"
 	// stopEffectLatchedForCollect — nothing was dispatched here, but the latch
 	// this call wrote is the very thing the next reconcile tick keys on, so the

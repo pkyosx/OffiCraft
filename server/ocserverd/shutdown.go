@@ -212,8 +212,11 @@ func (s *apiServer) resolveShutdownTargets(id string) (targets []string, broadca
 	// RobustStopPendingAt has its START suppressed and then its machine benched
 	// by a decider that reads the STOP as a zombie takeover. Getting it wrong in
 	// the "worker" direction costs one staff kill its cadence re-send, which the
-	// stopped-report's own retry and the owner's force-stop both still cover. A
-	// read fault must land on the cheaper mistake, not the ruling-level one.
+	// stopped-report's own retry and the owner's force-stop both still cover. The
+	// same wrong guess also drops the STAFF chain's pin arm (the worker chain has
+	// none), which at worst turns an aimed kill into the fan-out the chain already
+	// ends in. A read fault must land on the cheaper mistakes, not the
+	// ruling-level one.
 	src := killTargetSources{Outsource: true}
 	if err == nil && m != nil {
 		src.LastMachineID = m.LastMachineID
