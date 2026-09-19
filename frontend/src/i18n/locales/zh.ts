@@ -1959,7 +1959,8 @@ export const zh = {
     customName: "使用者自訂",
     customSub: "追加到每個 agent 開機情境的自訂內容 · 可編輯",
     roleDefsSection: "角色定義",
-    // 兩份**不同**的文件，分別開自己的頁：它們的第 3 步語意相反，
+    // 兩份**不同**的文件，分別開自己的頁：只有 Codex 那一份要求成員在開機
+    // 那一輪結束時把控制權交回旁邊的程序，兩份不能互換，
     // 所以清單上不併成一列、詳情頁也不並排。
     // The ONE list row. The runtime-specific names below still title the PAGE
     // and its history list — the row no longer names a runtime because you

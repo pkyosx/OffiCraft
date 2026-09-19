@@ -1672,9 +1672,11 @@ func renderReplyCardAnswer(card map[string]any) string {
 // obvious sentence — "restart the listener" — was WRONG for half the fleet and
 // unverified for the other half (caught in review, 2026-08-31):
 //
-//   - A codex member must not do it. seeds/boot_sequence_codex.md step 3 says
-//     verbatim 「不要自己啟動 `ocagent listen`、Monitor 或前景迴圈」; the sidecar
-//     owns that process. Such a member reads this line and has no hand on it.
+//   - No member may do it, on either runtime: seeds/boot_sequence_codex.md step
+//     3 says verbatim 「不要自己啟動 `ocagent listen`、Monitor 或前景迴圈」 and the
+//     claude seed says 「不要自己建立連線：不要執行 `ocagent listen`」. The process
+//     belongs to the sidecar or to ocwarden. Such a member reads this line and
+//     has no hand on it.
 //   - Nobody had measured that restarting picks up the on-disk build. It is
 //     plausible, and it was still an unverified claim printed as instruction.
 //

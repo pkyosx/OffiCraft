@@ -118,6 +118,19 @@ var goldenLaunchM1 = `cd /w/m1; ` + goldenClaudePurge + `unset CLAUDE_CONFIG_DIR
 	`其餘會被靜默丟棄而且不會有任何錯誤訊息,而「開機程序」在整份檔案的最後面。` +
 	`整份讀完後,照裡面「開機程序」段逐步執行。' --settings ` + shellQuote(goldenInlineSettings)
 
+// goldenListenerM1 is the line the member's own SSE listener runs under — typed
+// out rather than built from buildListenerLaunchCommand, so a change to that
+// builder has to be re-justified against a literal.
+//
+// 🔴 OC_SESSION IS THE MEMBER'S SESSION, NOT "listen-m1". It is what the
+// listener pastes into and what it must die with; pointing it at the listener's
+// own session would make the listener outlive the member it speaks for, and the
+// station would read a dead member as online forever.
+const goldenListenerM1 = `cd /w/m1; export OC_TOKEN="$(/bin/cat /w/m1/.oc-token)" ` +
+	`OC_BASE=http://127.0.0.1:7755 OC_SESSION=member-m1 OC_TMUX_SOCKET=officraft OC_EFFORT=medium; ` +
+	`export PATH=/w/m1:"$PATH"; ` +
+	`exec ocagent listen --deliver-tmux`
+
 func TestShellQuote(t *testing.T) {
 	cases := []struct{ in, want string }{
 		{"", "''"},
@@ -998,7 +1011,12 @@ func TestStart(t *testing.T) {
 		for i := 0; i < 30; i++ {
 			wantCalls = append(wantCalls, "tmux -L officraft send-keys -t member-m1 Enter")
 		}
-		wantCalls = append(wantCalls, "tmux -L officraft display-message -p -t member-m1 #{pane_pid}")
+		wantCalls = append(wantCalls,
+			"tmux -L officraft kill-session -t listen-m1",
+			"tmux -L officraft new-session -d -s listen-m1 -x 160 -y 50 "+goldenListenerM1,
+			"tmux -L officraft set-option -t listen-m1 window-size manual",
+			"tmux -L officraft resize-window -t listen-m1 -x 160 -y 50",
+			"tmux -L officraft display-message -p -t member-m1 #{pane_pid}")
 		if !reflect.DeepEqual(h.runner.calls, wantCalls) {
 			t.Errorf("calls =\n%v\nwant\n%v", h.runner.calls, wantCalls)
 		}
@@ -1084,7 +1102,7 @@ func TestStart(t *testing.T) {
 		}
 		var line string
 		for _, call := range h.runner.calls {
-			if strings.Contains(call, "new-session") {
+			if strings.Contains(call, "new-session -d -s member-") {
 				line = call
 			}
 		}
@@ -1121,7 +1139,7 @@ func TestStart(t *testing.T) {
 			t.Errorf("pretrusts = %d, want 0 — nothing may be written into a file we cannot point the child at", h.pretrusts)
 		}
 		for _, call := range h.runner.calls {
-			if strings.Contains(call, "new-session") {
+			if strings.Contains(call, "new-session -d -s member-") {
 				t.Errorf("a session was started anyway: %q", call)
 			}
 		}
@@ -1148,7 +1166,7 @@ func TestStart(t *testing.T) {
 		}
 		launched := false
 		for _, call := range h.runner.calls {
-			if strings.Contains(call, "new-session") {
+			if strings.Contains(call, "new-session -d -s member-") {
 				launched = true
 			}
 		}

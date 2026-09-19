@@ -331,15 +331,14 @@ ceiling of the warden lifetime setting (§1.6).
      ORDINARY path that is not a narrow race but a routine gap of seconds to minutes,
      because the boot order raises the floor FIRST and connects the stream LAST:
 
-     - Both boot sequences are `1. report_waking` → `2. resume_summary` → `3. ocagent
-       listen`, and both state 不可更改順序 in those words (`seeds/boot_sequence.md`,
-       `seeds/boot_sequence_codex.md`). `cli/ocwarden/spawn.go` restates the same order in
-       its SOP comment (`report_waking → resume_summary → ocagent listen`).
-     - NOTHING attaches a listener at spawn. On the claude path warden launches only
-       `claude`; the model itself starts `ocagent listen` at step 3. On the codex path the
-       seed forbids the model to start one at all (「不要自己啟動 `ocagent listen`」) and
-       `cli/ocwarden/codex_session.go` execs it only on the FIRST `turn/completed` — i.e.
-       AFTER the turn in which the model has already called `report_waking`.
+     - Both boot sequences begin `1. report_waking` → `2. resume_summary`, and both state
+       不可更改順序 in those words (`seeds/boot_sequence.md`, `seeds/boot_sequence_codex.md`).
+     - NEITHER MODEL attaches its own listener. On the claude path warden starts
+       `ocagent listen --deliver-tmux` in its own tmux session AFTER launching `claude` and
+       delivering the boot nudge, so the stream comes up alongside the boot turn rather
+       than at the end of it. On the codex path `cli/ocwarden/codex_session.go` execs the
+       listener only on the FIRST `turn/completed` — i.e. AFTER the turn in which the model
+       has already called `report_waking`.
      - Step 2 is not instant: `resume_summary` can be big enough that the seed tells the
        model to spend a whole sub-agent on it rather than burn its own context.
 

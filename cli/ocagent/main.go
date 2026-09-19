@@ -109,13 +109,7 @@ func realMain(argv []string, env func(string) string, in io.Reader, out io.Write
 		// online), turn each delta into a wake (chat refetch / member hooks / work
 		// wake), and self-exit when this agent's own tmux session disappears. --once
 		// does a single connect (the test hook, mirrors argparse). See listen*.go.
-		fs := flag.NewFlagSet("ocagent listen", flag.ContinueOnError)
-		fs.SetOutput(out)
-		once := fs.Bool("once", false, "do a single connect then return (test/diagnostic hook)")
-		if err := fs.Parse(rest); err != nil {
-			return 2
-		}
-		return cmdListen(cfg, env, *once, out)
+		return runListen(rest, cfg, env, out, cmdListen, nil)
 
 	case "suicide":
 		// The graceful self-kill: kill my own tmux session (OC_SESSION on

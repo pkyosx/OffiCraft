@@ -35,8 +35,8 @@ import (
 //
 // RECYCLE (desired_state=online ∧ refocus_since>0 — handover: a NEW me respawns):
 // ocagent does NOT report phases and does NOT self-kill. It WAKES the interactive
-// Claude session by printing the server's 〈停止〉 document on stdout (the session's
-// Monitor tool holds this listener, so the wake lands in its transcript) and the
+// Claude session by printing the server's 〈停止〉 document on stdout (which the
+// listener delivers into the session's pane — see listen_pane.go) and the
 // SESSION walks that checklist itself over MCP. The text is NOT this binary's:
 // the SERVER composes it and pushes it IN the member delta (owner 2026-08-16:
 // 「改回真的推播」), so an owner can change what a collected session is told

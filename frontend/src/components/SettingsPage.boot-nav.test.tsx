@@ -82,10 +82,11 @@ describe("SettingsPage · 啟動步驟 index", () => {
     // would throw on the second one, and that throw would read as "the page is
     // wrong" rather than "it names itself in both places".
     expect(getAllByText(s.bootClaudeName).length).toBeGreaterThanOrEqual(1);
-    // The other runtime is ABSENT, not merely closed. Their third step means
-    // opposite things (claude attaches `ocagent listen` itself; codex must not,
-    // the sidecar does), so a page that shows both invites copying one over the
-    // other — which would silently stop that runtime's agents coming online.
+    // The other runtime is ABSENT, not merely closed. The two are not
+    // interchangeable (only the codex one ends its boot turn by handing control
+    // back to the sidecar that holds its connection), so a page that shows both
+    // invites copying one over the other — which would silently break that
+    // runtime's boot.
     expect(queryByText(s.bootCodexName)).toBeNull();
 
     // NO COLLAPSE CONTROL ON THIS PAGE. T-fc57 recorded a 364px heading jump
@@ -137,9 +138,10 @@ describe("SettingsPage · 啟動步驟 index", () => {
     fireEvent.click(await utils.findByTestId("doc-card-save-confirm-btn"));
     await utils.findByText("走新導覽列存進來的 codex 內容");
 
-    // …and the OTHER runtime did not receive it. The two documents' third step
-    // means opposite things, so a save that crossed over would be silent and
-    // would stop one runtime's agents ever coming online.
+    // …and the OTHER runtime did not receive it. Only the codex document ends
+    // its boot turn by handing control back to the sidecar, so a save that
+    // crossed over would be silent and would stop one runtime's agents ever
+    // coming online.
     fireEvent.click(utils.getAllByText(s.bootName)[0]);
     fireEvent.click(await utils.findByTestId("boot-entry-claude"));
     await utils.findByTestId("doc-card-edit");

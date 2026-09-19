@@ -145,10 +145,11 @@ test("a row opens THAT runtime's page, and the other is not on it", async ({
   // ONE document body. The read-only head renders a `.doc-md` of its own since
   // T-3201, so the child selector is what keeps this "one document open".
   await expect(page.locator(".doc-card__body > .doc-md")).toHaveCount(1);
-  // ABSENT, not merely closed: the two runtimes' third step means opposite
-  // things (claude attaches `ocagent listen` itself; codex must NOT — the
-  // sidecar does), so a page showing both invites copying one over the other,
-  // which stops that runtime's agents ever coming online, silently.
+  // ABSENT, not merely closed: the two runtimes' boot sequences are not
+  // interchangeable (only the codex one ends its boot turn by handing control
+  // back to the sidecar that holds its connection), so a page showing both
+  // invites copying one over the other, which breaks that runtime's boot
+  // silently.
   await expect(page.getByText(s.bootCodexName)).toHaveCount(0);
 
   // And the trail leads back, so the other runtime is one press away rather

@@ -171,10 +171,10 @@ func TestBuildWorkerBootContext_FullAssembly(t *testing.T) {
 // TestBuildWorkerBootContext_RuntimeGuidanceIsTheSeedsOwnAndItIsLast — T-4595,
 // the replacement for the two _RuntimeTailHasFinalPrecedence tests.
 //
-// The listener-ownership instruction is what those two guarded, and it still
-// has to be right for both runtimes and last in the document — a worker that
-// reads Claude's "hold `ocagent listen` under Monitor" while running under a
-// codex sidecar is the T-4595-era regression this repo already paid for once.
+// The runtime's own boot instruction is what those two guarded, and it still has
+// to be right for both runtimes and last in the document — a worker handed the
+// other runtime's boot sequence is the T-4595-era regression this repo already
+// paid for once.
 // What changed is WHERE it comes from: it used to be a hand-written outsource
 // tail appended after the seed, and it now arrives inside the runtime's own
 // boot-sequence seed — the same bytes staff read.
