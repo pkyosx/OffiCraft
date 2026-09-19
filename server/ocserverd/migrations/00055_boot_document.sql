@@ -12,12 +12,12 @@
 -- not an incidental property of it).
 --
 -- 🔴 THREE DOCUMENTS, THREE ROWS, NOTHING SHARED — and the reason is NOT that
--- the texts differ. Neither boot sequence lets an agent mount its own
--- `ocagent listen`, but only the codex one ends its boot turn by handing control
--- back to the sidecar, so its steps are numbered one apart from the claude one's
--- all the way down. Serving one where the other belongs is how a worker ends up
--- unable to come online at all (that already happened once — see
--- bootSequenceSeedName in assets.go). So the composite key is (doc_kind, doc_key):
+-- the texts differ. The two boot sequences say the OPPOSITE thing in step 3:
+-- the claude one tells the agent to run its own `ocagent listen`, the codex one
+-- forbids exactly that because the App Server sidecar owns the listener. Serving
+-- one where the other belongs is how a worker ends up unable to come online at
+-- all (that already happened once — see bootSequenceSeedName in assets.go). So
+-- the composite key is (doc_kind, doc_key):
 --
 --   ('system_interaction', 'global')
 --   ('boot_sequence',      'claude')
