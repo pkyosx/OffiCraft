@@ -418,6 +418,44 @@ func TestPaneWriter(t *testing.T) {
 		}
 	})
 
+	t.Run("the listener's own log is written from two goroutines", func(t *testing.T) {
+		// 🔴 THIS CASE EXISTS BECAUSE -race COULD NOT SEE THE BUG. inner is written
+		// by the SSE scan loop (Write) and by the PUMP (the give-up notice), and no
+		// other case in this file makes those two touch it without ordering — so
+		// moving that write back outside the lock stayed green under
+		// `-race -count=3`, measured. A throwaway probe reported the race the
+		// moment the two were made to collide; this builds that collision.
+		var log bytes.Buffer
+		rec := &recordTmux{
+			fail:  map[int]bool{1: true, 3: true}, // the -d -p batch, then the first bare paste
+			hold:  make(chan struct{}),
+			held:  make(chan struct{}),
+			holdN: 3,
+		}
+		w := newPaneWriter(&log, "officraft", "member-m1", rec.run, func(time.Duration) {})
+		stop := w.start()
+
+		w.Write([]byte("[ocagent] chat #c-1\n[ocagent] chat #c-2\n[ocagent] chat #c-3\n"))
+		rec.awaitHeld(t)
+
+		// Bounded on purpose: an unbounded writer would keep refilling the queue
+		// and stop()'s drain would never return.
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			for i := 0; i < 64; i++ {
+				w.Write([]byte("[ocagent] chat #c-x\n"))
+			}
+		}()
+		close(rec.hold) // the held paste now fails ⇒ the pump writes the give-up notice
+		<-done
+		stop()
+
+		if got := log.String(); !strings.Contains(got, "gave up on 3 line(s)") {
+			t.Errorf("the give-up notice never reached the log:\n%s", got)
+		}
+	})
+
 	t.Run("two members on one socket do not share a buffer", func(t *testing.T) {
 		// tmux buffer names live on the SERVER, one per -L socket, and every
 		// member on a machine shares `officraft`. With one shared name, member
