@@ -138,9 +138,10 @@ describe("SettingsPage · 啟動步驟 index", () => {
     fireEvent.click(await utils.findByTestId("doc-card-save-confirm-btn"));
     await utils.findByText("走新導覽列存進來的 codex 內容");
 
-    // …and the OTHER runtime did not receive it. The two documents' third step
-    // means opposite things, so a save that crossed over would be silent and
-    // would stop one runtime's agents ever coming online.
+    // …and the OTHER runtime did not receive it. Only the codex document ends
+    // its boot turn by handing control back to the sidecar, so a save that
+    // crossed over would be silent and would stop one runtime's agents ever
+    // coming online.
     fireEvent.click(utils.getAllByText(s.bootName)[0]);
     fireEvent.click(await utils.findByTestId("boot-entry-claude"));
     await utils.findByTestId("doc-card-edit");

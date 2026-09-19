@@ -253,8 +253,9 @@ export const BOOT_DOC_ROWS: Record<
   } & (
       | {
           /** 啟動步驟 is TWO documents (claude / codex), so its row opens an
-           * INDEX rather than a document. Their third step means opposite
-           * things, so nothing may address "the" boot sequence. */
+           * INDEX rather than a document. Only the codex one hands control back
+           * to the sidecar, so their steps are numbered one apart and nothing may
+           * address "the" boot sequence. */
           index: true;
         }
       | {

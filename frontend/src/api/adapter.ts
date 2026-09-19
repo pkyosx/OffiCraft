@@ -2773,8 +2773,9 @@ export interface Api {
    * addressed by (kind, key). Every kind serves exactly one key, "global",
    * except `boot_sequence`, which serves "claude" and "codex".
    *
-   * 🔴 The two boot_sequence keys are DIFFERENT DOCUMENTS whose third step
-   * means opposite things. `key` is required rather than defaulted for exactly
+   * 🔴 The two boot_sequence keys are DIFFERENT DOCUMENTS: only the codex one
+   * hands control back to the sidecar, so their steps are numbered one apart
+   * all the way down. `key` is required rather than defaulted for exactly
    * that reason: there is no "the boot sequence", so there is nothing sensible
    * for a default to pick, and an omitted key would silently address one
    * runtime while the caller meant the other.
