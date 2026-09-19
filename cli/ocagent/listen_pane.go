@@ -276,6 +276,10 @@ func (w *paneWriter) shouldForward(line string) bool {
 		w.transportAnnounced = true
 		return false
 	}
+	// The give-up arm cannot be reached today: that line is printed on the way
+	// out of run(), so this process never prints a connect after it. It is here
+	// for the spelling of the rule, not as protection — nothing tests it because
+	// there is no path to test.
 	if strings.HasPrefix(line, agentLinePrefix+noticeDisconnected) ||
 		strings.HasPrefix(line, agentLinePrefix+noticeGivingUp) {
 		w.transportAnnounced = true
