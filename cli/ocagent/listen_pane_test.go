@@ -150,6 +150,9 @@ func TestPaneWriter(t *testing.T) {
 	})
 
 	t.Run("transport chatter is swallowed while the notices the ruling names are not", func(t *testing.T) {
+		// 🔴 EVERY CASE GETS A FRESH WRITER, so this table cannot see WHO SPENT THE
+		// BOOT SWALLOW. The cases that need that are below, in
+		// a_quoted_transport_line_does_not_spend_the_boot_swallow.
 		for _, tc := range []struct {
 			name      string
 			line      string
@@ -186,6 +189,45 @@ func TestPaneWriter(t *testing.T) {
 				// the only place a swallowed one can still be read.
 				if got := log.String(); got != tc.line+"\n" {
 					t.Errorf("log = %q, want %q", got, tc.line+"\n")
+				}
+			})
+		}
+	})
+
+	t.Run("a quoted transport line does not spend the boot swallow", func(t *testing.T) {
+		// Two writers, two lines each, because the question is about ORDER: the
+		// quoted line arrives first, the real boot connect second. Members working
+		// on this feature paste these exact strings at each other, and the quoted
+		// copy reaches this writer INDENTED (renderMessageBody), so a comparison
+		// that trims first mistakes it for this binary's own notice.
+		//
+		// Spending the swallow early is silent: the boot connect is then forwarded
+		// into a pane that is still starting, which costs the member the turn the
+		// swallow exists to save. Both of the comparisons that can spend it are
+		// covered here — the connect one and the disconnect one.
+		boot := "[ocagent] listen: connected — streaming http://127.0.0.1:7755/api/events"
+		for _, quotedNotice := range []string{
+			boot,
+			"[ocagent] listen: disconnected — dial tcp: connection refused",
+		} {
+			t.Run(quotedNotice, func(t *testing.T) {
+				var log bytes.Buffer
+				w, rec := newRecordingPaneWriter(&log)
+
+				quoted := quotedInBody(t, quotedNotice)
+				w.Write([]byte(quoted + "\n"))
+				w.drain()
+
+				// The quoted line is chat, so it goes out; the swallow is untouched.
+				want := deliveryOf("officraft", "member-m1", quoted)
+				if got := rec.snapshot(); !reflect.DeepEqual(got, want) {
+					t.Fatalf("the quoted line did not reach the member:\n%v", got)
+				}
+
+				w.Write([]byte(boot + "\n"))
+				w.drain()
+				if got := rec.snapshot(); !reflect.DeepEqual(got, want) {
+					t.Errorf("the boot connect was pasted into a booting pane: %v", got)
 				}
 			})
 		}
