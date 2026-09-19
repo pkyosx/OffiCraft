@@ -124,7 +124,7 @@ func TestPaneWriter(t *testing.T) {
 		}{
 			{"a line this binary did not write", "something else entirely", true},
 			{"the first disconnect", "[ocagent] listen: disconnected — dial tcp: connection refused", true},
-			{"the reconnect", "[ocagent] listen: connected — streaming http://127.0.0.1:7755/api/events", true},
+			{"a chat body that quotes a transport line", "    [ocagent] listen: batch tok-1", true},
 			{"giving up", "[ocagent] listen: giving up — 30 attempts", true},
 			{"the end-of-batch marker, which is protocol", "[ocagent] listen: batch tok-1 [ts=1 local]", false},
 			{"other transport chatter", "[ocagent] listen: retrying in 4s", false},
@@ -149,6 +149,29 @@ func TestPaneWriter(t *testing.T) {
 					t.Errorf("log = %q, want %q", got, tc.line+"\n")
 				}
 			})
+		}
+	})
+
+	t.Run("the boot connect is swallowed and every later one reaches the member", func(t *testing.T) {
+		// That line lands while the member is still running its boot turn, so
+		// forwarding it spends a turn on a transport notice nobody asked for,
+		// once per member per boot. A LATER connect means the stream came back,
+		// which the owner's notice ruling says must reach the member.
+		var log bytes.Buffer
+		w, rec := newRecordingPaneWriter(&log)
+
+		boot := "[ocagent] listen: connected — streaming http://127.0.0.1:7755/api/events"
+		w.Write([]byte(boot + "\n"))
+		w.drain()
+		if got := rec.snapshot(); len(got) != 0 {
+			t.Fatalf("the boot connect was pasted into a booting pane: %v", got)
+		}
+
+		back := "[ocagent] listen: connected — streaming http://127.0.0.1:7755/api/events [same station]"
+		w.Write([]byte(back + "\n"))
+		w.drain()
+		if want := deliveryOf("officraft", "member-m1", back); !reflect.DeepEqual(rec.snapshot(), want) {
+			t.Errorf("tmux calls =\n%v\nwant\n%v", rec.snapshot(), want)
 		}
 	})
 

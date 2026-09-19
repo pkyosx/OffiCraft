@@ -140,9 +140,10 @@ type paneWriter struct {
 	run     tmuxRun
 	sleep   func(time.Duration)
 
-	mu      sync.Mutex
-	pending bytes.Buffer // bytes not yet forming a complete line
-	queued  []string     // complete lines awaiting delivery
+	mu           sync.Mutex
+	pending      bytes.Buffer // bytes not yet forming a complete line
+	queued       []string     // complete lines awaiting delivery
+	sawConnected bool         // the boot connect has already been swallowed
 
 	wake chan struct{}
 }
@@ -198,7 +199,7 @@ func (w *paneWriter) Write(p []byte) (int, error) {
 		if !ok {
 			break
 		}
-		if forwardToPane(line) {
+		if w.shouldForward(line) {
 			w.queued = append(w.queued, line)
 		}
 	}
@@ -245,16 +246,42 @@ func takePaneLine(buf *bytes.Buffer) (string, bool) {
 	return line, true
 }
 
+// shouldForward is forwardToPane plus the one piece of state the policy needs:
+// the FIRST connect is swallowed.
+//
+// The codex side swallows it for a reason that applies here too — that line
+// arrives while the member is still running its boot turn, so forwarding it
+// spends a turn on a transport notice nobody asked for, once per member per
+// boot. Every LATER connect is forwarded: by then it means the stream came back,
+// which is the half of the owner's notice ruling that has to reach the member.
+//
+// Caller holds w.mu.
+func (w *paneWriter) shouldForward(line string) bool {
+	if !forwardToPane(line) {
+		return false
+	}
+	if strings.HasPrefix(line, agentLinePrefix+noticeConnected) && !w.sawConnected {
+		w.sawConnected = true
+		return false
+	}
+	return true
+}
+
 // forwardToPane applies the owner's notice policy: everything the listener has
 // to say about EVENTS reaches the member, and its own transport chatter does not
 // — except the three notices the ruling names, because 「斷線 → 沉默」 cannot
 // tell 還在重試 from 已經放棄.
+//
+// 🔴 THE PREFIX IS MATCHED AT COLUMN 0, NOT AFTER A TRIM. Chat bodies reach this
+// writer INDENTED, so trimming first made a message whose text happens to quote
+// a transport line — which is exactly what members paste at each other while
+// working on this feature — read as one of this binary's own notices and be
+// swallowed, silently and permanently (the chat was already receipted as read).
 func forwardToPane(line string) bool {
-	trimmed := strings.TrimSpace(line)
-	if trimmed == "" {
+	if strings.TrimSpace(line) == "" {
 		return false
 	}
-	rest, isOurs := strings.CutPrefix(trimmed, agentLinePrefix)
+	rest, isOurs := strings.CutPrefix(line, agentLinePrefix)
 	if !isOurs || !strings.HasPrefix(rest, "listen:") {
 		return true
 	}
