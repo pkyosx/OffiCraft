@@ -24,6 +24,17 @@ func memberSessionName(memberID string) string {
 	return memberSessionPrefix + strings.ToLower(memberID)
 }
 
+// listenerSessionName is the tmux session a claude member's SSE listener is held
+// in, beside the member's own session.
+//
+// 🔴 THE PREFIX MUST NOT BE "member-". kill.go's isMemberSession guard treats
+// anything under that prefix as a member and maps it to a workdir of the same
+// name — "member-kyle-listen" would pass that guard and resolve to a workdir
+// that does not exist.
+func listenerSessionName(memberID string) string {
+	return "listen-" + strings.ToLower(memberID)
+}
+
 // tmuxClassifyAbsent reports whether a tmux non-zero error text is the benign
 // "positively absent" case (session missing, or no server ever started on the
 // socket) as opposed to a broken/unclassifiable probe.

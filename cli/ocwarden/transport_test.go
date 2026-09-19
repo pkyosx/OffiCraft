@@ -872,7 +872,7 @@ func TestBuildCommandDeps(t *testing.T) {
 		}
 		var launch string
 		for _, call := range runner.calls {
-			if strings.Contains(call, "new-session") {
+			if strings.Contains(call, "new-session -d -s member-") {
 				launch = call
 			}
 		}
@@ -933,7 +933,7 @@ func TestBuildCommandDeps(t *testing.T) {
 		}
 		var launch string
 		for _, call := range runner.calls {
-			if strings.Contains(call, "new-session") {
+			if strings.Contains(call, "new-session -d -s member-") {
 				launch = call
 			}
 		}

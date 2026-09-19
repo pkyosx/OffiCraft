@@ -112,10 +112,16 @@ func realMain(argv []string, env func(string) string, in io.Reader, out io.Write
 		fs := flag.NewFlagSet("ocagent listen", flag.ContinueOnError)
 		fs.SetOutput(out)
 		once := fs.Bool("once", false, "do a single connect then return (test/diagnostic hook)")
+		deliver := fs.Bool("deliver-tmux", false,
+			"run beside the member: deliver each event into OC_SESSION's pane instead of expecting it to read this stdout")
 		if err := fs.Parse(rest); err != nil {
 			return 2
 		}
-		return cmdListen(cfg, env, *once, out)
+		sink, ok := listenSink(out, env, *deliver)
+		if !ok {
+			return 2
+		}
+		return cmdListen(cfg, env, *once, sink)
 
 	case "suicide":
 		// The graceful self-kill: kill my own tmux session (OC_SESSION on
