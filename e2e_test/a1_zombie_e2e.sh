@@ -279,22 +279,23 @@ poll_presence_offline_stable() {
         return 0
       fi
     else
-      # Flapped back online → the agent's claude pane re-ran `ocagent listen` and
-      # reconnected. This is REAL, verified behaviour (the new listener's parent
-      # chain is the claude pane), and it is exactly why A1 is a LAST line of
-      # defence: a live claude heals itself and never needs reaping.
+      # Flapped back online → something re-mounted the listener. Since T-259 the
+      # claude pane does not: the listener is started beside the member, in its
+      # own tmux session, and nothing re-runs it until the next spawn. Before
+      # T-259 the pane re-ran `ocagent listen` itself and this was the common
+      # path, which is why the exhaustion loop below exists.
       #
-      # To reach the zombie state we must exhaust that self-heal: re-kill each
-      # NEW listener it spawns, bounded by ZOMBIE_REKILL_MAX. The agent gives up
-      # after a few rounds; the claude pane stays ALIVE (still squatting the tmux
-      # name) but no longer holds an SSE → presence-deaf zombie.
+      # Kept as a bounded safety rather than deleted: re-kill each NEW listener,
+      # bounded by ZOMBIE_REKILL_MAX. The claude pane stays ALIVE (still
+      # squatting the tmux name) but no longer holds an SSE → presence-deaf
+      # zombie.
       #
       # NOTE: freezing the claude pane with SIGSTOP does NOT work here — verified
       # on macOS: SIGSTOP against the claude pane pid (and its pgid) leaves it in
       # Ss+ / running, while the same signal correctly stops the ocagent listener.
       # So we exhaust the self-heal instead of trying to freeze it.
       if [[ "$stable_since" -ne 0 ]]; then
-        warn "FRICTION: zombie[$agent] flapped BACK to presence=online (claude pane self-healed its listener) — resetting stability window"
+        warn "FRICTION: zombie[$agent] flapped BACK to presence=online (something restarted its listener) — resetting stability window"
       fi
       stable_since=0
       if [[ "$ZOMBIE_REKILL_LEFT" -gt 0 ]]; then
@@ -388,11 +389,10 @@ TARGET_OLD_PANE="$(pane_pid_of "$TARGET_AGENT")"
 CONTROL_OLD_PANE="$(pane_pid_of "$CONTROL_AGENT")"
 [[ -n "$TARGET_OLD_PANE" ]]  || fail_stage "could not read TARGET pane pid for $(tmux_session "$TARGET_AGENT") — cannot prove pane rotation later"
 [[ -n "$CONTROL_OLD_PANE" ]] || fail_stage "could not read CONTROL pane pid for $(tmux_session "$CONTROL_AGENT") — cannot prove it is untouched later"
-# The listener pid appears a few seconds AFTER presence flips online: the agent
-# runs `ocagent listen` via its Bash tool, so its process tree + cwd settle
-# slightly after the SSE mounts (RUN1 raced this — presence online but the
-# lsof-cwd lookup found 0 match). Poll-until-unique (bounded) instead of a
-# single lookup. listener_pid_of returns empty on BOTH none and >1 (ambiguous);
+# The listener pid can appear a few seconds AFTER presence flips online — its
+# process tree + cwd settle slightly after the SSE mounts (RUN1 raced this:
+# presence online but the lsof-cwd lookup found 0 match). Poll-until-unique
+# (bounded) instead of a single lookup. listener_pid_of returns empty on BOTH none and >1 (ambiguous);
 # ambiguous is rare and its warn is logged each iteration.
 TARGET_LISTENER_PID=""
 _lp_deadline=$(( $(date +%s) + 90 ))
@@ -426,14 +426,15 @@ reconcile_window_open
 #       the server never sees a FIN and keeps reporting IsOnline=true forever.
 #       The listener's connection must actually DIE → SIGKILL, not SIGSTOP.
 #
-#   (b) the agent SELF-HEALS: its claude pane notices the listener died and re-runs
-#       `ocagent listen` (verified — the new listener's parent chain IS the claude
-#       pane). Presence flaps back online and A1 has nothing to reap. Freezing the
-#       pane does NOT help: on macOS SIGSTOP against the claude pane pid (and its
-#       pgid) leaves it running (Ss+), while the same signal correctly stops the
-#       ocagent listener. So we EXHAUST the self-heal instead — poll_presence_offline_stable
-#       re-kills each newly spawned listener (bounded by ZOMBIE_REKILL_MAX, EXACT pid
-#       each time) until the agent stops re-spawning.
+#   (b) the agent USED TO SELF-HEAL: its claude pane noticed the listener died and
+#       re-ran `ocagent listen`, presence flapped back online and A1 had nothing to
+#       reap. Since T-259 the listener lives beside the member in its own tmux
+#       session and the pane does not re-run it, so one SIGKILL is normally enough.
+#       poll_presence_offline_stable still re-kills each newly spawned listener
+#       (bounded by ZOMBIE_REKILL_MAX, EXACT pid each time) — kept because it costs
+#       nothing when nothing respawns. Freezing the pane does NOT help either: on
+#       macOS SIGSTOP against the claude pane pid (and its pgid) leaves it running
+#       (Ss+), while the same signal correctly stops the ocagent listener.
 #
 # End state: claude pane ALIVE (still squatting the tmux name) but holding no SSE
 # = presence-deaf zombie — exactly what A1's decideUp is meant to reap. This is also

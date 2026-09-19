@@ -21,9 +21,10 @@ package main
 // two were go:embed seeds, so correcting one sentence cost a release.
 //
 // 🔴 THREE DOCUMENTS, NOT ONE WITH A VARIANT FIELD — and the reason is NOT that
-// the texts differ. Step 3 of the two boot sequences says OPPOSITE things (the
-// claude one tells the agent to mount its own `ocagent listen`; the codex one
-// forbids exactly that, because the App Server sidecar owns the listener).
+// the texts differ. The two boot sequences are not interchangeable: neither
+// runtime mounts its own listener, but only the codex one ends its boot turn by
+// handing control back to the sidecar that holds its connection, and the agent
+// is woken again from there.
 // Serving the wrong one leaves the agent unable to come online, and that failure
 // is SILENT: nothing that never boots is around to report it. Which is also why
 // the runtime→document choice is made in exactly one place

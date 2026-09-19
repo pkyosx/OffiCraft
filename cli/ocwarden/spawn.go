@@ -280,7 +280,7 @@ func compactSettingsJSON(raw string) (string, error) {
 // (that second hardcode was the cross-language drift risk this step removes); it just
 // tells the fresh agent WHO it is and to LOAD personaFile and follow its 啟動步驟（Boot Sequence）
 // section step by step. The full ordered SOP (report_waking → resume_summary →
-// ocagent listen, SSE-connect⟺ready) lives in personaFile, not here — loading
+// take up your tasks) lives in personaFile, not here — loading
 // personaFile is THIS prompt's own instruction, not a boot-sequence step. base is
 // no longer needed (the /api/events URL moved into the SOP text).
 func buildAppendSystemPrompt(agentID, role, personaFile string) string {

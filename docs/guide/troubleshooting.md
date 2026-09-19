@@ -60,13 +60,16 @@ server 的標準埠是 **7755**。被別的程式占用時，安裝會**當場�
 
 先確認**那位成員被指派到的機器上**有 `tmux`，以及那位成員的 runtime 所需的 `claude` 或 `codex`（已登入）——warden 靠它們把成員 spawn 起來。缺了，成員就起不來。
 
-**最常見的一個原因：Claude Code 太舊、沒有 Monitor tool。** 成員靠 `claude` 內建的 **Monitor** tool 持住 `ocagent listen` 那條到 server 的 SSE 長連線——**持著連線才算 online**。`claude` 太舊、沒有 Monitor tool（**2.1.98 起才內建**），成員就**掛不住 listen**、於是 Waking 卡住或一直 Offline。看那位成員被指派到的機器上 `claude --version`，太舊就升級：
+成員到 server 的 SSE 長連線是 warden 在成員旁邊另外起的一個程序持住的（成員自己不掛、也不維護它）——**持著連線才算 online**。所以 Waking 卡住或一直 Offline，多半是那個程序沒起來或起來就退了。到那位成員被指派到的機器上看：
 
 ```bash
-npm install -g @anthropic-ai/claude-code
+tmux -L officraft ls          # 應該看得到 listen-<成員 id>
+tmux -L officraft attach -t listen-<成員 id>   # 讀它印出來的連線紀錄（唯讀觀察，看完 Ctrl-b d 離開）
 ```
 
-（控制台 **監控 › 機器** 也看得到每台機器上 warden 探到的 `claude` 版本。）
+`listen-<成員 id>` 不在，就去看那台機器 warden 的紀錄：起不來時它會寫一行以 `listener:` 開頭的說明。
+
+（控制台 **監控 › 機器** 看得到每台機器上 warden 探到的 `claude` 版本與 warden 自己的版本。）
 
 一個常見坑：用 **asdf / nvm / volta** 裝 `claude` 的人，launchd 的 PATH 很小、找不到 shim。解法是用絕對路徑重跑安裝（冪等）：
 

@@ -36,9 +36,9 @@
 | **`tmux`** | 3.0 以上（任何近代 3.x 都行） | 成員的 session 跑在 tmux 裡（`cli/ocwarden/spawn.go` 的 `tmux new-session`，沒有備援）。**解析不到時安裝腳本直接拒絕**，不會裝出一台成員永遠停在「waking」的機器 |
 
 > [!IMPORTANT]
-> **`claude` 一定要新到內建 Monitor tool（2.1.98 起）。** 成員靠 **Monitor** 這個內建工具持住 `ocagent listen`
-> 那條到 server 的 SSE 長連線——**持著連線＝online**（見 [架構與運作原理](architecture.md)）。`claude` 太舊、沒有
-> Monitor tool，成員就掛不住那條連線、**永遠亮不起來**（Waking 卡住或一直 Offline）。升級：`npm install -g @anthropic-ai/claude-code`。
+> **`claude` 建議新到內建 Monitor tool（2.1.98 起）。** 成員用 **Monitor** 這個內建工具等待長時間的背景工作。
+> 到 server 的 SSE 長連線**不經過它**——那條連線由 warden 在成員旁邊另外起的程序持住（**持著連線＝online**，見
+> [架構與運作原理](architecture.md)），所以 `claude` 太舊不會讓成員亮不起來。升級：`npm install -g @anthropic-ai/claude-code`。
 >
 > 注意：**安裝器擋「沒裝」，但不擋「太舊」**——它確認 `tmux` 與（claude／codex 至少一種）解析得到（缺就停），但**不比對版本號**。所以「2.1.98 以上」是**你要自己確保**的前提，不是安裝當下會替你把關的東西；裝了太舊的 `claude`，安裝照樣過，但成員之後亮不起來。
 
@@ -59,7 +59,7 @@
 
 > [!NOTE]
 > 版本依據：**Go 1.26** 取自 repo 的 `go.mod`（`go 1.26.4`）；**node 18** 是前端工具鏈（Vite 5）的下限，
-> 建議跟上現行 LTS；**Claude Code 2.1.98** 是 Monitor tool 首度內建的版本（沒有它成員亮不起來，見上）；
+> 建議跟上現行 LTS；**Claude Code 2.1.98** 是 Monitor tool 首度內建的版本（成員用它等待背景工作，見上）；
 > **tmux 3.0** 是保守下限，repo 未硬性指定版本，任何近代 3.x 都可以。
 
 ---

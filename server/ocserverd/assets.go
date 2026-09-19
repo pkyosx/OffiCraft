@@ -332,10 +332,12 @@ type bootContext struct {
 // This exists because they once did. The worker path hard-coded
 // "boot_sequence.md" (PR #170 removed the worker-only seed filtering that had
 // been masking it), so a worker running the codex runtime was handed the Claude
-// boot sequence — which tells it to run a bare `ocagent listen` in the
-// background under Monitor — while its own codex runtime tail told it NOT to
+// boot sequence — which at the time told it to run a bare `ocagent listen` in
+// the background under Monitor — while its own codex runtime tail told it NOT to
 // start a listener because the App Server sidecar owns it. Two contradictory
-// instructions in one boot context. Parity between staff and outsource is "read
+// instructions in one boot context. (Neither runtime mounts its own listener any
+// more, but the two sequences still differ: only the codex one ends its boot turn
+// by handing control back.) Parity between staff and outsource is "read
 // the seed for the runtime you are actually running", exactly as staff does; it
 // is NOT "filter the Claude seed down".
 //
@@ -380,10 +382,10 @@ const (
 // itself, on purpose: that function is documented as the single place in the
 // tree that decides which runtime gets which sequence, and it holds that title
 // only as long as nobody writes a second `== RuntimeCodex` beside it. The two
-// boot sequences contradict each other in step 3 (claude: mount your own
-// `ocagent listen`; codex: do NOT, the sidecar owns it), so a second decision
-// point that drifts hands a worker the sequence that keeps it from booting —
-// silently, because a worker that never comes online is never there to say so.
+// boot sequences are not interchangeable — only the codex one ends its boot turn
+// by handing control back to the sidecar that holds its connection — so a second
+// decision point that drifts hands a worker a boot sequence written for the other
+// runtime, silently: a worker that never comes online is never there to say so.
 func bootSequenceDocKey(runtime string) string {
 	if bootSequenceSeedName(runtime) == bootSequenceSeedCodex {
 		return bootSequenceKeyCodex

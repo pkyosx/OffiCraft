@@ -822,10 +822,10 @@ export function SettingsPage({
     //
     // ⚠️ THE INVARIANT THAT SURVIVES EVERY SHAPE: the two remain two SEPARATE
     // documents with separate editors, save buttons and version histories, and
-    // nothing writes both. Their third step means OPPOSITE things (claude
-    // attaches `ocagent listen` itself; codex must NOT — the sidecar does), so
-    // copying one runtime's text over the other stops that runtime's agents
-    // ever coming online, silently. Separate PAGES make that copy harder than
+    // nothing writes both. They are not interchangeable (only the codex one ends
+    // its boot turn by handing control back to the sidecar that holds its
+    // connection), so copying one runtime's text over the other stops that
+    // runtime's agents ever booting properly, silently. Separate PAGES make that copy harder than
     // the stacked shape did, not easier.
     //
     // 🔴 EACH ROW NAMES ITS OWN DOCUMENT. T-6278's review sent that build back
