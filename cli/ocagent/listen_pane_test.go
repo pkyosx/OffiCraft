@@ -46,6 +46,19 @@ func (r *recordTmux) snapshot() [][]string {
 	return append([][]string(nil), r.calls...)
 }
 
+// awaitHeld waits for the held call to be entered, with a deadline: a writer
+// that never wakes its pump would otherwise leave the test blocked here until
+// the whole binary times out, which reads as CI being slow rather than as this
+// guard firing.
+func (r *recordTmux) awaitHeld(t *testing.T) {
+	t.Helper()
+	select {
+	case <-r.held:
+	case <-time.After(2 * time.Second):
+		t.Fatal("no delivery ever started — the writer never woke its pump")
+	}
+}
+
 // awaitCalls waits until at least n calls have landed, so a test can observe the
 // pump WITHOUT stopping it — the difference between "delivery happens" and
 // "delivery happens only because stopping flushes".
@@ -155,7 +168,7 @@ func TestPaneWriter(t *testing.T) {
 		first := "[ocagent] recycle: 你被收回了"
 		rest := []string{"[ocagent] recycle: 1. 收尾", "[ocagent] recycle: 2. 回報"}
 		w.Write([]byte(first + "\n"))
-		<-rec.held // the pump is now inside the first delivery
+		rec.awaitHeld(t) // the pump is now inside the first delivery
 		for _, line := range rest {
 			w.Write([]byte(line + "\n"))
 		}
@@ -265,7 +278,7 @@ func TestPaneWriter(t *testing.T) {
 		stop := w.start()
 
 		w.Write([]byte("[ocagent] listen: disconnected — connection refused\n"))
-		<-rec.held
+		rec.awaitHeld(t)
 		w.Write([]byte("[ocagent] listen: giving up — 30 attempts\n"))
 		close(rec.hold)
 		stop()
