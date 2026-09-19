@@ -196,13 +196,29 @@ func TestPaneWriter(t *testing.T) {
 		// forwarding it spends a turn on a transport notice nobody asked for,
 		// once per member per boot. A LATER connect means the stream came back,
 		// which the owner's notice ruling says must reach the member.
+		//
+		// It is also the half that stops an OVERSHOOT ("never swallow at all"):
+		// a_connect_that_answers_a_forwarded_disconnect passes under that mutant,
+		// so the two are only a two-way guard while BOTH are alive.
 		var log bytes.Buffer
 		w, rec := newRecordingPaneWriter(&log)
+
+		// Members working on this feature quote the connect notice at each other,
+		// and that line is chat, not this binary's output. It is forwarded — and it
+		// must NOT spend the boot swallow, or the real boot connect below is
+		// forwarded and costs the member the turn this whole case exists to save.
+		quoted := quotedInBody(t, "[ocagent] listen: connected — streaming http://127.0.0.1:7755/api/events")
+		w.Write([]byte(quoted + "\n"))
+		w.drain()
+		beforeBoot := deliveryOf("officraft", "member-m1", quoted)
+		if got := rec.snapshot(); !reflect.DeepEqual(got, beforeBoot) {
+			t.Fatalf("the quoted connect did not reach the member:\n%v", got)
+		}
 
 		boot := "[ocagent] listen: connected — streaming http://127.0.0.1:7755/api/events"
 		w.Write([]byte(boot + "\n"))
 		w.drain()
-		if got := rec.snapshot(); len(got) != 0 {
+		if got := rec.snapshot(); !reflect.DeepEqual(got, beforeBoot) {
 			t.Fatalf("the boot connect was pasted into a booting pane: %v", got)
 		}
 
@@ -210,14 +226,14 @@ func TestPaneWriter(t *testing.T) {
 		again := "[ocagent] listen: connected — streaming http://127.0.0.1:7755/api/events [new station — was c67268a4]"
 		w.Write([]byte(back + "\n" + again + "\n"))
 		w.drain()
-		want := deliveryOf("officraft", "member-m1", back+"\n"+again)
+		want := append(beforeBoot, deliveryOf("officraft", "member-m1", back+"\n"+again)...)
 		if got := rec.snapshot(); !reflect.DeepEqual(got, want) {
 			t.Errorf("tmux calls =\n%v\nwant\n%v", got, want)
 		}
 
 		// The swallowed boot connect still has to be readable somewhere, and the
 		// listener's own log is the only place it can be.
-		if wantLog := boot + "\n" + back + "\n" + again + "\n"; log.String() != wantLog {
+		if wantLog := quoted + "\n" + boot + "\n" + back + "\n" + again + "\n"; log.String() != wantLog {
 			t.Errorf("log = %q, want %q", log.String(), wantLog)
 		}
 	})
@@ -229,10 +245,18 @@ func TestPaneWriter(t *testing.T) {
 		// be the first one this process printed leaves the member waiting for an
 		// answer that was printed and thrown away — silence, which is what the
 		// owner's notice ruling exists to prevent.
+		//
+		// 🔴 THIS CASE IS HALF A GUARD. "Never swallow anything" passes it too —
+		// the_boot_connect_is_swallowed is what refuses that, so neither may be
+		// retired as a duplicate of the other.
 		var log bytes.Buffer
 		w, rec := newRecordingPaneWriter(&log)
 
-		down := "[ocagent] listen: disconnected — dial tcp: connection refused (retrying on the same schedule, quietly; the next transport line you see is either the reconnect or a give-up)"
+		// Built from the constants the production line is built from: a hand-typed
+		// copy would keep passing after the real wording moved out from under it.
+		down := agentLinePrefix + noticeDisconnected + " — dial tcp: connection refused" +
+			" (retrying on the same schedule, quietly; the next transport line you see" +
+			" is either the reconnect or a give-up)"
 		w.Write([]byte(down + "\n"))
 		w.drain()
 		if want := deliveryOf("officraft", "member-m1", down); !reflect.DeepEqual(rec.snapshot(), want) {
@@ -334,6 +358,10 @@ func TestPaneWriter(t *testing.T) {
 
 		// The rejected batch paste, then one set-buffer + one failed paste, and
 		// nothing after it: no Enter, no second line.
+		//
+		// 🔴 HALF A GUARD, same shape as above: "always stop after the first line"
+		// passes this too, and a_paste_the_tmux_on_this_host_rejects is what
+		// refuses that.
 		want := deliveryOf("officraft", "member-m1", strings.Join(lines, "\n"))[:2]
 		want = append(want, degradedDeliveryOf("officraft", "member-m1", lines[0])[:2]...)
 		if got := rec.snapshot(); !reflect.DeepEqual(got, want) {
