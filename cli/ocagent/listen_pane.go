@@ -140,6 +140,14 @@ type paneWriter struct {
 	run     tmuxRun
 	sleep   func(time.Duration)
 
+	// 🔴 TWO LOCKS, AND THEY ARE NOT INTERCHANGEABLE. logMu guards inner ALONE,
+	// because inner is written from two goroutines — the SSE scan loop, and the
+	// pump when a degraded delivery gives up — while mu guards the queue. Folding
+	// the log write into mu is also race-free, but it couples them: a stdout write
+	// that blocked would hold mu, the pump could not take the batch, and lines
+	// already queued would stop moving. Neither lock is ever held while taking the
+	// other.
+	logMu              sync.Mutex
 	mu                 sync.Mutex
 	pending            bytes.Buffer // bytes not yet forming a complete line
 	queued             []string     // complete lines awaiting delivery
@@ -191,11 +199,11 @@ func (w *paneWriter) start() func() {
 }
 
 func (w *paneWriter) Write(p []byte) (int, error) {
-	// 🔴 inner IS WRITTEN FROM TWO GOROUTINES — here, and by the pump when a
-	// degraded delivery gives up. It is a bytes.Buffer under test, so the write
-	// belongs under the same lock as the queue rather than in front of it.
-	w.mu.Lock()
+	w.logMu.Lock()
 	n, err := w.inner.Write(p)
+	w.logMu.Unlock()
+
+	w.mu.Lock()
 	w.pending.Write(p)
 	for {
 		line, ok := takePaneLine(&w.pending)
@@ -357,8 +365,8 @@ func (w *paneWriter) deliver(payload string) {
 // member: it is about a delivery that failed, so routing it through the queue
 // would try to deliver it down the path that just broke.
 func (w *paneWriter) note(format string, args ...any) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
+	w.logMu.Lock()
+	defer w.logMu.Unlock()
 	fmt.Fprintf(w.inner, agentLinePrefix+format, args...)
 }
 
