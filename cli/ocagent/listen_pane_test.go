@@ -160,7 +160,7 @@ func TestPaneWriter(t *testing.T) {
 			{"a chat body that quotes a transport line", quotedInBody(t, "[ocagent] listen: batch tok-1"), true},
 			// The connect notice is matched by a SECOND prefix comparison
 			// (shouldForward), which the column-0 rule has to hold for too. Trim
-			// first and this line is swallowed AND flips sawConnected, so the real
+			// first and this line is swallowed AND spends the boot swallow, so the real
 			// boot connect is forwarded instead — the opposite symptom, harder to
 			// recognise, and the whole package stays green without this case.
 			{"a chat body that quotes the connect notice", quotedInBody(t, "[ocagent] listen: connected — streaming http://127.0.0.1:7755/api/events"), true},
@@ -219,6 +219,33 @@ func TestPaneWriter(t *testing.T) {
 		// listener's own log is the only place it can be.
 		if wantLog := boot + "\n" + back + "\n" + again + "\n"; log.String() != wantLog {
 			t.Errorf("log = %q, want %q", log.String(), wantLog)
+		}
+	})
+
+	t.Run("a connect that answers a forwarded disconnect is not swallowed", func(t *testing.T) {
+		// When the FIRST dial fails the member is told so, and that line ends by
+		// promising 「the next transport line you see is either the reconnect or a
+		// give-up」 (listen_run.go). Swallowing the reconnect because it happens to
+		// be the first one this process printed leaves the member waiting for an
+		// answer that was printed and thrown away — silence, which is what the
+		// owner's notice ruling exists to prevent.
+		var log bytes.Buffer
+		w, rec := newRecordingPaneWriter(&log)
+
+		down := "[ocagent] listen: disconnected — dial tcp: connection refused (retrying on the same schedule, quietly; the next transport line you see is either the reconnect or a give-up)"
+		w.Write([]byte(down + "\n"))
+		w.drain()
+		if want := deliveryOf("officraft", "member-m1", down); !reflect.DeepEqual(rec.snapshot(), want) {
+			t.Fatalf("the disconnect itself did not reach the member:\n%v", rec.snapshot())
+		}
+
+		up := "[ocagent] listen: connected — streaming http://127.0.0.1:7755/api/events"
+		w.Write([]byte(up + "\n"))
+		w.drain()
+		want := append(deliveryOf("officraft", "member-m1", down),
+			deliveryOf("officraft", "member-m1", up)...)
+		if got := rec.snapshot(); !reflect.DeepEqual(got, want) {
+			t.Errorf("tmux calls =\n%v\nwant\n%v", got, want)
 		}
 	})
 
@@ -288,6 +315,27 @@ func TestPaneWriter(t *testing.T) {
 		for _, line := range lines {
 			want = append(want, degradedDeliveryOf("officraft", "member-m1", line)...)
 		}
+		if got := rec.snapshot(); !reflect.DeepEqual(got, want) {
+			t.Errorf("tmux calls =\n%v\nwant\n%v", got, want)
+		}
+	})
+
+	t.Run("a degraded delivery into a pane that is gone stops after the first line", func(t *testing.T) {
+		// The fallback fires on ANY paste error, and a target that no longer exists
+		// fails every one. Walking the whole batch would spend three paced Enters
+		// per line while stop() waits for the drain.
+		var log bytes.Buffer
+		rec := &recordTmux{fail: map[int]bool{1: true, 3: true}} // the -d -p paste, then the first bare one
+		w := newPaneWriter(&log, "officraft", "member-m1", rec.run, func(time.Duration) {})
+
+		lines := []string{"[ocagent] chat #c-1", "[ocagent] chat #c-2", "[ocagent] chat #c-3"}
+		w.Write([]byte(strings.Join(lines, "\n") + "\n"))
+		w.drain()
+
+		// The rejected batch paste, then one set-buffer + one failed paste, and
+		// nothing after it: no Enter, no second line.
+		want := deliveryOf("officraft", "member-m1", strings.Join(lines, "\n"))[:2]
+		want = append(want, degradedDeliveryOf("officraft", "member-m1", lines[0])[:2]...)
 		if got := rec.snapshot(); !reflect.DeepEqual(got, want) {
 			t.Errorf("tmux calls =\n%v\nwant\n%v", got, want)
 		}

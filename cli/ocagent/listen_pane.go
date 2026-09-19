@@ -140,10 +140,10 @@ type paneWriter struct {
 	run     tmuxRun
 	sleep   func(time.Duration)
 
-	mu           sync.Mutex
-	pending      bytes.Buffer // bytes not yet forming a complete line
-	queued       []string     // complete lines awaiting delivery
-	sawConnected bool         // the boot connect has already been swallowed
+	mu                 sync.Mutex
+	pending            bytes.Buffer // bytes not yet forming a complete line
+	queued             []string     // complete lines awaiting delivery
+	transportAnnounced bool         // the member has already been told about the transport
 
 	wake chan struct{}
 }
@@ -247,22 +247,38 @@ func takePaneLine(buf *bytes.Buffer) (string, bool) {
 }
 
 // shouldForward is forwardToPane plus the one piece of state the policy needs:
-// the FIRST connect is swallowed.
+// the connect that opens a BOOT is swallowed.
 //
-// The codex side swallows it for a reason that applies here too — that line
-// arrives while the member is still running its boot turn, so forwarding it
-// spends a turn on a transport notice nobody asked for, once per member per
-// boot. Every LATER connect is forwarded: by then it means the stream came back,
-// which is the half of the owner's notice ruling that has to reach the member.
+// That line arrives while the member is still running its boot turn, so
+// forwarding it spends a turn on a transport notice nobody asked for, once per
+// member per boot. Every LATER connect is forwarded: by then it means the stream
+// came back, which is the half of the owner's notice ruling that has to reach
+// the member.
+//
+// 🔴 "OPENS A BOOT" IS NOT THE SAME AS "IS THE FIRST ONE THIS PROCESS PRINTS",
+// and the two come apart exactly when the first dial fails. The member is then
+// told the stream is down by a line that ends 「the next transport line you see
+// is either the reconnect or a give-up」 — so the connect that follows is the
+// ANSWER to a promise already made, and swallowing it leaves the member waiting
+// for something that was printed and thrown away. Forwarding a disconnect or a
+// give-up therefore spends the boot swallow.
+//
+// The codex side is NOT a precedent for swallowing without replacing: it hands
+// the member a post-boot wake in place of that line, so the member still gets a
+// turn (cli/ocwarden/codex_session.go).
 //
 // Caller holds w.mu.
 func (w *paneWriter) shouldForward(line string) bool {
 	if !forwardToPane(line) {
 		return false
 	}
-	if strings.HasPrefix(line, agentLinePrefix+noticeConnected) && !w.sawConnected {
-		w.sawConnected = true
+	if strings.HasPrefix(line, agentLinePrefix+noticeConnected) && !w.transportAnnounced {
+		w.transportAnnounced = true
 		return false
+	}
+	if strings.HasPrefix(line, agentLinePrefix+noticeDisconnected) ||
+		strings.HasPrefix(line, agentLinePrefix+noticeGivingUp) {
+		w.transportAnnounced = true
 	}
 	return true
 }
@@ -309,7 +325,13 @@ func (w *paneWriter) deliver(payload string) {
 	}
 	for _, line := range strings.Split(payload, "\n") {
 		_ = w.run("-L", w.socket, "set-buffer", "-b", w.buffer, line)
-		_ = w.run("-L", w.socket, "paste-buffer", "-t", w.session, "-b", w.buffer)
+		if err := w.run("-L", w.socket, "paste-buffer", "-t", w.session, "-b", w.buffer); err != nil {
+			// 🔴 The flags are not the only reason a paste fails: a target that is
+			// GONE fails every time. Each remaining line would cost three paced
+			// Enters, and stop() drains synchronously — a 17-line batch into a dead
+			// pane would hold shutdown for ~36 seconds instead of ~2.
+			return
+		}
 		w.submit()
 	}
 }
