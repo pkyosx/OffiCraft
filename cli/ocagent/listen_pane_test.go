@@ -106,6 +106,24 @@ func degradedDeliveryOf(socket, session, line string) [][]string {
 	}
 }
 
+// quotedInBody is the CONTINUATION line of a chat body that quotes a transport
+// line, produced by renderMessageBody — the renderer the real path uses. The
+// indentation is what these cases turn on, and typed as a string literal it was
+// four spaces nobody could see: anything that tidied the literal would have
+// retired the case into a duplicate of "other transport chatter" and left the
+// package green.
+func quotedInBody(t *testing.T, transportLine string) string {
+	t.Helper()
+	lines := strings.Split(renderMessageBody("一位成員貼給另一位：\n"+transportLine, "get_chat"), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("renderMessageBody produced %d lines, want 2: %q", len(lines), lines)
+	}
+	if !strings.HasPrefix(lines[1], " ") {
+		t.Fatalf("the continuation line is not indented (%q) — this case would test nothing", lines[1])
+	}
+	return lines[1]
+}
+
 func newRecordingPaneWriter(inner io.Writer) (*paneWriter, *recordTmux) {
 	rec := &recordTmux{fail: map[int]bool{}}
 	return newPaneWriter(inner, "officraft", "member-m1", rec.run, func(time.Duration) {}), rec
@@ -139,7 +157,13 @@ func TestPaneWriter(t *testing.T) {
 		}{
 			{"a line this binary did not write", "something else entirely", true},
 			{"the first disconnect", "[ocagent] listen: disconnected — dial tcp: connection refused", true},
-			{"a chat body that quotes a transport line", "    [ocagent] listen: batch tok-1", true},
+			{"a chat body that quotes a transport line", quotedInBody(t, "[ocagent] listen: batch tok-1"), true},
+			// The connect notice is matched by a SECOND prefix comparison
+			// (shouldForward), which the column-0 rule has to hold for too. Trim
+			// first and this line is swallowed AND flips sawConnected, so the real
+			// boot connect is forwarded instead — the opposite symptom, harder to
+			// recognise, and the whole package stays green without this case.
+			{"a chat body that quotes the connect notice", quotedInBody(t, "[ocagent] listen: connected — streaming http://127.0.0.1:7755/api/events"), true},
 			{"giving up", "[ocagent] listen: giving up — 30 attempts", true},
 			{"the end-of-batch marker, which is protocol", "[ocagent] listen: batch tok-1 [ts=1 local]", false},
 			{"other transport chatter", "[ocagent] listen: retrying in 4s", false},
@@ -183,10 +207,18 @@ func TestPaneWriter(t *testing.T) {
 		}
 
 		back := "[ocagent] listen: connected — streaming http://127.0.0.1:7755/api/events [same station]"
-		w.Write([]byte(back + "\n"))
+		again := "[ocagent] listen: connected — streaming http://127.0.0.1:7755/api/events [new station — was c67268a4]"
+		w.Write([]byte(back + "\n" + again + "\n"))
 		w.drain()
-		if want := deliveryOf("officraft", "member-m1", back); !reflect.DeepEqual(rec.snapshot(), want) {
-			t.Errorf("tmux calls =\n%v\nwant\n%v", rec.snapshot(), want)
+		want := deliveryOf("officraft", "member-m1", back+"\n"+again)
+		if got := rec.snapshot(); !reflect.DeepEqual(got, want) {
+			t.Errorf("tmux calls =\n%v\nwant\n%v", got, want)
+		}
+
+		// The swallowed boot connect still has to be readable somewhere, and the
+		// listener's own log is the only place it can be.
+		if wantLog := boot + "\n" + back + "\n" + again + "\n"; log.String() != wantLog {
+			t.Errorf("log = %q, want %q", log.String(), wantLog)
 		}
 	})
 
