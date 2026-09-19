@@ -409,6 +409,13 @@ func TestPaneWriter(t *testing.T) {
 		if got := rec.snapshot(); !reflect.DeepEqual(got, want) {
 			t.Errorf("tmux calls =\n%v\nwant\n%v", got, want)
 		}
+
+		// The three lines are GONE — drain took them off the queue, the claude path
+		// has no ack gate, and mark-read follows what was printed. The only thing
+		// that can still tell anyone is this log, so it has to name the count.
+		if got := log.String(); !strings.Contains(got, "gave up on 3 line(s)") {
+			t.Errorf("the dropped lines were not reported in the listener's log:\n%s", got)
+		}
 	})
 
 	t.Run("two members on one socket do not share a buffer", func(t *testing.T) {

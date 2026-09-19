@@ -30,7 +30,9 @@ import "strings"
 // boot sequence of the runtime the reader is actually running
 // (bootSequenceSeedName, assets.go), and staff and outsource on the SAME runtime
 // get the same bytes. Handing every worker the Claude seed is not parity — it is
-// how a codex worker ended up being told to run its own `ocagent listen`.
+// how a codex worker once ended up being told to run its own `ocagent listen`.
+// Neither runtime mounts its own listener any more, but the two sequences still
+// differ: only the codex one ends its boot turn by handing control back.
 
 // workerSharedHead returns the FIRST TWO shared blocks of a worker boot context
 // — 系統互動 then 使用者自訂 — in the same order and with the same rule the

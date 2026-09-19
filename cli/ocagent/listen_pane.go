@@ -191,8 +191,11 @@ func (w *paneWriter) start() func() {
 }
 
 func (w *paneWriter) Write(p []byte) (int, error) {
-	n, err := w.inner.Write(p)
+	// 🔴 inner IS WRITTEN FROM TWO GOROUTINES — here, and by the pump when a
+	// degraded delivery gives up. It is a bytes.Buffer under test, so the write
+	// belongs under the same lock as the queue rather than in front of it.
 	w.mu.Lock()
+	n, err := w.inner.Write(p)
 	w.pending.Write(p)
 	for {
 		line, ok := takePaneLine(&w.pending)
@@ -327,17 +330,36 @@ func (w *paneWriter) deliver(payload string) {
 		w.submit()
 		return
 	}
-	for _, line := range strings.Split(payload, "\n") {
+	lines := strings.Split(payload, "\n")
+	for i, line := range lines {
 		_ = w.run("-L", w.socket, "set-buffer", "-b", w.buffer, line)
 		if err := w.run("-L", w.socket, "paste-buffer", "-t", w.session, "-b", w.buffer); err != nil {
 			// 🔴 The flags are not the only reason a paste fails: a target that is
 			// GONE fails every time. Each remaining line would cost three paced
 			// Enters, and stop() drains synchronously — a 17-line batch into a dead
 			// pane would hold shutdown for ~36 seconds instead of ~2.
+			//
+			// The lines left behind are LOST, not retried: drain already took them
+			// off the queue, the claude path has no ack gate (newAckGate is nil
+			// without OC_LISTEN_ACK, which only the codex sidecar sets), and
+			// mark-read follows what was PRINTED, not what reached the pane. So say
+			// so where it can still be read — this listener's own session is
+			// attachable, and troubleshooting.md tells people to go there.
+			w.note("listen: gave up on %d line(s) after tmux refused a paste into %s\n",
+				len(lines)-i, w.session)
 			return
 		}
 		w.submit()
 	}
+}
+
+// note writes one line to the listener's own log WITHOUT queueing it for the
+// member: it is about a delivery that failed, so routing it through the queue
+// would try to deliver it down the path that just broke.
+func (w *paneWriter) note(format string, args ...any) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	fmt.Fprintf(w.inner, agentLinePrefix+format, args...)
 }
 
 // submit presses the Enter that commits what was pasted; the paste alone leaves
