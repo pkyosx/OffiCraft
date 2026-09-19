@@ -293,11 +293,30 @@ func forwardToPane(line string) bool {
 	return false
 }
 
+// deliver puts one batch into the member's pane: one paste when this host's tmux
+// takes the flags, otherwise ONE LINE AT A TIME.
+//
+// 🔴 THE FALLBACK MUST NOT CARRY A BATCH. Without -p, tmux turns each newline
+// in the buffer into Enter, so re-pasting a 17-line batch that way submits 17
+// turns interleaved with the Enter presses below — worse than the one-line-per-turn
+// behaviour batching replaced, and worse the bigger the batch. Re-sending line by
+// line makes the degraded path exactly the old behaviour instead.
 func (w *paneWriter) deliver(payload string) {
 	_ = w.run("-L", w.socket, "set-buffer", "-b", w.buffer, payload)
-	if err := w.run("-L", w.socket, "paste-buffer", "-t", w.session, "-b", w.buffer, "-d", "-p"); err != nil {
-		_ = w.run("-L", w.socket, "paste-buffer", "-t", w.session, "-b", w.buffer)
+	if err := w.run("-L", w.socket, "paste-buffer", "-t", w.session, "-b", w.buffer, "-d", "-p"); err == nil {
+		w.submit()
+		return
 	}
+	for _, line := range strings.Split(payload, "\n") {
+		_ = w.run("-L", w.socket, "set-buffer", "-b", w.buffer, line)
+		_ = w.run("-L", w.socket, "paste-buffer", "-t", w.session, "-b", w.buffer)
+		w.submit()
+	}
+}
+
+// submit presses the Enter that commits what was pasted; the paste alone leaves
+// the text sitting in the input box.
+func (w *paneWriter) submit() {
 	for attempt := 0; attempt < paneEnterAttempts; attempt++ {
 		_ = w.run("-L", w.socket, "send-keys", "-t", w.session, "Enter")
 		w.sleep(paneEnterSettle)

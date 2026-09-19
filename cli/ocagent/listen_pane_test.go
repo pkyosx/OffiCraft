@@ -91,6 +91,21 @@ func deliveryOf(socket, session, payload string) [][]string {
 	}
 }
 
+// degradedDeliveryOf is the argv one line must produce on the path this host's
+// tmux takes when it rejects the flags: its own set-buffer, a bare paste, and
+// its own Enters. Typed out rather than derived from deliveryOf, so a change to
+// either path has to be re-justified against a literal.
+func degradedDeliveryOf(socket, session, line string) [][]string {
+	buffer := "oc-listen-deliver-" + session
+	return [][]string{
+		{"-L", socket, "set-buffer", "-b", buffer, line},
+		{"-L", socket, "paste-buffer", "-t", session, "-b", buffer},
+		{"-L", socket, "send-keys", "-t", session, "Enter"},
+		{"-L", socket, "send-keys", "-t", session, "Enter"},
+		{"-L", socket, "send-keys", "-t", session, "Enter"},
+	}
+}
+
 func newRecordingPaneWriter(inner io.Writer) (*paneWriter, *recordTmux) {
 	rec := &recordTmux{fail: map[int]bool{}}
 	return newPaneWriter(inner, "officraft", "member-m1", rec.run, func(time.Duration) {}), rec
@@ -223,22 +238,26 @@ func TestPaneWriter(t *testing.T) {
 		}
 	})
 
-	t.Run("a paste the tmux on this host rejects is retried without the flags", func(t *testing.T) {
+	t.Run("a paste the tmux on this host rejects is re-sent one line at a time", func(t *testing.T) {
+		// Measured on tmux 3.6b: the bare paste turns every newline in the buffer
+		// into Enter. Re-sending a BATCH that way would submit one turn per line
+		// with three stray Enters between them; re-sending line by line is the
+		// pre-batch behaviour, which is the worst this path may degrade to.
 		var log bytes.Buffer
 		rec := &recordTmux{fail: map[int]bool{1: true}} // the -d -p paste
 		w := newPaneWriter(&log, "officraft", "member-m1", rec.run, func(time.Duration) {})
 
-		w.Write([]byte("[ocagent] chat #c-1\n"))
+		lines := []string{"[ocagent] chat #c-1", "[ocagent] chat #c-2", "[ocagent] chat #c-3"}
+		w.Write([]byte(strings.Join(lines, "\n") + "\n"))
 		w.drain()
 
-		want := deliveryOf("officraft", "member-m1", "[ocagent] chat #c-1")
-		// The bare retry is inserted after the rejected paste; everything else is
-		// unchanged, so the expected argv is the normal delivery plus that one.
-		want = append(want[:2:2],
-			append([][]string{{"-L", "officraft", "paste-buffer", "-t", "member-m1", "-b", "oc-listen-deliver-member-m1"}},
-				want[2:]...)...)
-		if !reflect.DeepEqual(rec.snapshot(), want) {
-			t.Errorf("tmux calls =\n%v\nwant\n%v", rec.snapshot(), want)
+		// The rejected batch paste, then one complete delivery per line.
+		want := deliveryOf("officraft", "member-m1", strings.Join(lines, "\n"))[:2]
+		for _, line := range lines {
+			want = append(want, degradedDeliveryOf("officraft", "member-m1", line)...)
+		}
+		if got := rec.snapshot(); !reflect.DeepEqual(got, want) {
+			t.Errorf("tmux calls =\n%v\nwant\n%v", got, want)
 		}
 	})
 
