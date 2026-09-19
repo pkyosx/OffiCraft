@@ -147,6 +147,11 @@ type paneWriter struct {
 	// that blocked would hold mu, the pump could not take the batch, and lines
 	// already queued would stop moving. Neither lock is ever held while taking the
 	// other.
+	//
+	// ⚠️ The split assumes Write has ONE calling goroutine, which it does today
+	// (the SSE scan loop). Give it a second one and two calls could reach the log
+	// in one order and the queue in the other, so the listener's own transcript
+	// would disagree with what the member saw — with nothing failing.
 	logMu              sync.Mutex
 	mu                 sync.Mutex
 	pending            bytes.Buffer // bytes not yet forming a complete line
