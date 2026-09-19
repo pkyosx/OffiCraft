@@ -1031,6 +1031,13 @@ const (
 	// fails to reach the model marked read anyway, which is the exact bug this
 	// protocol exists to close. Nothing compares the two spellings — see the note
 	// on noticeDisconnectedPrefix above for what happened to the check that did.
+	//
+	// 🔴 AND THIS ONE IS NOT EVEN PINNED ON ITS OWN SIDE. The three notice heads
+	// above are at least spelled out in this module's own tests, so mistyping one
+	// HERE turns something red. Mistype this name and BOTH modules stay green:
+	// measured, by renaming it to OC_LISTEN_ACKX and running both suites. Of
+	// everything in this block it is the cheapest to break and the most expensive
+	// when broken — the loss it causes is silent and cannot be recovered.
 	listenAckEnv = "OC_LISTEN_ACK"
 
 	// 🔴 THE FOURTH COPY. This is the head of the blanket filter below — the bytes that decide whether a line is
