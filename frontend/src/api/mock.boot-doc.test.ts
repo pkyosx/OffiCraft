@@ -361,7 +361,7 @@ describe("mockApi · 開機脈絡預覽", () => {
 
   // 🔴 READ THIS BEFORE "FIXING" THE ASSERTION BELOW. It pins a limitation, not
   // a desirable behaviour: a codex member's panel shows the CLAUDE 啟動步驟,
-  // whose step 3 says the opposite of what that member is really booted with.
+  // which is missing the hand-back step that member is really booted with.
   // The mock is right to copy it — /api/bootstrap genuinely cannot resolve a
   // runtime, because the request names no member. The day that endpoint learns
   // who the preview is for, THIS ASSERTION IS THE ONE THAT MUST CHANGE FIRST;

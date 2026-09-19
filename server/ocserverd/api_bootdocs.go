@@ -93,8 +93,8 @@ type bootDocReg struct {
 	Keys []string
 	// SeedFor answers the seed filename for one of Keys. A func rather than a
 	// field because boot_sequence's two keys have two different seeds, and the
-	// two contradict each other in step 3 — serving the wrong one is a silent
-	// failure to boot (see bootSequenceSeedName).
+	// two are not interchangeable — serving the wrong one is a silent failure to
+	// boot (see bootSequenceSeedName).
 	SeedFor func(key string) string
 	DocName func(key string) string
 	Cap     func(s *apiServer) int
