@@ -48,7 +48,7 @@ func TestStartListenerSession(t *testing.T) {
 		}
 	})
 
-	t.Run("a listener that cannot start is reported and does not abort the spawn", func(t *testing.T) {
+	t.Run("a listener that cannot start says so in the warden log", func(t *testing.T) {
 		h := newSpawnHarness()
 		h.runner.fallback = wardenRun{err: errors.New("no server running")}
 

@@ -6,21 +6,59 @@ import (
 	"io"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
 
-// recordTmux records the argv of every tmux call delivery makes.
+// recordTmux records the argv of every tmux call delivery makes. It is safe for
+// the pump goroutine to write while a test reads, and a test can hold ONE call
+// open (hold/held) so it can queue more lines while a delivery is in flight.
 type recordTmux struct {
+	mu    sync.Mutex
 	calls [][]string
 	fail  map[int]bool // call index → return an error
+
+	hold  chan struct{} // closed by the test to release the held call
+	held  chan struct{} // closed once the held call has been entered
+	holdN int           // which call index to hold
 }
 
 func (r *recordTmux) run(args ...string) error {
+	r.mu.Lock()
 	r.calls = append(r.calls, append([]string(nil), args...))
-	if r.fail[len(r.calls)-1] {
+	n := len(r.calls) - 1
+	fail := r.fail[n]
+	r.mu.Unlock()
+	if r.hold != nil && n == r.holdN {
+		close(r.held)
+		<-r.hold
+	}
+	if fail {
 		return errors.New("tmux refused")
 	}
+	return nil
+}
+
+func (r *recordTmux) snapshot() [][]string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([][]string(nil), r.calls...)
+}
+
+// awaitCalls waits until at least n calls have landed, so a test can observe the
+// pump WITHOUT stopping it — the difference between "delivery happens" and
+// "delivery happens only because stopping flushes".
+func (r *recordTmux) awaitCalls(t *testing.T, n int) [][]string {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if got := r.snapshot(); len(got) >= n {
+			return got
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatalf("only %d tmux call(s) landed, want at least %d", len(r.snapshot()), n)
 	return nil
 }
 
@@ -60,8 +98,8 @@ func TestPaneWriter(t *testing.T) {
 		if got := log.String(); got != line+"\n" {
 			t.Errorf("log = %q, want %q", got, line+"\n")
 		}
-		if want := deliveryOf("officraft", "member-m1", line); !reflect.DeepEqual(rec.calls, want) {
-			t.Errorf("tmux calls =\n%v\nwant\n%v", rec.calls, want)
+		if want := deliveryOf("officraft", "member-m1", line); !reflect.DeepEqual(rec.snapshot(), want) {
+			t.Errorf("tmux calls =\n%v\nwant\n%v", rec.snapshot(), want)
 		}
 	})
 
@@ -89,8 +127,8 @@ func TestPaneWriter(t *testing.T) {
 				if tc.delivered {
 					want = deliveryOf("officraft", "member-m1", tc.line)
 				}
-				if !reflect.DeepEqual(rec.calls, want) {
-					t.Errorf("tmux calls =\n%v\nwant\n%v", rec.calls, want)
+				if !reflect.DeepEqual(rec.snapshot(), want) {
+					t.Errorf("tmux calls =\n%v\nwant\n%v", rec.snapshot(), want)
 				}
 				// Swallowed or not, the listener's own log keeps every line — it is
 				// the only place a swallowed one can still be read.
@@ -102,21 +140,32 @@ func TestPaneWriter(t *testing.T) {
 	})
 
 	t.Run("lines that pile up while a delivery runs go out as ONE paste", func(t *testing.T) {
+		// The wind-down and recycle hooks print the owner's 〈停止〉 document ONE
+		// LINE PER WRITE, so the lines really do arrive while the previous one is
+		// still being pasted. Seventeen separate pastes would be seventeen turns
+		// on the model, each one's Enter racing the next one's paste.
+		//
+		// The condition has to be BUILT, not assumed: the first delivery is held
+		// open inside tmux while the rest of the document is written.
 		var log bytes.Buffer
-		w, rec := newRecordingPaneWriter(&log)
+		rec := &recordTmux{fail: map[int]bool{}, hold: make(chan struct{}), held: make(chan struct{})}
+		w := newPaneWriter(&log, "officraft", "member-m1", rec.run, func(time.Duration) {})
+		stop := w.start()
 
-		// The wind-down and recycle hooks print the owner's 〈停止〉 document one
-		// line per Write. Seventeen separate pastes would be seventeen turns on
-		// the model, each one's Enter racing the next one's paste.
-		lines := []string{"[ocagent] recycle: 你被收回了", "[ocagent] recycle: 1. 收尾", "[ocagent] recycle: 2. 回報"}
-		for _, line := range lines {
+		first := "[ocagent] recycle: 你被收回了"
+		rest := []string{"[ocagent] recycle: 1. 收尾", "[ocagent] recycle: 2. 回報"}
+		w.Write([]byte(first + "\n"))
+		<-rec.held // the pump is now inside the first delivery
+		for _, line := range rest {
 			w.Write([]byte(line + "\n"))
 		}
-		w.drain()
+		close(rec.hold)
+		stop()
 
-		want := deliveryOf("officraft", "member-m1", strings.Join(lines, "\n"))
-		if !reflect.DeepEqual(rec.calls, want) {
-			t.Errorf("tmux calls =\n%v\nwant\n%v", rec.calls, want)
+		want := append(deliveryOf("officraft", "member-m1", first),
+			deliveryOf("officraft", "member-m1", strings.Join(rest, "\n"))...)
+		if got := rec.snapshot(); !reflect.DeepEqual(got, want) {
+			t.Errorf("tmux calls =\n%v\nwant\n%v", got, want)
 		}
 	})
 
@@ -126,15 +175,15 @@ func TestPaneWriter(t *testing.T) {
 
 		w.Write([]byte("[ocagent] chat #c-1 from "))
 		w.drain()
-		if len(rec.calls) != 0 {
-			t.Fatalf("half a line was delivered: %v", rec.calls)
+		if len(rec.snapshot()) != 0 {
+			t.Fatalf("half a line was delivered: %v", rec.snapshot())
 		}
 
 		w.Write([]byte("Owner: 看一下這個\n"))
 		w.drain()
 		want := deliveryOf("officraft", "member-m1", "[ocagent] chat #c-1 from Owner: 看一下這個")
-		if !reflect.DeepEqual(rec.calls, want) {
-			t.Errorf("tmux calls =\n%v\nwant\n%v", rec.calls, want)
+		if !reflect.DeepEqual(rec.snapshot(), want) {
+			t.Errorf("tmux calls =\n%v\nwant\n%v", rec.snapshot(), want)
 		}
 	})
 
@@ -152,8 +201,8 @@ func TestPaneWriter(t *testing.T) {
 		want = append(want[:2:2],
 			append([][]string{{"-L", "officraft", "paste-buffer", "-t", "member-m1", "-b", "oc-listen-deliver-member-m1"}},
 				want[2:]...)...)
-		if !reflect.DeepEqual(rec.calls, want) {
-			t.Errorf("tmux calls =\n%v\nwant\n%v", rec.calls, want)
+		if !reflect.DeepEqual(rec.snapshot(), want) {
+			t.Errorf("tmux calls =\n%v\nwant\n%v", rec.snapshot(), want)
 		}
 	})
 
@@ -174,7 +223,7 @@ func TestPaneWriter(t *testing.T) {
 		a.drain()
 		b.drain()
 
-		bufA, bufB := recA.calls[0][4], recB.calls[0][4]
+		bufA, bufB := recA.snapshot()[0][4], recB.snapshot()[0][4]
 		if bufA == bufB {
 			t.Fatalf("both members wrote the buffer %q — one overwrites the other", bufA)
 		}
@@ -186,17 +235,45 @@ func TestPaneWriter(t *testing.T) {
 		}
 	})
 
-	t.Run("the pump delivers without anyone draining it, and stopping flushes the tail", func(t *testing.T) {
+	t.Run("a write reaches the pane with nobody stopping or draining the writer", func(t *testing.T) {
+		// 🔴 THE OBSERVATION HAS TO HAPPEN BEFORE stop(). Stopping flushes, so a
+		// test that writes, stops, and only then looks is green even when Write
+		// never wakes the pump at all — and a listener that only delivers at
+		// process exit is a member that hears nothing all day.
 		var log bytes.Buffer
 		w, rec := newRecordingPaneWriter(&log)
 		stop := w.start()
+		defer stop()
 
+		line := "[ocagent] chat #c-1 from Owner: 看一下這個"
+		w.Write([]byte(line + "\n"))
+
+		want := deliveryOf("officraft", "member-m1", line)
+		if got := rec.awaitCalls(t, len(want)); !reflect.DeepEqual(got, want) {
+			t.Errorf("tmux calls =\n%v\nwant\n%v", got, want)
+		}
+	})
+
+	t.Run("stopping flushes what is still queued", func(t *testing.T) {
+		// The last thing this listener says is usually the give-up line, and a
+		// member told nothing cannot tell 還在重試 from 已經放棄. The queued line
+		// is put in while the pump is held inside an earlier delivery, so it
+		// cannot already be out by the time stop is called.
+		var log bytes.Buffer
+		rec := &recordTmux{fail: map[int]bool{}, hold: make(chan struct{}), held: make(chan struct{})}
+		w := newPaneWriter(&log, "officraft", "member-m1", rec.run, func(time.Duration) {})
+		stop := w.start()
+
+		w.Write([]byte("[ocagent] listen: disconnected — connection refused\n"))
+		<-rec.held
 		w.Write([]byte("[ocagent] listen: giving up — 30 attempts\n"))
+		close(rec.hold)
 		stop()
 
-		want := deliveryOf("officraft", "member-m1", "[ocagent] listen: giving up — 30 attempts")
-		if !reflect.DeepEqual(rec.calls, want) {
-			t.Errorf("tmux calls =\n%v\nwant\n%v", rec.calls, want)
+		want := append(deliveryOf("officraft", "member-m1", "[ocagent] listen: disconnected — connection refused"),
+			deliveryOf("officraft", "member-m1", "[ocagent] listen: giving up — 30 attempts")...)
+		if got := rec.snapshot(); !reflect.DeepEqual(got, want) {
+			t.Errorf("tmux calls =\n%v\nwant\n%v", got, want)
 		}
 	})
 }
@@ -245,8 +322,8 @@ func TestRunListen(t *testing.T) {
 			t.Errorf("rc = %d, want the run's own answer 7", rc)
 		}
 		want := deliveryOf("lab", "member-m1", "[ocagent] chat #c-9 from Owner: 看一下")
-		if !reflect.DeepEqual(rec.calls, want) {
-			t.Errorf("tmux calls =\n%v\nwant\n%v", rec.calls, want)
+		if !reflect.DeepEqual(rec.snapshot(), want) {
+			t.Errorf("tmux calls =\n%v\nwant\n%v", rec.snapshot(), want)
 		}
 	})
 
@@ -266,8 +343,8 @@ func TestRunListen(t *testing.T) {
 		if got := out.String(); got != "[ocagent] chat #c-9\n" {
 			t.Errorf("out = %q, want the line itself", got)
 		}
-		if len(rec.calls) != 0 {
-			t.Errorf("tmux was used without --deliver-tmux: %v", rec.calls)
+		if len(rec.snapshot()) != 0 {
+			t.Errorf("tmux was used without --deliver-tmux: %v", rec.snapshot())
 		}
 	})
 
