@@ -28,8 +28,8 @@ import (
 // different Go module, and that copy has already drifted once.
 
 const (
-	// One buffer name for all deliveries: they are serialised (deliverMu), so a
-	// second name would only make two half-pasted lines possible.
+	// One buffer name for all deliveries: they are serialised by the writer mutex,
+	// so a second name would only make two half-pasted lines possible.
 	paneBufferName = "oc-listen-deliver"
 
 	// Enter is what SUBMITS the pasted line; the paste alone leaves it sitting
