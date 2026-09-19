@@ -368,6 +368,10 @@ func TestPaneWriter(t *testing.T) {
 		// into Enter. Re-sending a BATCH that way would submit one turn per line
 		// with three stray Enters between them; re-sending line by line is the
 		// pre-batch behaviour, which is the worst this path may degrade to.
+		//
+		// tmux 3.7c does NOT do that (measured against a real Claude Code pane),
+		// so which hosts need this is unknown and the pessimistic reading is the
+		// one that costs nothing.
 		var log bytes.Buffer
 		rec := &recordTmux{fail: map[int]bool{1: true}} // the -d -p paste
 		w := newPaneWriter(&log, "officraft", "member-m1", rec.run, func(time.Duration) {})

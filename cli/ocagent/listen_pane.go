@@ -332,11 +332,16 @@ func forwardToPane(line string) bool {
 // deliver puts one batch into the member's pane: one paste when this host's tmux
 // takes the flags, otherwise ONE LINE AT A TIME.
 //
-// 🔴 THE FALLBACK MUST NOT CARRY A BATCH. Without -p, tmux turns each newline
-// in the buffer into Enter, so re-pasting a 17-line batch that way submits 17
-// turns interleaved with the Enter presses below — worse than the one-line-per-turn
-// behaviour batching replaced, and worse the bigger the batch. Re-sending line by
-// line makes the degraded path exactly the old behaviour instead.
+// 🔴 THE FALLBACK MUST NOT CARRY A BATCH, AND WHICH HOSTS NEED THAT IS NOT
+// KNOWN. On tmux 3.6b the bare paste turns each newline in the buffer into
+// Enter, so re-pasting a 17-line batch that way submits 17 turns interleaved
+// with the Enter presses below — worse than the one-line-per-turn behaviour
+// batching replaced, and worse the bigger the batch. On tmux 3.7c it does NOT:
+// measured against a real Claude Code pane, both the flagged and the bare paste
+// left all three lines sitting in the input box. So this is version-dependent
+// and the safe reading is the pessimistic one. Re-sending line by line costs
+// nothing where the bare paste is already safe, and is exactly the pre-batch
+// behaviour where it is not.
 func (w *paneWriter) deliver(payload string) {
 	_ = w.run("-L", w.socket, "set-buffer", "-b", w.buffer, payload)
 	if err := w.run("-L", w.socket, "paste-buffer", "-t", w.session, "-b", w.buffer, "-d", "-p"); err == nil {
