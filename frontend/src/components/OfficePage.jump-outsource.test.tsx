@@ -171,6 +171,64 @@ describe("OfficePage — 跳到原訊息 to an outsource sender", () => {
     ).toBe(avatarUrl);
   });
 
+  it("lands on the card's own message for a STILL-LIVE worker (not merely the newest)", async () => {
+    // T-262: the live-worker projection used to hand ChatArea
+    // `jumpToMsgId: undefined`, so 跳到原訊息 opened the right room and then sat
+    // on the newest message — no highlight, no error. The released branch
+    // (above) and the 正職 branch both pass route.msgId; this is the third path.
+    //
+    // The assertion is the SAME observable the released case uses: the located
+    // (highlighted) message. A control message sits AFTER the target so
+    // "landed on the newest" and "landed on the target" cannot look alike.
+    const workerId = "ow-live-jump01";
+    __injectMockOutsourceWorker({
+      id: workerId,
+      codename: "O-43",
+      model: "Opus 4.6",
+      effort: "high",
+      taskId: "t-live-jump",
+      taskTitle: "整理報告",
+      taskStatus: "in_progress",
+      createdTs: Date.now() / 1000 - 600,
+    });
+    __injectMockChat({
+      id: "m-target",
+      from: workerId,
+      to: "owner",
+      body: "卡片指向的那一則。",
+      ts: Date.now() / 1000 - 300,
+      attachments: [],
+      replyCardId: null,
+    });
+    __injectMockChat({
+      id: "m-newer",
+      from: workerId,
+      to: "owner",
+      body: "後來才發的最新一則。",
+      ts: Date.now() / 1000 - 30,
+      attachments: [],
+      replyCardId: null,
+    });
+
+    window.location.hash = `#office/chat/${workerId}/msg/m-target`;
+
+    const { findByText, findByTestId } = renderOffice();
+
+    // Sanity: this really is the LIVE-worker branch (not the released one).
+    await findByTestId("outsource-chat-sub");
+
+    // POSITIVE: the card's message is the located jump target.
+    const target = await findByText("卡片指向的那一則。");
+    await waitFor(() =>
+      expect(target.closest(".chat__msg--located")).not.toBeNull(),
+    );
+
+    // NEGATIVE: the newest message is NOT the located one — "opened the room
+    // and stopped at the bottom" (the bug) fails here.
+    const newer = await findByText("後來才發的最新一則。");
+    expect(newer.closest(".chat__msg--located")).toBeNull();
+  });
+
   it("a removed 正職 member's stale chatId renders its own read-only history, not Mira", async () => {
     // Finding #3: a stale chatId no longer self-heals to roster[0]. A non-`ow-`
     // id that resolves to no roster member is treated as a removed member — its
