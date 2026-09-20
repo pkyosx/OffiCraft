@@ -1614,7 +1614,7 @@
       "name": "create_reply_card"
     },
     {
-      "description": "List light reply-card rows (summary and decision digest, without the full body/options). status is waiting (the default, longest-waiting first), answered (the last 24 hours) or expired (the last 24 hours); a positive limit is applied after each pane is ordered. Every pane covers every card on the station, not only the cards you opened. Read one card in full with get_reply_card.",
+      "description": "List light reply-card rows (summary and decision digest, without the full body/options). status is waiting (the default, longest-waiting first), answered (the last 24 hours) or expired (the last 24 hours); a positive limit is applied after each pane is ordered. Every pane covers every card on the station, not only the cards you opened — pass opened_by to narrow a pane to the cards ONE member opened. Read one card in full with get_reply_card.",
       "inputSchema": {
         "properties": {
           "limit": {
@@ -1629,6 +1629,19 @@
             "default": null,
             "description": "Maximum number of cards to return. It only ever truncates: 0, a negative value, or omitting the field all mean the WHOLE pane - never an empty result, never an error - and a value larger than the pane is silently harmless. So 'limit: 0' does not mean 'none'; if you pass 0 as a computed default you fetch everything. And since the answer is a plain list with no total and no truncation flag, a full pane and a truncated one look exactly the same.",
             "title": "Limit"
+          },
+          "opened_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Keep only the cards OPENED BY this member id. Omitted, the pane carries every card on the station \u2014 the rows have always named their opener, so what was missing is the filter, not the data. It is a plain string comparison against each card's opener and nothing resolves it, so an id nobody carries is NOT an error: it answers 200 with an EMPTY pane, byte for byte what a real member with no cards in that pane answers. An empty pane is therefore not evidence that nobody is waiting on you; it is equally evidence you misspelled the member. An EMPTY string - or one that is only whitespace - counts as NOT passing the field at all: you get the WHOLE pane, every member's cards included - the filter is what never empties it. That is the same convention limit follows for 0, and it cuts the same way: an empty opened_by does not mean 'nobody', so if you pass a computed value that came out empty you fetch everyone, and nothing in the answer says the filter was dropped.",
+            "title": "Opened By"
           },
           "status": {
             "anyOf": [

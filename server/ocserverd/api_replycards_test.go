@@ -818,6 +818,98 @@ func TestHandleListReplyCardsApiReplyCardsGet(t *testing.T) {
 		}))
 	})
 
+	t.Run("opened_by narrows the pane before the limit truncates it", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		admin := apiTestAgentToken(t, api, "mira", "")
+		agent := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
+		apiTestOpenReplyCard(t, h, agent,
+			`{"kind":"decision","summary":"要不要漲價","options":[{"text":"漲"}],"linked_task":null}`)
+		second := apiTestOpenReplyCard(t, h, admin,
+			`{"kind":"decision","summary":"要不要出貨","options":[{"text":"出"}],"linked_task":null}`)
+		third := apiTestOpenReplyCard(t, h, admin,
+			`{"kind":"action","summary":"請批退款","options":[{"text":"退"}],"linked_task":null}`)
+		apiTestOpenReplyCard(t, h, admin,
+			`{"kind":"decision","summary":"要不要加班","options":[{"text":"加"}],"linked_task":null}`)
+
+		apiWantValue(t, "waiting pane",
+			any(apiTestReplyCardPane(t, h, owner, "?opened_by=mira&limit=2")), any([]any{
+				map[string]any{
+					"id":          second,
+					"from":        "mira",
+					"kind":        "decision",
+					"summary":     "要不要出貨",
+					"status":      "waiting",
+					"created_ts":  apiAnyNumber,
+					"answered_ts": nil,
+					"expired_ts":  nil,
+					"answer":      nil,
+					"task":        nil,
+				},
+				map[string]any{
+					"id":          third,
+					"from":        "mira",
+					"kind":        "action",
+					"summary":     "請批退款",
+					"status":      "waiting",
+					"created_ts":  apiAnyNumber,
+					"answered_ts": nil,
+					"expired_ts":  nil,
+					"answer":      nil,
+					"task":        nil,
+				},
+			}))
+	})
+
+	t.Run("an empty opened_by is not a filter and the whole pane comes back", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		admin := apiTestAgentToken(t, api, "mira", "")
+		agent := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
+		first := apiTestOpenReplyCard(t, h, agent,
+			`{"kind":"decision","summary":"要不要漲價","options":[{"text":"漲"}],"linked_task":null}`)
+		second := apiTestOpenReplyCard(t, h, admin,
+			`{"kind":"decision","summary":"要不要出貨","options":[{"text":"出"}],"linked_task":null}`)
+
+		for _, query := range []string{"?opened_by=", "?opened_by=%20"} {
+			apiWantValue(t, "waiting pane "+query,
+				any(apiTestReplyCardPane(t, h, owner, query)), any([]any{
+					map[string]any{
+						"id":          first,
+						"from":        apiTestPlainAgentID,
+						"kind":        "decision",
+						"summary":     "要不要漲價",
+						"status":      "waiting",
+						"created_ts":  apiAnyNumber,
+						"answered_ts": nil,
+						"expired_ts":  nil,
+						"answer":      nil,
+						"task":        nil,
+					},
+					map[string]any{
+						"id":          second,
+						"from":        "mira",
+						"kind":        "decision",
+						"summary":     "要不要出貨",
+						"status":      "waiting",
+						"created_ts":  apiAnyNumber,
+						"answered_ts": nil,
+						"expired_ts":  nil,
+						"answer":      nil,
+						"task":        nil,
+					},
+				}))
+		}
+	})
+
+	t.Run("an opened_by nobody carries answers an empty pane rather than an error", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
+		apiTestOpenReplyCard(t, h, agent,
+			`{"kind":"decision","summary":"要不要漲價","options":[{"text":"漲"}],"linked_task":null}`)
+
+		apiWantValue(t, "waiting pane",
+			any(apiTestReplyCardPane(t, h, owner, "?opened_by=nobody")), any([]any{}))
+	})
+
 	t.Run("the answered pane leads with the newest answer and digests every circled option", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		agent := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
