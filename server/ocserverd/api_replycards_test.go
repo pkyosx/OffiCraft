@@ -159,7 +159,7 @@ func TestOpenReplyCard(t *testing.T) {
 			Summary: "ship this",
 			Body:    &body,
 			Options: []ReplyCardOptionDTO{{Text: "ship", AiPick: &pick}, {Text: "hold"}},
-		}, "", "")
+		}, nil, nil, "mira")
 		if err != nil || problem != "" {
 			t.Fatalf("openReplyCard = card:%#v problem:%q err:%v", card, problem, err)
 		}
@@ -216,7 +216,7 @@ func TestOpenReplyCard(t *testing.T) {
 			Kind:    ReplyCardCreateDTOKind("decision"),
 			Summary: "orphan",
 			Options: []ReplyCardOptionDTO{{Text: "yes"}},
-		}, "T-1", "")
+		}, &Task{ID: "T-1", Status: TaskStatusInProgress}, nil, "mira")
 		want := "refusing to mint a reply card bound to task 'T-1' with no step: a step-less task binding places no 等我回覆 hold and orphans the card when the task closes"
 		if err == nil || problem != "" || err.Error() != want {
 			t.Fatalf("step-less binding = problem:%q err:%v, want %q", problem, err, want)

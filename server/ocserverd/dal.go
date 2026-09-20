@@ -2677,6 +2677,43 @@ func (d *DAL) PutReplyCardWithChat(c ReplyCard, m ChatMessage, atts []ChatAttach
 	})
 }
 
+// PutReplyCardWithChatAndStep is PutReplyCardWithChat plus the two rows a
+// TASK-BOUND card has to land with: the step it puts into 等我回覆 and the task
+// whose status that step derives.
+//
+// 🔴 THE SPLIT IS WHAT CREATED DUPLICATE CARDS. The card and its message were
+// already atomic, but the step and task were written afterwards by a second,
+// separate call — so a fault there answered 500 over a card that was already in
+// the owner's stream. The asker, told its ask failed, opened another one, and
+// the owner got two cards for one question with no hold placed by either.
+// Nothing about the 500 said a card existed.
+//
+// The task may be nil when its status does not move; the step may not.
+func (d *DAL) PutReplyCardWithChatAndStep(
+	c ReplyCard, m ChatMessage, atts []ChatAttachment, st TaskStep, t *Task,
+) error {
+	return d.inTx(func(tx *sql.Tx) error {
+		for _, a := range atts {
+			if err := putChatAttachmentOn(tx, a); err != nil {
+				return err
+			}
+		}
+		if err := putChatOn(tx, m); err != nil {
+			return err
+		}
+		if err := putReplyCardOn(tx, c); err != nil {
+			return err
+		}
+		if err := putTaskStepOn(tx, st); err != nil {
+			return err
+		}
+		if t == nil {
+			return nil
+		}
+		return putTaskOn(tx, *t, taskWriteUpsert)
+	})
+}
+
 // PutReplyCardWithAttachments writes the card row and every fresh blob it names
 // in ONE transaction — the answer-side twin of PutReplyCardWithChat (there is
 // no companion message on this path; the card row IS the record that names the
@@ -2844,9 +2881,15 @@ type WebhookEndpoint struct {
 	// Observability counters (migrations/00014). LastReceivedTS is stamped by
 	// ANY /in call resolving to this token (delivered or dropped alike);
 	// DeliveredCount counts verified payloads that landed as a chat;
-	// DroppedCount counts silent drops, LastDropReason their latest coarse
-	// classification (WebhookDropReason* set). Owner-facing only — the /in
-	// HTTP response never reflects them.
+	// DroppedCount counts every payload that reached this endpoint and was not
+	// delivered, LastDropReason their latest coarse classification
+	// (WebhookDropReason* set). MOST of those are silent — disabled,
+	// sig_failed and member_gone all answer the same 200 every accepted call
+	// answers — but oversize is NOT: it is refused to the sender's face with a
+	// 413 that states the limit (T-222). Reading this counter as "how many
+	// senders were never told" is therefore wrong for that one class. What IS
+	// true of all four: the /in response never carries the counters themselves,
+	// which stay owner-facing.
 	LastReceivedTS float64
 	DeliveredCount int64
 	DroppedCount   int64

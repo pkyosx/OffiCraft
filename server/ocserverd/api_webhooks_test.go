@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"io"
 	"log"
 	"net/http"
 	"net/http/httptest"
@@ -705,6 +706,68 @@ func TestHandleReceiveWebhookInPost(t *testing.T) {
 		}
 	})
 
+	t.Run("a body cut off mid-upload returns a generic 500, delivers nothing and records nothing", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		token := apiTestWebhookToken(t, h, owner, "kip", `{"endpoint_id":"alerts","purpose":"CI"}`)
+		dashboard := apiTestListen(t, api, "")
+		recipient := apiTestListen(t, api, "kip")
+		logs := apiCaptureStandardLog(t)
+
+		req := httptest.NewRequest(http.MethodPost, "/in?t="+token,
+			&apiCutBody{head: []byte(`{"text":"build broke","build_id":"2026-09-20-`)})
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusInternalServerError {
+			t.Fatalf("status = %d, want 500", rec.Code)
+		}
+		if got := rec.Header().Get("Content-Type"); got != "application/json" {
+			t.Fatalf("Content-Type = %q, want %q", got, "application/json")
+		}
+		wantBody := `{"error":{"code":"internal_error","message":"internal server error"}}`
+		if got := rec.Body.String(); got != wantBody {
+			t.Fatalf("body = %q, want %q", got, wantBody)
+		}
+		if !strings.Contains(logs.String(), io.ErrUnexpectedEOF.Error()) {
+			t.Fatalf("server log = %q, want read error %q", logs.String(), io.ErrUnexpectedEOF)
+		}
+		dashboard.wantFrames()
+		recipient.wantFrames()
+		apiWantNoChatWithKip(t, h, owner)
+		apiWantWebhookRow(t, h, owner, apiWebhookAlertsRow(token))
+		apiWantWebhookRequests(t, h, owner, "alerts")
+
+		// Positive control on the SAME endpoint: without it, "no chat, untouched
+		// row, empty ring buffer" is equally what a token that records nothing
+		// ever would answer.
+		status, data := apiJSON(t, h, http.MethodPost, "/in?t="+token, "", `{"text":"build broke","build_id":"2026-09-20-17"}`)
+		if status != 200 {
+			t.Fatalf("complete body: want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{"status": "ok"})
+		apiWantWebhookRow(t, h, owner, map[string]any{
+			"endpoint_id":        "alerts",
+			"purpose":            "CI",
+			"status":             "enabled",
+			"created_ts":         apiAnyNumber,
+			"token":              token,
+			"platform":           "generic",
+			"has_signing_secret": false,
+			"last_received_ts":   apiAnyNumber,
+			"delivered_count":    1,
+			"dropped_count":      0,
+			"last_drop_reason":   "",
+		})
+		apiWantWebhookRequests(t, h, owner, "alerts", map[string]any{
+			"ts":        apiAnyNumber,
+			"outcome":   "delivered",
+			"headers":   `{"Content-Type":["application/json"]}`,
+			"body":      `{"text":"build broke","build_id":"2026-09-20-17"}`,
+			"truncated": false,
+		})
+	})
+
 	t.Run("an accepted call synthesises one chat delta to the member and the owner and reaches nobody else", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		token := apiTestWebhookToken(t, h, owner, "kip", `{"endpoint_id":"alerts","purpose":"CI"}`)
@@ -1099,6 +1162,22 @@ func TestHandleReceiveWebhookInPost(t *testing.T) {
 			"last_drop_reason":   "oversize",
 		})
 	})
+}
+
+// apiCutBody plays the sender whose connection drops mid-upload: the bytes that
+// did arrive, then a read error where io.EOF would have been. A body cut this
+// way is what a proxy timeout or an aborted POST actually hands the handler.
+type apiCutBody struct {
+	head []byte
+}
+
+func (b *apiCutBody) Read(p []byte) (int, error) {
+	if len(b.head) > 0 {
+		n := copy(p, b.head)
+		b.head = b.head[n:]
+		return n, nil
+	}
+	return 0, io.ErrUnexpectedEOF
 }
 
 func apiCaptureStandardLog(t *testing.T) *bytes.Buffer {

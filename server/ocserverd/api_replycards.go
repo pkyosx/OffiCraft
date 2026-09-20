@@ -212,24 +212,41 @@ func normalizeAnswerOptionIdxs(idxs []int) []int {
 	return out
 }
 
-// openReplyCard is the ONE create machinery both entry points share (the
-// plain POST /api/reply-cards ask AND the M3 task-gate arming): validate the
-// body, mint the card + its companion chat message (initiator → owner,
-// meta.reply_card_id), store both, fan the chat + reply_card deltas.
-// taskID/taskStepID are the gate linkage ("" = plain chat 請示). A validation
-// violation answers (nil, problem, nil) — the caller writes the 400.
-func (s *apiServer) openReplyCard(actor string, body ReplyCardCreateDTO, taskID, taskStepID string) (*ReplyCard, string, error) {
+// openReplyCard is the ONE create machinery (T-18 collapsed the plain ask and
+// the task-gate arming into a single entrance): validate the body, mint the
+// card + its companion chat message (initiator → owner, meta.reply_card_id),
+// write everything the ask consists of, then fan the deltas.
+// t/step are the gate linkage (both nil = plain chat 請示) and are ARMED HERE,
+// inside the same transaction as the card. A validation violation answers
+// (nil, problem, nil) — the caller writes the 400.
+func (s *apiServer) openReplyCard(
+	actor string, body ReplyCardCreateDTO, t *Task, step *TaskStep, trigger string,
+) (*ReplyCard, string, error) {
+	taskID, taskStepID := "", ""
+	if t != nil {
+		taskID = t.ID
+	}
+	if step != nil {
+		taskStepID = step.ID
+	}
 	// T-4166 STRUCTURAL INVARIANT: task binding implies step binding. A card
 	// bound to a task but to no step is the orphan shape — it places no
-	// waiting_owner hold (armStepWithCard needs the step), so the task runs on
-	// to done underneath it and the answer route then 409s forever. Every
-	// caller must resolve both or neither; enforced HERE, at the single mint,
-	// so the shape is unrepresentable no matter which entry point grows next.
-	// Loud on purpose: an error (500), not a silent degrade.
+	// waiting_owner hold (there is no step to arm), so the task runs on to done
+	// underneath it and the answer route then 409s forever. Every caller must
+	// resolve both or neither; enforced HERE, at the single mint, so the shape
+	// is unrepresentable no matter which entry point grows next. Loud on
+	// purpose: an error (500), not a silent degrade.
 	if taskID != "" && taskStepID == "" {
 		return nil, "", errors.New("refusing to mint a reply card bound to task '" +
 			taskID + "' with no step: a step-less task binding places no 等我回覆 hold " +
 			"and orphans the card when the task closes")
+	}
+	// The mirror image, and just as unrepresentable: a step whose task nobody
+	// resolved cannot have its task derived, so the hold would be placed on a
+	// step while the ticket above it went on reading in_progress.
+	if taskStepID != "" && taskID == "" {
+		return nil, "", errors.New("refusing to mint a reply card bound to step '" +
+			taskStepID + "' with no task: the step's task is what the hold derives")
 	}
 	// string(): the generated request type now carries the enum spec/openapi.json
 	// declares, so this is a named string type rather than a bare string. The
@@ -311,16 +328,40 @@ func (s *apiServer) openReplyCard(actor string, body ReplyCardCreateDTO, taskID,
 		TaskID:        taskID,
 		TaskStepID:    taskStepID,
 	}
-	// Blobs + companion message + card in ONE transaction: the message's
+	// Blobs + companion message + card — and, for a task-bound ask, the step it
+	// holds and the task that step derives — in ONE transaction: the message's
 	// meta.reply_card_id names the card, so a partial write would put a
-	// permanently dangling ask in the owner's stream (T-e2b2).
-	if err := s.dal.PutReplyCardWithChat(card, msg, fresh); err != nil {
-		return nil, "", err
+	// permanently dangling ask in the owner's stream (T-e2b2), and a card
+	// written without its hold is the shape that answered 500 over a live card
+	// and got the asker to open a second one.
+	var armedTask *Task
+	if step == nil {
+		if err := s.dal.PutReplyCardWithChat(card, msg, fresh); err != nil {
+			return nil, "", err
+		}
+	} else {
+		var err error
+		armedTask, err = s.prepareStepArmedWithCard(t, step, card.ID, now)
+		if err != nil {
+			return nil, "", err
+		}
+		if err := s.dal.PutReplyCardWithChatAndStep(card, msg, fresh, *step, armedTask); err != nil {
+			return nil, "", err
+		}
 	}
+	// Everything below is announcement, and it comes AFTER the commit for the
+	// same reason the rows share one: an owner told about a card the database
+	// does not hold has no way back from that.
 	s.hub.Publish("chat", "patch", "chat", wireOwnerID+"::"+msg.ID,
 		map[string]any{"id": msg.ID, "from": msg.Sender, "to": msg.Recipient},
 		audienceMembers(msg.Sender, msg.Recipient), actor)
 	s.publishReplyCard(card, actor)
+	// Only when the task row actually moved. prepareStepArmedWithCard answers nil
+	// for a task it decided not to write, and fanning a delta for a row nobody
+	// wrote would tell every listener to re-read something unchanged.
+	if armedTask != nil {
+		s.publishTask(*armedTask, trigger)
+	}
 	s.enqueueWebPush(webPushPayload{
 		Kind: "reply_card", ChatID: msg.ID, ReplyCardID: card.ID,
 		Title: "OffiCraft：需要你決定", Body: "你有一張新的請示卡。",
@@ -469,7 +510,8 @@ const linkedTaskTaskRequiredMsg = "linked_task.task_id is required: name the tas
 // retired open_gate route carried, moved here verbatim with it — caller must
 // drive the task (403), task must be in_progress|waiting_owner (409), the step
 // must belong to the task (404) and must not be terminal (409) — and then the
-// step (and its task) enters waiting_owner carrying the card (armStepWithCard).
+// step (and its task) enters waiting_owner carrying the card, in the same
+// transaction that writes the card.
 // A plain non-gate step is armable too: is_gate is a plan-declared property
 // (submit_plan) and arming does not rewrite it. Only a terminal step is
 // refused: done (nothing waits any more) and superseded (frozen replan history
@@ -530,7 +572,7 @@ func (s *apiServer) HandleCreateReplyCardApiReplyCardsPost(w http.ResponseWriter
 			return
 		}
 	}
-	card, problem, err := s.openReplyCard(currentActor(r), body, taskID, stepID)
+	card, problem, err := s.openReplyCard(currentActor(r), body, t, step, requestTrigger(r))
 	if err != nil {
 		internalError(w, err)
 		return
@@ -538,12 +580,6 @@ func (s *apiServer) HandleCreateReplyCardApiReplyCardsPost(w http.ResponseWriter
 	if problem != "" {
 		writeError(w, http.StatusBadRequest, problem)
 		return
-	}
-	if t != nil && step != nil {
-		if err := s.armStepWithCard(t, step, card.ID, requestTrigger(r)); err != nil {
-			internalError(w, err)
-			return
-		}
 	}
 	s.writeReplyCardCreateReceipt(w, *card)
 }
@@ -847,14 +883,16 @@ func (s *apiServer) applyReplyCardAnswer(w http.ResponseWriter, r *http.Request,
 // releaseCardHold releases the waiting_owner HOLD a reply card placed on a
 // task/step, fired when — and only when — the card leaves waiting through an
 // OWNER action: the FIRST answer (POST /answer: waiting → answered) or the
-// expire action (POST /expire: waiting → expired). It is the exit twin of
-// armStepWithCard: the bound step returns to in_progress (the owner settled
+// expire action (POST /expire: waiting → expired). It is the exit twin of the
+// arming that the card-open path commits: the bound step returns to
+// in_progress (the owner settled
 // the ask → the step is actionable again; the agent then advances it — after
 // an expiry it decides itself whether to reopen a fresh card or move on), and
 // the task returns to in_progress too UNLESS another bound card still waits on
-// it (SPEC §3.2 — one task, many cards) or the task never flipped in the first
-// place (a parallel-group step's card leaves the task in_progress;
-// armStepWithCard). This is the server-driven "答卡→回前態": the agent no
+// it (SPEC §3.2 — one task, many cards). A lane step is no exception in either
+// direction: the old parallel-group carve-out that left the task in_progress
+// while one lane waited is gone (owner ruling: any step 等我回覆 → task
+// 等我回覆). This is the server-driven "答卡→回前態": the agent no
 // longer self-reports the resume, so a task can never linger in waiting_owner
 // behind an already-settled card. Work progress PAST in_progress stays the
 // agent's to report (the surviving half of H4: the server releases the hold,
