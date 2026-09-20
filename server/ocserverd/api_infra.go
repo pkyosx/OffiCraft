@@ -714,8 +714,11 @@ func (s *apiServer) anchorSessionBoot(memberID string) {
 // INTENT, and the moment the owner re-pins a member the intent stops describing
 // where it is. Without a durable observation an offline member has nothing to
 // compare the new pin against, so a move that has not happened yet cannot be
-// told from one that has. The anchor stays a PLACEMENT input for outsource only
-// (notifyWorkerSpawn is the sole reader); for staff it is purely observational.
+// told from one that has. The anchor stays a SPAWN-PLACEMENT input for outsource
+// only (notifyWorkerSpawn); for staff it feeds no spawn decision. It is NOT
+// purely observational for staff any more, though (T-253): the shared kill chain
+// reads it for BOTH populations as a stop's target source, above the staff pin
+// (shutdown.go killTargetChain).
 // A blank claim writes nothing (an owner dashboard connection, or an agent token
 // minted before machine claims existed) — "" means "unknown", never "nowhere",
 // and erasing a known landing on an unknowable connect is how a worker would

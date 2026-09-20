@@ -62,12 +62,26 @@ func (s *apiServer) putMemberOwnerOnly(m Member, trigger string) error {
 	return nil
 }
 
+// collectMemberStop is the owner-driven 收口 for a staff member (deactivate /
+// force-stop reaching an offline member): latch the dump-done marker, then kill.
+//
+// 🔴 IT ROLLS THE LATCH BACK ON A FAILED SECOND STEP, exactly as the
+// stopped-report funnels do (latchWorkerStopped, HandleReportStopped). The two
+// durable writes are the same pair and so is the trap: the anchor lands,
+// putMember fails, the caller answers 500 — and every later collect of this
+// member reads a non-zero prior, calls itself already-reported and dispatches
+// nothing, forever. Fixing it at the stopped-report entrances and not here
+// would leave the same permanent failure behind one door of the same house.
 func (s *apiServer) collectMemberStop(m *Member, trigger string) error {
-	collectWindDownRow(windDownAnchorRowOfMember(m), nowSecs())
+	_, prior := collectWindDownRow(windDownAnchorRowOfMember(m), nowSecs())
 	if err := s.persistMemberWindDownAnchors(*m); err != nil {
 		return err
 	}
 	if err := s.putMember(*m, trigger); err != nil {
+		m.StoppedSince = prior
+		if rerr := s.persistMemberWindDownAnchors(*m); rerr != nil {
+			reconcileLog("collect %s: latch rollback failed: %v", m.ID, rerr)
+		}
 		return err
 	}
 	s.bankLiveCost(m.ID)
@@ -1857,8 +1871,8 @@ func (s *apiServer) HandleDeactivateMemberApiMembersMemberIdDeactivatePost(w htt
 }
 
 // POST /api/members/{member_id}/force-stop — STOP intent now (stamps
-// stopping_since if unset or in the future) + the immediate robust-STOP dispatch straight
-// to the member's warden, bypassing the ~30s cadence
+// stopping_since if unset or in the future) + the immediate robust-STOP dispatch
+// down the shared kill-target chain, bypassing the ~30s cadence
 // (handlers.handle_force_stop_member).
 //
 // There is no grace clock here to bypass: the SERVER arms none on the 下線 arm
@@ -2275,9 +2289,12 @@ func (s *apiServer) HandleReportStoppingApiSelfStoppingPost(w http.ResponseWrite
 }
 
 // POST /api/self/stopped — anchors stopped_since ONCE (never re-stamped).
-// Staff and outsource workers share one decision (decideStoppedReport); only
-// the kill differs per kind. A replacement, if any, starts once the session
-// reads offline.
+// Staff and outsource workers share one decision (decideStoppedReport) and,
+// since T-253, one kill (dispatchShutdown). What still differs per kind is the
+// BOOKKEEPING around it — the worker arm's park/retry ledger and its latch
+// rollback run under outsourceMu, which is why that kind takes its own handler
+// body rather than falling through this one. A replacement, if any, starts once
+// the session reads offline.
 func (s *apiServer) HandleReportStoppedApiSelfStoppedPost(w http.ResponseWriter, r *http.Request) {
 	m, err := s.resolveSelf(r)
 	if err != nil {
@@ -2310,12 +2327,23 @@ func (s *apiServer) HandleReportStoppedApiSelfStoppedPost(w http.ResponseWriter,
 	//
 	// desired_state decides what follows, and neither arm needs a special case
 	// here: online respawns on the next tick's plain START, offline stays down.
-	collect, stopEffect, _ := decideStoppedReport(windDownAnchorRowOfMember(m), nowSecs())
+	collect, stopEffect, prior := decideStoppedReport(windDownAnchorRowOfMember(m), nowSecs())
 	if err := s.persistMemberWindDownAnchors(*m); err != nil {
 		internalError(w, err)
 		return
 	}
 	if err := s.putMember(*m, requestTrigger(r)); err != nil {
+		// 🔴 T-253 D: the anchor write above already landed stopped_since
+		// DURABLY, so leaving it there turns one failed row write into a member
+		// that can never be collected: the retry reads a non-zero prior, answers
+		// already_reported and dispatches nothing, forever. Roll the latch back so
+		// the retry is a FIRST report again. The success path never rolls back, so
+		// a healthy report still latches once and a genuine repeat still reads
+		// already_reported. The worker twin is latchWorkerStopped.
+		m.StoppedSince = prior
+		if rerr := s.persistMemberWindDownAnchors(*m); rerr != nil {
+			reconcileLog("stopped-report %s: latch rollback failed: %v", m.ID, rerr)
+		}
 		internalError(w, err)
 		return
 	}

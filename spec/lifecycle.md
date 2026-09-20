@@ -906,11 +906,18 @@ decides that time is up.
   stopped report now waits indefinitely, holding its task with it. The exit is the owner's
   own hand — the same escalation the staff side has, and since T-ed79 the same three rungs:
   停止 → 加速停止 → 強制停止.
-- 🔴 **Neither of those two paths re-dispatches.** Both go through the one-shot
-  `dispatchRobustStopNow`, which enqueues once and does NOT write `last_command` /
+- 🔴 **Neither of those two paths goes through the producer's own discipline.** Both go
+  through `dispatchRobustStopNow`, which does NOT write `last_command` /
   `last_command_at` — so the producer's de-dupe/re-dispatch discipline below never engages
-  for them. **If that STOP frame is lost, nothing on the server re-sends it; the remaining
-  escalation is the owner's hand.**
+  for them. **It is no longer one-shot, though (T-ed79):** every dispatch from there arms an
+  at-least-once marker (`reconcileState.RobustStopPendingAt`, armed UNCONDITIONALLY —
+  including when the fail-closed enqueue gate refused the frame), and the cadence re-sends
+  the STOP once the member is STILL online past `stop_retry`. Since T-253 the same dispatch
+  also addresses a wider target chain, ending in a broadcast to every online warden, so
+  "nobody knew which machine to aim at" is no longer a way for the collect to go missing
+  either. What is still NOT automatic is escalation beyond re-sending the same STOP: if the
+  warden keeps taking the frame and the session survives it, the remaining escalation is the
+  owner's hand.
 - De-dupe and re-dispatch (MUST NOT re-issue while `last_command==STOP` within
   `stop_retry`; once `stop_retry` elapses and the member is STILL online, MUST re-dispatch
   — at-least-once over the at-most-once band, re-firing being an idempotent warden-side

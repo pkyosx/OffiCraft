@@ -857,9 +857,22 @@ var identityGateLedger = map[string]string{
 		"resolving 'which machine executes this' — the addressed row must actually BE a " +
 		"machine. Returning \"\" makes 'nowhere to send this' a nameable answer instead " +
 		"of an ordinary-looking unreachable warden.",
-	"reconcile.go :: wardenTargetOf :: cand.Kind == KindWarden": "" +
-		"the fallback arm of the same resolution: the observed host id must resolve to " +
-		"an ACTIVE machine row before it is used as a dispatch target.",
+	"shutdown.go :: activeWardenAt :: cand.Kind != KindWarden": "" +
+		"the fallback arm of the same resolution, hoisted out of wardenTargetOf by " +
+		"T-253 so the shared kill chain and the pin resolution ask it once: the " +
+		"observed host id must resolve to an ACTIVE machine row before it is used as " +
+		"a dispatch target. Selecting machines to talk to, not classifying the subject.",
+	"shutdown.go :: onlineWardens :: m.Kind == KindWarden": "" +
+		"the broadcast last resort of the shared kill chain (T-253): fan the stop to " +
+		"every online machine when no source names one. Selecting machines to talk to, " +
+		"not classifying the subject — and it is the SAME list reclaimWorkerSession " +
+		"used to build for itself.",
+	"shutdown.go :: resolveShutdownTargets :: m.Kind == KindOutsource": "" +
+		"the ONE remaining 正職／外包 difference in a shutdown, and the owner approved " +
+		"keeping it (rc-79c50144ddf4): the worker arm has one extra SOURCE for the " +
+		"machine to kill on — the server's in-memory spawn target — which staff simply " +
+		"do not have. Everything after the target is resolved is one body. This gate " +
+		"chooses which sources to read, never what the stop does.",
 	"reconcile.go :: consumeUninstallIntentOnOffline :: m.Kind != KindWarden": "" +
 		"the uninstall-intent sweep is about machines being uninstalled; only a warden " +
 		"row can carry that desired_state. This is the loop whose in-body kind test " +
@@ -886,10 +899,6 @@ var identityGateLedger = map[string]string{
 		"the requested placement target must be an ACTIVE machine — refusing a " +
 		"non-machine here is what turns 'you asked for a box that is not a box' into a " +
 		"named unavailability instead of a silent fallback.",
-	"worker_spawn.go :: reclaimWorkerSession :: m.Kind == KindWarden": "" +
-		"fan the reclaim to every online machine when no specific spawn target is " +
-		"remembered. Selecting machines to talk to, not classifying the worker.",
-
 	// ── SSE / presence ──────────────────────────────────────────────────────
 	"api_infra.go :: HandleEventsApiEventsGet :: m.Kind == KindWarden": "" +
 		"warden-command eligibility (spec/sse.md §7): a connection drains the command " +

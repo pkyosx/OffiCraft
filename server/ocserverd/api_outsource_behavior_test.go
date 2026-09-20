@@ -7,6 +7,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -484,6 +485,38 @@ func seedMachine(t *testing.T, api *apiServer, id string) {
 	}
 }
 
+// wantRelocateFrames asserts target received EXACTLY the shared kill broadcast
+// followed by the start, both naming workerID — the frame pair every relocate /
+// restart of a worker whose previous machine no source can name now produces.
+func wantRelocateFrames(t *testing.T, api *apiServer, target, workerID string) {
+	t.Helper()
+	got := [][]any{}
+	for _, f := range api.hub.DrainWardenCommands(target) {
+		rpc, args := decodeWardenFrame(t, f.Frame)
+		got = append(got, []any{rpc, args["member_id"]})
+	}
+	want := [][]any{{reconcileCmdStop, workerID}, {reconcileCmdStart, workerID}}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("frames on %s = %v, want %v", target, got, want)
+	}
+}
+
+// wantOnlyKillFrames asserts target received the kill broadcast and NOTHING
+// else — in particular no start, so no machine is ever substituted for the
+// owner's pin.
+func wantOnlyKillFrames(t *testing.T, api *apiServer, target, workerID string) {
+	t.Helper()
+	got := [][]any{}
+	for _, f := range api.hub.DrainWardenCommands(target) {
+		rpc, args := decodeWardenFrame(t, f.Frame)
+		got = append(got, []any{rpc, args["member_id"]})
+	}
+	want := [][]any{{reconcileCmdStop, workerID}}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("frames on %s = %v, want %v", target, got, want)
+	}
+}
+
 // oneFrame drains exactly one warden command off target and returns its rpc +
 // args, failing if the count is not 1.
 func oneFrame(t *testing.T, api *apiServer, target string) (string, map[string]any) {
@@ -702,11 +735,10 @@ func TestRelocateNeverDispatchedWorker(t *testing.T) {
 
 	relocateOK(t, api, workerID, "m-new")
 
-	// The pinned host got the spawn, and it is the ONLY frame — no phantom
-	// worker_stop to a machine the worker never ran on.
-	if rpc, args := oneFrame(t, api, "m-new"); rpc != reconcileCmdStart || args["member_id"] != workerID {
-		t.Errorf("new host frame = %s %v, want worker_start for %s", rpc, args, workerID)
-	}
+	// The pinned host gets the shared kill broadcast (T-253: nothing names the
+	// machine a residual session could be on, so the chain ends fleet-wide — a
+	// no-op on a warden that never hosted this worker) and then the spawn.
+	wantRelocateFrames(t, api, "m-new", workerID)
 }
 
 // x46Worker seeds the VERBATIM X-46 row read off the live cockpit: an already
@@ -747,10 +779,7 @@ func TestRelocateAssignedWorker_X46(t *testing.T) {
 
 	relocateOK(t, api, workerID, "m-11b2")
 
-	if rpc, args := oneFrame(t, api, "m-11b2"); rpc != reconcileCmdStart ||
-		args["member_id"] != workerID {
-		t.Errorf("the relocate must dispatch a start to the pin: %s %v", rpc, args)
-	}
+	wantRelocateFrames(t, api, "m-11b2", workerID)
 	if got := api.workerSpawnTarget[workerID]; got != "m-11b2" {
 		t.Errorf("spawn target = %q, want m-11b2", got)
 	}
@@ -868,10 +897,7 @@ func TestRestartWorker_NoKillTarget_StillAttemptsStart(t *testing.T) {
 		t.Fatalf("restart: %d %s", rec.Code, rec.Body.String())
 	}
 
-	if rpc, args := oneFrame(t, api, ServerSelfHost); rpc != reconcileCmdStart ||
-		args["member_id"] != workerID {
-		t.Errorf("restart must actually attempt the start: %s %v", rpc, args)
-	}
+	wantRelocateFrames(t, api, ServerSelfHost, workerID)
 	// Restart flips desired_state online FIRST, so it can never reach the shared
 	// path's held-down arm — the intent lives in the state, not in a per-entry copy.
 	got, _ := api.dal.GetOutsourceWorker(workerID)
@@ -938,14 +964,11 @@ func TestRelocateMintedOfflineWorker(t *testing.T) {
 
 	relocateOK(t, api, workerID, "m-new")
 
-	// The start went out, onto the machine the owner named and nowhere else.
-	if rpc, args := oneFrame(t, api, "m-new"); rpc != reconcileCmdStart ||
-		args["member_id"] != workerID {
-		t.Errorf("pinned host frame = %s %v, want start for %s", rpc, args, workerID)
-	}
-	if got := len(api.hub.DrainWardenCommands(ServerSelfHost)); got != 0 {
-		t.Errorf("nothing may be dispatched to the machine the owner did not pick, got %d", got)
-	}
+	// The START went out onto the machine the owner named and nowhere else. The
+	// old host gets the kill broadcast and nothing more — a stop is not a
+	// placement, so it never substitutes for the owner's pin.
+	wantRelocateFrames(t, api, "m-new", workerID)
+	wantOnlyKillFrames(t, api, ServerSelfHost, workerID)
 	// The dispatch is observable, so the cockpit's machine cell fills in.
 	if got := api.workerSpawnTarget[workerID]; got != "m-new" {
 		t.Errorf("spawn target = %q, want m-new (a blank cell is the X-46 symptom)", got)
@@ -978,9 +1001,7 @@ func TestRelocateMintedOfflineWorker_UnreachablePinLeavesReceipt(t *testing.T) {
 	if got := len(api.hub.DrainWardenCommands("m-dark")); got != 0 {
 		t.Errorf("an offline pin must not be dispatched to, got %d frames", got)
 	}
-	if got := len(api.hub.DrainWardenCommands(ServerSelfHost)); got != 0 {
-		t.Errorf("no other machine may be substituted for the owner's pin, got %d frames", got)
-	}
+	wantOnlyKillFrames(t, api, ServerSelfHost, workerID)
 	w, err := api.dal.GetOutsourceWorker(workerID)
 	if err != nil || w == nil {
 		t.Fatalf("re-read worker: %v", err)
