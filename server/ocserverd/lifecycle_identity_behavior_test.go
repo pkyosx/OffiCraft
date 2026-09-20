@@ -1,6 +1,6 @@
 package main
 
-// lifecycle_identity_gate_t170e_test.go — T-170e stage 5. The guard stage 3
+// lifecycle_identity_behavior_test.go — T-170e stage 5. The guard stage 3
 // named and deliberately did not attempt: LIFECYCLE-LIST-IS-OPT-IN-T170E.
 //
 // ── WHAT WAS STILL OPEN ─────────────────────────────────────────────────────

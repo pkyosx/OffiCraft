@@ -248,6 +248,18 @@ func (s *apiServer) openReplyCard(
 		return nil, "", errors.New("refusing to mint a reply card bound to step '" +
 			taskStepID + "' with no task: the step's task is what the hold derives")
 	}
+	// Both guards above read the DERIVED IDS; the write below branches on the
+	// POINTERS. A caller holding a step whose id is blank satisfies both — and
+	// then prepareStepArmedWithCard dereferences a task that is nil, so the
+	// refusal this mint promises arrives as a panic instead. The mirror case
+	// (a task pointer with a blank id, no step) slips past as a silently
+	// UNBOUND card, which is the one outcome the paragraph above rules out.
+	// Checked last, so a caller that resolved one side and not the other still
+	// reads whichever message above names what it actually got wrong.
+	if (t == nil) != (step == nil) {
+		return nil, "", errors.New("refusing to mint a reply card from a half-resolved " +
+			"binding: the task and the step must be resolved together or not at all")
+	}
 	// string(): the generated request type now carries the enum spec/openapi.json
 	// declares, so this is a named string type rather than a bare string. The
 	// closed-set check below is UNCHANGED and still load-bearing — the generated

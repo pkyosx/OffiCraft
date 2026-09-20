@@ -2688,7 +2688,13 @@ func (d *DAL) PutReplyCardWithChat(c ReplyCard, m ChatMessage, atts []ChatAttach
 // the owner got two cards for one question with no hold placed by either.
 // Nothing about the 500 said a card existed.
 //
-// The task may be nil when its status does not move; the step may not.
+// A nil task is DEFENCE, not a contract: no entrance reaches it today. The
+// one caller answers 409 to every task that is not in_progress|waiting_owner,
+// which already covers all three states TaskIsTerminal names — the only ones
+// that make the caller above hand us a nil. 🔴 Relax that 409 and this branch
+// writes the step while silently leaving the task row untouched: the split
+// this whole change exists to remove, back again with no test going red.
+// The step is never nil.
 func (d *DAL) PutReplyCardWithChatAndStep(
 	c ReplyCard, m ChatMessage, atts []ChatAttachment, st TaskStep, t *Task,
 ) error {

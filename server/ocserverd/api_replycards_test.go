@@ -222,6 +222,36 @@ func TestOpenReplyCard(t *testing.T) {
 			t.Fatalf("step-less binding = problem:%q err:%v, want %q", problem, err, want)
 		}
 	})
+
+	// Both halves of the pair the id guards cannot see: their subject is the
+	// derived id, so a pointer carrying a blank one reads to them as "nothing
+	// was bound". Reached only from inside this package, which is why they are
+	// driven here rather than through the endpoint.
+	t.Run("a step pointer whose id is blank, with no task, is refused instead of dereferencing the missing task", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+		_, problem, err := api.openReplyCard("mira", ReplyCardCreateDTO{
+			Kind:    ReplyCardCreateDTOKind("decision"),
+			Summary: "orphan",
+			Options: []ReplyCardOptionDTO{{Text: "yes"}},
+		}, nil, &TaskStep{ID: ""}, "mira")
+		want := "refusing to mint a reply card from a half-resolved binding: the task and the step must be resolved together or not at all"
+		if err == nil || problem != "" || err.Error() != want {
+			t.Fatalf("blank-id step with no task = problem:%q err:%v, want %q", problem, err, want)
+		}
+	})
+
+	t.Run("a task pointer whose id is blank, with no step, is refused instead of minting an unbound card", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+		_, problem, err := api.openReplyCard("mira", ReplyCardCreateDTO{
+			Kind:    ReplyCardCreateDTOKind("decision"),
+			Summary: "orphan",
+			Options: []ReplyCardOptionDTO{{Text: "yes"}},
+		}, &Task{ID: "", Status: TaskStatusInProgress}, nil, "mira")
+		want := "refusing to mint a reply card from a half-resolved binding: the task and the step must be resolved together or not at all"
+		if err == nil || problem != "" || err.Error() != want {
+			t.Fatalf("blank-id task with no step = problem:%q err:%v, want %q", problem, err, want)
+		}
+	})
 }
 
 func TestReplyCardDTOOf(t *testing.T) {
@@ -622,6 +652,70 @@ func TestHandleCreateReplyCardApiReplyCardsPost(t *testing.T) {
 		dashboard.wantFrames()
 		wantPushed()
 		apiTestWantNoReplyCards(t, h, owner)
+	})
+
+	t.Run("a storage fault on a task-bound ask answers 500, opens no card, places no hold and announces nothing", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		apiJSON(t, h, "POST", "/api/tasks/T-1/plan", agent,
+			`{"steps":[{"name":"Draft","dod":"a draft exists"}]}`)
+		steps, err := d.ListTaskSteps("T-1")
+		if err != nil {
+			t.Fatalf("ListTaskSteps: %v", err)
+		}
+		apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+steps[0].ID+"/status", agent, `{"status":"in_progress"}`)
+		dashboard := apiTestListen(t, api, "")
+		executor := apiTestListen(t, api, "kip")
+		wantPushed := apiTestWebPushSink(t, api)
+		// Only the WRITE pool: the reads on the way in (task, step, plan) go through
+		// the read pool, so the request still reaches the one transaction this case
+		// is about and fails there rather than at the door.
+		if err := d.wdb.Close(); err != nil {
+			t.Fatalf("close write pool: %v", err)
+		}
+		var probe any
+		probeErr := d.wdb.QueryRow("SELECT 1").Scan(&probe)
+		if probeErr == nil {
+			t.Fatal("closed write pool unexpectedly accepted a query")
+		}
+		status, data := apiJSON(t, h, "POST", "/api/reply-cards", agent,
+			`{"kind":"decision","summary":"ship this","options":[{"text":"yes"}],`+
+				`"linked_task":{"task_id":"T-1","step_id":"`+steps[0].ID+`"}}`)
+		if status != 500 {
+			t.Fatalf("want 500, got %d (%v)", status, data)
+		}
+		// The storage error reaches the caller verbatim. That is this site's
+		// shared internalError helper, unchanged by this package and identical on
+		// main — T-252 replaced it with a fixed message on the PUBLIC webhook inlet
+		// only. Recorded here as what the endpoint really answers, not as a shape
+		// anyone signed off; a fix would make this line the one that goes red.
+		apiWantError(t, data, "internal_error", "internal error: sql: database is closed")
+		// 🔴 The three announcement assertions are what this case exists for. Move the
+		// deltas or the push back above the commit and they are the only thing that
+		// goes red — that ordering is the shape that put a card in the owner's stream
+		// which the database never held, and the asker was told it had failed.
+		dashboard.wantFrames()
+		executor.wantFrames()
+		wantPushed()
+		apiTestWantNoReplyCards(t, h, owner)
+		stored, err := d.ListTaskSteps("T-1")
+		if err != nil {
+			t.Fatalf("ListTaskSteps after the fault: %v", err)
+		}
+		if stored[0].Status != StepStatusInProgress {
+			t.Fatalf("step status = %q, want %q", stored[0].Status, StepStatusInProgress)
+		}
+		if stored[0].ReplyCardID != "" {
+			t.Fatalf("step reply_card_id = %q, want empty", stored[0].ReplyCardID)
+		}
+		task, err := d.GetTask("T-1")
+		if err != nil {
+			t.Fatalf("GetTask after the fault: %v", err)
+		}
+		if task.Status != TaskStatusInProgress {
+			t.Fatalf("task status = %q, want %q", task.Status, TaskStatusInProgress)
+		}
 	})
 }
 

@@ -3207,7 +3207,7 @@ type artifactBlobFields struct {
 // url of their own.
 // The artifact-kind test deliberately lives at each CALL SITE rather than in
 // here. The identity scanners (authz_surface_behavior_test's mentionsIdentity and
-// lifecycle_identity_gate_t170e) recognise a `.Kind` SELECTOR inside a
+// lifecycle_identity_behavior_test) recognise a `.Kind` SELECTOR inside a
 // comparison and are blind to a bare `kind` ident, so folding the predicate
 // into this helper deleted it from both ledgers with nothing going red — the
 // exact reshape this package's own gate header forbids. Visibility to the
