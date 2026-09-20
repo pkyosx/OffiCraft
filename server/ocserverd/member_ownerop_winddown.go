@@ -731,10 +731,41 @@ func (s *apiServer) queueWorkerRestartAfterStop(w *OutsourceWorker, op string, n
 	if w.DesiredState != DesiredStateOffline || !aStopWasEverAskedFor(memberFromWorker(*w)) {
 		return false
 	}
+	// 🔴 A WIND-DOWN A CLOSED TICKET OPENED IS A DEPARTURE, NOT A PAUSE, so
+	// nothing may queue a 起來 behind it. Consuming that intent flips
+	// desired_state back to online and clearWindDownRow wipes the stop anchor and
+	// the cause — after which the task-close collect can never match the row
+	// again, and no other path releases a worker whose ticket is over. Measured:
+	// the worker is still `active` a hundred thousand seconds later, holding one
+	// of the concurrency slots on a task that closed.
+	// Before T-244 this was unreachable: the close released the row on the spot
+	// and every one of these verbs answered 404 from then on. Refusing here keeps
+	// that contract rather than inventing a new one — 停止 and 加速停止 still
+	// work, because making it leave sooner is not the same as keeping it.
+	if s.workerTicketIsOver(*w) {
+		return false
+	}
 	w.RestartAfterStop = true
 	stampOpReceipt(&w.LastOp, &w.LastOpOK, &w.LastOpLog, &w.LastOpReason, &w.LastOpAt,
 		reconcileCmdStart, memberRestartQueuedReceipt(op), now)
 	return true
+}
+
+// workerTicketIsOver reports whether the task this worker was hired for has
+// landed terminal. It is the durable half of "this contractor is on its way
+// out": unlike refocus_op it cannot be overwritten by a later verb, and unlike
+// desired_state it cannot be flipped back. A read failure answers false — the
+// safe direction here is to leave the owner's verb working rather than to refuse
+// it on a database hiccup. Callers hold s.outsourceMu.
+func (s *apiServer) workerTicketIsOver(w OutsourceWorker) bool {
+	if w.TaskID == "" {
+		return false
+	}
+	t, err := s.dal.GetTask(w.TaskID)
+	if err != nil || t == nil {
+		return false
+	}
+	return TaskIsTerminal(t.Status)
 }
 
 // persistWorkerRestartIntent stores BOTH things queueWorkerRestartAfterStop

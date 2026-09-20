@@ -2173,6 +2173,44 @@ func TestTaskCloseWindDown_Collect(t *testing.T) {
 		}
 	})
 
+	// 🔴 NOTHING MAY QUEUE A 起來 BEHIND A CLOSE-OUT WINDOW. Consuming that
+	// intent flips desired_state back to online and wipes the stop anchor and the
+	// cause, after which this collect can never match the row again and no other
+	// path releases a worker whose ticket is over — measured: still `active` a
+	// hundred thousand seconds later, holding a concurrency slot. It reaches the
+	// row through three doors (重新聚焦, 換 model/機器, the spawn funnel) and they
+	// all go through this one seam, which is why the guard lives there and is
+	// asserted here. The control is the same worker on a LIVE ticket, where the
+	// queue is exactly what the owner's verb is supposed to do.
+	t.Run("no 起來 can be queued behind a close-out window, while a live ticket still queues one", func(t *testing.T) {
+		s := windDownFixture(t, opened, false)
+		w, err := s.dal.GetOutsourceWorker("ow-244")
+		if err != nil || w == nil {
+			t.Fatalf("read back worker: %v", err)
+		}
+
+		s.outsourceMu.Lock()
+		defer s.outsourceMu.Unlock()
+		over := *w
+		if got := s.queueWorkerRestartAfterStop(&over, refocusOpRefocus, opened+1); got {
+			t.Errorf("a 起來 was queued behind a window opened by a CLOSED ticket")
+		}
+		if over.RestartAfterStop {
+			t.Errorf("the restart intent was stamped on the row anyway: %+v", over)
+		}
+
+		putTaskFixture(t, s, Task{
+			ID: "t-000000000244", TypeKey: "review-pr", Title: "x",
+			Status: TaskStatusInProgress, Priority: TaskPriorityMid,
+			ExecutorKind: TaskExecutorOutsource, ExecutorID: "ow-244",
+		})
+		live := *w
+		if got := s.queueWorkerRestartAfterStop(&live, refocusOpRefocus, opened+1); !got {
+			t.Errorf("positive control: a live ticket did NOT queue a 起來 — " +
+				"this test would pass for the wrong reason")
+		}
+	})
+
 	t.Run("a live session inside the window is left alone", func(t *testing.T) {
 		s := windDownFixture(t, opened, true)
 

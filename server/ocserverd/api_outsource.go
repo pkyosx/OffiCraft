@@ -303,6 +303,19 @@ func (s *apiServer) HandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost
 	// has ever asked to stop (aStopWasEverAskedFor, inside the queue helper) has
 	// no 下線 for an 上線 rule to be added to.
 	if worker.DesiredState == DesiredStateOffline {
+		// The seam refuses two different things and they need different sentences:
+		// a worker nobody ever asked to stop has no wind-down to queue behind, and
+		// a worker whose ticket is already closed is leaving rather than pausing.
+		// Saying the first when the second is true would send the owner looking
+		// for a stop that is right there on the row.
+		if s.workerTicketIsOver(*worker) {
+			s.outsourceMu.Unlock()
+			writeError(w, http.StatusConflict,
+				"this worker's task is already closed — it is finishing its close-out "+
+					"and then leaving, so there is nothing to refocus it onto "+
+					"(停止 or 加速停止 if you want it gone sooner)")
+			return
+		}
 		if !s.queueWorkerRestartAfterStop(worker, refocusOpRefocus, nowSecs()) {
 			s.outsourceMu.Unlock()
 			writeError(w, http.StatusConflict,
