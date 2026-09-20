@@ -225,7 +225,7 @@ describe("AgentDetailPanel · wind-down note", () => {
   // The other arm of the same composer, and on THIS gate it is still not
   // server-reachable: winddownKindFor makes relocate / runtime-model 停止 ⇒
   // deadline 0 ⇒ mapper null. Kept as a unit test of the render arm so the
-  // ceiling wording does not rot. The two CLOCKED causes have their own
+  // ceiling wording does not rot. The CLOCKED causes have their own
   // sentence now — see below.
   it("still quotes the ceiling when the wind-down IS on a clock", async () => {
     const deadline = 1_800_000_000;
@@ -241,13 +241,20 @@ describe("AgentDetailPanel · wind-down note", () => {
     expect(note).toContain("最晚");
   });
 
-  // 🔴 The two CLOCKED causes get their OWN sentence, and it quotes the clock.
+  // 🔴 The CLOCKED causes get their OWN sentence, and it quotes the clock.
   // They are not applying a change of the owner's, so 「正在收尾以套用你的改動」
   // would be a lie — but falling through to 「上次重新聚焦 <time>」 was worse: a
-  // PAST-TENSE history line printed while a deadline is counting down, with the
+  // PAST-TENSE history line printed while a deadline is running, with the
   // deadline itself shown nowhere in the UI. The owner who just pressed 加速停止
   // has to be able to see the clock he armed (T-ed79).
-  it.each(["accelerated_stop", "context_high"] as const)(
+  //
+  // 🔴 task_close IS THE THIRD ONE AND IT HAS TO BE IN THIS LIST. T-244 made it
+  // clocked and added it to the render arm, and nothing here covered it: with
+  // the list at two, deleting `refocusOp === "task_close"` from the panel left
+  // the whole frontend suite green while an outsource worker wound down with no
+  // sentence at all. The server-side cause set (recycleGraceFor) and this list
+  // move together or this gap comes straight back.
+  it.each(["accelerated_stop", "context_high", "task_close"] as const)(
     "announces the deadline while %s is winding down",
     async (op) => {
       const deadline = 1_800_000_120;
