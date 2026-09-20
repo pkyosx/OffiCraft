@@ -7763,10 +7763,13 @@ func TestHandleMarkTaskDoneApiTasksTaskIdMarkDonePost(t *testing.T) {
 		if status != 409 {
 			t.Fatalf("want 409, got %d (%v)", status, data)
 		}
-		msg, _ := data["error"].(map[string]any)["message"].(string)
-		if !strings.Contains(msg, "'not_started'") {
-			t.Fatalf("the refusal must name the status the task is in, got %q", msg)
-		}
+		// The whole sentence, not a keyword: it names the status the task is in
+		// AND who to ask for the door past the precondition, and that second half
+		// used to say only the owner while an admin agent may press it too.
+		apiWantError(t, data, "conflict",
+			"task 'T-1' is in 'not_started', not 'ready_for_done' — every step has "+
+				"to be reported done before the task can be closed as done "+
+				"(or ask the owner or an admin agent for force_task_done)")
 	})
 
 	t.Run("an already closed task is a 409 that names WHICH close happened", func(t *testing.T) {

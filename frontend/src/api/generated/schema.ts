@@ -4823,7 +4823,7 @@ export interface components {
             };
             /**
              * Reply Card Status
-             * @description Read-time join: the CURRENT status (``waiting`` | ``answered``) of the reply card this message carries (``meta.reply_card_id``); ``""`` when the message carries no card. Lets the inline chat card (ChatReplyCard) label its COLLAPSED row (待回覆 / 已回覆 / 已過期) WITHOUT a per-card GET. Since T-48 (owner ruling on card rc-d8844e709f42) every chat card mounts COLLAPSED regardless of status and fetches the full card only on expand, so this field no longer decides eager-vs-lazy — it decides what the row SAYS while nothing has been fetched. TaskStepDTO.reply_card_status is UNCHANGED: the task-embedded card still decides eager-vs-lazy at mount. NOT stored — computed each read from the card's live status (the stored ``meta`` only ever holds the id, stamped ``waiting`` at open and never updated on answer).
+             * @description Read-time join: the CURRENT status (``waiting`` | ``answered`` | ``expired``) of the reply card this message carries (``meta.reply_card_id``); ``""`` when the message carries no card. Lets the inline chat card (ChatReplyCard) label its COLLAPSED row (待回覆 / 已回覆 / 已過期) WITHOUT a per-card GET. Since T-48 (owner ruling on card rc-d8844e709f42) every chat card mounts COLLAPSED regardless of status and fetches the full card only on expand, so this field no longer decides eager-vs-lazy — it decides what the row SAYS while nothing has been fetched. TaskStepDTO.reply_card_status is UNCHANGED: the task-embedded card still decides eager-vs-lazy at mount. NOT stored — computed each read from the card's live status (the stored ``meta`` only ever holds the id, stamped ``waiting`` at open and never updated on answer).
              * @default
              */
             reply_card_status: string;
@@ -9462,7 +9462,7 @@ export interface components {
             reply_card_id: string;
             /**
              * Reply Card Status
-             * @description Read-time join: the CURRENT status (``waiting`` | ``answered``) of the reply card bound to this step (``reply_card_id``); ``""`` when the step carries no card. Lets the task-embedded card (TaskReplyCard) decide AT MOUNT whether to load eagerly (waiting — the live ask / the H4 answered-awaiting-pickup transitional) or lazily (answered — collapsed one-line summary, fetch on expand) WITHOUT a per-card GET, and lets the board derive the H4 badge without the child round-trip. NOT stored — computed each read from the card's live status.
+             * @description Read-time join: the CURRENT status (``waiting`` | ``answered`` | ``expired``) of the reply card bound to this step (``reply_card_id``); ``""`` when the step carries no card. Lets the task-embedded card (TaskReplyCard) decide AT MOUNT whether to load eagerly (waiting — the live ask / the H4 answered-awaiting-pickup transitional) or lazily (answered — collapsed one-line summary, fetch on expand) WITHOUT a per-card GET, and lets the board derive the H4 badge without the child round-trip. NOT stored — computed each read from the card's live status.
              * @default
              */
             reply_card_status: string;
@@ -9542,7 +9542,7 @@ export interface components {
             reply_card_id: string;
             /**
              * Reply Card Status
-             * @description Read-time join: the CURRENT status (``waiting`` | ``answered``) of the reply card bound to this step; ``""`` when the step carries no card. Same computation as TaskStepDTO.reply_card_status.
+             * @description Read-time join: the CURRENT status (``waiting`` | ``answered`` | ``expired``) of the reply card bound to this step; ``""`` when the step carries no card. Same computation as TaskStepDTO.reply_card_status.
              * @default
              */
             reply_card_status: string;

@@ -1371,7 +1371,8 @@ func (s *apiServer) HandleMarkTaskDoneApiTasksTaskIdMarkDonePost(w http.Response
 		writeError(w, http.StatusConflict,
 			"task '"+taskId+"' is in '"+t.Status+"', not '"+TaskStatusReadyForDone+
 				"' — every step has to be reported done before the task can be "+
-				"closed as done (or ask the owner for force_task_done)")
+				"closed as done (or ask the owner or an admin agent for "+
+				"force_task_done)")
 		return
 	}
 	if err := s.closeTask(t, TaskStatusDone, nowSecs(), requestTrigger(r)); err != nil {
