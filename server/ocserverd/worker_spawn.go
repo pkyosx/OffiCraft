@@ -2991,10 +2991,21 @@ func (s *apiServer) openTaskCloseWindDownForTask(taskID string, now float64, tri
 	for i := range workers {
 		w := workers[i]
 		touched = append(touched, w.ID)
-		if !s.hub.IsOnline(w.ID) {
+		// 🔴 CONFIRMED gone, not one sample. hub.IsOnline is an instantaneous
+		// map lookup with zero TTL, and this branch's answer is irreversible:
+		// it takes the whole window away. A worker that is merely mid-reconnect
+		// when the close lands reads offline for that one sample and loses the
+		// window entirely — the exact harm this ticket exists to remove, and
+		// the log line would call it "offline at the close". The debounced
+		// predicate already answers the right question and is what the collect
+		// arm below uses; a session that really has been gone a while has its
+		// anchor armed from earlier ticks, so the fast path still fires for the
+		// case it was written for.
+		if s.workerSessionConfirmedGone(w.ID, now) {
 			s.releaseAndReclaimWorker(w.ID, now, trigger)
-			outsourceLog("task-close wind-down %s (%s): offline at the close — "+
-				"released and reclaimed on the spot, no window", w.ID, w.Codename)
+			outsourceLog("task-close wind-down %s (%s): session already confirmed "+
+				"gone at the close — released and reclaimed on the spot, no window",
+				w.ID, w.Codename)
 			continue
 		}
 		applyStopVerbRow(stopVerbRowOfWorker(&w), memberFromWorker(w), now)
@@ -3032,11 +3043,25 @@ func (s *apiServer) openTaskCloseWindDownForTask(taskID string, now float64, tri
 //     in the worker's notice. This arm is the forced one: it releases the row
 //     and the reclaim kills whatever is still running.
 //
-// It is keyed on refocus_op, not on the bound task's status, because the cause
-// is what says a window was OPENED here rather than by the owner's 停止 — those
-// two have different collect rules and a terminal task row is true of both.
+// 🔴 IT IS KEYED ON THE BOUND TASK BEING TERMINAL, NOT ON refocus_op, and that
+// is not a style choice. The cause is OVERWRITABLE: 加速停止 (api_outsource.go)
+// replaces it with accelerated_stop and re-anchors the clock, which a worker in
+// this window qualifies for — it is live, online and winding down, so the
+// cockpit offers that rung on that very row. Keyed on the cause, this collect
+// would silently stop matching from then on, and the arm that does collect the
+// worker kills the session WITHOUT releasing the row: a contractor whose ticket
+// is over parked on the panel for good, still spending one of the outsource
+// concurrency slots, with no path left that releases it. Measured, with a
+// control: untouched, the row releases when the window elapses; after the press
+// it is still `active` a hundred thousand seconds later. The task being
+// terminal is the fact that cannot be edited out from under this decision.
 func (s *apiServer) collectTaskCloseWindDown(w OutsourceWorker, now float64) bool {
-	if w.Status == WorkerStatusReleased || w.RefocusOp != refocusOpTaskClose {
+	if w.Status == WorkerStatusReleased || w.TaskID == "" ||
+		w.DesiredState != DesiredStateOffline {
+		return false
+	}
+	t, terr := s.dal.GetTask(w.TaskID)
+	if terr != nil || t == nil || !TaskIsTerminal(t.Status) {
 		return false
 	}
 	reason := ""
