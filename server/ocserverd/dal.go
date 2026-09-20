@@ -148,8 +148,10 @@ type Member struct {
 	RefocusSince  float64
 	// RefocusOp names the operation that opened the window RefocusSince stamps
 	// ("relocate" | "runtime/model" | "context_notice" | "context_high" |
-	// "refocus" | "restart_self" | "token_expiry" | "accelerated_stop"), ""
-	// when none is in flight. Stamped and cleared in lockstep with RefocusSince.
+	// "refocus" | "restart_self" | "token_expiry" | "accelerated_stop" |
+	// "task_close"), "" when none is in flight. ⚠️ "task_close" (T-244) rides
+	// the 下線 axis: it is stamped WITHOUT RefocusSince, so the sentence below
+	// about lockstep is about the other causes. Stamped and cleared in lockstep with RefocusSince.
 	// 🔴 This list is a COPY and nothing checks it: the closed set lives in
 	// refocusOp* (member_ownerop_winddown.go), which is where a new cause goes,
 	// and winddownKindFor is what decides what each one MEANS. Read those.

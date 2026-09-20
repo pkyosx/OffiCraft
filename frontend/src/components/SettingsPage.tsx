@@ -1427,6 +1427,7 @@ function ServerParams({
   const [monitoringRefreshDraft, setMonitoringRefreshDraft] = useState<string | null>(null);
   const [acceleratedGraceDraft, setAcceleratedGraceDraft] = useState<string | null>(null);
   const [reassignHandoverTimeoutDraft, setReassignHandoverTimeoutDraft] = useState<string | null>(null);
+  const [taskCloseWinddownDraft, setTaskCloseWinddownDraft] = useState<string | null>(null);
   const [wardenCredLifetimeDraft, setWardenCredLifetimeDraft] = useState<string | null>(null);
   // T-ae38, widened by T-30f1: five independent caps, so five independent
   // drafts. A shared draft would make typing in one field snap the others back.
@@ -1507,16 +1508,31 @@ function ServerParams({
     if (n !== settings.codexCompactionThreshold) void onSave({ codexCompactionThreshold: n });
   }
 
-  // 加速停止 的秒數 (T-ed79). ONE key for both clocked causes — the second
+  // 加速停止 的秒數 (T-ed79). ONE key for the two 加速停止 causes — the second
   // context threshold and the owner's own press — so the countdown quoted to the
-  // agent can never differ from the one the tick collects on. Range mirrors the
-  // server's 422 exactly (settings.go: 10..3600).
+  // agent can never differ from the one the tick collects on. ⚠️ It is NOT the
+  // only clocked wind-down any more: T-244's task-close window is clocked too
+  // and reads its own key, one row down. What must never split is the pair
+  // (clock, sentence) for ONE cause, and that still holds for each. Range
+  // mirrors the server's 422 exactly (settings.go: 10..3600).
   function commitAcceleratedGrace() {
     if (!settings || acceleratedGraceDraft === null) return;
     const n = Number(acceleratedGraceDraft);
     if (!Number.isInteger(n) || n < 10 || n > 3600) { setRangeError(true); setAcceleratedGraceDraft(null); return; }
     setAcceleratedGraceDraft(null);
     if (n !== settings.acceleratedGraceSecs) void onSave({ acceleratedGraceSecs: n });
+  }
+
+  // 任務結案的收尾秒數 (T-244). Range mirrors the server's 422 exactly
+  // (settings.go: 10..3600, the SAME predicate accelerated_grace_secs uses) —
+  // the two fields sit next to each other on this page and share their bounds,
+  // but they are two values and moving one must not move the other.
+  function commitTaskCloseWinddown() {
+    if (!settings || taskCloseWinddownDraft === null) return;
+    const n = Number(taskCloseWinddownDraft);
+    if (!Number.isInteger(n) || n < 10 || n > 3600) { setRangeError(true); setTaskCloseWinddownDraft(null); return; }
+    setTaskCloseWinddownDraft(null);
+    if (n !== settings.taskCloseWinddownSecs) void onSave({ taskCloseWinddownSecs: n });
   }
 
   // Range mirrors the server's 422 (settings.go: 60..86400).
@@ -1828,6 +1844,21 @@ function ServerParams({
                 value={acceleratedGraceDraft ?? String(settings.acceleratedGraceSecs)}
                 onChange={(e) => { setRangeError(false); onClearSaveError(); setAcceleratedGraceDraft(e.target.value); }}
                 onBlur={commitAcceleratedGrace} onKeyDown={(e) => { if (e.key === "Enter") commitAcceleratedGrace(); }} />
+              <span className="param-pct__sign">{t.settings.seconds}</span>
+            </div>
+          </div>
+
+          <div className="param-row">
+            <div className="param-row__body">
+              <div className="param-row__name">{t.settings.taskCloseWinddown}</div>
+              <div className="param-row__sub">{t.settings.taskCloseWinddownSub}</div>
+            </div>
+            <div className="param-pct">
+              <input id="param-task-close-winddown" className="param-input" type="number" min={10} max={3600}
+                aria-label={t.settings.taskCloseWinddown}
+                value={taskCloseWinddownDraft ?? String(settings.taskCloseWinddownSecs)}
+                onChange={(e) => { setRangeError(false); onClearSaveError(); setTaskCloseWinddownDraft(e.target.value); }}
+                onBlur={commitTaskCloseWinddown} onKeyDown={(e) => { if (e.key === "Enter") commitTaskCloseWinddown(); }} />
               <span className="param-pct__sign">{t.settings.seconds}</span>
             </div>
           </div>

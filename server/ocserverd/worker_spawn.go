@@ -39,12 +39,23 @@ package main
 //
 // Reclaim (SPEC §6.3 second half):
 //
-//	the task lands terminal → closeTask DISMISSES the worker
-//	(dismissOutsourceWorkersForTask): the row releases (panel row disappears,
-//	§4.1) and the session is reclaimed in the same call. T-182 — the session
-//	used to outlive the close so the worker could run its close-out duties, and
-//	it no longer has to: those duties happen in `ready_for_done`, BEFORE any of
-//	the four closes lands.
+//	the task lands terminal → closeTask OPENS THE WORKER'S CLOSE-OUT WINDOW
+//	(openTaskCloseWindDownForTask): desired_state=offline + the stop anchor +
+//	refocus_op=task_close, so the cockpit reads 停止中 and the worker's own
+//	session hears the notice. The row is still on the panel. It is RELEASED —
+//	and the session reclaimed — by collectTaskCloseWindDown on the tick, at
+//	whichever comes first of the station's own offline determination
+//	(workerSessionConfirmedGone; the worker asks for this early by calling
+//	report_stopped, but the report is a request, not the proof) and
+//	task.close_winddown_secs elapsing. A worker already OFFLINE at the close
+//	skips the window and is released on the spot.
+//	  ⚠️ T-182 → T-244. T-182 made the close itself the dismissal, on the
+//	  reading that the close-out happens in `ready_for_done` and so nothing is
+//	  left to do. That is true of work ON THE TASK and not of the session's own
+//	  shutdown, and two of the four doors (force_task_done,
+//	  mark_task_terminated) can land on a worker that never reached
+//	  `ready_for_done`. T-244 gives the session a bounded window back; the
+//	  close-out CONTENT still belongs to `ready_for_done`.
 //	  * the GRACE BACKSTOP still exists for the worker a close never reached
 //	    (crashed worker, a row released by some other path): a released worker
 //	    whose session was never reclaimed is reclaimed workerReclaimGraceSecs
@@ -62,6 +73,7 @@ package main
 // no-op). Durable truth stays in the worker row alone.
 
 import (
+	"fmt"
 	"strings"
 )
 
@@ -84,11 +96,18 @@ const (
 	workerSpawnRetrySecs = WakingTTLSecs
 	// workerReclaimGraceSecs is the backstop window between a worker's release
 	// and the forced session reclaim. Mirrors stop_grace / recycle_grace (120s).
-	// ⚠️ SINCE T-182 IT IS A BACKSTOP AND ALMOST NOTHING ELSE: a task close
-	// releases the row and reclaims the session in the SAME call
-	// (dismissOutsourceWorkersForTask), so nothing normally reaches this clock.
-	// It catches the leftovers — a row released by a path that is not a close,
-	// or a session the reclaim dispatch could not deliver.
+	// ⚠️ IT IS A BACKSTOP AND ALMOST NOTHING ELSE: every path that RELEASES a
+	// worker reclaims its session in the same call — the task-close collect
+	// (collectTaskCloseWindDown), the by-id dismissal and the handover-timeout
+	// reaper all go through releaseAndReclaimWorker — so nothing normally
+	// reaches this clock. It catches the leftovers: a row released by a path
+	// that is not one of those, or a session the reclaim dispatch could not
+	// deliver.
+	//
+	// 🔴 IT IS NOT THE TASK-CLOSE WINDOW AND MUST NOT BE READ AS ONE. That
+	// window is task.close_winddown_secs, it runs on a worker that is still
+	// LIVE (not released), and it is announced to the worker; this clock runs
+	// after the row is already off the panel and is announced to nobody.
 	workerReclaimGraceSecs = 120.0
 	// workerSpawnCooldownSecs benches a machine for a worker after that machine
 	// FAILED to boot it (a refused start receipt, or an FSM zombie-takeover
@@ -2913,69 +2932,132 @@ func (s *apiServer) reclaimKillTargets(w OutsourceWorker) []string {
 	return s.onlineWardens()
 }
 
-// dismissOutsourceWorkersForTask fires the outsource worker(s) bound to a task:
-// any not-yet-released row flips released, and every bound worker's session is
-// reclaimed NOW rather than waiting out the scheduler's workerReclaimGraceSecs
-// backstop.
+// openTaskCloseWindDownForTask opens the CLOSE-OUT WINDOW for the outsource
+// worker(s) bound to a task that has just landed terminal (T-244, owner
+// rc-604d8fc39cfd 圈 [0]). It returns the ids it touched.
+//
+// 🔴 IT NO LONGER FIRES THEM WHERE IT STANDS, and that reversal is the ticket.
+// Until T-244 this function released the row and reclaimed the session in the
+// same call, on the ruling 「外包改在按下結案那一刻遣散」 (rc-571b665bc047). What
+// that ruling priced as "there is nothing left for the worker to do on the
+// task" is true of the TASK and false of the SESSION: a contractor still has to
+// push what it wrote, hand its sub-agents' results back and write its own
+// learnings, and force_task_done / mark_task_terminated can land on a worker
+// that never reached `ready_for_done` at all. So a close now opens a window
+// instead of ending one.
+//
+// WHAT IT WRITES, per still-live bound worker:
+//
+//   - ONLINE: the shared 停止 body (applyStopVerbRow — desired_state=offline,
+//     the stop anchor, refocus cleared) plus refocus_op=task_close. That cause
+//     is what makes the window BOUNDED and ANNOUNCED at the same time:
+//     winddownKindFor answers final+clocked for it, so the tick collects at
+//     stopping_since + task.close_winddown_secs and offboardKindOf attaches a
+//     notice quoting exactly that instant. The putMember below is what fans it
+//     — the worker's own session hears the delta, and the cockpit renders the
+//     stop anchor as 停止中 through the presence projection it already had.
+//     No new state, no new frame, no kill.
+//   - OFFLINE: released and reclaimed ON THE SPOT, exactly as before. A window
+//     needs a session to work in; there is none, no report can arrive, and a
+//     row parked for five minutes so that nothing can happen in it is the
+//     "wait for a report that is not coming" this file has removed twice
+//     already (the D6 rule openWorkerHandoverGrace applies to every other arm).
 //
 // WIRED: closeTask (api_tasks.go) calls it on EVERY close — mark_task_done,
 // mark_task_terminated, mark_task_duplicated and force_task_done alike — right
-// after the terminal task row is persisted. T-182 moved it there from the
-// close-out report handler, which no longer exists: the close-out now happens
-// while the task still sits in `ready_for_done`, so the close itself is the
-// moment nothing is left for the worker to do.
+// after the terminal task row is persisted.
 //
 // Safe for member-executed tasks (no worker rows → no-op) and safe to call
-// repeatedly (release + reclaim are both idempotent).
+// repeatedly: re-opening a window that is already open re-stamps the SAME
+// anchor through stopEpochAnchor (a live FORCED epoch is left alone, which is
+// the one case that must not be softened), and the offline arm's release +
+// reclaim are both idempotent.
 // Takes outsourceMu itself — call it WITHOUT the scheduler lock held.
 //
-// 🔴 RETURNS THE FIRED IDS RATHER THAN SWEEPING THEIR CARDS ITSELF. A fired
-// worker's waiting cards must be retired the same way dismissOutsourceWorkerByID
-// retires them, but a card write reaches releaseCardHold, the task DAL and the
-// SSE hub — outward calls that must not happen under outsourceMu. So this
-// function hands the ids back and closeTask sweeps them with the lock released.
-// (dismissOutsourceWorkerByID does sweep inside the lock; that is pre-existing
-// debt, not the shape to copy into a loop.)
-func (s *apiServer) dismissOutsourceWorkersForTask(taskID string, now float64, trigger string) []string {
+// 🔴 RETURNS THE TOUCHED IDS RATHER THAN SWEEPING THEIR CARDS ITSELF, for the
+// reason the dismissal did: a card write reaches releaseCardHold, the task DAL
+// and the SSE hub — outward calls that must not happen under outsourceMu. So
+// this function hands the ids back and closeTask sweeps them with the lock
+// released.
+func (s *apiServer) openTaskCloseWindDownForTask(taskID string, now float64, trigger string) []string {
 	s.outsourceMu.Lock()
 	defer s.outsourceMu.Unlock()
-	released, err := s.dal.ReleaseWorkersForTask(taskID, now)
+	workers, err := s.dal.ListLiveWorkersForTask(taskID)
 	if err != nil {
-		outsourceLog("dismiss task %s: release failed: %v", taskID, err)
+		outsourceLog("task-close wind-down %s: worker read failed: %v", taskID, err)
 		return nil
 	}
-	fired := []string{}
-	for _, w := range released {
-		fired = append(fired, w.ID)
-		s.publishOutsourceWorker(w, trigger)
-	}
-	workers, err := s.dal.ListOutsourceWorkers()
-	if err != nil {
-		outsourceLog("dismiss task %s: worker read failed: %v", taskID, err)
-		return fired
-	}
-	for _, w := range workers {
-		if w.TaskID == taskID && !s.workerReclaimed[w.ID] {
-			s.reclaimWorkerSession(w)
+	touched := []string{}
+	for i := range workers {
+		w := workers[i]
+		touched = append(touched, w.ID)
+		if !s.hub.IsOnline(w.ID) {
+			s.releaseAndReclaimWorker(w.ID, now, trigger)
+			outsourceLog("task-close wind-down %s (%s): offline at the close — "+
+				"released and reclaimed on the spot, no window", w.ID, w.Codename)
+			continue
 		}
+		applyStopVerbRow(stopVerbRowOfWorker(&w), memberFromWorker(w), now)
+		w.RefocusOp = refocusOpTaskClose
+		if err := s.persistWorkerWindDownAnchors(w); err != nil {
+			outsourceLog("task-close wind-down %s: anchor write failed: %v", w.ID, err)
+			continue
+		}
+		if err := s.putMember(memberFromWorker(w), trigger); err != nil {
+			outsourceLog("task-close wind-down %s: row write failed: %v", w.ID, err)
+			continue
+		}
+		grace, _ := recycleGraceFor(refocusOpTaskClose, s.reconcileConfigLive())
+		outsourceLog("task-close wind-down %s (%s): window opened — collect on "+
+			"confirmed-offline or +%.0fs", w.ID, w.Codename, grace)
 	}
-	return fired
+	return touched
 }
 
-// dismissOutsourceWorkerByID fires ONE specific worker (release its row + kill
-// its session) — the deferred-handover twin of dismissOutsourceWorkersForTask
-// (T-ba04). The reassign path does not dismiss the previous outsource executor;
-// the predecessor stays live through the `reassigning` hold and is fired HERE
-// when the successor calls claim_task, when a re-reassign under the hold
-// displaces an unclaimed outsource successor, or on dismissal. The
-// handover-timeout reaper releases the row directly. By WORKER ID, never by
-// task_id: an outsource→outsource takeover has already bound the NEW worker to
-// the SAME task_id, so a by-task release would kill the successor too.
-// Idempotent (release + reclaim are both idempotent). Takes outsourceMu itself
-// — call it WITHOUT the scheduler lock held.
-func (s *apiServer) dismissOutsourceWorkerByID(workerID string, now float64, trigger string) {
-	s.outsourceMu.Lock()
-	defer s.outsourceMu.Unlock()
+// collectTaskCloseWindDown ends ONE worker's task-close window when it is over,
+// and answers whether it did (T-244). Callers hold s.outsourceMu.
+//
+// TWO WAYS IT IS OVER, and they are deliberately not symmetric:
+//
+//   - THE SESSION IS CONFIRMED GONE. This is the early exit the contractor asks
+//     for by calling report_stopped — and the report is where the ASKING ends.
+//     🔴 THE REPORT IS NOT THE PROOF (owner 2026-09-20, rc-604d8fc39cfd 圈 [0]):
+//     what releases the row is the station's OWN offline determination, the same
+//     workerSessionConfirmedGone the 停止 arm uses, so a worker that says it is
+//     done while its session is still up is not collected until the session is
+//     actually down. The owner's ruling also says which determination: THIS one,
+//     the one the station already has. Nothing here asks a machine anything.
+//   - THE WINDOW ELAPSED. task.close_winddown_secs from the stop anchor, read
+//     through the SAME recycleGraceFor pair that produced the deadline quoted
+//     in the worker's notice. This arm is the forced one: it releases the row
+//     and the reclaim kills whatever is still running.
+//
+// It is keyed on refocus_op, not on the bound task's status, because the cause
+// is what says a window was OPENED here rather than by the owner's 停止 — those
+// two have different collect rules and a terminal task row is true of both.
+func (s *apiServer) collectTaskCloseWindDown(w OutsourceWorker, now float64) bool {
+	if w.Status == WorkerStatusReleased || w.RefocusOp != refocusOpTaskClose {
+		return false
+	}
+	reason := ""
+	switch grace, clocked := recycleGraceFor(w.RefocusOp, s.reconcileConfigLive()); {
+	case s.workerSessionConfirmedGone(w.ID, now):
+		reason = "session confirmed gone"
+	case clocked && w.StoppingSince > 0.0 && now >= w.StoppingSince+grace:
+		reason = fmt.Sprintf("window elapsed (%.0fs)", grace)
+	default:
+		return false
+	}
+	s.releaseAndReclaimWorker(w.ID, now, triggerServer)
+	outsourceLog("task-close wind-down %s (%s): collected — %s", w.ID, w.Codename, reason)
+	return true
+}
+
+// releaseAndReclaimWorker is the body BOTH dismissal funnels share: flip the row
+// released (the panel row disappears; the row itself is the audit trail) and
+// reclaim the session unless a reclaim already went out for this worker. Both
+// halves are idempotent. Callers hold s.outsourceMu.
+func (s *apiServer) releaseAndReclaimWorker(workerID string, now float64, trigger string) {
 	released, err := s.dal.ReleaseWorkerByID(workerID, now)
 	if err != nil {
 		outsourceLog("dismiss worker %s: release failed: %v", workerID, err)
@@ -2989,6 +3071,26 @@ func (s *apiServer) dismissOutsourceWorkerByID(workerID string, now float64, tri
 			s.reclaimWorkerSession(*w)
 		}
 	}
+}
+
+// dismissOutsourceWorkerByID fires ONE specific worker (release its row + kill
+// its session) — the deferred-handover twin of the task-close funnel above
+// (T-ba04). ⚠️ It is a twin of that funnel's COLLECT (collectTaskCloseWindDown),
+// not of openTaskCloseWindDownForTask: this path gives no window at all, because
+// the predecessor it fires has already been superseded by a successor that is
+// working the task. The reassign path does not dismiss the previous outsource executor;
+// the predecessor stays live through the `reassigning` hold and is fired HERE
+// when the successor calls claim_task, when a re-reassign under the hold
+// displaces an unclaimed outsource successor, or on dismissal. The
+// handover-timeout reaper releases the row directly. By WORKER ID, never by
+// task_id: an outsource→outsource takeover has already bound the NEW worker to
+// the SAME task_id, so a by-task release would kill the successor too.
+// Idempotent (release + reclaim are both idempotent). Takes outsourceMu itself
+// — call it WITHOUT the scheduler lock held.
+func (s *apiServer) dismissOutsourceWorkerByID(workerID string, now float64, trigger string) {
+	s.outsourceMu.Lock()
+	defer s.outsourceMu.Unlock()
+	s.releaseAndReclaimWorker(workerID, now, trigger)
 	// T-4166: a fired worker's waiting cards can never be consumed — the asker
 	// is gone. Retire them (same sweep as reassign / task close / member
 	// dismissal). Best-effort: a card write must never fail the dismissal.

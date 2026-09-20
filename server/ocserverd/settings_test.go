@@ -145,6 +145,9 @@ func TestLoadAuthSettings(t *testing.T) {
 		if got.reassignHandoverTimeoutSecs != 1800 {
 			t.Fatalf("fresh reassign handover timeout: want 1800, got %d", got.reassignHandoverTimeoutSecs)
 		}
+		if got.taskCloseWinddownSecs != 300 {
+			t.Fatalf("fresh task-close wind-down: want 300, got %d", got.taskCloseWinddownSecs)
+		}
 		again, secondLogs, err := settingsTestLoadAuth(t, d, defaultConfig())
 		if err != nil {
 			t.Fatalf("second loadAuthSettings: %v", err)
@@ -230,6 +233,7 @@ func TestLoadAuthSettings(t *testing.T) {
 			settingCtxMinBootSecs:              "12.5",
 			settingCtxStaleGuard:               "false",
 			settingReassignHandoverTimeoutSecs: "900",
+			settingTaskCloseWinddownSecs:       "45",
 			settingSuggestedRepliesReplyCard:   ` ["first"] `,
 			settingSuggestedRepliesTaskMessage: `["second","third"]`,
 		} {
@@ -251,6 +255,9 @@ func TestLoadAuthSettings(t *testing.T) {
 		if got.reassignHandoverTimeoutSecs != 900 {
 			t.Fatalf("reassign handover timeout did not load as stored: %d", got.reassignHandoverTimeoutSecs)
 		}
+		if got.taskCloseWinddownSecs != 45 {
+			t.Fatalf("task-close wind-down did not load as stored: %d", got.taskCloseWinddownSecs)
+		}
 		wantCtx := SseContextHighConfig{NoticePct: 41, HandoverPct: 66, MinBootSecs: 12.5, StaleGuard: false}
 		if got.ctxhigh != wantCtx {
 			t.Fatalf("context settings did not load as stored: %+v", got.ctxhigh)
@@ -271,6 +278,8 @@ func TestLoadAuthSettings(t *testing.T) {
 			{name: "invalid owner token TTL", key: settingOwnerTokenTTL, value: "not-a-number", want: `settings auth.owner_token_ttl: not a positive integer: "not-a-number"`},
 			{name: "reassign handover timeout below range", key: settingReassignHandoverTimeoutSecs, value: "59", want: `settings task.reassign_handover_timeout_secs: must be between 60 and 86400 seconds: "59"`},
 			{name: "reassign handover timeout above range", key: settingReassignHandoverTimeoutSecs, value: "86401", want: `settings task.reassign_handover_timeout_secs: must be between 60 and 86400 seconds: "86401"`},
+			{name: "task-close wind-down below range", key: settingTaskCloseWinddownSecs, value: "9", want: `settings task.close_winddown_secs: must be between 10 and 3600 seconds: "9"`},
+			{name: "task-close wind-down above range", key: settingTaskCloseWinddownSecs, value: "3601", want: `settings task.close_winddown_secs: must be between 10 and 3600 seconds: "3601"`},
 			{name: "invalid suggested reply JSON", key: settingSuggestedRepliesTaskMessage, value: "not-json", want: `settings suggested_replies.task_message: must be a JSON array of strings: "not-json"`},
 		}
 		for _, tc := range cases {

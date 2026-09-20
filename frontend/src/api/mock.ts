@@ -2096,6 +2096,8 @@ const DEFAULT_MOCK_SETTINGS = {
   accelerated_grace_secs: 120,
   // Mirrors the server's shipped reassign handover timeout.
   reassign_handover_timeout_secs: 1800,
+  // T-244 task-close wind-down — mirrors the server's shipped default.
+  task_close_winddown_secs: 300,
   // T-fc53 warden credential lifetime — mirrors the server's shipped default
   // (30 days). Hard-coded rather than derived so the mock still shows the fleet
   // default the day someone changes the constant on only one side.
@@ -5825,6 +5827,15 @@ const mockApiImpl = {
     ) {
       throw mockApiError("http 422 for PATCH /api/settings", 422, "reassign_handover_timeout_secs must be between 60 and 86400 seconds");
     }
+    // T-244 shares its bounds with accelerated_grace_secs but NOT its message:
+    // a refusal quoting the other field's name is what the owner would have to
+    // debug from, and the two fields sit next to each other on the page.
+    if (
+      patch.taskCloseWinddownSecs !== undefined &&
+      (patch.taskCloseWinddownSecs < 10 || patch.taskCloseWinddownSecs > 3600)
+    ) {
+      throw mockApiError("http 422 for PATCH /api/settings", 422, "task_close_winddown_secs must be between 10 and 3600 seconds");
+    }
     // T-fc53: the mock refuses exactly what the server refuses, so a UI that
     // only ever runs against the mock cannot ship a field that offers the owner
     // a number he would get a 422 for on a real install.
@@ -6059,6 +6070,9 @@ const mockApiImpl = {
     }
     if (patch.acceleratedGraceSecs !== undefined) {
       mockServerSettings.accelerated_grace_secs = patch.acceleratedGraceSecs;
+    }
+    if (patch.taskCloseWinddownSecs !== undefined) {
+      mockServerSettings.task_close_winddown_secs = patch.taskCloseWinddownSecs;
     }
     if (patch.reassignHandoverTimeoutSecs !== undefined) {
       mockServerSettings.reassign_handover_timeout_secs = patch.reassignHandoverTimeoutSecs;

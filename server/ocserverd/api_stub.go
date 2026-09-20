@@ -268,6 +268,13 @@ type apiServer struct {
 	// reassignHandoverTimeoutSecs is the live handover-timeout reaper clock
 	// (task.reassign_handover_timeout_secs), guarded by settingsMu.
 	reassignHandoverTimeoutSecs int
+	// taskCloseWinddownSecs is the live task-close close-out window in seconds
+	// (task.close_winddown_secs; T-244), guarded by settingsMu. It reaches the
+	// rest of the server the SAME way acceleratedGraceSecs does and for the same
+	// reason: reconcileConfigLive() is the only reader, folding it onto
+	// reconcileConfig.TaskCloseWinddown so the clock (recycleGraceFor) and the
+	// sentence (offboardKindOf) keep reading one number through one pair.
+	taskCloseWinddownSecs int
 	// wardenCredLifetimeSecs is the live machine-credential lifetime in seconds
 	// (auth.warden_credential_lifetime_secs; T-fc53), guarded by settingsMu like
 	// every other owner-adjustable number here.
@@ -342,7 +349,8 @@ type apiServer struct {
 	// 🔴 SAY THE TRUE THING WHERE THE FALSE ONE STOOD (owner ruling, T-941e
 	// 2026-08-18). A SHADOW SERVER WITH THIS FLAG SET STILL COMMANDS REAL
 	// WARDENS: the owner-triggered outsource-worker verbs (stop, restart, model
-	// change, relocate, refocus), a task terminate that dismisses its workers,
+	// change, relocate, refocus), a task close that winds its workers down (and
+	// the tick that later collects them),
 	// and the worker's own report_stopped all reach enqueueToWarden without
 	// consulting this field. Pressing stop on a shadow cockpit kills a REAL
 	// session. Whoever runs a rehearsal has to know which buttons are live;
@@ -628,9 +636,13 @@ func (s *apiServer) reconcileConfigLive() reconcileConfig {
 	cfg := s.reconcileCfg
 	s.settingsMu.RLock()
 	grace := s.acceleratedGraceSecs
+	winddown := s.taskCloseWinddownSecs
 	s.settingsMu.RUnlock()
 	if grace > 0 {
 		cfg.RecycleGrace = float64(grace)
+	}
+	if winddown > 0 {
+		cfg.TaskCloseWinddown = float64(winddown)
 	}
 	return cfg
 }

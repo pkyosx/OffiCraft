@@ -48,6 +48,13 @@ type reconcileConfig struct {
 	StopGrace    float64 // self-stop window before the robust stop
 	StopRetry    float64 // STOP/UNINSTALL re-dispatch window (lost frame)
 	RecycleGrace float64 // dump-stuck fallback from refocus_since
+	// TaskCloseWinddown is how long the close-out window an OUTSOURCE worker
+	// gets when its task lands terminal runs before the collection is forced
+	// (task.close_winddown_secs; T-244). It is a SEPARATE number from
+	// RecycleGrace on purpose — see settingTaskCloseWinddownSecs — and it is
+	// reached through the SAME recycleGraceFor pair, so the deadline the worker
+	// is quoted and the deadline the tick collects on are one read.
+	TaskCloseWinddown float64
 	// SoftOffboardGrace is how long a close-out may say NOTHING before its
 	// anchor is treated as residue (T-7723 — it is silence, not the anchor's
 	// age). It is NOT a deadline: neither soft arm is collected on a clock —
@@ -90,6 +97,7 @@ func defaultReconcileConfig() reconcileConfig {
 		StopGrace:         StoppingTimeoutSecs,
 		StopRetry:         90.0,
 		RecycleGrace:      StoppingTimeoutSecs,
+		TaskCloseWinddown: taskCloseWinddownSecsDefault,
 		SoftOffboardGrace: SoftOffboardGraceSecs,
 		BackoffBase:       5.0,
 		BackoffCap:        300.0,
@@ -541,10 +549,14 @@ func reconcileDecide(
 // restart_self, the FIRST context threshold and token expiry all have the same
 // shape as 下線: the agent is shown the sequence, and the collection is its own
 // stopped report or the owner pressing force-stop. Nothing collects them on
-// time. The clocked causes are the TWO 加速停止 arms — the SECOND context
-// threshold (context_high) and the owner's own press (accelerated_stop) — and
-// they get exactly their RecycleGrace seconds, from the SAME setting, because
-// winddownKindFor answers for both.
+// time. THREE causes are clocked. Two of them are the 加速停止 arms — the
+// SECOND context threshold (context_high) and the owner's own press
+// (accelerated_stop) — and they get exactly their RecycleGrace seconds, from
+// the SAME setting, because they are one verb with two triggers. The third is
+// task_close (T-244): an outsource worker whose task landed terminal, which
+// gets TaskCloseWinddown. winddownKindFor answers WHICH for all three; this
+// function answers HOW LONG, and that it is not one number is the point — see
+// settingTaskCloseWinddownSecs.
 //
 // 🔴 The bool is why this returns two values instead of a big number: it and
 // offboardKindOf are ONE judgement read from two places — the clock and the
@@ -563,6 +575,16 @@ func recycleGraceFor(refocusOp string, cfg reconcileConfig) (grace float64, cloc
 	// single read; all that is left here is HOW LONG a clocked arm gets.
 	if _, clocked := winddownKindFor(refocusOp); !clocked {
 		return 0, false
+	}
+	// 🔴 HOW LONG IS PER-CAUSE SINCE T-244, and WHICH-ARM still is not asked here.
+	// The two 加速停止 arms share one number because they are one verb with two
+	// triggers; the task-close window is a different verb (nobody pressed a
+	// button, and its length is about how long a contractor needs to shut a
+	// session down) so it reads its own key. Both still come back through THIS
+	// pair, which is what keeps the sentence and the clock from disagreeing —
+	// that, not "one number for everything", was ever the invariant.
+	if refocusOp == refocusOpTaskClose {
+		return cfg.TaskCloseWinddown, true
 	}
 	return cfg.RecycleGrace, true
 }
@@ -3097,6 +3119,10 @@ func (s *apiServer) dispatchIdentitySweepNow(memberID, keepWarden string, now fl
 //
 //	"— workerSpawnObs, workerReportStopping, dismissOutsourceWorkersForTask,
 //	 dismissOutsourceWorkerByID, noteWorkerStopNoSuchSession."
+//
+// (T-244 renamed the third of those to openTaskCloseWindDownForTask. The list
+// is quoted VERBATIM because the point being made is what the old list SAID,
+// not what those functions are called today.)
 //
 // That was not the hazard set. It omitted workerReportStopped,
 // workerReportWaking and workerRestartSelf — the three siblings sitting beside

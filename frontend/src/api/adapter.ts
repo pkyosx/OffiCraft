@@ -1141,6 +1141,13 @@ export interface ServerSettingsView {
   /** How long an outsource predecessor under the reassign hold may go without a
    * task update before the server reclaims it, in seconds (60..86400; default 1800). */
   reassignHandoverTimeoutSecs: number;
+  /** T-244: how long an outsource worker keeps its session after the task it is
+   * bound to is closed, in seconds (10..3600; default 300). Through that window
+   * the row stays on the panel and reads 停止中; it leaves only when the server
+   * collects it, which is whichever comes first of the server's own offline
+   * determination and this many seconds from the close. Same bounds as
+   * `acceleratedGraceSecs`, a separate value. */
+  taskCloseWinddownSecs: number;
   /** T-fc53: how long a MACHINE (warden) credential is meant to live, in
    * seconds (86400..34560000; default 2592000 = 30 days). It is BOTH the
    * credential's expiry (the mint stamps `exp = iat + this`, T-fc53 第二段 — it
@@ -1299,6 +1306,8 @@ export interface ServerSettingsPatch {
   acceleratedGraceSecs?: number;
   /** Reassign handover timeout in seconds. Must be 60..86400. */
   reassignHandoverTimeoutSecs?: number;
+  /** T-244 task-close wind-down in seconds. Must be 10..3600. */
+  taskCloseWinddownSecs?: number;
   /** T-fc53 warden credential lifetime in seconds. Must be 86400..34560000 —
    * the floor is one day because the last third of the lifetime is the retry
    * window, and at a 15-minute poll a one-day lifetime still leaves ~32

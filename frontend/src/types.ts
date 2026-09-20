@@ -113,10 +113,13 @@ export interface Member {
 
   /** Which operation opened the in-flight wind-down (wire `refocus_op`):
    * "relocate" | "runtime/model" | "context_notice" | "context_high" |
-   * "refocus" | "restart_self" | "token_expiry" | "accelerated_stop"; "" when
-   * none. The last three arrived with T-ed79 and the server sends all of them;
-   * they were missing from this list, which is the whole value of writing the
-   * set down. */
+   * "refocus" | "restart_self" | "token_expiry" | "accelerated_stop" |
+   * "task_close"; "" when none. T-ed79 added three of them and the server sends
+   * all of them; they were missing from this list, which is the whole value of
+   * writing the set down. "task_close" (T-244) is OUTSOURCE-only and rides the
+   * 下線 axis — `desiredState` offline with no `refocusSince` — so a reader
+   * keying on `refocusSince` to decide whether a cause is in flight will not
+   * see it; `refocusDeadline` still carries its instant. */
   refocusOp?: string;
   /** Epoch by which that wind-down is collected at the latest (wire
    * `refocus_deadline`), null when none is in flight. A CEILING, not a

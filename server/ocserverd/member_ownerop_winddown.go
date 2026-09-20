@@ -190,6 +190,19 @@ const (
 	// hand-off it is being asked for; it can only fail. Renewal used to depend
 	// on the agent noticing on its own.
 	refocusOpTokenExpiry = "token_expiry"
+	// refocusOpTaskClose is the TASK-CLOSE close-out window (T-244, owner
+	// rc-604d8fc39cfd 圈 [0]). It is stamped on an OUTSOURCE worker — never on
+	// staff — by the close of the task it is bound to, all four closes alike,
+	// and it is what turns the dismissal that used to happen inside that call
+	// into a window the contractor can work.
+	//
+	// 🔴 IT IS A CAUSE ON THE 下線 AXIS, not the 換手 one: it rides
+	// desired_state=offline + stopping_since with NO refocus_since, exactly as
+	// accelerated_stop does on that arm, because nothing is coming back — the
+	// task is over and the worker is being let go. offboardKindOf's
+	// desired-offline arm reads it through winddownKindFor and
+	// winddownDeadlineOf anchors the deadline on stopping_since.
+	refocusOpTaskClose = "task_close"
 	// refocusOpAcceleratedStop is the OWNER-PRESSED 加速停止 (T-ed79, owner
 	// 2026-08-21 「停止 → 加速停止 → 強制停止」). It is the middle rung of a
 	// three-step escalation the owner walks by hand: 停止 asks and waits
@@ -299,6 +312,16 @@ func winddownKindFor(op string) (kind string, clocked bool) {
 	// the number can never end up with the automatic and the manual arm
 	// counting different seconds.
 	if op == refocusOpContextHigh || op == refocusOpAcceleratedStop {
+		return offboardKindFinal, true
+	}
+	// A THIRD clocked cause since T-244, and it is OUTSOURCE-ONLY: the task a
+	// contractor was hired for has landed terminal, so its close-out window is
+	// open and bounded. It is `final` for the same reason the two above are —
+	// there IS a deadline, so the sentence has to quote one — and it reads its
+	// own grace (task.close_winddown_secs) through the same recycleGraceFor pair
+	// rather than the 加速停止 key. Nothing stamps it on a staff row: the only
+	// writer is openTaskCloseWindDownForTask (worker_spawn.go).
+	if op == refocusOpTaskClose {
 		return offboardKindFinal, true
 	}
 	return offboardKindSoft, false

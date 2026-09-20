@@ -538,11 +538,13 @@ func (s *apiServer) sseStopGateRefusal(memberID string) string {
 		return "" // fail-open on a read fault/unknown sub: never a new refusal class
 	}
 	if m.Kind == KindOutsource {
-		// Outsource members keep the pre-fold worker admission: a RELEASED
-		// worker's session deliberately lives on for its close-out duties
-		// (worker_spawn.go reclaim grace), so its SSE must stay admitted even
-		// though the row is roster-removed — the member stop gate below would
-		// wrongly refuse it. Worker stop intent is enforced by the scheduler's
+		// Outsource members keep the pre-fold worker admission: a worker's
+		// session deliberately outlives the close of its task — through the
+		// task-close window while the row is still LIVE (T-244), and after the
+		// release until the reclaim lands (worker_spawn.go reclaim grace) — so
+		// its SSE must stay admitted even when the row is roster-removed, and
+		// through a wind-down the member gate below would refuse on
+		// desired_state=offline + stopping_since. Worker stop intent is enforced by the scheduler's
 		// desired_state hold-down, not by this gate.
 		return ""
 	}

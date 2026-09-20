@@ -1225,14 +1225,18 @@ func (s *apiServer) HandleGetMonitoringApiMonitoringGet(w http.ResponseWriter, r
 		// filtering it here makes the two loops disagree.
 		//
 		// And released is the STEADY STATE for outsource workers, not an edge
-		// case: every task close dismisses the bound worker (api_tasks.go
-		// closeTask → dismissOutsourceWorkersForTask), which releases the row.
+		// case: every task close ends with the bound worker released — since
+		// T-244 at the end of its close-out window (api_tasks.go closeTask →
+		// openTaskCloseWindDownForTask, then collectTaskCloseWindDown on the
+		// tick) rather than inside the close call, but released either way.
 		// A filter here would therefore hide almost all outsource spend — the
 		// owner-reported eva-m5-claude symptom, restored verbatim.
 		//
-		// Nor is a released worker even finished: SPEC §6.3 (see closeTask) keeps
-		// its SESSION alive on purpose to run the close-out duties, so it is still
-		// live and still burning money after the flip.
+		// Nor is a released worker necessarily finished: the release and the
+		// session reclaim are two steps of one call, and a row released by some
+		// path that is not one of those waits out the backstop, so a released
+		// worker can still be live and still burning money for a moment after
+		// the flip.
 		//
 		// Finally, money already spent is a historical fact. An account's
 		// cumulative cost must never JUMP BACKWARDS the instant a task closes; a
@@ -1373,8 +1377,9 @@ func (s *apiServer) HandleGetMonitoringApiMonitoringGet(w http.ResponseWriter, r
 	// are two steps of one call, and a worker released by some path that is not
 	// a task close waits out the backstop — so for that window it is a real
 	// running process that `agents` does not count. The window is bounded at
-	// BOTH ends: since T-182 the close itself reclaims the session in the same
-	// call that releases the row (dismissOutsourceWorkersForTask), and the
+	// BOTH ends: every path that releases a worker reclaims its session in the
+	// same call (releaseAndReclaimWorker — the task-close collect, the by-id
+	// dismissal and the handover-timeout reaper all go through it), and the
 	// outsource tick force-reclaims anything else at workerReclaimGraceSecs =
 	// 120.0 (worker_spawn.go) after release regardless. So the undercount is at most ~120s per worker and then the
 	// session is genuinely gone — whereas the overcount from counting released

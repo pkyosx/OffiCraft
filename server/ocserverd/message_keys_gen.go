@@ -1031,6 +1031,8 @@ var messageKeys = map[string]bool{
 	"settings.suggestedReplyRemove":                    true,
 	"settings.systemName":                              true,
 	"settings.systemSub":                               true,
+	"settings.taskCloseWinddown":                       true,
+	"settings.taskCloseWinddownSub":                    true,
 	"settings.taskCloseoutName":                        true,
 	"settings.taskCloseoutSub":                         true,
 	"settings.taskEventSection":                        true,

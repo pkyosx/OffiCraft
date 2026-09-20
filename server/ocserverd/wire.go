@@ -95,6 +95,16 @@ type settingsDTO struct {
 	// It cannot put a clock on a soft cause — winddownKindFor still decides WHO
 	// is clocked, and this only says HOW LONG.
 	AcceleratedGraceSecs int `json:"accelerated_grace_secs"`
+	// TaskCloseWinddownSecs is the TASK-CLOSE close-out window in seconds
+	// (task.close_winddown_secs; T-244) — how long an outsource worker keeps
+	// its session after the task it is bound to lands terminal. It is a SECOND
+	// number beside the one above and not a contradiction of that field's
+	// comment: what must never split is the pair (clock, sentence) for ONE
+	// cause, and both still reach this value through recycleGraceFor /
+	// winddownKindFor. What a shared number would tie together is the length of
+	// a contractor's shutdown and the length of the owner's own 加速停止
+	// escalation, which are different decisions.
+	TaskCloseWinddownSecs int `json:"task_close_winddown_secs"`
 	// ReassignHandoverTimeoutSecs is the handover-timeout reaper clock
 	// (task.reassign_handover_timeout_secs; T-248).
 	ReassignHandoverTimeoutSecs int `json:"reassign_handover_timeout_secs"`

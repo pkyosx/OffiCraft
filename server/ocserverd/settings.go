@@ -168,6 +168,29 @@ const (
 	// handover-timeout reaper
 	// reclaims it, in seconds.
 	settingReassignHandoverTimeoutSecs = "task.reassign_handover_timeout_secs"
+	// settingTaskCloseWinddownSecs (T-244, owner rc-604d8fc39cfd) is how long an
+	// OUTSOURCE worker keeps its session after the task it is bound to lands
+	// terminal, in seconds — the close-out window all four closes now open
+	// instead of dismissing the worker where they stand.
+	//
+	// 🔴 IT IS A SECOND KEY BESIDE settingAcceleratedGraceSecs AND THAT IS NOT
+	// THE SPLIT THAT KEY'S COMMENT WARNS ABOUT. The warning there is about two
+	// knobs for ONE cause — the agent quoted one number while the tick collects
+	// on another — and the thing that prevents it is that the clock
+	// (recycleGraceFor) and the sentence (offboardKindOf → winddownKindFor) read
+	// ONE judgement per cause. They still do: `task_close` is its own cause, and
+	// both of them reach THIS key through that same pair, so the countdown the
+	// worker is told and the deadline the tick collects on cannot come apart.
+	// What a shared key WOULD do is tie the length of a close-out nobody pressed
+	// a button for to the length of the owner's own 加速停止 escalation, so
+	// lengthening one to give contractors room would silently slow the button he
+	// presses when he wants a session gone.
+	//
+	// Bounds are deliberately the SAME predicate as that key (acceleratedGraceInRange,
+	// 10..3600) — the floor and ceiling are properties of "a wind-down window an
+	// agent is told about and works inside", not of one cause — so there is one
+	// range rule in the build rather than two that happen to agree today.
+	settingTaskCloseWinddownSecs = "task.close_winddown_secs"
 	// settingDocCapChars* (T-3aeb, owner 2026-07-31; split four ways in T-ae38,
 	// owner 2026-08-03; the manual's one split again in T-30f1) are the size
 	// caps on the accumulating context documents — see contextDocMaxCharsDefault
@@ -398,6 +421,13 @@ const (
 	maxReassignHandoverTimeoutSecs     = 86400
 )
 
+// The task.close_winddown_secs default (T-244, owner rc-604d8fc39cfd 圈 [0]).
+// 300 s is the owner's number, not a derivation of any existing constant, so it
+// is written here once and nothing else may re-derive it. The BOUNDS are not
+// repeated: this key is range-checked by acceleratedGraceInRange, for the reason
+// written at settingTaskCloseWinddownSecs.
+const taskCloseWinddownSecsDefault = 300
+
 // The auth.warden_credential_lifetime_secs bounds (T-fc53).
 //
 // THE DEFAULT IS 30 DAYS (owner 2026-09-08, card rc-f2b96594c621, option [0],
@@ -492,6 +522,7 @@ type authSettings struct {
 	wardenCredLifetimeSecs       int    // auth.warden_credential_lifetime_secs (default wardenCredLifetimeSecsDefault)
 	outsourceMaxParallel         int    // task.outsource_max_parallel (default 3)
 	reassignHandoverTimeoutSecs  int    // task.reassign_handover_timeout_secs (default reassignHandoverTimeoutSecsDefault)
+	taskCloseWinddownSecs        int    // task.close_winddown_secs (default taskCloseWinddownSecsDefault)
 	docCapCharsDuty              int    // doc.cap_chars.duty (default dutyCapCharsDefault)
 	docCapCharsInsight           int    // doc.cap_chars.insight (default contextDocMaxCharsDefault)
 	docCapCharsManualSop         int    // doc.cap_chars.manual_sop (default contextDocMaxCharsDefault)
@@ -620,6 +651,7 @@ func loadAuthSettings(d *DAL, cfg Config, logf func(string)) (authSettings, erro
 		acceleratedGraceSecs:        acceleratedGraceSecsDefault,
 		wardenCredLifetimeSecs:      wardenCredLifetimeSecsDefault,
 		reassignHandoverTimeoutSecs: reassignHandoverTimeoutSecsDefault,
+		taskCloseWinddownSecs:       taskCloseWinddownSecsDefault,
 	}
 
 	stored, err := d.GetSetting(settingJWTSecret)
@@ -823,6 +855,19 @@ func loadAuthSettings(d *DAL, cfg Config, logf func(string)) (authSettings, erro
 				settingReassignHandoverTimeoutSecs, reassignHandoverTimeoutRangeMsg, *v)
 		}
 		out.reassignHandoverTimeoutSecs = n
+	}
+	// task.close_winddown_secs — same bounds as the PATCH face, which is the SAME
+	// predicate stop.accelerated_grace_secs uses (acceleratedGraceInRange): a
+	// hand-edited row must not install a window the PATCH face would refuse.
+	if v, err := d.GetSetting(settingTaskCloseWinddownSecs); err != nil {
+		return out, err
+	} else if v != nil {
+		n, err := strconv.Atoi(*v)
+		if err != nil || !acceleratedGraceInRange(n) {
+			return out, fmt.Errorf("settings %s: %s: %q",
+				settingTaskCloseWinddownSecs, acceleratedGraceRangeMsg, *v)
+		}
+		out.taskCloseWinddownSecs = n
 	}
 
 	// auth.warden_credential_lifetime_secs — range-checked at load against the

@@ -635,7 +635,10 @@ its task landed in a terminal status: walk the close-out (clean the task's scrat
 report it). Best-effort at-most-once, no queue, no replay. ⚠️ T-182 later moved the
 close-out itself EARLIER — it now happens in `ready_for_done`, BEFORE the task is closed —
 and removed the separate report tool; the notice below is still sent by `closeTask`, but it
-now arrives after the close-out rather than asking for one.
+now arrives after the close-out rather than asking for one. ⚠️ T-244 gave an OUTSOURCE
+worker a bounded window after the close to shut its SESSION down (`task.close_winddown_secs`,
+lifecycle §4.4) and the sentence it is handed for that rides the ordinary member delta's
+`offboard_notice` (§4), NOT this nudge. This section stays retired.
 
 **Why it moved.** "Best-effort at-most-once onto a live connection" means an executor that
 was not connected at the instant its task closed was never told — and an executor whose

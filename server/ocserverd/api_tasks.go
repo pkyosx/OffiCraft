@@ -666,10 +666,11 @@ func authorizeTaskCreate(c taskCaller, willOutsource bool, manualAssigneeMember,
 
 // closeTask applies the terminal-status side effects shared by all four closes
 // (mark_task_done, mark_task_terminated, mark_task_duplicated, force_task_done):
-// stamp closed_ts, retire every waiting reply card still bound to the task,
-// DISMISS every bound outsource worker (row released — the panel row disappears,
-// the row itself is the audit trail — and its session reclaimed) and fan their
-// deltas.
+// stamp closed_ts, retire every waiting reply card still bound to the task, open
+// the CLOSE-OUT WINDOW of every bound outsource worker (T-244 — desired_state
+// offline plus the stop anchor, so the panel row stays and reads 停止中; the
+// release and the session reclaim happen on the tick when the window ends, or
+// on the spot when the worker was already offline) and fan their deltas.
 func (s *apiServer) closeTask(t *Task, status string, now float64, trigger string) error {
 	t.Status = status
 	t.ClosedTS = now
@@ -694,45 +695,65 @@ func (s *apiServer) closeTask(t *Task, status string, now float64, trigger strin
 	if _, err := s.expireWaitingCardsForTask(t.ID, now, trigger); err != nil {
 		taskLog("close %s: reply-card sweep failed (cards left waiting): %v", t.ID, err)
 	}
-	// T-182 — THE DISMISSAL HAPPENS HERE, AND ONLY HERE. Every close funnels
-	// through closeTask, so all four doors (mark_task_done, mark_task_terminated,
-	// mark_task_duplicated, force_task_done) fire the worker on the same terms:
-	// the row releases AND the session is reclaimed at once.
+	// T-182, REVISED BY T-244 — THE WORKER'S CLOSE-OUT WINDOW OPENS HERE, AND
+	// ONLY HERE. Every close funnels through closeTask, so all four doors
+	// (mark_task_done, mark_task_terminated, mark_task_duplicated,
+	// force_task_done) treat the worker on the same terms.
 	//
-	// 🔴 WHY NOT ONE DOOR AT A TIME, which is what the old wiring did. The
-	// dismissal used to hang off a SEPARATE report (`report_task_closeout`,
-	// removed in this ticket), which only ever arrived after mark_task_done; the
+	// 🔴 WHY NOT ONE DOOR AT A TIME, which is what the wiring before T-182 did.
+	// The dismissal used to hang off a SEPARATE report (`report_task_closeout`,
+	// removed in that ticket), which only ever arrived after mark_task_done; the
 	// other three closes left the worker holding a live session until the
 	// scheduler's workerReclaimGraceSecs backstop swept it. So "terminated" and
 	// "duplicated" spent a contractor's quota on a ticket that had already ended.
-	// Owner's ruling (rc-571b665bc047 option [0]) is 「外包改在按下結案那一刻遣散」,
-	// and a close is a close.
+	// Owner's ruling (rc-571b665bc047 option [0]) was 「外包改在按下結案那一刻遣散」,
+	// and a close is a close. THE "a close is a close" HALF STILL STANDS — all
+	// four doors still act here, on the same terms.
 	//
-	// 🔴 WHY NO DOOR OPTS OUT, including force_task_done. A terminal task refuses
-	// every write the worker could still make on it, so a worker left alive past
-	// the close has nothing it is PERMITTED to do — keeping it is not mercy, it
-	// is quota. The close-out work (deliverables, step notes) has its
-	// own window now and it is BEFORE this call: `ready_for_done`, which the task
-	// sits in until somebody presses mark_task_done. That is the whole reason the
-	// session no longer needs to outlive the close.
+	// 🔴 WHAT T-244 REVERSED is the other half: the instant dismissal. That
+	// ticket's reasoning was 「a terminal task refuses every write the worker
+	// could still make on it, so a worker left alive past the close has nothing
+	// it is PERMITTED to do」, and the ⚠️ under it named the cost —
+	// force_task_done and mark_task_terminated can land on a worker that never
+	// reached `ready_for_done`, cutting a working contractor off mid-sentence.
+	// That cost is what the owner ruled on (rc-604d8fc39cfd 圈 [0]). The premise
+	// was true of work ON THE TASK and false of the SESSION: pushing commits,
+	// collecting sub-agents and writing learnings back are not task writes, and
+	// none of them is instantaneous. So the close now OPENS a bounded window
+	// instead of ending one — desired_state offline + the stop anchor
+	// (openTaskCloseWindDownForTask), which the cockpit already renders as
+	// 停止中 — and the release happens on the tick, at whichever comes first of
+	// the station's own offline determination and task.close_winddown_secs.
 	//
-	// ⚠️ THE NAMED COST: force_task_done and mark_task_terminated can land on a
-	// task whose worker never reached `ready_for_done`, so those two DO cut a
-	// working contractor off mid-sentence with no close-out window. That is what
-	// those two doors are for — they exist to end a task the executor is not
-	// going to end — but it is a behaviour change from the grace-period wait, so
-	// it is written down rather than discovered.
-	fired := s.dismissOutsourceWorkersForTask(t.ID, now, trigger)
+	// 🔴 STILL NO DOOR OPTS OUT, and now that costs nothing: the two doors that
+	// exist to end a task the executor is not going to end give the SAME window
+	// as the two that do not, because the thing being wound down is the session
+	// and not the executor's opinion of the task.
+	//
+	// The close-out CONTENT has not moved: deliverables and step notes are still
+	// written while the task sits in `ready_for_done`, and are still refused once
+	// it is terminal.
+	touched := s.openTaskCloseWindDownForTask(t.ID, now, trigger)
 	// T-261: expireWaitingCardsForTask above only reaches the cards BOUND to this
-	// task. A dismissed contractor's UNBOUND 請示 (linked_task=null) is bound to
+	// task. A departing contractor's UNBOUND 請示 (linked_task=null) is bound to
 	// nobody, so it survived the close and sat in the owner's 等我回覆 pane with
 	// an asker that no longer exists. The other two dismissal paths (member
 	// dismissal, deferred handover) already sweep by opener; this door did not.
+	//
+	// ⚠️ T-244 MOVED THE DISMISSAL AND DELIBERATELY LEFT THIS SWEEP HERE, at the
+	// CLOSE rather than at the collect. The asker is still alive for the length
+	// of the window, so this is not "the asker no longer exists" yet — but it is
+	// already 「the asker is shutting down and will never read the answer」, and
+	// the owner answering a card whose asker is working its last minutes is the
+	// same wasted round trip T-261 removed. Holding the sweep until the collect
+	// would also put a card write on the tick, under outsourceMu, which is the
+	// one thing the split below exists to avoid.
+	//
 	// Same best-effort posture as the sweep above, and for the same reason — the
 	// terminal task row is already persisted and there is no transaction to roll
-	// back. Deliberately OUTSIDE dismissOutsourceWorkersForTask: card writes must
+	// back. Deliberately OUTSIDE openTaskCloseWindDownForTask: card writes must
 	// not run under outsourceMu.
-	for _, workerID := range fired {
+	for _, workerID := range touched {
 		if _, err := s.expireWaitingCardsFromMember(workerID, now, trigger); err != nil {
 			taskLog("close %s: card sweep for dismissed worker %s failed: %v",
 				t.ID, workerID, err)

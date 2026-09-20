@@ -406,10 +406,20 @@ func (s *apiServer) runOutsourceTick(now float64) {
 	//   * a worker stuck in 'assigned' gets its worker_start (re)dispatched,
 	//     paced by workerSpawnRetrySecs (a lost frame / offline warden heals
 	//     here — the cadence is the retry loop, exactly like reconcile);
-	//   * a RELEASED worker whose session was never reclaimed (no close-out
-	//     report arrived) is force-reclaimed after workerReclaimGraceSecs —
-	//     the grace exists so a released worker can finish its §6.3 close-out
-	//     duties before the session is taken.
+	//   * a live worker whose task-close window is over is RELEASED and its
+	//     session reclaimed (collectTaskCloseWindDown, T-244) — whichever comes
+	//     first of the station's own offline determination and
+	//     task.close_winddown_secs;
+	//   * a RELEASED worker whose session was never reclaimed is force-reclaimed
+	//     after workerReclaimGraceSecs.
+	//     🔴 THIS GRACE IS NOT A CLOSE-OUT WINDOW, whatever it used to say here.
+	//     The sentence that stood in this spot read 「the grace exists so a
+	//     released worker can finish its §6.3 close-out duties before the session
+	//     is taken」, and it was describing the handler T-182 DELETED — the
+	//     close-out report this clock used to wait for has not existed since.
+	//     Every release path already reclaims in the same call; this is the
+	//     backstop for a row some other path released, and nothing is being given
+	//     time to do anything in it.
 	// ── the pre-decide formalities, from the SAME list staff use (T-72dd,
 	//    T-170e stage 3) ─────────────────────────────────────────────────────
 	//
@@ -480,6 +490,19 @@ func (s *apiServer) runOutsourceTick(now float64) {
 		//
 		// It mutates `w` in place, so the switch below sees desired_state=online on
 		// this very pass and dispatches the start now rather than a tick later.
+		// T-244: a worker whose task-close window is over leaves HERE, above
+		// everything else, and the position is load-bearing in the same way
+		// consumeWorkerRestartAfterStop's is one line down. Its row is
+		// desired_state=offline, so the assigned branch would `continue` past it
+		// and the active branch would skip the FSM — the two places a collect
+		// could otherwise live are both blind to exactly this population. It
+		// answers false for every worker that is not in a task-close window, so
+		// the ordinary tick is unchanged; when it answers true the row is already
+		// released and every pass below it would be acting on a worker that no
+		// longer exists.
+		if s.collectTaskCloseWindDown(w, now) {
+			continue
+		}
 		s.consumeWorkerRestartAfterStop(&w, now)
 		// A refused live-worker kill (owner 停止/relocate toward a warden that
 		// dropped offline) is parked, never lost — re-fire it FIRST, before any

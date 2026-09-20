@@ -422,6 +422,7 @@ func TestReconcileConfigLive(t *testing.T) {
 		return map[string]any{
 			"start_timeout": cfg.StartTimeout, "stop_grace": cfg.StopGrace,
 			"stop_retry": cfg.StopRetry, "recycle_grace": cfg.RecycleGrace,
+			"task_close_winddown": cfg.TaskCloseWinddown,
 			"soft_offboard_grace": cfg.SoftOffboardGrace,
 			"backoff_base":        cfg.BackoffBase, "backoff_cap": cfg.BackoffCap,
 			"circuit_threshold": float64(cfg.CircuitThreshold),
@@ -431,8 +432,9 @@ func TestReconcileConfigLive(t *testing.T) {
 	}
 	shipped := map[string]any{
 		"start_timeout": 120.0, "stop_grace": 120.0, "stop_retry": 90.0,
-		"recycle_grace": 120.0, "soft_offboard_grace": 600.0,
-		"backoff_base": 5.0, "backoff_cap": 300.0,
+		"recycle_grace": 120.0, "task_close_winddown": 300.0,
+		"soft_offboard_grace": 600.0,
+		"backoff_base":        5.0, "backoff_cap": 300.0,
 		"circuit_threshold": 5.0, "circuit_cooldown": 120.0, "zombie_confirm": 240.0,
 	}
 
@@ -442,7 +444,7 @@ func TestReconcileConfigLive(t *testing.T) {
 		apiWantValue(t, "reconcile config", any(asReconcileConfig(api.reconcileConfigLive())), any(shipped))
 	})
 
-	t.Run("the one owner-adjustable number is folded in fresh, and it moves ONLY the recycle grace", func(t *testing.T) {
+	t.Run("the accelerated grace is folded in fresh, and it moves ONLY the recycle grace", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 
 		asPatchSettings(t, h, owner, `{"accelerated_grace_secs":90}`)
@@ -453,6 +455,31 @@ func TestReconcileConfigLive(t *testing.T) {
 		}
 		want["recycle_grace"] = 90.0
 		apiWantValue(t, "reconcile config", any(asReconcileConfig(api.reconcileConfigLive())), any(want))
+	})
+
+	// T-244: the second owner-adjustable number. It is here rather than in a
+	// file of its own because the thing worth pinning is that the two do not
+	// move each other — a shared key would make both of these subtests pass
+	// while the owner tuning a contractor's close-out silently retimed his own
+	// 加速停止 button.
+	t.Run("the task-close window is folded in fresh, and it moves ONLY the task-close window", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+
+		asPatchSettings(t, h, owner, `{"task_close_winddown_secs":45}`)
+
+		want := map[string]any{}
+		for key, value := range shipped {
+			want[key] = value
+		}
+		want["task_close_winddown"] = 45.0
+		apiWantValue(t, "reconcile config", any(asReconcileConfig(api.reconcileConfigLive())), any(want))
+	})
+
+	t.Run("a zero task-close window leaves the boot-time one standing", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+		api.taskCloseWinddownSecs = 0
+
+		apiWantValue(t, "reconcile config", any(asReconcileConfig(api.reconcileConfigLive())), any(shipped))
 	})
 
 	t.Run("a zero adjustable number leaves the boot-time grace standing rather than publishing a zero deadline", func(t *testing.T) {

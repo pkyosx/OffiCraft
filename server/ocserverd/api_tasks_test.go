@@ -1789,7 +1789,17 @@ func TestCloseTask(t *testing.T) {
 		)
 	})
 
-	t.Run("a worker read that faults after the release still reports the fired ids and retires their cards", func(t *testing.T) {
+	// T-244 CHANGED WHAT THIS SUBTEST IS ABOUT, and the old name is quoted here
+	// because the fixture it built is still the fixture: it was 「a worker read
+	// that faults after the release still reports the fired ids and retires
+	// their cards」, a property of a close that READ THE WHOLE OUTSOURCE ROSTER
+	// to find the sessions to reclaim and could therefore be brought down by a
+	// corrupted row belonging to another task. The close now reads
+	// ListLiveWorkersForTask, so that row is never scanned and the fault does
+	// not happen at all — which is a stronger guarantee and the one asserted
+	// below. The corrupted T-2 row stays in the fixture as the negative control:
+	// remove it and a close that went back to scanning the roster would pass.
+	t.Run("a corrupted worker row on ANOTHER task cannot stop this close from winding its own worker down and retiring its cards", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Elsewhere","executor_member_id":"kip"}`)
@@ -1813,9 +1823,9 @@ func TestCloseTask(t *testing.T) {
 				t.Fatalf("PutReplyCard(%q): %v", card.ID, err)
 			}
 		}
-		// The roster read faults only AFTER the release: ReleaseWorkersForTask
-		// selects T-1's row alone, while ListOutsourceWorkers scans every
-		// outsource row and trips over the corrupted one bound to T-2.
+		// ow-zzz999 (bound to T-2) is unreadable: any code path that scans the
+		// whole outsource roster trips over it. The close under test must not
+		// be one — it reads T-1's rows alone.
 		if _, err := d.wdb.Exec(`UPDATE member SET session_boot_ts = ? WHERE id = ?`,
 			"not-a-number", "ow-zzz999"); err != nil {
 			t.Fatalf("corrupt member read value: %v", err)
