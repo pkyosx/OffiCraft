@@ -53,6 +53,7 @@ func TestWinddownKindFor(t *testing.T) {
 		{"restart-self wind-down is soft and unclocked", refocusOpRestartSelf, "soft", false},
 		{"token-expiry wind-down is soft and unclocked", refocusOpTokenExpiry, "soft", false},
 		{"accelerated-stop wind-down is final and clocked", refocusOpAcceleratedStop, "final", true},
+		{"task-close wind-down is final and clocked", refocusOpTaskClose, "final", true},
 		{"relocate wind-down is soft and unclocked", memberOpRelocate, "soft", false},
 		{"model wind-down is soft and unclocked", memberOpModel, "soft", false},
 		{"an unknown wind-down is soft and unclocked", "unknown", "soft", false},
@@ -123,6 +124,7 @@ func TestWinddownStageRankOf(t *testing.T) {
 	}{
 		{"context-high is the accelerated stage", refocusOpContextHigh, 2},
 		{"accelerated-stop is the accelerated stage", refocusOpAcceleratedStop, 2},
+		{"task-close is the accelerated stage", refocusOpTaskClose, 2},
 		{"context-notice is the stop stage", refocusOpContextNotice, 1},
 		{"refocus is the stop stage", refocusOpRefocus, 1},
 		{"restart-self is the stop stage", refocusOpRestartSelf, 1},

@@ -492,14 +492,21 @@ func (s *apiServer) runOutsourceTick(now float64) {
 		// this very pass and dispatches the start now rather than a tick later.
 		// T-244: a worker whose task-close window is over leaves HERE, above
 		// everything else, and the position is load-bearing in the same way
-		// consumeWorkerRestartAfterStop's is one line down. Its row is
-		// desired_state=offline, so the assigned branch would `continue` past it
-		// and the active branch would skip the FSM — the two places a collect
-		// could otherwise live are both blind to exactly this population. It
-		// answers false for every worker that is not in a task-close window, so
-		// the ordinary tick is unchanged; when it answers true the row is already
-		// released and every pass below it would be acting on a worker that no
-		// longer exists.
+		// consumeWorkerRestartAfterStop's is one line down. It answers false for
+		// every worker that is not in a task-close window, so the ordinary tick
+		// is unchanged; when it answers true the row is already released and
+		// every pass below it would be acting on a worker that no longer exists.
+		//
+		// 🔴 WHAT MOVING IT DOWN ACTUALLY COSTS, measured rather than reasoned:
+		// put this call after the `switch w.Status` below and the collect STILL
+		// HAPPENS — the log line still says the window elapsed — but the active
+		// branch has by then run the FSM, which sends a kill of its own, so ONE
+		// collection goes out as TWO kill frames. The failure is a duplicate,
+		// not a miss. (The earlier sentence here claimed both branches were
+		// blind to this population; the active branch is not, and it acts. The
+		// assigned branch was never exercised — this package has no fixture for
+		// a worker in `assigned` inside a close-out window — so nothing is
+		// claimed about it.)
 		if s.collectTaskCloseWindDown(w, now) {
 			continue
 		}

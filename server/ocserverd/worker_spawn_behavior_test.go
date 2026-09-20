@@ -2122,6 +2122,12 @@ func windDownFixture(t *testing.T, openedAt float64, online bool) *apiServer {
 
 // windDownState is everything a tick can have done to the worker, read back in
 // one value: whether the row was released, and whether a kill went out.
+//
+// ⚠️ IT CONSUMES WHAT IT REPORTS. The kill count comes from draining the warden
+// queue, so a SECOND call answers 0 kills for the same tick — not because
+// nothing was sent, but because the first call took it. Call it once per
+// subtest, at the end; if you need two readings, capture the difference
+// yourself rather than calling this twice.
 func windDownState(t *testing.T, s *apiServer) map[string]any {
 	t.Helper()
 	after, err := s.dal.GetOutsourceWorker("ow-244")
@@ -2136,6 +2142,36 @@ func windDownState(t *testing.T, s *apiServer) map[string]any {
 
 func TestTaskCloseWindDown_Collect(t *testing.T) {
 	const opened = 1000.0
+
+	// 🔴 THE RELEASED GUARD, WHICH NOTHING ELSE SEES. Removing
+	// `w.Status == WorkerStatusReleased` from the collect leaves the whole
+	// package green, because releaseAndReclaimWorker has a second, independent
+	// idempotency term (workerReclaimed) that absorbs the duplicate. The day
+	// that term's lifetime changes, this guard is the only thing left, and it
+	// would break with no signal at all. Asserted here directly, with the
+	// positive control beside it so a permanently-false collect cannot pass.
+	t.Run("an already-released row is not collected again, while the same row live is", func(t *testing.T) {
+		s := windDownFixture(t, opened, false)
+		w, err := s.dal.GetOutsourceWorker("ow-244")
+		if err != nil || w == nil {
+			t.Fatalf("read back worker: %v", err)
+		}
+		at := opened + taskCloseWinddownSecsDefault + 1
+
+		s.outsourceMu.Lock()
+		defer s.outsourceMu.Unlock()
+		live := *w
+		released := *w
+		released.Status = WorkerStatusReleased
+
+		if got := s.collectTaskCloseWindDown(released, at); got {
+			t.Errorf("an already-released row was collected again")
+		}
+		if got := s.collectTaskCloseWindDown(live, at); !got {
+			t.Errorf("positive control: the same row, live, was NOT collected — " +
+				"this test would pass for the wrong reason")
+		}
+	})
 
 	t.Run("a live session inside the window is left alone", func(t *testing.T) {
 		s := windDownFixture(t, opened, true)
