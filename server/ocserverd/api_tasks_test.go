@@ -1610,6 +1610,12 @@ func TestCloseTask(t *testing.T) {
 		}
 		dashboard := apiTestListen(t, api, "")
 
+		// The worker in this fixture has no session: arm the station's
+		// continuous-offline anchor so the close takes the confirmed-gone arm
+		// (release on the spot) rather than opening a window it cannot use.
+		api.outsourceMu.Lock()
+		api.workerSessionConfirmedGone("ow-abc123", 0)
+		api.outsourceMu.Unlock()
 		if err := api.closeTask(task, TaskStatusTerminated, 1750000000, "owner"); err != nil {
 			t.Fatalf("closeTask: %v", err)
 		}
@@ -1723,6 +1729,12 @@ func TestCloseTask(t *testing.T) {
 		}
 		dashboard := apiTestListen(t, api, "")
 
+		// The worker in this fixture has no session: arm the station's
+		// continuous-offline anchor so the close takes the confirmed-gone arm
+		// (release on the spot) rather than opening a window it cannot use.
+		api.outsourceMu.Lock()
+		api.workerSessionConfirmedGone("ow-abc123", 0)
+		api.outsourceMu.Unlock()
 		if err := api.closeTask(task, TaskStatusDone, 1750000000, "owner"); err != nil {
 			t.Fatalf("closeTask: %v", err)
 		}
@@ -1838,6 +1850,12 @@ func TestCloseTask(t *testing.T) {
 			t.Fatalf("resolveTask: %v", err)
 		}
 
+		// The worker in this fixture has no session: arm the station's
+		// continuous-offline anchor so the close takes the confirmed-gone arm
+		// (release on the spot) rather than opening a window it cannot use.
+		api.outsourceMu.Lock()
+		api.workerSessionConfirmedGone("ow-abc123", 0)
+		api.outsourceMu.Unlock()
 		if err := api.closeTask(task, TaskStatusDone, 1750000000, "owner"); err != nil {
 			t.Fatalf("closeTask: %v", err)
 		}

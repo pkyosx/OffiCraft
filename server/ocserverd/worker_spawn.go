@@ -2998,9 +2998,16 @@ func (s *apiServer) openTaskCloseWindDownForTask(taskID string, now float64, tri
 		// window entirely — the exact harm this ticket exists to remove, and
 		// the log line would call it "offline at the close". The debounced
 		// predicate already answers the right question and is what the collect
-		// arm below uses; a session that really has been gone a while has its
-		// anchor armed from earlier ticks, so the fast path still fires for the
-		// case it was written for.
+		// arm below uses.
+		// ⚠️ WHEN THIS SKIP ACTUALLY FIRES IS NARROWER THAN IT LOOKS, and the
+		// narrowness is the safe direction. The continuous-offline anchor is
+		// only maintained for workers the station is ALREADY winding down (the
+		// two other callers both sit behind desired_state=offline), so a worker
+		// that merely died while desired-online has no anchor and answers false
+		// here on its first ask. It therefore gets a window it cannot use, and
+		// the collect below ends it one confirmation later. That costs a row and
+		// a concurrency slot for that long; being wrong the other way costs a
+		// live contractor its whole close-out.
 		if s.workerSessionConfirmedGone(w.ID, now) {
 			s.releaseAndReclaimWorker(w.ID, now, trigger)
 			outsourceLog("task-close wind-down %s (%s): session already confirmed "+

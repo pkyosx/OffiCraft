@@ -3467,11 +3467,17 @@ func TestReclaimWorkerSession(t *testing.T) {
 // collapses them into either arm passes the other arm's subtest, which is why
 // they are asserted side by side here rather than in two files.
 func TestOpenTaskCloseWindDownForTask(t *testing.T) {
-	t.Run("a worker that is OFFLINE at the close is released and its session reclaimed on the spot", func(t *testing.T) {
+	t.Run("a worker whose session the station has CONFIRMED gone is released and reclaimed on the spot", func(t *testing.T) {
 		api, h, d, owner, _ := wsWorkerSpawnFixture(t, WorkerStatusActive)
 		apiTestListen(t, api, ServerSelfHost)
 		api.outsourceMu.Lock()
 		api.workerSpawnTarget["ow-abc123"] = ServerSelfHost
+		api.outsourceMu.Unlock()
+		// The skip needs the station's CONFIRMATION, not one offline sample:
+		// arm the continuous-offline anchor the way the tick does, then close
+		// past the confirmation window.
+		api.outsourceMu.Lock()
+		api.workerSessionConfirmedGone("ow-abc123", 0)
 		api.outsourceMu.Unlock()
 		dashboard := apiTestListen(t, api, "")
 
@@ -3549,6 +3555,12 @@ func TestOpenTaskCloseWindDownForTask(t *testing.T) {
 	t.Run("a second call on an already-released worker is a no-op: the row is released and the session already reclaimed", func(t *testing.T) {
 		api, h, d, owner, _ := wsWorkerSpawnFixture(t, WorkerStatusActive)
 		apiTestListen(t, api, ServerSelfHost)
+		// The skip needs the station's CONFIRMATION, not one offline sample:
+		// arm the continuous-offline anchor the way the tick does, then close
+		// past the confirmation window.
+		api.outsourceMu.Lock()
+		api.workerSessionConfirmedGone("ow-abc123", 0)
+		api.outsourceMu.Unlock()
 		api.openTaskCloseWindDownForTask("T-1", 7777, triggerServer)
 		wsDrainWardenFrames(t, api, ServerSelfHost)
 		dashboard := apiTestListen(t, api, "")
