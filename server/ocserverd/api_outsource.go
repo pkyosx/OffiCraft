@@ -467,29 +467,46 @@ func (s *apiServer) HandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcc
 			writeError(w, http.StatusConflict, acceleratedStopWorkerNeedsAnOpenWindDownMsg)
 			return
 		}
-		// 🔴 DO NOT RE-ANCHOR A WIND-DOWN THAT IS ALREADY ON A CLOCK, or this
-		// verb does the opposite of its name. The task-close window runs 300 s
-		// by default and this verb's own grace is 120 s, both measured from
-		// stopping_since: re-stamping the anchor at the press hands back a FULL
-		// 120 s, so pressing 加速停止 after the window is 180 s old LENGTHENS it —
-		// and the cockpit does not render this cause's countdown, so the owner
-		// cannot see that he just did. Keeping the original anchor switches the
-		// row to the shorter ruler instead, which can only ever bring the
-		// deadline forward; past it already, the next tick collects.
-		// Only the task-close cause is clocked on this arm, so nothing else
-		// changes: an unclocked 停止 still gets its anchor stamped here, which is
-		// what puts it on a clock at all.
-		if _, clocked := recycleGraceFor(worker.RefocusOp, s.reconcileConfigLive()); !clocked {
+		// 🔴 THE DEADLINE MAY ONLY EVER MOVE EARLIER, or this verb does the
+		// opposite of its name — and it has TWO ways to move later, not one.
+		// Both are guarded here because both are reachable.
+		//
+		// Re-anchoring is the first: the deadline is anchor + grace, so stamping
+		// the anchor at the press hands back a FULL grace however old the window
+		// already was.
+		//
+		// The second is the RULER, and it is why comparing the two graces is not
+		// decoration. task_close is the one clocked cause that does NOT read
+		// accelerated_grace_secs (recycleGraceFor: it reads
+		// task_close_winddown_secs), and both are owner-adjustable over the same
+		// 10 s‥3600 s range. Configure the window SHORTER than this verb's grace
+		// — 30 s against 120 s, say — and switching to this cause moves the
+		// deadline 90 s LATER off an anchor that never moved. Measured on the
+		// trial station at exactly that setting.
+		//
+		// So the switch happens only when this verb's ruler is genuinely the
+		// shorter one. When the window already collects at least as soon, the
+		// press leaves the row alone: there is nothing to accelerate, and the
+		// deadline the owner is looking at is already the earlier of the two.
+		// An unclocked 停止 still gets its anchor stamped, which is what puts it
+		// on a clock at all.
+		cfg := s.reconcileConfigLive()
+		cur, clocked := recycleGraceFor(worker.RefocusOp, cfg)
+		switch {
+		case !clocked:
 			worker.StoppingSince = nowSecs()
+			worker.RefocusOp = refocusOpAcceleratedStop
+		case cfg.RecycleGrace < cur:
+			worker.RefocusOp = refocusOpAcceleratedStop
 		}
 	case worker.RefocusSince > 0.0:
 		worker.RefocusSince = nowSecs()
+		worker.RefocusOp = refocusOpAcceleratedStop
 	default:
 		s.outsourceMu.Unlock()
 		writeError(w, http.StatusConflict, acceleratedStopWorkerNeedsAnOpenWindDownMsg)
 		return
 	}
-	worker.RefocusOp = refocusOpAcceleratedStop
 	// 後蓋前 (T-65 包②). 加速停止 is a 下線 verb, so it cancels a queued 起來 like
 	// the other two — and the ladder it advances is left alone, which is the split
 	// the owner's ruling turns on: 「下線用多強」 is a ratchet, 「要不要起來」 is

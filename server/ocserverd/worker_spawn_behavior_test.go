@@ -2327,32 +2327,80 @@ func TestTaskCloseWindDown_Collect(t *testing.T) {
 			any(map[string]any{"status": WorkerStatusActive, "kills": 1.0}))
 	})
 
-	// 🔴 加速停止 MUST NOT MAKE THE WINDOW LONGER, which is what re-anchoring
-	// it at the press would do: this window runs 300 s from the close and that
-	// verb's own grace is 120 s, both measured from the same anchor, so a press
-	// after 180 s would hand back a full 120 s. The verb is named for the one
-	// direction it may move the deadline, and the cockpit does not render this
-	// cause's countdown, so the owner could not see it go the other way.
-	t.Run("加速停止 mid-window brings the deadline forward, never back", func(t *testing.T) {
-		s := windDownFixture(t, opened, true)
-		rec := postWorker(t, s, "ow-244", "accelerated-stop", nil,
-			s.HandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcceleratedStopPost)
-		if rec.Code != 200 {
-			t.Fatalf("加速停止: %d %s", rec.Code, rec.Body.String())
-		}
-		after, err := s.dal.GetOutsourceWorker("ow-244")
-		if err != nil || after == nil {
-			t.Fatalf("read back worker: %v", err)
-		}
-		if after.StoppingSince != opened {
-			t.Errorf("the anchor moved to %v: a clocked wind-down must keep the "+
-				"anchor it already had, or the deadline goes BACKWARDS", after.StoppingSince)
-		}
-		if after.RefocusOp != refocusOpAcceleratedStop {
-			t.Errorf("cause = %q, want the press to switch it to the shorter ruler",
-				after.RefocusOp)
-		}
-	})
+	// 🔴 加速停止 MUST NOT MAKE THE WINDOW LONGER, and the deadline has TWO ways
+	// to get longer, so both configurations below are run against the one
+	// expression every face reads (winddownDeadlineOf — the cockpit's field and
+	// the sentence the agent is handed both come off it).
+	//
+	// Re-anchoring is the first way: the deadline is anchor + grace, so stamping
+	// the anchor at the press hands back a full grace however old the window is.
+	//
+	// The RULER is the second, and it is the one this pair exists for. task_close
+	// is the only clocked cause that does not read accelerated_grace_secs, and
+	// both keys are owner-adjustable over the same range — so a window configured
+	// SHORTER than this verb's grace makes "switch to the accelerated ruler" the
+	// longer option, off an anchor that never moved. An earlier revision of this
+	// subtest asserted only the anchor and the cause and passed while the
+	// deadline on the trial station moved 90 s the wrong way.
+	for _, tc := range []struct {
+		name         string
+		winddown     int
+		accelerated  int
+		wantDeadline float64
+		wantOp       string
+	}{{
+		name:     "window longer than this verb's grace: switched to the shorter ruler",
+		winddown: 300, accelerated: 120,
+		wantDeadline: opened + 120, wantOp: refocusOpAcceleratedStop,
+	}, {
+		name:     "window shorter than this verb's grace: the press leaves the earlier deadline alone",
+		winddown: 30, accelerated: 120,
+		wantDeadline: opened + 30, wantOp: refocusOpTaskClose,
+	}} {
+		t.Run("加速停止 mid-window brings the deadline forward, never back — "+tc.name, func(t *testing.T) {
+			s := windDownFixture(t, opened, true)
+			s.settingsMu.Lock()
+			s.taskCloseWinddownSecs = tc.winddown
+			s.acceleratedGraceSecs = tc.accelerated
+			s.settingsMu.Unlock()
+
+			readBack := func() OutsourceWorker {
+				t.Helper()
+				w, err := s.dal.GetOutsourceWorker("ow-244")
+				if err != nil || w == nil {
+					t.Fatalf("read back worker: %v", err)
+				}
+				return *w
+			}
+			deadline := func(w OutsourceWorker) float64 {
+				return winddownDeadlineOf(memberFromWorker(w), s.reconcileConfigLive())
+			}
+
+			before := deadline(readBack())
+			rec := postWorker(t, s, "ow-244", "accelerated-stop", nil,
+				s.HandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcceleratedStopPost)
+			if rec.Code != 200 {
+				t.Fatalf("加速停止: %d %s", rec.Code, rec.Body.String())
+			}
+
+			after := readBack()
+			got := deadline(after)
+			if got > before {
+				t.Errorf("the press moved the deadline %.0f s LATER (%v → %v): "+
+					"加速停止 may only ever bring it forward", got-before, before, got)
+			}
+			if got != tc.wantDeadline {
+				t.Errorf("deadline = %v, want %v", got, tc.wantDeadline)
+			}
+			if after.StoppingSince != opened {
+				t.Errorf("the anchor moved to %v: a clocked wind-down must keep the "+
+					"anchor it already had", after.StoppingSince)
+			}
+			if after.RefocusOp != tc.wantOp {
+				t.Errorf("cause = %q, want %q", after.RefocusOp, tc.wantOp)
+			}
+		})
+	}
 
 	// 🔴 THE GUARD ON WHAT THIS COLLECT IS KEYED ON. 加速停止 overwrites
 	// refocus_op and re-anchors the clock, and a worker inside this window
