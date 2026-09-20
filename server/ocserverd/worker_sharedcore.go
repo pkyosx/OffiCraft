@@ -30,7 +30,9 @@ import "strings"
 // boot sequence of the runtime the reader is actually running
 // (bootSequenceSeedName, assets.go), and staff and outsource on the SAME runtime
 // get the same bytes. Handing every worker the Claude seed is not parity — it is
-// how a codex worker ended up being told to run its own `ocagent listen`.
+// how a codex worker once ended up being told to run its own `ocagent listen`.
+// Neither runtime mounts its own listener any more, but the two sequences still
+// differ: only the codex one ends its boot turn by handing control back.
 
 // workerSharedHead returns the FIRST TWO shared blocks of a worker boot context
 // — 系統互動 then 使用者自訂 — in the same order and with the same rule the
@@ -72,9 +74,9 @@ func (s *apiServer) workerSharedHead() (string, error) {
 // boot-sequence seed is chosen from it through bootSequenceSeedName — the same
 // single expression the staff fold uses — because parity with staff means "read
 // the seed for the runtime you are running", not "everyone reads the Claude
-// one". A codex worker handed boot_sequence.md is told to run a bare `ocagent
-// listen` under Monitor, which directly contradicts the codex runtime tail its
-// spawn appends.
+// one". A codex worker handed boot_sequence.md is missing the one step its own
+// runtime depends on: ending the boot turn by handing control back to the
+// sidecar that holds its connection.
 func (s *apiServer) workerBootSequence(runtime string) (string, error) {
 	// Folded, exactly like the staff tail (T-791e), and still chosen through the
 	// one runtime decision point: bootSequenceText derives the document key from

@@ -35,10 +35,9 @@
 //     _fold_command_result → last_op*.)
 //
 // WHAT IS DELIBERATELY *NOT* HARD-ASSERTED (recorded via test.info only):
-//   * agent online==true — the agent flips online only after IT mounts its own
-//     ocagent SSE (waking→online is claude-driven and slow/flaky; the spike saw
-//     it stall in waking). We seal the SPAWN + the server-observed START, not the
-//     claude self-report.
+//   * agent online==true — the agent flips online only once the listener spawned
+//     beside it holds the SSE (the spike saw it stall in waking). We seal the
+//     SPAWN + the server-observed START, not the presence that follows.
 //   * a STOP last_op — STOP is online-gated BY DESIGN: reconcile/machine.py:44-50
 //     only dispatches the single robust stop when desired_state=offline ∧ STILL online;
 //     an agent parked in waking never satisfies that gate, so a STOP receipt is
@@ -348,10 +347,11 @@ test.describe('C1 · machine onboarding → agent spawn → warden-log START', (
       ).toBe(true);
 
       // ---- STEP 8: presence tri-state (waking SOFT, online HARD via poll) --
-      // 948c7d1 rewired presence to SSE-first: the spawned REAL claude runs its
-      // boot_sequence (report_waking → resume_summary → `ocagent listen`); only
-      // when it mounts its own /api/events SSE does the hub flip is_online True and
-      // on_first_connect clear waking_since → derived presence == "online"
+      // 948c7d1 rewired presence to SSE-first: only when SOMETHING holds a live
+      // /api/events SSE for this member does the hub flip is_online True and
+      // on_first_connect clear waking_since → derived presence == "online".
+      // Since T-259 that something is the listener the warden starts beside the
+      // member, not the claude pane itself
       // (the server's PresenceState and live SSE hub; WakingTTLSecs is the
       // configured waking TTL). We assert online via a GENEROUS poll (not a
       // single shot): waking→online is claude-driven with no firm upper bound

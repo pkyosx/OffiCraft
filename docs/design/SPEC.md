@@ -71,7 +71,7 @@ presence 是 **server 端算出來的**，不是 agent 自報的心跳狀態。�
 離線(offline) ──(你按喚醒：寫下意圖 desired_state=online；面板先樂觀翻成喚醒中)──►
    ──(server 同一次請求內重決、START 被 warden 接走：蓋上錨點)──► 喚醒中(waking)
    ──(`WakingTTLSecs` 內沒連上 SSE)──► 回到 離線(offline)
-   ──(agent 掛上 ocagent listen、server 見 SSE 連上)──► 線上(online == connected)
+   ──(成員旁邊的連線程序接上、server 見 SSE 連上)──► 線上(online == connected)
    ──(收 stopping 訊號、SSE 仍在)──► stopping ──(SSE 斷)──► stopped/offline
 ```
 - **離線 / stopped**：灰點
@@ -474,7 +474,7 @@ epoch 再當場砍，**沒有重生**，所以存下的新值要等之後某一�
 - **整份唯讀的那條路**：一樣點得進去、看得到全文，但沒有編輯器、沒有還原、沒有版本紀錄，
   改為一句說明它是什麼。`read_only` 由 server 回答，前端不硬編是哪幾份。
   ⚠️ **今天沒有任何一份出貨文件走這條路** —— 所以這一段描述的是機制、不是現況。
-- **一種 kind 服務多份時**（今天只有〈啟動步驟〉：Claude／Codex 各一份，第三步互相矛盾所以不能合併），
+- **一種 kind 服務多份時**（今天只有〈啟動步驟〉：Claude／Codex 各一份，兩份不能互換所以不能合併），
   那一列點進去是**索引頁**（`boot`），再點一列才進 `BootDocPage`（`bootRuntime`）。
 - **使用者自訂**是例外，它走較早的另一套機制：點進 → 詳情頁；**重置**＝清空
   （回到未撰寫的 `預設` 空塊；boot context 組裝時空塊整塊跳過）。

@@ -662,8 +662,9 @@ export type DocumentKind =
   // T-791e: the two boot-context blocks that used to be read-only seed
   // previews. `system_interaction` is keyed "global" (one document for the
   // whole studio); `boot_sequence` is keyed by RUNTIME ("claude" / "codex")
-  // and the two keys are DIFFERENT DOCUMENTS, not two views of one — their
-  // third step means opposite things, so nothing may copy one over the other.
+  // and the two keys are DIFFERENT DOCUMENTS, not two views of one — only the
+  // codex one hands control back to the sidecar, so their steps are numbered one
+  // apart and nothing may copy one over the other.
   | "system_interaction"
   | "boot_sequence"
   // T-c9c0: the 〈停止〉 document. A SINGLETON keyed "global" like

@@ -59,9 +59,9 @@
 // own test greps this source for it — and the wire has no field that could
 // carry an edit to the head anyway, so there is nothing for this page to guard.
 //
-// 🔴 The claude and codex boot sequences are TWO DIFFERENT DOCUMENTS — their
-// third step means opposite things (one attaches `ocagent listen` itself, the
-// other must NOT and hands that to the sidecar). So each opens its own page
+// 🔴 The claude and codex boot sequences are TWO DIFFERENT DOCUMENTS — they are
+// not interchangeable (only the codex one ends its boot turn by handing control
+// back to the sidecar that holds its connection). So each opens its own page
 // from its own list row; there is no "apply this text to both runtimes"
 // affordance and the two are never rendered side by side, because a
 // side-by-side invites exactly the copy this page exists to prevent.

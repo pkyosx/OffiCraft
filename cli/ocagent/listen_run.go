@@ -114,8 +114,14 @@ const agentLinePrefix = "[ocagent] "
 // codex member went permanently silent about its transport. Nothing in the
 // tests looked at column 0: they asked `strings.Contains`, which cannot see
 // anything INSERTED in front. Naming the head once means the printf can no
-// longer carry a head of its own, and listen_notice_contract_test.go requires
-// the sidecar's copy of these same bytes to still exist on the other side.
+// longer carry a head of its own.
+//
+// 🔴 NOTHING COMPARES THIS HEAD WITH THE SIDECAR'S COPY OF IT. That copy is a
+// constant of its own in another Go module (cli/ocwarden/codex_session.go's
+// noticeDisconnectedPrefix), each side is tested against its own spelling, and
+// no guard reads both. So the two can drift apart exactly the way they did
+// before, and every check stays green — do not read the paragraph above as
+// saying something enforces this.
 const (
 	noticeDisconnected = "listen: disconnected"
 	noticeConnected    = "listen: connected"

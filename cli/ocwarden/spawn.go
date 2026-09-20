@@ -280,7 +280,7 @@ func compactSettingsJSON(raw string) (string, error) {
 // (that second hardcode was the cross-language drift risk this step removes); it just
 // tells the fresh agent WHO it is and to LOAD personaFile and follow its 啟動步驟（Boot Sequence）
 // section step by step. The full ordered SOP (report_waking → resume_summary →
-// ocagent listen, SSE-connect⟺ready) lives in personaFile, not here — loading
+// take up your tasks) lives in personaFile, not here — loading
 // personaFile is THIS prompt's own instruction, not a boot-sequence step. base is
 // no longer needed (the /api/events URL moved into the SOP text).
 func buildAppendSystemPrompt(agentID, role, personaFile string) string {
@@ -526,6 +526,59 @@ func tmuxNewSession(r CmdRunner, socket, session, command string) error {
 	_, _ = r.Run("tmux", "-L", socket, "set-option", "-t", session, "window-size", "manual")
 	_, _ = r.Run("tmux", "-L", socket, "resize-window", "-t", session, "-x", cols, "-y", rows)
 	return nil
+}
+
+// buildListenerLaunchCommand is the line the member's own listener runs under.
+// It is buildLaunchCommandWithEnv's environment prologue without the claude
+// parts: the listener needs the token, the station address, and the name of the
+// session it must both deliver into and die with.
+//
+// OC_SESSION names the MEMBER's session, never the listener's own: it is what
+// `--deliver-tmux` pastes into, and what the listener's self-exit probe watches,
+// which is the whole tie that stops an orphaned listener projecting a dead
+// member as online.
+func buildListenerLaunchCommand(workdir, tokenFile, base, session, socket string,
+	extraEnv [][2]string, envRendered string) string {
+	s := "cd " + shellQuote(workdir) + "; "
+	if envRendered != "" {
+		s += "[ -f " + shellQuote(envRendered) + " ] && . " + shellQuote(envRendered) + "; "
+	}
+	// ABSOLUTE /bin/cat for the same reason buildLaunchCommandWithEnv uses it: an
+	// owner env file that replaces PATH would make a bare `cat` resolve to
+	// nothing and the token silently become empty.
+	kvs := []string{`OC_TOKEN="$(/bin/cat ` + shellQuote(tokenFile) + `)"`}
+	pairs := [][2]string{
+		{"OC_BASE", base},
+		{"OC_SESSION", session},
+		{"OC_TMUX_SOCKET", socket},
+	}
+	pairs = append(pairs, extraEnv...)
+	for _, p := range pairs {
+		kvs = append(kvs, p[0]+"="+shellQuote(p[1]))
+	}
+	s += "export " + strings.Join(kvs, " ") + "; "
+	s += "export PATH=" + shellQuote(workdir) + `:"$PATH"; `
+	return s + "exec ocagent listen --deliver-tmux"
+}
+
+// startListenerSession puts the member's listener in its own detached tmux
+// session. A failed start is LOGGED, never fatal: the member's own session is
+// already up and nudged, so reporting the spawn as failed would leave it running
+// with the station believing nothing was started. A member with no listener is
+// simply offline, which the station already knows how to fix.
+//
+// 🔴 THE STALE KILL IS NOT TIDINESS. Member session names are REUSED across
+// respawns, so a listener left over from the previous session is watching a name
+// that exists again and will not self-exit. Two listeners on one identity make
+// the station kick one of them, and the loser's own escape hatch is `ocagent
+// suicide` — which kills OC_SESSION, i.e. the member that was just spawned.
+func startListenerSession(d SpawnDeps, socket, session, memberID, command string) {
+	listenSession := listenerSessionName(memberID)
+	_, _ = d.Runner.Run("tmux", "-L", socket, "kill-session", "-t", listenSession)
+	if err := tmuxNewSession(d.Runner, socket, listenSession, command); err != nil {
+		d.logf("listener: could not start %s for %s (%v); the member boots deaf and "+
+			"the station will recycle it", listenSession, session, err)
+	}
 }
 
 // tmuxDeliverNudge delivers the neutral boot nudge ATOMICALLY via a tmux buffer
@@ -1441,6 +1494,21 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 		// tmux buffer. Codex's sidecar starts the boot turn through App Server;
 		// injecting terminal keystrokes there would target a non-interactive pane.
 		tmuxDeliverNudge(d.Runner, d.Sleep, socket, session, nudge)
+
+		// STAGE-C (Claude only): the member's SSE downlink, held BESIDE it rather
+		// than by it. A claude member used to mount `ocagent listen` from inside
+		// its own harness, which drops that background job every 30 minutes; a
+		// member in the middle of one long tool call has no moment to re-mount it,
+		// and presence IS that connection, so the station recycled healthy
+		// sessions. The codex runtime never had the problem because its sidecar
+		// has always owned the listener.
+		//
+		// AFTER the nudge on purpose: the boot turn is what makes the pane ready
+		// to receive anything, and a listener that connects first would paste into
+		// a TUI that is still starting.
+		startListenerSession(d, socket, session, p.MemberID,
+			buildListenerLaunchCommand(workdir, tokenFile, base, session, socket,
+				extraEnv, envRendered))
 	}
 
 	pid := tmuxPanePID(d.Runner, socket, session)

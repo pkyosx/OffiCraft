@@ -71,9 +71,10 @@ This is composition across two independent axes, not four persona copies:
 - **Runtime mechanics** describe only who owns the listener, context reporting, and
   interactive-question behavior.
 
-The Claude member boot sequence preserves current behavior byte-for-behavior: after boot
-readiness, the agent starts bare `ocagent listen` with its Monitor tool; Claude `statusLine`
-feeds context telemetry; `AskUserQuestion` stays disabled.
+The Claude member boot sequence preserved current behavior byte-for-behavior at the time
+this document was written: after boot readiness the agent started bare `ocagent listen`
+with its Monitor tool. Since T-259 warden starts that listener beside the member instead;
+Claude `statusLine` still feeds context telemetry and `AskUserQuestion` stays disabled.
 
 The Codex member boot sequence changes only execution ownership:
 

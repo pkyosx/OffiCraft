@@ -636,9 +636,10 @@ let globalContextOverlay: WireGlobalContext | null = null;
 // Absent overlay = the block is following its factory seed (is_default=true).
 //
 // 🔴 `boot_sequence/claude` and `boot_sequence/codex` are two DOCUMENTS, not
-// two renderings of one. Their third step means opposite things, so there is
-// deliberately no shared cell here for anything to fall back into: a lookup
-// miss on one key resolves to that key's OWN seed, never to the other's text.
+// two renderings of one. Only the codex one hands control back to the sidecar,
+// so their steps are numbered one apart, and there is deliberately no shared cell
+// here for anything to fall back into: a lookup miss on one key resolves to that
+// key's OWN seed, never to the other's text.
 const BOOT_DOC_SEEDS: Record<string, string> = {
   "system_interaction/global": SEED_SYSTEM_INTERACTION_MD.trim(),
   "boot_sequence/claude": SEED_BOOT_SEQUENCE_MD.trim(),

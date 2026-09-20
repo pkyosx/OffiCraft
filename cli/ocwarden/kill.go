@@ -14,9 +14,9 @@
 //	⓪ SNAPSHOT: capture the member's FULL process footprint BEFORE any kill —
 //	   the pane pid + its descendant tree (links still intact) PLUS any lingering
 //	   ocagent process anchored to the member's workdir (cwd match). The workdir
-//	   leg is what catches an `ocagent listen` that claude started in its OWN
-//	   process group (tmux kill-session's SIGHUP never reaches it) and even a
-//	   zombie already reparented to init by an earlier failed stop.
+//	   leg is what catches the member's listener — which since T-259 lives in its
+//	   own tmux session, so this member's kill-session never reaches it — and even
+//	   a zombie already reparented to init by an earlier failed stop.
 //	① LIGHTWEIGHT: tmux kill-session (sends SIGHUP — gives claude a graceful
 //	   shutdown + a chance to reap its OWN children) + re-assert.
 //	② DETECT FAILURE: the re-assert still sees the session (or a broken probe).
@@ -233,7 +233,7 @@ func escalateKill(r CmdRunner, socket, session string, kill killFunc, getpgid pg
 // kill (parent→child links intact; post-kill, orphans reparent to init and the tree
 // is unwalkable); the sweep runs UNCONDITIONALLY after the session kill, because a
 // took-on-①  kill-session proves nothing about processes OUTSIDE the pane's SIGHUP
-// reach (the escaped `ocagent listen` in claude's own pgroup is exactly that).
+// reach (the member's listener, in its own tmux session, is exactly that).
 // ---------------------------------------------------------------------------
 
 const (
@@ -355,7 +355,7 @@ func sweepPIDs(pids []int, kill killFunc, sleep func(time.Duration)) bool {
 
 // ocagentPIDsByCwd is the production listenPIDs seam: lsof-discover every ocagent
 // process whose cwd is EXACTLY workdir (the member's durable per-agent dir — the
-// spawn shim cd's there before exec, so a member's `ocagent listen` inherits it;
+// spawn shim cd's there before exec, and so does the listener's own line, so both inherit it;
 // other members' listeners live in OTHER workdirs and never match). Discovery may
 // match by name+cwd; the KILL side stays exact-pid + signal-0 verified (sweepPIDs).
 // Best-effort: a missing/failed lsof (it exits non-zero on zero matches) reads nil.
@@ -440,7 +440,8 @@ func stop(r CmdRunner, socket, session string, kill killFunc, getpgid pgidFunc, 
 	preHas := tmuxHasSession(r, socket, session)
 	positivelyAbsent := preHas != nil && !*preHas
 	// ⓪ SNAPSHOT the full footprint BEFORE any kill (links intact) — pane tree +
-	// workdir-anchored ocagent listeners the pane's SIGHUP can never reach.
+	// the workdir-anchored listener, which lives in its own tmux session and so is
+	// never reached by this member's kill-session.
 	snap := snapshotMemberPIDs(r, socket, session, sw)
 	// ① LIGHTWEIGHT: kill-session (SIGHUP) + re-assert.
 	killed := killSession(r, socket, session)
@@ -451,7 +452,7 @@ func stop(r CmdRunner, socket, session string, kill killFunc, getpgid pgidFunc, 
 		killed = killSession(r, socket, session)
 	}
 	// ⑤ SWEEP unconditionally — a took-on-① kill-session says nothing about the
-	// detached `ocagent listen` (claude's own pgroup) or a previously-orphaned
+	// listener (its own tmux session) or a previously-orphaned
 	// zombie; both are in the snapshot and must be VERIFIED dead before we report
 	// stopped. A sweep timeout is an honest partial → false.
 	swept := sweepPIDs(snap, kill, sw.sleep)

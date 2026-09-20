@@ -998,14 +998,18 @@ func codexListenerActions(line string, wakeAlreadySent bool) (wake, forward bool
 // exceptions carved out of the filter and not a second parser: the head itself
 // still does not move (cli/ocagent/listen_run.go's prefix note).
 //
-// 🔴 THEY ARE CONSTANTS, AND THE OTHER HALF OF THE CONTRACT IS TESTED. These
-// bytes are printed by a DIFFERENT Go module (cli/ocagent/listen_run.go's
-// notice* constants) that this one cannot import, so the contract is physically
-// two copies. Independent review moved one head rightward on the producing side
-// — `"listen: disconnected — "` → `"net listen: disconnected — "` — and both
+// 🔴 THEY ARE CONSTANTS, AND NOTHING HOLDS THE TWO COPIES TOGETHER. These bytes
+// are printed by a DIFFERENT Go module (cli/ocagent/listen_run.go's notice*
+// constants) that this one cannot import, so the contract is physically two
+// copies. Independent review moved one head rightward on the producing side —
+// `"listen: disconnected — "` → `"net listen: disconnected — "` — and both
 // suites stayed green while every codex member lost its transport notices for
-// the rest of its session. cli/ocagent/listen_notice_contract_test.go now reads
-// THIS file and requires these literals to still be here.
+// the rest of its session.
+//
+// There WAS a check: listen_notice_contract_test.go read this file and required
+// these literals to still be here. T-125 rewrote the Go test surface and deleted
+// it, and nothing replaced it — so each side is tested against its own spelling
+// and that same drift lands green today. Naming a copy here does not pin it.
 const (
 	noticeDisconnectedPrefix = "[ocagent] listen: disconnected"
 	noticeConnectedPrefix    = "[ocagent] listen: connected"
@@ -1025,12 +1029,18 @@ const (
 	// child. Rename it on one side only and the listener silently goes back to
 	// "printed means delivered" — no error, no line, and every message that
 	// fails to reach the model marked read anyway, which is the exact bug this
-	// protocol exists to close. cli/ocagent/listen_notice_contract_test.go reads
-	// this file and requires this declaration to still be here.
+	// protocol exists to close. Nothing compares the two spellings — see the note
+	// on noticeDisconnectedPrefix above for what happened to the check that did.
+	//
+	// 🔴 AND THIS ONE IS NOT EVEN PINNED ON ITS OWN SIDE. The three notice heads
+	// above are at least spelled out in this module's own tests, so mistyping one
+	// HERE turns something red. Mistype this name and BOTH modules stay green:
+	// measured, by renaming it to OC_LISTEN_ACKX and running both suites. Of
+	// everything in this block it is the cheapest to break and the most expensive
+	// when broken — the loss it causes is silent and cannot be recovered.
 	listenAckEnv = "OC_LISTEN_ACK"
 
-	// 🔴 THE FOURTH COPY, AND FOR A LONG TIME THE ONLY UNPINNED ONE. This is the
-	// head of the blanket filter below — the bytes that decide whether a line is
+	// 🔴 THE FOURTH COPY. This is the head of the blanket filter below — the bytes that decide whether a line is
 	// transport chatter at all — and until T-4 it was a bare literal inside
 	// actionableCodexListenerLine: not a constant, not in the contract test's
 	// list, held up only INDIRECTLY by one behavioural case
@@ -1038,9 +1048,9 @@ const (
 	// coverage: move this head rightward while the producer keeps printing
 	// "[ocagent] listen: …" and the filter stops recognising ANY transport line,
 	// so every retry diagnostic starts becoming a turn on the model — the exact
-	// noise the owner's ruling exists to swallow. It is spelled once here and
-	// cli/ocagent/listen_notice_contract_test.go now requires this declaration,
-	// with this value, to still exist on this side of the module gap.
+	// noise the owner's ruling exists to swallow. It is spelled once here, and
+	// like the three above it, nothing on the other side of the module gap
+	// requires this declaration or this value to still exist.
 	noticeTransportHead = "[ocagent] listen:"
 )
 
