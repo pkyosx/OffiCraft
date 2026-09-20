@@ -91,7 +91,8 @@ package main
 // owner's sentence (a worker is RELEASED when its task closes; a member is
 // dismissed when its role goes) is NOT wired here, and adding an OnRetire field
 // that nothing calls would be a promise the code does not keep. Worker release
-// currently runs through ReleaseWorkersForTask off closeTask, and staff
+// currently runs through the outsource tick's close-out collect — a task close
+// opens the window, the tick is what ends it — and staff
 // dismissal through its own handler; converging those two is a behaviour change
 // with an owner-visible face (who gets released, and when), so it belongs to a
 // step that is allowed to change behaviour. This comment is the record that the
