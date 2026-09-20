@@ -67,7 +67,7 @@ package main
 //
 // ── WHY THIS IS NOT ONE OF THE THREE USELESS GATES ──────────────────────────
 //
-// The template for this file is authz_surface_gate_test.go, in this package, and
+// The template for this file is authz_surface_behavior_test.go, in this package, and
 // so is this section.
 //
 // NOT TAUTOLOGICAL. Both gates were mutation-tested by hand at authoring time
@@ -1375,7 +1375,7 @@ func TestIdentityGateReasonsAreRealReasons(t *testing.T) {
 // strings. A name that matches nothing does not fail — it just narrows the scan,
 // and gate (1)'s corpus floors cannot notice, because the remaining names alone
 // clear them. That is not hypothetical: the sibling gate in
-// authz_surface_gate_test.go shipped with "outsourceSpawnRequest", a type that
+// authz_surface_behavior_test.go shipped with "outsourceSpawnRequest", a type that
 // never existed, and the 發包 authorization choke sat outside that inventory from
 // day one because of it.
 //

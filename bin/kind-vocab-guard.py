@@ -141,7 +141,7 @@ and was refactored to hoist the validation into a variable:
 
     if canonical == TaskExecutorStaff {
 
-Zero behaviour change, strictly clearer. But authz_surface_gate_test.go locates
+Zero behaviour change, strictly clearer. But authz_surface_behavior_test.go locates
 authorisation predicates by their AST shape, and after the hoist it could no
 longer see this one: the inventory silently shrank and the gate stayed green
 while covering one predicate less. Reverting the hoist brought it back
