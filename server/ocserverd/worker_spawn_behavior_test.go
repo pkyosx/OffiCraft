@@ -2175,9 +2175,12 @@ func TestTaskCloseWindDown_Collect(t *testing.T) {
 	// cannot be what fires — the only thing that changed is the clock.
 	// 🔴 THE OTHER SIDE OF THE DEADLINE, and without it the number is unguarded
 	// in one direction. "a live session inside the window is left alone" runs ten
-	// seconds in, so HALVING the window leaves it passing — measured: with the
-	// collect changed to StoppingSince + grace/2 the whole 1783-test suite stays
-	// green. What the worker is TOLD is task.close_winddown_secs; collecting it
+	// seconds in, so HALVING the window leaves it passing — measured here: with
+	// the collect changed to StoppingSince + grace/2, every OTHER case in this
+	// test still passes and only this one goes red. (An independent run reported
+	// the whole package staying green under the same mutation; that figure is
+	// relayed, not re-measured here.)
+	// What the worker is TOLD is task.close_winddown_secs; collecting it
 	// before that instant is the countdown and the collect disagreeing, which is
 	// the one thing the (clock, sentence) pair exists to make impossible.
 	t.Run("nothing is collected one second before the quoted deadline", func(t *testing.T) {
