@@ -2173,6 +2173,22 @@ func TestTaskCloseWindDown_Collect(t *testing.T) {
 
 	// The forced arm. The session is STILL ONLINE, so the offline arm above
 	// cannot be what fires — the only thing that changed is the clock.
+	// 🔴 THE OTHER SIDE OF THE DEADLINE, and without it the number is unguarded
+	// in one direction. "a live session inside the window is left alone" runs ten
+	// seconds in, so HALVING the window leaves it passing — measured: with the
+	// collect changed to StoppingSince + grace/2 the whole 1783-test suite stays
+	// green. What the worker is TOLD is task.close_winddown_secs; collecting it
+	// before that instant is the countdown and the collect disagreeing, which is
+	// the one thing the (clock, sentence) pair exists to make impossible.
+	t.Run("nothing is collected one second before the quoted deadline", func(t *testing.T) {
+		s := windDownFixture(t, opened, true)
+
+		s.runOutsourceTick(opened + taskCloseWinddownSecsDefault - 1)
+
+		apiWantValue(t, "worker", any(windDownState(t, s)),
+			any(map[string]any{"status": WorkerStatusActive, "kills": 0.0}))
+	})
+
 	t.Run("the window elapsing collects a worker that is still running", func(t *testing.T) {
 		s := windDownFixture(t, opened, true)
 
