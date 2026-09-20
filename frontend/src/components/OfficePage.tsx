@@ -671,7 +671,7 @@ export function OfficePage({
             onWake: async () => {
               await api.activateMember(workerPeer.id);
             },
-            jumpToMsgId: undefined,
+            jumpToMsgId: route.msgId,
             draftSeed: seedFor(workerPeer.id),
             headerSub: (
               <span
