@@ -97,10 +97,12 @@ const (
 	// workerReclaimGraceSecs is the backstop window between a worker's release
 	// and the forced session reclaim. Mirrors stop_grace / recycle_grace (120s).
 	// ⚠️ IT IS A BACKSTOP AND ALMOST NOTHING ELSE: every path that RELEASES a
-	// worker reclaims its session in the same call — the task-close collect
-	// (collectTaskCloseWindDown), the by-id dismissal and the handover-timeout
-	// reaper all go through releaseAndReclaimWorker — so nothing normally
-	// reaches this clock. It catches the leftovers: a row released by a path
+	// worker reclaims its session in the same call, so nothing normally reaches
+	// this clock. TWO of them share one body (the task-close collect and the
+	// by-id dismissal both call releaseAndReclaimWorker); the handover-timeout
+	// reaper in outsource_sched.go is a THIRD, hand-copied version of the same
+	// five lines — behaviourally the same today, mechanically nothing keeps it
+	// that way, so read it rather than assuming this sentence covers it. It catches the leftovers: a row released by a path
 	// that is not one of those, or a session the reclaim dispatch could not
 	// deliver.
 	//

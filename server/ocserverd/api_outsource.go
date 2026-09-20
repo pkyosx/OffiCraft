@@ -467,7 +467,21 @@ func (s *apiServer) HandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcc
 			writeError(w, http.StatusConflict, acceleratedStopWorkerNeedsAnOpenWindDownMsg)
 			return
 		}
-		worker.StoppingSince = nowSecs()
+		// 🔴 DO NOT RE-ANCHOR A WIND-DOWN THAT IS ALREADY ON A CLOCK, or this
+		// verb does the opposite of its name. The task-close window runs 300 s
+		// by default and this verb's own grace is 120 s, both measured from
+		// stopping_since: re-stamping the anchor at the press hands back a FULL
+		// 120 s, so pressing 加速停止 after the window is 180 s old LENGTHENS it —
+		// and the cockpit does not render this cause's countdown, so the owner
+		// cannot see that he just did. Keeping the original anchor switches the
+		// row to the shorter ruler instead, which can only ever bring the
+		// deadline forward; past it already, the next tick collects.
+		// Only the task-close cause is clocked on this arm, so nothing else
+		// changes: an unclocked 停止 still gets its anchor stamped here, which is
+		// what puts it on a clock at all.
+		if _, clocked := recycleGraceFor(worker.RefocusOp, s.reconcileConfigLive()); !clocked {
+			worker.StoppingSince = nowSecs()
+		}
 	case worker.RefocusSince > 0.0:
 		worker.RefocusSince = nowSecs()
 	default:

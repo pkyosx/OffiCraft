@@ -415,7 +415,9 @@ export function AgentDetailPanel({
   const windDownNote =
     vm.refocusOp === "relocate" || vm.refocusOp === "runtime/model"
       ? msg.agentWindDownForChange(deadlineText)
-      : vm.refocusOp === "accelerated_stop" || vm.refocusOp === "context_high"
+      : vm.refocusOp === "accelerated_stop" ||
+          vm.refocusOp === "context_high" ||
+          vm.refocusOp === "task_close"
         ? msg.agentWindDownOnDeadline(deadlineText)
         : null;
 

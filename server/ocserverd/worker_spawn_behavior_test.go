@@ -2327,6 +2327,33 @@ func TestTaskCloseWindDown_Collect(t *testing.T) {
 			any(map[string]any{"status": WorkerStatusActive, "kills": 1.0}))
 	})
 
+	// 🔴 加速停止 MUST NOT MAKE THE WINDOW LONGER, which is what re-anchoring
+	// it at the press would do: this window runs 300 s from the close and that
+	// verb's own grace is 120 s, both measured from the same anchor, so a press
+	// after 180 s would hand back a full 120 s. The verb is named for the one
+	// direction it may move the deadline, and the cockpit does not render this
+	// cause's countdown, so the owner could not see it go the other way.
+	t.Run("加速停止 mid-window brings the deadline forward, never back", func(t *testing.T) {
+		s := windDownFixture(t, opened, true)
+		rec := postWorker(t, s, "ow-244", "accelerated-stop", nil,
+			s.HandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcceleratedStopPost)
+		if rec.Code != 200 {
+			t.Fatalf("加速停止: %d %s", rec.Code, rec.Body.String())
+		}
+		after, err := s.dal.GetOutsourceWorker("ow-244")
+		if err != nil || after == nil {
+			t.Fatalf("read back worker: %v", err)
+		}
+		if after.StoppingSince != opened {
+			t.Errorf("the anchor moved to %v: a clocked wind-down must keep the "+
+				"anchor it already had, or the deadline goes BACKWARDS", after.StoppingSince)
+		}
+		if after.RefocusOp != refocusOpAcceleratedStop {
+			t.Errorf("cause = %q, want the press to switch it to the shorter ruler",
+				after.RefocusOp)
+		}
+	})
+
 	// 🔴 THE GUARD ON WHAT THIS COLLECT IS KEYED ON. 加速停止 overwrites
 	// refocus_op and re-anchors the clock, and a worker inside this window
 	// qualifies for it — live, online, winding down, so the cockpit offers that

@@ -1378,8 +1378,9 @@ func (s *apiServer) HandleGetMonitoringApiMonitoringGet(w http.ResponseWriter, r
 	// a task close waits out the backstop — so for that window it is a real
 	// running process that `agents` does not count. The window is bounded at
 	// BOTH ends: every path that releases a worker reclaims its session in the
-	// same call (releaseAndReclaimWorker — the task-close collect, the by-id
-	// dismissal and the handover-timeout reaper all go through it), and the
+	// same call (the task-close collect and the by-id dismissal share one body,
+	// releaseAndReclaimWorker; the handover-timeout reaper keeps its own copy of
+	// the same five lines), and the
 	// outsource tick force-reclaims anything else at workerReclaimGraceSecs =
 	// 120.0 (worker_spawn.go) after release regardless. So the undercount is at most ~120s per worker and then the
 	// session is genuinely gone — whereas the overcount from counting released
