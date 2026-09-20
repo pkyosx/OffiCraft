@@ -884,7 +884,7 @@ func (s *apiServer) applyReplyCardAnswer(w http.ResponseWriter, r *http.Request,
 // task/step, fired when — and only when — the card leaves waiting through an
 // OWNER action: the FIRST answer (POST /answer: waiting → answered) or the
 // expire action (POST /expire: waiting → expired). It is the exit twin of the
-// arming that the card-open path commits: the bound step returns to
+// arming the card-open path performs: the bound step returns to
 // in_progress (the owner settled
 // the ask → the step is actionable again; the agent then advances it — after
 // an expiry it decides itself whether to reopen a fresh card or move on), and
@@ -894,7 +894,21 @@ func (s *apiServer) applyReplyCardAnswer(w http.ResponseWriter, r *http.Request,
 // while one lane waited is gone (owner ruling: any step 等我回覆 → task
 // 等我回覆). This is the server-driven "答卡→回前態": the agent no
 // longer self-reports the resume, so a task can never linger in waiting_owner
-// behind an already-settled card. Work progress PAST in_progress stays the
+// behind an already-settled card.
+//
+// 🔴 THIS SIDE IS NOT ATOMIC, AND THE OPENING SIDE NOW IS — do not read the
+// word "twin" as symmetry. The answer path commits the card as answered
+// (PutReplyCardWithAttachments) and only THEN calls this, which writes the step
+// and the task in two further separate writes. A fault in either answers 500
+// over a card that is already answered, and unlike the opening side that state
+// does not heal itself: a retried POST /answer is refused 409 because the card
+// is no longer waiting, and a PUT re-answer computes firstAnswer=false and so
+// never reaches this function again. The step and its task stay in
+// waiting_owner behind a settled card, with no route back but a replan or a
+// forced close. expireWaitingCards shares this path and the same exposure.
+// Folding the three writes into one seam is the fix; it is not this ticket's.
+//
+// Work progress PAST in_progress stays the
 // agent's to report (the surviving half of H4: the server releases the hold,
 // it does not finish the work). A card orphaned on an already-terminal task
 // (reachable via expire only — answer rejects orphans at the door) leaves the

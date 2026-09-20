@@ -5972,6 +5972,8 @@ func TestArmingAStepWithACard(t *testing.T) {
 		// The card door only opens on a task already under way, so the step has
 		// to be started before it can be held.
 		apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+steps[0].ID+"/status", agent, `{"status":"in_progress"}`)
+		dashboard := apiTestListen(t, api, "")
+		executor := apiTestListen(t, api, "kip")
 
 		status, data := apiJSON(t, h, "POST", "/api/reply-cards", agent,
 			`{"kind":"decision","summary":"ship this","options":[{"text":"yes"}],`+
@@ -5983,6 +5985,38 @@ func TestArmingAStepWithACard(t *testing.T) {
 		if cardID == "" {
 			t.Fatalf("create receipt carries no card id: %v", data)
 		}
+		// The three deltas the card-open path fans, in publish order. The task
+		// delta is the one that used to be asserted here through armStepWithCard;
+		// without it nothing on this path holds publishTask, and removing that
+		// call leaves every card test green.
+		wantFrames := []map[string]any{
+			{
+				"seq": 4, "topic": "chat", "op": "patch",
+				"data": map[string]any{
+					"entity": "chat", "key": apiAnyString, "epoch": 4, "deleted": false,
+					"payload": map[string]any{"id": apiAnyString, "from": "kip", "to": "owner"},
+				},
+				"ts": apiAnyNumber, "trigger": "kip",
+			},
+			{
+				"seq": 5, "topic": "reply_card", "op": "patch",
+				"data": map[string]any{
+					"entity": "reply_card", "key": "owner::" + cardID, "epoch": 5, "deleted": false,
+					"payload": map[string]any{"id": cardID, "from": "kip", "status": "waiting"},
+				},
+				"ts": apiAnyNumber, "trigger": "kip",
+			},
+			{
+				"seq": 6, "topic": "task", "op": "patch",
+				"data": map[string]any{
+					"entity": "task", "key": "owner::T-1", "epoch": 6, "deleted": false,
+					"payload": map[string]any{"id": "T-1", "priority": "mid", "status": "waiting_owner"},
+				},
+				"ts": apiAnyNumber, "trigger": "kip",
+			},
+		}
+		dashboard.wantFrames(wantFrames...)
+		executor.wantFrames(wantFrames...)
 
 		stored, err := d.ListTaskSteps("T-1")
 		if err != nil {
