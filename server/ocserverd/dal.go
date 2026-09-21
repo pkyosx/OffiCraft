@@ -660,7 +660,7 @@ func (d *DAL) SetMemberForcedStopAt(id string, ts float64) error {
 //   - NO SSE DELTA. The column is deliberately not on the wire (no DTO field),
 //     so a member delta on the SSE first-connect edge and on every session
 //     boundary would be pure churn — and the connect edge is the busiest edge
-//     the fleet has. TestClearSessionBootTS catches a delta here directly.
+//     the fleet has.
 //   - NO WHOLE-ROW WRITE. The callers (onFirstConnect / clearSessionBootTS /
 //     restoreRefusedStartAnchor) run inside the reconcile tick, on the SSE edge
 //     and in the command_result fold, next to HTTP faces that

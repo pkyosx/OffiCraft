@@ -132,6 +132,43 @@ func doWork() {}
     ),
 )
 
+# 🔴 THE PHANTOM CASES — a defect review found, so they are pinned here rather
+# than trusted to stay fixed. The definition scan used to run over raw text, so
+# a `func Test…` that had been COMMENTED OUT still counted as defined and a
+# citation of it passed. That is the worst possible blind spot for this check:
+# commenting a test out is a more ordinary act than deleting it, and it was the
+# one deletion the guard could not see. A `//` breaks the `^func` anchor by
+# itself; a `/* */` block does not, and neither does Go source quoted in a raw
+# string (a codegen fixture, a golden file). Both shapes are planted, and both
+# must be red — if either goes green the `code_only()` masking has been lost.
+PHANTOM_DEFINITIONS = '''package sample
+
+import "testing"
+
+func TestExistingGuardHoldsTheLine(t *testing.T) {}
+func TestAnotherOneEntirely(t *testing.T)        {}
+
+/*
+func TestZZZPhantomInABlockComment(t *testing.T) {}
+*/
+'''
+
+PHANTOM_RAW_STRING_TEST_FILE = '''package sample
+
+var goldenSource = `
+func TestZZZPhantomInARawString(t *testing.T) {}
+`
+'''
+
+PHANTOM_CITATIONS = '''package sample
+
+// Pinned by TestZZZPhantomInABlockComment.
+func one() {}
+
+// Pinned by TestZZZPhantomInARawString.
+func two() {}
+'''
+
 # A comment in a *_test.go file is out of scope by ruling, and a green must not
 # be read as covering it. Planted separately because it is about WHICH FILES are
 # swept, not about what a comment says.
@@ -142,11 +179,14 @@ func helper() {}
 '''
 
 
-def build(tmp: Path, source: str | None, extra_test: str | None = None) -> Path:
+def build(tmp: Path, source: str | None, extra_test: str | None = None,
+          definitions: str = DEFINITIONS, raw_string_test: str | None = None) -> Path:
     tree = Path(tempfile.mkdtemp(prefix="comment-test-ref-selftest-", dir=tmp))
     pkg = tree / "sample"
     pkg.mkdir()
-    (pkg / "definitions_test.go").write_text(DEFINITIONS, encoding="utf-8")
+    (pkg / "definitions_test.go").write_text(definitions, encoding="utf-8")
+    if raw_string_test is not None:
+        (pkg / "golden_source_test.go").write_text(raw_string_test, encoding="utf-8")
     if source is not None:
         (pkg / "sample.go").write_text(source, encoding="utf-8")
     if extra_test is not None:
@@ -172,6 +212,17 @@ def main() -> int:
             if got_red != want_red:
                 wanted = "red" if want_red else "green"
                 failures.append(f"{name}: wanted {wanted}, got {'red' if got_red else 'green'}")
+
+        # A test that was commented out, or quoted as data, is NOT defined.
+        if verdict(build(tmp, PHANTOM_CITATIONS,
+                         definitions=PHANTOM_DEFINITIONS,
+                         raw_string_test=PHANTOM_RAW_STRING_TEST_FILE)) == 0:
+            failures.append(
+                "a citation of a test that exists only inside a block comment or "
+                "inside a raw string passed — the definition scan has stopped "
+                "masking non-code, so the most ordinary way a test disappears is "
+                "invisible again"
+            )
 
         if verdict(build(tmp, None, extra_test=OUT_OF_SCOPE_TEST_FILE)) != 0:
             failures.append(
@@ -206,7 +257,7 @@ def main() -> int:
         return 1
     print(
         f"[comment-test-ref-guard-selftest] all green ({len(CASES)} shape cases, "
-        "1 out-of-scope control, 1 empty-sweep control)"
+        "1 phantom-definition control, 1 out-of-scope control, 1 empty-sweep control)"
     )
     return 0
 

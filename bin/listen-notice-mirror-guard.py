@@ -42,25 +42,41 @@ string literal is decoded. A name that is missing, declared twice, or not a
 plain string literal is a FAILURE, never a skip: the whole point is that a
 rename cannot make this check quietly stop comparing anything.
 
-WHAT THIS GUARD DELIBERATELY DOES NOT COVER — say it out loud rather than let a
-green imply it:
+WHAT THIS DOES NOT COVER — DERIVED, NOT REMEMBERED.
 
-  * IT COMPARES SPELLINGS, NOT BEHAVIOUR. Both sides agreeing on
-    "[ocagent] listen: connected" does not prove the listener prints it or the
-    sidecar acts on it. Each module's own tests own that half.
-  * ONLY THESE TWO MODULES. If server/ocserverd or cli/officraft ever grows a
-    third copy of one of these strings, this check will not see it, and its
-    green says nothing about it.
-  * A CONSISTENT RENAME IS ALLOWED, ON PURPOSE. Change both sides to the same
-    new value and this passes — that is the contract holding, not drifting.
-  * 🔴 SO THIS CATCHES THE TWO SIDES WALKING APART, NOT THE TWO SIDES BEING
-    WRONG TOGETHER. When both are renamed consistently the green means "these
-    two agree", never "this name is correct". A mirror check cannot see that
-    family at all, and the defect that started T-265 was one of them: the ack
-    switch was not pinned to a literal on EITHER side, so the only thing that
-    catches a name nobody else expects is a literal in one side's own tests.
-    Adding that is outside this check's job; reading its green as covering it
-    is the mistake to avoid.
+The first version of this section was a list of gaps the author could think of,
+and review went straight through it: a FIFTH notice pair, misspelled on the
+consumer side, passed with everything green, because the pair list was closed
+and nothing said so. A remembered list is another act of imagination. So read
+the gaps off the pipeline instead:
+
+    Every transformation the input goes through discards a class of thing, and
+    the class it discards is what this check cannot see.
+
+  1. READ THREE NAMED FILES ⇒ discards every other file. A third copy of one of
+     these strings in server/ocserverd or cli/officraft is invisible, and the
+     green says nothing about it.
+  2. LOCATE CONSTANTS BY NAME from a fixed pair list ⇒ used to discard any
+     constant not on the list. That was F1, and `unpaired_notices` closes it:
+     a `notice*` string constant in these files that no pair compares is now a
+     failure, and a deliberately one-sided one has to be written into
+     `NOT_PAIRED` with a reason. What is still discarded: a contract constant
+     that is not spelled `notice…` and is not in the pair list.
+  3. REQUIRE A PLAIN STRING LITERAL ⇒ discards nothing silently; a constant
+     built by concatenation, renamed or deleted is REPORTED, not skipped. That
+     is the whole reason this check can be trusted to still be reading.
+  4. COMPARE THE DECODED VALUES ⇒ discards behaviour. Both sides agreeing on
+     "[ocagent] listen: connected" does not prove the listener prints it or the
+     sidecar acts on it. Each module's own tests own that half.
+  5. COMPARE THE TWO SIDES TO EACH OTHER ⇒ discards whether either side is
+     RIGHT. 🔴 This catches the two walking apart, never the two being wrong
+     together: a consistent rename is green on purpose, and that green means
+     "these agree", not "this spelling is correct". The defect that started
+     T-265 was in the family this can never see — the ack switch was pinned to
+     a literal on NEITHER side, and the only thing that catches a name nobody
+     else expects is a literal in one side's own tests.
+
+If you add a transformation, add its discard.
 """
 from __future__ import annotations
 
@@ -129,6 +145,40 @@ def unquote(raw: str) -> str:
         out.append(ESCAPES[raw[i + 1]])
         i += 2
     return "".join(out)
+
+
+# Every notice-family constant declared in the three files, whether or not this
+# check knows about it. A CLOSED list of pairs is a check that a new pair is
+# invisible to, and adding a notice is an ordinary change with nothing to
+# suggest that this file must be edited too — measured by independent review:
+# a fifth pair, misspelled on the consumer side, passed with all green.
+DECLARED = re.compile(r'^\s*(?:const\s+)?(notice[A-Za-z0-9_]*)\s*=\s*"')
+
+# Names matched by DECLARED that are deliberately NOT part of the cross-module
+# contract. Empty today, and it must stay a decision rather than an oversight:
+# a one-sided notice constant belongs here WITH a reason, not left to fall
+# through as if nobody noticed it.
+NOT_PAIRED: Dict[str, str] = {}
+
+
+def unpaired_notices(root: Path) -> List[str]:
+    """Notice constants that exist in the source but no pair here compares."""
+    known = {name for _, name in WANTED}
+    rows: List[str] = []
+    for rel in (PRODUCER_RUN, PRODUCER_ACK, CONSUMER):
+        try:
+            text = (root / rel).read_text(encoding="utf-8")
+        except OSError:
+            continue  # already reported by read_consts
+        for n, line in enumerate(text.split("\n"), 1):
+            m = DECLARED.match(line)
+            if m and m.group(1) not in known and m.group(1) not in NOT_PAIRED:
+                rows.append(
+                    f"{rel}:{n} declares {m.group(1)}, which no pair in this check "
+                    "compares — a notice added on one side only is exactly the drift "
+                    "this exists to catch, and it would pass"
+                )
+    return rows
 
 
 def read_consts(root: Path) -> Tuple[Dict[Tuple[str, str], str], List[str]]:
@@ -218,7 +268,7 @@ def compare(values: Dict[Tuple[str, str], str]) -> List[str]:
 
 def run(root: Path) -> int:
     values, problems = read_consts(root)
-    rows = problems + compare(values)
+    rows = problems + unpaired_notices(root) + compare(values)
     if rows:
         listing = "\n  ".join(rows)
         print(
@@ -233,7 +283,7 @@ def run(root: Path) -> int:
         return 1
     print(
         f"[listen-notice-mirror-guard] all green ({len(WANTED)} constants read across "
-        "3 files in 2 modules, 6 pairs compared)"
+        "3 files in 2 modules, 6 pairs compared, no unpaired notice constant)"
     )
     return 0
 

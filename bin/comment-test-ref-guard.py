@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""comment-test-ref-guard — a comment in non-test Go may not name a test that
+r"""comment-test-ref-guard — a comment in non-test Go may not name a test that
 does not exist.
 
 WHAT THIS IS FOR (T-265). A comment that says "pinned by TestFoo" answers the
@@ -34,43 +34,60 @@ in the tree at once (a comment in one module may name a test in another), and it
 has to keep working when a module's test surface is rewritten — which is exactly
 the event that created the mess it cleans up.
 
-WHAT IT DELIBERATELY DOES NOT COVER — say it out loud rather than let a green
-imply it:
+WHAT IT DOES NOT COVER — DERIVED, NOT REMEMBERED.
 
-  * ONLY GO, and only non-test Go. A comment in a `_test.go` file naming a
-    missing test is invisible here, and so is every TypeScript file and every
-    Markdown page. Those were measured at roughly +23 and +47 references when
-    this was written and are out of this check's scope by ruling, not by
-    oversight.
-  * 🔴 IT CHECKS THAT THE NAME EXISTS, NOT THAT THE TEST COVERS THE SENTENCE.
-    This is the biggest gap and it is the one a green most invites you to
-    forget. T-265's cleanup replaced 103 unresolvable citations with 53
-    resolvable ones, and every one of those 53 was matched to its sentence BY
-    HAND — one candidate was rejected because the surviving test with the
-    obvious name never calls the function the sentence is about. Nothing here
-    would have caught that, and nothing re-checks those 53 from now on. So a
-    green says the citations resolve; whether they are the RIGHT citations
-    rests on that one manual pass. The same blindness covers a test that is
-    `t.Skip`ped: the name is defined, so a citation of it passes here while its
-    coverage is zero.
-  * ONLY NAMES BEGINNING `Test`, AND ONLY THE TOP-LEVEL ONE. A citation written
-    `TestFoo/"the case it actually guards"` is checked as far as `TestFoo` and
-    no further — the part after the slash is a `t.Run` label and nothing here
-    looks for it. That form is worth writing anyway (it tells a reader where to
-    go), but its second half carries no mechanical promise, and this shape is
-    common here because T-125 folded whole families of `TestFoo_Behaviour`
-    functions into one `TestFoo` with subtests. Checking subtest labels would
-    mean reading `t.Run` arguments, which are often built from table variables
-    rather than written as literals.
-  * NOT-YET-TRACKED FILES. The sweep is over `git ls-files`, so a brand-new file
-    is invisible until it is added.
-  * IT CANNOT TELL YOU WHICH FIX IS RIGHT, and its worst failure mode is a
-    person clearing a row by deleting a warning that was worth keeping. Usually
-    only half of such a sentence is false: "change this and X breaks silently"
-    is still true, and only "TestFoo is watching it" is not. So the failure
-    message names KEEPING THE WARNING AND DROPPING THE NAME first, ahead of
-    repointing or removing the claim. Writing a test purely to make a comment
-    true is the one answer that is always wrong.
+An earlier version of this section was a list of gaps the author could think of.
+One review round put three holes in it (a constant outside the list, a
+commented-out definition, a cited FILENAME), and all three were absent from the
+list — because a list of remembered gaps is a fourth act of imagination, not a
+derivation. So the rule here is mechanical instead:
+
+    Walk the transformations the input goes through. EVERY transformation
+    discards a class of thing, and the class it discards is exactly what this
+    check cannot see. Read them off in order.
+
+  1. SELECT FILES: `git ls-files '*.go'` ⇒ discards untracked files (a brand-new
+     file is invisible until it is added), and every non-Go file — TypeScript,
+     Markdown, shell. Those carried roughly +47 references when this was
+     written, and `bin/tests/*.sh` headers cite tests too.
+  2. SPLIT test / non-test by the `_test.go` suffix ⇒ discards comments inside
+     test files (roughly +23 references), which are never scanned for claims.
+  3. EXTRACT COMMENTS from the non-test side ⇒ discards everything in code and
+     in string literals, which is correct here, and it means a claim written as
+     a string constant is not seen.
+  4. MATCH `\bTest[A-Z]\w*` inside those comments ⇒ discards every other way to
+     name a guard: a `*_test.go` FILENAME (28 distinct nonexistent ones were
+     measured in this tree), a `t.Run` label, a shell guard's path, a suite. A
+     citation of any of those is unchecked.
+  5. BUILD THE DEFINED SET from `^func Test…` over `code_only()` of each test
+     file ⇒ discards nothing silently any more (that blanking is F2's fix), but
+     it still keeps names that are defined and useless: a `t.Skip`ped test
+     counts as defined.
+  6. COMPARE BY PREFIX ⇒ discards the distinction between a real name and any
+     TRUNCATION of one. `TestGetMonitoring` passes while thirty tests begin with
+     it. Deliberate — see the wrap rule above — and the cost is stated there.
+  7. RESOLVE AGAINST THE WHOLE TREE ⇒ discards module boundaries: a citation in
+     module A is satisfied by a same-named test in module B. Four `TestRealMain`
+     exist here.
+
+If you add a transformation, add its discard. That is the whole method, and it
+is the reason this section can be checked rather than believed.
+
+🔴 ONE LIMIT IS NOT A DISCARD AND SO WILL NEVER FALL OUT OF THAT LIST: THIS
+CHECKS THAT A NAME EXISTS, NOT THAT THE TEST COVERS THE SENTENCE. It is the
+biggest gap and the one a green most invites you to forget. T-265's cleanup
+matched every citation it wrote to its sentence BY HAND, and one candidate was
+rejected because the surviving test with the obvious name never calls the
+function the sentence was about. Nothing here would have caught that, and
+nothing re-checks the survivors from now on.
+
+THIS CHECK CANNOT TELL YOU WHICH FIX IS RIGHT, and its worst failure mode is a
+person clearing a row by deleting a warning that was worth keeping. Usually only
+half of such a sentence is false: "change this and X breaks silently" is still
+true, and only "TestFoo is watching it" is not. So the failure message names
+KEEPING THE WARNING AND DROPPING THE NAME first, ahead of repointing or removing
+the claim. Writing a test purely to make a comment true is the one answer that
+is always wrong.
 """
 from __future__ import annotations
 
@@ -144,12 +161,70 @@ def comment_spans(src: str) -> List[Tuple[int, str]]:
     return spans
 
 
+def code_only(src: str) -> str:
+    """`src` with every comment and every string literal blanked to spaces.
+
+    Offsets and line breaks are preserved, so a `^func` anchor still means what
+    it meant. Used to decide what is really declared, as opposed to what merely
+    LOOKS declared inside a comment or inside Go source quoted as data.
+    """
+    out = list(src)
+    i, n = 0, len(src)
+
+    def blank(a: int, b: int) -> None:
+        for k in range(a, min(b, n)):
+            if out[k] != "\n":
+                out[k] = " "
+
+    while i < n:
+        c = src[i]
+        if c == "`":
+            j = src.find("`", i + 1)
+            j = n if j < 0 else j + 1
+            blank(i, j)
+            i = j
+            continue
+        if c in '"\'':
+            quote, j = c, i + 1
+            while j < n and src[j] != quote:
+                j += 2 if src[j] == "\\" else 1
+            blank(i, min(j + 1, n))
+            i = j + 1
+            continue
+        if c == "/" and i + 1 < n and src[i + 1] == "/":
+            j = src.find("\n", i)
+            j = n if j < 0 else j
+            blank(i, j)
+            i = j
+            continue
+        if c == "/" and i + 1 < n and src[i + 1] == "*":
+            j = src.find("*/", i + 2)
+            j = n if j < 0 else j + 2
+            blank(i, j)
+            i = j
+            continue
+        i += 1
+    return "".join(out)
+
+
 def defined_tests(root: Path, paths: List[str]) -> Set[str]:
+    """Test functions that actually compile into the suite.
+
+    🔴 A DECLARATION INSIDE A COMMENT IS NOT A DEFINITION, and skipping that
+    check is how this guard would bless the most common way a test disappears.
+    `//` breaks the `^func` anchor by itself, but a `/* … */` block does not,
+    and neither does a raw string holding Go source (a codegen fixture, a
+    golden file). Commenting a test out is more ordinary than deleting it, so
+    without this filter the one deletion the guard cannot see is the likely
+    one — measured by independent review, which parked a commented-out
+    `func TestZZZPhantomNeverRuns` in a test file, cited it from production
+    code, and got all green with the phantom counted among the defined.
+    """
     names: Set[str] = set()
     for rel in paths:
         if not rel.endswith("_test.go"):
             continue
-        names.update(DEFINITION.findall((root / rel).read_text(encoding="utf-8")))
+        names.update(DEFINITION.findall(code_only((root / rel).read_text(encoding="utf-8"))))
     return names
 
 

@@ -473,9 +473,6 @@ func (l *listener) dispatch(payload []byte) {
 // "I have been replaced" from "the server is having a moment" or "my token just
 // expired", and guessing wrong in that direction kills healthy agents. Only the
 // server knows which refusal it made, so only the server's own marker counts.
-// Pinned in both directions, in TestConnectOnce: "a 401 the server marked
-// superseded is an authoritative refusal" and "a bare 401 never folds toward
-// the fail-closed kill".
 func authoritativeRefusal(resp *http.Response) string {
 	switch {
 	case resp.StatusCode == http.StatusConflict:
@@ -626,12 +623,10 @@ func (l *listener) connectOnce(ctx context.Context) (opened, activity, selfExit 
 	// The stream is up: whatever outage was being announced is over, and the
 	// line below IS the second of the owner's two notices.
 	l.inOutage = false
-	// ⚠️ POSITION: the origin segment goes HERE, not at the end. TestConnectOnce's
-	// connect-line subtests assert the whole line byte for byte — "the connection
-	// line names the build the station self-reports" and its neighbours — so a
-	// trailing segment would break them. Anywhere after the head is equally safe for
-	// the three sidecar prefix consumers, which read column 0 only — and it belongs
-	// beside the address it is talking about rather than after two shas.
+	// ⚠️ POSITION: the origin segment goes HERE, not at the end. Anywhere after the
+	// head is equally safe for the three sidecar prefix consumers, which read
+	// column 0 only — and it belongs beside the address it is talking about rather
+	// than after two shas.
 	l.logf(noticeConnected+" — streaming %s%s%s (⇒ online while held)%s%s%s",
 		l.cfg.Base, eventsPath, baseAddressOrigin(l.cfg.BaseConfigured), verdict, station, agent)
 

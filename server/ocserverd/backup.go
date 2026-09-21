@@ -595,9 +595,8 @@ func rotateBackups(dbPath string, keep int) ([]string, error) {
 // siblings, and relocating trash/ behind a symlink is the most natural thing an
 // operator does when 141.6 GiB will not fit on this disk any more) would point
 // this deleter at the LIVE backups directory and empty it, newest snapshot
-// included. Measured, not reasoned: with this guard removed, the reaper deletes
-// all three planted backups through the link (TestReapBackupTrash/"a symlinked
-// trash directory is refused without touching the target").
+// included. Measured, not reasoned: with this guard removed the reaper follows
+// the link and deletes the backups behind it.
 //
 // So the trash path is LSTAT'd, NEVER STAT'd, and a symlink is REFUSED — the
 // same guard, in the same shape, as G5 in this repo's sister reaper

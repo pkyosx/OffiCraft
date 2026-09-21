@@ -1067,9 +1067,7 @@ func (s *apiServer) HandleGetMonitoringApiMonitoringGet(w http.ResponseWriter, r
 		// off ListOutsourceWorkers below. Without this `continue` each one enters
 		// `actors` and `sources` twice, on the same host key — the machine card
 		// reads one agent too many and the sessions list carries two rows under
-		// one id. Pinned by TestHandleGetMonitoringApiMonitoringGet/"a live
-		// contractor answers 200 with one session row and one more agent on its
-		// machine".
+		// one id.
 		if lifecycleTickDriverFor(m) != driverReconcile {
 			continue
 		}
@@ -1144,9 +1142,7 @@ func (s *apiServer) HandleGetMonitoringApiMonitoringGet(w http.ResponseWriter, r
 	// to the SAME host expression — which lands as `agents: N+1` on the machine
 	// card for a box that gained no agent, and as a duplicate `sessions` row
 	// under one id. (Neither doubles MONEY: acctCost comes from
-	// ListAccountSpend() below, not from a per-actor sum.) Pinned by
-	// TestHandleGetMonitoringApiMonitoringGet/"a live contractor answers 200
-	// with one session row and one more agent on its machine".
+	// ListAccountSpend() below, not from a per-actor sum.)
 	// ⚠️ KNOWN, DELIBERATELY NOT ADDRESSED HERE (registered as separate scope).
 	// `actors` grows MONOTONICALLY with every task this station has ever run.
 	// Two facts combine: ListOutsourceWorkers returns every kind='outsource'

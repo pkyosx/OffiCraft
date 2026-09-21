@@ -1311,8 +1311,9 @@ func drainChat(client httpClient, cfg Config, out io.Writer, warn *drainWarner, 
 // sweep in every OLDER line of theirs the cap had dropped — announced as
 // fetchable, then marked read, and never offered again. The cap is gone and the
 // unread walk is exhaustive, so every line covered by a watermark is a line this
-// drain actually printed. Pinned by TestDrainChatFilesReadReceipts/"each sender
-// is marked to the newest line of theirs that printed".
+// drain actually printed. Put any skip back — a cap, a filter, an early break —
+// and the receipts resume marking lines nobody was shown, with nothing to see at
+// the time but a ✓ the sender believes.
 //
 // A sender files NO receipt when none of their lines printed — an undelivered
 // batch, or a message the wire sent without a usable ts, which has no watermark

@@ -1745,10 +1745,8 @@ func (s *apiServer) HandleReassignTaskApiTasksTaskIdReassignPost(w http.Response
 	//
 	//   OUTSOURCE — nobody is woken, by construction: the scheduler refuses to
 	//   mint for a frozen task, so it just sits unassigned until someone
-	//   unfreezes it (TestOutsourceAwaitingAssignment/"a frozen reassigning task
-	//   stays out of the queue"). The invariant lives in outsource_sched.go, at
-	//   the layer the freeze-race actually passes through — the re-read before
-	//   the bind.
+	//   unfreezes it. The invariant lives in outsource_sched.go, at the layer
+	//   the freeze-race actually passes through — the re-read before the bind.
 	//
 	//   MEMBER — the server does NOT gate this anywhere. Do not take that on
 	//   trust and do not take this comment's word for how many gates exist:

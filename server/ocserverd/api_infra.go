@@ -1259,9 +1259,7 @@ const accountSpendAccountedKey = "cost_accounted"
 // skipping a decrease loses everything the new session spends until it passes
 // the old figure; adding the difference makes the account figure go DOWN, which
 // is the silent-lie shape this design exists to avoid; and treating the report
-// as an absolute would erase the earlier sessions' spend. Pinned end-to-end by
-// TestAccrueAccountSpend/"a report lower than the last is a session counting
-// from zero, so its whole figure is new spend".
+// as an absolute would erase the earlier sessions' spend.
 //
 // 🔴 THE BASELINE ADVANCES ONLY AFTER THE WRITE SUCCEEDS, and that ordering is
 // the difference between "one report was lost" and "that money is gone for
@@ -1687,10 +1685,9 @@ func (s *apiServer) HandleMcpApiMcpPost(w http.ResponseWriter, r *http.Request) 
 // handoverNoticeSettled is asked FIRST for that reason. It is read-only (gauge
 // record + the process-local claim cache, no query), so it cannot change what
 // is sent — only whether the work of composing an already-spent notice is done
-// at all. TestHandoverNoticeTick/"past the notice point the tick reports the
-// directed context-high frame once, and every later tick is quiet without
-// composing anything" counts the closure calls and fails if this order is
-// reversed.
+// at all. Reverse the two and nothing on the wire changes: every quiet tick of
+// a spent session simply pays the fold again, 374µs for a frame it then throws
+// away, and the only symptom is a station that costs more than it should.
 func (s *apiServer) handoverNoticeTick(
 	memberID, connRuntime string, notice func() string,
 ) ([]byte, bool) {

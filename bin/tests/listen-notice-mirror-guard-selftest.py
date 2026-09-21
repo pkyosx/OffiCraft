@@ -88,6 +88,23 @@ MUTANTS: Tuple[Tuple[str, str, str, str], ...] = (
     ),
 )
 
+# 🔴 THE FIFTH-PAIR MUTANT — a defect review found, so it is pinned here rather
+# than trusted to stay fixed. The pair list used to be CLOSED: it compared the
+# twelve constants it knew about and never asked whether the files had grown a
+# thirteenth. Adding a notice is an ordinary change with nothing to suggest the
+# guard must be edited too, so a fifth pair misspelled on the consumer side
+# passed with the guard green, the selftest green and both modules compiling.
+# That is a WORSE failure than the incident this check was built for, because
+# it needs no mistake beyond forgetting a file you had no reason to open.
+# `unpaired_notices` is what closes it; this case is what keeps it closed.
+FIFTH_PAIR = (
+    (RUN, '\tnoticeBatch = "listen: batch"',
+     '\tnoticeBatch = "listen: batch"\n\tnoticeResuming = "listen: resuming"'),
+    (SIDECAR, '\tnoticeTransportHead = "[ocagent] listen:"',
+     '\tnoticeResumingPrefix = "[ocagent] listen: resumeing"\n'
+     '\tnoticeTransportHead = "[ocagent] listen:"'),
+)
+
 # The control that must stay green: both sides changed to the same new value is
 # the contract HOLDING, not drifting, and a guard that reddens on it would push
 # people to stop touching these names at all.
@@ -145,6 +162,16 @@ def main() -> int:
         shutil.rmtree(tree)
 
     tree = stage()
+    for rel, old, new in FIFTH_PAIR:
+        patch(tree, rel, old, new)
+    if verdict(tree) == 0:
+        failures.append(
+            "a FIFTH notice pair, misspelled on the consumer side, passed — the "
+            "pair list has gone closed again and a newly added notice is invisible"
+        )
+    shutil.rmtree(tree)
+
+    tree = stage()
     for rel, old, new in CONSISTENT:
         patch(tree, rel, old, new)
     if verdict(tree) != 0:
@@ -167,7 +194,8 @@ def main() -> int:
         return 1
     print(
         f"[listen-notice-mirror-guard-selftest] all green ({len(MUTANTS)} mutants "
-        "killed, 1 clean control, 1 consistent-rename control)"
+        "killed, 1 fifth-pair mutant killed, 1 clean control, "
+        "1 consistent-rename control)"
     )
     return 0
 

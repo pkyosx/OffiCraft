@@ -2256,8 +2256,6 @@ type taskWriteReceiptDTO struct {
 	// value hashed here never went through the storage layer and came back.
 	// Measured, not reasoned: making SetTaskDescriptionOn persist a DIFFERENT
 	// string leaves this receipt, and the whole conformance suite, green.
-	// The guard that does catch it is TestTaskDescriptionRestoreAuthz,
-	// which reaches the stored row by another door.
 	DescriptionSizeChars int    `json:"description_size_chars"`
 	DescriptionSha256    string `json:"description_sha256"`
 }

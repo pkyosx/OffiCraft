@@ -218,8 +218,6 @@ func (s *apiServer) sweepLapsedReceipts(now float64) {
 // this one function, once per arm, and is now stampOpReceipt's (reconcile.go)
 // on both. The op verb is p.RPC rather than a START: a lapsed watch names the
 // call it was waiting on, which is why that core takes the verb as a parameter.
-// Sentinel: TestStampReceiptMissing, one subtest per arm and both pinned to
-// absolute values.
 func (s *apiServer) stampReceiptMissing(targetID string, p pendingReceipt, now float64) {
 	reason := receiptMissingReason(p)
 	m, err := s.dal.GetMember(targetID)

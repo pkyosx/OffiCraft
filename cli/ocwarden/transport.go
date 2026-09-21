@@ -540,8 +540,9 @@ func resolveRepoRoot(executable func() (string, error)) string {
 // caller symlinked to it without asking. Returning the existence bit is what lets the
 // spawn path tell "here it is" apart from "I had to guess and the guess is not there".
 // pathStatable is the production existence probe. It is a named function, not a closure
-// written at the wiring site, precisely so a mutant that guts it (`return true`) has a
-// test standing on it — see TestPathStatable.
+// written at the wiring site, so the probe can be exercised on its own instead of
+// only through whatever happens to call it — a `return true` here answers "yes, it
+// landed" for a path that was never downloaded, and the caller symlinks to it.
 //
 // It is called pathStatable and not fileExists because a reviewer pointed out that the
 // shorter name promised more than the body delivers: os.Stat succeeds on a DIRECTORY too,

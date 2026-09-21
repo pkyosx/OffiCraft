@@ -180,9 +180,11 @@ const (
 // racing the wrong command path.
 //
 // The split therefore no longer lives in a query. It lives in this named, TOTAL
-// predicate that both halves ask by name, so "exactly one half owns a row" is a
-// sentence a test can falsify kind by kind (TestLifecycleTickDriverFor) rather
-// than a property a reader has to infer from a SQL string in another file.
+// predicate that both halves ask by name. Put the split back into two SQL WHERE
+// clauses and "exactly one half owns a row" stops being anything a reader can
+// check: neither query names the invariant, so a row that drifts into having
+// two owners — or none — looks correct in both files, which is how the double
+// START above got in.
 //
 // 🔴 IT IS DELIBERATELY NOT NARROWER THAN THE SQL IT REPLACED. The re-siting was
 // a pure move of the existing split and stayed behaviour-identical:
@@ -322,10 +324,11 @@ func (s *apiServer) runLifecycleRosterPasses(roster []Member, now float64) {
 // row through it here would let an unrelated derivation change ride in on a
 // context stamp.
 //
-// The fold-back is never persisted, so StoppingSince/StoppedSince take effect
-// on the caller's slice only — that slice is where their whole effect lives,
-// and it is where TestRunWorkerLifecyclePasses/"an online active worker
-// receives the shared stale-stop pass and folds its anchors back" reads them.
+// The fold-back is never persisted, so for the rest of the tick
+// StoppingSince/StoppedSince exist ONLY on the caller's slice. Drop either from
+// the fold and the loop below carries on with the pre-pass values, with no
+// durable row to re-read them from — the pass ran, and nothing downstream is
+// told.
 //
 // 🔴 CASE HISTORY — FOLD-BACK-STOPPING-HALF-UNPROVEN-T170E. Five successive
 // versions of this paragraph each asserted that something DID NOT EXIST — a
@@ -338,10 +341,9 @@ func (s *apiServer) runLifecycleRosterPasses(roster []Member, now float64) {
 //	 behaviour change"
 //
 // An adversarial pass refuted it by writing that test — zero production change,
-// and without bypassing the door — and it is the AWindDownClear test named
-// above. `git log -p` on this file is the rest of the record. This is a guard
-// rail, not an apology: if you are about to write a sixth "there is no X" here,
-// build the denominator first or do not write it.
+// and without bypassing the door. `git log -p` on this file is the rest of the
+// record. This is a guard rail, not an apology: if you are about to write a
+// sixth "there is no X" here, build the denominator first or do not write it.
 //
 // 🔴 AND THE OBSERVATION ALL FIVE REASONED FROM WAS ITSELF MISREAD. That
 // deleting these two lines left the whole wind-down suite green was taken to

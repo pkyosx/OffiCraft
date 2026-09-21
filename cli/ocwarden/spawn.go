@@ -629,11 +629,6 @@ func tmuxDeliverNudge(r CmdRunner, sleep func(time.Duration), socket, session, n
 	// fallback cannot see, because a no-op clock is indistinguishable from a real
 	// one by type.
 	//
-	// What actually guards the two known shapes today, so the next reader does not
-	// have to re-derive it:
-	//   nil at the seam        → this fallback (pacing happens anyway)
-	//   non-nil no-op at the   → TestWithPerSpawn, which pins that the per-spawn
-	//   per-spawn seam           binding changes Pretrust/PurgeTrash and NOTHING else
 	// A third shape — assigning to the captured spawnDeps inside transport.go's
 	// Spawn closure — is NOT GUARDED, AND NOT MADE VISIBLE EITHER. An earlier
 	// version of this comment claimed the second half ("only made VISIBLE, by
@@ -1133,11 +1128,10 @@ type SpawnDeps struct {
 // ⚠️ WHAT THIS DOES NOT DO, so nobody reads it as more than it is: Go structs are
 // not immutable and this does not make one. A caller can still take the returned
 // value, assign to it, and call start(). What changed is that doing so is now an
-// obviously odd thing to write instead of the obvious thing to write, and that
-// TestWithPerSpawn fails if a third seam is added here without a decision.
-// It closes two known shapes and makes the third
-// visible; it does not close the family. The earlier fallback comment in
-// tmuxDeliverNudge claimed a family was closed and was wrong — do not repeat it.
+// obviously odd thing to write instead of the obvious thing to write. It closes
+// two known shapes and makes the third visible; it does not close the family. The
+// earlier fallback comment in tmuxDeliverNudge claimed a family was closed and was
+// wrong — do not repeat it.
 func (d SpawnDeps) withPerSpawn(pretrust func() error, purgeTrash func()) SpawnDeps {
 	d.Pretrust = pretrust
 	d.PurgeTrash = purgeTrash

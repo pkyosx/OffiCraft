@@ -43,10 +43,11 @@ package main
 // until start+3s" makes every refusal cost the SAME, whatever it did: a wrong
 // password (one argon2id) and a right password with a wrong code (one argon2id
 // plus a TOTP verification) are the same number of milliseconds on the wire.
-// TestHoldFailureFloor is that deadline, and it is the floor of this whole
-// design: 「密碼錯」 and 「碼錯」 must be indistinguishable by MESSAGE
-// (TestHandleLoginApiLoginPost) and by TIME. Any change that makes either
-// distinguishable is a security regression, not a UX tweak.
+// That equal cost is the floor of this whole design: 「密碼錯」 and 「碼錯」
+// must be indistinguishable by MESSAGE and by TIME, because either one telling
+// them apart hands a guesser an oracle for which half was already right. Any
+// change that makes either distinguishable is a security regression, not a UX
+// tweak.
 //
 // 🔴 WHAT WAS DELETED, AND WHY — a counter, a doubling backoff, a cap, a decay
 // window and one process-wide bucket used to sit here. They are gone by the

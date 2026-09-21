@@ -104,8 +104,6 @@ const lifecycleCadenceSecs = 30.0
 //     half the suite failing loudly and the other half failing invisibly — is
 //     what makes this the expensive place to be clever.
 //
-// TestRunLifecycleTick pins both directions, one kill switch per subtest.
-//
 // 🔴 ONE CLOCK READ FOR BOTH HALVES, AND THAT IS DELIBERATE. `now` is sampled
 // ONCE — in startLifecycleCadence, before this function is entered — and the
 // same value is handed to both halves. Before the merge each goroutine called

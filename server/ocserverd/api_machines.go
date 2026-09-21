@@ -1173,9 +1173,12 @@ func teardownHereForeignTargetMsg(machineID string) string {
 // review replaced it with `if true` and the entire suite stayed green. A
 // condition with no discriminating power is worse than no condition, because it
 // reads like a second layer of protection that is not there. Here the branch is
-// a genuine either/or — WHICH sentence the caller gets — and both directions
-// are pinned (TestTeardownHereRefusesTheServerLocalMachine and
-// TestTeardownHereRefusesAnOrdinaryMachineToo fail if it is forced either way).
+// a genuine either/or — WHICH sentence the caller gets — so forcing it either
+// way is NOT inert the way the `if true` was: a caller who named an ordinary
+// machine would be told "the server-local machine cannot be deleted", which is
+// false about that machine and hides the real reason (this verb carries no
+// machine selector, so it never reached it).
+// TestTeardownHereRefusesAnOrdinaryMachineToo fails if it is.
 //
 // WHY IT NEVER RETURNS "" TODAY, and why that is not hidden behind a bare
 // `return`: the server-local machine is unretirable (T-9cf8 — soft-deleting it

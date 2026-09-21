@@ -104,11 +104,14 @@ type sysOps struct {
 // out a live launchd job.
 //
 // THIS IS NOT HYPOTHETICAL. While verifying T-5047 this exact path fired for real:
-// a mutant run against a tree where the static scan was not in effect reached
-// TestTeardownCmd, constructed the real seam, and booted out this developer
-// machine's live com.officraft.ocwarden job (files survived; the job
-// had to be re-bootstrapped by hand). A scan alone was never enough, because a scan
-// is precisely what an edit can remove — and in this tree it already has been.
+// a mutant run against a tree where the static scan was not in effect drove a
+// test into teardownCmd, which built its own effects, and booted out this
+// developer machine's live com.officraft.ocwarden job (files survived; the job
+// had to be re-bootstrapped by hand). That test is not in the tree in that form
+// any more, and nothing about its absence makes the path safer — teardownCmd
+// still resolves its own effects, and the refusal below is what stops the next
+// one. A scan alone was never enough, because a scan is precisely what an edit
+// can remove — and in this tree it already has been.
 //
 // WHY os.Exit AND NOT panic: `sseTransport.handlePayload` (transport.go) wraps every
 // dispatched CommandDeps closure in a `recover()` so one bad frame cannot kill the

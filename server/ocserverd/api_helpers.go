@@ -102,9 +102,7 @@ func currentMachineClaim(r *http.Request) string {
 //     sub — a MEMBER id — comes back as a MACHINE id, which consumers read as
 //     "a DIFFERENT machine answered" (the KNOWN-mismatch arm) instead of
 //     UNKNOWN: the receipt watch then refuses to disarm and stamps
-//     receipt_missing on a receipt the server is holding in its hand. Pinned by
-//     TestReceiptReporterMachine/"a claim-bearing agent credential names no
-//     machine at all, so a member id can never be read as one".
+//     receipt_missing on a receipt the server is holding in its hand.
 //   - CLAIM-LESS non-warden tokens (the two counter-examples above) are NOT
 //     handled, today, in the present tense. The check cannot see them — on the
 //     wire they are shaped exactly like a warden — so this function still hands

@@ -1621,10 +1621,7 @@ func (s *apiServer) armDecidedHandover(memberID string, decision reconcileDecisi
 // deferral — "the change was saved and nothing was started" — never a success.
 // last_op_log is cleared with it, because the log belongs to the op being
 // replaced and reading a fresh reason beside a stale log is worse than reading
-// neither. Sentinels: one per calling site, each pinned to ABSOLUTE values
-// rather than to another site's values, so a change here reddens all of them —
-// TestStampMemberOpReceipt, TestStampWorkerOpReceipt, and the
-// receipt_core_sites_t170e_test.go family for the stamps that persist.
+// neither.
 func stampOpReceipt(lastOp *string, lastOpOK **bool, lastOpLog, lastOpReason *string,
 	lastOpAt *float64, op, reason string, now float64) {
 	ok := false
@@ -1851,10 +1848,7 @@ func (s *apiServer) stampWakeObservability(m *Member, decision reconcileDecision
 	// frame". An extra `&& !DispatchUnlanded` here would read as caution but is
 	// a tautology — a mutation probe proved flipping it could not change any
 	// outcome — and a condition that cannot fail is worse than no condition: it
-	// advertises a check nobody is performing. The invariant it leans on — that
-	// downgrade — is pinned by TestReconcileOne/"a member with no machine is
-	// downgraded to a no-op that reports unlanded, keeps the prior state and
-	// stamps the row".
+	// advertises a check nobody is performing.
 	if decision.Command == reconcileCmdStart {
 		m.WakingSince = now
 		changed = true

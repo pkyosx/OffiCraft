@@ -19,9 +19,10 @@ import (
 // Why waiting_reason could not serve: it is bound to ONE status, settable only
 // entering waiting_external and cleared by the status handler on the way out.
 // It is moment-locked. A handover lands at an arbitrary moment, so the note
-// has to be writable in ANY step status — that generality is the point, pinned
-// by TestHandleUpdateTaskStepNoteApiTasksTaskIdStepsStepIdNotePost/"a note lands
-// on a step in any status the plan has put it in".
+// has to be writable in ANY step status. Gate this write on a status and the
+// field is waiting_reason again: the agent handing off from a done step, or a
+// blocked one, is back to having nowhere to write what it was in the middle
+// of — the exact hole this endpoint was opened to close.
 //
 // Its own endpoint and its own MCP tool, not another parameter on
 // update_step_status: charter §14 is intent-per-tool, and writing a note is a

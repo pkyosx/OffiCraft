@@ -953,10 +953,10 @@ func (s *apiServer) rememberHandoverClaim(agentID string, bootTS float64) bool {
 	if s.handoverNoticed == nil {
 		s.handoverNoticed = map[string]float64{}
 	}
-	// Deleting this branch makes every racing caller a winner — guarded by
-	// TestClaimHandoverNotice/"the first caller on an anchor takes it and a
-	// second caller on the SAME anchor is told it did not", which is why this
-	// function returns a bool rather than nothing.
+	// Deleting this branch makes every racing caller a winner: two ticks that
+	// raced through the cache miss would both be told they took the claim, and
+	// both would send the notice the session is allowed exactly one of. That is
+	// why this function returns a bool rather than nothing.
 	if s.handoverNoticed[agentID] == bootTS {
 		return false
 	}
