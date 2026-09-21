@@ -50,7 +50,9 @@ imply it:
     obvious name never calls the function the sentence is about. Nothing here
     would have caught that, and nothing re-checks those 53 from now on. So a
     green says the citations resolve; whether they are the RIGHT citations
-    rests on that one manual pass.
+    rests on that one manual pass. The same blindness covers a test that is
+    `t.Skip`ped: the name is defined, so a citation of it passes here while its
+    coverage is zero.
   * ONLY NAMES BEGINNING `Test`, AND ONLY THE TOP-LEVEL ONE. A citation written
     `TestFoo/"the case it actually guards"` is checked as far as `TestFoo` and
     no further — the part after the slash is a `t.Run` label and nothing here
