@@ -11,8 +11,7 @@ package main
 // OUTSIDE package main. A test file was the only place package-internal code
 // could sit while still being runnable from a shell. A subcommand is the other
 // place, it is the honest one, and it is where this lives now (T-125). Nothing
-// below asserts anything; the assertions live on the test side, and they are
-// tests because they test THIS.
+// below asserts anything: this is the subcommand, not the assertions.
 //
 // 🔴 WHY THIS EXISTS AT ALL, AND WHY NO TEST COULD HAVE DONE IT.
 // Two PRs each add a migration numbered 00072. They touch DIFFERENT FILES, so

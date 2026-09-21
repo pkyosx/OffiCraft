@@ -11,9 +11,9 @@
 // It is a faithful Go port of the pure builders + tmux boot steps of the Python
 // origin (agent/spawn.py build_mcp_config / build_append_system_prompt /
 // build_launch_command / build_statusline_settings / tmux_new_session, and
-// reconcile.py TmuxSpawnPort.spawn). The launch command and .mcp.json are
-// golden-file pinned — a single divergent flag/value would
-// make the spawned claude silently lose its MCP surface or persona. One flagged
+// reconcile.py TmuxSpawnPort.spawn). A single divergent flag or value in the
+// launch command or .mcp.json would make the spawned claude silently lose its
+// MCP surface or persona. One flagged
 // deviation from the Python origin: OC_TOKEN rides a 0600 workdir token file
 // read at exec time, never the argv (see buildLaunchCommand).
 //
@@ -72,9 +72,8 @@ const (
 	//
 	// ⚠️ NEITHER NUMBER HAS EVER BEEN MEASURED. Changing one is a behaviour change
 	// with a cross-module consequence, and TODAY NOTHING MECHANICAL ENFORCES THAT.
-	// This module's tests pin both as literals, so an accidental edit is
-	// red — but a deliberate edit that also updates those literals is green on both
-	// sides while receiptDeadlineSecs silently goes over budget, because
+	// An accidental edit to one side shows up; a DELIBERATE edit that updates both
+	// sides is silent while receiptDeadlineSecs goes over budget, because
 	// cli/ocwarden and server/ocserverd are separate Go modules with nothing in
 	// common. The repo already solves exactly this shape elsewhere
 	// (bin/tests/base-scheme-mirror-guard.sh, T-78: one hand-copied invariant across
@@ -1272,9 +1271,8 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 			// The launchd clause stays, but NOT for the reason an earlier draft
 			// of this comment gave. That draft claimed this string is "the only
 			// place the trap is written down at all" — FALSE, and an
-			// independent reviewer caught it: the same trap is explained verbatim
-			// on the test side, and install.go carries the plist relay that
-			// makes the escape hatch real in the first place. What IS true, and
+			// independent reviewer caught it: install.go carries the plist relay
+			// that makes the escape hatch real in the first place. What IS true, and
 			// is the actual reason to keep it: no USER-FACING doc says it —
 			// `grep -rn OC_CLAUDE_CRED_CHECK docs/ bin/ spec/` is empty, so an
 			// owner who reads this line and goes looking finds nothing.

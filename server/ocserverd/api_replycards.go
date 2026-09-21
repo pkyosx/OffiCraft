@@ -488,8 +488,7 @@ func (s *apiServer) writeReplyCardTransitionReceipt(w http.ResponseWriter, c Rep
 // linkedTaskRequiredMsg answers an OMITTED linked_task. It names BOTH legal
 // shapes on purpose: an error that only says "missing parameter" sends the
 // caller back to the docs, which is the same silence in a different costume.
-// ⚠️ conformance and this package's tests pin this SENTENCE, not just the
-// 400 — an error message is the whole feature here, and a later "tidy-up" to a
+// ⚠️ THE SENTENCE IS THE FEATURE, not just the 400 — a later "tidy-up" to a
 // bare `invalid request` would quietly undo the ticket.
 const linkedTaskRequiredMsg = "linked_task is required and has no default — say whether " +
 	"this ask is about a task. Two legal shapes: send linked_task=null if it is NOT about a " +

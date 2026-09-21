@@ -1454,8 +1454,8 @@ func (s *apiServer) HandleMarkTaskTerminatedApiTasksTaskIdMarkTerminatedPost(w h
 // THE 403 IS THE ROUTE FLOOR AND ONLY THE ROUTE FLOOR (routes.go:
 // Gated(principalAdminAgent, …)). There is deliberately no second principal
 // check in this body: a duplicate of a rule the enumerable route table already
-// carries is a rule with two homes, and an authz-surface test refuses exactly
-// that — a decision that CAN be a route floor belongs on the row.
+// carries is a rule with two homes — a decision that CAN be a route floor
+// belongs on the row.
 //
 // Guard order: 422 body → 404 → 409 terminal. The 422 that leads is now the
 // DECODE one only (malformed JSON / an unknown key — still fail-closed); the

@@ -77,8 +77,7 @@ func normalizeBase(raw string) string {
 	// 🔴 THIS GUARD WAS ADDED AFTER IT FAILED. An earlier draft normalised any
 	// input, so "ftp://x" became "https://x" and a bare "notaurl" became
 	// "https://notaurl" — and both then PASSED ocBaseShape, which exists to
-	// reject exactly those. resolvePaths' own test caught it: it expects a shape
-	// error for OC_BASE="ftp://x".
+	// reject exactly those.
 	// A normaliser that repairs malformed input does not help the operator; it
 	// deletes the check that would have told them.
 	lower := strings.ToLower(s)

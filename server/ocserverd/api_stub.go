@@ -386,7 +386,7 @@ type apiServer struct {
 	// runOutsourceTick: 169 test sites across 34 files set it to true and then
 	// drive the scheduler by hand, so a read inside the tick body would turn
 	// them into silent no-ops. lifecycle_tick.go carries the full ruling and the
-	// commands behind those counts; it is pinned both ways on the test side.
+	// commands behind those counts.
 	noOutsource bool
 	// ── outsource worker wake/reclaim state (worker_spawn.go; M3 Phase 6) ────
 	// All three maps live under outsourceMu. IN-MEMORY ONLY by design: a

@@ -5,7 +5,7 @@ package main
 // every gated surface; the signing keys live in the DB settings store as a RING
 // (keyring.go) — many keys verify, exactly one signs.
 //
-// INTEROP CONTRACT (locked on the test side): given the same inputs, mintJWT
+// INTEROP CONTRACT: given the same inputs, mintJWT
 // produces the IDENTICAL compact token the Python `plumbing.auth.mint`
 // produces — same header ({"alg":"HS256","typ":"JWT"}), same claim ORDER
 // (sub, scope, iat, exp[, machine_id]), same compact JSON (no spaces), same

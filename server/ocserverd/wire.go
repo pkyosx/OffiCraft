@@ -859,10 +859,9 @@ type monitoringMachineDTO struct {
 	//	claude    — the one that IS still open and still silent. `claude:
 	//	            {"version": 9.9}` is a 200, stored, and read back as null
 	//	            exactly as cpu_pct was, with nothing on the wire saying a
-	//	            value was lost. Its only guard is a CI test over OUR OWN
-	//	            producers in cli/ocwarden, so an older
-	//	            or third-party warden drifting there stays invisible at
-	//	            runtime. Deliberately out of scope here (owner ruling:
+	//	            value was lost. Nothing at runtime catches it, so an older
+	//	            or third-party warden drifting there stays invisible.
+	//	            Deliberately out of scope here (owner ruling:
 	//	            separate ticket) — not fixed, just known.
 	HardwareInvalid []string `json:"hardware_invalid"`
 	// RuntimeCapabilitiesTS / RuntimeCapabilitiesStale carry the same freshness

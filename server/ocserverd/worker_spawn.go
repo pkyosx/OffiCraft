@@ -131,7 +131,7 @@ const (
 // so it was not loosened into a weaker version of itself — it was replaced by
 // two NARROWER assertions that together say more than it did: slots 1, 2 and 4
 // are byte-for-byte identical across the two paths, and neither path's slot 3
-// can ever carry the other's lore scope. Both live on the test side.
+// can ever carry the other's lore scope.
 //
 // WHAT THIS ASSEMBLY NO LONGER CONTAINS, and why (all T-4595):
 //
@@ -1980,10 +1980,9 @@ const (
 // for an epoch that ended before this session booted, so the next 換 model is
 // taken IMMEDIATELY instead of opening a wind-down.
 //
-// The full input table for this predicate lives on the test side — every
-// combination of active/online/refocus/stopped with its expected verdict. Both HIGH defects in
-// this票 were mis-drawn boundaries of THIS function; a change here that the
-// table does not cover means the table is now wrong too.
+// Both HIGH defects in this票 were mis-drawn boundaries of THIS function, so a
+// change here is a change to what every combination of
+// active/online/refocus/stopped is supposed to answer.
 // 🔴 THE ANSWER IS SHARED WITH THE STAFF TWIN and the two shells are NOT.
 // hasUncollectedOnlineOwnerOpState (member_ownerop_winddown.go) is the whole of
 // what this function decides, and memberHasStateToFlush calls the same
