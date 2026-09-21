@@ -131,7 +131,7 @@ const (
 // so it was not loosened into a weaker version of itself — it was replaced by
 // two NARROWER assertions that together say more than it did: slots 1, 2 and 4
 // are byte-for-byte identical across the two paths, and neither path's slot 3
-// can ever carry the other's lore scope. See worker_boot_lore_t33_test.go.
+// can ever carry the other's lore scope. Both live on the test side.
 //
 // WHAT THIS ASSEMBLY NO LONGER CONTAINS, and why (all T-4595):
 //

@@ -81,7 +81,7 @@ func DocJoinHeadBody(head, body string) string {
 // line because their bodies open a block of their own — a list, with or
 // without an intro line. Rendering all of them the same way would change what
 // an agent reads on one of the two — which is exactly the silent content change
-// the verbatim test in api_bootdocs_split_behavior_test.go exists to catch.
+// the verbatim test on the boot-doc split exists to catch.
 func DocRendered(text, join string) string {
 	head, body, split := DocSplitHeadBody(text)
 	if !split {

@@ -18,7 +18,7 @@ package main
 //     shadow server must never mint workers against the production queue.
 //     🔴 The flag is read at the CALL SITE (runLifecycleTick) and in
 //     outsourceTickNow, never inside runOutsourceTick — see the ruling in
-//     lifecycle_tick.go and the pins in lifecycle_tick_test.go.
+//     lifecycle_tick.go; the pins are on the test side.
 //
 // Admission (contract §B.4, owner rulings ③/H6/H7):
 //   * candidates: status='not_started' ∧ executor_kind='outsource' ∧

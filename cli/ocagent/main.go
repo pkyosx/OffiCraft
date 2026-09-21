@@ -260,8 +260,8 @@ func realMain(argv []string, env func(string) string, in io.Reader, out io.Write
 		// SYNOPSIS — the work this binary does — and a reader who is already
 		// looking at the help text does not need it advertised back. Absent from
 		// the synopsis is not the same as unhandled, and only the switch decides
-		// which. All three surfaces are pinned by tests in config_test.go; none of
-		// them reads OC_BASE, so none carries the mis-wire guard.
+		// which. All three surfaces are pinned by tests; none of them reads
+		// OC_BASE, so none carries the mis-wire guard.
 		usage(out)
 		return 0
 

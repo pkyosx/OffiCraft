@@ -860,7 +860,7 @@ type monitoringMachineDTO struct {
 	//	            {"version": 9.9}` is a 200, stored, and read back as null
 	//	            exactly as cpu_pct was, with nothing on the wire saying a
 	//	            value was lost. Its only guard is a CI test over OUR OWN
-	//	            producers (cli/ocwarden/telemetry_wire_test.go), so an older
+	//	            producers in cli/ocwarden, so an older
 	//	            or third-party warden drifting there stays invisible at
 	//	            runtime. Deliberately out of scope here (owner ruling:
 	//	            separate ticket) — not fixed, just known.

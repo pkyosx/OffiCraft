@@ -1454,8 +1454,8 @@ func (s *apiServer) HandleMarkTaskTerminatedApiTasksTaskIdMarkTerminatedPost(w h
 // THE 403 IS THE ROUTE FLOOR AND ONLY THE ROUTE FLOOR (routes.go:
 // Gated(principalAdminAgent, …)). There is deliberately no second principal
 // check in this body: a duplicate of a rule the enumerable route table already
-// carries is a rule with two homes, and authz_surface_behavior_test.go refuses
-// exactly that — a decision that CAN be a route floor belongs on the row.
+// carries is a rule with two homes, and an authz-surface test refuses exactly
+// that — a decision that CAN be a route floor belongs on the row.
 //
 // Guard order: 422 body → 404 → 409 terminal. The 422 that leads is now the
 // DECODE one only (malformed JSON / an unknown key — still fail-closed); the
@@ -2302,8 +2302,8 @@ func (s *apiServer) HandleCreateTaskApiTasksPost(w http.ResponseWriter, r *http.
 	// 🔴 THE VALIDATION IS A SEPARATE STATEMENT FROM THE DISPATCH DECISION, AND
 	// THAT SHAPE IS LOAD-BEARING. Folding the two together (validate, then
 	// branch on the CANONICAL local) reads better and silently blinds a guard:
-	// authz_surface_behavior_test.go scans for predicates that read a selector
-	// called `Kind`, and `canonical == TaskExecutorOutsource` has none, so the
+	// the authz-surface scan looks for predicates that read a selector called
+	// `Kind`, and `canonical == TaskExecutorOutsource` has none, so the
 	// decision below simply vanished from its inventory — the exact failure its
 	// own header warns about ("read the field into a local until the scanner
 	// cannot see it... keeps the count at zero while the gate goes blind").

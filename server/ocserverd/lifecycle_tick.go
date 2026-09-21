@@ -85,8 +85,8 @@ const lifecycleCadenceSecs = 30.0
 //     END{for(f in flag) if (f in drive) n++; print n}' *_test.go
 //
 //     The `grep -vE` is not decoration: without it the count picks up the
-//     comment lines that DESCRIBE the count (this block, and this file's twin
-//     in lifecycle_tick_test.go), which is how the earlier "~98" grew a
+//     comment lines that DESCRIBE the count (this block, and its twin on the
+//     test side), which is how the earlier "~98" grew a
 //     spurious extra. One further site sets the flag to FALSE and is correctly
 //     outside the 169.
 //

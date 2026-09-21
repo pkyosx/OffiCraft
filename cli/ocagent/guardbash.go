@@ -53,9 +53,9 @@ import (
 // body of every loop and conditional invisible, and deleting a batch of files in
 // a loop is ordinary member work — that shape stalled T-163's reviewer for 3h50m
 // on 2026-09-10. Other tokens still stand in front of removals this rule allows
-// (guardbash_test.go names the ones known today); every review round has found
-// another, which is the signal that adding the next spelling does not converge.
-// Anything added here needs its case in guardbash_test.go in the same edit.
+// (the ones known today are named on the test side); every review round has
+// found another, which is the signal that adding the next spelling does not
+// converge. Anything added here needs its case written in the same edit.
 var removalWithAnExpandedTarget = regexp.MustCompile(
 	"(?:^|[|;&\n(])\\s*(?:(?:do|then|else|elif|\\{)\\s+)*(?:sudo\\s+)?(?:rm|rmdir)\\b[^|;&\n)]*[$`]",
 )
