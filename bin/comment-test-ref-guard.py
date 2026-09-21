@@ -55,14 +55,19 @@ derivation. So the rule here is mechanical instead:
   3. EXTRACT COMMENTS from the non-test side ⇒ discards everything in code and
      in string literals, which is correct here, and it means a claim written as
      a string constant is not seen.
-  4. MATCH `\bTest[A-Z]\w*` inside those comments ⇒ discards every other way to
+  4. MATCH `\bTest[A-Z]\w*` or `\bTest_\w*` inside those comments ⇒ discards every other way to
      name a guard: a `*_test.go` FILENAME (28 distinct nonexistent ones were
      measured in this tree), a `t.Run` label, a shell guard's path, a suite. A
      citation of any of those is unchecked.
   5. BUILD THE DEFINED SET from `^func Test…` over `code_only()` of each test
-     file ⇒ discards nothing silently any more (that blanking is F2's fix), but
-     it still keeps names that are defined and useless: a `t.Skip`ped test
-     counts as defined.
+     file, minus the files behind a build constraint ⇒ discards a test whose
+     name exists but whose BODY cannot run. Two shapes are no longer discarded
+     SILENTLY — a commented-out definition, and a definition in a
+     `//go:build`-excluded file — because both were measured passing green and
+     both now report. One shape is still kept and still useless: a `t.Skip`ped
+     test counts as defined, and there are two in this tree. Saying this
+     transformation discards nothing would be the kind of unchecked sentence
+     this whole guard exists to delete.
   6. COMPARE BY PREFIX ⇒ discards the distinction between a real name and any
      TRUNCATION of one. `TestGetMonitoring` passes while thirty tests begin with
      it. Deliberate — see the wrap rule above — and the cost is stated there.
@@ -103,9 +108,21 @@ ROOT = Path(__file__).resolve().parent.parent
 # targets are out: a comment naming one of those names it by its own prefix.
 DEFINITION = re.compile(r"^func\s+(Test[A-Za-z0-9_]*)\s*\(", re.M)
 
+# A build constraint in a test file's header. `go test` with no tags does not
+# compile such a file, so the tests in it are not in the suite a green here
+# invites the reader to trust — `go test -list` cannot even name them. Counting
+# them as defined let a citation of an unbuildable test pass, which is the
+# deletion this guard is for wearing a different hat.
+BUILD_CONSTRAINT = re.compile(r"^//go:build\s+\S", re.M)
+
 # A reference inside a comment. The capital after `Test` is what keeps ordinary
 # English out — "Testing", "Tested" and "Tests" are words, `TestFoo` is a name.
-REFERENCE = re.compile(r"\bTest[A-Z][A-Za-z0-9_]*")
+# `Test_Foo` is the other spelling Go accepts and DEFINITION has always read it,
+# so leaving it out here made the two ends asymmetric: a test could be DEFINED
+# under a name this could never CITE, and every underscored citation in the tree
+# was skipped without a word. An underscore only counts with something after it,
+# so a bare `Test_` in prose is still not a name.
+REFERENCE = re.compile(r"\bTest(?:[A-Z]|_[A-Za-z0-9])[A-Za-z0-9_]*")
 
 # This file states the shapes in order to find them, and its selftest plants
 # deliberately-broken ones.
@@ -207,8 +224,8 @@ def code_only(src: str) -> str:
     return "".join(out)
 
 
-def defined_tests(root: Path, paths: List[str]) -> Set[str]:
-    """Test functions that actually compile into the suite.
+def defined_tests(root: Path, paths: List[str]) -> Tuple[Set[str], Dict[str, str]]:
+    """Test functions that actually compile into the suite, and the ones that do not.
 
     🔴 A DECLARATION INSIDE A COMMENT IS NOT A DEFINITION, and skipping that
     check is how this guard would bless the most common way a test disappears.
@@ -219,16 +236,34 @@ def defined_tests(root: Path, paths: List[str]) -> Set[str]:
     one — measured by independent review, which parked a commented-out
     `func TestZZZPhantomNeverRuns` in a test file, cited it from production
     code, and got all green with the phantom counted among the defined.
+
+    🔴 A BUILD-CONSTRAINED TEST FILE IS THE SAME DISAPPEARANCE, SPELLED LEGALLY.
+    `//go:build neverbuilt` on a test file leaves `func TestFoo` right there in
+    the source for this to find while `go test -list` cannot name it — measured
+    the same way, and green. Those names are returned SEPARATELY so a citation
+    of one reddens with a message that says why, instead of being reported as a
+    test that was never written. The tree carries no build-constrained test file
+    today, so this costs nothing here and exists for the day one appears.
     """
     names: Set[str] = set()
+    constrained: Dict[str, str] = {}
     for rel in paths:
         if not rel.endswith("_test.go"):
             continue
-        names.update(DEFINITION.findall(code_only((root / rel).read_text(encoding="utf-8"))))
-    return names
+        src = (root / rel).read_text(encoding="utf-8")
+        found = DEFINITION.findall(code_only(src))
+        # Read the constraint off the RAW source: code_only() blanks comments,
+        # and a build constraint is a comment.
+        if BUILD_CONSTRAINT.search(src):
+            for name in found:
+                constrained.setdefault(name, rel)
+            continue
+        names.update(found)
+    return names, constrained
 
 
-def dangling(root: Path, paths: List[str], defined: Set[str]) -> Tuple[List[str], int]:
+def dangling(root: Path, paths: List[str], defined: Set[str],
+             constrained: Dict[str, str]) -> Tuple[List[str], int]:
     """Comment references with no test whose name starts with them."""
     rows: List[str] = []
     checked = 0
@@ -246,13 +281,21 @@ def dangling(root: Path, paths: List[str], defined: Set[str]) -> Tuple[List[str]
                 line = src.count("\n", 0, start + m.start()) + 1
                 seen.setdefault(name, line)
         for name, line in sorted(seen.items(), key=lambda kv: kv[1]):
+            hit = next((n for n in constrained if n.startswith(name)), None)
+            if hit is not None:
+                rows.append(
+                    f"{rel}:{line} names {name}, defined in {constrained[hit]} — a file "
+                    "behind a build constraint, so `go test` with no tags never "
+                    "compiles it and the sentence promises a test that cannot run"
+                )
+                continue
             rows.append(f"{rel}:{line} names {name}, which no test defines")
     return rows, checked
 
 
 def run(root: Path) -> int:
     paths = tracked_go(root)
-    defined = defined_tests(root, paths)
+    defined, constrained = defined_tests(root, paths)
     if not defined:
         # Zero defined tests would make every reference dangling AND would make
         # an empty tree look like a clean one. Neither reading is safe, so this
@@ -264,7 +307,7 @@ def run(root: Path) -> int:
             file=sys.stderr,
         )
         return 1
-    rows, checked = dangling(root, paths, defined)
+    rows, checked = dangling(root, paths, defined, constrained)
     if rows:
         listing = "\n  ".join(rows)
         print(

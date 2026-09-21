@@ -610,9 +610,9 @@ func (l *listener) connectOnce(ctx context.Context) (opened, activity, selfExit 
 	// second ask on the reconnect notice (2026-08-30) and it costs no request:
 	// the comparison is against what this same process saw last time.
 	//
-	// ⚠️ POSITION: this sits BEFORE the sha segments, not after. The
-	// station-sha tests assert the line ENDS with " [station <sha>]"
-	// (the agent segment is empty in any unstamped build, tests included), and
+	// ⚠️ POSITION: this sits BEFORE the sha segments, not after. The station-sha
+	// cases compare the WHOLE line, and the sha segments are the last thing on
+	// it (the agent segment is empty in any unstamped build, tests included), so
 	// appending past them would break both. Anywhere after the prefix is equally
 	// safe for the three sidecar prefix consumers, which read only the head.
 	verdict := stationVerdict(l.lastStation, stationSHA, !l.sawConnect)

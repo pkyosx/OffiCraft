@@ -79,6 +79,25 @@ MUTANTS: Tuple[Tuple[str, str, str, str], ...] = (
         'const listenAckEnv = "OC_LISTEN_ACK2"',
     ),
     (
+        # 🔴 The unpaired-constant fix used to have a shape-shaped hole in it:
+        # `unpaired_notices` only recognised `name = "…"`, so an unpaired
+        # constant that carried an explicit type walked straight through the
+        # very check that was added to catch unpaired constants. Measured green
+        # before the fix, on a tree with real one-sided drift in it.
+        "an unpaired notice constant that carries an explicit type",
+        RUN, '\tnoticeBatch = "listen: batch"',
+        '\tnoticeBatch = "listen: batch"\n\tnoticeResuming string = "listen: resuming"',
+    ),
+    (
+        # The same hole from the other side: with the type unread, this read as
+        # "the declaration is gone" rather than as the value it plainly is. The
+        # case earns its place by drifting the VALUE too, so a guard that passed
+        # it merely by ignoring typed declarations would not survive here.
+        "a registered constant gains a type and its value moves",
+        RUN, '\tnoticeConnected    = "listen: connected"',
+        '\tnoticeConnected    string = "listen: online"',
+    ),
+    (
         # A rename is not a drift the guard may shrug at: it means the guard has
         # stopped comparing that pair, which is indistinguishable from agreement
         # unless it is reported.
@@ -113,6 +132,18 @@ CONSISTENT = (
      '\tnoticeGivingUp     = "listen: stopped retrying"'),
     (SIDECAR, '\tnoticeGivingUpPrefix     = "[ocagent] listen: giving up"',
      '\tnoticeGivingUpPrefix     = "[ocagent] listen: stopped retrying"'),
+)
+
+
+# The second control that must stay green. Adding a type to a constant is a
+# refactor, not drift: the value is untouched and both sides still agree. Before
+# the fix this was RED — a red nobody had caused, on a tree where nothing had
+# moved — and a guard that reddens on a no-op refactor teaches people that its
+# reds are noise. Paired with the typed MUTANTS above, the two directions pin
+# each other: neither can be satisfied by ignoring typed declarations.
+TYPED_OK = (
+    (RUN, '\tnoticeConnected    = "listen: connected"',
+     '\tnoticeConnected    string = "listen: connected"'),
 )
 
 
@@ -172,6 +203,16 @@ def main() -> int:
     shutil.rmtree(tree)
 
     tree = stage()
+    for rel, old, new in TYPED_OK:
+        patch(tree, rel, old, new)
+    if verdict(tree) != 0:
+        failures.append(
+            "adding an explicit type to a constant, value unchanged, was reported "
+            "as drift — the guard reddens on a refactor that moved nothing"
+        )
+    shutil.rmtree(tree)
+
+    tree = stage()
     for rel, old, new in CONSISTENT:
         patch(tree, rel, old, new)
     if verdict(tree) != 0:
@@ -195,7 +236,7 @@ def main() -> int:
     print(
         f"[listen-notice-mirror-guard-selftest] all green ({len(MUTANTS)} mutants "
         "killed, 1 fifth-pair mutant killed, 1 clean control, "
-        "1 consistent-rename control)"
+        "1 typed-declaration control, 1 consistent-rename control)"
     )
     return 0
 

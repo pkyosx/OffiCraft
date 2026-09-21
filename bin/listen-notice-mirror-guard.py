@@ -60,8 +60,14 @@ the gaps off the pipeline instead:
      constant not on the list. That was F1, and `unpaired_notices` closes it:
      a `notice*` string constant in these files that no pair compares is now a
      failure, and a deliberately one-sided one has to be written into
-     `NOT_PAIRED` with a reason. What is still discarded: a contract constant
-     that is not spelled `notice…` and is not in the pair list.
+     `NOT_PAIRED` with a reason. An explicit type between the name and the `=`
+     used to slip past this and is now read, because it did not fail the way a
+     missed shape usually does — it was a green over a real unpaired constant.
+     What is still discarded: a contract constant that is not spelled `notice…`
+     and is not in the pair list. That spelling is a CONVENTION, not a rule the
+     compiler keeps — `cli/ocagent/listen.go` declares `unreadableAnswerNotice`
+     with the word at the END — so a one-sided notice named that way is
+     invisible here and only the pair list catches it.
   3. REQUIRE A PLAIN STRING LITERAL ⇒ discards nothing silently; a constant
      built by concatenation, renamed or deleted is REPORTED, not skipped. That
      is the whole reason this check can be trusted to still be reading.
@@ -152,7 +158,16 @@ def unquote(raw: str) -> str:
 # invisible to, and adding a notice is an ordinary change with nothing to
 # suggest that this file must be edited too — measured by independent review:
 # a fifth pair, misspelled on the consumer side, passed with all green.
-DECLARED = re.compile(r'^\s*(?:const\s+)?(notice[A-Za-z0-9_]*)\s*=\s*"')
+# Go lets a constant carry an explicit type between the name and the `=`
+# (`noticeResuming string = "…"`). Leaving that shape out broke BOTH directions
+# at once, measured: a REGISTERED constant that gained a type read as missing,
+# reddening a tree nobody had broken, and an UNREGISTERED one that carried a
+# type slipped past `unpaired_notices` entirely, which is a green over the exact
+# drift this check exists to catch. Both patterns below share it for that reason
+# — fixing one and not the other restores half the defect.
+OPTIONAL_TYPE = r"(?:\s+[A-Za-z_]\w*)?"
+
+DECLARED = re.compile(r'^\s*(?:const\s+)?(notice[A-Za-z0-9_]*)' + OPTIONAL_TYPE + r'\s*=\s*"')
 
 # Names matched by DECLARED that are deliberately NOT part of the cross-module
 # contract. Empty today, and it must stay a decision rather than an oversight:
@@ -196,7 +211,8 @@ def read_consts(root: Path) -> Tuple[Dict[Tuple[str, str], str], List[str]]:
         # Both spellings Go allows: a line inside a `const (…)` block, and a
         # standalone `const name = "…"`. Two of these six are declared each way.
         pattern = re.compile(
-            r'^\s*(?:const\s+)?' + re.escape(name) + r'\s*=\s*"((?:[^"\\]|\\.)*)"\s*$'
+            r'^\s*(?:const\s+)?' + re.escape(name) + OPTIONAL_TYPE
+            + r'\s*=\s*"((?:[^"\\]|\\.)*)"\s*$'
         )
         hits = [(n, m.group(1)) for n, m in
                 ((n, pattern.match(line)) for n, line in enumerate(cache[rel], 1)) if m]

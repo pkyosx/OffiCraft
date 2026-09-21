@@ -42,6 +42,7 @@ import "testing"
 
 func TestExistingGuardHoldsTheLine(t *testing.T) {}
 func TestAnotherOneEntirely(t *testing.T)        {}
+func Test_ZZZUnderscoreSpellingExists(t *testing.T) {}
 """
 
 # (name, the non-test source to plant, must the guard go red?)
@@ -122,6 +123,39 @@ func doWork() { _ = link }
         False,
     ),
     (
+        # Go accepts `Test_Foo` and the definition scan has always read it, so a
+        # citation the reference scan could not even see was a test defined
+        # under a name this guard could never check. Measured green before the
+        # fix: an underscored dangling citation was skipped in silence.
+        "a comment naming an underscored test that does not exist",
+        '''package sample
+
+// Pinned by Test_ZZZGoneWithTheRewrite.
+func doWork() {}
+''',
+        True,
+    ),
+    (
+        # The other direction, so the fix cannot be "redden on every underscore".
+        "a comment naming an underscored test that does exist",
+        '''package sample
+
+// Pinned by Test_ZZZUnderscoreSpellingExists.
+func doWork() {}
+''',
+        False,
+    ),
+    (
+        # `Test_` with nothing after it is prose, not a name.
+        "a bare Test_ in prose",
+        '''package sample
+
+// The Test_ prefix convention is not used in this package.
+func doWork() {}
+''',
+        False,
+    ),
+    (
         "ordinary English beginning with Test",
         '''package sample
 
@@ -169,6 +203,26 @@ func one() {}
 func two() {}
 '''
 
+# 🔴 THE BUILD-CONSTRAINED CASE — the same disappearance as a commented-out
+# definition, spelled in a way Go accepts. `//go:build neverbuilt` leaves
+# `func TestFoo` in the source for the definition scan to find while `go test`
+# with no tags never compiles the file and `go test -list` cannot name it.
+# Measured green before the fix, with the phantom counted among the defined.
+CONSTRAINED_TEST_FILE = '''//go:build neverbuilt
+
+package sample
+
+import "testing"
+
+func TestZZZBehindABuildTag(t *testing.T) {}
+'''
+
+CONSTRAINED_CITATION = '''package sample
+
+// Pinned by TestZZZBehindABuildTag.
+func doWork() {}
+'''
+
 # A comment in a *_test.go file is out of scope by ruling, and a green must not
 # be read as covering it. Planted separately because it is about WHICH FILES are
 # swept, not about what a comment says.
@@ -180,13 +234,16 @@ func helper() {}
 
 
 def build(tmp: Path, source: str | None, extra_test: str | None = None,
-          definitions: str = DEFINITIONS, raw_string_test: str | None = None) -> Path:
+          definitions: str = DEFINITIONS, raw_string_test: str | None = None,
+          constrained_test: str | None = None) -> Path:
     tree = Path(tempfile.mkdtemp(prefix="comment-test-ref-selftest-", dir=tmp))
     pkg = tree / "sample"
     pkg.mkdir()
     (pkg / "definitions_test.go").write_text(definitions, encoding="utf-8")
     if raw_string_test is not None:
         (pkg / "golden_source_test.go").write_text(raw_string_test, encoding="utf-8")
+    if constrained_test is not None:
+        (pkg / "behind_a_tag_test.go").write_text(constrained_test, encoding="utf-8")
     if source is not None:
         (pkg / "sample.go").write_text(source, encoding="utf-8")
     if extra_test is not None:
@@ -224,6 +281,16 @@ def main() -> int:
                 "invisible again"
             )
 
+        # A test behind a build constraint is named in the source but absent
+        # from the suite, so citing it must redden.
+        if verdict(build(tmp, CONSTRAINED_CITATION,
+                         constrained_test=CONSTRAINED_TEST_FILE)) == 0:
+            failures.append(
+                "a citation of a test in a //go:build-excluded file passed — a name "
+                "that `go test -list` cannot even print is being counted as a test "
+                "that exists"
+            )
+
         if verdict(build(tmp, None, extra_test=OUT_OF_SCOPE_TEST_FILE)) != 0:
             failures.append(
                 "a comment in a *_test.go file was reported — the sweep has grown "
@@ -257,7 +324,8 @@ def main() -> int:
         return 1
     print(
         f"[comment-test-ref-guard-selftest] all green ({len(CASES)} shape cases, "
-        "1 phantom-definition control, 1 out-of-scope control, 1 empty-sweep control)"
+        "1 phantom-definition control, 1 build-constraint control, "
+        "1 out-of-scope control, 1 empty-sweep control)"
     )
     return 0
 
