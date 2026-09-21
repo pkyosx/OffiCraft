@@ -55,10 +55,17 @@ derivation. So the rule here is mechanical instead:
   3. EXTRACT COMMENTS from the non-test side ⇒ discards everything in code and
      in string literals, which is correct here, and it means a claim written as
      a string constant is not seen.
-  4. MATCH `\bTest[A-Z]\w*` or `\bTest_\w*` inside those comments ⇒ discards every other way to
-     name a guard: a `*_test.go` FILENAME (28 distinct nonexistent ones were
-     measured in this tree), a `t.Run` label, a shell guard's path, a suite. A
-     citation of any of those is unchecked.
+  4. MATCH `\bTest[A-Z]\w*` or `\bTest_\w*` inside those comments ⇒ discards every
+     other way to name a guard: a `*_test.go` FILENAME, a `t.Run` label, a shell
+     guard's path, a suite. A citation of any of those is unchecked.
+     🔴 THE FILENAME HALF IS THE ONE THAT HAS ALREADY BITTEN. 28 distinct
+     nonexistent filenames were cited across 32 places in 25 files when this was
+     written; the owner ruled them out and they were cleared BY HAND. Nothing
+     here held that, and nothing here holds it now: the very next one written is
+     invisible, and the tree reads as clean because the function-name half is.
+     Widening this transformation to filenames would change the acceptance
+     criteria the owner approved, so it is a question for him, not a gap to
+     close quietly — it is on T-265's follow-up list.
   5. BUILD THE DEFINED SET from `^func Test…` over `code_only()` of each test
      file, minus the files behind a build constraint ⇒ discards a test whose
      name exists but whose BODY cannot run. Two shapes are no longer discarded

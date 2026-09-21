@@ -33,7 +33,7 @@ package main
 //     already declared `Kind != KindWarden` inside its own loop. Adding a
 //     formality to the list gives it to BOTH producers by construction; giving
 //     it to only one requires writing that restriction down as an AppliesTo,
-//     where lifecycle_roster_parity_t170e_test.go reads it back by name.
+//     which a parity test reads back by name.
 //
 // 🔴 KNOWN GAP — LIFECYCLE-LIST-IS-OPT-IN-T170E. Say plainly what this list
 // does NOT buy, because the sentence above is easy to over-read.

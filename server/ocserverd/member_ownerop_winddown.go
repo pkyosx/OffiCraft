@@ -563,8 +563,8 @@ func (s *apiServer) armMemberOwnerOpHandover(m *Member, op string) bool {
 // is FALSE for it and it stays green both before and after the change. It is not
 // a signal in either direction. If it ever goes red, the reading is NOT 「the
 // spec flipped」 — it means this gate stopped being consulted and workers nobody
-// ever asked to stop are being booted by an edit. The anchored fixture lives in
-// outsource_restart_after_stop_t65_test.go (seedStoppedAnchoredWorker).
+// ever asked to stop are being booted by an edit. The anchored fixture is
+// seedStoppedAnchoredWorker, on the test side.
 func aStopWasEverAskedFor(m Member) bool {
 	return m.StoppingSince > 0.0
 }

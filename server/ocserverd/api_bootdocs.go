@@ -32,8 +32,8 @@ package main
 // factory text stays in the binary's go:embed copy. "Restore to default" is
 // therefore answered from a source no write path can reach, and it needs no
 // agent, no MCP client and no member identity — the cockpit's owner token alone
-// walks the whole way back (api_bootdocs_reset_t791e_test.go pins that: an owner
-// token whose sub is on nobody's roster).
+// walks the whole way back, and that is pinned with an owner token whose sub is
+// on nobody's roster.
 
 import (
 	"errors"

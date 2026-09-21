@@ -204,8 +204,8 @@ func (m *backupHealthMonitor) save(st backupHealthState) error {
 // recreate exactly that. There are four production callers — backupTick and
 // three in this file — and fixing the shared question fixes all four at once
 // and keeps them unable to disagree. The two sides are held by SEPARATE tests
-// driving SEPARATE entry points (see backup_cadence_t18c3_test.go), so coverage
-// is per-side even though the implementation is single.
+// driving SEPARATE entry points, so coverage is per-side even though the
+// implementation is single.
 //
 // 🔴 WHY SKIP RATHER THAN "TREAT AS INFINITELY OLD". Calling a future stamp
 // ancient sounds conservative and is a trap: the tick would back up, but the

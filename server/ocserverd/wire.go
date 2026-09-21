@@ -3636,7 +3636,7 @@ func newReplyCardDTO(c ReplyCard) replyCardDTO {
 // is a discoverability flag, never an authz gate. T-5336 (owner 2026-07-27)
 // raised all four rows to requires=admin_agent, which is what now keeps a plain
 // agent off this DTO. The claim is enforced by the route table, NOT by this
-// comment — see the T-5336 note in routes.go and routes_t5336_webhook_authz_test.go.
+// comment — see the T-5336 note in routes.go.
 // Platform is the fixed verification preset (generic/slack/github).
 // HasSigningSecret exposes ONLY whether a secret is configured — the secret
 // itself is NEVER echoed on any wire (stricter than token, which the

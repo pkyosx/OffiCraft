@@ -375,8 +375,8 @@ func scanMember(row interface{ Scan(...any) error }) (Member, error) {
 //     make it on purpose.
 //
 //     🔴 THE AUDIT OF TODAY'S CALL SITES IS NOT IN THIS COMMENT. It is
-//     listMembersCallSiteLedger in roster_widening_ledger_t14i6_test.go: one
-//     row per call site, saying whether PR ② widened it and what that fold
+//     listMembersCallSiteLedger, a table on the test side: one row per call
+//     site, saying whether PR ② widened it and what that fold
 //     does with a contractor row. It lives there because an enumeration
 //     written HERE is one nothing can check — the ledger is joined against an
 //     AST scan in BOTH directions, so a caller with no row fails by name and a

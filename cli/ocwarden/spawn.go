@@ -647,8 +647,8 @@ func tmuxDeliverNudge(r CmdRunner, sleep func(time.Duration), socket, session, n
 	//     is a data race if Spawn is ever called concurrently.
 	//
 	// WHAT THIS SEAM DOES BUY, stated at its real size: adding a per-spawn knob
-	// THE INTENDED WAY now requires editing withPerSpawn's signature, and
-	// spawn_clock_guard_t82_test.go fails on any non-per-spawn field that differs.
+	// THE INTENDED WAY now requires editing withPerSpawn's signature, and a guard
+	// fails on any non-per-spawn field that differs.
 	// That guard covers what withPerSpawn itself does. It cannot see what a caller
 	// does to the base before calling it.
 	//

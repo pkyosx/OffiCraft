@@ -861,7 +861,7 @@ func cmdListen(cfg Config, env func(string) string, once bool, out io.Writer) in
 // here: every T-89 test builds its listener directly, so setting cfg.BaseConfigured
 // to a constant on the way IN — one token, inside cmdListen — left all of them
 // green while the feature was gone. There is no network and no clock in here, so
-// the wiring is now a plain unit somebody can pin (listen_base_origin_t89_test.go).
+// the wiring is now a plain unit somebody can pin.
 func newListener(cfg Config, env func(string) string, out io.Writer, once bool, stamper *eventStamper) *listener {
 	api := defaultHTTPClient()
 	return &listener{

@@ -164,7 +164,7 @@ const sqliteMaxReadConns = 8
 //   - A clean shutdown does clear it (the last connection to close checkpoints and
 //     removes the WAL — verified: after a normal serve exit the data dir holds only
 //     officraft.db). A CRASH does not, and what is left in "-wal" then is exactly
-//     the most recent work — which is also why db_singlefile_copy_guard_test.go
+//     the most recent work — which is also why the single-file-copy guard
 //     exists.
 //
 // 🔴 WHAT IS ENFORCED, AND WHAT IS ONLY TRUE TODAY — do not merge these:

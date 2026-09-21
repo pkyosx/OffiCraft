@@ -922,9 +922,9 @@ func (st *codexListenerState) handleListenerLine(
 // the whole ocwarden suite went green and so did uplink-guard, while EVERY
 // forwarded notice AND every chat/task event silently stopped reaching the
 // model. The decision table was fully pinned; the delivery was not pinned by
-// anything at all. Pulling it out here is what gives a test something to call —
-// see codex_notice_test.go, which drives this against a real codexSession and
-// reads the App Server bytes it writes.
+// anything at all. Pulling it out here is what gives a test something to call:
+// it can be driven against a real codexSession and the App Server bytes it
+// writes can be read back.
 func (s *codexSession) openListenerTurn(text string) {
 	if text == codexPostBootWake {
 		s.activity("waking the session now that SSE is up")
@@ -1006,9 +1006,8 @@ func codexListenerActions(line string, wakeAlreadySent bool) (wake, forward bool
 // `"net listen: disconnected — "` — and both suites stayed green while every
 // codex member lost its transport notices for the rest of its session.
 //
-// The check that used to catch that (listen_notice_contract_test.go) was a Go
-// test in this package, and T-125's rewrite of the test surface took it with
-// it. Its replacement is bin/listen-notice-mirror-guard.py — deliberately not a
+// The check that used to catch that was a Go test in this package, and T-125's
+// rewrite of the test surface took it with it. Its replacement is bin/listen-notice-mirror-guard.py — deliberately not a
 // Go test in either module, so the next such rewrite cannot delete it by
 // accident. It reads both files, requires each consumer constant here to equal
 // the producer's line prefix plus the producer's own head, and reports a

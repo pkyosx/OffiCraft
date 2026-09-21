@@ -87,8 +87,8 @@ func (s *apiServer) HandleUpdateTaskStepNoteApiTasksTaskIdStepsStepIdNotePost(w 
 // patch requests interleaving in the server (A reads → B reads → A writes →
 // B writes) still lose A's edit silently. SetTaskStepNote being a SINGLE-column
 // UPDATE is not a defence here — that is what stops the whole-row step writers
-// from replaying a note they read earlier (T-e271, api_tasks_note_race_test.go)
-// — because both patches compute their new text from the same base. Closing it
+// from replaying a note they read earlier (T-e271) — because both patches
+// compute their new text from the same base. Closing it
 // needs the read and the write under one transaction, or a version/etag compare
 // at the write boundary. Tracked separately. The patch_task_sop twin carries
 // the same gap AND a wider one — its write is a whole-row upsert, so read that

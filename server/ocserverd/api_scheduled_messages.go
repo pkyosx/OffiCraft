@@ -175,9 +175,8 @@ func (s *apiServer) HandleUpdateScheduledMessageApiMembersMemberIdScheduledMessa
 	//
 	// This is no longer hypothetical: the card's per-row editor sends the whole
 	// form on every save, so this comparison is the only thing standing between a
-	// no-op save and a swallowed delivery. scheduled_message_patch_realign_test.go
-	// pins both directions (unchanged form ⇒ cursor untouched; changed timing ⇒
-	// re-aimed).
+	// no-op save and a swallowed delivery. Both directions are pinned: unchanged
+	// form ⇒ cursor untouched; changed timing ⇒ re-aimed.
 	//
 	// 🔴 All four sets are compared in CANONICAL form on both sides, so
 	// [20,0,40] and [0,20,40] are the same choice and move nothing. Comparing

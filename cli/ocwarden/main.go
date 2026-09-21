@@ -749,9 +749,9 @@ func waitGraceful(wg *sync.WaitGroup, grace time.Duration) {
 // never self-updates and one that does look identical until a release day, and a
 // warden that never renews looks identical until somebody removes a signing key.
 // That is the shape this repo has already been bitten by (a handler's one wiring
-// line deleted, 2716 tests green). Here the seams are reachable, and
-// renew_verb_t80_test.go CALLS what this handed over rather than checking it
-// is non-nil — a seam wired to the wrong producer is still non-nil. (Measured:
+// line deleted, 2716 tests green). Here the seams are reachable, and what this
+// hands over is CALLED rather than checked for non-nil — a seam wired to the
+// wrong producer is still non-nil. (Measured:
 // wiring Renew to Kick compiles and leaves the seam non-nil, and
 // TestWireUpdaterSeams_RenewRaisesTheDemandOnTheUpdaterItWasGiven goes red.)
 //
@@ -871,8 +871,8 @@ func realMain(argv []string, env func(string) string, out io.Writer) int {
 	//
 	// 🔴 THIS LINE IS THE GATE. Delete it and the package still compiles, the
 	// warden still starts, and it starts talking to whatever answers on the
-	// guessed address — which is the entire defect. basegate_reached_test.go
-	// exists solely to make that deletion red.
+	// guessed address — which is the entire defect. There is a test whose sole
+	// purpose is to make that deletion red.
 	if rc, stop := stationAddressGate(renv, out, *once, time.Now, gateBlock); stop {
 		return rc
 	}
@@ -986,10 +986,9 @@ func realMain(argv []string, env func(string) string, out io.Writer) int {
 		// renewal path the tokfile-folded view, whose envToken reports the token FILE
 		// as if somebody had exported OC_TOKEN, tripping the infinite-exec guard on
 		// every launchd warden and stopping the fleet renewing with one log line per
-		// machine. renewwiring_reached_test.go catches that substitution inside
-		// newSelfUpdater; nothing catches it here. What newSelfUpdater BUILDS is now
-		// asserted by using it (renewwiring_reached_test.go); whether realMain calls
-		// it is not asserted by anything.
+		// machine. That substitution is caught inside newSelfUpdater; nothing catches
+		// it HERE. What newSelfUpdater BUILDS is asserted by using it; whether
+		// realMain calls it is not asserted by anything.
 		//
 		// Why there is no check here: the only kind available is a syntax check over
 		// this file, and this repo has now written that check twice and had review

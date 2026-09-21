@@ -103,9 +103,9 @@ func httpCredentialRenewer(client *http.Client, base, token string) credentialRe
 // handed it the right values was not covered at all.
 //
 // That refusal has since been removed (it guarded a body that starts no process
-// — see newSelfUpdater), so the constructors ARE reachable now and
-// renewwiring_reached_test.go asserts the built updater by USING what it was
-// handed. Keeping the assembly here is still worth it: one named value to copy,
+// — see newSelfUpdater), so the constructors ARE reachable now and the built
+// updater is asserted by USING what it was handed. Keeping the assembly here is
+// still worth it: one named value to copy,
 // assert and reason about beats six fields set in a constructor's middle.
 //
 // The copy onto the updater lives in apply() below rather than inside that

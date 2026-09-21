@@ -17,10 +17,11 @@ package main
 //   * cli/ocagent/diff.go — so a mistyped side costs one local sentence in the
 //     member's own vocabulary instead of a round trip whose 400 does not say
 //     WHICH of the two arguments to look at. It is a separate Go module, so
-//     there is no import to share; the copy is confronted against this one
-//     through bin/tests/fixtures/diff-side-addresses.tsv, which BOTH modules'
-//     mirror tests read (diffaddr_mirror_test.go here, diff_mirror_test.go
-//     there). A drift reddens the copy that drifted, by name.
+//     there is no import to share; the written-down authority for both is
+//     bin/tests/fixtures/diff-side-addresses.tsv.
+//     🔴 NOTHING IN GO READS THAT TABLE. Only the cockpit's copy is confronted
+//     against it, by a frontend test. A drift between this spelling and
+//     cli/ocagent's is caught by nobody.
 //   * the cockpit (frontend/) — which parses the same address out of the page
 //     URL to render each column. It is a reader of this contract, not a
 //     definer of it; when the two disagree, this file wins.

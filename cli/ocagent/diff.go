@@ -54,10 +54,12 @@ import (
 // at — and, since --external is the only flavour that talks to the server at
 // all, so that the unsigned path is judged too rather than not at all.
 //
-// The two modules cannot import each other, so the copy is confronted against
-// the authority through bin/tests/fixtures/diff-side-addresses.tsv, which both
-// mirror tests read (diff_mirror_test.go here, diffaddr_mirror_test.go there).
-// Change the spelling in one place and that fixture reddens the other by name.
+// The two modules cannot import each other, so the written-down authority is
+// bin/tests/fixtures/diff-side-addresses.tsv.
+// 🔴 BUT NOTHING IN GO READS THAT TABLE. The cockpit's copy is confronted against
+// it by a frontend test; this copy and the server's are not confronted against it
+// by anything, so a drift between the two GO spellings is caught by nobody. The
+// table is the agreed wording, not a mechanism.
 const docSidePrefix = "doc:"
 
 const (
@@ -75,8 +77,10 @@ var (
 //
 // 🔴 ALSO A COPY of server/ocserverd/api_diff.go's diffPagePath / diffParam*.
 // The server mints the EXTERNAL link, so it owns this spelling; this copy is
-// what lets the internal link be built without asking. diff_mirror_test.go
-// confronts these five literals against that file's source.
+// what lets the internal link be built without asking.
+// 🔴 NOTHING CONFRONTS THESE FIVE LITERALS. The cockpit's copy of the same five
+// is checked against the server's source by a frontend test; this Go copy is
+// checked by nothing, so it can drift from the server silently.
 const (
 	diffPagePath        = "/diff"
 	diffParamBefore     = "before"

@@ -427,7 +427,7 @@ func runDatabaseBackup(db *sql.DB, dbPath string, reason backupReason, now time.
 	// WRITE side.
 	//
 	// 🔴 VACUUM INTO is also the reason this file is NOT what the single-file-copy
-	// guard hunts (db_singlefile_copy_guard_test.go): it is SQLite's own online
+	// guard hunts: it is SQLite's own online
 	// backup, so the engine reads its own pages INCLUDING the "-wal" sidecar and
 	// writes one already-consistent file. A `cp` of officraft.db would not — under
 	// WAL it can silently omit the most recent commits.

@@ -498,8 +498,8 @@ func (s *apiServer) publishDocumentHistoryRestore(r *http.Request, kind, key str
 		// DTO comes back, HTTP 200, no error, no failing test — and the only
 		// symptom is that every other surface keeps showing the old text until
 		// someone reloads by hand. role_definition already made this mistake
-		// once (see the case above). api_document_history_insight_publish_test.go
-		// exists solely because nothing else in the build would go red here.
+		// once (see the case above). There is a test whose sole reason to exist is
+		// that nothing else in the build would go red here.
 		s.hub.Publish("insight", "patch", "insight", wireOwnerID+"::"+key, nil, audienceOwnerOnly(), requestTrigger(r))
 	case docKindSystemInteraction, docKindBootSequence, docKindOffboard,
 		docKindAcceleratedStop, docKindTaskCloseout, docKindTaskReassignPredecessor,

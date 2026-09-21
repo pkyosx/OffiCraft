@@ -1980,9 +1980,8 @@ const (
 // for an epoch that ended before this session booted, so the next 換 model is
 // taken IMMEDIATELY instead of opening a wind-down.
 //
-// The full input table for this predicate lives at the top of
-// worker_ownerop_winddown_t98f4_test.go — every combination of
-// active/online/refocus/stopped with its expected verdict. Both HIGH defects in
+// The full input table for this predicate lives on the test side — every
+// combination of active/online/refocus/stopped with its expected verdict. Both HIGH defects in
 // this票 were mis-drawn boundaries of THIS function; a change here that the
 // table does not cover means the table is now wrong too.
 // 🔴 THE ANSWER IS SHARED WITH THE STAFF TWIN and the two shells are NOT.
