@@ -131,13 +131,16 @@ NOTICE_PAIRS = (
 # here rather than trimming it keeps the check able to see the space disappear.
 BATCH_TAIL = " "
 
-# A Go interpreted string literal, with the escapes these six values can
-# actually contain. A value using anything else is reported rather than guessed
-# at — a guard that silently mis-decodes one side compares the wrong bytes.
+# Names this check would otherwise flag as one-sided, exempted deliberately. It
+# must stay a decision rather than an oversight: a one-sided notice constant
+# belongs here WITH a reason, not left to fall through as if nobody noticed it.
+NOT_PAIRED: Dict[str, str] = {}
+
 ESCAPES = {"n": "\n", "t": "\t", "r": "\r", '"': '"', "\\": "\\"}
 
 
 def unquote(raw: str) -> str:
+    """Decode a Go INTERPRETED string literal's body (raw strings never come here)."""
     out: List[str] = []
     i = 0
     while i < len(raw):
@@ -153,27 +156,143 @@ def unquote(raw: str) -> str:
     return "".join(out)
 
 
-# Every notice-family constant declared in the three files, whether or not this
-# check knows about it. A CLOSED list of pairs is a check that a new pair is
-# invisible to, and adding a notice is an ordinary change with nothing to
-# suggest that this file must be edited too — measured by independent review:
-# a fifth pair, misspelled on the consumer side, passed with all green.
-# Go lets a constant carry an explicit type between the name and the `=`
-# (`noticeResuming string = "…"`). Leaving that shape out broke BOTH directions
-# at once, measured: a REGISTERED constant that gained a type read as missing,
-# reddening a tree nobody had broken, and an UNREGISTERED one that carried a
-# type slipped past `unpaired_notices` entirely, which is a green over the exact
-# drift this check exists to catch. Both patterns below share it for that reason
-# — fixing one and not the other restores half the defect.
-OPTIONAL_TYPE = r"(?:\s+[A-Za-z_]\w*)?"
+# 🔴 WHY THIS IS A SCANNER AND NOT A PATTERN, AND WHY THAT MATTERS MORE THAN THE
+# TWO SHAPES IT FIXES. Three rounds of review each found one more Go spelling the
+# line pattern did not know about — an explicit type between the name and the
+# `=`, a raw (backtick) string literal, a comment after the value. Every one was
+# legal, gofmt-clean, compiling Go, and every one produced a WRONG ANSWER IN BOTH
+# DIRECTIONS at once: a registered constant read as "the declaration is gone"
+# (a red nobody caused, whose message named a rename that never happened), and an
+# unregistered one slipped past the unpaired check entirely (a green over real
+# one-sided drift). The third round is where the pattern stops being the fix: the
+# defect is not the missing shapes, it is matching Go syntax with a regex over
+# raw lines. So the source is TOKENISED first — comments removed, string literals
+# of both kinds lifted out and decoded — and the small pattern then runs over
+# what is left, where a declaration has exactly one shape.
+#
+# The trailing-comment case deserves naming on its own: this file's header tells
+# the reader these two copies must move together, and the most natural response
+# to reading that is to leave a reminder beside the constant. That very act used
+# to redden the tree and send the reader looking for a rename nobody did.
+#
+# ⚠️ THIS IS THE SECOND GO SOURCE SCANNER IN bin/ — comment-test-ref-guard.py
+# carries an equivalent one. They are NOT shared, and that is the same shape this
+# whole check exists to complain about, so it is written down rather than left to
+# be discovered: `bin/` has no Python module convention at all (`bin/lib/` is
+# shell), so sharing them means introducing one, which is a structural change
+# that belongs in its own round with its own review. It is on T-265's follow-up
+# list. Until then: a fix to one scanner belongs in both.
 
-DECLARED = re.compile(r'^\s*(?:const\s+)?(notice[A-Za-z0-9_]*)' + OPTIONAL_TYPE + r'\s*=\s*"')
+STRING_SENTINEL = "\x00"
 
-# Names matched by DECLARED that are deliberately NOT part of the cross-module
-# contract. Empty today, and it must stay a decision rather than an oversight:
-# a one-sided notice constant belongs here WITH a reason, not left to fall
-# through as if nobody noticed it.
-NOT_PAIRED: Dict[str, str] = {}
+
+def _scan(src: str) -> Tuple[List[str], List[List[str]]]:
+    """Tokenise Go source into per-line CODE (comments gone, literals lifted out).
+
+    Returns (lines, values): `lines[n]` is line n+1 with every comment removed and
+    every string literal replaced by a sentinel, and `values[n]` holds that line's
+    decoded literals in order. A literal spanning lines (a raw string) leaves its
+    sentinel on the line it STARTED on, which is the line the declaration is on.
+    """
+    lines: List[str] = [""]
+    values: List[List[str]] = [[]]
+    i, n = 0, len(src)
+
+    def newline() -> None:
+        lines.append("")
+        values.append([])
+
+    def emit(text: str) -> None:
+        lines[-1] += text
+
+    while i < n:
+        c = src[i]
+        if c == "\n":
+            newline()
+            i += 1
+            continue
+        if c == "`":  # raw string: no escapes, may span lines, \r is dropped
+            j = src.find("`", i + 1)
+            j = n if j < 0 else j
+            values[-1].append(src[i + 1:j].replace("\r", ""))
+            emit(STRING_SENTINEL)
+            # consume the literal, keeping the line counter honest
+            for ch in src[i:j + 1]:
+                if ch == "\n":
+                    newline()
+            i = j + 1
+            continue
+        if c == '"':  # interpreted string: never spans a line
+            j = i + 1
+            while j < n and src[j] != '"':
+                j += 2 if src[j] == "\\" else 1
+            body = src[i + 1:j]
+            try:
+                values[-1].append(unquote(body))
+            except ValueError:
+                values[-1].append(None)  # reported by the caller, never guessed at
+            emit(STRING_SENTINEL)
+            i = j + 1
+            continue
+        if c == "'":  # rune literal: not a string, but must not open one
+            j = i + 1
+            while j < n and src[j] != "'":
+                j += 2 if src[j] == "\\" else 1
+            i = j + 1
+            emit(" ")
+            continue
+        if c == "/" and i + 1 < n and src[i + 1] == "/":
+            j = src.find("\n", i)
+            i = n if j < 0 else j
+            continue
+        if c == "/" and i + 1 < n and src[i + 1] == "*":
+            j = src.find("*/", i + 2)
+            j = n if j < 0 else j + 2
+            for ch in src[i:j]:
+                if ch == "\n":
+                    newline()
+            i = j
+            continue
+        emit(c)
+        i += 1
+    return lines, values
+
+
+# A declaration, matched against a TOKENISED line: an optional `const`, the name,
+# an optional type, `=`, and one lifted-out literal. Anything else — a
+# concatenation, a function call, a second value — does not match, and not
+# matching is REPORTED rather than skipped.
+DECL = re.compile(
+    r"^\s*(?:const\s+)?([A-Za-z_]\w*)(?:\s+[A-Za-z_][\w.*\[\]]*)?\s*=\s*"
+    + STRING_SENTINEL + r"\s*$"
+)
+
+# A `notice…` name given a value that STARTS with a string literal, whatever the
+# rest of it looks like. Deliberately wider than DECL: a one-sided notice is
+# drift however its value is spelled, and a concatenated one would otherwise be
+# the next shape to walk through.
+NOTICE_ASSIGN = re.compile(
+    r"^\s*(?:const\s+)?(notice[A-Za-z0-9_]*)(?:\s+[A-Za-z_][\w.*\[\]]*)?\s*=\s*"
+    + STRING_SENTINEL
+)
+
+
+def declarations(src: str):
+    """Yield (line_no, name, value) for each `name [T] = <one string literal>`."""
+    lines, values = _scan(src)
+    for idx, line in enumerate(lines):
+        m = DECL.match(line)
+        if m and values[idx]:
+            yield idx + 1, m.group(1), values[idx][0]
+
+
+def notice_assignments(src: str):
+    """Yield (line_no, name) for each `notice… = <string literal>…`, DECL or not."""
+    lines, _ = _scan(src)
+    for idx, line in enumerate(lines):
+        m = NOTICE_ASSIGN.match(line)
+        if m:
+            yield idx + 1, m.group(1)
 
 
 def unpaired_notices(root: Path) -> List[str]:
@@ -185,14 +304,14 @@ def unpaired_notices(root: Path) -> List[str]:
             text = (root / rel).read_text(encoding="utf-8")
         except OSError:
             continue  # already reported by read_consts
-        for n, line in enumerate(text.split("\n"), 1):
-            m = DECLARED.match(line)
-            if m and m.group(1) not in known and m.group(1) not in NOT_PAIRED:
-                rows.append(
-                    f"{rel}:{n} declares {m.group(1)}, which no pair in this check "
-                    "compares — a notice added on one side only is exactly the drift "
-                    "this exists to catch, and it would pass"
-                )
+        for line_no, name in notice_assignments(text):
+            if name in known or name in NOT_PAIRED:
+                continue
+            rows.append(
+                f"{rel}:{line_no} declares {name}, which no pair in this check "
+                "compares — a notice added on one side only is exactly the drift "
+                "this exists to catch, and it would pass"
+            )
     return rows
 
 
@@ -200,37 +319,35 @@ def read_consts(root: Path) -> Tuple[Dict[Tuple[str, str], str], List[str]]:
     """Locate every WANTED constant by name in its own file."""
     values: Dict[Tuple[str, str], str] = {}
     problems: List[str] = []
-    cache: Dict[str, List[str]] = {}
+    cache: Dict[str, List[Tuple[int, str, str]]] = {}
     for rel, name in WANTED:
         if rel not in cache:
             try:
-                cache[rel] = (root / rel).read_text(encoding="utf-8").split("\n")
+                cache[rel] = list(declarations((root / rel).read_text(encoding="utf-8")))
             except OSError as exc:
                 cache[rel] = []
                 problems.append(f"{rel}: cannot be read ({exc.strerror})")
-        # Both spellings Go allows: a line inside a `const (…)` block, and a
-        # standalone `const name = "…"`. Two of these six are declared each way.
-        pattern = re.compile(
-            r'^\s*(?:const\s+)?' + re.escape(name) + OPTIONAL_TYPE
-            + r'\s*=\s*"((?:[^"\\]|\\.)*)"\s*$'
-        )
-        hits = [(n, m.group(1)) for n, m in
-                ((n, pattern.match(line)) for n, line in enumerate(cache[rel], 1)) if m]
+        hits = [(n, v) for n, dname, v in cache[rel] if dname == name]
         if not hits:
             problems.append(
                 f"{rel}: no declaration `{name} = \"…\"`. It was renamed, deleted or "
-                "rewritten as an expression — either way this check has stopped "
-                "comparing that pair, which is the state it exists to prevent."
+                "rewritten as something other than one string literal — either way "
+                "this check has stopped comparing that pair, which is the state it "
+                "exists to prevent."
             )
             continue
         if len(hits) > 1:
             lines = ", ".join(str(n) for n, _ in hits)
             problems.append(f"{rel}: `{name}` is declared more than once (lines {lines})")
             continue
-        try:
-            values[(rel, name)] = unquote(hits[0][1])
-        except ValueError as exc:
-            problems.append(f"{rel}:{hits[0][0]} `{name}`: {exc}")
+        line_no, value = hits[0]
+        if value is None:
+            problems.append(
+                f"{rel}:{line_no} `{name}`: the literal uses an escape this guard "
+                "does not decode, so its value is not being compared"
+            )
+            continue
+        values[(rel, name)] = value
     return values, problems
 
 

@@ -98,6 +98,35 @@ MUTANTS: Tuple[Tuple[str, str, str, str], ...] = (
         '\tnoticeConnected    string = "listen: online"',
     ),
     (
+        # 🔴 SAME FAMILY, THIRD ROUND. A one-sided constant written with a RAW
+        # (backtick) string used to pass with everything green — legal,
+        # gofmt-clean, compiling Go, and invisible to the only check that looks
+        # for one-sided notices.
+        "an unpaired notice constant written as a raw string",
+        RUN, '\tnoticeBatch = "listen: batch"',
+        '\tnoticeBatch = "listen: batch"\n\tnoticeResumed = `listen: resumed`',
+    ),
+    (
+        # The next spelling in the same family, pinned before it is found the
+        # hard way: a one-sided notice is drift however its value is built.
+        "an unpaired notice constant built by concatenation",
+        RUN, '\tnoticeBatch = "listen: batch"',
+        '\tnoticeBatch = "listen: batch"\n\tnoticeResumed = "listen: " + "resumed"',
+    ),
+    (
+        # The trailing-comment shape from the other direction. It drifts the
+        # VALUE too, so a guard that passed it merely by ignoring commented
+        # lines would not survive here.
+        "a registered constant gains a trailing comment and its value moves",
+        RUN, '\tnoticeConnected    = "listen: connected"',
+        '\tnoticeConnected    = "listen: online" // keep in step with the sidecar',
+    ),
+    (
+        "a registered constant becomes a raw string and its value moves",
+        RUN, '\tnoticeConnected    = "listen: connected"',
+        '\tnoticeConnected    = `listen: online`',
+    ),
+    (
         # A rename is not a drift the guard may shrug at: it means the guard has
         # stopped comparing that pair, which is indistinguishable from agreement
         # unless it is reported.
@@ -135,15 +164,27 @@ CONSISTENT = (
 )
 
 
-# The second control that must stay green. Adding a type to a constant is a
-# refactor, not drift: the value is untouched and both sides still agree. Before
-# the fix this was RED — a red nobody had caused, on a tree where nothing had
-# moved — and a guard that reddens on a no-op refactor teaches people that its
-# reds are noise. Paired with the typed MUTANTS above, the two directions pin
-# each other: neither can be satisfied by ignoring typed declarations.
-TYPED_OK = (
-    (RUN, '\tnoticeConnected    = "listen: connected"',
+# 🔴 THE RESPELLING CONTROLS — every one of these changes HOW the value is
+# written and not WHAT it is, so every one must stay GREEN. Each was RED before
+# the scanner replaced the line pattern: a red nobody caused, on a tree where
+# nothing had moved, carrying a message that named a rename that never happened.
+# The trailing-comment one is the worst of the three, because this guard's own
+# header tells the reader these two copies must move together and the natural
+# response is to leave exactly that reminder beside the constant.
+#
+# They are paired with the MUTANTS above on purpose: those drift the value under
+# the same spelling. Neither set can be satisfied by ignoring a spelling — one
+# demands the value still be read, the other demands it not be misread.
+RESPELLINGS = (
+    ("an explicit type",
+     RUN, '\tnoticeConnected    = "listen: connected"',
      '\tnoticeConnected    string = "listen: connected"'),
+    ("a trailing comment",
+     RUN, '\tnoticeConnected    = "listen: connected"',
+     '\tnoticeConnected    = "listen: connected" // keep in step with the sidecar'),
+    ("a raw string literal",
+     RUN, '\tnoticeConnected    = "listen: connected"',
+     '\tnoticeConnected    = `listen: connected`'),
 )
 
 
@@ -202,15 +243,15 @@ def main() -> int:
         )
     shutil.rmtree(tree)
 
-    tree = stage()
-    for rel, old, new in TYPED_OK:
+    for label, rel, old, new in RESPELLINGS:
+        tree = stage()
         patch(tree, rel, old, new)
-    if verdict(tree) != 0:
-        failures.append(
-            "adding an explicit type to a constant, value unchanged, was reported "
-            "as drift — the guard reddens on a refactor that moved nothing"
-        )
-    shutil.rmtree(tree)
+        if verdict(tree) != 0:
+            failures.append(
+                f"giving a constant {label}, value unchanged, was reported as drift "
+                "— the guard reddens on a respelling that moved nothing"
+            )
+        shutil.rmtree(tree)
 
     tree = stage()
     for rel, old, new in CONSISTENT:
@@ -236,7 +277,7 @@ def main() -> int:
     print(
         f"[listen-notice-mirror-guard-selftest] all green ({len(MUTANTS)} mutants "
         "killed, 1 fifth-pair mutant killed, 1 clean control, "
-        "1 typed-declaration control, 1 consistent-rename control)"
+        f"{len(RESPELLINGS)} respelling controls, 1 consistent-rename control)"
     )
     return 0
 
