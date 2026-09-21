@@ -258,8 +258,7 @@ type contextHighSignal struct {
 // that fires once per session"); an independent review measured the tick and
 // found the claim false. What actually bounds the cost is the CALLER refusing
 // to call this once the session's one notice is spent — api_infra.go's
-// handoverNoticeTick asks handoverNoticeSettled first, and
-// TestHandoverNoticeTick_ClosureIsNotRunAfterTheClaim counts the calls.
+// handoverNoticeTick asks handoverNoticeSettled first.
 func decideHandoverNotice(
 	agentID, runtime string, record map[string]any,
 	cfg SseContextHighConfig, codexNoticeRound, codexThreshold int,

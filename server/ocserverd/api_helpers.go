@@ -102,9 +102,7 @@ func currentMachineClaim(r *http.Request) string {
 //     sub — a MEMBER id — comes back as a MACHINE id, which consumers read as
 //     "a DIFFERENT machine answered" (the KNOWN-mismatch arm) instead of
 //     UNKNOWN: the receipt watch then refuses to disarm and stamps
-//     receipt_missing on a receipt the server is holding in its hand. Pinned by
-//     TestReceiptReporter_ClaimBearingTokenIsNotTheMachineItRunsOn, which exists
-//     because deleting that line left the whole suite green.
+//     receipt_missing on a receipt the server is holding in its hand.
 //   - CLAIM-LESS non-warden tokens (the two counter-examples above) are NOT
 //     handled, today, in the present tense. The check cannot see them — on the
 //     wire they are shaped exactly like a warden — so this function still hands
@@ -510,8 +508,8 @@ func refocusDeadlineOf(refocusSince float64, cfg reconcileConfig, refocusOp stri
 // (api_members.go), asked once, here. The 下線 arm's other two zero conditions
 // used to be written out — stopping_since <= 0 and forcedEpochLive — which made
 // them the NEGATION of the same pair offboardKindOf spells positively to decide
-// whether to send a sentence at all. TestOffboardKindOf_AFinalCallAlwaysHasAClock
-// exists because those two spellings could come apart; they are now one call.
+// whether to send a sentence at all. Those two spellings could come apart; they
+// are now one call.
 //
 // 🔴 The AUTHORITY on whether there is a clock is winddownKindFor in both arms,
 // asked once, here. A second test for the accelerated cause would be a second

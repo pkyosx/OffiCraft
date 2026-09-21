@@ -33,7 +33,7 @@ package main
 //     already declared `Kind != KindWarden` inside its own loop. Adding a
 //     formality to the list gives it to BOTH producers by construction; giving
 //     it to only one requires writing that restriction down as an AppliesTo,
-//     where lifecycle_roster_parity_t170e_test.go reads it back by name.
+//     which a parity test reads back by name.
 //
 // 🔴 KNOWN GAP — LIFECYCLE-LIST-IS-OPT-IN-T170E. Say plainly what this list
 // does NOT buy, because the sentence above is easy to over-read.
@@ -180,10 +180,11 @@ const (
 // racing the wrong command path.
 //
 // The split therefore no longer lives in a query. It lives in this named, TOTAL
-// predicate that both halves ask by name, so "exactly one half owns a row" is a
-// sentence a test can falsify cell by cell
-// (TestLifecycleTickDriver_EveryRowHasExactlyOneDriver) rather than a property a
-// reader has to infer from a SQL string in another file.
+// predicate that both halves ask by name. Put the split back into two SQL WHERE
+// clauses and "exactly one half owns a row" stops being anything a reader can
+// check: neither query names the invariant, so a row that drifts into having
+// two owners — or none — looks correct in both files, which is how the double
+// START above got in.
 //
 // 🔴 IT IS DELIBERATELY NOT NARROWER THAN THE SQL IT REPLACED. The re-siting was
 // a pure move of the existing split and stayed behaviour-identical:
@@ -323,15 +324,11 @@ func (s *apiServer) runLifecycleRosterPasses(roster []Member, now float64) {
 // row through it here would let an unrelated derivation change ride in on a
 // context stamp.
 //
-// All four folded fields are pinned, one arm each.
-// TestWorkerFoldBack_APromotionSurvivesTheLoopBreakInTheSameTick drives a whole
-// tick and pins RefocusSince/RefocusOp;
-// TestWorkerFoldBack_AWindDownClearSurvivesTheLoopBreakInTheSameTick calls this
-// function at its own boundary — the door runs, and the test asserts it ADMITS
-// the row — and pins StoppingSince/StoppedSince on the caller's slice, which is
-// where their whole effect lives, since the fold-back is never persisted.
-// Deleting either pair was measured to turn exactly one of those two red, with
-// the other still green: neither mutant masks the other.
+// The fold-back is never persisted, so for the rest of the tick
+// StoppingSince/StoppedSince exist ONLY on the caller's slice. Drop either from
+// the fold and the loop below carries on with the pre-pass values, with no
+// durable row to re-read them from — the pass ran, and nothing downstream is
+// told.
 //
 // 🔴 CASE HISTORY — FOLD-BACK-STOPPING-HALF-UNPROVEN-T170E. Five successive
 // versions of this paragraph each asserted that something DID NOT EXIST — a
@@ -344,10 +341,9 @@ func (s *apiServer) runLifecycleRosterPasses(roster []Member, now float64) {
 //	 behaviour change"
 //
 // An adversarial pass refuted it by writing that test — zero production change,
-// and without bypassing the door — and it is the AWindDownClear test named
-// above. `git log -p` on this file is the rest of the record. This is a guard
-// rail, not an apology: if you are about to write a sixth "there is no X" here,
-// build the denominator first or do not write it.
+// and without bypassing the door. `git log -p` on this file is the rest of the
+// record. This is a guard rail, not an apology: if you are about to write a
+// sixth "there is no X" here, build the denominator first or do not write it.
 //
 // 🔴 AND THE OBSERVATION ALL FIVE REASONED FROM WAS ITSELF MISREAD. That
 // deleting these two lines left the whole wind-down suite green was taken to

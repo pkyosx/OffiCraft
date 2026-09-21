@@ -386,14 +386,13 @@ func shareSigGate(keys *keyring, verify shareSigVerifier, raw, authed http.Handl
 //
 // 🔴 IT EXISTS SO THAT DECISION IS TESTABLE. buildHandler takes a ring as a
 // parameter because a handful of tests must hand it a DIFFERENT one (a nil ring
-// is how auth_refusal_exits_t14_test.go reaches the "auth not configured"
-// exit). That parameter is also how the gate and the mint could silently drift
-// apart: hand buildHandler a ring that is not api.keys and every rotation moves
-// the minting half while the verifying half stays behind — signed tokens the
-// server itself refuses, and nothing in the tree would have gone red. Wrapping
-// the one production call in a named function puts that line under test
-// (keyring_rotation_t62_test.go) instead of leaving it as an argument nobody
-// guards.
+// is how a test reaches the "auth not configured" exit). That parameter is also
+// how the gate and the mint could silently drift apart: hand buildHandler a ring
+// that is not api.keys and every rotation moves the minting half while the
+// verifying half stays behind — signed tokens the server itself refuses, and
+// nothing in the tree would have gone red. Wrapping the one production call in a
+// named function puts that line under test instead of leaving it as an argument
+// nobody guards.
 func buildAPIHandler(api *apiServer, lookup func(id string) (*Member, error)) (http.Handler, error) {
 	return buildHandler(specsFor(api), api.keys, lookup, api.authPasswordChangedAt)
 }

@@ -2526,7 +2526,7 @@ func dutyText(md string) string {
 	// not a claim about what ships today (as of the 2026-08-04 measurement the
 	// longest role doc was 455 runes, far under the cap, so the set observed
 	// then no longer demonstrated the case; that reading is dated and may not
-	// hold now). Pinned by TestResumeDutyStripsBeforeCapping.
+	// hold now).
 	return truncateRunes(stripLeadingTitle(md), resumeDutyPreview)
 }
 
@@ -2709,12 +2709,10 @@ func (s *apiServer) HandlePeekResumeSummarySizeApiResumeSummarySizeGet(w http.Re
 		// tasks_detail_chars is the only member of the other kind — text the
 		// caller would have to go and fetch.
 		//
-		// ⚠️ NOTHING HERE CATCHES THE NEXT ONE AUTOMATICALLY.
-		// TestEveryFaceOfThePeekSumMatchesWhatTheServerActuallyAdds keeps the
-		// prose faces agreeing with this expression — but a SIXTH block added
-		// to the payload and left out of this sum turns nothing red, exactly as
-		// the previous two did not. Whoever adds it has to add its addend and
-		// its assertion by hand.
+		// ⚠️ NOTHING HERE CATCHES THE NEXT ONE AUTOMATICALLY. A SIXTH block
+		// added to the payload and left out of this sum turns nothing red,
+		// exactly as the previous two did not. Whoever adds it has to add its
+		// addend and its assertion by hand.
 		EstimatedTotalChars: overview.ChatChars + overview.TasksDetailChars +
 			overview.RosterChars + overview.MachinesChars +
 			overview.StepsOnAnsweredCardChars,

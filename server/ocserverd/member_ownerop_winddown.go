@@ -75,11 +75,12 @@ package main
 //	  owner verb, and a refocus stamp on a desired-offline row is pure noise —
 //	  decideUp is not even reached (decideDown owns it) and the agent's own gate
 //	  re-checks desired_state == online, so nothing would ever read the marker.
-//	  🔴 THE WORKER SIDE'S COMPENSATION IS PINNED, not assumed:
-//	  TestOwnerOp_StoppedWorkerStillOnlyGetsAReceipt drives a desired-offline
-//	  worker that is ONLINE — the state in which the shared core answers YES —
-//	  through the 換 model face and requires a held_down receipt, no epoch, and
-//	  zero frames. Without that test the compensation is decoration.
+//	  🔴 THE COMPENSATION MATTERS IN ONE STATE ABOVE ALL: a desired-offline
+//	  worker that is ONLINE, which is exactly where the shared core answers
+//	  YES. Lose respawnWorkerForOwnerOp's first gate and that YES is acted on —
+//	  the worker gets an epoch and a 預告 instead of the held_down receipt, so
+//	  the explicit 停止 that is supposed to dominate is overturned by whichever
+//	  owner verb came next.
 //
 //	worker: !hub.IsOnline → immediate
 //	  staff: SAME — and "same" is now literal: this arm lives in
@@ -562,8 +563,8 @@ func (s *apiServer) armMemberOwnerOpHandover(m *Member, op string) bool {
 // is FALSE for it and it stays green both before and after the change. It is not
 // a signal in either direction. If it ever goes red, the reading is NOT 「the
 // spec flipped」 — it means this gate stopped being consulted and workers nobody
-// ever asked to stop are being booted by an edit. The anchored fixture lives in
-// outsource_restart_after_stop_t65_test.go (seedStoppedAnchoredWorker).
+// ever asked to stop are being booted by an edit. The anchored fixture is
+// seedStoppedAnchoredWorker, on the test side.
 func aStopWasEverAskedFor(m Member) bool {
 	return m.StoppingSince > 0.0
 }
@@ -615,14 +616,6 @@ func memberRestartQueuedReceipt(op string) string {
 // already did it to the five receipt columns and 批次C to the four wind-down
 // anchors — both are repaired below through their sole writers; 批次D
 // (desired_state + restart_after_stop) and 批次E (waking_since) will do it again.
-//
-// THE TRIPWIRE, so nobody has to read this comment first:
-// TestConsumeRestartAfterStopPersistsEveryFieldItMutates
-// (member_restart_after_stop_t14_test.go) runs this function against a real DAL,
-// reads the row back, and requires the stored row to equal the member this
-// function mutated — field by field, over reflect, enumerating nothing. Mark any
-// column insertOnly without giving this site a writer for it and that test goes
-// red NAMING THE FIELD.
 //
 // The anchors it clears are 活化's list minus forced_stop_at: that column is the
 // durable record that the PREVIOUS session was cut off and is deliberately never
@@ -842,8 +835,7 @@ func (s *apiServer) consumeWorkerRestartAfterStop(w *OutsourceWorker, now float6
 //     *row.StoppedSince. Move the read after the stamp — the ordinary way to get
 //     this wrong in a function with a named return — and `prior` becomes `now`,
 //     so the rollback "restores" the very latch it was supposed to undo. That
-//     failure is SILENT everywhere except the rollback arm, which is why
-//     TestCollectWindDownRowLatchesOnceAndRollsBack exists.
+//     failure is SILENT everywhere except the rollback arm.
 //
 // 🔴 THE `<= 0` GUARD IS THE ONCE-ONLY, and it is why this is a shared body
 // rather than four copies of two lines. BOTH drivers of the graceful handover

@@ -604,8 +604,8 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 		// What did NOT change: Requires stays principalAdminAgent on every row.
 		// Opening the entrance is not widening the gate — an ordinary agent
 		// calling any of these four still gets 403, and that is the correct
-		// answer, not a gap. routes_t63bf_scheduled_message_mcp_test.go pins
-		// both halves (the tools exist AND the floor did not move).
+		// answer, not a gap. Both halves are pinned: the tools exist AND the
+		// floor did not move.
 		Gated(principalAdminAgent, routeDef{
 			Method:  "GET",
 			Path:    "/api/members/{member_id}/scheduled-messages",
@@ -803,7 +803,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 		// anyone, the owner included (a decision must not be overwritten by an
 		// answerless terminal — but the owner may still REPLACE the answer via
 		// the PUT row above). Because the floor no longer
-		// says who may call this, routes_t6020_governance_test.go keeps this row
+		// says who may call this, the route table on the test side keeps this row
 		// in a SEPARATE named table (t6020Revised) rather than dropping it: the
 		// 2026-07-26 ruling and its 2026-08-07 revision both stay on the record.
 		Gated(principalAgent, routeDef{

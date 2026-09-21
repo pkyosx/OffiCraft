@@ -19,8 +19,10 @@ import (
 // Why waiting_reason could not serve: it is bound to ONE status, settable only
 // entering waiting_external and cleared by the status handler on the way out.
 // It is moment-locked. A handover lands at an arbitrary moment, so the note
-// has to be writable in ANY step status — that generality is the point, and
-// TestStepNoteWritableInEveryStepStatus pins it.
+// has to be writable in ANY step status. Gate this write on a status and the
+// field is waiting_reason again: the agent handing off from a done step, or a
+// blocked one, is back to having nowhere to write what it was in the middle
+// of — the exact hole this endpoint was opened to close.
 //
 // Its own endpoint and its own MCP tool, not another parameter on
 // update_step_status: charter §14 is intent-per-tool, and writing a note is a
@@ -85,8 +87,8 @@ func (s *apiServer) HandleUpdateTaskStepNoteApiTasksTaskIdStepsStepIdNotePost(w 
 // patch requests interleaving in the server (A reads → B reads → A writes →
 // B writes) still lose A's edit silently. SetTaskStepNote being a SINGLE-column
 // UPDATE is not a defence here — that is what stops the whole-row step writers
-// from replaying a note they read earlier (T-e271, api_tasks_note_race_test.go)
-// — because both patches compute their new text from the same base. Closing it
+// from replaying a note they read earlier (T-e271) — because both patches
+// compute their new text from the same base. Closing it
 // needs the read and the write under one transaction, or a version/etag compare
 // at the write boundary. Tracked separately. The patch_task_sop twin carries
 // the same gap AND a wider one — its write is a whole-row upsert, so read that

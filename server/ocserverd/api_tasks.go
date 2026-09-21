@@ -153,12 +153,10 @@ type dispatchSpec struct {
 //
 // So for a codex creator this ticket's symptom is NOT fixed, only re-coded: the
 // worker still never boots, it merely says machine_unavailable instead of
-// no_machine_selected. Not a regression (that spawn failed before too), and
-// pinned by TestCreateTypedManualDrivenCodexCreatorStillFailsClosed so the gap
-// cannot quietly disappear from the record. Whether it fails or boots as a claude
-// worker on a codex dev's box depends on what that machine REPORTED: a host with
-// no capability map, or one that lists claude too, boots — still not "one like
-// me", just not refused.
+// no_machine_selected. Not a regression (that spawn failed before too). Whether
+// it fails or boots as a claude worker on a codex dev's box depends on what that
+// machine REPORTED: a host with no capability map, or one that lists claude too,
+// boots — still not "one like me", just not refused.
 func inheritDispatchSpec(spec dispatchSpec, manualSpec *outsourceTypeSpec, dispatcher *Member) dispatchSpec {
 	if manualSpec != nil {
 		spec = fillDispatchSpecFrom(spec, dispatchSpec{
@@ -1747,10 +1745,8 @@ func (s *apiServer) HandleReassignTaskApiTasksTaskIdReassignPost(w http.Response
 	//
 	//   OUTSOURCE — nobody is woken, by construction: the scheduler refuses to
 	//   mint for a frozen task, so it just sits unassigned until someone
-	//   unfreezes it (TestReassignFrozenTaskToOutsourceWakesNobody). The
-	//   invariant lives in outsource_sched.go and is pinned there, at the layer
-	//   the freeze-race actually passes through — the re-read before the bind
-	//   (TestOutsourceTick_RereadsAndRejudgesBeforeBinding).
+	//   unfreezes it. The invariant lives in outsource_sched.go, at the layer
+	//   the freeze-race actually passes through — the re-read before the bind.
 	//
 	//   MEMBER — the server does NOT gate this anywhere. Do not take that on
 	//   trust and do not take this comment's word for how many gates exist:

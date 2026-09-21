@@ -53,8 +53,8 @@ const releaseRepo = "pkyosx/OffiCraft"
 const releaseAPIDefaultBase = "https://api.github.com"
 
 // releaseAPIDefault is the process-wide base a server without an override
-// uses. A var so the test binary's TestMain can point EVERY test server at an
-// unroutable loopback address — a unit test must never reach the real GitHub
+// uses. A var so the test binary can point EVERY test server at an unroutable
+// loopback address — a unit test must never reach the real GitHub
 // (hermeticity + the anonymous 60/hour rate limit).
 var releaseAPIDefault = releaseAPIDefaultBase
 

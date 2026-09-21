@@ -443,9 +443,11 @@ func ensureAnchorPresent(ops cutoverOps, p wardenPaths, logf func(string, ...any
 		return fmt.Errorf("make the staged anchor %s executable: %w", probe, err)
 	}
 	// Probing the STAGED path is only sound because the anchor does not care what
-	// it is called: cli/officraft's realMain branches on len(args) alone, so
-	// `--preflight` exits 2 under any filename. Verified against the real binary,
-	// not assumed — see TestAnchorPreflightAgreesWithTheRealAnchorBinary.
+	// it is called, and the two halves of that have DIFFERENT evidence. That an
+	// argument exits 2 at all is covered where the anchor lives, in cli/officraft.
+	// That the FILENAME cannot change the answer is structural and untested:
+	// cli/officraft's realMain returns on len(args) before it ever calls
+	// executable(), so the name it was invoked under has not been read yet.
 	if err := anchorPreflight(ops, probe); err != nil {
 		return fmt.Errorf("the anchor this ocwarden would deploy does not satisfy the preflight: %w", err)
 	}

@@ -167,8 +167,8 @@ func captureInteractiveEnv(shell string, timeout time.Duration) (string, error) 
 	cmd := exec.CommandContext(ctx, shell, "-i", "-c", interactiveEnvDumper)
 	// ── the deadline must bound the WHOLE TREE, not just the shell ──────────
 	//
-	// MEASURED, not reasoned (caught by TestCaptureInteractiveEnv_TimeoutIsEnforcedInGo
-	// only because it asserts ELAPSED TIME rather than just "an error came back"):
+	// MEASURED, not reasoned, and it took asserting ELAPSED TIME to see it at all
+	// — "an error came back" is true either way:
 	// the default CommandContext behaviour kills the DIRECT CHILD only, and
 	// cmd.Run's Wait then blocks until the stdout pipe reaches EOF — which needs
 	// EVERY process holding the write end to exit. An rc file that leaves a

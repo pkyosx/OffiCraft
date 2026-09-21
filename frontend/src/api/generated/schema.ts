@@ -6445,7 +6445,7 @@ export interface components {
              * Model
              * @description The model this session REPORTED it is running (the roster row's ``actual_model``), for staff and outsource rows ALIKE — one column, one meaning. Honest-empty until something reports one, and it NEVER falls back to the owner-configured launch model. WAS: staff rows served the configured ``member.model`` while outsource rows served the reported value, so a single column header meant two different things depending on the row.
              *
-             *     Symmetric with the ``runtime`` and ``effort`` beside it since T-7f28: all three are reported state read from DURABLE columns (``actual_model`` / ``actual_runtime`` / ``actual_effort``), so all three survive a server restart and outlive the session that reported them. WAS asymmetric — ``effort`` and ``runtime`` were read from the in-memory telemetry entry and blanked fleet-wide on every re-exec, and the spec text here said so. Pinned by TestGetMonitoring_ReportedLaunchFactsSurviveAReExec (all three) and TestGetMonitoring_ReportedLaunchFactsNeverFallBackToTheConfiguredValue.
+             *     Symmetric with the ``runtime`` and ``effort`` beside it since T-7f28: all three are reported state read from DURABLE columns (``actual_model`` / ``actual_runtime`` / ``actual_effort``), so all three survive a server restart and outlive the session that reported them. WAS asymmetric — ``effort`` and ``runtime`` were read from the in-memory telemetry entry and blanked fleet-wide on every re-exec, and the spec text here said so.
              * @default
              */
             model: string;

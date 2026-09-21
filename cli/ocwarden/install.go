@@ -20,7 +20,7 @@
 // touch launchctl or the live machine, guard or no guard.
 //
 // 🔴 INJECTION IS NOT WHAT ENFORCES THAT, IN THIS TREE. newHostSeam is a var, but
-// NOTHING REBINDS IT: this package has no TestMain, so a test binary that calls
+// NOTHING REBINDS IT: no test in this package swaps it, so a test binary that calls
 // newHostSeam() is handed realHostSeam exactly as production is. The enforcement is
 // the RUNTIME refusal below (refuseInTestBinary), which fires wherever the real
 // wiring is constructed or a subprocess is started. A test reaching an entry point
@@ -96,19 +96,22 @@ type sysOps struct {
 }
 
 // refuseInTestBinary is the ONLY live tripwire on the functions that wire the real
-// machine in. An earlier shape paired it with a source scan run from a TestMain; no
-// such file is in this tree, so nothing rejects a bad edit before the tests run and
-// this runtime refusal carries the whole weight — a test binary must never be able
-// to construct the real seam or start a real subprocess, and
-// "we noticed afterwards" is not a defence for a verb that boots out a live
-// launchd job.
+// machine in. An earlier shape paired it with a source scan run from the package's
+// test entry point; no such scan is in this tree, so nothing rejects a bad edit
+// before the tests run and this runtime refusal carries the whole weight — a test
+// binary must never be able to construct the real seam or start a real
+// subprocess, and "we noticed afterwards" is not a defence for a verb that boots
+// out a live launchd job.
 //
 // THIS IS NOT HYPOTHETICAL. While verifying T-5047 this exact path fired for real:
-// a mutant run against a tree where the static scan was not in effect reached
-// TestTeardownCmd_CannotReachTheRealHost, constructed the real seam, and booted out
-// this developer machine's live com.officraft.ocwarden job (files survived; the job
-// had to be re-bootstrapped by hand). A scan alone was never enough, because a scan
-// is precisely what an edit can remove — and in this tree it already has been.
+// a mutant run against a tree where the static scan was not in effect drove a
+// test into teardownCmd, which built its own effects, and booted out this
+// developer machine's live com.officraft.ocwarden job (files survived; the job
+// had to be re-bootstrapped by hand). That test is not in the tree in that form
+// any more, and nothing about its absence makes the path safer — teardownCmd
+// still resolves its own effects, and the refusal below is what stops the next
+// one. A scan alone was never enough, because a scan is precisely what an edit
+// can remove — and in this tree it already has been.
 //
 // WHY os.Exit AND NOT panic: `sseTransport.handlePayload` (transport.go) wraps every
 // dispatched CommandDeps closure in a `recover()` so one bad frame cannot kill the
@@ -176,10 +179,11 @@ func realSysOps() sysOps {
 //
 // So the wiring is a package-level VARIABLE with exactly one production binding, and
 // every test in this package builds its installer on a fake sysOps by hand instead of
-// calling the entry points. An earlier shape had a TestMain rebind newHostSeam to a
-// fake for the whole binary; THAT FILE IS NOT IN THIS TREE, so the rebinding is not
-// what protects anything here — a test that does call newHostSeam() is handed the
-// real one, and the runtime refusal below is what stops it.
+// calling the entry points. An earlier shape had a package-wide test entry point
+// rebind newHostSeam to a fake for the whole binary; THAT FILE IS NOT IN THIS TREE,
+// so the rebinding is not what protects anything here — a test that does call
+// newHostSeam() is handed the real one, and the runtime refusal below is what
+// stops it.
 //
 // 🔴 WHY REBINDING WOULD NOT HAVE BEEN ENOUGH EITHER, MEASURED RATHER THAN ASSUMED
 // A rebind protects an entry point that GOES THROUGH the seam. It does NOT protect
@@ -194,8 +198,9 @@ func realSysOps() sysOps {
 //
 // TWO SOURCE-LEVEL LAYERS ONCE STOOD IN FRONT OF THAT MUTANT and are GONE FROM THIS
 // TREE: a scan pinning realSysOps()/realHostSeam by identifier, and one pinning the
-// `sysOps{` / `execRunner{` composite literals by structure, both run from a TestMain
-// before m.Run(). They are recorded here because what remains is the layer they were
+// `sysOps{` / `execRunner{` composite literals by structure, both run from a
+// package-wide test entry point before m.Run(). They are recorded here because what
+// remains is the layer they were
 // in front of, not because they are a defence anyone still has:
 //   - main.go's execRunner.Run opens with
 //     refuseInTestBinary. Whatever assembled the struct, the subprocess still has to

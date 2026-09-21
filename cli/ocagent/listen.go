@@ -1311,8 +1311,9 @@ func drainChat(client httpClient, cfg Config, out io.Writer, warn *drainWarner, 
 // sweep in every OLDER line of theirs the cap had dropped — announced as
 // fetchable, then marked read, and never offered again. The cap is gone and the
 // unread walk is exhaustive, so every line covered by a watermark is a line this
-// drain actually printed.
-// Pinned by TestDrainChat_EveryWatermarkEqualsWhatThatSenderActuallyPrinted.
+// drain actually printed. Put any skip back — a cap, a filter, an early break —
+// and the receipts resume marking lines nobody was shown, with nothing to see at
+// the time but a ✓ the sender believes.
 //
 // A sender files NO receipt when none of their lines printed — an undelivered
 // batch, or a message the wire sent without a usable ts, which has no watermark
@@ -1361,8 +1362,7 @@ func reportChatRead(client httpClient, cfg Config, printed []map[string]any, war
 // (T-48, rc-224dee5770dd) and the receipt is now the ONLY thing that moves the
 // server's unread watermark — so a receipt that does not land leaves the whole
 // batch unread, and every drain from here on fetches and prints it again, for
-// as long as the endpoint keeps refusing. Pinned by
-// TestDrainChat_MarkReadRefused_TheSameBatchPrintsAgainNextDrain.
+// as long as the endpoint keeps refusing.
 //
 // WHY THE LATCH STAYS ONCE-PER-PROCESS ANYWAY. The reprints are unbounded, so a
 // warning that tracked them would be unbounded too — and this line deliberately

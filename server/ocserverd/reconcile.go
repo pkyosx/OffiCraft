@@ -203,9 +203,8 @@ type reconcileState struct {
 	// 🔴 WHY THE ANCHOR IS THE DISPATCH AND NOT THE MEMBER'S LATCH. Re-deriving
 	// "this one needs collecting" from stopped_since would re-open the harm the
 	// first commit of this branch closed: 下線 → 活化 leaves a PREDECESSOR's
-	// stopped_since on a brand-new session with no epoch
-	// (TestWindDownKind_APredecessorsLatchDoesNotSilenceTheThresholds), and that
-	// session would be robust-stopped on its first tick with no close-out. A
+	// stopped_since on a brand-new session with no epoch, and that session would
+	// be robust-stopped on its first tick with no close-out. A
 	// dispatch marker cannot say that: it is written only when a STOP was really
 	// sent for THIS session, and it is dropped the moment the session goes
 	// offline, so it can never be inherited by the next generation.
@@ -1622,11 +1621,7 @@ func (s *apiServer) armDecidedHandover(memberID string, decision reconcileDecisi
 // deferral — "the change was saved and nothing was started" — never a success.
 // last_op_log is cleared with it, because the log belongs to the op being
 // replaced and reading a fresh reason beside a stale log is worse than reading
-// neither. Sentinels: one per calling site, each pinned to ABSOLUTE values
-// rather than to another site's values, so a change here reddens all of them —
-// TestStampMemberOpReceipt_WritesTheFiveReceiptFields,
-// TestStampWorkerOpReceipt_WritesTheFiveReceiptFields, and the
-// receipt_core_sites_t170e_test.go family for the stamps that persist.
+// neither.
 func stampOpReceipt(lastOp *string, lastOpOK **bool, lastOpLog, lastOpReason *string,
 	lastOpAt *float64, op, reason string, now float64) {
 	ok := false
@@ -1853,8 +1848,7 @@ func (s *apiServer) stampWakeObservability(m *Member, decision reconcileDecision
 	// frame". An extra `&& !DispatchUnlanded` here would read as caution but is
 	// a tautology — a mutation probe proved flipping it could not change any
 	// outcome — and a condition that cannot fail is worse than no condition: it
-	// advertises a check nobody is performing. The invariant it leans on is
-	// pinned by TestReconcile_UnlandedStartDoesNotStampWakingSince.
+	// advertises a check nobody is performing.
 	if decision.Command == reconcileCmdStart {
 		m.WakingSince = now
 		changed = true
@@ -2080,7 +2074,6 @@ func shouldAutoRefocus(runtime string, record map[string]any, cfg SseContextHigh
 // function was really compensating for was an escalation that changed NO field
 // — a soft→final flip decided from the clock alone, invisible on the row. The
 // promotion changes refocus_op and refocus_since, so the row says it happened.
-// Pinned by TestContextThresholds_PromotionDeltaCarriesTheFinalSentence.
 
 // canPromoteToAcceleratedStop is the ONE exception to "an in-flight epoch is its
 // own cooldown": a member the FIRST context threshold put on a plain 停止 has
@@ -2360,11 +2353,10 @@ func (s *apiServer) stampContextHighRecycle(members []Member, now float64) {
 		// 🔴 THE BOOT_TS TEST IS LOAD-BEARING, not belt-and-braces. A latch can
 		// legitimately be a PREDECESSOR's: activate clears stopping_since and
 		// waking_since but NOT stopped_since, so 下線 → 活化 puts a brand-new
-		// session online carrying the previous generation's report with no epoch
-		// — exactly the fixture
-		// TestRefocusEpoch_NoStampSiteInheritsAStaleWindDownLatch pins. Skipping
-		// on that would exclude the member from BOTH thresholds for the rest of
-		// its life, which is a worse bug than the one this guard removes. The
+		// session online carrying the previous generation's report with no
+		// epoch. Skipping on that would exclude the member from BOTH thresholds
+		// for the rest of its life, which is a worse bug than the one this guard
+		// removes. The
 		// question is therefore not "is there a latch" but "did THIS connection
 		// file it", and that is the same question — and the same answer —
 		// actionableContextPct's stale guard already uses one field over: a
@@ -2445,8 +2437,7 @@ func (s *apiServer) stampContextHighRecycle(members []Member, now float64) {
 			// The FINAL sentence needs no frame of its own: offboardDeltaPayload
 			// composes the notice from refocus_op on EVERY write to the row, so
 			// the putMember above already carried it. (This is what the removed
-			// announceSoftOffboardEscalation used to do by hand; pinned by
-			// TestContextThresholds_PromotionDeltaCarriesTheFinalSentence.)
+			// announceSoftOffboardEscalation used to do by hand.)
 			reconcileLog("recycle: promoted %s to %s (%s)", m.ID, refocusOpContextHigh,
 				NormalizeRuntime(m.Runtime))
 		} else {

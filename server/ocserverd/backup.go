@@ -427,7 +427,7 @@ func runDatabaseBackup(db *sql.DB, dbPath string, reason backupReason, now time.
 	// WRITE side.
 	//
 	// 🔴 VACUUM INTO is also the reason this file is NOT what the single-file-copy
-	// guard hunts (db_singlefile_copy_guard_test.go): it is SQLite's own online
+	// guard hunts: it is SQLite's own online
 	// backup, so the engine reads its own pages INCLUDING the "-wal" sidecar and
 	// writes one already-consistent file. A `cp` of officraft.db would not — under
 	// WAL it can silently omit the most recent commits.
@@ -595,9 +595,8 @@ func rotateBackups(dbPath string, keep int) ([]string, error) {
 // siblings, and relocating trash/ behind a symlink is the most natural thing an
 // operator does when 141.6 GiB will not fit on this disk any more) would point
 // this deleter at the LIVE backups directory and empty it, newest snapshot
-// included. Measured, not reasoned: with this guard removed,
-// TestRetention_RefusesToReapThroughASymlinkedTrash reports the reaper deleting
-// all three planted backups through the link.
+// included. Measured, not reasoned: with this guard removed the reaper follows
+// the link and deletes the backups behind it.
 //
 // So the trash path is LSTAT'd, NEVER STAT'd, and a symlink is REFUSED — the
 // same guard, in the same shape, as G5 in this repo's sister reaper
@@ -754,20 +753,14 @@ func backupTick(db *sql.DB, dbPath string, now time.Time, health *backupHealthMo
 // call: a snapshot taken after `goose up` has committed is a copy of the
 // outcome, not a retreat from it.
 //
-// 🔴 That MUST is not left as a norm. BOTH doors are pinned, by the same
-// criterion and the same helpers, so reordering either one turns something red:
-//
-//	TestServeTakesPreMigrationBackupBeforeGoose   (serve_backup_order_t74_test.go)
-//	TestMigrateTakesPreMigrationBackupBeforeGoose (migrate_backup_t74_test.go)
-//
-// Both read the SNAPSHOT'S OWN CONTENTS rather than merely checking that a file
-// appeared — an existence-only assertion is satisfied identically by both
-// orderings, so it has no power over the failure worth guarding. The snapshot
-// must not contain goose_db_version (goose creates that table, so its absence
-// is only possible if the copy predates goose), and the live database must
-// contain it afterwards so the first clause cannot pass vacuously against a
-// migration that never ran. A THIRD caller added later needs its own test:
-// these two guard their own call sites, not this function's every future user.
+// 🔴 ANYTHING CHECKING EITHER DOOR MUST READ THE SNAPSHOT'S OWN CONTENTS rather
+// than merely check that a file appeared — an existence-only assertion is
+// satisfied identically by both orderings, so it has no power over the failure
+// worth guarding. The snapshot must not contain goose_db_version (goose creates
+// that table, so its absence is only possible if the copy predates goose), and
+// the live database must contain it afterwards so the first clause cannot pass
+// vacuously against a migration that never ran. Such a check covers the call
+// site it reads: a THIRD caller added later needs its own.
 //
 // It runs BEFORE goose, and only when
 // there is something to protect against — a database file that does not exist

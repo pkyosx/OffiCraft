@@ -629,12 +629,6 @@ func tmuxDeliverNudge(r CmdRunner, sleep func(time.Duration), socket, session, n
 	// fallback cannot see, because a no-op clock is indistinguishable from a real
 	// one by type.
 	//
-	// What actually guards the two known shapes today, so the next reader does not
-	// have to re-derive it:
-	//   nil at the seam        → this fallback (pacing happens anyway)
-	//   non-nil no-op at the   → TestPerSpawnBinding_CarriesTheBaseClockThrough,
-	//   per-spawn seam           which pins that the per-spawn binding changes
-	//                            Pretrust/PurgeTrash and NOTHING else
 	// A third shape — assigning to the captured spawnDeps inside transport.go's
 	// Spawn closure — is NOT GUARDED, AND NOT MADE VISIBLE EITHER. An earlier
 	// version of this comment claimed the second half ("only made VISIBLE, by
@@ -653,8 +647,8 @@ func tmuxDeliverNudge(r CmdRunner, sleep func(time.Duration), socket, session, n
 	//     is a data race if Spawn is ever called concurrently.
 	//
 	// WHAT THIS SEAM DOES BUY, stated at its real size: adding a per-spawn knob
-	// THE INTENDED WAY now requires editing withPerSpawn's signature, and
-	// spawn_clock_guard_t82_test.go fails on any non-per-spawn field that differs.
+	// THE INTENDED WAY now requires editing withPerSpawn's signature, and a guard
+	// fails on any non-per-spawn field that differs.
 	// That guard covers what withPerSpawn itself does. It cannot see what a caller
 	// does to the base before calling it.
 	//
@@ -1134,11 +1128,10 @@ type SpawnDeps struct {
 // ⚠️ WHAT THIS DOES NOT DO, so nobody reads it as more than it is: Go structs are
 // not immutable and this does not make one. A caller can still take the returned
 // value, assign to it, and call start(). What changed is that doing so is now an
-// obviously odd thing to write instead of the obvious thing to write, and that
-// TestPerSpawnBinding_CarriesTheBaseClockThrough fails if a third seam is added
-// here without a decision. It closes two known shapes and makes the third
-// visible; it does not close the family. The earlier fallback comment in
-// tmuxDeliverNudge claimed a family was closed and was wrong — do not repeat it.
+// obviously odd thing to write instead of the obvious thing to write. It closes
+// two known shapes and makes the third visible; it does not close the family. The
+// earlier fallback comment in tmuxDeliverNudge claimed a family was closed and was
+// wrong — do not repeat it.
 func (d SpawnDeps) withPerSpawn(pretrust func() error, purgeTrash func()) SpawnDeps {
 	d.Pretrust = pretrust
 	d.PurgeTrash = purgeTrash

@@ -57,8 +57,7 @@ const (
 	//
 	// PRECISELY WHAT WENT RED, because "ran out" is easy to misread: the cap 1200
 	// was never EXCEEDED (the whitelist is far below it). What failed is the
-	// 50-entry spare the mirror test demands ABOVE the whitelist —
-	// server/ocserverd/wording_cap_mirror_test.go asserts
+	// 50-entry spare the mirror test demands ABOVE the whitelist: it asserts
 	// cap >= len(messageKeys) + 50. T-36's first two keys
 	// (chat.mdPreview.openInNewTab, chat.mdPreview.newTabStaticNote) took the
 	// whitelist 1,149 → 1,151, so 1200 − 1151 = 49 < 50 and that assertion is the

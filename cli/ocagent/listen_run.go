@@ -116,12 +116,18 @@ const agentLinePrefix = "[ocagent] "
 // anything INSERTED in front. Naming the head once means the printf can no
 // longer carry a head of its own.
 //
-// 🔴 NOTHING COMPARES THIS HEAD WITH THE SIDECAR'S COPY OF IT. That copy is a
-// constant of its own in another Go module (cli/ocwarden/codex_session.go's
-// noticeDisconnectedPrefix), each side is tested against its own spelling, and
-// no guard reads both. So the two can drift apart exactly the way they did
-// before, and every check stays green — do not read the paragraph above as
-// saying something enforces this.
+// 🔴 WHAT COMPARES THIS HEAD WITH THE SIDECAR'S COPY OF IT LIVES OUTSIDE BOTH
+// MODULES. That copy is a constant of its own in another Go module
+// (cli/ocwarden/codex_session.go's noticeDisconnectedPrefix) and each side's
+// own tests only ever see its own spelling, so until T-265 the two could drift
+// apart exactly the way they did before with every check green.
+// bin/listen-notice-mirror-guard.py is the thing that reads both — deliberately
+// not a Go test in either module, because the check that used to do this WAS
+// one and a rewrite of the test surface took it with it.
+//
+// ⚠️ It catches the two sides WALKING APART, not the two sides being wrong
+// together: rename consistently on both sides and it is green, and that green
+// means "these agree", never "this spelling is right".
 const (
 	noticeDisconnected = "listen: disconnected"
 	noticeConnected    = "listen: connected"
@@ -467,8 +473,6 @@ func (l *listener) dispatch(payload []byte) {
 // "I have been replaced" from "the server is having a moment" or "my token just
 // expired", and guessing wrong in that direction kills healthy agents. Only the
 // server knows which refusal it made, so only the server's own marker counts.
-// Pinned in both directions: TestListener_SelfTerminatesWhenSupersededByANewerGeneration
-// and TestListener_APlain401NeverTripsFailClosed.
 func authoritativeRefusal(resp *http.Response) string {
 	switch {
 	case resp.StatusCode == http.StatusConflict:
@@ -606,9 +610,9 @@ func (l *listener) connectOnce(ctx context.Context) (opened, activity, selfExit 
 	// second ask on the reconnect notice (2026-08-30) and it costs no request:
 	// the comparison is against what this same process saw last time.
 	//
-	// ⚠️ POSITION: this sits BEFORE the sha segments, not after. The two
-	// existing station-sha tests assert the line ENDS with " [station <sha>]"
-	// (the agent segment is empty in any unstamped build, tests included), and
+	// ⚠️ POSITION: this sits BEFORE the sha segments, not after. The station-sha
+	// cases compare the WHOLE line, and the sha segments are the last thing on
+	// it (the agent segment is empty in any unstamped build, tests included), so
 	// appending past them would break both. Anywhere after the prefix is equally
 	// safe for the three sidecar prefix consumers, which read only the head.
 	verdict := stationVerdict(l.lastStation, stationSHA, !l.sawConnect)
@@ -619,17 +623,10 @@ func (l *listener) connectOnce(ctx context.Context) (opened, activity, selfExit 
 	// The stream is up: whatever outage was being announced is over, and the
 	// line below IS the second of the owner's two notices.
 	l.inOutage = false
-	// ⚠️ POSITION: the origin segment goes HERE, not at the end. FIVE existing
-	// tests assert this line ENDS with " [station <sha>]" or " [agent <sha>]" —
-	// TestConnectOnce_ConnectionLineNamesTheShaTheStationSelfReports,
-	// _NoStationSHALeavesTheLineUnadornedAndNeverReusesTheLastOne,
-	// _ConnectionLineNamesTheOcagentThatPrintedIt,
-	// _AnUnstampedOcagentSaysNothingAboutItself and _EveryReconnectNamesTheAgentAgain
-	// (counted by attributing every HasSuffix( to its enclosing func Test; an
-	// earlier revision of this comment said four, which independent review caught).
-	// A trailing segment would break them. Anywhere after the head is equally safe for
-	// the three sidecar prefix consumers, which read column 0 only — and it belongs
-	// beside the address it is talking about rather than after two shas.
+	// ⚠️ POSITION: the origin segment goes HERE, not at the end. Anywhere after the
+	// head is equally safe for the three sidecar prefix consumers, which read
+	// column 0 only — and it belongs beside the address it is talking about rather
+	// than after two shas.
 	l.logf(noticeConnected+" — streaming %s%s%s (⇒ online while held)%s%s%s",
 		l.cfg.Base, eventsPath, baseAddressOrigin(l.cfg.BaseConfigured), verdict, station, agent)
 
@@ -841,10 +838,9 @@ func cmdListen(cfg Config, env func(string) string, once bool, out io.Writer) in
 	// debounced, and no control flow anywhere branches on it.
 	//
 	// ⇒ Anyone "finishing the job" by turning this into the refusal the other
-	// three subcommands use is REVERSING an owner ruling.
-	// TestUnconfiguredBase_KeepsRetryingAndNeverGoesQuiet is the only thing that
-	// says so mechanically — the three tests that read the message all stay green
-	// against a mutant that prints the line and then leaves.
+	// three subcommands use is REVERSING an owner ruling — and the tests that read
+	// the origin message will not stop them: each checks a single printed line, so
+	// a mutant that prints it and then leaves stays green.
 	//
 	// ⚠️ NOTE FOR ANYONE GREPPING requireBase TO FIND WHO CARES ABOUT OC_BASE:
 	// this subcommand is NOT among its callers and never will be (requireBase
@@ -865,7 +861,7 @@ func cmdListen(cfg Config, env func(string) string, once bool, out io.Writer) in
 // here: every T-89 test builds its listener directly, so setting cfg.BaseConfigured
 // to a constant on the way IN — one token, inside cmdListen — left all of them
 // green while the feature was gone. There is no network and no clock in here, so
-// the wiring is now a plain unit somebody can pin (listen_base_origin_t89_test.go).
+// the wiring is now a plain unit somebody can pin.
 func newListener(cfg Config, env func(string) string, out io.Writer, once bool, stamper *eventStamper) *listener {
 	api := defaultHTTPClient()
 	return &listener{

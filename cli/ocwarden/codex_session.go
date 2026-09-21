@@ -922,9 +922,9 @@ func (st *codexListenerState) handleListenerLine(
 // the whole ocwarden suite went green and so did uplink-guard, while EVERY
 // forwarded notice AND every chat/task event silently stopped reaching the
 // model. The decision table was fully pinned; the delivery was not pinned by
-// anything at all. Pulling it out here is what gives a test something to call —
-// see codex_notice_test.go, which drives this against a real codexSession and
-// reads the App Server bytes it writes.
+// anything at all. Pulling it out here is what gives a test something to call:
+// it can be driven against a real codexSession and the App Server bytes it
+// writes can be read back.
 func (s *codexSession) openListenerTurn(text string) {
 	if text == codexPostBootWake {
 		s.activity("waking the session now that SSE is up")
@@ -998,18 +998,24 @@ func codexListenerActions(line string, wakeAlreadySent bool) (wake, forward bool
 // exceptions carved out of the filter and not a second parser: the head itself
 // still does not move (cli/ocagent/listen_run.go's prefix note).
 //
-// 🔴 THEY ARE CONSTANTS, AND NOTHING HOLDS THE TWO COPIES TOGETHER. These bytes
-// are printed by a DIFFERENT Go module (cli/ocagent/listen_run.go's notice*
-// constants) that this one cannot import, so the contract is physically two
-// copies. Independent review moved one head rightward on the producing side —
-// `"listen: disconnected — "` → `"net listen: disconnected — "` — and both
-// suites stayed green while every codex member lost its transport notices for
-// the rest of its session.
+// 🔴 THEY ARE CONSTANTS, AND THE THING THAT HOLDS THE TWO COPIES TOGETHER LIVES
+// OUTSIDE BOTH MODULES. These bytes are printed by a DIFFERENT Go module
+// (cli/ocagent/listen_run.go's notice* constants) that this one cannot import,
+// so the contract is physically two copies. Independent review moved one head
+// rightward on the producing side — `"listen: disconnected — "` →
+// `"net listen: disconnected — "` — and both suites stayed green while every
+// codex member lost its transport notices for the rest of its session.
 //
-// There WAS a check: listen_notice_contract_test.go read this file and required
-// these literals to still be here. T-125 rewrote the Go test surface and deleted
-// it, and nothing replaced it — so each side is tested against its own spelling
-// and that same drift lands green today. Naming a copy here does not pin it.
+// The check that used to catch that was a Go test in this package, and T-125's
+// rewrite of the test surface took it with it. Its replacement is bin/listen-notice-mirror-guard.py — deliberately not a
+// Go test in either module, so the next such rewrite cannot delete it by
+// accident. It reads both files, requires each consumer constant here to equal
+// the producer's line prefix plus the producer's own head, and reports a
+// renamed or deleted declaration rather than skipping it.
+//
+// ⚠️ What it catches is the two sides WALKING APART. Rename consistently on
+// both sides and it is green — that green means "these agree", never "this
+// spelling is right".
 const (
 	noticeDisconnectedPrefix = "[ocagent] listen: disconnected"
 	noticeConnectedPrefix    = "[ocagent] listen: connected"
@@ -1029,15 +1035,16 @@ const (
 	// child. Rename it on one side only and the listener silently goes back to
 	// "printed means delivered" — no error, no line, and every message that
 	// fails to reach the model marked read anyway, which is the exact bug this
-	// protocol exists to close. Nothing compares the two spellings — see the note
-	// on noticeDisconnectedPrefix above for what happened to the check that did.
+	// protocol exists to close. The mirror guard named above compares the two
+	// spellings; until T-265 nothing did.
 	//
-	// 🔴 AND THIS ONE IS NOT EVEN PINNED ON ITS OWN SIDE. The three notice heads
+	// 🔴 AND THIS ONE IS STILL NOT PINNED ON ITS OWN SIDE. The three notice heads
 	// above are at least spelled out in this module's own tests, so mistyping one
-	// HERE turns something red. Mistype this name and BOTH modules stay green:
-	// measured, by renaming it to OC_LISTEN_ACKX and running both suites. Of
-	// everything in this block it is the cheapest to break and the most expensive
-	// when broken — the loss it causes is silent and cannot be recovered.
+	// HERE turns something red locally. Mistype this name and only the mirror
+	// guard objects — before it existed, BOTH modules stayed green, measured by
+	// renaming it to OC_LISTEN_ACKX and running both suites. Of everything in
+	// this block it is the cheapest to break and the most expensive when broken:
+	// the loss it causes is silent and cannot be recovered.
 	listenAckEnv = "OC_LISTEN_ACK"
 
 	// 🔴 THE FOURTH COPY. This is the head of the blanket filter below — the bytes that decide whether a line is
@@ -1049,8 +1056,9 @@ const (
 	// "[ocagent] listen: …" and the filter stops recognising ANY transport line,
 	// so every retry diagnostic starts becoming a turn on the model — the exact
 	// noise the owner's ruling exists to swallow. It is spelled once here, and
-	// like the three above it, nothing on the other side of the module gap
-	// requires this declaration or this value to still exist.
+	// the producing side has no constant of its own to compare it against — so
+	// the mirror guard holds it to CONTAINMENT instead: it must still be a
+	// prefix of every notice the producer can print.
 	noticeTransportHead = "[ocagent] listen:"
 )
 

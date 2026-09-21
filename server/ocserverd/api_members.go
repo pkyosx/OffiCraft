@@ -568,9 +568,8 @@ func forcedEpochLive(m Member) bool {
 //
 // Those spellings used to be spellings of one judgement, and some of them were
 // the negation of the others, which is how a reader checks them against each
-// other and gets it wrong. TestOffboardKindOf_AFinalCallAlwaysHasAClock asserts
-// the sentence and the clock coincide — it asserted the AGREEMENT of two copies
-// because that was all it could do; they are now one expression.
+// other and gets it wrong. A test could only assert that the two copies AGREED;
+// they are now one expression.
 //
 // It is NOT the same question as "may this 停止 re-stamp stopping_since"
 // (stopEpochAnchor): that one has no stopping_since>0 term at all, because
@@ -1043,8 +1042,7 @@ func (s *apiServer) HandleGetMemberApiMembersMemberIdGet(w http.ResponseWriter, 
 	// unread_count is COMPUTED here, exactly as the list computes it. Handing
 	// newMemberDTO a literal 0 (what this line used to do) made the roster badge
 	// a one-way ratchet: the cockpit re-reads one member on a chat delta, so the
-	// badge the delta was announcing was zeroed instead of raised. Pinned by
-	// api_members_unread_parity_test.go.
+	// badge the delta was announcing was zeroed instead of raised.
 	unread, err := s.unreadCountsForRequest(r)
 	if err != nil {
 		internalError(w, err)

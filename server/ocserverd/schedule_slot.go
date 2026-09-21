@@ -39,9 +39,9 @@ const slotKeyLayout = "2006-01-02T15:04-07:00"
 // it fails silently: with day_of_month=31 and now = 1 March, March's 31st has
 // not arrived and February has no 31st at all, so the correct answer is 31
 // JANUARY — two months back. A shorter search finds nothing, returns "no slot",
-// and the schedule simply never fires, with nothing to observe.
-// TestMostRecentSlotSkipsMonthsWithoutTheDay pins that two-months case; the rest
-// is bounded headroom, not a claim that any real schedule needs twelve.
+// and the schedule simply never fires, with nothing to observe. Two months back
+// is the floor this constant has to clear; the rest is bounded headroom, not a
+// claim that any real schedule needs twelve.
 const monthlyLookbackMonths = 12
 
 // dailyLookbackDays bounds how far back a daily schedule searches for a date its
@@ -227,9 +227,9 @@ func mostRecentSlot(s ScheduledMessage, now time.Time) (time.Time, bool) {
 // no-pair case is answered separately, so every remaining schedule provably has
 // an occurrence within customYearsBack. It shares maxDaysInMonth with the write
 // seam (ValidateScheduledMessageCustomSets) rather than carrying a second
-// hand-written copy of the calendar, and TestCustomFeasibilityPrecheckAgrees-
-// WithTheCalendar holds that shared judgement to a brute-force scan over all
-// 12 × 31 pairs — a mistake here would silence a legal schedule, quietly.
+// hand-written copy of the calendar: a second copy that disagreed would refuse
+// a pair the calendar allows, and a schedule refused here does not error — it
+// just never fires.
 //
 // An empty set is refused at write time; a row that reached the table with one
 // (written straight into the database) has no readings at all, so it is

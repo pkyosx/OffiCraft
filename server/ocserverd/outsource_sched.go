@@ -527,8 +527,7 @@ func (s *apiServer) runOutsourceTick(now float64) {
 			//
 			// A healthy online worker with no epoch is not endangered by
 			// running: decideUp answers "online: converged" and dispatches
-			// nothing (measured cell-by-cell in
-			// worker_obs_unblind_t72dd_test.go).
+			// nothing (measured cell-by-cell).
 			//
 			// Re-read after the stop driver: it may have persisted new wind-down
 			// anchors, and the FSM must decide from that current row.

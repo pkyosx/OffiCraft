@@ -33,8 +33,7 @@ import "net/http"
 // any step in the database to anyone who could name a task — the task_id in the
 // path would be decoration. The ownership check below is what makes the path
 // mean what it reads like, and it answers 404 (not 403): a step that is not on
-// this task is, from this task's point of view, absent. Pinned by
-// TestGetTaskStep_ForeignStepIs404.
+// this task is, from this task's point of view, absent.
 func (s *apiServer) HandleGetTaskStepApiTasksTaskIdStepsStepIdGet(w http.ResponseWriter, r *http.Request, taskId string, stepId string) {
 	t, err := s.resolveTask(taskId)
 	if err != nil {

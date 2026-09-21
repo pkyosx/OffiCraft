@@ -76,13 +76,13 @@ var embeddedMigrations embed.FS
 //     was measured wrong: it does NOT protect our own concurrent writers. The
 //     one-connection cap already makes an in-process upgrade conflict structurally
 //     impossible, and that is not a deduction — dropping `_txlock=immediate` from
-//     this DSN leaves TestSaveWithDocumentHistoryUnderConcurrentWritersKeepsThe-
-//     ChainContiguous GREEN (measured 2026-08-01). What it protects is a SECOND
+//     this DSN still leaves concurrent SaveWithDocumentHistory writers producing
+//     a contiguous chain (measured 2026-08-01). What it protects is a SECOND
 //     HANDLE on the same file: `ocserverd backup` (cmdBackup opens its own), a
 //     shell sqlite3, a future second pool. Against those, IMMEDIATE is what makes
 //     busy_timeout apply at all — without it such a writer does not wait, it
-//     fails. The discriminating test is therefore two independent handles
-//     (TestWritePool_ReadThenWriteNeverHitsBusy), not two goroutines.
+//     fails. The discriminating test is therefore two independent handles, not
+//     two goroutines.
 //
 //     It is also the guard that keeps this design correct if anyone ever raises
 //     the cap: `WAL + raise the cap` WITHOUT it is exactly the change that was
@@ -164,15 +164,14 @@ const sqliteMaxReadConns = 8
 //   - A clean shutdown does clear it (the last connection to close checkpoints and
 //     removes the WAL — verified: after a normal serve exit the data dir holds only
 //     officraft.db). A CRASH does not, and what is left in "-wal" then is exactly
-//     the most recent work — which is also why db_singlefile_copy_guard_test.go
+//     the most recent work — which is also why the single-file-copy guard
 //     exists.
 //
 // 🔴 WHAT IS ENFORCED, AND WHAT IS ONLY TRUE TODAY — do not merge these:
 //
-//   - ENFORCED: no EXPLICIT transaction is opened on this pool.
-//     TestNoTransactionIsOpenedOnTheReadPool (wal_pool_test.go) is a zero-rows
-//     scan refusing `rdb.Begin`/`BeginTx`, one-hop local aliases of rdb, and
-//     handing rdb to a function that begins a transaction on it.
+//   - ENFORCED: no EXPLICIT transaction is opened on this pool — no
+//     `rdb.Begin`/`BeginTx`, no one-hop local alias of rdb, and no handing rdb
+//     to a function that begins a transaction on it.
 //   - NOT ENFORCED, and nothing can cheaply enforce it: that every read's
 //     `*sql.Rows` is consumed PROMPTLY. A `Query` whose rows are held open while
 //     the loop body does slow work pins a snapshot with NO Begin anywhere, and an

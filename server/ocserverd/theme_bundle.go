@@ -320,8 +320,7 @@ func validateThemeBundle(b ThemeBundleDTO, where string, seen map[string]bool) e
 // ARRAY that settings used to carry — a question that cannot be asked that way
 // any more, because settings no longer carries the bundles. The replacement is
 // `(*apiServer).displayThemeExists` in api_themes.go, which asks the
-// custom_theme table, and it is pinned by TestDisplayThemeIsValidatedAgainstThe
-// Table using an id that exists ONLY in the table.
+// custom_theme table.
 //
 // Worth the note rather than a silent delete: Go does not fail a build over an
 // unused unexported func, so a helper stranded by a refactor sits here looking

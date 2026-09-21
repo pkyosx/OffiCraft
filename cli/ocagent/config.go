@@ -155,9 +155,11 @@ func loadConfig(env func(string) string) Config {
 // MIRROR of cli/ocwarden/namespace.go's envNamespaceKey / namespaceShape /
 // officraftRootFor. ocagent and ocwarden are separate Go modules with no import
 // path between them (same reason loadConfig/jwtSub above are copies), so this copy
-// is confronted against the SHARED TABLE bin/tests/fixtures/namespace-axes.tsv by
-// namespace_mirror_test.go in this package — the same discipline the other copies
-// already had, so a drift here reddens THIS copy by name.
+// is confronted against the SHARED TABLE bin/tests/fixtures/namespace-axes.tsv.
+// ⚠️ THE CONFRONTATION IS NOT IN THIS PACKAGE. Nothing under cli/ocagent reads
+// that table; the only thing that does is a shell check in bin/tests, so a drift
+// here is caught at build time or not at all — and never by this module's own
+// suite, however green it runs.
 //
 // THE DEFECT THIS CLOSES
 // ----------------------

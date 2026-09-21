@@ -304,9 +304,9 @@ func (d *DAL) CountTasksDuplicatingOriginal(originalID string) (int, error) {
 // written ONLY by its own single-field setter (SetTaskDescriptionOn /
 // SetTaskTitleOn, each of which versions its column in the same transaction) and
 // by the INSERT half of this very statement, which is how create_task sets them
-// — it mints a fresh id, so it never reaches the conflict clause. Single-writer columns cannot be clobbered by a stale
-// whole-row copy, because no stale whole-row copy of them exists. Guarded by
-// TestTaskDescriptionRaceGuardHasTeeth and TestTaskTitleRaceGuardHasTeeth.
+// — it mints a fresh id, so it never reaches the conflict clause. Single-writer
+// columns cannot be clobbered by a stale whole-row copy, because no stale
+// whole-row copy of them exists.
 //
 // 🔴 `title` JOINED THIS CARVE-OUT WHEN IT BECAME EDITABLE (T-2ebe), and the
 // ORDER of those two facts is the whole point. While a title could only be set
@@ -405,9 +405,8 @@ func putTaskOn(ex sqlExecer, t Task, mode taskWriteMode) error {
 
 // taskUpsertConflictClause is the suffix taskWriteUpsert appends to putTaskOn's
 // INSERT. It is deliberately parked immediately below putTaskOn and INSIDE no
-// other function so the two source-reading race guards
-// (TestTaskDescriptionRaceGuardHasTeeth / TestTaskTitleRaceGuardHasTeeth) can
-// keep reading the real text that decides which columns are shared-write.
+// other function so the text deciding which columns are shared-write stays
+// readable straight from the source.
 //
 // 🔴 `description` and `title` are ABSENT ON PURPOSE — see the long carve-out
 // comment on PutTask above. Do not add them back.
@@ -887,7 +886,7 @@ func (d *DAL) TouchTaskUpdatedTS(id string, ts float64) error {
 // ALREADY EXISTS, the column is written by exactly one statement —
 // SetTaskStepNote, a single-column UPDATE. Single-writer columns cannot be
 // clobbered by a stale whole-row copy, because no stale whole-row copy of them
-// exists. Guarded by TestTaskStepNoteRaceGuardHasTeeth.
+// exists.
 //
 // ⚠️ Do not read the surviving INSERT half as a second writer. NO production
 // caller reaches it deliberately: all four load an existing row first

@@ -285,9 +285,7 @@ func permanentCredentialRefusal(claims map[string]any, lookup func(id string) (*
 //
 // 🔴 IT IS ONLY EVER SET ON THIS ONE REFUSAL. Setting it on any other 401 —
 // expiry, an unconfigured secret, a bad signature — turns a self-healing retry
-// into a self-kill, which is strictly worse than the hammering it fixes. That
-// direction is pinned from the client side by
-// TestListener_APlain401NeverTripsFailClosed (cli/ocagent).
+// into a self-kill, which is strictly worse than the hammering it fixes.
 const (
 	authRefusalHeader      = "X-OC-Auth-Refusal"
 	refusalAgentSuperseded = "agent-superseded"

@@ -88,9 +88,7 @@ const mintRetryLimit = 64
 //	UPDATE task_id_seq SET next = next + 1 WHERE id = 1 AND next = <what I read>
 //
 // 1 row affected ⇒ the number is mine. 0 ⇒ somebody moved it; re-read and try
-// again. (Whether the driver's RowsAffected is trustworthy here is not taken on
-// faith — TestRowsAffectedIsExactOnThisDriver in dal_task_id_seq_t52917b_test.go
-// measures it.)
+// again. The whole claim rests on this driver's RowsAffected being exact.
 //
 // The property being defended is UNIQUENESS, not contiguity. A precheck refusal
 // or a failed insert rolls the counter back and the number is reused; an
@@ -170,7 +168,7 @@ func mintTaskNumber(tx *sql.Tx) (int, error) {
 	// which is exactly why it must fail loudly rather than loop: something about
 	// how the mint is wired has changed. The caller turns this into a 500, and
 	// because the whole mint lives in the create transaction, the rollback leaves
-	// NO orphan task row — pinned by TestMintRetryExhaustionIs500WithNoOrphanRow.
+	// NO orphan task row.
 	return 0, fmt.Errorf(
 		"could not claim a task number in %d attempts — every compare-and-set on "+
 			"task_id_seq reported 0 rows, so something is advancing the counter "+

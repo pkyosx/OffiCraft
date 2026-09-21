@@ -987,9 +987,7 @@ func (s *apiServer) handleSetOutsourceWorkerModel(w http.ResponseWriter, r *http
 		// requires an ACTIVE worker with a LIVE session; a worker whose stop has
 		// CONVERGED has neither, so it never enters the funnel and the held-down arm
 		// never runs. 改機器 has no such gate (relocateWorkerNow is unconditional) —
-		// that is the whole asymmetry, and it is measured rather than assumed:
-		// TestSetModelOnStoppedAnchoredWorkerQueuesTheStart drives this branch with
-		// the session gone.
+		// that is the whole asymmetry.
 		//
 		// Owner 2026-08-30: 「change model / machine 只是帶起來的方式不一樣而已」 —
 		// so the new value is not merely stored and forgotten; the worker comes back

@@ -126,8 +126,8 @@ const (
 // forbidden. It is what THIS member wrote itself, and the owner ruled the two
 // are different in kind. Nothing here is a second copy of anything staff read.
 //
-// The second was the equality TestWorkerBootContextIsTheStaffFoldMinusThePersona
-// pinned. That test was the only thing keeping the two assembly paths in step,
+// The second was the equality a single test used to pin between the two
+// assembly paths. That test was the only thing keeping them in step,
 // so it was not loosened into a weaker version of itself — it was replaced by
 // two NARROWER assertions that together say more than it did: slots 1, 2 and 4
 // are byte-for-byte identical across the two paths, and neither path's slot 3
@@ -544,7 +544,9 @@ const sessionAliveWakeNote = " — the start window then lapsed, but that is NOT
 // start-verb row that already carries the warden's clobber refusal. Every other
 // reason, and every other prior receipt, is stamped exactly as before — a
 // blanket "wake_timeout never overwrites" would trade this silence for a
-// different one (see TestWakeTimeout_StillStampsWhenThereIsNoWardenReceiptToProtect).
+// different one: a wake_timeout landing on a row with NO warden receipt to
+// protect would be dropped instead of stamped, and then nothing on the row says
+// why that boot failed.
 func wakeTimeoutOverWardenReceipt(fresh OutsourceWorker, reason string) string {
 	if !strings.HasPrefix(reason, spawnReasonWakeTimeout+":") {
 		return reason
@@ -648,11 +650,9 @@ func (s *apiServer) clearWorkerPlacementBlock(workerID string) {
 // reasoning, and this row type is the one that can actually produce its awkward
 // case, since clearWorkerPlacementBlock above writes last_op_ok back to nil while
 // leaving last_op and last_op_at standing. A SUCCESS receipt is still never
-// touched. Gated on convergence too, so a worker that is still down keeps the
-// receipt that is still true. Pinned by
-// TestWorkerLiveness_ConvergedOnlineWorkerClearsStaleFailureReceipt_T39,
-// TestWorkerLiveness_StillOfflineWorkerKeepsItsFailureReceipt_T39 and
-// TestWorkerLiveness_ConvergedOnlineClearsTheWordlessRedBlock_T39.
+// touched. Gated on convergence too: clear this on a worker that has NOT come
+// back and the owner loses the only record of why it is down, while the row
+// goes on reading as though nothing were wrong.
 //
 // 🔴 THE RULING IS MADE ON THE RE-READ ROW, exactly as the member twin explains
 // at length: the tick's snapshot is stale by the time it is written, and blanking
@@ -1066,8 +1066,8 @@ func (s *apiServer) reconcileWorkerLiveness(w OutsourceWorker, now float64) bool
 	//
 	// An epoch stamped AFTER the last stop went out is by definition not the one
 	// that stop was for, so the anchor is stale and is dropped. Measured on the
-	// two-handovers-in-one-second fixture (TestRefocusWorker_BanksCostAcrossRespawn),
-	// where the second handover otherwise banks nothing and never collects.
+	// two-handovers-in-one-second fixture, where the second handover otherwise
+	// banks nothing and never collects.
 	if st.LastCommand == reconcileCmdStop && w.RefocusSince > st.LastCommandAt {
 		st.LastCommand = reconcileCmdNone
 		st.LastCommandAt = 0.0
@@ -1757,7 +1757,7 @@ func (s *apiServer) relocateWorkerNow(w OutsourceWorker) ownerOpOutcome {
 // **does the owner currently want this worker running?** `desired_state=offline`
 // is an explicit 停止 and it DOMINATES every other owner verb — the same
 // member-parity invariant the scheduler tick already honours (its assigned branch
-// `continue`s on it; TestStoppedWorker_TickNeverRevives pins it). Placement and
+// `continue`s on it). Placement and
 // model are recorded, nothing is started, and the row says exactly that instead of
 // letting one owner action quietly overturn another. Restart cannot reach that arm
 // by construction, and the construction is ONE assignment: its handler sets
@@ -1830,8 +1830,10 @@ func (s *apiServer) respawnWorkerForOwnerOp(w OutsourceWorker, op string) ownerO
 	// ownerOpDisplacesTheSession to `return false` left the whole
 	// Restart|OwnerOp|VerbPopulation|WindDownKind set green.
 	//
-	// WHAT ACTUALLY HOLDS 「正在跑就不動它」 now is the handler, not this line, and it
-	// is pinned there by TestRestartALiveWorkerIsACompleteNoOp.
+	// WHAT ACTUALLY HOLDS 「正在跑就不動它」 now is the handler, not this line:
+	// api_outsource.go refuses 重啟 on a live session (`!sessionAliveReceipt`)
+	// before the call ever reaches here. Weaken that gate and nothing inside this
+	// function will catch it — the operand that used to is gone.
 	if s.workerHasStateToFlush(w) {
 		// A ladder refusal still answers WoundDown, and deliberately: a wind-down
 		// IS open on this worker — a HIGHER one — so nothing may be dispatched
@@ -1962,24 +1964,24 @@ const (
 // epoch, and workerReportStopped latches it for a report arriving
 // outside any handover (an ordinary 停止 where the worker says it has finished).
 // The second one is latched with NO epoch to pair it with. (Until T-ed79 parity
-// #11 the restart handler wrote desired_state
-// and nothing else, so it outlived the whole stop→restart cycle too; 重啟 now
-// clears the anchors, which closes that ROUTE but not the state — an ordinary
-// stopped-report on a desired-online worker still produces it, and that is the
-// fixture TestOwnerOp_OrdinaryStopRestartStillWindsDownLater uses.) Read
-// GLOBALLY, that stale
-// latch claims "already collected" forever, and every later 改機器 / 換 model on
-// that worker is shot on the spot, for the rest of its life. Pairing it with
+// #11 the restart handler wrote desired_state and nothing else, so it outlived
+// the whole stop→restart cycle too; 重啟 now clears the anchors, which closes
+// that ROUTE but not the state — an ordinary stopped-report on a desired-online
+// worker still produces it.) Read GLOBALLY, that stale latch claims "already
+// collected" forever, and every later 改機器 / 換 model on that worker is shot
+// on the spot, for the rest of its life. Pairing it with
 // RefocusSince > 0 asks the question that was actually meant: is THIS epoch's
 // wind-down collected? An epoch is the only thing a 收口 can belong to. The
 // stale latch then heals by itself, because opening the next epoch zeroes it
-// (openOwnerOpHandover). Sentinels: TestOwnerOp_VerbAfterTheCollectIsNotSwallowed
-// (the arm must exist) and TestOwnerOp_OrdinaryStopRestartStillWindsDownLater
-// (it must not over-reach).
+// (openOwnerOpHandover). Both directions are load-bearing and they fail in
+// opposite ways. Drop the arm and the stale latch above shoots every later
+// owner verb for the worker's whole life. Widen it past `RefocusSince > 0` and
+// the anchors an ordinary 停止 → 重啟 leaves behind answer "already collected"
+// for an epoch that ended before this session booted, so the next 換 model is
+// taken IMMEDIATELY instead of opening a wind-down.
 //
-// The full input table for this predicate lives at the top of
-// worker_ownerop_winddown_t98f4_test.go — every combination of
-// active/online/refocus/stopped with its expected verdict. Both HIGH defects in
+// The full input table for this predicate lives on the test side — every
+// combination of active/online/refocus/stopped with its expected verdict. Both HIGH defects in
 // this票 were mis-drawn boundaries of THIS function; a change here that the
 // table does not cover means the table is now wrong too.
 // 🔴 THE ANSWER IS SHARED WITH THE STAFF TWIN and the two shells are NOT.
@@ -1988,11 +1990,13 @@ const (
 // expression. What that file's cell-by-cell table records is the part that must
 // stay apart: this predicate carries NO desired-offline arm, because
 // respawnWorkerForOwnerOp's first gate answers held_down and returns before this
-// is consulted — pinned by TestOwnerOp_StoppedWorkerStillOnlyGetsAReceipt, which
-// drives a desired-offline worker that is ONLINE (the state this predicate
-// answers YES for) and requires a receipt, no epoch and zero frames. Merging the
-// shells was measured: handing this function the staff shell closes the whole
-// worker wind-down window, because every caller is behind that gate.
+// is consulted. Add a desired-offline arm here to "match" the staff twin and
+// that gate becomes unreachable code that still reads like a guard; take the
+// gate away and a desired-offline worker that is ONLINE — the state this
+// predicate answers YES for — gets an epoch and a 預告 instead of its held_down
+// receipt. Merging the shells was measured: handing this function the staff
+// shell closes the whole worker wind-down window, because every caller is
+// behind that gate.
 // Callers hold s.outsourceMu.
 func (s *apiServer) workerHasStateToFlush(w OutsourceWorker) bool {
 	return hasUncollectedOnlineOwnerOpState(
