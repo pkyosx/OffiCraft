@@ -91,7 +91,7 @@ type tokensBody struct {
 // WHOLE report — usage, cost and account together. That is exactly how this
 // reporter went dark: it kept sending the retired self-reported `agent_id`
 // (identity is the verified JWT sub, never a body field) and every POST was
-// refused. `telemetry_wire_test.go` pins each key against the frozen schema.
+// refused.
 //
 // rate_limits/cost/tokens are pointers with omitempty so an absent source is
 // dropped — and, crucially, cost is *float64 so a REAL 0.0 (a brand-new session)

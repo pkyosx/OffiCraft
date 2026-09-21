@@ -61,8 +61,7 @@ const receiptMissingReasonCode = "receipt_missing"
 //
 // WARNING: TWO CONSTANTS IN A DIFFERENT GO MODULE (cli/ocwarden has its own go.mod)
 // spend this budget, and nothing mechanical links them: raising nudgeMaxAttempts by
-// six consumes the remaining slack outright. cli/ocwarden/spawn_test.go pins both
-// literals and points back here; that pin is the only link there is.
+// six consumes the remaining slack outright.
 //
 // Erring long is the safe direction: a late stamp costs nothing, a premature one
 // would cry wolf on a healthy fleet. Whether 90 is still long enough is a question

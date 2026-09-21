@@ -61,7 +61,7 @@ package main
 // and named rather than left as a nice-sounding claim. Grep this anchor to
 // find every place the gap is recorded.
 //
-// ✅ STAGE 5 BUILT IT: lifecycle_identity_behavior_test.go. The paragraph
+// ✅ STAGE 5 BUILT IT. The paragraph
 // above stands as written — it was true when written and it is the record of
 // what was measured — but the "is invisible to every test in this package
 // today (measured: green)" sentence is now HISTORY, not the present tense. That

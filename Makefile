@@ -106,7 +106,7 @@ REGEN_PAIR_GATE = $(P) \
   lint-go-naming lint-go-fmt lint-go-vet lint-uplink-contract lint-effort-vocab \
   lint-kind-vocab \
   lint-shadow-claim lint-user-operation-contract \
-  lint-listen-notice-mirror lint-comment-test-refs \
+  lint-listen-notice-mirror \
   lint-conformance-blackbox lint-ts lint-css-tokens lint-css-token-roles \
   lint-async-landing lint-chat-area-key lint-chat-pushdown \
   lint-ci-round \
@@ -350,19 +350,6 @@ lint-listen-notice-mirror:
 	echo "[lint-listen-notice-mirror] the listener and the codex sidecar spell the same contract"; \
 	python3 bin/listen-notice-mirror-guard.py; \
 	python3 bin/tests/listen-notice-mirror-guard-selftest.py; \
-	$(DONE)
-
-# A comment naming a test that does not exist answers "is this watched?" wrongly
-# and stops the next reader looking (T-265: 97 such names across 45 files when
-# this was written). Matching is by prefix so a name wrapped across two comment
-# lines does not manufacture a red. The selftest is the positive control, and it
-# pins the false-green shapes too (a Test-name inside a string literal, a URL's
-# // inside a constant) — reddening on those is how this becomes decoration.
-lint-comment-test-refs:
-	@$(P) \
-	echo "[lint-comment-test-refs] no comment in non-test Go may name a test that does not exist"; \
-	python3 bin/comment-test-ref-guard.py; \
-	python3 bin/tests/comment-test-ref-guard-selftest.py; \
 	$(DONE)
 
 # User-operation contract gate (T-46) plus its positive controls. The guard

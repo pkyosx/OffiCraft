@@ -175,13 +175,12 @@ def unquote(raw: str) -> str:
 # to reading that is to leave a reminder beside the constant. That very act used
 # to redden the tree and send the reader looking for a rename nobody did.
 #
-# ⚠️ THIS IS THE SECOND GO SOURCE SCANNER IN bin/ — comment-test-ref-guard.py
-# carries an equivalent one. They are NOT shared, and that is the same shape this
-# whole check exists to complain about, so it is written down rather than left to
-# be discovered: `bin/` has no Python module convention at all (`bin/lib/` is
-# shell), so sharing them means introducing one, which is a structural change
-# that belongs in its own round with its own review. It is on T-265's follow-up
-# list. Until then: a fix to one scanner belongs in both.
+# This scanner was briefly one of TWO equivalent ones in bin/; the other went out
+# with the check it belonged to (owner ruling, T-265: comments should not name
+# tests at all, so a check that requires named tests to exist was institutionalising
+# the habit). This is the only one now, which is why it is written here rather
+# than shared from somewhere — `bin/` has no Python module convention at all
+# (`bin/lib/` is shell), and introducing one for a single caller buys nothing.
 
 STRING_SENTINEL = "\x00"
 
