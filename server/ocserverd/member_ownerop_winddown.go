@@ -75,11 +75,12 @@ package main
 //	  owner verb, and a refocus stamp on a desired-offline row is pure noise —
 //	  decideUp is not even reached (decideDown owns it) and the agent's own gate
 //	  re-checks desired_state == online, so nothing would ever read the marker.
-//	  🔴 THE WORKER SIDE'S COMPENSATION IS PINNED, not assumed:
-//	  TestOwnerOp_StoppedWorkerStillOnlyGetsAReceipt drives a desired-offline
-//	  worker that is ONLINE — the state in which the shared core answers YES —
-//	  through the 換 model face and requires a held_down receipt, no epoch, and
-//	  zero frames. Without that test the compensation is decoration.
+//	  🔴 THE COMPENSATION MATTERS IN ONE STATE ABOVE ALL: a desired-offline
+//	  worker that is ONLINE, which is exactly where the shared core answers
+//	  YES. An owner verb there must end in a held_down receipt — no epoch and
+//	  no frames — which is what TestRespawnWorkerForOwnerOp/"a worker the owner
+//	  has held down only records the change: nothing is dispatched and the row
+//	  says why" requires.
 //
 //	worker: !hub.IsOnline → immediate
 //	  staff: SAME — and "same" is now literal: this arm lives in
@@ -617,12 +618,11 @@ func memberRestartQueuedReceipt(op string) string {
 // (desired_state + restart_after_stop) and 批次E (waking_since) will do it again.
 //
 // THE TRIPWIRE, so nobody has to read this comment first:
-// TestConsumeRestartAfterStopPersistsEveryFieldItMutates
-// (member_restart_after_stop_t14_test.go) runs this function against a real DAL,
-// reads the row back, and requires the stored row to equal the member this
-// function mutated — field by field, over reflect, enumerating nothing. Mark any
-// column insertOnly without giving this site a writer for it and that test goes
-// red NAMING THE FIELD.
+// TestConsumeRestartAfterStop/"a converged offline member is restarted and
+// every changed field is stored" runs this function against a real DAL and
+// requires the stored row to equal the member it mutated, field by field. Mark
+// any column insertOnly without giving this site a writer for it and that
+// subtest goes red naming the field.
 //
 // The anchors it clears are 活化's list minus forced_stop_at: that column is the
 // durable record that the PREVIOUS session was cut off and is deliberately never
@@ -842,8 +842,8 @@ func (s *apiServer) consumeWorkerRestartAfterStop(w *OutsourceWorker, now float6
 //     *row.StoppedSince. Move the read after the stamp — the ordinary way to get
 //     this wrong in a function with a named return — and `prior` becomes `now`,
 //     so the rollback "restores" the very latch it was supposed to undo. That
-//     failure is SILENT everywhere except the rollback arm, which is why
-//     TestCollectWindDownRowLatchesOnceAndRollsBack exists.
+//     failure is SILENT everywhere except the rollback arm, which is what
+//     TestCollectWindDownRow reads back.
 //
 // 🔴 THE `<= 0` GUARD IS THE ONCE-ONLY, and it is why this is a shared body
 // rather than four copies of two lines. BOTH drivers of the graceful handover

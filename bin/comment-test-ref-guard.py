@@ -42,8 +42,15 @@ imply it:
     Markdown page. Those were measured at roughly +23 and +47 references when
     this was written and are out of this check's scope by ruling, not by
     oversight.
-  * ONLY NAMES BEGINNING `Test`. A comment pointing at a subtest by its `t.Run`
-    label, or at a whole file, is not a name this can look up.
+  * ONLY NAMES BEGINNING `Test`, AND ONLY THE TOP-LEVEL ONE. A citation written
+    `TestFoo/"the case it actually guards"` is checked as far as `TestFoo` and
+    no further — the part after the slash is a `t.Run` label and nothing here
+    looks for it. That form is worth writing anyway (it tells a reader where to
+    go), but its second half carries no mechanical promise, and this shape is
+    common here because T-125 folded whole families of `TestFoo_Behaviour`
+    functions into one `TestFoo` with subtests. Checking subtest labels would
+    mean reading `t.Run` arguments, which are often built from table variables
+    rather than written as literals.
   * NOT-YET-TRACKED FILES. The sweep is over `git ls-files`, so a brand-new file
     is invisible until it is added.
   * IT CANNOT TELL YOU WHICH FIX IS RIGHT, and its worst failure mode is a

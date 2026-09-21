@@ -921,9 +921,7 @@ func (s *apiServer) claimHandoverNotice(agentID string, record map[string]any) b
 	// repeated sentence gets reported while silence never does.
 	//
 	// 🔴 Changing this to fail silent is a JUDGEMENT about which error is
-	// cheaper, not a cleanup — it needs a ruling, not a refactor. Guarded by
-	// TestHandoverNotice_ADatabaseFailureFallsTowardSending, so the change
-	// argues with a test rather than with a comment nobody has to read.
+	// cheaper, not a cleanup — it needs a ruling, not a refactor.
 	if !s.rememberHandoverClaim(agentID, bootTS) {
 		// Someone else claimed this same anchor while we were reading the
 		// database. Exactly one of us may send.
@@ -956,7 +954,8 @@ func (s *apiServer) rememberHandoverClaim(agentID string, bootTS float64) bool {
 		s.handoverNoticed = map[string]float64{}
 	}
 	// Deleting this branch makes every racing caller a winner — guarded by
-	// TestHandoverNotice_TwoRacingClaimsOnlyOneSends, which is why this
+	// TestClaimHandoverNotice/"the first caller on an anchor takes it and a
+	// second caller on the SAME anchor is told it did not", which is why this
 	// function returns a bool rather than nothing.
 	if s.handoverNoticed[agentID] == bootTS {
 		return false

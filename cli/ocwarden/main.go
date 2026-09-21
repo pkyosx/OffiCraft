@@ -276,7 +276,7 @@ var (
 	// matches a newline, so `\s+` would let a label whose own line carries no
 	// number reach across and adopt the NEXT line's digits (a counter that
 	// silently became someone else's value, which is worse than a missing one).
-	// Pinned by TestParseVMStat_ALabelNeverAdoptsTheNextLinesNumber.
+	// Pinned by TestParseVMStat.
 	vmCounterRe = regexp.MustCompile(`(?m)^[ \t]*"?([A-Za-z][^":]*?)"?:[ \t]*(\d+)\.?[ \t]*$`)
 )
 

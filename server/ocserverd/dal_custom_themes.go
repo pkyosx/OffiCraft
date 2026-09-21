@@ -82,11 +82,10 @@ type CustomTheme struct {
 // The column stays because the list order is a fact the MIGRATION knows and
 // writes down, while rowid order is an accident that currently agrees with it —
 // and because inserting at a position, or an import that reorders, needs a
-// column that means position. TestCustomThemeListOrderComesFromOrderIdxNotRowid
-// is what stops this query drifting to `ORDER BY rowid`: it seeds rows whose
-// stored positions deliberately contradict their insertion order, which is the
-// one state the product cannot reach on its own and the only one that tells the
-// two orderings apart.
+// column that means position. What stops this query drifting to `ORDER BY
+// rowid` is TestListCustomThemes/"the order is the stored order_idx even when
+// it contradicts insertion order": it seeds the one state the product cannot
+// reach on its own, and the only one that tells the two orderings apart.
 func (d *DAL) ListCustomThemes() ([]CustomTheme, error) {
 	rows, err := d.rdb.Query(
 		`SELECT theme_id, bundle, order_idx, updated_at FROM custom_theme ORDER BY order_idx`)

@@ -235,9 +235,9 @@ func tmuxMemberSessionCount(run func(string, ...string) (string, error), socket 
 //
 // Sharing the definition is only half of the guard, because a shared WRONG argv
 // is still wrong in both places at once. The other half is
-// TestPsProbeArgvIsPinnedToALiteral, which pins this against a hand-written
-// string, and bin/tests/ps-field-support-guard.sh, which runs the real `ps` and
-// proves that string is something this host actually understands.
+// bin/tests/ps-field-support-guard.sh, which reads the `-o <field>=` literal out
+// of this call site and runs the real `ps` to prove that string is something
+// this host actually understands.
 func psElapsedArgs(pid int) []string {
 	return []string{"-p", strconv.Itoa(pid), "-o", "etime="}
 }

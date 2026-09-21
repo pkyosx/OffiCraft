@@ -1073,8 +1073,7 @@ type docSizeDTO struct {
 // DTO is keyed by ROLE: the handler walks listRoleKeys(). The INSIGHT write
 // face never compares role_key against that roster, so an admin or the owner
 // can create an insight document under a name no role carries — it spends the
-// same cap and has no role to hang off, so it never appears here. Measured in
-// TestPeekDocSizesDescriptionDoesNotPromiseCoverageItCannotGive.
+// same cap and has no role to hang off, so it never appears here.
 type roleDocSizesDTO struct {
 	RoleKey string     `json:"role_key"`
 	Duty    docSizeDTO `json:"duty"`
@@ -2256,10 +2255,9 @@ type taskWriteReceiptDTO struct {
 	// they CANNOT answer "the storage layer wrote it unchanged", because the
 	// value hashed here never went through the storage layer and came back.
 	// Measured, not reasoned: making SetTaskDescriptionOn persist a DIFFERENT
-	// string leaves this receipt, and the whole conformance suite, green. The
-	// guard that does catch it is
-	// TestTaskDescriptionRestoreIsGatedLikeTheEdit, which reaches the stored
-	// row by another door.
+	// string leaves this receipt, and the whole conformance suite, green.
+	// The guard that does catch it is TestTaskDescriptionRestoreAuthz,
+	// which reaches the stored row by another door.
 	DescriptionSizeChars int    `json:"description_size_chars"`
 	DescriptionSha256    string `json:"description_sha256"`
 }

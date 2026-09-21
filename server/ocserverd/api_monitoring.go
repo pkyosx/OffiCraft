@@ -1067,8 +1067,9 @@ func (s *apiServer) HandleGetMonitoringApiMonitoringGet(w http.ResponseWriter, r
 		// off ListOutsourceWorkers below. Without this `continue` each one enters
 		// `actors` and `sources` twice, on the same host key — the machine card
 		// reads one agent too many and the sessions list carries two rows under
-		// one id. Pinned by
-		// TestGetMonitoring_LiveContractorCountsAsOneAgentNotTwo.
+		// one id. Pinned by TestHandleGetMonitoringApiMonitoringGet/"a live
+		// contractor answers 200 with one session row and one more agent on its
+		// machine".
 		if lifecycleTickDriverFor(m) != driverReconcile {
 			continue
 		}
@@ -1144,7 +1145,8 @@ func (s *apiServer) HandleGetMonitoringApiMonitoringGet(w http.ResponseWriter, r
 	// card for a box that gained no agent, and as a duplicate `sessions` row
 	// under one id. (Neither doubles MONEY: acctCost comes from
 	// ListAccountSpend() below, not from a per-actor sum.) Pinned by
-	// TestGetMonitoring_LiveContractorCountsAsOneAgentNotTwo.
+	// TestHandleGetMonitoringApiMonitoringGet/"a live contractor answers 200
+	// with one session row and one more agent on its machine".
 	// ⚠️ KNOWN, DELIBERATELY NOT ADDRESSED HERE (registered as separate scope).
 	// `actors` grows MONOTONICALLY with every task this station has ever run.
 	// Two facts combine: ListOutsourceWorkers returns every kind='outsource'
@@ -1237,8 +1239,7 @@ func (s *apiServer) HandleGetMonitoringApiMonitoringGet(w http.ResponseWriter, r
 		// Finally, money already spent is a historical fact. An account's
 		// cumulative cost must never JUMP BACKWARDS the instant a task closes; a
 		// total that silently shrinks is read as wrong data far more readily than
-		// a dash is. Pinned by
-		// TestGetMonitoring_ReleasedWorkerSpendStaysInTheAccount.
+		// a dash is.
 		actors = append(actors, monitoringActor{
 			id:                   wk.ID,
 			runtime:              wk.Runtime,
@@ -1462,18 +1463,16 @@ func (s *apiServer) HandleGetMonitoringApiMonitoringGet(w http.ResponseWriter, r
 	// can never disagree about what exists. Note the predicate is roster-based,
 	// NOT presence-based and NOT uninstall-based.
 	//
-	// The four boundaries, each decided and each pinned by a test:
+	// The four boundaries, each decided:
 	//
 	//  1. REGISTERED BUT OFFLINE (nobody running on it, warden not connected) —
 	//     ROW STAYS, with honest-null hardware and no accounts. Existence is a
 	//     roster fact, not a liveness fact; a laptop that is closed has not
 	//     stopped being one of your machines. Falls out of iterating the
 	//     registry: nothing has to have been observed for the row to exist.
-	//     Pinned: TestGetMonitoring_RegisteredButSilentMachineStillListed.
 	//
 	//  2. REMOVED (deleted / decommissioned) — ROW GONE, even though its
 	//     telemetry lives on. This is the ticket.
-	//     Pinned: TestGetMonitoring_RemovedMachineLeavesNoOrphanRow.
 	//
 	//  3. UNINSTALLED BUT NOT DELETED — ROW STAYS. Uninstall is a one-shot
 	//     lifecycle INTENT that keeps the record on purpose ("re-installable",
@@ -1481,7 +1480,6 @@ func (s *apiServer) HandleGetMonitoringApiMonitoringGet(w http.ResponseWriter, r
 	//     roster_status, and GET /api/machines still lists it. Hiding it here
 	//     while it is listed there would be the two surfaces disagreeing, which
 	//     is the exact failure this predicate was chosen to prevent.
-	//     Pinned: TestGetMonitoring_UninstalledButUndeletedMachineStillListed.
 	//
 	//  4. HOST UNRESOLVED ("") — NO ROW. "" is not a machine id, it is the
 	//     absence of one (observedWorkerHost's honest empty), so it can never
@@ -1491,16 +1489,13 @@ func (s *apiServer) HandleGetMonitoringApiMonitoringGet(w http.ResponseWriter, r
 	//     NOT lost: acctByHost is untouched, so the accounts section still
 	//     carries the key with an honest-empty `machine` cell. "I don't know
 	//     where this ran" is a true statement; "it ran on «blank»" is not.
-	//     Pinned: TestGetMonitoring_UnplacedActorMintsNoBlankMachineRow.
 	//
 	// ⚠️ IT TOUCHES THE MACHINES SECTION AND NOTHING ELSE, and that is the whole
 	// safety argument. `hostCounts` becomes a pure counter (absent host reads 0)
 	// and acctByHost / acctHosts are not consulted here at all — so the accounts
 	// section (the surface T-fc2f fixed: an outsource-held key's cost, windows,
 	// and machine attribution) is bit-for-bit unaffected, including for a key
-	// whose box was later removed. Pinned by
-	// TestGetMonitoring_RemovedMachineLeavesNoOrphanRow, which asserts the row
-	// is gone and the account is intact in the same body.
+	// whose box was later removed.
 	//
 	// ⚠️ Do NOT "restore" `hosts` to the observed host set as a way of showing
 	// more boxes. It shows exactly one class of extra box — the ones that no

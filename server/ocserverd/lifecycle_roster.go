@@ -181,9 +181,8 @@ const (
 //
 // The split therefore no longer lives in a query. It lives in this named, TOTAL
 // predicate that both halves ask by name, so "exactly one half owns a row" is a
-// sentence a test can falsify cell by cell
-// (TestLifecycleTickDriver_EveryRowHasExactlyOneDriver) rather than a property a
-// reader has to infer from a SQL string in another file.
+// sentence a test can falsify kind by kind (TestLifecycleTickDriverFor) rather
+// than a property a reader has to infer from a SQL string in another file.
 //
 // 🔴 IT IS DELIBERATELY NOT NARROWER THAN THE SQL IT REPLACED. The re-siting was
 // a pure move of the existing split and stayed behaviour-identical:
@@ -323,15 +322,10 @@ func (s *apiServer) runLifecycleRosterPasses(roster []Member, now float64) {
 // row through it here would let an unrelated derivation change ride in on a
 // context stamp.
 //
-// All four folded fields are pinned, one arm each.
-// TestWorkerFoldBack_APromotionSurvivesTheLoopBreakInTheSameTick drives a whole
-// tick and pins RefocusSince/RefocusOp;
-// TestWorkerFoldBack_AWindDownClearSurvivesTheLoopBreakInTheSameTick calls this
-// function at its own boundary — the door runs, and the test asserts it ADMITS
-// the row — and pins StoppingSince/StoppedSince on the caller's slice, which is
-// where their whole effect lives, since the fold-back is never persisted.
-// Deleting either pair was measured to turn exactly one of those two red, with
-// the other still green: neither mutant masks the other.
+// The fold-back is never persisted, so StoppingSince/StoppedSince take effect
+// on the caller's slice only — that slice is where their whole effect lives,
+// and it is where TestRunWorkerLifecyclePasses/"an online active worker
+// receives the shared stale-stop pass and folds its anchors back" reads them.
 //
 // 🔴 CASE HISTORY — FOLD-BACK-STOPPING-HALF-UNPROVEN-T170E. Five successive
 // versions of this paragraph each asserted that something DID NOT EXIST — a

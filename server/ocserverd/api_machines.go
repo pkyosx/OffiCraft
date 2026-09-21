@@ -1174,7 +1174,7 @@ func teardownHereForeignTargetMsg(machineID string) string {
 // condition with no discriminating power is worse than no condition, because it
 // reads like a second layer of protection that is not there. Here the branch is
 // a genuine either/or — WHICH sentence the caller gets — and both directions
-// are pinned (TestTeardownHere_ServerLocalRefusalIsUnchanged and
+// are pinned (TestTeardownHereRefusesTheServerLocalMachine and
 // TestTeardownHereRefusesAnOrdinaryMachineToo fail if it is forced either way).
 //
 // WHY IT NEVER RETURNS "" TODAY, and why that is not hidden behind a bare

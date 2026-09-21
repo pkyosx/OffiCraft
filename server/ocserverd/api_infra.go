@@ -1239,9 +1239,7 @@ func (s *apiServer) HandleResetCostApiMembersMemberIdCostResetPost(w http.Respon
 // the first report after a reconnect would read as a brand-new session and
 // credit its whole cumulative figure a SECOND time — a double-count this code
 // would have MANUFACTURED, on top of the reconnect bias the ticket already
-// documents and leaves alone. So banking must NOT clear this key: doing so turns
-// TestAccountSpend_BankingASessionDoesNotMakeTheNextReportCountTwice red (6
-// becomes 12), which is exactly what it is there for.
+// documents and leaves alone. So banking must NOT clear this key.
 const accountSpendAccountedKey = "cost_accounted"
 
 // accrueAccountSpend credits the NEW spend in one telemetry report to the
@@ -1262,7 +1260,8 @@ const accountSpendAccountedKey = "cost_accounted"
 // the old figure; adding the difference makes the account figure go DOWN, which
 // is the silent-lie shape this design exists to avoid; and treating the report
 // as an absolute would erase the earlier sessions' spend. Pinned end-to-end by
-// TestAccountSpend_ASessionRestartCountsFromZeroRatherThanGoingBackwards.
+// TestAccrueAccountSpend/"a report lower than the last is a session counting
+// from zero, so its whole figure is new spend".
 //
 // 🔴 THE BASELINE ADVANCES ONLY AFTER THE WRITE SUCCEEDS, and that ordering is
 // the difference between "one report was lost" and "that money is gone for
@@ -1328,9 +1327,7 @@ func (s *apiServer) accrueAccountSpend(entry map[string]any) {
 // This is accepted rather than fixed because the wire carries no other signal
 // that a generation began; every OffiCraft member calls report_waking as step 1
 // of its boot sequence, so the gap covers only a reporter outside that contract,
-// and closing it would mean guessing from the numbers again. Pinned — the low
-// number asserted deliberately — by
-// TestAccountSpend_AReporterThatNeverWakesUnderCountsAndThatIsAccepted.
+// and closing it would mean guessing from the numbers again.
 //
 // Best-effort and silent when there is nothing to forget: an actor with no
 // telemetry entry yet has no baseline to clear, which is the same state this
@@ -1690,8 +1687,10 @@ func (s *apiServer) HandleMcpApiMcpPost(w http.ResponseWriter, r *http.Request) 
 // handoverNoticeSettled is asked FIRST for that reason. It is read-only (gauge
 // record + the process-local claim cache, no query), so it cannot change what
 // is sent — only whether the work of composing an already-spent notice is done
-// at all. TestHandoverNoticeTick_ClosureIsNotRunAfterTheClaim counts the
-// closure calls and fails if this order is reversed.
+// at all. TestHandoverNoticeTick/"past the notice point the tick reports the
+// directed context-high frame once, and every later tick is quiet without
+// composing anything" counts the closure calls and fails if this order is
+// reversed.
 func (s *apiServer) handoverNoticeTick(
 	memberID, connRuntime string, notice func() string,
 ) ([]byte, bool) {

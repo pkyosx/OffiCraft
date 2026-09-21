@@ -53,6 +53,14 @@ green imply it:
     green says nothing about it.
   * A CONSISTENT RENAME IS ALLOWED, ON PURPOSE. Change both sides to the same
     new value and this passes — that is the contract holding, not drifting.
+  * 🔴 SO THIS CATCHES THE TWO SIDES WALKING APART, NOT THE TWO SIDES BEING
+    WRONG TOGETHER. When both are renamed consistently the green means "these
+    two agree", never "this name is correct". A mirror check cannot see that
+    family at all, and the defect that started T-265 was one of them: the ack
+    switch was not pinned to a literal on EITHER side, so the only thing that
+    catches a name nobody else expects is a literal in one side's own tests.
+    Adding that is outside this check's job; reading its green as covering it
+    is the mistake to avoid.
 """
 from __future__ import annotations
 

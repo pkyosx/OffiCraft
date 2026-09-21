@@ -437,11 +437,10 @@ func ValidWebhookPlatform(platform string) bool {
 // cadence the slot arithmetic does not implement fails SILENTLY. mostRecentSlot
 // answers "no slot", the tick skips the row, and a schedule that never fires
 // looks exactly like one that has nothing due — which is how the previous
-// bounded-lookback defects hid. With the set as data,
-// TestEveryCadenceInTheClosedSetProducesASlot can walk it and demand a real
-// slot from EVERY member, so adding a value here without teaching
-// schedule_slot.go turns red and names the value. Adding a value to a boolean
-// expression is unobservable; adding one here is not.
+// bounded-lookback defects hid. With the set as data it can be walked and every
+// member demanded to produce a real slot, so adding a value here without
+// teaching schedule_slot.go is catchable and names the value. Adding a value to
+// a boolean expression is unobservable; adding one here is not.
 //
 // Scope note: only the CADENCE set moved to data. The status set next door is
 // deliberately untouched.

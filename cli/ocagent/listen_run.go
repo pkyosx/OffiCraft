@@ -467,8 +467,9 @@ func (l *listener) dispatch(payload []byte) {
 // "I have been replaced" from "the server is having a moment" or "my token just
 // expired", and guessing wrong in that direction kills healthy agents. Only the
 // server knows which refusal it made, so only the server's own marker counts.
-// Pinned in both directions: TestListener_SelfTerminatesWhenSupersededByANewerGeneration
-// and TestListener_APlain401NeverTripsFailClosed.
+// Pinned in both directions, in TestConnectOnce: "a 401 the server marked
+// superseded is an authoritative refusal" and "a bare 401 never folds toward
+// the fail-closed kill".
 func authoritativeRefusal(resp *http.Response) string {
 	switch {
 	case resp.StatusCode == http.StatusConflict:
@@ -606,8 +607,8 @@ func (l *listener) connectOnce(ctx context.Context) (opened, activity, selfExit 
 	// second ask on the reconnect notice (2026-08-30) and it costs no request:
 	// the comparison is against what this same process saw last time.
 	//
-	// ⚠️ POSITION: this sits BEFORE the sha segments, not after. The two
-	// existing station-sha tests assert the line ENDS with " [station <sha>]"
+	// ⚠️ POSITION: this sits BEFORE the sha segments, not after. The
+	// station-sha tests assert the line ENDS with " [station <sha>]"
 	// (the agent segment is empty in any unstamped build, tests included), and
 	// appending past them would break both. Anywhere after the prefix is equally
 	// safe for the three sidecar prefix consumers, which read only the head.
@@ -619,15 +620,10 @@ func (l *listener) connectOnce(ctx context.Context) (opened, activity, selfExit 
 	// The stream is up: whatever outage was being announced is over, and the
 	// line below IS the second of the owner's two notices.
 	l.inOutage = false
-	// ⚠️ POSITION: the origin segment goes HERE, not at the end. FIVE existing
-	// tests assert this line ENDS with " [station <sha>]" or " [agent <sha>]" —
-	// TestConnectOnce_ConnectionLineNamesTheShaTheStationSelfReports,
-	// _NoStationSHALeavesTheLineUnadornedAndNeverReusesTheLastOne,
-	// _ConnectionLineNamesTheOcagentThatPrintedIt,
-	// _AnUnstampedOcagentSaysNothingAboutItself and _EveryReconnectNamesTheAgentAgain
-	// (counted by attributing every HasSuffix( to its enclosing func Test; an
-	// earlier revision of this comment said four, which independent review caught).
-	// A trailing segment would break them. Anywhere after the head is equally safe for
+	// ⚠️ POSITION: the origin segment goes HERE, not at the end. TestConnectOnce's
+	// connect-line subtests assert the whole line byte for byte — "the connection
+	// line names the build the station self-reports" and its neighbours — so a
+	// trailing segment would break them. Anywhere after the head is equally safe for
 	// the three sidecar prefix consumers, which read column 0 only — and it belongs
 	// beside the address it is talking about rather than after two shas.
 	l.logf(noticeConnected+" — streaming %s%s%s (⇒ online while held)%s%s%s",
@@ -841,10 +837,9 @@ func cmdListen(cfg Config, env func(string) string, once bool, out io.Writer) in
 	// debounced, and no control flow anywhere branches on it.
 	//
 	// ⇒ Anyone "finishing the job" by turning this into the refusal the other
-	// three subcommands use is REVERSING an owner ruling.
-	// TestUnconfiguredBase_KeepsRetryingAndNeverGoesQuiet is the only thing that
-	// says so mechanically — the three tests that read the message all stay green
-	// against a mutant that prints the line and then leaves.
+	// three subcommands use is REVERSING an owner ruling — and the tests that read
+	// the origin message will not stop them: each checks a single printed line, so
+	// a mutant that prints it and then leaves stays green.
 	//
 	// ⚠️ NOTE FOR ANYONE GREPPING requireBase TO FIND WHO CARES ABOUT OC_BASE:
 	// this subcommand is NOT among its callers and never will be (requireBase

@@ -52,10 +52,9 @@ import (
 // silently: `sqlExecer` (write seam) and `sqlQuerier` (read seam) are both
 // satisfied by *sql.DB, so `putChatOn(d.rdb, m)` compiles as happily as
 // `putChatOn(d.wdb, m)` — and the SQL lives in the seam, not at the call site, so
-// reading the call site tells you nothing either. That hole is covered by
-// TestReadPoolIsNeverHandedToAWriteSeam (wal_pool_test.go), and in production by
-// the read pool being mode=ro so such a write fails on its first attempt instead
-// of intermittently under load.
+// reading the call site tells you nothing either. That hole is covered in
+// production by the read pool being mode=ro, so such a write fails on its first
+// attempt instead of intermittently under load.
 type DAL struct {
 	wdb *sql.DB
 	rdb *sql.DB
@@ -379,8 +378,7 @@ func scanMember(row interface{ Scan(...any) error }) (Member, error) {
 //     listMembersCallSiteLedger in roster_widening_ledger_t14i6_test.go: one
 //     row per call site, saying whether PR ② widened it and what that fold
 //     does with a contractor row. It lives there because an enumeration
-//     written HERE is one nothing can check —
-//     TestListMembersCallSitesAreEachOnTheRecord joins the ledger against an
+//     written HERE is one nothing can check — the ledger is joined against an
 //     AST scan in BOTH directions, so a caller with no row fails by name and a
 //     row with no caller fails by name. This paragraph used to carry the list
 //     itself, and it had already gone stale: it named three sites and did not
@@ -662,9 +660,7 @@ func (d *DAL) SetMemberForcedStopAt(id string, ts float64) error {
 //   - NO SSE DELTA. The column is deliberately not on the wire (no DTO field),
 //     so a member delta on the SSE first-connect edge and on every session
 //     boundary would be pure churn — and the connect edge is the busiest edge
-//     the fleet has. Two tests catch this directly if it regresses
-//     (TestOutsourceWorkerSSEEdgesPublishCanonicalPresence,
-//     TestEventsHandler_DeliveredWardenCommandsLeaveNoResidue).
+//     the fleet has. TestClearSessionBootTS catches a delta here directly.
 //   - NO WHOLE-ROW WRITE. The callers (onFirstConnect / clearSessionBootTS /
 //     restoreRefusedStartAnchor) run inside the reconcile tick, on the SSE edge
 //     and in the command_result fold, next to HTTP faces that
@@ -1546,7 +1542,6 @@ func refIDsFromJSON(blob string, into map[string]bool) {
 // `chat_message.meta $.attachments[].id` that is already counted here — so
 // letting it vote would keep a blob alive on the strength of its own referrer
 // and re-open exactly the T-62a8 failure below.
-// `TestDeleteChatInvolvingIgnoresTheGalleryIndex` pins that it never votes.
 //
 // ⚠️ Add another NON-DERIVED referencing column anywhere and it MUST be added
 // here in the same commit; a blob whose only referrer is unknown to this scan is deleted

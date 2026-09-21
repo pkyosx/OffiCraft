@@ -43,10 +43,10 @@ package main
 // until start+3s" makes every refusal cost the SAME, whatever it did: a wrong
 // password (one argon2id) and a right password with a wrong code (one argon2id
 // plus a TOTP verification) are the same number of milliseconds on the wire.
-// TestFailedLoginsAllCostTheSameWallClock is that property, and it is the
-// floor of this whole design: 「密碼錯」 and 「碼錯」 must be indistinguishable
-// by MESSAGE (TestFailedLoginRefusalsAreByteIdentical) and by TIME. Any change
-// that makes either distinguishable is a security regression, not a UX tweak.
+// TestHoldFailureFloor is that deadline, and it is the floor of this whole
+// design: 「密碼錯」 and 「碼錯」 must be indistinguishable by MESSAGE
+// (TestHandleLoginApiLoginPost) and by TIME. Any change that makes either
+// distinguishable is a security regression, not a UX tweak.
 //
 // 🔴 WHAT WAS DELETED, AND WHY — a counter, a doubling backoff, a cap, a decay
 // window and one process-wide bucket used to sit here. They are gone by the
@@ -61,8 +61,7 @@ package main
 //
 // ⚠️ SAY THAT PRECISELY, NOT GENEROUSLY. "The owner always gets in, no matter
 // what anyone else is doing" is the sentence this design invites, and it is
-// FALSE — TestLoginRefusesTheCorrectPasswordWhenThePoolIsFull pins the
-// opposite. While the in-flight pool is full a correct password is refused with
+// FALSE. While the in-flight pool is full a correct password is refused with
 // a 429 like anyone else's, and that is deliberate: letting the right password
 // through a full pool would make the gate an oracle that announces the moment
 // someone guesses correctly. What is actually true is narrower and is the whole

@@ -7,12 +7,10 @@ package main
 // the read-only head, the variable rules, what each write face refuses and why
 // reset carries no cap. That document deliberately does NOT list which
 // documents exist. bootDocRegistry below is the server's list, and the wire's
-// list is the BootDocKind enum in spec/openapi.json — the two are pinned to each
-// other by TestBootDocRegistry_MatchesTheBootDocKindEnumInTheFrozenSpec. There
-// used to be a listing ENDPOINT instead; the owner replaced it with the enum on
-// 2026-08-23, because a listing cannot go stale but also cannot make anything
-// fail, and a cockpit that had never heard of a new document just showed
-// nothing.
+// list is the BootDocKind enum in spec/openapi.json. There used to be a listing
+// ENDPOINT instead; the owner replaced it with the enum on 2026-08-23, because a
+// listing cannot go stale but also cannot make anything fail, and a cockpit that
+// had never heard of a new document just showed nothing.
 //
 // WHY THIS EXISTS (owner, 2026-08-13, verbatim): 「我們可以把系統互動改成可以修改
 // 嗎 跟銀月的 insight 一樣是有 history / restore to default」「不用每次都改 code」
@@ -584,11 +582,9 @@ func (s *apiServer) winddownNoticeText(kind string, deadline float64) string {
 	values := map[string]string{}
 	if kind == offboardKindFinal {
 		// Unreachable: offboardKindOf answers final only on a clocked arm, and
-		// winddownDeadlineOf is positive on exactly those arms
-		// (TestWindDownKind_TheClockAndTheSentenceCannotDisagree pins the online
-		// arm, TestOffboardKindOf_AFinalCallAlwaysHasAClock the offline one).
-		// Refusing rather than formatting epoch 0 keeps a 1970 deadline out of
-		// the one sentence an agent acts on if they ever come apart.
+		// winddownDeadlineOf is positive on exactly those arms. Refusing rather
+		// than formatting epoch 0 keeps a 1970 deadline out of the one sentence
+		// an agent acts on if they ever come apart.
 		if deadline <= 0 {
 			return ""
 		}

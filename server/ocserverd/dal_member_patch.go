@@ -109,9 +109,8 @@ func mfWakingSince(v float64) memberField   { return memberField{col: "waking_si
 // refocus epoch against the stop anchors), so any moment with some landed and
 // some not is a rung nobody stood on. SetMemberWindDownAnchors is the only
 // writer that moves them; the INSERT still carries all four so a new row is born
-// on the rung it was created with.
-// Guarded by TestPutMemberNeverOverwritesSingleColumnOwnedFields: clearing
-// insertOnly on any of these four turns it red NAMING the column.
+// on the rung it was created with. TestMemberWholeRow pins the insertOnly flag
+// on all four.
 func mfStoppingSince(v float64) memberField {
 	return memberField{col: "stopping_since", val: v, insertOnly: true}
 }
@@ -179,9 +178,8 @@ func mfForcedStopAt(v float64) memberField {
 // row simply disagrees with what the owner last pressed. The INSERT still
 // carries all four so a new row is born with the intent it was created with;
 // SetMemberDesiredMachineID / SetMemberModel / SetMemberRuntime /
-// SetMemberEffort are the only writers that move them.
-// Guarded by TestPutMemberNeverOverwritesSingleColumnOwnedFields: clearing
-// insertOnly on any of these four turns it red NAMING the column.
+// SetMemberEffort are the only writers that move them. TestMemberWholeRow pins
+// each column's insertOnly flag, so clearing one turns red naming the column.
 func mfRuntime(v string) memberField {
 	return memberField{col: "runtime", val: v, insertOnly: true}
 }
@@ -260,9 +258,8 @@ func mfAvatarAttachmentID(v string) memberField {
 // snapshots taken before it. Carrying the column onto an existing row would let
 // one of those revive a claim that was just cleared, silencing a genuinely new
 // session's one notice. The INSERT carries it so a brand-new row starts at its
-// zero value; SetMemberHandoverNoticedTS is the only writer that moves it.
-// Guarded by TestHandoverNotice_ClaimSurvivesAWholeRowUpsert: clearing
-// insertOnly here turns that test red.
+// zero value; SetMemberHandoverNoticedTS is the only writer that moves it, and
+// TestMemberWholeRow pins the insertOnly flag on this column.
 func mfHandoverNoticedTS(v float64) memberField {
 	return memberField{col: "handover_noticed_ts", val: v, insertOnly: true}
 }
@@ -301,8 +298,7 @@ func mfAgentIatFloor(v float64) memberField {
 //
 // NOT forwardOnly, deliberately: key ids have no order, and the value must be
 // free to move backwards when a machine comes back on an older credential.
-// Guarded by TestPutMemberNeverOverwritesSingleColumnOwnedFields: clearing
-// insertOnly here turns that test red NAMING this column.
+// TestMemberWholeRow pins both flags on this column.
 func mfTokenKeyID(v string) memberField {
 	return memberField{col: "token_key_id", val: v, insertOnly: true}
 }
@@ -338,9 +334,9 @@ func mfRestartAfterStop(v bool) memberField {
 // The order below follows memberColumns for readability only. It is NOT
 // load-bearing: insertMemberRowIfAbsent emits each column NAME next to its own
 // placeholder, so nothing binds positionally and reordering this slice changes
-// no SQL. What IS load-bearing is the SET of columns, and
-// TestMemberColumnPropertiesAreDeclaredInOnePlace compares it against
-// memberColumns directly — a column added to one and not the other goes red.
+// no SQL. What IS load-bearing is the SET of columns: TestMemberWholeRow/"the
+// projected columns are exactly the ones the row is read back through" holds it
+// against memberColumns, so a column added to one and not the other goes red.
 func memberWholeRow(m Member) []memberField {
 	return []memberField{
 		mfID(m.ID), mfName(m.Name), mfKind(m.Kind), mfRoleKey(m.RoleKey),

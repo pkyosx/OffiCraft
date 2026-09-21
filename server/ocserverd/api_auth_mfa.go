@@ -261,9 +261,8 @@ func (s *apiServer) HandleMfaActivateApiAuthMfaActivatePost(w http.ResponseWrite
 	// first leaves the one state that is genuinely dangerous: armed in the DB
 	// with NO floor, so after a restart loadAuthSettings reads floor 0 and the
 	// activation code the owner just typed is replayable as a login for the rest
-	// of its window — exactly what TestActivationCodeCannotBeReusedAsTheFirstLogin
-	// exists to prevent. Floor-first fails safe instead: a floor with no secret
-	// is MFA still off, which is inert.
+	// of its window. Floor-first fails safe instead: a floor with no secret is
+	// MFA still off, which is inert.
 	//
 	// Memory is updated only after ALL of them land, so a partial write can
 	// never leave the live snapshot claiming a factor the DB does not have.

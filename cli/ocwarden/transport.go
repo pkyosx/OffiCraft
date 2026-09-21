@@ -541,7 +541,7 @@ func resolveRepoRoot(executable func() (string, error)) string {
 // spawn path tell "here it is" apart from "I had to guess and the guess is not there".
 // pathStatable is the production existence probe. It is a named function, not a closure
 // written at the wiring site, precisely so a mutant that guts it (`return true`) has a
-// test standing on it — see TestPathStatable_AnswersTheFilesystem.
+// test standing on it — see TestPathStatable.
 //
 // It is called pathStatable and not fileExists because a reviewer pointed out that the
 // shorter name promised more than the body delivers: os.Stat succeeds on a DIRECTORY too,

@@ -568,9 +568,8 @@ func forcedEpochLive(m Member) bool {
 //
 // Those spellings used to be spellings of one judgement, and some of them were
 // the negation of the others, which is how a reader checks them against each
-// other and gets it wrong. TestOffboardKindOf_AFinalCallAlwaysHasAClock asserts
-// the sentence and the clock coincide — it asserted the AGREEMENT of two copies
-// because that was all it could do; they are now one expression.
+// other and gets it wrong. A test could only assert that the two copies AGREED;
+// they are now one expression.
 //
 // It is NOT the same question as "may this 停止 re-stamp stopping_since"
 // (stopEpochAnchor): that one has no stopping_since>0 term at all, because
