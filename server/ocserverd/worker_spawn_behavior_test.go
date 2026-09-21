@@ -2402,6 +2402,37 @@ func TestTaskCloseWindDown_Collect(t *testing.T) {
 		})
 	}
 
+	// 🔴 喚醒 IS THE FOURTH DOOR ONTO THIS SEAM, and the must-fix that closed the
+	// other three never counted it. 重新聚焦 / 換 model / 換機器 all reach the
+	// revive through queueWorkerRestartAfterStop, which refuses once the ticket is
+	// over (workerTicketIsOver). activate does not call that function at all: it
+	// writes desired_state=online and clears the stop anchor itself — and
+	// collectTaskCloseWindDown's FIRST condition is desired_state == offline, so
+	// from that press onwards NOTHING releases the row. The worker sits on the
+	// panel holding one of the outsource concurrency slots, on a task that closed.
+	//
+	// Found by the owner, looking at a screenshot of the cockpit and asking why
+	// the 喚醒 button was live on a contractor that was winding down.
+	t.Run("喚醒 mid-window cannot strand the worker on a closed ticket", func(t *testing.T) {
+		s := windDownFixture(t, opened, true)
+		postWorker(t, s, "ow-244", "activate", nil,
+			s.HandleActivateMemberApiMembersMemberIdActivatePost)
+
+		s.runOutsourceTick(opened + 1)
+		s.runOutsourceTick(opened + float64(taskCloseWinddownSecsDefault) + 1)
+
+		after, err := s.dal.GetOutsourceWorker("ow-244")
+		if err != nil || after == nil {
+			t.Fatalf("read back worker: %v", err)
+		}
+		if after.Status != WorkerStatusReleased {
+			t.Errorf("worker = {status:%s desired:%s stopping_since:%v refocus_op:%q}, "+
+				"want released — a ticket that is over has no row to keep, and 喚醒 "+
+				"must not be able to keep it",
+				after.Status, after.DesiredState, after.StoppingSince, after.RefocusOp)
+		}
+	})
+
 	// 🔴 THE GUARD ON WHAT THIS COLLECT IS KEYED ON. 加速停止 overwrites
 	// refocus_op and re-anchors the clock, and a worker inside this window
 	// qualifies for it — live, online, winding down, so the cockpit offers that

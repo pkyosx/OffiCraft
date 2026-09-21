@@ -437,6 +437,12 @@ func (s *apiServer) HandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost
 // the reason its member twin does: a 409 that only says "no" leaves the owner
 // guessing which of three buttons he was supposed to press first. It names both
 // openers because a worker has two (停止 and 重新聚焦), and both are real.
+// wakeWorkerTicketIsOverMsg names what the owner can still do, for the reason its
+// neighbour below does: a 409 that only says "no" leaves him guessing which
+// button was the right one.
+const wakeWorkerTicketIsOverMsg = "這位外包的任務已經結案，它正在收尾離開——" +
+	"喚醒不會把它留下來。要讓它更快離開請按 停止 或 加速停止；要再派工作，請建立新的任務。"
+
 const acceleratedStopWorkerNeedsAnOpenWindDownMsg = "加速停止 escalates a wind-down " +
 	"that is already open — this worker has not been asked to stop. Press 停止 or " +
 	"重新聚焦 first"
@@ -739,6 +745,28 @@ func (s *apiServer) handleRestartOutsourceWorker(w http.ResponseWriter, r *http.
 	if worker == nil || worker.Status == WorkerStatusReleased {
 		s.outsourceMu.Unlock()
 		writeResolveError(w, errNotFound, "member", id)
+		return
+	}
+	// 🔴 THE FOURTH DOOR ONTO THE CLOSED-TICKET SEAM. The other three — 重新聚焦,
+	// 換 model, 換機器 — reach the revive through queueWorkerRestartAfterStop,
+	// which refuses once the ticket is over. This handler does not call that
+	// function at all: it writes desired_state=online and clears stopping_since
+	// itself, and collectTaskCloseWindDown's FIRST condition is
+	// desired_state == offline. So without this gate, one press during a
+	// task-close wind-down strands the worker: still `active`, on a task that
+	// closed, holding one of the outsource concurrency slots, with no path left
+	// that releases it — measured at the full window and past it.
+	//
+	// Refusing keeps the contract rather than inventing one: before T-244 the
+	// close released the row on the spot and this verb answered 404 from then on.
+	// 停止 and 加速停止 still work, because making it leave sooner is not the same
+	// as keeping it.
+	//
+	// It sits BEFORE the machine-pin write below on purpose — a refused 喚醒 must
+	// not leave a new desired_machine_id behind on a contractor that is leaving.
+	if s.workerTicketIsOver(*worker) {
+		s.outsourceMu.Unlock()
+		writeError(w, http.StatusConflict, wakeWorkerTicketIsOverMsg)
 		return
 	}
 	if body.MachineId != nil && *body.MachineId != "" {
