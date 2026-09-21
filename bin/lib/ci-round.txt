@@ -63,6 +63,8 @@ contract-guards     lint-uplink-contract
 contract-guards     lint-effort-vocab
 contract-guards     lint-kind-vocab
 contract-guards     lint-shadow-claim
+contract-guards     lint-listen-notice-mirror
+contract-guards     lint-comment-test-refs
 contract-guards     lint-user-operation-contract
 contract-guards     check-released-migrations
 contract-guards     lint-chat-pushdown
