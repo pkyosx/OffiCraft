@@ -40,6 +40,12 @@ var claudeCredEnvKeys = []string{
 	"ANTHROPIC_AUTH_TOKEN",
 	"CLAUDE_CODE_USE_BEDROCK",
 	"CLAUDE_CODE_USE_VERTEX",
+	// CLAUDE_CODE_OAUTH_TOKEN is a long-lived login token (`claude setup-token`)
+	// that replaces the keychain / credentials-file login. Listing it here does
+	// two things at once: the presence probe counts it as a credential, and —
+	// because claudeEnvAllowedNames derives from this list — the spawn line's
+	// CLAUDE_* purge lets it through to the child instead of stripping it.
+	"CLAUDE_CODE_OAUTH_TOKEN",
 }
 
 // claudeCredStatus is the value-free verdict of the presence probe. Summary is
