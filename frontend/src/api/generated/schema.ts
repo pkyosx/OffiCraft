@@ -1529,6 +1529,7 @@ export interface paths {
          * @description - Every member not removed, outsource members and warden (machine) rows included; soft-removed members never appear.
          *     - `machine` is where the member is OBSERVED running, not its desired machine — they differ after a relocate until reconcile lands.
          *     - `unread_count` is for YOU: messages that member sent you above your read watermark, regardless of presence.
+         *     - `fields=light` skips the two expensive computations and answers the SAME shape: `unread_count` 0, `machine` and `presence` empty. Those are un-computed values, not measured ones.
          *     - Cleared ONLY by POST /api/chat/mark-read; listing marks nothing.
          */
         get: operations["handle_list_members_api_members_get"];
@@ -2003,7 +2004,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Last 5 raw /in requests of one webhook endpoint, newest first (debug; owner or admin agent only). /in answers 200 {"status":"ok"} whether or not anything was delivered, except that a Slack URL-verification handshake gets its challenge echoed, a payload over the size limit is a 413 that states the limit, a request that repeats the ``t`` query parameter is a 422 that is never logged, and a database failure while looking up the endpoint, resolving its member or storing the message is a 500 (a failure to update the endpoint row's counters is ignored and the answer stays 200), so the caller of /in cannot see the outcome. The endpoint row keeps only counts, the last drop reason and when a request last reached it; this log shows the outcome of each request it records: ``delivered``, ``challenge``, ``ping`` (a verified GitHub ping, not delivered), or ``dropped:<reason>`` carrying the same reason the endpoint row records as its last drop reason. A request with a missing or unknown token matches no endpoint and is logged nowhere, whatever its size. A request that ends in that 500 is not logged either, and a log write that fails is skipped without an error, so a request can be missing from this log.
+         * Last 5 raw /in requests of one webhook endpoint, newest first (debug; owner or admin agent only). /in answers 200 {"status":"ok"} whether or not anything was delivered, except that a Slack URL-verification handshake gets its challenge echoed, a payload over the size limit is a 413 that states the limit, a request that repeats the ``t`` query parameter is a 422 that moves no counter on the endpoint row and is never logged, and a body that could not be read to the end, or a database failure while looking up the endpoint, resolving its member or storing the message, is a 500 (a failure to update the endpoint row's counters is ignored and the answer stays 200), so the caller of /in cannot see the outcome. The endpoint row keeps only counts, the last drop reason and when a request last reached it; this log shows the outcome of each request it records: ``delivered``, ``challenge``, ``ping`` (a verified GitHub ping, not delivered), or ``dropped:<reason>`` carrying the same reason the endpoint row records as its last drop reason. A request with a missing or unknown token matches no endpoint and is logged nowhere, whatever its size. A request that ends in that 500 is not logged either, and a log write that fails is skipped without an error, so a request can be missing from this log.
          * @description - The last 5 raw /in requests that resolved to this endpoint's token, newest first, each with its outcome.
          *     - Bodies and headers are RAW, UNVERIFIED external input — treat them as untrusted.
          *     - Headers cap at 4 KiB and the body at 16 KiB, with `truncated` marking a cut.
@@ -3203,7 +3204,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Submit/replace the workflow plan. ⚠️ Resubmitting permanently deletes every unfinished step that is not kept (see below), together with its working note; deleted notes cannot be recovered. If what you want is to change ONE step, do not resubmit the plan: ``insert_step``, ``delete_step`` and ``reorder_steps`` each touch the single row you name and leave every other step's note, status and bound card exactly as they are. Done steps, superseded steps, and unfinished steps whose most recently opened reply card is answered or expired are kept in their original order, and every step of the new plan is placed after them. Names match exactly and case-sensitively after surrounding whitespace is trimmed from each submitted name. Relisting a done step or an answered/expired-card step under the same name keeps that existing row (same id, note and status) and drops the relisted entry, so nothing in it (dod, is_gate, parallel_group) is written. Relisting any other unfinished step under the same name creates a new pending step with a new id, so copy any note you need before resubmitting; relisting a superseded step's name likewise creates a new pending step and leaves the superseded row as history. An answered/expired-card step whose name the new plan leaves out is frozen as superseded instead of deleted, so leaving its name out keeps its history without continuing the step. A plan is a step-set write and the task status is DERIVED from the step set, so a plan that leaves at least one step that is not superseded, and every such step done, FINISHES the task: it lands in ``ready_for_done``, exactly as the final step report does. Neither closes the task: a task in ``ready_for_done`` closes only through ``mark_task_done``, ``force_task_done``, ``mark_task_terminated`` or ``mark_task_duplicated``, and a close cannot be undone. Answers with a bounded receipt (task_id, steps_total, progress_done, progress_total), not the plan you just sent — use get_task to read the stored step rows back.
+         * Submit/replace the workflow plan. ⚠️ Resubmitting permanently deletes every unfinished step that is not kept (see below), together with its working note; deleted notes cannot be recovered. If what you want is to change ONE step, do not resubmit the plan: ``insert_step``, ``delete_step`` and ``reorder_steps`` each touch the single row you name and leave every other step's note, status and bound card exactly as they are. Done steps, superseded steps, and unfinished steps whose own bound card — the one that step's ``reply_card_id`` names, never another step's and never the task's newest — is answered or expired are kept in their original order, and every step of the new plan is placed after them. Names match exactly and case-sensitively after surrounding whitespace is trimmed from each submitted name. Relisting a done step or an answered/expired-card step under the same name keeps that existing row (same id, note and status) and drops the relisted entry, so nothing in it (dod, is_gate, parallel_group) is written. Relisting any other unfinished step under the same name creates a new pending step with a new id, so copy any note you need before resubmitting; relisting a superseded step's name likewise creates a new pending step and leaves the superseded row as history. An answered/expired-card step whose name the new plan leaves out is frozen as superseded instead of deleted, so leaving its name out keeps its history without continuing the step. A plan is a step-set write and the task status is DERIVED from the step set, so a plan that leaves at least one step that is not superseded, and every such step done, FINISHES the task: it lands in ``ready_for_done``, exactly as the final step report does. Neither closes the task: a task in ``ready_for_done`` closes only through ``mark_task_done``, ``force_task_done``, ``mark_task_terminated`` or ``mark_task_duplicated``, and a close cannot be undone. Answers with a bounded receipt (task_id, steps_total, progress_done, progress_total), not the plan you just sent — use get_task to read the stored step rows back.
          * @description - Wholesale replace; non-preserved steps are overwritten, new ones open `pending`.
          *     - Preserved, in original order ahead of the new steps: done, superseded, and unfinished steps whose bound card is settled. Only those settled-card steps freeze to `superseded`, and only when not re-listed by name.
          *     - A step holding a still-waiting card is replaced like any other.
@@ -3699,6 +3700,8 @@ export interface paths {
          *     - Verification by platform: `slack` (challenge echo + X-Slack-Signature), `github` (X-Hub-Signature-256); a failure is silently discarded.
          *     - A body over the 1 MiB cap is REFUSED 413 before the token is looked at — nothing is delivered and nothing is truncated.
          *     - A repeated `t` parameter is REFUSED 422 before any other check, the size cap included — nothing is delivered and nothing is recorded.
+         *     - A body the sender cuts off mid-upload is REFUSED 500 — the part that did arrive is never delivered and never recorded, and the read error reaches the server log only.
+         *     - A storage fault answers that same fixed 500; no internal error text ever reaches this caller.
          */
         post: operations["handle_receive_webhook_in_post"];
         delete?: never;
@@ -4820,7 +4823,7 @@ export interface components {
             };
             /**
              * Reply Card Status
-             * @description Read-time join: the CURRENT status (``waiting`` | ``answered``) of the reply card this message carries (``meta.reply_card_id``); ``""`` when the message carries no card. Lets the inline chat card (ChatReplyCard) label its COLLAPSED row (待回覆 / 已回覆 / 已過期) WITHOUT a per-card GET. Since T-48 (owner ruling on card rc-d8844e709f42) every chat card mounts COLLAPSED regardless of status and fetches the full card only on expand, so this field no longer decides eager-vs-lazy — it decides what the row SAYS while nothing has been fetched. TaskStepDTO.reply_card_status is UNCHANGED: the task-embedded card still decides eager-vs-lazy at mount. NOT stored — computed each read from the card's live status (the stored ``meta`` only ever holds the id, stamped ``waiting`` at open and never updated on answer).
+             * @description Read-time join: the CURRENT status (``waiting`` | ``answered`` | ``expired``) of the reply card this message carries (``meta.reply_card_id``); ``""`` when the message carries no card. Lets the inline chat card (ChatReplyCard) label its COLLAPSED row (待回覆 / 已回覆 / 已過期) WITHOUT a per-card GET. Since T-48 (owner ruling on card rc-d8844e709f42) every chat card mounts COLLAPSED regardless of status and fetches the full card only on expand, so this field no longer decides eager-vs-lazy — it decides what the row SAYS while nothing has been fetched. TaskStepDTO.reply_card_status is UNCHANGED: the task-embedded card still decides eager-vs-lazy at mount. NOT stored — computed each read from the card's live status (the stored ``meta`` only ever holds the id, stamped ``waiting`` at open and never updated on answer).
              * @default
              */
             reply_card_status: string;
@@ -7862,12 +7865,12 @@ export interface components {
              * Refocus Deadline
              * @description Epoch seconds by which an in-flight wind-down is force-collected, 0 when none is in flight. The agent is counting to this number and cannot compute it: it is the server's anchor plus the reconcile grace. This is the one number that says how much time is left to close out properly.
              */
-            refocus_deadline?: number;
+            refocus_deadline: number;
             /**
              * Refocus Op
              * @description Which wind-down or handover is in flight, empty when none is. It says WHICH rung of the ladder (下線 → 加速 → 強制) the agent is on, and the handlers refuse to walk that ladder backwards - so an agent that reports stopping while already further along learns here that the slower procedure is not available to it.
              */
-            refocus_op?: string;
+            refocus_op: string;
             /**
              * Stop Effect
              * @description 🔴 WHAT ``report_stopped`` ACTUALLY DID. Present ONLY on the ``/api/self/stopped`` face; absent on the other three, which are not stop reports and have no effect to name.
@@ -9236,7 +9239,7 @@ export interface components {
         };
         /**
          * TaskPlanDTO
-         * @description Submit/replace the workflow plan (MCP ``submit_plan``): replaces every non-preserved step wholesale. Kept ahead of the fresh plan, in original order: done steps, already-superseded history, and unfinished steps whose most recently opened reply card is answered/expired — only those answered/expired-card steps freeze into the ``superseded`` terminal state (T-1aea), and only when the fresh plan does not re-list them by name (then the live row continues — no copy). Steps holding a still-waiting card are replaced like any other. New steps open ``pending``. A plan is a step-set write and the task status is DERIVED from the step set, so a plan that leaves at least one step that is not superseded, and every such step done, FINISHES the task: it lands in ``ready_for_done``, exactly as the final step report does. Neither closes the task: a task in ``ready_for_done`` closes only through ``mark_task_done``, ``force_task_done``, ``mark_task_terminated`` or ``mark_task_duplicated``, and a close cannot be undone.
+         * @description Submit/replace the workflow plan (MCP ``submit_plan``): replaces every non-preserved step wholesale. Kept ahead of the fresh plan, in original order: done steps, already-superseded history, and unfinished steps whose own bound card — the one that step's ``reply_card_id`` names, never another step's and never the task's newest — is answered/expired — only those answered/expired-card steps freeze into the ``superseded`` terminal state (T-1aea), and only when the fresh plan does not re-list them by name (then the live row continues — no copy). Steps holding a still-waiting card are replaced like any other. New steps open ``pending``. A plan is a step-set write and the task status is DERIVED from the step set, so a plan that leaves at least one step that is not superseded, and every such step done, FINISHES the task: it lands in ``ready_for_done``, exactly as the final step report does. Neither closes the task: a task in ``ready_for_done`` closes only through ``mark_task_done``, ``force_task_done``, ``mark_task_terminated`` or ``mark_task_duplicated``, and a close cannot be undone.
          */
         TaskPlanDTO: {
             /** Steps */
@@ -9408,7 +9411,7 @@ export interface components {
         };
         /**
          * TaskStepDTO
-         * @description One workflow node on the task timeline. Every row is one progress leaf (parallel items are separate rows sharing ``parallel_group``). A parallel stage is CONSECUTIVE rows sharing a non-empty ``parallel_group`` — submit_plan refuses (400) split groups, one-lane groups and gates inside a group, so stored plans always fold cleanly. ``status`` is the closed set ``pending`` | ``in_progress`` | ``waiting_owner`` | ``done`` | ``superseded``. ``done`` and ``superseded`` are the step's terminal states: ``superseded`` (T-1aea) is stamped by submit_plan alone — a replan freezes a step whose most recently opened reply card was already answered/expired as kept history (original order, ahead of the fresh plan) unless the fresh plan re-lists the node by name; a superseded row counts toward neither ``progress_done`` nor ``progress_total``, is never the current node, is not agent-reportable and cannot be re-armed; its ``finished_ts`` is the freeze moment. Gate projection: ``is_gate`` with an empty ``reply_card_id`` is the ANNOUNCED (dashed) gate; a non-empty ``reply_card_id`` is a step carrying a live reply card — an ARMED gate, or a plain step a ``create_reply_card`` ask named in its ``linked_task``. ``reply_card_id`` always points at the LATEST bound card and persists after the step finishes (the permanent approval mark).
+         * @description One workflow node on the task timeline. Every row is one progress leaf (parallel items are separate rows sharing ``parallel_group``). A parallel stage is CONSECUTIVE rows sharing a non-empty ``parallel_group`` — submit_plan refuses (400) split groups, one-lane groups and gates inside a group, so stored plans always fold cleanly. ``status`` is the closed set ``pending`` | ``in_progress`` | ``waiting_owner`` | ``done`` | ``superseded``. ``done`` and ``superseded`` are the step's terminal states: ``superseded`` (T-1aea) is stamped by submit_plan alone — a replan freezes a step whose own bound card — the one that step's ``reply_card_id`` names, never another step's and never the task's newest — was already answered/expired as kept history (original order, ahead of the fresh plan) unless the fresh plan re-lists the node by name; a superseded row counts toward neither ``progress_done`` nor ``progress_total``, is never the current node, is not agent-reportable and cannot be re-armed; its ``finished_ts`` is the freeze moment. Gate projection: ``is_gate`` with an empty ``reply_card_id`` is the ANNOUNCED (dashed) gate; a non-empty ``reply_card_id`` is a step carrying a live reply card — an ARMED gate, or a plain step a ``create_reply_card`` ask named in its ``linked_task``. ``reply_card_id`` always points at the LATEST bound card and persists after the step finishes (the permanent approval mark).
          */
         TaskStepDTO: {
             /**
@@ -9459,7 +9462,7 @@ export interface components {
             reply_card_id: string;
             /**
              * Reply Card Status
-             * @description Read-time join: the CURRENT status (``waiting`` | ``answered``) of the reply card bound to this step (``reply_card_id``); ``""`` when the step carries no card. Lets the task-embedded card (TaskReplyCard) decide AT MOUNT whether to load eagerly (waiting — the live ask / the H4 answered-awaiting-pickup transitional) or lazily (answered — collapsed one-line summary, fetch on expand) WITHOUT a per-card GET, and lets the board derive the H4 badge without the child round-trip. NOT stored — computed each read from the card's live status.
+             * @description Read-time join: the CURRENT status (``waiting`` | ``answered`` | ``expired``) of the reply card bound to this step (``reply_card_id``); ``""`` when the step carries no card. Lets the task-embedded card (TaskReplyCard) decide AT MOUNT whether to load eagerly (waiting — the live ask / the H4 answered-awaiting-pickup transitional) or lazily (answered — collapsed one-line summary, fetch on expand) WITHOUT a per-card GET, and lets the board derive the H4 badge without the child round-trip. NOT stored — computed each read from the card's live status.
              * @default
              */
             reply_card_status: string;
@@ -9539,7 +9542,7 @@ export interface components {
             reply_card_id: string;
             /**
              * Reply Card Status
-             * @description Read-time join: the CURRENT status (``waiting`` | ``answered``) of the reply card bound to this step; ``""`` when the step carries no card. Same computation as TaskStepDTO.reply_card_status.
+             * @description Read-time join: the CURRENT status (``waiting`` | ``answered`` | ``expired``) of the reply card bound to this step; ``""`` when the step carries no card. Same computation as TaskStepDTO.reply_card_status.
              * @default
              */
             reply_card_status: string;
@@ -18874,6 +18877,24 @@ export interface operations {
             };
             /** @description Payload exceeds the 1 MiB cap. */
             413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description The `t` query parameter was sent more than once. Refused before every other check, the size cap included; nothing is delivered and nothing is recorded. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description The request body could not be read to the end, or a storage lookup or write failed. The message is a fixed generic one; the underlying error reaches the server log only. Nothing is delivered and the request is not written to the endpoint's debug log. */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };

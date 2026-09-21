@@ -350,7 +350,7 @@ sleep 2
 
 # 4b. THE OWNER ON THE OTHER END OF ⑥'s CARD. ⑥ opens its card with an explicit
 #     linked_task naming the step it started (T-18 — the server no longer infers
-#     a binding), which parks that step in waiting_owner (armStepWithCard), and
+#     a binding), which parks that step in waiting_owner, and
 #     waiting_owner has exactly ONE exit: the owner answers. Without someone on
 #     that end, ⑥ succeeding is what makes ⑦ impossible — the step can never
 #     move again, so the task can never reach ready_for_done and ⑦ can never

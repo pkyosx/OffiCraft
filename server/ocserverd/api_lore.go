@@ -239,7 +239,7 @@ const (
 	// quotation: it sends the reader looking for something they will not find,
 	// and nothing tells them the pointer is stale. So the message states the
 	// rule itself rather than citing a place.
-	loreGovernanceRefusalOwn = "you may only 失效 or 提到最新 an entry you WROTE — " +
+	loreGovernanceRefusalOwn = "you may only 失效, 生效 or 提到最新 an entry you WROTE — " +
 		"this one has a different author, and an entry is governed by the member " +
 		"who wrote it. An admin agent or the owner can act on any entry."
 )
@@ -539,8 +539,9 @@ func (s *apiServer) HandleListLoreEntriesApiLoreGet(w http.ResponseWriter, r *ht
 	//
 	// 🔴 「ONE SCOPE」 IS EXACTLY-ONE-OF-EACH, and the multi-select filters are why
 	// that has to be said with a length and not with a non-empty test. A page
-	// asked for `scope_kinds=role&scope_kinds=manual` spans two scopes and has
-	// two different budgets behind it (role and manual are separate settings),
+	// asked for `scope_kinds=agent&scope_kinds=manual` spans two scopes and has
+	// two different budgets behind it (loreRoleCap serves agent, loreManualCap
+	// serves manual),
 	// so there is no single cap_chars it could report and no single entry that
 	// is 「the first one dropped」. Two or more on EITHER axis ⇒ 0 / "", the same
 	// answer an unfiltered page gets, for the same reason.

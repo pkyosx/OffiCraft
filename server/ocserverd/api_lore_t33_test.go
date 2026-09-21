@@ -793,6 +793,15 @@ func TestRetireAndBumpAreAuthorOnly(t *testing.T) {
 		t.Fatalf("retiring somebody else's entry: want 403, got %d %s",
 			rec.Code, rec.Body.String())
 	}
+	// The refusal has to name every verb the author-only floor actually opens,
+	// 生效 included: a reader who is told only 失效 and 提到最新 concludes a
+	// retired entry of their own is beyond them, and nothing corrects that.
+	wantRefusal := `{"error":{"code":"forbidden","message":"you may only 失效, 生效 or 提到最新 ` +
+		`an entry you WROTE — this one has a different author, and an entry is governed ` +
+		`by the member who wrote it. An admin agent or the owner can act on any entry."}}`
+	if got := rec.Body.String(); got != wantRefusal {
+		t.Fatalf("refusal body = %s, want %s", got, wantRefusal)
+	}
 	rec = postLoreBump(t, s, me, theirs)
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("bumping somebody else's entry: want 403, got %d %s",
@@ -815,6 +824,14 @@ func TestRetireAndBumpAreAuthorOnly(t *testing.T) {
 	if rec := postLoreState(t, s, other, theirs,
 		map[string]any{"state": LoreStateRetired, "retire_reason": "過時了"}); rec.Code != http.StatusOK {
 		t.Fatalf("the author retiring its own entry: want 200, got %d %s",
+			rec.Code, rec.Body.String())
+	}
+	// 生效 on its own entry too — the third verb the refusal above names, so that
+	// sentence is checked against a door that really opens rather than against
+	// itself.
+	if rec := postLoreState(t, s, other, theirs,
+		map[string]any{"state": LoreStateActive}); rec.Code != http.StatusOK {
+		t.Fatalf("the author reviving its own entry: want 200, got %d %s",
 			rec.Code, rec.Body.String())
 	}
 	// ...and so may an admin, on somebody else's.

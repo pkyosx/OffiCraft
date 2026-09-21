@@ -1124,7 +1124,7 @@ ONE-SHOT, never a standing order):
     failures (token-expiry lead, survived-stop sweep) had the second shape, not the
     first. Closing it needs an AST-level guard over both producers plus an explicit
     exclusion list — T-170e stage 5, deliberately out of stage 3's scope.
-  - 🟡 **NARROWED BY T-170e stage 5, STILL OPEN — `lifecycle_identity_gate_t170e_test.go`.**
+  - 🟡 **NARROWED BY T-170e stage 5, STILL OPEN — `lifecycle_identity_behavior_test.go`.**
     `TestTickProducersHaveNoUndeclaredRosterLoop` walks `runReconcileTick` and
     `runOutsourceTick` with `go/parser` and requires every iteration in them to be
     accounted for by name AND by count in `lifecycleProducerLoopRulings`. Re-measured

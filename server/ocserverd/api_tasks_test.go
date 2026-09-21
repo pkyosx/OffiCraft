@@ -5953,7 +5953,12 @@ func TestHandleUpdateTaskStepStatusApiTasksTaskIdStepsStepIdStatusPost(t *testin
 	})
 }
 
-func TestArmStepWithCard(t *testing.T) {
+// TestArmingAStepWithACard drives the ONE path that arms a step — POST
+// /api/reply-cards carrying linked_task — because since the card, its companion
+// message, the step and the task became one transaction there is no other way
+// in, and a test that reached past the endpoint could not see the atomicity
+// that is now the point.
+func TestArmingAStepWithACard(t *testing.T) {
 	t.Run("the armed step enters waiting_owner carrying the card, and the task follows it", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
@@ -5964,30 +5969,61 @@ func TestArmStepWithCard(t *testing.T) {
 		if err != nil {
 			t.Fatalf("ListTaskSteps: %v", err)
 		}
-		task, err := api.resolveTask("T-1")
-		if err != nil {
-			t.Fatalf("resolveTask: %v", err)
-		}
+		// The card door only opens on a task already under way, so the step has
+		// to be started before it can be held.
+		apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+steps[0].ID+"/status", agent, `{"status":"in_progress"}`)
 		dashboard := apiTestListen(t, api, "")
 		executor := apiTestListen(t, api, "kip")
 
-		step := steps[0]
-		if err := api.armStepWithCard(task, &step, "rc-abc123def456", "kip"); err != nil {
-			t.Fatalf("armStepWithCard: %v", err)
+		status, data := apiJSON(t, h, "POST", "/api/reply-cards", agent,
+			`{"kind":"decision","summary":"ship this","options":[{"text":"yes"}],`+
+				`"linked_task":{"task_id":"T-1","step_id":"`+steps[0].ID+`"}}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
+		cardID, _ := data["id"].(string)
+		if cardID == "" {
+			t.Fatalf("create receipt carries no card id: %v", data)
+		}
+		// The three deltas the card-open path fans, in publish order. The task
+		// delta is the one that used to be asserted here through armStepWithCard;
+		// without it nothing on this path holds publishTask, and removing that
+		// call leaves every card test green.
+		wantFrames := []map[string]any{
+			{
+				"seq": 4, "topic": "chat", "op": "patch",
+				"data": map[string]any{
+					"entity": "chat", "key": apiAnyString, "epoch": 4, "deleted": false,
+					"payload": map[string]any{"id": apiAnyString, "from": "kip", "to": "owner"},
+				},
+				"ts": apiAnyNumber, "trigger": "kip",
+			},
+			{
+				"seq": 5, "topic": "reply_card", "op": "patch",
+				"data": map[string]any{
+					"entity": "reply_card", "key": "owner::" + cardID, "epoch": 5, "deleted": false,
+					"payload": map[string]any{"id": cardID, "from": "kip", "status": "waiting"},
+				},
+				"ts": apiAnyNumber, "trigger": "kip",
+			},
+			{
+				"seq": 6, "topic": "task", "op": "patch",
+				"data": map[string]any{
+					"entity": "task", "key": "owner::T-1", "epoch": 6, "deleted": false,
+					"payload": map[string]any{"id": "T-1", "priority": "mid", "status": "waiting_owner"},
+				},
+				"ts": apiAnyNumber, "trigger": "kip",
+			},
+		}
+		dashboard.wantFrames(wantFrames...)
+		executor.wantFrames(wantFrames...)
 
-		if step.Status != "waiting_owner" || step.ReplyCardID != "rc-abc123def456" || step.StartedTS <= 0 {
-			t.Fatalf("returned step: %#v", step)
-		}
-		if task.Status != "waiting_owner" {
-			t.Fatalf("returned task status: %q", task.Status)
-		}
 		stored, err := d.ListTaskSteps("T-1")
 		if err != nil {
 			t.Fatalf("ListTaskSteps: %v", err)
 		}
-		if stored[0].Status != "waiting_owner" || stored[0].ReplyCardID != "rc-abc123def456" ||
-			stored[0].StartedTS != step.StartedTS {
+		if stored[0].Status != "waiting_owner" || stored[0].ReplyCardID != cardID ||
+			stored[0].StartedTS <= 0 {
 			t.Fatalf("stored armed step: %#v", stored[0])
 		}
 		if stored[1].Status != "pending" || stored[1].ReplyCardID != "" {
@@ -6000,23 +6036,6 @@ func TestArmStepWithCard(t *testing.T) {
 		if reread.Status != "waiting_owner" || reread.ClosedTS != 0 {
 			t.Fatalf("stored task: %#v", *reread)
 		}
-
-		taskFrame := map[string]any{
-			"seq":   3,
-			"topic": "task",
-			"op":    "patch",
-			"data": map[string]any{
-				"entity":  "task",
-				"key":     "owner::T-1",
-				"epoch":   3,
-				"deleted": false,
-				"payload": map[string]any{"id": "T-1", "priority": "mid", "status": "waiting_owner"},
-			},
-			"ts":      apiAnyNumber,
-			"trigger": "kip",
-		}
-		dashboard.wantFrames(taskFrame)
-		executor.wantFrames(taskFrame)
 	})
 
 	t.Run("a step already under way keeps its first touch and only the card pointer moves", func(t *testing.T) {
@@ -6037,24 +6056,23 @@ func TestArmStepWithCard(t *testing.T) {
 		if started[0].StartedTS <= 0 {
 			t.Fatalf("want a stamped first touch, got %#v", started[0])
 		}
-		task, err := api.resolveTask("T-1")
-		if err != nil {
-			t.Fatalf("resolveTask: %v", err)
-		}
 
-		step := started[0]
-		if err := api.armStepWithCard(task, &step, "rc-abc123def456", "kip"); err != nil {
-			t.Fatalf("armStepWithCard: %v", err)
+		status, data := apiJSON(t, h, "POST", "/api/reply-cards", agent,
+			`{"kind":"decision","summary":"ship this","options":[{"text":"yes"}],`+
+				`"linked_task":{"task_id":"T-1","step_id":"`+steps[0].ID+`"}}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
+		cardID, _ := data["id"].(string)
 
-		if step.StartedTS != started[0].StartedTS {
-			t.Fatalf("started_ts moved: was %v, now %v", started[0].StartedTS, step.StartedTS)
-		}
 		stored, err := d.ListTaskSteps("T-1")
 		if err != nil {
 			t.Fatalf("ListTaskSteps: %v", err)
 		}
-		if stored[0].Status != "waiting_owner" || stored[0].ReplyCardID != "rc-abc123def456" {
+		if stored[0].StartedTS != started[0].StartedTS {
+			t.Fatalf("started_ts moved: was %v, now %v", started[0].StartedTS, stored[0].StartedTS)
+		}
+		if stored[0].Status != "waiting_owner" || stored[0].ReplyCardID != cardID {
 			t.Fatalf("stored step: %#v", stored[0])
 		}
 	})
@@ -6073,14 +6091,13 @@ func TestArmStepWithCard(t *testing.T) {
 		if steps[0].ParallelGroup != "g1" {
 			t.Fatalf("want a lane step, got %#v", steps[0])
 		}
-		task, err := api.resolveTask("T-1")
-		if err != nil {
-			t.Fatalf("resolveTask: %v", err)
-		}
+		apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+steps[0].ID+"/status", agent, `{"status":"in_progress"}`)
 
-		step := steps[0]
-		if err := api.armStepWithCard(task, &step, "rc-abc123def456", "kip"); err != nil {
-			t.Fatalf("armStepWithCard: %v", err)
+		status, data := apiJSON(t, h, "POST", "/api/reply-cards", agent,
+			`{"kind":"decision","summary":"ship this","options":[{"text":"yes"}],`+
+				`"linked_task":{"task_id":"T-1","step_id":"`+steps[0].ID+`"}}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
 
 		reread, err := api.resolveTask("T-1")
@@ -7780,10 +7797,13 @@ func TestHandleMarkTaskDoneApiTasksTaskIdMarkDonePost(t *testing.T) {
 		if status != 409 {
 			t.Fatalf("want 409, got %d (%v)", status, data)
 		}
-		msg, _ := data["error"].(map[string]any)["message"].(string)
-		if !strings.Contains(msg, "'not_started'") {
-			t.Fatalf("the refusal must name the status the task is in, got %q", msg)
-		}
+		// The whole sentence, not a keyword: it names the status the task is in
+		// AND who to ask for the door past the precondition, and that second half
+		// used to say only the owner while an admin agent may press it too.
+		apiWantError(t, data, "conflict",
+			"task 'T-1' is in 'not_started', not 'ready_for_done' — every step has "+
+				"to be reported done before the task can be closed as done "+
+				"(or ask the owner or an admin agent for force_task_done)")
 	})
 
 	t.Run("an already closed task is a 409 that names WHICH close happened", func(t *testing.T) {

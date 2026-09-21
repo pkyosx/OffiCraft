@@ -2871,6 +2871,139 @@ func TestPutReplyCardWithChat(t *testing.T) {
 	}
 }
 
+func TestPutReplyCardWithChatAndStep(t *testing.T) {
+	seed := func(d *DAL) (Task, TaskStep) {
+		task := Task{
+			ID: "T-1", Title: "Ship it", Status: TaskStatusInProgress,
+			Priority: "mid", ExecutorKind: "staff", ExecutorID: "ann",
+			CreatedTS: 100, UpdatedTS: 100,
+		}
+		if err := d.PutTask(task); err != nil {
+			t.Fatalf("PutTask: %v", err)
+		}
+		step := TaskStep{
+			ID: "s-1", TaskID: "T-1", Name: "Draft", DoD: "a draft exists",
+			Status: StepStatusInProgress, StartedTS: 100,
+		}
+		if err := d.PutTaskStep(step); err != nil {
+			t.Fatalf("PutTaskStep: %v", err)
+		}
+		// Read the task back rather than reusing the literal: the row carries a
+		// defaulted runtime the caller never wrote, and an expectation built from
+		// the literal would differ from the stored row for a reason that has
+		// nothing to do with this write.
+		reread, err := d.GetTask("T-1")
+		if err != nil || reread == nil {
+			t.Fatalf("GetTask after seed: %+v / %v", reread, err)
+		}
+		return *reread, step
+	}
+	arm := func(task Task, step TaskStep, cardID string) (TaskStep, Task) {
+		step.Status = StepStatusWaitingOwner
+		step.ReplyCardID = cardID
+		task.Status = TaskStatusWaitingOwner
+		task.UpdatedTS = 200
+		return step, task
+	}
+
+	t.Run("the card, its message, the held step and the task all land together", func(t *testing.T) {
+		d := newAPITestDAL(t)
+		task, step := seed(d)
+		card := dalReplyCard("rc-1", 100)
+		m := dalChatWithAtts("m1", "ann", "owner", 100, dalAttRef("att-question", "image/png", "q.png"))
+		blobs := []ChatAttachment{{ID: "att-question", Mime: "image/png", Data: []byte("the question")}}
+		armed, held := arm(task, step, "rc-1")
+
+		if err := d.PutReplyCardWithChatAndStep(card, m, blobs, armed, &held); err != nil {
+			t.Fatalf("PutReplyCardWithChatAndStep: %v", err)
+		}
+		dalWantReplyCard(t, d, "rc-1", &card)
+		dalWantChats(t, "the companion message lands", dalMustListChat(t, d), []ChatMessage{m})
+		if got := dalStoredBlobIDs(t, d); !reflect.DeepEqual(got, []string{"att-question"}) {
+			t.Fatalf("the question-side blob lands: got %v", got)
+		}
+		steps, err := d.ListTaskSteps("T-1")
+		if err != nil {
+			t.Fatalf("ListTaskSteps: %v", err)
+		}
+		if len(steps) != 1 || !reflect.DeepEqual(steps[0], armed) {
+			t.Fatalf("the held step lands: got %+v, want %+v", steps, armed)
+		}
+		stored, err := d.GetTask("T-1")
+		if err != nil || stored == nil {
+			t.Fatalf("GetTask: %+v / %v", stored, err)
+		}
+		if !reflect.DeepEqual(*stored, held) {
+			t.Fatalf("the task lands:\n got %+v\nwant %+v", *stored, held)
+		}
+	})
+
+	// 🔴 THE CASE THE SPLIT WRITE FAILED. The card and its message used to be
+	// written first and the hold second, so a fault at the hold answered 500
+	// over a card the owner could already see — and the asker, told its ask had
+	// failed, opened a second one. Nothing here may survive the fault.
+	t.Run("a fault writing the held step leaves no card and no message behind", func(t *testing.T) {
+		d := newAPITestDAL(t)
+		task, step := seed(d)
+		armed, held := arm(task, step, "rc-1")
+		if _, err := d.wdb.Exec(`DROP TABLE task_step`); err != nil {
+			t.Fatalf("drop task_step: %v", err)
+		}
+
+		err := d.PutReplyCardWithChatAndStep(
+			dalReplyCard("rc-1", 100),
+			dalChatWithAtts("m1", "ann", "owner", 100, dalAttRef("att-doomed", "image/png", "d.png")),
+			[]ChatAttachment{{ID: "att-doomed", Mime: "image/png", Data: []byte("doomed")}},
+			armed, &held,
+		)
+		if err == nil {
+			t.Fatal("a hold that cannot be written must fail the whole write")
+		}
+		got, err := d.GetReplyCard("rc-1")
+		if err != nil || got != nil {
+			t.Fatalf("no card may survive: got %+v / %v", got, err)
+		}
+		dalWantChats(t, "no companion message may survive", dalMustListChat(t, d), nil)
+		if got := dalStoredBlobIDs(t, d); len(got) != 0 {
+			t.Fatalf("no blob may survive: got %v", got)
+		}
+	})
+
+	t.Run("a fault writing the task leaves no card and no message behind", func(t *testing.T) {
+		d := newAPITestDAL(t)
+		task, step := seed(d)
+		armed, held := arm(task, step, "rc-1")
+		if _, err := d.wdb.Exec(`DROP TABLE task`); err != nil {
+			t.Fatalf("drop task: %v", err)
+		}
+
+		err := d.PutReplyCardWithChatAndStep(
+			dalReplyCard("rc-1", 100),
+			dalChatWithAtts("m1", "ann", "owner", 100, dalAttRef("att-doomed", "image/png", "d.png")),
+			[]ChatAttachment{{ID: "att-doomed", Mime: "image/png", Data: []byte("doomed")}},
+			armed, &held,
+		)
+		if err == nil {
+			t.Fatal("a task row that cannot be written must fail the whole write")
+		}
+		got, err := d.GetReplyCard("rc-1")
+		if err != nil || got != nil {
+			t.Fatalf("no card may survive: got %+v / %v", got, err)
+		}
+		dalWantChats(t, "no companion message may survive", dalMustListChat(t, d), nil)
+		steps, err := d.ListTaskSteps("T-1")
+		if err != nil {
+			t.Fatalf("ListTaskSteps: %v", err)
+		}
+		if len(steps) != 1 || steps[0].Status != StepStatusInProgress || steps[0].ReplyCardID != "" {
+			t.Fatalf("the step must stay unheld: %+v", steps)
+		}
+		if got := dalStoredBlobIDs(t, d); len(got) != 0 {
+			t.Fatalf("no blob may survive: got %v", got)
+		}
+	})
+}
+
 func TestPutReplyCardWithAttachments(t *testing.T) {
 	d := newAPITestDAL(t)
 	card := dalReplyCard("rc-1", 100)

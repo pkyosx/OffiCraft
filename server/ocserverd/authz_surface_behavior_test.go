@@ -1,6 +1,6 @@
 package main
 
-// authz_surface_gate_test.go — T-5336's structural node: a gate over the SHAPE
+// authz_surface_behavior_test.go — T-5336's structural node: a gate over the SHAPE
 // that keeps producing these tickets, not over the one rule that was wrong.
 //
 // THE SHAPE. T-6020 (owner 2026-07-26) re-graded 24 operational endpoints in one

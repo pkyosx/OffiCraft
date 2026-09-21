@@ -294,7 +294,19 @@ func (s *apiServer) HandleReceiveWebhookInPost(w http.ResponseWriter, r *http.Re
 	// learns anything from timing/short-circuit differences. Bounded at cap+1:
 	// one extra byte proves over-cap without ever buffering an unbounded body
 	// (the chat-attachment and avatar upload seams read the same way).
-	payload, _ := io.ReadAll(io.LimitReader(r.Body, webhookPayloadMaxBytes+1))
+	payload, err := io.ReadAll(io.LimitReader(r.Body, webhookPayloadMaxBytes+1))
+	// 🔴 A CUT BODY IS NOT A SHORT BODY. The bytes in hand are whatever arrived
+	// before the connection broke, and every gate below treats them as the whole
+	// request: an unsigned endpoint would deliver half a payload as a chat and
+	// answer the sender {"status":"ok"}, so the sender is told it succeeded and
+	// never resends. Refuse before any of that runs — before the size verdict
+	// too, because the true size is exactly what we failed to learn. The read
+	// failure belongs to the caller's own connection, so answering it cannot
+	// tell anyone whether ?t= resolves to anything.
+	if err != nil {
+		writeWebhookInternalError(w, err)
+		return
+	}
 
 	token := ""
 	if params.T != nil {

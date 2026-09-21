@@ -12,8 +12,9 @@ package main
 //     agent's alone). This is the surviving half of the old H4 ruling;
 //   * waiting_owner is a card-lifecycle HOLD, bracketed entirely by the card:
 //     it is ENTERED only by opening a card — create_reply_card carrying an
-//     explicit linked_task {task_id, step_id}, which arms that step
-//     (armStepWithCard) — and LEFT only when that card is answered, where the
+//     explicit linked_task {task_id, step_id}, which arms that step in the
+//     same transaction that writes the card — and LEFT only when that card is
+//     answered, where the
 //     server itself restores the task/step to in_progress
 //     (releaseCardHold). The agent reports NEITHER side: a
 //     report INTO waiting_owner is a 400 (not its lever), a report OUT of it a
@@ -1370,7 +1371,8 @@ func (s *apiServer) HandleMarkTaskDoneApiTasksTaskIdMarkDonePost(w http.Response
 		writeError(w, http.StatusConflict,
 			"task '"+taskId+"' is in '"+t.Status+"', not '"+TaskStatusReadyForDone+
 				"' — every step has to be reported done before the task can be "+
-				"closed as done (or ask the owner for force_task_done)")
+				"closed as done (or ask the owner or an admin agent for "+
+				"force_task_done)")
 		return
 	}
 	if err := s.closeTask(t, TaskStatusDone, nowSecs(), requestTrigger(r)); err != nil {
@@ -2304,7 +2306,7 @@ func (s *apiServer) HandleCreateTaskApiTasksPost(w http.ResponseWriter, r *http.
 	// 🔴 THE VALIDATION IS A SEPARATE STATEMENT FROM THE DISPATCH DECISION, AND
 	// THAT SHAPE IS LOAD-BEARING. Folding the two together (validate, then
 	// branch on the CANONICAL local) reads better and silently blinds a guard:
-	// authz_surface_gate_test.go scans for predicates that read a selector
+	// authz_surface_behavior_test.go scans for predicates that read a selector
 	// called `Kind`, and `canonical == TaskExecutorOutsource` has none, so the
 	// decision below simply vanished from its inventory — the exact failure its
 	// own header warns about ("read the field into a local until the scanner
@@ -2998,32 +3000,52 @@ func (s *apiServer) HandleUpdateTaskStepStatusApiTasksTaskIdStepsStepIdStatusPos
 	s.writeTaskStepStatusReceipt(w, *t, *step)
 }
 
-// armStepWithCard applies the card→step waiting state machine behind the ONE
-// card-open path — create_reply_card carrying an explicit linked_task
+// prepareStepArmedWithCard applies the card→step waiting state machine behind
+// the ONE card-open path — create_reply_card carrying an explicit linked_task
 // {task_id, step_id} (T-18 collapsed the two entrances into it): the step
 // enters waiting_owner carrying the CURRENT card (reply_card_id points at the
 // latest ask; the card's own task/step birth marks keep the full history),
-// started_ts stamps on first touch, and the task follows into waiting_owner —
-// UNLESS the step sits inside a parallel group, where flipping the WHOLE task
-// would lie while sibling lanes still run (the ValidatePlanParallelShape
-// rationale). The owner's later answer releases this hold —
-// releaseCardHold restores the step (and task) to in_progress;
-// from there the agent reports the step forward itself.
-func (s *apiServer) armStepWithCard(t *Task, step *TaskStep, cardID, trigger string) error {
-	now := nowSecs()
+// started_ts stamps on first touch, and the task follows into waiting_owner.
+// The owner's later answer releases this hold — releaseCardHold restores the
+// step (and task) to in_progress; from there the agent reports the step
+// forward itself.
+// 🔴 IT WRITES NOTHING, and that is the point. The step and the task it derives
+// have to land in the SAME transaction as the card and its companion message:
+// a card that exists while the hold does not is the shape that answered 500
+// over a live card and got the asker to open a second one. So this half only
+// decides, and PutReplyCardWithChatAndStep commits all four rows together.
+// It returns the task to write, or nil when the task's row does not move.
+func (s *apiServer) prepareStepArmedWithCard(
+	t *Task, step *TaskStep, cardID string, now float64,
+) (*Task, error) {
 	step.Status = StepStatusWaitingOwner
 	step.ReplyCardID = cardID
 	if step.StartedTS == 0 {
 		step.StartedTS = now
 	}
-	if err := s.dal.PutTaskStep(*step); err != nil {
-		return err
+	if TaskIsTerminal(t.Status) {
+		return nil, nil
+	}
+	steps, err := s.dal.ListTaskSteps(t.ID)
+	if err != nil {
+		return nil, err
+	}
+	// The stored copy of this step is the pre-arm one; the derivation has to see
+	// the step as it will be after the commit, or the task would be derived off
+	// the state this very call is replacing.
+	for i := range steps {
+		if steps[i].ID == step.ID {
+			steps[i] = *step
+		}
 	}
 	// task status is DERIVED (T-9ca5): a step in waiting_owner derives the task
 	// to waiting_owner (priority head), for a lane step too — the old
 	// parallel-group carve-out is gone (owner ruling: any step 等我回覆 → task
-	// 等我回覆).
-	return s.deriveAndPersistTask(t, now, trigger)
+	// 等我回覆). That head also means this can never derive ready_for_done, so
+	// there is no arrival here for deriveAndPersistTask's visit count to record.
+	RecomputeTaskStatus(t, steps)
+	t.UpdatedTS = now
+	return t, nil
 }
 
 // POST /api/tasks/{task_id}/deps — replace the blocking-deps list wholesale.

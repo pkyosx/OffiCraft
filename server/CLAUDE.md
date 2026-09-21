@@ -88,8 +88,8 @@
 - warden `command_result` receipt 是「op 真的執行」的唯一證據；POST receipt 是 best-effort。server 只在 frame enqueue 成功後 arm `receipt_watch`，90 秒門檻來自 warden budget 推導、不是端到端量測。
 - `receipt_missing` 由 server sweep 寫進既有 `last_op*`，語意是 `UNKNOWN` 而非 failed；解除條件是**它等的那台機器**的 receipt 抵達，必須在 `foldCommandResult` 的 early return 前 note。每次 dispatch 只 stamp 一次，且與其他 last-op reason 共用單槽；UNINSTALL 不掛這道死線。
 - receipt 的「是哪一台回的」一律取自**已驗證 token**（`receiptReporterMachine`）：warden 憑證的 `sub` 就是 machine id、且刻意不帶 `machine_id` claim。`CommandResult` 不得為此長出 warden/機器欄位。解析不出來時回 `""` = UNKNOWN（不是「沒有人」），所有讀它的地方都必須退回改動前的行為。
-- worker stop 重試判「刀砍下去了沒」不能只看 presence：**目標機器**回的 `no_such_session` receipt 就是收工證據（`noteWorkerStopNoSuchSession`）。別台廣播回的一律忽略。warden 一次 stop 只會回**三種** reason（`cli/ocwarden/command.go`，`rpc=stop` 與 legacy `rpc=worker_stop` 各自三種），今天只有中間那種收工：
-  - `ok=true reason="stopped"` —— 真的殺掉了，**目前不收工，重試會再送一刀**（已知邊界，這一輪不修）。它會自癒：既然真的殺掉了，重送的那一刀打在已死的 session 上，warden 下一輪回的就是 `no_such_session`，於是收工 —— 代價是**最多多一次重送**，不是無限重試，方向也在安全那一側（寧可多殺一次，不要留殘活 session）。要不要收窄是另一個決定。
+- worker stop 重試判「刀砍下去了沒」不能只看 presence：**目標機器**回的 `no_such_session` receipt 就是收工證據（`noteWorkerStopNoSuchSession`）。別台廣播回的一律忽略。warden 一次 stop 的 receipt 只會回**兩種非空 reason 加上空字串**（`cli/ocwarden/command.go`，`rpc=stop` 與 legacy `rpc=worker_stop` 各自相同），今天只有中間那種收工：
+  - `ok=true`、**receipt 的 reason 是空字串** —— 真的殺掉了。⚠️ 不要照字面去找 `"stopped"`：那個字只進 `Log`，receipt 的 `Reason` 在成功且非 no-op 時被刻意清空（成功的 op 不佔用座艙的 `last_op_reason`）。這一種 **不收工，重試會再送一刀**（已知邊界，這一輪不修）—— 判收工的 `isStopNoopReceipt` 認的是 `no_such_session` 前綴，空字串沒有它。它會自癒：既然真的殺掉了，重送的那一刀打在已死的 session 上，warden 下一輪回的就是 `no_such_session`，於是收工 —— 代價是**最多多一次重送**，不是無限重試，方向也在安全那一側（寧可多殺一次，不要留殘活 session）。要不要收窄是另一個決定。
   - `ok=true reason="no_such_session: …"` —— 唯一收工的一種。
   - `ok=false reason="stop incomplete (…)"` —— **相反**的證據（session 還在），必須繼續重試，絕不可折成收工。
 - zombie takeover 對目標機器下的 bench 也讀同一份 receipt：**目標機器**回的 `ok=true` stop（上面前兩種）解除那一筆 bench（`noteWorkerStopSucceeded`），`ok=false` 或別台回的都不解除。只解除 takeover 自己下的那一筆；之後因其他開機失敗下的 bench 不受影響。同一 worker 在一個冷卻期內再次被 takeover 時，那一次的 bench 不提前解除，以免 START／STOP 每一輪來回。`session_already_exists` 的 START 拒絕本身不 bench。

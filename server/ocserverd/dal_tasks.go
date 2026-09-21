@@ -870,7 +870,7 @@ func (d *DAL) TouchTaskUpdatedTS(id string, ts float64) error {
 // The hazard is structural, not exotic: this is a whole-row upsert with no
 // optimistic lock, and every OTHER step writer is a load-mutate-save
 // (dal.GetTaskStep → mutate one field → dal.PutTaskStep) — update_step_status,
-// armStepWithCard (create_reply_card with an explicit linked_task), the reply-card
+// the card-open path (create_reply_card with an explicit linked_task), the reply-card
 // release path, and the reassign step reset. Nothing links those reads to those
 // writes, so the upsert asserts EVERY column as that handler read them. With
 // the note in the conflict list, an agent reporting a step's status replays the
@@ -891,7 +891,7 @@ func (d *DAL) TouchTaskUpdatedTS(id string, ts float64) error {
 //
 // ⚠️ Do not read the surviving INSERT half as a second writer. NO production
 // caller reaches it deliberately: all four load an existing row first
-// (update_step_status, armStepWithCard, the reply-card release path, the
+// (update_step_status, the card-open path, the reply-card release path, the
 // reassign step reset), and submit_plan mints its rows through
 // ReplaceTaskPlan's own bare INSERT — which is a different statement, not this
 // one, and which never carries a conflict clause at all. The INSERT half here
@@ -913,12 +913,18 @@ func (d *DAL) TouchTaskUpdatedTS(id string, ts float64) error {
 // already listed six columns while the clause named eleven. The clause below is
 // the one source that cannot drift from itself; read it, do not trust a prose
 // echo of it.
-func (d *DAL) PutTaskStep(st TaskStep) error {
+func (d *DAL) PutTaskStep(st TaskStep) error { return putTaskStepOn(d.wdb, st) }
+
+// putTaskStepOn is PutTaskStep's body, taking the executor so the same write can
+// run inside a transaction alongside the rows it has to stand or fall with —
+// see PutReplyCardWithChatAndStep, where a step armed without its card would be
+// a hold pointing at nothing.
+func putTaskStepOn(ex sqlExecer, st TaskStep) error {
 	isGate := 0
 	if st.IsGate {
 		isGate = 1
 	}
-	_, err := d.wdb.Exec(`
+	_, err := ex.Exec(`
 		INSERT INTO task_step (`+taskStepColumns+`)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (id) DO UPDATE SET
