@@ -42,6 +42,15 @@ imply it:
     Markdown page. Those were measured at roughly +23 and +47 references when
     this was written and are out of this check's scope by ruling, not by
     oversight.
+  * 🔴 IT CHECKS THAT THE NAME EXISTS, NOT THAT THE TEST COVERS THE SENTENCE.
+    This is the biggest gap and it is the one a green most invites you to
+    forget. T-265's cleanup replaced 103 unresolvable citations with 53
+    resolvable ones, and every one of those 53 was matched to its sentence BY
+    HAND — one candidate was rejected because the surviving test with the
+    obvious name never calls the function the sentence is about. Nothing here
+    would have caught that, and nothing re-checks those 53 from now on. So a
+    green says the citations resolve; whether they are the RIGHT citations
+    rests on that one manual pass.
   * ONLY NAMES BEGINNING `Test`, AND ONLY THE TOP-LEVEL ONE. A citation written
     `TestFoo/"the case it actually guards"` is checked as far as `TestFoo` and
     no further — the part after the slash is a `t.Run` label and nothing here

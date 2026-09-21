@@ -116,12 +116,18 @@ const agentLinePrefix = "[ocagent] "
 // anything INSERTED in front. Naming the head once means the printf can no
 // longer carry a head of its own.
 //
-// 🔴 NOTHING COMPARES THIS HEAD WITH THE SIDECAR'S COPY OF IT. That copy is a
-// constant of its own in another Go module (cli/ocwarden/codex_session.go's
-// noticeDisconnectedPrefix), each side is tested against its own spelling, and
-// no guard reads both. So the two can drift apart exactly the way they did
-// before, and every check stays green — do not read the paragraph above as
-// saying something enforces this.
+// 🔴 WHAT COMPARES THIS HEAD WITH THE SIDECAR'S COPY OF IT LIVES OUTSIDE BOTH
+// MODULES. That copy is a constant of its own in another Go module
+// (cli/ocwarden/codex_session.go's noticeDisconnectedPrefix) and each side's
+// own tests only ever see its own spelling, so until T-265 the two could drift
+// apart exactly the way they did before with every check green.
+// bin/listen-notice-mirror-guard.py is the thing that reads both — deliberately
+// not a Go test in either module, because the check that used to do this WAS
+// one and a rewrite of the test surface took it with it.
+//
+// ⚠️ It catches the two sides WALKING APART, not the two sides being wrong
+// together: rename consistently on both sides and it is green, and that green
+// means "these agree", never "this spelling is right".
 const (
 	noticeDisconnected = "listen: disconnected"
 	noticeConnected    = "listen: connected"
