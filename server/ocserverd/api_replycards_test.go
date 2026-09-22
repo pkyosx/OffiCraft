@@ -1574,6 +1574,67 @@ func TestAnsweringACardAnnouncesOnlyAfterTheWriteLands(t *testing.T) {
 	})
 }
 
+// TestAnsweringACardStoresItsInlineAttachment guards the CALLSITE, not the DAL
+// function: settling the card moved the answer's blobs onto the transaction
+// that also releases the step and the task, and nothing in this package ever
+// sent an answer carrying inline bytes, so the callsite could stop passing them
+// and every test still passed.
+func TestAnsweringACardStoresItsInlineAttachment(t *testing.T) {
+	api, _, d, _ := newAPITestServer(t)
+	task := dalTestTask("T-1")
+	task.Status = TaskStatusWaitingOwner
+	task.WaitingReason = ""
+	task.ClosedTS = 0
+	step := dalTestStep("ts-1", task.ID)
+	step.Status = StepStatusWaitingOwner
+	step.ReplyCardID = "rc-1"
+	card := ReplyCard{
+		ID: "rc-1", FromMember: "kip", Kind: "decision",
+		Status: replyCardStatusWaiting, TaskID: task.ID, TaskStepID: step.ID,
+	}
+	for _, w := range []func() error{
+		func() error { return d.PutTask(task) },
+		func() error { return d.PutTaskStep(step) },
+		func() error { return d.PutReplyCard(card) },
+	} {
+		if err := w(); err != nil {
+			t.Fatalf("seed: %v", err)
+		}
+	}
+
+	rec := answerCard(t, api, "rc-1", map[string]any{
+		"text": "go",
+		"attachments": []map[string]any{
+			{"filename": "answer.txt", "mime": "text/plain", "data_b64": "aGVsbG8="},
+		},
+	})
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("answer: %d %s", rec.Code, rec.Body.String())
+	}
+	blobs := dalStoredBlobIDs(t, d)
+	if len(blobs) != 1 {
+		t.Fatalf("the answer's blob must be stored: got %v", blobs)
+	}
+	stored, err := d.GetReplyCard("rc-1")
+	if err != nil || stored == nil {
+		t.Fatalf("card: %#v, %v", stored, err)
+	}
+	if len(stored.AnswerAttachments) != 1 {
+		t.Fatalf("the card must name its answer blob: %#v", stored.AnswerAttachments)
+	}
+	ref, _ := stored.AnswerAttachments[0].(map[string]any)
+	if ref["id"] != blobs[0] || ref["filename"] != "answer.txt" {
+		t.Fatalf("the card's ref must name the stored blob: ref=%#v stored=%v", ref, blobs)
+	}
+	// The release still happened in the same write — the attachment rides the
+	// transaction, it does not replace it.
+	if got, err := d.GetTask("T-1"); err != nil || got == nil ||
+		got.Status != TaskStatusInProgress {
+		t.Fatalf("task after an answer with an attachment = %#v, %v", got, err)
+	}
+}
+
 func TestExpireWaitingCards(t *testing.T) {
 	t.Run("the sweep expires only selected waiting cards and publishes their terminal state", func(t *testing.T) {
 		api, _, d, _ := newAPITestServer(t)

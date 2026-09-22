@@ -872,10 +872,11 @@ func (s *apiServer) applyReplyCardAnswer(w http.ResponseWriter, r *http.Request,
 		fresh = append(fresh, *att)
 		refs = append(refs, attachmentRef(att))
 	}
-	// ONE clock read for the whole settle: the card's answered_ts and the
-	// task's updated_ts describe the same moment, so a reader cannot see the
-	// task stamped after the answer that caused it. The expire side already
-	// does this (it reuses card.ExpiredTS).
+	// ONE clock read for the whole settle, so the card's answered_ts and the
+	// task's updated_ts describe the same moment rather than two reads a few
+	// microseconds apart. The expire side already does this (it reuses
+	// card.ExpiredTS). Nothing asserts this — it is a convention here, not a
+	// guarantee the tests would notice losing.
 	now := nowSecs()
 	card.Status = replyCardStatusAnswered
 	card.AnsweredTS = now
@@ -1001,8 +1002,10 @@ func (s *apiServer) planCardHoldRelease(card ReplyCard, now float64) (cardHoldRe
 // cardHoldRelease is what a settled card CHANGES, computed before anything is
 // written so the whole set can go in one transaction. A nil field means that
 // row needs no write at all: both nil for an unbound 請示 or an orphan on a
-// closed task, a nil step for one somebody already moved on, and a nil task
-// with a live step when the card names a task row that no longer exists.
+// closed task, and a nil step for one somebody already moved on. A nil task
+// beside a live step is DEFENSIVE ONLY — it needs the card to name a task row
+// that is gone, and nothing deletes a task row (no DELETE FROM task anywhere,
+// only its child tables).
 type cardHoldRelease struct {
 	step    *TaskStep
 	task    *Task
