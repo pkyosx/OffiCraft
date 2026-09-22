@@ -2871,6 +2871,99 @@ func TestPutReplyCardWithChat(t *testing.T) {
 	}
 }
 
+// A card leaving waiting_owner writes three rows — the card, the step it was
+// holding, and that step's task. The one that matters is what happens when the
+// LAST of them fails: before this seam existed, the card had already been
+// committed as settled while the step and the task stayed in waiting_owner,
+// and nothing could get them out — a retried answer is refused because the
+// card is no longer waiting, a re-answer never re-enters the release, and
+// expiry wants a waiting card too.
+func TestPutReplyCardWithStepAndTask(t *testing.T) {
+	seed := func(d *DAL) (Task, TaskStep, ReplyCard) {
+		task := Task{
+			ID: "T-1", Title: "Ship it", Status: TaskStatusWaitingOwner,
+			Priority: "mid", ExecutorKind: "staff", ExecutorID: "ann",
+			CreatedTS: 100, UpdatedTS: 100,
+		}
+		step := TaskStep{
+			ID: "ts-1", TaskID: "T-1", Name: "ask", Status: StepStatusWaitingOwner,
+			ReplyCardID: "rc-1", OrderIdx: 0,
+		}
+		card := dalReplyCard("rc-1", 100)
+		card.TaskID = "T-1"
+		card.TaskStepID = "ts-1"
+		for _, w := range []func() error{
+			func() error { return d.PutTask(task) },
+			func() error { return d.PutTaskStep(step) },
+			func() error { return d.PutReplyCard(card) },
+		} {
+			if err := w(); err != nil {
+				t.Fatalf("seed: %v", err)
+			}
+		}
+		return task, step, card
+	}
+
+	t.Run("all three rows land together", func(t *testing.T) {
+		d := newAPITestDAL(t)
+		task, step, card := seed(d)
+		card.Status = replyCardStatusAnswered
+		card.AnsweredTS = 200
+		step.Status = StepStatusInProgress
+		task.Status = TaskStatusInProgress
+		task.UpdatedTS = 200
+
+		if err := d.PutReplyCardWithStepAndTask(card, nil, &step, &task); err != nil {
+			t.Fatalf("PutReplyCardWithStepAndTask: %v", err)
+		}
+		dalWantReplyCard(t, d, "rc-1", &card)
+		steps, err := d.ListTaskSteps("T-1")
+		if err != nil {
+			t.Fatalf("ListTaskSteps: %v", err)
+		}
+		if len(steps) != 1 || steps[0].Status != StepStatusInProgress {
+			t.Fatalf("step after a settled card = %#v", steps)
+		}
+		stored, err := d.GetTask("T-1")
+		if err != nil || stored == nil {
+			t.Fatalf("GetTask: %#v, %v", stored, err)
+		}
+		if stored.Status != TaskStatusInProgress || stored.UpdatedTS != 200 {
+			t.Fatalf("task after a settled card = %#v", stored)
+		}
+	})
+
+	t.Run("the task write failing leaves the card still waiting", func(t *testing.T) {
+		d := newAPITestDAL(t)
+		task, step, card := seed(d)
+		before := card
+		card.Status = replyCardStatusAnswered
+		card.AnsweredTS = 200
+		step.Status = StepStatusInProgress
+		task.Status = TaskStatusInProgress
+		task.UpdatedTS = 200
+		if _, err := d.wdb.Exec(`DROP TABLE task`); err != nil {
+			t.Fatalf("drop task: %v", err)
+		}
+
+		if err := d.PutReplyCardWithStepAndTask(card, nil, &step, &task); err == nil {
+			t.Fatalf("a task row that cannot be written must fail the whole write")
+		}
+		// The two rows written BEFORE the failure must be back as they were:
+		// a card stuck on answered while its step still holds is the state
+		// with no way out.
+		dalWantReplyCard(t, d, "rc-1", &before)
+		steps, err := d.ListTaskSteps("T-1")
+		if err != nil {
+			t.Fatalf("ListTaskSteps: %v", err)
+		}
+		if len(steps) != 1 || steps[0].Status != StepStatusWaitingOwner ||
+			steps[0].ReplyCardID != "rc-1" {
+			t.Fatalf("step after a failed settle = %#v", steps)
+		}
+	})
+}
+
 func TestPutReplyCardWithChatAndStep(t *testing.T) {
 	seed := func(d *DAL) (Task, TaskStep) {
 		task := Task{

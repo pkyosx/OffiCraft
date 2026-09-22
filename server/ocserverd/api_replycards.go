@@ -877,23 +877,26 @@ func (s *apiServer) applyReplyCardAnswer(w http.ResponseWriter, r *http.Request,
 	card.AnswerOptionIdxs = optionIdxs
 	card.AnswerText = text
 	card.AnswerAttachments = refs
-	if err := s.dal.PutReplyCardWithAttachments(card, fresh); err != nil {
-		internalError(w, err)
-		return
-	}
+	var rel cardHoldRelease
 	if firstAnswer {
-		if err := s.releaseCardHold(card, requestTrigger(r)); err != nil {
+		var err error
+		if rel, err = s.planCardHoldRelease(card, nowSecs()); err != nil {
 			internalError(w, err)
 			return
 		}
 	}
+	if err := s.dal.PutReplyCardWithStepAndTask(card, fresh, rel.step, rel.task); err != nil {
+		internalError(w, err)
+		return
+	}
 	s.publishReplyCard(card, requestTrigger(r))
+	s.announceCardHoldRelease(rel, requestTrigger(r))
 	s.writeReplyCardTransitionReceipt(w, card)
 }
 
-// releaseCardHold releases the waiting_owner HOLD a reply card placed on a
-// task/step, fired when — and only when — the card leaves waiting through an
-// OWNER action: the FIRST answer (POST /answer: waiting → answered) or the
+// planCardHoldRelease works out what it takes to release the waiting_owner
+// HOLD a reply card placed on a task/step — needed when, and only when, the
+// card leaves waiting through an OWNER action: the FIRST answer (POST /answer: waiting → answered) or the
 // expire action (POST /expire: waiting → expired). It is the exit twin of the
 // arming the card-open path performs: the bound step returns to
 // in_progress (the owner settled
@@ -907,17 +910,17 @@ func (s *apiServer) applyReplyCardAnswer(w http.ResponseWriter, r *http.Request,
 // longer self-reports the resume, so a task can never linger in waiting_owner
 // behind an already-settled card.
 //
-// 🔴 THIS SIDE IS NOT ATOMIC, AND THE OPENING SIDE NOW IS — do not read the
-// word "twin" as symmetry. The answer path commits the card as answered
-// (PutReplyCardWithAttachments) and only THEN calls this, which writes the step
-// and the task in two further separate writes. A fault in either answers 500
-// over a card that is already answered, and unlike the opening side that state
-// does not heal itself: a retried POST /answer is refused 409 because the card
-// is no longer waiting, and a PUT re-answer computes firstAnswer=false and so
-// never reaches this function again. The step and its task stay in
-// waiting_owner behind a settled card, with no route back but a replan or a
-// forced close. expireWaitingCards shares this path and the same exposure.
-// Folding the three writes into one seam is the fix; it is not this ticket's.
+// 🔴 THIS COMPUTES, IT DOES NOT WRITE, AND THAT SPLIT IS THE WHOLE POINT. The
+// card, the step and the task are three rows, and they used to be three
+// separate writes with the card committed first. A fault in either of the
+// other two answered 500 over a card that was already settled, and that state
+// did not heal: a retried POST /answer is refused 409 because the card is no
+// longer waiting, and a PUT re-answer computes firstAnswer=false and so never
+// re-enters the release. The step and its task stayed in waiting_owner behind
+// a settled card, with no route back but a replan or a forced close.
+// PutReplyCardWithStepAndTask now takes all three in ONE transaction, so the
+// caller's order is: plan here, write there, and only then announce. Do not
+// write from this function, and do not publish before the write returns.
 //
 // Work progress PAST in_progress stays the
 // agent's to report (the surviving half of H4: the server releases the hold,
@@ -925,14 +928,15 @@ func (s *apiServer) applyReplyCardAnswer(w http.ResponseWriter, r *http.Request,
 // (reachable via expire only — answer rejects orphans at the door) leaves the
 // closed task untouched: nothing to resume, no UpdatedTS bump that would float
 // it back up the cockpit.
-func (s *apiServer) releaseCardHold(card ReplyCard, trigger string) error {
+func (s *apiServer) planCardHoldRelease(card ReplyCard, now float64) (cardHoldRelease, error) {
+	var rel cardHoldRelease
 	if card.TaskID == "" {
-		return nil // a plain unbound 請示 — no task hold to release
+		return rel, nil // a plain unbound 請示 — no task hold to release
 	}
 	if t, err := s.dal.GetTask(card.TaskID); err != nil {
-		return err
+		return rel, err
 	} else if t != nil && TaskIsTerminal(t.Status) {
-		return nil // orphan on a closed task — leave the terminal task alone
+		return rel, nil // orphan on a closed task — leave the terminal task alone
 	}
 	// Restore the bound step, but only if it STILL holds this very card in
 	// waiting_owner: a later re-arm (a fresh card on the same step) or an agent
@@ -940,22 +944,20 @@ func (s *apiServer) releaseCardHold(card ReplyCard, trigger string) error {
 	if card.TaskStepID != "" {
 		step, err := s.dal.GetTaskStep(card.TaskStepID)
 		if err != nil {
-			return err
+			return rel, err
 		}
 		if step != nil && step.Status == StepStatusWaitingOwner &&
 			step.ReplyCardID == card.ID {
 			step.Status = StepStatusInProgress
-			if err := s.dal.PutTaskStep(*step); err != nil {
-				return err
-			}
+			rel.step = step
 		}
 	}
 	t, err := s.dal.GetTask(card.TaskID)
 	if err != nil {
-		return err
+		return rel, err
 	}
 	if t == nil {
-		return nil
+		return rel, nil
 	}
 	// The task status is DERIVED (T-9ca5): now that the bound step left
 	// waiting_owner (above), re-project the task. If another bound card still
@@ -963,18 +965,65 @@ func (s *apiServer) releaseCardHold(card ReplyCard, trigger string) error {
 	// step → waiting_owner, SPEC §3.2 — one task, many cards); otherwise it
 	// falls to the steps' honest state. The seam always fans the delta (a lane
 	// resume still refreshes the cockpit even when the value is unchanged).
-	return s.deriveAndPersistTask(t, nowSecs(), trigger)
+	//
+	// The step this call is releasing has NOT been written yet, so the
+	// derivation has to be told about it: ListTaskSteps still reports it as
+	// waiting_owner, which would keep the task there.
+	steps, err := s.dal.ListTaskSteps(t.ID)
+	if err != nil {
+		return rel, err
+	}
+	if rel.step != nil {
+		for i := range steps {
+			if steps[i].ID == rel.step.ID {
+				steps[i] = *rel.step
+			}
+		}
+	}
+	was := t.Status
+	RecomputeTaskStatus(t, steps)
+	rel.arrived = was != TaskStatusReadyForDone && t.Status == TaskStatusReadyForDone
+	if rel.arrived {
+		t.ReadyForDoneVisits++
+	}
+	t.UpdatedTS = now
+	rel.task = t
+	return rel, nil
+}
+
+// cardHoldRelease is what a settled card CHANGES, computed before anything is
+// written so the whole set can go in one transaction. A nil field means that
+// row needs no write at all, which is the ordinary case for an unbound 請示
+// and for a step somebody already moved on.
+type cardHoldRelease struct {
+	step    *TaskStep
+	task    *Task
+	arrived bool
+}
+
+// announceCardHoldRelease fans out the deltas for a release that has ALREADY
+// been committed. It is separate from planning for one reason: a delta sent
+// for a transaction that later rolls back tells every reader something that
+// did not happen.
+func (s *apiServer) announceCardHoldRelease(rel cardHoldRelease, trigger string) {
+	if rel.task == nil {
+		return
+	}
+	s.publishTask(*rel.task, trigger)
+	if rel.arrived {
+		s.postReadyForDoneNotice(*rel.task, trigger)
+	}
 }
 
 // expireWaitingCards is the SERVER-SIDE card sweep: it applies the exact
-// semantics of the expire route (status flip + expired_ts +
-// releaseCardHold + delta) to every waiting card the predicate selects. It is
+// semantics of the expire route (status flip + expired_ts + the card-hold
+// release + delta) to every waiting card the predicate selects. It is
 // the ONE implementation the three lifecycle seams share (T-4166) — the reassign
 // pass that first grew it, the terminal-task close (closeTask), and member
 // dismissal — so "a card outlives the thing it was waiting on" has a single
 // place to be right. Returns how many cards it expired.
 //
-// On a task that is ALREADY terminal, releaseCardHold deliberately no-ops (it
+// On a task that is ALREADY terminal, the card-hold release deliberately no-ops (it
 // will not resume or re-stamp a closed task), so the sweep flips the card and
 // leaves the closed task alone — exactly what a manual expire does to
 // an orphan today.
@@ -990,13 +1039,15 @@ func (s *apiServer) expireWaitingCards(pick func(ReplyCard) bool, now float64, t
 		}
 		c.Status = replyCardStatusExpired
 		c.ExpiredTS = now
-		if err := s.dal.PutReplyCard(c); err != nil {
+		rel, err := s.planCardHoldRelease(c, now)
+		if err != nil {
 			return n, err
 		}
-		if err := s.releaseCardHold(c, trigger); err != nil {
+		if err := s.dal.PutReplyCardWithStepAndTask(c, nil, rel.step, rel.task); err != nil {
 			return n, err
 		}
 		s.publishReplyCard(c, trigger)
+		s.announceCardHoldRelease(rel, trigger)
 		n++
 	}
 	return n, nil
@@ -1037,7 +1088,7 @@ func (s *apiServer) expireWaitingCardsFromMember(memberID string, now float64, t
 // answer route 409s it) and can never leave the owner's pane on its own, so it
 // pins the cockpit red dot forever. The lifecycle fix above stops NEW ones; this
 // one-shot clears the ones minted before it. Terminal tasks are left untouched
-// (releaseCardHold's orphan branch). Returns the number of cards retired, for
+// (the card-hold release's orphan branch). Returns the number of cards retired, for
 // the boot log.
 func (s *apiServer) reconcileOrphanReplyCardsOnBoot() (int, error) {
 	cards, err := s.dal.ListReplyCards()
@@ -1092,7 +1143,7 @@ func (s *apiServer) HandleAnswerReplyCardApiReplyCardsCardIdAnswerPost(w http.Re
 	// T-68b7 補審(T-f571): terminate/done never closes a card still bound to
 	// the task, so a card can outlive its task — orphaned on a task that is
 	// done/terminated. Answering it would flip the card to answered and
-	// (releaseCardHold) bump the closed task's UpdatedTS,
+	// (the card-hold release) bump the closed task's UpdatedTS,
 	// floating an already-closed task back to the cockpit's "recently
 	// updated" top. Reject at the door instead: the card lifecycle no longer
 	// has a live task to resume.
@@ -1166,7 +1217,7 @@ func (s *apiServer) callerMayExpireCard(r *http.Request, card ReplyCard) bool {
 // closed — and that no answer is coming; the initiating agent decides itself
 // whether the question still matters (open a FRESH card with current context) or
 // not (close out / proceed). No body, no undo, no reopen. The waiting_owner hold
-// releases exactly like a first answer (releaseCardHold); a card orphaned on a
+// releases exactly like a first answer (the card-hold release); a card orphaned on a
 // terminal task (whose answer is 409 — T-f571) finds its ONLY exit here, the
 // closed task untouched. answered/expired → 409.
 func (s *apiServer) HandleExpireReplyCardApiReplyCardsCardIdExpirePost(w http.ResponseWriter, r *http.Request, cardId string) {
@@ -1200,14 +1251,16 @@ func (s *apiServer) HandleExpireReplyCardApiReplyCardsCardIdExpirePost(w http.Re
 	}
 	card.Status = replyCardStatusExpired
 	card.ExpiredTS = nowSecs()
-	if err := s.dal.PutReplyCard(*card); err != nil {
+	rel, err := s.planCardHoldRelease(*card, card.ExpiredTS)
+	if err != nil {
 		internalError(w, err)
 		return
 	}
-	if err := s.releaseCardHold(*card, requestTrigger(r)); err != nil {
+	if err := s.dal.PutReplyCardWithStepAndTask(*card, nil, rel.step, rel.task); err != nil {
 		internalError(w, err)
 		return
 	}
 	s.publishReplyCard(*card, requestTrigger(r))
+	s.announceCardHoldRelease(rel, requestTrigger(r))
 	s.writeReplyCardTransitionReceipt(w, *card)
 }

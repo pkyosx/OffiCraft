@@ -3861,7 +3861,7 @@ const mockApiImpl = {
     // identity to refuse. Adding an identity concept to express it would be
     // inventing behaviour the cockpit does not have; the 403 is pinned
     // server-side instead. Releasing the task/step hold mirrors the server's
-    // releaseCardHold: the bound step returns to in_progress, and the task
+    // The card-hold release: the bound step returns to in_progress, and the task
     // follows unless another waiting card still holds it; a terminal task is
     // left untouched (the orphan exit).
     const card = findReplyCard(id);

@@ -1380,9 +1380,14 @@ func TestReleaseCardHold(t *testing.T) {
 		dashboard := apiTestListen(t, api, "")
 		executor := apiTestListen(t, api, task.ExecutorID)
 
-		if err := api.releaseCardHold(card, "owner"); err != nil {
-			t.Fatalf("releaseCardHold: %v", err)
+		rel, err := api.planCardHoldRelease(card, nowSecs())
+		if err != nil {
+			t.Fatalf("planCardHoldRelease: %v", err)
 		}
+		if err := d.PutReplyCardWithStepAndTask(card, nil, rel.step, rel.task); err != nil {
+			t.Fatalf("PutReplyCardWithStepAndTask: %v", err)
+		}
+		api.announceCardHoldRelease(rel, "owner")
 		steps, err := d.ListTaskSteps(task.ID)
 		if err != nil {
 			t.Fatalf("ListTaskSteps: %v", err)
@@ -1427,9 +1432,14 @@ func TestReleaseCardHold(t *testing.T) {
 		if err := d.PutReplyCard(card); err != nil {
 			t.Fatalf("PutReplyCard: %v", err)
 		}
-		if err := api.releaseCardHold(card, "owner"); err != nil {
-			t.Fatalf("releaseCardHold: %v", err)
+		rel, err := api.planCardHoldRelease(card, nowSecs())
+		if err != nil {
+			t.Fatalf("planCardHoldRelease: %v", err)
 		}
+		if err := d.PutReplyCardWithStepAndTask(card, nil, rel.step, rel.task); err != nil {
+			t.Fatalf("PutReplyCardWithStepAndTask: %v", err)
+		}
+		api.announceCardHoldRelease(rel, "owner")
 		storedTask, err := d.GetTask(task.ID)
 		if err != nil || storedTask == nil {
 			t.Fatalf("GetTask: %#v, %v", storedTask, err)
