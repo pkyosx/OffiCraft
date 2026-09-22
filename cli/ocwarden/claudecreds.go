@@ -31,10 +31,11 @@ import "strings"
 
 // claudeCredEnvKeys are the environment-carried claude credentials, in the
 // order they appear in the summary. ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN
-// are direct credentials; the two CLAUDE_CODE_USE_* flags select a managed
-// cloud auth path (Bedrock / Vertex) where the actual credential lives in the
-// cloud SDK chain and no local claude login exists at all — treating them as
-// "credentialed" is what keeps this gate from false-refusing such a host.
+// and CLAUDE_CODE_OAUTH_TOKEN are direct credentials; the two CLAUDE_CODE_USE_*
+// flags select a managed cloud auth path (Bedrock / Vertex) where the actual
+// credential lives in the cloud SDK chain and no local claude login exists at
+// all — treating them as "credentialed" is what keeps this gate from
+// false-refusing such a host.
 var claudeCredEnvKeys = []string{
 	"ANTHROPIC_API_KEY",
 	"ANTHROPIC_AUTH_TOKEN",
