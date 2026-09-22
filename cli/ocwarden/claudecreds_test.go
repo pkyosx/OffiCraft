@@ -52,7 +52,7 @@ func TestProbeClaudeCreds(t *testing.T) {
 			env:  map[string]string{"HOME": "/home/seth"},
 			goos: "linux",
 			want: claudeCredStatus{Present: false, Summary: "cred_file=unset ANTHROPIC_API_KEY=unset " +
-				"ANTHROPIC_AUTH_TOKEN=unset CLAUDE_CODE_USE_BEDROCK=unset CLAUDE_CODE_USE_VERTEX=unset"},
+				"ANTHROPIC_AUTH_TOKEN=unset CLAUDE_CODE_USE_BEDROCK=unset CLAUDE_CODE_USE_VERTEX=unset CLAUDE_CODE_OAUTH_TOKEN=unset"},
 			wantAsked: []string{"/home/seth/.claude/.credentials.json"},
 		},
 		{
@@ -60,7 +60,7 @@ func TestProbeClaudeCreds(t *testing.T) {
 			env:       map[string]string{"HOME": "/home/seth"},
 			present:   map[string]bool{"/home/seth/.claude/.credentials.json": true},
 			goos:      "linux",
-			want:      claudeCredStatus{Present: true, Summary: "cred_file=SET ANTHROPIC_API_KEY=unset ANTHROPIC_AUTH_TOKEN=unset CLAUDE_CODE_USE_BEDROCK=unset CLAUDE_CODE_USE_VERTEX=unset"},
+			want:      claudeCredStatus{Present: true, Summary: "cred_file=SET ANTHROPIC_API_KEY=unset ANTHROPIC_AUTH_TOKEN=unset CLAUDE_CODE_USE_BEDROCK=unset CLAUDE_CODE_USE_VERTEX=unset CLAUDE_CODE_OAUTH_TOKEN=unset"},
 			wantAsked: []string{"/home/seth/.claude/.credentials.json"},
 		},
 		{
@@ -68,7 +68,7 @@ func TestProbeClaudeCreds(t *testing.T) {
 			env:       map[string]string{"HOME": "/home/seth///"},
 			present:   map[string]bool{"/home/seth/.claude/.credentials.json": true},
 			goos:      "linux",
-			want:      claudeCredStatus{Present: true, Summary: "cred_file=SET ANTHROPIC_API_KEY=unset ANTHROPIC_AUTH_TOKEN=unset CLAUDE_CODE_USE_BEDROCK=unset CLAUDE_CODE_USE_VERTEX=unset"},
+			want:      claudeCredStatus{Present: true, Summary: "cred_file=SET ANTHROPIC_API_KEY=unset ANTHROPIC_AUTH_TOKEN=unset CLAUDE_CODE_USE_BEDROCK=unset CLAUDE_CODE_USE_VERTEX=unset CLAUDE_CODE_OAUTH_TOKEN=unset"},
 			wantAsked: []string{"/home/seth/.claude/.credentials.json"},
 		},
 		{
@@ -76,7 +76,7 @@ func TestProbeClaudeCreds(t *testing.T) {
 			env:  map[string]string{},
 			goos: "linux",
 			want: claudeCredStatus{Present: false, Summary: "ANTHROPIC_API_KEY=unset ANTHROPIC_AUTH_TOKEN=unset " +
-				"CLAUDE_CODE_USE_BEDROCK=unset CLAUDE_CODE_USE_VERTEX=unset"},
+				"CLAUDE_CODE_USE_BEDROCK=unset CLAUDE_CODE_USE_VERTEX=unset CLAUDE_CODE_OAUTH_TOKEN=unset"},
 		},
 		{
 			name:      "nil exists drops the file source without claiming absence",
@@ -84,7 +84,7 @@ func TestProbeClaudeCreds(t *testing.T) {
 			nilExists: true,
 			goos:      "linux",
 			want: claudeCredStatus{Present: false, Summary: "ANTHROPIC_API_KEY=unset ANTHROPIC_AUTH_TOKEN=unset " +
-				"CLAUDE_CODE_USE_BEDROCK=unset CLAUDE_CODE_USE_VERTEX=unset"},
+				"CLAUDE_CODE_USE_BEDROCK=unset CLAUDE_CODE_USE_VERTEX=unset CLAUDE_CODE_OAUTH_TOKEN=unset"},
 		},
 		{
 			name:   "darwin keychain item present, queried without -w",
@@ -92,7 +92,7 @@ func TestProbeClaudeCreds(t *testing.T) {
 			runner: &credArgvRunner{},
 			goos:   "darwin",
 			want: claudeCredStatus{Present: true, Summary: "cred_file=unset keychain=SET ANTHROPIC_API_KEY=unset " +
-				"ANTHROPIC_AUTH_TOKEN=unset CLAUDE_CODE_USE_BEDROCK=unset CLAUDE_CODE_USE_VERTEX=unset"},
+				"ANTHROPIC_AUTH_TOKEN=unset CLAUDE_CODE_USE_BEDROCK=unset CLAUDE_CODE_USE_VERTEX=unset CLAUDE_CODE_OAUTH_TOKEN=unset"},
 			wantAsked:   []string{"/Users/seth/.claude/.credentials.json"},
 			wantRunCall: [][]string{{"security", "find-generic-password", "-s", "Claude Code-credentials"}},
 		},
@@ -102,7 +102,7 @@ func TestProbeClaudeCreds(t *testing.T) {
 			runner: &credArgvRunner{err: os.ErrNotExist},
 			goos:   "darwin",
 			want: claudeCredStatus{Present: false, Summary: "cred_file=unset keychain=unset ANTHROPIC_API_KEY=unset " +
-				"ANTHROPIC_AUTH_TOKEN=unset CLAUDE_CODE_USE_BEDROCK=unset CLAUDE_CODE_USE_VERTEX=unset"},
+				"ANTHROPIC_AUTH_TOKEN=unset CLAUDE_CODE_USE_BEDROCK=unset CLAUDE_CODE_USE_VERTEX=unset CLAUDE_CODE_OAUTH_TOKEN=unset"},
 			wantAsked:   []string{"/Users/seth/.claude/.credentials.json"},
 			wantRunCall: [][]string{{"security", "find-generic-password", "-s", "Claude Code-credentials"}},
 		},
@@ -111,7 +111,7 @@ func TestProbeClaudeCreds(t *testing.T) {
 			env:  map[string]string{"HOME": "/Users/seth"},
 			goos: "darwin",
 			want: claudeCredStatus{Present: false, Summary: "cred_file=unset ANTHROPIC_API_KEY=unset " +
-				"ANTHROPIC_AUTH_TOKEN=unset CLAUDE_CODE_USE_BEDROCK=unset CLAUDE_CODE_USE_VERTEX=unset"},
+				"ANTHROPIC_AUTH_TOKEN=unset CLAUDE_CODE_USE_BEDROCK=unset CLAUDE_CODE_USE_VERTEX=unset CLAUDE_CODE_OAUTH_TOKEN=unset"},
 			wantAsked: []string{"/Users/seth/.claude/.credentials.json"},
 		},
 		{
@@ -120,7 +120,7 @@ func TestProbeClaudeCreds(t *testing.T) {
 			runner: &credArgvRunner{},
 			goos:   "linux",
 			want: claudeCredStatus{Present: false, Summary: "cred_file=unset ANTHROPIC_API_KEY=unset " +
-				"ANTHROPIC_AUTH_TOKEN=unset CLAUDE_CODE_USE_BEDROCK=unset CLAUDE_CODE_USE_VERTEX=unset"},
+				"ANTHROPIC_AUTH_TOKEN=unset CLAUDE_CODE_USE_BEDROCK=unset CLAUDE_CODE_USE_VERTEX=unset CLAUDE_CODE_OAUTH_TOKEN=unset"},
 			wantAsked: []string{"/home/seth/.claude/.credentials.json"},
 		},
 		{
@@ -128,7 +128,7 @@ func TestProbeClaudeCreds(t *testing.T) {
 			env:  map[string]string{"HOME": "/home/seth", "ANTHROPIC_API_KEY": "sk-ant-secret"},
 			goos: "linux",
 			want: claudeCredStatus{Present: true, Summary: "cred_file=unset ANTHROPIC_API_KEY=SET " +
-				"ANTHROPIC_AUTH_TOKEN=unset CLAUDE_CODE_USE_BEDROCK=unset CLAUDE_CODE_USE_VERTEX=unset"},
+				"ANTHROPIC_AUTH_TOKEN=unset CLAUDE_CODE_USE_BEDROCK=unset CLAUDE_CODE_USE_VERTEX=unset CLAUDE_CODE_OAUTH_TOKEN=unset"},
 			wantAsked: []string{"/home/seth/.claude/.credentials.json"},
 		},
 		{
@@ -136,7 +136,7 @@ func TestProbeClaudeCreds(t *testing.T) {
 			env:  map[string]string{"HOME": "/home/seth", "ANTHROPIC_AUTH_TOKEN": "   \t\n"},
 			goos: "linux",
 			want: claudeCredStatus{Present: false, Summary: "cred_file=unset ANTHROPIC_API_KEY=unset " +
-				"ANTHROPIC_AUTH_TOKEN=unset CLAUDE_CODE_USE_BEDROCK=unset CLAUDE_CODE_USE_VERTEX=unset"},
+				"ANTHROPIC_AUTH_TOKEN=unset CLAUDE_CODE_USE_BEDROCK=unset CLAUDE_CODE_USE_VERTEX=unset CLAUDE_CODE_OAUTH_TOKEN=unset"},
 			wantAsked: []string{"/home/seth/.claude/.credentials.json"},
 		},
 		{
@@ -144,7 +144,15 @@ func TestProbeClaudeCreds(t *testing.T) {
 			env:  map[string]string{"HOME": "/home/seth", "CLAUDE_CODE_USE_BEDROCK": "1"},
 			goos: "linux",
 			want: claudeCredStatus{Present: true, Summary: "cred_file=unset ANTHROPIC_API_KEY=unset " +
-				"ANTHROPIC_AUTH_TOKEN=unset CLAUDE_CODE_USE_BEDROCK=SET CLAUDE_CODE_USE_VERTEX=unset"},
+				"ANTHROPIC_AUTH_TOKEN=unset CLAUDE_CODE_USE_BEDROCK=SET CLAUDE_CODE_USE_VERTEX=unset CLAUDE_CODE_OAUTH_TOKEN=unset"},
+			wantAsked: []string{"/home/seth/.claude/.credentials.json"},
+		},
+		{
+			name: "a long-lived oauth token in the environment counts as credentialed",
+			env:  map[string]string{"HOME": "/home/seth", "CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-oat01-secret"},
+			goos: "linux",
+			want: claudeCredStatus{Present: true, Summary: "cred_file=unset ANTHROPIC_API_KEY=unset " +
+				"ANTHROPIC_AUTH_TOKEN=unset CLAUDE_CODE_USE_BEDROCK=unset CLAUDE_CODE_USE_VERTEX=unset CLAUDE_CODE_OAUTH_TOKEN=SET"},
 			wantAsked: []string{"/home/seth/.claude/.credentials.json"},
 		},
 		{
@@ -152,13 +160,13 @@ func TestProbeClaudeCreds(t *testing.T) {
 			env: map[string]string{
 				"HOME": "/Users/seth", "ANTHROPIC_API_KEY": "sk-ant-secret",
 				"ANTHROPIC_AUTH_TOKEN": "tok", "CLAUDE_CODE_USE_BEDROCK": "1",
-				"CLAUDE_CODE_USE_VERTEX": "1",
+				"CLAUDE_CODE_USE_VERTEX": "1", "CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-oat01-secret",
 			},
 			present: map[string]bool{"/Users/seth/.claude/.credentials.json": true},
 			runner:  &credArgvRunner{},
 			goos:    "darwin",
 			want: claudeCredStatus{Present: true, Summary: "cred_file=SET keychain=SET ANTHROPIC_API_KEY=SET " +
-				"ANTHROPIC_AUTH_TOKEN=SET CLAUDE_CODE_USE_BEDROCK=SET CLAUDE_CODE_USE_VERTEX=SET"},
+				"ANTHROPIC_AUTH_TOKEN=SET CLAUDE_CODE_USE_BEDROCK=SET CLAUDE_CODE_USE_VERTEX=SET CLAUDE_CODE_OAUTH_TOKEN=SET"},
 			wantAsked:   []string{"/Users/seth/.claude/.credentials.json"},
 			wantRunCall: [][]string{{"security", "find-generic-password", "-s", "Claude Code-credentials"}},
 		},

@@ -175,9 +175,10 @@ func resolvedClaudeHome(env func(string) string, logf func(string, ...any)) clau
 //
 // WHAT THE WHITELIST HOLDS. Only the CLAUDE_* names the warden ITSELF already
 // recognises as a credential source — derived from claudeCredEnvKeys rather
-// than re-typed, so the two lists cannot drift apart. Those two select a managed
-// cloud auth path; dropping them turns a working Bedrock/Vertex host into a
-// logged-out child.
+// than re-typed, so the two lists cannot drift apart. Those are the CLAUDE_*
+// names the warden accepts as a login: two managed-cloud selectors (Bedrock /
+// Vertex) and one long-lived token (CLAUDE_CODE_OAUTH_TOKEN). Dropping any of
+// them turns a working host into a logged-out child.
 // ---------------------------------------------------------------------------
 
 // claudeEnvPurgePrefix is the family the launch line clears. One prefix, not a

@@ -684,7 +684,7 @@ func TestBuildClaudeCredProbe(t *testing.T) {
 	got := probe()
 	want := claudeCredStatus{Present: false,
 		Summary: "cred_file=unset keychain=unset ANTHROPIC_API_KEY=unset ANTHROPIC_AUTH_TOKEN=unset " +
-			"CLAUDE_CODE_USE_BEDROCK=unset CLAUDE_CODE_USE_VERTEX=unset"}
+			"CLAUDE_CODE_USE_BEDROCK=unset CLAUDE_CODE_USE_VERTEX=unset CLAUDE_CODE_OAUTH_TOKEN=unset"}
 	if got != want {
 		t.Errorf("probe() = %+v, want %+v", got, want)
 	}

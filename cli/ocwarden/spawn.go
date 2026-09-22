@@ -1259,14 +1259,20 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 			//
 			// WIDTH, MEASURED WITH THE SUMMARY A REAL HOST PRODUCES — not the
 			// two-source one the test used to stub. probeClaudeCreds marks
-			// cred_file, keychain AND all four claudeCredEnvKeys, so a
-			// signed-out Mac renders six "=unset" pairs: 140 columns of the
-			// total on its own. This message went 516 -> 359 columns. The
-			// sibling constant runs 182 under a 220 guard because it
-			// interpolates nothing at all. So the gap between them is the
-			// SUMMARY, not the prose — and shrinking the summary is a separate
-			// change, because its value-free construction is a security
-			// contract (see claudecreds.go). Guard set at 380 here, above 359.
+			// cred_file, keychain AND all five claudeCredEnvKeys, so a
+			// signed-out Mac renders seven "=unset" pairs: 170 columns of the
+			// total on its own (140 before CLAUDE_CODE_OAUTH_TOKEN joined the
+			// list; every width downstream of the summary moved by +30 with
+			// it). This message went 516 -> 359 columns at 140, so 389 now.
+			// The sibling constant runs 182 because it interpolates nothing
+			// at all. So the gap between them is the SUMMARY, not the prose —
+			// and shrinking the summary is a separate change, because its
+			// value-free construction is a security contract (see
+			// claudecreds.go). NOTE: no width guard exists in the tree — an
+			// earlier draft here named a "380 guard" and a "220 guard", and a
+			// reviewer grepped the whole tree (positive control: spawn_test.go
+			// assertions) and found neither, as constant or as test. These
+			// widths have never been held to anything.
 			//
 			// The launchd clause stays, but NOT for the reason an earlier draft
 			// of this comment gave. That draft claimed this string is "the only
