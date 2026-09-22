@@ -225,6 +225,89 @@ describe("Markdown", () => {
     expect(c.textContent).toContain("[click me](javascript:alert(1))");
   });
 
+  // Same-origin absolute paths. An agent running on the station's own machine
+  // only knows the loopback address it calls the API with, so every link it
+  // wrote carried a host that opened nowhere else; a path carries no host and
+  // resolves against the reader's own. The danger is the shapes a browser
+  // reads as a DIFFERENT host despite the leading slash.
+  describe("same-origin absolute path", () => {
+    it("renders a one-slash path as an anchor with the path as its href", () => {
+      const c = renderMd("open [T-1](/#tasks/T-1) now");
+      const a = c.querySelector("a");
+      expect(a).not.toBeNull();
+      expect(a?.getAttribute("href")).toBe("/#tasks/T-1");
+      expect(a?.textContent).toBe("T-1");
+      expect(a?.getAttribute("target")).toBe("_blank");
+      expect(a?.getAttribute("rel")).toBe("noopener noreferrer");
+    });
+
+    it("renders the reply-card route the boot document spells", () => {
+      const c = renderMd("[card](/#replies/card/rc-1)");
+      expect(c.querySelector("a")?.getAttribute("href")).toBe(
+        "/#replies/card/rc-1",
+      );
+    });
+
+    it("renders the bare root path", () => {
+      const c = renderMd("[home](/)");
+      expect(c.querySelector("a")?.getAttribute("href")).toBe("/");
+    });
+
+    it("refuses a protocol-relative target: two slashes are another host", () => {
+      const c = renderMd("[safe?](//evil.com/x)");
+      expect(c.querySelector("a")).toBeNull();
+      expect(c.textContent).toContain("[safe?](//evil.com/x)");
+    });
+
+    it("refuses a backslash after the slash: the URL parser reads it as a slash", () => {
+      const c = renderMd("[safe?](/\\evil.com/x)");
+      expect(c.querySelector("a")).toBeNull();
+      expect(c.textContent).toContain("/\\evil.com/x");
+    });
+
+    it("refuses a tab between the slashes: the browser strips it before parsing", () => {
+      const c = renderMd("[safe?](/\t/evil.com)");
+      expect(c.querySelector("a")).toBeNull();
+    });
+
+    it("refuses a carriage return between the slashes for the same reason", () => {
+      const c = renderMd("[safe?](/\r/evil.com)");
+      expect(c.querySelector("a")).toBeNull();
+    });
+
+    it("still keeps a scheme-relative-looking path literal when it is not a path at all", () => {
+      const c = renderMd("[nope](tasks/T-1)");
+      expect(c.querySelector("a")).toBeNull();
+      expect(c.textContent).toContain("[nope](tasks/T-1)");
+    });
+
+    it("renders an angle-bracketed path the same way as a bare one", () => {
+      const c = renderMd("[T-1](</#tasks/T-1>)");
+      expect(c.querySelector("a")?.getAttribute("href")).toBe("/#tasks/T-1");
+    });
+
+    it("does not autolink a bare path in prose: only the [text](path) form", () => {
+      const c = renderMd("go to /#tasks/T-1 please");
+      expect(c.querySelector("a")).toBeNull();
+    });
+
+    // The two shapes that decide whether an IMAGE reference can become a link.
+    // Both pin the indexing, not the regex: the "!" of `![alt](src)` lands on
+    // the run BEFORE the link token, so the check reads its previous element —
+    // which only lines up because the empty runs are dropped BEFORE the map.
+    it("refuses an image reference that is not the first token on the line", () => {
+      const c = renderMd("[a](/x)![b](/y)");
+      const hrefs = [...c.querySelectorAll("a")].map((a) => a.getAttribute("href"));
+      expect(hrefs).toEqual(["/x"]);
+    });
+
+    it("refuses an image reference whose bang ends a run of prose", () => {
+      const c = renderMd("完成了![看這裡](/#tasks/T-1)");
+      expect(c.querySelector("a")).toBeNull();
+      expect(c.textContent).toContain("![看這裡](/#tasks/T-1)");
+    });
+  });
+
   // Angle-bracketed destinations — `[text](<url>)`, CommonMark's way of writing
   // a destination that may carry spaces. It used to render as literal text
   // because the brackets were judged as part of the URL.
@@ -926,7 +1009,6 @@ describe("Markdown", () => {
       ["javascript:", "[click me](javascript:alert(1))", "javascript:alert(1)"],
       ["data:", "[x](data:text/html,<script>alert(1)</script>)", "data:text/html,"],
       ["protocol-relative", "[x](//evil.com/doc.md)", "//evil.com/doc.md"],
-      ["site-absolute", "[x](/etc/passwd.md)", "/etc/passwd.md"],
       ["vbscript:", "[x](vbscript:msgbox)", "vbscript:msgbox"],
       // The one that pins the DESIGN's headline argument. Every case above is
       // rejected for an INCIDENTAL reason — "(" / "," / "<" are outside the
@@ -951,6 +1033,23 @@ describe("Markdown", () => {
         expect(spy.asked).toEqual([]);
       },
     );
+
+    // A site-absolute target is now the same-origin path class: it BECOMES a
+    // link. What must not change is the half this table is really about — it is
+    // still never offered to the resolver, because DOC_REL_PATH_RE's first
+    // segment cannot start with "/". Asserting only "no anchor" would have
+    // conflated the two and gone red for the wrong reason.
+    it("ON: a site-absolute target becomes a same-origin link, still bypassing the resolver", () => {
+      const spy = spyResolver();
+      const { container } = render(
+        <Markdown source="[x](/etc/passwd.md)" resolveDocLink={spy.resolve} />,
+      );
+      expect(container.querySelector("a")?.getAttribute("href")).toBe(
+        "/etc/passwd.md",
+      );
+      expect(container.querySelector("button")).toBeNull();
+      expect(spy.asked).toEqual([]);
+    });
 
     it("ON: http(s) links keep the external anchor and bypass the resolver", () => {
       const spy = spyResolver();
