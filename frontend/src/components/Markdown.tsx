@@ -28,14 +28,18 @@
 //               [text](<url>), which means the same thing (http/https/mailto
 //               only — any other scheme, e.g. "javascript:", falls through as
 //               literal text instead of becoming an <a>; real links carry
-//               target="_blank" rel="noopener noreferrer"). A SECOND, opt-in
-//               link class exists for the 使用說明 doc page only: repo-relative
+//               target="_blank" rel="noopener noreferrer"). A SECOND class,
+//               always on, is a SAME-ORIGIN ABSOLUTE PATH — `/#tasks/T-1`,
+//               written with exactly one leading slash, which resolves against
+//               whatever address the reader opened the studio on instead of a
+//               host the writer had to know; see SAFE_PATH_RE. A THIRD,
+//               opt-in class exists for the 使用說明 doc page only: repo-relative
 //               `*.md` targets resolved through `resolveDocLink` into IN-APP
 //               navigation (T-68f1) — see the prop's doc comment. Bare
 //               http/https URLs are ALSO autolinked, everywhere, with no flag
 //               and no per-surface opt-in (T-59) — the rule runs after the
 //               tokenizer, so it only ever sees leftover plain text; see the
-//               block comment above `renderInline`. A THIRD class is our own
+//               block comment above `renderInline`. A FOURTH class is our own
 //               compare url (`/diff?before=…&after=…`, T-59): still an
 //               ordinary <a> that passed the allowlist above, but a plain left
 //               click on it opens the comparison in place instead of
@@ -93,8 +97,8 @@ interface MarkdownProps {
    * ON, because it is the only surface whose source is the build-time doc
    * embed AND the only surface with somewhere to navigate to.
    *
-   * SECURITY: this is a THIRD link class, NOT a loosening of SAFE_URL_RE. The
-   * external-scheme allowlist is evaluated FIRST and unchanged; only targets
+   * SECURITY: this is a link class of its own, NOT a loosening of SAFE_URL_RE.
+   * The external-scheme allowlist is evaluated FIRST and unchanged; only targets
    * matching DOC_REL_PATH_RE (a positive allowlist that cannot contain ":" and
    * cannot start with "/") are ever handed to the resolver, so `javascript:`,
    * `data:` and protocol-relative `//evil.com` never reach it and stay literal
@@ -131,6 +135,23 @@ const LINK_RE = /^\[([^\]]+)\]\(([^)]+)\)$/;
 const ANGLE_DEST_RE = /^<([^<>]*)>$/;
 const IMG_BLOCK_RE = /^!\[([^\]]*)\]\(([^)]+)\)$/;
 const SAFE_URL_RE = /^(https?:|mailto:)/i;
+// A SAME-ORIGIN absolute path, the second link class: it carries no host, so it
+// resolves against whatever address the reader opened the studio on. That is
+// the point — an agent running on the station's own machine only knows the
+// loopback address it calls the API with, and a link built from it opened
+// nowhere else (owner report 2026-09-22, three cards in a row).
+//
+// SECURITY: EXACTLY ONE leading slash, and the judgement is made on a
+// NORMALISED copy that is also what gets rendered. Three shapes reach a
+// browser as a different HOST and all three are excluded here:
+//   • "//evil.com/x"  — protocol-relative, the hole the image rule still has;
+//   • "/\evil.com/x"  — the URL parser reads a backslash as a slash;
+//   • "/<TAB>/evil.com" — TAB, LF and CR are stripped BEFORE parsing, so what
+//     the browser sees is "//evil.com".
+// Anything that is not an http/https/mailto url and not one of these paths
+// keeps the literal-text fallback, exactly as before.
+const URL_STRIPPED_CHARS_RE = /[\t\n\r]/g;
+const SAFE_PATH_RE = /^\/(?![/\\])/;
 // An image src is safe to load when it is http/https OR a same-origin absolute
 // API path (the server rewrites doc-relative `assets/…` refs to `/api/docs/
 // assets/…`). data:/javascript:/relative fall through as literal text.
@@ -159,8 +180,8 @@ interface InlineOpts {
   tableSizing?: "content-aware";
 }
 
-/** An http/https/mailto link — and, when it happens to be one of OUR OWN
- * compare urls and the studio is around to host it, the THIRD link class.
+/** An http/https/mailto url or a same-origin absolute path — and, when it happens to be one of OUR OWN
+ * compare urls and the studio is around to host it, an in-app navigation.
  *
  * SECURITY: this is NOT a loosening of anything. The external-scheme allowlist
  * (`SAFE_URL_RE`) has already said yes before this component is reached; every
@@ -322,11 +343,10 @@ function autolinkBareUrls(text: string): ReactNode[] {
 // content is not re-parsed).
 function renderInline(text: string, opts?: InlineOpts): ReactNode[] {
   // Capturing split keeps the delimiters as their own array entries.
-  const parts = text.split(
-    /(`[^`]+`|\*\*[^*]+\*\*|\[[^\]]+\]\([^)]+\))/g
-  );
+  const parts = text
+    .split(/(`[^`]+`|\*\*[^*]+\*\*|\[[^\]]+\]\([^)]+\))/g)
+    .filter((p) => p !== "");
   return parts
-    .filter((p) => p !== "")
     .map((part, i) => {
       if (part.length >= 2 && part.startsWith("`") && part.endsWith("`")) {
         return <code key={i}>{part.slice(1, -1)}</code>;
@@ -347,7 +367,17 @@ function renderInline(text: string, opts?: InlineOpts): ReactNode[] {
         const target = (angled ? angled[1] : url).trim();
         // The external-scheme allowlist runs FIRST and is unchanged.
         if (!SAFE_URL_RE.test(target)) {
-          // Second chance, opt-in only: a repo-relative *.md reference the host
+          // Second chance, always on: a same-origin absolute path. An
+          // `![alt](/x.png)` IMAGE reference is excluded — the capturing split
+          // leaves its "!" on the previous run, so the link branch sees a link
+          // nobody wrote, and an image whose surface declined a resolver has
+          // always stayed literal text here.
+          const isImageRef = i > 0 && parts[i - 1].endsWith("!");
+          const path = target.replace(URL_STRIPPED_CHARS_RE, "");
+          if (!isImageRef && SAFE_PATH_RE.test(path)) {
+            return <ExternalOrDiffLink key={i} href={path} label={label} />;
+          }
+          // Third chance, opt-in only: a repo-relative *.md reference the host
           // surface knows how to navigate to in-app. Anything the positive
           // path allowlist does not match — and anything the resolver declines
           // — keeps the literal-text fallback.

@@ -58,9 +58,9 @@ Chat 訊息不保證 Owner 會逐則查看，因此若需要 Owner 做決定或�
 - <before> 與 <after> 都必須使用已存在於系統中的位址。如果要比較的是 Task 產物、收到的附件或先前已上傳的內容，直接使用既有的附件 id（`att-` 開頭；Task 產物使用它的 attachment_id），不要為了產生 Diff 再上傳一份。
 - 系統文件（例如角色誌、Insight、Global Context、任務手冊）可以直接使用 doc: 位址作為其中一側，不要先下載、另存再上傳，避免產生不必要的副本，且副本不會隨原文件更新。
 
-在 Chat 中提到 Task 或 Reply Card 時，附上可直接開啟的 Markdown 連結。站台網址一律透過環境變數 OC_BASE 取值後填進連結。
-- Task：`[<Task 名稱或 ID>](站台網址/#tasks/<Task id>)`
-- Reply Card：`[< Reply Card 名稱或 ID>](站台網址/#replies/card/<Reply Card id>)`
+在 Chat 中提到 Task 或 Reply Card 時，附上可直接開啟的 Markdown 連結。連結一律寫成不帶主機的路徑，也就是以一條斜線開頭；它會跟著閱讀者當下開啟站台的位址走。不要把 OC_BASE 或任何主機名稱填進連結——OC_BASE 是你呼叫 API 的位址，在站台本機執行的成員拿到的是 loopback 位址，那樣的連結只有你自己打得開。
+- Task：`[<Task 名稱或 ID>](/#tasks/<Task id>)`
+- Reply Card：`[< Reply Card 名稱或 ID>](/#replies/card/<Reply Card id>)`
 
 若要明確回覆某一則 Chat 訊息，在 post_chat 中設定 reply_to 為該訊息的 message id，讓收件人能直接看出回覆的對象與上下文。
 
