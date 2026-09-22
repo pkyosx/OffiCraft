@@ -579,7 +579,7 @@ func TestAnsweringACardResumesTheTaskAndStep(t *testing.T) {
 // report) closes the task WITHOUT touching a still-bound waiting card, so the
 // card is orphaned on a task that is already done/terminated. The answer
 // route must reject it (409) rather than flip it to answered and have
-// The card-hold release bump the closed task's UpdatedTS back to
+// the card-hold release bump the closed task's UpdatedTS back to
 // the cockpit's "recently updated" top — and it must leave the card, step,
 // and task exactly as they were.
 func TestAnsweringACardOnATerminatedOrDoneTaskIsRejected(t *testing.T) {

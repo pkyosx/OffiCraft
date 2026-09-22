@@ -872,15 +872,20 @@ func (s *apiServer) applyReplyCardAnswer(w http.ResponseWriter, r *http.Request,
 		fresh = append(fresh, *att)
 		refs = append(refs, attachmentRef(att))
 	}
+	// ONE clock read for the whole settle: the card's answered_ts and the
+	// task's updated_ts describe the same moment, so a reader cannot see the
+	// task stamped after the answer that caused it. The expire side already
+	// does this (it reuses card.ExpiredTS).
+	now := nowSecs()
 	card.Status = replyCardStatusAnswered
-	card.AnsweredTS = nowSecs()
+	card.AnsweredTS = now
 	card.AnswerOptionIdxs = optionIdxs
 	card.AnswerText = text
 	card.AnswerAttachments = refs
 	var rel cardHoldRelease
 	if firstAnswer {
 		var err error
-		if rel, err = s.planCardHoldRelease(card, nowSecs()); err != nil {
+		if rel, err = s.planCardHoldRelease(card, now); err != nil {
 			internalError(w, err)
 			return
 		}
@@ -933,9 +938,15 @@ func (s *apiServer) planCardHoldRelease(card ReplyCard, now float64) (cardHoldRe
 	if card.TaskID == "" {
 		return rel, nil // a plain unbound 請示 — no task hold to release
 	}
-	if t, err := s.dal.GetTask(card.TaskID); err != nil {
+	// 🔴 ONE read, and the terminal guard runs on the row that is later
+	// WRITTEN. Reading the task twice put the guard on one copy and the write
+	// on another: a task that closed in between was re-stamped and re-published
+	// even though this function had already decided to leave it alone.
+	t, err := s.dal.GetTask(card.TaskID)
+	if err != nil {
 		return rel, err
-	} else if t != nil && TaskIsTerminal(t.Status) {
+	}
+	if t != nil && TaskIsTerminal(t.Status) {
 		return rel, nil // orphan on a closed task — leave the terminal task alone
 	}
 	// Restore the bound step, but only if it STILL holds this very card in
@@ -951,10 +962,6 @@ func (s *apiServer) planCardHoldRelease(card ReplyCard, now float64) (cardHoldRe
 			step.Status = StepStatusInProgress
 			rel.step = step
 		}
-	}
-	t, err := s.dal.GetTask(card.TaskID)
-	if err != nil {
-		return rel, err
 	}
 	if t == nil {
 		return rel, nil
@@ -993,8 +1000,9 @@ func (s *apiServer) planCardHoldRelease(card ReplyCard, now float64) (cardHoldRe
 
 // cardHoldRelease is what a settled card CHANGES, computed before anything is
 // written so the whole set can go in one transaction. A nil field means that
-// row needs no write at all, which is the ordinary case for an unbound 請示
-// and for a step somebody already moved on.
+// row needs no write at all: both nil for an unbound 請示 or an orphan on a
+// closed task, a nil step for one somebody already moved on, and a nil task
+// with a live step when the card names a task row that no longer exists.
 type cardHoldRelease struct {
 	step    *TaskStep
 	task    *Task

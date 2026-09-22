@@ -1457,6 +1457,123 @@ func TestReleaseCardHold(t *testing.T) {
 	})
 }
 
+// TestAnsweringACardAnnouncesOnlyAfterTheWriteLands pins the ORDER the answer
+// route keeps: plan, write, and only then fan out. A delta sent for a write
+// that then rolls back tells every reader the task resumed when it did not,
+// and nothing later corrects it — the card is still waiting, so no second
+// answer ever re-publishes.
+func TestAnsweringACardAnnouncesOnlyAfterTheWriteLands(t *testing.T) {
+	seed := func(t *testing.T) (*apiServer, *DAL, Task, TaskStep) {
+		t.Helper()
+		api, _, d, _ := newAPITestServer(t)
+		task := dalTestTask("T-1")
+		task.Status = TaskStatusWaitingOwner
+		task.WaitingReason = ""
+		task.ClosedTS = 0
+		step := dalTestStep("ts-1", task.ID)
+		step.Status = StepStatusWaitingOwner
+		step.ReplyCardID = "rc-1"
+		card := ReplyCard{
+			ID: "rc-1", FromMember: "kip", Kind: "decision",
+			Status: replyCardStatusWaiting, TaskID: task.ID, TaskStepID: step.ID,
+		}
+		for _, w := range []func() error{
+			func() error { return d.PutTask(task) },
+			func() error { return d.PutTaskStep(step) },
+			func() error { return d.PutReplyCard(card) },
+		} {
+			if err := w(); err != nil {
+				t.Fatalf("seed: %v", err)
+			}
+		}
+		return api, d, task, step
+	}
+
+	t.Run("a task write that fails fans nothing out", func(t *testing.T) {
+		api, d, task, step := seed(t)
+		// Fail the WRITE and only the write: reads stay intact, so the release
+		// is planned in full and the route reaches the announce. Dropping the
+		// table instead would fail the planning read first, and the mutant that
+		// announces early would never be reached.
+		if _, err := d.wdb.Exec(
+			`CREATE TRIGGER refuse_task_update BEFORE UPDATE ON task
+			 BEGIN SELECT RAISE(FAIL, 'the task write fails'); END`); err != nil {
+			t.Fatalf("create trigger: %v", err)
+		}
+		dashboard := apiTestListen(t, api, "")
+		executor := apiTestListen(t, api, task.ExecutorID)
+
+		rec := answerCard(t, api, "rc-1", map[string]any{"text": "go"})
+
+		if rec.Code != http.StatusInternalServerError {
+			t.Fatalf("a settle that cannot be written must fail the request: %d %s",
+				rec.Code, rec.Body.String())
+		}
+		dashboard.wantFrames()
+		executor.wantFrames()
+		storedCard, err := d.GetReplyCard("rc-1")
+		if err != nil || storedCard == nil {
+			t.Fatalf("card: %#v, %v", storedCard, err)
+		}
+		if storedCard.Status != replyCardStatusWaiting {
+			t.Fatalf("a rolled-back settle leaves the card waiting, got %s", storedCard.Status)
+		}
+		stored, err := d.GetTask(task.ID)
+		if err != nil || stored == nil {
+			t.Fatalf("task: %#v, %v", stored, err)
+		}
+		if stored.Status != TaskStatusWaitingOwner || stored.UpdatedTS != task.UpdatedTS {
+			t.Fatalf("a rolled-back settle leaves the task as it was, got %#v", stored)
+		}
+		steps, err := d.ListTaskSteps(task.ID)
+		if err != nil {
+			t.Fatalf("ListTaskSteps: %v", err)
+		}
+		if len(steps) != 1 || steps[0].Status != StepStatusWaitingOwner {
+			t.Fatalf("a rolled-back settle leaves the step held, got %#v", steps)
+		}
+		_ = step
+	})
+
+	// The negative case above is only evidence if this path fans anything at
+	// all when the write does land.
+	t.Run("a settle that lands fans the task delta", func(t *testing.T) {
+		api, d, task, _ := seed(t)
+		dashboard := apiTestListen(t, api, "")
+
+		rec := answerCard(t, api, "rc-1", map[string]any{"text": "go"})
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("answer: %d %s", rec.Code, rec.Body.String())
+		}
+		dashboard.wantFrames(
+			map[string]any{
+				"seq": 1, "topic": "reply_card", "op": "patch",
+				"data": map[string]any{
+					"entity": "reply_card", "key": "owner::rc-1", "epoch": 1, "deleted": false,
+					"payload": map[string]any{"id": "rc-1", "from": "kip", "status": replyCardStatusAnswered},
+				},
+				"ts": apiAnyNumber, "trigger": "owner",
+			},
+			map[string]any{
+				"seq": 2, "topic": "task", "op": "patch",
+				"data": map[string]any{
+					"entity": "task", "key": "owner::T-1", "epoch": 2, "deleted": false,
+					"payload": map[string]any{"id": "T-1", "priority": "high", "status": TaskStatusInProgress},
+				},
+				"ts": apiAnyNumber, "trigger": "owner",
+			},
+		)
+		stored, err := d.GetTask(task.ID)
+		if err != nil || stored == nil {
+			t.Fatalf("task: %#v, %v", stored, err)
+		}
+		if stored.Status != TaskStatusInProgress {
+			t.Fatalf("a landed settle resumes the task, got %s", stored.Status)
+		}
+	})
+}
+
 func TestExpireWaitingCards(t *testing.T) {
 	t.Run("the sweep expires only selected waiting cards and publishes their terminal state", func(t *testing.T) {
 		api, _, d, _ := newAPITestServer(t)

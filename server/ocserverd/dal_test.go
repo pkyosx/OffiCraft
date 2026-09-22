@@ -2904,17 +2904,27 @@ func TestPutReplyCardWithStepAndTask(t *testing.T) {
 		return task, step, card
 	}
 
-	t.Run("all three rows land together", func(t *testing.T) {
+	// The answer's own attachments ride this seam too: it is the only writer of
+	// them on the answer path, so every case here carries one.
+	answerBlobs := func() []ChatAttachment {
+		return []ChatAttachment{{ID: "att-answer", Mime: "image/png", Data: []byte("the answer")}}
+	}
+
+	t.Run("all three rows and the answer attachment land together", func(t *testing.T) {
 		d := newAPITestDAL(t)
 		task, step, card := seed(d)
 		card.Status = replyCardStatusAnswered
 		card.AnsweredTS = 200
+		card.AnswerAttachments = []any{dalAttRef("att-answer", "image/png", "a.png")}
 		step.Status = StepStatusInProgress
 		task.Status = TaskStatusInProgress
 		task.UpdatedTS = 200
 
-		if err := d.PutReplyCardWithStepAndTask(card, nil, &step, &task); err != nil {
+		if err := d.PutReplyCardWithStepAndTask(card, answerBlobs(), &step, &task); err != nil {
 			t.Fatalf("PutReplyCardWithStepAndTask: %v", err)
+		}
+		if got, want := dalStoredBlobIDs(t, d), []string{"att-answer"}; !reflect.DeepEqual(got, want) {
+			t.Fatalf("the answer-side blob lands: want %v, got %v", want, got)
 		}
 		dalWantReplyCard(t, d, "rc-1", &card)
 		steps, err := d.ListTaskSteps("T-1")
@@ -2946,7 +2956,7 @@ func TestPutReplyCardWithStepAndTask(t *testing.T) {
 			t.Fatalf("drop task: %v", err)
 		}
 
-		if err := d.PutReplyCardWithStepAndTask(card, nil, &step, &task); err == nil {
+		if err := d.PutReplyCardWithStepAndTask(card, answerBlobs(), &step, &task); err == nil {
 			t.Fatalf("a task row that cannot be written must fail the whole write")
 		}
 		// The two rows written BEFORE the failure must be back as they were:
@@ -2960,6 +2970,42 @@ func TestPutReplyCardWithStepAndTask(t *testing.T) {
 		if len(steps) != 1 || steps[0].Status != StepStatusWaitingOwner ||
 			steps[0].ReplyCardID != "rc-1" {
 			t.Fatalf("step after a failed settle = %#v", steps)
+		}
+		if got := dalStoredBlobIDs(t, d); len(got) != 0 {
+			t.Fatalf("no answer blob may survive a failed settle: got %v", got)
+		}
+	})
+
+	// The task write is the LAST statement in the transaction, so the case
+	// above cannot see a failure in the middle of it. The step write is that
+	// middle, and a step release silently dropped while the card flips to
+	// answered is precisely the stranded state this seam exists to prevent.
+	t.Run("the step write failing leaves the card still waiting", func(t *testing.T) {
+		d := newAPITestDAL(t)
+		task, step, card := seed(d)
+		before := card
+		card.Status = replyCardStatusAnswered
+		card.AnsweredTS = 200
+		step.Status = StepStatusInProgress
+		task.Status = TaskStatusInProgress
+		task.UpdatedTS = 200
+		if _, err := d.wdb.Exec(`DROP TABLE task_step`); err != nil {
+			t.Fatalf("drop task_step: %v", err)
+		}
+
+		if err := d.PutReplyCardWithStepAndTask(card, answerBlobs(), &step, &task); err == nil {
+			t.Fatalf("a step row that cannot be written must fail the whole write")
+		}
+		dalWantReplyCard(t, d, "rc-1", &before)
+		stored, err := d.GetTask("T-1")
+		if err != nil || stored == nil {
+			t.Fatalf("GetTask: %#v, %v", stored, err)
+		}
+		if stored.Status != TaskStatusWaitingOwner || stored.UpdatedTS != 100 {
+			t.Fatalf("task after a failed settle = %#v", stored)
+		}
+		if got := dalStoredBlobIDs(t, d); len(got) != 0 {
+			t.Fatalf("no answer blob may survive a failed settle: got %v", got)
 		}
 	})
 }

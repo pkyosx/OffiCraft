@@ -680,7 +680,7 @@ func (s *apiServer) closeTask(t *Task, status string, now float64, trigger strin
 	// and nothing else would ever take the card out of the owner's 等我回覆 pane.
 	// Sweep them with the SAME semantics the reassign path and the owner's manual
 	// expire use (expireWaitingCards). The task row above is already terminal, so
-	// The card-hold release's orphan branch leaves it untouched — no resume, no
+	// the card-hold release's orphan branch leaves it untouched — no resume, no
 	// UpdatedTS re-bump floating a closed task back up the cockpit.
 	//
 	// BEST-EFFORT ON PURPOSE (review B4): closeTask has NO transaction, and the
@@ -1015,7 +1015,7 @@ func (s *apiServer) resumeTasksFor(actor string, cards map[string]ReplyCard) ([]
 		answered := []resumeAnsweredCardStepDTO{}
 		for _, st := range steps {
 			// The answered-card pointer (T-f278). in_progress is the value
-			// The card-hold release puts a held step back to the moment the owner
+			// the card-hold release puts a held step back to the moment the owner
 			// answers, so "answered card + in_progress step" is exactly the
 			// state where the answer has arrived and nobody has acted on it —
 			// and it is indistinguishable, on the step alone, from an executor

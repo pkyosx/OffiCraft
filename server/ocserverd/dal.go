@@ -2719,6 +2719,11 @@ func (d *DAL) PutReplyCardWithChatAndStep(
 // in ONE transaction — the answer-side twin of PutReplyCardWithChat (there is
 // no companion message on this path; the card row IS the record that names the
 // blobs).
+//
+// ⚠️ NO PRODUCTION CALLER TODAY: the answer route settles the card, its step and
+// its task together through PutReplyCardWithStepAndTask. Answering through this
+// one instead would put the card back on its own write and strand the step and
+// the task behind a settled card, which is the defect that seam removed.
 func (d *DAL) PutReplyCardWithAttachments(c ReplyCard, atts []ChatAttachment) error {
 	if len(atts) == 0 {
 		return d.PutReplyCard(c)
