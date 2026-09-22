@@ -290,6 +290,22 @@ describe("Markdown", () => {
       const c = renderMd("go to /#tasks/T-1 please");
       expect(c.querySelector("a")).toBeNull();
     });
+
+    // The two shapes that decide whether an IMAGE reference can become a link.
+    // Both pin the indexing, not the regex: the "!" of `![alt](src)` lands on
+    // the run BEFORE the link token, so the check reads its previous element —
+    // which only lines up because the empty runs are dropped BEFORE the map.
+    it("refuses an image reference that is not the first token on the line", () => {
+      const c = renderMd("[a](/x)![b](/y)");
+      const hrefs = [...c.querySelectorAll("a")].map((a) => a.getAttribute("href"));
+      expect(hrefs).toEqual(["/x"]);
+    });
+
+    it("refuses an image reference whose bang ends a run of prose", () => {
+      const c = renderMd("完成了![看這裡](/#tasks/T-1)");
+      expect(c.querySelector("a")).toBeNull();
+      expect(c.textContent).toContain("![看這裡](/#tasks/T-1)");
+    });
   });
 
   // Angle-bracketed destinations — `[text](<url>)`, CommonMark's way of writing

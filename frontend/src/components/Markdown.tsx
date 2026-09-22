@@ -141,9 +141,11 @@ const SAFE_URL_RE = /^(https?:|mailto:)/i;
 // loopback address it calls the API with, and a link built from it opened
 // nowhere else (owner report 2026-09-22, three cards in a row).
 //
-// SECURITY: EXACTLY ONE leading slash, and the judgement is made on a
-// NORMALISED copy that is also what gets rendered. Three shapes reach a
-// browser as a different HOST and all three are excluded here:
+// SECURITY: EXACTLY ONE leading slash. The judgement is made on a copy with
+// the characters a browser drops before parsing removed — rendering that same
+// copy keeps the two in step but is not itself a defence, since the strip set
+// IS the browser's. Three shapes reach a browser as a different HOST and all
+// three are excluded here:
 //   • "//evil.com/x"  — protocol-relative, the hole the image rule still has;
 //   • "/\evil.com/x"  — the URL parser reads a backslash as a slash;
 //   • "/<TAB>/evil.com" — TAB, LF and CR are stripped BEFORE parsing, so what
@@ -183,9 +185,11 @@ interface InlineOpts {
 /** An http/https/mailto url or a same-origin absolute path — and, when it happens to be one of OUR OWN
  * compare urls and the studio is around to host it, an in-app navigation.
  *
- * SECURITY: this is NOT a loosening of anything. The external-scheme allowlist
- * (`SAFE_URL_RE`) has already said yes before this component is reached; every
- * link it renders is a link the renderer was going to render anyway. What is
+ * SECURITY: this is NOT a loosening of anything. One of the two target
+ * allowlists — the external scheme one (`SAFE_URL_RE`) or the same-origin path
+ * one (`SAFE_PATH_RE`) — has already said yes before this component is
+ * reached; every link it renders is a link the renderer was going to render
+ * anyway. What is
  * added is a CLICK HANDLER on same-origin `/diff?…` links, and three things
  * have to be true for it to fire — same origin, exactly the /diff path, and
  * params that parse as two addresses (lib/diffLink.ts). Anything else keeps the
@@ -371,7 +375,8 @@ function renderInline(text: string, opts?: InlineOpts): ReactNode[] {
           // `![alt](/x.png)` IMAGE reference is excluded — the capturing split
           // leaves its "!" on the previous run, so the link branch sees a link
           // nobody wrote, and an image whose surface declined a resolver has
-          // always stayed literal text here.
+          // always stayed literal text here. `parts[i - 1]` only lines up
+          // because the empty runs are dropped BEFORE the map, not after.
           const isImageRef = i > 0 && parts[i - 1].endsWith("!");
           const path = target.replace(URL_STRIPPED_CHARS_RE, "");
           if (!isImageRef && SAFE_PATH_RE.test(path)) {
