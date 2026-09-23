@@ -1508,7 +1508,7 @@ type resumeTaskDTO struct {
 	// the owner has ALREADY answered while the step itself is still
 	// in_progress — the answer landed and nobody has acted on it yet (T-f278).
 	//
-	// 🔴 This is a POINTER, not a verdict. releaseCardHold deliberately puts a
+	// 🔴 This is a POINTER, not a verdict. The card-hold release deliberately puts a
 	// held step back to in_progress when the card is answered: the server
 	// releases the wait, it does not do the executor's work, and the answer is
 	// just as often 不通過、改做 as it is approval. So the row says "read this
@@ -1953,7 +1953,7 @@ type replyCardReceiptDTO struct {
 	// because answering or expiring a BOUND card RELEASES that task's step from
 	// waiting_owner — that release is what the write DID, and it is the caller's
 	// next place to act. The release is per-STEP, not per-task: the card stores
-	// a task_step_id and releaseCardHold acts on that one step. The shape this
+	// a task_step_id and the card-hold release acts on that one step. The shape this
 	// replaced carried a task ref with id/title/type_key, which named the task
 	// but NOT the step, so it could not actually say what the write had released
 	// (owner caught this on rc-bf25374aa0e8 asking why a card answer returns a

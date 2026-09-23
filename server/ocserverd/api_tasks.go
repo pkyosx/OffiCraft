@@ -16,7 +16,7 @@ package main
 //     same transaction that writes the card — and LEFT only when that card is
 //     answered, where the
 //     server itself restores the task/step to in_progress
-//     (releaseCardHold). The agent reports NEITHER side: a
+//     (the card-hold release). The agent reports NEITHER side: a
 //     report INTO waiting_owner is a 400 (not its lever), a report OUT of it a
 //     409 (the answer drives the exit). This supersedes H4's "answering moves
 //     nothing" — a task can no longer linger in waiting_owner behind an
@@ -680,7 +680,7 @@ func (s *apiServer) closeTask(t *Task, status string, now float64, trigger strin
 	// and nothing else would ever take the card out of the owner's 等我回覆 pane.
 	// Sweep them with the SAME semantics the reassign path and the owner's manual
 	// expire use (expireWaitingCards). The task row above is already terminal, so
-	// releaseCardHold's orphan branch leaves it untouched — no resume, no
+	// the card-hold release's orphan branch leaves it untouched — no resume, no
 	// UpdatedTS re-bump floating a closed task back up the cockpit.
 	//
 	// BEST-EFFORT ON PURPOSE (review B4): closeTask has NO transaction, and the
@@ -1015,7 +1015,7 @@ func (s *apiServer) resumeTasksFor(actor string, cards map[string]ReplyCard) ([]
 		answered := []resumeAnsweredCardStepDTO{}
 		for _, st := range steps {
 			// The answered-card pointer (T-f278). in_progress is the value
-			// releaseCardHold puts a held step back to the moment the owner
+			// the card-hold release puts a held step back to the moment the owner
 			// answers, so "answered card + in_progress step" is exactly the
 			// state where the answer has arrived and nobody has acted on it —
 			// and it is indistinguishable, on the step alone, from an executor
@@ -1944,7 +1944,7 @@ func (s *apiServer) HandleReassignTaskApiTasksTaskIdReassignPost(w http.Response
 	}
 
 	// 1. Expire every waiting card bound to the task — the exact semantics of
-	// the expire route (status flip + releaseCardHold + delta), run
+	// the expire route (status flip + the card-hold release + delta), run
 	// server-side: the question was addressed to the OLD executor, so its
 	// eventual answer is no longer reliable; the new executor opens a fresh
 	// card if the question still matters. The loop that used to live inline here
@@ -1995,7 +1995,7 @@ func (s *apiServer) HandleReassignTaskApiTasksTaskIdReassignPost(w http.Response
 	// keeps the hold's write rights until the successor claims or it is
 	// dismissed from the roster.
 
-	// Re-read the row: the card pass (releaseCardHold) may have rewritten it.
+	// Re-read the row: the card pass (the card-hold release) may have rewritten it.
 	t, err = s.resolveTask(taskId)
 	if err != nil {
 		writeResolveError(w, err, "task", taskId)
@@ -2714,7 +2714,7 @@ func (s *apiServer) HandleSubmitTaskPlanApiTasksTaskIdPlanPost(w http.ResponseWr
 	//                      stamps finished_ts = the freeze moment).
 	// Everything else — pending rows AND card-less / waiting-card rows — is
 	// replaced wholesale as before: a still-waiting ask keeps living in
-	// chat/Ask, and releaseCardHold's step guards make the owner's later
+	// chat/Ask, and the card-hold release's step guards make the owner's later
 	// answer a safe no-op on the removed step.
 	freshNames := map[string]bool{}
 	for _, st := range fresh {
@@ -3002,7 +3002,7 @@ func (s *apiServer) HandleUpdateTaskStepStatusApiTasksTaskIdStepsStepIdStatusPos
 // enters waiting_owner carrying the CURRENT card (reply_card_id points at the
 // latest ask; the card's own task/step birth marks keep the full history),
 // started_ts stamps on first touch, and the task follows into waiting_owner.
-// The owner's later answer releases this hold — releaseCardHold restores the
+// The owner's later answer releases this hold — the card-hold release restores the
 // step (and task) to in_progress; from there the agent reports the step
 // forward itself.
 // 🔴 IT WRITES NOTHING, and that is the point. The step and the task it derives

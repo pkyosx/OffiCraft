@@ -537,7 +537,7 @@ func TestManualWaitingOwnerReportIsRejected(t *testing.T) {
 
 // TestAnsweringACardResumesTheTaskAndStep pins T-68b7 ③⑤ "答卡→回前態": the SERVER
 // restores the held step and task from waiting_owner back to in_progress when
-// the owner answers the bound card (releaseCardHold); after it the agent
+// the owner answers the bound card (the card-hold release); after it the agent
 // finishes the work itself (in_progress → done). This supersedes ruling H4.
 func TestAnsweringACardResumesTheTaskAndStep(t *testing.T) {
 	api := newTasksTestServer(t)
@@ -579,7 +579,7 @@ func TestAnsweringACardResumesTheTaskAndStep(t *testing.T) {
 // report) closes the task WITHOUT touching a still-bound waiting card, so the
 // card is orphaned on a task that is already done/terminated. The answer
 // route must reject it (409) rather than flip it to answered and have
-// releaseCardHold bump the closed task's UpdatedTS back to
+// the card-hold release bump the closed task's UpdatedTS back to
 // the cockpit's "recently updated" top — and it must leave the card, step,
 // and task exactly as they were.
 func TestAnsweringACardOnATerminatedOrDoneTaskIsRejected(t *testing.T) {
@@ -1774,7 +1774,7 @@ func TestSubmitPlanFreezesAnsweredCardStepsAsSuperseded(t *testing.T) {
 			rows[0].CurrentStepName)
 	}
 	// Answering the orphaned waiting card afterwards is a safe no-op on the
-	// removed step (releaseCardHold's guards) — 200, and the task resumes
+	// removed step (the card-hold release's guards) — 200, and the task resumes
 	// in_progress since no other card waits.
 	if rec := answerCard(t, api, waiting.ID,
 		map[string]any{"option_idxs": []int{0}}); rec.Code != http.StatusOK {

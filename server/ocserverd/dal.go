@@ -2719,6 +2719,11 @@ func (d *DAL) PutReplyCardWithChatAndStep(
 // in ONE transaction — the answer-side twin of PutReplyCardWithChat (there is
 // no companion message on this path; the card row IS the record that names the
 // blobs).
+//
+// ⚠️ NO PRODUCTION CALLER TODAY: the answer route settles the card, its step and
+// its task together through PutReplyCardWithStepAndTask. Answering through this
+// one instead would put the card back on its own write and strand the step and
+// the task behind a settled card, which is the defect that seam removed.
 func (d *DAL) PutReplyCardWithAttachments(c ReplyCard, atts []ChatAttachment) error {
 	if len(atts) == 0 {
 		return d.PutReplyCard(c)
@@ -2730,6 +2735,46 @@ func (d *DAL) PutReplyCardWithAttachments(c ReplyCard, atts []ChatAttachment) er
 			}
 		}
 		return putReplyCardOn(tx, c)
+	})
+}
+
+// PutReplyCardWithStepAndTask writes, in ONE transaction, every row a card leaving
+// waiting_owner touches: its answer attachments, the card itself, the step it
+// was holding, and that step's task. step and task are nil when there is
+// nothing to release (an unbound 請示, an orphan on a closed task, a step that
+// has already moved on).
+//
+// 🔴 THE POINT IS THE ROLLBACK, NOT THE SPEED. Written as separate calls, a
+// fault after the card row left waiting stranded the step and the task in
+// waiting_owner behind a settled card — and no route led back: a retried
+// answer is refused because the card is no longer waiting, a re-answer never
+// re-enters the release, and expiry wants a waiting card too. The only exits
+// were a replan or a forced close.
+//
+// The caller must publish AFTER this returns, never before: a delta fanned out
+// for a transaction that then rolls back tells every reader something that did
+// not happen.
+func (d *DAL) PutReplyCardWithStepAndTask(c ReplyCard, atts []ChatAttachment, step *TaskStep, task *Task) error {
+	return d.inTx(func(tx *sql.Tx) error {
+		for _, a := range atts {
+			if err := putChatAttachmentOn(tx, a); err != nil {
+				return err
+			}
+		}
+		if err := putReplyCardOn(tx, c); err != nil {
+			return err
+		}
+		if step != nil {
+			if err := putTaskStepOn(tx, *step); err != nil {
+				return err
+			}
+		}
+		if task != nil {
+			if err := putTaskOn(tx, *task, taskWriteUpsert); err != nil {
+				return err
+			}
+		}
+		return nil
 	})
 }
 

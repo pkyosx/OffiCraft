@@ -2934,7 +2934,7 @@ func (s *apiServer) reclaimKillTargets(w OutsourceWorker) []string {
 //
 // 🔴 RETURNS THE FIRED IDS RATHER THAN SWEEPING THEIR CARDS ITSELF. A fired
 // worker's waiting cards must be retired the same way dismissOutsourceWorkerByID
-// retires them, but a card write reaches releaseCardHold, the task DAL and the
+// retires them, but a card write reaches the card-hold release, the task DAL and the
 // SSE hub — outward calls that must not happen under outsourceMu. So this
 // function hands the ids back and closeTask sweeps them with the lock released.
 // (dismissOutsourceWorkerByID does sweep inside the lock; that is pre-existing

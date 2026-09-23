@@ -1494,7 +1494,7 @@ func TaskRecordFrozen(status string) bool {
 // path (POST /api/tasks/{id}/status). waiting_owner is NOT on either side of
 // this table: it is entered ONLY by opening a card (create_reply_card with an
 // explicit linked_task) and LEFT ONLY when that card is answered — the server itself
-// restores the task to in_progress on answer (releaseCardHold).
+// restores the task to in_progress on answer (the card-hold release).
 // So the agent neither reports INTO waiting_owner (the handler 400s that, not
 // its lever) nor OUT of it (a report from waiting_owner is a 409 — the card
 // lifecycle owns that exit, the agent cannot bail out unilaterally). Row 8
@@ -1521,7 +1521,7 @@ func CanAgentTaskTransition(from, to string) bool {
 // in_progress → done. waiting_owner is NOT on either side, exactly like the
 // task table: the card-open path sets it (create_reply_card with an explicit
 // linked_task — the handler 400s an agent report INTO it), and the answer path
-// restores the step to in_progress (releaseCardHold — a report
+// restores the step to in_progress (the card-hold release — a report
 // OUT of it is a 409). After the server restores the step, the agent advances
 // it in_progress → done as usual; if the answer did NOT settle the question the
 // agent opens a fresh card and the step re-enters waiting_owner.
