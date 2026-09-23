@@ -1178,47 +1178,40 @@ func (d *DAL) PutOutsourceWorker(w OutsourceWorker) error {
 	return d.PutMember(memberFromWorker(w))
 }
 
-// ReleaseWorkersForTask flips every not-yet-released worker bound to taskID
-// to released (the task-terminal side effect) and returns the flipped rows —
-// the handler fans one member delta per row. Row retention is the
-// audit trail; idempotent (already-released rows are untouched).
-func (d *DAL) ReleaseWorkersForTask(taskID string, now float64) ([]OutsourceWorker, error) {
+// ListLiveWorkersForTask returns every NOT-YET-RELEASED worker bound to taskID,
+// in creation order — the task-scoped read the close-out window is opened over
+// (worker_spawn.go openTaskCloseWindDownForTask).
+//
+// 🔴 IT REPLACES ReleaseWorkersForTask (T-244), WHICH READ AND WROTE IN ONE CALL.
+// That shape existed because the close WAS the release; now the close decides
+// per worker whether this is a window or an on-the-spot release, so the read has
+// to come first and the write is ReleaseWorkerByID either way. Two consequences
+// worth naming: the caller is no longer handed rows it has already changed, and
+// a corrupted row on SOME OTHER task can no longer fault this task's close —
+// the old caller scanned the whole outsource roster to find the sessions to
+// reclaim, this query does not.
+func (d *DAL) ListLiveWorkersForTask(taskID string) ([]OutsourceWorker, error) {
 	rows, err := d.rdb.Query(`SELECT `+memberColumns+` FROM member
 		WHERE kind = 'outsource' AND linked_task_id = ? AND roster_status != ?
 		ORDER BY created_ts, id`, taskID, RosterStatusRemoved)
 	if err != nil {
 		return nil, err
 	}
-	var flipped []OutsourceWorker
+	defer rows.Close()
+	var out []OutsourceWorker
 	for rows.Next() {
 		m, err := scanMember(rows)
 		if err != nil {
-			rows.Close()
 			return nil, err
 		}
-		flipped = append(flipped, workerFromMember(m))
+		out = append(out, workerFromMember(m))
 	}
-	if err := rows.Err(); err != nil {
-		rows.Close()
-		return nil, err
-	}
-	rows.Close()
-	for i := range flipped {
-		flipped[i].Status = WorkerStatusReleased
-		flipped[i].ReleasedTS = now
-		if _, err := d.wdb.Exec(`
-			UPDATE member SET roster_status = ?, released_ts = ?
-			WHERE id = ? AND kind = 'outsource'`,
-			RosterStatusRemoved, now, flipped[i].ID); err != nil {
-			return nil, err
-		}
-	}
-	return flipped, nil
+	return out, rows.Err()
 }
 
 // ReleaseWorkerByID flips ONE worker (by its own id) to released if it is not
 // already, returning the flipped row (or nil when the id is unknown / already
-// released). The by-WORKER-ID twin of ReleaseWorkersForTask (T-ba04): the
+// released). The by-WORKER-ID twin of the task-scoped read above (T-ba04): the
 // deferred handover dismiss must fire the PREDECESSOR outsource worker alone —
 // releasing by task_id would also catch the NEW worker that an outsource→
 // outsource takeover has already bound to the SAME task_id, killing the very

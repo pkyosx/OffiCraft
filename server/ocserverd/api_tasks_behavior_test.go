@@ -1929,7 +1929,12 @@ func TestSupersededIsTerminalOnEveryWriteFace(t *testing.T) {
 
 // ── terminal side effects: worker release ────────────────────────────────────
 
-func TestTerminalStatesReleaseTheBoundWorker(t *testing.T) {
+// Since T-244 a terminal state does NOT release the bound worker where it
+// stands — it opens a close-out window the outsource tick ends later. The one
+// arm that still releases on the spot is the worker whose session the station
+// has already CONFIRMED gone, and that is what this fixture arms below. The
+// window arm is pinned separately (TestTaskClose_DismissesBoundWorkers).
+func TestTerminalStatesReleaseABoundWorkerWhoseSessionIsAlreadyGone(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
 		close func(t *testing.T, api *apiServer, taskID, executor string)
@@ -1956,6 +1961,9 @@ func TestTerminalStatesReleaseTheBoundWorker(t *testing.T) {
 			}); err != nil {
 				t.Fatalf("seed worker: %v", err)
 			}
+			api.outsourceMu.Lock()
+			api.workerSessionConfirmedGone("ow-worker1", 0)
+			api.outsourceMu.Unlock()
 			tc.close(t, api, task.ID, "ow-worker1")
 			w, err := api.dal.GetOutsourceWorker("ow-worker1")
 			if err != nil || w == nil {

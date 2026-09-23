@@ -329,8 +329,9 @@ export function makeMessages(t: Dict, language: Lang): Messages {
         ? mp.windDownForChangeLabel
         : `${mp.windDownForChangeLabel}${sp}·${sp}${mp.windDownByLabel} ${by} ${mp.windDownEffectSuffix}`,
 
-    // 「正在收尾，已給死線 · 最晚 14:32 生效」 — the two CLOCKED causes
-    // (accelerated_stop, context_high). Same 最晚 wording as above and for the
+    // 「正在收尾，已給死線 · 最晚 14:32 生效」 — the CLOCKED causes
+    // (accelerated_stop, context_high and, since T-244, the outsource-only
+    // task_close). Same 最晚 wording as above and for the
     // same reason: the collect fires the instant the agent reports stopped, so
     // the time is a ceiling. 🔴 Unlike the arm above, `by === null` here is NOT
     // an ordinary answer — a clocked cause always carries a deadline — so the

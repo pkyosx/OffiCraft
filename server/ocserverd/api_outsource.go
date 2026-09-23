@@ -303,6 +303,19 @@ func (s *apiServer) HandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost
 	// has ever asked to stop (aStopWasEverAskedFor, inside the queue helper) has
 	// no 下線 for an 上線 rule to be added to.
 	if worker.DesiredState == DesiredStateOffline {
+		// The seam refuses two different things and they need different sentences:
+		// a worker nobody ever asked to stop has no wind-down to queue behind, and
+		// a worker whose ticket is already closed is leaving rather than pausing.
+		// Saying the first when the second is true would send the owner looking
+		// for a stop that is right there on the row.
+		if s.workerTicketIsOver(*worker) {
+			s.outsourceMu.Unlock()
+			writeError(w, http.StatusConflict,
+				"this worker's task is already closed — it is finishing its close-out "+
+					"and then leaving, so there is nothing to refocus it onto "+
+					"(停止 or 加速停止 if you want it gone sooner)")
+			return
+		}
 		if !s.queueWorkerRestartAfterStop(worker, refocusOpRefocus, nowSecs()) {
 			s.outsourceMu.Unlock()
 			writeError(w, http.StatusConflict,
@@ -424,6 +437,12 @@ func (s *apiServer) HandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost
 // the reason its member twin does: a 409 that only says "no" leaves the owner
 // guessing which of three buttons he was supposed to press first. It names both
 // openers because a worker has two (停止 and 重新聚焦), and both are real.
+// wakeWorkerTicketIsOverMsg names what the owner can still do, for the reason its
+// neighbour below does: a 409 that only says "no" leaves him guessing which
+// button was the right one.
+const wakeWorkerTicketIsOverMsg = "這位外包的任務已經結案，它正在收尾離開——" +
+	"喚醒不會把它留下來。要讓它更快離開請按 停止 或 加速停止；要再派工作，請建立新的任務。"
+
 const acceleratedStopWorkerNeedsAnOpenWindDownMsg = "加速停止 escalates a wind-down " +
 	"that is already open — this worker has not been asked to stop. Press 停止 or " +
 	"重新聚焦 first"
@@ -454,15 +473,46 @@ func (s *apiServer) HandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcc
 			writeError(w, http.StatusConflict, acceleratedStopWorkerNeedsAnOpenWindDownMsg)
 			return
 		}
-		worker.StoppingSince = nowSecs()
+		// 🔴 THE DEADLINE MAY ONLY EVER MOVE EARLIER, or this verb does the
+		// opposite of its name — and it has TWO ways to move later, not one.
+		// Both are guarded here because both are reachable.
+		//
+		// Re-anchoring is the first: the deadline is anchor + grace, so stamping
+		// the anchor at the press hands back a FULL grace however old the window
+		// already was.
+		//
+		// The second is the RULER, and it is why comparing the two graces is not
+		// decoration. task_close is the one clocked cause that does NOT read
+		// accelerated_grace_secs (recycleGraceFor: it reads
+		// task_close_winddown_secs), and both are owner-adjustable over the same
+		// 10 s‥3600 s range. Configure the window SHORTER than this verb's grace
+		// — 30 s against 120 s, say — and switching to this cause moves the
+		// deadline 90 s LATER off an anchor that never moved. Measured on the
+		// trial station at exactly that setting.
+		//
+		// So the switch happens only when this verb's ruler is genuinely the
+		// shorter one. When the window already collects at least as soon, the
+		// press leaves the row alone: there is nothing to accelerate, and the
+		// deadline the owner is looking at is already the earlier of the two.
+		// An unclocked 停止 still gets its anchor stamped, which is what puts it
+		// on a clock at all.
+		cfg := s.reconcileConfigLive()
+		cur, clocked := recycleGraceFor(worker.RefocusOp, cfg)
+		switch {
+		case !clocked:
+			worker.StoppingSince = nowSecs()
+			worker.RefocusOp = refocusOpAcceleratedStop
+		case cfg.RecycleGrace < cur:
+			worker.RefocusOp = refocusOpAcceleratedStop
+		}
 	case worker.RefocusSince > 0.0:
 		worker.RefocusSince = nowSecs()
+		worker.RefocusOp = refocusOpAcceleratedStop
 	default:
 		s.outsourceMu.Unlock()
 		writeError(w, http.StatusConflict, acceleratedStopWorkerNeedsAnOpenWindDownMsg)
 		return
 	}
-	worker.RefocusOp = refocusOpAcceleratedStop
 	// 後蓋前 (T-65 包②). 加速停止 is a 下線 verb, so it cancels a queued 起來 like
 	// the other two — and the ladder it advances is left alone, which is the split
 	// the owner's ruling turns on: 「下線用多強」 is a ratchet, 「要不要起來」 is
@@ -695,6 +745,28 @@ func (s *apiServer) handleRestartOutsourceWorker(w http.ResponseWriter, r *http.
 	if worker == nil || worker.Status == WorkerStatusReleased {
 		s.outsourceMu.Unlock()
 		writeResolveError(w, errNotFound, "member", id)
+		return
+	}
+	// 🔴 THE FOURTH DOOR ONTO THE CLOSED-TICKET SEAM. The other three — 重新聚焦,
+	// 換 model, 換機器 — reach the revive through queueWorkerRestartAfterStop,
+	// which refuses once the ticket is over. This handler does not call that
+	// function at all: it writes desired_state=online and clears stopping_since
+	// itself, and collectTaskCloseWindDown's FIRST condition is
+	// desired_state == offline. So without this gate, one press during a
+	// task-close wind-down strands the worker: still `active`, on a task that
+	// closed, holding one of the outsource concurrency slots, with no path left
+	// that releases it — measured at the full window and past it.
+	//
+	// Refusing keeps the contract rather than inventing one: before T-244 the
+	// close released the row on the spot and this verb answered 404 from then on.
+	// 停止 and 加速停止 still work, because making it leave sooner is not the same
+	// as keeping it.
+	//
+	// It sits BEFORE the machine-pin write below on purpose — a refused 喚醒 must
+	// not leave a new desired_machine_id behind on a contractor that is leaving.
+	if s.workerTicketIsOver(*worker) {
+		s.outsourceMu.Unlock()
+		writeError(w, http.StatusConflict, wakeWorkerTicketIsOverMsg)
 		return
 	}
 	if body.MachineId != nil && *body.MachineId != "" {

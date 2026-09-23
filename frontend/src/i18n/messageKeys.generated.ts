@@ -1030,6 +1030,8 @@ export const MESSAGE_KEYS: readonly string[] = [
   "settings.suggestedReplyRemove",
   "settings.systemName",
   "settings.systemSub",
+  "settings.taskCloseWinddown",
+  "settings.taskCloseWinddownSub",
   "settings.taskCloseoutName",
   "settings.taskCloseoutSub",
   "settings.taskEventSection",

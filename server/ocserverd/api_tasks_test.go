@@ -1610,6 +1610,12 @@ func TestCloseTask(t *testing.T) {
 		}
 		dashboard := apiTestListen(t, api, "")
 
+		// The worker in this fixture has no session: arm the station's
+		// continuous-offline anchor so the close takes the confirmed-gone arm
+		// (release on the spot) rather than opening a window it cannot use.
+		api.outsourceMu.Lock()
+		api.workerSessionConfirmedGone("ow-abc123", 0)
+		api.outsourceMu.Unlock()
 		if err := api.closeTask(task, TaskStatusTerminated, 1750000000, "owner"); err != nil {
 			t.Fatalf("closeTask: %v", err)
 		}
@@ -1723,6 +1729,12 @@ func TestCloseTask(t *testing.T) {
 		}
 		dashboard := apiTestListen(t, api, "")
 
+		// The worker in this fixture has no session: arm the station's
+		// continuous-offline anchor so the close takes the confirmed-gone arm
+		// (release on the spot) rather than opening a window it cannot use.
+		api.outsourceMu.Lock()
+		api.workerSessionConfirmedGone("ow-abc123", 0)
+		api.outsourceMu.Unlock()
 		if err := api.closeTask(task, TaskStatusDone, 1750000000, "owner"); err != nil {
 			t.Fatalf("closeTask: %v", err)
 		}
@@ -1789,7 +1801,17 @@ func TestCloseTask(t *testing.T) {
 		)
 	})
 
-	t.Run("a worker read that faults after the release still reports the fired ids and retires their cards", func(t *testing.T) {
+	// T-244 CHANGED WHAT THIS SUBTEST IS ABOUT, and the old name is quoted here
+	// because the fixture it built is still the fixture: it was 「a worker read
+	// that faults after the release still reports the fired ids and retires
+	// their cards」, a property of a close that READ THE WHOLE OUTSOURCE ROSTER
+	// to find the sessions to reclaim and could therefore be brought down by a
+	// corrupted row belonging to another task. The close now reads
+	// ListLiveWorkersForTask, so that row is never scanned and the fault does
+	// not happen at all — which is a stronger guarantee and the one asserted
+	// below. The corrupted T-2 row stays in the fixture as the negative control:
+	// remove it and a close that went back to scanning the roster would pass.
+	t.Run("a corrupted worker row on ANOTHER task cannot stop this close from winding its own worker down and retiring its cards", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Elsewhere","executor_member_id":"kip"}`)
@@ -1813,9 +1835,9 @@ func TestCloseTask(t *testing.T) {
 				t.Fatalf("PutReplyCard(%q): %v", card.ID, err)
 			}
 		}
-		// The roster read faults only AFTER the release: ReleaseWorkersForTask
-		// selects T-1's row alone, while ListOutsourceWorkers scans every
-		// outsource row and trips over the corrupted one bound to T-2.
+		// ow-zzz999 (bound to T-2) is unreadable: any code path that scans the
+		// whole outsource roster trips over it. The close under test must not
+		// be one — it reads T-1's rows alone.
 		if _, err := d.wdb.Exec(`UPDATE member SET session_boot_ts = ? WHERE id = ?`,
 			"not-a-number", "ow-zzz999"); err != nil {
 			t.Fatalf("corrupt member read value: %v", err)
@@ -1828,6 +1850,12 @@ func TestCloseTask(t *testing.T) {
 			t.Fatalf("resolveTask: %v", err)
 		}
 
+		// The worker in this fixture has no session: arm the station's
+		// continuous-offline anchor so the close takes the confirmed-gone arm
+		// (release on the spot) rather than opening a window it cannot use.
+		api.outsourceMu.Lock()
+		api.workerSessionConfirmedGone("ow-abc123", 0)
+		api.outsourceMu.Unlock()
 		if err := api.closeTask(task, TaskStatusDone, 1750000000, "owner"); err != nil {
 			t.Fatalf("closeTask: %v", err)
 		}
@@ -3715,7 +3743,7 @@ func TestHandleReassignTaskApiTasksTaskIdReassignPost(t *testing.T) {
 				"body": "[T-1] 此任務已轉派給新的接手人。\n\n你收到這份說明，代表目前的任務需要交接給其他執行者。請停止推進並完成必要收尾，確保接手人能從遠端取得目前成果與完整脈絡：\n" +
 					"\n" +
 					"* 保存成果：將需要保留的 git commit 推送到 remote，需要保留的檔案以 `ocagent upload` 上傳後，把附件 id 寫進步驟備註，不要留下只有本機能取得的成果。\n" +
-					"* 寫入交接資訊：將目前進度、進行中的事項、需要注意的風險與下一步寫進任務的步驟備註；接手人認領之前都可以補寫，認領之後就無法再寫入。轉派前開出的 Reply Card 已自動過期；若仍有等待 Owner 決策或操作的事項，寫進步驟備註，由接手人認領後重新開卡。交接期間不要再開綁定這張任務的 Reply Card。\n" +
+					"* 處理你留在機器上的資源：接手人可能在另一台機器，本機的東西他不一定拿得到。先確認接手人是誰、在哪台機器，並向他確認要留下或清除；接手人還沒產生或沒有回覆時自行判斷，並把結果寫進步驟備註。\n* 寫入交接資訊：將目前進度、進行中的事項、需要注意的風險與下一步寫進任務的步驟備註；接手人認領之前都可以補寫，認領之後就無法再寫入。轉派前開出的 Reply Card 已自動過期；若仍有等待 Owner 決策或操作的事項，寫進步驟備註，由接手人認領後重新開卡。交接期間不要再開綁定這張任務的 Reply Card。\n" +
 					"* 處理 sub-agent：若有正在執行的 sub-agent，要求其收尾並將結果寫回對應 task step。\n" +
 					"\n" +
 					"完成以上事項後即完成交接。若接手人已在線上並主動聯繫，再補充確認；否則不需要等待或主動尋找接手人。",
@@ -4144,7 +4172,7 @@ func TestHandleReassignTaskApiTasksTaskIdReassignPost(t *testing.T) {
 				"body": "[T-1] 此任務已轉派給新的接手人。\n\n你收到這份說明，代表目前的任務需要交接給其他執行者。請停止推進並完成必要收尾，確保接手人能從遠端取得目前成果與完整脈絡：\n" +
 					"\n" +
 					"* 保存成果：將需要保留的 git commit 推送到 remote，需要保留的檔案以 `ocagent upload` 上傳後，把附件 id 寫進步驟備註，不要留下只有本機能取得的成果。\n" +
-					"* 寫入交接資訊：將目前進度、進行中的事項、需要注意的風險與下一步寫進任務的步驟備註；接手人認領之前都可以補寫，認領之後就無法再寫入。轉派前開出的 Reply Card 已自動過期；若仍有等待 Owner 決策或操作的事項，寫進步驟備註，由接手人認領後重新開卡。交接期間不要再開綁定這張任務的 Reply Card。\n" +
+					"* 處理你留在機器上的資源：接手人可能在另一台機器，本機的東西他不一定拿得到。先確認接手人是誰、在哪台機器，並向他確認要留下或清除；接手人還沒產生或沒有回覆時自行判斷，並把結果寫進步驟備註。\n* 寫入交接資訊：將目前進度、進行中的事項、需要注意的風險與下一步寫進任務的步驟備註；接手人認領之前都可以補寫，認領之後就無法再寫入。轉派前開出的 Reply Card 已自動過期；若仍有等待 Owner 決策或操作的事項，寫進步驟備註，由接手人認領後重新開卡。交接期間不要再開綁定這張任務的 Reply Card。\n" +
 					"* 處理 sub-agent：若有正在執行的 sub-agent，要求其收尾並將結果寫回對應 task step。\n" +
 					"\n" +
 					"完成以上事項後即完成交接。若接手人已在線上並主動聯繫，再補充確認；否則不需要等待或主動尋找接手人。",

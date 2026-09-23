@@ -54,6 +54,7 @@ func apiTestShippedSettings() map[string]any {
 		"outsource_max_parallel":           3,
 		"accelerated_grace_secs":           120,
 		"reassign_handover_timeout_secs":   1800,
+		"task_close_winddown_secs":         300,
 		"warden_credential_lifetime_secs":  2592000,
 		"doc_cap_chars_duty":               1000,
 		"doc_cap_chars_insight":            15000,
@@ -516,6 +517,7 @@ func TestHandleUpdateSettingsApiSettingsPatch(t *testing.T) {
 			"monitoring_refresh_seconds":30,
 			"accelerated_grace_secs":90,
 			"reassign_handover_timeout_secs":600,
+			"task_close_winddown_secs":45,
 			"warden_credential_lifetime_secs":864000,
 			"outsource_max_parallel":-1,
 			"doc_cap_chars_duty":2000,
@@ -541,6 +543,7 @@ func TestHandleUpdateSettingsApiSettingsPatch(t *testing.T) {
 		want["monitoring_refresh_seconds"] = 30
 		want["accelerated_grace_secs"] = 90
 		want["reassign_handover_timeout_secs"] = 600
+		want["task_close_winddown_secs"] = 45
 		want["warden_credential_lifetime_secs"] = 864000
 		want["outsource_max_parallel"] = -1
 		want["doc_cap_chars_duty"] = 2000
@@ -721,6 +724,26 @@ func TestHandleUpdateSettingsApiSettingsPatch(t *testing.T) {
 			t.Fatalf("want 422, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "validation_error", "accelerated_grace_secs must be between 10 and 3600 seconds")
+	})
+
+	// T-244. Both ends, and the read-back, because this key shares its predicate
+	// with accelerated_grace_secs: a refusal that quoted the OTHER field's name
+	// would look identical at the status code.
+	t.Run("a task_close_winddown_secs outside its range answers 422 and writes nothing", func(t *testing.T) {
+		_, h, d, owner := newAPITestServer(t)
+
+		for _, body := range []string{`{"task_close_winddown_secs":9}`, `{"task_close_winddown_secs":3601}`} {
+			status, data := apiJSON(t, h, "PATCH", "/api/settings", owner, body)
+			if status != 422 {
+				t.Fatalf("%s: want 422, got %d (%v)", body, status, data)
+			}
+			apiWantError(t, data, "validation_error", "task_close_winddown_secs must be between 10 and 3600 seconds")
+		}
+		if stored, err := d.GetSetting(settingTaskCloseWinddownSecs); err != nil || stored != nil {
+			t.Fatalf("a refused value must not be stored, got %v %v", stored, err)
+		}
+		_, served := apiJSON(t, h, "GET", "/api/settings", owner, "")
+		apiWantBody(t, served, apiTestShippedSettings())
 	})
 
 	t.Run("a reassign_handover_timeout_secs outside its range answers 422 and writes nothing", func(t *testing.T) {
@@ -937,6 +960,7 @@ func TestSettingsView(t *testing.T) {
 		MonitoringRefreshSeconds:     5,
 		OutsourceMaxParallel:         3,
 		AcceleratedGraceSecs:         120,
+		TaskCloseWinddownSecs:        300,
 		ReassignHandoverTimeoutSecs:  1800,
 		WardenCredentialLifetimeSecs: 2592000,
 		DocCapCharsDuty:              1000,

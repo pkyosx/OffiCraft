@@ -1857,50 +1857,85 @@ func TestReclaimWorkerSession_NoOnlineWarden_RetriesLater(t *testing.T) {
 	}
 }
 
-func TestDismissOutsourceWorkersForTask_ReleasesAndReclaims(t *testing.T) {
-	s := newWorkerTestServer(t)
-	connectWarden(t, s, ServerSelfHost)
-	task := putTaskFixture(t, s, Task{
-		ID: "t-000000000007", TypeKey: "review-pr", Title: "x",
-		Status: TaskStatusDone, Priority: TaskPriorityMid,
-		ExecutorKind: TaskExecutorOutsource, ExecutorID: "ow-7", ClosedTS: 1,
+// An OFFLINE worker has nothing to wind down, so the close still releases and
+// reclaims it in the same call (T-244's offline arm — the behaviour T-182 gave
+// every worker). No SSE connection is made for ow-7 here, and that omission is
+// the fixture's whole point.
+func TestTaskClose_OfflineAtTheCloseNeedsTheStationsConfirmation(t *testing.T) {
+	fixture := func(t *testing.T) (*apiServer, Task) {
+		t.Helper()
+		s := newWorkerTestServer(t)
+		connectWarden(t, s, ServerSelfHost)
+		task := putTaskFixture(t, s, Task{
+			ID: "t-000000000007", TypeKey: "review-pr", Title: "x",
+			Status: TaskStatusDone, Priority: TaskPriorityMid,
+			ExecutorKind: TaskExecutorOutsource, ExecutorID: "ow-7", ClosedTS: 1,
+		})
+		putWorkerFixture(t, s, OutsourceWorker{
+			ID: "ow-7", Codename: "O-7", Model: "opus", Effort: "high",
+			TaskID: task.ID, Status: WorkerStatusActive,
+		})
+		return s, task
+	}
+
+	// 🔴 THE GUARD ON THE SKIP. Reading offline ONCE is what a worker that is
+	// merely mid-reconnect looks like, and this branch is irreversible: it takes
+	// the whole close-out window away. Taking it away from a contractor that is
+	// alive is the harm the window exists to prevent.
+	t.Run("one offline sample at the close does not take the window away", func(t *testing.T) {
+		s, task := fixture(t)
+
+		s.openTaskCloseWindDownForTask(task.ID, 42.0, triggerServer)
+
+		after, err := s.dal.GetOutsourceWorker("ow-7")
+		if err != nil || after == nil {
+			t.Fatalf("read back worker: %v", err)
+		}
+		if after.Status != WorkerStatusActive || after.ReleasedTS != 0 ||
+			after.DesiredState != DesiredStateOffline || after.StoppingSince != 42.0 ||
+			after.RefocusOp != refocusOpTaskClose {
+			t.Errorf("worker = %+v, want a window opened on it, not a release", after)
+		}
+		if got := len(s.hub.DrainWardenCommands(ServerSelfHost)); got != 0 {
+			t.Errorf("want no kill while the window is open, got %d frames", got)
+		}
 	})
-	putWorkerFixture(t, s, OutsourceWorker{
-		ID: "ow-7", Codename: "O-7", Model: "opus", Effort: "high",
-		TaskID: task.ID, Status: WorkerStatusActive,
+
+	t.Run("a session the station has already confirmed gone skips the window", func(t *testing.T) {
+		s, task := fixture(t)
+		// Arm the continuous-offline anchor the way the tick does, then close
+		// past the confirmation window.
+		s.outsourceMu.Lock()
+		s.workerSessionConfirmedGone("ow-7", 0)
+		s.outsourceMu.Unlock()
+		at := workerOfflineConfirmGraceSecs + 1
+
+		s.openTaskCloseWindDownForTask(task.ID, at, triggerServer)
+
+		after, err := s.dal.GetOutsourceWorker("ow-7")
+		if err != nil || after == nil {
+			t.Fatalf("read back worker: %v", err)
+		}
+		if after.Status != WorkerStatusReleased || after.ReleasedTS != at {
+			t.Errorf("worker after close = %+v, want released@%v", after, at)
+		}
+		frames := s.hub.DrainWardenCommands(ServerSelfHost)
+		if len(frames) != 1 {
+			t.Fatalf("want 1 worker_stop, got %d", len(frames))
+		}
+		if rpc, args := decodeWardenFrame(t, frames[0].Frame); rpc != reconcileCmdStop ||
+			args["member_id"] != "ow-7" {
+			t.Errorf("frame = %s %v", rpc, args)
+		}
+
+		// Idempotent: a second close enqueues nothing further.
+		s.openTaskCloseWindDownForTask(task.ID, at+1, triggerServer)
+		if got := len(s.hub.DrainWardenCommands(ServerSelfHost)); got != 0 {
+			t.Errorf("second close must be a no-op, got %d frames", got)
+		}
 	})
-
-	s.dismissOutsourceWorkersForTask(task.ID, 42.0, triggerServer)
-
-	after, err := s.dal.GetOutsourceWorker("ow-7")
-	if err != nil || after == nil {
-		t.Fatalf("read back worker: %v", err)
-	}
-	if after.Status != WorkerStatusReleased || after.ReleasedTS != 42.0 {
-		t.Errorf("worker after dismiss = %+v, want released@42", after)
-	}
-	frames := s.hub.DrainWardenCommands(ServerSelfHost)
-	if len(frames) != 1 {
-		t.Fatalf("want 1 worker_stop, got %d", len(frames))
-	}
-	if rpc, args := decodeWardenFrame(t, frames[0].Frame); rpc != reconcileCmdStop ||
-		args["member_id"] != "ow-7" {
-		t.Errorf("frame = %s %v", rpc, args)
-	}
-
-	// Idempotent: a second dismissal (double报) enqueues nothing further.
-	s.dismissOutsourceWorkersForTask(task.ID, 43.0, triggerServer)
-	if got := len(s.hub.DrainWardenCommands(ServerSelfHost)); got != 0 {
-		t.Errorf("second dismissal must be a no-op, got %d frames", got)
-	}
 }
 
-// ── every close → immediate dismissal (T-182) ──────────────────────────────
-
-// closedWorkerFixture seats one task in `status` with a LIVE worker bound to it
-// and returns the task. The worker is deliberately still ACTIVE: the close has
-// to both release the row AND reclaim the session, and starting from `released`
-// would let a close that only reclaims look identical to one that does both.
 func closedWorkerFixture(t *testing.T, s *apiServer, taskID, workerID, status string) Task {
 	t.Helper()
 	task := putTaskFixture(t, s, Task{
@@ -1912,57 +1947,75 @@ func closedWorkerFixture(t *testing.T, s *apiServer, taskID, workerID, status st
 		ID: workerID, Codename: "O-" + workerID, Model: "opus", Effort: "high",
 		TaskID: task.ID, Status: WorkerStatusActive,
 	})
+	connectWarden(t, s, workerID) // the worker's OWN session — see above
 	return task
 }
 
-// assertWorkerDismissed reads the two facts a dismissal produces — the row is
-// released AND exactly one worker_stop naming that worker went to the warden.
-// Both, because either one alone is served by a half-dismissal: closeTask
-// released the row long before this ticket and left the session running.
-func assertWorkerDismissed(t *testing.T, s *apiServer, workerID string) {
+// assertWorkerInCloseOutWindow reads every fact the window is made of: the row
+// is still LIVE (so it is still on the panel), it carries the task-close
+// wind-down anchors (so presence reads 停止中 and the deadline is quoted), and
+// NOTHING was sent to the warden (so the session is still running).
+//
+// All of them, because each one alone is satisfied by a different half-change:
+// a close that writes the anchors and still kills passes the row check, and a
+// close that does nothing at all passes the no-frames check.
+func assertWorkerInCloseOutWindow(t *testing.T, s *apiServer, workerID string) {
 	t.Helper()
 	after, err := s.dal.GetOutsourceWorker(workerID)
 	if err != nil || after == nil {
 		t.Fatalf("read back worker: %v", err)
 	}
-	if after.Status != WorkerStatusReleased {
-		t.Errorf("worker after close = %q, want released", after.Status)
+	got := map[string]any{
+		"status":         after.Status,
+		"desired_state":  after.DesiredState,
+		"refocus_op":     after.RefocusOp,
+		"refocus_since":  after.RefocusSince,
+		"stopped_since":  after.StoppedSince,
+		"stopping_armed": after.StoppingSince > 0,
+		"presence":       workerPresence(*after, nowSecs(), s.hub.IsOnline(workerID)),
 	}
-	frames := s.hub.DrainWardenCommands(ServerSelfHost)
-	if len(frames) != 1 {
-		t.Fatalf("want 1 immediate worker_stop, got %d", len(frames))
+	want := map[string]any{
+		"status":         WorkerStatusActive,
+		"desired_state":  DesiredStateOffline,
+		"refocus_op":     refocusOpTaskClose,
+		"refocus_since":  0.0,
+		"stopped_since":  0.0,
+		"stopping_armed": true,
+		"presence":       MemberPresenceStopping,
 	}
-	if rpc, args := decodeWardenFrame(t, frames[0].Frame); rpc != reconcileCmdStop ||
-		args["member_id"] != workerID {
-		t.Errorf("frame = %s %v, want worker_stop %s", rpc, args, workerID)
+	apiWantValue(t, "worker after close", any(got), any(want))
+	if frames := s.hub.DrainWardenCommands(ServerSelfHost); len(frames) != 0 {
+		t.Fatalf("a close-out window must dispatch NO kill, got %d frames", len(frames))
 	}
 }
 
-// TestTaskClose_DismissesBoundWorkers covers the ONE fact this ticket moved: the bound outsource
-// worker is dismissed — row released and session reclaimed in the same call —
-// by EVERY close, not by a separate close-out report (removed in T-182).
+// TestTaskClose_DismissesBoundWorkers covers the ONE fact this ticket moved: the
+// bound outsource worker gets a CLOSE-OUT WINDOW — row kept, session kept,
+// 停止中 on the panel — from EVERY close, not from a separate close-out report
+// (removed in T-182) and no longer as the on-the-spot dismissal T-182 left in
+// its place (reversed in T-244, owner rc-604d8fc39cfd).
 //
 // All four doors are driven through their REAL handlers rather than closeTask
 // directly. Driving the shared seam once would prove only that the seam works;
 // what has to hold is that no door bypasses it, and a door that forgot to call
-// closeTask is exactly the regression a seam-level test cannot see.
-//
-// It is deliberately NOT folded into api_tasks_test.go's TestCloseTask: that one
-// observes the DAL and the chat rows, and the fact under test here — the
-// worker_stop frame that reclaims the session — is only visible through the
-// warden hub this file's newWorkerTestServer wires up.
+// closeTask is exactly the regression a seam-level test cannot see. It is also
+// why the owner's requirement is 「四種關閉方式都給收尾時間」 and not 「關閉會給
+// 收尾時間」: the two doors that end a task its executor was not going to end
+// (force_task_done, mark_task_terminated) are precisely the ones that used to
+// cut a working contractor off, so a fix that reached only the other two would
+// leave the reported symptom in place.
 func TestTaskClose_DismissesBoundWorkers(t *testing.T) {
-	t.Run("mark_task_done dismisses the bound worker", func(t *testing.T) {
+	t.Run("mark_task_done opens the bound worker's close-out window", func(t *testing.T) {
 		s := newWorkerTestServer(t)
 		connectWarden(t, s, ServerSelfHost)
 		task := closedWorkerFixture(t, s, "t-00000000000b", "ow-b", TaskStatusReadyForDone)
 		if rec := markDone(t, s, task.ID, "ow-b", "agent"); rec.Code != http.StatusOK {
 			t.Fatalf("mark_task_done: %d %s", rec.Code, rec.Body.String())
 		}
-		assertWorkerDismissed(t, s, "ow-b")
+		assertWorkerInCloseOutWindow(t, s, "ow-b")
 	})
 
-	t.Run("mark_task_terminated dismisses the bound worker", func(t *testing.T) {
+	t.Run("mark_task_terminated opens the bound worker's close-out window", func(t *testing.T) {
 		s := newWorkerTestServer(t)
 		connectWarden(t, s, ServerSelfHost)
 		task := closedWorkerFixture(t, s, "t-00000000000e", "ow-e", TaskStatusInProgress)
@@ -1973,10 +2026,10 @@ func TestTaskClose_DismissesBoundWorkers(t *testing.T) {
 		if rec.Code != http.StatusOK {
 			t.Fatalf("mark_task_terminated: %d %s", rec.Code, rec.Body.String())
 		}
-		assertWorkerDismissed(t, s, "ow-e")
+		assertWorkerInCloseOutWindow(t, s, "ow-e")
 	})
 
-	t.Run("mark_task_duplicated dismisses the bound worker", func(t *testing.T) {
+	t.Run("mark_task_duplicated opens the bound worker's close-out window", func(t *testing.T) {
 		s := newWorkerTestServer(t)
 		connectWarden(t, s, ServerSelfHost)
 		putTaskFixture(t, s, Task{
@@ -1992,10 +2045,10 @@ func TestTaskClose_DismissesBoundWorkers(t *testing.T) {
 		if rec.Code != http.StatusOK {
 			t.Fatalf("mark_task_duplicated: %d %s", rec.Code, rec.Body.String())
 		}
-		assertWorkerDismissed(t, s, "ow-f")
+		assertWorkerInCloseOutWindow(t, s, "ow-f")
 	})
 
-	t.Run("force_task_done dismisses the bound worker", func(t *testing.T) {
+	t.Run("force_task_done opens the bound worker's close-out window", func(t *testing.T) {
 		s := newWorkerTestServer(t)
 		connectWarden(t, s, ServerSelfHost)
 		// Mid-plan on purpose: force_task_done is the door for a task whose
@@ -2009,10 +2062,10 @@ func TestTaskClose_DismissesBoundWorkers(t *testing.T) {
 		if rec.Code != http.StatusOK {
 			t.Fatalf("force_task_done: %d %s", rec.Code, rec.Body.String())
 		}
-		assertWorkerDismissed(t, s, "ow-g")
+		assertWorkerInCloseOutWindow(t, s, "ow-g")
 	})
 
-	t.Run("a member-executed task dismisses nobody", func(t *testing.T) {
+	t.Run("a member-executed task winds nobody down", func(t *testing.T) {
 		s := newWorkerTestServer(t)
 		connectWarden(t, s, ServerSelfHost)
 		task := putTaskFixture(t, s, Task{
@@ -2035,6 +2088,375 @@ func TestTaskClose_DismissesBoundWorkers(t *testing.T) {
 		after, err := s.dal.GetOutsourceWorker("ow-d")
 		if err != nil || after == nil || after.Status != WorkerStatusActive {
 			t.Errorf("unrelated worker must stay active, got %+v (err %v)", after, err)
+		}
+	})
+}
+
+// ── the collect (T-244) ─────────────────────────────────────────────────────
+
+// windDownFixture seats one worker ALREADY INSIDE its close-out window: the row
+// a close leaves behind (live, desired-offline, anchored at `openedAt`, cause
+// task_close) on a task that is already terminal. Its session is online unless
+// the caller says otherwise, because "still running" is the state the two
+// collect arms have to tell apart.
+func windDownFixture(t *testing.T, openedAt float64, online bool) *apiServer {
+	t.Helper()
+	s := newWorkerTestServer(t)
+	connectWarden(t, s, ServerSelfHost)
+	putTaskFixture(t, s, Task{
+		ID: "t-000000000244", TypeKey: "review-pr", Title: "x",
+		Status: TaskStatusDone, Priority: TaskPriorityMid,
+		ExecutorKind: TaskExecutorOutsource, ExecutorID: "ow-244", ClosedTS: openedAt,
+	})
+	putWorkerFixture(t, s, OutsourceWorker{
+		ID: "ow-244", Codename: "O-244", Model: "opus", Effort: "high",
+		TaskID: "t-000000000244", Status: WorkerStatusActive,
+		DesiredState: DesiredStateOffline, StoppingSince: openedAt,
+		RefocusOp: refocusOpTaskClose,
+	})
+	if online {
+		connectWarden(t, s, "ow-244")
+	}
+	return s
+}
+
+// windDownState is everything a tick can have done to the worker, read back in
+// one value: whether the row was released, and whether a kill went out.
+//
+// ⚠️ IT CONSUMES WHAT IT REPORTS. The kill count comes from draining the warden
+// queue, so a SECOND call answers 0 kills for the same tick — not because
+// nothing was sent, but because the first call took it. Call it once per
+// subtest, at the end; if you need two readings, capture the difference
+// yourself rather than calling this twice.
+func windDownState(t *testing.T, s *apiServer) map[string]any {
+	t.Helper()
+	after, err := s.dal.GetOutsourceWorker("ow-244")
+	if err != nil || after == nil {
+		t.Fatalf("read back worker: %v", err)
+	}
+	return map[string]any{
+		"status": after.Status,
+		"kills":  float64(len(s.hub.DrainWardenCommands(ServerSelfHost))),
+	}
+}
+
+func TestTaskCloseWindDown_Collect(t *testing.T) {
+	const opened = 1000.0
+
+	// 🔴 THE RELEASED GUARD, WHICH NOTHING ELSE SEES. Removing
+	// `w.Status == WorkerStatusReleased` from the collect leaves the whole
+	// package green, because releaseAndReclaimWorker has a second, independent
+	// idempotency term (workerReclaimed) that absorbs the duplicate. The day
+	// that term's lifetime changes, this guard is the only thing left, and it
+	// would break with no signal at all. Asserted here directly, with the
+	// positive control beside it so a permanently-false collect cannot pass.
+	t.Run("an already-released row is not collected again, while the same row live is", func(t *testing.T) {
+		s := windDownFixture(t, opened, false)
+		w, err := s.dal.GetOutsourceWorker("ow-244")
+		if err != nil || w == nil {
+			t.Fatalf("read back worker: %v", err)
+		}
+		at := opened + taskCloseWinddownSecsDefault + 1
+
+		s.outsourceMu.Lock()
+		defer s.outsourceMu.Unlock()
+		live := *w
+		released := *w
+		released.Status = WorkerStatusReleased
+
+		if got := s.collectTaskCloseWindDown(released, at); got {
+			t.Errorf("an already-released row was collected again")
+		}
+		if got := s.collectTaskCloseWindDown(live, at); !got {
+			t.Errorf("positive control: the same row, live, was NOT collected — " +
+				"this test would pass for the wrong reason")
+		}
+	})
+
+	// 🔴 NOTHING MAY QUEUE A 起來 BEHIND A CLOSE-OUT WINDOW. Consuming that
+	// intent flips desired_state back to online and wipes the stop anchor and the
+	// cause, after which this collect can never match the row again and no other
+	// path releases a worker whose ticket is over — measured: still `active` a
+	// hundred thousand seconds later, holding a concurrency slot. It reaches the
+	// row through three doors (重新聚焦, 換 model/機器, the spawn funnel) and they
+	// all go through this one seam, which is why the guard lives there and is
+	// asserted here. The control is the same worker on a LIVE ticket, where the
+	// queue is exactly what the owner's verb is supposed to do.
+	t.Run("no 起來 can be queued behind a close-out window, while a live ticket still queues one", func(t *testing.T) {
+		s := windDownFixture(t, opened, false)
+		w, err := s.dal.GetOutsourceWorker("ow-244")
+		if err != nil || w == nil {
+			t.Fatalf("read back worker: %v", err)
+		}
+
+		s.outsourceMu.Lock()
+		defer s.outsourceMu.Unlock()
+		over := *w
+		if got := s.queueWorkerRestartAfterStop(&over, refocusOpRefocus, opened+1); got {
+			t.Errorf("a 起來 was queued behind a window opened by a CLOSED ticket")
+		}
+		if over.RestartAfterStop {
+			t.Errorf("the restart intent was stamped on the row anyway: %+v", over)
+		}
+
+		putTaskFixture(t, s, Task{
+			ID: "t-000000000244", TypeKey: "review-pr", Title: "x",
+			Status: TaskStatusInProgress, Priority: TaskPriorityMid,
+			ExecutorKind: TaskExecutorOutsource, ExecutorID: "ow-244",
+		})
+		live := *w
+		if got := s.queueWorkerRestartAfterStop(&live, refocusOpRefocus, opened+1); !got {
+			t.Errorf("positive control: a live ticket did NOT queue a 起來 — " +
+				"this test would pass for the wrong reason")
+		}
+	})
+
+	t.Run("a live session inside the window is left alone", func(t *testing.T) {
+		s := windDownFixture(t, opened, true)
+
+		s.runOutsourceTick(opened + 10)
+
+		apiWantValue(t, "worker", any(windDownState(t, s)),
+			any(map[string]any{"status": WorkerStatusActive, "kills": 0.0}))
+	})
+
+	// 🔴 THE REPORT IS NOT THE PROOF (owner rc-604d8fc39cfd 圈 [0]). What this
+	// pair asserts is that one OFFLINE SAMPLE does not collect either: the
+	// station's own determination needs the session to have been continuously
+	// gone for workerOfflineConfirmGraceSecs, and 121 s is inside the 300 s
+	// window, so a collect there can only have come from the offline arm.
+	t.Run("one offline sample is not the session being gone", func(t *testing.T) {
+		s := windDownFixture(t, opened, false)
+
+		s.runOutsourceTick(opened + 1)
+		s.runOutsourceTick(opened + workerOfflineConfirmGraceSecs - 1)
+
+		apiWantValue(t, "worker", any(windDownState(t, s)),
+			any(map[string]any{"status": WorkerStatusActive, "kills": 0.0}))
+	})
+
+	t.Run("a session the station has confirmed gone is collected early, well inside the window", func(t *testing.T) {
+		s := windDownFixture(t, opened, false)
+
+		s.runOutsourceTick(opened + 1)
+		s.runOutsourceTick(opened + workerOfflineConfirmGraceSecs + 1)
+
+		apiWantValue(t, "worker", any(windDownState(t, s)),
+			any(map[string]any{"status": WorkerStatusReleased, "kills": 1.0}))
+	})
+
+	// The forced arm. The session is STILL ONLINE, so the offline arm above
+	// cannot be what fires — the only thing that changed is the clock.
+	// 🔴 THE OTHER SIDE OF THE DEADLINE, and without it the number is unguarded
+	// in one direction. "a live session inside the window is left alone" runs ten
+	// seconds in, so HALVING the window leaves it passing — measured here: with
+	// the collect changed to StoppingSince + grace/2, every OTHER case in this
+	// test still passes and only this one goes red. (An independent run reported
+	// the whole package staying green under the same mutation; that figure is
+	// relayed, not re-measured here.)
+	// What the worker is TOLD is task.close_winddown_secs; collecting it
+	// before that instant is the countdown and the collect disagreeing, which is
+	// the one thing the (clock, sentence) pair exists to make impossible.
+	t.Run("nothing is collected one second before the quoted deadline", func(t *testing.T) {
+		s := windDownFixture(t, opened, true)
+
+		s.runOutsourceTick(opened + taskCloseWinddownSecsDefault - 1)
+
+		apiWantValue(t, "worker", any(windDownState(t, s)),
+			any(map[string]any{"status": WorkerStatusActive, "kills": 0.0}))
+	})
+
+	t.Run("the window elapsing collects a worker that is still running", func(t *testing.T) {
+		s := windDownFixture(t, opened, true)
+
+		s.runOutsourceTick(opened + taskCloseWinddownSecsDefault + 1)
+
+		apiWantValue(t, "worker", any(windDownState(t, s)),
+			any(map[string]any{"status": WorkerStatusReleased, "kills": 1.0}))
+	})
+
+	// The window is the SETTING and not the constant: shortening it moves the
+	// deadline, which is the difference between a configurable window and a 300
+	// written in two places.
+	t.Run("the window length comes from the setting, not from the default", func(t *testing.T) {
+		s := windDownFixture(t, opened, true)
+		s.taskCloseWinddownSecs = 20
+
+		s.runOutsourceTick(opened + 21)
+
+		apiWantValue(t, "worker", any(windDownState(t, s)),
+			any(map[string]any{"status": WorkerStatusReleased, "kills": 1.0}))
+	})
+
+	// 🔴 THE CAUSE IS WHAT SCOPES THIS COLLECT, AND THE CONTROL HAS TO BE THE
+	// OFFLINE ARM. An owner-pressed 停止 leaves the SAME three anchors behind
+	// with refocus_op="" — and the state that tells the two apart is a session
+	// the station has confirmed gone, because that arm asks no question about
+	// the clock. A control driven with the session still UP proves nothing: the
+	// deadline arm already answers "not clocked" for a soft cause, so dropping
+	// the cause guard leaves it passing (measured — that mutant survived).
+	//
+	// What the guard defends: an owner 停止 that reaches this state is collected
+	// by autoHandoverWorker's own arm, which kills the session and latches
+	// stopped_since but leaves the ROW LIVE, so the worker reads 已停止 and the
+	// owner can still see it, wake it or force it. Releasing it here would take
+	// it off his panel for a task he never closed. So the kill below is EXPECTED
+	// and the released row is the failure.
+	// 停止 is not a dismissal — so the ticket above the worker has to still be
+	// LIVE for this to be the question. On a ticket that is already over the
+	// answer is the opposite one, and that is the case below.
+	t.Run("an owner-pressed 停止 on a LIVE ticket is collected as a STOP, not released off the panel", func(t *testing.T) {
+		s := windDownFixture(t, opened, false)
+		putTaskFixture(t, s, Task{
+			ID: "t-000000000244", TypeKey: "review-pr", Title: "x",
+			Status: TaskStatusInProgress, Priority: TaskPriorityMid,
+			ExecutorKind: TaskExecutorOutsource, ExecutorID: "ow-244",
+		})
+		w, err := s.dal.GetOutsourceWorker("ow-244")
+		if err != nil || w == nil {
+			t.Fatalf("read back worker: %v", err)
+		}
+		if err := s.dal.SetMemberWindDownAnchors(w.ID, w.StoppingSince, 0, 0, ""); err != nil {
+			t.Fatalf("re-anchor: %v", err)
+		}
+
+		s.runOutsourceTick(opened + 1)
+		s.runOutsourceTick(opened + workerOfflineConfirmGraceSecs + 1)
+
+		apiWantValue(t, "worker", any(windDownState(t, s)),
+			any(map[string]any{"status": WorkerStatusActive, "kills": 1.0}))
+	})
+
+	// 🔴 加速停止 MUST NOT MAKE THE WINDOW LONGER, and the deadline has TWO ways
+	// to get longer, so both configurations below are run against the one
+	// expression every face reads (winddownDeadlineOf — the cockpit's field and
+	// the sentence the agent is handed both come off it).
+	//
+	// Re-anchoring is the first way: the deadline is anchor + grace, so stamping
+	// the anchor at the press hands back a full grace however old the window is.
+	//
+	// The RULER is the second, and it is the one this pair exists for. task_close
+	// is the only clocked cause that does not read accelerated_grace_secs, and
+	// both keys are owner-adjustable over the same range — so a window configured
+	// SHORTER than this verb's grace makes "switch to the accelerated ruler" the
+	// longer option, off an anchor that never moved. An earlier revision of this
+	// subtest asserted only the anchor and the cause and passed while the
+	// deadline on the trial station moved 90 s the wrong way.
+	for _, tc := range []struct {
+		name         string
+		winddown     int
+		accelerated  int
+		wantDeadline float64
+		wantOp       string
+	}{{
+		name:     "window longer than this verb's grace: switched to the shorter ruler",
+		winddown: 300, accelerated: 120,
+		wantDeadline: opened + 120, wantOp: refocusOpAcceleratedStop,
+	}, {
+		name:     "window shorter than this verb's grace: the press leaves the earlier deadline alone",
+		winddown: 30, accelerated: 120,
+		wantDeadline: opened + 30, wantOp: refocusOpTaskClose,
+	}} {
+		t.Run("加速停止 mid-window brings the deadline forward, never back — "+tc.name, func(t *testing.T) {
+			s := windDownFixture(t, opened, true)
+			s.settingsMu.Lock()
+			s.taskCloseWinddownSecs = tc.winddown
+			s.acceleratedGraceSecs = tc.accelerated
+			s.settingsMu.Unlock()
+
+			readBack := func() OutsourceWorker {
+				t.Helper()
+				w, err := s.dal.GetOutsourceWorker("ow-244")
+				if err != nil || w == nil {
+					t.Fatalf("read back worker: %v", err)
+				}
+				return *w
+			}
+			deadline := func(w OutsourceWorker) float64 {
+				return winddownDeadlineOf(memberFromWorker(w), s.reconcileConfigLive())
+			}
+
+			before := deadline(readBack())
+			rec := postWorker(t, s, "ow-244", "accelerated-stop", nil,
+				s.HandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcceleratedStopPost)
+			if rec.Code != 200 {
+				t.Fatalf("加速停止: %d %s", rec.Code, rec.Body.String())
+			}
+
+			after := readBack()
+			got := deadline(after)
+			if got > before {
+				t.Errorf("the press moved the deadline %.0f s LATER (%v → %v): "+
+					"加速停止 may only ever bring it forward", got-before, before, got)
+			}
+			if got != tc.wantDeadline {
+				t.Errorf("deadline = %v, want %v", got, tc.wantDeadline)
+			}
+			if after.StoppingSince != opened {
+				t.Errorf("the anchor moved to %v: a clocked wind-down must keep the "+
+					"anchor it already had", after.StoppingSince)
+			}
+			if after.RefocusOp != tc.wantOp {
+				t.Errorf("cause = %q, want %q", after.RefocusOp, tc.wantOp)
+			}
+		})
+	}
+
+	// 🔴 喚醒 IS THE FOURTH DOOR ONTO THIS SEAM, and the must-fix that closed the
+	// other three never counted it. 重新聚焦 / 換 model / 換機器 all reach the
+	// revive through queueWorkerRestartAfterStop, which refuses once the ticket is
+	// over (workerTicketIsOver). activate does not call that function at all: it
+	// writes desired_state=online and clears the stop anchor itself — and
+	// collectTaskCloseWindDown's FIRST condition is desired_state == offline, so
+	// from that press onwards NOTHING releases the row. The worker sits on the
+	// panel holding one of the outsource concurrency slots, on a task that closed.
+	//
+	// Found by the owner, looking at a screenshot of the cockpit and asking why
+	// the 喚醒 button was live on a contractor that was winding down.
+	t.Run("喚醒 mid-window cannot strand the worker on a closed ticket", func(t *testing.T) {
+		s := windDownFixture(t, opened, true)
+		postWorker(t, s, "ow-244", "activate", nil,
+			s.HandleActivateMemberApiMembersMemberIdActivatePost)
+
+		s.runOutsourceTick(opened + 1)
+		s.runOutsourceTick(opened + float64(taskCloseWinddownSecsDefault) + 1)
+
+		after, err := s.dal.GetOutsourceWorker("ow-244")
+		if err != nil || after == nil {
+			t.Fatalf("read back worker: %v", err)
+		}
+		if after.Status != WorkerStatusReleased {
+			t.Errorf("worker = {status:%s desired:%s stopping_since:%v refocus_op:%q}, "+
+				"want released — a ticket that is over has no row to keep, and 喚醒 "+
+				"must not be able to keep it",
+				after.Status, after.DesiredState, after.StoppingSince, after.RefocusOp)
+		}
+	})
+
+	// 🔴 THE GUARD ON WHAT THIS COLLECT IS KEYED ON. 加速停止 overwrites
+	// refocus_op and re-anchors the clock, and a worker inside this window
+	// qualifies for it — live, online, winding down, so the cockpit offers that
+	// rung on that very row. Keyed on the cause, the collect stops matching
+	// from that press onwards and the arm that does collect the worker kills
+	// the session WITHOUT releasing the row: a contractor whose ticket is over,
+	// parked on the panel for good, still holding one of the concurrency slots.
+	t.Run("the owner pressing 加速停止 mid-window still ends with the row released", func(t *testing.T) {
+		s := windDownFixture(t, opened, true)
+		pressed := opened + 10
+		if err := s.dal.SetMemberWindDownAnchors(
+			"ow-244", pressed, 0, 0, refocusOpAcceleratedStop); err != nil {
+			t.Fatalf("re-anchor: %v", err)
+		}
+
+		s.runOutsourceTick(pressed + 1)
+		s.runOutsourceTick(pressed + float64(acceleratedGraceSecsDefault) + 1)
+
+		after, err := s.dal.GetOutsourceWorker("ow-244")
+		if err != nil || after == nil {
+			t.Fatalf("read back worker: %v", err)
+		}
+		if after.Status != WorkerStatusReleased {
+			t.Errorf("worker = %+v, want released — a ticket that is over has no row to keep", after)
 		}
 	})
 }

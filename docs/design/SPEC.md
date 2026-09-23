@@ -506,6 +506,7 @@ epoch 再當場砍，**沒有重生**，所以存下的新值要等之後某一�
 | Claude 第一次通知 / Claude 最後通牒 | `notice` / `handover` |
 | Codex 第一次通知 / Codex 最後通牒回合 | `codexNotice` / `codexHandover` |
 | 加速停止秒數 | `acceleratedGrace` |
+| 任務結案收尾秒數 | `taskCloseWinddown` |
 | 轉派交接逾時秒數 | `reassignHandoverTimeout` |
 | 機器憑證壽命 | `wardenCredentialLifetime` |
 | 監控刷新間隔 | `monitoringRefresh` |

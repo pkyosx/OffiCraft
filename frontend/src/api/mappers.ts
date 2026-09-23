@@ -1223,6 +1223,9 @@ export function toServerSettings(w: WireServerSettings): ServerSettingsView {
     acceleratedGraceSecs: w.accelerated_grace_secs ?? 120,
     // 1800 is the server's shipped default.
     reassignHandoverTimeoutSecs: w.reassign_handover_timeout_secs ?? 1800,
+    // 300 is the server's shipped default (T-244), the value an install that
+    // never touched the knob runs on.
+    taskCloseWinddownSecs: w.task_close_winddown_secs ?? 300,
     // 2592000 (30 days) is the server's shipped default, the value a fleet that
     // never touched the knob renews on — and the same number a warden falls back
     // to when it cannot reach the credential-policy endpoint, so a server too

@@ -3461,16 +3461,27 @@ func TestReclaimWorkerSession(t *testing.T) {
 	})
 }
 
-func TestDismissOutsourceWorkersForTask(t *testing.T) {
-	t.Run("every worker bound to the task is released and its session reclaimed on the spot", func(t *testing.T) {
+// TestOpenTaskCloseWindDownForTask pins BOTH arms of the close (T-244): the
+// worker that has no session to wind down leaves on the spot, and the one that
+// does gets the window instead. The two are one function and a mutant that
+// collapses them into either arm passes the other arm's subtest, which is why
+// they are asserted side by side here rather than in two files.
+func TestOpenTaskCloseWindDownForTask(t *testing.T) {
+	t.Run("a worker whose session the station has CONFIRMED gone is released and reclaimed on the spot", func(t *testing.T) {
 		api, h, d, owner, _ := wsWorkerSpawnFixture(t, WorkerStatusActive)
 		apiTestListen(t, api, ServerSelfHost)
 		api.outsourceMu.Lock()
 		api.workerSpawnTarget["ow-abc123"] = ServerSelfHost
 		api.outsourceMu.Unlock()
+		// The skip needs the station's CONFIRMATION, not one offline sample:
+		// arm the continuous-offline anchor the way the tick does, then close
+		// past the confirmation window.
+		api.outsourceMu.Lock()
+		api.workerSessionConfirmedGone("ow-abc123", 0)
+		api.outsourceMu.Unlock()
 		dashboard := apiTestListen(t, api, "")
 
-		api.dismissOutsourceWorkersForTask("T-1", 7777, triggerServer)
+		api.openTaskCloseWindDownForTask("T-1", 7777, triggerServer)
 
 		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"))
 		apiTestWantReleasedWorker(t, d, h, owner, "ow-abc123", map[string]any{
@@ -3479,14 +3490,82 @@ func TestDismissOutsourceWorkersForTask(t *testing.T) {
 		dashboard.wantFrames(apiTestWorkerDelta(2, "released", "server"))
 	})
 
-	t.Run("a second dismissal is a no-op: the row is already released and the session already reclaimed", func(t *testing.T) {
+	t.Run("an ONLINE worker is put into the close-out window instead: it keeps its session, stays on the panel and reads 停止中", func(t *testing.T) {
 		api, h, d, owner, _ := wsWorkerSpawnFixture(t, WorkerStatusActive)
 		apiTestListen(t, api, ServerSelfHost)
-		api.dismissOutsourceWorkersForTask("T-1", 7777, triggerServer)
+		// The worker's OWN connection. hub.IsOnline is the only authority the
+		// close reads, and it is also what makes the presence projection say
+		// 停止中 rather than 已停止 — the same fact, two faces.
+		worker := apiTestListen(t, api, "ow-abc123")
+		dashboard := apiTestListen(t, api, "")
+
+		api.openTaskCloseWindDownForTask("T-1", 7777, triggerServer)
+
+		// NOTHING is killed. This is the whole reversal: the same call used to
+		// enqueue a stop here.
+		wsWantWardenFrames(t, api, ServerSelfHost)
+		// The row is still LIVE and the panel still shows it. Every field of the
+		// served projection, so a change anywhere in it has to be typed here.
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status":           "active",
+			"roster_status":    "active",
+			"presence":         "stopping",
+			"desired_state":    "offline",
+			"refocus_op":       "task_close",
+			"refocus_since":    0,
+			"refocus_deadline": 7777 + 300,
+		}))
+		// …and the durable anchors behind that projection.
+		after, err := d.GetOutsourceWorker("ow-abc123")
+		if err != nil || after == nil {
+			t.Fatalf("read back worker: %v", err)
+		}
+		apiWantValue(t, "wind-down anchors", any(map[string]any{
+			"stopping_since": after.StoppingSince,
+			"stopped_since":  after.StoppedSince,
+			"refocus_since":  after.RefocusSince,
+			"refocus_op":     after.RefocusOp,
+			"desired_state":  after.DesiredState,
+			"status":         after.Status,
+		}), any(map[string]any{
+			"stopping_since": 7777.0,
+			"stopped_since":  0.0,
+			"refocus_since":  0.0,
+			"refocus_op":     "task_close",
+			"desired_state":  "offline",
+			"status":         "active",
+		}))
+		// The worker's own session is TOLD, and the sentence carries the
+		// deadline — a clock nobody announces is the failure this cause exists
+		// to avoid. The notice body is the 加速停止 document (the clocked
+		// wind-down document); what is asserted here is that a notice arrived
+		// and that it quotes THIS window's instant.
+		// The 加速停止 document IS the clocked-wind-down document, and this
+		// cause is clocked — so the worker is handed it with THIS window's
+		// instant substituted (7777 + 300 = 8077 epoch). The expected value is
+		// the same hand-written literal the 加速停止 tests use with its one
+		// variable moved, which is what makes the deadline an assertion rather
+		// than a re-derivation.
+		wantNotice := strings.Replace(apiTestAcceleratedNotice,
+			"1970-01-01T00:18:40Z", "1970-01-01T02:14:37Z", 1)
+		worker.wantFrames(apiTestHandoverDelta(2, "offline", wantNotice, "server"))
+		dashboard.wantFrames(apiTestHandoverDelta(2, "offline", wantNotice, "server"))
+	})
+
+	t.Run("a second call on an already-released worker is a no-op: the row is released and the session already reclaimed", func(t *testing.T) {
+		api, h, d, owner, _ := wsWorkerSpawnFixture(t, WorkerStatusActive)
+		apiTestListen(t, api, ServerSelfHost)
+		// The skip needs the station's CONFIRMATION, not one offline sample:
+		// arm the continuous-offline anchor the way the tick does, then close
+		// past the confirmation window.
+		api.outsourceMu.Lock()
+		api.workerSessionConfirmedGone("ow-abc123", 0)
+		api.outsourceMu.Unlock()
+		api.openTaskCloseWindDownForTask("T-1", 7777, triggerServer)
 		wsDrainWardenFrames(t, api, ServerSelfHost)
 		dashboard := apiTestListen(t, api, "")
 
-		api.dismissOutsourceWorkersForTask("T-1", 8888, triggerServer)
+		api.openTaskCloseWindDownForTask("T-1", 8888, triggerServer)
 
 		wsWantWardenFrames(t, api, ServerSelfHost)
 		apiTestWantReleasedWorker(t, d, h, owner, "ow-abc123")
@@ -3498,7 +3577,7 @@ func TestDismissOutsourceWorkersForTask(t *testing.T) {
 		apiTestListen(t, api, ServerSelfHost)
 		dashboard := apiTestListen(t, api, "")
 
-		api.dismissOutsourceWorkersForTask("T-404", 7777, triggerServer)
+		api.openTaskCloseWindDownForTask("T-404", 7777, triggerServer)
 
 		wsWantWardenFrames(t, api, ServerSelfHost)
 		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{

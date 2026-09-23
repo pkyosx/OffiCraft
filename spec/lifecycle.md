@@ -263,10 +263,13 @@ ceiling of the warden lifetime setting (§1.6).
 
      Scope notes, all load-bearing: the cut applies to `kind="warden"` rows ONLY —
      `roster_status="removed"` is ALSO how a released outsource worker and a dismissed
-     member are recorded. ⚠️ A released worker USED TO be contractually still working (it
-     kept its session to file a close-out report after the task closed); since T-182 the
-     close itself dismisses it — row released and session reclaimed in one call — so the
-     window this note protected is now very short rather than open-ended. The scope
+     member are recorded. ⚠️ A released worker is one whose CLOSE-OUT WINDOW IS ALREADY
+     OVER, and that has been true in two different ways. It used to be contractually still
+     working (it kept its session to file a close-out report after the task closed); T-182
+     removed that report and made the close itself dismiss it — row released and session
+     reclaimed in one call; T-244 gave the SESSION a bounded window back, but the window
+     runs while the row is still LIVE (§6.3), and the release is the thing that ENDS it.
+     So a released worker's session is gone or about to be, either way. The scope
      restriction stands regardless: this cut is for `kind="warden"` rows only, and a
      released worker's row must not be swept by it. A failed roster read MUST NOT revoke
      (unknown ≠ revoked). `POST
@@ -765,8 +768,8 @@ The server owns desired-state reconciliation; the warden is a stateless executor
   `--no-reconcile`; the mirror flag `--no-outsource` gates only the assignment PRODUCER
   (`outsourceTickNow`, plus that producer's half of the cadence tick). Everything else that reaches
   `respawnWorkerForOwnerOp` / `enqueueWorkerStop` consults **neither** flag — the owner verbs
-  (restart, model change, relocate, stop, refocus), a task terminate that dismisses its
-  workers, and the worker's own `report_stopped` — so a shadow server with both flags set
+  (restart, model change, relocate, stop, refocus), a task close that winds its workers
+  down (and the tick that later collects them), and the worker's own `report_stopped` — so a shadow server with both flags set
   still spawns and kills real worker sessions. This list is not exhaustive; the invariant to
   rely on is the negative one: **the flag gates the reconcile producer and nothing else.**
   What "the producer" covers is wider than dispatch, including: its dispatch seams; the
@@ -962,7 +965,8 @@ ONE-SHOT, never a standing order):
 | `start_timeout` | `WakingTTLSecs` | START unconfirmed → failed spawn |
 | `stop_grace` | 120 s | self-stop window before the robust stop — **unreachable today**: the arm that consumes it is guarded by `SoftOffboardGrace == 0` (see §4.3) |
 | `stop_retry` | 90 s | STOP/UNINSTALL re-dispatch window (lost-frame recovery) |
-| `recycle_grace` | 120 s (owner-settable) | dump-stuck fallback from `refocus_since` — but the wait is **`recycleGraceFor(refocus_op)`, which answers *whether there is a clock at all* as well as how long**, and since T-ed79 both it and the sentence (`offboardKindOf`) read ONE judgement, `winddownKindFor`. 加速停止 has TWO causes since 2026-08-21: `context_high` (the SECOND context threshold) and `accelerated_stop` (the owner pressing the button — the middle rung of 停止 → 加速停止 → 強制停止). Every other cause (`refocus`, `context_notice`, `relocate`, `runtime/model`, `restart_self`, `token_expiry`, and anything unnamed) is a plain **停止**: no clock at all, collected only by the agent's own stopped report or by 強制停止. FINAL is a positive condition, not a fallthrough — that is what stopped an owner verb the owner never put on a clock from carrying one. **The 120 is a DEFAULT, not a constant, since 2026-08-21**: `stop.accelerated_grace_secs` (10..3600) moves it, and it is deliberately ONE key for every clocked cause — the clock, the wire deadline and the sentence all reach it through the same `recycleGraceFor` pair, so an owner cannot end up with a countdown quoted to the agent that differs from the one the tick collects on. It says HOW LONG and never WHO: a soft cause stays uncollected at every value the key accepts |
+| `recycle_grace` | 120 s (owner-settable) | dump-stuck fallback from `refocus_since` — but the wait is **`recycleGraceFor(refocus_op)`, which answers *whether there is a clock at all* as well as how long**, and since T-ed79 both it and the sentence (`offboardKindOf`) read ONE judgement, `winddownKindFor`. 加速停止 has TWO causes since 2026-08-21: `context_high` (the SECOND context threshold) and `accelerated_stop` (the owner pressing the button — the middle rung of 停止 → 加速停止 → 強制停止). Every other cause (`refocus`, `context_notice`, `relocate`, `runtime/model`, `restart_self`, `token_expiry`, and anything unnamed) is a plain **停止**: no clock at all, collected only by the agent's own stopped report or by 強制停止. FINAL is a positive condition, not a fallthrough — that is what stopped an owner verb the owner never put on a clock from carrying one. **The 120 is a DEFAULT, not a constant, since 2026-08-21**: `stop.accelerated_grace_secs` (10..3600) moves it, and it is deliberately ONE key for every clocked cause — the clock, the wire deadline and the sentence all reach it through the same `recycleGraceFor` pair, so an owner cannot end up with a countdown quoted to the agent that differs from the one the tick collects on. It says HOW LONG and never WHO: a soft cause stays uncollected at every value the key accepts. ⚠️ **Since T-244 there is a THIRD clocked cause and it does NOT read this key**: `task_close` (the task an outsource worker was hired for landed terminal) is clocked by `winddownKindFor` like the two above but answers `task.close_winddown_secs` in `recycleGraceFor` — a separate number, because the length of a contractor's shutdown and the length of the owner's own escalation are different decisions. What is still ONE per cause, which is the invariant this row is about, is the (clock, sentence) pair |
+| `task.close_winddown_secs` | 300 s (owner-settable) | **T-244**, owner `rc-604d8fc39cfd` 圈 [0]. How long an OUTSOURCE worker keeps its session after the task it is bound to lands terminal — all four closes alike. The close stamps `desired_state=offline` + `stopping_since` + `refocus_op=task_close` instead of releasing the row, so the worker reads **停止中** and stays on the panel; the outsource tick releases it (and reclaims the session) at whichever comes first of the station's OWN offline determination (`workerSessionConfirmedGone`, the same continuous-offline window the 停止 arm uses) and this many seconds from the anchor. The worker asks to be collected early by calling `report_stopped`; 🔴 **that report is a REQUEST, not a proof** — the collection still waits for the offline determination (owner 2026-09-20). A worker that was ALREADY offline at the close skips the window and is released on the spot. Bounds 10..3600, the same predicate `stop.accelerated_grace_secs` uses |
 | `soft_offboard_grace` | 600 s | how long a close-out may say NOTHING before its anchor is treated as residue — **not a deadline, and no longer measured from the anchor**. Neither soft arm escalates any more: 下線 never did (`rc-27d1710174dd`) and 重新聚焦 stopped on 2026-08-19 (`rc-c540367065ad`), so what this value still does is make `decideDown` run **no clock at all** (§4.3) and set the silence `clearStaleStoppingOnOnline` requires before it sweeps (§4.5) — which is what keeps the 強制下線 button on screen for as long as the close-out is still reporting. Compile-time constant (`SoftOffboardGraceSecs`), deliberately not owner-settable |
 | `backoff_base` / `backoff_cap` | 5 s / 300 s | exponential start backoff |
 | `circuit_threshold` / `circuit_cooldown` | 5 / 120 s | sticky breaker (verified hard failures only) |
@@ -1039,7 +1043,8 @@ ONE-SHOT, never a standing order):
   by the server; the agent side needs no timeout of its own. **The wait is not one number**:
   `stop.accelerated_grace_secs` (default 120 s) for the TWO 加速停止 causes —
   `context_high` (the second context threshold) and `accelerated_stop` (the owner's
-  press) — and **no fallback at all** for every other cause,
+  press); `task.close_winddown_secs` (default 300 s, T-244) for the one OUTSOURCE-only
+  cause, `task_close` — and **no fallback at all** for every other cause,
   which waits indefinitely for the stopped report or the owner's 加速停止 / 強制停止 — see
   the `recycle_grace` row in §4.4) → the SSE drop makes
   ¬online → the next tick's plain START respawns.

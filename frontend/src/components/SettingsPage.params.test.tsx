@@ -52,10 +52,17 @@ describe("SettingsPage · 參數調整", () => {
     // number is the owner's, and docs/guide/members.md sends him HERE to change
     // it — until this row existed the only way to move it was the API.
     expect((utils.getByLabelText(s.acceleratedGrace) as HTMLInputElement).value).toBe("120");
+    // 任務結案收尾秒數 (T-244). The shipped 300 has to be readable HERE for the
+    // same reason: it is what decides how long a contractor the owner just
+    // finished with stays on his panel reading 停止中.
+    const winddown = utils.getByLabelText(s.taskCloseWinddown) as HTMLInputElement;
+    expect(winddown.value).toBe("300");
     const handover = utils.getByLabelText(s.reassignHandoverTimeout) as HTMLInputElement;
     expect(handover.value).toBe("1800");
     const rows = Array.from(utils.container.querySelectorAll("input.param-input"));
-    expect(rows.indexOf(handover)).toBe(rows.indexOf(utils.getByLabelText(s.acceleratedGrace)) + 1);
+    const grace = rows.indexOf(utils.getByLabelText(s.acceleratedGrace));
+    expect(rows.indexOf(winddown)).toBe(grace + 1);
+    expect(rows.indexOf(handover)).toBe(grace + 2);
     // 機器憑證壽命 (T-fc53). The shipped 30 days must be readable HERE: a fleet
     // renews on this number whether or not anyone ever
     // opened the API, and since 第二段 the same number is the credential's expiry,
@@ -120,6 +127,31 @@ describe("SettingsPage · 參數調整", () => {
     fireEvent.blur(secs);
     await utils.findByText(s.paramsSaveError);
     expect((await api.getServerSettings()).acceleratedGraceSecs).toBe(300);
+    expect(patch).toHaveBeenCalledTimes(1);
+    patch.mockRestore();
+  });
+
+  it("persists the 任務結案收尾秒數 and refuses a value the server would 422", async () => {
+    const patch = vi.spyOn(api, "patchServerSettings");
+    const utils = await openParams();
+    const secs = utils.getByLabelText(s.taskCloseWinddown) as HTMLInputElement;
+    fireEvent.change(secs, { target: { value: "60" } });
+    fireEvent.blur(secs);
+    await waitFor(async () =>
+      expect((await api.getServerSettings()).taskCloseWinddownSecs).toBe(60),
+    );
+    expect(patch).toHaveBeenCalledWith({ taskCloseWinddownSecs: 60 });
+    // It shares its 10..3600 bounds with the 加速停止 grace and nothing else:
+    // a patch that moved BOTH would satisfy the line above, so the other
+    // field's value is read back here too.
+    expect((await api.getServerSettings()).acceleratedGraceSecs).toBe(120);
+    for (const outside of ["9", "3601"]) {
+      fireEvent.change(secs, { target: { value: outside } });
+      fireEvent.blur(secs);
+      await utils.findByText(s.paramsSaveError);
+      expect(secs.value).toBe("60");
+    }
+    expect((await api.getServerSettings()).taskCloseWinddownSecs).toBe(60);
     expect(patch).toHaveBeenCalledTimes(1);
     patch.mockRestore();
   });

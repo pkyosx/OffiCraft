@@ -1608,53 +1608,70 @@ func TestGetOutsourceWorker(t *testing.T) {
 	})
 }
 
-func TestReleaseWorkersForTask(t *testing.T) {
-	t.Run("every worker bound to the task is flipped and returned, and nobody else's row moves", func(t *testing.T) {
+func TestListLiveWorkersForTask(t *testing.T) {
+	t.Run("every not-yet-released worker bound to the task comes back in creation order, and nobody else's does", func(t *testing.T) {
 		d := newAPITestDAL(t)
 		second := dalWorkerOnTask(t, d, "ow-2", "O-2", "T-1", 200)
 		first := dalWorkerOnTask(t, d, "ow-1", "O-1", "T-1", 100)
-		elsewhere := dalWorkerOnTask(t, d, "ow-9", "O-9", "T-2", 300)
+		dalWorkerOnTask(t, d, "ow-9", "O-9", "T-2", 300)
 
-		flipped, err := d.ReleaseWorkersForTask("T-1", 1800000000)
+		got, err := d.ListLiveWorkersForTask("T-1")
 		if err != nil {
-			t.Fatalf("ReleaseWorkersForTask: %v", err)
+			t.Fatalf("ListLiveWorkersForTask: %v", err)
 		}
-		want := []OutsourceWorker{
-			dalReleasedWorker(first, 1800000000), dalReleasedWorker(second, 1800000000),
+		if want := []OutsourceWorker{first, second}; !reflect.DeepEqual(got, want) {
+			t.Fatalf("ListLiveWorkersForTask:\n got %+v\nwant %+v", got, want)
 		}
-		if !reflect.DeepEqual(flipped, want) {
-			t.Fatalf("ReleaseWorkersForTask:\n got %+v\nwant %+v", flipped, want)
-		}
-		dalWantWorker(t, d, dalReleasedWorker(first, 1800000000))
-		dalWantWorker(t, d, dalReleasedWorker(second, 1800000000))
-		dalWantWorker(t, d, elsewhere)
 	})
 
-	t.Run("running it again flips nothing, because the rows are already released", func(t *testing.T) {
+	t.Run("it READS and nothing else — the rows it returned are untouched afterwards", func(t *testing.T) {
 		d := newAPITestDAL(t)
 		worker := dalWorkerOnTask(t, d, "ow-1", "O-1", "T-1", 100)
-		if _, err := d.ReleaseWorkersForTask("T-1", 1800000000); err != nil {
-			t.Fatalf("ReleaseWorkersForTask: %v", err)
+
+		if _, err := d.ListLiveWorkersForTask("T-1"); err != nil {
+			t.Fatalf("ListLiveWorkersForTask: %v", err)
 		}
-		flipped, err := d.ReleaseWorkersForTask("T-1", 1900000000)
-		if err != nil {
-			t.Fatalf("ReleaseWorkersForTask again: %v", err)
-		}
-		if flipped != nil {
-			t.Fatalf("ReleaseWorkersForTask again: want nil, got %+v", flipped)
-		}
-		dalWantWorker(t, d, dalReleasedWorker(worker, 1800000000))
+
+		dalWantWorker(t, d, worker)
 	})
 
-	t.Run("a task nobody works on flips nothing", func(t *testing.T) {
+	t.Run("an already-released worker is not live and does not come back", func(t *testing.T) {
 		d := newAPITestDAL(t)
 		worker := dalWorkerOnTask(t, d, "ow-1", "O-1", "T-1", 100)
-		flipped, err := d.ReleaseWorkersForTask("T-9", 1800000000)
-		if err != nil {
-			t.Fatalf("ReleaseWorkersForTask(T-9): %v", err)
+		if _, err := d.ReleaseWorkerByID(worker.ID, 1800000000); err != nil {
+			t.Fatalf("ReleaseWorkerByID: %v", err)
 		}
-		if flipped != nil {
-			t.Fatalf("ReleaseWorkersForTask(T-9): want nil, got %+v", flipped)
+
+		got, err := d.ListLiveWorkersForTask("T-1")
+		if err != nil {
+			t.Fatalf("ListLiveWorkersForTask: %v", err)
+		}
+		if got != nil {
+			t.Fatalf("ListLiveWorkersForTask: want nil, got %+v", got)
+		}
+		// The negative above needs a positive beside it, or a query that
+		// returns nothing at all reads as a pass: the same call on the task
+		// that DOES have a live worker still answers.
+		other := dalWorkerOnTask(t, d, "ow-2", "O-2", "T-2", 200)
+		live, err := d.ListLiveWorkersForTask("T-2")
+		if err != nil {
+			t.Fatalf("ListLiveWorkersForTask(T-2): %v", err)
+		}
+		if want := []OutsourceWorker{other}; !reflect.DeepEqual(live, want) {
+			t.Fatalf("ListLiveWorkersForTask(T-2):\n got %+v\nwant %+v", live, want)
+		}
+	})
+
+	t.Run("a task nobody works on answers nothing", func(t *testing.T) {
+		d := newAPITestDAL(t)
+		worker := dalWorkerOnTask(t, d, "ow-1", "O-1", "T-1", 100)
+
+		got, err := d.ListLiveWorkersForTask("T-9")
+		if err != nil {
+			t.Fatalf("ListLiveWorkersForTask(T-9): %v", err)
+		}
+		if got != nil {
+			t.Fatalf("ListLiveWorkersForTask(T-9): want nil, got %+v", got)
 		}
 		dalWantWorker(t, d, worker)
 	})

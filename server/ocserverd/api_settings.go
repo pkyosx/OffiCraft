@@ -521,6 +521,17 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 			"reassign_handover_timeout_secs "+reassignHandoverTimeoutRangeMsg)
 		return
 	}
+	// task_close_winddown_secs (T-244) is range-checked by the SAME predicate
+	// accelerated_grace_secs is, deliberately: the bounds describe what a
+	// wind-down window an agent is told about can usefully be, not which cause
+	// opened it, so there is one range rule in the build. The field name in the
+	// message still names THIS field, because that is what the owner typed.
+	if body.TaskCloseWinddownSecs != nil &&
+		!acceleratedGraceInRange(*body.TaskCloseWinddownSecs) {
+		writeError(w, http.StatusUnprocessableEntity,
+			"task_close_winddown_secs "+acceleratedGraceRangeMsg)
+		return
+	}
 	if body.OutsourceMaxParallel != nil &&
 		!outsourceParallelInRange(*body.OutsourceMaxParallel) {
 		writeError(w, http.StatusUnprocessableEntity,
@@ -819,6 +830,15 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 		}
 		s.reassignHandoverTimeoutSecs = *body.ReassignHandoverTimeoutSecs
 	}
+	if body.TaskCloseWinddownSecs != nil {
+		if err := s.dal.PutSetting(settingTaskCloseWinddownSecs,
+			strconv.Itoa(*body.TaskCloseWinddownSecs)); err != nil {
+			s.settingsMu.Unlock()
+			internalError(w, err)
+			return
+		}
+		s.taskCloseWinddownSecs = *body.TaskCloseWinddownSecs
+	}
 	if body.WardenCredentialLifetimeSecs != nil {
 		if err := s.dal.PutSetting(settingWardenCredLifetimeSecs,
 			strconv.Itoa(*body.WardenCredentialLifetimeSecs)); err != nil {
@@ -1032,6 +1052,7 @@ func (s *apiServer) settingsView() settingsDTO {
 		MonitoringRefreshSeconds:     s.monitoringRefreshSeconds,
 		AcceleratedGraceSecs:         s.acceleratedGraceSecs,
 		ReassignHandoverTimeoutSecs:  s.reassignHandoverTimeoutSecs,
+		TaskCloseWinddownSecs:        s.taskCloseWinddownSecs,
 		WardenCredentialLifetimeSecs: s.wardenCredLifetimeSecs,
 		OutsourceMaxParallel:         s.outsourceMaxParallel,
 		DocCapCharsDuty:              s.docCapCharsDuty,

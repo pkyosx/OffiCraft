@@ -191,6 +191,19 @@ const (
 	// hand-off it is being asked for; it can only fail. Renewal used to depend
 	// on the agent noticing on its own.
 	refocusOpTokenExpiry = "token_expiry"
+	// refocusOpTaskClose is the TASK-CLOSE close-out window (T-244, owner
+	// rc-604d8fc39cfd 圈 [0]). It is stamped on an OUTSOURCE worker — never on
+	// staff — by the close of the task it is bound to, all four closes alike,
+	// and it is what turns the dismissal that used to happen inside that call
+	// into a window the contractor can work.
+	//
+	// 🔴 IT IS A CAUSE ON THE 下線 AXIS, not the 換手 one: it rides
+	// desired_state=offline + stopping_since with NO refocus_since, exactly as
+	// accelerated_stop does on that arm, because nothing is coming back — the
+	// task is over and the worker is being let go. offboardKindOf's
+	// desired-offline arm reads it through winddownKindFor and
+	// winddownDeadlineOf anchors the deadline on stopping_since.
+	refocusOpTaskClose = "task_close"
 	// refocusOpAcceleratedStop is the OWNER-PRESSED 加速停止 (T-ed79, owner
 	// 2026-08-21 「停止 → 加速停止 → 強制停止」). It is the middle rung of a
 	// three-step escalation the owner walks by hand: 停止 asks and waits
@@ -300,6 +313,16 @@ func winddownKindFor(op string) (kind string, clocked bool) {
 	// the number can never end up with the automatic and the manual arm
 	// counting different seconds.
 	if op == refocusOpContextHigh || op == refocusOpAcceleratedStop {
+		return offboardKindFinal, true
+	}
+	// A THIRD clocked cause since T-244, and it is OUTSOURCE-ONLY: the task a
+	// contractor was hired for has landed terminal, so its close-out window is
+	// open and bounded. It is `final` for the same reason the two above are —
+	// there IS a deadline, so the sentence has to quote one — and it reads its
+	// own grace (task.close_winddown_secs) through the same recycleGraceFor pair
+	// rather than the 加速停止 key. Nothing stamps it on a staff row: the only
+	// writer is openTaskCloseWindDownForTask (worker_spawn.go).
+	if op == refocusOpTaskClose {
 		return offboardKindFinal, true
 	}
 	return offboardKindSoft, false
@@ -701,10 +724,41 @@ func (s *apiServer) queueWorkerRestartAfterStop(w *OutsourceWorker, op string, n
 	if w.DesiredState != DesiredStateOffline || !aStopWasEverAskedFor(memberFromWorker(*w)) {
 		return false
 	}
+	// 🔴 A WIND-DOWN A CLOSED TICKET OPENED IS A DEPARTURE, NOT A PAUSE, so
+	// nothing may queue a 起來 behind it. Consuming that intent flips
+	// desired_state back to online and clearWindDownRow wipes the stop anchor and
+	// the cause — after which the task-close collect can never match the row
+	// again, and no other path releases a worker whose ticket is over. Measured:
+	// the worker is still `active` a hundred thousand seconds later, holding one
+	// of the concurrency slots on a task that closed.
+	// Before T-244 this was unreachable: the close released the row on the spot
+	// and every one of these verbs answered 404 from then on. Refusing here keeps
+	// that contract rather than inventing a new one — 停止 and 加速停止 still
+	// work, because making it leave sooner is not the same as keeping it.
+	if s.workerTicketIsOver(*w) {
+		return false
+	}
 	w.RestartAfterStop = true
 	stampOpReceipt(&w.LastOp, &w.LastOpOK, &w.LastOpLog, &w.LastOpReason, &w.LastOpAt,
 		reconcileCmdStart, memberRestartQueuedReceipt(op), now)
 	return true
+}
+
+// workerTicketIsOver reports whether the task this worker was hired for has
+// landed terminal. It is the durable half of "this contractor is on its way
+// out": unlike refocus_op it cannot be overwritten by a later verb, and unlike
+// desired_state it cannot be flipped back. A read failure answers false — the
+// safe direction here is to leave the owner's verb working rather than to refuse
+// it on a database hiccup. Callers hold s.outsourceMu.
+func (s *apiServer) workerTicketIsOver(w OutsourceWorker) bool {
+	if w.TaskID == "" {
+		return false
+	}
+	t, err := s.dal.GetTask(w.TaskID)
+	if err != nil || t == nil {
+		return false
+	}
+	return TaskIsTerminal(t.Status)
 }
 
 // persistWorkerRestartIntent stores BOTH things queueWorkerRestartAfterStop

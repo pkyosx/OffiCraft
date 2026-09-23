@@ -97,6 +97,7 @@ func TestDefaultReconcileConfig(t *testing.T) {
 	t.Run("the frozen timer table is the shipped one, with the zombie window at twice the start timeout", func(t *testing.T) {
 		want := reconcileConfig{
 			StartTimeout: 120, StopGrace: 120, StopRetry: 90, RecycleGrace: 120,
+			TaskCloseWinddown: 300,
 			SoftOffboardGrace: 600, BackoffBase: 5, BackoffCap: 300,
 			CircuitThreshold: 5, CircuitCooldown: 120, ZombieConfirmGrace: 240,
 		}
