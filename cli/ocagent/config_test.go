@@ -30,6 +30,19 @@ func TestRequireBase(t *testing.T) {
 		}
 	})
 
+	t.Run("a malformed base stops the caller, names OC_BASE and echoes no value", func(t *testing.T) {
+		var errOut bytes.Buffer
+		cfg := Config{Base: "http:", BaseConfigured: true, BaseMalformed: true, Token: "tok-secret"}
+		if !requireBase(cfg, "upload", &errOut) {
+			t.Fatal("requireBase let a malformed base through")
+		}
+		want := "[ocagent] upload: OC_BASE is set but is not a usable station address — " +
+			"it must be http:// or https:// followed by a host.\n"
+		if errOut.String() != want {
+			t.Fatalf("stderr %q, want %q", errOut.String(), want)
+		}
+	})
+
 	t.Run("the message never echoes the base it fell back to", func(t *testing.T) {
 		var errOut bytes.Buffer
 		requireBase(Config{Base: defaultBase, Token: "tok-secret"}, "download", &errOut)
@@ -94,13 +107,37 @@ func TestLoadConfig(t *testing.T) {
 		}
 	})
 
-	t.Run("a base normalizeBase cannot re-scheme still counts as configured", func(t *testing.T) {
-		got := loadConfig(testEnv(map[string]string{
-			"OC_BASE":       "http://",
-			"OC_AGENT_HOME": "/srv/agents",
-		}))
-		if got.Base != "http:" || !got.BaseConfigured {
-			t.Fatalf("got Base=%q BaseConfigured=%v, want (\"http:\", true)", got.Base, got.BaseConfigured)
+	t.Run("a malformed OC_BASE counts as configured and is marked malformed", func(t *testing.T) {
+		for _, raw := range []string{
+			"http://", "https://", "HTTPS://", "http://:9999", "http:///path",
+			"ftp://station.example.com", "notaurl", "station.example.com:7755",
+			"http://station example.com", "   ",
+		} {
+			got := loadConfig(testEnv(map[string]string{"OC_BASE": raw, "OC_AGENT_HOME": "/srv/agents"}))
+			if !got.BaseConfigured || !got.BaseMalformed {
+				t.Errorf("OC_BASE=%q: BaseConfigured=%v BaseMalformed=%v, want both true",
+					raw, got.BaseConfigured, got.BaseMalformed)
+			}
+		}
+	})
+
+	t.Run("a well-formed OC_BASE resolves exactly as before and is not marked malformed", func(t *testing.T) {
+		for _, tc := range []struct{ raw, base string }{
+			{"http://127.0.0.1:7755", "http://127.0.0.1:7755"},
+			{"http://localhost:7755/", "http://localhost:7755"},
+			{"http://station.example.com", "https://station.example.com"},
+			{"https://station.example.com:8443", "https://station.example.com:8443"},
+			{"https://station.example.com/", "https://station.example.com"},
+			{"https://station.example.com/api/x?q=1#f", "https://station.example.com"},
+			{" https://station.example.com ", "https://station.example.com"},
+			{"http://user:pw@127.0.0.1:7755", "http://127.0.0.1:7755"},
+			{"http://[::1]:7755", "https://[::1]:7755"},
+		} {
+			got := loadConfig(testEnv(map[string]string{"OC_BASE": tc.raw, "OC_AGENT_HOME": "/srv/agents"}))
+			want := Config{Base: tc.base, BaseConfigured: true, Home: "/srv/agents"}
+			if !reflect.DeepEqual(got, want) {
+				t.Errorf("OC_BASE=%q: loadConfig = %+v, want %+v", tc.raw, got, want)
+			}
 		}
 	})
 

@@ -182,6 +182,31 @@ func TestCmdContextReport(t *testing.T) {
 		}
 	})
 
+	t.Run("a malformed OC_BASE is flagged on stderr and still prints the status line", func(t *testing.T) {
+		home := t.TempDir()
+		cfg := Config{Base: "http:", BaseConfigured: true, BaseMalformed: true, Home: home}
+		client := &fakeHTTP{status: 200, body: "{}"}
+		var out, errOut bytes.Buffer
+
+		rc := cmdContextReport(client, cfg, testEnv(nil), 1000.0,
+			strings.NewReader(payload), &out, &errOut)
+
+		if rc != 0 {
+			t.Errorf("rc = %d, want 0", rc)
+		}
+		if out.String() != wantLine {
+			t.Errorf("stdout = %q, want %q", out.String(), wantLine)
+		}
+		wantErr := "[ocagent] context-report: OC_BASE is set but is not a usable station address — " +
+			"it must be http:// or https:// followed by a host.\n"
+		if errOut.String() != wantErr {
+			t.Errorf("stderr = %q, want %q", errOut.String(), wantErr)
+		}
+		if client.seen != nil {
+			t.Errorf("sent %v, want nothing without OC_TOKEN/OC_ID", client.seen)
+		}
+	})
+
 	t.Run("a null pct skips its own POST and never blocks the telemetry one", func(t *testing.T) {
 		home := t.TempDir()
 		cfg := Config{BaseConfigured: true, Base: "http://x", Token: "t", ID: "kyle", Home: home}

@@ -230,6 +230,19 @@ func TestCmdDiff(t *testing.T) {
 		}
 	})
 
+	t.Run("a malformed OC_BASE refuses the plain flavour instead of printing a broken link", func(t *testing.T) {
+		var out, errOut bytes.Buffer
+		malformed := loadConfig(testEnv(map[string]string{"OC_BASE": "http://", "OC_TOKEN": "tok-1"}))
+		rc := cmdDiff(canned(200, "{}"), malformed, "att-0123456789ab", "att-ba9876543210", "", "", false,
+			&out, &errOut)
+		want := "[ocagent] diff: OC_BASE is set but is not a usable station address — " +
+			"it must be http:// or https:// followed by a host.\n"
+		if rc != 3 || errOut.String() != want || out.String() != "" {
+			t.Fatalf("got (%d, %q, %q), want (3, \"\", the malformed-OC_BASE refusal)",
+				rc, out.String(), errOut.String())
+		}
+	})
+
 	t.Run("a bad side is refused before the OC_BASE guard runs", func(t *testing.T) {
 		var out, errOut bytes.Buffer
 		unset := Config{Base: defaultBase, Token: "tok-1"}
