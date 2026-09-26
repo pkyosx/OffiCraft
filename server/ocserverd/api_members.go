@@ -104,10 +104,10 @@ func (s *apiServer) collectMemberStop(m *Member, trigger string) error {
 //
 // ⚠️ MEMBER ROWS ONLY. The outsource half deliberately does not fan a member
 // patch for an `ow-` id (its changes travel on the same member projection),
-// so worker callers write through s.dal.SetMemberOpReceipt directly and keep
+// so worker callers write through s.dal.SetMemberLastOp directly and keep
 // whatever publish they already had.
 func (s *apiServer) persistMemberOpReceipt(m Member, trigger string) error {
-	if err := s.dal.SetMemberOpReceipt(m.ID, m.LastOp, m.LastOpOK, m.LastOpLog,
+	if err := s.dal.SetMemberLastOp(m.ID, m.LastOp, m.LastOpOK, m.LastOpLog,
 		m.LastOpReason, m.LastOpAt); err != nil {
 		return err
 	}
@@ -1184,7 +1184,7 @@ func (s *apiServer) HandleUpdateMemberApiMembersMemberIdPatch(w http.ResponseWri
 		// EXPLANATION still travelled in one write even though the value no longer
 		// did; the second batch moved the receipt columns out too, so both halves
 		// are now separate writes and the write below carries neither. The stamp
-		// is stored by the dal.SetMemberOpReceipt call after it — which must run
+		// is stored by the dal.SetMemberLastOp call after it — which must run
 		// BEFORE the launch-intent setters, for the reason spelled out there.
 		heldDown = !s.armMemberOwnerOpHandover(m, memberOpModel) &&
 			m.DesiredState == DesiredStateOffline
@@ -1812,7 +1812,7 @@ func (s *apiServer) HandleDeactivateMemberApiMembersMemberIdDeactivatePost(w htt
 	// projection.
 	//
 	// decideDown's first branch is `if !obs.Online { converged offline }`, and a
-	// waking member is BY DEFINITION not online (deriveLiveness projects waking
+	// waking member is BY DEFINITION not online (derivePresence projects waking
 	// only when !Online). So for the whole waking window the cadence dispatched
 	// NOTHING: the process the earlier START already put on the machine booted
 	// anyway, connected, went green, and only then — as a now-online member with
@@ -2132,8 +2132,8 @@ func (s *apiServer) HandleDismissMemberApiMembersMemberIdDelete(w http.ResponseW
 	// BEST-EFFORT (review B5): putMember above ALREADY persisted the dismissal,
 	// and there is no transaction to roll it back. 500-ing here would report
 	// "dismiss failed" for a member that IS dismissed. Log instead — matching
-	// expireWaitingCardsFromMember's own contract and the worker-dismissal twin.
-	if _, err := s.expireWaitingCardsFromMember(m.ID, nowSecs(), requestTrigger(r)); err != nil {
+	// expireWaitingCardsByAuthor's own contract and the worker-dismissal twin.
+	if _, err := s.expireWaitingCardsByAuthor(m.ID, nowSecs(), requestTrigger(r)); err != nil {
 		taskLog("dismiss %s: reply-card sweep failed (cards left waiting): %v", m.ID, err)
 	}
 	writeJSON(w, http.StatusOK, agentLifecycleReceiptDTO{ID: m.ID})

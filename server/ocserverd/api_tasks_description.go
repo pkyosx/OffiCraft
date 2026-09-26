@@ -59,8 +59,8 @@ func taskDescriptionHistorySnapshot(description string) (string, error) {
 // handler folded a moment earlier: the retained revision must be the state this
 // write actually replaced, otherwise two callers correcting the same card both
 // retain the same ancestor and whichever landed between them is unrecoverable.
-func taskDescriptionSnapshotIn(taskID string) func(sqlQuerier) (string, error) {
-	return func(q sqlQuerier) (string, error) {
+func taskDescriptionSnapshotIn(taskID string) func(sqlRowQuerier) (string, error) {
+	return func(q sqlRowQuerier) (string, error) {
 		current, ok, err := taskDescriptionOn(q, taskID)
 		if err != nil {
 			return "", err

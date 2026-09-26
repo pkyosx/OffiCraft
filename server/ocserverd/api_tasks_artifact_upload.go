@@ -71,10 +71,10 @@ func (s *apiServer) HandleUploadTaskArtifactApiTasksTaskIdArtifactsUploadPost(
 		return
 	}
 	if !s.callerMayEditTaskText(r, *t) {
-		writeError(w, http.StatusForbidden, executorGuardRefusal)
+		writeError(w, http.StatusForbidden, taskActorRefusal)
 		return
 	}
-	if TaskRecordFrozen(t.Status) {
+	if TaskRecordReadOnly(t.Status) {
 		writeError(w, http.StatusConflict, taskFrozenDeliverablesRefusal(*t))
 		return
 	}

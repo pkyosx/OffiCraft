@@ -218,10 +218,10 @@ func (s *apiServer) resolveStepForNoteWrite(w http.ResponseWriter, r *http.Reque
 	// A text-only door: callerMayEditTaskText (the acting executor — the
 	// predecessor under the reassign hold — or an executor-less task's creator).
 	if !s.callerMayEditTaskText(r, *t) {
-		writeError(w, http.StatusForbidden, executorGuardRefusal)
+		writeError(w, http.StatusForbidden, taskActorRefusal)
 		return nil, nil, false
 	}
-	if TaskRecordFrozen(t.Status) {
+	if TaskRecordReadOnly(t.Status) {
 		writeError(w, http.StatusConflict,
 			"task '"+taskId+"' is already closed ("+t.Status+")")
 		return nil, nil, false

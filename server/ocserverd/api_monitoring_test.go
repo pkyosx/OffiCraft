@@ -436,7 +436,7 @@ func TestFoldCommandResult(t *testing.T) {
 		before.LastOpLog = "session started"
 		before.LastOpReason = "started"
 		before.LastOpAt = 1720000000
-		if err := d.SetMemberOpReceipt(before.ID, before.LastOp, before.LastOpOK,
+		if err := d.SetMemberLastOp(before.ID, before.LastOp, before.LastOpOK,
 			before.LastOpLog, before.LastOpReason, before.LastOpAt); err != nil {
 			t.Fatalf("SetMemberOpReceipt: %v", err)
 		}
@@ -606,7 +606,7 @@ func TestFoldWorkerCommandResult(t *testing.T) {
 		before.LastOpLog = "started"
 		before.LastOpReason = "started"
 		before.LastOpAt = 1720000000
-		if err := d.SetMemberOpReceipt(before.ID, before.LastOp, before.LastOpOK,
+		if err := d.SetMemberLastOp(before.ID, before.LastOp, before.LastOpOK,
 			before.LastOpLog, before.LastOpReason, before.LastOpAt); err != nil {
 			t.Fatalf("SetMemberOpReceipt: %v", err)
 		}

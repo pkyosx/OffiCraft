@@ -713,7 +713,7 @@ func (s *apiServer) queueWorkerRestartAfterStop(w *OutsourceWorker, op string, n
 //
 //   - the flag rides the whole-row write (mfRestartAfterStop is not insertOnly);
 //   - the five last_op* columns left that write in T-55 批次B and land through
-//     SetMemberOpReceipt.
+//     SetMemberLastOp.
 //
 // Order: the row first, the sentence second — every other site in this package
 // orders it that way, and for the same reason: a receipt explains a change that
@@ -722,7 +722,7 @@ func (s *apiServer) persistWorkerRestartIntent(w OutsourceWorker) error {
 	if err := s.dal.PutOutsourceWorker(w); err != nil {
 		return err
 	}
-	return s.dal.SetMemberOpReceipt(w.ID, w.LastOp, w.LastOpOK, w.LastOpLog,
+	return s.dal.SetMemberLastOp(w.ID, w.LastOp, w.LastOpOK, w.LastOpLog,
 		w.LastOpReason, w.LastOpAt)
 }
 
@@ -786,7 +786,7 @@ func (s *apiServer) consumeWorkerRestartAfterStop(w *OutsourceWorker, now float6
 	// Not fatal: the worker IS up, and refusing to return true would re-arm an
 	// intent that has already been spent. Logged, and the tick moves on with a
 	// stale explanation on the row — the same trade its staff twin makes.
-	if err := s.dal.SetMemberOpReceipt(w.ID, w.LastOp, w.LastOpOK, w.LastOpLog,
+	if err := s.dal.SetMemberLastOp(w.ID, w.LastOp, w.LastOpOK, w.LastOpLog,
 		w.LastOpReason, w.LastOpAt); err != nil {
 		outsourceLog("%s: queued restart-after-stop receipt persist failed: %v", w.ID, err)
 	}

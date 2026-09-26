@@ -2,7 +2,7 @@ package main
 
 import "fmt"
 
-// Single-step plan edits (T-228). submit_plan / ReplaceTaskPlan stays exactly as
+// Single-step plan edits (T-228). submit_plan / ReplaceTaskSteps stays exactly as
 // it was: a WHOLESALE replace that deletes every unfinished row and mints new
 // ids for whatever the fresh plan re-lists. These three writes are the opposite
 // shape — they move ONE thing and leave every other row's id, status, note and
@@ -23,7 +23,7 @@ import "fmt"
 // silently. That is the decision of record, not an oversight — the tool
 // descriptions say so in as many words.
 //
-// 🔴 NONE OF THE THREE RE-IMPLEMENTS ReplaceTaskPlan'S ORDERING RULES, and that
+// 🔴 NONE OF THE THREE RE-IMPLEMENTS ReplaceTaskSteps'S ORDERING RULES, and that
 // is deliberate: what a plan PRESERVES (done rows, already-superseded history,
 // answered-card rows) and where the preserved prefix lands is a partition, and a
 // second copy of a partition is a rule that drifts. These writes partition

@@ -771,8 +771,8 @@ func (s *apiServer) bootSequenceText(runtime string) (string, error) {
 // reason: the retained revision must be the state THIS write replaced, not a
 // value the handler folded earlier, or two racing writers retain one common
 // ancestor and the version written between them becomes unrecoverable.
-func bootDocSnapshotIn(kind, key string) func(sqlQuerier) (string, error) {
-	return func(q sqlQuerier) (string, error) {
+func bootDocSnapshotIn(kind, key string) func(sqlRowQuerier) (string, error) {
+	return func(q sqlRowQuerier) (string, error) {
 		current, err := getBootDocumentOn(q, kind, key)
 		if err != nil {
 			return "", err

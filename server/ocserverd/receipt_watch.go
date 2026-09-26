@@ -254,7 +254,7 @@ func (s *apiServer) stampReceiptMissing(targetID string, p pendingReceipt, now f
 	// Narrowing it from a whole-row upsert to five columns strictly shrinks what
 	// an interleaved HTTP write can lose here: it was the widest unlocked writer
 	// on this table and is now the narrowest.
-	if err := s.dal.SetMemberOpReceipt(w.ID, w.LastOp, w.LastOpOK, w.LastOpLog,
+	if err := s.dal.SetMemberLastOp(w.ID, w.LastOp, w.LastOpOK, w.LastOpLog,
 		w.LastOpReason, w.LastOpAt); err != nil {
 		outsourceLog("%s: receipt-missing stamp persist failed: %v", targetID, err)
 		return

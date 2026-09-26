@@ -80,7 +80,7 @@ func (d *DAL) GetTaskArtifact(id string) (*TaskArtifact, error) {
 // getTaskArtifactOn is the same read against any querier, so the write paths
 // can re-read the row from INSIDE their transaction (what a replace retains
 // must be the state that write actually replaced).
-func getTaskArtifactOn(q sqlQuerier, id string) (*TaskArtifact, error) {
+func getTaskArtifactOn(q sqlRowQuerier, id string) (*TaskArtifact, error) {
 	row := q.QueryRow(
 		`SELECT `+taskArtifactColumns+` FROM task_artifact WHERE id = ?`, id)
 	a, err := scanTaskArtifact(row)

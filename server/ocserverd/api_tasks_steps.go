@@ -42,7 +42,7 @@ func (s *apiServer) resolveTaskForStepEdit(
 		return nil, nil, false
 	}
 	if !s.callerMayDriveTask(r, *t) {
-		writeError(w, http.StatusForbidden, executorGuardRefusal)
+		writeError(w, http.StatusForbidden, taskActorRefusal)
 		return nil, nil, false
 	}
 	if TaskIsTerminal(t.Status) {

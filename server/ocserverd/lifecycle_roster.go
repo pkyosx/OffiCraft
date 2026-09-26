@@ -123,7 +123,7 @@ type LifecyclePolicy struct {
 func lifecyclePolicyFor(m Member) LifecyclePolicy {
 	if m.Kind == KindOutsource {
 		return LifecyclePolicy{ShouldExist: func() bool {
-			return workerStatusFromMember(m.RosterStatus, m.ActivatedTS) == WorkerStatusActive &&
+			return workerStatusFrom(m.RosterStatus, m.ActivatedTS) == WorkerStatusActive &&
 				m.DesiredState != DesiredStateOffline
 		}}
 	}
@@ -369,7 +369,7 @@ func (s *apiServer) runLifecycleRosterPasses(roster []Member, now float64) {
 //
 // 🔴 THE DOOR ADMITS MORE THAN THE WORKER VOCABULARY'S "ACTIVE" — written
 // down here because it is worth knowing before you widen it.
-// lifecyclePolicyFor asks workerStatusFromMember, and memberFromWorker
+// lifecyclePolicyFor asks workerStatusFrom, and memberFromWorker
 // feeds it a stamped ActivatedTS = nowSecs() for a Status=="active" row whose
 // own ActivatedTS is 0, and leaves ActivatedTS>0 untouched for a Status string
 // its switch does not recognise — so the door answers ACTIVE for both, while the

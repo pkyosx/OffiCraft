@@ -1134,7 +1134,7 @@ func TestTaskDescriptionRestoreAuthz(t *testing.T) {
 		if status != 403 {
 			t.Fatalf("want 403, got %d (%v)", status, data)
 		}
-		apiWantError(t, data, "forbidden", executorGuardRefusal)
+		apiWantError(t, data, "forbidden", taskActorRefusal)
 		dashboard.wantFrames()
 		_, task := apiJSON(t, h, "GET", "/api/tasks/T-1", owner, "")
 		apiWantValue(t, "task.description", task["description"], "new scope")

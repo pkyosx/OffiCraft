@@ -555,7 +555,7 @@ func TestStampWorkerPlacementBlocked(t *testing.T) {
 
 	t.Run("a wake_timeout over the warden's clobber refusal is composed onto it rather than replacing it", func(t *testing.T) {
 		api, h, _, owner, w := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
-		if err := api.dal.SetMemberOpReceipt("ow-abc123", "start", nil, "",
+		if err := api.dal.SetMemberLastOp("ow-abc123", "start", nil, "",
 			"session_already_exists: a live session is holding the slot", 400); err != nil {
 			t.Fatalf("SetMemberOpReceipt: %v", err)
 		}
@@ -598,7 +598,7 @@ func TestClearWorkerPlacementBlock(t *testing.T) {
 
 	t.Run("a warden's own receipt is never touched, because a dispatch is an attempt and not an outcome", func(t *testing.T) {
 		api, h, _, owner, _ := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
-		if err := api.dal.SetMemberOpReceipt("ow-abc123", "start", nil, "warden log line",
+		if err := api.dal.SetMemberLastOp("ow-abc123", "start", nil, "warden log line",
 			"session_already_exists: a live session is holding the slot", 777); err != nil {
 			t.Fatalf("SetMemberOpReceipt: %v", err)
 		}
@@ -641,7 +641,7 @@ func TestClearWorkerPlacementBlock(t *testing.T) {
 func TestClearWorkerConvergedFailureReceipt(t *testing.T) {
 	t.Run("a converged worker's red 最近操作 line is removed whole — all five columns — and the removal is fanned", func(t *testing.T) {
 		api, h, _, owner, _ := wsWorkerSpawnFixture(t, WorkerStatusActive)
-		if err := api.dal.SetMemberOpReceipt("ow-abc123", "start", nil, "warden log line",
+		if err := api.dal.SetMemberLastOp("ow-abc123", "start", nil, "warden log line",
 			"wake_timeout: the runtime never reported", 888); err != nil {
 			t.Fatalf("SetMemberOpReceipt: %v", err)
 		}
@@ -661,7 +661,7 @@ func TestClearWorkerConvergedFailureReceipt(t *testing.T) {
 
 	t.Run("a wordless red block — a verb and a time with no verdict — is a failure the panel paints, so it is cleared too", func(t *testing.T) {
 		api, h, _, owner, _ := wsWorkerSpawnFixture(t, WorkerStatusActive)
-		if err := api.dal.SetMemberOpReceipt("ow-abc123", "start", nil, "", "", 1001); err != nil {
+		if err := api.dal.SetMemberLastOp("ow-abc123", "start", nil, "", "", 1001); err != nil {
 			t.Fatalf("SetMemberOpReceipt: %v", err)
 		}
 		snapshot, err := api.dal.GetOutsourceWorker("ow-abc123")
@@ -679,7 +679,7 @@ func TestClearWorkerConvergedFailureReceipt(t *testing.T) {
 	t.Run("a SUCCESS receipt is never touched, and a second clear over an already blank row writes and fans nothing", func(t *testing.T) {
 		api, h, _, owner, _ := wsWorkerSpawnFixture(t, WorkerStatusActive)
 		succeeded := true
-		if err := api.dal.SetMemberOpReceipt("ow-abc123", "start", &succeeded, "", "", 999); err != nil {
+		if err := api.dal.SetMemberLastOp("ow-abc123", "start", &succeeded, "", "", 999); err != nil {
 			t.Fatalf("SetMemberOpReceipt: %v", err)
 		}
 		snapshot, err := api.dal.GetOutsourceWorker("ow-abc123")
@@ -700,7 +700,7 @@ func TestClearWorkerConvergedFailureReceipt(t *testing.T) {
 
 	t.Run("a snapshot that carries no failure short-circuits before the query, so a receipt written since is left standing", func(t *testing.T) {
 		api, h, _, owner, _ := wsWorkerSpawnFixture(t, WorkerStatusActive)
-		if err := api.dal.SetMemberOpReceipt("ow-abc123", "start", nil, "",
+		if err := api.dal.SetMemberLastOp("ow-abc123", "start", nil, "",
 			"wake_timeout: the runtime never reported", 888); err != nil {
 			t.Fatalf("SetMemberOpReceipt: %v", err)
 		}
@@ -3585,7 +3585,7 @@ func wsTakenOver(t *testing.T, api *apiServer, d *DAL) OutsourceWorker {
 // re-read row with the placement pin the spawn path needs.
 func wsWithReceipt(t *testing.T, api *apiServer, d *DAL, verb, reason string) OutsourceWorker {
 	t.Helper()
-	if err := d.SetMemberOpReceipt("ow-abc123", verb, nil, "", reason, 400); err != nil {
+	if err := d.SetMemberLastOp("ow-abc123", verb, nil, "", reason, 400); err != nil {
 		t.Fatalf("SetMemberOpReceipt: %v", err)
 	}
 	fresh, err := d.GetOutsourceWorker("ow-abc123")

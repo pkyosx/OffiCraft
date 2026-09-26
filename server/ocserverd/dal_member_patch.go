@@ -103,7 +103,7 @@ func mfWakingSince(v float64) memberField   { return memberField{col: "waking_si
 // already finished. Nothing goes red; the ladder simply disagrees with what
 // happened.
 //
-// 🔴 ONE WRITER FOR FOUR COLUMNS, for SetMemberOpReceipt's reason:
+// 🔴 ONE WRITER FOR FOUR COLUMNS, for SetMemberLastOp's reason:
 // armRefocusEpoch writes all four in one breath and the readers take them
 // together (StopIntent is stopping_since > 0; the ladder gate compares the
 // refocus epoch against the stop anchors), so any moment with some landed and
@@ -213,7 +213,7 @@ func mfBankedCost(v float64) memberField {
 }
 
 // The five last_op* columns are the operation receipt, moved out together so the
-// write and its SSE delta cannot drift apart: SetMemberOpReceipt is their sole
+// write and its SSE delta cannot drift apart: SetMemberLastOp is their sole
 // writer and persistMemberOpReceipt is the service-layer pairing.
 func mfLastOp(v string) memberField {
 	return memberField{col: "last_op", val: v, insertOnly: true}

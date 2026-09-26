@@ -1,13 +1,5 @@
 package main
 
-// dal_tasks.go — the durable data-access layer of the M3 task system
-// (migrations/00004): task / task_dep / task_step / task_manual, plus the
-// outsource-worker PROJECTION over the member table (migrations/00025 folded
-// the outsource_worker table into member — A案 P7d), each with exactly the
-// CRUD surface its handlers serve (the dal.go convention — explicit per-table
-// methods, no generic repository). SSE fan-out stays a handler concern and is
-// NOT here.
-
 import (
 	"database/sql"
 	"encoding/json"
@@ -15,115 +7,60 @@ import (
 	"fmt"
 )
 
-// ── task ─────────────────────────────────────────────────────────────────────
-
-// Task mirrors the task table. Inputs is the free-form JSON object of the
-// manual's input-field values (schema lives in the manual, like chat meta).
 type Task struct {
-	ID            string
-	TypeKey       string
-	Title         string
-	DedupeKey     string
-	Inputs        map[string]any
-	Description   string
-	Status        string // DERIVED from steps (domain.go DeriveTaskStatus); closed set
-	Lock          string // '' | 'reassigning' — orthogonal system hold (domain.go TaskLock*)
-	Priority      string // closed set high|mid|low|frozen
-	ExecutorKind  string // "staff" | "outsource" (was "member", T-101) kind-vocab-guard:legacy
-	ExecutorID    string // '' = outsource task awaiting assignment
-	CreatorID     string // verified sub of the creator; '' on pre-column rows
-	WaitingReason string // non-empty only while waiting_external
-	CreatedTS     float64
-	UpdatedTS     float64
-	ClosedTS      float64 // 0.0 = still open
-	// DuplicateOf is the ORIGINAL task's id this one duplicates — non-empty
-	// ONLY while Status=='duplicated' (set by mark_task_duplicated). Depth-1 by
-	// construction (see api_tasks.go HandleMarkTaskDuplicate...): the target is
-	// never itself duplicated and this task is never itself an original.
-	DuplicateOf string
-	// ReassignedFrom / ReassignedFromKind is the PREDECESSOR the task was last
-	// handed over from (T-ba04): on every reassign the server stamps the OLD
-	// executor's id + kind ('staff' | 'outsource') here so the new executor and
-	// the cockpit can name who to hand over WITH. '' / '' on a task never
-	// reassigned (or pre-column rows).
+	ID                 string
+	TypeKey            string
+	Title              string
+	DedupeKey          string
+	Inputs             map[string]any
+	Description        string
+	Status             string
+	Lock               string
+	Priority           string
+	ExecutorKind       string
+	ExecutorID         string
+	CreatorID          string
+	WaitingReason      string
+	CreatedTS          float64
+	UpdatedTS          float64
+	ClosedTS           float64
+	DuplicateOf        string
 	ReassignedFrom     string
 	ReassignedFromKind string
 	HandoverNote       string
 	HandoverNoteTS     float64
 	HandoverNoteBy     string
-	// OutsourceRuntime / OutsourceModel / OutsourceEffort / OutsourceMachine is
-	// the resolved outsource spec of a task on the outsource track (T-35e0,
-	// migrations/00029): what the worker minted for it is given. '' on every
-	// non-outsource task. OutsourceDispatched (migrations/00036) says which of the
-	// TWO meanings the columns carry — the columns alone no longer do, and the old
-	// "non-empty ⇒ explicit dispatch" inference is retired:
-	//
-	//   - Dispatched (an explicit create/reassign `target.kind=outsource`): the
-	//     AUTHORITATIVE target. The scheduler mints from it in preference to the
-	//     type manual's assignee spec, and skips its own spawn gate (the dispatch
-	//     was already authorized at the handler, by the true initiator).
-	//   - NOT dispatched (a plain manual-driven outsource task): a create-time
-	//     SNAPSHOT of the creator's own runtime/model/effort/machine (T-8a67),
-	//     consulted only for the fields the LIVE type manual leaves unset — so the
-	//     manual stays authoritative and editable, while a manual that names no
-	//     machine no longer strands the worker with no placement at all.
-	//
-	// Either way the row is the durable record: a handover or a rebirth re-reads
-	// it rather than re-deriving, so placement cannot drift between generations.
+	// Outsource* carry one of two meanings, told apart ONLY by OutsourceDispatched:
+	// dispatched (explicit target.kind=outsource on create/reassign) is the
+	// authoritative spec, which the scheduler mints from ahead of the type manual's
+	// assignee spec and without its own spawn gate; not dispatched is a create-time
+	// snapshot of the creator's runtime/model/effort/machine, consulted only for
+	// fields the live manual leaves unset. Non-empty columns alone do not imply a
+	// dispatch.
 	OutsourceRuntime    string
 	OutsourceModel      string
 	OutsourceEffort     string
 	OutsourceMachine    string
 	OutsourceDispatched bool
-	// FrozenBy is WHO put this task into the frozen priority (T-6020,
-	// migrations/00037): the verified token sub of that write — the wireOwnerID
-	// literal for owner scope, else the member / outsource-worker id. '' means
-	// "not frozen" (and pre-column rows, honestly unattributed); the write that
-	// moves the task off frozen clears it. Until T-6020 frozen was gated to the
-	// owner alone so the freezer was inferable; now that owner, admin_agent and
-	// the executor may all freeze, it has to be RECORDED or the owner cannot
-	// tell their own 喊停 from an agent's.
+	// FrozenBy is the verified sub (wireOwnerID for the owner) of whoever set
+	// Priority=frozen; '' when not frozen.
 	FrozenBy string
-	// KickoffNotifiedTo is VESTIGIAL (T-51b0). It was the de-duplication ledger
-	// of the outsource kickoff notice (T-e77f, migrations/00056); the notice was
-	// withdrawn wholesale (owner 2026-08-15, card rc-a4f6a7f8cd71) and NOTHING
-	// writes this any more — it round-trips as whatever the row already held.
-	//
-	// The field and its column stay on purpose. Dropping a column needs a
-	// migration whose only benefit is tidiness, while the owner's word for the
-	// withdrawal was 「先砍掉」— provisional — and a column that is still there
-	// is the difference between restoring the seam and re-deriving it. Do not
-	// read a non-empty value as "a notice is outstanding"; it is a fossil of one
-	// that was sent before this change.
-	//
-	// ⚠️ RESTORING the seam means CLEARING this column first. The fossils sit at
-	// stamp == executor, so a restored de-duplication check would swallow the
-	// first kickoff of exactly the tasks that were notified before — the subset
-	// nobody would think to look at.
+	// KickoffNotifiedTo is VESTIGIAL: the kickoff notice it de-duplicated was
+	// withdrawn provisionally (owner rc-a4f6a7f8cd71) and nothing writes it; the
+	// column stays so the seam can be restored. A non-empty value is a fossil, not
+	// an outstanding notice. Restoring the seam means CLEARING this column first:
+	// fossils sit at stamp == executor, so a restored check would swallow the first
+	// kickoff of exactly the previously notified tasks.
 	KickoffNotifiedTo string
-	// ForcedDoneBy / ForcedDoneReason record a close that skipped its own
-	// precondition (T-182, migrations/00102): the verified actor of the
-	// force_task_done write and the reason it ASKED for (owner ruling
-	// rc-a92a6252c3bd made the reason optional; ForcedDoneReason is therefore ''
-	// on a forced close that was given none, while ForcedDoneBy is stamped on
-	// EVERY forced close — that stamp, not the reason, is what distinguishes a
-	// forced close from a self-closed one). Both are '' on every
-	// other task, including one closed with mark_task_done — which is the
-	// point: a done task always says whether it got there by itself. A forced
-	// close is the one close nobody can reconstruct from the steps afterwards,
-	// because the steps do not agree that the work is finished.
+	// ForcedDoneBy is stamped on EVERY force_task_done close and is what marks a
+	// close as forced; ForcedDoneReason is optional (owner rc-a92a6252c3bd), so an
+	// empty reason does not mean "not forced". Both are '' on every other close,
+	// mark_task_done included.
 	ForcedDoneBy     string
 	ForcedDoneReason string
-	// ReadyForDoneVisits counts how many times this task has ARRIVED in
-	// ready_for_done (T-182, migrations/00103) — not how many notices were
-	// sent. A task leaves that state whenever a step is added and returns when
-	// the step is done, so one task can arrive several times, and 〈任務可結案〉
-	// puts the number in the notice: without it the second arrival's notice is
-	// byte-for-byte the first one and reads as a duplicate delivery.
-	//
-	// 0 on every task that has never arrived, pre-column rows included — they
-	// closed under the old rule, where a finished step set went straight to
-	// done and there was no ready_for_done to arrive in.
+	// ReadyForDoneVisits counts ARRIVALS in ready_for_done (a task leaves it when a
+	// step is added). The 〈任務可結案〉 notice prints it so a second arrival does not
+	// read as a duplicate delivery. 0 on pre-column rows.
 	ReadyForDoneVisits int
 }
 
@@ -137,11 +74,9 @@ const taskColumns = `id, type_key, title, dedupe_key, inputs, description,
 	frozen_by, kickoff_notified_to,
 	forced_done_by, forced_done_reason, ready_for_done_visits`
 
-// sqlTerminalStatuses is the SQL IN-list of the terminal statuses — every
-// "open task" filter (dedupe probe, resume block, open counts) excludes these.
-// Kept in ONE place so a new terminal state (duplicated joined done/terminated
-// in T-02c9) updates every filter at once rather than drifting per query.
-const sqlTerminalStatuses = `'done', 'terminated', 'duplicated'`
+// sqlTaskTerminalStatuses is kept in one place so a new terminal state updates
+// every open-task filter at once.
+const sqlTaskTerminalStatuses = `'done', 'terminated', 'duplicated'`
 
 func scanTask(row interface{ Scan(...any) error }) (Task, error) {
 	var t Task
@@ -170,8 +105,6 @@ func scanTask(row interface{ Scan(...any) error }) (Task, error) {
 	return t, nil
 }
 
-// ListTasks returns every task, oldest→newest (filters/sorting are handler
-// projections — the wire serves full DTOs, the FE partitions).
 func (d *DAL) ListTasks() ([]Task, error) {
 	rows, err := d.rdb.Query(
 		`SELECT ` + taskColumns + ` FROM task ORDER BY created_ts`)
@@ -190,7 +123,6 @@ func (d *DAL) ListTasks() ([]Task, error) {
 	return out, rows.Err()
 }
 
-// GetTask returns one task by id, or nil if absent.
 func (d *DAL) GetTask(id string) (*Task, error) {
 	row := d.rdb.QueryRow(`SELECT `+taskColumns+` FROM task WHERE id = ?`, id)
 	t, err := scanTask(row)
@@ -203,14 +135,13 @@ func (d *DAL) GetTask(id string) (*Task, error) {
 	return &t, nil
 }
 
-// FindOpenTaskByDedupe returns the NON-terminal task matching (typeKey,
-// dedupeKey), or nil — the create_task dedupe probe (terminal tasks never
-// block a reopen; kyle ruling H2). Oldest match wins for determinism.
+// FindOpenTaskByDedupe is the create_task dedupe probe: terminal tasks never
+// block a reopen (kyle ruling H2).
 func (d *DAL) FindOpenTaskByDedupe(typeKey, dedupeKey string) (*Task, error) {
 	row := d.rdb.QueryRow(`
 		SELECT `+taskColumns+` FROM task
 		WHERE type_key = ? AND dedupe_key = ?
-		  AND status NOT IN (`+sqlTerminalStatuses+`)
+		  AND status NOT IN (`+sqlTaskTerminalStatuses+`)
 		ORDER BY created_ts LIMIT 1`, typeKey, dedupeKey)
 	t, err := scanTask(row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -222,14 +153,10 @@ func (d *DAL) FindOpenTaskByDedupe(typeKey, dedupeKey string) (*Task, error) {
 	return &t, nil
 }
 
-// ListOpenTasksByExecutor returns the NON-terminal tasks a caller executes,
-// most recently updated first, capped to limit — the resume-summary task
-// block's query (SPEC §6.2: a handover resumes in-flight tasks; the bound
-// keeps the wake snapshot small).
 func (d *DAL) ListOpenTasksByExecutor(executorID string, limit int) ([]Task, error) {
 	rows, err := d.rdb.Query(`
 		SELECT `+taskColumns+` FROM task
-		WHERE executor_id = ? AND status NOT IN (`+sqlTerminalStatuses+`)
+		WHERE executor_id = ? AND status NOT IN (`+sqlTaskTerminalStatuses+`)
 		ORDER BY updated_ts DESC, created_ts DESC LIMIT ?`, executorID, limit)
 	if err != nil {
 		return nil, err
@@ -246,35 +173,28 @@ func (d *DAL) ListOpenTasksByExecutor(executorID string, limit int) ([]Task, err
 	return out, rows.Err()
 }
 
-// CountOpenTasksByExecutor counts ALL the NON-terminal tasks a caller
-// executes — the resume-summary overview's tasks_open_total (the light task
-// rows are capped to resumeTasksN; this count tells the waking agent how many
-// more list_tasks would page).
 func (d *DAL) CountOpenTasksByExecutor(executorID string) (int, error) {
 	var n int
 	err := d.rdb.QueryRow(`
 		SELECT COUNT(*) FROM task
-		WHERE executor_id = ? AND status NOT IN (`+sqlTerminalStatuses+`)`,
+		WHERE executor_id = ? AND status NOT IN (`+sqlTaskTerminalStatuses+`)`,
 		executorID).Scan(&n)
 	return n, err
 }
 
-// CountOpenTasksOfType counts NON-terminal tasks of a type — the manual
-// delete guard (SPEC §5.1: a type with open tasks cannot be deleted).
 func (d *DAL) CountOpenTasksOfType(typeKey string) (int, error) {
 	var n int
 	err := d.rdb.QueryRow(`
 		SELECT COUNT(*) FROM task
-		WHERE type_key = ? AND status NOT IN (`+sqlTerminalStatuses+`)`,
+		WHERE type_key = ? AND status NOT IN (`+sqlTaskTerminalStatuses+`)`,
 		typeKey).Scan(&n)
 	return n, err
 }
 
-// CountTasksDuplicatingOriginal counts the tasks that already point AT originalID
-// as their duplicate_of original — the mark_task_duplicated chain guard (T-02c9
-// point 3): a task that is already an original cannot itself be marked
-// duplicated, which (together with the "target must not itself be duplicated"
-// guard) keeps the graph depth-1 so the cockpit link always resolves in one hop.
+// CountTasksDuplicatingOriginal backs mark_task_duplicated's chain guard: a task
+// that is already an original cannot itself be marked duplicated. With the
+// "target is not itself duplicated" check (api_tasks.go) this keeps duplicate_of
+// depth-1, so the cockpit link resolves in one hop.
 func (d *DAL) CountTasksDuplicatingOriginal(originalID string) (int, error) {
 	var n int
 	err := d.rdb.QueryRow(
@@ -282,89 +202,20 @@ func (d *DAL) CountTasksDuplicatingOriginal(originalID string) (int, error) {
 	return n, err
 }
 
-// PutTask upserts a task row (the SSE delta is the handler's job).
-//
-// 🔴 `description` AND `title` ARE DELIBERATELY ABSENT FROM THE ON CONFLICT
-// UPDATE LIST (description: T-e271 node 3; title: T-2ebe). Do not "restore"
-// either — those lines are the lost update, and for description it was
-// measured, not theorised.
-//
-// The hazard is structural, not exotic: this is a whole-row upsert with no
-// optimistic lock, and every task-writing handler is a load-mutate-save
-// (resolveTask on the READ pool → mutate one field → PutTask on the write
-// pool). Nothing links the read to the write, so the upsert asserts EVERY
-// column as that handler read them. With the description in the conflict list,
-// an admin changing a task's priority replays the description it happened to
-// read a moment earlier — silently destroying a correction the description
-// endpoint had already answered 200 to. Measured before the fix: a
-// deterministic interleave lost it every time, and two goroutines driving the
-// two real endpoints lost it by round 17 of 60. "Rare" was not true.
-//
-// The fix is an OWNERSHIP BOUNDARY rather than a lock or a retry: each column is
-// written ONLY by its own single-field setter (SetTaskDescriptionOn /
-// SetTaskTitleOn, each of which versions its column in the same transaction) and
-// by the INSERT half of this very statement, which is how create_task sets them
-// — it mints a fresh id, so it never reaches the conflict clause. Single-writer
-// columns cannot be clobbered by a stale whole-row copy, because no stale
-// whole-row copy of them exists.
-//
-// 🔴 `title` JOINED THIS CARVE-OUT WHEN IT BECAME EDITABLE (T-2ebe), and the
-// ORDER of those two facts is the whole point. While a title could only be set
-// at birth, listing it in the conflict clause was harmless: the value being
-// replayed was always the value already stored, so a lost update had nothing to
-// lose. Opening an edit door is what turns that same line into the description
-// bug verbatim — an admin changing a task's priority replays the title it
-// happened to read a moment earlier and silently destroys a correction the title
-// endpoint has already answered 200 to. Verified at the time of the change that
-// no production path mutates Title on an EXISTING row (the only writers are the
-// create INSERT and the new setter), so dropping it from the conflict clause changes nothing for any existing caller —
-// it only removes the clobber.
-//
-// ⚠️ SCOPE, stated so nobody reads more safety into this than is here: this
-// removes the hazard for ONE column. Every OTHER column of this row remains a
-// shared-write, last-writer-wins field, and two handlers racing on two
-// different columns still lose one of them. That is pre-existing and untouched
-// (T-e271 node 3 explicitly did not widen into it) — PutTaskStep carries the
-// same carve-out for its `note` column one table over (T-e271 node 6), and its
-// remaining columns are still shared-write for exactly this reason.
 func (d *DAL) PutTask(t Task) error { return putTaskOn(d.wdb, t, taskWriteUpsert) }
 
-// taskWriteMode selects the ONE thing that differs between the two callers of
-// putTaskOn: whether the INSERT carries its ON CONFLICT clause.
-//
-// 🔴 IT IS A MODE ON ONE STATEMENT, NOT TWO STATEMENTS. The column list, the
-// placeholder row and the 33 arguments are written ONCE; the mode appends a
-// suffix. A second copy of any of those three is the exact disease this whole
-// change set is fighting — a task column added to one list and not the other is
-// silently dropped on one path and nobody finds out until the data is wrong.
 type taskWriteMode int
 
 const (
-	// taskWriteUpsert is PutTask's long-standing load-mutate-save behaviour:
-	// writing an id that already exists UPDATES it (minus the description/title
-	// carve-outs above).
 	taskWriteUpsert taskWriteMode = iota
 
-	// taskWriteInsertOnly is what CreateTaskMintingID uses. A create is minting a
-	// BRAND NEW id off task_id_seq, so an existing row under that id is not
-	// something to merge into — it is proof the counter handed out a number
-	// twice, and the only safe answer is to fail LOUDLY.
-	//
-	// 🔴 THIS IS THE FIX FOR "撞號 = 靜默覆蓋 + 回 200" (T-52917b review). With the
-	// conflict clause in place a repeated mint did not error: it OVERWROTE the
-	// earlier task and the API still answered 200, so the damage was an invisible
-	// MISSING ROW. Measured on the previous head: a mint pinned to a fixed number
-	// left `task rows after that mint = 2` where 3 rows had been created, and the
-	// row it ate was a post-migration T-<n>. Without the clause the second INSERT
-	// trips the TEXT PRIMARY KEY, the transaction rolls back, no row is lost and
-	// the caller gets a 500 instead of a lie.
+	// taskWriteInsertOnly is CreateTaskMintingID's mode: a freshly minted id that
+	// already exists means task_id_seq handed a number out twice, and the INSERT
+	// must fail on the primary key. With the conflict clause the mint silently
+	// overwrote the earlier task and still answered 200 (measured: a row lost).
 	taskWriteInsertOnly
 )
 
-// putTaskOn is PutTask's body against either pool handle or an open
-// transaction (the sqlExecer convention, dal.go) — CreateTaskMintingID needs
-// the very same statement to run INSIDE its transaction, and a second copy of a
-// 35-column upsert would drift.
 func putTaskOn(ex sqlExecer, t Task, mode taskWriteMode) error {
 	inputs := t.Inputs
 	if inputs == nil {
@@ -378,8 +229,6 @@ func putTaskOn(ex sqlExecer, t Task, mode taskWriteMode) error {
 	if t.OutsourceDispatched {
 		dispatched = 1
 	}
-	// ONE column list, ONE placeholder row, ONE argument list — see taskWriteMode.
-	// The mode only decides whether the conflict SUFFIX is appended.
 	stmt := `
 		INSERT INTO task (` + taskColumns + `)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
@@ -403,13 +252,13 @@ func putTaskOn(ex sqlExecer, t Task, mode taskWriteMode) error {
 	return err
 }
 
-// taskUpsertConflictClause is the suffix taskWriteUpsert appends to putTaskOn's
-// INSERT. It is deliberately parked immediately below putTaskOn and INSIDE no
-// other function so the text deciding which columns are shared-write stays
-// readable straight from the source.
-//
-// 🔴 `description` and `title` are ABSENT ON PURPOSE — see the long carve-out
-// comment on PutTask above. Do not add them back.
+// taskUpsertConflictClause deliberately omits `description` and `title`; do not
+// add them back. Task writers are load-mutate-save with no optimistic lock, so
+// every listed column is replayed as the handler read it: with description
+// listed, a priority change silently undid a description edit already answered
+// 200 (measured: a deterministic interleave lost it every time). Those two
+// columns are written only by SetTaskDescriptionOn / SetTaskTitleOn and by the
+// create INSERT. Every column still listed remains last-writer-wins.
 const taskUpsertConflictClause = `
 		ON CONFLICT (id) DO UPDATE SET
 			type_key = excluded.type_key,
@@ -440,9 +289,6 @@ const taskUpsertConflictClause = `
 			forced_done_reason = excluded.forced_done_reason,
 			ready_for_done_visits = excluded.ready_for_done_visits`
 
-// ── task_dep ─────────────────────────────────────────────────────────────────
-
-// ListTaskDeps returns the blocked_by ids of one task (deterministic order).
 func (d *DAL) ListTaskDeps(taskID string) ([]string, error) {
 	rows, err := d.rdb.Query(
 		`SELECT blocked_by FROM task_dep WHERE task_id = ? ORDER BY blocked_by`,
@@ -462,8 +308,6 @@ func (d *DAL) ListTaskDeps(taskID string) ([]string, error) {
 	return out, rows.Err()
 }
 
-// AllTaskDeps maps task_id → blocked_by ids over the whole table (the
-// list-endpoint fold input).
 func (d *DAL) AllTaskDeps() (map[string][]string, error) {
 	rows, err := d.rdb.Query(
 		`SELECT task_id, blocked_by FROM task_dep ORDER BY task_id, blocked_by`)
@@ -482,10 +326,6 @@ func (d *DAL) AllTaskDeps() (map[string][]string, error) {
 	return out, rows.Err()
 }
 
-// ListTasksBlockedBy returns the tasks that name blockerID in their blocked_by
-// list — the REVERSE of ListTaskDeps, and the query behind the T-74f8 dependency
-// half B: when a blocker reaches a terminal status, closeTask walks its
-// dependents to release + wake them. Deterministic order (task id).
 func (d *DAL) ListTasksBlockedBy(blockerID string) ([]Task, error) {
 	rows, err := d.rdb.Query(`
 		SELECT `+taskColumns+` FROM task
@@ -506,12 +346,6 @@ func (d *DAL) ListTasksBlockedBy(blockerID string) ([]Task, error) {
 	return out, rows.Err()
 }
 
-// AddTaskDep adds ONE blocked_by edge without disturbing the rest of the list
-// (set_task_deps' whole-list write would clobber deps the successor already
-// carries). Idempotent — INSERT OR IGNORE on the composite key.
-//
-// (T-e77f's warning about this bypassing the kickoff seam retired with the seam
-// itself in T-51b0 — nothing reads kickoff_notified_to any more.)
 func (d *DAL) AddTaskDep(taskID, blockedBy string) error {
 	_, err := d.wdb.Exec(
 		`INSERT OR IGNORE INTO task_dep (task_id, blocked_by) VALUES (?, ?)`,
@@ -519,8 +353,6 @@ func (d *DAL) AddTaskDep(taskID, blockedBy string) error {
 	return err
 }
 
-// ReplaceTaskDeps replaces one task's deps wholesale (set_task_deps is a
-// whole-list write) — transactional so a failed insert never half-applies.
 func (d *DAL) ReplaceTaskDeps(taskID string, blockedBy []string) error {
 	tx, err := d.wdb.Begin()
 	if err != nil {
@@ -540,28 +372,20 @@ func (d *DAL) ReplaceTaskDeps(taskID string, blockedBy []string) error {
 	return tx.Commit()
 }
 
-// ── task_step ────────────────────────────────────────────────────────────────
-
-// TaskStep mirrors the task_step table (one row = one progress leaf).
 type TaskStep struct {
 	ID            string
 	TaskID        string
 	OrderIdx      int
 	Name          string
 	DoD           string
-	Status        string // closed set (domain.go StepStatus*)
-	ParallelGroup string // '' = plain sequential node
+	Status        string
+	ParallelGroup string
 	IsGate        bool
-	ReplyCardID   string // the CURRENTLY armed card; '' = none
-	WaitingReason string // non-empty only while waiting_external (T-9ca5; task-level moved here)
-	// Note is the step's free-text working note: what this step got to and what
-	// comes next (T-cc3e). Unlike WaitingReason it is bound to NO status — it is
-	// writable in every one of them, because a handover lands at an arbitrary
-	// moment and the note is what the next session reads to pick the work back
-	// up. Wholesale write, last one wins: current state, not an append-only log.
-	Note       string
-	StartedTS  float64
-	FinishedTS float64
+	ReplyCardID   string
+	WaitingReason string
+	Note          string
+	StartedTS     float64
+	FinishedTS    float64
 }
 
 const taskStepColumns = `id, task_id, order_idx, name, dod, status,
@@ -582,7 +406,6 @@ func scanTaskStep(row interface{ Scan(...any) error }) (TaskStep, error) {
 	return st, nil
 }
 
-// ListTaskSteps returns one task's steps in timeline order.
 func (d *DAL) ListTaskSteps(taskID string) ([]TaskStep, error) {
 	rows, err := d.rdb.Query(`
 		SELECT `+taskStepColumns+` FROM task_step
@@ -602,8 +425,6 @@ func (d *DAL) ListTaskSteps(taskID string) ([]TaskStep, error) {
 	return out, rows.Err()
 }
 
-// AllTaskSteps maps task_id → steps (timeline order) over the whole table
-// (the list-endpoint fold input).
 func (d *DAL) AllTaskSteps() (map[string][]TaskStep, error) {
 	rows, err := d.rdb.Query(
 		`SELECT ` + taskStepColumns + ` FROM task_step ORDER BY task_id, order_idx, id`)
@@ -622,20 +443,13 @@ func (d *DAL) AllTaskSteps() (map[string][]TaskStep, error) {
 	return out, rows.Err()
 }
 
-// TaskStepProgress is the leaf-count pair the light task list needs — the same
-// (done, total) TaskProgress derives from full step rows, but counted in SQL so
-// the list projection never loads the steps' dod/name text.
 type TaskStepProgress struct {
 	Done  int
 	Total int
 }
 
-// AllTaskStepProgress returns every task's step (done, total) counts in one
-// grouped COUNT query — the light-list progress source (GET /api/tasks), which
-// skips the AllTaskSteps full-row scan. Tasks with no steps are simply absent
-// from the map (0/0 — the caller's zero value), matching TaskProgress on [].
-// superseded rows count toward neither side (pure replan history — T-1aea;
-// domain.TaskProgress is the in-memory twin, keep them agreeing).
+// AllTaskStepProgress is the SQL twin of domain.go TaskProgress; keep the two
+// agreeing.
 func (d *DAL) AllTaskStepProgress() (map[string]TaskStepProgress, error) {
 	rows, err := d.rdb.Query(
 		`SELECT task_id,
@@ -658,27 +472,13 @@ func (d *DAL) AllTaskStepProgress() (map[string]TaskStepProgress, error) {
 	return out, rows.Err()
 }
 
-// TaskCurrentStep is the (id, name) of a task's CURRENT step — the light task
-// list's pointer at the working node. Deliberately just the two display fields:
-// the list projection must never load the steps' fat dod text (that is what
-// get_task is for), so this carries no more of the row than the card prints.
 type TaskCurrentStep struct {
 	ID   string
 	Name string
 }
 
-// AllTaskCurrentStep returns every task's CURRENT step in ONE grouped query —
-// the light-list twin of domain.CurrentStep (keep them agreeing), and the same
-// shape as AllTaskStepProgress: one statement for the whole population, so a
-// list request stays a CONSTANT number of queries no matter how many tasks come
-// back. A per-task ListTaskSteps here would be an N+1 on an UNCAPPED endpoint.
-//
-// "Current" = the first non-TERMINAL step in timeline order (order_idx, id);
-// the `status != done AND status != superseded` filter is StepIsTerminal in
-// SQL. Tasks whose plan is empty — or whose steps have all reached a terminal
-// state — are simply ABSENT from the map, which the caller reads as the zero
-// value ("", ""), matching domain.CurrentStep on []. Only id and name are
-// selected: the dod text never enters the light list.
+// AllTaskCurrentStep is the SQL twin of domain.go CurrentStep; keep the two
+// agreeing.
 func (d *DAL) AllTaskCurrentStep() (map[string]TaskCurrentStep, error) {
 	rows, err := d.rdb.Query(`
 		SELECT task_id, id, name FROM (
@@ -704,7 +504,6 @@ func (d *DAL) AllTaskCurrentStep() (map[string]TaskCurrentStep, error) {
 	return out, rows.Err()
 }
 
-// GetTaskStep returns one step by id, or nil if absent.
 func (d *DAL) GetTaskStep(id string) (*TaskStep, error) {
 	row := d.rdb.QueryRow(
 		`SELECT `+taskStepColumns+` FROM task_step WHERE id = ?`, id)
@@ -718,21 +517,6 @@ func (d *DAL) GetTaskStep(id string) (*TaskStep, error) {
 	return &st, nil
 }
 
-// SetTaskStepNote writes ONE column of ONE step row (T-cc3e). It reports
-// whether a row was actually there: false means the step is gone, and the
-// caller turns that into a 404 rather than silently succeeding.
-//
-// Deliberately NOT PutTaskStep. Every other step writer does load-mutate-save
-// through that whole-row upsert, which replays every column the caller read
-// moments earlier — fine when the caller owns the transition, wrong here. A
-// note write carries no opinion about status, reply_card_id or order_idx, but
-// a whole-row upsert would assert stale values for all of them: answer a reply
-// card in the window between the read and the write and the upsert drags the
-// step back to waiting_owner pointing at a card that is already answered; let
-// submit_plan delete the step in that window and the upsert RESURRECTS it,
-// because an upsert on a deleted row inserts. A single-column UPDATE cannot do
-// either — it touches nothing it was not asked to touch, and it affects zero
-// rows when the step is gone.
 func (d *DAL) SetTaskStepNote(id, note string) (bool, error) {
 	res, err := d.wdb.Exec(`UPDATE task_step SET note = ? WHERE id = ?`, note, id)
 	if err != nil {
@@ -745,20 +529,6 @@ func (d *DAL) SetTaskStepNote(id, note string) (bool, error) {
 	return n > 0, nil
 }
 
-// SetTaskDescriptionOn writes ONE task's description (plus the updated_ts that
-// makes an already-open cockpit card re-read it) and nothing else, through the
-// caller's executer — so the description edit and the document_history revision
-// it replaces land in the SAME transaction (T-e271, api_tasks_description.go).
-// Reports whether a row was actually updated; false means the task is gone,
-// which the caller turns into a 404 rather than silently succeeding.
-//
-// Deliberately NOT PutTask, for the same reason SetTaskStepNote is not
-// PutTaskStep: PutTask is a whole-row upsert with no optimistic lock, so
-// writing a description through it replays every other column — status,
-// priority, executor, the outsource spec — as the caller read them a moment
-// earlier, and races whoever is changing one of those. Correcting the ticket's
-// text carries no opinion about any of them. It would also RESURRECT a task
-// deleted in that window, because an upsert on a missing row inserts.
 func SetTaskDescriptionOn(ex sqlExecer, id, description string, updatedTS float64) (bool, error) {
 	res, err := ex.Exec(
 		`UPDATE task SET description = ?, updated_ts = ? WHERE id = ?`,
@@ -773,14 +543,10 @@ func SetTaskDescriptionOn(ex sqlExecer, id, description string, updatedTS float6
 	return n > 0, nil
 }
 
-// taskDescriptionOn reads ONE task's description from inside the caller's
-// transaction — the document-history snapshot reader (T-e271). It re-reads
-// rather than trusting a value the handler folded earlier, for the reason
-// SaveWithDocumentHistory documents: the retained revision must be the state
-// this write actually replaced, otherwise two writers racing on one task both
-// retain the same ancestor and the revision written between them becomes
-// unrecoverable.
-func taskDescriptionOn(q sqlQuerier, id string) (string, bool, error) {
+// taskDescriptionOn / taskTitleOn must read inside the writing transaction, not
+// reuse the handler's earlier read: the retained history revision has to be the
+// state this write replaced (see SaveWithDocumentHistory).
+func taskDescriptionOn(q sqlRowQuerier, id string) (string, bool, error) {
 	var description string
 	err := q.QueryRow(`SELECT description FROM task WHERE id = ?`, id).Scan(&description)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -792,23 +558,6 @@ func taskDescriptionOn(q sqlQuerier, id string) (string, bool, error) {
 	return description, true, nil
 }
 
-// SetTaskTitleOn writes ONE task's title (plus the updated_ts that makes an
-// already-open cockpit card re-read it) and nothing else, through the caller's
-// executer — so the title edit and the document_history revision it replaces
-// land in the SAME transaction (T-2ebe, api_tasks_title.go). Reports whether a
-// row was actually updated; false means the task is gone, which the caller turns
-// into a 404 rather than silently succeeding.
-//
-// Deliberately NOT PutTask, for the reason spelled out at PutTask's carve-out:
-// a whole-row upsert replays every other column as the caller read it a moment
-// earlier, and it RESURRECTS a task deleted in that window because an upsert on
-// a missing row inserts. Correcting a ticket's title carries no opinion about
-// its status, priority or executor.
-//
-// The caller trims; this writes what it is given. Keeping the trim at the door
-// rather than here is deliberate — the door is also where a blank is refused
-// (400), and splitting "what counts as blank" from "what gets stored" across two
-// layers is how the two drift apart.
 func SetTaskTitleOn(ex sqlExecer, id, title string, updatedTS float64) (bool, error) {
 	res, err := ex.Exec(
 		`UPDATE task SET title = ?, updated_ts = ? WHERE id = ?`,
@@ -823,13 +572,7 @@ func SetTaskTitleOn(ex sqlExecer, id, title string, updatedTS float64) (bool, er
 	return n > 0, nil
 }
 
-// taskTitleOn reads ONE task's title from inside the caller's transaction — the
-// document-history snapshot reader (T-2ebe), twin of taskDescriptionOn. It
-// re-reads rather than trusting a value the handler folded earlier: the retained
-// revision must be the state this write actually replaced, otherwise two writers
-// racing on one task both retain the same ancestor and the revision written
-// between them becomes unrecoverable.
-func taskTitleOn(q sqlQuerier, id string) (string, bool, error) {
+func taskTitleOn(q sqlRowQuerier, id string) (string, bool, error) {
 	var title string
 	err := q.QueryRow(`SELECT title FROM task WHERE id = ?`, id).Scan(&title)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -841,83 +584,24 @@ func taskTitleOn(q sqlQuerier, id string) (string, bool, error) {
 	return title, true, nil
 }
 
-// TouchTaskUpdatedTS bumps ONE task's updated_ts and nothing else (T-cc3e).
-//
-// The cockpit's task card re-reads its (heavy, step-carrying) detail when
-// updated_ts changes — the SSE task delta itself only carries id/status/
-// priority and the list it refreshes carries no steps at all. So a write that
-// changes only a step, and leaves updated_ts alone, is invisible to a card the
-// owner already has open: it renders the detail it hydrated on expand, forever.
-// That is the whole deliverable of this ticket ("第 4 步做到哪"), so the note
-// write has to move this field.
-//
-// Single-column UPDATE for the same reason as SetTaskStepNote above: PutTask is
-// a whole-row upsert with no optimistic lock, so bumping a timestamp through it
-// would replay every other task column — status, priority, executor — as the
-// caller last read them, and race whoever is changing one of those.
+// TouchTaskUpdatedTS exists because an open cockpit task card re-reads its step
+// detail only when updated_ts changes (the SSE task delta carries no steps), so
+// a step-only write such as a note must bump it or stay invisible.
 func (d *DAL) TouchTaskUpdatedTS(id string, ts float64) error {
 	_, err := d.wdb.Exec(`UPDATE task SET updated_ts = ? WHERE id = ?`, ts, id)
 	return err
 }
 
-// PutTaskStep upserts one step row.
-//
-// 🔴 `note` IS DELIBERATELY ABSENT FROM THE ON CONFLICT UPDATE LIST (T-e271
-// node 6). Do not "restore" it — that line is the lost update, and it was
-// measured, not theorised.
-//
-// The hazard is structural, not exotic: this is a whole-row upsert with no
-// optimistic lock, and every OTHER step writer is a load-mutate-save
-// (dal.GetTaskStep → mutate one field → dal.PutTaskStep) — update_step_status,
-// the card-open path (create_reply_card with an explicit linked_task), the reply-card
-// release path, and the reassign step reset. Nothing links those reads to those
-// writes, so the upsert asserts EVERY column as that handler read them. With
-// the note in the conflict list, an agent reporting a step's status replays the
-// note it happened to read a moment earlier — silently destroying a handover
-// note the note endpoint had already answered 200 to, which the successor
-// session then never sees. "Rare" was not true: measured before the fix, a
-// deterministic interleave lost it EVERY time, and two goroutines driving the
-// two real endpoints lost it in 12 of 15 sixty-round runs, landing anywhere from
-// round 0 to round 54. ⚠️ Those two numbers are not interchangeable — the
-// deterministic one is the reliable signal; the concurrent one misses roughly
-// one run in five, so a single green run of it proves nothing.
-//
-// The fix is an OWNERSHIP BOUNDARY rather than a lock or a retry: for a row that
-// ALREADY EXISTS, the column is written by exactly one statement —
-// SetTaskStepNote, a single-column UPDATE. Single-writer columns cannot be
-// clobbered by a stale whole-row copy, because no stale whole-row copy of them
-// exists.
-//
-// ⚠️ Do not read the surviving INSERT half as a second writer. NO production
-// caller reaches it deliberately: all four load an existing row first
-// (update_step_status, the card-open path, the reply-card release path, the
-// reassign step reset), and submit_plan mints its rows through
-// ReplaceTaskPlan's own bare INSERT — which is a different statement, not this
-// one, and which never carries a conflict clause at all. The INSERT half here
-// fires only when a step is deleted between some caller's read and its write,
-// and that is the pre-existing RESURRECTION hazard SetTaskStepNote's own godoc
-// names — untouched by this change, and the reason that endpoint answers 404
-// instead of upserting the row back into existence.
-//
-// ⚠️ SCOPE, stated so nobody reads more safety into this than is here: this
-// removes the hazard for ONE column. EVERY column still named in the ON CONFLICT
-// clause below remains a shared-write, last-writer-wins field, and two handlers
-// racing on two different ones still lose one of them. That is pre-existing and
-// untouched (T-e271 node 6 explicitly did not widen into it) — the same shape
-// PutTask documents one table over.
-//
-// Deliberately phrased as "every column still in that clause" rather than as a
-// list of them: an enumeration here would be a second copy of the clause, and
-// the copy is what goes stale — the first version of this very paragraph
-// already listed six columns while the clause named eleven. The clause below is
-// the one source that cannot drift from itself; read it, do not trust a prose
-// echo of it.
 func (d *DAL) PutTaskStep(st TaskStep) error { return putTaskStepOn(d.wdb, st) }
 
-// putTaskStepOn is PutTaskStep's body, taking the executor so the same write can
-// run inside a transaction alongside the rows it has to stand or fall with —
-// see PutReplyCardWithChatAndStep, where a step armed without its card would be
-// a hold pointing at nothing.
+// putTaskStepOn's conflict clause deliberately omits `note`; do not add it back.
+// Other step writers load-mutate-save through here, so a listed note replays a
+// stale copy over a handover note already answered 200 (measured: a
+// deterministic interleave lost it every time; the concurrent repro misses about
+// one run in five, so one green run proves nothing). For existing rows the note
+// is written only by SetTaskStepNote, whose single-column UPDATE also cannot
+// resurrect a step deleted between read and write the way this upsert can.
+// Every column still listed remains last-writer-wins.
 func putTaskStepOn(ex sqlExecer, st TaskStep) error {
 	isGate := 0
 	if st.IsGate {
@@ -943,22 +627,11 @@ func putTaskStepOn(ex sqlExecer, st TaskStep) error {
 	return err
 }
 
-// ReplaceTaskPlan replaces a task's non-preserved steps with newSteps
-// (submit_plan semantics): terminal steps (done / already-superseded history)
-// are ALWAYS kept, in their original order, ahead of the fresh plan; the
-// handler additionally names the
-// answered-card rows to preserve (T-1aea) — `retain` ids stay alive exactly
-// as they are (the fresh plan re-listed them by name), `freeze` ids become
-// the superseded terminal state with finished_ts stamped to frozenTS (the
-// freeze moment — started_ts and reply_card_id stay, so the step's
-// question-and-answer history keeps rendering). Every other non-done row is
-// deleted. Which rows qualify is the HANDLER's call (it joins the reply_card
-// side); the DAL never reads the card table here — the layering stays.
-// Transactional; returns the resulting full step list in timeline order.
-// newSteps arrive with ID/Status/OrderIdx unset — this method assigns order
-// indexes after the kept prefix (ids are the caller's mint).
-func (d *DAL) ReplaceTaskPlan(taskID string, retain, freeze []string,
-	frozenTS float64, newSteps []TaskStep) ([]TaskStep, error) {
+// ReplaceTaskSteps: which rows to retain / supersede is the handler's call (it joins
+// reply_card); the DAL never reads the card table. A frozen row keeps started_ts
+// and reply_card_id so its question-and-answer history still renders.
+func (d *DAL) ReplaceTaskSteps(taskID string, retain, supersede []string,
+	supersededTS float64, newSteps []TaskStep) ([]TaskStep, error) {
 	existing, err := d.ListTaskSteps(taskID)
 	if err != nil {
 		return nil, err
@@ -967,10 +640,10 @@ func (d *DAL) ReplaceTaskPlan(taskID string, retain, freeze []string,
 	for _, id := range retain {
 		preserved[id] = true
 	}
-	frozen := map[string]bool{}
-	for _, id := range freeze {
+	superseded := map[string]bool{}
+	for _, id := range supersede {
 		preserved[id] = true
-		frozen[id] = true
+		superseded[id] = true
 	}
 	tx, err := d.wdb.Begin()
 	if err != nil {
@@ -979,8 +652,6 @@ func (d *DAL) ReplaceTaskPlan(taskID string, retain, freeze []string,
 	defer tx.Rollback() //nolint:errcheck // no-op after Commit
 	var kept []TaskStep
 	for _, st := range existing {
-		// Terminal rows (done AND already-superseded history) are always
-		// kept; other rows survive only when the handler named them.
 		if !StepIsTerminal(st.Status) && !preserved[st.ID] {
 			if _, err := tx.Exec(
 				`DELETE FROM task_step WHERE id = ?`, st.ID); err != nil {
@@ -988,16 +659,12 @@ func (d *DAL) ReplaceTaskPlan(taskID string, retain, freeze []string,
 			}
 			continue
 		}
-		if frozen[st.ID] {
+		if superseded[st.ID] {
 			st.Status = StepStatusSuperseded
-			st.FinishedTS = frozenTS
+			st.FinishedTS = supersededTS
 		}
 		kept = append(kept, st)
 	}
-	// Re-index the kept prefix 0..n-1 (original relative order — done and
-	// superseded rows keep their place on the timeline), then the fresh plan
-	// after it. The one UPDATE also lands the freeze (status + finished_ts);
-	// done/retained rows just rewrite their own unchanged values.
 	for i := range kept {
 		kept[i].OrderIdx = i
 		if _, err := tx.Exec(
@@ -1035,34 +702,13 @@ func (d *DAL) ReplaceTaskPlan(taskID string, retain, freeze []string,
 	return out, nil
 }
 
-// ── outsource_worker (member-table projection since A案 P7d) ─────────────────
-
-// OutsourceWorker is the outsource projection over the MEMBER table
-// (migrations/00025 folded the retired outsource_worker table in — 外包＝正職,
-// the only difference is the task-coupled lifecycle). ID is the worker's JWT
-// sub AND its member row id (ow- prefix, disjoint from every staff id). The
-// struct keeps the historical worker vocabulary so the frozen wire DTO and the
-// scheduler stay verbatim; Status is DERIVED from the member row
-// (roster_status + activated_ts — workerStatusFromMember), never stored.
-//
-// The former spawn_attempts / last_spawn_ts / last_spawn_target columns were
-// deliberately NOT carried over: outsource spawn observability now lives in
-// the server's in-memory maps (worker_spawn.go workerSpawnAt/Target/Attempts),
-// the member-reconcile posture — a restart forgets them (accepted trade-off,
-// P7d spec 1f).
-
-// OutsourceWorker is the historical worker vocabulary over the exact same
-// underlying record as Member. The two defined types intentionally share the
-// complete field set so conversion carries every durable member column at
-// compile time; workerFromMember/memberFromWorker below only translate the
-// fields whose meanings genuinely differ between the two views.
+// OutsourceWorker is the worker-vocabulary view of a kind='outsource' member row
+// (the outsource_worker table was folded into member, migrations/00025). The
+// vocabulary stays because the frozen wire DTO and the scheduler speak it;
+// Status is derived, never stored.
 type OutsourceWorker Member
 
-// workerStatusFromMember derives the frozen worker lifecycle vocabulary from
-// the member row's anchors: roster removed ⇒ released; a claimed task
-// (activated_ts > 0) ⇒ active; else assigned. The single derivation both scan
-// and every projection share — keep it the exact inverse of memberFromWorker.
-func workerStatusFromMember(rosterStatus string, activatedTS float64) string {
+func workerStatusFrom(rosterStatus string, activatedTS float64) string {
 	if rosterStatus == RosterStatusRemoved {
 		return WorkerStatusReleased
 	}
@@ -1072,8 +718,6 @@ func workerStatusFromMember(rosterStatus string, activatedTS float64) string {
 	return WorkerStatusAssigned
 }
 
-// workerFromMember projects one kind='outsource' member row onto the worker
-// vocabulary (the read half of the P7d fold).
 func workerFromMember(m Member) OutsourceWorker {
 	taskID := ""
 	if m.LinkedTaskID != nil {
@@ -1090,17 +734,13 @@ func workerFromMember(m Member) OutsourceWorker {
 	w.TokenKeyID = ""
 	w.Runtime = NormalizeRuntime(m.Runtime)
 	w.TaskID = taskID
-	w.Status = workerStatusFromMember(m.RosterStatus, m.ActivatedTS)
+	w.Status = workerStatusFrom(m.RosterStatus, m.ActivatedTS)
 	return w
 }
 
-// memberFromWorker maps the worker vocabulary back onto a member row (the
-// write half). Name mirrors the codename (the outsource display name);
-// role_key stays "" (an outsource member classifies as a plain agent — the
-// same authz floor the roster-less worker had). Status → roster_status +
-// activated_ts: the first write with Status active and no anchor yet stamps
-// activated_ts = now (the report_waking claim edge — the only assigned→active
-// transition; T-4595 moved it off the retired GET /api/self/task).
+// memberFromWorker: role_key stays "" so an outsource member gets the plain
+// agent authz floor. The first write with Status active stamps activated_ts —
+// the report_waking claim, the only assigned→active edge.
 func memberFromWorker(w OutsourceWorker) Member {
 	m := Member(w)
 	identity := Member{
@@ -1132,10 +772,8 @@ func memberFromWorker(w OutsourceWorker) Member {
 	return m
 }
 
-// ListOutsourceWorkers returns every outsource member row projected onto the
-// worker vocabulary (released/removed included — the panel filter is a handler
-// projection; codename MAX+1 folds over the FULL set, removed rows included,
-// so a codename is never reused).
+// ListOutsourceWorkers includes removed rows on purpose: codename MAX+1
+// folds over the full set so a codename is never reused.
 func (d *DAL) ListOutsourceWorkers() ([]OutsourceWorker, error) {
 	rows, err := d.rdb.Query(`SELECT ` + memberColumns +
 		` FROM member WHERE kind = 'outsource' ORDER BY created_ts, id`)
@@ -1154,9 +792,6 @@ func (d *DAL) ListOutsourceWorkers() ([]OutsourceWorker, error) {
 	return out, rows.Err()
 }
 
-// GetOutsourceWorker returns one worker by id (the JWT sub), or nil. Only
-// kind='outsource' rows project — a staff/warden member id is nil here by
-// construction (the two id namespaces are disjoint anyway).
 func (d *DAL) GetOutsourceWorker(id string) (*OutsourceWorker, error) {
 	row := d.rdb.QueryRow(`SELECT `+memberColumns+
 		` FROM member WHERE id = ? AND kind = 'outsource'`, id)
@@ -1171,17 +806,10 @@ func (d *DAL) GetOutsourceWorker(id string) (*OutsourceWorker, error) {
 	return &w, nil
 }
 
-// PutOutsourceWorker upserts one worker as its kind='outsource' member row
-// (memberFromWorker mapping). Pure DAL — no member SSE delta: the outsource
-// wire publishes the common member topic (publishOutsourceWorker).
 func (d *DAL) PutOutsourceWorker(w OutsourceWorker) error {
 	return d.PutMember(memberFromWorker(w))
 }
 
-// ReleaseWorkersForTask flips every not-yet-released worker bound to taskID
-// to released (the task-terminal side effect) and returns the flipped rows —
-// the handler fans one member delta per row. Row retention is the
-// audit trail; idempotent (already-released rows are untouched).
 func (d *DAL) ReleaseWorkersForTask(taskID string, now float64) ([]OutsourceWorker, error) {
 	rows, err := d.rdb.Query(`SELECT `+memberColumns+` FROM member
 		WHERE kind = 'outsource' AND linked_task_id = ? AND roster_status != ?
@@ -1216,14 +844,9 @@ func (d *DAL) ReleaseWorkersForTask(taskID string, now float64) ([]OutsourceWork
 	return flipped, nil
 }
 
-// ReleaseWorkerByID flips ONE worker (by its own id) to released if it is not
-// already, returning the flipped row (or nil when the id is unknown / already
-// released). The by-WORKER-ID twin of ReleaseWorkersForTask (T-ba04): the
-// deferred handover dismiss must fire the PREDECESSOR outsource worker alone —
-// releasing by task_id would also catch the NEW worker that an outsource→
-// outsource takeover has already bound to the SAME task_id, killing the very
-// session that just took over. Idempotent (an already-released row is a nil
-// no-op).
+// ReleaseWorkerByID releases by worker id, not task: the deferred handover
+// dismiss must fire only the predecessor, and after an outsource→outsource
+// takeover the successor is already bound to the same task_id.
 func (d *DAL) ReleaseWorkerByID(workerID string, now float64) (*OutsourceWorker, error) {
 	w, err := d.GetOutsourceWorker(workerID)
 	if err != nil {
@@ -1243,16 +866,11 @@ func (d *DAL) ReleaseWorkerByID(workerID string, now float64) (*OutsourceWorker,
 	return w, nil
 }
 
-// ── task_manual ──────────────────────────────────────────────────────────────
-
-// TaskManual mirrors the task_manual table. Fields/Assignee stay as their
-// stored JSON TEXT here (the domain ring parses fields; assignee is a
-// free-shape object the handlers validate on write).
 type TaskManual struct {
 	TypeKey     string
 	DisplayName string
 	Purpose     string
-	Fields      string // JSON array [{name, required, is_key}]
+	Fields      string
 	SopMD       string
 	Assignee    string // JSON object; "{}" = unset
 	UpdatedTS   float64
@@ -1270,8 +888,6 @@ func scanTaskManual(row interface{ Scan(...any) error }) (TaskManual, error) {
 	return m, err
 }
 
-// ListTaskManuals returns every manual, ordered by display name
-// (falling back to type_key when unset), then type_key.
 func (d *DAL) ListTaskManuals() ([]TaskManual, error) {
 	rows, err := d.rdb.Query(
 		`SELECT ` + taskManualColumns + ` FROM task_manual
@@ -1292,12 +908,11 @@ func (d *DAL) ListTaskManuals() ([]TaskManual, error) {
 	return out, rows.Err()
 }
 
-// GetTaskManual returns one manual by type key, or nil if absent.
 func (d *DAL) GetTaskManual(typeKey string) (*TaskManual, error) {
 	return getTaskManualOn(d.rdb, typeKey)
 }
 
-func getTaskManualOn(q sqlQuerier, typeKey string) (*TaskManual, error) {
+func getTaskManualOn(q sqlRowQuerier, typeKey string) (*TaskManual, error) {
 	row := q.QueryRow(
 		`SELECT `+taskManualColumns+` FROM task_manual WHERE type_key = ?`, typeKey)
 	m, err := scanTaskManual(row)
@@ -1310,7 +925,6 @@ func getTaskManualOn(q sqlQuerier, typeKey string) (*TaskManual, error) {
 	return &m, nil
 }
 
-// PutTaskManual upserts one manual row.
 func (d *DAL) PutTaskManual(m TaskManual) error {
 	return putTaskManualOn(d.wdb, m)
 }
@@ -1330,12 +944,6 @@ func putTaskManualOn(ex sqlExecer, m TaskManual) error {
 	return err
 }
 
-// DeleteTaskManual hard-deletes one manual (pure owner data — no seed, no
-// tombstone). The open-task 409 guard is the handler's. Returns true iff a
-// row was deleted.
-//
-// The manual's retained history goes in the SAME transaction — see
-// DeleteRoleDef for why a half-applied delete is the state being avoided.
 func (d *DAL) DeleteTaskManual(typeKey string) (bool, error) {
 	var deleted bool
 	err := d.inTx(func(tx *sql.Tx) error {
@@ -1348,9 +956,8 @@ func (d *DAL) DeleteTaskManual(typeKey string) (bool, error) {
 			return err
 		}
 		deleted = n > 0
-		// The manual's one live stream (T-1f39). The retired four-field bundle
-		// is not listed: migration 00045 removed every row of it and nothing can
-		// write another, so there is nothing left for this cascade to reach.
+		// Only the SOP stream: migration 00045 removed the retired four-field
+		// bundle's history rows, and nothing can write them any more.
 		_, err = tx.Exec(`DELETE FROM document_history
 			WHERE document_key = ? AND document_kind = ?`,
 			typeKey, docKindTaskManualSop)

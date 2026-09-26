@@ -81,7 +81,7 @@ func TestContextReportUplinkBodies(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			srv, posts := contextServer(t)
-			cfg := Config{BaseConfigured: true, Base: srv.URL, Token: "t", ID: "kyle", Home: t.TempDir()}
+			cfg := Config{BaseConfigured: true, Base: srv.URL, Token: "t", MemberID: "kyle", AgentsRoot: t.TempDir()}
 			var out, errOut bytes.Buffer
 
 			rc := cmdContextReport(srv.Client(), cfg,

@@ -706,7 +706,7 @@ func (s *apiServer) HandlePostChatApiChatPost(w http.ResponseWriter, r *http.Req
 		audienceMembers(msg.Sender, msg.Recipient), msg.Sender)
 	if msg.Recipient == wireOwnerID && msg.Sender != wireOwnerID {
 		s.enqueueWebPush(webPushPayload{
-			Kind: "chat", ChatID: msg.ID, ChatPeerID: msg.Sender, Title: "OffiCraft 有新訊息",
+			Kind: "chat", ChatMessageID: msg.ID, ChatPeerID: msg.Sender, Title: "OffiCraft 有新訊息",
 			Body: "你有一則新訊息。",
 		})
 	}
@@ -1981,7 +1981,7 @@ func (s *apiServer) resumeSnapshotParts(actor string) (resumeWakeSnapshot, error
 			case c.Status == replyCardStatusWaiting:
 				cardsWaiting++
 			case c.Status == replyCardStatusAnswered &&
-				now-c.AnsweredTS <= replyCardAnsweredWindowSecs:
+				now-c.AnsweredTS <= replyCardRecentWindowSecs:
 				cardsAnsweredRecent++
 			}
 		}

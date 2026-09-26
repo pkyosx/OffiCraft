@@ -10,7 +10,7 @@ import (
 func TestRequireBase(t *testing.T) {
 	t.Run("a configured base lets the caller through in silence", func(t *testing.T) {
 		var errOut bytes.Buffer
-		if requireBase(Config{Base: "https://station.example.com", BaseConfigured: true}, "diff", &errOut) {
+		if warnMissingBase(Config{Base: "https://station.example.com", BaseConfigured: true}, "diff", &errOut) {
 			t.Fatal("requireBase said stop for a configured base")
 		}
 		if errOut.String() != "" {
@@ -20,7 +20,7 @@ func TestRequireBase(t *testing.T) {
 
 	t.Run("an unconfigured base stops the caller and names the subcommand", func(t *testing.T) {
 		var errOut bytes.Buffer
-		if !requireBase(Config{Base: defaultBase}, "upload", &errOut) {
+		if !warnMissingBase(Config{Base: defaultBase}, "upload", &errOut) {
 			t.Fatal("requireBase let an unconfigured base through")
 		}
 		want := "[ocagent] upload: no OC_BASE configured — nothing here knows which station " +
@@ -32,7 +32,7 @@ func TestRequireBase(t *testing.T) {
 
 	t.Run("the message never echoes the base it fell back to", func(t *testing.T) {
 		var errOut bytes.Buffer
-		requireBase(Config{Base: defaultBase, Token: "tok-secret"}, "download", &errOut)
+		warnMissingBase(Config{Base: defaultBase, Token: "tok-secret"}, "download", &errOut)
 		if bytes.Contains(errOut.Bytes(), []byte(defaultBase)) ||
 			bytes.Contains(errOut.Bytes(), []byte("tok-secret")) {
 			t.Fatalf("stderr %q leaked an OC_* value", errOut.String())
@@ -54,8 +54,8 @@ func TestLoadConfig(t *testing.T) {
 			Base:           "https://station.example.com",
 			BaseConfigured: true,
 			Token:          "h.eyJzdWIiOiJtZW1iZXItYWxpY2UiLCJleHAiOjF9.s",
-			ID:             "member-bob",
-			Home:           "/srv/officraft/agents",
+			MemberID:       "member-bob",
+			AgentsRoot:     "/srv/officraft/agents",
 			Role:           "engineer",
 			TaskType:       "build",
 		}
@@ -70,14 +70,14 @@ func TestLoadConfig(t *testing.T) {
 			"OC_TOKEN":      "h.eyJzdWIiOiJtZW1iZXItYWxpY2UiLCJleHAiOjF9.s",
 			"OC_AGENT_HOME": "/srv/agents",
 		}))
-		if got.ID != "member-alice" {
-			t.Fatalf("ID = %q, want %q", got.ID, "member-alice")
+		if got.MemberID != "member-alice" {
+			t.Fatalf("ID = %q, want %q", got.MemberID, "member-alice")
 		}
 	})
 
 	t.Run("an unset OC_BASE takes the loopback default and records that it was invented", func(t *testing.T) {
 		got := loadConfig(testEnv(map[string]string{"OC_AGENT_HOME": "/srv/agents"}))
-		want := Config{Base: "http://127.0.0.1:7755", BaseConfigured: false, Home: "/srv/agents"}
+		want := Config{Base: "http://127.0.0.1:7755", BaseConfigured: false, AgentsRoot: "/srv/agents"}
 		if !reflect.DeepEqual(got, want) {
 			t.Fatalf("loadConfig = %+v, want %+v", got, want)
 		}
@@ -109,8 +109,8 @@ func TestLoadConfig(t *testing.T) {
 			"OC_BASE":       "https://station.example.com",
 			"OC_AGENT_HOME": "/srv/agents",
 		}))
-		if got.Token != "" || got.ID != "" {
-			t.Fatalf("got Token=%q ID=%q, want both empty", got.Token, got.ID)
+		if got.Token != "" || got.MemberID != "" {
+			t.Fatalf("got Token=%q ID=%q, want both empty", got.Token, got.MemberID)
 		}
 	})
 
@@ -120,8 +120,8 @@ func TestLoadConfig(t *testing.T) {
 			"OC_BASE":      "https://station.example.com",
 			"OC_NAMESPACE": "lab",
 		}))
-		if got.Home != "/home/tester/.officraft-lab/agents" {
-			t.Fatalf("Home = %q, want %q", got.Home, "/home/tester/.officraft-lab/agents")
+		if got.AgentsRoot != "/home/tester/.officraft-lab/agents" {
+			t.Fatalf("Home = %q, want %q", got.AgentsRoot, "/home/tester/.officraft-lab/agents")
 		}
 	})
 }

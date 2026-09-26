@@ -1869,7 +1869,7 @@ func TestClearMemberConvergedFailureReceipt(t *testing.T) {
 		succeeded.LastOp = reconcileCmdStart
 		succeeded.LastOpOK = &yes
 		succeeded.LastOpAt = reconcileTestNow
-		if err := d.SetMemberOpReceipt("healthy", succeeded.LastOp, succeeded.LastOpOK,
+		if err := d.SetMemberLastOp("healthy", succeeded.LastOp, succeeded.LastOpOK,
 			succeeded.LastOpLog, succeeded.LastOpReason, succeeded.LastOpAt); err != nil {
 			t.Fatalf("SetMemberOpReceipt: %v", err)
 		}

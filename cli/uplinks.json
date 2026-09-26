@@ -87,7 +87,7 @@
     {
       "id": "ocagent-diff-dispatch-hop",
       "source": "cli/ocagent/main.go",
-      "callsite": "return cmdDiff(newStreamingClient(), cfg, args[0], args[1],",
+      "callsite": "return cmdDiff(newNoDeadlineClient(), cfg, args[0], args[1],",
       "kind": "seam",
       "seam_reason": "Dispatch into cmdDiff. It sends NOTHING by default — the internal link is a pure function of the two addresses — and exactly one GET when --external asks the server to mint the signed one (ocagent-diff-share-link-mint below)."
     },
@@ -353,14 +353,14 @@
     {
       "id": "ocagent-cmd-download",
       "source": "cli/ocagent/main.go",
-      "callsite": "return cmdDownload(newStreamingClient(), cfg, args[0], *outDir, out, os.Stderr)",
+      "callsite": "return cmdDownload(newNoDeadlineClient(), cfg, args[0], *outDir, out, os.Stderr)",
       "kind": "skip",
       "skip_reason": "Dispatch to the attachment download command — a GET, no body out."
     },
     {
       "id": "ocagent-cmd-upload",
       "source": "cli/ocagent/main.go",
-      "callsite": "return cmdUpload(newStreamingClient(), cfg, args[0], *mimeType, out, os.Stderr)",
+      "callsite": "return cmdUpload(newNoDeadlineClient(), cfg, args[0], *mimeType, out, os.Stderr)",
       "kind": "skip",
       "skip_reason": "Dispatch to the attachment upload command, which streams raw file bytes rather than JSON: there is no request schema to compare a body against."
     },
@@ -409,7 +409,7 @@
     {
       "id": "ocagent-listen-3",
       "source": "cli/ocagent/listen.go",
-      "callsite": "msgs := fetchChat(client, cfg, cfg.ID)",
+      "callsite": "msgs := fetchChat(client, cfg, cfg.MemberID)",
       "kind": "skip",
       "skip_reason": "GET: reads the chat page back through getJSON — no request body"
     },
@@ -432,7 +432,7 @@
     {
       "id": "ocagent-hook-1",
       "source": "cli/ocagent/listen_hooks.go",
-      "callsite": "status, body := getJSON(client, cfg, membersPath+cfg.ID, true)",
+      "callsite": "status, body := getJSON(client, cfg, membersPath+cfg.MemberID, true)",
       "kind": "skip",
       "skip_reason": "GET through the shared ocagent getter (ocagent-getjson-seam) — a read, no request body on the wire"
     },
@@ -483,19 +483,19 @@
       "source": "cli/ocagent/listen_run.go",
       "callsite": "return newListener(cfg, env, out, once, stamper).run(rootCtx())",
       "kind": "seam",
-      "seam_reason": "hop: the process entry point. It builds the listener and enters run(), so every send this subcommand ever makes hangs below this one line — all of them already claimed on their own callsites (ocagent-run-1..9, ocagent-connectonce, ocagent-dispatch-value, ocagent-chat-mark-read). This line itself puts nothing on the wire. It is NEW as a callsite only because T-89 split the construction out of cmdListen into newListener so the wiring could be asserted; before that the same hop was spelled `return l.run(ctx)`, which the scan did not match. Nothing about what goes on the wire changed."
+      "seam_reason": "hop: the process entry point. It builds the listener and enters run(), so every send this subcommand ever makes hangs below this one line — all of them already claimed on their own callsites (ocagent-run-1..9, ocagent-connectonce, ocagent-dispatch-value, ocagent-chat-mark-read). This line itself puts nothing on the wire. It is NEW as a callsite only because T-89 split the construction out of runListen into newListener so the wiring could be asserted; before that the same hop was spelled `return l.run(ctx)`, which the scan did not match. Nothing about what goes on the wire changed."
     },
     {
       "id": "ocagent-run-7",
       "source": "cli/ocagent/listen_run.go",
-      "callsite": "winddown:         newWindDownHook(api, cfg, out),",
+      "callsite": "winddown:          newWindDownHook(api, cfg, out),",
       "kind": "seam",
       "seam_reason": "builds the wind-down hook. It no longer closes over any send: the hook wakes the session with the notice the server pushed and leaves the stop reports to the session's own MCP calls."
     },
     {
       "id": "ocagent-run-8",
       "source": "cli/ocagent/listen_run.go",
-      "callsite": "recycle:          newRecycleHook(api, cfg, out),",
+      "callsite": "recycle:           newRecycleHook(api, cfg, out),",
       "kind": "seam",
       "seam_reason": "builds the recycle hook; the sends it closes over are declared on their own callsites"
     },
@@ -509,7 +509,7 @@
     {
       "id": "ocagent-cmd-2",
       "source": "cli/ocagent/main.go",
-      "callsite": "return runListen(rest, cfg, env, out, cmdListen, nil)",
+      "callsite": "return cmdListen(rest, cfg, env, out, runListen, nil)",
       "kind": "seam",
       "seam_reason": "hop: the listen command reaches the SSE stream and every send the listener makes, each declared on its own callsite"
     },
@@ -860,7 +860,7 @@
     {
       "id": "ocagent-chat-mark-read-seam",
       "source": "cli/ocagent/listen.go",
-      "callsite": "reportChatRead(client, cfg, show, warn, out)",
+      "callsite": "reportChatRead(client, cfg, toMarkRead, warn, out)",
       "kind": "seam",
       "seam_reason": "Hands drainChat's just-printed lines to the read-receipt reporter and puts nothing on the wire itself — the grouping by sender and the send both happen inside reportChatRead, whose postJSON call is declared as ocagent-chat-mark-read."
     },

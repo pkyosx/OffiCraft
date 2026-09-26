@@ -25,7 +25,7 @@ func (h *hookHTTP) Do(req *http.Request) (*http.Response, error) {
 	}, nil
 }
 
-func hookCfg() Config { return Config{Base: "http://station", Token: "tok", ID: "m-1"} }
+func hookCfg() Config { return Config{Base: "http://station", Token: "tok", MemberID: "m-1"} }
 
 // memberFrame is the member delta both hooks gate on, carrying an optional
 // server-composed offboard notice.
