@@ -57,6 +57,9 @@ type Config struct {
 	// "http:/diff?..." with exit 0 and nothing on stderr.
 	//
 	// It is only ever true alongside BaseConfigured, and only loadConfig sets it.
+	// Its zero value is the permissive side on purpose: a Config literal gets
+	// past the guard only by setting BaseConfigured, which already declares
+	// its intent.
 	BaseMalformed bool
 	Token         string
 	ID            string

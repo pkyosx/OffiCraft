@@ -164,7 +164,7 @@ func cmdContextReport(client httpClient, cfg Config, env func(string) string, no
 	// So: stdout is untouched, the exit code is untouched, and the ONLY change
 	// is one line on stderr, which statusLine does not read. requireBase's
 	// return is ignored ON PURPOSE — the refusal is a signal here, not a
-	// decision — and because it fires only when OC_BASE is genuinely absent, a
+	// decision — and because it fires only when OC_BASE is absent or malformed, a
 	// correctly wired agent prints nothing extra on any of those turns.
 	_ = requireBase(cfg, "context-report", errw)
 

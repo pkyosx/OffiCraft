@@ -840,7 +840,7 @@ func cmdListen(cfg Config, env func(string) string, once bool, out io.Writer) in
 	// stopped answering. The debounced policy is worse still, not better: its
 	// terminal state is selfTerminate(), which kills the tmux session this member
 	// lives in. So T-89 added a line of TEXT and nothing else. See
-	// baseAddressOrigin: an unconfigured base is named on the connect line and on
+	// baseAddressOrigin: an unconfigured or malformed base is named on the connect line and on
 	// the disconnect notice, both of which already exist and are already
 	// debounced, and no control flow anywhere branches on it.
 	//
