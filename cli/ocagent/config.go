@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -49,11 +50,19 @@ type Config struct {
 	// strict answer rather than a silent pass — a caller that never declared its
 	// intent must not inherit the permissive one.
 	BaseConfigured bool
-	Token          string
-	ID             string
-	Home           string
-	Role           string
-	TaskType       string
+	// BaseMalformed says OC_BASE was set but is not an http(s)://host address
+	// (`http://`, `ftp://x`, `notaurl`, `http://:9999`). normalizeBase hands such
+	// a value back unchanged by design, so without this it would be carried into
+	// every URL built from Base — `OC_BASE=http://` made plain `diff` print
+	// "http:/diff?..." with exit 0 and nothing on stderr.
+	//
+	// It is only ever true alongside BaseConfigured, and only loadConfig sets it.
+	BaseMalformed bool
+	Token         string
+	ID            string
+	Home          string
+	Role          string
+	TaskType      string
 }
 
 // requireBase is the OC_BASE half of the mis-wire guard, the twin of the
@@ -78,11 +87,15 @@ type Config struct {
 // said "refusing" would be a lie in the one place the fail-safe forbids
 // refusing. What each caller does about it is carried by its exit code.
 func requireBase(cfg Config, subcommand string, errOut io.Writer) bool {
-	if cfg.BaseConfigured {
-		return false
+	if !cfg.BaseConfigured {
+		fmt.Fprintf(errOut, "[ocagent] %s: no OC_BASE configured — nothing here knows which station to talk to, and the built-in default is this machine's loopback address.\n", subcommand)
+		return true
 	}
-	fmt.Fprintf(errOut, "[ocagent] %s: no OC_BASE configured — nothing here knows which station to talk to, and the built-in default is this machine's loopback address.\n", subcommand)
-	return true
+	if cfg.BaseMalformed {
+		fmt.Fprintf(errOut, "[ocagent] %s: OC_BASE is set but is not a usable station address — it must be http:// or https:// followed by a host.\n", subcommand)
+		return true
+	}
+	return false
 }
 
 // loadConfig resolves OC_* env into a Config (mirrors agent/oc_agent.py
@@ -90,40 +103,16 @@ func requireBase(cfg Config, subcommand string, errOut io.Writer) bool {
 // `sub` claim of the token, so a launch needs only OC_TOKEN + OC_BASE.
 func loadConfig(env func(string) string) Config {
 	base := normalizeBase(env("OC_BASE")) // T-78: keep the host, re-decide the scheme
-	// baseConfigured records exactly one thing: whether the fallback below was
-	// taken. That is the state this guard exists for — an address the operator
-	// never chose, substituted in silence.
-	//
-	// IT IS NOT A VALIDITY CHECK, and deliberately not. normalizeBase returns
-	// its input unchanged for a value it cannot re-scheme (`OC_BASE=http://`
-	// survives as "http://", and the TrimRight below leaves "http:"), so such a
-	// value counts as CONFIGURED here even though no request will ever succeed
-	// against it.
-	//
-	// ⚠️ THAT LEAVES ONE CASE THIS GUARD DOES NOT COVER, and it must not be
-	// described as if it did. An earlier version of this comment claimed a
-	// malformed OC_BASE "fails loudly on the first request"; the independent
-	// review measured that false. It holds for upload, download and
-	// `diff --external`, which do make a request — but plain `diff` makes none
-	// by design, so OC_BASE=http:// prints "http:/diff?..." with exit 0 and an
-	// empty stderr. That is the SAME failure shape T-86 exists to remove, from a
-	// different input, and arguably a worse one: at least
-	// "http://127.0.0.1:7755/diff?..." is recognisably loopback.
-	//
-	// It is still out of this guard's scope rather than a hole it should grow to
-	// cover: closing it means a shape check, and the shape check belongs to
-	// normalizeBase, a canonical block mirrored across three modules and pinned
-	// by bin/tests/base-scheme-mirror-guard.sh. A warden-supplied base is unlikely
-	// to reach this state either — ocwarden's install path asserts ocBaseShape,
-	// though its own loadConfig does not re-check the shape at spawn time — so in
-	// practice it takes a hand-set value. The split is between "an address was invented in
-	// silence", which is this field, and "an address was given wrong", which is
-	// not.
+	// baseConfigured records only whether the fallback below was taken; whether
+	// the value is usable is baseMalformed's question. The two stay separate
+	// because listen and context-report must not refuse either case, and each
+	// case gets its own wording.
 	baseConfigured := base != ""
 	if base == "" {
 		base = defaultBase
 	}
 	base = strings.TrimRight(base, "/")
+	baseMalformed := baseConfigured && !baseShapeOK(base)
 
 	token := env("OC_TOKEN")
 	id := env("OC_ID")
@@ -139,6 +128,7 @@ func loadConfig(env func(string) string) Config {
 	return Config{
 		Base:           base,
 		BaseConfigured: baseConfigured,
+		BaseMalformed:  baseMalformed,
 		Token:          token,
 		ID:             id,
 		Home:           home,
@@ -210,6 +200,22 @@ func fallbackAgentsHome(env func(string) string, userHomeDir func() (string, err
 		return ""
 	}
 	return filepath.Join(h, ".officraft-"+ns, "agents")
+}
+
+// baseShapeOK is the shape check normalizeBase deliberately does not make: that
+// function hands back what it cannot re-scheme, and it is a canonical block
+// mirrored across three modules, so the check lives here instead.
+func baseShapeOK(base string) bool {
+	u, err := url.Parse(base)
+	if err != nil {
+		return false
+	}
+	switch strings.ToLower(u.Scheme) {
+	case "http", "https":
+	default:
+		return false
+	}
+	return u.Hostname() != ""
 }
 
 // jwtSub reads the `sub` claim of a JWT WITHOUT verifying (the agent holds no

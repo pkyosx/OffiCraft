@@ -396,6 +396,19 @@ func TestNoteDisconnect(t *testing.T) {
 		}
 	})
 
+	t.Run("a listener given a malformed station says so on this line", func(t *testing.T) {
+		var out strings.Builder
+		l := &listener{out: &out, cfg: Config{BaseConfigured: true, BaseMalformed: true}}
+
+		l.noteDisconnect("connect failed: %v", errors.New("no Host in request URL"))
+
+		want := "[ocagent] listen: disconnected — connect failed: no Host in request URL" +
+			" [⚠ address MALFORMED — OC_BASE must be http:// or https:// followed by a host]" + tail
+		if out.String() != want {
+			t.Errorf("printed %q, want %q", out.String(), want)
+		}
+	})
+
 	t.Run("a percent sign in the reason is text, not a verb", func(t *testing.T) {
 		var out strings.Builder
 		l := &listener{out: &out, cfg: Config{BaseConfigured: false}}
@@ -490,16 +503,23 @@ func TestStationVerdict(t *testing.T) {
 }
 
 func TestBaseAddressOrigin(t *testing.T) {
-	t.Run("a member that was told its station adds nothing to the line", func(t *testing.T) {
-		if got := baseAddressOrigin(true); got != "" {
-			t.Errorf("baseAddressOrigin(true) = %q, want empty", got)
+	t.Run("a member that was told a well-formed station adds nothing to the line", func(t *testing.T) {
+		if got := baseAddressOrigin(Config{BaseConfigured: true}); got != "" {
+			t.Errorf("baseAddressOrigin(configured) = %q, want empty", got)
 		}
 	})
 
 	t.Run("a member that invented its address says so", func(t *testing.T) {
 		want := " [⚠ address GUESSED — OC_BASE is not set, so nobody chose this station]"
-		if got := baseAddressOrigin(false); got != want {
-			t.Errorf("baseAddressOrigin(false) = %q, want %q", got, want)
+		if got := baseAddressOrigin(Config{}); got != want {
+			t.Errorf("baseAddressOrigin(unset) = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("a member given a malformed address says so", func(t *testing.T) {
+		want := " [⚠ address MALFORMED — OC_BASE must be http:// or https:// followed by a host]"
+		if got := baseAddressOrigin(Config{BaseConfigured: true, BaseMalformed: true}); got != want {
+			t.Errorf("baseAddressOrigin(malformed) = %q, want %q", got, want)
 		}
 	})
 }

@@ -271,7 +271,7 @@ func (l *listener) noteDisconnect(format string, args ...any) {
 	l.logf(noticeDisconnected+" — "+format+"%s"+
 		" (retrying on the same schedule, quietly; the next transport line you see "+
 		"is either the reconnect or a give-up)",
-		append(append([]any{}, args...), baseAddressOrigin(l.cfg.BaseConfigured))...)
+		append(append([]any{}, args...), baseAddressOrigin(l.cfg))...)
 }
 
 // stopRetrying prints the give-up line when the retry loop terminates while an
@@ -341,11 +341,18 @@ func stationVerdict(prev, cur string, firstConnect bool) string {
 //
 // Configured ⇒ "" ⇒ both lines are emitted byte-identical to what they were before
 // this existed, which is what keeps this change invisible on every healthy machine.
-func baseAddressOrigin(configured bool) string {
-	if configured {
-		return ""
+//
+// A MALFORMED base gets the same treatment for the same reason: it is announced
+// on these two lines and never refused. On a malformed base the connect line is
+// never reached, so the disconnect notice is where a member sees it.
+func baseAddressOrigin(cfg Config) string {
+	if !cfg.BaseConfigured {
+		return " [⚠ address GUESSED — OC_BASE is not set, so nobody chose this station]"
 	}
-	return " [⚠ address GUESSED — OC_BASE is not set, so nobody chose this station]"
+	if cfg.BaseMalformed {
+		return " [⚠ address MALFORMED — OC_BASE must be http:// or https:// followed by a host]"
+	}
+	return ""
 }
 
 // dispatch is the bridge from ONE completed SSE data payload to the agent's downlink
@@ -628,7 +635,7 @@ func (l *listener) connectOnce(ctx context.Context) (opened, activity, selfExit 
 	// column 0 only — and it belongs beside the address it is talking about rather
 	// than after two shas.
 	l.logf(noticeConnected+" — streaming %s%s%s (⇒ online while held)%s%s%s",
-		l.cfg.Base, eventsPath, baseAddressOrigin(l.cfg.BaseConfigured), verdict, station, agent)
+		l.cfg.Base, eventsPath, baseAddressOrigin(l.cfg), verdict, station, agent)
 
 	// Connect drain: /api/events has no replay, so any reply_card delta
 	// fanned while this listener held no stream is lost — catch up from the
