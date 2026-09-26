@@ -477,7 +477,7 @@ func (s *apiServer) foldWorkerCommandResult(workerID string, commandResult map[s
 	// else, so the whole-row write it used to end on carried every other column
 	// as freight — and this handler holds outsourceMu while a reconcile tick may
 	// be writing the same row through its own re-read.
-	if err := s.dal.SetMemberOpReceipt(w.ID, w.LastOp, w.LastOpOK, w.LastOpLog,
+	if err := s.dal.SetMemberLastOp(w.ID, w.LastOp, w.LastOpOK, w.LastOpLog,
 		w.LastOpReason, w.LastOpAt); err != nil {
 		fmt.Fprintf(os.Stderr,
 			"[monitoring] worker command_result fold failed for %q: %v\n", workerID, err)
@@ -1214,7 +1214,7 @@ func (s *apiServer) HandleGetMonitoringApiMonitoringGet(w http.ResponseWriter, r
 		// not a special case of it.
 		//
 		// So the member side's RosterStatusRemoved filter is NOT a precedent to
-		// copy, even though workerStatusFromMember makes released the exact same
+		// copy, even though workerStatusFrom makes released the exact same
 		// predicate. It is correct there for a reason that does not hold here:
 		// removing a member HARD-DELETES it and calls s.telemetry.Delete
 		// (api_roles.go — the only telemetry.Delete in the repo), so its entry is

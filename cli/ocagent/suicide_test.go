@@ -93,7 +93,7 @@ func TestSuicideSession(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			socket, session, ok := suicideSession(testEnv(tc.env))
+			socket, session, ok := tmuxSessionFromEnv(testEnv(tc.env))
 			if socket != tc.wantSocket || session != tc.wantSession || ok != tc.wantOK {
 				t.Fatalf("suicideSession = (%q, %q, %v), want (%q, %q, %v)",
 					socket, session, ok, tc.wantSocket, tc.wantSession, tc.wantOK)

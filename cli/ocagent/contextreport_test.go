@@ -54,7 +54,7 @@ func TestCmdContextReport(t *testing.T) {
 
 	t.Run("an accepted burst stamps the throttle window and clears the backoff", func(t *testing.T) {
 		home := t.TempDir()
-		cfg := Config{BaseConfigured: true, Base: "http://x", Token: "t", ID: "Kyle", Home: home}
+		cfg := Config{BaseConfigured: true, Base: "http://x", Token: "t", MemberID: "Kyle", AgentsRoot: home}
 		stale := filepath.Join(home, "kyle", "context_report.backoff")
 		writeReportBackoff(stale, reportBackoffState{failures: 3, lastAttempt: 1})
 		client := &fakeHTTP{status: 200, body: "{}"}
@@ -83,7 +83,7 @@ func TestCmdContextReport(t *testing.T) {
 
 	t.Run("a refused burst records the failure and leaves the stamp untouched", func(t *testing.T) {
 		home := t.TempDir()
-		cfg := Config{BaseConfigured: true, Base: "http://x", Token: "t", ID: "kyle", Home: home}
+		cfg := Config{BaseConfigured: true, Base: "http://x", Token: "t", MemberID: "kyle", AgentsRoot: home}
 		client := &fakeHTTP{status: 422, body: `{"detail":"context_pct is not declared"}`}
 		var out, errOut bytes.Buffer
 
@@ -115,8 +115,8 @@ func TestCmdContextReport(t *testing.T) {
 
 	t.Run("a burst inside the throttle window sends nothing", func(t *testing.T) {
 		home := t.TempDir()
-		cfg := Config{BaseConfigured: true, Base: "http://x", Token: "t", ID: "kyle", Home: home}
-		writeStamp(filepath.Join(home, "kyle", "context_report.stamp"), 990.0)
+		cfg := Config{BaseConfigured: true, Base: "http://x", Token: "t", MemberID: "kyle", AgentsRoot: home}
+		writeReportStamp(filepath.Join(home, "kyle", "context_report.stamp"), 990.0)
 		client := &fakeHTTP{status: 200, body: "{}"}
 		var out, errOut bytes.Buffer
 
@@ -136,7 +136,7 @@ func TestCmdContextReport(t *testing.T) {
 
 	t.Run("a burst inside the failure backoff sends nothing", func(t *testing.T) {
 		home := t.TempDir()
-		cfg := Config{BaseConfigured: true, Base: "http://x", Token: "t", ID: "kyle", Home: home}
+		cfg := Config{BaseConfigured: true, Base: "http://x", Token: "t", MemberID: "kyle", AgentsRoot: home}
 		writeReportBackoff(filepath.Join(home, "kyle", "context_report.backoff"),
 			reportBackoffState{failures: 4, lastAttempt: 900})
 		client := &fakeHTTP{status: 200, body: "{}"}
@@ -159,7 +159,7 @@ func TestCmdContextReport(t *testing.T) {
 
 	t.Run("an unconfigured agent reports nothing and still prints the status line", func(t *testing.T) {
 		home := t.TempDir()
-		cfg := Config{Base: "http://x", Home: home}
+		cfg := Config{Base: "http://x", AgentsRoot: home}
 		client := &fakeHTTP{status: 200, body: "{}"}
 		var out, errOut bytes.Buffer
 
@@ -184,7 +184,7 @@ func TestCmdContextReport(t *testing.T) {
 
 	t.Run("a null pct skips its own POST and never blocks the telemetry one", func(t *testing.T) {
 		home := t.TempDir()
-		cfg := Config{BaseConfigured: true, Base: "http://x", Token: "t", ID: "kyle", Home: home}
+		cfg := Config{BaseConfigured: true, Base: "http://x", Token: "t", MemberID: "kyle", AgentsRoot: home}
 		client := &fakeHTTP{status: 200, body: "{}"}
 		var out, errOut bytes.Buffer
 
@@ -601,8 +601,8 @@ func TestReportStampPath(t *testing.T) {
 		cfg  Config
 		want string
 	}{
-		{"an id is lowercased", Config{Home: "/h", ID: "M-Kyle"}, "/h/m-kyle/context_report.stamp"},
-		{"no id falls back to anon", Config{Home: "/h"}, "/h/anon/context_report.stamp"},
+		{"an id is lowercased", Config{AgentsRoot: "/h", MemberID: "M-Kyle"}, "/h/m-kyle/context_report.stamp"},
+		{"no id falls back to anon", Config{AgentsRoot: "/h"}, "/h/anon/context_report.stamp"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -785,7 +785,7 @@ func TestClearReportBackoff(t *testing.T) {
 func TestWriteStamp(t *testing.T) {
 	t.Run("the stamp lands under a directory it creates", func(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "kyle", "context_report.stamp")
-		writeStamp(path, 1720000000.5)
+		writeReportStamp(path, 1720000000.5)
 
 		if got := readFileString(t, path); got != "1720000000.5" {
 			t.Errorf("stamp = %q, want %q", got, "1720000000.5")
@@ -800,7 +800,7 @@ func TestWriteStamp(t *testing.T) {
 		if err := os.WriteFile(blocked, []byte("x"), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		writeStamp(filepath.Join(blocked, "context_report.stamp"), 1000)
+		writeReportStamp(filepath.Join(blocked, "context_report.stamp"), 1000)
 		if got := readFileString(t, blocked); got != "x" {
 			t.Errorf("the blocking file = %q, want %q", got, "x")
 		}
@@ -819,7 +819,7 @@ func TestLocalHost(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := localHost(testEnv(tc.env)); got != tc.want {
+			if got := machineID(testEnv(tc.env)); got != tc.want {
 				t.Errorf("localHost = %q, want %q", got, tc.want)
 			}
 		})

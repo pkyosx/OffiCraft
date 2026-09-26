@@ -1619,7 +1619,7 @@ def step(i, name, status, fin):
 
 if REPLAN:
     # 21b-iii's world: the agent RE-PLANNED (submit_plan froze a node it did not
-    # re-list into `superseded`, and ReplaceTaskPlan leaves it in place,
+    # re-list into `superseded`, and ReplaceTaskSteps leaves it in place,
     # renumbered) and the two live nodes are a PARALLEL pair that finished
     # backwards. Both are ordinary server behaviour; both used to be red.
     mid_steps = [step(1, "被取代的舊節點", "superseded", 190.0),
@@ -2156,7 +2156,7 @@ esac
 # 21b-iii) ⑤ MUST NOT BE RED ON THE TWO THINGS THE SERVER DOES ON PURPOSE.
 # This is the other half of 21b-i and it is the half that was broken: a bundle
 # with (a) a `superseded` replan record sitting BEFORE later work — exactly where
-# ReplaceTaskPlan leaves it, renumbered, while DeriveTaskStatus/TaskProgress skip
+# ReplaceTaskSteps leaves it, renumbered, while DeriveTaskStatus/TaskProgress skip
 # it — and (b) two parallel nodes whose finished_ts run BACKWARDS along
 # order_idx, which SPEC §3.1 permits by construction. Both are what a correct
 # agent produces; both were a deterministic RED that named the agent.

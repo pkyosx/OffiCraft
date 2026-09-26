@@ -187,12 +187,12 @@ func TestCursorPath(t *testing.T) {
 		cfg  Config
 		want string
 	}{
-		{"an id is lowercased", Config{Home: "/h", ID: "M-Kyle"}, "/h/m-kyle/sse-cursor"},
-		{"no id falls back to anon", Config{Home: "/h"}, "/h/anon/sse-cursor"},
+		{"an id is lowercased", Config{AgentsRoot: "/h", MemberID: "M-Kyle"}, "/h/m-kyle/sse-cursor"},
+		{"no id falls back to anon", Config{AgentsRoot: "/h"}, "/h/anon/sse-cursor"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := cursorPath(tc.cfg); got != tc.want {
+			if got := sseCursorPath(tc.cfg); got != tc.want {
 				t.Errorf("cursorPath = %q, want %q", got, tc.want)
 			}
 		})
@@ -202,12 +202,12 @@ func TestCursorPath(t *testing.T) {
 func TestWriteCursor(t *testing.T) {
 	t.Run("the cursor lands under a directory it creates and reads back", func(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "kyle", "sse-cursor")
-		writeCursor(path, "seq-42")
+		writeSSECursor(path, "seq-42")
 
 		if got := readFileString(t, path); got != "seq-42" {
 			t.Errorf("file = %q, want %q", got, "seq-42")
 		}
-		if got := readCursor(path); got != "seq-42" {
+		if got := readSSECursor(path); got != "seq-42" {
 			t.Errorf("readCursor = %q, want %q", got, "seq-42")
 		}
 	})
@@ -217,7 +217,7 @@ func TestWriteCursor(t *testing.T) {
 		if err := os.WriteFile(blocked, []byte("x"), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		writeCursor(filepath.Join(blocked, "sse-cursor"), "seq-1")
+		writeSSECursor(filepath.Join(blocked, "sse-cursor"), "seq-1")
 		if got := readFileString(t, blocked); got != "x" {
 			t.Errorf("the blocking file = %q, want %q", got, "x")
 		}
@@ -230,13 +230,13 @@ func TestReadCursor(t *testing.T) {
 		if err := os.WriteFile(path, []byte("  seq-42\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		if got := readCursor(path); got != "seq-42" {
+		if got := readSSECursor(path); got != "seq-42" {
 			t.Errorf("readCursor = %q, want %q", got, "seq-42")
 		}
 	})
 
 	t.Run("a missing cursor is a full replay, not an error", func(t *testing.T) {
-		if got := readCursor(filepath.Join(t.TempDir(), "nope")); got != "" {
+		if got := readSSECursor(filepath.Join(t.TempDir(), "nope")); got != "" {
 			t.Errorf("readCursor = %q, want empty", got)
 		}
 	})
@@ -264,7 +264,7 @@ func TestIsExecutableFileListen(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := isExecutableFileListen(tc.path); got != tc.want {
+			if got := isExecutableFile(tc.path); got != tc.want {
 				t.Errorf("isExecutableFileListen(%q) = %v, want %v", tc.path, got, tc.want)
 			}
 		})
@@ -348,7 +348,7 @@ func TestShouldWindDown(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := shouldWindDown(tc.frame, tc.myID); got != tc.want {
+			if got := isMemberFrameForSelf(tc.frame, tc.myID); got != tc.want {
 				t.Errorf("shouldWindDown(%v, %q) = %v, want %v", tc.frame, tc.myID, got, tc.want)
 			}
 		})
@@ -421,27 +421,27 @@ func TestPreviewLine(t *testing.T) {
 
 func TestRenderMessageBody(t *testing.T) {
 	t.Run("a one-line body prints verbatim", func(t *testing.T) {
-		if got := renderMessageBody("這個再確認一下", chatBodyAuthority); got != "這個再確認一下" {
+		if got := renderMessageBody("這個再確認一下", chatFullReadTool); got != "這個再確認一下" {
 			t.Errorf("renderMessageBody = %q, want %q", got, "這個再確認一下")
 		}
 	})
 
 	t.Run("continuation lines are indented so none can look like a new event", func(t *testing.T) {
 		want := "first\n    second\n    third"
-		if got := renderMessageBody("first\nsecond\nthird", chatBodyAuthority); got != want {
+		if got := renderMessageBody("first\nsecond\nthird", chatFullReadTool); got != want {
 			t.Errorf("renderMessageBody = %q, want %q", got, want)
 		}
 	})
 
 	t.Run("a dangling trailing newline leaves no empty indented tail", func(t *testing.T) {
-		if got := renderMessageBody("body\n\n", chatBodyAuthority); got != "body" {
+		if got := renderMessageBody("body\n\n", chatFullReadTool); got != "body" {
 			t.Errorf("renderMessageBody = %q, want %q", got, "body")
 		}
 	})
 
 	t.Run("a body at the safety valve is untouched", func(t *testing.T) {
 		body := strings.Repeat("a", messageBodyValve)
-		if got := renderMessageBody(body, chatBodyAuthority); got != body {
+		if got := renderMessageBody(body, chatFullReadTool); got != body {
 			t.Errorf("renderMessageBody truncated a body of exactly %d bytes", messageBodyValve)
 		}
 	})
@@ -450,7 +450,7 @@ func TestRenderMessageBody(t *testing.T) {
 		body := strings.Repeat("a", messageBodyValve+100)
 		want := strings.Repeat("a", messageBodyValve) +
 			"… [+100 bytes past the 64 KiB safety valve — read the full message with get_chat]"
-		if got := renderMessageBody(body, chatBodyAuthority); got != want {
+		if got := renderMessageBody(body, chatFullReadTool); got != want {
 			t.Errorf("renderMessageBody = %q…%q, want the valve notice %q",
 				got[:20], got[len(got)-90:], want[len(want)-90:])
 		}
@@ -460,7 +460,7 @@ func TestRenderMessageBody(t *testing.T) {
 		body := strings.Repeat("a", messageBodyValve-1) + strings.Repeat("界", 40)
 		want := strings.Repeat("a", messageBodyValve-1) +
 			"… [+120 bytes past the 64 KiB safety valve — read the full message with get_reply_card]"
-		if got := renderMessageBody(body, replyCardBodyAuthority); got != want {
+		if got := renderMessageBody(body, replyCardFullReadTool); got != want {
 			t.Errorf("renderMessageBody tail = %q, want %q", got[len(got)-90:], want[len(want)-90:])
 		}
 	})
@@ -493,7 +493,7 @@ func TestHandleEvent(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			var out bytes.Buffer
-			handleEvent(tc.frame, tc.trigger, &out)
+			printWake(tc.frame, tc.trigger, &out)
 			if out.String() != tc.want {
 				t.Errorf("printed %q, want %q", out.String(), tc.want)
 			}
@@ -557,7 +557,7 @@ func TestHandleTaskEvent(t *testing.T) {
 		return map[string]any{"topic": "task", "seq": 5.0,
 			"data": map[string]any{"payload": map[string]any{"id": id}}}
 	}
-	cfg := Config{Base: "http://x", Token: "t", ID: "m-1"}
+	cfg := Config{Base: "http://x", Token: "t", MemberID: "m-1"}
 
 	t.Run("the first sight this session states the position, not a diff", func(t *testing.T) {
 		client := newRoutedHTTP(map[string]string{
@@ -678,7 +678,7 @@ func TestIntField(t *testing.T) {
 }
 
 func TestFetchChat(t *testing.T) {
-	cfg := Config{Base: "http://x", Token: "t", ID: "kyle"}
+	cfg := Config{Base: "http://x", Token: "t", MemberID: "kyle"}
 	const page1 = "/api/chat?recipient=kyle&unread=true&limit=50"
 
 	t.Run("a single page ends the walk when the server issues no cursor", func(t *testing.T) {
@@ -1130,7 +1130,7 @@ func TestPrintChatLine(t *testing.T) {
 }
 
 func TestHandleReplyCard(t *testing.T) {
-	cfg := Config{Base: "http://x", Token: "t", ID: "m-1", Home: "/unused"}
+	cfg := Config{Base: "http://x", Token: "t", MemberID: "m-1", AgentsRoot: "/unused"}
 	frame := func(id, from string) map[string]any {
 		return map[string]any{"topic": "reply_card",
 			"data": map[string]any{"payload": map[string]any{"id": id, "from": from}}}
@@ -1382,8 +1382,8 @@ func TestReplyCardSeenPath(t *testing.T) {
 		cfg  Config
 		want string
 	}{
-		{"an id is lowercased", Config{Home: "/h", ID: "M-Kyle"}, "/h/m-kyle/replycards-seen"},
-		{"no id falls back to anon", Config{Home: "/h"}, "/h/anon/replycards-seen"},
+		{"an id is lowercased", Config{AgentsRoot: "/h", MemberID: "M-Kyle"}, "/h/m-kyle/replycards-seen"},
+		{"no id falls back to anon", Config{AgentsRoot: "/h"}, "/h/anon/replycards-seen"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1503,7 +1503,7 @@ func TestRecord(t *testing.T) {
 }
 
 func TestDrainReplyCards(t *testing.T) {
-	cfg := Config{Base: "http://x", Token: "t", ID: "m-1"}
+	cfg := Config{Base: "http://x", Token: "t", MemberID: "m-1"}
 	const answeredPane = "/api/reply-cards?status=answered"
 	const expiredPane = "/api/reply-cards?status=expired"
 

@@ -715,7 +715,7 @@ func TestResumeSummaryCarriesTheBlockingIds(t *testing.T) {
 // reads "3 tickets are waiting on me" and acts on it, and the only useful
 // reading of that sentence is "3 tickets are STILL waiting". The dependency row
 // survives the waiter being terminated (nothing rewrites blocked_by on close),
-// so without the terminal filter in blockingTasksOf the count only ever grows
+// so without the terminal filter in tasksWaitingOn the count only ever grows
 // and every ticket the executor was ever behind stays on the list forever —
 // which is precisely the signal-quality problem this ticket exists to fix.
 //

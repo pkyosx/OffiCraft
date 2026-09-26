@@ -541,7 +541,7 @@ func TestRunListen(t *testing.T) {
 		started := false
 		start := func(Config, func(string) string, bool, io.Writer) int { started = true; return 0 }
 
-		rc := runListen([]string{"--deliver-tmux"}, Config{}, testEnv(map[string]string{}), &out, start, nil)
+		rc := cmdListen([]string{"--deliver-tmux"}, Config{}, testEnv(map[string]string{}), &out, start, nil)
 
 		if rc != 2 {
 			t.Errorf("rc = %d, want 2", rc)
@@ -556,7 +556,7 @@ func TestRunListen(t *testing.T) {
 
 	t.Run("--deliver-tmux sends what the run prints into the member's pane", func(t *testing.T) {
 		// The mutant this exists for: ignore listenSink's answers and hand
-		// cmdListen the original writer. Every other test stays green while
+		// runListen the original writer. Every other test stays green while
 		// --deliver-tmux becomes a no-op — the member hears nothing and the
 		// station still reads it as healthy, because the SSE is still held.
 		var out bytes.Buffer
@@ -569,7 +569,7 @@ func TestRunListen(t *testing.T) {
 			return 7
 		}
 
-		rc := runListen([]string{"--once", "--deliver-tmux"}, Config{},
+		rc := cmdListen([]string{"--once", "--deliver-tmux"}, Config{},
 			testEnv(map[string]string{"OC_SESSION": "member-m1", "OC_TMUX_SOCKET": "lab"}), &out, start, rec.run)
 
 		if rc != 7 {
@@ -589,7 +589,7 @@ func TestRunListen(t *testing.T) {
 			return 0
 		}
 
-		rc := runListen(nil, Config{}, testEnv(map[string]string{"OC_SESSION": "member-m1"}), &out, start, rec.run)
+		rc := cmdListen(nil, Config{}, testEnv(map[string]string{"OC_SESSION": "member-m1"}), &out, start, rec.run)
 
 		if rc != 0 {
 			t.Errorf("rc = %d, want 0", rc)
@@ -607,7 +607,7 @@ func TestRunListen(t *testing.T) {
 		started := false
 		start := func(Config, func(string) string, bool, io.Writer) int { started = true; return 0 }
 
-		if rc := runListen([]string{"--nope"}, Config{}, testEnv(nil), &out, start, nil); rc != 2 {
+		if rc := cmdListen([]string{"--nope"}, Config{}, testEnv(nil), &out, start, nil); rc != 2 {
 			t.Errorf("rc = %d, want 2", rc)
 		}
 		if started {

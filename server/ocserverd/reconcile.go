@@ -1574,7 +1574,7 @@ func (s *apiServer) armDecidedHandover(memberID string, decision reconcileDecisi
 //     receipt_watch.go ×2, worker_spawn.go ×2: the refusal class, all of it here;
 //   - stampWakeObservability below — refusal class, standing apart, anchored;
 //   - api_monitoring.go ×2 — the agent-verdict class described above;
-//   - seven `dal.SetMemberOpReceipt(…, ….LastOpOK, …)` call sites (T-55) —
+//   - seven `dal.SetMemberLastOp(…, ….LastOpOK, …)` call sites (T-55) —
 //     worker_spawn.go ×3, api_monitoring.go, api_members.go, receipt_watch.go,
 //     api_outsource.go. NOT a fourth class of receipt: they are the PERSISTENCE
 //     of the three above, which used to be a whole-row write. The five columns
@@ -1639,7 +1639,7 @@ func stampOpReceipt(lastOp *string, lastOpOK **bool, lastOpLog, lastOpReason *st
 // ⚠️ IT NO LONGER MAKES THE EXPLANATION AND THE CHANGE ONE WRITE (T-55), which
 // is what this comment used to promise. The five receipt columns became
 // insert-only, so a caller's whole-row write carries the change
-// and a separate dal.SetMemberOpReceipt carries the explanation. STAMPING ALONE
+// and a separate dal.SetMemberLastOp carries the explanation. STAMPING ALONE
 // STORES NOTHING — a caller that forgets the second write leaves a receipt that
 // exists only in memory, and nothing goes red.
 //

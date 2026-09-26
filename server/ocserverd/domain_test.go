@@ -74,23 +74,23 @@ func TestCanonicalHost(t *testing.T) {
 func TestDeriveLiveness(t *testing.T) {
 	t.Run("stop intent dominates: online reads stopping and offline reads stopped, whatever the wake anchor says", func(t *testing.T) {
 		for _, wake := range []bool{false, true} {
-			if got := deriveLiveness(livenessInput{Online: true, StopIntent: true, WakePending: wake}); got != "stopping" {
+			if got := derivePresence(presenceInput{Online: true, StopIntent: true, WakePending: wake}); got != "stopping" {
 				t.Fatalf("deriveLiveness(online, stop, wake=%v) = %q, want %q", wake, got, "stopping")
 			}
-			if got := deriveLiveness(livenessInput{Online: false, StopIntent: true, WakePending: wake}); got != "stopped" {
+			if got := derivePresence(presenceInput{Online: false, StopIntent: true, WakePending: wake}); got != "stopped" {
 				t.Fatalf("deriveLiveness(offline, stop, wake=%v) = %q, want %q", wake, got, "stopped")
 			}
 		}
 	})
 
 	t.Run("without stop intent the live SSE fact wins, then a fresh wake, then offline", func(t *testing.T) {
-		if got := deriveLiveness(livenessInput{Online: true, WakePending: true}); got != "online" {
+		if got := derivePresence(presenceInput{Online: true, WakePending: true}); got != "online" {
 			t.Fatalf("deriveLiveness(online, wake) = %q, want %q", got, "online")
 		}
-		if got := deriveLiveness(livenessInput{Online: false, WakePending: true}); got != "waking" {
+		if got := derivePresence(presenceInput{Online: false, WakePending: true}); got != "waking" {
 			t.Fatalf("deriveLiveness(offline, wake) = %q, want %q", got, "waking")
 		}
-		if got := deriveLiveness(livenessInput{}); got != "offline" {
+		if got := derivePresence(presenceInput{}); got != "offline" {
 			t.Fatalf("deriveLiveness(zero) = %q, want %q", got, "offline")
 		}
 	})
@@ -1289,10 +1289,10 @@ func TestValidTaskStatus(t *testing.T) {
 		}
 	}
 	t.Run("reassigning is no longer a status — it moved to the orthogonal lock", func(t *testing.T) {
-		if ValidTaskStatus(TaskStatusReassigning) {
+		if ValidTaskStatus(TaskStatusFilterReassigning) {
 			t.Fatal("ValidTaskStatus(reassigning) = true, want false")
 		}
-		if !ValidTaskLock(TaskStatusReassigning) {
+		if !ValidTaskLock(TaskStatusFilterReassigning) {
 			t.Fatal("ValidTaskLock(reassigning) = false, want true")
 		}
 	})
@@ -1353,13 +1353,13 @@ func TestTaskIsTerminal(t *testing.T) {
 
 func TestTaskRecordFrozen(t *testing.T) {
 	for _, s := range []string{"done", "terminated", "duplicated"} {
-		if !TaskRecordFrozen(s) {
+		if !TaskRecordReadOnly(s) {
 			t.Fatalf("TaskRecordFrozen(%q) = false, want true", s)
 		}
 	}
 	for _, s := range []string{"", "not_started", "in_progress", "waiting_owner",
 		"waiting_external", "ready_for_done", "reassigning", "superseded"} {
-		if TaskRecordFrozen(s) {
+		if TaskRecordReadOnly(s) {
 			t.Fatalf("TaskRecordFrozen(%q) = true, want false", s)
 		}
 	}

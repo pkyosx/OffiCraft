@@ -1030,7 +1030,7 @@ func TestStampWorkerPlacementBlocked_ReReadsTheRowBeforeWriting(t *testing.T) {
 	// write above can no longer move these columns, so zeroing them on the
 	// snapshot would leave the FIRST stamp's receipt in place and the assertion
 	// below would pass or fail on that instead of on the second stamp.
-	if err := s.dal.SetMemberOpReceipt("ow-stale", "", nil, "", "", 0); err != nil {
+	if err := s.dal.SetMemberLastOp("ow-stale", "", nil, "", "", 0); err != nil {
 		t.Fatalf("clear receipt: %v", err)
 	}
 
@@ -1240,7 +1240,7 @@ func TestReconcileWorkerLiveness_ClobberedStartZombieTakeover(t *testing.T) {
 	// the row — but the row carried it before T-55 and still should, or the
 	// fixture reads as writing something it does not write. Planted through the
 	// sole writer so the two agree.
-	if err := s.dal.SetMemberOpReceipt("ow-g", w.LastOp, w.LastOpOK, w.LastOpLog,
+	if err := s.dal.SetMemberLastOp("ow-g", w.LastOp, w.LastOpOK, w.LastOpLog,
 		w.LastOpReason, w.LastOpAt); err != nil {
 		t.Fatalf("seed the clobber receipt: %v", err)
 	}
@@ -1368,7 +1368,7 @@ func TestReconcileWorkerLiveness_LegacyWorkerStartReceiptStillDetectsZombie(t *t
 	// the row — but the row carried it before T-55 and still should, or the
 	// fixture reads as writing something it does not write. Planted through the
 	// sole writer so the two agree.
-	if err := s.dal.SetMemberOpReceipt("ow-l", w.LastOp, w.LastOpOK, w.LastOpLog,
+	if err := s.dal.SetMemberLastOp("ow-l", w.LastOp, w.LastOpOK, w.LastOpLog,
 		w.LastOpReason, w.LastOpAt); err != nil {
 		t.Fatalf("seed the clobber receipt: %v", err)
 	}

@@ -1735,7 +1735,7 @@ func TestExpireWaitingCardsFromMember(t *testing.T) {
 		dashboard := apiTestListen(t, api, "")
 		initiator := apiTestListen(t, api, "mira")
 
-		count, err := api.expireWaitingCardsFromMember("mira", 42, "dismiss")
+		count, err := api.expireWaitingCardsByAuthor("mira", 42, "dismiss")
 		if err != nil {
 			t.Fatalf("expireWaitingCardsFromMember: %v", err)
 		}
@@ -1756,7 +1756,7 @@ func TestExpireWaitingCardsFromMember(t *testing.T) {
 
 	t.Run("an empty member id is rejected before any card is selected", func(t *testing.T) {
 		api, _, _, _ := newAPITestServer(t)
-		_, err := api.expireWaitingCardsFromMember("", 42, "dismiss")
+		_, err := api.expireWaitingCardsByAuthor("", 42, "dismiss")
 		if err == nil || err.Error() != "expireWaitingCardsFromMember: blank member id" {
 			t.Fatalf("empty member id error = %v", err)
 		}

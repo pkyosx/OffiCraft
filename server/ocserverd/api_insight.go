@@ -119,8 +119,8 @@ func insightHistorySnapshot(current *Insight) (string, error) {
 // a value the handler folded earlier: the retained revision must be the state
 // this write replaced, or two writers racing on one document both retain the
 // same ancestor and the revision written in between becomes unrecoverable.
-func insightSnapshotIn(roleKey string) func(sqlQuerier) (string, error) {
-	return func(q sqlQuerier) (string, error) {
+func insightSnapshotIn(roleKey string) func(sqlRowQuerier) (string, error) {
+	return func(q sqlRowQuerier) (string, error) {
 		current, err := getInsightOn(q, roleKey)
 		if err != nil {
 			return "", err

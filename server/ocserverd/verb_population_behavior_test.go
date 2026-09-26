@@ -992,7 +992,7 @@ func parityCases() []verbCase {
 				Refocus: anchorZero, RefocusOp: "",
 				Waking: anchorZero, RestartAfterStop: false,
 				DesiredMachineID: parityMachineA,
-				// the member is SSE-online ⇒ deriveLiveness returns online, never waking
+				// the member is SSE-online ⇒ derivePresence returns online, never waking
 				// (domain.go:194 tests Online BEFORE WakePending at :197) ⇒ cancellingWake
 				// is false ⇒ no dispatchRobustStopNow (api_members.go:1421). The tick then
 				// parks in decideDown's soft-offboard arm (reconcile.go:845).

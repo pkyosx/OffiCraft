@@ -748,7 +748,7 @@ func (s *apiServer) handleRestartOutsourceWorker(w http.ResponseWriter, r *http.
 		// and this handler's own write would then race it.
 		// ⚠️ NOT one write any more, and it is no longer the rule every owner verb
 		// here follows: since T-55 the receipt columns land through
-		// SetMemberOpReceipt below, and the 換 model verb stores its three launch
+		// SetMemberLastOp below, and the 換 model verb stores its three launch
 		// intents through their own setters (see the 🔴 block there).
 		stampWorkerOpReceipt(worker, spawnReasonSessionAlive+
 			": this worker was already running — 喚醒 left that session alone and "+
@@ -841,7 +841,7 @@ func (s *apiServer) handleRestartOutsourceWorker(w http.ResponseWriter, r *http.
 	// No publish of its own: the publishOutsourceWorker below fans the projection
 	// once, for both writes.
 	if sessionAliveReceipt {
-		if err := s.dal.SetMemberOpReceipt(worker.ID, worker.LastOp, worker.LastOpOK,
+		if err := s.dal.SetMemberLastOp(worker.ID, worker.LastOp, worker.LastOpOK,
 			worker.LastOpLog, worker.LastOpReason, worker.LastOpAt); err != nil {
 			s.outsourceMu.Unlock()
 			internalError(w, err)

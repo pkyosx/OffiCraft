@@ -976,7 +976,7 @@ func TestCreateTypedTaskWithOutsourceAssigneeAdmitsAny正職(t *testing.T) {
 	}
 	putMemberRow(t, api, "m-x", KindStaff, "") // a plain 正職 with a member row
 	// (d) rule 4 is untouched by the F1 fix: a manual OUTSOURCE assignee has no
-	// member subject (manualAssigneeMember==""), so any 正職 may create it — with
+	// member subject (manualAssigneeMemberID==""), so any 正職 may create it — with
 	// OR without an explicit target.kind=outsource override.
 	cases := []struct {
 		sub, scope string
@@ -2951,7 +2951,7 @@ func TestSetTaskPriorityForeignAgentIs403(t *testing.T) {
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("foreign agent: want 403, got %d %s", rec.Code, rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), executorGuardRefusal) {
+	if !strings.Contains(rec.Body.String(), taskActorRefusal) {
 		t.Fatalf("wrong 403 face: %s", rec.Body.String())
 	}
 }
@@ -3214,7 +3214,7 @@ func TestReadyForDoneKeepsTheRecordWritableAndDoneFreezesIt(t *testing.T) {
 		`{"kind":"link","name":"PR #122","url":"https://example.com/pr/122"}`)
 	artifactID, _ := first["artifact_id"].(string)
 
-	// One entry per door that reads TaskRecordFrozen. An entry missing here is
+	// One entry per door that reads TaskRecordReadOnly. An entry missing here is
 	// a door whose two answers can drift apart unnoticed, which is the failure
 	// this test exists for — the unpin goes LAST because it is the one write
 	// that consumes what the others act on.

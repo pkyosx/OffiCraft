@@ -60,7 +60,7 @@ func TestPushVAPIDSubscriber(t *testing.T) {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
 		apiWantValue(t, "push_contact_email", data["push_contact_email"], "owner@gofreight.com")
-		if got := api.pushVAPIDSubscriber(); got != "owner@gofreight.com" {
+		if got := api.pushContactAddress(); got != "owner@gofreight.com" {
 			t.Fatalf("pushVAPIDSubscriber() = %q, want %q", got, "owner@gofreight.com")
 		}
 	})
@@ -68,7 +68,7 @@ func TestPushVAPIDSubscriber(t *testing.T) {
 	t.Run("an unset contact address is returned as empty", func(t *testing.T) {
 		api, _, _, _ := newAPITestServer(t)
 
-		if got := api.pushVAPIDSubscriber(); got != "" {
+		if got := api.pushContactAddress(); got != "" {
 			t.Fatalf("pushVAPIDSubscriber() = %q, want an empty address", got)
 		}
 	})
@@ -139,13 +139,13 @@ func TestIsPublicPushIP(t *testing.T) {
 			if err != nil {
 				t.Fatalf("ParseAddr(%q): %v", tc.ip, err)
 			}
-			if got := isPublicPushIP(ip); got != tc.want {
+			if got := isPublicUnicastIP(ip); got != tc.want {
 				t.Fatalf("isPublicPushIP(%q) = %t, want %t", tc.ip, got, tc.want)
 			}
 		})
 	}
 
-	if got := isPublicPushIP(netip.Addr{}); got {
+	if got := isPublicUnicastIP(netip.Addr{}); got {
 		t.Fatal("isPublicPushIP(an invalid address) = true, want false")
 	}
 }
@@ -318,7 +318,7 @@ func TestEnqueueWebPush(t *testing.T) {
 		api, _, _, _ := newAPITestServer(t)
 		pushed := apiTestWebPushSink(t, api)
 		api.enqueueWebPush(webPushPayload{
-			Kind: "reply_card", ChatID: "chat-1", ChatPeerID: "mira", ReplyCardID: "rc-1",
+			Kind: "reply_card", ChatMessageID: "chat-1", ChatPeerID: "mira", ReplyCardID: "rc-1",
 			Title: "Owner decision", Body: "A decision is waiting.", NeedsDecision: true,
 		})
 		pushed(map[string]any{
@@ -377,7 +377,7 @@ func TestEnqueueWebPush(t *testing.T) {
 		}}
 
 		api.enqueueWebPush(webPushPayload{
-			Kind: "chat", ChatID: "chat-2", ChatPeerID: "mira",
+			Kind: "chat", ChatMessageID: "chat-2", ChatPeerID: "mira",
 			Title: "New message", Body: "Please review this.",
 		})
 

@@ -273,7 +273,7 @@ func (s *apiServer) updateTaskText(w http.ResponseWriter, r *http.Request, taskI
 		return
 	}
 	if !s.callerMayEditTaskText(r, *t) {
-		writeError(w, http.StatusForbidden, executorGuardRefusal)
+		writeError(w, http.StatusForbidden, taskActorRefusal)
 		return
 	}
 	edit, bad := resolveTaskTextEdit(*t, title, description)

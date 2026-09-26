@@ -73,7 +73,7 @@ func chatMessage(id, from string, ts float64) string {
 }
 
 func markReadCfg(base, home string) Config {
-	return Config{Base: base, Token: "t", ID: "kyle", Home: home}
+	return Config{Base: base, Token: "t", MemberID: "kyle", AgentsRoot: home}
 }
 
 // TestDrainChatFilesReadReceipts pins the read receipts drainChat puts on the

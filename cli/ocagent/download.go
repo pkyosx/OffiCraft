@@ -12,44 +12,17 @@ import (
 	"time"
 )
 
-// ---------------------------------------------------------------------------
-// download: ocagent download <attachment-id> [--out <dir>]
-// ---------------------------------------------------------------------------
-//
-// The RECEIVE side of chat attachments. MCP `post_chat` lets an agent SEND a
-// file, and `list_chat` surfaces the light attachment refs ({id, filename,
-// mime}) of what it received — but the blob bytes themselves live behind
-// GET /api/chat/attachment/<id>, which is excluded from the MCP surface (a
-// binary fetch, not a tool). This subcommand is the official path for an agent
-// to land a received attachment as a LOCAL FILE it can then read/unzip —
-// including large ones (a zip up to the server's 100 MB non-image cap), which
-// must never ride a tool-result as base64.
-//
-// The response body is STREAMED straight to disk (io.Copy) — never buffered in
-// memory — using the agent's own token via the ordinary config seam (OC_TOKEN /
-// OC_BASE), the same clean-identity contract as every other subcommand.
-//
-// Filename: the server names the blob via Content-Disposition (RFC 5987 —
-// `filename*=UTF-8''…` carries the true name, `filename="…"` an ASCII
-// fallback); an IMAGE is served with no disposition at all, so the id is used.
-// Whatever the server sends is reduced to its BASENAME before use — a
-// hostile/odd `filename="../../x"` can never traverse out of the target dir.
-//
-// Exit codes (documented so hooks/scripts can branch):
-//   0 success (the landed ABSOLUTE path is the only stdout output)
-//   1 transport / filesystem failure (refused, DNS, timeout, write fault)
-//   2 usage (bad flags / missing <attachment-id>) — set by realMain's FlagSet
-//   3 auth (no token configured, or the server said 401/403)
-//   4 not found (404 — unknown id, or a blob outside this owner's scope)
-//   5 any other unexpected HTTP status
+// GET /api/chat/attachment/<id> is excluded from the MCP surface: this is the
+// agent's only way to land an attachment as a file, since large ones must never
+// ride a tool-result as base64.
 
-// downloadDefaultSubdir is the default landing directory, relative to the agent
-// workdir (its cwd — the spawn shim starts the agent there): tmp/attachments/.
+// Relative to the agent workdir, which is the cwd because the spawn shim starts
+// the agent there.
 const downloadDefaultSubdir = "tmp/attachments"
 
 const (
-	downloadDialTimeout   = 10 * time.Second
-	downloadHeaderTimeout = 30 * time.Second
+	clientDialTimeout   = 10 * time.Second
+	clientHeaderTimeout = 30 * time.Second
 )
 
 func downloadUsage(w io.Writer) {
@@ -83,41 +56,27 @@ Exit codes:
 `)
 }
 
-// newStreamingClient builds the HTTP client both blob directions share
-// (download's fetch, upload's send). Total Timeout is deliberately 0 — a
-// multi-megabyte body on a slow link must not be cut mid-stream by a
-// wall-clock deadline (the same reasoning as the SSE stream client); connect +
-// response-header phases keep their own bounded timeouts so a dead server
-// still fails fast.
-func newStreamingClient() *http.Client {
+// Shared by download, upload and diff (main.go). Timeout stays 0 on purpose: a
+// large body on a slow link must not be cut mid-stream by a wall-clock limit.
+func newNoDeadlineClient() *http.Client {
 	return &http.Client{
 		Timeout: 0,
 		Transport: &http.Transport{
 			Proxy:                 http.ProxyFromEnvironment,
-			DialContext:           (&net.Dialer{Timeout: downloadDialTimeout}).DialContext,
-			TLSHandshakeTimeout:   downloadDialTimeout,
-			ResponseHeaderTimeout: downloadHeaderTimeout,
+			DialContext:           (&net.Dialer{Timeout: clientDialTimeout}).DialContext,
+			TLSHandshakeTimeout:   clientDialTimeout,
+			ResponseHeaderTimeout: clientHeaderTimeout,
 		},
 	}
 }
 
-// cmdDownload implements `ocagent download`. On success the landed file's
-// ABSOLUTE path is the only thing printed to `out` (stdout) so a caller can
-// capture it; every diagnostic goes to `errOut` (stderr). outDir=="" resolves
-// to <cwd>/tmp/attachments (the agent workdir convention).
 func cmdDownload(client httpClient, cfg Config, attachmentID, outDir string, out, errOut io.Writer) int {
 	if cfg.Token == "" {
-		// Fail fast + honestly: without a token the server would 401 anyway, but
-		// the local message ("mis-wired launch") beats a bare server status.
 		fmt.Fprint(errOut, "[ocagent] download: no OC_TOKEN configured — cannot make an authed fetch.\n")
 		return 3
 	}
 	// OC_BASE CLASSIFICATION: GUARDED — refuse, exit 3.
-	// Same class of mis-wire, same exit code: without OC_BASE the fetch below
-	// would be aimed at this machine's loopback address, which on most hosts
-	// looks like "nothing happened" and on the station's own host reaches the
-	// real station.
-	if requireBase(cfg, "download", errOut) {
+	if warnMissingBase(cfg, "download", errOut) {
 		return 3
 	}
 
@@ -139,8 +98,6 @@ func cmdDownload(client httpClient, cfg Config, attachmentID, outDir string, out
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		// Drain a short body snippet for the diagnostic (the server sends a JSON
-		// detail) — bounded so a huge error page can't balloon memory.
 		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
 		detail := strings.TrimSpace(string(snippet))
 		switch resp.StatusCode {
@@ -184,19 +141,19 @@ func cmdDownload(client httpClient, cfg Config, attachmentID, outDir string, out
 		fmt.Fprintf(errOut, "[ocagent] download: cannot create %s: %v\n", dest, err)
 		return 1
 	}
-	written, err := io.Copy(f, resp.Body) // STREAM to disk — never buffer the blob
+	written, err := io.Copy(f, resp.Body)
 	closeErr := f.Close()
 	if err == nil {
 		err = closeErr
 	}
 	if err != nil {
-		_ = os.Remove(dest) // never leave a truncated half-file behind
+		_ = os.Remove(dest)
 		fmt.Fprintf(errOut, "[ocagent] download: write to %s failed: %v — partial file removed\n", dest, err)
 		return 1
 	}
 
 	abs, absErr := filepath.Abs(dest)
-	if absErr != nil { // filepath.Abs only fails when Getwd does; dest is then already absolute-ish
+	if absErr != nil {
 		abs = dest
 	}
 	fmt.Fprintf(errOut, "[ocagent] download: %s (%d bytes, %s)\n",
@@ -205,12 +162,6 @@ func cmdDownload(client httpClient, cfg Config, attachmentID, outDir string, out
 	return 0
 }
 
-// filenameFromDisposition extracts the served filename from a Content-Disposition
-// header, PREFERRING the RFC 5987 `filename*=UTF-8”<pct-encoded>` parameter (the
-// true, possibly non-ASCII name the server always sends alongside the ASCII
-// fallback) over the plain `filename="…"`. Returns "" when the header is absent
-// (an image serves with no disposition) or carries no usable name — the caller
-// then falls back to the attachment id.
 func filenameFromDisposition(disp string) string {
 	if disp == "" {
 		return ""
@@ -235,15 +186,10 @@ func filenameFromDisposition(disp string) string {
 	return ""
 }
 
-// sanitizeFilename reduces a server-supplied (i.e. UNTRUSTED — another member
-// chose it) filename to a safe single path component: basename only (both
-// slash flavours), never empty / "." / ".." — those degrade to `fallback`.
-// This is the path-traversal guard: whatever the header says, the file lands
-// INSIDE the target directory.
 func sanitizeFilename(name, fallback string) string {
 	name = strings.TrimSpace(name)
 	if name != "" {
-		if i := strings.LastIndexByte(name, '\\'); i >= 0 { // windows-style separators too
+		if i := strings.LastIndexByte(name, '\\'); i >= 0 {
 			name = name[i+1:]
 		}
 		name = filepath.Base(name)

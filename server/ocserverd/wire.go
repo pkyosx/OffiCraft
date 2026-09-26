@@ -3491,7 +3491,7 @@ func (s *apiServer) newOutsourceMemberDTO(w OutsourceWorker, task *Task, p outso
 // workerPresence answers 「喚醒中／上線中／停止中…」 for an outsource worker by
 // calling PresenceState — the SAME function the staff roster calls, on the SAME
 // row (memberFromWorker is the projection, not a copy of the rules). T-14: this
-// used to assemble its own livenessInput from the in-memory spawn anchor, which
+// used to assemble its own presenceInput from the in-memory spawn anchor, which
 // is how the two kinds came to answer 「喚醒中」 differently — a re-exec forgot
 // that map, so a long-lived worker mid-wake fell to 「離線」.
 //

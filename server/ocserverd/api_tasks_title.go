@@ -67,8 +67,8 @@ func taskTitleHistorySnapshot(title string) (string, error) {
 // folded a moment earlier: the retained revision must be the state this write
 // actually replaced, otherwise two callers correcting the same card both retain
 // the same ancestor and whichever landed between them is unrecoverable.
-func taskTitleSnapshotIn(taskID string) func(sqlQuerier) (string, error) {
-	return func(q sqlQuerier) (string, error) {
+func taskTitleSnapshotIn(taskID string) func(sqlRowQuerier) (string, error) {
+	return func(q sqlRowQuerier) (string, error) {
 		current, ok, err := taskTitleOn(q, taskID)
 		if err != nil {
 			return "", err

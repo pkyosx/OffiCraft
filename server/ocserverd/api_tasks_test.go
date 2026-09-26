@@ -566,7 +566,7 @@ func TestBlockingTasksOf(t *testing.T) {
 		apiJSON(t, h, "POST", "/api/tasks/T-2/deps", owner, `{"blocked_by":["T-1"]}`)
 		apiJSON(t, h, "POST", "/api/tasks/T-3/deps", owner, `{"blocked_by":["T-1"]}`)
 
-		before, err := api.blockingTasksOf("T-1")
+		before, err := api.tasksWaitingOn("T-1")
 		if err != nil {
 			t.Fatalf("blockingTasksOf: %v", err)
 		}
@@ -581,7 +581,7 @@ func TestBlockingTasksOf(t *testing.T) {
 		if code, data := apiJSON(t, h, "POST", "/api/tasks/T-3/mark-terminated", owner, ""); code != 200 {
 			t.Fatalf("terminate: %d %v", code, data)
 		}
-		after, err := api.blockingTasksOf("T-1")
+		after, err := api.tasksWaitingOn("T-1")
 		if err != nil {
 			t.Fatalf("blockingTasksOf: %v", err)
 		}
@@ -594,7 +594,7 @@ func TestBlockingTasksOf(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Blocker","executor_member_id":"kip"}`)
 
-		got, err := api.blockingTasksOf("T-1")
+		got, err := api.tasksWaitingOn("T-1")
 		if err != nil {
 			t.Fatalf("blockingTasksOf: %v", err)
 		}
@@ -609,7 +609,7 @@ func TestBlockingTasksOf(t *testing.T) {
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Waiter","executor_member_id":"kip"}`)
 		apiJSON(t, h, "POST", "/api/tasks/T-2/deps", owner, `{"blocked_by":["T-1"]}`)
 
-		got, err := api.blockingTasksOf("T-2")
+		got, err := api.tasksWaitingOn("T-2")
 		if err != nil {
 			t.Fatalf("blockingTasksOf: %v", err)
 		}
@@ -1956,25 +1956,25 @@ func TestCloseTask(t *testing.T) {
 
 func TestNameWithIDSlot(t *testing.T) {
 	t.Run("a named party carries both facts in one slot", func(t *testing.T) {
-		if got := nameWithIDSlot("銀月", "mira"); got != "銀月（mira）" {
+		if got := labelWithID("銀月", "mira"); got != "銀月（mira）" {
 			t.Fatalf("got %q", got)
 		}
 	})
 
 	t.Run("a party with no name is named by its id alone", func(t *testing.T) {
-		if got := nameWithIDSlot("", "mira"); got != "mira" {
+		if got := labelWithID("", "mira"); got != "mira" {
 			t.Fatalf("got %q", got)
 		}
 	})
 
 	t.Run("a label that already is the id is not repeated in a parenthesis", func(t *testing.T) {
-		if got := nameWithIDSlot("mira", "mira"); got != "mira" {
+		if got := labelWithID("mira", "mira"); got != "mira" {
 			t.Fatalf("got %q", got)
 		}
 	})
 
 	t.Run("an empty id under a label still composes the parenthesis", func(t *testing.T) {
-		if got := nameWithIDSlot("銀月", ""); got != "銀月（）" {
+		if got := labelWithID("銀月", ""); got != "銀月（）" {
 			t.Fatalf("got %q", got)
 		}
 	})
@@ -3108,7 +3108,7 @@ func TestCallerMayTerminateTask(t *testing.T) {
 		}
 		taskTestUnderCaller(t, api, d, apiTestAgentToken(t, api, "kip", ""), func(r *http.Request) {
 			ok, reason := api.callerMayTerminateTask(r, *task)
-			if ok || reason != executorGuardRefusal {
+			if ok || reason != taskActorRefusal {
 				t.Fatalf("got (%v, %q)", ok, reason)
 			}
 		})
@@ -3149,7 +3149,7 @@ func TestCallerMayTerminateTask(t *testing.T) {
 		}
 		taskTestUnderCaller(t, api, d, token, func(r *http.Request) {
 			ok, reason := api.callerMayTerminateTask(r, *task)
-			if ok || reason != executorGuardRefusal {
+			if ok || reason != taskActorRefusal {
 				t.Fatalf("got (%v, %q)", ok, reason)
 			}
 		})
@@ -6839,7 +6839,7 @@ func TestArtifactOnTask(t *testing.T) {
 		if status != 403 {
 			t.Fatalf("want 403, got %d (%v)", status, data)
 		}
-		apiWantError(t, data, "forbidden", executorGuardRefusal)
+		apiWantError(t, data, "forbidden", taskActorRefusal)
 	})
 
 	t.Run("a closed task answers the freeze even for the owner and even for an artifact id it never carried", func(t *testing.T) {

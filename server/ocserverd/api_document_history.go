@@ -129,7 +129,7 @@ func roleDefHistorySnapshot(current *RoleDef) (string, error) {
 // value the handler folded earlier: the retained revision must be the state
 // this write replaced, otherwise two writers racing on one document both retain
 // the same ancestor and the revision written in between becomes unrecoverable.
-func userContextSnapshotIn(q sqlQuerier) (string, error) {
+func userContextSnapshotIn(q sqlRowQuerier) (string, error) {
 	current, err := getUserContextOn(q)
 	if err != nil {
 		return "", err
@@ -137,8 +137,8 @@ func userContextSnapshotIn(q sqlQuerier) (string, error) {
 	return userContextHistorySnapshot(current)
 }
 
-func roleDefSnapshotIn(roleKey string) func(sqlQuerier) (string, error) {
-	return func(q sqlQuerier) (string, error) {
+func roleDefSnapshotIn(roleKey string) func(sqlRowQuerier) (string, error) {
+	return func(q sqlRowQuerier) (string, error) {
 		current, err := getRoleDefOn(q, roleKey)
 		if err != nil {
 			return "", err
@@ -147,8 +147,8 @@ func roleDefSnapshotIn(roleKey string) func(sqlQuerier) (string, error) {
 	}
 }
 
-func manualSnapshotIn(typeKey string, of func(TaskManual) (string, error)) func(sqlQuerier) (string, error) {
-	return func(q sqlQuerier) (string, error) {
+func manualSnapshotIn(typeKey string, of func(TaskManual) (string, error)) func(sqlRowQuerier) (string, error) {
+	return func(q sqlRowQuerier) (string, error) {
 		current, err := getTaskManualOn(q, typeKey)
 		if err != nil {
 			return "", err
@@ -534,7 +534,7 @@ func (s *apiServer) taskDescriptionRestoreAuthz(w http.ResponseWriter, r *http.R
 		return false
 	}
 	if !s.callerMayEditTaskText(r, *t) {
-		writeError(w, http.StatusForbidden, executorGuardRefusal)
+		writeError(w, http.StatusForbidden, taskActorRefusal)
 		return false
 	}
 	return true

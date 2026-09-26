@@ -20,19 +20,11 @@ import (
 
 const settingPushVAPIDPrivateKey = "push.vapid_private_key"
 
-// pushVAPIDSubscriber is the contact address handed to the push gateways as the
-// VAPID subject. It is owner-supplied (push.contact_email; validated on the way
-// in by validatePushContactEmail) because the server sits behind a tunnel and
-// cannot know a reachable identity for itself.
-//
-// Two properties are load-bearing. The domain must be REAL: Apple rejects the
-// whole VAPID JWT with BadJwtToken for an unreachable one such as .local,
-// before it looks at any subscription — every iPhone silently lost push that
-// way. And the value stays a BARE address: webpush-go prefixes "mailto:"
-// itself, so a pre-prefixed value becomes the invalid subject "mailto:mailto:…".
-//
-// "" = never set, and delivery is refused rather than attempted.
-func (s *apiServer) pushVAPIDSubscriber() string {
+// The VAPID subject (owner-set push.contact_email). Its domain must be real:
+// Apple rejects the whole VAPID JWT (BadJwtToken) for an unreachable one such
+// as .local, and every iPhone silently loses push. It must stay a bare
+// address: webpush-go prefixes "mailto:" itself.
+func (s *apiServer) pushContactAddress() string {
 	s.settingsMu.RLock()
 	defer s.settingsMu.RUnlock()
 	return s.pushContactEmail
@@ -40,10 +32,6 @@ func (s *apiServer) pushVAPIDSubscriber() string {
 
 const webPushDeliveryTimeout = 10 * time.Second
 
-// validatePushEndpoint rejects values which could turn a saved browser
-// subscription into an arbitrary server-side request.  DNS names are allowed
-// here; safePushHTTPClient checks every resolved address immediately before
-// connecting, which also protects against DNS rebinding.
 func validatePushEndpoint(raw string) error {
 	u, err := url.Parse(raw)
 	if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil {
@@ -53,30 +41,27 @@ func validatePushEndpoint(raw string) error {
 	if host == "" || host == "localhost" || strings.HasSuffix(host, ".localhost") {
 		return errors.New("push endpoint host is not public")
 	}
-	if ip, err := netip.ParseAddr(host); err == nil && !isPublicPushIP(ip) {
+	if ip, err := netip.ParseAddr(host); err == nil && !isPublicUnicastIP(ip) {
 		return errors.New("push endpoint host is not public")
 	}
 	return nil
 }
 
-func isPublicPushIP(ip netip.Addr) bool {
+func isPublicUnicastIP(ip netip.Addr) bool {
 	ip = ip.Unmap()
 	if !ip.IsValid() || ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast() ||
 		ip.IsMulticast() || ip.IsUnspecified() || ip.IsInterfaceLocalMulticast() {
 		return false
 	}
-	// RFC 6598 shared address space is not globally routable, but netip does
-	// not classify it as private.  Treat it as internal so a local carrier/VPN
-	// range cannot become a delivery target.
+	// netip does not count RFC 6598 shared space (carrier/VPN) as private.
 	return !netip.MustParsePrefix("100.64.0.0/10").Contains(ip)
 }
 
 func safePushHTTPClient() *http.Client {
 	dialer := &net.Dialer{Timeout: webPushDeliveryTimeout}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
-	// A proxy CONNECT tunnel would make the proxy, rather than the requested
-	// endpoint, pass DialContext's public-IP check. Push delivery is deliberately
-	// direct so every final destination receives the SSRF guard below.
+	// No proxy: through a CONNECT tunnel the proxy's address, not the
+	// endpoint's, would be what passes the public-IP check below.
 	transport.Proxy = nil
 	transport.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
 		host, port, err := net.SplitHostPort(address)
@@ -88,7 +73,7 @@ func safePushHTTPClient() *http.Client {
 			return nil, errors.New("push endpoint host could not be resolved")
 		}
 		for _, ip := range ips {
-			if !isPublicPushIP(ip) {
+			if !isPublicUnicastIP(ip) {
 				return nil, errors.New("push endpoint resolved to a non-public address")
 			}
 		}
@@ -110,7 +95,7 @@ func (s *apiServer) webPushClient() webpush.HTTPClient {
 	return safePushHTTPClient()
 }
 
-func (s *apiServer) pushPublicKey() (string, error) {
+func (s *apiServer) ensurePushVAPIDKey() (string, error) {
 	stored, err := s.dal.GetSetting(settingPushVAPIDPrivateKey)
 	if err != nil {
 		return "", err
@@ -144,7 +129,7 @@ func (s *apiServer) pushVAPIDKeys() (publicKey, privateKey string, err error) {
 		return "", "", err
 	}
 	if private == nil {
-		if _, err := s.pushPublicKey(); err != nil {
+		if _, err := s.ensurePushVAPIDKey(); err != nil {
 			return "", "", err
 		}
 		private, err = s.dal.GetSetting(settingPushVAPIDPrivateKey)
@@ -163,12 +148,11 @@ func (s *apiServer) pushVAPIDKeys() (publicKey, privateKey string, err error) {
 	return base64.RawURLEncoding.EncodeToString(key.PublicKey().Bytes()), *private, nil
 }
 
-// webPushPayload is deliberately small: notification rendering and navigation
-// happen in the service worker, so no message body or private card detail is
-// retained by the push provider.
+// Minimal on purpose: the service worker renders the notification, so no
+// message body or card detail is handed to the push provider.
 type webPushPayload struct {
 	Kind          string `json:"kind"`
-	ChatID        string `json:"chat_id,omitempty"`
+	ChatMessageID string `json:"chat_id,omitempty"`
 	ChatPeerID    string `json:"chat_peer_id,omitempty"`
 	ReplyCardID   string `json:"reply_card_id,omitempty"`
 	Title         string `json:"title"`
@@ -176,17 +160,13 @@ type webPushPayload struct {
 	NeedsDecision bool   `json:"needs_decision,omitempty"`
 }
 
-// enqueueWebPush starts best-effort delivery after the durable event was
-// committed. A slow or unavailable push gateway must never delay/reject chat
-// or an owner ask. 404/410 are authoritative expiration receipts and prune
-// only the corresponding endpoint.
 func (s *apiServer) enqueueWebPush(payload webPushPayload) {
 	if s.webPushSink != nil {
 		s.webPushSink(payload)
 		return
 	}
 	go func() {
-		subscriber := s.pushVAPIDSubscriber()
+		subscriber := s.pushContactAddress()
 		if subscriber == "" {
 			log.Printf("[push] no contact address configured; delivery skipped")
 			return
@@ -231,8 +211,7 @@ func (s *apiServer) enqueueWebPush(payload webPushPayload) {
 				}
 			}
 			if err != nil {
-				// Transport errors can include the subscription endpoint in their
-				// text, so retain only a safe classification in the server log.
+				// The error text can contain the endpoint; log only its class.
 				log.Printf("[push] delivery error_class=%s", pushDeliveryErrorClass(err))
 			}
 		}
@@ -266,7 +245,7 @@ func pushDeliveryErrorClass(err error) string {
 }
 
 func (s *apiServer) HandleGetPushPublicKeyApiPushPublicKeyGet(w http.ResponseWriter, r *http.Request) {
-	key, err := s.pushPublicKey()
+	key, err := s.ensurePushVAPIDKey()
 	if err != nil {
 		internalError(w, err)
 		return

@@ -48,7 +48,7 @@ func runCfg(t *testing.T) Config {
 	t.Helper()
 	return Config{
 		Base: "http://station", BaseConfigured: true,
-		Token: "tok", ID: "kyle", Home: t.TempDir(),
+		Token: "tok", MemberID: "kyle", AgentsRoot: t.TempDir(),
 	}
 }
 
@@ -71,22 +71,22 @@ func (c *fixedClock) advance(d time.Duration) { c.now = c.now.Add(d) }
 func newRunListener(t *testing.T, cfg Config, out io.Writer, api httpClient, tr http.RoundTripper) *listener {
 	t.Helper()
 	return &listener{
-		cfg:              cfg,
-		api:              api,
-		streamClient:     &http.Client{Transport: tr},
-		sleep:            func(time.Duration) {},
-		backoffStart:     time.Millisecond,
-		backoffCap:       time.Millisecond,
-		jitter:           func() float64 { return 1.0 },
-		out:              out,
-		stamp:            &eventStamper{clock: stampClock(1_787_148_244_692_000_000)},
-		clock:            time.Now,
-		probeUnknownSpan: probeUnknownGrace,
-		refusalGraceSpan: sseRefusalGrace,
-		cursorPath:       filepath.Join(cfg.Home, "sse-cursor"),
-		drainWarn:        &drainWarner{},
-		replySeen:        loadReplyCardSeen(filepath.Join(cfg.Home, "replycards-seen")),
-		taskSnaps:        map[string]taskSnap{},
+		cfg:               cfg,
+		api:               api,
+		streamClient:      &http.Client{Transport: tr},
+		sleep:             func(time.Duration) {},
+		backoffStart:      time.Millisecond,
+		backoffCap:        time.Millisecond,
+		jitter:            func() float64 { return 1.0 },
+		out:               out,
+		stamper:           &eventStamper{clock: stampClock(1_787_148_244_692_000_000)},
+		clock:             time.Now,
+		probeUnknownGrace: probeUnknownGrace,
+		refusalGrace:      sseRefusalGrace,
+		sseCursorPath:     filepath.Join(cfg.AgentsRoot, "sse-cursor"),
+		drainWarn:         &drainWarner{},
+		replySeen:         loadReplyCardSeen(filepath.Join(cfg.AgentsRoot, "replycards-seen")),
+		taskSnaps:         map[string]taskSnap{},
 	}
 }
 
@@ -183,7 +183,7 @@ func TestFoldProbe(t *testing.T) {
 		var out strings.Builder
 		verdict := probeGone
 		clock := &fixedClock{now: time.Unix(1787148244, 0)}
-		l := &listener{out: &out, clock: clock.read, probeUnknownSpan: probeUnknownGrace,
+		l := &listener{out: &out, clock: clock.read, probeUnknownGrace: probeUnknownGrace,
 			probe: func() probeVerdict { return verdict }}
 
 		l.foldProbe()
@@ -207,7 +207,7 @@ func TestFoldProbe(t *testing.T) {
 	t.Run("a probe that panics folds as unverifiable rather than as an instant verdict", func(t *testing.T) {
 		var out strings.Builder
 		clock := &fixedClock{now: time.Unix(1787148244, 0)}
-		l := &listener{out: &out, clock: clock.read, probeUnknownSpan: probeUnknownGrace,
+		l := &listener{out: &out, clock: clock.read, probeUnknownGrace: probeUnknownGrace,
 			probe: func() probeVerdict { panic("tmux exploded") }}
 
 		if l.foldProbe() {
@@ -221,7 +221,7 @@ func TestFoldProbe(t *testing.T) {
 	t.Run("enough unverifiable probes over enough wall clock fail closed", func(t *testing.T) {
 		var out strings.Builder
 		clock := &fixedClock{now: time.Unix(1787148244, 0)}
-		l := &listener{out: &out, clock: clock.read, probeUnknownSpan: probeUnknownGrace,
+		l := &listener{out: &out, clock: clock.read, probeUnknownGrace: probeUnknownGrace,
 			probe: func() probeVerdict { return probeUnknown }}
 
 		for i := 1; i < probeUnknownMin; i++ {
@@ -245,7 +245,7 @@ func TestFoldProbe(t *testing.T) {
 	t.Run("the count alone never trips without the wall clock to back it", func(t *testing.T) {
 		var out strings.Builder
 		clock := &fixedClock{now: time.Unix(1787148244, 0)}
-		l := &listener{out: &out, clock: clock.read, probeUnknownSpan: probeUnknownGrace,
+		l := &listener{out: &out, clock: clock.read, probeUnknownGrace: probeUnknownGrace,
 			probe: func() probeVerdict { return probeUnknown }}
 
 		for i := 0; i < 50; i++ {
@@ -262,7 +262,7 @@ func TestFoldProbe(t *testing.T) {
 func TestFoldRefusal(t *testing.T) {
 	t.Run("a run short of the minimum never trips", func(t *testing.T) {
 		clock := &fixedClock{now: time.Unix(1787148244, 0)}
-		l := &listener{clock: clock.read, refusalGraceSpan: sseRefusalGrace}
+		l := &listener{clock: clock.read, refusalGrace: sseRefusalGrace}
 
 		for i := 1; i < sseRefusalMin; i++ {
 			clock.advance(time.Minute)
@@ -277,7 +277,7 @@ func TestFoldRefusal(t *testing.T) {
 
 	t.Run("the minimum count alone never trips inside the grace", func(t *testing.T) {
 		clock := &fixedClock{now: time.Unix(1787148244, 0)}
-		l := &listener{clock: clock.read, refusalGraceSpan: sseRefusalGrace}
+		l := &listener{clock: clock.read, refusalGrace: sseRefusalGrace}
 
 		for i := 0; i < 20; i++ {
 			if l.foldRefusal() {
@@ -288,7 +288,7 @@ func TestFoldRefusal(t *testing.T) {
 
 	t.Run("the minimum count spanning the whole grace trips", func(t *testing.T) {
 		clock := &fixedClock{now: time.Unix(1787148244, 0)}
-		l := &listener{clock: clock.read, refusalGraceSpan: sseRefusalGrace}
+		l := &listener{clock: clock.read, refusalGrace: sseRefusalGrace}
 
 		l.foldRefusal()
 		l.foldRefusal()
@@ -311,7 +311,7 @@ func TestFoldRefusal(t *testing.T) {
 func TestResetRefusals(t *testing.T) {
 	t.Run("a broken run has to earn both bounds again from scratch", func(t *testing.T) {
 		clock := &fixedClock{now: time.Unix(1787148244, 0)}
-		l := &listener{clock: clock.read, refusalGraceSpan: sseRefusalGrace}
+		l := &listener{clock: clock.read, refusalGrace: sseRefusalGrace}
 		for i := 0; i < 3; i++ {
 			l.foldRefusal()
 		}
@@ -660,7 +660,7 @@ func TestDispatch(t *testing.T) {
 		stamper := &eventStamper{clock: stampClock(1_500_000_000_000_000_000)}
 		out := &stampWriter{inner: &inner, stamp: stamper.suffix}
 		l := newRunListener(t, cfg, out, api, nil)
-		l.stamp = stamper
+		l.stamper = stamper
 
 		l.dispatch([]byte(`{"topic":"action","seq":42,"ts":1787148244.692}`))
 		l.dispatch([]byte(`{"topic":"action","seq":43}`))
@@ -752,7 +752,7 @@ func TestConnectOnce(t *testing.T) {
 			return sseReply(200, nil, ""), nil
 		}}
 		l := newRunListener(t, cfg, io.Discard, quietAPI(), tr)
-		writeCursor(l.cursorPath, "7")
+		writeSSECursor(l.sseCursorPath, "7")
 
 		l.connectOnce(context.Background())
 
@@ -1025,7 +1025,7 @@ func TestConnectOnce(t *testing.T) {
 		if !opened || !activity || selfExit || err != nil {
 			t.Errorf("(%v, %v, %v, %v), want (true, true, false, nil)", opened, activity, selfExit, err)
 		}
-		if got := readCursor(l.cursorPath); got != "11" {
+		if got := readSSECursor(l.sseCursorPath); got != "11" {
 			t.Errorf("persisted cursor = %q, want %q", got, "11")
 		}
 	})
@@ -1238,7 +1238,7 @@ func TestRun(t *testing.T) {
 		}}
 		l := newRunListener(t, runCfg(t), &out, quietAPI(), tr)
 		l.clock = clock.read
-		l.refusalGraceSpan = 0
+		l.refusalGrace = 0
 		killed := 0
 		l.selfTerminate = func() { killed++ }
 
@@ -1281,7 +1281,7 @@ func TestRun(t *testing.T) {
 		}}
 		l := newRunListener(t, runCfg(t), &out, quietAPI(), tr)
 		l.clock = clock.read
-		l.refusalGraceSpan = 0
+		l.refusalGrace = 0
 		killed := 0
 		l.selfTerminate = func() { killed++ }
 		ctx, cancel := context.WithCancel(context.Background())
@@ -1402,14 +1402,14 @@ func TestCmdListen(t *testing.T) {
 			cfg  Config
 		}{
 			{"no OC_ID", Config{Base: "http://station", Token: "tok"}},
-			{"no OC_TOKEN", Config{Base: "http://station", ID: "kyle"}},
+			{"no OC_TOKEN", Config{Base: "http://station", MemberID: "kyle"}},
 			{"neither", Config{Base: "http://station"}},
 		}
 		for _, c := range cases {
 			t.Run(c.name, func(t *testing.T) {
 				var out strings.Builder
 
-				rc := cmdListen(c.cfg, testEnv(nil), false, &out)
+				rc := runListen(c.cfg, testEnv(nil), false, &out)
 
 				if rc != 0 {
 					t.Errorf("exit code = %d, want 0", rc)
@@ -1429,7 +1429,7 @@ func TestNewListener(t *testing.T) {
 	t.Run("the production wiring carries the config through and takes the real bounds", func(t *testing.T) {
 		cfg := Config{
 			Base: "http://station", BaseConfigured: true,
-			Token: "tok", ID: "Kyle", Home: t.TempDir(),
+			Token: "tok", MemberID: "Kyle", AgentsRoot: t.TempDir(),
 		}
 		stamper := &eventStamper{clock: time.Now}
 		var out strings.Builder
@@ -1442,7 +1442,7 @@ func TestNewListener(t *testing.T) {
 		if !l.once {
 			t.Error("once = false, want true")
 		}
-		if l.stamp != stamper {
+		if l.stamper != stamper {
 			t.Error("stamp is not the stamper cmdListen already wrapped out with")
 		}
 		if l.out != io.Writer(&out) {
@@ -1454,14 +1454,14 @@ func TestNewListener(t *testing.T) {
 		if l.idleReadTimeout != 45*time.Second {
 			t.Errorf("idleReadTimeout = %v, want 45s", l.idleReadTimeout)
 		}
-		if l.probeUnknownSpan != 10*time.Minute {
-			t.Errorf("probeUnknownSpan = %v, want 10m", l.probeUnknownSpan)
+		if l.probeUnknownGrace != 10*time.Minute {
+			t.Errorf("probeUnknownSpan = %v, want 10m", l.probeUnknownGrace)
 		}
-		if l.refusalGraceSpan != 120*time.Second {
-			t.Errorf("refusalGraceSpan = %v, want 2m", l.refusalGraceSpan)
+		if l.refusalGrace != 120*time.Second {
+			t.Errorf("refusalGraceSpan = %v, want 2m", l.refusalGrace)
 		}
-		if want := filepath.Join(cfg.Home, "kyle", "sse-cursor"); l.cursorPath != want {
-			t.Errorf("cursorPath = %q, want %q", l.cursorPath, want)
+		if want := filepath.Join(cfg.AgentsRoot, "kyle", "sse-cursor"); l.sseCursorPath != want {
+			t.Errorf("cursorPath = %q, want %q", l.sseCursorPath, want)
 		}
 		if l.streamClient.Timeout != 0 {
 			t.Errorf("streamClient.Timeout = %v, want 0 — the SSE downlink has no deadline",
@@ -1475,7 +1475,7 @@ func TestNewListener(t *testing.T) {
 	})
 
 	t.Run("a headless run has no session to probe and no ack gate to wait on", func(t *testing.T) {
-		l := newListener(Config{ID: "kyle", Home: t.TempDir()}, testEnv(nil), io.Discard, false, nil)
+		l := newListener(Config{MemberID: "kyle", AgentsRoot: t.TempDir()}, testEnv(nil), io.Discard, false, nil)
 
 		if l.probe != nil {
 			t.Error("probe is wired with no OC_SESSION — a headless run could self-exit on a verdict")
@@ -1491,7 +1491,7 @@ func TestNewListener(t *testing.T) {
 	t.Run("a spawned session is probed and an ack-gated sidecar is waited on", func(t *testing.T) {
 		env := testEnv(map[string]string{"OC_SESSION": "oc-kyle", "OC_LISTEN_ACK": "1"})
 
-		l := newListener(Config{ID: "kyle", Home: t.TempDir()}, env, io.Discard, false, nil)
+		l := newListener(Config{MemberID: "kyle", AgentsRoot: t.TempDir()}, env, io.Discard, false, nil)
 
 		if l.probe == nil {
 			t.Error("probe = nil with OC_SESSION set")

@@ -12,54 +12,11 @@ import (
 	"strings"
 )
 
-// ---------------------------------------------------------------------------
-// diff: ocagent diff <before> <after> [--label-before X] [--label-after Y] [--external]
-// ---------------------------------------------------------------------------
-//
-// A COMPARISON IS A URL (T-59, owner 2026-09-03: 「可以指定兩個文件位置，就可以跳
-// 出我們這個 diff 的畫面」). Name two things that already have an address, get a
-// link back; paste the link to whoever needs to see the difference. It is not
-// an attachment any more — nothing is stored, so there is no id to hang on a
-// message and nothing to keep in step with the two sides.
-//
-// TWO FLAVOURS. By default this prints the INTERNAL link: no signature, opened
-// by anyone who can already sign in to this station. --external asks the server
-// to mint the signed one, which needs NO login at all — it has no expiry and no
-// single link can be withdrawn, and the ONE thing that ends it is removing the
-// signing key it was minted under, which kills every link that key signed at
-// once (T-62). Mint it only for a reader who has no account.
-//
-// THE INTERNAL LINK COSTS NO REQUEST. It is a pure function of the two
-// addresses, so this subcommand normally talks to nobody: it can answer while
-// the station is unreachable, and it cannot fail halfway.
-//
-// THIS SUBCOMMAND UPLOADS NOTHING (owner 2026-09-03: 「我希望的是使用 diff 時，
-// 都是直接給連結 id, 這個不負責上傳檔案」). A side is EITHER a stored blob id
-// (`att-…`, what `ocagent upload` prints) or a document address
-// (`doc:<kind>/<key>/<at>/<field>`) — nothing else. Getting bytes into the
-// store stays `ocagent upload`'s one job: the common case is that the thing to
-// compare is ALREADY in the system (a task artifact, an attachment someone
-// sent, a document), and a `diff` that insisted on paths would force a
-// pointless re-upload of it.
-//
-// stdout: ONE line, the URL. Exit codes are upload's: 0 ok, 1 transport,
-// 2 usage, 3 auth, 4 rejected by the server, 5 anything else.
+// Owner ruling 2026-09-03: diff never uploads — do not make it accept file paths.
 
-// ── the address spelling ────────────────────────────────────────────────────
-//
-// 🔴 THIS IS A COPY, AND THE SERVER IS THE AUTHORITY.
-// server/ocserverd/diffaddr.go defines the spelling; this copy exists so a
-// mistyped side costs one local sentence in the member's own vocabulary instead
-// of a round trip whose refusal does not say WHICH of the two arguments to look
-// at — and, since --external is the only flavour that talks to the server at
-// all, so that the unsigned path is judged too rather than not at all.
-//
-// The two modules cannot import each other, so the written-down authority is
-// bin/tests/fixtures/diff-side-addresses.tsv.
-// 🔴 BUT NOTHING IN GO READS THAT TABLE. The cockpit's copy is confronted against
-// it by a frontend test; this copy and the server's are not confronted against it
-// by anything, so a drift between the two GO spellings is caught by nobody. The
-// table is the agreed wording, not a mechanism.
+// COPY of server/ocserverd/diffaddr.go, which owns the side spelling (agreed
+// wording: bin/tests/fixtures/diff-side-addresses.tsv). Nothing in Go is checked
+// against that table, so drift between this copy and the server's is silent.
 const docSidePrefix = "doc:"
 
 const (
@@ -68,36 +25,26 @@ const (
 )
 
 var (
-	docAddrSegment = regexp.MustCompile(`^[A-Za-z0-9._:@+-]+$`)
-	docAtRevision  = regexp.MustCompile(`^[1-9][0-9]{0,18}$`)
-	blobSideID     = regexp.MustCompile(`^att-[0-9a-f]{12}$`)
+	docAddrSegment      = regexp.MustCompile(`^[A-Za-z0-9._:@+-]+$`)
+	docAtVersionID      = regexp.MustCompile(`^[1-9][0-9]{0,18}$`)
+	attachmentIDPattern = regexp.MustCompile(`^att-[0-9a-f]{12}$`)
 )
 
-// ── the page URL ────────────────────────────────────────────────────────────
-//
-// 🔴 ALSO A COPY of server/ocserverd/api_diff.go's diffPagePath / diffParam*.
-// The server mints the EXTERNAL link, so it owns this spelling; this copy is
-// what lets the internal link be built without asking.
-// 🔴 NOTHING CONFRONTS THESE FIVE LITERALS. The cockpit's copy of the same five
-// is checked against the server's source by a frontend test; this Go copy is
-// checked by nothing, so it can drift from the server silently.
+// COPY of server/ocserverd/api_diff.go's diffPagePath / diffParam*. The server
+// owns these literals; nothing checks this Go copy against it.
 const (
-	diffPagePath        = "/diff"
-	diffParamBefore     = "before"
-	diffParamAfter      = "after"
-	diffParamLabelBefor = "label_before"
-	diffParamLabelAfter = "label_after"
+	diffPagePath         = "/diff"
+	diffParamBefore      = "before"
+	diffParamAfter       = "after"
+	diffParamLabelBefore = "label_before"
+	diffParamLabelAfter  = "label_after"
 )
 
-// sideRefusal judges ONE argument and returns the sentence to print when it is
-// not a side at all ("" = it is one).
-//
-// Every match is against the value AS GIVEN, never a trimmed copy: a padded
-// address is one the server cannot resolve either, so accepting it here would
-// only move the confusion later.
+// A padded address is refused rather than trimmed: the server cannot resolve
+// it either, and the plain link would carry it unchecked.
 func sideRefusal(arg, which string) string {
 	if !strings.HasPrefix(arg, docSidePrefix) {
-		if blobSideID.MatchString(arg) {
+		if attachmentIDPattern.MatchString(arg) {
 			return ""
 		}
 		if looksLikeAPath(arg) {
@@ -127,24 +74,17 @@ func sideRefusal(arg, which string) string {
 		if part == "" {
 			return fmt.Sprintf("%q leaves its %s empty.", arg, what)
 		}
-		// "." and ".." contain no excluded character but traverse anyway.
 		if part == "." || part == ".." || !docAddrSegment.MatchString(part) {
 			return fmt.Sprintf("%q has a %s that is not a usable address segment: %q", arg, what, part)
 		}
 	}
-	if at := parts[2]; at != docAtCurrent && at != docAtSeed && !docAtRevision.MatchString(at) {
+	if at := parts[2]; at != docAtCurrent && at != docAtSeed && !docAtVersionID.MatchString(at) {
 		return fmt.Sprintf("%q has an <at> of %q — it must be %s, %s, "+
 			"or a version id from list_document_history.", arg, at, docAtCurrent, docAtSeed)
 	}
 	return ""
 }
 
-// looksLikeAPath is the test behind the ONE error message that has to teach the
-// new flow. It is deliberately generous: every argument that reaches it has
-// already failed to be a blob id and a document address, so the only question
-// left is which sentence helps more — and a member who typed something with a
-// slash, a dot-extension or a name that is really on disk was reaching for the
-// old file-path contract.
 func looksLikeAPath(arg string) bool {
 	if strings.ContainsAny(arg, `/\`) || strings.HasPrefix(arg, "~") {
 		return true
@@ -156,12 +96,11 @@ func looksLikeAPath(arg string) bool {
 	return err == nil
 }
 
-// diffQuery builds the page query. Empty labels are LEFT OUT rather than sent
-// blank — mirrors the server's diffPageQuery, which the external flavour uses.
+// Mirrors server/ocserverd's diffPageQuery, which builds the external link.
 func diffQuery(before, after, labelBefore, labelAfter string) string {
 	q := url.Values{diffParamBefore: {before}, diffParamAfter: {after}}
 	if labelBefore != "" {
-		q.Set(diffParamLabelBefor, labelBefore)
+		q.Set(diffParamLabelBefore, labelBefore)
 	}
 	if labelAfter != "" {
 		q.Set(diffParamLabelAfter, labelAfter)
@@ -169,14 +108,11 @@ func diffQuery(before, after, labelBefore, labelAfter string) string {
 	return q.Encode()
 }
 
-// cmdDiff implements `ocagent diff`. Prints ONE line: the URL.
 func cmdDiff(
 	client httpClient, cfg Config,
-	before, after, beforeLabel, afterLabel string, external bool,
+	before, after, labelBefore, labelAfter string, external bool,
 	out, errOut io.Writer,
 ) int {
-	// BOTH sides are judged before anything else, so a bad second argument
-	// costs a message rather than a link naming one good side and one bad one.
 	for _, side := range []struct{ arg, which string }{{before, "before"}, {after, "after"}} {
 		if msg := sideRefusal(side.arg, side.which); msg != "" {
 			fmt.Fprintf(errOut, "[ocagent] diff: %s\n", msg)
@@ -184,32 +120,20 @@ func cmdDiff(
 		}
 	}
 	// OC_BASE CLASSIFICATION: GUARDED — refuse, exit 3, on BOTH flavours.
-	// This guard used to read `cfg.Base == ""`, which loadConfig makes
-	// UNREACHABLE: an unset OC_BASE is replaced by defaultBase before any
-	// subcommand sees it, so Base is never empty and the refusal below never
-	// ran. What actually happened with OC_BASE unset was a link printed against
-	// this machine's loopback address and an exit code of 0 — a comparison URL
-	// that says it worked and leads nowhere the recipient can open. The
-	// condition now asks the question the message always claimed to ask.
-	//
-	// It refuses on BOTH flavours deliberately. The plain link makes no request,
-	// so nothing fails to warn the caller; it is precisely the flavour whose
-	// wrongness is invisible until someone else clicks it.
-	if requireBase(cfg, "diff", errOut) {
+	// The plain link makes no request, so a wrong base there is invisible until
+	// someone else clicks it — do not narrow this guard to --external.
+	if warnMissingBase(cfg, "diff", errOut) {
 		return 3
 	}
 	if !external {
 		fmt.Fprintln(out, cfg.Base+diffPagePath+"?"+
-			diffQuery(before, after, strings.TrimSpace(beforeLabel), strings.TrimSpace(afterLabel)))
+			diffQuery(before, after, strings.TrimSpace(labelBefore), strings.TrimSpace(labelAfter)))
 		return 0
 	}
 	return mintExternalDiffLink(client, cfg, before, after,
-		strings.TrimSpace(beforeLabel), strings.TrimSpace(afterLabel), out, errOut)
+		strings.TrimSpace(labelBefore), strings.TrimSpace(labelAfter), out, errOut)
 }
 
-// mintExternalDiffLink asks the server for the SIGNED link. Only the server can
-// mint it — the signature is an HMAC under a key this process never holds — so
-// this is the one flavour that costs a request.
 func mintExternalDiffLink(
 	client httpClient, cfg Config, before, after, labelBefore, labelAfter string,
 	out, errOut io.Writer,
@@ -220,14 +144,13 @@ func mintExternalDiffLink(
 	}
 	query := url.Values{diffParamBefore: {before}, diffParamAfter: {after}}
 	if labelBefore != "" {
-		query.Set(diffParamLabelBefor, labelBefore)
+		query.Set(diffParamLabelBefore, labelBefore)
 	}
 	if labelAfter != "" {
 		query.Set(diffParamLabelAfter, labelAfter)
 	}
-	// The route is built into a variable rather than spelled at the call, which
-	// is download.go's shape too: it keeps this a plain bodyless GET for
-	// bin/uplink-guard.py rather than a callsite that looks like a send.
+	// bin/uplink-guard.py classifies callsites by shape: the route stays in a
+	// variable so this reads as a bodyless GET, not a send.
 	reqURL := cfg.Base + "/api/diff/share-link?" + query.Encode()
 	req, err := http.NewRequest(http.MethodGet, reqURL, nil)
 	if err != nil {
@@ -267,21 +190,14 @@ func mintExternalDiffLink(
 		fmt.Fprintf(errOut, "[ocagent] diff: 200 but unparseable link body: %s\n", detail)
 		return 5
 	}
-	// The server mints a SERVER-RELATIVE path and the caller absolutizes it —
-	// the same posture get_chat_attachment_share_link has, and the reason is
-	// that the server does not know which origin this reader reaches it on.
+	// The server returns a server-relative path (it cannot know which origin this
+	// reader reaches it on); the caller absolutizes it.
 	fmt.Fprintln(out, cfg.Base+minted.URL)
 	return 0
 }
 
-// diffUsage prints the complete reference for the subcommand.
-//
-// This text is the SINGLE AUTHORITY on the parameters and on how a side is
-// spelled. The global context (seeds/system_interaction.md) deliberately
-// carries only when and why to reach for a comparison, plus the judgement calls
-// a member cannot read off a syntax line, and points here for the rest — one
-// fact, one place, and the place that ships with the binary rather than the one
-// that can drift a release behind it.
+// This usage text is the single authority on parameters and side spelling:
+// seeds/system_interaction.md deliberately defers here instead of repeating it.
 func diffUsage(w io.Writer) {
 	fmt.Fprint(w, `usage: ocagent diff <before> <after> [--label-before <text>] [--label-after <text>] [--external]
 

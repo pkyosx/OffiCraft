@@ -467,7 +467,7 @@ func TestSetMemberOpReceipt(t *testing.T) {
 	bob := dalPutMember(t, d, dalTestMember("bob", "Bob"))
 
 	failed := false
-	if err := d.SetMemberOpReceipt("ann", "relocate", &failed, "boom", "dispatch: refused", 1800000000); err != nil {
+	if err := d.SetMemberLastOp("ann", "relocate", &failed, "boom", "dispatch: refused", 1800000000); err != nil {
 		t.Fatalf("SetMemberOpReceipt: %v", err)
 	}
 	ann.LastOp = "relocate"
@@ -477,7 +477,7 @@ func TestSetMemberOpReceipt(t *testing.T) {
 	ann.LastOpAt = 1800000000
 	dalWantMember(t, d, ann)
 
-	if err := d.SetMemberOpReceipt("ann", "", nil, "", "", 0); err != nil {
+	if err := d.SetMemberLastOp("ann", "", nil, "", "", 0); err != nil {
 		t.Fatalf("SetMemberOpReceipt(withdrawn): %v", err)
 	}
 	ann.LastOp = ""
@@ -488,7 +488,7 @@ func TestSetMemberOpReceipt(t *testing.T) {
 	dalWantMember(t, d, ann)
 	dalWantMember(t, d, bob)
 
-	if err := d.SetMemberOpReceipt("ghost", "relocate", &failed, "", "", 1); err != nil {
+	if err := d.SetMemberLastOp("ghost", "relocate", &failed, "", "", 1); err != nil {
 		t.Fatalf("SetMemberOpReceipt on a missing row: %v", err)
 	}
 	if got, err := d.GetMember("ghost"); err != nil || got != nil {
@@ -1211,7 +1211,7 @@ func TestSaveWithDocumentHistory(t *testing.T) {
 		}
 		since := nowSecs()
 		if err := d.SaveWithDocumentHistory("role_definition", "engineer", "owner",
-			func(q sqlQuerier) (string, error) {
+			func(q sqlRowQuerier) (string, error) {
 				var value string
 				if err := q.QueryRow(`SELECT value FROM setting WHERE key = ?`, "snapshot").Scan(&value); err != nil {
 					return "", err
@@ -1339,7 +1339,7 @@ func TestRetainDocumentVersion(t *testing.T) {
 
 	failing := errors.New("the snapshot refused")
 	if err := d.SaveWithDocumentHistory(docKindSystemInteraction, "global", "owner",
-		func(sqlQuerier) (string, error) { return "", failing },
+		func(sqlRowQuerier) (string, error) { return "", failing },
 		func(sqlExecer) error { return nil }); !errors.Is(err, failing) {
 		t.Fatalf("a refusing snapshot must abort the save: want %v, got %v", failing, err)
 	}
@@ -1710,7 +1710,7 @@ func TestChatAttachmentRefBefore(t *testing.T) {
 			ChatAttachmentRef{TS: 100, MessageID: "a", Ord: 1}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := chatAttachmentRefBefore(tc.a, tc.b); got != tc.want {
+			if got := chatAttachmentRefSortsFirst(tc.a, tc.b); got != tc.want {
 				t.Fatalf("want %v, got %v", tc.want, got)
 			}
 		})
@@ -3053,7 +3053,7 @@ func TestPutReplyCardWithChatAndStep(t *testing.T) {
 		blobs := []ChatAttachment{{ID: "att-question", Mime: "image/png", Data: []byte("the question")}}
 		armed, held := arm(task, step, "rc-1")
 
-		if err := d.PutReplyCardWithChatAndStep(card, m, blobs, armed, &held); err != nil {
+		if err := d.PutReplyCardWithChatStepAndTask(card, m, blobs, armed, &held); err != nil {
 			t.Fatalf("PutReplyCardWithChatAndStep: %v", err)
 		}
 		dalWantReplyCard(t, d, "rc-1", &card)
@@ -3089,7 +3089,7 @@ func TestPutReplyCardWithChatAndStep(t *testing.T) {
 			t.Fatalf("drop task_step: %v", err)
 		}
 
-		err := d.PutReplyCardWithChatAndStep(
+		err := d.PutReplyCardWithChatStepAndTask(
 			dalReplyCard("rc-1", 100),
 			dalChatWithAtts("m1", "ann", "owner", 100, dalAttRef("att-doomed", "image/png", "d.png")),
 			[]ChatAttachment{{ID: "att-doomed", Mime: "image/png", Data: []byte("doomed")}},
@@ -3116,7 +3116,7 @@ func TestPutReplyCardWithChatAndStep(t *testing.T) {
 			t.Fatalf("drop task: %v", err)
 		}
 
-		err := d.PutReplyCardWithChatAndStep(
+		err := d.PutReplyCardWithChatStepAndTask(
 			dalReplyCard("rc-1", 100),
 			dalChatWithAtts("m1", "ann", "owner", 100, dalAttRef("att-doomed", "image/png", "d.png")),
 			[]ChatAttachment{{ID: "att-doomed", Mime: "image/png", Data: []byte("doomed")}},
@@ -4490,8 +4490,8 @@ func dalChatIDs(msgs []ChatMessage) []string {
 // dalStaticSnapshot is a documentHistoryStream snapshot that always serializes
 // the same live state, whatever the transaction reads.
 
-func dalStaticSnapshot(current string) func(sqlQuerier) (string, error) {
-	return func(sqlQuerier) (string, error) { return current, nil }
+func dalStaticSnapshot(current string) func(sqlRowQuerier) (string, error) {
+	return func(sqlRowQuerier) (string, error) { return current, nil }
 }
 
 // dalWantHistory asserts one history listing entry by entry, with each row's

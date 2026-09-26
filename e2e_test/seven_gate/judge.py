@@ -416,7 +416,7 @@ def judge(scene, samples):
     #     produces on purpose:
     #       * REPLAN. submit_plan freezes the nodes it did not re-list into
     #         `superseded` and LEAVES THEM IN PLACE, renumbered 0..n-1
-    #         (dal_tasks.go ReplaceTaskPlan), while DeriveTaskStatus and
+    #         (dal_tasks.go ReplaceTaskSteps), while DeriveTaskStatus and
     #         TaskProgress both SKIP them. A superseded row therefore sits BEFORE
     #         later done rows, and a prefix test fails after any replan — and the
     #         boot context teaches agents to replan (seeds/system_interaction.md

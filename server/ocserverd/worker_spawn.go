@@ -451,7 +451,7 @@ var spawnBlockedReasonCodes = []string{
 // it explains must be ONE row write and ONE delta — STOPPED BEING TRUE IN T-55.
 // The five receipt columns left PutMember's DO UPDATE SET, so the caller's own
 // write no longer carries them and every stamp must be followed by
-// dal.SetMemberOpReceipt. What survives of that reason is narrower and still
+// dal.SetMemberLastOp. What survives of that reason is narrower and still
 // worth keeping: the receipt is stamped onto the SAME struct the caller is
 // about to write, so the two land from one consistent snapshot rather than
 // from two reads of a row somebody else may have moved in between.
@@ -581,7 +581,7 @@ func (s *apiServer) stampWorkerPlacementBlocked(w *OutsourceWorker, reason strin
 	stampOpReceipt(&fresh.LastOp, &fresh.LastOpOK, &fresh.LastOpLog, &fresh.LastOpReason,
 		&fresh.LastOpAt, reconcileCmdStart, reason, now)
 	// Single write (T-55): the re-read above moved nothing but the receipt.
-	if err := s.dal.SetMemberOpReceipt(fresh.ID, fresh.LastOp, fresh.LastOpOK, fresh.LastOpLog,
+	if err := s.dal.SetMemberLastOp(fresh.ID, fresh.LastOp, fresh.LastOpOK, fresh.LastOpLog,
 		fresh.LastOpReason, fresh.LastOpAt); err != nil {
 		outsourceLog("spawn %s: placement-blocked stamp persist failed: %v", w.ID, err)
 		return
@@ -620,11 +620,11 @@ func (s *apiServer) clearWorkerPlacementBlock(workerID string) {
 	// forgotten clear (T-55). This function has always kept both: last_op_at is
 	// what separates "stalled an hour ago" from "stalled right now", which is the
 	// whole point of the paragraph above. The sole writer takes the receipt whole
-	// (a partial receipt is a verdict nobody wrote — see SetMemberOpReceipt), so
+	// (a partial receipt is a verdict nobody wrote — see SetMemberLastOp), so
 	// "keep it" is now spelled "pass the current value" instead of "leave that
 	// field out of the UPDATE". Anyone who "tidies" these two into zeroes deletes
 	// the timestamp this function exists to preserve.
-	if err := s.dal.SetMemberOpReceipt(fresh.ID, fresh.LastOp, fresh.LastOpOK, fresh.LastOpLog,
+	if err := s.dal.SetMemberLastOp(fresh.ID, fresh.LastOp, fresh.LastOpOK, fresh.LastOpLog,
 		fresh.LastOpReason, fresh.LastOpAt); err != nil {
 		outsourceLog("spawn %s: placement-block clear failed: %v", workerID, err)
 	}
@@ -681,7 +681,7 @@ func (s *apiServer) clearWorkerConvergedFailureReceipt(workerID string, snapshot
 	fresh.LastOpReason = ""
 	fresh.LastOpAt = 0.0
 	// Single write (T-55): the clear touches nothing but these five.
-	if err := s.dal.SetMemberOpReceipt(fresh.ID, fresh.LastOp, fresh.LastOpOK, fresh.LastOpLog,
+	if err := s.dal.SetMemberLastOp(fresh.ID, fresh.LastOp, fresh.LastOpOK, fresh.LastOpLog,
 		fresh.LastOpReason, fresh.LastOpAt); err != nil {
 		outsourceLog("%s: converged receipt clear failed: %v", workerID, err)
 		return
@@ -2600,7 +2600,7 @@ func (s *apiServer) resolveLiveWorker(id string) (*OutsourceWorker, error) {
 // (stampWakeObservability) and the whole point of the convergence — a wake
 // that never produces a boot report must still read 「喚醒中」 for its window.
 // The arriving report is what ends that window by bringing the session ONLINE,
-// and online dominates waking in deriveLiveness.
+// and online dominates waking in derivePresence.
 //
 // 🔴 T-4595 — THIS IS NOW THE assigned → active WRITE POINT, the only one.
 // It used to live in get_my_task, which is retired: a worker's first boot verb
@@ -2995,7 +2995,7 @@ func (s *apiServer) dismissOutsourceWorkerByID(workerID string, now float64, tri
 	// T-4166: a fired worker's waiting cards can never be consumed — the asker
 	// is gone. Retire them (same sweep as reassign / task close / member
 	// dismissal). Best-effort: a card write must never fail the dismissal.
-	if _, err := s.expireWaitingCardsFromMember(workerID, now, trigger); err != nil {
+	if _, err := s.expireWaitingCardsByAuthor(workerID, now, trigger); err != nil {
 		outsourceLog("dismiss worker %s: card sweep failed: %v", workerID, err)
 	}
 }

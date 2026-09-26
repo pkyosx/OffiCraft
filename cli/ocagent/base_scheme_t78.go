@@ -1,10 +1,5 @@
 package main
 
-// base_scheme_t78.go — the one rule that decides http vs https, in the agent.
-//
-// See the canonical block below. Edit ALL THREE copies together or the mirror
-// guard fails.
-
 import (
 	"net"
 	"strings"

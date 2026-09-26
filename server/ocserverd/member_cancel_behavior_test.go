@@ -9,7 +9,7 @@ package main
 // THE MECHANISM, in two layers:
 //  1. deactivate writes desired_state=offline and leans on the reconcile
 //     cadence. decideDown's FIRST branch is `if !obs.Online { converged }`, and a
-//     waking member is BY DEFINITION not online (deriveLiveness projects waking
+//     waking member is BY DEFINITION not online (derivePresence projects waking
 //     only when !Online) — so the cadence dispatched NOTHING against the process
 //     the earlier START had already put on the machine.
 //  2. that process then booted and called report_waking, which zeroed
