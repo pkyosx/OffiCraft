@@ -1370,11 +1370,11 @@ func parityCases() []verbCase {
 				return workerTerminal(t, api, id, code.Code, notices)
 			},
 			// Both gate on 「a launch intent actually changed」 and then open the same
-			// wind-down with op = "runtime/model" (memberOpModel == ownerOpModel).
+			// wind-down with op = "runtime/model" (memberOpRuntimeModel == ownerOpRuntimeModel).
 			wantStaff: terminalState{
 				Status: http.StatusOK, DesiredState: DesiredStateOnline,
 				Stopping: anchorZero, Stopped: anchorZero,
-				Refocus: anchorPast, RefocusOp: memberOpModel,
+				Refocus: anchorPast, RefocusOp: memberOpRuntimeModel,
 				Waking: anchorZero, RestartAfterStop: false,
 				DesiredMachineID: parityMachineA,
 				// 🔴 STRUCTURAL, not fixture-dependent: this handler body (api_members.go:820-1026)
@@ -1393,7 +1393,7 @@ func parityCases() []verbCase {
 			wantOutsource: terminalState{
 				Status: http.StatusOK, DesiredState: DesiredStateOnline,
 				Stopping: anchorZero, Stopped: anchorZero,
-				Refocus: anchorPast, RefocusOp: ownerOpModel,
+				Refocus: anchorPast, RefocusOp: ownerOpRuntimeModel,
 				Waking: anchorZero, RestartAfterStop: false,
 				DesiredMachineID: parityMachineA,
 				// reaches respawnWorkerForOwnerOp (api_outsource.go:1066) but comes out on the

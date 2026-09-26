@@ -8,9 +8,8 @@ import (
 	"time"
 )
 
-// statBirthTime reads an inode's st_birthtime. macOS is the platform the warden
-// actually runs on, and the only one where the anchor identity question is even
-// meaningful (TCC), so this is where the real implementation lives.
+// Only macOS has the anchor identity (TCC) question, so the real implementation
+// lives here.
 func statBirthTime(path string) (time.Time, error) {
 	fi, err := os.Stat(path)
 	if err != nil {

@@ -1,39 +1,8 @@
-// T-684c: the warden-side trash reaper — the DELETE half of the retired
-// "agents mv, warden rm" procedure.
-//
-// WHY THIS EXISTS (read before touching the guards):
-//
-// A headless agent told to "clean up your scratch files" used to run
-// `rm -rf <workdir>/tmp/<task>` itself. Claude Code's harness has a BUILT-IN
-// dangerous-rm confirmation (a Yes/No the agent cannot answer); nobody is
-// sitting in front of a headless agent to press Yes, so the agent hung SILENTLY
-// until it was reaped.
-//
-// The first fix was WHO EXECUTES THE DELETE, not "mv is safer than rm" — an
-// experiment showed relative/absolute x mv/rm all behave identically in that
-// environment, so the verb has ZERO discriminating power. Agents moved their
-// scratch under <workdir>/trash/ and THIS file did the actual removal from
-// ocwarden — an independent Go daemon started by launchd with no claude in the
-// chain, so the harness gate simply does not apply.
-//
-// The seeds no longer teach that procedure: they tell agents to delete with
-// `rm -rf <full literal path>`. Two hooks wired in buildStatuslineSettings stand
-// between that rm and the prompt. `ocagent guard-bash` (PreToolUse) refuses some
-// removal shapes before they reach the check, so for those the prompt is never
-// raised; it refuses on SPELLING — see cli/ocagent/guardbash.go and the tables in
-// its test — which is not the same axis as the harness's own reasons, so plenty
-// of shapes still reach the prompt. `ocagent guard-permission`
-// (PermissionRequest) then refuses every prompt that IS raised, so the stall is
-// no longer what happens at the end of that road. This reaper still clears
-// whatever a workdir's trash/ holds, from the retired procedure or from an agent
-// that moved something there by hand.
-//
-// FAIL-CLOSED CONTRACT (this is the only destructive capability in the package):
-// purgeTrash removes <workdir>/trash and NOTHING else. Every shape that is not
-// provably "the trash dir of an agent workdir directly under the agents root" is
-// REFUSED, LOUDLY (warden stderr → <logDir>/ocwarden.err.log), never silently
-// skipped and never "cleaned anyway". Refusing costs a few stale megabytes;
-// guessing wrong costs the owner's data.
+// The warden-side trash reaper: the DELETE half of the retired "agents mv,
+// warden rm" procedure. The only destructive capability in
+// the package, so it is fail-closed: anything not provably "the trash dir of an
+// agent workdir directly under the agents root" is REFUSED loudly, never
+// "cleaned anyway".
 package main
 
 import (
@@ -42,91 +11,12 @@ import (
 	"path/filepath"
 )
 
-// trashDirName is the ONE name this reaper will ever remove. Not configurable on
-// purpose — a configurable name is one more input that can be pointed somewhere
-// else.
+// Not configurable on purpose: a configurable name is one more input that can be
+// pointed somewhere else.
 const trashDirName = "trash"
 
-// purgeTrash removes <workdir>/trashDirName, or refuses.
-//
-// root is the agent-state base the workdir MUST live directly under (agents/ for
-// members and P5b outsource workers, the legacy workers/ sibling for pre-P5b
-// residuals). logf (nil-skipped) receives refusal / outcome lines.
-//
-// Returns true ONLY when a trash dir was actually removed. false covers both
-// "nothing to do" (no trash dir — the normal state) and "refused" (a guard
-// tripped); the caller never acts on the difference, the log is the signal.
-//
-// GUARDS, in order — each one is a shape someone could steer this at:
-//
-//	G1 empty root / empty workdir      — an unresolved HOME or a blank member id
-//	                                     would otherwise make Join() produce
-//	                                     "trash" (relative, = CWD/trash).
-//	G2 non-absolute root or workdir    — a relative path resolves against whatever
-//	                                     CWD the daemon happens to have.
-//	G3 unclean path (".." / "." / dup
-//	   separators / trailing slash)    — `agent id = "../.."` makes
-//	                                     Join(root, id) escape the agents root;
-//	                                     Clean-equality rejects the input before
-//	                                     the escape is even computed.
-//	G4 workdir not a DIRECT child of
-//	   root, TEXTUALLY                 — the string-level containment check. Not a
-//	                                     HasPrefix test (that admits
-//	                                     "/x/agentsEVIL"); Dir(workdir)==root is
-//	                                     exact, and it also rejects
-//	                                     workdir==root itself (Dir(root)!=root),
-//	                                     so the whole agents tree can never be
-//	                                     the target. NOT SUFFICIENT ALONE — it
-//	                                     proves the PATH STRING is well-formed,
-//	                                     not that the FILESYSTEM agrees. G7 is
-//	                                     what closes that gap.
-//	G5 trash is a SYMLINK              — lstat (never stat): a `trash -> /` symlink
-//	                                     planted in a workdir would otherwise make
-//	                                     RemoveAll follow it. RemoveAll actually
-//	                                     unlinks a symlink rather than recursing,
-//	                                     but we refuse anyway rather than depend on
-//	                                     that implementation detail.
-//	G6 trash is not a directory        — a plain file named trash is not ours.
-//	G7 resolved workdir is not the
-//	   id-named child of resolved root — EvalSymlinks(workdir) must equal
-//	                                     EvalSymlinks(root)/Base(workdir). Note this
-//	                                     is STRICTER than "is still a direct child":
-//	                                     a workdir symlinked at a NEIGHBOUR agent
-//	                                     passes a mere Dir()==root test (the
-//	                                     neighbour is a direct child too) and would
-//	                                     reap the neighbour's trash. Demanding the
-//	                                     basename survive resolution encodes the
-//	                                     property we depend on: this id OWNS this
-//	                                     directory. THIS is the guard that
-//	                                     stops a workdir which is ITSELF a symlink
-//	                                     (planted, or an owner moving one agent's
-//	                                     dir onto an external disk) from walking the
-//	                                     delete out of the agents tree entirely, or
-//	                                     onto a NEIGHBOUR agent's dir. Comparing
-//	                                     both sides post-resolution is what makes a
-//	                                     legitimate ANCESTOR symlink (macOS
-//	                                     /var -> /private/var) still pass: the root
-//	                                     is carried through the same resolution.
-//	                                     REGRESSION NOTE: the first cut of this file
-//	                                     compared EvalSymlinks(trash) against
-//	                                     EvalSymlinks(workdir)/trash and called that
-//	                                     an ancestor check. It is not — when BOTH
-//	                                     sides are carried away by the same symlink
-//	                                     the comparison is an identity, and given G5
-//	                                     it is a TAUTOLOGY (a non-symlink leaf always
-//	                                     resolves to resolved-parent + leaf). Review
-//	                                     proved it: replacing that refusal branch
-//	                                     with panic() and running the whole package
-//	                                     never fired it. The root must be brought
-//	                                     into the comparison, or nothing is checked.
-//	G8 trash moved out from under its
-//	   own resolved workdir            — the TOCTOU backstop for G5 ONLY: someone
-//	                                     swapping `trash` for a symlink in the window
-//	                                     between the Lstat and here. Unreachable on
-//	                                     the normal path by construction (see G7's
-//	                                     note); kept because the race is real and it
-//	                                     costs one comparison. Do NOT read it as a
-//	                                     containment check — G7 is that.
+// root is agents/ (members and outsource workers) or the legacy workers/ sibling
+// for residuals. Returns true ONLY when a trash dir was actually removed.
 func purgeTrash(root, workdir string, logf func(string, ...any)) bool {
 	warn := func(format string, a ...any) bool {
 		if logf != nil {
@@ -135,35 +25,32 @@ func purgeTrash(root, workdir string, logf func(string, ...any)) bool {
 		return false
 	}
 
-	// G1 — nothing derivable from empty strings.
 	if root == "" || workdir == "" {
 		return warn("empty root (%q) or workdir (%q)", root, workdir)
 	}
-	// G2 — absolute only.
 	if !filepath.IsAbs(root) || !filepath.IsAbs(workdir) {
 		return warn("non-absolute root (%q) or workdir (%q)", root, workdir)
 	}
-	// G3 — reject before normalising: an input that is not already clean carries
-	// traversal ("..") or sloppiness we did not intend to accept.
+	// Clean-equality rejects `id = "../.."` before Join can escape the root.
 	if filepath.Clean(root) != root || filepath.Clean(workdir) != workdir {
 		return warn("unclean root (%q) or workdir (%q)", root, workdir)
 	}
-	// G4 — exact direct-child containment.
+	// Dir()==root, not HasPrefix (which admits "/x/agentsEVIL"); also rejects
+	// workdir==root itself.
 	if filepath.Dir(workdir) != root {
 		return warn("workdir %q is not a direct child of agents root %q", workdir, root)
 	}
 
 	trash := filepath.Join(workdir, trashDirName)
-	// Belt-and-braces on the join itself (unreachable given G3/G4, asserted anyway
-	// because everything below this line deletes).
 	if trash == workdir || trash == root || filepath.Dir(trash) != workdir {
 		return warn("derived trash path %q is not <workdir>/%s", trash, trashDirName)
 	}
 
-	// G5/G6 — lstat, never stat: we must see the LINK, not its target.
+	// Lstat, never stat: we must see the LINK. RemoveAll would unlink rather than
+	// recurse, but we refuse rather than depend on that detail.
 	info, err := os.Lstat(trash)
 	if os.IsNotExist(err) {
-		return false // the normal state: nothing was ever moved here.
+		return false
 	}
 	if err != nil {
 		return warn("cannot lstat %q: %v", trash, err)
@@ -175,13 +62,6 @@ func purgeTrash(root, workdir string, logf func(string, ...any)) bool {
 		return warn("%q is not a directory (mode %v)", trash, info.Mode())
 	}
 
-	// G7 — the REAL containment check: redo G4's direct-child test on the
-	// SYMLINK-RESOLVED paths. G4 only proved the path STRING is well-formed; a
-	// workdir that is itself a symlink satisfies G4 textually while pointing
-	// anywhere on the disk. Both sides go through EvalSymlinks so a legitimate
-	// ancestor symlink (macOS /var -> /private/var) cancels out on both sides and
-	// still passes — only a workdir that genuinely resolves OUT of the agents root
-	// (or onto a neighbour agent) is refused.
 	realRoot, err := filepath.EvalSymlinks(root)
 	if err != nil {
 		return warn("cannot resolve agents root %q: %v", root, err)
@@ -190,21 +70,18 @@ func purgeTrash(root, workdir string, logf func(string, ...any)) bool {
 	if err != nil {
 		return warn("cannot resolve workdir %q: %v", workdir, err)
 	}
-	// The invariant is stronger than "still under the root": the resolved workdir
-	// must be EXACTLY the child of the resolved root named by this agent's id.
-	// A plain Dir(realWorkdir)==realRoot test is NOT enough — a workdir symlinked
-	// at a NEIGHBOUR agent's dir satisfies it (the neighbour is also a direct
-	// child) and would reap somebody else's trash. Requiring the basename to
-	// survive resolution says "this id must own this directory", which is the
-	// property we actually depend on.
+	// Redo the direct-child test on RESOLVED paths, requiring the basename to
+	// survive: a plain Dir(realWorkdir)==realRoot passes a workdir symlinked at a
+	// NEIGHBOUR agent. Resolving both sides lets an ancestor symlink (macOS /var ->
+	// /private/var) still pass. Comparing only trash against workdir/trash is a
+	// tautology once both are carried by the same symlink — a panic() in that
+	// branch once never fired across the whole package.
 	if realWorkdir != filepath.Join(realRoot, filepath.Base(workdir)) {
 		return warn("workdir %q resolves to %q — not the %q child of agents root %q (resolved %q)",
 			workdir, realWorkdir, filepath.Base(workdir), root, realRoot)
 	}
-	// G8 — TOCTOU backstop for G5 ONLY (trash swapped for a symlink after the
-	// Lstat above). Unreachable on the normal path: given G5, EvalSymlinks of a
-	// non-symlink leaf is always resolved-parent + leaf, so this is a tautology.
-	// Kept for the race, NOT relied on for containment — that is G7's job.
+	// TOCTOU backstop for the Lstat above only (trash swapped for a symlink since);
+	// not a containment check.
 	realTrash, err := filepath.EvalSymlinks(trash)
 	if err != nil {
 		return warn("cannot resolve %q: %v", trash, err)
@@ -222,9 +99,8 @@ func purgeTrash(root, workdir string, logf func(string, ...any)) bool {
 	return true
 }
 
-// stderrLogf is the production log sink for the reaper — warden stderr, which
-// launchd captures into <logDir>/ocwarden.err.log per the plist. Paths only; the
-// reaper never formats file CONTENT into a log line.
+// launchd captures warden stderr into <logDir>/ocwarden.err.log per the plist.
+// Paths only; never file CONTENT.
 func stderrLogf(format string, a ...any) {
 	fmt.Fprintf(os.Stderr, format+"\n", a...)
 }

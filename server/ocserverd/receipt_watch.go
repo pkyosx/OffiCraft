@@ -5,86 +5,37 @@ import (
 	"sort"
 )
 
-// ── the receipt deadline (T-b36a step 3) ─────────────────────────────────────
-//
-// THE HOLE THIS CLOSES. A start/stop frame that a warden ACCEPTS is answered by
-// exactly one thing: a command_result receipt POSTed back to /telemetry, folded
-// onto last_op* (api_monitoring.go foldCommandResult). That receipt is the only
-// evidence the op ever executed. On the warden the POST is best-effort — the
-// reporter swallows a transport fault or a non-2xx into a return value that the
-// start/stop callers historically discarded (cli/ocwarden/command.go), so a
-// receipt that never lands leaves NOTHING anywhere: no member row change, no
-// server log, and (measured, 2026-07-28) no reader on the warden's own log file.
-// From the cockpit "the op ran and we never heard back" and "the op ran fine"
-// rendered IDENTICALLY — the same shape of silence stampWakeObservability and
-// stampWorkerPlacementBlocked were written to remove, one layer further out.
-//
-// WHY SERVER-SIDE. The warden cannot report that its own report failed — the
-// failing channel IS the report. Only the side that is OWED the receipt can
-// observe its absence. This is the same move reconcile.go's wake_timeout makes:
-// the server holds a deadline of its own and writes what the deadline proved.
-//
-// WHAT IT DOES NOT KNOW. The absence of a receipt does NOT say the op failed,
-// nor that it ran. The frame may have died in the SSE downlink, the op may have
-// run and the POST been refused, or the warden may have died between the two.
-// The reason text says exactly that much and no more.
+// receipt_watch.go — the receipt deadline. An accepted start/stop is answered
+// only by a command_result receipt POSTed to /telemetry and folded onto last_op*
+// (api_monitoring.go foldCommandResult). The warden's POST is best-effort
+// (cli/ocwarden/command.go), so a lost receipt leaves no trace anywhere, and the
+// warden cannot report that its own report failed: only the server, which is
+// owed the receipt, can observe its absence. The absence says neither that the
+// op failed nor that it ran.
 
-// receiptMissingReasonCode is the structured code the deadline writes. Like
-// wake_timeout it is a DISPATCH-level diagnosis (nothing came back), not an
-// execution outcome, so it is deliberately ABSENT from spawnBlockedReasonCodes:
-// a later START must not erase the record that the previous one went unanswered.
+// receiptMissingReasonCode is a DISPATCH-level diagnosis, deliberately ABSENT
+// from spawnBlockedReasonCodes: a later START must not erase the record that the
+// previous one went unanswered.
 const receiptMissingReasonCode = "receipt_missing"
 
-// receiptDeadlineSecs is how long a landed start/stop has to be answered by its
-// command_result before the absence is stamped.
-//
-// DERIVED FROM THE WARDEN'S OWN BUDGETS, not from a measured latency
-// distribution — there is no end-to-end measurement of frame→receipt today
-// (the warden log carries only warden-side clocks and the server fold logs
-// nothing), and inventing one from a single host would be worse than naming the
-// derivation. Worst honest round trip: claudeProbeBudget 20s + THE WHOLE BOOT
-// NUDGE LOOP 30s (spawn) or the ~5s kill ladder (stop), + commandReportTimeout 5s
-// for the POST itself, + up to one lifecycleCadenceSecs 30s of sweep granularity
-// ≈ 85s.
-//
-// 🔴 THE NUDGE TERM IS 30s, NOT 1s, AND THAT CHANGES WHAT THIS NUMBER MEANS. An
-// earlier version of this derivation costed the nudge at a single nudgeSettle (1s).
-// The loop's early exit has been permanently false, so it has ALWAYS run all
-// nudgeMaxAttempts (30) x nudgeSettle (1s) on every spawn, and the START receipt is
-// only POSTed after Spawn returns (command.go: Spawn, then report). T-82 did not
-// cause this; it is the first place that writes the fact down.
-//
-// => 90s does NOT leave "a full extra tick of slack". It leaves about 5 SECONDS. A
-// merely-slow cold start therefore stamps receipt_missing, whose meaning is "the
-// receipt channel is gone" - sending a reader to investigate SSE/POST when nothing
-// is wrong with either.
-//
-// WARNING: TWO CONSTANTS IN A DIFFERENT GO MODULE (cli/ocwarden has its own go.mod)
-// spend this budget, and nothing mechanical links them: raising nudgeMaxAttempts by
-// six consumes the remaining slack outright.
-//
-// Erring long is the safe direction: a late stamp costs nothing, a premature one
-// would cry wolf on a healthy fleet. Whether 90 is still long enough is a question
-// this ticket surfaces and deliberately does not answer - raising it changes
-// stamping behaviour on a live fleet, which is its own decision.
+// receiptDeadlineSecs is derived from the warden's own budgets, not measured:
+// claudeProbeBudget 20s + the whole boot-nudge loop 30s (it always runs all
+// nudgeMaxAttempts × nudgeSettle, and the START receipt is POSTed only after
+// Spawn returns) + commandReportTimeout 5s + up to one 30s lifecycle cadence
+// ≈ 85s. So 90 leaves only ~5 s of slack: a merely slow cold start can stamp
+// receipt_missing with nothing wrong. 🔴 Those warden constants live in another
+// Go module and nothing links them — raising nudgeMaxAttempts by six consumes
+// the slack outright. Erring long is the safe direction.
 const receiptDeadlineSecs = 90.0
 
-// pendingReceipt is one outstanding start/stop awaiting its command_result.
 type pendingReceipt struct {
-	RPC      string  // the dispatched verb (start / stop) — for the reason text
-	Warden   string  // the machine the frame was handed to ("" when unresolved)
-	Deadline float64 // absolute epoch secs after which the absence is stamped
+	RPC      string
+	Warden   string
+	Deadline float64
 }
 
-// armReceiptWatch records that a start/stop frame LANDED on a warden's FIFO and
-// a receipt is now owed. Callers must only arm after the enqueue was accepted:
-// an unlanded frame is already explained by its own dispatch stamp, and arming
-// there would blame the receipt channel for a refusal that never left the server.
-//
-// One slot per target: a re-dispatch replaces the previous watch rather than
-// stacking, so the deadline always describes the LATEST outstanding op. That is
-// the same single-slot posture last_op* itself has (known limitation, tracked on
-// its own ticket) — worth being explicit about rather than pretending otherwise.
+// armReceiptWatch: arm only after the enqueue was accepted — an unlanded frame
+// is already explained by its own dispatch stamp.
 func (s *apiServer) armReceiptWatch(targetID, rpc, warden string, now float64) {
 	if targetID == "" || rpc == "" {
 		return
@@ -98,40 +49,19 @@ func (s *apiServer) armReceiptWatch(targetID, rpc, warden string, now float64) {
 	}
 }
 
-// memberIDRawOf pulls the member_id out of a raw command_result map — the same
-// read foldCommandResult does, hoisted so the deadline disarm can run before the
-// fold's routing without duplicating the type assertion.
 func memberIDRawOf(commandResult map[string]any) string {
 	id, _ := commandResult["member_id"].(string)
 	return id
 }
 
-// noteReceiptArrived disarms the watch for a target whose command_result just
-// arrived. Called for EVERY receipt the ingest folds — including the ones the
-// fold deliberately declines to write (a no-op stop receipt, an unknown member):
-// what disarms the deadline is the receipt CHANNEL working, which those prove
-// just as well as a folded one. Tying it to a successful fold instead would
-// stamp receipt_missing on members whose receipt arrived and was read.
+// noteReceiptArrived must be called for EVERY receipt the ingest sees, including
+// ones the fold declines to write: the deadline asks whether the receipt channel
+// works, not whether the fold wrote.
 //
-// 🔴 reporter IS THE MACHINE THAT SPOKE (receiptReporterMachine), and comparing
-// it is the whole point. The watch has recorded which machine it is waiting on
-// since it was written — pendingReceipt.Warden, right there in the struct — and
-// then matched on the TARGET ID ALONE, which is the id of the thing being
-// stopped, not of the machine that owes the answer. An identity sweep
-// broadcasts a stop to every warden in the fleet and every one of them answers,
-// so ANY healthy machine's polite receipt cancelled the deadline that was
-// waiting on a specific, possibly dark, one. The deadline asks "did THAT
-// machine's report channel work"; a different machine's report is not an answer
-// to it.
-//
-// Both "" cases stay permissive, deliberately:
-//   - p.Warden == "": the dispatch could not resolve a machine, so there is
-//     nobody to compare against and the watch never claimed to wait on anyone.
-//   - reporter == "": UNKNOWN speaker (see receiptReporterMachine). No evidence
-//     either way ⇒ keep the pre-existing behaviour rather than invent a
-//     receipt_missing stamp out of an identity we failed to resolve.
-//
-// Only a KNOWN mismatch — both sides named, and different — declines to disarm.
+// 🔴 reporter is the machine that spoke (receiptReporterMachine). An identity
+// sweep broadcasts a stop to every warden and every one answers, so matching on
+// the target id alone let any healthy machine cancel a deadline owed by a
+// specific, possibly dark, one.
 func (s *apiServer) noteReceiptArrived(targetID, reporter string) {
 	if targetID == "" {
 		return
@@ -143,16 +73,11 @@ func (s *apiServer) noteReceiptArrived(targetID, reporter string) {
 		return
 	}
 	if p.Warden != "" && reporter != "" && p.Warden != reporter {
-		return // someone else's machine answered; the one we wait on still owes us
+		return
 	}
 	delete(s.receiptPending, targetID)
 }
 
-// takeLapsedReceipts removes and returns every watch whose deadline has passed.
-// Removal is unconditional: the stamp is written once per dispatch, never
-// re-stamped every tick (that would churn last_op_at and fan an SSE delta each
-// 30s for a member nobody is touching). The next dispatch arms a fresh watch.
-// Returned in a stable id order so the sweep is deterministic under test.
 func (s *apiServer) takeLapsedReceipts(now float64) map[string]pendingReceipt {
 	s.receiptMu.Lock()
 	defer s.receiptMu.Unlock()
@@ -170,9 +95,6 @@ func (s *apiServer) takeLapsedReceipts(now float64) map[string]pendingReceipt {
 	return lapsed
 }
 
-// receiptMissingReason is the owner-facing sentence. It names the verb, the
-// machine, and — the load-bearing half — the fact that the outcome is UNKNOWN
-// rather than bad, so nobody reads it as "the stop failed" and re-fires blindly.
 func receiptMissingReason(p pendingReceipt) string {
 	where := "the target machine"
 	if p.Warden != "" {
@@ -186,15 +108,6 @@ func receiptMissingReason(p pendingReceipt) string {
 		receiptMissingReasonCode, p.RPC, where, receiptDeadlineSecs)
 }
 
-// sweepLapsedReceipts stamps every lapsed watch onto the row the cockpit reads.
-// Routed exactly like foldCommandResult does: a roster member gets the member
-// stamp, an outsource worker (whose receipts key on the SAME id since the P5b
-// verb convergence) gets the worker stamp. A target that no longer exists is
-// dropped — there is nothing left to explain.
-//
-// Best-effort by contract (the stampWakeObservability rule): a persistence
-// failure is logged and never propagates — observability must not be able to
-// stall the control loop.
 func (s *apiServer) sweepLapsedReceipts(now float64) {
 	lapsed := s.takeLapsedReceipts(now)
 	if len(lapsed) == 0 {
@@ -210,13 +123,6 @@ func (s *apiServer) sweepLapsedReceipts(now float64) {
 	}
 }
 
-// stampReceiptMissing writes ONE lapsed watch onto its target row.
-//
-// The two arms below differ ONLY in which row they load, log and persist. The
-// receipt itself — the five last_op* columns — was written out by hand twice in
-// this one function, once per arm, and is now stampOpReceipt's (reconcile.go)
-// on both. The op verb is p.RPC rather than a START: a lapsed watch names the
-// call it was waiting on, which is why that core takes the verb as a parameter.
 func (s *apiServer) stampReceiptMissing(targetID string, p pendingReceipt, now float64) {
 	reason := receiptMissingReason(p)
 	m, err := s.dal.GetMember(targetID)
@@ -231,11 +137,8 @@ func (s *apiServer) stampReceiptMissing(targetID string, p pendingReceipt, now f
 		stampOpReceipt(&m.LastOp, &m.LastOpOK, &m.LastOpLog, &m.LastOpReason,
 			&m.LastOpAt, p.RPC, reason, now)
 		reconcileLog("%s: %s", targetID, reason)
-		// SINGLE WRITE (T-55). Both arms of this function mutate the five receipt
-		// columns and NOTHING else, so the whole-row write they used to end on
-		// carried a snapshot of ~30 other columns purely as freight. Replacing it
-		// with the sole writer removes the clobber AND leaves no two-write window
-		// to order (ticket 2.1a) — this arm never had a second step to lose.
+		// Receipt columns only: a whole-row write would carry a stale snapshot of every
+		// other column.
 		if err := s.persistMemberOpReceipt(*m, triggerServer); err != nil {
 			reconcileLog("%s: receipt-missing stamp persist failed: %v", targetID, err)
 		}
@@ -248,12 +151,9 @@ func (s *apiServer) stampReceiptMissing(targetID string, p pendingReceipt, now f
 	stampOpReceipt(&w.LastOp, &w.LastOpOK, &w.LastOpLog, &w.LastOpReason,
 		&w.LastOpAt, p.RPC, reason, now)
 	outsourceLog("%s: %s", targetID, reason)
-	// Single write, same as the member arm — and this is the one call site in the
-	// package that reaches a worker row WITHOUT holding s.outsourceMu (the sweep
-	// runs in the reconcile half; lifecycle_tick.go says so in as many words).
-	// Narrowing it from a whole-row upsert to five columns strictly shrinks what
-	// an interleaved HTTP write can lose here: it was the widest unlocked writer
-	// on this table and is now the narrowest.
+	// The one call site in the package that writes a worker row WITHOUT holding
+	// s.outsourceMu (the sweep runs in the reconcile half) — keep it a narrow
+	// five-column write.
 	if err := s.dal.SetMemberLastOp(w.ID, w.LastOp, w.LastOpOK, w.LastOpLog,
 		w.LastOpReason, w.LastOpAt); err != nil {
 		outsourceLog("%s: receipt-missing stamp persist failed: %v", targetID, err)

@@ -1,16 +1,11 @@
 package main
 
-// claudehome.go defines the expected config location for the trust write and
-// child launch. Both use the same resolved HOME and optional OC_CLAUDE_JSON
-// redirect. The launch prologue applies them after sourcing the agent env file.
-//
-// Claude can additionally select a config through its own settings. These
-// exports do not prove that the trust flag was consumed. Actual member wake
-// acknowledgement and the server's timeout/retry path determine startup health.
+// Claude can also select a config through its own settings, so these exports do
+// not prove the trust flag was consumed; the member's wake acknowledgement and
+// the server's timeout/retry path decide startup health.
 //
 // CLAUDE_CONFIG_DIR is exported only for an explicit redirect: changing it also
 // moves Claude's credentials file, so a fresh config directory can be logged out.
-// Without a redirect the variable is unset and Claude uses its default layout.
 
 import (
 	"fmt"
@@ -19,23 +14,13 @@ import (
 	"strings"
 )
 
-// claudeJSONName is the file claude reads its trust list from, inside whichever
-// directory is the config home.
 const claudeJSONName = ".claude.json"
 
-// claudeHome is the child's config location as the LAUNCH LINE WILL STATE IT.
-// Home is exported verbatim; an empty ConfigDir means the launch line UNSETS
-// CLAUDE_CONFIG_DIR (the default layout), a non-empty one means it exports that
-// directory.
 type claudeHome struct {
 	Home      string
 	ConfigDir string
 }
 
-// ClaudeJSONPath is the file this end WRITES: pretrustWorkdir's target, derived
-// from the two values the launch line exports.
-//
-// Claude may choose a different file through its own settings.
 func (c claudeHome) ClaudeJSONPath() string {
 	if c.ConfigDir != "" {
 		return filepath.Join(c.ConfigDir, claudeJSONName)
@@ -43,16 +28,10 @@ func (c claudeHome) ClaudeJSONPath() string {
 	return filepath.Join(c.Home, claudeJSONName)
 }
 
-// resolveClaudeHome decides the child's config location from the warden's own
-// environment. getwd is the seam for the one relative-path case below.
-//
-// OC_CLAUDE_JSON (the PoC safety valve that points a live run at a throwaway
-// file) is resolved to an ABSOLUTE path HERE, once. That placement is the fix
-// for a real defect in the predicting shape: it expanded `~` against HOME for
-// the comparison while the write end passed the raw string to os.ReadFile, which
-// expands nothing — so `OC_CLAUDE_JSON=~/.claude.json` compared equal and then
-// wrote to a literal `./~/.claude.json`. One resolution, used by both ends,
-// cannot drift like that.
+// OC_CLAUDE_JSON (the PoC valve pointing a live run at a throwaway file) is
+// resolved to an ABSOLUTE path HERE, once, for both the trust write and the
+// launch: os.ReadFile expands nothing, so a raw `~/.claude.json` once compared
+// equal and then wrote to a literal `./~/.claude.json`.
 func resolveClaudeHome(env func(string) string, getwd func() (string, error)) (claudeHome, error) {
 	home := strings.TrimSpace(env("HOME"))
 	if home == "" {
@@ -76,17 +55,13 @@ func resolveClaudeHome(env func(string) string, getwd func() (string, error)) (c
 			raw, abs, claudeJSONName, claudeJSONName, claudeJSONName)
 	}
 	if abs == filepath.Join(home, claudeJSONName) {
-		// The override names the default file. Leave CLAUDE_CONFIG_DIR unset:
-		// exporting $HOME would move projects/, sessions/ AND the credentials
-		// file out of $HOME/.claude, which is a logged-out child.
+		// Leave CLAUDE_CONFIG_DIR unset: exporting $HOME would move projects/,
+		// sessions/ AND the credentials file out of $HOME/.claude — a logged-out child.
 		return claudeHome{Home: home}, nil
 	}
 	return claudeHome{Home: home, ConfigDir: filepath.Dir(abs)}, nil
 }
 
-// absClaudeJSONPath expands a leading ~ against the run's OWN home (not the
-// process's) and resolves a relative path against the cwd, so the single
-// resolution above is absolute.
 func absClaudeJSONPath(raw, home string, getwd func() (string, error)) (string, error) {
 	switch {
 	case raw == "~":
@@ -107,16 +82,9 @@ func absClaudeJSONPath(raw, home string, getwd func() (string, error)) (string, 
 	return filepath.Join(wd, raw), nil
 }
 
-// claudeHomeEntryGate is the process-entry refusal for an OC_CLAUDE_JSON that
-// CANNOT be honoured (a name other than .claude.json, an unresolvable cwd, a
-// HOME the launch line could not state). It refuses before any transport or
-// spawn path exists, so an operator who mistyped the valve is told at start
-// rather than per spawn.
-//
-// With the valve UNSET it returns nil even when HOME is unset: the warden also
+// With OC_CLAUDE_JSON unset this passes even when HOME is unset: the warden also
 // posts telemetry on hosts that spawn nothing, and a missing HOME is refused by
-// the spawn itself (start() will not launch a claude whose config home is
-// unresolved), not by refusing to run at all.
+// the spawn itself.
 func claudeHomeEntryGate(env func(string) string, getwd func() (string, error)) error {
 	if strings.TrimSpace(env("OC_CLAUDE_JSON")) == "" {
 		return nil
@@ -125,9 +93,7 @@ func claudeHomeEntryGate(env func(string) string, getwd func() (string, error)) 
 	return err
 }
 
-// resolvedClaudeHome is the wiring helper: it resolves once and reports a failure
-// on warden stderr instead of returning an error no constructor can act on. The
-// zero value it returns on failure is what start() refuses on, so a host that
+// The zero value returned on failure is what start() refuses on, so a host that
 // cannot state a config home spawns nothing rather than spawning blind.
 func resolvedClaudeHome(env func(string) string, logf func(string, ...any)) claudeHome {
 	ch, err := resolveClaudeHome(env, os.Getwd)
@@ -140,56 +106,18 @@ func resolvedClaudeHome(env func(string) string, logf func(string, ...any)) clau
 	return ch
 }
 
-// ---------------------------------------------------------------------------
-// The CLAUDE_* family purge — the STRUCTURAL half of the pairing above.
+// The launch line DELETES THE WHOLE CLAUDE_* FAMILY from the child's environment
+// except claudeEnvAllowedNames, instead of naming variables: other variables
+// move the file the child reads (CLAUDE_CONFIG_DIR moves the whole config dir;
+// CLAUDE_CODE_CUSTOM_OAUTH_URL makes it read .claude-custom-oauth.json), and
+// claude 2.1.268 lists 841 CLAUDE_*/ANTHROPIC_* names that change every release.
 //
-// Everything above states HOME (and CLAUDE_CONFIG_DIR) so the child cannot
-// INHERIT a config home nobody chose. Three independent reviews then broke that
-// shape three times, each in the same way: another environment variable was
-// found that moves the file the child reads, and every check we had still
-// reported success. CLAUDE_CONFIG_DIR moved the whole config directory;
-// CLAUDE_CODE_CUSTOM_OAUTH_URL made the child read
-// <config home>/.claude-custom-oauth.json while pre-trust wrote .claude.json.
-//
-// Naming the newly-found variable is not a fix, it is the next round of the
-// same game: `strings` on claude 2.1.268 lists 841 distinct CLAUDE_*/ANTHROPIC_*
-// names, and the set changes every release. So the launch line no longer names
-// anything. It DELETES THE WHOLE CLAUDE_* FAMILY from the child's environment
-// and lets through only the names in claudeEnvAllowedNames — a whitelist, so a
-// variable we have never heard of is handled by construction rather than by
-// having been predicted.
-//
-// WHY NOT ANTHROPIC_* TOO — measured, 2026-09-11, claude 2.1.268, not reasoned.
-// Running `claude config ls` under a throwaway HOME and watching which directory
-// the config layout appears in:
-//
-//	CLAUDE_CONFIG_DIR=D              → the layout lands in D          (moves it)
-//	CLAUDE_CODE_CUSTOM_OAUTH_URL=... → nothing lands in $HOME at all  (moves it)
-//	ANTHROPIC_CONFIG_DIR=D           → the layout lands in $HOME      (no effect)
-//	CLAUDE_SECURESTORAGE_CONFIG_DIR=D→ the layout lands in $HOME      (no effect)
-//
-// So ANTHROPIC_* has no measured power over WHICH file is read, while it does
-// carry the two direct credentials the spawn gate accepts (claudeCredEnvKeys).
-// Purging it would log out every host that authenticates that way, to buy a
-// guarantee no measurement supports. It is left alone deliberately.
-//
-// WHAT THE WHITELIST HOLDS. Only the CLAUDE_* names the warden ITSELF already
-// recognises as a credential source — derived from claudeCredEnvKeys rather
-// than re-typed, so the two lists cannot drift apart. Those are the CLAUDE_*
-// names the warden accepts as a login: two managed-cloud selectors (Bedrock /
-// Vertex) and one long-lived token (CLAUDE_CODE_OAUTH_TOKEN). Dropping any of
-// them turns a working host into a logged-out child.
-// ---------------------------------------------------------------------------
-
-// claudeEnvPurgePrefix is the family the launch line clears. One prefix, not a
-// list of names: the whole point is that membership is decided by shape, so a
-// name nobody here has ever seen is already covered.
+// ANTHROPIC_* is left alone deliberately — measured, not reasoned (claude
+// 2.1.268): ANTHROPIC_CONFIG_DIR does not move the config layout, and the family
+// carries the direct credentials the spawn gate accepts (claudeCredEnvKeys), so
+// purging it would log those hosts out.
 const claudeEnvPurgePrefix = "CLAUDE_"
 
-// claudeEnvAllowedNames are the CLAUDE_* names that survive the purge. Derived
-// from claudeCredEnvKeys — the warden's own definition of "an env-carried claude
-// credential" — so adding a credential source there cannot silently leave the
-// launch line stripping it back out.
 func claudeEnvAllowedNames() []string {
 	out := make([]string, 0, len(claudeCredEnvKeys))
 	for _, k := range claudeCredEnvKeys {
@@ -200,47 +128,23 @@ func claudeEnvAllowedNames() []string {
 	return out
 }
 
-// claudeEnvPurgeFragment renders the shell fragment that performs the purge. It
-// belongs on the launch line AFTER the agent env render is sourced — the render
-// is one of the two places an unknown CLAUDE_* arrives from (the other is the
-// warden's own environment), so a purge placed above it clears nothing.
+// The fragment must sit on the launch line AFTER the agent env render is
+// sourced — the render is one of the places an unknown CLAUDE_* arrives from, so
+// a purge placed above it clears nothing.
 //
-// SHELL NOTES, each of which is a way this could have shipped broken:
-//
-//   - /usr/bin/env is ABSOLUTE for the same measured reason /bin/cat is on the
-//     OC_TOKEN line: the owner's env file is sourced first and may leave PATH in
-//     any state at all, and a bare `env` that fails to resolve makes this
+//   - /usr/bin/env is ABSOLUTE (as /bin/cat is on the OC_TOKEN line): the owner's
+//     env file may leave PATH in any state, and an unresolved `env` makes the
 //     fragment a silent no-op.
-//   - The loop word-splits `$(/usr/bin/env)`, so a value containing spaces or
-//     newlines produces junk words. That is SAFE here rather than merely
-//     tolerated: a junk word either fails the CLAUDE_*=* pattern and is skipped,
-//     or it looks like a CLAUDE_* assignment and causes one extra unset of a
-//     variable this fragment was going to delete anyway.
-//   - The name is checked against [!A-Za-z0-9_] before `unset`, so a malformed
-//     word can never reach `unset` as a non-identifier and print a shell error
-//     onto the agent's first line. KNOWN AND ACCEPTED CONSEQUENCE: a variable
-//     whose NAME is not an identifier (`CLAUDE_WITH SPACES`, settable only via
-//     execve, never by a shell) survives. POSIX `unset` cannot remove such a
-//     name either, and claude looks its settings up by identifier names, so
-//     this is a gap with no reachable exploit rather than a silent hole.
-//   - Verified to behave identically under /bin/zsh, /bin/bash, /bin/sh and
-//     /bin/dash, including the space-carrying-value case — by execution, not by
-//     recollection: TestBuildLaunchCommandWithEnv runs the real prologue under
-//     every one of those that exists on the host. tmux launches the child under
-//     its default-shell (/bin/zsh on these machines), so a check pinned to
-//     /bin/sh would be measuring a dialect production never uses.
+//   - The identifier check before `unset` keeps a malformed word from printing a
+//     shell error onto the agent's first line.
+//   - tmux launches the child under its default-shell (/bin/zsh on these
+//     machines), not /bin/sh; TestBuildLaunchCommandWithEnv runs the prologue
+//     under every shell on the host.
 //
-// TWO WAYS THIS GOES SILENTLY DEAD, neither of which any test here can see,
-// because both are states of the shell the owner's env file left behind:
-//
-//   - IFS. The loop depends on `$(/usr/bin/env)` word-splitting on whitespace.
-//     An env file (or a .zshrc it sources) that sets IFS to something else makes
-//     the whole output one word, which matches no pattern, and the purge unsets
-//     NOTHING while still looking exactly like a purge that ran.
-//   - `typeset -r` / `readonly`. A CLAUDE_* variable marked read-only survives
-//     `unset`, and the shell prints its complaint on the agent's FIRST LINE —
-//     so the variable keeps redirecting the child AND the member opens with an
-//     error banner. The server still requires an actual wake acknowledgement.
+// TWO WAYS THIS GOES SILENTLY DEAD that no test here can see: an env file that
+// changes IFS makes `$(/usr/bin/env)` one word and the purge unsets NOTHING; and
+// a `readonly` CLAUDE_* survives `unset`, keeps redirecting the child, and puts
+// the shell's complaint on the agent's FIRST LINE.
 func claudeEnvPurgeFragment() string {
 	var b strings.Builder
 	b.WriteString("for __oc_e in $(/usr/bin/env); do case $__oc_e in ")

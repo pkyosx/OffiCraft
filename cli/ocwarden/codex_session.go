@@ -1,11 +1,9 @@
 package main
 
-// codex_session.go is the Codex counterpart to Claude's direct TUI launch.
-// A small ocwarden sidecar owns one stdio Codex App Server, performs the
-// initialize/thread/turn handshake, starts ocagent listen after the boot turn,
-// and translates listener output into turn/start or turn/steer calls. This
-// keeps lifecycle and SSE ownership identical to the existing Claude design
-// without requiring a human to attach to a TUI.
+// codex_session.go is the Codex counterpart to Claude's direct TUI launch: an
+// ocwarden sidecar owns one stdio Codex App Server and turns `ocagent listen`
+// output into turn/start or turn/steer calls, keeping lifecycle and SSE
+// ownership identical to the Claude design.
 
 import (
 	"bufio"
@@ -26,8 +24,6 @@ import (
 	"time"
 )
 
-// reportRejectedCodexPost makes a refused best-effort report visible to the
-// sidecar operator without changing its deliberately non-blocking flow.
 func (s *codexSession) reportRejectedCodexPost(path string, status int) {
 	if status >= http.StatusBadRequest {
 		s.activity("Codex POST %s rejected with HTTP %d", path, status)
@@ -73,23 +69,10 @@ func buildCodexLaunchCommand(wardenBin, codexBin, workdir, personaFile, tokenFil
 	return cd + exports + "exec " + strings.Join(parts, " ")
 }
 
-// normalizeCodexEffort maps the member's configured effort onto the value the
-// Codex sidecar is actually started with, and reports whether it RECOGNISED it.
-//
-// The second return is the whole point. Until T-131 this was a bare string and
-// the default arm swallowed every unknown level into "medium" — selectable in
-// the cockpit, storable, readable back, and wrong only in the one place nobody
-// can see. Nothing went red for it.
-//
-// It still coerces rather than refusing: a warden binary is upgraded separately
-// from the server (ocwarden upgrade), so a server that has grown a level always
-// runs ahead of some warden for a while. Refusing there would turn "launched at
-// the wrong effort" into "this member cannot boot at all", and this package's
-// spawn path is fail-safe by construction everywhere else (a missing agent-env
-// file, an unstampable claude path, a failed anchor cutover all log and carry
-// on; only a nudge-eating pretrust failure aborts, because that one spawns a
-// zombie). A session at medium is a working session. So the coercion stays and
-// the SILENCE goes: the caller says it out loud.
+// Coerces rather than refuses: a warden is upgraded separately from the
+// server, so a server that has grown a level runs ahead of some warden for a
+// while, and refusing would turn "wrong effort" into "cannot boot at all". The
+// second return exists so the caller says the coercion out loud.
 func normalizeCodexEffort(effort string) (string, bool) {
 	switch strings.TrimSpace(effort) {
 	case "low", "medium", "high", "xhigh", "max":
@@ -151,52 +134,29 @@ type codexSession struct {
 	telemetryMu      sync.Mutex
 	lastUsageReport  time.Time
 	forceUsageReport bool
-	// rateLimitReadID is the one in-flight refresh requested after an OffiCraft
-	// SSE reconnect. Responses arrive on the same App Server stream as events.
-	rateLimitReadID int
-	// completedCompactions makes the App Server's item/completed stream
-	// idempotent. Replayed notifications must not look like fresh context
-	// compactions and accidentally recycle a just-booted agent.
+	rateLimitReadID  int
+	// Replayed item/completed notifications must not look like fresh
+	// compactions and recycle a just-booted agent.
 	completedCompactions map[string]struct{}
 
-	// ── delivery bookkeeping (T-48) ──────────────────────────────────────────
-	// pending is every turn/start and turn/steer this sidecar has sent and not
-	// yet heard back about. Before T-48 the id `send` returned was DROPPED on
-	// the floor and the loop skipped every response it saw, so a refused
-	// turn/steer — the expectedTurnId goes stale the moment turn/completed is
-	// in flight and the loop has not read it yet — produced exactly nothing:
-	// no retry, no line in the pane, and a listener that had already marked the
-	// message read. The message was gone and every party thought it had landed.
 	pending map[int]*codexDelivery
-	// batch is the delivery group currently being collected: everything
-	// forwarded since the listener's last `batch <token>` marker.
-	batch *codexBatch
-	// ackTo is the listener's stdin. nil ⇒ no listener yet (or none possible),
-	// and then a batch verdict has nowhere to go and is dropped.
-	ackTo io.Writer
+	batch   *codexBatch
+	ackTo   io.Writer
 }
 
-// codexDelivery is ONE in-flight attempt to put a piece of text into the
-// model's conversation, kept so the App Server's answer can be judged instead
-// of discarded.
 type codexDelivery struct {
-	method string // "turn/start" or "turn/steer"
+	method string
 	text   string
-	batch  *codexBatch // the group this delivery answers for; nil ⇒ none
+	batch  *codexBatch
 }
 
-// codexBatch is the set of deliveries the listener printed under one batch
-// token. The listener is BLOCKED on this verdict: until it arrives it files no
-// read receipt and records nothing as seen, so a batch that never lands is
-// printed again on the next drain rather than lost.
-//
-// The verdict is deliberately group-wide and pessimistic: one failed delivery
-// nacks the whole batch, which costs a re-print — the safe direction — while
-// the alternative costs a message nobody will ever see again.
+// The listener is BLOCKED on this batch's verdict: until it arrives it files no
+// read receipt, so a batch that never lands is printed again on the next drain.
+// One failed delivery nacks the whole batch — a re-print is the safe direction.
 type codexBatch struct {
 	token       string
-	closed      bool // the marker arrived; no more deliveries join
-	outstanding int  // deliveries still waiting for an App Server answer
+	closed      bool
+	outstanding int
 	failed      bool
 	answered    bool
 }
@@ -216,76 +176,19 @@ func (s *codexSession) allowUsageReport() bool {
 	return true
 }
 
-// codexAccountKeyVersion versions the *input semantics* of the hash, not the
-// hash algorithm. v1 hashed the workspace id; v2 hashes the person. Bumping it
-// keeps the two generations of keys from silently merging into one row.
-//
-// What actually happens on upgrade (verified against the server fold, not
-// assumed): the accounts overview groups by the key an actor is reporting
-// RIGHT NOW, and `banked_cost` is a durable per-actor column that the fold adds
-// under that current key. So the moment a warden is upgraded,
-//
-//   - the v1 row does NOT freeze — no actor reports it any more, so the row
-//     disappears from /api/monitoring entirely;
-//   - each actor's banked history immediately re-attaches to that machine's v2
-//     personal key, i.e. money that used to sit in the shared workspace row is
-//     re-credited to whoever is logged in on that machine now;
-//   - what really is stranded is the owner's hand-set alias: `account_alias`
-//     rows are keyed on the v1 string and become orphans, so the owner must
-//     re-alias the new key once. Until they do, the cockpit shows a bare
-//     `codex:…` digest in that row.
-//
-// Operational consequence #1 — a mixed fleet shows one person as TWO rows for
-// as long as it stays mixed (old wardens still send v1, new ones send v2). It
-// converges only when the last warden is upgraded, so upgrade the fleet in one
-// pass rather than trickling it.
+// Versions the hash's input semantics (v1 hashed the workspace id, v2 hashes
+// the person) so the two generations never merge into one row. A mixed fleet
+// shows one person as TWO rows until the last warden is upgraded, and the
+// owner's `account_alias` rows keyed on v1 become orphans that must be
+// re-aliased once.
 const codexAccountKeyVersion = "officraft-codex-account-v2:"
 
-// codexAccountKey derives a stable opaque key for the *person* logged into
-// Codex on this machine. Both directions matter and v1 only got one of them
-// right:
-//
-//   - the same ChatGPT user on two machines must map to ONE monitoring
-//     account (that part v1 did satisfy), and
-//   - two different ChatGPT users must map to TWO monitoring accounts.
-//
-// v1 hashed `tokens.account_id`, which is the ChatGPT *workspace/organization*
-// id (verified locally: it is byte-identical to the id_token's
-// `chatgpt_account_id` claim). Everyone in one workspace therefore collapsed
-// into a single monitoring row: their spend was summed with no way to tell who
-// burned it, and the 5h/7d usage windows — which keep "whichever report
-// arrived last" on the assumption that one key means one quota — showed people
-// with separate quotas fighting over one row.
-//
-// The identifier chosen instead is the id_token claim
-// `https://api.openai.com/auth`.`chatgpt_user_id`: it is ChatGPT's own opaque
-// per-person id ("user_..."), identical on every machine that person logs in
-// from, and unchanged by token refresh (a refresh mints a new id_token with the
-// same claim). Rejected alternatives:
-//
-//   - `tokens.account_id` / `chatgpt_account_id` — workspace scoped: the bug.
-//   - `email` / `name` — human-mutable and PII; a key must survive a rename and
-//     must not carry identity in cleartext. They are fine as a *label*, which
-//     is a separate field, never as the key input.
-//   - `sub` — the IdP subject ("google-oauth2|..."), scoped to the login
-//     connection. The same person switching from Google SSO to a password
-//     login would look like a new account.
-//   - `https://api.openai.com/auth`.`user_id` — observed equal to
-//     chatgpt_user_id, so it adds no discrimination; accepting it as a silent
-//     alias would only create two ways to spell the same key.
-//   - `sid` / `jti` / `at_hash` — per-session or per-token; they change on
-//     every refresh.
-//   - `chatgpt_plan_type`, `organizations`, `groups` — attributes of the
-//     account, not identities of the person.
-//
-// The workspace id is deliberately NOT mixed in: a person's Codex quota follows
-// the person, so folding the workspace into the key would split one human's
-// history the day their workspace membership changes. Caveat we did not verify:
-// if a single ChatGPT user can hold two independently-metered quotas at once
-// (say a personal plan plus a business seat), this key would still merge them.
-//
-// The key stays an irreversible sha256 with a versioned prefix, and the raw
-// claim is never returned, logged, or posted anywhere.
+// Keyed on the id_token claim `https://api.openai.com/auth`.`chatgpt_user_id`:
+// per person, identical on every machine, unchanged by token refresh. Rejected:
+// account_id / chatgpt_account_id (workspace-scoped — everyone in a workspace
+// collapsed into one row), email / name (mutable, PII), `sub` (changes with the
+// login connection), sid / jti / at_hash (per token). The workspace id is
+// deliberately NOT mixed in. The raw claim is never returned, logged, or posted.
 func codexAccountKey() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -294,8 +197,7 @@ func codexAccountKey() string {
 	return codexAccountKeyForHome(home)
 }
 
-// codexAccountKeyForHome is the injectable half of codexAccountKey. Tests must
-// never be pointed at a real home directory: ~/.codex/auth.json holds live
+// Tests must never point this at a real home: ~/.codex/auth.json holds live
 // credentials.
 func codexAccountKeyForHome(home string) string {
 	raw, err := os.ReadFile(filepath.Join(home, ".codex", "auth.json"))
@@ -318,30 +220,14 @@ func codexAccountKeyForHome(home string) string {
 	return "codex:" + fmt.Sprintf("%x", sum[:])
 }
 
-// codexUserIDFromIDToken reads the per-person claim out of the locally stored
-// id_token. The signature is deliberately NOT verified: this file is not a
-// trust boundary, it is Codex's own credential store on this machine, and
-// anyone who can rewrite it can already act as that account.
+// The signature is deliberately not verified: this is Codex's own local
+// credential store, not a trust boundary.
 //
-// Every failure mode — no file, unparsable JSON, a token that is not three
-// dot-separated segments, undecodable base64url, payload that is not an
-// object, claim absent or blank — returns the empty string, which OffiCraft
-// reads as "this machine has no identifiable Codex account". Falling back to
-// the workspace id would be worse than reporting nothing: it would silently
-// restore the v1 collision on exactly the machines whose id_token we could not
-// read, and nothing in the telemetry would show which ones those were.
-//
-// Operational consequence #2, and the likeliest thing here to bite later:
-// fail-empty is SILENT on the wire. `applyAccountReport` treats "account empty
-// + runtime present" as a no-op — it neither stores nor clears the pairing — so
-// a machine that stops being able to read the claim keeps being served under
-// its last successfully reported key until the server restarts, and no
-// telemetry field distinguishes "this machine has no Codex account" from "this
-// machine could not read one". That is an accepted trade-off, not an oversight:
-// the obvious "fix" — falling back to the workspace id — is exactly the defect
-// this function exists to remove. If it ever needs solving, solve it
-// server-side with an explicit unknown-account signal; do not reintroduce a
-// fallback here.
+// Every failure returns "" — never fall back to the workspace id, which would
+// silently restore the v1 collision. Accepted trade-off: the server treats an
+// empty account as a no-op, so a machine that stops reading the claim keeps its
+// last key until the server restarts; if that needs solving, solve it
+// server-side.
 func codexUserIDFromIDToken(idToken string) string {
 	parts := strings.Split(strings.TrimSpace(idToken), ".")
 	if len(parts) != 3 {
@@ -362,9 +248,8 @@ func codexUserIDFromIDToken(idToken string) string {
 	return strings.TrimSpace(claims.OpenAI.ChatGPTUserID)
 }
 
-// activity is the human-readable, tmux-visible companion to the headless
-// App Server protocol. It intentionally describes lifecycle only, never raw
-// model prompts, tool arguments, or response bodies.
+// Lifecycle only — never raw model prompts, tool arguments, or response
+// bodies.
 func (s *codexSession) activity(format string, args ...any) {
 	if s.out == nil {
 		return
@@ -435,10 +320,6 @@ func (s *codexSession) waitResponse(id int) (appServerMessage, error) {
 	}
 }
 
-// startTurn opens a fresh turn carrying `text` and REGISTERS the request, so
-// the answer that comes back can be judged. `batch` is the delivery group this
-// turn answers for (nil for the boot turn and anything else nobody is waiting
-// on).
 func (s *codexSession) startTurn(text string, batch *codexBatch) {
 	s.activity("turn started")
 	params := map[string]any{
@@ -467,11 +348,6 @@ func (s *codexSession) steerOrStart(text string, batch *codexBatch) {
 	s.startTurn(text, batch)
 }
 
-// ---------------------------------------------------------------------------
-// delivery confirmation (T-48) — from "we wrote some JSON" to "it landed".
-// ---------------------------------------------------------------------------
-
-// track remembers one in-flight request and counts it into its batch.
 func (s *codexSession) track(id int, d *codexDelivery) {
 	if id == 0 {
 		return
@@ -485,24 +361,13 @@ func (s *codexSession) track(id int, d *codexDelivery) {
 	}
 }
 
-// resolveResponse judges an App Server answer to something WE sent. An id this
-// sidecar is not tracking (anything the boot handshake already consumed) is
-// skipped exactly as the loop always skipped it.
+// ⚠️ Three wirings in runCodexSession's select loop are pinned by no test: the
+// call to this method, `s.ackTo = ackPipe`, and `listenerCmd.Env =
+// codexListenerEnv(...)`. Delete any of them and every test stays green while
+// acks stop (every drain blocks forever) or the listener never enters ack mode.
 //
-// ⚠️ RESIDUE, RECORDED RATHER THAN CLOSED — the same one this file already
-// carries for handleListenerLine. THREE WIRINGS INSIDE runCodexSession's select
-// loop are held up by nothing: the call to this method, `s.ackTo = ackPipe`, and
-// `listenerCmd.Env = codexListenerEnv(...)`. Delete any of them and every test
-// here stays green while the protocol silently degrades — no acks would ever be
-// written (every drain blocks forever), or the listener would never enter ack
-// mode at all. Driving that loop needs a real App Server; what is pinned instead
-// is everything the loop calls, one seam down.
-//
-// NO ERROR ⇒ delivered. ERROR ⇒ not delivered, and a refused turn/steer gets ONE
-// second chance as a fresh turn: the common refusal is a stale expectedTurnId
-// (turn/completed is in flight and this loop has not read it yet), and the same
-// text opened as a new turn is exactly what the session would have done had it
-// read that notification first.
+// A refused turn/steer gets ONE second chance as a fresh turn: the common
+// refusal is a stale expectedTurnId (turn/completed is in flight and unread).
 func (s *codexSession) resolveResponse(id int, msg appServerMessage) {
 	d, ok := s.pending[id]
 	if !ok {
@@ -531,17 +396,10 @@ func (s *codexSession) resolveResponse(id int, msg appServerMessage) {
 	s.settleBatch(d.batch)
 }
 
-// confirmStartedTurn resolves the pending turn/start that the App Server has
-// just announced it began.
-//
-// 🔴 WHY A SECOND PIECE OF EVIDENCE AT ALL. The listener BLOCKS on this
-// sidecar's verdict, so anything that delays the verdict makes the member deaf
-// for that long. If turn/start's response only comes back when the turn ENDS,
-// waiting for it alone would keep the listener silent for the whole turn — no
-// steering, no chat, for minutes. `turn/started` is the App Server saying it
-// accepted the turn, which is all "it reached the conversation" needs; whichever
-// evidence arrives first settles the delivery and the other is then a response
-// for an id nobody is tracking, which the loop skips as it always has.
+// Why a second piece of evidence: the listener blocks on this sidecar's
+// verdict, and turn/start's response may only arrive when the turn ENDS, which
+// would leave the member deaf for the whole turn. `turn/started` suffices;
+// whichever evidence arrives first settles the delivery.
 func (s *codexSession) confirmStartedTurn() {
 	oldest := 0
 	for id, d := range s.pending {
@@ -568,8 +426,6 @@ func (s *codexSession) confirmDelivered(d *codexDelivery) {
 	s.settleBatch(d.batch)
 }
 
-// codexDeliveryLabel keeps the pane line one line long. The pane is a lifecycle
-// log, not a transcript copy.
 func codexDeliveryLabel(text string) string {
 	text = strings.TrimSpace(text)
 	if i := strings.IndexByte(text, '\n'); i >= 0 {
@@ -581,15 +437,12 @@ func codexDeliveryLabel(text string) string {
 	return text
 }
 
-// closeBatch is the listener's `batch <token>` marker: no more deliveries join
-// this group, and the moment the last one is answered the verdict goes back.
 func (s *codexSession) closeBatch(token string) {
 	group := s.batch
 	s.batch = nil
 	if group == nil {
-		// The marker closed a batch that forwarded nothing. There is nothing
-		// that could have been lost, so it is confirmed rather than left open —
-		// the listener is blocked on this line.
+		// An empty batch is confirmed, not left open: the listener is blocked on
+		// this line.
 		group = &codexBatch{}
 	}
 	group.token = token
@@ -597,7 +450,6 @@ func (s *codexSession) closeBatch(token string) {
 	s.settleBatch(group)
 }
 
-// currentBatch is the group a listener-driven delivery joins.
 func (s *codexSession) currentBatch() *codexBatch {
 	if s.batch == nil {
 		s.batch = &codexBatch{}
@@ -605,7 +457,6 @@ func (s *codexSession) currentBatch() *codexBatch {
 	return s.batch
 }
 
-// settleBatch writes the verdict once the group is closed and quiet.
 func (s *codexSession) settleBatch(group *codexBatch) {
 	if group == nil || !group.closed || group.answered || group.outstanding > 0 {
 		return
@@ -661,9 +512,6 @@ func (s *codexSession) post(path string, payload map[string]any) {
 	}
 }
 
-// reportIdentity is deliberately tiny: it is safe to send at session start,
-// after an SSE reconnect, and as the throttled heartbeat without waiting for a
-// token event.
 func (s *codexSession) reportIdentity() {
 	s.post("/api/monitoring/telemetry", map[string]any{
 		"runtime": "codex", "account": s.account, "account_label": "ChatGPT",
@@ -677,8 +525,7 @@ func (s *codexSession) requestRateLimits() {
 }
 
 // App Server versions have returned the snapshot both directly and nested in
-// `rateLimits`; notifications always use the nested form. Normalize at the
-// boundary so reconnect recovery works across both shapes.
+// `rateLimits`; notifications always use the nested form.
 func rateLimitSnapshot(result map[string]any) map[string]any {
 	if nested, _ := result["rateLimits"].(map[string]any); nested != nil {
 		return nested
@@ -695,7 +542,7 @@ func (s *codexSession) reportTokenUsage(params map[string]any) {
 	last, _ := usage["last"].(map[string]any)
 	window := jsonNumber(usage["modelContextWindow"])
 	// "total" is cumulative across the thread and can exceed one context
-	// window after a few turns. "last" is the current turn's context gauge.
+	// window; "last" is the current turn's context gauge.
 	used := jsonNumber(last["totalTokens"])
 	if window > 0 {
 		s.activity("context %.0f%% · compact %d", used/window*100, s.compactions)
@@ -717,25 +564,15 @@ func (s *codexSession) reportTokenUsage(params map[string]any) {
 		"runtime": "codex", "tokens": tokens, "effort": s.effort,
 		"account": s.account, "account_label": "ChatGPT",
 	}
-	// The codex twin of the claude reporter's model telemetry. This sidecar is
-	// the only thing on the codex path that knows which model the session is
-	// actually running, so without this the cockpit's 模型 column has no reported
-	// value for ANY codex session and has to fall back to the launch setting.
-	//
-	// Blank is OMITTED, not sent as "": a blank s.model means the OffiCraft launch
-	// model was unset and the machine's own Codex default is in force (see
-	// codexPersonaInstruction), i.e. we genuinely do not know the name. Sending ""
-	// would record that unknown as a reported blank, which is the exact
-	// "measured" vs "never measured" collapse this field exists to end.
+	// A blank model is OMITTED, not sent as "": it means the machine's Codex
+	// default is in force and the name is unknown, and "" would record that
+	// unknown as a reported blank.
 	if m := strings.TrimSpace(s.model); m != "" {
 		body["model"] = m
 	}
 	s.post("/api/monitoring/telemetry", body)
 }
 
-// reportRateLimits maps the App Server's primary/secondary rolling windows to
-// OffiCraft's existing five_hour/seven_day monitoring shape. When Codex only
-// provides the weekly window, five_hour stays absent rather than fabricated.
 func (s *codexSession) reportRateLimits(snapshot map[string]any) {
 	windows := map[string]any{}
 	for _, key := range []string{"primary", "secondary"} {
@@ -759,9 +596,8 @@ func (s *codexSession) reportRateLimits(snapshot map[string]any) {
 	})
 }
 
-// recordCompaction consumes the current App Server signal. Context compaction is
-// an item, not a turn: counting the completed item avoids guessing from token
-// percentages and intentionally ignores the deprecated thread/compacted echo.
+// Compaction is an item, not a turn; the deprecated thread/compacted echo is
+// intentionally ignored.
 func (s *codexSession) recordCompaction(params map[string]any) {
 	item, _ := params["item"].(map[string]any)
 	if item == nil || item["type"] != "contextCompaction" {
@@ -769,7 +605,7 @@ func (s *codexSession) recordCompaction(params map[string]any) {
 	}
 	id, _ := item["id"].(string)
 	if id == "" {
-		return // completion events are item-addressed; never count an anonymous echo
+		return
 	}
 	if s.completedCompactions == nil {
 		s.completedCompactions = make(map[string]struct{})
@@ -785,18 +621,8 @@ func (s *codexSession) recordCompaction(params map[string]any) {
 	s.activity("context compacted · count %d", s.compactions)
 }
 
-// codexOpenYourOwnCardMessage is what Codex gets back instead of a card the
-// warden minted for it: an instruction to open the card ITSELF, through the
-// tool, where it can name the task and step the question is actually about.
-//
-// 🔴 THE SECRET WARNING RIDES HERE, AND IT HAS TO. While the warden opened the
-// card it inspected question["isSecret"] and, for a credential ask, put "do not
-// paste the secret into the card" into the card body itself. Nothing executes
-// that path any more. If the sentence did not move into THIS text, Codex would
-// go and open its own card for a password or an API key with nothing anywhere
-// telling it not to type the secret into the body — the guard would be gone and
-// its absence would be silent, which is the failure mode this whole ticket is
-// about.
+// 🔴 The secret warning must ride in THIS text: the warden no longer opens the
+// card, so nothing else tells Codex not to type a secret into the card body.
 func codexOpenYourOwnCardMessage(question map[string]any) string {
 	message := "OffiCraft does not open reply cards on your behalf. Open it yourself with the " +
 		"create_reply_card tool, then end this turn and wait for its SSE answer event. " +
@@ -820,19 +646,9 @@ func (s *codexSession) handleServerRequest(msg appServerMessage) {
 	enc := json.NewEncoder(s.in)
 	switch method {
 	case "item/tool/requestUserInput":
-		// T-18: the warden no longer opens the card ON CODEX'S BEHALF. It could
-		// not do the job honestly — it holds no task_id and no step_id, so every
-		// card it minted here went out asking the server to GUESS the binding,
-		// and a guess that missed produced a card with no 等我回覆 hold that the
-		// owner's answer would later be refused for. create_reply_card now
-		// requires an explicit linked_task, and the only party that knows what
-		// work this question is about is Codex itself. So this arm REFUSES and
-		// says so, the same shape mcpServer/elicitation/request has always used.
-		//
-		// The structure is unchanged: this always answered Codex with a line of
-		// text rather than parking it — a sidecar that made the model wait on a
-		// terminal round-trip loses the whole turn the moment the connection
-		// drops. Only the sentence is different.
+		// The warden does not open the card on Codex's behalf: it holds no
+		// task_id / step_id, and create_reply_card requires linked_task. Answer
+		// with text rather than parking the model on a terminal round-trip.
 		answers := map[string]any{}
 		questions, _ := params["questions"].([]any)
 		for _, raw := range questions {
@@ -851,38 +667,15 @@ func (s *codexSession) handleServerRequest(msg appServerMessage) {
 	}
 }
 
-// codexListenerActions decides what ONE listener line does to the session:
-// whether it wakes a session whose boot is still unfinished, and whether it is
-// forwarded to the model as a turn. It is a pure function so the decision can be
-// tested without an App Server — the loop below owns only the side effects.
-// codexListenerState carries the once-only wake flag across listener lines.
 type codexListenerState struct{ wakeSent bool }
 
-// handleListenerLine runs the side effects ONE listener line is owed, with the
-// effects injected so the branching can be driven without an App Server.
-//
-// 🔴 THE DECISION TABLE IS NOT THE BEHAVIOUR. An earlier version of this
-// package pinned only codexListenerActions, and independent review deleted both
-// the wake call and the flag write from the loop with the whole ocwarden suite
-// still green — the ticket's entire reason for existing could be removed and
-// nothing turned red. A pure function says what SHOULD happen; this seam is
-// what lets a test see that it DID.
-//
-// ⚠️ ONE RESIDUE, AND WHAT HOLDS IT IS AN ACCIDENT. Deleting the CALL to this
-// method from the listener loop still leaves the whole ocwarden suite green;
-// what reddens is `uplink-guard`, because uplinks.json's codex-hop-4 anchors on
-// the reportIdentity/requestRateLimits pair that happens to live in the closure
-// passed here. That is INCIDENTAL COVERAGE, not design — move those two calls
-// out of the closure and the residue reopens with nothing to announce it.
-// Recorded rather than closed: closing it properly needs a test that drives the
-// real loop, and the review (T-99a6) judged the residue non-blocking.
+// ⚠️ Deleting the CALL to this method leaves the whole ocwarden suite green;
+// only uplink-guard reddens, incidentally, because uplinks.json's codex-hop-4
+// anchors on the reportIdentity/requestRateLimits pair in the closure passed
+// here. Move those calls out and nothing announces the loss.
 func (st *codexListenerState) handleListenerLine(
 	line string, onConnect func(), openTurn func(string), onBatch func(string),
 ) {
-	// The batch marker is PROTOCOL, addressed to this sidecar and to nobody
-	// else. It is handled before anything else and never reaches the model —
-	// codexListenerActions independently agrees (it wears the transport head the
-	// blanket filter swallows), so the two cannot disagree about it.
 	if token, ok := codexBatchToken(line); ok {
 		if onBatch != nil {
 			onBatch(token)
@@ -893,17 +686,10 @@ func (st *codexListenerState) handleListenerLine(
 	if strings.HasPrefix(strings.TrimSpace(line), noticeConnectedPrefix) {
 		onConnect()
 	}
-	// ONCE per session, and deliberately not on reconnects: this wake exists to
-	// continue a boot that has not finished, and by the second connect that boot
-	// is long over. A reconnect is a network blip — every one of them opening a
-	// fresh "go do your inventory" turn would spend tokens re-doing work and
-	// would interrupt whatever the agent is actually in the middle of.
-	//
-	// ⚠️ THE RECONNECT IS STILL REPORTED, just not as THIS turn. Since the
-	// disconnect-notice policy (owner, 2026-08-30) the connected line is itself a
-	// forwardable notice, so the second connect reaches the agent as one short
-	// line rather than as a second boot instruction. The two must never both fire
-	// for one line — see codexListenerActions.
+	// ONCE per session, not on reconnects: the wake continues an unfinished
+	// boot, and re-opening it on every blip would re-do work and interrupt
+	// the agent. A later connect is forwarded as the reconnect notice
+	// instead (owner's disconnect-notice policy, 2026-08-30).
 	if wake {
 		st.wakeSent = true
 		openTurn(codexPostBootWake)
@@ -913,51 +699,30 @@ func (st *codexListenerState) handleListenerLine(
 	}
 }
 
-// openListenerTurn is the LAST STEP OF THE DELIVERY: the one place where a line
-// the decision table said to forward actually becomes a turn on the model.
-//
-// 🔴 IT IS A NAMED METHOD BECAUSE AN ANONYMOUS CLOSURE INSIDE THE LOOP WAS
-// UNREACHABLE FROM ANY TEST. Independent review replaced this body's
-// `s.steerOrStart(text)` with `_ = text` inside runCodexSession's select loop:
-// the whole ocwarden suite went green and so did uplink-guard, while EVERY
-// forwarded notice AND every chat/task event silently stopped reaching the
-// model. The decision table was fully pinned; the delivery was not pinned by
-// anything at all. Pulling it out here is what gives a test something to call:
-// it can be driven against a real codexSession and the App Server bytes it
-// writes can be read back.
+// A named method, not a closure inside the loop, so a test can drive the
+// delivery: replacing it with a no-op inside the loop left every suite green.
 func (s *codexSession) openListenerTurn(text string) {
 	if text == codexPostBootWake {
 		s.activity("waking the session now that SSE is up")
 	} else {
 		s.activity("OffiCraft event: %s", text)
 	}
-	// Everything the listener printed since its last marker belongs to the same
-	// batch, whatever it was about: if any of it failed to land, the safe answer
-	// to the listener is "do not mark this window read".
 	s.steerOrStart(text, s.currentBatch())
 }
 
-// codexListenerEnv is the environment the sidecar hands its ocagent child. It
-// adds exactly one thing: the flag that puts the listener into ack mode, so it
-// stops treating a printed line as a delivered one and waits for this sidecar to
-// say the batch really reached the model's conversation.
-//
-// It is a function so a test can see the flag without running a real listener —
-// a child started without it looks completely healthy and loses mail silently.
+// The ack-mode flag: a listener child started without it looks healthy and
+// loses mail silently.
 func codexListenerEnv(base []string) []string {
 	return append(append([]string{}, base...), listenAckEnv+"=1")
 }
 
-// codexBatchToken reads the listener's end-of-batch marker
-// (`[ocagent] listen: batch <token>`). The token is opaque here — it is echoed
-// back verbatim, so its shape is the listener's business.
 func codexBatchToken(line string) (string, bool) {
 	rest, ok := strings.CutPrefix(strings.TrimSpace(line), noticeBatchPrefix)
 	if !ok {
 		return "", false
 	}
 	// The listener stamps every transcript line with a trailing `[ts=… local]`,
-	// so the token is the FIRST field of the remainder, not the whole of it.
+	// so the token is the FIRST field of the remainder.
 	fields := strings.Fields(rest)
 	if len(fields) == 0 {
 		return "", false
@@ -968,110 +733,44 @@ func codexBatchToken(line string) (string, bool) {
 func codexListenerActions(line string, wakeAlreadySent bool) (wake, forward bool) {
 	connected := strings.HasPrefix(strings.TrimSpace(line), noticeConnectedPrefix)
 	wake = connected && !wakeAlreadySent
-	// A line never does BOTH. The boot connect opens the post-boot wake and is
-	// not also forwarded; every later connect is forwarded as the reconnect
-	// notice and wakes nothing.
 	return wake, actionableCodexListenerLine(line) && !wake
 }
 
-// listenerNoticePrefixes are the transport lines the owner's disconnect-notice
-// policy (2026-08-30) says MUST reach the agent:
+// Owner's disconnect-notice policy (2026-08-30): tell the agent at the first
+// disconnect and when the stream is back, not on every retry. The give-up line
+// is included so the agent can tell 還在重試 from 已經放棄.
 //
-//	「應該是在第一次斷線，跟連線回來的時候發訊息給 agent，中間的 retry 我們不需要
-//	 降低頻率，但是不需要打攪 agent。」
-//
-// 🔴 A CODEX MEMBER USED TO BE TOLD ABOUT ITS TRANSPORT EXACTLY ONCE, AT BOOT.
-// The blanket "[ocagent] listen:" filter below is older than the ruling and was
-// stricter than it: it dropped every disconnect and every reconnect for the
-// whole life of the session, so a codex agent could sit through a station
-// changeover with nothing in its transcript to say its stream had been down.
-// The claude runtime sat at the opposite extreme — it printed EVERY retry
-// straight into the transcript — and neither end was what the owner asked for.
-//
-// The give-up line is on this list for the reason the owner approved alongside
-// the ruling: with only the two endpoints, `斷線 → 沉默` cannot distinguish
-// 「還在重試」 from 「已經放棄」, and an agent cannot tell whether waiting is a
-// plan. ocagent prints it at every exit of its retry loop; dropping it here
-// would put the ambiguity straight back.
-//
-// These are LONG prefixes of the same "[ocagent] listen:" head, so they are
-// exceptions carved out of the filter and not a second parser: the head itself
-// still does not move (cli/ocagent/listen_run.go's prefix note).
-//
-// 🔴 THEY ARE CONSTANTS, AND THE THING THAT HOLDS THE TWO COPIES TOGETHER LIVES
-// OUTSIDE BOTH MODULES. These bytes are printed by a DIFFERENT Go module
-// (cli/ocagent/listen_run.go's notice* constants) that this one cannot import,
-// so the contract is physically two copies. Independent review moved one head
-// rightward on the producing side — `"listen: disconnected — "` →
-// `"net listen: disconnected — "` — and both suites stayed green while every
-// codex member lost its transport notices for the rest of its session.
-//
-// The check that used to catch that was a Go test in this package, and T-125's
-// rewrite of the test surface took it with it. Its replacement is bin/listen-notice-mirror-guard.py — deliberately not a
-// Go test in either module, so the next such rewrite cannot delete it by
-// accident. It reads both files, requires each consumer constant here to equal
-// the producer's line prefix plus the producer's own head, and reports a
-// renamed or deleted declaration rather than skipping it.
-//
-// ⚠️ What it catches is the two sides WALKING APART. Rename consistently on
-// both sides and it is green — that green means "these agree", never "this
-// spelling is right".
+// 🔴 These bytes are printed by a DIFFERENT Go module (cli/ocagent's notice*
+// constants) that this one cannot import; bin/listen-notice-mirror-guard.py
+// holds the two copies together. It catches the sides walking apart, not a
+// wrong spelling renamed consistently on both.
 const (
 	noticeDisconnectedPrefix = "[ocagent] listen: disconnected"
 	noticeConnectedPrefix    = "[ocagent] listen: connected"
 	noticeGivingUpPrefix     = "[ocagent] listen: giving up"
 
-	// noticeBatchPrefix is the ack protocol's end-of-batch marker (T-48). It is
-	// NOT on listenerNoticePrefixes and must never be: it is a line the two
-	// processes say to each other, and forwarding it would put protocol noise in
-	// the model's transcript. It wears the same transport head precisely so the
-	// blanket filter below swallows it by default — a marker that reached the
-	// agent would be a bug in this file, not in the listener.
+	// Protocol between the two processes — NOT on listenerNoticePrefixes and
+	// never may be; it wears the transport head so the blanket filter swallows it.
 	noticeBatchPrefix = "[ocagent] listen: batch "
 
-	// listenAckEnv is the OTHER half of the same protocol and the same physical
-	// two-copy problem: the listener reads this name from its environment
-	// (cli/ocagent/listen.go's listenAckEnv) and this module writes it onto the
-	// child. Rename it on one side only and the listener silently goes back to
-	// "printed means delivered" — no error, no line, and every message that
-	// fails to reach the model marked read anyway, which is the exact bug this
-	// protocol exists to close. The mirror guard named above compares the two
-	// spellings; until T-265 nothing did.
-	//
-	// 🔴 AND THIS ONE IS STILL NOT PINNED ON ITS OWN SIDE. The three notice heads
-	// above are at least spelled out in this module's own tests, so mistyping one
-	// HERE turns something red locally. Mistype this name and only the mirror
-	// guard objects — before it existed, BOTH modules stayed green, measured by
-	// renaming it to OC_LISTEN_ACKX and running both suites. Of everything in
-	// this block it is the cheapest to break and the most expensive when broken:
-	// the loss it causes is silent and cannot be recovered.
+	// Read by the listener from its environment (cli/ocagent/listen.go's
+	// listenAckEnv). Rename it on one side only and the listener silently goes
+	// back to "printed means delivered"; only the mirror guard pins it.
 	listenAckEnv = "OC_LISTEN_ACK"
 
-	// 🔴 THE FOURTH COPY. This is the head of the blanket filter below — the bytes that decide whether a line is
-	// transport chatter at all — and until T-4 it was a bare literal inside
-	// actionableCodexListenerLine: not a constant, not in the contract test's
-	// list, held up only INDIRECTLY by one behavioural case
-	// ("stream ended: EOF" ⇒ false). Behaviour coverage is not contract
-	// coverage: move this head rightward while the producer keeps printing
-	// "[ocagent] listen: …" and the filter stops recognising ANY transport line,
-	// so every retry diagnostic starts becoming a turn on the model — the exact
-	// noise the owner's ruling exists to swallow. It is spelled once here, and
-	// the producing side has no constant of its own to compare it against — so
-	// the mirror guard holds it to CONTAINMENT instead: it must still be a
-	// prefix of every notice the producer can print.
+	// The blanket filter's head: move it rightward while the producer keeps
+	// printing "[ocagent] listen: …" and every retry diagnostic becomes a turn.
+	// The mirror guard holds it to being a prefix of every producer notice.
 	noticeTransportHead = "[ocagent] listen:"
 )
 
 var listenerNoticePrefixes = []string{
-	noticeDisconnectedPrefix, // the first failure of an outage
-	noticeConnectedPrefix,    // back up (and whether the station changed)
-	noticeGivingUpPrefix,     // the retry loop really stopped
+	noticeDisconnectedPrefix,
+	noticeConnectedPrefix,
+	noticeGivingUpPrefix,
 }
 
 func actionableCodexListenerLine(line string) bool {
-	// Transport diagnostics belong in the pane, not in the model transcript.
-	// Sending the whole retry chatter creates empty, token-heavy turns — which
-	// is exactly the mid-outage traffic the ruling above says to swallow.
 	trimmed := strings.TrimSpace(line)
 	if !strings.HasPrefix(trimmed, noticeTransportHead) {
 		return true
@@ -1084,23 +783,11 @@ func actionableCodexListenerLine(line string) bool {
 	return false
 }
 
-// codexPostBootWake is the turn this sidecar opens ONCE, the first time the
-// listener's stream is up (T-51b0).
-//
-// 🔴 WITHOUT IT, THE BOOT SEQUENCE ENDS IN A DEAD STOP. The order the owner
-// asked for is wake → resume → SSE → continue work, and only a sidecar can
-// deliver the third arrow: this runtime's agent must NOT mount its own
-// listener, so it ends its boot turn and hands control back here. But a codex
-// agent only ever runs when a listener line is turned into a turn, and the
-// connected line above is deliberately filtered out — so the agent that just
-// handed control back would sit there until some unrelated event happened to
-// arrive. Its boot document's post-SSE steps (the task inventory) would never
-// run, and nothing anywhere would report it: an agent that never starts looks
-// exactly like an agent with nothing to do.
-//
-// The text names the STEP rather than restating it. The boot document is the
-// owner's and it moves; a copy of its wording here would be a second source of
-// truth that goes stale silently — the failure this whole ticket is made of.
+// Without this wake the boot ends in a dead stop: the codex agent must not
+// mount its own listener, it runs only when a listener line becomes a turn,
+// and the first connected line opens this wake instead of being forwarded —
+// so the post-SSE boot steps would never run. The text names the STEP rather
+// than copying the owner's boot document, which moves.
 const codexPostBootWake = "[OffiCraft sidecar] 你的事件流（SSE）已經接上了。" +
 	"請接著做開機說明裡「接上 SSE 之後」的那些步驟（盤點你手上還沒結束的任務並開始推進）。"
 
@@ -1138,8 +825,8 @@ func runCodexSession(argv []string, env func(string) string, out io.Writer) int 
 		_ = cmd.Process.Kill()
 		_ = cmd.Wait()
 	}()
-	// Normalised a SECOND time here on purpose: the sidecar is a subcommand and
-	// its --effort can come from anywhere, not only from buildCodexLaunchCommand.
+	// Normalised again on purpose: --effort can come from anywhere, not only
+	// buildCodexLaunchCommand.
 	sessionEffort, recognisedEffort := normalizeCodexEffort(*effort)
 	s := &codexSession{
 		in: stdin, messages: codexAppReader(stdout), nextID: 0,
@@ -1167,8 +854,6 @@ func runCodexSession(argv []string, env func(string) string, out io.Writer) int 
 		return 1
 	}
 	s.notify("initialized", map[string]any{})
-	// Identity is independent of token/rate-limit events. Report it immediately
-	// so a quiet Codex thread still shows its ChatGPT account in OffiCraft.
 	s.reportIdentity()
 	rateID := s.send("account/rateLimits/read", nil)
 	if response, rateErr := s.waitResponse(rateID); rateErr == nil {
@@ -1190,8 +875,8 @@ func runCodexSession(argv []string, env func(string) string, out io.Writer) int 
 	if *model != "" {
 		threadParams["model"] = *model
 	}
-	threadID := s.send("thread/start", threadParams)
-	threadResp, err := s.waitResponse(threadID)
+	threadStartID := s.send("thread/start", threadParams)
+	threadResp, err := s.waitResponse(threadStartID)
 	if err != nil {
 		fmt.Fprintf(out, "codex-session: thread/start: %v\n", err)
 		return 1
@@ -1207,10 +892,8 @@ func runCodexSession(argv []string, env func(string) string, out io.Writer) int 
 	listenerLines := make(chan string, 32)
 	listenerStarted := false
 	listenerState := &codexListenerState{}
-	// Telemetry is intentionally in-memory on the server.  A quiet App Server
-	// thread must therefore re-announce its lightweight identity after a server
-	// restart; use the same 30-second cadence as token telemetry, not a noisy
-	// per-event loop.
+	// Server telemetry is in-memory, so a quiet thread must re-announce its
+	// identity after a server restart.
 	identityHeartbeat := time.NewTicker(codexTelemetryThrottle)
 	defer identityHeartbeat.Stop()
 	var listenerCmd *exec.Cmd
@@ -1228,9 +911,6 @@ func runCodexSession(argv []string, env func(string) string, out io.Writer) int 
 				fmt.Fprintln(out, "codex-session: ocagent listen exited; ending session for reconciliation")
 				return 1
 			}
-			// ocagent emits this exact lifecycle line each time its SSE stream
-			// opens. A server restart therefore restores account telemetry
-			// immediately, then restarts the normal 30-second cadence.
 			listenerState.handleListenerLine(line,
 				func() {
 					s.reportIdentity()
@@ -1255,9 +935,6 @@ func runCodexSession(argv []string, env func(string) string, out io.Writer) int 
 					s.handleServerRequest(msg)
 					continue
 				}
-				// A response to something WE sent. Until T-48 this arm skipped
-				// every one of them, so a refused turn/steer was indistinguishable
-				// from a delivered one and the message it carried was gone.
 				s.resolveResponse(messageID(msg), msg)
 				continue
 			}
@@ -1267,8 +944,6 @@ func runCodexSession(argv []string, env func(string) string, out io.Writer) int 
 			case "turn/started":
 				s.active = true
 				s.turnID = nestedString(params, "turn", "id")
-				// The App Server accepted our turn/start: the text is in the
-				// conversation, whenever the response itself decides to arrive.
 				s.confirmStartedTurn()
 			case "turn/completed":
 				s.active = false
@@ -1279,13 +954,10 @@ func runCodexSession(argv []string, env func(string) string, out io.Writer) int 
 					listenerCmd = exec.Command(filepath.Join(*workdir, "ocagent"), "listen")
 					listenerCmd.Dir = *workdir
 					listenerCmd.Stderr = out
-					// THE ONE RUNTIME SIGNAL that this listener's stdout is not an
-					// agent's transcript (T-48). The listener cannot work this out
-					// for itself — every guess available to it (a tty check, the
-					// parent's name, the shape of OC_ID) is wrong in some real
-					// configuration — and the direction a wrong guess goes is a
-					// drain that waits forever for an ack nobody will send. So the
-					// party that knows says it out loud.
+					// The one runtime signal that this listener's stdout is not an
+					// agent transcript: every guess the listener could make is wrong
+					// in some configuration, and a wrong guess is a drain that waits
+					// forever for an ack.
 					listenerCmd.Env = codexListenerEnv(os.Environ())
 					pipe, pipeErr := listenerCmd.StdoutPipe()
 					if pipeErr != nil {

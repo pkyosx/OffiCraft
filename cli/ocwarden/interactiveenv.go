@@ -10,131 +10,44 @@ import (
 	"time"
 )
 
-// ---------------------------------------------------------------------------
-// T-426d follow-up: INHERIT THE OWNER'S INTERACTIVE SHELL ENVIRONMENT.
+// Inherit the owner's interactive shell environment: warden's launchd plist has a
+// minimal env, launchd never sources ~/.zshrc, and the spawn's `zsh -c` is
+// non-interactive. Owner ruled the scope: ALL variables, credentials included,
+// IDENTICAL for staff and outsourced members.
 //
-// WHY (root cause, confirmed at three layers — measured, not reasoned):
-//  1. warden's launchd plist supplies only a hard-coded minimal
-//     EnvironmentVariables dict.
-//  2. launchd NEVER sources ~/.zshrc — nothing in the launchd path does.
-//  3. the spawn path is launchd -> tmux -> `zsh -c`, i.e. a NON-INTERACTIVE
-//     shell, and zsh reads ~/.zshrc for INTERACTIVE shells only.
+// FAIL-SAFE IS ABSOLUTE: warden starts EVERY agent, so every capture failure returns
+// nil and the spawn continues on the minimal environment — one bad rc file must not
+// take the whole studio offline. NOTHING HERE EVER LOGS A VALUE: the capture is a
+// credential firehose.
 //
-// Net effect measured 2026-07-20: 20 variables present in the owner's
-// interactive shell are ABSENT from every spawned agent (11 of them
-// credentials), plus PATH is missing three entries (~/.local/bin,
-// ~/.asdf/shims, /opt/homebrew/sbin — the last of which is the real cause of
-// the e2e suite's long-standing PATH workaround).
-//
-// The fix: at spawn time, ASK an interactive shell what its environment is and
-// hand that to the agent as the BASE layer. The owner's dedicated env file
-// (~/.officraft/env, agentenv.go) stays and becomes the OVERRIDE layer on top,
-// so a single variable can be pinned or a value given that the interactive
-// shell does not have. Owner ruled the scope: ALL variables, credentials
-// included, and IDENTICAL for staff and outsourced members (his reasoning: the
-// boundary belongs at "who may hire an outsourcer", not at starving an AI of
-// tools).
-//
-// HOW WE ASK — and why NOT `export -p` (this is the load-bearing detail).
-//
-// The feasibility probe used `zsh -i -c 'export -p'`. Re-measuring its ACTUAL
-// output on this host shows a trap that a KEY=value parser walks straight into:
-//
-//	export -T PATH path=( /Users/x/.local/bin /Users/x/.asdf/shims ... )
-//	export -T FPATH fpath=( ... )
-//	export -i10 SHLVL=1
-//
-// zsh renders TIED array parameters (PATH/path, FPATH/fpath) in ARRAY syntax,
-// and attributed scalars with flag prefixes. A `KEY=value` parser silently
-// DROPS PATH — the single most important variable this ticket exists to fix —
-// and would have shipped looking green. `export -p` also quotes values in a
-// shell dialect we would then have to unquote, which is where multi-line and
-// embedded-quote credentials go wrong.
-//
-// `env -0` sidesteps all of it: NUL-delimited `KEY=VALUE` records, no quoting
-// dialect, no array syntax, values may contain `=`, newlines, quotes, spaces —
-// every byte is literal and the record boundary is a byte that cannot appear
-// inside a value. Measured on this host: rc 0, zero stderr, PATH present as a
-// proper colon-joined scalar including all three missing entries, ~0.12s.
-//
-// FAIL-SAFE IS ABSOLUTE. warden starts EVERY agent. If this path can break a
-// spawn, one bad shell rc file takes the whole studio offline. Every failure
-// below — shell missing, non-zero exit, timeout, empty output, malformed
-// records — returns nil and the spawn continues on the existing minimal
-// environment, with a warning on warden stderr (ocwarden.err.log).
-//
-// NOTHING HERE EVER LOGS A VALUE. The capture is a credential firehose. Values
-// are dropped from the pipeline at the earliest possible point: the parser
-// keeps a value only to put it in the pair, and no warning format string in
-// this file has a value argument. Malformed records are reported by ORDINAL
-// POSITION, never by content, because a record that failed the KEY=value shape
-// may be a fragment of a value rather than a name.
-// ---------------------------------------------------------------------------
+// Why `env -0` and NOT `zsh -i -c 'export -p'`: zsh renders tied arrays in array
+// syntax (`export -T PATH path=( ... )`), so a KEY=value parser silently DROPS PATH
+// and still looks green; export -p also quotes values in a shell dialect.
 
-// interactiveEnvShell is the shell asked for its interactive environment.
-// ABSOLUTE: warden runs under launchd with a minimal PATH, and SHELL is not
-// reliably set there, so neither PATH resolution nor $SHELL can be trusted.
+// Absolute: under launchd neither PATH nor $SHELL can be trusted.
 const interactiveEnvShell = "/bin/zsh"
 
-// interactiveEnvDumper is the argv run INSIDE that interactive shell. Absolute
-// for the same reason as the shell itself; the owner's rc files may also leave
-// PATH in any state at all, and this runs after they have executed.
+// Absolute too: the owner's rc files may leave PATH in any state.
 const interactiveEnvDumper = "/usr/bin/env -0"
 
-// interactiveEnvTimeout bounds the capture. The measured cost is ~0.12s; ten
-// seconds is two orders of magnitude of headroom, so hitting it means the rc
-// files are genuinely hung (a prompt for input, a network call), which is
-// exactly the case that must not hang a spawn.
-//
-// Enforced with a Go context.WithTimeout + exec.CommandContext, NOT with a
-// `timeout` wrapper command. macOS ships NO `timeout` binary (it is `gtimeout`
-// from coreutils), and during the feasibility probe exactly that mistake
-// produced rc=127 and very nearly got this entire approach written off as
-// impossible. The timeout belongs in the caller's language, not in the argv.
+// Measured capture cost is ~0.12s. Enforced via context.WithTimeout, NOT a
+// `timeout` wrapper: macOS ships no `timeout` binary (rc=127).
 const interactiveEnvTimeout = 10 * time.Second
 
-// interactiveEnvMaxBytes caps the capture. A real environment is a few KB; the
-// cap exists so a pathological rc file that prints forever cannot balloon the
-// spawn path. Same intent as agentEnvMaxBytes.
 const interactiveEnvMaxBytes = 1024 * 1024
 
-// interactiveEnvWaitDelay bounds how long cmd.Wait may keep waiting for I/O
-// AFTER the deadline has fired and the process group has been signalled. It is
-// the hard backstop that makes the total time bounded no matter what the rc
-// files left running — see the comment in captureInteractiveEnv.
 const interactiveEnvWaitDelay = 2 * time.Second
 
 // interactiveEnvSessionLocal is the ONLY subtraction from the owner's "give it
-// all" ruling, and it contains ZERO credentials — every name here is shell or
-// terminal BOOKKEEPING whose value describes the CAPTURING process and is
-// actively WRONG when transplanted into the agent. This is a correctness
-// exclusion, not a security one; narrowing what credentials an agent receives
-// is the owner's call and is not being made here.
-//
-// Why each name is unsafe to inherit (the first two are demonstrated, not
-// theoretical — both appear in a real capture on this host):
+// all" ruling: zero credentials, a correctness exclusion, not a security one.
 //
 //   - PWD, OLDPWD: the launch line runs `cd <workdir>` and THEN sources the
-//     rendered env file, so an inherited PWD overwrites the correct value with
-//     the warden's working directory. The shell's actual directory stays the
-//     workdir, so $PWD would LIE for the agent's whole lifetime, and every
-//     tool that reads $PWD instead of calling getcwd() would resolve relative
-//     paths against the wrong root. This is a silent-wrong-value bug of exactly
-//     the class this ticket exists to eliminate.
-//   - SHLVL, _: shell bookkeeping about the capturing shell. Stale and
-//     meaningless in the agent; `_` in particular holds the last argv word.
-//   - TMUX, TMUX_PANE: set whenever ocwarden is started from inside a tmux
-//     pane (the ordinary DEV path — the launchd path does not have them).
-//     Inheriting them makes every tmux command the AGENT runs believe it is
-//     inside the OWNER's pane on the OWNER's server, targeting the owner's
-//     session instead of the agent's. warden deliberately runs agents on its
-//     own tmux socket; this would undo that.
-//   - TERM, COLUMNS, LINES: describe the capturing terminal. The agent's real
-//     terminal is its tmux pane, which sets these itself; overriding them
-//     after the fact garbles the claude TUI's rendering.
-//
-// Everything else — all 11 credentials, the toolchain vars, PATH, the display
-// vars — passes through untouched, per the ruling.
+//     rendered env file, so an inherited PWD would lie for the agent's lifetime.
+//   - SHLVL, _: bookkeeping about the capturing shell.
+//   - TMUX, TMUX_PANE: set when ocwarden is started from a tmux pane; the agent's
+//     tmux commands would then target the OWNER's server instead of warden's socket.
+//   - TERM, COLUMNS, LINES: describe the capturing terminal; overriding the pane's
+//     own values garbles the claude TUI.
 var interactiveEnvSessionLocal = map[string]bool{
 	"PWD":       true,
 	"OLDPWD":    true,
@@ -147,11 +60,6 @@ var interactiveEnvSessionLocal = map[string]bool{
 	"LINES":     true,
 }
 
-// captureInteractiveEnv is the real capture seam: it runs the interactive shell
-// under a Go context timeout and returns its raw NUL-delimited stdout.
-//
-// It returns an error for every failure mode; the caller turns ALL of them into
-// "spawn with the minimal environment" rather than a failed spawn.
 func captureInteractiveEnv(shell string, timeout time.Duration) (string, error) {
 	if shell == "" {
 		shell = interactiveEnvShell
@@ -161,68 +69,34 @@ func captureInteractiveEnv(shell string, timeout time.Duration) (string, error) 
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	// -i makes zsh read ~/.zshrc; -c takes the dumper as the command. The
-	// interactive flag is the entire point — a non-interactive zsh is precisely
-	// the environment the agent already has and this call exists to escape.
 	cmd := exec.CommandContext(ctx, shell, "-i", "-c", interactiveEnvDumper)
-	// ── the deadline must bound the WHOLE TREE, not just the shell ──────────
-	//
-	// MEASURED, not reasoned, and it took asserting ELAPSED TIME to see it at all
-	// — "an error came back" is true either way:
-	// the default CommandContext behaviour kills the DIRECT CHILD only, and
-	// cmd.Run's Wait then blocks until the stdout pipe reaches EOF — which needs
-	// EVERY process holding the write end to exit. An rc file that leaves a
-	// grandchild running (a background job, a hung network call, anything that
-	// does not exec-replace the shell) therefore keeps the pipe open, and the
-	// spawn stalls for the GRANDCHILD's lifetime with the context timeout
-	// already expired. That is the exact failure this timeout exists to prevent,
-	// surviving the timeout.
-	//
-	// Two independent defences, because this is the fail-safe of the fail-safe:
-	//
-	//  (1) Setsid + a Cancel that signals the whole PROCESS GROUP, so the
-	//      grandchildren die with the shell instead of being orphaned onto the
-	//      machine. Detaching the session also matters when the warden was
-	//      started from a terminal: an interactive rc file may read /dev/tty;
-	//      a merely separate foreground process group receives SIGTTIN and can
-	//      remain stopped forever. Negative pid = "the group", the standard
-	//      POSIX idiom.
-	//  (2) WaitDelay as the backstop: whatever survives (1), Wait force-closes
-	//      the pipes and returns anyway. This is what actually GUARANTEES a
-	//      bounded return, since (1) can only ever be best-effort — a process
-	//      can change its own group and escape.
-	// A session leader is also its own process-group leader, so -pid below still
-	// reaches the full descendant group while the capture has no controlling tty.
+	// The deadline must bound the WHOLE TREE (measured): CommandContext kills only the
+	// direct child, and Wait then blocks until every holder of the stdout pipe exits, so
+	// an rc file's leftover grandchild stalls the spawn past the timeout.
+	//   (1) Setsid + a Cancel that kills the whole process group. Setsid also matters
+	//       when warden runs from a terminal: an rc file reading /dev/tty from a
+	//       background group gets SIGTTIN and can stay stopped forever.
+	//   (2) WaitDelay is what GUARANTEES a bounded return; (1) is best-effort, since a
+	//       process can change its own group.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	cmd.Cancel = func() error {
-		// Negative pid targets the group. Setsid made the child its own group
-		// leader, so its pid IS the group id.
 		if err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL); err != nil {
-			// Best-effort: fall back to the single process. WaitDelay below is
-			// what keeps this from being able to hang the spawn either way.
 			return cmd.Process.Kill()
 		}
 		return nil
 	}
 	cmd.WaitDelay = interactiveEnvWaitDelay
-	// No stdin. An interactive shell whose rc files prompt would otherwise block
-	// on a terminal that does not exist; with stdin closed it gets EOF and the
-	// timeout is the backstop rather than the primary defence.
 	cmd.Stdin = nil
 	var out, errb strings.Builder
 	cmd.Stdout = &out
-	// stderr is captured so a diagnosis lands in the warning, but it is NOT
-	// merged into stdout: rc-file chatter on stderr must never be parsed as
-	// environment records. Measured on this host: zero stderr lines.
+	// stderr is NOT merged into stdout (rc-file chatter must never parse as records)
+	// and is never logged: it can carry anything an rc file printed.
 	cmd.Stderr = &errb
 	err := cmd.Run()
 	if ctx.Err() == context.DeadlineExceeded {
 		return "", fmt.Errorf("timed out after %s", timeout)
 	}
 	if err != nil {
-		// The shell's stderr can carry a value-free diagnosis ("no such file"),
-		// but it can ALSO carry anything an rc file chose to print. It is not
-		// forwarded to the log for that reason — only the exit status is.
 		return "", fmt.Errorf("%s -i -c %q failed: %w", shell, interactiveEnvDumper, err)
 	}
 	raw := out.String()
@@ -232,20 +106,10 @@ func captureInteractiveEnv(shell string, timeout time.Duration) (string, error) 
 	return raw, nil
 }
 
-// parseNulEnv parses NUL-delimited `KEY=VALUE` records into pairs, in the order
-// the shell emitted them.
-//
-// Session-local names (interactiveEnvSessionLocal) and the warden's own OC_*
-// identity namespace are dropped. The OC_* rule mirrors the env file's parser:
-// letting the captured environment set OC_TOKEN / OC_BASE / OC_SESSION would
-// let a stray export in the owner's .zshrc repoint an agent at another server
-// or hand it another member's identity. That the launch line happens to export
-// its own OC_* AFTER sourcing is an ordering side effect covering ~6 names, not
-// a backstop for the rest — this check is the enforcement.
-//
-// warn receives NAMES and REASONS only. A record that fails the KEY=value shape
-// is reported by its ORDINAL POSITION and its content is never formatted, since
-// an unparseable record may be a fragment of a credential value.
+// The OC_* drop is the enforcement: a stray .zshrc export of OC_TOKEN / OC_BASE
+// would repoint an agent at another server or identity. The launch line exporting
+// its own OC_* after sourcing is an ordering side effect covering ~6 names, not a
+// backstop.
 func parseNulEnv(raw string, warn func(string, ...any)) []agentEnvPair {
 	if warn == nil {
 		warn = func(string, ...any) {}
@@ -255,7 +119,6 @@ func parseNulEnv(raw string, warn func(string, ...any)) []agentEnvPair {
 	var skippedMalformed []int
 	for n, rec := range strings.Split(raw, "\x00") {
 		if rec == "" {
-			// Trailing NUL produces one empty final record. Ordinary, not a fault.
 			continue
 		}
 		eq := strings.Index(rec, "=")
@@ -265,8 +128,6 @@ func parseNulEnv(raw string, warn func(string, ...any)) []agentEnvPair {
 		}
 		key := rec[:eq]
 		if !agentEnvKeyRe.MatchString(key) {
-			// The key POSITION did not hold a valid variable name, so whatever is
-			// there is not a name and must not be echoed. Position only.
 			skippedMalformed = append(skippedMalformed, n+1)
 			continue
 		}
@@ -278,8 +139,6 @@ func parseNulEnv(raw string, warn func(string, ...any)) []agentEnvPair {
 			continue
 		}
 		val := rec[eq+1:]
-		// A NUL cannot appear inside a record by construction (it is the
-		// delimiter), so unlike the env file there is no NUL check to do here.
 		if i, dup := index[key]; dup {
 			pairs[i].Value = val
 			continue
@@ -295,8 +154,6 @@ func parseNulEnv(raw string, warn func(string, ...any)) []agentEnvPair {
 	return pairs
 }
 
-// joinInts renders positions for the malformed-record warning. Positions are
-// derived from the record index, never from record content.
 func joinInts(ns []int) string {
 	parts := make([]string, 0, len(ns))
 	for _, n := range ns {
@@ -305,19 +162,8 @@ func joinInts(ns []int) string {
 	return strings.Join(parts, ",")
 }
 
-// mergeAgentEnv layers override ON TOP of base and returns the result.
-//
-// base is the captured interactive environment; override is the owner's
-// ~/.officraft/env file. The file WINS on a name collision — that is what makes
-// it an override layer: the owner can pin one variable to a different value, or
-// supply one the interactive shell does not have, without touching .zshrc. An
-// empty file therefore has literally no effect, which is the state every
-// machine is in until the owner writes one.
-//
-// Order is deterministic: base order first (an overridden name keeps its base
-// POSITION but takes the override VALUE), then override-only names in file
-// order. Deterministic order matters because the rendered file's export order
-// is observable and a churning order would make every spawn's render differ.
+// Order is deterministic because the rendered file's export order is observable;
+// a churning order would make every spawn's render differ.
 func mergeAgentEnv(base, override []agentEnvPair) []agentEnvPair {
 	merged := make([]agentEnvPair, len(base))
 	copy(merged, base)
@@ -336,9 +182,6 @@ func mergeAgentEnv(base, override []agentEnvPair) []agentEnvPair {
 	return merged
 }
 
-// overriddenKeyNames returns the sorted names present in BOTH layers — the
-// names the env file actually overrode. Names only; used for a log line that
-// proves the precedence without printing either value.
 func overriddenKeyNames(base, override []agentEnvPair) []string {
 	inBase := make(map[string]bool, len(base))
 	for _, p := range base {

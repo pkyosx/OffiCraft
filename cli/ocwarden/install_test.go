@@ -293,7 +293,7 @@ func TestRealSysOps(t *testing.T) {
 func TestRealHostSeam(t *testing.T) {
 	if os.Getenv("OCWARDEN_REFUSAL_CHILD") == "1" {
 		h := realHostSeam()
-		fmt.Printf("realHostSeam handed back a seam (probe==nil: %v)\n", h.claudeProbe == nil)
+		fmt.Printf("realHostSeam handed back a seam (probe==nil: %v)\n", h.versionProbe == nil)
 		return
 	}
 	code, out := runRefusalChild(t, "TestRealHostSeam")
@@ -696,7 +696,7 @@ func TestRealClaudeProbe(t *testing.T) {
 	}
 	t.Setenv("OC_PROBE_MARKER", "inherited-from-the-installer")
 
-	if err := realClaudeProbe(bin, "/opt/homebrew/bin:/usr/bin:/bin", home); err != nil {
+	if err := realVersionProbe(bin, "/opt/homebrew/bin:/usr/bin:/bin", home); err != nil {
 		t.Fatalf("probe of a claude that exits 0 = %v, want nil", err)
 	}
 	argv, err := os.ReadFile(filepath.Join(home, "argv"))
@@ -723,17 +723,17 @@ func TestRealClaudeProbe(t *testing.T) {
 	if err := os.WriteFile(failing, []byte("#!/bin/sh\nexit 3\n"), 0o755); err != nil {
 		t.Fatalf("stage the failing probe target: %v", err)
 	}
-	if err := realClaudeProbe(failing, "/usr/bin:/bin", home); err == nil || err.Error() != "exit status 3" {
+	if err := realVersionProbe(failing, "/usr/bin:/bin", home); err == nil || err.Error() != "exit status 3" {
 		t.Errorf("probe of a claude that exits 3 = %v, want \"exit status 3\"", err)
 	}
-	if err := realClaudeProbe(filepath.Join(home, "not-here"), "/usr/bin:/bin", home); err == nil {
+	if err := realVersionProbe(filepath.Join(home, "not-here"), "/usr/bin:/bin", home); err == nil {
 		t.Error("probe of a missing binary = nil, want an error")
 	}
 	notExec := filepath.Join(t.TempDir(), "claude")
 	if err := os.WriteFile(notExec, []byte("#!/bin/sh\n"), 0o644); err != nil {
 		t.Fatalf("stage the non-executable probe target: %v", err)
 	}
-	if err := realClaudeProbe(notExec, "/usr/bin:/bin", home); err == nil {
+	if err := realVersionProbe(notExec, "/usr/bin:/bin", home); err == nil {
 		t.Error("probe of a non-executable file = nil, want an error")
 	}
 }

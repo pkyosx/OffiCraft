@@ -1,34 +1,3 @@
-// Phase 2 "hands": the start/spawn EXECUTION mechanism of the stateless warden.
-//
-// v2 is a server→warden PUSH model: the SERVER decides who/where/whether to spawn
-// (placement, over-spawn guard, kind gate, reconcile — all live server-side). This
-// file is PURELY the executor: given the server-downpushed start parameters, it
-// assembles the launch command + .mcp.json + persona (trusted file channel) and
-// boots ONE fresh agent as a visible tmux session, reusing the shared CmdRunner
-// seam, tmuxSocket and memberSessionName. The warden reports NO presence (the server
-// projects it from its own SSE view), so the spawn emits no waking/online report.
-//
-// It is a faithful Go port of the pure builders + tmux boot steps of the Python
-// origin (agent/spawn.py build_mcp_config / build_append_system_prompt /
-// build_launch_command / build_statusline_settings / tmux_new_session, and
-// reconcile.py TmuxSpawnPort.spawn). A single divergent flag or value in the
-// launch command or .mcp.json would make the spawned claude silently lose its
-// MCP surface or persona. One flagged
-// deviation from the Python origin: OC_TOKEN rides a 0600 workdir token file
-// read at exec time, never the argv (see buildLaunchCommand).
-//
-// DELIBERATELY NOT here (server owns these in v2, or later warden phases):
-//   - roster poll / placement / over-spawn guard / is_staff_kind spawn
-//     decision / reconcile loop / cross-tick state  → server (T2.1)
-//   - kill / force-kill                             → Phase 3
-//   - token minting (/api/bootstrap)                → server (A4: mint归server)
-//   - inbound RPC channel wiring                    → Phase 4
-//   - pretrust_launch_cwd (Pretrust seam below)     → Phase 4 wiring
-//     Marks the workdir trusted in ~/.claude.json so claude's "trust this folder?"
-//     dialog can't intercept and eat the boot nudge (LOAD-BEARING).
-//   - STAGE-B bounded land-then-clear settle/retry  → Phase 4
-//     A TUI-state robustness layer needing pane-capture (a CmdRunner stdin/capture
-//     capability this seam lacks); Phase 2 delivers a single-shot nudge.
 package main
 
 import (
@@ -45,121 +14,46 @@ import (
 )
 
 const (
-	// defaultNudge is the NEUTRAL boot nudge (spawn.DEFAULT_NUDGE) delivered via a
-	// tmux buffer paste to commit the fresh agent's first user-turn.
 	defaultNudge = "開始。"
-	// nudgeMaxAttempts / nudgeSettle bound the boot-nudge Enter-retry (STAGE-B). A
-	// cold claude REPL can take several seconds to accept input (rendering the
-	// welcome screen, dismissing startup notices), so the Enter is retried.
-	//
-	// 🔴 T-82 CORRECTED ALL THREE CLAIMS THAT USED TO BE HERE, and this is the
-	// declaration every other pointer sends a reader to, so read it before changing
-	// either number:
-	//
-	//  1. MECHANISM. It used to say the retry ran "until the context gauge confirms
-	//     submission". That gauge is not some third party's: buildStatuslineSettings
-	//     (this file) points the agent's statusLine at our own `ocagent
-	//     context-report`, and T-51a8 changed its rendering. The verdict has been
-	//     permanently false, which is what this ticket removed.
-	//  2. BEHAVIOUR. There is no "until". The loop is UNCONDITIONAL: it runs all
-	//     nudgeMaxAttempts every single time, so every spawn spends 30×1s = 30
-	//     SECONDS here whether the first Enter landed or not.
-	//  3. BUDGET. It used to say this stays "comfortably under" the reconcile
-	//     start_timeout. Those 30 seconds are also spent out of the 90s
-	//     receiptDeadlineSecs in server/ocserverd/receipt_watch.go (the START
-	//     receipt is POSTed only after Spawn returns), which leaves that deadline
-	//     about 5 SECONDS of slack — not comfortable.
-	//
-	// ⚠️ NEITHER NUMBER HAS EVER BEEN MEASURED. Changing one is a behaviour change
-	// with a cross-module consequence, and TODAY NOTHING MECHANICAL ENFORCES THAT.
-	// An accidental edit to one side shows up; a DELIBERATE edit that updates both
-	// sides is silent while receiptDeadlineSecs goes over budget, because
-	// cli/ocwarden and server/ocserverd are separate Go modules with nothing in
-	// common. The repo already solves exactly this shape elsewhere
-	// (bin/tests/base-scheme-mirror-guard.sh, T-78: one hand-copied invariant across
-	// three modules, failing the build the moment they disagree); the equivalent
-	// guard for this budget does not exist yet. Until it does, the only link is a
-	// sentence — this one.
+	// The Enter loop is UNCONDITIONAL: every spawn spends 30×1s here, out of the
+	// 90s receiptDeadlineSecs in server/ocserverd/receipt_watch.go (the START receipt
+	// is POSTed only after Spawn returns) — about 5 SECONDS of slack. NEITHER NUMBER
+	// HAS EVER BEEN MEASURED, and nothing mechanical links them: cli/ocwarden and
+	// server/ocserverd are separate Go modules.
 	nudgeMaxAttempts = 30
 	nudgeSettle      = 1 * time.Second
-	// paneCols/paneRows: the FIXED wide pane geometry (AgentSpawner.PANE_COLS/ROWS)
-	// so the spawned TUI's wrap width is deterministic.
+
 	paneCols = 160
 	paneRows = 50
 )
 
-// ---------------------------------------------------------------------------
-// start RPC surface (server→warden PUSH). The server decides the placement and
-// hands DOWN these parameters; the warden only executes them.
-// ---------------------------------------------------------------------------
-
-// StartParams is the server-downpushed start(...) payload. token/role/model/
-// session_name are server-owned decisions; the warden never mints a token
-// nor picks a placement (A4/T2.1). PersonaContext is the pre-composed persona the
-// server hands in as plain text (the warden does NO server I/O to fetch it).
-//
-// task_type used to be on that server-owned list. T-2 removed the lessons
-// classification axis it was sourced from, and the server's start-frame builder
-// no longer carries the field at all — see the `rpc: start` args table in
-// spec/sse.md, which now states that removal in as many words.
 type StartParams struct {
 	MemberID       string
 	PersonaContext string
 	MemberToken    string
 	Role           string
-	// TaskType is INERT since T-2. It never coloured anything on this side —
-	// it was carried for parity with a server field that chose a lessons
-	// bucket — and the server stopped sending it when the axis was removed.
-	// The frame parse (startParamsFromArgs) still reads `task_type` when a
-	// frame carries one, and NOTHING in this binary reads the result. Left in
-	// place rather than deleted because removing it is a wire-surface change,
-	// not a comment fix.
+	// TaskType is INERT: nothing in this binary reads it. Left in place because
+	// removing it is a wire-surface change.
 	TaskType string
-	Runtime  string // claude (default) | codex
+	Runtime  string
 	Model    string
-	// Effort is the member's owner-set reasoning-effort launch intent
-	// (low/medium/high/xhigh/max, from member.effort server-side). Empty ⇒ the historic
-	// "medium" default, keeping an old frame's launch line byte-identical.
+
 	Effort      string
 	SessionName string
 }
 
-// SpawnOutcome is the start(...) return: {ok, session_id, pid} (mirrors the
-// Python SpawnOutcome the reconcile port returns). In the async reconcile model
-// (wade-ruled): OK means the spawn was EXECUTED (tmux session launched), NOT that
-// the agent confirmed boot. Boot success is judged SERVER-side by watching presence
-// flip waking→online with a live pid — the warden never claims boot itself.
 type SpawnOutcome struct {
 	OK        bool
 	SessionID string
 	PID       string
-	// Reason is the STRUCTURED cause when OK is false — surfaced by the
-	// dispatcher so a refused spawn is VISIBLE in the warden log AND carried to
-	// the server on the command_result receipt (folded onto member.last_op_reason,
-	// shown in the FE 最近操作 block). Format: "<code>: <detail>" where <code> is
-	// one of the CLOSED set start() emits — claude_bin_unresolved /
-	// session_already_exists / mkdir_failed / write_file_failed / symlink_failed /
-	// pretrust_failed / spawn_exec_failed. Every OK=false path sets it (the old
-	// bare three-in-one "already-running / workdir / mkdir" ambiguity is gone —
-	// the 2026-07-13 Mira incident showed the owner a reason-less ✗ start).
-	// Empty on OK.
+	// Reason is "<code>: <detail>", folded onto member.last_op_reason (shown in the
+	// FE 最近操作 block). Empty on OK.
 	Reason string
-	// Note carries optional advisory context on successful receipts. Older
-	// wardens used it for pre-trust warnings; the command/UI path retains support.
-	Note string
+	Note   string
 }
 
-// ---------------------------------------------------------------------------
-// shell quoting (byte-for-byte port of Python shlex.quote) — LOAD-BEARING: the
-// launch command golden equivalence depends on this matching exactly.
-// ---------------------------------------------------------------------------
-
-// shlexUnsafe mirrors shlex._find_unsafe = re.compile(r'[^\w@%+=:,./-]', re.ASCII).
-// Go's \w is ASCII [0-9A-Za-z_], matching Python's re.ASCII flag.
 var shlexUnsafe = regexp.MustCompile(`[^\w@%+=:,./-]`)
 
-// shellQuote is the exact analogue of shlex.quote: "" → ”; a fully-safe string is
-// returned verbatim; otherwise it is single-quoted with embedded ' → '"'"'.
 func shellQuote(s string) string {
 	if s == "" {
 		return "''"
@@ -170,8 +64,6 @@ func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'"'"'`) + "'"
 }
 
-// jsonStr JSON-encodes one string with HTML escaping OFF, matching Python's
-// json.dumps(..., ensure_ascii=False) (non-ASCII preserved, <>& NOT escaped).
 func jsonStr(s string) string {
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
@@ -180,16 +72,8 @@ func jsonStr(s string) string {
 	return strings.TrimRight(buf.String(), "\n")
 }
 
-// ---------------------------------------------------------------------------
-// pure builders (no I/O) — golden-file对賬 against agent/spawn.py.
-// ---------------------------------------------------------------------------
-
-// buildMCPConfig is the byte-for-byte port of build_mcp_config: ONE officraft
-// HTTP MCP server at {base}/api/mcp, token carried in an "Authorization: Bearer"
-// HEADER (never a ?token= query — the loopback only forwards the header), emitted
-// as json.dumps(ensure_ascii=False, indent=2). Ordered key emission is manual
-// because Go's json.Marshal sorts map keys (which would break equivalence). A
-// falsy token omits the headers block (still valid config, token-less case).
+// The token rides an "Authorization: Bearer" HEADER, never a ?token= query: the
+// loopback only forwards the header.
 func buildMCPConfig(base, token string) string {
 	var sb strings.Builder
 	sb.WriteString("{\n")
@@ -211,23 +95,12 @@ func buildMCPConfig(base, token string) string {
 	return sb.String()
 }
 
-// buildStatuslineSettings is the port of build_statusline_settings: the Claude
-// Code settings payload wiring the statusLine to the context reporter (json.dumps
-// indent=2 + a trailing newline).
-//
-// It also carries the two guard hooks. Both are named bare — `ocagent guard-bash`, `ocagent
-// guard-permission`, the way statusLine names `ocagent context-report` — because
-// the launch command puts the workdir holding the ocagent symlink at the front of
-// PATH, so none of them hardcodes a path that differs per machine.
-//
-// The two are a front-and-back pair against the same defect — a confirmation prompt
-// --dangerously-skip-permissions cannot waive, with nobody at the keyboard to
-// answer it. PreToolUse→guard-bash keeps the prompt from being raised;
-// PermissionRequest→guard-permission answers it once it has been. Neither
-// replaces the other. PermissionRequest carries no matcher: every question that
-// reaches it is one nobody can answer, whatever tool raised it. What each
-// refuses, and why the refusals are worded the way they are, lives in
-// cli/ocagent/guardbash.go and cli/ocagent/guardpermission.go.
+// The two guard hooks are a front-and-back pair against a confirmation prompt
+// --dangerously-skip-permissions cannot waive, with nobody at the keyboard:
+// PreToolUse→guard-bash keeps it from being raised, PermissionRequest→guard-permission
+// answers it once raised (no matcher: every question reaching it is unanswerable).
+// All three commands are named bare because the launch line puts the workdir holding
+// the ocagent symlink first on PATH.
 func buildStatuslineSettings() string {
 	return "{\n" +
 		"  \"statusLine\": {\n" +
@@ -268,20 +141,10 @@ func compactSettingsJSON(raw string) (string, error) {
 	return compact.String(), nil
 }
 
-// buildAppendSystemPrompt is the port of build_append_system_prompt: the TRUSTED
-// boot channel — a MINIMAL pointer, NOT the boot SOP itself. The persona rides this
-// channel (a durable local file), NEVER the command line (avoids leak / arg-length
-// limits).
-//
-// Single source of truth for the ordered boot procedure is now the runtime-specific
-// seeds/boot_sequence.md or seeds/boot_sequence_codex.md (pre-fetched by the launcher
-// into personaFile alongside the persona / role doc). So this append-prompt no longer re-spells the boot steps
-// (that second hardcode was the cross-language drift risk this step removes); it just
-// tells the fresh agent WHO it is and to LOAD personaFile and follow its 啟動步驟（Boot Sequence）
-// section step by step. The full ordered SOP (report_waking → resume_summary →
-// take up your tasks) lives in personaFile, not here — loading
-// personaFile is THIS prompt's own instruction, not a boot-sequence step. base is
-// no longer needed (the /api/events URL moved into the SOP text).
+// The persona rides a durable local file, NEVER the command line (leak /
+// arg-length limits). The ordered boot procedure lives only in
+// seeds/boot_sequence.md / boot_sequence_codex.md (pre-fetched into personaFile);
+// do not re-spell it here.
 func buildAppendSystemPrompt(agentID, role, personaFile string) string {
 	prompt := fmt.Sprintf("你是 %s(role=%s)。你的完整身分、操作準則與開機程序都由 "+
 		"launcher 預抓在本地檔 %s。第一步:用 Read 工具把它從頭到尾整份讀完 —— "+
@@ -293,33 +156,12 @@ func buildAppendSystemPrompt(agentID, role, personaFile string) string {
 	return prompt
 }
 
-// ocAgentSymlinkTarget picks the ABSOLUTE binary the workdir `ocagent` symlink points
-// at. The boot prompt tells the fresh agent to run a BARE `ocagent` (listen /
-// context-report); buildLaunchCommand prepends the workdir to PATH, so a SYMLINK named
-// `ocagent` in the workdir makes that bare name resolve to it — shadowing any UNRELATED
-// ocagent on the host — and exec follows the link to the COMPILED golang ocagent (the
-// agent host needs NO python at all, unlike the python origin's `python -m
-// agent.oc_agent`). This is the case-B fix for the header's "ocagent binary publish
-// into the workdir" gap: a clean spawn without it boots a DEAF agent (no listen →
-// never online).
-//
-// The target is ocAgentBin when set (resolveOcAgentBin's answer: the ocwarden SIBLING
-// $HOME/.officraft/warden/ocagent once home-installed — install's download step puts it
-// there, but NOT before the warden starts, which is the T-81 window: for a while after a
-// fresh install the sibling is simply not there yet), else it FALLS BACK to the
-// repoRoot-relative <repoRoot>/cli/ocagent/ocagent
-// (dev / in-tree, no home install). The sibling path is LOAD-BEARING once the warden is
-// home-installed: the durable ocwarden runs from $HOME/.officraft/warden, so
-// resolveRepoRoot's os.Executable walk lands on $HOME (not the real checkout) and the
-// relative fallback would point at a nonexistent binary — a deaf-on-boot agent.
-//
-// Why a SYMLINK (not a hardlink or a cd-wrapper script): warden self-update swaps the
-// binary via ATOMIC RENAME (temp → rename over $HOME/.officraft/warden/ocagent). A symlink
-// resolves by PATH, so post-rename it still points at the live path → every agent's next
-// exec picks up the new binary transparently. A hardlink pins an INODE, so the pre-rename
-// hardlink keeps the STALE inode after the swap → the update never reaches the agent. The
-// old cd-into-repoRoot wrapper is dropped: the golang ocagent is self-contained and needs
-// no repo cwd, and the symlink is PATH-resolved + exec'd directly with no shell hop.
+// The workdir `ocagent` SYMLINK makes the bare `ocagent` resolve here, shadowing any
+// unrelated ocagent on the host; without it the agent boots DEAF.
+// A symlink, not a hardlink: warden self-update swaps the binary by ATOMIC RENAME, and
+// a hardlink would keep the stale inode. Once home-installed, the ocAgentBin sibling
+// is LOAD-BEARING: resolveRepoRoot then lands on $HOME and the repoRoot fallback
+// points at nothing.
 func ocAgentSymlinkTarget(repoRoot, ocAgentBin string) string {
 	if ocAgentBin != "" {
 		return ocAgentBin
@@ -327,11 +169,6 @@ func ocAgentSymlinkTarget(repoRoot, ocAgentBin string) string {
 	return filepath.Join(repoRoot, "cli", "ocagent", "ocagent")
 }
 
-// ocAgentTarget is the per-spawn resolution seam (T-81). It exists so start() can ask
-// the question at the moment it needs the answer instead of reading a value frozen at
-// warden boot. An unset seam is a CONSTRUCTION fault, not a dev mode: it means whoever
-// built these deps never decided where ocagent comes from, and guessing on their behalf
-// is how a machine ends up silently deaf. Refuse and say so.
 func (d SpawnDeps) ocAgentTarget() (string, bool) {
 	if d.ResolveOcAgentBin == nil {
 		return "", false
@@ -339,95 +176,31 @@ func (d SpawnDeps) ocAgentTarget() (string, bool) {
 	return d.ResolveOcAgentBin()
 }
 
-// buildLaunchCommand is the port of build_launch_command: the one shell line tmux
-// new-session runs. Flags/order are FROZEN — a divergence makes the spawned claude
-// silently lose MCP (--mcp-config) or persona
-// (--append-system-prompt). OC_* ride the env export so the agent runs under its
-// OWN identity; the workdir is prepended to PATH so a bare `ocagent` resolves.
-// --model is emitted only when set (an unset model keeps the line byte-identical to
-// the pre-model version); --settings only when settings JSON is given.
-//
-// Deviation from the Python origin (flagged): the origin exported the member token
-// LITERALLY (OC_TOKEN=<jwt>), leaking it machine-wide via the tmux argv (`ps` shows
-// the full new-session command line). Here the line carries only tokenFile — the
-// 0600 workdir token file start() writes — and defers the read to the spawned
-// shell: OC_TOKEN="$(/bin/cat <tokenFile>)" (absolute — see the builder body,
-// T-426d G-1). Same pattern as the warden's own
-// exec-warden tokfile (main.go readTokfile).
-//
-// The child's config home is STATED, not inherited: after the agent env render
-// is sourced, the line DELETES THE WHOLE CLAUDE_* FAMILY except the credential
-// names claudeEnvAllowedNames lets through, then exports HOME and either exports
-// or unsets CLAUDE_CONFIG_DIR. See claudehome.go — the file pre-trust writes is
-// derived from the same value, which is why the two can no longer disagree, and
-// the purge is what makes that hold against a redirect variable nobody here has
-// heard of yet.
-//
-// The workdir is prepended to PATH so a bare `ocagent` resolves — the ocagent
-// binary itself is published into the workdir by Phase 4 wiring (the golang
-// ocagent, agent-cli's T2.4 artifact), NOT by this pure builder. Until that
-// wiring lands, a spawned agent on a clean host has no ocagent on PATH.
+// Flags/order are FROZEN: a divergence makes the spawned claude silently lose MCP
+// (--mcp-config) or persona (--append-system-prompt).
 func buildLaunchCommand(claudeBin, workdir, mcpConfigPath, appendSys, tokenFile, agentID, base, session, socket, model, effort, settingsJSON string, ch claudeHome) string {
 	return buildLaunchCommandWithEnv(claudeBin, workdir, mcpConfigPath, appendSys,
 		tokenFile, agentID, base, session, socket, model, effort, settingsJSON, nil, "", ch)
 }
 
-// buildLaunchCommandWithEnv is buildLaunchCommand plus optional EXTRA env pairs
-// appended after the frozen OC_* four (namespaced instances export
-// OC_AGENT_HOME here — R8: without it two instances' same-named agents share
-// one sse-cursor/context_report.stamp dir and trample each other). nil/empty
-// extra keeps the line byte-identical to the historical output, which is the
-// entire zero-diff guarantee for the empty namespace.
-//
-// envRendered (T-426d) is the workdir 0600 file holding the owner's agent env
-// vars, already PARSED AND VALIDATED by loadAgentEnv and re-rendered as pure
-// `export K='v'` lines (see agentenv.go). Empty ⇒ nothing is emitted and the
-// line stays byte-identical to the pre-T-426d output. Non-empty ⇒ it is sourced
-// FIRST, before the OC_* exports, for two reasons: (a) the OC_* names this line
-// actually exports then override anything the file set under those SAME names —
-// note this is a positional override of those specific names only, NOT a second
-// enforcement of the OC_* prefix rule (that rule lives solely in the parser),
-// and (b) the launch line's own `export PATH=<workdir>:"$PATH"` then composes ON TOP of an
-// env-file PATH rather than being erased by it. The source is guarded by a
-// `[ -f ]` test so a file deleted between render and exec degrades to "no extra
-// env" instead of a shell error on the agent's very first line.
-// claudeChildEnvPrologue is everything a claude child's line does to its
-// environment BEFORE the OC_* exports: enter the workdir, source the owner's
-// rendered agent env, then clear the CLAUDE_* family on top of it.
-//
-// ⚠️ ORDER IS THE WHOLE GUARANTEE: the purge and the HOME/CLAUDE_CONFIG_DIR
-// exports come AFTER the render is sourced, so they overwrite whatever the
-// owner's shell or agent env file carried instead of being overwritten by it.
-// Move either above the source line and the child is back to inheriting a config
-// home nobody chose — which is the defect, not a tidiness nit.
-//
-// The purge is the structural half: the ENTIRE CLAUDE_* family is deleted and
-// only claudeEnvAllowedNames survives, so a variable that redirects the child's
-// config read is stopped whether or not anyone here has heard of it. See
-// claudehome.go for what was measured and why ANTHROPIC_* is left alone.
+// ⚠️ ORDER IS THE WHOLE GUARANTEE: the CLAUDE_* purge and the HOME /
+// CLAUDE_CONFIG_DIR exports come AFTER the render is sourced, so they overwrite what
+// the owner's shell or env file carried. Move either above the source line and the
+// child is back to inheriting a config home nobody chose.
 func claudeChildEnvPrologue(workdir, envRendered string, ch claudeHome) string {
 	s := "cd " + shellQuote(workdir) + "; "
 	if envRendered != "" {
 		s += "[ -f " + shellQuote(envRendered) + " ] && . " + shellQuote(envRendered) + "; "
 	}
 	s += claudeEnvPurgeFragment()
-	// FALLBACK, not the mechanism. The purge already removed CLAUDE_CONFIG_DIR,
-	// but it is the one variable that relocates the credentials file along with
-	// the trust file, and the purge depends on /usr/bin/env resolving — a host
-	// without it degrades to a SILENT no-op. One explicit line keeps the single
-	// worst variable covered in that degraded case.
+	// FALLBACK: the purge depends on /usr/bin/env resolving and degrades to a silent
+	// no-op without it; CLAUDE_CONFIG_DIR relocates the credentials file too.
 	if ch.ConfigDir == "" {
 		s += "unset CLAUDE_CONFIG_DIR; "
 	}
 	return s
 }
 
-// claudeHomeExportPairs is the config-home statement itself: HOME always, and
-// CLAUDE_CONFIG_DIR only for an explicit OC_CLAUDE_JSON redirect.
-//
-// An empty Home emits nothing rather than `HOME=”`: start() refuses such a spawn
-// outright (claude_home_unresolved), so this stays unreachable in production and
-// a test fixture does not get a broken HOME.
 func claudeHomeExportPairs(ch claudeHome) [][2]string {
 	var pairs [][2]string
 	if ch.Home != "" {
@@ -439,6 +212,10 @@ func claudeHomeExportPairs(ch claudeHome) [][2]string {
 	return pairs
 }
 
+// envRendered is sourced FIRST so (a) the OC_* names this line exports override
+// the file's same names — a positional override only, NOT enforcement of the OC_*
+// rule (that lives solely in the parser) — and (b) `export PATH=<workdir>:"$PATH"`
+// composes ON TOP of an env-file PATH.
 func buildLaunchCommandWithEnv(claudeBin, workdir, mcpConfigPath, appendSys, tokenFile, agentID, base, session, socket, model, effort, settingsJSON string, extraEnv [][2]string, envRendered string, ch claudeHome) string {
 	cd := claudeChildEnvPrologue(workdir, envRendered, ch)
 	pairs := [][2]string{
@@ -450,46 +227,25 @@ func buildLaunchCommandWithEnv(claudeBin, workdir, mcpConfigPath, appendSys, tok
 	// LAST in the export list, so a same-named pair from extraEnv cannot win.
 	pairs = append(pairs, claudeHomeExportPairs(ch)...)
 	kvs := make([]string, 0, len(pairs)+1)
-	// OC_TOKEN reads the 0600 token file at exec time — only the PATH rides the
-	// argv, never the token value (the tmux command line is visible machine-wide).
-	//
-	// ABSOLUTE /bin/cat, NOT a bare `cat` (T-426d G-1, measured — not reasoned).
-	// The env file is sourced EARLIER in this same line, so by the time this
-	// substitution runs, PATH is whatever the OWNER's env file left it as. An
-	// owner who writes `PATH=/opt/homebrew/sbin` (expecting it to APPEND, which
-	// it does not) removes /bin from PATH, a bare `cat` then fails to resolve,
-	// and OC_TOKEN silently becomes EMPTY — the agent boots and can never
-	// authenticate. Verified in real zsh and sh: bare `cat` yields TOKEN=[],
-	// /bin/cat yields the token even with PATH set to the empty string.
-	//
-	// This is a DELIBERATE divergence from the Python origin's golden output
-	// (goldens updated to match). It is the only layer of this defence that does
-	// not depend on the owner filling the env file in correctly, which is
-	// exactly why it has to exist: docs and warnings are advisory, this is not.
+	// OC_TOKEN reads the 0600 token file at exec time: the tmux command line is
+	// visible machine-wide via `ps`. ABSOLUTE /bin/cat (measured): the env file sourced
+	// earlier may leave PATH without /bin, and a bare `cat` then makes OC_TOKEN silently
+	// EMPTY.
 	kvs = append(kvs, `OC_TOKEN="$(/bin/cat `+shellQuote(tokenFile)+`)"`)
 	for _, p := range pairs {
 		kvs = append(kvs, p[0]+"="+shellQuote(p[1]))
 	}
 	exports := "export " + strings.Join(kvs, " ") + "; "
 	exports += "export PATH=" + shellQuote(workdir) + `:"$PATH"; `
-	// The server-downpushed effort (member.effort — the owner's launch intent,
-	// M2-2). Empty defaults to the historic pinned "medium" (CLI default is
-	// high, the main token-cost driver), so an effort-less frame keeps the line
-	// byte-identical to the pre-effort version.
+	// Pinned "medium": the CLI default is high, the main token-cost driver.
 	if effort == "" {
 		effort = "medium"
 	}
 	parts := []string{
 		shellQuote(claudeBin),
 		"--dangerously-skip-permissions",
-		// AskUserQuestion is claude's BUILT-IN interactive-menu tool —
-		// --dangerously-skip-permissions does NOT gate it. A spawned agent is a
-		// HEADLESS tmux session nobody watches, so an AskUserQuestion menu blocks
-		// the session forever (2026-07-13 Mira incident: a member popped the menu
-		// to ask the owner, who only sees the cockpit — the question died in tmux).
-		// Denied at the harness so the tool CANNOT be invoked; the seeds teach the
-		// why (headless ⇒ open a gate / post_chat instead). Both member AND worker
-		// spawns flow through this builder, so one deny covers both paths.
+		// --dangerously-skip-permissions does NOT gate AskUserQuestion, and in a headless
+		// tmux session nobody watches its menu blocks forever.
 		"--disallowedTools",
 		"AskUserQuestion",
 		"--mcp-config",
@@ -508,15 +264,8 @@ func buildLaunchCommandWithEnv(claudeBin, workdir, mcpConfigPath, appendSys, tok
 	return cd + exports + "exec " + strings.Join(parts, " ")
 }
 
-// ---------------------------------------------------------------------------
-// tmux boot helpers (over the CmdRunner seam) — mirror AgentSpawner.tmux_*.
-// ---------------------------------------------------------------------------
-
-// tmuxNewSession starts a DETACHED session running command at the FIXED wide pane
-// geometry, then PINs window-size to manual so a later read-only attach can't shrink
-// it back (reintroducing early wrap). Mirrors AgentSpawner.tmux_new_session: the
-// new-session return classifies success/failure; the set-option/resize are
-// best-effort (their result is not gated on).
+// window-size manual: a later read-only attach must not shrink the fixed pane
+// (early wrap).
 func tmuxNewSession(r CmdRunner, socket, session, command string) error {
 	cols, rows := strconv.Itoa(paneCols), strconv.Itoa(paneRows)
 	if _, err := r.Run("tmux", "-L", socket, "new-session", "-d", "-s", session, "-x", cols, "-y", rows, command); err != nil {
@@ -527,24 +276,15 @@ func tmuxNewSession(r CmdRunner, socket, session, command string) error {
 	return nil
 }
 
-// buildListenerLaunchCommand is the line the member's own listener runs under.
-// It is buildLaunchCommandWithEnv's environment prologue without the claude
-// parts: the listener needs the token, the station address, and the name of the
-// session it must both deliver into and die with.
-//
 // OC_SESSION names the MEMBER's session, never the listener's own: it is what
-// `--deliver-tmux` pastes into, and what the listener's self-exit probe watches,
-// which is the whole tie that stops an orphaned listener projecting a dead
-// member as online.
+// `--deliver-tmux` pastes into and what the listener's self-exit probe watches — the
+// tie that stops an orphaned listener projecting a dead member as online.
 func buildListenerLaunchCommand(workdir, tokenFile, base, session, socket string,
 	extraEnv [][2]string, envRendered string) string {
 	s := "cd " + shellQuote(workdir) + "; "
 	if envRendered != "" {
 		s += "[ -f " + shellQuote(envRendered) + " ] && . " + shellQuote(envRendered) + "; "
 	}
-	// ABSOLUTE /bin/cat for the same reason buildLaunchCommandWithEnv uses it: an
-	// owner env file that replaces PATH would make a bare `cat` resolve to
-	// nothing and the token silently become empty.
 	kvs := []string{`OC_TOKEN="$(/bin/cat ` + shellQuote(tokenFile) + `)"`}
 	pairs := [][2]string{
 		{"OC_BASE", base},
@@ -560,17 +300,10 @@ func buildListenerLaunchCommand(workdir, tokenFile, base, session, socket string
 	return s + "exec ocagent listen --deliver-tmux"
 }
 
-// startListenerSession puts the member's listener in its own detached tmux
-// session. A failed start is LOGGED, never fatal: the member's own session is
-// already up and nudged, so reporting the spawn as failed would leave it running
-// with the station believing nothing was started. A member with no listener is
-// simply offline, which the station already knows how to fix.
-//
-// 🔴 THE STALE KILL IS NOT TIDINESS. Member session names are REUSED across
-// respawns, so a listener left over from the previous session is watching a name
-// that exists again and will not self-exit. Two listeners on one identity make
-// the station kick one of them, and the loser's own escape hatch is `ocagent
-// suicide` — which kills OC_SESSION, i.e. the member that was just spawned.
+// A failed listener start is LOGGED, never fatal: the member is already up and
+// nudged. 🔴 The stale kill is NOT tidiness: session names are reused across
+// respawns, so a leftover listener would not self-exit, and the station kicking one
+// of two listeners ends in `ocagent suicide` killing the just-spawned member.
 func startListenerSession(d SpawnDeps, socket, session, memberID, command string) {
 	listenSession := listenerSessionName(memberID)
 	_, _ = d.Runner.Run("tmux", "-L", socket, "kill-session", "-t", listenSession)
@@ -580,22 +313,9 @@ func startListenerSession(d SpawnDeps, socket, session, memberID, command string
 	}
 }
 
-// tmuxDeliverNudge delivers the neutral boot nudge ATOMICALLY via a tmux buffer
-// (never send-keys -l, which drops multibyte under a busy TUI), then presses Enter
-// to commit the first user-turn. Mirrors AgentSpawner.tmux_paste + tmux_enter.
-//
-// Deviation from Python (flagged): the origin uses load-buffer over STDIN; the
-// Phase 1 CmdRunner seam has no stdin channel, so the SHORT constant nudge is
-// carried as an argv via set-buffer. paste-buffer keeps the -d -p flags and the
-// bare-flag fallback exactly as the origin.
-// nudgeClock is the nil-clock fail-safe, lifted out of tmuxDeliverNudge so it can
-// be asserted directly. Inline, the substitution was untestable at a sane cost:
-// the only way to observe it was to run a spawn with a nil clock and watch it take
-// ~30 real seconds, so nothing guarded it and reverting it to a no-op left the
-// whole package green (T-82 review round 3, BLK-1).
-//
-// A nil clock means REAL pacing, never "skip the wait" — see the Sleep field's
-// doc on SpawnDeps for why that direction is the safe one.
+// 🔴 nil FALLS BACK TO time.Sleep, NOT A NO-OP: a no-op here silently turned 30 paced
+// Enters into 30 in microseconds with the whole package green. It only catches nil —
+// a non-nil no-op clock at the per-spawn seam is indistinguishable by type.
 func nudgeClock(sleep func(time.Duration)) func(time.Duration) {
 	if sleep == nil {
 		return time.Sleep
@@ -603,138 +323,17 @@ func nudgeClock(sleep func(time.Duration)) func(time.Duration) {
 	return sleep
 }
 
+// Delivered via a tmux buffer, never send-keys -l (drops multibyte under a busy
+// TUI); set-buffer takes it as argv because CmdRunner has no stdin channel.
 func tmuxDeliverNudge(r CmdRunner, sleep func(time.Duration), socket, session, nudge string) {
-	// 🔴 nil FALLS BACK TO time.Sleep, NOT TO A NO-OP, and the direction is the
-	// whole point (same fail-safe kill.go's sweepPIDs already uses: "a mis-wired
-	// production caller still paces, only tests inject a fake").
-	//
-	// It used to fall back to a no-op — the convenient default for tests, and a
-	// SILENT correctness hole for production. Three separate one-token edits (this
-	// call site passing nil, buildSpawnDeps leaving Sleep nil, buildCommandDeps'
-	// per-spawn closure setting sd.Sleep = nil) each turned 30 paced Enters into 30
-	// Enters in microseconds — materially the single-shot Enter this loop exists to
-	// avoid — with the whole package green every time. Each one was found only after
-	// a guard was written for the layer above it.
-	//
-	// With this fallback, FORGETTING to wire the clock is a PERFORMANCE bug (a spawn
-	// that paces when a test wanted it fast), never a correctness one. Tests that
-	// want speed pass their own no-op explicitly.
-	//
-	// 🔴 IT DOES NOT CLOSE THE FAMILY, and this comment claimed it did (T-82 review
-	// round 3, BLK-2). The fallback only catches the NIL shape. Writing a non-nil
-	// no-op at the same per-spawn seam — `sd.Sleep = func(time.Duration){}` in
-	// buildCommandDeps — still turns 30 paced Enters into 30 in microseconds, and
-	// the whole package is still green. That is a REAL correctness regression this
-	// fallback cannot see, because a no-op clock is indistinguishable from a real
-	// one by type.
-	//
-	// A third shape — assigning to the captured spawnDeps inside transport.go's
-	// Spawn closure — is NOT GUARDED, AND NOT MADE VISIBLE EITHER. An earlier
-	// version of this comment claimed the second half ("only made VISIBLE, by
-	// there being no local copy to quietly assign to"); review round 4 measured
-	// that claim and it is false, in both directions:
-	//
-	//   * NOT visible. The closure ALREADY dereferences spawnDeps directly
-	//     (transport.go: agentWorkdir(spawnDeps.Home, …), purgeTrash(spawnDeps.Home, …)),
-	//     so one more `spawnDeps.X = …` line beside them reads like the others.
-	//     Adding it is one line, exactly as it was before this seam existed, and
-	//     `go test ./...` stays green at 522/522.
-	//   * WORSE, not neutral, in the failure it leads to. The shape this replaced
-	//     (`sd := spawnDeps` then `sd.X = …`) mutated a PER-CALL copy, so a mistake
-	//     cost one spawn. spawnDeps is captured by buildCommandDeps, so the same
-	//     mistake now persists for every later spawn of that warden process — and
-	//     is a data race if Spawn is ever called concurrently.
-	//
-	// WHAT THIS SEAM DOES BUY, stated at its real size: adding a per-spawn knob
-	// THE INTENDED WAY now requires editing withPerSpawn's signature, and a guard
-	// fails on any non-per-spawn field that differs.
-	// That guard covers what withPerSpawn itself does. It cannot see what a caller
-	// does to the base before calling it.
-	//
-	// ⚠️ DELIBERATELY NOT FIXED HERE, and this is the reason rather than an
-	// oversight: three consecutive review rounds on this ticket each opened
-	// blockers that were created by the PREVIOUS round's fix, in a ticket whose
-	// stated scope was deleting a one-line function and its single call site. A
-	// fourth layer of machinery is how that continues. The residual is named and
-	// ticketed instead. buildCommandDeps also has no test of its own (grep:
-	// zero hits in *_test.go), which is the same gap one level up.
 	sleep = nudgeClock(sleep)
 	const buf = "oc-spawn-nudge"
 	_, _ = r.Run("tmux", "-L", socket, "set-buffer", "-b", buf, nudge)
-	// The paste lands reliably even into a not-yet-ready REPL (the text sits in the
-	// input box), so paste ONCE. The fragile part is the Enter: a single shot loses
-	// the race when claude's REPL is not input-ready (the Enter fires before the box
-	// accepts it, or a startup notice eats it → the nudge sits UNSUBMITTED → the agent
-	// never boots — the Phase-4 boot-death's last mile). So retry the Enter, settling
-	// between attempts. Bounded well under the reconcile start_timeout so a wedged TUI
-	// can't spin here.
-	//
-	// 🔴 T-82: THIS LOOP DOES NOT DECIDE WHETHER THE NUDGE SUCCEEDED, AND THAT IS THE
-	// WHOLE POINT OF THE TICKET. It used to end early on a `nudgeSubmitted(pane)`
-	// check that scraped the agent's status line for a `"% context"` substring, and
-	// that check has been permanently false: the loop silently became "press Enter 30
-	// times, always". Nothing reported that — a guard that can no longer fire looks
-	// exactly like a guard that never needed to.
-	//
-	// 🔴 GET THE MECHANISM RIGHT, because an earlier draft of this comment got it
-	// wrong in a way that closes off the real design space. That status line is NOT
-	// a third party's, and NOT in a format "nobody here controls": buildStatuslineSettings
-	// (this file) is what points the agent's statusLine at `ocagent context-report`,
-	// which is OUR OWN binary in this same repo. T-51a8 — our ticket — replaced its
-	// old "🧠 N% context" rendering with "<bar> N%", which carries no "context" token
-	// at all, and nothing anywhere was watching that string.
-	//
-	// ⇒ The lesson is NOT "do not read someone else's screen". It is: TWO OF OUR OWN
-	// MODULES WERE COUPLED THROUGH AN UNCONTRACTED STRING, ACROSS A PROCESS AND A
-	// SCREEN, WITH NO LAYER GUARDING IT. Reading a marker that ocagent deliberately
-	// PUBLISHES for warden would be a legitimate design (a versioned token in the
-	// statusline, or a file ocagent drops in its workdir on start) — it is simply not
-	// what this ticket does, because the server's own receipt is a better authority
-	// than anything on a screen.
-	//
-	// (What could not be settled: history before the initial commit 8e573a7 is
-	// squashed, so whether this check EVER fired — or was dead from the white-label
-	// import onward — is unknown. The claim here is about HEAD only.)
-	//
-	// The authority is now singular and OURS. NAMING IT PRECISELY, because an
-	// earlier draft of this very comment named the wrong mechanism (T-82, the fifth
-	// wrong-mechanism line in this package — and the one sitting at the centre of
-	// its thesis, which is why it is spelled out here rather than summarised):
-	//
-	//   what the server actually judges = PRESENCE, and presence = "does a live SSE
-	//   listener exist for this member id" (server/ocserverd/reconcile.go, the
-	//   observation `Online: s.hub.IsOnline(m.ID)`; Hub.IsOnline scans its listener
-	//   set for that id). reconcileOne returns "starting: awaiting presence" while
-	//   (now - LastCommandAt) <= StartTimeout, and past that the tick sets
-	//   StartTimedOut, which stampWakeObservability turns into the wake_timeout
-	//   receipt on the member's "last operation" row.
-	//
-	// It is NOT "the server received report_waking", which is what this comment used
-	// to say. That call is a DIFFERENT event: an agent reports waking as step 1 of
-	// its boot sequence, and only holds the SSE downlink later (`ocagent listen`).
-	// In the intended boot order presence therefore IMPLIES report_waking happened,
-	// which is why the wrong name produced no wrong behaviour and survived review —
-	// but the two can come apart, and anything that goes looking for the success
-	// signal must look at the listener set, not at a report_waking receipt.
-	//
-	// ⚠️ Do NOT reach for waking_since as the signal either. Since T-ba62 reconcile
-	// stamps it AT DISPATCH (see stampWakeObservability arm (a)), so it is written
-	// whether or not the agent ever came up; e2e_test/seven_gate says the same thing
-	// in its own words and grades report_waking as an OBSERVATION for exactly this
-	// reason. waking_since answers "did we ask", presence answers "did it arrive".
-	//
-	// ⚠️ WHAT THIS DID NOT CHANGE, SO NOBODY READS IT AS MORE THAN IT IS: the Enter
-	// side is byte-for-byte what it already did. Because the old check was ALREADY
-	// always false, the loop already ran all nudgeMaxAttempts every time — dropping
-	// the check removes a dead verdict and one capture-pane per attempt, and removes
-	// NO protection. Detection did not improve either: the 30s–StartTimeout window
-	// where nothing reports was there before and is there now.
-	//
-	// ⚠️ nudgeMaxAttempts HAS NEVER BEEN MEASURED — the only justification in the
-	// tree is the "bounded well under" clause above. It is left exactly as it was on
-	// purpose: this change exists to delete an unmeasured decision, and quietly
-	// retuning a second unmeasured constant while here would carry the same disease
-	// into the fix. Changing it is its own ticket, with its own measurement.
+	// Paste ONCE (it lands even in a not-ready REPL); only the Enter races, so it
+	// is retried. This loop deliberately does NOT judge success — a statusline-scraping
+	// check was permanently false. The authority is the server's PRESENCE (a live SSE
+	// listener for this member id), NOT a report_waking receipt and NOT waking_since
+	// (stamped at dispatch).
 	if _, err := r.Run("tmux", "-L", socket, "paste-buffer", "-t", session, "-b", buf, "-d", "-p"); err != nil {
 		_, _ = r.Run("tmux", "-L", socket, "paste-buffer", "-t", session, "-b", buf)
 	}
@@ -744,23 +343,13 @@ func tmuxDeliverNudge(r CmdRunner, sleep func(time.Duration), socket, session, n
 	}
 }
 
-// ---------------------------------------------------------------------------
-// workdir + file seams (mirror agent_workdir + AgentSpawner.write_file).
-// ---------------------------------------------------------------------------
-
-// agentWorkdir is the DURABLE per-agent work dir <home>/<id_lower> (id lowercased —
-// the canonical per-agent key). Durable, NOT an ephemeral mkdtemp: a reaped tmpdir
-// would take the token-bearing .mcp.json with it → the agent silently loses config.
+// DURABLE, not mkdtemp: a reaped tmpdir would take the token-bearing .mcp.json.
 func agentWorkdir(home, id string) string {
 	return filepath.Join(home, strings.ToLower(id))
 }
 
-// defaultAgentHome resolves the per-agent state base: OC_AGENT_HOME overrides, else
-// ~/.officraft[-<ns>]/agents (mirrors AgentSpawner.home; the OC_NAMESPACE
-// instance key moves it under the namespaced root — byte-identical to the
-// historical ~/.officraft/agents for the empty namespace). Used by the
-// Phase 4 wiring; the namespace is validated upstream (realMain), so an error
-// here degrades to the main-instance default.
+// The namespace is validated upstream (realMain), so an error here degrades to
+// the main-instance default.
 func defaultAgentHome(env func(string) string) string {
 	if h := env("OC_AGENT_HOME"); h != "" {
 		return h
@@ -770,14 +359,6 @@ func defaultAgentHome(env func(string) string) string {
 	return filepath.Join(officraftRootFor(home, ns), "agents")
 }
 
-// defaultAgentEnvFile resolves the owner's agent env file: <officraft root>/env,
-// namespace-aware exactly like defaultAgentHome (a namespaced instance reads its
-// OWN env file, so two instances cannot cross-contaminate credentials). Note this
-// sits at the officraft ROOT, a sibling of the agents/ dir — it is owner-authored
-// configuration, not per-agent state.
-//
-// OC_AGENT_ENV_FILE overrides it outright, which is also how tests and the
-// conformance suite point it at a fixture without touching the real ~/.officraft.
 func defaultAgentEnvFile(env func(string) string) string {
 	if p := env("OC_AGENT_ENV_FILE"); p != "" {
 		return p
@@ -787,16 +368,8 @@ func defaultAgentEnvFile(env func(string) string) string {
 	return filepath.Join(officraftRootFor(home, ns), "env")
 }
 
-// defaultCaptureEnv resolves the production CaptureEnv seam.
-//
-// Returns nil — inheritance OFF, launch line byte-identical to before — when
-// OC_AGENT_ENV_INHERIT is set to a disabling value. That kill switch exists
-// because this feature runs on EVERY spawn on the machine: if some rc file
-// interaction turns out to break agents in a way nobody predicted, the owner
-// needs a way back to the previous behaviour that does not require a rebuild.
-//
-// OC_AGENT_ENV_SHELL redirects the shell, which is how tests and the
-// conformance suite point this at a stub without a real ~/.zshrc.
+// OC_AGENT_ENV_INHERIT is the owner's kill switch back to the old behaviour
+// without a rebuild: this feature runs on EVERY spawn.
 func defaultCaptureEnv(env func(string) string) func() (string, error) {
 	switch strings.ToLower(strings.TrimSpace(env("OC_AGENT_ENV_INHERIT"))) {
 	case "0", "false", "no", "off":
@@ -809,26 +382,12 @@ func defaultCaptureEnv(env func(string) string) func() (string, error) {
 	return func() (string, error) { return captureInteractiveEnv(shell, interactiveEnvTimeout) }
 }
 
-// logf is the nil-skipped diagnostic channel (SpawnDeps.Logf).
 func (d SpawnDeps) logf(format string, a ...any) {
 	if d.Logf != nil {
 		d.Logf(format, a...)
 	}
 }
 
-// interactiveEnvPairs is the FAIL-SAFE wrapper around the CaptureEnv seam. It
-// is the single place where "the interactive shell could not be read" is turned
-// into "spawn on the minimal environment" instead of "do not spawn".
-//
-// EVERY degraded case returns nil and lets the spawn continue: seam not wired
-// (inheritance off), shell missing, non-zero exit, timeout, oversized output,
-// output that contains no parseable record at all. warden starts every agent on
-// the machine — a spawn that can be killed by a bad rc file is a single point of
-// failure for the entire studio, which is strictly worse than an agent that is
-// merely missing some tools.
-//
-// The warning it emits names the FAILURE, never the output. d.logf goes to
-// warden stderr, which launchd captures into ocwarden.err.log.
 func (d SpawnDeps) interactiveEnvPairs() []agentEnvPair {
 	if d.CaptureEnv == nil {
 		return nil
@@ -841,10 +400,6 @@ func (d SpawnDeps) interactiveEnvPairs() []agentEnvPair {
 	}
 	pairs := parseNulEnv(raw, d.logf)
 	if len(pairs) == 0 {
-		// A shell that exits 0 having printed nothing usable is a real failure
-		// mode (an rc file that exec'd something else, a stubbed shell), and it
-		// is INVISIBLE unless it is called out — the spawn otherwise looks
-		// completely normal while the agent silently has no credentials.
 		d.logf("interactive env: capture produced no usable variables; spawning with the minimal environment")
 		return nil
 	}
@@ -853,8 +408,6 @@ func (d SpawnDeps) interactiveEnvPairs() []agentEnvPair {
 	return pairs
 }
 
-// osWriteFile is the real file-write seam (write-then-chmod, mirroring write_file).
-// Tests inject a capturing fake instead.
 func osWriteFile(path, content string, mode os.FileMode) error {
 	if err := os.WriteFile(path, []byte(content), mode); err != nil {
 		return err
@@ -863,39 +416,16 @@ func osWriteFile(path, content string, mode os.FileMode) error {
 	return nil
 }
 
-// ---------------------------------------------------------------------------
-// pretrust — mark the launch workdir trusted in ~/.claude.json before launch.
-// Semantic port of agent/spawn.py:pretrust_launch_cwd (LOAD-BEARING).
-// ---------------------------------------------------------------------------
-
-// pretrustWorkdir pre-marks workdir trusted in the claude.json at claudeJSONPath
-// BEFORE launch, so the fresh TUI lands on the composer instead of blocking on the
-// "trust this folder?" dialog (which would eat the boot nudge → dead-on-boot).
-// LOAD-BEARING. Semantic port of pretrust_launch_cwd. Idempotent: re-trusting the
-// same workdir is a no-op change.
-//
-// The write prepares the expected config. Startup completion is established by
-// the member's actual wake acknowledgement; a missing acknowledgement follows
-// the server's existing timeout and retry path.
-//
-// The path is INJECTED (production passes the real ~/.claude.json; tests pass a temp
-// file) so a test can NEVER touch the live ~/.claude.json.
+// LOAD-BEARING: without it the "trust this folder?" dialog eats the boot nudge →
+// dead-on-boot.
 func pretrustWorkdir(claudeJSONPath, workdir string) error {
 	return editClaudeProjectEntry(claudeJSONPath, workdir, func(entry map[string]any) {
 		entry["hasTrustDialogAccepted"] = true
 	})
 }
 
-// claudeProjectKey is the name claude files a workdir under: THE SYMLINK-RESOLVED
-// PATH, because claude keys a project by the cwd it resolves, not by the string
-// the launcher was given. Measured A/B on one directory reached two ways: the real
-// path is trusted, the same directory reached through a symlinked parent is not —
-// so on a host whose agent workdirs have any symlink component, a literal key
-// means the flag is written where claude never looks and EVERY spawn is refused.
-//
-// Best-effort, and the same shape kill.go's ocagentPIDsByCwd uses for the same
-// reason: a workdir that cannot be resolved (it does not exist yet, or a component
-// is unreadable) keeps its literal string, which is exactly today's behaviour.
+// claude keys a project by the SYMLINK-RESOLVED cwd (measured A/B): a literal key
+// behind a symlinked parent is never read.
 func claudeProjectKey(workdir string) string {
 	if resolved, err := filepath.EvalSymlinks(workdir); err == nil {
 		return resolved
@@ -903,23 +433,12 @@ func claudeProjectKey(workdir string) string {
 	return workdir
 }
 
-// editClaudeProjectEntry updates one project entry without disturbing other
-// settings, using the canonical project key settled by claudeProjectKey.
-//
-// SAFELY: preserve every existing top-level key, create projects["<abs workdir>"]
-// only when absent, and hand fn that ONE entry to change. A missing or unparsable
-// file starts from an empty config (only an absent/corrupt file is replaced — good
-// data is NEVER clobbered); any other read error (permission etc.) is surfaced,
-// not swallowed. The write is ATOMIC (temp file in the same dir + rename) at mode
-// 0600, so a crash mid-write can never truncate a live ~/.claude.json.
 func editClaudeProjectEntry(claudeJSONPath, workdir string, fn func(entry map[string]any)) error {
 	workdir = claudeProjectKey(workdir)
 	data := map[string]any{}
 	raw, err := os.ReadFile(claudeJSONPath)
 	switch {
 	case err == nil:
-		// Parse best-effort: an unparsable file or a non-object top level restarts
-		// from {} (mirrors the python FileNotFoundError/ValueError → {} fallback).
 		var loaded any
 		if json.Unmarshal(raw, &loaded) == nil {
 			if m, ok := loaded.(map[string]any); ok {
@@ -927,7 +446,6 @@ func editClaudeProjectEntry(claudeJSONPath, workdir string, fn func(entry map[st
 			}
 		}
 	case errors.Is(err, os.ErrNotExist):
-		// missing file → empty config (created below).
 	default:
 		return err
 	}
@@ -944,8 +462,6 @@ func editClaudeProjectEntry(claudeJSONPath, workdir string, fn func(entry map[st
 	}
 	fn(entry)
 
-	// Encode with HTML escaping OFF (mirrors json.dump(ensure_ascii=False)) and a
-	// 2-space indent (matches the python indent=2), then write atomically.
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
 	enc.SetEscapeHTML(false)
@@ -956,16 +472,13 @@ func editClaudeProjectEntry(claudeJSONPath, workdir string, fn func(entry map[st
 	return atomicWriteFile(claudeJSONPath, buf.Bytes(), 0o600)
 }
 
-// atomicWriteFile writes data to path via a same-dir temp file + rename, so a reader
-// (or a crash) never sees a half-written file. The temp file is created 0600 and the
-// mode re-asserted before rename; a leftover temp is cleaned on any error path.
 func atomicWriteFile(path string, data []byte, mode os.FileMode) error {
 	tmp, err := os.CreateTemp(filepath.Dir(path), ".claude-json-*.tmp")
 	if err != nil {
 		return err
 	}
 	tmpName := tmp.Name()
-	defer os.Remove(tmpName) // no-op once the rename has consumed it
+	defer os.Remove(tmpName)
 	if _, err := tmp.Write(data); err != nil {
 		_ = tmp.Close()
 		return err
@@ -980,201 +493,59 @@ func atomicWriteFile(path string, data []byte, mode os.FileMode) error {
 	return os.Rename(tmpName, path)
 }
 
-// ---------------------------------------------------------------------------
-// the spawn mechanism — receives the server-downpushed start params, executes.
-// ---------------------------------------------------------------------------
-
-// SpawnDeps carries the injectable seams so start(...) drives the whole flow with
-// fakes and NO real tmux / FS in tests. Phase 4 wires the real seams (execRunner,
-// osWriteFile, os.MkdirAll, resolved claude bin) and the inbound RPC channel.
 type SpawnDeps struct {
-	Runner CmdRunner
-	Base   string
-	Socket string // defaults to tmuxSocket when ""
-	Home   string // per-agent state base (agentWorkdir joins <home>/<id>)
-	// Namespace is the validated OC_NAMESPACE instance key ("" = main instance).
-	// Non-empty ⇒ the launch command additionally exports OC_AGENT_HOME=Home so
-	// the agent's own cursor/stamp state lands under the namespaced root (R8);
-	// empty keeps the launch line byte-identical to the historical output.
-	Namespace string
-	// EnvFile (T-426d) is the path to the owner's agent env file, default
-	// <officraft root>/env. Empty ⇒ the feature is off and the launch line is
-	// byte-identical to the pre-T-426d output. An ABSENT file at this path is
-	// not an error — the spawn proceeds with no extra env (fail-open).
-	EnvFile string
-	// CaptureEnv (T-426d follow-up) returns the OWNER'S INTERACTIVE SHELL
-	// environment as a NUL-delimited `KEY=VALUE` dump — see interactiveenv.go for
-	// why an interactive shell has to be asked at all (launchd never sources
-	// ~/.zshrc, and the spawn path is a non-interactive `zsh -c`), and why the
-	// dump is `env -0` rather than `export -p`.
-	//
-	// This is the BASE env layer; EnvFile is layered on top of it as the
-	// OVERRIDE. nil ⇒ inheritance is off and the launch line is byte-identical
-	// to the pre-inheritance output (also what OC_AGENT_ENV_INHERIT=0 wires).
-	//
-	// FAIL-SAFE CONTRACT: an error from this seam is NEVER fatal. start() logs a
-	// value-free warning and spawns on the minimal environment. warden starts
-	// every agent on the machine; this path must not be able to take the studio
-	// offline.
+	Runner     CmdRunner
+	Base       string
+	Socket     string
+	Home       string
+	Namespace  string
+	EnvFile    string
 	CaptureEnv func() (string, error)
-	// Logf (nil-skipped) is where env-file diagnostics go — warden stderr, which
-	// launchd captures into <logDir>/ocwarden.err.log. It receives KEY NAMES and
-	// reasons ONLY; a value from EnvFile or from CaptureEnv must never be
-	// formatted into it.
+	// Logf receives KEY NAMES and reasons ONLY, never a value.
 	Logf      func(string, ...any)
-	ClaudeBin string // pre-resolved claude executable (Phase 4 resolves it)
-	CodexBin  string // pre-resolved codex executable
-	// ClaudeHome is the config location the launch line STATES to the claude
-	// child — it exports HOME, and exports or unsets CLAUDE_CONFIG_DIR — and the
-	// file Pretrust writes is ClaudeHome.ClaudeJSONPath(). One value feeding both
-	// ends is what keeps the write and the read on the same file; see
-	// claudehome.go for why this replaced a pair of env predictions. An
-	// unresolved Home refuses a claude spawn rather than launching one whose
-	// trust file nothing reads.
+	ClaudeBin string
+	CodexBin  string
+	// ClaudeHome feeds both the launch line and Pretrust's file, which keeps the
+	// write and the read on the same claude.json.
 	ClaudeHome claudeHome
-	WardenBin  string // this ocwarden executable; runs the codex-session sidecar
-	// ClaudeCreds (T-ba62, nil-skipped) is the spawn-time "is claude logged in?"
-	// existence probe. Resolvable-but-logged-out was the ONE prerequisite with no
-	// gate anywhere: the TUI starts, the nudge is delivered into a login prompt,
-	// and start() returns OK:true forever. The seam returns a value-free verdict
-	// (claudecreds.go's SET/unset summary) — it must NEVER be able to hand a
-	// credential value back into this file.
+	WardenBin  string
+	// ClaudeCreds returns a value-free verdict; it must NEVER hand a credential value
+	// back into this file.
 	ClaudeCreds func() claudeCredStatus
-	// RepoRoot is the officraft checkout root, injected at construction (from
-	// os.Executable — ocwarden lives at <repoRoot>/cli/ocwarden/ocwarden). It is the
-	// base for the ocagent shim's exec target (<repoRoot>/cli/ocagent/ocagent);
-	// injected (not derived inside start) so tests pin a deterministic root.
-	RepoRoot string
-	// ResolveOcAgentBin answers "where is ocagent, and is it actually there?" and is
-	// called ONCE PER SPAWN, not once per process (T-81). The pre-resolved string it
-	// replaced was computed while the warden was booting — and on a FRESH machine
-	// ocagent is downloaded AFTER that moment, so the warden recorded a path that did
-	// not exist yet and never looked again: every member spawned on that machine got a
-	// DANGLING workdir symlink, never ran `ocagent listen`, and never came online —
-	// with the tmux window open and nothing anywhere reporting an error. Resolving at
-	// the moment of use means the first spawn after the download simply finds it, with
-	// no warden restart and nobody having to intervene.
-	// The bool is the OTHER half: it says the chosen path EXISTS. start() refuses the
-	// spawn when it is false, which turns "silently deaf forever" into one visible
-	// failure the server records.
-	//
-	// 🔴 REQUIRED. An earlier draft let nil mean "fall back to the repoRoot-relative
-	// dev path, and assume it is there" — and an independent reviewer showed that was
-	// the whole bug wearing a different hat: setting this ONE field to nil in
-	// buildSpawnDeps restored the original defect exactly, and the entire package
-	// stayed green. A lenient nil is a hole with a test-shaped cover on it, because
-	// nothing guards the single line that wires production up. So nil now REFUSES the
-	// spawn (see ocAgentTarget), and buildSpawnDeps has a test of its own asserting
-	// this field is set.
+	RepoRoot    string
+	// Resolved PER SPAWN: on a fresh machine ocagent is downloaded AFTER warden boot,
+	// so a boot-time path left every member with a dangling symlink, never online, and
+	// no error anywhere. 🔴 REQUIRED: a lenient nil restored exactly that bug with the
+	// package green, so nil REFUSES the spawn.
 	ResolveOcAgentBin func() (string, bool)
 	WriteFile         func(path, content string, mode os.FileMode) error
 	MkdirAll          func(path string, perm os.FileMode) error
-	// Symlink / Remove publish the workdir `ocagent` as a SYMLINK to OcAgentBin (see
-	// ocAgentSymlinkTarget for why a symlink, not a wrapper/hardlink). Remove clears a
-	// stale link first so re-spawn into an existing workdir is idempotent (os.Symlink
-	// errors on an existing name); a not-exist Remove is ignored.
-	Symlink func(oldname, newname string) error
-	Remove  func(name string) error
-	Nudge   string // defaults to defaultNudge when ""
-	// Pretrust marks the launch workdir trusted in ~/.claude.json BEFORE launch so
-	// claude's "trust this folder?" dialog can't intercept and eat the boot nudge
-	// (LOAD-BEARING, mirrors pretrust_launch_cwd). nil in Phase 2 (seam only — Phase
-	// 4 wires the real ~/.claude.json write); a nil seam is skipped, a failing one
-	// aborts the spawn (a live trust gate WOULD eat the nudge → dead-on-boot).
-	//
-	// It takes no argument: WHICH claude.json it writes is ClaudeHome's answer,
-	// and the launch line states that same answer to the child, so there is
-	// nothing about this spawn's environment left for the seam to be told.
-	Pretrust func() error
-	// PurgeTrash (T-684c, nil-skipped) reaps <workdir>/trash at spawn time —
-	// whatever an earlier generation of this agent moved there (see trash.go for
-	// the retired procedure). Bound PER-SPAWN by the transport wiring because it needs this
-	// member's workdir, exactly like Pretrust. Purely best-effort: it never fails
-	// a spawn.
-	PurgeTrash func()
-	// Sleep paces the boot-nudge settle/retry between Enter presses. Production
-	// wires time.Sleep so a cold claude REPL gets real time to become input-ready.
-	//
-	// 🔴 nil DOES NOT MEAN "no wait" — it means REAL time.Sleep. tmuxDeliverNudge
-	// substitutes time.Sleep for a nil clock (see the fallback there and why), so a
-	// literal that omits this field PACES FOR REAL: ~30s per spawn, which in a test
-	// reads as "this suite got slow", not as a failure. A test that wants speed must
-	// pass its own no-op EXPLICITLY — omitting the field is the slow path, not the
-	// fast one. This sentence used to say the opposite and was the line anyone
-	// filling a SpawnDeps literal read (T-82 review round 3, BLK-3).
+	Symlink           func(oldname, newname string) error
+	Remove            func(name string) error
+	Nudge             string
+	Pretrust          func() error
+	PurgeTrash        func()
+	// nil means REAL time.Sleep (see nudgeClock): tests wanting speed pass a no-op
+	// explicitly.
 	Sleep func(time.Duration)
 }
 
-// withPerSpawn returns a copy of d with ONLY the two per-spawn seams rebound —
-// the ones that cannot be built until StartParams names a member, because they
-// need that member's launch workdir. Everything else, the nudge clock included,
-// is carried through from the receiver untouched.
-//
-// 🔴 WHY THIS IS A NAMED METHOD AND NOT `sd := base; sd.X = ...` AT THE CALL
-// SITE. The transport used to copy SpawnDeps into a local inside its Spawn
-// closure and assign fields on the copy. That is a normal-looking shape, and it
-// is exactly where the T-82 review round 3 seeded its surviving mutant: adding
-// `sd.Sleep = func(time.Duration){}` on the next line turns 30 paced Enters into
-// 30 in microseconds — a real correctness regression — with the whole package
-// green. The closure is the natural home for "tweak one thing per spawn", so the
-// next person to need one will write it there too.
-//
-// Routing the rebind through a method with an explicit parameter list means the
-// closure holds no mutable copy to quietly assign to, and widening what may vary
-// per spawn requires changing THIS signature — a visible, reviewable edit rather
-// than one more line inside a closure.
-//
-// ⚠️ WHAT THIS DOES NOT DO, so nobody reads it as more than it is: Go structs are
-// not immutable and this does not make one. A caller can still take the returned
-// value, assign to it, and call start(). What changed is that doing so is now an
-// obviously odd thing to write instead of the obvious thing to write. It closes
-// two known shapes and makes the third visible; it does not close the family. The
-// earlier fallback comment in tmuxDeliverNudge claimed a family was closed and was
-// wrong — do not repeat it.
+// A named method, not `sd := base; sd.X = …` in the transport closure: widening
+// what varies per spawn must change THIS signature. It does NOT make SpawnDeps
+// immutable: a caller can still assign to the returned value.
 func (d SpawnDeps) withPerSpawn(pretrust func() error, purgeTrash func()) SpawnDeps {
 	d.Pretrust = pretrust
 	d.PurgeTrash = purgeTrash
 	return d
 }
 
-// claudeBinUnresolvedReason is the owner-facing refusal for "this member wants
-// Claude and this machine has none". It names all THREE exits; the cheapest —
-// changing the member's runtime, which installs nothing — is FIRST, because
-// position is what carries "cheapest" once the prose explaining it is gone.
-//
-// LENGTH IS A FEATURE HERE, NOT A COMPROMISE. This string is a last_op_reason,
-// whose declared contract (ocapi_gen.go MemberDTO.LastOpReason) is a
-// "structured one-line cause" — as distinct from the free-form last_op_log
-// dump. The cockpit renders it accordingly: .mp-lastop__reason
-// (frontend/components/member-detail.css) is word-break:break-word with no
-// truncation and no expander, in --color-danger. A prose paragraph there does
-// not become a paragraph; it becomes a wall of red the owner has to read past
-// to find the one sentence that matters. The first draft ran 431 display
-// columns — roughly six wrapped lines of it.
-//
-// So the remediation is compressed to labels, not explanations: each exit is
-// the shortest phrase that still lets an owner act on it. What was dropped is
-// only the reasoning behind exit 3 (that launchd's PATH is not the shell's) —
-// recoverable from the install docs, and irrelevant to the two exits an owner
-// on a codex-only box will actually take. What is NOT droppable, and stays
-// first, is the Codex exit: this refusal exists because owners were being sent
-// to install a runtime they had deliberately declined.
+// Owner-facing last_op_reason, rendered with no truncation in --color-danger, so
+// it is compressed to labels. The Codex exit comes FIRST: it is usually the
+// cheapest fix, and owners were being sent to install a runtime they had declined.
 const claudeBinUnresolvedReason = "claude_bin_unresolved: no Claude Code on this machine. " +
 	"Fix any one: set this member's 執行環境 to Codex; " +
 	"install Claude Code here; or re-install the warden with OC_CLAUDE_BIN=<path>."
 
-// start EXECUTES one server-downpushed spawn. It does NOT decide whether to spawn
-// (that is the server's placement call); it only refuses to CLOBBER a live local
-// session (a local safety guard, distinct from the server's over-spawn guard).
-//
-// Sequence (mirrors TmuxSpawnPort.spawn's new-session → nudge, plus the file writes
-// AgentSpawner.run does before launch): guard → durable workdir → write persona.md
-// (trusted channel) + .mcp.json + settings.json + .oc-token → build launch command → pretrust
-// workdir (Phase-4 seam, nil-skipped) → tmux new-session → boot nudge → read pid →
-// outcome. The warden emits NO presence report (server-projected). DEFERRED to Phase 4
-// wiring (see file header): ocagent binary publish into workdir, real pretrust write,
-// and the STAGE-B settle/retry loop — until those land a spawned agent can boot-fail
-// silently (the server's presence projection never sees it come online, and retries).
 func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 	base := strings.TrimRight(d.Base, "/")
 	socket := d.Socket
@@ -1187,7 +558,7 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 	}
 	role := p.Role
 	if role == "" {
-		role = "agent" // mirrors AgentSpawner: spec.role or "agent"
+		role = "agent"
 	}
 	nudge := d.Nudge
 	if nudge == "" {
@@ -1201,22 +572,9 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 	if runtimeName != "claude" && runtimeName != "codex" {
 		return SpawnOutcome{OK: false, Reason: "runtime_unsupported: expected claude or codex"}
 	}
-	// The selected runtime must be resolvable. A machine may carry either or both.
 	if runtimeName == "claude" && d.ClaudeBin == "" {
-		// Written for the OWNER, who reads this on the member row's
-		// last_op_reason (T-b3d0). Every earlier wording offered only two
-		// exits and BOTH of them were "go get claude" — so an owner who had
-		// deliberately installed Codex alone (a supported configuration) was
-		// sent to install, log in to, and pay for a runtime they never
-		// intended to use. The runtime is a per-member setting, so the
-		// cheapest fix is usually neither of the other two; it is named first.
 		return SpawnOutcome{OK: false, Reason: claudeBinUnresolvedReason}
 	}
-	// The launch line has to STATE the child's config home (claudehome.go); an
-	// unresolved one would leave it stating nothing, and the child would be back to
-	// inheriting whatever the owner's shell carried — the defect this whole shape
-	// exists to remove. Refuse instead of launching a member whose trust file
-	// nothing reads.
 	if runtimeName == "claude" && d.ClaudeHome.Home == "" {
 		return SpawnOutcome{OK: false, Reason: "claude_home_unresolved: the launch line cannot state the child's HOME, so the pre-trusted claude.json may not be the file it reads — set HOME in the warden's environment"}
 	}
@@ -1228,62 +586,16 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 			return SpawnOutcome{OK: false, Reason: "warden_bin_unresolved: cannot launch codex-session sidecar"}
 		}
 		if _, err := d.Runner.Run(d.CodexBin, "login", "status"); err != nil {
-			// 2026-09-05 codex-probe incident: the Reason stays exactly as it was — it is rendered on the
-			// member row for the OWNER, and this err carries the subprocess's
-			// stderr, which is unvetted text we must not put on his screen.
-			// But it must not vanish either: the same call in runtimeprobe.go
-			// discarded its err for months and cost five members a night of
-			// being unstartable with nothing anywhere saying why. The log is
-			// the host-local channel that can hold it.
+			// err carries unvetted subprocess stderr: never in the owner-facing Reason, but
+			// it must not vanish either — the log holds it.
 			d.logf("codex gate: `%s login status` failed: %v", d.CodexBin, err)
 			return SpawnOutcome{OK: false, Reason: "codex_not_logged_in: `codex login status` failed on this host"}
 		}
 	}
-	// ...and it must be LOGGED IN (T-ba62). A logged-out claude launches its TUI
-	// fine, so every downstream step "succeeds" and the outcome is OK:true while
-	// the agent can never boot — the silent failure this gate exists to end.
-	// nil seam = gate off (test default / OC_CLAUDE_CRED_CHECK=0). The reason
-	// carries the value-free SET/unset summary ONLY (see claudecreds.go).
+	// A logged-out claude launches its TUI fine and the spawn would report OK:true
+	// while the agent can never boot. nil seam = gate off (OC_CLAUDE_CRED_CHECK=0).
 	if runtimeName == "claude" && d.ClaudeCreds != nil {
 		if st := d.ClaudeCreds(); !st.Present {
-			// SAME OWNER-FACING CONTRACT AS claudeBinUnresolvedReason, and it is
-			// this arm — not that one — that the heartbeat probe's "omit an
-			// unmeasured login rather than call it a no" trade-off actually
-			// lands on: a host with claude INSTALLED but signed out resolves
-			// ClaudeBin, so it can never reach the bin_unresolved arm. Every
-			// earlier wording here offered two exits and BOTH were "go get
-			// claude logged in" — the same disease this ticket exists to cure,
-			// re-created in a narrower cell. The Codex exit is named FIRST for
-			// the same reason it is there: the runtime is a per-member setting,
-			// so it is usually the cheapest fix.
-			//
-			// WIDTH, MEASURED WITH THE SUMMARY A REAL HOST PRODUCES — not the
-			// two-source one the test used to stub. probeClaudeCreds marks
-			// cred_file, keychain AND all five claudeCredEnvKeys, so a
-			// signed-out Mac renders seven "=unset" pairs: 170 columns of the
-			// total on its own (140 before CLAUDE_CODE_OAUTH_TOKEN joined the
-			// list; every width downstream of the summary moved by +30 with
-			// it). This message went 516 -> 359 columns at 140, so 389 now.
-			// The sibling constant runs 182 because it interpolates nothing
-			// at all. So the gap between them is the SUMMARY, not the prose —
-			// and shrinking the summary is a separate change, because its
-			// value-free construction is a security contract (see
-			// claudecreds.go). NOTE: no width guard exists in the tree — an
-			// earlier draft here named a "380 guard" and a "220 guard", and a
-			// reviewer grepped the whole tree (positive control: spawn_test.go
-			// assertions) and found neither, as constant or as test. These
-			// widths have never been held to anything.
-			//
-			// The launchd clause stays, but NOT for the reason an earlier draft
-			// of this comment gave. That draft claimed this string is "the only
-			// place the trap is written down at all" — FALSE, and an
-			// independent reviewer caught it: install.go carries the plist relay
-			// that makes the escape hatch real in the first place. What IS true, and
-			// is the actual reason to keep it: no USER-FACING doc says it —
-			// `grep -rn OC_CLAUDE_CRED_CHECK docs/ bin/ spec/` is empty, so an
-			// owner who reads this line and goes looking finds nothing.
-			// Writing it into docs/guide/troubleshooting.md is the real fix and
-			// is not this ticket's.
 			return SpawnOutcome{OK: false, Reason: fmt.Sprintf(
 				"claude_not_logged_in: no claude credential here (%s). "+
 					"Fix any one: set this member's 執行環境 to Codex; "+
@@ -1292,10 +604,7 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 				st.Summary)}
 		}
 	}
-	// idempotent clobber-guard: REFUSE to stomp a live session. This is a LOCAL
-	// "don't kill a running agent" safety, NOT the server's over-spawn guard
-	// (presence-count placement decision, which lives server-side). A BROKEN probe
-	// (nil) is not treated as present — only a positively-present session refuses.
+	// A BROKEN probe (nil) is not treated as present — only a positively-present session refuses.
 	if has := tmuxHasSession(d.Runner, socket, session); has != nil && *has {
 		return SpawnOutcome{OK: false, Reason: fmt.Sprintf(
 			"session_already_exists: tmux session %q is already live (clobber-guard refused to stomp it)", session)}
@@ -1306,10 +615,6 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 		return SpawnOutcome{OK: false, Reason: fmt.Sprintf(
 			"mkdir_failed: workdir %s: %v", workdir, err)}
 	}
-	// T-684c: reap whatever an earlier generation of this agent moved into
-	// <workdir>/trash before the fresh session starts (see trash.go).
-	// nil-skipped seam; a refusal/failure is logged inside purgeTrash and NEVER
-	// aborts the spawn — a stale trash dir must not be able to take an agent offline.
 	if d.PurgeTrash != nil {
 		d.PurgeTrash()
 	}
@@ -1322,44 +627,26 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 	}
 	tokenFile := filepath.Join(workdir, ".oc-token")
 
-	// persona → TRUSTED FILE channel (not the command line): the append-system-prompt
-	// points the fresh agent at this file to load its identity.
 	if err := d.WriteFile(personaFile, p.PersonaContext, 0o600); err != nil {
 		return SpawnOutcome{OK: false, Reason: fmt.Sprintf(
 			"write_file_failed: persona.md: %v", err)}
 	}
-	// .mcp.json → the ONE officraft MCP server, token in the Bearer header.
 	// No --strict-mcp-config: the agent ALSO loads user-scope MCP (account
 	// connectors, e.g. Slack) on top of this server.
 	if err := d.WriteFile(mcpConfigPath, buildMCPConfig(base, p.MemberToken), 0o600); err != nil {
 		return SpawnOutcome{OK: false, Reason: fmt.Sprintf(
 			"write_file_failed: .mcp.json: %v", err)}
 	}
-	// Keep the 0600 settings.json artifact for inspection, but do not launch from
-	// it. Passing settingsJSON inline prevents a later file edit from redirecting
-	// the real child to a different config home through env.CLAUDE_CONFIG_DIR.
+	// settings.json is kept for inspection only; the launch passes settingsJSON inline
+	// so a later file edit cannot redirect the child's config home.
 	if err := d.WriteFile(settingsPath, buildStatuslineSettings(), 0o600); err != nil {
 		return SpawnOutcome{OK: false, Reason: fmt.Sprintf(
 			"write_file_failed: settings.json: %v", err)}
 	}
-	// .oc-token → the member token at 0600, so the launch command's argv carries
-	// only this PATH and the spawned shell reads the value itself
-	// (OC_TOKEN="$(/bin/cat …)") — a literal export would leak the JWT machine-wide
-	// via `ps` on the tmux command line. Overwritten on every START, so a
-	// handover/recycle re-mint always lands the fresh token.
 	if err := d.WriteFile(tokenFile, p.MemberToken, 0o600); err != nil {
 		return SpawnOutcome{OK: false, Reason: fmt.Sprintf(
 			"write_file_failed: .oc-token: %v", err)}
 	}
-	// ocagent → the LOCAL publish path (case-B fix for the header's "ocagent binary
-	// publish into the workdir" gap): a workdir SYMLINK to the resolved ocagent binary
-	// (home sibling once installed, else the repoRoot-relative dev path). The boot
-	// prompt's bare `ocagent listen` / `context-report` resolves here via the
-	// PATH-prepended workdir and execs the linked GOLANG ocagent (no python on the
-	// agent host). A symlink (not a wrapper/hardlink) so warden self-update's atomic
-	// rename of the target transparently reaches every agent — see ocAgentSymlinkTarget.
-	// Remove clears any stale link first (os.Symlink errors on an existing name) →
-	// re-spawn into an existing workdir stays idempotent.
 	ocAgentLink := filepath.Join(workdir, "ocagent")
 	if err := d.Remove(ocAgentLink); err != nil && !os.IsNotExist(err) {
 		return SpawnOutcome{OK: false, Reason: fmt.Sprintf(
@@ -1367,14 +654,6 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 	}
 	ocAgentTarget, ocAgentPresent := d.ocAgentTarget()
 	if !ocAgentPresent {
-		// T-81: refuse LOUDLY rather than publish a link to nothing. The old code
-		// symlinked whatever path had been resolved at warden boot; os.Symlink
-		// happily creates a DANGLING link, the tmux window opens, claude starts,
-		// and the bare `ocagent listen` in the boot prompt is the only thing that
-		// fails — inside the agent's own session, where nobody is reading. From
-		// the outside that member is indistinguishable from one that crashed or
-		// ran out of tokens. This Reason travels back to the server with the
-		// spawn result, so the failure has somewhere to be seen.
 		where := ocAgentTarget
 		if where == "" {
 			where = "<no path: this warden was built without an ocagent resolver>"
@@ -1392,67 +671,40 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 	}
 
 	appendSys := buildAppendSystemPrompt(p.MemberID, role, personaFile)
-	// Namespaced instances export OC_AGENT_HOME so the agent's sse-cursor /
-	// context_report.stamp live under the instance root (R8); the empty
-	// namespace exports nothing extra — the line stays byte-identical.
+	// Namespaced instances export OC_AGENT_HOME: otherwise two instances' same-named
+	// agents share one sse-cursor / context_report.stamp dir.
 	var extraEnv [][2]string
 	if d.Namespace != "" {
 		extraEnv = append(extraEnv, [2]string{"OC_AGENT_HOME", d.Home})
 	}
-	// OC_EFFORT publishes the owner's launch intent (member.effort) into the
-	// agent's env so the statusLine reporter (ocagent context-report) can render
-	// the ⚡<effort> badge — the effort is a --effort FLAG to claude, never on
-	// stdin, so the status line has no other way to see it. Mirror the same
-	// empty→"medium" default the --effort flag resolves to (buildLaunchCommandWithEnv).
-	// That keeps env and flag in step for CLAUDE, which passes the level through
-	// verbatim. It does NOT hold for codex: normalizeCodexEffort coerces a level
-	// this warden does not know down to "medium" (announcing it), so for an
-	// unrecognised effort OC_EFFORT carries the owner's intent while the session
-	// actually runs at medium. Nothing reads OC_EFFORT for that decision today —
-	// the statusLine reporter renders the harness's own reported effort, never
-	// this variable (cli/CLAUDE.md, contextreport.go) — so the divergence is
-	// currently unobservable rather than harmless by construction.
+	// OC_EFFORT lets the statusLine reporter see the effort (a --effort flag never
+	// reaches it); same empty→"medium" default as the flag. For codex an unrecognised
+	// effort diverges (normalizeCodexEffort coerces to "medium"); nothing reads
+	// OC_EFFORT for that decision today.
 	effortEnv := p.Effort
 	if effortEnv == "" {
 		effortEnv = "medium"
 	}
 	extraEnv = append(extraEnv, [2]string{"OC_EFFORT", effortEnv})
 
-	// T-426d: the owner's agent env file. loadAgentEnv NEVER fails the spawn —
-	// an absent/unreadable/oversized file yields nil pairs and the agent boots
-	// exactly as it does today. Only a NON-EMPTY validated set produces the
-	// workdir 0600 render and the source line.
-	//
-	// The stale render is removed FIRST, unconditionally: if the owner deletes a
-	// credential from the env file, the next spawn must not keep handing the
-	// agent yesterday's copy out of the workdir. Remove failures are non-fatal
-	// (the write below overwrites anyway, and no-file is the common case).
+	// The stale render is removed FIRST: a credential the owner deleted from the env
+	// file must not keep reaching the agent from the workdir.
 	envRendered := ""
 	renderPath := filepath.Join(workdir, agentEnvRenderedName)
 	if err := d.Remove(renderPath); err != nil && !os.IsNotExist(err) {
 		d.logf("agent env: could not clear stale %s (%v); continuing", renderPath, err)
 	}
-	// LAYER 1 (base): the owner's INTERACTIVE shell environment. Everything about
-	// this call is fail-safe — see interactiveEnvPairs.
 	interactive := d.interactiveEnvPairs()
-	// LAYER 2 (override): the owner's env file, layered ON TOP so a single
-	// variable can be pinned or supplied that the interactive shell lacks. An
-	// unwritten file contributes nothing, which keeps the pre-existing
-	// four-rounds-reviewed behaviour of agentenv.go exactly as it was.
 	fileEnv := loadAgentEnv(d.EnvFile, d.logf)
 	if names := overriddenKeyNames(interactive, fileEnv); len(names) > 0 {
 		d.logf("agent env: %s overrides the interactive shell for: %s",
 			d.EnvFile, strings.Join(names, " "))
 	}
 	if pairs := mergeAgentEnv(interactive, fileEnv); len(pairs) > 0 {
-		// 0600: this file holds the credentials the whole feature exists to
-		// deliver. A write failure is NON-FATAL — the agent boots without the
-		// extra env rather than not booting at all.
 		if err := d.WriteFile(renderPath, renderAgentEnvFile(pairs), 0o600); err != nil {
 			d.logf("agent env: could not write %s (%v); spawning without extra env", renderPath, err)
 		} else {
 			envRendered = renderPath
-			// Names only — proving WHAT was loaded without printing a value.
 			d.logf("agent env: %d var(s) for the agent (%d inherited from the interactive shell, %d from %s): %s",
 				len(pairs), len(interactive), len(fileEnv), d.EnvFile,
 				strings.Join(agentEnvKeyNames(pairs), " "))
@@ -1470,10 +722,6 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 			d.ClaudeHome)
 	}
 
-	// pretrust the workdir BEFORE launch (LOAD-BEARING): without it claude's trust
-	// dialog can intercept and eat the boot nudge → dead-on-boot. Phase 2 leaves the
-	// seam nil (Phase 4 wires the real ~/.claude.json write); a nil seam is skipped,
-	// a failing one aborts (better to not-spawn than to spawn a nudge-eaten zombie).
 	if runtimeName == "claude" && d.Pretrust != nil {
 		if err := d.Pretrust(); err != nil {
 			return SpawnOutcome{OK: false, Reason: fmt.Sprintf(
@@ -1481,28 +729,18 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 		}
 	}
 
-	// STAGE-A: detached provider session in tmux at the pinned geometry.
 	if err := tmuxNewSession(d.Runner, socket, session, command); err != nil {
 		return SpawnOutcome{OK: false, Reason: fmt.Sprintf(
 			"spawn_exec_failed: tmux new-session: %v", err)}
 	}
 	if runtimeName == "claude" {
-		// STAGE-B (Claude only): deliver the neutral boot nudge via the trusted
-		// tmux buffer. Codex's sidecar starts the boot turn through App Server;
-		// injecting terminal keystrokes there would target a non-interactive pane.
+		// Claude only: codex's sidecar starts the boot turn through App Server; keystrokes
+		// would target a non-interactive pane.
 		tmuxDeliverNudge(d.Runner, d.Sleep, socket, session, nudge)
 
-		// STAGE-C (Claude only): the member's SSE downlink, held BESIDE it rather
-		// than by it. A claude member used to mount `ocagent listen` from inside
-		// its own harness, which drops that background job every 30 minutes; a
-		// member in the middle of one long tool call has no moment to re-mount it,
-		// and presence IS that connection, so the station recycled healthy
-		// sessions. The codex runtime never had the problem because its sidecar
-		// has always owned the listener.
-		//
-		// AFTER the nudge on purpose: the boot turn is what makes the pane ready
-		// to receive anything, and a listener that connects first would paste into
-		// a TUI that is still starting.
+		// The listener runs BESIDE the member, not inside its harness, which drops
+		// background jobs every 30 minutes (presence IS that connection). Started AFTER
+		// the nudge: a listener connecting first would paste into a still-starting TUI.
 		startListenerSession(d, socket, session, p.MemberID,
 			buildListenerLaunchCommand(workdir, tokenFile, base, session, socket,
 				extraEnv, envRendered))

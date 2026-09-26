@@ -252,7 +252,7 @@ func TestDispatchShutdown(t *testing.T) {
 		// fan-out that carries it.
 		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-no-such-row"))
 		apiWantValue(t, "the member producer's marker",
-			any(api.lifecycleState("ow-no-such-row").RobustStopPendingAt), any(float64(0)))
+			any(api.reconcileStateOf("ow-no-such-row").RobustStopPendingAt), any(float64(0)))
 	})
 
 	t.Run("CONTROL: an id the roster DOES answer for as staff keeps the cadence's re-send of its kill", func(t *testing.T) {
@@ -268,7 +268,7 @@ func TestDispatchShutdown(t *testing.T) {
 		api.dispatchShutdown("kip", "test")
 
 		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("kip"))
-		if got := api.lifecycleState("kip").RobustStopPendingAt; got <= 0 {
+		if got := api.reconcileStateOf("kip").RobustStopPendingAt; got <= 0 {
 			t.Fatalf("a staff shutdown must arm the marker, got %v", got)
 		}
 	})

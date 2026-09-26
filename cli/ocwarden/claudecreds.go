@@ -1,69 +1,37 @@
 package main
 
-// claudecreds.go — the SPAWN-TIME "is claude actually logged in?" gate (T-ba62).
+// Spawn-time "is claude logged in?" gate: a logged-out claude still launches a TUI,
+// so tmux spawn and start() succeed while the member sits in
+// waking→timeout→backoff forever — the likeliest state of a brand-new install.
 //
-// WHY this file exists: `claude` being INSTALLED and `claude` being USABLE are
-// two different facts, and the second one had no gate anywhere in the warden.
-// A logged-OUT claude still launches a TUI, so tmux new-session succeeds, the
-// boot nudge is delivered into a login prompt that will never accept it, and
-// start() returns OK:true. The member then sits in waking→timeout→backoff
-// forever while every receipt the owner can see says the spawn succeeded. That
-// is the single most likely state of a BRAND NEW install (the user has not run
-// `claude` even once yet), so onboarding automation without this gate just
-// delivers people into an unexplainable dead end faster.
-//
-// 🔴 SECURITY CONTRACT — read before touching anything here:
-// this file may only ever produce EXISTENCE conclusions. It must NEVER read,
-// hold, log, or return a credential value, a token fragment, a file body, or
-// even a credential PATH. Every probe is deliberately chosen so the secret is
-// never requested in the first place:
-//   - the credentials file is os.Stat'ed, NEVER opened (claudeprobe.go reads it
-//     for subscriptionType; this gate does not need even that much);
-//   - the macOS keychain lookup runs `security find-generic-password` WITHOUT
-//     -w, so only item METADATA is queried and the payload is never returned
-//     (and no keychain ACL prompt is tripped);
-//   - environment credentials are tested with `!= ""` — the value is compared,
-//     never captured into the summary.
-// The only thing that leaves this file is the literal word SET or unset per
-// source name. Any change that makes a value reachable is a security bug.
+// 🔴 SECURITY CONTRACT: this file may only produce EXISTENCE conclusions — never
+// read, hold, log or return a credential value, token fragment, file body, or
+// even a credential PATH:
+//   - the credentials file is os.Stat'ed, NEVER opened;
+//   - `security find-generic-password` runs WITHOUT -w, so the payload is never
+//     returned (and no keychain ACL prompt is tripped);
+//   - env credentials are compared, never captured into the summary.
+// Any change that makes a value reachable is a security bug.
 
 import "strings"
 
-// claudeCredEnvKeys are the environment-carried claude credentials, in the
-// order they appear in the summary. ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN
-// and CLAUDE_CODE_OAUTH_TOKEN are direct credentials; the two CLAUDE_CODE_USE_*
-// flags select a managed cloud auth path (Bedrock / Vertex) where the actual
-// credential lives in the cloud SDK chain and no local claude login exists at
-// all — treating them as "credentialed" is what keeps this gate from
-// false-refusing such a host.
+// The CLAUDE_CODE_USE_* flags select Bedrock/Vertex, where no local claude login
+// exists; counting them keeps this gate from false-refusing such a host.
 var claudeCredEnvKeys = []string{
 	"ANTHROPIC_API_KEY",
 	"ANTHROPIC_AUTH_TOKEN",
 	"CLAUDE_CODE_USE_BEDROCK",
 	"CLAUDE_CODE_USE_VERTEX",
-	// CLAUDE_CODE_OAUTH_TOKEN is a long-lived login token (`claude setup-token`)
-	// that replaces the keychain / credentials-file login. Listing it here does
-	// two things at once: the presence probe counts it as a credential, and —
-	// because claudeEnvAllowedNames derives from this list — the spawn line's
-	// CLAUDE_* purge lets it through to the child instead of stripping it.
+	// Listing it here also lets it through the spawn line's CLAUDE_* purge,
+	// because claudeEnvAllowedNames derives from this list.
 	"CLAUDE_CODE_OAUTH_TOKEN",
 }
 
-// claudeCredStatus is the value-free verdict of the presence probe. Summary is
-// a space-joined "<source>=SET|unset" list and is SAFE TO LOG BY CONSTRUCTION —
-// it is assembled from constant strings only (see the security contract above).
 type claudeCredStatus struct {
 	Present bool
 	Summary string
 }
 
-// probeClaudeCreds answers "does this host hold ANY claude credential?" purely
-// by existence. Injectable seams (env / stat / runner / goos) so tests never
-// touch a real keychain or a real home directory.
-//
-// exists must be a STAT-ONLY probe (never a read). runner runs the metadata-only
-// keychain lookup; a nil runner or a non-darwin goos simply drops that source
-// (an honest absent signal, never a fabricated one).
 func probeClaudeCreds(
 	env func(string) string,
 	exists func(path string) bool,
@@ -82,12 +50,9 @@ func probeClaudeCreds(
 	}
 
 	if home := env("HOME"); home != "" && exists != nil {
-		// STAT ONLY. The path is built here and immediately discarded — it is
-		// never formatted into the summary.
 		mark("cred_file", exists(strings.TrimRight(home, "/")+claudeCredFileRel))
 	}
 	if strings.HasPrefix(goos, "darwin") && runner != nil {
-		// NO -w: metadata-only, the secret payload is never requested.
 		_, err := runner.Run("security", "find-generic-password", "-s", claudeKeychainService)
 		mark("keychain", err == nil)
 	}

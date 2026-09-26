@@ -147,7 +147,7 @@ func TestOutsourceDecide(t *testing.T) {
 	assignment := func(id, typeKey, runtime, model, effort, machine string, fromTarget bool) outsourceAssignment {
 		return outsourceAssignment{
 			TaskID: id, TypeKey: typeKey, Runtime: runtime, Model: model,
-			Effort: effort, Machine: machine, FromTarget: fromTarget,
+			Effort: effort, Machine: machine, ExplicitTarget: fromTarget,
 		}
 	}
 

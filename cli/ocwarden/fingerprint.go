@@ -1,21 +1,10 @@
-// fingerprint.go — the heartbeat's binary content fingerprints (T-5f01).
-//
-// Every 30s telemetry cycle rides an extra `binaries` field: the 12-hex
-// sha256 prefixes of the LIVE on-disk ocwarden (our own executable), its
-// sibling ocagent, and the TCC identity anchor officraft (T-ff5d — the one
-// binary self-update must never replace). The server compares them against the hashes of its own
-// embedded prebuilts (the exact bytes /api/{warden,agent}/binary serves and
-// the self-update swaps in verbatim) to render the machine table's
-// "current"/"stale" verdict. Deliberately CONTENT hashes, never an embedded
-// version stamp — the same swap-oracle reasoning as selfupdate.go's header
-// (a stamped sha would loop).
-//
-// Hashing a multi-MB binary every 30s is avoidable waste, so results are
-// cached per path and invalidated on (size, mtime) change: a self-update swap
-// rewrites the file (fresh mtime) and an ocwarden swap exec-in-places this
-// process anyway, so the cache can never serve a stale fingerprint for longer
-// than one cycle. A missing/unreadable path is simply omitted (the server
-// reads an absent fingerprint as unknown, never a verdict).
+// fingerprint.go — the 12-hex sha256 prefixes of the LIVE on-disk ocwarden, its sibling ocagent and
+// the TCC identity anchor officraft, sent in the telemetry `binaries` field. The server compares
+// them with its own embedded prebuilts (the bytes /api/{warden,agent}/binary serves) to render the
+// machine table's current/stale verdict; an absent entry reads as unknown, never a verdict.
+// Deliberately CONTENT hashes, never an embedded version stamp (a stamped sha would loop — see
+// selfupdate.go). The (size, mtime) cache cannot go stale for more than one cycle: a self-update
+// swap rewrites the file, and an ocwarden swap exec-in-places this process.
 package main
 
 import (
@@ -23,39 +12,24 @@ import (
 	"time"
 )
 
-// fpCacheEntry is one cached fingerprint keyed by the stat identity that
-// invalidates it.
 type fpCacheEntry struct {
 	size  int64
 	mtime time.Time
 	hash  string
 }
 
-// binFingerprinter computes the {binary name → content-hash prefix} map the
-// telemetry payload carries. Single-goroutine by contract: only the telemetry
-// producer loop calls collect (no lock needed). The fs seams are injectable
-// so tests drive it with fakes and no real multi-MB reads.
+// binFingerprinter is single-goroutine by contract: only the telemetry producer loop calls collect.
 type binFingerprinter struct {
-	paths    map[string]string // binary name → live path ("" entries skipped)
+	paths    map[string]string
 	stat     func(string) (os.FileInfo, error)
 	readFile func(string) ([]byte, error)
 	cache    map[string]fpCacheEntry
 }
 
-// newBinFingerprinter targets the SAME live paths the self-update loop keeps
-// current: ocwarden = our own executable (symlinks resolved), ocagent = the
-// home sibling (selfUpdateAgentPath — unconditional, so a not-yet-populated
-// sibling reads as absent until the first self-update tick materializes it).
-//
-// officraft is the TCC identity anchor (T-ff5d), and it is here for the opposite
-// reason to the other two: self-update deliberately never replaces it (replacing
-// its bytes voids the machine's TCC grants), so its fingerprint is the only way
-// to see WHICH anchor build a machine is actually running under. anchorPath is
-// passed in rather than re-derived from the executable because resolvePaths
-// already owns that derivation (install.go) — a second copy here would be a
-// hand-mirrored path of exactly the kind this module has been bitten by. An
-// empty anchorPath (paths unresolvable) is skipped by collect like any other
-// blank entry: absent reads as unknown, never as a verdict.
+// officraft is fingerprinted because self-update never replaces it (that would void the machine's
+// TCC grants), so this is the only way to see which anchor build a machine runs. anchorPath is
+// passed in, not re-derived: resolvePaths (install.go) owns that derivation, and a hand-mirrored
+// copy here is the kind of path drift this module has been bitten by.
 func newBinFingerprinter(executable func() (string, error), anchorPath string) *binFingerprinter {
 	return &binFingerprinter{
 		paths: map[string]string{
@@ -69,10 +43,6 @@ func newBinFingerprinter(executable func() (string, error), anchorPath string) *
 	}
 }
 
-// collect returns the current fingerprints, re-hashing only paths whose
-// (size, mtime) stat identity changed since the last call. Fail-soft per
-// binary: a stat/read fault drops that entry (and its stale cache) rather
-// than reporting a wrong or outdated hash.
 func (f *binFingerprinter) collect() map[string]string {
 	out := map[string]string{}
 	for name, path := range f.paths {

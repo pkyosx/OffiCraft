@@ -4032,7 +4032,7 @@ func TestHandleReportStoppedApiSelfStoppedPost(t *testing.T) {
 	// ── the two populations' retry ledgers stay their own (T-253 F1) ─────────
 
 	t.Run("a worker's stop arms the worker ledger and NOT the member producer's marker", func(t *testing.T) {
-		// 🔴 lifecycleStates IS ONE STORE FOR BOTH POPULATIONS. RobustStopPendingAt
+		// 🔴 reconcileStates IS ONE STORE FOR BOTH POPULATIONS. RobustStopPendingAt
 		// is the MEMBER producer's at-least-once arm; writing it for a worker hands
 		// the worker tick a marker its own decider acts on — suppressing the START
 		// that is due, then returning a STOP the worker path reads as a zombie
@@ -4044,7 +4044,7 @@ func TestHandleReportStoppedApiSelfStoppedPost(t *testing.T) {
 		}
 		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"))
 		apiWantValue(t, "the member producer's marker",
-			any(api.lifecycleState("ow-abc123").RobustStopPendingAt), any(float64(0)))
+			any(api.reconcileStateOf("ow-abc123").RobustStopPendingAt), any(float64(0)))
 
 		// The consequence, not just the field: the session goes away and the very
 		// next tick starts the replacement instead of waiting on a kill that was
@@ -4070,7 +4070,7 @@ func TestHandleReportStoppedApiSelfStoppedPost(t *testing.T) {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
 		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("kip"))
-		if got := api.lifecycleState("kip").RobustStopPendingAt; got <= 0 {
+		if got := api.reconcileStateOf("kip").RobustStopPendingAt; got <= 0 {
 			t.Fatalf("the member producer's marker must be armed, got %v", got)
 		}
 		// The consequence, at the same level as the worker arm's: the session is
@@ -4207,7 +4207,7 @@ func TestHandleReportStoppedApiSelfStoppedPost(t *testing.T) {
 		// a worker nothing is going to start again. That is what goes red under
 		// the stale-snapshot mutation, and it is why the phase assertion is here
 		// rather than the body being trusted to carry the whole proof.
-		apiWantValue(t, "the FSM phase", any(api.lifecycleState("ow-abc123").Phase), any("offline"))
+		apiWantValue(t, "the FSM phase", any(api.reconcileStateOf("ow-abc123").Phase), any("offline"))
 		apiWantBody(t, data, map[string]any{
 			"id":               "ow-abc123",
 			"desired_state":    "offline",
@@ -4233,7 +4233,7 @@ func TestHandleReportStoppedApiSelfStoppedPost(t *testing.T) {
 		})
 		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"))
 		apiWantValue(t, "the FSM phase",
-			any(api.lifecycleState("ow-abc123").Phase), any("stopping"))
+			any(api.reconcileStateOf("ow-abc123").Phase), any("stopping"))
 	})
 
 	t.Run("a worker's repeat report changes nothing and sends no second stop", func(t *testing.T) {

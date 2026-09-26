@@ -646,7 +646,7 @@ func TestFoldWorkerCommandResult(t *testing.T) {
 			worker.LastOpAt != 1720000200 {
 			t.Fatalf("worker receipt = %#v", worker)
 		}
-		if !api.workerMachineCoolingOn("ow-abc123", "m-server-self", nowSecs()) {
+		if !api.workerMachineBenched("ow-abc123", "m-server-self", nowSecs()) {
 			t.Fatalf("the refused target was not benched")
 		}
 		dashboard.wantFrames(apiTestWorkerDelta(2, "assigned", "warden-1"))

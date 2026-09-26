@@ -1,42 +1,9 @@
-// `ocwarden install` — the one-key warden installer (the Go replacement of the
-// retired flip-era bash bin/warden-install, now the SOLE installer). It
-// idempotently installs and starts THIS machine's execution-plane warden launchd
-// job (canonical label com.officraft.ocwarden) in six steps: resolve
-// identity/paths, write the exec-warden token file (0600, atomic), render the
-// launchd plist with real per-machine paths, launchctl bootout→poll-until-gone→
-// bootstrap→kickstart under the EXACT label, then health-verify the job came up
-// and STAYS up. The poll between bootout and bootstrap is load-bearing: bootout is
-// ASYNC, and bootstrapping while the old registration lingers fails with
-// "Bootstrap failed: 5: Input/output error" — the exact non-idempotence that broke
-// re-installs in the field. bin/ocserver's drop_and_load is the same pattern on
-// the server side; keep the two in sync.
+// `ocwarden install` — the one-key warden installer (the sole installer).
 //
-// SEAM DESIGN (mirrors main.go's CmdRunner): every side effect — launchctl/plutil
-// subprocess, file mkdir/write/rename/chmod/stat, and the settle-window sleep — goes
-// through the injectable sysOps struct, and the seam itself is constructed in exactly
-// ONE place (realHostSeam, reached only via the `newHostSeam` var — see hostSeam
-// below): production gets the real os/exec+os wiring, and a test builds its installer
-// on a fake sysOps, so an entry point that TAKES ITS EFFECTS FROM THE SEAM cannot
-// touch launchctl or the live machine, guard or no guard.
-//
-// 🔴 INJECTION IS NOT WHAT ENFORCES THAT, IN THIS TREE. newHostSeam is a var, but
-// NOTHING REBINDS IT: no test in this package swaps it, so a test binary that calls
-// newHostSeam() is handed realHostSeam exactly as production is. The enforcement is
-// the RUNTIME refusal below (refuseInTestBinary), which fires wherever the real
-// wiring is constructed or a subprocess is started. A test reaching an entry point
-// that resolves its own effects therefore DIES rather than being quietly faked —
-// see hostSeam below, and the two t.Skip'd entry-point tests that say so.
-// WARDEN_INSTALL_DRYRUN=1 is the dry-run seam
-// (byte-parity with the bash installer's env of the same name): it prints every
-// step's intent and mutates nothing.
-//
-// GUARDRAILS (ported verbatim from the bash installer):
-//   - The ONLY process action is launchctl by the EXACT label
-//     com.officraft.ocwarden. NEVER pkill / pattern-kill / killall.
-//   - Tokfile is mode 0600, written to a fresh temp then atomically renamed.
-//   - Every step is idempotent (reinstall boots out the old instance first).
-//   - The binary is the committed prebuilt bin/ocwarden — install does NOT rebuild
-//     (a fresh machine with no Go toolchain must still be able to install).
+// The ONLY process action is launchctl by the EXACT label — never pkill /
+// pattern-kill / killall. The binary is the committed prebuilt bin/ocwarden;
+// install does NOT rebuild (a fresh machine with no Go toolchain must still be
+// able to install).
 package main
 
 import (
@@ -51,43 +18,27 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-	// testing is imported by PRODUCTION code on purpose: testing.Testing() is the
-	// only way for realSysOps/realHostSeam to know they are about to hand the LIVE
-	// machine to a `go test` process. See refuseInTestBinary below.
+	// Imported by production code on purpose: testing.Testing() is how the real
+	// seam constructors know they are about to hand the LIVE machine to `go test`.
 	"testing"
 	"time"
 )
 
-// wardenLabel is the CANONICAL execution-plane warden launchd label. It is the ONLY
-// label install/teardown ever act on (bootout/bootstrap/kickstart) — never a
-// pattern, never the python daemons' labels. Byte-identical to the bash installer's
-// readonly LABEL and to the committed plist template's <Label>.
+// Byte-identical to the committed plist template's <Label>.
 const wardenLabel = "com.officraft.ocwarden"
 
-// dryRunEnv is the dry-run toggle env key, kept byte-identical to the bash
-// installer so operators use the same incantation for either implementation.
 const dryRunEnv = "WARDEN_INSTALL_DRYRUN"
 
-// ocBaseShape asserts OC_BASE is http(s)://host[:port] with no whitespace or
-// XML-special chars BEFORE it is interpolated into the plist XML (defence against a
-// malformed / injection-y value slipping into the rendered document). Ported from
-// the bash installer's `^https?://[^[:space:]\"\'\<\>\&]+$`.
+// The only guard before OC_BASE is interpolated into the plist XML.
 var ocBaseShape = regexp.MustCompile(`^https?://[^\s"'<>&]+$`)
 
-// launchctlPIDRe extracts the `pid = N` line from `launchctl print`.
 var launchctlPIDRe = regexp.MustCompile(`(?m)^\s*pid\s*=\s*(\d+)`)
 
-// ---------------------------------------------------------------------------
-// sysOps — the injectable side-effect seam (mirrors main.go's CmdRunner idea,
-// widened to the filesystem + sleep so install/teardown are fully testable and CI
-// never touches launchctl or the live machine).
-// ---------------------------------------------------------------------------
-
 type sysOps struct {
-	run       func(name string, args ...string) (string, error) // launchctl / plutil
+	run       func(name string, args ...string) (string, error)
 	mkdirAll  func(path string, perm os.FileMode) error
 	writeFile func(path string, data []byte, perm os.FileMode) error
-	readFile  func(path string) ([]byte, error) // copy-self source + guard tokfile read
+	readFile  func(path string) ([]byte, error)
 	rename    func(oldpath, newpath string) error
 	remove    func(path string) error
 	chmod     func(path string, mode os.FileMode) error
@@ -95,32 +46,14 @@ type sysOps struct {
 	sleep     func(time.Duration)
 }
 
-// refuseInTestBinary is the ONLY live tripwire on the functions that wire the real
-// machine in. An earlier shape paired it with a source scan run from the package's
-// test entry point; no such scan is in this tree, so nothing rejects a bad edit
-// before the tests run and this runtime refusal carries the whole weight — a test
-// binary must never be able to construct the real seam or start a real
-// subprocess, and "we noticed afterwards" is not a defence for a verb that boots
-// out a live launchd job.
+// refuseInTestBinary is the ONLY live tripwire on the functions that wire the
+// real machine in: no source scan remains in this tree. It has fired for real —
+// a test reached teardownCmd, which built its own effects, and booted out the
+// developer machine's live com.officraft.ocwarden job.
 //
-// THIS IS NOT HYPOTHETICAL. While verifying T-5047 this exact path fired for real:
-// a mutant run against a tree where the static scan was not in effect drove a
-// test into teardownCmd, which built its own effects, and booted out this
-// developer machine's live com.officraft.ocwarden job (files survived; the job
-// had to be re-bootstrapped by hand). That test is not in the tree in that form
-// any more, and nothing about its absence makes the path safer — teardownCmd
-// still resolves its own effects, and the refusal below is what stops the next
-// one. A scan alone was never enough, because a scan is precisely what an edit
-// can remove — and in this tree it already has been.
-//
-// WHY os.Exit AND NOT panic: `sseTransport.handlePayload` (transport.go) wraps every
-// dispatched CommandDeps closure in a `recover()` so one bad frame cannot kill the
-// warden — and `CommandDeps.Teardown` is exactly such a closure. A panic raised from
-// realSysOps on that path would therefore be caught and downgraded to one log line.
-// os.Exit cannot be recovered, so the refusal stays loud on every path.
-//
-// This branch is unreachable in production: testing.Testing() is false in a binary
-// that was not built by `go test`.
+// os.Exit, not panic: sseTransport.handlePayload (transport.go) recovers every
+// dispatched CommandDeps closure, CommandDeps.Teardown included, so a panic
+// would be downgraded to one log line.
 func refuseInTestBinary(fn string) {
 	if !testing.Testing() {
 		return
@@ -134,9 +67,6 @@ func refuseInTestBinary(fn string) {
 	os.Exit(1)
 }
 
-// realSysOps wires the seam to the real OS. The runner reuses execRunner (main.go)
-// with a generous timeout: launchctl bootstrap/print are quick, but the health
-// verify makes many one-shot calls — each individual call is well under this bound.
 func realSysOps() sysOps {
 	refuseInTestBinary("realSysOps")
 	r := newCmdRunner(30 * time.Second)
@@ -159,74 +89,25 @@ func realSysOps() sysOps {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// hostSeam — the SINGLE construction point for EVERY real-host effect the
-// `ocwarden install` / `ocwarden teardown` / uninstall-RPC entry points can
-// reach: the mutating sysOps (launchctl + filesystem), the claude/codex probe
-// (execs a candidate binary), the ocagent download (HTTP to OC_BASE) and the
-// downloaded-binary probe (execs it).
-//
-// WHY THIS EXISTS, and why it is a SEAM and not a check
-// -----------------------------------------------------
-// installCmd/teardownCmd used to call realSysOps() inline. Every side effect
-// went through the seam, but the seam was WIRED TO THE REAL OS inside the very
-// entry points a test can call: `realMain([]string{"install"})` from any test in
-// this package would bootout/bootstrap the LIVE canonical
-// com.officraft.ocwarden job on the developer's machine. Nothing structural
-// stopped it — the install tests merely happened to build `installer` by hand
-// with a fake. That is "safe by coincidence", and the same shape already
-// unloaded this fleet's live warden three times through the teardown path.
-//
-// So the wiring is a package-level VARIABLE with exactly one production binding, and
-// every test in this package builds its installer on a fake sysOps by hand instead of
-// calling the entry points. An earlier shape had a package-wide test entry point
-// rebind newHostSeam to a fake for the whole binary; THAT FILE IS NOT IN THIS TREE,
-// so the rebinding is not what protects anything here — a test that does call
-// newHostSeam() is handed the real one, and the runtime refusal below is what
-// stops it.
-//
-// 🔴 WHY REBINDING WOULD NOT HAVE BEEN ENOUGH EITHER, MEASURED RATHER THAN ASSUMED
-// A rebind protects an entry point that GOES THROUGH the seam. It does NOT protect
-// against one that builds the wiring itself. Independent review put
-// `sysOps{run: execRunner{…}.Run, rename: os.Rename, …}` inline in teardownCmd: the
-// words realSysOps and realHostSeam appear nowhere in it, so every identifier-based
-// guard stayed green, refuseInTestBinary was never called, and the test binary issued
-// a real `launchctl bootout gui/<uid>/com.officraft.ocwarden` against the developer
-// machine's live warden. The suite did go red afterwards — with "no host seam was
-// constructed" — which is detection, not defence, and is the shape of the accident
-// this whole file exists to prevent.
-//
-// TWO SOURCE-LEVEL LAYERS ONCE STOOD IN FRONT OF THAT MUTANT and are GONE FROM THIS
-// TREE: a scan pinning realSysOps()/realHostSeam by identifier, and one pinning the
-// `sysOps{` / `execRunner{` composite literals by structure, both run from a
-// package-wide test entry point before m.Run(). They are recorded here because what
-// remains is the layer they were
-// in front of, not because they are a defence anyone still has:
-//   - main.go's execRunner.Run opens with
-//     refuseInTestBinary. Whatever assembled the struct, the subprocess still has to
-//     start there, so this fires BEFORE exec.Command — verified at the time by
-//     deleting the scan layers and re-running the same mutant: it died at
-//     `execRunner.Run(launchctl)` with the live warden untouched. It is the layer
-//     that was called unroutable-around, and it is now the only one.
-//
-// The cost of losing the other two is real and is worth stating plainly: a mutant
-// that assembles the wiring itself is no longer refused BEFORE the tests run, only
-// at the moment it tries to start a process. Detection moved back to defence-at-the-
-// syscall, which holds, but leaves nothing that would notice the shape in review.
+// hostSeam is the SINGLE construction point for every real-host effect the
+// install / teardown / uninstall-RPC entry points can reach. Nothing rebinds
+// newHostSeam in this tree, so a test that calls an entry point gets the real
+// seam and dies in refuseInTestBinary. Wiring assembled inline (a `sysOps{…}`
+// literal) is caught only by main.go's execRunner.Run opening with
+// refuseInTestBinary — at the syscall, not before the tests run.
 type hostSeam struct {
-	sys         sysOps
-	claudeProbe func(bin, pathEnv, home string) error
-	agentGet    func(base, token string) getter
-	agentProbe  func(bin string) error
+	sys          sysOps
+	versionProbe func(bin, pathEnv, home string) error
+	agentGet     func(base, token string) getter
+	agentProbe   func(bin string) error
 }
 
-// realHostSeam is the ONLY place the real OS is wired into install/teardown.
 func realHostSeam() hostSeam {
 	refuseInTestBinary("realHostSeam")
 	probeOps := osUpdaterOps{runner: newCmdRunner(selfUpdateProbeBudget)}
 	return hostSeam{
-		sys:         realSysOps(),
-		claudeProbe: realClaudeProbe,
+		sys:          realSysOps(),
+		versionProbe: realVersionProbe,
 		agentGet: func(base, token string) getter {
 			return httpGetter(&http.Client{Timeout: selfUpdateRequestBudget}, base, token)
 		},
@@ -234,58 +115,25 @@ func realHostSeam() hostSeam {
 	}
 }
 
-// newHostSeam is the injection point. Production leaves it at realHostSeam, and so
-// does the test binary — nothing rebinds it in this tree, so calling it from a test
-// is the deliberate os.Exit(1) in realHostSeam. NEVER call realHostSeam directly
-// from an entry point — that bypasses the one name this indirection gives a test.
+// NEVER call realHostSeam directly from an entry point — that bypasses the one
+// name this indirection gives a test.
 var newHostSeam = realHostSeam
 
-// installer carries the shared state for both install and teardown: where to log,
-// whether this is a dry run, and the side-effect seam.
 type installer struct {
 	out    io.Writer
 	dryRun bool
-	force  bool // --force: override the one-warden-per-machine guard
+	force  bool
 	sys    sysOps
 
-	// tag is the SUBCOMMAND name logf/errf stamp on every line. Empty = "install",
-	// which keeps every existing golden transcript byte-identical. teardownCmd sets
-	// "teardown": its refusal (T-2257) is the most consequential message this type
-	// emits, and shipping it under "[ocwarden install] FATAL:" mislabels the very
-	// command the operator has to fix.
 	tag string
 
-	// resolveClaude is the install-time claude RESOLUTION seam (nil = skip, no
-	// stamp — legacy fixtures/tests are untouched). It returns (claudeBin,
-	// plistPATH): claudeBin is the absolute claude executable to stamp into the
-	// warden plist as OC_CLAUDE_BIN ("" = unresolved → warn with guidance);
-	// plistPATH is a non-default PATH to stamp when claude only runs under the
-	// installer's richer PATH (version-manager shim / shebang interpreter — see
-	// resolveClaudeForInstall; "" keeps the historical minimal wardenPlistPATH).
-	// WHY at install time: `ocwarden install` runs in an env that can actually
-	// FIND claude (the operator's interactive shell, or a serve process whose own
-	// plist carries OC_CLAUDE_BIN from `bin/ocserver install` via bootstrap-here),
-	// while the launchd warden it installs runs under a minimal env where the
-	// runtime resolveClaudeBin fallbacks (LookPath / common dirs) miss
-	// version-manager installs (asdf/nvm/volta) → claude_bin_unresolved on every
-	// spawn. The stamp makes runtime priority ① (OC_CLAUDE_BIN) deterministic.
 	resolveClaude func() (claudeBin, plistPATH string)
 	resolveCodex  func() (codexBin, plistPATH string)
 
-	// agentGet + agentProbe are the ocagent DOWNLOAD seam (default install path): fetch
-	// the committed prebuilt ocagent from the server (GET /api/agent/binary) and
-	// verify-before-write it, so a remote/empty machine with NO repo and NO OC_AGENT_BIN
-	// still gets a working ocagent. Reuse of selfupdate.go's getter + probe shapes.
-	// agentGet GETs a path → (status, body, transport-error). agentProbe must EXEC the
-	// freshly downloaded binary and return nil ONLY if it runs and exits 0 (anti-suicide
-	// verify-before-swap: a truncated / wrong-arch download fails here). Both are wired by
-	// installCmd (realSysOps) and injected as fakes in tests; NEVER touched under DRYRUN
-	// or when OC_AGENT_BIN provides a local override (dev/in-tree).
 	agentGet   getter
 	agentProbe func(bin string) error
 }
 
-// subcmdTag is the log prefix for whichever subcommand owns this installer.
 func (i *installer) subcmdTag() string {
 	if i.tag == "" {
 		return "install"
@@ -299,74 +147,36 @@ func (i *installer) errf(format string, a ...any) {
 	fmt.Fprintf(i.out, "[ocwarden "+i.subcmdTag()+"] FATAL: "+format+"\n", a...)
 }
 
-// ---------------------------------------------------------------------------
-// path + identity resolution (bash installer step 1) — PURE, so it is unit-tested
-// without touching the machine.
-// ---------------------------------------------------------------------------
-
-// wardenPaths is the fully-resolved set of per-machine paths + identity the six
-// install steps operate on.
 type wardenPaths struct {
-	root string // per-machine data root = $HOME/.officraft (plist WorkingDirectory)
-	home string
-	// namespace is the validated OC_NAMESPACE ("" = the main instance). label is
-	// the launchd label derived from it (wardenLabelFor); the zero value falls
-	// back to the canonical wardenLabel (labelOrDefault) so hand-built fixtures
-	// keep their historical meaning.
+	root       string
+	home       string
 	namespace  string
 	label      string
-	srcExe     string // the running binary to copy from (symlinks already resolved)
+	srcExe     string
 	ocBase     string
 	ocToken    string
-	ocID       string // optional display id; server derives from token sub if empty
+	ocID       string
 	tokfile    string
 	laDir      string
 	plistPath  string
 	logDir     string
-	binPath    string // STABLE home install target = $HOME/.officraft/warden/ocwarden
-	anchorSrc  string // fixed launcher shipped beside the running ocwarden
-	anchorPath string // NEVER-replaced TCC identity anchor under the stable home
-	guiDomain  string // gui/<uid>
-	// ocAgentSrc is an OPTIONAL install-time LOCAL OVERRIDE (from OC_AGENT_BIN env) for
-	// the ocagent binary. When set, installOcAgent copies THIS local file to ocAgentBin
-	// (dev/test/in-tree, no server needed). When EMPTY (the DEFAULT + production path),
-	// installOcAgent instead DOWNLOADS ocagent from the server (GET /api/agent/binary) →
-	// so a remote/empty machine with NO repo and NO local path still gets a working
-	// ocagent. Either way the warden finds ocagent as its own sibling (resolveOcAgentBin),
-	// and that sibling only exists because install put it there.
+	binPath    string
+	anchorSrc  string
+	anchorPath string
+	guiDomain  string
 	ocAgentSrc string
-	// credCheck is the OC_CLAUDE_CRED_CHECK opt-out RELAYED from the installer's
-	// env into the warden plist ("" = not set = gate on). WHY it must be relayed:
-	// the warden is a launchd job, so its environment is EXACTLY what this plist
-	// says and nothing else — an operator exporting the variable in a shell
-	// changes nothing at all. Without this line the escape hatch the spawn-time
-	// refusal ADVERTISES cannot be pressed, which is worse than having no escape
-	// hatch: it reads as a way out at 3am and silently is not one.
+	// Must be relayed: a launchd job's env is EXACTLY its plist, so an operator
+	// exporting OC_CLAUDE_CRED_CHECK in a shell changes nothing, and the escape
+	// hatch the spawn-time refusal advertises could not be pressed.
 	credCheck string
-	// ocAgentBin is the STABLE home target = $HOME/.officraft/warden/ocagent (sibling of
-	// ocwarden) that installOcAgent writes (whether via local-copy or download). NOT
-	// stamped into any env/plist — the runtime warden discovers it by looking next to its
+	// Not stamped into the plist: the runtime warden finds ocagent next to its
 	// own executable (resolveOcAgentBin).
 	ocAgentBin string
-	// claudeBin is the claude executable resolved AT INSTALL TIME (installer
-	// seam resolveClaude; "" = unresolved). Non-empty → stamped into the plist
-	// EnvironmentVariables as OC_CLAUDE_BIN so the launchd warden's runtime
-	// resolveClaudeBin priority ① hits deterministically (the launchd minimal
-	// env cannot re-discover a version-manager claude on its own).
-	claudeBin string
-	// codexBin is the optional Codex CLI executable resolved at install time.
-	// A host is valid when at least one provider resolves.
-	codexBin string
-	// plistPATH overrides the plist's PATH env value ("" = the historical
-	// minimal wardenPlistPATH — byte-identical render). Set when the resolved
-	// claude only runs under the installer's richer PATH (a version-manager
-	// shim or `#!/usr/bin/env node` shebang needs its interpreter on PATH).
-	plistPATH string
+	claudeBin  string
+	codexBin   string
+	plistPATH  string
 }
 
-// labelOrDefault is the launchd label every install/teardown/launchctl step
-// acts on: the namespace-derived p.label when resolved, else the canonical
-// wardenLabel (empty namespace / zero-value fixtures — byte-identical either way).
 func (p wardenPaths) labelOrDefault() string {
 	if p.label != "" {
 		return p.label
@@ -374,42 +184,24 @@ func (p wardenPaths) labelOrDefault() string {
 	return wardenLabel
 }
 
-// resolvePaths reads the env contract (OC_BASE / OC_TOKEN / OC_ID — DEFINED to align
-// with the server's boot_command) and derives every per-machine path. The install is
-// SELF-CONTAINED: regardless of where the running binary (`exe`) currently lives (a
-// clone's bin/, /tmp/ocwarden, ./ocwarden, …), the durable warden runs from a STABLE
-// per-machine home: root = $HOME/.officraft, binPath = $HOME/.officraft/warden/ocwarden,
-// logDir = $HOME/.officraft/warden/log, tokfile = $HOME/.officraft/warden/exec-warden.tok. `exe`
-// is retained as srcExe: the source the installer copies to binPath. OC_TOKEN is
-// required; OC_BASE defaults + is shape-asserted; OC_ID is optional.
+// The env contract (OC_BASE / OC_TOKEN / OC_ID) is defined to align with the
+// server's boot_command.
 func resolvePaths(env func(string) string, exe string, uid int) (wardenPaths, error) {
 	home := env("HOME")
 	if home == "" {
 		return wardenPaths{}, errors.New("HOME must be set")
 	}
-	// Namespace (OC_NAMESPACE, "" = main instance) keys every per-instance host
-	// resource; an invalid value is refused before anything is derived.
 	ns, err := namespaceFromEnv(env)
 	if err != nil {
 		return wardenPaths{}, err
 	}
 	label := wardenLabelFor(ns)
-	// Data root is the stable per-machine home dir, NOT a repo/clone location: the
-	// installed warden must survive deletion of the copy `exe` was launched from.
 	root := officraftRootFor(home, ns)
 
-	// T-88: the SECOND, independent place this default used to be filled in — the
-	// one that gets BAKED INTO THE PLIST, so a guess made here is a guess every
-	// future launch of this machine's warden inherits, long after whoever ran the
-	// installer has gone. Refusing is the loud half of this ticket: an install is
-	// the one moment on this whole path when a person is actually watching, and
-	// an installer that stops with a message is the only failure here anybody
-	// ever sees.
-	//
-	// The check is on the ENV, not on the resulting value: a station host
-	// legitimately installs with OC_BASE pointing at loopback, and rejecting by
-	// comparing against defaultBase would refuse that machine.
-	ocBase, ocBaseConfigured := baseFromEnv(env) // T-78: what we WRITE into the plist is normalised too
+	// OC_BASE gets baked into the plist, so an unset value is refused rather
+	// than defaulted. The check is on the ENV, not the value: a station host
+	// legitimately installs with OC_BASE pointing at loopback (defaultBase).
+	ocBase, ocBaseConfigured := baseFromEnv(env)
 	if !ocBaseConfigured {
 		return wardenPaths{}, errors.New("OC_BASE is not set — refusing to install a warden that does not know which station to talk to. " +
 			"Re-run with OC_BASE set to the station URL (e.g. OC_BASE=https://station.example ocwarden install). " +
@@ -425,14 +217,6 @@ func resolvePaths(env func(string) string, exe string, uid int) (wardenPaths, er
 		return wardenPaths{}, errors.New("OC_TOKEN is required (the exec-warden member token; NOT the telemetry warden's). Usage: OC_BASE=<base> OC_TOKEN=<jwt> [OC_ID=<id>] ocwarden install")
 	}
 
-	// OC_AGENT_BIN (install-time) is an OPTIONAL LOCAL OVERRIDE naming a source ocagent to
-	// copy into the home bin (dev/test/in-tree). When UNSET (the DEFAULT + production
-	// path) install DOWNLOADS ocagent from the server instead — zero repo dependency, so
-	// a remote/empty machine still gets a working ocagent. When SET it must be an ABSOLUTE
-	// path with no whitespace (installOcAgent's read source — a relative or
-	// whitespace-laden path is almost certainly a mistake, caught here before any
-	// mutation). It is NOT interpolated anywhere (the warden discovers the copied binary as
-	// a runtime sibling), so this is path hygiene only.
 	ocAgentSrc := strings.TrimSpace(env("OC_AGENT_BIN"))
 	if ocAgentSrc != "" {
 		if !filepath.IsAbs(ocAgentSrc) || strings.ContainsAny(ocAgentSrc, " \t\n\r") {
@@ -449,47 +233,26 @@ func resolvePaths(env func(string) string, exe string, uid int) (wardenPaths, er
 		ocBase:     ocBase,
 		ocToken:    ocToken,
 		ocID:       env("OC_ID"),
-		tokfile:    tokfileFor(home, ns), // $HOME/.officraft[-ns]/warden/exec-warden.tok
+		tokfile:    tokfileFor(home, ns),
 		laDir:      filepath.Join(home, "Library", "LaunchAgents"),
 		plistPath:  filepath.Join(home, "Library", "LaunchAgents", label+".plist"),
-		logDir:     filepath.Join(root, "warden", "log"),      // $HOME/.officraft/warden/log
-		binPath:    filepath.Join(root, "warden", "ocwarden"), // $HOME/.officraft/warden/ocwarden
+		logDir:     filepath.Join(root, "warden", "log"),
+		binPath:    filepath.Join(root, "warden", "ocwarden"),
 		anchorSrc:  filepath.Join(filepath.Dir(exe), "officraft"),
 		anchorPath: filepath.Join(root, "warden", "officraft"),
 		guiDomain:  fmt.Sprintf("gui/%d", uid),
 		ocAgentSrc: ocAgentSrc,
-		ocAgentBin: filepath.Join(root, "warden", "ocagent"), // sibling of ocwarden (home copy)
-		// Relayed ONLY when explicitly disabled: any other value leaves the plist
-		// byte-identical to the gate-on render.
-		credCheck: relayedCredCheck(env),
+		ocAgentBin: filepath.Join(root, "warden", "ocagent"),
+		credCheck:  relayedCredCheck(env),
 	}, nil
 }
 
-// ---------------------------------------------------------------------------
-// plist render (bash installer step 4) — the AUTHORITATIVE renderer. Inlined
-// (not go:embed) so the rendered output is byte-parity with the bash installer's
-// render_plist heredoc; the committed deploy/*.plist reference template documents
-// the same shape for reviewers.
-// ---------------------------------------------------------------------------
-
-// wardenPlistPATH is the historical minimal launchd PATH the plist stamps by
-// default. It deliberately lacks ~/.local/bin and every version-manager shim
-// dir — which is exactly why the launchd warden cannot re-discover claude at
-// runtime and the install-time OC_CLAUDE_BIN stamp exists.
 const wardenPlistPATH = "/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
-// plistTemplate mirrors the retired bash installer's render_plist heredoc: the same
-// keys, EnvironmentVariables (PATH/OC_BASE/HOME/OC_WARDEN_TOKFILE),
-// RunAtLoad/KeepAlive/ThrottleInterval, and the ocwarden.* log paths.
-//
-// ProgramArguments is the ONE deliberate divergence: it names the TCC identity
-// anchor with no arguments, and the anchor forks the sibling ocwarden. launchd's
-// job leader is the responsible process for the whole tree, so pointing it at
-// ocwarden (which self-update replaces) voids the machine's privacy grants on
-// every update. %[1]s=ROOT %[2]s=ANCHOR %[3]s=OC_BASE %[4]s=HOME %[5]s=TOKFILE %[6]s=LOGDIR
-// %[7]s=LABEL %[8]s=optional extra env lines (OC_NAMESPACE / OC_CLAUDE_BIN; "" for
-// the main instance with no resolved claude — that render stays byte-identical to
-// the historical output) %[9]s=PATH value (wardenPlistPATH unless overridden).
+// ProgramArguments names the TCC identity anchor (which forks the sibling
+// ocwarden), not ocwarden: launchd's job leader is the responsible process for
+// the whole tree, and ocwarden is replaced by self-update, which would void the
+// machine's privacy grants on every update.
 const plistTemplate = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!-- RENDERED by ocwarden install for ROOT=%[10]s — do not edit by hand; re-run the installer. -->
@@ -515,13 +278,6 @@ const plistTemplate = `<?xml version="1.0" encoding="UTF-8"?>
 </plist>
 `
 
-// renderPlist substitutes the real per-machine paths into the template. It emits NO
-// OC_AGENT_BIN env: the warden finds ocagent as its own sibling at runtime
-// (resolveOcAgentBin), so the plist stays free of the ocagent path entirely.
-// OC_NAMESPACE is stamped ONLY for a non-empty namespace, OC_CLAUDE_BIN ONLY when
-// the install resolved a claude executable, and PATH deviates from the minimal
-// wardenPlistPATH ONLY when plistPATH overrides it (conditional renders — the
-// historical zero-extras plist stays byte-identical to the pre-stamp output).
 func renderPlist(p wardenPaths) string {
 	extraEnv := ""
 	if p.namespace != "" {
@@ -543,10 +299,6 @@ func renderPlist(p wardenPaths) string {
 	return fmt.Sprintf(plistTemplate, p.root, p.anchorPath, p.ocBase, p.home, p.tokfile, p.logDir, p.labelOrDefault(), extraEnv, xmlEscape(pathVal), xmlCommentSafe(p.root))
 }
 
-// relayedCredCheck returns the OC_CLAUDE_CRED_CHECK value to stamp into the
-// warden plist: only the explicit opt-out "0" is relayed, everything else
-// (unset, "1", junk) renders nothing and leaves the gate on. Whitelisting the
-// single meaningful value keeps an arbitrary env string out of the plist.
 func relayedCredCheck(env func(string) string) string {
 	if strings.TrimSpace(env("OC_CLAUDE_CRED_CHECK")) == "0" {
 		return "0"
@@ -554,30 +306,16 @@ func relayedCredCheck(env func(string) string) string {
 	return ""
 }
 
-// xmlCommentSafe makes a value legal INSIDE an XML comment. "--" is forbidden
-// there by the XML spec, and the rendered plist embeds the install root in its
-// header comment — so any install whose root path contains a double dash (a
-// scratch dir, or a namespace like "a--b", which namespaceShape's
-// [a-z0-9-]{1,16} genuinely allows) produced a plist that plutil then rejected
-// with an opaque "invalid sequence" error. The failure was at least LOUD and
-// before any launchctl call; this makes it not happen.
 func xmlCommentSafe(s string) string {
 	return strings.ReplaceAll(s, "--", "- -")
 }
 
-// xmlEscape escapes the five XML-special characters for a plist <string> value.
-// claudeBin is already shape-refused when it carries any of them (stampableClaude),
-// so this is defence-in-depth; PATH values legitimately vary and get real escaping.
 func xmlEscape(s string) string {
 	return strings.NewReplacer(
 		"&", "&amp;", "<", "&lt;", ">", "&gt;", `"`, "&quot;", "'", "&apos;",
 	).Replace(s)
 }
 
-// xmlWellFormed asserts the rendered plist parses as XML (the machine-independent
-// equivalent of the bash installer's `plutil -lint`: a malformed render fails here
-// in BOTH dry-run and live, so pre-land verification actually catches it). Live
-// installs additionally run the real `plutil -lint` on the written file for parity.
 func xmlWellFormed(doc string) error {
 	dec := xml.NewDecoder(strings.NewReader(doc))
 	for {
@@ -591,47 +329,17 @@ func xmlWellFormed(doc string) error {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// install-time claude resolution (the OC_CLAUDE_BIN stamp)
-// ---------------------------------------------------------------------------
-
-// stampableClaude asserts a resolved claude path is safe to interpolate into the
-// plist XML and sane as an exec target: absolute, no whitespace, no XML-special
-// chars (same hygiene class as the OC_AGENT_BIN / OC_BASE shape checks).
 func stampableClaude(p string) bool {
 	return filepath.IsAbs(p) && !strings.ContainsAny(p, " \t\n\r\"'<>&")
 }
 
-// resolveClaudeForInstall resolves the claude CLI in the INSTALLER's environment
-// and decides what to stamp into the warden plist. This is the product fix for
-// "launchd warden 永遠 claude_bin_unresolved": the runtime resolveClaudeBin's
-// fallbacks (LookPath under the minimal launchd PATH, common install dirs) all
-// miss a version-manager claude (asdf/nvm/volta shims), so the ONE moment the
-// path is discoverable is install time — `ocwarden install` runs either in the
-// operator's interactive shell (rich PATH) or under a serve process whose own
-// plist carries OC_CLAUDE_BIN (stamped by `bin/ocserver install`, forwarded by
-// bootstrap-here's env passthrough).
-//
-//	lookup — returns the claude candidate ("" = none). Production binds
-//	         resolveClaudeBin(env): OC_CLAUDE_BIN override → LookPath under the
-//	         installer's PATH → common install dirs.
-//	probe  — execs `<bin> --version` under a GIVEN (PATH, HOME) env; nil error =
-//	         it runs. Used to detect the shim/shebang trap: an asdf shim or an
-//	         `#!/usr/bin/env node` launcher needs its manager/interpreter on
-//	         PATH, so an absolute path alone can still die under launchd's
-//	         minimal PATH.
-//
-// Returns (claudeBin, plistPATH):
-//   - ("", "")            — claude truly absent (or unstampable); caller prints
-//     the human-readable guidance and stamps nothing.
-//   - (bin, "")           — bin runs under the minimal wardenPlistPATH → stamp
-//     OC_CLAUDE_BIN only (historical PATH kept).
-//   - (bin, installerPATH) — bin only runs under the installer's PATH (shim) →
-//     stamp OC_CLAUDE_BIN AND carry the installer's PATH into the plist so the
-//     shim can find its manager/interpreter at runtime.
-//   - (bin, "") with a warning — bin failed BOTH probes; stamp best-effort (the
-//     spawn-time guard will surface a precise claude_bin_unresolved otherwise,
-//     and a claude that needs more than PATH+HOME may still run under launchd).
+// Why install time: the runtime resolveClaudeBin fallbacks (LookPath under the
+// minimal launchd PATH, common dirs) miss a version-manager claude (asdf/nvm/
+// volta), giving claude_bin_unresolved on every spawn; `ocwarden install` runs
+// where the path is discoverable (the operator's shell, or a serve process whose
+// plist carries OC_CLAUDE_BIN from `bin/ocserver install`). The probe catches
+// the shim/shebang trap: an asdf shim or `#!/usr/bin/env node` launcher needs
+// its manager/interpreter on PATH, so the installer's PATH then rides along.
 func resolveClaudeForInstall(env func(string) string, lookup func() string,
 	probe func(bin, pathEnv, home string) error, logf func(string, ...any)) (string, string) {
 	cand := lookup()
@@ -647,7 +355,7 @@ func resolveClaudeForInstall(env func(string) string, lookup func() string,
 	}
 	home := env("HOME")
 	if probe(cand, wardenPlistPATH, home) == nil {
-		return cand, "" // runs under the minimal launchd PATH → stamp path only
+		return cand, ""
 	}
 	if userPATH := env("PATH"); userPATH != "" && probe(cand, userPATH, home) == nil {
 		logf("claude at %s needs the installer's PATH to run (version-manager shim / env-shebang) — stamping the full installer PATH into the warden plist alongside OC_CLAUDE_BIN", cand)
@@ -657,14 +365,10 @@ func resolveClaudeForInstall(env func(string) string, lookup func() string,
 	return cand, ""
 }
 
-// claudeProbeBudget bounds one `claude --version` probe. Generous: a cold Node
-// CLI can take seconds; a wedged shim must not hang the install forever.
+// A cold Node CLI can take seconds; a wedged shim must not hang the install.
 const claudeProbeBudget = 20 * time.Second
 
-// realClaudeProbe execs `<bin> --version` under EXACTLY the given PATH+HOME (the
-// same env shape the launchd plist grants), answering "would this claude run
-// under the warden's runtime env". Read-only: no files, no launchctl.
-func realClaudeProbe(bin, pathEnv, home string) error {
+func realVersionProbe(bin, pathEnv, home string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), claudeProbeBudget)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, bin, "--version")
@@ -672,24 +376,9 @@ func realClaudeProbe(bin, pathEnv, home string) error {
 	return cmd.Run()
 }
 
-// ---------------------------------------------------------------------------
-// the six steps
-// ---------------------------------------------------------------------------
-
-// guard enforces one warden per machine. "already installed" = an existing tokfile at
-// p.tokfile. Its owning machine id is the `sub` claim of the EXISTING token (decoded,
-// NOT signature-verified — the installer has no secret; jwtSub base64-decodes the
-// middle segment only). The new install is THE SAME machine when the existing sub
-// matches EITHER the `sub` of the new OC_TOKEN (the authoritative server-minted
-// machine id — like compared with like) OR the optional OC_ID display id. Matching
-// token-sub-to-token-sub FIRST is load-bearing for re-run idempotence: a half-install
-// leaves a tokfile whose sub equals any re-minted token's sub, and a stray/display
-// OC_ID in the caller's env must NOT make the guard mistake the machine re-installing
-// ITSELF for a foreign warden (that false refusal broke half-install re-runs). If a
-// warden for a genuinely DIFFERENT machine is already installed, REFUSE and mutate
-// nothing (operator must tear the old warden down or pass --force); no existing tokfile is
-// a fresh install. This runs BEFORE any mutation and refuses identically under DRYRUN
-// (the tokfile read is a non-mutating probe).
+// Match token sub to token sub, not only OC_ID: a half-install leaves a tokfile
+// whose sub equals any re-minted token's, and a stray OC_ID must not make the
+// machine re-installing itself look foreign.
 func (i *installer) guard(p wardenPaths) error {
 	if i.force {
 		i.logf("--force: skipping one-warden-per-machine guard")
@@ -697,21 +386,19 @@ func (i *installer) guard(p wardenPaths) error {
 	}
 	raw, err := i.sys.readFile(p.tokfile)
 	if err != nil {
-		return nil // no existing tokfile (or unreadable) → fresh install
+		return nil
 	}
 	existing := jwtSub(strings.TrimSpace(string(raw)))
 	if existing == "" {
-		return nil // can't identify the existing warden → don't block a re-provision
+		return nil
 	}
 	if newSub := jwtSub(p.ocToken); existing == newSub || (p.ocID != "" && existing == p.ocID) {
 		i.logf("guard: existing warden is the same machine (%s) — idempotent re-provision", existing)
 		return nil
 	}
-	// The teardown hint must be RUNNABLE. Bare `ocwarden teardown` now fails
-	// closed (it refuses an implicit canonical target), so telling an operator
-	// to run it leaves them stuck with no recovery path — and telling a
-	// namespaced install to run `--canonical` would point them at the LIVE
-	// canonical warden. Spell the command for THIS instance.
+	// Bare `ocwarden teardown` fails closed (no implicit canonical target),
+	// and `--canonical` from a namespaced install would hit the LIVE canonical
+	// warden — so spell the command for THIS instance.
 	teardownHint := "ocwarden teardown --canonical"
 	if p.namespace != "" {
 		teardownHint = "OC_NAMESPACE=" + p.namespace + " ocwarden teardown"
@@ -719,12 +406,6 @@ func (i *installer) guard(p wardenPaths) error {
 	return fmt.Errorf("refusing: a warden for machine %s is already installed on this box; run '%s' first, or pass --force to replace", existing, teardownHint)
 }
 
-// copyBinary makes the install self-contained: it copies the running binary
-// (p.srcExe, symlinks already resolved by installCmd) to the STABLE home target
-// p.binPath ($HOME/.officraft/warden/ocwarden) mode 0755 via a fresh temp + atomic
-// rename, so the durable warden runs from home and survives deletion of the temp/clone
-// copy it was launched from. A no-op when srcExe already IS binPath (re-run from the
-// installed location). DRYRUN logs intent and copies nothing.
 func (i *installer) copyBinary(p wardenPaths) error {
 	dir := filepath.Dir(p.binPath)
 	if p.srcExe == p.binPath {
@@ -746,8 +427,6 @@ func (i *installer) copyBinary(p wardenPaths) error {
 	if err := i.sys.writeFile(tmp, data, 0o755); err != nil {
 		return fmt.Errorf("write temp binary %s: %w", tmp, err)
 	}
-	// Explicit chmod: WriteFile's mode is umask-masked; re-assert 0755 so the copy is
-	// executable regardless of the caller's umask.
 	if err := i.sys.chmod(tmp, 0o755); err != nil {
 		return fmt.Errorf("chmod temp binary %s: %w", tmp, err)
 	}
@@ -758,7 +437,6 @@ func (i *installer) copyBinary(p wardenPaths) error {
 	return nil
 }
 
-// copyAnchorIfAbsent installs the fixed TCC identity launcher exactly once.
 // Replacing even identical bytes changes the inode and can invalidate TCC's
 // grant, so an existing anchor is always preserved.
 func (i *installer) copyAnchorIfAbsent(p wardenPaths) error {
@@ -777,17 +455,14 @@ func (i *installer) copyAnchorIfAbsent(p wardenPaths) error {
 	}
 	data, err := i.sys.readFile(p.anchorSrc)
 	if err == nil && len(data) == 0 {
-		// A zero-byte sibling is not an anchor, and this one would be preserved
-		// forever — the same "never replace" rule that protects a real anchor
-		// would protect the empty file.
+		// A zero-byte sibling is not an anchor, and the never-replace rule would
+		// preserve it forever.
 		err = fmt.Errorf("anchor source %s is empty", p.anchorSrc)
 	}
 	if err != nil {
-		// The release tarball ships the anchor beside ocwarden, but the cockpit's
-		// one-liner downloads ocwarden ALONE — so the sibling is genuinely absent
-		// on every remote onboarding, and the embedded copy is the only anchor
-		// that machine will ever see. Identical bytes either way; see
-		// anchor_embed.go for why that identity has to hold.
+		// The cockpit's one-liner downloads ocwarden ALONE, so on remote onboarding
+		// the embedded copy is the only anchor; the bytes must be identical either
+		// way (anchor_embed.go).
 		if embedded := embeddedAnchor(); len(embedded) > 0 {
 			i.logf("no anchor beside ocwarden; using the copy embedded in this binary")
 			data = embedded
@@ -805,22 +480,6 @@ func (i *installer) copyAnchorIfAbsent(p wardenPaths) error {
 	return nil
 }
 
-// installOcAgent completes the SELF-CONTAINED install by putting a working ocagent at
-// the stable home sibling p.ocAgentBin ($HOME/.officraft/warden/ocagent) mode 0755,
-// so the spawn shim execs a home-owned binary that survives deletion of the run-clone
-// it came from. It has TWO sources:
-//
-//   - DEFAULT (production, OC_AGENT_BIN unset): DOWNLOAD the committed prebuilt ocagent
-//     from the server (GET /api/agent/binary, PUBLIC) via i.agentGet, verify-before-write
-//     it (i.agentProbe: the download must EXEC + exit 0, the same anti-suicide guard the
-//     self-updater uses), then atomic-write it. ZERO repo dependency — a remote/empty
-//     machine with no local ocagent path still gets a working binary. This fixes the
-//     high-sev bug where the shim pointed at a dead path on machines that had no repo.
-//   - OVERRIDE (dev/test/in-tree, OC_AGENT_BIN=<abs path>): copy that LOCAL file instead
-//     (no server needed), preserving the old copy-from-local behaviour for CI/dev.
-//
-// A no-op when p.ocAgentSrc already IS the home target (re-run in place). DRYRUN logs
-// intent only. All FS mutation goes through i.sys; the download goes through i.agentGet.
 func (i *installer) installOcAgent(p wardenPaths) error {
 	if p.ocAgentSrc == p.ocAgentBin && p.ocAgentSrc != "" {
 		i.logf("ocagent source is already the installed home binary (%s); skipping self-copy", p.ocAgentBin)
@@ -828,7 +487,6 @@ func (i *installer) installOcAgent(p wardenPaths) error {
 	}
 	dir := filepath.Dir(p.ocAgentBin)
 
-	// Resolve the bytes to install: local override (copy) or server download.
 	var data []byte
 	if p.ocAgentSrc != "" {
 		if i.dryRun {
@@ -862,17 +520,12 @@ func (i *installer) installOcAgent(p wardenPaths) error {
 	if err := i.sys.writeFile(tmp, data, 0o755); err != nil {
 		return fmt.Errorf("write temp ocagent %s: %w", tmp, err)
 	}
-	// Explicit chmod: WriteFile's mode is umask-masked; re-assert 0755 so the copy is
-	// executable regardless of the caller's umask.
 	if err := i.sys.chmod(tmp, 0o755); err != nil {
 		return fmt.Errorf("chmod temp ocagent %s: %w", tmp, err)
 	}
-	// VERIFY-BEFORE-SWAP (anti-suicide, download path only — the same guard the
-	// self-updater applies): a corrupt / truncated / wrong-arch download must fail to
-	// exec here and we bail with NOTHING installed, rather than leaving a dead ocagent at
-	// the sibling path that would make every spawned agent exit 127 (deaf/offline). The
-	// local-override path skips this: OC_AGENT_BIN is a dev-controlled file, and probing a
-	// possibly cross-arch dev binary would add no safety.
+	// Verify-before-swap, download path only: a corrupt / wrong-arch ocagent at
+	// the sibling path would make every spawned agent exit 127. The local
+	// override is a dev-controlled file, possibly cross-arch, so it is not probed.
 	if p.ocAgentSrc == "" && i.agentProbe != nil {
 		if err := i.agentProbe(tmp); err != nil {
 			_ = i.sys.remove(tmp)
@@ -886,10 +539,6 @@ func (i *installer) installOcAgent(p wardenPaths) error {
 	return nil
 }
 
-// downloadOcAgent GETs the committed prebuilt ocagent from the server
-// (GET /api/agent/binary, PUBLIC) via i.agentGet and returns its bytes. Any transport
-// error, non-200 status, or empty body is a hard failure (install aborts) — better a
-// loud install failure than a silently-missing ocagent that deafens every spawn.
 func (i *installer) downloadOcAgent(p wardenPaths) ([]byte, error) {
 	i.logf("downloading ocagent from %s%s ...", p.ocBase, agentBinaryPath)
 	status, body, err := i.agentGet(agentBinaryPath)
@@ -905,26 +554,17 @@ func (i *installer) downloadOcAgent(p wardenPaths) ([]byte, error) {
 	return body, nil
 }
 
-// tokfileWriter is the narrow filesystem seam the atomic 0600 token write needs.
-// It exists because TWO callers now write that exact file: `ocwarden install`
-// (from its sysOps seam) and the self-renewal loop (from the real OS). A second
-// implementation of "write a credential safely" is the kind of duplicate that
-// stays correct only until one copy is fixed, and the copy that is not fixed is
-// the one holding the credential a machine needs to come back.
+// Shared by `ocwarden install` and the self-renewal loop: one implementation
+// of the credential write, so a fix cannot land in only one copy.
 type tokfileWriter struct {
 	mkdirAll  func(path string, perm os.FileMode) error
 	writeFile func(path string, data []byte, perm os.FileMode) error
 	chmod     func(path string, mode os.FileMode) error
 	rename    func(oldpath, newpath string) error
 	statMode  func(path string) (os.FileMode, error)
-	// remove deletes a temp that will never be renamed into place. Optional: a
-	// caller that does not supply it just leaves the temp behind, which is the
-	// pre-existing behaviour and never a write failure of its own.
-	remove func(path string) error
+	remove    func(path string) error
 }
 
-// tokfileWriter projects the install seam onto the narrow write. Not a `sysOps{`
-// literal: the real OS is still wired in exactly one place (realSysOps).
 func (s sysOps) tokfileWriter() tokfileWriter {
 	return tokfileWriter{
 		mkdirAll:  s.mkdirAll,
@@ -936,9 +576,6 @@ func (s sysOps) tokfileWriter() tokfileWriter {
 	}
 }
 
-// osTokfileWriter wires the narrow write to the real filesystem for callers that
-// have no sysOps of their own (the self-renewal loop). It starts no process and
-// touches nothing but the token file, so it is not part of the host seam.
 func osTokfileWriter() tokfileWriter {
 	return tokfileWriter{
 		mkdirAll:  os.MkdirAll,
@@ -956,13 +593,8 @@ func osTokfileWriter() tokfileWriter {
 	}
 }
 
-// write puts token at path 0600 via a fresh temp + atomic rename (bash installer
-// step 3): the temp is written 0600 and chmod-confirmed, so the token is NEVER
-// exposed at loose perms even if the destination pre-exists 0644; rename replaces
-// atomically (no write-then-chmod window on the live path). No trailing newline —
-// readTokfile trims, but wire-parity with the bash `printf '%s'` keeps the file
-// byte-identical. A failure at ANY step leaves the destination untouched, which is
-// what lets the renewal caller treat "write failed" as "keep the old credential".
+// A failure at ANY step leaves the destination untouched, which is what lets
+// the renewal caller treat "write failed" as "keep the old credential".
 func (w tokfileWriter) write(path, token string) error {
 	dir := filepath.Dir(path)
 	if err := w.mkdirAll(dir, 0o700); err != nil {
@@ -970,23 +602,18 @@ func (w tokfileWriter) write(path, token string) error {
 	}
 	tmp := filepath.Join(dir, fmt.Sprintf(".exec-warden.tok.%d", os.Getpid()))
 	if err := w.writeFile(tmp, []byte(token), 0o600); err != nil {
-		// A failed write can still have left the file behind, holding part of a
-		// credential: the same litter the rename path cleans up.
 		w.cleanup(tmp)
 		return fmt.Errorf("write temp tokfile %s: %w", tmp, err)
 	}
-	// Explicit chmod: os.WriteFile's mode is masked by umask, so re-assert 0600 to
-	// guarantee the perms regardless of the caller's umask.
+	// os.WriteFile's mode is masked by umask; re-assert 0600.
 	if err := w.chmod(tmp, 0o600); err != nil {
 		w.cleanup(tmp)
 		return fmt.Errorf("chmod temp tokfile %s: %w", tmp, err)
 	}
-	// The perms are verified on the TEMP, before the rename, so that rename is the
-	// LAST step that can fail. Verifying the destination afterwards read better and
-	// broke the guarantee this function's caller relies on: those two steps return
-	// an error with the destination ALREADY REPLACED, so the renewal loop logged
-	// "the previous credential is untouched" about a file it had just overwritten,
-	// then found the same credential due next turn and renewed again, forever.
+	// Verify perms on the TEMP, before the rename, so rename is the LAST step
+	// that can fail. Verifying the destination afterwards once made the renewal
+	// loop report "previous credential untouched" about a file it had just
+	// overwritten, and renew again forever.
 	mode, err := w.statMode(tmp)
 	if err != nil {
 		w.cleanup(tmp)
@@ -997,27 +624,19 @@ func (w tokfileWriter) write(path, token string) error {
 		return fmt.Errorf("temp tokfile perms are not 0600: %s (got %o)", tmp, mode.Perm())
 	}
 	if err := w.rename(tmp, path); err != nil {
-		// The temp holds a VALID credential at 0600; leaving it behind litters the
-		// warden directory with live secrets, one per failed attempt.
 		w.cleanup(tmp)
 		return fmt.Errorf("atomic rename tokfile -> %s: %w", path, err)
 	}
 	return nil
 }
 
-// cleanup removes a temp that will never be renamed into place. Best-effort by
-// construction: the write has already failed, and a failure to tidy up must not
-// turn into a second error that hides the first. A nil remove seam (the install
-// seam predates this) simply skips it.
+// Every failure path removes the temp: it holds (part of) a live credential.
 func (w tokfileWriter) cleanup(tmp string) {
 	if w.remove != nil {
 		_ = w.remove(tmp)
 	}
 }
 
-// writeTokfile writes the exec-warden token 0600. The write itself is
-// tokfileWriter.write, shared with the self-renewal loop; what stays here is the
-// install-only shell: the dry-run narration and the log line.
 func (i *installer) writeTokfile(p wardenPaths) error {
 	if i.dryRun {
 		i.logf("DRYRUN would: mkdir -p %s; write <token> to a 0600 temp then atomic rename -> %s",
@@ -1031,8 +650,6 @@ func (i *installer) writeTokfile(p wardenPaths) error {
 	return nil
 }
 
-// writePlist renders the plist, asserts it is well-formed XML, then (live) mkdirs
-// LaunchAgents, writes the file, and runs `plutil -lint` for parity (bash step 4).
 func (i *installer) writePlist(p wardenPaths) error {
 	rendered := renderPlist(p)
 	if err := xmlWellFormed(rendered); err != nil {
@@ -1055,7 +672,6 @@ func (i *installer) writePlist(p wardenPaths) error {
 	return nil
 }
 
-// ensureLogDir mkdirs the log dir the plist's StandardOut/ErrPath point at.
 func (i *installer) ensureLogDir(p wardenPaths) error {
 	if i.dryRun {
 		i.logf("DRYRUN would: mkdir -p %s", p.logDir)
@@ -1067,28 +683,18 @@ func (i *installer) ensureLogDir(p wardenPaths) error {
 	return nil
 }
 
-// bootout poll bounds — same shape as bin/ocserver's drop_and_load (25 x 0.2s = a
-// ~5s bounded wait). A not-loaded label is confirmed gone on the FIRST probe, so an
-// already-clean machine pays one `launchctl print` and zero sleeps.
+// Same bounds as bin/ocserver's drop_and_load (25 x 0.2s); keep the two in sync.
 const (
 	bootoutPollAttempts = 25
 	bootoutPollInterval = 200 * time.Millisecond
 )
 
-// bootoutUntilGone removes any existing registration UNDER THE EXACT label: it runs
-// `launchctl bootout <target>` (a non-zero exit = "not currently loaded" and is
-// tolerated — idempotent), then POLLS `launchctl print <target>` until launchd
-// reports the label truly gone. The poll exists because bootout is ASYNC: the call
-// returns while the label can linger registered, and a bootstrap issued in that
-// window fails ("Bootstrap failed: 5: Input/output error" / "service already
-// bootstrapped"), which is exactly how a re-install used to blow up. Returns true
-// once the label is confirmed gone, false if it still lingers after the bounded
-// wait (the caller decides — install warns and bootstraps anyway, byte-parity with
-// bin/ocserver's drop_and_load). EXACT label only — NEVER pkill, NEVER a pattern.
+// bootout is ASYNC: a bootstrap issued while the label still lingers fails
+// ("Bootstrap failed: 5: Input/output error"), which is how re-installs used to
+// break — hence the poll.
 func bootoutUntilGone(sys sysOps, target string) bool {
 	_, _ = sys.run("launchctl", "bootout", target)
 	for k := 0; k < bootoutPollAttempts; k++ {
-		// `launchctl print` exits non-zero for an unregistered label → gone.
 		if _, err := sys.run("launchctl", "print", target); err != nil {
 			return true
 		}
@@ -1097,25 +703,14 @@ func bootoutUntilGone(sys sysOps, target string) bool {
 	return false
 }
 
-// Post-bootstrap registration poll — THE SAME STANCE as bootoutUntilGone's bounded
-// wait above, and deliberately so: launchd's registration can lag a `launchctl
-// bootstrap` that already exited 0, so the answer to "is it registered?" is a
-// bounded poll, not a single zero-retry question. A label that IS registered
-// answers the FIRST probe, so a healthy machine pays one `launchctl print` and zero
-// sleeps. Like bootoutUntilGone, a timeout is NOT fatal — the caller decides.
 const (
 	registerPollAttempts = bootoutPollAttempts
 	registerPollInterval = bootoutPollInterval
 )
 
-// registeredUntilFound POLLS `launchctl print <target>` until launchd reports the
-// label registered. Returns nil once found, or the last probe's error if the label
-// is still unknown after the bounded wait (the caller decides — launchctlReinstall
-// warns and kickstarts anyway, same shape as bootoutUntilGone's caller).
 func registeredUntilFound(sys sysOps, target string) error {
 	var err error
 	for k := 0; k < registerPollAttempts; k++ {
-		// `launchctl print` exits zero for a registered label → found.
 		if _, err = sys.run("launchctl", "print", target); err == nil {
 			return nil
 		}
@@ -1124,13 +719,8 @@ func registeredUntilFound(sys sysOps, target string) error {
 	return err
 }
 
-// launchctlReinstall boots out the existing instance UNDER THIS LABEL ONLY
-// (idempotent reinstall; bootout error is tolerated = "not currently loaded"),
-// POLLS until the old registration is truly gone (bootout is async — see
-// bootoutUntilGone), then bootstraps fresh and kickstarts (gui-domain RunAtLoad
-// does not reliably fire the initial run; kickstart -k forces it deterministically
-// and is idempotent). EXACT label only — NEVER pkill, NEVER a pattern, NEVER the
-// python daemons (bash step 5).
+// kickstart -k because gui-domain RunAtLoad does not reliably fire the initial
+// run.
 func (i *installer) launchctlReinstall(p wardenPaths) error {
 	label := p.labelOrDefault()
 	target := p.guiDomain + "/" + label
@@ -1142,35 +732,24 @@ func (i *installer) launchctlReinstall(p wardenPaths) error {
 		i.logf("DRYRUN would run: launchctl kickstart -k %s", target)
 		return nil
 	}
-	// bootout + poll-until-gone: tolerate not-loaded; wait out launchd's async
-	// deregistration so the bootstrap below never races the dying registration.
 	if !bootoutUntilGone(i.sys, target) {
 		i.logf("WARN: %s still registered ~%ds after bootout; bootstrapping anyway", label, bootoutPollAttempts*int(bootoutPollInterval/time.Millisecond)/1000)
 	}
 	if _, err := i.sys.run("launchctl", "bootstrap", p.guiDomain, p.plistPath); err != nil {
 		return fmt.Errorf("launchctl bootstrap failed for %s: %w", p.plistPath, err)
 	}
-	// CONFIRM the bootstrap actually registered the label (T-0648) — POLLED and
-	// TOLERATED, byte-for-byte the stance bootoutUntilGone takes above. `launchctl
-	// bootstrap` can exit 0 and register NOTHING, and when it does the first verb
-	// to notice is the next one — kickstart — which fails with exit 113 "Could not
-	// find service ... in domain": a message that sent the operator to debug a step
-	// that was never broken. But registration can also merely LAG the exit-0
-	// bootstrap, so a timeout here must NOT fail the install: if launchd was just
-	// slow, kickstart succeeds and not one byte of the install's behaviour changes.
-	// Only when kickstart ALSO fails is the label really absent — and then this is
-	// the diagnosis, replacing kickstart's misleading message below.
+	// `launchctl bootstrap` can exit 0 and register NOTHING (kickstart then fails
+	// with a misleading exit 113), but registration can also merely lag, so a
+	// timeout here is not fatal; only when kickstart ALSO fails is the label
+	// really absent.
 	unregistered := registeredUntilFound(i.sys, target)
 	if unregistered != nil {
 		i.logf("WARN: launchd still does not know %s ~%ds after bootstrap exited 0; kickstarting anyway", label, registerPollAttempts*int(registerPollInterval/time.Millisecond)/1000)
 	}
 	if _, err := i.sys.run("launchctl", "kickstart", "-k", target); err != nil {
 		if unregistered != nil {
-			// Name the step that actually failed (bootstrap), but do NOT drop what the
-			// next verb reported: narrowing the evidence to our own diagnosis is how a
-			// second, unrelated failure reason becomes invisible. Neither wrapped text
-			// carries the word "kickstart" — that word only ever came from the format
-			// string below — so carrying both keeps the blame right AND the evidence whole.
+			// Blame bootstrap but keep kickstart's error too: dropping it would hide
+			// a second, unrelated failure reason.
 			return fmt.Errorf("launchctl bootstrap exited 0 but registered nothing — launchd does not know %s, so the job was never loaded; the plist to look at is %s: %w (the next verb then reported: %v)", target, p.plistPath, unregistered, err)
 		}
 		return fmt.Errorf("launchctl kickstart failed for %s: %w", target, err)
@@ -1179,11 +758,8 @@ func (i *installer) launchctlReinstall(p wardenPaths) error {
 	return nil
 }
 
-// verify proves the job came up AND STAYS up (bash step 6): phase 1 waits up to 30s
-// for the job to acquire a pid; phase 2 requires the SAME pid to hold across a ~6s
-// settle window (a bad-token / unreachable-server warden is respawned by KeepAlive
-// under a DIFFERENT pid, so "saw a pid once" is not proof of health). The 1s waits
-// go through the injectable sleep seam so tests drive it instantly.
+// A bad-token / unreachable-server warden is respawned by KeepAlive under a
+// DIFFERENT pid, so the same pid must hold across the settle window.
 func (i *installer) verify(p wardenPaths) error {
 	if i.dryRun {
 		i.logf("DRYRUN: skipping live verification (no machine state changed)")
@@ -1193,7 +769,6 @@ func (i *installer) verify(p wardenPaths) error {
 	target := p.guiDomain + "/" + label
 	i.logf("verifying %s is alive AND STABLE...", label)
 
-	// Phase 1: acquire a pid at all (up to 30 x 1s).
 	var pid string
 	for k := 0; k < 30; k++ {
 		if pid = i.wardenPID(target); pid != "" {
@@ -1204,7 +779,6 @@ func (i *installer) verify(p wardenPaths) error {
 	if pid == "" {
 		return fmt.Errorf("%s did not report a live PID within 30s", label)
 	}
-	// Phase 2: stability — the same pid must persist across ~6s.
 	for k := 0; k < 6; k++ {
 		i.sys.sleep(time.Second)
 		now := i.wardenPID(target)
@@ -1216,8 +790,6 @@ func (i *installer) verify(p wardenPaths) error {
 	return nil
 }
 
-// wardenPID returns the job's live pid via `launchctl print`, or "" (a not-loaded
-// label exits non-zero → treated as no pid).
 func (i *installer) wardenPID(target string) string {
 	out, err := i.sys.run("launchctl", "print", target)
 	if err != nil {
@@ -1236,7 +808,6 @@ func orNone(s string) string {
 	return s
 }
 
-// runInstall executes the six steps in order, failing fast (bash `set -e`).
 func (i *installer) runInstall(p wardenPaths) error {
 	idDisplay := p.ocID
 	if idDisplay == "" {
@@ -1249,11 +820,6 @@ func (i *installer) runInstall(p wardenPaths) error {
 	} else {
 		i.logf("ocagent:  DOWNLOAD %s%s -> BIN=%s (home sibling; runtime-discovered, not in plist)", p.ocBase, agentBinaryPath, p.ocAgentBin)
 	}
-	// Resolve claude NOW, in the installer's env (see resolveClaude seam doc), and
-	// carry the result into the plist render below. Resolution is read-only (a
-	// LookPath + at most two `claude --version` probes), so it runs under DRYRUN
-	// too and its outcome is part of the dry-run report. nil seam = no stamp
-	// (test fixtures / legacy callers keep the historical render).
 	if i.resolveClaude != nil {
 		p.claudeBin, p.plistPATH = i.resolveClaude()
 		if p.claudeBin != "" && p.plistPATH != "" {
@@ -1281,8 +847,6 @@ func (i *installer) runInstall(p wardenPaths) error {
 	if i.dryRun {
 		i.logf("DRY-RUN mode: no file writes / no launchctl / no verification.")
 	}
-	// Guard BEFORE any mutation: refuse if a warden for a different machine is already
-	// installed here (unless --force). Runs and can refuse identically under DRYRUN.
 	if err := i.guard(p); err != nil {
 		return err
 	}
@@ -1316,32 +880,16 @@ func (i *installer) runInstall(p wardenPaths) error {
 	return nil
 }
 
-// installCmd is the thin `ocwarden install` entry point: it resolves the running
-// binary + uid (with resolveClaudeBin/resolveCodexBin's read-only LookPath+stat, the
-// only real-OS reads outside the seam), takes its effects from newHostSeam(), and
-// runs the six steps. Returns 0 on success, 1 on any failure.
 func installCmd(env func(string) string, out io.Writer, force bool) int {
 	exe, err := os.Executable()
 	if err != nil {
 		fmt.Fprintf(out, "[ocwarden install] FATAL: cannot resolve own binary path: %v\n", err)
 		return 1
 	}
-	// Resolve symlinks so a launcher-symlinked binary copies its real target, not the
-	// dangling link. A resolve failure is non-fatal — fall back to the raw path.
 	if resolved, rerr := filepath.EvalSymlinks(exe); rerr == nil {
 		exe = resolved
 	}
-	// Wire the ocagent DOWNLOAD seam from the same OC_BASE/OC_TOKEN env the install
-	// already resolves (Config). agentGet pulls GET /api/agent/binary (PUBLIC — the token
-	// is sent as a bonus but not required, matching handle_agent_binary); agentProbe execs
-	// the download `--help` and requires exit 0 (verify-before-swap). Unused when
-	// OC_AGENT_BIN provides a local override or under DRYRUN.
 	cfg := loadConfig(env)
-	// EVERY real-host effect below comes from this one seam (see hostSeam):
-	// production binds realHostSeam, and nothing rebinds it, so
-	// `realMain([]string{"install"})` from a test binary dies inside realHostSeam
-	// (refuseInTestBinary) before launchctl, the filesystem or the network is
-	// touched. That is why TestInstallCmd is a skip and not a call.
 	host := newHostSeam()
 	i := &installer{
 		out:        out,
@@ -1351,24 +899,19 @@ func installCmd(env func(string) string, out io.Writer, force bool) int {
 		agentGet:   host.agentGet(cfg.Base, cfg.Token),
 		agentProbe: host.agentProbe,
 	}
-	// Install-time claude resolution → OC_CLAUDE_BIN plist stamp. lookup reuses the
-	// RUNTIME resolver (resolveClaudeBin: OC_CLAUDE_BIN env → LookPath → common
-	// dirs) but evaluated in the INSTALLER's env, where the path is actually
-	// discoverable; realClaudeProbe then decides whether the minimal launchd PATH
-	// suffices or the installer PATH must ride along (shim/shebang).
 	i.resolveClaude = func() (string, string) {
-		return resolveClaudeForInstall(env, func() string { return resolveClaudeBin(env) }, host.claudeProbe, i.logf)
+		return resolveClaudeForInstall(env, func() string { return resolveClaudeBin(env) }, host.versionProbe, i.logf)
 	}
 	i.resolveCodex = func() (string, string) {
 		candidate := resolveCodexBin(env)
 		if candidate == "" || !stampableClaude(candidate) {
 			return "", ""
 		}
-		if host.claudeProbe(candidate, wardenPlistPATH, env("HOME")) == nil {
+		if host.versionProbe(candidate, wardenPlistPATH, env("HOME")) == nil {
 			return candidate, ""
 		}
 		if path := env("PATH"); path != "" &&
-			host.claudeProbe(candidate, path, env("HOME")) == nil {
+			host.versionProbe(candidate, path, env("HOME")) == nil {
 			return candidate, path
 		}
 		return candidate, ""

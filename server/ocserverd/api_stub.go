@@ -246,12 +246,12 @@ type apiServer struct {
 	// under this lock only leaf locks are taken (gauge, handoverNoticedMu,
 	// ctxGateDiagMu) plus DAL calls, none of which take either of those.
 	startClearedAnchorsMu sync.Mutex
-	// ctxGateDiagAt records, per actor id, WHEN stampContextHighRecycle last
+	// ctxGateDiagLast records, per actor id, WHEN stampContextHighRecycle last
 	// emitted its gate diagnostic for that actor AND WHICH gate it named — the
 	// throttle behind noteContextGateSkip (T-72dd 補觀測). Guarded by
 	// ctxGateDiagMu below; pruned on the session boundary by clearSessionBootTS,
 	// the same place handoverNoticed is pruned and for the same reason.
-	ctxGateDiagAt map[string]ctxGateDiagState
+	ctxGateDiagLast map[string]ctxGateDiagState
 	// ctxGateDiagMu guards the map above, and it is its OWN mutex for the same
 	// reason handoverNoticedMu is: it protects one map on the reconcile tick's
 	// hot path and must never make an unrelated reader wait.
@@ -324,12 +324,12 @@ type apiServer struct {
 	// the merged tick takes this lock, drops it, and only then enters the
 	// outsource half.
 	reconcileMu sync.Mutex
-	// lifecycleStates is the single in-memory FSM store for every agent-shaped
+	// reconcileStates is the single in-memory FSM store for every agent-shaped
 	// row. The producer locks still serialize their own work; this mutex only
 	// protects the shared map when the staff and outsource halves run from
 	// different goroutines. Restart amnesia remains the contract.
-	lifecycleStateMu sync.Mutex
-	lifecycleStates  map[string]reconcileState
+	reconcileStateMu sync.Mutex
+	reconcileStates  map[string]reconcileState
 	reconcileCfg     reconcileConfig
 	// noReconcile is the --no-reconcile serve flag: skips the RECONCILE HALF of
 	// the cadence tick AND disables the event-driven warden-command dispatch the
@@ -364,7 +364,7 @@ type apiServer struct {
 	// Guarded by its OWN mutex, never reconcileMu/outsourceMu: it is armed from
 	// both producers and disarmed from the telemetry ingest goroutine, so
 	// borrowing either producer's lock would couple them through the ingest path.
-	// In-memory, restart-amnesia by design (the same posture as lifecycleStates):
+	// In-memory, restart-amnesia by design (the same posture as reconcileStates):
 	// a forgotten watch just means one dispatch goes unwatched, never a false
 	// receipt_missing on a member the server never dispatched to.
 	receiptMu      sync.Mutex
@@ -430,7 +430,7 @@ type apiServer struct {
 	// like its siblings: after a restart the spawn retry honestly falls back
 	// to the manual preference.
 	workerMachinePref map[string]string // worker id → machine id
-	// workerMachineCooldown → "<worker id>|<machine id>" → cooldown-until ts. A
+	// workerMachineBench → "<worker id>|<machine id>" → cooldown-until ts. A
 	// machine that just FAILED to boot a worker (a start receipt refused for a
 	// reason other than session_already_exists, or a zombie takeover stopping a
 	// ghost on it) is benched for that worker until the stamped ts: the pinned
@@ -438,7 +438,7 @@ type apiServer struct {
 	// hammering a known-bad host. In-memory like its siblings — a restart
 	// forgets the bench (worst case one retry on a still-bad machine, which
 	// re-benches on its next failure).
-	workerMachineCooldown map[string]float64
+	workerMachineBench map[string]float64
 	// workerTakeoverBench → worker id → the bench a zombie takeover placed. The
 	// takeover target's own OK stop receipt lifts exactly that bench
 	// (noteWorkerStopSucceeded); a bench placed for any other reason is left
