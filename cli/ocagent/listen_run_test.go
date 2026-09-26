@@ -1319,6 +1319,42 @@ func TestRun(t *testing.T) {
 		}
 	})
 
+	t.Run("a malformed OC_BASE keeps the listener retrying and names the address as malformed", func(t *testing.T) {
+		var out strings.Builder
+		cfg := loadConfig(testEnv(map[string]string{
+			"OC_BASE": "http://", "OC_TOKEN": "tok", "OC_ID": "kyle", "OC_AGENT_HOME": t.TempDir(),
+		}))
+		// The real transport, because the failure a malformed base produces comes from it.
+		l := newRunListener(t, cfg, &out, quietAPI(), http.DefaultTransport)
+		killed := 0
+		l.selfTerminate = func() { killed++ }
+		ctx, cancel := context.WithCancel(context.Background())
+		sleeps := 0
+		l.sleep = func(time.Duration) {
+			sleeps++
+			if sleeps == 3 {
+				cancel()
+			}
+		}
+
+		rc := l.run(ctx)
+
+		if rc != 0 || sleeps != 3 || killed != 0 {
+			t.Errorf("rc=%d sleeps=%d killed=%d, want 0, 3, 0 — the loop must outlive every failed attempt",
+				rc, sleeps, killed)
+		}
+		want := "[ocagent] listen: disconnected — connect failed: Get \"http:/api/events\": " +
+			"http: no Host in request URL" +
+			" [⚠ address MALFORMED — OC_BASE must be http:// or https:// followed by a host]" +
+			" (retrying on the same schedule, quietly; the next transport line you see " +
+			"is either the reconnect or a give-up)\n" +
+			"[ocagent] listen: giving up — this process is shutting down. No further " +
+			"reconnect attempts from THIS listener; I am NOT still retrying.\n"
+		if out.String() != want {
+			t.Errorf("printed %q, want %q", out.String(), want)
+		}
+	})
+
 	t.Run("a cancellation during the backoff sleep stops the loop", func(t *testing.T) {
 		var out strings.Builder
 		tr := &stubTransport{reply: func(int, *http.Request) (*http.Response, error) {
