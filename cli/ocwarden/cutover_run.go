@@ -1,26 +1,12 @@
-// cutover_run.go — the detached converter (`ocwarden cutover-anchor`, T-ff5d).
+// `ocwarden cutover-anchor`: the grandchild spawned by maybeStartAnchorCutover. It
+// runs in its own session so `launchctl bootout` of the warden job it came from
+// does not take it along.
 //
-// This is the grandchild spawned by maybeStartAnchorCutover. It runs in its own
-// session, so `launchctl bootout` of the warden job it came from does not take it
-// with it — that is the whole reason the conversion can replace the job that
-// started it without a one-shot launchd job or a second daemon.
-//
-// It does FOUR things and no install logic of its own:
-//
-//  1. back up the current plist to <plist>.prev            ← BEFORE install runs
-//  2. exec `ocwarden install --force`                       ← the existing installer
-//  3. on non-zero exit: roll back to the backed-up plist
-//  4. release the lock; on rollback, drop the cutover.failed sentinel
-//
-// 🔴 STEP 1 IS BEFORE STEP 2 ON PURPOSE, AND STEP 3 KEYS OFF THE WHOLE INSTALL.
-// install's `writePlist` overwrites unconditionally and lints AFTER writing, so
-// by the time ANY post-writePlist step fails the old shape is already gone from
-// disk. Backing up inside the installer would be too late for the lint case, and
-// rolling back only on verify failure — the original design — leaves a machine
-// whose next reboot silently adopts an unverified plist. Taking the copy out here
-// and treating "install exited non-zero" as the single rollback trigger covers
-// lint, bootstrap, kickstart and verify with one condition, and leaves runInstall
-// completely untouched.
+// 🔴 The backup is taken HERE, before install, and ANY non-zero install exit
+// triggers rollback: install's writePlist overwrites unconditionally and lints
+// AFTER writing, so a backup inside the installer is too late, and rolling back
+// only on verify failure leaves a machine whose next reboot adopts an unverified
+// plist.
 package main
 
 import (
@@ -31,11 +17,8 @@ import (
 	"time"
 )
 
-// cutoverCmd is the `ocwarden cutover-anchor` entry point. It always returns 0
-// for a rollback that SUCCEEDED — the machine is back on its old shape with a
-// live warden, which is the contracted outcome, not a failure of this process.
-// Non-zero is reserved for "the rollback itself did not restore a live warden",
-// the one state a human has to know about.
+// A SUCCESSFUL rollback returns 0 (the contracted outcome); non-zero means the
+// rollback itself did not restore a live warden.
 func cutoverCmd(env func(string) string, out io.Writer) int {
 	logf := func(format string, a ...any) {
 		fmt.Fprintf(out, "%s [cutover] "+format+"\n",
@@ -57,26 +40,19 @@ func cutoverCmd(env func(string) string, out io.Writer) int {
 	return runCutover(ops, p, exe, logf)
 }
 
-// releaseCutoverLock drops the lock the parent took. Best-effort: a leaked lock
-// ages out via staleLockAge, so failing to remove it costs one delayed retry
-// rather than a permanently wedged machine.
+// Best-effort: a leaked lock ages out via staleLockAge.
 func releaseCutoverLock(ops cutoverOps, env func(string) string) {
 	if lock := env("OC_CUTOVER_LOCK"); lock != "" {
 		_ = ops.remove(lock)
 	}
 }
 
-// runCutover is the testable core: every effect goes through ops, so no test can
-// reach a real launchctl or a real ~/Library/LaunchAgents path.
 func runCutover(ops cutoverOps, p wardenPaths, exe string, logf func(string, ...any)) int {
 	prevPath := p.plistPath + plistPrevSuffix
 	target := p.guiDomain + "/" + p.labelOrDefault()
 
-	// ---- 1. back up the old plist, BEFORE the installer can overwrite it -----
 	old, err := ops.readFile(p.plistPath)
 	if err != nil {
-		// No readable current plist means there is no old shape to preserve and
-		// nothing to roll back to. Refuse rather than convert blind.
 		logf("ABORT: cannot read current plist %s: %v (nothing to roll back to)", p.plistPath, err)
 		return 1
 	}
@@ -86,7 +62,6 @@ func runCutover(ops cutoverOps, p wardenPaths, exe string, logf func(string, ...
 	}
 	logf("backed up current plist -> %s (%d bytes)", prevPath, len(old))
 
-	// ---- 2. the conversion itself: the existing, idempotent installer --------
 	logf("running: %s install --force", exe)
 	installOut, installErr := ops.runInstaller(exe, "install", "--force")
 	if installOut != "" {
@@ -97,39 +72,18 @@ func runCutover(ops cutoverOps, p wardenPaths, exe string, logf func(string, ...
 		return 0
 	}
 
-	// ---- 3. rollback: any non-zero install exit ------------------------------
-	// Covers all four post-writePlist failures (plutil lint, bootstrap, kickstart,
-	// verify) plus every pre-writePlist one — for those the restore is a no-op
-	// write of identical bytes, which is cheap and strictly safer than trying to
-	// guess how far the installer got.
-	// ---- 3a. did the installer actually CHANGE anything? --------------------
-	// The sentinel's one and only justification is stopping a boot-loop: a machine
-	// whose plist WAS replaced would otherwise detect "legacy" on the next start
-	// and convert again forever. That risk does not exist when the installer died
-	// before it modified anything — and treating those two the same turns a
-	// TRANSIENT environment condition (the machine happened to be offline, so the
-	// ocagent download failed) into a PERMANENT property of the machine: it is
-	// excluded from the migration for good, by a network blip.
-	//
-	// 🔴 The test for "did anything change" is the FACT (the on-disk plist no
-	// longer matches the backup), deliberately NOT "which step failed". A step
-	// index silently picks the wrong side the moment someone inserts a step, and
-	// nothing would go red. An unreadable plist counts as CHANGED — if we cannot
-	// establish that the machine is untouched, we must not claim it is.
+	// No sentinel when the installer changed nothing: that failure may be transient
+	// (offline, so the ocagent download failed), and a sentinel would exclude the
+	// machine from the migration for good. 🔴 Judge by the FACT (on-disk plist vs
+	// backup), not by which step failed — a step index silently picks the wrong
+	// side once someone inserts a step.
 	if current, readErr := ops.readFile(p.plistPath); readErr == nil && string(current) == string(old) {
-		// Nothing to restore and nothing to boot-loop. Note this also skips a
-		// bootout→bootstrap cycle that would otherwise be run for no reason at
-		// all — needlessly opening the one window where a machine can end up with
-		// no warden.
 		logf("install FAILED (%v) but nothing was modified — machine is untouched, leaving no sentinel so the next start retries", installErr)
 		return 0
 	}
 
 	logf("install FAILED (%v) — rolling back to the pre-conversion shape", installErr)
 	if rbErr := rollback(ops, p, old, target, logf); rbErr != nil {
-		// The machine may now have no warden. Say so loudly and locally: this
-		// process cannot rely on telemetry, because telemetry is the thing that
-		// just failed to come back up.
 		logf("🔴 ROLLBACK FAILED: %v", rbErr)
 		writeCutoverSentinel(ops, p, fmt.Sprintf("install failed: %v\nrollback FAILED: %v", installErr, rbErr), logf)
 		return 1
@@ -139,20 +93,17 @@ func runCutover(ops cutoverOps, p wardenPaths, exe string, logf func(string, ...
 	return 0
 }
 
-// rollback puts the old plist back and makes launchd actually read it. Writing
-// the file is not enough: launchd caches a job's configuration at bootstrap, so
-// an un-booted-out label keeps the NEW settings until the next login — measured
-// on macOS 26.5 and 15.7.7, where both KeepAlive respawn and `launchctl kickstart
-// -k` were shown to keep serving the stale configuration. Only bootout→bootstrap
-// re-reads it.
+// Writing the file is not enough: launchd caches a job's configuration at
+// bootstrap, and both KeepAlive respawn and `launchctl kickstart -k` were measured
+// (macOS 26.5, 15.7.7) serving the stale one. Only bootout→bootstrap re-reads it.
 func rollback(ops cutoverOps, p wardenPaths, old []byte, target string, logf func(string, ...any)) error {
 	if err := ops.writeFile(p.plistPath, old, 0o644); err != nil {
 		return fmt.Errorf("restore plist %s: %w", p.plistPath, err)
 	}
 	logf("restored %s from backup", p.plistPath)
 
-	// Tolerate a bootout error: "not currently loaded" is the expected outcome
-	// when the failure happened before or during bootstrap.
+	// A bootout error is tolerated: "not currently loaded" is expected when the
+	// failure happened before or during bootstrap.
 	_, _ = ops.run("launchctl", "bootout", target)
 	if !cutoverWaitGone(ops, target) {
 		logf("WARN: %s still registered after bootout; bootstrapping anyway", target)
@@ -160,25 +111,16 @@ func rollback(ops cutoverOps, p wardenPaths, old []byte, target string, logf fun
 	if _, err := ops.run("launchctl", "bootstrap", p.guiDomain, p.plistPath); err != nil {
 		return fmt.Errorf("re-bootstrap old shape: %w", err)
 	}
-	// CONFIRM the re-bootstrap actually registered the label before handing on to
-	// kickstart (T-0648's shape): `launchctl bootstrap` can exit 0 and register
-	// NOTHING, and the first verb to notice is the next one — kickstart — whose
-	// exit 113 "Could not find service" names a step that was never broken. On
-	// THIS path that misnaming is not a transient console line: it is written
-	// into the cutover.failed sentinel and becomes the only diagnosis anybody
-	// reads afterwards. Registration can also merely LAG the exit-0 bootstrap, so
-	// a timeout here must NOT fail the rollback on its own — only kickstart also
-	// failing proves the label is really absent.
+	// `launchctl bootstrap` can exit 0 and register NOTHING; kickstart then fails
+	// with 113 "Could not find service", misnaming the broken step in the sentinel
+	// — the only diagnosis anybody reads. Registration can also merely lag, so a
+	// timeout alone must NOT fail the rollback; only kickstart also failing does.
 	unregistered := cutoverWaitRegistered(ops, target)
 	if unregistered != nil {
 		logf("WARN: launchd still does not know %s after re-bootstrap exited 0; kickstarting anyway", target)
 	}
 	if _, err := ops.run("launchctl", "kickstart", "-k", target); err != nil {
 		if unregistered != nil {
-			// Name the step that actually failed (the re-bootstrap) and carry the
-			// next verb's report rather than replacing it — narrowing the evidence to
-			// our own diagnosis is how a second, unrelated failure reason becomes
-			// invisible in a sentinel nobody can re-run.
 			return fmt.Errorf("re-bootstrap of the old shape exited 0 but registered nothing — launchd does not know %s, so the old job was never loaded; the plist to look at is %s: %w (the next verb then reported: %v)", target, p.plistPath, unregistered, err)
 		}
 		return fmt.Errorf("kickstart old shape: %w", err)
@@ -189,10 +131,10 @@ func rollback(ops cutoverOps, p wardenPaths, old []byte, target string, logf fun
 	return nil
 }
 
-// cutoverWaitGone mirrors install's bootoutUntilGone: bootout is ASYNC, and a
-// bootstrap issued while the dying registration lingers fails with "Bootstrap
-// failed: 5". Kept local rather than shared so the rollback path cannot be
-// broken by a future change to the install path's bounds.
+// Bootout is ASYNC: bootstrapping while the dying registration lingers fails with
+// "Bootstrap failed: 5". This and cutoverWaitRegistered are hand copies of
+// install's bootoutUntilGone / registeredUntilFound (different ops types), kept
+// local so a change to install's bounds cannot break the rollback path.
 func cutoverWaitGone(ops cutoverOps, target string) bool {
 	for k := 0; k < bootoutPollAttempts; k++ {
 		if _, err := ops.run("launchctl", "print", target); err != nil {
@@ -203,12 +145,6 @@ func cutoverWaitGone(ops cutoverOps, target string) bool {
 	return false
 }
 
-// cutoverWaitRegistered is a HAND COPY of install's registeredUntilFound, for the
-// same reason cutoverWaitGone is a hand copy of bootoutUntilGone: registeredUntilFound
-// is typed on sysOps and this path runs on cutoverOps (the Go types do not meet),
-// and keeping it local means the ROLLBACK path cannot be broken by a future change
-// to the install path's bounds. Same bounded shape: a registered label answers the
-// FIRST probe and pays zero sleeps; a timeout is NOT fatal — the caller decides.
 func cutoverWaitRegistered(ops cutoverOps, target string) error {
 	var err error
 	for k := 0; k < registerPollAttempts; k++ {
@@ -220,9 +156,8 @@ func cutoverWaitRegistered(ops cutoverOps, target string) error {
 	return err
 }
 
-// cutoverVerifyAlive requires the restored job to hold ONE pid across a settle
-// window. "Saw a pid once" is not proof: a warden that cannot start is respawned
-// by KeepAlive under a different pid, which looks alive on a single sample.
+// One pid must hold across a settle window: a warden that cannot start is
+// respawned by KeepAlive under a different pid and looks alive on one sample.
 func cutoverVerifyAlive(ops cutoverOps, target string) error {
 	var pid string
 	for k := 0; k < 30; k++ {
@@ -236,8 +171,8 @@ func cutoverVerifyAlive(ops cutoverOps, target string) error {
 	}
 	for k := 0; k < 6; k++ {
 		ops.sleep(time.Second)
-		if now := cutoverPID(ops, target); now != pid {
-			return fmt.Errorf("%s is crash-looping (pid %s -> %s)", target, pid, orNone(now))
+		if curPID := cutoverPID(ops, target); curPID != pid {
+			return fmt.Errorf("%s is crash-looping (pid %s -> %s)", target, pid, orNone(curPID))
 		}
 	}
 	return nil
@@ -254,10 +189,9 @@ func cutoverPID(ops cutoverOps, target string) string {
 	return ""
 }
 
-// writeCutoverSentinel records that this machine tried the conversion and ended
-// up back on the old shape. maybeStartAnchorCutover refuses to start while it
-// exists — without it, a rolled-back machine detects "legacy" on its very next
-// start and converts again, forever.
+// maybeStartAnchorCutover refuses to start while this sentinel exists; without it
+// a rolled-back machine detects "legacy" on its next start and converts again,
+// forever.
 func writeCutoverSentinel(ops cutoverOps, p wardenPaths, reason string, logf func(string, ...any)) {
 	path := filepath.Join(p.root, "warden", cutoverFailedName)
 	body := fmt.Sprintf("%s\n%s\n\nRemove this file to allow another attempt.\n",

@@ -1,37 +1,8 @@
-// Phase 4a-②b "ears (network half)": the SSE COMMAND TRANSPORT of the stateless
-// warden — the outbound long-lived GET /api/events connection that carries the
-// server's DIRECTED command frames down to the already-built command dispatch core
-// (Phase 4a-②a, command.go). This file is the NETWORK half of the "SSE nudge
-// reader"; command.go is the pure-logic half. Together: transport reads one SSE
-// `data:` payload → parseCommandFrame → (if non-nil) dispatchCommand(deps).
-//
-// WHY OUTBOUND SSE (the NAT transport seam, warden half): the server is in the
-// cloud, the warden is on the owner's Mac behind NAT, so the server CANNOT dial
-// INTO the warden. The four→three RPC commands (start / robust-stop) instead ride
-// the warden's OWN outbound SSE long-connection: the warden GETs /api/events with
-// its warden-member agent token, the server writes a command frame onto THAT
-// connection's downstream (keyed by the authenticated token `sub`), the warden
-// executes, and the actual result returns ASYNC via presence. Correlation is
-// ZERO-FIELD (no command_id) — the server reconciles desired_state against observed
-// presence.
-//
-// ADDRESSING (be closed-loop — do NOT drift): the warden sends NO query/header
-// except its Bearer auth. The server identifies the warden connection from the
-// authenticated token `sub` (scope=agent, sub=warden member id, kind=warden) and
-// pushes commands down that connection. Every other frame on the stream
-// (context-high / ordinary deltas / `: heartbeat` comments) is ignored by
-// parseCommandFrame (topic demux).
-//
-// GUARDRAILS (hard):
-//   - A malformed frame, a dispatch error, or an adversarial payload NEVER crashes
-//     the warden: handlePayload logs+skips (and recovers a panic defensively).
-//   - A dropped connection (EOF / network error / server close) NEVER crashes: the
-//     reconnect loop re-dials with exponential backoff (capped, no busy loop) — this
-//     is the warden's "always online" liveness line.
-//   - main.go starts the reader whenever a real token/id is present (not --once);
-//     server-orchestrated STOP is the single, unconditional path. In tests the
-//     transport is exercised against an httptest mock SSE server.
-//   - Pure stdlib (net/http + bufio). No third-party.
+// transport.go — the warden's SSE command reader. The server cannot dial INTO a
+// warden behind NAT, so commands ride the warden's own outbound GET /api/events:
+// the warden sends no query/header except its Bearer auth, the server addresses
+// the connection by the authenticated token sub (kind=warden), and
+// parseCommandFrame (command.go) ignores every other frame on the stream.
 package main
 
 import (
@@ -53,64 +24,28 @@ import (
 )
 
 const (
-	// eventsPath is the officraft SSE downlink (GET /api/events).
 	eventsPath = "/api/events"
-	// sseBackoffStart / sseBackoffCap bound the reconnect exponential backoff. The
-	// cap avoids a busy reconnect loop against a hard-down server; the start keeps a
-	// healthy-connection reconnect near-immediate.
+
 	sseBackoffStart = 1 * time.Second
 	sseBackoffCap   = 60 * time.Second
-	// sseDialTimeout / sseHeaderTimeout bound connection SETUP only — never the
-	// long-lived body stream (a bounded body deadline would guillotine the
-	// always-open SSE connection every N seconds).
+
 	sseDialTimeout   = 10 * time.Second
 	sseHeaderTimeout = 30 * time.Second
-	// sseIdleReadTimeout is the idle-read watchdog threshold. Timeout:0 gives the
-	// body stream NO deadline, so a silently-dead / half-open TCP connection (the
-	// server-side socket died but no FIN/RST reached us) would wedge the reader in
-	// a forever-blocking Read — "deaf but not reconnecting", the persona's cardinal
-	// sin. officraft emits a `: heartbeat` keepalive every ~15s; if NOTHING (not
-	// even a heartbeat) arrives within this window the connection is presumed dead
-	// and force-dropped into the EXISTING reconnect/backoff path. ~3× the heartbeat
-	// interval leaves ample slack for a healthy link while still catching a truly
-	// deaf connection inside a minute. Tests inject a small value to fire fast.
+	// Must stay well above the server's 15 s `: heartbeat` period (~3×): if
+	// nothing at all arrives within it, the connection is presumed half-open and
+	// dropped into reconnect.
 	sseIdleReadTimeout = 45 * time.Second
-	// maxSSELine caps a single SSE line so an adversarial unbounded line ends the
-	// stream (→ reconnect) rather than growing memory without limit.
-	maxSSELine = 8 << 20 // 8 MiB
+
+	maxSSELine = 8 << 20
 )
 
-// ---------------------------------------------------------------------------
-// SSE line framing — a `data:` payload extractor over the wire byte stream.
-// ---------------------------------------------------------------------------
-
-// scanSSE reads Server-Sent-Events from r and calls onPayload once per completed
-// event with the event's concatenated `data` payload (the raw bytes command.go
-// consumes). It implements the parts of the SSE line protocol officraft emits:
-//
-//   - lines are `\n`-separated (CRLF tolerated: a trailing `\r` is trimmed);
-//   - a BLANK line is the event boundary → the accumulated data is dispatched;
-//   - a line beginning with `:` is a comment (`: connected` / `: heartbeat`
-//     keepalive) → ignored;
-//   - `field: value` → one leading space after the colon is stripped; multiple
-//     `data:` lines within one event are joined with `\n`; `id:` / `event:` /
-//     `retry:` (and any other field) are ignored — the warden only wants data;
-//   - per the SSE spec an incomplete final event (EOF before the blank line) is
-//     DISCARDED, not dispatched (officraft always terminates a frame with the
-//     `\n\n` boundary, so a real command is never lost this way).
-//
-// It returns when r hits EOF or a read error (that error), never panicking.
 func scanSSE(r io.Reader, onPayload func([]byte)) error {
 	return scanSSEWithActivity(r, onPayload, nil)
 }
 
-// scanSSEWithActivity is scanSSE plus an idle-read watchdog hook: onActivity (when
-// non-nil) fires ONCE per successfully-read line — a `data:`/`event:`/`id:` field,
-// a blank event boundary, AND a `: heartbeat` keepalive comment all count. That is
-// exactly the "any frame arrived → the link is alive" signal the watchdog resets
-// its deadline on, so a healthy heartbeat-only stream is never falsely reconnected.
-// scanSSE delegates here with a nil hook (watchdog disabled) to keep its callers
-// and existing tests untouched.
+// scanSSEWithActivity: onActivity fires on EVERY line read, `: heartbeat`
+// comments included, so a healthy heartbeat-only stream never trips the
+// idle-read watchdog.
 func scanSSEWithActivity(r io.Reader, onPayload func([]byte), onActivity func()) error {
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 0, 64<<10), maxSSELine)
@@ -125,67 +60,48 @@ func scanSSEWithActivity(r io.Reader, onPayload func([]byte), onActivity func())
 	}
 	for sc.Scan() {
 		if onActivity != nil {
-			onActivity() // a line arrived → the link is alive → reset the watchdog
+			onActivity()
 		}
 		line := strings.TrimSuffix(sc.Text(), "\r")
-		if line == "" { // event boundary
+		if line == "" {
 			flush()
 			continue
 		}
-		if strings.HasPrefix(line, ":") { // comment / keepalive
+		if strings.HasPrefix(line, ":") {
 			continue
 		}
 		field, value, found := strings.Cut(line, ":")
 		if !found {
-			// A field name with no colon (whole line is the field, value empty).
-			// None of the warden's fields are valueless → ignore.
 			continue
 		}
-		value = strings.TrimPrefix(value, " ") // strip ONE leading space (SSE spec)
+		value = strings.TrimPrefix(value, " ")
 		if field == "data" {
 			data = append(data, value)
 		}
-		// id / event / retry / anything else → ignored.
 	}
 	return sc.Err()
 }
 
-// ---------------------------------------------------------------------------
-// the transport — long-lived GET /api/events + reconnect/backoff + dispatch.
-// ---------------------------------------------------------------------------
-
-// sseTransport holds one warden's outbound command-reader connection. All I/O and
-// timing runs through injectable seams (client / sleep / logf) so tests drive the
-// whole reconnect + dispatch path against an httptest server with NO real sleep.
 type sseTransport struct {
-	base   string       // OC_BASE (trailing slash already stripped by loadConfig)
-	token  string       // warden-member agent token → Authorization: Bearer
-	client *http.Client // long-lived (no body deadline); shared with nothing
-	deps   CommandDeps  // the REAL spawn/stop closures (or test fakes)
+	base   string
+	token  string
+	client *http.Client
+	deps   CommandDeps
 
-	sleep        func(time.Duration) // injectable; real is time.Sleep
-	backoffStart time.Duration
-	backoffCap   time.Duration
-	// idleReadTimeout arms the idle-read watchdog on an OPEN stream: no frame within
-	// this window → the connection is presumed silently-dead and force-dropped into
-	// reconnect. Zero DISABLES the watchdog (unbounded blocking read, the pre-existing
-	// behaviour) — so watchdog-unaware tests that leave it at 0 are unaffected; tests
-	// inject a small value to fire fast, production sets sseIdleReadTimeout.
+	sleep           func(time.Duration)
+	backoffStart    time.Duration
+	backoffCap      time.Duration
 	idleReadTimeout time.Duration
 	logf            func(format string, args ...any)
-	// onConnect fires ONCE each time a 200 SSE stream successfully opens (每次成功
-	// (re)連線). It is the 方案A hook (T-c93d): main.go wires it to the self-updater's
-	// Kick so a reconnect — which for the committed-prebuilt model coincides with a
-	// server redeploy serving a fresh binary — triggers an immediate self-update
-	// check instead of waiting out the 15m poll. nil (default / tests) = no-op, so
-	// the transport is unchanged when the hook is not wired.
+	// onConnect fires on every successful (re)connect. main.go wires it to the
+	// self-updater's Kick: a redeploy drops every stream, so a reconnect is the
+	// most reliable sign to check for a new binary now instead of waiting out the
+	// 15m poll.
 	onConnect func()
 }
 
-// newSSEClient builds the long-lived HTTP client for the SSE downlink. Crucially
-// Timeout is 0 (NO overall deadline) — an SSE connection is meant to stay open
-// indefinitely; only connection SETUP (dial / TLS / response headers) is bounded,
-// never the streaming body.
+// newSSEClient bounds connection SETUP only (dial / TLS / response headers). Never
+// give it an overall Timeout: that would guillotine the always-open stream.
 func newSSEClient() *http.Client {
 	return &http.Client{
 		Timeout: 0,
@@ -198,11 +114,6 @@ func newSSEClient() *http.Client {
 	}
 }
 
-// run is the always-online reconnect loop. It blocks until ctx is cancelled,
-// re-dialing whenever the stream drops. Backoff is exponential and capped; a
-// connection that OPENED successfully (HTTP 200) resets the backoff so a normal
-// long-connection drop reconnects fast, while a hard-down server (never opens)
-// escalates toward the cap instead of hot-looping.
 func (t *sseTransport) run(ctx context.Context) {
 	backoff := t.backoffStart
 	for {
@@ -210,11 +121,11 @@ func (t *sseTransport) run(ctx context.Context) {
 			return
 		}
 		opened, err := t.connectOnce(ctx)
-		if ctx.Err() != nil { // cancelled while connected/dialing → clean exit
+		if ctx.Err() != nil {
 			return
 		}
 		if opened {
-			backoff = t.backoffStart // healthy connection dropped → reconnect fast
+			backoff = t.backoffStart
 			t.logf("[ocwarden] command reader: stream ended (%v); reconnecting in %s", err, backoff)
 		} else {
 			t.logf("[ocwarden] command reader: connect failed (%v); retrying in %s", err, backoff)
@@ -226,34 +137,17 @@ func (t *sseTransport) run(ctx context.Context) {
 	}
 }
 
-// connectOnce dials GET /api/events, and — on a 200 — streams its body through
-// scanSSE until the stream ends. It returns (opened, err): opened is true once the
-// 200 body is being read (so the caller resets backoff), false on a dial error or
-// non-200 (so the caller keeps escalating backoff). It NEVER returns until the
-// stream ends or ctx is cancelled — that is the long-lived connection.
+// connectOnce reports opened=true once a 200 body is being read (the caller then
+// resets backoff).
 //
-// IDLE-READ WATCHDOG (SetReadDeadline): on an open 200 body it arms a per-connection
-// READ DEADLINE on the underlying net.Conn that resets on every arriving line (see
-// scanSSEWithActivity). If nothing arrives for idleReadTimeout the netpoller makes the
-// blocked resp.Body.Read return a timeout error → scanSSE returns it → the caller
-// (run) takes the EXISTING reconnect/backoff path. We use the netpoller's native
-// read-deadline instead of cancelling the request context because a genuine half-open
-// TCP (server-side socket gone, no FIN/RST reached us) can leave the context-cancel→
-// net/http-Close path unable to unblock the blocked Read — SetReadDeadline unblocks it
-// reliably regardless of TCP state. The conn is captured via httptrace.GotConn.
-//
-// The context-cancel path is KEPT INTACT for genuine ctx cancellation / clean shutdown
-// (the child context is derived from ctx, so a real ctx cancellation still stops both
-// this connection and the outer run loop). SetReadDeadline is ADDITIVE — the idle
-// watchdog, not a replacement for ctx-driven shutdown. If GotConn did NOT capture a
-// conn (defensive), we fall back to the previous AfterFunc(cancelConn) watchdog so the
-// watchdog is never silently disabled.
+// The idle-read watchdog uses SetReadDeadline on the socket (captured via
+// httptrace.GotConn) rather than cancelling the request context: on a genuine
+// half-open TCP the context-cancel→Close path may not unblock the blocked Read.
+// If no conn was captured it falls back to an AfterFunc(cancelConn) watchdog so
+// the watchdog is never silently disabled.
 func (t *sseTransport) connectOnce(ctx context.Context) (opened bool, err error) {
 	connCtx, cancelConn := context.WithCancel(ctx)
 	defer cancelConn()
-	// Capture the underlying net.Conn for THIS request via httptrace so the idle
-	// watchdog can arm a read deadline directly on the socket. GotConn fires during
-	// client.Do (from the transport's goroutine), so guard the shared pointer.
 	var (
 		connMu   sync.Mutex
 		httpConn net.Conn
@@ -273,54 +167,32 @@ func (t *sseTransport) connectOnce(ctx context.Context) (opened bool, err error)
 	req.Header.Set("User-Agent", userAgent)
 	req.Header.Set("Accept", "text/event-stream")
 	req.Header.Set("Cache-Control", "no-cache")
-	// The warden sends NO query/header except its Bearer auth (be addressing
-	// contract): the server identifies the warden from the authenticated token sub.
 	if t.token != "" {
 		req.Header.Set("Authorization", "Bearer "+t.token)
 	}
 	resp, err := t.client.Do(req)
 	if err != nil {
-		return false, err // dial / TLS / header timeout / ctx cancel
+		return false, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		_, _ = io.Copy(io.Discard, resp.Body)
 		return false, fmt.Errorf("unexpected status %d", resp.StatusCode)
 	}
-	// Positive connect beacon (Phase 4 flip observability): we now hold an OPEN 200
-	// SSE stream. Logged once per (re)connect so the warden log shows exactly WHEN
-	// the command downlink is live — lets us correlate a connect against the
-	// server's START-emit time (a START enqueued while we were mid-reconnect could
-	// otherwise be missed with no trace on either side).
 	t.logf("[ocwarden] command reader: connected — streaming %s%s", t.base, eventsPath)
-	// 方案A (T-c93d): a fresh SSE (re)connect is the event that most reliably marks
-	// "the server process may have moved" (a redeploy drops every stream). Fire the
-	// hook so the self-updater checks /api/version NOW rather than up to 15m later.
-	// nil = unwired (tests / --once); the sha-gate makes a spurious kick near-free.
 	if t.onConnect != nil {
 		t.onConnect()
 	}
-	// Arm the idle-read watchdog only when configured (idleReadTimeout>0). Each line
-	// read pushes the deadline forward; a lapse makes the blocked Read return → scanSSE
-	// returns an error → run() reconnects. Zero leaves the pre-existing unbounded-read
-	// behaviour intact (and the reset hook nil).
-	var onActivity func() // nil → watchdog disabled (unbounded read, unchanged)
+	var onActivity func()
 	if t.idleReadTimeout > 0 {
 		connMu.Lock()
 		conn := httpConn
 		connMu.Unlock()
 		if conn != nil {
-			// Preferred path: arm the netpoller's read deadline directly on the socket.
-			// This reliably unblocks a blocked Read even on a genuine half-open TCP,
-			// unlike the context-cancel→Close path. Each arriving line pushes it forward.
 			_ = conn.SetReadDeadline(time.Now().Add(t.idleReadTimeout))
 			onActivity = func() { _ = conn.SetReadDeadline(time.Now().Add(t.idleReadTimeout)) }
-			// Clear the deadline on exit so a pooled/keep-alive conn is not left with a
-			// stale deadline (defensive; SSE conns are not reused, but be tidy).
 			defer func() { _ = conn.SetReadDeadline(time.Time{}) }()
 		} else {
-			// Defensive fallback: GotConn never captured a conn → keep the previous
-			// AfterFunc(cancelConn) behaviour so the watchdog is never silently disabled.
 			watchdog := time.AfterFunc(t.idleReadTimeout, cancelConn)
 			defer watchdog.Stop()
 			onActivity = func() { watchdog.Reset(t.idleReadTimeout) }
@@ -329,12 +201,6 @@ func (t *sseTransport) connectOnce(ctx context.Context) (opened bool, err error)
 	return true, scanSSEWithActivity(resp.Body, t.handlePayload, onActivity)
 }
 
-// handlePayload is the bridge from ONE SSE data payload to the command dispatch
-// core. It is the sole place the two halves meet: parse → (skip | log | dispatch).
-// It is bulletproofed against a bad frame taking down the reader loop — a parse
-// error or dispatch error is logged and skipped, and a defensive recover catches
-// any panic from the injected side-effecting deps so a single frame can never
-// crash the warden.
 func (t *sseTransport) handlePayload(payload []byte) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -347,21 +213,13 @@ func (t *sseTransport) handlePayload(payload []byte) {
 		return
 	}
 	if cmd == nil {
-		return // valid envelope, non-warden-command topic → skip (the common case)
+		return
 	}
-	// Observability (Phase 4 flip): a warden-command frame ACTUALLY reached us. Log
-	// the RECEIPT before dispatch so "the push transport delivered a START/STOP" is
-	// provable from the warden log ALONE — the decisive end-to-end evidence that
-	// server enqueue → SSE downlink → warden drain is wired. Non-command frames
-	// (heartbeat / member deltas) stay silent, so this line is signal not noise.
 	t.logf("[ocwarden] command reader: received %s frame (%s)", cmd.RPC, commandTargetLabel(cmd))
 	if err := dispatchCommand(cmd, t.deps); err != nil {
-		// Two different facts, two different lines. A RECEIPT fault means the op
-		// DID run — calling that "dispatch refused" would be a second false
-		// statement in place of the first one. What the operator needs to know is
-		// that this host's view and the server's view have diverged, and that the
-		// server-side receipt deadline (receipt_watch.go) is the thing that will
-		// actually surface it.
+		// A receipt fault means the op DID run — do not log it as "dispatch refused".
+		// Only the server's receipt deadline (receipt_watch.go) will surface the
+		// divergence.
 		if errors.Is(err, errReceiptUndelivered) {
 			t.logf("[ocwarden] command reader: %s EXECUTED but its receipt did not reach "+
 				"the server (%s): %v — the server does not know this outcome",
@@ -371,15 +229,9 @@ func (t *sseTransport) handlePayload(payload []byte) {
 		t.logf("[ocwarden] command reader: dispatch refused: %v", err)
 		return
 	}
-	// Reached ONLY when the op ran AND its receipt landed. Until T-b36a step 3
-	// this line also printed for a start/stop whose receipt was dropped — 5,805
-	// of them in 8 days on one host, every one of them an unearned all-clear.
 	t.logf("[ocwarden] command reader: dispatched %s OK (%s)", cmd.RPC, commandTargetLabel(cmd))
 }
 
-// commandTargetLabel renders the addressed identity for the receipt/dispatch
-// log lines: member_id for the member verbs, worker_id for the worker verbs
-// (a worker frame carries no member_id — logging "<nil>" there was noise).
 func commandTargetLabel(cmd *Command) string {
 	if id, ok := argString(cmd.Args, "member_id"); ok && id != "" {
 		return "member_id=" + id
@@ -390,10 +242,6 @@ func commandTargetLabel(cmd *Command) string {
 	return "target=?"
 }
 
-// nextSSEBackoff doubles cur, clamped to capd. A degenerate (<=0) seed can't wedge
-// the loop hot-spinning at 0 → it jumps straight to the cap (the safest back-off).
-// The run loop always seeds with a positive backoffStart and only grows via this,
-// so the <=0 branch is purely defensive.
 func nextSSEBackoff(cur, capd time.Duration) time.Duration {
 	if cur <= 0 {
 		return capd
@@ -405,10 +253,6 @@ func nextSSEBackoff(cur, capd time.Duration) time.Duration {
 	return next
 }
 
-// sleepCtx sleeps d via the injectable seam, but treats a cancelled ctx as an
-// immediate stop signal (checked before AND after the sleep). Returns false when
-// ctx is cancelled → the run loop exits. Tests inject an instant fake sleep and
-// drive termination through ctx, so no real wall-clock backoff is ever waited.
 func sleepCtx(ctx context.Context, sleep func(time.Duration), d time.Duration) bool {
 	if ctx.Err() != nil {
 		return false
@@ -417,25 +261,11 @@ func sleepCtx(ctx context.Context, sleep func(time.Duration), d time.Duration) b
 	return ctx.Err() == nil
 }
 
-// ---------------------------------------------------------------------------
-// production wiring — bind the REAL CommandDeps + build the transport.
-// ---------------------------------------------------------------------------
-
-// resolveClaudeBin finds the claude CLI ROBUSTLY under a launchd daemon's minimal
-// PATH (which typically LACKS ~/.local/bin, where claude installs). A bare
-// exec.LookPath("claude") returns "" there → start()'s "claude must be resolvable"
-// guard refuses every spawn with no visible reason (the Phase-4 boot-death cause).
-// Resolution order:
-//  1. OC_CLAUDE_BIN env override — the fleet-portable explicit path. `ocwarden
-//     install` STAMPS this into the launchd plist (resolveClaudeForInstall,
-//     install.go), because ② and ③ both miss under launchd for a version-manager
-//     (asdf/nvm/volta) claude — this slot is the deterministic production path.
-//     A foreground `ocwarden run` with OC_CLAUDE_BIN exported wins here too.
-//  2. exec.LookPath("claude") — honours an enriched PATH when one is present.
-//  3. common install locations (~/.local/bin, homebrew, /usr/local/bin).
-//
-// Returns "" ONLY when claude is truly absent everywhere — start() then refuses with
-// a clear Reason instead of a silent no-op.
+// resolveClaudeBin: a launchd daemon's minimal PATH typically lacks ~/.local/bin
+// (where claude installs), so a bare exec.LookPath fails there and start()
+// refuses every spawn. `ocwarden install` stamps OC_CLAUDE_BIN into the plist
+// (resolveClaudeForInstall, install.go) because PATH and the fallback dirs both
+// miss a version-manager (asdf/nvm/volta) claude.
 func resolveClaudeBin(env func(string) string) string {
 	if p := strings.TrimSpace(env("OC_CLAUDE_BIN")); p != "" && isExecutableFile(p) {
 		return p
@@ -483,8 +313,6 @@ func resolveCodexBin(env func(string) string) string {
 	return ""
 }
 
-// isExecutableFile reports whether p is an existing, non-directory file with at least
-// one executable bit — a cheap "could we exec this" probe for resolveClaudeBin.
 func isExecutableFile(p string) bool {
 	fi, err := os.Stat(p)
 	if err != nil || fi.IsDir() {
@@ -493,25 +321,7 @@ func isExecutableFile(p string) bool {
 	return fi.Mode()&0o111 != 0
 }
 
-// buildCommandDeps binds the two dispatch side-effects to their real Phase 2/3
-// mechanisms, exactly as command.go's CommandDeps doc prescribes:
-//
-//	Spawn → SpawnDeps.start (Phase 2): the full workdir + .mcp.json + persona +
-//	        tmux-boot spawn.
-//	Stop  → a closure over stop(runner, socket, session, realKill, realGetpgid)
-//	        (Phase 3): the robust SIGHUP→escalate→re-assert stop ladder, targeting the
-//	        command's own member session.
-//
-// The warden reports NO presence: the server projects each host's presence from its
-// own SSE-connection view, so a spawn/kill fires no warden-side presence reconcile.
-// resolveRepoRoot derives the officraft checkout root from the running
-// executable: ocwarden is installed at <repoRoot>/cli/ocwarden/ocwarden, so
-// three filepath.Dir hops up land on <repoRoot>. (The python origin sat one
-// directory shallower and walked two parents; grouping this binary under cli/
-// adds one level, so it is three hops here.)
-// The os.Executable seam is injected so a test pins a deterministic path; an
-// unresolvable executable yields "" (the shim would then exec a bad path, but
-// that degenerate case only arises if the OS can't name our own binary).
+// resolveRepoRoot assumes the in-tree layout <repoRoot>/cli/ocwarden/ocwarden.
 func resolveRepoRoot(executable func() (string, error)) string {
 	exe, err := executable()
 	if err != nil {
@@ -520,47 +330,23 @@ func resolveRepoRoot(executable func() (string, error)) string {
 	return filepath.Dir(filepath.Dir(filepath.Dir(exe)))
 }
 
-// resolveOcAgentBin picks the ocagent binary the spawn shim execs, with NO external
-// injection needed — a self-contained package finds its own sibling. Preference:
-//  1. SIBLING of the running ocwarden — <dir(exe)>/ocagent. A home-installed warden
-//     ($HOME/.officraft/warden/ocwarden) carries ocagent in the SAME warden/ (install's
-//     installOcAgent puts it there — downloaded from the server by default, or copied from
-//     an OC_AGENT_BIN local override), so the sibling exists and is authoritative. This is
-//     why the warden needs no OC_AGENT_BIN env / no plist stamp: the two binaries ship
-//     as one package and the warden looks right next to itself.
-//  2. FALLBACK <repoRoot>/cli/ocagent/ocagent — the in-tree dev layout, where ocwarden
-//     and ocagent live in separate cli/ subdirs (no sibling), reached via the repoRoot
-//     three-parent walk.
-//
-// exists is injected (os.Stat in production) so a test pins the branch deterministically.
-// The second return says whether the path it chose ACTUALLY EXISTS. Before T-81 this
-// function answered a bare string and the fallback branch was never probed at all, so a
-// home-installed warden whose sibling was not downloaded yet answered
-// $HOME/cli/ocagent/ocagent — a path that has never existed on any machine — and the
-// caller symlinked to it without asking. Returning the existence bit is what lets the
-// spawn path tell "here it is" apart from "I had to guess and the guess is not there".
-// pathStatable is the production existence probe. It is a named function, not a closure
-// written at the wiring site, so the probe can be exercised on its own instead of
-// only through whatever happens to call it — a `return true` here answers "yes, it
-// landed" for a path that was never downloaded, and the caller symlinks to it.
-//
-// It is called pathStatable and not fileExists because a reviewer pointed out that the
-// shorter name promised more than the body delivers: os.Stat succeeds on a DIRECTORY too,
-// and nothing here looks at the executable bit. Named honestly, the gap is visible to the
-// next reader instead of being implied away — and for the one question this answers ("did
-// the download land yet?") a bare stat is the right amount of checking, because install
-// writes to a temp path and renames into place, so the name never exists half-written.
+// pathStatable is a bare stat (a directory passes too). That suffices because
+// install writes to a temp path and renames into place. A named function so it
+// is tested on its own: a `return true` here makes the caller symlink to a
+// binary that was never downloaded.
 func pathStatable(p string) bool { _, err := os.Stat(p); return err == nil }
 
-// newOcAgentResolver builds the per-spawn seam SpawnDeps carries. It exists so the
-// production wiring line contains a REFERENCE and no behaviour: everything it does is
-// in resolveOcAgentBin and in the probe, each of which is tested directly.
 func newOcAgentResolver(executable func() (string, error), exists func(string) bool) func() (string, bool) {
 	return func() (string, bool) {
 		return resolveOcAgentBin(executable, exists, resolveRepoRoot(executable))
 	}
 }
 
+// resolveOcAgentBin prefers the SIBLING of the running ocwarden: a home-installed
+// warden carries ocagent in the same dir (install's installOcAgent), so no
+// OC_AGENT_BIN env or plist stamp is needed. Fallback is the in-tree dev layout
+// <repoRoot>/cli/ocagent/ocagent. The bool reports whether the chosen path
+// exists, so the spawn path can tell "found" from "guessed".
 func resolveOcAgentBin(executable func() (string, error), exists func(string) bool, repoRoot string) (string, bool) {
 	if exe, err := executable(); err == nil {
 		if sibling := filepath.Join(filepath.Dir(exe), "ocagent"); exists(sibling) {
@@ -571,35 +357,22 @@ func resolveOcAgentBin(executable func() (string, error), exists func(string) bo
 	return fallback, exists(fallback)
 }
 
-// buildClaudeCredProbe wires the spawn-time claude-login gate (T-ba62), or nil
-// when the owner disabled it with OC_CLAUDE_CRED_CHECK=0. nil is the seam's
-// documented "gate off" value, so a disabled gate restores the exact prior
-// behaviour rather than silently passing a fabricated "present" verdict.
 func buildClaudeCredProbe(env func(string) string, runner CmdRunner) func() claudeCredStatus {
 	if strings.TrimSpace(env("OC_CLAUDE_CRED_CHECK")) == "0" {
 		return nil
 	}
 	return func() claudeCredStatus {
 		return probeClaudeCreds(env, func(p string) bool {
-			_, err := os.Stat(p) // STAT ONLY — the credentials file is never opened
+			_, err := os.Stat(p)
 			return err == nil
 		}, runner, runtime.GOOS)
 	}
 }
 
-// buildSpawnDeps is the production SpawnDeps literal, pulled out of buildCommandDeps so
-// a test can look at it (T-81). That sounds like a formality; it is not. An independent
-// reviewer showed that setting ONE field of this literal — ResolveOcAgentBin — to nil
-// restored the original T-81 defect in full, and the entire package stayed green,
-// because the line that wires the fix into production had no test anywhere near it.
-// Guarding the function is not the same as guarding its caller.
+// buildSpawnDeps is separate so tests can inspect the production literal:
+// setting ResolveOcAgentBin to nil once reinstated the dangling-ocagent defect
+// with the package green.
 func buildSpawnDeps(cfg Config, env func(string) string, runner CmdRunner, socket, ns string) SpawnDeps {
-	// Real spawn mechanism, fully wired (only reached with the gate ON — a PoC
-	// default-OFF build never constructs a live connection, so start() never runs).
-	// Resolve claude ROBUSTLY: a launchd daemon inherits a MINIMAL PATH (no
-	// ~/.local/bin), so a bare exec.LookPath("claude") returns "" and start()
-	// silently refuses every spawn (the Phase-4-flip boot-death root cause). See
-	// resolveClaudeBin.
 	claudeBin := resolveClaudeBin(env)
 	codexBin := resolveCodexBin(env)
 	wardenBin, _ := os.Executable()
@@ -609,112 +382,57 @@ func buildSpawnDeps(cfg Config, env func(string) string, runner CmdRunner, socke
 		Socket:    socket,
 		Home:      defaultAgentHome(env),
 		Namespace: ns,
-		// T-426d: the owner's agent env file (<officraft root>/env, 0600). Absent
-		// is the normal state and is NOT an error — the spawn proceeds without it.
-		EnvFile: defaultAgentEnvFile(env),
-		// T-426d follow-up: the BASE env layer — the owner's interactive shell,
-		// captured per spawn (~0.12s measured). EnvFile above layers on top as the
-		// override. nil (OC_AGENT_ENV_INHERIT=0) restores the previous behaviour.
-		// A capture failure is never fatal: start() falls back to the minimal
-		// environment and warns on stderr.
+		EnvFile:   defaultAgentEnvFile(env),
+		// The base env layer (the owner's interactive shell, captured per spawn);
+		// EnvFile layers on top as the override.
 		CaptureEnv: defaultCaptureEnv(env),
-		// Diagnostics land on warden stderr → <logDir>/ocwarden.err.log per the
-		// plist's StandardErrorPath. Key names and reasons only, never values.
 		Logf: func(format string, a ...any) {
 			fmt.Fprintf(os.Stderr, "[ocwarden spawn] "+format+"\n", a...)
 		},
-		ClaudeBin: claudeBin,
-		CodexBin:  codexBin,
-		// The config home the claude launch line STATES to the child, and the
-		// file pre-trust writes (claudehome.go). An error here means no claude
-		// spawn can be made safe on this host: it is logged once, and start()
-		// refuses each spawn with claude_home_unresolved rather than launching a
-		// member whose trust file nothing reads.
+		ClaudeBin:  claudeBin,
+		CodexBin:   codexBin,
 		ClaudeHome: resolvedClaudeHome(env, stderrLogf),
 		WardenBin:  wardenBin,
-		// T-ba62: the spawn-time claude-login gate. Existence-only by
-		// construction (claudecreds.go) — stat, keychain METADATA, env != "".
-		// OC_CLAUDE_CRED_CHECK=0 is the documented escape hatch: this gate is
-		// fail-closed over a HEURISTIC set of credential sources, and a false
-		// negative would take a whole fleet offline at its next respawn, so the
-		// operator keeps a way out that does not require a code change.
+		// OC_CLAUDE_CRED_CHECK=0 is the escape hatch: this gate is fail-closed over a
+		// heuristic set of credential sources, and a false negative would take a whole
+		// fleet offline at its next respawn.
 		ClaudeCreds: buildClaudeCredProbe(env, runner),
-		// RepoRoot is the in-tree dev fallback base for the ocagent shim. OcAgentBin is
-		// the resolved exec target: a home-installed warden finds ocagent as its OWN
-		// SIBLING ($HOME/.officraft/warden/ocagent) with no env/plist injection; a dev
-		// run falls back to <repoRoot>/cli/ocagent/ocagent. resolveOcAgentBin owns both.
-		RepoRoot: resolveRepoRoot(os.Executable),
-		// T-81: a FUNCTION, deliberately — this used to be resolveOcAgentBin's answer
-		// baked in right here, while the warden was still booting. On a fresh machine
-		// ocagent is downloaded AFTER that, so the value baked in was a path that did
-		// not exist yet, and nothing ever recomputed it: every member that machine
-		// spawned got a dangling symlink and stayed silently offline. Passing the
-		// closure moves the question to spawn time, so the first spawn after the
-		// download finds the binary with no warden restart.
-		//
-		// 🔴 There is deliberately NO inline closure here any more. The second review
-		// round showed why: while the existence probe was written out on this line, a
-		// one-word edit to it (`return true`) reinstated T-81 in full — the resolver
-		// says "it is there" about a path that is not — and the whole package stayed
-		// green, because nothing testable owned that line. Both halves now live in
-		// named functions that have tests of their own, so the wiring is a reference
-		// and not a place where behaviour can be written.
+		RepoRoot:    resolveRepoRoot(os.Executable),
+		// 🔴 A FUNCTION, resolved at spawn time: on a fresh machine ocagent is
+		// downloaded after the warden boots, and a value baked in here left every
+		// spawn with a dangling symlink, silently offline. And no inline closure: a
+		// one-word `return true` edit here once reinstated that defect with the
+		// package still green.
 		ResolveOcAgentBin: newOcAgentResolver(os.Executable, pathStatable),
 		WriteFile:         osWriteFile,
 		MkdirAll:          os.MkdirAll,
-		// Symlink / Remove publish the workdir `ocagent` as a symlink to OcAgentBin.
-		Symlink: os.Symlink,
-		Remove:  os.Remove,
-		// Real wall-clock pacing for the boot-nudge settle/retry — a cold claude REPL
-		// needs real time to become input-ready before the nudge Enter commits.
-		Sleep: time.Sleep,
-		// Pretrust is bound PER-SPAWN below (it needs the per-member launch workdir,
-		// which only exists once StartParams arrives); the struct field stays nil so
-		// the seam's nil-skip contract is unchanged.
-		Pretrust: nil,
+		Symlink:           os.Symlink,
+		Remove:            os.Remove,
+		Sleep:             time.Sleep,
+		Pretrust:          nil,
 	}
 }
 
 func buildCommandDeps(cfg Config, env func(string) string, runner CmdRunner) CommandDeps {
-	// The instance namespace keys the tmux socket + agent home (validated at
-	// process entry — realMain refuses an invalid OC_NAMESPACE before any
-	// transport is built, so the error case here is unreachable).
+	// Error ignored: realMain refuses an invalid OC_NAMESPACE before any transport
+	// is built.
 	ns, _ := namespaceFromEnv(env)
 	socket := tmuxSocketFor(ns)
 	spawnDeps := buildSpawnDeps(cfg, env, runner, socket, ns)
-	// The pre-trust target is the file the launch line tells the child to read:
-	// one resolution (spawnDeps.ClaudeHome) feeds both ends, so there is no second
-	// answer here that could differ from the exported one.
 	claudeJSONPath := spawnDeps.ClaudeHome.ClaudeJSONPath()
 	return CommandDeps{
-		// Rebuild the Pretrust seam per spawn so it targets THIS member's actual
-		// launch workdir (same durable dir start() computes) — the Phase-4 real
-		// ~/.claude.json write, mirroring pretrust_launch_cwd(self.workdir). A failing
-		// pretrust aborts the spawn inside start() (don't spawn a nudge-eaten zombie).
 		Spawn: func(p StartParams) SpawnOutcome {
 			workdir := agentWorkdir(spawnDeps.Home, p.MemberID)
-			// T-684c: bind the trash reaper over THIS member's agents-root +
-			// workdir pair. purgeTrash re-derives and re-validates the whole shape
-			// itself (direct-child containment, symlink refusal) — passing the root
-			// is what lets it do the containment check at all.
 			return spawnDeps.withPerSpawn(
 				func() error { return pretrustWorkdir(claudeJSONPath, workdir) },
 				func() { purgeTrash(spawnDeps.Home, workdir, stderrLogf) },
 			).start(p)
 		},
 		Stop: func(session string) (bool, bool) {
-			// The sweep seams complete the ladder's ⓪/⑤ legs: lsof-discover any
-			// ocagent still anchored to the session's workdir (the detached
-			// `ocagent listen` SIGHUP never reaches) and reap it exact-pid, pacing
-			// the TERM→KILL grace with real wall-clock. The ONE closure serves
-			// both namespaces (P5b): member-<id> resolves the agents/ workdir;
-			// a LEGACY worker-<ow-id> residual resolves the retired workers/
-			// sibling root, so its detached listener is still reaped.
-			// T-684c: keep the ROOT that resolved the workdir, so the trash
-			// reaper's direct-child containment check compares against the right
-			// base (agents/ for members + P5b workers, the legacy workers/ sibling
-			// for pre-P5b residuals). "" root ⇒ purgeTrash refuses (G1) — an
-			// unresolvable session never reaches a delete.
+			// The detached `ocagent listen` never receives the session's SIGHUP, so the
+			// sweep finds it by workdir (lsof) and reaps it by pid. A legacy
+			// worker-<ow-id> session resolves the retired workers/ root; an unresolvable
+			// session keeps root "", which makes purgeTrash refuse.
 			root := defaultAgentHome(env)
 			workdir := memberWorkdirForSession(root, session)
 			if workdir == "" {
@@ -731,11 +449,6 @@ func buildCommandDeps(cfg Config, env func(string) string, runner CmdRunner) Com
 				purgeTrash: func() { purgeTrash(root, workdir, stderrLogf) },
 			})
 		},
-		// Teardown removes THIS warden's own install (bootout + delete tokfile/plist),
-		// bound over the SAME resolved paths + sysOps the `ocwarden teardown` CLI uses,
-		// and honouring WARDEN_INSTALL_DRYRUN. It returns (ok, log) WITHOUT exiting — the
-		// uninstall dispatch case reports + self-exits. A path-resolution failure (HOME
-		// unset) yields (false, <reason>) so uninstall reports the fault and stays alive.
 		Teardown: func() (bool, string) {
 			p, err := resolveTeardownPaths(env, os.Getuid())
 			if err != nil {
@@ -743,53 +456,26 @@ func buildCommandDeps(cfg Config, env func(string) string, runner CmdRunner) Com
 			}
 			return doTeardown(newHostSeam().sys, env(dryRunEnv) == "1", p)
 		},
-		// Real process-exit seam for the uninstall self-teardown. The uninstall case
-		// calls this ONLY after its receipt is proven delivered.
-		Exit: os.Exit,
-		// SYNCHRONOUS command_result reporter (fleet remote-ops stage 1). Uses the SAME
-		// telemetry ingest endpoint + a DEDICATED short-timeout poster. start/stop ignore
-		// its error (best-effort); uninstall gates its self-exit on a nil (delivered) return.
+		Exit:   os.Exit,
 		Report: newCommandReporter(cfg),
 	}
 }
 
-// newCommandReporter builds the SYNCHRONOUS command_result reporter closure. It POSTs
-// {command_result:{member_id, rpc, ok, reason, log, at}} to the telemetry ingest
-// endpoint on its OWN short-timeout client and RETURNS the delivery verdict as an
-// error (nil == the server durably accepted the receipt):
-//
-//   - no token/id, or a blank member_id/rpc → nil (an unaddressed receipt is noise;
-//     a mis-wired warden CANNOT report, so this is a benign no-op, not a failure).
-//   - any transport error (DNS/refused/timeout) → poster returns status 0 → error.
-//   - any non-2xx status → error (the server did NOT record the receipt).
-//   - a 2xx status → nil (delivered).
-//
-// WHY SYNCHRONOUS (v2 uninstall — the self-teardown timing barrier): uninstall is the
-// warden dismantling ITSELF, so its receipt MUST reach the server BEFORE the warden
-// os.Exit()s — a fire-and-forget POST could be dropped when the process dies mid-flight,
-// leaving the server unable to reconcile the member's final state. The start/stop cases
-// keep calling report best-effort and IGNORE this error (behaviour unchanged, just a
-// wider signature); only the uninstall case gates its os.Exit on a nil return.
+// newCommandReporter returns nil only when the server accepted the receipt.
+// SYNCHRONOUS because uninstall must get its receipt to the server before the
+// warden os.Exit()s; start/stop ignore the error.
 func newCommandReporter(cfg Config) func(CommandResult) error {
 	post := httpPoster(&http.Client{Timeout: commandReportTimeout}, cfg.Base, cfg.Token)
 	return func(cr CommandResult) error {
-		// Guard the same way runOnce guards telemetry: a mis-wired warden (no token/id)
-		// or an unaddressed/verb-less receipt is a guaranteed-useless POST → skip (nil).
 		if cfg.Token == "" || cfg.ID == "" {
 			return nil
 		}
-		// A receipt must address SOMEONE: a member_id (member verbs) OR a worker_id
-		// (T-9ccf worker verbs). Neither → unaddressed noise, skip. worker_id rides
-		// the SAME free-shape command_result object (no wire-schema change); the
-		// server routes on whichever id is present.
 		if (strings.TrimSpace(cr.MemberID) == "" && strings.TrimSpace(cr.WorkerID) == "") ||
 			strings.TrimSpace(cr.RPC) == "" {
 			return nil
 		}
-		// No agent_id key: the reporting identity is the verified JWT sub, and the
-		// frozen ingest schema refuses undeclared fields — one would 422 the whole
-		// receipt. command_result.member_id below is a legitimate TARGET, not an
-		// identity claim.
+		// No agent_id key: the frozen ingest schema refuses undeclared fields and would
+		// 422 the whole receipt (the reporter is the verified JWT sub).
 		payload := map[string]any{
 			"command_result": map[string]any{
 				"member_id": cr.MemberID,
@@ -801,10 +487,6 @@ func newCommandReporter(cfg Config) func(CommandResult) error {
 				"at":        cr.At,
 			},
 		}
-		// Synchronous: block on the POST and translate its verdict to an error. A
-		// transport fault surfaces as status 0; any non-2xx is a non-delivery. The
-		// start/stop callers discard this; the uninstall caller REQUIRES a nil here
-		// before it self-exits.
 		status, _ := post(commandResultPath, payload)
 		if status < 200 || status >= 300 {
 			return fmt.Errorf("command_result POST returned status %d", status)
@@ -813,10 +495,6 @@ func newCommandReporter(cfg Config) func(CommandResult) error {
 	}
 }
 
-// newCommandTransport assembles the production transport: the long-lived SSE
-// client, the real dispatch deps, real time.Sleep backoff, and a stderr/out
-// logger. Constructing it does NOT connect — run(ctx) does — so this is inert
-// until main.go's gate explicitly starts it.
 func newCommandTransport(cfg Config, env func(string) string, runner CmdRunner,
 	logf func(string, ...any)) *sseTransport {
 	return &sseTransport{

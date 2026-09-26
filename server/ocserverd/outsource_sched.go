@@ -1,47 +1,10 @@
 package main
 
-// outsource_sched.go — the M3 Phase 2 outsource-assignment scheduler, the
-// second background producer (isomorphic to reconcile.go — contract §B.4):
-//
-//   * outsourceDecide — the PURE admission core (the reconcileDecide twin):
-//     (queue snapshot, per-type manual specs, live worker counts, the global
-//     cap) → the ordered assignment list. All IO lives in runOutsourceTick.
-//   * runOutsourceTick — the OUTSOURCE HALF of the 30s cadence tick. Since
-//     T-14 item 5 there is one cadence loop for both populations
-//     (startLifecycleCadence, lifecycle_tick.go); this function is what it
-//     calls second, after the reconcile half has finished and dropped its
-//     lock. It is also the event-driven single tick's body (outsourceTickNow —
-//     fired when create_task lands an outsource task, so an assignment never
-//     waits a full period).
-//   * --no-outsource (serve flag) disables the producer WHOLESALE — its half of
-//     the cadence AND the event-driven tick — the --no-reconcile mirror: a
-//     shadow server must never mint workers against the production queue.
-//     🔴 The flag is read at the CALL SITE (runLifecycleTick) and in
-//     outsourceTickNow, never inside runOutsourceTick — see the ruling in
-//     lifecycle_tick.go.
-//
-// Admission (contract §B.4, owner rulings ③/H6/H7):
-//   * candidates: status='not_started' ∧ executor_kind='outsource' ∧
-//     executor_id='' ∧ priority≠'frozen', ordered high→mid→low then
-//     created_ts (FIFO within a priority band);
-//   * per-type cap: the manual assignee's copies — at most N live
-//     (assigned+active) workers of that type (H6: N parallel TASKS, the
-//     one-worker-one-task model holds);
-//   * global cap: task.outsource_max_parallel over ALL live workers
-//     (0 = assignment paused; member tasks never count — H7).
-//
-// An assignment mints the worker as a kind='outsource' MEMBER row (A案 P7d
-// fold — 外包＝正職; codename via the domain derivation over EVERY codename the
-// member table has ever carried, removed rows included, so a codename is never
-// reused; model/effort from the manual assignee), writes task.executor_id, and
-// fans the task + member SSE deltas. The worker then sits in
-// 'assigned' until its first report_waking flips it 'active' (T-4595 moved that
-// claim off the retired GET /api/self/task onto the shared boot verb).
-//
-// The scheduler keeps NO in-memory ledger (unlike reconcile's store): the
-// worker rows ARE the bookkeeping — every tick recounts from the DB, so a
-// restart forgets nothing and the cadence is an idempotent backstop of the
-// event-driven tick (a task with executor_id set simply stops matching).
+// outsource_sched.go — the outsource-assignment scheduler (the reconcile.go
+// twin). Caps are owner rulings: global cap 0 = 暫停指派 (③); a type manual's
+// copies = at most N parallel TASKS of that type (H6); member tasks never count
+// toward the global cap (H7). A minted worker stays 'assigned' until its first
+// report_waking flips it 'active'.
 
 import (
 	"fmt"
@@ -50,87 +13,47 @@ import (
 	"strings"
 )
 
-// ── pure decision core (the reconcileDecide twin) ────────────────────────────
-
-// outsourceCandidate is one unassigned outsource task in the queue — the
-// decide input projection (never the full Task: the core stays IO-free).
 type outsourceCandidate struct {
-	TaskID    string
-	TypeKey   string
-	Priority  string
-	CreatedTS float64
-	// TargetRuntime / TargetModel / TargetEffort / TargetMachine is the resolved
-	// outsource spec on the task row (T-35e0, task.outsource_*). Dispatched below
-	// says which of its two meanings applies — never their emptiness (T-8a67):
-	// on an explicit dispatch the decide mints from these INSTEAD of the type
-	// manual's assignee spec; on a manual-driven task they are the creator
-	// snapshot and only fill what that manual leaves unset.
-	//
-	// Either way the per-type copies cap still applies when the task carries a
-	// TypeKey whose manual sets a limit (T-b6e9, owner ruling 2026-07-24: per-type
-	// copies binds regardless of dispatch source). A typeless ad-hoc dispatch has
-	// no manual limit to apply, so it rides the global cap only.
+	TaskID        string
+	TypeKey       string
+	Priority      string
+	CreatedTS     float64
 	TargetRuntime string
 	TargetModel   string
 	TargetEffort  string
 	TargetMachine string
-	// Dispatched mirrors task.outsource_dispatched: true = the four Target fields
-	// are an EXPLICIT 發包 target and override the type manual; false = they are
-	// the creator SNAPSHOT a manual-driven task carries (T-8a67) and fill only
-	// what the live manual leaves unset.
+	// Dispatched mirrors task.outsource_dispatched: true = the Target fields are
+	// an explicit 發包 target overriding the type manual; false = they are the
+	// creator snapshot and fill only what the live manual leaves unset. Never
+	// infer this from the fields being empty: that left manual-driven tasks with
+	// no machine, so their workers could never boot (T-8a67).
 	Dispatched bool
 }
 
-// hasExplicitTarget reports whether the candidate carries an explicit 發包
-// target (a create/reassign dispatch) rather than a manual-driven task's creator
-// snapshot.
-//
-// It reads the row's OWN declaration (task.outsource_dispatched,
-// migrations/00036) and no longer INFERS it from the spec columns being
-// non-empty. That inference was load-bearing in the wrong direction: it made the
-// columns unusable by any task the scheduler still had to gate, so a
-// manual-driven task could carry no resolved spec at all — and with no machine
-// anywhere, the worker minted for it could never boot (T-8a67).
 func (c outsourceCandidate) hasExplicitTarget() bool { return c.Dispatched }
 
-// outsourceTypeSpec is one manual's outsource assignee spec: how many copies
-// of the type may run at once (0 = 無限 — unlimited, spec TaskManualDTO), the
-// worker template to mint from, and the machine the type's workers boot on
-// (a machine id, or empty when the type names none — carried through for the
-// worker-spawn seam, see
-// notifyWorkerSpawn; the ADMISSION decision never reads it).
 type outsourceTypeSpec struct {
 	Copies  int
 	Runtime string
 	Model   string
 	Effort  string
-	Machine string // machine id ("" = the type names none); consumed by the Phase 6 spawn seam
+	Machine string
 }
 
-// outsourceAssignment is one decided assignment: mint a (Model, Effort)
-// worker on Machine and bind it to TaskID.
 type outsourceAssignment struct {
-	TaskID  string
-	TypeKey string
-	Runtime string
-	Model   string
-	Effort  string
-	Machine string // machine id ("" = none resolved — the spawn then fails closed)
-	// FromTarget marks an assignment resolved from an explicit 發包 target (vs a
-	// type manual's assignee spec): the sched gate is skipped for it (already
-	// authorized at the dispatch handler) and it pins its own machine preference.
-	FromTarget bool
+	TaskID         string
+	TypeKey        string
+	Runtime        string
+	Model          string
+	Effort         string
+	Machine        string
+	ExplicitTarget bool
 }
 
-// hasTarget reports whether the assignment came from an explicit 發包 target.
-func (a outsourceAssignment) hasTarget() bool { return a.FromTarget }
+func (a outsourceAssignment) hasExplicitTarget() bool { return a.ExplicitTarget }
 
-// outsourceAwaitingAssignment reports whether a task is an UNASSIGNED outsource
-// slot the scheduler should mint for: an outsource track with no bound executor,
-// not frozen, and either not_started (a fresh create / a fully-reset reassign) OR
-// held under the reassigning lock (a handover successor slot — a partially-done
-// task reassigned to outsource derives to in_progress, so status alone would miss
-// it; the lock is the honest "awaiting the successor mint" signal). T-35e0.
+// The reassigning lock counts as awaiting: a partially-done task reassigned to
+// outsource derives to in_progress, so status alone would miss the successor.
 func outsourceAwaitingAssignment(t Task) bool {
 	if t.ExecutorKind != TaskExecutorOutsource || t.ExecutorID != "" ||
 		t.Priority == TaskPriorityFrozen {
@@ -139,9 +62,6 @@ func outsourceAwaitingAssignment(t Task) bool {
 	return t.Status == TaskStatusNotStarted || t.Lock == TaskLockReassigning
 }
 
-// taskPriorityRank orders the queue: high before mid before low; frozen (and
-// any junk) sorts last AND is skipped by the decide loop — a frozen task is
-// never assigned (SPEC §3.3: the scheduler skips frozen wholesale).
 func taskPriorityRank(priority string) int {
 	switch priority {
 	case TaskPriorityHigh:
@@ -154,8 +74,6 @@ func taskPriorityRank(priority string) int {
 	return 3
 }
 
-// sortOutsourceQueue orders candidates priority-then-created_ts (task id as
-// the deterministic tie-break). In place; returns its argument for chaining.
 func sortOutsourceQueue(cands []outsourceCandidate) []outsourceCandidate {
 	sort.SliceStable(cands, func(i, j int) bool {
 		ri, rj := taskPriorityRank(cands[i].Priority), taskPriorityRank(cands[j].Priority)
@@ -170,26 +88,8 @@ func sortOutsourceQueue(cands []outsourceCandidate) []outsourceCandidate {
 	return cands
 }
 
-// outsourceDecide is the PURE admission function: walk the queue in order and
-// admit every candidate that fits BOTH caps, folding each admission into the
-// running counts so one call never over-assigns (same-tick idempotence).
-//
-//   - globalCap == 0 pauses assignment outright (owner ruling ③: 0 = 暫停指派);
-//     globalCap < 0 means 無限 — UNLIMITED, no global cap (spec SettingsDTO: -1);
-//   - liveByType / liveTotal count the ALREADY-live (assigned+active) workers;
-//   - a candidate with no outsource spec for its type is skipped (the manual
-//     was edited away from outsource after the task was created — the task
-//     stays queued, honestly unassignable until governance resolves it);
-//   - a per-type spec with Copies == 0 is 無限 (unlimited copies of the type;
-//     spec TaskManualDTO) — only the global cap can then stop it;
-//   - an explicit 發包 target (create/reassign dispatch) mints from the target's
-//     own model/effort/machine, but STILL obeys its type manual's copies cap
-//     when it carries a TypeKey with a limit (T-b6e9); a typeless target, or one
-//     whose type has no outsource spec, has no per-type limit and rides the
-//     global cap only;
-//   - a duplicate task id in the queue is admitted at most once.
-//
-// liveByType is treated as read-only (the fold rides a local copy).
+// globalCap 0 pauses assignment (owner ruling ③); < 0 means unlimited
+// (SettingsDTO -1).
 func outsourceDecide(
 	cands []outsourceCandidate,
 	specs map[string]outsourceTypeSpec,
@@ -208,19 +108,15 @@ func outsourceDecide(
 	var out []outsourceAssignment
 	for _, c := range sortOutsourceQueue(append([]outsourceCandidate(nil), cands...)) {
 		if globalCap > 0 && liveTotal >= globalCap {
-			break // the global cap gates EVERY type — nothing further can fit
+			break
 		}
 		if c.Priority == TaskPriorityFrozen || admitted[c.TaskID] {
 			continue
 		}
 		var spec outsourceTypeSpec
 		if c.hasExplicitTarget() {
-			// An explicit 發包 target (create/reassign dispatch) mints from its own
-			// model/effort/machine, not the type manual's assignee. The per-type
-			// copies cap still binds, though (T-b6e9, owner ruling 2026-07-24):
-			// inherit the copies limit from the task's type manual when it has one.
-			// A typeless target, or one whose type carries no outsource spec, has
-			// no limit to apply (Copies stays 0 = 無限) and rides the global cap only.
+			// The per-type copies cap binds regardless of dispatch source (owner
+			// ruling T-b6e9).
 			spec = outsourceTypeSpec{
 				Copies: 0, Runtime: NormalizeRuntime(c.TargetRuntime), Model: c.TargetModel,
 				Effort: c.TargetEffort, Machine: c.TargetMachine,
@@ -236,17 +132,12 @@ func outsourceDecide(
 			if !ok || spec.Copies < 0 {
 				continue
 			}
-			// T-8a67: the LIVE manual decides everything it states; the creator
-			// snapshot stored on the task row at create time fills only what the
-			// manual left unstated. That order is what keeps the manual editable
-			// (an owner who adds a machine to the assignee still wins on the very
-			// next tick) while no longer letting a manual's silence resolve to
-			// "no machine at all" — which is not a placement, so the worker minted
-			// under it would never boot.
+			// The live manual decides every field it states; the creator snapshot
+			// fills only what it leaves unstated — so an owner's manual edit wins on
+			// the next tick, yet a silent manual never resolves to "no machine"
+			// (a worker minted without one never boots).
 			spec = fillTypeSpecFromSnapshot(spec, c)
 		}
-		// Copies == 0 is 無限 (unlimited per-type copies) — never capped here.
-		// One gate for both dispatch sources (manual-driven and explicit target).
 		if spec.Copies > 0 && byType[c.TypeKey] >= spec.Copies {
 			continue
 		}
@@ -254,27 +145,18 @@ func outsourceDecide(
 		byType[c.TypeKey]++
 		liveTotal++
 		out = append(out, outsourceAssignment{
-			TaskID:     c.TaskID,
-			TypeKey:    c.TypeKey,
-			Runtime:    NormalizeRuntime(spec.Runtime),
-			Model:      spec.Model,
-			Effort:     spec.Effort,
-			Machine:    spec.Machine,
-			FromTarget: c.hasExplicitTarget(),
+			TaskID:         c.TaskID,
+			TypeKey:        c.TypeKey,
+			Runtime:        NormalizeRuntime(spec.Runtime),
+			Model:          spec.Model,
+			Effort:         spec.Effort,
+			Machine:        spec.Machine,
+			ExplicitTarget: c.hasExplicitTarget(),
 		})
 	}
 	return out
 }
 
-// fillTypeSpecFromSnapshot folds a manual-driven candidate's creator snapshot
-// (task.outsource_*, written at create time — T-8a67) into the fields the LIVE
-// type manual leaves unset. Copies is untouched: how many of a type may run at
-// once is the manual's alone and no creator has any say in it.
-//
-// The field rules are inheritDispatchSpec's, reused rather than restated
-// (runtime+model inherit together, effort defaults to medium, nothing invents a
-// machine), so the snapshot cannot mean one thing when it is written and another
-// when it is read.
 func fillTypeSpecFromSnapshot(spec outsourceTypeSpec, c outsourceCandidate) outsourceTypeSpec {
 	resolved := defaultedDispatchSpec(fillDispatchSpecFrom(
 		dispatchSpec{Runtime: spec.Runtime, Model: spec.Model,
@@ -286,11 +168,6 @@ func fillTypeSpecFromSnapshot(spec outsourceTypeSpec, c outsourceCandidate) outs
 	return spec
 }
 
-// outsourceSpecOf extracts a manual's outsource assignee spec: nil for {} /
-// a member assignee / undecodable JSON. copies defaults to 1 when absent
-// (validateManualAssignee enforces >= 0 on write; 0 = 無限/unlimited); effort
-// defaults to the schema's 'medium'; machine defaults to empty (spec
-// TaskManualDTO — the placement preference rides through to the spawn seam).
 func outsourceSpecOf(m TaskManual) *outsourceTypeSpec {
 	assignee, err := manualAssignee(m)
 	if err != nil {
@@ -318,18 +195,10 @@ func outsourceSpecOf(m TaskManual) *outsourceTypeSpec {
 	return &spec
 }
 
-// ── logging ──────────────────────────────────────────────────────────────────
-
 func outsourceLog(format string, args ...any) {
 	fmt.Fprintf(os.Stderr, "[outsource] "+format+"\n", args...)
 }
 
-// ── the tick (snapshot → decide → mint/bind/fan) ─────────────────────────────
-
-// runOutsourceTick runs ONE scheduler tick: snapshot the queue + the live
-// worker counts from the DB, decide, then mint/bind/fan each assignment.
-// Serialized with the event-driven tick via outsourceMu; best-effort — a
-// fault is logged, never raised into the cadence loop.
 func (s *apiServer) runOutsourceTick(now float64) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -351,26 +220,11 @@ func (s *apiServer) runOutsourceTick(now float64) {
 	}
 	var workers []OutsourceWorker
 	for _, w := range all {
-		// WHICH HALF drives this row (lifecycle_roster.go) — the twin of the
-		// guard at the head of runReconcileTick's candidate loop, asked here for
-		// the same reason and in the SAME POSITION AS THAT ONE: at the head of
-		// this producer, on the raw roster read, before ANY pass or decision has
-		// looked at the row. It did not start out here — it sat below
-		// runWorkerLifecyclePasses, which had already run the entry filter, every
-		// shared formality and the four-field fold-back on rows this half might
-		// not own. That is harmless only while the guard is a no-op, and the whole
-		// reason this guard exists is the day it stops being one.
-		//
-		// A NO-OP TODAY, deliberately: ListOutsourceWorkers returns kind='outsource'
-		// rows only and the driver hands every one of them to this half. It is here
-		// so BOTH halves state their claim BY NAME, which is what lets the parity
-		// test assert the two claims never overlap and never both abstain — an
-		// invariant that today rests entirely on a SQL WHERE clause and would rest
-		// on nothing once that clause is merged.
-		//
-		// Filtering here rather than at the FSM loop also means the live-count /
-		// codename fold below counts only rows this half owns: a row driven by the
-		// other half must not consume this half's parallel cap.
+		// The driver guard sits at the head, on the raw roster read, before ANY
+		// pass has looked at the row — the twin of runReconcileTick's guard. A
+		// no-op today (ListOutsourceWorkers returns only kind='outsource' rows);
+		// it exists so both halves claim rows by name for the parity test, and so
+		// a row the other half drives never consumes this half's cap.
 		if lifecycleTickDriverFor(memberFromWorker(w)) != driverOutsource {
 			continue
 		}
@@ -382,9 +236,8 @@ func (s *apiServer) runOutsourceTick(now float64) {
 		return
 	}
 
-	// Live (assigned+active) worker counts — per type via the bound task, plus
-	// the global total. Codenames fold over EVERY row ever minted (released
-	// included): a codename is never reused (contract §A.4).
+	// Codenames fold over released rows too: a codename is never reused
+	// (contract §A.4).
 	typeOf := make(map[string]string, len(tasks))
 	for _, t := range tasks {
 		typeOf[t.ID] = t.TypeKey
@@ -401,136 +254,36 @@ func (s *apiServer) runOutsourceTick(now float64) {
 		liveByType[typeOf[w.TaskID]]++
 	}
 
-	// Worker lifecycle passes (Phase 6, worker_spawn.go) — BEFORE the
-	// assignment queue (which may be empty while workers still need care):
-	//   * a worker stuck in 'assigned' gets its worker_start (re)dispatched,
-	//     paced by workerSpawnRetrySecs (a lost frame / offline warden heals
-	//     here — the cadence is the retry loop, exactly like reconcile);
-	//   * a RELEASED worker whose session was never reclaimed (no close-out
-	//     report arrived) is force-reclaimed after workerReclaimGraceSecs —
-	//     the grace exists so a released worker can finish its §6.3 close-out
-	//     duties before the session is taken.
-	// ── the pre-decide formalities, from the SAME list staff use (T-72dd,
-	//    T-170e stage 3) ─────────────────────────────────────────────────────
-	//
-	// 🔴 THIS REPLACES autoHandoverWorker's own threshold arm, and replacing it
-	// is the whole point of the ticket: the ruling about WHEN a session is wound
-	// down for context pressure was written TWICE — once in
-	// stampContextHighRecycle for staff, once in autoHandoverWorker for workers
-	// — and T-ed79 only updated the staff copy. Staff got two thresholds
-	// (notice_pct → a clockless 停止, handover_pct → 加速停止) plus the promotion
-	// between them; the worker copy still had one threshold and no promotion.
-	// Feeding the worker projection into the staff pass deletes the second copy
-	// rather than teaching it the same lesson again.
-	//
-	// The projection is legitimate because the row IS a member row
-	// (memberFromWorker), and step 1 of this ticket measured the write half:
-	// putMember(memberFromWorker(w)) lands on the row that GetOutsourceWorker
-	// reads back. stampContextHighRecycle mutates in-slice so the SAME tick sees
-	// the marker, so the four epoch fields are folded straight back onto the
-	// worker rows below — otherwise this tick's FSM pass would still be reading
-	// the pre-stamp row and the collect would always be one tick late.
-	//
-	// Only ACTIVE, not-held-down workers are offered: an assigned worker has no
-	// session to wind down yet, and a desired-offline one is the owner's 停止,
-	// which autoHandoverWorker arm (0) still owns.
-	//
-	// 🔴 T-170e: THREE staff passes ride this projection now, not one, and the
-	// reason the other two were missing is structural rather than an oversight
-	// anybody could have spotted by reading them. Every shared wind-down pass is
-	// reached from runReconcileTick, which never offers a worker to any of them —
-	// then because ListMembers was `WHERE kind != 'outsource'` (dal.go), now
-	// because that half's driver guard drops the row (T-14 項目 6 deleted the
-	// clause). Either way a worker is NEVER offered to any of them. A pass that guards staff and a pass
-	// that does not exist look identical from the worker's side, which is exactly
-	// how a worker ended up with no token-expiry lead and no survived-stop sweep
-	// while the code implementing both sat in the same package.
-	//
-	// The ORDER is the reconcile tick's order, and it is load-bearing there for a
-	// reason that holds here identically: both stamp passes skip a row that
-	// already carries refocus_since, so whichever runs first owns the epoch —
-	// and only the context pair can escalate itself to 加速停止.
-	//
-	// 🔴 T-170e stage 3: that order — and WHICH passes run at all — is no longer
-	// re-typed here. Both were, until the list, hand-maintained twice, and the
-	// only thing keeping the copies in step was that somebody remembered. The
-	// projection, the entry filter and the four-field fold-back are all inside
-	// runWorkerLifecyclePasses now (lifecycle_roster.go), which is also what the
-	// TESTS drive — the helper that used to hand-copy this block had already
-	// drifted a whole stage behind it.
+	// Must run BEFORE the assignment queue, which may be empty (early return
+	// below) while workers still need care. The shared staff wind-down passes
+	// run on the worker projection inside runWorkerLifecyclePasses
+	// (lifecycle_roster.go); do not re-type them here.
 	s.runWorkerLifecyclePasses(workers, now)
 
 	for _, w := range workers {
-		// `workers` is already the driver-filtered set (see the head of this
-		// function): every row here was claimed by driverOutsource before any
-		// formality ran, so there is no second driver question to ask at this
-		// point.
-		//
-		// 🔴 ABOVE THE SWITCH, AND THAT POSITION IS THE WHOLE POINT (T-65 包②).
-		// The queued 起來 an owner presses during a wind-down is spent here, at the
-		// converged-offline edge. Its staff twin lives inside reconcileOne, so the
-		// symmetric home would be reconcileWorkerLiveness — and that home is
-		// UNREACHABLE for the only population this can ever fire on: the assigned
-		// branch below `continue`s on `DesiredState == offline`, and the active
-		// branch gates its FSM call on `fresh.DesiredState != offline`. A stopped
-		// worker never reaches the FSM at all. Putting the consume behind either
-		// filter would leave the owner pressing a button that answers 200 and does
-		// nothing forever — which is the SAME shape as the bug this feature
-		// removes, one layer down.
-		//
-		// It mutates `w` in place, so the switch below sees desired_state=online on
-		// this very pass and dispatches the start now rather than a tick later.
+		// 🔴 Must stay ABOVE the switch: the owner's queued 起來 is spent at the
+		// converged-offline edge, and both branches below filter out
+		// desired-offline workers, so consuming it behind either filter would
+		// leave the button answering 200 and doing nothing forever.
 		s.consumeWorkerRestartAfterStop(&w, now)
-		// A refused live-worker kill (owner 停止/relocate toward a warden that
-		// dropped offline) is parked, never lost — re-fire it FIRST, before any
-		// branch below can re-spawn onto the same machine (P5a rework).
+		// Re-fire a parked refused kill FIRST, before any branch below can
+		// re-spawn onto the same machine.
 		s.retryPendingWorkerStop(w.ID, now)
 		switch w.Status {
 		case WorkerStatusAssigned:
-			// Owner-explicit stop dominates every auto-revival (desired_state
-			// mirrors member: an offline worker is held down, never reconciled
-			// back up), so the FSM rescue below must NOT quietly bring it back.
-			// Skip it wholesale — the member-parity guard.
+			// Owner-explicit stop dominates every auto-revival (member parity).
 			if w.DesiredState == DesiredStateOffline {
 				continue
 			}
-			// A案 P6: the spawn/rescue path runs through the SHARED member
-			// reconcile FSM (start_timeout / backoff / zombie-takeover) — the
-			// paced re-dispatch, the ghost-clear (retired recoverStuckWorker),
-			// and the lost-frame heal are all its decisions now.
 			s.reconcileWorkerLiveness(w, now)
 		case WorkerStatusActive:
-			// T-32e1: the context-high auto-handover — an ACTIVE worker whose
-			// gauge crosses the HANDOVER band is refocused (stop, then start once
-			// offline) using the SAME ctxHighConfig the members use.
-			// autoHandoverWorker self-guards a stopped worker (its row re-read
-			// returns early on StoppedSince>0), so owner-explicit stop dominates
-			// here too — no separate guard needed (that would only mask the
-			// internal one).
+			// No stopped-worker guard here: autoHandoverWorker self-guards
+			// (StoppedSince > 0), and an outer guard would only mask it.
 			s.autoHandoverWorker(w, now)
-			// A案 P6: the shared member FSM owns this worker's whole liveness
-			// story — respawn with backoff, zombie-takeover on a clobbered
-			// START, and (T-72dd) the RECYCLE 收口 of a wind-down epoch: STOP
-			// while the worker is online, START once it reads offline.
-			//
-			// 🔴 TWO GUARDS WERE REMOVED HERE, and they were the blindfold's
-			// last two straps:
-			//
-			//   * `RefocusSince == 0` masked the FSM for exactly the state the
-			//     收口 lives in. It was correct while autoHandoverWorker owned
-			//     the collect ("refocus owns the respawn there"); now that the
-			//     FSM is the ONLY collector, keeping it would mean nothing
-			//     collects an ACTIVE worker's handover at all.
-			//   * `!hub.IsOnline` masked every ONLINE worker, and decideUp's
-			//     recycle arm requires obs.Online — so the collect was
-			//     unreachable through this call site twice over.
-			//
-			// A healthy online worker with no epoch is not endangered by
-			// running: decideUp answers "online: converged" and dispatches
-			// nothing (measured cell-by-cell).
-			//
-			// Re-read after the stop driver: it may have persisted new wind-down
-			// anchors, and the FSM must decide from that current row.
+			// The FSM is the ONLY collector of a wind-down epoch: do not gate it
+			// on RefocusSince == 0 or !online (decideUp's recycle arm needs
+			// Online). A healthy online worker with no epoch dispatches nothing.
+			// Re-read first: the stop driver may have persisted new anchors.
 			fresh, ferr := s.dal.GetOutsourceWorker(w.ID)
 			if ferr != nil || fresh == nil || fresh.Status == WorkerStatusReleased {
 				continue
@@ -546,17 +299,11 @@ func (s *apiServer) runOutsourceTick(now float64) {
 		}
 	}
 
-	// T-ba04 handover-timeout reaper: a task left in `reassigning` whose updated
-	// time has not moved for task.reassign_handover_timeout_secs (artifact
-	// writes do not move it) means the successor has not
-	// called claim_task, so the PREDECESSOR outsource worker — kept live at
-	// reassign time to write the handover — would otherwise leak its session.
-	// Release + reclaim that predecessor here, by its OWN id (never by task_id:
-	// an outsource→outsource takeover bound a fresh worker to the same task_id).
-	// Releasing it also ends its hold write rights (predecessorHoldsTask). The
-	// task stays
-	// `reassigning` until someone claims or re-reassigns it. A staff predecessor
-	// is never reclaimed here — outsource only.
+	// Handover-timeout reaper: a `reassigning` task whose updated time has not
+	// moved (artifact writes do not move it) means the successor never called
+	// claim_task, so the predecessor outsource worker would leak its session.
+	// Release it by its OWN id, never by task_id — an outsource→outsource
+	// takeover bound a fresh worker to the same task_id.
 	timeout := float64(s.reassignHandoverTimeout())
 	for _, t := range tasks {
 		if t.Lock != TaskLockReassigning ||
@@ -584,14 +331,9 @@ func (s *apiServer) runOutsourceTick(now float64) {
 		}
 	}
 
-	// T-74f8 half B: deps become a real hold on the 發包 queue. A follow-up task
-	// created with a dep on its blocker ("開個 task 掛上 design task 作為
-	// dependency") must NOT be minted while the blocker is still running — that
-	// wait is the whole point of the dependency — and it must be minted the
-	// moment the blocker closes (closeTask → releaseDependentsOnClose →
-	// outsourceTickNow). Blocking is by the blocker's LIVE status only, so every
-	// dep row whose blocker is already terminal changes nothing (all 10 live
-	// rows at implementation time).
+	// Deps hold the 發包 queue by the blocker's LIVE status; the dependent is
+	// minted when the blocker closes (closeTask → releaseDependentsOnClose →
+	// outsourceTickNow).
 	deps, err := s.dal.AllTaskDeps()
 	if err != nil {
 		outsourceLog("tick: dep read failed: %v", err)
@@ -601,11 +343,8 @@ func (s *apiServer) runOutsourceTick(now float64) {
 	for _, t := range tasks {
 		statusOf[t.ID] = t.Status
 	}
-	// Deliberately ONE check, on the candidate filter, over this tick's
-	// snapshot — no second copy at the bind site. A set_task_deps landing
-	// between the snapshot and the bind is at worst one cadence period late
-	// (the next tick holds it), and a duplicated guard that can only ever agree
-	// with the first is a tautology nobody can test.
+	// Deliberately ONE check, on this snapshot — no second copy at the bind
+	// site; a dep landing in between is at worst one period late.
 	blocked := func(taskID string) bool {
 		return taskHasLiveBlocker(deps[taskID], statusOf)
 	}
@@ -641,9 +380,6 @@ func (s *apiServer) runOutsourceTick(now float64) {
 	decisions := outsourceDecide(cands, specs, liveByType, liveTotal,
 		s.outsourceParallelCap())
 	for _, d := range decisions {
-		// Re-read the task before binding: a handler write (terminate, freeze)
-		// may have raced the snapshot — never bind a worker to a task that no
-		// longer qualifies.
 		t, err := s.dal.GetTask(d.TaskID)
 		if err != nil {
 			outsourceLog("assign %s: re-read failed: %v", d.TaskID, err)
@@ -652,13 +388,10 @@ func (s *apiServer) runOutsourceTick(now float64) {
 		if t == nil || !outsourceAwaitingAssignment(*t) {
 			continue
 		}
-		// ④ authz choke. An explicit 發包 target (create/reassign dispatch) was
-		// ALREADY authorized at the handler where the true initiator principal was
-		// known — re-gating it here (by the task's CREATOR, who may differ from the
-		// reassigner) would wrongly deny an owner's reassign of a subordinate's
-		// task. So the gate runs ONLY for a plain manual-driven outsource task,
-		// whose implicit 發包 is by its CREATOR (deny → left queued; admit → mint).
-		if !d.hasTarget() {
+		// Explicit 發包 targets were already authorized at the handler with the
+		// true initiator; re-gating by the task's CREATOR would wrongly deny an
+		// owner's reassign of a subordinate's task. Deny → left queued.
+		if !d.hasExplicitTarget() {
 			principal, initiator, perr := s.resolveDispatchInitiator(t.CreatorID)
 			if perr != nil {
 				outsourceLog("assign %s: initiator resolve failed: %v", t.ID, perr)
@@ -687,16 +420,14 @@ func (s *apiServer) runOutsourceTick(now float64) {
 			TaskID:       t.ID,
 			Status:       WorkerStatusAssigned,
 			CreatedTS:    now,
-			DesiredState: DesiredStateOnline, // system intends a fresh worker running
+			DesiredState: DesiredStateOnline,
 		}
-		codenames = append(codenames, worker.Codename) // same-tick MAX+1 keeps advancing
+		codenames = append(codenames, worker.Codename)
 		if err := s.dal.PutOutsourceWorker(worker); err != nil {
 			outsourceLog("assign %s: worker write failed: %v", t.ID, err)
 			continue
 		}
-		if d.hasTarget() {
-			// An explicit 發包 target carries its own placement — the task has no
-			// type manual to fall back to, so pin the spawn-seam preference here.
+		if d.hasExplicitTarget() {
 			s.workerMachinePref[worker.ID] = d.Machine
 		}
 		t.ExecutorID = worker.ID
@@ -705,13 +436,8 @@ func (s *apiServer) runOutsourceTick(now float64) {
 			outsourceLog("assign %s: task bind failed: %v", t.ID, err)
 			continue
 		}
-		// T-51b0: the bind used to post a kickoff notice here. It no longer
-		// does (owner 2026-08-15, card rc-a4f6a7f8cd71). The reason the notice
-		// was never load-bearing for a FRESH worker is that the worker's own
-		// boot context already carries this task and its boot sequence ends in
-		// "continue work" — the agent it was meant to wake is, at that moment,
-		// in the middle of waking itself. What covers a worker that is ALREADY
-		// up is its sidecar's post-connect turn (cli/ocwarden: codexPostBootWake).
+		// No kickoff notice on bind (owner ruling rc-a4f6a7f8cd71): the worker's
+		// boot context already carries this task.
 		s.publishOutsourceWorker(worker, triggerServer)
 		s.publishTask(*t, triggerServer)
 		outsourceLog("assigned %s (%s) → task %s (type %q, model %q)",
@@ -720,22 +446,9 @@ func (s *apiServer) runOutsourceTick(now float64) {
 	}
 }
 
-// notifyWorkerSpawn (the former Phase 6 seam) now lives in worker_spawn.go:
-// it assembles the worker boot context, server-mints the ow- token, and
-// pushes a worker_start frame onto an online warden's command FIFO.
-
-// ── the cadence + the event-driven seam ──────────────────────────────────────
-
-// The scheduler's own 30s goroutine (startOutsourceCadence) is gone: T-14
-// item 5 folded it into startLifecycleCadence (lifecycle_tick.go), the one
-// producer loop, which calls this tick after the reconcile half and skips it
-// when --no-outsource is set. The flag is deliberately NOT read inside this
-// function — see the ruling in lifecycle_tick.go.
-
-// outsourceTickNow is the EVENT-DRIVEN immediate tick — the create_task seam
-// (an outsource task just landed unassigned; assign it now rather than up to
-// a full period later). Shares runOutsourceTick's mutex + DB recount, so the
-// cadence stays an idempotent backstop. Gated OFF wholesale by --no-outsource.
+// outsourceTickNow is the event-driven tick (create_task seam): assign a
+// just-landed task now rather than up to a period later; the cadence stays an
+// idempotent backstop.
 func (s *apiServer) outsourceTickNow() {
 	if s.noOutsource {
 		return

@@ -54,7 +54,7 @@ func TestWinddownKindFor(t *testing.T) {
 		{"token-expiry wind-down is soft and unclocked", refocusOpTokenExpiry, "soft", false},
 		{"accelerated-stop wind-down is final and clocked", refocusOpAcceleratedStop, "final", true},
 		{"relocate wind-down is soft and unclocked", memberOpRelocate, "soft", false},
-		{"model wind-down is soft and unclocked", memberOpModel, "soft", false},
+		{"model wind-down is soft and unclocked", memberOpRuntimeModel, "soft", false},
 		{"an unknown wind-down is soft and unclocked", "unknown", "soft", false},
 	}
 	for _, tc := range cases {
@@ -89,10 +89,10 @@ func TestArmRefocusEpoch(t *testing.T) {
 			"rearms an equal-stage epoch and clears old anchors",
 			Member{ID: "m-same", Kind: KindStaff, DesiredState: DesiredStateOnline,
 				StoppingSince: 11, StoppedSince: 12, RefocusSince: 13, RefocusOp: memberOpRelocate},
-			memberOpModel,
+			memberOpRuntimeModel,
 			true,
 			Member{ID: "m-same", Kind: KindStaff, DesiredState: DesiredStateOnline,
-				RefocusSince: 1234.5, RefocusOp: memberOpModel},
+				RefocusSince: 1234.5, RefocusOp: memberOpRuntimeModel},
 		},
 		{
 			"refuses a lower-stage epoch and preserves the whole row",
@@ -128,7 +128,7 @@ func TestWinddownStageRankOf(t *testing.T) {
 		{"restart-self is the stop stage", refocusOpRestartSelf, 1},
 		{"token-expiry is the stop stage", refocusOpTokenExpiry, 1},
 		{"relocate is the stop stage", memberOpRelocate, 1},
-		{"model is the stop stage", memberOpModel, 1},
+		{"model is the stop stage", memberOpRuntimeModel, 1},
 		{"an unknown operation is the stop stage", "unknown", 1},
 	}
 	for _, tc := range cases {
@@ -306,7 +306,7 @@ func TestMemberRestartQueuedReceipt(t *testing.T) {
 	}{
 		{"a refocus receipt names the saved operation", refocusOpRefocus, "held_down: the refocus was saved and this member is still being stopped — the stop in flight is honoured as-is, and it will be started again once it is down"},
 		{"a relocate receipt names the saved operation", memberOpRelocate, "held_down: the relocate was saved and this member is still being stopped — the stop in flight is honoured as-is, and it will be started again once it is down"},
-		{"a model receipt names the saved operation", memberOpModel, "held_down: the runtime/model was saved and this member is still being stopped — the stop in flight is honoured as-is, and it will be started again once it is down"},
+		{"a model receipt names the saved operation", memberOpRuntimeModel, "held_down: the runtime/model was saved and this member is still being stopped — the stop in flight is honoured as-is, and it will be started again once it is down"},
 		{"an empty operation is still represented literally", "", "held_down: the  was saved and this member is still being stopped — the stop in flight is honoured as-is, and it will be started again once it is down"},
 	}
 	for _, tc := range cases {
@@ -642,14 +642,14 @@ func TestCollectWindDownRow(t *testing.T) {
 		StoppingSince: 10, StoppedSince: 1234.5, RefocusSince: 20, RefocusOp: memberOpRelocate})
 
 	existing := Member{ID: "m-existing", StoppingSince: 10, StoppedSince: 20,
-		RefocusSince: 30, RefocusOp: memberOpModel}
+		RefocusSince: 30, RefocusOp: memberOpRuntimeModel}
 	existingAnchors := windDownAnchorRowOfMember(&existing)
 	latched, prior := collectWindDownRow(existingAnchors, 1234.5)
 	if latched || prior != 20 {
 		t.Fatalf("existing collect = (%t, %v), want (false, 20)", latched, prior)
 	}
 	apiTestWantEqual(t, "existing row", existing, Member{ID: "m-existing",
-		StoppingSince: 10, StoppedSince: 20, RefocusSince: 30, RefocusOp: memberOpModel})
+		StoppingSince: 10, StoppedSince: 20, RefocusSince: 30, RefocusOp: memberOpRuntimeModel})
 }
 
 func TestOpenWindDownRow(t *testing.T) {

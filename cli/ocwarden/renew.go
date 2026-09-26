@@ -2,59 +2,21 @@ package main
 
 // renew.go — deciding WHEN this machine's own credential needs replacing.
 //
-// Only the decision lives here. Fetching a new credential, writing it, and
-// re-executing to pick it up are separate and have side effects; this file is
-// the part that can be reasoned about and tested on its own.
+// The warden has to decide this itself: the server-side token-expiry band
+// deliberately excludes wardens (server/ocserverd/sse_bands.go), so no signal
+// arrives from outside.
 //
-// WHY THE WARDEN HAS TO DECIDE THIS ITSELF. The server-side token-expiry
-// notification band deliberately excludes wardens (server/ocserverd/sse_bands.go
-// — credential lifetime is machine governance, and a warden cannot act on the
-// restart the band asks for). So there is no signal arriving from outside; the
-// only thing that knows this credential is running out is the process holding
-// it.
+// The trigger reads `iat` (AGE), not `exp`. Reading exp looks like the obvious
+// simplification and is wrong: every warden installed before credentials were
+// given expiries holds a credential with NO exp, and an exp-based trigger answers
+// "not due" on exactly those machines (it once made renewal dead code
+// fleet-wide); and an exp records the lifetime at mint time, whereas lowering the
+// setting must move the fleet's renewal moment. The live lifetime is the one the
+// station publishes (GET /api/machines/credential-policy); a machine with no
+// answer uses the owner-ruled 30-day default.
 //
-// ── T-fc53 第一段: AGE, NOT REMAINING TIME ──────────────────────────────────
-//
-// 🔴 THE ORIGINAL RULE COULD NOT FIRE AT ALL. It asked "how much of the ORIGINAL
-// lifetime is left", which is a question about `exp` — and mintWardenToken issues
-// warden credentials with NO exp (server/ocserverd/jwt.go: mintJWTWithoutExpiry).
-// jwtLifetime therefore answered ok=false, credentialDueForRenewal returned false,
-// and the whole renewal path was dead code on every machine in the fleet. The one
-// thing that ever reached it was the T-80 station demand, which is a different
-// question (a retired signing key) and does not run on a clock.
-//
-// So the trigger now reads `iat` — HOW LONG AGO WAS THIS CREDENTIAL ISSUED —
-// which every warden credential has carried since the initial tree (jwtClaims.Iat
-// has no omitempty, so it is always serialised). Age needs no exp, which is what
-// let this land BEFORE credentials were given expiries again.
-//
-// ── T-fc53 第二段: THE CREDENTIALS EXPIRE AGAIN, AND THIS FILE DOES NOT CHANGE ──
-//
-// The server now stamps exp = iat + lifetime (server mintWardenToken). Reading
-// `exp` here instead of `iat` would look like the obvious simplification and it
-// is the wrong move, for two reasons that hold together:
-//
-//   - EVERY WARDEN INSTALLED BEFORE 第二段 IS HOLDING A CREDENTIAL WITH NO exp,
-//     and those are precisely the machines that have never renewed. An exp-based
-//     trigger answers "not due" on them — the exact dead-code state 第一段
-//     existed to end, re-introduced on the only population it still matters for.
-//   - AN exp IS A RECORD OF THE LIFETIME AT MINT TIME. Lowering the setting must
-//     move the fleet's renewal moment; a credential minted under the old number
-//     carries the old number in its exp forever. The station's published lifetime
-//     (GET /api/machines/credential-policy) is the live one.
-//
-// 🔴 WHAT DID CHANGE IS THE COST OF BEING WRONG. While credentials were permanent
-// a trigger that never fired was invisible and survivable. Now a machine that
-// does not renew inside the last third of its lifetime is refused by the station
-// and needs a re-install by hand, and nothing anywhere raises an alarm about it.
-//
-// THE THRESHOLD IS THE SAME THRESHOLD, expressed from the other end. "Under a
-// third of the lifetime remaining" IS "past two thirds of the lifetime old", so
-// a fleet moving from one rule to the other does not change when it renews. What
-// changes is where the number comes from: the lifetime is no longer readable off
-// the credential, so the station publishes it (GET /api/machines/credential-policy)
-// and this process keeps the last answer. A machine that has never had an answer
-// uses the shipped default, which is the owner-ruled 30 days.
+// A machine that does not renew inside the last third of its lifetime is refused
+// by the station and needs a hand re-install, and nothing raises an alarm.
 
 import (
 	"encoding/base64"
@@ -64,152 +26,62 @@ import (
 	"time"
 )
 
-// renewAtRemainingFraction is the share of a credential's ORIGINAL lifetime
-// that, once left, starts renewal attempts. At the owner-ruled 30-day lifetime
-// this is ten days.
+// A FRACTION, not a number of days: the lifetime is owner-adjustable, and a
+// fixed threshold longer than a shortened lifetime makes every credential born
+// due — the fleet renews every poll forever. A third buys the RETRY WINDOW (ten
+// days at the fifteen-minute poll ≈ a thousand attempts) while a healthy machine
+// still renews once per lifetime.
 //
-// WHY A FRACTION AND NOT A NUMBER OF DAYS. The lifetime is an owner-adjustable
-// setting. A hard-coded threshold survives only the lifetime it was written
-// for: shorten the lifetime past it and every credential is born already due,
-// so the fleet renews on every poll forever. A fraction moves with it.
-//
-// WHY A THIRD. What this threshold actually buys is a RETRY WINDOW: ten days
-// at the fifteen-minute poll is roughly a thousand attempts, so a machine has
-// to be off for ten days straight before its credential really dies. A quarter
-// would also do; there is no reason to make the window smaller. What it must
-// not be is generous enough to have every machine renewing for most of its
-// life — at a third, a healthy machine spends twenty days doing nothing and
-// renews once per lifetime.
-//
-// 🔴 SINCE T-fc53 第二段 "REALLY DIES" IS LITERAL. The credential now carries an
-// exp, so the end of the retry window is the moment the station starts refusing
-// this machine, and the only recovery is a hand re-install. Before 第二段 running
-// out of window cost nothing, because there was nothing to run out of.
-//
-// 🔴 IT IS ALSO WHAT BOUNDS THE SETTING'S FLOOR, and that link is the reason the
-// two numbers must be read together. The retry window is lifetime/3; the poll is
-// fifteen minutes; so a one-day lifetime buys eight hours ≈ 32 attempts. The
-// station refuses a lifetime shorter than that (settings.go) precisely so this
-// fraction never degenerates into "one or two polls to get it right".
+// It also bounds the setting's floor: a one-day lifetime buys eight hours ≈ 32
+// attempts, and the station refuses anything shorter (settings.go) so this never
+// degenerates into "one or two polls to get it right".
 const renewAtRemainingFraction = 1.0 / 3.0
 
 const (
-	// credentialLifetimeDefaultSecs is what this warden assumes the station's
-	// credential lifetime is until the station tells it otherwise. It is the
-	// owner-ruled 30 days (owner 2026-09-08, card rc-f2b96594c621), i.e. the same
-	// value the station ships as the default of auth.warden_credential_lifetime_secs.
-	//
-	// 🔴 THE DEFAULT IS NOT A FALLBACK NOBODY REACHES. It is what EVERY machine
-	// uses on its first poll after an upgrade, and it is what a machine uses for
-	// as long as the policy endpoint is unreachable.
-	//
-	// ⚠️ WHICH DIRECTION IS THE SAFE ONE INVERTED IN T-fc53 第二段, and the old
-	// answer is quoted here rather than quietly deleted. It used to read: too
-	// SHORT only costs extra renewals, too LONG "only delays a renewal on
-	// credentials that (in this package) cannot expire anyway". They can expire
-	// now. Assuming a lifetime LONGER than the station's means renewing after the
-	// credential is already dead, and the recovery for that is a hand re-install;
-	// assuming a SHORTER one still only costs extra renewals. Under-estimating is
-	// the safe direction, so if this number and the station's ever disagree, this
-	// one should be the smaller.
-	//
-	// It is nonetheless kept EQUAL to the station's shipped default rather than
-	// set deliberately low: a value below the real lifetime makes every machine
-	// that cannot reach the policy endpoint renew early and forever, which is the
-	// fleet-wide behaviour the endpoint exists to avoid. The margin belongs in the
-	// retry window, not in a second guess about the same number.
+	// credentialLifetimeDefaultSecs is the owner-ruled 30 days (rc-f2b96594c621),
+	// the station's shipped default of auth.warden_credential_lifetime_secs. EVERY
+	// machine uses it on its first poll after an upgrade and whenever the policy
+	// endpoint is unreachable. Under-estimating is the safe direction (over-
+	// estimating renews after the credential is dead), but it is kept EQUAL rather
+	// than low: a lower value makes every machine that cannot reach the endpoint
+	// renew early, forever.
 	credentialLifetimeDefaultSecs = int64(30 * 24 * 60 * 60)
 
-	// credentialLifetimeFloorSecs is the SHORTEST lifetime this process will act
-	// on, whatever the station says. It mirrors minWardenCredLifetimeSecs on the
-	// server (one day) and exists because the two ends of this wire are versioned
-	// independently: a station that has been talked into an out-of-range value,
-	// or a future one that widens its own floor, must not be able to talk every
-	// machine in the fleet into renewing on every poll. A value below the floor
-	// is not clamped UP to it — it is discarded, and the shipped default is used
-	// instead, because a nonsense number is not evidence about what the owner
-	// wants and the default is the one value known to be safe.
+	// Mirrors minWardenCredLifetimeSecs on the server (one day); the two ends are
+	// versioned independently, so a station talked into an out-of-range value
+	// must not make the fleet renew every poll. Out of range is DISCARDED in
+	// favour of the default, not clamped: a nonsense number is not evidence.
 	credentialLifetimeFloorSecs = int64(24 * 60 * 60)
 
-	// credentialLifetimeCeilingSecs mirrors maxAgentTTLSecs (400 days), the
-	// ceiling every long-lived credential on this station already lives under.
+	// Mirrors maxAgentTTLSecs (400 days) on the station.
 	credentialLifetimeCeilingSecs = int64(400 * 24 * 60 * 60)
 )
 
-// credentialRenewJitterWindow is how far a machine's own renewal moment is
-// pushed back from the moment the arithmetic alone would pick.
+// credentialRenewJitterWindow only spreads machines that AGE into the threshold.
+// It does NOT prevent a fleet-wide simultaneous renewal when the threshold MOVES
+// under the fleet (lifetime lowered, or this code shipping to machines already
+// past two thirds): measured, 40 of 40 machines renew on the SAME poll. To really
+// break up that herd the offset has to be applied AFTER the threshold is crossed —
+// this constant is the wrong lever (see
+// TestMaybeRenewCredential_TheHerdIsRealWhenTheThresholdMovesUnderTheFleet).
 //
-// 🔴 WHAT IT ACTUALLY DOES, AND WHAT IT DOES NOT. It spreads the fleet when
-// machines REACH the threshold by ageing into it: their ages are close together
-// near the boundary, so a per-machine offset of up to an hour decides who acts on
-// which poll.
-//
-// 🔴 IT DOES NOT PREVENT THE FLEET-WIDE SIMULTANEOUS RENEWAL, and an earlier
-// version of this comment claimed that it did. When the threshold MOVES UNDER the
-// whole fleet — the owner lowering the lifetime setting, or this code shipping to
-// machines whose credentials are already older than two thirds of the default —
-// every machine is past threshold+offset at the same instant, and an offset of at
-// most an hour changes nothing: they all act on their very next poll. Measured,
-// not reasoned: a 40-machine harness with realistic ages (5..83 days) and the
-// lifetime lowered to 3 days renews 40 of 40 on the SAME poll.
-//
-// So the fleet-wide event the owner was told about and accepted is REAL and is NOT
-// softened by this constant. What keeps it survivable is elsewhere: every failure
-// on this path keeps the old credential, and a failed exec does not exit. If you
-// are here because you need the herd actually broken up, this constant is the
-// wrong lever — the offset has to be applied AFTER the threshold is crossed, not
-// added to the threshold, and that is a different behaviour with its own failure
-// modes. See TestMaybeRenewCredential_TheHerdIsRealWhenTheThresholdMovesUnderTheFleet.
-//
-// WHY AN HOUR (for the ageing-into-it case above). The poll is fifteen minutes, so
-// poll PHASE alone already spreads the fleet over fifteen minutes — machines wake fifteen minutes after their own
-// start, not on a shared wall clock. An hour is four times that, so it dominates
-// the natural spread rather than disappearing into it, and it puts at most about
-// a quarter of the fleet in any one poll bucket. It is also small enough to be
-// irrelevant to the credential itself: an hour out of the SHORTEST legal lifetime
-// (one day) is 4% of the lifetime and one eighth of the eight-hour retry window.
-//
-// WHY IT IS DETERMINISTIC PER MACHINE AND NOT RANDOM. A fresh random offset on
-// every poll does not stagger anything — it re-rolls the threshold each time, so
-// a machine near the boundary flickers due/not-due and the fleet is spread only
-// by luck. Worse, it makes "when will this machine renew" unanswerable, and that
-// question is exactly what somebody debugging a stuck host will ask. Derived from
-// the machine id, the offset is stable for the life of the machine, identical
-// across restarts, and reproducible by hand.
+// An hour is four times the natural fifteen-minute poll-phase spread. Derived
+// from the machine id rather than random: a per-poll random offset makes a
+// machine near the boundary flicker due/not-due and makes "when will this machine
+// renew" unanswerable.
 const credentialRenewJitterWindow = time.Hour
 
-// credentialRenewAfter turns the station's LIFETIME into the age at which THIS
-// machine renews: two thirds of the lifetime, plus this machine's own stagger.
-//
-// lifetimeSecs is the station's answer, or 0 when it has never given one. Any
-// value outside the floor/ceiling is discarded in favour of the shipped default
-// — see credentialLifetimeFloorSecs for why it is discarded rather than clamped.
-//
-// machineID is what the stagger is derived from; an empty id simply gets no
-// stagger, which is right for the one case that produces it (an unconfigured or
-// test warden, where there is no fleet to spread).
 func credentialRenewAfter(lifetimeSecs int64, machineID string) time.Duration {
 	if lifetimeSecs < credentialLifetimeFloorSecs || lifetimeSecs > credentialLifetimeCeilingSecs {
 		lifetimeSecs = credentialLifetimeDefaultSecs
 	}
 	lifetime := time.Duration(lifetimeSecs) * time.Second
-	// The age twin of "under a third remaining". Written as lifetime minus the
-	// fraction rather than as a 2/3 literal so there is exactly ONE number in
-	// this file to change if the fraction ever moves, and no second place that
-	// can be updated out of step with it.
 	base := lifetime - time.Duration(float64(lifetime)*renewAtRemainingFraction)
 	return base + credentialRenewJitter(machineID, base)
 }
 
-// credentialRenewJitter is this machine's stable offset within the window.
-//
-// 🔴 IT IS CAPPED BY THE THRESHOLD IT IS ADDED TO, not just by the window. The
-// stagger eats into the retry window, and the retry window is what stops a
-// machine that was switched off for a while from losing its credential. Bounding
-// it at an eighth of the threshold means it can never be more than a small slice
-// of that window whatever lifetime the owner picks — at the shipped 30 days the
-// cap is 2.5 days and the hour applies untouched; only an absurdly short
-// lifetime could ever make the cap bite, and then it bites in the safe direction.
+// Capped at an eighth of the threshold, not just by the window: the stagger eats
+// into the retry window, which is what saves a machine that was switched off.
 func credentialRenewJitter(machineID string, base time.Duration) time.Duration {
 	if machineID == "" {
 		return 0
@@ -221,57 +93,30 @@ func credentialRenewJitter(machineID string, base time.Duration) time.Duration {
 	if window <= 0 {
 		return 0
 	}
-	// FNV-1a over the id: a stable, dependency-free spread. This is NOT a
-	// security decision — nothing is being hidden, and a machine that could
-	// choose its own offset would gain nothing but its own renewal moment — so
-	// the cheapest well-distributed hash is the right one.
 	h := fnv.New64a()
 	_, _ = h.Write([]byte(machineID))
 	return time.Duration(h.Sum64() % uint64(window))
 }
 
-// credentialDueForRenewal reports whether the credential should be replaced now.
-//
-// renewAfter is the age at which this machine renews (credentialRenewAfter).
-//
-// TWO ARMS, AND THE SECOND IS NOT DEAD WEIGHT. The AGE arm is the one that fires
-// on every machine, because `iat` is on every credential this station has ever
-// minted while `exp` is absent from every one minted before T-fc53 第二段. The
-// EXPIRY arm answers the same question from a fact the credential carries
-// ITSELF, and 第二段 put that fact back: a machine whose policy fetch has been
-// failing for weeks still renews on time. Two independent paths to
-// one decision is normally the shape this repo removes; here they are deliberate,
-// because they fail independently — one needs the station reachable, the other
-// needs nothing at all — and they agree by construction (both are "past two
-// thirds of the lifetime").
-//
-// An UNREADABLE token is never due, for the same reason a missing token file
-// fail-safes to "no token": a parse failure is not evidence of expiry, and a
-// machine whose credential this code cannot read is a machine that should be
-// left exactly as it is rather than pushed through a credential swap.
+// TWO ARMS on purpose (normally the shape this repo removes): the AGE arm needs
+// the station's lifetime, the EXPIRY arm needs only the credential itself, so a
+// machine whose policy fetch has failed for weeks still renews on time; both mean
+// "past two thirds of the lifetime". An UNREADABLE token is never due: a parse
+// failure is not evidence of expiry.
 func credentialDueForRenewal(token string, now time.Time, renewAfter time.Duration) bool {
-	// AGE ARM. `iat` is present on every credential this station mints, with or
-	// without an exp, so this is the arm that actually runs.
 	if iat, ok := jwtIssuedAt(token); ok && renewAfter > 0 {
 		if now.Unix()-iat >= int64(renewAfter/time.Second) {
 			return true
 		}
 	}
-	// EXPIRY ARM — the original rule, unchanged.
-	//
-	// A token with no expiry is NEVER due here: "no expiry" must read as
-	// "nothing this arm can say" rather than as "expired long ago". Getting that
-	// backwards would make every warden in the fleet renew on every poll,
-	// against a server that would happily mint each time.
+	// No expiry must read as "this arm cannot say", never as "expired long ago" —
+	// the latter makes the whole fleet renew every poll.
 	exp, iat, ok := jwtLifetime(token)
 	if !ok {
 		return false
 	}
-	// A MISSING iat is zero, and zero is not a timestamp: exp-0 would compute a
-	// "lifetime" of the whole epoch, whose third is decades, so every credential
-	// would read as due. Treat an absent or non-preceding iat as an unknown
-	// lifetime and fall back to the expiry itself — due once the moment has
-	// actually passed — rather than inventing a window.
+	// A missing iat is zero: exp-0 would be a lifetime of the whole epoch and every
+	// credential would read as due.
 	lifetime := exp - iat
 	if iat <= 0 || lifetime <= 0 {
 		return now.Unix() >= exp
@@ -280,16 +125,9 @@ func credentialDueForRenewal(token string, now time.Time, renewAfter time.Durati
 	return float64(remaining) < float64(lifetime)*renewAtRemainingFraction
 }
 
-// jwtIssuedAt reads `iat` out of a JWT payload WITHOUT verifying the signature,
-// for the same reason jwtLifetime does not: verification is the server's job and
-// needs a secret this process does not have.
-//
-// ok is false when the token is malformed or carries no POSITIVE `iat` — never a
-// guess. Zero and negative are rejected together and deliberately: neither is a
-// timestamp, and an age computed against them is `now` itself, i.e. decades,
-// which would make every credential permanently due. That is the fleet-wide
-// renew-on-every-poll failure, reached through a claim an attacker does not even
-// need to forge — a truncated or hand-edited token file gets there on its own.
+// Unverified: verification is the server's job and needs a secret this process
+// does not have. Zero and negative iat are rejected: an age computed against
+// them is decades, which makes every credential permanently due.
 func jwtIssuedAt(token string) (iat int64, ok bool) {
 	claims, ok := jwtClaimsOf(token)
 	if !ok {
@@ -302,11 +140,6 @@ func jwtIssuedAt(token string) (iat int64, ok bool) {
 	return int64(iatF), true
 }
 
-// jwtLifetime reads `exp` and `iat` out of a JWT payload WITHOUT verifying the
-// signature. Verification is the server's job and needs a secret this process
-// does not have; what is being read here is the expiry of the credential this
-// process is already holding, to decide whether to ask for another one. ok is
-// false when the token is malformed or carries no `exp` — never a guess.
 func jwtLifetime(token string) (exp, iat int64, ok bool) {
 	claims, ok := jwtClaimsOf(token)
 	if !ok {
@@ -320,10 +153,6 @@ func jwtLifetime(token string) (exp, iat int64, ok bool) {
 	return int64(expF), int64(iatF), true
 }
 
-// jwtClaimsOf decodes the payload segment. Shared by the two readers above so
-// "what counts as a malformed token" is decided in ONE place: two copies of this
-// would be two chances for the readers to disagree about a token, and they are
-// consulted about the same token within microseconds of each other.
 func jwtClaimsOf(token string) (map[string]any, bool) {
 	parts := strings.Split(token, ".")
 	if len(parts) != 3 {

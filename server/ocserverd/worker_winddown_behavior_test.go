@@ -91,9 +91,9 @@ func TestWorkerWindDownLadder_AModelChangeMayNotUndoAnAcceleratedStop(t *testing
 			t.Fatalf("model: %d %s", rec.Code, rec.Body.String())
 		}
 		w, _ := api.dal.GetOutsourceWorker(id)
-		if w.RefocusOp != ownerOpModel {
+		if w.RefocusOp != ownerOpRuntimeModel {
 			t.Fatalf("refocus_op=%q, want %q — a same-rung verb must still open its "+
-				"own epoch", w.RefocusOp, ownerOpModel)
+				"own epoch", w.RefocusOp, ownerOpRuntimeModel)
 		}
 	})
 }

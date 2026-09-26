@@ -1,24 +1,15 @@
 package main
 
-// renewapply.go — ACTING on the decision renew.go makes: ask the server for a
-// fresh credential, put it on disk, and re-exec so the new process picks it up.
-//
-// 🔴 THE ORDER IS THE WHOLE DESIGN. This code runs unattended on every machine in
-// the fleet at once and ends in a syscall.Exec that replaces the running warden.
-// The one outcome that cannot be recovered from here is a machine whose
-// credential was thrown away before a working replacement was on disk: nothing
-// reaches that host afterwards except a person walking to it. So:
+// 🔴 THE ORDER IS THE WHOLE DESIGN. This runs unattended on every machine at once
+// and ends in a syscall.Exec. A machine whose credential was thrown away before a
+// working replacement was on disk is unrecoverable — only a person walking to it
+// fixes it. So:
 //
 //	get a new credential -> write it successfully -> only then exec.
 //
-// Every failure short-circuits to "return, change nothing": the old credential
-// stays on disk, in this process, and in use. A refused renewal is a machine that
-// keeps working; a half-applied renewal is a machine that is gone.
-//
-// NO EXTRA BACKOFF ON FAILURE. The caller is the 15-minute self-update loop, and a
-// failed attempt simply waits for the next turn. Backing off would mean recording
-// "when did we last try", i.e. new mutable state on the path whose failure mode is
-// bricking a host, bought for nothing but a handful of body-less requests.
+// Every failure returns having changed nothing. No extra backoff: a failed
+// attempt costs one body-less request and waits for the next poll; backing off
+// would add mutable state on the path whose failure mode is bricking a host.
 
 import (
 	"encoding/json"
@@ -27,43 +18,17 @@ import (
 	"strings"
 )
 
-// renewCredentialPath is the zero-argument renewal endpoint. It takes NO body and
-// names NO target: the machine acted on is the caller's own verified `sub`.
 const renewCredentialPath = "/api/machines/renew-credential"
 
-// credentialPolicyPath is where the station publishes how long a machine
-// credential is meant to live (auth.warden_credential_lifetime_secs). It is a
-// READ, it names no target, and it carries no credential material — the answer
-// is the same for every machine, and the per-machine stagger is computed here
-// (renew.go) rather than served, so nothing about this response varies by caller.
-//
-// 🔴 WHY THE STATION HAS TO BE ASKED AT ALL, INCLUDING NOW THAT THE CREDENTIAL
-// CARRIES AN exp AGAIN. The lifetime used to be readable off the credential
-// itself: exp minus iat. That stopped working while warden credentials were
-// permanent, and the number moved into the owner's settings. T-fc53 第二段 put
-// the exp back and this stays, for the two reasons written out in renew.go: the
-// machines that have never renewed are exactly the ones holding an exp-less
-// credential, and an exp records the lifetime AT MINT TIME rather than the live
-// one. Failing to get it is NOT an error condition — the last
-// answer, or the shipped default, stands (see refreshCredentialPolicy).
+// Asked even though credentials carry an exp again, for the reasons in renew.go.
 const credentialPolicyPath = "/api/machines/credential-policy"
 
-// credentialProbePath is the endpoint a REPLACEMENT credential is tried against
-// before anything on disk is touched. It is read-only, it is the cheapest thing a
-// warden is entitled to call (authGated + principalMachine, the lowest rank), and
-// it leaves nothing behind — the telemetry endpoint would have done too, but it
-// writes a sample, and a probe should not be able to be mistaken for a heartbeat.
+// Read-only and the lowest-rank endpoint a warden may call. Not the telemetry
+// endpoint: that writes a sample, and a probe must not be mistaken for a heartbeat.
 const credentialProbePath = "/api/machines"
 
-// credentialRenewer POSTs the renewal request and returns (status, decoded body,
-// transport error) — the same three-way split as selfupdate.go's `getter`, so the
-// caller classifies "server said no" and "never reached the server" itself instead
-// of receiving one indistinguishable error. Injected into updater so the renewal
-// path is testable without a live server.
 type credentialRenewer func() (int, map[string]any, error)
 
-// httpCredentialRenewer builds the real POST-{base}{path} closure with the
-// warden's Bearer token baked in, mirroring httpGetter/httpPoster.
 func httpCredentialRenewer(client *http.Client, base, token string) credentialRenewer {
 	return func() (int, map[string]any, error) {
 		req, err := http.NewRequest(http.MethodPost, base+renewCredentialPath, nil)
@@ -90,27 +55,8 @@ func httpCredentialRenewer(client *http.Client, base, token string) credentialRe
 	}
 }
 
-// renewalWiring is everything the renewal path needs from the outside world,
-// built in ONE place so it can be asserted.
-//
-// WHY IT IS NOT ASSEMBLED INLINE IN THE PRODUCTION CONSTRUCTOR. When this was
-// written newSelfUpdater opened with refuseInTestBinary, so nothing in this
-// package could construct it and every field it filled was outside the reach of
-// every test. Measured then: with the wiring inline, `envToken: ""` and
-// `renew: nil` both compiled and the whole suite stayed green, i.e. the OC_TOKEN
-// guard and the entire feature could be switched off in production without a
-// single red test. maybeRenewCredential was well covered; whether production
-// handed it the right values was not covered at all.
-//
-// That refusal has since been removed (it guarded a body that starts no process
-// — see newSelfUpdater), so the constructors ARE reachable now and the built
-// updater is asserted by USING what it was handed. Keeping the assembly here is
-// still worth it: one named value to copy,
-// assert and reason about beats six fields set in a constructor's middle.
-//
-// The copy onto the updater lives in apply() below rather than inside that
-// constructor, precisely so a test can call it — TestApply_CarriesEveryFieldOntoTheUpdater
-// is what stops a field being dropped there.
+// apply stays separate from the constructor so a test can call it
+// (TestApply_CarriesEveryFieldOntoTheUpdater).
 type renewalWiring struct {
 	renew       credentialRenewer
 	verify      credentialVerifier
@@ -120,24 +66,12 @@ type renewalWiring struct {
 	envToken    string
 }
 
-// newRenewalWiring resolves the renewal inputs from config and the RAW
-// environment. `env` must be the raw environment, never the tokfile-folded view
-// loadConfig is given: envToken has to say whether OC_TOKEN was set by whoever
-// STARTED this process, and the folded view answers with the token file's
-// contents as if someone had exported them — which would silently disable the
-// infinite-exec guard on exactly the machines it protects.
+// `env` must be the RAW environment, never the tokfile-folded view loadConfig is
+// given: envToken must say whether whoever STARTED this process set OC_TOKEN, and
+// the folded view would silently disable the infinite-exec guard.
 func newRenewalWiring(cfg Config, env func(string) string) renewalWiring {
-	// The client is built HERE rather than taken from the caller: handed in from
-	// the self-update constructor it sat beside a 10s announce client, one
-	// character away, with nothing able to tell the two apart.
-	//
-	// ⚠️ NO TEST WATCHES WHICH BUDGET THIS IS. Swapping selfUpdateRequestBudget for
-	// selfUpdateReportBudget here leaves the whole package green — measured. An
-	// earlier version of this comment claimed the move put the choice "inside a
-	// function tests can call", which was true of the location and false of the
-	// coverage. Observing it would mean waiting out a real timeout, and a field
-	// carrying the value for a test to read is the decoy this constructor already
-	// grew once and had removed. Stated rather than faked.
+	// ⚠️ No test watches which budget this is: swapping selfUpdateRequestBudget for
+	// selfUpdateReportBudget leaves the package green — measured.
 	client := &http.Client{Timeout: selfUpdateRequestBudget}
 	return renewalWiring{
 		renew:       httpCredentialRenewer(client, cfg.Base, cfg.Token),
@@ -149,20 +83,13 @@ func newRenewalWiring(cfg Config, env func(string) string) renewalWiring {
 	}
 }
 
-// apply copies the wiring onto the updater. One line, so the copy itself is easy
-// to read against the struct above.
 func (u *updater) apply(w renewalWiring) {
 	u.renew, u.verify, u.writeTok = w.renew, w.verify, w.writeTok
 	u.tokfilePath, u.token, u.envToken = w.tokfilePath, w.token, w.envToken
 }
 
-// credentialVerifier answers whether a credential is ACCEPTED by the station —
-// the difference between "the server sent us something" and "the server will take
-// it back". Injected so the renewal path is testable without a live station.
 type credentialVerifier func(token string) (int, error)
 
-// httpCredentialVerifier presents the candidate credential — not the one this
-// process is running on — at a read-only endpoint and reports the status.
 func httpCredentialVerifier(client *http.Client, base string) credentialVerifier {
 	return func(candidate string) (int, error) {
 		status, _, err := httpGetter(client, base, candidate)(credentialProbePath)
@@ -170,25 +97,12 @@ func httpCredentialVerifier(client *http.Client, base string) credentialVerifier
 	}
 }
 
-// refreshCredentialPolicy asks the station how long a machine credential is meant
-// to live and remembers the answer. It NEVER fails: every unhappy path leaves
-// u.credLifetimeSecs exactly as it was.
-//
-// 🔴 SILENCE IS THE WHOLE CONTRACT, and it is the opposite of how the rest of this
-// file reports trouble. Every other failure here is logged loudly, because every
-// other failure means a renewal did not happen. This one means the THRESHOLD is
-// unknown, and an unknown threshold is not an incident: the shipped default (or
-// the last answer) is a perfectly good number, and this endpoint is unreachable
-// on exactly two ordinary occasions — a station that has not been upgraded yet
-// (404), and a network blink. Logging either would put a line in every machine's
-// log file on every poll for as long as the station is behind, which trains
-// whoever reads those files to ignore this path.
-//
-// ⚠️ IT DOES NOT DISTINGUISH 404 FROM 500 FROM A TIMEOUT, and that is deliberate
-// rather than unfinished: the ACTION is identical for all three — keep the number
-// already in hand — so a classification here would exist only to be printed, and
-// the paragraph above is why it is not printed. What a reader needs instead is
-// the value actually in force, and that is what the renewal log lines carry.
+// 🔴 SILENT BY DESIGN, unlike every other failure in this file: an unknown
+// threshold is not an incident (the last answer or the shipped default stands), and
+// this endpoint fails on ordinary occasions — a station not upgraded yet (404), a
+// network blink. Logging would add a line per machine per poll and train readers
+// to ignore this path. 404/500/timeout are not distinguished: the action is the
+// same.
 func (u *updater) refreshCredentialPolicy() {
 	if u.get == nil {
 		return
@@ -203,58 +117,26 @@ func (u *updater) refreshCredentialPolicy() {
 	if err := json.Unmarshal(raw, &doc); err != nil {
 		return
 	}
-	// 🔴 A MISSING FIELD MUST NOT LAND AS ZERO, which is why the field is a POINTER
-	// and not an int64. Zero here does not mean "no lifetime" — credentialRenewAfter
-	// reads 0 as "the station has never answered" and substitutes the shipped
-	// default — so a plain int64 would make a RENAMED field indistinguishable from
-	// an honest answer, silently reverting every machine in the fleet to the default
-	// while the endpoint kept answering 200. Absent and non-positive are both
-	// declined; the previous number stands.
+	// 🔴 A MISSING FIELD MUST NOT LAND AS ZERO, hence the pointer: credentialRenewAfter
+	// reads 0 as "never answered" and substitutes the default, so a RENAMED field would
+	// silently revert the fleet to the default while the endpoint kept answering 200.
 	if doc.LifetimeSecs == nil || *doc.LifetimeSecs <= 0 {
 		return
 	}
 	u.credLifetimeSecs = *doc.LifetimeSecs
 }
 
-// maybeRenewCredential runs ONE renewal attempt and reports whether the process
-// should now re-exec to pick the new credential up. It returns true ONLY after a
-// fresh non-empty token has been written to disk successfully; every other path
-// returns false having changed nothing at all.
-//
-// It is called once per WAKE of the poll loop, BEFORE the self-update's sha gate.
-// A wake is the 15-minute timer OR a kick, and the SSE transport kicks on every
-// reconnect — so on a flapping network the attempts follow the reconnects, not the
-// timer. That is affordable only because a failed attempt costs one body-less
-// request and changes nothing; it is the reason there is no backoff, and also the
-// reason not to put anything expensive here. That
-// placement is deliberate and load-bearing: the sha gate returns early whenever
-// the server has not shipped a new commit, so a credential check living behind it
-// would only ever run on release days — and a machine's credential ages on its
-// own schedule, not on ours.
-//
-// ⚠️ THE COST OF ONE TURN CHANGED IN T-fc53, AND THIS SENTENCE USED TO SAY
-// OTHERWISE. It read "the check itself is local arithmetic over a token this
-// process already holds; only an actually-due credential costs a request", and
-// that stopped being true when the threshold stopped being readable off the
-// credential: the decision now needs the station's lifetime setting, so a turn
-// that decides NOT to renew still costs one body-less GET. That is the same
-// order of cost as the /api/version gate this loop already pays every turn, and
-// it buys the property the owner asked for — lowering the setting reaches every
-// machine within one poll instead of never.
+// Called once per WAKE of the poll loop, and the SSE transport kicks it on every
+// reconnect — so on a flapping network attempts follow reconnects. Keep this
+// cheap. Each turn costs one GET for the station's lifetime setting, which buys what
+// the owner asked for: lowering the setting reaches every machine within one poll.
 func (u *updater) maybeRenewCredential() bool {
 	if u.renew == nil || u.writeTok == nil {
-		return false // unwired (tests, --once) — renewal is simply not in play
+		return false
 	}
-	// 🔴 ALREADY RENEWED, WAITING FOR A RESTART. Once a fresh credential has been
-	// written, this process is the only thing still holding the old one: the token
-	// is read once at startup (main.go) and lives in memory, so credentialDueForRenewal
-	// below judges the retired credential and answers "due" every single time. Left
-	// alone that is a renewal every poll, forever, on every machine in the fleet
-	// simultaneously — the exact shape of load this whole path is written to avoid.
-	// Nothing more is needed here: the replacement is on disk and the next start of
-	// any kind picks it up. Said out loud every time rather than silently, because
-	// "this machine is running on a credential it has already replaced" is a state
-	// somebody reading the log should be able to see.
+	// 🔴 The token is read once at startup and lives in memory, so after a write
+	// credentialDueForRenewal would keep judging the retired credential "due" and
+	// renew every poll, fleet-wide.
 	if u.renewedAwaitingRestart {
 		u.logf("[ocwarden] renew: a fresh credential is ALREADY on disk at %s and this "+
 			"process is still running on the previous one (the in-place exec did not "+
@@ -262,27 +144,10 @@ func (u *updater) maybeRenewCredential() bool {
 			"restart of this warden.", u.tokfilePath)
 		return false
 	}
-	// TWO INDEPENDENT REASONS TO RENEW, and they are asked in this order because
-	// only one of them is free. The expiry question is local arithmetic over a
-	// token already in memory; the demand is a flag the SSE reader raised. Both
-	// are cheap, but the demand is the one that must not be missed, so it is read
-	// with `||` rather than folded into credentialDueForRenewal — that function
-	// answers "is this credential running out", which is a property of the token,
-	// and the station's demand is not a property of the token at all.
-	//
-	// 🔴 THE DEMAND EXISTS BECAUSE THE EXPIRY QUESTION CANNOT ANSWER THIS ONE. A
-	// credential signed by a key the station has retired is not expiring — and it
-	// may have no expiry at all, since every credential minted before T-fc53
-	// 第二段 was permanent — and it is
-	// perfectly valid right up until somebody removes that key, at which instant
-	// it is worthless and this machine is unreachable. Nothing this process can
-	// read off its own token says which key signed it (the JWT header is a
-	// constant; there is no kid), so the station, which knows because it verified
-	// it, is the only party that can raise this.
-	// The station's answer to "how long is a credential meant to live" is
-	// refreshed BEFORE the question is asked, and deliberately AFTER the
-	// already-renewed latch above: a machine holding a replacement it has not
-	// picked up yet has nothing to decide, so it should cost nothing either.
+	// 🔴 THE DEMAND EXISTS BECAUSE EXPIRY CANNOT ANSWER IT: a credential signed by a
+	// key the station retired is not expiring (it may carry no exp at all) and becomes
+	// worthless the instant that key is removed. The token cannot say which key signed
+	// it (constant JWT header, no kid), so only the station can raise this.
 	u.refreshCredentialPolicy()
 
 	demanded := u.renewDemanded.Load()
@@ -295,14 +160,10 @@ func (u *updater) maybeRenewCredential() bool {
 			"renewing now.")
 	}
 
-	// 🔴 THE INFINITE-EXEC TRAP. execSelf passes os.Environ() through, so an
-	// OC_TOKEN that was set explicitly in this process's environment SURVIVES the
-	// exec and keeps winning over the token file (see tokfileEnv). Renewing under
-	// that env would write a fresh credential nothing reads, find the same stale
-	// token still due on the next turn, and exec again — once per poll, forever.
-	// The launchd job never sets OC_TOKEN (only OC_WARDEN_TOKFILE), so this only
-	// ever describes a hand-started / tmux / test warden; for those, doing nothing
-	// is exactly right, because there is nothing a renewal could accomplish.
+	// 🔴 THE INFINITE-EXEC TRAP. execSelf passes os.Environ() through, so an explicit
+	// OC_TOKEN survives the exec and keeps winning over the token file (tokfileEnv):
+	// renewing would exec once per poll, forever. The launchd job never sets OC_TOKEN
+	// (only OC_WARDEN_TOKFILE), so this only hits hand-started / tmux / test wardens.
 	if strings.TrimSpace(u.envToken) != "" {
 		u.logf("[ocwarden] renew: credential is due, but OC_TOKEN is set explicitly in " +
 			"the environment — it would survive the exec and override the token file, so " +
@@ -335,33 +196,15 @@ func (u *updater) maybeRenewCredential() bool {
 		return false
 	}
 
-	// 🔴 WHAT ARRIVED MUST BE A CREDENTIAL FOR THIS MACHINE, and non-empty is not
-	// that. Every byte that gets past here is renamed over the only copy of the
-	// credential this host has, and the process then execs into it. The failure is
-	// UNRECOVERABLE in a way the other failures are not: a replacement that is not
-	// a JWT makes credentialDueForRenewal permanently false (renew.go — neither arm
-	// can read a claim out of it), so this machine never attempts a renewal again;
-	// nothing anywhere in the warden acts on a 401; and the old credential is gone.
-	// Somebody walks to the box.
-	//
-	// This is not hypothetical. The renewal response DTO carries `token` beside two
-	// other strings, so a server-side transposition — `Token: machine.ID` — compiles,
-	// answers 200, and is non-empty. Every machine in the fleet would receive the
-	// same wrong answer within one poll of each other and apply it simultaneously.
-	// Four lines here turn "the whole fleet is bricked" into "renewal refused, the
-	// machines keep running".
-	//
-	// The test is the strongest one that every REAL credential passes: it parses as
-	// a JWT carrying a `sub`, and that `sub` is the identity this process is already
-	// running as. Deliberately NOT jwtLifetime: when this guard was written warden
-	// credentials carried no exp (before T-fc53 第二段), so demanding one would
-	// have rejected every genuine renewal — a check that a lie and the truth both
-	// fail is not a check. A renewal minted today does carry an exp, and this is
-	// still not the place to read it: `sub` is what binds the credential to THIS
-	// machine, which is the property being guarded. jwtIssuedAt would pass too, and
-	// it is still not used here: `iat` is what the AGE arm reads, so requiring it
-	// here would make this guard and that arm fail together on the same malformed
-	// token instead of independently.
+	// 🔴 WHAT ARRIVED MUST BE A CREDENTIAL FOR THIS MACHINE. A non-JWT replacement makes
+	// credentialDueForRenewal permanently false, nothing in the warden acts on a 401,
+	// and the old credential is gone — the box is bricked. Realistic: the renewal DTO
+	// carries `token` beside two other strings, so `Token: machine.ID` compiles and
+	// answers 200, fleet-wide within one poll.
+	// Check `sub` — what binds the credential to THIS machine — not jwtLifetime
+	// (genuine credentials minted before T-fc53 第二段 carried no exp) and not
+	// jwtIssuedAt (`iat` is what the AGE arm reads; requiring it would make this
+	// guard and that arm fail together).
 	freshSub := jwtSub(fresh)
 	if freshSub == "" || freshSub != jwtSub(u.token) {
 		u.logf("[ocwarden] renew: POST %s answered 200, but what came back is not a "+
@@ -371,25 +214,10 @@ func (u *updater) maybeRenewCredential() bool {
 		return false
 	}
 
-	// 🔴 PRESENT IT BEFORE REPLACING ANYTHING. The subject check above reads the
-	// credential; this asks the only party that can settle it whether the credential
-	// WORKS. They catch different things: a token minted with the wrong secret, or
-	// with a scope or machine_id the station refuses, parses fine and carries the
-	// right subject — and every one of those bricks the host exactly like a
-	// non-JWT would, because the station answers 401 to a warden that has no code
-	// path for 401 and no way back to a credential it has already overwritten.
-	//
-	// The order is the point: this runs BEFORE the write, so a replacement that is
-	// not accepted costs one read-only GET and nothing else. The ticket's wording is
-	// "the old credential must not be retired before the new one is written AND
-	// CONFIRMED USABLE"; confirming it after the write would satisfy the sentence
-	// and not the intent.
-	//
-	// A TRANSPORT failure is deliberately NOT treated as a refusal — it says nothing
-	// about the credential, and treating "the network blinked" as "this credential is
-	// bad" would strand a machine that is holding a perfectly good replacement.
-	// Either way nothing has been written yet, so both paths simply wait for the
-	// next poll.
+	// 🔴 PRESENT IT BEFORE WRITING. A token minted with the wrong secret, scope or
+	// machine_id parses and carries the right subject, then gets 401 — bricking the
+	// host like a non-JWT. Verifying after the write would be too late. A transport
+	// failure is NOT a refusal: it says nothing about the credential.
 	if u.verify != nil {
 		status, err := u.verify(fresh)
 		switch {
@@ -398,15 +226,9 @@ func (u *updater) maybeRenewCredential() bool {
 				"nothing has been written; retrying on the next poll", credentialProbePath, err)
 			return false
 		case status >= 500:
-			// A server error is the station failing to ANSWER, not the station saying
-			// no — and the difference is load-bearing here, because the auth path this
-			// probe runs through is fail-closed on a roster read (authz.go: an unknown
-			// lookup refuses rather than admits, the opposite of the revocation gate
-			// beside it). One database blink therefore looks exactly like a refusal
-			// from the outside. Both keep the old credential, so the ACTION is the
-			// same; what differs is what the log tells whoever reads it next, and
-			// "the station refused the credential it just issued" would send them
-			// hunting a minting bug that does not exist.
+			// The auth path this probe hits is fail-closed on a roster read (authz.go), so
+			// one database blink looks like a refusal; only the log differs, and "refused"
+			// would send readers hunting a minting bug that does not exist.
 			u.logf("[ocwarden] renew: could not get an answer about the new credential "+
 				"(%s answered %d) — keeping the current credential; retrying on the next "+
 				"poll. This says nothing about the credential itself.",
@@ -423,36 +245,18 @@ func (u *updater) maybeRenewCredential() bool {
 	}
 
 	if err := u.writeTok(u.tokfilePath, fresh); err != nil {
-		// The write is atomic (temp -> rename), so a failure here means the OLD
-		// credential is still the one on disk. That is the reason this returns
-		// instead of exec'ing: the running process still holds a working token.
 		u.logf("[ocwarden] renew: writing the new credential to %s failed (%v) — the "+
 			"previous credential is untouched and still in use; retrying on the next poll",
 			u.tokfilePath, err)
 		return false
 	}
-	// From here on the machine's credential HAS been replaced; this process just
-	// has not picked it up yet. Set before any of the return paths below so every
-	// one of them leaves the same state behind (see the field on updater).
 	u.renewedAwaitingRestart = true
-	// The station's demand is satisfied by a credential HAVING BEEN WRITTEN, not
-	// by having tried: cleared here and nowhere else, so every failure above
-	// leaves it standing and the next poll tries again. It is cleared even when
-	// the exec below is skipped — the replacement is on disk either way, and the
-	// station will stop asking as soon as it observes the new key id, which the
-	// next start makes it do.
+	// Cleared only after a successful write, even when the exec below is skipped: the
+	// station stops asking once it observes the new key id, which the next start makes
+	// it do.
 	u.renewDemanded.Store(false)
 	u.logf("[ocwarden] renew: wrote a fresh credential to %s", u.tokfilePath)
 
-	// A replacement that is ALREADY due is not worth an exec, and exec'ing on it is
-	// how this loop would run away: the new process reads a credential that is due
-	// the moment it starts, renews, execs, forever — once per poll. That can only
-	// come from the server minting a lifetime shorter than the renewal threshold or
-	// from a clock far enough out to look like it; both are somebody else's bug, and
-	// the harmless response to both is to leave the fresh credential on disk for the
-	// next real restart and say so. It does not repeat either: the write above set
-	// renewedAwaitingRestart, so the next poll skips the whole attempt rather than
-	// minting a credential per poll fleet-wide.
 	if credentialDueForRenewal(fresh, u.clock(), u.renewAfter()) {
 		u.logf("[ocwarden] renew: the credential just issued is ALREADY due for renewal "+
 			"— not exec'ing, because doing so would replace this process once per poll. "+
@@ -464,49 +268,14 @@ func (u *updater) maybeRenewCredential() bool {
 	return true
 }
 
-// 🔴 THIS STATE IS NOT ANNOUNCED, AND THAT IS A MEASUREMENT, NOT AN OVERSIGHT.
-// "Renewed, waiting for a restart" is the one condition this path can leave behind
-// that nothing outside the machine can see: the logs below land in that host's own
-// file (the plist's StandardOutPath), so somebody has to already suspect the
-// machine to find them. u.post is right there on the updater, unused here, which
-// makes an announce look like four lines. It is not, and the reason is the server
-// contract, not this file:
+// 🔴 "Renewed, waiting for a restart" is not announced to the server on purpose.
+// u.post makes it look like four lines, but the ingest endpoint takes a closed set
+// of top-level fields (a new one is a spec + client + handler change), and reusing
+// self_update would OVERWRITE that machine's real last-swap record.
 //
-//   - The ingest endpoint declares a closed set of top-level fields (api_monitoring
-//     .go rejects a body carrying none of them); a new `credential_renewal` is a
-//     spec + regenerated-client + handler + echo change, i.e. the shape warden_shape
-//     and cutover_effect already have, not a warden-side edit.
-//   - Reusing self_update is worse than silence: the server merges it onto the
-//     entry, so it would OVERWRITE that machine's real last-swap record, and prints
-//     "warden self-update: binary=? ?->?" to its own stderr — a renewal reported as
-//     a binary swap with unknown hashes.
-//   - self_update never reaches the cockpit at all (no mapper reads it): it is one
-//     line on the server's stderr plus an in-memory entry that dies with the next
-//     server re-exec. So even the existing announce is a server-log record, which
-//     is worth knowing before treating "announce it" as the fix.
-//
-// What shrinks the exposure instead, and is done: the exec is retried on every poll
-// (run()), so the state persists only while the exec keeps failing rather than
-// until the next restart. A durable, readable signal wants the warden_shape
-// treatment and its own ticket.
-//
-// execAfterRenewal replaces this process image so the credential just written
-// takes effect now instead of at the next restart.
-//
-// 🔴 IT DOES NOT SHARE execInPlace's exit(0) FALLBACK, AND THAT IS THE POINT. For
-// the self-update caller the exec is the last step of a swap that has already
-// replaced the binary on disk, so continuing is running a retired image. Here
-// NOTHING has been retired: the credential this process is running on is still
-// valid for days (renewal fires at a third of the lifetime remaining), the new one
-// is atomically on disk, and every future start of this warden reads it. The exec
-// only makes that sooner.
-//
-// So exiting on a failed exec would convert the one recoverable failure on this
-// path into the one unrecoverable one: launchd does NOT relaunch an exited warden
-// (observed twice on real hosts — see selfupdate.go's header), so the machine would
-// go silent, fleet-wide and at the same moment, to save a single restart's delay.
-// The right move is to log loudly and keep running; maybeRenewCredential will not
-// try again (renewedAwaitingRestart), so this costs nothing but a delay.
+// 🔴 Deliberately NOT execInPlace, whose exec-failed fallback is exit(0): the
+// running credential is still valid, and launchd does NOT relaunch an exited
+// warden (observed twice on real hosts — see selfupdate.go's header).
 func (u *updater) execAfterRenewal() {
 	u.execAttempts++
 	if u.execSelf == nil {
@@ -517,14 +286,6 @@ func (u *updater) execAfterRenewal() {
 		return
 	}
 	err := u.execSelf()
-	// execSelf returns ONLY when the process image was not replaced (syscall.Exec
-	// does not return on success), so reaching this line at all is the failure.
-	//
-	// The first failure gets the full explanation; the retries get one line. run()
-	// calls this on EVERY turn while the exec is owed, and a turn is not only the
-	// 15-minute timer — the SSE transport kicks the loop on every reconnect, so a
-	// flapping network would otherwise write the paragraph below once per reconnect
-	// into a file nobody is tailing.
 	if u.execAttempts > 1 {
 		u.logf("[ocwarden] renew: in-place exec still failing (attempt %d: %v) — still "+
 			"running, still holding the previous credential", u.execAttempts, err)

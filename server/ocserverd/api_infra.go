@@ -1,23 +1,9 @@
 package main
 
-// api_infra.go — the two gated infra seams:
-//
-//   * GET /api/events — the full SSE downlink (spec/sse.md): the auth/RBAC
-//     gates, the dual-SSE takeover (kick-old-admit-new; only the anti-flap
-//     throttle still answers a pre-stream 409), the `: connected` greeting, the
-//     online/machine-claim projection, the buffered delta stream (the hub
-//     Publish fan-out), the directed bands — context-high and token-expiry on
-//     restartable agent connections, warden-command on a kind=="warden"
-//     connection — and the
-//     15 s quiet-stream heartbeat.
-//
-//   * POST /api/mcp — the JSON-RPC face (spec/mcp.md): parse errors,
-//     initialize/ping, notifications → 202, tools/list from the FROZEN
-//     catalog (spec/mcp-catalog.json — the wire SSOT) narrowed to the
-//     caller's principal class, tools/call params
-//     validation + the in-process LOOPBACK (mcp.go): split the arguments,
-//     re-enter the route through the app's own mux with the caller's
-//     Authorization forwarded, wrap the sub-response as a CallToolResult.
+// api_infra.go — GET /api/events (the SSE downlink, spec/sse.md) and POST /api/mcp
+// (JSON-RPC, spec/mcp.md). tools/list serves the frozen catalog
+// spec/mcp-catalog.json (the wire SSOT); tools/call re-enters the route through
+// the app's own mux with the caller's Authorization forwarded (mcp.go).
 
 import (
 	"encoding/json"
@@ -28,49 +14,30 @@ import (
 	"time"
 )
 
-// ── GET /api/events ──────────────────────────────────────────────────────────
-
-// sseHeartbeat keeps the connection warm — the 15 s period is contract
-// (spec/sse.md §1); the poll cadence is an implementation detail mirroring
-// service/realtime.py.
+// The 15 s heartbeat period is contract (spec/sse.md §1).
 const (
 	sseHeartbeat = 15 * time.Second
 	ssePoll      = 250 * time.Millisecond
 
-	// These values are part of the operator-facing detach log contract. Keep
-	// them exact and stable: the log is how an operator separates a normal
-	// peer drop from a takeover, a failed write, or the station itself closing.
-	// sseDetachReasonUnset is the PRE-DECISION state, and it must never equal
-	// any reason we can conclude. setDetachReason's "first concrete cause wins"
-	// rule is a comparison against this value: while the initial value doubled
-	// as a conclusion (peer-closed did, until T-3b4e review), a later call
-	// silently overwrote a real cause and nothing went red. The printed
-	// default lives in detachReasonForLog, so the operator-facing vocabulary
-	// is unchanged.
+	// Operator-facing detach log vocabulary: keep these values exact.
+	// sseDetachReasonUnset must never equal a reason we can conclude —
+	// setDetachReason's first-cause-wins compares against it (when the initial
+	// value was peer-closed, later calls silently overwrote real causes).
 	sseDetachReasonUnset           = ""
 	sseDetachReasonTakeover        = "takeover"
 	sseDetachReasonPeerClosed      = "peer-closed"
 	sseDetachReasonWriteFailed     = "write-failed"
 	sseDetachReasonStationShutdown = "station-shutdown"
 
-	// sseStationSHAHeader carries this station's build sha to the client when
-	// the stream opens (T-5b83), so ocagent's connection line can name the
-	// build it just attached to.
-	//
-	// 🔴 THIS STRING IS HALF OF A CROSS-MODULE CONTRACT and the modules cannot
-	// import each other. The other half is stationSHAHeader in
-	// cli/ocagent/listen.go. A typo does NOT fail loudly — the client's
-	// Header.Get returns "" and its connection line silently omits the sha,
-	// which is byte-identical to the honest "this station sent none". If the
-	// two halves drift apart, nothing turns red on its own — see the task note
-	// for the guard this still owes.
+	// Must equal stationSHAHeader in cli/ocagent/listen.go (the modules cannot
+	// import each other). A mismatch fails silently: the client's Header.Get
+	// returns "" and its connection line just omits the sha.
 	sseStationSHAHeader = "X-Officraft-Station-Sha"
 )
 
-// markStationShutdown records the process-level cause before the server
-// cancels request contexts or the upgrade re-execs. Without this ordering a
-// server shutdown is indistinguishable from a peer FIN/RST inside an SSE
-// handler.
+// markStationShutdown must run before the server cancels request contexts or
+// the upgrade re-execs; otherwise a server shutdown is indistinguishable from a
+// peer FIN/RST inside an SSE handler.
 func (s *apiServer) markStationShutdown() {
 	s.stationShuttingDown.Store(true)
 }
@@ -85,9 +52,6 @@ func (s *apiServer) cancelStationContext() {
 	}
 }
 
-// detachReasonForLog keeps the operator vocabulary exactly as it was: an exit
-// that concluded nothing is still reported as peer-closed, which is what a
-// return with no recorded cause means. The sentinel never reaches the log.
 func detachReasonForLog(reason string) string {
 	if reason == sseDetachReasonUnset {
 		return sseDetachReasonPeerClosed
@@ -102,18 +66,10 @@ func (s *apiServer) sseContextDetachReason() string {
 	return sseDetachReasonPeerClosed
 }
 
-// sseWriteTimeout bounds a single SSE write to the client socket (T-7e07,
-// BACKSTOP layer). The PRIMARY half-open reaper is TCP keepalive on the
-// accepted connection (server.go sseKeepAlive) — keepalive is what detects a
-// silently-vanished peer (no FIN/RST), because a small heartbeat write to such
-// a peer just lands in the kernel send buffer and returns success, so a write
-// deadline alone would not trip until the buffer fills. This deadline still
-// earns its place as a backstop for the OTHER stall: a stuck / zero-window
-// consumer whose send buffer HAS filled — there the next write genuinely
-// blocks, and the deadline turns it into a prompt write error the loop reaps
-// into Disconnect instead of blocking indefinitely. A var (not const) so tests
-// can shrink it; 0 disables the deadline. Cross-platform and harmless on a
-// healthy stream (tiny frames flush instantly, well under the timeout).
+// sseWriteTimeout is only the BACKSTOP for a stuck/zero-window consumer whose
+// send buffer has filled. The primary half-open reaper is TCP keepalive
+// (server.go sseKeepAlive): a write to a silently vanished peer lands in the
+// kernel send buffer and succeeds, so a write deadline alone would not detect it.
 var sseWriteTimeout = 30 * time.Second
 
 func (s *apiServer) HandleEventsApiEventsGet(w http.ResponseWriter, r *http.Request) {
@@ -122,29 +78,14 @@ func (s *apiServer) HandleEventsApiEventsGet(w http.ResponseWriter, r *http.Requ
 		writeError(w, http.StatusInternalServerError, "streaming unsupported")
 		return
 	}
-	// An AGENT connection projects ITS member online for the life of the
-	// connection (the single online-projection path; kind-agnostic — a warden
-	// flows through here too). The owner (dashboard) connection is memberID ""
-	// (never projected online, exempt from the dual-SSE guard).
 	memberID := ""
 	machineID := ""
 	if currentScope(r) == "agent" {
 		memberID = currentActor(r)
 		machineID = currentMachineClaim(r)
 	}
-	// Zombie SSE gate (pre-stream, like the takeover-throttle 409 below): a
-	// member the server has an ACTIVE stop record for must never RE-project
-	// online by reconnecting — see sseStopGateRefusal for the exact predicate
-	// and why each legitimate flow stays admitted. Deliberately checked BEFORE
-	// hub.Connect, so a member the gate REFUSES can never take the slot over
-	// from anyone (zombie-stop semantics outrank takeover).
-	//
-	// ⚠️ Read "refuses", not "has a stop anchor": since T-a9d6 a close-out in
-	// flight is admitted on purpose and therefore DOES reach hub.Connect with
-	// ordinary takeover semantics. The sentence that used to sit here said a
-	// stop-in-effect member "always" gets the 409, which this ticket's own
-	// change made false — the exact species of stale self-description it exists
-	// to remove (independent review caught it here).
+	// Zombie SSE gate, checked BEFORE hub.Connect so a member the gate refuses can
+	// never take the slot over (zombie-stop outranks takeover).
 	if memberID != "" {
 		if msg := s.sseStopGateRefusal(memberID); msg != "" {
 			fmt.Fprintf(os.Stderr, "[sse] refused reconnect for %q: %s\n", memberID, msg)
@@ -154,109 +95,48 @@ func (s *apiServer) HandleEventsApiEventsGet(w http.ResponseWriter, r *http.Requ
 	}
 	listener, err := s.hub.Connect(memberID, machineID)
 	if err != nil {
-		// A second listener now TAKES OVER (spec/sse.md §5.1); Connect only
-		// refuses when the anti-flap throttle trips (errDualSSEThrottled) —
-		// raised PRE-stream so the 409 reaches the client as a proper status.
 		writeError(w, http.StatusConflict, err.Error())
 		return
 	}
 	if memberID != "" {
 		fmt.Fprintf(os.Stderr, "[sse] attach member=%s gen=%d machine=%s\n",
 			memberID, listener.Gen, machineID)
-		// First-connect edge (spec/sse.md §5.2): the wake completes the instant
-		// the agent holds this stream — waking_since is spent exactly once
-		// (WakingSince>0 guarded, so a takeover re-fire is a no-op). boot_ts is
-		// the SESSION anchor (stamped IFF absent, see onFirstConnect): a
-		// mid-session SSE flap (drop → reconnect) must NOT reset it. Session-birth
-		// freshness comes from the spawn/stop boundary clearing it
-		// (clearSessionBootTS), so a genuinely new session re-stamps here.
 		s.onFirstConnect(memberID)
-		// 🔴 T-80: THIS is where "which signing key is that machine on" is answered,
-		// and the reason is the difference between two things that look identical
-		// from inside the auth gate:
+		// Token-key observation is recorded HERE, not at the auth gate: a renewing
+		// warden presents its candidate credential to gated routes before writing it
+		// to disk (cli/ocwarden/renewapply.go), so only this stream proves which key
+		// the machine is actually running on.
 		//
-		//	a machine PRESENTED this credential   ← any gated request proves this
-		//	a machine is RUNNING on this credential ← only this one proves it
-		//
-		// A warden renewing itself presents its CANDIDATE credential to a gated
-		// route before it writes it to disk (cli/ocwarden/renewapply.go probes,
-		// then writes, then execs). Recording at the gate therefore answered the
-		// FIRST question while the settings page asks the SECOND — so a probe whose
-		// write then failed left the station saying "converged" about a machine
-		// still running on the outgoing key, which is the number reading SAFE at the
-		// exact moment it must not. This connection cannot lie that way: the stream
-		// is opened with the credential this process actually loaded at startup, so
-		// "presented" and "running on" are the same event here by construction, not
-		// by anyone remembering to exclude the probe.
-		//
-		// It is deliberately NOT a list of endpoints-that-do-not-count. That shape
-		// needs every future "try the candidate first" path to remember to opt out,
-		// and the failure when someone forgets is silent and points at SAFE.
-		//
-		// 🔴 AND IT IS AFTER hub.Connect, WHICH IS LOAD-BEARING. The observation
-		// may enqueue a `renew` summons, and enqueueToWarden is fail-CLOSED on a
-		// machine the hub does not hold online. Placed before Connect this machine
-		// is not online yet, so its own summons is refused at the exact moment it
-		// arrives — the fleet would converge only for machines that happened to be
-		// asked while some OTHER connection was already up. Measured, not
-		// reasoned: the renew-summons tests went red on that ordering.
-		// After Connect the enqueue lands and the drain below writes it onto this
-		// very stream.
-		//
-		// ⚠️ IF YOU MOVED THIS LINE AND ARE READING THIS BECAUSE SOMETHING WENT
-		// RED: it is the ordering. Four tests die — TestAMachineStillOnAnOutgoing
-		// KeyIsToldToRenew, TestTheRenewFrameCarriesNoCredentialAtAll,
-		// TestAStaleMachineIsAskedOnceNoMatterHowOftenItCallsBack and
-		// TestAStaleMachineIsAskedAgainOnceTheIntervalHasPassed — and two of them
-		// report it as PREMISE FAILED, which points at their setup rather than at
-		// this line. The ordering is guarded (measured with that mutant), but no
-		// test NAMES it, so this note is the map from that red to this cause.
+		// Must stay AFTER hub.Connect: the observation may enqueue a renew summons, and
+		// enqueueToWarden is fail-closed on a machine the hub does not hold online.
+		// Moved above Connect, the renew-summons tests go red (two of them report
+		// PREMISE FAILED, pointing at their setup rather than at this ordering).
 		s.noteTokenKeyObservation(claimsFromContext(r.Context()), verifyingKeyFromContext(r.Context()))
-		// T-98f4 sticky placement: this connection is the PROOF that the session
-		// actually came up, and its token's machine claim names where. Record it
-		// so the next rebirth stays put instead of re-deriving placement from a
-		// 手冊 that may have been edited since the worker was born.
 		s.stampLandedMachine(memberID, machineID)
-		// Cross-machine single-session enforcement (T-bb29 §1): if this is the
-		// 正身 confirmed on its desired machine (claim == desired_machine), reap
-		// any residual same-id session on OTHER machines. Fires only after the
-		// new session is live here → never a zero-live-session window.
+		// After Connect, so the cross-machine sweep never leaves a zero-live-session
+		// window.
 		s.identitySweepOnConnect(memberID, machineID)
 	}
 	detachReason := sseDetachReasonUnset
 	setDetachReason := func(reason string) {
-		// The first concrete cause wins. In particular, a write failure that
-		// happens while the station is closing is still useful socket evidence,
-		// not a retroactive peer/context guess.
 		if detachReason == sseDetachReasonUnset {
 			detachReason = reason
 		}
 	}
 	defer func() {
-		// last gates the §5.2 edge hooks: a kicked listener's Disconnect
-		// reports false (the takeover already removed it; the new listener
-		// keeps the member online), so the hooks fire only on the REAL
-		// online→offline edge — never mid-takeover.
 		last := s.hub.Disconnect(listener)
 		if memberID != "" {
 			fmt.Fprintf(os.Stderr, "[sse] detach member=%s gen=%d last=%t reason=%s\n",
 				memberID, listener.Gen, last, detachReasonForLog(detachReason))
 		}
 		if memberID != "" && last {
-			// Last-disconnect edge (spec/sse.md §5.2): bank the live telemetry
-			// cost into the durable member exactly once (pop-after-fold makes a
-			// re-fired edge idempotent).
 			s.onLastDisconnect(memberID)
-			// A warden dropping its stream while desired_state=="uninstall" has
-			// converged — consume the one-shot intent NOW (reconcile.go), before
-			// any re-install could reconnect into a standing kill order.
+			// Consume a warden's uninstall intent now, before any re-install could
+			// reconnect into a standing kill order.
 			s.consumeUninstallOnDisconnect(memberID)
 		}
 	}()
 
-	// Warden-command eligibility (spec/sse.md §7): the connection drains the
-	// command FIFO iff its agent-scope token sub resolves to a member of
-	// kind == "warden" — the unforgeable addressing key.
 	wardenID := ""
 	if memberID != "" {
 		if m, err := s.dal.GetMember(memberID); err == nil && m != nil && m.Kind == KindWarden {
@@ -264,12 +144,6 @@ func (s *apiServer) HandleEventsApiEventsGet(w http.ResponseWriter, r *http.Requ
 		}
 	}
 
-	// Backstop write deadline (T-7e07): arm a fresh deadline before every socket
-	// write so a stuck / zero-window consumer whose send buffer has filled fails
-	// the blocked write promptly instead of blocking indefinitely. The PRIMARY
-	// half-open reaper is TCP keepalive (server.go). ResponseController reaches
-	// the underlying net.Conn; a writer that does not support deadlines
-	// (httptest recorder) returns ErrNotSupported, which we ignore.
 	rc := http.NewResponseController(w)
 	armWriteDeadline := func() {
 		if sseWriteTimeout > 0 {
@@ -279,50 +153,29 @@ func (s *apiServer) HandleEventsApiEventsGet(w http.ResponseWriter, r *http.Requ
 	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("X-Accel-Buffering", "no")
-	// T-5b83: hand the client the build it is attaching to, so ocagent's
-	// connection line can name it. A version change restarts the station and
-	// therefore drops every stream — the connection line already marks every
-	// changeover, it just never said which commit. Stamping it here rather
-	// than answering a separate probe is deliberate: a changeover reconnects
-	// the whole fleet within seconds, and that is the worst possible moment to
-	// take N extra requests. This is the same value /api/version reports as
-	// git_sha (both read s.processSHA), so the two can be reconciled.
+	// Sent on the stream rather than via a separate probe: a changeover reconnects
+	// the whole fleet within seconds. Same value /api/version reports as git_sha.
 	w.Header().Set(sseStationSHAHeader, s.processSHA)
 	w.WriteHeader(http.StatusOK)
 	armWriteDeadline()
 	if _, err := w.Write([]byte(": connected\n\n")); err != nil {
-		// Keep the pre-existing greeting behaviour (the handler continues into
-		// its normal loop) while retaining the concrete socket evidence.
 		setDetachReason(sseDetachReasonWriteFailed)
 	}
 	flusher.Flush()
 
-	// This connection's runtime, resolved ONCE (the notice rule differs per
-	// runtime — see decideHandoverNotice). Members and outsource workers live in
-	// different tables and both connect here, so both are tried; "" falls
-	// through to the claude rule, which is the fail-safe direction (a percentage
-	// notice on an unknown runtime is a wasted line, a missing one is a lost
-	// close-out).
 	connRuntime := ""
 	if memberID != "" {
 		if m, err := s.dal.GetMember(memberID); err == nil && m != nil {
 			connRuntime = m.Runtime
-		} else if w, err := s.dal.GetOutsourceWorker(memberID); err == nil && w != nil {
-			connRuntime = w.Runtime
+		} else if worker, err := s.dal.GetOutsourceWorker(memberID); err == nil && worker != nil {
+			connRuntime = worker.Runtime
 		}
 	}
-	// Per-connection token-expiry band state (spec §6.1): the last time the
-	// still-unacknowledged warning was sent. A restart replaces this connection
-	// and its JWT, which naturally clears the reminder state.
 	lastTokenExpiryReminder := int64(0)
 	nextTokenExpiryCheck := int64(0)
 
-	// The notice source, bound once per connection rather than once per tick.
-	// Binding it is free; RUNNING it is not — it is a fold over a durable
-	// document — which is why handoverNoticeTick decides whether this tick can
-	// emit BEFORE it calls it. SOFT, always: the first context threshold is an
-	// advance warning and nothing collects it at a named instant, so it reads
-	// 〈停止〉 and quotes no deadline (see decideHandoverNotice).
+	// SOFT, always: the first context threshold is only an advance warning, so it
+	// quotes no deadline.
 	noticeText := func() string {
 		return s.winddownNoticeText(offboardKindSoft, 0)
 	}
@@ -340,23 +193,11 @@ func (s *apiServer) HandleEventsApiEventsGet(w http.ResponseWriter, r *http.Requ
 	ctx := r.Context()
 	lastBeat := time.Now()
 	for {
-		// Leaving here DISCONNECTS a live stream early — by up to
-		// upgradeRestartDelay (upgrade.go), the gap between the mark and the
-		// re-exec. Two things about that, and the second is not ours to keep
-		// true (T-3b4e review):
-		//   · No client reconnects inside that window today, so the early exit
-		//     causes no attach/detach churn: ocagent sleeps its backoff before
-		//     re-dialing and that backoff RESETS to listenBackoffStart (1s,
-		//     cli/ocagent/listen.go) on a healthy stream, and the cockpit uses
-		//     a bare EventSource with no `retry:` from us, so it takes the
-		//     browser default (seconds). BOTH FIGURES ARE READ FROM THE CODE,
-		//     NOT MEASURED against a real upgrade.
-		//   · That quiet therefore RESTS ON CLIENT BACKOFF, not on anything
-		//     this file guarantees. Drop a client's backoff to zero, or attach
-		//     one with none, and the churn appears — and NOTHING here goes red.
-		// Only the UPGRADE path reaches this shape at all: a signal shutdown
-		// runs httpServer.Shutdown (server.go), which stops accepting, so a new
-		// connection is refused at accept rather than admitted and bounced.
+		// Exiting here disconnects a live stream up to upgradeRestartDelay
+		// (upgrade.go) early. It causes no reconnect churn only because clients back
+		// off before re-dialing (ocagent listen, browser EventSource default) — read
+		// from the code, not measured; a zero-backoff client would churn and nothing
+		// here would go red.
 		if s.stationShuttingDown.Load() {
 			setDetachReason(sseDetachReasonStationShutdown)
 			return
@@ -377,10 +218,6 @@ func (s *apiServer) HandleEventsApiEventsGet(w http.ResponseWriter, r *http.Requ
 		}
 		select {
 		case <-listener.kicked:
-			// Taken over (spec/sse.md §5.1): a newer connection for this member
-			// holds the slot — return NOW (≤ssePoll after the kick) and let the
-			// defer clean up (Disconnect is a map no-op; last=false keeps the
-			// §5.2 edge hooks off while the member stays online).
 			if s.stationShuttingDown.Load() {
 				setDetachReason(sseDetachReasonStationShutdown)
 			} else {
@@ -389,15 +226,12 @@ func (s *apiServer) HandleEventsApiEventsGet(w http.ResponseWriter, r *http.Requ
 			return
 		default:
 		}
-		// Buffered entity deltas drain first (publish order per connection).
 		if frame := listener.pop(); frame != nil {
 			if !write(frame) {
 				return
 			}
 			continue
 		}
-		// Quiet tick: the ONE advance handover notice (any agent connection — the
-		// agent cannot read its own context %, so the server pushes it).
 		if memberID != "" {
 			if frame, ok := s.handoverNoticeTick(
 				memberID, connRuntime, noticeText); ok {
@@ -407,12 +241,6 @@ func (s *apiServer) HandleEventsApiEventsGet(w http.ResponseWriter, r *http.Requ
 				continue
 			}
 		}
-		// Token-expiry band (spec §6.1): the server alone can read the verified
-		// JWT expiry, so it repeatedly directs a still-valid agent to checkpoint
-		// and restart before auth fails. While the token is still far away, its
-		// exp schedules the NEXT check at the 30-minute boundary; once pending,
-		// a member read occurs only at the 30-second reminder cadence. This keeps
-		// the hot SSE poll free of DB reads without delaying the first warning.
 		if memberID != "" {
 			now := time.Now().Unix()
 			if now >= nextTokenExpiryCheck {
@@ -421,10 +249,7 @@ func (s *apiServer) HandleEventsApiEventsGet(w http.ResponseWriter, r *http.Requ
 				nextTokenExpiryCheck = tokenExpiryNextCheck(claims, now)
 				switch {
 				case !validExpiry:
-					// Fail-safe on an absent/malformed/expired claim. The schedule above
-					// avoids re-checking every 250ms while preserving stream health.
 				case remaining > tokenExpiryWarningWindow:
-					// The schedule above is the exact 30-minute warning boundary.
 				default:
 					member, err := s.dal.GetMember(memberID)
 					if err == nil {
@@ -444,29 +269,20 @@ func (s *apiServer) HandleEventsApiEventsGet(w http.ResponseWriter, r *http.Requ
 				}
 			}
 		}
-		// Warden-command band (warden connections only): drain the pending
-		// FIFO onto THIS connection — never the owner fan-out (the riding
-		// member_token is a secret).
+		// Warden commands go only onto THIS connection, never the owner fan-out: the
+		// riding member_token is a secret.
 		if wardenID != "" {
 			if pending := s.hub.DrainWardenCommands(wardenID); len(pending) > 0 {
 				for i, cmd := range pending {
 					if !write(cmd.Frame) {
-						// T-66a2 (supersedes T-e0e3 O1's blunt requeue): the drain
-						// already emptied the FIFO, so THIS frame and every frame
-						// behind it are in nobody's hands but ours. Returning here
-						// used to discard them with no log, no receipt and no field
-						// — a lost order looked exactly like an order never sent.
-						// Hand them back so the hub can requeue what has no
-						// re-decision path (update) and NAME what it drops; a blind
-						// requeue-everything would put a stale START back in the
-						// queue that reconcile has already re-decided.
+						// The drain already emptied the FIFO: hand the unwritten frames back or they
+						// are lost silently. The hub decides what to requeue — a blind requeue would
+						// put back a stale START that reconcile has already re-decided.
 						s.hub.ReturnUndeliveredCommands(wardenID, pending[i:])
 						return
 					}
-					// T-66a2 L3: the write succeeded, so this frame no longer
-					// needs restart insurance. "Written" is NOT "delivered" —
-					// this band has no ack — but it is the strongest event the
-					// server can observe, so it is the clearing event.
+					// "Written" is not "delivered" (this band has no ack), but it is the
+					// strongest event the server can observe.
 					s.hub.MarkWardenCommandWritten(wardenID, cmd.Frame)
 				}
 				continue
@@ -482,7 +298,7 @@ func (s *apiServer) HandleEventsApiEventsGet(w http.ResponseWriter, r *http.Requ
 			} else {
 				setDetachReason(sseDetachReasonTakeover)
 			}
-			return // taken over mid-quiet-wait — same cleanup path as above
+			return
 		case <-time.After(ssePoll):
 		}
 		if time.Since(lastBeat) >= sseHeartbeat {
@@ -494,56 +310,25 @@ func (s *apiServer) HandleEventsApiEventsGet(w http.ResponseWriter, r *http.Requ
 	}
 }
 
-// sseStopGateRefusal is the zombie SSE gate predicate (defence line B of the
-// zombie-agent work; line A is the warden's process-tree sweep). It returns a
-// non-empty refusal message when memberID must NOT be admitted to /api/events,
-// "" when the connection is fine.
+// sseStopGateRefusal returns a non-empty (409) message when memberID must not be
+// admitted to /api/events, "" otherwise. It keeps a zombie `ocagent listen`
+// that survived its kill from re-projecting a stopped member online. Refusing
+// (rather than admitting without projecting) is deliberate: cli/ocagent listen
+// treats the refusal as its signal to self-exit.
 //
-// WHY: online is a pure connection projection (spec/sse.md §5), so a zombie
-// `ocagent listen` that survived its kill keeps RECONNECTING and re-projecting
-// a dead agent online — reconcile then sees desired=offline ∧ observed=online
-// forever and the roster is wedged on a fake 綠燈. The gate roots that out at
-// the projection seam: while a stop is IN EFFECT the server refuses the
-// reconnect (pre-stream 409, the same envelope family as the dual-SSE guard),
-// so a zombie can never re-project online. Refusal (not
-// "admit-but-don't-project") was chosen deliberately: it starves the zombie
-// AND hands it an authoritative signal to fail-closed self-exit on
-// (cli/ocagent listen), whereas a projected-less stream would keep feeding a
-// dead session deltas and leave the wire ambiguous.
-//
-// The predicate is deliberately NARROWER than desired_state=="offline" alone:
-//
-//   - roster removed (any kind): a dismissed member / torn-down warden must
-//     never resurrect a presence row.
-//   - desired offline ∧ a stop anchor set (stopping_since / stopped_since):
-//     "a stop is in effect". A freshly HIRED member is desired-offline with
-//     NO anchors and stays admitted (dev runs, conformance scratch agents,
-//     pre-activate flows). deactivate / force-stop always stamp
-//     stopping_since, so every real take-down is covered.
-//   - wardens are exempt from the desired-offline arm: a warden's
-//     desired_state is offline BY DEFAULT (dbseed / onboarding) and its
-//     removal lifecycle is the one-shot uninstall intent, not this gate.
-//
-// Legit flows that stay untouched: a LIVE connection at deactivate time keeps
-// its stream (the wind-down nudge rides it); stop→start clears the anchors and
-// flips desired online, and since T-55 that is TWO writes, not one — the anchors
-// through their sole writer first, desired_state with the row write after. The
-// gate keys on desired_state, so it lifts on the SECOND of the two and a failure
-// between them leaves the gate standing (refusing) rather than half-lifted, which
-// is the safe side; recycle/handover keeps desired online throughout. An unknown
-// sub (no roster row) is admitted unchanged.
+// Deliberately narrower than desired_state=="offline": a freshly hired member is
+// desired-offline with no stop anchors and must stay admitted; a warden is
+// desired-offline by default (dbseed / onboarding) and is removed through the
+// one-shot uninstall intent instead.
 func (s *apiServer) sseStopGateRefusal(memberID string) string {
 	m, err := s.dal.GetMember(memberID)
 	if err != nil || m == nil {
-		return "" // fail-open on a read fault/unknown sub: never a new refusal class
+		return ""
 	}
 	if m.Kind == KindOutsource {
-		// Outsource members keep the pre-fold worker admission: a RELEASED
-		// worker's session deliberately lives on for its close-out duties
-		// (worker_spawn.go reclaim grace), so its SSE must stay admitted even
-		// though the row is roster-removed — the member stop gate below would
-		// wrongly refuse it. Worker stop intent is enforced by the scheduler's
-		// desired_state hold-down, not by this gate.
+		// A RELEASED worker's session deliberately lives on for its close-out duties
+		// (worker_spawn.go reclaim grace) although its row is roster-removed, so the
+		// member gate below would wrongly refuse it.
 		return ""
 	}
 	if m.RosterStatus != RosterStatusActive {
@@ -552,36 +337,11 @@ func (s *apiServer) sseStopGateRefusal(memberID string) string {
 	}
 	if m.Kind != KindWarden && parseDesired(m.DesiredState) == DesiredStateOffline &&
 		(m.StoppingSince > 0.0 || m.StoppedSince > 0.0) {
-		// 🔴 …unless the session is still WORKING its offboard sequence
-		// (T-a9d6). 下線 no longer collects on a clock — the agent is shown the
-		// sequence and asked to close out and report stopped itself — so a
-		// session legitimately sits in exactly this state for as long as the
-		// close-out takes. Refusing its reconnect there does not stop anything:
-		// the agent's own listener treats a run of authoritative refusals as
-		// "I have been retired" and kills its tmux session (listen_run.go), so
-		// a network blip or a station upgrade mid-hand-off would take the
-		// session down with the hand-off unwritten. That is the exact harm this
-		// ticket exists to remove, arriving through a different door.
-		//
-		// The gate still closes the moment the close-out is DONE: stopped_since
-		// is what the agent stamps when it has finished, and from then on a
-		// reconnect is a stopped member re-projecting online, which is what the
-		// refusal was written for.
-		//
-		// What separates the two is what the member itself has done. A session
-		// that has reported stopped is finished; a member the owner FORCE-
-		// stopped was cut off deliberately and must not come back on its own.
-		// Anything else with a stop anchor is a close-out in flight.
-		//
-		// The second half of that is gracefulStopEpochOpen (api_members.go), and
-		// this site used to write its two terms out by hand. Under
-		// stopped_since <= 0 the enclosing guard has ALREADY established
-		// stopping_since > 0 (its disjunction has no other arm left), so the
-		// hand-written forced term and the call below decide exactly the same
-		// rows — the call merely re-asks a term that is already true.
-		// This is the ENTITLEMENT of a graceful stop epoch, the same compound
-		// autoHandoverWorker's stop arm asks; it is staff-only because the
-		// outsource kind returns above.
+		// …unless a graceful close-out is still in flight: the agent's listener
+		// treats a run of refusals as "I have been retired" and kills its
+		// tmux session (listen_run.go), so refusing here would take a mid-hand-off
+		// session down with the hand-off unwritten. A member that reported stopped, or
+		// was force-stopped, is still refused (gracefulStopEpochOpen, api_members.go).
 		if m.StoppedSince <= 0.0 && gracefulStopEpochOpen(*m) {
 			return ""
 		}
@@ -592,31 +352,7 @@ func (s *apiServer) sseStopGateRefusal(memberID string) string {
 	return ""
 }
 
-// onFirstConnect handles the SSE first-connect edge for an agent connection:
-// clear the caller's waking anchor (the wake completed) and stamp the session
-// boot_ts on its gauge entry. Best-effort — a storage fault must not kill the
-// stream that just opened.
-//
-// boot_ts is stamped ONLY when the gauge has none yet (T-8fb2 boot_ts fix): it
-// anchors the SESSION, not the individual connection. A mid-session SSE flap
-// (drop → reconnect, no spawn/stop in between) must NOT reset it — otherwise
-// the min-liveness gate the three lifecycle paths key on (restart_self
-// HandleRestartSelf, context-high auto-recycle stampContextHighRecycle, worker
-// auto-handover autoHandoverWorker) keeps seeing "just booted" and an
-// edge-flapping agent can neither self-rescue nor be auto-handed-over. A
-// genuinely new session (respawn / relocate / recycle) re-stamps because the
-// spawn/stop boundary cleared boot_ts first (clearSessionBootTS).
-//
-// 🔴 T-4235: "stamped IFF absent" is now decided against the DURABLE anchor
-// (member.session_boot_ts), not against the gauge — see anchorSessionBoot. The
-// gauge is emptied by contract on a station re-exec while the AGENTS survive it,
-// so asking the gauge "is this session already anchored?" answered "no" for
-// every live session the instant the station upgraded, and the reconnect minted
-// a fresh anchor. The whole fleet then read as seconds old for ten minutes.
 func (s *apiServer) onFirstConnect(memberID string) {
-	// Worker presence is projected from this connection edge. The owner's live
-	// worker list subscribes to member, so fan its canonical delta
-	// even when no durable member field changed (the common case).
 	s.publishOutsourcePresenceEdge(memberID)
 	if m, err := s.dal.GetMember(memberID); err == nil && m != nil && m.WakingSince > 0 {
 		m.WakingSince = 0.0
@@ -627,36 +363,15 @@ func (s *apiServer) onFirstConnect(memberID string) {
 	s.anchorSessionBoot(memberID)
 }
 
-// anchorSessionBoot is the T-4235 session-anchor resolution, run on the SSE
-// first-connect edge. It keeps the gauge's boot_ts — which every consumer still
-// reads — in agreement with the durable member.session_boot_ts, and it is the
-// ONLY place that decides whether this connect begins a new session:
-//
-//	durable > 0   this session is ALREADY anchored. Two shapes reach here and
-//	              both must leave the anchor where it is: a mid-session SSE flap
-//	              (the gauge still holds the same value → nothing to do), and a
-//	              server re-exec (the gauge is EMPTY → RESTORE it from the
-//	              durable value, never mint a new "now"). The restore is the
-//	              whole fix: it is what makes the min-liveness floor, the
-//	              context-high auto-recycle suppressor, and the worker
-//	              auto-handover loop-break all see the real session age again,
-//	              immediately, for sessions that were already running when the
-//	              station upgraded.
-//	durable == 0  no session is anchored — the last one ended at a real
-//	              spawn/stop boundary (clearSessionBootTS zeroes BOTH stores) or
-//	              this entity has never connected. THIS is a session birth, so
-//	              stamp a fresh anchor in both stores. The respawn-storm guard is
-//	              therefore not weakened: a genuinely new session still reads
-//	              seconds old and restart_self still answers 429.
-//
-// A pre-existing gauge boot_ts with no durable twin (a session that was already
-// anchored when this column shipped, or a durable write that failed) is ADOPTED
-// rather than overwritten: the anchor may only ever move backwards in time on
-// this edge, never forwards, because forwards is exactly the defect.
-//
-// Best-effort on the durable half — a storage fault must not kill the stream
-// that just opened; the gauge half still carries the session within this
-// process, which is the pre-T-4235 behaviour.
+// anchorSessionBoot keeps the gauge's boot_ts in agreement with the durable
+// member.session_boot_ts and is the only place that decides whether this
+// connect begins a new session. The gauge is emptied on a station re-exec while
+// the agents survive it, so an existing durable anchor is RESTORED, never
+// re-minted: otherwise every live session reads as seconds old after an upgrade
+// and the min-liveness floor, context-high auto-recycle suppressor and worker
+// auto-handover loop-break all misfire. A mid-session SSE flap must not reset it
+// either. On this edge the anchor may only move backwards in time, never
+// forwards.
 func (s *apiServer) anchorSessionBoot(memberID string) {
 	entry := s.gauge.Get(memberID)
 	if entry == nil {
@@ -666,8 +381,6 @@ func (s *apiServer) anchorSessionBoot(memberID string) {
 
 	m, err := s.dal.GetMember(memberID)
 	if err != nil || m == nil {
-		// No durable row to anchor against (an id the roster does not know).
-		// Degrade to the gauge-only rule rather than refusing to anchor at all.
 		if gaugeHas {
 			return
 		}
@@ -695,52 +408,18 @@ func (s *apiServer) anchorSessionBoot(memberID string) {
 	}
 }
 
-// stampLandedMachine records the machine a session actually connected from
-// (T-98f4) — the durable anchor rule 3 of the outsource placement decision
-// reads (「沒被搬過 + 不是第一次 → 留在上一輪實際跑的那台」), and, for every
-// kind, the last-observed machine the cockpit compares the owner's pin against.
+// stampLandedMachine records the machine a session actually connected from.
+// Readers: outsource placement (「沒被搬過 + 不是第一次 → 留在上一輪實際跑的那台」),
+// the cockpit's pin comparison, and the kill chain's stop target for both
+// populations (shutdown.go killTargetChain).
 //
-// WHY THE CONNECT EDGE and not the dispatch: a dispatch is an intent that may
-// never boot (the whole X-46 family of stalls), and sticking to a machine the
-// worker never ran on would make a failed boot permanent. The SSE machine claim
-// comes off the worker's own minted token (notifyWorkerSpawn passes the resolved
-// warden into mintAgentToken), so it names the host the session is genuinely on
-// and it survives a server re-exec — unlike workerSpawnTarget, which is
-// in-memory by contract, and unlike hub.MachineOf, which only exists while the
-// session is live.
+// Stamped on connect, not on dispatch: a dispatch may never boot, and sticking to
+// it would make a failed boot permanent.
 //
-// NO LONGER SCOPED TO kind == outsource (T-7f28). It was, on the reasoning that
-// a staff member's desired_machine_id already pins it — but a pin is the
-// INTENT, and the moment the owner re-pins a member the intent stops describing
-// where it is. Without a durable observation an offline member has nothing to
-// compare the new pin against, so a move that has not happened yet cannot be
-// told from one that has. The anchor stays a SPAWN-PLACEMENT input for outsource
-// only (notifyWorkerSpawn); for staff it feeds no spawn decision. It is NOT
-// purely observational for staff any more, though (T-253): the shared kill chain
-// reads it for BOTH populations as a stop's target source, above the staff pin
-// (shutdown.go killTargetChain).
-// A blank claim writes nothing (an owner dashboard connection, or an agent token
-// minted before machine claims existed) — "" means "unknown", never "nowhere",
-// and erasing a known landing on an unknowable connect is how a worker would
-// silently fall back to the 手冊 again.
-//
-// 🔴 GATED ON THE 正身 CHECK, not on the mere fact of a connection
-// (connectionIsTheGenuineArticle — the SAME predicate identitySweepOnConnect
-// runs on the next line, and for the same reason: a wanderer's claim carries no
-// authority). "連上了" is not the criterion; "連上了 而且 確實是派到這裡的" is.
-// Without the gate a residual ocagent left over on an old host — the exact
-// doppelganger the sweep exists to reap — would DURABLY overwrite last_machine_id
-// on connect, and the next rebirth would follow the ghost. Sticky workers
-// commonly carry DesiredMachineID == "", and after a server re-exec
-// workerSpawnTarget is empty too, so such a connection is not even swept: the
-// stamp would be the ghost's only lasting effect on the fleet. An unverifiable
-// connection therefore leaves the known landing alone (fail-safe, the same
-// direction as the blank-claim rule below). A LEGITIMATE first landing still
-// stamps: the pin may be blank, but the dispatch the server just made names the
-// machine, and that is what the token's claim echoes back.
-//
-// Best-effort, and deliberately WRITE-ONLY-ON-CHANGE: a reconnect on the same
-// machine must not cost a row write plus an SSE delta.
+// Gated on connectionIsTheGenuineArticle (the same predicate
+// identitySweepOnConnect uses): without it a residual ocagent on an old host
+// would durably overwrite last_machine_id and the next rebirth would follow the
+// ghost.
 func (s *apiServer) stampLandedMachine(memberID, machineID string) {
 	if machineID == "" {
 		return
@@ -750,7 +429,7 @@ func (s *apiServer) stampLandedMachine(memberID, machineID string) {
 		return
 	}
 	if !s.connectionIsTheGenuineArticle(*m, machineID) {
-		return // a wanderer's claim never rewrites where this worker lives
+		return
 	}
 	m.LastMachineID = machineID
 	if err := s.putMember(*m, memberID); err != nil {
@@ -758,26 +437,13 @@ func (s *apiServer) stampLandedMachine(memberID, machineID string) {
 	}
 }
 
-// clearSessionBootTS drops session-scoped gauge state from a member's / worker's
-// gauge entry at a real session BOUNDARY — a START dispatch that begins a new
-// session, or a STOP/kill that ends one. onFirstConnect stamps boot_ts only when
-// absent, so clearing here is what makes the next connect re-stamp a fresh
-// anchor: "reconnect keeps boot_ts, respawn resets it" (T-8fb2). Best-effort; a
-// missing entry or missing key is a clean no-op.
+// clearSessionBootTS drops session-scoped state at a STOP boundary, so the next
+// connect stamps a fresh anchor (any START snapshot is dropped too; START sites
+// use clearSessionBootTSForStart).
 //
-// 🔴 T-4235: it clears BOTH stores, and the durable half is NOT guarded by the
-// gauge half. Zeroing member.session_boot_ts here is the ONLY thing that makes
-// the next connect stamp a fresh anchor, so the moment these two stores can
-// disagree about "is a session anchored?" the respawn-storm guard is weakened in
-// the dangerous direction — a genuinely new session would inherit its
-// predecessor's hours-old anchor and be waved through. Keeping the write and the
-// clear inside this one pair of functions is what makes drift impossible; do not
-// add a third writer (restoreRefusedStartAnchor writes both stores together too,
-// and only ever puts back what a START cleared).
-//
-// This is the STOP-boundary entry: an ended session can never be restored, so
-// any snapshot a START left behind is dropped. START sites use
-// clearSessionBootTSForStart.
+// 🔴 It clears BOTH stores, the durable half unguarded by the gauge half: if they
+// can disagree, a genuinely new session inherits its predecessor's old anchor
+// and the respawn-storm guard waves it through. Do not add another writer.
 func (s *apiServer) clearSessionBootTS(id string) {
 	s.startClearedAnchorsMu.Lock()
 	defer s.startClearedAnchorsMu.Unlock()
@@ -788,85 +454,24 @@ func (s *apiServer) clearSessionBootTS(id string) {
 func (s *apiServer) clearSessionState(id string) {
 	if entry := s.gauge.Get(id); entry != nil {
 		delete(entry, "boot_ts")
-		// Codex compaction count belongs to the old App Server thread. Carrying
-		// it over a refocus would immediately recycle the fresh replacement
-		// session.
+		// A Codex compaction count carried over a refocus would immediately recycle
+		// the fresh replacement session.
 		delete(entry, "compaction_count")
-		// …and the session's CONTEXT REPORT, both halves (T-72dd).
-		//
-		// 🔴 WHY, AND ONLY WHY. This is NOT known to be the cause of the
-		// silent no-op this ticket chased — that question is neither confirmed
-		// nor excluded. The reason it changes is narrower and stands on its
-		// own: TWO READERS OF THIS KEY DISAGREE. actionableContextPct (the
-		// gate/threshold reader) refuses a pct whose context_pct_ts is not
-		// strictly newer than boot_ts, and boot_ts is what the line above just
-		// deleted; foldActorRuntime (the cockpit / get_monitoring reader, in
-		// wire.go) takes context_pct RAW with no such test. Leaving the pair
-		// standing across a boundary therefore leaves the panel showing a
-		// number that no threshold in the server will ever act on — the
-		// displayed percentage and the judged percentage are two different
-		// numbers, which is wrong whatever else is or is not broken.
-		//
-		// Dropping BOTH halves is what makes them agree: the gate reader
-		// already answers "no number", and now the cockpit's honest dash says
-		// the same thing until the fresh session files its first report. It is
-		// the same rule compaction_count is deleted under one line up — this is
-		// the OLD session's reading, and it does not describe the new one.
-		//
-		// 🔴 AND THESE TWO DELETES ARE NOT "PURELY OBSERVATIONAL". That ⚠️
-		// beside noteContextGateSkip describes the DIAGNOSTIC LINE and nothing
-		// else; it does not cover this pair, and reading it as a claim about
-		// the whole ticket is wrong. Whether these deletes move a threshold is
-		// decided by the ctx stale-guard setting, which actionableContextPct
-		// takes as a parameter:
-		//
-		//   - guard ON (the code default): boot_ts was dropped one line up, so
-		//     the guard already refuses the pct for want of an anchor. Removing
-		//     the pair changes nothing any threshold sees. Observational.
-		//   - guard OFF: that function returns the raw pct WITHOUT ever reading
-		//     boot_ts. So before this change a dead session's leftover pct
-		//     stayed actionable across the boundary and could still drive the
-		//     auto-refocus and advance-notice predicates in reconcile.go and
-		//     the SSE context band. After it, that reading is simply absent.
-		//     That is a BEHAVIOUR CHANGE — it suppresses auto-refocus fired on
-		//     a dead session's residue — and a deliberate one: a fresh session's
-		//     first window must not be judged on its predecessor's number, and
-		//     the new session restores a real one the moment it reports.
-		//
-		// The guard-OFF branch is REACHABLE, not theoretical: the value is
-		// settings-driven and read from the DB at startup, so the default is a
-		// default and not a guarantee. (A developer spot-check of one live
-		// deployment's settings at the time of writing found no row for the
-		// key, i.e. that site was running the default — one site at one moment,
-		// which is not evidence that nobody ever turns it off, and says nothing
-		// about any other deployment.)
+		// Both halves of the context report too: actionableContextPct (the gate) ignores
+		// a pct not newer than boot_ts, but foldActorRuntime (the cockpit, wire.go) shows
+		// it raw, so a leftover pair would display a number no threshold acts on. With
+		// the ctx stale-guard setting OFF this also deliberately stops a dead session's
+		// pct from driving auto-refocus.
 		delete(entry, "context_pct")
 		delete(entry, "context_pct_ts")
 		s.gauge.Set(id, entry)
 	}
-	// The advance-notice claim (T-c382) is keyed on the anchor being dropped
-	// here, so it is session-scoped state too — drop it on the same boundary
-	// rather than leaving one record per agent id alive for the process's
-	// lifetime.
 	s.handoverNoticedMu.Lock()
 	delete(s.handoverNoticed, id)
 	s.handoverNoticedMu.Unlock()
-	// The context-gate diagnostic's throttle window (T-72dd) is session-scoped
-	// for BOTH of the reasons the claim above is, and it is dropped here rather
-	// than left to accumulate for exactly the reason written one comment up:
-	// "rather than leaving one record per agent id alive for the process's
-	// lifetime". A worker id is minted per task, so an un-pruned cell per actor
-	// is a slow leak with no upper bound but the process.
-	//
-	// It is also the behaviour we want. The window exists to stop one actor
-	// repeating itself WITHIN a session; a NEW session is a new set of numbers,
-	// and making it serve out its predecessor's window would suppress the first
-	// — most interesting — description of it.
 	s.ctxGateDiagMu.Lock()
-	delete(s.ctxGateDiagAt, id)
+	delete(s.ctxGateDiagLast, id)
 	s.ctxGateDiagMu.Unlock()
-	// Write-on-change: the clear runs on every session boundary, and an
-	// unconditional UPDATE would cost a row write per boundary for nothing.
 	m, err := s.dal.GetMember(id)
 	if err != nil || m == nil {
 		return
@@ -876,13 +481,9 @@ func (s *apiServer) clearSessionState(id string) {
 			fmt.Fprintf(os.Stderr, "[sse] session-boot anchor clear failed for %q: %v\n", id, err)
 		}
 	}
-	// 🔴 The durable half of the notice claim (T-6ebc) is tested SEPARATELY, not
-	// under the anchor's condition. The two columns describe the same session but
-	// they are not written in one transaction, so a boundary that finds the
-	// anchor already at 0 can still find a claim standing — and returning early
-	// on the anchor alone would leave it there for the NEXT session to inherit,
-	// which silences the one notice that session is entitled to. Silence is the
-	// failure mode no one reports.
+	// 🔴 Tested separately from the anchor: the two columns are not written in one
+	// transaction, and an early return on the anchor alone would leave a stale
+	// claim that silences the next session's one notice.
 	if m.HandoverNoticedTS != 0 {
 		if err := s.dal.SetMemberHandoverNoticedTS(id, 0); err != nil {
 			fmt.Fprintf(os.Stderr, "[sse] handover-notice claim clear failed for %q: %v\n", id, err)
@@ -890,10 +491,6 @@ func (s *apiServer) clearSessionState(id string) {
 	}
 }
 
-// sessionAnchorSnapshot is what a START dispatch cleared and a refused START
-// puts back. The gauge readings ride along because they belong to the session
-// that turns out to still be running; ctxGateDiagAt is not kept, it only
-// throttles a log line.
 type sessionAnchorSnapshot struct {
 	bootTS            float64
 	handoverNoticedTS float64
@@ -902,14 +499,12 @@ type sessionAnchorSnapshot struct {
 
 var sessionAnchorGaugeKeys = []string{"compaction_count", "context_pct", "context_pct_ts"}
 
-// clearSessionBootTSForStart is clearSessionBootTS for a START dispatch. The
-// START is only a request: the warden refuses it with session_already_exists
-// when the old session is still alive, and that session must keep its anchor
-// (restoreRefusedStartAnchor).
-//
-// A START that finds nothing anchored drops any older snapshot: an earlier
-// START may have been accepted with its receipt lost, and a refusal of this one
-// would then name that new session, which must not inherit the older anchor.
+// clearSessionBootTSForStart is clearSessionBootTS for a START dispatch. A START
+// is only a request: the warden refuses it with session_already_exists when the
+// old session is still alive, and that session must keep its anchor
+// (restoreRefusedStartAnchor). A START that finds nothing anchored drops any
+// older snapshot: an earlier START may have been accepted with its receipt
+// lost, and that new session must not inherit the older anchor.
 func (s *apiServer) clearSessionBootTSForStart(id string) {
 	s.startClearedAnchorsMu.Lock()
 	defer s.startClearedAnchorsMu.Unlock()
@@ -946,16 +541,12 @@ func (s *apiServer) currentSessionAnchor(id string) (sessionAnchorSnapshot, bool
 	return snap, snap.bootTS > 0
 }
 
-// restoreRefusedStartAnchor settles the snapshot clearSessionBootTSForStart
-// took, on that START's receipt. Only a session_already_exists refusal puts it
-// back — the old session is still the live one — and every other START receipt
-// just drops it, leaving the cleared anchor for the new session to re-stamp.
-//
-// The agent may have reconnected before the receipt and minted a newer anchor;
-// the older one still wins, since it is the real start of this session. A
-// notice claim taken on that newer anchor is moved with it, so the session is
-// not told twice. Gauge readings the reconnected session already re-reported
-// are newer than the snapshot and are left alone.
+// restoreRefusedStartAnchor settles the snapshot on that START's receipt: only a
+// session_already_exists refusal puts it back; any other receipt just drops it.
+// If the agent reconnected before the receipt and minted a newer anchor, the
+// older one still wins (it is the real session start) and a notice claim taken
+// on the newer anchor moves with it, so the session is not told twice. Gauge
+// readings re-reported since are newer and are left alone.
 func (s *apiServer) restoreRefusedStartAnchor(id, rpc string, ok *bool, reason string) {
 	if rpc != reconcileCmdStart && rpc != legacyWardenCmdWorkerStart {
 		return
@@ -1019,18 +610,14 @@ func (s *apiServer) restoreRefusedStartAnchor(id, rpc string, ok *bool, reason s
 	}
 }
 
-// onLastDisconnect handles the SSE last-disconnect edge for an agent
-// connection: fold the live telemetry cost into the actor's durable
-// banked_cost, then POP the live field (exactly-once-per-edge banking).
 func (s *apiServer) onLastDisconnect(memberID string) {
 	s.bankLiveCost(memberID)
 	s.publishOutsourcePresenceEdge(memberID)
 }
 
-// publishOutsourcePresenceEdge makes the worker-list projection converge after
-// a real SSE online edge. Presence lives only in Hub, so no durable write is
-// guaranteed to accompany a clean connect/disconnect; the member delta is the
-// owner cockpit's canonical invalidation signal.
+// publishOutsourcePresenceEdge: presence lives only in the Hub, so no durable
+// write accompanies a connect/disconnect; the member delta is the owner
+// cockpit's invalidation signal.
 func (s *apiServer) publishOutsourcePresenceEdge(memberID string) {
 	worker, err := s.dal.GetOutsourceWorker(memberID)
 	if err != nil || worker == nil || worker.Status == WorkerStatusReleased {
@@ -1039,19 +626,10 @@ func (s *apiServer) publishOutsourcePresenceEdge(memberID string) {
 	s.publishOutsourceWorker(*worker, triggerServer)
 }
 
-// bankLiveCost is the ONE cost-banking fold for BOTH actor kinds (T-ba6b —
-// owner constitution: 外包＝系統代管的正職員工, so the worker reuses the member
-// mechanism instead of a parallel copy): pop the actor's live telemetry cost
-// and add it to the durable member.banked_cost of whichever kind the id
-// resolves to (the outsource_worker table was folded into member in 00025, so
-// both kinds are the same column and the same sole writer). Callers: the
-// SSE last-disconnect edge (both kinds ride the same /api/events surface) and
-// every worker kill funnel (stopWorkerSessionForHandover / stopWorkerNow —
-// refocus, 換 model, relocate, stop, auto-handover), so a handover no longer
-// zeroes the owner-visible spend. POP-AFTER-RESOLVE + pop-before-write keeps it
-// exactly-once AND loss-free: an id that resolves to neither kind leaves the
-// live figure in place (the old member-only fold silently destroyed a
-// worker's cost here). Best-effort — a failed write only logs.
+// bankLiveCost folds an actor's live telemetry cost into its durable
+// banked_cost. It pops BEFORE the write on purpose: exactly-once banking on an
+// edge that is not retried (a failed write only logs). An id that resolves to
+// neither kind keeps its live figure.
 func (s *apiServer) bankLiveCost(actorID string) {
 	entry := s.telemetry.Get(actorID)
 	cost, ok := entry["cost"].(float64)
@@ -1062,42 +640,30 @@ func (s *apiServer) bankLiveCost(actorID string) {
 		delete(entry, "cost")
 		s.telemetry.Set(actorID, entry)
 	}
-	// An outsource member banks through the worker branch below.
 	if m, err := s.dal.GetMember(actorID); err == nil && m != nil && m.Kind != KindOutsource {
 		pop()
 		if err := s.dal.AddMemberBankedCost(actorID, cost); err != nil {
 			fmt.Fprintf(os.Stderr, "[bank] cost bank failed for member %q: %v\n", actorID, err)
 			return
 		}
-		// The member delta this fold used to get for free from putMember. It
-		// is not decoration: the wind-down / recycle hooks key on a member
-		// delta naming self, and this fold runs ON the last-disconnect edge.
+		// Not decoration: the wind-down / recycle hooks key on a member delta naming
+		// self, and this fold runs on the last-disconnect edge.
 		m.BankedCost += cost
 		s.publishMemberPatch(*m, actorID)
 		return
 	}
 	if w, err := s.dal.GetOutsourceWorker(actorID); err == nil && w != nil {
 		pop()
-		// The presence-edge publisher emits the shared member invalidation after
-		// this fold returns.
 		if err := s.dal.AddMemberBankedCost(actorID, cost); err != nil {
 			fmt.Fprintf(os.Stderr, "[bank] cost bank failed for worker %q: %v\n", actorID, err)
 		}
 	}
 }
 
-// dropLiveCost removes the live telemetry cost from an actor's entry and
-// reports what it removed (nil when there was nothing there). It is the half of
-// a cost reset that bankLiveCost's pop() is the half of a bank: same key, same
-// read-modify-Set shape, so the two operations cannot drift apart on where the
-// live figure lives.
-//
-// 🔴 CALL IT AFTER THE DURABLE WRITE HAS SUCCEEDED, never before. It is not
-// undoable and its subject exists nowhere else, so calling it first turns any
-// durable-write failure into unrecoverable data loss on a request that then
-// answers 500. bankLiveCost pops BEFORE its write for the opposite reason
-// (exactly-once banking on an edge that will not be retried) — do not copy that
-// ordering here.
+// dropLiveCost removes the live telemetry cost and reports what it removed.
+// 🔴 Call it AFTER the durable write has succeeded: it is not undoable and the
+// figure exists nowhere else. (bankLiveCost pops before its write for the
+// opposite reason — do not copy that ordering here.)
 func (s *apiServer) dropLiveCost(actorID string) *float64 {
 	entry := s.telemetry.Get(actorID)
 	if entry == nil {
@@ -1112,77 +678,28 @@ func (s *apiServer) dropLiveCost(actorID string) *float64 {
 	return &cost
 }
 
-// HandleResetCostApiMembersMemberIdCostResetPost — POST
-// /api/members/{member_id}/cost/reset, the cockpit's 成本歸零 button (owner
-// ruling rc-7dea0deefa63, option 0「最小、不可逆」).
+// HandleResetCostApiMembersMemberIdCostResetPost — the cockpit's 成本歸零 button
+// (owner ruling rc-7dea0deefa63).
 //
-// 🔴 BOTH HALVES OR NEITHER. The owner-visible 估計$ is two numbers added on the
-// client: the durable banked_cost column and the live in-memory telemetry
-// figure. Clearing only the durable half is not a smaller version of this
-// button — the live figure reappears on the very next cockpit read, which the
-// owner cannot tell apart from the button doing nothing at all. That is why the
-// live drop is not an optimisation here and why a test pins it.
+// 🔴 Clears BOTH the durable banked_cost and the live telemetry figure: the
+// cockpit adds the two, so clearing one looks like the button did nothing.
+// Irreversible — no per-charge ledger exists — so the response is a receipt of
+// what was destroyed; never grow it into an undo without a fresh owner ruling.
 //
-// 🔴 IRREVERSIBLE, deliberately. No snapshot is kept and there is no undo route:
-// spend is stored as two accumulators with no per-charge ledger behind them, so
-// nothing else in this system holds the discarded figure. The response is
-// therefore a RECEIPT of what was destroyed — the two values as they stood
-// immediately before the write, which is the last moment they exist anywhere.
-// It is not an undo and must never grow into one without a fresh owner ruling.
-//
-// The actor is resolved the way bankLiveCost resolves it, so ONE route serves
-// both kinds: a staff member, or an outsource worker.
-//
-// 🔴 A RELEASED WORKER IS ACCEPTED, and it is the one outsource write door that
-// takes a removed roster row (owner ruling rc-1344cc76a24a, 2026-09-02:「連已經
-// 退場的也要能清（帳號卡才會真的歸零）」, overriding this route's earlier 404).
-// The reason it must differ from its neighbours: released is the STEADY STATE
-// for a worker — ReleaseWorkersForTask fires on every task close — and a
-// released worker's own 估計$ is still rendered, so refusing it here would
-// leave a figure on screen that the button next to it cannot clear. The other
-// outsource doors refuse released rows because they drive a LIVE session; this
-// one only edits a number that is still being displayed.
-//
-// ⚠️ THE REASON THE OWNER GAVE FOR THAT RULING NO LONGER FOLLOWS, while the
-// ruling itself stands. He asked for it so that「帳號卡才會真的歸零」 — true
-// under the model of that day, where the account card was a fold over its
-// actors. A day later rc-5c5d7c7c6dcd made the card an accumulator of its own,
-// so clearing actors (released or not) no longer moves it at all; the account
-// has its own button now. Kept as written rather than quietly re-motivated:
-// a stale rationale attached to a live ruling is how the next reader concludes
-// the ruling itself is stale.
-//
-// Staff are different and stay filtered: removing a member HARD-DELETES the row
-// AND its telemetry entry (api_roles.go, the repo's only telemetry.Delete), so
-// a removed member has no figure anywhere and there is nothing here to clear.
+// A RELEASED worker is accepted (owner ruling rc-1344cc76a24a). Removed staff are
+// not: removal hard-deletes the row and its telemetry entry (api_roles.go).
 func (s *apiServer) HandleResetCostApiMembersMemberIdCostResetPost(w http.ResponseWriter, r *http.Request, memberId string) {
-	// Staff first, mirroring bankLiveCost: an outsource member banks (and so
-	// resets) through the WORKER branch, never as a member patch.
 	if m, err := s.dal.GetMember(memberId); err == nil && m != nil &&
 		m.RosterStatus != RosterStatusRemoved && m.Kind != KindOutsource {
-		// 🔴 DURABLE FIRST, LIVE SECOND, and the order is the whole safety
-		// property (found by independent review, T-54). The live figure lives
-		// only in memory and this call is its executioner: drop it before the
-		// durable write and a failed write answers 500 having ALREADY destroyed
-		// half the number, with the receipt — the one record of what was
-		// destroyed — never reaching the caller. Nothing anywhere could
-		// reconstruct it. This way round, a failed write leaves BOTH halves
-		// exactly as they were, and the owner simply presses again.
-		//
-		// 🔴 AND IT IS A SINGLE-COLUMN WRITE, mirroring bankLiveCost: handing
-		// the whole row to putMember would write NOTHING, because banked_cost is
-		// deliberately insert-only — a whole-row write never lands it on an
-		// existing row (T-14 項目 6).
-		// The receipt comes back from the same transaction that destroys the
-		// figure, so it names what was actually destroyed.
+		// 🔴 Durable write first, live drop second. And a
+		// single-column write: banked_cost is insert-only for putMember, so a whole-row
+		// write would land nothing.
 		clearedBankedFig, err := s.dal.ZeroMemberBankedCost(memberId)
 		if err != nil {
 			internalError(w, err)
 			return
 		}
 		clearedBanked := nonZeroCost(clearedBankedFig)
-		// The member delta putMember used to fan for free — the same half
-		// bankLiveCost publishes by hand for the same reason.
 		m.BankedCost = 0
 		s.publishMemberPatch(*m, requestTrigger(r))
 		cleared := s.dropLiveCost(memberId)
@@ -1199,16 +716,10 @@ func (s *apiServer) HandleResetCostApiMembersMemberIdCostResetPost(w http.Respon
 		internalError(w, err)
 		return
 	}
-	// NO status filter: a released worker is reset like any other (see the
-	// ruling in this handler's doc). Only a genuinely unknown id is a 404.
 	if wk == nil {
 		writeError(w, http.StatusNotFound, "member '"+memberId+"' not found")
 		return
 	}
-	// Durable first, live second — the same ordering the member arm above
-	// explains, for the same reason. Both arms must fail the same way. And the
-	// same single-column seam: a worker's banked_cost IS member.banked_cost
-	// (P7d), so the whole-row writers cannot move it either.
 	clearedBankedFig, err := s.dal.ZeroMemberBankedCost(memberId)
 	if err != nil {
 		internalError(w, err)
@@ -1226,54 +737,21 @@ func (s *apiServer) HandleResetCostApiMembersMemberIdCostResetPost(w http.Respon
 	})
 }
 
-// accountSpendAccountedKey is the accumulator's own high-water mark on the
-// telemetry entry: the reported cost figure that has ALREADY been credited to
-// the account.
-//
-// 🔴 IT IS A SEPARATE KEY FROM "cost" ON PURPOSE, for two reasons and neither
-// is tidiness. First, "cost" is overwritten IN PLACE by the ingest before the
-// accrual runs, so by then the previous figure is simply gone — the baseline has
-// to be recorded somewhere of its own or there is no baseline at all. Second,
-// bankLiveCost DELETES "cost" at the end of a session (it moves the figure into
-// the actor's durable column); a baseline living there would vanish with it, and
-// the first report after a reconnect would read as a brand-new session and
-// credit its whole cumulative figure a SECOND time — a double-count this code
-// would have MANUFACTURED, on top of the reconnect bias the ticket already
-// documents and leaves alone. So banking must NOT clear this key.
+// accountSpendAccountedKey is the account accumulator's own high-water mark on
+// the telemetry entry. 🔴 Separate from "cost" on purpose: the ingest overwrites
+// "cost" in place before the accrual runs, and bankLiveCost deletes "cost" at
+// session end — a baseline there would vanish and the next report would be
+// credited a second time. Banking must NOT clear this key.
 const accountSpendAccountedKey = "cost_accounted"
 
-// accrueAccountSpend credits the NEW spend in one telemetry report to the
-// account it was reported under (T-53, owner ruling rc-5c5d7c7c6dcd
-// 「分開：帳號卡自己一份數字，清它不動成員」).
+// accrueAccountSpend credits the new spend in one telemetry report to its
+// account and never touches an actor figure (owner ruling rc-5c5d7c7c6dcd).
 //
-// It is called from the telemetry ingest and from nowhere else, because a
-// report arriving is the only moment new spend becomes visible. It never reads
-// or writes any ACTOR figure: that separation is the ruling.
-//
-// 🔴 HOW "THE NEW PART" IS COMPUTED, which is the whole correctness of this
-// function. An agent reports its session's CUMULATIVE cost, so the increase is
-// this report minus the last one credited. A report LOWER than the last is not
-// a refund and not a mistake — it is a NEW SESSION counting from zero — so its
-// whole value is new spend, and the baseline restarts there. The three
-// plausible-looking alternatives are all wrong in ways nothing would flag:
-// skipping a decrease loses everything the new session spends until it passes
-// the old figure; adding the difference makes the account figure go DOWN, which
-// is the silent-lie shape this design exists to avoid; and treating the report
-// as an absolute would erase the earlier sessions' spend.
-//
-// 🔴 THE BASELINE ADVANCES ONLY AFTER THE WRITE SUCCEEDS, and that ordering is
-// the difference between "one report was lost" and "that money is gone for
-// good" (found by independent review, T-56). A failed write is best-effort by
-// design — failing the ingest would turn a bookkeeping problem into a monitoring
-// outage — but best-effort only holds if the NEXT report can still see the
-// delta. Advance the baseline first and the failed increment is subtracted from
-// a report that was never credited: permanently missing, with a 200 on the way
-// out and nothing but a stderr line to say so.
-//
-// A NEW SESSION also resets the baseline explicitly, from the waking report —
-// see startAccountSpendSession. The decrease rule below is the fallback for a
-// session that never announced itself, and it is a KNOWN, ACCEPTED under-count,
-// not a complete substitute: see the boundary note on startAccountSpendSession.
+// 🔴 Reports are CUMULATIVE per session: a report lower than the baseline is a
+// new session counting from zero, so its whole value is new spend (skipping it
+// under-counts; subtracting makes the account go down; treating it as absolute
+// erases earlier sessions). The baseline advances only after the write
+// succeeds, so the next report re-carries a failed delta.
 func (s *apiServer) accrueAccountSpend(entry map[string]any) {
 	account, _ := entry["account"].(string)
 	if account == "" {
@@ -1289,47 +767,21 @@ func (s *apiServer) accrueAccountSpend(entry map[string]any) {
 		delta = cost - accounted
 	}
 	if delta <= 0 {
-		// Nothing to credit, so nothing can be lost by moving the mark.
 		entry[accountSpendAccountedKey] = cost
 		return
 	}
 	if err := s.dal.AddAccountSpend(account, delta); err != nil {
-		// Leave the baseline where it was: the next report will carry this
-		// delta again, because its own increase is measured from the last
-		// figure that was actually banked.
 		fmt.Fprintf(os.Stderr, "[account] spend accrual failed for %q: %v\n", account, err)
 		return
 	}
 	entry[accountSpendAccountedKey] = cost
 }
 
-// startAccountSpendSession forgets the accrual baseline because a NEW SESSION is
-// starting: the next cost this actor reports is counted from zero, so its whole
-// figure is new spend rather than an increase over the previous session's.
-//
-// 🔴 WHY AN EXPLICIT BOUNDARY, when accrueAccountSpend already treats a DECREASE
-// as a restart (T-56): that fallback cannot see a restart whose first report
-// happens to land at or above the old figure — a short session followed by a
-// busier one — and it therefore under-credits the difference, silently. It also
-// cannot tell a session that CHANGED ACCOUNT apart from one that carried on: on
-// the wire those two look identical, and crediting the whole figure to the new
-// account would invent money that was already banked against the old one. The
-// waking report is the one place the server is TOLD a generation began, so it is
-// where the question stops being a guess.
-//
-// 🔴 THE RESIDUAL BOUNDARY, ACCEPTED AND NOT CLOSED (named at the request of
-// independent review, T-56): a reporter that never announces waking still has
-// only the decrease fallback, so a generation of its whose first report lands AT
-// OR ABOVE the previous one is credited the difference rather than its whole
-// figure. The account card then reads LOW, permanently, and nothing flags it.
-// This is accepted rather than fixed because the wire carries no other signal
-// that a generation began; every OffiCraft member calls report_waking as step 1
-// of its boot sequence, so the gap covers only a reporter outside that contract,
-// and closing it would mean guessing from the numbers again.
-//
-// Best-effort and silent when there is nothing to forget: an actor with no
-// telemetry entry yet has no baseline to clear, which is the same state this
-// produces.
+// startAccountSpendSession forgets the accrual baseline when the waking report
+// says a new session began. The decrease fallback in accrueAccountSpend cannot
+// see a restart whose first report lands at or above the old figure, nor an
+// account change. A reporter that never reports waking keeps only that fallback:
+// an accepted, silent under-count.
 func (s *apiServer) startAccountSpendSession(actorID string) {
 	entry := s.telemetry.Get(actorID)
 	if entry == nil {
@@ -1342,22 +794,10 @@ func (s *apiServer) startAccountSpendSession(actorID string) {
 	s.telemetry.Set(actorID, entry)
 }
 
-// HandleResetAccountCostApiAccountsCostResetPost — POST /api/accounts/cost/reset,
-// the cockpit's 帳號歸零 button (owner ruling rc-5c5d7c7c6dcd, 2026-09-02).
-//
-// 🔴 IT TOUCHES NO ACTOR, and that is the entire point of the ruling: the owner
-// asked for the account figure and the per-member figure to be clearable
-// independently, because what he watches is spend per account. Pressing this
-// leaves every member's and worker's 估計$ exactly as it was.
-//
-// IRREVERSIBLE: no snapshot, no undo route, and no per-charge ledger behind the
-// accumulator, so the response is a receipt of the figure as it stood
-// immediately before the write — the last moment it exists anywhere.
-//
-// An unknown account tag is NOT a 404. An account is a free telemetry string
-// with no roster row, so 「沒有這個帳號」 and 「這個帳號沒東西可清」 are the same
-// state: 200, cleared_cost null. That also makes the second press honest rather
-// than an error, and the second press is the likely one.
+// HandleResetAccountCostApiAccountsCostResetPost — the cockpit's 帳號歸零 button
+// (owner ruling rc-5c5d7c7c6dcd): touches no actor. Irreversible; the response
+// is a receipt. An unknown account is not a 404: an account is a free telemetry
+// string, so "no such account" and "nothing to clear" are the same state.
 func (s *apiServer) HandleResetAccountCostApiAccountsCostResetPost(w http.ResponseWriter, r *http.Request) {
 	var body AccountCostResetRequestDTO
 	if !decodeJSONBody(w, r, &body) {
@@ -1373,23 +813,15 @@ func (s *apiServer) HandleResetAccountCostApiAccountsCostResetPost(w http.Respon
 		internalError(w, err)
 		return
 	}
-	// The cockpit's account card is folded from the monitoring read, so the
-	// signal is what makes the zero appear without a manual refresh.
 	s.publishMonitoringSignal(account, requestTrigger(r))
 	writeJSON(w, http.StatusOK, accountCostResetDTO{
-		Account: account,
-		// nonZeroCost, so "there was nothing to clear" reads as absent rather
-		// than as "zero was cleared" — the same null semantics as the per-actor
-		// receipt and as the read side.
+		Account:     account,
 		ClearedCost: nonZeroCost(had),
 	})
 }
 
-// nonZeroCost mirrors foldActorRuntime's rule for the banked figure: 0 is not
-// put on the wire. On this receipt that reads as "there was nothing banked to
-// clear" rather than "zero was cleared", and it keeps the reset's two fields
-// field-for-field identical to the read side so a client reuses one summing
-// rule instead of growing a second one.
+// nonZeroCost mirrors foldActorRuntime's rule that 0 is not put on the wire, so
+// the receipt and the read side share one null semantics.
 func nonZeroCost(v float64) *float64 {
 	if v == 0 {
 		return nil
@@ -1397,16 +829,10 @@ func nonZeroCost(v float64) *float64 {
 	return &v
 }
 
-// publishMonitoringSignal fans the same owner-only cockpit invalidation the
-// telemetry ingest fans, so a reset converges the 估計$ cell without waiting for
-// the next sample. No agent consumes it.
 func (s *apiServer) publishMonitoringSignal(actorID, trigger string) {
 	s.hub.Publish("monitoring", "signal", "monitoring", actorID, nil, audienceOwnerOnly(), trigger)
 }
 
-// ── POST /api/mcp ────────────────────────────────────────────────────────────
-
-// JSON-RPC error codes (spec/mcp.md closed set).
 const (
 	rpcParseError     = -32700
 	rpcInvalidRequest = -32600
@@ -1415,7 +841,6 @@ const (
 	rpcInternalError  = -32603
 )
 
-// mcpProtocolVersion mirrors service.mcp.transport._PROTOCOL_VERSION.
 const mcpProtocolVersion = "2025-06-18"
 
 func rpcError(w http.ResponseWriter, id any, code int, message string) {
@@ -1434,8 +859,6 @@ func rpcResult(w http.ResponseWriter, id any, result any) {
 	})
 }
 
-// mcpCatalogTools loads the complete frozen descriptor catalog from the
-// embedded bindist. Request handlers narrow the result with toolsVisibleTo.
 func (s *apiServer) mcpCatalogTools() ([]any, error) {
 	raw, err := s.root.readMCPCatalogFrom(bindistFS())
 	if err != nil {
@@ -1450,8 +873,8 @@ func (s *apiServer) mcpCatalogTools() ([]any, error) {
 	return catalog.Tools, nil
 }
 
-// toolsVisibleTo preserves catalog order while filtering by the route table's
-// authorization floor. Route middleware remains the enforcement boundary.
+// toolsVisibleTo only narrows the listing; route middleware remains the
+// enforcement boundary.
 func (s *apiServer) toolsVisibleTo(principal principalClass, tools []any) []any {
 	visible := make([]any, 0, len(tools))
 	for _, raw := range tools {
@@ -1469,36 +892,11 @@ func (s *apiServer) toolsVisibleTo(principal principalClass, tools []any) []any 
 	return visible
 }
 
-// The MCP tool names that USED to exist and have been removed. They are
-// refused BY NAME, the way api_document_history.go refuses its retired
-// document kinds, because "you mistyped" and "that mechanism is gone" are not
-// the same answer and only one of them is the caller's to act on. Measured on
-// the live station, the first three answered byte-for-byte what a nonsense name
-// answers — code -32602, "unknown tool: '<name>'" — so a caller holding a
-// retired name was told to check its spelling.
-//
-// 🔴 THIS IS A REFUSAL TABLE AND IT IS DELIBERATELY NEITHER A ROUTE NOR A ROW
-// IN mcpTools. A route would re-render these names into the generated MCP
-// catalog and the OpenAPI spec, and the drift gates would then ENFORCE that
-// re-listing — putting retired tools back on the advertised surface is exactly
-// what this change must not do. A placeholder row in mcpTools would make the
-// lookup below SUCCEED and forward the call to whatever that row named. The
-// names stay unlisted and uncallable; only the sentence changes.
-//
-// The messages name no migration NUMBER, the same discipline the document
-// kinds keep: a number is claimed rather than checked, and a renumbering would
-// rot the sentence without reddening anything.
-//
-// 🔴 THE SEVEN outsource-worker NAMES BELOW WERE ADDED AT A MERGE POINT, and
-// neither side would have caught their absence. This table landed on main while
-// T-197 removed the outsource-only middle layer on a branch: each half was
-// correct and green on its own, and only their INTERSECTION was wrong — after
-// the merge a caller still holding one of those names would have been handed
-// "unknown tool: '<name>'", which is precisely the answer this table exists to
-// stop giving. Every one of them folds onto the member entry point that already
-// served the staff face of the same act (routes.go, the member lifecycle rows),
-// so the onward name is not a substitute mechanism: it IS the same act, now
-// with one door instead of two.
+// retiredMCPTools refuses removed MCP tool names BY NAME ("that mechanism is
+// gone", not "you mistyped"). 🔴 Deliberately neither a route nor an mcpTools
+// row: a route would re-list the names in the generated MCP catalog and OpenAPI
+// spec (and the drift gates would then enforce that); a placeholder row would
+// forward the call.
 var retiredMCPTools = map[string]string{
 	"replace_lessons": "retired tool: 'replace_lessons' was removed together with the lessons " +
 		"document, which no longer exists — record what you learned with 'write_lore_entry'",
@@ -1530,14 +928,6 @@ var retiredMCPTools = map[string]string{
 		"same act on both sides now, so use 'force_stop_member'",
 }
 
-// retiredToolMessage reports the named refusal for a tool that used to exist.
-//
-// The match is EXACT and case-sensitive on purpose: the whole value of the
-// table is that it distinguishes a retired name from a mistyped one, and a
-// loose match (case-folded, prefix, substring) would swallow mistyped names
-// back into the retirement answer and destroy the distinction it was added to
-// create. Anything that is not one of the table's exact keys is an unknown name
-// like any other.
 func retiredToolMessage(name string) (string, bool) {
 	message, retired := retiredMCPTools[name]
 	return message, retired
@@ -1546,9 +936,8 @@ func retiredToolMessage(name string) (string, bool) {
 func (s *apiServer) HandleMcpApiMcpPost(w http.ResponseWriter, r *http.Request) {
 	var payload any
 	dec := json.NewDecoder(r.Body)
-	// UseNumber keeps request numbers as their JSON literals — the id echoes
-	// back unmangled and tools/call argument splitting renders "3" vs "3.0"
-	// exactly as received (Python-side str() parity).
+	// UseNumber keeps numbers as their JSON literals: the id echoes back unmangled
+	// and argument splitting renders "3" vs "3.0" exactly as received.
 	dec.UseNumber()
 	if err := dec.Decode(&payload); err != nil {
 		rpcError(w, nil, rpcParseError, "parse error: body is not valid JSON")
@@ -1566,8 +955,6 @@ func (s *apiServer) HandleMcpApiMcpPost(w http.ResponseWriter, r *http.Request) 
 		rpcError(w, id, rpcInvalidRequest, "invalid request: method must be a string")
 		return
 	}
-	// A notification (no id, or the notifications/* namespace) gets no
-	// response body — acknowledge with a bodyless 202.
 	if !hasID || strings.HasPrefix(methodName, "notifications/") {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusAccepted)
@@ -1614,12 +1001,9 @@ func (s *apiServer) HandleMcpApiMcpPost(w http.ResponseWriter, r *http.Request) 
 			rpcError(w, id, rpcInvalidParams, "invalid params: name must be a string")
 			return
 		}
-		// BEFORE the mcpTools lookup, and that placement is the whole point:
-		// a retired name is on no route row, so after the lookup the
-		// unknown-tool branch below has already answered and this table is
-		// unreachable. Same code (-32602) as that branch — the code is the
-		// contract, the wording is not — so conformance's "every parameter
-		// violation is -32602" pin is untouched.
+		// Must run before the mcpTools lookup (retired names are on no route row).
+		// -32602 is the contract — conformance pins every parameter violation to it;
+		// the wording is not.
 		if message, retired := retiredToolMessage(name); retired {
 			rpcError(w, id, rpcInvalidParams, message)
 			return
@@ -1640,10 +1024,8 @@ func (s *apiServer) HandleMcpApiMcpPost(w http.ResponseWriter, r *http.Request) 
 		}
 		reqPath, rawQuery, body, splitErr := splitToolArguments(spec, arguments)
 		if splitErr != nil {
-			// A known tool with a missing path argument is a tool-level input
-			// validation refusal, not a JSON-RPC invalid-params error. Keep it in
-			// the same CallToolResult shape as a REST 422 so callers receive the
-			// missing field name instead of a route reached after path.Clean.
+			// A missing path argument is a tool-level 422 in CallToolResult shape, not a
+			// JSON-RPC invalid-params error, so the caller gets the missing field name.
 			status := http.StatusUnprocessableEntity
 			raw, marshalErr := json.Marshal(map[string]map[string]string{
 				"error": {"code": errorCodeForStatus(status), "message": splitErr.Error()},
@@ -1667,27 +1049,12 @@ func (s *apiServer) HandleMcpApiMcpPost(w http.ResponseWriter, r *http.Request) 
 	rpcError(w, id, rpcMethodNotFound, "method not found: '"+methodName+"'")
 }
 
-// handoverNoticeTick is ONE quiet tick of the context-high band: it reports the
-// frame to write, or ok=false to stay quiet. Split out of the SSE loop so the
-// property below can be MEASURED by a test instead of asserted by a comment.
+// handoverNoticeTick is one quiet tick of the context-high band.
 //
-// 🔴 THE ORDER OF THE TWO STEPS IS THE POINT.
-//
-// The once-per-session fact is enforced by claimHandoverNotice, which runs
-// AFTER decideHandoverNotice has composed the signal — and composing it runs
-// `offboard`, a fold over a durable document. But decideHandoverNotice returns
-// non-nil on EVERY tick once the agent is past its notice point, not just the
-// first: the "fires once" gate is downstream of it. So for the whole remainder
-// of a high-band session — a tick every ssePoll — this used to compose a frame
-// that was then thrown away, at the full cost of the fold. Measured on an empty
-// station, a SILENT tick costs 246ns with this guard and 374µs without it.
-//
-// handoverNoticeSettled is asked FIRST for that reason. It is read-only (gauge
-// record + the process-local claim cache, no query), so it cannot change what
-// is sent — only whether the work of composing an already-spent notice is done
-// at all. Reverse the two and nothing on the wire changes: every quiet tick of
-// a spent session simply pays the fold again, 374µs for a frame it then throws
-// away, and the only symptom is a station that costs more than it should.
+// 🔴 handoverNoticeSettled (read-only, ~free) is asked FIRST: decideHandoverNotice
+// returns non-nil on EVERY tick past the notice point and composing it folds a
+// durable document. Reversed, nothing on the wire changes but a spent session
+// pays ~374µs per tick instead of ~246ns.
 func (s *apiServer) handoverNoticeTick(
 	memberID, connRuntime string, notice func() string,
 ) ([]byte, bool) {
@@ -1695,31 +1062,10 @@ func (s *apiServer) handoverNoticeTick(
 	if s.handoverNoticeSettled(memberID, record) {
 		return nil, false
 	}
-	// 🔴 ALREADY WINDING DOWN ⇒ SAY NOTHING (owner, 2026-08-24, verbatim:
-	// 「下線 → 加速 → 強制。後者一旦發出我們就不該發出前者」).
-	//
-	// This band is the ONE wind-down path that never read the member row at
-	// all: it decided purely from the gauge (how full the context is) and its
-	// own once-per-session claim. So an agent the owner had ALREADY put into
-	// 加速停止 — counting down to a deadline — would, the moment its usage
-	// crossed the FIRST threshold, be handed a 停止 notice telling it there is
-	// no hurry. Measured, not reasoned: with the member parked in
-	// accelerated_stop and the gauge over the notice point, this tick emitted
-	// the frame.
-	//
-	// 🔴 THE SISTER GUARD IS NOT THIS ONE. armRefocusEpoch's ladder governs who
-	// may overwrite refocus_op — a DB field's write order. This governs a push
-	// that never touches that field. Two paths, two writes, two dedup
-	// mechanisms: neither covers the other, which is why both exist.
-	//
-	// Placed AFTER the settled check on purpose, and the ordering comment above
-	// is the reason: settled is read-only and ~free, this costs a member read.
-	// Placed BEFORE decideHandoverNotice for the same reason — a row read is far
-	// cheaper than the document fold that composing the notice runs.
-	//
-	// NOT claimed when it goes quiet. Claiming would spend the session's single
-	// notice on a tick nobody was sent, so an agent whose wind-down is later
-	// cleared would never be told it is near the line at all.
+	// Already winding down ⇒ say nothing (owner, 2026-08-24:
+	// 「下線 → 加速 → 強制。後者一旦發出我們就不該發出前者」). Do NOT claim
+	// when going quiet: that would spend the session's single notice, and an agent
+	// whose wind-down is later cleared would never be told.
 	if m, err := s.dal.GetMember(memberID); err == nil && m != nil &&
 		winddownStageOf(*m) != winddownStageNone {
 		return nil, false
@@ -1731,16 +1077,8 @@ func (s *apiServer) handoverNoticeTick(
 	if signal == nil {
 		return nil, false
 	}
-	// ONCE PER SESSION, not once per connection (T-c382). The dedup key is the
-	// gauge's boot_ts — the SESSION anchor, restored from the durable member row
-	// on reconnect — so an SSE flap mid-session cannot re-fire the notice.
-	// Per-connection state (what this used to hold) would: every reconnect would
-	// nudge again, which is the bombardment the owner asked to be rid of,
-	// wearing a different hat.
-	//
-	// Build the frame BEFORE claiming: claiming first would burn the
-	// one-and-only notice on a marshal failure and go silent forever, and
-	// "sent it" vs "silently dropped it" would look identical.
+	// Build the frame BEFORE claiming: claiming first would burn the only notice on
+	// a marshal failure and go silent forever.
 	frame, err := directedFrameText(contextHighTopic, signal)
 	if err != nil || !s.claimHandoverNotice(memberID, record) {
 		return nil, false
