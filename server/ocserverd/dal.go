@@ -2274,9 +2274,11 @@ func (d *DAL) DeleteScheduledMessage(id string) error {
 	return err
 }
 
-func (d *DAL) GetSetting(key string) (*string, error) {
+func (d *DAL) GetSetting(key string) (*string, error) { return getSettingOn(d.rdb, key) }
+
+func getSettingOn(q sqlRowQuerier, key string) (*string, error) {
 	var v string
-	err := d.rdb.QueryRow(`SELECT value FROM setting WHERE key = ?`, key).Scan(&v)
+	err := q.QueryRow(`SELECT value FROM setting WHERE key = ?`, key).Scan(&v)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -2286,8 +2288,10 @@ func (d *DAL) GetSetting(key string) (*string, error) {
 	return &v, nil
 }
 
-func (d *DAL) PutSetting(key, value string) error {
-	_, err := d.wdb.Exec(`
+func (d *DAL) PutSetting(key, value string) error { return putSettingOn(d.wdb, key, value) }
+
+func putSettingOn(ex sqlExecer, key, value string) error {
+	_, err := ex.Exec(`
 		INSERT INTO setting (key, value, updated_at) VALUES (?, ?, ?)
 		ON CONFLICT (key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
 		key, value, nowSecs())
@@ -2394,8 +2398,10 @@ func (d *DAL) DeleteWardenCommandsBefore(cutoff float64) (int64, error) {
 	return n, nil
 }
 
-func (d *DAL) DeleteSetting(key string) error {
-	_, err := d.wdb.Exec(`DELETE FROM setting WHERE key = ?`, key)
+func (d *DAL) DeleteSetting(key string) error { return deleteSettingOn(d.wdb, key) }
+
+func deleteSettingOn(ex sqlExecer, key string) error {
+	_, err := ex.Exec(`DELETE FROM setting WHERE key = ?`, key)
 	return err
 }
 

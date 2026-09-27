@@ -379,14 +379,16 @@ func (s *apiServer) recoverStaleOnboarding() {
 var errNoOnboardingBanner = errors.New(
 	"no onboarding banner is up to dismiss — the first-run report is absent or not in a failed state")
 
-// 🔴 ONLY a `failed` report can be dismissed (T-0648). PATCH /api/settings
-// floors at principalAdminAgent, so an admin assistant could send this while the
-// first run is still `running`; this unlocked read-modify-write interleaved with
-// finishOnboarding would write back the pre-verdict copy — the failure erased,
-// the report stranded in `running`, no banner, never re-run. The stamp rides on
-// the report row on purpose: a newly written report resets it to 0.
-func (s *apiServer) setOnboardingDismissed(dismissed bool) error {
-	report := s.onboardingReport()
+// 🔴 ONLY a `failed` report can be dismissed (T-0648), and the read and the
+// write share the caller's transaction. PATCH /api/settings floors at
+// principalAdminAgent, so an admin assistant could send this while the first
+// run is still `running`; a read-modify-write split across connections and
+// interleaved with finishOnboarding would write back the pre-verdict copy — the
+// failure erased, the report stranded in `running`, no banner, never re-run.
+// The stamp rides on the report row on purpose: a newly written report resets
+// it to 0.
+func setOnboardingDismissedOn(tx *writeTx, dismissed bool) error {
+	report := onboardingReportOn(tx)
 	if report == nil || report.State != onboardingStateFailed {
 		return errNoOnboardingBanner
 	}
@@ -394,7 +396,11 @@ func (s *apiServer) setOnboardingDismissed(dismissed bool) error {
 	if dismissed {
 		report.DismissedAt = nowSecs()
 	}
-	return s.putOnboardingReport(*report)
+	raw, err := json.Marshal(report)
+	if err != nil {
+		return err
+	}
+	return putSettingOn(tx, settingOnboardingReport, string(raw))
 }
 
 func (s *apiServer) putOnboardingReport(report onboardingReportDTO) error {
@@ -409,7 +415,11 @@ func (s *apiServer) onboardingReport() *onboardingReportDTO {
 	if s.dal == nil {
 		return nil
 	}
-	raw, err := s.dal.GetSetting(settingOnboardingReport)
+	return onboardingReportOn(s.dal.rdb)
+}
+
+func onboardingReportOn(q sqlRowQuerier) *onboardingReportDTO {
+	raw, err := getSettingOn(q, settingOnboardingReport)
 	if err != nil || raw == nil {
 		return nil
 	}

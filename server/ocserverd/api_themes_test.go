@@ -546,6 +546,36 @@ func TestHandleDeleteThemeApiThemesThemeIdDelete(t *testing.T) {
 		})
 		apiThemeAbsent(t, h, owner, "dusk")
 	})
+
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": deleting the active theme when the reset fails keeps both, and the retry lands", func(t *testing.T) {
+			d, _, _ := windowDAL(t, shape)
+			_, h, _, owner := newAPITestServerOn(t, d)
+			apiPutTheme(t, h, owner, "dusk", `{"id":"dusk","name":"Dusk","colors":{"--color-bg":"#101418"}}`)
+			if status, data := windowJSON(t, h, "PATCH", "/api/settings", owner, `{"display_theme":"dusk"}`); status != 200 {
+				t.Fatalf("select theme: %d %v", status, data)
+			}
+			lift := windowRefuseSetting(t, d, "display.theme")
+
+			status, data := windowJSON(t, h, "DELETE", "/api/themes/dusk", owner, "")
+
+			if status != http.StatusInternalServerError {
+				t.Fatalf("want 500, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "internal_error", windowSettingWriteFails)
+			apiThemeList(t, h, owner, map[string]any{"id": "dusk", "name": "Dusk"})
+			if got := apiDisplayTheme(t, h, owner); got != "dusk" {
+				t.Fatalf("display_theme: got %q, want dusk", got)
+			}
+
+			lift()
+			status, data = windowJSON(t, h, "DELETE", "/api/themes/dusk", owner, "")
+			if status != http.StatusOK {
+				t.Fatalf("retry: want 200, got %d (%v)", status, data)
+			}
+			apiWantBody(t, data, map[string]any{"id": "dusk", "deleted": true, "display_theme_reset": true})
+		})
+	}
 }
 
 func TestDecodeStoredThemeBundle(t *testing.T) {
@@ -609,12 +639,12 @@ func TestDisplayThemeExists(t *testing.T) {
 		{theme: "missing", want: false},
 	} {
 		t.Run(tc.theme, func(t *testing.T) {
-			got, err := api.displayThemeExists(tc.theme)
+			got, err := displayThemeExistsOn(api.dal.rdb, tc.theme)
 			if err != nil {
-				t.Fatalf("displayThemeExists(%q): %v", tc.theme, err)
+				t.Fatalf("displayThemeExistsOn(%q): %v", tc.theme, err)
 			}
 			if got != tc.want {
-				t.Fatalf("displayThemeExists(%q): want %v, got %v", tc.theme, tc.want, got)
+				t.Fatalf("displayThemeExistsOn(%q): want %v, got %v", tc.theme, tc.want, got)
 			}
 		})
 	}

@@ -181,11 +181,30 @@ func (s *apiServer) HandleSetPasswordApiAuthSetPasswordPost(w http.ResponseWrite
 		internalError(w, err)
 		return
 	}
-	if err := s.dal.PutSetting(settingPasswordHash, phc); err != nil {
-		internalError(w, err)
+	// The claim is judged again on the row the transaction consumes: the hash is
+	// computed outside it (argon2id must not hold the write connection).
+	err = s.dal.inTx(func(tx *writeTx) error {
+		stored, err := getSettingOn(tx, settingClaimToken)
+		if err != nil {
+			return err
+		}
+		if stored == nil ||
+			subtle.ConstantTimeCompare([]byte(*stored), []byte(body.ClaimToken)) != 1 {
+			return refuseInTx(http.StatusUnauthorized, "invalid claim token")
+		}
+		if err := putSettingOn(tx, settingPasswordHash, phc); err != nil {
+			return err
+		}
+		return deleteSettingOn(tx, settingClaimToken)
+	})
+	var refusal *txRefusal
+	if errors.As(err, &refusal) {
+		unlock()
+		s.holdFailureFloor(started)
+		writeTxError(w, err)
 		return
 	}
-	if err := s.dal.DeleteSetting(settingClaimToken); err != nil {
+	if err != nil {
 		internalError(w, err)
 		return
 	}
@@ -233,11 +252,12 @@ func (s *apiServer) HandleChangePasswordApiAuthChangePasswordPost(w http.Respons
 		return
 	}
 	now := time.Now().Unix()
-	if err := s.dal.PutSetting(settingPasswordHash, phc); err != nil {
-		internalError(w, err)
-		return
-	}
-	if err := s.dal.PutSetting(settingPasswordChangedAt, strconv.FormatInt(now, 10)); err != nil {
+	if err := s.dal.inTx(func(tx *writeTx) error {
+		if err := putSettingOn(tx, settingPasswordHash, phc); err != nil {
+			return err
+		}
+		return putSettingOn(tx, settingPasswordChangedAt, strconv.FormatInt(now, 10))
+	}); err != nil {
 		internalError(w, err)
 		return
 	}
@@ -467,14 +487,13 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 	themeProvided := body.DisplayTheme != nil
 	if themeProvided {
 		displayTheme = strings.TrimSpace(*body.DisplayTheme)
-		ok, err := s.displayThemeExists(displayTheme)
+		ok, err := displayThemeExistsOn(s.dal.rdb, displayTheme)
 		if err != nil {
 			internalError(w, err)
 			return
 		}
 		if !ok {
-			writeError(w, http.StatusUnprocessableEntity,
-				`display_theme must be "", office, or an existing custom theme id`)
+			writeError(w, http.StatusUnprocessableEntity, displayThemeRefusal)
 			return
 		}
 	}
@@ -518,99 +537,62 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 		}
 		suggestedRepliesLoreMessage = list
 	}
+	// Every row lands in one transaction and the in-memory snapshot moves only
+	// after it commits, so a failed row leaves neither the table nor the
+	// snapshot half-patched.
+	type settingWrite struct {
+		key, value string
+		apply      func()
+	}
+	var writes []settingWrite
+	put := func(key, value string, apply func()) {
+		writes = append(writes, settingWrite{key: key, value: value, apply: apply})
+	}
 	unlockMu := s.settingsMu.Acquire()
 	defer unlockMu()
 	if body.OwnerTokenTtl != nil {
-		if err := s.dal.PutSetting(settingOwnerTokenTTL, strconv.Itoa(*body.OwnerTokenTtl)); err != nil {
-			unlockMu()
-			internalError(w, err)
-			return
-		}
-		s.ownerTokenTTL = int64(*body.OwnerTokenTtl)
+		v := *body.OwnerTokenTtl
+		put(settingOwnerTokenTTL, strconv.Itoa(v), func() { s.ownerTokenTTL = int64(v) })
 	}
 	if body.AgentTokenTtl != nil {
-		if err := s.dal.PutSetting(settingAgentTokenTTL, strconv.Itoa(*body.AgentTokenTtl)); err != nil {
-			unlockMu()
-			internalError(w, err)
-			return
-		}
-		s.agentTokenTTL = int64(*body.AgentTokenTtl)
+		v := *body.AgentTokenTtl
+		put(settingAgentTokenTTL, strconv.Itoa(v), func() { s.agentTokenTTL = int64(v) })
 	}
 	if body.HandoverPct != nil {
-		if err := s.dal.PutSetting(settingCtxHandoverPct, strconv.Itoa(*body.HandoverPct)); err != nil {
-			unlockMu()
-			internalError(w, err)
-			return
-		}
-		s.ctxHigh.HandoverPct = *body.HandoverPct
+		v := *body.HandoverPct
+		put(settingCtxHandoverPct, strconv.Itoa(v), func() { s.ctxHigh.HandoverPct = v })
 	}
 	if body.NoticePct != nil {
-		if err := s.dal.PutSetting(settingCtxNoticePct, strconv.Itoa(*body.NoticePct)); err != nil {
-			unlockMu()
-			internalError(w, err)
-			return
-		}
-		s.ctxHigh.NoticePct = *body.NoticePct
+		v := *body.NoticePct
+		put(settingCtxNoticePct, strconv.Itoa(v), func() { s.ctxHigh.NoticePct = v })
 	}
 	if body.CodexCompactionThreshold != nil {
-		if err := s.dal.PutSetting(settingCodexCompactionThreshold, strconv.Itoa(*body.CodexCompactionThreshold)); err != nil {
-			unlockMu()
-			internalError(w, err)
-			return
-		}
-		s.codexCompactionThreshold = *body.CodexCompactionThreshold
+		v := *body.CodexCompactionThreshold
+		put(settingCodexCompactionThreshold, strconv.Itoa(v), func() { s.codexCompactionThreshold = v })
 	}
 	if body.CodexNoticeRound != nil {
-		if err := s.dal.PutSetting(settingCodexNoticeRound, strconv.Itoa(*body.CodexNoticeRound)); err != nil {
-			unlockMu()
-			internalError(w, err)
-			return
-		}
-		s.codexNoticeRound = *body.CodexNoticeRound
+		v := *body.CodexNoticeRound
+		put(settingCodexNoticeRound, strconv.Itoa(v), func() { s.codexNoticeRound = v })
 	}
 	if body.MonitoringRefreshSeconds != nil {
-		if err := s.dal.PutSetting(settingMonitoringRefreshSeconds, strconv.Itoa(*body.MonitoringRefreshSeconds)); err != nil {
-			unlockMu()
-			internalError(w, err)
-			return
-		}
-		s.monitoringRefreshSeconds = *body.MonitoringRefreshSeconds
+		v := *body.MonitoringRefreshSeconds
+		put(settingMonitoringRefreshSeconds, strconv.Itoa(v), func() { s.monitoringRefreshSeconds = v })
 	}
 	if body.AcceleratedGraceSecs != nil {
-		if err := s.dal.PutSetting(settingAcceleratedGraceSecs,
-			strconv.Itoa(*body.AcceleratedGraceSecs)); err != nil {
-			unlockMu()
-			internalError(w, err)
-			return
-		}
-		s.acceleratedGraceSecs = *body.AcceleratedGraceSecs
+		v := *body.AcceleratedGraceSecs
+		put(settingAcceleratedGraceSecs, strconv.Itoa(v), func() { s.acceleratedGraceSecs = v })
 	}
 	if body.ReassignHandoverTimeoutSecs != nil {
-		if err := s.dal.PutSetting(settingReassignHandoverTimeoutSecs,
-			strconv.Itoa(*body.ReassignHandoverTimeoutSecs)); err != nil {
-			unlockMu()
-			internalError(w, err)
-			return
-		}
-		s.reassignHandoverTimeoutSecs = *body.ReassignHandoverTimeoutSecs
+		v := *body.ReassignHandoverTimeoutSecs
+		put(settingReassignHandoverTimeoutSecs, strconv.Itoa(v), func() { s.reassignHandoverTimeoutSecs = v })
 	}
 	if body.WardenCredentialLifetimeSecs != nil {
-		if err := s.dal.PutSetting(settingWardenCredLifetimeSecs,
-			strconv.Itoa(*body.WardenCredentialLifetimeSecs)); err != nil {
-			unlockMu()
-			internalError(w, err)
-			return
-		}
-		s.wardenCredLifetimeSecs = *body.WardenCredentialLifetimeSecs
+		v := *body.WardenCredentialLifetimeSecs
+		put(settingWardenCredLifetimeSecs, strconv.Itoa(v), func() { s.wardenCredLifetimeSecs = v })
 	}
 	if body.OutsourceMaxParallel != nil {
-		if err := s.dal.PutSetting(settingOutsourceMaxParallel,
-			strconv.Itoa(*body.OutsourceMaxParallel)); err != nil {
-			unlockMu()
-			internalError(w, err)
-			return
-		}
-		s.outsourceMaxParallel = *body.OutsourceMaxParallel
+		v := *body.OutsourceMaxParallel
+		put(settingOutsourceMaxParallel, strconv.Itoa(v), func() { s.outsourceMaxParallel = v })
 	}
 	capWrite := []struct {
 		field *int
@@ -635,128 +617,92 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 		if c.field == nil {
 			continue
 		}
-		if err := s.dal.PutSetting(c.key, strconv.Itoa(*c.field)); err != nil {
-			unlockMu()
-			internalError(w, err)
-			return
-		}
-		*c.dst = *c.field
+		v, dst := *c.field, c.dst
+		put(c.key, strconv.Itoa(v), func() { *dst = v })
 	}
 	updaterChanged := false
 	if body.UpdaterReceiveBeta != nil && *body.UpdaterReceiveBeta != s.updaterReceiveBeta {
-		if err := s.dal.PutSetting(settingUpdaterReceiveBeta,
-			strconv.FormatBool(*body.UpdaterReceiveBeta)); err != nil {
-			unlockMu()
-			internalError(w, err)
-			return
-		}
-		s.updaterReceiveBeta = *body.UpdaterReceiveBeta
+		v := *body.UpdaterReceiveBeta
+		put(settingUpdaterReceiveBeta, strconv.FormatBool(v), func() { s.updaterReceiveBeta = v })
 		updaterChanged = true
 	}
 	// auto_update needs no kick: auto_update.go reads the live snapshot each tick.
 	if body.UpdaterAutoUpdate != nil && *body.UpdaterAutoUpdate != s.updaterAutoUpdate {
-		if err := s.dal.PutSetting(settingUpdaterAutoUpdate,
-			strconv.FormatBool(*body.UpdaterAutoUpdate)); err != nil {
-			unlockMu()
-			internalError(w, err)
-			return
-		}
-		s.updaterAutoUpdate = *body.UpdaterAutoUpdate
+		v := *body.UpdaterAutoUpdate
+		put(settingUpdaterAutoUpdate, strconv.FormatBool(v), func() { s.updaterAutoUpdate = v })
 	}
 	if body.OrgName != nil && orgName != s.orgName {
-		if err := s.dal.PutSetting(settingOrgName, orgName); err != nil {
-			unlockMu()
-			internalError(w, err)
-			return
-		}
-		s.orgName = orgName
+		put(settingOrgName, orgName, func() { s.orgName = orgName })
 	}
 	if body.OwnerName != nil && ownerName != s.ownerName {
-		if err := s.dal.PutSetting(settingOwnerName, ownerName); err != nil {
-			unlockMu()
-			internalError(w, err)
-			return
-		}
-		s.ownerName = ownerName
+		put(settingOwnerName, ownerName, func() { s.ownerName = ownerName })
 	}
 	if body.PushContactEmail != nil && pushContactEmail != s.pushContactEmail {
-		if err := s.dal.PutSetting(settingPushContactEmail, pushContactEmail); err != nil {
-			unlockMu()
-			internalError(w, err)
-			return
-		}
-		s.pushContactEmail = pushContactEmail
+		put(settingPushContactEmail, pushContactEmail, func() { s.pushContactEmail = pushContactEmail })
 	}
 	// No "is the active theme still there?" check here: DELETE /api/themes/{id}
 	// resets the active theme itself (api_themes.go); a second check would drift.
-	if themeProvided && displayTheme != s.displayTheme {
-		finalTheme := displayTheme
-		if err := s.dal.PutSetting(settingDisplayTheme, finalTheme); err != nil {
-			unlockMu()
-			internalError(w, err)
-			return
-		}
-		s.displayTheme = finalTheme
+	themeChanged := themeProvided && displayTheme != s.displayTheme
+	if themeChanged {
+		put(settingDisplayTheme, displayTheme, func() { s.displayTheme = displayTheme })
 	}
 	if body.DisplayLanguage != nil && displayLanguage != s.displayLanguage {
-		if err := s.dal.PutSetting(settingDisplayLanguage, displayLanguage); err != nil {
-			unlockMu()
-			internalError(w, err)
-			return
-		}
-		s.displayLanguage = displayLanguage
+		put(settingDisplayLanguage, displayLanguage, func() { s.displayLanguage = displayLanguage })
 	}
 	if body.DisplayWide != nil && *body.DisplayWide != s.displayWide {
-		if err := s.dal.PutSetting(settingDisplayWide,
-			strconv.FormatBool(*body.DisplayWide)); err != nil {
-			unlockMu()
-			internalError(w, err)
-			return
-		}
-		s.displayWide = *body.DisplayWide
+		v := *body.DisplayWide
+		put(settingDisplayWide, strconv.FormatBool(v), func() { s.displayWide = v })
 	}
 	if body.SuggestedRepliesReplyCard != nil {
-		if err := s.dal.PutSetting(settingSuggestedRepliesReplyCard,
-			encodeSuggestedReplies(suggestedRepliesReplyCard)); err != nil {
-			unlockMu()
-			internalError(w, err)
-			return
-		}
-		s.suggestedRepliesReplyCard = suggestedRepliesReplyCard
+		put(settingSuggestedRepliesReplyCard, encodeSuggestedReplies(suggestedRepliesReplyCard),
+			func() { s.suggestedRepliesReplyCard = suggestedRepliesReplyCard })
 	}
 	if body.SuggestedRepliesTaskMessage != nil {
-		if err := s.dal.PutSetting(settingSuggestedRepliesTaskMessage,
-			encodeSuggestedReplies(suggestedRepliesTaskMessage)); err != nil {
-			unlockMu()
-			internalError(w, err)
-			return
-		}
-		s.suggestedRepliesTaskMessage = suggestedRepliesTaskMessage
+		put(settingSuggestedRepliesTaskMessage, encodeSuggestedReplies(suggestedRepliesTaskMessage),
+			func() { s.suggestedRepliesTaskMessage = suggestedRepliesTaskMessage })
 	}
 	if body.SuggestedRepliesLoreMessage != nil {
-		if err := s.dal.PutSetting(settingSuggestedRepliesLoreMessage,
-			encodeSuggestedReplies(suggestedRepliesLoreMessage)); err != nil {
-			unlockMu()
-			internalError(w, err)
-			return
+		put(settingSuggestedRepliesLoreMessage, encodeSuggestedReplies(suggestedRepliesLoreMessage),
+			func() { s.suggestedRepliesLoreMessage = suggestedRepliesLoreMessage })
+	}
+	err := s.dal.inTx(func(tx *writeTx) error {
+		if themeChanged {
+			ok, err := displayThemeExistsOn(tx, displayTheme)
+			if err != nil {
+				return err
+			}
+			if !ok {
+				return refuseInTx(http.StatusUnprocessableEntity, displayThemeRefusal)
+			}
 		}
-		s.suggestedRepliesLoreMessage = suggestedRepliesLoreMessage
+		for _, sw := range writes {
+			if err := putSettingOn(tx, sw.key, sw.value); err != nil {
+				return err
+			}
+		}
+		// A dismissal with no `failed` banner behind it is a 409 — on a
+		// still-running run that is what keeps this read-modify-write from
+		// ERASING the verdict (setOnboardingDismissedOn). The refusal rolls the
+		// whole patch back.
+		if body.OnboardingDismissed != nil {
+			if err := setOnboardingDismissedOn(tx, *body.OnboardingDismissed); err != nil {
+				if errors.Is(err, errNoOnboardingBanner) {
+					return refuseInTx(http.StatusConflict, err.Error())
+				}
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		unlockMu()
+		writeTxError(w, err)
+		return
+	}
+	for _, sw := range writes {
+		sw.apply()
 	}
 	unlockMu()
-	// onboarding_dismissed is written OUTSIDE settingsMu: it lives on the
-	// onboarding report row, not in the snapshot. A dismissal with no `failed`
-	// banner behind it is a 409 — on a still-running run that is what keeps this
-	// unlocked read-modify-write from ERASING the verdict (setOnboardingDismissed).
-	if body.OnboardingDismissed != nil {
-		if err := s.setOnboardingDismissed(*body.OnboardingDismissed); err != nil {
-			if errors.Is(err, errNoOnboardingBanner) {
-				writeError(w, http.StatusConflict, err.Error())
-				return
-			}
-			internalError(w, err)
-			return
-		}
-	}
 	if updaterChanged {
 		s.kickUpdateCheck()
 	}

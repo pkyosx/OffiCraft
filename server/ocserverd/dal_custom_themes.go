@@ -54,9 +54,11 @@ func (d *DAL) ListCustomThemes() ([]CustomTheme, error) {
 	return out, nil
 }
 
-func (d *DAL) GetCustomTheme(id string) (*CustomTheme, error) {
+func (d *DAL) GetCustomTheme(id string) (*CustomTheme, error) { return getCustomThemeOn(d.rdb, id) }
+
+func getCustomThemeOn(q sqlRowQuerier, id string) (*CustomTheme, error) {
 	t := CustomTheme{ID: id}
-	err := d.rdb.QueryRow(
+	err := q.QueryRow(
 		`SELECT bundle, order_idx, updated_at FROM custom_theme WHERE theme_id = ?`, id).
 		Scan(&t.Bundle, &t.OrderIdx, &t.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -132,8 +134,10 @@ func (d *DAL) checkCustomThemeIDMatchesBundle(id, bundle string) error {
 
 // DeleteCustomTheme deliberately does not renumber survivors: gaps in order_idx are
 // harmless, and renumbering is the whole-set write this table removed.
-func (d *DAL) DeleteCustomTheme(id string) (bool, error) {
-	res, err := d.wdb.Exec(`DELETE FROM custom_theme WHERE theme_id = ?`, id)
+func (d *DAL) DeleteCustomTheme(id string) (bool, error) { return deleteCustomThemeOn(d.wdb, id) }
+
+func deleteCustomThemeOn(ex sqlExecer, id string) (bool, error) {
+	res, err := ex.Exec(`DELETE FROM custom_theme WHERE theme_id = ?`, id)
 	if err != nil {
 		return false, err
 	}

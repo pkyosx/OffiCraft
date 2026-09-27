@@ -4,6 +4,7 @@
 package main
 
 import (
+	"net/http"
 	"strconv"
 	"testing"
 )
@@ -494,6 +495,57 @@ func TestHandleMfaActivateApiAuthMfaActivatePost(t *testing.T) {
 		}
 		apiWantError(t, data, "forbidden", "principal not permitted")
 	})
+
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": an activation whose pending secret fails to clear arms nothing, and the retry lands", func(t *testing.T) {
+			d, _, _ := windowDAL(t, shape)
+			_, h, _, owner := newAPITestServerOn(t, d)
+			apiJSON(t, h, "POST", "/api/auth/mfa/offer", owner, `{"offered":true}`)
+			_, enrolled := apiJSON(t, h, "POST", "/api/auth/mfa/enroll", owner, `{}`)
+			secret, _ := enrolled["secret"].(string)
+			lift := windowRefuseSetting(t, d, "auth.totp_pending_secret")
+
+			status, data := windowJSON(t, h, "POST", "/api/auth/mfa/activate", owner,
+				`{"password":"`+apiTestOwnerPassword+`","code":"`+apiTestTOTPCode(t, secret)+`"}`)
+
+			if status != http.StatusInternalServerError {
+				t.Fatalf("want 500, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "internal_error", windowSettingWriteFails)
+			windowWantSetting(t, d, "auth.totp_secret", nil)
+			windowWantSetting(t, d, "auth.totp_last_step", nil)
+			windowWantSetting(t, d, "auth.totp_pending_secret", &secret)
+
+			lift()
+			status, data = windowJSON(t, h, "POST", "/api/auth/mfa/activate", owner,
+				`{"password":"`+apiTestOwnerPassword+`","code":"`+apiTestTOTPCode(t, secret)+`"}`)
+			if status != http.StatusOK {
+				t.Fatalf("retry: want 200, got %d (%v)", status, data)
+			}
+			windowWantSetting(t, d, "auth.totp_secret", &secret)
+		})
+
+		t.Run(shape+": a pending secret re-enrolled after the handler read it is not armed", func(t *testing.T) {
+			d, hook, path := windowDAL(t, shape)
+			_, h, _, owner := newAPITestServerOn(t, d)
+			apiJSON(t, h, "POST", "/api/auth/mfa/offer", owner, `{"offered":true}`)
+			_, enrolled := apiJSON(t, h, "POST", "/api/auth/mfa/enroll", owner, `{}`)
+			secret, _ := enrolled["secret"].(string)
+			hook.execAfterRead(t, path, "FROM setting WHERE key",
+				`UPDATE setting SET value = 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP' WHERE key = 'auth.totp_pending_secret'`)
+
+			status, data := windowJSON(t, h, "POST", "/api/auth/mfa/activate", owner,
+				`{"password":"`+apiTestOwnerPassword+`","code":"`+apiTestTOTPCode(t, secret)+`"}`)
+
+			hook.wantFiredOnce(t)
+			if status != http.StatusConflict {
+				t.Fatalf("want 409, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "conflict", "no pending enrolment; call /api/auth/mfa/enroll first")
+			windowWantSetting(t, d, "auth.totp_secret", nil)
+			windowWantSetting(t, d, "auth.totp_last_step", nil)
+		})
+	}
 }
 
 func TestHandleMfaDisableApiAuthMfaDisablePost(t *testing.T) {
@@ -618,4 +670,33 @@ func TestHandleMfaDisableApiAuthMfaDisablePost(t *testing.T) {
 		}
 		apiWantError(t, data, "forbidden", "principal not permitted")
 	})
+
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": a disable whose secret fails to delete keeps the whole factor armed, and the retry lands", func(t *testing.T) {
+			d, _, _ := windowDAL(t, shape)
+			api, h, _, owner := newAPITestServerOn(t, d)
+			secret := apiTestArmMFA(t, api, d)
+			if err := d.PutSetting(settingTOTPLastStep, "7"); err != nil {
+				t.Fatalf("PutSetting: %v", err)
+			}
+			lift := windowRefuseSetting(t, d, "auth.totp_secret")
+			body := `{"password":"` + apiTestOwnerPassword + `","code":"` + apiTestTOTPCode(t, secret) + `"}`
+
+			status, data := windowJSON(t, h, "POST", "/api/auth/mfa/disable", owner, body)
+
+			if status != http.StatusInternalServerError {
+				t.Fatalf("want 500, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "internal_error", windowSettingWriteFails)
+			step := "7"
+			windowWantSetting(t, d, "auth.totp_last_step", &step)
+			windowWantSetting(t, d, "auth.totp_secret", &secret)
+
+			lift()
+			if status, data := windowJSON(t, h, "POST", "/api/auth/mfa/disable", owner, body); status != http.StatusOK {
+				t.Fatalf("retry: want 200, got %d (%v)", status, data)
+			}
+			windowWantSetting(t, d, "auth.totp_last_step", nil)
+		})
+	}
 }
