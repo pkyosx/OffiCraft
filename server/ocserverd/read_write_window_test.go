@@ -1292,7 +1292,8 @@ type windowMemberDoor struct {
 var windowMemberDoors = []windowMemberDoor{
 	{name: "update", method: "PATCH", path: "/api/members/kip", body: `{"model":"claude-opus-5"}`},
 	{name: "activate", method: "POST", path: "/api/members/kip/activate", body: `{}`},
-	{name: "relocate", method: "POST", path: "/api/members/kip/relocate", body: `{"machine_id":"m-server-self"}`},
+	{name: "relocate", method: "POST", path: "/api/members/kip/relocate", body: `{"machine_id":"m-server-self"}`,
+		prepare: `UPDATE member SET desired_machine_id = 'm-retired' WHERE id = 'kip'`},
 	{name: "deactivate", method: "POST", path: "/api/members/kip/deactivate", body: `{}`},
 	{name: "force stop", method: "POST", path: "/api/members/kip/force-stop", body: `{}`},
 	{name: "accelerated stop", method: "POST", path: "/api/members/kip/accelerated-stop", body: `{}`, live: true,
@@ -1313,7 +1314,7 @@ var windowMemberDoors = []windowMemberDoor{
 	{name: "worker refocus", method: "POST", path: "/api/members/ow-abc123/refocus", body: `{}`, worker: true, live: true},
 	{name: "worker restart", method: "POST", path: "/api/members/ow-abc123/activate", body: `{}`, worker: true},
 	{name: "worker relocate", method: "POST", path: "/api/members/ow-abc123/relocate", body: `{"machine_id":"m-server-self"}`,
-		worker: true},
+		worker: true, prepare: `UPDATE member SET desired_machine_id = 'm-retired' WHERE id = 'ow-abc123'`},
 	{name: "worker model", method: "PATCH", path: "/api/members/ow-abc123", body: `{"model":"claude-opus-5"}`, worker: true},
 	{name: "worker report waking", method: "POST", path: "/api/self/waking", body: `{}`, worker: true, self: true},
 	{name: "worker report stopping", method: "POST", path: "/api/self/stopping", body: `{}`, worker: true, self: true},
