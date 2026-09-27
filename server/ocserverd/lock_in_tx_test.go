@@ -45,13 +45,13 @@ func testsOnStack(stack []byte) string {
 	seen := map[string]bool{}
 	var names []string
 	for _, name := range regexp.MustCompile(`ocserverd\.(Test\w+)`).FindAllStringSubmatch(string(stack), -1) {
-		if !seen[name[1]] {
+		if name[1] != "TestMain" && !seen[name[1]] {
 			seen[name[1]] = true
 			names = append(names, name[1])
 		}
 	}
 	if len(names) == 0 {
-		return "(none: a goroutine no test created directly)"
+		return "(none: a goroutine no test created directly, such as a real HTTP server's)"
 	}
 	return strings.Join(names, ", ")
 }
