@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/subtle"
+	"database/sql"
 	"encoding/base64"
 	"errors"
 	"io/fs"
@@ -483,17 +484,19 @@ func (s *apiServer) HandleOnboardMachineApiMachinesPost(w http.ResponseWriter, r
 		Effort:           "medium",
 		RosterStatus:     RosterStatusActive,
 	}
-	if err := s.putMember(member, requestTrigger(r)); err != nil {
-		internalError(w, err)
-		return
-	}
-	if err := s.dal.PutMachineAlias(MachineAlias{
-		MachineID:   member.ID,
-		DisplayName: displayName,
+	if err := s.dal.inTx(func(tx *sql.Tx) error {
+		if err := writeMemberOn(tx, member); err != nil {
+			return err
+		}
+		return putMachineAliasOn(tx, MachineAlias{
+			MachineID:   member.ID,
+			DisplayName: displayName,
+		})
 	}); err != nil {
 		internalError(w, err)
 		return
 	}
+	s.publishMemberPatch(member, requestTrigger(r))
 	token, err := s.mintWardenToken(member)
 	if err != nil {
 		internalError(w, err)
@@ -895,26 +898,35 @@ func (s *apiServer) HandleTeardownHereApiMachinesMachineIdTeardownHerePost(w htt
 // The 409 gate counts ONLY agents actually online on this machine right now
 // (hub.AgentsOnMachine); offline agents merely bound here never block.
 func (s *apiServer) HandleUninstallMachineApiMachinesMemberIdUninstallPost(w http.ResponseWriter, r *http.Request, memberId string) {
-	m, err := s.resolveMachine(memberId)
-	if err != nil {
+	if _, err := s.resolveMachine(memberId); err != nil {
 		writeResolveError(w, err, "machine", memberId)
 		return
 	}
-	if agents := s.hub.AgentsOnMachine(m.ID); len(agents) > 0 {
+	if agents := s.hub.AgentsOnMachine(memberId); len(agents) > 0 {
 		writeError(w, http.StatusConflict,
 			"machine still has agent(s) running; move or stop them first")
 		return
 	}
-	online := s.hub.IsOnline(m.ID)
-	if online {
-		m.DesiredState = DesiredStateUninstall
-	} else {
-		m.DesiredState = DesiredStateOffline
-	}
-	if err := s.putMember(*m, requestTrigger(r)); err != nil {
-		internalError(w, err)
+	online := s.hub.IsOnline(memberId)
+	var m Member
+	err := s.dal.inTx(func(tx *sql.Tx) error {
+		cur, err := resolveMachineOn(tx, memberId)
+		if err != nil {
+			return err
+		}
+		if online {
+			cur.DesiredState = DesiredStateUninstall
+		} else {
+			cur.DesiredState = DesiredStateOffline
+		}
+		m = *cur
+		return writeMemberOn(tx, m)
+	})
+	if err != nil {
+		writeResolveTxError(w, err, "machine", memberId)
 		return
 	}
+	s.publishMemberPatch(m, requestTrigger(r))
 	s.reconcileMemberNow(m.ID)
 	writeJSON(w, http.StatusOK, machineUninstallResultDTO{
 		MemberID:   m.ID,

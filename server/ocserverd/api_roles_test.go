@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"net/http"
 	"reflect"
 	"strings"
 	"testing"
@@ -675,6 +676,25 @@ func TestHandleCreateRoleApiRolesPost(t *testing.T) {
 		apiWantError(t, data, "unauthorized", "missing credentials")
 		dashboard.wantFrames()
 	})
+
+	t.Run("a role whose member fails to land is not created and fans nothing", func(t *testing.T) {
+		d, _, _ := windowDAL(t, "split pools")
+		api, h, _, owner := newAPITestServerOn(t, d)
+		windowRefuse(t, d, "refuse_member_insert", "BEFORE INSERT ON member", "the member write fails")
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := windowJSON(t, h, "POST", "/api/roles", owner, `{"name":"Harbor pilot"}`)
+
+		if status != http.StatusInternalServerError {
+			t.Fatalf("want 500, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "internal_error", windowRefusal("the member write fails"))
+		var n int
+		if err := d.rdb.QueryRow(`SELECT COUNT(*) FROM role_def WHERE name = 'Harbor pilot'`).Scan(&n); err != nil || n != 0 {
+			t.Fatalf("role_def rows named Harbor pilot: %d, %v; want 0", n, err)
+		}
+		dashboard.wantFrames()
+	})
 }
 
 func TestHandleUpdateRoleApiRolesRolePost(t *testing.T) {
@@ -1242,6 +1262,64 @@ func TestHandleDeleteRoleApiRolesRoleDelete(t *testing.T) {
 			t.Fatalf("want 401, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "unauthorized", "missing credentials")
+		dashboard.wantFrames()
+	})
+
+	windowDesignRole := func(t *testing.T, d *DAL) {
+		t.Helper()
+		if err := d.PutRoleDef(RoleDef{RoleKey: "r-design", Name: "Design", DefinitionMD: "# Duty"}); err != nil {
+			t.Fatalf("PutRoleDef: %v", err)
+		}
+		if err := d.PutMember(Member{
+			ID: "m-zed", Name: "Zed", Kind: KindStaff,
+			RoleKey: "r-design", RosterStatus: RosterStatusActive,
+		}); err != nil {
+			t.Fatalf("PutMember: %v", err)
+		}
+	}
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": a member moved into the role after the handler listed it goes with the role", func(t *testing.T) {
+			d, hook, path := windowDAL(t, shape)
+			_, h, _, owner := newAPITestServerOn(t, d)
+			windowDesignRole(t, d)
+			hook.execAfterRead(t, path, "FROM role_def WHERE role_key",
+				`UPDATE member SET role_key = 'r-design' WHERE id = 'kip'`)
+
+			status, data := windowJSON(t, h, "DELETE", "/api/roles/r-design", owner, "")
+
+			hook.wantFiredOnce(t)
+			if status != http.StatusOK {
+				t.Fatalf("want 200, got %d (%v)", status, data)
+			}
+			apiWantBody(t, data, map[string]any{
+				"role":                     "r-design",
+				"removed_member_ids":       []any{"kip", "m-zed"},
+				"deleted_chat_messages":    0,
+				"deleted_chat_attachments": 0,
+				"deleted_chat_reads":       0,
+			})
+			if m, err := d.GetMember("kip"); err != nil || m != nil {
+				t.Fatalf("GetMember(kip): %#v, %v; want the row gone", m, err)
+			}
+		})
+	}
+
+	t.Run("a role whose own row fails to delete keeps its members and fans nothing", func(t *testing.T) {
+		d, _, _ := windowDAL(t, "split pools")
+		api, h, _, owner := newAPITestServerOn(t, d)
+		windowDesignRole(t, d)
+		windowRefuse(t, d, "refuse_role_delete", "BEFORE DELETE ON role_def", "the role delete fails")
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := windowJSON(t, h, "DELETE", "/api/roles/r-design", owner, "")
+
+		if status != http.StatusInternalServerError {
+			t.Fatalf("want 500, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "internal_error", windowRefusal("the role delete fails"))
+		if m, err := d.GetMember("m-zed"); err != nil || m == nil {
+			t.Fatalf("GetMember(m-zed): %#v, %v; want the member kept", m, err)
+		}
 		dashboard.wantFrames()
 	})
 }
