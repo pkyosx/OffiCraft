@@ -10,6 +10,7 @@ import (
 	"errors"
 	"reflect"
 	"testing"
+	"time"
 )
 
 func TestScanTask(t *testing.T) {
@@ -1105,7 +1106,7 @@ func TestTaskDescriptionOn(t *testing.T) {
 		if !found || got != "rewritten in flight" {
 			t.Fatalf("taskDescriptionOn(tx): want (%q, true), got (%q, %v)", "rewritten in flight", got, found)
 		}
-		onPool, err := dalTestOffTheHolder(func() (string, error) {
+		onPool, err := dalTestOffTheHolder(t, func() (string, error) {
 			description, _, err := taskDescriptionOn(d.rdb, "T-1")
 			return description, err
 		})
@@ -1842,7 +1843,7 @@ func TestGetTaskManualOn(t *testing.T) {
 		if got == nil || !reflect.DeepEqual(*got, edited) {
 			t.Fatalf("getTaskManualOn(tx):\n got %+v\nwant %+v", got, edited)
 		}
-		onPool, err := dalTestOffTheHolder(func() (*TaskManual, error) { return getTaskManualOn(d.rdb, "sync-jira") })
+		onPool, err := dalTestOffTheHolder(t, func() (*TaskManual, error) { return getTaskManualOn(d.rdb, "sync-jira") })
 		if err != nil {
 			t.Fatalf("getTaskManualOn(pool): %v", err)
 		}
@@ -2291,8 +2292,11 @@ func replaceTaskStepsInTx(d *DAL, taskID string, retain, supersede []string,
 }
 
 // dalTestOffTheHolder runs a read on another goroutine: the goroutine holding
-// the write transaction reads on the transaction, everyone else on the pool.
-func dalTestOffTheHolder[T any](read func() (T, error)) (T, error) {
+// the write transaction reads on the transaction, everyone else on the pool. A
+// read that queues for the write connection instead fails the test by name
+// within dalTestOffTheHolderLimit rather than at the write pool's own limit.
+func dalTestOffTheHolder[T any](t *testing.T, read func() (T, error)) (T, error) {
+	t.Helper()
 	type result struct {
 		v   T
 		err error
@@ -2302,6 +2306,15 @@ func dalTestOffTheHolder[T any](read func() (T, error)) (T, error) {
 		v, err := read()
 		done <- result{v, err}
 	}()
-	r := <-done
-	return r.v, r.err
+	select {
+	case r := <-done:
+		return r.v, r.err
+	case <-time.After(dalTestOffTheHolderLimit):
+		t.Fatalf("a read by a goroutine not holding the write transaction did not return within %s: "+
+			"it is queued behind the transaction", dalTestOffTheHolderLimit)
+		var zero T
+		return zero, nil
+	}
 }
+
+const dalTestOffTheHolderLimit = 2 * time.Second

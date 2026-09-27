@@ -134,7 +134,7 @@ func TestGetTaskArtifactOn(t *testing.T) {
 		if inTx == nil || !reflect.DeepEqual(*inTx, want) {
 			t.Fatalf("getTaskArtifactOn(tx):\n got %+v\nwant %+v", inTx, want)
 		}
-		onPool, err := dalTestOffTheHolder(func() (*TaskArtifact, error) { return getTaskArtifactOn(d.rdb, "ta-1") })
+		onPool, err := dalTestOffTheHolder(t, func() (*TaskArtifact, error) { return getTaskArtifactOn(d.rdb, "ta-1") })
 		if err != nil {
 			t.Fatalf("getTaskArtifactOn(pool): %v", err)
 		}

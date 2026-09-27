@@ -1173,3 +1173,48 @@ func TestTheDoorsJudgeTheCallerOnTheRowTheyWrite(t *testing.T) {
 		}
 	}
 }
+
+// A read by a goroutine that does not hold the write transaction does not
+// queue for the write connection: over serve's split pools it goes to the read
+// pool while another request holds the transaction. Over one connection a read
+// shares that connection by construction, so there is nothing to run there.
+func TestAReadIsNotQueuedBehindAWriteTransactionOverSplitPools(t *testing.T) {
+	const answerWithin = 2 * time.Second
+	d, _, _ := windowDAL(t, "split pools")
+	_, h, _, owner := newAPITestServerOn(t, d)
+	dalPutTask(t, d, windowOpenTask("T-1"))
+	closed := windowClosed(windowOpenTask("T-2"))
+	dalPutTask(t, d, closed)
+
+	holding, release, released := make(chan error, 1), make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(released)
+		tx, err := d.wdb.Begin()
+		holding <- err
+		if err != nil {
+			return
+		}
+		<-release
+		_ = tx.Rollback()
+	}()
+	if err := <-holding; err != nil {
+		t.Fatalf("hold the write transaction: %v", err)
+	}
+	t.Cleanup(func() {
+		close(release)
+		<-released
+	})
+
+	answered := make(chan *httptest.ResponseRecorder, 1)
+	go func() { answered <- apiRequest(t, h, "GET", "/api/tasks/count", owner, "") }()
+	var rec *httptest.ResponseRecorder
+	select {
+	case rec = <-answered:
+	case <-time.After(answerWithin):
+		t.Fatalf("GET /api/tasks/count did not answer within %s while another goroutine held the "+
+			"write transaction: the read queued for the write connection", answerWithin)
+	}
+	if rec.Code != http.StatusOK || rec.Body.String() != `{"open":1,"total":2}` {
+		t.Fatalf("want 200 {\"open\":1,\"total\":2}, got %d %s", rec.Code, rec.Body.String())
+	}
+}
