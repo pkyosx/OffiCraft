@@ -1297,7 +1297,7 @@ func TestApplyReplyCardAnswer(t *testing.T) {
 			r.Body = io.NopCloser(strings.NewReader(`{"option_idxs":[2,0,2],"text":" approved "}`))
 		})
 		rec := httptest.NewRecorder()
-		api.applyReplyCardAnswer(rec, req, card)
+		api.applyReplyCardAnswer(rec, req, card, firstAnswerGate)
 		if rec.Code != http.StatusOK {
 			t.Fatalf("applyReplyCardAnswer status = %d, want 200 (%s)", rec.Code, rec.Body.String())
 		}
@@ -1339,7 +1339,7 @@ func TestApplyReplyCardAnswer(t *testing.T) {
 			r.Body = io.NopCloser(strings.NewReader(`{"option_idxs":[]}`))
 		})
 		rec := httptest.NewRecorder()
-		api.applyReplyCardAnswer(rec, req, card)
+		api.applyReplyCardAnswer(rec, req, card, firstAnswerGate)
 		if rec.Code != http.StatusBadRequest {
 			t.Fatalf("applyReplyCardAnswer status = %d, want 400 (%s)", rec.Code, rec.Body.String())
 		}
@@ -1367,7 +1367,7 @@ func TestReleaseCardHold(t *testing.T) {
 		step := dalTestStep("ts-1", task.ID)
 		step.Status = "waiting_owner"
 		step.ReplyCardID = "rc-1"
-		card := ReplyCard{ID: "rc-1", FromMember: "kip", Kind: "decision", Status: "answered", TaskID: task.ID, TaskStepID: step.ID}
+		card := ReplyCard{ID: "rc-1", FromMember: "kip", Kind: "decision", Status: "waiting", TaskID: task.ID, TaskStepID: step.ID}
 		if err := d.PutTask(task); err != nil {
 			t.Fatalf("PutTask: %v", err)
 		}
@@ -1380,12 +1380,12 @@ func TestReleaseCardHold(t *testing.T) {
 		dashboard := apiTestListen(t, api, "")
 		executor := apiTestListen(t, api, task.ExecutorID)
 
-		rel, err := api.planCardHoldRelease(card, nowSecs())
+		_, rel, err := api.settleReplyCard(card.ID, nowSecs(), nil, func(cur *ReplyCard, _ func(string) (*Task, error)) error {
+			cur.Status = "answered"
+			return nil
+		})
 		if err != nil {
-			t.Fatalf("planCardHoldRelease: %v", err)
-		}
-		if err := d.PutReplyCardWithStepAndTask(card, nil, rel.step, rel.task); err != nil {
-			t.Fatalf("PutReplyCardWithStepAndTask: %v", err)
+			t.Fatalf("settleReplyCard: %v", err)
 		}
 		api.announceCardHoldRelease(rel, "owner")
 		steps, err := d.ListTaskSteps(task.ID)
@@ -1422,7 +1422,7 @@ func TestReleaseCardHold(t *testing.T) {
 		step := dalTestStep("ts-1", task.ID)
 		step.Status = "waiting_owner"
 		step.ReplyCardID = "rc-1"
-		card := ReplyCard{ID: "rc-1", FromMember: "kip", Kind: "decision", Status: "answered", TaskID: task.ID, TaskStepID: step.ID}
+		card := ReplyCard{ID: "rc-1", FromMember: "kip", Kind: "decision", Status: "waiting", TaskID: task.ID, TaskStepID: step.ID}
 		if err := d.PutTask(task); err != nil {
 			t.Fatalf("PutTask: %v", err)
 		}
@@ -1432,12 +1432,12 @@ func TestReleaseCardHold(t *testing.T) {
 		if err := d.PutReplyCard(card); err != nil {
 			t.Fatalf("PutReplyCard: %v", err)
 		}
-		rel, err := api.planCardHoldRelease(card, nowSecs())
+		_, rel, err := api.settleReplyCard(card.ID, nowSecs(), nil, func(cur *ReplyCard, _ func(string) (*Task, error)) error {
+			cur.Status = "answered"
+			return nil
+		})
 		if err != nil {
-			t.Fatalf("planCardHoldRelease: %v", err)
-		}
-		if err := d.PutReplyCardWithStepAndTask(card, nil, rel.step, rel.task); err != nil {
-			t.Fatalf("PutReplyCardWithStepAndTask: %v", err)
+			t.Fatalf("settleReplyCard: %v", err)
 		}
 		api.announceCardHoldRelease(rel, "owner")
 		storedTask, err := d.GetTask(task.ID)

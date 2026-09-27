@@ -149,6 +149,26 @@ func internalError(w http.ResponseWriter, err error) {
 
 var errNotFound = errors.New("not found")
 
+// txRefusal is a 4xx decided inside a transaction from the rows it just read:
+// returning it rolls the transaction back, and writeTxError answers it.
+type txRefusal struct {
+	status int
+	msg    string
+}
+
+func (e *txRefusal) Error() string { return e.msg }
+
+func refuseInTx(status int, msg string) error { return &txRefusal{status: status, msg: msg} }
+
+func writeTxError(w http.ResponseWriter, err error) {
+	var refusal *txRefusal
+	if errors.As(err, &refusal) {
+		writeError(w, refusal.status, refusal.msg)
+		return
+	}
+	internalError(w, err)
+}
+
 // errWindDownLadderBackwards carries the wind-down ladder refusal (下線 → 加速 →
 // 強制, 「後者一旦發出我們就不該發出前者」) back through workerRestartSelf; its
 // handler maps it to the SAME 409 the staff arm writes.

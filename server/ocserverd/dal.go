@@ -667,6 +667,10 @@ type sqlRowQuerier interface {
 	QueryRow(query string, args ...any) *sql.Row
 }
 
+type sqlQuerier interface {
+	Query(query string, args ...any) (*sql.Rows, error)
+}
+
 type DocumentHistory struct {
 	ID           int64
 	DocumentKind string
@@ -1638,8 +1642,10 @@ func (d *DAL) ListReplyCards() ([]ReplyCard, error) {
 	return out, rows.Err()
 }
 
-func (d *DAL) GetReplyCard(id string) (*ReplyCard, error) {
-	row := d.rdb.QueryRow(
+func (d *DAL) GetReplyCard(id string) (*ReplyCard, error) { return getReplyCardOn(d.rdb, id) }
+
+func getReplyCardOn(q sqlRowQuerier, id string) (*ReplyCard, error) {
+	row := q.QueryRow(
 		`SELECT `+replyCardColumns+` FROM reply_card WHERE id = ?`, id)
 	c, err := scanReplyCard(row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -1682,33 +1688,31 @@ func (d *DAL) PutReplyCardWithChat(c ReplyCard, m ChatMessage, atts []ChatAttach
 // A nil task is defence only: the caller answers 409 unless the task is
 // in_progress|waiting_owner. Relax that 409 and this writes the step while
 // leaving the task row untouched.
-func (d *DAL) PutReplyCardWithChatStepAndTask(
-	c ReplyCard, m ChatMessage, atts []ChatAttachment, st TaskStep, t *Task,
+func putReplyCardWithChatStepAndTaskOn(
+	ex sqlExecer, c ReplyCard, m ChatMessage, atts []ChatAttachment, st TaskStep, t *Task,
 ) error {
-	return d.inTx(func(tx *sql.Tx) error {
-		for _, a := range atts {
-			if err := putChatAttachmentOn(tx, a); err != nil {
-				return err
-			}
-		}
-		if err := putChatOn(tx, m); err != nil {
+	for _, a := range atts {
+		if err := putChatAttachmentOn(ex, a); err != nil {
 			return err
 		}
-		if err := putReplyCardOn(tx, c); err != nil {
-			return err
-		}
-		if err := putTaskStepOn(tx, st); err != nil {
-			return err
-		}
-		if t == nil {
-			return nil
-		}
-		return putTaskOn(tx, *t, taskWriteUpsert)
-	})
+	}
+	if err := putChatOn(ex, m); err != nil {
+		return err
+	}
+	if err := putReplyCardOn(ex, c); err != nil {
+		return err
+	}
+	if err := putTaskStepOn(ex, st); err != nil {
+		return err
+	}
+	if t == nil {
+		return nil
+	}
+	return putTaskOn(ex, *t, taskWriteUpsert)
 }
 
 // No production caller: answering a card through this would settle it while
-// stranding its step and task — use PutReplyCardWithStepAndTask.
+// stranding its step and task — use putReplyCardWithStepAndTaskOn.
 func (d *DAL) PutReplyCardWithAttachments(c ReplyCard, atts []ChatAttachment) error {
 	if len(atts) == 0 {
 		return d.PutReplyCard(c)
@@ -1723,30 +1727,28 @@ func (d *DAL) PutReplyCardWithAttachments(c ReplyCard, atts []ChatAttachment) er
 	})
 }
 
-// Publish only after this returns: a delta fanned out for a transaction that
-// then rolls back announces something that did not happen.
-func (d *DAL) PutReplyCardWithStepAndTask(c ReplyCard, atts []ChatAttachment, step *TaskStep, task *Task) error {
-	return d.inTx(func(tx *sql.Tx) error {
-		for _, a := range atts {
-			if err := putChatAttachmentOn(tx, a); err != nil {
-				return err
-			}
-		}
-		if err := putReplyCardOn(tx, c); err != nil {
+// Publish only after the transaction commits: a delta fanned out for a
+// transaction that then rolls back announces something that did not happen.
+func putReplyCardWithStepAndTaskOn(ex sqlExecer, c ReplyCard, atts []ChatAttachment, step *TaskStep, task *Task) error {
+	for _, a := range atts {
+		if err := putChatAttachmentOn(ex, a); err != nil {
 			return err
 		}
-		if step != nil {
-			if err := putTaskStepOn(tx, *step); err != nil {
-				return err
-			}
+	}
+	if err := putReplyCardOn(ex, c); err != nil {
+		return err
+	}
+	if step != nil {
+		if err := putTaskStepOn(ex, *step); err != nil {
+			return err
 		}
-		if task != nil {
-			if err := putTaskOn(tx, *task, taskWriteUpsert); err != nil {
-				return err
-			}
+	}
+	if task != nil {
+		if err := putTaskOn(ex, *task, taskWriteUpsert); err != nil {
+			return err
 		}
-		return nil
-	})
+	}
+	return nil
 }
 
 // inTx runs on wdb: ONE connection, BEGIN IMMEDIATE (openSQLite, migrate.go).

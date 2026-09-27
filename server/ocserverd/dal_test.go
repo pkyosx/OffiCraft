@@ -2920,7 +2920,7 @@ func TestPutReplyCardWithStepAndTask(t *testing.T) {
 		task.Status = TaskStatusInProgress
 		task.UpdatedTS = 200
 
-		if err := d.PutReplyCardWithStepAndTask(card, answerBlobs(), &step, &task); err != nil {
+		if err := putReplyCardWithStepAndTaskInTx(d, card, answerBlobs(), &step, &task); err != nil {
 			t.Fatalf("PutReplyCardWithStepAndTask: %v", err)
 		}
 		if got, want := dalStoredBlobIDs(t, d), []string{"att-answer"}; !reflect.DeepEqual(got, want) {
@@ -2956,7 +2956,7 @@ func TestPutReplyCardWithStepAndTask(t *testing.T) {
 			t.Fatalf("drop task: %v", err)
 		}
 
-		if err := d.PutReplyCardWithStepAndTask(card, answerBlobs(), &step, &task); err == nil {
+		if err := putReplyCardWithStepAndTaskInTx(d, card, answerBlobs(), &step, &task); err == nil {
 			t.Fatalf("a task row that cannot be written must fail the whole write")
 		}
 		// The two rows written BEFORE the failure must be back as they were:
@@ -2993,7 +2993,7 @@ func TestPutReplyCardWithStepAndTask(t *testing.T) {
 			t.Fatalf("drop task_step: %v", err)
 		}
 
-		if err := d.PutReplyCardWithStepAndTask(card, answerBlobs(), &step, &task); err == nil {
+		if err := putReplyCardWithStepAndTaskInTx(d, card, answerBlobs(), &step, &task); err == nil {
 			t.Fatalf("a step row that cannot be written must fail the whole write")
 		}
 		dalWantReplyCard(t, d, "rc-1", &before)
@@ -3053,7 +3053,7 @@ func TestPutReplyCardWithChatAndStep(t *testing.T) {
 		blobs := []ChatAttachment{{ID: "att-question", Mime: "image/png", Data: []byte("the question")}}
 		armed, held := arm(task, step, "rc-1")
 
-		if err := d.PutReplyCardWithChatStepAndTask(card, m, blobs, armed, &held); err != nil {
+		if err := putReplyCardWithChatStepAndTaskInTx(d, card, m, blobs, armed, &held); err != nil {
 			t.Fatalf("PutReplyCardWithChatAndStep: %v", err)
 		}
 		dalWantReplyCard(t, d, "rc-1", &card)
@@ -3089,7 +3089,7 @@ func TestPutReplyCardWithChatAndStep(t *testing.T) {
 			t.Fatalf("drop task_step: %v", err)
 		}
 
-		err := d.PutReplyCardWithChatStepAndTask(
+		err := putReplyCardWithChatStepAndTaskInTx(d,
 			dalReplyCard("rc-1", 100),
 			dalChatWithAtts("m1", "ann", "owner", 100, dalAttRef("att-doomed", "image/png", "d.png")),
 			[]ChatAttachment{{ID: "att-doomed", Mime: "image/png", Data: []byte("doomed")}},
@@ -3116,7 +3116,7 @@ func TestPutReplyCardWithChatAndStep(t *testing.T) {
 			t.Fatalf("drop task: %v", err)
 		}
 
-		err := d.PutReplyCardWithChatStepAndTask(
+		err := putReplyCardWithChatStepAndTaskInTx(d,
 			dalReplyCard("rc-1", 100),
 			dalChatWithAtts("m1", "ann", "owner", 100, dalAttRef("att-doomed", "image/png", "d.png")),
 			[]ChatAttachment{{ID: "att-doomed", Mime: "image/png", Data: []byte("doomed")}},
@@ -4749,4 +4749,14 @@ func dalWantPushSubscriptions(t *testing.T, d *DAL, what string, want []PushSubs
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("%s:\n got %+v\nwant %+v", what, got, want)
 	}
+}
+
+func putReplyCardWithStepAndTaskInTx(d *DAL, c ReplyCard, atts []ChatAttachment, step *TaskStep, task *Task) error {
+	return d.inTx(func(tx *sql.Tx) error { return putReplyCardWithStepAndTaskOn(tx, c, atts, step, task) })
+}
+
+func putReplyCardWithChatStepAndTaskInTx(
+	d *DAL, c ReplyCard, m ChatMessage, atts []ChatAttachment, st TaskStep, t *Task,
+) error {
+	return d.inTx(func(tx *sql.Tx) error { return putReplyCardWithChatStepAndTaskOn(tx, c, m, atts, st, t) })
 }
