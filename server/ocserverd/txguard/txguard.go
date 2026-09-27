@@ -86,6 +86,10 @@ func Holding() bool {
 	return n > 0
 }
 
+// OnRefusal, when set, runs on the refused goroutine just before it panics.
+// Tests set it once, before any lock is taken, to say where a refusal came from.
+var OnRefusal func(at string)
+
 // Violations counts every refused lock since the process started.
 func Violations() int64 { return violations.Load() }
 
@@ -104,6 +108,9 @@ func refuseInTx() {
 	}
 	violations.Add(1)
 	at := lockCaller()
+	if OnRefusal != nil {
+		OnRefusal(at)
+	}
 	log.Printf("[lock] ERROR: refused a lock taken while this goroutine holds the write transaction; "+
 		"the transaction is rolled back; at: %s", at)
 	panic(&LockInTxError{At: at})
@@ -134,7 +141,7 @@ func (l *Mutex) Acquire() (unlock func()) {
 	return func() { once.Do(l.m.Unlock) }
 }
 
-// RWMutex is sync.RWMutex with the same refusal on Lock, RLock and TryLock.
+// RWMutex is sync.RWMutex with the same refusal on Lock and RLock.
 type RWMutex struct{ m sync.RWMutex }
 
 func (l *RWMutex) Lock() {

@@ -1612,9 +1612,9 @@ func (s *apiServer) HandleCreateTaskApiTasksPost(w http.ResponseWriter, r *http.
 	trigger := requestTrigger(r)
 
 	// The gate runs inside CreateTaskMintingID's transaction (it needs the minted
-	// id). Safe only because outsourceSpawnGate touches no database; anything it
-	// needs from the DB must be resolved out here, not on the transaction's
-	// connection.
+	// id), so anything it needs from the DB is resolved out here: a read through
+	// the DAL inside it would come from the read pool at another moment than the
+	// transaction, and a lock taken inside it is refused.
 	var gateDenied string
 	var precheck func(id string) error
 	if outsourceTarget != nil {

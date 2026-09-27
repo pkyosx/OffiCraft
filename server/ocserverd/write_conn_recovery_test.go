@@ -4,8 +4,12 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
+	"io"
 	"log"
 	"net/http"
+	"net/http/httptest"
+	"net/http/httptrace"
 	"reflect"
 	"strings"
 	"sync"
@@ -125,16 +129,70 @@ func recoveryLockDatabase(t *testing.T, path string) (release func()) {
 	return release
 }
 
-func TestARequestRefusedByAnotherHandlesWriteLockLeavesTheNextRequestWorking(t *testing.T) {
+// liveConn sends requests to h through a real HTTP server, all over one
+// keep-alive connection: net/http serves consecutive requests on one connection
+// from the same goroutine, so whatever a request leaves behind on its goroutine
+// is there for the next one.
+type liveConn struct {
+	t      *testing.T
+	srv    *httptest.Server
+	client *http.Client
+	token  string
+}
+
+func newLiveConn(t *testing.T, h http.Handler, token string) *liveConn {
+	t.Helper()
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+	transport := &http.Transport{MaxConnsPerHost: 1, MaxIdleConnsPerHost: 1}
+	t.Cleanup(transport.CloseIdleConnections)
+	return &liveConn{t: t, srv: srv, client: &http.Client{Transport: transport, Timeout: reentryAnswerWithin}, token: token}
+}
+
+// do answers the status, the JSON body, and whether the request went over a
+// connection an earlier request had used. A transport error is returned, not
+// failed on: a handler that panics answers with a dropped connection.
+func (c *liveConn) do(method, target, body string) (int, map[string]any, bool, error) {
+	c.t.Helper()
+	var reused bool
+	trace := &httptrace.ClientTrace{GotConn: func(info httptrace.GotConnInfo) { reused = info.Reused }}
+	req, err := http.NewRequestWithContext(httptrace.WithClientTrace(context.Background(), trace),
+		method, c.srv.URL+target, strings.NewReader(body))
+	if err != nil {
+		c.t.Fatalf("new request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+c.token)
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return 0, nil, reused, err
+	}
+	defer resp.Body.Close()
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return 0, nil, reused, err
+	}
+	var data map[string]any
+	if err := json.Unmarshal(raw, &data); err != nil {
+		c.t.Fatalf("%s %s: non-JSON body (%d): %s", method, target, resp.StatusCode, raw)
+	}
+	return resp.StatusCode, data, reused, nil
+}
+
+func TestARequestRefusedByAnotherHandlesWriteLockLeavesTheNextRequestOnItsConnectionWorking(t *testing.T) {
 	for _, shape := range windowDALShapes {
 		t.Run(shape, func(t *testing.T) {
 			d, _, path := windowDAL(t, shape)
 			_, h, _, owner := newAPITestServerOn(t, d)
 			t1 := dalPutTask(t, d, windowOpenTask("T-1"))
+			conn := newLiveConn(t, h, owner)
 			release := recoveryLockDatabase(t, path)
 
-			status, body := reentryJSON(t, h, "POST", "/api/tasks/T-1/priority", owner, `{"priority":"low"}`)
+			status, body, _, err := conn.do("POST", "/api/tasks/T-1/priority", `{"priority":"low"}`)
 
+			if err != nil {
+				t.Fatalf("while another handle holds the write lock: %v", err)
+			}
 			if status != http.StatusInternalServerError {
 				t.Fatalf("while another handle holds the write lock: want 500, got %d (%v)", status, body)
 			}
@@ -142,10 +200,16 @@ func TestARequestRefusedByAnotherHandlesWriteLockLeavesTheNextRequestWorking(t *
 			dalWantTask(t, d, t1)
 
 			release()
-			status, body = reentryJSON(t, h, "POST", "/api/tasks/T-1/priority", owner, `{"priority":"low"}`)
+			status, body, reused, err := conn.do("POST", "/api/tasks/T-1/priority", `{"priority":"low"}`)
 
+			if err != nil {
+				t.Fatalf("after the lock is released: %v", err)
+			}
+			if !reused {
+				t.Fatalf("the second request did not go over the first one's connection, so it was not served where the first one failed")
+			}
 			if status != http.StatusOK {
-				t.Fatalf("after the lock is released: want 200, got %d (%v)", status, body)
+				t.Fatalf("after the lock is released, on the same connection: want 200, got %d (%v)", status, body)
 			}
 			apiWantBody(t, body, map[string]any{"task_id": "T-1", "priority": "low", "frozen_by": ""})
 		})

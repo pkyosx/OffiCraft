@@ -26,8 +26,10 @@ const writeConnWaitLimit = 30 * time.Second
 // Whatever its holder is stuck on — another goroutine, a lock outside txguard,
 // a network call, a statement that does not end — the transaction is rolled
 // back at the limit and the connection goes back to the pool. No transaction
-// on this pool is meant to take more than milliseconds.
-const writeTxHoldLimit = 30 * time.Second
+// on this pool is meant to take more than milliseconds. It is shorter than
+// writeConnWaitLimit so that anyone who began waiting after a stuck holder
+// began gets the connection before their own wait runs out.
+const writeTxHoldLimit = 25 * time.Second
 
 var (
 	errWriteConnWait  = errors.New("timed out waiting for the write connection")
@@ -150,9 +152,9 @@ func (h *txHolding) queryRow(query string, args ...any) *sql.Row {
 // database/sql has already begun the rollback on its own goroutine.
 func (h *txHolding) expire() {
 	h.expired.Store(true)
+	h.leave()
 	log.Printf("[wdb] ERROR: rolled back a write transaction held longer than %s; begun at: %s",
 		h.p.holdLimit, formatCallers(h.begunAt))
-	h.leave()
 }
 
 func (h *txHolding) leave() {
@@ -165,21 +167,38 @@ func (h *txHolding) leave() {
 // left. stopped is what h.stop answered before it: false means the expiry had
 // already fired. A deadline that passed after h.stop but before database/sql
 // checked it is an expiry too, found here.
-func (h *txHolding) end(stopped bool, err error) error {
+//
+// ⚠️ A nil from Commit is the truth even when the expiry fired: the deadline
+// cancels its context's children in map order, so the expiry can start before
+// the transaction's own context is cancelled and COMMIT still goes through.
+func (h *txHolding) end(stopped bool, err error, committed bool) error {
+	if committed {
+		h.cancel()
+		h.forget()
+		if h.expired.Load() {
+			log.Printf("[wdb] the write transaction begun at %s committed at its hold limit; "+
+				"the rollback reported for it just before did not happen", formatCallers(h.begunAt))
+		}
+		return nil
+	}
 	if stopped && err != nil && h.ctx.Err() != nil {
 		h.expire()
 	}
 	h.cancel()
+	h.forget()
+	if h.expired.Load() {
+		return h.err()
+	}
+	return err
+}
+
+func (h *txHolding) forget() {
 	h.p.mu.Lock()
 	if h.p.held[h.gid] == h {
 		delete(h.p.held, h.gid)
 	}
 	h.p.mu.Unlock()
 	h.leave()
-	if h.expired.Load() {
-		return h.err()
-	}
-	return err
 }
 
 func (p *writePool) Exec(query string, args ...any) (sql.Result, error) {
@@ -317,7 +336,8 @@ func (t *writeTx) Commit() error {
 	}
 	t.done = true
 	stopped := t.h.stop()
-	return t.h.end(stopped, t.h.tx.Commit())
+	err := t.h.tx.Commit()
+	return t.h.end(stopped, err, err == nil)
 }
 
 func (t *writeTx) Rollback() error {
@@ -332,7 +352,7 @@ func (t *writeTx) Rollback() error {
 		return errors.Join(err, relErr)
 	}
 	stopped := t.h.stop()
-	return t.h.end(stopped, t.h.tx.Rollback())
+	return t.h.end(stopped, t.h.tx.Rollback(), false)
 }
 
 // readPool is where DAL reads go. Over split pools it is the read-only pool;
