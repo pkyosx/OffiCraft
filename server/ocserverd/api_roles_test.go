@@ -677,24 +677,26 @@ func TestHandleCreateRoleApiRolesPost(t *testing.T) {
 		dashboard.wantFrames()
 	})
 
-	t.Run("a role whose member fails to land is not created and fans nothing", func(t *testing.T) {
-		d, _, _ := windowDAL(t, "split pools")
-		api, h, _, owner := newAPITestServerOn(t, d)
-		windowRefuse(t, d, "refuse_member_insert", "BEFORE INSERT ON member", "the member write fails")
-		dashboard := apiTestListen(t, api, "")
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": "+"a role whose member fails to land is not created and fans nothing", func(t *testing.T) {
+			d, _, _ := windowDAL(t, shape)
+			api, h, _, owner := newAPITestServerOn(t, d)
+			windowRefuse(t, d, "refuse_member_insert", "BEFORE INSERT ON member", "the member write fails")
+			dashboard := apiTestListen(t, api, "")
 
-		status, data := windowJSON(t, h, "POST", "/api/roles", owner, `{"name":"Harbor pilot"}`)
+			status, data := windowJSON(t, h, "POST", "/api/roles", owner, `{"name":"Harbor pilot"}`)
 
-		if status != http.StatusInternalServerError {
-			t.Fatalf("want 500, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "internal_error", windowRefusal("the member write fails"))
-		var n int
-		if err := d.rdb.QueryRow(`SELECT COUNT(*) FROM role_def WHERE name = 'Harbor pilot'`).Scan(&n); err != nil || n != 0 {
-			t.Fatalf("role_def rows named Harbor pilot: %d, %v; want 0", n, err)
-		}
-		dashboard.wantFrames()
-	})
+			if status != http.StatusInternalServerError {
+				t.Fatalf("want 500, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "internal_error", windowRefusal("the member write fails"))
+			var n int
+			if err := d.rdb.QueryRow(`SELECT COUNT(*) FROM role_def WHERE name = 'Harbor pilot'`).Scan(&n); err != nil || n != 0 {
+				t.Fatalf("role_def rows named Harbor pilot: %d, %v; want 0", n, err)
+			}
+			dashboard.wantFrames()
+		})
+	}
 }
 
 func TestHandleUpdateRoleApiRolesRolePost(t *testing.T) {
@@ -1304,22 +1306,24 @@ func TestHandleDeleteRoleApiRolesRoleDelete(t *testing.T) {
 		})
 	}
 
-	t.Run("a role whose own row fails to delete keeps its members and fans nothing", func(t *testing.T) {
-		d, _, _ := windowDAL(t, "split pools")
-		api, h, _, owner := newAPITestServerOn(t, d)
-		windowDesignRole(t, d)
-		windowRefuse(t, d, "refuse_role_delete", "BEFORE DELETE ON role_def", "the role delete fails")
-		dashboard := apiTestListen(t, api, "")
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": "+"a role whose own row fails to delete keeps its members and fans nothing", func(t *testing.T) {
+			d, _, _ := windowDAL(t, shape)
+			api, h, _, owner := newAPITestServerOn(t, d)
+			windowDesignRole(t, d)
+			windowRefuse(t, d, "refuse_role_delete", "BEFORE DELETE ON role_def", "the role delete fails")
+			dashboard := apiTestListen(t, api, "")
 
-		status, data := windowJSON(t, h, "DELETE", "/api/roles/r-design", owner, "")
+			status, data := windowJSON(t, h, "DELETE", "/api/roles/r-design", owner, "")
 
-		if status != http.StatusInternalServerError {
-			t.Fatalf("want 500, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "internal_error", windowRefusal("the role delete fails"))
-		if m, err := d.GetMember("m-zed"); err != nil || m == nil {
-			t.Fatalf("GetMember(m-zed): %#v, %v; want the member kept", m, err)
-		}
-		dashboard.wantFrames()
-	})
+			if status != http.StatusInternalServerError {
+				t.Fatalf("want 500, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "internal_error", windowRefusal("the role delete fails"))
+			if m, err := d.GetMember("m-zed"); err != nil || m == nil {
+				t.Fatalf("GetMember(m-zed): %#v, %v; want the member kept", m, err)
+			}
+			dashboard.wantFrames()
+		})
+	}
 }

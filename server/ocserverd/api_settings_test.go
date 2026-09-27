@@ -1039,20 +1039,22 @@ func TestHandleUpdateSettingsApiSettingsPatch(t *testing.T) {
 		})
 	}
 
-	t.Run("a dismissal refused for want of a banner takes the rest of the patch back with it", func(t *testing.T) {
-		d, _, _ := windowDAL(t, "split pools")
-		_, h, _, owner := newAPITestServerOn(t, d)
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": "+"a dismissal refused for want of a banner takes the rest of the patch back with it", func(t *testing.T) {
+			d, _, _ := windowDAL(t, shape)
+			_, h, _, owner := newAPITestServerOn(t, d)
 
-		status, data := windowJSON(t, h, "PATCH", "/api/settings", owner,
-			`{"org_name":"Harbor Yard","onboarding_dismissed":true}`)
+			status, data := windowJSON(t, h, "PATCH", "/api/settings", owner,
+				`{"org_name":"Harbor Yard","onboarding_dismissed":true}`)
 
-		if status != http.StatusConflict {
-			t.Fatalf("want 409, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "conflict",
-			"no onboarding banner is up to dismiss — the first-run report is absent or not in a failed state")
-		windowWantSetting(t, d, "org.name", nil)
-	})
+			if status != http.StatusConflict {
+				t.Fatalf("want 409, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "conflict",
+				"no onboarding banner is up to dismiss — the first-run report is absent or not in a failed state")
+			windowWantSetting(t, d, "org.name", nil)
+		})
+	}
 }
 
 func TestSettingsView(t *testing.T) {

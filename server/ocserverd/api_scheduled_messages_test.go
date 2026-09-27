@@ -581,21 +581,23 @@ func TestHandleUpdateScheduledMessageApiMembersMemberIdScheduledMessagesSchedule
 		})
 	}
 
-	t.Run("a re-aim whose cursor fails to land keeps the old timing", func(t *testing.T) {
-		d, _, _ := windowDAL(t, "split pools")
-		_, h, _, owner := newAPITestServerOn(t, d)
-		id := apiTestStandup(t, h, owner, "kip")
-		windowRefuse(t, d, "refuse_cursor", "BEFORE UPDATE OF last_fired_slot ON scheduled_message",
-			"the cursor write fails")
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": "+"a re-aim whose cursor fails to land keeps the old timing", func(t *testing.T) {
+			d, _, _ := windowDAL(t, shape)
+			_, h, _, owner := newAPITestServerOn(t, d)
+			id := apiTestStandup(t, h, owner, "kip")
+			windowRefuse(t, d, "refuse_cursor", "BEFORE UPDATE OF last_fired_slot ON scheduled_message",
+				"the cursor write fails")
 
-		status, data := windowJSON(t, h, "PATCH", "/api/members/kip/scheduled-messages/"+id, owner, `{"hour":11}`)
+			status, data := windowJSON(t, h, "PATCH", "/api/members/kip/scheduled-messages/"+id, owner, `{"hour":11}`)
 
-		if status != http.StatusInternalServerError {
-			t.Fatalf("want 500, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "internal_error", windowRefusal("the cursor write fails"))
-		apiWantScheduledList(t, h, owner, "kip", apiScheduledStandupRow(id))
-	})
+			if status != http.StatusInternalServerError {
+				t.Fatalf("want 500, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "internal_error", windowRefusal("the cursor write fails"))
+			apiWantScheduledList(t, h, owner, "kip", apiScheduledStandupRow(id))
+		})
+	}
 }
 
 func TestHandleDeleteScheduledMessageApiMembersMemberIdScheduledMessagesScheduleIdDelete(t *testing.T) {

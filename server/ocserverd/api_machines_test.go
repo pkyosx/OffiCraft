@@ -1075,24 +1075,26 @@ func TestHandleOnboardMachineApiMachinesPost(t *testing.T) {
 		apiWantError(t, data, "unauthorized", "missing credentials")
 	})
 
-	t.Run("a machine whose alias fails to land is not onboarded and fans nothing", func(t *testing.T) {
-		d, _, _ := windowDAL(t, "split pools")
-		api, h, _, owner := newAPITestServerOn(t, d)
-		windowRefuse(t, d, "refuse_alias", "BEFORE INSERT ON machine_alias", "the alias write fails")
-		dashboard := apiTestListen(t, api, "")
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": "+"a machine whose alias fails to land is not onboarded and fans nothing", func(t *testing.T) {
+			d, _, _ := windowDAL(t, shape)
+			api, h, _, owner := newAPITestServerOn(t, d)
+			windowRefuse(t, d, "refuse_alias", "BEFORE INSERT ON machine_alias", "the alias write fails")
+			dashboard := apiTestListen(t, api, "")
 
-		status, data := windowJSON(t, h, "POST", "/api/machines", owner, `{"display_name":"Studio Mac"}`)
+			status, data := windowJSON(t, h, "POST", "/api/machines", owner, `{"display_name":"Studio Mac"}`)
 
-		if status != http.StatusInternalServerError {
-			t.Fatalf("want 500, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "internal_error", windowRefusal("the alias write fails"))
-		var n int
-		if err := d.rdb.QueryRow(`SELECT COUNT(*) FROM member WHERE name = 'Studio Mac'`).Scan(&n); err != nil || n != 0 {
-			t.Fatalf("member rows named Studio Mac: %d, %v; want 0", n, err)
-		}
-		dashboard.wantFrames()
-	})
+			if status != http.StatusInternalServerError {
+				t.Fatalf("want 500, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "internal_error", windowRefusal("the alias write fails"))
+			var n int
+			if err := d.rdb.QueryRow(`SELECT COUNT(*) FROM member WHERE name = 'Studio Mac'`).Scan(&n); err != nil || n != 0 {
+				t.Fatalf("member rows named Studio Mac: %d, %v; want 0", n, err)
+			}
+			dashboard.wantFrames()
+		})
+	}
 }
 
 func TestClearResidualUninstall(t *testing.T) {

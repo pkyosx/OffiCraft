@@ -1101,26 +1101,28 @@ func TestHandleIngestTelemetryApiMonitoringTelemetryPost(t *testing.T) {
 		})
 	}
 
-	t.Run("an uninstall receipt that fails to land does not converge the intent either", func(t *testing.T) {
-		d, _, _ := windowDAL(t, "split pools")
-		api, h, _, _ := newAPITestServerOn(t, d)
-		warden := apiTestAgentToken(t, api, "m-server-self", "m-server-self")
-		if _, err := d.wdb.Exec(`UPDATE member SET desired_state = 'online' WHERE id = 'kip'`); err != nil {
-			t.Fatalf("prepare: %v", err)
-		}
-		before := apiTestMemberRow(t, d, "kip")
-		windowRefuse(t, d, "refuse_receipt", "BEFORE UPDATE OF last_op ON member", "the receipt write fails")
-		self := apiTestListen(t, api, "kip")
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": "+"an uninstall receipt that fails to land does not converge the intent either", func(t *testing.T) {
+			d, _, _ := windowDAL(t, shape)
+			api, h, _, _ := newAPITestServerOn(t, d)
+			warden := apiTestAgentToken(t, api, "m-server-self", "m-server-self")
+			if _, err := d.wdb.Exec(`UPDATE member SET desired_state = 'online' WHERE id = 'kip'`); err != nil {
+				t.Fatalf("prepare: %v", err)
+			}
+			before := apiTestMemberRow(t, d, "kip")
+			windowRefuse(t, d, "refuse_receipt", "BEFORE UPDATE OF last_op ON member", "the receipt write fails")
+			self := apiTestListen(t, api, "kip")
 
-		status, data := windowJSON(t, h, "POST", "/api/monitoring/telemetry", warden,
-			`{"command_result":{"rpc":"uninstall","member_id":"kip","ok":true,"reason":"uninstalled","at":"2026-01-01T00:00:00Z"}}`)
+			status, data := windowJSON(t, h, "POST", "/api/monitoring/telemetry", warden,
+				`{"command_result":{"rpc":"uninstall","member_id":"kip","ok":true,"reason":"uninstalled","at":"2026-01-01T00:00:00Z"}}`)
 
-		if status != http.StatusOK {
-			t.Fatalf("want 200, got %d (%v)", status, data)
-		}
-		apiTestWantEqual(t, "the row after the failed receipt", apiTestMemberRow(t, d, "kip"), before)
-		self.wantFrames()
-	})
+			if status != http.StatusOK {
+				t.Fatalf("want 200, got %d (%v)", status, data)
+			}
+			apiTestWantEqual(t, "the row after the failed receipt", apiTestMemberRow(t, d, "kip"), before)
+			self.wantFrames()
+		})
+	}
 
 	for _, shape := range windowDALShapes {
 		t.Run(shape+": a rename that landed after the launch-fact stamp read the row survives the stamp", func(t *testing.T) {

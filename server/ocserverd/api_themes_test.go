@@ -576,6 +576,44 @@ func TestHandleDeleteThemeApiThemesThemeIdDelete(t *testing.T) {
 			apiWantBody(t, data, map[string]any{"id": "dusk", "deleted": true, "display_theme_reset": true})
 		})
 	}
+
+	// A settings patch takes settingsMu and then waits for the write connection;
+	// the delete must hold settingsMu before it takes that connection, or the two
+	// wait on each other.
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": a settings patch arriving as the delete opens its transaction does not stall it", func(t *testing.T) {
+			d, hook, _ := windowDAL(t, shape)
+			api, h, _, owner := newAPITestServerOn(t, d)
+			apiPutTheme(t, h, owner, "dusk", `{"id":"dusk","name":"Dusk","colors":{"--color-bg":"#101418"}}`)
+			patched := make(chan struct{})
+			patch := func() {
+				defer close(patched)
+				defer api.settingsMu.Unlock()
+				if _, err := d.wdb.Exec(`SELECT 1`); err != nil {
+					t.Errorf("the settings patch's write: %v", err)
+				}
+			}
+			hook.mu.Lock()
+			hook.armed = true
+			hook.fire = func() {
+				go func() {
+					api.settingsMu.Lock()
+					patch()
+				}()
+			}
+			hook.mu.Unlock()
+
+			status, data := windowJSON(t, h, "DELETE", "/api/themes/dusk", owner, "")
+
+			hook.wantFiredOnce(t)
+			if status != http.StatusOK {
+				t.Fatalf("want 200, got %d (%v)", status, data)
+			}
+			apiWantBody(t, data, map[string]any{"id": "dusk", "deleted": true, "display_theme_reset": false})
+			<-patched
+			apiThemeAbsent(t, h, owner, "dusk")
+		})
+	}
 }
 
 func TestDecodeStoredThemeBundle(t *testing.T) {

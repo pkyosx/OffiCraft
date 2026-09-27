@@ -3113,6 +3113,36 @@ func TestHandleDismissMemberApiMembersMemberIdDelete(t *testing.T) {
 			}
 		})
 	}
+
+	// The removal delta of a member mid-stop carries its offboard notice, which is
+	// read from the database: announced before commit, it would wait on the
+	// connection the dismissal holds.
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": dismissing a member mid-stop answers and announces the removal", func(t *testing.T) {
+			d, _, _ := windowDAL(t, shape)
+			api, h, _, owner := newAPITestServerOn(t, d)
+			if _, err := d.wdb.Exec(`UPDATE member SET desired_state = 'offline', stopping_since = 1700000000 WHERE id = 'kip'`); err != nil {
+				t.Fatalf("prepare: %v", err)
+			}
+			kip := apiTestListen(t, api, "kip")
+
+			status, data := windowJSON(t, h, "DELETE", "/api/members/kip", owner, "")
+
+			if status != http.StatusOK {
+				t.Fatalf("want 200, got %d (%v)", status, data)
+			}
+			if got := apiTestMemberRow(t, d, "kip"); got.RosterStatus != RosterStatusRemoved {
+				t.Fatalf("roster_status=%q, want removed", got.RosterStatus)
+			}
+			kip.wantFrames(map[string]any{
+				"seq": 1, "topic": "member", "op": "remove",
+				"data": map[string]any{
+					"entity": "member", "key": "owner::kip", "epoch": 1, "deleted": true, "payload": nil,
+				},
+				"ts": apiAnyNumber, "trigger": "owner",
+			})
+		})
+	}
 }
 
 func TestResolveSelf(t *testing.T) {
@@ -4637,4 +4667,35 @@ func TestHandleRestartSelfApiSelfRefocusPost(t *testing.T) {
 		}
 		apiWantError(t, data, "unauthorized", "missing credentials")
 	})
+
+	for _, door := range []windowMemberDoor{
+		{name: "staff", method: "POST", path: "/api/self/refocus", body: `{}`, self: true, live: true,
+			prepare: `UPDATE member SET desired_state = 'online' WHERE id = 'kip'`},
+		{name: "worker", method: "POST", path: "/api/self/refocus", body: `{}`, worker: true, self: true, live: true},
+	} {
+		for _, shape := range windowDALShapes {
+			t.Run("a "+door.name+" stopped by the owner after the handler read it, "+shape+": answers 409 and keeps the stop", func(t *testing.T) {
+				d, hook, path := windowDAL(t, shape)
+				_, h, id, token := windowMemberDoorStack(t, d, door)
+				hook.execAfterRead(t, path, "FROM member WHERE id",
+					`UPDATE member SET desired_state = 'offline', stopping_since = 1800000000,
+						refocus_since = 0, refocus_op = '' WHERE id = '`+id+`'`)
+
+				status, data := windowJSON(t, h, door.method, door.path, token, door.body)
+
+				hook.wantFiredOnce(t)
+				if status != http.StatusConflict {
+					t.Fatalf("want 409, got %d (%v)", status, data)
+				}
+				apiWantError(t, data, "conflict",
+					"restart_self requires a live session to recycle, on a member that is still wanted online")
+				m := apiTestMemberRow(t, d, id)
+				if m.DesiredState != DesiredStateOffline || m.StoppingSince != 1800000000 ||
+					m.RefocusSince != 0 || m.RefocusOp != "" {
+					t.Fatalf("desired_state=%q stopping_since=%v refocus_since=%v refocus_op=%q, want offline / 1800000000 / 0 / \"\"",
+						m.DesiredState, m.StoppingSince, m.RefocusSince, m.RefocusOp)
+				}
+			})
+		}
+	}
 }

@@ -4622,23 +4622,25 @@ func TestHandleClaimTaskApiTasksTaskIdClaimPost(t *testing.T) {
 		})
 	}
 
-	t.Run("a claim whose write fails releases no worker and fans nothing", func(t *testing.T) {
-		d, _, _ := windowDAL(t, "split pools")
-		api, h, _, owner := newAPITestServerOn(t, d)
-		task := windowHandedOver(t, d)
-		windowRefuseTaskWrites(t, d)
-		dashboard := apiTestListen(t, api, "")
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": "+"a claim whose write fails releases no worker and fans nothing", func(t *testing.T) {
+			d, _, _ := windowDAL(t, shape)
+			api, h, _, owner := newAPITestServerOn(t, d)
+			task := windowHandedOver(t, d)
+			windowRefuseTaskWrites(t, d)
+			dashboard := apiTestListen(t, api, "")
 
-		status, data := windowJSON(t, h, "POST", "/api/tasks/T-1/claim", owner, "")
+			status, data := windowJSON(t, h, "POST", "/api/tasks/T-1/claim", owner, "")
 
-		if status != http.StatusInternalServerError {
-			t.Fatalf("want 500, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "internal_error", windowTaskWriteFails)
-		dalWantTask(t, d, task)
-		windowWantWorkerStatus(t, d, "ow-abc123", WorkerStatusAssigned)
-		dashboard.wantFrames()
-	})
+			if status != http.StatusInternalServerError {
+				t.Fatalf("want 500, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "internal_error", windowTaskWriteFails)
+			dalWantTask(t, d, task)
+			windowWantWorkerStatus(t, d, "ow-abc123", WorkerStatusAssigned)
+			dashboard.wantFrames()
+		})
+	}
 }
 
 func TestExecutorLabel(t *testing.T) {
