@@ -190,11 +190,11 @@ func (s *apiServer) replyCardStatusesForSteps(steps []TaskStep) map[string]strin
 	return out
 }
 
-func (s *apiServer) stepCardSettled(st TaskStep) (bool, error) {
+func stepCardSettledOn(q sqlRowQuerier, st TaskStep) (bool, error) {
 	if st.ReplyCardID == "" {
 		return false, nil
 	}
-	c, err := s.dal.GetReplyCard(st.ReplyCardID)
+	c, err := getReplyCardOn(q, st.ReplyCardID)
 	if err != nil {
 		return false, err
 	}
@@ -293,32 +293,41 @@ func underHandover(t Task) bool {
 	return t.Lock == TaskLockReassigning && t.ReassignedFrom != ""
 }
 
+// memberLookup is how the task authz below reads the roster: s.dal.GetMember
+// before a transaction, membersOn(tx) inside one — a read through s.dal inside
+// the transaction waits on the connection the transaction holds.
+type memberLookup func(id string) (*Member, error)
+
+func membersOn(q sqlRowQuerier) memberLookup {
+	return func(id string) (*Member, error) { return getMemberOn(q, id) }
+}
+
 // predecessorHoldsTask: released workers and dismissed members are both
 // roster_status=removed. Fail-closed on a lookup error, unlike authz.go's
 // fail-open revocation gate — this grants rights beyond the executor rule.
-func (s *apiServer) predecessorHoldsTask(t Task) bool {
+func predecessorHoldsTask(member memberLookup, t Task) bool {
 	if !underHandover(t) {
 		return false
 	}
-	m, err := s.dal.GetMember(t.ReassignedFrom)
+	m, err := member(t.ReassignedFrom)
 	return err == nil && m != nil && m.RosterStatus != RosterStatusRemoved
 }
 
-func (s *apiServer) actingExecutorOf(t Task) string {
+func actingExecutorOf(member memberLookup, t Task) string {
 	if !underHandover(t) {
 		return t.ExecutorID
 	}
-	if s.predecessorHoldsTask(t) {
+	if predecessorHoldsTask(member, t) {
 		return t.ReassignedFrom
 	}
 	return ""
 }
 
-func (s *apiServer) callerMayDriveTask(r *http.Request, t Task) bool {
-	if principalAtLeast(s.principalOfRequest(r), principalAdminAgent) {
+func callerMayDriveTask(member memberLookup, r *http.Request, t Task) bool {
+	if principalAtLeast(resolvePrincipal(claimsFromContext(r.Context()), member), principalAdminAgent) {
 		return true
 	}
-	return currentActor(r) == s.actingExecutorOf(t)
+	return currentActor(r) == actingExecutorOf(member, t)
 }
 
 func (s *apiServer) callerMayClaimTask(r *http.Request, t Task) bool {
@@ -334,7 +343,7 @@ func (s *apiServer) callerMayClaimTask(r *http.Request, t Task) bool {
 // 「只開『改文字類』那幾道（改描述／標題／產物增刪／步驟筆記），不含凍結、撤票、改派」.
 // Calling it from any other handler reverses that ruling.
 func (s *apiServer) callerMayEditTaskText(r *http.Request, t Task) bool {
-	if s.callerMayDriveTask(r, t) {
+	if callerMayDriveTask(s.dal.GetMember, r, t) {
 		return true
 	}
 	if underHandover(t) || t.ExecutorID != "" || t.CreatorID == "" {
@@ -352,12 +361,12 @@ type taskCaller struct {
 func (c taskCaller) isOutsource() bool    { return isOutsourceMember(c.member) }
 func (c taskCaller) isAdminCapable() bool { return principalAtLeast(c.principal, principalAdminAgent) }
 
-func (s *apiServer) taskCallerOf(r *http.Request) (taskCaller, error) {
+func taskCallerOf(member memberLookup, r *http.Request) (taskCaller, error) {
 	actorID := currentActor(r)
 	if currentScope(r) == "owner" {
 		return taskCaller{principal: principalOwner, actorID: actorID}, nil
 	}
-	m, err := s.dal.GetMember(actorID)
+	m, err := member(actorID)
 	if err != nil {
 		return taskCaller{principal: principalAgent, actorID: actorID}, err
 	}
@@ -388,14 +397,76 @@ func authorizeTaskCreate(c taskCaller, willOutsource bool, manualAssigneeMemberI
 	return 0, ""
 }
 
-func (s *apiServer) closeTask(t *Task, status string, now float64, trigger string) error {
-	t.Status = status
-	t.ClosedTS = now
-	t.UpdatedTS = now
-	if err := s.dal.PutTask(*t); err != nil {
-		return err
+// closeTask is the one close every door goes through. may is the door's authz
+// refusal and stamp its remaining refusals plus the columns it stamps; both run
+// again on the row read inside the transaction that writes the close, so a task
+// closed or re-pointed after the early check is judged as it stands. They run
+// inside that transaction: reach the database only through the lookup / querier
+// they are handed, never s.dal.
+func (s *apiServer) closeTask(
+	w http.ResponseWriter, r *http.Request, taskID, status string,
+	may func(member memberLookup, t Task) error,
+	stamp func(q sqlRowQuerier, t *Task) error,
+) {
+	t, err := s.resolveTask(taskID)
+	if err != nil {
+		writeResolveError(w, err, "task", taskID)
+		return
 	}
-	// After the terminal PutTask on purpose: the card-hold release's orphan branch
+	if err := closeRefusal(s.dal.GetMember, *t, may); err != nil {
+		writeTxError(w, err)
+		return
+	}
+	now := nowSecs()
+	trigger := requestTrigger(r)
+	var closed Task
+	err = s.dal.inTx(func(tx *sql.Tx) error {
+		cur, err := getTaskOn(tx, taskID)
+		if err != nil {
+			return err
+		}
+		if cur == nil {
+			return refuseInTx(http.StatusNotFound, "task '"+taskID+"' not found")
+		}
+		if err := closeRefusal(membersOn(tx), *cur, may); err != nil {
+			return err
+		}
+		if stamp != nil {
+			if err := stamp(tx, cur); err != nil {
+				return err
+			}
+		}
+		cur.Status = status
+		cur.ClosedTS = now
+		cur.UpdatedTS = now
+		closed = *cur
+		return putTaskOn(tx, *cur, taskWriteUpsert)
+	})
+	if err != nil {
+		writeTxError(w, err)
+		return
+	}
+	s.afterTaskClosed(&closed, now, trigger)
+	s.writeTaskWriteReceipt(w, closed)
+}
+
+func closeRefusal(member memberLookup, t Task, may func(memberLookup, Task) error) error {
+	if may != nil {
+		if err := may(member, t); err != nil {
+			return err
+		}
+	}
+	if TaskIsTerminal(t.Status) {
+		return refuseInTx(http.StatusConflict, taskAlreadyClosedRefusal(t))
+	}
+	return nil
+}
+
+// afterTaskClosed runs once the close has committed: it takes outsourceMu
+// (dismissOutsourceWorkersForTask) and announces, neither of which may happen
+// inside the transaction.
+func (s *apiServer) afterTaskClosed(t *Task, now float64, trigger string) {
+	// After the terminal write on purpose: the card-hold release's orphan branch
 	// then leaves the closed task untouched (no resume, no UpdatedTS bump). Nothing
 	// else removes these cards — the answer route 409s orphans.
 	if _, err := s.expireWaitingCardsForTask(t.ID, now, trigger); err != nil {
@@ -430,7 +501,6 @@ func (s *apiServer) closeTask(t *Task, status string, now float64, trigger strin
 				map[string]any{"closed_by": sig.ClosedBy})
 		}
 	}
-	return nil
 }
 
 // labelWithID fills the single party slot of 〈給接手人〉 as 「銀月（mira）」:
@@ -444,22 +514,6 @@ func labelWithID(label, id string) string {
 		return label
 	}
 	return label + "（" + id + "）"
-}
-
-func (s *apiServer) deriveAndPersistTask(t *Task, now float64, trigger string) error {
-	if TaskIsTerminal(t.Status) {
-		return nil
-	}
-	steps, err := s.dal.ListTaskSteps(t.ID)
-	if err != nil {
-		return err
-	}
-	arrived := rederiveTask(t, steps, now)
-	if err := s.dal.PutTask(*t); err != nil {
-		return err
-	}
-	s.announceDerivedTask(*t, arrived, trigger)
-	return nil
 }
 
 // rederiveTask reports whether the task has just arrived at ready_for_done.
@@ -497,6 +551,37 @@ func openTaskOn(q sqlRowQuerier, taskID string) (*Task, error) {
 		return nil, refuseInTx(http.StatusConflict, taskAlreadyClosedRefusal(*t))
 	}
 	return t, nil
+}
+
+// openTaskToDriveOn is openTaskOn for the doors gated on callerMayDriveTask,
+// answered in the order those doors answer before the transaction: 404, 403,
+// then 409.
+func openTaskToDriveOn(tx *sql.Tx, r *http.Request, taskID string) (*Task, error) {
+	t, err := getTaskOn(tx, taskID)
+	if err != nil {
+		return nil, err
+	}
+	if t == nil {
+		return nil, refuseInTx(http.StatusNotFound, "task '"+taskID+"' not found")
+	}
+	if !callerMayDriveTask(membersOn(tx), r, *t) {
+		return nil, refuseInTx(http.StatusForbidden, taskActorRefusal)
+	}
+	if TaskIsTerminal(t.Status) {
+		return nil, refuseInTx(http.StatusConflict, taskAlreadyClosedRefusal(*t))
+	}
+	return t, nil
+}
+
+// persistDerivedTaskOn rewrites the task from its steps as they stand in tx;
+// the caller announces the result after commit (announceDerivedTask).
+func persistDerivedTaskOn(tx *sql.Tx, t *Task, now float64) (bool, error) {
+	steps, err := listTaskStepsOn(tx, t.ID)
+	if err != nil {
+		return false, err
+	}
+	arrived := rederiveTask(t, steps, now)
+	return arrived, putTaskOn(tx, *t, taskWriteUpsert)
 }
 
 func (s *apiServer) postReadyForDoneNotice(t Task, trigger string) {
@@ -781,8 +866,8 @@ func (s *apiServer) HandleGetTaskApiTasksTaskIdGet(w http.ResponseWriter, r *htt
 // callerMayTerminateTask excludes an outsource worker on purpose: the owner's
 // 「執行者」 ruling (rc-b896e3f641e7) did not cover contractors; widening needs a
 // new ruling.
-func (s *apiServer) callerMayTerminateTask(r *http.Request, t Task) (bool, string) {
-	c, err := s.taskCallerOf(r)
+func callerMayTerminateTask(member memberLookup, r *http.Request, t Task) (bool, string) {
+	c, err := taskCallerOf(member, r)
 	if err != nil {
 		return false, taskActorRefusal
 	}
@@ -795,7 +880,7 @@ func (s *apiServer) callerMayTerminateTask(r *http.Request, t Task) (bool, strin
 	if c.member == nil {
 		return false, taskActorRefusal
 	}
-	if c.actorID != s.actingExecutorOf(t) {
+	if c.actorID != actingExecutorOf(member, t) {
 		return false, taskActorRefusal
 	}
 	if c.isOutsource() {
@@ -809,58 +894,38 @@ func taskAlreadyClosedRefusal(t Task) string {
 }
 
 func (s *apiServer) HandleMarkTaskDoneApiTasksTaskIdMarkDonePost(w http.ResponseWriter, r *http.Request, taskId string) {
-	t, err := s.resolveTask(taskId)
-	if err != nil {
-		writeResolveError(w, err, "task", taskId)
-		return
-	}
-	if !s.callerMayMarkTaskDone(r, *t) {
-		writeError(w, http.StatusForbidden, taskActorRefusal)
-		return
-	}
-	if TaskIsTerminal(t.Status) {
-		writeError(w, http.StatusConflict, taskAlreadyClosedRefusal(*t))
-		return
-	}
-	if t.Status != TaskStatusReadyForDone {
-		writeError(w, http.StatusConflict,
-			"task '"+taskId+"' is in '"+t.Status+"', not '"+TaskStatusReadyForDone+
-				"' — every step has to be reported done before the task can be "+
-				"closed as done (or ask the owner or an admin agent for "+
-				"force_task_done)")
-		return
-	}
-	if err := s.closeTask(t, TaskStatusDone, nowSecs(), requestTrigger(r)); err != nil {
-		internalError(w, err)
-		return
-	}
-	s.writeTaskWriteReceipt(w, *t)
+	s.closeTask(w, r, taskId, TaskStatusDone,
+		func(member memberLookup, t Task) error {
+			if !callerMayMarkTaskDone(member, r, t) {
+				return refuseInTx(http.StatusForbidden, taskActorRefusal)
+			}
+			return nil
+		},
+		func(_ sqlRowQuerier, t *Task) error {
+			if t.Status != TaskStatusReadyForDone {
+				return refuseInTx(http.StatusConflict,
+					"task '"+t.ID+"' is in '"+t.Status+"', not '"+TaskStatusReadyForDone+
+						"' — every step has to be reported done before the task can be "+
+						"closed as done (or ask the owner or an admin agent for "+
+						"force_task_done)")
+			}
+			return nil
+		})
 }
 
-func (s *apiServer) callerMayMarkTaskDone(r *http.Request, t Task) bool {
-	acting := s.actingExecutorOf(t)
+func callerMayMarkTaskDone(member memberLookup, r *http.Request, t Task) bool {
+	acting := actingExecutorOf(member, t)
 	return acting != "" && currentActor(r) == acting
 }
 
 func (s *apiServer) HandleMarkTaskTerminatedApiTasksTaskIdMarkTerminatedPost(w http.ResponseWriter, r *http.Request, taskId string) {
-	t, err := s.resolveTask(taskId)
-	if err != nil {
-		writeResolveError(w, err, "task", taskId)
-		return
-	}
-	if ok, reason := s.callerMayTerminateTask(r, *t); !ok {
-		writeError(w, http.StatusForbidden, reason)
-		return
-	}
-	if TaskIsTerminal(t.Status) {
-		writeError(w, http.StatusConflict, taskAlreadyClosedRefusal(*t))
-		return
-	}
-	if err := s.closeTask(t, TaskStatusTerminated, nowSecs(), requestTrigger(r)); err != nil {
-		internalError(w, err)
-		return
-	}
-	s.writeTaskWriteReceipt(w, *t)
+	s.closeTask(w, r, taskId, TaskStatusTerminated,
+		func(member memberLookup, t Task) error {
+			if ok, reason := callerMayTerminateTask(member, r, t); !ok {
+				return refuseInTx(http.StatusForbidden, reason)
+			}
+			return nil
+		}, nil)
 }
 
 // Authz is the route floor only (routes.go: Gated(principalAdminAgent, …)) — no
@@ -873,22 +938,12 @@ func (s *apiServer) HandleForceTaskDoneApiTasksTaskIdForceDonePost(w http.Respon
 		return
 	}
 	reason := trimString(strOrEmpty(body.Reason))
-	t, err := s.resolveTask(taskId)
-	if err != nil {
-		writeResolveError(w, err, "task", taskId)
-		return
-	}
-	if TaskIsTerminal(t.Status) {
-		writeError(w, http.StatusConflict, taskAlreadyClosedRefusal(*t))
-		return
-	}
-	t.ForcedDoneBy = requestTrigger(r)
-	t.ForcedDoneReason = reason
-	if err := s.closeTask(t, TaskStatusDone, nowSecs(), requestTrigger(r)); err != nil {
-		internalError(w, err)
-		return
-	}
-	s.writeTaskWriteReceipt(w, *t)
+	s.closeTask(w, r, taskId, TaskStatusDone, nil,
+		func(_ sqlRowQuerier, t *Task) error {
+			t.ForcedDoneBy = requestTrigger(r)
+			t.ForcedDoneReason = reason
+			return nil
+		})
 }
 
 func (s *apiServer) HandleSetTaskPriorityApiTasksTaskIdPriorityPost(w http.ResponseWriter, r *http.Request, taskId string) {
@@ -907,7 +962,7 @@ func (s *apiServer) HandleSetTaskPriorityApiTasksTaskIdPriorityPost(w http.Respo
 		writeResolveError(w, err, "task", taskId)
 		return
 	}
-	if !s.callerMayDriveTask(r, *t) {
+	if !callerMayDriveTask(s.dal.GetMember, r, *t) {
 		writeError(w, http.StatusForbidden, taskActorRefusal)
 		return
 	}
@@ -1037,11 +1092,11 @@ func (s *apiServer) HandleReassignTaskApiTasksTaskIdReassignPost(w http.Response
 		writeResolveError(w, err, "task", taskId)
 		return
 	}
-	if !s.callerMayDriveTask(r, *t) {
+	if !callerMayDriveTask(s.dal.GetMember, r, *t) {
 		writeError(w, http.StatusForbidden, taskActorRefusal)
 		return
 	}
-	caller, err := s.taskCallerOf(r)
+	caller, err := taskCallerOf(s.dal.GetMember, r)
 	if err != nil {
 		internalError(w, err)
 		return
@@ -1089,11 +1144,6 @@ func (s *apiServer) HandleReassignTaskApiTasksTaskIdReassignPost(w http.Response
 		if m.Kind == KindWarden {
 			writeError(w, http.StatusBadRequest,
 				"target member '"+memberID+"' is a machine (warden) — machines never execute tasks")
-			return
-		}
-		if t.ExecutorKind == TaskExecutorStaff && t.ExecutorID == memberID {
-			writeError(w, http.StatusConflict,
-				"member '"+memberID+"' is already the task's executor")
 			return
 		}
 		newMember = m
@@ -1161,124 +1211,143 @@ func (s *apiServer) HandleReassignTaskApiTasksTaskIdReassignPost(w http.Response
 		}
 	}
 
-	if newMember != nil && newMember.ID == t.ReassignedFrom && s.predecessorHoldsTask(*t) {
-		displaced, displacedKind := t.ExecutorID, t.ExecutorKind
-		t.ExecutorKind = TaskExecutorStaff
-		t.ExecutorID = newMember.ID
-		t.OutsourceRuntime = RuntimeClaude
-		t.OutsourceModel, t.OutsourceEffort, t.OutsourceMachine = "", "", ""
-		t.OutsourceDispatched = false
-		t.Lock = TaskLockNone
-		steps, err := s.dal.ListTaskSteps(t.ID)
+	// From here on the task is judged as it stands inside the transaction that
+	// writes it: the row read above may since have been closed, handed back or
+	// re-pointed, and writing that copy back would undo it.
+	var saved Task
+	returned := false
+	var displaced, displacedKind string
+	var oldKind, oldExecutor, leaving, leavingKind, handingOver string
+	var expired []expiredReplyCard
+	err = s.dal.inTx(func(tx *sql.Tx) error {
+		t, err := openTaskToDriveOn(tx, r, taskId)
 		if err != nil {
-			internalError(w, err)
-			return
+			return err
 		}
-		t.Status = DeriveTaskStatus(steps)
+		member := membersOn(tx)
+		if newMember != nil && t.ExecutorKind == TaskExecutorStaff && t.ExecutorID == newMember.ID {
+			return refuseInTx(http.StatusConflict,
+				"member '"+newMember.ID+"' is already the task's executor")
+		}
+
+		if newMember != nil && newMember.ID == t.ReassignedFrom && predecessorHoldsTask(member, *t) {
+			returned = true
+			displaced, displacedKind = t.ExecutorID, t.ExecutorKind
+			t.ExecutorKind = TaskExecutorStaff
+			t.ExecutorID = newMember.ID
+			t.OutsourceRuntime = RuntimeClaude
+			t.OutsourceModel, t.OutsourceEffort, t.OutsourceMachine = "", "", ""
+			t.OutsourceDispatched = false
+			t.Lock = TaskLockNone
+			steps, err := listTaskStepsOn(tx, t.ID)
+			if err != nil {
+				return err
+			}
+			t.Status = DeriveTaskStatus(steps)
+			if note != "" {
+				t.HandoverNote = note
+				t.HandoverNoteTS = now
+				t.HandoverNoteBy = currentActor(r)
+			}
+			t.UpdatedTS = now
+			saved = *t
+			return putTaskOn(tx, *t, taskWriteUpsert)
+		}
+
+		oldKind, oldExecutor = t.ExecutorKind, t.ExecutorID
+		leaving, leavingKind = oldExecutor, oldKind
+		handingOver = oldExecutor
+		if underHandover(*t) {
+			oldKind, oldExecutor = t.ReassignedFromKind, t.ReassignedFrom
+			handingOver = ""
+			if predecessorHoldsTask(member, *t) {
+				handingOver = oldExecutor
+			}
+		}
+
+		if expired, err = expireWaitingCardsOfTaskOn(tx, t.ID, now); err != nil {
+			return err
+		}
+
+		steps, err := listTaskStepsOn(tx, t.ID)
+		if err != nil {
+			return err
+		}
+		for _, st := range steps {
+			if StepIsTerminal(st.Status) || st.Status == StepStatusPending {
+				continue
+			}
+			st.Status = StepStatusPending
+			// started_ts>0 is read system-wide as "ever entered in_progress" (migration
+			// 00028's Down relies on it), so a reset step must zero it.
+			st.StartedTS = 0
+			st.FinishedTS = 0
+			st.WaitingReason = ""
+			if err := putTaskStepOn(tx, st); err != nil {
+				return err
+			}
+		}
+
+		// Re-read the row: the card pass (the card-hold release) may have rewritten it.
+		if t, err = getTaskOn(tx, taskId); err != nil {
+			return err
+		}
+
+		if kind == TaskExecutorStaff {
+			t.ExecutorKind = TaskExecutorStaff
+			t.ExecutorID = newMember.ID
+			t.OutsourceRuntime = RuntimeClaude
+			t.OutsourceModel, t.OutsourceEffort, t.OutsourceMachine = "", "", ""
+			t.OutsourceDispatched = false
+		} else {
+			t.ExecutorKind = TaskExecutorOutsource
+			t.ExecutorID = ""
+			t.OutsourceRuntime = dispatch.Runtime
+			t.OutsourceModel = dispatch.Model
+			t.OutsourceEffort = dispatch.Effort
+			t.OutsourceMachine = dispatch.Machine
+			t.OutsourceDispatched = true
+		}
+		t.Lock = TaskLockReassigning
+		stepsAfterReset, err := listTaskStepsOn(tx, t.ID)
+		if err != nil {
+			return err
+		}
+		t.Status = DeriveTaskStatus(stepsAfterReset)
+		t.WaitingReason = ""
 		if note != "" {
 			t.HandoverNote = note
 			t.HandoverNoteTS = now
 			t.HandoverNoteBy = currentActor(r)
 		}
-		t.UpdatedTS = now
-		if err := s.dal.PutTask(*t); err != nil {
-			internalError(w, err)
-			return
+		if oldExecutor != "" {
+			t.ReassignedFrom = oldExecutor
+			t.ReassignedFromKind = oldKind
 		}
+		t.UpdatedTS = now
+		saved = *t
+		return putTaskOn(tx, *t, taskWriteUpsert)
+	})
+	if err != nil {
+		writeTxError(w, err)
+		return
+	}
+	s.announceExpiredReplyCards(expired, trigger)
+
+	if returned {
 		if displacedKind == TaskExecutorOutsource && displaced != "" {
 			s.dismissOutsourceWorkerByID(displaced, now, trigger)
 		}
-		s.publishTask(*t, trigger)
+		s.publishTask(saved, trigger)
 		if displaced != "" {
-			s.hub.Publish("task", "patch", "task", wireOwnerID+"::"+t.ID,
-				map[string]any{"id": t.ID, "status": t.Status, "priority": t.Priority},
+			s.hub.Publish("task", "patch", "task", wireOwnerID+"::"+saved.ID,
+				map[string]any{"id": saved.ID, "status": saved.Status, "priority": saved.Priority},
 				audienceMembers(displaced), trigger)
 		}
-		s.writeTaskWriteReceipt(w, *t)
+		s.writeTaskWriteReceipt(w, saved)
 		return
 	}
 
-	oldKind, oldExecutor := t.ExecutorKind, t.ExecutorID
-	leaving, leavingKind := oldExecutor, oldKind
-	handingOver := oldExecutor
-	if underHandover(*t) {
-		oldKind, oldExecutor = t.ReassignedFromKind, t.ReassignedFrom
-		handingOver = ""
-		if s.predecessorHoldsTask(*t) {
-			handingOver = oldExecutor
-		}
-	}
-
-	if _, err := s.expireWaitingCardsForTask(t.ID, now, trigger); err != nil {
-		internalError(w, err)
-		return
-	}
-
-	steps, err := s.dal.ListTaskSteps(t.ID)
-	if err != nil {
-		internalError(w, err)
-		return
-	}
-	for _, st := range steps {
-		if StepIsTerminal(st.Status) || st.Status == StepStatusPending {
-			continue
-		}
-		st.Status = StepStatusPending
-		// started_ts>0 is read system-wide as "ever entered in_progress" (migration
-		// 00028's Down relies on it), so a reset step must zero it.
-		st.StartedTS = 0
-		st.FinishedTS = 0
-		st.WaitingReason = ""
-		if err := s.dal.PutTaskStep(st); err != nil {
-			internalError(w, err)
-			return
-		}
-	}
-
-	// Re-read the row: the card pass (the card-hold release) may have rewritten it.
-	t, err = s.resolveTask(taskId)
-	if err != nil {
-		writeResolveError(w, err, "task", taskId)
-		return
-	}
-
-	if kind == TaskExecutorStaff {
-		t.ExecutorKind = TaskExecutorStaff
-		t.ExecutorID = newMember.ID
-		t.OutsourceRuntime = RuntimeClaude
-		t.OutsourceModel, t.OutsourceEffort, t.OutsourceMachine = "", "", ""
-		t.OutsourceDispatched = false
-	} else {
-		t.ExecutorKind = TaskExecutorOutsource
-		t.ExecutorID = ""
-		t.OutsourceRuntime = dispatch.Runtime
-		t.OutsourceModel = dispatch.Model
-		t.OutsourceEffort = dispatch.Effort
-		t.OutsourceMachine = dispatch.Machine
-		t.OutsourceDispatched = true
-	}
-	t.Lock = TaskLockReassigning
-	stepsAfterReset, err := s.dal.ListTaskSteps(t.ID)
-	if err != nil {
-		internalError(w, err)
-		return
-	}
-	t.Status = DeriveTaskStatus(stepsAfterReset)
-	t.WaitingReason = ""
-	if note != "" {
-		t.HandoverNote = note
-		t.HandoverNoteTS = now
-		t.HandoverNoteBy = currentActor(r)
-	}
-	if oldExecutor != "" {
-		t.ReassignedFrom = oldExecutor
-		t.ReassignedFromKind = oldKind
-	}
-	t.UpdatedTS = now
-	if err := s.dal.PutTask(*t); err != nil {
-		internalError(w, err)
-		return
-	}
 	// Nothing else reaps a displaced unclaimed successor: the handover reaper only
 	// dismisses the stamped predecessor.
 	if leaving != oldExecutor && leavingKind == TaskExecutorOutsource && leaving != "" {
@@ -1289,12 +1358,12 @@ func (s *apiServer) HandleReassignTaskApiTasksTaskIdReassignPost(w http.Response
 	if newMember != nil {
 		newExecutorID = newMember.ID
 	}
-	no := TaskNo(t.ID)
+	no := TaskNo(saved.ID)
 	if handingOver != "" {
 		if notice := s.taskNoticeText(docKindTaskReassignPredecessor, map[string]string{
 			"task_no": no,
 		}); notice != "" {
-			s.postTaskChat(*t, wireSystemSender, handingOver, notice, trigger, nil)
+			s.postTaskChat(saved, wireSystemSender, handingOver, notice, trigger, nil)
 		}
 	}
 	// The handover note is not pasted into either notice (owner ruling
@@ -1305,21 +1374,21 @@ func (s *apiServer) HandleReassignTaskApiTasksTaskIdReassignPost(w http.Response
 			predecessor = labelWithID(s.executorLabel(oldKind, handingOver), handingOver)
 		}
 		if notice := s.takeoverNoticeText(no, predecessor); notice != "" {
-			s.postTaskChat(*t, wireSystemSender, newExecutorID, notice, trigger, nil)
+			s.postTaskChat(saved, wireSystemSender, newExecutorID, notice, trigger, nil)
 		}
 	}
 
-	s.publishTask(*t, trigger)
-	if leaving != "" && leaving != t.ExecutorID {
-		s.hub.Publish("task", "patch", "task", wireOwnerID+"::"+t.ID,
-			map[string]any{"id": t.ID, "status": t.Status, "priority": t.Priority},
+	s.publishTask(saved, trigger)
+	if leaving != "" && leaving != saved.ExecutorID {
+		s.hub.Publish("task", "patch", "task", wireOwnerID+"::"+saved.ID,
+			map[string]any{"id": saved.ID, "status": saved.Status, "priority": saved.Priority},
 			audienceMembers(leaving), trigger)
 	}
 
 	if kind == TaskExecutorOutsource {
 		s.outsourceTickNow()
 	}
-	s.writeTaskWriteReceipt(w, *t)
+	s.writeTaskWriteReceipt(w, saved)
 }
 
 func (s *apiServer) HandleClaimTaskApiTasksTaskIdClaimPost(w http.ResponseWriter, r *http.Request, taskId string) {
@@ -1555,7 +1624,7 @@ func (s *apiServer) HandleCreateTaskApiTasksPost(w http.ResponseWriter, r *http.
 
 	// Before dedupe on purpose: a caller who may not create must never receive the
 	// existing task.
-	caller, err := s.taskCallerOf(r)
+	caller, err := taskCallerOf(s.dal.GetMember, r)
 	if err != nil {
 		internalError(w, err)
 		return
@@ -1678,7 +1747,7 @@ func (s *apiServer) HandleSubmitTaskPlanApiTasksTaskIdPlanPost(w http.ResponseWr
 		writeResolveError(w, err, "task", taskId)
 		return
 	}
-	if !s.callerMayDriveTask(r, *t) {
+	if !callerMayDriveTask(s.dal.GetMember, r, *t) {
 		writeError(w, http.StatusForbidden, taskActorRefusal)
 		return
 	}
@@ -1708,10 +1777,47 @@ func (s *apiServer) HandleSubmitTaskPlanApiTasksTaskIdPlanPost(w http.ResponseWr
 			IsGate:        isGate,
 		})
 	}
-	existing, err := s.dal.ListTaskSteps(t.ID)
+	now := nowSecs()
+	var saved Task
+	var steps []TaskStep
+	var arrived bool
+	err = s.dal.inTx(func(tx *sql.Tx) error {
+		t, err := openTaskToDriveOn(tx, r, taskId)
+		if err != nil {
+			return err
+		}
+		retainIDs, freezeIDs, add, err := planStepsOn(tx, t.ID, fresh)
+		if err != nil {
+			return err
+		}
+		if steps, err = replaceTaskStepsOn(tx, t.ID, retainIDs, freezeIDs, now, add); err != nil {
+			return err
+		}
+		if arrived, err = persistDerivedTaskOn(tx, t, now); err != nil {
+			return err
+		}
+		saved = *t
+		return nil
+	})
 	if err != nil {
-		internalError(w, err)
+		writeTxError(w, err)
 		return
+	}
+	s.announceDerivedTask(saved, arrived, requestTrigger(r))
+	done, total := TaskProgress(steps)
+	writeJSON(w, http.StatusOK, taskPlanReceiptDTO{
+		TaskID: saved.ID, StepsTotal: len(steps),
+		ProgressDone: done, ProgressTotal: total,
+	})
+}
+
+// planStepsOn decides submit_plan's rows from the plan as it stands in q: which
+// unfinished rows survive (a settled card keeps its question on the record) and
+// which submitted steps are new.
+func planStepsOn(q sqlReader, taskID string, fresh []TaskStep) (retainIDs, freezeIDs []string, add []TaskStep, err error) {
+	existing, err := listTaskStepsOn(q, taskID)
+	if err != nil {
+		return nil, nil, nil, err
 	}
 	// Dropped rows may still hold a waiting card; the card-hold release's step
 	// guards make its later answer a no-op on the removed step.
@@ -1721,7 +1827,6 @@ func (s *apiServer) HandleSubmitTaskPlanApiTasksTaskIdPlanPost(w http.ResponseWr
 	}
 	var kept []TaskStep
 	keptNames := map[string]bool{}
-	var retainIDs, freezeIDs []string
 	for _, st := range existing {
 		switch {
 		case st.Status == StepStatusDone:
@@ -1730,10 +1835,9 @@ func (s *apiServer) HandleSubmitTaskPlanApiTasksTaskIdPlanPost(w http.ResponseWr
 		case st.Status == StepStatusSuperseded:
 			kept = append(kept, st)
 		default:
-			settled, err := s.stepCardSettled(st)
+			settled, err := stepCardSettledOn(q, st)
 			if err != nil {
-				internalError(w, err)
-				return
+				return nil, nil, nil, err
 			}
 			if !settled {
 				continue
@@ -1747,42 +1851,23 @@ func (s *apiServer) HandleSubmitTaskPlanApiTasksTaskIdPlanPost(w http.ResponseWr
 			}
 		}
 	}
-	if len(keptNames) > 0 {
-		deduped := fresh[:0]
-		for _, st := range fresh {
-			if keptNames[st.Name] {
-				continue
-			}
-			deduped = append(deduped, st)
+	for _, st := range fresh {
+		if keptNames[st.Name] {
+			continue
 		}
-		fresh = deduped
+		add = append(add, st)
 	}
-	if len(kept)+len(fresh) == 0 {
-		writeError(w, http.StatusBadRequest,
+	if len(kept)+len(add) == 0 {
+		return nil, nil, nil, refuseInTx(http.StatusBadRequest,
 			"a plan must have at least one step")
-		return
 	}
-	timeline := make([]TaskStep, 0, len(kept)+len(fresh))
+	timeline := make([]TaskStep, 0, len(kept)+len(add))
 	timeline = append(timeline, kept...)
-	timeline = append(timeline, fresh...)
-	if msg := ValidatePlanParallelShape(timeline, fresh); msg != "" {
-		writeError(w, http.StatusBadRequest, msg)
-		return
+	timeline = append(timeline, add...)
+	if msg := ValidatePlanParallelShape(timeline, add); msg != "" {
+		return nil, nil, nil, refuseInTx(http.StatusBadRequest, msg)
 	}
-	steps, err := s.dal.ReplaceTaskSteps(t.ID, retainIDs, freezeIDs, nowSecs(), fresh)
-	if err != nil {
-		internalError(w, err)
-		return
-	}
-	if err := s.deriveAndPersistTask(t, nowSecs(), requestTrigger(r)); err != nil {
-		internalError(w, err)
-		return
-	}
-	done, total := TaskProgress(steps)
-	writeJSON(w, http.StatusOK, taskPlanReceiptDTO{
-		TaskID: t.ID, StepsTotal: len(steps),
-		ProgressDone: done, ProgressTotal: total,
-	})
+	return retainIDs, freezeIDs, add, nil
 }
 
 func (s *apiServer) HandleMarkTaskDuplicatedApiTasksTaskIdMarkDuplicatedPost(w http.ResponseWriter, r *http.Request, taskId string) {
@@ -1795,58 +1880,44 @@ func (s *apiServer) HandleMarkTaskDuplicatedApiTasksTaskIdMarkDuplicatedPost(w h
 		writeError(w, http.StatusUnprocessableEntity, "duplicate_of must not be blank")
 		return
 	}
-	t, err := s.resolveTask(taskId)
-	if err != nil {
-		writeResolveError(w, err, "task", taskId)
-		return
-	}
-	if !s.callerMayDriveTask(r, *t) {
-		writeError(w, http.StatusForbidden, taskActorRefusal)
-		return
-	}
-	if TaskIsTerminal(t.Status) {
-		writeError(w, http.StatusConflict, taskAlreadyClosedRefusal(*t))
-		return
-	}
-	if originalID == t.ID {
-		writeError(w, http.StatusConflict,
-			"a task cannot be marked a duplicate of itself")
-		return
-	}
-	original, err := s.dal.GetTask(originalID)
-	if err != nil {
-		internalError(w, err)
-		return
-	}
-	if original == nil {
-		writeError(w, http.StatusNotFound,
-			"duplicate_of task '"+originalID+"' not found")
-		return
-	}
-	if original.Status == TaskStatusDuplicated {
-		writeError(w, http.StatusConflict,
-			"duplicate_of task '"+originalID+"' is itself a duplicate; point at the "+
-				"final original it duplicates ("+original.DuplicateOf+")")
-		return
-	}
-	pointedAt, err := s.dal.CountTasksDuplicatingOriginal(t.ID)
-	if err != nil {
-		internalError(w, err)
-		return
-	}
-	if pointedAt > 0 {
-		writeError(w, http.StatusConflict,
-			"task '"+taskId+"' is already the original of another duplicate; it "+
-				"cannot itself be marked duplicated")
-		return
-	}
-	t.DuplicateOf = originalID
-	t.WaitingReason = ""
-	if err := s.closeTask(t, TaskStatusDuplicated, nowSecs(), requestTrigger(r)); err != nil {
-		internalError(w, err)
-		return
-	}
-	s.writeTaskWriteReceipt(w, *t)
+	s.closeTask(w, r, taskId, TaskStatusDuplicated,
+		func(member memberLookup, t Task) error {
+			if !callerMayDriveTask(member, r, t) {
+				return refuseInTx(http.StatusForbidden, taskActorRefusal)
+			}
+			return nil
+		},
+		func(q sqlRowQuerier, t *Task) error {
+			if originalID == t.ID {
+				return refuseInTx(http.StatusConflict,
+					"a task cannot be marked a duplicate of itself")
+			}
+			original, err := getTaskOn(q, originalID)
+			if err != nil {
+				return err
+			}
+			if original == nil {
+				return refuseInTx(http.StatusNotFound,
+					"duplicate_of task '"+originalID+"' not found")
+			}
+			if original.Status == TaskStatusDuplicated {
+				return refuseInTx(http.StatusConflict,
+					"duplicate_of task '"+originalID+"' is itself a duplicate; point at the "+
+						"final original it duplicates ("+original.DuplicateOf+")")
+			}
+			pointedAt, err := countTasksDuplicatingOriginalOn(q, t.ID)
+			if err != nil {
+				return err
+			}
+			if pointedAt > 0 {
+				return refuseInTx(http.StatusConflict,
+					"task '"+t.ID+"' is already the original of another duplicate; it "+
+						"cannot itself be marked duplicated")
+			}
+			t.DuplicateOf = originalID
+			t.WaitingReason = ""
+			return nil
+		})
 }
 
 func (s *apiServer) HandleUpdateTaskStepStatusApiTasksTaskIdStepsStepIdStatusPost(w http.ResponseWriter, r *http.Request, taskId string, stepId string) {
@@ -1865,7 +1936,7 @@ func (s *apiServer) HandleUpdateTaskStepStatusApiTasksTaskIdStepsStepIdStatusPos
 		writeResolveError(w, err, "task", taskId)
 		return
 	}
-	if !s.callerMayDriveTask(r, *t) {
+	if !callerMayDriveTask(s.dal.GetMember, r, *t) {
 		writeError(w, http.StatusForbidden, taskActorRefusal)
 		return
 	}
@@ -1988,7 +2059,7 @@ func prepareStepHeldByCardOn(
 			steps[i] = *step
 		}
 	}
-	// Not deriveAndPersistTask: a waiting_owner step always derives the task to
+	// Not rederiveTask: a waiting_owner step always derives the task to
 	// waiting_owner, so no ready_for_done arrival can happen here.
 	RecomputeTaskStatus(t, steps)
 	t.UpdatedTS = now
@@ -2005,7 +2076,7 @@ func (s *apiServer) HandleSetTaskDepsApiTasksTaskIdDepsPost(w http.ResponseWrite
 		writeResolveError(w, err, "task", taskId)
 		return
 	}
-	if !s.callerMayDriveTask(r, *t) {
+	if !callerMayDriveTask(s.dal.GetMember, r, *t) {
 		writeError(w, http.StatusForbidden, taskActorRefusal)
 		return
 	}

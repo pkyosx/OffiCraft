@@ -379,7 +379,7 @@ func TestCountOpenTasksOfType(t *testing.T) {
 
 func TestCountTasksDuplicatingOriginal(t *testing.T) {
 	d := newAPITestDAL(t)
-	got, err := d.CountTasksDuplicatingOriginal("T-1")
+	got, err := countTasksDuplicatingOriginalOn(d.rdb, "T-1")
 	if err != nil {
 		t.Fatalf("CountTasksDuplicatingOriginal before any duplicate: %v", err)
 	}
@@ -402,17 +402,17 @@ func TestCountTasksDuplicatingOriginal(t *testing.T) {
 	dalPutTask(t, d, elsewhere)
 
 	t.Run("a task that is already an original is named by its duplicates and by nobody else's", func(t *testing.T) {
-		got, err := d.CountTasksDuplicatingOriginal("T-1")
+		got, err := countTasksDuplicatingOriginalOn(d.rdb, "T-1")
 		if err != nil {
 			t.Fatalf("CountTasksDuplicatingOriginal: %v", err)
 		}
 		if got != 2 {
 			t.Fatalf("CountTasksDuplicatingOriginal(T-1): want 2, got %d", got)
 		}
-		if got, err = d.CountTasksDuplicatingOriginal("T-9"); err != nil || got != 1 {
+		if got, err = countTasksDuplicatingOriginalOn(d.rdb, "T-9"); err != nil || got != 1 {
 			t.Fatalf("CountTasksDuplicatingOriginal(T-9): want 1, got %d (%v)", got, err)
 		}
-		if got, err = d.CountTasksDuplicatingOriginal("T-2"); err != nil || got != 0 {
+		if got, err = countTasksDuplicatingOriginalOn(d.rdb, "T-2"); err != nil || got != 0 {
 			t.Fatalf("CountTasksDuplicatingOriginal(T-2): want 0, got %d (%v)", got, err)
 		}
 	})
@@ -1308,7 +1308,7 @@ func TestReplaceTaskPlan(t *testing.T) {
 			{ID: "st-new-1", Name: "draft the plan", DoD: "a plan exists"},
 			{ID: "st-new-2", Name: "run it", DoD: "it ran", Status: StepStatusInProgress},
 		}
-		got, err := d.ReplaceTaskSteps("T-1", nil, nil, 0, fresh)
+		got, err := replaceTaskStepsInTx(d, "T-1", nil, nil, 0, fresh)
 		if err != nil {
 			t.Fatalf("ReplaceTaskPlan: %v", err)
 		}
@@ -1336,7 +1336,7 @@ func TestReplaceTaskPlan(t *testing.T) {
 		kept := dalStepAt(t, d, "st-keep", "T-1", 1, StepStatusWaitingOwner)
 		dalStepAt(t, d, "st-drop", "T-1", 2, StepStatusPending)
 
-		got, err := d.ReplaceTaskSteps("T-1", []string{"st-keep"}, nil, 1800000000, nil)
+		got, err := replaceTaskStepsInTx(d, "T-1", []string{"st-keep"}, nil, 1800000000, nil)
 		if err != nil {
 			t.Fatalf("ReplaceTaskPlan: %v", err)
 		}
@@ -1354,7 +1354,7 @@ func TestReplaceTaskPlan(t *testing.T) {
 	t.Run("a frozen step becomes superseded stamped at the freeze moment, keeping its card and start", func(t *testing.T) {
 		d := newAPITestDAL(t)
 		frozen := dalStepAt(t, d, "st-frozen", "T-1", 0, StepStatusWaitingOwner)
-		got, err := d.ReplaceTaskSteps("T-1", nil, []string{"st-frozen"}, 1800000000, nil)
+		got, err := replaceTaskStepsInTx(d, "T-1", nil, []string{"st-frozen"}, 1800000000, nil)
 		if err != nil {
 			t.Fatalf("ReplaceTaskPlan: %v", err)
 		}
@@ -1373,7 +1373,7 @@ func TestReplaceTaskPlan(t *testing.T) {
 		dalStepAt(t, d, "st-2", "T-1", 1, StepStatusPending)
 		elsewhere := dalStepAt(t, d, "st-9", "T-2", 0, StepStatusPending)
 
-		got, err := d.ReplaceTaskSteps("T-1", nil, nil, 0, nil)
+		got, err := replaceTaskStepsInTx(d, "T-1", nil, nil, 0, nil)
 		if err != nil {
 			t.Fatalf("ReplaceTaskPlan: %v", err)
 		}
@@ -1388,7 +1388,7 @@ func TestReplaceTaskPlan(t *testing.T) {
 
 	t.Run("planning a task that had no plan simply lands the fresh steps", func(t *testing.T) {
 		d := newAPITestDAL(t)
-		got, err := d.ReplaceTaskSteps("T-1", nil, nil, 0, []TaskStep{{ID: "st-1", Name: "the only step"}})
+		got, err := replaceTaskStepsInTx(d, "T-1", nil, nil, 0, []TaskStep{{ID: "st-1", Name: "the only step"}})
 		if err != nil {
 			t.Fatalf("ReplaceTaskPlan: %v", err)
 		}
@@ -1403,7 +1403,7 @@ func TestReplaceTaskPlan(t *testing.T) {
 		live := dalStepAt(t, d, "st-live", "T-1", 0, StepStatusInProgress)
 		clash := dalStepAt(t, d, "st-taken", "T-2", 0, StepStatusPending)
 
-		_, err := d.ReplaceTaskSteps("T-1", nil, nil, 0, []TaskStep{
+		_, err := replaceTaskStepsInTx(d, "T-1", nil, nil, 0, []TaskStep{
 			{ID: "st-new", Name: "the one that would have landed"},
 			{ID: "st-taken", Name: "the one that collides"},
 		})
@@ -1418,7 +1418,7 @@ func TestReplaceTaskPlan(t *testing.T) {
 		if ids := dalStepIDs(t, d); !reflect.DeepEqual(ids, []string{"st-live", "st-taken"}) {
 			t.Fatalf("the stored steps after the rollback: got %v", ids)
 		}
-		if _, err := d.ReplaceTaskSteps("T-1", nil, nil, 0, nil); err != nil {
+		if _, err := replaceTaskStepsInTx(d, "T-1", nil, nil, 0, nil); err != nil {
 			t.Fatalf("the write pool is wedged after the rollback: %v", err)
 		}
 	})
@@ -2274,4 +2274,15 @@ func dalManualHistoryCount(t *testing.T, d *DAL, documentKey string) int {
 
 func replaceTaskDepsInTx(d *DAL, taskID string, blockedBy []string) error {
 	return d.inTx(func(tx *sql.Tx) error { return replaceTaskDepsOn(tx, taskID, blockedBy) })
+}
+
+func replaceTaskStepsInTx(d *DAL, taskID string, retain, supersede []string,
+	supersededTS float64, newSteps []TaskStep) ([]TaskStep, error) {
+	var out []TaskStep
+	err := d.inTx(func(tx *sql.Tx) error {
+		var err error
+		out, err = replaceTaskStepsOn(tx, taskID, retain, supersede, supersededTS, newSteps)
+		return err
+	})
+	return out, err
 }

@@ -376,7 +376,7 @@ func (s *apiServer) HandleCreateReplyCardApiReplyCardsPost(w http.ResponseWriter
 			writeResolveError(w, err, "task", taskID)
 			return
 		}
-		if !s.callerMayDriveTask(r, *t) {
+		if !callerMayDriveTask(s.dal.GetMember, r, *t) {
 			writeError(w, http.StatusForbidden, taskActorRefusal)
 			return
 		}
@@ -787,6 +787,43 @@ func (s *apiServer) expireWaitingCards(pick func(ReplyCard) bool, now float64, t
 }
 
 var errReplyCardSettledMeanwhile = errors.New("reply card no longer waiting")
+
+type expiredReplyCard struct {
+	card ReplyCard
+	rel  cardHoldRelease
+}
+
+// expireWaitingCardsOfTaskOn is the task sweep for a caller whose own writes
+// share the transaction: the expiries and their hold releases commit or roll back
+// with them, and the caller announces them after commit
+// (announceExpiredReplyCards).
+func expireWaitingCardsOfTaskOn(tx *sql.Tx, taskID string, now float64) ([]expiredReplyCard, error) {
+	cards, err := listWaitingReplyCardsOfTaskOn(tx, taskID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]expiredReplyCard, 0, len(cards))
+	for _, c := range cards {
+		c.Status = replyCardStatusExpired
+		c.ExpiredTS = now
+		rel, err := planCardHoldReleaseOn(tx, c, now)
+		if err != nil {
+			return nil, err
+		}
+		if err := putReplyCardWithStepAndTaskOn(tx, c, nil, rel.step, rel.task); err != nil {
+			return nil, err
+		}
+		out = append(out, expiredReplyCard{card: c, rel: rel})
+	}
+	return out, nil
+}
+
+func (s *apiServer) announceExpiredReplyCards(cards []expiredReplyCard, trigger string) {
+	for _, e := range cards {
+		s.publishReplyCard(e.card, trigger)
+		s.announceCardHoldRelease(e.rel, trigger)
+	}
+}
 
 func (s *apiServer) expireWaitingCardsForTask(taskID string, now float64, trigger string) (int, error) {
 	if taskID == "" {

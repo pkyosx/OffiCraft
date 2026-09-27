@@ -568,10 +568,10 @@ var authzOutsideRouteTable = map[string]string{
 		"T-23cf reassign matrix: an 外包 worker may not be reassigned like 正職.",
 	"api_tasks.go :: HandleReassignTaskApiTasksTaskIdReassignPost :: m.Kind == KindWarden": "" +
 		"T-23cf reassign matrix: a warden is never a task executor.",
-	"api_tasks.go :: callerMayDriveTask :: principalAtLeast(s.principalOfRequest(r), principalAdminAgent)": "" +
+	"api_tasks.go :: callerMayDriveTask :: principalAtLeast(resolvePrincipal(claimsFromContext(r.Context()), member), principalAdminAgent)": "" +
 		"admin+ may drive ANY task; below that only the task's own executor may — a " +
 		"caller-vs-resource comparison, not expressible as a route floor.",
-	"api_tasks.go :: callerMayDriveTask :: currentActor(r) == s.actingExecutorOf(t)": "" +
+	"api_tasks.go :: callerMayDriveTask :: currentActor(r) == actingExecutorOf(member, t)": "" +
 		"the self half of the same rule: the task's acting executor drives it — the " +
 		"executor, or while the `reassigning` lock is on the stamped predecessor as " +
 		"long as it is still on the roster, and nobody once it has left (owner " +

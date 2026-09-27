@@ -179,8 +179,10 @@ func (d *DAL) ListMembers() ([]Member, error) {
 	return out, rows.Err()
 }
 
-func (d *DAL) GetMember(id string) (*Member, error) {
-	row := d.rdb.QueryRow(`SELECT `+memberColumns+` FROM member WHERE id = ?`, id)
+func (d *DAL) GetMember(id string) (*Member, error) { return getMemberOn(d.rdb, id) }
+
+func getMemberOn(q sqlRowQuerier, id string) (*Member, error) {
+	row := q.QueryRow(`SELECT `+memberColumns+` FROM member WHERE id = ?`, id)
 	m, err := scanMember(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
@@ -1643,6 +1645,24 @@ func (d *DAL) ListReplyCards() ([]ReplyCard, error) {
 }
 
 func (d *DAL) GetReplyCard(id string) (*ReplyCard, error) { return getReplyCardOn(d.rdb, id) }
+
+func listWaitingReplyCardsOfTaskOn(q sqlQuerier, taskID string) ([]ReplyCard, error) {
+	rows, err := q.Query(`SELECT `+replyCardColumns+` FROM reply_card
+		WHERE task_id = ? AND status = ? ORDER BY created_ts`, taskID, replyCardStatusWaiting)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ReplyCard
+	for rows.Next() {
+		c, err := scanReplyCard(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
 
 func getReplyCardOn(q sqlRowQuerier, id string) (*ReplyCard, error) {
 	row := q.QueryRow(

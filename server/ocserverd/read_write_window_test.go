@@ -4,11 +4,15 @@ import (
 	"context"
 	"database/sql"
 	"database/sql/driver"
+	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 // The paths below read a task, decide from it, and write the whole row back.
@@ -682,5 +686,430 @@ func windowWantNoCards(t *testing.T, d *DAL) {
 	}
 	if cards != 0 || chats != 0 {
 		t.Fatalf("want no card and no companion message, got %d cards and %d messages", cards, chats)
+	}
+}
+
+// execAfterRead is closeTaskAfterRead for any write: stmt runs through a third
+// connection once the handler has read the row it decides from.
+func (h *windowHook) execAfterRead(t *testing.T, path, armAfter, stmt string, args ...any) {
+	t.Helper()
+	other, err := sql.Open("sqlite", sqliteWriteDSN(path))
+	if err != nil {
+		t.Fatalf("open third connection: %v", err)
+	}
+	t.Cleanup(func() { other.Close() })
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.armAfter = armAfter
+	h.fire = func() {
+		if _, err := other.Exec(stmt, args...); err != nil {
+			t.Errorf("write behind the handler: %v", err)
+		}
+	}
+}
+
+func windowPlanStep(id, taskID string, orderIdx int) TaskStep {
+	step := windowPendingStep(id, taskID)
+	step.OrderIdx = orderIdx
+	step.ParallelGroup = ""
+	step.IsGate = false
+	return step
+}
+
+func windowPutSteps(t *testing.T, d *DAL, steps ...TaskStep) {
+	t.Helper()
+	for _, st := range steps {
+		if err := d.PutTaskStep(st); err != nil {
+			t.Fatalf("PutTaskStep(%s): %v", st.ID, err)
+		}
+	}
+}
+
+func windowWantSteps(t *testing.T, d *DAL, taskID string, want ...TaskStep) {
+	t.Helper()
+	got, err := d.ListTaskSteps(taskID)
+	if err != nil {
+		t.Fatalf("ListTaskSteps: %v", err)
+	}
+	if want == nil {
+		want = []TaskStep{}
+	}
+	if got == nil {
+		got = []TaskStep{}
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("steps of %s:\n got %+v\nwant %+v", taskID, got, want)
+	}
+}
+
+// windowBoundWorker is an outsource worker bound to the task, as the scheduler
+// leaves one: a close releases it.
+func windowBoundWorker(t *testing.T, d *DAL, taskID string) {
+	t.Helper()
+	if err := d.PutOutsourceWorker(OutsourceWorker{
+		ID: "ow-abc123", Codename: "Contractor", TaskID: taskID, Status: WorkerStatusAssigned,
+		Runtime: "claude", Model: "sonnet", Effort: "medium",
+	}); err != nil {
+		t.Fatalf("PutOutsourceWorker: %v", err)
+	}
+}
+
+func windowWantWorkerStatus(t *testing.T, d *DAL, id, want string) {
+	t.Helper()
+	w, err := d.GetOutsourceWorker(id)
+	if err != nil || w == nil {
+		t.Fatalf("GetOutsourceWorker(%q): %#v, %v", id, w, err)
+	}
+	if w.Status != want {
+		t.Fatalf("worker %s: status %q, want %q", id, w.Status, want)
+	}
+}
+
+// windowTaskCard is a waiting card bound to the task but to no step.
+func windowTaskCard(t *testing.T, d *DAL, taskID string) {
+	t.Helper()
+	if err := d.PutReplyCard(ReplyCard{
+		ID: "rc-1", FromMember: apiTestPlainAgentID, Kind: replyCardKindDecision,
+		Summary: "which yard", Options: []ReplyCardOption{{Text: "north"}, {Text: "south"}},
+		SelectMode: replyCardSelectModeSingle, Status: replyCardStatusWaiting,
+		CreatedTS: 1700000100, ChatMessageID: "c-1", TaskID: taskID,
+	}); err != nil {
+		t.Fatalf("PutReplyCard: %v", err)
+	}
+}
+
+type windowCloseDoor struct {
+	name, path, body string
+	status           string // the status the door closes to
+	agent            bool   // driven by kip, the task's executor, instead of the owner
+	openAs           string // the open status the door accepts
+}
+
+var windowCloseDoors = []windowCloseDoor{
+	{name: "mark done", path: "/api/tasks/T-1/mark-done", status: TaskStatusDone,
+		agent: true, openAs: TaskStatusReadyForDone},
+	{name: "terminate", path: "/api/tasks/T-1/mark-terminated", status: TaskStatusTerminated,
+		openAs: TaskStatusInProgress},
+	{name: "force done", path: "/api/tasks/T-1/force-done", body: `{}`, status: TaskStatusDone,
+		openAs: TaskStatusInProgress},
+	{name: "duplicated", path: "/api/tasks/T-1/mark-duplicated", body: `{"duplicate_of":"T-2"}`,
+		status: TaskStatusDuplicated, openAs: TaskStatusInProgress},
+}
+
+func TestClosingATaskDecidesFromTheRowItWrites(t *testing.T) {
+	for _, door := range windowCloseDoors {
+		for _, shape := range windowDALShapes {
+			t.Run(door.name+", "+shape+": a task closed after the handler read it stays closed", func(t *testing.T) {
+				d, hook, path := windowDAL(t, shape)
+				api, h, _, token := newAPITestServerOn(t, d)
+				if door.agent {
+					token = apiTestAgentToken(t, api, apiTestPlainAgentID, "")
+				}
+				open := windowOpenTask("T-1")
+				open.Status = door.openAs
+				task := dalPutTask(t, d, open)
+				dalPutTask(t, d, windowOpenTask("T-2"))
+				dashboard := apiTestListen(t, api, "")
+				hook.closeTaskAfterRead(t, path, task.ID, "FROM task WHERE id")
+
+				status, data := apiJSON(t, h, "POST", door.path, token, door.body)
+
+				hook.wantFiredOnce(t)
+				if status != http.StatusConflict {
+					t.Fatalf("want 409, got %d (%v)", status, data)
+				}
+				apiWantError(t, data, "conflict", "task 'T-1' is already closed (done)")
+				dalWantTask(t, d, windowClosed(task))
+				dashboard.wantFrames()
+			})
+		}
+
+		t.Run(door.name+": a close that fails to land releases no worker, retires no card and fans nothing", func(t *testing.T) {
+			d, _, _ := windowDAL(t, "split pools")
+			api, h, _, token := newAPITestServerOn(t, d)
+			if door.agent {
+				token = apiTestAgentToken(t, api, apiTestPlainAgentID, "")
+			}
+			open := windowOpenTask("T-1")
+			open.Status = door.openAs
+			task := dalPutTask(t, d, open)
+			dalPutTask(t, d, windowOpenTask("T-2"))
+			windowBoundWorker(t, d, task.ID)
+			windowTaskCard(t, d, task.ID)
+			windowRefuseTaskWrites(t, d)
+			dashboard := apiTestListen(t, api, "")
+
+			status, data := apiJSON(t, h, "POST", door.path, token, door.body)
+
+			if status != http.StatusInternalServerError {
+				t.Fatalf("want 500, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "internal_error", windowTaskWriteFails)
+			dalWantTask(t, d, task)
+			windowWantWorkerStatus(t, d, "ow-abc123", WorkerStatusAssigned)
+			windowWantCardStatus(t, d, "rc-1", replyCardStatusWaiting)
+			dashboard.wantFrames()
+		})
+	}
+}
+
+func TestReassigningATaskDecidesFromTheRowItWrites(t *testing.T) {
+	const toMira = `{"target":{"kind":"staff","member_id":"mira"}}`
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": a task closed after the handler read it stays closed", func(t *testing.T) {
+			d, hook, path := windowDAL(t, shape)
+			api, h, _, owner := newAPITestServerOn(t, d)
+			task := dalPutTask(t, d, windowOpenTask("T-1"))
+			step := windowPlanStep("ts-1", task.ID, 0)
+			step.Status = StepStatusInProgress
+			step.StartedTS = 1700000001
+			windowPutSteps(t, d, step)
+			dashboard := apiTestListen(t, api, "")
+			hook.closeTaskAfterRead(t, path, task.ID, "FROM task WHERE id")
+
+			status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/reassign", owner, toMira)
+
+			hook.wantFiredOnce(t)
+			if status != http.StatusConflict {
+				t.Fatalf("want 409, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "conflict", "task 'T-1' is already closed (done)")
+			dalWantTask(t, d, windowClosed(task))
+			windowWantSteps(t, d, task.ID, step)
+			dashboard.wantFrames()
+		})
+	}
+
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": a task handed to the same member after the handler read it is not handed over twice", func(t *testing.T) {
+			d, hook, path := windowDAL(t, shape)
+			api, h, _, owner := newAPITestServerOn(t, d)
+			task := dalPutTask(t, d, windowOpenTask("T-1"))
+			dashboard := apiTestListen(t, api, "")
+			hook.execAfterRead(t, path, "FROM task WHERE id",
+				`UPDATE task SET executor_id = 'mira', updated_ts = 1800000000 WHERE id = ?`, task.ID)
+
+			status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/reassign", owner, toMira)
+
+			hook.wantFiredOnce(t)
+			if status != http.StatusConflict {
+				t.Fatalf("want 409, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "conflict", "member 'mira' is already the task's executor")
+			want := task
+			want.ExecutorID = "mira"
+			want.UpdatedTS = 1800000000
+			dalWantTask(t, d, want)
+			dashboard.wantFrames()
+		})
+	}
+
+	t.Run("a task write that fails takes the card expiry and the step reset back with it", func(t *testing.T) {
+		d, _, _ := windowDAL(t, "split pools")
+		api, h, _, owner := newAPITestServerOn(t, d)
+		task, step, _ := windowHeldCard(t, d)
+		windowRefuseTaskWrites(t, d)
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/reassign", owner, toMira)
+
+		if status != http.StatusInternalServerError {
+			t.Fatalf("want 500, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "internal_error", windowTaskWriteFails)
+		windowWantCardStatus(t, d, "rc-1", replyCardStatusWaiting)
+		windowWantStep(t, d, step)
+		dalWantTask(t, d, task)
+		dashboard.wantFrames()
+	})
+}
+
+type windowPlanDoor struct {
+	name, path, body string
+}
+
+var windowPlanDoors = []windowPlanDoor{
+	{"submit plan", "/api/tasks/T-1/plan", `{"steps":[{"name":"ship the crate","dod":"the crate is on the truck"}]}`},
+	{"insert step", "/api/tasks/T-1/steps", `{"name":"ship the crate","dod":"the crate is on the truck"}`},
+	{"delete step", "/api/tasks/T-1/steps/ts-2/delete", ``},
+	{"reorder steps", "/api/tasks/T-1/steps/reorder", `{"step_ids":["ts-2","ts-1"]}`},
+}
+
+func TestEditingAPlanDecidesFromTheRowItWrites(t *testing.T) {
+	for _, door := range windowPlanDoors {
+		for _, shape := range windowDALShapes {
+			t.Run(door.name+", "+shape+": a task closed after the handler read it stays closed", func(t *testing.T) {
+				d, hook, path := windowDAL(t, shape)
+				api, h, _, owner := newAPITestServerOn(t, d)
+				task := dalPutTask(t, d, windowOpenTask("T-1"))
+				first, second := windowPlanStep("ts-1", task.ID, 0), windowPlanStep("ts-2", task.ID, 1)
+				windowPutSteps(t, d, first, second)
+				dashboard := apiTestListen(t, api, "")
+				hook.closeTaskAfterRead(t, path, task.ID, "FROM task WHERE id")
+
+				status, data := apiJSON(t, h, "POST", door.path, owner, door.body)
+
+				hook.wantFiredOnce(t)
+				if status != http.StatusConflict {
+					t.Fatalf("want 409, got %d (%v)", status, data)
+				}
+				apiWantError(t, data, "conflict", "task 'T-1' is already closed (done)")
+				dalWantTask(t, d, windowClosed(task))
+				windowWantSteps(t, d, task.ID, first, second)
+				dashboard.wantFrames()
+			})
+		}
+
+		t.Run(door.name+": a task write that fails takes the step writes back with it", func(t *testing.T) {
+			d, _, _ := windowDAL(t, "split pools")
+			api, h, _, owner := newAPITestServerOn(t, d)
+			task := dalPutTask(t, d, windowOpenTask("T-1"))
+			first, second := windowPlanStep("ts-1", task.ID, 0), windowPlanStep("ts-2", task.ID, 1)
+			windowPutSteps(t, d, first, second)
+			windowRefuseTaskWrites(t, d)
+			dashboard := apiTestListen(t, api, "")
+
+			status, data := apiJSON(t, h, "POST", door.path, owner, door.body)
+
+			if status != http.StatusInternalServerError {
+				t.Fatalf("want 500, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "internal_error", windowTaskWriteFails)
+			dalWantTask(t, d, task)
+			windowWantSteps(t, d, task.ID, first, second)
+			dashboard.wantFrames()
+		})
+	}
+}
+
+// dismissOutsourceWorkerByID retires the worker's waiting cards while it holds
+// outsourceMu, and each retirement is a transaction. Anything on that path that
+// takes outsourceMu again (inside the transaction or not) never returns: the
+// lock is not re-entrant, and on the one-connection DAL the transaction also
+// holds the only connection. The request runs on its own goroutine under a
+// deadline so that mistake fails here by name instead of as a suite timeout.
+func TestDismissingAWorkerThatStillHasAWaitingCard(t *testing.T) {
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": claiming a task handed over from the worker retires its card", func(t *testing.T) {
+			d, _, _ := windowDAL(t, shape)
+			api, h, _, owner := newAPITestServerOn(t, d)
+			task := windowOpenTask("T-1")
+			task.Lock = TaskLockReassigning
+			task.ExecutorID = "mira"
+			task.ReassignedFrom = "ow-abc123"
+			task.ReassignedFromKind = TaskExecutorOutsource
+			dalPutTask(t, d, task)
+			windowBoundWorker(t, d, task.ID)
+			if err := d.PutReplyCard(ReplyCard{
+				ID: "rc-1", FromMember: "ow-abc123", Kind: replyCardKindDecision,
+				Summary: "which yard", Options: []ReplyCardOption{{Text: "north"}, {Text: "south"}},
+				SelectMode: replyCardSelectModeSingle, Status: replyCardStatusWaiting,
+				CreatedTS: 1700000100, ChatMessageID: "c-1",
+			}); err != nil {
+				t.Fatalf("PutReplyCard: %v", err)
+			}
+			dashboard := apiTestListen(t, api, "")
+
+			answered := make(chan *httptest.ResponseRecorder, 1)
+			go func() { answered <- apiRequest(t, h, "POST", "/api/tasks/T-1/claim", owner, "") }()
+			var rec *httptest.ResponseRecorder
+			select {
+			case rec = <-answered:
+			case <-time.After(10 * time.Second):
+				t.Fatalf("the claim did not answer within 10s: the worker dismissal waits on a lock " +
+					"or a connection it already holds")
+			}
+
+			if rec.Code != http.StatusOK {
+				t.Fatalf("want 200, got %d (%s)", rec.Code, rec.Body.String())
+			}
+			var body map[string]any
+			if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+				t.Fatalf("decode %s: %v", rec.Body.String(), err)
+			}
+			apiWantBody(t, body, map[string]any{
+				"task_id": "T-1", "title": "reconcile the yard ledger", "status": "in_progress",
+				"executor_id": "mira", "executor_kind": "staff", "lock": "", "closed_ts": nil,
+				"duplicate_of": "", "deps": []any{}, "progress_done": 0, "progress_total": 0,
+				"artifact_count": 0, "description_size_chars": 24,
+				"description_sha256": "477b16cea9a02abf3dd077a4bf3d2e6aa496fe22559806609fe817aadf3125ef",
+			})
+			windowWantCardStatus(t, d, "rc-1", replyCardStatusExpired)
+			windowWantWorkerStatus(t, d, "ow-abc123", WorkerStatusReleased)
+			dashboard.wantFrames(
+				map[string]any{
+					"seq": 1, "topic": "task", "op": "patch",
+					"data": map[string]any{
+						"entity": "task", "key": "owner::T-1", "epoch": 1, "deleted": false,
+						"payload": map[string]any{"id": "T-1", "priority": "high", "status": "in_progress"},
+					},
+					"ts": apiAnyNumber, "trigger": "owner",
+				},
+				map[string]any{
+					"seq": 2, "topic": "member", "op": "remove",
+					"data": map[string]any{
+						"entity": "member", "key": "owner::ow-abc123", "epoch": 2, "deleted": true, "payload": nil,
+					},
+					"ts": apiAnyNumber, "trigger": "owner",
+				},
+				map[string]any{
+					"seq": 3, "topic": "reply_card", "op": "patch",
+					"data": map[string]any{
+						"entity": "reply_card", "key": "owner::rc-1", "epoch": 3, "deleted": false,
+						"payload": map[string]any{"id": "rc-1", "from": "ow-abc123", "status": "expired"},
+					},
+					"ts": apiAnyNumber, "trigger": "owner",
+				},
+			)
+		})
+	}
+}
+
+// The authz half: the executor re-pointed after the handler read the row takes
+// the caller's right to drive the task with it.
+func TestTheDoorsJudgeTheCallerOnTheRowTheyWrite(t *testing.T) {
+	type door struct{ name, path, body string }
+	doors := []door{
+		{"mark done", "/api/tasks/T-1/mark-done", ``},
+		{"terminate", "/api/tasks/T-1/mark-terminated", ``},
+		{"duplicated", "/api/tasks/T-1/mark-duplicated", `{"duplicate_of":"T-2"}`},
+		{"reassign", "/api/tasks/T-1/reassign", `{"target":{"kind":"outsource"}}`},
+	}
+	for _, p := range windowPlanDoors {
+		doors = append(doors, door{p.name, p.path, p.body})
+	}
+	for _, dr := range doors {
+		for _, shape := range windowDALShapes {
+			t.Run(dr.name+", "+shape+": a task handed to someone else after the handler read it refuses its old executor", func(t *testing.T) {
+				d, hook, path := windowDAL(t, shape)
+				api, h, _, _ := newAPITestServerOn(t, d)
+				kip := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
+				open := windowOpenTask("T-1")
+				if dr.name == "mark done" {
+					open.Status = TaskStatusReadyForDone
+				}
+				task := dalPutTask(t, d, open)
+				dalPutTask(t, d, windowOpenTask("T-2"))
+				first, second := windowPlanStep("ts-1", task.ID, 0), windowPlanStep("ts-2", task.ID, 1)
+				windowPutSteps(t, d, first, second)
+				dashboard := apiTestListen(t, api, "")
+				hook.execAfterRead(t, path, "FROM task WHERE id",
+					`UPDATE task SET executor_id = 'mira', updated_ts = 1800000000 WHERE id = ?`, task.ID)
+
+				status, data := apiJSON(t, h, "POST", dr.path, kip, dr.body)
+
+				hook.wantFiredOnce(t)
+				if status != http.StatusForbidden {
+					t.Fatalf("want 403, got %d (%v)", status, data)
+				}
+				apiWantError(t, data, "forbidden", "caller is not the task's executor")
+				want := task
+				want.ExecutorID = "mira"
+				want.UpdatedTS = 1800000000
+				dalWantTask(t, d, want)
+				windowWantSteps(t, d, task.ID, first, second)
+				dashboard.wantFrames()
+			})
+		}
 	}
 }
