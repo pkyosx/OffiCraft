@@ -318,7 +318,45 @@ func (s *apiServer) HandleDeleteRoleApiRolesRoleDelete(w http.ResponseWriter, r 
 			"role '"+role+"' is a built-in seed role and cannot be deleted")
 		return
 	}
-	if _, err := s.roleDeletionMembers(s.dal.rdb, role); err != nil {
+	// roleMembers answers the role's members, or the 404 / 409 that refuses the
+	// deletion.
+	roleMembers := func(q sqlReader) ([]Member, error) {
+		overlay, err := getRoleDefOn(q, role)
+		if err != nil {
+			return nil, err
+		}
+		if overlay == nil || overlay.Tombstoned {
+			return nil, refuseInTx(http.StatusNotFound, "role '"+role+"' not found")
+		}
+		all, err := listMembersOn(q)
+		if err != nil {
+			return nil, err
+		}
+		var members []Member
+		var live []string
+		for _, m := range all {
+			if m.RoleKey != role {
+				continue
+			}
+			members = append(members, m)
+			if m.RosterStatus == RosterStatusActive && s.hub.IsOnline(m.ID) {
+				live = append(live, m.ID)
+			}
+		}
+		if len(live) > 0 {
+			sort.Strings(live)
+			msg := "role '" + role + "' has online member(s): "
+			for i, id := range live {
+				if i > 0 {
+					msg += ", "
+				}
+				msg += id
+			}
+			return nil, refuseInTx(http.StatusConflict, msg+" — stop them before deleting")
+		}
+		return members, nil
+	}
+	if _, err := roleMembers(s.dal.rdb); err != nil {
 		writeTxError(w, err)
 		return
 	}
@@ -331,7 +369,7 @@ func (s *apiServer) HandleDeleteRoleApiRolesRoleDelete(w http.ResponseWriter, r 
 	var removed []removedMember
 	deletedMsgs, deletedAtts, deletedReads, deletedInsight := 0, 0, 0, 0
 	err := s.dal.inTx(func(tx *writeTx) error {
-		members, err := s.roleDeletionMembers(tx, role)
+		members, err := roleMembers(tx)
 		if err != nil {
 			return err
 		}
@@ -391,43 +429,4 @@ func (s *apiServer) HandleDeleteRoleApiRolesRoleDelete(w http.ResponseWriter, r 
 		DeletedChatAttachments: deletedAtts,
 		DeletedChatReads:       deletedReads,
 	})
-}
-
-// roleDeletionMembers answers the role's members, or the 404 / 409 that
-// refuses the deletion.
-func (s *apiServer) roleDeletionMembers(q sqlReader, role string) ([]Member, error) {
-	overlay, err := getRoleDefOn(q, role)
-	if err != nil {
-		return nil, err
-	}
-	if overlay == nil || overlay.Tombstoned {
-		return nil, refuseInTx(http.StatusNotFound, "role '"+role+"' not found")
-	}
-	all, err := listMembersOn(q)
-	if err != nil {
-		return nil, err
-	}
-	var members []Member
-	var live []string
-	for _, m := range all {
-		if m.RoleKey != role {
-			continue
-		}
-		members = append(members, m)
-		if m.RosterStatus == RosterStatusActive && s.hub.IsOnline(m.ID) {
-			live = append(live, m.ID)
-		}
-	}
-	if len(live) > 0 {
-		sort.Strings(live)
-		msg := "role '" + role + "' has online member(s): "
-		for i, id := range live {
-			if i > 0 {
-				msg += ", "
-			}
-			msg += id
-		}
-		return nil, refuseInTx(http.StatusConflict, msg+" — stop them before deleting")
-	}
-	return members, nil
 }

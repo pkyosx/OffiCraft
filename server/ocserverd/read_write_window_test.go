@@ -1322,3 +1322,174 @@ func windowRefuse(t *testing.T, d *DAL, name, event, what string) {
 func windowRefusal(what string) string {
 	return "internal error: constraint failed: " + what + " (1811)"
 }
+
+// A lifecycle door re-reads the member row inside the transaction that writes
+// it, and lands the wind-down anchors, the whole row and any receipt or setter
+// together. The window closes on the row (dismissed, or a worker released,
+// behind the handler); the failure makes the whole-row write die after the
+// anchor write has already run in the same transaction.
+type windowMemberDoor struct {
+	name, method, path, body string
+	worker                   bool // the target is ow-abc123 rather than kip
+	self                     bool // driven by the target's own credential
+	live                     bool // the target's session is connected
+	prepare                  string
+}
+
+var windowMemberDoors = []windowMemberDoor{
+	{name: "update", method: "PATCH", path: "/api/members/kip", body: `{"model":"claude-opus-5"}`},
+	{name: "activate", method: "POST", path: "/api/members/kip/activate", body: `{}`},
+	{name: "relocate", method: "POST", path: "/api/members/kip/relocate", body: `{"machine_id":"m-server-self"}`},
+	{name: "deactivate", method: "POST", path: "/api/members/kip/deactivate", body: `{}`},
+	{name: "force stop", method: "POST", path: "/api/members/kip/force-stop", body: `{}`},
+	{name: "accelerated stop", method: "POST", path: "/api/members/kip/accelerated-stop", body: `{}`, live: true,
+		prepare: `UPDATE member SET desired_state = 'offline', stopping_since = 1700000000 WHERE id = 'kip'`},
+	{name: "refocus", method: "POST", path: "/api/members/kip/refocus", body: `{}`, live: true,
+		prepare: `UPDATE member SET desired_state = 'online' WHERE id = 'kip'`},
+	{name: "report waking", method: "POST", path: "/api/self/waking", body: `{}`, self: true},
+	{name: "report stopping", method: "POST", path: "/api/self/stopping", body: `{}`, self: true},
+	{name: "report stopped", method: "POST", path: "/api/self/stopped", body: `{}`, self: true},
+	{name: "restart self", method: "POST", path: "/api/self/refocus", body: `{}`, self: true, live: true,
+		prepare: `UPDATE member SET desired_state = 'online' WHERE id = 'kip'`},
+
+	{name: "worker stop", method: "POST", path: "/api/members/ow-abc123/deactivate", body: `{}`, worker: true},
+	{name: "worker force stop", method: "POST", path: "/api/members/ow-abc123/force-stop", body: `{}`, worker: true},
+	{name: "worker accelerated stop", method: "POST", path: "/api/members/ow-abc123/accelerated-stop", body: `{}`,
+		worker: true, live: true,
+		prepare: `UPDATE member SET desired_state = 'offline', stopping_since = 1700000000 WHERE id = 'ow-abc123'`},
+	{name: "worker refocus", method: "POST", path: "/api/members/ow-abc123/refocus", body: `{}`, worker: true, live: true},
+	{name: "worker restart", method: "POST", path: "/api/members/ow-abc123/activate", body: `{}`, worker: true},
+	{name: "worker relocate", method: "POST", path: "/api/members/ow-abc123/relocate", body: `{"machine_id":"m-server-self"}`,
+		worker: true},
+	{name: "worker model", method: "PATCH", path: "/api/members/ow-abc123", body: `{"model":"claude-opus-5"}`, worker: true},
+	{name: "worker report waking", method: "POST", path: "/api/self/waking", body: `{}`, worker: true, self: true},
+	{name: "worker report stopping", method: "POST", path: "/api/self/stopping", body: `{}`, worker: true, self: true},
+	{name: "worker report stopped", method: "POST", path: "/api/self/stopped", body: `{}`, worker: true, self: true},
+	{name: "worker restart self", method: "POST", path: "/api/self/refocus", body: `{}`, worker: true, self: true, live: true},
+}
+
+// windowMemberDoorStack is the server a door runs on, with the target in the
+// state the door needs; it answers the target id and the credential to drive
+// the door with.
+func windowMemberDoorStack(t *testing.T, d *DAL, door windowMemberDoor) (*apiServer, http.Handler, string, string) {
+	t.Helper()
+	api, h, _, owner := newAPITestServerOn(t, d)
+	id := apiTestPlainAgentID
+	if door.worker {
+		id = "ow-abc123"
+		apiTestWorkerFixture(t, h, d, owner, id, WorkerStatusActive)
+		apiTestWorkerWantedOnline(t, d, id)
+	}
+	if err := d.SetMemberDesiredMachineID(id, ServerSelfHost); err != nil {
+		t.Fatalf("SetMemberDesiredMachineID: %v", err)
+	}
+	if door.prepare != "" {
+		if _, err := d.wdb.Exec(door.prepare); err != nil {
+			t.Fatalf("prepare %s: %v", door.name, err)
+		}
+	}
+	apiTestListen(t, api, ServerSelfHost)
+	if door.live {
+		session, err := api.hub.Connect(id, ServerSelfHost)
+		if err != nil {
+			t.Fatalf("hub.Connect: %v", err)
+		}
+		t.Cleanup(func() { api.hub.Disconnect(session) })
+	}
+	token := owner
+	if door.self {
+		token = apiTestAgentToken(t, api, id, ServerSelfHost)
+	}
+	return api, h, id, token
+}
+
+func TestMemberLifecycleDoorsDecideFromTheRowTheyWrite(t *testing.T) {
+	for _, door := range windowMemberDoors {
+		for _, shape := range windowDALShapes {
+			t.Run(door.name+", "+shape+": a member removed after the handler read it stays removed", func(t *testing.T) {
+				d, hook, path := windowDAL(t, shape)
+				api, h, id, token := windowMemberDoorStack(t, d, door)
+				dashboard := apiTestListen(t, api, "")
+				hook.execAfterRead(t, path, "FROM member WHERE id",
+					`UPDATE member SET roster_status = 'removed' WHERE id = '`+id+`'`)
+
+				status, data := windowJSON(t, h, door.method, door.path, token, door.body)
+
+				hook.wantFiredOnce(t)
+				if status != http.StatusNotFound {
+					t.Fatalf("want 404, got %d (%v)", status, data)
+				}
+				apiWantError(t, data, "not_found", "member '"+id+"' not found")
+				if got := apiTestMemberRow(t, d, id); got.RosterStatus != RosterStatusRemoved {
+					t.Fatalf("roster_status: got %q, want removed", got.RosterStatus)
+				}
+				dashboard.wantFrames()
+			})
+
+			t.Run(door.name+", "+shape+": a row write that fails takes the anchors back with it, and the retry lands", func(t *testing.T) {
+				d, _, _ := windowDAL(t, shape)
+				api, h, id, token := windowMemberDoorStack(t, d, door)
+				before := apiTestMemberRow(t, d, id)
+				apiTestFailWholeRowWrite(t, d, id)
+				dashboard := apiTestListen(t, api, "")
+
+				status, data := windowJSON(t, h, door.method, door.path, token, door.body)
+
+				if status != http.StatusInternalServerError {
+					t.Fatalf("want 500, got %d (%v)", status, data)
+				}
+				apiWantError(t, data, "internal_error",
+					"internal error: constraint failed: whole row unwritable (1811)")
+				apiTestWantEqual(t, "the row after the failed write", apiTestMemberRow(t, d, id), before)
+				dashboard.wantFrames()
+
+				apiTestRestoreWholeRowWrite(t, d)
+				if status, data := windowJSON(t, h, door.method, door.path, token, door.body); status != http.StatusOK {
+					t.Fatalf("retry: want 200, got %d (%v)", status, data)
+				}
+			})
+		}
+	}
+
+	// A settings patch takes settingsMu and then waits for the write connection.
+	// A door that opens a wind-down reads the live reconcile config, which takes
+	// settingsMu too: read inside its transaction, the two wait on each other.
+	for _, door := range []windowMemberDoor{
+		{name: "update", method: "PATCH", path: "/api/members/kip", body: `{"model":"claude-opus-5"}`, live: true,
+			prepare: `UPDATE member SET desired_state = 'online' WHERE id = 'kip'`},
+		{name: "relocate", method: "POST", path: "/api/members/kip/relocate", body: `{"machine_id":"m-server-self"}`,
+			live: true, prepare: `UPDATE member SET desired_state = 'online' WHERE id = 'kip'`},
+	} {
+		for _, shape := range windowDALShapes {
+			t.Run(door.name+", "+shape+": a settings patch waiting for the write connection does not stall the wind-down", func(t *testing.T) {
+				d, hook, _ := windowDAL(t, shape)
+				api, h, id, token := windowMemberDoorStack(t, d, door)
+				released := make(chan struct{})
+				hook.mu.Lock()
+				hook.armAfter = "FROM member WHERE id"
+				hook.fire = func() {
+					api.settingsMu.Lock()
+					go func() {
+						defer close(released)
+						defer api.settingsMu.Unlock()
+						if _, err := d.wdb.Exec(`SELECT 1`); err != nil {
+							t.Errorf("the settings patch's write: %v", err)
+						}
+					}()
+				}
+				hook.mu.Unlock()
+
+				status, data := windowJSON(t, h, door.method, door.path, token, door.body)
+
+				hook.wantFiredOnce(t)
+				if status != http.StatusOK {
+					t.Fatalf("want 200, got %d (%v)", status, data)
+				}
+				<-released
+				if got := apiTestMemberRow(t, d, id); got.RefocusOp == "" || got.RefocusSince <= 0 {
+					t.Fatalf("want a wind-down opened, got refocus_op=%q refocus_since=%v", got.RefocusOp, got.RefocusSince)
+				}
+			})
+		}
+	}
+}

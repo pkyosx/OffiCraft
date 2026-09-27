@@ -906,7 +906,7 @@ func (s *apiServer) armDecidedHandover(memberID string, decision reconcileDecisi
 	if err != nil || fresh == nil || fresh.RosterStatus != RosterStatusActive {
 		return
 	}
-	if !s.armMemberOwnerOpHandover(fresh, decision.ArmHandoverOp) {
+	if !s.armMemberOwnerOpHandover(fresh, decision.ArmHandoverOp, s.reconcileConfigLive()) {
 		return
 	}
 	if err := s.persistMemberWindDownAnchors(*fresh); err != nil {

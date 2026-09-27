@@ -493,6 +493,10 @@ var identityGateExpectedCount = map[string]int{
 	// handler does, not this one. The check found the second site and the second
 	// site is what showed the reason was wrong. See the entry itself.
 	"api_tasks.go :: HandleReassignTaskApiTasksTaskIdReassignPost :: kind == TaskExecutorOutsource": 2,
+	// The staff-target check runs before the transaction and again on the target
+	// row read inside it; one decision, asked of two reads of the same row.
+	"api_tasks.go :: HandleReassignTaskApiTasksTaskIdReassignPost :: m.Kind == KindOutsource": 2,
+	"api_tasks.go :: HandleReassignTaskApiTasksTaskIdReassignPost :: m.Kind == KindWarden":    2,
 	// T-92 gave a LINK a blob of its own, and the projection now asks the same
 	// question twice for two different fields: once to read the link target out
 	// of that blob into `url`, and once to take the blob's mime — the branch
@@ -723,7 +727,7 @@ var identityGateLedger = map[string]string{
 		"third arm of the same closed-set validation; see the KindStaff arm.",
 
 	// ── roster resolution: which face may see which population ─────────────
-	"api_helpers.go :: resolveMember :: m.Kind == KindOutsource": "" +
+	"api_helpers.go :: resolveMemberOn :: m.Kind == KindOutsource": "" +
 		"the staffOnly arm of the member lookup. This refusal used to be " +
 		"UNCONDITIONAL and was therefore inherited by all 16 of its callers, including the READ " +
 		"door — which made GET /api/members/{id} answer 404 for a row that " +
@@ -737,7 +741,7 @@ var identityGateLedger = map[string]string{
 		"webhook write + the unauthenticated inlet; and relocate, which needs the " +
 		"refusal as CONTROL FLOW to fall through to the worker core). " +
 		"A wire-surface split, not a lifecycle difference.",
-	"api_helpers.go :: resolveMachine :: m.Kind != machineKind": "" +
+	"api_helpers.go :: resolveMachineOn :: m.Kind != machineKind": "" +
 		"the mirror of the above on the machine face: a machine IS a member row, so " +
 		"resolveMachine is GetMember plus this kind test. Machine-vs-person axis.",
 	"api_helpers.go :: observedHost :: m.Kind == machineKind": "" +
@@ -932,11 +936,11 @@ var identityGateLedger = map[string]string{
 		"locations, which is migration 00025's remaining half and not this ticket.",
 
 	// ── chat / roster projection ────────────────────────────────────────────
-	"api_chat.go :: resolveChatRecipient :: m.Kind != KindStaff": "" +
+	"api_chat.go :: resolveChatRecipientOn :: m.Kind != KindStaff": "" +
 		"a chat recipient must be a person — staff or worker, explicitly BOTH. Written " +
 		"as a two-arm test rather than `!= KindWarden` so that a fourth kind does not " +
 		"silently become addressable; the pairing is what makes 外包＝正職 true here.",
-	"api_chat.go :: resolveChatRecipient :: m.Kind != KindOutsource": "" +
+	"api_chat.go :: resolveChatRecipientOn :: m.Kind != KindOutsource": "" +
 		"the other arm of that same both-kinds-allowed test; see above.",
 	"api_chat.go :: resumeFloorParts :: m.Kind == machineKind": "" +
 		"the resume/floor projection puts warden rows in the MACHINE block, never in " +
@@ -1029,15 +1033,17 @@ var identityGateLedger = map[string]string{
 	"api_tasks.go :: HandleReassignTaskApiTasksTaskIdReassignPost :: m.Kind == KindOutsource": "" +
 		"P7d fold parity: an outsource ROW is never a 'staff'-kind reassign target — " +
 		"outsource executors are minted fresh by the outsource arm. Refusing here is " +
-		"what keeps the two arms from both claiming the same worker. Also in " +
+		"what keeps the two arms from both claiming the same worker. Asked before the " +
+		"transaction and again of the target as it stands inside it. Also in " +
 		"authzOutsideRouteTable.",
 	"api_tasks.go :: HandleReassignTaskApiTasksTaskIdReassignPost :: m.Kind == KindWarden": "" +
-		"a warden is never a task executor — machine-vs-person. Also in " +
+		"a warden is never a task executor — machine-vs-person. Asked before the " +
+		"transaction and again of the target as it stands inside it. Also in " +
 		"authzOutsideRouteTable.",
 	"api_tasks.go :: HandleReassignTaskApiTasksTaskIdReassignPost :: t.ExecutorKind == TaskExecutorStaff": "" +
 		"the already-the-executor conflict check, scoped to the member arm because the " +
 		"outsource arm has no stable executor id to compare against before the mint.",
-	"api_tasks.go :: HandleClaimTaskApiTasksTaskIdClaimPost :: t.ReassignedFromKind == TaskExecutorOutsource": "" +
+	"api_tasks.go :: HandleClaimTaskApiTasksTaskIdClaimPost :: claimed.ReassignedFromKind == TaskExecutorOutsource": "" +
 		"on takeover, the predecessor to release is an outsource worker only — a MEMBER " +
 		"predecessor is never released here because it lives on its own member " +
 		"lifecycle. This IS the 「外包跟著 task 生滅」half of the constitution, at the " +

@@ -1866,6 +1866,34 @@ func TestHandleUpdateMemberApiMembersMemberIdPatch(t *testing.T) {
 		}
 		apiWantError(t, data, "unauthorized", "missing credentials")
 	})
+
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": a launch-intent setter that fails takes the rename and the opened wind-down back with it", func(t *testing.T) {
+			d, _, _ := windowDAL(t, shape)
+			api, h, _, owner := newAPITestServerOn(t, d)
+			if _, err := d.wdb.Exec(`UPDATE member SET desired_state = 'online' WHERE id = 'kip'`); err != nil {
+				t.Fatalf("prepare: %v", err)
+			}
+			session, err := api.hub.Connect("kip", ServerSelfHost)
+			if err != nil {
+				t.Fatalf("hub.Connect: %v", err)
+			}
+			t.Cleanup(func() { api.hub.Disconnect(session) })
+			before := apiTestMemberRow(t, d, "kip")
+			windowRefuse(t, d, "refuse_model", "BEFORE UPDATE OF model ON member", "the model write fails")
+			dashboard := apiTestListen(t, api, "")
+
+			status, data := windowJSON(t, h, "PATCH", "/api/members/kip", owner,
+				`{"name":"Kip the Second","model":"claude-opus-5"}`)
+
+			if status != http.StatusInternalServerError {
+				t.Fatalf("want 500, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "internal_error", windowRefusal("the model write fails"))
+			apiTestWantEqual(t, "the row after the failed setter", apiTestMemberRow(t, d, "kip"), before)
+			dashboard.wantFrames()
+		})
+	}
 }
 
 func TestHandleActivateMemberApiMembersMemberIdActivatePost(t *testing.T) {
@@ -2395,11 +2423,10 @@ func TestHandleDeactivateMemberApiMembersMemberIdDeactivatePost(t *testing.T) {
 	})
 
 	t.Run("a deactivation whose row write fails rolls the close-out back, so the retry really sends the stop", func(t *testing.T) {
-		// 🔴 THE SAME TWO-STEP TRAP AS THE STOPPED-REPORT, BEHIND A DIFFERENT DOOR.
-		// An offline member is collected right here (collectMemberStop): the anchor
-		// write lands, the whole-row write fails, the owner gets a 500 — and every
-		// later collect reads a non-zero prior, calls itself already-reported and
-		// dispatches nothing. Forever.
+		// 🔴 THE SAME TRAP AS THE STOPPED-REPORT, BEHIND A DIFFERENT DOOR. An offline
+		// member is collected right here: if the close-out latch outlived a failed
+		// row write, every later collect would read a non-zero prior, call itself
+		// already-reported and dispatch nothing. Forever.
 		api, h, d, owner := newAPITestServer(t)
 		if status, data := apiJSON(t, h, "POST", "/api/members/kip/activate", owner, `{}`); status != 200 {
 			t.Fatalf("activate: %d %v", status, data)
@@ -2409,9 +2436,7 @@ func TestHandleDeactivateMemberApiMembersMemberIdDeactivatePost(t *testing.T) {
 		}
 		apiTestListen(t, api, ServerSelfHost)
 		wsWantWardenFrames(t, api, ServerSelfHost)
-		// The handler writes the row once itself and once more inside the collect;
-		// only the second is the step this guards, so the first must land.
-		apiTestFailWholeRowWriteAfter(t, d, "kip", 1)
+		apiTestFailWholeRowWrite(t, d, "kip")
 
 		status, data := apiJSON(t, h, "POST", "/api/members/kip/deactivate", owner, `{}`)
 		if status != 500 {
@@ -2427,7 +2452,7 @@ func TestHandleDeactivateMemberApiMembersMemberIdDeactivatePost(t *testing.T) {
 		apiWantValue(t, "the close-out anchor after the rollback",
 			any(rolled.StoppedSince), any(float64(0)))
 
-		apiTestRestoreWholeRowWriteAfter(t, d)
+		apiTestRestoreWholeRowWrite(t, d)
 		status, data = apiJSON(t, h, "POST", "/api/members/kip/deactivate", owner, `{}`)
 		if status != 200 {
 			t.Fatalf("want 200 once the row is writable, got %d (%v)", status, data)
@@ -4395,10 +4420,10 @@ func apiTestReceiptOf(t *testing.T, d *DAL, id string) map[string]any {
 	return map[string]any{"last_op": m.LastOp, "reason": m.LastOpReason, "at": m.LastOpAt}
 }
 
-// apiTestFailWholeRowWriteAfter is apiTestFailWholeRowWrite for a handler that
+// apiTestFailWholeRowWriteAfter is apiTestFailWholeRowWrite for a request that
 // writes the row MORE THAN ONCE: the first `skip` whole-row writes land and
-// every one after them fails. Deactivating a member writes the row itself and
-// then again inside the collect, and only the second one is the two-step trap.
+// every one after them fails. Stopping an offline worker writes the row itself
+// and then again when the close-out latches.
 func apiTestFailWholeRowWriteAfter(t *testing.T, d *DAL, id string, skip int) {
 	t.Helper()
 	for _, stmt := range []string{
@@ -4414,18 +4439,6 @@ func apiTestFailWholeRowWriteAfter(t *testing.T, d *DAL, id string, skip int) {
 	} {
 		if _, err := d.wdb.Exec(stmt); err != nil {
 			t.Fatalf("install counting trigger (%s): %v", stmt, err)
-		}
-	}
-}
-
-func apiTestRestoreWholeRowWriteAfter(t *testing.T, d *DAL) {
-	t.Helper()
-	for _, stmt := range []string{
-		`DROP TRIGGER count_whole_row`, `DROP TRIGGER fail_whole_row`,
-		`DROP TABLE ocs_row_write_count`,
-	} {
-		if _, err := d.wdb.Exec(stmt); err != nil {
-			t.Fatalf("drop counting trigger (%s): %v", stmt, err)
 		}
 	}
 }

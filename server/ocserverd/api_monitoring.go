@@ -268,37 +268,54 @@ func (s *apiServer) foldCommandResult(commandResult map[string]any, trigger, rep
 		return
 	}
 	s.restoreRefusedStartAnchor(memberID, rpc, okPtr, reason)
-	if clue := supersededDispatchClue(*m); clue != "" {
-		logText = clue + "\n" + logText
-		if len(logText) > commandResultLogMax {
-			logText = logText[:commandResultLogMax]
+	// The receipt and, for an ok uninstall, the intent it folds back land together
+	// on the row as it stands in the transaction: a command_result is pushed once
+	// and never re-sent.
+	var folded Member
+	converged := false
+	err = s.dal.inTx(func(tx *writeTx) error {
+		cur, err := getMemberOn(tx, memberID)
+		if err != nil || cur == nil {
+			return err
 		}
-		fmt.Fprintf(os.Stderr,
-			"[monitoring] member %q: %s receipt supersedes a dispatch diagnosis — "+
-				"carried into last_op_log (%s)\n", memberID, rpc, m.LastOpReason)
-	}
-	m.LastOp = rpc
-	m.LastOpOK = okPtr
-	m.LastOpLog = logText
-	m.LastOpReason = reason
-	m.LastOpAt = commandResultAtEpoch(commandResult["at"])
-	// An ok uninstall folds the lifecycle intent back to offline (record kept).
-	// Intent first, receipt second: a command_result is pushed once and never
-	// re-sent, so the order picks the less bad residue — converged with its
-	// explanation missing, rather than a cockpit stating an uninstall the intent
-	// contradicts.
-	if m.LastOp == "uninstall" && m.LastOpOK != nil && *m.LastOpOK {
-		m.DesiredState = DesiredStateOffline
-		if err := s.putMember(*m, trigger); err != nil {
+		opLog := logText
+		if clue := supersededDispatchClue(*cur); clue != "" {
+			opLog = clue + "\n" + opLog
+			if len(opLog) > commandResultLogMax {
+				opLog = opLog[:commandResultLogMax]
+			}
 			fmt.Fprintf(os.Stderr,
-				"[monitoring] uninstall convergence failed for member %q: %v\n", memberID, err)
-			return
+				"[monitoring] member %q: %s receipt supersedes a dispatch diagnosis — "+
+					"carried into last_op_log (%s)\n", memberID, rpc, cur.LastOpReason)
 		}
-	}
-	if err := s.persistMemberOpReceipt(*m, trigger); err != nil {
+		cur.LastOp = rpc
+		cur.LastOpOK = okPtr
+		cur.LastOpLog = opLog
+		cur.LastOpReason = reason
+		cur.LastOpAt = commandResultAtEpoch(commandResult["at"])
+		// An ok uninstall folds the lifecycle intent back to offline (record kept).
+		converged = cur.LastOp == "uninstall" && cur.LastOpOK != nil && *cur.LastOpOK
+		if converged {
+			cur.DesiredState = DesiredStateOffline
+			if err := writeMemberOn(tx, *cur); err != nil {
+				return err
+			}
+		}
+		folded = *cur
+		return persistMemberOpReceiptOn(tx, *cur)
+	})
+	if err != nil {
 		fmt.Fprintf(os.Stderr,
 			"[monitoring] command_result fold failed for member %q: %v\n", memberID, err)
+		return
 	}
+	if folded.ID == "" {
+		return
+	}
+	if converged {
+		s.publishMemberPatch(folded, trigger)
+	}
+	s.publishMemberPatch(folded, trigger)
 }
 
 // Holds s.outsourceMu for the whole read-modify-write-publish: notifyWorkerSpawn
@@ -631,34 +648,45 @@ func (s *apiServer) stampReportedLaunchFacts(agentID, model, runtime, effort, tr
 	if m.Kind == KindOutsource {
 		s.outsourceMu.Lock()
 		defer s.outsourceMu.Unlock()
-		if m, err = s.dal.GetMember(agentID); err != nil || m == nil ||
-			m.RosterStatus == RosterStatusRemoved {
-			return
+	}
+	// Decided and written on the row as it stands in the transaction: the whole-row
+	// write would otherwise carry this read's copy of every other column back.
+	var stamped Member
+	err = s.dal.inTx(func(tx *writeTx) error {
+		cur, err := getMemberOn(tx, agentID)
+		if err != nil || cur == nil || cur.RosterStatus == RosterStatusRemoved {
+			return err
 		}
-	}
-	changed := false
-	for _, f := range []struct {
-		name     string
-		reported string
-		column   *string
-	}{
-		{"actual_model", model, &m.ActualModel},
-		{"actual_runtime", runtime, &m.ActualRuntime},
-		{"actual_effort", effort, &m.ActualEffort},
-	} {
-		if f.reported == "" || *f.column == f.reported {
-			continue
+		changed := false
+		for _, f := range []struct {
+			name     string
+			reported string
+			column   *string
+		}{
+			{"actual_model", model, &cur.ActualModel},
+			{"actual_runtime", runtime, &cur.ActualRuntime},
+			{"actual_effort", effort, &cur.ActualEffort},
+		} {
+			if f.reported == "" || *f.column == f.reported {
+				continue
+			}
+			*f.column = f.reported
+			changed = true
 		}
-		*f.column = f.reported
-		changed = true
-	}
-	if !changed {
-		return
-	}
-	if err := s.putMember(*m, trigger); err != nil {
+		if !changed {
+			return nil
+		}
+		stamped = *cur
+		return writeMemberOn(tx, *cur)
+	})
+	if err != nil {
 		fmt.Fprintf(os.Stderr,
 			"[monitoring] reported launch-fact stamp failed: agent=%s model=%s runtime=%s effort=%s: %v\n",
 			agentID, model, runtime, effort, err)
+		return
+	}
+	if stamped.ID != "" {
+		s.publishMemberPatch(stamped, trigger)
 	}
 }
 

@@ -152,7 +152,10 @@ func (s *apiServer) memberOwnerOpHandoverArmable(m Member, op string) bool {
 	return s.memberHasStateToFlush(m) && armRefocusEpoch(&probe, op, nowSecs())
 }
 
-func (s *apiServer) armMemberOwnerOpHandover(m *Member, op string) bool {
+// cfg is the caller's reconcileConfigLive(), read before any transaction it
+// holds: that read takes settingsMu, which a settings patch holds while it waits
+// for the write connection.
+func (s *apiServer) armMemberOwnerOpHandover(m *Member, op string, cfg reconcileConfig) bool {
 	if !s.memberHasStateToFlush(*m) {
 		return false
 	}
@@ -161,7 +164,7 @@ func (s *apiServer) armMemberOwnerOpHandover(m *Member, op string) bool {
 			"further along the ladder (下線 → 加速 → 強制)", op, m.ID)
 		return false
 	}
-	if grace, clocked := recycleGraceFor(op, s.reconcileConfigLive()); clocked {
+	if grace, clocked := recycleGraceFor(op, cfg); clocked {
 		reconcileLog("recycle: %s %s — wind-down opened (collect on stopped-report or +%.0fs)",
 			op, m.ID, grace)
 	} else {
@@ -270,13 +273,17 @@ func (s *apiServer) queueWorkerRestartAfterStop(w *OutsourceWorker, op string, n
 	return true
 }
 
-// Two writers: the flag rides the whole-row write; the five last_op* columns land
-// only through SetMemberLastOp. Row first, receipt second.
+// Two writers in one transaction: the flag rides the whole-row write; the five
+// last_op* columns land only through SetMemberLastOp.
 func (s *apiServer) persistWorkerRestartIntent(w OutsourceWorker) error {
-	if err := s.dal.PutOutsourceWorker(w); err != nil {
+	return s.dal.inTx(func(tx *writeTx) error { return persistWorkerRestartIntentOn(tx, w) })
+}
+
+func persistWorkerRestartIntentOn(tx *writeTx, w OutsourceWorker) error {
+	if err := putMemberOn(tx, memberFromWorker(w)); err != nil {
 		return err
 	}
-	return s.dal.SetMemberLastOp(w.ID, w.LastOp, w.LastOpOK, w.LastOpLog,
+	return setMemberLastOpOn(tx, w.ID, w.LastOp, w.LastOpOK, w.LastOpLog,
 		w.LastOpReason, w.LastOpAt)
 }
 
