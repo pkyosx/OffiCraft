@@ -40,6 +40,13 @@ func TestMfaAccount(t *testing.T) {
 }
 
 func TestVerifyAndSpendTOTP(t *testing.T) {
+	// Called directly, not through a route: windowWithin turns a panic (a lock
+	// txguard refused) into this test's failure instead of the whole binary's.
+	verifyTOTP := func(t *testing.T, api *apiServer, code string, now int64) (ok bool, err error) {
+		t.Helper()
+		windowWithin(t, "verifyAndSpendTOTP", func() { ok, err = api.verifyAndSpendTOTP(code, now) })
+		return ok, err
+	}
 	t.Run("accepts one live code, persists its floor, and refuses its replay", func(t *testing.T) {
 		api, _, d, _ := newAPITestServer(t)
 		secret := apiTestArmMFA(t, api, d)
@@ -51,7 +58,7 @@ func TestVerifyAndSpendTOTP(t *testing.T) {
 		step := now / totpStepSecs
 		code := totpCodeAt(key, step)
 
-		ok, err := api.verifyAndSpendTOTP(code, now)
+		ok, err := verifyTOTP(t, api, code, now)
 		if err != nil || !ok {
 			t.Fatalf("first verification: want true, nil; got %v, %v", ok, err)
 		}
@@ -66,7 +73,7 @@ func TestVerifyAndSpendTOTP(t *testing.T) {
 			t.Fatalf("stored replay floor: want %d, got %v", step, stored)
 		}
 
-		ok, err = api.verifyAndSpendTOTP(code, now)
+		ok, err = verifyTOTP(t, api, code, now)
 		if err != nil || ok {
 			t.Fatalf("replayed verification: want false, nil; got %v, %v", ok, err)
 		}
@@ -84,7 +91,7 @@ func TestVerifyAndSpendTOTP(t *testing.T) {
 			t.Fatalf("PutSetting: %v", err)
 		}
 
-		ok, err := api.verifyAndSpendTOTP("000000", 1700000000)
+		ok, err := verifyTOTP(t, api, "000000", 1700000000)
 		if err != nil || ok {
 			t.Fatalf("invalid verification: want false, nil; got %v, %v", ok, err)
 		}
@@ -103,7 +110,7 @@ func TestVerifyAndSpendTOTP(t *testing.T) {
 	t.Run("allows any code when no factor is armed", func(t *testing.T) {
 		api, _, _, _ := newAPITestServer(t)
 
-		ok, err := api.verifyAndSpendTOTP("not-a-totp-code", 1700000000)
+		ok, err := verifyTOTP(t, api, "not-a-totp-code", 1700000000)
 		if err != nil || !ok {
 			t.Fatalf("MFA-off verification: want true, nil; got %v, %v", ok, err)
 		}

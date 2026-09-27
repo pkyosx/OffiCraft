@@ -6,7 +6,6 @@ package main
 
 import (
 	"encoding/json"
-	"errors"
 	"net/http"
 	"unicode/utf8"
 )
@@ -142,10 +141,7 @@ func manualAssigneeMachineOn(q sqlRowQuerier, assignee map[string]any) error {
 		return nil
 	}
 	_, err := resolveMachineOn(q, machineID)
-	if errors.Is(err, errNotFound) {
-		return refuseInTx(http.StatusNotFound, "machine '"+machineID+"' not found")
-	}
-	return err
+	return notFoundRefusal(err, "machine", machineID)
 }
 
 func (s *apiServer) callerMaySetAssignee(r *http.Request) bool {

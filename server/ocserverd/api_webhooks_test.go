@@ -346,6 +346,27 @@ func TestHandleCreateWebhookApiMembersMemberIdWebhooksPost(t *testing.T) {
 			dashboard.wantFrames()
 		})
 	}
+
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": a member dismissed after the handler read it answers 404 and mints nothing", func(t *testing.T) {
+			d, hook, path := windowDAL(t, shape)
+			_, h, _, owner := newAPITestServerOn(t, d)
+			hook.execAfterRead(t, path, "FROM webhook_endpoint",
+				`UPDATE member SET roster_status = 'removed' WHERE id = 'kip'`)
+
+			status, data := windowJSON(t, h, "POST", "/api/members/kip/webhooks", owner,
+				`{"endpoint_id":"alerts","purpose":"CI"}`)
+
+			hook.wantFiredOnce(t)
+			if status != http.StatusNotFound {
+				t.Fatalf("want 404, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "not_found", "member 'kip' not found")
+			if n := windowCount(t, d, `SELECT COUNT(*) FROM webhook_endpoint`); n != 0 {
+				t.Fatalf("%d endpoints stored, want none", n)
+			}
+		})
+	}
 }
 
 func TestHandleUpdateWebhookApiMembersMemberIdWebhooksEndpointIdPatch(t *testing.T) {

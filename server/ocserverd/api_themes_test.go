@@ -459,6 +459,27 @@ func TestHandlePutThemeApiThemesThemeIdPut(t *testing.T) {
 			}
 		})
 	}
+
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": a theme filed under the same id after the handler read it is answered as replaced, not created", func(t *testing.T) {
+			d, hook, path := windowDAL(t, shape)
+			_, h, _, owner := newAPITestServerOn(t, d)
+			hook.execAfterRead(t, path, "FROM custom_theme WHERE theme_id",
+				`INSERT INTO custom_theme (theme_id, bundle, order_idx, updated_at)
+				 VALUES ('dusk', '{"id":"dusk","name":"Dusk","colors":{}}', 0, 1700000000)`)
+
+			status, data := windowJSON(t, h, "PUT", "/api/themes/dusk", owner,
+				`{"id":"dusk","name":"Dusk II","colors":{"--color-bg":"#101418"}}`)
+
+			hook.wantFiredOnce(t)
+			if status != http.StatusOK {
+				t.Fatalf("want 200, got %d (%v)", status, data)
+			}
+			apiWantBody(t, data, map[string]any{
+				"id": "dusk", "created": false, "order_idx": 0, "updated_at": apiAnyNumber,
+			})
+		})
+	}
 }
 
 func TestHandleDeleteThemeApiThemesThemeIdDelete(t *testing.T) {

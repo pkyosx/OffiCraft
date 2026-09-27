@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
 	"mime"
@@ -266,14 +267,14 @@ func (s *apiServer) resolveChatAttachmentInputs(inputs []ChatAttachmentInputDTO)
 				return nil, http.StatusBadRequest,
 					"attachment '" + refID + "' is reserved for a member avatar"
 			}
-			att, err := s.dal.GetChatAttachment(refID)
+			att, err := s.storedChatAttachment(refID)
+			var refusal *txRefusal
+			if errors.As(err, &refusal) {
+				return nil, refusal.status, refusal.msg
+			}
 			if err != nil {
 				return nil, http.StatusInternalServerError,
 					"internal error: " + err.Error()
-			}
-			if att == nil {
-				return nil, http.StatusBadRequest,
-					"attachment '" + refID + "' not found"
 			}
 			resolved = append(resolved, resolvedAttachment{att: att})
 			continue
@@ -293,20 +294,25 @@ func (s *apiServer) resolveChatAttachmentInputs(inputs []ChatAttachmentInputDTO)
 	return resolved, 0, ""
 }
 
-// referencedAttachmentsGone refuses, as resolveChatAttachmentInputs does, a
-// referenced attachment that is no longer stored; run on the transaction that
-// writes the message carrying the reference.
+// storedChatAttachment answers the stored attachment refID names, or the 400
+// for one that is not stored.
+func (s *apiServer) storedChatAttachment(refID string) (*ChatAttachment, error) {
+	att, err := s.dal.GetChatAttachment(refID)
+	if err == nil && att == nil {
+		err = refuseInTx(http.StatusBadRequest, "attachment '"+refID+"' not found")
+	}
+	return att, err
+}
+
+// referencedAttachmentsGone judges every referenced attachment again, on the
+// transaction that writes the message carrying the references.
 func (s *apiServer) referencedAttachmentsGone(resolved []resolvedAttachment) error {
 	for _, ra := range resolved {
 		if ra.store {
 			continue
 		}
-		att, err := s.dal.GetChatAttachment(ra.att.ID)
-		if err != nil {
+		if _, err := s.storedChatAttachment(ra.att.ID); err != nil {
 			return err
-		}
-		if att == nil {
-			return refuseInTx(http.StatusBadRequest, "attachment '"+ra.att.ID+"' not found")
 		}
 	}
 	return nil

@@ -3628,6 +3628,61 @@ func TestHandlePostTaskMessageApiTasksTaskIdMessagePost(t *testing.T) {
 			old.wantFrames()
 		})
 	}
+
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": an attachment deleted after the handler read it answers 400 and stores nothing", func(t *testing.T) {
+			d, hook, path := windowDAL(t, shape)
+			_, h, _, owner := newAPITestServerOn(t, d)
+			apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+			_, uploaded := apiJSON(t, h, "POST", "/api/chat/attachments", owner,
+				`{"filename":"report.txt","data_b64":"aGVsbG8="}`)
+			attachmentID, _ := uploaded["id"].(string)
+			hook.execAfterRead(t, path, "FROM chat_attachment WHERE id",
+				`DELETE FROM chat_attachment WHERE id = ?`, attachmentID)
+
+			status, data := windowJSON(t, h, "POST", "/api/tasks/T-1/message", owner,
+				`{"body":"see this","attachments":[{"id":"`+attachmentID+`"}]}`)
+
+			hook.wantFiredOnce(t)
+			if status != http.StatusBadRequest {
+				t.Fatalf("want 400, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "validation_error", "attachment '"+attachmentID+"' not found")
+			if n := windowCount(t, d, `SELECT COUNT(*) FROM chat_message`); n != 0 {
+				t.Fatalf("%d messages stored, want none", n)
+			}
+		})
+	}
+
+	type taskGone struct{ name, stmt, code, message string }
+	for _, tg := range []taskGone{
+		{"a task whose executor is cleared after the handler read it answers 409",
+			`UPDATE task SET executor_id = '' WHERE id = 'T-1'`, "conflict",
+			"task 'T-1' has no executor yet (awaiting assignment)"},
+		{"a task deleted after the handler read it answers 404",
+			`DELETE FROM task WHERE id = 'T-1'`, "not_found", "task 'T-1' not found"},
+	} {
+		for _, shape := range windowDALShapes {
+			t.Run(shape+": "+tg.name+" and stores nothing", func(t *testing.T) {
+				d, hook, path := windowDAL(t, shape)
+				_, h, _, owner := newAPITestServerOn(t, d)
+				apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+				hook.execAfterRead(t, path, "FROM task WHERE id", tg.stmt)
+
+				status, data := windowJSON(t, h, "POST", "/api/tasks/T-1/message", owner, `{"body":"any update?"}`)
+
+				hook.wantFiredOnce(t)
+				want := map[string]int{"conflict": http.StatusConflict, "not_found": http.StatusNotFound}[tg.code]
+				if status != want {
+					t.Fatalf("want %d, got %d (%v)", want, status, data)
+				}
+				apiWantError(t, data, tg.code, tg.message)
+				if n := windowCount(t, d, `SELECT COUNT(*) FROM chat_message WHERE body = '[TaskID=T-1] any update?'`); n != 0 {
+					t.Fatalf("%d messages stored, want none", n)
+				}
+			})
+		}
+	}
 }
 
 // apiTestChatRows is every stored chat row as sender, recipient and body, in

@@ -606,6 +606,27 @@ func TestHandleCreateTaskManualApiTaskManualsPost(t *testing.T) {
 			})
 		})
 	}
+
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": an assignee machine removed after the handler read it answers 404 and mints nothing", func(t *testing.T) {
+			d, hook, path := windowDAL(t, shape)
+			_, h, _, owner := newAPITestServerOn(t, d)
+			hook.execAfterRead(t, path, "FROM member WHERE id",
+				`UPDATE member SET roster_status = 'removed' WHERE id = ?`, ServerSelfHost)
+
+			status, data := windowJSON(t, h, "POST", "/api/task-manuals", owner,
+				`{"display_name":"報價","assignee":{"kind":"outsource","machine":"`+ServerSelfHost+`"}}`)
+
+			hook.wantFiredOnce(t)
+			if status != http.StatusNotFound {
+				t.Fatalf("want 404, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "not_found", "machine '"+ServerSelfHost+"' not found")
+			if n := windowCount(t, d, `SELECT COUNT(*) FROM task_manual WHERE display_name = '報價'`); n != 0 {
+				t.Fatalf("%d manuals stored, want none", n)
+			}
+		})
+	}
 }
 
 func TestHandleGetTaskManualApiTaskManualsTypeKeyGet(t *testing.T) {

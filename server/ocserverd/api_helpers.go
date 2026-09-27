@@ -249,10 +249,19 @@ func resolveMachineOn(q sqlRowQuerier, machineID string) (*Member, error) {
 
 func writeResolveError(w http.ResponseWriter, err error, what, id string) {
 	if errors.Is(err, errNotFound) {
-		writeError(w, http.StatusNotFound, what+" '"+id+"' not found")
+		writeTxError(w, notFoundRefusal(err, what, id))
 		return
 	}
 	internalError(w, err)
+}
+
+// notFoundRefusal is a resolver's errNotFound as the 404 writeResolveError
+// answers for it; any other error comes back unchanged.
+func notFoundRefusal(err error, what, id string) error {
+	if errors.Is(err, errNotFound) {
+		return refuseInTx(http.StatusNotFound, what+" '"+id+"' not found")
+	}
+	return err
 }
 
 // writeResolveTxError answers a transaction that re-resolved its target: the
