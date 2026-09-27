@@ -3733,6 +3733,79 @@ func TestHandleReassignTaskApiTasksTaskIdReassignPost(t *testing.T) {
 		})
 	})
 
+	t.Run("handing a task parked on a waiting card to another member tells the cockpit and the asker the card expired", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		windowHeldCard(t, d)
+		dashboard := apiTestListen(t, api, "")
+		predecessor := apiTestListen(t, api, "kip")
+
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/reassign", owner,
+			`{"target":{"kind":"staff","member_id":"mira"}}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"task_id": "T-1", "title": "reconcile the yard ledger", "status": "not_started",
+			"executor_id": "mira", "executor_kind": "staff", "lock": "reassigning", "closed_ts": nil,
+			"duplicate_of": "", "deps": []any{}, "progress_done": 0, "progress_total": 1,
+			"artifact_count": 0, "description_size_chars": 24,
+			"description_sha256": "477b16cea9a02abf3dd077a4bf3d2e6aa496fe22559806609fe817aadf3125ef",
+		})
+		windowWantCardStatus(t, d, "rc-1", replyCardStatusExpired)
+
+		cardExpired := map[string]any{
+			"seq": 1, "topic": "reply_card", "op": "patch",
+			"data": map[string]any{
+				"entity": "reply_card", "key": "owner::rc-1", "epoch": 1, "deleted": false,
+				"payload": map[string]any{"id": "rc-1", "from": "kip", "status": "expired"},
+			},
+			"ts": apiAnyNumber, "trigger": "owner",
+		}
+		holdReleased := map[string]any{
+			"seq": 2, "topic": "task", "op": "patch",
+			"data": map[string]any{
+				"entity": "task", "key": "owner::T-1", "epoch": 2, "deleted": false,
+				"payload": map[string]any{"id": "T-1", "priority": "high", "status": "in_progress"},
+			},
+			"ts": apiAnyNumber, "trigger": "owner",
+		}
+		predecessorNotice := map[string]any{
+			"seq": 3, "topic": "chat", "op": "patch",
+			"data": map[string]any{
+				"entity": "chat", "key": apiAnyString, "epoch": 3, "deleted": false,
+				"payload": map[string]any{"id": apiAnyString, "from": "system", "to": "kip"},
+			},
+			"ts": apiAnyNumber, "trigger": "owner",
+		}
+		successorNotice := map[string]any{
+			"seq": 4, "topic": "chat", "op": "patch",
+			"data": map[string]any{
+				"entity": "chat", "key": apiAnyString, "epoch": 4, "deleted": false,
+				"payload": map[string]any{"id": apiAnyString, "from": "system", "to": "mira"},
+			},
+			"ts": apiAnyNumber, "trigger": "owner",
+		}
+		newAudienceDelta := map[string]any{
+			"seq": 5, "topic": "task", "op": "patch",
+			"data": map[string]any{
+				"entity": "task", "key": "owner::T-1", "epoch": 5, "deleted": false,
+				"payload": map[string]any{"id": "T-1", "priority": "high", "status": "not_started"},
+			},
+			"ts": apiAnyNumber, "trigger": "owner",
+		}
+		oldAudienceDelta := map[string]any{
+			"seq": 6, "topic": "task", "op": "patch",
+			"data": map[string]any{
+				"entity": "task", "key": "owner::T-1", "epoch": 6, "deleted": false,
+				"payload": map[string]any{"id": "T-1", "priority": "high", "status": "not_started"},
+			},
+			"ts": apiAnyNumber, "trigger": "owner",
+		}
+		dashboard.wantFrames(cardExpired, holdReleased, predecessorNotice, successorNotice,
+			newAudienceDelta, oldAudienceDelta)
+		predecessor.wantFrames(cardExpired, holdReleased, predecessorNotice, oldAudienceDelta)
+	})
+
 	t.Run("handing a task nobody has executed yet to a member tells the member the task has no predecessor", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		api.noOutsource = true

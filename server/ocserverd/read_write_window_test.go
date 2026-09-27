@@ -213,6 +213,44 @@ func windowDAL(t *testing.T, shape string) (*DAL, *windowHook, string) {
 
 var windowDALShapes = []string{"split pools", "one connection"}
 
+// windowRequestDeadline bounds every request a window test drives. A handler
+// that, inside its transaction, reads through s.dal instead of the tx waits for
+// a connection the transaction itself holds on the one-connection DAL, and a
+// path that takes a lock it already holds never returns either; both would
+// otherwise hang until the suite's -timeout (15m in CI) and panic the whole run.
+const windowRequestDeadline = 10 * time.Second
+
+// windowRequest is apiRequest under windowRequestDeadline: the request runs on
+// its own goroutine (which never calls t.Fatal) and the test fails by name when
+// no answer arrives in time.
+func windowRequest(t *testing.T, h http.Handler, method, target, token, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	answered := make(chan *httptest.ResponseRecorder, 1)
+	go func() { answered <- apiRequest(t, h, method, target, token, body) }()
+	select {
+	case rec := <-answered:
+		return rec
+	case <-time.After(windowRequestDeadline):
+		t.Fatalf("%s %s did not answer within %s: inside its transaction it waits on a second "+
+			"connection (s.dal instead of the tx) or on a lock it already holds", method, target, windowRequestDeadline)
+		return nil
+	}
+}
+
+// windowJSON is apiJSON over windowRequest.
+func windowJSON(t *testing.T, h http.Handler, method, target, token, body string) (int, map[string]any) {
+	t.Helper()
+	rec := windowRequest(t, h, method, target, token, body)
+	var parsed any
+	if raw := rec.Body.Bytes(); len(raw) > 0 {
+		if err := json.Unmarshal(raw, &parsed); err != nil {
+			t.Fatalf("non-JSON body (%d): %s", rec.Code, raw)
+		}
+	}
+	data, _ := parsed.(map[string]any)
+	return rec.Code, data
+}
+
 func windowOpenTask(id string) Task {
 	task := dalTestTask(id)
 	task.Status = TaskStatusInProgress
@@ -323,7 +361,7 @@ func TestSetTaskPriorityDecidesFromTheRowItWrites(t *testing.T) {
 			dashboard := apiTestListen(t, api, "")
 			hook.closeTaskAfterRead(t, path, task.ID, "FROM task WHERE id")
 
-			status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/priority", owner, `{"priority":"low"}`)
+			status, data := windowJSON(t, h, "POST", "/api/tasks/T-1/priority", owner, `{"priority":"low"}`)
 
 			hook.wantFiredOnce(t)
 			if status != http.StatusConflict {
@@ -342,7 +380,7 @@ func TestSetTaskPriorityDecidesFromTheRowItWrites(t *testing.T) {
 		windowRefuseTaskWrites(t, d)
 		dashboard := apiTestListen(t, api, "")
 
-		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/priority", owner, `{"priority":"low"}`)
+		status, data := windowJSON(t, h, "POST", "/api/tasks/T-1/priority", owner, `{"priority":"low"}`)
 
 		if status != http.StatusInternalServerError {
 			t.Fatalf("want 500, got %d (%v)", status, data)
@@ -363,7 +401,7 @@ func TestSetTaskDepsDecidesFromTheRowItWrites(t *testing.T) {
 			dashboard := apiTestListen(t, api, "")
 			hook.closeTaskAfterRead(t, path, task.ID, "FROM task WHERE id")
 
-			status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/deps", owner, `{"blocked_by":["T-2"]}`)
+			status, data := windowJSON(t, h, "POST", "/api/tasks/T-1/deps", owner, `{"blocked_by":["T-2"]}`)
 
 			hook.wantFiredOnce(t)
 			if status != http.StatusConflict {
@@ -388,7 +426,7 @@ func TestSetTaskDepsDecidesFromTheRowItWrites(t *testing.T) {
 		windowRefuseTaskWrites(t, d)
 		dashboard := apiTestListen(t, api, "")
 
-		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/deps", owner, `{"blocked_by":["T-3"]}`)
+		status, data := windowJSON(t, h, "POST", "/api/tasks/T-1/deps", owner, `{"blocked_by":["T-3"]}`)
 
 		if status != http.StatusInternalServerError {
 			t.Fatalf("want 500, got %d (%v)", status, data)
@@ -413,7 +451,7 @@ func TestUpdateStepStatusDecidesFromTheRowItWrites(t *testing.T) {
 			dashboard := apiTestListen(t, api, "")
 			hook.closeTaskAfterRead(t, path, task.ID, "FROM task_step WHERE id")
 
-			status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/steps/ts-1/status", owner, `{"status":"in_progress"}`)
+			status, data := windowJSON(t, h, "POST", "/api/tasks/T-1/steps/ts-1/status", owner, `{"status":"in_progress"}`)
 
 			hook.wantFiredOnce(t)
 			if status != http.StatusConflict {
@@ -437,7 +475,7 @@ func TestUpdateStepStatusDecidesFromTheRowItWrites(t *testing.T) {
 		windowRefuseTaskWrites(t, d)
 		dashboard := apiTestListen(t, api, "")
 
-		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/steps/ts-1/status", owner, `{"status":"in_progress"}`)
+		status, data := windowJSON(t, h, "POST", "/api/tasks/T-1/steps/ts-1/status", owner, `{"status":"in_progress"}`)
 
 		if status != http.StatusInternalServerError {
 			t.Fatalf("want 500, got %d (%v)", status, data)
@@ -458,7 +496,7 @@ func TestAnsweringACardDecidesFromTheRowItWrites(t *testing.T) {
 			dashboard := apiTestListen(t, api, "")
 			hook.closeTaskAfterRead(t, path, task.ID, "FROM reply_card WHERE id")
 
-			status, data := apiJSON(t, h, "POST", "/api/reply-cards/rc-1/answer", owner, `{"option_idxs":[0]}`)
+			status, data := windowJSON(t, h, "POST", "/api/reply-cards/rc-1/answer", owner, `{"option_idxs":[0]}`)
 
 			hook.wantFiredOnce(t)
 			if status != http.StatusConflict {
@@ -492,7 +530,7 @@ func TestExpiringACardDecidesFromTheRowItWrites(t *testing.T) {
 			dashboard := apiTestListen(t, api, "")
 			hook.closeTaskAfterRead(t, path, task.ID, "FROM reply_card WHERE id")
 
-			status, data := apiJSON(t, h, "POST", "/api/reply-cards/rc-1/expire", owner, ``)
+			status, data := windowJSON(t, h, "POST", "/api/reply-cards/rc-1/expire", owner, ``)
 
 			hook.wantFiredOnce(t)
 			if status != http.StatusOK {
@@ -516,7 +554,7 @@ func TestExpiringACardDecidesFromTheRowItWrites(t *testing.T) {
 		windowRefuseTaskWrites(t, d)
 		dashboard := apiTestListen(t, api, "")
 
-		status, data := apiJSON(t, h, "POST", "/api/reply-cards/rc-1/expire", owner, ``)
+		status, data := windowJSON(t, h, "POST", "/api/reply-cards/rc-1/expire", owner, ``)
 
 		if status != http.StatusInternalServerError {
 			t.Fatalf("want 500, got %d (%v)", status, data)
@@ -548,7 +586,7 @@ func TestSweepingAMembersCardsDecidesFromTheRowItWrites(t *testing.T) {
 			kip := apiTestListen(t, api, apiTestPlainAgentID)
 			hook.closeTaskAfterRead(t, path, task.ID, "FROM reply_card")
 
-			status, data := apiJSON(t, h, "DELETE", "/api/members/kip", owner, ``)
+			status, data := windowJSON(t, h, "DELETE", "/api/members/kip", owner, ``)
 
 			hook.wantFiredOnce(t)
 			if status != http.StatusOK {
@@ -576,7 +614,7 @@ func TestSweepingAMembersCardsDecidesFromTheRowItWrites(t *testing.T) {
 			kip := apiTestListen(t, api, apiTestPlainAgentID)
 			hook.answerCardAfterRead(t, path, "rc-1", "FROM reply_card")
 
-			status, data := apiJSON(t, h, "DELETE", "/api/members/kip", owner, ``)
+			status, data := windowJSON(t, h, "DELETE", "/api/members/kip", owner, ``)
 
 			hook.wantFiredOnce(t)
 			if status != http.StatusOK {
@@ -603,7 +641,7 @@ func TestSweepingAMembersCardsDecidesFromTheRowItWrites(t *testing.T) {
 		windowRefuseTaskWrites(t, d)
 		kip := apiTestListen(t, api, apiTestPlainAgentID)
 
-		status, data := apiJSON(t, h, "DELETE", "/api/members/kip", owner, ``)
+		status, data := windowJSON(t, h, "DELETE", "/api/members/kip", owner, ``)
 
 		if status != http.StatusOK {
 			t.Fatalf("the dismissal itself lands: want 200, got %d (%v)", status, data)
@@ -632,7 +670,7 @@ func TestOpeningACardDecidesFromTheRowItWrites(t *testing.T) {
 			pushes := apiTestWebPushSink(t, api)
 			hook.closeTaskAfterRead(t, path, task.ID, "FROM task_step WHERE id")
 
-			status, data := apiJSON(t, h, "POST", "/api/reply-cards", kip, body)
+			status, data := windowJSON(t, h, "POST", "/api/reply-cards", kip, body)
 
 			hook.wantFiredOnce(t)
 			if status != http.StatusConflict {
@@ -661,7 +699,7 @@ func TestOpeningACardDecidesFromTheRowItWrites(t *testing.T) {
 		dashboard := apiTestListen(t, api, "")
 		pushes := apiTestWebPushSink(t, api)
 
-		status, data := apiJSON(t, h, "POST", "/api/reply-cards", kip, body)
+		status, data := windowJSON(t, h, "POST", "/api/reply-cards", kip, body)
 
 		if status != http.StatusInternalServerError {
 			t.Fatalf("want 500, got %d (%v)", status, data)
@@ -812,7 +850,7 @@ func TestClosingATaskDecidesFromTheRowItWrites(t *testing.T) {
 				dashboard := apiTestListen(t, api, "")
 				hook.closeTaskAfterRead(t, path, task.ID, "FROM task WHERE id")
 
-				status, data := apiJSON(t, h, "POST", door.path, token, door.body)
+				status, data := windowJSON(t, h, "POST", door.path, token, door.body)
 
 				hook.wantFiredOnce(t)
 				if status != http.StatusConflict {
@@ -839,7 +877,7 @@ func TestClosingATaskDecidesFromTheRowItWrites(t *testing.T) {
 			windowRefuseTaskWrites(t, d)
 			dashboard := apiTestListen(t, api, "")
 
-			status, data := apiJSON(t, h, "POST", door.path, token, door.body)
+			status, data := windowJSON(t, h, "POST", door.path, token, door.body)
 
 			if status != http.StatusInternalServerError {
 				t.Fatalf("want 500, got %d (%v)", status, data)
@@ -867,7 +905,7 @@ func TestReassigningATaskDecidesFromTheRowItWrites(t *testing.T) {
 			dashboard := apiTestListen(t, api, "")
 			hook.closeTaskAfterRead(t, path, task.ID, "FROM task WHERE id")
 
-			status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/reassign", owner, toMira)
+			status, data := windowJSON(t, h, "POST", "/api/tasks/T-1/reassign", owner, toMira)
 
 			hook.wantFiredOnce(t)
 			if status != http.StatusConflict {
@@ -889,7 +927,7 @@ func TestReassigningATaskDecidesFromTheRowItWrites(t *testing.T) {
 			hook.execAfterRead(t, path, "FROM task WHERE id",
 				`UPDATE task SET executor_id = 'mira', updated_ts = 1800000000 WHERE id = ?`, task.ID)
 
-			status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/reassign", owner, toMira)
+			status, data := windowJSON(t, h, "POST", "/api/tasks/T-1/reassign", owner, toMira)
 
 			hook.wantFiredOnce(t)
 			if status != http.StatusConflict {
@@ -920,7 +958,7 @@ func TestReassigningATaskDecidesFromTheRowItWrites(t *testing.T) {
 		}
 		dashboard := apiTestListen(t, api, "")
 
-		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/reassign", owner, toMira)
+		status, data := windowJSON(t, h, "POST", "/api/tasks/T-1/reassign", owner, toMira)
 
 		if status != http.StatusInternalServerError {
 			t.Fatalf("want 500, got %d (%v)", status, data)
@@ -939,7 +977,7 @@ func TestReassigningATaskDecidesFromTheRowItWrites(t *testing.T) {
 		windowRefuseTaskWrites(t, d)
 		dashboard := apiTestListen(t, api, "")
 
-		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/reassign", owner, toMira)
+		status, data := windowJSON(t, h, "POST", "/api/tasks/T-1/reassign", owner, toMira)
 
 		if status != http.StatusInternalServerError {
 			t.Fatalf("want 500, got %d (%v)", status, data)
@@ -975,7 +1013,7 @@ func TestEditingAPlanDecidesFromTheRowItWrites(t *testing.T) {
 				dashboard := apiTestListen(t, api, "")
 				hook.closeTaskAfterRead(t, path, task.ID, "FROM task WHERE id")
 
-				status, data := apiJSON(t, h, "POST", door.path, owner, door.body)
+				status, data := windowJSON(t, h, "POST", door.path, owner, door.body)
 
 				hook.wantFiredOnce(t)
 				if status != http.StatusConflict {
@@ -997,7 +1035,7 @@ func TestEditingAPlanDecidesFromTheRowItWrites(t *testing.T) {
 			windowRefuseTaskWrites(t, d)
 			dashboard := apiTestListen(t, api, "")
 
-			status, data := apiJSON(t, h, "POST", door.path, owner, door.body)
+			status, data := windowJSON(t, h, "POST", door.path, owner, door.body)
 
 			if status != http.StatusInternalServerError {
 				t.Fatalf("want 500, got %d (%v)", status, data)
@@ -1014,8 +1052,8 @@ func TestEditingAPlanDecidesFromTheRowItWrites(t *testing.T) {
 // outsourceMu, and each retirement is a transaction. Anything on that path that
 // takes outsourceMu again (inside the transaction or not) never returns: the
 // lock is not re-entrant, and on the one-connection DAL the transaction also
-// holds the only connection. The request runs on its own goroutine under a
-// deadline so that mistake fails here by name instead of as a suite timeout.
+// holds the only connection. windowRequest's deadline makes that mistake fail
+// here by name instead of as a suite timeout.
 func TestDismissingAWorkerThatStillHasAWaitingCard(t *testing.T) {
 	for _, shape := range windowDALShapes {
 		t.Run(shape+": claiming a task handed over from the worker retires its card", func(t *testing.T) {
@@ -1038,15 +1076,7 @@ func TestDismissingAWorkerThatStillHasAWaitingCard(t *testing.T) {
 			}
 			dashboard := apiTestListen(t, api, "")
 
-			answered := make(chan *httptest.ResponseRecorder, 1)
-			go func() { answered <- apiRequest(t, h, "POST", "/api/tasks/T-1/claim", owner, "") }()
-			var rec *httptest.ResponseRecorder
-			select {
-			case rec = <-answered:
-			case <-time.After(10 * time.Second):
-				t.Fatalf("the claim did not answer within 10s: the worker dismissal waits on a lock " +
-					"or a connection it already holds")
-			}
+			rec := windowRequest(t, h, "POST", "/api/tasks/T-1/claim", owner, "")
 
 			if rec.Code != http.StatusOK {
 				t.Fatalf("want 200, got %d (%s)", rec.Code, rec.Body.String())
@@ -1124,7 +1154,7 @@ func TestTheDoorsJudgeTheCallerOnTheRowTheyWrite(t *testing.T) {
 				hook.execAfterRead(t, path, "FROM task WHERE id",
 					`UPDATE task SET executor_id = 'mira', updated_ts = 1800000000 WHERE id = ?`, task.ID)
 
-				status, data := apiJSON(t, h, "POST", dr.path, kip, dr.body)
+				status, data := windowJSON(t, h, "POST", dr.path, kip, dr.body)
 
 				hook.wantFiredOnce(t)
 				if status != http.StatusForbidden {
