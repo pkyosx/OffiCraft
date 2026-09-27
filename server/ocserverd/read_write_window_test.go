@@ -904,6 +904,34 @@ func TestReassigningATaskDecidesFromTheRowItWrites(t *testing.T) {
 		})
 	}
 
+	t.Run("a step reset that fails takes the card expiry back with it", func(t *testing.T) {
+		d, _, _ := windowDAL(t, "split pools")
+		api, h, _, owner := newAPITestServerOn(t, d)
+		task := dalPutTask(t, d, windowOpenTask("T-1"))
+		step := windowPlanStep("ts-1", task.ID, 0)
+		step.Status = StepStatusInProgress
+		step.StartedTS = 1700000001
+		windowPutSteps(t, d, step)
+		windowTaskCard(t, d, task.ID)
+		if _, err := d.wdb.Exec(
+			`CREATE TRIGGER refuse_step_update BEFORE UPDATE ON task_step
+			 BEGIN SELECT RAISE(FAIL, 'the step write fails'); END`); err != nil {
+			t.Fatalf("create trigger: %v", err)
+		}
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/reassign", owner, toMira)
+
+		if status != http.StatusInternalServerError {
+			t.Fatalf("want 500, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "internal_error", "internal error: constraint failed: the step write fails (1811)")
+		windowWantCardStatus(t, d, "rc-1", replyCardStatusWaiting)
+		windowWantSteps(t, d, task.ID, step)
+		dalWantTask(t, d, task)
+		dashboard.wantFrames()
+	})
+
 	t.Run("a task write that fails takes the card expiry and the step reset back with it", func(t *testing.T) {
 		d, _, _ := windowDAL(t, "split pools")
 		api, h, _, owner := newAPITestServerOn(t, d)
