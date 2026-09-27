@@ -1,134 +1,57 @@
 package main
 
-// lore_select.go — T-33 傳承（lore）: 挑條目的邏輯，只有這一份.
-//
-// 🔴 THIS FILE IS THE ONLY PLACE THAT DECIDES WHICH LORE ENTRIES A READER GETS.
-// There are THREE exits, and every one of them goes through selectLoreEntries:
+// 🔴 THE ONLY PLACE THAT DECIDES WHICH LORE ENTRIES A READER GETS. Every exit
+// goes through selectLoreEntries:
 //   1. the STAFF boot document        — selectMemberLore,   assets.go buildBootContext
 //   2. the OUTSOURCE boot document    — selectMemberLore,   worker_spawn.go buildWorkerBootContext
 //   3. GET /api/task-manuals/{key}    — selectLoreForScope, api_taskmanuals.go writeTaskManual
 //
-// A member's boot document reads TWO scopes under ONE budget (T-236, owner):
-// scope_kind='everyone' first, then scope_kind='agent' keyed by that member.
+// Exit 1 is conditional: buildBootContext is also the cockpit's role preview,
+// called with no member, and then emits no 傳承 block.
 //
-// 🔴 EXITS 1 AND 2 NOW ASK FOR THE SAME SCOPE, and they are still listed
-// separately because they are still two independently written assemblies. Exit 1
-// said scope_kind='role' until the owner collapsed the scopes on 2026-09-07
-// (card rc-a43100fd0486 [0]); it now keys by the staff member's own id, which is
-// what exit 2 has always done. Same scope, same knob (loreRoleCap), two call
-// sites — so the divergence this file exists to prevent is now a divergence in
-// WHICH MEMBER each side names, not in which kind.
-//
-// ⚠️ EXIT 1 IS CONDITIONAL, and nothing else on this list is: buildBootContext
-// is also the cockpit's ROLE PREVIEW, called with no member at all, and with no
-// member there is no id to key by — so it emits no 傳承 block rather than an
-// arbitrary one. A count of "three exits" that assumed three calls always happen
-// would be wrong on that path.
-//
-// ⚠️ THE SECOND ONE USED TO BE MISSING FROM THIS LIST, and a comment that
-// undercounts the exits is worse than one that says nothing: the next person
-// takes inventory from here, finds two, and never looks for the third. It cost
-// somebody a whole round of verifying an exit that does not exist while the one
-// that does went unchecked (owner approved the agent scope in rc-3c24fdc61ed3;
-// this header simply never caught up).
-//
-// A second implementation is forbidden, and not as a style preference: the
-// exits are read by different audiences at different moments, so a divergence
-// between them shows up as "the entry I wrote is in the manual but not in my
-// boot doc", which nobody can debug from the outside because every face looks
-// correct on its own. The rule is one function, N call sites.
-//
-// If you are here to add a FOURTH exit: call this function, and add it to the
-// list above. If you are here because this rule is inconvenient, the thing to
-// change is this function, not your call site.
+// A second implementation is forbidden: a divergence shows up as "the entry I
+// wrote is in the manual but not in my boot doc", and every face looks correct
+// on its own. A new exit calls this function and joins the list above.
 
 import (
 	"strings"
 	"unicode/utf8"
 )
 
-// loreLister is the read this selection needs and nothing more. It is an
-// interface rather than *DAL so the rule can be tested against a handful of
-// in-memory entries without a database — and, more to the point, so a test can
-// feed it an ordering that a real query would not produce and check that the
-// stop rule still holds.
 type loreLister interface {
 	ListLoreEntriesLive(scopeKind, scopeKey string) ([]LoreEntry, error)
 }
 
-// loreSelection is what one exit is handed: the entries that fit, and where the
-// line falls.
 type loreSelection struct {
-	// Entries are the chosen entries, in the order they are to be rendered.
 	Entries []LoreEntry
-	// FirstDroppedID is the id of the FIRST entry that did not fit, or "" when
-	// every live entry fitted. The cockpit draws its named 上限線 immediately
-	// above this entry; without it the line would have to be re-derived from a
-	// count, and a count cannot say which row it falls above.
+	// The cockpit draws its 上限線 immediately above this entry.
 	FirstDroppedID string
-	// FirstDroppedByKind is FirstDroppedID restricted to one scope_kind: the
-	// first entry OF THAT KIND that was not carried. On a member selection the
-	// overall first drop may be an everyone entry while the member's own list
-	// needs its line above its own first dropped entry.
+	// Per scope_kind, so a member's own list can draw its line above its own
+	// first dropped entry even when the overall first drop is an everyone entry.
 	FirstDroppedByKind map[string]string
-	// UsedChars is the character total of Entries — the same unit the cap is
-	// expressed in, so the two are comparable without re-measuring.
+
 	UsedChars int
-	// CapChars is the cap that was in force for THIS selection. Carried back so
-	// a caller reporting "n of m characters" cannot report a different m from
-	// the one the selection was actually made against.
+
 	CapChars int
 }
 
-// loreEntryChars is the size ONE entry costs against the cap: its title plus
-// its body, counted in Unicode CHARACTERS.
-//
-// 🔴 CHARACTERS, NOT BYTES. Every cap in this tree is expressed in runes
-// (utf8.RuneCountInString, never len()), and here the difference is not
-// academic: these entries are written in Chinese, where a byte count is roughly
-// three times the character count, so a byte-measured cap would admit about a
-// third of what the owner set it to and there would be no error anywhere —
-// entries would simply stop appearing.
-//
-// The rendering scaffolding around an entry (the heading marker, the blank
-// line) is deliberately NOT counted. The cap is a budget over what somebody
-// WROTE; charging it for punctuation this file chose would make the number the
-// owner sets in the settings page mean something different from what it says.
+// 🔴 CHARACTERS, NOT BYTES: entries are Chinese, so a byte-measured cap would
+// silently admit about a third of what the owner set. The rendering scaffolding
+// is deliberately not counted, so the settings number means what it says.
 func loreEntryChars(e LoreEntry) int {
 	return utf8.RuneCountInString(e.Title) + utf8.RuneCountInString(e.Body)
 }
 
-// selectLoreForScope is the whole rule, in one place (spec §2):
+// The order (pinned first, then newest EFFECTIVE first) comes from
+// ListLoreEntriesLive's ORDER BY; this function does not re-sort.
 //
-//  1. take the entries of this scope that are NOT retired;
-//  2. in order: pinned first, then the rest, newest EFFECTIVE first within each
-//     group (produced by ListLoreEntriesLive's ORDER BY — this function does not
-//     re-sort, so there is one definition of the order, not two);
-//  3. accumulate title+body characters. An entry that does not fit is NOT
-//     truncated and NOT skipped over — the walk STOPS THERE;
-//  4. report the entries taken and the id of the first one left out.
-//
-// 🔴 STEP 3 STOPS, IT DOES NOT KEEP TRYING. The tempting version — skip the
-// entry that does not fit and carry on looking for smaller ones further down —
-// is wrong twice. Everything below is OLDER, so what it buys is old material at
-// the price of the newest thing that was left out; and it makes the loaded set
-// non-contiguous, which means the cockpit's 上限線 no longer separates "in" from
-// "out" and there is no honest place left to draw it. A reader would see an
-// entry below the line that was in fact loaded.
-//
-// 🔴 AN ENTRY THAT IS LARGER THAN THE WHOLE CAP ends the selection at position
-// zero rather than being truncated. Half a lesson is not a smaller lesson — it
-// is a sentence that stops, and the reader cannot tell it was cut. The write
-// face refuses over-cap titles and bodies (spec §5) so the entry-level caps make
-// this reachable only by lowering a cap after the fact, which is exactly the
-// case the owner said should affect nothing already stored.
+// 🔴 The walk STOPS at the first entry that does not fit; it does not skip it and
+// look for smaller ones. Everything below is OLDER, and a non-contiguous loaded
+// set leaves the cockpit's 上限線 no honest place to be drawn.
 func selectLoreForScope(lister loreLister, scopeKind, scopeKey string, capChars int) (loreSelection, error) {
-	// scope_key "" is how the everyone scope is addressed, and nothing else.
 	if lister == nil || capChars <= 0 || (scopeKey == "" && scopeKind != LoreScopeEveryone) {
-		// capChars <= 0 is "no room", not "unlimited". Reading a zero as
-		// unbounded is how a mis-loaded setting turns into an unbounded boot
-		// document, and the loader's floor means the value is never legitimately
-		// zero anyway.
+		// capChars <= 0 is "no room", not "unlimited" — a mis-loaded setting must
+		// not become an unbounded boot document.
 		return selectLoreEntries(nil, capChars), nil
 	}
 	entries, err := lister.ListLoreEntriesLive(scopeKind, scopeKey)
@@ -138,14 +61,8 @@ func selectLoreForScope(lister loreLister, scopeKind, scopeKey string, capChars 
 	return selectLoreEntries(entries, capChars), nil
 }
 
-// selectMemberLore is what ONE member's boot document carries: the everyone
-// scope, then that member's own agent scope, walked as one sequence against one
-// budget (owner T-236: everyone shares lore.cap_chars.role and comes first).
-// Each group keeps ListLoreEntriesLive's order. Because the walk stops at the
-// first entry that does not fit, an everyone entry that overflows also drops
-// every agent entry after it.
-//
-// memberID "" (the cockpit's role preview has no member) selects nothing.
+// everyone scope first, then the member's own agent scope, under one budget —
+// owner ruling T-236.
 func selectMemberLore(lister loreLister, memberID string, capChars int) (loreSelection, error) {
 	if lister == nil || memberID == "" || capChars <= 0 {
 		return selectLoreEntries(nil, capChars), nil
@@ -161,7 +78,6 @@ func selectMemberLore(lister loreLister, memberID string, capChars int) (loreSel
 	return selectLoreEntries(append(everyone, own...), capChars), nil
 }
 
-// selectLoreEntries is steps 3-4 of the rule over an already-ordered sequence.
 func selectLoreEntries(entries []LoreEntry, capChars int) loreSelection {
 	sel := loreSelection{Entries: []LoreEntry{}, CapChars: capChars,
 		FirstDroppedByKind: map[string]string{}}
@@ -184,21 +100,13 @@ func selectLoreEntries(entries []LoreEntry, capChars int) loreSelection {
 	return sel
 }
 
-// loreBlockHeading is the title of the appended block. ONE string, used by both
-// exits, so the two faces cannot end up calling the same thing two names.
 const loreBlockHeading = "# 傳承"
 
-// renderLoreBlock turns a selection into the text that gets appended at an exit,
-// or "" when nothing was selected.
-//
 // "" for an empty selection is load-bearing: both exits append this
-// unconditionally, and a heading with nothing under it reads as "the traditions
-// for this role are empty" when the truth may be "the cap is zero" or "they are
-// all retired". An absent section makes no claim at all.
+// unconditionally, and an empty heading would claim there is no lore.
 //
-// 🔴 The entry's id is rendered. It is what an agent has to quote back to retire
-// or bump an entry (spec §5 takes an entry_id), and it is the only handle it is
-// given — an entry it can read but cannot name is one it can never act on.
+// 🔴 The entry's id is rendered: it is the only handle an agent has to retire or
+// bump the entry.
 func renderLoreBlock(sel loreSelection) string {
 	if len(sel.Entries) == 0 {
 		return ""

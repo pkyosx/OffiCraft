@@ -1,36 +1,12 @@
 package main
 
-// assets.go — the repo-file assets + folds the handlers consume: the
-// language-neutral seed .md files (repo-root seeds/), the three-block
-// boot-context assembly (spec/lifecycle.md §2), the derived MCP catalog hash,
-// and the prebuilt binary paths.
-//
-// PATH ANCHOR: a static binary has no source path to derive the repo root
-// from. Like the oc.toml default in config.go, every asset resolves
-// CWD-relative — `bin/serve`-style launchers and the conformance harness run
-// the daemon from the repo root. Tests inject their own root.
-//
-// SINGLE-BINARY, EMBED-ONLY: seeds ride inside the binary via go:embed (same
-// staging pattern as spa.go's webdist — go:embed cannot reach outside the
-// module directory, so bin/build-seedsdist copies repo-root seeds/*.md into
-// seedsdist/ before a seed-carrying binary is built), and so do the prebuilt
-// ocwarden/ocagent binaries + the frozen spec/mcp-catalog.json (bindist/,
-// staged by bin/build-bindist — server-platform binaries only). Every read is
-// EMBED-ONLY: the copy this ocserverd was built with is the only copy served.
-// There is deliberately NO disk override — a stale seeds/, spec/mcp-catalog.json,
-// or bin/ocwarden sitting under the CWD (a frozen repo checkout beside the
-// binary) must never shadow the version-locked embed. Disk-first once let
-// exactly that happen three times over (the T-e731 trilogy: stale
-// boot/worker/role seeds, a stale tools/list catalog, and a stale
-// bootstrap-here warden — each silent, each a content-level version regression
-// with no error). This is serveBinary's stance (api_machines.go — already
-// embed-only for the download routes) applied to every asset seam. A lone
-// binary on a repo-less machine boots agents, installs its own warden
-// (bootstrap-here materializes the embedded ocwarden to an executable file),
-// and serves the binary/catalog routes from the embed alone. The committed
-// prebuilt bin/ocserverd is therefore built with BOTH seedsdist AND bindist
-// STAGED (it must boot agents and install-capable standalone), pristine
-// (.gitkeep-only) only for webdist.
+// 🔴 EMBED-ONLY, deliberately NO disk override: a stale seeds/,
+// spec/mcp-catalog.json or bin/ocwarden under the CWD must never shadow the
+// version-locked embed (disk-first once caused three silent content-level
+// version regressions). go:embed cannot reach outside the module, so
+// bin/build-seedsdist, bin/build-bindist and bin/build-docsdist stage the
+// repo-root files into seedsdist/, bindist/ and docsdist/ before the build; the
+// committed bin/ocserverd is built with seedsdist AND bindist staged.
 
 import (
 	"bytes"
@@ -46,35 +22,25 @@ import (
 	"unicode/utf8"
 )
 
-// The staged seed files (see the module comment). `all:` tolerates the
-// .gitkeep-only placeholder state on a clean checkout.
+// `all:` tolerates the .gitkeep-only placeholder state on a clean checkout.
 //
 //go:embed all:seedsdist
 var seedsdistEmbed embed.FS
 
-// seedsdistFS returns the embedded seeds root (the seedsdist/ subtree).
 func seedsdistFS() fs.FS {
 	sub, err := fs.Sub(seedsdistEmbed, "seedsdist")
 	if err != nil {
-		// The embed directive guarantees the subtree exists; reaching this is
-		// a programmer error.
 		panic(err)
 	}
 	return sub
 }
 
-// The staged prebuilt binaries + frozen MCP catalog (bin/build-bindist builds
-// ocwarden/ocagent for the server's OWN GOOS/GOARCH and copies them, plus
-// spec/mcp-catalog.json, into bindist/ before a self-contained binary is
-// built). Same embed-only contract as seedsdist (no disk override); the embed
-// carries the SERVER-platform binaries only — that is all the exec paths
-// (bootstrap/teardown-here) ever need, since they install on the server host
-// itself, which is by definition the same platform.
+// Server-platform binaries only: the exec paths (bootstrap/teardown-here)
+// install on the server host itself.
 //
 //go:embed all:bindist
 var bindistEmbed embed.FS
 
-// bindistFS returns the embedded binary-asset root (the bindist/ subtree).
 func bindistFS() fs.FS {
 	sub, err := fs.Sub(bindistEmbed, "bindist")
 	if err != nil {
@@ -83,18 +49,9 @@ func bindistFS() fs.FS {
 	return sub
 }
 
-// The staged product-guide docs (bin/build-docsdist copies the repo-root
-// docs/guide/ tree — every *.md plus the assets/ image subtree — into
-// docsdist/ before a doc-carrying binary is built). Same embed-only contract
-// as seedsdist: the doc bytes baked into THIS binary are the only copy served,
-// so the 座艙's 使用說明 nav tab and Mira's get_doc MCP tool read one identical
-// source (zero copy → zero drift). `all:` tolerates the .gitkeep-only
-// placeholder state on a clean checkout (O-46 content may be unmerged).
-//
 //go:embed all:docsdist
 var docsdistEmbed embed.FS
 
-// docsdistFS returns the embedded docs root (the docsdist/ subtree).
 func docsdistFS() fs.FS {
 	sub, err := fs.Sub(docsdistEmbed, "docsdist")
 	if err != nil {
@@ -103,21 +60,15 @@ func docsdistFS() fs.FS {
 	return sub
 }
 
-// assetRoot is the repo root the file assets resolve against ("." in
-// production; tests point it at the checkout).
 type assetRoot string
 
 const (
-	// The seed role roster: exactly one role is seeded.
 	seedRoleAssistant     = "assistant"
 	seedRoleAssistantName = "Assistant"
 
-	// The owner placeholder every seed file substitutes at read time.
 	ownerPlaceholder = "{OWNER_ID}"
 )
 
-// seedRoleName returns the seed display name for roleKey, or "" when it is
-// not a seed role.
 func seedRoleName(roleKey string) string {
 	if roleKey == seedRoleAssistant {
 		return seedRoleAssistantName
@@ -129,17 +80,10 @@ func seedRoleKeys() []string {
 	return []string{seedRoleAssistant}
 }
 
-// readSeedFile reads a seeds/*.md seed, substituting the owner placeholder.
-// Embed-only (see the module comment): the seed baked into this binary, never
-// a seeds/ under the CWD.
 func (root assetRoot) readSeedFile(filename string) (string, error) {
 	return root.readSeedFileFrom(filename, seedsdistFS())
 }
 
-// readSeedFileFrom is readSeedFile over an injectable embedded FS (tests pass
-// fstest.MapFS; production passes the go:embed seedsdist). The assetRoot
-// receiver no longer consults disk — a stale on-disk seed must never shadow
-// the embed — so it goes unnamed.
 func (assetRoot) readSeedFileFrom(filename string, embedded fs.FS) (string, error) {
 	raw, err := fs.ReadFile(embedded, filename)
 	if err != nil {
@@ -148,12 +92,8 @@ func (assetRoot) readSeedFileFrom(filename string, embedded fs.FS) (string, erro
 	return strings.ReplaceAll(string(raw), ownerPlaceholder, wireOwnerID), nil
 }
 
-// seedBlockMD reads one shipped boot-context seed and reports whether it EXISTS
-// (T-791e). It is readSeedFile with the missing-file case answered instead of
-// raised, for the same reason seedInsightMD does it: "there is no factory
-// version of this document" is a legitimate answer that the reset/compare faces
-// turn into a 404, while any other IO error must still propagate (fail-closed —
-// a read that failed for a real reason may never be laundered into "no seed").
+// Only fs.ErrNotExist means "no seed"; any other IO error must propagate
+// (fail-closed), never be laundered into "no seed".
 func (root assetRoot) seedBlockMD(filename string) (string, bool, error) {
 	text, err := root.readSeedFile(filename)
 	if err != nil {
@@ -165,8 +105,6 @@ func (root assetRoot) seedBlockMD(filename string) (string, bool, error) {
 	return text, true, nil
 }
 
-// seedRoleDefinitionMD returns the file-backed role-definition markdown for a
-// SEED roleKey ("" + false when unknown).
 func (root assetRoot) seedRoleDefinitionMD(roleKey string) (string, bool, error) {
 	if seedRoleName(roleKey) == "" {
 		return "", false, nil
@@ -178,43 +116,15 @@ func (root assetRoot) seedRoleDefinitionMD(roleKey string) (string, bool, error)
 	return text, true, nil
 }
 
-// seedInsightMD returns the file-backed INSIGHT markdown for a SEED roleKey
-// ("" + false when the role has no insight seed).
+// 🔴 PER-ROLE by filename, and the FILE's presence is the roster — deliberately
+// not gated on seedRoleName like seedRoleDefinitionMD: with a one-entry roster
+// that gate made a shared-file mutation unobservable (0 tests red).
 //
-// 🔴 PER-ROLE BY CONSTRUCTION — `insight_<roleKey>.md`, deliberately NOT a
-// ONE-SHARED-FILE shape (the same bytes for every role). That shape would ship
-// the ASSISTANT's judgement
-// calls to every role out of the box — how to ghost-write someone else's memory,
-// when to stop and ask the owner, how to move context — and those are WRONG for
-// a tester or an engineer. One role's insight is not another role's insight.
-//
-// 🔴 THE PRESENCE OF THE FILE IS THE ROSTER — and that is a corrected design,
-// not the obvious one. The first version gated on `seedRoleName(roleKey) != ""`
-// (copying seedRoleDefinitionMD) and only then interpolated the name. That gate
-// returns early for every role but `assistant`, so the interpolation was never
-// load-bearing: replacing it with a single shared filename was UNOBSERVABLE —
-// mutation-tested, 0 tests went red. The per-role guarantee rested entirely on
-// a roster with one entry in it, and would have turned false, silently, the day
-// anyone added a second role to seedRoleKeys(). Deriving the answer from the
-// filename alone makes "each role reads its own file, or none" the only thing
-// the code can express, and makes the shared-seed mutation red.
-//
-// TRAVERSAL: roleKey arrives from a URL path segment, so it is validated
-// EXPLICITLY (safeSeedRoleKey) instead of being laundered through a roster.
-// Anything outside [A-Za-z0-9_-]+ resolves to "no seed" — it can never reach
-// the filename.
-//
-// A MISSING file is not an error: fs.ErrNotExist means this role simply has no
-// insight seed, and its doc stays genuinely empty. Any other IO error
-// propagates (fail-closed) — a read that fails for a real reason must never be
-// laundered into "there is no seed".
+// roleKey arrives from a URL path segment, hence safeSeedRoleKey.
 func (root assetRoot) seedInsightMD(roleKey string) (string, bool, error) {
 	return root.seedInsightMDFrom(roleKey, seedsdistFS())
 }
 
-// seedInsightMDFrom is seedInsightMD over an injectable embedded FS, so a test
-// can present a world with MORE THAN ONE seeded role — the only world in which
-// "per-role" is an observable property at all.
 func (root assetRoot) seedInsightMDFrom(roleKey string, embedded fs.FS) (string, bool, error) {
 	if !safeSeedRoleKey(roleKey) {
 		return "", false, nil
@@ -229,17 +139,10 @@ func (root assetRoot) seedInsightMDFrom(roleKey string, embedded fs.FS) (string,
 	return text, true, nil
 }
 
-// insightSeedFilename names the PER-ROLE insight seed. The role key is in the
-// filename; that is the whole mechanism.
 func insightSeedFilename(roleKey string) string {
 	return "insight_" + roleKey + ".md"
 }
 
-// safeSeedRoleKey reports whether roleKey may be interpolated into a seed
-// filename. Deliberately an ALLOWLIST of characters rather than a denylist of
-// traversal sequences: "..", "/", NUL and every encoding trick anyone thinks of
-// later are all excluded by not being in the set, and a key that fails simply
-// has no seed (never an error — an odd role key is not a server fault).
 func safeSeedRoleKey(roleKey string) bool {
 	if roleKey == "" {
 		return false
@@ -254,13 +157,8 @@ func safeSeedRoleKey(roleKey string) bool {
 	return true
 }
 
-// ── boot-context fold (spec/lifecycle.md §2 is normative) ────────────────────
-
-// defaultBootRole is the fallback when neither an explicit role nor a member
-// role_key is given.
 const defaultBootRole = seedRoleAssistant
 
-// resolveBootRoleKey: explicit role → member.role_key → "assistant".
 func resolveBootRoleKey(role string, member *Member) string {
 	if role != "" {
 		return role
@@ -271,8 +169,6 @@ func resolveBootRoleKey(role string, member *Member) string {
 	return defaultBootRole
 }
 
-// foldRoleDefDTO folds one role definition (owner overlay ⊕ file seed) into
-// the wire DTO; nil = unknown role (caller 404s / fails closed).
 func (s *apiServer) foldRoleDefDTO(roleKey string) (*roleDefDTO, error) {
 	overlay, err := s.dal.GetRoleDef(roleKey)
 	if err != nil {
@@ -300,7 +196,6 @@ func (s *apiServer) foldRoleDefDTO(roleKey string) (*roleDefDTO, error) {
 	}, nil
 }
 
-// foldUserContextDTO folds the owner's user-custom ADDITIVE block.
 func (s *apiServer) foldUserContextDTO() (*globalContextDTO, error) {
 	row, err := s.dal.GetUserContext()
 	if err != nil {
@@ -316,33 +211,15 @@ func (s *apiServer) foldUserContextDTO() (*globalContextDTO, error) {
 	}, nil
 }
 
-// bootContext is the folded boot package.
 type bootContext struct {
 	RoleKey string
 	Name    string
 	Context string
 }
 
-// bootSequenceSeedName picks the boot-sequence seed for a runtime. It is the
-// SINGLE source of truth for that choice: the member fold (buildBootContext,
-// below) and the outsource-worker shared core (workerGlobalContext,
-// worker_sharedcore.go) both call it, so the two paths cannot decide it with
-// two different expressions.
-//
-// This exists because they once did. The worker path hard-coded
-// "boot_sequence.md" (PR #170 removed the worker-only seed filtering that had
-// been masking it), so a worker running the codex runtime was handed the Claude
-// boot sequence — which at the time told it to run a bare `ocagent listen` in
-// the background under Monitor — while its own codex runtime tail told it NOT to
-// start a listener because the App Server sidecar owns it. Two contradictory
-// instructions in one boot context. (Neither runtime mounts its own listener any
-// more, but the two sequences still differ: only the codex one ends its boot turn
-// by handing control back.) Parity between staff and outsource is "read
-// the seed for the runtime you are actually running", exactly as staff does; it
-// is NOT "filter the Claude seed down".
-//
-// "" normalises to claude (NormalizeRuntime), so an unset runtime keeps the
-// historical default.
+// 🔴 The SINGLE decision of which runtime gets which boot sequence: the member
+// fold and the outsource-worker shared core (worker_sharedcore.go) both call
+// it. "" normalises to claude.
 func bootSequenceSeedName(runtime string) string {
 	if NormalizeRuntime(runtime) == RuntimeCodex {
 		return bootSequenceSeedCodex
@@ -350,9 +227,6 @@ func bootSequenceSeedName(runtime string) string {
 	return bootSequenceSeedClaude
 }
 
-// The two shipped boot-sequence seed filenames + the one system-interaction
-// seed. Named so the doc-key derivation below can compare against the ANSWER of
-// bootSequenceSeedName instead of asking the runtime a second question.
 const (
 	bootSequenceSeedClaude   = "boot_sequence.md"
 	bootSequenceSeedCodex    = "boot_sequence_codex.md"
@@ -364,28 +238,16 @@ const (
 	docKindBootSequence      = "boot_sequence"
 )
 
-// The 〈停止〉 document (T-c9c0). A SINGLETON like the system-interaction block —
-// one document keyed "global" for every agent and every runtime — because unlike
-// the boot sequence, being collected is the same procedure whatever runtime you
-// are: report, write the in-flight work back, hand yourself over, stop. There is
-// deliberately no runtime axis to get wrong here.
 const (
 	offboardSeedMD  = "offboard.md"
 	offboardDocKey  = "global"
 	docKindOffboard = "offboard"
 )
 
-// bootSequenceDocKey names the EDITABLE DOCUMENT that carries a runtime's boot
-// sequence (T-791e).
-//
-// 🔴 It reads the answer of bootSequenceSeedName rather than testing the runtime
-// itself, on purpose: that function is documented as the single place in the
-// tree that decides which runtime gets which sequence, and it holds that title
-// only as long as nobody writes a second `== RuntimeCodex` beside it. The two
-// boot sequences are not interchangeable — only the codex one ends its boot turn
-// by handing control back to the sidecar that holds its connection — so a second
-// decision point that drifts hands a worker a boot sequence written for the other
-// runtime, silently: a worker that never comes online is never there to say so.
+// 🔴 Reads bootSequenceSeedName's answer rather than testing the runtime: a
+// second `== RuntimeCodex` that drifts would hand a worker the other runtime's
+// boot sequence (only codex's hands control back), and a worker that never
+// comes online is never there to say so.
 func bootSequenceDocKey(runtime string) string {
 	if bootSequenceSeedName(runtime) == bootSequenceSeedCodex {
 		return bootSequenceKeyCodex
@@ -393,15 +255,6 @@ func bootSequenceDocKey(runtime string) string {
 	return bootSequenceKeyClaude
 }
 
-// bootSequenceSeedForKey resolves a boot_sequence DOCUMENT KEY (as it arrives on
-// the URL) back to its seed filename, reporting whether the key names a real
-// document at all.
-//
-// The validity test is `bootSequenceDocKey(key) == key`: the keys ARE the
-// runtime names, so a key that survives a round trip through the single decision
-// point is one this server serves, and everything else ("", "Codex", "opus") is
-// not. Written this way rather than as a literal set so the set cannot fall out
-// of step with the decision point it is supposed to mirror.
 func bootSequenceSeedForKey(key string) (string, bool) {
 	if bootSequenceDocKey(key) != key {
 		return "", false
@@ -409,11 +262,7 @@ func bootSequenceSeedForKey(key string) (string, bool) {
 	return bootSequenceSeedName(key), true
 }
 
-// buildBootContext resolves the role + folds the role docs + assembles the
-// boot context (lifecycle.md §2.2 normative order: system-interaction seed,
-// user-custom block when non-blank, # Role, # Insight when non-blank,
-// boot-sequence seed — joined "\n\n" + one trailing "\n"). nil = unknown role
-// (caller maps to 404 / fail-closed).
+// Section order is normative (spec/lifecycle.md §2.2).
 func (s *apiServer) buildBootContext(role string, member *Member) (*bootContext, error) {
 	roleKey := resolveBootRoleKey(role, member)
 	roleDTO, err := s.foldRoleDefDTO(roleKey)
@@ -431,12 +280,6 @@ func (s *apiServer) buildBootContext(role string, member *Member) (*bootContext,
 	if err != nil {
 		return nil, err
 	}
-	// 🔴 THE EDITED VERSION WINS, THE SEED IS THE FALLBACK (T-791e). These two
-	// blocks used to be bare readSeedFile calls, i.e. the shipped bytes and
-	// nothing else. They now go through the same overlay ⊕ seed fold the
-	// cockpit's editor reads and writes, which is what makes an edit take effect
-	// on the next boot instead of on the next release. An installation that has
-	// never edited them folds to the identical seed bytes.
 	sysSeed, err := s.systemInteractionText()
 	if err != nil {
 		return nil, err
@@ -453,20 +296,9 @@ func (s *apiServer) buildBootContext(role string, member *Member) (*bootContext,
 	if roleTitle == "" {
 		roleTitle = roleDTO.Key
 	}
-	// T-4595 — the user-custom block moved from below the persona to above it
-	// (it used to sit between the persona and the boot sequence). Staff and
-	// outsource boot contexts are now the SAME FOUR SLOTS in the same order:
-	//
-	//	1. 系統互動 (shared seed)
-	//	2. 使用者自訂 (shared, skipped entirely when blank)
-	//	3. the persona — staff: 角色說明 → 判準（when non-blank）;
-	//	   outsource: NOTHING (no role)
-	//	4. 啟動步驟 (shared seed, recency-authoritative tail)
-	//
-	// Only slot 3 differs between the two, and that is the whole difference.
-	// Putting the owner's additions ABOVE the persona is what makes the two
-	// assemblies line up; leaving it wedged between the persona and the boot
-	// sequence would keep one seam that only staff have.
+	// Staff and outsource boot contexts are the SAME slots in the same order:
+	// 系統互動, 使用者自訂 (skipped when blank), persona (staff only), 啟動步驟
+	// (recency-authoritative tail). Only the persona slot differs.
 	parts := []string{strings.TrimSpace(sysSeed)}
 	if strings.TrimSpace(userCtx.Text) != "" {
 		parts = append(parts,
@@ -474,63 +306,25 @@ func (s *apiServer) buildBootContext(role string, member *Member) (*bootContext,
 	}
 	parts = append(parts,
 		"# Role: "+roleTitle+"\n\n"+strings.TrimSpace(roleDTO.DefinitionMD))
-	// Insight (T-3809) — the persona's second block, after Duty (# Role), which
-	// is the order the two documents are defined in: what she does → how she
-	// works.
-	//
-	// 🔴 The condition is the FOLDED TEXT being non-blank, exactly like the
-	// 使用者自訂 block above — deliberately NOT insight.IsDefault and NOT
-	// insight.HasSeed. Those two answer different questions (whether the text
-	// came from the factory seed rather than an overlay, and whether a seed FILE
-	// exists for this role at all), so either one used as the gate would emit
-	// the section for roles whose insight is genuinely empty — an orphan title
-	// with nothing under it — or suppress it for a role that has written one.
+	// 🔴 Gated on the FOLDED TEXT being non-blank — NOT insight.IsDefault or
+	// insight.HasSeed, which answer different questions.
 	if insightBody := strings.TrimSpace(insight.Text); insightBody != "" {
 		parts = append(parts, "# Insight ("+roleKey+")\n\n"+insightBody)
 	}
-	// 傳承 (T-33) — the MEMBER exit, appended immediately after the persona and
-	// before the recency-authoritative 啟動步驟 tail.
+	// 傳承 is keyed by the MEMBER (owner, card rc-a43100fd0486).
 	//
-	// 🔴 THIS USED TO BE KEYED BY ROLE AND IS NOW KEYED BY THE MEMBER. Owner
-	// collapsed the three scopes to two on 2026-09-07 (card rc-a43100fd0486 [0]),
-	// so a staff member's 傳承 hangs off its own id exactly the way an outsource
-	// worker's already did in buildWorkerBootContext. The two exits are now the
-	// same question asked of the same scope with the same budget; what still
-	// differs between the two boot folds is everything ELSE in slot 3 (角色說明 /
-	// 判準 / 長期筆記), which staff have and workers do not.
+	// 🔴 THE CAP IS s.loreRoleCap() AND THAT IS NOT A MISTAKE: it is the
+	// member-fold budget under a stale name (see domain.go); s.loreManualCap()
+	// is the OTHER exit.
 	//
-	// 🔴 THE CAP IS s.loreRoleCap() AND THAT IS NOT A MISTAKE. It is the
-	// member-fold budget wearing a stale name — the same knob buildWorkerBootContext
-	// has always read for this same scope. s.loreManualCap() is the OTHER exit and
-	// swapping them would silently spend a task type's budget on a person. No knob
-	// was added or retuned here; see domain.go's note on the name.
-	//
-	// 🔴 The selection is NOT made here. selectMemberLore (lore_select.go) walks
-	// the everyone scope and then this member's own agent scope under this one
-	// budget (T-236), through the same walker the manual exit uses; see its
-	// header before adding a second one.
-	//
-	// ⚠️ The preview path below therefore also omits everyone entries: without a
-	// member the budget split between the two groups is not the one any real
-	// boot makes.
-	//
-	// ⚠️ member IS NIL ON THE PREVIEW PATH. buildBootContext is also called with
-	// no member to render a ROLE's boot document for the cockpit (no member_id ⇒
-	// no token, see the route). There is no member id to key by then, and there
-	// is no honest substitute: role_key would resurrect the scope this ticket
-	// removed, and picking "the member under this role" would make a preview show
-	// one person's 傳承 as if it belonged to the role. So the block is OMITTED —
-	// the preview stops claiming to show a 傳承 section it cannot address, rather
-	// than showing a wrong one.
+	// ⚠️ member is nil on the cockpit's role preview path: the block is OMITTED
+	// there, since role_key would resurrect the removed scope and picking a
+	// member would show one person's 傳承 as the role's.
 	if member != nil {
 		loreSel, err := selectMemberLore(s.dal, member.ID, s.loreRoleCap())
 		if err != nil {
 			return nil, err
 		}
-		// An empty block renders as "", and the empty string is dropped rather
-		// than joined in: "\n\n" between two parts would otherwise put a blank
-		// gap where a section was not emitted, which is a difference in the
-		// assembled document that no test of the sections themselves would catch.
 		if block := renderLoreBlock(loreSel); block != "" {
 			parts = append(parts, block)
 		}
@@ -547,10 +341,7 @@ func (s *apiServer) buildBootContext(role string, member *Member) (*bootContext,
 	}, nil
 }
 
-// ── catalog hash (normative M1 §3.2) ─────────────────────────────────────────
-
-// catalogHashOf hashes the served MCP tool surface: every non-mcp_exclude row
-// rendered "{METHOD} {path}", sorted, "\n"-joined, SHA-256, first 16 hex.
+// Normative: M1 §3.2.
 func catalogHashOf(specs []RouteSpec) string {
 	var surface []string
 	for _, spec := range specs {
@@ -563,15 +354,10 @@ func catalogHashOf(specs []RouteSpec) string {
 	return hex.EncodeToString(sum[:])[:16]
 }
 
-// ── embedded prebuilt fingerprints (T-5f01 machine-table bin_status) ─────────
-
-// binHashPrefixLen mirrors the warden's selfUpdateHashPrefixLen: the first 12
-// hex chars of sha256 are the shared "which build" fingerprint vocabulary on
-// both sides of the wire (warden heartbeat `binaries` ↔ these embed hashes).
-// An eyeball tag, not a security checksum.
+// Mirrors the warden's selfUpdateHashPrefixLen: the shared "which build"
+// fingerprint on both sides of the wire. An eyeball tag, not a checksum.
 const binHashPrefixLen = 12
 
-// binHashPrefix returns the first binHashPrefixLen hex chars of sha256(data).
 func binHashPrefix(data []byte) string {
 	sum := sha256.Sum256(data)
 	full := hex.EncodeToString(sum[:])
@@ -581,13 +367,9 @@ func binHashPrefix(data []byte) string {
 	return full
 }
 
-// bindistBinaryHashesFrom fingerprints the EMBEDDED prebuilt ocwarden/ocagent
-// — the exact bytes GET /api/{warden,agent}/binary serves and the warden
-// self-update swaps in verbatim, so fingerprint equality IS "this machine
-// already holds the latest build" (the same raw-content oracle the warden's
-// reconcileBinary uses, never a version stamp). A missing/empty embed entry
-// (a pristine .gitkeep-only checkout in unit tests) is simply omitted: the
-// comparison then answers unknown, never a false verdict.
+// Fingerprint equality IS "this machine already holds the latest build" (the
+// warden's reconcileBinary uses the same raw-content oracle). A missing embed
+// entry is omitted, so the comparison answers unknown, never a false verdict.
 func bindistBinaryHashesFrom(embedded fs.FS) map[string]string {
 	hashes := map[string]string{}
 	for _, name := range []string{"ocwarden", "ocagent"} {
@@ -600,23 +382,10 @@ func bindistBinaryHashesFrom(embedded fs.FS) map[string]string {
 	return hashes
 }
 
-// ── prebuilt binaries + frozen MCP catalog (embed-only) ──────────────────────
-
-// readMCPCatalogFrom reads the frozen MCP catalog from the embedded bindist
-// copy ALONE. Embed-only (see the module comment): a stale spec/mcp-catalog.json
-// under the CWD must never shadow the descriptor surface this binary was built
-// with. Receiver unnamed — disk is not consulted.
 func (assetRoot) readMCPCatalogFrom(embedded fs.FS) ([]byte, error) {
 	return fs.ReadFile(embedded, "mcp-catalog.json")
 }
 
-// materializeBinary writes data as an EXECUTABLE (0755) file <dir>/<name> and
-// returns its path — the embed-fallback seam for the exec paths
-// (bootstrap/teardown-here need a real on-disk binary to run). dir is the
-// per-instance binary cache beside the SQLite data file (apiServer.binCacheDir)
-// — stable and reusable across requests, never the CWD. Idempotent: an
-// existing byte-identical file is reused; anything else is replaced via a
-// same-directory temp file + rename (no half-written binary is ever exec'd).
 func materializeBinary(dir, name string, data []byte) (string, error) {
 	dst := filepath.Join(dir, name)
 	if existing, err := os.ReadFile(dst); err == nil && bytes.Equal(existing, data) {
@@ -654,38 +423,12 @@ func materializeBinary(dir, name string, data []byte) (string, error) {
 	return dst, nil
 }
 
-// The six event-procedure documents T-3201 adds. Same shape as the offboard
-// singleton above — one document per event, key "global" — because what an
-// agent should do when a task closes does not depend on which runtime it is.
-//
-// 🔴 THE SEEDS ARE THE PROGRAM TEXT THESE NOTICES USED TO BE, MOVED WITHOUT A
-// WORD CHANGED. Every sentence in these six files was a Go string literal
-// (sse_bands.go's offboard sentence builder and decideTaskCloseNudge,
-// api_tasks.go's reassign notices, api_tasks_dependents.go's dependency-released
-// notice); the interpolation points are the ONLY thing that changed shape,
-// becoming the {name} variables this kind declares. Six are wired to their send
-// sites and the Go text they replaced is deleted: the two stop procedures, plus
-// 轉派程序（前任）, 解除阻擋 and — once the owner ruled the duplicated 交接備註
-// away (rc-0c36d8739b8f) — the two 接手程序. 任務收尾 was the last one left, and
-// T-7870 wired it: the pure decideTaskCloseNudge now decides only WHETHER a
-// nudge is owed, and closeTask — which is a method, and was already reading the
-// manual two lines above the call — fetches the words. All seven carry their
-// text from the document now, and no Go literal of any of them survives.
-// bootDocSingletonKey is the document key every non-boot_sequence boot document
-// uses. Named rather than repeated so a caller addressing "the one document of
-// this kind" says so, instead of spelling a magic "global" that reads like the
-// 全域脈絡 document it is not.
-// userAdditionsTitle is the ONE title the 使用者自訂 block is served under.
-//
-// 🔴 IT WAS TWO COPIES, AND THAT IS THE WHOLE REASON IT IS A CONSTANT (T-3201).
-// The same literal sat in buildBootContext (staff) and workerSharedHead
-// (outsource), so the day someone corrected one of them, staff and contractors
-// would have booted under two different headings and nothing would have said
-// so. It is also the only line the program ADDS to any of the three boot
-// documents — the read-only head of 使用者自訂, in the vocabulary T-3201 gives
-// the other nine — which is why it is named here rather than inlined twice.
+// 🔴 The ONE title the 使用者自訂 block is served under; workerSharedHead
+// (outsource) uses it too, so staff and contractors boot under one heading.
 const userAdditionsTitle = "# 使用者自訂（Owner Additions）"
 
+// Named so "the one document of this kind" is not a magic "global" that reads
+// like the 全域脈絡 document it is not.
 const bootDocSingletonKey = "global"
 
 const (

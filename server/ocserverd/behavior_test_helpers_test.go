@@ -575,7 +575,7 @@ func newSettingsTestServer(t *testing.T, password string) (*apiServer, *httptest
 	api.agentTokenTTL = auth.agentTokenTTL
 	api.passwordHash = auth.passwordHash
 	api.passwordChangedAt = auth.passwordChangedAt
-	api.ctxhigh = auth.ctxhigh
+	api.ctxHigh = auth.ctxHigh
 	h, err := buildHandler(specsFor(api), api.keys, dal.GetMember, api.authPasswordChangedAt)
 	if err != nil {
 		t.Fatalf("buildHandler: %v", err)

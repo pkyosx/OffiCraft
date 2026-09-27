@@ -1,94 +1,45 @@
 package main
 
-// diffaddr.go — THE AUTHORITY on how one side of a comparison is spelled.
+// diffaddr.go — THE AUTHORITY on how one side of a comparison is spelled. Two
+// deliberate pre-flight copies judge the same spelling: cli/ocagent/diff.go (a
+// separate Go module, no shared import) and the cockpit (frontend/), which
+// parses it out of the page URL. The written-down authority is
+// bin/tests/fixtures/diff-side-addresses.tsv — 🔴 but NOTHING IN GO READS THAT
+// TABLE (only the cockpit's copy is tested against it), so a drift between this
+// file and cli/ocagent's is caught by nobody. When they disagree, this file wins.
 //
-// A comparison is a URL naming two SIDES (T-59, owner 2026-09-03: 「可以指定兩個
-// 文件位置，就可以跳出我們這個 diff 的畫面 … 實際上是兩個文件連結」). A side is
-// EITHER a stored blob id or one field of a system document at one point in
-// time, and nothing else — never a file path, never inline bytes. Links rather
-// than copies, so the two sides stay openable on their own and nothing is
-// stored twice.
-//
-// ── WHO IS THE AUTHORITY, AND WHO IS A COPY ─────────────────────────────────
-//
-// THIS FILE IS THE AUTHORITY. Two other places judge the same spelling and both
-// are deliberate pre-flights rather than second opinions:
-//
-//   * cli/ocagent/diff.go — so a mistyped side costs one local sentence in the
-//     member's own vocabulary instead of a round trip whose 400 does not say
-//     WHICH of the two arguments to look at. It is a separate Go module, so
-//     there is no import to share; the written-down authority for both is
-//     bin/tests/fixtures/diff-side-addresses.tsv.
-//     🔴 NOTHING IN GO READS THAT TABLE. Only the cockpit's copy is confronted
-//     against it, by a frontend test. A drift between this spelling and
-//     cli/ocagent's is caught by nobody.
-//   * the cockpit (frontend/) — which parses the same address out of the page
-//     URL to render each column. It is a reader of this contract, not a
-//     definer of it; when the two disagree, this file wins.
-//
-// The rule for every reader: an address this file refuses is not a comparison,
-// and an address it accepts is SAYABLE — never a promise that it still
-// resolves. Whether a blob is still stored or a revision still retained is a
-// read-time fact the pair route answers with an honest "this side is gone".
+// An accepted address is SAYABLE, never a promise that it still resolves.
 
 import (
 	"regexp"
 	"strings"
 )
 
-// docSidePrefix marks an argument as a DOCUMENT ADDRESS: `doc:<kind>/<key>/
-// <at>/<field>`. Four segments, split on "/" — the one character a kind, key,
-// `at` or field may never contain (see diffAddrSegment), which is what makes
-// the split unambiguous.
 const docSidePrefix = "doc:"
 
-// diffBlobSideID is the SHAPE a minted blob id actually has ("att-" +
-// newHexID(12), see resolveChatAttachment) — anchored, so it matches the whole
-// string or nothing.
-//
-// A prefix test is not enough, and the gap is not cosmetic. T-59's independent
-// review fed the prefix version "att-" (empty id, the easiest possible typo:
-// copying an id and losing the tail) and "att-/../../api/version", and BOTH
-// were accepted. The second one is the one that bites: a reader that builds a
-// URL by concatenation lets the browser normalise that away to a different
-// endpoint entirely, and the compare screen then draws an unrelated response as
-// "before" — a confident wrong answer.
+// diffBlobSideID is anchored on purpose: a prefix test accepted
+// "att-/../../api/version", which a reader building a URL by concatenation lets
+// the browser normalise into a different endpoint — the compare screen then
+// draws an unrelated response as "before".
 var diffBlobSideID = regexp.MustCompile(`^att-[0-9a-f]{12}$`)
 
-// diffAddrSegment constrains the three parts of a DOCUMENT address (kind / key
-// / field) by CHARACTER SET rather than by membership in a list.
-//
-// The character set is the point: each part is spliced into a URL by readers,
-// so excluding "/", "%", "?" and "#" removes the normalisation class outright,
-// and "."/".." are refused by name because they traverse without containing any
-// excluded character.
-//
-// It is deliberately NOT a list of known kinds. This validator's promise is
-// that the address is SAYABLE, not that it resolves. A kind list here would be
-// a second copy of an enumeration that goes stale the moment a new editable
-// document ships, with nothing to go red.
+// diffAddrSegment is a CHARACTER SET because readers splice each part into a
+// URL: excluding "/", "%", "?" and "#" removes the normalisation class outright.
+// It is deliberately NOT a list of known kinds — that would be a second
+// enumeration that goes stale when a new editable document ships.
 var diffAddrSegment = regexp.MustCompile(`^[A-Za-z0-9._:@+-]+$`)
 
-// The two reserved values of a document side's `at`.
 const (
 	diffAtCurrent = "current"
 	diffAtSeed    = "seed"
 )
 
-// diffAtRevision matches the third form of `at`: a retained revision's id. The
-// id is an int64 everywhere else and travels here as its decimal spelling so
-// that `at` stays ONE string — a field that is sometimes a number and sometimes
-// one of two words would be a union type on a frozen wire.
+// diffAtRevision: a revision id travels as its decimal spelling so `at` stays
+// ONE string on a frozen wire, not a number-or-word union.
 var diffAtRevision = regexp.MustCompile(`^[1-9][0-9]{0,18}$`)
 
-// diffDocAddress is one field of one system document at one point in time.
-//
-// `at` is one of three things: "current" (the live document — a LIVE pointer,
-// so the same link shows a different comparison later), "seed" (the shipped
-// default, 初始版本), or a retained revision's id in decimal.
-//
-// `field` is REQUIRED, and that is a property of the data rather than a choice:
-// a revision stores a MAP of fields, not one text.
+// diffDocAddress: At "current" is a LIVE pointer — the same link shows a
+// different comparison later.
 type diffDocAddress struct {
 	Kind  string
 	Key   string
@@ -96,20 +47,14 @@ type diffDocAddress struct {
 	Field string
 }
 
-// diffSide is one parsed side. Exactly one of AttachmentID / Doc is set.
 type diffSide struct {
 	Raw          string
 	AttachmentID string
 	Doc          *diffDocAddress
 }
 
-// parseDiffSide judges ONE side and returns the sentence to hand the caller
-// when it is not one.
-//
-// EVERY match is against the value AS GIVEN, never a trimmed copy: a padded
-// address is one no reader can resolve, so accepting it here would split "it
-// was accepted" from "it will draw", which is the one thing this file exists to
-// prevent.
+// parseDiffSide matches the value AS GIVEN, never a trimmed copy: a padded
+// address is one no reader can resolve.
 func parseDiffSide(raw string) (diffSide, string) {
 	if strings.TrimSpace(raw) == "" {
 		return diffSide{}, "a comparison side must name a stored attachment id (att-…) or a document (doc:<kind>/<key>/<at>/<field>)"
@@ -145,8 +90,6 @@ func diffAddrSegmentRefusal(raw, what, value string) string {
 	if value == "" {
 		return "'" + raw + "' leaves its " + what + " empty"
 	}
-	// "." and ".." pass the character set and traverse anyway, so they are
-	// refused by name rather than by pattern.
 	if value == "." || value == ".." || !diffAddrSegment.MatchString(value) {
 		return "'" + raw + "' has a " + what + " that is not a usable address segment: '" + value + "'"
 	}

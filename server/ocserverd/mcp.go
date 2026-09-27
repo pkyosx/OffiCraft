@@ -1,18 +1,10 @@
 package main
 
-// mcp.go — the tools/call loopback (spec/mcp.md §3): resolve the tool name
-// back to its route-table row, split the flat `arguments` object into
-// path / query / body, re-enter the app's OWN mux in-process forwarding the
-// caller's Authorization header (same gate, same RBAC choke, same param
-// binding, same handler — the loopback mechanism is an implementation
-// detail; that equivalence is the contract), and wrap the sub-response as a
-// CallToolResult (isError ≡ status>=400; structuredContent iff the body is a
-// JSON object).
-//
-// The tool NAME surface is derived from the route table (RouteSpec.toolName
-// mirrors the frozen tool_name vocabulary), never hand-maintained; the
-// tools/list DESCRIPTORS stay served from the frozen spec/mcp-catalog.json,
-// narrowed to the caller's principal class (api_infra.go) — see the note there.
+// mcp.go — the tools/call loopback (spec/mcp.md §3): re-enter the app's OWN mux
+// in-process with the caller's Authorization, so gate, RBAC, param binding and
+// handler run exactly as for a direct REST call — that equivalence is the
+// contract. Tool NAMES derive from the route table; tools/list DESCRIPTORS stay
+// served from the frozen spec/mcp-catalog.json (api_infra.go).
 
 import (
 	"bytes"
@@ -37,14 +29,11 @@ func emptyPathParam(value any) bool {
 	return isString && strings.TrimSpace(s) == ""
 }
 
-// unsafePathParam identifies values that path.Clean could reinterpret as a
-// separator or dot segment instead of leaving them as one route segment.
 func unsafePathParam(value string) bool {
 	return strings.Contains(value, "/") || value == "." || value == ".."
 }
 
-// toolName is the MCP tool name of a route row: the explicit override, else
-// derived from method+path — the frozen tool_name rule verbatim.
+// toolName applies the frozen tool_name rule verbatim.
 func (s RouteSpec) toolName() string {
 	if s.MCPTool != "" {
 		return s.MCPTool
@@ -58,7 +47,6 @@ func (s RouteSpec) toolName() string {
 	return strings.ToLower(s.Method)
 }
 
-// mcpToolIndex maps each advertised tool name to its route row.
 func mcpToolIndex(specs []RouteSpec) map[string]RouteSpec {
 	index := make(map[string]RouteSpec)
 	for _, spec := range specs {
@@ -70,10 +58,8 @@ func mcpToolIndex(specs []RouteSpec) map[string]RouteSpec {
 	return index
 }
 
-// pyArgString renders one argument value the way the Python transport's
-// str() does when substituting path params / urlencoding query params:
-// JSON literals for numbers (json.Number preserves "3" vs "3.0"),
-// True/False/None spellings for bool/null.
+// pyArgString renders a value the way the Python transport's str() did (True /
+// False / None; json.Number keeps "3" vs "3.0").
 func pyArgString(v any) string {
 	switch t := v.(type) {
 	case nil:
@@ -96,13 +82,7 @@ func pyArgString(v any) string {
 	}
 }
 
-// splitToolArguments splits the flat `arguments` object per spec/mcp.md §3.1:
-// path keys pop into the path template, a GET route's remaining non-null keys
-// become the query string (list values expand doseq-style), and any other
-// method's remaining keys become the JSON body (an empty object when nothing
-// remains — a body is ALWAYS sent for a write route). A missing or empty path
-// parameter, or a value that could be cleaned into a different route, is a
-// validation error before the loopback dispatch.
+// splitToolArguments splits the flat `arguments` object per spec/mcp.md §3.1.
 func splitToolArguments(spec RouteSpec, arguments map[string]any) (reqPath string, rawQuery string, body []byte, err error) {
 	remaining := make(map[string]any, len(arguments))
 	for k, v := range arguments {
@@ -148,9 +128,7 @@ func splitToolArguments(spec RouteSpec, arguments map[string]any) (reqPath strin
 	return reqPath, "", raw, nil
 }
 
-// loopbackRecorder captures the sub-response (status + body) of an in-process
-// re-entry. Deliberately NOT an http.Flusher: no tool route streams (the SSE
-// route is mcp_exclude).
+// loopbackRecorder is deliberately not an http.Flusher: no tool route streams.
 type loopbackRecorder struct {
 	header      http.Header
 	status      int
@@ -179,18 +157,12 @@ func (rec *loopbackRecorder) Write(b []byte) (int, error) {
 	return rec.body.Write(b)
 }
 
-// loopbackCall re-enters the app's own mux in-process (spec/mcp.md §3.2),
-// forwarding the caller's Authorization header verbatim so the auth gate,
-// the RBAC choke, the wrapper param binding, and the handler guards run
-// exactly as for a direct REST call.
 func (s *apiServer) loopbackCall(r *http.Request, method, reqPath, rawQuery string, body []byte) (int, []byte, error) {
 	if s.loopback == nil {
 		return 0, nil, errors.New("loopback handler not wired")
 	}
-	// Pre-clean the path so the mux receives its canonical form instead of
-	// issuing a 301 canonicalisation redirect. Keep this normalization for
-	// non-canonical paths even though splitToolArguments rejects empty and
-	// route-reinterpreting path params.
+	// Pre-clean so the mux gets the canonical path instead of issuing a 301; keep
+	// it even though splitToolArguments already rejects route-reinterpreting params.
 	cleaned := pathpkg.Clean(reqPath)
 	req := (&http.Request{
 		Method:     method,
@@ -220,11 +192,9 @@ func (s *apiServer) loopbackCall(r *http.Request, method, reqPath, rawQuery stri
 	return rec.status, rec.body.Bytes(), nil
 }
 
-// callToolResult wraps a loopback sub-response as a CallToolResult
-// (spec/mcp.md §3.3): a single text content item carrying the raw body,
-// isError ≡ status>=400 (a route 4xx is a successful JSON-RPC result, never
-// a JSON-RPC error), structuredContent present iff the body parses as a JSON
-// object (numbers kept as json.Number so the re-marshal is literal-exact).
+// callToolResult (spec/mcp.md §3.3): a route 4xx is a successful JSON-RPC result
+// with isError, never a JSON-RPC error; numbers stay json.Number so the
+// structuredContent re-marshal is literal-exact.
 func callToolResult(status int, raw []byte) map[string]any {
 	result := map[string]any{
 		"content": []any{map[string]any{"type": "text", "text": string(raw)}},

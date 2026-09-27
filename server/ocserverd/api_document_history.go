@@ -10,29 +10,17 @@ import (
 
 var errDocumentHistoryCap = errors.New("restoring this version would violate the existing document size limit")
 
-// Naming the replacement is the whole point of refusing loudly: a caller who
-// still says "task_manual" learns which series it wanted.
 const legacyTaskManualKindMsg = "document history kind \"task_manual\" was retired: " +
 	"use \"task_manual_sop\""
 
-// The two legacy-memory kinds (T-186). Refused BY NAME rather than left to fall
-// through to "unknown kind", and the message has to say that the documents are
-// GONE: the migration that landed with this removal dropped the lessons table,
-// task_manual.learnings and every retained revision of both, so a caller who
-// guesses these kinds is asking after storage that no longer exists — and
-// putting either name back into the switch below would make list answer an
-// empty 200 that is indistinguishable from "this document has no versions yet".
-//
-// The message names no migration NUMBER on purpose: a number is claimed, not
-// fixed, and a rebase that renumbers the migration would rot this sentence
-// without reddening anything.
+// Refused BY NAME: the storage is gone, and letting these kinds reach a list would
+// answer an empty 200 indistinguishable from "no versions yet". The message
+// deliberately names no migration number (a rebase could renumber it silently).
 const legacyMemoryKindsMsg = "document history kinds \"lessons\" and " +
 	"\"task_manual_learnings\" were retired: the legacy memory documents and " +
 	"their retained revisions were dropped from the database, so there is " +
 	"nothing left to list or restore"
 
-// historyKeyParts reports a document-history key's PRIMARY identity and whether
-// the key names a document at all.
 func historyKeyParts(kind, key string) (string, bool) {
 	return key, key != ""
 }
@@ -45,17 +33,8 @@ func documentHistoryContent(h DocumentHistory) (map[string]string, error) {
 	return content, nil
 }
 
-// documentHistoryDTO is the CATALOGUE row: identity, provenance, the tombstone
-// flag, and the SIZE of every field the revision holds — never the text. The
-// listing is where a reader picks a revision, and picking does not need the
-// prose: one answer had a structural ceiling in the hundreds of thousands of
-// characters with no narrowing of any kind. The chosen revision's body comes
-// from HandleGetDocumentVersion… below.
-//
-// `tombstoned` is lifted OUT of the field map and served as its own boolean:
-// it is the only entry of `content` that is a flag rather than a document, so
-// leaving it in field_chars would report "4" for it — a character count of the
-// string "true", which measures nothing anybody asked about.
+// documentHistoryDTO serves field SIZES, never text: a text-bearing listing had
+// no ceiling (hundreds of thousands of characters in one answer).
 func documentHistoryDTO(h DocumentHistory) (DocumentHistoryDTO, error) {
 	content, err := documentHistoryContent(h)
 	if err != nil {
@@ -77,12 +56,8 @@ func documentHistoryDTO(h DocumentHistory) (DocumentHistoryDTO, error) {
 	}, nil
 }
 
-// documentHistoryRestoreDTO is the RESTORE receipt, and it deliberately still
-// carries `content` — the shape that route has always answered with. A restore
-// names exactly one revision and its whole point is that this text is now what
-// the live document holds; handing back sizes there would answer a question
-// nobody asked. Splitting the two shapes is what lets the listing get light
-// without changing the write face's wire at all.
+// documentHistoryRestoreDTO still carries `content`: the restore route's wire shape
+// is unchanged.
 func documentHistoryRestoreDTO(h DocumentHistory) (DocumentHistoryRestoreDTO, error) {
 	content, err := documentHistoryContent(h)
 	if err != nil {
@@ -91,10 +66,8 @@ func documentHistoryRestoreDTO(h DocumentHistory) (DocumentHistoryRestoreDTO, er
 	return DocumentHistoryRestoreDTO{Id: h.ID, Content: content, CreatedTs: h.CreatedTS, ActorId: h.ActorID}, nil
 }
 
-// Overlay documents must retain their persisted tombstone state, not only the
-// folded text exposed to readers. A tombstone means "follow the seed"; writing
-// that same text back as a live overlay would silently turn a default document
-// into a customized one.
+// A tombstone means "follow the seed"; writing the same text back as a live
+// overlay would silently turn a default document into a customized one.
 func historyTombstoned(content map[string]string) bool {
 	value, _ := strconv.ParseBool(content["tombstoned"])
 	return value
@@ -113,22 +86,17 @@ func roleDefHistorySnapshot(current *RoleDef) (string, error) {
 	if current == nil {
 		return "{}", nil
 	}
-	// The role's NAME is deliberately absent (owner ruling, T-1f39: 「名稱不用留
-	// 版本」— 角色誌本身不說明它自己叫什麼，只說明它做什麼). It is a label on the
-	// document, not part of it: a rename retains nothing, and a restore leaves
-	// the current name standing rather than silently renaming the role behind
-	// a reader who came to put the TEXT back.
+	// The role NAME is deliberately not versioned (owner ruling, T-1f39); a
+	// restore leaves the current name standing.
 	return historyJSON(map[string]string{
 		"definition_md": current.DefinitionMD,
 		"tombstoned":    strconv.FormatBool(current.Tombstoned),
 	})
 }
 
-// The readers below are what SaveWithDocumentHistory calls from inside the
-// write transaction. They deliberately re-read the document rather than trust a
-// value the handler folded earlier: the retained revision must be the state
-// this write replaced, otherwise two writers racing on one document both retain
-// the same ancestor and the revision written in between becomes unrecoverable.
+// These readers run inside the write transaction and re-read the document on
+// purpose: trusting a value folded earlier lets two racing writers retain the same
+// ancestor, making the revision written in between unrecoverable.
 func userContextSnapshotIn(q sqlRowQuerier) (string, error) {
 	current, err := getUserContextOn(q)
 	if err != nil {
@@ -160,11 +128,8 @@ func manualSnapshotIn(typeKey string, of func(TaskManual) (string, error)) func(
 	}
 }
 
-// taskManualHistoryStreams names the series a manual write must retain. The SOP
-// is versioned only when the write actually changes it; purpose, the identifier
-// fields, display_name and assignee are not versioned at all (owner ruling,
-// T-1f39), so a write touching only those returns no streams and retains
-// nothing anywhere.
+// Only the SOP is versioned; purpose, the identifier fields, display_name and
+// assignee are not (owner ruling, T-1f39).
 func taskManualHistoryStreams(typeKey, actor string, sopChanged bool) []documentHistoryStream {
 	var streams []documentHistoryStream
 	if sopChanged {
@@ -176,10 +141,6 @@ func taskManualHistoryStreams(typeKey, actor string, sopChanged bool) []document
 	return streams
 }
 
-// roleDefHistoryStreams is the role's counterpart of taskManualHistoryStreams:
-// the ONE series a role write may retain, and only when the definition text
-// itself changed. A rename touches no versioned field, so it returns nothing
-// and the write retains nothing anywhere.
 func roleDefHistoryStreams(roleKey, actor string, definitionChanged bool) []documentHistoryStream {
 	if !definitionChanged {
 		return nil
@@ -201,31 +162,15 @@ func (s *apiServer) documentHistoryAllowed(w http.ResponseWriter, r *http.Reques
 		docKindAcceleratedStop, docKindTaskCloseout, docKindTaskReassignPredecessor,
 		docKindTaskTakeoverWithPredecessor, docKindTaskUnblocked,
 		docKindTaskReadyForDone:
-		// T-791e. Same class gate as global_context below — restoring one of
-		// these puts text into every agent's boot context, so it is a governance
-		// write (owner or the admin 助理), exactly as the edit route is. Reading
-		// stays at the floor the route table declares, like every other kind
-		// here.
-		//
-		// A key this server does not serve is refused BEFORE any of that: the
-		// list/restore faces must not answer for boot_sequence/opus as if it
-		// were a document that merely has no versions yet.
+		// Restoring one of these puts text into every agent's boot context — a
+		// governance write, gated like the edit route. A key this server does not
+		// serve is refused first, never answered as "no versions yet".
 		if !bootDocHistoryKeyKnown(kind, key) {
 			writeError(w, http.StatusBadRequest, unknownBootDocKeyMsg(kind, key))
 			return false
 		}
-		// A read-only document is refused BEFORE the capability check, and on
-		// purpose: no principal may restore it, so answering 403 would send an
-		// owner hunting for a role to grant. Restore is the write face that
-		// reaches a document SIDEWAYS — not from an editor, but by putting an
-		// old version back — so a gate that lived only in replaceBootDoc would
-		// be a gate this path walked around. That WAS the shape of it until
-		// T-3201: since then the join is a shared function both faces call
-		// (bootDocStoredText), and the one gate restore still does not run is the
-		// wipe guard, deliberately —
-		// see restoreDocumentHistory. This read-only check stays here because
-		// it has to answer before the capability check, which is a property of
-		// THIS door rather than of the shared rules.
+		// Read-only is refused BEFORE the capability check: no principal may
+		// restore it, so a 403 would send the owner hunting for a role to grant.
 		if write {
 			if spec, ok := s.bootDocSpecFor(kind, key); ok && spec.ReadOnly {
 				writeError(w, http.StatusMethodNotAllowed, bootDocReadOnlyRefusal(spec))
@@ -242,32 +187,20 @@ func (s *apiServer) documentHistoryAllowed(w http.ResponseWriter, r *http.Reques
 			return false
 		}
 	case "insight":
-		// The `write &&` is the point, not a copy-paste: reading any role's
-		// retained insight versions is open to
-		// every authenticated caller, exactly like reading the current doc
-		// (owner ruling rc-dc171587220c). An earlier draft of this design said
-		// the opposite; the ruling settled it.
+		// `write &&` on purpose: reading insight versions is open to every
+		// authenticated caller (owner ruling rc-dc171587220c).
 		if write && !s.insightWriteAuthz(w, r, primary) {
 			return false
 		}
 	case docKindTaskManualSop:
 	case docKindTaskDescription:
-		// T-e271. The only kind whose restore gate is per-DOCUMENT rather than
-		// per-class: a task description is writable by that task's executor (or
-		// an admin), which is a fact about THIS key, so the ladder alone cannot
-		// decide it. Reuses callerMayDriveTask — the same predicate the edit
-		// route uses — so a restore can never put back text the caller was not
-		// allowed to write in the first place. Reading stays open like the
-		// manual series: the task itself is already readable at this floor.
+		// Per-DOCUMENT gate: the same predicate as the edit route
+		// (callerMayEditTaskText), so a restore never puts back text the caller
+		// could not have written.
 		if write && !s.taskDescriptionRestoreAuthz(w, r, primary) {
 			return false
 		}
 	case docKindTaskTitle:
-		// T-2ebe. Same per-DOCUMENT posture as the description above, and for
-		// the same reason: who may correct THIS task's text is a fact about this
-		// key, not about the caller's class. Shares the one predicate rather
-		// than growing a second — a restore must never put back a title the
-		// caller was not allowed to write.
 		if write && !s.taskTitleRestoreAuthz(w, r, primary) {
 			return false
 		}
@@ -275,9 +208,6 @@ func (s *apiServer) documentHistoryAllowed(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusBadRequest, legacyMemoryKindsMsg)
 		return false
 	case docKindTaskManual:
-		// The legacy four-field bundle. Its rows were deleted by migration 00045
-		// (owner ruling, T-1f39), so the kind names nothing at all — an empty
-		// list here would be indistinguishable from "this manual has no history".
 		writeError(w, http.StatusBadRequest, legacyTaskManualKindMsg)
 		return false
 	default:
@@ -308,18 +238,8 @@ func (s *apiServer) HandleListDocumentHistoryApiDocumentHistoryKindKeyGet(w http
 	writeJSON(w, http.StatusOK, result)
 }
 
-// GET /api/document-history/{kind}/{key}/{id} — the BODY of one named revision.
-//
-// The other half of the pair the listing became: list_document_history says
-// which revisions exist and how big each of their fields is, this says what one
-// of them held. Same floor and the same addressing gate as the listing and the
-// seed route (`documentHistoryAllowed(..., write=false)`) — reading one
-// revision is not a bigger permission than reading the catalogue that names it.
-//
-// The id is scoped to the kind/key pair, because GetDocumentHistory looks up
-// all three: an id belonging to some OTHER document 404s here rather than
-// handing back that other document's text. That is why the address is the whole
-// triple and never the id alone.
+// The id is scoped to the kind/key pair (GetDocumentHistory matches all three),
+// so an id belonging to another document 404s instead of leaking its text.
 func (s *apiServer) HandleGetDocumentVersionApiDocumentHistoryKindKeyIdGet(w http.ResponseWriter, r *http.Request, kind string, key string, id int64) {
 	if !s.documentHistoryAllowed(w, r, kind, key, false) {
 		return
@@ -343,31 +263,19 @@ func (s *apiServer) HandleGetDocumentVersionApiDocumentHistoryKindKeyIdGet(w htt
 	})
 }
 
-// documentSeedContent answers "what would a reset of this document write back",
-// in the SAME field names a retained revision carries — which is what lets the
-// cockpit hand it to the very same reader/diff the retained versions use.
+// documentSeedContent answers "what would a reset write back", in the SAME field
+// names the history snapshot uses: the cockpit diffs the maps key by key, and a
+// mismatched name renders 「沒有差異」 against every version instead of erroring.
 //
-// The second return is "this document HAS a shipped default". It is true for
-// exactly the THREE documents that own a reset route (`POST
-// /api/global-context/reset`, `POST /api/roles/{role}/reset` on a SEED role,
-// `POST /api/insight/{role_key}/reset` on a role with an insight seed) and
-// false everywhere else, so the 404 here lands in exactly the places the reset
-// itself 404s. That symmetry is the point: the cockpit renders its 初始版本 row
-// from the presence of a reset, and a row whose "compare" 404s while its
-// "restore" works (or the reverse) would be worse than no row.
-//
-// `tombstoned` rides along because that IS how both resets are written (an
-// overlay tombstone means "follow the seed"), and because the surfaces render
-// it as the 「當時為預設內容」 badge — the seed row is the one entry for which
-// that badge is unconditionally true.
+// hasSeed is true only for documents that own a reset route, so this 404s exactly
+// where the reset does — the cockpit renders its 初始版本 row from that. Seeds are
+// tombstoned because that is how resets are written; it drives the
+// 「當時為預設內容」 badge.
 func (s *apiServer) documentSeedContent(kind, key string) (map[string]string, bool, error) {
 	switch kind {
 	case "global_context":
-		// The user-custom block has no file seed: its default IS the empty
-		// document (reset = tombstone → `text=""`, `is_default=true`). Empty is
-		// a real answer, not a missing one — the diff against it is exactly
-		// "everything you wrote would go away", which is what the owner needs
-		// to see before pressing 還原.
+		// No file seed: the default IS the empty document — a real answer, not a
+		// missing one.
 		return map[string]string{"text": "", "tombstoned": "true"}, true, nil
 	case "role_definition":
 		seedMD, hasSeed, err := s.root.seedRoleDefinitionMD(key)
@@ -382,12 +290,7 @@ func (s *apiServer) documentSeedContent(kind, key string) (map[string]string, bo
 		docKindAcceleratedStop, docKindTaskCloseout, docKindTaskReassignPredecessor,
 		docKindTaskTakeoverWithPredecessor, docKindTaskUnblocked,
 		docKindTaskReadyForDone:
-		// T-791e. The seed content comes from readSeedFile through the same
-		// resolver the reset uses (bootDocSpecFor → seedBlockMD), so "what the
-		// compare view shows" and "what 還原 would write" cannot be two different
-		// texts. Field name `text`, matching bootDocHistorySnapshot — the
-		// cockpit diffs the two maps key by key, so a mismatched name renders
-		// 「沒有差異」 against every retained version instead of erroring.
+		// Same resolver the reset uses, so compare and 還原 cannot show two texts.
 		spec, ok := s.bootDocSpecFor(kind, key)
 		if !ok {
 			return nil, false, nil
@@ -401,17 +304,7 @@ func (s *apiServer) documentSeedContent(kind, key string) (map[string]string, bo
 		}
 		return map[string]string{"text": seedMD, "tombstoned": "true"}, true, nil
 	case "insight":
-		// 🔴 `text`, NOT `definition_md` — that is the field name
-		// insightHistorySnapshot writes into a retained insight revision, and
-		// the cockpit diffs the two maps key-by-key. Naming it after the role
-		// definition's field would not error anywhere: the modal would simply
-		// render 「沒有差異」 against every retained version, which is the worst
-		// possible way to be wrong about a destructive restore.
-		//
-		// The roster is the SET OF FILES (seeds/insight_<role_key>.md), not
-		// seedRoleKeys() — see seedInsightMD. So this is per-role by
-		// construction and 404s for a role with no insight seed, which is
-		// exactly where `POST /api/insight/{role_key}/reset` 404s too.
+		// 🔴 `text`, NOT `definition_md` — insightHistorySnapshot's field name.
 		seedMD, hasSeed, err := s.root.seedInsightMD(key)
 		if err != nil {
 			return nil, false, err
@@ -424,13 +317,6 @@ func (s *apiServer) documentSeedContent(kind, key string) (map[string]string, bo
 	return nil, false, nil
 }
 
-// GET /api/document-history/{kind}/{key}/seed — the document's shipped default.
-//
-// READ-ONLY on purpose, and that is the whole reason it exists: before it, the
-// seed text only ever reached a client as the RESPONSE TO A RESET, so the one
-// entry in the version list whose restore is least reversible was also the only
-// one nobody could look at first. Same floor as reading the retained versions
-// (`documentHistoryAllowed(..., write=false)`) — comparing is reading.
 func (s *apiServer) HandleGetDocumentSeedApiDocumentHistoryKindKeySeedGet(w http.ResponseWriter, r *http.Request, kind string, key string) {
 	if !s.documentHistoryAllowed(w, r, kind, key, false) {
 		return
@@ -488,45 +374,27 @@ func (s *apiServer) publishDocumentHistoryRestore(r *http.Request, kind, key str
 	case "global_context":
 		s.hub.Publish("global_context", "patch", "global_context", wireOwnerID, nil, audienceOwnerOnly(), requestTrigger(r))
 	case "role_definition":
-		// "role_def", the topic every other write to this document publishes.
-		// "role" is not in the closed topic set, so it was dropped at the
-		// publish seam and a restore fanned nothing at all.
+		// "role_def" — "role" is outside the closed topic set and was silently dropped.
 		s.hub.Publish("role_def", "patch", "role_def", wireOwnerID+"::"+key, nil, audienceOwnerOnly(), requestTrigger(r))
 	case "insight":
-		// 🔴 THE SILENT ONE. This switch has no default: omitting a kind here
-		// costs nothing visible — the restore succeeds, the DB is changed, the
-		// DTO comes back, HTTP 200, no error, no failing test — and the only
-		// symptom is that every other surface keeps showing the old text until
-		// someone reloads by hand. role_definition already made this mistake
-		// once (see the case above). There is a test whose sole reason to exist is
-		// that nothing else in the build would go red here.
+		// 🔴 This switch has no default: a missing kind still returns 200 with the
+		// DB changed, and every other surface shows the old text until a manual
+		// reload. A test exists solely because nothing else would go red.
 		s.hub.Publish("insight", "patch", "insight", wireOwnerID+"::"+key, nil, audienceOwnerOnly(), requestTrigger(r))
 	case docKindSystemInteraction, docKindBootSequence, docKindOffboard,
 		docKindAcceleratedStop, docKindTaskCloseout, docKindTaskReassignPredecessor,
 		docKindTaskTakeoverWithPredecessor, docKindTaskUnblocked,
 		docKindTaskReadyForDone:
-		// T-791e — the same frame the edit routes fan (see publishBootDoc).
-		// Forgetting to be in THIS switch is the silent failure the insight case
-		// above documents: 200, DB changed, nothing on any screen.
 		s.publishBootDoc(r)
 	case docKindTaskManualSop:
 		s.publishTaskManual(key, requestTrigger(r))
 	case docKindTaskDescription, docKindTaskTitle:
-		// Both fan the same task delta: the cockpit's list and card reconcile by
-		// re-reading the task, so one topic serves either field. T-2ebe rides
-		// the description's arm rather than adding a second identical one —
-		// see the insight case above for why forgetting to be here at all is
-		// the failure this switch is most prone to.
 		if t, err := s.resolveTask(key); err == nil {
 			s.publishTask(*t, requestTrigger(r))
 		}
 	}
 }
 
-// taskDescriptionRestoreAuthz answers whether this caller may put an earlier
-// description back, and writes the refusal when not (T-e271). Same ladder as the
-// edit route by construction — it calls the same function — so the two faces of
-// "who may change this text" cannot drift apart.
 func (s *apiServer) taskDescriptionRestoreAuthz(w http.ResponseWriter, r *http.Request, taskID string) bool {
 	t, err := s.resolveTask(taskID)
 	if err != nil {
@@ -540,11 +408,6 @@ func (s *apiServer) taskDescriptionRestoreAuthz(w http.ResponseWriter, r *http.R
 	return true
 }
 
-// taskTitleRestoreAuthz answers whether this caller may put an earlier title
-// back, and writes the refusal when not (T-2ebe). Twin of the description
-// predicate above, and it calls the same callerMayDriveTask for the same reason:
-// the restore face and the edit face of "who may change this task's text" must
-// be one decision, not two that can drift.
 func (s *apiServer) taskTitleRestoreAuthz(w http.ResponseWriter, r *http.Request, taskID string) bool {
 	return s.taskDescriptionRestoreAuthz(w, r, taskID)
 }
@@ -564,32 +427,19 @@ func (s *apiServer) restoreDocumentHistory(r *http.Request, kind, key string, co
 		if folded == nil {
 			return errNotFound
 		}
-		// The cap applies to a restore too (T-ae38), exactly as it already did
-		// for insight below — and this branch is the reason the edit-door check
-		// alone would not be a cap at all: edit the definition down to 999 chars
-		// and then restore a 4,000-char earlier revision, and nothing would ever
-		// have looked. Duty was the ONLY kind in this switch with no check;
-		// insight is the shape to copy.
+		// The cap applies to restore too: otherwise edit down, then restore a
+		// larger earlier revision, and nothing ever checks it.
 		if DocCapBlocked(s.dutyCap(), folded.DefinitionMD, content["definition_md"]) {
 			return errDocumentHistoryCap
 		}
-		// The CURRENT name stands: it is not versioned, so a revision has no
-		// name to put back (older rows may still carry one — it is ignored on
-		// purpose rather than resurrected).
 		name := folded.Name
 		return s.dal.SaveWithDocumentHistory(kind, key, actor, roleDefSnapshotIn(key), func(ex sqlExecer) error {
 			return putRoleDefOn(ex, RoleDef{RoleKey: key, Name: name, DefinitionMD: content["definition_md"], Tombstoned: historyTombstoned(content)})
 		})
 	case docKindTaskDescription:
-		// T-e271. No doc cap: the description has never had a length ceiling on
-		// the create side either, so a cap applied only here would mean an
-		// already-long description can only ever be restored to a SHORTER
-		// version — DocCapBlocked refuses over-cap writes that are not shorter
-		// than what is stored, and restoring an earlier, longer wording is
-		// exactly such a write. Reasoning in full at the edit door
-		// (api_tasks_description.go); it is stated there once, including the
-		// correction of an earlier draft that overclaimed this as "permanently
-		// uneditable".
+		// No doc cap: the description has none on the create side either, so a
+		// cap here would only allow restoring SHORTER versions (reasoning at the
+		// edit door, api_tasks_description.go).
 		t, err := s.resolveTask(key)
 		if err != nil {
 			return err
@@ -603,28 +453,10 @@ func (s *apiServer) restoreDocumentHistory(r *http.Request, kind, key string, co
 		}
 		return nil
 	case docKindTaskTitle:
-		// T-2ebe. No doc cap, for the reason its edit door states: create_task
-		// has never capped this field either.
-		//
-		// 🔴 The blank check below is BELT-AND-BRACES, and saying so is the point:
-		// an earlier draft of this comment claimed it was the thing that caught
-		// the "{}" snapshot case, which is not true and was corrected by
-		// independent review rather than left to read as a mechanism.
-		//
-		// What actually happens: a vanished task is refused at the DOOR —
-		// documentHistoryAllowed → taskTitleRestoreAuthz → resolveTask answers a
-		// clean 404 before this function runs. A retained revision can only have
-		// been written through a door that already refused blanks, so no stored
-		// revision restores to one either. The guard is therefore expected to be
-		// unreachable; it stays because the cost of being wrong about that is a
-		// blank title on the task list, which is the one state this whole
-		// capability exists to prevent.
-		//
-		// ⚠️ Its failure shape is inherited, not chosen: errNotFound from any arm
-		// of this switch is funnelled into internalError, so it would surface as
-		// a 500 rather than a 404. That is pre-existing (the description arm at
-		// the top of this switch does the same) and is NOT fixed here — flagged
-		// so the next reader knows it was seen and scoped out, not missed.
+		// No doc cap (create_task has none). The blank check is belt-and-braces:
+		// a vanished task already 404s at the door, and no stored revision is
+		// blank. ⚠️ errNotFound from any arm of this switch surfaces as a 500 via
+		// internalError — known, scoped out.
 		t, err := s.resolveTask(key)
 		if err != nil {
 			return err
@@ -647,9 +479,6 @@ func (s *apiServer) restoreDocumentHistory(r *http.Request, kind, key string, co
 		if err != nil {
 			return err
 		}
-		// The cap applies to a restore too: an older, larger revision is still
-		// a write, and letting history walk a doc back over the limit would
-		// make the cap a suggestion.
 		if DocCapBlocked(s.insightCap(), current.Text, content["text"]) {
 			return errDocumentHistoryCap
 		}
@@ -660,27 +489,13 @@ func (s *apiServer) restoreDocumentHistory(r *http.Request, kind, key string, co
 		docKindAcceleratedStop, docKindTaskCloseout, docKindTaskReassignPredecessor,
 		docKindTaskTakeoverWithPredecessor, docKindTaskUnblocked,
 		docKindTaskReadyForDone:
-		// T-791e. The cap applies to a restore, exactly as it does for insight
-		// above: an older, larger revision is still a write, and
-		// letting history walk a document back over the ceiling would make the
-		// ceiling a suggestion. (The RESET path is the deliberate opposite — see
-		// resetBootDoc: the factory text is the product, not something a caller
-		// wrote.)
+		// The cap applies here; the RESET path deliberately skips it (see resetBootDoc).
 		//
-		// 🔴 THIS IS A WRITE FACE AND IT TAKES THE SAME ROAD AS THE OTHERS
-		// (T-3201). It used to hand content["text"] to putBootDocumentOn
-		// verbatim, passing no content gate at all — so restore was a FIFTH
-		// write path, and the only one that could still put a pre-marker,
-		// headless version back on a live row. It did not INVENT that shape
-		// (nothing does any more); it RE-ARMED one out of the version history,
-		// silently, with one owner click. Now the revision's editable half is
-		// taken (bootDocBodyOf) and put through bootDocStoredText — the same join
-		// replaceBootDoc uses — so a restore lands the old body under the SHIPPED
-		// head.
-		//
-		// The wipe guard is deliberately NOT here: it asks about an intent
-		// (「清空」) that a restore does not have, and a restore of an empty
-		// revision is the owner reaching for a version he can see in a list.
+		// 🔴 Restore goes through bootDocBodyOf + bootDocStoredText, the same join
+		// replaceBootDoc uses, so the old body lands under the SHIPPED head; handing
+		// content["text"] straight to putBootDocumentOn would re-arm a pre-marker,
+		// headless version. The wipe guard is deliberately absent: a restore has
+		// no 「清空」 intent.
 		spec, ok := s.bootDocSpecFor(kind, key)
 		if !ok {
 			return errNotFound
@@ -717,9 +532,6 @@ func (s *apiServer) restoreDocumentHistory(r *http.Request, kind, key string, co
 	return errNotFound
 }
 
-// restoreTaskManualField writes back exactly the one field its stream versions
-// and leaves every other field of the manual as it stands. apply also judges
-// the cap, on THAT field alone.
 func (s *apiServer) restoreTaskManualField(key string, streams []documentHistoryStream, apply func(*TaskManual) error) error {
 	current, err := s.dal.GetTaskManual(key)
 	if err != nil {

@@ -1,16 +1,11 @@
 package main
 
-// api_webhooks.go — M4 回呼端點 (webhook) handlers: the owner-facing CRUD over a
-// member's webhook_endpoint rows + the PUBLIC /in inlet.
-//
-// Delivery mechanism (投遞方式 A — chat channel reuse): an accepted /in POST
-// does NOT mint a new event type or SSE topic. It synthesises ONE ordinary
-// chat_message from a synthetic sender (`hook:<endpoint_id>`) to the member and
-// fans the same "chat" delta everyone else rides — so it inherits chat's
-// durable offline queue, online SSE push, and on-wake catch-up for free, and
-// never auto-wakes the member (SPEC §2 投遞). meta.webhook={endpoint_id,purpose}
-// carries the per-endpoint purpose the member's 用途守衛 (seed §3) judges the
-// untrusted payload against.
+// Webhooks: owner-facing CRUD plus the PUBLIC /in inlet. Delivery reuses the
+// chat channel: an accepted /in POST synthesises ONE ordinary chat_message from
+// `hook:<endpoint_id>` and fans the same "chat" delta, so it inherits chat's
+// offline queue, SSE push and on-wake catch-up, and never auto-wakes the member
+// (SPEC §2). meta.webhook.purpose is what the member's 用途守衛 (seed §3)
+// judges the untrusted payload against.
 
 import (
 	"crypto/rand"
@@ -24,25 +19,15 @@ import (
 	"time"
 )
 
-// webhookPayloadMaxBytes caps a single /in payload. Webhook payloads are small
-// control/event blobs, so this sits FAR below chat's 100 MB attachment ceiling
-// — a public unauthenticated inlet must not be an amplification / memory sink.
-//
-// 🔴 OVER-CAP IS A REFUSAL, NOT A TRUNCATION (T-222, owner rc-a40ef8c66781
-// 「超過上限直接拒絕」). Cutting the body at the cap and carrying on delivered
-// half a payload the member could not tell was half, told the sender it had
-// succeeded, and — worse — fed the TRUNCATED bytes to the slack/github HMAC
-// gates, so a perfectly legitimate signed call was classified sig_failed and
-// thrown away. Nothing reaches the member now; the sender is told.
-const webhookPayloadMaxBytes = 1 << 20 // 1 MiB
+// A public unauthenticated inlet must not be an amplification / memory sink.
+// 🔴 Over-cap is a REFUSAL, not a truncation (owner rc-a40ef8c66781): a cut body
+// also fed truncated bytes to the HMAC gates, so legitimate signed calls were
+// classified sig_failed.
+const webhookPayloadMaxBytes = 1 << 20
 
-// Request-log caps (migrations/00014 webhook_request_log): the ring buffer
-// stores the raw request for debugging, cut at sane ceilings — headers as a
-// JSON map ≤4 KiB, body text ≤16 KiB — with a truncated marker when either
-// was cut. The 1 MiB payload cap above still bounds what we ever read.
 const (
-	webhookLogHeadersMaxBytes = 4 << 10  // 4 KiB
-	webhookLogBodyMaxBytes    = 16 << 10 // 16 KiB
+	webhookLogHeadersMaxBytes = 4 << 10
+	webhookLogBodyMaxBytes    = 16 << 10
 )
 
 const webhookInternalErrorMessage = "internal server error"
@@ -52,10 +37,6 @@ func writeWebhookInternalError(w http.ResponseWriter, err error) {
 	writeError(w, http.StatusInternalServerError, webhookInternalErrorMessage)
 }
 
-// Webhook request-log outcome labels — the closed classification a resolved
-// /in request lands as. Drops carry their coarse reason as
-// "dropped:<WebhookDropReason>"; an unknown token has no endpoint to log
-// against, by construction.
 const (
 	webhookOutcomeDelivered     = "delivered"
 	webhookOutcomeChallenge     = "challenge"
@@ -63,10 +44,8 @@ const (
 	webhookOutcomeDroppedPrefix = "dropped:"
 )
 
-// logWebhookRequest records one resolved /in request into the endpoint's
-// debug ring buffer (newest 5 kept). STRICTLY best-effort: the public inlet's
-// byte-identical silent face must never be perturbed by observability, so
-// every error here is swallowed.
+// logWebhookRequest is STRICTLY best-effort: the inlet's byte-identical silent
+// face must never be perturbed by observability, so every error is swallowed.
 func (s *apiServer) logWebhookRequest(token string, r *http.Request, payload []byte, outcome string, ts float64) {
 	truncated := false
 	headers, err := json.Marshal(r.Header)
@@ -91,15 +70,6 @@ func (s *apiServer) logWebhookRequest(token string, r *http.Request, payload []b
 	})
 }
 
-// recordWebhookOversizeRejection leaves the over-cap refusal in the endpoint's
-// existing observability fields — dropped_count / last_drop_reason on the
-// endpoint row plus one `dropped:oversize` row in the request-log ring buffer,
-// its body cut at the log's own 16 KiB ceiling like every other row's.
-//
-// It runs AFTER the 413 verdict and can change nothing about it: the token is
-// resolved here only to find somewhere to write, and an unresolvable one simply
-// has no endpoint to record against — the same by-construction gap every other
-// outcome has. Errors are swallowed, as everywhere else on this inlet.
 func (s *apiServer) recordWebhookOversizeRejection(token string, r *http.Request, payload []byte) {
 	e, err := s.dal.GetWebhookByToken(token)
 	if err != nil || e == nil {
@@ -111,19 +81,14 @@ func (s *apiServer) recordWebhookOversizeRejection(token string, r *http.Request
 		webhookOutcomeDroppedPrefix+WebhookDropReasonOversize, ts)
 }
 
-// newWebhookToken mints a high-entropy, unguessable, URL-safe opaque token
-// (32 bytes of crypto/rand → base64url, ~43 chars). Distinct from newHexID's
-// 12-hex member/chat ids: a webhook token is a bearer credential, not a
-// display id, so it takes full 256-bit entropy.
 func newWebhookToken() string {
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {
-		panic(err) // the OS entropy source failing is not a servable state
+		panic(err)
 	}
 	return base64.RawURLEncoding.EncodeToString(raw)
 }
 
-// GET /api/members/{member_id}/webhooks — the member's endpoints, oldest→newest.
 func (s *apiServer) HandleListWebhooksApiMembersMemberIdWebhooksGet(w http.ResponseWriter, r *http.Request, memberId string) {
 	m, err := s.resolveMember(memberId, anyMember)
 	if err != nil {
@@ -142,9 +107,6 @@ func (s *apiServer) HandleListWebhooksApiMembersMemberIdWebhooksGet(w http.Respo
 	writeJSON(w, http.StatusOK, out)
 }
 
-// POST /api/members/{member_id}/webhooks — create. endpoint_id is required,
-// closed-charset, and per-member unique (409 on a duplicate); the server mints
-// the opaque token and returns it once.
 func (s *apiServer) HandleCreateWebhookApiMembersMemberIdWebhooksPost(w http.ResponseWriter, r *http.Request, memberId string) {
 	var body WebhookCreateDTO
 	if !decodeJSONBodyRequired(w, r, &body, "endpoint_id") {
@@ -160,7 +122,6 @@ func (s *apiServer) HandleCreateWebhookApiMembersMemberIdWebhooksPost(w http.Res
 		writeError(w, http.StatusUnprocessableEntity, err.Error())
 		return
 	}
-	// platform is the fixed-at-creation verification preset; default generic.
 	platform := WebhookPlatformGeneric
 	if body.Platform != nil && string(*body.Platform) != "" {
 		platform = string(*body.Platform)
@@ -171,9 +132,6 @@ func (s *apiServer) HandleCreateWebhookApiMembersMemberIdWebhooksPost(w http.Res
 		return
 	}
 	signingSecret := strOrEmpty(body.SigningSecret)
-	// slack/github verification is impossible without a shared secret — reject at
-	// the create seam rather than silently accept an endpoint that can never
-	// verify a single call.
 	if platform != WebhookPlatformGeneric && signingSecret == "" {
 		writeError(w, http.StatusUnprocessableEntity,
 			"signing_secret is required when platform is '"+platform+"'")
@@ -206,8 +164,6 @@ func (s *apiServer) HandleCreateWebhookApiMembersMemberIdWebhooksPost(w http.Res
 	writeJSON(w, http.StatusOK, newWebhookEndpointDTO(e))
 }
 
-// PATCH /api/members/{member_id}/webhooks/{endpoint_id} — flip status and/or
-// edit purpose. endpoint_id is immutable (address key, not editable here).
 func (s *apiServer) HandleUpdateWebhookApiMembersMemberIdWebhooksEndpointIdPatch(w http.ResponseWriter, r *http.Request, memberId, endpointId string) {
 	var body WebhookUpdateDTO
 	if !decodeJSONBody(w, r, &body) {
@@ -229,9 +185,6 @@ func (s *apiServer) HandleUpdateWebhookApiMembersMemberIdWebhooksEndpointIdPatch
 	if body.Purpose != nil {
 		e.Purpose = *body.Purpose
 	}
-	// signing_secret rotation: platform is immutable here, but the shared secret
-	// can be re-supplied to rotate it. An explicit "" clears it (though that
-	// leaves a slack/github endpoint unable to verify — the owner's choice).
 	if body.SigningSecret != nil {
 		e.SigningSecret = *body.SigningSecret
 	}
@@ -242,8 +195,6 @@ func (s *apiServer) HandleUpdateWebhookApiMembersMemberIdWebhooksEndpointIdPatch
 	writeJSON(w, http.StatusOK, newWebhookEndpointDTO(*e))
 }
 
-// DELETE /api/members/{member_id}/webhooks/{endpoint_id} — permanent revocation
-// (the token can never deliver again).
 func (s *apiServer) HandleDeleteWebhookApiMembersMemberIdWebhooksEndpointIdDelete(w http.ResponseWriter, r *http.Request, memberId, endpointId string) {
 	e, err := s.resolveWebhook(memberId, endpointId, anyMember)
 	if err != nil {
@@ -257,15 +208,9 @@ func (s *apiServer) HandleDeleteWebhookApiMembersMemberIdWebhooksEndpointIdDelet
 	writeJSON(w, http.StatusOK, newWebhookEndpointDTO(*e))
 }
 
-// resolveWebhook returns the endpoint addressed by (member, endpoint_id),
-// folding an absent member OR an absent endpoint to errNotFound (the 404 face).
-//
-// 🔴 THE MEMBER LOOKUP IS A PARAMETER, NOT A CONSTANT. This helper serves three
-// handlers of two different kinds — PATCH and DELETE (which change or revoke a
-// live credential) and the delivery-log listing (which only reads) — so a single
-// hard-wired scope here would decide the contractor question for all three at
-// once, out of sight of any of them. That is the shape this ticket exists to
-// remove; leaving it here and fixing it one level up would just move it.
+// 🔴 The member lookup scope is a PARAMETER: this serves PATCH, DELETE and the
+// delivery-log read, and a hard-wired scope here would decide the contractor
+// question for all three out of sight of each.
 func (s *apiServer) resolveWebhook(memberID, endpointID string, scope memberScope) (*WebhookEndpoint, error) {
 	m, err := s.resolveMember(memberID, scope)
 	if err != nil {
@@ -281,28 +226,17 @@ func (s *apiServer) resolveWebhook(memberID, endpointID string, scope memberScop
 	return e, nil
 }
 
-// POST /in — the PUBLIC webhook inlet. Identity is resolved SOLELY from ?t=;
-// an unknown/disabled token, an absent member, or a missing token all answer
-// the SAME silent 200 (never reveal whether an endpoint exists). An accepted
-// call synthesises exactly ONE chat_message to the member (投遞方式 A).
-//
-// An over-cap body is refused 413 before identity is looked at, so it reveals
-// nothing either (T-222). A repeated ?t= never reaches this handler: the
-// generated parameter binding refuses it 422, before anything is recorded.
+// POST /in — the PUBLIC inlet. Identity comes SOLELY from ?t=; an unknown or
+// disabled token, an absent member and a missing token all answer the SAME
+// silent 200 — never reveal whether an endpoint exists. A repeated ?t= is
+// refused 422 by the generated parameter binding before this handler runs.
 func (s *apiServer) HandleReceiveWebhookInPost(w http.ResponseWriter, r *http.Request, params HandleReceiveWebhookInPostParams) {
-	// Read the untrusted body regardless of token validity so a client never
-	// learns anything from timing/short-circuit differences. Bounded at cap+1:
-	// one extra byte proves over-cap without ever buffering an unbounded body
-	// (the chat-attachment and avatar upload seams read the same way).
+	// Read the body regardless of token validity (no timing difference); cap+1
+	// proves over-cap without buffering an unbounded body.
 	payload, err := io.ReadAll(io.LimitReader(r.Body, webhookPayloadMaxBytes+1))
-	// 🔴 A CUT BODY IS NOT A SHORT BODY. The bytes in hand are whatever arrived
-	// before the connection broke, and every gate below treats them as the whole
-	// request: an unsigned endpoint would deliver half a payload as a chat and
-	// answer the sender {"status":"ok"}, so the sender is told it succeeded and
-	// never resends. Refuse before any of that runs — before the size verdict
-	// too, because the true size is exactly what we failed to learn. The read
-	// failure belongs to the caller's own connection, so answering it cannot
-	// tell anyone whether ?t= resolves to anything.
+	// 🔴 A CUT BODY IS NOT A SHORT BODY: gates below would treat it as the whole
+	// request and answer "ok", so the sender never resends. Refuse it before the
+	// size verdict too.
 	if err != nil {
 		writeWebhookInternalError(w, err)
 		return
@@ -312,19 +246,10 @@ func (s *apiServer) HandleReceiveWebhookInPost(w http.ResponseWriter, r *http.Re
 	if params.T != nil {
 		token = *params.T
 	}
-	// 🔴 THE SIZE VERDICT IS REACHED BEFORE ANY IDENTITY OR SIGNATURE WORK, and
-	// NOTHING ABOUT THE RESPONSE IS CONDITIONED ON WHAT THE TOKEN RESOLVES TO.
-	// The recording call below does read the endpoint row — it has to, to find
-	// somewhere to write — but the status, the message and the headers are
-	// fixed before it runs and cannot be reached by what it finds, so an
-	// over-cap caller holding a live token learns exactly what an over-cap
-	// caller holding a garbage one learns: the same 413, byte for byte. That
-	// equivalence is asserted, not asserted-by-reading — see the "byte-identical
-	// for a live token and a token nobody minted" case.
-	//
-	// It must also stay ahead of the platform gates for a second reason — an
-	// HMAC computed over a cut body is a lie about the sender, not a verdict on
-	// it (T-222).
+	// 🔴 The size verdict precedes any identity or signature work, and the 413 is
+	// byte-identical whatever the token resolves to (asserted by test); the
+	// recording call only finds somewhere to write. It must also precede the
+	// platform gates: an HMAC over a cut body is a lie about the sender.
 	if len(payload) > webhookPayloadMaxBytes {
 		s.recordWebhookOversizeRejection(token, r, payload)
 		writeError(w, http.StatusRequestEntityTooLarge,
@@ -336,17 +261,10 @@ func (s *apiServer) HandleReceiveWebhookInPost(w http.ResponseWriter, r *http.Re
 		writeWebhookInternalError(w, err)
 		return
 	}
-	// Silent acceptance for an unknown token (無效 沉默回應) — no endpoint row
-	// exists, so there is nothing to count against either.
 	if e == nil {
 		s.writeWebhookAccepted(w)
 		return
 	}
-	// Observability (migrations/00014): every path below records best-effort
-	// against the endpoint row — counters on webhook_endpoint plus one raw
-	// request row in the webhook_request_log ring buffer (newest 5). A write
-	// failure must never perturb the byte-identical silent face, so errors are
-	// deliberately swallowed. The HTTP response stays EXACTLY as before.
 	receivedTS := nowSecs()
 	if e.Status != WebhookStatusEnabled {
 		_ = s.dal.MarkWebhookDropped(e.Token, WebhookDropReasonDisabled, receivedTS)
@@ -354,16 +272,12 @@ func (s *apiServer) HandleReceiveWebhookInPost(w http.ResponseWriter, r *http.Re
 		s.writeWebhookAccepted(w)
 		return
 	}
-	// Platform verification gate — applied to the SAME raw bytes read above (never
-	// after a JSON decode). A failed verification falls through to the identical
-	// silent 200 as every other non-deliverable case (沉默丟棄, no leak). Only the
-	// Slack url_verification handshake answers with a distinct (challenge) body,
-	// by design — Slack needs it echoed to activate the subscription.
+	// Verification runs on the SAME raw bytes read above, never after a JSON
+	// decode. Only Slack's url_verification handshake answers a distinct body —
+	// Slack needs the challenge echoed to activate the subscription.
 	switch e.Platform {
 	case WebhookPlatformSlack:
 		if challenge, ok := slackURLVerificationChallenge(payload); ok {
-			// The handshake proves the caller reached us but neither delivers
-			// nor drops — stamp last_received_ts only.
 			_ = s.dal.TouchWebhookReceived(e.Token, receivedTS)
 			s.logWebhookRequest(e.Token, r, payload, webhookOutcomeChallenge, receivedTS)
 			writeJSON(w, http.StatusOK, map[string]any{"challenge": challenge})
@@ -386,10 +300,6 @@ func (s *apiServer) HandleReceiveWebhookInPost(w http.ResponseWriter, r *http.Re
 			s.writeWebhookAccepted(w)
 			return
 		}
-		// A verified GitHub `ping` (sent once when the webhook is created) proves
-		// the wiring but carries no member-facing content — ack it with the same
-		// silent 200 and DON'T synthesise a chat (avoids a noise event on setup).
-		// Verified-but-undelivered: received-only, like the Slack handshake.
 		if r.Header.Get("X-GitHub-Event") == "ping" {
 			_ = s.dal.TouchWebhookReceived(e.Token, receivedTS)
 			s.logWebhookRequest(e.Token, r, payload, webhookOutcomePing, receivedTS)
@@ -397,20 +307,11 @@ func (s *apiServer) HandleReceiveWebhookInPost(w http.ResponseWriter, r *http.Re
 			return
 		}
 	}
-	// 🔴 THE INLET'S DOOR IS THE CHAT DOOR, and that is deliberate. An accepted
-	// call's whole effect is ONE synthesised chat_message to this member
-	// (投遞方式 A above), so the question "may this arrive?" is exactly the
-	// question resolveChatRecipient already answers for every other sender:
-	// the row must be ACTIVE and kind staff-or-outsource. A removed member and
-	// a warden are both refused there, so neither needs a rule of its own here
-	// — 「請不要再製造分岔」(owner, station-wide). Contractors are admitted
-	// because they are admitted as chat recipients, not because this seam was
-	// widened by hand.
-	//
-	// wireOwnerID is refused BEFORE the call: it is a legal chat address but
-	// never a member row, so an endpoint carrying it cannot have come from the
-	// create seam (which resolves a real member) — only from corrupt data, and
-	// this is the one UNAUTHENTICATED surface in the system.
+	// 🔴 THE INLET'S DOOR IS THE CHAT DOOR: resolveChatRecipient already decides
+	// who may receive (ACTIVE, staff or outsource), so no separate rule belongs
+	// here — 「請不要再製造分岔」(owner). wireOwnerID is refused first: it is a
+	// legal chat address but never a member row, so it can only come from corrupt
+	// data on the one UNAUTHENTICATED surface.
 	if e.MemberID == wireOwnerID {
 		_ = s.dal.MarkWebhookDropped(e.Token, WebhookDropReasonMemberGone, receivedTS)
 		s.logWebhookRequest(e.Token, r, payload, webhookOutcomeDroppedPrefix+WebhookDropReasonMemberGone, receivedTS)
@@ -428,8 +329,6 @@ func (s *apiServer) HandleReceiveWebhookInPost(w http.ResponseWriter, r *http.Re
 		writeWebhookInternalError(w, err)
 		return
 	}
-	// ONE POST → at most ONE chat event (防放大). Synthetic sender + the
-	// per-endpoint purpose the member's 用途守衛 (seed §3) reads from meta.
 	msg := ChatMessage{
 		ID:        "c-" + newHexID(12),
 		Sender:    "hook:" + e.EndpointID,
@@ -447,9 +346,7 @@ func (s *apiServer) HandleReceiveWebhookInPost(w http.ResponseWriter, r *http.Re
 		writeWebhookInternalError(w, err)
 		return
 	}
-	// The same convenience payload every chat delta carries (spec/sse.md §2.2)
-	// — the member's online SSE stream and offline unread both key off it.
-	// Addressed to both participants + owner (spec §4).
+	// The payload every chat delta carries (spec/sse.md §2.2).
 	s.hub.Publish("chat", "patch", "chat", wireOwnerID+"::"+msg.ID,
 		map[string]any{"id": msg.ID, "from": msg.Sender, "to": msg.Recipient},
 		audienceMembers(msg.Sender, msg.Recipient), triggerServer)
@@ -458,11 +355,8 @@ func (s *apiServer) HandleReceiveWebhookInPost(w http.ResponseWriter, r *http.Re
 	s.writeWebhookAccepted(w)
 }
 
-// GET /api/members/{member_id}/webhooks/{endpoint_id}/requests — the debug
-// ring buffer: the last 5 raw requests /in resolved to this endpoint, newest
-// first (requires=admin_agent since T-6020 — raw UNVERIFIED external payloads
-// never reach a plain agent; kept OFF WebhookEndpointDTO so the list wire stays
-// light).
+// requires=admin_agent: raw UNVERIFIED external payloads never reach a plain
+// agent; kept off WebhookEndpointDTO so the list wire stays light.
 func (s *apiServer) HandleListWebhookRequestsApiMembersMemberIdWebhooksEndpointIdRequestsGet(w http.ResponseWriter, r *http.Request, memberId, endpointId string) {
 	e, err := s.resolveWebhook(memberId, endpointId, anyMember)
 	if err != nil {
@@ -481,8 +375,6 @@ func (s *apiServer) HandleListWebhookRequestsApiMembersMemberIdWebhooksEndpointI
 	writeJSON(w, http.StatusOK, out)
 }
 
-// writeWebhookAccepted is the single silent acknowledgement — byte-identical for
-// an accepted and an ignored call so the response never leaks endpoint existence.
 func (s *apiServer) writeWebhookAccepted(w http.ResponseWriter) {
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
 }

@@ -1,42 +1,16 @@
 package main
 
-// backup_health.go — the COCKPIT-VISIBLE half of the backup engine (T-da06).
+// backup_health.go — the COCKPIT-VISIBLE half of the backup engine: backup.go
+// only logs, into a file nothing reads, so a dead schedule and a healthy one
+// looked identical to the owner.
 //
-// WHY this exists: backup.go already reports every outcome — but only through
-// `log.Printf`, into a file that nothing on this machine aggregates and the
-// cockpit cannot read. So "the schedule died three days ago" and "everything is
-// fine" looked IDENTICAL to the owner. T-ada9's own filing said it: a backup
-// that fails silently is worse than no backup, because it makes someone believe
-// they have a retreat. Adding another log line would have been free and useless
-// — that file has zero readers.
+// 🔴 The watchdog is its OWN goroutine, not called from the backup path: a
+// cadence that never started would otherwise never be checked. Health state is
+// DURABLE so a restart cannot turn "broken for three days" back into green.
 //
-// The three facts this module makes visible, and why each one is here:
-//
-//   ① this run FAILED / was skipped        — no new retreat point was created.
-//   ② the newest backup is STALE           — the schedule may have stopped.
-//   ③ it NEVER RAN                         — a cadence that never armed and one
-//                                            that silently died are the SAME
-//                                            fact to whoever reaches for a
-//                                            backup. ③ is the one a "did the
-//                                            last run fail?" design misses
-//                                            entirely, so it is a first-class
-//                                            state here, not an afterthought.
-//
-// 🔴 Two structural decisions worth keeping:
-//
-//   - The watchdog is its OWN goroutine, armed by cmdServe, NOT something the
-//     backup routine calls on its way past. If it hung off the backup path, a
-//     cadence that never started would never be checked — which is precisely
-//     failure ③, the one nothing else can see.
-//   - Health state is DURABLE (settings rows), not in-memory. A server restart
-//     must not turn "broken for three days" back into green, and the owner
-//     dismissing anything must not either. Only a scheduled backup actually
-//     landing clears it.
-//
-// 🔴 Only SCHEDULED backups count as evidence that the schedule is alive. A
-// manual snapshot or a pre-migration one lands in the same directory, and if
-// they counted, someone taking a backup by hand — or an upgrade — would paper
-// over a dead cadence for another full window.
+// 🔴 Only SCHEDULED backups count as evidence the schedule is alive. Manual and
+// pre-migration snapshots land in the same directory; counting them would let a
+// hand-taken backup or an upgrade paper over a dead cadence.
 
 import (
 	"encoding/json"
@@ -49,27 +23,17 @@ import (
 )
 
 const (
-	// settingBackupWatchdogBaseline is when the watchdog FIRST armed on this
-	// installation (write-once, durable). It is the clock that "never ran"
-	// measures against: without it, a fresh install would either alarm
-	// immediately (before the first cadence tick could possibly have run) or —
-	// far worse — need a "have we been up long enough?" judgement made against
-	// process start time, which every restart would reset, so an installation
-	// whose backup never worked would never accumulate enough uptime to say so.
+	// settingBackupWatchdogBaseline is write-once and durable: "never ran" is
+	// measured against it, and process start time would reset on every restart,
+	// so a never-working install would never accumulate enough uptime to alarm.
 	settingBackupWatchdogBaseline = "backup.watchdog_baseline_ts"
 
-	// settingBackupHealth is the durable health verdict (JSON, see
-	// backupHealthState). Absent = never evaluated = unknown.
 	settingBackupHealth = "backup.health"
 
-	// backupWatchdogCadence is how often the watchdog re-evaluates. It is
-	// unrelated to how often backups are taken: it must keep ticking precisely
-	// when the backup loop is NOT.
 	backupWatchdogCadence = 5 * time.Minute
 )
 
-// Health vocabulary. Closed sets, spelled once, shared by the DTO and the
-// cockpit.
+// Health vocabulary: closed sets shared by the DTO and the cockpit.
 const (
 	backupHealthHealthy   = "healthy"
 	backupHealthUnhealthy = "unhealthy"
@@ -80,33 +44,21 @@ const (
 	backupHealthCodeFailed   = "failed"
 )
 
-// backupStaleAfter is the one place the alarm window is derived. Spelled as a
-// function so no reader ever hand-writes "12h" beside it: the window IS
-// backupStaleFactor × backupInterval, and it must follow those constants if
-// either ever changes.
 func backupStaleAfter() time.Duration { return backupStaleFactor * backupInterval }
 
-// backupHealthState is the durable verdict. Code == "" means healthy; the
-// absence of the row entirely means unknown (never evaluated), which is a
-// DIFFERENT thing and must never be folded into healthy.
 type backupHealthState struct {
 	Code           string  `json:"code"`
 	Detail         string  `json:"detail"`
-	SinceTS        float64 `json:"since_ts"`         // when the CURRENT incident started; 0 while healthy
-	CheckedTS      float64 `json:"checked_ts"`       // when the watchdog last evaluated
-	NewestBackupTS float64 `json:"newest_backup_ts"` // newest SCHEDULED backup seen; 0 = none
+	SinceTS        float64 `json:"since_ts"`
+	CheckedTS      float64 `json:"checked_ts"`
+	NewestBackupTS float64 `json:"newest_backup_ts"`
 }
 
-// backupHealthStore is the durable seam. It is an interface for exactly one
-// reason: the tests for this file must be able to manufacture a FAILING backup
-// without any possibility of touching a real database or the live server root
-// (repo rule: a test must not depend on the thing it is testing to stay safe).
 type backupHealthStore interface {
 	GetSetting(key string) (*string, error)
 	PutSetting(key, value string) error
 }
 
-// backupHealthMonitor owns the durable verdict. One per server.
 type backupHealthMonitor struct {
 	store  backupHealthStore
 	dbPath string
@@ -118,39 +70,25 @@ func newBackupHealthMonitor(store backupHealthStore, dbPath string) *backupHealt
 	return &backupHealthMonitor{store: store, dbPath: dbPath}
 }
 
-// baselineAt returns the durable watchdog baseline, arming it at `now` the
-// first time. Write-once: a restart must not push the "never ran" deadline out
-// again, or an installation whose cadence never worked would never reach it.
 func (m *backupHealthMonitor) baselineAt(now time.Time) (time.Time, error) {
 	raw, err := m.store.GetSetting(settingBackupWatchdogBaseline)
 	if err != nil {
 		return time.Time{}, err
 	}
 	if raw != nil {
-		// strconv, NOT fmt.Sscanf: Sscanf accepts a numeric PREFIX, so a
-		// corrupted "1785600000junk" would parse and be trusted. A baseline is
-		// what "never ran" is measured against — half-reading one is worse than
-		// re-arming.
+		// strconv, NOT fmt.Sscanf: Sscanf accepts a numeric PREFIX, so a corrupted
+		// "1785600000junk" would parse and be trusted.
 		if ts, err := strconv.ParseFloat(strings.TrimSpace(*raw), 64); err == nil && ts > 0 {
 			baseline := time.Unix(0, int64(ts*float64(time.Second)))
-			// 🔴 A baseline in the FUTURE is the same class of unusable value as
-			// a corrupt one, and it fails in the silent direction: "never ran"
-			// is `now.Sub(baseline) > backupStaleAfter()`, which is FALSE for
-			// every negative value, so a clock that stepped backwards after this
-			// row was written means the never-ran alarm can NEVER fire again on
-			// this installation. Re-arm it (write-once is about restarts pushing
-			// the deadline out, not about honouring a measuring stick that
-			// points the wrong way): the cost is bounded at one more grace
-			// window, and it HEALS the durable row instead of re-deciding every
-			// pass. Clamping in decideBackupHealth would leave the bogus value
-			// in the database forever.
+			// 🔴 A FUTURE baseline is re-armed, not honoured: `now.Sub(baseline) >
+			// backupStaleAfter()` is false for every negative value, so after a
+			// backwards clock step the never-ran alarm could NEVER fire again.
+			// Clamping in decideBackupHealth instead would leave the bogus row in
+			// the database forever.
 			if !baseline.After(now) {
 				return baseline, nil
 			}
 		}
-		// A corrupt baseline is re-armed rather than trusted: an unparseable
-		// value must not silently become "epoch", which would read as "this
-		// installation has been failing since 1970" on every fresh install.
 	}
 	if err := m.store.PutSetting(settingBackupWatchdogBaseline, fmt.Sprintf("%f", float64(now.UnixNano())/float64(time.Second))); err != nil {
 		return time.Time{}, err
@@ -158,7 +96,6 @@ func (m *backupHealthMonitor) baselineAt(now time.Time) (time.Time, error) {
 	return now, nil
 }
 
-// load reads the durable verdict. (nil, nil) = never evaluated.
 func (m *backupHealthMonitor) load() (*backupHealthState, error) {
 	raw, err := m.store.GetSetting(settingBackupHealth)
 	if err != nil || raw == nil {
@@ -166,8 +103,6 @@ func (m *backupHealthMonitor) load() (*backupHealthState, error) {
 	}
 	var st backupHealthState
 	if err := json.Unmarshal([]byte(*raw), &st); err != nil {
-		// report() renders this as unknown — never healthy. evaluate() does
-		// NOT preserve it: see the honest boundary noted there.
 		return nil, err
 	}
 	return &st, nil
@@ -181,45 +116,17 @@ func (m *backupHealthMonitor) save(st backupHealthState) error {
 	return m.store.PutSetting(settingBackupHealth, string(blob))
 }
 
-// newestScheduledBackup reports the newest SCHEDULED backup that had ALREADY
-// HAPPENED as of `now`.
+// newestScheduledBackup is the ONE answer to "when did the schedule last run?"
+// for all four production callers (backupTick and three here) — do not add a
+// second future-check in any of them.
 //
-// Manual and pre-migration snapshots are deliberately invisible here — see the
-// file header: counting them would let a human taking a snapshot, or an
-// upgrade, hide a dead cadence.
-//
-// 🔴 A STAMP IN THE FUTURE IS NOT EVIDENCE OF ANYTHING, and skipping it here is
-// the whole repair for a silent, total backup outage. Every caller of this
-// function subtracts the answer from a clock, and `now.Sub(future) < interval`
-// is TRUE for every negative value, so one future-stamped file made
-// backupTick answer "just backed up" (⇒ never backs up again) and
-// decideBackupHealth answer "very fresh" (⇒ green). Backups stop and the
-// cockpit stays green — an under-report, strictly worse than the over-report
-// this ticket was opened for, because nothing ever calls out. An NTP
-// correction, a restored VM snapshot or a dead RTC all produce it.
-//
-// 🔴 WHY THE FILTER LIVES HERE AND NOWHERE ELSE. This ticket exists because
-// "when did the schedule last run?" had TWO approximate implementations. Adding
-// a second future-check inside decideBackupHealth (or in backupTick) would
-// recreate exactly that. There are four production callers — backupTick and
-// three in this file — and fixing the shared question fixes all four at once
-// and keeps them unable to disagree. The two sides are held by SEPARATE tests
-// driving SEPARATE entry points, so coverage is per-side even though the
-// implementation is single.
-//
-// 🔴 WHY SKIP RATHER THAN "TREAT AS INFINITELY OLD". Calling a future stamp
-// ancient sounds conservative and is a trap: the tick would back up, but the
-// bogus file is STILL the newest one, so the next tick 15 minutes later would
-// back up again, and again, for as long as the clock is behind — filling the
-// disk and rotating the real history out of the routine pool within one
-// interval. Skipping converges instead: the snapshot this tick writes is
-// stamped `now`, is therefore not in the future, and immediately becomes the
-// answer. Cost of the whole incident: ONE extra snapshot.
-//
-// There is deliberately no skew grace. A grace re-opens the starvation window
-// by exactly its own width, and its width is a number nobody can calibrate;
-// meanwhile the cost of having none is bounded at that same one extra snapshot,
-// which is the direction this module always errs in.
+// 🔴 A future-stamped file is SKIPPED: every caller subtracts it from a clock,
+// and a negative age reads as "just backed up" — backupTick would never back up
+// again while the cockpit stayed green. Treating it as "infinitely old" instead
+// is a trap: it stays the newest file, so every tick would back up again, filling
+// the disk and rotating the real history out. Skipping converges after ONE extra
+// snapshot. No skew grace, deliberately: it would reopen the starvation window by
+// its own, uncalibratable width.
 func newestScheduledBackup(dbPath string, now time.Time) (time.Time, bool) {
 	files, err := backupFilesIn(backupDirFor(dbPath))
 	if err != nil {
@@ -238,14 +145,6 @@ func newestScheduledBackup(dbPath string, now time.Time) (time.Time, bool) {
 	return time.Time{}, false
 }
 
-// decideBackupHealth is the whole verdict, as a pure function of the facts. It
-// takes no clock, no filesystem and no database so the decision itself can be
-// tested exhaustively, including the branch that has historically been
-// impossible to reach by waiting: "a previous backup exists but is too old".
-//
-// lastFailureTS is when a scheduled attempt last reported failure/skip (0 =
-// none). It only wins while it is NEWER than the newest scheduled backup —
-// otherwise a failure from last week would keep a working cadence red.
 func decideBackupHealth(now, baseline time.Time, newest time.Time, hasNewest bool, lastFailureTS float64, lastFailureDetail string) backupHealthState {
 	st := backupHealthState{CheckedTS: epochOf(now)}
 	if hasNewest {
@@ -257,9 +156,6 @@ func decideBackupHealth(now, baseline time.Time, newest time.Time, hasNewest boo
 		return st
 	}
 	if !hasNewest {
-		// Before the grace window is up this is not yet evidence of anything —
-		// but it is NOT healthy either: there is no retreat point. The caller
-		// renders this as `unknown`, never green.
 		if now.Sub(baseline) > backupStaleAfter() {
 			st.Code = backupHealthCodeNeverRan
 			st.Detail = fmt.Sprintf("no scheduled backup has ever landed (watching for %s)", now.Sub(baseline).Round(time.Minute))
@@ -276,9 +172,6 @@ func decideBackupHealth(now, baseline time.Time, newest time.Time, hasNewest boo
 
 func epochOf(t time.Time) float64 { return float64(t.UnixNano()) / float64(time.Second) }
 
-// evaluate runs one watchdog pass and persists the verdict. It preserves
-// SinceTS across passes so "broken since Tuesday" stays anchored to Tuesday
-// rather than to the most recent tick.
 func (m *backupHealthMonitor) evaluate(now time.Time) (backupHealthState, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -287,14 +180,9 @@ func (m *backupHealthMonitor) evaluate(now time.Time) (backupHealthState, error)
 	if err != nil {
 		return backupHealthState{}, err
 	}
-	// 🔴 HONEST BOUNDARY: an unreadable prior verdict is REPLACED, not
-	// preserved. The filesystem is the ground truth for "stale" and "never
-	// ran", so those two re-derive correctly on the very next pass; the only
-	// thing a corrupt row can lose is the immediate `failed` marker, and that
-	// loss is bounded — a cadence that keeps failing goes stale within
-	// backupStaleAfter() and alarms again on its own. Preserving the
-	// unreadable row instead would be worse: nothing would ever clear it, so a
-	// single bad write would freeze the light forever.
+	// 🔴 An unreadable prior verdict is REPLACED, not preserved: stale/never-ran
+	// re-derive from the filesystem next pass, and a lost `failed` marker returns
+	// within backupStaleAfter(); preserving it would freeze the light forever.
 	prev, _ := m.load()
 
 	var failTS float64
@@ -308,7 +196,7 @@ func (m *backupHealthMonitor) evaluate(now time.Time) (backupHealthState, error)
 	if next.Code != "" {
 		next.SinceTS = epochOf(now)
 		if prev != nil && prev.Code == next.Code && prev.SinceTS > 0 {
-			next.SinceTS = prev.SinceTS // same incident, keep its start
+			next.SinceTS = prev.SinceTS
 		}
 	}
 	if err := m.save(next); err != nil {
@@ -317,13 +205,6 @@ func (m *backupHealthMonitor) evaluate(now time.Time) (backupHealthState, error)
 	return next, nil
 }
 
-// noteScheduledOutcome records what a scheduled backup attempt actually did.
-// This is what makes a failure visible IMMEDIATELY rather than one stale window
-// later: the cadence knows it failed right now, and nothing else in the system
-// does.
-//
-// Manual and pre-migration triggers deliberately do not report here — see the
-// file header.
 func (m *backupHealthMonitor) noteScheduledOutcome(res backupResult, runErr error, now time.Time) {
 	if m == nil {
 		return
@@ -338,7 +219,6 @@ func (m *backupHealthMonitor) noteScheduledOutcome(res backupResult, runErr erro
 
 	failed := runErr != nil || res.Skipped != ""
 	if !failed {
-		// A scheduled backup landed. That — and only that — clears an incident.
 		newest, hasNewest := newestScheduledBackup(m.dbPath, now)
 		st := backupHealthState{CheckedTS: epochOf(now)}
 		if hasNewest {
@@ -370,9 +250,9 @@ func (m *backupHealthMonitor) noteScheduledOutcome(res backupResult, runErr erro
 	_ = m.save(st)
 }
 
-// report is what the endpoint serves. It reads the DURABLE verdict only — it
-// never re-derives health from the filesystem, so the indicator, the monitor
-// card and the watchdog cannot disagree with each other.
+// report serves the DURABLE verdict only and never re-derives health from the
+// filesystem, so the indicator, the monitor card and the watchdog cannot
+// disagree.
 func (m *backupHealthMonitor) report() BackupHealthDTO {
 	dto := BackupHealthDTO{
 		Status:         backupHealthUnknown,
@@ -383,9 +263,6 @@ func (m *backupHealthMonitor) report() BackupHealthDTO {
 		return dto
 	}
 	m.mu.Lock()
-	// load() returns a nil state on EVERY error path, so nil is the single
-	// question worth asking here — an `err != nil ||` in front of it would be a
-	// condition that can never independently decide anything.
 	st, _ := m.load()
 	m.mu.Unlock()
 	if st == nil {
@@ -418,10 +295,6 @@ func (m *backupHealthMonitor) report() BackupHealthDTO {
 	case st.NewestBackupTS > 0:
 		dto.Status = backupHealthHealthy
 	default:
-		// Evaluated, no incident, but no scheduled backup exists yet (the grace
-		// window after a fresh install). There is no retreat point, so this is
-		// NOT green — the whole point of this module is that a missing retreat
-		// must never look like a present one.
 		dto.Status = backupHealthUnknown
 		if dto.Detail == "" {
 			dto.Detail = "no scheduled backup has landed yet"
@@ -430,25 +303,14 @@ func (m *backupHealthMonitor) report() BackupHealthDTO {
 	return dto
 }
 
-// armBackupHealth is called SYNCHRONOUSLY by cmdServe before the watchdog
-// goroutine starts. Doing the first pass inline is what makes the wiring
-// observable: the baseline row exists in the database from the moment serve got
-// this far, so a test can prove serve really armed it (a goroutine could be
-// asserted to exist only by racing it).
 func armBackupHealth(store backupHealthStore, dbPath string, now time.Time) *backupHealthMonitor {
 	m := newBackupHealthMonitor(store, dbPath)
 	if _, err := m.evaluate(now); err != nil {
-		// Failing to write health state must never stop the server from
-		// serving — same trade as the pre-migration backup hook. It is loud
-		// instead.
 		fmt.Fprintf(os.Stderr, "[backup] WARNING could not record backup health: %v\n", err)
 	}
 	return m
 }
 
-// startBackupHealthWatchdog mounts the loop. ALWAYS mounted by cmdServe, beside
-// the backup cadence but INDEPENDENT of it — see the file header for why that
-// independence is the whole point.
 func startBackupHealthWatchdog(m *backupHealthMonitor, tick time.Duration) {
 	if m == nil {
 		return

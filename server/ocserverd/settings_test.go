@@ -252,8 +252,8 @@ func TestLoadAuthSettings(t *testing.T) {
 			t.Fatalf("reassign handover timeout did not load as stored: %d", got.reassignHandoverTimeoutSecs)
 		}
 		wantCtx := SseContextHighConfig{NoticePct: 41, HandoverPct: 66, MinBootSecs: 12.5, StaleGuard: false}
-		if got.ctxhigh != wantCtx {
-			t.Fatalf("context settings did not load as stored: %+v", got.ctxhigh)
+		if got.ctxHigh != wantCtx {
+			t.Fatalf("context settings did not load as stored: %+v", got.ctxHigh)
 		}
 		if !reflect.DeepEqual(got.suggestedRepliesReplyCard, []string{"first"}) || !reflect.DeepEqual(got.suggestedRepliesTaskMessage, []string{"second", "third"}) {
 			t.Fatalf("suggested reply lists did not load independently: reply=%#v task=%#v", got.suggestedRepliesReplyCard, got.suggestedRepliesTaskMessage)

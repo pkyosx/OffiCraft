@@ -1,9 +1,6 @@
 package main
 
-// password.go — argon2id owner-password hashing (owner-password-in-db design,
-// B1). The DB stores ONLY the PHC-encoded hash ($argon2id$v=19$…); plaintext
-// never persists. argon2id over bcrypt: pure Go (x/crypto), no 72-byte input
-// truncation.
+// argon2id over bcrypt: pure Go (x/crypto), no 72-byte input truncation.
 
 import (
 	"crypto/rand"
@@ -15,8 +12,7 @@ import (
 	"golang.org/x/crypto/argon2"
 )
 
-// OWASP-recommended argon2id cost profile (m=19 MiB, t=2, p=1) — an
-// interactive-login hash, verified once per /api/login.
+// OWASP-recommended argon2id cost profile (m=19 MiB, t=2, p=1).
 const (
 	argonMemoryKiB = 19 * 1024
 	argonTime      = 2
@@ -25,9 +21,6 @@ const (
 	argonKeyLen    = 32
 )
 
-// hashPassword produces a PHC-format argon2id string
-// ($argon2id$v=19$m=…,t=…,p=…$<b64 salt>$<b64 key>; unpadded standard base64
-// per the PHC spec).
 func hashPassword(password string) (string, error) {
 	salt := make([]byte, argonSaltLen)
 	if _, err := rand.Read(salt); err != nil {
@@ -40,13 +33,8 @@ func hashPassword(password string) (string, error) {
 		base64.RawStdEncoding.EncodeToString(key)), nil
 }
 
-// verifyPassword checks password against a PHC argon2id string (parameters are
-// read from the string, so a future cost bump keeps verifying old hashes).
-// Any malformed input is a plain false — the login path answers a flat 401
-// with no distinguishing hint either way.
 func verifyPassword(password, phc string) bool {
 	parts := strings.Split(phc, "$")
-	// ["", "argon2id", "v=19", "m=…,t=…,p=…", salt, key]
 	if len(parts) != 6 || parts[0] != "" || parts[1] != "argon2id" {
 		return false
 	}

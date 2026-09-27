@@ -3,7 +3,7 @@ package main
 import "testing"
 
 // The expected strings below are LITERALS on purpose, spelled out character by
-// character. Computing them from tmuxSocketForNamespace / agentTmuxSessionName
+// character. Computing them from tmuxSocketForNamespace / memberTmuxSessionName
 // would run the seed down the very path under test, and every mutation of that
 // path would move the expectation with it — a guard blind to its own mutant.
 
