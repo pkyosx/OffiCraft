@@ -159,8 +159,9 @@ func (s *apiServer) memberOwnerOpHandoverArmable(m Member, op string) bool {
 }
 
 // cfg is the caller's reconcileConfigLive(), read before any transaction it
-// holds: that read takes settingsMu, which a settings patch holds while it waits
-// for the write connection.
+// holds: that read takes settingsMu, which txguard refuses inside a write
+// transaction (the request answers 500), and which a settings patch holds while
+// it waits for the write connection.
 func (s *apiServer) armMemberOwnerOpHandover(m *Member, op string, cfg reconcileConfig, online bool) bool {
 	if !memberHasStateToFlushGiven(*m, online) {
 		return false

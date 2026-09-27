@@ -1772,19 +1772,25 @@ func TestMemberLifecycleDoorsDecideFromTheRowTheyWrite(t *testing.T) {
 }
 
 // windowWithin runs a call that reaches a handler directly under
-// windowRequestDeadline, so a request that waits on its own transaction fails
-// by name instead of hanging the suite to its -timeout.
+// windowRequestDeadline, so a request that waits inside its transaction fails
+// by name instead of hanging the suite to its -timeout. A handler reached
+// directly has no router to turn a panic (a lock txguard refused) into a 500,
+// so the panic is recovered here and fails the test by name instead of ending
+// the whole test binary.
 func windowWithin(t *testing.T, what string, call func()) {
 	t.Helper()
-	done := make(chan struct{})
+	done := make(chan any, 1)
 	go func() {
-		defer close(done)
+		defer func() { done <- recover() }()
 		call()
 	}()
 	select {
-	case <-done:
+	case p := <-done:
+		if p != nil {
+			t.Fatalf("%s panicked: %v", what, p)
+		}
 	case <-time.After(windowRequestDeadline):
-		t.Fatalf("%s did not return within %s: inside its transaction it waits on a second "+
-			"connection or on a lock it already holds", what, windowRequestDeadline)
+		t.Fatalf("%s did not return within %s: inside its transaction it waits on another "+
+			"goroutine's write or on a lock outside txguard", what, windowRequestDeadline)
 	}
 }
