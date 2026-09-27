@@ -25,6 +25,7 @@ package main
 
 import (
 	"database/sql"
+	"net/http"
 	"strings"
 )
 
@@ -1402,6 +1403,9 @@ func (s *apiServer) workerRestartSelf(id string, now float64, trigger string) (*
 			return err
 		}
 		proj := memberFromWorker(*w)
+		if !aRefocusStampWouldReachTheAgent(proj) {
+			return refuseInTx(http.StatusConflict, restartSelfNeedsALiveSessionMsg)
+		}
 		if !armRefocusEpoch(&proj, refocusOpRestartSelf, now) {
 			return errWindDownLadderBackwards
 		}
