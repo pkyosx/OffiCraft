@@ -1308,3 +1308,17 @@ func windowWantStepNote(t *testing.T, d *DAL, stepID, want string) {
 		t.Fatalf("step %s note: got %q, want %q", stepID, got.Note, want)
 	}
 }
+
+// windowRefuse installs a trigger that makes event fail with what; the answer a
+// handler gives for it is windowRefusal(what).
+func windowRefuse(t *testing.T, d *DAL, name, event, what string) {
+	t.Helper()
+	if _, err := d.wdb.Exec(`CREATE TRIGGER ` + name + ` ` + event +
+		` BEGIN SELECT RAISE(FAIL, '` + what + `'); END`); err != nil {
+		t.Fatalf("create trigger %s: %v", name, err)
+	}
+}
+
+func windowRefusal(what string) string {
+	return "internal error: constraint failed: " + what + " (1811)"
+}

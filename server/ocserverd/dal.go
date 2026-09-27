@@ -164,8 +164,10 @@ func scanMember(row interface{ Scan(...any) error }) (Member, error) {
 	return m, nil
 }
 
-func (d *DAL) ListMembers() ([]Member, error) {
-	rows, err := d.rdb.Query(`SELECT ` + memberColumns +
+func (d *DAL) ListMembers() ([]Member, error) { return listMembersOn(d.rdb) }
+
+func listMembersOn(q sqlQuerier) ([]Member, error) {
+	rows, err := q.Query(`SELECT ` + memberColumns +
 		` FROM member ORDER BY name COLLATE NOCASE`)
 	if err != nil {
 		return nil, err
@@ -382,13 +384,18 @@ func setMemberLastOpOn(ex sqlExecer, id, op string, ok *bool, log, reason string
 }
 
 func (d *DAL) HardDeleteMember(id string) (bool, error) {
-	tx, err := d.wdb.Begin()
-	if err != nil {
-		return false, err
-	}
-	defer tx.Rollback()
+	var deleted bool
+	err := d.inTx(func(tx *writeTx) error {
+		var err error
+		deleted, err = hardDeleteMemberOn(tx, id)
+		return err
+	})
+	return deleted, err
+}
+
+func hardDeleteMemberOn(tx *writeTx, id string) (bool, error) {
 	var avatarID string
-	err = tx.QueryRow(`SELECT avatar_attachment_id FROM member WHERE id = ?`, id).Scan(&avatarID)
+	err := tx.QueryRow(`SELECT avatar_attachment_id FROM member WHERE id = ?`, id).Scan(&avatarID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}
@@ -416,9 +423,6 @@ func (d *DAL) HardDeleteMember(id string) (bool, error) {
 	}
 	n, err := res.RowsAffected()
 	if err != nil {
-		return false, err
-	}
-	if err := tx.Commit(); err != nil {
 		return false, err
 	}
 	return n > 0, nil
@@ -849,12 +853,16 @@ func refIDsFromJSON(blob string, into map[string]bool) {
 }
 
 func (d *DAL) DeleteChatInvolving(memberID string) (int, int, error) {
-	tx, err := d.wdb.Begin()
-	if err != nil {
-		return 0, 0, err
-	}
-	defer tx.Rollback() //nolint:errcheck // no-op after Commit
+	var msgs, atts int
+	err := d.inTx(func(tx *writeTx) error {
+		var err error
+		msgs, atts, err = deleteChatInvolvingOn(tx, memberID)
+		return err
+	})
+	return msgs, atts, err
+}
 
+func deleteChatInvolvingOn(tx *writeTx, memberID string) (int, int, error) {
 	candidates := map[string]bool{}
 	if err := collectChatMetaRefs(tx,
 		`SELECT meta FROM chat_message WHERE sender = ? OR recipient = ?`,
@@ -875,9 +883,6 @@ func (d *DAL) DeleteChatInvolving(memberID string) (int, int, error) {
 
 	deletedAtts, err := collectOrphanBlobs(tx, candidates)
 	if err != nil {
-		return 0, 0, err
-	}
-	if err := tx.Commit(); err != nil {
 		return 0, 0, err
 	}
 	return int(deletedMsgs), deletedAtts, nil
@@ -1298,7 +1303,11 @@ func (d *DAL) PutChatRead(r ChatRead) (ChatRead, bool, error) {
 }
 
 func (d *DAL) DeleteChatReadsInvolving(memberID string) (int, error) {
-	res, err := d.wdb.Exec(
+	return deleteChatReadsInvolvingOn(d.wdb, memberID)
+}
+
+func deleteChatReadsInvolvingOn(ex sqlExecer, memberID string) (int, error) {
+	res, err := ex.Exec(
 		`DELETE FROM chat_read WHERE reader_id = ? OR peer_id = ?`,
 		memberID, memberID)
 	if err != nil {
@@ -1404,25 +1413,30 @@ func putRoleDefOn(ex sqlExecer, rd RoleDef) error {
 func (d *DAL) DeleteRoleDef(roleKey string) (bool, error) {
 	var deleted bool
 	err := d.inTx(func(tx *writeTx) error {
-		res, err := tx.Exec(`DELETE FROM role_def WHERE role_key = ?`, roleKey)
-		if err != nil {
-			return err
-		}
-		n, err := res.RowsAffected()
-		if err != nil {
-			return err
-		}
-		deleted = n > 0
-		// History goes in the same tx: its read face is open to every authenticated
-		// caller, and the guide promises 「永久移除」.
-		_, err = tx.Exec(`DELETE FROM document_history
-			WHERE document_kind = 'role_definition' AND document_key = ?`, roleKey)
+		var err error
+		deleted, err = deleteRoleDefOn(tx, roleKey)
 		return err
 	})
 	if err != nil {
 		return false, err
 	}
 	return deleted, nil
+}
+
+func deleteRoleDefOn(ex sqlExecer, roleKey string) (bool, error) {
+	res, err := ex.Exec(`DELETE FROM role_def WHERE role_key = ?`, roleKey)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	// History goes in the same tx: its read face is open to every authenticated
+	// caller, and the guide promises 「永久移除」.
+	_, err = ex.Exec(`DELETE FROM document_history
+		WHERE document_kind = 'role_definition' AND document_key = ?`, roleKey)
+	return n > 0, err
 }
 
 type Insight struct {
@@ -1469,23 +1483,28 @@ func putInsightOn(ex sqlExecer, i Insight) error {
 func (d *DAL) DeleteInsightForRole(roleKey string) (int, error) {
 	var deleted int
 	err := d.inTx(func(tx *writeTx) error {
-		res, err := tx.Exec(`DELETE FROM role_insight WHERE role_key = ?`, roleKey)
-		if err != nil {
-			return err
-		}
-		n, err := res.RowsAffected()
-		if err != nil {
-			return err
-		}
-		deleted = int(n)
-		_, err = tx.Exec(`DELETE FROM document_history
-			WHERE document_kind = 'insight' AND document_key = ?`, roleKey)
+		var err error
+		deleted, err = deleteInsightForRoleOn(tx, roleKey)
 		return err
 	})
 	if err != nil {
 		return 0, err
 	}
 	return deleted, nil
+}
+
+func deleteInsightForRoleOn(ex sqlExecer, roleKey string) (int, error) {
+	res, err := ex.Exec(`DELETE FROM role_insight WHERE role_key = ?`, roleKey)
+	if err != nil {
+		return 0, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	_, err = ex.Exec(`DELETE FROM document_history
+		WHERE document_kind = 'insight' AND document_key = ?`, roleKey)
+	return int(n), err
 }
 
 type BootDocument struct {
@@ -1585,8 +1604,10 @@ func (d *DAL) MachineDisplayNames() (map[string]string, error) {
 		`SELECT machine_id, display_name FROM machine_alias WHERE display_name != ''`)
 }
 
-func (d *DAL) PutMachineAlias(a MachineAlias) error {
-	_, err := d.wdb.Exec(`
+func (d *DAL) PutMachineAlias(a MachineAlias) error { return putMachineAliasOn(d.wdb, a) }
+
+func putMachineAliasOn(ex sqlExecer, a MachineAlias) error {
+	_, err := ex.Exec(`
 		INSERT INTO machine_alias (machine_id, display_name) VALUES (?, ?)
 		ON CONFLICT (machine_id) DO UPDATE SET display_name = excluded.display_name`,
 		a.MachineID, a.DisplayName)
@@ -1933,10 +1954,14 @@ func scanWebhook(row interface{ Scan(...any) error }) (WebhookEndpoint, error) {
 }
 
 func (d *DAL) GetWebhookByToken(token string) (*WebhookEndpoint, error) {
+	return getWebhookByTokenOn(d.rdb, token)
+}
+
+func getWebhookByTokenOn(q sqlRowQuerier, token string) (*WebhookEndpoint, error) {
 	if token == "" {
 		return nil, nil
 	}
-	row := d.rdb.QueryRow(
+	row := q.QueryRow(
 		`SELECT `+webhookColumns+` FROM webhook_endpoint WHERE token = ?`, token)
 	e, err := scanWebhook(row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -1949,7 +1974,11 @@ func (d *DAL) GetWebhookByToken(token string) (*WebhookEndpoint, error) {
 }
 
 func (d *DAL) GetWebhookByMemberEndpoint(memberID, endpointID string) (*WebhookEndpoint, error) {
-	row := d.rdb.QueryRow(
+	return getWebhookByMemberEndpointOn(d.rdb, memberID, endpointID)
+}
+
+func getWebhookByMemberEndpointOn(q sqlRowQuerier, memberID, endpointID string) (*WebhookEndpoint, error) {
+	row := q.QueryRow(
 		`SELECT `+webhookColumns+` FROM webhook_endpoint
 		 WHERE member_id = ? AND endpoint_id = ?`, memberID, endpointID)
 	e, err := scanWebhook(row)
@@ -2009,13 +2038,21 @@ func (d *DAL) PutWebhookEndpoint(e WebhookEndpoint) error {
 }
 
 func (d *DAL) TouchWebhookReceived(token string, ts float64) error {
-	_, err := d.wdb.Exec(
+	return touchWebhookReceivedOn(d.wdb, token, ts)
+}
+
+func touchWebhookReceivedOn(ex sqlExecer, token string, ts float64) error {
+	_, err := ex.Exec(
 		`UPDATE webhook_endpoint SET last_received_ts = ? WHERE token = ?`, ts, token)
 	return err
 }
 
 func (d *DAL) MarkWebhookDelivered(token string, ts float64) error {
-	_, err := d.wdb.Exec(
+	return markWebhookDeliveredOn(d.wdb, token, ts)
+}
+
+func markWebhookDeliveredOn(ex sqlExecer, token string, ts float64) error {
+	_, err := ex.Exec(
 		`UPDATE webhook_endpoint
 		 SET delivered_count = delivered_count + 1, last_received_ts = ?
 		 WHERE token = ?`, ts, token)
@@ -2023,7 +2060,11 @@ func (d *DAL) MarkWebhookDelivered(token string, ts float64) error {
 }
 
 func (d *DAL) MarkWebhookDropped(token, reason string, ts float64) error {
-	_, err := d.wdb.Exec(
+	return markWebhookDroppedOn(d.wdb, token, reason, ts)
+}
+
+func markWebhookDroppedOn(ex sqlExecer, token, reason string, ts float64) error {
+	_, err := ex.Exec(
 		`UPDATE webhook_endpoint
 		 SET dropped_count = dropped_count + 1, last_drop_reason = ?,
 		     last_received_ts = ?
@@ -2038,11 +2079,15 @@ func (d *DAL) SetWebhookStatus(token, status string) error {
 }
 
 func (d *DAL) DeleteWebhookEndpoint(token string) error {
-	if _, err := d.wdb.Exec(
+	return d.inTx(func(tx *writeTx) error { return deleteWebhookEndpointOn(tx, token) })
+}
+
+func deleteWebhookEndpointOn(ex sqlExecer, token string) error {
+	if _, err := ex.Exec(
 		`DELETE FROM webhook_request_log WHERE token = ?`, token); err != nil {
 		return err
 	}
-	_, err := d.wdb.Exec(`DELETE FROM webhook_endpoint WHERE token = ?`, token)
+	_, err := ex.Exec(`DELETE FROM webhook_endpoint WHERE token = ?`, token)
 	return err
 }
 
@@ -2057,13 +2102,17 @@ type WebhookRequestLog struct {
 const webhookRequestLogKeep = 5
 
 func (d *DAL) InsertWebhookRequestLog(token string, l WebhookRequestLog) error {
-	if _, err := d.wdb.Exec(`
+	return d.inTx(func(tx *writeTx) error { return insertWebhookRequestLogOn(tx, token, l) })
+}
+
+func insertWebhookRequestLogOn(ex sqlExecer, token string, l WebhookRequestLog) error {
+	if _, err := ex.Exec(`
 		INSERT INTO webhook_request_log (token, ts, outcome, headers, body, truncated)
 		VALUES (?, ?, ?, ?, ?, ?)`,
 		token, l.TS, l.Outcome, l.Headers, l.Body, l.Truncated); err != nil {
 		return err
 	}
-	_, err := d.wdb.Exec(`
+	_, err := ex.Exec(`
 		DELETE FROM webhook_request_log
 		WHERE token = ? AND id NOT IN (
 			SELECT id FROM webhook_request_log
@@ -2188,7 +2237,11 @@ func parseIntSet(s string) []int {
 }
 
 func (d *DAL) GetScheduledMessage(id string) (*ScheduledMessage, error) {
-	row := d.rdb.QueryRow(
+	return getScheduledMessageOn(d.rdb, id)
+}
+
+func getScheduledMessageOn(q sqlRowQuerier, id string) (*ScheduledMessage, error) {
+	row := q.QueryRow(
 		`SELECT `+scheduledMessageColumns+` FROM scheduled_message WHERE id = ?`, id)
 	m, err := scanScheduledMessage(row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -2267,7 +2320,11 @@ func (d *DAL) PutScheduledMessage(m ScheduledMessage) error {
 // snapshot, and re-putting it rolls back the other's write — a rolled-back
 // cursor silently re-delivers a slot.
 func (d *DAL) UpdateScheduledMessageSettings(m ScheduledMessage) error {
-	_, err := d.wdb.Exec(`
+	return updateScheduledMessageSettingsOn(d.wdb, m)
+}
+
+func updateScheduledMessageSettingsOn(ex sqlExecer, m ScheduledMessage) error {
+	_, err := ex.Exec(`
 		UPDATE scheduled_message SET
 			label = ?, body = ?, cadence = ?, day_of_week = ?, day_of_month = ?,
 			hour = ?, minute = ?,
@@ -2284,7 +2341,11 @@ func (d *DAL) UpdateScheduledMessageSettings(m ScheduledMessage) error {
 // AimScheduledMessageCursor is for an edit that moved the schedule: the slot
 // it crossed is recorded as the cursor so it is never delivered.
 func (d *DAL) AimScheduledMessageCursor(id, slot string) error {
-	_, err := d.wdb.Exec(
+	return aimScheduledMessageCursorOn(d.wdb, id, slot)
+}
+
+func aimScheduledMessageCursorOn(ex sqlExecer, id, slot string) error {
+	_, err := ex.Exec(
 		`UPDATE scheduled_message SET last_fired_slot = ? WHERE id = ?`, slot, id)
 	return err
 }

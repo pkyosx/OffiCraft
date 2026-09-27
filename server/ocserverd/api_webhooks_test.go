@@ -584,6 +584,45 @@ func TestHandleDeleteWebhookApiMembersMemberIdWebhooksEndpointIdDelete(t *testin
 		apiWantError(t, data, "unauthorized", "missing credentials")
 		apiWantWebhookList(t, h, owner, "kip", apiWebhookAlertsRow(minted))
 	})
+
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": an endpoint deleted after the handler read it answers 404", func(t *testing.T) {
+			d, hook, path := windowDAL(t, shape)
+			_, h, _, owner := newAPITestServerOn(t, d)
+			apiTestWebhookToken(t, h, owner, "kip", `{"endpoint_id":"alerts","purpose":"CI"}`)
+			hook.execAfterRead(t, path, "FROM webhook_endpoint",
+				`DELETE FROM webhook_endpoint WHERE endpoint_id = 'alerts'`)
+
+			status, data := windowJSON(t, h, "DELETE", "/api/members/kip/webhooks/alerts", owner, "")
+
+			hook.wantFiredOnce(t)
+			if status != http.StatusNotFound {
+				t.Fatalf("want 404, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "not_found", "webhook endpoint 'alerts' not found")
+		})
+	}
+
+	t.Run("an endpoint whose row fails to delete keeps its request log", func(t *testing.T) {
+		d, _, _ := windowDAL(t, "split pools")
+		_, h, _, owner := newAPITestServerOn(t, d)
+		token := apiTestWebhookToken(t, h, owner, "kip", `{"endpoint_id":"alerts","purpose":"CI"}`)
+		if err := d.InsertWebhookRequestLog(token, WebhookRequestLog{TS: 1700000000, Outcome: "delivered"}); err != nil {
+			t.Fatalf("InsertWebhookRequestLog: %v", err)
+		}
+		windowRefuse(t, d, "refuse_endpoint_delete", "BEFORE DELETE ON webhook_endpoint", "the endpoint delete fails")
+
+		status, data := windowJSON(t, h, "DELETE", "/api/members/kip/webhooks/alerts", owner, "")
+
+		if status != http.StatusInternalServerError {
+			t.Fatalf("want 500, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "internal_error", windowRefusal("the endpoint delete fails"))
+		logs, err := d.ListWebhookRequestLogs(token)
+		if err != nil || len(logs) != 1 {
+			t.Fatalf("request log: %v rows, %v; want the one row kept", len(logs), err)
+		}
+	})
 }
 
 func TestResolveWebhook(t *testing.T) {
@@ -1161,6 +1200,56 @@ func TestHandleReceiveWebhookInPost(t *testing.T) {
 			"dropped_count":      1,
 			"last_drop_reason":   "oversize",
 		})
+	})
+
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": an endpoint disabled after the handler read it drops the request", func(t *testing.T) {
+			d, hook, path := windowDAL(t, shape)
+			api, h, _, owner := newAPITestServerOn(t, d)
+			token := apiTestWebhookToken(t, h, owner, "kip", `{"endpoint_id":"alerts","purpose":"CI"}`)
+			recipient := apiTestListen(t, api, "kip")
+			hook.execAfterRead(t, path, "FROM webhook_endpoint WHERE token",
+				`UPDATE webhook_endpoint SET status = 'disabled' WHERE endpoint_id = 'alerts'`)
+
+			status, data := windowJSON(t, h, http.MethodPost, "/in?t="+token, "", `{"text":"build broke"}`)
+
+			hook.wantFiredOnce(t)
+			if status != http.StatusOK {
+				t.Fatalf("want 200, got %d (%v)", status, data)
+			}
+			apiWantBody(t, data, map[string]any{"status": "ok"})
+			e, err := d.GetWebhookByToken(token)
+			if err != nil || e == nil {
+				t.Fatalf("GetWebhookByToken: %#v, %v", e, err)
+			}
+			if e.DeliveredCount != 0 || e.DroppedCount != 1 || e.LastDropReason != "disabled" {
+				t.Fatalf("delivered=%d dropped=%d reason=%q, want 0 / 1 / disabled",
+					e.DeliveredCount, e.DroppedCount, e.LastDropReason)
+			}
+			apiWantNoChatWithKip(t, h, owner)
+			recipient.wantFrames()
+		})
+	}
+
+	t.Run("a request log that fails to land does not cost the delivery", func(t *testing.T) {
+		d, _, _ := windowDAL(t, "split pools")
+		_, h, _, owner := newAPITestServerOn(t, d)
+		token := apiTestWebhookToken(t, h, owner, "kip", `{"endpoint_id":"alerts","purpose":"CI"}`)
+		windowRefuse(t, d, "refuse_request_log", "BEFORE INSERT ON webhook_request_log", "the log write fails")
+
+		status, data := windowJSON(t, h, http.MethodPost, "/in?t="+token, "", `{"text":"build broke"}`)
+
+		if status != http.StatusOK {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		e, err := d.GetWebhookByToken(token)
+		if err != nil || e == nil || e.DeliveredCount != 1 {
+			t.Fatalf("GetWebhookByToken: %#v, %v; want delivered_count 1", e, err)
+		}
+		rows, err := d.ListChat()
+		if err != nil || len(rows) != 1 || rows[0].Body != `{"text":"build broke"}` || rows[0].Recipient != "kip" {
+			t.Fatalf("ListChat: %#v, %v; want the one delivered message", rows, err)
+		}
 	})
 }
 

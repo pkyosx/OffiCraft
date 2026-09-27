@@ -120,11 +120,15 @@ func (e chatBadRequest) Error() string { return e.msg }
 // Presence is deliberately NOT a condition: an offline or stopped member still owns
 // a mailbox and must receive messages posted before its next connection.
 func (s *apiServer) resolveChatRecipient(id string) (string, error) {
+	return resolveChatRecipientOn(s.dal.rdb, id)
+}
+
+func resolveChatRecipientOn(q sqlRowQuerier, id string) (string, error) {
 	id = trimString(id)
 	if id == wireOwnerID {
 		return id, nil
 	}
-	m, err := s.dal.GetMember(id)
+	m, err := getMemberOn(q, id)
 	if err != nil {
 		return "", err
 	}

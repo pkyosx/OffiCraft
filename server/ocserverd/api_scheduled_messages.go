@@ -112,6 +112,52 @@ func (s *apiServer) HandleUpdateScheduledMessageApiMembersMemberIdScheduledMessa
 		writeResolveError(w, err, "scheduled message", scheduleId)
 		return
 	}
+	if _, err := applyScheduledMessagePatch(m, body); err != nil {
+		writeTxError(w, err)
+		return
+	}
+	// The patch is applied again to the row as it stands in the transaction that
+	// writes it: re-aimed is judged against that row, and the columns this
+	// request did not send keep what is stored there.
+	var fresh *ScheduledMessage
+	err = s.dal.inTx(func(tx *writeTx) error {
+		cur, err := resolveScheduledMessageOn(tx, memberId, scheduleId)
+		if err != nil {
+			return err
+		}
+		reAimed, err := applyScheduledMessagePatch(cur, body)
+		if err != nil {
+			return err
+		}
+		// 🔴 Writes the owner's columns ONLY, never the cursor: a tick can deliver a
+		// slot while this request works on its snapshot, and a whole-row re-put
+		// would roll the cursor back and send that slot again.
+		if err := updateScheduledMessageSettingsOn(tx, *cur); err != nil {
+			return err
+		}
+		if reAimed {
+			// To the slot current NOW: an edit never fires the slot it crossed.
+			if err := aimScheduledMessageCursorOn(tx, cur.ID, currentSlotKey(*cur, time.Now())); err != nil {
+				return err
+			}
+		}
+		// Re-read so the cursor fields on the wire are the row's.
+		fresh, err = getScheduledMessageOn(tx, cur.ID)
+		if err == nil && fresh == nil {
+			err = errNotFound
+		}
+		return err
+	})
+	if err != nil {
+		writeResolveTxError(w, err, "scheduled message", scheduleId)
+		return
+	}
+	writeJSON(w, http.StatusOK, scheduledMessageReceiptOf(*fresh))
+}
+
+// applyScheduledMessagePatch patches m in place and reports whether the edit
+// re-aims the schedule; a 422 comes back as a txRefusal.
+func applyScheduledMessagePatch(m *ScheduledMessage, body ScheduledMessageUpdateDTO) (bool, error) {
 	// 🔴 Re-aimed is judged by VALUE against the stored row — sets in canonical
 	// form, and only fields the resulting cadence reads — never by which fields
 	// were sent. The cockpit (and any generated client) PATCHes the whole form
@@ -175,9 +221,8 @@ func (s *apiServer) HandleUpdateScheduledMessageApiMembersMemberIdScheduledMessa
 	}
 	if body.Status != nil {
 		if !ValidScheduledMessageStatus(string(*body.Status)) {
-			writeError(w, http.StatusUnprocessableEntity,
+			return false, refuseInTx(http.StatusUnprocessableEntity,
 				"status must be one of ['enabled' 'disabled']; got '"+string(*body.Status)+"'")
-			return
 		}
 		m.Status = string(*body.Status)
 	}
@@ -187,40 +232,10 @@ func (s *apiServer) HandleUpdateScheduledMessageApiMembersMemberIdScheduledMessa
 	if wasCustom && m.Cadence != ScheduledMessageCadenceCustom {
 		if err := ValidateScheduledMessageWallClockPresence(
 			m.Cadence, body.Hour != nil, body.Minute != nil); err != nil {
-			writeError(w, http.StatusUnprocessableEntity, err.Error())
-			return
+			return false, refuseInTx(http.StatusUnprocessableEntity, err.Error())
 		}
 	}
-	if !s.validateScheduledMessage(w, *m) {
-		return
-	}
-	// 🔴 Writes the owner's columns ONLY, never the cursor: a tick can deliver a
-	// slot while this request works on its stale snapshot, and a whole-row re-put
-	// would roll the cursor back and send that slot again.
-	if err := s.dal.UpdateScheduledMessageSettings(*m); err != nil {
-		internalError(w, err)
-		return
-	}
-	if reAimed {
-		// To the slot current NOW: an edit never fires the slot it crossed.
-		if err := s.dal.AimScheduledMessageCursor(m.ID, currentSlotKey(*m, time.Now())); err != nil {
-			internalError(w, err)
-			return
-		}
-	}
-	// Re-read so the cursor fields on the wire are the row's. 🔴 fresh == nil
-	// with err == nil (a concurrent DELETE) is a 404, not internalError — a nil
-	// error there panics.
-	fresh, err := s.dal.GetScheduledMessage(m.ID)
-	if err != nil {
-		internalError(w, err)
-		return
-	}
-	if fresh == nil {
-		writeResolveError(w, errNotFound, "scheduled message", scheduleId)
-		return
-	}
-	writeJSON(w, http.StatusOK, scheduledMessageReceiptOf(*fresh))
+	return reAimed, scheduledMessageRefusal(*m)
 }
 
 func (s *apiServer) HandleDeleteScheduledMessageApiMembersMemberIdScheduledMessagesScheduleIdDelete(w http.ResponseWriter, r *http.Request, memberId, scheduleId string) {
@@ -239,11 +254,15 @@ func (s *apiServer) HandleDeleteScheduledMessageApiMembersMemberIdScheduledMessa
 }
 
 func (s *apiServer) resolveScheduledMessage(memberID, scheduleID string) (*ScheduledMessage, error) {
-	recipient, err := s.resolveChatRecipient(memberID)
+	return resolveScheduledMessageOn(s.dal.rdb, memberID, scheduleID)
+}
+
+func resolveScheduledMessageOn(q sqlRowQuerier, memberID, scheduleID string) (*ScheduledMessage, error) {
+	recipient, err := resolveChatRecipientOn(q, memberID)
 	if err != nil {
 		return nil, err
 	}
-	m, err := s.dal.GetScheduledMessage(scheduleID)
+	m, err := getScheduledMessageOn(q, scheduleID)
 	if err != nil {
 		return nil, err
 	}
@@ -254,30 +273,33 @@ func (s *apiServer) resolveScheduledMessage(memberID, scheduleID string) (*Sched
 }
 
 func (s *apiServer) validateScheduledMessage(w http.ResponseWriter, m ScheduledMessage) bool {
-	if !ValidScheduledMessageCadence(m.Cadence) {
-		writeError(w, http.StatusUnprocessableEntity,
-			"cadence must be one of "+scheduledMessageCadenceList()+"; got '"+m.Cadence+"'")
+	if err := scheduledMessageRefusal(m); err != nil {
+		writeTxError(w, err)
 		return false
+	}
+	return true
+}
+
+func scheduledMessageRefusal(m ScheduledMessage) error {
+	if !ValidScheduledMessageCadence(m.Cadence) {
+		return refuseInTx(http.StatusUnprocessableEntity,
+			"cadence must be one of "+scheduledMessageCadenceList()+"; got '"+m.Cadence+"'")
 	}
 	if err := ValidateScheduledMessageBody(m.Body); err != nil {
-		writeError(w, http.StatusUnprocessableEntity, err.Error())
-		return false
+		return refuseInTx(http.StatusUnprocessableEntity, err.Error())
 	}
 	if err := ValidateScheduledMessageSlotFields(m.Hour, m.Minute, m.DayOfWeek, m.DayOfMonth); err != nil {
-		writeError(w, http.StatusUnprocessableEntity, err.Error())
-		return false
+		return refuseInTx(http.StatusUnprocessableEntity, err.Error())
 	}
 	if m.Cadence == ScheduledMessageCadenceCustom {
 		if err := ValidateScheduledMessageCustomSets(m.CustomMonths, m.CustomDays, m.CustomHours, m.CustomMinutes); err != nil {
-			writeError(w, http.StatusUnprocessableEntity, err.Error())
-			return false
+			return refuseInTx(http.StatusUnprocessableEntity, err.Error())
 		}
 	}
 	// 🔴 Refused here, never softened into UTC downstream: a schedule that runs
 	// at the wrong hour looks exactly like one that runs correctly.
 	if err := ValidateScheduledMessageTimezone(m.Timezone); err != nil {
-		writeError(w, http.StatusUnprocessableEntity, err.Error())
-		return false
+		return refuseInTx(http.StatusUnprocessableEntity, err.Error())
 	}
-	return true
+	return nil
 }

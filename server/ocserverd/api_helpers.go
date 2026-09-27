@@ -233,7 +233,11 @@ func (s *apiServer) resolveMemberForItemRead(memberID string) (*Member, error) {
 }
 
 func (s *apiServer) resolveMachine(machineID string) (*Member, error) {
-	m, err := s.dal.GetMember(machineID)
+	return resolveMachineOn(s.dal.rdb, machineID)
+}
+
+func resolveMachineOn(q sqlRowQuerier, machineID string) (*Member, error) {
+	m, err := getMemberOn(q, machineID)
 	if err != nil {
 		return nil, err
 	}
