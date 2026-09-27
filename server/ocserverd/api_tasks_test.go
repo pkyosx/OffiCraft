@@ -1303,7 +1303,7 @@ func TestCallerMayEditTaskText(t *testing.T) {
 			t.Fatalf("PutTask: %v", err)
 		}
 		taskTestUnderCaller(t, api, d, agent, func(r *http.Request) {
-			if !api.callerMayEditTaskText(r, unbound) {
+			if !callerMayEditTaskText(api.dal.GetMember, r, unbound) {
 				t.Fatal("the creator of an unbound task must be allowed at the text doors")
 			}
 		})
@@ -1324,7 +1324,7 @@ func TestCallerMayEditTaskText(t *testing.T) {
 			t.Fatalf("PutTask: %v", err)
 		}
 		taskTestUnderCaller(t, api, d, agent, func(r *http.Request) {
-			if api.callerMayEditTaskText(r, bound) {
+			if callerMayEditTaskText(api.dal.GetMember, r, bound) {
 				t.Fatal("a bound task closes the creator's door")
 			}
 		})
@@ -1350,12 +1350,12 @@ func TestCallerMayEditTaskText(t *testing.T) {
 			t.Fatalf("PutTask: %v", err)
 		}
 		taskTestUnderCaller(t, api, d, agent, func(r *http.Request) {
-			if api.callerMayEditTaskText(r, held) {
+			if callerMayEditTaskText(api.dal.GetMember, r, held) {
 				t.Fatal("the predecessor holds the task, so the creator's window is shut")
 			}
 		})
 		taskTestUnderCaller(t, api, d, apiTestAgentToken(t, api, "rex", ""), func(r *http.Request) {
-			if !api.callerMayEditTaskText(r, held) {
+			if !callerMayEditTaskText(api.dal.GetMember, r, held) {
 				t.Fatal("the predecessor must be admitted")
 			}
 		})
@@ -1363,7 +1363,7 @@ func TestCallerMayEditTaskText(t *testing.T) {
 			t.Fatalf("PutMember: %v", err)
 		}
 		taskTestUnderCaller(t, api, d, agent, func(r *http.Request) {
-			if api.callerMayEditTaskText(r, held) {
+			if callerMayEditTaskText(api.dal.GetMember, r, held) {
 				t.Fatal("the hold stays on after the predecessor left, so the creator's window stays shut")
 			}
 		})
@@ -1383,7 +1383,7 @@ func TestCallerMayEditTaskText(t *testing.T) {
 			t.Fatalf("PutTask: %v", err)
 		}
 		taskTestUnderCaller(t, api, d, apiTestAgentToken(t, api, "kip", ""), func(r *http.Request) {
-			if api.callerMayEditTaskText(r, unbound) {
+			if callerMayEditTaskText(api.dal.GetMember, r, unbound) {
 				t.Fatal("a bystander must be refused")
 			}
 		})
@@ -1403,12 +1403,12 @@ func TestCallerMayEditTaskText(t *testing.T) {
 			t.Fatalf("PutTask: %v", err)
 		}
 		taskTestUnderCaller(t, api, d, apiTestAgentToken(t, api, "kip", ""), func(r *http.Request) {
-			if api.callerMayEditTaskText(r, orphan) {
+			if callerMayEditTaskText(api.dal.GetMember, r, orphan) {
 				t.Fatal("the empty string is not an actor")
 			}
 		})
 		taskTestUnderCaller(t, api, d, owner, func(r *http.Request) {
-			if !api.callerMayEditTaskText(r, orphan) {
+			if !callerMayEditTaskText(api.dal.GetMember, r, orphan) {
 				t.Fatal("owner scope still passes on the drive rule alone")
 			}
 		})
@@ -4564,6 +4564,81 @@ func TestHandleClaimTaskApiTasksTaskIdClaimPost(t *testing.T) {
 		}
 		apiWantError(t, data, "unauthorized", "missing credentials")
 	})
+
+	windowHandedOver := func(t *testing.T, d *DAL) Task {
+		t.Helper()
+		task := windowOpenTask("T-1")
+		task.Lock = TaskLockReassigning
+		task.ExecutorID = "mira"
+		task.ReassignedFrom = "ow-abc123"
+		task.ReassignedFromKind = TaskExecutorOutsource
+		dalPutTask(t, d, task)
+		windowBoundWorker(t, d, task.ID)
+		return task
+	}
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": a takeover claimed after the handler read the row is not claimed twice", func(t *testing.T) {
+			d, hook, path := windowDAL(t, shape)
+			api, h, _, owner := newAPITestServerOn(t, d)
+			task := windowHandedOver(t, d)
+			dashboard := apiTestListen(t, api, "")
+			hook.execAfterRead(t, path, "FROM task WHERE id",
+				`UPDATE task SET lock = '', updated_ts = 1800000000 WHERE id = 'T-1'`)
+
+			status, data := windowJSON(t, h, "POST", "/api/tasks/T-1/claim", owner, "")
+
+			hook.wantFiredOnce(t)
+			if status != http.StatusConflict {
+				t.Fatalf("want 409, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "conflict", "task 'T-1' is not awaiting takeover (no reassigning lock)")
+			want := task
+			want.Lock = ""
+			want.UpdatedTS = 1800000000
+			dalWantTask(t, d, want)
+			windowWantWorkerStatus(t, d, "ow-abc123", WorkerStatusAssigned)
+			dashboard.wantFrames()
+		})
+
+		t.Run(shape+": a task closed after the handler read it stays closed through the claim", func(t *testing.T) {
+			d, hook, path := windowDAL(t, shape)
+			_, h, _, owner := newAPITestServerOn(t, d)
+			windowHandedOver(t, d)
+			hook.closeTaskAfterRead(t, path, "T-1", "FROM task WHERE id")
+
+			status, data := windowJSON(t, h, "POST", "/api/tasks/T-1/claim", owner, "")
+
+			hook.wantFiredOnce(t)
+			if status != http.StatusOK {
+				t.Fatalf("want 200, got %d (%v)", status, data)
+			}
+			got, err := d.GetTask("T-1")
+			if err != nil || got == nil {
+				t.Fatalf("GetTask: %#v, %v", got, err)
+			}
+			if got.Status != TaskStatusDone || got.ClosedTS != windowClosedTS || got.Lock != "" {
+				t.Fatalf("status=%q closed_ts=%v lock=%q, want done / %v / \"\"", got.Status, got.ClosedTS, got.Lock, windowClosedTS)
+			}
+		})
+	}
+
+	t.Run("a claim whose write fails releases no worker and fans nothing", func(t *testing.T) {
+		d, _, _ := windowDAL(t, "split pools")
+		api, h, _, owner := newAPITestServerOn(t, d)
+		task := windowHandedOver(t, d)
+		windowRefuseTaskWrites(t, d)
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := windowJSON(t, h, "POST", "/api/tasks/T-1/claim", owner, "")
+
+		if status != http.StatusInternalServerError {
+			t.Fatalf("want 500, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "internal_error", windowTaskWriteFails)
+		dalWantTask(t, d, task)
+		windowWantWorkerStatus(t, d, "ow-abc123", WorkerStatusAssigned)
+		dashboard.wantFrames()
+	})
 }
 
 func TestExecutorLabel(t *testing.T) {
@@ -5082,6 +5157,48 @@ func TestHandleCreateTaskApiTasksPost(t *testing.T) {
 		}
 		apiWantError(t, data, "unauthorized", "missing credentials")
 	})
+
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": a twin opened after the handler probed its dedupe key is returned, not minted again", func(t *testing.T) {
+			d, hook, path := windowDAL(t, shape)
+			api, h, _, _ := newAPITestServerOn(t, d)
+			kip := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
+			if err := d.PutTaskManual(TaskManual{
+				TypeKey:  "review-pr",
+				Fields:   `[{"name":"pr","required":true,"is_key":true}]`,
+				Assignee: `{"kind":"staff","member_id":"kip"}`,
+			}); err != nil {
+				t.Fatalf("PutTaskManual: %v", err)
+			}
+			twin := windowClosed(windowOpenTask("T-9"))
+			twin.TypeKey = "review-pr"
+			twin.DedupeKey = "123"
+			dalPutTask(t, d, twin)
+			dashboard := apiTestListen(t, api, "")
+			hook.execAfterRead(t, path, "AND dedupe_key",
+				`UPDATE task SET status = 'in_progress', closed_ts = 0 WHERE id = 'T-9'`)
+
+			status, data := windowJSON(t, h, "POST", "/api/tasks", kip,
+				`{"title":"review 123","type_key":"review-pr","inputs":{"pr":"123"}}`)
+
+			hook.wantFiredOnce(t)
+			if status != http.StatusOK {
+				t.Fatalf("want 200, got %d (%v)", status, data)
+			}
+			apiWantBody(t, data, map[string]any{
+				"task_id": "T-9", "executor_kind": "staff", "executor_id": "kip", "deduped": true,
+				"title": "reconcile the yard ledger", "status": "in_progress",
+			})
+			tasks, err := d.ListTasks()
+			if err != nil {
+				t.Fatalf("ListTasks: %v", err)
+			}
+			if len(tasks) != 1 {
+				t.Fatalf("want only the twin, got %d tasks", len(tasks))
+			}
+			dashboard.wantFrames()
+		})
+	}
 }
 
 func TestHandleSubmitTaskPlanApiTasksTaskIdPlanPost(t *testing.T) {

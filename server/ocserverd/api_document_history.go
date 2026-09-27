@@ -401,7 +401,7 @@ func (s *apiServer) taskDescriptionRestoreAuthz(w http.ResponseWriter, r *http.R
 		writeResolveError(w, err, "task", taskID)
 		return false
 	}
-	if !s.callerMayEditTaskText(r, *t) {
+	if !callerMayEditTaskText(s.dal.GetMember, r, *t) {
 		writeError(w, http.StatusForbidden, taskActorRefusal)
 		return false
 	}

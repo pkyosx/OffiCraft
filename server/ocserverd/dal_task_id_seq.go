@@ -37,12 +37,15 @@ const mintRetryLimit = 64
 // Return AbortCreate(err) to refuse; the error is returned unchanged so the
 // caller can answer 403 rather than 500.
 func (d *DAL) CreateTaskMintingID(t Task, precheck func(id string) error) (Task, error) {
-	tx, err := d.wdb.Begin()
-	if err != nil {
-		return t, err
-	}
-	defer tx.Rollback() //nolint:errcheck
+	err := d.inTx(func(tx *sql.Tx) error {
+		var err error
+		t, err = createTaskMintingIDOn(tx, t, precheck)
+		return err
+	})
+	return t, err
+}
 
+func createTaskMintingIDOn(tx *sql.Tx, t Task, precheck func(id string) error) (Task, error) {
 	n, err := mintTaskNumber(tx)
 	if err != nil {
 		return t, err
@@ -54,10 +57,7 @@ func (d *DAL) CreateTaskMintingID(t Task, precheck func(id string) error) (Task,
 			return t, err
 		}
 	}
-	if err := putTaskOn(tx, t, taskWriteInsertOnly); err != nil {
-		return t, err
-	}
-	return t, tx.Commit()
+	return t, putTaskOn(tx, t, taskWriteInsertOnly)
 }
 
 func mintTaskNumber(tx *sql.Tx) (int, error) {

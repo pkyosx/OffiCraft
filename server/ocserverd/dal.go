@@ -251,13 +251,15 @@ func (d *DAL) ZeroAccountSpend(account string) (float64, error) {
 // the wind-down anchors, …) — each has its own single-column setter.
 // It fans no SSE delta; s.putMember pairs the write with publishMemberPatch.
 func (d *DAL) PutMember(m Member) error {
+	return d.inTx(func(tx *sql.Tx) error { return putMemberOn(tx, m) })
+}
+
+func putMemberOn(ex sqlExecer, m Member) error {
 	fields := memberWholeRow(m)
-	return d.inTx(func(tx *sql.Tx) error {
-		if err := insertMemberRowIfAbsent(tx, fields); err != nil {
-			return err
-		}
-		return patchMemberOn(tx, m.ID, updatableMemberFields(fields)...)
-	})
+	if err := insertMemberRowIfAbsent(ex, fields); err != nil {
+		return err
+	}
+	return patchMemberOn(ex, m.ID, updatableMemberFields(fields)...)
 }
 
 func (d *DAL) AddMemberBankedCost(id string, delta float64) error {
@@ -296,6 +298,10 @@ func (d *DAL) SetMemberForcedStopAt(id string, ts float64) error {
 	return d.PatchMember(id, mfForcedStopAt(ts))
 }
 
+func setMemberForcedStopAtOn(ex sqlExecer, id string, ts float64) error {
+	return patchMemberOn(ex, id, mfForcedStopAt(ts))
+}
+
 func (d *DAL) SetMemberSessionBootTS(id string, ts float64) error {
 	_, err := d.wdb.Exec(`UPDATE member SET session_boot_ts = ? WHERE id = ?`, ts, id)
 	return err
@@ -308,7 +314,12 @@ func (d *DAL) SetMemberWakingSince(id string, ts float64) error {
 
 func (d *DAL) SetMemberWindDownAnchors(id string, stoppingSince, stoppedSince,
 	refocusSince float64, refocusOp string) error {
-	_, err := d.wdb.Exec(
+	return setMemberWindDownAnchorsOn(d.wdb, id, stoppingSince, stoppedSince, refocusSince, refocusOp)
+}
+
+func setMemberWindDownAnchorsOn(ex sqlExecer, id string, stoppingSince, stoppedSince,
+	refocusSince float64, refocusOp string) error {
+	_, err := ex.Exec(
 		`UPDATE member SET stopping_since = ?, stopped_since = ?,
 			refocus_since = ?, refocus_op = ? WHERE id = ?`,
 		stoppingSince, stoppedSince, refocusSince, refocusOp, id)
@@ -316,35 +327,49 @@ func (d *DAL) SetMemberWindDownAnchors(id string, stoppingSince, stoppedSince,
 }
 
 func (d *DAL) SetMemberDesiredMachineID(id, machineID string) error {
-	_, err := d.wdb.Exec(
+	return setMemberDesiredMachineIDOn(d.wdb, id, machineID)
+}
+
+func setMemberDesiredMachineIDOn(ex sqlExecer, id, machineID string) error {
+	_, err := ex.Exec(
 		`UPDATE member SET desired_machine_id = ? WHERE id = ?`, machineID, id)
 	return err
 }
 
-func (d *DAL) SetMemberModel(id, model string) error {
-	_, err := d.wdb.Exec(`UPDATE member SET model = ? WHERE id = ?`, model, id)
+func (d *DAL) SetMemberModel(id, model string) error { return setMemberModelOn(d.wdb, id, model) }
+
+func setMemberModelOn(ex sqlExecer, id, model string) error {
+	_, err := ex.Exec(`UPDATE member SET model = ? WHERE id = ?`, model, id)
 	return err
 }
 
 // SetMemberRuntime stores runtime raw, WITHOUT NormalizeRuntime: "" ("nobody
 // has picked yet") must stay distinct from "claude" for
 // resolveEmptyRuntimeForPlacement.
-func (d *DAL) SetMemberRuntime(id, runtime string) error {
-	_, err := d.wdb.Exec(`UPDATE member SET runtime = ? WHERE id = ?`, runtime, id)
+func (d *DAL) SetMemberRuntime(id, runtime string) error { return setMemberRuntimeOn(d.wdb, id, runtime) }
+
+func setMemberRuntimeOn(ex sqlExecer, id, runtime string) error {
+	_, err := ex.Exec(`UPDATE member SET runtime = ? WHERE id = ?`, runtime, id)
 	return err
 }
 
-func (d *DAL) SetMemberEffort(id, effort string) error {
-	_, err := d.wdb.Exec(`UPDATE member SET effort = ? WHERE id = ?`, effort, id)
+func (d *DAL) SetMemberEffort(id, effort string) error { return setMemberEffortOn(d.wdb, id, effort) }
+
+func setMemberEffortOn(ex sqlExecer, id, effort string) error {
+	_, err := ex.Exec(`UPDATE member SET effort = ? WHERE id = ?`, effort, id)
 	return err
 }
 
 func (d *DAL) SetMemberLastOp(id, op string, ok *bool, log, reason string, at float64) error {
+	return setMemberLastOpOn(d.wdb, id, op, ok, log, reason, at)
+}
+
+func setMemberLastOpOn(ex sqlExecer, id, op string, ok *bool, log, reason string, at float64) error {
 	var okVal any
 	if ok != nil {
 		okVal = *ok
 	}
-	_, err := d.wdb.Exec(
+	_, err := ex.Exec(
 		`UPDATE member SET last_op = ?, last_op_ok = ?, last_op_log = ?,
 			last_op_reason = ?, last_op_at = ? WHERE id = ?`,
 		op, okVal, log, reason, at, id)
@@ -2422,6 +2447,10 @@ func (d *DAL) displayNames(query string) (map[string]string, error) {
 // indistinguishable: owner ruling 2026-08-28 「先不管搶同一秒的問題好了」.
 func (d *DAL) SetMemberAgentIatFloor(id string, ts float64) error {
 	return d.PatchMember(id, mfAgentIatFloor(ts))
+}
+
+func setMemberAgentIatFloorOn(ex sqlExecer, id string, ts float64) error {
+	return patchMemberOn(ex, id, mfAgentIatFloor(ts))
 }
 
 // SetMemberTokenKeyID must NOT become forward-only: the observation

@@ -198,10 +198,14 @@ const (
 var errScopeUnset = errors.New("member lookup called without a memberScope")
 
 func (s *apiServer) resolveMember(memberID string, scope memberScope) (*Member, error) {
+	return resolveMemberOn(s.dal.rdb, memberID, scope)
+}
+
+func resolveMemberOn(q sqlRowQuerier, memberID string, scope memberScope) (*Member, error) {
 	if scope == memberScopeUnset {
 		return nil, errScopeUnset
 	}
-	m, err := s.dal.GetMember(memberID)
+	m, err := getMemberOn(q, memberID)
 	if err != nil {
 		return nil, err
 	}
@@ -245,6 +249,16 @@ func writeResolveError(w http.ResponseWriter, err error, what, id string) {
 		return
 	}
 	internalError(w, err)
+}
+
+// writeResolveTxError answers a transaction that re-resolved its target: the
+// resolver's errNotFound, a txRefusal, or a 500.
+func writeResolveTxError(w http.ResponseWriter, err error, what, id string) {
+	if errors.Is(err, errNotFound) {
+		writeResolveError(w, err, what, id)
+		return
+	}
+	writeTxError(w, err)
 }
 
 func validEffort(effort string) bool {

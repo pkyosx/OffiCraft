@@ -3065,6 +3065,29 @@ func TestHandleDismissMemberApiMembersMemberIdDelete(t *testing.T) {
 		}
 		apiWantError(t, data, "unauthorized", "missing credentials")
 	})
+
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": a rename that landed after the handler read the row survives the dismissal", func(t *testing.T) {
+			d, hook, path := windowDAL(t, shape)
+			_, h, _, owner := newAPITestServerOn(t, d)
+			hook.execAfterRead(t, path, "FROM member WHERE id",
+				`UPDATE member SET name = 'Kip the Second' WHERE id = 'kip'`)
+
+			status, data := windowJSON(t, h, "DELETE", "/api/members/kip", owner, "")
+
+			hook.wantFiredOnce(t)
+			if status != http.StatusOK {
+				t.Fatalf("want 200, got %d (%v)", status, data)
+			}
+			got, err := d.GetMember("kip")
+			if err != nil || got == nil {
+				t.Fatalf("GetMember(kip): %#v, %v", got, err)
+			}
+			if got.Name != "Kip the Second" || got.RosterStatus != RosterStatusRemoved {
+				t.Fatalf("name=%q roster_status=%q, want \"Kip the Second\" / removed", got.Name, got.RosterStatus)
+			}
+		})
+	}
 }
 
 func TestResolveSelf(t *testing.T) {
