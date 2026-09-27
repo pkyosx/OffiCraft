@@ -193,13 +193,13 @@ func (d *DAL) CountOpenTasksOfType(typeKey string) (int, error) {
 	return n, err
 }
 
-// CountTasksDuplicatingOriginal backs mark_task_duplicated's chain guard: a task
+// countTasksDuplicatingOriginalOn backs mark_task_duplicated's chain guard: a task
 // that is already an original cannot itself be marked duplicated. With the
 // "target is not itself duplicated" check (api_tasks.go) this keeps duplicate_of
 // depth-1, so the cockpit link resolves in one hop.
-func (d *DAL) CountTasksDuplicatingOriginal(originalID string) (int, error) {
+func countTasksDuplicatingOriginalOn(q sqlRowQuerier, originalID string) (int, error) {
 	var n int
-	err := d.rdb.QueryRow(
+	err := q.QueryRow(
 		`SELECT COUNT(*) FROM task WHERE duplicate_of = ?`, originalID).Scan(&n)
 	return n, err
 }
@@ -633,12 +633,12 @@ func putTaskStepOn(ex sqlExecer, st TaskStep) error {
 	return err
 }
 
-// ReplaceTaskSteps: which rows to retain / supersede is the handler's call (it joins
-// reply_card); the DAL never reads the card table. A frozen row keeps started_ts
-// and reply_card_id so its question-and-answer history still renders.
-func (d *DAL) ReplaceTaskSteps(taskID string, retain, supersede []string,
+// replaceTaskStepsOn: which rows to retain / supersede is the handler's call (it
+// joins reply_card); this never reads the card table. A frozen row keeps
+// started_ts and reply_card_id so its question-and-answer history still renders.
+func replaceTaskStepsOn(tx *writeTx, taskID string, retain, supersede []string,
 	supersededTS float64, newSteps []TaskStep) ([]TaskStep, error) {
-	existing, err := d.ListTaskSteps(taskID)
+	existing, err := listTaskStepsOn(tx, taskID)
 	if err != nil {
 		return nil, err
 	}
@@ -651,11 +651,6 @@ func (d *DAL) ReplaceTaskSteps(taskID string, retain, supersede []string,
 		preserved[id] = true
 		superseded[id] = true
 	}
-	tx, err := d.wdb.Begin()
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback() //nolint:errcheck // no-op after Commit
 	var kept []TaskStep
 	for _, st := range existing {
 		if !StepIsTerminal(st.Status) && !preserved[st.ID] {
@@ -701,9 +696,6 @@ func (d *DAL) ReplaceTaskSteps(taskID string, retain, supersede []string,
 			return nil, err
 		}
 		out = append(out, st)
-	}
-	if err := tx.Commit(); err != nil {
-		return nil, err
 	}
 	return out, nil
 }

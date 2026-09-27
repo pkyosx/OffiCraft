@@ -792,7 +792,7 @@ func TestStepCardSettled(t *testing.T) {
 	t.Run("a card that left waiting through an answer or an expiry reads settled", func(t *testing.T) {
 		api, _, answeredID, expiredID := settledCases(t)
 		for _, cardID := range []string{answeredID, expiredID} {
-			got, err := api.stepCardSettled(TaskStep{ID: "ts-1", ReplyCardID: cardID})
+			got, err := stepCardSettledOn(api.dal.rdb, TaskStep{ID: "ts-1", ReplyCardID: cardID})
 			if err != nil {
 				t.Fatalf("stepCardSettled: %v", err)
 			}
@@ -809,7 +809,7 @@ func TestStepCardSettled(t *testing.T) {
 			{ID: "ts-2"},
 			{ID: "ts-3", ReplyCardID: "rc-000000000000"},
 		} {
-			got, err := api.stepCardSettled(step)
+			got, err := stepCardSettledOn(api.dal.rdb, step)
 			if err != nil {
 				t.Fatalf("stepCardSettled(%s): %v", step.ID, err)
 			}
@@ -1169,7 +1169,7 @@ func TestCallerMayDriveTask(t *testing.T) {
 			t.Fatalf("resolveTask: %v", err)
 		}
 		taskTestUnderCaller(t, api, d, apiTestAgentToken(t, api, "kip", ""), func(r *http.Request) {
-			if !api.callerMayDriveTask(r, *task) {
+			if !callerMayDriveTask(api.dal.GetMember, r, *task) {
 				t.Fatal("the executor must be allowed to drive its own task")
 			}
 		})
@@ -1184,7 +1184,7 @@ func TestCallerMayDriveTask(t *testing.T) {
 		}
 		for _, token := range []string{owner, apiTestAgentToken(t, api, "mira", "")} {
 			taskTestUnderCaller(t, api, d, token, func(r *http.Request) {
-				if !api.callerMayDriveTask(r, *task) {
+				if !callerMayDriveTask(api.dal.GetMember, r, *task) {
 					t.Fatalf("%s must be allowed to drive any task", currentActor(r))
 				}
 			})
@@ -1199,7 +1199,7 @@ func TestCallerMayDriveTask(t *testing.T) {
 			t.Fatalf("resolveTask: %v", err)
 		}
 		taskTestUnderCaller(t, api, d, apiTestAgentToken(t, api, "kip", ""), func(r *http.Request) {
-			if api.callerMayDriveTask(r, *task) {
+			if callerMayDriveTask(api.dal.GetMember, r, *task) {
 				t.Fatal("a non-executor plain agent must be refused")
 			}
 		})
@@ -1222,7 +1222,7 @@ func TestCallerMayDriveTask(t *testing.T) {
 			t.Fatalf("want the ticket created by kip, got %q", unbound.CreatorID)
 		}
 		taskTestUnderCaller(t, api, d, agent, func(r *http.Request) {
-			if api.callerMayDriveTask(r, unbound) {
+			if callerMayDriveTask(api.dal.GetMember, r, unbound) {
 				t.Fatal("the creator must not drive an unbound task")
 			}
 		})
@@ -1252,7 +1252,7 @@ func TestCallerMayDriveTask(t *testing.T) {
 			{"rex", released, true},
 		} {
 			taskTestUnderCaller(t, api, d, apiTestAgentToken(t, api, c.who, ""), func(r *http.Request) {
-				if got := api.callerMayDriveTask(r, c.task); got != c.want {
+				if got := callerMayDriveTask(api.dal.GetMember, r, c.task); got != c.want {
 					t.Fatalf("%s on lock %q: want %v, got %v", c.who, c.task.Lock, c.want, got)
 				}
 			})
@@ -1273,7 +1273,7 @@ func TestPredecessorHoldsTask(t *testing.T) {
 		if err != nil || task.ReassignedFrom != "kip" {
 			t.Fatalf("resolveTask: %v %+v", err, task)
 		}
-		if !api.predecessorHoldsTask(*task) {
+		if !predecessorHoldsTask(api.dal.GetMember, *task) {
 			t.Fatal("fixture: kip must hold the task before the roster read breaks")
 		}
 		if _, err := d.wdb.Exec(`ALTER TABLE member RENAME TO member_unreadable`); err != nil {
@@ -1282,7 +1282,7 @@ func TestPredecessorHoldsTask(t *testing.T) {
 		if _, err := d.GetMember("kip"); err == nil {
 			t.Fatal("fixture: the roster read must fail")
 		}
-		if api.predecessorHoldsTask(*task) {
+		if predecessorHoldsTask(api.dal.GetMember, *task) {
 			t.Fatal("a failed roster lookup must not grant the hold")
 		}
 	})
@@ -1419,7 +1419,7 @@ func TestTaskCallerOf(t *testing.T) {
 	t.Run("an owner credential classifies as owner and needs no roster row", func(t *testing.T) {
 		api, _, d, owner := newAPITestServer(t)
 		taskTestUnderCaller(t, api, d, owner, func(r *http.Request) {
-			c, err := api.taskCallerOf(r)
+			c, err := taskCallerOf(api.dal.GetMember, r)
 			if err != nil {
 				t.Fatalf("taskCallerOf: %v", err)
 			}
@@ -1436,7 +1436,7 @@ func TestTaskCallerOf(t *testing.T) {
 		api, _, d, _ := newAPITestServer(t)
 		token := apiTestAgentToken(t, api, "kip", "")
 		taskTestUnderCaller(t, api, d, token, func(r *http.Request) {
-			c, err := api.taskCallerOf(r)
+			c, err := taskCallerOf(api.dal.GetMember, r)
 			if err != nil {
 				t.Fatalf("taskCallerOf: %v", err)
 			}
@@ -1456,7 +1456,7 @@ func TestTaskCallerOf(t *testing.T) {
 		api, _, d, _ := newAPITestServer(t)
 		token := apiTestAgentToken(t, api, "mira", "")
 		taskTestUnderCaller(t, api, d, token, func(r *http.Request) {
-			c, err := api.taskCallerOf(r)
+			c, err := taskCallerOf(api.dal.GetMember, r)
 			if err != nil {
 				t.Fatalf("taskCallerOf: %v", err)
 			}
@@ -1471,7 +1471,7 @@ func TestTaskCallerOf(t *testing.T) {
 		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusAssigned)
 		token := apiTestAgentToken(t, api, "ow-abc123", "")
 		taskTestUnderCaller(t, api, d, token, func(r *http.Request) {
-			c, err := api.taskCallerOf(r)
+			c, err := taskCallerOf(api.dal.GetMember, r)
 			if err != nil {
 				t.Fatalf("taskCallerOf: %v", err)
 			}
@@ -1488,7 +1488,7 @@ func TestTaskCallerOf(t *testing.T) {
 			t.Fatalf("HardDeleteMember: %v", err)
 		}
 		taskTestUnderCaller(t, api, d, token, func(r *http.Request) {
-			c, err := api.taskCallerOf(r)
+			c, err := taskCallerOf(api.dal.GetMember, r)
 			if err != nil {
 				t.Fatalf("taskCallerOf: %v", err)
 			}
@@ -1610,7 +1610,7 @@ func TestCloseTask(t *testing.T) {
 		}
 		dashboard := apiTestListen(t, api, "")
 
-		if err := api.closeTask(task, TaskStatusTerminated, 1750000000, "owner"); err != nil {
+		if err := apiTestCloseTask(api, task, TaskStatusTerminated, 1750000000, "owner"); err != nil {
 			t.Fatalf("closeTask: %v", err)
 		}
 
@@ -1723,7 +1723,7 @@ func TestCloseTask(t *testing.T) {
 		}
 		dashboard := apiTestListen(t, api, "")
 
-		if err := api.closeTask(task, TaskStatusDone, 1750000000, "owner"); err != nil {
+		if err := apiTestCloseTask(api, task, TaskStatusDone, 1750000000, "owner"); err != nil {
 			t.Fatalf("closeTask: %v", err)
 		}
 
@@ -1828,7 +1828,7 @@ func TestCloseTask(t *testing.T) {
 			t.Fatalf("resolveTask: %v", err)
 		}
 
-		if err := api.closeTask(task, TaskStatusDone, 1750000000, "owner"); err != nil {
+		if err := apiTestCloseTask(api, task, TaskStatusDone, 1750000000, "owner"); err != nil {
 			t.Fatalf("closeTask: %v", err)
 		}
 
@@ -1862,7 +1862,7 @@ func TestCloseTask(t *testing.T) {
 		dashboard := apiTestListen(t, api, "")
 		executor := apiTestListen(t, api, "kip")
 
-		if err := api.closeTask(task, TaskStatusDone, 1750000000, "kip"); err != nil {
+		if err := apiTestCloseTask(api, task, TaskStatusDone, 1750000000, "kip"); err != nil {
 			t.Fatalf("closeTask: %v", err)
 		}
 
@@ -1921,7 +1921,7 @@ func TestCloseTask(t *testing.T) {
 			t.Fatalf("resolveTask: %v", err)
 		}
 
-		if err := api.closeTask(task, TaskStatusDone, 1750000000, "kip"); err != nil {
+		if err := apiTestCloseTask(api, task, TaskStatusDone, 1750000000, "kip"); err != nil {
 			t.Fatalf("closeTask: %v", err)
 		}
 
@@ -2002,7 +2002,7 @@ func TestDeriveAndPersistTask(t *testing.T) {
 		}
 		dashboard := apiTestListen(t, api, "")
 
-		if err := api.deriveAndPersistTask(task, 1750000000, "kip"); err != nil {
+		if err := apiTestDeriveAndPersistTask(api, task, 1750000000, "kip"); err != nil {
 			t.Fatalf("deriveAndPersistTask: %v", err)
 		}
 
@@ -2058,7 +2058,7 @@ func TestDeriveAndPersistTask(t *testing.T) {
 			t.Fatalf("resolveTask: %v", err)
 		}
 
-		if err := api.deriveAndPersistTask(task, 1750000000, "kip"); err != nil {
+		if err := apiTestDeriveAndPersistTask(api, task, 1750000000, "kip"); err != nil {
 			t.Fatalf("deriveAndPersistTask: %v", err)
 		}
 
@@ -2099,7 +2099,7 @@ func TestDeriveAndPersistTask(t *testing.T) {
 			if err != nil {
 				t.Fatalf("resolveTask: %v", err)
 			}
-			if err := api.deriveAndPersistTask(task, 1750000000, "kip"); err != nil {
+			if err := apiTestDeriveAndPersistTask(api, task, 1750000000, "kip"); err != nil {
 				t.Fatalf("deriveAndPersistTask: %v", err)
 			}
 		}
@@ -2119,7 +2119,7 @@ func TestDeriveAndPersistTask(t *testing.T) {
 		if reReadTask.TypeKey != "" {
 			t.Fatalf("this arm needs an ad-hoc task, got type_key %q", reReadTask.TypeKey)
 		}
-		if err := api.deriveAndPersistTask(reReadTask, 1750000001, "kip"); err != nil {
+		if err := apiTestDeriveAndPersistTask(api, reReadTask, 1750000001, "kip"); err != nil {
 			t.Fatalf("deriveAndPersistTask (re-derivation): %v", err)
 		}
 
@@ -2137,7 +2137,7 @@ func TestDeriveAndPersistTask(t *testing.T) {
 		if err != nil {
 			t.Fatalf("resolveTask: %v", err)
 		}
-		if err := api.deriveAndPersistTask(backToWork, 1750000002, "kip"); err != nil {
+		if err := apiTestDeriveAndPersistTask(api, backToWork, 1750000002, "kip"); err != nil {
 			t.Fatalf("deriveAndPersistTask (back to work): %v", err)
 		}
 		if backToWork.Status == TaskStatusReadyForDone {
@@ -2196,7 +2196,7 @@ func TestDeriveAndPersistTask(t *testing.T) {
 			t.Fatalf("resolveTask: %v", err)
 		}
 
-		if err := api.deriveAndPersistTask(task, 1750000000, "owner"); err != nil {
+		if err := apiTestDeriveAndPersistTask(api, task, 1750000000, "owner"); err != nil {
 			t.Fatalf("deriveAndPersistTask: %v", err)
 		}
 
@@ -2223,7 +2223,7 @@ func TestDeriveAndPersistTask(t *testing.T) {
 		task := *before
 		dashboard := apiTestListen(t, api, "")
 
-		if err := api.deriveAndPersistTask(&task, 1750000000, "kip"); err != nil {
+		if err := apiTestDeriveAndPersistTask(api, &task, 1750000000, "kip"); err != nil {
 			t.Fatalf("deriveAndPersistTask: %v", err)
 		}
 
@@ -3076,7 +3076,7 @@ func TestCallerMayTerminateTask(t *testing.T) {
 		}
 		for _, token := range []string{owner, apiTestAgentToken(t, api, "mira", "")} {
 			taskTestUnderCaller(t, api, d, token, func(r *http.Request) {
-				ok, reason := api.callerMayTerminateTask(r, *task)
+				ok, reason := callerMayTerminateTask(api.dal.GetMember, r, *task)
 				if !ok || reason != "" {
 					t.Fatalf("%s: got (%v, %q)", currentActor(r), ok, reason)
 				}
@@ -3092,7 +3092,7 @@ func TestCallerMayTerminateTask(t *testing.T) {
 			t.Fatalf("resolveTask: %v", err)
 		}
 		taskTestUnderCaller(t, api, d, apiTestAgentToken(t, api, "kip", ""), func(r *http.Request) {
-			ok, reason := api.callerMayTerminateTask(r, *task)
+			ok, reason := callerMayTerminateTask(api.dal.GetMember, r, *task)
 			if !ok || reason != "" {
 				t.Fatalf("got (%v, %q)", ok, reason)
 			}
@@ -3107,7 +3107,7 @@ func TestCallerMayTerminateTask(t *testing.T) {
 			t.Fatalf("resolveTask: %v", err)
 		}
 		taskTestUnderCaller(t, api, d, apiTestAgentToken(t, api, "kip", ""), func(r *http.Request) {
-			ok, reason := api.callerMayTerminateTask(r, *task)
+			ok, reason := callerMayTerminateTask(api.dal.GetMember, r, *task)
 			if ok || reason != taskActorRefusal {
 				t.Fatalf("got (%v, %q)", ok, reason)
 			}
@@ -3128,7 +3128,7 @@ func TestCallerMayTerminateTask(t *testing.T) {
 			t.Fatalf("PutTask: %v", err)
 		}
 		taskTestUnderCaller(t, api, d, apiTestAgentToken(t, api, "ow-abc123", ""), func(r *http.Request) {
-			ok, reason := api.callerMayTerminateTask(r, bound)
+			ok, reason := callerMayTerminateTask(api.dal.GetMember, r, bound)
 			if ok || reason != "an outsource worker may not terminate its own task; "+
 				"ask the owner or an admin agent" {
 				t.Fatalf("got (%v, %q)", ok, reason)
@@ -3148,7 +3148,7 @@ func TestCallerMayTerminateTask(t *testing.T) {
 			t.Fatalf("HardDeleteMember: %v", err)
 		}
 		taskTestUnderCaller(t, api, d, token, func(r *http.Request) {
-			ok, reason := api.callerMayTerminateTask(r, *task)
+			ok, reason := callerMayTerminateTask(api.dal.GetMember, r, *task)
 			if ok || reason != taskActorRefusal {
 				t.Fatalf("got (%v, %q)", ok, reason)
 			}
@@ -7714,14 +7714,14 @@ func TestCallerMayMarkTaskDone(t *testing.T) {
 	task := Task{ID: "T-1", ExecutorID: "kip", Status: TaskStatusReadyForDone}
 
 	t.Run("the task's own executor may close it", func(t *testing.T) {
-		if !api.callerMayMarkTaskDone(taskReq(t, "POST", "/x", nil, "kip", "agent"), task) {
+		if !callerMayMarkTaskDone(api.dal.GetMember, taskReq(t, "POST", "/x", nil, "kip", "agent"), task) {
 			t.Fatal("the executor must be able to close its own task")
 		}
 	})
 
 	t.Run("an outsource executor may close its own task, unlike at mark_task_terminated", func(t *testing.T) {
 		worker := Task{ID: "T-1", ExecutorID: "ow-1", Status: TaskStatusReadyForDone}
-		if !api.callerMayMarkTaskDone(taskReq(t, "POST", "/x", nil, "ow-1", "agent"), worker) {
+		if !callerMayMarkTaskDone(api.dal.GetMember, taskReq(t, "POST", "/x", nil, "ow-1", "agent"), worker) {
 			t.Fatal("an outsource worker must be able to close the task it executes")
 		}
 	})
@@ -7731,7 +7731,7 @@ func TestCallerMayMarkTaskDone(t *testing.T) {
 			{"owner", "owner"},
 			{"m-admin", "agent"},
 		} {
-			if api.callerMayMarkTaskDone(taskReq(t, "POST", "/x", nil, id.sub, id.scope), task) {
+			if callerMayMarkTaskDone(api.dal.GetMember, taskReq(t, "POST", "/x", nil, id.sub, id.scope), task) {
 				t.Fatalf("%s must not reach mark_task_done: admin capability closing a task "+
 					"here is force_task_done with the reason and forced_done_by thrown away", id.sub)
 			}
@@ -7739,11 +7739,11 @@ func TestCallerMayMarkTaskDone(t *testing.T) {
 	})
 
 	t.Run("a foreign agent and an unbound task are both refused", func(t *testing.T) {
-		if api.callerMayMarkTaskDone(taskReq(t, "POST", "/x", nil, "stranger", "agent"), task) {
+		if callerMayMarkTaskDone(api.dal.GetMember, taskReq(t, "POST", "/x", nil, "stranger", "agent"), task) {
 			t.Fatal("a caller that is not the executor must be refused")
 		}
 		unbound := Task{ID: "T-2", ExecutorID: "", Status: TaskStatusReadyForDone}
-		if api.callerMayMarkTaskDone(taskReq(t, "POST", "/x", nil, "", "agent"), unbound) {
+		if callerMayMarkTaskDone(api.dal.GetMember, taskReq(t, "POST", "/x", nil, "", "agent"), unbound) {
 			t.Fatal("a task with no executor has nobody who may close it")
 		}
 	})

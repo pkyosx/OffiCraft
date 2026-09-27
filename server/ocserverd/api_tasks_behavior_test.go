@@ -603,7 +603,7 @@ func TestAnsweringACardOnATerminatedOrDoneTaskIsRejected(t *testing.T) {
 			if err != nil || stored == nil {
 				t.Fatalf("task: %v %v", stored, err)
 			}
-			if err := api.closeTask(stored, status, nowSecs(), "test"); err != nil {
+			if err := apiTestCloseTask(api, stored, status, nowSecs(), "test"); err != nil {
 				t.Fatalf("closeTask: %v", err)
 			}
 			// closeTask now retires its own waiting cards (T-4166), so force the
