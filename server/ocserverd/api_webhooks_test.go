@@ -1294,6 +1294,29 @@ func TestHandleReceiveWebhookInPost(t *testing.T) {
 		})
 	}
 
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": a request signed with a secret rotated out after the handler read the endpoint is dropped", func(t *testing.T) {
+			d, hook, path := windowDAL(t, shape)
+			_, h, _, owner := newAPITestServerOn(t, d)
+			token := apiTestWebhookToken(t, h, owner, "kip",
+				`{"endpoint_id":"alerts","purpose":"CI","platform":"github","signing_secret":"github-webhook-secret"}`)
+			hook.execAfterRead(t, path, "FROM webhook_endpoint WHERE token",
+				`UPDATE webhook_endpoint SET signing_secret = 'a-secret-rotated-in' WHERE endpoint_id = 'alerts'`)
+
+			rec := githubPost(t, h, token, "")
+
+			hook.wantFiredOnce(t)
+			if rec.Code != http.StatusOK || rec.Body.String() != `{"status":"ok"}` {
+				t.Fatalf("want 200 {\"status\":\"ok\"}, got %d %s", rec.Code, rec.Body.String())
+			}
+			e, err := d.GetWebhookByToken(token)
+			if err != nil || e == nil || e.DeliveredCount != 0 || e.DroppedCount != 1 || e.LastDropReason != "sig_failed" {
+				t.Fatalf("GetWebhookByToken: %#v, %v; want delivered 0, dropped 1 (sig_failed)", e, err)
+			}
+			apiWantNoChatWithKip(t, h, owner)
+		})
+	}
+
 	// A request the endpoint would not deliver keeps the silent face even when
 	// nothing about it can be recorded.
 	for _, tc := range []struct {
