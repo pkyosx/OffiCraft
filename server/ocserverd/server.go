@@ -274,7 +274,7 @@ func buildHandler(specs []RouteSpec, keys *keyring, lookup func(id string) (*Mem
 		mux.Handle(spec.Method+" "+spec.Path, h)
 	}
 	mux.Handle("/", newFallbackHandler(specs, webdistFS()))
-	return mux, nil
+	return answerLockInTx(mux), nil
 }
 
 func specsFor(s *apiServer) []RouteSpec {

@@ -50,8 +50,9 @@ import (
 	"math"
 	"net/http"
 	"strconv"
-	"sync"
 	"time"
+
+	"ocserverd/txguard"
 )
 
 const (
@@ -70,7 +71,7 @@ const (
 )
 
 type credentialThrottle struct {
-	mu sync.Mutex
+	mu txguard.Mutex
 
 	inFlight int
 }

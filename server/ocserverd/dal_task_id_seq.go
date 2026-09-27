@@ -32,8 +32,8 @@ const mintRetryLimit = 64
 // The property is UNIQUENESS, not contiguity: gaps and reused numbers are fine.
 //
 // precheck runs after the id exists and before the row lands; it runs INSIDE the
-// write transaction on the single write connection, so it must not touch the
-// database (a write deadlocks, a read comes from another pool at another time).
+// write transaction, so it must not touch the database (a read through the DAL
+// comes from another pool at another time) or take a lock (refused there).
 // Return AbortCreate(err) to refuse; the error is returned unchanged so the
 // caller can answer 403 rather than 500.
 func (d *DAL) CreateTaskMintingID(t Task, precheck func(id string) error) (Task, error) {
@@ -60,7 +60,7 @@ func (d *DAL) CreateTaskMintingID(t Task, precheck func(id string) error) (Task,
 	return t, tx.Commit()
 }
 
-func mintTaskNumber(tx *sql.Tx) (int, error) {
+func mintTaskNumber(tx *writeTx) (int, error) {
 	for attempt := 0; attempt < mintRetryLimit; attempt++ {
 		var next int
 		if err := tx.QueryRow(

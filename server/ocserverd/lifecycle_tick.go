@@ -48,7 +48,7 @@ func (s *apiServer) startLifecycleCadence(period time.Duration) {
 	go func() {
 		for {
 			time.Sleep(period)
-			s.runLifecycleTick(nowSecs())
+			surviveLockInTx("lifecycle cadence", func() { s.runLifecycleTick(nowSecs()) })
 		}
 	}()
 	reconcileLog("lifecycle cadence started (period=%gs, reconcile=%v, outsource=%v)",

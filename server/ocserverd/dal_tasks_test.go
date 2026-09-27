@@ -2273,5 +2273,5 @@ func dalManualHistoryCount(t *testing.T, d *DAL, documentKey string) int {
 }
 
 func replaceTaskDepsInTx(d *DAL, taskID string, blockedBy []string) error {
-	return d.inTx(func(tx *sql.Tx) error { return replaceTaskDepsOn(tx, taskID, blockedBy) })
+	return d.inTx(func(tx *writeTx) error { return replaceTaskDepsOn(tx, taskID, blockedBy) })
 }

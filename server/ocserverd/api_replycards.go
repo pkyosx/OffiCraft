@@ -3,7 +3,6 @@ package main
 // Answering is governance: owner / admin only.
 
 import (
-	"database/sql"
 	"errors"
 	"net/http"
 	"sort"
@@ -230,7 +229,7 @@ func (s *apiServer) openReplyCard(
 			return nil, "", err
 		}
 	} else {
-		err := s.dal.inTx(func(tx *sql.Tx) error {
+		err := s.dal.inTx(func(tx *writeTx) error {
 			cur, err := getTaskOn(tx, taskID)
 			if err != nil {
 				return err
@@ -669,7 +668,7 @@ func (s *apiServer) settleReplyCard(
 ) (ReplyCard, cardHoldRelease, error) {
 	var settled ReplyCard
 	var rel cardHoldRelease
-	err := s.dal.inTx(func(tx *sql.Tx) error {
+	err := s.dal.inTx(func(tx *writeTx) error {
 		cur, err := getReplyCardOn(tx, cardID)
 		if err != nil {
 			return err

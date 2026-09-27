@@ -1,7 +1,6 @@
 package main
 
 import (
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -917,7 +916,7 @@ func (s *apiServer) HandleSetTaskPriorityApiTasksTaskIdPriorityPost(w http.Respo
 	}
 	now := nowSecs()
 	var saved Task
-	err = s.dal.inTx(func(tx *sql.Tx) error {
+	err = s.dal.inTx(func(tx *writeTx) error {
 		cur, err := openTaskOn(tx, t.ID)
 		if err != nil {
 			return err
@@ -1911,7 +1910,7 @@ func (s *apiServer) HandleUpdateTaskStepStatusApiTasksTaskIdStepsStepIdStatusPos
 	var savedTask Task
 	var savedStep TaskStep
 	var arrived bool
-	err = s.dal.inTx(func(tx *sql.Tx) error {
+	err = s.dal.inTx(func(tx *writeTx) error {
 		cur, err := openTaskOn(tx, taskId)
 		if err != nil {
 			return err
@@ -2015,7 +2014,7 @@ func (s *apiServer) HandleSetTaskDepsApiTasksTaskIdDepsPost(w http.ResponseWrite
 	}
 	now := nowSecs()
 	var saved Task
-	err = s.dal.inTx(func(tx *sql.Tx) error {
+	err = s.dal.inTx(func(tx *writeTx) error {
 		cur, err := openTaskOn(tx, t.ID)
 		if err != nil {
 			return err

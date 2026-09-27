@@ -17,7 +17,10 @@ import (
 // Both deadlocks are staged through a driver seam on the write connection: the
 // first write statement a handler issues inside its transaction runs stall
 // first, while that transaction holds the only write connection. The seam fires
-// once and never sleeps; how long anything waits is decided by the pool.
+// once and never sleeps; how long anything waits is decided by the pool. Each
+// wait is one the pool cannot see through: another goroutine's write, and a
+// plain sync.Mutex (the server's own locks refuse a transaction holder
+// outright, lock_in_tx_test.go).
 
 const (
 	stallTestWaitLimit = 300 * time.Millisecond
@@ -215,15 +218,18 @@ func stallWantLogLine(t *testing.T, logs string, want ...string) {
 
 const stallGaveUp = "internal error: timed out waiting for the write connection (300ms): context deadline exceeded"
 
-func TestAWriteInsideATransactionFailsInsteadOfStoppingTheStation(t *testing.T) {
+func TestATransactionWaitingOnAnotherGoroutinesWriteFailsInsteadOfStoppingTheStation(t *testing.T) {
 	d, seam := stallDAL(t)
 	_, h, _, owner := newAPITestServerOn(t, d)
 	task := dalPutTask(t, d, windowOpenTask("T-1"))
 	logs := apiCaptureStandardLog(t)
 	seam.arm(func() error {
-		// The mistake this guards: a DAL method, not tx, called inside the
-		// closure. It waits for the connection its own transaction holds.
-		return d.TouchTaskUpdatedTS("T-1", 1800000000)
+		// A write on the transaction's own goroutine joins the transaction; one
+		// handed to another goroutine does not, and waits for the connection
+		// the transaction holds while the transaction waits for it.
+		done := make(chan error, 1)
+		go func() { done <- d.TouchTaskUpdatedTS("T-1", 1800000000) }()
+		return <-done
 	})
 
 	started := time.Now()

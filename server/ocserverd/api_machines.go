@@ -13,8 +13,9 @@ import (
 	"os/exec"
 	"sort"
 	"strings"
-	"sync"
 	"time"
+
+	"ocserverd/txguard"
 )
 
 const machineClaimTTLSecs int64 = 600
@@ -25,7 +26,7 @@ const claimCodeDeniedMsg = "claim code is invalid, expired, or already used — 
 	"fetch a fresh boot command from the cockpit"
 
 type machineClaimStore struct {
-	mu    sync.Mutex
+	mu    txguard.Mutex
 	codes map[string]machineClaim
 }
 

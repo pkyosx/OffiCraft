@@ -176,7 +176,7 @@ func (c windowConn) CheckNamedValue(nv *driver.NamedValue) error {
 // windowDAL opens the database the handlers run on with the seam on every
 // connection. "split pools" is serve time (one write connection, a read pool);
 // "one connection" is the NewDAL shape, where a read issued inside an open
-// transaction waits on the connection that transaction holds.
+// transaction runs on that transaction.
 func windowDAL(t *testing.T, shape string) (*DAL, *windowHook, string) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "window.db")

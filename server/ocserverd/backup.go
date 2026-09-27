@@ -353,7 +353,7 @@ func startBackupCadence(db backupDB, dbPath string, tick time.Duration, health *
 	go func() {
 		for {
 			time.Sleep(tick)
-			backupTick(db, dbPath, time.Now(), health)
+			surviveLockInTx("backup cadence", func() { backupTick(db, dbPath, time.Now(), health) })
 		}
 	}()
 }

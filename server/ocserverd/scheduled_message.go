@@ -21,7 +21,7 @@ func (s *apiServer) startScheduledMessageCadence(period time.Duration) {
 	go func() {
 		for {
 			time.Sleep(period)
-			s.runScheduledMessageTick(nowSecs())
+			surviveLockInTx("scheduled-message cadence", func() { s.runScheduledMessageTick(nowSecs()) })
 		}
 	}()
 	schedLog("cadence started (period=%gs)", period.Seconds())

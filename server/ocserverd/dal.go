@@ -12,12 +12,12 @@ import (
 
 // wdb is the write pool: ONE connection, transactions BEGIN IMMEDIATE
 // (openSQLite in migrate.go, `_txlock=immediate`), reached only through
-// writePool so that no wait for it is unbounded. rdb is the read pool, opened
-// mode=ro (openSQLiteReadPool), so a write wired to rdb — which type-checks,
-// since *sql.DB satisfies sqlExecer — fails loudly instead of landing.
+// writePool so that no wait for it is unbounded. rdb is where reads go: the read
+// pool, opened mode=ro (openSQLiteReadPool), or the write pool under NewDAL.
+// readPool has no Exec, so a write wired to rdb does not compile.
 type DAL struct {
 	wdb *writePool
-	rdb *sql.DB
+	rdb *readPool
 }
 
 type PushSubscription struct {
@@ -28,15 +28,16 @@ type PushSubscription struct {
 }
 
 // NewDAL is for unit tests and the CLI one-shots (migrate / set-password /
-// claim-token): reads and writes share ONE connection, so a read via s.dal or
-// d.rdb inside an inTx closure waits on that connection forever, hanging with no
-// error. serve splits the pools (NewDALPools), so this never happens there.
+// claim-token): reads and writes share ONE connection, so a read inside an open
+// transaction runs on that transaction and sees its uncommitted writes, which
+// the split pools of serve (NewDALPools) never do.
 func NewDAL(db *sql.DB) *DAL {
-	return &DAL{wdb: newWritePool(db), rdb: db}
+	w := newWritePool(db)
+	return &DAL{wdb: w, rdb: &readPool{shared: w}}
 }
 
 func NewDALPools(w, r *sql.DB) *DAL {
-	return &DAL{wdb: newWritePool(w), rdb: r}
+	return &DAL{wdb: newWritePool(w), rdb: &readPool{raw: r}}
 }
 
 type Member struct {
@@ -225,7 +226,7 @@ func (d *DAL) ListAccountSpend() (map[string]float64, error) {
 
 func (d *DAL) ZeroAccountSpend(account string) (float64, error) {
 	var had float64
-	err := d.inTx(func(tx *sql.Tx) error {
+	err := d.inTx(func(tx *writeTx) error {
 		switch err := tx.QueryRow(`SELECT accumulated FROM account_spend WHERE account = ?`,
 			account).Scan(&had); {
 		case err == sql.ErrNoRows:
@@ -251,7 +252,7 @@ func (d *DAL) ZeroAccountSpend(account string) (float64, error) {
 // It fans no SSE delta; s.putMember pairs the write with publishMemberPatch.
 func (d *DAL) PutMember(m Member) error {
 	fields := memberWholeRow(m)
-	return d.inTx(func(tx *sql.Tx) error {
+	return d.inTx(func(tx *writeTx) error {
 		if err := insertMemberRowIfAbsent(tx, fields); err != nil {
 			return err
 		}
@@ -267,7 +268,7 @@ func (d *DAL) AddMemberBankedCost(id string, delta float64) error {
 
 func (d *DAL) ZeroMemberBankedCost(id string) (float64, error) {
 	var had float64
-	err := d.inTx(func(tx *sql.Tx) error {
+	err := d.inTx(func(tx *writeTx) error {
 		switch err := tx.QueryRow(`SELECT banked_cost FROM member WHERE id = ?`, id).Scan(&had); {
 		case err == sql.ErrNoRows:
 			had = 0
@@ -718,7 +719,7 @@ func (d *DAL) SaveWithDocumentHistory(kind, key, actorID string, snapshot func(s
 }
 
 func (d *DAL) SaveWithDocumentHistories(streams []documentHistoryStream, write func(sqlExecer) error) error {
-	return d.inTx(func(tx *sql.Tx) error {
+	return d.inTx(func(tx *writeTx) error {
 		for _, stream := range streams {
 			if err := retainDocumentVersion(tx, stream); err != nil {
 				return err
@@ -728,7 +729,7 @@ func (d *DAL) SaveWithDocumentHistories(streams []documentHistoryStream, write f
 	})
 }
 
-func retainDocumentVersion(tx *sql.Tx, stream documentHistoryStream) error {
+func retainDocumentVersion(tx *writeTx, stream documentHistoryStream) error {
 	currentJSON, err := stream.Snapshot(tx)
 	if err != nil {
 		return err
@@ -852,7 +853,7 @@ func (d *DAL) DeleteChatInvolving(memberID string) (int, int, error) {
 	return int(deletedMsgs), deletedAtts, nil
 }
 
-func collectOrphanBlobs(tx *sql.Tx, candidates map[string]bool) (int, error) {
+func collectOrphanBlobs(tx *writeTx, candidates map[string]bool) (int, error) {
 	if len(candidates) == 0 {
 		return 0, nil
 	}
@@ -885,7 +886,7 @@ func collectOrphanBlobs(tx *sql.Tx, candidates map[string]bool) (int, error) {
 // chat_attachment_ref.attachment_id deliberately does NOT vote — it is a
 // trigger-maintained index over chat_message.meta, so voting would keep a blob
 // alive on the strength of its own referrer.
-func collectSurvivingBlobRefs(tx *sql.Tx, into map[string]bool) error {
+func collectSurvivingBlobRefs(tx *writeTx, into map[string]bool) error {
 	if err := collectChatMetaRefs(tx, `SELECT meta FROM chat_message`, into); err != nil {
 		return err
 	}
@@ -969,7 +970,7 @@ func collectSurvivingBlobRefs(tx *sql.Tx, into map[string]bool) error {
 	return histRows.Err()
 }
 
-func collectChatMetaRefs(tx *sql.Tx, query string, into map[string]bool, args ...any) error {
+func collectChatMetaRefs(tx *writeTx, query string, into map[string]bool, args ...any) error {
 	rows, err := tx.Query(query, args...)
 	if err != nil {
 		return err
@@ -1372,7 +1373,7 @@ func putRoleDefOn(ex sqlExecer, rd RoleDef) error {
 
 func (d *DAL) DeleteRoleDef(roleKey string) (bool, error) {
 	var deleted bool
-	err := d.inTx(func(tx *sql.Tx) error {
+	err := d.inTx(func(tx *writeTx) error {
 		res, err := tx.Exec(`DELETE FROM role_def WHERE role_key = ?`, roleKey)
 		if err != nil {
 			return err
@@ -1437,7 +1438,7 @@ func putInsightOn(ex sqlExecer, i Insight) error {
 // terminator), so a prefix match deleting r-abc would also take r-abcdef's.
 func (d *DAL) DeleteInsightForRole(roleKey string) (int, error) {
 	var deleted int
-	err := d.inTx(func(tx *sql.Tx) error {
+	err := d.inTx(func(tx *writeTx) error {
 		res, err := tx.Exec(`DELETE FROM role_insight WHERE role_key = ?`, roleKey)
 		if err != nil {
 			return err
@@ -1662,7 +1663,7 @@ func (d *DAL) PutChatWithAttachments(m ChatMessage, atts []ChatAttachment) error
 	if len(atts) == 0 {
 		return d.PutChat(m)
 	}
-	return d.inTx(func(tx *sql.Tx) error {
+	return d.inTx(func(tx *writeTx) error {
 		for _, a := range atts {
 			if err := putChatAttachmentOn(tx, a); err != nil {
 				return err
@@ -1673,7 +1674,7 @@ func (d *DAL) PutChatWithAttachments(m ChatMessage, atts []ChatAttachment) error
 }
 
 func (d *DAL) PutReplyCardWithChat(c ReplyCard, m ChatMessage, atts []ChatAttachment) error {
-	return d.inTx(func(tx *sql.Tx) error {
+	return d.inTx(func(tx *writeTx) error {
 		for _, a := range atts {
 			if err := putChatAttachmentOn(tx, a); err != nil {
 				return err
@@ -1718,7 +1719,7 @@ func (d *DAL) PutReplyCardWithAttachments(c ReplyCard, atts []ChatAttachment) er
 	if len(atts) == 0 {
 		return d.PutReplyCard(c)
 	}
-	return d.inTx(func(tx *sql.Tx) error {
+	return d.inTx(func(tx *writeTx) error {
 		for _, a := range atts {
 			if err := putChatAttachmentOn(tx, a); err != nil {
 				return err
@@ -1757,9 +1758,10 @@ func putReplyCardWithStepAndTaskOn(ex sqlExecer, c ReplyCard, atts []ChatAttachm
 // busy_timeout cover a writer on ANOTHER handle (ocserverd backup, a shell
 // sqlite3): in WAL a DEFERRED read-then-write tx gets an instant SQLITE_BUSY on
 // lock upgrade. Our own writers are serialised by the connection cap, not by it.
-// Inside fn use only tx (the *On helpers): d.wdb, d.inTx and s.dal methods wait
-// on the connection fn holds, and fail after writeConnWaitLimit.
-func (d *DAL) inTx(fn func(tx *sql.Tx) error) error {
+// Inside fn, d.wdb, d.inTx and s.dal writes run on this same transaction when
+// called on fn's goroutine; from any other goroutine they wait for the
+// connection fn holds, and fail after writeConnWaitLimit.
+func (d *DAL) inTx(fn func(tx *writeTx) error) error {
 	tx, err := d.wdb.Begin()
 	if err != nil {
 		return err

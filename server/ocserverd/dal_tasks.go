@@ -952,7 +952,7 @@ func putTaskManualOn(ex sqlExecer, m TaskManual) error {
 
 func (d *DAL) DeleteTaskManual(typeKey string) (bool, error) {
 	var deleted bool
-	err := d.inTx(func(tx *sql.Tx) error {
+	err := d.inTx(func(tx *writeTx) error {
 		res, err := tx.Exec(`DELETE FROM task_manual WHERE type_key = ?`, typeKey)
 		if err != nil {
 			return err

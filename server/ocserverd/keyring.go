@@ -22,7 +22,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"sync"
+
+	"ocserverd/txguard"
 )
 
 const (
@@ -52,7 +53,7 @@ type keyMeta struct {
 }
 
 type keyring struct {
-	mu       sync.RWMutex
+	mu       txguard.RWMutex
 	keys     []signingKey
 	activeID string
 }
