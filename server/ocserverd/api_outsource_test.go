@@ -1238,6 +1238,31 @@ func TestHandleStopOutsourceWorkerApiOutsourceWorkersIdStopPost(t *testing.T) {
 		bystander.wantFrames()
 		push()
 	})
+
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": a close-out whose row write fails leaves no stopped latch behind and sends no kill", func(t *testing.T) {
+			d, _, _ := windowDAL(t, shape)
+			api, h, _, owner := newAPITestServerOn(t, d)
+			apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
+			if err := d.SetMemberDesiredMachineID("ow-abc123", ServerSelfHost); err != nil {
+				t.Fatalf("SetMemberDesiredMachineID: %v", err)
+			}
+			apiTestListen(t, api, ServerSelfHost)
+			wsWantWardenFrames(t, api, ServerSelfHost)
+			// The stop writes the row once itself; the close-out latch is the second.
+			apiTestFailWholeRowWriteAfter(t, d, "ow-abc123", 1)
+
+			status, data := windowJSON(t, h, "POST", "/api/members/ow-abc123/deactivate", owner, "")
+
+			if status != http.StatusOK {
+				t.Fatalf("want 200, got %d (%v)", status, data)
+			}
+			if got := apiTestMemberRow(t, d, "ow-abc123"); got.StoppedSince != 0 || got.DesiredState != DesiredStateOffline {
+				t.Fatalf("stopped_since=%v desired_state=%q, want 0 / offline", got.StoppedSince, got.DesiredState)
+			}
+			wsWantWardenFrames(t, api, ServerSelfHost)
+		})
+	}
 }
 
 func TestHandleForceStopOutsourceWorkerApiOutsourceWorkersIdForceStopPost(t *testing.T) {

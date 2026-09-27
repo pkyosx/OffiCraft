@@ -24,6 +24,7 @@ package main
 // stop (a no-op on an absent session). Durable truth is the worker row.
 
 import (
+	"database/sql"
 	"strings"
 )
 
@@ -919,13 +920,7 @@ func (s *apiServer) openOwnerOpHandover(w OutsourceWorker, op string) bool {
 	w.RefocusOp = proj.RefocusOp
 	w.StoppingSince = proj.StoppingSince
 	w.StoppedSince = proj.StoppedSince
-	if err := s.persistWorkerWindDownAnchors(w); err != nil {
-		outsourceLog("%s %s (%s): refocus ANCHOR write failed (%v) — falling back to an "+
-			"immediate handover so the owner's action is not lost", op, w.ID, w.Codename, err)
-		s.handOverWorkerNow(w, op)
-		return true
-	}
-	if err := s.dal.PutOutsourceWorker(w); err != nil {
+	if err := s.dal.inTx(func(tx *sql.Tx) error { return persistWorkerRowOn(tx, w) }); err != nil {
 		outsourceLog("%s %s (%s): refocus stamp failed (%v) — falling back to an "+
 			"immediate handover so the owner's action is not lost", op, w.ID, w.Codename, err)
 		s.handOverWorkerNow(w, op)
@@ -940,6 +935,16 @@ func (s *apiServer) openOwnerOpHandover(w OutsourceWorker, op string) bool {
 			"(this op runs no clock)", op, w.ID, w.Codename)
 	}
 	return true
+}
+
+// persistWorkerRowOn is persistMemberRowOn for a worker row (PutOutsourceWorker's
+// write: no ValidateMember).
+func persistWorkerRowOn(tx *sql.Tx, w OutsourceWorker) error {
+	if err := setMemberWindDownAnchorsOn(tx, w.ID, w.StoppingSince, w.StoppedSince,
+		w.RefocusSince, w.RefocusOp); err != nil {
+		return err
+	}
+	return putMemberOn(tx, memberFromWorker(w))
 }
 
 // Callers hold s.outsourceMu.
@@ -1144,20 +1149,25 @@ func (s *apiServer) stopCollectedWorkerForHandover(w *OutsourceWorker, prior flo
 	return true, nil
 }
 
-// latchWorkerStopped: if the second write fails, the durable anchor is rolled
-// back — otherwise the retry reads a non-zero prior as already_reported and the
-// kill is never sent. Callers hold s.outsourceMu.
+// latchWorkerStopped lands the anchors and the row in one transaction: a latch
+// left behind a failed row write would make the retry read a non-zero prior as
+// already_reported, and the kill would never be sent. On failure the in-memory
+// latch is put back to prior as well. Callers hold s.outsourceMu.
 func (s *apiServer) latchWorkerStopped(w *OutsourceWorker, prior float64, reason, trigger string) error {
-	if err := s.persistWorkerWindDownAnchors(*w); err != nil {
-		outsourceLog("collect %s (%s): stopped-latch ANCHOR write failed: %v", w.ID, reason, err)
+	m := memberFromWorker(*w)
+	if err := s.dal.inTx(func(tx *sql.Tx) error {
+		if err := setMemberWindDownAnchorsOn(tx, m.ID, m.StoppingSince, m.StoppedSince,
+			m.RefocusSince, m.RefocusOp); err != nil {
+			return err
+		}
+		return writeMemberOn(tx, m)
+	}); err != nil {
+		outsourceLog("collect %s (%s): stopped latch failed, nothing landed — the retry "+
+			"is a first report again: %v", w.ID, reason, err)
+		w.StoppedSince = prior
 		return err
 	}
-	if err := s.putMember(memberFromWorker(*w), trigger); err != nil {
-		outsourceLog("collect %s (%s): stopped latch failed, rolling the latch back "+
-			"so the retry is a first report again: %v", w.ID, reason, err)
-		s.restoreWorkerStoppedLatch(w, prior, reason)
-		return err
-	}
+	s.publishMemberPatch(m, trigger)
 	return nil
 }
 
@@ -1188,7 +1198,11 @@ func (s *apiServer) collectWorkerStop(w OutsourceWorker, reason, trigger string)
 
 // Callers hold s.outsourceMu.
 func (s *apiServer) resolveLiveWorker(id string) (*OutsourceWorker, error) {
-	w, err := s.dal.GetOutsourceWorker(id)
+	return resolveLiveWorkerOn(s.dal.rdb, id)
+}
+
+func resolveLiveWorkerOn(q sqlRowQuerier, id string) (*OutsourceWorker, error) {
+	w, err := getOutsourceWorkerOn(q, id)
 	if err != nil {
 		return nil, err
 	}
@@ -1201,28 +1215,37 @@ func (s *apiServer) resolveLiveWorker(id string) (*OutsourceWorker, error) {
 // workerReportWaking: waking_since is deliberately NOT stamped here (it is
 // stamped at dispatch, the staff rule). This is the only assigned → active write
 // point; Status is a projection of activated_ts, so putMember persists the flip.
-func (s *apiServer) workerReportWaking(id string, model *string, trigger string) (*Member, error) {
+// stampFloor, when set, raises the caller's credential floor in the same
+// transaction: the floor lands with the wake or not at all
+// (HandleReportWakingApiSelfWakingPost).
+func (s *apiServer) workerReportWaking(id string, model *string, trigger string, stampFloor func(sqlExecer) error) (*Member, error) {
 	s.outsourceMu.Lock()
 	defer s.outsourceMu.Unlock()
-	w, err := s.resolveLiveWorker(id)
+	var m Member
+	err := s.dal.inTx(func(tx *sql.Tx) error {
+		if stampFloor != nil {
+			if err := stampFloor(tx); err != nil {
+				return err
+			}
+		}
+		w, err := resolveLiveWorkerOn(tx, id)
+		if err != nil {
+			return err
+		}
+		if w.Status == WorkerStatusAssigned {
+			w.Status = WorkerStatusActive
+		}
+		clearWindDownRow(windDownAnchorRowOfWorker(w))
+		m = memberFromWorker(*w)
+		if model != nil {
+			m.ActualModel = *model
+		}
+		return persistMemberRowOn(tx, m)
+	})
 	if err != nil {
 		return nil, err
 	}
-	claimed := w.Status == WorkerStatusAssigned
-	if claimed {
-		w.Status = WorkerStatusActive
-	}
-	clearWindDownRow(windDownAnchorRowOfWorker(w))
-	m := memberFromWorker(*w)
-	if model != nil {
-		m.ActualModel = *model
-	}
-	if err := s.persistMemberWindDownAnchors(m); err != nil {
-		return nil, err
-	}
-	if err := s.putMember(m, trigger); err != nil {
-		return nil, err
-	}
+	s.publishMemberPatch(m, trigger)
 	return &m, nil
 }
 
@@ -1231,39 +1254,52 @@ func (s *apiServer) workerReportWaking(id string, model *string, trigger string)
 func (s *apiServer) workerReportStopping(id, trigger string) (*Member, error) {
 	s.outsourceMu.Lock()
 	defer s.outsourceMu.Unlock()
-	w, err := s.resolveLiveWorker(id)
+	var m Member
+	err := s.dal.inTx(func(tx *sql.Tx) error {
+		w, err := resolveLiveWorkerOn(tx, id)
+		if err != nil {
+			return err
+		}
+		openWindDownRow(windDownAnchorRowOfWorker(w), nowSecs())
+		m = memberFromWorker(*w)
+		return persistMemberRowOn(tx, m)
+	})
 	if err != nil {
 		return nil, err
 	}
-	openWindDownRow(windDownAnchorRowOfWorker(w), nowSecs())
-	m := memberFromWorker(*w)
-	if err := s.persistMemberWindDownAnchors(m); err != nil {
-		return nil, err
-	}
-	if err := s.putMember(m, trigger); err != nil {
-		return nil, err
-	}
+	s.publishMemberPatch(m, trigger)
 	return &m, nil
 }
 
 func (s *apiServer) workerReportStopped(id, trigger string) (*Member, string, error) {
 	s.outsourceMu.Lock()
-	w, err := s.resolveLiveWorker(id)
+	now := nowSecs()
+	var w *OutsourceWorker
+	collect, stopEffect, prior := false, "", 0.0
+	err := s.dal.inTx(func(tx *sql.Tx) error {
+		var err error
+		if w, err = resolveLiveWorkerOn(tx, id); err != nil {
+			return err
+		}
+		collect, stopEffect, prior = decideStoppedReport(windDownAnchorRowOfWorker(w), now)
+		if !collect {
+			return nil
+		}
+		// The latch lands with the row or not at all: a latch left behind a failed
+		// write would make every retry read "already reported" and send no kill.
+		return persistMemberRowOn(tx, memberFromWorker(*w))
+	})
 	if err != nil {
 		s.outsourceMu.Unlock()
+		outsourceLog("collect %s (stopped-report): stopped latch failed, nothing landed: %v", id, err)
 		return nil, "", err
 	}
-	now := nowSecs()
-	collect, stopEffect, prior := decideStoppedReport(windDownAnchorRowOfWorker(w), now)
 	if !collect {
 		s.outsourceMu.Unlock()
 		m := memberFromWorker(*w)
 		return &m, stopEffect, nil
 	}
-	if err := s.latchWorkerStopped(w, prior, "stopped-report", trigger); err != nil {
-		s.outsourceMu.Unlock()
-		return nil, "", err
-	}
+	s.publishMemberPatch(memberFromWorker(*w), trigger)
 	s.bankLiveCost(w.ID)
 	row := *w
 	s.outsourceMu.Unlock()
@@ -1359,22 +1395,23 @@ func (s *apiServer) noteWorkerShutdownDispatched(
 func (s *apiServer) workerRestartSelf(id string, now float64, trigger string) (*Member, error) {
 	s.outsourceMu.Lock()
 	defer s.outsourceMu.Unlock()
-	w, err := s.resolveLiveWorker(id)
+	var w *OutsourceWorker
+	err := s.dal.inTx(func(tx *sql.Tx) error {
+		var err error
+		if w, err = resolveLiveWorkerOn(tx, id); err != nil {
+			return err
+		}
+		proj := memberFromWorker(*w)
+		if !armRefocusEpoch(&proj, refocusOpRestartSelf, now) {
+			return errWindDownLadderBackwards
+		}
+		w.RefocusSince = proj.RefocusSince
+		w.RefocusOp = proj.RefocusOp
+		w.StoppingSince = proj.StoppingSince
+		w.StoppedSince = proj.StoppedSince
+		return persistWorkerRowOn(tx, *w)
+	})
 	if err != nil {
-		return nil, err
-	}
-	proj := memberFromWorker(*w)
-	if !armRefocusEpoch(&proj, refocusOpRestartSelf, now) {
-		return nil, errWindDownLadderBackwards
-	}
-	w.RefocusSince = proj.RefocusSince
-	w.RefocusOp = proj.RefocusOp
-	w.StoppingSince = proj.StoppingSince
-	w.StoppedSince = proj.StoppedSince
-	if err := s.persistWorkerWindDownAnchors(*w); err != nil {
-		return nil, err
-	}
-	if err := s.dal.PutOutsourceWorker(*w); err != nil {
 		return nil, err
 	}
 	s.openWorkerHandoverGrace(*w, trigger)

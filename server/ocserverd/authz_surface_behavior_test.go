@@ -522,7 +522,7 @@ var authzOutsideRouteTable = map[string]string{
 	"api_chat.go :: HandlePostChatApiChatPost :: currentActor(r) != wireOwnerID": "" +
 		"the sender is taken from the verified token, never from the body (§14); this " +
 		"compares the resolved actor to the owner's wire id to pick the sender label.",
-	"api_webhooks.go :: HandleReceiveWebhookInPost :: e.MemberID == wireOwnerID": "" +
+	"api_webhooks.go :: receiveWebhookOn :: e.MemberID == wireOwnerID": "" +
 		"the unauthenticated /in seam explicitly refuses an endpoint addressed to the " +
 		"owner's wire id; this target-specific guard cannot be expressed by the route " +
 		"table and preserves the chat-recipient boundary.",

@@ -33,40 +33,29 @@ func (s *apiServer) putMember(m Member, trigger string) error {
 	return nil
 }
 
-func (s *apiServer) putMemberOwnerOnly(m Member, trigger string) error {
-	if err := ValidateMember(m); err != nil {
-		return err
-	}
-	if err := s.dal.PutMember(m); err != nil {
-		return err
-	}
+func (s *apiServer) publishMemberOwnerOnly(m Member, trigger string) {
 	op := "patch"
 	if m.RosterStatus == RosterStatusRemoved {
 		op = "remove"
 	}
 	s.hub.Publish("member", op, "member", wireOwnerID+"::"+m.ID,
 		memberDeltaPayload(m), audienceOwnerOnly(), trigger)
-	return nil
 }
 
-// 🔴 A failed putMember rolls the latch back: the anchor write is already durable,
-// and a non-zero prior would make every later collect read "already reported" and
-// dispatch nothing, forever.
-func (s *apiServer) collectMemberStop(m *Member, trigger string) error {
-	_, prior := collectWindDownRow(windDownAnchorRowOfMember(m), nowSecs())
-	if err := s.persistMemberWindDownAnchors(*m); err != nil {
+// persistMemberRowOn lands a lifecycle door's row inside its transaction: the
+// wind-down anchors, then the whole row (on a new row the anchor UPDATE is a
+// no-op and the INSERT carries them). The door publishes after commit, so the
+// agent's wind-down hook never refetches a row whose anchors are not there yet.
+func persistMemberRowOn(tx *sql.Tx, m Member) error {
+	if err := setMemberWindDownAnchorsOn(tx, m.ID, m.StoppingSince, m.StoppedSince,
+		m.RefocusSince, m.RefocusOp); err != nil {
 		return err
 	}
-	if err := s.putMember(*m, trigger); err != nil {
-		m.StoppedSince = prior
-		if rerr := s.persistMemberWindDownAnchors(*m); rerr != nil {
-			reconcileLog("collect %s: latch rollback failed: %v", m.ID, rerr)
-		}
-		return err
-	}
-	s.bankLiveCost(m.ID)
-	s.dispatchRobustStopNow(m.ID)
-	return nil
+	return writeMemberOn(tx, m)
+}
+
+func persistMemberOpReceiptOn(tx *sql.Tx, m Member) error {
+	return setMemberLastOpOn(tx, m.ID, m.LastOp, m.LastOpOK, m.LastOpLog, m.LastOpReason, m.LastOpAt)
 }
 
 // Binds the last_op* write to the member delta: those columns left PutMember's SET
@@ -633,11 +622,86 @@ func (s *apiServer) HandleUpdateMemberApiMembersMemberIdPatch(w http.ResponseWri
 		s.handleSetOutsourceWorkerModel(w, r, memberId, body)
 		return
 	}
+	if _, err := applyMemberUpdate(m, body); err != nil {
+		writeTxError(w, err)
+		return
+	}
+	// The patch is applied again to the row as it stands in the transaction, and
+	// the epoch, the receipt and the launch-intent setters land with the row or
+	// not at all.
+	var saved Member
+	heldDown := false
+	cfg := s.reconcileConfigLive()
+	err = s.dal.inTx(func(tx *sql.Tx) error {
+		cur, err := resolveMemberOn(tx, memberId, anyMember)
+		if err != nil {
+			return err
+		}
+		launchIntentChanged, err := applyMemberUpdate(cur, body)
+		if err != nil {
+			return err
+		}
+		heldDown = false
+		if launchIntentChanged {
+			heldDown = !s.armMemberOwnerOpHandover(cur, memberOpRuntimeModel, cfg) &&
+				cur.DesiredState == DesiredStateOffline
+			if heldDown {
+				if aStopWasEverAskedFor(*cur) {
+					stampRestartIntent(cur)
+					stampMemberOpReceipt(cur, memberRestartQueuedReceipt(memberOpRuntimeModel), nowSecs())
+				} else {
+					stampMemberOpReceipt(cur, memberHeldDownReceipt(memberOpRuntimeModel), nowSecs())
+				}
+			}
+		}
+		if err := persistMemberRowOn(tx, *cur); err != nil {
+			return err
+		}
+		// Gated on heldDown so this snapshot never overwrites a receipt a reconcile
+		// tick stamped meanwhile.
+		if heldDown {
+			if err := persistMemberOpReceiptOn(tx, *cur); err != nil {
+				return err
+			}
+		}
+		// Setters only for fields this request carried: restating another field would
+		// write back a value this request never chose.
+		if body.Model != nil {
+			if err := setMemberModelOn(tx, cur.ID, cur.Model); err != nil {
+				return err
+			}
+		}
+		if body.Runtime != nil {
+			if err := setMemberRuntimeOn(tx, cur.ID, cur.Runtime); err != nil {
+				return err
+			}
+		}
+		if body.Effort != nil {
+			if err := setMemberEffortOn(tx, cur.ID, cur.Effort); err != nil {
+				return err
+			}
+		}
+		saved = *cur
+		return nil
+	})
+	if err != nil {
+		writeResolveTxError(w, err, "member", memberId)
+		return
+	}
+	s.publishMemberPatch(saved, requestTrigger(r))
+	if heldDown {
+		s.publishMemberPatch(saved, requestTrigger(r))
+	}
+	writeJSON(w, http.StatusOK, agentLifecycleReceiptDTO{ID: saved.ID})
+}
+
+// applyMemberUpdate patches a staff row in place and reports whether a launch
+// intent changed; a 422 comes back as a txRefusal.
+func applyMemberUpdate(m *Member, body MemberUpdateDTO) (bool, error) {
 	if body.Name != nil {
 		name := trimString(*body.Name)
 		if name == "" {
-			writeError(w, http.StatusUnprocessableEntity, "member name cannot be blank")
-			return
+			return false, refuseInTx(http.StatusUnprocessableEntity, "member name cannot be blank")
 		}
 		m.Name = name
 	}
@@ -651,84 +715,25 @@ func (s *apiServer) HandleUpdateMemberApiMembersMemberIdPatch(w http.ResponseWri
 	if body.Runtime != nil {
 		runtime := string(*body.Runtime)
 		if !ValidRuntime(runtime) {
-			writeError(w, http.StatusUnprocessableEntity,
+			return false, refuseInTx(http.StatusUnprocessableEntity,
 				"runtime must be one of [claude codex]; got '"+runtime+"'")
-			return
 		}
 		// Compare NORMALIZED: "" is claude (what buildStartFrame stamps), so a raw compare
-		// charges a wind-down for a no-op save. The write below still lands ("" →
-		// "claude" is a stated intent); only the recycle is withheld.
+		// charges a wind-down for a no-op save. The write still lands ("" → "claude" is a
+		// stated intent); only the recycle is withheld.
 		launchIntentChanged = launchIntentChanged ||
 			NormalizeRuntime(runtime) != NormalizeRuntime(m.Runtime)
 		m.Runtime = runtime
 	}
 	if body.Effort != nil {
 		if !validEffort(*body.Effort) {
-			writeError(w, http.StatusUnprocessableEntity,
+			return false, refuseInTx(http.StatusUnprocessableEntity,
 				"effort must be one of [high low max medium xhigh]; got '"+*body.Effort+"'")
-			return
 		}
 		launchIntentChanged = launchIntentChanged || *body.Effort != m.Effort
 		m.Effort = *body.Effort
 	}
-	heldDown := false
-	if launchIntentChanged {
-		heldDown = !s.armMemberOwnerOpHandover(m, memberOpRuntimeModel) &&
-			m.DesiredState == DesiredStateOffline
-		if heldDown {
-			if aStopWasEverAskedFor(*m) {
-				stampRestartIntent(m)
-				stampMemberOpReceipt(m, memberRestartQueuedReceipt(memberOpRuntimeModel), nowSecs())
-			} else {
-				stampMemberOpReceipt(m, memberHeldDownReceipt(memberOpRuntimeModel), nowSecs())
-			}
-		}
-	}
-	if err := s.persistMemberWindDownAnchors(*m); err != nil {
-		internalError(w, err)
-		return
-	}
-	if err := s.putMember(*m, requestTrigger(r)); err != nil {
-		internalError(w, err)
-		return
-	}
-	// 🔴 The receipt must land BEFORE the launch-intent setters below. The gate reads
-	// the STORED intent: after the setters, a failure here leaves the new value with
-	// no receipt and the retry never re-enters this branch — held down silently,
-	// permanently. Gated on heldDown so this snapshot never overwrites a receipt a
-	// reconcile tick stamped meanwhile.
-	if heldDown {
-		if err := s.persistMemberOpReceipt(*m, requestTrigger(r)); err != nil {
-			internalError(w, err)
-			return
-		}
-	}
-	// Setters only for fields this request carried: restating another field would
-	// write back this handler's stale read.
-	// 🔴 They run AFTER the whole-row write (and the epoch anchors land before it).
-	// Setters first + a failure = new model stored with NO epoch, never converging;
-	// this way a failure leaves the epoch open on the OLD value — one wasted recycle,
-	// and the retry still sees a difference. ⚠️ A 500 here does not mean nothing was
-	// stored: a `name` in the same request has already landed.
-	if body.Model != nil {
-		if err := s.dal.SetMemberModel(m.ID, m.Model); err != nil {
-			internalError(w, err)
-			return
-		}
-	}
-	if body.Runtime != nil {
-		if err := s.dal.SetMemberRuntime(m.ID, m.Runtime); err != nil {
-			internalError(w, err)
-			return
-		}
-	}
-	if body.Effort != nil {
-		if err := s.dal.SetMemberEffort(m.ID, m.Effort); err != nil {
-			internalError(w, err)
-			return
-		}
-	}
-	writeJSON(w, http.StatusOK, agentLifecycleReceiptDTO{ID: m.ID})
+	return launchIntentChanged, nil
 }
 
 func (s *apiServer) HandleActivateMemberApiMembersMemberIdActivatePost(w http.ResponseWriter, r *http.Request, memberId string) {
@@ -752,47 +757,56 @@ func (s *apiServer) HandleActivateMemberApiMembersMemberIdActivatePost(w http.Re
 			return
 		}
 	}
-	m.StoppingSince = 0.0
-	m.WakingSince = 0.0
-	m.DesiredState = DesiredStateOnline
-	// 活化 spends the queued 起來, or it would fire a second start after the next 下線.
-	clearRestartIntent(m)
-	if body.MachineId != nil {
-		m.DesiredMachineID = *body.MachineId
-		// The pin moves through its sole writer, so an activate without machine_id leaves
-		// it alone instead of writing back this handler's read (which used to undo a
-		// concurrent relocate).
-		if err := s.dal.SetMemberDesiredMachineID(m.ID, m.DesiredMachineID); err != nil {
-			internalError(w, err)
-			return
+	var saved Member
+	err = s.dal.inTx(func(tx *sql.Tx) error {
+		cur, err := resolveMemberOn(tx, memberId, anyMember)
+		if err != nil {
+			return err
 		}
-	}
-	if !sessionAlive {
-		clearWindDownRow(windDownAnchorRowOfMember(m))
-	}
-	if err := s.persistMemberWindDownAnchors(*m); err != nil {
-		internalError(w, err)
+		if body.MachineId != nil && *body.MachineId != "" {
+			if _, err := resolveMachineOn(tx, *body.MachineId); err != nil {
+				return machineResolveRefusal(err, *body.MachineId)
+			}
+		}
+		cur.StoppingSince = 0.0
+		cur.WakingSince = 0.0
+		cur.DesiredState = DesiredStateOnline
+		// 活化 spends the queued 起來, or it would fire a second start after the next 下線.
+		clearRestartIntent(cur)
+		if body.MachineId != nil {
+			cur.DesiredMachineID = *body.MachineId
+			// The pin moves through its sole writer, so an activate without machine_id
+			// leaves it alone instead of writing back a value it never chose.
+			if err := setMemberDesiredMachineIDOn(tx, cur.ID, cur.DesiredMachineID); err != nil {
+				return err
+			}
+		}
+		if !sessionAlive {
+			clearWindDownRow(windDownAnchorRowOfMember(cur))
+		}
+		saved = *cur
+		return persistMemberRowOn(tx, *cur)
+	})
+	if err != nil {
+		writeResolveTxError(w, err, "member", memberId)
 		return
 	}
-	put := s.putMember
 	if sessionAlive {
-		put = s.putMemberOwnerOnly
-	}
-	if err := put(*m, requestTrigger(r)); err != nil {
-		internalError(w, err)
-		return
+		s.publishMemberOwnerOnly(saved, requestTrigger(r))
+	} else {
+		s.publishMemberPatch(saved, requestTrigger(r))
 	}
 	dec := reconcileDecision{}
 	if !sessionAlive {
-		s.bankLiveCost(m.ID)
-		s.dispatchRobustStopNow(m.ID)
-		dec = s.reconcileMemberNow(m.ID)
+		s.bankLiveCost(saved.ID)
+		s.dispatchRobustStopNow(saved.ID)
+		dec = s.reconcileMemberNow(saved.ID)
 	}
-	receipt := memberActivateReceiptDTO{ID: m.ID}
+	receipt := memberActivateReceiptDTO{ID: saved.ID}
 	// POSITIVE determination: reconcileOne also downgrades a START to none when
 	// buildStartFrame fails, WITHOUT setting DispatchUnlanded — so ask whether a START
 	// went out, not whether a known failure fired.
-	if dec.Command != reconcileCmdStart && !s.hub.IsOnline(m.ID) {
+	if dec.Command != reconcileCmdStart && !s.hub.IsOnline(saved.ID) {
 		receipt.ActivationPending = true
 		// A stall arm that names no code gets the generic reason; a new arm should name
 		// itself at the decision site, not be guessed here.
@@ -802,10 +816,19 @@ func (s *apiServer) HandleActivateMemberApiMembersMemberIdActivatePost(w http.Re
 				"dispatched yet — the machine's warden did not take the start. It will " +
 				"be retried; if it stays here, check that machine"
 		}
-		s.stampMemberOpBlocked(m.ID, reason, nowSecs())
+		s.stampMemberOpBlocked(saved.ID, reason, nowSecs())
 		receipt.LastOpReason = reason
 	}
 	writeJSON(w, http.StatusOK, receipt)
+}
+
+// machineResolveRefusal answers a machine that stopped resolving inside a
+// transaction with the 404 the door gives before it.
+func machineResolveRefusal(err error, machineID string) error {
+	if errors.Is(err, errNotFound) {
+		return refuseInTx(http.StatusNotFound, "machine '"+machineID+"' not found")
+	}
+	return err
 }
 
 // A live member gets a graceful wind-down; the move happens at the 收口 (its own
@@ -828,8 +851,7 @@ func (s *apiServer) HandleRelocateMemberApiMembersMemberIdRelocatePost(w http.Re
 		writeResolveError(w, err, "machine", machineID)
 		return
 	}
-	m, err := s.resolveMember(memberId, staffOnly)
-	if err != nil {
+	if _, err := s.resolveMember(memberId, staffOnly); err != nil {
 		// An id naming no STAFF member falls through to the outsource worker relocate
 		// (gate rc-2786636f30e5): resolveMember deliberately excludes kind='outsource', and
 		// ow- ids never collide with staff ids.
@@ -843,42 +865,56 @@ func (s *apiServer) HandleRelocateMemberApiMembersMemberIdRelocatePost(w http.Re
 		writeResolveError(w, err, "member", memberId)
 		return
 	}
-	m.DesiredMachineID = machineID
-	if err := s.dal.SetMemberDesiredMachineID(m.ID, machineID); err != nil {
-		internalError(w, err)
-		return
-	}
-	// The pin lands BEFORE the epoch — the reverse of the launch-intent faces, on
-	// purpose: relocate arms unconditionally, so a retry re-dispatches regardless, and
-	// the delta the agent wakes on already names the destination.
-	windDown := s.armMemberOwnerOpHandover(m, memberOpRelocate)
-	heldDown := !windDown && m.DesiredState == DesiredStateOffline
-	if heldDown {
-		// Owner (2026-08-30): 改機器 is a 重啟 intent, so a stopped member comes back up on
-		// the new pin.
-		if aStopWasEverAskedFor(*m) {
-			stampRestartIntent(m)
-			stampMemberOpReceipt(m, memberRestartQueuedReceipt(memberOpRelocate), nowSecs())
-		} else {
-			stampMemberOpReceipt(m, memberHeldDownReceipt(memberOpRelocate), nowSecs())
+	var saved Member
+	windDown, heldDown := false, false
+	cfg := s.reconcileConfigLive()
+	err := s.dal.inTx(func(tx *sql.Tx) error {
+		if _, err := resolveMachineOn(tx, machineID); err != nil {
+			return machineResolveRefusal(err, machineID)
 		}
-	}
-	if err := s.persistMemberWindDownAnchors(*m); err != nil {
-		internalError(w, err)
-		return
-	}
-	if err := s.putMember(*m, requestTrigger(r)); err != nil {
-		internalError(w, err)
-		return
-	}
-	if heldDown {
-		if err := s.persistMemberOpReceipt(*m, requestTrigger(r)); err != nil {
-			internalError(w, err)
-			return
+		cur, err := resolveMemberOn(tx, memberId, staffOnly)
+		if err != nil {
+			return err
 		}
+		cur.DesiredMachineID = machineID
+		if err := setMemberDesiredMachineIDOn(tx, cur.ID, machineID); err != nil {
+			return err
+		}
+		// relocate arms unconditionally, so a retry re-dispatches regardless, and the
+		// delta the agent wakes on already names the destination.
+		windDown = s.armMemberOwnerOpHandover(cur, memberOpRelocate, cfg)
+		heldDown = !windDown && cur.DesiredState == DesiredStateOffline
+		if heldDown {
+			// Owner (2026-08-30): 改機器 is a 重啟 intent, so a stopped member comes back
+			// up on the new pin.
+			if aStopWasEverAskedFor(*cur) {
+				stampRestartIntent(cur)
+				stampMemberOpReceipt(cur, memberRestartQueuedReceipt(memberOpRelocate), nowSecs())
+			} else {
+				stampMemberOpReceipt(cur, memberHeldDownReceipt(memberOpRelocate), nowSecs())
+			}
+		}
+		if err := persistMemberRowOn(tx, *cur); err != nil {
+			return err
+		}
+		if heldDown {
+			if err := persistMemberOpReceiptOn(tx, *cur); err != nil {
+				return err
+			}
+		}
+		saved = *cur
+		return nil
+	})
+	if err != nil {
+		writeResolveTxError(w, err, "member", memberId)
+		return
 	}
-	dec := s.reconcileMemberNow(m.ID)
-	receipt := agentRelocateReceiptDTO{ID: m.ID}
+	s.publishMemberPatch(saved, requestTrigger(r))
+	if heldDown {
+		s.publishMemberPatch(saved, requestTrigger(r))
+	}
+	dec := s.reconcileMemberNow(saved.ID)
+	receipt := agentRelocateReceiptDTO{ID: saved.ID}
 	// relocation_pending also covers an opened wind-down (nothing dispatched yet).
 	if dec.DispatchUnlanded || windDown {
 		receipt.RelocationPending = true
@@ -968,37 +1004,50 @@ func (s *apiServer) HandleDeactivateMemberApiMembersMemberIdDeactivatePost(w htt
 		s.HandleStopOutsourceWorkerApiOutsourceWorkersIdStopPost(w, r, memberId)
 		return
 	}
-	// 🔴 Cancelling a wake is not a graceful stop (T-7526). Read BEFORE the mutation:
-	// stamping stopping_since ends the waking projection. A waking member is not
-	// online, and decideDown's first branch treats !Online as converged, so without
-	// this the cadence dispatched nothing and the cancel did nothing.
 	sessionAlive := s.hub.IsOnline(m.ID)
-	cancellingWake := PresenceState(*m, nowSecs(), sessionAlive) ==
-		MemberPresenceWaking
-	applyStopVerbRow(stopVerbRowOfMember(m), *m, nowSecs())
-	if err := s.persistMemberWindDownAnchors(*m); err != nil {
-		internalError(w, err)
-		return
-	}
-	if err := s.putMember(*m, requestTrigger(r)); err != nil {
-		internalError(w, err)
-		return
-	}
-	if !sessionAlive && !cancellingWake {
-		if err := s.collectMemberStop(m, requestTrigger(r)); err != nil {
-			internalError(w, err)
-			return
+	var stopped, saved Member
+	cancellingWake, collect := false, false
+	err = s.dal.inTx(func(tx *sql.Tx) error {
+		cur, err := resolveMemberOn(tx, memberId, anyMember)
+		if err != nil {
+			return err
 		}
+		// 🔴 Cancelling a wake is not a graceful stop (T-7526). Read BEFORE the
+		// mutation: stamping stopping_since ends the waking projection. A waking
+		// member is not online, and decideDown's first branch treats !Online as
+		// converged, so without this the cadence dispatched nothing and the cancel
+		// did nothing.
+		cancellingWake = PresenceState(*cur, nowSecs(), sessionAlive) == MemberPresenceWaking
+		applyStopVerbRow(stopVerbRowOfMember(cur), *cur, nowSecs())
+		stopped = *cur
+		// An offline member is collected right here: the stopped latch lands with the
+		// stop, so a failure leaves neither and a retry is a first collect again.
+		collect = !sessionAlive && !cancellingWake
+		if collect {
+			collectWindDownRow(windDownAnchorRowOfMember(cur), nowSecs())
+		}
+		saved = *cur
+		return persistMemberRowOn(tx, *cur)
+	})
+	if err != nil {
+		writeResolveTxError(w, err, "member", memberId)
+		return
+	}
+	s.publishMemberPatch(stopped, requestTrigger(r))
+	if collect {
+		s.publishMemberPatch(saved, requestTrigger(r))
+		s.bankLiveCost(saved.ID)
+		s.dispatchRobustStopNow(saved.ID)
 	}
 	if cancellingWake {
 		// Not widened to the online case: a live member gets the soft window and is
 		// collected by its own report_stopped or the owner's 加速停止 / 強制停止.
-		s.dispatchRobustStopNow(m.ID)
+		s.dispatchRobustStopNow(saved.ID)
 	}
 	// Arms no clock (owner ruling). Still run after a cancel: the raw dispatch above
 	// does not touch the reconcile store.
-	s.reconcileMemberNow(m.ID)
-	writeJSON(w, http.StatusOK, agentLifecycleReceiptDTO{ID: m.ID})
+	s.reconcileMemberNow(saved.ID)
+	writeJSON(w, http.StatusOK, agentLifecycleReceiptDTO{ID: saved.ID})
 }
 
 func (s *apiServer) HandleForceStopMemberApiMembersMemberIdForceStopPost(w http.ResponseWriter, r *http.Request, memberId string) {
@@ -1011,33 +1060,43 @@ func (s *apiServer) HandleForceStopMemberApiMembersMemberIdForceStopPost(w http.
 		s.HandleForceStopOutsourceWorkerApiOutsourceWorkersIdForceStopPost(w, r, memberId)
 		return
 	}
-	m.DesiredState = DesiredStateOffline
-	clearMemberHandoverMarker(m)
-	clearRestartIntent(m)
-	forcedAt := nowSecs()
-	if m.StoppingSince <= 0.0 || m.StoppingSince > forcedAt {
-		m.StoppingSince = forcedAt
-	}
-	// Force-stop sends no notice, so this record is the only trace a session was cut
-	// off; forward-only, so a stale snapshot cannot erase it.
-	m.ForcedStopAt = forcedAt
-	if err := s.persistMemberWindDownAnchors(*m); err != nil {
-		internalError(w, err)
+	var saved Member
+	err = s.dal.inTx(func(tx *sql.Tx) error {
+		cur, err := resolveMemberOn(tx, memberId, anyMember)
+		if err != nil {
+			return err
+		}
+		cur.DesiredState = DesiredStateOffline
+		clearMemberHandoverMarker(cur)
+		clearRestartIntent(cur)
+		forcedAt := nowSecs()
+		if cur.StoppingSince <= 0.0 || cur.StoppingSince > forcedAt {
+			cur.StoppingSince = forcedAt
+		}
+		// Force-stop sends no notice, so this record is the only trace a session was
+		// cut off; forward-only, so a stale snapshot cannot erase it.
+		cur.ForcedStopAt = forcedAt
+		if err := persistMemberRowOn(tx, *cur); err != nil {
+			return err
+		}
+		// Not fatal, and a failed statement does not end the transaction: the kill
+		// below is the point, and "force-stop failed" would be false.
+		if err := setMemberForcedStopAtOn(tx, cur.ID, cur.ForcedStopAt); err != nil {
+			taskLog("force-stop %s: forced_stop_at not recorded: %v", cur.ID, err)
+		}
+		saved = *cur
+		return nil
+	})
+	if err != nil {
+		writeResolveTxError(w, err, "member", memberId)
 		return
 	}
-	if err := s.putMember(*m, requestTrigger(r)); err != nil {
-		internalError(w, err)
-		return
-	}
-	if err := s.dal.SetMemberForcedStopAt(m.ID, m.ForcedStopAt); err != nil {
-		// Not fatal: the kill below is the point, and "force-stop failed" would be false.
-		taskLog("force-stop %s: forced_stop_at not recorded: %v", m.ID, err)
-	}
+	s.publishMemberPatch(saved, requestTrigger(r))
 	// Bank before the kill, matching the worker funnel; bankLiveCost pops, so the later
 	// disconnect edge is idempotent.
-	s.bankLiveCost(m.ID)
-	s.dispatchRobustStopNow(m.ID)
-	writeJSON(w, http.StatusOK, agentLifecycleReceiptDTO{ID: m.ID})
+	s.bankLiveCost(saved.ID)
+	s.dispatchRobustStopNow(saved.ID)
+	writeJSON(w, http.StatusOK, agentLifecycleReceiptDTO{ID: saved.ID})
 }
 
 const acceleratedStopNeedsAnOpenWindDownMsg = "加速停止 escalates a wind-down that is " +
@@ -1069,12 +1128,40 @@ func (s *apiServer) HandleAcceleratedStopMemberApiMembersMemberIdAcceleratedStop
 				"member that is not connected")
 		return
 	}
-	now := nowSecs()
+	if err := accelerateMemberStop(m, nowSecs()); err != nil {
+		writeTxError(w, err)
+		return
+	}
+	var saved Member
+	err = s.dal.inTx(func(tx *sql.Tx) error {
+		cur, err := resolveMemberOn(tx, memberId, anyMember)
+		if err != nil {
+			return err
+		}
+		if err := accelerateMemberStop(cur, nowSecs()); err != nil {
+			return err
+		}
+		saved = *cur
+		return persistMemberRowOn(tx, *cur)
+	})
+	if err != nil {
+		writeResolveTxError(w, err, "member", memberId)
+		return
+	}
+	s.publishMemberPatch(saved, requestTrigger(r))
+	s.reconcileMemberNow(saved.ID)
+	reconcileLog("加速停止: %s on the %s arm (collect at %.0f or on the stopped report)",
+		saved.ID, saved.DesiredState, winddownDeadlineOf(saved, s.reconcileConfigLive()))
+	writeJSON(w, http.StatusOK, agentLifecycleReceiptDTO{ID: saved.ID})
+}
+
+// accelerateMemberStop re-stamps the open wind-down from now, or refuses (409)
+// a member that has none open.
+func accelerateMemberStop(m *Member, now float64) error {
 	switch {
 	case m.DesiredState == DesiredStateOffline:
 		if !gracefulStopEpochOpen(*m) {
-			writeError(w, http.StatusConflict, acceleratedStopNeedsAnOpenWindDownMsg)
-			return
+			return refuseInTx(http.StatusConflict, acceleratedStopNeedsAnOpenWindDownMsg)
 		}
 		// The grace runs from THIS press. Other anchors untouched: zeroing stopped_since
 		// would erase the agent's 「我收完了」 and cancel a collection it already earned.
@@ -1082,25 +1169,13 @@ func (s *apiServer) HandleAcceleratedStopMemberApiMembersMemberIdAcceleratedStop
 	case m.RefocusSince > 0.0:
 		m.RefocusSince = now
 	default:
-		writeError(w, http.StatusConflict, acceleratedStopNeedsAnOpenWindDownMsg)
-		return
+		return refuseInTx(http.StatusConflict, acceleratedStopNeedsAnOpenWindDownMsg)
 	}
 	m.RefocusOp = refocusOpAcceleratedStop
 	// On the 換手 arm desired_state stays ONLINE (a hurried handover, not a stop);
 	// deliberately not widened — outside the owner's [0] ruling.
 	clearRestartIntent(m)
-	if err := s.persistMemberWindDownAnchors(*m); err != nil {
-		internalError(w, err)
-		return
-	}
-	if err := s.putMember(*m, requestTrigger(r)); err != nil {
-		internalError(w, err)
-		return
-	}
-	s.reconcileMemberNow(m.ID)
-	reconcileLog("加速停止: %s on the %s arm (collect at %.0f or on the stopped report)",
-		m.ID, m.DesiredState, winddownDeadlineOf(*m, s.reconcileConfigLive()))
-	writeJSON(w, http.StatusOK, agentLifecycleReceiptDTO{ID: m.ID})
+	return nil
 }
 
 // Gated on the SSE connection, not presence: a member mid-hand-off projects
@@ -1115,52 +1190,54 @@ func (s *apiServer) HandleRefocusMemberApiMembersMemberIdRefocusPost(w http.Resp
 		s.HandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost(w, r, memberId)
 		return
 	}
-	// Owner (2026-08-30): refocus on a stopped member only records 「起來」; the stop in
-	// flight keeps its stage and anchors.
-	if !aRefocusStampWouldReachTheAgent(*m) && aStopWasEverAskedFor(*m) {
-		stampRestartIntent(m)
-		stampMemberOpReceipt(m, memberRestartQueuedReceipt(refocusOpRefocus), nowSecs())
-		if err := s.putMember(*m, requestTrigger(r)); err != nil {
-			internalError(w, err)
-			return
+	var saved Member
+	queued := false
+	err = s.dal.inTx(func(tx *sql.Tx) error {
+		cur, err := resolveMemberOn(tx, memberId, anyMember)
+		if err != nil {
+			return err
 		}
-		// The receipt must persist BEFORE the tick below: the tick can spend the intent and
-		// stamp its own receipt, which a later persist would overwrite.
-		if err := s.persistMemberOpReceipt(*m, requestTrigger(r)); err != nil {
-			internalError(w, err)
-			return
+		// Owner (2026-08-30): refocus on a stopped member only records 「起來」; the stop
+		// in flight keeps its stage and anchors.
+		if !aRefocusStampWouldReachTheAgent(*cur) && aStopWasEverAskedFor(*cur) {
+			queued = true
+			stampRestartIntent(cur)
+			stampMemberOpReceipt(cur, memberRestartQueuedReceipt(refocusOpRefocus), nowSecs())
+			saved = *cur
+			if err := writeMemberOn(tx, *cur); err != nil {
+				return err
+			}
+			// The receipt lands before the tick below: the tick can spend the intent and
+			// stamp its own receipt, which a later write would overwrite.
+			return persistMemberOpReceiptOn(tx, *cur)
 		}
-		s.reconcileMemberNow(m.ID)
-		if fresh, err := s.dal.GetMember(m.ID); err == nil && fresh != nil {
-			m = fresh
+		queued = false
+		if !s.hub.IsOnline(cur.ID) || !aRefocusStampWouldReachTheAgent(*cur) {
+			return refuseInTx(http.StatusConflict,
+				"refocus requires the member to have a live session and to be wanted "+
+					"online (§3.4 #14)")
 		}
-		writeJSON(w, http.StatusOK, agentLifecycleReceiptDTO{ID: m.ID})
+		// The ladder only goes forward (owner, 2026-08-24): a backward press would clear
+		// a deadline an agent was told about. Refused, not silently downgraded.
+		if !armRefocusEpoch(cur, refocusOpRefocus, nowSecs()) {
+			return refuseInTx(http.StatusConflict,
+				"refocus is 停止 and this member is already further along the "+
+					"wind-down ladder (下線 → 加速 → 強制); a later stage is never "+
+					"replaced by an earlier one")
+		}
+		saved = *cur
+		return persistMemberRowOn(tx, *cur)
+	})
+	if err != nil {
+		writeResolveTxError(w, err, "member", memberId)
 		return
 	}
-	if !s.hub.IsOnline(m.ID) || !aRefocusStampWouldReachTheAgent(*m) {
-		writeError(w, http.StatusConflict,
-			"refocus requires the member to have a live session and to be wanted "+
-				"online (§3.4 #14)")
-		return
+	s.publishMemberPatch(saved, requestTrigger(r))
+	if queued {
+		s.publishMemberPatch(saved, requestTrigger(r))
+		s.reconcileMemberNow(saved.ID)
 	}
-	// The ladder only goes forward (owner, 2026-08-24): a backward press would clear a
-	// deadline an agent was told about. Refused, not silently downgraded.
-	if !armRefocusEpoch(m, refocusOpRefocus, nowSecs()) {
-		writeError(w, http.StatusConflict,
-			"refocus is 停止 and this member is already further along the "+
-				"wind-down ladder (下線 → 加速 → 強制); a later stage is never "+
-				"replaced by an earlier one")
-		return
-	}
-	if err := s.persistMemberWindDownAnchors(*m); err != nil {
-		internalError(w, err)
-		return
-	}
-	if err := s.putMember(*m, requestTrigger(r)); err != nil {
-		internalError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, agentLifecycleReceiptDTO{ID: m.ID})
+	writeJSON(w, http.StatusOK, agentLifecycleReceiptDTO{ID: saved.ID})
 }
 
 func (s *apiServer) HandleDismissMemberApiMembersMemberIdDelete(w http.ResponseWriter, r *http.Request, memberId string) {
@@ -1196,7 +1273,11 @@ func (s *apiServer) HandleDismissMemberApiMembersMemberIdDelete(w http.ResponseW
 // Does not exclude kind='outsource': workers report through these self endpoints
 // too (T-ea82). Admin verbs refuse ow- rows by passing staffOnly.
 func (s *apiServer) resolveSelf(r *http.Request) (*Member, error) {
-	m, err := s.dal.GetMember(currentActor(r))
+	return resolveSelfOn(s.dal.rdb, r)
+}
+
+func resolveSelfOn(q sqlRowQuerier, r *http.Request) (*Member, error) {
+	m, err := getMemberOn(q, currentActor(r))
 	if err != nil {
 		return nil, err
 	}
@@ -1210,11 +1291,15 @@ func (s *apiServer) resolveSelf(r *http.Request) (*Member, error) {
 // authority. 🔴 Use the caller's OWN iat, never nowSecs(): requireAuth compares
 // STRICTLY LESS THAN, so the caller always passes its own floor. No iat → no floor.
 func (s *apiServer) stampAgentIatFloor(r *http.Request) error {
+	return stampAgentIatFloorOn(s.dal.wdb, r)
+}
+
+func stampAgentIatFloorOn(ex sqlExecer, r *http.Request) error {
 	iat, ok := claimsFromContext(r.Context())["iat"].(float64)
 	if !ok || iat <= 0 {
 		return nil
 	}
-	return s.dal.SetMemberAgentIatFloor(currentActor(r), iat)
+	return setMemberAgentIatFloorOn(ex, currentActor(r), iat)
 }
 
 func (s *apiServer) HandleReportWakingApiSelfWakingPost(w http.ResponseWriter, r *http.Request) {
@@ -1227,48 +1312,54 @@ func (s *apiServer) HandleReportWakingApiSelfWakingPost(w http.ResponseWriter, r
 		writeResolveError(w, err, "member", currentActor(r))
 		return
 	}
-	// Runs FIRST and is fatal: stamping after the wake would leave the previous
-	// generation's tokens live; a floor raised for a wake that then 500s is harmless
-	// (own iat). Unconditional across kinds — the READ side exempts wardens.
-	if err := s.stampAgentIatFloor(r); err != nil {
-		internalError(w, err)
-		return
-	}
 	// A new generation counts spend from zero, so its first cost is not read as an
 	// increase over the previous session's.
 	s.startAccountSpendSession(m.ID)
 	if m.Kind == KindOutsource {
-		// Through the worker funnel under outsourceMu: a member-path putMember would race
+		// Through the worker funnel under outsourceMu: a member-path write would race
 		// the tick's read-modify-write.
-		fresh, werr := s.workerReportWaking(m.ID, body.Model, requestTrigger(r))
+		fresh, werr := s.workerReportWaking(m.ID, body.Model, requestTrigger(r),
+			func(ex sqlExecer) error { return stampAgentIatFloorOn(ex, r) })
 		if werr != nil {
-			writeResolveError(w, werr, "member", currentActor(r))
+			writeResolveTxError(w, werr, "member", currentActor(r))
 			return
 		}
 		s.writeSelfReportReceipt(w, *fresh)
 		return
 	}
-	m.WakingSince = nowSecs()
-	m.RefocusSince = 0.0
-	m.RefocusOp = ""
-	m.StoppedSince = 0.0
-	// 🔴 Not for a member the owner already cancelled (T-7526): that anchor is the only
-	// trace of a mid-wake 取消.
-	if m.DesiredState == DesiredStateOnline {
-		m.StoppingSince = 0.0
-	}
-	if body.Model != nil {
-		m.ActualModel = *body.Model
-	}
-	if err := s.persistMemberWindDownAnchors(*m); err != nil {
-		internalError(w, err)
+	var saved Member
+	err = s.dal.inTx(func(tx *sql.Tx) error {
+		// The floor lands with the wake or not at all: a wake without it would leave
+		// the previous generation's tokens live. Unconditional across kinds — the READ
+		// side exempts wardens.
+		if err := stampAgentIatFloorOn(tx, r); err != nil {
+			return err
+		}
+		cur, err := resolveSelfOn(tx, r)
+		if err != nil {
+			return err
+		}
+		cur.WakingSince = nowSecs()
+		cur.RefocusSince = 0.0
+		cur.RefocusOp = ""
+		cur.StoppedSince = 0.0
+		// 🔴 Not for a member the owner already cancelled (T-7526): that anchor is the
+		// only trace of a mid-wake 取消.
+		if cur.DesiredState == DesiredStateOnline {
+			cur.StoppingSince = 0.0
+		}
+		if body.Model != nil {
+			cur.ActualModel = *body.Model
+		}
+		saved = *cur
+		return persistMemberRowOn(tx, *cur)
+	})
+	if err != nil {
+		writeResolveTxError(w, err, "member", currentActor(r))
 		return
 	}
-	if err := s.putMember(*m, requestTrigger(r)); err != nil {
-		internalError(w, err)
-		return
-	}
-	s.writeSelfReportReceipt(w, *m)
+	s.publishMemberPatch(saved, requestTrigger(r))
+	s.writeSelfReportReceipt(w, saved)
 }
 
 func (s *apiServer) HandleReportStoppingApiSelfStoppingPost(w http.ResponseWriter, r *http.Request) {
@@ -1280,22 +1371,28 @@ func (s *apiServer) HandleReportStoppingApiSelfStoppingPost(w http.ResponseWrite
 	if m.Kind == KindOutsource {
 		fresh, werr := s.workerReportStopping(m.ID, requestTrigger(r))
 		if werr != nil {
-			writeResolveError(w, werr, "member", currentActor(r))
+			writeResolveTxError(w, werr, "member", currentActor(r))
 			return
 		}
 		s.writeSelfReportReceipt(w, *fresh)
 		return
 	}
-	openWindDownRow(windDownAnchorRowOfMember(m), nowSecs())
-	if err := s.persistMemberWindDownAnchors(*m); err != nil {
-		internalError(w, err)
+	var saved Member
+	err = s.dal.inTx(func(tx *sql.Tx) error {
+		cur, err := resolveSelfOn(tx, r)
+		if err != nil {
+			return err
+		}
+		openWindDownRow(windDownAnchorRowOfMember(cur), nowSecs())
+		saved = *cur
+		return persistMemberRowOn(tx, *cur)
+	})
+	if err != nil {
+		writeResolveTxError(w, err, "member", currentActor(r))
 		return
 	}
-	if err := s.putMember(*m, requestTrigger(r)); err != nil {
-		internalError(w, err)
-		return
-	}
-	s.writeSelfReportReceipt(w, *m)
+	s.publishMemberPatch(saved, requestTrigger(r))
+	s.writeSelfReportReceipt(w, saved)
 }
 
 func (s *apiServer) HandleReportStoppedApiSelfStoppedPost(w http.ResponseWriter, r *http.Request) {
@@ -1307,32 +1404,36 @@ func (s *apiServer) HandleReportStoppedApiSelfStoppedPost(w http.ResponseWriter,
 	if m.Kind == KindOutsource {
 		fresh, stopEffect, werr := s.workerReportStopped(m.ID, requestTrigger(r))
 		if werr != nil {
-			writeResolveError(w, werr, "member", currentActor(r))
+			writeResolveTxError(w, werr, "member", currentActor(r))
 			return
 		}
 		s.writeSelfReportStopReceipt(w, *fresh, stopEffect)
 		return
 	}
-	// 🔴 A stopped-report is ALWAYS collected (owner, rc-b08d49dc3b03 option ①).
-	collect, stopEffect, prior := decideStoppedReport(windDownAnchorRowOfMember(m), nowSecs())
-	if err := s.persistMemberWindDownAnchors(*m); err != nil {
-		internalError(w, err)
-		return
-	}
-	if err := s.putMember(*m, requestTrigger(r)); err != nil {
-		// 🔴 Roll the latch back.
-		m.StoppedSince = prior
-		if rerr := s.persistMemberWindDownAnchors(*m); rerr != nil {
-			reconcileLog("stopped-report %s: latch rollback failed: %v", m.ID, rerr)
+	var saved Member
+	collect, stopEffect := false, ""
+	err = s.dal.inTx(func(tx *sql.Tx) error {
+		cur, err := resolveSelfOn(tx, r)
+		if err != nil {
+			return err
 		}
-		internalError(w, err)
+		// 🔴 A stopped-report is ALWAYS collected (owner, rc-b08d49dc3b03 option ①). The
+		// latch lands with the row or not at all: a latch left behind a failed write
+		// would make every retry read "already reported" and dispatch nothing, forever.
+		collect, stopEffect, _ = decideStoppedReport(windDownAnchorRowOfMember(cur), nowSecs())
+		saved = *cur
+		return persistMemberRowOn(tx, *cur)
+	})
+	if err != nil {
+		writeResolveTxError(w, err, "member", currentActor(r))
 		return
 	}
-	// Dispatch AFTER putMember so the delta (→ agent RecycleHook) lands before the STOP.
+	s.publishMemberPatch(saved, requestTrigger(r))
+	// Dispatch AFTER the delta (→ agent RecycleHook) is out.
 	if collect {
-		s.dispatchRobustStopNow(m.ID)
+		s.dispatchRobustStopNow(saved.ID)
 	}
-	s.writeSelfReportStopReceipt(w, *m, stopEffect)
+	s.writeSelfReportStopReceipt(w, saved, stopEffect)
 }
 
 func decideStoppedReport(row windDownAnchorRow, now float64) (collect bool, stopEffect string, prior float64) {
@@ -1360,9 +1461,7 @@ func (s *apiServer) HandleRestartSelfApiSelfRefocusPost(w http.ResponseWriter, r
 	}
 	now := nowSecs()
 	if !s.hub.IsOnline(m.ID) || !aRefocusStampWouldReachTheAgent(*m) {
-		writeError(w, http.StatusConflict,
-			"restart_self requires a live session to recycle, on a member that is "+
-				"still wanted online")
+		writeError(w, http.StatusConflict, restartSelfNeedsALiveSessionMsg)
 		return
 	}
 	secsSinceBoot := gaugeSecsSinceBoot(s.gauge.Get(m.ID), now)
@@ -1377,14 +1476,11 @@ func (s *apiServer) HandleRestartSelfApiSelfRefocusPost(w http.ResponseWriter, r
 		fresh, werr := s.workerRestartSelf(m.ID, now, requestTrigger(r))
 		if errors.Is(werr, errWindDownLadderBackwards) {
 			// Deliberately the same sentence as the staff arm: one rule.
-			writeError(w, http.StatusConflict,
-				"restart_self is 停止 and you are already further along the "+
-					"wind-down ladder (下線 → 加速 → 強制); finish the close-out you "+
-					"were given instead")
+			writeError(w, http.StatusConflict, restartSelfLadderBackwardsMsg)
 			return
 		}
 		if werr != nil {
-			writeResolveError(w, werr, "member", currentActor(r))
+			writeResolveTxError(w, werr, "member", currentActor(r))
 			return
 		}
 		if reason := trimmedOrEmpty(body.Reason); reason != "" {
@@ -1395,25 +1491,38 @@ func (s *apiServer) HandleRestartSelfApiSelfRefocusPost(w http.ResponseWriter, r
 		s.writeSelfReportReceipt(w, *fresh)
 		return
 	}
-	if !armRefocusEpoch(m, refocusOpRestartSelf, now) {
-		writeError(w, http.StatusConflict,
-			"restart_self is 停止 and you are already further along the "+
-				"wind-down ladder (下線 → 加速 → 強制); finish the close-out you "+
-				"were given instead")
+	var saved Member
+	err = s.dal.inTx(func(tx *sql.Tx) error {
+		cur, err := resolveSelfOn(tx, r)
+		if err != nil {
+			return err
+		}
+		if !aRefocusStampWouldReachTheAgent(*cur) {
+			return refuseInTx(http.StatusConflict, restartSelfNeedsALiveSessionMsg)
+		}
+		if !armRefocusEpoch(cur, refocusOpRestartSelf, now) {
+			return refuseInTx(http.StatusConflict, restartSelfLadderBackwardsMsg)
+		}
+		saved = *cur
+		return persistMemberRowOn(tx, *cur)
+	})
+	if err != nil {
+		writeResolveTxError(w, err, "member", currentActor(r))
 		return
 	}
-	if err := s.persistMemberWindDownAnchors(*m); err != nil {
-		internalError(w, err)
-		return
-	}
-	if err := s.putMember(*m, requestTrigger(r)); err != nil {
-		internalError(w, err)
-		return
-	}
+	s.publishMemberPatch(saved, requestTrigger(r))
 	if reason := trimmedOrEmpty(body.Reason); reason != "" {
-		reconcileLog("recycle: %s self-restart (restart_self); reason: %s", m.ID, reason)
+		reconcileLog("recycle: %s self-restart (restart_self); reason: %s", saved.ID, reason)
 	} else {
-		reconcileLog("recycle: %s self-restart (restart_self)", m.ID)
+		reconcileLog("recycle: %s self-restart (restart_self)", saved.ID)
 	}
-	s.writeSelfReportReceipt(w, *m)
+	s.writeSelfReportReceipt(w, saved)
 }
+
+const (
+	restartSelfNeedsALiveSessionMsg = "restart_self requires a live session to recycle, on a member that is " +
+		"still wanted online"
+	restartSelfLadderBackwardsMsg = "restart_self is 停止 and you are already further along the " +
+		"wind-down ladder (下線 → 加速 → 強制); finish the close-out you " +
+		"were given instead"
+)

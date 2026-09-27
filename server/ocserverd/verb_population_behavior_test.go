@@ -439,7 +439,7 @@ type knownDivergence struct {
 var knownDivergences = []knownDivergence{
 	{
 		verb: "起來", field: "noticed",
-		why: "a live staff activation deliberately uses putMemberOwnerOnly because it " +
+		why: "a live staff activation deliberately publishes owner-only (publishMemberOwnerOnly) because it " +
 			"preserves the running session and its existing wind-down epoch; the worker " +
 			"restart persists through publishOutsourceWorker, whose unified member delta " +
 			"reaches the worker as well as the owner and therefore carries the preserved " +
