@@ -26,8 +26,10 @@ import (
 // fired, so a path that no longer crosses the gap cannot pass by accident.
 
 const (
-	windowClosedTS  = 1800000000.0
-	windowClosedSQL = `UPDATE task SET status = 'done', closed_ts = 1800000000, updated_ts = 1800000000 WHERE id = ?`
+	windowClosedTS    = 1800000000.0
+	windowClosedSQL   = `UPDATE task SET status = 'done', closed_ts = 1800000000, updated_ts = 1800000000 WHERE id = ?`
+	windowAnsweredSQL = `UPDATE reply_card SET status = 'answered', answered_ts = 1800000000,
+		answer_option_idxs = '[1]', answer_text = 'south — the north yard is flooded' WHERE id = ?`
 )
 
 type windowHook struct {
@@ -83,6 +85,25 @@ func (h *windowHook) closeTaskAfterRead(t *testing.T, path, taskID, armAfter str
 	h.fire = func() {
 		if _, err := closer.Exec(windowClosedSQL, taskID); err != nil {
 			t.Errorf("close %s behind the handler: %v", taskID, err)
+		}
+	}
+}
+
+// answerCardAfterRead is closeTaskAfterRead for a card: the owner answers it
+// through the third connection once the handler has read it.
+func (h *windowHook) answerCardAfterRead(t *testing.T, path, cardID, armAfter string) {
+	t.Helper()
+	answerer, err := sql.Open("sqlite", sqliteWriteDSN(path))
+	if err != nil {
+		t.Fatalf("open answerer: %v", err)
+	}
+	t.Cleanup(func() { answerer.Close() })
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.armAfter = armAfter
+	h.fire = func() {
+		if _, err := answerer.Exec(windowAnsweredSQL, cardID); err != nil {
+			t.Errorf("answer %s behind the handler: %v", cardID, err)
 		}
 	}
 }
@@ -540,6 +561,34 @@ func TestSweepingAMembersCardsDecidesFromTheRowItWrites(t *testing.T) {
 				},
 				"ts": apiAnyNumber, "trigger": "owner",
 			})
+		})
+	}
+
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": a card answered after the sweep read it stays answered", func(t *testing.T) {
+			d, hook, path := windowDAL(t, shape)
+			api, h, _, owner := newAPITestServerOn(t, d)
+			windowHeldCard(t, d)
+			kip := apiTestListen(t, api, apiTestPlainAgentID)
+			hook.answerCardAfterRead(t, path, "rc-1", "FROM reply_card")
+
+			status, data := apiJSON(t, h, "DELETE", "/api/members/kip", owner, ``)
+
+			hook.wantFiredOnce(t)
+			if status != http.StatusOK {
+				t.Fatalf("want 200, got %d (%v)", status, data)
+			}
+			got, err := d.GetReplyCard("rc-1")
+			if err != nil || got == nil {
+				t.Fatalf("GetReplyCard(rc-1): %#v, %v", got, err)
+			}
+			if got.Status != "answered" || got.AnsweredTS != 1800000000 || got.ExpiredTS != 0 ||
+				len(got.AnswerOptionIdxs) != 1 || got.AnswerOptionIdxs[0] != 1 ||
+				got.AnswerText != "south — the north yard is flooded" {
+				t.Fatalf("the answer landed in the window and must stand, got status=%q answered_ts=%v expired_ts=%v idxs=%v text=%q",
+					got.Status, got.AnsweredTS, got.ExpiredTS, got.AnswerOptionIdxs, got.AnswerText)
+			}
+			kip.wantFrames(windowKipRemovedFrame)
 		})
 	}
 
