@@ -3602,6 +3602,32 @@ func TestHandlePostTaskMessageApiTasksTaskIdMessagePost(t *testing.T) {
 		}
 		apiWantError(t, data, "unauthorized", "missing credentials")
 	})
+
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": a task handed to someone else after the handler read it reaches its new executor", func(t *testing.T) {
+			d, hook, path := windowDAL(t, shape)
+			api, h, _, owner := newAPITestServerOn(t, d)
+			apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+			old := apiTestListen(t, api, "kip")
+			hook.execAfterRead(t, path, "FROM task WHERE id",
+				`UPDATE task SET executor_id = 'mira' WHERE id = 'T-1'`)
+
+			status, data := windowJSON(t, h, "POST", "/api/tasks/T-1/message", owner, `{"body":"any update?"}`)
+
+			hook.wantFiredOnce(t)
+			if status != http.StatusOK {
+				t.Fatalf("want 200, got %d (%v)", status, data)
+			}
+			apiWantBody(t, data, map[string]any{
+				"id": apiAnyString, "to": "mira", "ts": apiAnyNumber, "attachments": []any{},
+			})
+			if n := windowCount(t, d, `SELECT COUNT(*) FROM chat_message WHERE recipient = 'mira'
+				AND body = '[TaskID=T-1] any update?'`); n != 1 {
+				t.Fatalf("%d messages to mira, want 1", n)
+			}
+			old.wantFrames()
+		})
+	}
 }
 
 // apiTestChatRows is every stored chat row as sender, recipient and body, in

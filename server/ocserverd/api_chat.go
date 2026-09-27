@@ -236,7 +236,7 @@ func (s *apiServer) HandleUploadChatAttachmentApiChatAttachmentsPost(w http.Resp
 		writeError(w, http.StatusBadRequest, rerr.Error())
 		return
 	}
-	if err := s.dal.PutChatAttachment(*att); err != nil {
+	if err := s.dal.inTx(func(*writeTx) error { return s.dal.PutChatAttachment(*att) }); err != nil {
 		internalError(w, err)
 		return
 	}
@@ -291,6 +291,25 @@ func (s *apiServer) resolveChatAttachmentInputs(inputs []ChatAttachmentInputDTO)
 		resolved = append(resolved, resolvedAttachment{att: att, store: true})
 	}
 	return resolved, 0, ""
+}
+
+// referencedAttachmentsGone refuses, as resolveChatAttachmentInputs does, a
+// referenced attachment that is no longer stored; run on the transaction that
+// writes the message carrying the reference.
+func (s *apiServer) referencedAttachmentsGone(resolved []resolvedAttachment) error {
+	for _, ra := range resolved {
+		if ra.store {
+			continue
+		}
+		att, err := s.dal.GetChatAttachment(ra.att.ID)
+		if err != nil {
+			return err
+		}
+		if att == nil {
+			return refuseInTx(http.StatusBadRequest, "attachment '"+ra.att.ID+"' not found")
+		}
+	}
+	return nil
 }
 
 // Stores NOTHING: the caller hands both halves to one transactional write. A blob
@@ -352,17 +371,22 @@ func (s *apiServer) HandlePostChatApiChatPost(w http.ResponseWriter, r *http.Req
 	}
 	// Existence is the only gate — no same-conversation check (owner ruling
 	// 2026-08-21): quoting a line out of another thread is the use case.
-	if replyTo := trimString(strOrEmpty(body.ReplyTo)); replyTo != "" {
+	replyTo := trimString(strOrEmpty(body.ReplyTo))
+	quotedGone := func() error {
+		if replyTo == "" {
+			return nil
+		}
 		quoted, err := s.dal.ListChatByIDs([]string{replyTo})
-		if err != nil {
-			internalError(w, err)
-			return
+		if err == nil && len(quoted) == 0 {
+			err = refuseInTx(http.StatusBadRequest, fmt.Sprintf(chatReplyToUnknownMsg, replyTo))
 		}
-		if len(quoted) == 0 {
-			writeError(w, http.StatusBadRequest,
-				fmt.Sprintf(chatReplyToUnknownMsg, replyTo))
-			return
-		}
+		return err
+	}
+	if err := quotedGone(); err != nil {
+		writeTxError(w, err)
+		return
+	}
+	if replyTo != "" {
 		meta[chatReplyToMetaKey] = replyTo
 	}
 	var fresh []ChatAttachment
@@ -384,8 +408,20 @@ func (s *apiServer) HandlePostChatApiChatPost(w http.ResponseWriter, r *http.Req
 		TS:        nowSecs(),
 		Meta:      meta,
 	}
-	if err := s.dal.PutChatWithAttachments(msg, fresh); err != nil {
-		internalError(w, err)
+	err = s.dal.inTx(func(tx *writeTx) error {
+		if err := s.referencedAttachmentsGone(resolved); err != nil {
+			return err
+		}
+		if _, err := resolveChatRecipientOn(tx, body.To); err != nil {
+			return err
+		}
+		if err := quotedGone(); err != nil {
+			return err
+		}
+		return s.dal.PutChatWithAttachments(msg, fresh)
+	})
+	if err != nil {
+		writeResolveTxError(w, err, "chat recipient", trimString(body.To))
 		return
 	}
 	// Payload {id, from, to} per spec/sse.md §2.2; audience per spec §4.
@@ -1021,7 +1057,13 @@ func (s *apiServer) HandleMarkChatReadApiChatMarkReadPost(w http.ResponseWriter,
 		writeError(w, http.StatusUnprocessableEntity, err.Error())
 		return
 	}
-	effective, advanced, err := s.dal.PutChatRead(receipt)
+	var effective ChatRead
+	var advanced bool
+	err := s.dal.inTx(func(*writeTx) error {
+		var err error
+		effective, advanced, err = s.dal.PutChatRead(receipt)
+		return err
+	})
 	if err != nil {
 		internalError(w, err)
 		return

@@ -1013,7 +1013,7 @@ func (s *apiServer) HandleUpdateAccountApiAccountsAccountIdPatch(w http.Response
 		writeError(w, http.StatusUnprocessableEntity, err.Error())
 		return
 	}
-	if err := s.dal.PutAccountAlias(alias); err != nil {
+	if err := s.dal.inTx(func(*writeTx) error { return s.dal.PutAccountAlias(alias) }); err != nil {
 		internalError(w, err)
 		return
 	}
@@ -1044,7 +1044,7 @@ func (s *apiServer) HandleUpdateMachineApiMachinesMachineIdPatch(w http.Response
 		writeError(w, http.StatusUnprocessableEntity, err.Error())
 		return
 	}
-	if err := s.dal.PutMachineAlias(alias); err != nil {
+	if err := s.dal.inTx(func(*writeTx) error { return s.dal.PutMachineAlias(alias) }); err != nil {
 		internalError(w, err)
 		return
 	}

@@ -426,6 +426,39 @@ func TestHandlePutThemeApiThemesThemeIdPut(t *testing.T) {
 		dashboard.wantFrames()
 		apiThemeAbsent(t, h, owner, "dusk")
 	})
+
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": the hundredth theme filed after the handler counted refuses the next one", func(t *testing.T) {
+			d, hook, path := windowDAL(t, shape)
+			api, h, _, owner := newAPITestServerOn(t, d)
+			for i := 0; i < maxCustomThemes-1; i++ {
+				id := "t" + string(rune('a'+i/26)) + string(rune('a'+i%26))
+				if _, err := d.wdb.Exec(`INSERT INTO custom_theme (theme_id, bundle, order_idx, updated_at)
+					VALUES (?, ?, ?, 1700000000)`, id, `{"id":"`+id+`","name":"`+id+`","colors":{}}`, i); err != nil {
+					t.Fatalf("seed theme %s: %v", id, err)
+				}
+			}
+			dashboard := apiTestListen(t, api, "")
+			hook.execAfterRead(t, path, "SELECT COUNT(*) FROM custom_theme",
+				`INSERT INTO custom_theme (theme_id, bundle, order_idx, updated_at)
+				 VALUES ('last', '{"id":"last","name":"Last","colors":{}}', 99, 1700000000)`)
+
+			status, data := windowJSON(t, h, "PUT", "/api/themes/onemore", owner,
+				`{"id":"onemore","name":"One More","colors":{"--color-bg":"#101418"}}`)
+
+			hook.wantFiredOnce(t)
+			if status != http.StatusUnprocessableEntity {
+				t.Fatalf("want 422, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "validation_error",
+				"at most 100 custom themes may be saved — delete one first")
+			dashboard.wantFrames()
+			apiThemeAbsent(t, h, owner, "onemore")
+			if n := windowCount(t, d, `SELECT COUNT(*) FROM custom_theme`); n != 100 {
+				t.Fatalf("%d themes stored, want 100", n)
+			}
+		})
+	}
 }
 
 func TestHandleDeleteThemeApiThemesThemeIdDelete(t *testing.T) {

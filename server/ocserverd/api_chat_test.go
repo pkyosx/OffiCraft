@@ -851,6 +851,28 @@ func TestHandlePostChatApiChatPost(t *testing.T) {
 		recipient.wantFrames(frame)
 		wantPushed()
 	})
+
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": a recipient dismissed after the handler read it answers 404 and stores nothing", func(t *testing.T) {
+			d, hook, path := windowDAL(t, shape)
+			api, h, _, owner := newAPITestServerOn(t, d)
+			dashboard := apiTestListen(t, api, "")
+			hook.execAfterRead(t, path, "FROM member WHERE id",
+				`UPDATE member SET roster_status = 'removed' WHERE id = 'mira'`)
+
+			status, data := windowJSON(t, h, "POST", "/api/chat", owner, `{"to":"mira","body":"hi"}`)
+
+			hook.wantFiredOnce(t)
+			if status != http.StatusNotFound {
+				t.Fatalf("want 404, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "not_found", "chat recipient 'mira' not found")
+			if n := windowCount(t, d, `SELECT COUNT(*) FROM chat_message`); n != 0 {
+				t.Fatalf("%d messages stored, want none", n)
+			}
+			dashboard.wantFrames()
+		})
+	}
 }
 
 func TestChatPostReceiptOf(t *testing.T) {

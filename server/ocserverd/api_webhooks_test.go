@@ -324,6 +324,28 @@ func TestHandleCreateWebhookApiMembersMemberIdWebhooksPost(t *testing.T) {
 		apiWantError(t, data, "unauthorized", "missing credentials")
 		apiWantWebhookList(t, h, owner, "kip")
 	})
+
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": an endpoint id taken after the handler read it answers 409 and keeps the one there", func(t *testing.T) {
+			d, hook, path := windowDAL(t, shape)
+			api, h, _, owner := newAPITestServerOn(t, d)
+			dashboard := apiTestListen(t, api, "")
+			hook.execAfterRead(t, path, "FROM webhook_endpoint",
+				`INSERT INTO webhook_endpoint (token, member_id, endpoint_id, purpose, status, created_ts)
+				 VALUES ('wh-first', 'kip', 'alerts', 'CI', 'enabled', 1700000000)`)
+
+			status, data := windowJSON(t, h, "POST", "/api/members/kip/webhooks", owner,
+				`{"endpoint_id":"alerts","purpose":"other"}`)
+
+			hook.wantFiredOnce(t)
+			if status != http.StatusConflict {
+				t.Fatalf("want 409, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "conflict", "a webhook endpoint 'alerts' already exists for this member")
+			apiWantWebhookList(t, h, owner, "kip", apiWebhookAlertsRow("wh-first"))
+			dashboard.wantFrames()
+		})
+	}
 }
 
 func TestHandleUpdateWebhookApiMembersMemberIdWebhooksEndpointIdPatch(t *testing.T) {
@@ -471,6 +493,30 @@ func TestHandleUpdateWebhookApiMembersMemberIdWebhooksEndpointIdPatch(t *testing
 		apiWantError(t, data, "unauthorized", "missing credentials")
 		apiWantWebhookList(t, h, owner, "kip", apiWebhookAlertsRow(minted))
 	})
+
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": a delivery counted after the handler read the endpoint keeps its count", func(t *testing.T) {
+			d, hook, path := windowDAL(t, shape)
+			_, h, _, owner := newAPITestServerOn(t, d)
+			minted := apiTestWebhookToken(t, h, owner, "kip", `{"endpoint_id":"alerts","purpose":"CI"}`)
+			hook.execAfterRead(t, path, "FROM webhook_endpoint",
+				`UPDATE webhook_endpoint SET delivered_count = 3, last_received_ts = 1800000000
+				 WHERE endpoint_id = 'alerts'`)
+
+			status, data := windowJSON(t, h, "PATCH", "/api/members/kip/webhooks/alerts", owner, `{"purpose":"CD"}`)
+
+			hook.wantFiredOnce(t)
+			if status != http.StatusOK {
+				t.Fatalf("want 200, got %d (%v)", status, data)
+			}
+			want := apiWebhookAlertsRow(minted)
+			want["purpose"] = "CD"
+			want["delivered_count"] = 3
+			want["last_received_ts"] = 1800000000
+			apiWantBody(t, data, want)
+			apiWantWebhookList(t, h, owner, "kip", want)
+		})
+	}
 }
 
 func TestHandleDeleteWebhookApiMembersMemberIdWebhooksEndpointIdDelete(t *testing.T) {

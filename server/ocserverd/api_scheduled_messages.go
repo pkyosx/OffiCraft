@@ -77,8 +77,14 @@ func (s *apiServer) HandleCreateScheduledMessageApiMembersMemberIdScheduledMessa
 	// The cursor starts AT the current slot, so a new schedule never fires
 	// immediately (created 10:00 for daily 09:00 ⇒ not today).
 	m.LastFiredSlot = currentSlotKey(m, time.Unix(int64(m.CreatedTS), 0))
-	if err := s.dal.PutScheduledMessage(m); err != nil {
-		internalError(w, err)
+	err = s.dal.inTx(func(tx *writeTx) error {
+		if _, err := resolveChatRecipientOn(tx, memberId); err != nil {
+			return err
+		}
+		return s.dal.PutScheduledMessage(m)
+	})
+	if err != nil {
+		writeResolveTxError(w, err, "member", memberId)
 		return
 	}
 	writeJSON(w, http.StatusOK, scheduledMessageReceiptOf(m))
@@ -239,13 +245,20 @@ func applyScheduledMessagePatch(m *ScheduledMessage, body ScheduledMessageUpdate
 }
 
 func (s *apiServer) HandleDeleteScheduledMessageApiMembersMemberIdScheduledMessagesScheduleIdDelete(w http.ResponseWriter, r *http.Request, memberId, scheduleId string) {
-	m, err := s.resolveScheduledMessage(memberId, scheduleId)
-	if err != nil {
+	if _, err := s.resolveScheduledMessage(memberId, scheduleId); err != nil {
 		writeResolveError(w, err, "scheduled message", scheduleId)
 		return
 	}
-	if err := s.dal.DeleteScheduledMessage(m.ID); err != nil {
-		internalError(w, err)
+	var m *ScheduledMessage
+	err := s.dal.inTx(func(tx *writeTx) error {
+		var err error
+		if m, err = resolveScheduledMessageOn(tx, memberId, scheduleId); err != nil {
+			return err
+		}
+		return s.dal.DeleteScheduledMessage(m.ID)
+	})
+	if err != nil {
+		writeResolveTxError(w, err, "scheduled message", scheduleId)
 		return
 	}
 	writeJSON(w, http.StatusOK, scheduledMessageDeleteReceiptDTO{

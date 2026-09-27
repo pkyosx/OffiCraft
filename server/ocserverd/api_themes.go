@@ -76,25 +76,25 @@ func (s *apiServer) HandlePutThemeApiThemesThemeIdPut(w http.ResponseWriter, r *
 		return
 	}
 
-	existing, err := s.dal.GetCustomTheme(themeID)
-	if err != nil {
-		internalError(w, err)
-		return
-	}
-	if existing == nil {
+	// created reports whether themeID is new, or refuses a new one over the cap.
+	created := func() (bool, error) {
+		existing, err := s.dal.GetCustomTheme(themeID)
+		if err != nil || existing != nil {
+			return false, err
+		}
 		n, err := s.dal.CountCustomThemes()
 		if err != nil {
-			internalError(w, err)
-			return
+			return false, err
 		}
 		if n >= maxCustomThemes {
-			writeError(w, http.StatusUnprocessableEntity,
+			return false, refuseInTx(http.StatusUnprocessableEntity,
 				"at most "+strconv.Itoa(maxCustomThemes)+" custom themes may be saved — delete one first")
-			return
 		}
-		// COUNT-THEN-WRITE, not atomic: concurrent creates can land cap+1
-		// rows (a probe reproduced it). Accepted — the cap is not a security
-		// boundary.
+		return true, nil
+	}
+	if _, err := created(); err != nil {
+		writeTxError(w, err)
+		return
 	}
 
 	raw, err := marshalThemeBundle(body)
@@ -102,29 +102,35 @@ func (s *apiServer) HandlePutThemeApiThemesThemeIdPut(w http.ResponseWriter, r *
 		internalError(w, err)
 		return
 	}
-	if err := s.dal.PutCustomTheme(themeID, raw); err != nil {
-		if errors.Is(err, ErrCustomThemeIDBlank) ||
-			errors.Is(err, ErrCustomThemeBundleNotJSON) ||
-			errors.Is(err, ErrCustomThemeIDMismatch) {
-			writeError(w, http.StatusUnprocessableEntity, err.Error())
-			return
+	var isNew bool
+	var stored *CustomTheme
+	err = s.dal.inTx(func(*writeTx) error {
+		var err error
+		if isNew, err = created(); err != nil {
+			return err
 		}
-		internalError(w, err)
+		if err := s.dal.PutCustomTheme(themeID, raw); err != nil {
+			return err
+		}
+		stored, err = s.dal.GetCustomTheme(themeID)
+		if err == nil && stored == nil {
+			err = fmt.Errorf("theme %s vanished between the write and the read-back", strconv.Quote(themeID))
+		}
+		return err
+	})
+	if errors.Is(err, ErrCustomThemeIDBlank) ||
+		errors.Is(err, ErrCustomThemeBundleNotJSON) ||
+		errors.Is(err, ErrCustomThemeIDMismatch) {
+		writeError(w, http.StatusUnprocessableEntity, err.Error())
 		return
 	}
-
-	stored, err := s.dal.GetCustomTheme(themeID)
 	if err != nil {
-		internalError(w, err)
-		return
-	}
-	if stored == nil {
-		internalError(w, fmt.Errorf("theme %s vanished between the write and the read-back", strconv.Quote(themeID)))
+		writeTxError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, themeWriteReceiptDTO{
 		ID:        themeID,
-		Created:   existing == nil,
+		Created:   isNew,
 		OrderIdx:  stored.OrderIdx,
 		UpdatedAt: stored.UpdatedAt,
 	})

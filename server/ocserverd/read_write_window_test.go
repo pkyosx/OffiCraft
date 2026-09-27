@@ -1794,3 +1794,41 @@ func windowWithin(t *testing.T, what string, call func()) {
 			"goroutine's write or on a lock outside txguard", what, windowRequestDeadline)
 	}
 }
+
+// windowCount answers one COUNT(*) on the database the handler wrote.
+func windowCount(t *testing.T, d *DAL, query string, args ...any) int {
+	t.Helper()
+	var n int
+	if err := d.rdb.QueryRow(query, args...).Scan(&n); err != nil {
+		t.Fatalf("%s: %v", query, err)
+	}
+	return n
+}
+
+// windowLoreEntry stores one entry by author in scope, stamped at ts 100.
+func windowLoreEntry(t *testing.T, d *DAL, author, scopeKind, scopeKey string) LoreEntry {
+	t.Helper()
+	e, err := d.CreateLoreEntryMintingID(LoreEntry{
+		ScopeKind: scopeKind, ScopeKey: scopeKey, Title: "寫過的事", Body: "內容",
+		AuthorID: author, State: LoreStateActive,
+		EffectiveTS: 100, CreatedTS: 100, UpdatedTS: 100,
+	})
+	if err != nil {
+		t.Fatalf("CreateLoreEntryMintingID: %v", err)
+	}
+	return e
+}
+
+func windowWantLoreEntry(t *testing.T, d *DAL, id, state, scopeKind, scopeKey string, effectiveTS float64) {
+	t.Helper()
+	got, err := d.GetLoreEntry(id)
+	if err != nil || got == nil {
+		t.Fatalf("GetLoreEntry(%q): %#v, %v", id, got, err)
+	}
+	if got.State != state || got.ScopeKind != scopeKind || got.ScopeKey != scopeKey ||
+		got.EffectiveTS != effectiveTS || got.UpdatedTS != 100 {
+		t.Fatalf("lore entry %s: state %q scope %q/%q effective %v updated %v; "+
+			"want %q %q/%q %v 100", id, got.State, got.ScopeKind, got.ScopeKey,
+			got.EffectiveTS, got.UpdatedTS, state, scopeKind, scopeKey, effectiveTS)
+	}
+}

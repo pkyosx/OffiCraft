@@ -1055,7 +1055,7 @@ var identityGateLedger = map[string]string{
 	"api_tasks_dependents.go :: releaseDependentsOnClose :: d.ExecutorKind == TaskExecutorOutsource": "" +
 		"a dependent task unblocked by this close needs the scheduler ticked only if it " +
 		"is an unassigned 發包 task; a member-executed dependent has an executor already.",
-	"api_taskmanuals.go :: resolveManualAssigneeMachine :: kind != TaskExecutorOutsource": "" +
+	"api_taskmanuals.go :: manualAssigneeMachineOn :: kind != TaskExecutorOutsource": "" +
 		"a manual's machine pin only means anything for an outsource assignee — a member " +
 		"assignee carries its own DesiredMachineID.",
 	"outsource_sched.go :: outsourceAwaitingAssignment :: t.ExecutorKind != TaskExecutorOutsource": "" +

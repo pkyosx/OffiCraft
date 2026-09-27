@@ -143,14 +143,16 @@ func (s *apiServer) HandleCreateWebhookApiMembersMemberIdWebhooksPost(w http.Res
 			"signing_secret is required when platform is '"+platform+"'")
 		return
 	}
-	existing, err := s.dal.GetWebhookByMemberEndpoint(m.ID, endpointID)
-	if err != nil {
-		internalError(w, err)
-		return
+	taken := func(q sqlRowQuerier) error {
+		existing, err := getWebhookByMemberEndpointOn(q, m.ID, endpointID)
+		if err == nil && existing != nil {
+			err = refuseInTx(http.StatusConflict,
+				"a webhook endpoint '"+endpointID+"' already exists for this member")
+		}
+		return err
 	}
-	if existing != nil {
-		writeError(w, http.StatusConflict,
-			"a webhook endpoint '"+endpointID+"' already exists for this member")
+	if err := taken(s.dal.rdb); err != nil {
+		writeTxError(w, err)
 		return
 	}
 	e := WebhookEndpoint{
@@ -163,8 +165,17 @@ func (s *apiServer) HandleCreateWebhookApiMembersMemberIdWebhooksPost(w http.Res
 		Platform:      platform,
 		SigningSecret: signingSecret,
 	}
-	if err := s.dal.PutWebhookEndpoint(e); err != nil {
-		internalError(w, err)
+	err = s.dal.inTx(func(tx *writeTx) error {
+		if _, err := resolveMemberOn(tx, memberId, anyMember); err != nil {
+			return err
+		}
+		if err := taken(tx); err != nil {
+			return err
+		}
+		return s.dal.PutWebhookEndpoint(e)
+	})
+	if err != nil {
+		writeResolveTxError(w, err, "member", memberId)
 		return
 	}
 	writeJSON(w, http.StatusOK, newWebhookEndpointDTO(e))
@@ -175,27 +186,37 @@ func (s *apiServer) HandleUpdateWebhookApiMembersMemberIdWebhooksEndpointIdPatch
 	if !decodeJSONBody(w, r, &body) {
 		return
 	}
-	e, err := s.resolveWebhook(memberId, endpointId, anyMember)
-	if err != nil {
+	if _, err := s.resolveWebhook(memberId, endpointId, anyMember); err != nil {
 		writeResolveError(w, err, "webhook endpoint", endpointId)
 		return
 	}
-	if body.Status != nil {
-		if !ValidWebhookStatus(*body.Status) {
-			writeError(w, http.StatusUnprocessableEntity,
-				"status must be one of ['enabled' 'disabled']; got '"+*body.Status+"'")
-			return
+	if body.Status != nil && !ValidWebhookStatus(*body.Status) {
+		writeError(w, http.StatusUnprocessableEntity,
+			"status must be one of ['enabled' 'disabled']; got '"+*body.Status+"'")
+		return
+	}
+	// The patch lands on the row as the transaction reads it: the inlet moves the
+	// counters of an endpoint in use, and a whole-row write from an earlier copy
+	// would put them back.
+	var e *WebhookEndpoint
+	err := s.dal.inTx(func(tx *writeTx) error {
+		var err error
+		if e, err = resolveWebhookOn(tx, memberId, endpointId, anyMember); err != nil {
+			return err
 		}
-		e.Status = *body.Status
-	}
-	if body.Purpose != nil {
-		e.Purpose = *body.Purpose
-	}
-	if body.SigningSecret != nil {
-		e.SigningSecret = *body.SigningSecret
-	}
-	if err := s.dal.PutWebhookEndpoint(*e); err != nil {
-		internalError(w, err)
+		if body.Status != nil {
+			e.Status = *body.Status
+		}
+		if body.Purpose != nil {
+			e.Purpose = *body.Purpose
+		}
+		if body.SigningSecret != nil {
+			e.SigningSecret = *body.SigningSecret
+		}
+		return s.dal.PutWebhookEndpoint(*e)
+	})
+	if err != nil {
+		writeResolveTxError(w, err, "webhook endpoint", endpointId)
 		return
 	}
 	writeJSON(w, http.StatusOK, newWebhookEndpointDTO(*e))

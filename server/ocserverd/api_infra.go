@@ -689,46 +689,55 @@ func (s *apiServer) dropLiveCost(actorID string) *float64 {
 // A RELEASED worker is accepted (owner ruling rc-1344cc76a24a). Removed staff are
 // not: removal hard-deletes the row and its telemetry entry (api_roles.go).
 func (s *apiServer) HandleResetCostApiMembersMemberIdCostResetPost(w http.ResponseWriter, r *http.Request, memberId string) {
-	if m, err := s.dal.GetMember(memberId); err == nil && m != nil &&
-		m.RosterStatus != RosterStatusRemoved && m.Kind != KindOutsource {
-		// 🔴 Durable write first, live drop second. And a
-		// single-column write: banked_cost is insert-only for putMember, so a whole-row
-		// write would land nothing.
-		clearedBankedFig, err := s.dal.ZeroMemberBankedCost(memberId)
-		if err != nil {
-			internalError(w, err)
-			return
+	// target is the staff row or the outsource worker whose cost the reset
+	// clears, or the 404.
+	target := func() (*Member, *OutsourceWorker, error) {
+		if m, err := s.dal.GetMember(memberId); err == nil && m != nil &&
+			m.RosterStatus != RosterStatusRemoved && m.Kind != KindOutsource {
+			return m, nil, nil
 		}
-		clearedBanked := nonZeroCost(clearedBankedFig)
-		m.BankedCost = 0
-		s.publishMemberPatch(*m, requestTrigger(r))
-		cleared := s.dropLiveCost(memberId)
-		s.publishMonitoringSignal(memberId, requestTrigger(r))
-		writeJSON(w, http.StatusOK, costResetDTO{
-			MemberID:          memberId,
-			ClearedCost:       cleared,
-			ClearedBankedCost: clearedBanked,
-		})
+		wk, err := s.dal.GetOutsourceWorker(memberId)
+		if err != nil {
+			return nil, nil, err
+		}
+		if wk == nil {
+			return nil, nil, refuseInTx(http.StatusNotFound, "member '"+memberId+"' not found")
+		}
+		return nil, wk, nil
+	}
+	if _, _, err := target(); err != nil {
+		writeTxError(w, err)
 		return
 	}
-	wk, err := s.dal.GetOutsourceWorker(memberId)
+	var staff *Member
+	var worker *OutsourceWorker
+	var clearedBankedFig float64
+	err := s.dal.inTx(func(*writeTx) error {
+		var err error
+		if staff, worker, err = target(); err != nil {
+			return err
+		}
+		// 🔴 A single-column write: banked_cost is insert-only for putMember, so a
+		// whole-row write would land nothing.
+		clearedBankedFig, err = s.dal.ZeroMemberBankedCost(memberId)
+		return err
+	})
 	if err != nil {
-		internalError(w, err)
+		writeTxError(w, err)
 		return
 	}
-	if wk == nil {
-		writeError(w, http.StatusNotFound, "member '"+memberId+"' not found")
-		return
-	}
-	clearedBankedFig, err := s.dal.ZeroMemberBankedCost(memberId)
-	if err != nil {
-		internalError(w, err)
-		return
-	}
+	// 🔴 Durable write first, live drop second.
 	clearedBanked := nonZeroCost(clearedBankedFig)
-	wk.BankedCost = 0
-	cleared := s.dropLiveCost(memberId)
-	s.publishOutsourceWorker(*wk, requestTrigger(r))
+	var cleared *float64
+	if staff != nil {
+		staff.BankedCost = 0
+		s.publishMemberPatch(*staff, requestTrigger(r))
+		cleared = s.dropLiveCost(memberId)
+	} else {
+		worker.BankedCost = 0
+		cleared = s.dropLiveCost(memberId)
+		s.publishOutsourceWorker(*worker, requestTrigger(r))
+	}
 	s.publishMonitoringSignal(memberId, requestTrigger(r))
 	writeJSON(w, http.StatusOK, costResetDTO{
 		MemberID:          memberId,
@@ -808,7 +817,12 @@ func (s *apiServer) HandleResetAccountCostApiAccountsCostResetPost(w http.Respon
 		writeError(w, http.StatusUnprocessableEntity, "account cannot be blank")
 		return
 	}
-	had, err := s.dal.ZeroAccountSpend(account)
+	var had float64
+	err := s.dal.inTx(func(*writeTx) error {
+		var err error
+		had, err = s.dal.ZeroAccountSpend(account)
+		return err
+	})
 	if err != nil {
 		internalError(w, err)
 		return

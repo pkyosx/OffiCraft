@@ -46,7 +46,9 @@ func (s *apiServer) verifyAndSpendTOTP(code string, now int64) (bool, error) {
 	if !ok {
 		return false, nil
 	}
-	if err := s.dal.PutSetting(settingTOTPLastStep, strconv.FormatInt(step, 10)); err != nil {
+	if err := s.dal.inTx(func(tx *writeTx) error {
+		return putSettingOn(tx, settingTOTPLastStep, strconv.FormatInt(step, 10))
+	}); err != nil {
 		return false, err
 	}
 	s.totpLastStep = step
@@ -78,7 +80,9 @@ func (s *apiServer) HandleMfaOfferApiAuthMfaOfferPost(w http.ResponseWriter, r *
 	}
 	s.settingsMu.Lock()
 	defer s.settingsMu.Unlock()
-	if err := s.dal.PutSetting(settingMFAOffered, strconv.FormatBool(body.Offered)); err != nil {
+	if err := s.dal.inTx(func(tx *writeTx) error {
+		return putSettingOn(tx, settingMFAOffered, strconv.FormatBool(body.Offered))
+	}); err != nil {
 		internalError(w, err)
 		return
 	}
@@ -107,7 +111,9 @@ func (s *apiServer) HandleMfaEnrollApiAuthMfaEnrollPost(w http.ResponseWriter, r
 		internalError(w, err)
 		return
 	}
-	if err := s.dal.PutSetting(settingTOTPPendingSecret, secret); err != nil {
+	if err := s.dal.inTx(func(tx *writeTx) error {
+		return putSettingOn(tx, settingTOTPPendingSecret, secret)
+	}); err != nil {
 		internalError(w, err)
 		return
 	}

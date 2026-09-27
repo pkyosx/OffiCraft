@@ -986,14 +986,16 @@ func (s *apiServer) HandlePostTaskMessageApiTasksTaskIdMessagePost(w http.Respon
 	if !decodeJSONBody(w, r, &body) {
 		return
 	}
-	t, err := s.resolveTask(taskId)
-	if err != nil {
-		writeResolveError(w, err, "task", taskId)
-		return
+	addressed := func() (*Task, error) {
+		t, err := s.resolveTask(taskId)
+		if err == nil && t.ExecutorID == "" {
+			err = refuseInTx(http.StatusConflict,
+				"task '"+taskId+"' has no executor yet (awaiting assignment)")
+		}
+		return t, err
 	}
-	if t.ExecutorID == "" {
-		writeError(w, http.StatusConflict,
-			"task '"+taskId+"' has no executor yet (awaiting assignment)")
+	if _, err := addressed(); err != nil {
+		writeResolveTxError(w, err, "task", taskId)
 		return
 	}
 	var inputs []ChatAttachmentInputDTO
@@ -1010,39 +1012,52 @@ func (s *apiServer) HandlePostTaskMessageApiTasksTaskIdMessagePost(w http.Respon
 		writeError(w, status, problem)
 		return
 	}
-	meta := map[string]any{
-		"task_id":    t.ID,
-		"task_title": t.Title,
-		"task_type":  t.TypeKey,
-	}
 	text := trimmedOrEmpty(body.Body)
+	var refs []any
 	var fresh []ChatAttachment
 	if len(resolved) > 0 {
-		var refs []any
 		refs, fresh = pendingAttachments(resolved)
-		meta["attachments"] = refs
 	} else if text == "" {
 		writeError(w, http.StatusBadRequest,
 			"message must carry text or an attachment")
 		return
 	}
-	// Literal, not an i18n key (owner ruling rc-01a07b1b2a12): the label must read
-	// the same in every locale so it can be matched; meta.task_id is the machine
-	// linkage.
-	msgBody := text
-	if msgBody != "" {
-		msgBody = "[TaskID=" + TaskNo(t.ID) + "] " + msgBody
-	}
-	msg := ChatMessage{
-		ID:        "c-" + newHexID(12),
-		Sender:    currentActor(r),
-		Recipient: t.ExecutorID,
-		Body:      msgBody,
-		TS:        nowSecs(),
-		Meta:      meta,
-	}
-	if err := s.dal.PutChatWithAttachments(msg, fresh); err != nil {
-		internalError(w, err)
+	var msg ChatMessage
+	err := s.dal.inTx(func(*writeTx) error {
+		t, err := addressed()
+		if err != nil {
+			return err
+		}
+		if err := s.referencedAttachmentsGone(resolved); err != nil {
+			return err
+		}
+		meta := map[string]any{
+			"task_id":    t.ID,
+			"task_title": t.Title,
+			"task_type":  t.TypeKey,
+		}
+		if refs != nil {
+			meta["attachments"] = refs
+		}
+		// Literal, not an i18n key (owner ruling rc-01a07b1b2a12): the label must
+		// read the same in every locale so it can be matched; meta.task_id is the
+		// machine linkage.
+		msgBody := text
+		if msgBody != "" {
+			msgBody = "[TaskID=" + TaskNo(t.ID) + "] " + msgBody
+		}
+		msg = ChatMessage{
+			ID:        "c-" + newHexID(12),
+			Sender:    currentActor(r),
+			Recipient: t.ExecutorID,
+			Body:      msgBody,
+			TS:        nowSecs(),
+			Meta:      meta,
+		}
+		return s.dal.PutChatWithAttachments(msg, fresh)
+	})
+	if err != nil {
+		writeResolveTxError(w, err, "task", taskId)
 		return
 	}
 	s.hub.Publish("chat", "patch", "chat", wireOwnerID+"::"+msg.ID,

@@ -1558,6 +1558,31 @@ func TestHandleResetCostApiMembersMemberIdCostResetPost(t *testing.T) {
 			t.Fatalf("the figure must be gone, kip cost = %v", row["cost"])
 		}
 	})
+
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": a member dismissed after the handler read it answers 404 and keeps its banked cost", func(t *testing.T) {
+			d, hook, path := windowDAL(t, shape)
+			api, h, _, owner := newAPITestServerOn(t, d)
+			if err := d.AddMemberBankedCost("kip", 4); err != nil {
+				t.Fatalf("AddMemberBankedCost: %v", err)
+			}
+			dashboard := apiTestListen(t, api, "")
+			hook.execAfterRead(t, path, "FROM member WHERE id",
+				`UPDATE member SET roster_status = 'removed' WHERE id = 'kip'`)
+
+			status, data := windowJSON(t, h, "POST", "/api/members/kip/cost/reset", owner, "")
+
+			hook.wantFiredOnce(t)
+			if status != http.StatusNotFound {
+				t.Fatalf("want 404, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "not_found", "member 'kip' not found")
+			if n := windowCount(t, d, `SELECT COUNT(*) FROM member WHERE id = 'kip' AND banked_cost = 4`); n != 1 {
+				t.Fatalf("kip's banked cost moved: want it still 4")
+			}
+			dashboard.wantFrames()
+		})
+	}
 }
 
 func TestAccrueAccountSpend(t *testing.T) {

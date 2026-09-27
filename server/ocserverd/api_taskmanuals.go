@@ -6,6 +6,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"unicode/utf8"
 )
@@ -125,18 +126,26 @@ func validateManualAssignee(assignee map[string]any) string {
 // resolveManualAssigneeMachine: a stale or hand-typed machine id is shaped fine
 // but strands every future worker of the type.
 func (s *apiServer) resolveManualAssigneeMachine(w http.ResponseWriter, assignee map[string]any) bool {
-	if kind, _ := assignee["kind"].(string); kind != TaskExecutorOutsource {
-		return true
-	}
-	machineID, _ := assignee["machine"].(string)
-	if machineID == "" {
-		return true
-	}
-	if _, err := s.resolveMachine(machineID); err != nil {
-		writeResolveError(w, err, "machine", machineID)
+	if err := manualAssigneeMachineOn(s.dal.rdb, assignee); err != nil {
+		writeTxError(w, err)
 		return false
 	}
 	return true
+}
+
+func manualAssigneeMachineOn(q sqlRowQuerier, assignee map[string]any) error {
+	if kind, _ := assignee["kind"].(string); kind != TaskExecutorOutsource {
+		return nil
+	}
+	machineID, _ := assignee["machine"].(string)
+	if machineID == "" {
+		return nil
+	}
+	_, err := resolveMachineOn(q, machineID)
+	if errors.Is(err, errNotFound) {
+		return refuseInTx(http.StatusNotFound, "machine '"+machineID+"' not found")
+	}
+	return err
 }
 
 func (s *apiServer) callerMaySetAssignee(r *http.Request) bool {
@@ -207,14 +216,15 @@ func (s *apiServer) HandleCreateTaskManualApiTaskManualsPost(w http.ResponseWrit
 		}
 		assigneeBlob = string(blob)
 	}
-	existing, err := s.dal.GetTaskManual(typeKey)
-	if err != nil {
-		internalError(w, err)
-		return
+	taken := func() error {
+		existing, err := s.dal.GetTaskManual(typeKey)
+		if err == nil && existing != nil {
+			err = refuseInTx(http.StatusConflict, "task manual '"+typeKey+"' already exists")
+		}
+		return err
 	}
-	if existing != nil {
-		writeError(w, http.StatusConflict,
-			"task manual '"+typeKey+"' already exists")
+	if err := taken(); err != nil {
+		writeTxError(w, err)
 		return
 	}
 	m := TaskManual{
@@ -224,8 +234,19 @@ func (s *apiServer) HandleCreateTaskManualApiTaskManualsPost(w http.ResponseWrit
 		Assignee:    assigneeBlob,
 		UpdatedTS:   nowSecs(),
 	}
-	if err := s.dal.PutTaskManual(m); err != nil {
-		internalError(w, err)
+	err := s.dal.inTx(func(tx *writeTx) error {
+		if body.Assignee != nil {
+			if err := manualAssigneeMachineOn(tx, *body.Assignee); err != nil {
+				return err
+			}
+		}
+		if err := taken(); err != nil {
+			return err
+		}
+		return putTaskManualOn(tx, m)
+	})
+	if err != nil {
+		writeTxError(w, err)
 		return
 	}
 	s.publishTaskManual(typeKey, requestTrigger(r))

@@ -573,6 +573,39 @@ func TestHandleCreateTaskManualApiTaskManualsPost(t *testing.T) {
 		dashboard.wantFrames()
 		apiWantValue(t, "body", any(apiTestTaskManualList(t, h, owner)), any([]any{}))
 	})
+
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": a type key taken after the handler read it answers 409 and leaves that manual standing", func(t *testing.T) {
+			d, hook, path := windowDAL(t, shape)
+			api, h, _, owner := newAPITestServerOn(t, d)
+			agent := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
+			dashboard := apiTestListen(t, api, "")
+			hook.execAfterRead(t, path, "FROM task_manual WHERE type_key",
+				`INSERT INTO task_manual (type_key, display_name, assignee, updated_ts)
+				 VALUES ('tm-quote', '報價', '{}', 1700000000)`)
+
+			status, data := windowJSON(t, h, "POST", "/api/task-manuals", agent,
+				`{"type_key":"tm-quote","display_name":"改名"}`)
+
+			hook.wantFiredOnce(t)
+			if status != http.StatusConflict {
+				t.Fatalf("want 409, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "conflict", "task manual 'tm-quote' already exists")
+			dashboard.wantFrames()
+			apiTestWantTaskManual(t, h, owner, "tm-quote", map[string]any{
+				"type_key":         "tm-quote",
+				"display_name":     "報價",
+				"purpose":          "",
+				"fields":           []any{},
+				"sop_md":           "",
+				"assignee":         map[string]any{},
+				"sop_md_chars":     0,
+				"sop_md_cap_chars": 15000,
+				"updated_ts":       1700000000,
+			})
+		})
+	}
 }
 
 func TestHandleGetTaskManualApiTaskManualsTypeKeyGet(t *testing.T) {
