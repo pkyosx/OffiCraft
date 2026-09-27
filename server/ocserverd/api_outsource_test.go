@@ -575,6 +575,40 @@ func TestHandleRelocateOutsourceWorkerApiOutsourceWorkersIdRelocatePost(t *testi
 		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, nil))
 		dashboard.wantFrames()
 	})
+
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": a wind-down whose row write fails leaves no epoch behind", func(t *testing.T) {
+			d, _, _ := windowDAL(t, shape)
+			_, h, _, owner := windowMemberDoorStack(t, d, windowMemberDoor{worker: true, live: true})
+			// The relocate writes the row once itself; the wind-down it opens is the second.
+			apiTestFailWholeRowWriteAfter(t, d, "ow-abc123", 1)
+
+			status, data := windowJSON(t, h, "POST", "/api/members/ow-abc123/relocate", owner, `{"machine_id":"m-server-self"}`)
+
+			if status != http.StatusOK {
+				t.Fatalf("want 200, got %d (%v)", status, data)
+			}
+			if got := apiTestMemberRow(t, d, "ow-abc123"); got.RefocusSince != 0 || got.RefocusOp != "" {
+				t.Fatalf("refocus_since=%v refocus_op=%q, want no epoch", got.RefocusSince, got.RefocusOp)
+			}
+		})
+
+		t.Run(shape+": a queued restart whose receipt fails to land is not queued", func(t *testing.T) {
+			d, _, _ := windowDAL(t, shape)
+			_, h, _, owner := windowMemberDoorStack(t, d, windowMemberDoor{worker: true,
+				prepare: `UPDATE member SET desired_state = 'offline', stopping_since = 1700000000 WHERE id = 'ow-abc123'`})
+			windowRefuse(t, d, "refuse_receipt", "BEFORE UPDATE OF last_op ON member", "the receipt write fails")
+
+			status, data := windowJSON(t, h, "POST", "/api/members/ow-abc123/relocate", owner, `{"machine_id":"m-server-self"}`)
+
+			if status != http.StatusOK {
+				t.Fatalf("want 200, got %d (%v)", status, data)
+			}
+			if got := apiTestMemberRow(t, d, "ow-abc123"); got.RestartAfterStop {
+				t.Fatalf("restart_after_stop landed without its receipt")
+			}
+		})
+	}
 }
 
 func TestRelocateWorkerByID(t *testing.T) {
@@ -1771,4 +1805,22 @@ func TestHandleSetOutsourceWorkerModelApiOutsourceWorkersIdModelPost(t *testing.
 		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, nil))
 		dashboard.wantFrames()
 	})
+
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": a model setter that fails takes the queued restart back with it", func(t *testing.T) {
+			d, _, _ := windowDAL(t, shape)
+			_, h, _, owner := windowMemberDoorStack(t, d, windowMemberDoor{worker: true,
+				prepare: `UPDATE member SET desired_state = 'offline', stopping_since = 1700000000 WHERE id = 'ow-abc123'`})
+			before := apiTestMemberRow(t, d, "ow-abc123")
+			windowRefuse(t, d, "refuse_model", "BEFORE UPDATE OF model ON member", "the model write fails")
+
+			status, data := windowJSON(t, h, "PATCH", "/api/members/ow-abc123", owner, `{"model":"claude-opus-5"}`)
+
+			if status != http.StatusInternalServerError {
+				t.Fatalf("want 500, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "internal_error", windowRefusal("the model write fails"))
+			apiTestWantEqual(t, "the row after the failed setter", apiTestMemberRow(t, d, "ow-abc123"), before)
+		})
+	}
 }
