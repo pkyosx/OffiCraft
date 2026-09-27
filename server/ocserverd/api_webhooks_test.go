@@ -1255,6 +1255,75 @@ func TestHandleReceiveWebhookInPost(t *testing.T) {
 			}
 		})
 	}
+
+	const (
+		githubBody = `{"action":"opened","number":42}`
+		githubSig  = "sha256=17e1a2914aed3f36630a70904e584c37ffaef0d874aea4e3cce44c9ae43bfa21"
+	)
+	githubPost := func(t *testing.T, h http.Handler, token, event string) *httptest.ResponseRecorder {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodPost, "/in?t="+token, strings.NewReader(githubBody))
+		req.Header.Set("X-Hub-Signature-256", githubSig)
+		if event != "" {
+			req.Header.Set("X-GitHub-Event", event)
+		}
+		rec := httptest.NewRecorder()
+		windowWithin(t, "POST /in", func() { h.ServeHTTP(rec, req) })
+		return rec
+	}
+
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": a signing secret rotated after the handler read the endpoint is the one the request is judged by", func(t *testing.T) {
+			d, hook, path := windowDAL(t, shape)
+			_, h, _, owner := newAPITestServerOn(t, d)
+			token := apiTestWebhookToken(t, h, owner, "kip",
+				`{"endpoint_id":"alerts","purpose":"CI","platform":"github","signing_secret":"a-secret-since-rotated"}`)
+			hook.execAfterRead(t, path, "FROM webhook_endpoint WHERE token",
+				`UPDATE webhook_endpoint SET signing_secret = 'github-webhook-secret' WHERE endpoint_id = 'alerts'`)
+
+			rec := githubPost(t, h, token, "")
+
+			hook.wantFiredOnce(t)
+			if rec.Code != http.StatusOK || rec.Body.String() != `{"status":"ok"}` {
+				t.Fatalf("want 200 {\"status\":\"ok\"}, got %d %s", rec.Code, rec.Body.String())
+			}
+			e, err := d.GetWebhookByToken(token)
+			if err != nil || e == nil || e.DeliveredCount != 1 || e.DroppedCount != 0 {
+				t.Fatalf("GetWebhookByToken: %#v, %v; want delivered 1, dropped 0", e, err)
+			}
+		})
+	}
+
+	// A request the endpoint would not deliver keeps the silent face even when
+	// nothing about it can be recorded.
+	for _, tc := range []struct {
+		name, create, event string
+		disable             bool
+	}{
+		{name: "a disabled endpoint", create: `{"endpoint_id":"alerts","purpose":"CI"}`, disable: true},
+		{name: "a GitHub ping", create: `{"endpoint_id":"alerts","purpose":"CI","platform":"github","signing_secret":"github-webhook-secret"}`,
+			event: "ping"},
+		{name: "a bad signature", create: `{"endpoint_id":"alerts","purpose":"CI","platform":"github","signing_secret":"some-other-secret"}`},
+	} {
+		t.Run(tc.name+" answers the silent ok when the write pool is gone", func(t *testing.T) {
+			_, h, d, owner := newAPITestServer(t)
+			token := apiTestWebhookToken(t, h, owner, "kip", tc.create)
+			if tc.disable {
+				if err := d.SetWebhookStatus(token, WebhookStatusDisabled); err != nil {
+					t.Fatalf("SetWebhookStatus: %v", err)
+				}
+			}
+			if err := d.wdb.Close(); err != nil {
+				t.Fatalf("close write pool: %v", err)
+			}
+
+			rec := githubPost(t, h, token, tc.event)
+
+			if rec.Code != http.StatusOK || rec.Body.String() != `{"status":"ok"}` {
+				t.Fatalf("want 200 {\"status\":\"ok\"}, got %d %s", rec.Code, rec.Body.String())
+			}
+		})
+	}
 }
 
 // apiCutBody plays the sender whose connection drops mid-upload: the bytes that

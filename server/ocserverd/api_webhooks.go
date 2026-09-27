@@ -274,15 +274,18 @@ func (s *apiServer) HandleReceiveWebhookInPost(w http.ResponseWriter, r *http.Re
 			fmt.Sprintf("webhook payload is too large (max %d bytes)", webhookPayloadMaxBytes))
 		return
 	}
-	e, err := s.dal.GetWebhookByToken(token)
+	pre, err := s.dal.GetWebhookByToken(token)
 	if err != nil {
 		writeWebhookInternalError(w, err)
 		return
 	}
-	if e == nil {
+	if pre == nil {
 		s.writeWebhookAccepted(w)
 		return
 	}
+	// The signature is verified before the transaction opens, so the write
+	// connection is never held across an HMAC over the payload.
+	sigOK := webhookSignatureOK(pre, r, payload)
 	// The endpoint and its recipient are judged again inside the transaction
 	// that records the outcome: disabled, deleted or re-pointed in between, the
 	// request is answered as it stands there.
@@ -293,14 +296,22 @@ func (s *apiServer) HandleReceiveWebhookInPost(w http.ResponseWriter, r *http.Re
 		if err != nil {
 			return err
 		}
-		answer, err = receiveWebhookOn(tx, e, r, payload, receivedTS)
+		verified := sigOK
+		if e != nil && (e.Platform != pre.Platform || e.SigningSecret != pre.SigningSecret) {
+			verified = webhookSignatureOK(e, r, payload)
+		}
+		answer, err = receiveWebhookOn(tx, e, r, payload, verified, receivedTS)
 		return err
 	})
-	// A drop, a ping or a challenge keeps the silent face even when its
-	// bookkeeping did not land; anything else that failed is a 500.
-	if err != nil && !answer.decided {
-		writeWebhookInternalError(w, err)
-		return
+	if err != nil {
+		// A request the endpoint as first read would not deliver keeps the silent
+		// face when its bookkeeping could not land; a failed delivery is a 500.
+		fallback, ferr := s.webhookAnswerWithoutWrites(pre, r, payload, sigOK)
+		if ferr != nil || !fallback.decided {
+			writeWebhookInternalError(w, err)
+			return
+		}
+		answer = fallback
 	}
 	if msg := answer.delivered; msg != nil {
 		// The payload every chat delta carries (spec/sse.md §2.2).
@@ -323,11 +334,87 @@ type webhookInletAnswer struct {
 	delivered *ChatMessage
 }
 
+// webhookGate is what the endpoint's own gates say about one request, before
+// the recipient is looked up: a drop reason, a handshake, a ping, or on to
+// delivery (all empty).
+type webhookGate struct {
+	drop, challenge string
+	ping            bool
+}
+
+// Verification runs on the SAME raw bytes the inlet read, never after a JSON
+// decode. Only Slack's url_verification handshake answers a distinct body —
+// Slack needs the challenge echoed to activate the subscription — and it is
+// the one request a Slack endpoint takes unsigned.
+func webhookSignatureOK(e *WebhookEndpoint, r *http.Request, payload []byte) bool {
+	switch e.Platform {
+	case WebhookPlatformSlack:
+		return verifySlackSignature(e.SigningSecret,
+			r.Header.Get("X-Slack-Signature"),
+			r.Header.Get("X-Slack-Request-Timestamp"),
+			payload, time.Now().Unix())
+	case WebhookPlatformGithub:
+		return verifyGithubSignature(e.SigningSecret, r.Header.Get("X-Hub-Signature-256"), payload)
+	}
+	return true
+}
+
+func judgeWebhookGate(e *WebhookEndpoint, r *http.Request, payload []byte, verified bool) webhookGate {
+	if e.Status != WebhookStatusEnabled {
+		return webhookGate{drop: WebhookDropReasonDisabled}
+	}
+	switch e.Platform {
+	case WebhookPlatformSlack:
+		if challenge, ok := slackURLVerificationChallenge(payload); ok {
+			return webhookGate{challenge: challenge}
+		}
+		if !verified {
+			return webhookGate{drop: WebhookDropReasonSigFailed}
+		}
+	case WebhookPlatformGithub:
+		if !verified {
+			return webhookGate{drop: WebhookDropReasonSigFailed}
+		}
+		if r.Header.Get("X-GitHub-Event") == "ping" {
+			return webhookGate{ping: true}
+		}
+	}
+	// 🔴 THE INLET'S DOOR IS THE CHAT DOOR: resolveChatRecipientOn decides who may
+	// receive (ACTIVE, staff or outsource), so no separate rule belongs here —
+	// 「請不要再製造分岔」(owner). wireOwnerID is refused first: it is a legal chat
+	// address but never a member row, so it can only come from corrupt data on
+	// the one UNAUTHENTICATED surface.
+	if e.MemberID == wireOwnerID {
+		return webhookGate{drop: WebhookDropReasonMemberGone}
+	}
+	return webhookGate{}
+}
+
+// webhookRecipientOn answers the endpoint's chat recipient, or gone.
+func webhookRecipientOn(q sqlRowQuerier, e *WebhookEndpoint) (recipient string, gone bool, err error) {
+	recipient, err = resolveChatRecipientOn(q, e.MemberID)
+	if errors.Is(err, errNotFound) {
+		return "", true, nil
+	}
+	return recipient, false, err
+}
+
+// webhookAnswerWithoutWrites is the answer the endpoint as first read gives,
+// with nothing recorded.
+func (s *apiServer) webhookAnswerWithoutWrites(e *WebhookEndpoint, r *http.Request, payload []byte, verified bool) (webhookInletAnswer, error) {
+	gate := judgeWebhookGate(e, r, payload, verified)
+	if gate.drop != "" || gate.challenge != "" || gate.ping {
+		return webhookInletAnswer{decided: true, challenge: gate.challenge}, nil
+	}
+	_, gone, err := webhookRecipientOn(s.dal.rdb, e)
+	return webhookInletAnswer{decided: gone}, err
+}
+
 // receiveWebhookOn decides and records one inlet request on the caller's
 // transaction. The counters and the request log stay best-effort (their
 // errors are dropped; a failed statement does not end the transaction); only
 // the delivered chat row is fatal.
-func receiveWebhookOn(tx *writeTx, e *WebhookEndpoint, r *http.Request, payload []byte, receivedTS float64) (webhookInletAnswer, error) {
+func receiveWebhookOn(tx *writeTx, e *WebhookEndpoint, r *http.Request, payload []byte, verified bool, receivedTS float64) (webhookInletAnswer, error) {
 	if e == nil {
 		return webhookInletAnswer{decided: true}, nil
 	}
@@ -336,50 +423,25 @@ func receiveWebhookOn(tx *writeTx, e *WebhookEndpoint, r *http.Request, payload 
 		logWebhookRequestOn(tx, e.Token, r, payload, webhookOutcomeDroppedPrefix+reason, receivedTS)
 		return webhookInletAnswer{decided: true}, nil
 	}
-	if e.Status != WebhookStatusEnabled {
-		return drop(WebhookDropReasonDisabled)
+	gate := judgeWebhookGate(e, r, payload, verified)
+	switch {
+	case gate.drop != "":
+		return drop(gate.drop)
+	case gate.challenge != "":
+		_ = touchWebhookReceivedOn(tx, e.Token, receivedTS)
+		logWebhookRequestOn(tx, e.Token, r, payload, webhookOutcomeChallenge, receivedTS)
+		return webhookInletAnswer{decided: true, challenge: gate.challenge}, nil
+	case gate.ping:
+		_ = touchWebhookReceivedOn(tx, e.Token, receivedTS)
+		logWebhookRequestOn(tx, e.Token, r, payload, webhookOutcomePing, receivedTS)
+		return webhookInletAnswer{decided: true}, nil
 	}
-	// Verification runs on the SAME raw bytes read above, never after a JSON
-	// decode. Only Slack's url_verification handshake answers a distinct body —
-	// Slack needs the challenge echoed to activate the subscription.
-	switch e.Platform {
-	case WebhookPlatformSlack:
-		if challenge, ok := slackURLVerificationChallenge(payload); ok {
-			_ = touchWebhookReceivedOn(tx, e.Token, receivedTS)
-			logWebhookRequestOn(tx, e.Token, r, payload, webhookOutcomeChallenge, receivedTS)
-			return webhookInletAnswer{decided: true, challenge: challenge}, nil
-		}
-		if !verifySlackSignature(e.SigningSecret,
-			r.Header.Get("X-Slack-Signature"),
-			r.Header.Get("X-Slack-Request-Timestamp"),
-			payload, time.Now().Unix()) {
-			return drop(WebhookDropReasonSigFailed)
-		}
-	case WebhookPlatformGithub:
-		if !verifyGithubSignature(e.SigningSecret,
-			r.Header.Get("X-Hub-Signature-256"), payload) {
-			return drop(WebhookDropReasonSigFailed)
-		}
-		if r.Header.Get("X-GitHub-Event") == "ping" {
-			_ = touchWebhookReceivedOn(tx, e.Token, receivedTS)
-			logWebhookRequestOn(tx, e.Token, r, payload, webhookOutcomePing, receivedTS)
-			return webhookInletAnswer{decided: true}, nil
-		}
-	}
-	// 🔴 THE INLET'S DOOR IS THE CHAT DOOR: resolveChatRecipientOn already decides
-	// who may receive (ACTIVE, staff or outsource), so no separate rule belongs
-	// here — 「請不要再製造分岔」(owner). wireOwnerID is refused first: it is a
-	// legal chat address but never a member row, so it can only come from corrupt
-	// data on the one UNAUTHENTICATED surface.
-	if e.MemberID == wireOwnerID {
-		return drop(WebhookDropReasonMemberGone)
-	}
-	recipientID, err := resolveChatRecipientOn(tx, e.MemberID)
-	if errors.Is(err, errNotFound) {
-		return drop(WebhookDropReasonMemberGone)
-	}
+	recipientID, gone, err := webhookRecipientOn(tx, e)
 	if err != nil {
 		return webhookInletAnswer{}, err
+	}
+	if gone {
+		return drop(WebhookDropReasonMemberGone)
 	}
 	msg := ChatMessage{
 		ID:        "c-" + newHexID(12),
