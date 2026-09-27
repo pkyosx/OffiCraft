@@ -1,31 +1,15 @@
 package main
 
-// api_diff.go — a comparison is a URL (T-59).
-//
-// It used to be an ATTACHMENT: a `application/vnd.officraft.diff` blob holding
-// the two addresses, hung on a chat message, a reply card or a task artifact.
-// That is gone. Two addresses are not a file, and storing them as one bought a
-// blob id, three carrier surfaces and a mime nobody could read, for something a
-// link expresses directly.
-//
-// TWO FLAVOURS OF THE SAME URL, and the difference is exactly one query
-// parameter:
+// api_diff.go — a comparison is a URL, in two flavours:
 //
 //	internal   /diff?before=…&after=…              — a signed-in reader
 //	external   /diff?before=…&after=…&sig=…        — no login at all
 //
-// The internal one needs no minting: it is a pure function of the two
-// addresses, which is why `ocagent diff` prints it without asking the server
-// anything. The external one is minted here (GET /api/diff/share-link),
-// mirroring the attachment share link in shape, naming and posture — the server
-// mints a SERVER-RELATIVE path and the caller prefixes its own origin.
-//
-// No expiry and no per-link revocation, on the owner's explicit ruling and
-// matching the attachment share link — including the one thing that DOES end
-// one: the sig is derived from whichever signing key minted it, so removing
-// that key from the ring (keyring.go) voids every comparison link it signed at
-// the same instant it voids that key's tokens and file links. Coarse, and a
-// person's decision, never a timer's.
+// The internal one is a pure function of the two addresses (`ocagent diff`
+// prints it without asking the server). The external one is minted by GET
+// /api/diff/share-link as a SERVER-RELATIVE path. No expiry and no per-link
+// revocation (owner ruling): removing the minting key from the ring
+// (keyring.go) voids every comparison link it signed.
 
 import (
 	"net/http"
@@ -33,14 +17,9 @@ import (
 	"strconv"
 )
 
-// The page the two flavours point at, and the parameter names both flavours and
-// the data route spell them with.
-//
-// ⚠️ `cli/ocagent/diff.go` builds the INTERNAL url from these same five
-// spellings and cannot import them (separate Go module); its mirror test
-// confronts its copy against THIS file's source. Renaming anything here without
-// renaming it there reddens that test rather than silently shipping a link the
-// cockpit cannot read.
+// ⚠️ cli/ocagent/diff.go builds the internal url from these same spellings
+// and cannot import them (separate Go module); its mirror test confronts its
+// copy against THIS file's source.
 const (
 	diffPagePath        = "/diff"
 	diffParamBefore     = "before"
@@ -50,10 +29,6 @@ const (
 	diffParamSig        = "sig"
 )
 
-// diffPageQuery builds the page URL's query. Empty labels are LEFT OUT rather
-// than sent blank — an absent label and a blank one mean the same thing to the
-// reader, and the signature covers the canonical four-field form either way, so
-// the two cannot come apart.
 func diffPageQuery(before, after, labelBefore, labelAfter, sig string) string {
 	q := url.Values{diffParamBefore: {before}, diffParamAfter: {after}}
 	for name, value := range map[string]string{
@@ -68,10 +43,8 @@ func diffPageQuery(before, after, labelBefore, labelAfter, sig string) string {
 	return q.Encode()
 }
 
-// optString reads an optional query parameter WITHOUT trimming it. Trimming
-// would judge a string the reader never sees: a padded address is one nothing
-// can resolve, and silently accepting it splits "it was accepted" from "it will
-// draw".
+// optString never trims: a padded address resolves to nothing, so trimming
+// would accept what can never draw.
 func optString(p *string) string {
 	if p == nil {
 		return ""
@@ -79,10 +52,6 @@ func optString(p *string) string {
 	return *p
 }
 
-// GET /api/diff/share-link — mint the EXTERNAL link for one comparison. Twin of
-// HandleGetChatAttachmentShareLink…: same gate, same server-relative posture, a
-// different (domain-separated) label over the SAME ring key — so it signs under
-// whichever key signs now, and dies with that key.
 func (s *apiServer) HandleGetDiffShareLinkApiDiffShareLinkGet(
 	w http.ResponseWriter, r *http.Request, params HandleGetDiffShareLinkApiDiffShareLinkGetParams,
 ) {
@@ -96,13 +65,9 @@ func (s *apiServer) HandleGetDiffShareLinkApiDiffShareLinkGet(
 	})
 }
 
-// GET /api/diff — resolve BOTH sides in one answer.
-//
-// The pair is one request on purpose: the sig signs exactly what one request
-// returns, so a recipient cannot swap one address or relabel one column and
-// still hold a server-minted signature. The unauthenticated path is NOT wired
-// here — it is shareSigGate (server.go) on this row's RouteSpec, the same third
-// auth path the attachment blob GET uses.
+// Both sides in ONE request on purpose: the sig signs exactly what one
+// request returns. The unauthenticated path is shareSigGate (server.go) on
+// this row's RouteSpec, not code here.
 func (s *apiServer) HandleGetDiffApiDiffGet(
 	w http.ResponseWriter, r *http.Request, params HandleGetDiffApiDiffGetParams,
 ) {
@@ -114,9 +79,8 @@ func (s *apiServer) HandleGetDiffApiDiffGet(
 	writeJSON(w, http.StatusOK, DiffPairDTO{Before: before, After: after})
 }
 
-// diffSidesSayable judges the SHAPE of both sides before anything is read, and
-// writes the 422 itself. Shape only: whether an address still resolves is a
-// read-time fact answered by the side's `gone` marker, never by a refusal.
+// Shape only: whether an address still resolves is a read-time fact (the
+// side's `gone` marker), never a refusal.
 func diffSidesSayable(w http.ResponseWriter, before, after string) bool {
 	for _, side := range []struct{ name, raw string }{{"before", before}, {"after", after}} {
 		if _, msg := parseDiffSide(side.raw); msg != "" {
@@ -127,16 +91,13 @@ func diffSidesSayable(w http.ResponseWriter, before, after string) bool {
 	return true
 }
 
-// resolveDiffSide turns one address into the column the reader draws. It never
-// fails: an address that names nothing is that side's honest "this side is
-// gone", and the OTHER side still draws.
 func (s *apiServer) resolveDiffSide(raw, label string) DiffSideDTO {
 	dto := DiffSideDTO{Address: raw}
 	if label != "" {
 		dto.Label = &label
 	}
 	side, msg := parseDiffSide(raw)
-	if msg != "" { // unreachable: diffSidesSayable ran first. Fail closed anyway.
+	if msg != "" {
 		return diffGone(dto, msg)
 	}
 	if side.Doc == nil {
@@ -173,13 +134,9 @@ func diffGone(dto DiffSideDTO, reason string) DiffSideDTO {
 	return dto
 }
 
-// diffDocContent answers one document address as the SAME field map a retained
-// revision carries — which is what lets one reader compare any two of the three
-// points in time against each other.
-//
-// The second return is "this address names something". False is not an error:
-// a pruned revision, a document that ships no default, a kind this station does
-// not serve — all of them are the reader's honest "this side is gone".
+// diffDocContent answers in the SAME field map a retained revision carries,
+// so any two points in time are comparable. false = "this side is gone", not
+// an error.
 func (s *apiServer) diffDocContent(addr diffDocAddress) (map[string]string, bool, error) {
 	switch addr.At {
 	case diffAtSeed:
@@ -187,11 +144,8 @@ func (s *apiServer) diffDocContent(addr diffDocAddress) (map[string]string, bool
 	case diffAtCurrent:
 		return s.currentDocumentContent(addr.Kind, addr.Key)
 	}
-	// REACHABLE, despite diffAtRevision having matched: that pattern allows up
-	// to 19 digits and an int64 stops short of the largest of them, so
-	// "9999999999999999999" is a sayable address that does not parse. The
-	// honest answer is the same one a pruned revision gets — this side is gone
-	// — never an error about a number the reader did not know was one.
+	// Reachable: diffAtRevision allows up to 19 digits, past int64, so an
+	// unparseable id is "gone" like a pruned revision.
 	id, err := strconv.ParseInt(addr.At, 10, 64)
 	if err != nil {
 		return nil, false, nil
@@ -207,20 +161,10 @@ func (s *apiServer) diffDocContent(addr diffDocAddress) (map[string]string, bool
 	return content, true, nil
 }
 
-// currentDocumentContent reads the LIVE content of one editable document in the
-// field names its retained revisions carry.
-//
-// 🔴 THIS IS NOT THE SNAPSHOT FUNCTIONS. The `*SnapshotIn` readers in
-// api_document_history.go read the OVERLAY row, so a document nobody has edited
-// answers EMPTY there while every live reader answers the seed. A `current`
-// side has to say what the document actually holds, so it goes through the same
-// FOLDS the read routes use.
-//
-// It is a kind switch, and so are its two neighbours (documentSeedContent,
-// restoreDocumentHistory). Deliberately NOT a fourth enumeration written in
-// prose: a kind this switch does not carry answers "this side is gone", which
-// is the same sentence a pruned revision gets, rather than an error nobody can
-// act on.
+// 🔴 Not the `*SnapshotIn` readers (api_document_history.go): those read the
+// OVERLAY row and answer EMPTY for a never-edited document. A `current` side
+// goes through the same FOLDS the read routes use. documentSeedContent and
+// restoreDocumentHistory are the same kind switch.
 func (s *apiServer) currentDocumentContent(kind, key string) (map[string]string, bool, error) {
 	one := func(field, text string, err error) (map[string]string, bool, error) {
 		if err != nil {
@@ -230,10 +174,6 @@ func (s *apiServer) currentDocumentContent(kind, key string) (map[string]string,
 	}
 	switch kind {
 	case "global_context":
-		// The one singleton. Refusing any other key keeps this face honest with
-		// the other two: `/seed` and a revision id both miss on a wrong key, and
-		// silently answering about the real document would make a wrong address
-		// look like a right one.
 		if key != "global" {
 			return nil, false, nil
 		}
@@ -266,8 +206,8 @@ func (s *apiServer) currentDocumentContent(kind, key string) (map[string]string,
 		if err != nil || folded == nil {
 			return nil, false, err
 		}
-		// `text`, the WHOLE stored document — the same half bootDocHistorySnapshot
-		// retains, so a `current` side and a revision side are comparable.
+		// `text`, the WHOLE stored document — the same half
+		// bootDocHistorySnapshot retains.
 		return one("text", folded.Text, nil)
 	case docKindTaskManualSop:
 		manual, err := s.dal.GetTaskManual(key)

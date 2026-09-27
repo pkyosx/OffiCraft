@@ -1,26 +1,18 @@
 package main
 
-// account_display.go — the ONE readable-name fold for raw Claude account keys
-// (credential hash / oauth uid-org), shared by the monitoring fold
-// (api_monitoring.go) and the outsource worker projection (api_outsource.go /
-// wire.go). T-ba6b: the worker DTO used to serve the raw telemetry key
-// verbatim, so the 外包 detail panel showed credential hashes; both surfaces
-// now resolve through the same precedence chain.
+// account_display.go — the ONE readable-name fold for raw Claude account keys,
+// shared by the monitoring fold (api_monitoring.go) and the outsource worker
+// projection (api_outsource.go / wire.go), so neither serves a raw credential
+// hash.
 
 import "net/http"
 
-// accountRuntimeKey is an internal provenance stamp paired with a telemetry
-// account key. It is deliberately not part of any API DTO: account identity is
-// runtime-specific, while the rest of telemetry remains one shared fold.
+// accountRuntimeKey is an internal provenance stamp, deliberately in no API
+// DTO: account identity is runtime-specific.
 const accountRuntimeKey = "account_runtime"
 
-// accountLabelOverlay folds the freshest reporter-supplied `account_label`
-// (oauthAccount email/org — T-260e) per account key across EVERY telemetry
-// entry — members and outsource workers alike (the pre-T-ba6b fold scanned
-// only roster members, so an account reported by a worker-only session never
-// picked up its label — recon §6-4/§6-6). PRIVACY GATE: the label is PII and
-// OWNER-FACING ONLY — callers must pass isOwner=false for any non-owner
-// caller, and the overlay then stays empty so every fold degrades honestly.
+// accountLabelOverlay: the label is PII and OWNER-FACING ONLY — non-owner
+// callers get an empty overlay.
 func accountLabelOverlay(telemetry map[string]map[string]any, isOwner bool) map[string]string {
 	labels := map[string]string{}
 	if !isOwner {
@@ -42,19 +34,10 @@ func accountLabelOverlay(telemetry map[string]map[string]any, isOwner bool) map[
 	return labels
 }
 
-// telemetryAccount returns the account key only when it belongs to the actor's
-// current runtime. This is the sole runtime-aware decision in the account READ
-// path: acquisition differs (Codex obtains a ChatGPT key; Claude obtains its
-// OAuth key), but telemetry ingestion, folding, display resolution, and both
-// UI wires share this accessor.
-//
-// The provenance stamp is the ONLY admissible proof, and it is written by
-// applyAccountReport in the same partial-merge as the key itself. There is
-// deliberately NO fallback to the entry's ordinary `runtime` field: that field
-// is mutated by every later heartbeat, so reading it would let an account whose
-// own provenance is missing silently inherit whichever runtime reported last —
-// exactly the "account borrowed from some older runtime" bug this path exists
-// to prevent. Unstamped ⇒ unproven ⇒ empty for BOTH runtimes.
+// telemetryAccount: the provenance stamp is the ONLY admissible proof. No
+// fallback to the entry's ordinary `runtime` field — every later heartbeat
+// mutates it, so an unstamped account would inherit whichever runtime reported
+// last. Unstamped ⇒ empty for both runtimes.
 func telemetryAccount(entry map[string]any, actorRuntime string) string {
 	account, _ := entry["account"].(string)
 	if account == "" {
@@ -67,38 +50,22 @@ func telemetryAccount(entry map[string]any, actorRuntime string) string {
 	return account
 }
 
-// clearAccountPairing retires the WHOLE account unit — key, provenance stamp
-// and reporter label — from a telemetry entry. Partial removal is never right:
-// a surviving key with no stamp is unreadable anyway, and a surviving label
-// would outlive the key it describes.
 func clearAccountPairing(entry map[string]any) {
 	delete(entry, "account")
 	delete(entry, accountRuntimeKey)
 	delete(entry, "account_label")
 }
 
-// applyAccountReport merges one report's account facts into the actor's durable
-// (in-memory, partial-merge) telemetry entry. It is the single writer of the
-// account unit, so the key and its provenance can never drift apart across the
-// REAL sequence of reports — not merely in the happy path. Three fail-closed
-// rules:
+// applyAccountReport is the single writer of the account unit:
+//  1. a runtime that disagrees with the stored stamp retires the old pairing
+//     first (the member row's runtime can lag a live switch by a reconcile);
+//  2. an account reported WITHOUT a runtime is unprovable: not stored, and it
+//     clears the standing pairing (leaving it let a later heartbeat be served
+//     an older runtime's key);
+//  3. only an account WITH a runtime writes a new pairing.
 //
-//  1. a report whose runtime disagrees with the stored stamp RETIRES the stored
-//     pairing before anything else: that key belonged to the runtime the actor
-//     has just left, so it must not survive to be served under the new one
-//     (the member row's runtime can lag a live switch by a whole reconcile);
-//  2. an account reported WITHOUT a runtime is unprovable — it is neither
-//     stored NOR allowed to leave the previous pairing standing. Leaving it
-//     standing is what let a later runtime-only heartbeat be served an older
-//     runtime's key;
-//  3. only an account reported WITH a runtime writes a new pairing, and the
-//     reporter label rides along with it (label alone, on a proven report,
-//     still attaches to the standing key — that is the T-260e overlay).
-//
-// Every shipped reporter already sends `runtime` alongside `account`
-// (cli/ocagent contextreport.go always sets it; cli/ocwarden codex_session.go
-// posts runtime+account together), so rule 2 costs nothing in practice and
-// self-heals on the next report.
+// Every shipped reporter sends `runtime` with `account` (cli/ocagent
+// contextreport.go, cli/ocwarden codex_session.go), so rule 2 costs nothing.
 func applyAccountReport(entry map[string]any, rawAccount, rawLabel any, runtime *string) {
 	account, _ := rawAccount.(string)
 	label, _ := rawLabel.(string)
@@ -119,27 +86,16 @@ func applyAccountReport(entry map[string]any, rawAccount, rawLabel any, runtime 
 		entry["account"] = account
 		entry[accountRuntimeKey] = NormalizeRuntime(*runtime)
 	}
-	// account_label (T-260e): the reporter's human-readable label for the
-	// account key (oauthAccount email/org — PII). Folded into the entry for the
-	// OWNER-FACING monitoring fold only; it is never echoed on the
-	// agent-readable ingest response and never joins the stable key.
 	if label != "" {
 		entry["account_label"] = label
 	}
 }
 
-// resolveAccountDisplay maps a raw account key to its human-readable name:
-// ① the owner's hand-set alias (accounts table) — highest precedence, never
-//
-//	overwritten by a reported label, visible to every caller rank;
-//
-// ② the reported account_label overlay (empty for non-owner callers);
-// ③ nothing readable → "" — the caller picks its own honest fallback. The
-//
-//	worker projection and the monitoring session row serve the empty string
-//	(the panel renders a bare dash — NEVER the raw credential hash); only the
-//	monitoring ACCOUNTS row falls back to the raw stable key, because that
-//	row is the aliasing surface where the key itself is the information.
+// resolveAccountDisplay: ① the owner's alias (accounts table), visible to
+// every caller; ② the reported label overlay; ③ "" — the caller picks its
+// fallback. The worker projection and the monitoring session row serve "" (a
+// dash, NEVER the raw hash); only the monitoring ACCOUNTS row falls back to the
+// raw key, because that row is where aliases are set.
 func resolveAccountDisplay(aliases, labels map[string]string, raw string) string {
 	if name := aliases[raw]; name != "" {
 		return name
@@ -150,10 +106,8 @@ func resolveAccountDisplay(aliases, labels map[string]string, raw string) string
 	return ""
 }
 
-// accountDisplayFold builds the per-request raw→readable resolver over the
-// given telemetry snapshot (pass the SAME snapshot the handler already took,
-// so the overlay and the fold read one consistent view). The label overlay is
-// owner-gated by the caller's verified principal.
+// accountDisplayFold: pass the SAME telemetry snapshot the handler already took,
+// so the overlay and the fold read one consistent view.
 func (s *apiServer) accountDisplayFold(
 	r *http.Request, telemetry map[string]map[string]any,
 ) (func(string) string, error) {

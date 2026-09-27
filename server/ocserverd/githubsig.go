@@ -1,14 +1,8 @@
 package main
 
-// githubsig.go — GitHub signed-webhook verification for the PUBLIC /in inlet
-// (platform == "github").
-//
-// GitHub signs each webhook delivery with an HMAC-SHA256 over the EXACT raw
-// request body keyed by the secret configured on the webhook, sent as
-// `X-Hub-Signature-256: sha256=<hex>`. We recompute the MAC over the same raw
-// bytes and compare in constant time (crypto/hmac.Equal) — same discipline as
-// sharesig.go / slacksig.go. (GitHub also sends a legacy SHA-1
-// X-Hub-Signature; we verify the SHA-256 header only, per current guidance.)
+// The MAC is over the EXACT raw request body. Only the SHA-256 header is
+// verified; GitHub's legacy SHA-1 X-Hub-Signature is ignored per current
+// guidance.
 
 import (
 	"crypto/hmac"
@@ -16,9 +10,6 @@ import (
 	"encoding/hex"
 )
 
-// verifyGithubSignature reports whether xHubSignature256 is a valid GitHub
-// sha256 signature for rawBody under secret. Missing inputs or a MAC mismatch →
-// false. Constant-time compare (hmac.Equal).
 func verifyGithubSignature(secret, xHubSignature256 string, rawBody []byte) bool {
 	if secret == "" || xHubSignature256 == "" {
 		return false

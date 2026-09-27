@@ -1,59 +1,23 @@
 package main
 
-// upgrade.go — the upgrade EXECUTION body behind POST /api/update/upgrade.
-// Source of truth: GitHub Releases on pkyosx/OffiCraft (the retired
-// ocupdaterd chain's replacement, t-dc68) — the same seven-step verified
-// swap, with the download side re-pointed at release assets.
+// upgrade.go — the upgrade body behind POST /api/update/upgrade and the armed
+// auto-update cadence (auto_update.go). Source of truth: GitHub Releases; the
+// expected sha256 comes from the release's checksums.txt (bin/release
+// publishes it beside the tarball). Everything fallible runs synchronously in
+// the request, and the old binary is untouched until the candidate is
+// verified and smoke-tested. Staging files sit in the running binary's own
+// directory so the final rename is atomic (same filesystem).
 //
-// Shape of one upgrade (everything fallible runs SYNCHRONOUSLY in the
-// request, so the owner's click gets a real answer, not a fire-and-forget):
+// Exactly ONE <exe>.bak is kept, overwritten by each successful upgrade and
+// never auto-deleted: it IS the manual rollback (stop the server, `mv
+// ocserverd.bak ocserverd`, start). Only the ocserverd binary is swapped
+// (SPA/seeds/warden/agent ride inside it as embeds); install.sh is not run.
 //
-//	1. re-fetch GitHub's release list (bounded) and pin the newest release
-//	   the followed channel admits AT TRIGGER TIME — never trusted from the
-//	   5-min cache. The expected digest comes from the release's own
-//	   checksums.txt asset (bin/release publishes it beside the tarball);
-//	2. download the officraft-<tag>-darwin-arm64.tar.gz asset (bounded)
-//	   into a temp file IN THE RUNNING BINARY'S OWN DIRECTORY (same
-//	   filesystem → the later rename is atomic), hashing while streaming;
-//	3. verify: the computed sha256 must equal the checksums.txt entry for
-//	   that exact asset name — any mismatch (or a checksums.txt without the
-//	   entry) aborts with an honest error and nothing on disk has changed;
-//	4. extract the `ocserverd` member from the verified tarball and
-//	   smoke-test it (`<tmp> --help` must exit 0) — a wrong-architecture or
-//	   truncated-yet-published artifact is caught HERE, while the old
-//	   binary is still untouched;
-//	5. back up the running binary to <exe>.bak (exactly ONE backup is kept:
-//	   each successful upgrade overwrites the previous .bak — that file IS
-//	   the manual rollback: stop the server, `mv ocserverd.bak ocserverd`,
-//	   start. No automatic GC: one stale ~25MB file beside the binary is a
-//	   cheap permanent escape hatch, so success does NOT delete it);
-//	6. atomically rename the verified binary over the exe path (a failure
-//	   here restores the .bak before answering, so the disk never ends up
-//	   binary-less);
-//	7. answer 200 {status:"restarting", target_version} — only now, with
-//	   the swap already landed — then, off the request path after a short
-//	   flush delay, re-exec the swapped path (syscall.Exec keeps the PID).
-//
-// NOTE the deliberately narrow scope: this in-place path swaps ONLY the
-// ocserverd binary (the single-file deploy artifact — SPA/seeds/warden/agent
-// all ride inside it as embeds). The release tarball's install.sh is the
-// full fresh-install path; it is not run here.
-//
-// WHY re-exec (and not exit-and-let-a-supervisor-restart): the two real
-// deployment forms are (a) the launchd LaunchAgent com.officraft.serve —
-// bin/serve `exec`s ocserverd, so this process IS the tracked job and exec
-// keeps its PID (launchd does not care; KeepAlive additionally covers an
-// exec that dies at boot), and (b) a manual `./ocserverd serve` foreground
-// run with NO supervisor at all — exiting there would turn "upgrade" into
-// "outage". Re-exec is the one mechanism that restarts correctly under both.
-// Go marks fds close-on-exec, so the old listener closes at exec and the new
-// image re-binds; SQLite recovers a mid-flight process image swap exactly
-// like a crash (WAL/busy_timeout).
-//
-// If the exec itself fails (should be impossible after the smoke test), the
-// OLD process keeps serving unharmed — the new binary is already verified
-// on disk, so the next restart (manual / launchd) comes up on it; the
-// failure is logged loudly instead of silently retried.
+// WHY re-exec, not exit-and-let-a-supervisor-restart: under launchd bin/serve
+// execs ocserverd, so exec keeps the tracked PID; a manual `./ocserverd
+// serve` has no supervisor, where exiting would turn "upgrade" into "outage".
+// If the exec fails, the OLD process keeps serving and the verified new
+// binary takes over on the next restart.
 
 import (
 	"archive/tar"
@@ -77,37 +41,29 @@ import (
 )
 
 const (
-	// upgradeDialTimeout bounds the TCP connect for every asset fetch, so a
-	// host that is gone still fails fast.
 	upgradeDialTimeout = 10 * time.Second
-	// upgradeTLSHandshakeTimeout bounds the TLS handshake that follows it.
+
 	upgradeTLSHandshakeTimeout = 10 * time.Second
-	// upgradeHeaderTimeout bounds the wait for the response headers once the
-	// request is sent — the phase that catches a server which accepted the
-	// connection and then said nothing.
+
 	upgradeHeaderTimeout = 30 * time.Second
-	// upgradeMaxBytes caps every download/extraction so a misbehaving release
-	// cannot fill the disk through this path.
+
 	upgradeMaxBytes = 256 << 20
-	// upgradeSmokeTimeout bounds the candidate's `--help` smoke run.
+
 	upgradeSmokeTimeout = 15 * time.Second
-	// upgradeRestartDelay is how long the post-response goroutine waits before
-	// re-exec'ing — long enough for the 200 to flush to the owner's browser.
+	// upgradeRestartDelay: long enough for the 200 to flush to the owner's
+	// browser before the re-exec.
 	upgradeRestartDelay = 750 * time.Millisecond
-	// checksumsAssetName is the digest manifest bin/release publishes beside
-	// the tarball (shasum -a 256 format).
+
 	checksumsAssetName = "checksums.txt"
-	// serverBinaryName is the tar member this path installs.
+
 	serverBinaryName = "ocserverd"
 )
 
-// releaseAssetName is the platform tarball bin/release packages for a tag.
+// releaseAssetName must match the tarball name bin/release packages.
 func releaseAssetName(tag string) string {
 	return "officraft-" + tag + "-darwin-arm64.tar.gz"
 }
 
-// upgradeFailure carries an HTTP status alongside the message so
-// executeUpgrade's callers can answer the honest envelope directly.
 type upgradeFailure struct {
 	status  int
 	message string
@@ -119,10 +75,8 @@ func upgradeFail(status int, format string, args ...any) *upgradeFailure {
 	return &upgradeFailure{status: status, message: fmt.Sprintf(format, args...)}
 }
 
-// pinUpgradeRelease pins the release to install AT TRIGGER TIME on the
-// followed channel: the cached check (update_check.go) is only the
-// precondition gate — the release the swap verifies against must come from a
-// fresh authoritative read.
+// Pinned by a fresh read at trigger time: the cached check (update_check.go)
+// is only the precondition gate.
 func (s *apiServer) pinUpgradeRelease() (githubRelease, *upgradeFailure) {
 	rel, none, err := fetchLatestOffiCraftRelease(s.releaseAPIBaseURL(), s.receiveBetaEnabled())
 	if err != nil {
@@ -136,7 +90,6 @@ func (s *apiServer) pinUpgradeRelease() (githubRelease, *upgradeFailure) {
 	return rel, nil
 }
 
-// findReleaseAsset resolves one named asset on the pinned release.
 func findReleaseAsset(rel githubRelease, name string) (githubReleaseAsset, *upgradeFailure) {
 	for _, a := range rel.Assets {
 		if a.Name == name {
@@ -148,8 +101,7 @@ func findReleaseAsset(rel githubRelease, name string) (githubReleaseAsset, *upgr
 		rel.TagName, name)
 }
 
-// httpGetAsset performs one bounded anonymous GET (redirect-following — the
-// browser_download_url redirects to GitHub's CDN).
+// Redirects must be followed: browser_download_url redirects to GitHub's CDN.
 func httpGetAsset(url string, budget time.Duration) (*http.Response, *upgradeFailure) {
 	ctx, cancel := context.WithTimeout(context.Background(), budget)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
@@ -173,32 +125,15 @@ func httpGetAsset(url string, budget time.Duration) (*http.Response, *upgradeFai
 	return resp, nil
 }
 
-// upgradeStallTimeout bounds how long the asset body may go WITHOUT delivering
-// a single byte. It replaces a wall-clock ceiling on the whole request, which
-// cut downloads that were slow but making steady progress: on 2026-09-14 the
-// 20MB release asset over a ~200KB/s link needed around 108s on average, which
-// left no headroom under the 120s ceiling, and auto-upgrades repeatedly failed
-// mid-stream. Progress, not elapsed time, is what separates a slow link from a
-// dead one, and this bound does not tighten as the release grows.
+// upgradeStallTimeout bounds SILENCE, not elapsed time: a wall-clock ceiling
+// cut slow-but-progressing downloads (2026-09-14: the 20MB asset at ~200KB/s
+// needed ~108s against a 120s ceiling).
 const upgradeStallTimeout = 60 * time.Second
 
-// upgradeMetaBudget bounds the checksums.txt fetch end to end. That asset is
-// read through a 1MB LimitReader and runs a few hundred bytes, so the reason
-// the tarball may not carry a wall-clock ceiling — a multi-megabyte body on a
-// slow link — does not apply to it at all. Dropping its ceiling would have been
-// a regression that bought nothing.
-//
-// upgradeBodyBudget is the tarball's BACKSTOP, not a throughput requirement.
-// The stall guard below is what catches a dead stream, and it catches it in a
-// minute; this exists only for the case the stall guard cannot see — a source
-// that keeps dribbling just fast enough to look alive. runUpgrade holds its
-// lock for the whole upgrade, so an unbounded one of those means the machine
-// silently never upgrades again.
-//
-// ⚠️ Honest limit: unlike the stall bound, this one DOES tighten as the release
-// grows. At today's ~20MB asset it is an ~11KB/s floor; at upgradeMaxBytes it
-// is ~149KB/s, which must stay under the 2026-09-14 link's ~198KB/s —
-// TestUpgradeShippedBounds holds it there.
+// upgradeBodyBudget is the tarball's BACKSTOP for a source that dribbles just
+// fast enough to beat the stall guard. Unlike the stall bound it tightens as
+// the release grows: TestUpgradeShippedBounds keeps upgradeMaxBytes over this
+// budget under the 2026-09-14 link's ~198KB/s.
 const (
 	upgradeMetaBudget = 2 * time.Minute
 	upgradeBodyBudget = 30 * time.Minute
@@ -206,41 +141,31 @@ const (
 
 var upgradeDialer = &net.Dialer{Timeout: upgradeDialTimeout}
 
-// upgradeAssetSharedClient is built ONCE. A client per call would leave an
-// orphan Transport behind on every upgrade, each holding idle connections and
-// their read loops until the far end hung up.
+// Built ONCE: a client per call would leave an orphan Transport (idle
+// connections and their read loops) behind on every upgrade.
 var upgradeAssetSharedClient = &http.Client{
-	// Deliberately 0: the per-call budget rides on the request context instead,
-	// so the tiny metadata fetch and the multi-megabyte body can be bounded
-	// differently. A single client-wide ceiling cannot tell them apart — that
-	// is what broke the upgrade on 2026-09-14.
+	// Deliberately 0: per-call budgets ride the request context, so the tiny
+	// metadata fetch and the multi-megabyte body are bounded differently.
 	Timeout: 0,
 	Transport: &http.Transport{
 		Proxy:                 http.ProxyFromEnvironment,
 		DialContext:           upgradeDialer.DialContext,
 		TLSHandshakeTimeout:   upgradeTLSHandshakeTimeout,
 		ResponseHeaderTimeout: upgradeHeaderTimeout,
-		// A hand-rolled Transport that supplies DialContext does NOT negotiate
-		// HTTP/2 unless asked; http.DefaultTransport, which this path used
-		// before, does. Kept on so the swap changes no wire behaviour.
+		// A Transport that supplies DialContext does NOT negotiate HTTP/2
+		// unless asked (http.DefaultTransport does); kept on so the wire
+		// behaviour matches.
 		ForceAttemptHTTP2: true,
 		IdleConnTimeout:   90 * time.Second,
 	},
 }
 
-// upgradeAssetClient is the client every asset fetch uses. Connect, TLS and
-// response-header phases keep their own bounded timeouts so a dead host still
-// fails fast; the body is wrapped in a stall guard so a live host that stops
-// sending cannot wedge the upgrade. Same shape as ocagent's newStreamingClient
-// (cli/ocagent/download.go) and the SSE stream clients.
 func upgradeAssetClient() *http.Client { return upgradeAssetSharedClient }
 
-// stallGuard wraps an asset body and cancels the request when the stream stops
-// delivering bytes for `every`. Without it, dropping the request-wide timeout
-// would remove something the old ceiling was doing by accident: runUpgrade
-// holds a TryLock for the whole upgrade, so one download that connects, answers
-// its headers and then trickles nothing would hold that lock forever and the
-// machine would silently never upgrade again.
+// stallGuard cancels the request once the body delivers no bytes for `every`.
+// Without it, a download that answers its headers and then sends nothing
+// would hold runUpgrade's TryLock forever, and the machine would silently
+// never upgrade again.
 type stallGuard struct {
 	inner io.ReadCloser
 	timer *time.Timer
@@ -252,11 +177,6 @@ func newStallGuard(inner io.ReadCloser, stop context.CancelFunc, every time.Dura
 	return &stallGuard{inner: inner, timer: time.AfterFunc(every, stop), every: every, stop: stop}
 }
 
-// Read resets the deadline on every byte that ACTUALLY arrives — a (0, nil)
-// read is not progress and must not renew it. A slow but progressing stream
-// therefore renews itself indefinitely while a silent one does not. Note the
-// bound is on SILENCE, not on throughput: a source dribbling one byte just
-// under `every` never trips this, which is what upgradeBodyBudget is for.
 func (g *stallGuard) Read(p []byte) (int, error) {
 	n, err := g.inner.Read(p)
 	if n > 0 {
@@ -265,21 +185,15 @@ func (g *stallGuard) Read(p []byte) (int, error) {
 	return n, err
 }
 
-// Close stops the timer and releases the request context. This is the only
-// place that releases it EARLY: a caller that forgets to Close holds the
-// context and an armed timer until that fetch's own per-call budget expires.
-// Bounded, then — but for the tarball that bound is the long backstop, and
-// nothing says so: not the compiler, and not go vet, whose lostcancel check is
-// satisfied the moment the cancel is handed to another function.
+// Callers must Close: it is the only EARLY release of the request context,
+// and go vet's lostcancel check is satisfied the moment the cancel is handed
+// to another function.
 func (g *stallGuard) Close() error {
 	g.timer.Stop()
 	g.stop()
 	return g.inner.Close()
 }
 
-// fetchExpectedSHA downloads the release's checksums.txt and extracts the
-// sha256 recorded for assetName (shasum format: "<hex64>  <name>"; a leading
-// "*" on the name — binary mode — is tolerated).
 func fetchExpectedSHA(rel githubRelease, assetName string) (string, *upgradeFailure) {
 	sums, fail := findReleaseAsset(rel, checksumsAssetName)
 	if fail != nil {
@@ -316,9 +230,6 @@ func isLowerHex64(s string) bool {
 	return true
 }
 
-// upgradeTargetPath resolves the file to replace: the test seam when set,
-// else the running executable (symlinks resolved, so the REAL file is
-// swapped, not a link hop).
 func (s *apiServer) upgradeTargetPath() (string, error) {
 	if s.upgradeExeOverride != "" {
 		return s.upgradeExeOverride, nil
@@ -333,9 +244,6 @@ func (s *apiServer) upgradeTargetPath() (string, error) {
 	return exe, nil
 }
 
-// downloadUpgradeTarball streams the release tarball into a temp file in dir,
-// hashing while copying, and verifies the digest against the checksums.txt
-// entry. Returns the temp path; every failure removes the temp file itself.
 func downloadUpgradeTarball(asset githubReleaseAsset, expectedSHA, dir string) (string, *upgradeFailure) {
 	resp, fail := httpGetAsset(asset.BrowserDownloadURL, upgradeBodyBudget)
 	if fail != nil {
@@ -367,10 +275,6 @@ func downloadUpgradeTarball(asset githubReleaseAsset, expectedSHA, dir string) (
 	return tmpPath, nil
 }
 
-// extractServerBinary pulls the `ocserverd` member out of the verified
-// tarball into a temp file in dir (0755). The member may sit at any depth
-// (bin/release packages a flat tarball today; a wrapping directory tomorrow
-// must not break upgrades) — the basename is what identifies it.
 func extractServerBinary(tarPath, dir string) (string, *upgradeFailure) {
 	f, err := os.Open(tarPath)
 	if err != nil {
@@ -420,10 +324,6 @@ func extractServerBinary(tarPath, dir string) (string, *upgradeFailure) {
 	}
 }
 
-// smokeTestBinary runs `<candidate> --help` with a bounded timeout and
-// requires exit 0 — the cheapest possible "this artifact can at least start
-// on THIS machine" gate (wrong architecture, mach-o/ELF mixups, truncation
-// that survived a matching digest upload... all die here, pre-swap).
 func smokeTestBinary(path string) *upgradeFailure {
 	cmd := exec.Command(path, "--help")
 	cmd.Stdout, cmd.Stderr = io.Discard, io.Discard
@@ -448,20 +348,14 @@ func smokeTestBinary(path string) *upgradeFailure {
 	}
 }
 
-// executeUpgrade runs steps 1–6 (pin → checksums → download → verify →
-// extract → smoke → backup → swap). On success the NEW binary sits at exePath
-// and the OLD one at exePath+".bak"; on any failure the old binary is
-// untouched and still the one at exePath. Returns the pinned tag installed.
 func (s *apiServer) executeUpgrade() (string, *upgradeFailure) {
 	rel, fail := s.pinUpgradeRelease()
 	if fail != nil {
 		return "", fail
 	}
-	// The honesty gate re-runs against the PINNED release: the cache that
-	// enabled the button may be stale (e.g. the release was deleted since).
-	// The pinned tag must be STRICTLY NEWER than the running build (semver
-	// ordering, T-9374) — a lagging release list can therefore never turn an
-	// upgrade into a downgrade, on the auto-update path or any other.
+	// Re-check against the PINNED release (the cache may be stale): strictly
+	// newer, so a lagging release list can never turn an upgrade into a
+	// downgrade.
 	if !releaseIsNewer(rel.TagName, appVersion) {
 		return "", upgradeFail(http.StatusConflict,
 			"GitHub's current latest (%s) is not newer than the running build (%s) — nothing newer to install",
@@ -494,24 +388,18 @@ func (s *apiServer) executeUpgrade() (string, *upgradeFailure) {
 	if fail != nil {
 		return "", fail
 	}
-	defer os.Remove(tmpPath) // no-op after the success rename
+	defer os.Remove(tmpPath)
 
 	if fail := smokeTestBinary(tmpPath); fail != nil {
 		return "", fail
 	}
 
-	// Backup (the manual rollback path — see the file header's step 5 for the
-	// retention policy: exactly one .bak, overwritten per successful upgrade,
-	// never auto-deleted).
 	bakPath := exePath + ".bak"
 	if err := os.Rename(exePath, bakPath); err != nil {
 		return "", upgradeFail(http.StatusInternalServerError,
 			"cannot back up the running binary to %s — nothing was changed: %v", bakPath, err)
 	}
 	if err := os.Rename(tmpPath, exePath); err != nil {
-		// The disk must never end up binary-less: restore the backup before
-		// answering. (Same directory, same filesystem — this restore is the
-		// exact inverse of the rename that just succeeded.)
 		if restoreErr := os.Rename(bakPath, exePath); restoreErr != nil {
 			log.Printf("[upgrade] CRITICAL: swap failed (%v) AND restoring the backup failed (%v) — %s is missing; restore it manually from %s",
 				err, restoreErr, exePath, bakPath)
@@ -524,28 +412,14 @@ func (s *apiServer) executeUpgrade() (string, *upgradeFailure) {
 	return rel.TagName, nil
 }
 
-// restartIntoUpgradedBinary re-execs the swapped binary after a short flush
-// delay (step 7). syscall.Exec replaces THIS process image in place — same
-// PID (launchd keeps tracking it), same args, same env, same cwd — and Go's
-// close-on-exec fds free the listener for the new image to re-bind.
 func restartIntoUpgradedBinary(exePath string) {
 	time.Sleep(upgradeRestartDelay)
 	log.Printf("[upgrade] restarting: exec %s (argv %v)", exePath, os.Args)
 	if err := syscall.Exec(exePath, os.Args, os.Environ()); err != nil {
-		// Post-smoke-test this should be unreachable; the OLD process keeps
-		// serving unharmed and the verified new binary waits on disk for the
-		// next (manual / launchd) restart. Loud, no silent retry loop.
 		log.Printf("[upgrade] CRITICAL: exec of the upgraded binary failed (%v) — the OLD build keeps serving; the new binary is installed at %s and takes over on the next restart", err, exePath)
 	}
 }
 
-// runUpgrade is the SHARED trigger body behind both the owner's explicit
-// POST /api/update/upgrade and the armed auto-update cadence
-// (auto_update.go): the precondition gate (a newer release known) as an
-// honest 409-shaped failure, ONE upgrade at a time (TryLock — a concurrent
-// trigger answers 409, never a second swap), then the full verified
-// execution body. On success the swap has LANDED on disk and the caller owns
-// scheduling the re-exec (via scheduleUpgradeRestart).
 func (s *apiServer) runUpgrade() (version, exePath string, fail *upgradeFailure) {
 	available, _ := s.updateStatus()
 	if !available {
@@ -562,7 +436,7 @@ func (s *apiServer) runUpgrade() (version, exePath string, fail *upgradeFailure)
 		return "", "", fail
 	}
 	exePath, err := s.upgradeTargetPath()
-	if err != nil { // unreachable: executeUpgrade resolved the same path
+	if err != nil {
 		return "", "", upgradeFail(http.StatusInternalServerError, "%s", err.Error())
 	}
 	log.Printf("[upgrade] release %s verified and swapped into %s (backup: %s.bak); restarting in %v",
@@ -570,20 +444,15 @@ func (s *apiServer) runUpgrade() (version, exePath string, fail *upgradeFailure)
 	return version, exePath, nil
 }
 
-// scheduleUpgradeRestart fires the post-swap re-exec off the caller's path
-// (the test seam upgradeRestart captures it instead of exec'ing the test
-// process away).
 func (s *apiServer) scheduleUpgradeRestart(exePath string) {
 	restart := s.upgradeRestart
 	if restart == nil {
 		restart = restartIntoUpgradedBinary
 	}
-	// Mark before the re-exec delay begins. Existing SSE handlers then leave
-	// through their normal defer and can say station-shutdown instead of
-	// looking like peer disconnects. If the restart seam returns (including a
-	// failed syscall.Exec), clear the marker so the old process keeps serving
-	// honestly rather than leaving every future stream labelled as shutting
-	// down.
+	// Mark before the delay so live SSE handlers report station-shutdown
+	// rather than peer disconnects. If the restart seam returns (e.g. a
+	// failed syscall.Exec), clear it so the old process keeps serving
+	// honestly.
 	s.markStationShutdown()
 	go func() {
 		restart(exePath)
@@ -591,12 +460,6 @@ func (s *apiServer) scheduleUpgradeRestart(exePath string) {
 	}()
 }
 
-// POST /api/update/upgrade — owner-gated EXPLICIT upgrade trigger (the
-// software-update card's 升級 button; MCPExclude — agents can never call
-// it). Preconditions answer honest 409s; a valid trigger runs the full
-// execution body synchronously (see the file header) and only answers
-// 200 {status:"restarting"} once the verified swap has landed. The armed
-// auto-update cadence (auto_update.go) shares the same runUpgrade body.
 func (s *apiServer) HandleUpgradeApiUpdateUpgradePost(w http.ResponseWriter, r *http.Request) {
 	version, exePath, fail := s.runUpgrade()
 	if fail != nil {

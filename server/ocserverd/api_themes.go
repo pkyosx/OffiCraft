@@ -1,24 +1,8 @@
 package main
 
-// api_themes.go — T-83ef, the per-theme endpoints the custom_theme table was
-// created to make possible.
-//
-// WHAT THIS REPLACES, because it explains every choice below. Custom themes used
-// to live as ONE json array inside ONE settings value, which meant there was no
-// per-theme write at all: "save this theme" was spelled "re-send every theme,
-// including every embedded image". Here the unit is a row and the wire verb acts
-// on one id. `display.custom_themes` is gone from the settings face in this same
-// package, so this table is now the only truth on the wire — see the header of
-// dal_custom_themes.go for the retire-vs-double-write question and which way it
-// was answered.
-//
-// 🔴 THE VALIDATOR IS SHARED, NOT REIMPLEMENTED. Every rule that decided whether
-// a bundle was admissible through `PATCH /api/settings` decides it here too, via
-// validateThemeBundle — the single-bundle half of the same function the array
-// write uses (theme_bundle.go). Writing a second opinion about what a legal
-// theme is would be a second thing to drift; the two set-level rules that a
-// slice could answer and a single write cannot (the cap, and id uniqueness) are
-// answered against the TABLE below instead.
+// Admissibility is validateThemeBundle (theme_bundle.go), shared with the
+// settings array write — never a second copy here. The two set-level rules
+// (the cap, id uniqueness) are answered against the TABLE.
 
 import (
 	"encoding/json"
@@ -28,28 +12,11 @@ import (
 	"strconv"
 )
 
-// HandleListThemesApiThemesGet answers GET /api/themes — one line per saved
-// theme, in the owner's list order, carrying id and name and nothing else.
-//
-// 🔴 IT DOES NOT RETURN THE BUNDLES, AND THAT IS THE ENDPOINT'S REASON FOR
-// EXISTING IN THIS SHAPE (owner ruling 2026-08-18: the list needs the title and
-// the little the cockpit shows, nothing more). A theme carries its images
-// embedded — on the install this ticket moved, four themes come to 1.59 MB and
-// one of them is 953 KB by itself — so a list of whole bundles is the same
-// several-hundred-kilobyte answer that made GET /api/settings unusable. Serving
-// it again from a new path would have relocated the problem rather than fixed
-// it. id and name are exactly what ThemeSettings' list and the profile picker
-// render; applying, editing and exporting are all about ONE theme.
-//
-// ⚠️ HONEST LIMIT ON HOW MUCH THIS ACTUALLY SAVES. The RESPONSE is small; the
-// READ is not. ListCustomThemes still selects the bundle column, so those bytes
-// still come out of SQLite and through this process — what is avoided is
-// decoding them into maps and sending them over the wire. Making the read itself
-// cheap needs SQL-side extraction of the name, and that was NOT done on purpose:
-// it would make SQLITE's json_extract a second opinion about what a bundle's
-// name is, alongside Go's decoder, and the two do not agree on every input both
-// accept. This ticket has already paid for that lesson twice
-// (checkCustomThemeIDMatchesBundle). One decoder, larger read.
+// Returns {id, name} only, never bundles (owner ruling 2026-08-18): bundles
+// embed their images (four themes measured 1.59 MB). ListCustomThemes still
+// reads whole bundles on purpose: extracting the name in SQL would make
+// SQLite's json_extract a second opinion beside Go's decoder, and the two do
+// not agree on every input.
 func (s *apiServer) HandleListThemesApiThemesGet(w http.ResponseWriter, r *http.Request) {
 	rows, err := s.dal.ListCustomThemes()
 	if err != nil {
@@ -58,8 +25,6 @@ func (s *apiServer) HandleListThemesApiThemesGet(w http.ResponseWriter, r *http.
 	}
 	out := make([]themeListItemDTO, 0, len(rows))
 	for _, row := range rows {
-		// Decoded into a struct carrying only the two fields served: the images
-		// are in the raw text either way, but nothing builds a map of them.
 		var item struct {
 			ID   string `json:"id"`
 			Name string `json:"name"`
@@ -69,17 +34,13 @@ func (s *apiServer) HandleListThemesApiThemesGet(w http.ResponseWriter, r *http.
 				strconv.Quote(row.ID), err))
 			return
 		}
-		// row.ID is the KEY the theme is filed under and is what every other
-		// endpoint addresses it by; the bundle's own id is required to equal it on
-		// every write. Serving the key rather than the decoded field means a row
-		// that somehow disagreed still lists under the id that actually works.
+		// Serve the row KEY (what every endpoint addresses the theme by), not
+		// the bundle's own id.
 		out = append(out, themeListItemDTO{ID: row.ID, Name: item.Name})
 	}
 	writeJSON(w, http.StatusOK, out)
 }
 
-// HandleGetThemeApiThemesThemeIdGet answers GET /api/themes/{theme_id} — the
-// per-item read that makes "edit one theme" possible without pulling the set.
 func (s *apiServer) HandleGetThemeApiThemesThemeIdGet(w http.ResponseWriter, r *http.Request, themeID string) {
 	row, err := s.dal.GetCustomTheme(themeID)
 	if err != nil {
@@ -98,58 +59,29 @@ func (s *apiServer) HandleGetThemeApiThemesThemeIdGet(w http.ResponseWriter, r *
 	writeJSON(w, http.StatusOK, b)
 }
 
-// HandlePutThemeApiThemesThemeIdPut answers PUT /api/themes/{theme_id} — create
-// or replace ONE theme. This is the write the whole split exists to express.
-//
-// 🔴 THE PATH ID IS THE KEY AND THE BUNDLE MUST AGREE WITH IT — AND THAT IS
-// CHECKED IN EXACTLY ONE PLACE, WHICH IS NOT HERE. The refusal comes from
-// PutCustomTheme's checkCustomThemeIDMatchesBundle, which asks SQLITE what the
-// stored bytes say the id is; this handler maps its named error to a 422.
-//
-// An earlier draft of this function ALSO compared body.Id to themeID up front,
-// with a comment explaining that the two checks answer different questions
-// (decoded DTO vs stored bytes) and so both were needed. A mutant disproved it:
-// deleting the check here left every assertion green, and only deleting the DAL
-// check turned the test red. It was decorative, and on this path it could not be
-// anything else — the bytes handed to the DAL are marshalled FROM this DTO, so
-// the id SQLite reads is by construction the id Go decoded. The disagreements
-// that function was written for (duplicate keys, lone surrogates, numeric ids)
-// live on paths where the caller's raw text is stored, not this one.
-//
-// So: one authority, not two opinions. "Silently filed under the other id" — the
-// outcome worth preventing — is prevented by the check that a mutant can kill.
+// Path id / bundle id agreement is checked in exactly ONE place:
+// PutCustomTheme's checkCustomThemeIDMatchesBundle (mapped to 422 below). A
+// second check here was proven decorative by a mutant — the stored bytes are
+// marshalled from this DTO.
 func (s *apiServer) HandlePutThemeApiThemesThemeIdPut(w http.ResponseWriter, r *http.Request, themeID string) {
 	var body ThemeBundleDTO
 	if !decodeJSONBodyStrict(w, r, &body, "id", "name", "colors") {
 		return
 	}
-	// The wording overlay's unknown-code PRUNE is not done here: it lives inside
-	// validateWording, which the call below reaches, and it must stay there.
-	//
-	// 🔴 THIS USED TO PRUNE FIRST AND THAT WAS A HOLE — caught by the wording
-	// matrix ported from the settings test, which is the whole reason those
-	// assertions were moved rather than dropped. validateWording bounds a
-	// language's overlay by its RAW submitted entry count and only then drops the
-	// unrecognised codes. Pruning before it runs meant a caller could send any
-	// number of entries as long as they were unrecognised, and the cap — whose
-	// entire job is to bound what an untrusted caller can submit — passed a map
-	// that had already been emptied for it.
+	// Do not prune unknown wording codes before validation: validateWording
+	// caps the RAW entry count and prunes after, so pruning first would let
+	// unrecognised entries bypass the cap.
 	if err := validateThemeBundle(body, "theme "+strconv.Quote(themeID), nil); err != nil {
 		writeError(w, http.StatusUnprocessableEntity, err.Error())
 		return
 	}
 
-	// The two set-level rules the single-bundle validator deliberately does not
-	// answer. Both are asked of the TABLE, and both are asked BEFORE the write.
 	existing, err := s.dal.GetCustomTheme(themeID)
 	if err != nil {
 		internalError(w, err)
 		return
 	}
 	if existing == nil {
-		// The cap bounds how many themes are KEPT, so it constrains creates and
-		// not replaces — re-saving one of N themes when N is already the cap has
-		// to keep working, or an owner at the limit could no longer edit.
 		n, err := s.dal.CountCustomThemes()
 		if err != nil {
 			internalError(w, err)
@@ -160,15 +92,9 @@ func (s *apiServer) HandlePutThemeApiThemesThemeIdPut(w http.ResponseWriter, r *
 				"at most "+strconv.Itoa(maxCustomThemes)+" custom themes may be saved — delete one first")
 			return
 		}
-		// ⚠️ COUNT-THEN-WRITE, not atomic. Two creates racing here can both see
-		// n == cap-1 and both land, leaving cap+1 rows. Known and accepted, not
-		// missed: the cap bounds how much one owner may keep, it is not a
-		// security boundary, and overshooting it by the number of concurrent
-		// writers costs nothing (the next create is refused normally). Closing
-		// it means counting inside the same transaction as the insert, which is
-		// a change to the DAL's write seam and wants its own decision — see the
-		// same note on displayThemeExists below, which is the sharper half of
-		// this pair.
+		// COUNT-THEN-WRITE, not atomic: concurrent creates can land cap+1
+		// rows (a probe reproduced it). Accepted — the cap is not a security
+		// boundary.
 	}
 
 	raw, err := marshalThemeBundle(body)
@@ -177,9 +103,6 @@ func (s *apiServer) HandlePutThemeApiThemesThemeIdPut(w http.ResponseWriter, r *
 		return
 	}
 	if err := s.dal.PutCustomTheme(themeID, raw); err != nil {
-		// The DAL's three named refusals are the caller's fault and say which
-		// field is wrong; errors.Is, never a string match on a database message
-		// whose wording nobody has promised to keep stable.
 		if errors.Is(err, ErrCustomThemeIDBlank) ||
 			errors.Is(err, ErrCustomThemeBundleNotJSON) ||
 			errors.Is(err, ErrCustomThemeIDMismatch) {
@@ -196,10 +119,6 @@ func (s *apiServer) HandlePutThemeApiThemesThemeIdPut(w http.ResponseWriter, r *
 		return
 	}
 	if stored == nil {
-		// The row was written and is already gone: a concurrent delete. Reading
-		// it back rather than reporting the values we intended to write is what
-		// makes that visible instead of inventing a receipt for a theme that no
-		// longer exists.
 		internalError(w, fmt.Errorf("theme %s vanished between the write and the read-back", strconv.Quote(themeID)))
 		return
 	}
@@ -211,14 +130,6 @@ func (s *apiServer) HandlePutThemeApiThemesThemeIdPut(w http.ResponseWriter, r *
 	})
 }
 
-// HandleDeleteThemeApiThemesThemeIdDelete answers DELETE /api/themes/{theme_id}.
-//
-// 🔴 IT CARRIES THE COUPLING THE SETTINGS WRITE USED TO CARRY. Deleting the
-// ACTIVE theme leaves display.theme pointing at nothing, so it is reset to ""
-// here, in the same request, and the receipt says whether that happened. The old
-// whole-array write did this because it could see both facts at once; now only
-// this endpoint can, so refusing to do it would leave the cockpit painting a
-// theme that no longer exists with nothing telling it so.
 func (s *apiServer) HandleDeleteThemeApiThemesThemeIdDelete(w http.ResponseWriter, r *http.Request, themeID string) {
 	deleted, err := s.dal.DeleteCustomTheme(themeID)
 	if err != nil {
@@ -230,9 +141,6 @@ func (s *apiServer) HandleDeleteThemeApiThemesThemeIdDelete(w http.ResponseWrite
 		return
 	}
 
-	// Reset AFTER the row is gone, so the state the reset is derived from is the
-	// state that will be served. Doing it first would leave a window in which
-	// display.theme is "" while the theme still exists.
 	reset := false
 	s.settingsMu.Lock()
 	if s.displayTheme == themeID {
@@ -251,20 +159,11 @@ func (s *apiServer) HandleDeleteThemeApiThemesThemeIdDelete(w http.ResponseWrite
 	})
 }
 
-// decodeStoredThemeBundle turns one stored row back into the wire DTO.
-//
-// 🔴 THIS IS WHERE THE READ-PATH WORDING PRUNE LIVES NOW, and it had to move
-// somewhere the moment themes stopped being loaded through settings. The old
-// home was the settings loader, which ran dropUnknownWordingCodes over every
-// bundle as it read them: a theme exported from a build that knew message keys
-// this build does not must not serve those dead codes back. Nothing else on this
-// path would have done it, and losing it is silent — the codes simply reappear.
-//
-// ⚠️ IT DELIBERATELY DOES NOT LIVE IN THE DAL. That layer stores and returns the
-// bundle's ORIGINAL BYTES, which is what makes "the migration moved these
-// themes byte for byte" a mechanically provable claim; decoding and re-encoding
-// underneath that guarantee would quietly end it. Pruning is a wire concern, so
-// it happens at the wire.
+// decodeStoredThemeBundle prunes wording codes this build does not know (a
+// theme exported from a build with more message keys must not serve dead
+// codes; losing this is silent). Not in the DAL on purpose: the DAL returns
+// the ORIGINAL bytes, which is what makes the byte-for-byte migration claim
+// provable.
 func decodeStoredThemeBundle(row CustomTheme) (ThemeBundleDTO, error) {
 	var b ThemeBundleDTO
 	if err := json.Unmarshal([]byte(row.Bundle), &b); err != nil {
@@ -277,9 +176,6 @@ func decodeStoredThemeBundle(row CustomTheme) (ThemeBundleDTO, error) {
 	return b, nil
 }
 
-// marshalThemeBundle renders a validated bundle to the JSON text the table
-// stores. It is a named seam rather than an inline json.Marshal so that the one
-// place deciding what bytes a theme is stored as stays findable.
 func marshalThemeBundle(b ThemeBundleDTO) (string, error) {
 	raw, err := json.Marshal(b)
 	if err != nil {
@@ -288,54 +184,12 @@ func marshalThemeBundle(b ThemeBundleDTO) (string, error) {
 	return string(raw), nil
 }
 
-// displayThemeExists reports whether a proposed display.theme value names
-// something that can actually be applied: "" (unset), a built-in, or a custom
-// theme that HAS A ROW right now.
-//
-// 🔴 IT ASKS THE TABLE, and that is the whole reason it exists rather than the
-// settings handler keeping its own id set. Before T-83ef the vocabulary came
-// from the bundle array that arrived in the same request, so "which ids are
-// legal" was answerable from the request alone. It is not any more — the themes
-// live in their own table, written by their own endpoints, possibly by a
-// different caller a moment ago. Any copy of that id set held anywhere else
-// would be a snapshot with no one keeping it fresh, which is exactly the class
-// of bug this ticket has been paying for.
-//
-// ⚠️ CHECK-THEN-SET. The SHAPE is real and it is new: this answer is true when
-// it is given, the caller then writes display_theme under settingsMu, and this
-// lookup sits outside that lock — so a DELETE of the same theme in between
-// would leave display_theme naming a theme with no row. The shape did not exist
-// before T-83ef, when the vocabulary and the selection arrived in ONE request
-// under one lock.
-//
-// 🔴 REACHABILITY IS UNPROVEN, and that is stated deliberately rather than left
-// to read as a live hazard. A probe ran the two requests concurrently 300 times
-// and produced the dangling state ZERO times; every observed interleaving was
-// "the delete lands first, the patch is then refused 422". One plausible reason
-// is that the write pool is capped at one connection and serialises the
-// dangerous order away — but that is a GUESS, it was not proven, and it must
-// not be quoted as if it were. So: the shape exists, nobody has reached it, and
-// neither "it happens" nor "it cannot" is claimed here.
-//
-// (The sibling count-then-write above IS reachable — the same probe reproduced
-// cap+1 rows. It is tracked separately as T-f49e; this one is not, on the
-// ruling that acting on an unreached race would trade a certain risk for an
-// unknown gain.)
-//
-// It is left open on purpose, and here is what actually absorbs it: the cockpit
-// treats a display_theme it cannot find in the list as "not selectable" and
-// falls back to the built-in on the next reconcile (i18n/index.tsx), which is
-// the T-1500 rule and is pinned by a guard that survives even when the stale
-// paint record cannot be removed. So the visible outcome is the built-in theme,
-// not a broken screen.
-//
-// What would NOT be absorbed, and is the reason this note exists rather than a
-// silent shrug: any future reader that treats display_theme as a guaranteed
-// foreign key — a join, a NOT NULL reference, a migration that assumes every
-// display_theme has a row. Closing the window means taking settingsMu across
-// the lookup and the write, or a real transaction spanning both resources.
-// That is a locking decision, not an implementation detail, and this ticket's
-// scope was ruled to be the split alone.
+// displayThemeExists asks the TABLE; never keep a copy of the id set
+// elsewhere. CHECK-THEN-SET: this lookup sits outside settingsMu, so a
+// concurrent DELETE could leave display_theme naming no row (a 300-run probe
+// never reached it). The cockpit falls back to the built-in theme
+// (i18n/index.tsx), but never treat display_theme as a guaranteed foreign
+// key.
 func (s *apiServer) displayThemeExists(theme string) (bool, error) {
 	if theme == "" || displayThemeAllowed[theme] {
 		return true, nil

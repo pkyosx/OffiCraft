@@ -7,39 +7,12 @@ import (
 	"path/filepath"
 )
 
-// ── WHY THIS FILE EXISTS ─────────────────────────────────────────────────────
-//
-// The owner's complaint was one word long and it was "silently": starting
-// ocserverd without a config file does not fail, it quietly resolves to the
-// built-in default path and acts on the REAL database. Two people read the code
-// and agreed: nothing is wrong with the resolution — $OC_DATABASE_URL, then
-// oc.toml [storage].dsn, then ~/.officraft{-<ns>}/server/data/officraft.db is
-// exactly what it should do, and the absolute default is a deliberate fix (a
-// CWD-relative one silently grew a second database when you launched from
-// elsewhere).
-//
-// The first plan was to REFUSE to start without a config file. That plan was
-// withdrawn after measuring what it would break: a normal install
-// (`curl | bash`) deliberately leaves no config file at all — install.sh:1174
-// literally names that outcome CFG_SRC="none" — and two commands the user guide
-// tells people to type by hand (`ocserverd mfa-disable` when their authenticator
-// is gone, `ocserverd backup`) are exactly the ones that would have been
-// blocked. The rescue path would have been the casualty. The owner chose the
-// other option (rc-d961ee5e790c [0]): do not block, SAY IT OUT LOUD.
-//
-// So this prints, before anything is opened and before anything is written,
-// which config file was consulted and which database file is about to be acted
-// on — AND where each of those two answers came from. The source is the part
-// that matters: "the database is /Users/me/.officraft/server/data/officraft.db"
-// is a fact someone can misread as "that is what I asked for"; "…(built-in
-// default — no config file, $OC_DATABASE_URL unset)" cannot be misread.
-//
-// ⚠️ It is a NO-OP on behaviour by construction: it opens nothing, writes
-// nothing, and never changes an exit code. That is the point — it was chosen
-// over the refusal precisely because it cannot break a machine we cannot see.
+// Owner ruling rc-d961ee5e790c [0]: never refuse to start without a config file
+// (a normal install has none, and the rescue commands `mfa-disable` / `backup`
+// would be blocked) — instead SAY which config file and database were resolved,
+// and where each answer came from. A no-op on behaviour by construction: it
+// opens nothing, writes nothing and never changes an exit code.
 
-// configSource and dsnSource name where each answer came from, in the words of
-// the thing the reader can go and change.
 func configSource(env func(string) string) (path string, exists bool, from string) {
 	path = configPath(env)
 	if p := env(envConfigPath); p != "" {
@@ -53,16 +26,9 @@ func configSource(env func(string) string) (path string, exists bool, from strin
 	return path, exists, from
 }
 
-// dsnSource is a SECOND reading of resolveDSN's branch order, and a second
-// implementation is a second thing that can drift. It mirrors config.go's
-// resolveDSN branch for branch, INCLUDING the no-home fallback — an independent
-// reviewer caught that branch missing here and measured the result: with no HOME
-// resolvable, resolveDSN drops the namespace entirely and returns
-// sqlite:///var/data/officraft.db, while this function happily announced
-// `for namespace "seth"`. A path with a namespace in the sentence and no
-// namespace in it is exactly the misreading this whole change exists to stop.
-//
-// If you edit resolveDSN's branch order, edit this one in the same commit.
+// A second reading of config.go's resolveDSN, branch for branch INCLUDING the
+// no-home fallback (which drops the namespace). If you edit resolveDSN's branch
+// order, edit this one in the same commit.
 func dsnSource(env func(string) string, cfg Config) string {
 	if v := env(envDatabaseURL); v != "" {
 		return "$" + envDatabaseURL
@@ -71,8 +37,6 @@ func dsnSource(env func(string) string, cfg Config) string {
 		return "[storage].dsn in the config file"
 	}
 	if home, err := os.UserHomeDir(); err != nil || home == "" {
-		// resolveDSN's no-home branch ignores the namespace; say so rather than
-		// naming a namespace that is not in the path.
 		return "the no-home fallback — the namespace is IGNORED on this path"
 	}
 	if cfg.Server.Namespace != "" {
@@ -81,20 +45,9 @@ func dsnSource(env func(string) string, cfg Config) string {
 	return "the built-in default (no namespace)"
 }
 
-// announcedTarget is the line's most important word: the FILE, not the DSN.
-//
-// `sqlite:///data/oc.db` is a RELATIVE path (three slashes) and
-// `sqlite:////data/oc.db` is absolute — one character apart, and the reader who
-// needs this line is exactly the reader who will not notice. Measured by the
-// reviewer: the same `[storage].dsn` run from two different directories printed
-// a byte-identical announcement while acting on two different database files.
-// "Launching from a different directory silently grows a second database" is the
-// bug resolveDSN's absolute default was introduced to kill; announcing the DSN
-// alone is blind to it.
-//
-// So: resolve the DSN to the file the command will actually open, make it
-// absolute, and put THAT first. The DSN stays on the line because it is what the
-// reader can go and change. A non-sqlite DSN has no file, and says so.
+// Announces the FILE, not just the DSN: `sqlite:///data/oc.db` (relative) and
+// `sqlite:////data/oc.db` (absolute) differ by one character, and the same
+// relative DSN run from two directories acts on two different databases.
 func announcedTarget(dsn string) string {
 	path, ok := sqliteFilePath(dsn)
 	if !ok {
@@ -107,29 +60,6 @@ func announcedTarget(dsn string) string {
 	return fmt.Sprintf("%s (DSN %s)", abs, dsn)
 }
 
-// howToPointAtAConfigFile is the instruction half of the no-config
-// announcement, and both of its halves were WRONG in the first version.
-//
-//  1. It ended "without one, every config value is the built-in default", and
-//     the very next line the reader sees disproves it: resolveDSN's FIRST
-//     branch is $OC_DATABASE_URL (config.go, and the module comment states the
-//     order), so a run with that variable set is announced as
-//     "database = …, from $OC_DATABASE_URL" one line after being told
-//     everything is a default. That reader — wrong directory, someone else's
-//     DSN in the environment — is the exact person this announcement exists
-//     for. The sentence now claims only what the absence of oc.toml actually
-//     buys: oc.toml supplied nothing, and the documented order decides the
-//     rest.
-//
-//  2. "or run from a directory containing oc.toml" is an instruction the
-//     reader cannot act on when $OC_CONFIG is set: configPath returns it
-//     unconditionally and never falls back to ./oc.toml, so someone standing
-//     in a directory that DOES have an oc.toml, with $OC_CONFIG naming a file
-//     that is not there, is told to go and do the thing he is already doing.
-//     It is also the wrong lesson to teach at this particular scene: the
-//     module comment calls $OC_CONFIG the canonical deployment path and the
-//     CWD-relative lookup the fallback, and this whole announcement exists
-//     because somebody ran a command from the wrong directory.
 func howToPointAtAConfigFile(env func(string) string) string {
 	const tail = "Without one, nothing is read from oc.toml — $" + envDatabaseURL + " and the built-in defaults decide the rest."
 	if env(envConfigPath) != "" {
@@ -138,16 +68,8 @@ func howToPointAtAConfigFile(env func(string) string) string {
 	return fmt.Sprintf("to point this run at a config file, set %s=/path/to/oc.toml or run from a directory containing oc.toml. %s", envConfigPath, tail)
 }
 
-// announceResolution is THE seam every command goes through to learn which
-// database it is about to touch. It deliberately bundles loadConfig + the
-// retired-key warnings + resolveDSN + the announcement into one call, so that a
-// caller CANNOT resolve a DSN and forget to say so — the two are the same
-// statement. TestEveryDSNResolutionIsAnnounced keeps it that way.
-//
-// name is the subcommand as the user typed it ("migrate", "set-password", …),
-// because the line is read by someone who is trying to work out what they just
-// ran. rc is non-zero only when loadConfig itself failed (a MALFORMED config —
-// missing is not an error), and in that case the error is already printed.
+// Bundles loadConfig + resolveDSN + the announcement so a caller cannot resolve
+// a DSN without announcing it (TestEveryDSNResolutionIsAnnounced).
 func announceResolution(name string, env func(string) string, out io.Writer) (cfg Config, dsn string, rc int) {
 	cfgPath, cfgExists, cfgFrom := configSource(env)
 	cfg, warnings, err := loadConfig(cfgPath)
@@ -163,19 +85,14 @@ func announceResolution(name string, env func(string) string, out io.Writer) (cf
 	if cfgExists {
 		fmt.Fprintf(out, "[ocserverd] %s: config file = %s (from %s)\n", name, cfgPath, cfgFrom)
 	} else {
-		// The wording is deliberately not "ERROR" or even "WARN". On a normal
-		// install this is the correct and expected state, and crying wolf here
-		// would teach people to ignore the very line that is supposed to stop
-		// them. It states the fact and where it looked.
+		// Deliberately not "ERROR"/"WARN": on a normal install this is the expected
+		// state, and crying wolf teaches people to ignore this very line.
 		wd, wdErr := os.Getwd()
 		where := cfgPath
 		if wdErr == nil && !filepath.IsAbs(cfgPath) {
 			where = filepath.Join(wd, cfgPath)
 		}
 		fmt.Fprintf(out, "[ocserverd] %s: config file = none (looked at %s, from %s)\n", name, where, cfgFrom)
-		// Same register as the line above, and for the same reason: not a
-		// warning, an instruction. The fact alone ("config file = none") is
-		// what people have been reading past; this says what to type instead.
 		fmt.Fprintf(out, "[ocserverd] %s: %s\n", name, howToPointAtAConfigFile(env))
 	}
 	fmt.Fprintf(out, "[ocserverd] %s: database    = %s, from %s\n", name, announcedTarget(dsn), dsnSource(env, cfg))

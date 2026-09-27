@@ -1,26 +1,12 @@
-// sse_topics.go — the `sse-topics` subcommand: render the CLOSED entity-delta
-// topic vocabulary as a MACHINE-READABLE asset (spec/sse-topics.json).
+// 🔴 spec/sse-topics.json is 100% derived from hub.go's `sseTopics`; spec/sse.md
+// stays HAND-WRITTEN. Adding, renaming or removing a topic means editing
+// hub.go, re-running bin/gen-sse-topics, and updating spec/sse.md §3.1's table
+// by hand.
 //
-// ── WHY IT LIVES IN package main ─────────────────────────────────────────────
-// The vocabulary IS `sseTopics` in hub.go — the map the publish seam consults
-// before it fans anything — and that identifier is not reachable from outside
-// this package. A standalone renderer would have to re-type the list, which is
-// the very duplication this asset exists to remove: the list was carried in
-// three places (this map, spec/sse.md §3.1's table, and a markdown parser in
-// conformance/test_sse.py), each pinned to the others by a test, so a topic
-// added in one place and forgotten in another was a live failure mode.
-//
-// 🔴 THE OUTPUT IS 100% DERIVED. Nothing in spec/sse-topics.json is typed by a
-// human: the topic list is this package's map, and the header fields are the
-// two constants below. spec/sse.md stays HAND-WRITTEN and is NOT generated from
-// here — adding, renaming or removing a topic means editing hub.go, re-running
-// bin/gen-sse-topics, and updating §3.1's table by hand.
-//
-// ── SCOPE ────────────────────────────────────────────────────────────────────
-// ENTITY-DELTA topics only — the ones that ride hub.Publish. The directed bands
-// (`context-high` §6, `token-expiry` §6.1, `warden-command` §7) go out through
-// PushDirected, bypass Publish entirely, and are a separate envelope family by
-// design. Their absence here is deliberate.
+// Entity-delta topics only. The directed bands are deliberately absent because
+// none goes through Publish: `context-high` and `token-expiry` are written by the
+// SSE loop onto the member's own connection, and `warden-command` is queued in the
+// warden's durable FIFO and drained onto the warden's own connection.
 package main
 
 import (
@@ -31,32 +17,21 @@ import (
 	"sort"
 )
 
-// The two header fields, so a reader of the artifact can tell at a glance that
-// it is a product and where to regenerate it from. They are the ONLY strings in
-// the output that are not a topic name.
 const (
 	sseTopicsGeneratedBy = "bin/gen-sse-topics"
 	sseTopicsSource      = "server/ocserverd/hub.go (sseTopics)"
 )
 
-// sseTopicsWriteMarker is the last thing the subcommand prints on a successful
-// write — the line bin/gen-sse-topics requires before believing anything ran.
-// A zero exit says "nothing failed", not "something happened".
+// bin/gen-sse-topics requires this line before believing anything ran.
 const sseTopicsWriteMarker = "[gen-sse-topics] wrote"
 
-// sseTopicsDocument is the artifact's shape. Sorted `topics` so the render is
-// deterministic (map iteration order is not) — every drift gate in this repo
-// asserts "regenerating produces byte-identical output".
+// Drift gates assert regenerating produces byte-identical output.
 type sseTopicsDocument struct {
 	GeneratedBy string   `json:"generated_by"`
 	Source      string   `json:"source"`
 	Topics      []string `json:"topics"`
 }
 
-// renderSSETopics renders the artifact bytes from the closed vocabulary, or
-// refuses. An EMPTY set is an error, never an empty answer: every consumer of
-// this file confronts its own coverage with it, and an empty set makes each of
-// those confrontations pass while proving nothing.
 func renderSSETopics(topics map[string]bool) ([]byte, int, error) {
 	names := make([]string, 0, len(topics))
 	for name, ok := range topics {
@@ -81,11 +56,6 @@ func renderSSETopics(topics map[string]bool) ([]byte, int, error) {
 	return append(blob, '\n'), len(names), nil
 }
 
-// cmdSSETopics is the `sse-topics` subcommand: write the rendered vocabulary to
-// the named path. The path is always explicit (no default) so the caller owns
-// it — bin/gen-sse-topics passes the committed spec/sse-topics.json, and the
-// drift-sse-topics gate passes a temp file so the committed bytes are never
-// touched by the comparison.
 func cmdSSETopics(args []string, out io.Writer) int {
 	if len(args) != 1 {
 		fmt.Fprintln(out, "usage: ocserverd sse-topics <out.json>")

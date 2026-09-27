@@ -101,7 +101,7 @@ func apiTestStack(t *testing.T, withSigningSecret bool) (*apiServer, http.Handle
 	api.mfaOffered = auth.mfaOffered
 	api.totpSecret = auth.totpSecret
 	api.totpLastStep = auth.totpLastStep
-	api.ctxhigh = auth.ctxhigh
+	api.ctxHigh = auth.ctxHigh
 	api.codexCompactionThreshold = auth.codexCompactionThreshold
 	api.codexNoticeRound = auth.codexNoticeRound
 	api.monitoringRefreshSeconds = auth.monitoringRefreshSeconds

@@ -1,31 +1,11 @@
 package main
 
-// migration_lock.go — T-75: migration.lock, the file whose job is to TURN A
-// CLEAN MERGE INTO A CONFLICT, plus the `migration-lock` subcommand that writes
-// and checks it.
-//
-// 🔴 WHY THIS IS ORDINARY SOURCE AND NOT A _test.go FILE. Every function here
-// used to live in a test file, and the reason was never that any of it is a
-// test: the enumeration reads the go:embed FS the server hands goose and
-// AST-walks this package for goose registrations, and NEITHER IS REACHABLE FROM
-// OUTSIDE package main. A test file was the only place package-internal code
-// could sit while still being runnable from a shell. A subcommand is the other
-// place, it is the honest one, and it is where this lives now (T-125). Nothing
-// below asserts anything: this is the subcommand, not the assertions.
-//
-// 🔴 WHY THIS EXISTS AT ALL, AND WHY NO TEST COULD HAVE DONE IT.
-// Two PRs each add a migration numbered 00072. They touch DIFFERENT FILES, so
-// git merges both without a word — measured, rc=0, no conflict markers. Every
-// migration guard in this package is a CHECK, and a check only speaks when
-// something runs it: the collision therefore becomes visible on the FIRST CI run
-// of the merged main, which in this repo is after the merge button, and merging
-// main is how a release goes out. The window between "both PRs are green" and
-// "the station will not boot" contains a deploy.
-//
-// So the missing piece was never another assertion. It was a place where the two
-// branches WRITE THE SAME BYTES, because that is the only thing git will refuse
-// to merge for us. migration.lock is that place, and its shape is chosen from
-// measurements rather than taste (all done on real two-branch merges):
+// migration.lock exists to TURN A CLEAN MERGE INTO A CONFLICT. Two PRs that each
+// add migration 00072 touch different files, so git merges both silently
+// (measured); a check only speaks when something runs it, so the collision first
+// shows on the merged main's CI — after the merge button, and merging main is how
+// a release goes out. The lock is a place where such branches write the same
+// bytes. Its shape was measured on real two-branch merges:
 //
 //	both branches append at the file's END .............. CONFLICT  ← what we want
 //	branches write lines 50 / 3 / 1 apart .............. auto-merged, silently
@@ -34,76 +14,25 @@ package main
 //	                                                     the IDENTICAL summary, and
 //	                                                     git never conflicts on an
 //	                                                     identical change
-//	header carries a HASH OF THE WHOLE LIST ............ CONFLICT  ← two different
-//	                                                     lists cannot hash equal
-//	.sql in one section, Go in another .................. auto-merged (the two
-//	                                                     branches land in different
-//	                                                     sections)
+//	header carries a HASH OF THE WHOLE LIST ............ CONFLICT
+//	.sql in one section, Go in another .................. auto-merged
 //
-// Hence: ONE flat list, .sql and Go migrations mixed, appended to at the tail
-// only, with a roll hash of the whole list on the header line. Both halves are
-// load-bearing and neither is decoration.
+// Hence ONE flat list, .sql and Go mixed, appended at the tail only, with a roll
+// hash of the whole list on the header line.
 //
-// 🔴 WHAT EACH LINE CARRIES, AND WHY IT IS NOT JUST THE FILENAME.
-// Every entry is `<version> <path> sha256:<content hash>`. The content hash is
-// there for a failure the filename cannot see: EDITING AN ALREADY-SHIPPED
-// migration. goose records one row per version and never looks at that version
-// again, so an edit reaches only brand-new installs; every station that already
-// upgraded keeps the old schema, and nothing anywhere errors. Two populations of
-// stations, different schemas, complete silence. A filename-only lock is byte
-// for byte identical before and after that edit.
+// TWO CLASSES OF JUDGEMENT:
 //
-// 🔴 THE TWO CLASSES OF JUDGEMENT HERE, AND THE HONEST DIFFERENCE BETWEEN THEM.
-// Read this before trusting any green.
+//	CLASS A — migrationLockFindings: the lock against THIS tree, no baseline, so
+//	alive on main too. This is what `migration-lock --check` runs.
+//	CLASS B — migrationLockPrefixFindings: main's entry lines must be an exact
+//	prefix of this tree's. ⚠️ ON MAIN IT IS A NO-OP (both sides are the same
+//	commit); it is a PR-path check only.
+//	Regenerating the lock after editing a shipped migration turns class A green;
+//	only class B says the edit was not allowed, and never on main.
 //
-//	CLASS A — TREE-INTERNAL (migrationLockFindings). The lock is compared against
-//	THIS tree's own migrations. It needs no baseline, so it is just as alive on
-//	main as on a PR. It answers: "does the lock describe the tree it sits in?" —
-//	i.e. added / renamed / deleted / edited a migration and did not regenerate the
-//	lock; hand-edited a line; a middle insertion that the generator appended
-//	(which shows up as a version column that stops ascending). This is what
-//	`ocserverd migration-lock --check` runs, and it is what the drift-migration-lock
-//	CI gate is.
-//
-//	CLASS B — AGAINST ORIGIN/MAIN (migrationLockPrefixFindings). The prefix rule:
-//	main's entry lines must be an exact prefix of this tree's. It answers "was
-//	anything already released changed or removed, or inserted below the released
-//	maximum?" — and it can only answer that by comparing with a baseline.
-//	⚠️ ON MAIN ITSELF THE TWO SIDES ARE THE SAME COMMIT, SO IT IS A NO-OP THERE.
-//	It is a PR-path judgement and nothing more; it is stated here rather than left
-//	for a reader to discover, because a guard believed to cover more than it does
-//	is worse than no guard. bin/check-released-migrations is the OTHER, coarser
-//	sayer of the same rule, reached from a plain git diff rather than from the
-//	lock.
-//
-//	The consequence, spelled out: regenerate the lock after editing a shipped
-//	migration and class A goes green — the lock now honestly describes the tree.
-//	Only class B says that the edit was not allowed, and it will never say it on
-//	main.
-//
-// 🔴 THE ENUMERATION IS SHARED ON PURPOSE — this is the failure this whole
-// mechanism was most likely to ship. If the generator listed migrations one way
-// and the checker listed them another, the checker would be validating a
-// different corpus than the one that was written, and it would be GREEN while
-// doing it. So there is exactly one enumerator, migrationLockTreeEntries, and
-// BOTH `--write` and `--check` call it — sharing by CALL, not by convention.
-// It carries its own anti-vacuity floor, because an enumeration that returned
-// nothing would make every set-comparison below trivially true.
-//
-// 🔴 WHERE THE .sql BYTES COME FROM. The embedded FS (embeddedMigrations), not
-// the working directory — the same corpus goose is actually handed in
-// runMigrations. A .sql sitting on disk that the embed pattern does not match
-// would otherwise be in the lock and invisible to goose, and the lock would
-// certify a set the server never runs. The Go migrations are read from the
-// package directory on disk instead, because that IS their authority: what the
-// compiler links is what registers with goose.
-//
-// ⚠️ EVERYTHING HERE IS RELATIVE TO THIS PACKAGE'S DIRECTORY, which is where the
-// lock, the .go migrations and the `migrations/` tree all sit. The subcommand is
-// therefore run FROM server/ocserverd (bin/gen-migration-lock and
-// bin/check-migration-lock both cd there). A wrong working directory does not
-// pass quietly: registrarLocations' file-count floor refuses an implausibly
-// small corpus rather than reporting zero registrations as a clean tree.
+// The .sql bytes come from the embedded FS goose is actually handed, not the
+// working directory: a .sql on disk that the embed pattern misses would otherwise
+// be certified by the lock yet never run by the server.
 
 import (
 	"bytes"
@@ -125,76 +54,39 @@ import (
 	"github.com/pressly/goose/v3"
 )
 
-// migrationLockFile is the lock's path, relative to this package directory.
-//
-// WHY BESIDE migrations/ AND NOT INSIDE IT. The lock covers BOTH sources: the
-// .sql files under migrations/ and the Go migrations, which live in this
-// directory and never under migrations/. Filed inside migrations/ it would read
-// as a manifest of that directory — the exact incomplete denominator the
-// duplicate-version guard exists to kill — and it would also sit inside the
-// directory goose collects from.
 const migrationLockFile = "migration.lock"
 
-// The two REPO-relative paths the append-only half hands to git. They are a
-// PAIR: the second is the only thing that tells "main does not carry the lock
-// because this has not landed yet" apart from "main carries the guard but the
-// lock is gone". If either file ever moves, BOTH constants must move in the
-// same commit — otherwise that half goes back to skipping forever while still
-// printing that it is enforced in CI, which is the exact shape this whole
-// mechanism exists to kill.
 const (
-	// migrationLockPkgRepoPath is this package's directory FROM THE REPO ROOT.
-	// It is load-bearing in the [lock:path] diagnosis below: every path in the
-	// lock is relative to this directory, so a `git log … -- <lock path>` handed
-	// to a reader standing at the repo root silently finds NOTHING and turns
-	// every rename into a "collision" — measured on T-64, which hit exactly this
-	// and fixed it with a `:(top)` pathspec.
 	migrationLockPkgRepoPath = "server/ocserverd/"
 	migrationLockRepoPath    = migrationLockPkgRepoPath + migrationLockFile
-	// migrationLockGuardRepoPath is THIS file. It is the anchor that arms the
-	// "main has the mechanism but not the lock" diagnosis, so it must name
-	// whatever file carries the mechanism — which since T-125 is ordinary
-	// source, not a _test.go.
+	// migrationLockGuardRepoPath is THIS file: the anchor that arms the "main has
+	// the mechanism but not the lock" diagnosis.
 	migrationLockGuardRepoPath = migrationLockPkgRepoPath + "migration_lock.go"
 )
 
-// The header line's prefix, and the per-entry hash prefix. Both are constants
-// because they appear in failure messages and in the generator's output.
 const (
 	migrationLockRollPrefix = "roll sha256:"
 	migrationLockHashPrefix = "sha256:"
 )
 
-// Anti-vacuity floors for the shared enumerator. Today's tree has 63 .sql and 2
-// Go migrations; these are set well below that because they exist to catch an
-// enumeration that has gone BLIND (wrong directory, wrong glob, an embed pattern
-// that stopped matching), not to track the count. A count-tracking floor would
-// need bumping on every migration and would be a second, quietly-drifting
-// statement of how many migrations there are.
+// Anti-vacuity floors: they catch an enumeration gone BLIND (wrong directory,
+// glob or embed pattern), not the count — keep them well below the real tree and
+// do not bump them per migration.
 const (
 	migrationLockMinSQL = 40
 	migrationLockMinGo  = 2
 )
 
-// migrationLockEntry is one line of the lock: the version, where the migration
-// lives, and the hash of its bytes.
 type migrationLockEntry struct {
 	version int64
-	path    string // repo path relative to server/ocserverd/
-	sha     string // hex sha256 of the migration's content
+	path    string
+	sha     string
 }
 
 func (e migrationLockEntry) line() string {
 	return fmt.Sprintf("%05d %s %s%s", e.version, e.path, migrationLockHashPrefix, e.sha)
 }
 
-// ---------------------------------------------------------------------------
-// GIT AND ENVIRONMENT HELPERS
-// ---------------------------------------------------------------------------
-
-// gitOut keeps stderr. `.Output()` discards it, which turns every git failure
-// into the bare string "exit status 128" — and a baseline that could not be read
-// is the one place a reader has to be told WHY.
 func gitOut(args ...string) (string, error) {
 	var stderr bytes.Buffer
 	cmd := exec.Command("git", args...)
@@ -206,26 +98,10 @@ func gitOut(args ...string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-// inCI reports whether this run is the one that gates a merge. GITHUB_ACTIONS is
-// checked first because it is what this repo's workflow actually sets and cannot
-// be set by accident; CI is honoured too but is a crowded name (GitLab, Circle,
-// Netlify, and plenty of dotfiles export it), which is why it is not alone.
 func inCI() bool {
 	return os.Getenv("GITHUB_ACTIONS") != "" || os.Getenv("CI") != ""
 }
 
-// ---------------------------------------------------------------------------
-// THE SHARED ENUMERATION — one function, used by both --write and --check.
-// ---------------------------------------------------------------------------
-
-// registrarLocations parses every non-test .go file in this package and returns
-// version -> "file:line" for each goose registration it can read literally.
-//
-// ⚠️ WHAT IT CANNOT SEE, stated because it was MEASURED and not imagined: a
-// registration whose name is COMPUTED — goose.AddNamedMigrationContext(
-// fmt.Sprintf(...), …) — is invisible to this AST walk, so the lock would never
-// list it. gooseGoVersionCount below is the second, differently-derived number
-// that turns that silent omission into a red.
 func registrarLocations() (map[int64]string, error) {
 	entries, err := os.ReadDir(".")
 	if err != nil {
@@ -256,7 +132,7 @@ func registrarLocations() (map[int64]string, error) {
 			}
 			lit, ok := call.Args[0].(*ast.BasicLit)
 			if !ok || lit.Kind != token.STRING {
-				return true // a computed name: the registry still sees it, this locator does not
+				return true
 			}
 			nameArg, err := strconv.Unquote(lit.Value)
 			if err != nil {
@@ -270,9 +146,6 @@ func registrarLocations() (map[int64]string, error) {
 			return true
 		})
 	}
-	// Anti-vacuity: a scan over an empty corpus finds nothing and looks exactly
-	// like a clean tree. It is also the thing that catches a wrong working
-	// directory, which is the likeliest way this subcommand gets misused.
 	if files < 20 {
 		return nil, fmt.Errorf("the AST scan read %d files in this package — that corpus is too "+
 			"small to be the real one, so a finding of zero registrations would mean nothing. "+
@@ -281,17 +154,6 @@ func registrarLocations() (map[int64]string, error) {
 	return found, nil
 }
 
-// gooseGoVersionCount asks goose itself how many GO-sourced migrations it holds,
-// so the AST walk above has a second, differently-derived number to be checked
-// against. registrarLocations reads the SOURCE and can only see a registration
-// whose name is a literal; goose reads its own REGISTRY and sees every one. Two
-// agreeing numbers derived the same way are one number; this is the other way.
-//
-// The recover is load-bearing. goose answers a duplicate version by PANICKING
-// out of a sort comparator (`goose: duplicate version N detected`). Caught here
-// it becomes a string the caller can report. sqlSources are the embedded .sql
-// paths already enumerated as source ①; goose reports them under the same names,
-// so subtracting them leaves the Go set.
 func gooseGoVersionCount(sqlSources []string) (count int, refusal string, err error) {
 	goose.SetBaseFS(embeddedMigrations) // the same base runMigrations sets
 	isSQL := map[string]bool{}
@@ -317,14 +179,9 @@ func gooseGoVersionCount(sqlSources []string) (count int, refusal string, err er
 	return len(seen), "", nil
 }
 
-// migrationLockTreeEntries lists every migration this tree ships, from both
-// sources, sorted by version. This is the ONLY enumeration: `--write` writes what
-// it returns and `--check` compares against what it returns, so the two can never
-// be describing different corpora.
 func migrationLockTreeEntries() ([]migrationLockEntry, error) {
 	var entries []migrationLockEntry
 
-	// Source ① — the .sql files, out of the EMBEDDED FS (see the header note).
 	sqlFiles, err := fs.Glob(embeddedMigrations, "migrations/*.sql")
 	if err != nil {
 		return nil, fmt.Errorf("glob embedded migrations: %w", err)
@@ -346,9 +203,6 @@ func migrationLockTreeEntries() ([]migrationLockEntry, error) {
 			"true", len(sqlFiles), migrationLockMinSQL)
 	}
 
-	// Source ② — the Go migrations. registrarLocations is the AST walk the
-	// duplicate-version guard already owns (a grep would match this file's own
-	// prose); it returns version -> "file.go:line", and the file is what we hash.
 	located, err := registrarLocations()
 	if err != nil {
 		return nil, err
@@ -358,11 +212,6 @@ func migrationLockTreeEntries() ([]migrationLockEntry, error) {
 			"repo has had Go migrations since 00054, so a smaller answer means the scan went blind, "+
 			"not that they were removed", len(located), migrationLockMinGo)
 	}
-	// CORROBORATION, and it is not decoration. See gooseGoVersionCount's note:
-	// the gap between the parse and the registry is a MEASURED escape hatch, and
-	// because migrationLockMinGo equals today's count the floor above waves it
-	// through. Asking a SECOND, differently-derived source for the same count is
-	// what turns that silent omission into a red.
 	goCount, refusal, err := gooseGoVersionCount(sqlFiles)
 	switch {
 	case err != nil:
@@ -413,19 +262,10 @@ func sha256Hex(b []byte) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// ---------------------------------------------------------------------------
-// RENDER / PARSE
-// ---------------------------------------------------------------------------
-
-// migrationLockHeader is the lock file's comment block, and it is FROZEN TEXT,
-// not prose to be tidied.
-//
-// 🔴 EDITING IT REWRITES migration.lock. `--check` byte-compares, so any change
-// here — including fixing the stale file name two lines down, which since T-125
-// points at a file that no longer exists — turns every checkout red until the
-// lock is regenerated and committed. It is worth doing; it is not worth doing by
-// accident, folded into an unrelated change, which is why this note is here
-// instead of the fix.
+// migrationLockHeader is FROZEN TEXT: `--check` byte-compares, so any edit here —
+// including fixing its stale test-file name — turns every checkout red until the
+// lock is regenerated and committed. Do it deliberately, not folded into another
+// change.
 const migrationLockHeader = `# migration.lock — every migration this tree ships, in the order they were added.
 #
 # GENERATED. Regenerate with:  bin/gen-migration-lock
@@ -447,9 +287,6 @@ const migrationLockHeader = `# migration.lock — every migration this tree ship
 # edit, upgraded stations never do, and nothing errors. Only the hash sees it.
 `
 
-// renderMigrationLock builds the file's text from entries IN FILE ORDER (which
-// is insertion order, NOT necessarily sorted — that is what makes an
-// out-of-order version column detectable).
 func renderMigrationLock(entries []migrationLockEntry) string {
 	var body strings.Builder
 	for _, e := range entries {
@@ -459,12 +296,10 @@ func renderMigrationLock(entries []migrationLockEntry) string {
 	return migrationLockHeader + migrationLockRollPrefix + sha256Hex([]byte(body.String())) + "\n" + body.String()
 }
 
-// parsedMigrationLock is what a lock file says, before any judgement is passed
-// on it.
 type parsedMigrationLock struct {
 	roll    string
-	entries []migrationLockEntry // in FILE order
-	lines   []string             // the raw entry lines, in file order
+	entries []migrationLockEntry
+	lines   []string
 }
 
 func parseMigrationLock(text string) (parsedMigrationLock, error) {
@@ -510,16 +345,6 @@ func parseMigrationLock(text string) (parsedMigrationLock, error) {
 	return out, nil
 }
 
-// ---------------------------------------------------------------------------
-// THE JUDGEMENT — pure, so it can be driven with corpora that are actually WRONG.
-// A detector only ever run on correct input is indistinguishable from one that
-// returns nil.
-// ---------------------------------------------------------------------------
-
-// Finding tags. Each judgement carries a stable tag so that a test proving "this
-// mutation is caught" can assert WHICH check caught it, rather than settling for
-// "something went red" — a mutant covered by a neighbouring assertion proves
-// nothing about the assertion it was aimed at.
 const (
 	findParse   = "[lock:parse]"
 	findRoll    = "[lock:roll]"
@@ -528,15 +353,10 @@ const (
 	findMissing = "[lock:missing]"
 	findExtra   = "[lock:extra]"
 	findContent = "[lock:content]"
-	// findPathMoved is the T-64 diagnosis, carried over here when this guard's
-	// teardown removed the file that used to make it: a version the lock and the
-	// tree BOTH hold, at two different paths. On the listing alone a RENAME and a
-	// COLLISION are identical, and the two need opposite fixes.
+
 	findPathMoved = "[lock:path]"
 )
 
-// migrationLockFindings is the whole class-A judgement: does this lock text
-// honestly describe this set of migrations?
 func migrationLockFindings(lockText string, tree []migrationLockEntry) []string {
 	parsed, err := parseMigrationLock(lockText)
 	if err != nil {
@@ -545,7 +365,6 @@ func migrationLockFindings(lockText string, tree []migrationLockEntry) []string 
 	}
 	var findings []string
 
-	// ── the roll hash ────────────────────────────────────────────────────────
 	var body strings.Builder
 	for _, l := range parsed.lines {
 		body.WriteString(l)
@@ -560,11 +379,6 @@ func migrationLockFindings(lockText string, tree []migrationLockEntry) []string 
 			findRoll, parsed.roll, len(parsed.lines), want))
 	}
 
-	// ── append-only shape: the version column only ascends ───────────────────
-	// This is the tree-internal half of "a new migration may only be numbered
-	// above every released one". The generator APPENDS, so a migration numbered
-	// below the current maximum lands at the tail with a smaller number and the
-	// column stops ascending — visible here with no baseline at all.
 	for i := 1; i < len(parsed.entries); i++ {
 		prev, cur := parsed.entries[i-1], parsed.entries[i]
 		if cur.version <= prev.version {
@@ -579,7 +393,6 @@ func migrationLockFindings(lockText string, tree []migrationLockEntry) []string 
 		}
 	}
 
-	// ── duplicates inside the lock itself ────────────────────────────────────
 	seenVersion := map[int64]string{}
 	seenPath := map[string]bool{}
 	for _, e := range parsed.entries {
@@ -597,7 +410,6 @@ func migrationLockFindings(lockText string, tree []migrationLockEntry) []string 
 		seenPath[e.path] = true
 	}
 
-	// ── the lock versus the tree ─────────────────────────────────────────────
 	lockByPath := map[string]migrationLockEntry{}
 	for _, e := range parsed.entries {
 		lockByPath[e.path] = e
@@ -627,13 +439,6 @@ func migrationLockFindings(lockText string, tree []migrationLockEntry) []string 
 				"%d in %s.", findContent, p, te.version, le.version, migrationLockFile))
 		}
 		if le.sha != te.sha {
-			// 🔴 THE MECHANICAL-EDIT ARM, carried over verbatim in substance from
-			// the T-64 upgrade-path guard that used to say this and has been torn
-			// down. A Go migration shares a package with everything else in it, so
-			// a repo-wide rename or a formatting pass reaches it whether or not
-			// anyone meant to touch a shipped migration. This check cannot tell
-			// that apart from a behaviour change — so it must not pretend to, and
-			// it must say so, because ONE OF THE TWO CASES HAS NO OUT AT ALL.
 			mechanical := ""
 			if !strings.HasSuffix(p, ".sql") {
 				mechanical = "\nThis is a Go file, so a repo-wide rename or a formatting pass " +
@@ -679,50 +484,12 @@ func migrationLockFindings(lockText string, tree []migrationLockEntry) []string 
 	}
 
 	// ── RENAME versus COLLISION ──────────────────────────────────────────────
-	// 🔴 Carried over from the T-64 upgrade-path guard (measured 2026-09-04),
-	// which is the file that used to say this and has been torn down. The two
-	// loops above have already reported the halves — the lock's path as
-	// [lock:extra], the tree's path as [lock:missing] — and for ONE of the two
-	// shapes below those two findings are the SAME LISTING for two events that
-	// need OPPOSITE FIXES:
-	//
-	//   RENAME — this tree once had the lock's file and moved it. goose
-	//   identifies a Go migration by the string passed to AddNamedMigration*
-	//   rather than by the filename, so a rename leaves the version declared
-	//   while the path the lock knows is gone. FIX: put the file back.
-	//
-	//   COLLISION — two branches independently took the same free number. FIX:
-	//   renumber THIS tree's file upward.
-	//
-	// 🔴 THE COST OF GUESSING IS NOT SYMMETRIC. "Put the file back where the lock
-	// has it" told at a COLLISION is an instruction to overwrite a migration
-	// somebody else has already shipped — the exact failure this whole mechanism
-	// exists to prevent. Guessing the other way only wastes a round trip.
-	//
-	// 🔴 SO THE FIRST JOB IS TO ASK WHETHER THE TWO ARE ACTUALLY AMBIGUOUS, AND
-	// USUALLY THEY ARE NOT. The discriminator is IS THE LOCK'S PATH STILL IN THE
-	// TREE?, and it is available right here without asking git:
-	//
-	//   lock's path IS in the tree  ⇒ nothing was moved, the file is sitting
-	//   right there. Both paths exist and both claim the number: this is a
-	//   COLLISION, stated flatly. No RENAME arm, because there is no rename.
-	//
-	//   lock's path is NOT in the tree ⇒ the file is gone from where the lock
-	//   says it is. NOW the two are genuinely indistinguishable from the listing
-	//   and both arms are printed, with the one command that separates them.
-	//
-	// ⚠️ MEASURED, and it is why the flat "print both" version of this was wrong:
-	// the reachable shape is a CROSS-SOURCE collision — main ships a Go migration
-	// at NNNNN, a branch that predates it adds a .sql at NNNNN, and the merge is
-	// CLEAN (a branch with no lock of its own takes main's as a new file, no
-	// conflict, nothing stops you). The tree then holds BOTH files and the lock
-	// lists only main's. "Print both arms" hands that reader a `git log` on main's
-	// Go file, which of course has commits, which reads as RENAME — i.e. as "put
-	// main's shipped migration back", the expensive wrong half.
-	//
-	// ⚠️ A version the lock lists MORE THAN ONCE is skipped here: [lock:dup] above
-	// already names both of its lines exactly, and a second finding built from a
-	// map that can only hold one path per version would pair the wrong two.
+	// The split on "is the lock's path still in the tree?" is deliberate: the
+	// guessing cost is not symmetric. Measured: a clean cross-source merge (main's
+	// Go migration and a branch's .sql at the same number) leaves both files in the
+	// tree; printing both arms there sends the reader to `git log` main's Go file,
+	// which reads as RENAME — i.e. "put main's shipped migration back", the
+	// expensive wrong fix.
 	lockPathsByVersion := map[int64][]string{}
 	for _, e := range parsed.entries {
 		lockPathsByVersion[e.version] = append(lockPathsByVersion[e.version], e.path)
@@ -742,7 +509,7 @@ func migrationLockFindings(lockText string, tree []migrationLockEntry) []string 
 		te := treeByPath[p]
 		lps := lockPathsByVersion[te.version]
 		if len(lps) != 1 || lps[0] == te.path {
-			continue // not claimed twice, or claimed by this very path
+			continue
 		}
 		lp := lps[0]
 		if _, lockPathStillHere := treeByPath[lp]; lockPathStillHere {
@@ -793,13 +560,6 @@ func migrationLockFindings(lockText string, tree []migrationLockEntry) []string 
 	return findings
 }
 
-// migrationLockPrefixFindings is the CLASS B judgement: main's entry lines must
-// be an exact prefix of this tree's. Pure, for the same reason as above.
-//
-// ⚠️ Its input on main is two copies of the same lines, so it can only ever
-// return nil there. That is not a defect to be fixed — it is what "compare with
-// the baseline" means — but it is the reason this check must never be described
-// as covering deletion or renumbering in general.
 func migrationLockPrefixFindings(mainLines, treeLines []string) []string {
 	var findings []string
 	if len(treeLines) < len(mainLines) {
@@ -826,39 +586,22 @@ func migrationLockPrefixFindings(mainLines, treeLines []string) []string {
 				"released maximum and stops upgraded stations from booting. New migrations are "+
 				"appended at the END, numbered above every line already here.",
 				findOrder, migrationLockFile, i+1, mainLines[i], treeLines[i]))
-			break // the first divergence is the finding; the rest is its shadow
+			break
 		}
 	}
 	return findings
 }
 
-// ---------------------------------------------------------------------------
-// THE SUBCOMMAND
-// ---------------------------------------------------------------------------
-
-// migrationLockWriteMarker is the line `--write` prints as its LAST act, and the
-// line bin/gen-migration-lock requires before believing anything happened.
-//
-// 🔴 WHY A MARKER AND NOT rc. This was learned the expensive way when the writer
-// was a `go test -run` invocation: a -run pattern matching NOTHING prints `ok`
-// and exits 0, byte for byte what a real pass looks like. The subcommand form
-// removes that particular trap, but the class survives it — a body replaced by
-// an early return exits 0 just the same — so the wrapper still refuses to
-// believe rc alone, and this is what it believes instead.
+// migrationLockWriteMarker must be the LAST line `--write` prints:
+// bin/gen-migration-lock requires this exact string before believing a write
+// happened, because rc alone lies (a body replaced by an early return exits 0).
 const migrationLockWriteMarker = "[gen-migration-lock] wrote"
 
-// migrationLockNextContents produces the lock's lines IN FILE ORDER: every line
-// the current lock already has, in the position it already has (with the tree's
-// current hash), followed by everything new, appended.
-//
-// 🔴 WHY IT APPENDS INSTEAD OF SORTING, which is the part that looks like a bug
-// until you see what it catches. Rewriting the file in version order every time
-// would be simpler AND would destroy the append-only signal: a migration
-// numbered below the current maximum would sort quietly into the middle and the
-// version column would still ascend. By keeping the existing lines where they
-// are and putting new ones at the END, a below-maximum migration lands at the
-// tail with a smaller number — and the ascending-column check ([lock:order])
-// sees it WITH NO BASELINE, i.e. on main too, not only on a PR.
+// migrationLockNextContents keeps every existing line in place and APPENDS new
+// ones instead of sorting. Sorting looks simpler but would destroy the signal: a
+// below-maximum migration would sort quietly into the middle, whereas appended it
+// lands at the tail with a smaller number and [lock:order] sees it with no
+// baseline.
 func migrationLockNextContents(tree []migrationLockEntry) ([]migrationLockEntry, error) {
 	byPath := map[string]migrationLockEntry{}
 	for _, e := range tree {
@@ -878,20 +621,17 @@ func migrationLockNextContents(tree []migrationLockEntry) ([]migrationLockEntry,
 		for _, e := range existing.entries {
 			cur, ok := byPath[e.path]
 			if !ok {
-				// The migration is gone from the tree. The lock follows the tree —
-				// the judgement about whether a shipped migration may disappear
-				// belongs to the checker (class B, against origin/main), not here.
+				// Gone from the tree: the lock follows the tree; whether a shipped
+				// migration may disappear is class B's judgement, not the generator's.
 				continue
 			}
-			ordered = append(ordered, cur) // same position, CURRENT hash
+			ordered = append(ordered, cur)
 			kept[e.path] = true
 		}
 	} else if !os.IsNotExist(err) {
 		return nil, fmt.Errorf("read %s: %w", migrationLockFile, err)
 	}
 
-	// tree is sorted by version, so first-time generation comes out ascending and
-	// later additions append in version order.
 	for _, e := range tree {
 		if !kept[e.path] {
 			ordered = append(ordered, e)
@@ -900,14 +640,6 @@ func migrationLockNextContents(tree []migrationLockEntry) ([]migrationLockEntry,
 	return ordered, nil
 }
 
-// cmdMigrationLock is the `migration-lock` subcommand: --write regenerates the
-// lock, --check re-derives it and refuses anything that does not match.
-//
-// 🔴 ONE ENUMERATION, BOTH MODES. Both arms below start from the same
-// migrationLockTreeEntries call and render through the same renderMigrationLock.
-// A second implementation for the checking side is the failure this whole design
-// is built to avoid: it would validate a different corpus than the one that was
-// written, and it would be green while doing it.
 func cmdMigrationLock(args []string, out io.Writer) int {
 	mode := ""
 	for _, a := range args {
@@ -966,11 +698,6 @@ func cmdMigrationLock(args []string, out io.Writer) int {
 		}
 		return 1
 	}
-	// The byte comparison, on top of the findings. The findings answer "is the
-	// lock's CLAIM true"; this answers "would regenerating produce these exact
-	// bytes" — the same question every other drift gate in this repo asks, and
-	// the one that catches a difference the judgement has no arm for (a header
-	// edit, a stray blank line, a changed line ending).
 	ordered, err := migrationLockNextContents(tree)
 	if err != nil {
 		fmt.Fprintf(out, "[migration-lock] %v\n", err)
@@ -989,10 +716,6 @@ func cmdMigrationLock(args []string, out io.Writer) int {
 	return 0
 }
 
-// migrationLockTextDiff reports the first line where two texts part company,
-// with a little context. Not a general diff: the caller has already established
-// that the two are supposed to be identical, so the FIRST divergence is the
-// finding and everything after it is that finding's shadow.
 func migrationLockTextDiff(have, want string) string {
 	haveLines, wantLines := strings.Split(have, "\n"), strings.Split(want, "\n")
 	n := len(haveLines)

@@ -5,34 +5,15 @@ import (
 	"strings"
 )
 
-// Single-step plan edits (T-228): insert_step, delete_step, reorder_steps.
+// Single-step plan edits: insert_step, delete_step, reorder_steps. They exist beside
+// submit_plan because submit_plan is a wholesale replace (unfinished rows and their
+// notes deleted, ids re-minted, a deleted step's card restores nothing); these move
+// ONE step, and every other step keeps its id, status, note and bound reply card.
 //
-// submit_plan is a WHOLESALE replace — it deletes every unfinished row and its
-// working note, and re-listing a node by name mints a NEW step with a new id.
-// That made a mid-task adjustment cost the executor everything already under
-// way: the notes on the unfinished steps, and the gate step still waiting for
-// the owner's answer (a deleted step's card never restores anything, even when
-// it is answered later). T-211 is the case on the record — an outsource worker
-// at 27/28 was told to fold one more piece of work in before the acceptance
-// step and could not, so the work went into a note and the plan stopped
-// describing the actual path.
-//
-// These three writes move ONE thing. Every other step keeps its id, its status,
-// its note and its bound reply card, which is the entire point of having them
-// beside submit_plan rather than instead of it.
-//
-// ⚠️ NO OVERWRITE PROTECTION, by owner ruling (rc-5160b97384c4, 2026-09-16 —
-// 「什麼都不加，最後寫的人為準」): no version, no compare-and-set, no retry. Two
-// writes landing together leave the later one standing and the earlier one
-// silently gone. The tool descriptions say so in as many words. Adding a guard
-// here needs a new ruling, not a judgement call.
+// ⚠️ No overwrite protection (last writer wins) — owner ruling rc-5160b97384c4.
 
-// resolveTaskForStepEdit runs the three gates every single-step plan edit shares
-// — the task exists, the caller drives it, the task is not closed — and hands
-// back the task with its stored step rows in timeline order.
-//
-// callerMayDriveTask verbatim, deliberately: these are plan writes, not the
-// text-only doors, so the T-52 executor-less-creator window does not widen them.
+// callerMayDriveTask verbatim: these are plan writes, so the executor-less-creator
+// window of the text-only doors does not widen them.
 func (s *apiServer) resolveTaskForStepEdit(
 	w http.ResponseWriter, r *http.Request, taskID string,
 ) (*Task, []TaskStep, bool) {
@@ -57,8 +38,6 @@ func (s *apiServer) resolveTaskForStepEdit(
 	return t, steps, true
 }
 
-// POST /api/tasks/{task_id}/steps — insert ONE step in front of a named step,
-// or at the end when none is named (MCP insert_step).
 func (s *apiServer) HandleInsertTaskStepApiTasksTaskIdStepsPost(
 	w http.ResponseWriter, r *http.Request, taskId string,
 ) {
@@ -70,10 +49,7 @@ func (s *apiServer) HandleInsertTaskStepApiTasksTaskIdStepsPost(
 	if !ok {
 		return
 	}
-	// Same two quality gates a submitted plan carries, same wording: a step with
-	// no name is unreadable and a step with no Definition of Done is
-	// unverifiable. Kept identical so the rule reads the same whichever door a
-	// step arrives through.
+	// Same two quality gates and wording as submit_plan.
 	name := trimString(body.Name)
 	if name == "" {
 		writeError(w, http.StatusBadRequest, "step name must not be blank")
@@ -84,9 +60,6 @@ func (s *apiServer) HandleInsertTaskStepApiTasksTaskIdStepsPost(
 			"step '"+name+"' must have a non-empty definition of done")
 		return
 	}
-	// Where it lands. An unnamed anchor appends; a named one must be a step of
-	// THIS task that has not finished — a terminal row is immutable history, and
-	// inserting ahead of one would rewrite the record of what was already done.
 	at := len(steps)
 	if before := trimmedOrEmpty(body.BeforeStepId); before != "" {
 		idx := -1
@@ -118,9 +91,7 @@ func (s *apiServer) HandleInsertTaskStepApiTasksTaskIdStepsPost(
 		ParallelGroup: trimmedOrEmpty(body.ParallelGroup),
 		IsGate:        body.IsGate != nil && *body.IsGate,
 	}
-	// Validate the shape of the timeline as it will be STORED — with the new row
-	// in the position it is actually going to occupy, which for an insert is the
-	// middle. Rules 1 and 3 apply to the new row alone, so a legacy group
+	// Only the introduced rows face the gate and one-lane checks, so a legacy group
 	// already on the timeline never blocks an unrelated insert.
 	timeline := make([]TaskStep, 0, len(steps)+1)
 	timeline = append(timeline, steps[:at]...)
@@ -146,8 +117,6 @@ func (s *apiServer) HandleInsertTaskStepApiTasksTaskIdStepsPost(
 	})
 }
 
-// POST /api/tasks/{task_id}/steps/{step_id}/delete — remove ONE unfinished step
-// (MCP delete_step).
 func (s *apiServer) HandleDeleteTaskStepApiTasksTaskIdStepsStepIdDeletePost(
 	w http.ResponseWriter, r *http.Request, taskId, stepId string,
 ) {
@@ -173,8 +142,7 @@ func (s *apiServer) HandleDeleteTaskStepApiTasksTaskIdStepsStepIdDeletePost(
 				"be deleted")
 		return
 	}
-	// Same refusal submit_plan gives a plan with no steps in it, same wording: a
-	// planned task cannot be emptied back into 規劃中.
+	// Same refusal and wording submit_plan gives a plan with no steps.
 	if len(steps) == 1 {
 		writeError(w, http.StatusBadRequest,
 			"a plan must have at least one step")
@@ -183,10 +151,6 @@ func (s *apiServer) HandleDeleteTaskStepApiTasksTaskIdStepsStepIdDeletePost(
 	remaining := make([]TaskStep, 0, len(steps)-1)
 	remaining = append(remaining, steps[:idx]...)
 	remaining = append(remaining, steps[idx+1:]...)
-	// Nothing is introduced, so only the contiguity rule can fire — deleting a
-	// step from between two lanes of one group would split it. A group left with
-	// a single lane is NOT refused, the same way submit_plan tolerates a legacy
-	// one-lane group it did not introduce.
 	if msg := ValidatePlanParallelShape(remaining, nil); msg != "" {
 		writeError(w, http.StatusBadRequest, msg)
 		return
@@ -207,8 +171,6 @@ func (s *apiServer) HandleDeleteTaskStepApiTasksTaskIdStepsStepIdDeletePost(
 	})
 }
 
-// POST /api/tasks/{task_id}/steps/reorder — reorder the UNFINISHED steps
-// (MCP reorder_steps).
 func (s *apiServer) HandleReorderTaskStepsApiTasksTaskIdStepsReorderPost(
 	w http.ResponseWriter, r *http.Request, taskId string,
 ) {
@@ -220,10 +182,6 @@ func (s *apiServer) HandleReorderTaskStepsApiTasksTaskIdStepsReorderPost(
 	if !ok {
 		return
 	}
-	// step_ids must be EXACTLY the unfinished set: every unfinished step named
-	// once, nothing else. A partial list is refused rather than interpreted,
-	// because every interpretation of "the ones you left out" is a guess about
-	// where they should go, and the caller is the one who knows.
 	unfinished := map[string]bool{}
 	for _, st := range steps {
 		if !StepIsTerminal(st.Status) {
@@ -240,8 +198,6 @@ func (s *apiServer) HandleReorderTaskStepsApiTasksTaskIdStepsReorderPost(
 		case unfinished[id]:
 			seen[id] = true
 		default:
-			// One message for "not on this task" and "already finished" would
-			// hide which of the two it is, and they need different fixes.
 			found := false
 			for _, st := range steps {
 				if st.ID == id {
@@ -272,8 +228,6 @@ func (s *apiServer) HandleReorderTaskStepsApiTasksTaskIdStepsReorderPost(
 				"' exactly once; missing: "+strings.Join(missing, ", "))
 		return
 	}
-	// Finished steps keep the timeline positions they already hold; the
-	// unfinished ones fill what is left, in the order given.
 	ordered := make([]TaskStep, len(steps))
 	byID := map[string]TaskStep{}
 	for _, st := range steps {
@@ -290,9 +244,6 @@ func (s *apiServer) HandleReorderTaskStepsApiTasksTaskIdStepsReorderPost(
 	for n, id := range body.StepIds {
 		ordered[free[n]] = byID[id]
 	}
-	// Nothing is introduced, so only the contiguity rule can fire: a reorder
-	// that pulls one lane of a parallel group away from its siblings would
-	// render as two stages, which is the visual lie the rule exists to refuse.
 	if msg := ValidatePlanParallelShape(ordered, nil); msg != "" {
 		writeError(w, http.StatusBadRequest, msg)
 		return

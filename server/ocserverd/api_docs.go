@@ -1,15 +1,9 @@
 package main
 
-// api_docs.go — the product-guide surface: the repo-root docs/guide/ tree baked
-// into the binary (docsdist embed, assets.go) served THREE ways off ONE source:
-// GET /api/docs (list), GET /api/docs/{slug} (one doc in full), and
-// GET /api/docs/assets/{name} (the referenced images). The list + content reads
-// are declarative gated routes at the machine floor, so they also derive the
-// list_docs / get_doc MCP tools an assistant agent (Mira) calls to answer
-// "what is this field / where do I set X"; the asset route is MCP-excluded (a
-// binary is not a callable tool). Reads are EMBED-ONLY — the doc bytes this
-// binary was built with, never a docs/ under the CWD. The *From cores take an
-// injectable fs.FS (tests pass fstest.MapFS; production passes docsdistFS()).
+// Product-guide surface: docs/guide/ is baked into the binary (docsdist embed,
+// assets.go). The list + content routes also derive the list_docs / get_doc MCP
+// tools an assistant agent calls; the asset route is MCP-excluded. Reads are
+// embed-only, never a docs/ under the CWD.
 
 import (
 	"io/fs"
@@ -20,22 +14,15 @@ import (
 	"strings"
 )
 
-// docAssetURLPrefix is the served path a doc's relative image reference is
-// rewritten to point at (GET /api/docs/assets/{name}). Kept in one place so the
-// rewrite and the asset route agree.
 const docAssetURLPrefix = "/api/docs/assets/"
 
-// docSlug maps a docsdist filename ("why.md") to its addressable slug ("why").
 // build-docsdist FLATTENS docs/guide/ into one directory, so the basename is
-// all a slug can carry — a client turning a doc-relative link like
-// "../dev/agent-env.md" into a slug must apply exactly this rule to the
-// basename and then check the result against the listed docs.
+// all a slug can carry — a client turning a doc-relative link into a slug must
+// apply exactly this rule to the basename.
 func docSlug(filename string) string {
 	return strings.TrimSuffix(filename, ".md")
 }
 
-// docTitle extracts a doc's display title: the first "# " heading, else the
-// slug (a doc with no heading still addresses/lists honestly).
 func docTitle(md, slug string) string {
 	for _, line := range strings.Split(md, "\n") {
 		trimmed := strings.TrimSpace(line)
@@ -46,25 +33,12 @@ func docTitle(md, slug string) string {
 	return slug
 }
 
-// rewriteDocAssetPaths makes a doc's RELATIVE image references resolvable from
-// any render surface: `](assets/x.png)` / `](./assets/x.png)` → the absolute
-// served asset endpoint. Generic on purpose — e.g. tasks.md references
-// `assets/cockpit-task.png` and it resolves with no further change.
 func rewriteDocAssetPaths(md string) string {
 	md = strings.ReplaceAll(md, "](./assets/", "]("+docAssetURLPrefix)
 	md = strings.ReplaceAll(md, "](assets/", "]("+docAssetURLPrefix)
 	return md
 }
 
-// docReadingOrder is the guide's intended reading sequence: an onboarding arc
-// (why it exists → install → first run → the interface → the people → the work →
-// settings → good habits) followed by the reference tail (architecture, glossary,
-// mobile, troubleshooting). Plain slug-alphabetical order shuffled these into an
-// incoherent sequence, so listDocsFrom sorts by this explicit rank instead. A
-// slug absent here (a doc added without being placed) sorts AFTER every ranked
-// one, alphabetically among its unranked peers — new content lists last, never
-// silently mid-arc. Slugs are unchanged (inter-doc links key on the basename
-// slug); this only orders the list.
 var docReadingOrder = []string{
 	"why",
 	"install",
@@ -81,8 +55,6 @@ var docReadingOrder = []string{
 	"troubleshooting",
 }
 
-// docOrderRank returns a slug's position in docReadingOrder, or len(list) for an
-// unranked slug so it falls to the tail (alphabetical among the unranked).
 func docOrderRank(slug string) int {
 	for i, s := range docReadingOrder {
 		if s == slug {
@@ -92,10 +64,6 @@ func docOrderRank(slug string) int {
 	return len(docReadingOrder)
 }
 
-// listDocsFrom reads every top-level *.md in the doc FS (the assets/ subtree and
-// .gitkeep are skipped), sorted by the guide's reading order (docReadingOrder;
-// unranked docs fall to the tail, alphabetical among themselves) for a coherent,
-// stable surface.
 func listDocsFrom(fsys fs.FS) ([]docSummaryDTO, error) {
 	entries, err := fs.ReadDir(fsys, ".")
 	if err != nil {
@@ -123,14 +91,13 @@ func listDocsFrom(fsys fs.FS) ([]docSummaryDTO, error) {
 	return out, nil
 }
 
-// readDocFrom folds one doc by slug (nil = unknown → caller 404s).
 func readDocFrom(fsys fs.FS, slug string) *docDTO {
 	if slug == "" || strings.ContainsAny(slug, "/\\") {
 		return nil
 	}
 	raw, err := fs.ReadFile(fsys, slug+".md")
 	if err != nil {
-		return nil // missing file is an unknown slug, not a server error
+		return nil
 	}
 	md := string(raw)
 	return &docDTO{
@@ -140,8 +107,6 @@ func readDocFrom(fsys fs.FS, slug string) *docDTO {
 	}
 }
 
-// readDocAssetFrom returns a doc image's bytes + its content-type (ok=false = a
-// missing/traversing name → the caller 404s).
 func readDocAssetFrom(fsys fs.FS, name string) ([]byte, string, bool) {
 	if name == "" || strings.ContainsAny(name, "/\\") {
 		return nil, "", false
@@ -157,7 +122,6 @@ func readDocAssetFrom(fsys fs.FS, name string) ([]byte, string, bool) {
 	return raw, ct, true
 }
 
-// GET /api/docs — list the product-guide docs (slug + title).
 func (s *apiServer) HandleListDocsApiDocsGet(w http.ResponseWriter, r *http.Request) {
 	docs, err := listDocsFrom(docsdistFS())
 	if err != nil {
@@ -167,7 +131,6 @@ func (s *apiServer) HandleListDocsApiDocsGet(w http.ResponseWriter, r *http.Requ
 	writeJSON(w, http.StatusOK, docs)
 }
 
-// GET /api/docs/{slug} — one product-guide doc in full (unknown → 404).
 func (s *apiServer) HandleGetDocApiDocsSlugGet(w http.ResponseWriter, r *http.Request, slug string) {
 	doc := readDocFrom(docsdistFS(), slug)
 	if doc == nil {
@@ -177,8 +140,6 @@ func (s *apiServer) HandleGetDocApiDocsSlugGet(w http.ResponseWriter, r *http.Re
 	writeJSON(w, http.StatusOK, doc)
 }
 
-// GET /api/docs/assets/{name} — a doc's embedded image (bytes, not a tool).
-// Unknown name → 404 (never the SPA shell, never a directory listing).
 func (s *apiServer) HandleGetDocAssetApiDocsAssetsNameGet(w http.ResponseWriter, r *http.Request, name string) {
 	raw, ct, ok := readDocAssetFrom(docsdistFS(), name)
 	if !ok {
