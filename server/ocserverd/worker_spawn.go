@@ -1247,26 +1247,27 @@ func (s *apiServer) workerReportStopping(id, trigger string) (*Member, error) {
 }
 
 func (s *apiServer) workerReportStopped(id, trigger string) (*Member, string, error) {
-	s.outsourceMu.Lock()
+	unlockMu := s.outsourceMu.Acquire()
+	defer unlockMu()
 	w, err := s.resolveLiveWorker(id)
 	if err != nil {
-		s.outsourceMu.Unlock()
+		unlockMu()
 		return nil, "", err
 	}
 	now := nowSecs()
 	collect, stopEffect, prior := decideStoppedReport(windDownAnchorRowOfWorker(w), now)
 	if !collect {
-		s.outsourceMu.Unlock()
+		unlockMu()
 		m := memberFromWorker(*w)
 		return &m, stopEffect, nil
 	}
 	if err := s.latchWorkerStopped(w, prior, "stopped-report", trigger); err != nil {
-		s.outsourceMu.Unlock()
+		unlockMu()
 		return nil, "", err
 	}
 	s.bankLiveCost(w.ID)
 	row := *w
-	s.outsourceMu.Unlock()
+	unlockMu()
 
 	// Drop the lock BEFORE the kill (owner ruling T-14): dispatchShutdown re-takes
 	// outsourceMu (self-deadlock) and, on the staff arm, reconcileMu.

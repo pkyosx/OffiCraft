@@ -125,6 +125,15 @@ func (l *Mutex) TryLock() bool {
 
 func (l *Mutex) Unlock() { l.m.Unlock() }
 
+// Acquire is Lock for a critical section that unlocks on several paths: the
+// returned unlock may be called any number of times and only the first counts,
+// so it can also be deferred and a panic still releases the lock.
+func (l *Mutex) Acquire() (unlock func()) {
+	l.Lock()
+	var once sync.Once
+	return func() { once.Do(l.m.Unlock) }
+}
+
 // RWMutex is sync.RWMutex with the same refusal on Lock, RLock and TryLock.
 type RWMutex struct{ m sync.RWMutex }
 
@@ -136,6 +145,13 @@ func (l *RWMutex) Lock() {
 func (l *RWMutex) RLock() {
 	refuseInTx()
 	l.m.RLock()
+}
+
+// Acquire is Mutex.Acquire for the write lock.
+func (l *RWMutex) Acquire() (unlock func()) {
+	l.Lock()
+	var once sync.Once
+	return func() { once.Do(l.m.Unlock) }
 }
 
 func (l *RWMutex) Unlock()  { l.m.Unlock() }

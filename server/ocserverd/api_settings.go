@@ -518,10 +518,11 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 		}
 		suggestedRepliesLoreMessage = list
 	}
-	s.settingsMu.Lock()
+	unlockMu := s.settingsMu.Acquire()
+	defer unlockMu()
 	if body.OwnerTokenTtl != nil {
 		if err := s.dal.PutSetting(settingOwnerTokenTTL, strconv.Itoa(*body.OwnerTokenTtl)); err != nil {
-			s.settingsMu.Unlock()
+			unlockMu()
 			internalError(w, err)
 			return
 		}
@@ -529,7 +530,7 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 	}
 	if body.AgentTokenTtl != nil {
 		if err := s.dal.PutSetting(settingAgentTokenTTL, strconv.Itoa(*body.AgentTokenTtl)); err != nil {
-			s.settingsMu.Unlock()
+			unlockMu()
 			internalError(w, err)
 			return
 		}
@@ -537,7 +538,7 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 	}
 	if body.HandoverPct != nil {
 		if err := s.dal.PutSetting(settingCtxHandoverPct, strconv.Itoa(*body.HandoverPct)); err != nil {
-			s.settingsMu.Unlock()
+			unlockMu()
 			internalError(w, err)
 			return
 		}
@@ -545,7 +546,7 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 	}
 	if body.NoticePct != nil {
 		if err := s.dal.PutSetting(settingCtxNoticePct, strconv.Itoa(*body.NoticePct)); err != nil {
-			s.settingsMu.Unlock()
+			unlockMu()
 			internalError(w, err)
 			return
 		}
@@ -553,7 +554,7 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 	}
 	if body.CodexCompactionThreshold != nil {
 		if err := s.dal.PutSetting(settingCodexCompactionThreshold, strconv.Itoa(*body.CodexCompactionThreshold)); err != nil {
-			s.settingsMu.Unlock()
+			unlockMu()
 			internalError(w, err)
 			return
 		}
@@ -561,7 +562,7 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 	}
 	if body.CodexNoticeRound != nil {
 		if err := s.dal.PutSetting(settingCodexNoticeRound, strconv.Itoa(*body.CodexNoticeRound)); err != nil {
-			s.settingsMu.Unlock()
+			unlockMu()
 			internalError(w, err)
 			return
 		}
@@ -569,7 +570,7 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 	}
 	if body.MonitoringRefreshSeconds != nil {
 		if err := s.dal.PutSetting(settingMonitoringRefreshSeconds, strconv.Itoa(*body.MonitoringRefreshSeconds)); err != nil {
-			s.settingsMu.Unlock()
+			unlockMu()
 			internalError(w, err)
 			return
 		}
@@ -578,7 +579,7 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 	if body.AcceleratedGraceSecs != nil {
 		if err := s.dal.PutSetting(settingAcceleratedGraceSecs,
 			strconv.Itoa(*body.AcceleratedGraceSecs)); err != nil {
-			s.settingsMu.Unlock()
+			unlockMu()
 			internalError(w, err)
 			return
 		}
@@ -587,7 +588,7 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 	if body.ReassignHandoverTimeoutSecs != nil {
 		if err := s.dal.PutSetting(settingReassignHandoverTimeoutSecs,
 			strconv.Itoa(*body.ReassignHandoverTimeoutSecs)); err != nil {
-			s.settingsMu.Unlock()
+			unlockMu()
 			internalError(w, err)
 			return
 		}
@@ -596,7 +597,7 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 	if body.WardenCredentialLifetimeSecs != nil {
 		if err := s.dal.PutSetting(settingWardenCredLifetimeSecs,
 			strconv.Itoa(*body.WardenCredentialLifetimeSecs)); err != nil {
-			s.settingsMu.Unlock()
+			unlockMu()
 			internalError(w, err)
 			return
 		}
@@ -605,7 +606,7 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 	if body.OutsourceMaxParallel != nil {
 		if err := s.dal.PutSetting(settingOutsourceMaxParallel,
 			strconv.Itoa(*body.OutsourceMaxParallel)); err != nil {
-			s.settingsMu.Unlock()
+			unlockMu()
 			internalError(w, err)
 			return
 		}
@@ -635,7 +636,7 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 			continue
 		}
 		if err := s.dal.PutSetting(c.key, strconv.Itoa(*c.field)); err != nil {
-			s.settingsMu.Unlock()
+			unlockMu()
 			internalError(w, err)
 			return
 		}
@@ -645,7 +646,7 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 	if body.UpdaterReceiveBeta != nil && *body.UpdaterReceiveBeta != s.updaterReceiveBeta {
 		if err := s.dal.PutSetting(settingUpdaterReceiveBeta,
 			strconv.FormatBool(*body.UpdaterReceiveBeta)); err != nil {
-			s.settingsMu.Unlock()
+			unlockMu()
 			internalError(w, err)
 			return
 		}
@@ -656,7 +657,7 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 	if body.UpdaterAutoUpdate != nil && *body.UpdaterAutoUpdate != s.updaterAutoUpdate {
 		if err := s.dal.PutSetting(settingUpdaterAutoUpdate,
 			strconv.FormatBool(*body.UpdaterAutoUpdate)); err != nil {
-			s.settingsMu.Unlock()
+			unlockMu()
 			internalError(w, err)
 			return
 		}
@@ -664,7 +665,7 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 	}
 	if body.OrgName != nil && orgName != s.orgName {
 		if err := s.dal.PutSetting(settingOrgName, orgName); err != nil {
-			s.settingsMu.Unlock()
+			unlockMu()
 			internalError(w, err)
 			return
 		}
@@ -672,7 +673,7 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 	}
 	if body.OwnerName != nil && ownerName != s.ownerName {
 		if err := s.dal.PutSetting(settingOwnerName, ownerName); err != nil {
-			s.settingsMu.Unlock()
+			unlockMu()
 			internalError(w, err)
 			return
 		}
@@ -680,7 +681,7 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 	}
 	if body.PushContactEmail != nil && pushContactEmail != s.pushContactEmail {
 		if err := s.dal.PutSetting(settingPushContactEmail, pushContactEmail); err != nil {
-			s.settingsMu.Unlock()
+			unlockMu()
 			internalError(w, err)
 			return
 		}
@@ -691,7 +692,7 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 	if themeProvided && displayTheme != s.displayTheme {
 		finalTheme := displayTheme
 		if err := s.dal.PutSetting(settingDisplayTheme, finalTheme); err != nil {
-			s.settingsMu.Unlock()
+			unlockMu()
 			internalError(w, err)
 			return
 		}
@@ -699,7 +700,7 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 	}
 	if body.DisplayLanguage != nil && displayLanguage != s.displayLanguage {
 		if err := s.dal.PutSetting(settingDisplayLanguage, displayLanguage); err != nil {
-			s.settingsMu.Unlock()
+			unlockMu()
 			internalError(w, err)
 			return
 		}
@@ -708,7 +709,7 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 	if body.DisplayWide != nil && *body.DisplayWide != s.displayWide {
 		if err := s.dal.PutSetting(settingDisplayWide,
 			strconv.FormatBool(*body.DisplayWide)); err != nil {
-			s.settingsMu.Unlock()
+			unlockMu()
 			internalError(w, err)
 			return
 		}
@@ -717,7 +718,7 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 	if body.SuggestedRepliesReplyCard != nil {
 		if err := s.dal.PutSetting(settingSuggestedRepliesReplyCard,
 			encodeSuggestedReplies(suggestedRepliesReplyCard)); err != nil {
-			s.settingsMu.Unlock()
+			unlockMu()
 			internalError(w, err)
 			return
 		}
@@ -726,7 +727,7 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 	if body.SuggestedRepliesTaskMessage != nil {
 		if err := s.dal.PutSetting(settingSuggestedRepliesTaskMessage,
 			encodeSuggestedReplies(suggestedRepliesTaskMessage)); err != nil {
-			s.settingsMu.Unlock()
+			unlockMu()
 			internalError(w, err)
 			return
 		}
@@ -735,13 +736,13 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 	if body.SuggestedRepliesLoreMessage != nil {
 		if err := s.dal.PutSetting(settingSuggestedRepliesLoreMessage,
 			encodeSuggestedReplies(suggestedRepliesLoreMessage)); err != nil {
-			s.settingsMu.Unlock()
+			unlockMu()
 			internalError(w, err)
 			return
 		}
 		s.suggestedRepliesLoreMessage = suggestedRepliesLoreMessage
 	}
-	s.settingsMu.Unlock()
+	unlockMu()
 	// onboarding_dismissed is written OUTSIDE settingsMu: it lives on the
 	// onboarding report row, not in the snapshot. A dismissal with no `failed`
 	// banner behind it is a 409 — on a still-running run that is what keeps this
