@@ -72,7 +72,7 @@ func TestATransactionStuckOnAWaitThatNeverEndsIsRolledBackAtItsHoldLimit(t *test
 			_, h, _, owner := newAPITestServerOn(t, d)
 			t1 := dalPutTask(t, d, windowOpenTask("T-1"))
 			dalPutTask(t, d, windowOpenTask("T-2"))
-			logs := apiCaptureStandardLog(t)
+			logs := recoveryCaptureLog(t)
 			stuck := make(chan struct{})
 			never := make(chan struct{})
 			released := false
@@ -132,7 +132,7 @@ func TestATransactionWaitingOnAPlainMutexWhoseHolderWaitsToWriteIsRolledBackAtIt
 			_, h, _, owner := newAPITestServerOn(t, d)
 			t1 := dalPutTask(t, d, windowOpenTask("T-1"))
 			dalPutTask(t, d, windowOpenTask("T-2"))
-			logs := apiCaptureStandardLog(t)
+			logs := recoveryCaptureLog(t)
 			// A lock the server's own txguard types do not cover: nothing refuses
 			// it inside the transaction.
 			var mu sync.RWMutex

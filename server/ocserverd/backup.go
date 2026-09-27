@@ -14,7 +14,9 @@ package main
 // ticket).
 
 import (
+	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -246,12 +248,20 @@ func runDatabaseBackup(db backupDB, dbPath string, reason backupReason, now time
 // and pre-migration triggers run with no apiServer, and a cockpit PATCH takes
 // effect on the next snapshot. The fallback is reachable only from the CLI
 // triggers — `serve` refuses to boot on an out-of-range row (loadAuthSettings).
+//
+// A read that ran out of time answers 0, which rotateBackups treats as "delete
+// nothing": the owner's number is unknown this round, and deleting by the
+// default could remove backups the owner chose to keep.
 func liveBackupRetain(db backupDB) int {
 	if db == nil {
 		return backupRetainDefault
 	}
 	var raw string
 	if err := db.QueryRow(`SELECT value FROM setting WHERE key = ?`, settingBackupRetain).Scan(&raw); err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			log.Printf("[backup] could not read the retain setting in time (%v); deleting no old backups this round", err)
+			return 0
+		}
 		return backupRetainDefault
 	}
 	n, err := strconv.Atoi(strings.TrimSpace(raw))
