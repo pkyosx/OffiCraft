@@ -373,22 +373,24 @@ func TestSetTaskPriorityDecidesFromTheRowItWrites(t *testing.T) {
 		})
 	}
 
-	t.Run("a write that fails leaves the row and fans nothing", func(t *testing.T) {
-		d, _, _ := windowDAL(t, "split pools")
-		api, h, _, owner := newAPITestServerOn(t, d)
-		task := dalPutTask(t, d, windowOpenTask("T-1"))
-		windowRefuseTaskWrites(t, d)
-		dashboard := apiTestListen(t, api, "")
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": "+"a write that fails leaves the row and fans nothing", func(t *testing.T) {
+			d, _, _ := windowDAL(t, shape)
+			api, h, _, owner := newAPITestServerOn(t, d)
+			task := dalPutTask(t, d, windowOpenTask("T-1"))
+			windowRefuseTaskWrites(t, d)
+			dashboard := apiTestListen(t, api, "")
 
-		status, data := windowJSON(t, h, "POST", "/api/tasks/T-1/priority", owner, `{"priority":"low"}`)
+			status, data := windowJSON(t, h, "POST", "/api/tasks/T-1/priority", owner, `{"priority":"low"}`)
 
-		if status != http.StatusInternalServerError {
-			t.Fatalf("want 500, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "internal_error", windowTaskWriteFails)
-		dalWantTask(t, d, task)
-		dashboard.wantFrames()
-	})
+			if status != http.StatusInternalServerError {
+				t.Fatalf("want 500, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "internal_error", windowTaskWriteFails)
+			dalWantTask(t, d, task)
+			dashboard.wantFrames()
+		})
+	}
 }
 
 func TestSetTaskDepsDecidesFromTheRowItWrites(t *testing.T) {
@@ -414,28 +416,30 @@ func TestSetTaskDepsDecidesFromTheRowItWrites(t *testing.T) {
 		})
 	}
 
-	t.Run("a task write that fails takes the new edges back with it", func(t *testing.T) {
-		d, _, _ := windowDAL(t, "split pools")
-		api, h, _, owner := newAPITestServerOn(t, d)
-		task := dalPutTask(t, d, windowOpenTask("T-1"))
-		dalPutTask(t, d, windowOpenTask("T-2"))
-		dalPutTask(t, d, windowOpenTask("T-3"))
-		if err := d.AddTaskDep("T-1", "T-2"); err != nil {
-			t.Fatalf("AddTaskDep: %v", err)
-		}
-		windowRefuseTaskWrites(t, d)
-		dashboard := apiTestListen(t, api, "")
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": "+"a task write that fails takes the new edges back with it", func(t *testing.T) {
+			d, _, _ := windowDAL(t, shape)
+			api, h, _, owner := newAPITestServerOn(t, d)
+			task := dalPutTask(t, d, windowOpenTask("T-1"))
+			dalPutTask(t, d, windowOpenTask("T-2"))
+			dalPutTask(t, d, windowOpenTask("T-3"))
+			if err := d.AddTaskDep("T-1", "T-2"); err != nil {
+				t.Fatalf("AddTaskDep: %v", err)
+			}
+			windowRefuseTaskWrites(t, d)
+			dashboard := apiTestListen(t, api, "")
 
-		status, data := windowJSON(t, h, "POST", "/api/tasks/T-1/deps", owner, `{"blocked_by":["T-3"]}`)
+			status, data := windowJSON(t, h, "POST", "/api/tasks/T-1/deps", owner, `{"blocked_by":["T-3"]}`)
 
-		if status != http.StatusInternalServerError {
-			t.Fatalf("want 500, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "internal_error", windowTaskWriteFails)
-		windowWantDeps(t, d, "T-1", []string{"T-2"})
-		dalWantTask(t, d, task)
-		dashboard.wantFrames()
-	})
+			if status != http.StatusInternalServerError {
+				t.Fatalf("want 500, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "internal_error", windowTaskWriteFails)
+			windowWantDeps(t, d, "T-1", []string{"T-2"})
+			dalWantTask(t, d, task)
+			dashboard.wantFrames()
+		})
+	}
 }
 
 func TestUpdateStepStatusDecidesFromTheRowItWrites(t *testing.T) {
@@ -464,27 +468,29 @@ func TestUpdateStepStatusDecidesFromTheRowItWrites(t *testing.T) {
 		})
 	}
 
-	t.Run("a task write that fails takes the step write back with it", func(t *testing.T) {
-		d, _, _ := windowDAL(t, "split pools")
-		api, h, _, owner := newAPITestServerOn(t, d)
-		task := dalPutTask(t, d, windowOpenTask("T-1"))
-		step := windowPendingStep("ts-1", task.ID)
-		if err := d.PutTaskStep(step); err != nil {
-			t.Fatalf("PutTaskStep: %v", err)
-		}
-		windowRefuseTaskWrites(t, d)
-		dashboard := apiTestListen(t, api, "")
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": "+"a task write that fails takes the step write back with it", func(t *testing.T) {
+			d, _, _ := windowDAL(t, shape)
+			api, h, _, owner := newAPITestServerOn(t, d)
+			task := dalPutTask(t, d, windowOpenTask("T-1"))
+			step := windowPendingStep("ts-1", task.ID)
+			if err := d.PutTaskStep(step); err != nil {
+				t.Fatalf("PutTaskStep: %v", err)
+			}
+			windowRefuseTaskWrites(t, d)
+			dashboard := apiTestListen(t, api, "")
 
-		status, data := windowJSON(t, h, "POST", "/api/tasks/T-1/steps/ts-1/status", owner, `{"status":"in_progress"}`)
+			status, data := windowJSON(t, h, "POST", "/api/tasks/T-1/steps/ts-1/status", owner, `{"status":"in_progress"}`)
 
-		if status != http.StatusInternalServerError {
-			t.Fatalf("want 500, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "internal_error", windowTaskWriteFails)
-		windowWantStep(t, d, step)
-		dalWantTask(t, d, task)
-		dashboard.wantFrames()
-	})
+			if status != http.StatusInternalServerError {
+				t.Fatalf("want 500, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "internal_error", windowTaskWriteFails)
+			windowWantStep(t, d, step)
+			dalWantTask(t, d, task)
+			dashboard.wantFrames()
+		})
+	}
 }
 
 func TestAnsweringACardDecidesFromTheRowItWrites(t *testing.T) {
@@ -547,24 +553,26 @@ func TestExpiringACardDecidesFromTheRowItWrites(t *testing.T) {
 		})
 	}
 
-	t.Run("a task write that fails leaves the card waiting and fans nothing", func(t *testing.T) {
-		d, _, _ := windowDAL(t, "split pools")
-		api, h, _, owner := newAPITestServerOn(t, d)
-		task, step, _ := windowHeldCard(t, d)
-		windowRefuseTaskWrites(t, d)
-		dashboard := apiTestListen(t, api, "")
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": "+"a task write that fails leaves the card waiting and fans nothing", func(t *testing.T) {
+			d, _, _ := windowDAL(t, shape)
+			api, h, _, owner := newAPITestServerOn(t, d)
+			task, step, _ := windowHeldCard(t, d)
+			windowRefuseTaskWrites(t, d)
+			dashboard := apiTestListen(t, api, "")
 
-		status, data := windowJSON(t, h, "POST", "/api/reply-cards/rc-1/expire", owner, ``)
+			status, data := windowJSON(t, h, "POST", "/api/reply-cards/rc-1/expire", owner, ``)
 
-		if status != http.StatusInternalServerError {
-			t.Fatalf("want 500, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "internal_error", windowTaskWriteFails)
-		windowWantCardStatus(t, d, "rc-1", replyCardStatusWaiting)
-		windowWantStep(t, d, step)
-		dalWantTask(t, d, task)
-		dashboard.wantFrames()
-	})
+			if status != http.StatusInternalServerError {
+				t.Fatalf("want 500, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "internal_error", windowTaskWriteFails)
+			windowWantCardStatus(t, d, "rc-1", replyCardStatusWaiting)
+			windowWantStep(t, d, step)
+			dalWantTask(t, d, task)
+			dashboard.wantFrames()
+		})
+	}
 }
 
 var windowKipRemovedFrame = map[string]any{
@@ -634,23 +642,25 @@ func TestSweepingAMembersCardsDecidesFromTheRowItWrites(t *testing.T) {
 		})
 	}
 
-	t.Run("a task write that fails leaves the card waiting", func(t *testing.T) {
-		d, _, _ := windowDAL(t, "split pools")
-		api, h, _, owner := newAPITestServerOn(t, d)
-		task, step, _ := windowHeldCard(t, d)
-		windowRefuseTaskWrites(t, d)
-		kip := apiTestListen(t, api, apiTestPlainAgentID)
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": "+"a task write that fails leaves the card waiting", func(t *testing.T) {
+			d, _, _ := windowDAL(t, shape)
+			api, h, _, owner := newAPITestServerOn(t, d)
+			task, step, _ := windowHeldCard(t, d)
+			windowRefuseTaskWrites(t, d)
+			kip := apiTestListen(t, api, apiTestPlainAgentID)
 
-		status, data := windowJSON(t, h, "DELETE", "/api/members/kip", owner, ``)
+			status, data := windowJSON(t, h, "DELETE", "/api/members/kip", owner, ``)
 
-		if status != http.StatusOK {
-			t.Fatalf("the dismissal itself lands: want 200, got %d (%v)", status, data)
-		}
-		windowWantCardStatus(t, d, "rc-1", replyCardStatusWaiting)
-		windowWantStep(t, d, step)
-		dalWantTask(t, d, task)
-		kip.wantFrames(windowKipRemovedFrame)
-	})
+			if status != http.StatusOK {
+				t.Fatalf("the dismissal itself lands: want 200, got %d (%v)", status, data)
+			}
+			windowWantCardStatus(t, d, "rc-1", replyCardStatusWaiting)
+			windowWantStep(t, d, step)
+			dalWantTask(t, d, task)
+			kip.wantFrames(windowKipRemovedFrame)
+		})
+	}
 }
 
 func TestOpeningACardDecidesFromTheRowItWrites(t *testing.T) {
@@ -686,31 +696,33 @@ func TestOpeningACardDecidesFromTheRowItWrites(t *testing.T) {
 		})
 	}
 
-	t.Run("a task write that fails takes the card, its message and the hold back with it", func(t *testing.T) {
-		d, _, _ := windowDAL(t, "split pools")
-		api, h, _, _ := newAPITestServerOn(t, d)
-		kip := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
-		task := dalPutTask(t, d, windowOpenTask("T-1"))
-		step := windowPendingStep("ts-1", task.ID)
-		if err := d.PutTaskStep(step); err != nil {
-			t.Fatalf("PutTaskStep: %v", err)
-		}
-		windowRefuseTaskWrites(t, d)
-		dashboard := apiTestListen(t, api, "")
-		pushes := apiTestWebPushSink(t, api)
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": "+"a task write that fails takes the card, its message and the hold back with it", func(t *testing.T) {
+			d, _, _ := windowDAL(t, shape)
+			api, h, _, _ := newAPITestServerOn(t, d)
+			kip := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
+			task := dalPutTask(t, d, windowOpenTask("T-1"))
+			step := windowPendingStep("ts-1", task.ID)
+			if err := d.PutTaskStep(step); err != nil {
+				t.Fatalf("PutTaskStep: %v", err)
+			}
+			windowRefuseTaskWrites(t, d)
+			dashboard := apiTestListen(t, api, "")
+			pushes := apiTestWebPushSink(t, api)
 
-		status, data := windowJSON(t, h, "POST", "/api/reply-cards", kip, body)
+			status, data := windowJSON(t, h, "POST", "/api/reply-cards", kip, body)
 
-		if status != http.StatusInternalServerError {
-			t.Fatalf("want 500, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "internal_error", windowTaskWriteFails)
-		windowWantNoCards(t, d)
-		dalWantTask(t, d, task)
-		windowWantStep(t, d, step)
-		dashboard.wantFrames()
-		pushes()
-	})
+			if status != http.StatusInternalServerError {
+				t.Fatalf("want 500, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "internal_error", windowTaskWriteFails)
+			windowWantNoCards(t, d)
+			dalWantTask(t, d, task)
+			windowWantStep(t, d, step)
+			dashboard.wantFrames()
+			pushes()
+		})
+	}
 }
 
 func windowWantNoCards(t *testing.T, d *DAL) {
@@ -963,52 +975,56 @@ func TestReassigningATaskDecidesFromTheRowItWrites(t *testing.T) {
 		})
 	}
 
-	t.Run("a step reset that fails takes the card expiry back with it", func(t *testing.T) {
-		d, _, _ := windowDAL(t, "split pools")
-		api, h, _, owner := newAPITestServerOn(t, d)
-		task := dalPutTask(t, d, windowOpenTask("T-1"))
-		step := windowPlanStep("ts-1", task.ID, 0)
-		step.Status = StepStatusInProgress
-		step.StartedTS = 1700000001
-		windowPutSteps(t, d, step)
-		windowTaskCard(t, d, task.ID)
-		if _, err := d.wdb.Exec(
-			`CREATE TRIGGER refuse_step_update BEFORE UPDATE ON task_step
-			 BEGIN SELECT RAISE(FAIL, 'the step write fails'); END`); err != nil {
-			t.Fatalf("create trigger: %v", err)
-		}
-		dashboard := apiTestListen(t, api, "")
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": "+"a step reset that fails takes the card expiry back with it", func(t *testing.T) {
+			d, _, _ := windowDAL(t, shape)
+			api, h, _, owner := newAPITestServerOn(t, d)
+			task := dalPutTask(t, d, windowOpenTask("T-1"))
+			step := windowPlanStep("ts-1", task.ID, 0)
+			step.Status = StepStatusInProgress
+			step.StartedTS = 1700000001
+			windowPutSteps(t, d, step)
+			windowTaskCard(t, d, task.ID)
+			if _, err := d.wdb.Exec(
+				`CREATE TRIGGER refuse_step_update BEFORE UPDATE ON task_step
+				 BEGIN SELECT RAISE(FAIL, 'the step write fails'); END`); err != nil {
+				t.Fatalf("create trigger: %v", err)
+			}
+			dashboard := apiTestListen(t, api, "")
 
-		status, data := windowJSON(t, h, "POST", "/api/tasks/T-1/reassign", owner, toMira)
+			status, data := windowJSON(t, h, "POST", "/api/tasks/T-1/reassign", owner, toMira)
 
-		if status != http.StatusInternalServerError {
-			t.Fatalf("want 500, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "internal_error", "internal error: constraint failed: the step write fails (1811)")
-		windowWantCardStatus(t, d, "rc-1", replyCardStatusWaiting)
-		windowWantSteps(t, d, task.ID, step)
-		dalWantTask(t, d, task)
-		dashboard.wantFrames()
-	})
+			if status != http.StatusInternalServerError {
+				t.Fatalf("want 500, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "internal_error", "internal error: constraint failed: the step write fails (1811)")
+			windowWantCardStatus(t, d, "rc-1", replyCardStatusWaiting)
+			windowWantSteps(t, d, task.ID, step)
+			dalWantTask(t, d, task)
+			dashboard.wantFrames()
+		})
+	}
 
-	t.Run("a task write that fails takes the card expiry and the step reset back with it", func(t *testing.T) {
-		d, _, _ := windowDAL(t, "split pools")
-		api, h, _, owner := newAPITestServerOn(t, d)
-		task, step, _ := windowHeldCard(t, d)
-		windowRefuseTaskWrites(t, d)
-		dashboard := apiTestListen(t, api, "")
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": "+"a task write that fails takes the card expiry and the step reset back with it", func(t *testing.T) {
+			d, _, _ := windowDAL(t, shape)
+			api, h, _, owner := newAPITestServerOn(t, d)
+			task, step, _ := windowHeldCard(t, d)
+			windowRefuseTaskWrites(t, d)
+			dashboard := apiTestListen(t, api, "")
 
-		status, data := windowJSON(t, h, "POST", "/api/tasks/T-1/reassign", owner, toMira)
+			status, data := windowJSON(t, h, "POST", "/api/tasks/T-1/reassign", owner, toMira)
 
-		if status != http.StatusInternalServerError {
-			t.Fatalf("want 500, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "internal_error", windowTaskWriteFails)
-		windowWantCardStatus(t, d, "rc-1", replyCardStatusWaiting)
-		windowWantStep(t, d, step)
-		dalWantTask(t, d, task)
-		dashboard.wantFrames()
-	})
+			if status != http.StatusInternalServerError {
+				t.Fatalf("want 500, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "internal_error", windowTaskWriteFails)
+			windowWantCardStatus(t, d, "rc-1", replyCardStatusWaiting)
+			windowWantStep(t, d, step)
+			dalWantTask(t, d, task)
+			dashboard.wantFrames()
+		})
+	}
 }
 
 type windowPlanDoor struct {
@@ -1405,6 +1421,266 @@ func TestMemberLifecycleDoorsDecideFromTheRowTheyWrite(t *testing.T) {
 		}
 	}
 
+	// Each door's own refusal or decision, judged on the row as it stands in the
+	// transaction: the window moves the row so that the answer changes.
+	const stopped = `UPDATE member SET desired_state = 'offline', stopping_since = 1800000000,
+		refocus_since = 0, refocus_op = '' WHERE id = '%ID%'`
+	const stopOpen = `UPDATE member SET desired_state = 'offline', stopping_since = 1700000000 WHERE id = '%ID%'`
+	for _, tc := range []struct {
+		door   windowMemberDoor
+		window string
+		status int
+		// refusal is the error message a refused door answers; "" means it answers 200.
+		refusal string
+		body    map[string]any
+		row     func(t *testing.T, m Member)
+	}{
+		{
+			door: windowMemberDoor{name: "update, a model someone already saved", method: "PATCH",
+				path: "/api/members/kip", body: `{"model":"claude-opus-5"}`, live: true,
+				prepare: `UPDATE member SET desired_state = 'online' WHERE id = 'kip'`},
+			window: `UPDATE member SET model = 'claude-opus-5' WHERE id = '%ID%'`,
+			status: http.StatusOK,
+			row: func(t *testing.T, m Member) {
+				if m.Model != "claude-opus-5" || m.RefocusSince != 0 || m.RefocusOp != "" {
+					t.Fatalf("model=%q refocus_since=%v refocus_op=%q, want claude-opus-5 and no wind-down",
+						m.Model, m.RefocusSince, m.RefocusOp)
+				}
+			},
+		},
+		{
+			door: windowMemberDoor{name: "activate, a machine removed after the check", method: "POST",
+				path: "/api/members/kip/activate", body: `{"machine_id":"%MACHINE%"}`},
+			window: `UPDATE member SET roster_status = 'removed' WHERE id = '%MACHINE%'`,
+			status: http.StatusNotFound, refusal: "machine '%MACHINE%' not found",
+			row: func(t *testing.T, m Member) {
+				if m.DesiredState == DesiredStateOnline || m.DesiredMachineID != ServerSelfHost {
+					t.Fatalf("desired_state=%q desired_machine_id=%q, want not activated / %s", m.DesiredState, m.DesiredMachineID, ServerSelfHost)
+				}
+			},
+		},
+		{
+			door: windowMemberDoor{name: "relocate, a machine removed after the check", method: "POST",
+				path: "/api/members/kip/relocate", body: `{"machine_id":"%MACHINE%"}`},
+			window: `UPDATE member SET roster_status = 'removed' WHERE id = '%MACHINE%'`,
+			status: http.StatusNotFound, refusal: "machine '%MACHINE%' not found",
+			row: func(t *testing.T, m Member) {
+				if m.DesiredMachineID != ServerSelfHost {
+					t.Fatalf("desired_machine_id=%q, want %s", m.DesiredMachineID, ServerSelfHost)
+				}
+			},
+		},
+		{
+			door: windowMemberDoor{name: "deactivate, a wake begun after the read", method: "POST",
+				path: "/api/members/kip/deactivate", body: `{}`},
+			window: `UPDATE member SET desired_state = 'online', stopping_since = 0,
+				waking_since = CAST(strftime('%s', 'now') AS REAL) WHERE id = '%ID%'`,
+			status: http.StatusOK,
+			row: func(t *testing.T, m Member) {
+				if m.DesiredState != DesiredStateOffline || m.StoppingSince <= 0 || m.StoppedSince != 0 {
+					t.Fatalf("desired_state=%q stopping_since=%v stopped_since=%v, want a cancelled wake: offline, a stop anchor, no close-out",
+						m.DesiredState, m.StoppingSince, m.StoppedSince)
+				}
+			},
+		},
+		{
+			door: windowMemberDoor{name: "accelerated stop, a wind-down withdrawn after the read", method: "POST",
+				path: "/api/members/kip/accelerated-stop", body: `{}`, live: true,
+				prepare: strings.ReplaceAll(stopOpen, "%ID%", "kip")},
+			window: `UPDATE member SET desired_state = 'online', stopping_since = 0 WHERE id = '%ID%'`,
+			status: http.StatusConflict, refusal: acceleratedStopNeedsAnOpenWindDownMsg,
+			row: func(t *testing.T, m Member) {
+				if m.RefocusOp != "" || m.StoppingSince != 0 {
+					t.Fatalf("refocus_op=%q stopping_since=%v, want the row as the window left it", m.RefocusOp, m.StoppingSince)
+				}
+			},
+		},
+		{
+			door: windowMemberDoor{name: "refocus, a stopped member activated after the read", method: "POST",
+				path: "/api/members/kip/refocus", body: `{}`,
+				prepare: strings.ReplaceAll(stopOpen, "%ID%", "kip")},
+			window:  `UPDATE member SET desired_state = 'online', stopping_since = 0 WHERE id = '%ID%'`,
+			status:  http.StatusConflict,
+			refusal: "refocus requires the member to have a live session and to be wanted online (§3.4 #14)",
+			row: func(t *testing.T, m Member) {
+				if m.RestartAfterStop || m.RefocusSince != 0 {
+					t.Fatalf("restart_after_stop=%v refocus_since=%v, want neither", m.RestartAfterStop, m.RefocusSince)
+				}
+			},
+		},
+		{
+			door: windowMemberDoor{name: "report waking, a member stopped after the read", method: "POST",
+				path: "/api/self/waking", body: `{}`, self: true,
+				prepare: `UPDATE member SET desired_state = 'online' WHERE id = 'kip'`},
+			window: stopped,
+			status: http.StatusOK,
+			row: func(t *testing.T, m Member) {
+				if m.DesiredState != DesiredStateOffline || m.StoppingSince != 1800000000 {
+					t.Fatalf("desired_state=%q stopping_since=%v, want the owner's stop kept (offline / 1800000000)",
+						m.DesiredState, m.StoppingSince)
+				}
+			},
+		},
+		{
+			door: windowMemberDoor{name: "report stopped, a close-out already reported after the read", method: "POST",
+				path: "/api/self/stopped", body: `{}`, self: true},
+			window: `UPDATE member SET stopped_since = 1800000000 WHERE id = '%ID%'`,
+			status: http.StatusOK,
+			body:   map[string]any{"stop_effect": "already_reported"},
+			row: func(t *testing.T, m Member) {
+				if m.StoppedSince != 1800000000 {
+					t.Fatalf("stopped_since=%v, want the earlier report's 1800000000", m.StoppedSince)
+				}
+			},
+		},
+		{
+			door: windowMemberDoor{name: "worker restart, a machine removed after the check", method: "POST",
+				path: "/api/members/ow-abc123/activate", body: `{"machine_id":"%MACHINE%"}`, worker: true},
+			window: `UPDATE member SET roster_status = 'removed' WHERE id = '%MACHINE%'`,
+			status: http.StatusNotFound, refusal: "machine '%MACHINE%' not found",
+			row: func(t *testing.T, m Member) {
+				if m.DesiredMachineID != ServerSelfHost {
+					t.Fatalf("desired_machine_id=%q, want %s", m.DesiredMachineID, ServerSelfHost)
+				}
+			},
+		},
+		{
+			door: windowMemberDoor{name: "worker relocate, a machine removed after the check", method: "POST",
+				path: "/api/members/ow-abc123/relocate", body: `{"machine_id":"%MACHINE%"}`, worker: true},
+			window: `UPDATE member SET roster_status = 'removed' WHERE id = '%MACHINE%'`,
+			status: http.StatusNotFound, refusal: "machine '%MACHINE%' not found",
+			row: func(t *testing.T, m Member) {
+				if m.DesiredMachineID != ServerSelfHost {
+					t.Fatalf("desired_machine_id=%q, want %s", m.DesiredMachineID, ServerSelfHost)
+				}
+			},
+		},
+		{
+			door: windowMemberDoor{name: "worker accelerated stop, a wind-down withdrawn after the read", method: "POST",
+				path: "/api/members/ow-abc123/accelerated-stop", body: `{}`, worker: true, live: true,
+				prepare: strings.ReplaceAll(stopOpen, "%ID%", "ow-abc123")},
+			window: `UPDATE member SET desired_state = 'online', stopping_since = 0 WHERE id = '%ID%'`,
+			status: http.StatusConflict, refusal: acceleratedStopWorkerNeedsAnOpenWindDownMsg,
+			row: func(t *testing.T, m Member) {
+				if m.RefocusOp != "" || m.StoppingSince != 0 {
+					t.Fatalf("refocus_op=%q stopping_since=%v, want the row as the window left it", m.RefocusOp, m.StoppingSince)
+				}
+			},
+		},
+		{
+			door: windowMemberDoor{name: "worker refocus, a worker held down after the read", method: "POST",
+				path: "/api/members/ow-abc123/refocus", body: `{}`, worker: true, live: true},
+			window: `UPDATE member SET desired_state = 'offline' WHERE id = '%ID%'`,
+			status: http.StatusConflict,
+			refusal: "refocus requires a live worker — this one is stopped and has never " +
+				"been asked to stop, so there is no wind-down for a 起來 to be " +
+				"queued behind (重啟 it when you want it to run)",
+			row: func(t *testing.T, m Member) {
+				if m.RefocusSince != 0 || m.RestartAfterStop {
+					t.Fatalf("refocus_since=%v restart_after_stop=%v, want neither", m.RefocusSince, m.RestartAfterStop)
+				}
+			},
+		},
+		{
+			door: windowMemberDoor{name: "worker model, a model someone already saved", method: "PATCH",
+				path: "/api/members/ow-abc123", body: `{"model":"claude-opus-5"}`, worker: true,
+				prepare: strings.ReplaceAll(stopOpen, "%ID%", "ow-abc123")},
+			window: `UPDATE member SET model = 'claude-opus-5' WHERE id = '%ID%'`,
+			status: http.StatusOK,
+			row: func(t *testing.T, m Member) {
+				if m.Model != "claude-opus-5" || m.RestartAfterStop {
+					t.Fatalf("model=%q restart_after_stop=%v, want claude-opus-5 and no queued restart", m.Model, m.RestartAfterStop)
+				}
+			},
+		},
+		{
+			door: windowMemberDoor{name: "worker report stopped, a close-out already reported after the read", method: "POST",
+				path: "/api/self/stopped", body: `{}`, worker: true, self: true},
+			window: `UPDATE member SET stopped_since = 1800000000 WHERE id = '%ID%'`,
+			status: http.StatusOK,
+			body:   map[string]any{"stop_effect": "already_reported"},
+			row: func(t *testing.T, m Member) {
+				if m.StoppedSince != 1800000000 {
+					t.Fatalf("stopped_since=%v, want the earlier report's 1800000000", m.StoppedSince)
+				}
+			},
+		},
+	} {
+		for _, shape := range windowDALShapes {
+			t.Run(tc.door.name+", "+shape, func(t *testing.T) {
+				d, hook, path := windowDAL(t, shape)
+				_, h, id, token := windowMemberDoorStack(t, d, tc.door)
+				fill := func(text string) string { return strings.ReplaceAll(text, "%ID%", id) }
+				if strings.Contains(tc.door.body, "%MACHINE%") {
+					machineID := apiTestOnboardMachine(t, h, token, "Studio Mac")
+					fill = func(text string) string {
+						return strings.ReplaceAll(strings.ReplaceAll(text, "%ID%", id), "%MACHINE%", machineID)
+					}
+				}
+				hook.execAfterRead(t, path, "FROM member WHERE id", fill(tc.window))
+
+				status, data := windowJSON(t, h, tc.door.method, tc.door.path, token, fill(tc.door.body))
+
+				hook.wantFiredOnce(t)
+				if status != tc.status {
+					t.Fatalf("want %d, got %d (%v)", tc.status, status, data)
+				}
+				if tc.refusal != "" {
+					apiWantError(t, data, errorCodeForStatus(tc.status), fill(tc.refusal))
+				}
+				for k, v := range tc.body {
+					apiWantValue(t, k, data[k], v)
+				}
+				tc.row(t, apiTestMemberRow(t, d, id))
+			})
+		}
+	}
+
+	// A receipt that fails to land takes the row it explains back with it.
+	for _, door := range []windowMemberDoor{
+		{name: "update held down", method: "PATCH", path: "/api/members/kip", body: `{"model":"claude-opus-5"}`,
+			prepare: `UPDATE member SET desired_state = 'offline' WHERE id = 'kip'`},
+		{name: "relocate held down", method: "POST", path: "/api/members/kip/relocate", body: `{"machine_id":"m-server-self"}`,
+			prepare: `UPDATE member SET desired_state = 'offline', desired_machine_id = 'm-retired' WHERE id = 'kip'`},
+		{name: "refocus queued behind a stop", method: "POST", path: "/api/members/kip/refocus", body: `{}`,
+			prepare: strings.ReplaceAll(stopOpen, "%ID%", "kip")},
+		{name: "worker restart on a live session", method: "POST", path: "/api/members/ow-abc123/activate", body: `{}`,
+			worker: true, live: true, prepare: strings.ReplaceAll(stopOpen, "%ID%", "ow-abc123")},
+		{name: "worker refocus queued behind a stop", method: "POST", path: "/api/members/ow-abc123/refocus", body: `{}`,
+			worker: true, prepare: strings.ReplaceAll(stopOpen, "%ID%", "ow-abc123")},
+		{name: "worker model queued behind a stop", method: "PATCH", path: "/api/members/ow-abc123", body: `{"model":"claude-opus-5"}`,
+			worker: true, prepare: strings.ReplaceAll(stopOpen, "%ID%", "ow-abc123")},
+	} {
+		for _, shape := range windowDALShapes {
+			t.Run(door.name+", "+shape+": a receipt that fails to land takes the row back with it, and the retry lands", func(t *testing.T) {
+				d, _, _ := windowDAL(t, shape)
+				api, h, id, token := windowMemberDoorStack(t, d, door)
+				before := apiTestMemberRow(t, d, id)
+				windowRefuse(t, d, "refuse_receipt", "BEFORE UPDATE OF last_op ON member", "the receipt write fails")
+				dashboard := apiTestListen(t, api, "")
+
+				status, data := windowJSON(t, h, door.method, door.path, token, door.body)
+
+				if status != http.StatusInternalServerError {
+					t.Fatalf("want 500, got %d (%v)", status, data)
+				}
+				apiWantError(t, data, "internal_error", windowRefusal("the receipt write fails"))
+				apiTestWantEqual(t, "the row after the failed receipt", apiTestMemberRow(t, d, id), before)
+				dashboard.wantFrames()
+
+				if _, err := d.wdb.Exec(`DROP TRIGGER refuse_receipt`); err != nil {
+					t.Fatalf("drop trigger: %v", err)
+				}
+				if status, data := windowJSON(t, h, door.method, door.path, token, door.body); status != http.StatusOK {
+					t.Fatalf("retry: want 200, got %d (%v)", status, data)
+				}
+				if got := apiTestMemberRow(t, d, id); got.LastOpReason == before.LastOpReason && got.LastOpAt == before.LastOpAt {
+					t.Fatalf("the retry landed no receipt: last_op_reason=%q", got.LastOpReason)
+				}
+			})
+		}
+	}
+
 	// A settings patch takes settingsMu and then waits for the write connection.
 	// A door that opens a wind-down reads the live reconcile config, which takes
 	// settingsMu too: read inside its transaction, the two wait on each other.
@@ -1445,5 +1721,23 @@ func TestMemberLifecycleDoorsDecideFromTheRowTheyWrite(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// windowWithin runs a call that reaches a handler directly under
+// windowRequestDeadline, so a request that waits on its own transaction fails
+// by name instead of hanging the suite to its -timeout.
+func windowWithin(t *testing.T, what string, call func()) {
+	t.Helper()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		call()
+	}()
+	select {
+	case <-done:
+	case <-time.After(windowRequestDeadline):
+		t.Fatalf("%s did not return within %s: inside its transaction it waits on a second "+
+			"connection or on a lock it already holds", what, windowRequestDeadline)
 	}
 }

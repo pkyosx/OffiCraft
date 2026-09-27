@@ -311,25 +311,27 @@ func TestHandleUpdateTaskStepNoteApiTasksTaskIdStepsStepIdNotePost(t *testing.T)
 		})
 	}
 
-	t.Run("a note whose task stamp fails to land is not stored and fans nothing", func(t *testing.T) {
-		d, _, _ := windowDAL(t, "split pools")
-		api, h, _, owner := newAPITestServerOn(t, d)
-		task := dalPutTask(t, d, windowOpenTask("T-1"))
-		windowPutSteps(t, d, windowPendingStep("ts-1", task.ID))
-		windowRefuseTaskWrites(t, d)
-		dashboard := apiTestListen(t, api, "")
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": "+"a note whose task stamp fails to land is not stored and fans nothing", func(t *testing.T) {
+			d, _, _ := windowDAL(t, shape)
+			api, h, _, owner := newAPITestServerOn(t, d)
+			task := dalPutTask(t, d, windowOpenTask("T-1"))
+			windowPutSteps(t, d, windowPendingStep("ts-1", task.ID))
+			windowRefuseTaskWrites(t, d)
+			dashboard := apiTestListen(t, api, "")
 
-		status, data := windowJSON(t, h, "POST", "/api/tasks/T-1/steps/ts-1/note", owner,
-			`{"note":"the crane is back"}`)
+			status, data := windowJSON(t, h, "POST", "/api/tasks/T-1/steps/ts-1/note", owner,
+				`{"note":"the crane is back"}`)
 
-		if status != http.StatusInternalServerError {
-			t.Fatalf("want 500, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "internal_error", windowTaskWriteFails)
-		windowWantStepNote(t, d, "ts-1", "got as far as the second container")
-		dalWantTask(t, d, task)
-		dashboard.wantFrames()
-	})
+			if status != http.StatusInternalServerError {
+				t.Fatalf("want 500, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "internal_error", windowTaskWriteFails)
+			windowWantStepNote(t, d, "ts-1", "got as far as the second container")
+			dalWantTask(t, d, task)
+			dashboard.wantFrames()
+		})
+	}
 }
 
 func TestHandlePatchTaskStepNoteApiTasksTaskIdStepsStepIdNotePatchPost(t *testing.T) {
@@ -664,23 +666,25 @@ func TestHandlePatchTaskStepNoteApiTasksTaskIdStepsStepIdNotePatchPost(t *testin
 		})
 	}
 
-	t.Run("a patch whose task stamp fails to land is not stored and fans nothing", func(t *testing.T) {
-		d, _, _ := windowDAL(t, "split pools")
-		api, h, _, owner := newAPITestServerOn(t, d)
-		task := dalPutTask(t, d, windowOpenTask("T-1"))
-		windowPutSteps(t, d, windowPendingStep("ts-1", task.ID))
-		windowRefuseTaskWrites(t, d)
-		dashboard := apiTestListen(t, api, "")
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": "+"a patch whose task stamp fails to land is not stored and fans nothing", func(t *testing.T) {
+			d, _, _ := windowDAL(t, shape)
+			api, h, _, owner := newAPITestServerOn(t, d)
+			task := dalPutTask(t, d, windowOpenTask("T-1"))
+			windowPutSteps(t, d, windowPendingStep("ts-1", task.ID))
+			windowRefuseTaskWrites(t, d)
+			dashboard := apiTestListen(t, api, "")
 
-		status, data := windowJSON(t, h, "POST", "/api/tasks/T-1/steps/ts-1/note/patch", owner,
-			`{"edits":[{"old":"second","new":"third"}]}`)
+			status, data := windowJSON(t, h, "POST", "/api/tasks/T-1/steps/ts-1/note/patch", owner,
+				`{"edits":[{"old":"second","new":"third"}]}`)
 
-		if status != http.StatusInternalServerError {
-			t.Fatalf("want 500, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "internal_error", windowTaskWriteFails)
-		windowWantStepNote(t, d, "ts-1", "got as far as the second container")
-		dalWantTask(t, d, task)
-		dashboard.wantFrames()
-	})
+			if status != http.StatusInternalServerError {
+				t.Fatalf("want 500, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "internal_error", windowTaskWriteFails)
+			windowWantStepNote(t, d, "ts-1", "got as far as the second container")
+			dalWantTask(t, d, task)
+			dashboard.wantFrames()
+		})
+	}
 }
