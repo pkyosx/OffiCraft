@@ -97,6 +97,7 @@
 ## 7. SQLite 與 backup
 
 - write pool 開 WAL、上限 1、`_txlock=immediate`、`busy_timeout=5000`；read pool 8 條、`mode=ro`，且必須在 write pool migrate 後才開。`IMMEDIATE` 是讓 WAL 下第二個 handle 的 busy timeout 等待生效，不是取代 process 內 write pool 的序列化。
+- 寫入連線只經 `writePool`（`d.wdb`）取得：每次**等待**上限 `writeConnWaitLimit`，逾時那一個操作回錯誤並寫 `[wdb] ERROR` log，執行本身不設期限。serve 開始服務後不要把 raw 的寫入 `*sql.DB` 交給任何程式（背景排程也一樣），否則那條路又回到無限等待；要限制等待就用 `DB.Conn(ctx)`，不要用 `BeginTx(ctx)`／`ExecContext(ctx)`——那兩個的 ctx 會連交易與執行一起砍掉。
 - DAL 欄位用 `wdb`／`rdb`，write seam 不可餵 read pool；守衛掃 package 內所有非-test Go source，不以 `dal*.go` 或現行檔名清單假設未來新增檔案會自動被涵蓋。
 - WAL 下資料不再是單檔快照；禁止直接 cp、rename、move database path。使用 SQLite online backup（例如 `VACUUM INTO`）並保留其 WAL-safe 語意。`assertJournalMode` 問資料庫實際模式，異常 warning 但不因字串看似正確而漏報。
 - backup health 只有 `backup_health.go` 一個 evaluator，API 只讀持久裁決；watchdog 在 `cmdServe` 同步接線，狀態落 `setting` 表。只有 scheduled backup 是排程存活證據；manual／pre-migration 不算。failure 立即可見、future timestamp 不算證據、`unknown` 永不折成 `healthy`，門檻一律由 `backupStaleAfter()` 和 wire `stale_after_secs` 共同決定。

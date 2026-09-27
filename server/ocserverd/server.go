@@ -531,7 +531,7 @@ func cmdServe(env func(string) string, noReconcile, noOutsource bool, out io.Wri
 	// cadence: the failure it exists to catch is "the cadence never ran at all".
 	api.backupHealth = armBackupHealth(dal, dbPath, time.Now())
 	startBackupHealthWatchdog(api.backupHealth, backupWatchdogCadence)
-	startBackupCadence(db, dbPath, backupCadence, api.backupHealth)
+	startBackupCadence(dal.wdb, dbPath, backupCadence, api.backupHealth)
 	// The bind host is hardwired loopback (B2): expose via a tunnel, never a direct
 	// non-loopback bind.
 	addr := fmt.Sprintf("%s:%d", defaultHost, cfg.Server.Port)

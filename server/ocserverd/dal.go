@@ -11,11 +11,12 @@ import (
 )
 
 // wdb is the write pool: ONE connection, transactions BEGIN IMMEDIATE
-// (openSQLite in migrate.go, `_txlock=immediate`). rdb is the read pool, opened
+// (openSQLite in migrate.go, `_txlock=immediate`), reached only through
+// writePool so that no wait for it is unbounded. rdb is the read pool, opened
 // mode=ro (openSQLiteReadPool), so a write wired to rdb — which type-checks,
 // since *sql.DB satisfies sqlExecer — fails loudly instead of landing.
 type DAL struct {
-	wdb *sql.DB
+	wdb *writePool
 	rdb *sql.DB
 }
 
@@ -31,11 +32,11 @@ type PushSubscription struct {
 // d.rdb inside an inTx closure waits on that connection forever, hanging with no
 // error. serve splits the pools (NewDALPools), so this never happens there.
 func NewDAL(db *sql.DB) *DAL {
-	return &DAL{wdb: db, rdb: db}
+	return &DAL{wdb: newWritePool(db), rdb: db}
 }
 
 func NewDALPools(w, r *sql.DB) *DAL {
-	return &DAL{wdb: w, rdb: r}
+	return &DAL{wdb: newWritePool(w), rdb: r}
 }
 
 type Member struct {
@@ -1757,7 +1758,7 @@ func putReplyCardWithStepAndTaskOn(ex sqlExecer, c ReplyCard, atts []ChatAttachm
 // sqlite3): in WAL a DEFERRED read-then-write tx gets an instant SQLITE_BUSY on
 // lock upgrade. Our own writers are serialised by the connection cap, not by it.
 // Inside fn use only tx (the *On helpers): d.wdb, d.inTx and s.dal methods wait
-// on the connection fn holds and deadlock.
+// on the connection fn holds, and fail after writeConnWaitLimit.
 func (d *DAL) inTx(fn func(tx *sql.Tx) error) error {
 	tx, err := d.wdb.Begin()
 	if err != nil {
