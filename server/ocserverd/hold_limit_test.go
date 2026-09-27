@@ -69,7 +69,7 @@ func TestATransactionStuckOnAWaitThatNeverEndsIsRolledBackAtItsHoldLimit(t *test
 	for _, shape := range windowDALShapes {
 		t.Run(shape, func(t *testing.T) {
 			d := holdDAL(t, shape)
-			_, h, _, owner := newAPITestServerOn(t, d)
+			api, h, _, owner := newAPITestServerOn(t, d)
 			t1 := dalPutTask(t, d, windowOpenTask("T-1"))
 			dalPutTask(t, d, windowOpenTask("T-2"))
 			logs := recoveryCaptureLog(t)
@@ -87,7 +87,11 @@ func TestATransactionStuckOnAWaitThatNeverEndsIsRolledBackAtItsHoldLimit(t *test
 				}
 				close(stuck)
 				<-never
-				return nil
+				// Its transaction is gone by now: it holds nothing a lock could
+				// deadlock with, so the lock is not refused, and this write must
+				// fail, not land on its own.
+				_ = api.outsourceParallelCap()
+				return d.TouchTaskUpdatedTS("T-1", 1900000000)
 			})
 
 			answerA := holdJSONAsync(t, h, "POST", "/api/tasks/T-1/priority", owner, `{"priority":"low"}`)
@@ -114,6 +118,9 @@ func TestATransactionStuckOnAWaitThatNeverEndsIsRolledBackAtItsHoldLimit(t *test
 			}
 			apiWantError(t, body, "internal_error", holdExpiredMsg)
 			dalWantTask(t, d, t1)
+			if strings.Contains(logs.String(), "[lock] ERROR") {
+				t.Fatalf("a lock was refused to a goroutine whose transaction had already expired; log:\n%s", logs.String())
+			}
 
 			status, body = reentryJSON(t, h, "POST", "/api/tasks/T-1/priority", owner, `{"priority":"low"}`)
 
