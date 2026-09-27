@@ -28,16 +28,17 @@ type PushSubscription struct {
 }
 
 // NewDAL is for unit tests and the CLI one-shots (migrate / set-password /
-// claim-token): reads and writes share ONE connection, so a read inside an open
-// transaction runs on that transaction and sees its uncommitted writes, which
-// the split pools of serve (NewDALPools) never do.
+// claim-token): reads and writes share ONE connection. Over either DAL a read by
+// the goroutine that holds the write transaction runs on that transaction and
+// sees its uncommitted writes (readPool).
 func NewDAL(db *sql.DB) *DAL {
 	w := newWritePool(db)
 	return &DAL{wdb: w, rdb: &readPool{shared: w}}
 }
 
 func NewDALPools(w, r *sql.DB) *DAL {
-	return &DAL{wdb: newWritePool(w), rdb: &readPool{raw: r}}
+	wp := newWritePool(w)
+	return &DAL{wdb: wp, rdb: &readPool{raw: r, write: wp}}
 }
 
 type Member struct {
@@ -1778,9 +1779,10 @@ func putReplyCardWithStepAndTaskOn(ex sqlExecer, c ReplyCard, atts []ChatAttachm
 // busy_timeout cover a writer on ANOTHER handle (ocserverd backup, a shell
 // sqlite3): in WAL a DEFERRED read-then-write tx gets an instant SQLITE_BUSY on
 // lock upgrade. Our own writers are serialised by the connection cap, not by it.
-// Inside fn, d.wdb, d.inTx and s.dal writes run on this same transaction when
-// called on fn's goroutine; from any other goroutine they wait for the
-// connection fn holds, and fail after writeConnWaitLimit.
+// Inside fn, d.wdb, d.inTx and s.dal writes and reads run on this same
+// transaction when called on fn's goroutine (a read sees fn's uncommitted
+// writes); writes from any other goroutine wait for the connection fn holds,
+// and fail after writeConnWaitLimit.
 func (d *DAL) inTx(fn func(tx *writeTx) error) error {
 	tx, err := d.wdb.Begin()
 	if err != nil {

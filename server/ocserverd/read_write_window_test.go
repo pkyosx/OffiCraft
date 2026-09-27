@@ -213,11 +213,13 @@ func windowDAL(t *testing.T, shape string) (*DAL, *windowHook, string) {
 
 var windowDALShapes = []string{"split pools", "one connection"}
 
-// windowRequestDeadline bounds every request a window test drives. A handler
-// that, inside its transaction, reads through s.dal instead of the tx waits for
-// a connection the transaction itself holds on the one-connection DAL, and a
-// path that takes a lock it already holds never returns either; both would
+// windowRequestDeadline bounds every request a window test drives. Inside its
+// transaction a handler that asks another goroutine for a write waits for the
+// connection the transaction holds (until the write pool's own limits end it),
+// and one that waits on a lock outside txguard, or on a lock another goroutine
+// holds while it waits for the connection, never returns; any of these would
 // otherwise hang until the suite's -timeout (15m in CI) and panic the whole run.
+// (A txguard lock taken inside the transaction is refused with a 500 instead.)
 const windowRequestDeadline = 10 * time.Second
 
 // windowRequest is apiRequest under windowRequestDeadline: the request runs on
@@ -231,8 +233,8 @@ func windowRequest(t *testing.T, h http.Handler, method, target, token, body str
 	case rec := <-answered:
 		return rec
 	case <-time.After(windowRequestDeadline):
-		t.Fatalf("%s %s did not answer within %s: inside its transaction it waits on a second "+
-			"connection (s.dal instead of the tx) or on a lock it already holds", method, target, windowRequestDeadline)
+		t.Fatalf("%s %s did not answer within %s: inside its transaction it waits on another "+
+			"goroutine's write or on a lock outside txguard", method, target, windowRequestDeadline)
 		return nil
 	}
 }

@@ -396,10 +396,10 @@ func TestAHandlerPanicThatIsNotARefusedLockStillReachesNetHTTP(t *testing.T) {
 	}
 }
 
-func TestADALReadInsideAHandlersTransactionOverOneConnectionSeesItsWrites(t *testing.T) {
-	// Over split pools the read comes from the read pool and sees the last
-	// commit; over one connection it runs on the transaction itself.
-	want := map[string]string{"split pools": TaskPriorityHigh, "one connection": TaskPriorityLow}
+func TestADALReadInsideAHandlersTransactionSeesItsWrites(t *testing.T) {
+	// Over either DAL the read of the goroutine holding the transaction runs on
+	// the transaction itself, so it sees the write just made.
+	want := map[string]string{"split pools": TaskPriorityLow, "one connection": TaskPriorityLow}
 	for _, shape := range windowDALShapes {
 		t.Run(shape, func(t *testing.T) {
 			d, _, _ := windowDAL(t, shape)

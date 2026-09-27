@@ -117,7 +117,7 @@ func TestGetTaskArtifactOn(t *testing.T) {
 		}
 	})
 
-	t.Run("inside a transaction it reads that transaction's own uncommitted write, while the pool still reads the old row", func(t *testing.T) {
+	t.Run("inside a transaction it reads that transaction's own uncommitted write, while another goroutine's pool read still reads the old row", func(t *testing.T) {
 		tx, err := d.wdb.Begin()
 		if err != nil {
 			t.Fatalf("Begin: %v", err)
@@ -134,7 +134,7 @@ func TestGetTaskArtifactOn(t *testing.T) {
 		if inTx == nil || !reflect.DeepEqual(*inTx, want) {
 			t.Fatalf("getTaskArtifactOn(tx):\n got %+v\nwant %+v", inTx, want)
 		}
-		onPool, err := getTaskArtifactOn(d.rdb, "ta-1")
+		onPool, err := dalTestOffTheHolder(func() (*TaskArtifact, error) { return getTaskArtifactOn(d.rdb, "ta-1") })
 		if err != nil {
 			t.Fatalf("getTaskArtifactOn(pool): %v", err)
 		}

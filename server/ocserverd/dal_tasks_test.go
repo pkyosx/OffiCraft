@@ -1105,7 +1105,10 @@ func TestTaskDescriptionOn(t *testing.T) {
 		if !found || got != "rewritten in flight" {
 			t.Fatalf("taskDescriptionOn(tx): want (%q, true), got (%q, %v)", "rewritten in flight", got, found)
 		}
-		onPool, _, err := taskDescriptionOn(d.rdb, "T-1")
+		onPool, err := dalTestOffTheHolder(func() (string, error) {
+			description, _, err := taskDescriptionOn(d.rdb, "T-1")
+			return description, err
+		})
 		if err != nil {
 			t.Fatalf("taskDescriptionOn(pool): %v", err)
 		}
@@ -1839,7 +1842,7 @@ func TestGetTaskManualOn(t *testing.T) {
 		if got == nil || !reflect.DeepEqual(*got, edited) {
 			t.Fatalf("getTaskManualOn(tx):\n got %+v\nwant %+v", got, edited)
 		}
-		onPool, err := getTaskManualOn(d.rdb, "sync-jira")
+		onPool, err := dalTestOffTheHolder(func() (*TaskManual, error) { return getTaskManualOn(d.rdb, "sync-jira") })
 		if err != nil {
 			t.Fatalf("getTaskManualOn(pool): %v", err)
 		}
@@ -2285,4 +2288,20 @@ func replaceTaskStepsInTx(d *DAL, taskID string, retain, supersede []string,
 		return err
 	})
 	return out, err
+}
+
+// dalTestOffTheHolder runs a read on another goroutine: the goroutine holding
+// the write transaction reads on the transaction, everyone else on the pool.
+func dalTestOffTheHolder[T any](read func() (T, error)) (T, error) {
+	type result struct {
+		v   T
+		err error
+	}
+	done := make(chan result, 1)
+	go func() {
+		v, err := read()
+		done <- result{v, err}
+	}()
+	r := <-done
+	return r.v, r.err
 }
