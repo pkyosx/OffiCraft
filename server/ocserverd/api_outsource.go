@@ -196,6 +196,7 @@ func (s *apiServer) relocateWorkerByID(w http.ResponseWriter, r *http.Request, i
 func (s *apiServer) HandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost(w http.ResponseWriter, r *http.Request, id string) {
 	unlockMu := s.outsourceMu.Acquire()
 	defer unlockMu()
+	online := s.hub.IsOnline(id)
 	var worker *OutsourceWorker
 	queued := false
 	err := s.dal.inTx(func(tx *writeTx) error {
@@ -217,7 +218,7 @@ func (s *apiServer) HandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost
 			return persistWorkerRestartIntentOn(tx, *worker)
 		}
 		queued = false
-		if worker.Status != WorkerStatusActive || !s.hub.IsOnline(worker.ID) {
+		if worker.Status != WorkerStatusActive || !online {
 			return refuseInTx(http.StatusConflict,
 				"refocus requires the worker to be online (no live session to hand over)")
 		}
@@ -283,13 +284,14 @@ const acceleratedStopWorkerNeedsAnOpenWindDownMsg = "加速停止 escalates a wi
 func (s *apiServer) HandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcceleratedStopPost(w http.ResponseWriter, r *http.Request, id string) {
 	unlockMu := s.outsourceMu.Acquire()
 	defer unlockMu()
+	online := s.hub.IsOnline(id)
 	var worker *OutsourceWorker
 	err := s.dal.inTx(func(tx *writeTx) error {
 		var err error
 		if worker, err = resolveLiveWorkerOn(tx, id); err != nil {
 			return err
 		}
-		if worker.Status != WorkerStatusActive || !s.hub.IsOnline(worker.ID) {
+		if worker.Status != WorkerStatusActive || !online {
 			return refuseInTx(http.StatusConflict,
 				"加速停止 requires the worker to be online (no live session to accelerate)")
 		}
@@ -546,6 +548,7 @@ func (s *apiServer) HandleSetOutsourceWorkerModelApiOutsourceWorkersIdModelPost(
 func (s *apiServer) handleSetOutsourceWorkerModel(w http.ResponseWriter, r *http.Request, id string, body MemberUpdateDTO) {
 	unlockMu := s.outsourceMu.Acquire()
 	defer unlockMu()
+	online := s.hub.IsOnline(id)
 	var worker *OutsourceWorker
 	launchIntentChanged, respawn := false, false
 	var wantModel, wantRuntime, wantEffort string
@@ -585,7 +588,7 @@ func (s *apiServer) handleSetOutsourceWorkerModel(w http.ResponseWriter, r *http
 		}
 		// Whether the owner wants it running is NOT re-asked here —
 		// respawnWorkerForOwnerOp owns that branch for all three owner verbs.
-		respawn = launchIntentChanged && worker.Status == WorkerStatusActive && s.hub.IsOnline(worker.ID)
+		respawn = launchIntentChanged && worker.Status == WorkerStatusActive && online
 		if !respawn && launchIntentChanged && worker.DesiredState == DesiredStateOffline {
 			// A converged stop never enters the funnel (no active worker, no live
 			// session), so the queued restart is stamped here; 改機器 has no such

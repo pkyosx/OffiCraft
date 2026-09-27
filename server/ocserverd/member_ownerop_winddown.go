@@ -53,6 +53,12 @@ const (
 // analogue, and the worker's desired-offline equivalent is its caller's first gate,
 // which returns before this question is asked.
 func (s *apiServer) memberHasStateToFlush(m Member) bool {
+	return memberHasStateToFlushGiven(m, s.hub.IsOnline(m.ID))
+}
+
+// memberHasStateToFlushGiven takes the session's presence from the caller, read
+// before any transaction it holds (the hub's lock is refused inside one).
+func memberHasStateToFlushGiven(m Member, online bool) bool {
 	// Not redundant with the handlers' staffOnly: that is a per-call-site choice.
 	if m.Kind != KindStaff {
 		return false
@@ -60,7 +66,7 @@ func (s *apiServer) memberHasStateToFlush(m Member) bool {
 	if !aRefocusStampWouldReachTheAgent(m) {
 		return false
 	}
-	return hasUncollectedOnlineOwnerOpState(m.RefocusSince, m.StoppedSince, s.hub.IsOnline(m.ID))
+	return hasUncollectedOnlineOwnerOpState(m.RefocusSince, m.StoppedSince, online)
 }
 
 // Server half of a CROSS-LAYER contract (root CLAUDE.md §9c): maybeRecycle in
@@ -155,8 +161,8 @@ func (s *apiServer) memberOwnerOpHandoverArmable(m Member, op string) bool {
 // cfg is the caller's reconcileConfigLive(), read before any transaction it
 // holds: that read takes settingsMu, which a settings patch holds while it waits
 // for the write connection.
-func (s *apiServer) armMemberOwnerOpHandover(m *Member, op string, cfg reconcileConfig) bool {
-	if !s.memberHasStateToFlush(*m) {
+func (s *apiServer) armMemberOwnerOpHandover(m *Member, op string, cfg reconcileConfig, online bool) bool {
+	if !memberHasStateToFlushGiven(*m, online) {
 		return false
 	}
 	if !armRefocusEpoch(m, op, nowSecs()) {

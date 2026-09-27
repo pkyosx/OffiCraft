@@ -318,6 +318,8 @@ func (s *apiServer) HandleDeleteRoleApiRolesRoleDelete(w http.ResponseWriter, r 
 			"role '"+role+"' is a built-in seed role and cannot be deleted")
 		return
 	}
+	// Presence is read before the transaction: the hub's lock is refused inside one.
+	online := s.hub.OnlineMembers()
 	// roleMembers answers the role's members, or the 404 / 409 that refuses the
 	// deletion.
 	roleMembers := func(q sqlReader) ([]Member, error) {
@@ -339,7 +341,7 @@ func (s *apiServer) HandleDeleteRoleApiRolesRoleDelete(w http.ResponseWriter, r 
 				continue
 			}
 			members = append(members, m)
-			if m.RosterStatus == RosterStatusActive && s.hub.IsOnline(m.ID) {
+			if m.RosterStatus == RosterStatusActive && online[m.ID] {
 				live = append(live, m.ID)
 			}
 		}

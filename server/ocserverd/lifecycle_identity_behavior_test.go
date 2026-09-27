@@ -817,7 +817,7 @@ var identityGateLedger = map[string]string{
 		"TASK, which only an outsource row has (LinkedTaskID). A staff member has no " +
 		"such link, so there is nothing to write back — an absence of data, not a " +
 		"withheld formality.",
-	"member_ownerop_winddown.go :: memberHasStateToFlush :: m.Kind != KindStaff": "" +
+	"member_ownerop_winddown.go :: memberHasStateToFlushGiven :: m.Kind != KindStaff": "" +
 		"staff-only by construction, and the function's own comment says why for both " +
 		"excluded kinds: a warden runs no ocagent and would never read the marker, and " +
 		"an outsource row has its own funnel (respawnWorkerForOwnerOp) and does not reach " +

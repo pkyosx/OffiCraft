@@ -229,7 +229,7 @@ func TestArmMemberOwnerOpHandover(t *testing.T) {
 			}
 			before := m
 			lower := nowSecs()
-			got := api.armMemberOwnerOpHandover(&m, tc.op, api.reconcileConfigLive())
+			got := api.armMemberOwnerOpHandover(&m, tc.op, api.reconcileConfigLive(), api.hub.IsOnline(m.ID))
 			upper := nowSecs()
 			if got != tc.want {
 				t.Fatalf("armMemberOwnerOpHandover() = %t, want %t", got, tc.want)

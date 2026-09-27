@@ -631,6 +631,7 @@ func (s *apiServer) HandleUpdateMemberApiMembersMemberIdPatch(w http.ResponseWri
 	var saved Member
 	heldDown := false
 	cfg := s.reconcileConfigLive()
+	online := s.hub.IsOnline(memberId)
 	err = s.dal.inTx(func(tx *writeTx) error {
 		cur, err := resolveMemberOn(tx, memberId, anyMember)
 		if err != nil {
@@ -642,7 +643,7 @@ func (s *apiServer) HandleUpdateMemberApiMembersMemberIdPatch(w http.ResponseWri
 		}
 		heldDown = false
 		if launchIntentChanged {
-			heldDown = !s.armMemberOwnerOpHandover(cur, memberOpRuntimeModel, cfg) &&
+			heldDown = !s.armMemberOwnerOpHandover(cur, memberOpRuntimeModel, cfg, online) &&
 				cur.DesiredState == DesiredStateOffline
 			if heldDown {
 				if aStopWasEverAskedFor(*cur) {
@@ -867,6 +868,7 @@ func (s *apiServer) HandleRelocateMemberApiMembersMemberIdRelocatePost(w http.Re
 	var saved Member
 	windDown, heldDown := false, false
 	cfg := s.reconcileConfigLive()
+	online := s.hub.IsOnline(memberId)
 	err := s.dal.inTx(func(tx *writeTx) error {
 		if _, err := resolveMachineOn(tx, machineID); err != nil {
 			return machineResolveRefusal(err, machineID)
@@ -881,7 +883,7 @@ func (s *apiServer) HandleRelocateMemberApiMembersMemberIdRelocatePost(w http.Re
 		}
 		// relocate arms unconditionally, so a retry re-dispatches regardless, and the
 		// delta the agent wakes on already names the destination.
-		windDown = s.armMemberOwnerOpHandover(cur, memberOpRelocate, cfg)
+		windDown = s.armMemberOwnerOpHandover(cur, memberOpRelocate, cfg, online)
 		heldDown = !windDown && cur.DesiredState == DesiredStateOffline
 		if heldDown {
 			// Owner (2026-08-30): 改機器 is a 重啟 intent, so a stopped member comes back
@@ -1189,6 +1191,7 @@ func (s *apiServer) HandleRefocusMemberApiMembersMemberIdRefocusPost(w http.Resp
 		s.HandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost(w, r, memberId)
 		return
 	}
+	online := s.hub.IsOnline(memberId)
 	var saved Member
 	queued := false
 	err = s.dal.inTx(func(tx *writeTx) error {
@@ -1211,7 +1214,7 @@ func (s *apiServer) HandleRefocusMemberApiMembersMemberIdRefocusPost(w http.Resp
 			return persistMemberOpReceiptOn(tx, *cur)
 		}
 		queued = false
-		if !s.hub.IsOnline(cur.ID) || !aRefocusStampWouldReachTheAgent(*cur) {
+		if !online || !aRefocusStampWouldReachTheAgent(*cur) {
 			return refuseInTx(http.StatusConflict,
 				"refocus requires the member to have a live session and to be wanted "+
 					"online (§3.4 #14)")
