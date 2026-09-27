@@ -4641,6 +4641,34 @@ func TestHandleClaimTaskApiTasksTaskIdClaimPost(t *testing.T) {
 			dashboard.wantFrames()
 		})
 	}
+
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": a takeover re-pointed to someone else after the handler read it refuses its old successor", func(t *testing.T) {
+			d, hook, path := windowDAL(t, shape)
+			api, h, _, _ := newAPITestServerOn(t, d)
+			kip := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
+			task := windowHandedOver(t, d)
+			task.ExecutorID = apiTestPlainAgentID
+			dalPutTask(t, d, task)
+			dashboard := apiTestListen(t, api, "")
+			hook.execAfterRead(t, path, "FROM task WHERE id",
+				`UPDATE task SET executor_id = 'mira', updated_ts = 1800000000 WHERE id = 'T-1'`)
+
+			status, data := windowJSON(t, h, "POST", "/api/tasks/T-1/claim", kip, "")
+
+			hook.wantFiredOnce(t)
+			if status != http.StatusForbidden {
+				t.Fatalf("want 403, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "forbidden", "caller is not the task's executor")
+			want := task
+			want.ExecutorID = "mira"
+			want.UpdatedTS = 1800000000
+			dalWantTask(t, d, want)
+			windowWantWorkerStatus(t, d, "ow-abc123", WorkerStatusAssigned)
+			dashboard.wantFrames()
+		})
+	}
 }
 
 func TestExecutorLabel(t *testing.T) {
