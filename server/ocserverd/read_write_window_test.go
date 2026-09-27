@@ -1171,3 +1171,56 @@ func TestTheDoorsJudgeTheCallerOnTheRowTheyWrite(t *testing.T) {
 		}
 	}
 }
+
+// windowRefuseSetting makes every write to one setting row fail (insert, update
+// and delete); the returned func lifts it so a retry can land.
+func windowRefuseSetting(t *testing.T, d *DAL, key string) (lift func()) {
+	t.Helper()
+	stmts := []string{
+		`CREATE TRIGGER refuse_setting_insert BEFORE INSERT ON setting WHEN NEW.key = '` + key + `'
+		 BEGIN SELECT RAISE(FAIL, 'the setting write fails'); END`,
+		`CREATE TRIGGER refuse_setting_update BEFORE UPDATE ON setting WHEN NEW.key = '` + key + `'
+		 BEGIN SELECT RAISE(FAIL, 'the setting write fails'); END`,
+		`CREATE TRIGGER refuse_setting_delete BEFORE DELETE ON setting WHEN OLD.key = '` + key + `'
+		 BEGIN SELECT RAISE(FAIL, 'the setting write fails'); END`,
+	}
+	for _, stmt := range stmts {
+		if _, err := d.wdb.Exec(stmt); err != nil {
+			t.Fatalf("create trigger: %v", err)
+		}
+	}
+	return func() {
+		for _, name := range []string{"refuse_setting_insert", "refuse_setting_update", "refuse_setting_delete"} {
+			if _, err := d.wdb.Exec(`DROP TRIGGER ` + name); err != nil {
+				t.Fatalf("drop trigger: %v", err)
+			}
+		}
+	}
+}
+
+const windowSettingWriteFails = "internal error: constraint failed: the setting write fails (1811)"
+
+func windowWantSetting(t *testing.T, d *DAL, key string, want *string) {
+	t.Helper()
+	got, err := d.GetSetting(key)
+	if err != nil {
+		t.Fatalf("GetSetting(%q): %v", key, err)
+	}
+	switch {
+	case want == nil && got != nil:
+		t.Fatalf("setting %q: got %q, want no row", key, *got)
+	case want != nil && got == nil:
+		t.Fatalf("setting %q: got no row, want %q", key, *want)
+	case want != nil && *got != *want:
+		t.Fatalf("setting %q: got %q, want %q", key, *got, *want)
+	}
+}
+
+func windowSettingNow(t *testing.T, d *DAL, key string) *string {
+	t.Helper()
+	got, err := d.GetSetting(key)
+	if err != nil {
+		t.Fatalf("GetSetting(%q): %v", key, err)
+	}
+	return got
+}

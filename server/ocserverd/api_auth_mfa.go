@@ -7,6 +7,7 @@ package main
 // means disarming first, which requires proving the current one.
 
 import (
+	"database/sql"
 	"net/http"
 	"strconv"
 	"time"
@@ -167,20 +168,27 @@ func (s *apiServer) HandleMfaActivateApiAuthMfaActivatePost(w http.ResponseWrite
 		return
 	}
 
-	// 🔴 THE FLOOR IS WRITTEN BEFORE THE SECRET. There is no transaction across
-	// settings writes; secret-first can leave the factor armed in the DB with no
-	// floor, so after a restart the activation code is replayable as a login.
-	// Floor-first fails safe: a floor with no secret is MFA still off.
-	if err := s.dal.PutSetting(settingTOTPLastStep, strconv.FormatInt(step, 10)); err != nil {
-		internalError(w, err)
-		return
-	}
-	if err := s.dal.PutSetting(settingTOTPSecret, *pending); err != nil {
-		internalError(w, err)
-		return
-	}
-	if err := s.dal.DeleteSetting(settingTOTPPendingSecret); err != nil {
-		internalError(w, err)
+	// 🔴 The floor and the secret land together: a secret armed with no floor
+	// makes the activation code replayable as a login after a restart. The
+	// pending secret is read again here because it is the one being armed.
+	err = s.dal.inTx(func(tx *sql.Tx) error {
+		stillPending, err := getSettingOn(tx, settingTOTPPendingSecret)
+		if err != nil {
+			return err
+		}
+		if stillPending == nil || *stillPending != *pending {
+			return refuseInTx(http.StatusConflict, "no pending enrolment; call /api/auth/mfa/enroll first")
+		}
+		if err := putSettingOn(tx, settingTOTPLastStep, strconv.FormatInt(step, 10)); err != nil {
+			return err
+		}
+		if err := putSettingOn(tx, settingTOTPSecret, *pending); err != nil {
+			return err
+		}
+		return deleteSettingOn(tx, settingTOTPPendingSecret)
+	})
+	if err != nil {
+		writeTxError(w, err)
 		return
 	}
 	s.totpSecret = *pending
@@ -215,14 +223,18 @@ func (s *apiServer) HandleMfaDisableApiAuthMfaDisablePost(w http.ResponseWriter,
 	}
 	_ = step
 
-	// 🔴 THE ACTIVE SECRET IS DELETED LAST (no transaction): secret-first then a
-	// failure leaves the DB disarmed while the owner is told disable FAILED, and a
-	// restart would silently disable it. Secret-last fails with both still armed.
-	for _, key := range []string{settingTOTPPendingSecret, settingTOTPLastStep, settingTOTPSecret} {
-		if err := s.dal.DeleteSetting(key); err != nil {
-			internalError(w, err)
-			return
+	// 🔴 One transaction: a partial delete would leave the DB disarmed while the
+	// owner is told disable FAILED, and a restart would silently disable it.
+	if err := s.dal.inTx(func(tx *sql.Tx) error {
+		for _, key := range []string{settingTOTPPendingSecret, settingTOTPLastStep, settingTOTPSecret} {
+			if err := deleteSettingOn(tx, key); err != nil {
+				return err
+			}
 		}
+		return nil
+	}); err != nil {
+		internalError(w, err)
+		return
 	}
 	s.totpSecret = ""
 	s.totpLastStep = 0

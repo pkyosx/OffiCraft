@@ -17,6 +17,7 @@ package main
 
 import (
 	"crypto/rand"
+	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -240,10 +241,12 @@ func persistRing(d *DAL, keys []signingKey, active string) error {
 	if err != nil {
 		return err
 	}
-	if err := d.PutSetting(settingJWTKeys, string(blob)); err != nil {
-		return err
-	}
-	return d.PutSetting(settingJWTActiveKeyID, active)
+	return d.inTx(func(tx *sql.Tx) error {
+		if err := putSettingOn(tx, settingJWTKeys, string(blob)); err != nil {
+			return err
+		}
+		return putSettingOn(tx, settingJWTActiveKeyID, active)
+	})
 }
 
 // 🔴 DB write FIRST, in-memory swap only on success, write lock held across

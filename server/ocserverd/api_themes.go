@@ -5,6 +5,7 @@ package main
 // (the cap, id uniqueness) are answered against the TABLE.
 
 import (
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -131,26 +132,28 @@ func (s *apiServer) HandlePutThemeApiThemesThemeIdPut(w http.ResponseWriter, r *
 }
 
 func (s *apiServer) HandleDeleteThemeApiThemesThemeIdDelete(w http.ResponseWriter, r *http.Request, themeID string) {
-	deleted, err := s.dal.DeleteCustomTheme(themeID)
-	if err != nil {
-		internalError(w, err)
-		return
-	}
-	if !deleted {
-		writeError(w, http.StatusNotFound, "theme '"+themeID+"' not found")
-		return
-	}
-
-	reset := false
 	s.settingsMu.Lock()
-	if s.displayTheme == themeID {
-		if err := s.dal.PutSetting(settingDisplayTheme, ""); err != nil {
-			s.settingsMu.Unlock()
-			internalError(w, err)
-			return
+	reset := s.displayTheme == themeID
+	err := s.dal.inTx(func(tx *sql.Tx) error {
+		deleted, err := deleteCustomThemeOn(tx, themeID)
+		if err != nil {
+			return err
 		}
+		if !deleted {
+			return refuseInTx(http.StatusNotFound, "theme '"+themeID+"' not found")
+		}
+		if reset {
+			return putSettingOn(tx, settingDisplayTheme, "")
+		}
+		return nil
+	})
+	if err != nil {
+		s.settingsMu.Unlock()
+		writeTxError(w, err)
+		return
+	}
+	if reset {
 		s.displayTheme = ""
-		reset = true
 	}
 	s.settingsMu.Unlock()
 
@@ -184,17 +187,16 @@ func marshalThemeBundle(b ThemeBundleDTO) (string, error) {
 	return string(raw), nil
 }
 
-// displayThemeExists asks the TABLE; never keep a copy of the id set
-// elsewhere. CHECK-THEN-SET: this lookup sits outside settingsMu, so a
-// concurrent DELETE could leave display_theme naming no row (a 300-run probe
-// never reached it). The cockpit falls back to the built-in theme
-// (i18n/index.tsx), but never treat display_theme as a guaranteed foreign
-// key.
-func (s *apiServer) displayThemeExists(theme string) (bool, error) {
+const displayThemeRefusal = `display_theme must be "", office, or an existing custom theme id`
+
+// displayThemeExistsOn asks the TABLE; never keep a copy of the id set
+// elsewhere. The patch asks again inside the transaction that sets the theme,
+// under settingsMu, which DELETE /api/themes/{id} also holds while it deletes.
+func displayThemeExistsOn(q sqlRowQuerier, theme string) (bool, error) {
 	if theme == "" || displayThemeAllowed[theme] {
 		return true, nil
 	}
-	row, err := s.dal.GetCustomTheme(theme)
+	row, err := getCustomThemeOn(q, theme)
 	if err != nil {
 		return false, err
 	}
