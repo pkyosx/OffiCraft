@@ -243,7 +243,7 @@ func TestATransactionWaitingOnAnotherGoroutinesWriteFailsInsteadOfStoppingTheSta
 		t.Fatalf("answered after %s, before the %s limit: it did not wait for the connection", took, stallTestWaitLimit)
 	}
 	apiWantError(t, got.body, "internal_error", stallGaveUp)
-	stallWantLogLine(t, logs.String(), "caller: (*DAL).TouchTaskUpdatedTS (dal_tasks.go:")
+	stallWantLogLine(t, logs.String(), "caller: touchTaskUpdatedTSOn (dal_tasks.go:", "<- (*DAL).TouchTaskUpdatedTS (dal_tasks.go:")
 	dalWantTask(t, d, task)
 
 	got = stallRequest(t, h, owner, "/api/tasks/T-1/priority", `{"priority":"low"}`)

@@ -140,7 +140,11 @@ func getTaskOn(q sqlRowQuerier, id string) (*Task, error) {
 // FindOpenTaskByDedupe is the create_task dedupe probe: terminal tasks never
 // block a reopen (kyle ruling H2).
 func (d *DAL) FindOpenTaskByDedupe(typeKey, dedupeKey string) (*Task, error) {
-	row := d.rdb.QueryRow(`
+	return findOpenTaskByDedupeOn(d.rdb, typeKey, dedupeKey)
+}
+
+func findOpenTaskByDedupeOn(q sqlRowQuerier, typeKey, dedupeKey string) (*Task, error) {
+	row := q.QueryRow(`
 		SELECT `+taskColumns+` FROM task
 		WHERE type_key = ? AND dedupe_key = ?
 		  AND status NOT IN (`+sqlTaskTerminalStatuses+`)
@@ -524,7 +528,11 @@ func getTaskStepOn(q sqlRowQuerier, id string) (*TaskStep, error) {
 }
 
 func (d *DAL) SetTaskStepNote(id, note string) (bool, error) {
-	res, err := d.wdb.Exec(`UPDATE task_step SET note = ? WHERE id = ?`, note, id)
+	return setTaskStepNoteOn(d.wdb, id, note)
+}
+
+func setTaskStepNoteOn(ex sqlExecer, id, note string) (bool, error) {
+	res, err := ex.Exec(`UPDATE task_step SET note = ? WHERE id = ?`, note, id)
 	if err != nil {
 		return false, err
 	}
@@ -594,7 +602,11 @@ func taskTitleOn(q sqlRowQuerier, id string) (string, bool, error) {
 // detail only when updated_ts changes (the SSE task delta carries no steps), so
 // a step-only write such as a note must bump it or stay invisible.
 func (d *DAL) TouchTaskUpdatedTS(id string, ts float64) error {
-	_, err := d.wdb.Exec(`UPDATE task SET updated_ts = ? WHERE id = ?`, ts, id)
+	return touchTaskUpdatedTSOn(d.wdb, id, ts)
+}
+
+func touchTaskUpdatedTSOn(ex sqlExecer, id string, ts float64) error {
+	_, err := ex.Exec(`UPDATE task SET updated_ts = ? WHERE id = ?`, ts, id)
 	return err
 }
 
@@ -791,7 +803,11 @@ func (d *DAL) ListOutsourceWorkers() ([]OutsourceWorker, error) {
 }
 
 func (d *DAL) GetOutsourceWorker(id string) (*OutsourceWorker, error) {
-	row := d.rdb.QueryRow(`SELECT `+memberColumns+
+	return getOutsourceWorkerOn(d.rdb, id)
+}
+
+func getOutsourceWorkerOn(q sqlRowQuerier, id string) (*OutsourceWorker, error) {
+	row := q.QueryRow(`SELECT `+memberColumns+
 		` FROM member WHERE id = ? AND kind = 'outsource'`, id)
 	m, err := scanMember(row)
 	if errors.Is(err, sql.ErrNoRows) {

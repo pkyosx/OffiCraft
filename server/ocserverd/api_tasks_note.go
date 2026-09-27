@@ -20,11 +20,13 @@ func (s *apiServer) HandleUpdateTaskStepNoteApiTasksTaskIdStepsStepIdNotePost(w 
 	if !s.stepNoteWithinLimit(w, note) {
 		return
 	}
-	t, step, ok := s.resolveStepForNoteWrite(w, r, taskId, stepId)
-	if !ok {
+	if _, _, ok := s.resolveStepForNoteWrite(w, r, taskId, stepId); !ok {
 		return
 	}
-	if !s.storeStepNote(w, r, t, step, note, true) {
+	t, step, ok := s.storeStepNote(w, r, taskId, stepId, func(TaskStep) (string, bool, error) {
+		return note, true, nil
+	})
+	if !ok {
 		return
 	}
 	writeJSON(w, http.StatusOK, taskStepNoteReceiptDTO{
@@ -38,9 +40,10 @@ func (s *apiServer) HandleUpdateTaskStepNoteApiTasksTaskIdStepsStepIdNotePost(w 
 // write the same note, and a wholesale write from a stale (usually longer) copy
 // deletes the other's text with no guard firing. Sending only {old, new} makes
 // "overwrite from an old base" inexpressible; a moved anchor becomes a 400.
-// Still open: the read (read pool) and write (write pool) share no transaction,
-// so two interleaving patch requests lose one edit silently. The ceiling is
-// applied to the RESULT of the patch.
+// The edits apply to the note as it stands in the transaction that writes the
+// result, so two interleaving patch requests both land (or the later one's
+// anchor moved and it is a 400). The ceiling is applied to the RESULT of the
+// patch.
 func (s *apiServer) HandlePatchTaskStepNoteApiTasksTaskIdStepsStepIdNotePatchPost(w http.ResponseWriter, r *http.Request, taskId string, stepId string) {
 	var body TaskStepNotePatchDTO
 	if !decodeJSONBodyStrict(w, r, &body, "edits") {
@@ -49,7 +52,7 @@ func (s *apiServer) HandlePatchTaskStepNoteApiTasksTaskIdStepsStepIdNotePatchPos
 	if !requireNonEmptyEdits(w, body.Edits) {
 		return
 	}
-	t, step, ok := s.resolveStepForNoteWrite(w, r, taskId, stepId)
+	_, step, ok := s.resolveStepForNoteWrite(w, r, taskId, stepId)
 	if !ok {
 		return
 	}
@@ -57,29 +60,42 @@ func (s *apiServer) HandlePatchTaskStepNoteApiTasksTaskIdStepsStepIdNotePatchPos
 	if !ok {
 		return
 	}
-	// "get_task_step", not get_task: since T-66 get_task carries only the note's
-	// SIZE, and an anchor-miss pointing there would re-anchor against nothing.
-	next, applied, err := ApplyDocEdits(step.Note, edits, "get_task_step")
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
 	allowShrink := body.AllowShrink != nil && *body.AllowShrink
-	if !allowShrink && LessonsShrinkBlocked(step.Note, next) {
-		writeError(w, http.StatusBadRequest,
-			"patch would empty (or shrink to under a tenth of) the step note — pass allow_shrink=true if this is intended, or use update_step_note; nothing was written")
+	limit := s.stepNoteCap()
+	patch := func(cur TaskStep) (string, int, error) {
+		// "get_task_step", not get_task: since T-66 get_task carries only the note's
+		// SIZE, and an anchor-miss pointing there would re-anchor against nothing.
+		next, applied, err := ApplyDocEdits(cur.Note, edits, "get_task_step")
+		if err != nil {
+			return "", 0, refuseInTx(http.StatusBadRequest, err.Error())
+		}
+		if !allowShrink && LessonsShrinkBlocked(cur.Note, next) {
+			return "", 0, refuseInTx(http.StatusBadRequest,
+				"patch would empty (or shrink to under a tenth of) the step note — pass allow_shrink=true if this is intended, or use update_step_note; nothing was written")
+		}
+		if refusal := stepNoteLimitRefusal(next, limit); refusal != nil {
+			return "", 0, refusal
+		}
+		return next, applied, nil
+	}
+	if _, _, err := patch(*step); err != nil {
+		writeTxError(w, err)
 		return
 	}
-	if !s.stepNoteWithinLimit(w, next) {
+	var applied int
+	t, step, ok := s.storeStepNote(w, r, taskId, stepId, func(cur TaskStep) (string, bool, error) {
+		next, n, err := patch(cur)
+		applied = n
+		// Announce only when the text changed — NOT `applied > 0`, which counts
+		// edits that moved an intermediate result (self-cancelling edits report
+		// non-zero). The write itself still happens (see storeStepNote). The
+		// wholesale face keeps its unconditional delta.
+		return next, next != cur.Note, err
+	})
+	if !ok {
 		return
 	}
-	// Announce only when the text changed — NOT `applied > 0`, which counts edits
-	// that moved an intermediate result (self-cancelling edits report non-zero).
-	// The write itself still happens (see storeStepNote). The wholesale face
-	// keeps its unconditional delta.
-	if !s.storeStepNote(w, r, t, step, next, next != step.Note) {
-		return
-	}
+	next := step.Note
 	writeJSON(w, http.StatusOK, taskStepNotePatchResultDTO{
 		TaskID:       t.ID,
 		StepID:       step.ID,
@@ -96,13 +112,19 @@ func (s *apiServer) HandlePatchTaskStepNoteApiTasksTaskIdStepsStepIdNotePatchPos
 // keep the fixed constant. Enforced only on write, so a lowered cap leaves
 // longer stored notes readable but not editable until shortened.
 func (s *apiServer) stepNoteWithinLimit(w http.ResponseWriter, note string) bool {
-	limit := s.stepNoteCap()
-	if n := utf8.RuneCountInString(note); n > limit {
-		writeError(w, http.StatusBadRequest, "step note is "+strconv.Itoa(n)+
-			" chars, over the "+strconv.Itoa(limit)+"-char limit")
+	if refusal := stepNoteLimitRefusal(note, s.stepNoteCap()); refusal != nil {
+		writeTxError(w, refusal)
 		return false
 	}
 	return true
+}
+
+func stepNoteLimitRefusal(note string, limit int) error {
+	if n := utf8.RuneCountInString(note); n > limit {
+		return refuseInTx(http.StatusBadRequest, "step note is "+strconv.Itoa(n)+
+			" chars, over the "+strconv.Itoa(limit)+"-char limit")
+	}
+	return nil
 }
 
 func (s *apiServer) resolveStepForNoteWrite(w http.ResponseWriter, r *http.Request, taskId, stepId string) (*Task, *TaskStep, bool) {
@@ -111,54 +133,86 @@ func (s *apiServer) resolveStepForNoteWrite(w http.ResponseWriter, r *http.Reque
 		writeResolveError(w, err, "task", taskId)
 		return nil, nil, false
 	}
-	if !s.callerMayEditTaskText(r, *t) {
-		writeError(w, http.StatusForbidden, taskActorRefusal)
-		return nil, nil, false
-	}
-	if TaskRecordReadOnly(t.Status) {
-		writeError(w, http.StatusConflict,
-			"task '"+taskId+"' is already closed ("+t.Status+")")
-		return nil, nil, false
-	}
 	step, err := s.dal.GetTaskStep(stepId)
 	if err != nil {
 		internalError(w, err)
 		return nil, nil, false
 	}
-	if step == nil || step.TaskID != taskId {
-		writeError(w, http.StatusNotFound, "step '"+stepId+"' not found")
+	if err := stepNoteWriteRefusal(s.dal.GetMember, r, *t, step, stepId); err != nil {
+		writeTxError(w, err)
 		return nil, nil, false
 	}
-	// No step-status check on purpose: a handover lands at any moment, so a
-	// note is writable in ANY step status (gating it recreates waiting_reason's
-	// moment-locked hole). Only the task-level terminal gate above applies.
 	return t, step, true
 }
 
-// storeStepNote: announce=false (a no-op patch) still writes — the zero-row
-// UPDATE is how a step deleted by a concurrent submit_plan is caught (→ 404).
-func (s *apiServer) storeStepNote(w http.ResponseWriter, r *http.Request, t *Task, step *TaskStep, note string, announce bool) bool {
-	ok, err := s.dal.SetTaskStepNote(step.ID, note)
-	if err != nil {
-		internalError(w, err)
-		return false
+// No step-status check on purpose: a handover lands at any moment, so a note is
+// writable in ANY step status (gating it recreates waiting_reason's
+// moment-locked hole). Only the task-level terminal gate applies.
+func stepNoteWriteRefusal(member memberLookup, r *http.Request, t Task, step *TaskStep, stepID string) error {
+	if !callerMayEditTaskText(member, r, t) {
+		return refuseInTx(http.StatusForbidden, taskActorRefusal)
 	}
-	if !ok {
-		writeError(w, http.StatusNotFound, "step '"+step.ID+"' not found")
-		return false
+	if TaskRecordReadOnly(t.Status) {
+		return refuseInTx(http.StatusConflict,
+			"task '"+t.ID+"' is already closed ("+t.Status+")")
 	}
-	step.Note = note
-	if !announce {
-		return true
+	if step == nil || step.TaskID != t.ID {
+		return refuseInTx(http.StatusNotFound, "step '"+stepID+"' not found")
 	}
-	// Bump updated_ts: the SSE task delta carries only id/status/priority, and
-	// an open cockpit card re-reads its steps only when updated_ts changes.
+	return nil
+}
+
+// storeStepNote judges the task and the step again inside the transaction that
+// writes, and next computes the note from the step as it stands there
+// (announce=false still writes). The delta goes out after commit.
+func (s *apiServer) storeStepNote(
+	w http.ResponseWriter, r *http.Request, taskID, stepID string,
+	next func(cur TaskStep) (note string, announce bool, err error),
+) (*Task, *TaskStep, bool) {
+	var t Task
+	var step TaskStep
+	var announce bool
 	now := nowSecs()
-	if err := s.dal.TouchTaskUpdatedTS(t.ID, now); err != nil {
-		internalError(w, err)
-		return false
+	err := s.dal.inTx(func(tx *writeTx) error {
+		cur, err := getTaskOn(tx, taskID)
+		if err != nil {
+			return err
+		}
+		if cur == nil {
+			return refuseInTx(http.StatusNotFound, "task '"+taskID+"' not found")
+		}
+		st, err := getTaskStepOn(tx, stepID)
+		if err != nil {
+			return err
+		}
+		if err := stepNoteWriteRefusal(membersOn(tx), r, *cur, st, stepID); err != nil {
+			return err
+		}
+		note, ann, err := next(*st)
+		if err != nil {
+			return err
+		}
+		if _, err := setTaskStepNoteOn(tx, st.ID, note); err != nil {
+			return err
+		}
+		st.Note = note
+		// Bump updated_ts: the SSE task delta carries only id/status/priority, and
+		// an open cockpit card re-reads its steps only when updated_ts changes.
+		if ann {
+			if err := touchTaskUpdatedTSOn(tx, cur.ID, now); err != nil {
+				return err
+			}
+			cur.UpdatedTS = now
+		}
+		t, step, announce = *cur, *st, ann
+		return nil
+	})
+	if err != nil {
+		writeTxError(w, err)
+		return nil, nil, false
 	}
-	t.UpdatedTS = now
-	s.publishTask(*t, requestTrigger(r))
-	return true
+	if announce {
+		s.publishTask(t, requestTrigger(r))
+	}
+	return &t, &step, true
 }

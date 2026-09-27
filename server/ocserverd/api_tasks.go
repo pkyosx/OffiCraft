@@ -329,8 +329,8 @@ func callerMayDriveTask(member memberLookup, r *http.Request, t Task) bool {
 	return currentActor(r) == actingExecutorOf(member, t)
 }
 
-func (s *apiServer) callerMayClaimTask(r *http.Request, t Task) bool {
-	if principalAtLeast(s.principalOfRequest(r), principalAdminAgent) {
+func callerMayClaimTask(member memberLookup, r *http.Request, t Task) bool {
+	if principalAtLeast(resolvePrincipal(claimsFromContext(r.Context()), member), principalAdminAgent) {
 		return true
 	}
 	return currentActor(r) == t.ExecutorID
@@ -341,8 +341,8 @@ func (s *apiServer) callerMayClaimTask(r *http.Request, t Task) bool {
 // forever), and only at the text doors: owner ruling rc-1bb6e01c4bf7
 // 「只開『改文字類』那幾道（改描述／標題／產物增刪／步驟筆記），不含凍結、撤票、改派」.
 // Calling it from any other handler reverses that ruling.
-func (s *apiServer) callerMayEditTaskText(r *http.Request, t Task) bool {
-	if callerMayDriveTask(s.dal.GetMember, r, t) {
+func callerMayEditTaskText(member memberLookup, r *http.Request, t Task) bool {
+	if callerMayDriveTask(member, r, t) {
 		return true
 	}
 	if underHandover(t) || t.ExecutorID != "" || t.CreatorID == "" {
@@ -534,27 +534,12 @@ func (s *apiServer) announceDerivedTask(t Task, arrivedReadyForDone bool, trigge
 	}
 }
 
-// openTaskOn is the in-transaction re-read every read-decide-write path starts
-// from: the row the handler read before the transaction may have been closed
-// since, and writing that copy back reopens the task (status and closed_ts ride
-// in the whole-row upsert).
-func openTaskOn(q sqlRowQuerier, taskID string) (*Task, error) {
-	t, err := getTaskOn(q, taskID)
-	if err != nil {
-		return nil, err
-	}
-	if t == nil {
-		return nil, refuseInTx(http.StatusNotFound, "task '"+taskID+"' not found")
-	}
-	if TaskIsTerminal(t.Status) {
-		return nil, refuseInTx(http.StatusConflict, taskAlreadyClosedRefusal(*t))
-	}
-	return t, nil
-}
-
-// openTaskToDriveOn is openTaskOn for the doors gated on callerMayDriveTask,
-// answered in the order those doors answer before the transaction: 404, 403,
-// then 409.
+// openTaskToDriveOn is the in-transaction re-read every read-decide-write door
+// gated on callerMayDriveTask starts from: the row the handler read before the
+// transaction may have been closed or handed to someone else since, and writing
+// that copy back reopens the task (status and closed_ts ride in the whole-row
+// upsert). It answers in the order those doors answer before the transaction:
+// 404, 403, then 409.
 func openTaskToDriveOn(tx *writeTx, r *http.Request, taskID string) (*Task, error) {
 	t, err := getTaskOn(tx, taskID)
 	if err != nil {
@@ -972,7 +957,7 @@ func (s *apiServer) HandleSetTaskPriorityApiTasksTaskIdPriorityPost(w http.Respo
 	now := nowSecs()
 	var saved Task
 	err = s.dal.inTx(func(tx *writeTx) error {
-		cur, err := openTaskOn(tx, t.ID)
+		cur, err := openTaskToDriveOn(tx, r, t.ID)
 		if err != nil {
 			return err
 		}
@@ -1224,6 +1209,22 @@ func (s *apiServer) HandleReassignTaskApiTasksTaskIdReassignPost(w http.Response
 			return err
 		}
 		member := membersOn(tx)
+		if newMember != nil {
+			memberID := newMember.ID
+			m, err := member(memberID)
+			if err != nil {
+				return err
+			}
+			if m == nil || m.RosterStatus != RosterStatusActive || m.Kind == KindOutsource {
+				return refuseInTx(http.StatusBadRequest,
+					"target member '"+memberID+"' is not an active roster member")
+			}
+			if m.Kind == KindWarden {
+				return refuseInTx(http.StatusBadRequest,
+					"target member '"+memberID+"' is a machine (warden) — machines never execute tasks")
+			}
+			newMember = m
+		}
 		if newMember != nil && t.ExecutorKind == TaskExecutorStaff && t.ExecutorID == newMember.ID {
 			return refuseInTx(http.StatusConflict,
 				"member '"+newMember.ID+"' is already the task's executor")
@@ -1396,32 +1397,49 @@ func (s *apiServer) HandleClaimTaskApiTasksTaskIdClaimPost(w http.ResponseWriter
 		writeResolveError(w, err, "task", taskId)
 		return
 	}
-	if !s.callerMayClaimTask(r, *t) {
-		writeError(w, http.StatusForbidden, taskActorRefusal)
-		return
-	}
-	if t.Lock != TaskLockReassigning {
-		writeError(w, http.StatusConflict,
-			"task '"+taskId+"' is not awaiting takeover (no reassigning lock)")
+	if err := claimRefusal(s.dal.GetMember, r, *t); err != nil {
+		writeTxError(w, err)
 		return
 	}
 	now := nowSecs()
 	trigger := requestTrigger(r)
-	predecessorWorker := ""
-	if t.ReassignedFromKind == TaskExecutorOutsource {
-		predecessorWorker = t.ReassignedFrom
-	}
-	t.Lock = TaskLockNone
-	t.UpdatedTS = now
-	if err := s.dal.PutTask(*t); err != nil {
-		internalError(w, err)
+	var claimed Task
+	err = s.dal.inTx(func(tx *writeTx) error {
+		cur, err := getTaskOn(tx, taskId)
+		if err != nil {
+			return err
+		}
+		if cur == nil {
+			return refuseInTx(http.StatusNotFound, "task '"+taskId+"' not found")
+		}
+		if err := claimRefusal(membersOn(tx), r, *cur); err != nil {
+			return err
+		}
+		cur.Lock = TaskLockNone
+		cur.UpdatedTS = now
+		claimed = *cur
+		return putTaskOn(tx, *cur, taskWriteUpsert)
+	})
+	if err != nil {
+		writeTxError(w, err)
 		return
 	}
-	s.publishTask(*t, trigger)
-	if predecessorWorker != "" {
-		s.dismissOutsourceWorkerByID(predecessorWorker, now, trigger)
+	s.publishTask(claimed, trigger)
+	if claimed.ReassignedFromKind == TaskExecutorOutsource && claimed.ReassignedFrom != "" {
+		s.dismissOutsourceWorkerByID(claimed.ReassignedFrom, now, trigger)
 	}
-	s.writeTaskWriteReceipt(w, *t)
+	s.writeTaskWriteReceipt(w, claimed)
+}
+
+func claimRefusal(member memberLookup, r *http.Request, t Task) error {
+	if !callerMayClaimTask(member, r, t) {
+		return refuseInTx(http.StatusForbidden, taskActorRefusal)
+	}
+	if t.Lock != TaskLockReassigning {
+		return refuseInTx(http.StatusConflict,
+			"task '"+t.ID+"' is not awaiting takeover (no reassigning lock)")
+	}
+	return nil
 }
 
 func (s *apiServer) executorLabel(kind, id string) string {
@@ -1637,6 +1655,18 @@ func (s *apiServer) HandleCreateTaskApiTasksPost(w http.ResponseWriter, r *http.
 		dispatch = inheritDispatchSpec(dispatch, manualSpec, caller.member)
 	}
 
+	writeDeduped := func(existing Task) {
+		title, status := existing.Title, existing.Status
+		writeJSON(w, http.StatusOK, taskCreateResultDTO{
+			TaskID:       existing.ID,
+			ExecutorKind: existing.ExecutorKind,
+			ExecutorID:   existing.ExecutorID,
+			Deduped:      true,
+			Title:        &title,
+			Status:       &status,
+			Warnings:     warnings,
+		})
+	}
 	if dedupeKey != "" {
 		existing, err := s.dal.FindOpenTaskByDedupe(typeKey, dedupeKey)
 		if err != nil {
@@ -1644,16 +1674,7 @@ func (s *apiServer) HandleCreateTaskApiTasksPost(w http.ResponseWriter, r *http.
 			return
 		}
 		if existing != nil {
-			title, status := existing.Title, existing.Status
-			writeJSON(w, http.StatusOK, taskCreateResultDTO{
-				TaskID:       existing.ID,
-				ExecutorKind: existing.ExecutorKind,
-				ExecutorID:   existing.ExecutorID,
-				Deduped:      true,
-				Title:        &title,
-				Status:       &status,
-				Warnings:     warnings,
-			})
+			writeDeduped(*existing)
 			return
 		}
 	}
@@ -1680,9 +1701,9 @@ func (s *apiServer) HandleCreateTaskApiTasksPost(w http.ResponseWriter, r *http.
 	}
 	trigger := requestTrigger(r)
 
-	// The gate runs inside CreateTaskMintingID's transaction (it needs the minted
-	// id), so anything it needs from the DB is resolved out here: a read through
-	// the DAL inside it would come from the read pool at another moment than the
+	// The gate runs inside the minting transaction (it needs the minted id), so
+	// anything it needs from the DB is resolved out here: a read through the DAL
+	// inside it would come from the read pool at another moment than the
 	// transaction, and a lock taken inside it is refused.
 	var gateDenied string
 	var precheck func(id string) error
@@ -1711,7 +1732,27 @@ func (s *apiServer) HandleCreateTaskApiTasksPost(w http.ResponseWriter, r *http.
 		}
 	}
 
-	t, err = s.dal.CreateTaskMintingID(t, precheck)
+	// The dedupe probe runs again in the transaction that mints: two creates for
+	// one dedupe key both passed the probe above.
+	var existing *Task
+	err = s.dal.inTx(func(tx *writeTx) error {
+		if dedupeKey != "" {
+			found, err := findOpenTaskByDedupeOn(tx, typeKey, dedupeKey)
+			if err != nil || found != nil {
+				existing = found
+				return err
+			}
+		}
+		created, err := createTaskMintingIDOn(tx, t, precheck)
+		if err == nil {
+			t = created
+		}
+		return err
+	})
+	if err == nil && existing != nil {
+		writeDeduped(*existing)
+		return
+	}
 	if err != nil {
 		if errors.Is(err, errOutsourceGateDenied) {
 			writeError(w, http.StatusForbidden,
@@ -1982,7 +2023,7 @@ func (s *apiServer) HandleUpdateTaskStepStatusApiTasksTaskIdStepsStepIdStatusPos
 	var savedStep TaskStep
 	var arrived bool
 	err = s.dal.inTx(func(tx *writeTx) error {
-		cur, err := openTaskOn(tx, taskId)
+		cur, err := openTaskToDriveOn(tx, r, taskId)
 		if err != nil {
 			return err
 		}
@@ -2086,7 +2127,7 @@ func (s *apiServer) HandleSetTaskDepsApiTasksTaskIdDepsPost(w http.ResponseWrite
 	now := nowSecs()
 	var saved Task
 	err = s.dal.inTx(func(tx *writeTx) error {
-		cur, err := openTaskOn(tx, t.ID)
+		cur, err := openTaskToDriveOn(tx, r, t.ID)
 		if err != nil {
 			return err
 		}
@@ -2187,7 +2228,7 @@ func (s *apiServer) HandleAddTaskArtifactApiTasksTaskIdArtifactPost(w http.Respo
 		writeResolveError(w, err, "task", taskId)
 		return
 	}
-	if !s.callerMayEditTaskText(r, *t) {
+	if !callerMayEditTaskText(s.dal.GetMember, r, *t) {
 		writeError(w, http.StatusForbidden, taskActorRefusal)
 		return
 	}
@@ -2290,7 +2331,7 @@ func (s *apiServer) artifactOnTask(
 		writeResolveError(w, err, "task", taskID)
 		return nil, nil, false
 	}
-	if access == artifactWrite && !s.callerMayEditTaskText(r, *t) {
+	if access == artifactWrite && !callerMayEditTaskText(s.dal.GetMember, r, *t) {
 		writeError(w, http.StatusForbidden, taskActorRefusal)
 		return nil, nil, false
 	}

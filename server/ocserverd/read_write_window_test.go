@@ -944,6 +944,27 @@ func TestReassigningATaskDecidesFromTheRowItWrites(t *testing.T) {
 		})
 	}
 
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": a target dismissed after the handler checked it is not handed the task", func(t *testing.T) {
+			d, hook, path := windowDAL(t, shape)
+			api, h, _, owner := newAPITestServerOn(t, d)
+			task := dalPutTask(t, d, windowOpenTask("T-1"))
+			dashboard := apiTestListen(t, api, "")
+			hook.execAfterRead(t, path, "FROM member WHERE id",
+				`UPDATE member SET roster_status = 'removed' WHERE id = 'mira'`)
+
+			status, data := windowJSON(t, h, "POST", "/api/tasks/T-1/reassign", owner, toMira)
+
+			hook.wantFiredOnce(t)
+			if status != http.StatusBadRequest {
+				t.Fatalf("want 400, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "validation_error", "target member 'mira' is not an active roster member")
+			dalWantTask(t, d, task)
+			dashboard.wantFrames()
+		})
+	}
+
 	t.Run("a step reset that fails takes the card expiry back with it", func(t *testing.T) {
 		d, _, _ := windowDAL(t, "split pools")
 		api, h, _, owner := newAPITestServerOn(t, d)
@@ -1138,6 +1159,11 @@ func TestTheDoorsJudgeTheCallerOnTheRowTheyWrite(t *testing.T) {
 	for _, p := range windowPlanDoors {
 		doors = append(doors, door{p.name, p.path, p.body})
 	}
+	doors = append(doors,
+		door{"priority", "/api/tasks/T-1/priority", `{"priority":"low"}`},
+		door{"deps", "/api/tasks/T-1/deps", `{"blocked_by":["T-2"]}`},
+		door{"step status", "/api/tasks/T-1/steps/ts-1/status", `{"status":"in_progress"}`},
+	)
 	for _, dr := range doors {
 		for _, shape := range windowDALShapes {
 			t.Run(dr.name+", "+shape+": a task handed to someone else after the handler read it refuses its old executor", func(t *testing.T) {
@@ -1270,4 +1296,15 @@ func windowSettingNow(t *testing.T, d *DAL, key string) *string {
 		t.Fatalf("GetSetting(%q): %v", key, err)
 	}
 	return got
+}
+
+func windowWantStepNote(t *testing.T, d *DAL, stepID, want string) {
+	t.Helper()
+	got, err := d.GetTaskStep(stepID)
+	if err != nil || got == nil {
+		t.Fatalf("GetTaskStep(%q): %#v, %v", stepID, got, err)
+	}
+	if got.Note != want {
+		t.Fatalf("step %s note: got %q, want %q", stepID, got.Note, want)
+	}
 }

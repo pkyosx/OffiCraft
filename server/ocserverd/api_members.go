@@ -12,6 +12,15 @@ import (
 // boot-storm guard's MinBootSecs.
 const minSelfRestartSecs = 600.0
 
+// writeMemberOn is putMember's write on the caller's transaction; the caller
+// publishes (publishMemberPatch) after commit.
+func writeMemberOn(tx *writeTx, m Member) error {
+	if err := ValidateMember(m); err != nil {
+		return err
+	}
+	return putMemberOn(tx, m)
+}
+
 func (s *apiServer) putMember(m Member, trigger string) error {
 	if err := ValidateMember(m); err != nil {
 		return err
@@ -1154,20 +1163,29 @@ func (s *apiServer) HandleRefocusMemberApiMembersMemberIdRefocusPost(w http.Resp
 }
 
 func (s *apiServer) HandleDismissMemberApiMembersMemberIdDelete(w http.ResponseWriter, r *http.Request, memberId string) {
-	m, err := s.resolveMember(memberId, staffOnly)
-	if err != nil {
+	if _, err := s.resolveMember(memberId, staffOnly); err != nil {
 		writeResolveError(w, err, "member", memberId)
 		return
 	}
-	m.RosterStatus = RosterStatusRemoved
-	m.DesiredState = DesiredStateOffline
-	clearRestartIntent(m)
-	if err := s.putMember(*m, requestTrigger(r)); err != nil {
-		internalError(w, err)
+	var m Member
+	err := s.dal.inTx(func(tx *writeTx) error {
+		cur, err := resolveMemberOn(tx, memberId, staffOnly)
+		if err != nil {
+			return err
+		}
+		cur.RosterStatus = RosterStatusRemoved
+		cur.DesiredState = DesiredStateOffline
+		clearRestartIntent(cur)
+		m = *cur
+		return writeMemberOn(tx, m)
+	})
+	if err != nil {
+		writeResolveTxError(w, err, "member", memberId)
 		return
 	}
+	s.publishMemberPatch(m, requestTrigger(r))
 	// The asker is gone, so its waiting cards are retired. Best-effort: the dismissal
-	// is already persisted with no transaction to roll back.
+	// has already committed in a transaction of its own.
 	if _, err := s.expireWaitingCardsByAuthor(m.ID, nowSecs(), requestTrigger(r)); err != nil {
 		taskLog("dismiss %s: reply-card sweep failed (cards left waiting): %v", m.ID, err)
 	}

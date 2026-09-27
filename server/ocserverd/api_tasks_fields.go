@@ -125,7 +125,7 @@ func (s *apiServer) updateTaskText(w http.ResponseWriter, r *http.Request, taskI
 		writeResolveError(w, err, "task", taskID)
 		return
 	}
-	if !s.callerMayEditTaskText(r, *t) {
+	if !callerMayEditTaskText(s.dal.GetMember, r, *t) {
 		writeError(w, http.StatusForbidden, taskActorRefusal)
 		return
 	}
