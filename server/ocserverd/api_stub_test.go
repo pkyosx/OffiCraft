@@ -831,14 +831,17 @@ func TestClaimHandoverNotice(t *testing.T) {
 		api, _, d, _ := newAPITestServer(t)
 		record := asGauge(1800000000)
 		granted := make(chan bool, 8)
+		start := make(chan struct{})
 		var group sync.WaitGroup
 		for i := 0; i < 8; i++ {
 			group.Add(1)
 			go func() {
 				defer group.Done()
+				<-start
 				granted <- api.claimHandoverNotice("mira", record)
 			}()
 		}
+		close(start)
 		group.Wait()
 		close(granted)
 		n := 0
@@ -853,6 +856,33 @@ func TestClaimHandoverNotice(t *testing.T) {
 			t.Fatalf("GetMember: %v (%v)", m, err)
 		}
 		apiWantValue(t, "the durable claim", any(m.HandoverNoticedTS), any(1800000000.0))
+	})
+
+	t.Run("of 32 callers remembering the same anchor at once, exactly one is told it was new", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+		api.rememberHandoverClaim("mira", 1700000000)
+		fresh := make(chan bool, 32)
+		start := make(chan struct{})
+		var group sync.WaitGroup
+		for i := 0; i < 32; i++ {
+			group.Add(1)
+			go func() {
+				defer group.Done()
+				<-start
+				fresh <- api.rememberHandoverClaim("mira", 1800000000)
+			}()
+		}
+		close(start)
+		group.Wait()
+		close(fresh)
+		n := 0
+		for f := range fresh {
+			if f {
+				n++
+			}
+		}
+		apiWantValue(t, "callers told the anchor was new", any(float64(n)), any(1))
+		apiWantValue(t, "the cached claim", any(api.cachedHandoverClaim("mira")), any(1800000000.0))
 	})
 
 	t.Run("a genuinely new session brings a new anchor and is entitled to its own notice", func(t *testing.T) {
