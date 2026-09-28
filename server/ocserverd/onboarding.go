@@ -289,10 +289,15 @@ func (s *apiServer) wakeAssistantStep(
 	// Read and written in one transaction: the wake lands on the row as it is,
 	// not on a copy other writers may have moved past.
 	var mira *Member
+	dismissed := false
 	err := s.dal.inTx(func(tx *writeTx) error {
 		cur, err := getMemberOn(tx, seedMiraID)
 		if err != nil || cur == nil {
 			return err
+		}
+		if cur.RosterStatus != RosterStatusActive {
+			dismissed = true
+			return nil
 		}
 		cur.StoppingSince = 0.0
 		cur.WakingSince = 0.0
@@ -300,6 +305,14 @@ func (s *apiServer) wakeAssistantStep(
 		mira = cur
 		return persistMemberRowOn(tx, *cur)
 	})
+	if err == nil && dismissed {
+		steps = append(steps, onboardingStepDTO{
+			Name:   onboardingStepWakeAssistant,
+			Code:   onboardingCodeAssistantMissing,
+			Reason: "the seeded assistant has been dismissed from the roster — she was not woken",
+		})
+		return s.finishOnboarding(report, steps)
+	}
 	if err == nil && mira == nil {
 		steps = append(steps, onboardingStepDTO{
 			Name: onboardingStepWakeAssistant,

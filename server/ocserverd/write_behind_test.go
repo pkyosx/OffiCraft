@@ -845,7 +845,8 @@ func TestAStaffReconcileStampDoesNotUndoAWriteThatLandedAfterItsRead(t *testing.
 }
 
 // First-run onboarding wakes the seeded assistant from its read of her row. A
-// dismissal that lands after that read stands.
+// dismissal that lands after that read stands as it was written: she is not
+// woken, and the step says why.
 func TestOnboardingDoesNotReviveAnAssistantDismissedAfterItsRead(t *testing.T) {
 	d, hook, path := windowDAL(t, "split pools")
 	api, _, _, _ := newAPITestServerOn(t, d)
@@ -858,10 +859,12 @@ func TestOnboardingDoesNotReviveAnAssistantDismissedAfterItsRead(t *testing.T) {
 		waitBudget:      time.Second,
 	}
 	behind := windowWriteBehind(t, hook, path, "FROM member WHERE id = ?",
-		`UPDATE member SET roster_status = 'removed', released_ts = 1800000000 WHERE id = ?`, seedMiraID)
+		`UPDATE member SET roster_status = 'removed', released_ts = 1800000000, desired_state = 'offline',
+		 stopping_since = 1800000000, waking_since = 1700000000 WHERE id = ?`, seedMiraID)
 
+	var report onboardingReportDTO
 	windowWithin(t, "runFirstRunOnboarding", func() {
-		api.runFirstRunOnboarding(run, onboardingReportDTO{StartedAt: 10})
+		report = api.runFirstRunOnboarding(run, onboardingReportDTO{StartedAt: 10})
 	})
 
 	hook.wantFiredOnce(t)
@@ -869,9 +872,15 @@ func TestOnboardingDoesNotReviveAnAssistantDismissedAfterItsRead(t *testing.T) {
 		t.Fatalf("premise: the dismissal did not land between onboarding's read and its wake")
 	}
 	got := apiTestMemberRow(t, d, seedMiraID)
-	if got.RosterStatus != RosterStatusRemoved || got.ReleasedTS != 1800000000 {
-		t.Fatalf("assistant after onboarding: roster_status %q released_ts %v; want removed, 1800000000",
-			got.RosterStatus, got.ReleasedTS)
+	if got.RosterStatus != RosterStatusRemoved || got.ReleasedTS != 1800000000 ||
+		got.DesiredState != DesiredStateOffline || got.StoppingSince != 1800000000 || got.WakingSince != 1700000000 {
+		t.Fatalf("assistant after onboarding: roster_status %q released_ts %v desired_state %q stopping_since %v "+
+			"waking_since %v; want removed, 1800000000, offline, 1800000000, 1700000000", got.RosterStatus,
+			got.ReleasedTS, got.DesiredState, got.StoppingSince, got.WakingSince)
+	}
+	if len(report.Steps) != 2 || report.Steps[1].Code != onboardingCodeAssistantMissing ||
+		report.Steps[1].Reason != "the seeded assistant has been dismissed from the roster — she was not woken" {
+		t.Fatalf("report steps: %#v", report.Steps)
 	}
 }
 
