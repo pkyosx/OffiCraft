@@ -308,8 +308,8 @@ func (s *apiServer) wakeAssistantStep(
 	if err == nil && dismissed {
 		steps = append(steps, onboardingStepDTO{
 			Name:   onboardingStepWakeAssistant,
-			Code:   onboardingCodeAssistantMissing,
-			Reason: "the seeded assistant has been dismissed from the roster — she was not woken",
+			Code:   onboardingCodeWakeNotRecorded,
+			Reason: "the seeded assistant has been dismissed from the roster, so she was not woken",
 		})
 		return s.finishOnboarding(report, steps)
 	}

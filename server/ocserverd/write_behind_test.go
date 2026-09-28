@@ -878,8 +878,8 @@ func TestOnboardingDoesNotReviveAnAssistantDismissedAfterItsRead(t *testing.T) {
 			"waking_since %v; want removed, 1800000000, offline, 1800000000, 1700000000", got.RosterStatus,
 			got.ReleasedTS, got.DesiredState, got.StoppingSince, got.WakingSince)
 	}
-	if len(report.Steps) != 2 || report.Steps[1].Code != onboardingCodeAssistantMissing ||
-		report.Steps[1].Reason != "the seeded assistant has been dismissed from the roster — she was not woken" {
+	if len(report.Steps) != 2 || report.Steps[1].Code != "wake_not_recorded" ||
+		report.Steps[1].Reason != "the seeded assistant has been dismissed from the roster, so she was not woken" {
 		t.Fatalf("report steps: %#v", report.Steps)
 	}
 }
