@@ -334,8 +334,9 @@ func TestConsumeRestartAfterStop(t *testing.T) {
 		if err := d.PutMember(m); err != nil {
 			t.Fatalf("PutMember: %v", err)
 		}
-		if err := api.persistMemberWindDownAnchors(m); err != nil {
-			t.Fatalf("persistMemberWindDownAnchors: %v", err)
+		if err := d.SetMemberWindDownAnchors(m.ID, m.StoppingSince, m.StoppedSince,
+			m.RefocusSince, m.RefocusOp); err != nil {
+			t.Fatalf("SetMemberWindDownAnchors: %v", err)
 		}
 		dashboard := apiTestListen(t, api, "")
 		if got := api.consumeRestartAfterStop(&m, 1234.5); !got {
@@ -571,8 +572,9 @@ func TestConsumeWorkerRestartAfterStop(t *testing.T) {
 		w.StoppingSince, w.StoppedSince = 20, 30
 		w.RefocusSince, w.RefocusOp = 10, memberOpRelocate
 		w.WakingSince = 40
-		if err := api.persistWorkerWindDownAnchors(w); err != nil {
-			t.Fatalf("persistWorkerWindDownAnchors: %v", err)
+		if err := d.SetMemberWindDownAnchors(w.ID, w.StoppingSince, w.StoppedSince,
+			w.RefocusSince, w.RefocusOp); err != nil {
+			t.Fatalf("SetMemberWindDownAnchors: %v", err)
 		}
 		if err := d.PutOutsourceWorker(w); err != nil {
 			t.Fatalf("PutOutsourceWorker: %v", err)

@@ -99,7 +99,7 @@ func winddownKindFor(op string) (kind string, clocked bool) {
 
 // armRefocusEpoch mutates m and persists nothing. The epoch does NOT ride the
 // caller's putMember: T-55 moved its four columns out of the whole-row write
-// (see singleColumnOwnedFields); they land through persistMemberWindDownAnchors.
+// (see singleColumnOwnedFields); they land through setMemberWindDownAnchorsOn.
 //
 // 🔴 A NEW epoch must never inherit the previous wind-down's stopped_since:
 // decideUp's recycle arm reads stopped_since > 0 with a refocus marker present as

@@ -2865,8 +2865,9 @@ func wsWindDown(t *testing.T, status, desired, refocusOp string,
 	w.RefocusSince = refocusSince
 	w.StoppingSince = stoppingSince
 	w.StoppedSince = stoppedSince
-	if err := api.persistWorkerWindDownAnchors(w); err != nil {
-		t.Fatalf("persistWorkerWindDownAnchors: %v", err)
+	if err := api.dal.SetMemberWindDownAnchors(w.ID, w.StoppingSince, w.StoppedSince,
+		w.RefocusSince, w.RefocusOp); err != nil {
+		t.Fatalf("SetMemberWindDownAnchors: %v", err)
 	}
 	if err := d.PutOutsourceWorker(w); err != nil {
 		t.Fatalf("PutOutsourceWorker: %v", err)

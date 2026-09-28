@@ -57,47 +57,6 @@ func persistMemberOpReceiptOn(tx *writeTx, m Member) error {
 	return setMemberLastOpOn(tx, m.ID, m.LastOp, m.LastOpOK, m.LastOpLog, m.LastOpReason, m.LastOpAt)
 }
 
-// Binds the last_op* write to the member delta: those columns left PutMember's SET
-// list, so a caller that wrote them and forgot publishMemberPatch would silently
-// stop the cockpit refreshing.
-// ⚠️ MEMBER ROWS ONLY: worker callers write through s.dal.SetMemberLastOp directly
-// and keep their own publish.
-func (s *apiServer) persistMemberOpReceipt(m Member, trigger string) error {
-	if err := s.dal.SetMemberLastOp(m.ID, m.LastOp, m.LastOpOK, m.LastOpLog,
-		m.LastOpReason, m.LastOpAt); err != nil {
-		return err
-	}
-	s.publishMemberPatch(m, trigger)
-	return nil
-}
-
-// 🔴 CALL IT BEFORE THE WHOLE-ROW WRITE — the opposite order from
-// persistMemberOpReceipt, and load-bearing. putMember fans the delta that the
-// wind-down hook in cli/ocagent (shouldWindDown) keys on, and these columns are
-// what it reads: fan first and the agent refetches a row without the anchors,
-// reads "no wind-down", and never stops. DO NOT "unify" the two orders: that
-// race reintroduced turns nothing red. (On a new row the UPDATE is a no-op and
-// PutMember's INSERT carries the anchors.)
-// ⚠️ Cost: if the row write then fails, the anchors are durable with no delta and
-// a 500; the ladder gate refuses a LOWER rung, so after a failed 加速停止 a plain
-// 重新聚焦 bounces until 加速停止 is pressed again. Bounded and visible, unlike the
-// race it prevents.
-func (s *apiServer) persistMemberWindDownAnchors(m Member) error {
-	return s.persistWindDownAnchors(windDownAnchorRowOfMember(&m))
-}
-
-// A worker row IS a member row (DAL.PutOutsourceWorker is
-// PutMember(memberFromWorker(w))), so these are the same four columns.
-// 🔴 A windDownAnchorRow's aliasing is decided at the CALL SITE and both readings
-// compile: windDownAnchorRowOf…(&x) on a value aliases a COPY (the caller must
-// persist it); on an existing *Member / *OutsourceWorker it mutates THE CALLER'S
-// row. Nothing type-checks the difference and no test distinguishes it — read the
-// receiver's declaration before copying a call. Taking a value here is what keeps
-// a persist call from mutating the caller's snapshot.
-func (s *apiServer) persistWorkerWindDownAnchors(w OutsourceWorker) error {
-	return s.persistWindDownAnchors(windDownAnchorRowOfWorker(&w))
-}
-
 // By pointer because openWindDownRow / collectWindDownRow / clearWindDownRow
 // (member_ownerop_winddown.go) write through it — one body for both populations.
 type windDownAnchorRow struct {
@@ -110,6 +69,11 @@ type windDownAnchorRow struct {
 
 // Pure address-taking adapters; must stay that way. 🔴 The worker one must NOT go
 // through memberFromWorker: it mints activated_ts as a side effect.
+// 🔴 A windDownAnchorRow's aliasing is decided at the CALL SITE and both readings
+// compile: windDownAnchorRowOf…(&x) on a value aliases a COPY (the caller must
+// persist it); on an existing *Member / *OutsourceWorker it mutates THE CALLER'S
+// row. Nothing type-checks the difference and no test distinguishes it — read the
+// receiver's declaration before copying a call.
 func windDownAnchorRowOfMember(m *Member) windDownAnchorRow {
 	return windDownAnchorRow{
 		ID:            m.ID,
@@ -128,11 +92,6 @@ func windDownAnchorRowOfWorker(w *OutsourceWorker) windDownAnchorRow {
 		RefocusSince:  &w.RefocusSince,
 		RefocusOp:     &w.RefocusOp,
 	}
-}
-
-func (s *apiServer) persistWindDownAnchors(row windDownAnchorRow) error {
-	return s.dal.SetMemberWindDownAnchors(row.ID, *row.StoppingSince,
-		*row.StoppedSince, *row.RefocusSince, *row.RefocusOp)
 }
 
 // Split from putMember for single-column writers: marking a column insertOnly and
