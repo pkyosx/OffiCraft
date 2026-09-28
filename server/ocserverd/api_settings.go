@@ -136,17 +136,10 @@ func (s *apiServer) HandleSetPasswordApiAuthSetPasswordPost(w http.ResponseWrite
 		writeError(w, http.StatusUnprocessableEntity, "password must be at least 8 characters")
 		return
 	}
-	s.settingsMu.Lock()
-	// 🔴 NOT `defer s.settingsMu.Unlock()`: the refusal path waits ~3s and must
-	// do so with this mutex RELEASED — sleeping under it would let an
-	// unauthenticated caller stall every settings read and write on the server.
-	unlocked := false
-	unlock := func() {
-		if !unlocked {
-			unlocked = true
-			s.settingsMu.Unlock()
-		}
-	}
+	// 🔴 NOT a deferred unlock alone: the refusal path waits ~3s and must do so
+	// with this mutex RELEASED — sleeping under it would let an unauthenticated
+	// caller stall every settings write on the server.
+	unlock := s.settingsWriteMu.Acquire()
 	defer unlock()
 	if s.passwordHash != "" {
 		writeError(w, http.StatusConflict, "a password is already set")
@@ -208,10 +201,10 @@ func (s *apiServer) HandleSetPasswordApiAuthSetPasswordPost(w http.ResponseWrite
 		internalError(w, err)
 		return
 	}
-	s.passwordHash = phc
+	s.applySettings(func() { s.passwordHash = phc })
 	s.writeOwnerToken(w, s.ownerTokenTTL, time.Now().Unix())
 	// Kicked in the BACKGROUND: the run installs a launchd job and then waits
-	// for the warden's SSE connect, which must not sit inside settingsMu. Its
+	// for the warden's SSE connect, which must not sit inside settingsWriteMu. Its
 	// outcome is persisted and served on GET /api/settings.
 	s.kickFirstRunOnboarding()
 }
@@ -227,8 +220,8 @@ func (s *apiServer) HandleSetPasswordApiAuthSetPasswordPost(w http.ResponseWrite
 // 🔴 IT IS NOT THROTTLED AT ALL — owner ruling 「只有登入需要 throttling」; do not
 // re-add a cap.
 //
-// What bounds it is settingsMu, taken BEFORE verifyPassword: verifications here
-// are fully serialised (measured). ⚠️ That lock is shared with /api/login's
+// What bounds it is settingsWriteMu, taken BEFORE verifyPassword: verifications
+// here are fully serialised (measured). ⚠️ That lock is shared with /api/login's
 // verifyAndSpendTOTP, so hammering this endpoint queues every login's
 // second-factor step.
 func (s *apiServer) HandleChangePasswordApiAuthChangePasswordPost(w http.ResponseWriter, r *http.Request) {
@@ -240,8 +233,8 @@ func (s *apiServer) HandleChangePasswordApiAuthChangePasswordPost(w http.Respons
 		writeError(w, http.StatusUnprocessableEntity, "new_password must be at least 8 characters")
 		return
 	}
-	s.settingsMu.Lock()
-	defer s.settingsMu.Unlock()
+	s.settingsWriteMu.Lock()
+	defer s.settingsWriteMu.Unlock()
 	if s.passwordHash == "" || !verifyPassword(body.CurrentPassword, s.passwordHash) {
 		writeError(w, http.StatusUnauthorized, "invalid password")
 		return
@@ -261,8 +254,10 @@ func (s *apiServer) HandleChangePasswordApiAuthChangePasswordPost(w http.Respons
 		internalError(w, err)
 		return
 	}
-	s.passwordHash = phc
-	s.passwordChangedAt = now
+	s.applySettings(func() {
+		s.passwordHash = phc
+		s.passwordChangedAt = now
+	})
 	s.writeOwnerToken(w, s.ownerTokenTTL, now)
 }
 
@@ -548,7 +543,7 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 	put := func(key, value string, apply func()) {
 		writes = append(writes, settingWrite{key: key, value: value, apply: apply})
 	}
-	unlockMu := s.settingsMu.Acquire()
+	unlockMu := s.settingsWriteMu.Acquire()
 	defer unlockMu()
 	if body.OwnerTokenTtl != nil {
 		v := *body.OwnerTokenTtl
@@ -699,9 +694,11 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 		writeTxError(w, err)
 		return
 	}
-	for _, sw := range writes {
-		sw.apply()
-	}
+	s.applySettings(func() {
+		for _, sw := range writes {
+			sw.apply()
+		}
+	})
 	unlockMu()
 	if updaterChanged {
 		s.kickUpdateCheck()

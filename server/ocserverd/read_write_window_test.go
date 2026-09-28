@@ -1220,44 +1220,93 @@ func TestTheDoorsJudgeTheCallerOnTheRowTheyWrite(t *testing.T) {
 // queue for the write connection: over serve's split pools it goes to the read
 // pool while another request holds the transaction. Over one connection a read
 // shares that connection by construction, so there is nothing to run there.
+//
+// Every authenticated read also verifies its token against the signing keyring
+// and reads the owner's password-change cut from the live settings. A key
+// rotation or a settings patch that is itself waiting for the write connection
+// must not make those reads wait with it.
 func TestAReadIsNotQueuedBehindAWriteTransactionOverSplitPools(t *testing.T) {
 	const answerWithin = 2 * time.Second
-	d, _, _ := windowDAL(t, "split pools")
-	_, h, _, owner := newAPITestServerOn(t, d)
-	dalPutTask(t, d, windowOpenTask("T-1"))
-	closed := windowClosed(windowOpenTask("T-2"))
-	dalPutTask(t, d, closed)
+	for _, tc := range []struct {
+		name                       string
+		writeMethod, writePath, wb string
+	}{
+		{name: "while another request holds the write transaction"},
+		{name: "while a signing-key rotation waits for the write connection",
+			writeMethod: "POST", writePath: "/api/auth/signing-keys/rotate"},
+		{name: "while a settings patch waits for the write connection",
+			writeMethod: "PATCH", writePath: "/api/settings", wb: `{"org_name":"Harbour Yard"}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d, _, _ := windowDAL(t, "split pools")
+			_, h, _, owner := newAPITestServerOn(t, d)
+			dalPutTask(t, d, windowOpenTask("T-1"))
+			dalPutTask(t, d, windowClosed(windowOpenTask("T-2")))
 
-	holding, release, released := make(chan error, 1), make(chan struct{}), make(chan struct{})
-	go func() {
-		defer close(released)
-		tx, err := d.wdb.Begin()
-		holding <- err
-		if err != nil {
-			return
-		}
-		<-release
-		_ = tx.Rollback()
-	}()
-	if err := <-holding; err != nil {
-		t.Fatalf("hold the write transaction: %v", err)
-	}
-	t.Cleanup(func() {
-		close(release)
-		<-released
-	})
+			holding, release, released := make(chan error, 1), make(chan struct{}), make(chan struct{})
+			go func() {
+				defer close(released)
+				tx, err := d.wdb.Begin()
+				holding <- err
+				if err != nil {
+					return
+				}
+				<-release
+				_ = tx.Rollback()
+			}()
+			if err := <-holding; err != nil {
+				t.Fatalf("hold the write transaction: %v", err)
+			}
+			var releaseOnce sync.Once
+			letGo := func() {
+				releaseOnce.Do(func() {
+					close(release)
+					<-released
+				})
+			}
+			t.Cleanup(letGo)
 
-	answered := make(chan *httptest.ResponseRecorder, 1)
-	go func() { answered <- apiRequest(t, h, "GET", "/api/tasks/count", owner, "") }()
-	var rec *httptest.ResponseRecorder
-	select {
-	case rec = <-answered:
-	case <-time.After(answerWithin):
-		t.Fatalf("GET /api/tasks/count did not answer within %s while another goroutine held the "+
-			"write transaction: the read queued for the write connection", answerWithin)
-	}
-	if rec.Code != http.StatusOK || rec.Body.String() != `{"open":1,"total":2}` {
-		t.Fatalf("want 200 {\"open\":1,\"total\":2}, got %d %s", rec.Code, rec.Body.String())
+			var wrote chan *httptest.ResponseRecorder
+			if tc.writeMethod != "" {
+				queuedBefore := d.wdb.raw.Stats().WaitCount
+				wrote = make(chan *httptest.ResponseRecorder, 1)
+				go func() { wrote <- apiRequest(t, h, tc.writeMethod, tc.writePath, owner, tc.wb) }()
+				deadline := time.Now().Add(windowRequestDeadline)
+				for d.wdb.raw.Stats().WaitCount == queuedBefore {
+					if time.Now().After(deadline) {
+						t.Fatalf("premise: %s %s never queued for the write connection", tc.writeMethod, tc.writePath)
+					}
+					time.Sleep(time.Millisecond)
+				}
+			}
+
+			answered := make(chan *httptest.ResponseRecorder, 1)
+			go func() { answered <- apiRequest(t, h, "GET", "/api/tasks/count", owner, "") }()
+			var rec *httptest.ResponseRecorder
+			select {
+			case rec = <-answered:
+			case <-time.After(answerWithin):
+				t.Fatalf("GET /api/tasks/count did not answer within %s %s: the read queued "+
+					"behind the write connection", answerWithin, tc.name)
+			}
+			if rec.Code != http.StatusOK || rec.Body.String() != `{"open":1,"total":2}` {
+				t.Fatalf("want 200 {\"open\":1,\"total\":2}, got %d %s", rec.Code, rec.Body.String())
+			}
+
+			if wrote == nil {
+				return
+			}
+			letGo()
+			select {
+			case w := <-wrote:
+				if w.Code != http.StatusOK {
+					t.Fatalf("%s %s once the connection was free: want 200, got %d %s",
+						tc.writeMethod, tc.writePath, w.Code, w.Body.String())
+				}
+			case <-time.After(windowRequestDeadline):
+				t.Fatalf("%s %s did not answer once the write connection was free", tc.writeMethod, tc.writePath)
+			}
+		})
 	}
 }
 
@@ -1728,9 +1777,9 @@ func TestMemberLifecycleDoorsDecideFromTheRowTheyWrite(t *testing.T) {
 		}
 	}
 
-	// A settings patch takes settingsMu and then waits for the write connection.
-	// A door that opens a wind-down reads the live reconcile config, which takes
-	// settingsMu too: read inside its transaction, the two wait on each other.
+	// A settings patch takes settingsWriteMu and then waits for the write
+	// connection. A door that opens a wind-down reads the live reconcile config
+	// (settingsMu): read inside its transaction, that read is refused.
 	for _, door := range []windowMemberDoor{
 		{name: "update", method: "PATCH", path: "/api/members/kip", body: `{"model":"claude-opus-5"}`, live: true,
 			prepare: `UPDATE member SET desired_state = 'online' WHERE id = 'kip'`},
@@ -1745,10 +1794,10 @@ func TestMemberLifecycleDoorsDecideFromTheRowTheyWrite(t *testing.T) {
 				hook.mu.Lock()
 				hook.armAfter = "FROM member WHERE id"
 				hook.fire = func() {
-					api.settingsMu.Lock()
+					api.settingsWriteMu.Lock()
 					go func() {
 						defer close(released)
-						defer api.settingsMu.Unlock()
+						defer api.settingsWriteMu.Unlock()
 						if _, err := d.wdb.Exec(`SELECT 1`); err != nil {
 							t.Errorf("the settings patch's write: %v", err)
 						}

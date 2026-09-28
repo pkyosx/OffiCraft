@@ -37,8 +37,8 @@ package main
 // change-password / mfa/activate / mfa/disable (owner token) are not — a shared
 // pool let a token holder make the owner's login 429. Accepted by the owner: a
 // live owner token can guess the current password at change-password unbraked
-// (「被進來本身嚴重程度跟密碼外流是一樣的」). Not unbounded: it holds settingsMu's
-// write lock across verifyPassword, so those argon2id calls are serialised
+// (「被進來本身嚴重程度跟密碼外流是一樣的」). Not unbounded: it holds
+// settingsWriteMu across verifyPassword, so those argon2id calls are serialised
 // (measured: 8 concurrent ≈ 7.1–7.9x one call).
 //
 // The other half of that trade is the ALERT, not a lockout: password accepted +

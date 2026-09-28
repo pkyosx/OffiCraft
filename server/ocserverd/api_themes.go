@@ -137,7 +137,7 @@ func (s *apiServer) HandlePutThemeApiThemesThemeIdPut(w http.ResponseWriter, r *
 }
 
 func (s *apiServer) HandleDeleteThemeApiThemesThemeIdDelete(w http.ResponseWriter, r *http.Request, themeID string) {
-	unlockMu := s.settingsMu.Acquire()
+	unlockMu := s.settingsWriteMu.Acquire()
 	defer unlockMu()
 	reset := s.displayTheme == themeID
 	err := s.dal.inTx(func(tx *writeTx) error {
@@ -159,7 +159,7 @@ func (s *apiServer) HandleDeleteThemeApiThemesThemeIdDelete(w http.ResponseWrite
 		return
 	}
 	if reset {
-		s.displayTheme = ""
+		s.applySettings(func() { s.displayTheme = "" })
 	}
 	unlockMu()
 
@@ -197,7 +197,7 @@ const displayThemeRefusal = `display_theme must be "", office, or an existing cu
 
 // displayThemeExistsOn asks the TABLE; never keep a copy of the id set
 // elsewhere. The patch asks again inside the transaction that sets the theme,
-// under settingsMu, which DELETE /api/themes/{id} also holds while it deletes.
+// under settingsWriteMu, which DELETE /api/themes/{id} also holds while it deletes.
 func displayThemeExistsOn(q sqlRowQuerier, theme string) (bool, error) {
 	if theme == "" || displayThemeAllowed[theme] {
 		return true, nil

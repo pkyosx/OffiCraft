@@ -38,8 +38,17 @@ type apiServer struct {
 	keyRenewClock func() time.Time
 	// settingsMu guards the LIVE settings fields below: owner endpoints update
 	// them IN PLACE while the SSE loop and reconcile cadence read concurrently —
-	// read through the accessors, never the bare fields.
+	// read through the accessors, never the bare fields. A writer holds it only
+	// to apply values that have already committed (applySettings), never across
+	// a DB write: every request's auth gate reads these fields.
 	settingsMu txguard.RWMutex
+	// settingsWriteMu serialises every writer of the fields below for its whole
+	// body: decide, write, then apply. It is what keeps a TOTP code single-use
+	// (verify and spend under one hold), what bounds change-password's argon2id
+	// to one at a time, and what keeps two writers' applies in commit order. A
+	// writer may read the fields while holding it without settingsMu, because
+	// no field changes except under both.
+	settingsWriteMu txguard.Mutex
 	// passwordHash "" = not set: every login is denied until one is written.
 	passwordHash string
 	// passwordChangedAt is the owner-session revocation cut: owner-scope tokens
@@ -266,6 +275,14 @@ func (s *apiServer) HandleProbeVersionVersionGet(w http.ResponseWriter, r *http.
 }
 
 var _ ServerInterface = (*apiServer)(nil)
+
+// applySettings moves the in-memory snapshot after its DB write committed. The
+// caller holds settingsWriteMu.
+func (s *apiServer) applySettings(apply func()) {
+	s.settingsMu.Lock()
+	defer s.settingsMu.Unlock()
+	apply()
+}
 
 func (s *apiServer) authPasswordHash() string {
 	s.settingsMu.RLock()

@@ -37,8 +37,8 @@ func (s *apiServer) mfaAccount() string {
 // A failed floor write is an ERROR, never a pass: an unpersisted floor leaves the
 // code replayable across a restart.
 func (s *apiServer) verifyAndSpendTOTP(code string, now int64) (bool, error) {
-	s.settingsMu.Lock()
-	defer s.settingsMu.Unlock()
+	s.settingsWriteMu.Lock()
+	defer s.settingsWriteMu.Unlock()
 	if s.totpSecret == "" {
 		return true, nil
 	}
@@ -51,7 +51,7 @@ func (s *apiServer) verifyAndSpendTOTP(code string, now int64) (bool, error) {
 	}); err != nil {
 		return false, err
 	}
-	s.totpLastStep = step
+	s.applySettings(func() { s.totpLastStep = step })
 	return true, nil
 }
 
@@ -78,15 +78,15 @@ func (s *apiServer) HandleMfaOfferApiAuthMfaOfferPost(w http.ResponseWriter, r *
 	if !decodeJSONBodyRequired(w, r, &body, "offered") {
 		return
 	}
-	s.settingsMu.Lock()
-	defer s.settingsMu.Unlock()
+	s.settingsWriteMu.Lock()
+	defer s.settingsWriteMu.Unlock()
 	if err := s.dal.inTx(func(tx *writeTx) error {
 		return putSettingOn(tx, settingMFAOffered, strconv.FormatBool(body.Offered))
 	}); err != nil {
 		internalError(w, err)
 		return
 	}
-	s.mfaOffered = body.Offered
+	s.applySettings(func() { s.mfaOffered = body.Offered })
 	writeJSON(w, http.StatusOK, mfaStateDTO{
 		Offered:  s.mfaOffered,
 		Enrolled: s.totpSecret != "",
@@ -96,8 +96,8 @@ func (s *apiServer) HandleMfaOfferApiAuthMfaOfferPost(w http.ResponseWriter, r *
 func (s *apiServer) HandleMfaEnrollApiAuthMfaEnrollPost(w http.ResponseWriter, r *http.Request) {
 	issuer, account := s.mfaIssuer(), s.mfaAccount()
 
-	s.settingsMu.Lock()
-	defer s.settingsMu.Unlock()
+	s.settingsWriteMu.Lock()
+	defer s.settingsWriteMu.Unlock()
 	if !s.mfaOffered {
 		writeError(w, http.StatusForbidden, mfaNotOfferedMsg)
 		return
@@ -138,8 +138,8 @@ func (s *apiServer) HandleMfaActivateApiAuthMfaActivatePost(w http.ResponseWrite
 		return
 	}
 
-	s.settingsMu.Lock()
-	defer s.settingsMu.Unlock()
+	s.settingsWriteMu.Lock()
+	defer s.settingsWriteMu.Unlock()
 	if !s.mfaOffered {
 		writeError(w, http.StatusForbidden, mfaNotOfferedMsg)
 		return
@@ -196,8 +196,10 @@ func (s *apiServer) HandleMfaActivateApiAuthMfaActivatePost(w http.ResponseWrite
 		writeTxError(w, err)
 		return
 	}
-	s.totpSecret = *pending
-	s.totpLastStep = step
+	s.applySettings(func() {
+		s.totpSecret = *pending
+		s.totpLastStep = step
+	})
 
 	writeJSON(w, http.StatusOK, mfaStateDTO{Offered: true, Enrolled: true})
 }
@@ -212,8 +214,8 @@ func (s *apiServer) HandleMfaDisableApiAuthMfaDisablePost(w http.ResponseWriter,
 	if !decodeJSONBodyRequired(w, r, &body, "password", "code") {
 		return
 	}
-	s.settingsMu.Lock()
-	defer s.settingsMu.Unlock()
+	s.settingsWriteMu.Lock()
+	defer s.settingsWriteMu.Unlock()
 	if s.totpSecret == "" {
 		writeError(w, http.StatusConflict, "no second factor is active")
 		return
@@ -241,8 +243,10 @@ func (s *apiServer) HandleMfaDisableApiAuthMfaDisablePost(w http.ResponseWriter,
 		internalError(w, err)
 		return
 	}
-	s.totpSecret = ""
-	s.totpLastStep = 0
+	s.applySettings(func() {
+		s.totpSecret = ""
+		s.totpLastStep = 0
+	})
 
 	writeJSON(w, http.StatusOK, mfaStateDTO{Offered: s.mfaOffered, Enrolled: false})
 }

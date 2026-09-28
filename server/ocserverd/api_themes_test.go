@@ -631,9 +631,9 @@ func TestHandleDeleteThemeApiThemesThemeIdDelete(t *testing.T) {
 		})
 	}
 
-	// A settings patch takes settingsMu and then waits for the write connection;
-	// the delete must hold settingsMu before it takes that connection, or the two
-	// wait on each other.
+	// A settings patch takes settingsWriteMu and then waits for the write
+	// connection; the delete must hold settingsWriteMu before it takes that
+	// connection, or the two wait on each other.
 	for _, shape := range windowDALShapes {
 		t.Run(shape+": a settings patch arriving as the delete opens its transaction does not stall it", func(t *testing.T) {
 			d, hook, _ := windowDAL(t, shape)
@@ -642,7 +642,7 @@ func TestHandleDeleteThemeApiThemesThemeIdDelete(t *testing.T) {
 			patched := make(chan struct{})
 			patch := func() {
 				defer close(patched)
-				defer api.settingsMu.Unlock()
+				defer api.settingsWriteMu.Unlock()
 				if _, err := d.wdb.Exec(`SELECT 1`); err != nil {
 					t.Errorf("the settings patch's write: %v", err)
 				}
@@ -651,7 +651,7 @@ func TestHandleDeleteThemeApiThemesThemeIdDelete(t *testing.T) {
 			hook.armed = true
 			hook.fire = func() {
 				go func() {
-					api.settingsMu.Lock()
+					api.settingsWriteMu.Lock()
 					patch()
 				}()
 			}
