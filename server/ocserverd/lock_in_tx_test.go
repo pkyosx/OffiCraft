@@ -278,6 +278,9 @@ func TestALockTakenInsideAHandlersTransactionFailsTheRequestAtOnce(t *testing.T)
 			reentryWantLogLine(t, logs.String(),
 				"[lock] ERROR: refused a lock taken while this goroutine holds the write transaction; "+
 					"the transaction is rolled back; at: (*apiServer).outsourceParallelCap (api_stub.go:")
+			reentryWantLogLine(t, logs.String(),
+				"[lock] ERROR: POST /api/tasks/T-1/priority gave up: a lock was taken while holding the write transaction "+
+					"(at (*apiServer).outsourceParallelCap (api_stub.go:")
 			dalWantTask(t, d, task)
 
 			status, body = reentryJSON(t, h, "POST", "/api/tasks/T-1/priority", owner, `{"priority":"low"}`)
