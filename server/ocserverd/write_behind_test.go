@@ -903,3 +903,49 @@ func TestAReceiptMissingStampPublishesTheRowAsItIsAfterTheStamp(t *testing.T) {
 	dashboard.wantFrames(apiTestMemberFrame(1, "patch", "kip",
 		apiTestMemberPayload("kip", "Kip", "active", "online"), "server"))
 }
+
+// A reconnect restores the durable session anchor rather than minting one. An
+// anchor stored after the connect's read (a refused START put it back) is not
+// overwritten by a newly minted one.
+func TestASessionAnchorStoredAfterTheConnectReadIsNotOverwritten(t *testing.T) {
+	d, hook, path := windowDAL(t, "split pools")
+	api := windowStaff(t, d, `session_boot_ts = 0`)
+	api.gauge.Set("kip", map[string]any{"boot_ts": 1750000000.0})
+	behind := windowWriteBehind(t, hook, path, "FROM member WHERE id = ?",
+		`UPDATE member SET session_boot_ts = 1700000000 WHERE id = 'kip'`)
+
+	windowWithin(t, "anchorSessionBoot", func() { api.anchorSessionBoot("kip") })
+
+	hook.wantFiredOnce(t)
+	behind.landed(t)
+	if got := apiTestMemberRow(t, d, "kip").SessionBootTS; got != 1700000000 {
+		t.Fatalf("session_boot_ts %v, want 1700000000 (the anchor stored after the read)", got)
+	}
+}
+
+// A refused START puts the old session's anchor back and moves a notice claim
+// taken on a newer anchor with it. A newer anchor and its claim written after
+// the restore read the row are not split by it: the row keeps an anchor and a
+// claim on that same anchor.
+func TestARefusedStartRestoreDoesNotSplitAnAnchorFromItsNoticeClaim(t *testing.T) {
+	d, hook, path := windowDAL(t, "split pools")
+	api := windowStaff(t, d, `session_boot_ts = 0, handover_noticed_ts = 0`)
+	api.startClearedAnchorsMu.Lock()
+	api.startClearedAnchors = map[string]sessionAnchorSnapshot{"kip": {bootTS: 1700000000, gauge: map[string]any{}}}
+	api.startClearedAnchorsMu.Unlock()
+	behind := windowWriteBehind(t, hook, path, "FROM member WHERE id = ?",
+		`UPDATE member SET session_boot_ts = 1750000000, handover_noticed_ts = 1750000000 WHERE id = 'kip'`)
+	refused := false
+
+	windowWithin(t, "restoreRefusedStartAnchor", func() {
+		api.restoreRefusedStartAnchor("kip", reconcileCmdStart, &refused, spawnClobberReasonPrefix+" a live session holds the slot")
+	})
+
+	hook.wantFiredOnce(t)
+	inGap := behind.landed(t)
+	got := apiTestMemberRow(t, d, "kip")
+	if got.SessionBootTS != got.HandoverNoticedTS {
+		t.Fatalf("session_boot_ts %v handover_noticed_ts %v (newer anchor landed inside the gap: %v); "+
+			"want the claim on the anchor the row holds", got.SessionBootTS, got.HandoverNoticedTS, inGap)
+	}
+}

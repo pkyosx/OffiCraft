@@ -386,33 +386,41 @@ func (s *apiServer) anchorSessionBoot(memberID string) {
 		entry = map[string]any{}
 	}
 	gaugeTS, gaugeHas := gaugeBootTS(entry)
-
-	m, err := s.dal.GetMember(memberID)
-	if err != nil || m == nil {
-		if gaugeHas {
-			return
-		}
-		entry["boot_ts"] = nowSecs()
-		s.gauge.Set(memberID, entry)
-		return
-	}
-
-	if m.SessionBootTS > 0 {
-		if !gaugeHas || gaugeTS != m.SessionBootTS {
-			entry["boot_ts"] = m.SessionBootTS
-			s.gauge.Set(memberID, entry)
-		}
-		return
-	}
-
 	ts := nowSecs()
 	if gaugeHas {
 		ts = gaugeTS
 	}
-	entry["boot_ts"] = ts
-	s.gauge.Set(memberID, entry)
-	if err := s.dal.SetMemberSessionBootTS(memberID, ts); err != nil {
+
+	// Judged and minted in one transaction: an anchor another writer stored
+	// after a read outside it (a refused START's restore) is restored here, not
+	// overwritten.
+	stored := 0.0
+	err := s.dal.inTx(func(tx *writeTx) error {
+		m, err := getMemberOn(tx, memberID)
+		if err != nil || m == nil {
+			return err
+		}
+		if m.SessionBootTS > 0 {
+			stored = m.SessionBootTS
+			return nil
+		}
+		stored = ts
+		return setMemberSessionBootTSOn(tx, memberID, ts)
+	})
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "[sse] session-boot anchor persist failed for %q: %v\n", memberID, err)
+	}
+	if err != nil || stored == 0 {
+		if gaugeHas {
+			return
+		}
+		entry["boot_ts"] = ts
+		s.gauge.Set(memberID, entry)
+		return
+	}
+	if !gaugeHas || gaugeTS != stored {
+		entry["boot_ts"] = stored
+		s.gauge.Set(memberID, entry)
 	}
 }
 
@@ -579,16 +587,40 @@ func (s *apiServer) restoreRefusedStartAnchor(id, rpc string, ok *bool, reason s
 	if !had || ok == nil || *ok || !strings.HasPrefix(reason, spawnClobberReasonPrefix) {
 		return
 	}
-	m, err := s.dal.GetMember(id)
-	if err != nil || m == nil {
-		return
-	}
-	current := m.SessionBootTS
-	if current > 0 && current <= snap.bootTS {
-		return
-	}
-	if err := s.dal.SetMemberSessionBootTS(id, snap.bootTS); err != nil {
+	// The anchor and the claim are judged and written on the row inside one
+	// transaction: a reconnect that minted a newer anchor, and a notice claimed
+	// on it, since any earlier read are what the comparison must see.
+	restored := false
+	claim := 0.0
+	err := s.dal.inTx(func(tx *writeTx) error {
+		m, err := getMemberOn(tx, id)
+		if err != nil || m == nil {
+			return err
+		}
+		current := m.SessionBootTS
+		if current > 0 && current <= snap.bootTS {
+			return nil
+		}
+		if err := setMemberSessionBootTSOn(tx, id, snap.bootTS); err != nil {
+			return err
+		}
+		claim = snap.handoverNoticedTS
+		if current > 0 && m.HandoverNoticedTS == current {
+			claim = snap.bootTS
+		}
+		if claim != m.HandoverNoticedTS {
+			if err := setMemberHandoverNoticedTSOn(tx, id, claim); err != nil {
+				return err
+			}
+		}
+		restored = true
+		return nil
+	})
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "[sse] session-boot anchor restore failed for %q: %v\n", id, err)
+		return
+	}
+	if !restored {
 		return
 	}
 	entry := s.gauge.Get(id)
@@ -610,19 +642,10 @@ func (s *apiServer) restoreRefusedStartAnchor(id, rpc string, ok *bool, reason s
 	restoreAbsent("context_pct_ts", "context_pct", "context_pct_ts")
 	s.gauge.Set(id, entry)
 
-	claim := snap.handoverNoticedTS
-	if current > 0 && m.HandoverNoticedTS == current {
-		claim = snap.bootTS
-	}
 	if claim != 0 {
 		s.handoverNoticed.Store(id, claim)
 	} else {
 		s.handoverNoticed.Delete(id)
-	}
-	if claim != m.HandoverNoticedTS {
-		if err := s.dal.SetMemberHandoverNoticedTS(id, claim); err != nil {
-			fmt.Fprintf(os.Stderr, "[sse] handover-notice claim restore failed for %q: %v\n", id, err)
-		}
 	}
 }
 
