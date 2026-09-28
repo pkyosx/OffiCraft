@@ -949,3 +949,80 @@ func TestARefusedStartRestoreDoesNotSplitAnAnchorFromItsNoticeClaim(t *testing.T
 			"want the claim on the anchor the row holds", got.SessionBootTS, got.HandoverNoticedTS, inGap)
 	}
 }
+
+// windowWarden is a second machine, m-box, with the given desired state, over
+// the windowDAL. The owner token comes back for the machine routes.
+func windowWarden(t *testing.T, d *DAL, desired string) (*apiServer, http.Handler, string) {
+	t.Helper()
+	api, h, _, owner := newAPITestServerOn(t, d)
+	reconcileTestPut(t, d, Member{ID: "m-box", Name: "Box", Kind: KindWarden, DesiredState: desired})
+	return api, h, owner
+}
+
+// A warden's one-shot uninstall intent is folded back to offline once the
+// warden is gone. A delete that lands after the fold's read stands: the machine
+// is not put back on the roster.
+func TestAMachineDeletedAfterTheUninstallFoldReadItStaysDeleted(t *testing.T) {
+	const deleted = `UPDATE member SET roster_status = 'removed', desired_state = 'offline' WHERE id = 'm-box'`
+	for _, tc := range []struct {
+		name     string
+		armAfter string
+		call     func(api *apiServer)
+	}{
+		{"the tick's roster pass", "FROM member ORDER BY name", func(api *apiServer) { api.runReconcileTick(1700000000) }},
+		{"the disconnect edge", "FROM member WHERE id = ?", func(api *apiServer) { api.consumeUninstallOnDisconnect("m-box") }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d, hook, path := windowDAL(t, "split pools")
+			api, _, _ := windowWarden(t, d, DesiredStateUninstall)
+			behind := windowWriteBehind(t, hook, path, tc.armAfter, deleted)
+
+			windowWithin(t, tc.name, func() { tc.call(api) })
+
+			hook.wantFiredOnce(t)
+			behind.landed(t)
+			got := apiTestMemberRow(t, d, "m-box")
+			if got.RosterStatus != RosterStatusRemoved || got.DesiredState != DesiredStateOffline {
+				t.Fatalf("roster_status %q desired_state %q; want removed, offline", got.RosterStatus, got.DesiredState)
+			}
+		})
+	}
+}
+
+// The machine routes that clear a residual uninstall or delete a machine read
+// it first. A session anchor its connect edge stored after that read stands.
+func TestMachineRoutesDoNotUndoAConnectEdgeThatLandedAfterTheirRead(t *testing.T) {
+	const connected = `UPDATE member SET session_boot_ts = 1800000000 WHERE id = 'm-box'`
+	for _, tc := range []struct {
+		name    string
+		desired string
+		method  string
+		target  string
+		status  int
+		roster  string
+	}{
+		{"the boot command clears a residual uninstall", DesiredStateUninstall, "GET", "/api/machines/m-box/boot-command", 200, RosterStatusActive},
+		{"a delete removes the machine", DesiredStateOffline, "DELETE", "/api/machines/m-box", 200, RosterStatusRemoved},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d, hook, path := windowDAL(t, "split pools")
+			_, h, owner := windowWarden(t, d, tc.desired)
+			behind := windowWriteBehind(t, hook, path, "FROM member WHERE id = ?", connected)
+
+			rec := windowRequest(t, h, tc.method, tc.target, owner, "")
+
+			if rec.Code != tc.status {
+				t.Fatalf("%s %s: status %d, want %d (%s)", tc.method, tc.target, rec.Code, tc.status, rec.Body.String())
+			}
+			hook.wantFiredOnce(t)
+			if !behind.landed(t) {
+				t.Fatalf("premise: the connect edge did not land between the route's read and its write")
+			}
+			got := apiTestMemberRow(t, d, "m-box")
+			if got.SessionBootTS != 1800000000 || got.DesiredState != DesiredStateOffline || got.RosterStatus != tc.roster {
+				t.Fatalf("session_boot_ts %v desired_state %q roster_status %q; want 1800000000, offline, %s",
+					got.SessionBootTS, got.DesiredState, got.RosterStatus, tc.roster)
+			}
+		})
+	}
+}

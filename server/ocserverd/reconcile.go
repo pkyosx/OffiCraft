@@ -1452,11 +1452,16 @@ func (s *apiServer) consumeUninstallIntentOnOffline(members []Member) {
 		if s.hub.IsOnline(m.ID) {
 			continue
 		}
-		m.DesiredState = DesiredStateOffline
-		if err := s.putMember(*m, triggerServer); err != nil {
+		folded, _, err := s.foldUninstallIntentOnRow(m.ID)
+		if err != nil {
 			reconcileLog("uninstall: intent-consume persist failed for %s: %v", m.ID, err)
 			continue
 		}
+		if folded == nil {
+			continue
+		}
+		*m = *folded
+		s.publishMemberPatch(*m, triggerServer)
 		reconcileLog("uninstall: consumed one-shot intent for offline warden %s "+
 			"(desired_state → offline; record kept)", m.ID)
 	}
@@ -1466,24 +1471,45 @@ func (s *apiServer) consumeUninstallIntentOnOffline(members []Member) {
 // (api_infra.go), so a fast re-install cannot reconnect into the standing kill order within a
 // cadence window.
 func (s *apiServer) consumeUninstallOnDisconnect(memberID string) {
-	if s.noReconcile {
+	if s.noReconcile || s.hub.IsOnline(memberID) {
 		return
 	}
-	m, err := s.dal.GetMember(memberID)
-	if err != nil || m == nil || m.Kind != KindWarden {
-		return
-	}
-	if parseDesired(m.DesiredState) != DesiredStateUninstall || s.hub.IsOnline(m.ID) {
-		return
-	}
-	m.DesiredState = DesiredStateOffline
-	if err := s.putMember(*m, triggerServer); err != nil {
+	folded, _, err := s.foldUninstallIntentOnRow(memberID)
+	if err != nil {
 		reconcileLog("uninstall: disconnect-edge intent-consume persist failed for %s: %v",
-			m.ID, err)
+			memberID, err)
 		return
 	}
+	if folded == nil {
+		return
+	}
+	s.publishMemberPatch(*folded, triggerServer)
 	reconcileLog("uninstall: consumed one-shot intent on warden %s disconnect "+
-		"(desired_state → offline; record kept)", m.ID)
+		"(desired_state → offline; record kept)", memberID)
+}
+
+// foldUninstallIntentOnRow folds a warden's standing uninstall intent back to offline on the row as
+// it is inside one transaction, so a delete or any other write that landed after a caller's read
+// stands. folded is the written row, nil when the row no longer holds the intent; fresh is the row
+// as read either way (nil when absent).
+func (s *apiServer) foldUninstallIntentOnRow(id string) (folded, fresh *Member, err error) {
+	err = s.dal.inTx(func(tx *writeTx) error {
+		cur, err := getMemberOn(tx, id)
+		if err != nil || cur == nil {
+			return err
+		}
+		fresh = cur
+		if cur.Kind != KindWarden || parseDesired(cur.DesiredState) != DesiredStateUninstall {
+			return nil
+		}
+		cur.DesiredState = DesiredStateOffline
+		folded = cur
+		return writeMemberOn(tx, *cur)
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return folded, fresh, nil
 }
 
 // quietSince is the later of stopping_since and the gauge ts. The gauge ts is written by the

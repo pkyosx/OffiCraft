@@ -522,12 +522,23 @@ func (s *apiServer) HandleOnboardMachineApiMachinesPost(w http.ResponseWriter, r
 // Every re-install entry point must call this BEFORE installing, or the fresh
 // warden reconnects straight into a standing uninstall order (a real
 // uninstall→re-install loop).
+//
+// The fold lands on the row as it is inside its transaction, and *m becomes that row.
 func (s *apiServer) clearResidualUninstall(m *Member, trigger string) error {
 	if m.DesiredState != DesiredStateUninstall {
 		return nil
 	}
-	m.DesiredState = DesiredStateOffline
-	return s.putMember(*m, trigger)
+	folded, fresh, err := s.foldUninstallIntentOnRow(m.ID)
+	if err != nil {
+		return err
+	}
+	if fresh != nil {
+		*m = *fresh
+	}
+	if folded != nil {
+		s.publishMemberPatch(*folded, trigger)
+	}
+	return nil
 }
 
 func (s *apiServer) HandleMachineBootCommandApiMachinesMachineIdBootCommandGet(w http.ResponseWriter, r *http.Request, machineId string) {
@@ -981,12 +992,27 @@ func (s *apiServer) HandleDeleteMachineApiMachinesMemberIdDelete(w http.Response
 			"machine still has agent(s) running; move or stop them first")
 		return
 	}
-	m.RosterStatus = RosterStatusRemoved
-	m.DesiredState = DesiredStateOffline
-	if err := s.putMember(*m, requestTrigger(r)); err != nil {
-		internalError(w, err)
+	// Removed on the row as it is inside the transaction: a column another writer
+	// landed since the read above (a connect edge's session anchor) stands.
+	var removed Member
+	err = s.dal.inTx(func(tx *writeTx) error {
+		cur, err := getMemberOn(tx, m.ID)
+		if err != nil {
+			return err
+		}
+		if cur == nil || cur.Kind != machineKind {
+			return errNotFound
+		}
+		cur.RosterStatus = RosterStatusRemoved
+		cur.DesiredState = DesiredStateOffline
+		removed = *cur
+		return writeMemberOn(tx, *cur)
+	})
+	if err != nil {
+		writeResolveTxError(w, err, "member", memberId)
 		return
 	}
+	s.publishMemberPatch(removed, requestTrigger(r))
 	writeJSON(w, http.StatusOK, machineDeleteResultDTO{
 		MemberID:  m.ID,
 		MachineID: m.ID,
