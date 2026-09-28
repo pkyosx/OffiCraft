@@ -2,9 +2,11 @@ package main
 
 import (
 	"database/sql"
+	"errors"
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -122,4 +124,44 @@ func windowSettingText(t *testing.T, d *DAL, key string) string {
 		return *v
 	}
 	return "<no row>"
+}
+
+// Two first-run kicks racing for the onboarding slot: the one that finds the
+// slot free claims it; one whose claim lands after the other's check must not
+// overwrite it and install a second time.
+func TestAnOnboardingSlotClaimedAfterTheCheckIsNotClaimedAgain(t *testing.T) {
+	const other = `{"state":"running","started_at":1700000000,"finished_at":0,"steps":null}`
+	d, hook, path := windowDAL(t, "split pools")
+	api, _, _, _ := newAPITestServerOn(t, d)
+	t.Setenv("OC_NO_ONBOARDING", "")
+	var installs atomic.Int32
+	run := onboardingRunner{
+		installWarden: func(Member) (bootstrapResultDTO, error) {
+			installs.Add(1)
+			return bootstrapResultDTO{}, errors.New("installer unavailable")
+		},
+		wardenInstalled: func() bool { return false },
+	}
+	behind := windowWriteBehind(t, hook, path, "SELECT value FROM setting",
+		`INSERT INTO setting (key, value, updated_at) VALUES (?, ?, 0) ON CONFLICT (key) DO NOTHING`,
+		settingOnboardingReport, other)
+
+	windowWithin(t, "kickFirstRunOnboardingWith", func() { api.kickFirstRunOnboardingWith(run) })
+
+	hook.wantFiredOnce(t)
+	if behind.landed(t) {
+		if got := windowSettingText(t, d, settingOnboardingReport); got != other {
+			t.Fatalf("the slot another kick claimed first was overwritten:\n got %s\nwant %s", got, other)
+		}
+		time.Sleep(50 * time.Millisecond)
+		if n := installs.Load(); n != 0 {
+			t.Fatalf("installed %d times on a slot another kick holds, want 0", n)
+		}
+		return
+	}
+	report := onboardingTestWaitForTerminalReport(t, api)
+	if report.State != onboardingStateFailed || installs.Load() != 1 {
+		t.Fatalf("the kick that claimed the slot: report %#v, installs %d; want failed after 1 install",
+			report, installs.Load())
+	}
 }

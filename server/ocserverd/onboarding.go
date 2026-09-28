@@ -138,7 +138,7 @@ type onboardingRunner struct {
 }
 
 // kickFirstRunOnboarding runs in the BACKGROUND because the set-password
-// handler holds settingsMu for its whole body; an inline install plus the
+// handler holds settingsWriteMu for its whole body; an inline install plus the
 // connect wait would block the owner's first request behind that lock. The
 // cockpit reads the report from GET /api/settings.
 func (s *apiServer) kickFirstRunOnboarding() {
@@ -157,15 +157,29 @@ func (s *apiServer) kickFirstRunOnboardingWith(run onboardingRunner) {
 		onboardingLog("OC_NO_ONBOARDING=1 — skipping automatic first-run onboarding")
 		return
 	}
-	existing, err := s.dal.GetSetting(settingOnboardingReport)
-	if err != nil || existing != nil {
+	// Check and claim in one transaction, BEFORE going async: two concurrent
+	// kicks must not both find the slot free and both install.
+	running := onboardingReportDTO{State: onboardingStateRunning, StartedAt: nowSecs()}
+	claimed := false
+	if err := s.dal.inTx(func(tx *writeTx) error {
+		existing, err := getSettingOn(tx, settingOnboardingReport)
+		if err != nil || existing != nil {
+			return err
+		}
+		raw, err := json.Marshal(running)
+		if err != nil {
+			return err
+		}
+		if err := putSettingOn(tx, settingOnboardingReport, string(raw)); err != nil {
+			return err
+		}
+		claimed = true
+		return nil
+	}); err != nil {
+		onboardingLog("could not claim the onboarding slot: %v", err)
 		return
 	}
-	// Claim the slot BEFORE going async: two concurrent kicks must not both
-	// pass the check above and both install.
-	running := onboardingReportDTO{State: onboardingStateRunning, StartedAt: nowSecs()}
-	if err := s.putOnboardingReport(running); err != nil {
-		onboardingLog("could not claim the onboarding slot: %v", err)
+	if !claimed {
 		return
 	}
 	go func() {
