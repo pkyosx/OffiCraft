@@ -19,8 +19,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"ocserverd/txguard"
 )
 
 const (
@@ -55,16 +53,20 @@ type backupHealthState struct {
 	NewestBackupTS float64 `json:"newest_backup_ts"`
 }
 
+// Inside inTx, GetSetting and PutSetting run on that transaction (the DAL's
+// reads and writes join the calling goroutine's transaction).
 type backupHealthStore interface {
 	GetSetting(key string) (*string, error)
 	PutSetting(key, value string) error
+	inTx(fn func(tx *writeTx) error) error
 }
 
+// The watchdog and the backup cadence both read the stored verdict and write a
+// new one; each does so in one transaction, so a `failed` the cadence records
+// cannot be overwritten by a watchdog pass that read the verdict before it.
 type backupHealthMonitor struct {
 	store  backupHealthStore
 	dbPath string
-
-	mu txguard.Mutex
 }
 
 func newBackupHealthMonitor(store backupHealthStore, dbPath string) *backupHealthMonitor {
@@ -173,10 +175,19 @@ func decideBackupHealth(now, baseline time.Time, newest time.Time, hasNewest boo
 
 func epochOf(t time.Time) float64 { return float64(t.UnixNano()) / float64(time.Second) }
 
-func (m *backupHealthMonitor) evaluate(now time.Time) (backupHealthState, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+// The backup directory is listed inside the transaction on purpose. Listed
+// before it, a scheduled backup and its noteScheduledOutcome could both land in
+// between, and this pass would then overwrite the fresh verdict with one
+// computed from the older listing.
+func (m *backupHealthMonitor) evaluate(now time.Time) (next backupHealthState, err error) {
+	err = m.store.inTx(func(*writeTx) error {
+		next, err = m.evaluateOnce(now)
+		return err
+	})
+	return next, err
+}
 
+func (m *backupHealthMonitor) evaluateOnce(now time.Time) (backupHealthState, error) {
 	baseline, err := m.baselineAt(now)
 	if err != nil {
 		return backupHealthState{}, err
@@ -210,11 +221,14 @@ func (m *backupHealthMonitor) noteScheduledOutcome(res backupResult, runErr erro
 	if m == nil {
 		return
 	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	_ = m.store.inTx(func(*writeTx) error {
+		return m.noteScheduledOutcomeOnce(res, runErr, now)
+	})
+}
 
+func (m *backupHealthMonitor) noteScheduledOutcomeOnce(res backupResult, runErr error, now time.Time) error {
 	if _, err := m.baselineAt(now); err != nil {
-		return
+		return err
 	}
 	prev, _ := m.load()
 
@@ -225,8 +239,7 @@ func (m *backupHealthMonitor) noteScheduledOutcome(res backupResult, runErr erro
 		if hasNewest {
 			st.NewestBackupTS = epochOf(newest)
 		}
-		_ = m.save(st)
-		return
+		return m.save(st)
 	}
 
 	detail := "scheduled backup failed, no new retreat point was created"
@@ -248,7 +261,7 @@ func (m *backupHealthMonitor) noteScheduledOutcome(res backupResult, runErr erro
 	if prev != nil && prev.Code == backupHealthCodeFailed && prev.SinceTS > 0 {
 		st.SinceTS = prev.SinceTS
 	}
-	_ = m.save(st)
+	return m.save(st)
 }
 
 // report serves the DURABLE verdict only and never re-derives health from the
@@ -263,9 +276,7 @@ func (m *backupHealthMonitor) report() BackupHealthDTO {
 		dto.Detail = "backup health is not being watched on this server"
 		return dto
 	}
-	m.mu.Lock()
 	st, _ := m.load()
-	m.mu.Unlock()
 	if st == nil {
 		dto.Detail = "the backup watchdog has not reported yet"
 		return dto

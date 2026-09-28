@@ -56,6 +56,8 @@ func (s *backupHealthTestStore) PutSetting(key, value string) error {
 	return nil
 }
 
+func (s *backupHealthTestStore) inTx(fn func(tx *writeTx) error) error { return fn(nil) }
+
 func (s *backupHealthTestStore) seed(key, value string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
