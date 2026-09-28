@@ -167,9 +167,11 @@ type apiServer struct {
 	// takes it, drops it, and only then enters the outsource half.
 	reconcileMu txguard.Mutex
 
-	reconcileStateMu txguard.Mutex
-	reconcileStates  map[string]reconcileState
-	reconcileCfg     reconcileConfig
+	// reconcileStates: member id → reconcileState. Each access is one Load, Store
+	// or Delete; a read-modify-write of one entry is serialised by the caller's
+	// reconcileMu (staff) or outsourceMu (workers), never by this map.
+	reconcileStates sync.Map
+	reconcileCfg    reconcileConfig
 	// noReconcile (--no-reconcile) skips the RECONCILE HALF of the cadence tick
 	// and the producer's event-driven dispatch; not a server-wide gate (see
 	// spec/lifecycle.md §4.1). Owner ruling T-941e: A SHADOW SERVER WITH THIS FLAG

@@ -136,25 +136,19 @@ func newReconcileState() reconcileState {
 }
 
 func (s *apiServer) reconcileStateOf(memberID string) reconcileState {
-	s.reconcileStateMu.Lock()
-	defer s.reconcileStateMu.Unlock()
-	st, ok := s.reconcileStates[memberID]
+	v, ok := s.reconcileStates.Load(memberID)
 	if !ok {
 		return newReconcileState()
 	}
-	return st
+	return v.(reconcileState)
 }
 
 func (s *apiServer) setReconcileState(memberID string, st reconcileState) {
-	s.reconcileStateMu.Lock()
-	defer s.reconcileStateMu.Unlock()
-	s.reconcileStates[memberID] = st
+	s.reconcileStates.Store(memberID, st)
 }
 
 func (s *apiServer) dropReconcileState(memberID string) {
-	s.reconcileStateMu.Lock()
-	defer s.reconcileStateMu.Unlock()
-	delete(s.reconcileStates, memberID)
+	s.reconcileStates.Delete(memberID)
 }
 
 type memberObservation struct {

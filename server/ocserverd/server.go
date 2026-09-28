@@ -333,7 +333,6 @@ func newAPIServer(dal *DAL, hub *Hub, keys *keyring, tokenTTL int64, root assetR
 		ctxHigh:                      defaultSseContextHigh(),
 		root:                         root,
 		binHashes:                    bindistBinaryHashesFrom(bindistFS()),
-		reconcileStates:              map[string]reconcileState{},
 		reconcileCfg:                 defaultReconcileConfig(),
 		identitySweepAt:              map[string]float64{},
 		receiptPending:               map[string]pendingReceipt{},
