@@ -1026,3 +1026,41 @@ func TestMachineRoutesDoNotUndoAConnectEdgeThatLandedAfterTheirRead(t *testing.T
 		})
 	}
 }
+
+// A START that a warden takes marks the member waking and drops a placement
+// stamp from an earlier attempt. A newer receipt written after the reconcile
+// read the member is neither dropped nor replaced by the tick's copy.
+func TestADispatchedStartKeepsAReceiptThatLandedAfterTheReconcileRead(t *testing.T) {
+	d, hook, path := windowDAL(t, "split pools")
+	api, _, _, _ := newAPITestServerOn(t, d)
+	reconcileTestPut(t, d, Member{ID: "m-box", Name: "Box", Kind: KindWarden})
+	api.telemetry.Set("m-box", map[string]any{"runtimes": map[string]any{
+		"claude": map[string]any{"installed": true, "logged_in": true},
+	}})
+	windowConnect(t, api, "m-box", "")
+	reconcileTestPut(t, d, Member{ID: "runner", Name: "Runner", Kind: KindStaff, RoleKey: "assistant",
+		Runtime: RuntimeClaude, DesiredState: DesiredStateOnline, DesiredMachineID: "m-box"})
+	if err := d.SetMemberLastOp("runner", "start", boolPtr(false), "",
+		"machine_unavailable: an earlier attempt", 1700000000); err != nil {
+		t.Fatalf("SetMemberLastOp: %v", err)
+	}
+	behind := windowWriteBehind(t, hook, path, "FROM member WHERE id = ?",
+		`UPDATE member SET last_op = 'start', last_op_ok = 0, last_op_log = '',
+		 last_op_reason = 'wake_timeout: a newer attempt', last_op_at = 1800000000 WHERE id = 'runner'`)
+
+	var dec reconcileDecision
+	windowWithin(t, "reconcileMemberNow", func() { dec = api.reconcileMemberNow("runner") })
+
+	if dec.Command != reconcileCmdStart {
+		t.Fatalf("premise: the START was not dispatched: %+v", dec)
+	}
+	hook.wantFiredOnce(t)
+	if !behind.landed(t) {
+		t.Fatalf("premise: the newer receipt did not land between the reconcile's read and its stamp")
+	}
+	got := apiTestMemberRow(t, d, "runner")
+	if got.LastOpReason != "wake_timeout: a newer attempt" || got.LastOpAt != 1800000000 || got.WakingSince <= 0 {
+		t.Fatalf("reason %q at %v waking_since %v; want the newer attempt at 1800000000 and a waking anchor",
+			got.LastOpReason, got.LastOpAt, got.WakingSince)
+	}
+}
