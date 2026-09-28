@@ -356,3 +356,143 @@ func TestATickSpendsAQueuedRestartOnceTheStopHasConverged(t *testing.T) {
 			got.DesiredState, got.RestartAfterStop, got.StoppingSince, got.StoppedSince, got.LastOp)
 	}
 }
+
+// A roster pass stamps a wind-down from the tick's read of the worker. An owner
+// stop that lands after that read stands: the pass writes nothing, and the next
+// tick decides again on the row as it is.
+func TestAnOwnerStopAfterTheTickReadAWorkerIsNotOverwrittenByAContextStamp(t *testing.T) {
+	d, hook, path := windowDAL(t, "split pools")
+	api, _, _ := windowTickWorker(t, d, `desired_state = 'online', desired_machine_id = 'm-server-self'`)
+	session, err := api.hub.Connect("ow-abc123", ServerSelfHost)
+	if err != nil {
+		t.Fatalf("hub.Connect: %v", err)
+	}
+	t.Cleanup(func() { api.hub.Disconnect(session) })
+	api.gauge.Set("ow-abc123", map[string]any{"context_pct": 55.0, "context_pct_ts": 19900.0, "boot_ts": 19000.0})
+	behind := windowWriteBehind(t, hook, path, "FROM member WHERE kind = 'outsource'",
+		`UPDATE member SET desired_state = 'offline', stopping_since = 1800000000 WHERE id = 'ow-abc123'`)
+
+	windowWithin(t, "runOutsourceTick", func() { api.runOutsourceTick(20000) })
+
+	hook.wantFiredOnce(t)
+	if !behind.landed(t) {
+		t.Fatalf("premise: the owner's stop did not land inside the tick's gap")
+	}
+	got := apiTestMemberRow(t, d, "ow-abc123")
+	if got.DesiredState != DesiredStateOffline || got.StoppingSince != 1800000000 ||
+		got.RefocusOp != "" || got.RefocusSince != 0 {
+		t.Fatalf("after the tick: desired_state %q stopping_since %v refocus_op %q refocus_since %v; "+
+			"want offline, 1800000000, no stamp", got.DesiredState, got.StoppingSince, got.RefocusOp, got.RefocusSince)
+	}
+}
+
+// CONTROL for the test above: with nothing landing in the gap, the same tick
+// stamps the context-high wind-down.
+func TestATickStampsAContextHighWindDownOnALiveWorker(t *testing.T) {
+	d, _, _ := windowDAL(t, "split pools")
+	api, _, _ := windowTickWorker(t, d, `desired_state = 'online', desired_machine_id = 'm-server-self'`)
+	session, err := api.hub.Connect("ow-abc123", ServerSelfHost)
+	if err != nil {
+		t.Fatalf("hub.Connect: %v", err)
+	}
+	t.Cleanup(func() { api.hub.Disconnect(session) })
+	api.gauge.Set("ow-abc123", map[string]any{"context_pct": 55.0, "context_pct_ts": 19900.0, "boot_ts": 19000.0})
+
+	windowWithin(t, "runOutsourceTick", func() { api.runOutsourceTick(20000) })
+
+	got := apiTestMemberRow(t, d, "ow-abc123")
+	if got.RefocusOp != refocusOpContextHigh || got.RefocusSince != 20000 || got.DesiredState != DesiredStateOnline {
+		t.Fatalf("after the tick: refocus_op %q refocus_since %v desired_state %q; want context_high, 20000, online",
+			got.RefocusOp, got.RefocusSince, got.DesiredState)
+	}
+}
+
+// A session's first connect clears its waking badge and records the machine it
+// landed on, each from a read of the member. An owner stop that lands after the
+// read stands.
+func TestConnectEdgeWritesDoNotUndoAnOwnerStopThatLandedAfterTheirRead(t *testing.T) {
+	const ownerStop = `UPDATE member SET desired_state = 'offline', stopping_since = 1800000000 WHERE id = 'ow-abc123'`
+	for _, tc := range []struct {
+		name string
+		call func(api *apiServer)
+		want func(t *testing.T, got Member)
+	}{
+		{"first connect clears waking_since", func(api *apiServer) { api.onFirstConnect("ow-abc123") },
+			func(t *testing.T, got Member) {
+				if got.WakingSince != 0 {
+					t.Fatalf("waking_since %v, want cleared", got.WakingSince)
+				}
+			}},
+		{"the landed machine is stamped", func(api *apiServer) { api.stampLandedMachine("ow-abc123", ServerSelfHost) },
+			func(t *testing.T, got Member) {
+				if got.LastMachineID != ServerSelfHost {
+					t.Fatalf("last_machine_id %q, want %q", got.LastMachineID, ServerSelfHost)
+				}
+			}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d, hook, path := windowDAL(t, "split pools")
+			api, _, _ := windowTickWorker(t, d,
+				`desired_state = 'online', desired_machine_id = 'm-server-self', waking_since = 1700000000`)
+			behind := windowWriteBehind(t, hook, path, "FROM member WHERE id = ?", ownerStop)
+
+			windowWithin(t, tc.name, func() { tc.call(api) })
+
+			hook.wantFiredOnce(t)
+			if !behind.landed(t) {
+				t.Fatalf("premise: the owner's stop did not land inside the gap")
+			}
+			got := apiTestMemberRow(t, d, "ow-abc123")
+			if got.DesiredState != DesiredStateOffline || got.StoppingSince != 1800000000 {
+				t.Fatalf("desired_state %q stopping_since %v; want the owner's stop (offline, 1800000000)",
+					got.DesiredState, got.StoppingSince)
+			}
+			tc.want(t, got)
+		})
+	}
+}
+
+// The receipt writers decide from the receipt on the row. A receipt another
+// writer lands after that decision is not overwritten by it: the write that
+// decided on an older receipt goes first, the newer one stays.
+func TestAReceiptLandedAfterTheWorkerReceiptWriterReadIsNotOverwritten(t *testing.T) {
+	const newer = `UPDATE member SET last_op = 'start', last_op_ok = 0, last_op_log = '',
+		last_op_reason = 'respawn_deferred: a newer attempt', last_op_at = 1800000000 WHERE id = 'ow-abc123'`
+	for _, tc := range []struct {
+		name  string
+		prior string
+		call  func(api *apiServer)
+	}{
+		{"placement-blocked stamp", `last_op = '', last_op_reason = ''`, func(api *apiServer) {
+			w := OutsourceWorker{ID: "ow-abc123", Codename: "Contractor"}
+			api.stampWorkerPlacementBlocked(&w, "held_down: nothing was started", 1700000000)
+		}},
+		{"placement-block clear", `last_op = 'start', last_op_ok = 0, last_op_reason = 'respawn_deferred: old',
+			last_op_at = 1700000000`, func(api *apiServer) { api.clearWorkerPlacementBlock("ow-abc123") }},
+		{"converged-failure clear", `last_op = 'start', last_op_ok = 0, last_op_reason = 'wake_timeout: old',
+			last_op_at = 1700000000`, func(api *apiServer) {
+			snapshot := OutsourceWorker{ID: "ow-abc123", LastOp: "start", LastOpAt: 1700000000}
+			api.clearWorkerConvergedFailureReceipt("ow-abc123", snapshot)
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d, hook, path := windowDAL(t, "split pools")
+			api, _, _ := windowTickWorker(t, d, tc.prior)
+			behind := windowWriteBehind(t, hook, path, "FROM member WHERE id = ? AND kind = 'outsource'", newer)
+
+			windowWithin(t, tc.name, func() {
+				api.outsourceMu.Lock()
+				defer api.outsourceMu.Unlock()
+				tc.call(api)
+			})
+
+			hook.wantFiredOnce(t)
+			behind.landed(t)
+			got := apiTestMemberRow(t, d, "ow-abc123")
+			if got.LastOpReason != "respawn_deferred: a newer attempt" || got.LastOpAt != 1800000000 {
+				t.Fatalf("receipt after the writer: reason %q at %v; want the newer attempt at 1800000000",
+					got.LastOpReason, got.LastOpAt)
+			}
+		})
+	}
+}

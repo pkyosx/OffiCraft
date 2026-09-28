@@ -279,12 +279,31 @@ func (s *apiServer) queueWorkerRestartAfterStop(w *OutsourceWorker, op string, n
 	return true
 }
 
-// Two writers in one transaction: the flag rides the whole-row write; the five
-// last_op* columns land only through SetMemberLastOp.
-func (s *apiServer) persistWorkerRestartIntent(w OutsourceWorker) error {
-	return s.dal.inTx(func(tx *writeTx) error { return persistWorkerRestartIntentOn(tx, w) })
+// queueWorkerRestartAfterStopOnRow queues op behind the stop on the worker's row
+// as it is inside the transaction, not on a caller's copy: a release, a 喚醒 or
+// any other column written since the caller read the worker stands. fresh is
+// that row afterwards (nil when the worker is gone or released).
+func (s *apiServer) queueWorkerRestartAfterStopOnRow(id, op string, now float64) (fresh *OutsourceWorker, queued bool, err error) {
+	err = s.dal.inTx(func(tx *writeTx) error {
+		cur, err := getOutsourceWorkerOn(tx, id)
+		if err != nil || cur == nil || cur.Status == WorkerStatusReleased {
+			return err
+		}
+		fresh = cur
+		if !s.queueWorkerRestartAfterStop(cur, op, now) {
+			return nil
+		}
+		queued = true
+		return persistWorkerRestartIntentOn(tx, *cur)
+	})
+	if err != nil {
+		return nil, false, err
+	}
+	return fresh, queued, nil
 }
 
+// Two writers in one transaction: the flag rides the whole-row write; the five
+// last_op* columns land only through SetMemberLastOp.
 func persistWorkerRestartIntentOn(tx *writeTx, w OutsourceWorker) error {
 	if err := putMemberOn(tx, memberFromWorker(w)); err != nil {
 		return err

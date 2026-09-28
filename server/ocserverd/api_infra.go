@@ -354,11 +354,19 @@ func (s *apiServer) sseStopGateRefusal(memberID string) string {
 
 func (s *apiServer) onFirstConnect(memberID string) {
 	s.publishOutsourcePresenceEdge(memberID)
-	if m, err := s.dal.GetMember(memberID); err == nil && m != nil && m.WakingSince > 0 {
-		m.WakingSince = 0.0
-		if err := s.putMember(*m, memberID); err != nil {
-			fmt.Fprintf(os.Stderr, "[sse] first-connect waking clear failed for %q: %v\n", memberID, err)
+	var cleared *Member
+	if err := s.dal.inTx(func(tx *writeTx) error {
+		m, err := getMemberOn(tx, memberID)
+		if err != nil || m == nil || m.WakingSince <= 0 {
+			return err
 		}
+		m.WakingSince = 0.0
+		cleared = m
+		return writeMemberOn(tx, *m)
+	}); err != nil {
+		fmt.Fprintf(os.Stderr, "[sse] first-connect waking clear failed for %q: %v\n", memberID, err)
+	} else if cleared != nil {
+		s.publishMemberPatch(*cleared, memberID)
 	}
 	s.anchorSessionBoot(memberID)
 }
@@ -431,9 +439,23 @@ func (s *apiServer) stampLandedMachine(memberID, machineID string) {
 	if !s.connectionIsTheGenuineArticle(*m, machineID) {
 		return
 	}
-	m.LastMachineID = machineID
-	if err := s.putMember(*m, memberID); err != nil {
+	// The genuine-article check takes outsourceMu, so it runs on the read above;
+	// the stamp lands on the row as it is, and only while the pin it was judged
+	// against still stands.
+	var stamped *Member
+	if err := s.dal.inTx(func(tx *writeTx) error {
+		cur, err := getMemberOn(tx, memberID)
+		if err != nil || cur == nil || cur.LastMachineID == machineID ||
+			cur.DesiredMachineID != m.DesiredMachineID {
+			return err
+		}
+		cur.LastMachineID = machineID
+		stamped = cur
+		return writeMemberOn(tx, *cur)
+	}); err != nil {
 		fmt.Fprintf(os.Stderr, "[sse] landed-machine stamp failed for %q: %v\n", memberID, err)
+	} else if stamped != nil {
+		s.publishMemberPatch(*stamped, memberID)
 	}
 }
 

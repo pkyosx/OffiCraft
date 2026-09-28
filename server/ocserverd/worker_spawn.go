@@ -247,25 +247,31 @@ func wakeTimeoutOverWardenReceipt(fresh OutsourceWorker, reason string) string {
 // Best-effort: a persist failure never changes the dispatch decision.
 func (s *apiServer) stampWorkerPlacementBlocked(w *OutsourceWorker, reason string, now float64) {
 	outsourceLog("spawn %s (%s): %s", w.ID, w.Codename, reason)
-	fresh, err := s.dal.GetOutsourceWorker(w.ID)
-	if err != nil || fresh == nil || fresh.Status == WorkerStatusReleased {
-		return
-	}
-	reason = wakeTimeoutOverWardenReceipt(*fresh, reason)
-	if stopgapRetryStampYields(fresh.LastOpReason, reason) {
-		return
-	}
-	if fresh.LastOp == reconcileCmdStart && fresh.LastOpReason == reason {
-		return
-	}
-	stampOpReceipt(&fresh.LastOp, &fresh.LastOpOK, &fresh.LastOpLog, &fresh.LastOpReason,
-		&fresh.LastOpAt, reconcileCmdStart, reason, now)
-	if err := s.dal.SetMemberLastOp(fresh.ID, fresh.LastOp, fresh.LastOpOK, fresh.LastOpLog,
-		fresh.LastOpReason, fresh.LastOpAt); err != nil {
+	var stamped *OutsourceWorker
+	if err := s.dal.inTx(func(tx *writeTx) error {
+		fresh, err := getOutsourceWorkerOn(tx, w.ID)
+		if err != nil || fresh == nil || fresh.Status == WorkerStatusReleased {
+			return err
+		}
+		reason := wakeTimeoutOverWardenReceipt(*fresh, reason)
+		if stopgapRetryStampYields(fresh.LastOpReason, reason) {
+			return nil
+		}
+		if fresh.LastOp == reconcileCmdStart && fresh.LastOpReason == reason {
+			return nil
+		}
+		stampOpReceipt(&fresh.LastOp, &fresh.LastOpOK, &fresh.LastOpLog, &fresh.LastOpReason,
+			&fresh.LastOpAt, reconcileCmdStart, reason, now)
+		stamped = fresh
+		return setMemberLastOpOn(tx, fresh.ID, fresh.LastOp, fresh.LastOpOK, fresh.LastOpLog,
+			fresh.LastOpReason, fresh.LastOpAt)
+	}); err != nil {
 		outsourceLog("spawn %s: placement-blocked stamp persist failed: %v", w.ID, err)
 		return
 	}
-	s.publishOutsourceWorker(*fresh, triggerServer)
+	if stamped != nil {
+		s.publishOutsourceWorker(*stamped, triggerServer)
+	}
 }
 
 // clearWorkerPlacementBlock drops a spawn-blocked stamp once a start is
@@ -273,21 +279,23 @@ func (s *apiServer) stampWorkerPlacementBlocked(w *OutsourceWorker, reason strin
 // swallowed by the anti-churn guard. A warden's own receipt is never touched: a
 // dispatch is an attempt, not an outcome.
 func (s *apiServer) clearWorkerPlacementBlock(workerID string) {
-	fresh, err := s.dal.GetOutsourceWorker(workerID)
-	if err != nil || fresh == nil || fresh.LastOp != reconcileCmdStart {
-		return
-	}
-	if !isSpawnBlockedReason(fresh.LastOpReason) {
-		return
-	}
-	fresh.LastOpReason = ""
-	fresh.LastOpLog = ""
-	// nil, not false: a leftover false renders as a FAILED start with nothing to explain it.
-	fresh.LastOpOK = nil
-	// last_op and last_op_at are written back unchanged on purpose: last_op_at is
-	// what tells "stalled an hour ago" from "stalled now". Do not zero them.
-	if err := s.dal.SetMemberLastOp(fresh.ID, fresh.LastOp, fresh.LastOpOK, fresh.LastOpLog,
-		fresh.LastOpReason, fresh.LastOpAt); err != nil {
+	if err := s.dal.inTx(func(tx *writeTx) error {
+		fresh, err := getOutsourceWorkerOn(tx, workerID)
+		if err != nil || fresh == nil || fresh.LastOp != reconcileCmdStart {
+			return err
+		}
+		if !isSpawnBlockedReason(fresh.LastOpReason) {
+			return nil
+		}
+		fresh.LastOpReason = ""
+		fresh.LastOpLog = ""
+		// nil, not false: a leftover false renders as a FAILED start with nothing to explain it.
+		fresh.LastOpOK = nil
+		// last_op and last_op_at are written back unchanged on purpose: last_op_at is
+		// what tells "stalled an hour ago" from "stalled now". Do not zero them.
+		return setMemberLastOpOn(tx, fresh.ID, fresh.LastOp, fresh.LastOpOK, fresh.LastOpLog,
+			fresh.LastOpReason, fresh.LastOpAt)
+	}); err != nil {
 		outsourceLog("spawn %s: placement-block clear failed: %v", workerID, err)
 	}
 }
@@ -301,24 +309,30 @@ func (s *apiServer) clearWorkerConvergedFailureReceipt(workerID string, snapshot
 	if !receiptRendersAsFailure(snapshot.LastOp, snapshot.LastOpAt, snapshot.LastOpOK) {
 		return
 	}
-	fresh, err := s.dal.GetOutsourceWorker(workerID)
-	if err != nil || fresh == nil {
-		return
-	}
-	if !receiptRendersAsFailure(fresh.LastOp, fresh.LastOpAt, fresh.LastOpOK) {
-		return
-	}
-	fresh.LastOp = ""
-	fresh.LastOpOK = nil
-	fresh.LastOpLog = ""
-	fresh.LastOpReason = ""
-	fresh.LastOpAt = 0.0
-	if err := s.dal.SetMemberLastOp(fresh.ID, fresh.LastOp, fresh.LastOpOK, fresh.LastOpLog,
-		fresh.LastOpReason, fresh.LastOpAt); err != nil {
+	var cleared *OutsourceWorker
+	if err := s.dal.inTx(func(tx *writeTx) error {
+		fresh, err := getOutsourceWorkerOn(tx, workerID)
+		if err != nil || fresh == nil {
+			return err
+		}
+		if !receiptRendersAsFailure(fresh.LastOp, fresh.LastOpAt, fresh.LastOpOK) {
+			return nil
+		}
+		fresh.LastOp = ""
+		fresh.LastOpOK = nil
+		fresh.LastOpLog = ""
+		fresh.LastOpReason = ""
+		fresh.LastOpAt = 0.0
+		cleared = fresh
+		return setMemberLastOpOn(tx, fresh.ID, fresh.LastOp, fresh.LastOpOK, fresh.LastOpLog,
+			fresh.LastOpReason, fresh.LastOpAt)
+	}); err != nil {
 		outsourceLog("%s: converged receipt clear failed: %v", workerID, err)
 		return
 	}
-	s.publishOutsourceWorker(*fresh, triggerServer)
+	if cleared != nil {
+		s.publishOutsourceWorker(*cleared, triggerServer)
+	}
 }
 
 func workerMachineKey(workerID, machineID string) string {
@@ -841,12 +855,16 @@ func (s *apiServer) respawnWorkerForOwnerOp(w OutsourceWorker, op string) ownerO
 		// 換 model reaches here only while the session is up — a converged stop
 		// queues through its own branch in api_outsource.go; both are needed.
 		now := nowSecs()
-		if s.queueWorkerRestartAfterStop(&w, op, now) {
-			if err := s.persistWorkerRestartIntent(w); err != nil {
-				outsourceLog("spawn %s: queued restart-after-stop persist failed: %v",
-					w.ID, err)
-			}
-			s.publishOutsourceWorker(w, triggerServer)
+		fresh, queued, err := s.queueWorkerRestartAfterStopOnRow(w.ID, op, now)
+		if err != nil {
+			outsourceLog("spawn %s: queued restart-after-stop persist failed: %v", w.ID, err)
+			return ownerOpOutcome{HeldDown: true}
+		}
+		if queued {
+			s.publishOutsourceWorker(*fresh, triggerServer)
+			return ownerOpOutcome{HeldDown: true}
+		}
+		if fresh == nil || fresh.DesiredState != DesiredStateOffline {
 			return ownerOpOutcome{HeldDown: true}
 		}
 		s.stampWorkerPlacementBlocked(&w, spawnReasonHeldDown+": the "+op+" was saved, "+

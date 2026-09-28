@@ -1213,6 +1213,7 @@ func (s *apiServer) stampContextHighRecycle(members []Member, now float64) {
 	codexNoticeRound := s.codexNoticeRoundSetting()
 	for i := range members {
 		m := &members[i]
+		read := *m
 		record := s.gauge.Get(m.ID)
 		op := ""
 		switch {
@@ -1265,12 +1266,7 @@ func (s *apiServer) stampContextHighRecycle(members []Member, now float64) {
 				"wind-down ladder backwards from %s", m.ID, op, m.RefocusOp)
 			continue
 		}
-		if err := s.persistMemberWindDownAnchors(*m); err != nil {
-			reconcileLog("recycle: auto-stamp ANCHOR write failed for %s: %v", m.ID, err)
-			continue
-		}
-		if err := s.putMember(*m, triggerServer); err != nil {
-			reconcileLog("recycle: auto-stamp persist failed for %s: %v", m.ID, err)
+		if !s.persistRosterStamp(read, m, "recycle: auto-stamp") {
 			continue
 		}
 		if promoting {
@@ -1310,6 +1306,7 @@ func (s *apiServer) stampTokenExpiryWinddown(members []Member, now float64) {
 	ttl := s.agentTokenTTLValue()
 	for i := range members {
 		m := &members[i]
+		read := *m
 		expiry := tokenExpiryOf(*m, ttl)
 		if expiry <= 0 {
 			continue
@@ -1340,17 +1337,57 @@ func (s *apiServer) stampTokenExpiryWinddown(members []Member, now float64) {
 				"the wind-down ladder backwards from %s", m.ID, m.RefocusOp)
 			continue
 		}
-		if err := s.persistMemberWindDownAnchors(*m); err != nil {
-			reconcileLog("recycle: token-expiry ANCHOR write failed for %s: %v", m.ID, err)
-			continue
-		}
-		if err := s.putMember(*m, triggerServer); err != nil {
-			reconcileLog("recycle: token-expiry stamp persist failed for %s: %v", m.ID, err)
+		if !s.persistRosterStamp(read, m, "recycle: token-expiry stamp") {
 			continue
 		}
 		reconcileLog("recycle: token-expiry 停止 for %s (token estimated to expire at %.0f, "+
 			"lead %.0fs)", m.ID, expiry, tokenExpiryLeadSecs)
 	}
+}
+
+// persistRosterStamp lands a roster pass's wind-down stamp — the four anchor
+// columns and nothing else — in one transaction, and only while the row still
+// holds what the pass decided on (read, the tick's roster copy). When it does
+// not — an owner verb, a report or another writer landed since that read —
+// nothing is written, the slice entry goes back to the row as read, and the
+// next tick decides again on the row as it is then.
+func (s *apiServer) persistRosterStamp(read Member, stamped *Member, what string) bool {
+	var cur *Member
+	landed := false
+	err := s.dal.inTx(func(tx *writeTx) error {
+		var err error
+		if cur, err = getMemberOn(tx, read.ID); err != nil || cur == nil {
+			return err
+		}
+		if !sameWindDownInputs(*cur, read) {
+			return nil
+		}
+		cur.StoppingSince, cur.StoppedSince = stamped.StoppingSince, stamped.StoppedSince
+		cur.RefocusSince, cur.RefocusOp = stamped.RefocusSince, stamped.RefocusOp
+		landed = true
+		return setMemberWindDownAnchorsOn(tx, cur.ID, cur.StoppingSince, cur.StoppedSince,
+			cur.RefocusSince, cur.RefocusOp)
+	})
+	if err != nil || !landed {
+		if err != nil {
+			reconcileLog("%s persist failed for %s: %v", what, read.ID, err)
+		} else {
+			reconcileLog("%s for %s not written — the row changed since this tick read it; "+
+				"the next tick decides again", what, read.ID)
+		}
+		*stamped = read
+		return false
+	}
+	s.publishMemberPatch(*cur, triggerServer)
+	return true
+}
+
+// sameWindDownInputs: the columns the roster passes decide a stamp on.
+func sameWindDownInputs(a, b Member) bool {
+	return a.DesiredState == b.DesiredState && a.RosterStatus == b.RosterStatus &&
+		a.StoppingSince == b.StoppingSince && a.StoppedSince == b.StoppedSince &&
+		a.RefocusSince == b.RefocusSince && a.RefocusOp == b.RefocusOp &&
+		a.ForcedStopAt == b.ForcedStopAt && a.SessionBootTS == b.SessionBootTS
 }
 
 func bootStormTripped(secsSinceBoot *float64, minBootSecs float64) bool {
@@ -1441,13 +1478,9 @@ func (s *apiServer) clearStaleStoppingOnOnline(members []Member, now float64) {
 		if now-quietSince(*m, s.gauge.Get(m.ID)) < SoftOffboardGraceSecs {
 			continue
 		}
+		read := *m
 		m.StoppingSince = 0.0
-		if err := s.persistMemberWindDownAnchors(*m); err != nil {
-			reconcileLog("revive: stale-stopping ANCHOR write failed for %s: %v", m.ID, err)
-			continue
-		}
-		if err := s.putMember(*m, triggerServer); err != nil {
-			reconcileLog("revive: stale-stopping clear persist failed for %s: %v", m.ID, err)
+		if !s.persistRosterStamp(read, m, "revive: stale-stopping clear") {
 			continue
 		}
 		reconcileLog("revive: auto-cleared stale stopping_since on observed-online %s "+
