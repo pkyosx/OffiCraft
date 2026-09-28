@@ -313,15 +313,8 @@ func (s *apiServer) runOutsourceTick(now float64) {
 		if now-t.UpdatedTS < timeout {
 			continue
 		}
-		var released, w *OutsourceWorker
-		if err := s.dal.inTx(func(tx *writeTx) error {
-			var err error
-			if released, err = s.dal.ReleaseWorkerByID(t.ReassignedFrom, now); err != nil {
-				return err
-			}
-			w, err = getOutsourceWorkerOn(tx, t.ReassignedFrom)
-			return err
-		}); err != nil {
+		released, err := s.dal.ReleaseWorkerByID(t.ReassignedFrom, now)
+		if err != nil {
 			outsourceLog("handover-timeout %s: release %s failed: %v",
 				t.ID, t.ReassignedFrom, err)
 			continue
@@ -331,8 +324,10 @@ func (s *apiServer) runOutsourceTick(now float64) {
 			outsourceLog("handover-timeout %s: predecessor %s never handed off "+
 				"(%.0fs) — reclaimed", t.ID, t.ReassignedFrom, now-t.UpdatedTS)
 		}
-		if !s.workerReclaimed[t.ReassignedFrom] && w != nil {
-			s.reclaimWorkerSession(*w)
+		if !s.workerReclaimed[t.ReassignedFrom] {
+			if w, err := s.dal.GetOutsourceWorker(t.ReassignedFrom); err == nil && w != nil {
+				s.reclaimWorkerSession(*w)
+			}
 		}
 	}
 

@@ -1546,26 +1546,18 @@ func (s *apiServer) dismissOutsourceWorkersForTask(taskID string, now float64, t
 func (s *apiServer) dismissOutsourceWorkerByID(workerID string, now float64, trigger string) {
 	s.outsourceMu.Lock()
 	defer s.outsourceMu.Unlock()
-	// The reclaim acts on the row the release left. The card sweep is not in
-	// this transaction: each card settles in a transaction of its own that
-	// re-reads it, and its announcements take locks refused inside one.
-	var released, w *OutsourceWorker
-	if err := s.dal.inTx(func(tx *writeTx) error {
-		var err error
-		if released, err = s.dal.ReleaseWorkerByID(workerID, now); err != nil {
-			return err
-		}
-		w, err = getOutsourceWorkerOn(tx, workerID)
-		return err
-	}); err != nil {
+	released, err := s.dal.ReleaseWorkerByID(workerID, now)
+	if err != nil {
 		outsourceLog("dismiss worker %s: release failed: %v", workerID, err)
 		return
 	}
 	if released != nil {
 		s.publishOutsourceWorker(*released, trigger)
 	}
-	if !s.workerReclaimed[workerID] && w != nil {
-		s.reclaimWorkerSession(*w)
+	if !s.workerReclaimed[workerID] {
+		if w, err := s.dal.GetOutsourceWorker(workerID); err == nil && w != nil {
+			s.reclaimWorkerSession(*w)
+		}
 	}
 	if _, err := s.expireWaitingCardsByAuthor(workerID, now, trigger); err != nil {
 		outsourceLog("dismiss worker %s: card sweep failed: %v", workerID, err)
