@@ -165,3 +165,72 @@ func TestAnOnboardingSlotClaimedAfterTheCheckIsNotClaimedAgain(t *testing.T) {
 			report, installs.Load())
 	}
 }
+
+// A worker released by someone else after the dismissal read it stays released
+// as they left it: the dismissal does not release it a second time.
+func TestAWorkerReleasedAfterTheDismissalReadItIsNotReleasedAgain(t *testing.T) {
+	d, hook, path := windowDAL(t, "split pools")
+	api, _, _, _ := newAPITestServerOn(t, d)
+	dalPutTask(t, d, windowOpenTask("T-1"))
+	windowBoundWorker(t, d, "T-1")
+	dashboard := apiTestListen(t, api, "")
+	behind := windowWriteBehind(t, hook, path, "FROM member WHERE id = ? AND kind = 'outsource'",
+		`UPDATE member SET roster_status = 'removed', released_ts = 1800000000
+		 WHERE id = 'ow-abc123' AND roster_status != 'removed'`)
+
+	windowWithin(t, "dismissOutsourceWorkerByID", func() {
+		api.dismissOutsourceWorkerByID("ow-abc123", 1790000000, "owner")
+	})
+
+	hook.wantFiredOnce(t)
+	inGap := behind.landed(t)
+	w, err := d.GetOutsourceWorker("ow-abc123")
+	if err != nil || w == nil {
+		t.Fatalf("GetOutsourceWorker: %#v, %v", w, err)
+	}
+	if inGap {
+		if w.Status != WorkerStatusReleased || w.ReleasedTS != 1800000000 {
+			t.Fatalf("released first by someone else: status %q released_ts %v, want released at 1800000000",
+				w.Status, w.ReleasedTS)
+		}
+		dashboard.wantFrames()
+		return
+	}
+	if w.Status != WorkerStatusReleased || w.ReleasedTS != 1790000000 {
+		t.Fatalf("status %q released_ts %v, want released at 1790000000", w.Status, w.ReleasedTS)
+	}
+}
+
+// Releasing a task's workers reads the workers it flips inside the transaction
+// that flips them: one released by someone else in between is neither released
+// again nor reported as released by this call.
+func TestAWorkerReleasedAfterTheTaskSweepReadItIsNotReleasedAgain(t *testing.T) {
+	d, hook, path := windowDAL(t, "split pools")
+	dalPutTask(t, d, windowOpenTask("T-1"))
+	windowBoundWorker(t, d, "T-1")
+	behind := windowWriteBehind(t, hook, path, "linked_task_id = ?",
+		`UPDATE member SET roster_status = 'removed', released_ts = 1800000000
+		 WHERE id = 'ow-abc123' AND roster_status != 'removed'`)
+
+	var flipped []OutsourceWorker
+	var err error
+	windowWithin(t, "ReleaseWorkersForTask", func() { flipped, err = d.ReleaseWorkersForTask("T-1", 1790000000) })
+	if err != nil {
+		t.Fatalf("ReleaseWorkersForTask: %v", err)
+	}
+
+	hook.wantFiredOnce(t)
+	inGap := behind.landed(t)
+	w, err := d.GetOutsourceWorker("ow-abc123")
+	if err != nil || w == nil {
+		t.Fatalf("GetOutsourceWorker: %#v, %v", w, err)
+	}
+	wantTS, wantFlipped := 1790000000.0, 1
+	if inGap {
+		wantTS, wantFlipped = 1800000000.0, 0
+	}
+	if w.Status != WorkerStatusReleased || w.ReleasedTS != wantTS || len(flipped) != wantFlipped {
+		t.Fatalf("released by someone else in the gap: %v; status %q released_ts %v, %d reported released; "+
+			"want released_ts %v, %d reported", inGap, w.Status, w.ReleasedTS, len(flipped), wantTS, wantFlipped)
+	}
+}

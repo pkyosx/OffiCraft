@@ -824,36 +824,42 @@ func (d *DAL) PutOutsourceWorker(w OutsourceWorker) error {
 	return d.PutMember(memberFromWorker(w))
 }
 
-func (d *DAL) ReleaseWorkersForTask(taskID string, now float64) ([]OutsourceWorker, error) {
-	rows, err := d.rdb.Query(`SELECT `+memberColumns+` FROM member
-		WHERE kind = 'outsource' AND linked_task_id = ? AND roster_status != ?
-		ORDER BY created_ts, id`, taskID, RosterStatusRemoved)
+// The releases read the rows they flip inside the transaction that flips them,
+// so a worker released by someone else in between is neither released again
+// nor reported as released here.
+func (d *DAL) ReleaseWorkersForTask(taskID string, now float64) (flipped []OutsourceWorker, err error) {
+	err = d.inTx(func(tx *writeTx) error {
+		flipped = nil
+		rows, err := tx.Query(`SELECT `+memberColumns+` FROM member
+			WHERE kind = 'outsource' AND linked_task_id = ? AND roster_status != ?
+			ORDER BY created_ts, id`, taskID, RosterStatusRemoved)
+		if err != nil {
+			return err
+		}
+		for rows.Next() {
+			m, err := scanMember(rows)
+			if err != nil {
+				rows.Close()
+				return err
+			}
+			flipped = append(flipped, workerFromMember(m))
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return err
+		}
+		rows.Close()
+		for i := range flipped {
+			flipped[i].Status = WorkerStatusReleased
+			flipped[i].ReleasedTS = now
+			if err := releaseWorkerOn(tx, flipped[i].ID, now); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 	if err != nil {
 		return nil, err
-	}
-	var flipped []OutsourceWorker
-	for rows.Next() {
-		m, err := scanMember(rows)
-		if err != nil {
-			rows.Close()
-			return nil, err
-		}
-		flipped = append(flipped, workerFromMember(m))
-	}
-	if err := rows.Err(); err != nil {
-		rows.Close()
-		return nil, err
-	}
-	rows.Close()
-	for i := range flipped {
-		flipped[i].Status = WorkerStatusReleased
-		flipped[i].ReleasedTS = now
-		if _, err := d.wdb.Exec(`
-			UPDATE member SET roster_status = ?, released_ts = ?
-			WHERE id = ? AND kind = 'outsource'`,
-			RosterStatusRemoved, now, flipped[i].ID); err != nil {
-			return nil, err
-		}
 	}
 	return flipped, nil
 }
@@ -861,23 +867,33 @@ func (d *DAL) ReleaseWorkersForTask(taskID string, now float64) ([]OutsourceWork
 // ReleaseWorkerByID releases by worker id, not task: the deferred handover
 // dismiss must fire only the predecessor, and after an outsource→outsource
 // takeover the successor is already bound to the same task_id.
-func (d *DAL) ReleaseWorkerByID(workerID string, now float64) (*OutsourceWorker, error) {
-	w, err := d.GetOutsourceWorker(workerID)
+func (d *DAL) ReleaseWorkerByID(workerID string, now float64) (released *OutsourceWorker, err error) {
+	err = d.inTx(func(tx *writeTx) error {
+		released = nil
+		w, err := getOutsourceWorkerOn(tx, workerID)
+		if err != nil || w == nil || w.Status == WorkerStatusReleased {
+			return err
+		}
+		w.Status = WorkerStatusReleased
+		w.ReleasedTS = now
+		if err := releaseWorkerOn(tx, workerID, now); err != nil {
+			return err
+		}
+		released = w
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
-	if w == nil || w.Status == WorkerStatusReleased {
-		return nil, nil
-	}
-	w.Status = WorkerStatusReleased
-	w.ReleasedTS = now
-	if _, err := d.wdb.Exec(`
+	return released, nil
+}
+
+func releaseWorkerOn(ex sqlExecer, workerID string, now float64) error {
+	_, err := ex.Exec(`
 		UPDATE member SET roster_status = ?, released_ts = ?
 		WHERE id = ? AND kind = 'outsource'`,
-		RosterStatusRemoved, now, workerID); err != nil {
-		return nil, err
-	}
-	return w, nil
+		RosterStatusRemoved, now, workerID)
+	return err
 }
 
 type TaskManual struct {
