@@ -577,11 +577,11 @@ func TestHandleRelocateOutsourceWorkerApiOutsourceWorkersIdRelocatePost(t *testi
 	})
 
 	for _, shape := range windowDALShapes {
-		t.Run(shape+": a wind-down whose row write fails leaves no epoch behind", func(t *testing.T) {
+		t.Run(shape+": a wind-down whose epoch write fails leaves no epoch behind", func(t *testing.T) {
 			d, _, _ := windowDAL(t, shape)
 			_, h, _, owner := windowMemberDoorStack(t, d, windowMemberDoor{worker: true, live: true})
-			// The relocate writes the row once itself; the wind-down it opens is the second.
-			apiTestFailWholeRowWriteAfter(t, d, "ow-abc123", 1)
+			windowRefuse(t, d, "refuse_epoch", `BEFORE UPDATE OF refocus_since ON member WHEN NEW.id = 'ow-abc123'`,
+				"the epoch write fails")
 
 			status, data := windowJSON(t, h, "POST", "/api/members/ow-abc123/relocate", owner, `{"machine_id":"m-server-self"}`)
 

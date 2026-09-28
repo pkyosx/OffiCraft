@@ -2194,6 +2194,58 @@ func TestOpenOwnerOpHandover(t *testing.T) {
 		contractor.wantFrames(apiTestHandoverDelta(2, "online", apiTestOffboardNotice, "server"))
 	})
 
+	t.Run("a stop the owner pressed after the caller read the worker stands: nothing is stamped", func(t *testing.T) {
+		api, _, d, _, w := wsWorkerSpawnFixture(t, WorkerStatusActive)
+		read := w
+		read.DesiredState = DesiredStateOnline
+		if err := d.PutOutsourceWorker(read); err != nil {
+			t.Fatalf("PutOutsourceWorker: %v", err)
+		}
+		wsOnline(t, api, "ow-abc123", ServerSelfHost)
+		apiTestListen(t, api, ServerSelfHost)
+		if _, err := d.wdb.Exec(`UPDATE member SET desired_state = 'offline', stopping_since = 1800000000
+			WHERE id = 'ow-abc123'`); err != nil {
+			t.Fatalf("the owner's stop: %v", err)
+		}
+
+		api.outsourceMu.Lock()
+		opened := api.openOwnerOpHandover(read, ownerOpRelocate)
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "opened", any(opened), any(false))
+		got := apiTestMemberRow(t, d, "ow-abc123")
+		if got.DesiredState != DesiredStateOffline || got.StoppingSince != 1800000000 ||
+			got.RefocusOp != "" || got.RefocusSince != 0 {
+			t.Fatalf("row after the handover: desired_state %q stopping_since %v refocus_op %q refocus_since %v; "+
+				"want offline, 1800000000, no refocus", got.DesiredState, got.StoppingSince, got.RefocusOp, got.RefocusSince)
+		}
+	})
+
+	t.Run("a column changed after the caller read the worker is not written back from the caller's copy", func(t *testing.T) {
+		api, _, d, _, w := wsWorkerSpawnFixture(t, WorkerStatusActive)
+		read := w
+		read.DesiredState = DesiredStateOnline
+		if err := d.PutOutsourceWorker(read); err != nil {
+			t.Fatalf("PutOutsourceWorker: %v", err)
+		}
+		wsOnline(t, api, "ow-abc123", ServerSelfHost)
+		apiTestListen(t, api, ServerSelfHost)
+		if _, err := d.wdb.Exec(`UPDATE member SET last_machine_id = 'm-elsewhere' WHERE id = 'ow-abc123'`); err != nil {
+			t.Fatalf("the later write: %v", err)
+		}
+
+		api.outsourceMu.Lock()
+		opened := api.openOwnerOpHandover(read, ownerOpRelocate)
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "opened", any(opened), any(true))
+		got := apiTestMemberRow(t, d, "ow-abc123")
+		if got.LastMachineID != "m-elsewhere" || got.RefocusOp != "relocate" || got.RefocusSince <= 0 {
+			t.Fatalf("row after the handover: last_machine_id %q refocus_op %q refocus_since %v; "+
+				"want m-elsewhere, relocate, stamped", got.LastMachineID, got.RefocusOp, got.RefocusSince)
+		}
+	})
+
 	t.Run("a worker already further along the ladder keeps its own deadline: nothing is stamped and nothing is fanned", func(t *testing.T) {
 		api, h, d, owner, w := wsWorkerSpawnFixture(t, WorkerStatusActive)
 		accelerated := w
@@ -2202,6 +2254,9 @@ func TestOpenOwnerOpHandover(t *testing.T) {
 		accelerated.RefocusOp = "accelerated_stop"
 		if err := d.PutOutsourceWorker(accelerated); err != nil {
 			t.Fatalf("PutOutsourceWorker: %v", err)
+		}
+		if err := d.SetMemberWindDownAnchors("ow-abc123", 0, 0, 500, "accelerated_stop"); err != nil {
+			t.Fatalf("SetMemberWindDownAnchors: %v", err)
 		}
 		wsOnline(t, api, "ow-abc123", ServerSelfHost)
 		dashboard := apiTestListen(t, api, "")
@@ -2215,7 +2270,8 @@ func TestOpenOwnerOpHandover(t *testing.T) {
 		wsWantWardenFrames(t, api, ServerSelfHost)
 		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
 			"status": "active", "presence": "online", "desired_state": "online",
-			"machine": "m-server-self",
+			"machine": "m-server-self", "refocus_since": 500.0, "refocus_op": "accelerated_stop",
+			"refocus_deadline": 620.0,
 		}))
 		dashboard.wantFrames()
 	})

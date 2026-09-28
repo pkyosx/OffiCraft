@@ -907,25 +907,51 @@ func (s *apiServer) workerHasStateToFlush(w OutsourceWorker) bool {
 // there is no 120 s ceiling. A persist fault falls back to the immediate path.
 // Returns false when the ladder refuses; not a failure — the change is already on
 // the row. Callers hold s.outsourceMu.
+//
+// The epoch is decided on the row as it is inside the transaction, not on the
+// caller's copy, and only the four anchor columns are written: a stop or
+// release that landed after the caller read the row stands, and no other
+// column goes back to the caller's copy. The copy still carries the rest of w
+// onward — a runtime/model change reaches here before its new values are
+// stored, and a start that follows must use them.
 func (s *apiServer) openOwnerOpHandover(w OutsourceWorker, op string) bool {
-	proj := memberFromWorker(w)
-	if !armRefocusEpoch(&proj, op, nowSecs()) {
-		outsourceLog("%s %s (%s): wind-down NOT re-opened — this worker is already "+
-			"further along the ladder (下線 → 加速 → 強制) at %s; the change is saved "+
-			"and the open wind-down keeps its own deadline",
-			op, w.ID, w.Codename, w.RefocusOp)
+	armed := false
+	var fresh OutsourceWorker
+	var proj Member
+	err := s.dal.inTx(func(tx *writeTx) error {
+		cur, err := getOutsourceWorkerOn(tx, w.ID)
+		if err != nil || cur == nil {
+			return err
+		}
+		fresh = *cur
+		if cur.Status == WorkerStatusReleased || cur.DesiredState == DesiredStateOffline {
+			return nil
+		}
+		proj = memberFromWorker(*cur)
+		if !armRefocusEpoch(&proj, op, nowSecs()) {
+			return nil
+		}
+		armed = true
+		return setMemberWindDownAnchorsOn(tx, cur.ID, proj.StoppingSince, proj.StoppedSince,
+			proj.RefocusSince, proj.RefocusOp)
+	})
+	if err != nil {
+		outsourceLog("%s %s (%s): refocus stamp failed (%v) — falling back to an "+
+			"immediate handover so the owner's action is not lost", op, w.ID, w.Codename, err)
+		s.handOverWorkerNow(w, op)
+		return true
+	}
+	if !armed {
+		outsourceLog("%s %s (%s): wind-down NOT re-opened — this worker is stopped, "+
+			"released, or already further along the ladder (下線 → 加速 → 強制) at %q; "+
+			"the change is saved and what is open keeps its own deadline",
+			op, w.ID, w.Codename, fresh.RefocusOp)
 		return false
 	}
 	w.RefocusSince = proj.RefocusSince
 	w.RefocusOp = proj.RefocusOp
 	w.StoppingSince = proj.StoppingSince
 	w.StoppedSince = proj.StoppedSince
-	if err := s.dal.inTx(func(tx *writeTx) error { return persistWorkerRowOn(tx, w) }); err != nil {
-		outsourceLog("%s %s (%s): refocus stamp failed (%v) — falling back to an "+
-			"immediate handover so the owner's action is not lost", op, w.ID, w.Codename, err)
-		s.handOverWorkerNow(w, op)
-		return true
-	}
 	s.openWorkerHandoverGrace(w, triggerServer)
 	if grace, clocked := recycleGraceFor(op, s.reconcileConfigLive()); clocked {
 		outsourceLog("%s %s (%s): wind-down opened — collect on stopped-report or +%.0fs",
