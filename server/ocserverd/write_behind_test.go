@@ -234,3 +234,37 @@ func TestAWorkerReleasedAfterTheTaskSweepReadItIsNotReleasedAgain(t *testing.T) 
 			"want released_ts %v, %d reported", inGap, w.Status, w.ReleasedTS, len(flipped), wantTS, wantFlipped)
 	}
 }
+
+// The outsource tick binds a fresh worker to a queued task on the task row as
+// it is when the bind lands: a task the owner closed after the tick read it
+// stays closed, and no worker is left behind for it.
+func TestATaskClosedAfterTheOutsourceTickReadItIsNotAssigned(t *testing.T) {
+	d, hook, path := windowDAL(t, "split pools")
+	api, _, _, _ := newAPITestServerOn(t, d)
+	dalPutManual(t, d, TaskManual{
+		TypeKey: "tm-scheduler", DisplayName: "Scheduler manual", Fields: "[]",
+		Assignee: `{"kind":"outsource","runtime":"codex","model":"gpt-5","effort":"high"}`,
+	})
+	outsourceSchedTestQueuedTask(t, d, "T-1", "tm-scheduler")
+	behind := windowWriteBehind(t, hook, path, "FROM task WHERE id = ?", windowClosedSQL, "T-1")
+
+	windowWithin(t, "runOutsourceTick", func() { api.runOutsourceTick(1700000100) })
+
+	hook.wantFiredOnce(t)
+	behind.landed(t)
+	got, err := d.GetTask("T-1")
+	if err != nil || got == nil {
+		t.Fatalf("GetTask: %#v, %v", got, err)
+	}
+	if got.Status != TaskStatusDone || got.ClosedTS != 1800000000 || got.ExecutorID != "" {
+		t.Fatalf("task after the tick: status %q closed_ts %v executor %q; want done, 1800000000, unbound",
+			got.Status, got.ClosedTS, got.ExecutorID)
+	}
+	workers, err := d.ListOutsourceWorkers()
+	if err != nil {
+		t.Fatalf("ListOutsourceWorkers: %v", err)
+	}
+	if len(workers) != 0 {
+		t.Fatalf("workers minted for a closed task: %d, want 0", len(workers))
+	}
+}
