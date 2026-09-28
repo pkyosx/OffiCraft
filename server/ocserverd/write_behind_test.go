@@ -551,3 +551,135 @@ func TestTakingBackACloseOutLatchLeavesTheOtherAnchorsAsTheRowHasThem(t *testing
 			got.StoppedSince, got.StoppingSince, got.RefocusOp)
 	}
 }
+
+// The roster passes are shared with staff: a staff member the owner stops
+// after the reconcile tick read the roster keeps that stop, and the context
+// stamp the tick decided on the older read is not written.
+func TestAnOwnerStopAfterTheReconcileTickReadAStaffMemberIsNotOverwrittenByAContextStamp(t *testing.T) {
+	d, hook, path := windowDAL(t, "split pools")
+	api, _, _, _ := newAPITestServerOn(t, d)
+	if _, err := d.wdb.Exec(`UPDATE member SET desired_state = 'online' WHERE id = 'kip'`); err != nil {
+		t.Fatalf("prepare kip: %v", err)
+	}
+	session, err := api.hub.Connect("kip", ServerSelfHost)
+	if err != nil {
+		t.Fatalf("hub.Connect: %v", err)
+	}
+	t.Cleanup(func() { api.hub.Disconnect(session) })
+	api.gauge.Set("kip", map[string]any{"context_pct": 55.0, "context_pct_ts": 19900.0, "boot_ts": 19000.0})
+	behind := windowWriteBehind(t, hook, path, "FROM member ORDER BY name",
+		`UPDATE member SET desired_state = 'offline', stopping_since = 1800000000 WHERE id = 'kip'`)
+
+	windowWithin(t, "runReconcileTick", func() { api.runReconcileTick(20000) })
+
+	hook.wantFiredOnce(t)
+	if !behind.landed(t) {
+		t.Fatalf("premise: the owner's stop did not land inside the tick's gap")
+	}
+	got := apiTestMemberRow(t, d, "kip")
+	if got.DesiredState != DesiredStateOffline || got.StoppingSince != 1800000000 ||
+		got.RefocusOp != "" || got.RefocusSince != 0 {
+		t.Fatalf("after the tick: desired_state %q stopping_since %v refocus_op %q refocus_since %v; "+
+			"want offline, 1800000000, no stamp", got.DesiredState, got.StoppingSince, got.RefocusOp, got.RefocusSince)
+	}
+}
+
+// The token-expiry pass, like the context pass, decides from the tick's read:
+// an owner stop that lands after that read stands and no 停止 is stamped over it.
+func TestAnOwnerStopAfterTheTickReadAWorkerIsNotOverwrittenByATokenExpiryStamp(t *testing.T) {
+	const now = 1700000000.0
+	d, hook, path := windowDAL(t, "split pools")
+	api, _, _ := windowTickWorker(t, d, `desired_state = 'online', desired_machine_id = 'm-server-self',
+		session_boot_ts = 1699397000`)
+	session, err := api.hub.Connect("ow-abc123", ServerSelfHost)
+	if err != nil {
+		t.Fatalf("hub.Connect: %v", err)
+	}
+	t.Cleanup(func() { api.hub.Disconnect(session) })
+	behind := windowWriteBehind(t, hook, path, "FROM member WHERE kind = 'outsource'",
+		`UPDATE member SET desired_state = 'offline', stopping_since = 1800000000 WHERE id = 'ow-abc123'`)
+
+	windowWithin(t, "runOutsourceTick", func() { api.runOutsourceTick(now) })
+
+	hook.wantFiredOnce(t)
+	if !behind.landed(t) {
+		t.Fatalf("premise: the owner's stop did not land inside the tick's gap")
+	}
+	got := apiTestMemberRow(t, d, "ow-abc123")
+	if got.DesiredState != DesiredStateOffline || got.StoppingSince != 1800000000 ||
+		got.RefocusOp != "" || got.RefocusSince != 0 {
+		t.Fatalf("after the tick: desired_state %q stopping_since %v refocus_op %q refocus_since %v; "+
+			"want offline, 1800000000, no stamp", got.DesiredState, got.StoppingSince, got.RefocusOp, got.RefocusSince)
+	}
+}
+
+// CONTROL for the test above: with nothing in the gap, the same tick stamps the
+// token-expiry 停止 an hour before the session's credential runs out.
+func TestATickStampsATokenExpiryWindDownOnALiveWorker(t *testing.T) {
+	d, _, _ := windowDAL(t, "split pools")
+	api, _, _ := windowTickWorker(t, d, `desired_state = 'online', desired_machine_id = 'm-server-self',
+		session_boot_ts = 1699397000`)
+	session, err := api.hub.Connect("ow-abc123", ServerSelfHost)
+	if err != nil {
+		t.Fatalf("hub.Connect: %v", err)
+	}
+	t.Cleanup(func() { api.hub.Disconnect(session) })
+
+	windowWithin(t, "runOutsourceTick", func() { api.runOutsourceTick(1700000000) })
+
+	got := apiTestMemberRow(t, d, "ow-abc123")
+	if got.RefocusOp != refocusOpTokenExpiry || got.RefocusSince != 1700000000 {
+		t.Fatalf("after the tick: refocus_op %q refocus_since %v; want %s at 1700000000",
+			got.RefocusOp, got.RefocusSince, refocusOpTokenExpiry)
+	}
+}
+
+// A connection is recorded as where a member landed only while it matches the
+// member's pin. When the owner re-pins the member after the connection was
+// judged, it is no longer the member's session on its machine, and
+// last_machine_id keeps what it was.
+func TestAConnectionJudgedAgainstAPinTheOwnerMovedIsNotRecordedAsTheLanding(t *testing.T) {
+	d, hook, path := windowDAL(t, "split pools")
+	api, _, _ := windowTickWorker(t, d,
+		`desired_state = 'online', desired_machine_id = 'm-server-self', last_machine_id = 'm-before'`)
+	behind := windowWriteBehind(t, hook, path, "FROM member WHERE id = ?",
+		`UPDATE member SET desired_machine_id = 'm-other' WHERE id = 'ow-abc123'`)
+
+	windowWithin(t, "stampLandedMachine", func() { api.stampLandedMachine("ow-abc123", ServerSelfHost) })
+
+	hook.wantFiredOnce(t)
+	if !behind.landed(t) {
+		t.Fatalf("premise: the re-pin did not land inside the gap")
+	}
+	got := apiTestMemberRow(t, d, "ow-abc123")
+	if got.DesiredMachineID != "m-other" || got.LastMachineID != "m-before" {
+		t.Fatalf("desired_machine_id %q last_machine_id %q; want m-other, m-before", got.DesiredMachineID, got.LastMachineID)
+	}
+}
+
+// The queued-restart spend belongs to the converged-offline edge. A worker that
+// is no longer desired offline when the spend is judged is not spent: no
+// "the stop has landed — starting again" receipt, anchors and flag as the row
+// has them.
+func TestAQueuedRestartIsNotSpentOnAWorkerNoLongerDesiredOffline(t *testing.T) {
+	d, hook, path := windowDAL(t, "split pools")
+	api, _, _ := windowTickWorker(t, d,
+		`desired_state = 'offline', restart_after_stop = 1, stopping_since = 1700000000,
+		 stopped_since = 1700000100`)
+	behind := windowWriteBehind(t, hook, path, "FROM member WHERE kind = 'outsource'",
+		`UPDATE member SET desired_state = 'online' WHERE id = 'ow-abc123'`)
+
+	windowWithin(t, "runOutsourceTick", func() { api.runOutsourceTick(1700000500) })
+
+	hook.wantFiredOnce(t)
+	if !behind.landed(t) {
+		t.Fatalf("premise: the write did not land inside the tick's gap")
+	}
+	got := apiTestMemberRow(t, d, "ow-abc123")
+	if !got.RestartAfterStop || strings.HasPrefix(got.LastOpReason, spawnReasonHeldDown+":") ||
+		got.StoppingSince != 1700000000 || got.StoppedSince != 1700000100 {
+		t.Fatalf("restart_after_stop %v last_op_reason %q stopping_since %v stopped_since %v; "+
+			"want still queued, no held_down spend receipt, 1700000000, 1700000100",
+			got.RestartAfterStop, got.LastOpReason, got.StoppingSince, got.StoppedSince)
+	}
+}
