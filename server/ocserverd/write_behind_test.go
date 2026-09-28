@@ -3,6 +3,7 @@ package main
 import (
 	"database/sql"
 	"errors"
+	"net/http"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -266,5 +267,92 @@ func TestATaskClosedAfterTheOutsourceTickReadItIsNotAssigned(t *testing.T) {
 	}
 	if len(workers) != 0 {
 		t.Fatalf("workers minted for a closed task: %d, want 0", len(workers))
+	}
+}
+
+// windowTickWorker is a worker in the state a test's tick acts on, over the
+// windowDAL, with nothing else about it moving.
+func windowTickWorker(t *testing.T, d *DAL, set string) (*apiServer, http.Handler, string) {
+	t.Helper()
+	api, h, _, owner := newAPITestServerOn(t, d)
+	apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
+	if _, err := d.wdb.Exec(`UPDATE member SET ` + set + ` WHERE id = 'ow-abc123'`); err != nil {
+		t.Fatalf("prepare the worker: %v", err)
+	}
+	return api, h, owner
+}
+
+// A 停止 whose session is confirmed gone is collected by the tick from its list
+// read of the worker. An owner 喚醒 that lands after that read stands: the
+// collect writes its latch and nothing else.
+func TestAnOwnerWakeAfterTheTickReadAStoppedWorkerIsNotUndoneByTheCollect(t *testing.T) {
+	d, hook, path := windowDAL(t, "split pools")
+	api, _, _ := windowTickWorker(t, d,
+		`desired_state = 'offline', stopping_since = 1700000000, stopped_since = 0, last_machine_id = 'm-old'`)
+	api.outsourceMu.Lock()
+	api.workerOfflineSince["ow-abc123"] = 1700000000
+	api.outsourceMu.Unlock()
+	behind := windowWriteBehind(t, hook, path, "FROM member WHERE kind = 'outsource'",
+		`UPDATE member SET desired_state = 'online', stopping_since = 0, last_machine_id = 'm-new'
+		 WHERE id = 'ow-abc123'`)
+
+	windowWithin(t, "runOutsourceTick", func() { api.runOutsourceTick(1700000500) })
+
+	hook.wantFiredOnce(t)
+	if !behind.landed(t) {
+		t.Fatalf("premise: the owner's wake did not land inside the tick's gap")
+	}
+	got := apiTestMemberRow(t, d, "ow-abc123")
+	if got.StoppedSince <= 0 {
+		t.Fatalf("premise: the tick did not collect the stop (stopped_since %v)", got.StoppedSince)
+	}
+	if got.DesiredState != DesiredStateOnline || got.StoppingSince != 0 || got.LastMachineID != "m-new" {
+		t.Fatalf("after the collect: desired_state %q stopping_since %v last_machine_id %q; "+
+			"want online, 0, m-new (the owner's wake)", got.DesiredState, got.StoppingSince, got.LastMachineID)
+	}
+}
+
+// A queued 重啟 is spent by the tick once the stop has converged. A release
+// that lands after the tick's list read stands: the spend neither revives the
+// worker nor rewrites its row.
+func TestAWorkerReleasedAfterTheTickReadItDoesNotSpendItsQueuedRestart(t *testing.T) {
+	d, hook, path := windowDAL(t, "split pools")
+	api, _, _ := windowTickWorker(t, d,
+		`desired_state = 'offline', restart_after_stop = 1, stopping_since = 1700000000,
+		 stopped_since = 1700000100`)
+	behind := windowWriteBehind(t, hook, path, "FROM member WHERE kind = 'outsource'",
+		`UPDATE member SET roster_status = 'removed', released_ts = 1800000000 WHERE id = 'ow-abc123'`)
+
+	windowWithin(t, "runOutsourceTick", func() { api.runOutsourceTick(1700000500) })
+
+	hook.wantFiredOnce(t)
+	if !behind.landed(t) {
+		t.Fatalf("premise: the release did not land inside the tick's gap")
+	}
+	got := apiTestMemberRow(t, d, "ow-abc123")
+	if got.RosterStatus != RosterStatusRemoved || got.ReleasedTS != 1800000000 ||
+		got.DesiredState != DesiredStateOffline || !got.RestartAfterStop {
+		t.Fatalf("after the tick: roster_status %q released_ts %v desired_state %q restart_after_stop %v; "+
+			"want removed, 1800000000, offline, still queued", got.RosterStatus, got.ReleasedTS,
+			got.DesiredState, got.RestartAfterStop)
+	}
+}
+
+// CONTROL for the test above: with nothing landing in the gap, the same tick
+// spends the queued restart.
+func TestATickSpendsAQueuedRestartOnceTheStopHasConverged(t *testing.T) {
+	d, _, _ := windowDAL(t, "split pools")
+	api, _, _ := windowTickWorker(t, d,
+		`desired_state = 'offline', restart_after_stop = 1, stopping_since = 1700000000,
+		 stopped_since = 1700000100`)
+
+	windowWithin(t, "runOutsourceTick", func() { api.runOutsourceTick(1700000500) })
+
+	got := apiTestMemberRow(t, d, "ow-abc123")
+	if got.RosterStatus != RosterStatusActive || got.DesiredState != DesiredStateOnline || got.RestartAfterStop ||
+		got.StoppingSince != 0 || got.StoppedSince != 0 || got.LastOp != "start" {
+		t.Fatalf("after the tick: roster_status %q desired_state %q restart_after_stop %v stopping_since %v "+
+			"stopped_since %v last_op %q; want active, online, spent, 0, 0, start", got.RosterStatus,
+			got.DesiredState, got.RestartAfterStop, got.StoppingSince, got.StoppedSince, got.LastOp)
 	}
 }

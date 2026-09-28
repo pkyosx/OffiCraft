@@ -303,6 +303,11 @@ func clearWorkerRestartIntent(w *OutsourceWorker) {
 // filters, in the tick's own loop. Same session-gone and forced_stop_at rules as
 // consumeRestartAfterStop.
 // Callers hold s.outsourceMu.
+//
+// w is the tick's list read. The spend is judged again on the row inside the
+// transaction that writes it, and is applied to that row: an owner verb, a
+// release or a landing written since the list read stands. On success *w is
+// the row as written.
 func (s *apiServer) consumeWorkerRestartAfterStop(w *OutsourceWorker, now float64) bool {
 	if !w.RestartAfterStop || w.Status == WorkerStatusReleased {
 		return false
@@ -310,28 +315,47 @@ func (s *apiServer) consumeWorkerRestartAfterStop(w *OutsourceWorker, now float6
 	if w.DesiredState != DesiredStateOffline || s.hub.IsOnline(w.ID) {
 		return false
 	}
-	w.RestartAfterStop = false
-	w.DesiredState = DesiredStateOnline
-	clearWindDownRow(windDownAnchorRowOfWorker(w))
-	w.WakingSince = 0.0
-	stampOpReceipt(&w.LastOp, &w.LastOpOK, &w.LastOpLog, &w.LastOpReason, &w.LastOpAt,
-		reconcileCmdStart, spawnReasonHeldDown+": the stop the owner asked for has "+
-			"landed — starting this worker again, which is what the 重啟 he pressed "+
-			"during the wind-down asked for", now)
-	// BEFORE the row write, as in consumeRestartAfterStop.
-	if err := s.persistWorkerWindDownAnchors(*w); err != nil {
-		outsourceLog("%s: queued restart-after-stop anchor persist failed: %v", w.ID, err)
+	spent := false
+	var cur *OutsourceWorker
+	err := s.dal.inTx(func(tx *writeTx) error {
+		var err error
+		if cur, err = getOutsourceWorkerOn(tx, w.ID); err != nil || cur == nil {
+			return err
+		}
+		if !cur.RestartAfterStop || cur.Status == WorkerStatusReleased ||
+			cur.DesiredState != DesiredStateOffline {
+			return nil
+		}
+		cur.RestartAfterStop = false
+		cur.DesiredState = DesiredStateOnline
+		clearWindDownRow(windDownAnchorRowOfWorker(cur))
+		cur.WakingSince = 0.0
+		stampOpReceipt(&cur.LastOp, &cur.LastOpOK, &cur.LastOpLog, &cur.LastOpReason, &cur.LastOpAt,
+			reconcileCmdStart, spawnReasonHeldDown+": the stop the owner asked for has "+
+				"landed — starting this worker again, which is what the 重啟 he pressed "+
+				"during the wind-down asked for", now)
+		if err := setMemberWindDownAnchorsOn(tx, cur.ID, cur.StoppingSince, cur.StoppedSince,
+			cur.RefocusSince, cur.RefocusOp); err != nil {
+			return err
+		}
+		if err := putMemberOn(tx, memberFromWorker(*cur)); err != nil {
+			return err
+		}
+		if err := setMemberLastOpOn(tx, cur.ID, cur.LastOp, cur.LastOpOK, cur.LastOpLog,
+			cur.LastOpReason, cur.LastOpAt); err != nil {
+			return err
+		}
+		spent = true
+		return nil
+	})
+	if err != nil {
+		outsourceLog("%s: queued restart-after-stop persist failed, nothing landed: %v", w.ID, err)
 		return false
 	}
-	if err := s.dal.PutOutsourceWorker(*w); err != nil {
-		outsourceLog("%s: queued restart-after-stop persist failed: %v", w.ID, err)
+	if !spent {
 		return false
 	}
-	// Not fatal, as in consumeRestartAfterStop.
-	if err := s.dal.SetMemberLastOp(w.ID, w.LastOp, w.LastOpOK, w.LastOpLog,
-		w.LastOpReason, w.LastOpAt); err != nil {
-		outsourceLog("%s: queued restart-after-stop receipt persist failed: %v", w.ID, err)
-	}
+	*w = *cur
 	s.publishOutsourceWorker(*w, triggerServer)
 	return true
 }

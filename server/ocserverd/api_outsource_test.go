@@ -1274,7 +1274,7 @@ func TestHandleStopOutsourceWorkerApiOutsourceWorkersIdStopPost(t *testing.T) {
 	})
 
 	for _, shape := range windowDALShapes {
-		t.Run(shape+": a close-out whose row write fails leaves no stopped latch behind and sends no kill", func(t *testing.T) {
+		t.Run(shape+": a close-out whose latch write fails leaves no stopped latch behind and sends no kill", func(t *testing.T) {
 			d, _, _ := windowDAL(t, shape)
 			api, h, _, owner := newAPITestServerOn(t, d)
 			apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
@@ -1283,8 +1283,8 @@ func TestHandleStopOutsourceWorkerApiOutsourceWorkersIdStopPost(t *testing.T) {
 			}
 			apiTestListen(t, api, ServerSelfHost)
 			wsWantWardenFrames(t, api, ServerSelfHost)
-			// The stop writes the row once itself; the close-out latch is the second.
-			apiTestFailWholeRowWriteAfter(t, d, "ow-abc123", 1)
+			windowRefuse(t, d, "refuse_latch", `BEFORE UPDATE OF stopped_since ON member
+				WHEN NEW.id = 'ow-abc123' AND NEW.stopped_since > 0`, "the latch write fails")
 
 			status, data := windowJSON(t, h, "POST", "/api/members/ow-abc123/deactivate", owner, "")
 

@@ -331,6 +331,13 @@ func setMemberWindDownAnchorsOn(ex sqlExecer, id string, stoppingSince, stoppedS
 	return err
 }
 
+// setMemberStoppedSinceOn moves the close-out latch alone, for a writer whose
+// copy of the other three anchors may be older than the row.
+func setMemberStoppedSinceOn(ex sqlExecer, id string, stoppedSince float64) error {
+	_, err := ex.Exec(`UPDATE member SET stopped_since = ? WHERE id = ?`, stoppedSince, id)
+	return err
+}
+
 func (d *DAL) SetMemberDesiredMachineID(id, machineID string) error {
 	return setMemberDesiredMachineIDOn(d.wdb, id, machineID)
 }

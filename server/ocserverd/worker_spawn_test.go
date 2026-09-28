@@ -1706,11 +1706,13 @@ func TestConcludeWorkerStoppedReport(t *testing.T) {
 	// answers the pre-latch anchor the rollback would restore.
 	wsReported := func(t *testing.T, api *apiServer, d *DAL, desired string) float64 {
 		t.Helper()
+		if _, err := d.wdb.Exec(`UPDATE member SET desired_state = ? WHERE id = 'ow-abc123'`, desired); err != nil {
+			t.Fatalf("set desired_state: %v", err)
+		}
 		w, err := d.GetOutsourceWorker("ow-abc123")
 		if err != nil || w == nil {
 			t.Fatalf("GetOutsourceWorker: %v (%v)", w, err)
 		}
-		w.DesiredState = desired
 		api.outsourceMu.Lock()
 		defer api.outsourceMu.Unlock()
 		_, _, prior := decideStoppedReport(windDownAnchorRowOfWorker(w), 1000)

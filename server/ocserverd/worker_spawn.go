@@ -1175,34 +1175,38 @@ func (s *apiServer) stopCollectedWorkerForHandover(w *OutsourceWorker, prior flo
 	return true, nil
 }
 
-// latchWorkerStopped lands the anchors and the row in one transaction: a latch
-// left behind a failed row write would make the retry read a non-zero prior as
-// already_reported, and the kill would never be sent. On failure the in-memory
-// latch is put back to prior as well. Callers hold s.outsourceMu.
+// latchWorkerStopped writes stopped_since — the one column the collect
+// changed — and nothing else from the caller's copy, which is usually the
+// tick's list read: every other column, the other three anchors included, stays
+// as the row has it. On failure the in-memory latch is put back to prior.
+// Callers hold s.outsourceMu.
 func (s *apiServer) latchWorkerStopped(w *OutsourceWorker, prior float64, reason, trigger string) error {
-	m := memberFromWorker(*w)
+	var fresh *OutsourceWorker
 	if err := s.dal.inTx(func(tx *writeTx) error {
-		if err := setMemberWindDownAnchorsOn(tx, m.ID, m.StoppingSince, m.StoppedSince,
-			m.RefocusSince, m.RefocusOp); err != nil {
+		if err := setMemberStoppedSinceOn(tx, w.ID, w.StoppedSince); err != nil {
 			return err
 		}
-		return writeMemberOn(tx, m)
+		var err error
+		if fresh, err = getOutsourceWorkerOn(tx, w.ID); err == nil && fresh == nil {
+			err = errNotFound
+		}
+		return err
 	}); err != nil {
 		outsourceLog("collect %s (%s): stopped latch failed, nothing landed — the retry "+
 			"is a first report again: %v", w.ID, reason, err)
 		w.StoppedSince = prior
 		return err
 	}
-	s.publishMemberPatch(m, trigger)
+	s.publishMemberPatch(memberFromWorker(*fresh), trigger)
 	return nil
 }
 
-// restoreWorkerStoppedLatch writes the anchor column only: the stopped-report
-// path drops outsourceMu across the kill, so a whole-row write would revert
+// restoreWorkerStoppedLatch writes the latch column only: the stopped-report
+// path drops outsourceMu across the kill, so any wider write would revert
 // concurrent changes. Callers hold s.outsourceMu.
 func (s *apiServer) restoreWorkerStoppedLatch(w *OutsourceWorker, prior float64, reason string) {
 	w.StoppedSince = prior
-	if err := s.persistWorkerWindDownAnchors(*w); err != nil {
+	if err := setMemberStoppedSinceOn(s.dal.wdb, w.ID, prior); err != nil {
 		outsourceLog("collect %s (%s): latch-rollback ANCHOR write failed: %v",
 			w.ID, reason, err)
 	}
