@@ -458,7 +458,7 @@ func TestQueueWorkerRestartAfterStop(t *testing.T) {
 	}
 }
 
-func TestQueueWorkerRestartAfterStopOnRow(t *testing.T) {
+func TestAnOwnerVerbOnAStoppedWorkerQueuesItsRestartOnTheRow(t *testing.T) {
 	const receipt = "held_down: the relocate was saved and this member is still being stopped — the stop in flight is honoured as-is, and it will be started again once it is down"
 	stopped := func(t *testing.T) (*apiServer, http.Handler, *DAL, string) {
 		t.Helper()
@@ -487,15 +487,28 @@ func TestQueueWorkerRestartAfterStopOnRow(t *testing.T) {
 		dashboard.wantFrames()
 	})
 
+	// The two below go through the owner-verb funnel with the caller's copy read
+	// BEFORE the later write, which is how the verbs reach it.
+	readStopped := func(t *testing.T, d *DAL) OutsourceWorker {
+		t.Helper()
+		w, err := d.GetOutsourceWorker("ow-abc123")
+		if err != nil || w == nil {
+			t.Fatalf("GetOutsourceWorker: %v (%v)", w, err)
+		}
+		return *w
+	}
+
 	t.Run("a column written after the caller read the worker is not written back", func(t *testing.T) {
 		api, _, d, _ := stopped(t)
+		read := readStopped(t, d)
 		if _, err := d.wdb.Exec(`UPDATE member SET last_machine_id = 'm-elsewhere' WHERE id = 'ow-abc123'`); err != nil {
 			t.Fatalf("the later write: %v", err)
 		}
 
-		if _, queued, err := api.queueWorkerRestartAfterStopOnRow("ow-abc123", ownerOpRelocate, 1234.5); err != nil || !queued {
-			t.Fatalf("queue: queued %v err %v", queued, err)
-		}
+		api.outsourceMu.Lock()
+		api.respawnWorkerForOwnerOp(read, ownerOpRelocate)
+		api.outsourceMu.Unlock()
+
 		if got := apiTestMemberRow(t, d, "ow-abc123"); got.LastMachineID != "m-elsewhere" || !got.RestartAfterStop {
 			t.Fatalf("last_machine_id %q restart_after_stop %v; want m-elsewhere, queued", got.LastMachineID, got.RestartAfterStop)
 		}
@@ -503,16 +516,16 @@ func TestQueueWorkerRestartAfterStopOnRow(t *testing.T) {
 
 	t.Run("a worker released after the caller read it is left released and nothing is queued", func(t *testing.T) {
 		api, _, d, _ := stopped(t)
+		read := readStopped(t, d)
 		if _, err := d.wdb.Exec(`UPDATE member SET roster_status = 'removed', released_ts = 1800000000
 			WHERE id = 'ow-abc123'`); err != nil {
 			t.Fatalf("release: %v", err)
 		}
 
-		fresh, queued, err := api.queueWorkerRestartAfterStopOnRow("ow-abc123", ownerOpRelocate, 1234.5)
+		api.outsourceMu.Lock()
+		api.respawnWorkerForOwnerOp(read, ownerOpRelocate)
+		api.outsourceMu.Unlock()
 
-		if err != nil || queued || fresh != nil {
-			t.Fatalf("queue on a released worker: fresh %+v queued %v err %v; want nothing", fresh, queued, err)
-		}
 		got := apiTestMemberRow(t, d, "ow-abc123")
 		if got.RosterStatus != RosterStatusRemoved || got.RestartAfterStop || got.LastOp != "" {
 			t.Fatalf("roster_status %q restart_after_stop %v last_op %q; want removed, not queued, no receipt",
