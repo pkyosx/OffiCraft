@@ -231,6 +231,11 @@ func memberRestartQueuedReceipt(op string) string {
 //
 // forced_stop_at is deliberately NOT cleared: it records that the PREVIOUS session
 // was cut off and is never cleared by a boot (migrations/00057).
+//
+// m is the tick's read. The spend is judged again on the row inside the
+// transaction that writes it, and is applied to that row: an owner verb or a
+// dismissal written since the tick read the member stands. On success *m is the
+// row as written.
 func (s *apiServer) consumeRestartAfterStop(m *Member, now float64) bool {
 	if !m.RestartAfterStop || m.RosterStatus != RosterStatusActive {
 		return false
@@ -238,28 +243,41 @@ func (s *apiServer) consumeRestartAfterStop(m *Member, now float64) bool {
 	if m.DesiredState != DesiredStateOffline || s.hub.IsOnline(m.ID) {
 		return false
 	}
-	m.RestartAfterStop = false
-	m.DesiredState = DesiredStateOnline
-	clearWindDownRow(windDownAnchorRowOfMember(m))
-	m.WakingSince = 0.0
-	stampMemberOpReceipt(m, spawnReasonHeldDown+": the stop the owner asked for has "+
-		"landed — starting this member again, which is what the 重啟 he pressed "+
-		"during the wind-down asked for", now)
-	// Anchors BEFORE the row write: putMember fans the delta the agent's wind-down
-	// hook reads, and these are the columns it reads.
-	if err := s.persistMemberWindDownAnchors(*m); err != nil {
-		reconcileLog("%s: queued restart-after-stop anchor persist failed: %v", m.ID, err)
+	var spent *Member
+	err := s.dal.inTx(func(tx *writeTx) error {
+		cur, err := getMemberOn(tx, m.ID)
+		if err != nil || cur == nil {
+			return err
+		}
+		if !cur.RestartAfterStop || cur.RosterStatus != RosterStatusActive ||
+			cur.DesiredState != DesiredStateOffline {
+			return nil
+		}
+		cur.RestartAfterStop = false
+		cur.DesiredState = DesiredStateOnline
+		clearWindDownRow(windDownAnchorRowOfMember(cur))
+		cur.WakingSince = 0.0
+		stampMemberOpReceipt(cur, spawnReasonHeldDown+": the stop the owner asked for has "+
+			"landed — starting this member again, which is what the 重啟 he pressed "+
+			"during the wind-down asked for", now)
+		if err := persistMemberRowOn(tx, *cur); err != nil {
+			return err
+		}
+		if err := persistMemberOpReceiptOn(tx, *cur); err != nil {
+			return err
+		}
+		spent = cur
+		return nil
+	})
+	if err != nil {
+		reconcileLog("%s: queued restart-after-stop persist failed, nothing landed: %v", m.ID, err)
 		return false
 	}
-	if err := s.putMember(*m, triggerServer); err != nil {
-		reconcileLog("%s: queued restart-after-stop persist failed: %v", m.ID, err)
+	if spent == nil {
 		return false
 	}
-	// Receipt after the row write (it explains a stored change). Not fatal: the
-	// member IS up, and returning false would re-arm an intent already spent.
-	if err := s.persistMemberOpReceipt(*m, triggerServer); err != nil {
-		reconcileLog("%s: restart-after-stop receipt persist failed: %v", m.ID, err)
-	}
+	*m = *spent
+	s.publishMemberPatch(*m, triggerServer)
 	reconcileLog("%s: stop converged and a 重啟 was queued behind it — desired_state "+
 		"back to online", m.ID)
 	return true

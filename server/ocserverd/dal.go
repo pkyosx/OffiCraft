@@ -293,7 +293,11 @@ func (d *DAL) ZeroMemberBankedCost(id string) (float64, error) {
 }
 
 func (d *DAL) SetMemberHandoverNoticedTS(id string, ts float64) error {
-	_, err := d.wdb.Exec(`UPDATE member SET handover_noticed_ts = ? WHERE id = ?`, ts, id)
+	return setMemberHandoverNoticedTSOn(d.wdb, id, ts)
+}
+
+func setMemberHandoverNoticedTSOn(ex sqlExecer, id string, ts float64) error {
+	_, err := ex.Exec(`UPDATE member SET handover_noticed_ts = ? WHERE id = ?`, ts, id)
 	return err
 }
 
@@ -308,12 +312,20 @@ func setMemberForcedStopAtOn(ex sqlExecer, id string, ts float64) error {
 }
 
 func (d *DAL) SetMemberSessionBootTS(id string, ts float64) error {
-	_, err := d.wdb.Exec(`UPDATE member SET session_boot_ts = ? WHERE id = ?`, ts, id)
+	return setMemberSessionBootTSOn(d.wdb, id, ts)
+}
+
+func setMemberSessionBootTSOn(ex sqlExecer, id string, ts float64) error {
+	_, err := ex.Exec(`UPDATE member SET session_boot_ts = ? WHERE id = ?`, ts, id)
 	return err
 }
 
 func (d *DAL) SetMemberWakingSince(id string, ts float64) error {
-	_, err := d.wdb.Exec(`UPDATE member SET waking_since = ? WHERE id = ?`, ts, id)
+	return setMemberWakingSinceOn(d.wdb, id, ts)
+}
+
+func setMemberWakingSinceOn(ex sqlExecer, id string, ts float64) error {
+	_, err := ex.Exec(`UPDATE member SET waking_since = ? WHERE id = ?`, ts, id)
 	return err
 }
 

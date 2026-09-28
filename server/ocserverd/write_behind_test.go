@@ -683,3 +683,163 @@ func TestAQueuedRestartIsNotSpentOnAWorkerNoLongerDesiredOffline(t *testing.T) {
 			got.RestartAfterStop, got.LastOpReason, got.StoppingSince, got.StoppedSince)
 	}
 }
+
+// windowStaff is the plain staff member Kip in the state a test acts on, over
+// the windowDAL, with nothing else about him moving.
+func windowStaff(t *testing.T, d *DAL, set string) *apiServer {
+	t.Helper()
+	api, _, _, _ := newAPITestServerOn(t, d)
+	if _, err := d.wdb.Exec(`UPDATE member SET ` + set + ` WHERE id = '` + apiTestPlainAgentID + `'`); err != nil {
+		t.Fatalf("prepare the member: %v", err)
+	}
+	return api
+}
+
+func windowConnect(t *testing.T, api *apiServer, memberID, machineID string) {
+	t.Helper()
+	session, err := api.hub.Connect(memberID, machineID)
+	if err != nil {
+		t.Fatalf("hub.Connect(%q): %v", memberID, err)
+	}
+	t.Cleanup(func() { api.hub.Disconnect(session) })
+}
+
+// An instant reconcile of a staff member decides from its read of the row and
+// then stamps it. Whatever another writer lands after that read stands: each
+// stamp is judged on, and written onto, the row as it is when the stamp lands.
+func TestAStaffReconcileStampDoesNotUndoAWriteThatLandedAfterItsRead(t *testing.T) {
+	const ownerStop = `UPDATE member SET desired_state = 'offline', stopping_since = 1800000000 WHERE id = 'kip'`
+	for _, tc := range []struct {
+		name    string
+		prepare string
+		setup   func(t *testing.T, api *apiServer)
+		behind  string
+		want    func(t *testing.T, got Member)
+	}{
+		{
+			name:    "a queued restart is not spent on a member dismissed since the read",
+			prepare: `desired_state = 'offline', restart_after_stop = 1, stopping_since = 1700000000, stopped_since = 1700000100`,
+			behind:  `UPDATE member SET roster_status = 'removed', released_ts = 1800000000 WHERE id = 'kip'`,
+			want: func(t *testing.T, got Member) {
+				if got.RosterStatus != RosterStatusRemoved || got.ReleasedTS != 1800000000 ||
+					got.DesiredState != DesiredStateOffline || !got.RestartAfterStop || got.LastOp != "" {
+					t.Fatalf("roster_status %q released_ts %v desired_state %q restart_after_stop %v last_op %q; "+
+						"want removed, 1800000000, offline, still queued, no receipt", got.RosterStatus,
+						got.ReleasedTS, got.DesiredState, got.RestartAfterStop, got.LastOp)
+				}
+			},
+		},
+		{
+			name:    "a relocation wind-down is not opened on a member the owner stopped since the read",
+			prepare: `desired_state = 'online', desired_machine_id = 'm-box'`,
+			setup: func(t *testing.T, api *apiServer) {
+				reconcileTestPut(t, api.dal, Member{ID: "m-box", Name: "Box", Kind: KindWarden})
+				windowConnect(t, api, "kip", ServerSelfHost)
+			},
+			behind: ownerStop,
+			want: func(t *testing.T, got Member) {
+				if got.DesiredState != DesiredStateOffline || got.StoppingSince != 1800000000 ||
+					got.RefocusSince != 0 || got.RefocusOp != "" {
+					t.Fatalf("desired_state %q stopping_since %v refocus_since %v refocus_op %q; "+
+						"want offline, 1800000000, no wind-down", got.DesiredState, got.StoppingSince,
+						got.RefocusSince, got.RefocusOp)
+				}
+			},
+		},
+		{
+			name:    "a back-off stamp yields to a wake timeout recorded since the read",
+			prepare: `desired_state = 'online'`,
+			setup: func(t *testing.T, api *apiServer) {
+				api.setReconcileState("kip", reconcileState{BackoffUntil: 4000000000})
+			},
+			behind: `UPDATE member SET last_op = 'start', last_op_ok = 0, last_op_log = '',
+				last_op_reason = 'wake_timeout: a newer attempt', last_op_at = 1800000000 WHERE id = 'kip'`,
+			want: func(t *testing.T, got Member) {
+				if got.LastOpReason != "wake_timeout: a newer attempt" || got.LastOpAt != 1800000000 {
+					t.Fatalf("receipt: reason %q at %v; want the wake timeout at 1800000000",
+						got.LastOpReason, got.LastOpAt)
+				}
+			},
+		},
+		{
+			name:    "a placement stamp names the machine the owner chose since the read",
+			prepare: `desired_state = 'online', desired_machine_id = 'm-gone'`,
+			behind:  `UPDATE member SET desired_machine_id = 'm-other' WHERE id = 'kip'`,
+			want: func(t *testing.T, got Member) {
+				const want = "machine_unavailable: machine 'm-other' is not an active machine — " +
+					"choose another one (改機器); no other machine is substituted"
+				if got.LastOp != "start" || got.LastOpReason != want {
+					t.Fatalf("receipt: last_op %q reason %q; want start, %q", got.LastOp, got.LastOpReason, want)
+				}
+			},
+		},
+		{
+			name:    "a wake timeout is stamped without undoing an owner stop that landed since the read",
+			prepare: `desired_state = 'online', waking_since = 1700000000`,
+			setup: func(t *testing.T, api *apiServer) {
+				api.setReconcileState("kip", reconcileState{LastCommand: reconcileCmdStart, LastCommandAt: 1700000000})
+			},
+			behind: ownerStop,
+			want: func(t *testing.T, got Member) {
+				const reason = "wake_timeout: the START was dispatched but the agent never came online within " +
+					"the start window — check that claude runs and is logged in on the target machine " +
+					"(warden log: ocwarden.out.log)"
+				if got.DesiredState != DesiredStateOffline || got.StoppingSince != 1800000000 ||
+					got.WakingSince != 0 || got.LastOp != "start" || got.LastOpReason != reason {
+					t.Fatalf("desired_state %q stopping_since %v waking_since %v last_op %q reason %q; "+
+						"want offline, 1800000000, 0, start, %q", got.DesiredState, got.StoppingSince,
+						got.WakingSince, got.LastOp, got.LastOpReason, reason)
+				}
+			},
+		},
+		{
+			name:    "a converged member's failed receipt is not cleared over a success recorded since the read",
+			prepare: `desired_state = 'online', last_op = 'start', last_op_ok = 0, last_op_reason = 'wake_timeout: old', last_op_at = 1700000000`,
+			setup: func(t *testing.T, api *apiServer) {
+				windowConnect(t, api, "kip", "")
+			},
+			behind: `UPDATE member SET last_op = 'start', last_op_ok = 1, last_op_log = '', last_op_reason = '',
+				last_op_at = 1800000000 WHERE id = 'kip'`,
+			want: func(t *testing.T, got Member) {
+				if got.LastOp != "start" || got.LastOpOK == nil || !*got.LastOpOK || got.LastOpAt != 1800000000 {
+					t.Fatalf("receipt: last_op %q ok %v at %v; want the success at 1800000000",
+						got.LastOp, got.LastOpOK, got.LastOpAt)
+				}
+			},
+		},
+		{
+			name:    "an unset runtime is not resolved over the runtime the owner chose since the read",
+			prepare: `desired_state = 'online', desired_machine_id = 'm-box', runtime = ''`,
+			setup: func(t *testing.T, api *apiServer) {
+				reconcileTestPut(t, api.dal, Member{ID: "m-box", Name: "Box", Kind: KindWarden})
+				api.telemetry.Set("m-box", map[string]any{"runtimes": map[string]any{
+					"claude": map[string]any{"installed": true, "logged_in": true},
+				}})
+				windowConnect(t, api, "m-box", "")
+			},
+			behind: `UPDATE member SET runtime = 'codex' WHERE id = 'kip'`,
+			want: func(t *testing.T, got Member) {
+				if got.Runtime != RuntimeCodex {
+					t.Fatalf("runtime %q, want codex (the owner's choice)", got.Runtime)
+				}
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d, hook, path := windowDAL(t, "split pools")
+			api := windowStaff(t, d, tc.prepare)
+			if tc.setup != nil {
+				tc.setup(t, api)
+			}
+			behind := windowWriteBehind(t, hook, path, "FROM member WHERE id = ?", tc.behind)
+
+			windowWithin(t, "reconcileMemberNow", func() { api.reconcileMemberNow("kip") })
+
+			hook.wantFiredOnce(t)
+			if !behind.landed(t) {
+				t.Fatalf("premise: the other write did not land between the reconcile's read and its stamp")
+			}
+			tc.want(t, apiTestMemberRow(t, d, "kip"))
+		})
+	}
+}

@@ -355,9 +355,7 @@ func TestConsumeRestartAfterStop(t *testing.T) {
 		want.LastOpAt = 1234.5
 		apiTestWantEqual(t, "member in memory", m, want)
 		apiTestWantEqual(t, "member in database", apiTestMemberRow(t, d, m.ID), want)
-		frame := apiTestMemberFrame(1, "patch", m.ID,
-			apiTestMemberPayload(m.ID, "Kip", "active", "online"), "server")
-		dashboard.wantFrames(frame, apiTestMemberFrame(2, "patch", m.ID,
+		dashboard.wantFrames(apiTestMemberFrame(1, "patch", m.ID,
 			apiTestMemberPayload(m.ID, "Kip", "active", "online"), "server"))
 	})
 
