@@ -466,9 +466,7 @@ func (s *apiServer) clearSessionState(id string) {
 		delete(entry, "context_pct_ts")
 		s.gauge.Set(id, entry)
 	}
-	s.handoverNoticedMu.Lock()
-	delete(s.handoverNoticed, id)
-	s.handoverNoticedMu.Unlock()
+	s.handoverNoticed.Delete(id)
 	s.ctxGateDiagLast.Delete(id)
 	// The anchor and the notice claim clear together or not at all. Each is
 	// judged on its own: an early return on the anchor alone would leave a stale
@@ -594,16 +592,11 @@ func (s *apiServer) restoreRefusedStartAnchor(id, rpc string, ok *bool, reason s
 	if current > 0 && m.HandoverNoticedTS == current {
 		claim = snap.bootTS
 	}
-	s.handoverNoticedMu.Lock()
 	if claim != 0 {
-		if s.handoverNoticed == nil {
-			s.handoverNoticed = map[string]float64{}
-		}
-		s.handoverNoticed[id] = claim
+		s.handoverNoticed.Store(id, claim)
 	} else {
-		delete(s.handoverNoticed, id)
+		s.handoverNoticed.Delete(id)
 	}
-	s.handoverNoticedMu.Unlock()
 	if claim != m.HandoverNoticedTS {
 		if err := s.dal.SetMemberHandoverNoticedTS(id, claim); err != nil {
 			fmt.Fprintf(os.Stderr, "[sse] handover-notice claim restore failed for %q: %v\n", id, err)

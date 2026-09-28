@@ -125,15 +125,14 @@ type apiServer struct {
 	codexCompactionThreshold int // the FINAL round (handover)
 	codexNoticeRound         int // the FIRST, soft notice round
 
-	handoverNoticed map[string]float64
-
-	handoverNoticedMu txguard.Mutex
+	// handoverNoticed: agent id → the boot_ts whose notice was claimed.
+	handoverNoticed sync.Map
 
 	startClearedAnchors map[string]sessionAnchorSnapshot
 	// startClearedAnchorsMu is held for the whole of clearSessionBootTS,
 	// clearSessionBootTSForStart and restoreRefusedStartAnchor. Their callers may
-	// hold outsourceMu or reconcileMu; under this lock only leaf locks are taken
-	// (gauge, handoverNoticedMu, ctxGateDiagMu) plus DAL calls.
+	// hold outsourceMu or reconcileMu; under this lock only the gauge's leaf lock
+	// is taken, plus DAL calls.
 	startClearedAnchorsMu txguard.Mutex
 
 	// ctxGateDiagLast: actor id → ctxGateDiagState.
@@ -547,22 +546,17 @@ func (s *apiServer) claimHandoverNotice(agentID string, record map[string]any) b
 }
 
 func (s *apiServer) cachedHandoverClaim(agentID string) float64 {
-	s.handoverNoticedMu.Lock()
-	defer s.handoverNoticedMu.Unlock()
-	return s.handoverNoticed[agentID]
+	if v, ok := s.handoverNoticed.Load(agentID); ok {
+		return v.(float64)
+	}
+	return 0
 }
 
+// rememberHandoverClaim is true for exactly one of any number of concurrent
+// callers claiming the same bootTS: the Swap that replaced something else.
 func (s *apiServer) rememberHandoverClaim(agentID string, bootTS float64) bool {
-	s.handoverNoticedMu.Lock()
-	defer s.handoverNoticedMu.Unlock()
-	if s.handoverNoticed == nil {
-		s.handoverNoticed = map[string]float64{}
-	}
-	if s.handoverNoticed[agentID] == bootTS {
-		return false
-	}
-	s.handoverNoticed[agentID] = bootTS
-	return true
+	prev, loaded := s.handoverNoticed.Swap(agentID, bootTS)
+	return !loaded || prev.(float64) != bootTS
 }
 
 // handoverNoticeSettled is called FIRST, before the signal is composed: once

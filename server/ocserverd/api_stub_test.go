@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"sync"
 	"testing"
 )
 
@@ -824,6 +825,34 @@ func TestClaimHandoverNotice(t *testing.T) {
 		apiWantValue(t, "the durable claim", any(m.HandoverNoticedTS), any(1800000000.0))
 		apiWantValue(t, "the process-local cache", any(api.cachedHandoverClaim("mira")), any(1800000000.0))
 		apiWantValue(t, "the second claim on the same anchor", any(api.claimHandoverNotice("mira", record)), any(false))
+	})
+
+	t.Run("of eight passes claiming the same anchor at once, exactly one is granted", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		record := asGauge(1800000000)
+		granted := make(chan bool, 8)
+		var group sync.WaitGroup
+		for i := 0; i < 8; i++ {
+			group.Add(1)
+			go func() {
+				defer group.Done()
+				granted <- api.claimHandoverNotice("mira", record)
+			}()
+		}
+		group.Wait()
+		close(granted)
+		n := 0
+		for g := range granted {
+			if g {
+				n++
+			}
+		}
+		apiWantValue(t, "claims granted", any(float64(n)), any(1))
+		m, err := d.GetMember("mira")
+		if err != nil || m == nil {
+			t.Fatalf("GetMember: %v (%v)", m, err)
+		}
+		apiWantValue(t, "the durable claim", any(m.HandoverNoticedTS), any(1800000000.0))
 	})
 
 	t.Run("a genuinely new session brings a new anchor and is entitled to its own notice", func(t *testing.T) {
