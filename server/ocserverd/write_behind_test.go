@@ -119,6 +119,36 @@ func TestABackupFailureRecordedDuringAWatchdogPassSurvivesIt(t *testing.T) {
 	}
 }
 
+// The mirror: the watchdog records a verdict while a scheduled backup's outcome
+// is being noted; the note must not overwrite it with a verdict it computed
+// before that.
+func TestAWatchdogVerdictRecordedWhileAnOutcomeIsNotedSurvivesIt(t *testing.T) {
+	now := time.Date(2026, 9, 8, 12, 0, 0, 0, time.UTC)
+	const stale = `{"code":"stale","detail":"newest scheduled backup is 13h0m0s old (alarm after 12h0m0s)",` +
+		`"since_ts":1788822000,"checked_ts":1788868799,"newest_backup_ts":1788822000}`
+	d, hook, path := windowDAL(t, "split pools")
+	dbPath := filepath.Join(t.TempDir(), "officraft.db")
+	if err := d.PutSetting(settingBackupWatchdogBaseline, "1788000000.000000"); err != nil {
+		t.Fatalf("PutSetting: %v", err)
+	}
+	if err := d.PutSetting(settingBackupHealth,
+		`{"code":"","detail":"","since_ts":0,"checked_ts":1788865200,"newest_backup_ts":1788865200}`); err != nil {
+		t.Fatalf("PutSetting: %v", err)
+	}
+	behind := windowWriteBehind(t, hook, path, "SELECT value FROM setting",
+		`UPDATE setting SET value = ? WHERE key = ?`, stale, settingBackupHealth)
+
+	windowWithin(t, "noteScheduledOutcome", func() {
+		newBackupHealthMonitor(d, dbPath).noteScheduledOutcome(backupResult{}, errors.New("disk full"), now)
+	})
+
+	hook.wantFiredOnce(t)
+	inGap := behind.landed(t)
+	if got := windowSettingText(t, d, settingBackupHealth); got != stale {
+		t.Fatalf("stored verdict (watchdog verdict landed inside the note's gap: %v):\n got %s\nwant %s", inGap, got, stale)
+	}
+}
+
 func windowSettingText(t *testing.T, d *DAL, key string) string {
 	t.Helper()
 	if v := windowSettingNow(t, d, key); v != nil {
