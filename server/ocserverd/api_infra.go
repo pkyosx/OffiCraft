@@ -469,9 +469,7 @@ func (s *apiServer) clearSessionState(id string) {
 	s.handoverNoticedMu.Lock()
 	delete(s.handoverNoticed, id)
 	s.handoverNoticedMu.Unlock()
-	s.ctxGateDiagMu.Lock()
-	delete(s.ctxGateDiagLast, id)
-	s.ctxGateDiagMu.Unlock()
+	s.ctxGateDiagLast.Delete(id)
 	// The anchor and the notice claim clear together or not at all. Each is
 	// judged on its own: an early return on the anchor alone would leave a stale
 	// claim that silences the next session's one notice.

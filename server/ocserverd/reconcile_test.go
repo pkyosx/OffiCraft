@@ -9,7 +9,9 @@ package main
 import (
 	"encoding/json"
 	"reflect"
+	"sort"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -2533,6 +2535,37 @@ func TestNoteContextGateSkip(t *testing.T) {
 		}
 		if got := hubTestStderr(t, func() { api.noteContextGateSkip("kip", "boot-storm", record, 20310) }); got != line("boot-storm", "1310.0") {
 			t.Fatalf("past the window the same gate speaks again:\n got %q\nwant %q", got, line("boot-storm", "1310.0"))
+		}
+	})
+
+	t.Run("actors noted from several goroutines at once each speak once and are each silenced after", func(t *testing.T) {
+		api, _ := reconcileTestServer(t)
+		actors := []string{"a1", "a2", "a3", "a4", "a5", "a6", "a7", "a8"}
+		noteAll := func(now float64) string {
+			return hubTestStderr(t, func() {
+				var group sync.WaitGroup
+				for _, id := range actors {
+					group.Add(1)
+					go func() {
+						defer group.Done()
+						api.noteContextGateSkip(id, "offline", nil, now)
+					}()
+				}
+				group.Wait()
+			})
+		}
+		first := strings.Split(strings.TrimSuffix(noteAll(20000), "\n"), "\n")
+		sort.Strings(first)
+		want := make([]string, 0, len(actors))
+		for _, id := range actors {
+			want = append(want, "[reconcile] recycle: gate skip "+id+" gate=offline pct=- pct_ts=- "+
+				"boot_ts=- boot_secs=- online=false")
+		}
+		if !reflect.DeepEqual(first, want) {
+			t.Fatalf("first round:\n got %q\nwant %q", first, want)
+		}
+		if got := noteAll(20100); got != "" {
+			t.Fatalf("inside the window every actor must be silent, got %q", got)
 		}
 	})
 

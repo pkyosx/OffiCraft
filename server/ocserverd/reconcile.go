@@ -1172,18 +1172,16 @@ type ctxGateDiagState struct {
 // observational. The cell is pruned on the session boundary (clearSessionBootTS).
 // Known gap: the stale stopped_since latch and canPromoteToAcceleratedStop skips stay silent, on
 // inputs that are not on the wire.
+//
+// Two passes racing on one actor may each print the line: the worst case of
+// the unlocked check-then-store is one extra log line.
 func (s *apiServer) noteContextGateSkip(id, gate string, record map[string]any, now float64) {
-	s.ctxGateDiagMu.Lock()
-	if last, seen := s.ctxGateDiagLast[id]; seen && last.gate == gate &&
-		now-last.ts < ctxGateDiagThrottleSecs {
-		s.ctxGateDiagMu.Unlock()
-		return
+	if v, seen := s.ctxGateDiagLast.Load(id); seen {
+		if last := v.(ctxGateDiagState); last.gate == gate && now-last.ts < ctxGateDiagThrottleSecs {
+			return
+		}
 	}
-	if s.ctxGateDiagLast == nil {
-		s.ctxGateDiagLast = map[string]ctxGateDiagState{}
-	}
-	s.ctxGateDiagLast[id] = ctxGateDiagState{ts: now, gate: gate}
-	s.ctxGateDiagMu.Unlock()
+	s.ctxGateDiagLast.Store(id, ctxGateDiagState{ts: now, gate: gate})
 	reconcileLog("recycle: gate skip %s gate=%s pct=%s pct_ts=%s boot_ts=%s "+
 		"boot_secs=%s online=%t", id, gate,
 		gaugeNumForDiag(record, "context_pct"),

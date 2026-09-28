@@ -3,6 +3,7 @@ package main
 import (
 	"io/fs"
 	"net/http"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -135,9 +136,9 @@ type apiServer struct {
 	// (gauge, handoverNoticedMu, ctxGateDiagMu) plus DAL calls.
 	startClearedAnchorsMu txguard.Mutex
 
-	ctxGateDiagLast map[string]ctxGateDiagState
+	// ctxGateDiagLast: actor id → ctxGateDiagState.
+	ctxGateDiagLast sync.Map
 
-	ctxGateDiagMu            txguard.Mutex
 	monitoringRefreshSeconds int
 	// acceleratedGraceSecs is read ONLY through reconcileConfigLive().
 	acceleratedGraceSecs int
