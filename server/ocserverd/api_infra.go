@@ -410,6 +410,14 @@ func (s *apiServer) anchorSessionBoot(memberID string) {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "[sse] session-boot anchor persist failed for %q: %v\n", memberID, err)
 	}
+	// The gauge is read again after the transaction, which may have waited for the write
+	// connection: a report that landed on the entry meanwhile keeps its keys, and only boot_ts is
+	// set here.
+	entry = s.gauge.Get(memberID)
+	if entry == nil {
+		entry = map[string]any{}
+	}
+	gaugeTS, gaugeHas = gaugeBootTS(entry)
 	if err != nil || stored == 0 {
 		if gaugeHas {
 			return

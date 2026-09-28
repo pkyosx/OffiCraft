@@ -1073,3 +1073,78 @@ func TestADispatchedStartKeepsAReceiptThatLandedAfterTheReconcileRead(t *testing
 			got.LastOpReason, got.LastOpAt, got.WakingSince)
 	}
 }
+
+// A START refused because the old session is still alive puts that session's
+// anchor back together with its notice claim, or neither: when the claim cannot
+// be written, the anchor is not restored either.
+func TestARefusedStartRestoreThatCannotWriteTheClaimRestoresNothing(t *testing.T) {
+	api, _, d, _ := newAPITestServer(t)
+	if _, err := d.wdb.Exec(`UPDATE member SET session_boot_ts = 1750000000, handover_noticed_ts = 1750000000
+		WHERE id = 'kip'`); err != nil {
+		t.Fatalf("prepare kip: %v", err)
+	}
+	if _, err := d.wdb.Exec(`CREATE TRIGGER refuse_claim_write BEFORE UPDATE OF handover_noticed_ts ON member
+		BEGIN SELECT RAISE(FAIL, 'the claim write fails'); END`); err != nil {
+		t.Fatalf("create trigger: %v", err)
+	}
+	api.gauge.Set("kip", map[string]any{"boot_ts": 1750000000.0})
+	api.startClearedAnchorsMu.Lock()
+	api.startClearedAnchors = map[string]sessionAnchorSnapshot{"kip": {bootTS: 1700000000, gauge: map[string]any{}}}
+	api.startClearedAnchorsMu.Unlock()
+	refused := false
+
+	api.restoreRefusedStartAnchor("kip", reconcileCmdStart, &refused, spawnClobberReasonPrefix+" a live session holds the slot")
+
+	got := apiTestMemberRow(t, d, "kip")
+	if got.SessionBootTS != 1750000000 || got.HandoverNoticedTS != 1750000000 {
+		t.Fatalf("session_boot_ts %v handover_noticed_ts %v; want both left at 1750000000",
+			got.SessionBootTS, got.HandoverNoticedTS)
+	}
+	apiTestWantEqual(t, "gauge", api.gauge.Get("kip"), map[string]any{"boot_ts": 1750000000.0})
+}
+
+// A reconnect whose gauge carries a different boot_ts from the durable anchor
+// takes the durable one: the gauge is realigned to the row.
+func TestAReconnectRealignsTheGaugeToTheDurableAnchor(t *testing.T) {
+	api, _, d, _ := newAPITestServer(t)
+	if err := d.SetMemberSessionBootTS("kip", 1700000000); err != nil {
+		t.Fatalf("SetMemberSessionBootTS: %v", err)
+	}
+	api.gauge.Set("kip", map[string]any{"boot_ts": 1750000000.0, "context_pct": 12.0})
+
+	api.anchorSessionBoot("kip")
+
+	apiTestWantEqual(t, "gauge", api.gauge.Get("kip"), map[string]any{"boot_ts": 1700000000.0, "context_pct": 12.0})
+	if got := apiTestMemberRow(t, d, "kip").SessionBootTS; got != 1700000000 {
+		t.Fatalf("session_boot_ts %v, want 1700000000", got)
+	}
+}
+
+// A context report that reaches the gauge while the reconnect waits for the
+// write connection is kept: the reconnect sets boot_ts on the entry as it is
+// afterwards, not on the entry it read before waiting.
+func TestAGaugeReportThatLandsWhileTheReconnectWaitsIsKept(t *testing.T) {
+	api, _, d, _ := newAPITestServer(t)
+	if err := d.SetMemberSessionBootTS("kip", 1700000000); err != nil {
+		t.Fatalf("SetMemberSessionBootTS: %v", err)
+	}
+	api.gauge.Set("kip", map[string]any{"boot_ts": 1750000000.0})
+	letGo := windowHoldWriteConn(t, d)
+	before := windowQueuedSoFar(d)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		api.anchorSessionBoot("kip")
+	}()
+	windowAwaitQueued(t, d, before)
+	api.gauge.Set("kip", map[string]any{"boot_ts": 1750000000.0, "context_pct": 12.0, "context_pct_ts": 1750000100.0})
+	letGo()
+	select {
+	case <-done:
+	case <-time.After(windowRequestDeadline):
+		t.Fatalf("anchorSessionBoot did not return within %s", windowRequestDeadline)
+	}
+
+	apiTestWantEqual(t, "gauge", api.gauge.Get("kip"),
+		map[string]any{"boot_ts": 1700000000.0, "context_pct": 12.0, "context_pct_ts": 1750000100.0})
+}
