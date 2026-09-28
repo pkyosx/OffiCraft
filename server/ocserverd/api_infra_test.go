@@ -3496,3 +3496,29 @@ func apiMCP(t *testing.T, h http.Handler, credential, body string) (int, map[str
 	t.Helper()
 	return apiJSON(t, h, "POST", "/api/mcp", credential, body)
 }
+
+// A session boundary clears the durable anchor and the durable notice claim
+// together: when the claim cannot be cleared, the anchor is not cleared either,
+// and a retry clears both.
+func TestASessionBoundaryClearsTheAnchorAndTheNoticeClaimTogether(t *testing.T) {
+	api, _, d, _ := newAPITestServer(t)
+	infraSeedAnchoredSession(t, api, d, "kip")
+	windowRefuse(t, d, "refuse_claim_clear", `BEFORE UPDATE OF handover_noticed_ts ON member WHEN NEW.handover_noticed_ts = 0`,
+		"the claim clear fails")
+
+	api.clearSessionBootTS("kip")
+
+	if m := infraTestMember(t, d, "kip"); m.SessionBootTS != 1700000000 || m.HandoverNoticedTS != 1700000000 {
+		t.Fatalf("after a failed clear: anchor %v, claim %v; want both still 1700000000",
+			m.SessionBootTS, m.HandoverNoticedTS)
+	}
+
+	if _, err := d.wdb.Exec(`DROP TRIGGER refuse_claim_clear`); err != nil {
+		t.Fatalf("drop trigger: %v", err)
+	}
+	api.clearSessionBootTS("kip")
+
+	if m := infraTestMember(t, d, "kip"); m.SessionBootTS != 0 || m.HandoverNoticedTS != 0 {
+		t.Fatalf("after the retry: anchor %v, claim %v; want both 0", m.SessionBootTS, m.HandoverNoticedTS)
+	}
+}

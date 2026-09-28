@@ -472,22 +472,25 @@ func (s *apiServer) clearSessionState(id string) {
 	s.ctxGateDiagMu.Lock()
 	delete(s.ctxGateDiagLast, id)
 	s.ctxGateDiagMu.Unlock()
-	m, err := s.dal.GetMember(id)
-	if err != nil || m == nil {
-		return
-	}
-	if m.SessionBootTS != 0 {
-		if err := s.dal.SetMemberSessionBootTS(id, 0); err != nil {
-			fmt.Fprintf(os.Stderr, "[sse] session-boot anchor clear failed for %q: %v\n", id, err)
-		}
-	}
-	// 🔴 Tested separately from the anchor: the two columns are not written in one
-	// transaction, and an early return on the anchor alone would leave a stale
+	// The anchor and the notice claim clear together or not at all. Each is
+	// judged on its own: an early return on the anchor alone would leave a stale
 	// claim that silences the next session's one notice.
-	if m.HandoverNoticedTS != 0 {
-		if err := s.dal.SetMemberHandoverNoticedTS(id, 0); err != nil {
-			fmt.Fprintf(os.Stderr, "[sse] handover-notice claim clear failed for %q: %v\n", id, err)
+	if err := s.dal.inTx(func(tx *writeTx) error {
+		m, err := getMemberOn(tx, id)
+		if err != nil || m == nil {
+			return err
 		}
+		if m.SessionBootTS != 0 {
+			if err := s.dal.SetMemberSessionBootTS(id, 0); err != nil {
+				return err
+			}
+		}
+		if m.HandoverNoticedTS != 0 {
+			return s.dal.SetMemberHandoverNoticedTS(id, 0)
+		}
+		return nil
+	}); err != nil {
+		fmt.Fprintf(os.Stderr, "[sse] session-boot anchor and handover-notice claim clear failed for %q, neither cleared: %v\n", id, err)
 	}
 }
 
