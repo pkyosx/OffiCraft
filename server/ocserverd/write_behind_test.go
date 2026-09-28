@@ -496,3 +496,28 @@ func TestAReceiptLandedAfterTheWorkerReceiptWriterReadIsNotOverwritten(t *testin
 		})
 	}
 }
+
+// Taking back a close-out latch whose kill went nowhere moves the latch alone:
+// anchors another writer set since the collect read the worker stay.
+func TestTakingBackACloseOutLatchLeavesTheOtherAnchorsAsTheRowHasThem(t *testing.T) {
+	d, _, _ := windowDAL(t, "split pools")
+	api, _, _ := windowTickWorker(t, d, `desired_state = 'offline', stopping_since = 1700000000, stopped_since = 1700000300`)
+	read, err := d.GetOutsourceWorker("ow-abc123")
+	if err != nil || read == nil {
+		t.Fatalf("GetOutsourceWorker: %v (%v)", read, err)
+	}
+	if _, err := d.wdb.Exec(`UPDATE member SET stopping_since = 1800000000, refocus_op = 'accelerated_stop'
+		WHERE id = 'ow-abc123'`); err != nil {
+		t.Fatalf("the later write: %v", err)
+	}
+
+	api.outsourceMu.Lock()
+	api.restoreWorkerStoppedLatch(read, 0, "stop-offline")
+	api.outsourceMu.Unlock()
+
+	got := apiTestMemberRow(t, d, "ow-abc123")
+	if got.StoppedSince != 0 || got.StoppingSince != 1800000000 || got.RefocusOp != "accelerated_stop" {
+		t.Fatalf("stopped_since %v stopping_since %v refocus_op %q; want 0, 1800000000, accelerated_stop",
+			got.StoppedSince, got.StoppingSince, got.RefocusOp)
+	}
+}
