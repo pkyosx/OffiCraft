@@ -286,8 +286,21 @@ func (s *apiServer) wakeAssistantStep(
 		online = run.wardenOnline(ServerSelfHost)
 	}
 
-	mira, err := s.dal.GetMember(seedMiraID)
-	if err != nil || mira == nil {
+	// Read and written in one transaction: the wake lands on the row as it is,
+	// not on a copy other writers may have moved past.
+	var mira *Member
+	err := s.dal.inTx(func(tx *writeTx) error {
+		cur, err := getMemberOn(tx, seedMiraID)
+		if err != nil || cur == nil {
+			return err
+		}
+		cur.StoppingSince = 0.0
+		cur.WakingSince = 0.0
+		cur.DesiredState = DesiredStateOnline
+		mira = cur
+		return persistMemberRowOn(tx, *cur)
+	})
+	if err == nil && mira == nil {
 		steps = append(steps, onboardingStepDTO{
 			Name: onboardingStepWakeAssistant,
 			Code: onboardingCodeAssistantMissing,
@@ -296,18 +309,7 @@ func (s *apiServer) wakeAssistantStep(
 		})
 		return s.finishOnboarding(report, steps)
 	}
-	mira.StoppingSince = 0.0
-	mira.WakingSince = 0.0
-	mira.DesiredState = DesiredStateOnline
-	if err := s.persistMemberWindDownAnchors(*mira); err != nil {
-		steps = append(steps, onboardingStepDTO{
-			Name:   onboardingStepWakeAssistant,
-			Code:   onboardingCodeWakeNotRecorded,
-			Reason: "could not record the assistant's wind-down anchors: " + err.Error(),
-		})
-		return s.finishOnboarding(report, steps)
-	}
-	if err := s.putMember(*mira, triggerServer); err != nil {
+	if err != nil {
 		steps = append(steps, onboardingStepDTO{
 			Name:   onboardingStepWakeAssistant,
 			Code:   onboardingCodeWakeNotRecorded,
@@ -315,6 +317,7 @@ func (s *apiServer) wakeAssistantStep(
 		})
 		return s.finishOnboarding(report, steps)
 	}
+	s.publishMemberPatch(*mira, triggerServer)
 	// POSITIVE determination: did a START go out (or is she already online)?
 	// Listing failure modes (`dec.DispatchUnlanded || !online`) missed one —
 	// an unbuildable start frame makes reconcileOne downgrade to none WITHOUT

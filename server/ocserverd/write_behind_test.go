@@ -843,3 +843,63 @@ func TestAStaffReconcileStampDoesNotUndoAWriteThatLandedAfterItsRead(t *testing.
 		})
 	}
 }
+
+// First-run onboarding wakes the seeded assistant from its read of her row. A
+// dismissal that lands after that read stands.
+func TestOnboardingDoesNotReviveAnAssistantDismissedAfterItsRead(t *testing.T) {
+	d, hook, path := windowDAL(t, "split pools")
+	api, _, _, _ := newAPITestServerOn(t, d)
+	api.noReconcile = true
+	run := onboardingRunner{
+		wardenInstalled: func() bool { return true },
+		wardenOnline:    func(string) bool { return true },
+		sleep:           func(time.Duration) {},
+		now:             func() float64 { return 100 },
+		waitBudget:      time.Second,
+	}
+	behind := windowWriteBehind(t, hook, path, "FROM member WHERE id = ?",
+		`UPDATE member SET roster_status = 'removed', released_ts = 1800000000 WHERE id = ?`, seedMiraID)
+
+	windowWithin(t, "runFirstRunOnboarding", func() {
+		api.runFirstRunOnboarding(run, onboardingReportDTO{StartedAt: 10})
+	})
+
+	hook.wantFiredOnce(t)
+	if !behind.landed(t) {
+		t.Fatalf("premise: the dismissal did not land between onboarding's read and its wake")
+	}
+	got := apiTestMemberRow(t, d, seedMiraID)
+	if got.RosterStatus != RosterStatusRemoved || got.ReleasedTS != 1800000000 {
+		t.Fatalf("assistant after onboarding: roster_status %q released_ts %v; want removed, 1800000000",
+			got.RosterStatus, got.ReleasedTS)
+	}
+}
+
+// A lapsed receipt is stamped on a staff member by the tick. The member delta
+// that follows describes the row as it is once the stamp lands, including an
+// owner 活化 written after the stamp's read.
+func TestAReceiptMissingStampPublishesTheRowAsItIsAfterTheStamp(t *testing.T) {
+	d, hook, path := windowDAL(t, "split pools")
+	api := windowStaff(t, d, `desired_state = 'offline'`)
+	api.armReceiptWatch("kip", reconcileCmdStop, ServerSelfHost, 1700000000)
+	dashboard := apiTestListen(t, api, "")
+	behind := windowWriteBehind(t, hook, path, "FROM member WHERE id = ?",
+		`UPDATE member SET desired_state = 'online', stopping_since = 0 WHERE id = 'kip'`)
+
+	windowWithin(t, "runReconcileTick", func() { api.runReconcileTick(1700000100) })
+
+	hook.wantFiredOnce(t)
+	if !behind.landed(t) {
+		t.Fatalf("premise: the 活化 did not land between the stamp's read and its write")
+	}
+	got := apiTestMemberRow(t, d, "kip")
+	const reason = "receipt_missing: the stop was handed to machine \"m-server-self\" but no receipt came " +
+		"back within 90s — the op may or may not have run; this row's last state is UNKNOWN, not failed. " +
+		"Suspect the machine's link to the server (the receipt POST) before suspecting the op itself"
+	if got.DesiredState != DesiredStateOnline || got.LastOp != "stop" || got.LastOpReason != reason {
+		t.Fatalf("row: desired_state %q last_op %q reason %q; want online, stop, %q",
+			got.DesiredState, got.LastOp, got.LastOpReason, reason)
+	}
+	dashboard.wantFrames(apiTestMemberFrame(1, "patch", "kip",
+		apiTestMemberPayload("kip", "Kip", "active", "online"), "server"))
+}
