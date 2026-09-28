@@ -302,7 +302,7 @@ func (s *apiServer) authMFAOffered() bool {
 
 // 🔴 There is deliberately NO read-only accessor handing out the secret and the
 // replay floor together: a read-then-write pair lets two concurrent logins with
-// the SAME code both pass. Verify and spend live in one write-locked seam,
+// the SAME code both pass. Verify and spend live in one seam under settingsWriteMu,
 // verifyAndSpendTOTP.
 func (s *apiServer) authMFAEnrolled() bool {
 	s.settingsMu.RLock()
