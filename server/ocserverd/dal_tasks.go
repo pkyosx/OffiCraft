@@ -123,8 +123,10 @@ func (d *DAL) ListTasks() ([]Task, error) {
 	return out, rows.Err()
 }
 
-func (d *DAL) GetTask(id string) (*Task, error) {
-	row := d.rdb.QueryRow(`SELECT `+taskColumns+` FROM task WHERE id = ?`, id)
+func (d *DAL) GetTask(id string) (*Task, error) { return getTaskOn(d.rdb, id) }
+
+func getTaskOn(q sqlRowQuerier, id string) (*Task, error) {
+	row := q.QueryRow(`SELECT `+taskColumns+` FROM task WHERE id = ?`, id)
 	t, err := scanTask(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
@@ -353,23 +355,21 @@ func (d *DAL) AddTaskDep(taskID, blockedBy string) error {
 	return err
 }
 
-func (d *DAL) ReplaceTaskDeps(taskID string, blockedBy []string) error {
-	tx, err := d.wdb.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback() //nolint:errcheck // no-op after Commit
-	if _, err := tx.Exec(`DELETE FROM task_dep WHERE task_id = ?`, taskID); err != nil {
+// replaceTaskDepsOn takes the caller's transaction because the delete and the
+// inserts must land together: alone, a failed insert leaves the task with no
+// blockers at all.
+func replaceTaskDepsOn(ex sqlExecer, taskID string, blockedBy []string) error {
+	if _, err := ex.Exec(`DELETE FROM task_dep WHERE task_id = ?`, taskID); err != nil {
 		return err
 	}
 	for _, b := range blockedBy {
-		if _, err := tx.Exec(
+		if _, err := ex.Exec(
 			`INSERT OR IGNORE INTO task_dep (task_id, blocked_by) VALUES (?, ?)`,
 			taskID, b); err != nil {
 			return err
 		}
 	}
-	return tx.Commit()
+	return nil
 }
 
 type TaskStep struct {
@@ -407,7 +407,11 @@ func scanTaskStep(row interface{ Scan(...any) error }) (TaskStep, error) {
 }
 
 func (d *DAL) ListTaskSteps(taskID string) ([]TaskStep, error) {
-	rows, err := d.rdb.Query(`
+	return listTaskStepsOn(d.rdb, taskID)
+}
+
+func listTaskStepsOn(q sqlQuerier, taskID string) ([]TaskStep, error) {
+	rows, err := q.Query(`
 		SELECT `+taskStepColumns+` FROM task_step
 		WHERE task_id = ? ORDER BY order_idx, id`, taskID)
 	if err != nil {
@@ -504,8 +508,10 @@ func (d *DAL) AllTaskCurrentStep() (map[string]TaskCurrentStep, error) {
 	return out, rows.Err()
 }
 
-func (d *DAL) GetTaskStep(id string) (*TaskStep, error) {
-	row := d.rdb.QueryRow(
+func (d *DAL) GetTaskStep(id string) (*TaskStep, error) { return getTaskStepOn(d.rdb, id) }
+
+func getTaskStepOn(q sqlRowQuerier, id string) (*TaskStep, error) {
+	row := q.QueryRow(
 		`SELECT `+taskStepColumns+` FROM task_step WHERE id = ?`, id)
 	st, err := scanTaskStep(row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -946,7 +952,7 @@ func putTaskManualOn(ex sqlExecer, m TaskManual) error {
 
 func (d *DAL) DeleteTaskManual(typeKey string) (bool, error) {
 	var deleted bool
-	err := d.inTx(func(tx *sql.Tx) error {
+	err := d.inTx(func(tx *writeTx) error {
 		res, err := tx.Exec(`DELETE FROM task_manual WHERE type_key = ?`, typeKey)
 		if err != nil {
 			return err

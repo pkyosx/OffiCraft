@@ -453,6 +453,16 @@ func (s *apiServer) deriveAndPersistTask(t *Task, now float64, trigger string) e
 	if err != nil {
 		return err
 	}
+	arrived := rederiveTask(t, steps, now)
+	if err := s.dal.PutTask(*t); err != nil {
+		return err
+	}
+	s.announceDerivedTask(*t, arrived, trigger)
+	return nil
+}
+
+// rederiveTask reports whether the task has just arrived at ready_for_done.
+func rederiveTask(t *Task, steps []TaskStep, now float64) bool {
 	was := t.Status
 	RecomputeTaskStatus(t, steps)
 	arrived := was != TaskStatusReadyForDone && t.Status == TaskStatusReadyForDone
@@ -460,14 +470,32 @@ func (s *apiServer) deriveAndPersistTask(t *Task, now float64, trigger string) e
 		t.ReadyForDoneVisits++
 	}
 	t.UpdatedTS = now
-	if err := s.dal.PutTask(*t); err != nil {
-		return err
+	return arrived
+}
+
+func (s *apiServer) announceDerivedTask(t Task, arrivedReadyForDone bool, trigger string) {
+	s.publishTask(t, trigger)
+	if arrivedReadyForDone {
+		s.postReadyForDoneNotice(t, trigger)
 	}
-	s.publishTask(*t, trigger)
-	if arrived {
-		s.postReadyForDoneNotice(*t, trigger)
+}
+
+// openTaskOn is the in-transaction re-read every read-decide-write path starts
+// from: the row the handler read before the transaction may have been closed
+// since, and writing that copy back reopens the task (status and closed_ts ride
+// in the whole-row upsert).
+func openTaskOn(q sqlRowQuerier, taskID string) (*Task, error) {
+	t, err := getTaskOn(q, taskID)
+	if err != nil {
+		return nil, err
 	}
-	return nil
+	if t == nil {
+		return nil, refuseInTx(http.StatusNotFound, "task '"+taskID+"' not found")
+	}
+	if TaskIsTerminal(t.Status) {
+		return nil, refuseInTx(http.StatusConflict, taskAlreadyClosedRefusal(*t))
+	}
+	return t, nil
 }
 
 func (s *apiServer) postReadyForDoneNotice(t Task, trigger string) {
@@ -886,20 +914,30 @@ func (s *apiServer) HandleSetTaskPriorityApiTasksTaskIdPriorityPost(w http.Respo
 		writeError(w, http.StatusConflict, taskAlreadyClosedRefusal(*t))
 		return
 	}
-	if priority == TaskPriorityFrozen {
-		t.FrozenBy = requestTrigger(r)
-	} else {
-		t.FrozenBy = ""
-	}
-	t.Priority = priority
-	t.UpdatedTS = nowSecs()
-	if err := s.dal.PutTask(*t); err != nil {
-		internalError(w, err)
+	now := nowSecs()
+	var saved Task
+	err = s.dal.inTx(func(tx *writeTx) error {
+		cur, err := openTaskOn(tx, t.ID)
+		if err != nil {
+			return err
+		}
+		if priority == TaskPriorityFrozen {
+			cur.FrozenBy = requestTrigger(r)
+		} else {
+			cur.FrozenBy = ""
+		}
+		cur.Priority = priority
+		cur.UpdatedTS = now
+		saved = *cur
+		return putTaskOn(tx, *cur, taskWriteUpsert)
+	})
+	if err != nil {
+		writeTxError(w, err)
 		return
 	}
-	s.publishTask(*t, requestTrigger(r))
+	s.publishTask(saved, requestTrigger(r))
 	writeJSON(w, http.StatusOK, taskPriorityReceiptDTO{
-		TaskID: t.ID, Priority: t.Priority, FrozenBy: t.FrozenBy,
+		TaskID: saved.ID, Priority: saved.Priority, FrozenBy: saved.FrozenBy,
 	})
 }
 
@@ -1574,9 +1612,9 @@ func (s *apiServer) HandleCreateTaskApiTasksPost(w http.ResponseWriter, r *http.
 	trigger := requestTrigger(r)
 
 	// The gate runs inside CreateTaskMintingID's transaction (it needs the minted
-	// id). Safe only because outsourceSpawnGate touches no database; anything it
-	// needs from the DB must be resolved out here, not on the transaction's
-	// connection.
+	// id), so anything it needs from the DB is resolved out here: a read through
+	// the DAL inside it would come from the read pool at another moment than the
+	// transaction, and a lock taken inside it is refused.
 	var gateDenied string
 	var precheck func(id string) error
 	if outsourceTarget != nil {
@@ -1855,47 +1893,82 @@ func (s *apiServer) HandleUpdateTaskStepStatusApiTasksTaskIdStepsStepIdStatusPos
 				"step itself when a new plan is submitted (submit_plan)")
 		return
 	}
-	if !CanAgentStepTransition(step.Status, status) {
-		writeError(w, http.StatusConflict,
-			"illegal step transition '"+step.Status+"' -> '"+status+"'")
+	if err := stepTransitionRefusal(*step, status); err != nil {
+		writeTxError(w, err)
 		return
 	}
+	reason := ""
 	if status == StepStatusWaitingExternal {
-		reason := trimmedOrEmpty(body.WaitingReason)
+		reason = trimmedOrEmpty(body.WaitingReason)
 		if reason == "" {
 			writeError(w, http.StatusUnprocessableEntity,
 				"waiting_reason is required when entering waiting_external")
 			return
 		}
-		step.WaitingReason = reason
-	} else {
-		step.WaitingReason = ""
 	}
 	now := nowSecs()
-	step.Status = status
-	if status == StepStatusInProgress && step.StartedTS == 0 {
-		step.StartedTS = now
-	}
-	if status == StepStatusDone {
-		step.FinishedTS = now
-	}
-	if err := s.dal.PutTaskStep(*step); err != nil {
-		internalError(w, err)
+	var savedTask Task
+	var savedStep TaskStep
+	var arrived bool
+	err = s.dal.inTx(func(tx *writeTx) error {
+		cur, err := openTaskOn(tx, taskId)
+		if err != nil {
+			return err
+		}
+		st, err := getTaskStepOn(tx, stepId)
+		if err != nil {
+			return err
+		}
+		if st == nil || st.TaskID != taskId {
+			return refuseInTx(http.StatusNotFound, "step '"+stepId+"' not found")
+		}
+		if err := stepTransitionRefusal(*st, status); err != nil {
+			return err
+		}
+		st.WaitingReason = reason
+		st.Status = status
+		if status == StepStatusInProgress && st.StartedTS == 0 {
+			st.StartedTS = now
+		}
+		if status == StepStatusDone {
+			st.FinishedTS = now
+		}
+		if err := putTaskStepOn(tx, *st); err != nil {
+			return err
+		}
+		steps, err := listTaskStepsOn(tx, cur.ID)
+		if err != nil {
+			return err
+		}
+		arrived = rederiveTask(cur, steps, now)
+		if err := putTaskOn(tx, *cur, taskWriteUpsert); err != nil {
+			return err
+		}
+		savedTask, savedStep = *cur, *st
+		return nil
+	})
+	if err != nil {
+		writeTxError(w, err)
 		return
 	}
-	if err := s.deriveAndPersistTask(t, now, requestTrigger(r)); err != nil {
-		internalError(w, err)
-		return
-	}
-	s.writeTaskStepStatusReceipt(w, *t, *step)
+	s.announceDerivedTask(savedTask, arrived, requestTrigger(r))
+	s.writeTaskStepStatusReceipt(w, savedTask, savedStep)
 }
 
-// prepareStepHeldByCard writes nothing: the step and task must commit in the
+func stepTransitionRefusal(step TaskStep, status string) error {
+	if CanAgentStepTransition(step.Status, status) {
+		return nil
+	}
+	return refuseInTx(http.StatusConflict,
+		"illegal step transition '"+step.Status+"' -> '"+status+"'")
+}
+
+// prepareStepHeldByCardOn writes nothing: the step and task must commit in the
 // same transaction as the card and its companion message
-// (PutReplyCardWithChatStepAndTask) — a card without its hold once answered 500 and
-// made the asker open a second card.
-func (s *apiServer) prepareStepHeldByCard(
-	t *Task, step *TaskStep, cardID string, now float64,
+// (putReplyCardWithChatStepAndTaskOn) — a card without its hold once answered 500
+// and made the asker open a second card.
+func prepareStepHeldByCardOn(
+	q sqlQuerier, t *Task, step *TaskStep, cardID string, now float64,
 ) (*Task, error) {
 	step.Status = StepStatusWaitingOwner
 	step.ReplyCardID = cardID
@@ -1905,7 +1978,7 @@ func (s *apiServer) prepareStepHeldByCard(
 	if TaskIsTerminal(t.Status) {
 		return nil, nil
 	}
-	steps, err := s.dal.ListTaskSteps(t.ID)
+	steps, err := listTaskStepsOn(q, t.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -1939,42 +2012,48 @@ func (s *apiServer) HandleSetTaskDepsApiTasksTaskIdDepsPost(w http.ResponseWrite
 		writeError(w, http.StatusConflict, taskAlreadyClosedRefusal(*t))
 		return
 	}
-	seen := map[string]bool{}
-	var blockedBy []string
-	for _, raw := range body.BlockedBy {
-		id := trimString(raw)
-		if id == "" || seen[id] {
-			continue
-		}
-		if id == t.ID {
-			writeError(w, http.StatusUnprocessableEntity,
-				"a task cannot block on itself")
-			return
-		}
-		blocker, err := s.dal.GetTask(id)
+	now := nowSecs()
+	var saved Task
+	err = s.dal.inTx(func(tx *writeTx) error {
+		cur, err := openTaskOn(tx, t.ID)
 		if err != nil {
-			internalError(w, err)
-			return
+			return err
 		}
-		if blocker == nil {
-			writeError(w, http.StatusUnprocessableEntity,
-				"unknown blocking task '"+id+"'")
-			return
+		seen := map[string]bool{}
+		var blockedBy []string
+		for _, raw := range body.BlockedBy {
+			id := trimString(raw)
+			if id == "" || seen[id] {
+				continue
+			}
+			if id == cur.ID {
+				return refuseInTx(http.StatusUnprocessableEntity,
+					"a task cannot block on itself")
+			}
+			blocker, err := getTaskOn(tx, id)
+			if err != nil {
+				return err
+			}
+			if blocker == nil {
+				return refuseInTx(http.StatusUnprocessableEntity,
+					"unknown blocking task '"+id+"'")
+			}
+			seen[id] = true
+			blockedBy = append(blockedBy, id)
 		}
-		seen[id] = true
-		blockedBy = append(blockedBy, id)
-	}
-	if err := s.dal.ReplaceTaskDeps(t.ID, blockedBy); err != nil {
-		internalError(w, err)
+		if err := replaceTaskDepsOn(tx, cur.ID, blockedBy); err != nil {
+			return err
+		}
+		cur.UpdatedTS = now
+		saved = *cur
+		return putTaskOn(tx, *cur, taskWriteUpsert)
+	})
+	if err != nil {
+		writeTxError(w, err)
 		return
 	}
-	t.UpdatedTS = nowSecs()
-	if err := s.dal.PutTask(*t); err != nil {
-		internalError(w, err)
-		return
-	}
-	s.publishTask(*t, requestTrigger(r))
-	s.writeTaskWriteReceipt(w, *t)
+	s.publishTask(saved, requestTrigger(r))
+	s.writeTaskWriteReceipt(w, saved)
 }
 
 // The caps bind NEW writes only (owner ruling c-0d0a576f68af: 「舊資料不截斷」):

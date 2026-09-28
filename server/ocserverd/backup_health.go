@@ -18,8 +18,9 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
+
+	"ocserverd/txguard"
 )
 
 const (
@@ -63,7 +64,7 @@ type backupHealthMonitor struct {
 	store  backupHealthStore
 	dbPath string
 
-	mu sync.Mutex
+	mu txguard.Mutex
 }
 
 func newBackupHealthMonitor(store backupHealthStore, dbPath string) *backupHealthMonitor {
@@ -318,9 +319,11 @@ func startBackupHealthWatchdog(m *backupHealthMonitor, tick time.Duration) {
 	go func() {
 		for {
 			time.Sleep(tick)
-			if _, err := m.evaluate(time.Now()); err != nil {
-				fmt.Fprintf(os.Stderr, "[backup] WARNING backup health watchdog: %v\n", err)
-			}
+			surviveLockInTx("backup health watchdog", func() {
+				if _, err := m.evaluate(time.Now()); err != nil {
+					fmt.Fprintf(os.Stderr, "[backup] WARNING backup health watchdog: %v\n", err)
+				}
+			})
 		}
 	}()
 }

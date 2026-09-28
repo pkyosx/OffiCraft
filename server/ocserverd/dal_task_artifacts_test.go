@@ -701,7 +701,7 @@ func TestTrimTaskArtifactHistory(t *testing.T) {
 		dalSeedArtifactHistory(t, d, "ta-2", "att-other", "another artifact's version")
 		dalPutBlob(t, d, ChatAttachment{ID: "att-other", Mime: "image/png", Data: []byte("bytes")})
 
-		dalInTx(t, d, func(tx *sql.Tx) error { return trimTaskArtifactHistory(tx, "ta-1") })
+		dalInTx(t, d, func(tx *writeTx) error { return trimTaskArtifactHistory(tx, "ta-1") })
 
 		got, err := d.ListTaskArtifactHistory("ta-1")
 		if err != nil {
@@ -733,7 +733,7 @@ func TestTrimTaskArtifactHistory(t *testing.T) {
 			dalSeedArtifactHistory(t, d, "ta-1", "", "version without a blob")
 		}
 
-		dalInTx(t, d, func(tx *sql.Tx) error { return trimTaskArtifactHistory(tx, "ta-1") })
+		dalInTx(t, d, func(tx *writeTx) error { return trimTaskArtifactHistory(tx, "ta-1") })
 
 		if n := dalArtifactHistoryCount(t, d, "ta-1"); n != 3 {
 			t.Fatalf("retained versions after the trim: want 3, got %d", n)
@@ -749,7 +749,7 @@ func TestTrimTaskArtifactHistory(t *testing.T) {
 			dalPutBlob(t, d, ChatAttachment{ID: dalAttID(i), Mime: "image/png", Data: []byte("bytes")})
 			dalSeedArtifactHistory(t, d, "ta-1", dalAttID(i), "draft "+dalAttID(i))
 		}
-		dalInTx(t, d, func(tx *sql.Tx) error { return trimTaskArtifactHistory(tx, "ta-1") })
+		dalInTx(t, d, func(tx *writeTx) error { return trimTaskArtifactHistory(tx, "ta-1") })
 		if n := dalArtifactHistoryCount(t, d, "ta-1"); n != 3 {
 			t.Fatalf("retained versions after a no-op trim: want 3, got %d", n)
 		}
@@ -768,7 +768,7 @@ func TestTaskArtifactHistoryBlobs(t *testing.T) {
 
 	t.Run("the matching rows' blob ids come back as a set, deduplicated", func(t *testing.T) {
 		var got map[string]bool
-		dalInTx(t, d, func(tx *sql.Tx) error {
+		dalInTx(t, d, func(tx *writeTx) error {
 			var err error
 			got, err = taskArtifactHistoryBlobs(tx,
 				`SELECT attachment_id FROM task_artifact_history WHERE artifact_id = ?`, "ta-1")
@@ -782,7 +782,7 @@ func TestTaskArtifactHistoryBlobs(t *testing.T) {
 
 	t.Run("a query matching nothing is an empty set, not nil", func(t *testing.T) {
 		var got map[string]bool
-		dalInTx(t, d, func(tx *sql.Tx) error {
+		dalInTx(t, d, func(tx *writeTx) error {
 			var err error
 			got, err = taskArtifactHistoryBlobs(tx,
 				`SELECT attachment_id FROM task_artifact_history WHERE artifact_id = ?`, "ta-none")
@@ -797,7 +797,7 @@ func TestTaskArtifactHistoryBlobs(t *testing.T) {
 		dalSeedArtifactHistory(t, d, "ta-3", "", "a version with no blob")
 		dalSeedArtifactHistory(t, d, "ta-3", "att-7", "a version with one")
 		var got map[string]bool
-		dalInTx(t, d, func(tx *sql.Tx) error {
+		dalInTx(t, d, func(tx *writeTx) error {
 			var err error
 			got, err = taskArtifactHistoryBlobs(tx,
 				`SELECT attachment_id FROM task_artifact_history WHERE artifact_id = ?`, "ta-3")
@@ -1060,7 +1060,7 @@ func dalWantBlob(t *testing.T, d *DAL, want ChatAttachment) {
 	}
 }
 
-func dalInTx(t *testing.T, d *DAL, fn func(tx *sql.Tx) error) {
+func dalInTx(t *testing.T, d *DAL, fn func(tx *writeTx) error) {
 	t.Helper()
 	if err := d.inTx(fn); err != nil {
 		t.Fatalf("inTx: %v", err)

@@ -66,10 +66,15 @@ func newAPITestStackWithoutSigningSecret(t *testing.T) (*apiServer, http.Handler
 
 func apiTestStack(t *testing.T, withSigningSecret bool) (*apiServer, http.Handler, *DAL, string) {
 	t.Helper()
+	return apiTestStackOn(t, newAPITestDAL(t), withSigningSecret)
+}
+
+// apiTestStackOn is apiTestStack over a DAL the caller opened (already migrated).
+func apiTestStackOn(t *testing.T, d *DAL, withSigningSecret bool) (*apiServer, http.Handler, *DAL, string) {
+	t.Helper()
 	// The first-run onboarding kick installs a launchd warden on whoever runs
 	// `go test`; the product's own escape hatch keeps it out of the fixture.
 	t.Setenv("OC_NO_ONBOARDING", "1")
-	d := newAPITestDAL(t)
 	if err := seedOutOfBox(d); err != nil {
 		t.Fatalf("seedOutOfBox: %v", err)
 	}
@@ -147,7 +152,12 @@ func apiTestStack(t *testing.T, withSigningSecret bool) (*apiServer, http.Handle
 // the credential is one the product minted rather than one the test assembled.
 func newAPITestServer(t *testing.T) (*apiServer, http.Handler, *DAL, string) {
 	t.Helper()
-	api, h, d, claim := newAPITestStack(t)
+	return newAPITestServerOn(t, newAPITestDAL(t))
+}
+
+func newAPITestServerOn(t *testing.T, d *DAL) (*apiServer, http.Handler, *DAL, string) {
+	t.Helper()
+	api, h, d, claim := apiTestStackOn(t, d, true)
 	status, data := apiJSON(t, h, "POST", "/api/auth/set-password", "",
 		`{"password":"`+apiTestOwnerPassword+`","claim_token":"`+claim+`"}`)
 	if status != 200 {

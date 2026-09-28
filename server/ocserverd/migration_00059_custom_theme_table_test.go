@@ -297,7 +297,7 @@ func newCustomThemeMigrationDAL(t *testing.T) *DAL {
 
 func runCustomThemeMigration(t *testing.T, d *DAL, migration func(context.Context, *sql.Tx) error) {
 	t.Helper()
-	tx, err := d.wdb.Begin()
+	tx, err := d.wdb.raw.Begin()
 	if err != nil {
 		t.Fatalf("begin migration transaction: %v", err)
 	}

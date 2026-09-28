@@ -172,7 +172,7 @@ func insertMigrationSchedule(t *testing.T, d *DAL, seed migrationScheduleSeed) {
 
 func runReaimCustomCursors(t *testing.T, d *DAL) {
 	t.Helper()
-	tx, err := d.wdb.Begin()
+	tx, err := d.wdb.raw.Begin()
 	if err != nil {
 		t.Fatalf("begin migration transaction: %v", err)
 	}

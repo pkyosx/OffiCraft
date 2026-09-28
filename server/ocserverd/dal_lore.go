@@ -89,7 +89,7 @@ func (d *DAL) CreateLoreEntryMintingID(e LoreEntry) (LoreEntry, error) {
 	return e, tx.Commit()
 }
 
-func mintLoreNumber(tx *sql.Tx) (int, error) {
+func mintLoreNumber(tx *writeTx) (int, error) {
 	for attempt := 0; attempt < loreMintRetryLimit; attempt++ {
 		var next int
 		if err := tx.QueryRow(

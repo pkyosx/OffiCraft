@@ -3,11 +3,12 @@ package main
 import (
 	"io/fs"
 	"net/http"
-	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/SherClockHolmes/webpush-go"
+
+	"ocserverd/txguard"
 )
 
 type apiServer struct {
@@ -31,14 +32,14 @@ type apiServer struct {
 	// tokenKeyObs keeps work done on each authenticated request off the
 	// one-connection write pool and the warden command queue; not durable because
 	// losing it costs at most one redundant write and one renew per machine.
-	tokenKeyObsMu sync.Mutex
+	tokenKeyObsMu txguard.Mutex
 	tokenKeyObs   map[string]tokenKeyObservation
 
 	keyRenewClock func() time.Time
 	// settingsMu guards the LIVE settings fields below: owner endpoints update
 	// them IN PLACE while the SSE loop and reconcile cadence read concurrently —
 	// read through the accessors, never the bare fields.
-	settingsMu sync.RWMutex
+	settingsMu txguard.RWMutex
 	// passwordHash "" = not set: every login is denied until one is written.
 	passwordHash string
 	// passwordChangedAt is the owner-session revocation cut: owner-scope tokens
@@ -54,7 +55,7 @@ type apiServer struct {
 
 	credentialFailureFloor time.Duration
 
-	authAlertMu      sync.Mutex
+	authAlertMu      txguard.Mutex
 	authAlertLastAt  time.Time
 	authAlertPending int
 
@@ -116,18 +117,18 @@ type apiServer struct {
 
 	handoverNoticed map[string]float64
 
-	handoverNoticedMu sync.Mutex
+	handoverNoticedMu txguard.Mutex
 
 	startClearedAnchors map[string]sessionAnchorSnapshot
 	// startClearedAnchorsMu is held for the whole of clearSessionBootTS,
 	// clearSessionBootTSForStart and restoreRefusedStartAnchor. Their callers may
 	// hold outsourceMu or reconcileMu; under this lock only leaf locks are taken
 	// (gauge, handoverNoticedMu, ctxGateDiagMu) plus DAL calls.
-	startClearedAnchorsMu sync.Mutex
+	startClearedAnchorsMu txguard.Mutex
 
 	ctxGateDiagLast map[string]ctxGateDiagState
 
-	ctxGateDiagMu            sync.Mutex
+	ctxGateDiagMu            txguard.Mutex
 	monitoringRefreshSeconds int
 	// acceleratedGraceSecs is read ONLY through reconcileConfigLive().
 	acceleratedGraceSecs int
@@ -154,9 +155,9 @@ type apiServer struct {
 	loopback http.Handler
 	// reconcileMu is never held at the same time as outsourceMu: the merged tick
 	// takes it, drops it, and only then enters the outsource half.
-	reconcileMu sync.Mutex
+	reconcileMu txguard.Mutex
 
-	reconcileStateMu sync.Mutex
+	reconcileStateMu txguard.Mutex
 	reconcileStates  map[string]reconcileState
 	reconcileCfg     reconcileConfig
 	// noReconcile (--no-reconcile) skips the RECONCILE HALF of the cadence tick
@@ -171,10 +172,10 @@ type apiServer struct {
 	identitySweepAt map[string]float64
 	// receiptPending has its OWN mutex, never reconcileMu/outsourceMu: it is armed
 	// from both producers and disarmed from the telemetry ingest goroutine.
-	receiptMu      sync.Mutex
+	receiptMu      txguard.Mutex
 	receiptPending map[string]pendingReceipt
 
-	outsourceMu sync.Mutex
+	outsourceMu txguard.Mutex
 	// noOutsource is read at the call site (runLifecycleTick) and in
 	// outsourceTickNow, deliberately NOT inside runOutsourceTick: tests set it and
 	// then drive the scheduler by hand, so a read inside the tick body would turn
@@ -206,12 +207,12 @@ type apiServer struct {
 
 	workerOfflineSince map[string]float64
 
-	updateMu    sync.Mutex
+	updateMu    txguard.Mutex
 	updateCheck updateCheckState
 
 	releaseAPIBase string
 
-	upgradeMu sync.Mutex
+	upgradeMu txguard.Mutex
 
 	upgradeExeOverride string
 	upgradeRestart     func(exePath string)

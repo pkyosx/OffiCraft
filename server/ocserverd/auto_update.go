@@ -27,7 +27,7 @@ func (s *apiServer) startAutoUpdateCadence(interval time.Duration) {
 	go func() {
 		for {
 			time.Sleep(interval)
-			s.autoUpdateTick()
+			surviveLockInTx("auto-update cadence", func() { s.autoUpdateTick() })
 		}
 	}()
 }

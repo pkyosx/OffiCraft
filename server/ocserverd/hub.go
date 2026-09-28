@@ -12,8 +12,9 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
+
+	"ocserverd/txguard"
 )
 
 var errDualSSE = errors.New("member already holds a live SSE connection")
@@ -44,7 +45,7 @@ type hubListener struct {
 
 	attachedAt time.Time
 
-	mu  sync.Mutex
+	mu  txguard.Mutex
 	buf [][]byte
 }
 
@@ -66,7 +67,7 @@ func (l *hubListener) pop() []byte {
 }
 
 type Hub struct {
-	mu        sync.Mutex
+	mu        txguard.Mutex
 	listeners map[*hubListener]bool
 	// seq serves both seq and epoch (spec/sse.md §2.1). It resets on restart by
 	// design — clients are contracted to full-resync.
@@ -690,7 +691,7 @@ func containsFrame(queue []wardenCmd, frame []byte) bool {
 // the verified token sub.
 
 type memStore struct {
-	mu      sync.Mutex
+	mu      txguard.Mutex
 	entries map[string]map[string]any
 }
 

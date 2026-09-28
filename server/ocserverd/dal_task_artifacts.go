@@ -137,7 +137,7 @@ func (d *DAL) PutTaskArtifact(a TaskArtifact) error {
 // delete already put on its candidate list, so a blob uploaded but never bound
 // would never be found.
 func (d *DAL) PutTaskArtifactMintingBlob(a TaskArtifact, blob *ChatAttachment) error {
-	return d.inTx(func(tx *sql.Tx) error {
+	return d.inTx(func(tx *writeTx) error {
 		if blob != nil {
 			if err := putChatAttachmentOn(tx, *blob); err != nil {
 				return err
@@ -157,7 +157,7 @@ func (d *DAL) ReplaceTaskArtifactMintingBlob(next TaskArtifact, blob *ChatAttach
 		return d.ReplaceTaskArtifact(next)
 	}
 	var replaced bool
-	err := d.inTx(func(tx *sql.Tx) error {
+	err := d.inTx(func(tx *writeTx) error {
 		if err := putChatAttachmentOn(tx, *blob); err != nil {
 			return err
 		}
@@ -176,7 +176,7 @@ func (d *DAL) ReplaceTaskArtifactMintingBlob(next TaskArtifact, blob *ChatAttach
 // migration 00086 deduped identical targets and two artifacts CAN share one.
 func (d *DAL) DeleteTaskArtifact(id string) (bool, error) {
 	var removed bool
-	err := d.inTx(func(tx *sql.Tx) error {
+	err := d.inTx(func(tx *writeTx) error {
 		live, err := getTaskArtifactOn(tx, id)
 		if err != nil {
 			return err
@@ -234,7 +234,7 @@ const taskArtifactHistoryColumns = `id, artifact_id, kind, attachment_id, name,
 // the end of the card's pin order.
 func (d *DAL) ReplaceTaskArtifact(next TaskArtifact) (bool, error) {
 	var replaced bool
-	err := d.inTx(func(tx *sql.Tx) error {
+	err := d.inTx(func(tx *writeTx) error {
 		ok, err := replaceTaskArtifactOn(tx, next)
 		replaced = ok
 		return err
@@ -242,7 +242,7 @@ func (d *DAL) ReplaceTaskArtifact(next TaskArtifact) (bool, error) {
 	return replaced, err
 }
 
-func replaceTaskArtifactOn(tx *sql.Tx, next TaskArtifact) (bool, error) {
+func replaceTaskArtifactOn(tx *writeTx, next TaskArtifact) (bool, error) {
 	var replaced bool
 	err := func() error {
 		current, err := getTaskArtifactOn(tx, next.ID)
@@ -273,7 +273,7 @@ func replaceTaskArtifactOn(tx *sql.Tx, next TaskArtifact) (bool, error) {
 	return replaced, err
 }
 
-func trimTaskArtifactHistory(tx *sql.Tx, artifactID string) error {
+func trimTaskArtifactHistory(tx *writeTx, artifactID string) error {
 	const doomed = `FROM task_artifact_history
 		WHERE artifact_id = ? AND id NOT IN (
 			SELECT id FROM task_artifact_history
@@ -293,7 +293,7 @@ func trimTaskArtifactHistory(tx *sql.Tx, artifactID string) error {
 	return err
 }
 
-func taskArtifactHistoryBlobs(tx *sql.Tx, query string, args ...any) (map[string]bool, error) {
+func taskArtifactHistoryBlobs(tx *writeTx, query string, args ...any) (map[string]bool, error) {
 	rows, err := tx.Query(query, args...)
 	if err != nil {
 		return nil, err

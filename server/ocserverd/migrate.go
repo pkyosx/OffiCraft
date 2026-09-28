@@ -37,13 +37,17 @@ func openSQLite(path string) (*sql.DB, error) {
 			return nil, err
 		}
 	}
-	db, err := sql.Open("sqlite", "file:"+path+
-		"?_pragma=busy_timeout(5000)&_pragma=journal_mode("+sqliteJournalMode+")&_txlock=immediate")
+	db, err := sql.Open("sqlite", sqliteWriteDSN(path))
 	if err != nil {
 		return nil, err
 	}
 	db.SetMaxOpenConns(1)
 	return db, nil
+}
+
+func sqliteWriteDSN(path string) string {
+	return "file:" + path +
+		"?_pragma=busy_timeout(5000)&_pragma=journal_mode(" + sqliteJournalMode + ")&_txlock=immediate"
 }
 
 const sqliteJournalMode = "WAL"
@@ -64,12 +68,16 @@ const sqliteMaxReadConns = 8
 // ENFORCED: no explicit transaction on this pool. NOT enforced, a discipline:
 // every Query's Rows are consumed promptly — held-open Rows do the same damage.
 func openSQLiteReadPool(path string) (*sql.DB, error) {
-	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=busy_timeout(5000)&mode=ro")
+	db, err := sql.Open("sqlite", sqliteReadDSN(path))
 	if err != nil {
 		return nil, err
 	}
 	db.SetMaxOpenConns(sqliteMaxReadConns)
 	return db, nil
+}
+
+func sqliteReadDSN(path string) string {
+	return "file:" + path + "?_pragma=busy_timeout(5000)&mode=ro"
 }
 
 // assertJournalMode asks the DATABASE, because a malformed pragma is silently

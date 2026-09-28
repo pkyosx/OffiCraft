@@ -229,12 +229,29 @@ func (s *apiServer) openReplyCard(
 			return nil, "", err
 		}
 	} else {
-		var err error
-		heldTask, err = s.prepareStepHeldByCard(t, step, card.ID, now)
+		err := s.dal.inTx(func(tx *writeTx) error {
+			cur, err := getTaskOn(tx, taskID)
+			if err != nil {
+				return err
+			}
+			if err := cardBindingTaskRefusal(cur, taskID); err != nil {
+				return err
+			}
+			st, err := getTaskStepOn(tx, taskStepID)
+			if err != nil {
+				return err
+			}
+			if err := cardBindingStepRefusal(st, taskID, taskStepID); err != nil {
+				return err
+			}
+			held, err := prepareStepHeldByCardOn(tx, cur, st, card.ID, now)
+			if err != nil {
+				return err
+			}
+			heldTask = held
+			return putReplyCardWithChatStepAndTaskOn(tx, card, msg, fresh, *st, held)
+		})
 		if err != nil {
-			return nil, "", err
-		}
-		if err := s.dal.PutReplyCardWithChatStepAndTask(card, msg, fresh, *step, heldTask); err != nil {
 			return nil, "", err
 		}
 	}
@@ -362,9 +379,8 @@ func (s *apiServer) HandleCreateReplyCardApiReplyCardsPost(w http.ResponseWriter
 			writeError(w, http.StatusForbidden, taskActorRefusal)
 			return
 		}
-		if t.Status != TaskStatusInProgress && t.Status != TaskStatusWaitingOwner {
-			writeError(w, http.StatusConflict,
-				"a card can only bind to an in_progress or waiting_owner task (is "+t.Status+")")
+		if err := cardBindingTaskRefusal(t, taskID); err != nil {
+			writeTxError(w, err)
 			return
 		}
 		step, err = s.dal.GetTaskStep(stepID)
@@ -372,18 +388,14 @@ func (s *apiServer) HandleCreateReplyCardApiReplyCardsPost(w http.ResponseWriter
 			internalError(w, err)
 			return
 		}
-		if step == nil || step.TaskID != taskID {
-			writeError(w, http.StatusNotFound, "step '"+stepID+"' not found")
-			return
-		}
-		if StepIsTerminal(step.Status) {
-			writeError(w, http.StatusConflict, "step '"+stepID+"' is already "+step.Status)
+		if err := cardBindingStepRefusal(step, taskID, stepID); err != nil {
+			writeTxError(w, err)
 			return
 		}
 	}
 	card, problem, err := s.openReplyCard(currentActor(r), body, t, step, requestTrigger(r))
 	if err != nil {
-		internalError(w, err)
+		writeTxError(w, err)
 		return
 	}
 	if problem != "" {
@@ -391,6 +403,30 @@ func (s *apiServer) HandleCreateReplyCardApiReplyCardsPost(w http.ResponseWriter
 		return
 	}
 	s.writeReplyCardCreateReceipt(w, *card)
+}
+
+// cardBindingTaskRefusal and cardBindingStepRefusal run twice: once before the
+// body is judged, and again inside the transaction that places the hold, on the
+// rows as they stand at the write.
+func cardBindingTaskRefusal(t *Task, taskID string) error {
+	if t == nil {
+		return refuseInTx(http.StatusNotFound, "task '"+taskID+"' not found")
+	}
+	if t.Status != TaskStatusInProgress && t.Status != TaskStatusWaitingOwner {
+		return refuseInTx(http.StatusConflict,
+			"a card can only bind to an in_progress or waiting_owner task (is "+t.Status+")")
+	}
+	return nil
+}
+
+func cardBindingStepRefusal(step *TaskStep, taskID, stepID string) error {
+	if step == nil || step.TaskID != taskID {
+		return refuseInTx(http.StatusNotFound, "step '"+stepID+"' not found")
+	}
+	if StepIsTerminal(step.Status) {
+		return refuseInTx(http.StatusConflict, "step '"+stepID+"' is already "+step.Status)
+	}
+	return nil
 }
 
 // Owner ruling T-3f31 (卡只需要 title+決策): a light row, never the body or the
@@ -522,8 +558,7 @@ func (s *apiServer) HandleGetReplyCardApiReplyCardsCardIdGet(w http.ResponseWrit
 	s.writeReplyCard(w, *card)
 }
 
-func (s *apiServer) applyReplyCardAnswer(w http.ResponseWriter, r *http.Request, card ReplyCard) {
-	firstAnswer := card.Status == replyCardStatusWaiting
+func (s *apiServer) applyReplyCardAnswer(w http.ResponseWriter, r *http.Request, card ReplyCard, gate replyCardGate) {
 	var body ReplyCardAnswerPostDTO
 	if !decodeJSONBody(w, r, &body) {
 		return
@@ -596,38 +631,79 @@ func (s *apiServer) applyReplyCardAnswer(w http.ResponseWriter, r *http.Request,
 		refs = append(refs, attachmentRef(att))
 	}
 	now := nowSecs()
-	card.Status = replyCardStatusAnswered
-	card.AnsweredTS = now
-	card.AnswerOptionIdxs = optionIdxs
-	card.AnswerText = text
-	card.AnswerAttachments = refs
-	var rel cardHoldRelease
-	if firstAnswer {
-		var err error
-		if rel, err = s.planCardHoldRelease(card, now); err != nil {
-			internalError(w, err)
-			return
+	settled, rel, err := s.settleReplyCard(card.ID, now, fresh, func(cur *ReplyCard, getTask func(string) (*Task, error)) error {
+		if err := gate(*cur, getTask); err != nil {
+			return err
 		}
-	}
-	if err := s.dal.PutReplyCardWithStepAndTask(card, fresh, rel.step, rel.task); err != nil {
-		internalError(w, err)
+		cur.Status = replyCardStatusAnswered
+		cur.AnsweredTS = now
+		cur.AnswerOptionIdxs = optionIdxs
+		cur.AnswerText = text
+		cur.AnswerAttachments = refs
+		return nil
+	})
+	if err != nil {
+		writeTxError(w, err)
 		return
 	}
-	s.publishReplyCard(card, requestTrigger(r))
+	s.publishReplyCard(settled, requestTrigger(r))
 	s.announceCardHoldRelease(rel, requestTrigger(r))
-	s.writeReplyCardTransitionReceipt(w, card)
+	s.writeReplyCardTransitionReceipt(w, settled)
 }
 
-// Computes only. Card, step and task must commit in one
-// PutReplyCardWithStepAndTask and be announced after it: a card committed
-// alone cannot heal (a retried POST 409s, a PUT skips the release) and strands
-// the step and task in waiting_owner.
-func (s *apiServer) planCardHoldRelease(card ReplyCard, now float64) (cardHoldRelease, error) {
+// replyCardGate refuses a transition from the card (and, through getTask, its
+// task) as they stand. Each route runs it before judging the body and again
+// inside the settling transaction.
+type replyCardGate func(card ReplyCard, getTask func(string) (*Task, error)) error
+
+// settleReplyCard re-reads the card inside the transaction and hands it to
+// settle, which refuses or mutates it. A card that was waiting releases its
+// step's hold in the same transaction; card, step and task commit together and
+// are announced by the caller after it returns — a card committed alone cannot
+// heal (a retried POST 409s, a PUT skips the release) and strands the step and
+// task in waiting_owner.
+func (s *apiServer) settleReplyCard(
+	cardID string, now float64, atts []ChatAttachment,
+	settle func(cur *ReplyCard, getTask func(string) (*Task, error)) error,
+) (ReplyCard, cardHoldRelease, error) {
+	var settled ReplyCard
+	var rel cardHoldRelease
+	err := s.dal.inTx(func(tx *writeTx) error {
+		cur, err := getReplyCardOn(tx, cardID)
+		if err != nil {
+			return err
+		}
+		if cur == nil {
+			return refuseInTx(http.StatusNotFound, "reply card '"+cardID+"' not found")
+		}
+		wasWaiting := cur.Status == replyCardStatusWaiting
+		if err := settle(cur, func(id string) (*Task, error) { return getTaskOn(tx, id) }); err != nil {
+			return err
+		}
+		rel = cardHoldRelease{}
+		if wasWaiting {
+			if rel, err = planCardHoldReleaseOn(tx, *cur, now); err != nil {
+				return err
+			}
+		}
+		settled = *cur
+		return putReplyCardWithStepAndTaskOn(tx, *cur, atts, rel.step, rel.task)
+	})
+	return settled, rel, err
+}
+
+type sqlReader interface {
+	sqlRowQuerier
+	sqlQuerier
+}
+
+// Computes only: settleReplyCard writes and the caller announces.
+func planCardHoldReleaseOn(q sqlReader, card ReplyCard, now float64) (cardHoldRelease, error) {
 	var rel cardHoldRelease
 	if card.TaskID == "" {
 		return rel, nil
 	}
-	t, err := s.dal.GetTask(card.TaskID)
+	t, err := getTaskOn(q, card.TaskID)
 	if err != nil {
 		return rel, err
 	}
@@ -635,7 +711,7 @@ func (s *apiServer) planCardHoldRelease(card ReplyCard, now float64) (cardHoldRe
 		return rel, nil
 	}
 	if card.TaskStepID != "" {
-		step, err := s.dal.GetTaskStep(card.TaskStepID)
+		step, err := getTaskStepOn(q, card.TaskStepID)
 		if err != nil {
 			return rel, err
 		}
@@ -648,7 +724,7 @@ func (s *apiServer) planCardHoldRelease(card ReplyCard, now float64) (cardHoldRe
 	if t == nil {
 		return rel, nil
 	}
-	steps, err := s.dal.ListTaskSteps(t.ID)
+	steps, err := listTaskStepsOn(q, t.ID)
 	if err != nil {
 		return rel, err
 	}
@@ -659,13 +735,7 @@ func (s *apiServer) planCardHoldRelease(card ReplyCard, now float64) (cardHoldRe
 			}
 		}
 	}
-	was := t.Status
-	RecomputeTaskStatus(t, steps)
-	rel.arrivedReadyForDone = was != TaskStatusReadyForDone && t.Status == TaskStatusReadyForDone
-	if rel.arrivedReadyForDone {
-		t.ReadyForDoneVisits++
-	}
-	t.UpdatedTS = now
+	rel.arrivedReadyForDone = rederiveTask(t, steps, now)
 	rel.task = t
 	return rel, nil
 }
@@ -680,10 +750,7 @@ func (s *apiServer) announceCardHoldRelease(rel cardHoldRelease, trigger string)
 	if rel.task == nil {
 		return
 	}
-	s.publishTask(*rel.task, trigger)
-	if rel.arrivedReadyForDone {
-		s.postReadyForDoneNotice(*rel.task, trigger)
-	}
+	s.announceDerivedTask(*rel.task, rel.arrivedReadyForDone, trigger)
 }
 
 // The one implementation behind every server-side expiry.
@@ -697,21 +764,28 @@ func (s *apiServer) expireWaitingCards(pick func(ReplyCard) bool, now float64, t
 		if c.Status != replyCardStatusWaiting || !pick(c) {
 			continue
 		}
-		c.Status = replyCardStatusExpired
-		c.ExpiredTS = now
-		rel, err := s.planCardHoldRelease(c, now)
+		settled, rel, err := s.settleReplyCard(c.ID, now, nil, func(cur *ReplyCard, _ func(string) (*Task, error)) error {
+			if cur.Status != replyCardStatusWaiting {
+				return errReplyCardSettledMeanwhile
+			}
+			cur.Status = replyCardStatusExpired
+			cur.ExpiredTS = now
+			return nil
+		})
+		if errors.Is(err, errReplyCardSettledMeanwhile) {
+			continue
+		}
 		if err != nil {
 			return n, err
 		}
-		if err := s.dal.PutReplyCardWithStepAndTask(c, nil, rel.step, rel.task); err != nil {
-			return n, err
-		}
-		s.publishReplyCard(c, trigger)
+		s.publishReplyCard(settled, trigger)
 		s.announceCardHoldRelease(rel, trigger)
 		n++
 	}
 	return n, nil
 }
+
+var errReplyCardSettledMeanwhile = errors.New("reply card no longer waiting")
 
 func (s *apiServer) expireWaitingCardsForTask(taskID string, now float64, trigger string) (int, error) {
 	if taskID == "" {
@@ -766,29 +840,34 @@ func (s *apiServer) HandleAnswerReplyCardApiReplyCardsCardIdAnswerPost(w http.Re
 		writeError(w, http.StatusNotFound, "reply card '"+cardId+"' not found")
 		return
 	}
-	if card.Status == replyCardStatusExpired {
-		writeError(w, http.StatusConflict,
-			"reply card '"+cardId+"' is expired — a terminal state; the agent opens a new card if the question still matters")
+	if err := firstAnswerGate(*card, s.dal.GetTask); err != nil {
+		writeTxError(w, err)
 		return
+	}
+	s.applyReplyCardAnswer(w, r, *card, firstAnswerGate)
+}
+
+func firstAnswerGate(card ReplyCard, getTask func(string) (*Task, error)) error {
+	if card.Status == replyCardStatusExpired {
+		return refuseInTx(http.StatusConflict,
+			"reply card '"+card.ID+"' is expired — a terminal state; the agent opens a new card if the question still matters")
 	}
 	if card.Status != replyCardStatusWaiting {
-		writeError(w, http.StatusConflict,
-			"reply card '"+cardId+"' is already answered — revise it via PUT (重新決定)")
-		return
+		return refuseInTx(http.StatusConflict,
+			"reply card '"+card.ID+"' is already answered — revise it via PUT (重新決定)")
 	}
-	if card.TaskID != "" {
-		t, err := s.dal.GetTask(card.TaskID)
-		if err != nil {
-			internalError(w, err)
-			return
-		}
-		if t != nil && TaskIsTerminal(t.Status) {
-			writeError(w, http.StatusConflict,
-				"task '"+card.TaskID+"' is already closed ("+t.Status+") — this card is orphaned and can no longer be answered")
-			return
-		}
+	if card.TaskID == "" {
+		return nil
 	}
-	s.applyReplyCardAnswer(w, r, *card)
+	t, err := getTask(card.TaskID)
+	if err != nil {
+		return err
+	}
+	if t != nil && TaskIsTerminal(t.Status) {
+		return refuseInTx(http.StatusConflict,
+			"task '"+card.TaskID+"' is already closed ("+t.Status+") — this card is orphaned and can no longer be answered")
+	}
+	return nil
 }
 
 func (s *apiServer) HandleReanswerReplyCardApiReplyCardsCardIdAnswerPut(w http.ResponseWriter, r *http.Request, cardId string) {
@@ -801,17 +880,23 @@ func (s *apiServer) HandleReanswerReplyCardApiReplyCardsCardIdAnswerPut(w http.R
 		writeError(w, http.StatusNotFound, "reply card '"+cardId+"' not found")
 		return
 	}
-	if card.Status == replyCardStatusExpired {
-		writeError(w, http.StatusConflict,
-			"reply card '"+cardId+"' is expired — a terminal state; it cannot be re-decided")
+	if err := reanswerGate(*card, nil); err != nil {
+		writeTxError(w, err)
 		return
+	}
+	s.applyReplyCardAnswer(w, r, *card, reanswerGate)
+}
+
+func reanswerGate(card ReplyCard, _ func(string) (*Task, error)) error {
+	if card.Status == replyCardStatusExpired {
+		return refuseInTx(http.StatusConflict,
+			"reply card '"+card.ID+"' is expired — a terminal state; it cannot be re-decided")
 	}
 	if card.Status != replyCardStatusAnswered {
-		writeError(w, http.StatusConflict,
-			"reply card '"+cardId+"' is not answered yet — answer it via POST")
-		return
+		return refuseInTx(http.StatusConflict,
+			"reply card '"+card.ID+"' is not answered yet — answer it via POST")
 	}
-	s.applyReplyCardAnswer(w, r, *card)
+	return nil
 }
 
 const expireNotYourCardMsg = "only the card's own author (or the owner / an admin agent) may mark it expired"
@@ -839,23 +924,32 @@ func (s *apiServer) HandleExpireReplyCardApiReplyCardsCardIdExpirePost(w http.Re
 		writeError(w, http.StatusForbidden, expireNotYourCardMsg)
 		return
 	}
-	if card.Status != replyCardStatusWaiting {
-		writeError(w, http.StatusConflict,
-			"reply card '"+cardId+"' is already "+card.Status+" — only a waiting card can expire")
+	if err := expireGate(*card); err != nil {
+		writeTxError(w, err)
 		return
 	}
-	card.Status = replyCardStatusExpired
-	card.ExpiredTS = nowSecs()
-	rel, err := s.planCardHoldRelease(*card, card.ExpiredTS)
+	now := nowSecs()
+	settled, rel, err := s.settleReplyCard(card.ID, now, nil, func(cur *ReplyCard, _ func(string) (*Task, error)) error {
+		if err := expireGate(*cur); err != nil {
+			return err
+		}
+		cur.Status = replyCardStatusExpired
+		cur.ExpiredTS = now
+		return nil
+	})
 	if err != nil {
-		internalError(w, err)
+		writeTxError(w, err)
 		return
 	}
-	if err := s.dal.PutReplyCardWithStepAndTask(*card, nil, rel.step, rel.task); err != nil {
-		internalError(w, err)
-		return
-	}
-	s.publishReplyCard(*card, requestTrigger(r))
+	s.publishReplyCard(settled, requestTrigger(r))
 	s.announceCardHoldRelease(rel, requestTrigger(r))
-	s.writeReplyCardTransitionReceipt(w, *card)
+	s.writeReplyCardTransitionReceipt(w, settled)
+}
+
+func expireGate(card ReplyCard) error {
+	if card.Status != replyCardStatusWaiting {
+		return refuseInTx(http.StatusConflict,
+			"reply card '"+card.ID+"' is already "+card.Status+" — only a waiting card can expire")
+	}
+	return nil
 }

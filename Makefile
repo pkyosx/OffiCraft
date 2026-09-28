@@ -141,6 +141,9 @@ build-embed-assets:
 # Compile every module and DROP the fresh binary (gitignored). Nothing else in
 # the deploy pipeline compiles the Go modules on its own, so without this a
 # change could land — and autodeploy — while failing to compile.
+# `.` and not `./...`: -o names one file, which `./...` refuses once a module has
+# a second package (server/ocserverd/txguard). Subpackages still compile as the
+# main package's imports; go vet and go test cover ./... .
 build-go:
 	@$(P) \
 	GO="$$(oc_go)"; \
@@ -148,7 +151,7 @@ build-go:
 	  [[ -f "$$gomod" ]] || continue; \
 	  dir="$$(dirname "$$gomod")"; binary="$$(basename "$$dir")"; \
 	  echo "[build-go] go build $$dir"; \
-	  (cd "$$dir" && "$$GO" build -o "$$binary" ./...); \
+	  (cd "$$dir" && "$$GO" build -o "$$binary" .); \
 	done; \
 	$(DONE)
 

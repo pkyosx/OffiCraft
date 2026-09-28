@@ -14,7 +14,9 @@ package main
 // ticket).
 
 import (
+	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -162,7 +164,14 @@ func backupFileName(now time.Time, reason backupReason) string {
 	return fmt.Sprintf("%s%s-%s%s", backupFilePrefix, now.UTC().Format("20060102-150405"), reason, backupFileSuffix)
 }
 
-func runDatabaseBackup(db *sql.DB, dbPath string, reason backupReason, now time.Time, retain int) (backupResult, error) {
+// backupDB is *sql.DB for the one-shots and boot, which run before anything
+// else can hold the write connection, and the DAL's writePool for serve's cadence.
+type backupDB interface {
+	Exec(query string, args ...any) (sql.Result, error)
+	QueryRow(query string, args ...any) *sql.Row
+}
+
+func runDatabaseBackup(db backupDB, dbPath string, reason backupReason, now time.Time, retain int) (backupResult, error) {
 	res := backupResult{Reason: reason}
 	dir := backupDirFor(dbPath)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -239,12 +248,20 @@ func runDatabaseBackup(db *sql.DB, dbPath string, reason backupReason, now time.
 // and pre-migration triggers run with no apiServer, and a cockpit PATCH takes
 // effect on the next snapshot. The fallback is reachable only from the CLI
 // triggers — `serve` refuses to boot on an out-of-range row (loadAuthSettings).
-func liveBackupRetain(db *sql.DB) int {
+//
+// A read that ran out of time answers 0, which rotateBackups treats as "delete
+// nothing": the owner's number is unknown this round, and deleting by the
+// default could remove backups the owner chose to keep.
+func liveBackupRetain(db backupDB) int {
 	if db == nil {
 		return backupRetainDefault
 	}
 	var raw string
 	if err := db.QueryRow(`SELECT value FROM setting WHERE key = ?`, settingBackupRetain).Scan(&raw); err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			log.Printf("[backup] could not read the retain setting in time (%v); deleting no old backups this round", err)
+			return 0
+		}
 		return backupRetainDefault
 	}
 	n, err := strconv.Atoi(strings.TrimSpace(raw))
@@ -342,11 +359,11 @@ func logBackupOutcome(res backupResult, err error) {
 	}
 }
 
-func startBackupCadence(db *sql.DB, dbPath string, tick time.Duration, health *backupHealthMonitor) {
+func startBackupCadence(db backupDB, dbPath string, tick time.Duration, health *backupHealthMonitor) {
 	go func() {
 		for {
 			time.Sleep(tick)
-			backupTick(db, dbPath, time.Now(), health)
+			surviveLockInTx("backup cadence", func() { backupTick(db, dbPath, time.Now(), health) })
 		}
 	}()
 }
@@ -354,7 +371,7 @@ func startBackupCadence(db *sql.DB, dbPath string, tick time.Duration, health *b
 // backupTick asks newestScheduledBackup, not newestBackupTime: counting every
 // reason let each pre-migration snapshot defer the schedule by a full interval
 // (a 14h hole, three times in three days).
-func backupTick(db *sql.DB, dbPath string, now time.Time, health *backupHealthMonitor) (taken bool) {
+func backupTick(db backupDB, dbPath string, now time.Time, health *backupHealthMonitor) (taken bool) {
 	// newestScheduledBackup is asked as of `now`, so it never returns a future
 	// stamp: `< backupInterval` is true for every negative age, and one
 	// future-stamped file would stop backups forever.

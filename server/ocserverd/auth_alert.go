@@ -40,7 +40,7 @@ func (s *apiServer) noteFactorRefusedAfterCorrectPassword(now time.Time) {
 
 	// 🔴 `go`, NOT a direct call — constraint 1. The window is already stamped,
 	// so a flood cannot queue a second goroutine behind a slow delivery.
-	go s.dispatchAuthAlert(count)
+	go surviveLockInTx("password-exposed alert", func() { s.dispatchAuthAlert(count) })
 }
 
 // dispatchAuthAlert exists so a test can install a blocking deliverer and prove

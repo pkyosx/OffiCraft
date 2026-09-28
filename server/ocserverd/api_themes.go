@@ -142,17 +142,18 @@ func (s *apiServer) HandleDeleteThemeApiThemesThemeIdDelete(w http.ResponseWrite
 	}
 
 	reset := false
-	s.settingsMu.Lock()
+	unlockMu := s.settingsMu.Acquire()
+	defer unlockMu()
 	if s.displayTheme == themeID {
 		if err := s.dal.PutSetting(settingDisplayTheme, ""); err != nil {
-			s.settingsMu.Unlock()
+			unlockMu()
 			internalError(w, err)
 			return
 		}
 		s.displayTheme = ""
 		reset = true
 	}
-	s.settingsMu.Unlock()
+	unlockMu()
 
 	writeJSON(w, http.StatusOK, themeDeleteResultDTO{
 		ID: themeID, Deleted: true, DisplayThemeReset: reset,

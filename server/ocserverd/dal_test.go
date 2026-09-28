@@ -1456,14 +1456,14 @@ func TestPutChatOn(t *testing.T) {
 		dalMustListChat(t, d), []ChatMessage{rewritten})
 
 	second := dalChat("m2", "carl", "ann", 300)
-	if err := d.inTx(func(tx *sql.Tx) error { return putChatOn(tx, second) }); err != nil {
+	if err := d.inTx(func(tx *writeTx) error { return putChatOn(tx, second) }); err != nil {
 		t.Fatalf("putChatOn(tx): %v", err)
 	}
 	dalWantChats(t, "the transactional form writes the same row",
 		dalMustListChat(t, d), []ChatMessage{rewritten, second})
 
 	failed := errors.New("the rest of the transaction refused")
-	if err := d.inTx(func(tx *sql.Tx) error {
+	if err := d.inTx(func(tx *writeTx) error {
 		if err := putChatOn(tx, dalChat("m3", "ann", "bob", 400)); err != nil {
 			return err
 		}
@@ -1563,7 +1563,7 @@ func TestCollectOrphanBlobs(t *testing.T) {
 	dalPutChats(t, d, dalChatWithAtts("m1", "ann", "bob", 100, dalAttRef("att-2", "image/png", "b.png")))
 
 	var deleted int
-	if err := d.inTx(func(tx *sql.Tx) error {
+	if err := d.inTx(func(tx *writeTx) error {
 		n, err := collectOrphanBlobs(tx, map[string]bool{})
 		if err != nil {
 			return err
@@ -1620,7 +1620,7 @@ func TestCollectSurvivingBlobRefs(t *testing.T) {
 	dalPutMember(t, d, dalTestMember("eve", "Eve"))
 
 	var got []string
-	if err := d.inTx(func(tx *sql.Tx) error {
+	if err := d.inTx(func(tx *writeTx) error {
 		into := map[string]bool{"already-there": true}
 		if err := collectSurvivingBlobRefs(tx, into); err != nil {
 			return err
@@ -1667,7 +1667,7 @@ func TestCollectChatMetaRefs(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var got []string
-			if err := d.inTx(func(tx *sql.Tx) error {
+			if err := d.inTx(func(tx *writeTx) error {
 				into := map[string]bool{}
 				if err := collectChatMetaRefs(tx, tc.query, into, tc.args...); err != nil {
 					return err
@@ -1819,7 +1819,7 @@ func TestPutChatAttachmentOn(t *testing.T) {
 	}
 
 	failed := errors.New("the rest of the transaction refused")
-	if err := d.inTx(func(tx *sql.Tx) error {
+	if err := d.inTx(func(tx *writeTx) error {
 		if err := putChatAttachmentOn(tx, ChatAttachment{ID: "att-2", Mime: "image/png", Data: []byte("x")}); err != nil {
 			return err
 		}
@@ -2147,7 +2147,7 @@ func TestGetUserContextOn(t *testing.T) {
 		t.Fatalf("getUserContextOn:\n got %+v\nwant %+v", got, written)
 	}
 
-	if err := d.inTx(func(tx *sql.Tx) error {
+	if err := d.inTx(func(tx *writeTx) error {
 		inside, err := getUserContextOn(tx)
 		if err != nil {
 			return err
@@ -2176,7 +2176,7 @@ func TestPutUserContextOn(t *testing.T) {
 	dalWantUserContext(t, d, &second)
 
 	failed := errors.New("the rest of the transaction refused")
-	if err := d.inTx(func(tx *sql.Tx) error {
+	if err := d.inTx(func(tx *writeTx) error {
 		if err := putUserContextOn(tx, UserContext{Text: "rolled back", Tombstoned: false}); err != nil {
 			return err
 		}
@@ -2244,7 +2244,7 @@ func TestGetRoleDefOn(t *testing.T) {
 		t.Fatalf("getRoleDefOn:\n got %+v\nwant %+v", got, written)
 	}
 
-	if err := d.inTx(func(tx *sql.Tx) error {
+	if err := d.inTx(func(tx *writeTx) error {
 		inside, err := getRoleDefOn(tx, "engineer")
 		if err != nil {
 			return err
@@ -2273,7 +2273,7 @@ func TestPutRoleDefOn(t *testing.T) {
 	dalWantRoleDef(t, d, "engineer", &second)
 
 	failed := errors.New("the rest of the transaction refused")
-	if err := d.inTx(func(tx *sql.Tx) error {
+	if err := d.inTx(func(tx *writeTx) error {
 		if err := putRoleDefOn(tx, RoleDef{RoleKey: "designer", Name: "Designer"}); err != nil {
 			return err
 		}
@@ -2355,7 +2355,7 @@ func TestGetInsightOn(t *testing.T) {
 		t.Fatalf("getInsightOn:\n got %+v\nwant %+v", got, written)
 	}
 
-	if err := d.inTx(func(tx *sql.Tx) error {
+	if err := d.inTx(func(tx *writeTx) error {
 		inside, err := getInsightOn(tx, "engineer")
 		if err != nil {
 			return err
@@ -2384,7 +2384,7 @@ func TestPutInsightOn(t *testing.T) {
 	dalWantInsight(t, d, "engineer", &second)
 
 	failed := errors.New("the rest of the transaction refused")
-	if err := d.inTx(func(tx *sql.Tx) error {
+	if err := d.inTx(func(tx *writeTx) error {
 		if err := putInsightOn(tx, Insight{RoleKey: "designer", Text: "rolled back"}); err != nil {
 			return err
 		}
@@ -2470,7 +2470,7 @@ func TestGetBootDocumentOn(t *testing.T) {
 		t.Fatalf("the pair addresses one row:\n got %+v\nwant %+v", got, written)
 	}
 
-	if err := d.inTx(func(tx *sql.Tx) error {
+	if err := d.inTx(func(tx *writeTx) error {
 		inside, err := getBootDocumentOn(tx, docKindBootSequence, "claude")
 		if err != nil {
 			return err
@@ -2499,7 +2499,7 @@ func TestPutBootDocumentOn(t *testing.T) {
 	dalWantBootDocument(t, d, docKindSystemInteraction, "global", &second)
 
 	failed := errors.New("the rest of the transaction refused")
-	if err := d.inTx(func(tx *sql.Tx) error {
+	if err := d.inTx(func(tx *writeTx) error {
 		if err := putBootDocumentOn(tx, BootDocument{Kind: docKindOffboard, Key: "global", Text: "rolled back"}); err != nil {
 			return err
 		}
@@ -2920,7 +2920,7 @@ func TestPutReplyCardWithStepAndTask(t *testing.T) {
 		task.Status = TaskStatusInProgress
 		task.UpdatedTS = 200
 
-		if err := d.PutReplyCardWithStepAndTask(card, answerBlobs(), &step, &task); err != nil {
+		if err := putReplyCardWithStepAndTaskInTx(d, card, answerBlobs(), &step, &task); err != nil {
 			t.Fatalf("PutReplyCardWithStepAndTask: %v", err)
 		}
 		if got, want := dalStoredBlobIDs(t, d), []string{"att-answer"}; !reflect.DeepEqual(got, want) {
@@ -2956,7 +2956,7 @@ func TestPutReplyCardWithStepAndTask(t *testing.T) {
 			t.Fatalf("drop task: %v", err)
 		}
 
-		if err := d.PutReplyCardWithStepAndTask(card, answerBlobs(), &step, &task); err == nil {
+		if err := putReplyCardWithStepAndTaskInTx(d, card, answerBlobs(), &step, &task); err == nil {
 			t.Fatalf("a task row that cannot be written must fail the whole write")
 		}
 		// The two rows written BEFORE the failure must be back as they were:
@@ -2993,7 +2993,7 @@ func TestPutReplyCardWithStepAndTask(t *testing.T) {
 			t.Fatalf("drop task_step: %v", err)
 		}
 
-		if err := d.PutReplyCardWithStepAndTask(card, answerBlobs(), &step, &task); err == nil {
+		if err := putReplyCardWithStepAndTaskInTx(d, card, answerBlobs(), &step, &task); err == nil {
 			t.Fatalf("a step row that cannot be written must fail the whole write")
 		}
 		dalWantReplyCard(t, d, "rc-1", &before)
@@ -3053,7 +3053,7 @@ func TestPutReplyCardWithChatAndStep(t *testing.T) {
 		blobs := []ChatAttachment{{ID: "att-question", Mime: "image/png", Data: []byte("the question")}}
 		armed, held := arm(task, step, "rc-1")
 
-		if err := d.PutReplyCardWithChatStepAndTask(card, m, blobs, armed, &held); err != nil {
+		if err := putReplyCardWithChatStepAndTaskInTx(d, card, m, blobs, armed, &held); err != nil {
 			t.Fatalf("PutReplyCardWithChatAndStep: %v", err)
 		}
 		dalWantReplyCard(t, d, "rc-1", &card)
@@ -3089,7 +3089,7 @@ func TestPutReplyCardWithChatAndStep(t *testing.T) {
 			t.Fatalf("drop task_step: %v", err)
 		}
 
-		err := d.PutReplyCardWithChatStepAndTask(
+		err := putReplyCardWithChatStepAndTaskInTx(d,
 			dalReplyCard("rc-1", 100),
 			dalChatWithAtts("m1", "ann", "owner", 100, dalAttRef("att-doomed", "image/png", "d.png")),
 			[]ChatAttachment{{ID: "att-doomed", Mime: "image/png", Data: []byte("doomed")}},
@@ -3116,7 +3116,7 @@ func TestPutReplyCardWithChatAndStep(t *testing.T) {
 			t.Fatalf("drop task: %v", err)
 		}
 
-		err := d.PutReplyCardWithChatStepAndTask(
+		err := putReplyCardWithChatStepAndTaskInTx(d,
 			dalReplyCard("rc-1", 100),
 			dalChatWithAtts("m1", "ann", "owner", 100, dalAttRef("att-doomed", "image/png", "d.png")),
 			[]ChatAttachment{{ID: "att-doomed", Mime: "image/png", Data: []byte("doomed")}},
@@ -3180,7 +3180,7 @@ func TestPutReplyCardWithAttachments(t *testing.T) {
 func TestInTx(t *testing.T) {
 	d := newAPITestDAL(t)
 
-	if err := d.inTx(func(tx *sql.Tx) error {
+	if err := d.inTx(func(tx *writeTx) error {
 		return putChatOn(tx, dalChat("m1", "ann", "bob", 100))
 	}); err != nil {
 		t.Fatalf("inTx: %v", err)
@@ -3189,7 +3189,7 @@ func TestInTx(t *testing.T) {
 		dalMustListChat(t, d), []ChatMessage{dalChat("m1", "ann", "bob", 100)})
 
 	failed := errors.New("the body refused")
-	if err := d.inTx(func(tx *sql.Tx) error {
+	if err := d.inTx(func(tx *writeTx) error {
 		if err := putChatOn(tx, dalChat("m2", "ann", "bob", 200)); err != nil {
 			return err
 		}
@@ -3206,7 +3206,7 @@ func TestInTx(t *testing.T) {
 				t.Fatalf("the panic must reach the caller")
 			}
 		}()
-		_ = d.inTx(func(tx *sql.Tx) error {
+		_ = d.inTx(func(tx *writeTx) error {
 			if err := putChatOn(tx, dalChat("m3", "ann", "bob", 300)); err != nil {
 				return err
 			}
@@ -3216,7 +3216,7 @@ func TestInTx(t *testing.T) {
 	dalWantChats(t, "a panicking body rolls back and leaves the write pool usable",
 		dalMustListChat(t, d), []ChatMessage{dalChat("m1", "ann", "bob", 100)})
 
-	if err := d.inTx(func(tx *sql.Tx) error {
+	if err := d.inTx(func(tx *writeTx) error {
 		return putChatOn(tx, dalChat("m4", "ann", "bob", 400))
 	}); err != nil {
 		t.Fatalf("inTx after a panic: %v", err)
@@ -3257,7 +3257,7 @@ func TestPutReplyCardOn(t *testing.T) {
 	})
 
 	failed := errors.New("the rest of the transaction refused")
-	if err := d.inTx(func(tx *sql.Tx) error {
+	if err := d.inTx(func(tx *writeTx) error {
 		if err := putReplyCardOn(tx, dalReplyCard("rc-3", 300)); err != nil {
 			return err
 		}
@@ -4749,4 +4749,14 @@ func dalWantPushSubscriptions(t *testing.T, d *DAL, what string, want []PushSubs
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("%s:\n got %+v\nwant %+v", what, got, want)
 	}
+}
+
+func putReplyCardWithStepAndTaskInTx(d *DAL, c ReplyCard, atts []ChatAttachment, step *TaskStep, task *Task) error {
+	return d.inTx(func(tx *writeTx) error { return putReplyCardWithStepAndTaskOn(tx, c, atts, step, task) })
+}
+
+func putReplyCardWithChatStepAndTaskInTx(
+	d *DAL, c ReplyCard, m ChatMessage, atts []ChatAttachment, st TaskStep, t *Task,
+) error {
+	return d.inTx(func(tx *writeTx) error { return putReplyCardWithChatStepAndTaskOn(tx, c, m, atts, st, t) })
 }

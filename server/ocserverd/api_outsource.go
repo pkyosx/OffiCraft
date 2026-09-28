@@ -145,15 +145,16 @@ func (s *apiServer) relocateWorkerByID(w http.ResponseWriter, r *http.Request, i
 		return
 	}
 
-	s.outsourceMu.Lock()
+	unlockMu := s.outsourceMu.Acquire()
+	defer unlockMu()
 	worker, err := s.dal.GetOutsourceWorker(id)
 	if err != nil {
-		s.outsourceMu.Unlock()
+		unlockMu()
 		internalError(w, err)
 		return
 	}
 	if worker == nil || worker.Status == WorkerStatusReleased {
-		s.outsourceMu.Unlock()
+		unlockMu()
 		writeResolveError(w, errNotFound, "member", id)
 		return
 	}
@@ -162,12 +163,12 @@ func (s *apiServer) relocateWorkerByID(w http.ResponseWriter, r *http.Request, i
 	// desired_machine_id: without this sole-writer call the relocate would answer
 	// 200 and move nothing.
 	if err := s.dal.SetMemberDesiredMachineID(worker.ID, machineID); err != nil {
-		s.outsourceMu.Unlock()
+		unlockMu()
 		internalError(w, err)
 		return
 	}
 	if err := s.dal.PutOutsourceWorker(*worker); err != nil {
-		s.outsourceMu.Unlock()
+		unlockMu()
 		internalError(w, err)
 		return
 	}
@@ -176,7 +177,7 @@ func (s *apiServer) relocateWorkerByID(w http.ResponseWriter, r *http.Request, i
 		worker = fresh
 	}
 	s.publishOutsourceWorker(*worker, requestTrigger(r))
-	s.outsourceMu.Unlock()
+	unlockMu()
 
 	// The same bounded receipt the staff relocate answers (it forwards ow- ids
 	// here): the two flags separate a wind-down opened by design from a move that
@@ -195,15 +196,16 @@ func (s *apiServer) relocateWorkerByID(w http.ResponseWriter, r *http.Request, i
 // The refocus_since marker doubles as the tick's auto-handover cooldown and is
 // cleared by the loop-break once the respawn lands.
 func (s *apiServer) HandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost(w http.ResponseWriter, r *http.Request, id string) {
-	s.outsourceMu.Lock()
+	unlockMu := s.outsourceMu.Acquire()
+	defer unlockMu()
 	worker, err := s.dal.GetOutsourceWorker(id)
 	if err != nil {
-		s.outsourceMu.Unlock()
+		unlockMu()
 		internalError(w, err)
 		return
 	}
 	if worker == nil || worker.Status == WorkerStatusReleased {
-		s.outsourceMu.Unlock()
+		unlockMu()
 		writeResolveError(w, errNotFound, "member", id)
 		return
 	}
@@ -212,7 +214,7 @@ func (s *apiServer) HandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost
 	// only for a worker nobody ever asked to stop (aStopWasEverAskedFor).
 	if worker.DesiredState == DesiredStateOffline {
 		if !s.queueWorkerRestartAfterStop(worker, refocusOpRefocus, nowSecs()) {
-			s.outsourceMu.Unlock()
+			unlockMu()
 			writeError(w, http.StatusConflict,
 				"refocus requires a live worker — this one is stopped and has never "+
 					"been asked to stop, so there is no wind-down for a 起來 to be "+
@@ -220,12 +222,12 @@ func (s *apiServer) HandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost
 			return
 		}
 		if err := s.persistWorkerRestartIntent(*worker); err != nil {
-			s.outsourceMu.Unlock()
+			unlockMu()
 			internalError(w, err)
 			return
 		}
 		s.publishOutsourceWorker(*worker, requestTrigger(r))
-		s.outsourceMu.Unlock()
+		unlockMu()
 		// AFTER the unlock: the tick takes outsourceMu itself. Spends a queued
 		// start at once when the stop has already converged.
 		s.outsourceTickNow()
@@ -236,7 +238,7 @@ func (s *apiServer) HandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost
 		return
 	}
 	if worker.Status != WorkerStatusActive || !s.hub.IsOnline(worker.ID) {
-		s.outsourceMu.Unlock()
+		unlockMu()
 		writeError(w, http.StatusConflict,
 			"refocus requires the worker to be online (no live session to hand over)")
 		return
@@ -247,7 +249,7 @@ func (s *apiServer) HandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost
 	// fields it mutates — a hand-written copy drifts from the shared decision.
 	proj := memberFromWorker(*worker)
 	if !armRefocusEpoch(&proj, refocusOpRefocus, nowSecs()) {
-		s.outsourceMu.Unlock()
+		unlockMu()
 		writeError(w, http.StatusConflict,
 			"refocus is 停止 and this worker is already further along the "+
 				"wind-down ladder (下線 → 加速 → 強制); a later stage is never "+
@@ -259,12 +261,12 @@ func (s *apiServer) HandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost
 	worker.StoppingSince = proj.StoppingSince
 	worker.StoppedSince = proj.StoppedSince
 	if err := s.persistWorkerWindDownAnchors(*worker); err != nil {
-		s.outsourceMu.Unlock()
+		unlockMu()
 		internalError(w, err)
 		return
 	}
 	if err := s.dal.PutOutsourceWorker(*worker); err != nil {
-		s.outsourceMu.Unlock()
+		unlockMu()
 		internalError(w, err)
 		return
 	}
@@ -273,7 +275,7 @@ func (s *apiServer) HandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost
 		worker = fresh
 	}
 	s.publishOutsourceWorker(*worker, requestTrigger(r))
-	s.outsourceMu.Unlock()
+	unlockMu()
 
 	writeJSON(w, http.StatusOK, agentLifecycleReceiptDTO{ID: worker.ID})
 }
@@ -294,20 +296,21 @@ const acceleratedStopWorkerNeedsAnOpenWindDownMsg = "加速停止 escalates a wi
 	"重新聚焦 first"
 
 func (s *apiServer) HandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcceleratedStopPost(w http.ResponseWriter, r *http.Request, id string) {
-	s.outsourceMu.Lock()
+	unlockMu := s.outsourceMu.Acquire()
+	defer unlockMu()
 	worker, err := s.dal.GetOutsourceWorker(id)
 	if err != nil {
-		s.outsourceMu.Unlock()
+		unlockMu()
 		internalError(w, err)
 		return
 	}
 	if worker == nil || worker.Status == WorkerStatusReleased {
-		s.outsourceMu.Unlock()
+		unlockMu()
 		writeResolveError(w, errNotFound, "member", id)
 		return
 	}
 	if worker.Status != WorkerStatusActive || !s.hub.IsOnline(worker.ID) {
-		s.outsourceMu.Unlock()
+		unlockMu()
 		writeError(w, http.StatusConflict,
 			"加速停止 requires the worker to be online (no live session to accelerate)")
 		return
@@ -315,7 +318,7 @@ func (s *apiServer) HandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcc
 	switch {
 	case worker.DesiredState == DesiredStateOffline:
 		if !gracefulStopEpochOpen(memberFromWorker(*worker)) {
-			s.outsourceMu.Unlock()
+			unlockMu()
 			writeError(w, http.StatusConflict, acceleratedStopWorkerNeedsAnOpenWindDownMsg)
 			return
 		}
@@ -323,7 +326,7 @@ func (s *apiServer) HandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcc
 	case worker.RefocusSince > 0.0:
 		worker.RefocusSince = nowSecs()
 	default:
-		s.outsourceMu.Unlock()
+		unlockMu()
 		writeError(w, http.StatusConflict, acceleratedStopWorkerNeedsAnOpenWindDownMsg)
 		return
 	}
@@ -332,12 +335,12 @@ func (s *apiServer) HandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcc
 	// ladder it advances stays a ratchet.
 	clearWorkerRestartIntent(worker)
 	if err := s.persistWorkerWindDownAnchors(*worker); err != nil {
-		s.outsourceMu.Unlock()
+		unlockMu()
 		internalError(w, err)
 		return
 	}
 	if err := s.dal.PutOutsourceWorker(*worker); err != nil {
-		s.outsourceMu.Unlock()
+		unlockMu()
 		internalError(w, err)
 		return
 	}
@@ -350,7 +353,7 @@ func (s *apiServer) HandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcc
 		worker = fresh
 	}
 	s.publishOutsourceWorker(*worker, requestTrigger(r))
-	s.outsourceMu.Unlock()
+	unlockMu()
 
 	writeJSON(w, http.StatusOK, agentLifecycleReceiptDTO{ID: worker.ID})
 }
@@ -368,15 +371,16 @@ func (s *apiServer) HandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcc
 //
 // The bound task stays in its own status.
 func (s *apiServer) HandleStopOutsourceWorkerApiOutsourceWorkersIdStopPost(w http.ResponseWriter, r *http.Request, id string) {
-	s.outsourceMu.Lock()
+	unlockMu := s.outsourceMu.Acquire()
+	defer unlockMu()
 	worker, err := s.dal.GetOutsourceWorker(id)
 	if err != nil {
-		s.outsourceMu.Unlock()
+		unlockMu()
 		internalError(w, err)
 		return
 	}
 	if worker == nil || worker.Status == WorkerStatusReleased {
-		s.outsourceMu.Unlock()
+		unlockMu()
 		writeResolveError(w, errNotFound, "member", id)
 		return
 	}
@@ -385,12 +389,12 @@ func (s *apiServer) HandleStopOutsourceWorkerApiOutsourceWorkersIdStopPost(w htt
 	// WORKER row through stopVerbRowOfWorker's pointers, not on the projection.
 	applyStopVerbRow(stopVerbRowOfWorker(worker), memberFromWorker(*worker), nowSecs())
 	if err := s.persistWorkerWindDownAnchors(*worker); err != nil {
-		s.outsourceMu.Unlock()
+		unlockMu()
 		internalError(w, err)
 		return
 	}
 	if err := s.dal.PutOutsourceWorker(*worker); err != nil {
-		s.outsourceMu.Unlock()
+		unlockMu()
 		internalError(w, err)
 		return
 	}
@@ -402,7 +406,7 @@ func (s *apiServer) HandleStopOutsourceWorkerApiOutsourceWorkersIdStopPost(w htt
 		worker = fresh
 	}
 	s.publishOutsourceWorker(*worker, requestTrigger(r))
-	s.outsourceMu.Unlock()
+	unlockMu()
 
 	writeJSON(w, http.StatusOK, agentLifecycleReceiptDTO{ID: worker.ID})
 }
@@ -414,15 +418,16 @@ func (s *apiServer) HandleStopOutsourceWorkerApiOutsourceWorkersIdStopPost(w htt
 // speaks. It sends NOTHING; forced_stop_at is what keeps it silent. No online
 // gate: a worker whose session is gone still needs its intent held down.
 func (s *apiServer) HandleForceStopOutsourceWorkerApiOutsourceWorkersIdForceStopPost(w http.ResponseWriter, r *http.Request, id string) {
-	s.outsourceMu.Lock()
+	unlockMu := s.outsourceMu.Acquire()
+	defer unlockMu()
 	worker, err := s.dal.GetOutsourceWorker(id)
 	if err != nil {
-		s.outsourceMu.Unlock()
+		unlockMu()
 		internalError(w, err)
 		return
 	}
 	if worker == nil || worker.Status == WorkerStatusReleased {
-		s.outsourceMu.Unlock()
+		unlockMu()
 		writeResolveError(w, errNotFound, "member", id)
 		return
 	}
@@ -436,12 +441,12 @@ func (s *apiServer) HandleForceStopOutsourceWorkerApiOutsourceWorkersIdForceStop
 		worker.StoppingSince = forcedAt
 	}
 	if err := s.persistWorkerWindDownAnchors(*worker); err != nil {
-		s.outsourceMu.Unlock()
+		unlockMu()
 		internalError(w, err)
 		return
 	}
 	if err := s.dal.PutOutsourceWorker(*worker); err != nil {
-		s.outsourceMu.Unlock()
+		unlockMu()
 		internalError(w, err)
 		return
 	}
@@ -450,7 +455,7 @@ func (s *apiServer) HandleForceStopOutsourceWorkerApiOutsourceWorkersIdForceStop
 		worker = fresh
 	}
 	s.publishOutsourceWorker(*worker, requestTrigger(r))
-	s.outsourceMu.Unlock()
+	unlockMu()
 
 	writeJSON(w, http.StatusOK, agentLifecycleReceiptDTO{ID: worker.ID})
 }
@@ -467,21 +472,22 @@ func (s *apiServer) HandleRestartOutsourceWorkerApiOutsourceWorkersIdRestartPost
 }
 
 func (s *apiServer) handleRestartOutsourceWorker(w http.ResponseWriter, r *http.Request, id string, body MemberActivateDTO) {
-	s.outsourceMu.Lock()
+	unlockMu := s.outsourceMu.Acquire()
+	defer unlockMu()
 	worker, err := s.dal.GetOutsourceWorker(id)
 	if err != nil {
-		s.outsourceMu.Unlock()
+		unlockMu()
 		internalError(w, err)
 		return
 	}
 	if worker == nil || worker.Status == WorkerStatusReleased {
-		s.outsourceMu.Unlock()
+		unlockMu()
 		writeResolveError(w, errNotFound, "member", id)
 		return
 	}
 	if body.MachineId != nil && *body.MachineId != "" {
 		if _, err := s.resolveMachine(*body.MachineId); err != nil {
-			s.outsourceMu.Unlock()
+			unlockMu()
 			writeResolveError(w, err, "machine", *body.MachineId)
 			return
 		}
@@ -489,7 +495,7 @@ func (s *apiServer) handleRestartOutsourceWorker(w http.ResponseWriter, r *http.
 	if body.MachineId != nil {
 		worker.DesiredMachineID = *body.MachineId
 		if err := s.dal.SetMemberDesiredMachineID(worker.ID, worker.DesiredMachineID); err != nil {
-			s.outsourceMu.Unlock()
+			unlockMu()
 			internalError(w, err)
 			return
 		}
@@ -540,12 +546,12 @@ func (s *apiServer) handleRestartOutsourceWorker(w http.ResponseWriter, r *http.
 	// singleColumnOwnedFields. The anchors' write order matters — see
 	// persistMemberWindDownAnchors.
 	if err := s.persistWorkerWindDownAnchors(*worker); err != nil {
-		s.outsourceMu.Unlock()
+		unlockMu()
 		internalError(w, err)
 		return
 	}
 	if err := s.dal.PutOutsourceWorker(*worker); err != nil {
-		s.outsourceMu.Unlock()
+		unlockMu()
 		internalError(w, err)
 		return
 	}
@@ -557,7 +563,7 @@ func (s *apiServer) handleRestartOutsourceWorker(w http.ResponseWriter, r *http.
 	if sessionAliveReceipt {
 		if err := s.dal.SetMemberLastOp(worker.ID, worker.LastOp, worker.LastOpOK,
 			worker.LastOpLog, worker.LastOpReason, worker.LastOpAt); err != nil {
-			s.outsourceMu.Unlock()
+			unlockMu()
 			internalError(w, err)
 			return
 		}
@@ -573,7 +579,7 @@ func (s *apiServer) handleRestartOutsourceWorker(w http.ResponseWriter, r *http.
 		worker = fresh
 	}
 	s.publishOutsourceWorker(*worker, requestTrigger(r))
-	s.outsourceMu.Unlock()
+	unlockMu()
 
 	// activation_pending (omitted when the restart landed) flags a restart that
 	// was decided but not delivered; the cause is on last_op_reason.
@@ -597,15 +603,16 @@ func (s *apiServer) HandleSetOutsourceWorkerModelApiOutsourceWorkersIdModelPost(
 }
 
 func (s *apiServer) handleSetOutsourceWorkerModel(w http.ResponseWriter, r *http.Request, id string, body MemberUpdateDTO) {
-	s.outsourceMu.Lock()
+	unlockMu := s.outsourceMu.Acquire()
+	defer unlockMu()
 	worker, err := s.dal.GetOutsourceWorker(id)
 	if err != nil {
-		s.outsourceMu.Unlock()
+		unlockMu()
 		internalError(w, err)
 		return
 	}
 	if worker == nil || worker.Status == WorkerStatusReleased {
-		s.outsourceMu.Unlock()
+		unlockMu()
 		writeResolveError(w, errNotFound, "member", id)
 		return
 	}
@@ -621,7 +628,7 @@ func (s *apiServer) handleSetOutsourceWorkerModel(w http.ResponseWriter, r *http
 	if body.Runtime != nil {
 		runtime := string(*body.Runtime)
 		if !ValidRuntime(runtime) {
-			s.outsourceMu.Unlock()
+			unlockMu()
 			writeError(w, http.StatusUnprocessableEntity,
 				"runtime must be one of [claude codex]; got '"+runtime+"'")
 			return
@@ -632,7 +639,7 @@ func (s *apiServer) handleSetOutsourceWorkerModel(w http.ResponseWriter, r *http
 	if body.Effort != nil {
 		effort := strings.TrimSpace(*body.Effort)
 		if !validEffort(effort) {
-			s.outsourceMu.Unlock()
+			unlockMu()
 			writeError(w, http.StatusUnprocessableEntity,
 				"effort must be one of [high low max medium xhigh]; got '"+effort+"'")
 			return
@@ -642,7 +649,7 @@ func (s *apiServer) handleSetOutsourceWorkerModel(w http.ResponseWriter, r *http
 	}
 	wantModel, wantRuntime, wantEffort := worker.Model, NormalizeRuntime(worker.Runtime), worker.Effort
 	if err := s.dal.PutOutsourceWorker(*worker); err != nil {
-		s.outsourceMu.Unlock()
+		unlockMu()
 		internalError(w, err)
 		return
 	}
@@ -660,7 +667,7 @@ func (s *apiServer) handleSetOutsourceWorkerModel(w http.ResponseWriter, r *http
 		// gate. Owner 2026-08-30: 「change model / machine 只是帶起來的方式不一樣而已」.
 		if s.queueWorkerRestartAfterStop(worker, ownerOpRuntimeModel, nowSecs()) {
 			if err := s.persistWorkerRestartIntent(*worker); err != nil {
-				s.outsourceMu.Unlock()
+				unlockMu()
 				internalError(w, err)
 				return
 			}
@@ -673,7 +680,7 @@ func (s *apiServer) handleSetOutsourceWorkerModel(w http.ResponseWriter, r *http
 	// keeps the collect from landing between the two writes.
 	if body.Model != nil {
 		if err := s.dal.SetMemberModel(id, wantModel); err != nil {
-			s.outsourceMu.Unlock()
+			unlockMu()
 			internalError(w, err)
 			return
 		}
@@ -682,14 +689,14 @@ func (s *apiServer) handleSetOutsourceWorkerModel(w http.ResponseWriter, r *http
 		// Normalised, matching memberFromWorker's stored form, so the sole
 		// writer never stores a second form on the same column.
 		if err := s.dal.SetMemberRuntime(id, wantRuntime); err != nil {
-			s.outsourceMu.Unlock()
+			unlockMu()
 			internalError(w, err)
 			return
 		}
 	}
 	if body.Effort != nil {
 		if err := s.dal.SetMemberEffort(id, wantEffort); err != nil {
-			s.outsourceMu.Unlock()
+			unlockMu()
 			internalError(w, err)
 			return
 		}
@@ -698,7 +705,7 @@ func (s *apiServer) handleSetOutsourceWorkerModel(w http.ResponseWriter, r *http
 		worker = fresh
 	}
 	s.publishOutsourceWorker(*worker, requestTrigger(r))
-	s.outsourceMu.Unlock()
+	unlockMu()
 
 	writeJSON(w, http.StatusOK, agentLifecycleReceiptDTO{ID: worker.ID})
 }

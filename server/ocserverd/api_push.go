@@ -166,6 +166,7 @@ func (s *apiServer) enqueueWebPush(payload webPushPayload) {
 		return
 	}
 	go func() {
+		defer recoverLockInTx("web push delivery")
 		subscriber := s.pushContactAddress()
 		if subscriber == "" {
 			log.Printf("[push] no contact address configured; delivery skipped")

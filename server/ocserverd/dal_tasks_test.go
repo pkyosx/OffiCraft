@@ -671,7 +671,7 @@ func TestReplaceTaskDeps(t *testing.T) {
 		dalAddDep(t, d, "T-1", "T-3")
 		dalAddDep(t, d, "T-7", "T-4")
 
-		if err := d.ReplaceTaskDeps("T-1", []string{"T-5", "T-3"}); err != nil {
+		if err := replaceTaskDepsInTx(d, "T-1", []string{"T-5", "T-3"}); err != nil {
 			t.Fatalf("ReplaceTaskDeps: %v", err)
 		}
 		if got, _ := d.ListTaskDeps("T-1"); !reflect.DeepEqual(got, []string{"T-3", "T-5"}) {
@@ -687,7 +687,7 @@ func TestReplaceTaskDeps(t *testing.T) {
 		dalAddDep(t, d, "T-1", "T-2")
 		dalAddDep(t, d, "T-7", "T-4")
 
-		if err := d.ReplaceTaskDeps("T-1", nil); err != nil {
+		if err := replaceTaskDepsInTx(d, "T-1", nil); err != nil {
 			t.Fatalf("ReplaceTaskDeps with no blockers: %v", err)
 		}
 		got, err := d.ListTaskDeps("T-1")
@@ -704,7 +704,7 @@ func TestReplaceTaskDeps(t *testing.T) {
 
 	t.Run("a repeated blocker in the list lands once", func(t *testing.T) {
 		d := newAPITestDAL(t)
-		if err := d.ReplaceTaskDeps("T-1", []string{"T-2", "T-2", "T-3"}); err != nil {
+		if err := replaceTaskDepsInTx(d, "T-1", []string{"T-2", "T-2", "T-3"}); err != nil {
 			t.Fatalf("ReplaceTaskDeps: %v", err)
 		}
 		if got, _ := d.ListTaskDeps("T-1"); !reflect.DeepEqual(got, []string{"T-2", "T-3"}) {
@@ -717,7 +717,7 @@ func TestReplaceTaskDeps(t *testing.T) {
 
 	t.Run("replacing the edges of a task that has none simply adds them", func(t *testing.T) {
 		d := newAPITestDAL(t)
-		if err := d.ReplaceTaskDeps("T-1", []string{"T-2"}); err != nil {
+		if err := replaceTaskDepsInTx(d, "T-1", []string{"T-2"}); err != nil {
 			t.Fatalf("ReplaceTaskDeps: %v", err)
 		}
 		if got, _ := d.ListTaskDeps("T-1"); !reflect.DeepEqual(got, []string{"T-2"}) {
@@ -2270,4 +2270,8 @@ func dalManualHistoryCount(t *testing.T, d *DAL, documentKey string) int {
 		t.Fatalf("count revisions of %q: %v", documentKey, err)
 	}
 	return n
+}
+
+func replaceTaskDepsInTx(d *DAL, taskID string, blockedBy []string) error {
+	return d.inTx(func(tx *writeTx) error { return replaceTaskDepsOn(tx, taskID, blockedBy) })
 }

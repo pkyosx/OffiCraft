@@ -251,7 +251,7 @@ func readAvatarsThroughDAL(t *testing.T, d *DAL, id string) map[string]string {
 
 func runAvatarKindMigration(t *testing.T, d *DAL, migration func(context.Context, *sql.Tx) error) {
 	t.Helper()
-	tx, err := d.wdb.Begin()
+	tx, err := d.wdb.raw.Begin()
 	if err != nil {
 		t.Fatalf("begin migration transaction: %v", err)
 	}
