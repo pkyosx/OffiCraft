@@ -1000,7 +1000,7 @@ func (s *apiServer) HandleDeleteMachineApiMachinesMemberIdDelete(w http.Response
 		if err != nil {
 			return err
 		}
-		if cur == nil || cur.Kind != machineKind {
+		if cur == nil {
 			return errNotFound
 		}
 		cur.RosterStatus = RosterStatusRemoved

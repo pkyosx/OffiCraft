@@ -882,8 +882,9 @@ var identityGateLedger = map[string]string{
 		"row can carry that desired_state. This is the loop whose in-body kind test " +
 		"stage 3 hoisted into the shared list as an AppliesTo — the guard here is what " +
 		"that AppliesTo mirrors, and the two must agree.",
-	"reconcile.go :: consumeUninstallOnDisconnect :: m.Kind != KindWarden": "" +
-		"the event-driven edge of the same uninstall sweep, same machine-only reason.",
+	"reconcile.go :: foldUninstallIntentOnRow :: cur.Kind != KindWarden": "" +
+		"the one fold of the uninstall intent that the tick sweep, its event-driven edge and " +
+		"the re-install paths share, re-checked on the row it writes; same machine-only reason.",
 	"reconcile.go :: dispatchIdentitySweepNow :: m.Kind != KindWarden": "" +
 		"the identity sweep is dispatched TO machines (they are the executors that hold " +
 		"the identity), so the loop selects active warden rows. Machine-vs-person.",
