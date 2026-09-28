@@ -1243,41 +1243,13 @@ func TestAReadIsNotQueuedBehindAWriteTransactionOverSplitPools(t *testing.T) {
 			dalPutTask(t, d, windowOpenTask("T-1"))
 			dalPutTask(t, d, windowClosed(windowOpenTask("T-2")))
 
-			holding, release, released := make(chan error, 1), make(chan struct{}), make(chan struct{})
-			go func() {
-				defer close(released)
-				tx, err := d.wdb.Begin()
-				holding <- err
-				if err != nil {
-					return
-				}
-				<-release
-				_ = tx.Rollback()
-			}()
-			if err := <-holding; err != nil {
-				t.Fatalf("hold the write transaction: %v", err)
-			}
-			var releaseOnce sync.Once
-			letGo := func() {
-				releaseOnce.Do(func() {
-					close(release)
-					<-released
-				})
-			}
-			t.Cleanup(letGo)
-
+			letGo := windowHoldWriteConn(t, d)
 			var wrote chan *httptest.ResponseRecorder
 			if tc.writeMethod != "" {
-				queuedBefore := d.wdb.raw.Stats().WaitCount
+				queuedBefore := windowQueuedSoFar(d)
 				wrote = make(chan *httptest.ResponseRecorder, 1)
 				go func() { wrote <- apiRequest(t, h, tc.writeMethod, tc.writePath, owner, tc.wb) }()
-				deadline := time.Now().Add(windowRequestDeadline)
-				for d.wdb.raw.Stats().WaitCount == queuedBefore {
-					if time.Now().After(deadline) {
-						t.Fatalf("premise: %s %s never queued for the write connection", tc.writeMethod, tc.writePath)
-					}
-					time.Sleep(time.Millisecond)
-				}
+				windowAwaitQueued(t, d, queuedBefore)
 			}
 
 			answered := make(chan *httptest.ResponseRecorder, 1)
@@ -1307,6 +1279,51 @@ func TestAReadIsNotQueuedBehindAWriteTransactionOverSplitPools(t *testing.T) {
 				t.Fatalf("%s %s did not answer once the write connection was free", tc.writeMethod, tc.writePath)
 			}
 		})
+	}
+}
+
+// windowHoldWriteConn opens a write transaction on its own goroutine and keeps
+// it until letGo runs (at cleanup at the latest): every other writer queues for
+// the connection meanwhile. Over split pools only.
+func windowHoldWriteConn(t *testing.T, d *DAL) (letGo func()) {
+	t.Helper()
+	holding, release, released := make(chan error, 1), make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(released)
+		tx, err := d.wdb.Begin()
+		holding <- err
+		if err != nil {
+			return
+		}
+		<-release
+		_ = tx.Rollback()
+	}()
+	if err := <-holding; err != nil {
+		t.Fatalf("hold the write transaction: %v", err)
+	}
+	var once sync.Once
+	letGo = func() {
+		once.Do(func() {
+			close(release)
+			<-released
+		})
+	}
+	t.Cleanup(letGo)
+	return letGo
+}
+
+// windowQueuedSoFar is how many callers have ever waited for the write
+// connection; windowAwaitQueued waits until one more has.
+func windowQueuedSoFar(d *DAL) int64 { return d.wdb.raw.Stats().WaitCount }
+
+func windowAwaitQueued(t *testing.T, d *DAL, before int64) {
+	t.Helper()
+	deadline := time.Now().Add(windowRequestDeadline)
+	for windowQueuedSoFar(d) == before {
+		if time.Now().After(deadline) {
+			t.Fatalf("premise: nothing queued for the write connection within %s", windowRequestDeadline)
+		}
+		time.Sleep(time.Millisecond)
 	}
 }
 

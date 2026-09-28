@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strconv"
 	"testing"
+	"time"
 )
 
 func TestMfaIssuer(t *testing.T) {
@@ -113,6 +114,51 @@ func TestVerifyAndSpendTOTP(t *testing.T) {
 		ok, err := verifyTOTP(t, api, "not-a-totp-code", 1700000000)
 		if err != nil || !ok {
 			t.Fatalf("MFA-off verification: want true, nil; got %v, %v", ok, err)
+		}
+	})
+
+	t.Run("of eight logins racing with one live code while the write connection is busy, exactly one spends it", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		secret := apiTestArmMFA(t, api, d)
+		key, err := decodeTOTPSecret(secret)
+		if err != nil {
+			t.Fatalf("decodeTOTPSecret: %v", err)
+		}
+		now := int64(1700000000)
+		code := totpCodeAt(key, now/totpStepSecs)
+
+		letGo := windowHoldWriteConn(t, d)
+		before := windowQueuedSoFar(d)
+		type outcome struct {
+			ok  bool
+			err error
+		}
+		outcomes := make(chan outcome, 8)
+		for i := 0; i < 8; i++ {
+			go func() {
+				ok, err := api.verifyAndSpendTOTP(code, now)
+				outcomes <- outcome{ok, err}
+			}()
+		}
+		windowAwaitQueued(t, d, before)
+		letGo()
+
+		accepted := 0
+		for i := 0; i < 8; i++ {
+			select {
+			case o := <-outcomes:
+				if o.err != nil {
+					t.Fatalf("verification %d: %v", i, o.err)
+				}
+				if o.ok {
+					accepted++
+				}
+			case <-time.After(windowRequestDeadline):
+				t.Fatalf("only %d of 8 verifications returned within %s", i, windowRequestDeadline)
+			}
+		}
+		if accepted != 1 {
+			t.Fatalf("one code accepted %d times, want exactly 1", accepted)
 		}
 	})
 }
