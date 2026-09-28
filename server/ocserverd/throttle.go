@@ -50,9 +50,8 @@ import (
 	"math"
 	"net/http"
 	"strconv"
+	"sync/atomic"
 	"time"
-
-	"ocserverd/txguard"
 )
 
 const (
@@ -71,27 +70,26 @@ const (
 )
 
 type credentialThrottle struct {
-	mu txguard.Mutex
-
-	inFlight int
+	inFlight atomic.Int32
 }
 
+// begin takes a slot only if one is free at the moment it takes it (the CAS);
+// the returned release gives it back once however often it is called.
 func (t *credentialThrottle) begin() (func(), time.Duration, bool) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	if t.inFlight >= throttleMaxInFlight {
-		return nil, throttleBurstWait, true
-	}
-	t.inFlight++
-	released := false
-	return func() {
-		t.mu.Lock()
-		defer t.mu.Unlock()
-		if released {
-			return
+	for {
+		n := t.inFlight.Load()
+		if n >= throttleMaxInFlight {
+			return nil, throttleBurstWait, true
 		}
-		released = true
-		t.inFlight--
+		if t.inFlight.CompareAndSwap(n, n+1) {
+			break
+		}
+	}
+	var released atomic.Bool
+	return func() {
+		if released.CompareAndSwap(false, true) {
+			t.inFlight.Add(-1)
+		}
 	}, 0, false
 }
 

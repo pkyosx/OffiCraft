@@ -74,6 +74,43 @@ func TestBegin(t *testing.T) {
 		}
 	})
 
+	t.Run("one release called from many goroutines at once gives back exactly one slot", func(t *testing.T) {
+		var throttle credentialThrottle
+		held := make([]func(), 0, 4)
+		for i := 0; i < 4; i++ {
+			release, _, blocked := throttle.begin()
+			if blocked {
+				t.Fatalf("admission %d was blocked", i)
+			}
+			held = append(held, release)
+		}
+		start := make(chan struct{})
+		var group sync.WaitGroup
+		for i := 0; i < 16; i++ {
+			group.Add(1)
+			go func() {
+				defer group.Done()
+				<-start
+				held[0]()
+			}()
+		}
+		close(start)
+		group.Wait()
+		admitted := 0
+		for i := 0; i < 3; i++ {
+			if release, _, blocked := throttle.begin(); !blocked {
+				admitted++
+				held = append(held, release)
+			}
+		}
+		if admitted != 1 {
+			t.Fatalf("admissions after 16 concurrent calls of one release = %d, want 1", admitted)
+		}
+		for _, release := range held {
+			release()
+		}
+	})
+
 	t.Run("releasing the same slot repeatedly does not create extra capacity", func(t *testing.T) {
 		var throttle credentialThrottle
 		release, _, blocked := throttle.begin()
