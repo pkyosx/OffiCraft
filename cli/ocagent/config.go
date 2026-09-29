@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -18,46 +19,52 @@ type Config struct {
 	// Not derivable as "Base == defaultBase": an agent on the station's own host
 	// legitimately sets OC_BASE to that loopback address.
 	BaseConfigured bool
-	Token          string
-	MemberID       string
-	AgentsRoot     string
-	Role           string
-	TaskType       string
+	// Set but not http(s)://host. normalizeBase does not check shape, and plain
+	// `diff` would turn such a value into a dead link with exit 0.
+	BaseMalformed bool
+	Token         string
+	MemberID      string
+	AgentsRoot    string
+	Role          string
+	TaskType      string
 }
 
 // The message states the fact, never "refusing": diff/upload/download refuse on
 // it, but context-report only prints it and carries on.
 func warnMissingBase(cfg Config, subcommand string, errOut io.Writer) bool {
-	if cfg.BaseConfigured {
+	if !cfg.BaseConfigured {
+		fmt.Fprintf(errOut, "[ocagent] %s: no OC_BASE configured — nothing here knows which station to talk to, and the built-in default is this machine's loopback address.\n", subcommand)
+		return true
+	}
+	if cfg.BaseMalformed {
+		fmt.Fprintf(errOut, "[ocagent] %s: OC_BASE is set but is not a usable station address — it must be http:// or https:// followed by a host.\n", subcommand)
+		return true
+	}
+	return false
+}
+
+// The shape check lives here, not in normalizeBase: that function is mirrored
+// verbatim across three modules and deliberately returns what it cannot re-scheme.
+func baseShapeOK(base string) bool {
+	u, err := url.Parse(base)
+	if err != nil {
 		return false
 	}
-	fmt.Fprintf(errOut, "[ocagent] %s: no OC_BASE configured — nothing here knows which station to talk to, and the built-in default is this machine's loopback address.\n", subcommand)
-	return true
+	switch u.Scheme {
+	case "http", "https":
+		return u.Hostname() != ""
+	}
+	return false
 }
 
 func loadConfig(env func(string) string) Config {
 	base := normalizeBase(env("OC_BASE"))
-	// IT IS NOT A VALIDITY CHECK, and deliberately not: it records only whether
-	// the fallback below was taken. normalizeBase hands back a value it cannot
-	// re-scheme unchanged, so OC_BASE=http:// (TrimRight leaves "http:") counts
-	// as CONFIGURED.
-	//
-	// ⚠️ So one malformed case is NOT covered. The claim that a malformed OC_BASE
-	// "fails loudly on the first request" was measured false by the independent
-	// review: true for upload, download and `diff --external`, but plain `diff`
-	// makes no request, so OC_BASE=http:// prints "http:/diff?..." with exit 0 and
-	// an empty stderr — the same silent shape T-86 exists to remove.
-	//
-	// Out of scope here rather than a hole to grow into: a shape check belongs to
-	// normalizeBase, mirrored across three modules and pinned by
-	// bin/tests/base-scheme-mirror-guard.sh. ocwarden's install asserts
-	// ocBaseShape (its loadConfig does not re-check at spawn), so in practice
-	// only a hand-set value gets here.
 	baseConfigured := base != ""
 	if base == "" {
 		base = defaultBase
 	}
 	base = strings.TrimRight(base, "/")
+	baseMalformed := baseConfigured && !baseShapeOK(base)
 
 	token := env("OC_TOKEN")
 	id := env("OC_ID")
@@ -73,6 +80,7 @@ func loadConfig(env func(string) string) Config {
 	return Config{
 		Base:           base,
 		BaseConfigured: baseConfigured,
+		BaseMalformed:  baseMalformed,
 		Token:          token,
 		MemberID:       id,
 		AgentsRoot:     home,
