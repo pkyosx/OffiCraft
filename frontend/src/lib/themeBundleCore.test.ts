@@ -36,7 +36,8 @@ THE FIX IS TO RAISE BOTH TWINS TOGETHER, in one commit, to the same number:
   frontend/src/lib/themeBundleCore.ts  MAX_WORDING_ENTRIES_PER_LANG
   server/ocserverd/wording_bundle.go   maxWordingEntriesPerLang
 
-Raising only one of them is red in server/ocserverd/wording_cap_mirror_test.go.`
+Nothing checks that the two are equal: if you raise only this one, this test
+goes green while the server still refuses the pack.`
       );
     }
   });
