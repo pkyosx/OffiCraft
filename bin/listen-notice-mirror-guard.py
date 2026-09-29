@@ -20,7 +20,8 @@ THE DEFAULT TMUX SOCKET. `cli/ocwarden/tmux.go` names the socket canonical
 member sessions are spawned on (`tmuxSocket`) and `cli/ocagent/listen.go` names
 the socket the member falls back to when its launch env carries none
 (`defaultTmuxSocket`). The names differ, so this is its own pair, compared for
-equality.
+equality. It only covers the default namespace: a namespaced warden spawns on
+`officraft-<ns>` (tmuxSocketFor), while the member's fallback stays `officraft`.
 
 WHAT IS ACTUALLY TWO COPIES (T-265). `cli/ocagent` prints the transport notices
 and reads the ack switch out of its environment; `cli/ocwarden` matches those
