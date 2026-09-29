@@ -27,8 +27,11 @@ const (
 	paneRows = 50
 
 	// Read by the member's ocagent (cli/ocagent/listen.go). Rename one side only
-	// and both modules stay green while the member silently reads nothing;
+	// and both modules stay green;
 	// bin/listen-notice-mirror-guard.py holds the two copies equal.
+	baseEnv       = "OC_BASE"
+	idEnv         = "OC_ID"
+	tokenEnv      = "OC_TOKEN"
 	sessionEnv    = "OC_SESSION"
 	tmuxSocketEnv = "OC_TMUX_SOCKET"
 	agentHomeEnv  = "OC_AGENT_HOME"
@@ -226,7 +229,7 @@ func claudeHomeExportPairs(ch claudeHome) [][2]string {
 func buildLaunchCommandWithEnv(claudeBin, workdir, mcpConfigPath, appendSys, tokenFile, agentID, base, session, socket, model, effort, settingsJSON string, extraEnv [][2]string, envRendered string, ch claudeHome) string {
 	cd := claudeChildEnvPrologue(workdir, envRendered, ch)
 	pairs := [][2]string{
-		{"OC_BASE", base},
+		{baseEnv, base},
 		{sessionEnv, session},
 		{tmuxSocketEnv, socket},
 	}
@@ -238,7 +241,7 @@ func buildLaunchCommandWithEnv(claudeBin, workdir, mcpConfigPath, appendSys, tok
 	// visible machine-wide via `ps`. ABSOLUTE /bin/cat (measured): the env file sourced
 	// earlier may leave PATH without /bin, and a bare `cat` then makes OC_TOKEN silently
 	// EMPTY.
-	kvs = append(kvs, `OC_TOKEN="$(/bin/cat `+shellQuote(tokenFile)+`)"`)
+	kvs = append(kvs, tokenEnv+`="$(/bin/cat `+shellQuote(tokenFile)+`)"`)
 	for _, p := range pairs {
 		kvs = append(kvs, p[0]+"="+shellQuote(p[1]))
 	}
@@ -292,9 +295,9 @@ func buildListenerLaunchCommand(workdir, tokenFile, base, session, socket string
 	if envRendered != "" {
 		s += "[ -f " + shellQuote(envRendered) + " ] && . " + shellQuote(envRendered) + "; "
 	}
-	kvs := []string{`OC_TOKEN="$(/bin/cat ` + shellQuote(tokenFile) + `)"`}
+	kvs := []string{tokenEnv + `="$(/bin/cat ` + shellQuote(tokenFile) + `)"`}
 	pairs := [][2]string{
-		{"OC_BASE", base},
+		{baseEnv, base},
 		{sessionEnv, session},
 		{tmuxSocketEnv, socket},
 	}
