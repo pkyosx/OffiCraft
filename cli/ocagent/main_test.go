@@ -16,7 +16,7 @@ subcommands:
   suicide         self-terminate: kill my own tmux session (OC_SESSION) → SSE drops → offline
   download        fetch a chat attachment blob to a local file (streaming; --out <dir>)
   upload          stream a local file into the attachment store (prints the att id; --mime <type>)
-  diff            print a compare-screen URL for two attachment ids / document versions (--external mints a no-login link)
+  diff            print a compare-screen link (a host-less /diff path) for two attachment ids / document versions (--external mints a no-login URL)
   guard-bash      PreToolUse hook: refuse the removal shapes that stall a headless member
   guard-permission PermissionRequest hook: refuse every confirmation prompt nobody is here to answer
   version         print this build's identity: build.sha, VCS stamp when present, self-hash

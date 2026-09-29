@@ -119,16 +119,17 @@ func cmdDiff(
 			return 2
 		}
 	}
-	// OC_BASE CLASSIFICATION: GUARDED — refuse, exit 3, on BOTH flavours.
-	// The plain link makes no request, so a wrong base there is invisible until
-	// someone else clicks it — do not narrow this guard to --external.
-	if warnMissingBase(cfg, "diff", errOut) {
-		return 3
-	}
+	// OC_BASE CLASSIFICATION: EXEMPT for the plain link, GUARDED (refuse, exit 3)
+	// for --external. The plain link is a host-less path: a station-local
+	// member's OC_BASE is loopback, so a link built on it opens only for that
+	// member — do not prefix it with cfg.Base.
 	if !external {
-		fmt.Fprintln(out, cfg.Base+diffPagePath+"?"+
+		fmt.Fprintln(out, diffPagePath+"?"+
 			diffQuery(before, after, strings.TrimSpace(labelBefore), strings.TrimSpace(labelAfter)))
 		return 0
+	}
+	if warnMissingBase(cfg, "diff", errOut) {
+		return 3
 	}
 	return mintExternalDiffLink(client, cfg, before, after,
 		strings.TrimSpace(labelBefore), strings.TrimSpace(labelAfter), out, errOut)
@@ -201,8 +202,12 @@ func mintExternalDiffLink(
 func diffUsage(w io.Writer) {
 	fmt.Fprint(w, `usage: ocagent diff <before> <after> [--label-before <text>] [--label-after <text>] [--external]
 
-Prints a URL: the before/after compare screen for those two things. Paste it to
-whoever needs to see the difference. Nothing is stored and nothing is uploaded.
+Prints a link to the before/after compare screen for those two things. Paste it
+to whoever needs to see the difference. Nothing is stored and nothing is uploaded.
+
+The plain link is a host-less path (/diff?...): paste it as printed, it opens on
+whatever station address the reader is using. Do not prefix it with OC_BASE or
+any host. It needs no OC_BASE at all.
 
 Each side must ALREADY have an address, in one of two forms:
 
@@ -232,12 +237,13 @@ screen already names in the reader's own language.
 at all and has no expiry, and no single link can be withdrawn — the only thing
 that ends one is removing the signing key it was minted under (Settings ›
 Signing keys), which kills every link that key signed at once. Mint it only for
-a reader who has no account on this station. Without it you get the plain link, which any
-signed-in reader opens and which costs no request at all.
+a reader who has no account on this station. It is a full URL built on OC_BASE,
+so it refuses when OC_BASE is unset or malformed. Without it you get the plain
+link, which any signed-in reader opens and which costs no request at all.
 
 An address that no longer resolves is not an error here: the screen says that
 side is gone and still draws the other one.
 
-stdout: one line, the URL.
+stdout: one line — the /diff?... path, or with --external the signed URL.
 `)
 }

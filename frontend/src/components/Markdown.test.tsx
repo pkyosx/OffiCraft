@@ -413,7 +413,8 @@ describe("Markdown", () => {
   // open-in-new-tab keep working, and that nothing is intercepted where there
   // is no studio to intercept it.
   describe("compare urls (T-59)", () => {
-    const href = `${window.location.origin}/diff?before=att-0123456789ab&after=att-fedcba987654`;
+    const path = "/diff?before=att-0123456789ab&after=att-fedcba987654";
+    const href = `${window.location.origin}${path}`;
 
     it("stays a real anchor with the same href, target and rel as any other link", () => {
       const c = renderMd(`[比較](${href})`);
@@ -435,20 +436,49 @@ describe("Markdown", () => {
     // comparison actually travels, so the autolinked form has to reach the same
     // interception the written [text](url) form does — and the second case is
     // the negative control proving that reach was not widened.
-    it("intercepts a BARE compare url too, not only the [text](url) form", () => {
+    it.each([
+      ["full url", href],
+      ["host-less path", path],
+    ])("intercepts a BARE compare %s too, not only the [text](url) form", (_shape, bare) => {
       const opened: DiffParams[] = [];
       const { container } = render(
         <DiffOpenerContext.Provider value={(p) => opened.push(p)}>
-          <Markdown source={`看這個 ${href} 就知道`} />
+          <Markdown source={`看這個 ${bare} 就知道`} />
         </DiffOpenerContext.Provider>
       );
       const a = container.querySelector("a");
-      expect(a?.getAttribute("href")).toBe(href);
+      expect(a?.getAttribute("href")).toBe(bare);
       expect(a?.hasAttribute("data-diff-link")).toBe(true);
       fireEvent.click(a!);
       expect(opened.length).toBe(1);
       expect(opened[0].before).toBe("att-0123456789ab");
       expect(opened[0].after).toBe("att-fedcba987654");
+    });
+
+    it.each([
+      [`${path}`, path],
+      [`比較：${path}。`, path],
+      [`(${path}).`, path],
+      [`see ${path}, then`, path],
+    ])("autolinks a bare host-less compare path in %j as one anchor", (source, expected) => {
+      const c = renderMd(source);
+      const anchors = c.querySelectorAll("a");
+      expect(anchors.length).toBe(1);
+      expect(anchors[0].getAttribute("href")).toBe(expected);
+      expect(anchors[0].textContent).toBe(expected);
+    });
+
+    it.each([
+      "see /other?x=1 here",
+      "see //evil.com/diff?before=att-0123456789ab&after=att-fedcba987654 here",
+      "see /diffx?before=att-0123456789ab&after=att-fedcba987654 here",
+      "see a/diff?before=att-0123456789ab&after=att-fedcba987654 here",
+      "see a/diff?x=(/diff?before=att-0123456789ab&after=att-fedcba987654) here",
+      "see /diff?before=nope&after=att-fedcba987654 here",
+    ])("leaves %j as plain text", (source) => {
+      const c = renderMd(source);
+      expect(c.querySelector("a")).toBeNull();
+      expect(c.textContent).toBe(source);
     });
 
     it("leaves a bare ORDINARY url alone inside the studio: still navigates", () => {

@@ -146,12 +146,12 @@ func TestDiffQuery(t *testing.T) {
 func TestCmdDiff(t *testing.T) {
 	configured := Config{Base: "https://station.example.com", BaseConfigured: true, Token: "tok-1"}
 
-	t.Run("the plain link is printed without asking the station anything", func(t *testing.T) {
+	t.Run("the plain link is a host-less /diff path, printed without asking the station anything", func(t *testing.T) {
 		var out, errOut bytes.Buffer
 		client := canned(200, "{}")
 		rc := cmdDiff(client, configured, "att-0123456789ab", "att-ba9876543210", "Old", "New", false,
 			&out, &errOut)
-		want := "https://station.example.com/diff?after=att-ba9876543210&before=att-0123456789ab" +
+		want := "/diff?after=att-ba9876543210&before=att-0123456789ab" +
 			"&label_after=New&label_before=Old\n"
 		if rc != 0 || out.String() != want || errOut.String() != "" {
 			t.Fatalf("got (%d, %q, %q), want (0, %q, \"\")", rc, out.String(), errOut.String(), want)
@@ -165,7 +165,7 @@ func TestCmdDiff(t *testing.T) {
 		var out, errOut bytes.Buffer
 		rc := cmdDiff(canned(200, "{}"), configured,
 			"doc:task/T-1/seed/body", "doc:task/T-1/current/body", "  Seed  ", "   ", false, &out, &errOut)
-		want := "https://station.example.com/diff?after=doc%3Atask%2FT-1%2Fcurrent%2Fbody" +
+		want := "/diff?after=doc%3Atask%2FT-1%2Fcurrent%2Fbody" +
 			"&before=doc%3Atask%2FT-1%2Fseed%2Fbody&label_before=Seed\n"
 		if rc != 0 || out.String() != want {
 			t.Fatalf("got (%d, %q), want (0, %q)", rc, out.String(), want)
@@ -208,15 +208,18 @@ func TestCmdDiff(t *testing.T) {
 		}
 	})
 
-	t.Run("an unset OC_BASE refuses the plain flavour, which would otherwise print a loopback link", func(t *testing.T) {
-		var out, errOut bytes.Buffer
+	t.Run("an unset or malformed OC_BASE still prints the plain link and exits 0", func(t *testing.T) {
 		unset := Config{Base: defaultBase, Token: "tok-1"}
-		rc := cmdDiff(canned(200, "{}"), unset, "att-0123456789ab", "att-ba9876543210", "", "", false,
-			&out, &errOut)
-		want := "[ocagent] diff: no OC_BASE configured — nothing here knows which station " +
-			"to talk to, and the built-in default is this machine's loopback address.\n"
-		if rc != 3 || errOut.String() != want || out.String() != "" {
-			t.Fatalf("got (%d, %q, %q), want (3, \"\", the OC_BASE refusal)", rc, out.String(), errOut.String())
+		malformed := loadConfig(testEnv(map[string]string{"OC_BASE": "http://", "OC_TOKEN": "tok-1"}))
+		want := "/diff?after=att-ba9876543210&before=att-0123456789ab\n"
+		for name, cfg := range map[string]Config{"unset": unset, "malformed": malformed} {
+			var out, errOut bytes.Buffer
+			rc := cmdDiff(canned(200, "{}"), cfg, "att-0123456789ab", "att-ba9876543210", "", "", false,
+				&out, &errOut)
+			if rc != 0 || out.String() != want || errOut.String() != "" {
+				t.Errorf("%s OC_BASE: got (%d, %q, %q), want (0, %q, \"\")",
+					name, rc, out.String(), errOut.String(), want)
+			}
 		}
 	})
 
@@ -230,23 +233,23 @@ func TestCmdDiff(t *testing.T) {
 		}
 	})
 
-	t.Run("a malformed OC_BASE refuses the plain flavour instead of printing a broken link", func(t *testing.T) {
+	t.Run("a malformed OC_BASE refuses the external flavour, sending nothing", func(t *testing.T) {
 		var out, errOut bytes.Buffer
+		client := canned(200, `{"url":"/diff/s/abc"}`)
 		malformed := loadConfig(testEnv(map[string]string{"OC_BASE": "http://", "OC_TOKEN": "tok-1"}))
-		rc := cmdDiff(canned(200, "{}"), malformed, "att-0123456789ab", "att-ba9876543210", "", "", false,
-			&out, &errOut)
+		rc := cmdDiff(client, malformed, "att-0123456789ab", "att-ba9876543210", "", "", true, &out, &errOut)
 		want := "[ocagent] diff: OC_BASE is set but is not a usable station address — " +
 			"it must be http:// or https:// followed by a host.\n"
-		if rc != 3 || errOut.String() != want || out.String() != "" {
-			t.Fatalf("got (%d, %q, %q), want (3, \"\", the malformed-OC_BASE refusal)",
-				rc, out.String(), errOut.String())
+		if rc != 3 || errOut.String() != want || out.String() != "" || len(client.sent) != 0 {
+			t.Fatalf("got (%d, %q, %q, sent %+v), want (3, \"\", the malformed-OC_BASE refusal, nothing sent)",
+				rc, out.String(), errOut.String(), client.sent)
 		}
 	})
 
 	t.Run("a bad side is refused before the OC_BASE guard runs", func(t *testing.T) {
 		var out, errOut bytes.Buffer
 		unset := Config{Base: defaultBase, Token: "tok-1"}
-		rc := cmdDiff(canned(200, "{}"), unset, "nonsense", "att-ba9876543210", "", "", false, &out, &errOut)
+		rc := cmdDiff(canned(200, "{}"), unset, "nonsense", "att-ba9876543210", "", "", true, &out, &errOut)
 		if rc != 2 || !strings.Contains(errOut.String(), "the before side \"nonsense\"") {
 			t.Fatalf("got (%d, %q), want (2, the side refusal, not the OC_BASE one)", rc, errOut.String())
 		}
