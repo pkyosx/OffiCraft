@@ -37,8 +37,8 @@ func (s *apiServer) mfaAccount() string {
 // A failed floor write is an ERROR, never a pass: an unpersisted floor leaves the
 // code replayable across a restart.
 func (s *apiServer) verifyAndSpendTOTP(code string, now int64) (bool, error) {
-	s.settingsMu.Lock()
-	defer s.settingsMu.Unlock()
+	s.settingsWriteMu.Lock()
+	defer s.settingsWriteMu.Unlock()
 	if s.totpSecret == "" {
 		return true, nil
 	}
@@ -46,10 +46,12 @@ func (s *apiServer) verifyAndSpendTOTP(code string, now int64) (bool, error) {
 	if !ok {
 		return false, nil
 	}
-	if err := s.dal.PutSetting(settingTOTPLastStep, strconv.FormatInt(step, 10)); err != nil {
+	if err := s.dal.inTx(func(tx *writeTx) error {
+		return putSettingOn(tx, settingTOTPLastStep, strconv.FormatInt(step, 10))
+	}); err != nil {
 		return false, err
 	}
-	s.totpLastStep = step
+	s.applySettings(func() { s.totpLastStep = step })
 	return true, nil
 }
 
@@ -76,13 +78,15 @@ func (s *apiServer) HandleMfaOfferApiAuthMfaOfferPost(w http.ResponseWriter, r *
 	if !decodeJSONBodyRequired(w, r, &body, "offered") {
 		return
 	}
-	s.settingsMu.Lock()
-	defer s.settingsMu.Unlock()
-	if err := s.dal.PutSetting(settingMFAOffered, strconv.FormatBool(body.Offered)); err != nil {
+	s.settingsWriteMu.Lock()
+	defer s.settingsWriteMu.Unlock()
+	if err := s.dal.inTx(func(tx *writeTx) error {
+		return putSettingOn(tx, settingMFAOffered, strconv.FormatBool(body.Offered))
+	}); err != nil {
 		internalError(w, err)
 		return
 	}
-	s.mfaOffered = body.Offered
+	s.applySettings(func() { s.mfaOffered = body.Offered })
 	writeJSON(w, http.StatusOK, mfaStateDTO{
 		Offered:  s.mfaOffered,
 		Enrolled: s.totpSecret != "",
@@ -92,8 +96,8 @@ func (s *apiServer) HandleMfaOfferApiAuthMfaOfferPost(w http.ResponseWriter, r *
 func (s *apiServer) HandleMfaEnrollApiAuthMfaEnrollPost(w http.ResponseWriter, r *http.Request) {
 	issuer, account := s.mfaIssuer(), s.mfaAccount()
 
-	s.settingsMu.Lock()
-	defer s.settingsMu.Unlock()
+	s.settingsWriteMu.Lock()
+	defer s.settingsWriteMu.Unlock()
 	if !s.mfaOffered {
 		writeError(w, http.StatusForbidden, mfaNotOfferedMsg)
 		return
@@ -107,7 +111,9 @@ func (s *apiServer) HandleMfaEnrollApiAuthMfaEnrollPost(w http.ResponseWriter, r
 		internalError(w, err)
 		return
 	}
-	if err := s.dal.PutSetting(settingTOTPPendingSecret, secret); err != nil {
+	if err := s.dal.inTx(func(tx *writeTx) error {
+		return putSettingOn(tx, settingTOTPPendingSecret, secret)
+	}); err != nil {
 		internalError(w, err)
 		return
 	}
@@ -132,8 +138,8 @@ func (s *apiServer) HandleMfaActivateApiAuthMfaActivatePost(w http.ResponseWrite
 		return
 	}
 
-	s.settingsMu.Lock()
-	defer s.settingsMu.Unlock()
+	s.settingsWriteMu.Lock()
+	defer s.settingsWriteMu.Unlock()
 	if !s.mfaOffered {
 		writeError(w, http.StatusForbidden, mfaNotOfferedMsg)
 		return
@@ -167,24 +173,33 @@ func (s *apiServer) HandleMfaActivateApiAuthMfaActivatePost(w http.ResponseWrite
 		return
 	}
 
-	// 🔴 THE FLOOR IS WRITTEN BEFORE THE SECRET. There is no transaction across
-	// settings writes; secret-first can leave the factor armed in the DB with no
-	// floor, so after a restart the activation code is replayable as a login.
-	// Floor-first fails safe: a floor with no secret is MFA still off.
-	if err := s.dal.PutSetting(settingTOTPLastStep, strconv.FormatInt(step, 10)); err != nil {
-		internalError(w, err)
+	// 🔴 The floor and the secret land together: a secret armed with no floor
+	// makes the activation code replayable as a login after a restart. The
+	// pending secret is read again here because it is the one being armed.
+	err = s.dal.inTx(func(tx *writeTx) error {
+		stillPending, err := getSettingOn(tx, settingTOTPPendingSecret)
+		if err != nil {
+			return err
+		}
+		if stillPending == nil || *stillPending != *pending {
+			return refuseInTx(http.StatusConflict, "no pending enrolment; call /api/auth/mfa/enroll first")
+		}
+		if err := putSettingOn(tx, settingTOTPLastStep, strconv.FormatInt(step, 10)); err != nil {
+			return err
+		}
+		if err := putSettingOn(tx, settingTOTPSecret, *pending); err != nil {
+			return err
+		}
+		return deleteSettingOn(tx, settingTOTPPendingSecret)
+	})
+	if err != nil {
+		writeTxError(w, err)
 		return
 	}
-	if err := s.dal.PutSetting(settingTOTPSecret, *pending); err != nil {
-		internalError(w, err)
-		return
-	}
-	if err := s.dal.DeleteSetting(settingTOTPPendingSecret); err != nil {
-		internalError(w, err)
-		return
-	}
-	s.totpSecret = *pending
-	s.totpLastStep = step
+	s.applySettings(func() {
+		s.totpSecret = *pending
+		s.totpLastStep = step
+	})
 
 	writeJSON(w, http.StatusOK, mfaStateDTO{Offered: true, Enrolled: true})
 }
@@ -199,8 +214,8 @@ func (s *apiServer) HandleMfaDisableApiAuthMfaDisablePost(w http.ResponseWriter,
 	if !decodeJSONBodyRequired(w, r, &body, "password", "code") {
 		return
 	}
-	s.settingsMu.Lock()
-	defer s.settingsMu.Unlock()
+	s.settingsWriteMu.Lock()
+	defer s.settingsWriteMu.Unlock()
 	if s.totpSecret == "" {
 		writeError(w, http.StatusConflict, "no second factor is active")
 		return
@@ -215,17 +230,23 @@ func (s *apiServer) HandleMfaDisableApiAuthMfaDisablePost(w http.ResponseWriter,
 	}
 	_ = step
 
-	// 🔴 THE ACTIVE SECRET IS DELETED LAST (no transaction): secret-first then a
-	// failure leaves the DB disarmed while the owner is told disable FAILED, and a
-	// restart would silently disable it. Secret-last fails with both still armed.
-	for _, key := range []string{settingTOTPPendingSecret, settingTOTPLastStep, settingTOTPSecret} {
-		if err := s.dal.DeleteSetting(key); err != nil {
-			internalError(w, err)
-			return
+	// 🔴 One transaction: a partial delete would leave the DB disarmed while the
+	// owner is told disable FAILED, and a restart would silently disable it.
+	if err := s.dal.inTx(func(tx *writeTx) error {
+		for _, key := range []string{settingTOTPPendingSecret, settingTOTPLastStep, settingTOTPSecret} {
+			if err := deleteSettingOn(tx, key); err != nil {
+				return err
+			}
 		}
+		return nil
+	}); err != nil {
+		internalError(w, err)
+		return
 	}
-	s.totpSecret = ""
-	s.totpLastStep = 0
+	s.applySettings(func() {
+		s.totpSecret = ""
+		s.totpLastStep = 0
+	})
 
 	writeJSON(w, http.StatusOK, mfaStateDTO{Offered: s.mfaOffered, Enrolled: false})
 }

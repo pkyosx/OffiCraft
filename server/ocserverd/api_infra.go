@@ -354,11 +354,19 @@ func (s *apiServer) sseStopGateRefusal(memberID string) string {
 
 func (s *apiServer) onFirstConnect(memberID string) {
 	s.publishOutsourcePresenceEdge(memberID)
-	if m, err := s.dal.GetMember(memberID); err == nil && m != nil && m.WakingSince > 0 {
-		m.WakingSince = 0.0
-		if err := s.putMember(*m, memberID); err != nil {
-			fmt.Fprintf(os.Stderr, "[sse] first-connect waking clear failed for %q: %v\n", memberID, err)
+	var cleared *Member
+	if err := s.dal.inTx(func(tx *writeTx) error {
+		m, err := getMemberOn(tx, memberID)
+		if err != nil || m == nil || m.WakingSince <= 0 {
+			return err
 		}
+		m.WakingSince = 0.0
+		cleared = m
+		return writeMemberOn(tx, *m)
+	}); err != nil {
+		fmt.Fprintf(os.Stderr, "[sse] first-connect waking clear failed for %q: %v\n", memberID, err)
+	} else if cleared != nil {
+		s.publishMemberPatch(*cleared, memberID)
 	}
 	s.anchorSessionBoot(memberID)
 }
@@ -378,33 +386,49 @@ func (s *apiServer) anchorSessionBoot(memberID string) {
 		entry = map[string]any{}
 	}
 	gaugeTS, gaugeHas := gaugeBootTS(entry)
-
-	m, err := s.dal.GetMember(memberID)
-	if err != nil || m == nil {
-		if gaugeHas {
-			return
-		}
-		entry["boot_ts"] = nowSecs()
-		s.gauge.Set(memberID, entry)
-		return
-	}
-
-	if m.SessionBootTS > 0 {
-		if !gaugeHas || gaugeTS != m.SessionBootTS {
-			entry["boot_ts"] = m.SessionBootTS
-			s.gauge.Set(memberID, entry)
-		}
-		return
-	}
-
 	ts := nowSecs()
 	if gaugeHas {
 		ts = gaugeTS
 	}
-	entry["boot_ts"] = ts
-	s.gauge.Set(memberID, entry)
-	if err := s.dal.SetMemberSessionBootTS(memberID, ts); err != nil {
+
+	// Judged and minted in one transaction: an anchor another writer stored
+	// after a read outside it (a refused START's restore) is restored here, not
+	// overwritten.
+	stored := 0.0
+	err := s.dal.inTx(func(tx *writeTx) error {
+		m, err := getMemberOn(tx, memberID)
+		if err != nil || m == nil {
+			return err
+		}
+		if m.SessionBootTS > 0 {
+			stored = m.SessionBootTS
+			return nil
+		}
+		stored = ts
+		return setMemberSessionBootTSOn(tx, memberID, ts)
+	})
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "[sse] session-boot anchor persist failed for %q: %v\n", memberID, err)
+	}
+	// The gauge is read again after the transaction, which may have waited for the write
+	// connection: a report that landed on the entry meanwhile keeps its keys, and only boot_ts is
+	// set here.
+	entry = s.gauge.Get(memberID)
+	if entry == nil {
+		entry = map[string]any{}
+	}
+	gaugeTS, gaugeHas = gaugeBootTS(entry)
+	if err != nil || stored == 0 {
+		if gaugeHas {
+			return
+		}
+		entry["boot_ts"] = ts
+		s.gauge.Set(memberID, entry)
+		return
+	}
+	if !gaugeHas || gaugeTS != stored {
+		entry["boot_ts"] = stored
+		s.gauge.Set(memberID, entry)
 	}
 }
 
@@ -431,9 +455,23 @@ func (s *apiServer) stampLandedMachine(memberID, machineID string) {
 	if !s.connectionIsTheGenuineArticle(*m, machineID) {
 		return
 	}
-	m.LastMachineID = machineID
-	if err := s.putMember(*m, memberID); err != nil {
+	// The genuine-article check takes outsourceMu, so it runs on the read above;
+	// the stamp lands on the row as it is, and only while the pin it was judged
+	// against still stands.
+	var stamped *Member
+	if err := s.dal.inTx(func(tx *writeTx) error {
+		cur, err := getMemberOn(tx, memberID)
+		if err != nil || cur == nil || cur.LastMachineID == machineID ||
+			cur.DesiredMachineID != m.DesiredMachineID {
+			return err
+		}
+		cur.LastMachineID = machineID
+		stamped = cur
+		return writeMemberOn(tx, *cur)
+	}); err != nil {
 		fmt.Fprintf(os.Stderr, "[sse] landed-machine stamp failed for %q: %v\n", memberID, err)
+	} else if stamped != nil {
+		s.publishMemberPatch(*stamped, memberID)
 	}
 }
 
@@ -466,28 +504,27 @@ func (s *apiServer) clearSessionState(id string) {
 		delete(entry, "context_pct_ts")
 		s.gauge.Set(id, entry)
 	}
-	s.handoverNoticedMu.Lock()
-	delete(s.handoverNoticed, id)
-	s.handoverNoticedMu.Unlock()
-	s.ctxGateDiagMu.Lock()
-	delete(s.ctxGateDiagLast, id)
-	s.ctxGateDiagMu.Unlock()
-	m, err := s.dal.GetMember(id)
-	if err != nil || m == nil {
-		return
-	}
-	if m.SessionBootTS != 0 {
-		if err := s.dal.SetMemberSessionBootTS(id, 0); err != nil {
-			fmt.Fprintf(os.Stderr, "[sse] session-boot anchor clear failed for %q: %v\n", id, err)
-		}
-	}
-	// 🔴 Tested separately from the anchor: the two columns are not written in one
-	// transaction, and an early return on the anchor alone would leave a stale
+	s.handoverNoticed.Delete(id)
+	s.ctxGateDiagLast.Delete(id)
+	// The anchor and the notice claim clear together or not at all. Each is
+	// judged on its own: an early return on the anchor alone would leave a stale
 	// claim that silences the next session's one notice.
-	if m.HandoverNoticedTS != 0 {
-		if err := s.dal.SetMemberHandoverNoticedTS(id, 0); err != nil {
-			fmt.Fprintf(os.Stderr, "[sse] handover-notice claim clear failed for %q: %v\n", id, err)
+	if err := s.dal.inTx(func(tx *writeTx) error {
+		m, err := getMemberOn(tx, id)
+		if err != nil || m == nil {
+			return err
 		}
+		if m.SessionBootTS != 0 {
+			if err := s.dal.SetMemberSessionBootTS(id, 0); err != nil {
+				return err
+			}
+		}
+		if m.HandoverNoticedTS != 0 {
+			return s.dal.SetMemberHandoverNoticedTS(id, 0)
+		}
+		return nil
+	}); err != nil {
+		fmt.Fprintf(os.Stderr, "[sse] session-boot anchor and handover-notice claim clear failed for %q, neither cleared: %v\n", id, err)
 	}
 }
 
@@ -558,16 +595,40 @@ func (s *apiServer) restoreRefusedStartAnchor(id, rpc string, ok *bool, reason s
 	if !had || ok == nil || *ok || !strings.HasPrefix(reason, spawnClobberReasonPrefix) {
 		return
 	}
-	m, err := s.dal.GetMember(id)
-	if err != nil || m == nil {
-		return
-	}
-	current := m.SessionBootTS
-	if current > 0 && current <= snap.bootTS {
-		return
-	}
-	if err := s.dal.SetMemberSessionBootTS(id, snap.bootTS); err != nil {
+	// The anchor and the claim are judged and written on the row inside one
+	// transaction: a reconnect that minted a newer anchor, and a notice claimed
+	// on it, since any earlier read are what the comparison must see.
+	restored := false
+	claim := 0.0
+	err := s.dal.inTx(func(tx *writeTx) error {
+		m, err := getMemberOn(tx, id)
+		if err != nil || m == nil {
+			return err
+		}
+		current := m.SessionBootTS
+		if current > 0 && current <= snap.bootTS {
+			return nil
+		}
+		if err := setMemberSessionBootTSOn(tx, id, snap.bootTS); err != nil {
+			return err
+		}
+		claim = snap.handoverNoticedTS
+		if current > 0 && m.HandoverNoticedTS == current {
+			claim = snap.bootTS
+		}
+		if claim != m.HandoverNoticedTS {
+			if err := setMemberHandoverNoticedTSOn(tx, id, claim); err != nil {
+				return err
+			}
+		}
+		restored = true
+		return nil
+	})
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "[sse] session-boot anchor restore failed for %q: %v\n", id, err)
+		return
+	}
+	if !restored {
 		return
 	}
 	entry := s.gauge.Get(id)
@@ -589,24 +650,10 @@ func (s *apiServer) restoreRefusedStartAnchor(id, rpc string, ok *bool, reason s
 	restoreAbsent("context_pct_ts", "context_pct", "context_pct_ts")
 	s.gauge.Set(id, entry)
 
-	claim := snap.handoverNoticedTS
-	if current > 0 && m.HandoverNoticedTS == current {
-		claim = snap.bootTS
-	}
-	s.handoverNoticedMu.Lock()
 	if claim != 0 {
-		if s.handoverNoticed == nil {
-			s.handoverNoticed = map[string]float64{}
-		}
-		s.handoverNoticed[id] = claim
+		s.handoverNoticed.Store(id, claim)
 	} else {
-		delete(s.handoverNoticed, id)
-	}
-	s.handoverNoticedMu.Unlock()
-	if claim != m.HandoverNoticedTS {
-		if err := s.dal.SetMemberHandoverNoticedTS(id, claim); err != nil {
-			fmt.Fprintf(os.Stderr, "[sse] handover-notice claim restore failed for %q: %v\n", id, err)
-		}
+		s.handoverNoticed.Delete(id)
 	}
 }
 
@@ -689,46 +736,55 @@ func (s *apiServer) dropLiveCost(actorID string) *float64 {
 // A RELEASED worker is accepted (owner ruling rc-1344cc76a24a). Removed staff are
 // not: removal hard-deletes the row and its telemetry entry (api_roles.go).
 func (s *apiServer) HandleResetCostApiMembersMemberIdCostResetPost(w http.ResponseWriter, r *http.Request, memberId string) {
-	if m, err := s.dal.GetMember(memberId); err == nil && m != nil &&
-		m.RosterStatus != RosterStatusRemoved && m.Kind != KindOutsource {
-		// 🔴 Durable write first, live drop second. And a
-		// single-column write: banked_cost is insert-only for putMember, so a whole-row
-		// write would land nothing.
-		clearedBankedFig, err := s.dal.ZeroMemberBankedCost(memberId)
-		if err != nil {
-			internalError(w, err)
-			return
+	// target is the staff row or the outsource worker whose cost the reset
+	// clears, or the 404.
+	target := func() (*Member, *OutsourceWorker, error) {
+		if m, err := s.dal.GetMember(memberId); err == nil && m != nil &&
+			m.RosterStatus != RosterStatusRemoved && m.Kind != KindOutsource {
+			return m, nil, nil
 		}
-		clearedBanked := nonZeroCost(clearedBankedFig)
-		m.BankedCost = 0
-		s.publishMemberPatch(*m, requestTrigger(r))
-		cleared := s.dropLiveCost(memberId)
-		s.publishMonitoringSignal(memberId, requestTrigger(r))
-		writeJSON(w, http.StatusOK, costResetDTO{
-			MemberID:          memberId,
-			ClearedCost:       cleared,
-			ClearedBankedCost: clearedBanked,
-		})
+		wk, err := s.dal.GetOutsourceWorker(memberId)
+		if err != nil {
+			return nil, nil, err
+		}
+		if wk == nil {
+			return nil, nil, refuseInTx(http.StatusNotFound, "member '"+memberId+"' not found")
+		}
+		return nil, wk, nil
+	}
+	if _, _, err := target(); err != nil {
+		writeTxError(w, err)
 		return
 	}
-	wk, err := s.dal.GetOutsourceWorker(memberId)
+	var staff *Member
+	var worker *OutsourceWorker
+	var clearedBankedFig float64
+	err := s.dal.inTx(func(*writeTx) error {
+		var err error
+		if staff, worker, err = target(); err != nil {
+			return err
+		}
+		// 🔴 A single-column write: banked_cost is insert-only for putMember, so a
+		// whole-row write would land nothing.
+		clearedBankedFig, err = s.dal.ZeroMemberBankedCost(memberId)
+		return err
+	})
 	if err != nil {
-		internalError(w, err)
+		writeTxError(w, err)
 		return
 	}
-	if wk == nil {
-		writeError(w, http.StatusNotFound, "member '"+memberId+"' not found")
-		return
-	}
-	clearedBankedFig, err := s.dal.ZeroMemberBankedCost(memberId)
-	if err != nil {
-		internalError(w, err)
-		return
-	}
+	// 🔴 Durable write first, live drop second.
 	clearedBanked := nonZeroCost(clearedBankedFig)
-	wk.BankedCost = 0
-	cleared := s.dropLiveCost(memberId)
-	s.publishOutsourceWorker(*wk, requestTrigger(r))
+	var cleared *float64
+	if staff != nil {
+		staff.BankedCost = 0
+		s.publishMemberPatch(*staff, requestTrigger(r))
+		cleared = s.dropLiveCost(memberId)
+	} else {
+		worker.BankedCost = 0
+		cleared = s.dropLiveCost(memberId)
+		s.publishOutsourceWorker(*worker, requestTrigger(r))
+	}
 	s.publishMonitoringSignal(memberId, requestTrigger(r))
 	writeJSON(w, http.StatusOK, costResetDTO{
 		MemberID:          memberId,
@@ -808,7 +864,12 @@ func (s *apiServer) HandleResetAccountCostApiAccountsCostResetPost(w http.Respon
 		writeError(w, http.StatusUnprocessableEntity, "account cannot be blank")
 		return
 	}
-	had, err := s.dal.ZeroAccountSpend(account)
+	var had float64
+	err := s.dal.inTx(func(*writeTx) error {
+		var err error
+		had, err = s.dal.ZeroAccountSpend(account)
+		return err
+	})
 	if err != nil {
 		internalError(w, err)
 		return

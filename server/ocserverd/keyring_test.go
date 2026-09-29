@@ -4,7 +4,9 @@ import (
 	"encoding/hex"
 	"errors"
 	"reflect"
+	"sort"
 	"testing"
+	"time"
 )
 
 func TestSingleKeyring(t *testing.T) {
@@ -285,6 +287,69 @@ func TestRotate(t *testing.T) {
 	}
 	if !reflect.DeepEqual(loaded.snapshot(), kr.snapshot()) || !reflect.DeepEqual(loaded.verifyCandidates(), kr.verifyCandidates()) {
 		t.Fatalf("loaded rotated ring = %#v / %#v, want %#v / %#v", loaded.snapshot(), loaded.verifyCandidates(), kr.snapshot(), kr.verifyCandidates())
+	}
+}
+
+// Rotations that queue for the write connection together each land their key:
+// every one builds on the ring the previous one committed, so memory and the
+// stored ring agree and hold all of them.
+func TestRotationsQueuedForTheWriteConnectionAllLand(t *testing.T) {
+	d := newAPITestDAL(t)
+	old := signingKey{ID: "k-old", Key: []byte("old"), CreatedTS: 10}
+	kr := newKeyring([]signingKey{old}, old.ID)
+	if err := kr.persist(d); err != nil {
+		t.Fatalf("persist initial ring: %v", err)
+	}
+
+	letGo := windowHoldWriteConn(t, d)
+	before := windowQueuedSoFar(d)
+	type outcome struct {
+		meta keyMeta
+		err  error
+	}
+	outcomes := make(chan outcome, 6)
+	for i := 0; i < 6; i++ {
+		go func() {
+			meta, err := kr.rotate(d)
+			outcomes <- outcome{meta, err}
+		}()
+	}
+	windowAwaitQueued(t, d, before)
+	letGo()
+
+	want := []string{"k-old"}
+	for i := 0; i < 6; i++ {
+		select {
+		case o := <-outcomes:
+			if o.err != nil {
+				t.Fatalf("rotation %d: %v", i, o.err)
+			}
+			want = append(want, o.meta.ID)
+		case <-time.After(windowRequestDeadline):
+			t.Fatalf("only %d of 6 rotations returned within %s", i, windowRequestDeadline)
+		}
+	}
+	sort.Strings(want)
+	ids := func(metas []keyMeta) []string {
+		out := make([]string, 0, len(metas))
+		for _, m := range metas {
+			out = append(out, m.ID)
+		}
+		sort.Strings(out)
+		return out
+	}
+	if got := ids(kr.snapshot()); !reflect.DeepEqual(got, want) {
+		t.Fatalf("keys in memory = %v, want %v", got, want)
+	}
+	loaded, err := loadKeyring(d, nil)
+	if err != nil {
+		t.Fatalf("load ring: %v", err)
+	}
+	if got := ids(loaded.snapshot()); !reflect.DeepEqual(got, want) {
+		t.Fatalf("keys stored = %v, want %v", got, want)
+	}
+	if loaded.activeKeyID() != kr.activeKeyID() {
+		t.Fatalf("stored signing key %q, in memory %q", loaded.activeKeyID(), kr.activeKeyID())
 	}
 }
 

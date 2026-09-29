@@ -136,25 +136,19 @@ func newReconcileState() reconcileState {
 }
 
 func (s *apiServer) reconcileStateOf(memberID string) reconcileState {
-	s.reconcileStateMu.Lock()
-	defer s.reconcileStateMu.Unlock()
-	st, ok := s.reconcileStates[memberID]
+	v, ok := s.reconcileStates.Load(memberID)
 	if !ok {
 		return newReconcileState()
 	}
-	return st
+	return v.(reconcileState)
 }
 
 func (s *apiServer) setReconcileState(memberID string, st reconcileState) {
-	s.reconcileStateMu.Lock()
-	defer s.reconcileStateMu.Unlock()
-	s.reconcileStates[memberID] = st
+	s.reconcileStates.Store(memberID, st)
 }
 
 func (s *apiServer) dropReconcileState(memberID string) {
-	s.reconcileStateMu.Lock()
-	defer s.reconcileStateMu.Unlock()
-	delete(s.reconcileStates, memberID)
+	s.reconcileStates.Delete(memberID)
 }
 
 type memberObservation struct {
@@ -759,23 +753,32 @@ func (s *apiServer) resolveEmptyRuntimeForPlacement(m *Member, warden string) {
 	default:
 		return
 	}
-	fresh, err := s.dal.GetMember(m.ID)
-	if err != nil || fresh == nil || fresh.RosterStatus != RosterStatusActive {
-		return
-	}
-	if strings.TrimSpace(fresh.Runtime) != "" {
-		m.Runtime = fresh.Runtime
-		return
-	}
-	m.Runtime = resolved
-	fresh.Runtime = resolved
-	// runtime left PutMember's DO UPDATE SET (T-55), so a whole-row write would persist nothing; the
-	// member delta is re-issued explicitly or the cockpit keeps showing the unresolved runtime.
-	if err := s.dal.SetMemberRuntime(m.ID, resolved); err != nil {
+	// The check and the write share one transaction: a runtime the owner picked after the tick read
+	// the member must stand, not be replaced by the machine's guess.
+	var resolvedRow *Member
+	err := s.dal.inTx(func(tx *writeTx) error {
+		fresh, err := getMemberOn(tx, m.ID)
+		if err != nil || fresh == nil || fresh.RosterStatus != RosterStatusActive {
+			return err
+		}
+		if strings.TrimSpace(fresh.Runtime) != "" {
+			m.Runtime = fresh.Runtime
+			return nil
+		}
+		m.Runtime = resolved
+		fresh.Runtime = resolved
+		resolvedRow = fresh
+		return setMemberRuntimeOn(tx, m.ID, resolved)
+	})
+	if err != nil {
 		reconcileLog("%s: runtime resolution persist failed: %v", m.ID, err)
 		return
 	}
-	s.publishMemberPatch(*fresh, triggerServer)
+	// runtime left PutMember's DO UPDATE SET (T-55), so a whole-row write would persist nothing; the
+	// member delta is re-issued explicitly or the cockpit keeps showing the unresolved runtime.
+	if resolvedRow != nil {
+		s.publishMemberPatch(*resolvedRow, triggerServer)
+	}
 }
 
 func (s *apiServer) reconcileOne(m Member, st reconcileState, now float64) reconcileDecision {
@@ -895,30 +898,36 @@ func (s *apiServer) reconcileTickMemberLocked(m Member, now float64) reconcileDe
 	return decision
 }
 
-// armDecidedHandover re-reads before its whole-row write, like every stamp in this file: the HTTP
-// faces (activate / relocate / deactivate) write member rows without holding reconcileMu, so
-// persisting the tick's snapshot would silently revert a change that landed mid-tick.
+// Every stamp in this file judges and writes on the row inside one transaction, and writes only
+// the columns it stamps: the HTTP faces (activate / relocate / deactivate) write member rows without
+// holding reconcileMu, so a decision on the tick's copy, or a write carrying it, would silently
+// revert a change that landed mid-tick. The delta goes out after commit, so the cli/ocagent recycle
+// hook never refetches a row without the anchors.
 func (s *apiServer) armDecidedHandover(memberID string, decision reconcileDecision) {
 	if decision.ArmHandoverOp == "" {
 		return
 	}
-	fresh, err := s.dal.GetMember(memberID)
-	if err != nil || fresh == nil || fresh.RosterStatus != RosterStatusActive {
+	cfg := s.reconcileConfigLive()
+	online := s.hub.IsOnline(memberID)
+	var armed *Member
+	err := s.dal.inTx(func(tx *writeTx) error {
+		fresh, err := getMemberOn(tx, memberID)
+		if err != nil || fresh == nil || fresh.RosterStatus != RosterStatusActive {
+			return err
+		}
+		if !s.armMemberOwnerOpHandover(fresh, decision.ArmHandoverOp, cfg, online) {
+			return nil
+		}
+		armed = fresh
+		return setMemberWindDownAnchorsOn(tx, fresh.ID, fresh.StoppingSince, fresh.StoppedSince,
+			fresh.RefocusSince, fresh.RefocusOp)
+	})
+	if err != nil {
+		reconcileLog("%s: %s wind-down arm persist failed: %v", memberID, decision.ArmHandoverOp, err)
 		return
 	}
-	if !s.armMemberOwnerOpHandover(fresh, decision.ArmHandoverOp) {
-		return
-	}
-	if err := s.persistMemberWindDownAnchors(*fresh); err != nil {
-		reconcileLog("%s: %s wind-down ANCHOR write failed, row write not attempted: %v",
-			memberID, decision.ArmHandoverOp, err)
-		// 🔴 Must return: the whole-row write fans the member delta, and the cli/ocagent recycle hook
-		// would read refocus_since 0 off it and silently drop the arm.
-		return
-	}
-	if err := s.putMember(*fresh, triggerServer); err != nil {
-		reconcileLog("%s: %s wind-down arm persist failed: %v",
-			memberID, decision.ArmHandoverOp, err)
+	if armed != nil {
+		s.publishMemberPatch(*armed, triggerServer)
 	}
 }
 
@@ -969,47 +978,64 @@ func (s *apiServer) stampMemberOpBlocked(memberID, reason string, now float64) {
 	if reason == "" {
 		return
 	}
-	fresh, err := s.dal.GetMember(memberID)
-	if err != nil || fresh == nil || fresh.RosterStatus != RosterStatusActive {
+	s.stampMemberReceiptOnRow(memberID, "op-blocked stamp", func(fresh *Member) bool {
+		if fresh.LastOp == reconcileCmdStart && fresh.LastOpReason == reason {
+			return false
+		}
+		// 🔴 Turns on the INCOMING code, not only the row: zombie_suspect and warden_unreachable are
+		// fresh findings and must still overwrite a stale wake_timeout.
+		if stopgapRetryStampYields(fresh.LastOpReason, reason) {
+			return false
+		}
+		stampOpReceipt(&fresh.LastOp, &fresh.LastOpOK, &fresh.LastOpLog, &fresh.LastOpReason,
+			&fresh.LastOpAt, reconcileCmdStart, reason, now)
+		return true
+	})
+}
+
+// stampMemberReceiptOnRow reads an active member inside one transaction, lets stamp decide on and
+// change that row's receipt, and writes the five receipt columns only when stamp says it changed
+// them.
+func (s *apiServer) stampMemberReceiptOnRow(memberID, what string, stamp func(fresh *Member) bool) {
+	var stamped *Member
+	err := s.dal.inTx(func(tx *writeTx) error {
+		fresh, err := getMemberOn(tx, memberID)
+		if err != nil || fresh == nil || fresh.RosterStatus != RosterStatusActive {
+			return err
+		}
+		if !stamp(fresh) {
+			return nil
+		}
+		stamped = fresh
+		return persistMemberOpReceiptOn(tx, *fresh)
+	})
+	if err != nil {
+		reconcileLog("%s: %s persist failed: %v", memberID, what, err)
 		return
 	}
-	if fresh.LastOp == reconcileCmdStart && fresh.LastOpReason == reason {
-		return
-	}
-	// 🔴 Turns on the INCOMING code, not only the row: zombie_suspect and warden_unreachable are fresh
-	// findings and must still overwrite a stale wake_timeout.
-	if stopgapRetryStampYields(fresh.LastOpReason, reason) {
-		return
-	}
-	stampOpReceipt(&fresh.LastOp, &fresh.LastOpOK, &fresh.LastOpLog, &fresh.LastOpReason,
-		&fresh.LastOpAt, reconcileCmdStart, reason, now)
-	if err := s.persistMemberOpReceipt(*fresh, triggerServer); err != nil {
-		reconcileLog("%s: op-blocked stamp persist failed: %v", memberID, err)
+	if stamped != nil {
+		s.publishMemberPatch(*stamped, triggerServer)
 	}
 }
 
 func (s *apiServer) stampMemberPlacementBlocked(m *Member, now float64) {
-	fresh, err := s.dal.GetMember(m.ID)
-	if err != nil || fresh == nil || fresh.RosterStatus != RosterStatusActive {
-		return
-	}
-	// Names the pin on the re-read row, not the snapshot: a relocate landing mid-tick would otherwise
-	// be stamped with a complaint about the old machine.
-	reason := placementReasonNoMachine + ": no machine is selected for this member — " +
-		"choose one (改機器) before waking it; there is no automatic placement"
-	if fresh.DesiredMachineID != "" {
-		reason = placementReasonUnavailable + ": machine '" + fresh.DesiredMachineID +
-			"' is not an active machine — choose another one (改機器); " +
-			"no other machine is substituted"
-	}
-	if fresh.LastOp == reconcileCmdStart && fresh.LastOpReason == reason {
-		return
-	}
-	stampOpReceipt(&fresh.LastOp, &fresh.LastOpOK, &fresh.LastOpLog, &fresh.LastOpReason,
-		&fresh.LastOpAt, reconcileCmdStart, reason, now)
-	if err := s.persistMemberOpReceipt(*fresh, triggerServer); err != nil {
-		reconcileLog("%s: placement-blocked stamp persist failed: %v", m.ID, err)
-	}
+	s.stampMemberReceiptOnRow(m.ID, "placement-blocked stamp", func(fresh *Member) bool {
+		// Names the pin on the re-read row, not the snapshot: a relocate landing mid-tick would
+		// otherwise be stamped with a complaint about the old machine.
+		reason := placementReasonNoMachine + ": no machine is selected for this member — " +
+			"choose one (改機器) before waking it; there is no automatic placement"
+		if fresh.DesiredMachineID != "" {
+			reason = placementReasonUnavailable + ": machine '" + fresh.DesiredMachineID +
+				"' is not an active machine — choose another one (改機器); " +
+				"no other machine is substituted"
+		}
+		if fresh.LastOp == reconcileCmdStart && fresh.LastOpReason == reason {
+			return false
+		}
+		stampOpReceipt(&fresh.LastOp, &fresh.LastOpOK, &fresh.LastOpLog, &fresh.LastOpReason,
+			&fresh.LastOpAt, reconcileCmdStart, reason, now)
+		return true
+	})
 }
 
 func (s *apiServer) stampWakeObservability(m *Member, decision reconcileDecision, now float64) {
@@ -1047,8 +1073,6 @@ func (s *apiServer) stampWakeObservability(m *Member, decision reconcileDecision
 			m.LastOpLog = ""
 		}
 	}
-	// Must return: the whole-row copy below would splat this tick's snapshot of the receipt columns
-	// onto the re-read row.
 	if decision.ConvergedOnline {
 		s.clearMemberConvergedFailureReceipt(m.ID, *m)
 		return
@@ -1056,24 +1080,38 @@ func (s *apiServer) stampWakeObservability(m *Member, decision reconcileDecision
 	if !changed {
 		return
 	}
-	fresh, err := s.dal.GetMember(m.ID)
-	if err != nil || fresh == nil || fresh.RosterStatus != RosterStatusActive {
-		return
-	}
-	fresh.WakingSince = m.WakingSince
-	fresh.LastOp = m.LastOp
-	fresh.LastOpOK = m.LastOpOK
-	fresh.LastOpLog = m.LastOpLog
-	fresh.LastOpReason = m.LastOpReason
-	fresh.LastOpAt = m.LastOpAt
-	// 🔴 Two writes on purpose: waking_since is still in PutMember's SET list, the five receipt
-	// columns are not — deleting either half loses a column.
-	if err := s.putMember(*fresh, triggerServer); err != nil {
+	// What this tick decided is applied to the row as it is inside the transaction, not copied from
+	// the tick's snapshot: a receipt or a column an owner action wrote mid-tick stands. The
+	// dispatch's placement-stamp clear is judged on that row too.
+	var stamped *Member
+	err := s.dal.inTx(func(tx *writeTx) error {
+		fresh, err := getMemberOn(tx, m.ID)
+		if err != nil || fresh == nil || fresh.RosterStatus != RosterStatusActive {
+			return err
+		}
+		if decision.StartTimedOut {
+			fresh.LastOp = m.LastOp
+			fresh.LastOpOK = m.LastOpOK
+			fresh.LastOpReason = m.LastOpReason
+			fresh.LastOpAt = m.LastOpAt
+		}
+		if decision.Command == reconcileCmdStart && isSpawnBlockedReason(fresh.LastOpReason) {
+			fresh.LastOpReason = ""
+			fresh.LastOpLog = ""
+		}
+		fresh.WakingSince = m.WakingSince
+		stamped = fresh
+		if err := setMemberWakingSinceOn(tx, fresh.ID, fresh.WakingSince); err != nil {
+			return err
+		}
+		return persistMemberOpReceiptOn(tx, *fresh)
+	})
+	if err != nil {
 		reconcileLog("%s: wake observability persist failed: %v", m.ID, err)
 		return
 	}
-	if err := s.persistMemberOpReceipt(*fresh, triggerServer); err != nil {
-		reconcileLog("%s: wake observability receipt persist failed: %v", m.ID, err)
+	if stamped != nil {
+		s.publishMemberPatch(*stamped, triggerServer)
 	}
 }
 
@@ -1095,21 +1133,17 @@ func (s *apiServer) clearMemberConvergedFailureReceipt(memberID string, snapshot
 	if !receiptRendersAsFailure(snapshot.LastOp, snapshot.LastOpAt, snapshot.LastOpOK) {
 		return
 	}
-	fresh, err := s.dal.GetMember(memberID)
-	if err != nil || fresh == nil || fresh.RosterStatus != RosterStatusActive {
-		return
-	}
-	if !receiptRendersAsFailure(fresh.LastOp, fresh.LastOpAt, fresh.LastOpOK) {
-		return
-	}
-	fresh.LastOp = ""
-	fresh.LastOpOK = nil
-	fresh.LastOpLog = ""
-	fresh.LastOpReason = ""
-	fresh.LastOpAt = 0.0
-	if err := s.persistMemberOpReceipt(*fresh, triggerServer); err != nil {
-		reconcileLog("%s: converged receipt clear failed: %v", memberID, err)
-	}
+	s.stampMemberReceiptOnRow(memberID, "converged receipt clear", func(fresh *Member) bool {
+		if !receiptRendersAsFailure(fresh.LastOp, fresh.LastOpAt, fresh.LastOpOK) {
+			return false
+		}
+		fresh.LastOp = ""
+		fresh.LastOpOK = nil
+		fresh.LastOpLog = ""
+		fresh.LastOpReason = ""
+		fresh.LastOpAt = 0.0
+		return true
+	})
 }
 
 func isSpawnBlockedReason(reason string) bool {
@@ -1172,18 +1206,16 @@ type ctxGateDiagState struct {
 // observational. The cell is pruned on the session boundary (clearSessionBootTS).
 // Known gap: the stale stopped_since latch and canPromoteToAcceleratedStop skips stay silent, on
 // inputs that are not on the wire.
+//
+// Two passes racing on one actor may each print the line: the worst case of
+// the unlocked check-then-store is one extra log line.
 func (s *apiServer) noteContextGateSkip(id, gate string, record map[string]any, now float64) {
-	s.ctxGateDiagMu.Lock()
-	if last, seen := s.ctxGateDiagLast[id]; seen && last.gate == gate &&
-		now-last.ts < ctxGateDiagThrottleSecs {
-		s.ctxGateDiagMu.Unlock()
-		return
+	if v, seen := s.ctxGateDiagLast.Load(id); seen {
+		if last := v.(ctxGateDiagState); last.gate == gate && now-last.ts < ctxGateDiagThrottleSecs {
+			return
+		}
 	}
-	if s.ctxGateDiagLast == nil {
-		s.ctxGateDiagLast = map[string]ctxGateDiagState{}
-	}
-	s.ctxGateDiagLast[id] = ctxGateDiagState{ts: now, gate: gate}
-	s.ctxGateDiagMu.Unlock()
+	s.ctxGateDiagLast.Store(id, ctxGateDiagState{ts: now, gate: gate})
 	reconcileLog("recycle: gate skip %s gate=%s pct=%s pct_ts=%s boot_ts=%s "+
 		"boot_secs=%s online=%t", id, gate,
 		gaugeNumForDiag(record, "context_pct"),
@@ -1221,6 +1253,7 @@ func (s *apiServer) stampContextHighRecycle(members []Member, now float64) {
 	codexNoticeRound := s.codexNoticeRoundSetting()
 	for i := range members {
 		m := &members[i]
+		read := *m
 		record := s.gauge.Get(m.ID)
 		op := ""
 		switch {
@@ -1273,12 +1306,7 @@ func (s *apiServer) stampContextHighRecycle(members []Member, now float64) {
 				"wind-down ladder backwards from %s", m.ID, op, m.RefocusOp)
 			continue
 		}
-		if err := s.persistMemberWindDownAnchors(*m); err != nil {
-			reconcileLog("recycle: auto-stamp ANCHOR write failed for %s: %v", m.ID, err)
-			continue
-		}
-		if err := s.putMember(*m, triggerServer); err != nil {
-			reconcileLog("recycle: auto-stamp persist failed for %s: %v", m.ID, err)
+		if !s.persistRosterStamp(read, m, "recycle: auto-stamp") {
 			continue
 		}
 		if promoting {
@@ -1318,6 +1346,7 @@ func (s *apiServer) stampTokenExpiryWinddown(members []Member, now float64) {
 	ttl := s.agentTokenTTLValue()
 	for i := range members {
 		m := &members[i]
+		read := *m
 		expiry := tokenExpiryOf(*m, ttl)
 		if expiry <= 0 {
 			continue
@@ -1348,17 +1377,57 @@ func (s *apiServer) stampTokenExpiryWinddown(members []Member, now float64) {
 				"the wind-down ladder backwards from %s", m.ID, m.RefocusOp)
 			continue
 		}
-		if err := s.persistMemberWindDownAnchors(*m); err != nil {
-			reconcileLog("recycle: token-expiry ANCHOR write failed for %s: %v", m.ID, err)
-			continue
-		}
-		if err := s.putMember(*m, triggerServer); err != nil {
-			reconcileLog("recycle: token-expiry stamp persist failed for %s: %v", m.ID, err)
+		if !s.persistRosterStamp(read, m, "recycle: token-expiry stamp") {
 			continue
 		}
 		reconcileLog("recycle: token-expiry 停止 for %s (token estimated to expire at %.0f, "+
 			"lead %.0fs)", m.ID, expiry, tokenExpiryLeadSecs)
 	}
+}
+
+// persistRosterStamp lands a roster pass's wind-down stamp — the four anchor
+// columns and nothing else — in one transaction, and only while the row still
+// holds what the pass decided on (read, the tick's roster copy). When it does
+// not — an owner verb, a report or another writer landed since that read —
+// nothing is written, the slice entry goes back to the row as read, and the
+// next tick decides again on the row as it is then.
+func (s *apiServer) persistRosterStamp(read Member, stamped *Member, what string) bool {
+	var cur *Member
+	landed := false
+	err := s.dal.inTx(func(tx *writeTx) error {
+		var err error
+		if cur, err = getMemberOn(tx, read.ID); err != nil || cur == nil {
+			return err
+		}
+		if !sameWindDownInputs(*cur, read) {
+			return nil
+		}
+		cur.StoppingSince, cur.StoppedSince = stamped.StoppingSince, stamped.StoppedSince
+		cur.RefocusSince, cur.RefocusOp = stamped.RefocusSince, stamped.RefocusOp
+		landed = true
+		return setMemberWindDownAnchorsOn(tx, cur.ID, cur.StoppingSince, cur.StoppedSince,
+			cur.RefocusSince, cur.RefocusOp)
+	})
+	if err != nil || !landed {
+		if err != nil {
+			reconcileLog("%s persist failed for %s: %v", what, read.ID, err)
+		} else {
+			reconcileLog("%s for %s not written — the row changed since this tick read it; "+
+				"the next tick decides again", what, read.ID)
+		}
+		*stamped = read
+		return false
+	}
+	s.publishMemberPatch(*cur, triggerServer)
+	return true
+}
+
+// sameWindDownInputs: the columns the roster passes decide a stamp on.
+func sameWindDownInputs(a, b Member) bool {
+	return a.DesiredState == b.DesiredState && a.RosterStatus == b.RosterStatus &&
+		a.StoppingSince == b.StoppingSince && a.StoppedSince == b.StoppedSince &&
+		a.RefocusSince == b.RefocusSince && a.RefocusOp == b.RefocusOp &&
+		a.ForcedStopAt == b.ForcedStopAt && a.SessionBootTS == b.SessionBootTS
 }
 
 func bootStormTripped(secsSinceBoot *float64, minBootSecs float64) bool {
@@ -1383,11 +1452,16 @@ func (s *apiServer) consumeUninstallIntentOnOffline(members []Member) {
 		if s.hub.IsOnline(m.ID) {
 			continue
 		}
-		m.DesiredState = DesiredStateOffline
-		if err := s.putMember(*m, triggerServer); err != nil {
+		folded, _, err := s.foldUninstallIntentOnRow(m.ID)
+		if err != nil {
 			reconcileLog("uninstall: intent-consume persist failed for %s: %v", m.ID, err)
 			continue
 		}
+		if folded == nil {
+			continue
+		}
+		*m = *folded
+		s.publishMemberPatch(*m, triggerServer)
 		reconcileLog("uninstall: consumed one-shot intent for offline warden %s "+
 			"(desired_state → offline; record kept)", m.ID)
 	}
@@ -1397,24 +1471,45 @@ func (s *apiServer) consumeUninstallIntentOnOffline(members []Member) {
 // (api_infra.go), so a fast re-install cannot reconnect into the standing kill order within a
 // cadence window.
 func (s *apiServer) consumeUninstallOnDisconnect(memberID string) {
-	if s.noReconcile {
+	if s.noReconcile || s.hub.IsOnline(memberID) {
 		return
 	}
-	m, err := s.dal.GetMember(memberID)
-	if err != nil || m == nil || m.Kind != KindWarden {
-		return
-	}
-	if parseDesired(m.DesiredState) != DesiredStateUninstall || s.hub.IsOnline(m.ID) {
-		return
-	}
-	m.DesiredState = DesiredStateOffline
-	if err := s.putMember(*m, triggerServer); err != nil {
+	folded, _, err := s.foldUninstallIntentOnRow(memberID)
+	if err != nil {
 		reconcileLog("uninstall: disconnect-edge intent-consume persist failed for %s: %v",
-			m.ID, err)
+			memberID, err)
 		return
 	}
+	if folded == nil {
+		return
+	}
+	s.publishMemberPatch(*folded, triggerServer)
 	reconcileLog("uninstall: consumed one-shot intent on warden %s disconnect "+
-		"(desired_state → offline; record kept)", m.ID)
+		"(desired_state → offline; record kept)", memberID)
+}
+
+// foldUninstallIntentOnRow folds a warden's standing uninstall intent back to offline on the row as
+// it is inside one transaction, so a delete or any other write that landed after a caller's read
+// stands. folded is the written row, nil when the row no longer holds the intent; fresh is the row
+// as read either way (nil when absent).
+func (s *apiServer) foldUninstallIntentOnRow(id string) (folded, fresh *Member, err error) {
+	err = s.dal.inTx(func(tx *writeTx) error {
+		cur, err := getMemberOn(tx, id)
+		if err != nil || cur == nil {
+			return err
+		}
+		fresh = cur
+		if cur.Kind != KindWarden || parseDesired(cur.DesiredState) != DesiredStateUninstall {
+			return nil
+		}
+		cur.DesiredState = DesiredStateOffline
+		folded = cur
+		return writeMemberOn(tx, *cur)
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return folded, fresh, nil
 }
 
 // quietSince is the later of stopping_since and the gauge ts. The gauge ts is written by the
@@ -1449,13 +1544,9 @@ func (s *apiServer) clearStaleStoppingOnOnline(members []Member, now float64) {
 		if now-quietSince(*m, s.gauge.Get(m.ID)) < SoftOffboardGraceSecs {
 			continue
 		}
+		read := *m
 		m.StoppingSince = 0.0
-		if err := s.persistMemberWindDownAnchors(*m); err != nil {
-			reconcileLog("revive: stale-stopping ANCHOR write failed for %s: %v", m.ID, err)
-			continue
-		}
-		if err := s.putMember(*m, triggerServer); err != nil {
-			reconcileLog("revive: stale-stopping clear persist failed for %s: %v", m.ID, err)
+		if !s.persistRosterStamp(read, m, "revive: stale-stopping clear") {
 			continue
 		}
 		reconcileLog("revive: auto-cleared stale stopping_since on observed-online %s "+

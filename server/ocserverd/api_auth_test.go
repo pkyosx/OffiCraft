@@ -1,6 +1,7 @@
 package main
 
 import (
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
@@ -195,6 +196,51 @@ func TestHandleLoginApiLoginPost(t *testing.T) {
 			t.Fatal("the refusal reported nothing to the assistant alert")
 		}
 	})
+
+	// The refusal floor is a wait, and a wait must not hold the one write
+	// connection: while a wrong-code login sits in its floor, another request's
+	// write still answers at once. The alert hand-off marks the refusal as
+	// decided; the floor starts right after it.
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": a write answers at once while a wrong-code login waits out its floor", func(t *testing.T) {
+			const floor, answerWithin = 2 * time.Second, 500 * time.Millisecond
+			d, _, _ := windowDAL(t, shape)
+			api, h, _, owner := newAPITestServerOn(t, d)
+			apiTestArmMFA(t, api, d)
+			api.credentialFailureFloor = floor
+			refused := make(chan struct{}, 1)
+			api.authAlertDeliver = func(int) { refused <- struct{}{} }
+			dalPutTask(t, d, windowOpenTask("T-1"))
+
+			login := make(chan *httptest.ResponseRecorder, 1)
+			go func() {
+				login <- apiRequest(t, h, "POST", "/api/login", "",
+					`{"password":"`+apiTestOwnerPassword+`","code":"000000"}`)
+			}()
+			select {
+			case <-refused:
+			case <-time.After(floor):
+				t.Fatal("the wrong-code login never reached its refusal")
+			}
+			time.Sleep(300 * time.Millisecond)
+
+			start := time.Now()
+			status, data := windowJSON(t, h, "POST", "/api/tasks/T-1/priority", owner, `{"priority":"low"}`)
+			took := time.Since(start)
+
+			if status != http.StatusOK {
+				t.Fatalf("want 200, got %d (%v)", status, data)
+			}
+			if took > answerWithin {
+				t.Fatalf("the write answered after %v, want within %v: it waited behind the login's floor", took, answerWithin)
+			}
+			rec := <-login
+			if rec.Code != http.StatusUnauthorized ||
+				rec.Body.String() != `{"error":{"code":"unauthorized","message":"invalid password or code"}}` {
+				t.Fatalf("login: want 401 invalid password or code, got %d %s", rec.Code, rec.Body.String())
+			}
+		})
+	}
 
 	t.Run("attempts beyond the in-flight cap answer 429 with a one-second Retry-After", func(t *testing.T) {
 		api, h, _, _ := newAPITestServer(t)

@@ -522,7 +522,7 @@ var authzOutsideRouteTable = map[string]string{
 	"api_chat.go :: HandlePostChatApiChatPost :: currentActor(r) != wireOwnerID": "" +
 		"the sender is taken from the verified token, never from the body (§14); this " +
 		"compares the resolved actor to the owner's wire id to pick the sender label.",
-	"api_webhooks.go :: HandleReceiveWebhookInPost :: e.MemberID == wireOwnerID": "" +
+	"api_webhooks.go :: judgeWebhookGate :: e.MemberID == wireOwnerID": "" +
 		"the unauthenticated /in seam explicitly refuses an endpoint addressed to the " +
 		"owner's wire id; this target-specific guard cannot be expressed by the route " +
 		"table and preserves the chat-recipient boundary.",
@@ -568,16 +568,16 @@ var authzOutsideRouteTable = map[string]string{
 		"T-23cf reassign matrix: an 外包 worker may not be reassigned like 正職.",
 	"api_tasks.go :: HandleReassignTaskApiTasksTaskIdReassignPost :: m.Kind == KindWarden": "" +
 		"T-23cf reassign matrix: a warden is never a task executor.",
-	"api_tasks.go :: callerMayDriveTask :: principalAtLeast(s.principalOfRequest(r), principalAdminAgent)": "" +
+	"api_tasks.go :: callerMayDriveTask :: principalAtLeast(resolvePrincipal(claimsFromContext(r.Context()), member), principalAdminAgent)": "" +
 		"admin+ may drive ANY task; below that only the task's own executor may — a " +
 		"caller-vs-resource comparison, not expressible as a route floor.",
-	"api_tasks.go :: callerMayDriveTask :: currentActor(r) == s.actingExecutorOf(t)": "" +
+	"api_tasks.go :: callerMayDriveTask :: currentActor(r) == actingExecutorOf(member, t)": "" +
 		"the self half of the same rule: the task's acting executor drives it — the " +
 		"executor, or while the `reassigning` lock is on the stamped predecessor as " +
 		"long as it is still on the roster, and nobody once it has left (owner " +
 		"ruling 2026-09-17, cards rc-5ba4a6f802f4 / rc-0a0892e3588f). A per-task, " +
 		"per-moment fact, not a principal class.",
-	"api_tasks.go :: callerMayClaimTask :: principalAtLeast(s.principalOfRequest(r), principalAdminAgent)": "" +
+	"api_tasks.go :: callerMayClaimTask :: principalAtLeast(resolvePrincipal(claimsFromContext(r.Context()), member), principalAdminAgent)": "" +
 		"claim_task's admin half: admin+ may take over any handed-over task, the same " +
 		"bypass callerMayDriveTask gives.",
 	"api_tasks.go :: callerMayClaimTask :: currentActor(r) == t.ExecutorID": "" +

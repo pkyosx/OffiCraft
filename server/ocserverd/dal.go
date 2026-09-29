@@ -28,16 +28,17 @@ type PushSubscription struct {
 }
 
 // NewDAL is for unit tests and the CLI one-shots (migrate / set-password /
-// claim-token): reads and writes share ONE connection, so a read inside an open
-// transaction runs on that transaction and sees its uncommitted writes, which
-// the split pools of serve (NewDALPools) never do.
+// claim-token): reads and writes share ONE connection. Over either DAL a read by
+// the goroutine that holds the write transaction runs on that transaction and
+// sees its uncommitted writes (readPool).
 func NewDAL(db *sql.DB) *DAL {
 	w := newWritePool(db)
 	return &DAL{wdb: w, rdb: &readPool{shared: w}}
 }
 
 func NewDALPools(w, r *sql.DB) *DAL {
-	return &DAL{wdb: newWritePool(w), rdb: &readPool{raw: r}}
+	wp := newWritePool(w)
+	return &DAL{wdb: wp, rdb: &readPool{raw: r, write: wp}}
 }
 
 type Member struct {
@@ -163,8 +164,10 @@ func scanMember(row interface{ Scan(...any) error }) (Member, error) {
 	return m, nil
 }
 
-func (d *DAL) ListMembers() ([]Member, error) {
-	rows, err := d.rdb.Query(`SELECT ` + memberColumns +
+func (d *DAL) ListMembers() ([]Member, error) { return listMembersOn(d.rdb) }
+
+func listMembersOn(q sqlQuerier) ([]Member, error) {
+	rows, err := q.Query(`SELECT ` + memberColumns +
 		` FROM member ORDER BY name COLLATE NOCASE`)
 	if err != nil {
 		return nil, err
@@ -181,8 +184,10 @@ func (d *DAL) ListMembers() ([]Member, error) {
 	return out, rows.Err()
 }
 
-func (d *DAL) GetMember(id string) (*Member, error) {
-	row := d.rdb.QueryRow(`SELECT `+memberColumns+` FROM member WHERE id = ?`, id)
+func (d *DAL) GetMember(id string) (*Member, error) { return getMemberOn(d.rdb, id) }
+
+func getMemberOn(q sqlRowQuerier, id string) (*Member, error) {
+	row := q.QueryRow(`SELECT `+memberColumns+` FROM member WHERE id = ?`, id)
 	m, err := scanMember(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
@@ -251,13 +256,15 @@ func (d *DAL) ZeroAccountSpend(account string) (float64, error) {
 // the wind-down anchors, …) — each has its own single-column setter.
 // It fans no SSE delta; s.putMember pairs the write with publishMemberPatch.
 func (d *DAL) PutMember(m Member) error {
+	return d.inTx(func(tx *writeTx) error { return putMemberOn(tx, m) })
+}
+
+func putMemberOn(ex sqlExecer, m Member) error {
 	fields := memberWholeRow(m)
-	return d.inTx(func(tx *writeTx) error {
-		if err := insertMemberRowIfAbsent(tx, fields); err != nil {
-			return err
-		}
-		return patchMemberOn(tx, m.ID, updatableMemberFields(fields)...)
-	})
+	if err := insertMemberRowIfAbsent(ex, fields); err != nil {
+		return err
+	}
+	return patchMemberOn(ex, m.ID, updatableMemberFields(fields)...)
 }
 
 func (d *DAL) AddMemberBankedCost(id string, delta float64) error {
@@ -286,7 +293,11 @@ func (d *DAL) ZeroMemberBankedCost(id string) (float64, error) {
 }
 
 func (d *DAL) SetMemberHandoverNoticedTS(id string, ts float64) error {
-	_, err := d.wdb.Exec(`UPDATE member SET handover_noticed_ts = ? WHERE id = ?`, ts, id)
+	return setMemberHandoverNoticedTSOn(d.wdb, id, ts)
+}
+
+func setMemberHandoverNoticedTSOn(ex sqlExecer, id string, ts float64) error {
+	_, err := ex.Exec(`UPDATE member SET handover_noticed_ts = ? WHERE id = ?`, ts, id)
 	return err
 }
 
@@ -296,33 +307,63 @@ func (d *DAL) SetMemberForcedStopAt(id string, ts float64) error {
 	return d.PatchMember(id, mfForcedStopAt(ts))
 }
 
+func setMemberForcedStopAtOn(ex sqlExecer, id string, ts float64) error {
+	return patchMemberOn(ex, id, mfForcedStopAt(ts))
+}
+
 func (d *DAL) SetMemberSessionBootTS(id string, ts float64) error {
-	_, err := d.wdb.Exec(`UPDATE member SET session_boot_ts = ? WHERE id = ?`, ts, id)
+	return setMemberSessionBootTSOn(d.wdb, id, ts)
+}
+
+func setMemberSessionBootTSOn(ex sqlExecer, id string, ts float64) error {
+	_, err := ex.Exec(`UPDATE member SET session_boot_ts = ? WHERE id = ?`, ts, id)
 	return err
 }
 
 func (d *DAL) SetMemberWakingSince(id string, ts float64) error {
-	_, err := d.wdb.Exec(`UPDATE member SET waking_since = ? WHERE id = ?`, ts, id)
+	return setMemberWakingSinceOn(d.wdb, id, ts)
+}
+
+func setMemberWakingSinceOn(ex sqlExecer, id string, ts float64) error {
+	_, err := ex.Exec(`UPDATE member SET waking_since = ? WHERE id = ?`, ts, id)
 	return err
 }
 
 func (d *DAL) SetMemberWindDownAnchors(id string, stoppingSince, stoppedSince,
 	refocusSince float64, refocusOp string) error {
-	_, err := d.wdb.Exec(
+	return setMemberWindDownAnchorsOn(d.wdb, id, stoppingSince, stoppedSince, refocusSince, refocusOp)
+}
+
+func setMemberWindDownAnchorsOn(ex sqlExecer, id string, stoppingSince, stoppedSince,
+	refocusSince float64, refocusOp string) error {
+	_, err := ex.Exec(
 		`UPDATE member SET stopping_since = ?, stopped_since = ?,
 			refocus_since = ?, refocus_op = ? WHERE id = ?`,
 		stoppingSince, stoppedSince, refocusSince, refocusOp, id)
 	return err
 }
 
+// setMemberStoppedSinceOn moves the close-out latch alone, for a writer whose
+// copy of the other three anchors may be older than the row.
+func setMemberStoppedSinceOn(ex sqlExecer, id string, stoppedSince float64) error {
+	_, err := ex.Exec(`UPDATE member SET stopped_since = ? WHERE id = ?`, stoppedSince, id)
+	return err
+}
+
 func (d *DAL) SetMemberDesiredMachineID(id, machineID string) error {
-	_, err := d.wdb.Exec(
+	return setMemberDesiredMachineIDOn(d.wdb, id, machineID)
+}
+
+func setMemberDesiredMachineIDOn(ex sqlExecer, id, machineID string) error {
+	_, err := ex.Exec(
 		`UPDATE member SET desired_machine_id = ? WHERE id = ?`, machineID, id)
 	return err
 }
 
-func (d *DAL) SetMemberModel(id, model string) error {
-	_, err := d.wdb.Exec(`UPDATE member SET model = ? WHERE id = ?`, model, id)
+func (d *DAL) SetMemberModel(id, model string) error { return setMemberModelOn(d.wdb, id, model) }
+
+func setMemberModelOn(ex sqlExecer, id, model string) error {
+	_, err := ex.Exec(`UPDATE member SET model = ? WHERE id = ?`, model, id)
 	return err
 }
 
@@ -330,21 +371,31 @@ func (d *DAL) SetMemberModel(id, model string) error {
 // has picked yet") must stay distinct from "claude" for
 // resolveEmptyRuntimeForPlacement.
 func (d *DAL) SetMemberRuntime(id, runtime string) error {
-	_, err := d.wdb.Exec(`UPDATE member SET runtime = ? WHERE id = ?`, runtime, id)
+	return setMemberRuntimeOn(d.wdb, id, runtime)
+}
+
+func setMemberRuntimeOn(ex sqlExecer, id, runtime string) error {
+	_, err := ex.Exec(`UPDATE member SET runtime = ? WHERE id = ?`, runtime, id)
 	return err
 }
 
-func (d *DAL) SetMemberEffort(id, effort string) error {
-	_, err := d.wdb.Exec(`UPDATE member SET effort = ? WHERE id = ?`, effort, id)
+func (d *DAL) SetMemberEffort(id, effort string) error { return setMemberEffortOn(d.wdb, id, effort) }
+
+func setMemberEffortOn(ex sqlExecer, id, effort string) error {
+	_, err := ex.Exec(`UPDATE member SET effort = ? WHERE id = ?`, effort, id)
 	return err
 }
 
 func (d *DAL) SetMemberLastOp(id, op string, ok *bool, log, reason string, at float64) error {
+	return setMemberLastOpOn(d.wdb, id, op, ok, log, reason, at)
+}
+
+func setMemberLastOpOn(ex sqlExecer, id, op string, ok *bool, log, reason string, at float64) error {
 	var okVal any
 	if ok != nil {
 		okVal = *ok
 	}
-	_, err := d.wdb.Exec(
+	_, err := ex.Exec(
 		`UPDATE member SET last_op = ?, last_op_ok = ?, last_op_log = ?,
 			last_op_reason = ?, last_op_at = ? WHERE id = ?`,
 		op, okVal, log, reason, at, id)
@@ -352,13 +403,18 @@ func (d *DAL) SetMemberLastOp(id, op string, ok *bool, log, reason string, at fl
 }
 
 func (d *DAL) HardDeleteMember(id string) (bool, error) {
-	tx, err := d.wdb.Begin()
-	if err != nil {
-		return false, err
-	}
-	defer tx.Rollback()
+	var deleted bool
+	err := d.inTx(func(tx *writeTx) error {
+		var err error
+		deleted, err = hardDeleteMemberOn(tx, id)
+		return err
+	})
+	return deleted, err
+}
+
+func hardDeleteMemberOn(tx *writeTx, id string) (bool, error) {
 	var avatarID string
-	err = tx.QueryRow(`SELECT avatar_attachment_id FROM member WHERE id = ?`, id).Scan(&avatarID)
+	err := tx.QueryRow(`SELECT avatar_attachment_id FROM member WHERE id = ?`, id).Scan(&avatarID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}
@@ -386,9 +442,6 @@ func (d *DAL) HardDeleteMember(id string) (bool, error) {
 	}
 	n, err := res.RowsAffected()
 	if err != nil {
-		return false, err
-	}
-	if err := tx.Commit(); err != nil {
 		return false, err
 	}
 	return n > 0, nil
@@ -819,12 +872,16 @@ func refIDsFromJSON(blob string, into map[string]bool) {
 }
 
 func (d *DAL) DeleteChatInvolving(memberID string) (int, int, error) {
-	tx, err := d.wdb.Begin()
-	if err != nil {
-		return 0, 0, err
-	}
-	defer tx.Rollback() //nolint:errcheck // no-op after Commit
+	var msgs, atts int
+	err := d.inTx(func(tx *writeTx) error {
+		var err error
+		msgs, atts, err = deleteChatInvolvingOn(tx, memberID)
+		return err
+	})
+	return msgs, atts, err
+}
 
+func deleteChatInvolvingOn(tx *writeTx, memberID string) (int, int, error) {
 	candidates := map[string]bool{}
 	if err := collectChatMetaRefs(tx,
 		`SELECT meta FROM chat_message WHERE sender = ? OR recipient = ?`,
@@ -845,9 +902,6 @@ func (d *DAL) DeleteChatInvolving(memberID string) (int, int, error) {
 
 	deletedAtts, err := collectOrphanBlobs(tx, candidates)
 	if err != nil {
-		return 0, 0, err
-	}
-	if err := tx.Commit(); err != nil {
 		return 0, 0, err
 	}
 	return int(deletedMsgs), deletedAtts, nil
@@ -1268,7 +1322,11 @@ func (d *DAL) PutChatRead(r ChatRead) (ChatRead, bool, error) {
 }
 
 func (d *DAL) DeleteChatReadsInvolving(memberID string) (int, error) {
-	res, err := d.wdb.Exec(
+	return deleteChatReadsInvolvingOn(d.wdb, memberID)
+}
+
+func deleteChatReadsInvolvingOn(ex sqlExecer, memberID string) (int, error) {
+	res, err := ex.Exec(
 		`DELETE FROM chat_read WHERE reader_id = ? OR peer_id = ?`,
 		memberID, memberID)
 	if err != nil {
@@ -1374,25 +1432,30 @@ func putRoleDefOn(ex sqlExecer, rd RoleDef) error {
 func (d *DAL) DeleteRoleDef(roleKey string) (bool, error) {
 	var deleted bool
 	err := d.inTx(func(tx *writeTx) error {
-		res, err := tx.Exec(`DELETE FROM role_def WHERE role_key = ?`, roleKey)
-		if err != nil {
-			return err
-		}
-		n, err := res.RowsAffected()
-		if err != nil {
-			return err
-		}
-		deleted = n > 0
-		// History goes in the same tx: its read face is open to every authenticated
-		// caller, and the guide promises 「永久移除」.
-		_, err = tx.Exec(`DELETE FROM document_history
-			WHERE document_kind = 'role_definition' AND document_key = ?`, roleKey)
+		var err error
+		deleted, err = deleteRoleDefOn(tx, roleKey)
 		return err
 	})
 	if err != nil {
 		return false, err
 	}
 	return deleted, nil
+}
+
+func deleteRoleDefOn(ex sqlExecer, roleKey string) (bool, error) {
+	res, err := ex.Exec(`DELETE FROM role_def WHERE role_key = ?`, roleKey)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	// History goes in the same tx: its read face is open to every authenticated
+	// caller, and the guide promises 「永久移除」.
+	_, err = ex.Exec(`DELETE FROM document_history
+		WHERE document_kind = 'role_definition' AND document_key = ?`, roleKey)
+	return n > 0, err
 }
 
 type Insight struct {
@@ -1439,23 +1502,28 @@ func putInsightOn(ex sqlExecer, i Insight) error {
 func (d *DAL) DeleteInsightForRole(roleKey string) (int, error) {
 	var deleted int
 	err := d.inTx(func(tx *writeTx) error {
-		res, err := tx.Exec(`DELETE FROM role_insight WHERE role_key = ?`, roleKey)
-		if err != nil {
-			return err
-		}
-		n, err := res.RowsAffected()
-		if err != nil {
-			return err
-		}
-		deleted = int(n)
-		_, err = tx.Exec(`DELETE FROM document_history
-			WHERE document_kind = 'insight' AND document_key = ?`, roleKey)
+		var err error
+		deleted, err = deleteInsightForRoleOn(tx, roleKey)
 		return err
 	})
 	if err != nil {
 		return 0, err
 	}
 	return deleted, nil
+}
+
+func deleteInsightForRoleOn(ex sqlExecer, roleKey string) (int, error) {
+	res, err := ex.Exec(`DELETE FROM role_insight WHERE role_key = ?`, roleKey)
+	if err != nil {
+		return 0, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	_, err = ex.Exec(`DELETE FROM document_history
+		WHERE document_kind = 'insight' AND document_key = ?`, roleKey)
+	return int(n), err
 }
 
 type BootDocument struct {
@@ -1555,8 +1623,10 @@ func (d *DAL) MachineDisplayNames() (map[string]string, error) {
 		`SELECT machine_id, display_name FROM machine_alias WHERE display_name != ''`)
 }
 
-func (d *DAL) PutMachineAlias(a MachineAlias) error {
-	_, err := d.wdb.Exec(`
+func (d *DAL) PutMachineAlias(a MachineAlias) error { return putMachineAliasOn(d.wdb, a) }
+
+func putMachineAliasOn(ex sqlExecer, a MachineAlias) error {
+	_, err := ex.Exec(`
 		INSERT INTO machine_alias (machine_id, display_name) VALUES (?, ?)
 		ON CONFLICT (machine_id) DO UPDATE SET display_name = excluded.display_name`,
 		a.MachineID, a.DisplayName)
@@ -1645,6 +1715,24 @@ func (d *DAL) ListReplyCards() ([]ReplyCard, error) {
 }
 
 func (d *DAL) GetReplyCard(id string) (*ReplyCard, error) { return getReplyCardOn(d.rdb, id) }
+
+func listWaitingReplyCardsOfTaskOn(q sqlQuerier, taskID string) ([]ReplyCard, error) {
+	rows, err := q.Query(`SELECT `+replyCardColumns+` FROM reply_card
+		WHERE task_id = ? AND status = ? ORDER BY created_ts`, taskID, replyCardStatusWaiting)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ReplyCard
+	for rows.Next() {
+		c, err := scanReplyCard(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
 
 func getReplyCardOn(q sqlRowQuerier, id string) (*ReplyCard, error) {
 	row := q.QueryRow(
@@ -1758,9 +1846,10 @@ func putReplyCardWithStepAndTaskOn(ex sqlExecer, c ReplyCard, atts []ChatAttachm
 // busy_timeout cover a writer on ANOTHER handle (ocserverd backup, a shell
 // sqlite3): in WAL a DEFERRED read-then-write tx gets an instant SQLITE_BUSY on
 // lock upgrade. Our own writers are serialised by the connection cap, not by it.
-// Inside fn, d.wdb, d.inTx and s.dal writes run on this same transaction when
-// called on fn's goroutine; from any other goroutine they wait for the
-// connection fn holds, and fail after writeConnWaitLimit.
+// Inside fn, d.wdb, d.inTx and s.dal writes and reads run on this same
+// transaction when called on fn's goroutine (a read sees fn's uncommitted
+// writes); writes from any other goroutine wait for the connection fn holds,
+// and fail after writeConnWaitLimit.
 func (d *DAL) inTx(fn func(tx *writeTx) error) error {
 	tx, err := d.wdb.Begin()
 	if err != nil {
@@ -1884,10 +1973,14 @@ func scanWebhook(row interface{ Scan(...any) error }) (WebhookEndpoint, error) {
 }
 
 func (d *DAL) GetWebhookByToken(token string) (*WebhookEndpoint, error) {
+	return getWebhookByTokenOn(d.rdb, token)
+}
+
+func getWebhookByTokenOn(q sqlRowQuerier, token string) (*WebhookEndpoint, error) {
 	if token == "" {
 		return nil, nil
 	}
-	row := d.rdb.QueryRow(
+	row := q.QueryRow(
 		`SELECT `+webhookColumns+` FROM webhook_endpoint WHERE token = ?`, token)
 	e, err := scanWebhook(row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -1900,7 +1993,11 @@ func (d *DAL) GetWebhookByToken(token string) (*WebhookEndpoint, error) {
 }
 
 func (d *DAL) GetWebhookByMemberEndpoint(memberID, endpointID string) (*WebhookEndpoint, error) {
-	row := d.rdb.QueryRow(
+	return getWebhookByMemberEndpointOn(d.rdb, memberID, endpointID)
+}
+
+func getWebhookByMemberEndpointOn(q sqlRowQuerier, memberID, endpointID string) (*WebhookEndpoint, error) {
+	row := q.QueryRow(
 		`SELECT `+webhookColumns+` FROM webhook_endpoint
 		 WHERE member_id = ? AND endpoint_id = ?`, memberID, endpointID)
 	e, err := scanWebhook(row)
@@ -1960,13 +2057,21 @@ func (d *DAL) PutWebhookEndpoint(e WebhookEndpoint) error {
 }
 
 func (d *DAL) TouchWebhookReceived(token string, ts float64) error {
-	_, err := d.wdb.Exec(
+	return touchWebhookReceivedOn(d.wdb, token, ts)
+}
+
+func touchWebhookReceivedOn(ex sqlExecer, token string, ts float64) error {
+	_, err := ex.Exec(
 		`UPDATE webhook_endpoint SET last_received_ts = ? WHERE token = ?`, ts, token)
 	return err
 }
 
 func (d *DAL) MarkWebhookDelivered(token string, ts float64) error {
-	_, err := d.wdb.Exec(
+	return markWebhookDeliveredOn(d.wdb, token, ts)
+}
+
+func markWebhookDeliveredOn(ex sqlExecer, token string, ts float64) error {
+	_, err := ex.Exec(
 		`UPDATE webhook_endpoint
 		 SET delivered_count = delivered_count + 1, last_received_ts = ?
 		 WHERE token = ?`, ts, token)
@@ -1974,7 +2079,11 @@ func (d *DAL) MarkWebhookDelivered(token string, ts float64) error {
 }
 
 func (d *DAL) MarkWebhookDropped(token, reason string, ts float64) error {
-	_, err := d.wdb.Exec(
+	return markWebhookDroppedOn(d.wdb, token, reason, ts)
+}
+
+func markWebhookDroppedOn(ex sqlExecer, token, reason string, ts float64) error {
+	_, err := ex.Exec(
 		`UPDATE webhook_endpoint
 		 SET dropped_count = dropped_count + 1, last_drop_reason = ?,
 		     last_received_ts = ?
@@ -1989,11 +2098,15 @@ func (d *DAL) SetWebhookStatus(token, status string) error {
 }
 
 func (d *DAL) DeleteWebhookEndpoint(token string) error {
-	if _, err := d.wdb.Exec(
+	return d.inTx(func(tx *writeTx) error { return deleteWebhookEndpointOn(tx, token) })
+}
+
+func deleteWebhookEndpointOn(ex sqlExecer, token string) error {
+	if _, err := ex.Exec(
 		`DELETE FROM webhook_request_log WHERE token = ?`, token); err != nil {
 		return err
 	}
-	_, err := d.wdb.Exec(`DELETE FROM webhook_endpoint WHERE token = ?`, token)
+	_, err := ex.Exec(`DELETE FROM webhook_endpoint WHERE token = ?`, token)
 	return err
 }
 
@@ -2008,13 +2121,17 @@ type WebhookRequestLog struct {
 const webhookRequestLogKeep = 5
 
 func (d *DAL) InsertWebhookRequestLog(token string, l WebhookRequestLog) error {
-	if _, err := d.wdb.Exec(`
+	return d.inTx(func(tx *writeTx) error { return insertWebhookRequestLogOn(tx, token, l) })
+}
+
+func insertWebhookRequestLogOn(ex sqlExecer, token string, l WebhookRequestLog) error {
+	if _, err := ex.Exec(`
 		INSERT INTO webhook_request_log (token, ts, outcome, headers, body, truncated)
 		VALUES (?, ?, ?, ?, ?, ?)`,
 		token, l.TS, l.Outcome, l.Headers, l.Body, l.Truncated); err != nil {
 		return err
 	}
-	_, err := d.wdb.Exec(`
+	_, err := ex.Exec(`
 		DELETE FROM webhook_request_log
 		WHERE token = ? AND id NOT IN (
 			SELECT id FROM webhook_request_log
@@ -2139,7 +2256,11 @@ func parseIntSet(s string) []int {
 }
 
 func (d *DAL) GetScheduledMessage(id string) (*ScheduledMessage, error) {
-	row := d.rdb.QueryRow(
+	return getScheduledMessageOn(d.rdb, id)
+}
+
+func getScheduledMessageOn(q sqlRowQuerier, id string) (*ScheduledMessage, error) {
+	row := q.QueryRow(
 		`SELECT `+scheduledMessageColumns+` FROM scheduled_message WHERE id = ?`, id)
 	m, err := scanScheduledMessage(row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -2218,7 +2339,11 @@ func (d *DAL) PutScheduledMessage(m ScheduledMessage) error {
 // snapshot, and re-putting it rolls back the other's write — a rolled-back
 // cursor silently re-delivers a slot.
 func (d *DAL) UpdateScheduledMessageSettings(m ScheduledMessage) error {
-	_, err := d.wdb.Exec(`
+	return updateScheduledMessageSettingsOn(d.wdb, m)
+}
+
+func updateScheduledMessageSettingsOn(ex sqlExecer, m ScheduledMessage) error {
+	_, err := ex.Exec(`
 		UPDATE scheduled_message SET
 			label = ?, body = ?, cadence = ?, day_of_week = ?, day_of_month = ?,
 			hour = ?, minute = ?,
@@ -2235,7 +2360,11 @@ func (d *DAL) UpdateScheduledMessageSettings(m ScheduledMessage) error {
 // AimScheduledMessageCursor is for an edit that moved the schedule: the slot
 // it crossed is recorded as the cursor so it is never delivered.
 func (d *DAL) AimScheduledMessageCursor(id, slot string) error {
-	_, err := d.wdb.Exec(
+	return aimScheduledMessageCursorOn(d.wdb, id, slot)
+}
+
+func aimScheduledMessageCursorOn(ex sqlExecer, id, slot string) error {
+	_, err := ex.Exec(
 		`UPDATE scheduled_message SET last_fired_slot = ? WHERE id = ?`, slot, id)
 	return err
 }
@@ -2252,9 +2381,11 @@ func (d *DAL) DeleteScheduledMessage(id string) error {
 	return err
 }
 
-func (d *DAL) GetSetting(key string) (*string, error) {
+func (d *DAL) GetSetting(key string) (*string, error) { return getSettingOn(d.rdb, key) }
+
+func getSettingOn(q sqlRowQuerier, key string) (*string, error) {
 	var v string
-	err := d.rdb.QueryRow(`SELECT value FROM setting WHERE key = ?`, key).Scan(&v)
+	err := q.QueryRow(`SELECT value FROM setting WHERE key = ?`, key).Scan(&v)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -2264,8 +2395,10 @@ func (d *DAL) GetSetting(key string) (*string, error) {
 	return &v, nil
 }
 
-func (d *DAL) PutSetting(key, value string) error {
-	_, err := d.wdb.Exec(`
+func (d *DAL) PutSetting(key, value string) error { return putSettingOn(d.wdb, key, value) }
+
+func putSettingOn(ex sqlExecer, key, value string) error {
+	_, err := ex.Exec(`
 		INSERT INTO setting (key, value, updated_at) VALUES (?, ?, ?)
 		ON CONFLICT (key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
 		key, value, nowSecs())
@@ -2372,8 +2505,10 @@ func (d *DAL) DeleteWardenCommandsBefore(cutoff float64) (int64, error) {
 	return n, nil
 }
 
-func (d *DAL) DeleteSetting(key string) error {
-	_, err := d.wdb.Exec(`DELETE FROM setting WHERE key = ?`, key)
+func (d *DAL) DeleteSetting(key string) error { return deleteSettingOn(d.wdb, key) }
+
+func deleteSettingOn(ex sqlExecer, key string) error {
+	_, err := ex.Exec(`DELETE FROM setting WHERE key = ?`, key)
 	return err
 }
 
@@ -2399,6 +2534,10 @@ func (d *DAL) displayNames(query string) (map[string]string, error) {
 // indistinguishable: owner ruling 2026-08-28 「先不管搶同一秒的問題好了」.
 func (d *DAL) SetMemberAgentIatFloor(id string, ts float64) error {
 	return d.PatchMember(id, mfAgentIatFloor(ts))
+}
+
+func setMemberAgentIatFloorOn(ex sqlExecer, id string, ts float64) error {
+	return patchMemberOn(ex, id, mfAgentIatFloor(ts))
 }
 
 // SetMemberTokenKeyID must NOT become forward-only: the observation

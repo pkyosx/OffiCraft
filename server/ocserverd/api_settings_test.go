@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"reflect"
 	"strings"
@@ -319,6 +320,50 @@ func TestHandleSetPasswordApiAuthSetPasswordPost(t *testing.T) {
 			t.Fatalf("want 4 of 8 concurrent attempts refused for concurrency, got %d", throttled)
 		}
 	})
+
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": a claim token that fails to be spent leaves no password behind, and the retry lands", func(t *testing.T) {
+			d, _, _ := windowDAL(t, shape)
+			_, h, _, claim := apiTestStackOn(t, d, true)
+			lift := windowRefuseSetting(t, d, "auth.claim_token")
+			body := `{"password":"first-run-pass","claim_token":"` + claim + `"}`
+
+			status, data := windowJSON(t, h, "POST", "/api/auth/set-password", "", body)
+
+			if status != http.StatusInternalServerError {
+				t.Fatalf("want 500, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "internal_error", windowSettingWriteFails)
+			windowWantSetting(t, d, "auth.password_hash", nil)
+			windowWantSetting(t, d, "auth.claim_token", &claim)
+
+			lift()
+			if status, data := windowJSON(t, h, "POST", "/api/auth/set-password", "", body); status != http.StatusOK {
+				t.Fatalf("retry: want 200, got %d (%v)", status, data)
+			}
+			windowWantSetting(t, d, "auth.claim_token", nil)
+		})
+
+		t.Run(shape+": a claim token replaced after the handler compared it sets no password", func(t *testing.T) {
+			d, hook, path := windowDAL(t, shape)
+			api, h, _, claim := apiTestStackOn(t, d, true)
+			api.credentialFailureFloor = 5 * time.Millisecond
+			hook.execAfterRead(t, path, "FROM setting WHERE key",
+				`UPDATE setting SET value = 'a-claim-minted-meanwhile' WHERE key = 'auth.claim_token'`)
+
+			status, data := windowJSON(t, h, "POST", "/api/auth/set-password", "",
+				`{"password":"first-run-pass","claim_token":"`+claim+`"}`)
+
+			hook.wantFiredOnce(t)
+			if status != http.StatusUnauthorized {
+				t.Fatalf("want 401, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "unauthorized", "invalid claim token")
+			windowWantSetting(t, d, "auth.password_hash", nil)
+			newer := "a-claim-minted-meanwhile"
+			windowWantSetting(t, d, "auth.claim_token", &newer)
+		})
+	}
 }
 
 func TestHandleChangePasswordApiAuthChangePasswordPost(t *testing.T) {
@@ -410,6 +455,30 @@ func TestHandleChangePasswordApiAuthChangePasswordPost(t *testing.T) {
 		}
 		apiWantError(t, data, "forbidden", "principal not permitted")
 	})
+
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": a change whose timestamp fails to land keeps the old password, and the retry lands", func(t *testing.T) {
+			d, _, _ := windowDAL(t, shape)
+			_, h, _, owner := newAPITestServerOn(t, d)
+			before := windowSettingNow(t, d, "auth.password_hash")
+			lift := windowRefuseSetting(t, d, "auth.password_changed_at")
+			body := `{"current_password":"` + apiTestOwnerPassword + `","new_password":"a-brand-new-pass"}`
+
+			status, data := windowJSON(t, h, "POST", "/api/auth/change-password", owner, body)
+
+			if status != http.StatusInternalServerError {
+				t.Fatalf("want 500, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "internal_error", windowSettingWriteFails)
+			windowWantSetting(t, d, "auth.password_hash", before)
+			windowWantSetting(t, d, "auth.password_changed_at", nil)
+
+			lift()
+			if status, data := windowJSON(t, h, "POST", "/api/auth/change-password", owner, body); status != http.StatusOK {
+				t.Fatalf("retry with the old password: want 200, got %d (%v)", status, data)
+			}
+		})
+	}
 }
 
 func TestWriteOwnerToken(t *testing.T) {
@@ -922,6 +991,70 @@ func TestHandleUpdateSettingsApiSettingsPatch(t *testing.T) {
 		}
 		apiWantError(t, data, "forbidden", "principal not permitted")
 	})
+
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": a patch whose second row fails to land stores neither row and moves neither value, and the retry lands", func(t *testing.T) {
+			d, _, _ := windowDAL(t, shape)
+			_, h, _, owner := newAPITestServerOn(t, d)
+			lift := windowRefuseSetting(t, d, "owner.name")
+			body := `{"org_name":"Harbor Yard","owner_name":"Quinn"}`
+
+			status, data := windowJSON(t, h, "PATCH", "/api/settings", owner, body)
+
+			if status != http.StatusInternalServerError {
+				t.Fatalf("want 500, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "internal_error", windowSettingWriteFails)
+			windowWantSetting(t, d, "org.name", nil)
+			_, view := windowJSON(t, h, "GET", "/api/settings", owner, "")
+			if view["org_name"] != "" || view["owner_name"] != "" {
+				t.Fatalf("the served settings moved: org_name=%v owner_name=%v", view["org_name"], view["owner_name"])
+			}
+
+			lift()
+			status, data = windowJSON(t, h, "PATCH", "/api/settings", owner, body)
+			if status != http.StatusOK || data["org_name"] != "Harbor Yard" || data["owner_name"] != "Quinn" {
+				t.Fatalf("retry: got %d org_name=%v owner_name=%v", status, data["org_name"], data["owner_name"])
+			}
+		})
+
+		t.Run(shape+": a theme deleted after the handler checked it is not selected", func(t *testing.T) {
+			d, hook, path := windowDAL(t, shape)
+			_, h, _, owner := newAPITestServerOn(t, d)
+			apiPutTheme(t, h, owner, "dusk", `{"id":"dusk","name":"Dusk","colors":{"--color-bg":"#101418"}}`)
+			hook.execAfterRead(t, path, "FROM custom_theme WHERE theme_id",
+				`DELETE FROM custom_theme WHERE theme_id = 'dusk'`)
+
+			status, data := windowJSON(t, h, "PATCH", "/api/settings", owner, `{"display_theme":"dusk"}`)
+
+			hook.wantFiredOnce(t)
+			if status != http.StatusUnprocessableEntity {
+				t.Fatalf("want 422, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "validation_error", `display_theme must be "", office, or an existing custom theme id`)
+			windowWantSetting(t, d, "display.theme", nil)
+			if got := apiDisplayTheme(t, h, owner); got != "" {
+				t.Fatalf("display_theme: got %q, want \"\"", got)
+			}
+		})
+	}
+
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": "+"a dismissal refused for want of a banner takes the rest of the patch back with it", func(t *testing.T) {
+			d, _, _ := windowDAL(t, shape)
+			_, h, _, owner := newAPITestServerOn(t, d)
+
+			status, data := windowJSON(t, h, "PATCH", "/api/settings", owner,
+				`{"org_name":"Harbor Yard","onboarding_dismissed":true}`)
+
+			if status != http.StatusConflict {
+				t.Fatalf("want 409, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "conflict",
+				"no onboarding banner is up to dismiss — the first-run report is absent or not in a failed state")
+			windowWantSetting(t, d, "org.name", nil)
+		})
+	}
 }
 
 func TestSettingsView(t *testing.T) {

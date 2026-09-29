@@ -324,6 +324,49 @@ func TestHandleCreateWebhookApiMembersMemberIdWebhooksPost(t *testing.T) {
 		apiWantError(t, data, "unauthorized", "missing credentials")
 		apiWantWebhookList(t, h, owner, "kip")
 	})
+
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": an endpoint id taken after the handler read it answers 409 and keeps the one there", func(t *testing.T) {
+			d, hook, path := windowDAL(t, shape)
+			api, h, _, owner := newAPITestServerOn(t, d)
+			dashboard := apiTestListen(t, api, "")
+			hook.execAfterRead(t, path, "FROM webhook_endpoint",
+				`INSERT INTO webhook_endpoint (token, member_id, endpoint_id, purpose, status, created_ts)
+				 VALUES ('wh-first', 'kip', 'alerts', 'CI', 'enabled', 1700000000)`)
+
+			status, data := windowJSON(t, h, "POST", "/api/members/kip/webhooks", owner,
+				`{"endpoint_id":"alerts","purpose":"other"}`)
+
+			hook.wantFiredOnce(t)
+			if status != http.StatusConflict {
+				t.Fatalf("want 409, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "conflict", "a webhook endpoint 'alerts' already exists for this member")
+			apiWantWebhookList(t, h, owner, "kip", apiWebhookAlertsRow("wh-first"))
+			dashboard.wantFrames()
+		})
+	}
+
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": a member dismissed after the handler read it answers 404 and mints nothing", func(t *testing.T) {
+			d, hook, path := windowDAL(t, shape)
+			_, h, _, owner := newAPITestServerOn(t, d)
+			hook.execAfterRead(t, path, "FROM webhook_endpoint",
+				`UPDATE member SET roster_status = 'removed' WHERE id = 'kip'`)
+
+			status, data := windowJSON(t, h, "POST", "/api/members/kip/webhooks", owner,
+				`{"endpoint_id":"alerts","purpose":"CI"}`)
+
+			hook.wantFiredOnce(t)
+			if status != http.StatusNotFound {
+				t.Fatalf("want 404, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "not_found", "member 'kip' not found")
+			if n := windowCount(t, d, `SELECT COUNT(*) FROM webhook_endpoint`); n != 0 {
+				t.Fatalf("%d endpoints stored, want none", n)
+			}
+		})
+	}
 }
 
 func TestHandleUpdateWebhookApiMembersMemberIdWebhooksEndpointIdPatch(t *testing.T) {
@@ -471,6 +514,30 @@ func TestHandleUpdateWebhookApiMembersMemberIdWebhooksEndpointIdPatch(t *testing
 		apiWantError(t, data, "unauthorized", "missing credentials")
 		apiWantWebhookList(t, h, owner, "kip", apiWebhookAlertsRow(minted))
 	})
+
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": a delivery counted after the handler read the endpoint keeps its count", func(t *testing.T) {
+			d, hook, path := windowDAL(t, shape)
+			_, h, _, owner := newAPITestServerOn(t, d)
+			minted := apiTestWebhookToken(t, h, owner, "kip", `{"endpoint_id":"alerts","purpose":"CI"}`)
+			hook.execAfterRead(t, path, "FROM webhook_endpoint",
+				`UPDATE webhook_endpoint SET delivered_count = 3, last_received_ts = 1800000000
+				 WHERE endpoint_id = 'alerts'`)
+
+			status, data := windowJSON(t, h, "PATCH", "/api/members/kip/webhooks/alerts", owner, `{"purpose":"CD"}`)
+
+			hook.wantFiredOnce(t)
+			if status != http.StatusOK {
+				t.Fatalf("want 200, got %d (%v)", status, data)
+			}
+			want := apiWebhookAlertsRow(minted)
+			want["purpose"] = "CD"
+			want["delivered_count"] = 3
+			want["last_received_ts"] = 1800000000
+			apiWantBody(t, data, want)
+			apiWantWebhookList(t, h, owner, "kip", want)
+		})
+	}
 }
 
 func TestHandleDeleteWebhookApiMembersMemberIdWebhooksEndpointIdDelete(t *testing.T) {
@@ -584,6 +651,47 @@ func TestHandleDeleteWebhookApiMembersMemberIdWebhooksEndpointIdDelete(t *testin
 		apiWantError(t, data, "unauthorized", "missing credentials")
 		apiWantWebhookList(t, h, owner, "kip", apiWebhookAlertsRow(minted))
 	})
+
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": an endpoint deleted after the handler read it answers 404", func(t *testing.T) {
+			d, hook, path := windowDAL(t, shape)
+			_, h, _, owner := newAPITestServerOn(t, d)
+			apiTestWebhookToken(t, h, owner, "kip", `{"endpoint_id":"alerts","purpose":"CI"}`)
+			hook.execAfterRead(t, path, "FROM webhook_endpoint",
+				`DELETE FROM webhook_endpoint WHERE endpoint_id = 'alerts'`)
+
+			status, data := windowJSON(t, h, "DELETE", "/api/members/kip/webhooks/alerts", owner, "")
+
+			hook.wantFiredOnce(t)
+			if status != http.StatusNotFound {
+				t.Fatalf("want 404, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "not_found", "webhook endpoint 'alerts' not found")
+		})
+	}
+
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": "+"an endpoint whose row fails to delete keeps its request log", func(t *testing.T) {
+			d, _, _ := windowDAL(t, shape)
+			_, h, _, owner := newAPITestServerOn(t, d)
+			token := apiTestWebhookToken(t, h, owner, "kip", `{"endpoint_id":"alerts","purpose":"CI"}`)
+			if err := d.InsertWebhookRequestLog(token, WebhookRequestLog{TS: 1700000000, Outcome: "delivered"}); err != nil {
+				t.Fatalf("InsertWebhookRequestLog: %v", err)
+			}
+			windowRefuse(t, d, "refuse_endpoint_delete", "BEFORE DELETE ON webhook_endpoint", "the endpoint delete fails")
+
+			status, data := windowJSON(t, h, "DELETE", "/api/members/kip/webhooks/alerts", owner, "")
+
+			if status != http.StatusInternalServerError {
+				t.Fatalf("want 500, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "internal_error", windowRefusal("the endpoint delete fails"))
+			logs, err := d.ListWebhookRequestLogs(token)
+			if err != nil || len(logs) != 1 {
+				t.Fatalf("request log: %v rows, %v; want the one row kept", len(logs), err)
+			}
+		})
+	}
 }
 
 func TestResolveWebhook(t *testing.T) {
@@ -1162,6 +1270,150 @@ func TestHandleReceiveWebhookInPost(t *testing.T) {
 			"last_drop_reason":   "oversize",
 		})
 	})
+
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": an endpoint disabled after the handler read it drops the request", func(t *testing.T) {
+			d, hook, path := windowDAL(t, shape)
+			api, h, _, owner := newAPITestServerOn(t, d)
+			token := apiTestWebhookToken(t, h, owner, "kip", `{"endpoint_id":"alerts","purpose":"CI"}`)
+			recipient := apiTestListen(t, api, "kip")
+			hook.execAfterRead(t, path, "FROM webhook_endpoint WHERE token",
+				`UPDATE webhook_endpoint SET status = 'disabled' WHERE endpoint_id = 'alerts'`)
+
+			status, data := windowJSON(t, h, http.MethodPost, "/in?t="+token, "", `{"text":"build broke"}`)
+
+			hook.wantFiredOnce(t)
+			if status != http.StatusOK {
+				t.Fatalf("want 200, got %d (%v)", status, data)
+			}
+			apiWantBody(t, data, map[string]any{"status": "ok"})
+			e, err := d.GetWebhookByToken(token)
+			if err != nil || e == nil {
+				t.Fatalf("GetWebhookByToken: %#v, %v", e, err)
+			}
+			if e.DeliveredCount != 0 || e.DroppedCount != 1 || e.LastDropReason != "disabled" {
+				t.Fatalf("delivered=%d dropped=%d reason=%q, want 0 / 1 / disabled",
+					e.DeliveredCount, e.DroppedCount, e.LastDropReason)
+			}
+			apiWantNoChatWithKip(t, h, owner)
+			recipient.wantFrames()
+		})
+	}
+
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": "+"a request log that fails to land does not cost the delivery", func(t *testing.T) {
+			d, _, _ := windowDAL(t, shape)
+			_, h, _, owner := newAPITestServerOn(t, d)
+			token := apiTestWebhookToken(t, h, owner, "kip", `{"endpoint_id":"alerts","purpose":"CI"}`)
+			windowRefuse(t, d, "refuse_request_log", "BEFORE INSERT ON webhook_request_log", "the log write fails")
+
+			status, data := windowJSON(t, h, http.MethodPost, "/in?t="+token, "", `{"text":"build broke"}`)
+
+			if status != http.StatusOK {
+				t.Fatalf("want 200, got %d (%v)", status, data)
+			}
+			e, err := d.GetWebhookByToken(token)
+			if err != nil || e == nil || e.DeliveredCount != 1 {
+				t.Fatalf("GetWebhookByToken: %#v, %v; want delivered_count 1", e, err)
+			}
+			rows, err := d.ListChat()
+			if err != nil || len(rows) != 1 || rows[0].Body != `{"text":"build broke"}` || rows[0].Recipient != "kip" {
+				t.Fatalf("ListChat: %#v, %v; want the one delivered message", rows, err)
+			}
+		})
+	}
+
+	const (
+		githubBody = `{"action":"opened","number":42}`
+		githubSig  = "sha256=17e1a2914aed3f36630a70904e584c37ffaef0d874aea4e3cce44c9ae43bfa21"
+	)
+	githubPost := func(t *testing.T, h http.Handler, token, event string) *httptest.ResponseRecorder {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodPost, "/in?t="+token, strings.NewReader(githubBody))
+		req.Header.Set("X-Hub-Signature-256", githubSig)
+		if event != "" {
+			req.Header.Set("X-GitHub-Event", event)
+		}
+		rec := httptest.NewRecorder()
+		windowWithin(t, "POST /in", func() { h.ServeHTTP(rec, req) })
+		return rec
+	}
+
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": a signing secret rotated after the handler read the endpoint is the one the request is judged by", func(t *testing.T) {
+			d, hook, path := windowDAL(t, shape)
+			_, h, _, owner := newAPITestServerOn(t, d)
+			token := apiTestWebhookToken(t, h, owner, "kip",
+				`{"endpoint_id":"alerts","purpose":"CI","platform":"github","signing_secret":"a-secret-since-rotated"}`)
+			hook.execAfterRead(t, path, "FROM webhook_endpoint WHERE token",
+				`UPDATE webhook_endpoint SET signing_secret = 'github-webhook-secret' WHERE endpoint_id = 'alerts'`)
+
+			rec := githubPost(t, h, token, "")
+
+			hook.wantFiredOnce(t)
+			if rec.Code != http.StatusOK || rec.Body.String() != `{"status":"ok"}` {
+				t.Fatalf("want 200 {\"status\":\"ok\"}, got %d %s", rec.Code, rec.Body.String())
+			}
+			e, err := d.GetWebhookByToken(token)
+			if err != nil || e == nil || e.DeliveredCount != 1 || e.DroppedCount != 0 {
+				t.Fatalf("GetWebhookByToken: %#v, %v; want delivered 1, dropped 0", e, err)
+			}
+		})
+	}
+
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": a request signed with a secret rotated out after the handler read the endpoint is dropped", func(t *testing.T) {
+			d, hook, path := windowDAL(t, shape)
+			_, h, _, owner := newAPITestServerOn(t, d)
+			token := apiTestWebhookToken(t, h, owner, "kip",
+				`{"endpoint_id":"alerts","purpose":"CI","platform":"github","signing_secret":"github-webhook-secret"}`)
+			hook.execAfterRead(t, path, "FROM webhook_endpoint WHERE token",
+				`UPDATE webhook_endpoint SET signing_secret = 'a-secret-rotated-in' WHERE endpoint_id = 'alerts'`)
+
+			rec := githubPost(t, h, token, "")
+
+			hook.wantFiredOnce(t)
+			if rec.Code != http.StatusOK || rec.Body.String() != `{"status":"ok"}` {
+				t.Fatalf("want 200 {\"status\":\"ok\"}, got %d %s", rec.Code, rec.Body.String())
+			}
+			e, err := d.GetWebhookByToken(token)
+			if err != nil || e == nil || e.DeliveredCount != 0 || e.DroppedCount != 1 || e.LastDropReason != "sig_failed" {
+				t.Fatalf("GetWebhookByToken: %#v, %v; want delivered 0, dropped 1 (sig_failed)", e, err)
+			}
+			apiWantNoChatWithKip(t, h, owner)
+		})
+	}
+
+	// A request the endpoint would not deliver keeps the silent face even when
+	// nothing about it can be recorded.
+	for _, tc := range []struct {
+		name, create, event string
+		disable             bool
+	}{
+		{name: "a disabled endpoint", create: `{"endpoint_id":"alerts","purpose":"CI"}`, disable: true},
+		{name: "a GitHub ping", create: `{"endpoint_id":"alerts","purpose":"CI","platform":"github","signing_secret":"github-webhook-secret"}`,
+			event: "ping"},
+		{name: "a bad signature", create: `{"endpoint_id":"alerts","purpose":"CI","platform":"github","signing_secret":"some-other-secret"}`},
+	} {
+		t.Run(tc.name+" answers the silent ok when the write pool is gone", func(t *testing.T) {
+			_, h, d, owner := newAPITestServer(t)
+			token := apiTestWebhookToken(t, h, owner, "kip", tc.create)
+			if tc.disable {
+				if err := d.SetWebhookStatus(token, WebhookStatusDisabled); err != nil {
+					t.Fatalf("SetWebhookStatus: %v", err)
+				}
+			}
+			if err := d.wdb.Close(); err != nil {
+				t.Fatalf("close write pool: %v", err)
+			}
+
+			rec := githubPost(t, h, token, tc.event)
+
+			if rec.Code != http.StatusOK || rec.Body.String() != `{"status":"ok"}` {
+				t.Fatalf("want 200 {\"status\":\"ok\"}, got %d %s", rec.Code, rec.Body.String())
+			}
+		})
+	}
 }
 
 // apiCutBody plays the sender whose connection drops mid-upload: the bytes that

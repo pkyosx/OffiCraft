@@ -1,6 +1,7 @@
 package main
 
 import (
+	"net/http"
 	"strings"
 	"testing"
 )
@@ -286,6 +287,51 @@ func TestHandleUpdateTaskStepNoteApiTasksTaskIdStepsStepIdNotePost(t *testing.T)
 		apiWantValue(t, "step.note", step["note"], "first pass")
 		dashboard.wantFrames()
 	})
+
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": a task closed after the handler read it keeps its note", func(t *testing.T) {
+			d, hook, path := windowDAL(t, shape)
+			api, h, _, owner := newAPITestServerOn(t, d)
+			task := dalPutTask(t, d, windowOpenTask("T-1"))
+			windowPutSteps(t, d, windowPendingStep("ts-1", task.ID))
+			dashboard := apiTestListen(t, api, "")
+			hook.closeTaskAfterRead(t, path, task.ID, "FROM task WHERE id")
+
+			status, data := windowJSON(t, h, "POST", "/api/tasks/T-1/steps/ts-1/note", owner,
+				`{"note":"the crane is back"}`)
+
+			hook.wantFiredOnce(t)
+			if status != http.StatusConflict {
+				t.Fatalf("want 409, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "conflict", "task 'T-1' is already closed (done)")
+			windowWantStepNote(t, d, "ts-1", "got as far as the second container")
+			dalWantTask(t, d, windowClosed(task))
+			dashboard.wantFrames()
+		})
+	}
+
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": "+"a note whose task stamp fails to land is not stored and fans nothing", func(t *testing.T) {
+			d, _, _ := windowDAL(t, shape)
+			api, h, _, owner := newAPITestServerOn(t, d)
+			task := dalPutTask(t, d, windowOpenTask("T-1"))
+			windowPutSteps(t, d, windowPendingStep("ts-1", task.ID))
+			windowRefuseTaskWrites(t, d)
+			dashboard := apiTestListen(t, api, "")
+
+			status, data := windowJSON(t, h, "POST", "/api/tasks/T-1/steps/ts-1/note", owner,
+				`{"note":"the crane is back"}`)
+
+			if status != http.StatusInternalServerError {
+				t.Fatalf("want 500, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "internal_error", windowTaskWriteFails)
+			windowWantStepNote(t, d, "ts-1", "got as far as the second container")
+			dalWantTask(t, d, task)
+			dashboard.wantFrames()
+		})
+	}
 }
 
 func TestHandlePatchTaskStepNoteApiTasksTaskIdStepsStepIdNotePatchPost(t *testing.T) {
@@ -599,4 +645,46 @@ func TestHandlePatchTaskStepNoteApiTasksTaskIdStepsStepIdNotePatchPost(t *testin
 		apiWantValue(t, "step.note", step["note"], "halfway through")
 		dashboard.wantFrames()
 	})
+
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": text written after the handler read the note survives the patch", func(t *testing.T) {
+			d, hook, path := windowDAL(t, shape)
+			_, h, _, owner := newAPITestServerOn(t, d)
+			task := dalPutTask(t, d, windowOpenTask("T-1"))
+			windowPutSteps(t, d, windowPendingStep("ts-1", task.ID))
+			hook.execAfterRead(t, path, "FROM task_step WHERE id",
+				`UPDATE task_step SET note = 'got as far as the second container, then the crane broke' WHERE id = 'ts-1'`)
+
+			status, data := windowJSON(t, h, "POST", "/api/tasks/T-1/steps/ts-1/note/patch", owner,
+				`{"edits":[{"old":"second","new":"third"}]}`)
+
+			hook.wantFiredOnce(t)
+			if status != http.StatusOK {
+				t.Fatalf("want 200, got %d (%v)", status, data)
+			}
+			windowWantStepNote(t, d, "ts-1", "got as far as the third container, then the crane broke")
+		})
+	}
+
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": "+"a patch whose task stamp fails to land is not stored and fans nothing", func(t *testing.T) {
+			d, _, _ := windowDAL(t, shape)
+			api, h, _, owner := newAPITestServerOn(t, d)
+			task := dalPutTask(t, d, windowOpenTask("T-1"))
+			windowPutSteps(t, d, windowPendingStep("ts-1", task.ID))
+			windowRefuseTaskWrites(t, d)
+			dashboard := apiTestListen(t, api, "")
+
+			status, data := windowJSON(t, h, "POST", "/api/tasks/T-1/steps/ts-1/note/patch", owner,
+				`{"edits":[{"old":"second","new":"third"}]}`)
+
+			if status != http.StatusInternalServerError {
+				t.Fatalf("want 500, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "internal_error", windowTaskWriteFails)
+			windowWantStepNote(t, d, "ts-1", "got as far as the second container")
+			dalWantTask(t, d, task)
+			dashboard.wantFrames()
+		})
+	}
 }

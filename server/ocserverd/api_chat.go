@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
 	"mime"
@@ -120,11 +121,15 @@ func (e chatBadRequest) Error() string { return e.msg }
 // Presence is deliberately NOT a condition: an offline or stopped member still owns
 // a mailbox and must receive messages posted before its next connection.
 func (s *apiServer) resolveChatRecipient(id string) (string, error) {
+	return resolveChatRecipientOn(s.dal.rdb, id)
+}
+
+func resolveChatRecipientOn(q sqlRowQuerier, id string) (string, error) {
 	id = trimString(id)
 	if id == wireOwnerID {
 		return id, nil
 	}
-	m, err := s.dal.GetMember(id)
+	m, err := getMemberOn(q, id)
 	if err != nil {
 		return "", err
 	}
@@ -232,7 +237,7 @@ func (s *apiServer) HandleUploadChatAttachmentApiChatAttachmentsPost(w http.Resp
 		writeError(w, http.StatusBadRequest, rerr.Error())
 		return
 	}
-	if err := s.dal.PutChatAttachment(*att); err != nil {
+	if err := s.dal.inTx(func(*writeTx) error { return s.dal.PutChatAttachment(*att) }); err != nil {
 		internalError(w, err)
 		return
 	}
@@ -262,14 +267,14 @@ func (s *apiServer) resolveChatAttachmentInputs(inputs []ChatAttachmentInputDTO)
 				return nil, http.StatusBadRequest,
 					"attachment '" + refID + "' is reserved for a member avatar"
 			}
-			att, err := s.dal.GetChatAttachment(refID)
+			att, err := s.storedChatAttachment(refID)
+			var refusal *txRefusal
+			if errors.As(err, &refusal) {
+				return nil, refusal.status, refusal.msg
+			}
 			if err != nil {
 				return nil, http.StatusInternalServerError,
 					"internal error: " + err.Error()
-			}
-			if att == nil {
-				return nil, http.StatusBadRequest,
-					"attachment '" + refID + "' not found"
 			}
 			resolved = append(resolved, resolvedAttachment{att: att})
 			continue
@@ -287,6 +292,30 @@ func (s *apiServer) resolveChatAttachmentInputs(inputs []ChatAttachmentInputDTO)
 		resolved = append(resolved, resolvedAttachment{att: att, store: true})
 	}
 	return resolved, 0, ""
+}
+
+// storedChatAttachment answers the stored attachment refID names, or the 400
+// for one that is not stored.
+func (s *apiServer) storedChatAttachment(refID string) (*ChatAttachment, error) {
+	att, err := s.dal.GetChatAttachment(refID)
+	if err == nil && att == nil {
+		err = refuseInTx(http.StatusBadRequest, "attachment '"+refID+"' not found")
+	}
+	return att, err
+}
+
+// referencedAttachmentsGone judges every referenced attachment again, on the
+// transaction that writes the message carrying the references.
+func (s *apiServer) referencedAttachmentsGone(resolved []resolvedAttachment) error {
+	for _, ra := range resolved {
+		if ra.store {
+			continue
+		}
+		if _, err := s.storedChatAttachment(ra.att.ID); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Stores NOTHING: the caller hands both halves to one transactional write. A blob
@@ -348,17 +377,22 @@ func (s *apiServer) HandlePostChatApiChatPost(w http.ResponseWriter, r *http.Req
 	}
 	// Existence is the only gate — no same-conversation check (owner ruling
 	// 2026-08-21): quoting a line out of another thread is the use case.
-	if replyTo := trimString(strOrEmpty(body.ReplyTo)); replyTo != "" {
+	replyTo := trimString(strOrEmpty(body.ReplyTo))
+	quotedGone := func() error {
+		if replyTo == "" {
+			return nil
+		}
 		quoted, err := s.dal.ListChatByIDs([]string{replyTo})
-		if err != nil {
-			internalError(w, err)
-			return
+		if err == nil && len(quoted) == 0 {
+			err = refuseInTx(http.StatusBadRequest, fmt.Sprintf(chatReplyToUnknownMsg, replyTo))
 		}
-		if len(quoted) == 0 {
-			writeError(w, http.StatusBadRequest,
-				fmt.Sprintf(chatReplyToUnknownMsg, replyTo))
-			return
-		}
+		return err
+	}
+	if err := quotedGone(); err != nil {
+		writeTxError(w, err)
+		return
+	}
+	if replyTo != "" {
 		meta[chatReplyToMetaKey] = replyTo
 	}
 	var fresh []ChatAttachment
@@ -380,8 +414,20 @@ func (s *apiServer) HandlePostChatApiChatPost(w http.ResponseWriter, r *http.Req
 		TS:        nowSecs(),
 		Meta:      meta,
 	}
-	if err := s.dal.PutChatWithAttachments(msg, fresh); err != nil {
-		internalError(w, err)
+	err = s.dal.inTx(func(tx *writeTx) error {
+		if err := s.referencedAttachmentsGone(resolved); err != nil {
+			return err
+		}
+		if _, err := resolveChatRecipientOn(tx, body.To); err != nil {
+			return err
+		}
+		if err := quotedGone(); err != nil {
+			return err
+		}
+		return s.dal.PutChatWithAttachments(msg, fresh)
+	})
+	if err != nil {
+		writeResolveTxError(w, err, "chat recipient", trimString(body.To))
 		return
 	}
 	// Payload {id, from, to} per spec/sse.md §2.2; audience per spec §4.
@@ -1017,7 +1063,13 @@ func (s *apiServer) HandleMarkChatReadApiChatMarkReadPost(w http.ResponseWriter,
 		writeError(w, http.StatusUnprocessableEntity, err.Error())
 		return
 	}
-	effective, advanced, err := s.dal.PutChatRead(receipt)
+	var effective ChatRead
+	var advanced bool
+	err := s.dal.inTx(func(*writeTx) error {
+		var err error
+		effective, advanced, err = s.dal.PutChatRead(receipt)
+		return err
+	})
 	if err != nil {
 		internalError(w, err)
 		return

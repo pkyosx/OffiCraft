@@ -270,7 +270,8 @@ func (s *apiServer) HandleCreatePushSubscriptionApiPushSubscriptionPost(w http.R
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if err := s.dal.PutPushSubscription(PushSubscription{Endpoint: body.Endpoint, P256dh: body.Keys.P256dh, Auth: body.Keys.Auth, ExpirationTime: body.ExpirationTime}); err != nil {
+	sub := PushSubscription{Endpoint: body.Endpoint, P256dh: body.Keys.P256dh, Auth: body.Keys.Auth, ExpirationTime: body.ExpirationTime}
+	if err := s.dal.inTx(func(*writeTx) error { return s.dal.PutPushSubscription(sub) }); err != nil {
 		internalError(w, err)
 		return
 	}
@@ -282,7 +283,8 @@ func (s *apiServer) HandleDeletePushSubscriptionApiPushSubscriptionDelete(w http
 	if !decodeJSONBodyRequired(w, r, &body, "endpoint") {
 		return
 	}
-	if err := s.dal.DeletePushSubscription(strings.TrimSpace(body.Endpoint)); err != nil {
+	endpoint := strings.TrimSpace(body.Endpoint)
+	if err := s.dal.inTx(func(*writeTx) error { return s.dal.DeletePushSubscription(endpoint) }); err != nil {
 		internalError(w, err)
 		return
 	}

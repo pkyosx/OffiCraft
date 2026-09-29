@@ -40,7 +40,7 @@ func (s *apiServer) HandleUploadTaskArtifactApiTasksTaskIdArtifactsUploadPost(
 		writeResolveError(w, err, "task", taskId)
 		return
 	}
-	if !s.callerMayEditTaskText(r, *t) {
+	if !callerMayEditTaskText(s.dal.GetMember, r, *t) {
 		writeError(w, http.StatusForbidden, taskActorRefusal)
 		return
 	}

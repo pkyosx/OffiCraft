@@ -426,6 +426,60 @@ func TestHandlePutThemeApiThemesThemeIdPut(t *testing.T) {
 		dashboard.wantFrames()
 		apiThemeAbsent(t, h, owner, "dusk")
 	})
+
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": the hundredth theme filed after the handler counted refuses the next one", func(t *testing.T) {
+			d, hook, path := windowDAL(t, shape)
+			api, h, _, owner := newAPITestServerOn(t, d)
+			for i := 0; i < maxCustomThemes-1; i++ {
+				id := "t" + string(rune('a'+i/26)) + string(rune('a'+i%26))
+				if _, err := d.wdb.Exec(`INSERT INTO custom_theme (theme_id, bundle, order_idx, updated_at)
+					VALUES (?, ?, ?, 1700000000)`, id, `{"id":"`+id+`","name":"`+id+`","colors":{}}`, i); err != nil {
+					t.Fatalf("seed theme %s: %v", id, err)
+				}
+			}
+			dashboard := apiTestListen(t, api, "")
+			hook.execAfterRead(t, path, "SELECT COUNT(*) FROM custom_theme",
+				`INSERT INTO custom_theme (theme_id, bundle, order_idx, updated_at)
+				 VALUES ('last', '{"id":"last","name":"Last","colors":{}}', 99, 1700000000)`)
+
+			status, data := windowJSON(t, h, "PUT", "/api/themes/onemore", owner,
+				`{"id":"onemore","name":"One More","colors":{"--color-bg":"#101418"}}`)
+
+			hook.wantFiredOnce(t)
+			if status != http.StatusUnprocessableEntity {
+				t.Fatalf("want 422, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "validation_error",
+				"at most 100 custom themes may be saved — delete one first")
+			dashboard.wantFrames()
+			apiThemeAbsent(t, h, owner, "onemore")
+			if n := windowCount(t, d, `SELECT COUNT(*) FROM custom_theme`); n != 100 {
+				t.Fatalf("%d themes stored, want 100", n)
+			}
+		})
+	}
+
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": a theme filed under the same id after the handler read it is answered as replaced, not created", func(t *testing.T) {
+			d, hook, path := windowDAL(t, shape)
+			_, h, _, owner := newAPITestServerOn(t, d)
+			hook.execAfterRead(t, path, "FROM custom_theme WHERE theme_id",
+				`INSERT INTO custom_theme (theme_id, bundle, order_idx, updated_at)
+				 VALUES ('dusk', '{"id":"dusk","name":"Dusk","colors":{}}', 0, 1700000000)`)
+
+			status, data := windowJSON(t, h, "PUT", "/api/themes/dusk", owner,
+				`{"id":"dusk","name":"Dusk II","colors":{"--color-bg":"#101418"}}`)
+
+			hook.wantFiredOnce(t)
+			if status != http.StatusOK {
+				t.Fatalf("want 200, got %d (%v)", status, data)
+			}
+			apiWantBody(t, data, map[string]any{
+				"id": "dusk", "created": false, "order_idx": 0, "updated_at": apiAnyNumber,
+			})
+		})
+	}
 }
 
 func TestHandleDeleteThemeApiThemesThemeIdDelete(t *testing.T) {
@@ -546,6 +600,74 @@ func TestHandleDeleteThemeApiThemesThemeIdDelete(t *testing.T) {
 		})
 		apiThemeAbsent(t, h, owner, "dusk")
 	})
+
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": deleting the active theme when the reset fails keeps both, and the retry lands", func(t *testing.T) {
+			d, _, _ := windowDAL(t, shape)
+			_, h, _, owner := newAPITestServerOn(t, d)
+			apiPutTheme(t, h, owner, "dusk", `{"id":"dusk","name":"Dusk","colors":{"--color-bg":"#101418"}}`)
+			if status, data := windowJSON(t, h, "PATCH", "/api/settings", owner, `{"display_theme":"dusk"}`); status != 200 {
+				t.Fatalf("select theme: %d %v", status, data)
+			}
+			lift := windowRefuseSetting(t, d, "display.theme")
+
+			status, data := windowJSON(t, h, "DELETE", "/api/themes/dusk", owner, "")
+
+			if status != http.StatusInternalServerError {
+				t.Fatalf("want 500, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "internal_error", windowSettingWriteFails)
+			apiThemeList(t, h, owner, map[string]any{"id": "dusk", "name": "Dusk"})
+			if got := apiDisplayTheme(t, h, owner); got != "dusk" {
+				t.Fatalf("display_theme: got %q, want dusk", got)
+			}
+
+			lift()
+			status, data = windowJSON(t, h, "DELETE", "/api/themes/dusk", owner, "")
+			if status != http.StatusOK {
+				t.Fatalf("retry: want 200, got %d (%v)", status, data)
+			}
+			apiWantBody(t, data, map[string]any{"id": "dusk", "deleted": true, "display_theme_reset": true})
+		})
+	}
+
+	// A settings patch takes settingsWriteMu and then waits for the write
+	// connection; the delete must hold settingsWriteMu before it takes that
+	// connection, or the two wait on each other.
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": a settings patch arriving as the delete opens its transaction does not stall it", func(t *testing.T) {
+			d, hook, _ := windowDAL(t, shape)
+			api, h, _, owner := newAPITestServerOn(t, d)
+			apiPutTheme(t, h, owner, "dusk", `{"id":"dusk","name":"Dusk","colors":{"--color-bg":"#101418"}}`)
+			patched := make(chan struct{})
+			patch := func() {
+				defer close(patched)
+				defer api.settingsWriteMu.Unlock()
+				if _, err := d.wdb.Exec(`SELECT 1`); err != nil {
+					t.Errorf("the settings patch's write: %v", err)
+				}
+			}
+			hook.mu.Lock()
+			hook.armed = true
+			hook.fire = func() {
+				go func() {
+					api.settingsWriteMu.Lock()
+					patch()
+				}()
+			}
+			hook.mu.Unlock()
+
+			status, data := windowJSON(t, h, "DELETE", "/api/themes/dusk", owner, "")
+
+			hook.wantFiredOnce(t)
+			if status != http.StatusOK {
+				t.Fatalf("want 200, got %d (%v)", status, data)
+			}
+			apiWantBody(t, data, map[string]any{"id": "dusk", "deleted": true, "display_theme_reset": false})
+			<-patched
+			apiThemeAbsent(t, h, owner, "dusk")
+		})
+	}
 }
 
 func TestDecodeStoredThemeBundle(t *testing.T) {
@@ -609,12 +731,12 @@ func TestDisplayThemeExists(t *testing.T) {
 		{theme: "missing", want: false},
 	} {
 		t.Run(tc.theme, func(t *testing.T) {
-			got, err := api.displayThemeExists(tc.theme)
+			got, err := displayThemeExistsOn(api.dal.rdb, tc.theme)
 			if err != nil {
-				t.Fatalf("displayThemeExists(%q): %v", tc.theme, err)
+				t.Fatalf("displayThemeExistsOn(%q): %v", tc.theme, err)
 			}
 			if got != tc.want {
-				t.Fatalf("displayThemeExists(%q): want %v, got %v", tc.theme, tc.want, got)
+				t.Fatalf("displayThemeExistsOn(%q): want %v, got %v", tc.theme, tc.want, got)
 			}
 		})
 	}

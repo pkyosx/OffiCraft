@@ -877,7 +877,8 @@ func TestClearSessionBootTSForStart(t *testing.T) {
 	t.Run("under a clobber refusal arriving while the start's clear is still writing, the refusal waits and restores the anchor", func(t *testing.T) {
 		api, _, d, _ := newAPITestServer(t)
 		infraSeedAnchoredSession(t, api, d, "kip")
-		api.ctxGateDiagMu.Lock()
+		// The clear's durable half waits for the write connection, held here.
+		letGo := windowHoldWriteConn(t, d)
 		started := make(chan struct{})
 		go func() {
 			defer close(started)
@@ -886,7 +887,7 @@ func TestClearSessionBootTSForStart(t *testing.T) {
 		deadline := time.Now().Add(5 * time.Second)
 		for api.gauge.Get("kip")["boot_ts"] != nil {
 			if time.Now().After(deadline) {
-				api.ctxGateDiagMu.Unlock()
+				letGo()
 				t.Fatalf("premise: the start's clear never reached its gauge write")
 			}
 			time.Sleep(time.Millisecond)
@@ -900,7 +901,7 @@ func TestClearSessionBootTSForStart(t *testing.T) {
 		case <-refused:
 		case <-time.After(200 * time.Millisecond):
 		}
-		api.ctxGateDiagMu.Unlock()
+		letGo()
 		<-started
 		<-refused
 
@@ -1558,6 +1559,31 @@ func TestHandleResetCostApiMembersMemberIdCostResetPost(t *testing.T) {
 			t.Fatalf("the figure must be gone, kip cost = %v", row["cost"])
 		}
 	})
+
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": a member dismissed after the handler read it answers 404 and keeps its banked cost", func(t *testing.T) {
+			d, hook, path := windowDAL(t, shape)
+			api, h, _, owner := newAPITestServerOn(t, d)
+			if err := d.AddMemberBankedCost("kip", 4); err != nil {
+				t.Fatalf("AddMemberBankedCost: %v", err)
+			}
+			dashboard := apiTestListen(t, api, "")
+			hook.execAfterRead(t, path, "FROM member WHERE id",
+				`UPDATE member SET roster_status = 'removed' WHERE id = 'kip'`)
+
+			status, data := windowJSON(t, h, "POST", "/api/members/kip/cost/reset", owner, "")
+
+			hook.wantFiredOnce(t)
+			if status != http.StatusNotFound {
+				t.Fatalf("want 404, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "not_found", "member 'kip' not found")
+			if n := windowCount(t, d, `SELECT COUNT(*) FROM member WHERE id = 'kip' AND banked_cost = 4`); n != 1 {
+				t.Fatalf("kip's banked cost moved: want it still 4")
+			}
+			dashboard.wantFrames()
+		})
+	}
 }
 
 func TestAccrueAccountSpend(t *testing.T) {
@@ -3470,4 +3496,30 @@ func apiTestMCPServer(t *testing.T) (*apiServer, http.Handler, string) {
 func apiMCP(t *testing.T, h http.Handler, credential, body string) (int, map[string]any) {
 	t.Helper()
 	return apiJSON(t, h, "POST", "/api/mcp", credential, body)
+}
+
+// A session boundary clears the durable anchor and the durable notice claim
+// together: when the claim cannot be cleared, the anchor is not cleared either,
+// and a retry clears both.
+func TestASessionBoundaryClearsTheAnchorAndTheNoticeClaimTogether(t *testing.T) {
+	api, _, d, _ := newAPITestServer(t)
+	infraSeedAnchoredSession(t, api, d, "kip")
+	windowRefuse(t, d, "refuse_claim_clear", `BEFORE UPDATE OF handover_noticed_ts ON member WHEN NEW.handover_noticed_ts = 0`,
+		"the claim clear fails")
+
+	api.clearSessionBootTS("kip")
+
+	if m := infraTestMember(t, d, "kip"); m.SessionBootTS != 1700000000 || m.HandoverNoticedTS != 1700000000 {
+		t.Fatalf("after a failed clear: anchor %v, claim %v; want both still 1700000000",
+			m.SessionBootTS, m.HandoverNoticedTS)
+	}
+
+	if _, err := d.wdb.Exec(`DROP TRIGGER refuse_claim_clear`); err != nil {
+		t.Fatalf("drop trigger: %v", err)
+	}
+	api.clearSessionBootTS("kip")
+
+	if m := infraTestMember(t, d, "kip"); m.SessionBootTS != 0 || m.HandoverNoticedTS != 0 {
+		t.Fatalf("after the retry: anchor %v, claim %v; want both 0", m.SessionBootTS, m.HandoverNoticedTS)
+	}
 }

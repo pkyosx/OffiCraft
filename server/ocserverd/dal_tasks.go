@@ -140,7 +140,11 @@ func getTaskOn(q sqlRowQuerier, id string) (*Task, error) {
 // FindOpenTaskByDedupe is the create_task dedupe probe: terminal tasks never
 // block a reopen (kyle ruling H2).
 func (d *DAL) FindOpenTaskByDedupe(typeKey, dedupeKey string) (*Task, error) {
-	row := d.rdb.QueryRow(`
+	return findOpenTaskByDedupeOn(d.rdb, typeKey, dedupeKey)
+}
+
+func findOpenTaskByDedupeOn(q sqlRowQuerier, typeKey, dedupeKey string) (*Task, error) {
+	row := q.QueryRow(`
 		SELECT `+taskColumns+` FROM task
 		WHERE type_key = ? AND dedupe_key = ?
 		  AND status NOT IN (`+sqlTaskTerminalStatuses+`)
@@ -193,13 +197,13 @@ func (d *DAL) CountOpenTasksOfType(typeKey string) (int, error) {
 	return n, err
 }
 
-// CountTasksDuplicatingOriginal backs mark_task_duplicated's chain guard: a task
+// countTasksDuplicatingOriginalOn backs mark_task_duplicated's chain guard: a task
 // that is already an original cannot itself be marked duplicated. With the
 // "target is not itself duplicated" check (api_tasks.go) this keeps duplicate_of
 // depth-1, so the cockpit link resolves in one hop.
-func (d *DAL) CountTasksDuplicatingOriginal(originalID string) (int, error) {
+func countTasksDuplicatingOriginalOn(q sqlRowQuerier, originalID string) (int, error) {
 	var n int
-	err := d.rdb.QueryRow(
+	err := q.QueryRow(
 		`SELECT COUNT(*) FROM task WHERE duplicate_of = ?`, originalID).Scan(&n)
 	return n, err
 }
@@ -524,7 +528,11 @@ func getTaskStepOn(q sqlRowQuerier, id string) (*TaskStep, error) {
 }
 
 func (d *DAL) SetTaskStepNote(id, note string) (bool, error) {
-	res, err := d.wdb.Exec(`UPDATE task_step SET note = ? WHERE id = ?`, note, id)
+	return setTaskStepNoteOn(d.wdb, id, note)
+}
+
+func setTaskStepNoteOn(ex sqlExecer, id, note string) (bool, error) {
+	res, err := ex.Exec(`UPDATE task_step SET note = ? WHERE id = ?`, note, id)
 	if err != nil {
 		return false, err
 	}
@@ -594,7 +602,11 @@ func taskTitleOn(q sqlRowQuerier, id string) (string, bool, error) {
 // detail only when updated_ts changes (the SSE task delta carries no steps), so
 // a step-only write such as a note must bump it or stay invisible.
 func (d *DAL) TouchTaskUpdatedTS(id string, ts float64) error {
-	_, err := d.wdb.Exec(`UPDATE task SET updated_ts = ? WHERE id = ?`, ts, id)
+	return touchTaskUpdatedTSOn(d.wdb, id, ts)
+}
+
+func touchTaskUpdatedTSOn(ex sqlExecer, id string, ts float64) error {
+	_, err := ex.Exec(`UPDATE task SET updated_ts = ? WHERE id = ?`, ts, id)
 	return err
 }
 
@@ -633,12 +645,12 @@ func putTaskStepOn(ex sqlExecer, st TaskStep) error {
 	return err
 }
 
-// ReplaceTaskSteps: which rows to retain / supersede is the handler's call (it joins
-// reply_card); the DAL never reads the card table. A frozen row keeps started_ts
-// and reply_card_id so its question-and-answer history still renders.
-func (d *DAL) ReplaceTaskSteps(taskID string, retain, supersede []string,
+// replaceTaskStepsOn: which rows to retain / supersede is the handler's call (it
+// joins reply_card); this never reads the card table. A frozen row keeps
+// started_ts and reply_card_id so its question-and-answer history still renders.
+func replaceTaskStepsOn(tx *writeTx, taskID string, retain, supersede []string,
 	supersededTS float64, newSteps []TaskStep) ([]TaskStep, error) {
-	existing, err := d.ListTaskSteps(taskID)
+	existing, err := listTaskStepsOn(tx, taskID)
 	if err != nil {
 		return nil, err
 	}
@@ -651,11 +663,6 @@ func (d *DAL) ReplaceTaskSteps(taskID string, retain, supersede []string,
 		preserved[id] = true
 		superseded[id] = true
 	}
-	tx, err := d.wdb.Begin()
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback() //nolint:errcheck // no-op after Commit
 	var kept []TaskStep
 	for _, st := range existing {
 		if !StepIsTerminal(st.Status) && !preserved[st.ID] {
@@ -701,9 +708,6 @@ func (d *DAL) ReplaceTaskSteps(taskID string, retain, supersede []string,
 			return nil, err
 		}
 		out = append(out, st)
-	}
-	if err := tx.Commit(); err != nil {
-		return nil, err
 	}
 	return out, nil
 }
@@ -799,7 +803,11 @@ func (d *DAL) ListOutsourceWorkers() ([]OutsourceWorker, error) {
 }
 
 func (d *DAL) GetOutsourceWorker(id string) (*OutsourceWorker, error) {
-	row := d.rdb.QueryRow(`SELECT `+memberColumns+
+	return getOutsourceWorkerOn(d.rdb, id)
+}
+
+func getOutsourceWorkerOn(q sqlRowQuerier, id string) (*OutsourceWorker, error) {
+	row := q.QueryRow(`SELECT `+memberColumns+
 		` FROM member WHERE id = ? AND kind = 'outsource'`, id)
 	m, err := scanMember(row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -816,36 +824,42 @@ func (d *DAL) PutOutsourceWorker(w OutsourceWorker) error {
 	return d.PutMember(memberFromWorker(w))
 }
 
-func (d *DAL) ReleaseWorkersForTask(taskID string, now float64) ([]OutsourceWorker, error) {
-	rows, err := d.rdb.Query(`SELECT `+memberColumns+` FROM member
-		WHERE kind = 'outsource' AND linked_task_id = ? AND roster_status != ?
-		ORDER BY created_ts, id`, taskID, RosterStatusRemoved)
+// The releases read the rows they flip inside the transaction that flips them,
+// so a worker released by someone else in between is neither released again
+// nor reported as released here.
+func (d *DAL) ReleaseWorkersForTask(taskID string, now float64) (flipped []OutsourceWorker, err error) {
+	err = d.inTx(func(tx *writeTx) error {
+		flipped = nil
+		rows, err := tx.Query(`SELECT `+memberColumns+` FROM member
+			WHERE kind = 'outsource' AND linked_task_id = ? AND roster_status != ?
+			ORDER BY created_ts, id`, taskID, RosterStatusRemoved)
+		if err != nil {
+			return err
+		}
+		for rows.Next() {
+			m, err := scanMember(rows)
+			if err != nil {
+				rows.Close()
+				return err
+			}
+			flipped = append(flipped, workerFromMember(m))
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return err
+		}
+		rows.Close()
+		for i := range flipped {
+			flipped[i].Status = WorkerStatusReleased
+			flipped[i].ReleasedTS = now
+			if err := releaseWorkerOn(tx, flipped[i].ID, now); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 	if err != nil {
 		return nil, err
-	}
-	var flipped []OutsourceWorker
-	for rows.Next() {
-		m, err := scanMember(rows)
-		if err != nil {
-			rows.Close()
-			return nil, err
-		}
-		flipped = append(flipped, workerFromMember(m))
-	}
-	if err := rows.Err(); err != nil {
-		rows.Close()
-		return nil, err
-	}
-	rows.Close()
-	for i := range flipped {
-		flipped[i].Status = WorkerStatusReleased
-		flipped[i].ReleasedTS = now
-		if _, err := d.wdb.Exec(`
-			UPDATE member SET roster_status = ?, released_ts = ?
-			WHERE id = ? AND kind = 'outsource'`,
-			RosterStatusRemoved, now, flipped[i].ID); err != nil {
-			return nil, err
-		}
 	}
 	return flipped, nil
 }
@@ -853,23 +867,33 @@ func (d *DAL) ReleaseWorkersForTask(taskID string, now float64) ([]OutsourceWork
 // ReleaseWorkerByID releases by worker id, not task: the deferred handover
 // dismiss must fire only the predecessor, and after an outsource→outsource
 // takeover the successor is already bound to the same task_id.
-func (d *DAL) ReleaseWorkerByID(workerID string, now float64) (*OutsourceWorker, error) {
-	w, err := d.GetOutsourceWorker(workerID)
+func (d *DAL) ReleaseWorkerByID(workerID string, now float64) (released *OutsourceWorker, err error) {
+	err = d.inTx(func(tx *writeTx) error {
+		released = nil
+		w, err := getOutsourceWorkerOn(tx, workerID)
+		if err != nil || w == nil || w.Status == WorkerStatusReleased {
+			return err
+		}
+		w.Status = WorkerStatusReleased
+		w.ReleasedTS = now
+		if err := releaseWorkerOn(tx, workerID, now); err != nil {
+			return err
+		}
+		released = w
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
-	if w == nil || w.Status == WorkerStatusReleased {
-		return nil, nil
-	}
-	w.Status = WorkerStatusReleased
-	w.ReleasedTS = now
-	if _, err := d.wdb.Exec(`
+	return released, nil
+}
+
+func releaseWorkerOn(ex sqlExecer, workerID string, now float64) error {
+	_, err := ex.Exec(`
 		UPDATE member SET roster_status = ?, released_ts = ?
 		WHERE id = ? AND kind = 'outsource'`,
-		RosterStatusRemoved, now, workerID); err != nil {
-		return nil, err
-	}
-	return w, nil
+		RosterStatusRemoved, now, workerID)
+	return err
 }
 
 type TaskManual struct {

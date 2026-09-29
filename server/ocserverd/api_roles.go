@@ -178,16 +178,6 @@ func (s *apiServer) HandleCreateRoleApiRolesPost(w http.ResponseWriter, r *http.
 		memberName = PickMemberName(taken, nil)
 	}
 	roleKey := "r-" + newHexID(12)
-	if err := s.dal.PutRoleDef(RoleDef{
-		RoleKey:      roleKey,
-		Name:         name,
-		DefinitionMD: CustomRoleTemplateMD,
-		Tombstoned:   false,
-	}); err != nil {
-		internalError(w, err)
-		return
-	}
-	s.hub.Publish("role_def", "patch", "role_def", wireOwnerID+"::"+roleKey, nil, audienceOwnerOnly(), requestTrigger(r))
 	effort := strOrEmpty(body.Effort)
 	if effort == "" {
 		effort = "medium"
@@ -204,10 +194,22 @@ func (s *apiServer) HandleCreateRoleApiRolesPost(w http.ResponseWriter, r *http.
 		DesiredMachineID: ServerSelfHost,
 		RosterStatus:     RosterStatusActive,
 	}
-	if err := s.putMember(member, requestTrigger(r)); err != nil {
+	if err := s.dal.inTx(func(tx *writeTx) error {
+		if err := putRoleDefOn(tx, RoleDef{
+			RoleKey:      roleKey,
+			Name:         name,
+			DefinitionMD: CustomRoleTemplateMD,
+			Tombstoned:   false,
+		}); err != nil {
+			return err
+		}
+		return writeMemberOn(tx, member)
+	}); err != nil {
 		internalError(w, err)
 		return
 	}
+	s.hub.Publish("role_def", "patch", "role_def", wireOwnerID+"::"+roleKey, nil, audienceOwnerOnly(), requestTrigger(r))
+	s.publishMemberPatch(member, requestTrigger(r))
 	writeJSON(w, http.StatusOK, roleCreateResultDTO{
 		RoleKey:    roleKey,
 		MemberID:   member.ID,
@@ -316,88 +318,110 @@ func (s *apiServer) HandleDeleteRoleApiRolesRoleDelete(w http.ResponseWriter, r 
 			"role '"+role+"' is a built-in seed role and cannot be deleted")
 		return
 	}
-	overlay, err := s.dal.GetRoleDef(role)
-	if err != nil {
-		internalError(w, err)
-		return
-	}
-	if overlay == nil || overlay.Tombstoned {
-		writeError(w, http.StatusNotFound, "role '"+role+"' not found")
-		return
-	}
-	all, err := s.dal.ListMembers()
-	if err != nil {
-		internalError(w, err)
-		return
-	}
-	var members []Member
-	var live []string
-	for _, m := range all {
-		if m.RoleKey != role {
-			continue
-		}
-		members = append(members, m)
-		if m.RosterStatus == RosterStatusActive && s.hub.IsOnline(m.ID) {
-			live = append(live, m.ID)
-		}
-	}
-	if len(live) > 0 {
-		sort.Strings(live)
-		msg := "role '" + role + "' has online member(s): "
-		for i, id := range live {
-			if i > 0 {
-				msg += ", "
-			}
-			msg += id
-		}
-		writeError(w, http.StatusConflict, msg+" — stop them before deleting")
-		return
-	}
-	deletedMsgs, deletedAtts, deletedReads := 0, 0, 0
-	removedIDs := []string{}
-	for _, m := range members {
-		msgs, atts, err := s.dal.DeleteChatInvolving(m.ID)
+	// Presence is read before the transaction: the hub's lock is refused inside one.
+	online := s.hub.OnlineMembers()
+	// roleMembers answers the role's members, or the 404 / 409 that refuses the
+	// deletion.
+	roleMembers := func(q sqlReader) ([]Member, error) {
+		overlay, err := getRoleDefOn(q, role)
 		if err != nil {
-			internalError(w, err)
-			return
+			return nil, err
 		}
-		deletedMsgs += msgs
-		deletedAtts += atts
-		if msgs > 0 {
+		if overlay == nil || overlay.Tombstoned {
+			return nil, refuseInTx(http.StatusNotFound, "role '"+role+"' not found")
+		}
+		all, err := listMembersOn(q)
+		if err != nil {
+			return nil, err
+		}
+		var members []Member
+		var live []string
+		for _, m := range all {
+			if m.RoleKey != role {
+				continue
+			}
+			members = append(members, m)
+			if m.RosterStatus == RosterStatusActive && online[m.ID] {
+				live = append(live, m.ID)
+			}
+		}
+		if len(live) > 0 {
+			sort.Strings(live)
+			msg := "role '" + role + "' has online member(s): "
+			for i, id := range live {
+				if i > 0 {
+					msg += ", "
+				}
+				msg += id
+			}
+			return nil, refuseInTx(http.StatusConflict, msg+" — stop them before deleting")
+		}
+		return members, nil
+	}
+	if _, err := roleMembers(s.dal.rdb); err != nil {
+		writeTxError(w, err)
+		return
+	}
+	// The members are listed again inside the transaction that deletes them: one
+	// hired into the role or brought online in between is judged as it stands.
+	type removedMember struct {
+		id          string
+		msgs, reads int
+	}
+	var removed []removedMember
+	deletedMsgs, deletedAtts, deletedReads, deletedInsight := 0, 0, 0, 0
+	err := s.dal.inTx(func(tx *writeTx) error {
+		members, err := roleMembers(tx)
+		if err != nil {
+			return err
+		}
+		removed = nil
+		deletedMsgs, deletedAtts, deletedReads = 0, 0, 0
+		for _, m := range members {
+			msgs, atts, err := deleteChatInvolvingOn(tx, m.ID)
+			if err != nil {
+				return err
+			}
+			reads, err := deleteChatReadsInvolvingOn(tx, m.ID)
+			if err != nil {
+				return err
+			}
+			if _, err := hardDeleteMemberOn(tx, m.ID); err != nil {
+				return err
+			}
+			deletedMsgs += msgs
+			deletedAtts += atts
+			deletedReads += reads
+			removed = append(removed, removedMember{id: m.ID, msgs: msgs, reads: reads})
+		}
+		if deletedInsight, err = deleteInsightForRoleOn(tx, role); err != nil {
+			return err
+		}
+		_, err = deleteRoleDefOn(tx, role)
+		return err
+	})
+	if err != nil {
+		writeTxError(w, err)
+		return
+	}
+	removedIDs := []string{}
+	for _, m := range removed {
+		if m.msgs > 0 {
 			// Owner-only: agents do not act on a chat deletion (they re-list on
 			// their next fetch).
-			s.hub.Publish("chat", "patch", "chat", wireOwnerID+"::"+m.ID, nil, audienceOwnerOnly(), requestTrigger(r))
+			s.hub.Publish("chat", "patch", "chat", wireOwnerID+"::"+m.id, nil, audienceOwnerOnly(), requestTrigger(r))
 		}
-		reads, err := s.dal.DeleteChatReadsInvolving(m.ID)
-		if err != nil {
-			internalError(w, err)
-			return
+		if m.reads > 0 {
+			s.hub.Publish("chat_read", "patch", "chat_read", wireOwnerID+"::"+m.id, nil, audienceOwnerOnly(), requestTrigger(r))
 		}
-		deletedReads += reads
-		if reads > 0 {
-			s.hub.Publish("chat_read", "patch", "chat_read", wireOwnerID+"::"+m.ID, nil, audienceOwnerOnly(), requestTrigger(r))
-		}
-		s.telemetry.Delete(m.ID)
-		s.gauge.Delete(m.ID)
-		if _, err := s.dal.HardDeleteMember(m.ID); err != nil {
-			internalError(w, err)
-			return
-		}
-		s.hub.Publish("member", "remove", "member", wireOwnerID+"::"+m.ID, nil,
-			audienceMembers(m.ID), requestTrigger(r))
-		removedIDs = append(removedIDs, m.ID)
-	}
-	deletedInsight, err := s.dal.DeleteInsightForRole(role)
-	if err != nil {
-		internalError(w, err)
-		return
+		s.telemetry.Delete(m.id)
+		s.gauge.Delete(m.id)
+		s.hub.Publish("member", "remove", "member", wireOwnerID+"::"+m.id, nil,
+			audienceMembers(m.id), requestTrigger(r))
+		removedIDs = append(removedIDs, m.id)
 	}
 	if deletedInsight > 0 {
 		s.hub.Publish("insight", "patch", "insight", wireOwnerID+"::"+role, nil, audienceOwnerOnly(), requestTrigger(r))
-	}
-	if _, err := s.dal.DeleteRoleDef(role); err != nil {
-		internalError(w, err)
-		return
 	}
 	s.hub.Publish("role_def", "remove", "role_def", wireOwnerID+"::"+role, nil, audienceOwnerOnly(), requestTrigger(r))
 	writeJSON(w, http.StatusOK, roleDeleteResultDTO{

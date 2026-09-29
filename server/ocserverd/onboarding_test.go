@@ -290,17 +290,20 @@ func TestRecoverStaleOnboarding(t *testing.T) {
 
 func TestSetOnboardingDismissed(t *testing.T) {
 	api, _, _, _ := newAPITestServer(t)
+	dismiss := func(dismissed bool) error {
+		return api.dal.inTx(func(tx *writeTx) error { return setOnboardingDismissedOn(tx, dismissed) })
+	}
 	if err := api.putOnboardingReport(onboardingReportDTO{State: onboardingStateFailed}); err != nil {
 		t.Fatalf("put report: %v", err)
 	}
-	if err := api.setOnboardingDismissed(true); err != nil {
+	if err := dismiss(true); err != nil {
 		t.Fatalf("dismiss: %v", err)
 	}
 	got := api.onboardingReport()
 	if got == nil || got.DismissedAt <= 0 {
 		t.Fatalf("dismissed report = %#v", got)
 	}
-	if err := api.setOnboardingDismissed(false); err != nil {
+	if err := dismiss(false); err != nil {
 		t.Fatalf("clear dismissal: %v", err)
 	}
 	got = api.onboardingReport()
@@ -310,7 +313,7 @@ func TestSetOnboardingDismissed(t *testing.T) {
 	if err := api.putOnboardingReport(onboardingReportDTO{State: onboardingStateOK}); err != nil {
 		t.Fatalf("put success report: %v", err)
 	}
-	if err := api.setOnboardingDismissed(true); !errors.Is(err, errNoOnboardingBanner) {
+	if err := dismiss(true); !errors.Is(err, errNoOnboardingBanner) {
 		t.Fatalf("dismiss non-failed report: %v", err)
 	}
 }

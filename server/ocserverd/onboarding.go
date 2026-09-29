@@ -138,7 +138,7 @@ type onboardingRunner struct {
 }
 
 // kickFirstRunOnboarding runs in the BACKGROUND because the set-password
-// handler holds settingsMu for its whole body; an inline install plus the
+// handler holds settingsWriteMu for its whole body; an inline install plus the
 // connect wait would block the owner's first request behind that lock. The
 // cockpit reads the report from GET /api/settings.
 func (s *apiServer) kickFirstRunOnboarding() {
@@ -157,15 +157,29 @@ func (s *apiServer) kickFirstRunOnboardingWith(run onboardingRunner) {
 		onboardingLog("OC_NO_ONBOARDING=1 — skipping automatic first-run onboarding")
 		return
 	}
-	existing, err := s.dal.GetSetting(settingOnboardingReport)
-	if err != nil || existing != nil {
+	// Check and claim in one transaction, BEFORE going async: two concurrent
+	// kicks must not both find the slot free and both install.
+	running := onboardingReportDTO{State: onboardingStateRunning, StartedAt: nowSecs()}
+	claimed := false
+	if err := s.dal.inTx(func(tx *writeTx) error {
+		existing, err := getSettingOn(tx, settingOnboardingReport)
+		if err != nil || existing != nil {
+			return err
+		}
+		raw, err := json.Marshal(running)
+		if err != nil {
+			return err
+		}
+		if err := putSettingOn(tx, settingOnboardingReport, string(raw)); err != nil {
+			return err
+		}
+		claimed = true
+		return nil
+	}); err != nil {
+		onboardingLog("could not claim the onboarding slot: %v", err)
 		return
 	}
-	// Claim the slot BEFORE going async: two concurrent kicks must not both
-	// pass the check above and both install.
-	running := onboardingReportDTO{State: onboardingStateRunning, StartedAt: nowSecs()}
-	if err := s.putOnboardingReport(running); err != nil {
-		onboardingLog("could not claim the onboarding slot: %v", err)
+	if !claimed {
 		return
 	}
 	go func() {
@@ -272,8 +286,34 @@ func (s *apiServer) wakeAssistantStep(
 		online = run.wardenOnline(ServerSelfHost)
 	}
 
-	mira, err := s.dal.GetMember(seedMiraID)
-	if err != nil || mira == nil {
+	// Read and written in one transaction: the wake lands on the row as it is,
+	// not on a copy other writers may have moved past.
+	var mira *Member
+	dismissed := false
+	err := s.dal.inTx(func(tx *writeTx) error {
+		cur, err := getMemberOn(tx, seedMiraID)
+		if err != nil || cur == nil {
+			return err
+		}
+		if cur.RosterStatus != RosterStatusActive {
+			dismissed = true
+			return nil
+		}
+		cur.StoppingSince = 0.0
+		cur.WakingSince = 0.0
+		cur.DesiredState = DesiredStateOnline
+		mira = cur
+		return persistMemberRowOn(tx, *cur)
+	})
+	if err == nil && dismissed {
+		steps = append(steps, onboardingStepDTO{
+			Name:   onboardingStepWakeAssistant,
+			Code:   onboardingCodeWakeNotRecorded,
+			Reason: "the seeded assistant has been dismissed from the roster, so she was not woken",
+		})
+		return s.finishOnboarding(report, steps)
+	}
+	if err == nil && mira == nil {
 		steps = append(steps, onboardingStepDTO{
 			Name: onboardingStepWakeAssistant,
 			Code: onboardingCodeAssistantMissing,
@@ -282,18 +322,7 @@ func (s *apiServer) wakeAssistantStep(
 		})
 		return s.finishOnboarding(report, steps)
 	}
-	mira.StoppingSince = 0.0
-	mira.WakingSince = 0.0
-	mira.DesiredState = DesiredStateOnline
-	if err := s.persistMemberWindDownAnchors(*mira); err != nil {
-		steps = append(steps, onboardingStepDTO{
-			Name:   onboardingStepWakeAssistant,
-			Code:   onboardingCodeWakeNotRecorded,
-			Reason: "could not record the assistant's wind-down anchors: " + err.Error(),
-		})
-		return s.finishOnboarding(report, steps)
-	}
-	if err := s.putMember(*mira, triggerServer); err != nil {
+	if err != nil {
 		steps = append(steps, onboardingStepDTO{
 			Name:   onboardingStepWakeAssistant,
 			Code:   onboardingCodeWakeNotRecorded,
@@ -301,6 +330,7 @@ func (s *apiServer) wakeAssistantStep(
 		})
 		return s.finishOnboarding(report, steps)
 	}
+	s.publishMemberPatch(*mira, triggerServer)
 	// POSITIVE determination: did a START go out (or is she already online)?
 	// Listing failure modes (`dec.DispatchUnlanded || !online`) missed one —
 	// an unbuildable start frame makes reconcileOne downgrade to none WITHOUT
@@ -379,14 +409,16 @@ func (s *apiServer) recoverStaleOnboarding() {
 var errNoOnboardingBanner = errors.New(
 	"no onboarding banner is up to dismiss — the first-run report is absent or not in a failed state")
 
-// 🔴 ONLY a `failed` report can be dismissed (T-0648). PATCH /api/settings
-// floors at principalAdminAgent, so an admin assistant could send this while the
-// first run is still `running`; this unlocked read-modify-write interleaved with
-// finishOnboarding would write back the pre-verdict copy — the failure erased,
-// the report stranded in `running`, no banner, never re-run. The stamp rides on
-// the report row on purpose: a newly written report resets it to 0.
-func (s *apiServer) setOnboardingDismissed(dismissed bool) error {
-	report := s.onboardingReport()
+// 🔴 ONLY a `failed` report can be dismissed (T-0648), and the read and the
+// write share the caller's transaction. PATCH /api/settings floors at
+// principalAdminAgent, so an admin assistant could send this while the first
+// run is still `running`; a read-modify-write split across connections and
+// interleaved with finishOnboarding would write back the pre-verdict copy — the
+// failure erased, the report stranded in `running`, no banner, never re-run.
+// The stamp rides on the report row on purpose: a newly written report resets
+// it to 0.
+func setOnboardingDismissedOn(tx *writeTx, dismissed bool) error {
+	report := onboardingReportOn(tx)
 	if report == nil || report.State != onboardingStateFailed {
 		return errNoOnboardingBanner
 	}
@@ -394,7 +426,11 @@ func (s *apiServer) setOnboardingDismissed(dismissed bool) error {
 	if dismissed {
 		report.DismissedAt = nowSecs()
 	}
-	return s.putOnboardingReport(*report)
+	raw, err := json.Marshal(report)
+	if err != nil {
+		return err
+	}
+	return putSettingOn(tx, settingOnboardingReport, string(raw))
 }
 
 func (s *apiServer) putOnboardingReport(report onboardingReportDTO) error {
@@ -409,7 +445,11 @@ func (s *apiServer) onboardingReport() *onboardingReportDTO {
 	if s.dal == nil {
 		return nil
 	}
-	raw, err := s.dal.GetSetting(settingOnboardingReport)
+	return onboardingReportOn(s.dal.rdb)
+}
+
+func onboardingReportOn(q sqlRowQuerier) *onboardingReportDTO {
+	raw, err := getSettingOn(q, settingOnboardingReport)
 	if err != nil || raw == nil {
 		return nil
 	}

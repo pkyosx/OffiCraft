@@ -227,8 +227,8 @@ func TestDismissMember_RevokesTheStaffMembersEndpoint(t *testing.T) {
 	}
 
 	rec := httptest.NewRecorder()
-	api.HandleDismissMemberApiMembersMemberIdDelete(rec,
-		taskReq(t, "DELETE", "/api/members/"+memberID, nil, wireOwnerID, "owner"), memberID)
+	req := taskReq(t, "DELETE", "/api/members/"+memberID, nil, wireOwnerID, "owner")
+	windowWithin(t, "dismiss", func() { api.HandleDismissMemberApiMembersMemberIdDelete(rec, req, memberID) })
 	if rec.Code != 200 {
 		t.Fatalf("dismiss: want 200, got %d %s", rec.Code, rec.Body.String())
 	}
@@ -278,8 +278,8 @@ func TestMemberExitRevoke_LeavesALiveMembersEndpointAlone(t *testing.T) {
 	// And a REAL exit next to them, so a run where nothing was revoked at all
 	// cannot pass this test by doing nothing.
 	rec := httptest.NewRecorder()
-	api.HandleDismissMemberApiMembersMemberIdDelete(rec,
-		taskReq(t, "DELETE", "/api/members/"+leaver, nil, wireOwnerID, "owner"), leaver)
+	req := taskReq(t, "DELETE", "/api/members/"+leaver, nil, wireOwnerID, "owner")
+	windowWithin(t, "dismiss", func() { api.HandleDismissMemberApiMembersMemberIdDelete(rec, req, leaver) })
 	if rec.Code != 200 {
 		t.Fatalf("dismiss the leaver: %d %s", rec.Code, rec.Body.String())
 	}

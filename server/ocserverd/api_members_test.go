@@ -214,80 +214,6 @@ func TestPutMember(t *testing.T) {
 	})
 }
 
-func TestPersistMemberOpReceipt(t *testing.T) {
-	t.Run("only the five receipt columns land, and the fanned delta carries the caller's snapshot rather than the stored row", func(t *testing.T) {
-		api, _, d, _ := newAPITestServer(t)
-		before := apiTestMemberRow(t, d, "kip")
-		dashboard := apiTestListen(t, api, "")
-		self := apiTestListen(t, api, "kip")
-		bystander := apiTestListen(t, api, "mira")
-
-		ok := true
-		m := before
-		m.Name = "Kipling"
-		m.LastOp = "activate"
-		m.LastOpOK = &ok
-		m.LastOpLog = "start dispatched"
-		m.LastOpReason = "owner pressed it"
-		m.LastOpAt = 1700000000
-		if err := api.persistMemberOpReceipt(m, "owner"); err != nil {
-			t.Fatalf("persistMemberOpReceipt: %v", err)
-		}
-
-		want := before
-		want.LastOp = "activate"
-		want.LastOpOK = &ok
-		want.LastOpLog = "start dispatched"
-		want.LastOpReason = "owner pressed it"
-		want.LastOpAt = 1700000000
-		apiTestWantEqual(t, "stored row", apiTestMemberRow(t, d, "kip"), want)
-		frame := apiTestMemberFrame(1, "patch", "kip",
-			apiTestMemberPayload("kip", "Kipling", "active", ""), "owner")
-		dashboard.wantFrames(frame)
-		self.wantFrames(frame)
-		bystander.wantFrames()
-	})
-
-	t.Run("a receipt whose ok flag is nil is stored as nil rather than as false", func(t *testing.T) {
-		api, _, d, _ := newAPITestServer(t)
-		notOK := false
-		stamped := apiTestMemberRow(t, d, "kip")
-		stamped.LastOp = "deactivate"
-		stamped.LastOpOK = &notOK
-		if err := api.persistMemberOpReceipt(stamped, "owner"); err != nil {
-			t.Fatalf("persistMemberOpReceipt: %v", err)
-		}
-		if got := apiTestMemberRow(t, d, "kip"); got.LastOpOK == nil || *got.LastOpOK {
-			t.Fatalf("want a stored false, got %v", got.LastOpOK)
-		}
-
-		cleared := apiTestMemberRow(t, d, "kip")
-		cleared.LastOpOK = nil
-		if err := api.persistMemberOpReceipt(cleared, "owner"); err != nil {
-			t.Fatalf("persistMemberOpReceipt: %v", err)
-		}
-		if got := apiTestMemberRow(t, d, "kip"); got.LastOpOK != nil {
-			t.Fatalf("want a stored nil, got %v", *got.LastOpOK)
-		}
-	})
-
-	t.Run("a receipt naming a row the roster does not carry writes nobody and still fans the delta", func(t *testing.T) {
-		api, _, d, _ := newAPITestServer(t)
-		dashboard := apiTestListen(t, api, "")
-
-		if err := api.persistMemberOpReceipt(Member{ID: "nope", Name: "Nobody",
-			Kind: KindStaff, RosterStatus: RosterStatusActive, LastOp: "activate"}, "owner"); err != nil {
-			t.Fatalf("persistMemberOpReceipt: %v", err)
-		}
-
-		if row, err := d.GetMember("nope"); err != nil || row != nil {
-			t.Fatalf("want no row minted, got %v %v", row, err)
-		}
-		dashboard.wantFrames(apiTestMemberFrame(1, "patch", "nope",
-			apiTestMemberPayload("nope", "Nobody", "active", ""), "owner"))
-	})
-}
-
 func TestWindDownAnchorRowOfMember(t *testing.T) {
 	t.Run("the four pointers name the member's own anchor columns and the id is a copy", func(t *testing.T) {
 		m := Member{ID: "kip", Name: "Kip", Kind: KindStaff, RosterStatus: RosterStatusActive,
@@ -365,109 +291,6 @@ func TestWindDownAnchorRowOfWorker(t *testing.T) {
 			StoppingSince: 1, StoppedSince: 2, RefocusSince: 3, RefocusOp: refocusOpRefocus})
 		apiTestWantEqual(t, "the copy", copied, OutsourceWorker{ID: "ow-abc123",
 			StoppingSince: 1, StoppedSince: 99, RefocusSince: 0, RefocusOp: refocusOpRefocus})
-	})
-}
-
-func TestPersistWindDownAnchors(t *testing.T) {
-	t.Run("the four anchors land on the member row, nothing else moves and no delta is fanned", func(t *testing.T) {
-		api, _, d, _ := newAPITestServer(t)
-		before := apiTestMemberRow(t, d, "kip")
-		dashboard := apiTestListen(t, api, "")
-		self := apiTestListen(t, api, "kip")
-
-		m := before
-		m.Name = "Kipling"
-		m.StoppingSince = 1000
-		m.StoppedSince = 1100
-		m.RefocusSince = 900
-		m.RefocusOp = refocusOpRefocus
-		if err := api.persistWindDownAnchors(windDownAnchorRowOfMember(&m)); err != nil {
-			t.Fatalf("persistWindDownAnchors: %v", err)
-		}
-
-		want := before
-		want.StoppingSince = 1000
-		want.StoppedSince = 1100
-		want.RefocusSince = 900
-		want.RefocusOp = refocusOpRefocus
-		apiTestWantEqual(t, "stored row", apiTestMemberRow(t, d, "kip"), want)
-		dashboard.wantFrames()
-		self.wantFrames()
-	})
-
-	t.Run("zeroed anchors are written as zeroes rather than skipped", func(t *testing.T) {
-		api, _, d, _ := newAPITestServer(t)
-		open := apiTestMemberRow(t, d, "kip")
-		open.StoppingSince = 1000
-		open.RefocusSince = 900
-		open.RefocusOp = refocusOpRefocus
-		if err := api.persistWindDownAnchors(windDownAnchorRowOfMember(&open)); err != nil {
-			t.Fatalf("persistWindDownAnchors: %v", err)
-		}
-		before := apiTestMemberRow(t, d, "kip")
-
-		cleared := before
-		cleared.StoppingSince = 0
-		cleared.StoppedSince = 0
-		cleared.RefocusSince = 0
-		cleared.RefocusOp = ""
-		if err := api.persistWindDownAnchors(windDownAnchorRowOfMember(&cleared)); err != nil {
-			t.Fatalf("persistWindDownAnchors: %v", err)
-		}
-
-		want := before
-		want.StoppingSince = 0
-		want.StoppedSince = 0
-		want.RefocusSince = 0
-		want.RefocusOp = ""
-		apiTestWantEqual(t, "stored row", apiTestMemberRow(t, d, "kip"), want)
-	})
-
-	t.Run("an id the roster does not carry is a clean no-op that mints nobody", func(t *testing.T) {
-		api, _, d, _ := newAPITestServer(t)
-		dashboard := apiTestListen(t, api, "")
-
-		ghost := Member{ID: "nope", StoppingSince: 1000, RefocusOp: refocusOpRefocus}
-		if err := api.persistWindDownAnchors(windDownAnchorRowOfMember(&ghost)); err != nil {
-			t.Fatalf("persistWindDownAnchors: %v", err)
-		}
-
-		if row, err := d.GetMember("nope"); err != nil || row != nil {
-			t.Fatalf("want no row minted, got %v %v", row, err)
-		}
-		dashboard.wantFrames()
-	})
-
-	t.Run("the worker face writes the same four columns onto an outsource row", func(t *testing.T) {
-		api, h, d, owner := newAPITestServer(t)
-		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
-		before, err := d.GetOutsourceWorker("ow-abc123")
-		if err != nil || before == nil {
-			t.Fatalf("GetOutsourceWorker: %v %v", before, err)
-		}
-		dashboard := apiTestListen(t, api, "")
-
-		w := *before
-		w.Codename = "Renamed"
-		w.StoppingSince = 1000
-		w.StoppedSince = 1100
-		w.RefocusSince = 900
-		w.RefocusOp = refocusOpAcceleratedStop
-		if err := api.persistWorkerWindDownAnchors(w); err != nil {
-			t.Fatalf("persistWorkerWindDownAnchors: %v", err)
-		}
-
-		after, err := d.GetOutsourceWorker("ow-abc123")
-		if err != nil || after == nil {
-			t.Fatalf("GetOutsourceWorker: %v %v", after, err)
-		}
-		want := *before
-		want.StoppingSince = 1000
-		want.StoppedSince = 1100
-		want.RefocusSince = 900
-		want.RefocusOp = refocusOpAcceleratedStop
-		apiTestWantEqual(t, "stored worker", *after, want)
-		dashboard.wantFrames()
 	})
 }
 
@@ -1866,6 +1689,34 @@ func TestHandleUpdateMemberApiMembersMemberIdPatch(t *testing.T) {
 		}
 		apiWantError(t, data, "unauthorized", "missing credentials")
 	})
+
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": a launch-intent setter that fails takes the rename and the opened wind-down back with it", func(t *testing.T) {
+			d, _, _ := windowDAL(t, shape)
+			api, h, _, owner := newAPITestServerOn(t, d)
+			if _, err := d.wdb.Exec(`UPDATE member SET desired_state = 'online' WHERE id = 'kip'`); err != nil {
+				t.Fatalf("prepare: %v", err)
+			}
+			session, err := api.hub.Connect("kip", ServerSelfHost)
+			if err != nil {
+				t.Fatalf("hub.Connect: %v", err)
+			}
+			t.Cleanup(func() { api.hub.Disconnect(session) })
+			before := apiTestMemberRow(t, d, "kip")
+			windowRefuse(t, d, "refuse_model", "BEFORE UPDATE OF model ON member", "the model write fails")
+			dashboard := apiTestListen(t, api, "")
+
+			status, data := windowJSON(t, h, "PATCH", "/api/members/kip", owner,
+				`{"name":"Kip the Second","model":"claude-opus-5"}`)
+
+			if status != http.StatusInternalServerError {
+				t.Fatalf("want 500, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "internal_error", windowRefusal("the model write fails"))
+			apiTestWantEqual(t, "the row after the failed setter", apiTestMemberRow(t, d, "kip"), before)
+			dashboard.wantFrames()
+		})
+	}
 }
 
 func TestHandleActivateMemberApiMembersMemberIdActivatePost(t *testing.T) {
@@ -2395,11 +2246,10 @@ func TestHandleDeactivateMemberApiMembersMemberIdDeactivatePost(t *testing.T) {
 	})
 
 	t.Run("a deactivation whose row write fails rolls the close-out back, so the retry really sends the stop", func(t *testing.T) {
-		// 🔴 THE SAME TWO-STEP TRAP AS THE STOPPED-REPORT, BEHIND A DIFFERENT DOOR.
-		// An offline member is collected right here (collectMemberStop): the anchor
-		// write lands, the whole-row write fails, the owner gets a 500 — and every
-		// later collect reads a non-zero prior, calls itself already-reported and
-		// dispatches nothing. Forever.
+		// 🔴 THE SAME TRAP AS THE STOPPED-REPORT, BEHIND A DIFFERENT DOOR. An offline
+		// member is collected right here: if the close-out latch outlived a failed
+		// row write, every later collect would read a non-zero prior, call itself
+		// already-reported and dispatch nothing. Forever.
 		api, h, d, owner := newAPITestServer(t)
 		if status, data := apiJSON(t, h, "POST", "/api/members/kip/activate", owner, `{}`); status != 200 {
 			t.Fatalf("activate: %d %v", status, data)
@@ -2409,9 +2259,7 @@ func TestHandleDeactivateMemberApiMembersMemberIdDeactivatePost(t *testing.T) {
 		}
 		apiTestListen(t, api, ServerSelfHost)
 		wsWantWardenFrames(t, api, ServerSelfHost)
-		// The handler writes the row once itself and once more inside the collect;
-		// only the second is the step this guards, so the first must land.
-		apiTestFailWholeRowWriteAfter(t, d, "kip", 1)
+		apiTestFailWholeRowWrite(t, d, "kip")
 
 		status, data := apiJSON(t, h, "POST", "/api/members/kip/deactivate", owner, `{}`)
 		if status != 500 {
@@ -2427,7 +2275,7 @@ func TestHandleDeactivateMemberApiMembersMemberIdDeactivatePost(t *testing.T) {
 		apiWantValue(t, "the close-out anchor after the rollback",
 			any(rolled.StoppedSince), any(float64(0)))
 
-		apiTestRestoreWholeRowWriteAfter(t, d)
+		apiTestRestoreWholeRowWrite(t, d)
 		status, data = apiJSON(t, h, "POST", "/api/members/kip/deactivate", owner, `{}`)
 		if status != 200 {
 			t.Fatalf("want 200 once the row is writable, got %d (%v)", status, data)
@@ -3065,6 +2913,59 @@ func TestHandleDismissMemberApiMembersMemberIdDelete(t *testing.T) {
 		}
 		apiWantError(t, data, "unauthorized", "missing credentials")
 	})
+
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": a rename that landed after the handler read the row survives the dismissal", func(t *testing.T) {
+			d, hook, path := windowDAL(t, shape)
+			_, h, _, owner := newAPITestServerOn(t, d)
+			hook.execAfterRead(t, path, "FROM member WHERE id",
+				`UPDATE member SET name = 'Kip the Second' WHERE id = 'kip'`)
+
+			status, data := windowJSON(t, h, "DELETE", "/api/members/kip", owner, "")
+
+			hook.wantFiredOnce(t)
+			if status != http.StatusOK {
+				t.Fatalf("want 200, got %d (%v)", status, data)
+			}
+			got, err := d.GetMember("kip")
+			if err != nil || got == nil {
+				t.Fatalf("GetMember(kip): %#v, %v", got, err)
+			}
+			if got.Name != "Kip the Second" || got.RosterStatus != RosterStatusRemoved {
+				t.Fatalf("name=%q roster_status=%q, want \"Kip the Second\" / removed", got.Name, got.RosterStatus)
+			}
+		})
+	}
+
+	// The removal delta of a member mid-stop carries its offboard notice, which is
+	// read from the database: announced before commit, it would wait on the
+	// connection the dismissal holds.
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": dismissing a member mid-stop answers and announces the removal", func(t *testing.T) {
+			d, _, _ := windowDAL(t, shape)
+			api, h, _, owner := newAPITestServerOn(t, d)
+			if _, err := d.wdb.Exec(`UPDATE member SET desired_state = 'offline', stopping_since = 1700000000 WHERE id = 'kip'`); err != nil {
+				t.Fatalf("prepare: %v", err)
+			}
+			kip := apiTestListen(t, api, "kip")
+
+			status, data := windowJSON(t, h, "DELETE", "/api/members/kip", owner, "")
+
+			if status != http.StatusOK {
+				t.Fatalf("want 200, got %d (%v)", status, data)
+			}
+			if got := apiTestMemberRow(t, d, "kip"); got.RosterStatus != RosterStatusRemoved {
+				t.Fatalf("roster_status=%q, want removed", got.RosterStatus)
+			}
+			kip.wantFrames(map[string]any{
+				"seq": 1, "topic": "member", "op": "remove",
+				"data": map[string]any{
+					"entity": "member", "key": "owner::kip", "epoch": 1, "deleted": true, "payload": nil,
+				},
+				"ts": apiAnyNumber, "trigger": "owner",
+			})
+		})
+	}
 }
 
 func TestResolveSelf(t *testing.T) {
@@ -4372,10 +4273,10 @@ func apiTestReceiptOf(t *testing.T, d *DAL, id string) map[string]any {
 	return map[string]any{"last_op": m.LastOp, "reason": m.LastOpReason, "at": m.LastOpAt}
 }
 
-// apiTestFailWholeRowWriteAfter is apiTestFailWholeRowWrite for a handler that
+// apiTestFailWholeRowWriteAfter is apiTestFailWholeRowWrite for a request that
 // writes the row MORE THAN ONCE: the first `skip` whole-row writes land and
-// every one after them fails. Deactivating a member writes the row itself and
-// then again inside the collect, and only the second one is the two-step trap.
+// every one after them fails. Stopping an offline worker writes the row itself
+// and then again when the close-out latches.
 func apiTestFailWholeRowWriteAfter(t *testing.T, d *DAL, id string, skip int) {
 	t.Helper()
 	for _, stmt := range []string{
@@ -4391,18 +4292,6 @@ func apiTestFailWholeRowWriteAfter(t *testing.T, d *DAL, id string, skip int) {
 	} {
 		if _, err := d.wdb.Exec(stmt); err != nil {
 			t.Fatalf("install counting trigger (%s): %v", stmt, err)
-		}
-	}
-}
-
-func apiTestRestoreWholeRowWriteAfter(t *testing.T, d *DAL) {
-	t.Helper()
-	for _, stmt := range []string{
-		`DROP TRIGGER count_whole_row`, `DROP TRIGGER fail_whole_row`,
-		`DROP TABLE ocs_row_write_count`,
-	} {
-		if _, err := d.wdb.Exec(stmt); err != nil {
-			t.Fatalf("drop counting trigger (%s): %v", stmt, err)
 		}
 	}
 }
@@ -4601,4 +4490,35 @@ func TestHandleRestartSelfApiSelfRefocusPost(t *testing.T) {
 		}
 		apiWantError(t, data, "unauthorized", "missing credentials")
 	})
+
+	for _, door := range []windowMemberDoor{
+		{name: "staff", method: "POST", path: "/api/self/refocus", body: `{}`, self: true, live: true,
+			prepare: `UPDATE member SET desired_state = 'online' WHERE id = 'kip'`},
+		{name: "worker", method: "POST", path: "/api/self/refocus", body: `{}`, worker: true, self: true, live: true},
+	} {
+		for _, shape := range windowDALShapes {
+			t.Run("a "+door.name+" stopped by the owner after the handler read it, "+shape+": answers 409 and keeps the stop", func(t *testing.T) {
+				d, hook, path := windowDAL(t, shape)
+				_, h, id, token := windowMemberDoorStack(t, d, door)
+				hook.execAfterRead(t, path, "FROM member WHERE id",
+					`UPDATE member SET desired_state = 'offline', stopping_since = 1800000000,
+						refocus_since = 0, refocus_op = '' WHERE id = '`+id+`'`)
+
+				status, data := windowJSON(t, h, door.method, door.path, token, door.body)
+
+				hook.wantFiredOnce(t)
+				if status != http.StatusConflict {
+					t.Fatalf("want 409, got %d (%v)", status, data)
+				}
+				apiWantError(t, data, "conflict",
+					"restart_self requires a live session to recycle, on a member that is still wanted online")
+				m := apiTestMemberRow(t, d, id)
+				if m.DesiredState != DesiredStateOffline || m.StoppingSince != 1800000000 ||
+					m.RefocusSince != 0 || m.RefocusOp != "" {
+					t.Fatalf("desired_state=%q stopping_since=%v refocus_since=%v refocus_op=%q, want offline / 1800000000 / 0 / \"\"",
+						m.DesiredState, m.StoppingSince, m.RefocusSince, m.RefocusOp)
+				}
+			})
+		}
+	}
 }

@@ -1074,6 +1074,27 @@ func TestHandleOnboardMachineApiMachinesPost(t *testing.T) {
 		}
 		apiWantError(t, data, "unauthorized", "missing credentials")
 	})
+
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": "+"a machine whose alias fails to land is not onboarded and fans nothing", func(t *testing.T) {
+			d, _, _ := windowDAL(t, shape)
+			api, h, _, owner := newAPITestServerOn(t, d)
+			windowRefuse(t, d, "refuse_alias", "BEFORE INSERT ON machine_alias", "the alias write fails")
+			dashboard := apiTestListen(t, api, "")
+
+			status, data := windowJSON(t, h, "POST", "/api/machines", owner, `{"display_name":"Studio Mac"}`)
+
+			if status != http.StatusInternalServerError {
+				t.Fatalf("want 500, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "internal_error", windowRefusal("the alias write fails"))
+			var n int
+			if err := d.rdb.QueryRow(`SELECT COUNT(*) FROM member WHERE name = 'Studio Mac'`).Scan(&n); err != nil || n != 0 {
+				t.Fatalf("member rows named Studio Mac: %d, %v; want 0", n, err)
+			}
+			dashboard.wantFrames()
+		})
+	}
 }
 
 func TestClearResidualUninstall(t *testing.T) {
@@ -2408,6 +2429,30 @@ func TestHandleUninstallMachineApiMachinesMemberIdUninstallPost(t *testing.T) {
 		}
 		apiWantError(t, data, "unauthorized", "missing credentials")
 	})
+
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": a rename that landed after the handler read the machine survives the uninstall", func(t *testing.T) {
+			d, hook, path := windowDAL(t, shape)
+			_, h, _, owner := newAPITestServerOn(t, d)
+			machineID := apiTestOnboardMachine(t, h, owner, "Studio Mac")
+			hook.execAfterRead(t, path, "FROM member WHERE id",
+				`UPDATE member SET name = 'Back Office Mac' WHERE id = '`+machineID+`'`)
+
+			status, data := windowJSON(t, h, "POST", "/api/machines/"+machineID+"/uninstall", owner, `{}`)
+
+			hook.wantFiredOnce(t)
+			if status != http.StatusOK {
+				t.Fatalf("want 200, got %d (%v)", status, data)
+			}
+			got, err := d.GetMember(machineID)
+			if err != nil || got == nil {
+				t.Fatalf("GetMember: %#v, %v", got, err)
+			}
+			if got.Name != "Back Office Mac" || got.DesiredState != DesiredStateOffline {
+				t.Fatalf("name=%q desired_state=%q, want \"Back Office Mac\" / offline", got.Name, got.DesiredState)
+			}
+		})
+	}
 }
 
 func apiTestOnboardMachine(t *testing.T, h http.Handler, owner, displayName string) string {

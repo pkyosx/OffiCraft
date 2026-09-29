@@ -1,9 +1,11 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+)
 
 // Single-step plan edits (insert / delete / reorder), unlike the wholesale
-// ReplaceTaskSteps, keep every other row's id, status, note and bound card.
+// replaceTaskStepsOn, keep every other row's id, status, note and bound card.
 //
 // 🔴 THEY WRITE `order_idx` AND NOTHING ELSE on existing rows: `note` has
 // exactly one writer (SetTaskStepNote), and a whole-row rewrite here would be a
@@ -16,12 +18,7 @@ import "fmt"
 // `order_idx` has no unique index (migrations/00004_tasks.sql), so shifts and a
 // reorder can write one row at a time without a temporary shuffle.
 
-func (d *DAL) InsertTaskStep(taskID string, at int, st TaskStep) ([]TaskStep, error) {
-	tx, err := d.wdb.Begin()
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback() //nolint:errcheck // no-op after Commit
+func insertTaskStepOn(tx *writeTx, taskID string, at int, st TaskStep) ([]TaskStep, error) {
 	if _, err := tx.Exec(`
 		UPDATE task_step SET order_idx = order_idx + 1
 		 WHERE task_id = ? AND order_idx >= ?`, taskID, at); err != nil {
@@ -44,18 +41,10 @@ func (d *DAL) InsertTaskStep(taskID string, at int, st TaskStep) ([]TaskStep, er
 		st.StartedTS, st.FinishedTS); err != nil {
 		return nil, err
 	}
-	if err := tx.Commit(); err != nil {
-		return nil, err
-	}
-	return d.ListTaskSteps(taskID)
+	return listTaskStepsOn(tx, taskID)
 }
 
-func (d *DAL) DeleteTaskStep(taskID, stepID string) ([]TaskStep, error) {
-	tx, err := d.wdb.Begin()
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback() //nolint:errcheck // no-op after Commit
+func deleteTaskStepOn(tx *writeTx, taskID, stepID string) ([]TaskStep, error) {
 	var at int
 	if err := tx.QueryRow(
 		`SELECT order_idx FROM task_step WHERE task_id = ? AND id = ?`,
@@ -72,20 +61,12 @@ func (d *DAL) DeleteTaskStep(taskID, stepID string) ([]TaskStep, error) {
 		 WHERE task_id = ? AND order_idx > ?`, taskID, at); err != nil {
 		return nil, err
 	}
-	if err := tx.Commit(); err != nil {
-		return nil, err
-	}
-	return d.ListTaskSteps(taskID)
+	return listTaskStepsOn(tx, taskID)
 }
 
-// ReorderTaskSteps: the caller validates that orderedIDs is exactly the task's
-// step set and that no terminal row moves; the DAL only writes.
-func (d *DAL) ReorderTaskSteps(taskID string, orderedIDs []string) ([]TaskStep, error) {
-	tx, err := d.wdb.Begin()
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback() //nolint:errcheck // no-op after Commit
+// reorderTaskStepsOn: the caller validates that orderedIDs is exactly the task's
+// step set and that no terminal row moves; this only writes.
+func reorderTaskStepsOn(tx *writeTx, taskID string, orderedIDs []string) ([]TaskStep, error) {
 	for i, id := range orderedIDs {
 		res, err := tx.Exec(
 			`UPDATE task_step SET order_idx = ? WHERE task_id = ? AND id = ?`,
@@ -101,8 +82,5 @@ func (d *DAL) ReorderTaskSteps(taskID string, orderedIDs []string) ([]TaskStep, 
 			return nil, fmt.Errorf("task %s: step %s no longer exists", taskID, id)
 		}
 	}
-	if err := tx.Commit(); err != nil {
-		return nil, err
-	}
-	return d.ListTaskSteps(taskID)
+	return listTaskStepsOn(tx, taskID)
 }

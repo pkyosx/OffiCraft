@@ -439,7 +439,7 @@ type knownDivergence struct {
 var knownDivergences = []knownDivergence{
 	{
 		verb: "起來", field: "noticed",
-		why: "a live staff activation deliberately uses putMemberOwnerOnly because it " +
+		why: "a live staff activation deliberately publishes owner-only (publishMemberOwnerOnly) because it " +
 			"preserves the running session and its existing wind-down epoch; the worker " +
 			"restart persists through publishOutsourceWorker, whose unified member delta " +
 			"reaches the worker as well as the owner and therefore carries the preserved " +
@@ -1256,9 +1256,8 @@ func parityCases() []verbCase {
 				// online so the tick reaches decideDown's soft arm and spends nothing.
 				Dispatched: dispatchedNothing,
 				Cost:       costUntouched,
-				// the queue-the-起來 branch still writes the row twice — putMember at
-				// api_members.go:1613 and persistMemberOpReceipt at :1619, both of which
-				// fan through publishMemberPatch. The row is desired-offline with
+				// the queue-the-起來 branch fans the member delta twice after its
+				// transaction (HandleRefocusMember). The row is desired-offline with
 				// stopping_since in the past and no forced epoch, so each delta carries
 				// the soft 預告 of the stop ALREADY in flight. 重新聚焦 opened no epoch
 				// here (that is the 包② convergence) — it re-announced the old one.

@@ -53,6 +53,12 @@ const (
 // analogue, and the worker's desired-offline equivalent is its caller's first gate,
 // which returns before this question is asked.
 func (s *apiServer) memberHasStateToFlush(m Member) bool {
+	return memberHasStateToFlushGiven(m, s.hub.IsOnline(m.ID))
+}
+
+// memberHasStateToFlushGiven takes the session's presence from the caller, read
+// before any transaction it holds (the hub's lock is refused inside one).
+func memberHasStateToFlushGiven(m Member, online bool) bool {
 	// Not redundant with the handlers' staffOnly: that is a per-call-site choice.
 	if m.Kind != KindStaff {
 		return false
@@ -60,7 +66,7 @@ func (s *apiServer) memberHasStateToFlush(m Member) bool {
 	if !aRefocusStampWouldReachTheAgent(m) {
 		return false
 	}
-	return hasUncollectedOnlineOwnerOpState(m.RefocusSince, m.StoppedSince, s.hub.IsOnline(m.ID))
+	return hasUncollectedOnlineOwnerOpState(m.RefocusSince, m.StoppedSince, online)
 }
 
 // Server half of a CROSS-LAYER contract (root CLAUDE.md §9c): maybeRecycle in
@@ -93,7 +99,7 @@ func winddownKindFor(op string) (kind string, clocked bool) {
 
 // armRefocusEpoch mutates m and persists nothing. The epoch does NOT ride the
 // caller's putMember: T-55 moved its four columns out of the whole-row write
-// (see singleColumnOwnedFields); they land through persistMemberWindDownAnchors.
+// (see singleColumnOwnedFields); they land through setMemberWindDownAnchorsOn.
 //
 // 🔴 A NEW epoch must never inherit the previous wind-down's stopped_since:
 // decideUp's recycle arm reads stopped_since > 0 with a refocus marker present as
@@ -152,8 +158,11 @@ func (s *apiServer) memberOwnerOpHandoverArmable(m Member, op string) bool {
 	return s.memberHasStateToFlush(m) && armRefocusEpoch(&probe, op, nowSecs())
 }
 
-func (s *apiServer) armMemberOwnerOpHandover(m *Member, op string) bool {
-	if !s.memberHasStateToFlush(*m) {
+// cfg is the caller's reconcileConfigLive(), read before any transaction it
+// holds: that read takes settingsMu, which txguard refuses inside a write
+// transaction (the request answers 500).
+func (s *apiServer) armMemberOwnerOpHandover(m *Member, op string, cfg reconcileConfig, online bool) bool {
+	if !memberHasStateToFlushGiven(*m, online) {
 		return false
 	}
 	if !armRefocusEpoch(m, op, nowSecs()) {
@@ -161,7 +170,7 @@ func (s *apiServer) armMemberOwnerOpHandover(m *Member, op string) bool {
 			"further along the ladder (下線 → 加速 → 強制)", op, m.ID)
 		return false
 	}
-	if grace, clocked := recycleGraceFor(op, s.reconcileConfigLive()); clocked {
+	if grace, clocked := recycleGraceFor(op, cfg); clocked {
 		reconcileLog("recycle: %s %s — wind-down opened (collect on stopped-report or +%.0fs)",
 			op, m.ID, grace)
 	} else {
@@ -222,6 +231,11 @@ func memberRestartQueuedReceipt(op string) string {
 //
 // forced_stop_at is deliberately NOT cleared: it records that the PREVIOUS session
 // was cut off and is never cleared by a boot (migrations/00057).
+//
+// m is the tick's read. The spend is judged again on the row inside the
+// transaction that writes it, and is applied to that row: an owner verb or a
+// dismissal written since the tick read the member stands. On success *m is the
+// row as written.
 func (s *apiServer) consumeRestartAfterStop(m *Member, now float64) bool {
 	if !m.RestartAfterStop || m.RosterStatus != RosterStatusActive {
 		return false
@@ -229,28 +243,41 @@ func (s *apiServer) consumeRestartAfterStop(m *Member, now float64) bool {
 	if m.DesiredState != DesiredStateOffline || s.hub.IsOnline(m.ID) {
 		return false
 	}
-	m.RestartAfterStop = false
-	m.DesiredState = DesiredStateOnline
-	clearWindDownRow(windDownAnchorRowOfMember(m))
-	m.WakingSince = 0.0
-	stampMemberOpReceipt(m, spawnReasonHeldDown+": the stop the owner asked for has "+
-		"landed — starting this member again, which is what the 重啟 he pressed "+
-		"during the wind-down asked for", now)
-	// Anchors BEFORE the row write: putMember fans the delta the agent's wind-down
-	// hook reads, and these are the columns it reads.
-	if err := s.persistMemberWindDownAnchors(*m); err != nil {
-		reconcileLog("%s: queued restart-after-stop anchor persist failed: %v", m.ID, err)
+	var spent *Member
+	err := s.dal.inTx(func(tx *writeTx) error {
+		cur, err := getMemberOn(tx, m.ID)
+		if err != nil || cur == nil {
+			return err
+		}
+		if !cur.RestartAfterStop || cur.RosterStatus != RosterStatusActive ||
+			cur.DesiredState != DesiredStateOffline {
+			return nil
+		}
+		cur.RestartAfterStop = false
+		cur.DesiredState = DesiredStateOnline
+		clearWindDownRow(windDownAnchorRowOfMember(cur))
+		cur.WakingSince = 0.0
+		stampMemberOpReceipt(cur, spawnReasonHeldDown+": the stop the owner asked for has "+
+			"landed — starting this member again, which is what the 重啟 he pressed "+
+			"during the wind-down asked for", now)
+		if err := persistMemberRowOn(tx, *cur); err != nil {
+			return err
+		}
+		if err := persistMemberOpReceiptOn(tx, *cur); err != nil {
+			return err
+		}
+		spent = cur
+		return nil
+	})
+	if err != nil {
+		reconcileLog("%s: queued restart-after-stop persist failed, nothing landed: %v", m.ID, err)
 		return false
 	}
-	if err := s.putMember(*m, triggerServer); err != nil {
-		reconcileLog("%s: queued restart-after-stop persist failed: %v", m.ID, err)
+	if spent == nil {
 		return false
 	}
-	// Receipt after the row write (it explains a stored change). Not fatal: the
-	// member IS up, and returning false would re-arm an intent already spent.
-	if err := s.persistMemberOpReceipt(*m, triggerServer); err != nil {
-		reconcileLog("%s: restart-after-stop receipt persist failed: %v", m.ID, err)
-	}
+	*m = *spent
+	s.publishMemberPatch(*m, triggerServer)
 	reconcileLog("%s: stop converged and a 重啟 was queued behind it — desired_state "+
 		"back to online", m.ID)
 	return true
@@ -270,13 +297,36 @@ func (s *apiServer) queueWorkerRestartAfterStop(w *OutsourceWorker, op string, n
 	return true
 }
 
-// Two writers: the flag rides the whole-row write; the five last_op* columns land
-// only through SetMemberLastOp. Row first, receipt second.
-func (s *apiServer) persistWorkerRestartIntent(w OutsourceWorker) error {
-	if err := s.dal.PutOutsourceWorker(w); err != nil {
+// queueWorkerRestartAfterStopOnRow queues op behind the stop on the worker's row
+// as it is inside the transaction, not on a caller's copy: a release, a 喚醒 or
+// any other column written since the caller read the worker stands. fresh is
+// that row afterwards (nil when the worker is gone or released).
+func (s *apiServer) queueWorkerRestartAfterStopOnRow(id, op string, now float64) (fresh *OutsourceWorker, queued bool, err error) {
+	err = s.dal.inTx(func(tx *writeTx) error {
+		cur, err := getOutsourceWorkerOn(tx, id)
+		if err != nil || cur == nil || cur.Status == WorkerStatusReleased {
+			return err
+		}
+		fresh = cur
+		if !s.queueWorkerRestartAfterStop(cur, op, now) {
+			return nil
+		}
+		queued = true
+		return persistWorkerRestartIntentOn(tx, *cur)
+	})
+	if err != nil {
+		return nil, false, err
+	}
+	return fresh, queued, nil
+}
+
+// Two writers in one transaction: the flag rides the whole-row write; the five
+// last_op* columns land only through SetMemberLastOp.
+func persistWorkerRestartIntentOn(tx *writeTx, w OutsourceWorker) error {
+	if err := putMemberOn(tx, memberFromWorker(w)); err != nil {
 		return err
 	}
-	return s.dal.SetMemberLastOp(w.ID, w.LastOp, w.LastOpOK, w.LastOpLog,
+	return setMemberLastOpOn(tx, w.ID, w.LastOp, w.LastOpOK, w.LastOpLog,
 		w.LastOpReason, w.LastOpAt)
 }
 
@@ -290,6 +340,11 @@ func clearWorkerRestartIntent(w *OutsourceWorker) {
 // filters, in the tick's own loop. Same session-gone and forced_stop_at rules as
 // consumeRestartAfterStop.
 // Callers hold s.outsourceMu.
+//
+// w is the tick's list read. The spend is judged again on the row inside the
+// transaction that writes it, and is applied to that row: an owner verb, a
+// release or a landing written since the list read stands. On success *w is
+// the row as written.
 func (s *apiServer) consumeWorkerRestartAfterStop(w *OutsourceWorker, now float64) bool {
 	if !w.RestartAfterStop || w.Status == WorkerStatusReleased {
 		return false
@@ -297,28 +352,47 @@ func (s *apiServer) consumeWorkerRestartAfterStop(w *OutsourceWorker, now float6
 	if w.DesiredState != DesiredStateOffline || s.hub.IsOnline(w.ID) {
 		return false
 	}
-	w.RestartAfterStop = false
-	w.DesiredState = DesiredStateOnline
-	clearWindDownRow(windDownAnchorRowOfWorker(w))
-	w.WakingSince = 0.0
-	stampOpReceipt(&w.LastOp, &w.LastOpOK, &w.LastOpLog, &w.LastOpReason, &w.LastOpAt,
-		reconcileCmdStart, spawnReasonHeldDown+": the stop the owner asked for has "+
-			"landed — starting this worker again, which is what the 重啟 he pressed "+
-			"during the wind-down asked for", now)
-	// BEFORE the row write, as in consumeRestartAfterStop.
-	if err := s.persistWorkerWindDownAnchors(*w); err != nil {
-		outsourceLog("%s: queued restart-after-stop anchor persist failed: %v", w.ID, err)
+	spent := false
+	var cur *OutsourceWorker
+	err := s.dal.inTx(func(tx *writeTx) error {
+		var err error
+		if cur, err = getOutsourceWorkerOn(tx, w.ID); err != nil || cur == nil {
+			return err
+		}
+		if !cur.RestartAfterStop || cur.Status == WorkerStatusReleased ||
+			cur.DesiredState != DesiredStateOffline {
+			return nil
+		}
+		cur.RestartAfterStop = false
+		cur.DesiredState = DesiredStateOnline
+		clearWindDownRow(windDownAnchorRowOfWorker(cur))
+		cur.WakingSince = 0.0
+		stampOpReceipt(&cur.LastOp, &cur.LastOpOK, &cur.LastOpLog, &cur.LastOpReason, &cur.LastOpAt,
+			reconcileCmdStart, spawnReasonHeldDown+": the stop the owner asked for has "+
+				"landed — starting this worker again, which is what the 重啟 he pressed "+
+				"during the wind-down asked for", now)
+		if err := setMemberWindDownAnchorsOn(tx, cur.ID, cur.StoppingSince, cur.StoppedSince,
+			cur.RefocusSince, cur.RefocusOp); err != nil {
+			return err
+		}
+		if err := putMemberOn(tx, memberFromWorker(*cur)); err != nil {
+			return err
+		}
+		if err := setMemberLastOpOn(tx, cur.ID, cur.LastOp, cur.LastOpOK, cur.LastOpLog,
+			cur.LastOpReason, cur.LastOpAt); err != nil {
+			return err
+		}
+		spent = true
+		return nil
+	})
+	if err != nil {
+		outsourceLog("%s: queued restart-after-stop persist failed, nothing landed: %v", w.ID, err)
 		return false
 	}
-	if err := s.dal.PutOutsourceWorker(*w); err != nil {
-		outsourceLog("%s: queued restart-after-stop persist failed: %v", w.ID, err)
+	if !spent {
 		return false
 	}
-	// Not fatal, as in consumeRestartAfterStop.
-	if err := s.dal.SetMemberLastOp(w.ID, w.LastOp, w.LastOpOK, w.LastOpLog,
-		w.LastOpReason, w.LastOpAt); err != nil {
-		outsourceLog("%s: queued restart-after-stop receipt persist failed: %v", w.ID, err)
-	}
+	*w = *cur
 	s.publishOutsourceWorker(*w, triggerServer)
 	return true
 }

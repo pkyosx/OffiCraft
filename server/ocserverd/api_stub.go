@@ -3,6 +3,7 @@ package main
 import (
 	"io/fs"
 	"net/http"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -38,8 +39,17 @@ type apiServer struct {
 	keyRenewClock func() time.Time
 	// settingsMu guards the LIVE settings fields below: owner endpoints update
 	// them IN PLACE while the SSE loop and reconcile cadence read concurrently —
-	// read through the accessors, never the bare fields.
+	// read through the accessors, never the bare fields. A writer holds it only
+	// to apply values that have already committed (applySettings), never across
+	// a DB write: every request's auth gate reads these fields.
 	settingsMu txguard.RWMutex
+	// settingsWriteMu serialises every writer of the fields below for its whole
+	// body: decide, write, then apply. It is what keeps a TOTP code single-use
+	// (verify and spend under one hold), what bounds change-password's argon2id
+	// to one at a time, and what keeps two writers' applies in commit order. A
+	// writer may read the fields while holding it without settingsMu, because
+	// no field changes except under both.
+	settingsWriteMu txguard.Mutex
 	// passwordHash "" = not set: every login is denied until one is written.
 	passwordHash string
 	// passwordChangedAt is the owner-session revocation cut: owner-scope tokens
@@ -115,20 +125,19 @@ type apiServer struct {
 	codexCompactionThreshold int // the FINAL round (handover)
 	codexNoticeRound         int // the FIRST, soft notice round
 
-	handoverNoticed map[string]float64
-
-	handoverNoticedMu txguard.Mutex
+	// handoverNoticed: agent id → the boot_ts whose notice was claimed.
+	handoverNoticed sync.Map
 
 	startClearedAnchors map[string]sessionAnchorSnapshot
 	// startClearedAnchorsMu is held for the whole of clearSessionBootTS,
 	// clearSessionBootTSForStart and restoreRefusedStartAnchor. Their callers may
-	// hold outsourceMu or reconcileMu; under this lock only leaf locks are taken
-	// (gauge, handoverNoticedMu, ctxGateDiagMu) plus DAL calls.
+	// hold outsourceMu or reconcileMu; under this lock only the gauge's leaf lock
+	// is taken, plus DAL calls.
 	startClearedAnchorsMu txguard.Mutex
 
-	ctxGateDiagLast map[string]ctxGateDiagState
+	// ctxGateDiagLast: actor id → ctxGateDiagState.
+	ctxGateDiagLast sync.Map
 
-	ctxGateDiagMu            txguard.Mutex
 	monitoringRefreshSeconds int
 	// acceleratedGraceSecs is read ONLY through reconcileConfigLive().
 	acceleratedGraceSecs int
@@ -157,9 +166,11 @@ type apiServer struct {
 	// takes it, drops it, and only then enters the outsource half.
 	reconcileMu txguard.Mutex
 
-	reconcileStateMu txguard.Mutex
-	reconcileStates  map[string]reconcileState
-	reconcileCfg     reconcileConfig
+	// reconcileStates: member id → reconcileState. Each access is one Load, Store
+	// or Delete; a read-modify-write of one entry is serialised by the caller's
+	// reconcileMu (staff) or outsourceMu (workers), never by this map.
+	reconcileStates sync.Map
+	reconcileCfg    reconcileConfig
 	// noReconcile (--no-reconcile) skips the RECONCILE HALF of the cadence tick
 	// and the producer's event-driven dispatch; not a server-wide gate (see
 	// spec/lifecycle.md §4.1). Owner ruling T-941e: A SHADOW SERVER WITH THIS FLAG
@@ -267,6 +278,14 @@ func (s *apiServer) HandleProbeVersionVersionGet(w http.ResponseWriter, r *http.
 
 var _ ServerInterface = (*apiServer)(nil)
 
+// applySettings moves the in-memory snapshot after its DB write committed. The
+// caller holds settingsWriteMu.
+func (s *apiServer) applySettings(apply func()) {
+	s.settingsMu.Lock()
+	defer s.settingsMu.Unlock()
+	apply()
+}
+
 func (s *apiServer) authPasswordHash() string {
 	s.settingsMu.RLock()
 	defer s.settingsMu.RUnlock()
@@ -283,7 +302,7 @@ func (s *apiServer) authMFAOffered() bool {
 
 // 🔴 There is deliberately NO read-only accessor handing out the secret and the
 // replay floor together: a read-then-write pair lets two concurrent logins with
-// the SAME code both pass. Verify and spend live in one write-locked seam,
+// the SAME code both pass. Verify and spend live in one seam under settingsWriteMu,
 // verifyAndSpendTOTP.
 func (s *apiServer) authMFAEnrolled() bool {
 	s.settingsMu.RLock()
@@ -527,22 +546,17 @@ func (s *apiServer) claimHandoverNotice(agentID string, record map[string]any) b
 }
 
 func (s *apiServer) cachedHandoverClaim(agentID string) float64 {
-	s.handoverNoticedMu.Lock()
-	defer s.handoverNoticedMu.Unlock()
-	return s.handoverNoticed[agentID]
+	if v, ok := s.handoverNoticed.Load(agentID); ok {
+		return v.(float64)
+	}
+	return 0
 }
 
+// rememberHandoverClaim is true for exactly one of any number of concurrent
+// callers claiming the same bootTS: the Swap that replaced something else.
 func (s *apiServer) rememberHandoverClaim(agentID string, bootTS float64) bool {
-	s.handoverNoticedMu.Lock()
-	defer s.handoverNoticedMu.Unlock()
-	if s.handoverNoticed == nil {
-		s.handoverNoticed = map[string]float64{}
-	}
-	if s.handoverNoticed[agentID] == bootTS {
-		return false
-	}
-	s.handoverNoticed[agentID] = bootTS
-	return true
+	prev, loaded := s.handoverNoticed.Swap(agentID, bootTS)
+	return !loaded || prev.(float64) != bootTS
 }
 
 // handoverNoticeSettled is called FIRST, before the signal is composed: once

@@ -776,6 +776,29 @@ func TestUnpinningIsAdminOnlyToo(t *testing.T) {
 	if row.State != LoreStatePinned {
 		t.Fatalf("state = %q after a refused un-pin, want it still pinned", row.State)
 	}
+
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": an entry the owner pins after the handler read it refuses its author's retire", func(t *testing.T) {
+			d, hook, path := windowDAL(t, shape)
+			api, h, _, _ := newAPITestServerOn(t, d)
+			author := apiTestPrincipalToken(t, api, d, principalAgent, "m-lore-author")
+			e := windowLoreEntry(t, d, "m-lore-author", LoreScopeEveryone, "")
+			hook.execAfterRead(t, path, "FROM lore_entry WHERE id",
+				`UPDATE lore_entry SET state = 'pinned' WHERE id = ?`, e.ID)
+
+			status, data := windowJSON(t, h, "POST", "/api/lore/"+e.ID+"/state", author, `{"state":"retired"}`)
+
+			hook.wantFiredOnce(t)
+			if status != http.StatusForbidden {
+				t.Fatalf("want 403, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "forbidden", "置頂／取消置頂 is an admin decision — a pinned entry "+
+				"sorts ahead of every other entry in its scope and therefore survives the "+
+				"cap at the expense of everyone else's, so who pins is not the writer's "+
+				"call. Ask the owner or an admin agent.")
+			windowWantLoreEntry(t, d, e.ID, LoreStatePinned, LoreScopeEveryone, "", 100)
+		})
+	}
 }
 
 // TestRetireAndBumpAreAuthorOnly — 失效／提到最新 只作用在「呼叫者自己寫的」那一筆
@@ -839,6 +862,29 @@ func TestRetireAndBumpAreAuthorOnly(t *testing.T) {
 		map[string]any{"state": LoreStateActive}); rec.Code != http.StatusOK {
 		t.Fatalf("owner reviving somebody else's entry: want 200, got %d %s",
 			rec.Code, rec.Body.String())
+	}
+
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": an admin demoted after the handler read the entry may not bump somebody else's", func(t *testing.T) {
+			d, hook, path := windowDAL(t, shape)
+			api, h, _, _ := newAPITestServerOn(t, d)
+			admin := apiTestPrincipalToken(t, api, d, principalAdminAgent, "m-lore-admin")
+			apiTestPrincipalToken(t, api, d, principalAgent, "m-lore-author")
+			e := windowLoreEntry(t, d, "m-lore-author", LoreScopeEveryone, "")
+			hook.execAfterRead(t, path, "FROM lore_entry WHERE id",
+				`UPDATE member SET role_key = 'conf-plain-role' WHERE id = 'm-lore-admin'`)
+
+			status, data := windowJSON(t, h, "POST", "/api/lore/"+e.ID+"/bump", admin, "")
+
+			hook.wantFiredOnce(t)
+			if status != http.StatusForbidden {
+				t.Fatalf("want 403, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "forbidden", "you may only 失效, 生效 or 提到最新 an entry you WROTE — "+
+				"this one has a different author, and an entry is governed by the member "+
+				"who wrote it. An admin agent or the owner can act on any entry.")
+			windowWantLoreEntry(t, d, e.ID, LoreStateActive, LoreScopeEveryone, "", 100)
+		})
 	}
 }
 
@@ -1175,6 +1221,29 @@ func TestSetLoreEntryScope(t *testing.T) {
 		}
 		apiWantBody(t, data, scopeReceipt(e.ID, "agent", staff, "pinned", apiAnyNumber))
 	})
+
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": an author removed after the handler read the entry refuses the agent scope", func(t *testing.T) {
+			d, hook, path := windowDAL(t, shape)
+			api, h, _, _ := newAPITestServerOn(t, d)
+			admin := apiTestPrincipalToken(t, api, d, principalAdminAgent, "m-scope-admin")
+			apiTestPrincipalToken(t, api, d, principalAgent, "m-scope-author")
+			e := windowLoreEntry(t, d, "m-scope-author", LoreScopeEveryone, "")
+			hook.execAfterRead(t, path, "FROM lore_entry WHERE id",
+				`DELETE FROM member WHERE id = 'm-scope-author'`)
+
+			status, data := windowJSON(t, h, "POST", "/api/lore/"+e.ID+"/scope", admin, `{"scope_kind":"agent"}`)
+
+			hook.wantFiredOnce(t)
+			if status != http.StatusBadRequest {
+				t.Fatalf("want 400, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "validation_error", "lore entry "+e.ID+" has no author on the roster "+
+				`(author_id "m-scope-author"), so an agent scope would ride no boot document; `+
+				"choose everyone or, if it has a task type, manual")
+			windowWantLoreEntry(t, d, e.ID, LoreStateActive, LoreScopeEveryone, "", 100)
+		})
+	}
 }
 
 func TestListLoreEntriesServesEachEntrysTaskTypeAndScopeOptions(t *testing.T) {

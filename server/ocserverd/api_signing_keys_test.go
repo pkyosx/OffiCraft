@@ -264,6 +264,29 @@ func TestHandleSigningKeyRotateApiAuthSigningKeysRotatePost(t *testing.T) {
 			map[string]any{"key_id": apiAnyString, "created_ts": apiAnyNumber, "is_signing": true},
 		}})
 	})
+
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": a rotation whose active-key row fails to land keeps the ring as it was, and the retry lands", func(t *testing.T) {
+			d, _, _ := windowDAL(t, shape)
+			_, h, _, owner := newAPITestServerOn(t, d)
+			ring := windowSettingNow(t, d, "auth.jwt_keys")
+			lift := windowRefuseSetting(t, d, "auth.jwt_active_key_id")
+
+			status, data := windowJSON(t, h, "POST", "/api/auth/signing-keys/rotate", owner, "")
+
+			if status != http.StatusInternalServerError {
+				t.Fatalf("want 500, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "internal_error", windowSettingWriteFails)
+			windowWantSetting(t, d, "auth.jwt_keys", ring)
+			apiWantRing(t, h, owner, map[string]any{"key_id": "k-legacy", "created_ts": 0, "is_signing": true})
+
+			lift()
+			if status, data := windowJSON(t, h, "POST", "/api/auth/signing-keys/rotate", owner, ""); status != http.StatusOK {
+				t.Fatalf("retry: want 200, got %d (%v)", status, data)
+			}
+		})
+	}
 }
 
 func TestHandleSigningKeyRemoveApiAuthSigningKeysKeyIdRemovePost(t *testing.T) {

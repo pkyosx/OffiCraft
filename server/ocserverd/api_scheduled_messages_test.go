@@ -379,6 +379,29 @@ func TestHandleCreateScheduledMessageApiMembersMemberIdScheduledMessagesPost(t *
 		apiWantError(t, data, "unauthorized", "missing credentials")
 		apiWantScheduledList(t, h, owner, "kip")
 	})
+
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": a recipient dismissed after the handler read it answers 404 and schedules nothing", func(t *testing.T) {
+			d, hook, path := windowDAL(t, shape)
+			api, h, _, owner := newAPITestServerOn(t, d)
+			dashboard := apiTestListen(t, api, "")
+			hook.execAfterRead(t, path, "FROM member WHERE id",
+				`UPDATE member SET roster_status = 'removed' WHERE id = 'kip'`)
+
+			status, data := windowJSON(t, h, "POST", "/api/members/kip/scheduled-messages", owner,
+				`{"label":"AM","body":"standup","cadence":"daily","timezone":"Asia/Taipei","hour":9,"minute":30}`)
+
+			hook.wantFiredOnce(t)
+			if status != http.StatusNotFound {
+				t.Fatalf("want 404, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "not_found", "member 'kip' not found")
+			if n := windowCount(t, d, `SELECT COUNT(*) FROM scheduled_message`); n != 0 {
+				t.Fatalf("%d schedules stored, want none", n)
+			}
+			dashboard.wantFrames()
+		})
+	}
 }
 
 func TestHandleUpdateScheduledMessageApiMembersMemberIdScheduledMessagesScheduleIdPatch(t *testing.T) {
@@ -558,6 +581,46 @@ func TestHandleUpdateScheduledMessageApiMembersMemberIdScheduledMessagesSchedule
 		apiWantError(t, data, "unauthorized", "missing credentials")
 		apiWantScheduledList(t, h, owner, "kip", apiScheduledStandupRow(id))
 	})
+
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": a label written after the handler read the row survives an edit of the body", func(t *testing.T) {
+			d, hook, path := windowDAL(t, shape)
+			_, h, _, owner := newAPITestServerOn(t, d)
+			id := apiTestStandup(t, h, owner, "kip")
+			hook.execAfterRead(t, path, "FROM scheduled_message WHERE id",
+				`UPDATE scheduled_message SET label = 'Morning' WHERE id = '`+id+`'`)
+
+			status, data := windowJSON(t, h, "PATCH", "/api/members/kip/scheduled-messages/"+id, owner,
+				`{"body":"standup, cameras on"}`)
+
+			hook.wantFiredOnce(t)
+			if status != http.StatusOK {
+				t.Fatalf("want 200, got %d (%v)", status, data)
+			}
+			want := apiScheduledStandupRow(id)
+			want["label"] = "Morning"
+			want["body"] = "standup, cameras on"
+			apiWantScheduledList(t, h, owner, "kip", want)
+		})
+	}
+
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": "+"a re-aim whose cursor fails to land keeps the old timing", func(t *testing.T) {
+			d, _, _ := windowDAL(t, shape)
+			_, h, _, owner := newAPITestServerOn(t, d)
+			id := apiTestStandup(t, h, owner, "kip")
+			windowRefuse(t, d, "refuse_cursor", "BEFORE UPDATE OF last_fired_slot ON scheduled_message",
+				"the cursor write fails")
+
+			status, data := windowJSON(t, h, "PATCH", "/api/members/kip/scheduled-messages/"+id, owner, `{"hour":11}`)
+
+			if status != http.StatusInternalServerError {
+				t.Fatalf("want 500, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "internal_error", windowRefusal("the cursor write fails"))
+			apiWantScheduledList(t, h, owner, "kip", apiScheduledStandupRow(id))
+		})
+	}
 }
 
 func TestHandleDeleteScheduledMessageApiMembersMemberIdScheduledMessagesScheduleIdDelete(t *testing.T) {
@@ -644,6 +707,25 @@ func TestHandleDeleteScheduledMessageApiMembersMemberIdScheduledMessagesSchedule
 		apiWantError(t, data, "unauthorized", "missing credentials")
 		apiWantScheduledList(t, h, owner, "kip", apiScheduledStandupRow(id))
 	})
+
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": a schedule deleted after the handler read it answers 404", func(t *testing.T) {
+			d, hook, path := windowDAL(t, shape)
+			_, h, _, owner := newAPITestServerOn(t, d)
+			id := apiTestStandup(t, h, owner, "kip")
+			hook.execAfterRead(t, path, "FROM scheduled_message WHERE id",
+				`DELETE FROM scheduled_message WHERE id = ?`, id)
+
+			status, data := windowJSON(t, h, "DELETE", "/api/members/kip/scheduled-messages/"+id, owner, "")
+
+			hook.wantFiredOnce(t)
+			if status != http.StatusNotFound {
+				t.Fatalf("want 404, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "not_found", "scheduled message '"+id+"' not found")
+			apiWantScheduledList(t, h, owner, "kip")
+		})
+	}
 }
 
 func TestResolveCustomMonths(t *testing.T) {

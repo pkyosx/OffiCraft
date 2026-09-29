@@ -356,16 +356,34 @@ func (t *writeTx) Rollback() error {
 }
 
 // readPool is where DAL reads go. Over split pools it is the read-only pool;
-// over one connection (NewDAL) it is the write pool, so a read inside a
-// transaction runs on it and a read outside waits no longer than a write would.
+// over one connection (NewDAL) it is the write pool, so a read outside a
+// transaction waits no longer than a write would.
+//
+// Either way, a goroutine that holds the write transaction reads on it: over
+// split pools the read-only pool would answer from before the transaction's own
+// uncommitted writes, so a transaction that wrote and then read through the DAL
+// would decide on a row it had already changed — silently, and only in serve,
+// since the one-connection DAL the tests mostly use always saw the write.
 type readPool struct {
 	raw    *sql.DB
 	shared *writePool
+	// write is the split-pool DAL's write pool, asked only who holds it.
+	write *writePool
+}
+
+func (r *readPool) holding() *txHolding {
+	if r.write == nil {
+		return nil
+	}
+	return r.write.mine()
 }
 
 func (r *readPool) Query(query string, args ...any) (*sql.Rows, error) {
 	if r.shared != nil {
 		return r.shared.Query(query, args...)
+	}
+	if h := r.holding(); h != nil {
+		return h.query(query, args...)
 	}
 	return r.raw.Query(query, args...)
 }
@@ -373,6 +391,9 @@ func (r *readPool) Query(query string, args ...any) (*sql.Rows, error) {
 func (r *readPool) QueryRow(query string, args ...any) *sql.Row {
 	if r.shared != nil {
 		return r.shared.QueryRow(query, args...)
+	}
+	if h := r.holding(); h != nil {
+		return h.queryRow(query, args...)
 	}
 	return r.raw.QueryRow(query, args...)
 }

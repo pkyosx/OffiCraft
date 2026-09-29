@@ -176,29 +176,6 @@ func (s *apiServer) HandleSetLoreEntryStateApiLoreEntryIdStatePost(w http.Respon
 				LoreStateRetired+" — got "+strconv.Quote(state))
 		return
 	}
-
-	current, err := s.dal.GetLoreEntry(entryID)
-	if err != nil {
-		internalError(w, err)
-		return
-	}
-	if current == nil {
-		writeError(w, http.StatusNotFound, "no such lore entry: "+entryID)
-		return
-	}
-
-	if !principalAtLeast(s.principalOfRequest(r), principalAdminAgent) {
-		// Both directions: otherwise an author could un-pin an owner-pinned entry.
-		if state == LoreStatePinned || current.State == LoreStatePinned {
-			writeError(w, http.StatusForbidden, loreGovernanceRefusalPin)
-			return
-		}
-		if !s.callerMayGovernLore(r, *current) {
-			writeError(w, http.StatusForbidden, loreGovernanceRefusalOwn)
-			return
-		}
-	}
-
 	reason := ""
 	if body.RetireReason != nil {
 		reason = strings.TrimSpace(*body.RetireReason)
@@ -207,53 +184,76 @@ func (s *apiServer) HandleSetLoreEntryStateApiLoreEntryIdStatePost(w http.Respon
 		reason = ""
 	}
 
-	ok, err := s.dal.SetLoreEntryState(entryID, state, reason, nowSecs())
-	if err != nil {
-		internalError(w, err)
-		return
+	refusal := func(current *LoreEntry) error {
+		if current == nil {
+			return refuseInTx(http.StatusNotFound, "no such lore entry: "+entryID)
+		}
+		if principalAtLeast(s.principalOfRequest(r), principalAdminAgent) {
+			return nil
+		}
+		// Both directions: otherwise an author could un-pin an owner-pinned entry.
+		if state == LoreStatePinned || current.State == LoreStatePinned {
+			return refuseInTx(http.StatusForbidden, loreGovernanceRefusalPin)
+		}
+		if !s.callerMayGovernLore(r, *current) {
+			return refuseInTx(http.StatusForbidden, loreGovernanceRefusalOwn)
+		}
+		return nil
 	}
-	if !ok {
-		writeError(w, http.StatusNotFound, "no such lore entry: "+entryID)
-		return
-	}
-	s.writeLoreEntryByID(w, entryID)
+	s.writeLoreEntryDecided(w, entryID, refusal, func() (bool, error) {
+		return s.dal.SetLoreEntryState(entryID, state, reason, nowSecs())
+	})
 }
 
 func (s *apiServer) HandleBumpLoreEntryApiLoreEntryIdBumpPost(w http.ResponseWriter, r *http.Request, entryID string) {
+	refusal := func(current *LoreEntry) error {
+		if current == nil {
+			return refuseInTx(http.StatusNotFound, "no such lore entry: "+entryID)
+		}
+		if !s.callerMayGovernLore(r, *current) {
+			return refuseInTx(http.StatusForbidden, loreGovernanceRefusalOwn)
+		}
+		return nil
+	}
+	s.writeLoreEntryDecided(w, entryID, refusal, func() (bool, error) {
+		return s.dal.BumpLoreEntryEffective(entryID, nowSecs())
+	})
+}
+
+// writeLoreEntryDecided judges the entry on the read pool first, so a refusal
+// never waits for the write connection, then judges it again on the row the
+// transaction writes and answers the receipt read in that transaction.
+func (s *apiServer) writeLoreEntryDecided(w http.ResponseWriter, entryID string,
+	refusal func(current *LoreEntry) error, write func() (bool, error)) {
 	current, err := s.dal.GetLoreEntry(entryID)
 	if err != nil {
 		internalError(w, err)
 		return
 	}
-	if current == nil {
-		writeError(w, http.StatusNotFound, "no such lore entry: "+entryID)
+	if err := refusal(current); err != nil {
+		writeTxError(w, err)
 		return
 	}
-	if !s.callerMayGovernLore(r, *current) {
-		writeError(w, http.StatusForbidden, loreGovernanceRefusalOwn)
-		return
-	}
-
-	ok, err := s.dal.BumpLoreEntryEffective(entryID, nowSecs())
+	var e *LoreEntry
+	err = s.dal.inTx(func(*writeTx) error {
+		current, err := s.dal.GetLoreEntry(entryID)
+		if err != nil {
+			return err
+		}
+		if err := refusal(current); err != nil {
+			return err
+		}
+		if _, err := write(); err != nil {
+			return err
+		}
+		e, err = s.dal.GetLoreEntry(entryID)
+		if err == nil && e == nil {
+			err = refuseInTx(http.StatusNotFound, "no such lore entry: "+entryID)
+		}
+		return err
+	})
 	if err != nil {
-		internalError(w, err)
-		return
-	}
-	if !ok {
-		writeError(w, http.StatusNotFound, "no such lore entry: "+entryID)
-		return
-	}
-	s.writeLoreEntryByID(w, entryID)
-}
-
-func (s *apiServer) writeLoreEntryByID(w http.ResponseWriter, entryID string) {
-	e, err := s.dal.GetLoreEntry(entryID)
-	if err != nil {
-		internalError(w, err)
-		return
-	}
-	if e == nil {
-		writeError(w, http.StatusNotFound, "no such lore entry: "+entryID)
+		writeTxError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, LoreEntryStateReceiptDTO{
@@ -400,55 +400,27 @@ func (s *apiServer) HandleSetLoreEntryScopeApiLoreEntryIdScopePost(w http.Respon
 			"scope_kind must be "+loreScopeTargetList+" — got "+strconv.Quote(kind))
 		return
 	}
-	current, err := s.dal.GetLoreEntry(entryID)
-	if err != nil {
-		internalError(w, err)
+	if _, err := s.loreScopeKey(entryID, kind); err != nil {
+		writeTxError(w, err)
 		return
 	}
-	if current == nil {
-		writeError(w, http.StatusNotFound, "no such lore entry: "+entryID)
-		return
-	}
-
-	allFacts, err := s.dal.LoreScopeFacts([]string{entryID})
-	if err != nil {
-		internalError(w, err)
-		return
-	}
-	facts := allFacts[entryID]
-	key := ""
-	switch kind {
-	case LoreScopeAgent:
-		if !facts.AuthorOnRoster {
-			writeError(w, http.StatusBadRequest,
-				"lore entry "+entryID+" has no author on the roster (author_id "+
-					strconv.Quote(current.AuthorID)+"), so an agent scope would ride no "+
-					"boot document; choose everyone or, if it has a task type, manual")
-			return
+	var e *LoreEntry
+	err := s.dal.inTx(func(*writeTx) error {
+		key, err := s.loreScopeKey(entryID, kind)
+		if err != nil {
+			return err
 		}
-		key = current.AuthorID
-	case LoreScopeManual:
-		key = facts.TaskTypeKey
-		if key == "" {
-			writeError(w, http.StatusBadRequest,
-				"lore entry "+entryID+" has no task type to key a manual scope to — its "+
-					"source task carries no type, or it has no source task and its author "+
-					"is not an outsource member bound to a typed task")
-			return
+		if _, err := s.dal.SetLoreEntryScope(entryID, kind, key, nowSecs()); err != nil {
+			return err
 		}
-	}
-
-	if _, err := s.dal.SetLoreEntryScope(entryID, kind, key, nowSecs()); err != nil {
-		internalError(w, err)
-		return
-	}
-	e, err := s.dal.GetLoreEntry(entryID)
+		e, err = s.dal.GetLoreEntry(entryID)
+		if err == nil && e == nil {
+			err = refuseInTx(http.StatusNotFound, "no such lore entry: "+entryID)
+		}
+		return err
+	})
 	if err != nil {
-		internalError(w, err)
-		return
-	}
-	if e == nil {
-		writeError(w, http.StatusNotFound, "no such lore entry: "+entryID)
+		writeTxError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, LoreEntryScopeReceiptDTO{
@@ -459,6 +431,42 @@ func (s *apiServer) HandleSetLoreEntryScopeApiLoreEntryIdScopePost(w http.Respon
 		EffectiveTs: e.EffectiveTS,
 		UpdatedTs:   e.UpdatedTS,
 	})
+}
+
+// loreScopeKey is the scope_key a move to kind files the entry under, or the
+// refusal for it.
+func (s *apiServer) loreScopeKey(entryID, kind string) (string, error) {
+	current, err := s.dal.GetLoreEntry(entryID)
+	if err != nil {
+		return "", err
+	}
+	if current == nil {
+		return "", refuseInTx(http.StatusNotFound, "no such lore entry: "+entryID)
+	}
+	allFacts, err := s.dal.LoreScopeFacts([]string{entryID})
+	if err != nil {
+		return "", err
+	}
+	facts := allFacts[entryID]
+	switch kind {
+	case LoreScopeAgent:
+		if !facts.AuthorOnRoster {
+			return "", refuseInTx(http.StatusBadRequest,
+				"lore entry "+entryID+" has no author on the roster (author_id "+
+					strconv.Quote(current.AuthorID)+"), so an agent scope would ride no "+
+					"boot document; choose everyone or, if it has a task type, manual")
+		}
+		return current.AuthorID, nil
+	case LoreScopeManual:
+		if facts.TaskTypeKey == "" {
+			return "", refuseInTx(http.StatusBadRequest,
+				"lore entry "+entryID+" has no task type to key a manual scope to — its "+
+					"source task carries no type, or it has no source task and its author "+
+					"is not an outsource member bound to a typed task")
+		}
+		return facts.TaskTypeKey, nil
+	}
+	return "", nil
 }
 
 func loreFilterValues(plural *[]string, single *string) (vals []string, fromPlural bool) {

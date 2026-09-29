@@ -131,17 +131,14 @@ func (s *apiServer) stampReceiptMissing(targetID string, p pendingReceipt, now f
 		return
 	}
 	if m != nil && m.Kind != KindOutsource {
-		if m.RosterStatus != RosterStatusActive {
-			return
-		}
-		stampOpReceipt(&m.LastOp, &m.LastOpOK, &m.LastOpLog, &m.LastOpReason,
-			&m.LastOpAt, p.RPC, reason, now)
-		reconcileLog("%s: %s", targetID, reason)
-		// Receipt columns only: a whole-row write would carry a stale snapshot of every
-		// other column.
-		if err := s.persistMemberOpReceipt(*m, triggerServer); err != nil {
-			reconcileLog("%s: receipt-missing stamp persist failed: %v", targetID, err)
-		}
+		// Receipt columns only, stamped on the row as it is inside the transaction:
+		// the delta that follows carries that row, not this earlier read.
+		s.stampMemberReceiptOnRow(targetID, "receipt-missing stamp", func(fresh *Member) bool {
+			stampOpReceipt(&fresh.LastOp, &fresh.LastOpOK, &fresh.LastOpLog, &fresh.LastOpReason,
+				&fresh.LastOpAt, p.RPC, reason, now)
+			reconcileLog("%s: %s", targetID, reason)
+			return true
+		})
 		return
 	}
 	w, err := s.dal.GetOutsourceWorker(targetID)

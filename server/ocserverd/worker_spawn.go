@@ -24,6 +24,7 @@ package main
 // stop (a no-op on an absent session). Durable truth is the worker row.
 
 import (
+	"net/http"
 	"strings"
 )
 
@@ -246,25 +247,31 @@ func wakeTimeoutOverWardenReceipt(fresh OutsourceWorker, reason string) string {
 // Best-effort: a persist failure never changes the dispatch decision.
 func (s *apiServer) stampWorkerPlacementBlocked(w *OutsourceWorker, reason string, now float64) {
 	outsourceLog("spawn %s (%s): %s", w.ID, w.Codename, reason)
-	fresh, err := s.dal.GetOutsourceWorker(w.ID)
-	if err != nil || fresh == nil || fresh.Status == WorkerStatusReleased {
-		return
-	}
-	reason = wakeTimeoutOverWardenReceipt(*fresh, reason)
-	if stopgapRetryStampYields(fresh.LastOpReason, reason) {
-		return
-	}
-	if fresh.LastOp == reconcileCmdStart && fresh.LastOpReason == reason {
-		return
-	}
-	stampOpReceipt(&fresh.LastOp, &fresh.LastOpOK, &fresh.LastOpLog, &fresh.LastOpReason,
-		&fresh.LastOpAt, reconcileCmdStart, reason, now)
-	if err := s.dal.SetMemberLastOp(fresh.ID, fresh.LastOp, fresh.LastOpOK, fresh.LastOpLog,
-		fresh.LastOpReason, fresh.LastOpAt); err != nil {
+	var stamped *OutsourceWorker
+	if err := s.dal.inTx(func(tx *writeTx) error {
+		fresh, err := getOutsourceWorkerOn(tx, w.ID)
+		if err != nil || fresh == nil || fresh.Status == WorkerStatusReleased {
+			return err
+		}
+		reason := wakeTimeoutOverWardenReceipt(*fresh, reason)
+		if stopgapRetryStampYields(fresh.LastOpReason, reason) {
+			return nil
+		}
+		if fresh.LastOp == reconcileCmdStart && fresh.LastOpReason == reason {
+			return nil
+		}
+		stampOpReceipt(&fresh.LastOp, &fresh.LastOpOK, &fresh.LastOpLog, &fresh.LastOpReason,
+			&fresh.LastOpAt, reconcileCmdStart, reason, now)
+		stamped = fresh
+		return setMemberLastOpOn(tx, fresh.ID, fresh.LastOp, fresh.LastOpOK, fresh.LastOpLog,
+			fresh.LastOpReason, fresh.LastOpAt)
+	}); err != nil {
 		outsourceLog("spawn %s: placement-blocked stamp persist failed: %v", w.ID, err)
 		return
 	}
-	s.publishOutsourceWorker(*fresh, triggerServer)
+	if stamped != nil {
+		s.publishOutsourceWorker(*stamped, triggerServer)
+	}
 }
 
 // clearWorkerPlacementBlock drops a spawn-blocked stamp once a start is
@@ -272,21 +279,23 @@ func (s *apiServer) stampWorkerPlacementBlocked(w *OutsourceWorker, reason strin
 // swallowed by the anti-churn guard. A warden's own receipt is never touched: a
 // dispatch is an attempt, not an outcome.
 func (s *apiServer) clearWorkerPlacementBlock(workerID string) {
-	fresh, err := s.dal.GetOutsourceWorker(workerID)
-	if err != nil || fresh == nil || fresh.LastOp != reconcileCmdStart {
-		return
-	}
-	if !isSpawnBlockedReason(fresh.LastOpReason) {
-		return
-	}
-	fresh.LastOpReason = ""
-	fresh.LastOpLog = ""
-	// nil, not false: a leftover false renders as a FAILED start with nothing to explain it.
-	fresh.LastOpOK = nil
-	// last_op and last_op_at are written back unchanged on purpose: last_op_at is
-	// what tells "stalled an hour ago" from "stalled now". Do not zero them.
-	if err := s.dal.SetMemberLastOp(fresh.ID, fresh.LastOp, fresh.LastOpOK, fresh.LastOpLog,
-		fresh.LastOpReason, fresh.LastOpAt); err != nil {
+	if err := s.dal.inTx(func(tx *writeTx) error {
+		fresh, err := getOutsourceWorkerOn(tx, workerID)
+		if err != nil || fresh == nil || fresh.LastOp != reconcileCmdStart {
+			return err
+		}
+		if !isSpawnBlockedReason(fresh.LastOpReason) {
+			return nil
+		}
+		fresh.LastOpReason = ""
+		fresh.LastOpLog = ""
+		// nil, not false: a leftover false renders as a FAILED start with nothing to explain it.
+		fresh.LastOpOK = nil
+		// last_op and last_op_at are written back unchanged on purpose: last_op_at is
+		// what tells "stalled an hour ago" from "stalled now". Do not zero them.
+		return setMemberLastOpOn(tx, fresh.ID, fresh.LastOp, fresh.LastOpOK, fresh.LastOpLog,
+			fresh.LastOpReason, fresh.LastOpAt)
+	}); err != nil {
 		outsourceLog("spawn %s: placement-block clear failed: %v", workerID, err)
 	}
 }
@@ -300,24 +309,30 @@ func (s *apiServer) clearWorkerConvergedFailureReceipt(workerID string, snapshot
 	if !receiptRendersAsFailure(snapshot.LastOp, snapshot.LastOpAt, snapshot.LastOpOK) {
 		return
 	}
-	fresh, err := s.dal.GetOutsourceWorker(workerID)
-	if err != nil || fresh == nil {
-		return
-	}
-	if !receiptRendersAsFailure(fresh.LastOp, fresh.LastOpAt, fresh.LastOpOK) {
-		return
-	}
-	fresh.LastOp = ""
-	fresh.LastOpOK = nil
-	fresh.LastOpLog = ""
-	fresh.LastOpReason = ""
-	fresh.LastOpAt = 0.0
-	if err := s.dal.SetMemberLastOp(fresh.ID, fresh.LastOp, fresh.LastOpOK, fresh.LastOpLog,
-		fresh.LastOpReason, fresh.LastOpAt); err != nil {
+	var cleared *OutsourceWorker
+	if err := s.dal.inTx(func(tx *writeTx) error {
+		fresh, err := getOutsourceWorkerOn(tx, workerID)
+		if err != nil || fresh == nil {
+			return err
+		}
+		if !receiptRendersAsFailure(fresh.LastOp, fresh.LastOpAt, fresh.LastOpOK) {
+			return nil
+		}
+		fresh.LastOp = ""
+		fresh.LastOpOK = nil
+		fresh.LastOpLog = ""
+		fresh.LastOpReason = ""
+		fresh.LastOpAt = 0.0
+		cleared = fresh
+		return setMemberLastOpOn(tx, fresh.ID, fresh.LastOp, fresh.LastOpOK, fresh.LastOpLog,
+			fresh.LastOpReason, fresh.LastOpAt)
+	}); err != nil {
 		outsourceLog("%s: converged receipt clear failed: %v", workerID, err)
 		return
 	}
-	s.publishOutsourceWorker(*fresh, triggerServer)
+	if cleared != nil {
+		s.publishOutsourceWorker(*cleared, triggerServer)
+	}
 }
 
 func workerMachineKey(workerID, machineID string) string {
@@ -840,12 +855,16 @@ func (s *apiServer) respawnWorkerForOwnerOp(w OutsourceWorker, op string) ownerO
 		// 換 model reaches here only while the session is up — a converged stop
 		// queues through its own branch in api_outsource.go; both are needed.
 		now := nowSecs()
-		if s.queueWorkerRestartAfterStop(&w, op, now) {
-			if err := s.persistWorkerRestartIntent(w); err != nil {
-				outsourceLog("spawn %s: queued restart-after-stop persist failed: %v",
-					w.ID, err)
-			}
-			s.publishOutsourceWorker(w, triggerServer)
+		fresh, queued, err := s.queueWorkerRestartAfterStopOnRow(w.ID, op, now)
+		if err != nil {
+			outsourceLog("spawn %s: queued restart-after-stop persist failed: %v", w.ID, err)
+			return ownerOpOutcome{HeldDown: true}
+		}
+		if queued {
+			s.publishOutsourceWorker(*fresh, triggerServer)
+			return ownerOpOutcome{HeldDown: true}
+		}
+		if fresh == nil || fresh.DesiredState != DesiredStateOffline {
 			return ownerOpOutcome{HeldDown: true}
 		}
 		s.stampWorkerPlacementBlocked(&w, spawnReasonHeldDown+": the "+op+" was saved, "+
@@ -906,31 +925,51 @@ func (s *apiServer) workerHasStateToFlush(w OutsourceWorker) bool {
 // there is no 120 s ceiling. A persist fault falls back to the immediate path.
 // Returns false when the ladder refuses; not a failure — the change is already on
 // the row. Callers hold s.outsourceMu.
+//
+// The epoch is decided on the row as it is inside the transaction, not on the
+// caller's copy, and only the four anchor columns are written: a stop or
+// release that landed after the caller read the row stands, and no other
+// column goes back to the caller's copy. The copy still carries the rest of w
+// onward — a runtime/model change reaches here before its new values are
+// stored, and a start that follows must use them.
 func (s *apiServer) openOwnerOpHandover(w OutsourceWorker, op string) bool {
-	proj := memberFromWorker(w)
-	if !armRefocusEpoch(&proj, op, nowSecs()) {
-		outsourceLog("%s %s (%s): wind-down NOT re-opened — this worker is already "+
-			"further along the ladder (下線 → 加速 → 強制) at %s; the change is saved "+
-			"and the open wind-down keeps its own deadline",
-			op, w.ID, w.Codename, w.RefocusOp)
+	armed := false
+	var fresh OutsourceWorker
+	var proj Member
+	err := s.dal.inTx(func(tx *writeTx) error {
+		cur, err := getOutsourceWorkerOn(tx, w.ID)
+		if err != nil || cur == nil {
+			return err
+		}
+		fresh = *cur
+		if cur.Status == WorkerStatusReleased || cur.DesiredState == DesiredStateOffline {
+			return nil
+		}
+		proj = memberFromWorker(*cur)
+		if !armRefocusEpoch(&proj, op, nowSecs()) {
+			return nil
+		}
+		armed = true
+		return setMemberWindDownAnchorsOn(tx, cur.ID, proj.StoppingSince, proj.StoppedSince,
+			proj.RefocusSince, proj.RefocusOp)
+	})
+	if err != nil {
+		outsourceLog("%s %s (%s): refocus stamp failed (%v) — falling back to an "+
+			"immediate handover so the owner's action is not lost", op, w.ID, w.Codename, err)
+		s.handOverWorkerNow(w, op)
+		return true
+	}
+	if !armed {
+		outsourceLog("%s %s (%s): wind-down NOT re-opened — this worker is stopped, "+
+			"released, or already further along the ladder (下線 → 加速 → 強制) at %q; "+
+			"the change is saved and what is open keeps its own deadline",
+			op, w.ID, w.Codename, fresh.RefocusOp)
 		return false
 	}
 	w.RefocusSince = proj.RefocusSince
 	w.RefocusOp = proj.RefocusOp
 	w.StoppingSince = proj.StoppingSince
 	w.StoppedSince = proj.StoppedSince
-	if err := s.persistWorkerWindDownAnchors(w); err != nil {
-		outsourceLog("%s %s (%s): refocus ANCHOR write failed (%v) — falling back to an "+
-			"immediate handover so the owner's action is not lost", op, w.ID, w.Codename, err)
-		s.handOverWorkerNow(w, op)
-		return true
-	}
-	if err := s.dal.PutOutsourceWorker(w); err != nil {
-		outsourceLog("%s %s (%s): refocus stamp failed (%v) — falling back to an "+
-			"immediate handover so the owner's action is not lost", op, w.ID, w.Codename, err)
-		s.handOverWorkerNow(w, op)
-		return true
-	}
 	s.openWorkerHandoverGrace(w, triggerServer)
 	if grace, clocked := recycleGraceFor(op, s.reconcileConfigLive()); clocked {
 		outsourceLog("%s %s (%s): wind-down opened — collect on stopped-report or +%.0fs",
@@ -940,6 +979,16 @@ func (s *apiServer) openOwnerOpHandover(w OutsourceWorker, op string) bool {
 			"(this op runs no clock)", op, w.ID, w.Codename)
 	}
 	return true
+}
+
+// persistWorkerRowOn is persistMemberRowOn for a worker row (PutOutsourceWorker's
+// write: no ValidateMember).
+func persistWorkerRowOn(tx *writeTx, w OutsourceWorker) error {
+	if err := setMemberWindDownAnchorsOn(tx, w.ID, w.StoppingSince, w.StoppedSince,
+		w.RefocusSince, w.RefocusOp); err != nil {
+		return err
+	}
+	return putMemberOn(tx, memberFromWorker(w))
 }
 
 // Callers hold s.outsourceMu.
@@ -1144,29 +1193,38 @@ func (s *apiServer) stopCollectedWorkerForHandover(w *OutsourceWorker, prior flo
 	return true, nil
 }
 
-// latchWorkerStopped: if the second write fails, the durable anchor is rolled
-// back — otherwise the retry reads a non-zero prior as already_reported and the
-// kill is never sent. Callers hold s.outsourceMu.
+// latchWorkerStopped writes stopped_since — the one column the collect
+// changed — and nothing else from the caller's copy, which is usually the
+// tick's list read: every other column, the other three anchors included, stays
+// as the row has it. On failure the in-memory latch is put back to prior.
+// Callers hold s.outsourceMu.
 func (s *apiServer) latchWorkerStopped(w *OutsourceWorker, prior float64, reason, trigger string) error {
-	if err := s.persistWorkerWindDownAnchors(*w); err != nil {
-		outsourceLog("collect %s (%s): stopped-latch ANCHOR write failed: %v", w.ID, reason, err)
+	var fresh *OutsourceWorker
+	if err := s.dal.inTx(func(tx *writeTx) error {
+		if err := setMemberStoppedSinceOn(tx, w.ID, w.StoppedSince); err != nil {
+			return err
+		}
+		var err error
+		if fresh, err = getOutsourceWorkerOn(tx, w.ID); err == nil && fresh == nil {
+			err = errNotFound
+		}
+		return err
+	}); err != nil {
+		outsourceLog("collect %s (%s): stopped latch failed, nothing landed — the retry "+
+			"is a first report again: %v", w.ID, reason, err)
+		w.StoppedSince = prior
 		return err
 	}
-	if err := s.putMember(memberFromWorker(*w), trigger); err != nil {
-		outsourceLog("collect %s (%s): stopped latch failed, rolling the latch back "+
-			"so the retry is a first report again: %v", w.ID, reason, err)
-		s.restoreWorkerStoppedLatch(w, prior, reason)
-		return err
-	}
+	s.publishMemberPatch(memberFromWorker(*fresh), trigger)
 	return nil
 }
 
-// restoreWorkerStoppedLatch writes the anchor column only: the stopped-report
-// path drops outsourceMu across the kill, so a whole-row write would revert
+// restoreWorkerStoppedLatch writes the latch column only: the stopped-report
+// path drops outsourceMu across the kill, so any wider write would revert
 // concurrent changes. Callers hold s.outsourceMu.
 func (s *apiServer) restoreWorkerStoppedLatch(w *OutsourceWorker, prior float64, reason string) {
 	w.StoppedSince = prior
-	if err := s.persistWorkerWindDownAnchors(*w); err != nil {
+	if err := setMemberStoppedSinceOn(s.dal.wdb, w.ID, prior); err != nil {
 		outsourceLog("collect %s (%s): latch-rollback ANCHOR write failed: %v",
 			w.ID, reason, err)
 	}
@@ -1188,7 +1246,11 @@ func (s *apiServer) collectWorkerStop(w OutsourceWorker, reason, trigger string)
 
 // Callers hold s.outsourceMu.
 func (s *apiServer) resolveLiveWorker(id string) (*OutsourceWorker, error) {
-	w, err := s.dal.GetOutsourceWorker(id)
+	return resolveLiveWorkerOn(s.dal.rdb, id)
+}
+
+func resolveLiveWorkerOn(q sqlRowQuerier, id string) (*OutsourceWorker, error) {
+	w, err := getOutsourceWorkerOn(q, id)
 	if err != nil {
 		return nil, err
 	}
@@ -1201,28 +1263,37 @@ func (s *apiServer) resolveLiveWorker(id string) (*OutsourceWorker, error) {
 // workerReportWaking: waking_since is deliberately NOT stamped here (it is
 // stamped at dispatch, the staff rule). This is the only assigned → active write
 // point; Status is a projection of activated_ts, so putMember persists the flip.
-func (s *apiServer) workerReportWaking(id string, model *string, trigger string) (*Member, error) {
+// stampFloor, when set, raises the caller's credential floor in the same
+// transaction: the floor lands with the wake or not at all
+// (HandleReportWakingApiSelfWakingPost).
+func (s *apiServer) workerReportWaking(id string, model *string, trigger string, stampFloor func(sqlExecer) error) (*Member, error) {
 	s.outsourceMu.Lock()
 	defer s.outsourceMu.Unlock()
-	w, err := s.resolveLiveWorker(id)
+	var m Member
+	err := s.dal.inTx(func(tx *writeTx) error {
+		if stampFloor != nil {
+			if err := stampFloor(tx); err != nil {
+				return err
+			}
+		}
+		w, err := resolveLiveWorkerOn(tx, id)
+		if err != nil {
+			return err
+		}
+		if w.Status == WorkerStatusAssigned {
+			w.Status = WorkerStatusActive
+		}
+		clearWindDownRow(windDownAnchorRowOfWorker(w))
+		m = memberFromWorker(*w)
+		if model != nil {
+			m.ActualModel = *model
+		}
+		return persistMemberRowOn(tx, m)
+	})
 	if err != nil {
 		return nil, err
 	}
-	claimed := w.Status == WorkerStatusAssigned
-	if claimed {
-		w.Status = WorkerStatusActive
-	}
-	clearWindDownRow(windDownAnchorRowOfWorker(w))
-	m := memberFromWorker(*w)
-	if model != nil {
-		m.ActualModel = *model
-	}
-	if err := s.persistMemberWindDownAnchors(m); err != nil {
-		return nil, err
-	}
-	if err := s.putMember(m, trigger); err != nil {
-		return nil, err
-	}
+	s.publishMemberPatch(m, trigger)
 	return &m, nil
 }
 
@@ -1231,40 +1302,53 @@ func (s *apiServer) workerReportWaking(id string, model *string, trigger string)
 func (s *apiServer) workerReportStopping(id, trigger string) (*Member, error) {
 	s.outsourceMu.Lock()
 	defer s.outsourceMu.Unlock()
-	w, err := s.resolveLiveWorker(id)
+	var m Member
+	err := s.dal.inTx(func(tx *writeTx) error {
+		w, err := resolveLiveWorkerOn(tx, id)
+		if err != nil {
+			return err
+		}
+		openWindDownRow(windDownAnchorRowOfWorker(w), nowSecs())
+		m = memberFromWorker(*w)
+		return persistMemberRowOn(tx, m)
+	})
 	if err != nil {
 		return nil, err
 	}
-	openWindDownRow(windDownAnchorRowOfWorker(w), nowSecs())
-	m := memberFromWorker(*w)
-	if err := s.persistMemberWindDownAnchors(m); err != nil {
-		return nil, err
-	}
-	if err := s.putMember(m, trigger); err != nil {
-		return nil, err
-	}
+	s.publishMemberPatch(m, trigger)
 	return &m, nil
 }
 
 func (s *apiServer) workerReportStopped(id, trigger string) (*Member, string, error) {
 	unlockMu := s.outsourceMu.Acquire()
 	defer unlockMu()
-	w, err := s.resolveLiveWorker(id)
+	now := nowSecs()
+	var w *OutsourceWorker
+	collect, stopEffect, prior := false, "", 0.0
+	err := s.dal.inTx(func(tx *writeTx) error {
+		var err error
+		if w, err = resolveLiveWorkerOn(tx, id); err != nil {
+			return err
+		}
+		collect, stopEffect, prior = decideStoppedReport(windDownAnchorRowOfWorker(w), now)
+		if !collect {
+			return nil
+		}
+		// The latch lands with the row or not at all: a latch left behind a failed
+		// write would make every retry read "already reported" and send no kill.
+		return persistMemberRowOn(tx, memberFromWorker(*w))
+	})
 	if err != nil {
 		unlockMu()
+		outsourceLog("collect %s (stopped-report): stopped latch failed, nothing landed: %v", id, err)
 		return nil, "", err
 	}
-	now := nowSecs()
-	collect, stopEffect, prior := decideStoppedReport(windDownAnchorRowOfWorker(w), now)
 	if !collect {
 		unlockMu()
 		m := memberFromWorker(*w)
 		return &m, stopEffect, nil
 	}
-	if err := s.latchWorkerStopped(w, prior, "stopped-report", trigger); err != nil {
-		unlockMu()
-		return nil, "", err
-	}
+	s.publishMemberPatch(memberFromWorker(*w), trigger)
 	s.bankLiveCost(w.ID)
 	row := *w
 	unlockMu()
@@ -1360,22 +1444,26 @@ func (s *apiServer) noteWorkerShutdownDispatched(
 func (s *apiServer) workerRestartSelf(id string, now float64, trigger string) (*Member, error) {
 	s.outsourceMu.Lock()
 	defer s.outsourceMu.Unlock()
-	w, err := s.resolveLiveWorker(id)
+	var w *OutsourceWorker
+	err := s.dal.inTx(func(tx *writeTx) error {
+		var err error
+		if w, err = resolveLiveWorkerOn(tx, id); err != nil {
+			return err
+		}
+		proj := memberFromWorker(*w)
+		if !aRefocusStampWouldReachTheAgent(proj) {
+			return refuseInTx(http.StatusConflict, restartSelfNeedsALiveSessionMsg)
+		}
+		if !armRefocusEpoch(&proj, refocusOpRestartSelf, now) {
+			return errWindDownLadderBackwards
+		}
+		w.RefocusSince = proj.RefocusSince
+		w.RefocusOp = proj.RefocusOp
+		w.StoppingSince = proj.StoppingSince
+		w.StoppedSince = proj.StoppedSince
+		return persistWorkerRowOn(tx, *w)
+	})
 	if err != nil {
-		return nil, err
-	}
-	proj := memberFromWorker(*w)
-	if !armRefocusEpoch(&proj, refocusOpRestartSelf, now) {
-		return nil, errWindDownLadderBackwards
-	}
-	w.RefocusSince = proj.RefocusSince
-	w.RefocusOp = proj.RefocusOp
-	w.StoppingSince = proj.StoppingSince
-	w.StoppedSince = proj.StoppedSince
-	if err := s.persistWorkerWindDownAnchors(*w); err != nil {
-		return nil, err
-	}
-	if err := s.dal.PutOutsourceWorker(*w); err != nil {
 		return nil, err
 	}
 	s.openWorkerHandoverGrace(*w, trigger)

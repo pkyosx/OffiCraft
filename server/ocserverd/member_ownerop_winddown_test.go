@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"net/http"
+	"testing"
+)
 
 func TestMemberHasStateToFlush(t *testing.T) {
 	cases := []struct {
@@ -229,7 +232,7 @@ func TestArmMemberOwnerOpHandover(t *testing.T) {
 			}
 			before := m
 			lower := nowSecs()
-			got := api.armMemberOwnerOpHandover(&m, tc.op)
+			got := api.armMemberOwnerOpHandover(&m, tc.op, api.reconcileConfigLive(), api.hub.IsOnline(m.ID))
 			upper := nowSecs()
 			if got != tc.want {
 				t.Fatalf("armMemberOwnerOpHandover() = %t, want %t", got, tc.want)
@@ -331,8 +334,9 @@ func TestConsumeRestartAfterStop(t *testing.T) {
 		if err := d.PutMember(m); err != nil {
 			t.Fatalf("PutMember: %v", err)
 		}
-		if err := api.persistMemberWindDownAnchors(m); err != nil {
-			t.Fatalf("persistMemberWindDownAnchors: %v", err)
+		if err := d.SetMemberWindDownAnchors(m.ID, m.StoppingSince, m.StoppedSince,
+			m.RefocusSince, m.RefocusOp); err != nil {
+			t.Fatalf("SetMemberWindDownAnchors: %v", err)
 		}
 		dashboard := apiTestListen(t, api, "")
 		if got := api.consumeRestartAfterStop(&m, 1234.5); !got {
@@ -352,9 +356,7 @@ func TestConsumeRestartAfterStop(t *testing.T) {
 		want.LastOpAt = 1234.5
 		apiTestWantEqual(t, "member in memory", m, want)
 		apiTestWantEqual(t, "member in database", apiTestMemberRow(t, d, m.ID), want)
-		frame := apiTestMemberFrame(1, "patch", m.ID,
-			apiTestMemberPayload(m.ID, "Kip", "active", "online"), "server")
-		dashboard.wantFrames(frame, apiTestMemberFrame(2, "patch", m.ID,
+		dashboard.wantFrames(apiTestMemberFrame(1, "patch", m.ID,
 			apiTestMemberPayload(m.ID, "Kip", "active", "online"), "server"))
 	})
 
@@ -455,42 +457,80 @@ func TestQueueWorkerRestartAfterStop(t *testing.T) {
 	}
 }
 
-func TestPersistWorkerRestartIntent(t *testing.T) {
-	api, h, d, owner, w := wsWorkerSpawnFixture(t, WorkerStatusActive)
-	before := w
-	w.RestartAfterStop = true
-	w.LastOp = "start"
-	ok := false
-	w.LastOpOK = &ok
-	w.LastOpLog = ""
-	w.LastOpReason = "held_down: the relocate was saved and this member is still being stopped — the stop in flight is honoured as-is, and it will be started again once it is down"
-	w.LastOpAt = 1234.5
-	dashboard := apiTestListen(t, api, "")
-	if err := api.persistWorkerRestartIntent(w); err != nil {
-		t.Fatalf("persistWorkerRestartIntent: %v", err)
+func TestAnOwnerVerbOnAStoppedWorkerQueuesItsRestartOnTheRow(t *testing.T) {
+	const receipt = "held_down: the relocate was saved and this member is still being stopped — the stop in flight is honoured as-is, and it will be started again once it is down"
+	stopped := func(t *testing.T) (*apiServer, http.Handler, *DAL, string) {
+		t.Helper()
+		api, h, d, owner, _ := wsWorkerSpawnFixture(t, WorkerStatusActive)
+		if _, err := d.wdb.Exec(`UPDATE member SET desired_state = 'offline', stopping_since = 1000
+			WHERE id = 'ow-abc123'`); err != nil {
+			t.Fatalf("stop the worker: %v", err)
+		}
+		return api, h, d, owner
 	}
-	want := before
-	want.RestartAfterStop = true
-	want.LastOp = "start"
-	want.LastOpOK = &ok
-	want.LastOpLog = ""
-	want.LastOpReason = "held_down: the relocate was saved and this member is still being stopped — the stop in flight is honoured as-is, and it will be started again once it is down"
-	want.LastOpAt = 1234.5
-	apiTestWantEqual(t, "worker in memory", w, want)
-	stored, err := d.GetOutsourceWorker(w.ID)
-	if err != nil || stored == nil {
-		t.Fatalf("GetOutsourceWorker: %v (%v)", err, stored)
+
+	t.Run("a stopped worker gets the restart queued behind its stop, with the receipt that says so", func(t *testing.T) {
+		api, h, _, owner := stopped(t)
+		dashboard := apiTestListen(t, api, "")
+
+		fresh, queued, err := api.queueWorkerRestartAfterStopOnRow("ow-abc123", ownerOpRelocate, 1234.5)
+
+		if err != nil || !queued || fresh == nil || !fresh.RestartAfterStop {
+			t.Fatalf("queue: fresh %+v queued %v err %v; want the row queued", fresh, queued, err)
+		}
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "active", "desired_state": "offline", "presence": "stopped",
+			"last_op": "start", "last_op_ok": false, "last_op_log": "",
+			"last_op_reason": receipt, "last_op_at": 1234.5,
+		}))
+		dashboard.wantFrames()
+	})
+
+	// The two below go through the owner-verb funnel with the caller's copy read
+	// BEFORE the later write, which is how the verbs reach it.
+	readStopped := func(t *testing.T, d *DAL) OutsourceWorker {
+		t.Helper()
+		w, err := d.GetOutsourceWorker("ow-abc123")
+		if err != nil || w == nil {
+			t.Fatalf("GetOutsourceWorker: %v (%v)", w, err)
+		}
+		return *w
 	}
-	apiTestWantEqual(t, "worker in database", *stored, want)
-	apiTestWantWorker(t, h, owner, w.ID, apiTestWorkerRow(t, map[string]any{
-		"status":         "active",
-		"last_op":        "start",
-		"last_op_ok":     false,
-		"last_op_log":    "",
-		"last_op_reason": "held_down: the relocate was saved and this member is still being stopped — the stop in flight is honoured as-is, and it will be started again once it is down",
-		"last_op_at":     1234.5,
-	}))
-	dashboard.wantFrames()
+
+	t.Run("a column written after the caller read the worker is not written back", func(t *testing.T) {
+		api, _, d, _ := stopped(t)
+		read := readStopped(t, d)
+		if _, err := d.wdb.Exec(`UPDATE member SET last_machine_id = 'm-elsewhere' WHERE id = 'ow-abc123'`); err != nil {
+			t.Fatalf("the later write: %v", err)
+		}
+
+		api.outsourceMu.Lock()
+		api.respawnWorkerForOwnerOp(read, ownerOpRelocate)
+		api.outsourceMu.Unlock()
+
+		if got := apiTestMemberRow(t, d, "ow-abc123"); got.LastMachineID != "m-elsewhere" || !got.RestartAfterStop {
+			t.Fatalf("last_machine_id %q restart_after_stop %v; want m-elsewhere, queued", got.LastMachineID, got.RestartAfterStop)
+		}
+	})
+
+	t.Run("a worker released after the caller read it is left released and nothing is queued", func(t *testing.T) {
+		api, _, d, _ := stopped(t)
+		read := readStopped(t, d)
+		if _, err := d.wdb.Exec(`UPDATE member SET roster_status = 'removed', released_ts = 1800000000
+			WHERE id = 'ow-abc123'`); err != nil {
+			t.Fatalf("release: %v", err)
+		}
+
+		api.outsourceMu.Lock()
+		api.respawnWorkerForOwnerOp(read, ownerOpRelocate)
+		api.outsourceMu.Unlock()
+
+		got := apiTestMemberRow(t, d, "ow-abc123")
+		if got.RosterStatus != RosterStatusRemoved || got.RestartAfterStop || got.LastOp != "" {
+			t.Fatalf("roster_status %q restart_after_stop %v last_op %q; want removed, not queued, no receipt",
+				got.RosterStatus, got.RestartAfterStop, got.LastOp)
+		}
+	})
 }
 
 func TestClearWorkerRestartIntent(t *testing.T) {
@@ -532,8 +572,9 @@ func TestConsumeWorkerRestartAfterStop(t *testing.T) {
 		w.StoppingSince, w.StoppedSince = 20, 30
 		w.RefocusSince, w.RefocusOp = 10, memberOpRelocate
 		w.WakingSince = 40
-		if err := api.persistWorkerWindDownAnchors(w); err != nil {
-			t.Fatalf("persistWorkerWindDownAnchors: %v", err)
+		if err := d.SetMemberWindDownAnchors(w.ID, w.StoppingSince, w.StoppedSince,
+			w.RefocusSince, w.RefocusOp); err != nil {
+			t.Fatalf("SetMemberWindDownAnchors: %v", err)
 		}
 		if err := d.PutOutsourceWorker(w); err != nil {
 			t.Fatalf("PutOutsourceWorker: %v", err)

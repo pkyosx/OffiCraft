@@ -459,3 +459,35 @@ func apiMarkDone(t *testing.T, h http.Handler, taskID, token string) {
 		t.Fatalf("mark-done %s: want 200, got %d (%v)", taskID, status, data)
 	}
 }
+
+// apiTestCloseTask lands a close with a chosen timestamp and runs what every
+// close door runs after its transaction commits.
+func apiTestCloseTask(api *apiServer, t *Task, status string, now float64, trigger string) error {
+	t.Status = status
+	t.ClosedTS = now
+	t.UpdatedTS = now
+	if err := api.dal.PutTask(*t); err != nil {
+		return err
+	}
+	api.afterTaskClosed(t, now, trigger)
+	return nil
+}
+
+// apiTestDeriveAndPersistTask re-derives an open task from its steps the way
+// the plan doors do, in a transaction of its own, and announces the result.
+func apiTestDeriveAndPersistTask(api *apiServer, t *Task, now float64, trigger string) error {
+	if TaskIsTerminal(t.Status) {
+		return nil
+	}
+	var arrived bool
+	err := api.dal.inTx(func(tx *writeTx) error {
+		var err error
+		arrived, err = persistDerivedTaskOn(tx, t, now)
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	api.announceDerivedTask(*t, arrived, trigger)
+	return nil
+}

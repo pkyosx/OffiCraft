@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"sync"
 	"testing"
 )
 
@@ -824,6 +825,74 @@ func TestClaimHandoverNotice(t *testing.T) {
 		apiWantValue(t, "the durable claim", any(m.HandoverNoticedTS), any(1800000000.0))
 		apiWantValue(t, "the process-local cache", any(api.cachedHandoverClaim("mira")), any(1800000000.0))
 		apiWantValue(t, "the second claim on the same anchor", any(api.claimHandoverNotice("mira", record)), any(false))
+	})
+
+	t.Run("of eight passes claiming the same anchor at once, exactly one is granted", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		record := asGauge(1800000000)
+		granted := make(chan bool, 8)
+		start := make(chan struct{})
+		var group sync.WaitGroup
+		for i := 0; i < 8; i++ {
+			group.Add(1)
+			go func() {
+				defer group.Done()
+				<-start
+				granted <- api.claimHandoverNotice("mira", record)
+			}()
+		}
+		close(start)
+		group.Wait()
+		close(granted)
+		n := 0
+		for g := range granted {
+			if g {
+				n++
+			}
+		}
+		apiWantValue(t, "claims granted", any(float64(n)), any(1))
+		m, err := d.GetMember("mira")
+		if err != nil || m == nil {
+			t.Fatalf("GetMember: %v (%v)", m, err)
+		}
+		apiWantValue(t, "the durable claim", any(m.HandoverNoticedTS), any(1800000000.0))
+	})
+
+	// The race this guards is a few instructions wide; the rounds repeat it
+	// until a non-atomic claim is all but certain to show (measured in the
+	// package report).
+	t.Run("of 32 callers remembering the same anchor at once, exactly one is told it was new", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+		for round := 0; round < 300; round++ {
+			prior, next := 1700000000.0+float64(2*round), 1700000001.0+float64(2*round)
+			api.rememberHandoverClaim("mira", prior)
+			fresh := make(chan bool, 32)
+			start := make(chan struct{})
+			var group sync.WaitGroup
+			for i := 0; i < 32; i++ {
+				group.Add(1)
+				go func() {
+					defer group.Done()
+					<-start
+					fresh <- api.rememberHandoverClaim("mira", next)
+				}()
+			}
+			close(start)
+			group.Wait()
+			close(fresh)
+			n := 0
+			for f := range fresh {
+				if f {
+					n++
+				}
+			}
+			if n != 1 {
+				t.Fatalf("round %d: %d callers told the anchor was new, want 1", round, n)
+			}
+			if got := api.cachedHandoverClaim("mira"); got != next {
+				t.Fatalf("round %d: cached claim %v, want %v", round, got, next)
+			}
+		}
 	})
 
 	t.Run("a genuinely new session brings a new anchor and is entitled to its own notice", func(t *testing.T) {

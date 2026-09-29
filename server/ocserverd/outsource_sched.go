@@ -423,18 +423,34 @@ func (s *apiServer) runOutsourceTick(now float64) {
 			DesiredState: DesiredStateOnline,
 		}
 		codenames = append(codenames, worker.Codename)
-		if err := s.dal.PutOutsourceWorker(worker); err != nil {
-			outsourceLog("assign %s: worker write failed: %v", t.ID, err)
+		// The worker and the bind land together, on the task row as it is now: a
+		// task closed or taken since the read above is left alone, and a bind
+		// that fails leaves no worker behind.
+		bound := false
+		if err := s.dal.inTx(func(tx *writeTx) error {
+			cur, err := getTaskOn(tx, t.ID)
+			if err != nil || cur == nil || !outsourceAwaitingAssignment(*cur) {
+				return err
+			}
+			if err := putMemberOn(tx, memberFromWorker(worker)); err != nil {
+				return err
+			}
+			cur.ExecutorID = worker.ID
+			cur.UpdatedTS = now
+			if err := putTaskOn(tx, *cur, taskWriteUpsert); err != nil {
+				return err
+			}
+			t, bound = cur, true
+			return nil
+		}); err != nil {
+			outsourceLog("assign %s: worker write and task bind failed, neither landed: %v", t.ID, err)
+			continue
+		}
+		if !bound {
 			continue
 		}
 		if d.hasExplicitTarget() {
 			s.workerMachinePref[worker.ID] = d.Machine
-		}
-		t.ExecutorID = worker.ID
-		t.UpdatedTS = now
-		if err := s.dal.PutTask(*t); err != nil {
-			outsourceLog("assign %s: task bind failed: %v", t.ID, err)
-			continue
 		}
 		// No kickoff notice on bind (owner ruling rc-a4f6a7f8cd71): the worker's
 		// boot context already carries this task.

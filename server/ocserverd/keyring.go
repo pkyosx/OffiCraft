@@ -53,6 +53,10 @@ type keyMeta struct {
 }
 
 type keyring struct {
+	// writeMu serialises rotate and remove across their DB write; mu is held only
+	// for the in-memory swap, so verifying a token never waits on the write
+	// connection.
+	writeMu  txguard.Mutex
 	mu       txguard.RWMutex
 	keys     []signingKey
 	activeID string
@@ -226,8 +230,7 @@ func (k *keyring) persist(d *DAL) error {
 	return persistRing(d, keys, active)
 }
 
-// Takes no lock, so rotate/remove can persist inside their own write-locked
-// critical section (sync.RWMutex is not reentrant).
+// Takes no lock: rotate/remove call it holding writeMu.
 func persistRing(d *DAL, keys []signingKey, active string) error {
 	stored := make([]storedKey, 0, len(keys))
 	for _, key := range keys {
@@ -241,16 +244,18 @@ func persistRing(d *DAL, keys []signingKey, active string) error {
 	if err != nil {
 		return err
 	}
-	if err := d.PutSetting(settingJWTKeys, string(blob)); err != nil {
-		return err
-	}
-	return d.PutSetting(settingJWTActiveKeyID, active)
+	return d.inTx(func(tx *writeTx) error {
+		if err := putSettingOn(tx, settingJWTKeys, string(blob)); err != nil {
+			return err
+		}
+		return putSettingOn(tx, settingJWTActiveKeyID, active)
+	})
 }
 
-// 🔴 DB write FIRST, in-memory swap only on success, write lock held across
-// both. Both alternatives were tried and are wrong: memory-first mints under a
-// key never persisted (those tokens die at the next restart, silently); releasing
-// the lock before persisting lets a rollback undo a concurrent remove.
+// 🔴 DB write FIRST, in-memory swap only on success, writeMu held across both.
+// Both alternatives were tried and are wrong: memory-first mints under a key
+// never persisted (those tokens die at the next restart, silently); letting a
+// second writer in before the swap lets a rollback undo a concurrent remove.
 func (k *keyring) rotate(d *DAL) (keyMeta, error) {
 	key, err := newSigningKeyBytes()
 	if err != nil {
@@ -262,15 +267,16 @@ func (k *keyring) rotate(d *DAL) (keyMeta, error) {
 	}
 	created := nowSecs()
 
-	k.mu.Lock()
-	defer k.mu.Unlock()
-	next := make([]signingKey, len(k.keys), len(k.keys)+1)
-	copy(next, k.keys)
+	k.writeMu.Lock()
+	defer k.writeMu.Unlock()
+	keys, _ := k.current()
+	next := make([]signingKey, len(keys), len(keys)+1)
+	copy(next, keys)
 	next = append(next, signingKey{ID: id, Key: key, CreatedTS: created})
 	if err := persistRing(d, next, id); err != nil {
 		return keyMeta{}, err
 	}
-	k.keys, k.activeID = next, id
+	k.swap(next, id)
 	return keyMeta{ID: id, CreatedTS: created, IsSigning: true}, nil
 }
 
@@ -279,13 +285,14 @@ var errRemoveSigningKey = errors.New("signing keyring: the key that is currently
 var errUnknownKey = errors.New("signing keyring: no such key")
 
 func (k *keyring) remove(d *DAL, id string) error {
-	k.mu.Lock()
-	defer k.mu.Unlock()
-	if id == k.activeID {
+	k.writeMu.Lock()
+	defer k.writeMu.Unlock()
+	keys, active := k.current()
+	if id == active {
 		return errRemoveSigningKey
 	}
 	idx := -1
-	for i, key := range k.keys {
+	for i, key := range keys {
 		if key.ID == id {
 			idx = i
 			break
@@ -294,14 +301,26 @@ func (k *keyring) remove(d *DAL, id string) error {
 	if idx < 0 {
 		return errUnknownKey
 	}
-	next := make([]signingKey, 0, len(k.keys)-1)
-	next = append(next, k.keys[:idx]...)
-	next = append(next, k.keys[idx+1:]...)
-	// DB first under the same lock, as in rotate: a removal applied only in memory
-	// comes back at the next restart — a revocation that silently un-revokes.
-	if err := persistRing(d, next, k.activeID); err != nil {
+	next := make([]signingKey, 0, len(keys)-1)
+	next = append(next, keys[:idx]...)
+	next = append(next, keys[idx+1:]...)
+	// DB first, as in rotate: a removal applied only in memory comes back at the
+	// next restart — a revocation that silently un-revokes.
+	if err := persistRing(d, next, active); err != nil {
 		return err
 	}
-	k.keys = next
+	k.swap(next, active)
 	return nil
+}
+
+func (k *keyring) current() ([]signingKey, string) {
+	k.mu.RLock()
+	defer k.mu.RUnlock()
+	return k.keys, k.activeID
+}
+
+func (k *keyring) swap(keys []signingKey, active string) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	k.keys, k.activeID = keys, active
 }

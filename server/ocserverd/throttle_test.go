@@ -37,39 +37,81 @@ func TestBegin(t *testing.T) {
 		}
 	})
 
+	// The race this guards is a few instructions wide, so one round rarely
+	// lands in it; the rounds repeat it until a broken admission is all but
+	// certain to show (measured in the package report).
 	t.Run("concurrent callers cannot reserve more than four slots", func(t *testing.T) {
+		const callers, rounds = 16, 3000
+		for round := 0; round < rounds; round++ {
+			var throttle credentialThrottle
+			start := make(chan struct{})
+			results := make(chan bool, callers)
+			releases := make(chan func(), callers)
+			var group sync.WaitGroup
+			group.Add(callers)
+			for i := 0; i < callers; i++ {
+				go func() {
+					defer group.Done()
+					<-start
+					release, _, blocked := throttle.begin()
+					results <- !blocked
+					if !blocked {
+						releases <- release
+					}
+				}()
+			}
+			close(start)
+			group.Wait()
+			close(results)
+			close(releases)
+			admitted := 0
+			for got := range results {
+				if got {
+					admitted++
+				}
+			}
+			if admitted != 4 {
+				t.Fatalf("round %d: concurrent admissions = %d, want 4", round, admitted)
+			}
+			for release := range releases {
+				release()
+			}
+		}
+	})
+
+	t.Run("one release called from many goroutines at once gives back exactly one slot", func(t *testing.T) {
 		var throttle credentialThrottle
-		const callers = 16
+		held := make([]func(), 0, 4)
+		for i := 0; i < 4; i++ {
+			release, _, blocked := throttle.begin()
+			if blocked {
+				t.Fatalf("admission %d was blocked", i)
+			}
+			held = append(held, release)
+		}
 		start := make(chan struct{})
-		results := make(chan bool, callers)
-		releases := make(chan func(), callers)
 		var group sync.WaitGroup
-		group.Add(callers)
-		for i := 0; i < callers; i++ {
+		for i := 0; i < 16; i++ {
+			group.Add(1)
 			go func() {
 				defer group.Done()
 				<-start
-				release, _, blocked := throttle.begin()
-				results <- !blocked
-				if !blocked {
-					releases <- release
-				}
+				held[0]()
 			}()
 		}
 		close(start)
 		group.Wait()
-		close(results)
-		close(releases)
 		admitted := 0
-		for got := range results {
-			if got {
+		for i := 0; i < 3; i++ {
+			if release, _, blocked := throttle.begin(); !blocked {
 				admitted++
+				held = append(held, release)
 			}
 		}
-		if admitted != 4 {
-			t.Fatalf("concurrent admissions = %d, want 4", admitted)
+		if admitted != 1 {
+			t.Fatalf("admissions after 16 concurrent calls of one release = %d, want 1", admitted)
 		}
-		for release := range releases {
+		for _, release := range held {
 			release()
 		}
 	})

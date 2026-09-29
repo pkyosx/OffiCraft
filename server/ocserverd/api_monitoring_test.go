@@ -4,6 +4,7 @@
 package main
 
 import (
+	"net/http"
 	"reflect"
 	"sort"
 	"strconv"
@@ -1069,6 +1070,82 @@ func TestHandleIngestTelemetryApiMonitoringTelemetryPost(t *testing.T) {
 		apiWantError(t, data, "validation_error", "runtime must be 'claude' or 'codex'")
 		dashboard.wantFrames()
 	})
+
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": a rename that landed after the fold read the row survives the uninstall convergence", func(t *testing.T) {
+			d, hook, path := windowDAL(t, shape)
+			api, h, _, _ := newAPITestServerOn(t, d)
+			warden := apiTestAgentToken(t, api, "m-server-self", "m-server-self")
+			if status, data := windowJSON(t, h, "POST", "/api/monitoring/telemetry", warden,
+				`{"binaries":{"ocagent":"1.0.0"}}`); status != http.StatusOK {
+				t.Fatalf("warm-up report: %d %v", status, data)
+			}
+			if _, err := d.wdb.Exec(`UPDATE member SET desired_state = 'online' WHERE id = 'kip'`); err != nil {
+				t.Fatalf("prepare: %v", err)
+			}
+			hook.execAfterRead(t, path, "FROM member WHERE id",
+				`UPDATE member SET name = 'Kip the Second' WHERE id = 'kip'`)
+
+			status, data := windowJSON(t, h, "POST", "/api/monitoring/telemetry", warden,
+				`{"command_result":{"rpc":"uninstall","member_id":"kip","ok":true,"reason":"uninstalled","at":"2026-01-01T00:00:00Z"}}`)
+
+			hook.wantFiredOnce(t)
+			if status != http.StatusOK {
+				t.Fatalf("want 200, got %d (%v)", status, data)
+			}
+			got := apiTestMemberRow(t, d, "kip")
+			if got.Name != "Kip the Second" || got.DesiredState != DesiredStateOffline || got.LastOp != "uninstall" {
+				t.Fatalf("name=%q desired_state=%q last_op=%q, want \"Kip the Second\" / offline / uninstall",
+					got.Name, got.DesiredState, got.LastOp)
+			}
+		})
+	}
+
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": "+"an uninstall receipt that fails to land does not converge the intent either", func(t *testing.T) {
+			d, _, _ := windowDAL(t, shape)
+			api, h, _, _ := newAPITestServerOn(t, d)
+			warden := apiTestAgentToken(t, api, "m-server-self", "m-server-self")
+			if _, err := d.wdb.Exec(`UPDATE member SET desired_state = 'online' WHERE id = 'kip'`); err != nil {
+				t.Fatalf("prepare: %v", err)
+			}
+			before := apiTestMemberRow(t, d, "kip")
+			windowRefuse(t, d, "refuse_receipt", "BEFORE UPDATE OF last_op ON member", "the receipt write fails")
+			self := apiTestListen(t, api, "kip")
+
+			status, data := windowJSON(t, h, "POST", "/api/monitoring/telemetry", warden,
+				`{"command_result":{"rpc":"uninstall","member_id":"kip","ok":true,"reason":"uninstalled","at":"2026-01-01T00:00:00Z"}}`)
+
+			if status != http.StatusOK {
+				t.Fatalf("want 200, got %d (%v)", status, data)
+			}
+			apiTestWantEqual(t, "the row after the failed receipt", apiTestMemberRow(t, d, "kip"), before)
+			self.wantFrames()
+		})
+	}
+
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": a rename that landed after the launch-fact stamp read the row survives the stamp", func(t *testing.T) {
+			d, hook, path := windowDAL(t, shape)
+			api, h, _, _ := newAPITestServerOn(t, d)
+			kip := apiTestAgentToken(t, api, "kip", "")
+			hook.execAfterRead(t, path, "FROM member WHERE id",
+				`UPDATE member SET name = 'Kip the Second' WHERE id = 'kip'`)
+
+			status, data := windowJSON(t, h, "POST", "/api/monitoring/telemetry", kip,
+				`{"effort":"high","model":"claude-opus-5"}`)
+
+			hook.wantFiredOnce(t)
+			if status != http.StatusOK {
+				t.Fatalf("want 200, got %d (%v)", status, data)
+			}
+			got := apiTestMemberRow(t, d, "kip")
+			if got.Name != "Kip the Second" || got.ActualModel != "claude-opus-5" || got.ActualEffort != "high" {
+				t.Fatalf("name=%q actual_model=%q actual_effort=%q, want \"Kip the Second\" / claude-opus-5 / high",
+					got.Name, got.ActualModel, got.ActualEffort)
+			}
+		})
+	}
 }
 
 func TestStampReportedLaunchFacts(t *testing.T) {

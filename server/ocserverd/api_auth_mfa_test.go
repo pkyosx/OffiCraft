@@ -4,8 +4,10 @@
 package main
 
 import (
+	"net/http"
 	"strconv"
 	"testing"
+	"time"
 )
 
 func TestMfaIssuer(t *testing.T) {
@@ -39,6 +41,13 @@ func TestMfaAccount(t *testing.T) {
 }
 
 func TestVerifyAndSpendTOTP(t *testing.T) {
+	// Called directly, not through a route: windowWithin turns a panic (a lock
+	// txguard refused) into this test's failure instead of the whole binary's.
+	verifyTOTP := func(t *testing.T, api *apiServer, code string, now int64) (ok bool, err error) {
+		t.Helper()
+		windowWithin(t, "verifyAndSpendTOTP", func() { ok, err = api.verifyAndSpendTOTP(code, now) })
+		return ok, err
+	}
 	t.Run("accepts one live code, persists its floor, and refuses its replay", func(t *testing.T) {
 		api, _, d, _ := newAPITestServer(t)
 		secret := apiTestArmMFA(t, api, d)
@@ -50,7 +59,7 @@ func TestVerifyAndSpendTOTP(t *testing.T) {
 		step := now / totpStepSecs
 		code := totpCodeAt(key, step)
 
-		ok, err := api.verifyAndSpendTOTP(code, now)
+		ok, err := verifyTOTP(t, api, code, now)
 		if err != nil || !ok {
 			t.Fatalf("first verification: want true, nil; got %v, %v", ok, err)
 		}
@@ -65,7 +74,7 @@ func TestVerifyAndSpendTOTP(t *testing.T) {
 			t.Fatalf("stored replay floor: want %d, got %v", step, stored)
 		}
 
-		ok, err = api.verifyAndSpendTOTP(code, now)
+		ok, err = verifyTOTP(t, api, code, now)
 		if err != nil || ok {
 			t.Fatalf("replayed verification: want false, nil; got %v, %v", ok, err)
 		}
@@ -83,7 +92,7 @@ func TestVerifyAndSpendTOTP(t *testing.T) {
 			t.Fatalf("PutSetting: %v", err)
 		}
 
-		ok, err := api.verifyAndSpendTOTP("000000", 1700000000)
+		ok, err := verifyTOTP(t, api, "000000", 1700000000)
 		if err != nil || ok {
 			t.Fatalf("invalid verification: want false, nil; got %v, %v", ok, err)
 		}
@@ -102,9 +111,54 @@ func TestVerifyAndSpendTOTP(t *testing.T) {
 	t.Run("allows any code when no factor is armed", func(t *testing.T) {
 		api, _, _, _ := newAPITestServer(t)
 
-		ok, err := api.verifyAndSpendTOTP("not-a-totp-code", 1700000000)
+		ok, err := verifyTOTP(t, api, "not-a-totp-code", 1700000000)
 		if err != nil || !ok {
 			t.Fatalf("MFA-off verification: want true, nil; got %v, %v", ok, err)
+		}
+	})
+
+	t.Run("of eight logins racing with one live code while the write connection is busy, exactly one spends it", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		secret := apiTestArmMFA(t, api, d)
+		key, err := decodeTOTPSecret(secret)
+		if err != nil {
+			t.Fatalf("decodeTOTPSecret: %v", err)
+		}
+		now := int64(1700000000)
+		code := totpCodeAt(key, now/totpStepSecs)
+
+		letGo := windowHoldWriteConn(t, d)
+		before := windowQueuedSoFar(d)
+		type outcome struct {
+			ok  bool
+			err error
+		}
+		outcomes := make(chan outcome, 8)
+		for i := 0; i < 8; i++ {
+			go func() {
+				ok, err := api.verifyAndSpendTOTP(code, now)
+				outcomes <- outcome{ok, err}
+			}()
+		}
+		windowAwaitQueued(t, d, before)
+		letGo()
+
+		accepted := 0
+		for i := 0; i < 8; i++ {
+			select {
+			case o := <-outcomes:
+				if o.err != nil {
+					t.Fatalf("verification %d: %v", i, o.err)
+				}
+				if o.ok {
+					accepted++
+				}
+			case <-time.After(windowRequestDeadline):
+				t.Fatalf("only %d of 8 verifications returned within %s", i, windowRequestDeadline)
+			}
+		}
+		if accepted != 1 {
+			t.Fatalf("one code accepted %d times, want exactly 1", accepted)
 		}
 	})
 }
@@ -494,6 +548,57 @@ func TestHandleMfaActivateApiAuthMfaActivatePost(t *testing.T) {
 		}
 		apiWantError(t, data, "forbidden", "principal not permitted")
 	})
+
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": an activation whose pending secret fails to clear arms nothing, and the retry lands", func(t *testing.T) {
+			d, _, _ := windowDAL(t, shape)
+			_, h, _, owner := newAPITestServerOn(t, d)
+			apiJSON(t, h, "POST", "/api/auth/mfa/offer", owner, `{"offered":true}`)
+			_, enrolled := apiJSON(t, h, "POST", "/api/auth/mfa/enroll", owner, `{}`)
+			secret, _ := enrolled["secret"].(string)
+			lift := windowRefuseSetting(t, d, "auth.totp_pending_secret")
+
+			status, data := windowJSON(t, h, "POST", "/api/auth/mfa/activate", owner,
+				`{"password":"`+apiTestOwnerPassword+`","code":"`+apiTestTOTPCode(t, secret)+`"}`)
+
+			if status != http.StatusInternalServerError {
+				t.Fatalf("want 500, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "internal_error", windowSettingWriteFails)
+			windowWantSetting(t, d, "auth.totp_secret", nil)
+			windowWantSetting(t, d, "auth.totp_last_step", nil)
+			windowWantSetting(t, d, "auth.totp_pending_secret", &secret)
+
+			lift()
+			status, data = windowJSON(t, h, "POST", "/api/auth/mfa/activate", owner,
+				`{"password":"`+apiTestOwnerPassword+`","code":"`+apiTestTOTPCode(t, secret)+`"}`)
+			if status != http.StatusOK {
+				t.Fatalf("retry: want 200, got %d (%v)", status, data)
+			}
+			windowWantSetting(t, d, "auth.totp_secret", &secret)
+		})
+
+		t.Run(shape+": a pending secret re-enrolled after the handler read it is not armed", func(t *testing.T) {
+			d, hook, path := windowDAL(t, shape)
+			_, h, _, owner := newAPITestServerOn(t, d)
+			apiJSON(t, h, "POST", "/api/auth/mfa/offer", owner, `{"offered":true}`)
+			_, enrolled := apiJSON(t, h, "POST", "/api/auth/mfa/enroll", owner, `{}`)
+			secret, _ := enrolled["secret"].(string)
+			hook.execAfterRead(t, path, "FROM setting WHERE key",
+				`UPDATE setting SET value = 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP' WHERE key = 'auth.totp_pending_secret'`)
+
+			status, data := windowJSON(t, h, "POST", "/api/auth/mfa/activate", owner,
+				`{"password":"`+apiTestOwnerPassword+`","code":"`+apiTestTOTPCode(t, secret)+`"}`)
+
+			hook.wantFiredOnce(t)
+			if status != http.StatusConflict {
+				t.Fatalf("want 409, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "conflict", "no pending enrolment; call /api/auth/mfa/enroll first")
+			windowWantSetting(t, d, "auth.totp_secret", nil)
+			windowWantSetting(t, d, "auth.totp_last_step", nil)
+		})
+	}
 }
 
 func TestHandleMfaDisableApiAuthMfaDisablePost(t *testing.T) {
@@ -618,4 +723,33 @@ func TestHandleMfaDisableApiAuthMfaDisablePost(t *testing.T) {
 		}
 		apiWantError(t, data, "forbidden", "principal not permitted")
 	})
+
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": a disable whose secret fails to delete keeps the whole factor armed, and the retry lands", func(t *testing.T) {
+			d, _, _ := windowDAL(t, shape)
+			api, h, _, owner := newAPITestServerOn(t, d)
+			secret := apiTestArmMFA(t, api, d)
+			if err := d.PutSetting(settingTOTPLastStep, "7"); err != nil {
+				t.Fatalf("PutSetting: %v", err)
+			}
+			lift := windowRefuseSetting(t, d, "auth.totp_secret")
+			body := `{"password":"` + apiTestOwnerPassword + `","code":"` + apiTestTOTPCode(t, secret) + `"}`
+
+			status, data := windowJSON(t, h, "POST", "/api/auth/mfa/disable", owner, body)
+
+			if status != http.StatusInternalServerError {
+				t.Fatalf("want 500, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "internal_error", windowSettingWriteFails)
+			step := "7"
+			windowWantSetting(t, d, "auth.totp_last_step", &step)
+			windowWantSetting(t, d, "auth.totp_secret", &secret)
+
+			lift()
+			if status, data := windowJSON(t, h, "POST", "/api/auth/mfa/disable", owner, body); status != http.StatusOK {
+				t.Fatalf("retry: want 200, got %d (%v)", status, data)
+			}
+			windowWantSetting(t, d, "auth.totp_last_step", nil)
+		})
+	}
 }

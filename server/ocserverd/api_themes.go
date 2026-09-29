@@ -76,25 +76,25 @@ func (s *apiServer) HandlePutThemeApiThemesThemeIdPut(w http.ResponseWriter, r *
 		return
 	}
 
-	existing, err := s.dal.GetCustomTheme(themeID)
-	if err != nil {
-		internalError(w, err)
-		return
-	}
-	if existing == nil {
+	// created reports whether themeID is new, or refuses a new one over the cap.
+	created := func() (bool, error) {
+		existing, err := s.dal.GetCustomTheme(themeID)
+		if err != nil || existing != nil {
+			return false, err
+		}
 		n, err := s.dal.CountCustomThemes()
 		if err != nil {
-			internalError(w, err)
-			return
+			return false, err
 		}
 		if n >= maxCustomThemes {
-			writeError(w, http.StatusUnprocessableEntity,
+			return false, refuseInTx(http.StatusUnprocessableEntity,
 				"at most "+strconv.Itoa(maxCustomThemes)+" custom themes may be saved — delete one first")
-			return
 		}
-		// COUNT-THEN-WRITE, not atomic: concurrent creates can land cap+1
-		// rows (a probe reproduced it). Accepted — the cap is not a security
-		// boundary.
+		return true, nil
+	}
+	if _, err := created(); err != nil {
+		writeTxError(w, err)
+		return
 	}
 
 	raw, err := marshalThemeBundle(body)
@@ -102,56 +102,64 @@ func (s *apiServer) HandlePutThemeApiThemesThemeIdPut(w http.ResponseWriter, r *
 		internalError(w, err)
 		return
 	}
-	if err := s.dal.PutCustomTheme(themeID, raw); err != nil {
-		if errors.Is(err, ErrCustomThemeIDBlank) ||
-			errors.Is(err, ErrCustomThemeBundleNotJSON) ||
-			errors.Is(err, ErrCustomThemeIDMismatch) {
-			writeError(w, http.StatusUnprocessableEntity, err.Error())
-			return
+	var isNew bool
+	var stored *CustomTheme
+	err = s.dal.inTx(func(*writeTx) error {
+		var err error
+		if isNew, err = created(); err != nil {
+			return err
 		}
-		internalError(w, err)
+		if err := s.dal.PutCustomTheme(themeID, raw); err != nil {
+			return err
+		}
+		stored, err = s.dal.GetCustomTheme(themeID)
+		if err == nil && stored == nil {
+			err = fmt.Errorf("theme %s vanished between the write and the read-back", strconv.Quote(themeID))
+		}
+		return err
+	})
+	if errors.Is(err, ErrCustomThemeIDBlank) ||
+		errors.Is(err, ErrCustomThemeBundleNotJSON) ||
+		errors.Is(err, ErrCustomThemeIDMismatch) {
+		writeError(w, http.StatusUnprocessableEntity, err.Error())
 		return
 	}
-
-	stored, err := s.dal.GetCustomTheme(themeID)
 	if err != nil {
-		internalError(w, err)
-		return
-	}
-	if stored == nil {
-		internalError(w, fmt.Errorf("theme %s vanished between the write and the read-back", strconv.Quote(themeID)))
+		writeTxError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, themeWriteReceiptDTO{
 		ID:        themeID,
-		Created:   existing == nil,
+		Created:   isNew,
 		OrderIdx:  stored.OrderIdx,
 		UpdatedAt: stored.UpdatedAt,
 	})
 }
 
 func (s *apiServer) HandleDeleteThemeApiThemesThemeIdDelete(w http.ResponseWriter, r *http.Request, themeID string) {
-	deleted, err := s.dal.DeleteCustomTheme(themeID)
-	if err != nil {
-		internalError(w, err)
-		return
-	}
-	if !deleted {
-		writeError(w, http.StatusNotFound, "theme '"+themeID+"' not found")
-		return
-	}
-
-	reset := false
-	unlockMu := s.settingsMu.Acquire()
+	unlockMu := s.settingsWriteMu.Acquire()
 	defer unlockMu()
-	if s.displayTheme == themeID {
-		if err := s.dal.PutSetting(settingDisplayTheme, ""); err != nil {
-			unlockMu()
-			internalError(w, err)
-			return
+	reset := s.displayTheme == themeID
+	err := s.dal.inTx(func(tx *writeTx) error {
+		deleted, err := deleteCustomThemeOn(tx, themeID)
+		if err != nil {
+			return err
 		}
-		s.displayTheme = ""
-		reset = true
+		if !deleted {
+			return refuseInTx(http.StatusNotFound, "theme '"+themeID+"' not found")
+		}
+		if reset {
+			return putSettingOn(tx, settingDisplayTheme, "")
+		}
+		return nil
+	})
+	if err != nil {
+		unlockMu()
+		writeTxError(w, err)
+		return
+	}
+	if reset {
+		s.applySettings(func() { s.displayTheme = "" })
 	}
 	unlockMu()
 
@@ -185,17 +193,16 @@ func marshalThemeBundle(b ThemeBundleDTO) (string, error) {
 	return string(raw), nil
 }
 
-// displayThemeExists asks the TABLE; never keep a copy of the id set
-// elsewhere. CHECK-THEN-SET: this lookup sits outside settingsMu, so a
-// concurrent DELETE could leave display_theme naming no row (a 300-run probe
-// never reached it). The cockpit falls back to the built-in theme
-// (i18n/index.tsx), but never treat display_theme as a guaranteed foreign
-// key.
-func (s *apiServer) displayThemeExists(theme string) (bool, error) {
+const displayThemeRefusal = `display_theme must be "", office, or an existing custom theme id`
+
+// displayThemeExistsOn asks the TABLE; never keep a copy of the id set
+// elsewhere. The patch asks again inside the transaction that sets the theme,
+// under settingsWriteMu, which DELETE /api/themes/{id} also holds while it deletes.
+func displayThemeExistsOn(q sqlRowQuerier, theme string) (bool, error) {
 	if theme == "" || displayThemeAllowed[theme] {
 		return true, nil
 	}
-	row, err := s.dal.GetCustomTheme(theme)
+	row, err := getCustomThemeOn(q, theme)
 	if err != nil {
 		return false, err
 	}

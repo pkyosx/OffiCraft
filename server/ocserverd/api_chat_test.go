@@ -851,6 +851,76 @@ func TestHandlePostChatApiChatPost(t *testing.T) {
 		recipient.wantFrames(frame)
 		wantPushed()
 	})
+
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": a recipient dismissed after the handler read it answers 404 and stores nothing", func(t *testing.T) {
+			d, hook, path := windowDAL(t, shape)
+			api, h, _, owner := newAPITestServerOn(t, d)
+			dashboard := apiTestListen(t, api, "")
+			hook.execAfterRead(t, path, "FROM member WHERE id",
+				`UPDATE member SET roster_status = 'removed' WHERE id = 'mira'`)
+
+			status, data := windowJSON(t, h, "POST", "/api/chat", owner, `{"to":"mira","body":"hi"}`)
+
+			hook.wantFiredOnce(t)
+			if status != http.StatusNotFound {
+				t.Fatalf("want 404, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "not_found", "chat recipient 'mira' not found")
+			if n := windowCount(t, d, `SELECT COUNT(*) FROM chat_message`); n != 0 {
+				t.Fatalf("%d messages stored, want none", n)
+			}
+			dashboard.wantFrames()
+		})
+	}
+
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": an attachment deleted after the handler read it answers 400 and stores nothing", func(t *testing.T) {
+			d, hook, path := windowDAL(t, shape)
+			_, h, _, owner := newAPITestServerOn(t, d)
+			_, uploaded := apiJSON(t, h, "POST", "/api/chat/attachments", owner,
+				`{"filename":"report.txt","data_b64":"aGVsbG8="}`)
+			attachmentID, _ := uploaded["id"].(string)
+			hook.execAfterRead(t, path, "FROM chat_attachment WHERE id",
+				`DELETE FROM chat_attachment WHERE id = ?`, attachmentID)
+
+			status, data := windowJSON(t, h, "POST", "/api/chat", owner,
+				`{"to":"mira","body":"see this","attachments":[{"id":"`+attachmentID+`"}]}`)
+
+			hook.wantFiredOnce(t)
+			if status != http.StatusBadRequest {
+				t.Fatalf("want 400, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "validation_error", "attachment '"+attachmentID+"' not found")
+			if n := windowCount(t, d, `SELECT COUNT(*) FROM chat_message`); n != 0 {
+				t.Fatalf("%d messages stored, want none", n)
+			}
+		})
+	}
+
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": a quoted message deleted after the handler read it answers 400 and stores nothing", func(t *testing.T) {
+			d, hook, path := windowDAL(t, shape)
+			_, h, _, owner := newAPITestServerOn(t, d)
+			_, first := apiJSON(t, h, "POST", "/api/chat", owner, `{"to":"mira","body":"first"}`)
+			quoted, _ := first["id"].(string)
+			hook.execAfterRead(t, path, "FROM chat_message",
+				`DELETE FROM chat_message WHERE id = ?`, quoted)
+
+			status, data := windowJSON(t, h, "POST", "/api/chat", owner,
+				`{"to":"mira","body":"about that","reply_to":"`+quoted+`"}`)
+
+			hook.wantFiredOnce(t)
+			if status != http.StatusBadRequest {
+				t.Fatalf("want 400, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "validation_error", "reply_to names no message ("+quoted+") — you can only "+
+				"reply to a message that exists; re-read the conversation and use the id it carries")
+			if n := windowCount(t, d, `SELECT COUNT(*) FROM chat_message`); n != 0 {
+				t.Fatalf("%d messages stored, want none", n)
+			}
+		})
+	}
 }
 
 func TestChatPostReceiptOf(t *testing.T) {

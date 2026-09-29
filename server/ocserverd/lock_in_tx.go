@@ -21,6 +21,7 @@ func answerLockInTx(next http.Handler) http.Handler {
 			}
 			var refused *txguard.LockInTxError
 			if err, ok := v.(error); ok && errors.As(err, &refused) {
+				log.Printf("[lock] ERROR: %s %s gave up: %v", r.Method, r.URL.Path, refused)
 				internalError(w, refused)
 				return
 			}

@@ -484,17 +484,19 @@ func (s *apiServer) HandleOnboardMachineApiMachinesPost(w http.ResponseWriter, r
 		Effort:           "medium",
 		RosterStatus:     RosterStatusActive,
 	}
-	if err := s.putMember(member, requestTrigger(r)); err != nil {
-		internalError(w, err)
-		return
-	}
-	if err := s.dal.PutMachineAlias(MachineAlias{
-		MachineID:   member.ID,
-		DisplayName: displayName,
+	if err := s.dal.inTx(func(tx *writeTx) error {
+		if err := writeMemberOn(tx, member); err != nil {
+			return err
+		}
+		return putMachineAliasOn(tx, MachineAlias{
+			MachineID:   member.ID,
+			DisplayName: displayName,
+		})
 	}); err != nil {
 		internalError(w, err)
 		return
 	}
+	s.publishMemberPatch(member, requestTrigger(r))
 	token, err := s.mintWardenToken(member)
 	if err != nil {
 		internalError(w, err)
@@ -520,12 +522,23 @@ func (s *apiServer) HandleOnboardMachineApiMachinesPost(w http.ResponseWriter, r
 // Every re-install entry point must call this BEFORE installing, or the fresh
 // warden reconnects straight into a standing uninstall order (a real
 // uninstall→re-install loop).
+//
+// The fold lands on the row as it is inside its transaction, and *m becomes that row.
 func (s *apiServer) clearResidualUninstall(m *Member, trigger string) error {
 	if m.DesiredState != DesiredStateUninstall {
 		return nil
 	}
-	m.DesiredState = DesiredStateOffline
-	return s.putMember(*m, trigger)
+	folded, fresh, err := s.foldUninstallIntentOnRow(m.ID)
+	if err != nil {
+		return err
+	}
+	if fresh != nil {
+		*m = *fresh
+	}
+	if folded != nil {
+		s.publishMemberPatch(*folded, trigger)
+	}
+	return nil
 }
 
 func (s *apiServer) HandleMachineBootCommandApiMachinesMachineIdBootCommandGet(w http.ResponseWriter, r *http.Request, machineId string) {
@@ -896,26 +909,35 @@ func (s *apiServer) HandleTeardownHereApiMachinesMachineIdTeardownHerePost(w htt
 // The 409 gate counts ONLY agents actually online on this machine right now
 // (hub.AgentsOnMachine); offline agents merely bound here never block.
 func (s *apiServer) HandleUninstallMachineApiMachinesMemberIdUninstallPost(w http.ResponseWriter, r *http.Request, memberId string) {
-	m, err := s.resolveMachine(memberId)
-	if err != nil {
+	if _, err := s.resolveMachine(memberId); err != nil {
 		writeResolveError(w, err, "machine", memberId)
 		return
 	}
-	if agents := s.hub.AgentsOnMachine(m.ID); len(agents) > 0 {
+	if agents := s.hub.AgentsOnMachine(memberId); len(agents) > 0 {
 		writeError(w, http.StatusConflict,
 			"machine still has agent(s) running; move or stop them first")
 		return
 	}
-	online := s.hub.IsOnline(m.ID)
-	if online {
-		m.DesiredState = DesiredStateUninstall
-	} else {
-		m.DesiredState = DesiredStateOffline
-	}
-	if err := s.putMember(*m, requestTrigger(r)); err != nil {
-		internalError(w, err)
+	online := s.hub.IsOnline(memberId)
+	var m Member
+	err := s.dal.inTx(func(tx *writeTx) error {
+		cur, err := resolveMachineOn(tx, memberId)
+		if err != nil {
+			return err
+		}
+		if online {
+			cur.DesiredState = DesiredStateUninstall
+		} else {
+			cur.DesiredState = DesiredStateOffline
+		}
+		m = *cur
+		return writeMemberOn(tx, m)
+	})
+	if err != nil {
+		writeResolveTxError(w, err, "machine", memberId)
 		return
 	}
+	s.publishMemberPatch(m, requestTrigger(r))
 	s.reconcileMemberNow(m.ID)
 	writeJSON(w, http.StatusOK, machineUninstallResultDTO{
 		MemberID:   m.ID,
@@ -970,12 +992,27 @@ func (s *apiServer) HandleDeleteMachineApiMachinesMemberIdDelete(w http.Response
 			"machine still has agent(s) running; move or stop them first")
 		return
 	}
-	m.RosterStatus = RosterStatusRemoved
-	m.DesiredState = DesiredStateOffline
-	if err := s.putMember(*m, requestTrigger(r)); err != nil {
-		internalError(w, err)
+	// Removed on the row as it is inside the transaction: a column another writer
+	// landed since the read above (a connect edge's session anchor) stands.
+	var removed Member
+	err = s.dal.inTx(func(tx *writeTx) error {
+		cur, err := getMemberOn(tx, m.ID)
+		if err != nil {
+			return err
+		}
+		if cur == nil {
+			return errNotFound
+		}
+		cur.RosterStatus = RosterStatusRemoved
+		cur.DesiredState = DesiredStateOffline
+		removed = *cur
+		return writeMemberOn(tx, *cur)
+	})
+	if err != nil {
+		writeResolveTxError(w, err, "member", memberId)
 		return
 	}
+	s.publishMemberPatch(removed, requestTrigger(r))
 	writeJSON(w, http.StatusOK, machineDeleteResultDTO{
 		MemberID:  m.ID,
 		MachineID: m.ID,
@@ -1002,7 +1039,7 @@ func (s *apiServer) HandleUpdateAccountApiAccountsAccountIdPatch(w http.Response
 		writeError(w, http.StatusUnprocessableEntity, err.Error())
 		return
 	}
-	if err := s.dal.PutAccountAlias(alias); err != nil {
+	if err := s.dal.inTx(func(*writeTx) error { return s.dal.PutAccountAlias(alias) }); err != nil {
 		internalError(w, err)
 		return
 	}
@@ -1033,7 +1070,7 @@ func (s *apiServer) HandleUpdateMachineApiMachinesMachineIdPatch(w http.Response
 		writeError(w, http.StatusUnprocessableEntity, err.Error())
 		return
 	}
-	if err := s.dal.PutMachineAlias(alias); err != nil {
+	if err := s.dal.inTx(func(*writeTx) error { return s.dal.PutMachineAlias(alias) }); err != nil {
 		internalError(w, err)
 		return
 	}
