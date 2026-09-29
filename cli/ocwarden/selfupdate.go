@@ -195,7 +195,6 @@ type updaterOps interface {
 	probe(bin string) error
 }
 
-// `<bin> --help` is the side-effect-free smoke invocation CI also trusts.
 type osUpdaterOps struct{ runner CmdRunner }
 
 func (osUpdaterOps) readFile(p string) ([]byte, error) { return os.ReadFile(p) }
@@ -205,6 +204,9 @@ func (osUpdaterOps) writeFile(p string, d []byte, m os.FileMode) error {
 func (osUpdaterOps) chmod(p string, m os.FileMode) error { return os.Chmod(p, m) }
 func (osUpdaterOps) rename(a, b string) error            { return os.Rename(a, b) }
 func (osUpdaterOps) remove(p string) error               { return os.Remove(p) }
+
+// probe runs `<bin> --help`, which has no network, file, or launchctl side
+// effects, and requires exit 0 with non-empty output.
 func (o osUpdaterOps) probe(bin string) error {
 	out, err := o.runner.Run(bin, "--help")
 	if err != nil {

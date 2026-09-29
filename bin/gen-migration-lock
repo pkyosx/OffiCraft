@@ -24,7 +24,8 @@
 # particular trap without removing the class: a body cut short by an early return
 # exits 0 just the same. So the generator prints its own marker as its last act
 # and this script requires it, the same posture bin/run-checks.sh takes with the
-# Makefile.
+# Makefile. The marker is read from the Go constant rather than spelled here: CI
+# only runs `--check`, so a second copy could drift without anything going red.
 # ── WHY THE LAST LINE ASKS GIT INSTEAD OF ASSERTING ──────────────────────────
 # This script used to end with an UNCONDITIONAL "migration.lock is up to date.",
 # printed AFTER the generator had already rewritten the whole file. It had
@@ -51,8 +52,49 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-MARKER='[gen-migration-lock] wrote'
 LOCK_REL="server/ocserverd/migration.lock"
+MARKER_SRC_REL="server/ocserverd/migration_lock.go"
+MARKER_CONST="migrationLockWriteMarker"
+
+# marker_from_go_source — print the value of MARKER_CONST as declared in
+# MARKER_SRC_REL, or fail. An empty value must fail: `grep -qF ''` matches any
+# log, so the end-marker check would pass on output that never had it.
+marker_from_go_source() {
+  local src="$ROOT/$MARKER_SRC_REL" decls count wrapped value
+  if [[ ! -f "$src" ]]; then
+    echo "FAIL — cannot read the end marker: $MARKER_SRC_REL does not exist." >&2
+    return 1
+  fi
+  decls="$(grep -E "^[[:space:]]*(const[[:space:]]+)?${MARKER_CONST}([[:space:]]+string)?[[:space:]]*=" "$src" || true)"
+  count=0
+  [[ -z "$decls" ]] || count="$(printf '%s\n' "$decls" | wc -l | tr -d ' ')"
+  if [[ "$count" == "0" ]]; then
+    echo "FAIL — no declaration of $MARKER_CONST in $MARKER_SRC_REL, so this script cannot" >&2
+    echo "know which end marker 'migration-lock --write' prints. It was renamed or removed;" >&2
+    echo "update MARKER_CONST here to match." >&2
+    return 1
+  fi
+  if [[ "$count" != "1" ]]; then
+    echo "FAIL — $MARKER_CONST is declared $count times in $MARKER_SRC_REL; expected exactly one:" >&2
+    printf '%s\n' "$decls" >&2
+    return 1
+  fi
+  wrapped="$(printf '%s\n' "$decls" | sed -n 's/^const '"$MARKER_CONST"' = "\([^"\\]*\)"$/<\1>/p')"
+  if [[ -z "$wrapped" ]]; then
+    echo "FAIL — $MARKER_CONST in $MARKER_SRC_REL is not a one-line plain string literal" >&2
+    echo "(const $MARKER_CONST = \"...\", no escapes, no trailing comment), so its value cannot be read:" >&2
+    printf '%s\n' "$decls" >&2
+    return 1
+  fi
+  value="${wrapped#<}"
+  value="${value%>}"
+  if [[ -z "$value" ]]; then
+    echo "FAIL — $MARKER_CONST in $MARKER_SRC_REL is the empty string; an empty end marker" >&2
+    echo "would be found in any output and prove nothing." >&2
+    return 1
+  fi
+  printf '%s' "$value"
+}
 
 # The append-only reading instructions, printed only when there is in fact a
 # diff to read (or when we could not tell whether there is one).
@@ -63,8 +105,8 @@ print_append_only_advice() {
 }
 
 # report_lock_state ENTRIES-LINE — print what actually happened. ENTRIES-LINE is
-# the generator's own marker line with its "[gen-migration-lock] " prefix
-# stripped, or empty if it printed none; this function never invents a count.
+# the generator's own marker line with the marker's leading "[tag] " stripped,
+# or empty if it printed none; this function never invents a count.
 report_lock_state() {
   local entries_line="${1:-}"
   local state reason porcelain rc
@@ -143,6 +185,8 @@ if [[ "${1:-}" == "--report-state" ]]; then
   exit 0
 fi
 
+MARKER="$(marker_from_go_source)" || exit 1
+
 # The package embeds seedsdist/docsdist/webdist/bindist; without them it does not
 # compile, and a fresh clone has none of them (they are gitignored).
 make -C "$ROOT" build-embed-assets >/dev/null
@@ -159,14 +203,16 @@ set -e
 [[ "$rc" == "0" ]] || exit "$rc"
 
 if ! grep -qF -- "$MARKER" "$LOG"; then
-  echo "FAIL — 'ocserverd migration-lock --write' exited 0 but never reached its end marker" >&2
-  echo "('$MARKER'). Its body no longer writes the lock, or it returned early. The lock on disk" >&2
-  echo "is UNCHANGED, whatever rc says." >&2
+  echo "FAIL — 'ocserverd migration-lock --write' exited 0 but its end marker ('$MARKER')" >&2
+  echo "never appeared in its output, so this run cannot tell whether the lock was written." >&2
+  echo "Check it yourself:  git diff -- $LOCK_REL" >&2
   exit 1
 fi
 
 # The generator's own count, taken verbatim from its marker line. If the marker
 # ever stops carrying one, report_lock_state says so rather than making one up.
-ENTRIES_LINE="$(grep -F -- "$MARKER" "$LOG" | tail -1 | sed 's/^\[gen-migration-lock\] //')"
+MARKER_TAG="${MARKER%%]*}] "
+MARKER_LINE="$(grep -F -- "$MARKER" "$LOG" | tail -1)"
+ENTRIES_LINE="${MARKER_LINE#"$MARKER_TAG"}"
 
 report_lock_state "$ENTRIES_LINE"

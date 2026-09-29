@@ -593,8 +593,11 @@ func migrationLockPrefixFindings(mainLines, treeLines []string) []string {
 }
 
 // migrationLockWriteMarker must be the LAST line `--write` prints:
-// bin/gen-migration-lock requires this exact string before believing a write
+// bin/gen-migration-lock requires this string before believing a write
 // happened, because rc alone lies (a body replaced by an early return exits 0).
+// The script has no copy of it: it reads this declaration by name, so keep it
+// a single-line `const migrationLockWriteMarker = "..."` with no escapes and no
+// trailing comment, or the script refuses to run.
 const migrationLockWriteMarker = "[gen-migration-lock] wrote"
 
 // migrationLockNextContents keeps every existing line in place and APPENDS new
