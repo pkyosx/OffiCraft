@@ -30,6 +30,7 @@ RUN = "cli/ocagent/listen_run.go"
 ACK = "cli/ocagent/listen.go"
 SIDECAR = "cli/ocwarden/codex_session.go"
 SPAWNER = "cli/ocwarden/spawn.go"
+TMUX = "cli/ocwarden/tmux.go"
 
 # (name, file, the exact text to replace, what to replace it with).
 # Each is a ONE-SIDED change: the point is that one side moving must redden, and
@@ -115,6 +116,16 @@ MUTANTS: Tuple[Tuple[str, str, str, str], ...] = (
         "the member renames the token variable",
         ACK, '\ttokenEnv      = "OC_TOKEN"',
         '\ttokenEnv      = "OC_JWT"',
+    ),
+    (
+        "the warden moves its default tmux socket",
+        TMUX, '\ttmuxSocket = "officraft"',
+        '\ttmuxSocket = "officraft-main"',
+    ),
+    (
+        "the member moves its fallback tmux socket",
+        ACK, '\tdefaultTmuxSocket = "officraft"',
+        '\tdefaultTmuxSocket = "oc"',
     ),
     (
         # 🔴 The unpaired-constant fix used to have a shape-shaped hole in it:
@@ -228,7 +239,7 @@ RESPELLINGS = (
 
 def stage() -> Path:
     tmp = Path(tempfile.mkdtemp(prefix="listen-notice-mirror-selftest-"))
-    for rel in (RUN, ACK, SIDECAR, SPAWNER):
+    for rel in (RUN, ACK, SIDECAR, SPAWNER, TMUX):
         dst = tmp / rel
         dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(ROOT / rel, dst)
