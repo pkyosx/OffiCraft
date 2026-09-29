@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# bin/tests/namespace-mirror-guard.sh — the BASH half of the cross-module
-# namespace mirror confrontation.
+# bin/tests/namespace-mirror-guard.sh — checks the shell copies of the
+# namespace derivation and the charset literal.
 #
 # WHAT IS BEING GUARDED — AND WHAT IS NOT
 # ---------------------------------------
@@ -100,9 +100,9 @@ echo "namespace mirror — 11 hand-transcribed derivation sites in 6 files; 10 c
 # count above (server's charset is in config.go while its label/root derivation is
 # in onboarding.go — which is why the two lists differ). Only four are grepped
 # here. cli/ocagent's literal is compared against nothing: its only cover is
-# TestFallbackAgentsHome in cli/ocagent/config_test.go, whose literal
-# accept/reject cases would catch a loosened or tightened charset only where a
-# case happens to sit on the changed boundary.
+# the literal cases in cli/ocagent/config_test.go (TestFallbackAgentsHome and
+# TestLoadConfig), which would catch a loosened or tightened charset only where
+# a case happens to sit on the changed boundary.
 CHARSET="$(sed -n 's/^# charset	//p' "$TABLE" | head -1)"
 if [[ -z "$CHARSET" ]]; then
   echo "FATAL: $TABLE carries no '# charset<TAB><regex>' line — the charset is unpinned" >&2
