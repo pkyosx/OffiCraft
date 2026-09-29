@@ -40,8 +40,8 @@ func buildCodexLaunchCommand(wardenBin, codexBin, workdir, personaFile, tokenFil
 	pairs := [][2]string{
 		{"OC_BASE", base},
 		{"OC_ID", agentID},
-		{"OC_SESSION", session},
-		{"OC_TMUX_SOCKET", socket},
+		{sessionEnv, session},
+		{tmuxSocketEnv, socket},
 	}
 	pairs = append(pairs, extraEnv...)
 	kvs := []string{`OC_TOKEN="$(/bin/cat ` + shellQuote(tokenFile) + `)"`}

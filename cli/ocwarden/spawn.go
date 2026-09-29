@@ -25,6 +25,13 @@ const (
 
 	paneCols = 160
 	paneRows = 50
+
+	// Read by the member's ocagent (cli/ocagent/listen.go). Rename one side only
+	// and both modules stay green while the member silently reads nothing;
+	// bin/listen-notice-mirror-guard.py holds the two copies equal.
+	sessionEnv    = "OC_SESSION"
+	tmuxSocketEnv = "OC_TMUX_SOCKET"
+	agentHomeEnv  = "OC_AGENT_HOME"
 )
 
 type StartParams struct {
@@ -220,8 +227,8 @@ func buildLaunchCommandWithEnv(claudeBin, workdir, mcpConfigPath, appendSys, tok
 	cd := claudeChildEnvPrologue(workdir, envRendered, ch)
 	pairs := [][2]string{
 		{"OC_BASE", base},
-		{"OC_SESSION", session},
-		{"OC_TMUX_SOCKET", socket},
+		{sessionEnv, session},
+		{tmuxSocketEnv, socket},
 	}
 	pairs = append(pairs, extraEnv...)
 	// LAST in the export list, so a same-named pair from extraEnv cannot win.
@@ -288,8 +295,8 @@ func buildListenerLaunchCommand(workdir, tokenFile, base, session, socket string
 	kvs := []string{`OC_TOKEN="$(/bin/cat ` + shellQuote(tokenFile) + `)"`}
 	pairs := [][2]string{
 		{"OC_BASE", base},
-		{"OC_SESSION", session},
-		{"OC_TMUX_SOCKET", socket},
+		{sessionEnv, session},
+		{tmuxSocketEnv, socket},
 	}
 	pairs = append(pairs, extraEnv...)
 	for _, p := range pairs {
@@ -675,7 +682,7 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 	// agents share one sse-cursor / context_report.stamp dir.
 	var extraEnv [][2]string
 	if d.Namespace != "" {
-		extraEnv = append(extraEnv, [2]string{"OC_AGENT_HOME", d.Home})
+		extraEnv = append(extraEnv, [2]string{agentHomeEnv, d.Home})
 	}
 	// OC_EFFORT lets the statusLine reporter see the effort (a --effort flag never
 	// reaches it); same empty→"medium" default as the flag. For codex an unrecognised

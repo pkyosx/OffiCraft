@@ -29,6 +29,7 @@ GUARD = ROOT / "bin" / "listen-notice-mirror-guard.py"
 RUN = "cli/ocagent/listen_run.go"
 ACK = "cli/ocagent/listen.go"
 SIDECAR = "cli/ocwarden/codex_session.go"
+SPAWNER = "cli/ocwarden/spawn.go"
 
 # (name, file, the exact text to replace, what to replace it with).
 # Each is a ONE-SIDED change: the point is that one side moving must redden, and
@@ -77,6 +78,28 @@ MUTANTS: Tuple[Tuple[str, str, str, str], ...] = (
         "the listener renames the ack switch",
         ACK, 'const listenAckEnv = "OC_LISTEN_ACK"',
         'const listenAckEnv = "OC_LISTEN_ACK2"',
+    ),
+    (
+        # T-278: each of these left both module suites green when renamed on one
+        # side together with that side's own test expectations.
+        "the spawner renames the session variable",
+        SPAWNER, '\tsessionEnv    = "OC_SESSION"',
+        '\tsessionEnv    = "OC_SESSION_NAME"',
+    ),
+    (
+        "the member renames the tmux socket variable",
+        ACK, '\ttmuxSocketEnv = "OC_TMUX_SOCKET"',
+        '\ttmuxSocketEnv = "OC_TMUX_SOCK"',
+    ),
+    (
+        "the member renames the agents home variable",
+        ACK, '\tagentHomeEnv  = "OC_AGENT_HOME"',
+        '\tagentHomeEnv  = "OC_AGENTS_HOME"',
+    ),
+    (
+        "the spawner's agents home constant is renamed away",
+        SPAWNER, '\tagentHomeEnv  = "OC_AGENT_HOME"',
+        '\tagentsHomeEnv = "OC_AGENT_HOME"',
     ),
     (
         # 🔴 The unpaired-constant fix used to have a shape-shaped hole in it:
@@ -190,7 +213,7 @@ RESPELLINGS = (
 
 def stage() -> Path:
     tmp = Path(tempfile.mkdtemp(prefix="listen-notice-mirror-selftest-"))
-    for rel in (RUN, ACK, SIDECAR):
+    for rel in (RUN, ACK, SIDECAR, SPAWNER):
         dst = tmp / rel
         dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(ROOT / rel, dst)
