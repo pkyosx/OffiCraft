@@ -36,7 +36,8 @@
 //               opt-in class exists for the 使用說明 doc page only: repo-relative
 //               `*.md` targets resolved through `resolveDocLink` into IN-APP
 //               navigation (T-68f1) — see the prop's doc comment. Bare
-//               http/https URLs are ALSO autolinked, everywhere, with no flag
+//               http/https URLs — and bare host-less compare paths
+//               (`/diff?…`, no other path) — are ALSO autolinked, everywhere, with no flag
 //               and no per-surface opt-in (T-59) — the rule runs after the
 //               tokenizer, so it only ever sees leftover plain text; see the
 //               block comment above `renderInline`. A FOURTH class is our own
@@ -54,7 +55,7 @@ import {
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
-import { diffParamsFromHref } from "../lib/diffLink";
+import { DIFF_PATH, diffParamsFromHref } from "../lib/diffLink";
 import { useDiffOpener } from "../hooks/useDiffOpener";
 
 interface MarkdownProps {
@@ -246,9 +247,11 @@ function ExternalOrDiffLink({ href, label }: { href: string; label: string }) {
 // 4,829 URLs on the live system are bold-wrapped, and a bold URL is still a
 // URL.)
 //
-// It is NOT a loosening of SAFE_URL_RE: the pattern only matches http:// and
-// https://, so "javascript:", "data:", "vbscript:" and protocol-relative
-// "//evil.com" cannot spell themselves with it and stay plain text as before.
+// It is NOT a loosening of SAFE_URL_RE: the pattern only matches http://,
+// https:// and the bare compare path (which must also parse as one — see
+// diffParamsFromHref), so "javascript:", "data:", "vbscript:", protocol-relative
+// "//evil.com" and any other bare "/path" cannot spell themselves with it and
+// stay plain text as before.
 //
 // WHERE THE URL STOPS. Two mechanisms, and the split between them is
 // deliberate — measured against 2,552 real bare URLs scanned out of chat
@@ -282,7 +285,16 @@ const URL_TAIL_PUNCT = ")]}.,!?;:'\"";
 // Only stripped when the URL holds no matching opener. Full-width brackets are
 // absent on purpose: they never enter a URL at all (mechanism 1).
 const URL_TAIL_BRACKETS: Record<string, string> = { ")": "(", "]": "[", "}": "{" };
-const BARE_URL_RE = /https?:\/\/[^\s<>"`（）「」『』【】。，、；：！？…]+/gi;
+const URL_BODY = '[^\\s<>"`（）「」『』【】。，、；：！？…]+';
+// The second alternative is the host-less compare path `ocagent diff` prints.
+// It must start a token (whitespace, an opening bracket/quote or non-ASCII
+// before it), so the "/diff" inside "//evil.com/diff?…" or "a/diff?…" is not a
+// match; a full http(s) url containing /diff is consumed by the first
+// alternative before the scan ever reaches its path.
+const BARE_URL_RE = new RegExp(
+  `https?:\\/\\/${URL_BODY}|(?<![^\\s"'\`(<>\\[{\\u0080-\\uffff])${DIFF_PATH}\\?${URL_BODY}`,
+  "gi",
+);
 // A URL still needs a non-empty authority after trimming: "https://." trims
 // down to "https://", which is not a link.
 const URL_HAS_HOST_RE = /^https?:\/\/[^/?#]/i;
@@ -312,7 +324,7 @@ function trimUrlTail(url: string): string {
   return url.slice(0, end);
 }
 
-/** Turn bare http(s) URLs inside one run of plain text into anchors. */
+/** Turn bare http(s) URLs and bare compare paths inside one run of plain text into anchors. */
 function autolinkBareUrls(text: string): ReactNode[] {
   BARE_URL_RE.lastIndex = 0;
   const out: ReactNode[] = [];
@@ -323,7 +335,10 @@ function autolinkBareUrls(text: string): ReactNode[] {
     const url = trimUrlTail(m[0]);
     // Re-scan whatever the tail trim gave back, so nothing is skipped.
     BARE_URL_RE.lastIndex = m.index + url.length;
-    if (!URL_HAS_HOST_RE.test(url)) {
+    const linkable = url.startsWith("/")
+      ? diffParamsFromHref(url) !== null
+      : URL_HAS_HOST_RE.test(url);
+    if (!linkable) {
       if (BARE_URL_RE.lastIndex <= m.index) BARE_URL_RE.lastIndex = m.index + 1;
       continue;
     }
