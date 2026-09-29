@@ -45,11 +45,11 @@ func realTmuxKill(bin, socket, session string) error {
 // Mirrors makeSessionProbe's env reading — same variables, same
 // defaultTmuxSocket fallback.
 func tmuxSessionFromEnv(env func(string) string) (socket, session string, ok bool) {
-	session = strings.TrimSpace(env("OC_SESSION"))
+	session = strings.TrimSpace(env(sessionEnv))
 	if session == "" {
 		return "", "", false
 	}
-	socket = strings.TrimSpace(env("OC_TMUX_SOCKET"))
+	socket = strings.TrimSpace(env(tmuxSocketEnv))
 	if socket == "" {
 		socket = defaultTmuxSocket
 	}

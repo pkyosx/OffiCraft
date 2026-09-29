@@ -1,7 +1,16 @@
 #!/usr/bin/env python3
-"""listen-notice-mirror-guard — the listener's wire to the codex sidecar is
-spelled twice, in two Go modules that cannot import each other. This is the only
-thing that reads both spellings.
+"""listen-notice-mirror-guard — the listener's wire to the codex sidecar, and
+the environment names the spawner hands every member, are spelled twice, in two
+Go modules that cannot import each other. This is the only thing that reads both
+spellings.
+
+THE SPAWN ENVIRONMENT (T-278). `cli/ocwarden/spawn.go` exports OC_SESSION,
+OC_TMUX_SOCKET and OC_AGENT_HOME into the member's launch line and
+`cli/ocagent/listen.go` names what the member reads. Measured by renaming each
+one: renaming it on one side together with that side's own test expectations
+leaves both modules green, and the member then silently reads nothing — no
+session probe, `ocagent suicide` kills nothing, the agents home falls back to
+the derived one. Same shape as the ack switch below, same remedy.
 
 WHAT IS ACTUALLY TWO COPIES (T-265). `cli/ocagent` prints the transport notices
 and reads the ack switch out of its environment; `cli/ocwarden` matches those
@@ -12,7 +21,7 @@ that happen to agree.
 
 WHY A MIRROR CHECK AND NOT ONE SHARED CONSTANT. Sharing would mean a fifth
 module plus a workspace file, i.e. changing how all four binaries are built, for
-six strings. The tree already answers this question the same way twice — the
+a handful of strings. The tree already answers this question the same way twice — the
 namespace derivation and the http/https rule are both hand-copied across modules
 and both guarded by a mirror check rather than merged (bin/tests/
 namespace-mirror-guard.sh, bin/tests/base-scheme-mirror-guard.sh). This is the
@@ -53,9 +62,12 @@ the gaps off the pipeline instead:
     Every transformation the input goes through discards a class of thing, and
     the class it discards is what this check cannot see.
 
-  1. READ THREE NAMED FILES ⇒ discards every other file. A third copy of one of
+  1. READ FOUR NAMED FILES ⇒ discards every other file. A third copy of one of
      these strings in server/ocserverd or cli/officraft is invisible, and the
-     green says nothing about it.
+     green says nothing about it. For the spawn environment that includes a site
+     that bypasses the constant: `env("OC_SESSION_X")` written inline in
+     cli/ocagent/suicide.go, or a literal pair in a new launch builder, is not
+     read.
   2. LOCATE CONSTANTS BY NAME from a fixed pair list ⇒ used to discard any
      constant not on the list. That was F1, and `unpaired_notices` closes it:
      a `notice*` string constant in these files that no pair compares is now a
@@ -96,6 +108,11 @@ ROOT = Path(__file__).resolve().parent.parent
 PRODUCER_RUN = "cli/ocagent/listen_run.go"
 PRODUCER_ACK = "cli/ocagent/listen.go"
 CONSUMER = "cli/ocwarden/codex_session.go"
+SPAWNER = "cli/ocwarden/spawn.go"
+
+# Environment names the spawner exports and the member reads: same constant name
+# on both sides, value compared for equality.
+SPAWN_ENV = ("sessionEnv", "tmuxSocketEnv", "agentHomeEnv")
 
 # Every constant this check reads, as (file, name). Nothing is optional: a name
 # that has gone missing is reported, because "I could not find it" and "it still
@@ -113,7 +130,7 @@ WANTED: Tuple[Tuple[str, str], ...] = (
     (CONSUMER, "noticeBatchPrefix"),
     (CONSUMER, "noticeTransportHead"),
     (CONSUMER, "listenAckEnv"),
-)
+) + tuple((side, name) for name in SPAWN_ENV for side in (SPAWNER, PRODUCER_ACK))
 
 # The three notices the disconnect-notice policy says must reach the agent. Each
 # consumer constant is the producer's line prefix followed by the producer's own
@@ -395,6 +412,14 @@ def compare(values: Dict[Tuple[str, str], str]) -> List[str]:
             f"{ack_b!r} — the ack gate never turns on and every undelivered message "
             "is marked read"
         )
+
+    for name in SPAWN_ENV:
+        exported, read = values.get((SPAWNER, name)), values.get((PRODUCER_ACK, name))
+        if exported is not None and read is not None and exported != read:
+            rows.append(
+                f"the spawner exports {exported!r} as {name} but the member reads "
+                f"{read!r} — the member silently runs without that value"
+            )
     return rows
 
 
@@ -404,7 +429,7 @@ def run(root: Path) -> int:
     if rows:
         listing = "\n  ".join(rows)
         print(
-            "FAIL — the listener and the codex sidecar no longer spell the same "
+            "FAIL — ocagent and ocwarden no longer spell the same "
             f"contract:\n  {listing}\n\n"
             "  These are two copies in two Go modules that cannot import each other, so\n"
             "  nothing but this check compares them and each side's own tests stay green\n"
@@ -415,7 +440,7 @@ def run(root: Path) -> int:
         return 1
     print(
         f"[listen-notice-mirror-guard] all green ({len(WANTED)} constants read across "
-        "3 files in 2 modules, 6 pairs compared, no unpaired notice constant)"
+        f"{len({rel for rel, _ in WANTED})} files in 2 modules, no unpaired notice constant)"
     )
     return 0
 

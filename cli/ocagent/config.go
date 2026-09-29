@@ -72,7 +72,7 @@ func loadConfig(env func(string) string) Config {
 		id = jwtSub(token)
 	}
 
-	home := env("OC_AGENT_HOME")
+	home := env(agentHomeEnv)
 	if home == "" {
 		home = fallbackAgentsHome(env, os.UserHomeDir)
 	}

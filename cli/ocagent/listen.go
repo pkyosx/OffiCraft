@@ -81,6 +81,13 @@ const (
 	// agent sessions are spawned on); nothing checks the two agree.
 	defaultTmuxSocket = "officraft"
 
+	// Set by the spawner (cli/ocwarden/spawn.go). Rename one side only and both
+	// modules stay green while this side silently reads nothing;
+	// bin/listen-notice-mirror-guard.py holds the two copies equal.
+	sessionEnv    = "OC_SESSION"
+	tmuxSocketEnv = "OC_TMUX_SOCKET"
+	agentHomeEnv  = "OC_AGENT_HOME"
+
 	chatTopic      = "chat"
 	memberTopic    = "member"
 	desiredOffline = "offline"
@@ -258,11 +265,11 @@ const (
 // ocwarden spawner exports OC_SESSION / OC_TMUX_SOCKET), so "my session is gone"
 // is the host-local death signal.
 func makeSessionProbe(env func(string) string) func() probeVerdict {
-	session := strings.TrimSpace(env("OC_SESSION"))
+	session := strings.TrimSpace(env(sessionEnv))
 	if session == "" {
 		return nil
 	}
-	socket := strings.TrimSpace(env("OC_TMUX_SOCKET"))
+	socket := strings.TrimSpace(env(tmuxSocketEnv))
 	if socket == "" {
 		socket = defaultTmuxSocket
 	}
