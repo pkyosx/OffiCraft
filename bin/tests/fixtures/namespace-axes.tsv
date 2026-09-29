@@ -4,14 +4,8 @@
 # --------------------
 # The same namespace→(root, launchd label, tmux socket, tokfile) derivation is
 # implemented across SIX FILES / ELEVEN CODE SITES, in three languages, across
-# three Go modules that cannot import each other. Count SITES, not files: this
-# header said FOUR, the guard said FIVE, and a later revision said SEVEN — all
-# wrong. bin/install.sh carries five sites on its own, including the ocwarden
-# label, which is the one this ticket is about and the one that was missing from
-# every list. cli/ocagent/config.go was missing for a different reason: it was
-# listed as a non-guarded AXIS rather than as a derivation site, and it had no
-# namespace in it at all. The FILE number itself has now been wrong four times,
-# which is the argument in this header's own first line: count SITES.
+# three Go modules that cannot import each other. Count SITES, not files:
+# bin/install.sh carries five sites on its own, including the ocwarden label.
 #
 #   cli/ocagent/config.go         fallbackAgentsHome (agents-home fallback root)
 #   cli/ocwarden/namespace.go     wardenLabelFor / officraftRootFor /
@@ -38,19 +32,13 @@
 # ticket calls this the single most fragile line in the whole case, and until
 # this file there was nothing but a `// keep them in sync` comment holding it.
 #
-# HOW IT IS ENFORCED
-# ------------------
-# Every implementation is tested against THIS TABLE, not against its neighbour.
-# Change one side and only that side goes red — which is what makes the failure
-# say WHICH copy drifted instead of merely that two copies differ:
-#
-#   cli/ocagent/namespace_mirror_test.go        (go test ./cli/ocagent/)
-#   cli/ocwarden/namespace_mirror_test.go       (go test ./cli/ocwarden/)
-#   server/ocserverd/onboarding_mirror_test.go  (go test ./server/ocserverd/)
-#   bin/tests/namespace-mirror-guard.sh         (the two bash copies + charset)
-#
-# The table is data, deliberately: adding a namespace case must not require
-# touching four implementations' test code.
+# WHAT READS IT
+# -------------
+# Only bin/tests/namespace-mirror-guard.sh (the two bash copies + the charset in
+# four of its five copies). ⚠️ No Go test reads this table: the Go copies are
+# pinned by literal expectations in their own module tests
+# (cli/ocagent/config_test.go, cli/ocwarden/namespace_test.go,
+# server/ocserverd/onboarding_test.go). Adding a row here tests nothing in Go.
 #
 # FORMAT (tab-separated; '#' comments and blank lines ignored)
 #   namespace <TAB> root_suffix <TAB> label <TAB> tmux_socket
