@@ -207,12 +207,13 @@ fi
 # The namespace→(root, launchd label) derivation is hand-copied across shell and
 # three Go modules that cannot import each other. The maintained list of copies,
 # and of which check covers each, is the header of namespace-mirror-guard.sh — do
-# not restate a count here. This guard covers the two shell copies and the
-# charset regex against the shared table; the Go copies are covered only by
-# literal expectations in their own module tests, not by that table. The
-# consequence of a one-character drift is not a wrong string — the server asks
-# launchd about a label the warden never registered, concludes "no warden here",
-# and installs a second one over the live job.
+# not restate a count here. This guard greps the two shell copies with
+# hard-coded patterns and text-matches the charset regex against the shared
+# table's charset line; the Go copies are covered only by literal expectations
+# in their own module tests. The consequence of a one-character drift is not a
+# wrong string — the server asks launchd about a label the warden never
+# registered, concludes "no warden here", and installs a second one over the
+# live job.
 NSMIRROR="$HERE/namespace-mirror-guard.sh"
 echo
 if [[ -f "$NSMIRROR" ]]; then

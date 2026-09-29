@@ -83,9 +83,9 @@ func loadConfig(env func(string) string) Config {
 
 // envNamespaceKey / namespaceShape / fallbackAgentsHome are a HAND-TRANSCRIBED
 // MIRROR of cli/ocwarden/namespace.go's envNamespaceKey / namespaceShape /
-// officraftRootFor; the shared truth is bin/tests/fixtures/namespace-axes.tsv.
-// ⚠️ Nothing checks THIS copy against that table: bin/tests/namespace-mirror-guard.sh
-// does not grep cli/ocagent, and config_test.go pins literal cases only.
+// officraftRootFor. ⚠️ Nothing compares this copy with ocwarden's or with
+// bin/tests/fixtures/namespace-axes.tsv: bin/tests/namespace-mirror-guard.sh does
+// not grep cli/ocagent, and config_test.go pins literal cases only.
 //
 // The namespace must be in the fallback: spawn exports OC_AGENT_HOME only for a
 // non-empty namespace, so a namespaced ocagent that loses it (hand-started or

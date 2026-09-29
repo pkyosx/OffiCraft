@@ -49,12 +49,12 @@
 #     `grep -rn 'officraft[-.]\$' bin/` is the cheap way to re-derive it before
 #     trusting it.
 #
-# Everything checked HERE is checked against ONE shared table,
-# fixtures/namespace-axes.tsv, so a drift names the copy that drifted; comparing
-# the copies to each other could only ever report THAT they differ.
-# ⚠️ The Go module tests above do NOT read that table: each pins its own literal
-# expected values. Editing the table changes what this file checks and nothing
-# the Go tests check.
+# ⚠️ The derivation checks HERE are hard-coded regexes, one per site; they do
+# NOT compare anything against the values in fixtures/namespace-axes.tsv. From
+# that table this file reads only the `# charset` line, and checks that the
+# empty-namespace row is present verbatim and at least one other row exists. The
+# namespaced rows' values are read by nothing, here or in Go: editing them
+# changes no check's outcome.
 #
 # WHAT THIS GUARD CANNOT SEE (stated so nobody reads its green as more than it is)
 #   - The Go derivations' VALUES. Those are checked by the three module tests
@@ -69,11 +69,11 @@
 # WHY THE SHELL COPIES GET A DIFFERENT TREATMENT
 # ----------------------------------------------
 # The Go copies are FUNCTIONS, so their tests call them and compare results. The
-# shell copies are variable assignments in the middle of a 1200-line installer.
+# shell copies are variable assignments in the middle of a long installer.
 # What no behavioural suite can see is the CHARSET: it is a regex literal, not a
 # derivation, and a copy looser than the others admits a namespace the rest will
 # refuse — one component then builds a path or label the others do not
-# recognise, which is precisely the split-brain this ticket exists to remove.
+# recognise: a split-brain install.
 #
 # EVERY MATCH BELOW IS TAKEN FROM CODE LINES ONLY (see code_only). These files
 # discuss the derivation and the charset at length in prose; a guard that greps
@@ -120,9 +120,11 @@ code_only() {
   sed -e 's://.*::' -e 's:[[:space:]]#.*::' -e 's:^[[:space:]]*#.*::' "$1"
 }
 
-# The Go copies check this regex BY VALUE in their own module tests; repeating a
-# text match for them here is cheap and catches the case where the literal and
-# the compiled shape are edited apart.
+# The Go copies' module tests only feed literal accept/reject cases through the
+# compiled regex (TestNamespaceFromEnv in cli/ocwarden/namespace_test.go, the
+# "invalid namespace" case in server/ocserverd/config_test.go); none compares the
+# regex source. The text match below is the only check that the source is
+# byte-identical to the table's charset line.
 for f in cli/ocwarden/namespace.go server/ocserverd/config.go bin/install.sh bin/ocserver; do
   n="$(code_only "$ROOT/$f" | grep -cF -- "$CHARSET")"
   if [[ "$n" -ge 1 ]]; then
@@ -174,8 +176,8 @@ check_derivation "uninstall-path label" bin/install.sh 'com\.officraft\.serve\$n
 # which is exactly why it is easy to overlook and why losing it is still bad: the
 # script would answer "no warden job is registered" for a machine that has one,
 # and the operator's next move is a reinstall on top of a live launchd job.
-# Behavioural cover: uninstall-guard.sh's namespaced section (whose fixture had
-# to start building warden/ before that branch was reachable at all).
+# Behavioural cover: uninstall-guard.sh's namespaced section, whose fixture must
+# build warden/ for that branch to be reachable.
 check_derivation "uninstall-path WARDEN label" bin/install.sh 'com\.officraft\.ocwarden\$ns_dot' 1 \
   "--uninstall --namespace would report the MAIN instance's warden job (or none) for the namespaced machine."
 
@@ -197,8 +199,7 @@ done
 # file runs under `set -uo pipefail`, and `grep -q` exits the moment it matches —
 # which closes the pipe, SIGPIPEs the still-writing `sed`, and makes pipefail
 # report the whole pipeline as failed. The guard then goes RED on a match, i.e.
-# exactly backwards. (Same shape as the `launchctl print | sed | head` fault this
-# ticket fixed in install.sh; it cost a debugging round here too.)
+# exactly backwards.
 for pair in "SERVE:com.officraft.serve" "AUTODEPLOY:com.officraft.autodeploy" "TUNNEL:com.officraft.tunnel"; do
   var="${pair%%:*}"; lit="${pair#*:}"
   if [[ "$(code_only "$ROOT/bin/ocserver" | grep -cE "^readonly ${var}_LABEL_BASE=\"${lit//./\\.}\"$")" -ge 1 ]]; then
@@ -209,8 +210,8 @@ for pair in "SERVE:com.officraft.serve" "AUTODEPLOY:com.officraft.autodeploy" "T
 done
 
 # ── the table itself must still contain the two rows that matter ────────────
-# A table that lost its empty-namespace row would let every check above pass
-# while the "main instance is byte-identical" claim went unverified.
+# The <empty> row is matched verbatim; for the rest only a row count is taken.
+# No check above or in Go derives anything from these rows.
 if grep -qE '^<empty>	<empty>	com\.officraft\.ocwarden	officraft$' "$TABLE"; then
   ok "the table still pins the EMPTY namespace to the historical literals"
 else
