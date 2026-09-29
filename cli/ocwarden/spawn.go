@@ -687,15 +687,6 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 	if d.Namespace != "" {
 		extraEnv = append(extraEnv, [2]string{agentHomeEnv, d.Home})
 	}
-	// OC_EFFORT lets the statusLine reporter see the effort (a --effort flag never
-	// reaches it); same empty→"medium" default as the flag. For codex an unrecognised
-	// effort diverges (normalizeCodexEffort coerces to "medium"); nothing reads
-	// OC_EFFORT for that decision today.
-	effortEnv := p.Effort
-	if effortEnv == "" {
-		effortEnv = "medium"
-	}
-	extraEnv = append(extraEnv, [2]string{"OC_EFFORT", effortEnv})
 
 	// The stale render is removed FIRST: a credential the owner deleted from the env
 	// file must not keep reaching the agent from the workdir.

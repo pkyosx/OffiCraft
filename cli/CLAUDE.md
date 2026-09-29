@@ -33,7 +33,7 @@
 ## 4. context、telemetry 與 command receipt
 
 - `context-report` 的 30 秒 stamp 表示「上一輪 POST 全部被 server 接受」；只在成功後寫，失敗不可蓋健康戳。退避另存每 agent 一份 `context_report.backoff`，連續失敗從 30 秒倍增至 300 秒封頂；status 0 的連線故障也算失敗，成功立即清退避。讀檔壞／缺要 fail-open。
-- session effort 取 statusLine payload 的 live `effort.level`，不是 `OC_EFFORT` 啟動意圖；model 送 `model.id`，不是 display name。兩者只送 `/api/monitoring/telemetry`，空值省略，不能塞進 `AgentContextIngestDTO`，也不能 fallback 回 roster/config。reported value 是 monitoring 的現況，不是 outsource editor 的 owner intent。
+- session effort 取 statusLine payload 的 live `effort.level`（成員的啟動環境不帶 effort）；model 送 `model.id`，不是 display name。兩者只送 `/api/monitoring/telemetry`，空值省略，不能塞進 `AgentContextIngestDTO`，也不能 fallback 回 roster/config。reported value 是 monitoring 的現況，不是 outsource editor 的 owner intent。
 - warden 的 `dispatched … OK` 只在 command receipt 真的送達 server 時可印。若 op 已執行但 receipt 未送達，印 executed-but-undelivered；op 本身失敗永遠優先於 receipt transport error。UNINSTALL 的 receipt 仍是硬條件，不能改成 best-effort。
 
 ## 5. agent listener 與 worker session

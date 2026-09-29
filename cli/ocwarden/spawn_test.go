@@ -107,7 +107,7 @@ const goldenClaudePurge = `for __oc_e in $(/usr/bin/env); do case $__oc_e in CLA
 const goldenInlineSettings = `{"statusLine":{"type":"command","command":"ocagent context-report"},"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"ocagent guard-bash"}]}],"PermissionRequest":[{"hooks":[{"type":"command","command":"ocagent guard-permission"}]}]}}`
 
 var goldenLaunchM1 = `cd /w/m1; ` + goldenClaudePurge + `unset CLAUDE_CONFIG_DIR; export OC_TOKEN="$(/bin/cat /w/m1/.oc-token)" ` +
-	`OC_BASE=http://127.0.0.1:7755 OC_SESSION=member-m1 OC_TMUX_SOCKET=officraft OC_EFFORT=medium ` +
+	`OC_BASE=http://127.0.0.1:7755 OC_SESSION=member-m1 OC_TMUX_SOCKET=officraft ` +
 	`HOME=/Users/wardenowner; ` +
 	`export PATH=/w/m1:"$PATH"; ` +
 	`exec /usr/local/bin/claude --dangerously-skip-permissions ` +
@@ -127,7 +127,7 @@ var goldenLaunchM1 = `cd /w/m1; ` + goldenClaudePurge + `unset CLAUDE_CONFIG_DIR
 // own session would make the listener outlive the member it speaks for, and the
 // station would read a dead member as online forever.
 const goldenListenerM1 = `cd /w/m1; export OC_TOKEN="$(/bin/cat /w/m1/.oc-token)" ` +
-	`OC_BASE=http://127.0.0.1:7755 OC_SESSION=member-m1 OC_TMUX_SOCKET=officraft OC_EFFORT=medium; ` +
+	`OC_BASE=http://127.0.0.1:7755 OC_SESSION=member-m1 OC_TMUX_SOCKET=officraft; ` +
 	`export PATH=/w/m1:"$PATH"; ` +
 	`exec ocagent listen --deliver-tmux`
 
@@ -320,14 +320,14 @@ func TestBuildLaunchCommandWithEnv(t *testing.T) {
 	want := `cd /w/m1; [ -f /w/m1/.oc-env ] && . /w/m1/.oc-env; ` + goldenClaudePurge + `unset CLAUDE_CONFIG_DIR; ` +
 		`export OC_TOKEN="$(/bin/cat /w/m1/.oc-token)" ` +
 		`OC_BASE=http://127.0.0.1:7755 OC_SESSION=member-m1 OC_TMUX_SOCKET=officraft-lab ` +
-		`OC_AGENT_HOME=/w OC_EFFORT=medium HOME=/Users/wardenowner; ` +
+		`OC_AGENT_HOME=/w HOME=/Users/wardenowner; ` +
 		`export PATH=/w/m1:"$PATH"; ` +
 		`exec /usr/local/bin/claude --dangerously-skip-permissions --disallowedTools AskUserQuestion ` +
 		`--mcp-config /w/m1/.mcp.json --effort medium --append-system-prompt APPEND ` +
 		`--settings '{"hooks":{}}'`
 	got := buildLaunchCommandWithEnv("/usr/local/bin/claude", "/w/m1", "/w/m1/.mcp.json", "APPEND",
 		"/w/m1/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft-lab", "", "medium",
-		`{"hooks":{}}`, [][2]string{{"OC_AGENT_HOME", "/w"}, {"OC_EFFORT", "medium"}}, "/w/m1/.oc-env", home)
+		`{"hooks":{}}`, [][2]string{{"OC_AGENT_HOME", "/w"}}, "/w/m1/.oc-env", home)
 	if got != want {
 		t.Errorf("launch line =\n%s\nwant\n%s", got, want)
 	}
@@ -1066,7 +1066,7 @@ func TestStart(t *testing.T) {
 			`cd /w/m1; [ -f /w/m1/.oc-env ] && . /w/m1/.oc-env; ` + goldenClaudePurge + `unset CLAUDE_CONFIG_DIR; ` +
 			`export OC_TOKEN="$(/bin/cat /w/m1/.oc-token)" ` +
 			`OC_BASE=http://127.0.0.1:7755 OC_SESSION=member-m1 OC_TMUX_SOCKET=officraft ` +
-			`OC_AGENT_HOME=/w OC_EFFORT=high HOME=/Users/wardenowner; ` +
+			`OC_AGENT_HOME=/w HOME=/Users/wardenowner; ` +
 			`export PATH=/w/m1:"$PATH"; ` +
 			`exec /usr/local/bin/claude --dangerously-skip-permissions --disallowedTools AskUserQuestion ` +
 			`--mcp-config /w/m1/.mcp.json --effort high ` +
@@ -1313,8 +1313,8 @@ func TestStart(t *testing.T) {
 		}
 		wantLaunch := "tmux -L officraft new-session -d -s member-m1 -x 160 -y 50 " +
 			`cd /w/m1; export OC_TOKEN="$(/bin/cat /w/m1/.oc-token)" ` +
-			`OC_BASE=http://127.0.0.1:7755 OC_ID=m1 OC_SESSION=member-m1 OC_TMUX_SOCKET=officraft ` +
-			`OC_EFFORT=high; export PATH=/w/m1:"$PATH"; ` +
+			`OC_BASE=http://127.0.0.1:7755 OC_ID=m1 OC_SESSION=member-m1 OC_TMUX_SOCKET=officraft; ` +
+			`export PATH=/w/m1:"$PATH"; ` +
 			`exec /Users/eva/.officraft/warden/ocwarden codex-session ` +
 			`--codex-bin /usr/local/bin/codex --workdir /w/m1 --persona /w/m1/persona.md ` +
 			`--agent-id m1 --model gpt-5 --effort high`
@@ -1352,8 +1352,8 @@ func TestStart(t *testing.T) {
 		}
 		wantLaunch := "tmux -L officraft new-session -d -s member-m1 -x 160 -y 50 " +
 			`cd /w/m1; export OC_TOKEN="$(/bin/cat /w/m1/.oc-token)" ` +
-			`OC_BASE=http://127.0.0.1:7755 OC_ID=m1 OC_SESSION=member-m1 OC_TMUX_SOCKET=officraft ` +
-			`OC_EFFORT=xxhigh; export PATH=/w/m1:"$PATH"; ` +
+			`OC_BASE=http://127.0.0.1:7755 OC_ID=m1 OC_SESSION=member-m1 OC_TMUX_SOCKET=officraft; ` +
+			`export PATH=/w/m1:"$PATH"; ` +
 			`exec /Users/eva/.officraft/warden/ocwarden codex-session ` +
 			`--codex-bin /usr/local/bin/codex --workdir /w/m1 --persona /w/m1/persona.md ` +
 			`--agent-id m1 --model gpt-5 --effort medium`

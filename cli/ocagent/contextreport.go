@@ -208,8 +208,8 @@ func modelEffortSegment(obj map[string]any) string {
 	return out
 }
 
-// 🔴 Never OC_EFFORT (the launch intent), and no fallback to it: monitoring
-// shows what the session IS (owner, 2026-07-31).
+// 🔴 No fallback to the launch-time or roster effort: monitoring shows what the
+// session IS (owner, 2026-07-31).
 func effortValue(payload string) string {
 	obj, _ := safeJSON(payload).(map[string]any)
 	return effortLevel(obj)
