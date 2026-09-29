@@ -473,6 +473,7 @@ describe("Markdown", () => {
       "see //evil.com/diff?before=att-0123456789ab&after=att-fedcba987654 here",
       "see /diffx?before=att-0123456789ab&after=att-fedcba987654 here",
       "see a/diff?before=att-0123456789ab&after=att-fedcba987654 here",
+      "see a/diff?x=(/diff?before=att-0123456789ab&after=att-fedcba987654) here",
       "see /diff?before=nope&after=att-fedcba987654 here",
     ])("leaves %j as plain text", (source) => {
       const c = renderMd(source);

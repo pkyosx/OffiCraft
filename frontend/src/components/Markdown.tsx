@@ -287,17 +287,23 @@ const URL_TAIL_PUNCT = ")]}.,!?;:'\"";
 const URL_TAIL_BRACKETS: Record<string, string> = { ")": "(", "]": "[", "}": "{" };
 const URL_BODY = '[^\\s<>"`（）「」『』【】。，、；：！？…]+';
 // The second alternative is the host-less compare path `ocagent diff` prints.
-// It must start a token (whitespace, an opening bracket/quote or non-ASCII
-// before it), so the "/diff" inside "//evil.com/diff?…" or "a/diff?…" is not a
-// match; a full http(s) url containing /diff is consumed by the first
-// alternative before the scan ever reaches its path.
-const BARE_URL_RE = new RegExp(
-  `https?:\\/\\/${URL_BODY}|(?<![^\\s"'\`(<>\\[{\\u0080-\\uffff])${DIFF_PATH}\\?${URL_BODY}`,
-  "gi",
-);
+// No lookbehind for its token-start rule (see startsToken): the default Vite
+// target includes Safari 14, where a lookbehind is a SyntaxError at module load.
+const BARE_URL_RE = new RegExp(`https?:\\/\\/${URL_BODY}|${DIFF_PATH}\\?${URL_BODY}`, "gi");
 // A URL still needs a non-empty authority after trimming: "https://." trims
 // down to "https://", which is not a link.
 const URL_HAS_HOST_RE = /^https?:\/\/[^/?#]/i;
+
+const TOKEN_OPENERS = "\"'`(<>[{";
+
+/** A bare compare path only counts when it begins a token, so the "/diff" in
+ * "//evil.com/diff?…" or "a/diff?…" is not a link. A full http(s) url that
+ * contains /diff never gets here: the first alternative consumes it whole. */
+function startsToken(text: string, index: number): boolean {
+  if (index === 0) return true;
+  const prev = text[index - 1];
+  return /\s/.test(prev) || TOKEN_OPENERS.includes(prev) || prev.charCodeAt(0) >= 0x80;
+}
 
 function countChar(s: string, ch: string): number {
   let n = 0;
@@ -332,6 +338,10 @@ function autolinkBareUrls(text: string): ReactNode[] {
   let m: RegExpExecArray | null;
   let key = 0;
   while ((m = BARE_URL_RE.exec(text)) !== null) {
+    if (m[0].startsWith("/") && !startsToken(text, m.index)) {
+      // lastIndex is already past the whole token; nothing later in it may match.
+      continue;
+    }
     const url = trimUrlTail(m[0]);
     // Re-scan whatever the tail trim gave back, so nothing is skipped.
     BARE_URL_RE.lastIndex = m.index + url.length;
