@@ -23,7 +23,7 @@ var planeASubcommands = []struct{ name, help string }{
 	{"suicide", "self-terminate: kill my own tmux session (OC_SESSION) → SSE drops → offline"},
 	{"download", "fetch a chat attachment blob to a local file (streaming; --out <dir>)"},
 	{"upload", "stream a local file into the attachment store (prints the att id; --mime <type>)"},
-	{"diff", "print a compare-screen URL for two attachment ids / document versions (--external mints a no-login link)"},
+	{"diff", "print a compare-screen link (a host-less /diff path) for two attachment ids / document versions (--external mints a no-login URL)"},
 	// guard-bash / guard-permission are wired by cli/ocwarden/spawn.go into every
 	// member's settings.json hooks, not run by hand; listed so an agent they
 	// refused can find them in --help.
