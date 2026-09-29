@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -599,7 +600,63 @@ func TestAnchorPreflight(t *testing.T) {
 	if err := anchorPreflight(rec.ops(), anchor); err == nil || err.Error() != want {
 		t.Errorf("err = %v, want %q", err, want)
 	}
+
+	// cli/officraft is a separate module, and every case above answers with a
+	// hard-coded exit code; only running the real anchor through the production
+	// ops can notice the two sides drifting apart, which would otherwise make
+	// anchorPreflight fail closed on every machine with no symptom.
+	t.Run("the production preflight agrees with the real officraft binary", func(t *testing.T) {
+		probe := buildExecProbe(t, preflightProbeSource)
+		preflight := func(t *testing.T, anchorPath string) string {
+			t.Helper()
+			cmd := exec.Command(probe, anchorPath)
+			cmd.Env = append(os.Environ(), "OCWARDEN_PREFLIGHTPROBE=1")
+			out, err := cmd.Output()
+			if err != nil {
+				t.Fatalf("run the preflight probe: %v", err)
+			}
+			return string(out)
+		}
+
+		t.Run("the real officraft binary rejects --preflight with exit 2 and is accepted", func(t *testing.T) {
+			anchor := filepath.Join(t.TempDir(), "officraft")
+			build := exec.Command("go", "build", "-o", anchor, ".")
+			build.Dir = filepath.Join("..", "officraft")
+			if out, err := build.CombinedOutput(); err != nil {
+				t.Fatalf("build the real anchor: %v\n%s", err, out)
+			}
+			if got := preflight(t, anchor); got != "<nil>" {
+				t.Errorf("anchorPreflight(real officraft) gave %q, want nil — cli/officraft and cutover.go no longer agree on how the anchor answers an argument", got)
+			}
+		})
+
+		t.Run("a stand-in that exits 0 is refused", func(t *testing.T) {
+			accepting := filepath.Join(t.TempDir(), "officraft")
+			if err := os.WriteFile(accepting, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+				t.Fatalf("stage the stand-in: %v", err)
+			}
+			if got := preflight(t, accepting); !strings.Contains(got, "exited 0, want 2") {
+				t.Errorf("anchorPreflight(exit-0 stand-in) gave %q, want the exit-0 refusal", got)
+			}
+		})
+	})
 }
+
+const preflightProbeSource = `package main
+
+import (
+	"fmt"
+	"os"
+)
+
+func init() {
+	if os.Getenv("OCWARDEN_PREFLIGHTPROBE") != "1" {
+		return
+	}
+	fmt.Print(anchorPreflight(realCutoverOps(), os.Args[1]))
+	os.Exit(0)
+}
+`
 
 func TestAcquireCutoverLock(t *testing.T) {
 	const lock = "/Users/eva/.officraft/warden/cutover.lock"

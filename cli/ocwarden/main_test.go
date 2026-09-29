@@ -956,15 +956,15 @@ func init() {
 }
 `
 
-// buildExecProbe compiles the ocwarden package WITH execProbeSource added to it
-// and returns the binary's path.
+// buildExecProbe compiles the ocwarden package WITH source added to it and
+// returns the binary's path.
 //
 // A go-test binary is refused before exec.Command runs, so observe the
 // production runner through a separate binary with a harmless shell command.
 //
 // `go build -overlay` adds the file to the real package directory as the compiler
 // sees it, so what runs is the shipped source of execRunner, not a copy of it.
-func buildExecProbe(t *testing.T) string {
+func buildExecProbe(t *testing.T, source string) string {
 	t.Helper()
 	pkg, err := filepath.Abs(".")
 	if err != nil {
@@ -972,7 +972,7 @@ func buildExecProbe(t *testing.T) string {
 	}
 	box := t.TempDir()
 	src := filepath.Join(box, "execprobe.go")
-	if err := os.WriteFile(src, []byte(execProbeSource), 0o600); err != nil {
+	if err := os.WriteFile(src, []byte(source), 0o600); err != nil {
 		t.Fatalf("write probe source: %v", err)
 	}
 	overlay := filepath.Join(box, "overlay.json")
@@ -995,7 +995,7 @@ func buildExecProbe(t *testing.T) string {
 }
 
 func TestExecRunnerFailureOutput(t *testing.T) {
-	probe := buildExecProbe(t)
+	probe := buildExecProbe(t, execProbeSource)
 	const answer = "example command failure"
 	ask := func(t *testing.T, mode string) string {
 		t.Helper()
