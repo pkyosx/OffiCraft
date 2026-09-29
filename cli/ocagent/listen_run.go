@@ -172,7 +172,7 @@ func (l *listener) noteDisconnect(format string, args ...any) {
 	l.logf(noticeDisconnected+" — "+format+"%s"+
 		" (retrying on the same schedule, quietly; the next transport line you see "+
 		"is either the reconnect or a give-up)",
-		append(append([]any{}, args...), baseAddressOrigin(l.cfg.BaseConfigured))...)
+		append(append([]any{}, args...), baseAddressOrigin(l.cfg))...)
 }
 
 func (l *listener) stopRetrying(reason string) int {
@@ -201,11 +201,15 @@ func stationVerdict(prev, cur string, firstConnect bool) string {
 // never empty, and loopback alone is no tell — cli/ocwarden/testdata/
 // golden_launch.txt exports OC_BASE=http://127.0.0.1:7755 on purpose.
 // 🔴 Text only, never a refusal or exit (owner ruling rc-55a969718c98, option [1]).
-func baseAddressOrigin(configured bool) string {
-	if configured {
-		return ""
+// That covers a malformed base too.
+func baseAddressOrigin(cfg Config) string {
+	if !cfg.BaseConfigured {
+		return " [⚠ address GUESSED — OC_BASE is not set, so nobody chose this station]"
 	}
-	return " [⚠ address GUESSED — OC_BASE is not set, so nobody chose this station]"
+	if cfg.BaseMalformed {
+		return " [⚠ address MALFORMED — OC_BASE must be http:// or https:// followed by a host]"
+	}
+	return ""
 }
 
 // Echo suppression (spec/sse.md §2.3): an agent connection only receives frames
@@ -344,7 +348,7 @@ func (l *listener) connectOnce(ctx context.Context) (opened, activity, selfExit 
 	}
 	l.inOutage = false
 	l.logf(noticeConnected+" — streaming %s%s%s (⇒ online while held)%s%s%s",
-		l.cfg.Base, eventsPath, baseAddressOrigin(l.cfg.BaseConfigured), verdict, station, agent)
+		l.cfg.Base, eventsPath, baseAddressOrigin(l.cfg), verdict, station, agent)
 
 	drainReplyCards(l.api, l.cfg, l.replySeen, l.out)
 	l.drainChatNow()
@@ -451,7 +455,7 @@ func runListen(cfg Config, env func(string) string, once bool, out io.Writer) in
 	out = &stampWriter{inner: out, stamp: stamper.suffix}
 
 	// OC_BASE CLASSIFICATION: ANNOUNCED, NEVER REFUSED — the only subcommand in
-	// that category: an unset OC_BASE is named on the connect and disconnect lines
+	// that category: an unset or malformed OC_BASE is named on the connect and disconnect lines
 	// (baseAddressOrigin), never refused.
 	//
 	// 🔴 Not refusing IS the owner ruling (rc-55a969718c98, option [1]): here a
