@@ -13,17 +13,16 @@
 #
 # The frontend copy is temporary: once DocumentHistoryDTO carries a per-revision
 # `restorable` + `reason` (a frozen-wire change, blocked on owner approval) it is
-# deleted and this table loses half its readers. Until then a drift does not
+# deleted and this table loses its only reader. Until then a drift does not
 # produce an error anywhere — it produces a cockpit that LIES: a row shown as
 # restorable that the server refuses, or worse, a perfectly good revision greyed
 # out with a reason that is not true. Neither side would notice.
 #
-# So both sides are checked against THIS table rather than against each other.
-# A mock of one side inside the other's test proves only that the mock matches;
-# the table is the shared truth, and a drift names the side that drifted.
+# Only the TS side is checked against THIS table:
 #
-#   server/ocserverd/doc_cap_mirror_test.go   the Go half
-#   frontend/src/api/docCap.test.ts           the TS half
+#   frontend/src/api/docCap.test.ts
+#
+# Nothing in Go reads it, so a drift in DocCapBlocked reddens nothing here.
 #
 # THE RULE (both sides, boundaries included)
 # ------------------------------------------

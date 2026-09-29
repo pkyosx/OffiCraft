@@ -1,7 +1,5 @@
-// api/mock.boot-doc-registry.test.ts — the cockpit's half of the boot-document
-// registry mirror (T-3201). The twin is
-// server/ocserverd/boot_doc_registry_mirror_test.go and the reasoning lives in
-// bin/tests/fixtures/boot-doc-registry.tsv.
+// api/mock.boot-doc-registry.test.ts — pins the cockpit to
+// bin/tests/fixtures/boot-doc-registry.tsv; the reasoning lives in its header.
 //
 // 🔴 THE FAILURE THIS EXISTS FOR IS SILENT. A document ships, the server serves
 // it, and the settings page simply has no row for it — no error, no blank page,
@@ -13,10 +11,11 @@
 // the frozen spec's `BootDocKind` enum by the assignment in `toBootDoc` — those
 // two halves need no test. This file pins the COCKPIT's list (the settings
 // rows, and the mock that stands in for the server in every other frontend
-// test) to the SHARED TABLE the server's own registry is pinned to. Checking
-// the cockpit against the mock alone would only prove the mock agrees with
-// itself: both live in this repo half, so both would go stale together the day
-// a document ships on the server.
+// test) to the SHARED TABLE. The server is checked against that table only for
+// has_head, by conformance/test_rest_happy.py. Checking the cockpit against the
+// mock alone would only prove the mock agrees with itself: both live in this
+// repo half, so both would go stale together the day a document ships on the
+// server.
 //
 // ⚠️ IT NO LONGER READS A LISTING. `GET /api/boot-docs` was removed by the same
 // ruling that added the enum: a listing could not go stale but could not make

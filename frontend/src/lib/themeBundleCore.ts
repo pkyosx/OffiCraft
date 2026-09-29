@@ -134,13 +134,12 @@ export const MAX_WORDING_VALUE_LEN = 200;
 // what ran it out.
 //
 // PRECISELY WHAT WENT RED, because "ran out" is easy to misread: the cap 1200
-// was never EXCEEDED (the whitelist is far below it). What failed is the
-// 50-entry spare the mirror test demands ABOVE the whitelist —
-// server/ocserverd/wording_cap_mirror_test.go asserts
-// cap >= len(messageKeys) + 50. T-36's first two keys
-// (chat.mdPreview.openInNewTab, chat.mdPreview.newTabStaticNote) took the
-// whitelist 1,149 → 1,151, so 1200 − 1151 = 49 < 50 and that assertion is the
-// one that went red. T-36 ships THREE keys in total — the third,
+// was never EXCEEDED (the whitelist is far below it). What failed is the rule
+// that the cap keep a 50-entry spare ABOVE the whitelist,
+// cap >= len(messageKeys) + 50 (asserted by themeBundleCore.test.ts). T-36's
+// first two keys (chat.mdPreview.openInNewTab, chat.mdPreview.newTabStaticNote)
+// took the whitelist 1,149 → 1,151, so 1200 − 1151 = 49 < 50 and that rule
+// is the one that went red. T-36 ships THREE keys in total — the third,
 // chat.mdPreview.unavailableOpenInNewTab, landed after this cap was raised —
 // leaving the whitelist at 1,152. Whoever sizes this cap next needs to know the
 // old estimate was wrong, not merely what the number is today.
@@ -155,8 +154,7 @@ export const MAX_WORDING_VALUE_LEN = 200;
 // it. Do not "improve" this into a computed value.
 //
 // Raise this together with its Go twin (maxWordingEntriesPerLang in
-// server/ocserverd/wording_bundle.go); they are asserted equal, so moving one
-// alone is red.
+// server/ocserverd/wording_bundle.go); nothing compares the two.
 export const MAX_WORDING_ENTRIES_PER_LANG = 2000;
 
 // Font overlay bound (T-16a1 P4) — the twin of maxFontValueLen in
@@ -180,9 +178,8 @@ export const MAX_FONT_VALUE_LEN = 128;
 // premise was that both went through ONE gate, which this split removes).
 // Relaxing the wallpaper must NOT relax the glyph, so avatars stay at 64 KiB.
 //
-// Drift against the Go side is caught by bin/tests/fixtures/image-cap-cases.tsv
-// (read by imageCap.test.ts here and image_cap_mirror_test.go there), not by
-// this comment.
+// bin/tests/fixtures/image-cap-cases.tsv is read by imageCap.test.ts here;
+// nothing in Go reads it, so drift against the Go side is not caught.
 export const MAX_AVATAR_BYTES = 64 * 1024;
 export const MAX_AVATAR_VALUE_LEN = 96 * 1024;
 export const MAX_BACKGROUND_BYTES = 512 * 1024;

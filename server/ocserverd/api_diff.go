@@ -18,8 +18,9 @@ import (
 )
 
 // ⚠️ cli/ocagent/diff.go builds the internal url from these same spellings
-// and cannot import them (separate Go module); its mirror test confronts its
-// copy against THIS file's source.
+// and cannot import them (separate Go module); nothing compares its copy with
+// these. frontend/src/lib/diffLink.mirror.test.ts reads THIS file's source to
+// check the cockpit's copy.
 const (
 	diffPagePath        = "/diff"
 	diffParamBefore     = "before"

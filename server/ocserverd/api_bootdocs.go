@@ -53,9 +53,10 @@ type bootDocReg struct {
 // only the marker makes every write a 500 and every notice ""; dropping only
 // Split hands the owner an editable body that contains the read-only head.
 //
-// ⚠️ read_only is mirrored in bin/tests/fixtures/boot-doc-registry.tsv (the
-// cockpit's own copy); the mirror test on both sides makes a one-sided change
-// red instead of invisible.
+// ⚠️ read_only is mirrored in bin/tests/fixtures/boot-doc-registry.tsv, which
+// only the cockpit's mock.boot-doc-registry.test.ts compares. On this side
+// TestBootDocRegistry_NoDocumentIsReadOnly fails on any read-only entry without
+// reading that table.
 //
 // Join is a blank line where the body opens on a list or paragraph, so the
 // head's statement of fact does not fold into the first instruction.

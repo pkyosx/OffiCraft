@@ -1482,9 +1482,10 @@ _BOOT_DOC_EDIT = "# conformance edit — 系統互動 / 啟動步驟\n\nnot the 
 # this one, in Python, in a suite the person editing the seeds said out loud
 # they had not run, went red on documents that were entirely correct.
 #
-# bin/tests/fixtures/boot-doc-registry.tsv is the one copy the server's and the
-# cockpit's guards are already pinned to, so reading it here makes three sides
-# agree with ONE table instead of four sides agreeing with each other. Reading a
+# bin/tests/fixtures/boot-doc-registry.tsv is the one copy the cockpit's guard
+# (frontend/src/api/mock.boot-doc-registry.test.ts) is pinned to; reading it
+# here pins the live server's has_head to the same table. Nothing in Go reads
+# it. Reading a
 # repo file is not a black-box violation — the iron rule is about importing
 # server IMPLEMENTATION modules, and this suite already reads spec/openapi.json
 # and spec/mcp-catalog.json the same way. The table is a spec, not an

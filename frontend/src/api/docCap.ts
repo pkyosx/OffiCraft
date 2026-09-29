@@ -13,11 +13,10 @@
 // this whole module is deleted and the card reads the flag. That is a wire
 // change (spec/openapi.json is frozen — see root CLAUDE.md §13) and is
 // currently blocked on owner approval, so until then two implementations of one
-// rule exist and are pinned against a SHARED FIXTURE, not against each other:
-//   bin/tests/fixtures/doc-cap-cases.tsv   — the table (the shared truth)
-//   src/api/docCap.test.ts                 — this side reads it
-//   server/ocserverd/doc_cap_mirror_test.go — the other side reads it
-// A drift on either side reddens that side's test and names the row.
+// rule exist. Only this one is pinned against a fixture:
+//   bin/tests/fixtures/doc-cap-cases.tsv   — the table
+//   src/api/docCap.test.ts                 — reads it
+// Nothing in Go reads that table, so a drift in DocCapBlocked is not caught.
 //
 // Guessing was not an option for WHICH FIELD each kind caps, so it is
 // transcribed from restoreDocumentHistory (api_document_history.go), not from
@@ -224,8 +223,8 @@ export function docCapBlocked(
  * list has since T-1170 (the directory carries each field's char count, never
  * its text). `docCapBlocked` is the text-taking face and is what the shared
  * fixture (bin/tests/fixtures/doc-cap-cases.tsv) drives, so the rule stays
- * measured against the server's twin in exactly one place; this is the same
- * three branches with the measuring already done. */
+ * measured against that table in exactly one place; this is the same three
+ * branches with the measuring already done. */
 export function docCapBlockedBySize(
   cap: number,
   beforeChars: number,

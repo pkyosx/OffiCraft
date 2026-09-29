@@ -30,8 +30,9 @@ var strictBase64Re = regexp.MustCompile(`^[A-Za-z0-9+/]+={0,2}$`)
 // not be merged back into one: a full-viewport background at 64 KiB is visibly
 // blurry (owner ruling 2026-08-03), while relaxing the glyph cap is not wanted.
 // Twinned with MAX_AVATAR_BYTES / MAX_AVATAR_VALUE_LEN / MAX_BACKGROUND_BYTES /
-// MAX_BACKGROUND_VALUE_LEN on the client, enforced by
-// bin/tests/fixtures/image-cap-cases.tsv and its two mirror tests.
+// MAX_BACKGROUND_VALUE_LEN on the client. Only the client is checked against
+// bin/tests/fixtures/image-cap-cases.tsv (frontend/src/lib/imageCap.test.ts);
+// nothing in Go reads it.
 const (
 	maxAvatarBytes = 64 * 1024
 

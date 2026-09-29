@@ -55,7 +55,7 @@ wording 值逐字保存，只對「是否為空」做 trim 判斷；句子片段
 
 主題包的 backgrounds 只接受 canvas。圖片仍共用 PNG/JPEG/WEBP MIME、magic bytes 與嚴格 base64 驗證，SVG 永拒；topbar 等有文字的區域不可順手開背景圖。
 
-頭像、logo、導覽圖示沿用 64 KiB decoded / 96 KiB encoded cap；canvas background 是 512 KiB decoded / 704 KiB encoded cap，兩層都要同步調整。TS/Go 以 bin/tests/fixtures/image-cap-cases.tsv 做 twin；ThemeSettings 的背景 picker 必須走 isValidBackgroundValue。CSS 同時保留 background-color 與可選的 --canvas-bg-image，窄版不因背景產生 layout overflow。
+頭像、logo、導覽圖示沿用 64 KiB decoded / 96 KiB encoded cap；canvas background 是 512 KiB decoded / 704 KiB encoded cap，兩層都要同步調整。TS 端由 imageCap.test.ts 對 bin/tests/fixtures/image-cap-cases.tsv 驗，Go 端沒有測試讀這張表；ThemeSettings 的背景 picker 必須走 isValidBackgroundValue。CSS 同時保留 background-color 與可選的 --canvas-bg-image，窄版不因背景產生 layout overflow。
 
 ## pre-paint
 

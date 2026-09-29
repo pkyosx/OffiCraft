@@ -229,8 +229,8 @@ describe("mockApi · boot-context blocks", () => {
     ).rejects.toMatchObject({ status: 400 });
     // (The converging-downward escape hatch — an already over-cap document may
     // still be edited, as long as it is getting shorter — is the predicate's
-    // own rule and is pinned against the shared fixture both sides read,
-    // bin/tests/fixtures/doc-cap-cases.tsv via api/docCap.test.ts. There is no
+    // own rule and is pinned against bin/tests/fixtures/doc-cap-cases.tsv via
+    // api/docCap.test.ts. There is no
     // cockpit path that can put a document over the line, so there is nothing
     // to reproduce here.)
   });

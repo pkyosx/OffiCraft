@@ -1,16 +1,15 @@
-// The cockpit's half of the theme-bundle image-cap mirror confrontation
-// (T-72da). The twin is server/ocserverd/image_cap_mirror_test.go; the table
-// both read is bin/tests/fixtures/image-cap-cases.tsv, and the reasoning lives
-// in its header.
+// Checks the cockpit's theme-bundle image caps against
+// bin/tests/fixtures/image-cap-cases.tsv; the reasoning lives in its header.
+// Nothing in Go reads that table.
 //
 // The short version: validImageValue (Go) is the authority that refuses a theme
 // bundle with a 422; isValidImageValue (TS) is the cockpit's copy, so a picked
 // file is refused at the file picker instead of after a round trip. A drift
 // between them raises no error anywhere — it just makes the cockpit lie, in one
 // direction (refusing an image the server would take) or the other (taking one
-// the server will refuse). So neither side is asserted against the other (a mock
-// would only prove the mock agrees with itself); both are asserted against the
-// committed table.
+// the server will refuse). So this side is asserted against the committed
+// table, not against a mock of the server (a mock would only prove the mock
+// agrees with itself).
 //
 // The rows are driven through the real validateAvatars / validateLogo /
 // validateNavIcons / validateBackgrounds entry points rather than the bare gate,

@@ -1,23 +1,20 @@
-// The cockpit's half of the comparison-address mirror confrontation (T-59).
+// The cockpit's comparison-address mirror confrontation.
 //
 // `server/ocserverd/diffaddr.go` is THE AUTHORITY on how one side of a
 // comparison is spelled. `cli/ocagent/diff.go` carries a pre-flight copy, and
 // `lib/diffLink.ts` carries a reader's copy — three transcriptions of one rule,
 // in three languages, with no import path between any two of them.
 //
-// The two Go copies are already driven against
-// bin/tests/fixtures/diff-side-addresses.tsv rather than against each other, so
-// a drift reddens the copy that drifted BY NAME. This file puts the cockpit's
-// copy on the same table, which is why that fixture's header names all THREE
-// copies as driven from it.
+// This file drives the cockpit's copy from
+// bin/tests/fixtures/diff-side-addresses.tsv, so a drift reddens BY NAME.
+// Nothing in Go reads that table.
 //
 // THE SECOND CONFRONTATION below is the URL GRAMMAR — the page path and the
 // five parameter names. Those are not in the fixture and cannot be: they are
 // the server's own constants, and the cockpit both builds a url from them
 // (lib/diffLink.ts) and asks the data route with them (api/diff.ts). So they
-// are checked against `server/ocserverd/api_diff.go`'s SOURCE, exactly as
-// cli/ocagent/diff_mirror_test.go checks its own copy — a language boundary is
-// precisely what these tests exist to reach across.
+// are checked against `server/ocserverd/api_diff.go`'s SOURCE — a language
+// boundary is precisely what these tests exist to reach across.
 //
 // 🔴 A MISSING OR UNREADABLE FIXTURE OR SOURCE IS A FAILURE, NEVER A SKIP. A
 // mirror guard that quietly passes when it cannot find its own table means

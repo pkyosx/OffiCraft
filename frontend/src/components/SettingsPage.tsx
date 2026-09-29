@@ -232,10 +232,10 @@ interface BootDocRowIcon {
  *
  * The other half of the guard runs the other way and no longer goes through a
  * listing ENDPOINT: `api/mock.boot-doc-registry.test.ts` pins this table AND the
- * mock's served set to `bin/tests/fixtures/boot-doc-registry.tsv`, the shared
- * table the server's own registry is pinned to by
- * `boot_doc_registry_mirror_test.go`. (It used to read `GET /api/boot-docs`;
- * that endpoint went with the ruling that added the enum.)
+ * mock's served set to `bin/tests/fixtures/boot-doc-registry.tsv`. The server
+ * is checked against that table only for has_head, by
+ * conformance/test_rest_happy.py. (It used to read `GET /api/boot-docs`; that
+ * endpoint went with the ruling that added the enum.)
  *
  * Between them, "a document shipped and the cockpit never showed it" — the
  * silent failure every prose list of these kinds has produced at least once —

@@ -1,13 +1,13 @@
-// The cockpit's half of the document-cap mirror confrontation (T-7d33). The
-// twin is server/ocserverd/doc_cap_mirror_test.go; the table both read is
-// bin/tests/fixtures/doc-cap-cases.tsv, and the reasoning lives in its header.
+// Checks the cockpit's document cap against
+// bin/tests/fixtures/doc-cap-cases.tsv; the reasoning lives in its header.
+// Nothing in Go reads that table.
 //
 // The short version: DocCapBlocked (Go) is the authority that refuses a write;
 // docCapBlocked (TS) is a temporary copy that lets the cockpit grey out a
 // revision BEFORE the owner clicks it. A drift between them raises no error
-// anywhere — it just makes the cockpit lie. So neither side is asserted against
-// the other (a mock would only prove the mock agrees with itself); both are
-// asserted against the committed table.
+// anywhere — it just makes the cockpit lie. So this side is asserted against
+// the committed table, not against a mock of the server (a mock would only
+// prove the mock agrees with itself).
 
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
