@@ -1484,7 +1484,7 @@ func TestCmdListen(t *testing.T) {
 func TestNewListener(t *testing.T) {
 	t.Run("the production wiring carries the config through and takes the real bounds", func(t *testing.T) {
 		cfg := Config{
-			Base: "http://station", BaseConfigured: true,
+			Base: "http://station", BaseConfigured: true, BaseMalformed: true,
 			Token: "tok", MemberID: "Kyle", AgentsRoot: t.TempDir(),
 		}
 		stamper := &eventStamper{clock: time.Now}
@@ -1493,7 +1493,7 @@ func TestNewListener(t *testing.T) {
 		l := newListener(cfg, testEnv(nil), &out, true, stamper)
 
 		if l.cfg != cfg {
-			t.Errorf("cfg = %+v, want %+v — the T-89 origin rides BaseConfigured", l.cfg, cfg)
+			t.Errorf("cfg = %+v, want %+v — the origin segment rides BaseConfigured and BaseMalformed", l.cfg, cfg)
 		}
 		if !l.once {
 			t.Error("once = false, want true")

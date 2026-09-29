@@ -19,8 +19,8 @@ type Config struct {
 	// Not derivable as "Base == defaultBase": an agent on the station's own host
 	// legitimately sets OC_BASE to that loopback address.
 	BaseConfigured bool
-	// Set but not http(s)://host. normalizeBase hands such a value back
-	// unchanged, and plain `diff` would turn it into a dead link with exit 0.
+	// Set but not http(s)://host. normalizeBase does not check shape, and plain
+	// `diff` would turn such a value into a dead link with exit 0.
 	BaseMalformed bool
 	Token         string
 	MemberID      string
@@ -50,7 +50,7 @@ func baseShapeOK(base string) bool {
 	if err != nil {
 		return false
 	}
-	switch strings.ToLower(u.Scheme) {
+	switch u.Scheme {
 	case "http", "https":
 		return u.Hostname() != ""
 	}

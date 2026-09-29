@@ -130,6 +130,24 @@ func TestCmdDownload(t *testing.T) {
 		}
 	})
 
+	t.Run("a malformed OC_BASE refuses before any request and writes no file", func(t *testing.T) {
+		dir := t.TempDir()
+		var out, errOut bytes.Buffer
+		client := dispositionReply("x", "", "")
+		malformed := loadConfig(testEnv(map[string]string{"OC_BASE": "http://", "OC_TOKEN": "tok-1"}))
+		rc := cmdDownload(client, malformed, "att-0123456789ab", dir, &out, &errOut)
+		want := "[ocagent] download: OC_BASE is set but is not a usable station address — " +
+			"it must be http:// or https:// followed by a host.\n"
+		if rc != 3 || errOut.String() != want || out.String() != "" {
+			t.Fatalf("got (%d, %q, %q), want (3, \"\", the malformed-OC_BASE refusal)",
+				rc, out.String(), errOut.String())
+		}
+		assertEmptyDir(t, dir)
+		if len(client.sent) != 0 {
+			t.Fatalf("sent %+v, want nothing", client.sent)
+		}
+	})
+
 	t.Run("an unset OC_BASE refuses before any request and writes no file", func(t *testing.T) {
 		dir := t.TempDir()
 		var out, errOut bytes.Buffer

@@ -111,7 +111,8 @@ func TestLoadConfig(t *testing.T) {
 		for _, raw := range []string{
 			"http://", "https://", "HTTPS://", "http://:9999", "http:///path",
 			"ftp://station.example.com", "notaurl", "station.example.com:7755",
-			"http://station example.com", "   ",
+			"http://station example.com", "   ", "http:station.example.com",
+			"http://%41", "https://station.example.com:abc",
 		} {
 			got := loadConfig(testEnv(map[string]string{"OC_BASE": raw, "OC_AGENT_HOME": "/srv/agents"}))
 			if !got.BaseConfigured || !got.BaseMalformed {

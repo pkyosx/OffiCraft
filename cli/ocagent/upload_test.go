@@ -116,6 +116,23 @@ func TestCmdUpload(t *testing.T) {
 		}
 	})
 
+	t.Run("a malformed OC_BASE refuses before anything is sent", func(t *testing.T) {
+		path := fileWith(t, "report.txt", "x")
+		var out, errOut bytes.Buffer
+		client := canned(200, mintedRef)
+		malformed := loadConfig(testEnv(map[string]string{"OC_BASE": "http://", "OC_TOKEN": "tok-1"}))
+		rc := cmdUpload(client, malformed, path, "", &out, &errOut)
+		want := "[ocagent] upload: OC_BASE is set but is not a usable station address — " +
+			"it must be http:// or https:// followed by a host.\n"
+		if rc != 3 || errOut.String() != want || out.String() != "" {
+			t.Fatalf("got (%d, %q, %q), want (3, \"\", the malformed-OC_BASE refusal)",
+				rc, out.String(), errOut.String())
+		}
+		if len(client.sent) != 0 {
+			t.Fatalf("sent %+v, want nothing", client.sent)
+		}
+	})
+
 	t.Run("a missing file is exit 1 and nothing is sent", func(t *testing.T) {
 		missing := filepath.Join(t.TempDir(), "absent.txt")
 		var out, errOut bytes.Buffer
