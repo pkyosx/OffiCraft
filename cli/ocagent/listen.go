@@ -82,8 +82,11 @@ const (
 	defaultTmuxSocket = "officraft"
 
 	// Set by the spawner (cli/ocwarden/spawn.go). Rename one side only and both
-	// modules stay green while this side silently reads nothing;
+	// modules stay green;
 	// bin/listen-notice-mirror-guard.py holds the two copies equal.
+	baseEnv       = "OC_BASE"
+	idEnv         = "OC_ID"
+	tokenEnv      = "OC_TOKEN"
 	sessionEnv    = "OC_SESSION"
 	tmuxSocketEnv = "OC_TMUX_SOCKET"
 	agentHomeEnv  = "OC_AGENT_HOME"

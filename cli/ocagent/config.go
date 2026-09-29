@@ -58,7 +58,7 @@ func baseShapeOK(base string) bool {
 }
 
 func loadConfig(env func(string) string) Config {
-	base := normalizeBase(env("OC_BASE"))
+	base := normalizeBase(env(baseEnv))
 	baseConfigured := base != ""
 	if base == "" {
 		base = defaultBase
@@ -66,8 +66,8 @@ func loadConfig(env func(string) string) Config {
 	base = strings.TrimRight(base, "/")
 	baseMalformed := baseConfigured && !baseShapeOK(base)
 
-	token := env("OC_TOKEN")
-	id := env("OC_ID")
+	token := env(tokenEnv)
+	id := env(idEnv)
 	if id == "" && token != "" {
 		id = jwtSub(token)
 	}

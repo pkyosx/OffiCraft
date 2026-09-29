@@ -4,13 +4,17 @@ the environment names the spawner hands every member, are spelled twice, in two
 Go modules that cannot import each other. This is the only thing that reads both
 spellings.
 
-THE SPAWN ENVIRONMENT (T-278). `cli/ocwarden/spawn.go` exports OC_SESSION,
-OC_TMUX_SOCKET and OC_AGENT_HOME into the member's launch line and
-`cli/ocagent/listen.go` names what the member reads. Measured by renaming each
-one: renaming it on one side together with that side's own test expectations
-leaves both modules green, and the member then silently reads nothing — no
-session probe, `ocagent suicide` kills nothing, the agents home falls back to
-the derived one. Same shape as the ack switch below, same remedy.
+THE SPAWN ENVIRONMENT (T-278). `cli/ocwarden/spawn.go` declares OC_BASE, OC_ID,
+OC_TOKEN, OC_SESSION, OC_TMUX_SOCKET and OC_AGENT_HOME, which the warden exports
+into the member's launch line (OC_ID only on the codex line, codex_session.go),
+and `cli/ocagent/listen.go` names what the member reads. Measured for all six:
+renaming one on one side together with that side's own test expectations leaves
+both modules green. The member then reads nothing under that name — no session
+probe, `ocagent suicide` kills nothing, the agents home falls back to the
+derived one, the token is empty, the id comes from the token, and the base falls
+back to loopback (announced at run time by listen's GUESSED notice and by
+warnMissingBase in context-report, diff, upload and download, but no module test
+catches the rename). Same shape as the ack switch below, same remedy.
 
 WHAT IS ACTUALLY TWO COPIES (T-265). `cli/ocagent` prints the transport notices
 and reads the ack switch out of its environment; `cli/ocwarden` matches those
@@ -112,7 +116,7 @@ SPAWNER = "cli/ocwarden/spawn.go"
 
 # Environment names the spawner exports and the member reads: same constant name
 # on both sides, value compared for equality.
-SPAWN_ENV = ("sessionEnv", "tmuxSocketEnv", "agentHomeEnv")
+SPAWN_ENV = ("baseEnv", "idEnv", "tokenEnv", "sessionEnv", "tmuxSocketEnv", "agentHomeEnv")
 
 # Every constant this check reads, as (file, name). Nothing is optional: a name
 # that has gone missing is reported, because "I could not find it" and "it still

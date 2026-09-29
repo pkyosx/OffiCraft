@@ -38,13 +38,13 @@ func buildCodexLaunchCommand(wardenBin, codexBin, workdir, personaFile, tokenFil
 		cd += "[ -f " + shellQuote(envRendered) + " ] && . " + shellQuote(envRendered) + "; "
 	}
 	pairs := [][2]string{
-		{"OC_BASE", base},
-		{"OC_ID", agentID},
+		{baseEnv, base},
+		{idEnv, agentID},
 		{sessionEnv, session},
 		{tmuxSocketEnv, socket},
 	}
 	pairs = append(pairs, extraEnv...)
-	kvs := []string{`OC_TOKEN="$(/bin/cat ` + shellQuote(tokenFile) + `)"`}
+	kvs := []string{tokenEnv + `="$(/bin/cat ` + shellQuote(tokenFile) + `)"`}
 	for _, pair := range pairs {
 		kvs = append(kvs, pair[0]+"="+shellQuote(pair[1]))
 	}
@@ -830,7 +830,7 @@ func runCodexSession(argv []string, env func(string) string, out io.Writer) int 
 	sessionEffort, recognisedEffort := normalizeCodexEffort(*effort)
 	s := &codexSession{
 		in: stdin, messages: codexAppReader(stdout), nextID: 0,
-		base: normalizeBase(env("OC_BASE")), token: env("OC_TOKEN"), workdir: *workdir,
+		base: normalizeBase(env(baseEnv)), token: env(tokenEnv), workdir: *workdir,
 		model: *model, effort: sessionEffort, account: codexAccountKey(), out: out,
 	}
 	if !recognisedEffort {

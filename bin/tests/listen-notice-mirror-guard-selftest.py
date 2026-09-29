@@ -102,6 +102,21 @@ MUTANTS: Tuple[Tuple[str, str, str, str], ...] = (
         '\tagentsHomeEnv = "OC_AGENT_HOME"',
     ),
     (
+        "the spawner renames the base address variable",
+        SPAWNER, '\tbaseEnv       = "OC_BASE"',
+        '\tbaseEnv       = "OC_BASE_URL"',
+    ),
+    (
+        "the member renames the id variable",
+        ACK, '\tidEnv         = "OC_ID"',
+        '\tidEnv         = "OC_AGENT_ID"',
+    ),
+    (
+        "the member renames the token variable",
+        ACK, '\ttokenEnv      = "OC_TOKEN"',
+        '\ttokenEnv      = "OC_JWT"',
+    ),
+    (
         # 🔴 The unpaired-constant fix used to have a shape-shaped hole in it:
         # `unpaired_notices` only recognised `name = "…"`, so an unpaired
         # constant that carried an explicit type walked straight through the
