@@ -78,7 +78,8 @@ const (
 	maxSSELine            = 8 << 20
 
 	// defaultTmuxSocket must match cli/ocwarden/tmux.go tmuxSocket (the socket
-	// agent sessions are spawned on); nothing checks the two agree.
+	// agent sessions are spawned on in the default namespace);
+	// bin/listen-notice-mirror-guard.py holds the two copies equal.
 	defaultTmuxSocket = "officraft"
 
 	// Set by the spawner (cli/ocwarden/spawn.go). Rename one side only and both

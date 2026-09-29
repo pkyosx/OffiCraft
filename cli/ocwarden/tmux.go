@@ -3,8 +3,8 @@ package main
 import "strings"
 
 const (
-	// Must match defaultTmuxSocket in cli/ocagent/listen.go; nothing checks the
-	// two agree.
+	// Must match defaultTmuxSocket in cli/ocagent/listen.go;
+	// bin/listen-notice-mirror-guard.py holds the two copies equal.
 	tmuxSocket = "officraft"
 	// kill.go's isMemberSession guard matches this prefix.
 	memberSessionPrefix = "member-"

@@ -16,6 +16,13 @@ back to loopback (announced at run time by listen's GUESSED notice and by
 warnMissingBase in context-report, diff, upload and download, but no module test
 catches the rename). Same shape as the ack switch below, same remedy.
 
+THE DEFAULT TMUX SOCKET. `cli/ocwarden/tmux.go` names the socket canonical
+member sessions are spawned on (`tmuxSocket`) and `cli/ocagent/listen.go` names
+the socket the member falls back to when its launch env carries none
+(`defaultTmuxSocket`). The names differ, so this is its own pair, compared for
+equality. It only covers the default namespace: a namespaced warden spawns on
+`officraft-<ns>` (tmuxSocketFor), while the member's fallback stays `officraft`.
+
 WHAT IS ACTUALLY TWO COPIES (T-265). `cli/ocagent` prints the transport notices
 and reads the ack switch out of its environment; `cli/ocwarden` matches those
 notices with HasPrefix from column 0 and is the process that sets the switch.
@@ -66,7 +73,7 @@ the gaps off the pipeline instead:
     Every transformation the input goes through discards a class of thing, and
     the class it discards is what this check cannot see.
 
-  1. READ FOUR NAMED FILES ⇒ discards every other file. A third copy of one of
+  1. READ FIVE NAMED FILES ⇒ discards every other file. A third copy of one of
      these strings in server/ocserverd or cli/officraft is invisible, and the
      green says nothing about it. For the spawn environment that includes a site
      that bypasses the constant: `env("OC_SESSION_X")` written inline in
@@ -113,6 +120,7 @@ PRODUCER_RUN = "cli/ocagent/listen_run.go"
 PRODUCER_ACK = "cli/ocagent/listen.go"
 CONSUMER = "cli/ocwarden/codex_session.go"
 SPAWNER = "cli/ocwarden/spawn.go"
+TMUX = "cli/ocwarden/tmux.go"
 
 # Environment names the spawner exports and the member reads: same constant name
 # on both sides, value compared for equality.
@@ -134,7 +142,10 @@ WANTED: Tuple[Tuple[str, str], ...] = (
     (CONSUMER, "noticeBatchPrefix"),
     (CONSUMER, "noticeTransportHead"),
     (CONSUMER, "listenAckEnv"),
-) + tuple((side, name) for name in SPAWN_ENV for side in (SPAWNER, PRODUCER_ACK))
+) + tuple((side, name) for name in SPAWN_ENV for side in (SPAWNER, PRODUCER_ACK)) + (
+    (TMUX, "tmuxSocket"),
+    (PRODUCER_ACK, "defaultTmuxSocket"),
+)
 
 # The three notices the disconnect-notice policy says must reach the agent. Each
 # consumer constant is the producer's line prefix followed by the producer's own
@@ -424,6 +435,15 @@ def compare(values: Dict[Tuple[str, str], str]) -> List[str]:
                 f"the spawner exports {exported!r} as {name} but the member reads "
                 f"{read!r} — the member silently runs without that value"
             )
+
+    spawned, fallback = values.get((TMUX, "tmuxSocket")), values.get((PRODUCER_ACK, "defaultTmuxSocket"))
+    if spawned is not None and fallback is not None and spawned != fallback:
+        rows.append(
+            f"the warden spawns sessions on tmux socket {spawned!r} (tmuxSocket) but "
+            f"the member falls back to {fallback!r} (defaultTmuxSocket) when its launch "
+            "env names no socket — its session probe and `ocagent suicide` look on the "
+            "wrong server"
+        )
     return rows
 
 

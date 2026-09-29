@@ -350,7 +350,7 @@ lint-shadow-claim:
 # on purpose, so no rewrite of either test surface can take it along.
 lint-listen-notice-mirror:
 	@$(P) \
-	echo "[lint-listen-notice-mirror] ocagent and ocwarden spell the same contract (sidecar notices, spawn env names)"; \
+	echo "[lint-listen-notice-mirror] ocagent and ocwarden spell the same contract (sidecar notices, spawn env names, default tmux socket)"; \
 	python3 bin/listen-notice-mirror-guard.py; \
 	python3 bin/tests/listen-notice-mirror-guard-selftest.py; \
 	$(DONE)
