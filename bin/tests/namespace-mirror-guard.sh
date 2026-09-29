@@ -1,37 +1,28 @@
 #!/usr/bin/env bash
-# bin/tests/namespace-mirror-guard.sh — the BASH half of the cross-module
-# namespace mirror confrontation (T-5047).
+# bin/tests/namespace-mirror-guard.sh — checks the shell copies of the
+# namespace derivation and the charset literal.
 #
 # WHAT IS BEING GUARDED — AND WHAT IS NOT
 # ---------------------------------------
-# The namespace→(root, launchd label) derivation is hand-transcribed across SIX
-# FILES / ELEVEN CODE SITES. This list has been wrong FOUR times: it said FOUR,
-# then FIVE, then TEN-in-SIX, then ELEVEN-in-SEVEN (the site arithmetic was right
-# but the file count was incremented off a predecessor that already over-counted
-# by one — enumerate the block below and you get SIX), and each time it read as
-# complete. The count is now
-# per-SITE, because counting files is what hid the first miss — bin/install.sh
-# alone carries FIVE sites, and the one that was missing (the ocwarden label)
-# lived in a file that was already "on the list". The third miss was of a
-# different kind and worth naming: cli/ocagent/config.go's agent-home fallback
-# was listed BELOW as a non-guarded axis "which exists only in the Go copy", when
-# it was in fact a derivation site with NO namespace in it at all — a site is not
-# absent from this list only by being unlisted, it can also be listed under the
-# wrong heading.
+# The namespace→(root, launchd label) derivation is hand-transcribed at ELEVEN
+# CODE SITES in SIX FILES. Count sites, not files: bin/install.sh alone carries
+# five, and a site hides most easily inside a file that is already listed.
 #
 #   cli/ocagent/config.go           ← 1 site (agents-home fallback root, as a
-#                                     function: fallbackAgentsHome). By VALUE in
-#                                     cli/ocagent/namespace_mirror_test.go.
-#                                     ⚠️ Until T-5047 this site hard-wired
-#                                     ~/.officraft/agents with no namespace, so a
-#                                     namespaced ocagent that lost OC_AGENT_HOME
-#                                     kept its state in the MAIN instance's tree.
-#   cli/ocwarden/namespace.go       ← 1 site (root + label + tmux socket, as
-#                                     functions). By VALUE in
-#                                     namespace_mirror_test.go.
+#                                     function: fallbackAgentsHome). By literal
+#                                     value in cli/ocagent/config_test.go
+#                                     (TestFallbackAgentsHome).
+#   cli/ocwarden/namespace.go       ← 1 site (root + label + tmux socket +
+#                                     tokfile, as functions). By literal value in
+#                                     cli/ocwarden/namespace_test.go
+#                                     (TestOfficraftRootFor, TestWardenLabelFor,
+#                                     TestTmuxSocketFor, TestTokfileFor).
 #   server/ocserverd/onboarding.go  ← 1 site (label + root + tokfile, as
-#                                     functions). By VALUE in
-#                                     onboarding_mirror_test.go.
+#                                     functions). By literal value in
+#                                     server/ocserverd/onboarding_test.go
+#                                     (TestOfficraftRootPath, TestWardenLaunchdLabel,
+#                                     and the tokfile paths in
+#                                     TestWardenAlreadyInstalledHere).
 #   bin/install.sh                  ← 5 sites: install root ($NS_DASH), install
 #                                     serve label ($NS_DOT), uninstall root
 #                                     ($ns_dash), uninstall serve label
@@ -39,12 +30,6 @@
 #                                     ($ns_dot). All five checked HERE
 #                                     (structure) + install-guard.sh §10 and
 #                                     uninstall-guard.sh (behaviour).
-#                                     ⚠️ The ocwarden one was found only by the
-#                                     follow-up review: absent from this list,
-#                                     unchecked here, and its branch was DEAD in
-#                                     every namespaced test case because the
-#                                     fixture never created warden/. It is the
-#                                     label the whole ticket is about.
 #   bin/ocserver                    ← 2 sites (root, and three labels each
 #                                     appearing on install+uninstall). HERE,
 #                                     structure only.
@@ -54,36 +39,41 @@
 #                                     find anything and say so loudly. Listed
 #                                     because an unlisted copy is an unknown one.
 #
+# That is 10 of the 11 sites checked: 7 by this file, 3 by the Go module tests.
+#
 # STILL NOT GUARDED, NAMED RATHER THAN IMPLIED (do not read the green as more):
 #   - e2e_test/lib/oc_lifecycle.sh, per the reasoning above.
 #   - bin/ocserver's namespacing END TO END: it has no hermetic suite, so only
 #     the text of its derivation is pinned, never its behaviour.
-#   - Any site added after this comment. This list is maintained by hand, which
-#     is precisely how it was wrong twice; `grep -rn 'officraft[-.]\$' bin/` is
-#     the cheap way to re-derive it before trusting it.
+#   - Any site added after this comment. This list is maintained by hand;
+#     `grep -rn 'officraft[-.]\$' bin/` is the cheap way to re-derive it before
+#     trusting it.
 #
-# Everything checked here is checked against ONE shared table,
-# fixtures/namespace-axes.tsv, so a drift names the copy that drifted; comparing
-# the copies to each other could only ever report THAT they differ.
+# ⚠️ The derivation checks HERE are hard-coded regexes, one per site; they do
+# NOT compare anything against the values in fixtures/namespace-axes.tsv. From
+# that table this file reads only the `# charset` line, and checks that the
+# empty-namespace row is present verbatim and at least one other row exists. The
+# namespaced rows' values are read by nothing, here or in Go: editing them
+# changes no check's outcome.
 #
 # WHAT THIS GUARD CANNOT SEE (stated so nobody reads its green as more than it is)
-#   - The Go derivations' VALUES. Those are checked by the two module tests
+#   - The Go derivations' VALUES. Those are checked by the three module tests
 #     above, which call the functions; this file only greps text.
 #   - Whether bin/ocserver's namespacing actually WORKS end to end. install.sh
 #     has install-guard.sh §10 / uninstall-guard.sh for that; bin/ocserver has
 #     no equivalent hermetic suite, so its coverage here is structure only.
 #   - The tmux-socket axis and the agents-home fallback, which exist only in the
-#     Go copies — both ARE checked by value, by cli/ocwarden and cli/ocagent's
-#     module tests respectively, just not by this file.
+#     Go copies — checked by value in cli/ocwarden/namespace_test.go and
+#     cli/ocagent/config_test.go respectively, just not by this file.
 #
 # WHY THE SHELL COPIES GET A DIFFERENT TREATMENT
 # ----------------------------------------------
 # The Go copies are FUNCTIONS, so their tests call them and compare results. The
-# shell copies are variable assignments in the middle of a 1200-line installer.
+# shell copies are variable assignments in the middle of a long installer.
 # What no behavioural suite can see is the CHARSET: it is a regex literal, not a
 # derivation, and a copy looser than the others admits a namespace the rest will
 # refuse — one component then builds a path or label the others do not
-# recognise, which is precisely the split-brain this ticket exists to remove.
+# recognise: a split-brain install.
 #
 # EVERY MATCH BELOW IS TAKEN FROM CODE LINES ONLY (see code_only). These files
 # discuss the derivation and the charset at length in prose; a guard that greps
@@ -101,18 +91,18 @@ PASS=0; FAIL=0
 ok()   { PASS=$((PASS+1)); printf '  ok   — %s\n' "$1"; }
 bad()  { FAIL=$((FAIL+1)); printf '  FAIL — %s\n' "$1"; }
 
-echo "namespace mirror — 11 hand-transcribed derivation sites in 7 files; 10 checked here or by module tests (e2e harness copy deliberately unguarded), + the charset in its 5 copies (4 grepped here, cli/ocagent's by value in its module test)"
+echo "namespace mirror — 11 hand-transcribed derivation sites in 6 files; 10 checked (7 here, 3 by Go module tests; e2e harness copy deliberately unguarded), + the charset in its 5 copies (4 grepped here; cli/ocagent's only exercised by accept/reject cases in its module test)"
 
 # ── the charset, in the FOUR copies this file can grep ──────────────────────
-# The charset literal lives in FIVE places: cli/ocwarden/namespace.go,
+# The charset literal lives in FIVE product files: cli/ocwarden/namespace.go,
 # cli/ocagent/config.go, server/ocserverd/config.go, bin/install.sh and
 # bin/ocserver. FIVE is the charset's own count and is not the derivation-site
 # count above (server's charset is in config.go while its label/root derivation is
 # in onboarding.go — which is why the two lists differ). Only four are grepped
-# here; cli/ocagent's is pinned BY VALUE against the same table line in
-# cli/ocagent/namespace_mirror_test.go (TestNamespaceCharset_MatchesTheSharedTable),
-# so it is checked, just not from this file. Adding it to the loop below would be
-# a second, weaker check of an already-checked copy.
+# here. cli/ocagent's literal is compared against nothing: its only cover is
+# the literal cases in cli/ocagent/config_test.go (TestFallbackAgentsHome and
+# TestLoadConfig), which would catch a loosened or tightened charset only where
+# a case happens to sit on the changed boundary.
 CHARSET="$(sed -n 's/^# charset	//p' "$TABLE" | head -1)"
 if [[ -z "$CHARSET" ]]; then
   echo "FATAL: $TABLE carries no '# charset<TAB><regex>' line — the charset is unpinned" >&2
@@ -130,9 +120,11 @@ code_only() {
   sed -e 's://.*::' -e 's:[[:space:]]#.*::' -e 's:^[[:space:]]*#.*::' "$1"
 }
 
-# The Go copies check this regex BY VALUE in their own module tests; repeating a
-# text match for them here is cheap and catches the case where the literal and
-# the compiled shape are edited apart.
+# The Go copies' module tests only feed literal accept/reject cases through the
+# compiled regex (TestNamespaceFromEnv in cli/ocwarden/namespace_test.go, the
+# "invalid namespace" case in server/ocserverd/config_test.go); none compares the
+# regex source. The text match below is the only check that the source is
+# byte-identical to the table's charset line.
 for f in cli/ocwarden/namespace.go server/ocserverd/config.go bin/install.sh bin/ocserver; do
   n="$(code_only "$ROOT/$f" | grep -cF -- "$CHARSET")"
   if [[ "$n" -ge 1 ]]; then
@@ -179,16 +171,13 @@ check_derivation "uninstall-path root"  bin/install.sh '\.officraft\$ns_dash' 1 
   "--uninstall --namespace would remove the MAIN instance instead."
 check_derivation "uninstall-path label" bin/install.sh 'com\.officraft\.serve\$ns_dot' 1 \
   "--uninstall --namespace would boot out the MAIN instance's job."
-# The OCWARDEN label — the sixth site, and the one this ticket is actually about.
-# It was missing from this guard and from the header's coverage list until the
-# follow-up review found it. It is READ-ONLY (the uninstall path never boots the
+# The OCWARDEN label is READ-ONLY (the uninstall path never boots the
 # warden out; it only reports whether a job is registered and how to remove it),
 # which is exactly why it is easy to overlook and why losing it is still bad: the
 # script would answer "no warden job is registered" for a machine that has one,
-# and the operator's next move is a reinstall on top of a live launchd job — the
-# ticket's own failure shape. Behavioural cover: uninstall-guard.sh's namespaced
-# section (whose fixture had to start building warden/ before that branch was
-# reachable at all).
+# and the operator's next move is a reinstall on top of a live launchd job.
+# Behavioural cover: uninstall-guard.sh's namespaced section, whose fixture must
+# build warden/ for that branch to be reachable.
 check_derivation "uninstall-path WARDEN label" bin/install.sh 'com\.officraft\.ocwarden\$ns_dot' 1 \
   "--uninstall --namespace would report the MAIN instance's warden job (or none) for the namespaced machine."
 
@@ -210,8 +199,7 @@ done
 # file runs under `set -uo pipefail`, and `grep -q` exits the moment it matches —
 # which closes the pipe, SIGPIPEs the still-writing `sed`, and makes pipefail
 # report the whole pipeline as failed. The guard then goes RED on a match, i.e.
-# exactly backwards. (Same shape as the `launchctl print | sed | head` fault this
-# ticket fixed in install.sh; it cost a debugging round here too.)
+# exactly backwards.
 for pair in "SERVE:com.officraft.serve" "AUTODEPLOY:com.officraft.autodeploy" "TUNNEL:com.officraft.tunnel"; do
   var="${pair%%:*}"; lit="${pair#*:}"
   if [[ "$(code_only "$ROOT/bin/ocserver" | grep -cE "^readonly ${var}_LABEL_BASE=\"${lit//./\\.}\"$")" -ge 1 ]]; then
@@ -222,8 +210,8 @@ for pair in "SERVE:com.officraft.serve" "AUTODEPLOY:com.officraft.autodeploy" "T
 done
 
 # ── the table itself must still contain the two rows that matter ────────────
-# A table that lost its empty-namespace row would let every check above pass
-# while the "main instance is byte-identical" claim went unverified.
+# The <empty> row is matched verbatim; for the rest only a row count is taken.
+# No check above or in Go derives anything from these rows.
 if grep -qE '^<empty>	<empty>	com\.officraft\.ocwarden	officraft$' "$TABLE"; then
   ok "the table still pins the EMPTY namespace to the historical literals"
 else

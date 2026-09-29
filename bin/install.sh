@@ -891,7 +891,8 @@ DEFAULT_PORT=7755
 # CALLER must remember, and label-without-HOME writes into the FIRST instance's
 # root. THE EMPTY NAMESPACE CHANGES NOTHING (pinned by install-guard.sh §10).
 # Charset mirrors cli/ocwarden/namespace.go, server/ocserverd/config.go and
-# bin/ocserver — held together by bin/tests/fixtures/namespace-axes.tsv.
+# bin/ocserver; bin/tests/namespace-mirror-guard.sh text-matches all four against
+# the charset line in bin/tests/fixtures/namespace-axes.tsv.
 NS_DOT=""
 NS_DASH=""
 if [[ -n "$NS" ]]; then

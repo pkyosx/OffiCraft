@@ -88,8 +88,9 @@ func (s *apiServer) wardenAlreadyInstalledHere(
 }
 
 // wardenTokfilePath / wardenLaunchdLabel MIRROR cli/ocwarden/namespace.go's
-// tokfileFor + wardenLabelFor (separate go modules, cannot import); the copies
-// are held against bin/tests/fixtures/namespace-axes.tsv. If they drift, the
+// tokfileFor + wardenLabelFor (separate go modules, cannot import). Nothing
+// compares these copies with ocwarden's or with bin/tests/fixtures/namespace-axes.tsv;
+// only the literal expectations in onboarding_test.go pin them. If they drift, the
 // guard stats a path nobody writes, answers "no warden here", and onboarding
 // installs a second warden on top of a live launchd job.
 func wardenTokfilePath(home, namespace string) string {
