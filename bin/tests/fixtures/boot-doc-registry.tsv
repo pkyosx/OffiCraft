@@ -16,16 +16,17 @@
 # Readers of THIS table:
 #   frontend/src/api/mock.boot-doc-registry.test.ts   the cockpit's settings
 #                                  rows and mock: every column
-#   conformance/test_rest_happy.py the live server: has_head of each boot
-#                                  document it reads
+#   conformance/test_rest_happy.py the live server: each boot document it
+#                                  reads is listed here, with a matching
+#                                  has_head
 # Nothing in Go reads it. Nothing checks that the server serves every row, or
 # compares the server's read_only with it.
 #
 # WHAT A CHANGE HERE COSTS
 # ------------------------
 # Shipping a document means editing this file in the SAME commit as the registry
-# row. That is the point: the edit is one line, and skipping it is a red test
-# rather than an invisible hole.
+# row. Skipping it for a new kind turns mock.boot-doc-registry.test.ts red (the
+# kind reaches the cockpit through the frozen spec's BootDocKind enum).
 #
 # COLUMNS
 # -------

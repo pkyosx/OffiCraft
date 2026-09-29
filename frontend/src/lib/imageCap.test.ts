@@ -155,8 +155,8 @@ describe("theme-bundle image caps · the shared cap table", () => {
   ] as const)("%s is the size the shared table names", (name, got, key) => {
     // A failure here means: COCKPIT SIDE DRIFTED —
     // frontend/src/lib/themeBundleCore.ts's ${name} no longer matches the shared
-    // table, while server/ocserverd/avatar_bundle.go still follows it. The two
-    // now disagree about which images are accepted.
+    // table. Nothing checks server/ocserverd/avatar_bundle.go against that
+    // table, so the two may now disagree about which images are accepted.
     expect(got, `COCKPIT SIDE DRIFTED: themeBundleCore.ts ${name}`).toBe(
       decls[key]
     );

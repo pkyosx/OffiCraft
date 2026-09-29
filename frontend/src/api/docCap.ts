@@ -16,7 +16,8 @@
 // rule exist. Only this one is pinned against a fixture:
 //   bin/tests/fixtures/doc-cap-cases.tsv   — the table
 //   src/api/docCap.test.ts                 — reads it
-// Nothing in Go reads that table, so a drift in DocCapBlocked is not caught.
+// Nothing in Go reads that table. DocCapBlocked has its own literal cases in
+// Go, but nothing checks that the two implementations agree.
 //
 // Guessing was not an option for WHICH FIELD each kind caps, so it is
 // transcribed from restoreDocumentHistory (api_document_history.go), not from

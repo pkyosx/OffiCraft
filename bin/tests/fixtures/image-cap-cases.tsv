@@ -73,7 +73,7 @@
 # 512 KiB decoded is ~683 KiB encoded, so a value-len left at the avatar's
 # 96 KiB rejects it as "too long" and the decoded cap is never reached.
 #
-# cap declarations, read by both halves:
+# cap declarations, read by imageCap.test.ts:
 # avatar_bytes	65536
 # avatar_value_len	98304
 # background_bytes	524288
@@ -83,8 +83,8 @@
 #
 #   case           row name, used in failure messages
 #   purpose        avatar | logo | navicon | background — selects WHICH bundle
-#                  field the value is fed through. Both halves drive the real
-#                  validate* entry point for that field, not the bare gate, so a
+#                  field the value is fed through. imageCap.test.ts drives the
+#                  real validate* entry point for that field, not the bare gate, so a
 #                  cap that is raised but wired to the wrong call site still
 #                  fails here.
 #   decoded_bytes  size of the decoded PNG (a real 8-byte PNG signature followed

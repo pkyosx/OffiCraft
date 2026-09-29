@@ -38,8 +38,8 @@
  * data route reads a query built from them. This module is the cockpit's ONE
  * copy — the compare page's parser, its formatter and `api/diff.ts`'s query all
  * read these constants rather than spelling the words again — and
- * diffLink.mirror.test.ts confronts the copy against that file's SOURCE, the
- * way cli/ocagent does for its own. Rename one there without renaming it here
+ * diffLink.mirror.test.ts confronts the copy against that file's SOURCE.
+ * Rename one there without renaming it here
  * and the test reddens, instead of the cockpit silently asking for a parameter
  * the server stopped answering. */
 export const DIFF_PATH = "/diff";

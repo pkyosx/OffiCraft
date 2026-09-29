@@ -37,7 +37,7 @@ THE FIX IS TO RAISE BOTH TWINS TOGETHER, in one commit, to the same number:
   server/ocserverd/wording_bundle.go   maxWordingEntriesPerLang
 
 Nothing checks that the two are equal: if you raise only this one, this test
-goes green while the server still refuses the pack.`
+goes green while the server keeps its old cap.`
       );
     }
   });

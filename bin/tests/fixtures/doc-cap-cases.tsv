@@ -22,7 +22,8 @@
 #
 #   frontend/src/api/docCap.test.ts
 #
-# Nothing in Go reads it, so a drift in DocCapBlocked reddens nothing here.
+# Nothing in Go reads it. DocCapBlocked is tested against its own literal cases,
+# not against these rows, so nothing checks that the two sides agree.
 #
 # THE RULE (both sides, boundaries included)
 # ------------------------------------------
@@ -38,7 +39,8 @@
 # the OPPOSITE verdict to the rune count. If a test only carries ASCII rows,
 # swapping the unit passes silently — which is the whole reason those rows exist.
 #
-# cap<TAB><n> below is read by both tests, so the threshold is not a third copy.
+# cap<TAB><n> below is read by docCap.test.ts, so the threshold is not a third
+# copy on the TS side.
 # cap	15000
 #
 # COLUMNS  case<TAB>before_runes<TAB>after_runes<TAB>blocked<TAB>fill
