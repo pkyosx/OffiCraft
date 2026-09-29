@@ -22,17 +22,13 @@
 #
 # NONE of the three can be derived from another: the two Go copies live in
 # separate modules with no import path between them, and the cockpit is a
-# different language entirely. So each is confronted against THIS TABLE instead
-# of against its neighbour, which is what makes a drift name the copy that
-# drifted rather than merely reporting that two copies differ:
+# different language entirely. Only the cockpit's copy is driven from this
+# table:
 #
-#   server/ocserverd/diffaddr_mirror_test.go   (go test ./server/ocserverd/)
-#   cli/ocagent/diff_mirror_test.go            (go test ./cli/ocagent/)
 #   frontend/src/lib/diffLink.mirror.test.ts   (the cockpit's test runner)
 #
-# All THREE copies are driven from this table. Add a row and every copy that
-# disagrees with it goes red by name — which is the whole reason the cases live
-# here as data rather than inside any one implementation's test code.
+# Nothing in Go reads it, so a row either Go copy disagrees with reddens
+# nothing.
 #
 # WHAT "SAYABLE" MEANS, AND WHAT IT DOES NOT
 # ------------------------------------------

@@ -15,8 +15,7 @@
 # Before T-72da there was ONE pair of caps and the only thing tying the two
 # implementations together was two hand-written comments saying "the twin of"
 # each other. A comment is not a gate. T-72da then split the caps per purpose,
-# which doubled the number of loose numbers from two to four — so the twinning
-# is now checked rather than asserted in prose.
+# which doubled the number of loose numbers from two to four.
 #
 # A drift produces no error anywhere. It produces one of two silent lies:
 #   - cockpit cap LOWER than the server's  → the owner picks a perfectly good
@@ -26,13 +25,12 @@
 #     it in the bundle, and the save 422s later with a message about a file the
 #     owner already believed was fine.
 #
-# So both sides are checked against THIS table rather than against each other.
-# A mock of one side inside the other's test proves only that the mock agrees
-# with itself; the table is the shared truth, and a drift NAMES THE SIDE that
-# drifted. This is the same shape as bin/tests/fixtures/doc-cap-cases.tsv.
+# Only the TS side is checked against THIS table:
 #
-#   server/ocserverd/image_cap_mirror_test.go   the Go half
-#   frontend/src/lib/imageCap.test.ts           the TS half
+#   frontend/src/lib/imageCap.test.ts
+#
+# Nothing in Go reads it, so a drift in avatar_bundle.go's caps reddens nothing
+# here. This is the same shape as bin/tests/fixtures/doc-cap-cases.tsv.
 #
 # THE RULE
 # --------
@@ -75,7 +73,7 @@
 # 512 KiB decoded is ~683 KiB encoded, so a value-len left at the avatar's
 # 96 KiB rejects it as "too long" and the decoded cap is never reached.
 #
-# cap declarations, read by both halves:
+# cap declarations, read by imageCap.test.ts:
 # avatar_bytes	65536
 # avatar_value_len	98304
 # background_bytes	524288
@@ -85,8 +83,8 @@
 #
 #   case           row name, used in failure messages
 #   purpose        avatar | logo | navicon | background — selects WHICH bundle
-#                  field the value is fed through. Both halves drive the real
-#                  validate* entry point for that field, not the bare gate, so a
+#                  field the value is fed through. imageCap.test.ts drives the
+#                  real validate* entry point for that field, not the bare gate, so a
 #                  cap that is raised but wired to the wrong call site still
 #                  fails here.
 #   decoded_bytes  size of the decoded PNG (a real 8-byte PNG signature followed

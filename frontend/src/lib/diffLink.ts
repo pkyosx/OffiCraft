@@ -38,8 +38,8 @@
  * data route reads a query built from them. This module is the cockpit's ONE
  * copy — the compare page's parser, its formatter and `api/diff.ts`'s query all
  * read these constants rather than spelling the words again — and
- * diffLink.mirror.test.ts confronts the copy against that file's SOURCE, the
- * way cli/ocagent does for its own. Rename one there without renaming it here
+ * diffLink.mirror.test.ts confronts the copy against that file's SOURCE.
+ * Rename one there without renaming it here
  * and the test reddens, instead of the cockpit silently asking for a parameter
  * the server stopped answering. */
 export const DIFF_PATH = "/diff";
@@ -83,10 +83,10 @@ export interface DiffParams {
 
 // 🔴 THE RULES BELOW ARE A TRANSCRIPTION, NOT A DESIGN. The authority is
 // server/ocserverd/diffaddr.go; this is the cockpit's reader of the same
-// contract, and when the two disagree the server wins. They are confronted
-// against bin/tests/fixtures/diff-side-addresses.tsv — the same table the two
-// Go copies are driven by — in diffLink.mirror.test.ts, so a drift reddens by
-// name rather than showing up as a link that "just does nothing".
+// contract, and when the two disagree the server wins. This copy is confronted
+// against bin/tests/fixtures/diff-side-addresses.tsv in diffLink.mirror.test.ts
+// (nothing in Go reads that table), so a drift here reddens by name rather than
+// showing up as a link that "just does nothing".
 const ATTACHMENT_RE = /^att-[0-9a-f]{12}$/;
 // Each part of a document address is spliced into a URL by its readers, so the
 // character set excludes "/", "%", "?" and "#" outright — that removes the

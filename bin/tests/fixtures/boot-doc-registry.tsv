@@ -13,16 +13,20 @@
 # opened for, and every prose list of these kinds ever written in this tree went
 # stale in that direction.
 #
-# Both sides are checked against THIS table, so a drift names the side that
-# drifted instead of merely reporting that two things differ. Deliberately NOT a
-# mock of one side inside the other's test — that would only prove the mock
-# agrees with itself.
+# Readers of THIS table:
+#   frontend/src/api/mock.boot-doc-registry.test.ts   the cockpit's settings
+#                                  rows and mock: every column
+#   conformance/test_rest_happy.py the live server: each boot document it
+#                                  reads is listed here, with a matching
+#                                  has_head
+# Nothing in Go reads it. Nothing checks that the server serves every row, or
+# compares the server's read_only with it.
 #
 # WHAT A CHANGE HERE COSTS
 # ------------------------
 # Shipping a document means editing this file in the SAME commit as the registry
-# row. That is the point: the edit is one line, and skipping it is a red test
-# rather than an invisible hole.
+# row. Skipping it for a new kind turns mock.boot-doc-registry.test.ts red (the
+# kind reaches the cockpit through the frozen spec's BootDocKind enum).
 #
 # COLUMNS
 # -------

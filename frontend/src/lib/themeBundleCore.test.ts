@@ -4,9 +4,8 @@
 // (forging a pack of "every whitelisted key + 1") with `expected 1 to be 2` — a
 // message about theme rows that says nothing about a cap.
 //
-// The twin-equality check against the Go constant lives on the server side
-// (server/ocserverd/wording_cap_mirror_test.go), which can read both numbers;
-// moving either constant alone is red there.
+// Nothing compares this constant with its Go twin (maxWordingEntriesPerLang in
+// server/ocserverd/wording_bundle.go).
 import { describe, it, expect } from "vitest";
 import { MAX_WORDING_ENTRIES_PER_LANG } from "./themeBundleCore";
 import { MESSAGE_KEYS } from "../i18n/messageKeys.generated";
@@ -37,7 +36,8 @@ THE FIX IS TO RAISE BOTH TWINS TOGETHER, in one commit, to the same number:
   frontend/src/lib/themeBundleCore.ts  MAX_WORDING_ENTRIES_PER_LANG
   server/ocserverd/wording_bundle.go   maxWordingEntriesPerLang
 
-Raising only one of them is red in server/ocserverd/wording_cap_mirror_test.go.`
+Nothing checks that the two are equal: if you raise only this one, this test
+goes green while the server keeps its old cap.`
       );
     }
   });

@@ -24,8 +24,8 @@ const (
 	// hard-coded number (the owner did not pick a computed one) — ask the owner
 	// again in about four months, his chosen cadence. The whitelist grows ~7 keys
 	// A DAY (an earlier ~10-a-month estimate was measured wrong). Raise together with
-	// MAX_WORDING_ENTRIES_PER_LANG in frontend/src/lib/themeBundleCore.ts; they
-	// are asserted equal.
+	// MAX_WORDING_ENTRIES_PER_LANG in frontend/src/lib/themeBundleCore.ts;
+	// nothing compares the two.
 	maxWordingEntriesPerLang = 2000
 )
 

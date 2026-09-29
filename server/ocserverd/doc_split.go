@@ -2,7 +2,8 @@ package main
 
 // Which documents split is declared per kind in bootDocRegistry (`Split`) and
 // mirrored in bin/tests/fixtures/boot-doc-registry.tsv (`has_head`), read by
-// server, cockpit and conformance.
+// the cockpit's mock.boot-doc-registry.test.ts and by
+// conformance/test_rest_happy.py; nothing in Go reads it.
 // A marker line inside the stored text (not a second field) because the owner
 // must SEE the half he cannot edit. By owner ruling (2026-08-23) the head cannot
 // be written back: the write face takes the body alone, the read face names the
