@@ -2545,6 +2545,75 @@ func TestHandleAcceleratedStopMemberApiMembersMemberIdAcceleratedStopPost(t *tes
 		}
 	})
 
+	t.Run("pressing again on a stop already on the clock keeps its deadline anchor whichever way the grace moved", func(t *testing.T) {
+		for _, grace := range []int{10, 3600} {
+			t.Run("grace set to "+strconv.Itoa(grace)+" between the presses", func(t *testing.T) {
+				api, h, d, owner := newAPITestServer(t)
+				apiTestListen(t, api, "kip")
+				if status, data := apiJSON(t, h, "POST", "/api/members/kip/deactivate", owner, `{}`); status != 200 {
+					t.Fatalf("deactivate: %d %v", status, data)
+				}
+				if status, data := apiJSON(t, h, "POST", "/api/members/kip/accelerated-stop", owner, `{}`); status != 200 {
+					t.Fatalf("first press: %d %v", status, data)
+				}
+				first, err := d.GetMember("kip")
+				if err != nil || first == nil {
+					t.Fatalf("GetMember: %v (%v)", first, err)
+				}
+				if status, data := apiJSON(t, h, "PATCH", "/api/settings", owner,
+					`{"accelerated_grace_secs":`+strconv.Itoa(grace)+`}`); status != 200 {
+					t.Fatalf("settings: %d %v", status, data)
+				}
+
+				status, data := apiJSON(t, h, "POST", "/api/members/kip/accelerated-stop", owner, `{}`)
+				if status != 200 {
+					t.Fatalf("second press: want 200, got %d (%v)", status, data)
+				}
+				apiWantBody(t, data, map[string]any{"id": "kip"})
+				m, err := d.GetMember("kip")
+				if err != nil || m == nil {
+					t.Fatalf("GetMember: %v (%v)", m, err)
+				}
+				if m.StoppingSince != first.StoppingSince || m.RefocusOp != "accelerated_stop" {
+					t.Fatalf("stopping_since=%v refocus_op=%q, want the first press's anchor %v "+
+						"and accelerated_stop", m.StoppingSince, m.RefocusOp, first.StoppingSince)
+				}
+				_, view := apiJSON(t, h, "GET", "/api/members/kip", owner, "")
+				if view["refocus_deadline"] != first.StoppingSince+float64(grace) {
+					t.Fatalf("refocus_deadline=%v, want %v", view["refocus_deadline"],
+						first.StoppingSince+float64(grace))
+				}
+			})
+		}
+	})
+
+	t.Run("a hand-off already on the second-threshold clock keeps its anchor", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiTestListen(t, api, "kip")
+		since := nowSecs() - 30
+		if err := d.SetMemberWindDownAnchors("kip", 0, 0, since, refocusOpContextHigh); err != nil {
+			t.Fatalf("SetMemberWindDownAnchors: %v", err)
+		}
+
+		status, data := apiJSON(t, h, "POST", "/api/members/kip/accelerated-stop", owner, `{}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{"id": "kip"})
+		m, err := d.GetMember("kip")
+		if err != nil || m == nil {
+			t.Fatalf("GetMember: %v (%v)", m, err)
+		}
+		if m.RefocusSince != since || m.RefocusOp != "accelerated_stop" || m.StoppingSince != 0 {
+			t.Fatalf("refocus_since=%v refocus_op=%q stopping_since=%v, want %v, "+
+				"accelerated_stop and no stop anchor", m.RefocusSince, m.RefocusOp, m.StoppingSince, since)
+		}
+		_, view := apiJSON(t, h, "GET", "/api/members/kip", owner, "")
+		if view["refocus_deadline"] != since+120 {
+			t.Fatalf("refocus_deadline=%v, want %v", view["refocus_deadline"], since+120)
+		}
+	})
+
 	t.Run("a member with no live session answers 409 and nothing is put on a clock", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		if status, data := apiJSON(t, h, "POST", "/api/members/kip/deactivate", owner, `{}`); status != 200 {
