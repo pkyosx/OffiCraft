@@ -1249,7 +1249,7 @@ func TestListOutsourceWorkers_MachineSurvivesReexec(t *testing.T) {
 		t.Fatalf("connect worker listener: %v", err)
 	}
 	if rows := listWorkersAs(t, api, wireOwnerID); rows[0].Machine != "MBP 5" {
-		t.Fatalf("after re-exec + SSE reconnect: machine = %q, want MBP 5 (尚未分配 regression)",
+		t.Fatalf("after re-exec + SSE reconnect: machine = %q, want MBP 5 (machine lost on re-exec)",
 			rows[0].Machine)
 	}
 

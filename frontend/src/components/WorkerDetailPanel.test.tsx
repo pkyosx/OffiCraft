@@ -1457,6 +1457,28 @@ describe("WorkerDetailPanel — lifecycle ops (T-32e1/T-f190)", () => {
     },
   );
 
+  it("a retry of a rejected 停止 clears 操作失敗，請稍後重試", async () => {
+    __injectMockTask(mkTask({ id: "t-1" }));
+    __injectMockOutsourceWorker(mkWorker({ id: "ow-1", taskId: "t-1", presence: "online" }));
+    const stop = vi
+      .spyOn(api, "deactivateMember")
+      .mockRejectedValueOnce(new Error("http 500"))
+      .mockResolvedValueOnce(undefined);
+    const { findByTestId } = renderOfficeAt("#office/worker/ow-1");
+    fireEvent.click(await findByTestId("member-action-stop"));
+    await findByTestId("worker-detail-stop-error");
+    await waitFor(async () =>
+      expect(
+        ((await findByTestId("member-action-stop")) as HTMLButtonElement).disabled,
+      ).toBe(false),
+    );
+    fireEvent.click(await findByTestId("member-action-stop"));
+    await waitFor(() => expect(stop).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(queryTestId(document.body, "worker-detail-stop-error")).toBeNull(),
+    );
+  });
+
   it("a rejected 強制停止 closes its confirm and says 操作失敗，請稍後重試", async () => {
     __injectMockTask(mkTask({ id: "t-1" }));
     __injectMockOutsourceWorker(
@@ -1877,9 +1899,7 @@ describe("WorkerDetailPanel — pending launch changes (T-7f28)", () => {
         model: "Opus 4.6",
         effort: "high",
         desiredMachineId: "warden-mbp5",
-        // …versus what the worker's session actually reported. `machine` is the
-        // server-RESOLVED display name; `actualMachine` is a raw id, like the
-        // pin — the panel has to resolve before it compares.
+        // …versus what the worker's session actually reported.
         actualRuntime: "claude",
         actualModel: "claude-sonnet-4-5",
         actualEffort: "low",
@@ -1920,10 +1940,9 @@ describe("WorkerDetailPanel — pending launch changes (T-7f28)", () => {
         actualModel: "claude-opus-5-5",
         effort: "high",
         actualEffort: "high",
-        // 🔴 The regression this case exists for: the pin is a raw id and the
-        // OBSERVED machine arrives already resolved to its display name. A
-        // comparison that forgets to resolve marks every correctly placed
-        // worker as mid-relocation.
+        // 🔴 The pin is a raw id and `machine` may carry the machine's
+        // registry name; a comparison that does not resolve both marks a
+        // correctly placed worker as mid-relocation.
         desiredMachineId: "warden-mbp5",
         machine: "Warden · mbp5",
         actualMachine: "warden-mbp5",
@@ -1940,11 +1959,12 @@ describe("WorkerDetailPanel — pending launch changes (T-7f28)", () => {
   });
 
   it.each([
-    ["warden-mbp5", "Warden · mbp5", null],
-    ["m-server-self", "伺服器這一台", "Warden · mbp5"],
+    ["online", "warden-mbp5", "warden-mbp5", "Warden · mbp5", null],
+    ["waking", "warden-mbp5", "m-server-self", "Warden · mbp5", null],
+    ["online", "m-server-self", "m-server-self", "伺服器這一台", "→ 要換到 Warden · mbp5"],
   ] as const)(
-    "a worker running on %s, pinned to warden-mbp5 with no alias: 機器 reads %s, moving-to hint %s",
-    async (runningOn, cell, movingTo) => {
+    "a %s worker pinned to warden-mbp5 (no alias), dispatched to %s, last landed on %s: 機器 reads %s, moving-to hint %s",
+    async (presence, runningOn, landedOn, cell, movingTo) => {
       __setMockMemberOnline("warden-mbp5", true);
       __setMockMemberOnline("m-server-self", true);
       __injectMockTask(mkTask({ id: "t-4" }));
@@ -1952,19 +1972,19 @@ describe("WorkerDetailPanel — pending launch changes (T-7f28)", () => {
         mkWorker({
           id: "ow-1",
           taskId: "t-4",
-          presence: "online",
+          presence,
           desiredMachineId: "warden-mbp5",
           machine: runningOn,
-          actualMachine: runningOn,
+          actualMachine: landedOn,
         }),
       );
       const { findByTestId, queryByTestId } = renderOfficeAt("#office/worker/ow-1");
       await waitFor(async () =>
         expect((await findByTestId("worker-detail-machine")).textContent).toBe(cell),
       );
-      const hint = queryByTestId("worker-detail-machine-pending");
-      if (movingTo === null) expect(hint).toBeNull();
-      else expect(hint?.textContent).toContain(movingTo);
+      expect(
+        queryByTestId("worker-detail-machine-pending")?.textContent ?? null,
+      ).toBe(movingTo);
     },
   );
 

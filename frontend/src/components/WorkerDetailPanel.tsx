@@ -180,30 +180,33 @@ export function WorkerDetailPanel({
   const wakeMode = noLiveSession;
   // 🔴 `machine` arrives as the server's alias‖id, while the registry names a
   // machine by its displayName — the same machine can reach this panel under two
-  // spellings. Every machine value is resolved to the registry's displayName
-  // before it is shown or compared, and the pin is compared by id when the
-  // worker has a recorded landing; otherwise a correctly placed worker reads as
-  // mid-relocation.
+  // spellings, so every machine value is resolved through the registry before
+  // it is shown or compared. The reported side is the live dispatch target
+  // first and the durable landing only when there is none (the server's own
+  // pending-machine rule): right after a move `machine` is already the new host
+  // while `actual_machine` is still the old one.
+  const registryEntry = (value: string) =>
+    machines.find((m) => m.machineId === value || m.displayName === value);
   const machineDisplay = (value: string) =>
-    machines.find((m) => m.machineId === value || m.displayName === value)
-      ?.displayName || value;
+    registryEntry(value)?.displayName || value;
   const shownMachine = machineDisplay(worker.machine ?? "");
   // 機器 says only where it is running now; not running ⇒ the dash (owner
   // `rc-25c5679371c3`, both kinds).
   const machineText = awake || stoppingNow ? shownMachine : "";
   const desiredMachineId = worker.desiredMachineId ?? "";
-  const actualMachineId = worker.actualMachine ?? "";
+  const reportedMachineRaw = worker.machine || worker.actualMachine || "";
+  const reportedMachineId = registryEntry(reportedMachineRaw)?.machineId ?? "";
   const pendingMachine =
-    desiredMachineId && actualMachineId
+    desiredMachineId && reportedMachineId
       ? pendingChangeHint(
           desiredMachineId,
-          actualMachineId,
+          reportedMachineId,
           msg.workerMachineMovingTo,
           machineDisplay(desiredMachineId),
         )
       : pendingChangeHint(
           machineDisplay(desiredMachineId),
-          shownMachine,
+          machineDisplay(reportedMachineRaw),
           msg.workerMachineMovingTo,
         );
   const pendingRuntime = pendingChangeHint(
