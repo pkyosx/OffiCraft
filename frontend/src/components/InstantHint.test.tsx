@@ -63,11 +63,11 @@ describe("InstantHint", () => {
   });
 
   it("under a hint with a newline, each part is its own line", () => {
-    const trigger = renderHint("未登入 Claude\n要換到的 Mac Mini 未登入 Codex");
+    const trigger = renderHint("seth-m1 未登入 Claude\nMac Mini 未登入 Codex");
     fireEvent.mouseEnter(trigger);
     expect(lines(screen.getByRole("tooltip"))).toEqual([
-      "未登入 Claude",
-      "要換到的 Mac Mini 未登入 Codex",
+      "seth-m1 未登入 Claude",
+      "Mac Mini 未登入 Codex",
     ]);
   });
 

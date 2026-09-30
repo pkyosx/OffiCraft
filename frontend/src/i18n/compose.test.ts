@@ -89,8 +89,8 @@ const EXPECTED: [Lang, string, (string | number | string[] | number[])[], string
     ["zh", "memberRefocusSince", ["2 天"], "上次重新聚焦 2 天"],
     ["zh", "memberMachineMovingTo", ["Alpha"], "→ 要換到 Alpha"],
     ["zh", "workerMachineMovingTo", ["Alpha"], "→ 要換到 Alpha"],
-    ["zh", "runtimeLoginPending", ["Alpha", "claude"], "要換到的 Alpha 未登入 Claude"],
-    ["zh", "runtimeLoginPending", ["Alpha", "codex"], "要換到的 Alpha 未登入 Codex"],
+    ["zh", "runtimeLoginWarning", ["seth-m1", "claude"], "seth-m1 未登入 Claude"],
+    ["zh", "runtimeLoginWarning", ["seth-m1", "codex"], "seth-m1 未登入 Codex"],
     ["zh", "agentPendingChange", ["Codex"], "→ 要換成 Codex"],
     [
       "zh",
@@ -220,8 +220,8 @@ const EXPECTED: [Lang, string, (string | number | string[] | number[])[], string
     ["en", "memberRefocusSince", ["2 天"], "Last refocus 2 天"],
     ["en", "memberMachineMovingTo", ["Alpha"], "→ Moving to Alpha"],
     ["en", "workerMachineMovingTo", ["Alpha"], "→ Moving to Alpha"],
-    ["en", "runtimeLoginPending", ["Alpha", "claude"], "Moving to Alpha (not signed in to Claude)"],
-    ["en", "runtimeLoginPending", ["Alpha", "codex"], "Moving to Alpha (not signed in to Codex)"],
+    ["en", "runtimeLoginWarning", ["seth-m1", "claude"], "seth-m1 signed out of Claude"],
+    ["en", "runtimeLoginWarning", ["seth-m1", "codex"], "seth-m1 signed out of Codex"],
     ["en", "agentPendingChange", ["Codex"], "→ Changing to Codex"],
     [
       "en",

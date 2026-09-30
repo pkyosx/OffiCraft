@@ -132,20 +132,20 @@ describe("MemberCard presence — the dot carries it", () => {
     );
     const marks = getAllByTestId("runtime-login-warning");
     expect(marks).toHaveLength(1);
-    expect(marks[0].getAttribute("aria-label")).toBe("未登入 Codex");
+    expect(marks[0].getAttribute("aria-label")).toBe("mac-1 未登入 Codex");
     expect(marks[0].hasAttribute("title")).toBe(false);
     expect(marks[0].previousElementSibling).toBe(container.querySelector(".lifecycle-dot"));
     expect(screen.queryByRole("tooltip")).toBeNull();
 
     fireEvent.mouseOver(marks[0]);
     fireEvent.mouseEnter(marks[0]);
-    expect(screen.getByRole("tooltip").textContent).toBe("未登入 Codex");
+    expect(screen.getByRole("tooltip").textContent).toBe("mac-1 未登入 Codex");
     fireEvent.mouseLeave(marks[0]);
     expect(screen.queryByRole("tooltip")).toBeNull();
 
     act(() => marks[0].focus());
     expect(document.activeElement).toBe(marks[0]);
-    expect(screen.getByRole("tooltip").textContent).toBe("未登入 Codex");
+    expect(screen.getByRole("tooltip").textContent).toBe("mac-1 未登入 Codex");
     fireEvent.keyDown(marks[0], { key: "Enter" });
     fireEvent.keyDown(marks[0], { key: " " });
     expect(onChat).not.toHaveBeenCalled();

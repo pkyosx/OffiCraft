@@ -122,7 +122,7 @@ describe("ChatArea header 任務/角色設定 圖示 (T-dfae)", () => {
     const mark = warned.getByTestId("runtime-login-warning");
     expect(mark.hasAttribute("title")).toBe(false);
     fireEvent.focus(mark);
-    expect(screen.getByRole("tooltip").textContent).toBe("未登入 Claude");
+    expect(screen.getByRole("tooltip").textContent).toBe("mac-1 未登入 Claude");
     fireEvent.blur(mark);
     expect(mark.closest(".chat__header-sub")).not.toBeNull();
     warned.unmount();

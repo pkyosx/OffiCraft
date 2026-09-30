@@ -706,7 +706,7 @@ describe("WorkerDetailPanel — header matches the sidebar 外包 row (T-f190 UI
     await waitFor(() => expect(window.location.hash).toBe("#tasks/t-1"));
   });
 
-  it("under a runtime login warning, the header dot is followed by one exclamation whose hover hint names the pending pair", async () => {
+  it("under a runtime login warning, the header dot is followed by one exclamation whose hover hint names the pending pair's machine like a current one", async () => {
     __injectMockTask(mkTask({ id: "t-1", taskNo: "T-e9f4" }));
     __injectMockOutsourceWorker(
       mkWorker({
@@ -724,7 +724,7 @@ describe("WorkerDetailPanel — header matches the sidebar 外包 row (T-f190 UI
     expect(marks).toHaveLength(1);
     expect(marks[0].hasAttribute("title")).toBe(false);
     fireEvent.mouseEnter(marks[0]);
-    expect(screen.getByRole("tooltip").textContent).toBe("要換到的 Mac Mini 未登入 Codex");
+    expect(screen.getByRole("tooltip").textContent).toBe("Mac Mini 未登入 Codex");
     expect(marks[0].previousElementSibling?.getAttribute("data-testid")).toBe("worker-detail-header-dot");
   });
 

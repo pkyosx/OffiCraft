@@ -282,7 +282,7 @@ describe("OutsourcePanel", () => {
     fireEvent.mouseEnter(marks[0]);
     expect(
       Array.from(screen.getByRole("tooltip").children).map((line) => line.textContent),
-    ).toEqual(["未登入 Codex", "要換到的 Mac Mini 未登入 Claude"]);
+    ).toEqual(["Mac Studio 未登入 Codex", "Mac Mini 未登入 Claude"]);
     expect(marks[0].previousElementSibling?.getAttribute("data-testid")).toBe("outsource-presence-ow-warned");
     expect(within(cleanLine).queryByTestId("runtime-login-warning")).toBeNull();
   });

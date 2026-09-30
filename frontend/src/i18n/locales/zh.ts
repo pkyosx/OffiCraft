@@ -789,12 +789,10 @@ export const zh = {
       // degraded / 熔斷告警
       degraded: "服務降級 · 已觸發熔斷保護",
     },
+    // 接在機器名後:「seth-m1 未登入 Claude」。
     loginWarning: {
       claude: "未登入 Claude",
       codex: "未登入 Codex",
-      pendingLead: "要換到的",
-      pendingClaude: "未登入 Claude",
-      pendingCodex: "未登入 Codex",
     },
   },
   login: {
@@ -1776,8 +1774,10 @@ export const zh = {
       runtimeNoVersion: "已安裝",
       runtimeNoVersionHint: "已安裝，但讀不到版本。",
       runtimeLoggedOut: "未登入",
-      runtimeLoggedOutHint: "已安裝但尚未登入，成員不會被派到這台機器。",
-      runtimeClaudeLoggedOutHint: "這台機器上的 Claude 尚未登入。成員仍會被派到這裡，但要等這台機器登入 Claude 後才能工作。",
+      runtimeLoggedOutHint: {
+        claude: "未登入 Claude",
+        codex: "未登入 Codex",
+      },
       // 硬體樣本時效(T-b36a):過期的數值 server 會收回,於是 CPU/RAM/電源
       // 落回 dash——跟「從來沒回報過硬體」是同一個 dash。這兩個標籤就是把兩
       // 個世界分開的東西,要行動的只有後者(這台失聯了,不是它從沒說過話)。

@@ -132,7 +132,7 @@ describe("MemberDetailPanel · presence-gated machine + account", () => {
     fireEvent.mouseEnter(marks[0]);
     expect(
       Array.from(screen.getByRole("tooltip").children).map((line) => line.textContent),
-    ).toEqual(["未登入 Claude", "要換到的 Studio B 未登入 Codex"]);
+    ).toEqual(["seth-m5 未登入 Claude", "Studio B 未登入 Codex"]);
   });
 
   it("under no runtime login warning, the presence line has no exclamation", async () => {

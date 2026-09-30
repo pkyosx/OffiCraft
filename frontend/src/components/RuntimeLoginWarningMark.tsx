@@ -6,21 +6,19 @@ import "./runtime-login-warning.css";
 
 /** The exclamation beside a presence dot: a machine this member runs on, or is
  * about to, reports that runtime logged out. One icon however many pairs; the
- * hover hint carries one line per pair. */
+ * hover hint carries one line per distinct "<machine> 未登入 <runtime>". */
 export function RuntimeLoginWarningMark({
   warnings,
 }: {
   warnings: RuntimeLoginWarning[] | undefined;
 }) {
-  const { t, msg } = useI18n();
+  const { msg } = useI18n();
   if (!warnings || warnings.length === 0) return null;
-  const hint = warnings
-    .map((w) =>
-      w.pending
-        ? msg.runtimeLoginPending(w.machineName, w.runtime)
-        : t.lifecycle.loginWarning[w.runtime],
-    )
-    .join("\n");
+  // A current and a pending pair on the same machine and runtime read alike;
+  // show that line once.
+  const hint = [
+    ...new Set(warnings.map((w) => msg.runtimeLoginWarning(w.machineName, w.runtime))),
+  ].join("\n");
   return (
     <InstantHint
       hint={hint}

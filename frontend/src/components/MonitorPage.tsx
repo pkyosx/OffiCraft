@@ -1557,7 +1557,7 @@ function RuntimeVersionCell({
         <InstantHint
           className="mon-stale mon-bad"
           data-testid={`${testIdPrefix}-logged-out`}
-          hint={runtime === "claude" ? m.runtimeClaudeLoggedOutHint : m.runtimeLoggedOutHint}
+          hint={m.runtimeLoggedOutHint[runtime]}
         >
           {m.runtimeLoggedOut}
         </InstantHint>

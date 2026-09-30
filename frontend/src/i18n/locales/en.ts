@@ -736,12 +736,10 @@ export const en: Dict = {
       resumeReport: "Resume report · what's next and what's in hand",
       degraded: "Degraded · circuit breaker tripped",
     },
+    // Follows the machine name: "seth-m1 signed out of Claude".
     loginWarning: {
-      claude: "Not signed in to Claude",
-      codex: "Not signed in to Codex",
-      pendingLead: "Moving to",
-      pendingClaude: "(not signed in to Claude)",
-      pendingCodex: "(not signed in to Codex)",
+      claude: "signed out of Claude",
+      codex: "signed out of Codex",
     },
   },
   login: {
@@ -1748,7 +1746,7 @@ export const en: Dict = {
       // digest is gone; Claude and Codex each print their probed version. The
       // ✗ states it used to carry still have to be sayable, because for Codex
       // they are the reason placement refuses the machine — so "not installed"
-      // and "not signed in" are WORDS in the cell, never a silently missing version.
+      // and "signed out" are WORDS in the cell, never a silently missing version.
       runtimeNotInstalled: "not installed",
       runtimeNotInstalledHint:
         "This AI runtime is not installed on this machine, so members cannot be woken here.",
@@ -1756,10 +1754,11 @@ export const en: Dict = {
       runtimeNoVersionHint:
         "Installed, but its version could not be read.",
       runtimeLoggedOut: "signed out",
-      runtimeLoggedOutHint:
-        "Installed but not signed in — members will not be placed on this machine.",
-      runtimeClaudeLoggedOutHint:
-        "Claude is not signed in on this machine. Members can still be placed here, but they cannot work until Claude is signed in on it.",
+      // Owner ruling: the runtime only, no explanation of what follows.
+      runtimeLoggedOutHint: {
+        claude: "Signed out of Claude",
+        codex: "Signed out of Codex",
+      },
       // ── hardware sample age (T-b36a). The server WITHHOLDS the numbers of an
       // expired sample, so cpu/ram/power fall back to a dash — the same dash a
       // machine that has never reported hardware shows. These two labels are

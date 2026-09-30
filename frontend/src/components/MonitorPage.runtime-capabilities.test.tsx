@@ -178,9 +178,7 @@ describe("MonitorPage per-runtime version columns", () => {
     expect(claudeMark.hasAttribute("title")).toBe(false);
     expect(screen.queryByRole("tooltip")).toBeNull();
     fireEvent.mouseEnter(claudeMark);
-    expect(screen.getByRole("tooltip").textContent).toBe(
-      "這台機器上的 Claude 尚未登入。成員仍會被派到這裡，但要等這台機器登入 Claude 後才能工作。"
-    );
+    expect(screen.getByRole("tooltip").textContent).toBe("未登入 Claude");
     fireEvent.mouseLeave(claudeMark);
     expect(screen.queryByRole("tooltip")).toBeNull();
 
@@ -188,11 +186,33 @@ describe("MonitorPage per-runtime version columns", () => {
     const codexMark = within(codexOut).getByTestId("mon-codex-logged-out");
     expect(codexMark.hasAttribute("title")).toBe(false);
     fireEvent.focus(codexMark);
-    expect(screen.getByRole("tooltip").textContent).toBe(
-      "已安裝但尚未登入，成員不會被派到這台機器。"
-    );
+    expect(screen.getByRole("tooltip").textContent).toBe("未登入 Codex");
     fireEvent.blur(codexMark);
     expect(screen.queryByRole("tooltip")).toBeNull();
+  });
+
+  it("under English, the 未登入 chip reads signed out and its hint names only the runtime", async () => {
+    window.localStorage.setItem("oc.language", "en");
+    try {
+      mount(
+        card(false, {
+          claude: { installed: true, loggedIn: false, version: "2.1.211" },
+          codex: { installed: true, loggedIn: false, version: "0.52.0" },
+        })
+      );
+      const claudeOut = await screen.findByTestId("mon-claude-version");
+      expect(claudeOut.textContent).toBe("2.1.211signed out");
+      fireEvent.mouseEnter(within(claudeOut).getByTestId("mon-claude-logged-out"));
+      expect(screen.getByRole("tooltip").textContent).toBe("Signed out of Claude");
+      const codexOut = await screen.findByTestId("mon-codex-version");
+      fireEvent.mouseEnter(within(codexOut).getByTestId("mon-codex-logged-out"));
+      expect(screen.getAllByRole("tooltip").map((h) => h.textContent)).toEqual([
+        "Signed out of Claude",
+        "Signed out of Codex",
+      ]);
+    } finally {
+      window.localStorage.removeItem("oc.language");
+    }
   });
 
   it("under an unreported login state, the cell is the version alone, while a signed-out runtime on the same machine still says 未登入", async () => {
