@@ -148,7 +148,7 @@ export const en: Dict = {
     // The remaining fragments of the named cap line.
     capLineSep: " · ",
     capLineMid: " cap ",
-    capLineTail: " characters — nothing below this line is loaded",
+    capLineTail: " characters — members cannot see the lore below this line",
     // The filter row: author → member lore → task lore → state → clear, the
     // order and the names the owner dictated on 2026-09-08 (所有撰寫人 / 所有
     // 成員傳承 / 所有任務傳承 / 所有狀態). It is the 任務頁's shape minus its id
@@ -219,7 +219,7 @@ export const en: Dict = {
     // A non-404 failure: the question never got an answer, so "not found" would
     // be a lie.
     idUnreached: (id: string) =>
-      `Looking up "${id}" got no answer from the server, so we do not know whether it exists — this is NOT a "not found". Please try again shortly.`,
+      `Could not confirm whether "${id}" exists right now. Please try again shortly.`,
     outsource: "Outsource",
     unassigned: "Unassigned",
     adhoc: "Ad-hoc",
@@ -343,7 +343,7 @@ export const en: Dict = {
     terminate: "Terminate",
     terminateConfirmBodyLead: "Terminate “",
     terminateConfirmBodyTail:
-      "”? The task moves to Terminated and cannot be resumed; the backend will notify the executor to wind it down.",
+      "”? The task moves to Terminated and cannot be resumed; the executor will be notified to wrap it up.",
     terminateConfirm: "Terminate",
     // Mark duplicate (T-02c9): the executor points at the original and closes it
     markDuplicate: "Mark duplicate",
@@ -432,7 +432,7 @@ export const en: Dict = {
     // The page and the wire disagree; retrying the same payload cannot help, so
     // the line must not ask for a retry.
     closeBadRequestError:
-      "The server could not understand this close request, and the task was not touched. The page and the server disagree about the wire — please report this.",
+      "The task could not be closed and was not changed. The page and the server may be on different versions — reload the page and try again; if it still fails, please report it.",
     // Reassign: hand the task to another staff member, or to an outsource
     // worker the server mints (the same model / effort / machine knobs the task
     // type's assignee carries). The task enters Reassigning; the successor takes
@@ -440,7 +440,7 @@ export const en: Dict = {
     reassign: "Reassign…",
     reassignTitleLabel: "Reassign",
     reassignBody:
-      "The task moves to Reassigning and both sides are notified to hand over. Until the new executor claims the task, the previous executor can still write the handover; after the claim, the new executor takes over.",
+      "The task moves to Reassigning and both sides are notified to hand over.",
     reassignToMember: "To a member",
     reassignToOutsource: "To outsource",
     reassignPickMember: "Pick who takes it over",
@@ -471,7 +471,7 @@ export const en: Dict = {
       close: "Close artifacts",
       remove: "Remove artifact",
       removeConfirm:
-        "Remove this artifact from the task card? The file it points at NOW is kept, but if this artifact was ever replaced, every earlier version kept behind it is deleted for good — those files included.",
+        "Remove this artifact from the task card? The current file is kept, but all of its earlier versions are deleted for good, files included.",
       loading: "Loading artifacts…",
       loadFailed: "Could not load artifacts — close and reopen to retry",
       downloadHint: "Download",
@@ -490,9 +490,9 @@ export const en: Dict = {
       versionsLoading: "Loading…",
       versionsLoadError: "The version history could not be read",
       versionsContentError: "This version's content could not be read",
-      versionsContentGone: "This version points at nothing",
+      versionsContentGone: "This version has no content",
       versionsUnnamed: "Untitled",
-      versionsUnpinned: "This artifact is no longer pinned on the task",
+      versionsUnpinned: "This artifact is no longer on the task",
       versionsOpaqueLead: "Not a text file (",
       versionsOpaqueTail: ") — look at the two versions one at a time instead.",
     },
@@ -528,11 +528,11 @@ export const en: Dict = {
     // 🔴 Three outcomes, three sentences — never merged. Round 1 had one, so
     // "this card does not exist" and "this card was simply never loaded" read
     // identically; that collapse is the defect this ticket removes.
-    lookupLoading: "Checking this id with the server…",
+    lookupLoading: "Looking up…",
     // ⚠️ This one must NOT say "not found": without an answer from the server
     // we have no standing to say whether the id exists.
     lookupFailed:
-      "The server could not be reached (network or server error), so whether this id exists is unknown. Please try again.",
+      "Could not confirm whether this id exists right now. Please try again.",
     loadError: "Failed to load your asks. Please try again.",
     waitedLabel: "Waiting",
     // Opened/answered stamps are always absolute with the date (e.g. 7/13
@@ -659,7 +659,7 @@ export const en: Dict = {
     machine: "Machine",
     claudeAccount: "Claude Account",
     runtime: "Runtime",
-    context: "context",
+    context: "Memory used",
     estimatedCost: "est. $",
     notAssigned: "Not yet assigned",
     // T-7526: the four presence words retired with the 狀態 cell — see zh.ts.
@@ -696,7 +696,7 @@ export const en: Dict = {
     terminalHint:
       "Paste this in your own terminal to attach to this worker's session.",
     terminalUnavailable:
-      "This station's server version does not provide an attach command.",
+      "This server version does not support the attach command — please update the server.",
     // Initial-prompt preview (boot-context): a worker never stores its verbatim
     // dispatch-time persona, so the server re-runs the same assembly — the hint
     // and note both flag that it is today's version. Since T-4595 that assembly
@@ -704,9 +704,9 @@ export const en: Dict = {
     // (Duty) and its insight (a worker has no role, so it has neither);
     // it contains neither the task nor the manual, so the old
     // "re-assembled from the current task and manual" wording was simply false.
-    initialPromptHint: "current re-assembly",
+    initialPromptHint: "current version preview",
     initialPromptNote:
-      "A preview re-assembled from the CURRENT boot documents — not a verbatim record of the dispatch-time text (edits to them since then will differ). It is the staff boot context minus the whole persona — the role definition (Duty) and its insight: a worker has no role, so it has neither, and it picks its task and manual up itself after booting.",
+      "A preview built from the current settings — it may differ from what was sent at dispatch time.",
     dash: "—",
   },
   lifecycle: {
@@ -728,8 +728,8 @@ export const en: Dict = {
     // The one ladder slot has exactly two unpressable presentations, and both
     // say why.
     reason: {
-      alreadyStopping: "Already winding down — this button upgrades to Accelerated stop once the close-out is on a clock",
-      justAppeared: "Just upgraded — pausing a moment so a repeat click cannot escalate for you",
+      alreadyStopping: "Already winding down — Accelerated stop will be available shortly.",
+      justAppeared: "Please wait a moment before pressing again.",
     },
     message: {
       windDown: "Winding down…",
@@ -740,7 +740,7 @@ export const en: Dict = {
   },
   login: {
     title: "Sign in",
-    passwordPlaceholder: "Deploy password",
+    passwordPlaceholder: "Password",
     submit: "Sign in",
     submitting: "Signing in…",
     error: "Incorrect password, try again",
@@ -802,11 +802,11 @@ export const en: Dict = {
     // wording, which IS the diagnosis).
     reasons: {
       install_failed:
-        "This machine could not be installed, so the assistant was not woken — waking one onto a machine that is not set up would just leave a grey member with no reason. The details below are the installer's full output.",
+        "This machine could not be installed, so the assistant was not woken. The details below are the installer's full output.",
       roster_missing:
-        "This server's own machine record is missing from the roster — the out-of-box setup did not finish. Restart the server and try again.",
+        "The initial setup did not finish. Restart the server and try again.",
       assistant_missing:
-        "The assistant that ships with the studio is missing from the roster — the out-of-box setup did not finish. Restart the server and try again.",
+        "The initial setup did not finish. Restart the server and try again.",
       interrupted:
         "Automatic setup was interrupted partway through (the server restarted while it was running), so it never finished. Install this machine yourself from Monitor › Machines › Install, then bring the assistant online.",
       faulted:
@@ -823,11 +823,11 @@ export const en: Dict = {
   dispatchAlert: {
     wakeTitle: "No wake command went out this time",
     wakeBody:
-      "Nothing was dispatched on this attempt, so this click will not wake the member. The intent is saved and the server keeps retrying in the background.",
+      "This wake was not sent; the system will keep retrying in the background.",
     wakeStep1:
-      "The target machine (or its warden) may not be connected — check whether it is online under Monitor.",
+      "The target machine may not be connected — check whether it is online under Monitor.",
     wakeStep2:
-      "Or an earlier command may still be retrying — if this member's Last operation shows a reason, trust that line: it is more precise than this one.",
+      "Or an earlier wake may still be retrying — check this member's Last operation.",
     relocateTitle: "No move command went out this time",
     relocateBody:
       "The new machine is pinned, but nothing was dispatched on this attempt — the machine that had to take the command is not connected. The server keeps retrying in the background.",
@@ -891,8 +891,8 @@ export const en: Dict = {
     themeImportLinkWorking: "Fetching…",
     themeImportLinkFailed: "Could not fetch that link",
     themeImportLinkShareNote:
-      "A share link carries no identity and never expires — anyone who can reach this studio and has the link can read the theme, including any private images inside it. A single link cannot be withdrawn; the only way to void one is coarse: remove the key that signed it under Settings › Signing keys, which voids every link that key signed at once.",
-    themeImportDup: "A custom theme with that id already exists",
+      "Anyone who has this link can see the theme, including any private images inside it. The link never expires and cannot be withdrawn on its own.",
+    themeImportDup: "This custom theme already exists",
     themeImportReadFailed: "Could not read that file",
     themeLimitReached: "You've reached the custom-theme limit",
     themeImportSkippedLead: "Imported, but",
@@ -904,7 +904,7 @@ export const en: Dict = {
     langZh: "中文",
     langEn: "English",
     pushContactEmail: "Notification email",
-    pushContactEmailSub: "A public contact address used to identify this cockpit to push services. Notifications are not sent until it is set.",
+    pushContactEmailSub: "Notifications are not sent until this is set. The address is shared with the browser's push service, so use one that can be public.",
     pushContactEmailPlaceholder: "name@company.com",
     pushContactEmailError: "Enter a public email address.",
     layout: "Layout",
@@ -1221,14 +1221,14 @@ export const en: Dict = {
     settingsSaveOnly: "Save without waking",
     modelReportedTag: "reported at last boot",
     settingsIntentNote: "These are the values to wake WITH.",
-    settingsIntentNoteReported: "The model on the card above is what the agent reported at its most recent boot, which can differ from what is set here.",
+    settingsIntentNoteReported: "The model shown above is the one actually in use now, which can differ from what is set here.",
     wakeManual: "Wake manually",
     // Instant feedback after clicking Wake, before server presence catches up.
     wakePendingNote: "Waking…",
     forceStopConfirmTitle: "Force stop?",
     forceStopConfirmBodyLead: "Force-stop",
     forceStopConfirmBodyTail:
-      "immediately — kill the session now, skipping the graceful shutdown. Any unsaved work in progress is lost.",
+      "immediately — skipping the graceful shutdown. Any unsaved work in progress is lost.",
     forceStopConfirmAction: "Force stop",
     forceStopBusy: "Stopping…",
     model: "Model",
@@ -1266,14 +1266,14 @@ export const en: Dict = {
     windDownByLabel: "by",
     windDownEffectSuffix: "at the latest",
     standby: "On standby",
-    context: "context",
-    compactionCount: (n: number) => `compact: ${n}`,
+    context: "Memory used",
+    compactionCount: (n: number) => `Memory compactions: ${n}`,
     refocus: "Refocus",
     refocusOfflineHint: "Refocus is available only when online",
     refocusing: "Refocusing…",
     refocusDone: "Sent",
     refocusError: "Refocus failed",
-    refocusSubmittedNote: "Refocus sent · agent compacting context…",
+    refocusSubmittedNote: "Refocus sent · member tidying up its memory…",
     refocusSinceLabel: "Last refocus",
     // fleet remote-ops stage 1 — last warden op receipt
     lastOp: "Last operation",
@@ -1296,7 +1296,7 @@ export const en: Dict = {
     terminalHint:
       "Paste this in your own terminal to attach to this member's session.",
     terminalUnavailable:
-      "This station's server version does not provide an attach command.",
+      "This server version does not support the attach command — please update the server.",
     initialPrompt: "Initial prompt",
     promptLoading: "Loading…",
     promptError: "Failed to load initial prompt",
@@ -1307,9 +1307,9 @@ export const en: Dict = {
     insightLoading: "Loading…",
     insightError: "Failed to load insight",
     insightEmpty:
-      "This role has no Insight yet. Nobody has moved any judgement calls over — every role starts empty here.",
+      "This role has no Insight yet.",
     insightShared:
-      "Insight is SEPARATE, not private — any authenticated identity can read any role's Insight; only this role's own agent and an admin can write it.",
+      "Every member can read this Insight; only this role itself and an admin can change it.",
     insightSaveError: "Failed to save insight",
     // ── Webhook endpoints (M4) ──
     webhook: {
@@ -1419,7 +1419,7 @@ export const en: Dict = {
       customSelectAll: "Select all",
       customClear: "Clear",
       customEmptyHint:
-        "Each of the four needs at least one pick, or the schedule has no time to fire at — and the server will refuse it.",
+        "Each of the four needs at least one pick, or this schedule will never send.",
       customNone: "Nothing selected",
       // Summary phrases: each stands on its own under its group heading, and the
       // row summary joins the four with a middle dot.
@@ -1518,7 +1518,7 @@ export const en: Dict = {
       // payload-parity test holds them apart. "folded" is this side's word.
       bodyOmittedMark: "folded",
       // Stated once per chat block, so no message has to repeat it.
-      bodyOmittedNote: "folded = shortened here, whole text still on the server (re-read with get_chat)",
+      bodyOmittedNote: "folded = only part of the content is shown here",
       // 🔴 "may", not "were": the server raises this marker as soon as a line
       // was cut at its read window, and it never looks past the cut — so it is
       // raised even when nothing older exists (see resumeChatCutHint).
@@ -1624,7 +1624,7 @@ export const en: Dict = {
       machine: "Machine",
       account: "Account",
       model: "Model",
-      context: "context",
+      context: "Memory used",
       estCost: "est. $",
     },
     machine: {
@@ -1648,14 +1648,14 @@ export const en: Dict = {
       uninstall: "Uninstall",
       deleteMachine: "Delete",
       // offline machine has no warden to uninstall (disabled-button tooltip)
-      uninstallOfflineHint: "Machine is offline — no warden to uninstall",
+      uninstallOfflineHint: "Machine is offline — cannot uninstall",
       // uninstall intent armed, warden not yet disconnected — the same
       // in-progress treatment as "Installing…"
       uninstallInProgress: "Uninstalling…",
       // install dialog (non-server machines): a single screen — copy & run on it
       installTitle: "Install machine",
       installRemoteHint:
-        "Copy the command below and run it on that machine to install the warden. The command re-mints a fresh token.",
+        "Copy the command below and run it on that machine to install.",
       // copy the install command (GET /boot-command; re-mints a token)
       copyBootCmd: "Copy install command",
       copyBootCmdError: "Failed to fetch command",
@@ -1679,20 +1679,20 @@ export const en: Dict = {
       bootstrapConfirmTitle: "Confirm reinstall on the server",
       bootstrapConfirmBodyLead: "“",
       bootstrapConfirmBodyTail:
-        "” is online and already running a warden. Installing again OVERWRITES the warden currently in service: every member on this machine is disconnected, and it CANNOT be undone — the replaced warden is not recoverable, the machine has to be installed again and its members brought back online.",
+        "” is online. Installing again disconnects every member on this machine and CANNOT be undone; its members will need to be brought back online afterwards.",
       bootstrapConfirm: "Overwrite and reinstall",
       // uninstall (POST /uninstall): drive the uninstall RPC to the warden
       // (online-only)
       uninstallConfirmTitle: "Confirm uninstall",
       uninstallConfirmBodyLead: "Uninstall “",
       uninstallConfirmBodyTail:
-        "”? This asks the warden on that machine to run ocwarden uninstall; on success the machine goes offline, but the record is KEPT (re-installable).",
+        "”? On success the machine goes offline, but its record is kept and it can be installed again.",
       uninstallConfirm: "Confirm uninstall",
       uninstallBusy: "Working…",
       uninstallError: "Uninstall failed",
       uninstallResultTitle: "Uninstall result",
       uninstallDispatched:
-        "Uninstall command sent — the machine will go offline once the warden reports back. The record is kept (re-installable).",
+        "Uninstall sent — the machine will go offline once it reports back. The record is kept and it can be installed again.",
       uninstallAlreadyOffline:
         "The machine is already offline and treated as already uninstalled — nothing was dispatched. The record is kept (re-installable).",
       // uninstall guard: warn first when members are still ACTUALLY ONLINE on
@@ -1705,7 +1705,7 @@ export const en: Dict = {
       uninstallWarnBody1: "“",
       uninstallWarnBody2: "” still has ",
       uninstallWarnBody3:
-        " member(s) online on it. Uninstalling now tears the warden off the machine while they are still on it — take the related members offline first. Proceed anyway?",
+        " member(s) online on it. Uninstalling now disconnects them — take the related members offline first. Proceed anyway?",
       uninstallWarnProceed: "Proceed anyway",
       // delete (DELETE /machines/{id}): no warden command is sent, but this is
       // NOT the cheap bookkeeping edit the old copy described. T-9cf8 made the
@@ -1720,7 +1720,7 @@ export const en: Dict = {
       deleteConfirmTitle: "Confirm delete machine",
       deleteConfirmBodyLead: "Delete “",
       deleteConfirmBodyTail:
-        "”? Its credentials stop working immediately: the machine can no longer report in, and any agent still assigned to it loses access too. Nothing is torn down on the machine itself (that is “Uninstall”), and this cannot be undone — bringing it back means installing it again.",
+        "”? The machine can no longer connect, effective immediately, and any member still on it is disconnected too. Nothing installed on the machine is removed (that is “Uninstall”), and this cannot be undone — bringing it back means installing it again.",
       deleteConfirm: "Confirm delete",
       deleteBusy: "Deleting…",
       deleteError: "Delete failed",
@@ -1730,8 +1730,8 @@ export const en: Dict = {
       // the UI's job is to show them without claiming they are current.
       runtimeStale: "stale",
       runtimeStaleHint:
-        "Last probed a while ago — this machine has not reported since, so this readiness may no longer be true",
-      runtimeUnknown: "Never probed — an older warden, or no heartbeat yet",
+        "This machine has not reported in a while, so this status may be out of date.",
+      runtimeUnknown: "No status yet; if this persists, the OffiCraft software on this machine may be outdated and needs updating.",
       // ── per-runtime version columns (T-674d). The Runtimes column's ✓/✗
       // digest is gone; Claude and Codex each print their probed version. The
       // ✗ states it used to carry still have to be sayable, because they are
@@ -1739,13 +1739,13 @@ export const en: Dict = {
       // signed in" are WORDS in the cell, never a silently missing version.
       runtimeNotInstalled: "not installed",
       runtimeNotInstalledHint:
-        "The warden could not resolve this runtime's binary on the machine — it cannot wake one here",
+        "This AI runtime is not installed on this machine, so members cannot be woken here.",
       runtimeNoVersion: "installed",
       runtimeNoVersionHint:
-        "The binary resolved but its version probe returned nothing",
+        "Installed, but its version could not be read.",
       runtimeLoggedOut: "signed out",
       runtimeLoggedOutHint:
-        "Installed, but the provider login probe says not signed in — placement refuses this runtime on this machine",
+        "Installed but not signed in — members will not be placed on this machine.",
       // ── hardware sample age (T-b36a). The server WITHHOLDS the numbers of an
       // expired sample, so cpu/ram/power fall back to a dash — the same dash a
       // machine that has never reported hardware shows. These two labels are
@@ -1753,7 +1753,7 @@ export const en: Dict = {
       // actionable ("this box went dark", not "this box never spoke").
       hardwareStale: "stale",
       hardwareStaleHint:
-        "Measured a while ago and not since — the numbers are withheld rather than shown as current",
+        "This machine has not reported in a while, so the numbers are not shown.",
       // ── wrongly-typed hardware value (T-aad2). A THIRD reason this cell
       // is blank, and the one that used to be indistinguishable from "never
       // measured": the probe DID report, with a value the server cannot read
@@ -1762,7 +1762,7 @@ export const en: Dict = {
       // reporter itself is broken, and they send you to different places.
       hardwareBad: "bad value",
       hardwareBadHint:
-        "This machine reported a value of the wrong type, so it cannot be shown — the probe ran, its reading is unusable. Check that machine's warden version.",
+        "This machine reported values that cannot be shown. Make sure it is running the latest version.",
       // ── the cutover mark. Of the four states only ONE speaks — the proven
       // failure; the other three (measured and confirmed in effect / measured
       // but undecidable / never measured) render nothing at all.
@@ -1804,22 +1804,22 @@ export const en: Dict = {
   signingKeys: {
     title: "Signing keys",
     intro:
-      "The server signs login credentials with a signing key. Several can exist at once: only one signs, the rest still verify — that is the transition window when a key is being replaced.",
+      "Manage the keys used to issue logins and share links. Replacing a key does not affect anyone already logged in.",
     loading: "Loading…",
-    signingBadge: "signing",
-    retiredBadge: "verify only",
+    signingBadge: "In use",
+    retiredBadge: "Old key (still valid)",
     createdLabel: "Created",
     createdUnknown: "In use since before this was recorded",
     countLabel: (n: number) => `${n} key${n === 1 ? "" : "s"} in the ring`,
     rotateButton: "Create a new key",
     rotateHint:
-      "Mints a new key and hands signing over to it. Nobody is logged out: the old key stays and keeps verifying, it just never signs again. Takes effect immediately — no restart.",
+      "Creates a new key and switches to it. Nobody is logged out, and it takes effect immediately.",
     removeButton: "Remove",
     removeConfirmTitle: "Remove this key?",
     removeConfirmBody:
       "Everything this key signed stops working the moment you confirm, with no grace period and no notice to anyone: credentials signed by it are refused, and the share links produced under it — file links and comparison links alike — break too.",
     removeConfirmWarden:
-      "⚠️ Machine (warden) credentials are long-lived — months, not days — and the ones on machines installed before credentials were given expiries back never lapse at all. Waiting is therefore not the answer. What decides whether this is safe is whether every machine has moved ONTO THE CURRENT KEY — not how many days have passed, and not merely whether it reconnected: a machine that came back still holding a credential signed by this key drops off the moment you press remove. A machine that is offline cannot move until it comes back.",
+      "⚠️ Any machine that has not moved to the new key disconnects the moment you remove this one; an offline machine can only move once it comes back online. Make sure every machine has moved to the new key before removing.",
     removeConfirmCancel: "Cancel",
     removeConfirmOk: "Remove it",
     actionFailed: "That action did not go through, and the server gave no reason.",
@@ -1839,7 +1839,7 @@ export const en: Dict = {
     reasonFailed:
       "The most recent scheduled backup failed or was skipped, so no new retreat point was created.",
     reasonUnknown:
-      "The watchdog has not evaluated yet, or could not read its own state, so whether you have a retreat point is unknown.",
+      "Whether you have a usable restore point cannot be determined right now. Please check again later.",
     reasonUnavailable:
       "The backup status could not be loaded from the server, so whether you have a retreat point is unknown.",
     newestLabel: "Newest scheduled backup",
@@ -1905,7 +1905,7 @@ export const en: Dict = {
     // ── outer-canvas background image (T-081b) ──
     themeCanvasBgSection: "Outer canvas",
     themeCanvasBgHint:
-      "Upload an image to lay over the background colour (PNG / JPEG / WEBP, max 512 KB); leave empty for the plain colour. Tile and Sides only paint the canvas beside the content column, so they are invisible on phones, in narrow windows, and in the wide layout (all have no side canvas); Cover fills the whole window.",
+      "Upload an image to lay over the background colour (PNG / JPEG / WEBP, max 512 KB); leave empty for the plain colour. Tile and Sides only paint the canvas beside the content column, so they are invisible on phones, in narrow windows, and in the wide layout; Cover fills the whole window.",
     // The background has its own cap (512 KB), so it cannot reuse the shared
     // themeAvatarInvalid — that one says 64 KB, which is false here (T-72da).
     themeCanvasBgInvalid:
@@ -1946,9 +1946,9 @@ export const en: Dict = {
     catalogHash: "MCP catalog hash",
     globalSection: "BOOT",
     systemName: "System interaction",
-    systemSub: "How the system works, injected into every agent · editable",
+    systemSub: "How the system works, read by every member at boot · editable",
     customName: "User additions",
-    customSub: "Custom content appended to every agent's boot context · editable",
+    customSub: "Custom content read by every member at boot · editable",
     roleDefsSection: "Role definitions",
     bootName: "Boot steps",
     bootSub: "What an AI follows while starting up · one per runtime · editable",
@@ -1960,7 +1960,7 @@ export const en: Dict = {
     bootCodexSub: "Boot SOP for the Codex App Server runtime · editable",
     offboardName: "Stop",
     offboardSub:
-      "Wrap-up instructions handed to an agent when the server is about to collect its session · editable",
+      "Wrap-up instructions a member receives when it is stopped · editable",
     stopSection: "STOP",
     taskEventSection: "TASK EVENTS",
     acceleratedStopName: "Accelerated stop",
@@ -1980,7 +1980,7 @@ export const en: Dict = {
       "What an agent is told when the task blocking it is released · editable",
     taskReadyForDoneName: "Your task is ready to be closed",
     taskReadyForDoneSub:
-      "What an agent is told each time its task reaches ready_for_done · editable",
+      "What an agent is told each time its task becomes ready to close · editable",
     bootDocReadOnlyNote:
       "This document is shown so you can see exactly what agents are told. Nobody may edit it, and it has no version other than the shipped one.",
     bootDocSaveConfirmAcceleratedStop:
@@ -1991,11 +1991,11 @@ export const en: Dict = {
     bootDocNoteHistoryTail:
       " versions, counted in SAVES rather than in time — a run of small saves pushes the older ones out. Restoring the factory version is never affected and is always available.",
     bootDocSaveConfirmBoot:
-      "Save these boot steps? Broken boot steps stop agents booting after it from attaching to SSE, so they never come online — silently, with no error anywhere, and with nobody online to fix it. Check the preview first; if it does go wrong, press Restore factory version.",
+      "Save these boot steps? Broken boot steps stop members booting after this from coming online, with no error message anywhere. Check the preview before saving; if it does go wrong, press Restore factory version.",
     bootDocSaveConfirmSystem:
       "Save this system-interaction document? Every agent that boots after the save reads this content.",
     bootDocSaveConfirmOffboard:
-      "Save this Stop document? Every session collected after the save reads this content, with nobody online to ask — and NOTHING on this path is counting: a plain stop, a refocus, a machine or model change, a token about to expire, the first context threshold all wait on the agent's own report. The one countdown lives in the Accelerated stop document, not this one. So this text has to be finishable with no clock on it.",
+      "Save this Stop document? Every member stopped after this reads it, with nobody to ask and no time limit; the time-limited case reads the Accelerated stop document instead.",
     bootDocSaveConfirmAction: "Save",
     // The click-to-open heading of a stacked document (T-6278). Both boot
     // sequences start closed so the page shows both at once; the label is on
@@ -2023,7 +2023,7 @@ export const en: Dict = {
     reset: "Reset",
     editorPlaceholder: "Write in Markdown…",
     docReplaceNote:
-      "Saving REPLACES the editable half of this document with what is in the editor — there is no per-section merge, so anything not pasted back is gone. The read-only part above is untouched, and there is no way to send an edit to it.",
+      "Saving replaces the whole document with what is in the editor; any section not in the editor is gone.",
     docReadOnlyHead: "Read-only (written by the program, not editable)",
     docActionFailed: "That did not go through — try again.",
     docOverCapLead: "Now ",
@@ -2059,7 +2059,7 @@ export const en: Dict = {
     historyBlockedReasonLead: '"',
     historyBlockedReasonMid: '" is over the ',
     historyBlockedReasonTail:
-      "-character limit and no shorter than what is stored now — the server would refuse this restore.",
+      "-character limit and no shorter than what is stored now, so it cannot be restored.",
     historyOpen: "View this version",
     historyPaneLabel: "View mode",
     historyPaneContent: "Version content",
@@ -2112,8 +2112,8 @@ export const en: Dict = {
     paramsSaveError: "Didn't save — try again",
     sessionTtl: "Session length",
     sessionTtlSub: "How long before you have to sign in again",
-    agentTokenTtl: "Agent token lifetime",
-    agentTokenTtlSub: "How long newly started members and outsource workers keep their token",
+    agentTokenTtl: "Member login lifetime",
+    agentTokenTtlSub: "How long newly started members and outsource workers stay logged in before they must log in again",
     ttl12h: "12 hours",
     ttl24h: "24 hours",
     ttl7d: "7 days",
@@ -2123,25 +2123,25 @@ export const en: Dict = {
       "At this level the Stop document is sent, and the agent is asked to close out and hand over under its own power (must be below the final call)",
     handover: "Claude final call",
     handoverSub:
-      "At this level the final notice goes out and the handover fires; the session is collected once stop.accelerated_grace_secs elapses (40–90%)",
+      "At this level the final notice goes out and the handover fires; the session is collected once the Accelerated stop deadline elapses (40–90%)",
     codexNotice: "Codex first notice",
     codexNoticeSub:
-      "The compaction round at which the Stop document is sent (must be below the final round)",
+      "The memory compaction at which the Stop document is sent (must be below the final round)",
     codexHandover: "Codex final round",
     codexHandoverSub:
-      "Automatically refocus after this many completed context compactions; context percentage is not used.",
+      "Automatically refocus after this many memory compactions",
     monitoringRefresh: "Monitoring refresh interval",
     monitoringRefreshSub: "Minimum seconds between monitoring refreshes (1–60)",
     seconds: "seconds",
     acceleratedGrace: "Accelerated stop deadline",
     acceleratedGraceSub:
-      "How long an agent has once 加速停止 is pressed — and the same clock the second context threshold runs. The agent is told this exact instant (10–3600)",
+      "How long a member has to wrap up once Accelerated stop is pressed. The member is told this exact instant (10–3600)",
     reassignHandoverTimeout: "Reassign handover timeout",
     reassignHandoverTimeoutSub:
       "How long an outsource predecessor may go without updating the task after a reassign before it is reclaimed; every task update restarts the clock. Staff predecessors are not affected (60–86400)",
     wardenCredentialLifetime: "Machine credential lifetime",
     wardenCredentialLifetimeSub:
-      "How long a machine's credential lives — this is the expiry stamped into it, and the number each machine renews against. Each machine replaces its own credential once that credential is two thirds of this old, spread out by up to an hour so the whole fleet does not renew at the same moment. A machine that misses the remaining third has to be re-installed by hand. Lowering it never shortens a credential already issued (86400–34560000)",
+      "How long a machine's login credential lasts. Machines renew it automatically before it expires; a machine that misses its renewal has to be re-installed. Lowering it does not affect credentials already issued. (86400–34560000 seconds)",
     rounds: "rounds",
     // T-ae38 (split again by T-30f1): one cap became many. Deleting from these
     // documents costs wildly different amounts — a role definition is a
@@ -2149,13 +2149,13 @@ export const en: Dict = {
     // they no longer share one ruler.
     docCapDuty: "Duty size cap",
     docCapDutySub:
-      "Per-role limit on the role definition (its shipped default is smaller than every other segment's). The floor is 100 and the ceiling is 100000, and it moves in both directions — lowering it truncates nothing already stored and nothing stops reading back, it binds the next write only; a role definition already over the cap can still be saved as long as the new version is shorter than the old one.",
+      "Maximum characters in a role's role definition (100–100000). Lowering it truncates nothing already saved; it only affects later saves.",
     docCapInsight: "Insight size cap",
     docCapInsightSub:
-      "Per-role limit on the insight doc. The floor is 100 and the ceiling is 100000, and it moves in both directions — a lowered cap binds the next write only; stored content is never truncated and still reads back, and a doc already over the cap still saves as long as the new version is shorter.",
+      "Maximum characters in a role's Insight (100–100000). Lowering it truncates nothing already saved; it only affects later saves.",
     docCapManualSop: "Task manual SOP size cap",
     docCapManualSopSub:
-      "Limit on a task manual's SOP (the plan blueprint). The floor is 100 and the ceiling is 100000, and it moves in both directions — a lowered cap binds the next write only; a stored SOP is never truncated and still reads back, and one already over the cap still saves as long as the new version is shorter.",
+      "Maximum characters in a task manual's SOP (100–100000). Lowering it truncates nothing already saved; it only affects later saves.",
     // T-c9b4: the wake snapshot's chat budget. Deliberately not folded into the
     // doc-cap wording above — both directions are now legal on both sides (owner
     // 2026-09-07 dropped every doc-cap floor to 100), but the numbers differ, and
@@ -2166,8 +2166,8 @@ export const en: Dict = {
     // person who needs them is the one turning the knob.
     backupRetain: "Backups kept",
     backupRetainSub:
-      "How many database backup files are kept. Everything past this number is DELETED from disk on the next backup — it is not moved aside and it cannot be recovered. Two things this number is NOT. It counts VERSIONS, NOT DAYS: it is a count of files, so how far back it reaches depends entirely on how many backups those days happened to produce — a busy day can use the whole allowance in under three days, a quiet one can stretch it past a week. And it is PER POOL, NOT PER DIRECTORY: routine backups (scheduled and manual) and pre-migration backups keep separate allowances, so 5 here means up to TEN files on disk, not five. The range is 1 to 20; the ceiling is a disk budget, since the space used is roughly two times this number times the size of one backup.",
-    backupRetainUnit: "backups per pool",
+      "How many database backups are kept (1–20). Anything past this number is permanently deleted on the next backup. It counts backups, not days; routine backups and pre-upgrade backups each keep this many, so there can be up to twice as many files on disk.",
+    backupRetainUnit: "backups (per type)",
     // T-122 (+ the lore list, T-33): the three suggested-reply lists. One row
     // per box and not one shared row, deliberately — answering a reply card,
     // writing to a task in progress and asking the writer of a lore entry about
@@ -2197,17 +2197,17 @@ export const en: Dict = {
     suggestedRepliesFull: "That is 20 sentences, the maximum. Remove one to add another.",
     chatBudget: "Wake chat budget",
     chatBudgetSub:
-      "How many characters the chat block of a wake snapshot (resume_summary) may spend — the messages, their folded cards, the snapshot header and the cut hint; the peek sizes itself against the same number. The range is 1000 to 13000 and it can be lowered as well as raised: the chat block is repacked on every read, so a smaller budget simply carries fewer messages, and whatever was left out is still reported as omitted.",
+      "How many characters of recent chat a member brings back when it wakes (1000–13000). Lowering it only means fewer messages are brought back next time.",
     // T-119: the step-note cap. The sub-label has to carry the two things the
     // integer cannot — that it may be lowered, and that it governs the step
     // note alone — because both are what the person turning the knob will
     // otherwise get wrong.
     loreCapRole: "Member lore size cap",
     loreCapRoleSub:
-      "How many characters of lore a member's boot document carries — a staff member reads the lore of their role, an outsource worker reads the lore it wrote itself. An entry that does not fit is left out WHOLE — never truncated, and with no error anywhere. Independent of the task-manual cap below; the two are never summed. This one may be lowered: an entry cannot be edited, so a smaller cap only changes which entries load next time and strands nothing already stored.",
+      "How many characters of member lore each member reads at boot. An entry that does not fit is skipped whole, with no error message. It can be lowered without affecting any entry already written.",
     loreCapManual: "Task manual lore size cap",
     loreCapManualSub:
-      "How many characters of lore are appended after a task type's SOP when its manual is read. This block enters nobody's boot document — staff and outsource alike. Independent of the member cap above. May be lowered.",
+      "How many characters of task lore come with a task manual when it is read. Counted separately from member lore. May be lowered.",
     loreCapTitle: "Lore title size cap",
     loreCapTitleSub:
       "The longest title one lore entry may carry. An over-cap write is refused and stores nothing. May be lowered; it binds the next write only and leaves stored entries untouched.",
@@ -2225,11 +2225,11 @@ export const en: Dict = {
     configSecretSet: "Set",
     configValueUnset: "Not set",
     configSaving: "Saving…",
-    configSaved: "Saved — read-back matches",
+    configSaved: "Saved",
     // Covers both failure shapes (rejected write / verify read-back failed) —
     // never asserts what the server stored, only the UI's honest facts.
     configSaveFailed:
-      "Couldn't confirm the save — showing the server's last confirmed value; try again",
+      "Not saved — the previous value has been restored; try again",
     manuals: "Task manuals",
     manualsLoadError: "Failed to load task manuals. Please try again.",
     manualsEmpty: "No task types yet — add the first one below",

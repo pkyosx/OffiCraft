@@ -1484,7 +1484,7 @@ describe("LorePage — 成員傳承的上限線", () => {
     await waitFor(() =>
       expect(
         container.querySelector('[data-testid="lore-cap-line"]')?.textContent,
-      ).toBe("所有人 上限 10000 字，以下不會被載入"),
+      ).toBe("所有人 上限 10000 字，以下的傳承成員讀不到"),
     );
   });
 

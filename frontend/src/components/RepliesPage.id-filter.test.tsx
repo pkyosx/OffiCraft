@@ -274,7 +274,7 @@ describe("請示 ID 篩選（常駐欄位版，T-118）", () => {
     expect(queryByTestId("replies-list")).toBeNull();
   });
 
-  it("🔴 a non-404 failure says the server was never reached, and never says 找不到", async () => {
+  it("🔴 a non-404 failure says the id cannot be confirmed yet, and never says 找不到", async () => {
     // MUTANT (and the exact wrong thing to do): treat every rejection as
     // "missing". Then an offline cockpit tells the owner a card he is looking
     // at in another window does not exist.
@@ -288,7 +288,7 @@ describe("請示 ID 篩選（常駐欄位版，T-118）", () => {
     applyId("rc-x");
 
     const failed = await findByTestId("replies-lookup-failed");
-    expect(failed.textContent).toContain("沒能問到伺服器");
+    expect(failed.textContent).toContain("暫時無法確認這個編號是否存在");
     expect(failed.textContent).not.toContain("找不到");
     expect(queryByTestId("replies-empty")).toBeNull();
   });

@@ -1197,7 +1197,7 @@ describe("WorkerDetailPanel — cost 口徑 = live + banked (T-ba6b, member pari
 });
 
 describe("WorkerDetailPanel — initial-prompt preview (T-ba6b)", () => {
-  it("expands to the boot-context preview and carries the honest re-assembly caveat", async () => {
+  it("expands to the boot-context preview and says it may differ from what was dispatched", async () => {
     __injectMockTask(
       mkTask({ id: "t-1", taskNo: "T-9c21", title: "查帳單對帳" }),
     );
@@ -1229,9 +1229,10 @@ describe("WorkerDetailPanel — initial-prompt preview (T-ba6b)", () => {
     // bound task title must not appear in the preview.
     expect(body.textContent ?? "").not.toContain("O-42");
     expect(body.textContent ?? "").not.toContain("查帳單對帳");
-    // The honesty caveat is present (目前版本重組, 非派工當下逐字版).
     const note = await findByTestId("worker-detail-prompt-note");
-    expect(note.textContent ?? "").toContain("非派工當下");
+    expect(note.textContent ?? "").toBe(
+      "這是依目前設定產生的預覽，可能和派工當下的內容不同。"
+    );
   });
 
   // T-7526: the shared card's load lifecycle. `vm.prompt.fetch` is an inline
