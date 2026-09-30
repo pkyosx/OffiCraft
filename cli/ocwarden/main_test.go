@@ -1178,4 +1178,34 @@ func TestExecRunnerFailureOutput(t *testing.T) {
 			t.Errorf("Run gave %s, want the stderr folded into the error text", got)
 		}
 	})
+
+	t.Run("under a background grandchild holding stdout open, the seam returns within the wait delay", func(t *testing.T) {
+		cmd := exec.Command(probe, "plain", "/bin/sh", "-c", `sleep 30 & printf started`)
+		cmd.Env = append(os.Environ(), "OCWARDEN_EXECPROBE=1")
+		var out bytes.Buffer
+		cmd.Stdout = &out
+		if err := cmd.Start(); err != nil {
+			t.Fatalf("start the probe: %v", err)
+		}
+		done := make(chan error, 1)
+		start := time.Now()
+		go func() { done <- cmd.Wait() }()
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatalf("run the probe: %v", err)
+			}
+		case <-time.After(15 * time.Second):
+			_ = cmd.Process.Kill()
+			<-done
+			t.Fatalf("the seam was still blocked after 15s — a leftover grandchild would stall the heartbeat")
+		}
+		if elapsed := time.Since(start); elapsed >= 5*time.Second {
+			t.Errorf("the seam returned after %s, want under 5s", elapsed)
+		}
+		want := "OUT<<<>>>ERR<<<exec: WaitDelay expired before I/O complete>>>"
+		if out.String() != want {
+			t.Errorf("Run gave %s, want %s", out.String(), want)
+		}
+	})
 }
