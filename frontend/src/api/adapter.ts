@@ -11,6 +11,7 @@ import type { DiffParams } from "../lib/diffLink";
 import type { ThemeBundle } from "../lib/themeBundle";
 import type {
   Member,
+  RuntimeLoginWarning,
   MemberLifecycle,
   MemberActivateResult,
   MemberRelocateResult,
@@ -808,6 +809,7 @@ export interface OutsourceWorkerView {
   /** The DURABLE last-observed machine — survives the worker going offline,
    * which `machine` (the in-memory dispatch target) does not. */
   actualMachine?: string;
+  runtimeLoginWarnings?: RuntimeLoginWarning[];
   /** Worker lifecycle status (assigned → active → released). OPTIONAL so
    * hand-built fixtures stay valid (taskTitle precedent); the mapper always
    * sets it (honest "" when absent). */
@@ -1141,6 +1143,12 @@ export interface ServerSettingsView {
   /** How long an outsource predecessor under the reassign hold may go without a
    * task update before the server reclaims it, in seconds (60..86400; default 1800). */
   reassignHandoverTimeoutSecs: number;
+  /** How often each warden re-checks a Claude/Codex login that last read as
+   * logged in, in seconds (30..3600; default 300). */
+  runtimeLoginCheckIntervalSecs: number;
+  /** How often each warden re-checks a Claude/Codex login that last read as
+   * logged out or unknown, in seconds (30..3600; default 30 = every heartbeat). */
+  runtimeLoginRecheckIntervalSecs: number;
   /** T-fc53: how long a MACHINE (warden) credential is meant to live, in
    * seconds (86400..34560000; default 2592000 = 30 days). It is BOTH the
    * credential's expiry (the mint stamps `exp = iat + this`, T-fc53 第二段 — it
@@ -1299,6 +1307,10 @@ export interface ServerSettingsPatch {
   acceleratedGraceSecs?: number;
   /** Reassign handover timeout in seconds. Must be 60..86400. */
   reassignHandoverTimeoutSecs?: number;
+  /** Runtime login check interval in seconds. Must be 30..3600. */
+  runtimeLoginCheckIntervalSecs?: number;
+  /** Runtime login recheck interval in seconds. Must be 30..3600. */
+  runtimeLoginRecheckIntervalSecs?: number;
   /** T-fc53 warden credential lifetime in seconds. Must be 86400..34560000 —
    * the floor is one day because the last third of the lifetime is the retry
    * window, and at a 15-minute poll a one-day lifetime still leaves ~32

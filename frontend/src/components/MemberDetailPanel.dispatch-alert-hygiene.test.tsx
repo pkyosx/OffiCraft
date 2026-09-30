@@ -385,7 +385,7 @@ describe("relocate notice self-heals", () => {
     // `machine === desiredMachineId` is true BY CONSTRUCTION — it encodes "we
     // cannot see it", and reading it as "it arrived" retires the notice on a
     // move that never happened. The panel already refuses to PRINT that value
-    // (機器 renders 「—」 outside online/waking); it must not believe it either.
+    // (機器 renders 「—」 outside online/waking/stopping); it must not believe it either.
     const onRelocate = vi.fn(
       async (): Promise<MemberRelocateResult> => ({ relocationPending: true }),
     );

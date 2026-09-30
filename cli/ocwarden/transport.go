@@ -414,12 +414,13 @@ func buildSpawnDeps(cfg Config, env func(string) string, runner CmdRunner, socke
 	}
 }
 
-func buildCommandDeps(cfg Config, env func(string) string, runner CmdRunner) CommandDeps {
+func buildCommandDeps(cfg Config, env func(string) string, runner CmdRunner, launchEnv *launchEnvCache) CommandDeps {
 	// Error ignored: realMain refuses an invalid OC_NAMESPACE before any transport
 	// is built.
 	ns, _ := namespaceFromEnv(env)
 	socket := tmuxSocketFor(ns)
 	spawnDeps := buildSpawnDeps(cfg, env, runner, socket, ns)
+	spawnDeps.LaunchEnv = launchEnv
 	claudeJSONPath := spawnDeps.ClaudeHome.ClaudeJSONPath()
 	return CommandDeps{
 		Spawn: func(p StartParams) SpawnOutcome {
@@ -496,13 +497,12 @@ func newCommandReporter(cfg Config) func(CommandResult) error {
 	}
 }
 
-func newCommandTransport(cfg Config, env func(string) string, runner CmdRunner,
-	logf func(string, ...any)) *sseTransport {
+func newCommandTransport(cfg Config, deps CommandDeps, logf func(string, ...any)) *sseTransport {
 	return &sseTransport{
 		base:            cfg.Base,
 		token:           cfg.Token,
 		client:          newSSEClient(),
-		deps:            buildCommandDeps(cfg, env, runner),
+		deps:            deps,
 		sleep:           time.Sleep,
 		backoffStart:    sseBackoffStart,
 		backoffCap:      sseBackoffCap,

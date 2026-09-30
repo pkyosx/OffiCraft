@@ -627,9 +627,9 @@
     {
       "id": "warden-hop-2",
       "source": "cli/ocwarden/main.go",
-      "callsite": "transport := newCommandTransport(cfg, env, runner, logf)",
+      "callsite": "commandDeps, login, setLoginIntervals := wireLoginCheck(cfg, env, runner, runtime.GOOS, logf)",
       "kind": "seam",
-      "seam_reason": "builds the command transport; the sends it wires up are declared on their own callsites"
+      "seam_reason": "builds the login prober and CommandDeps, whose Report field is the command_result reporter; the POST is declared by warden-command-result"
     },
     {
       "id": "warden-hop-3",
@@ -703,8 +703,8 @@
     },
     {
       "id": "warden-transport-3",
-      "source": "cli/ocwarden/transport.go",
-      "callsite": "deps:            buildCommandDeps(cfg, env, runner),",
+      "source": "cli/ocwarden/main.go",
+      "callsite": "return buildCommandDeps(cfg, env, runner, launchEnv), login, login.setIntervals",
       "kind": "seam",
       "seam_reason": "builds CommandDeps, whose Report field is the command_result reporter; the POST is declared by warden-command-result"
     },

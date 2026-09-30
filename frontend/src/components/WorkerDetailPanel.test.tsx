@@ -14,7 +14,7 @@
 // the picker's dark theme) is NOT asserted here — jsdom does not compute it.
 
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
-import { render, fireEvent, waitFor, configure } from "@testing-library/react";
+import { render, fireEvent, screen, waitFor, configure, within } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { api } from "../api";
 import { zh } from "../i18n/locales/zh";
@@ -704,6 +704,28 @@ describe("WorkerDetailPanel — header matches the sidebar 外包 row (T-f190 UI
     // Clicking the chip routes to the bound task.
     fireEvent.click(await findByTestId("worker-detail-header-chip"));
     await waitFor(() => expect(window.location.hash).toBe("#tasks/t-1"));
+  });
+
+  it("under a runtime login warning, the header dot is followed by one exclamation whose hover hint names the pending pair's machine like a current one", async () => {
+    __injectMockTask(mkTask({ id: "t-1", taskNo: "T-e9f4" }));
+    __injectMockOutsourceWorker(
+      mkWorker({
+        id: "ow-1",
+        taskId: "t-1",
+        presence: "offline",
+        runtimeLoginWarnings: [
+          { machineId: "mac-2", machineName: "Mac Mini", runtime: "codex", pending: true },
+        ],
+      }),
+    );
+    const { findByTestId } = renderOfficeAt("#office/worker/ow-1");
+    const header = await findByTestId("worker-detail-header-task");
+    const marks = within(header).getAllByTestId("runtime-login-warning");
+    expect(marks).toHaveLength(1);
+    expect(marks[0].hasAttribute("title")).toBe(false);
+    fireEvent.mouseEnter(marks[0]);
+    expect(screen.getByRole("tooltip").textContent).toBe("Mac Mini 未登入 Codex");
+    expect(marks[0].previousElementSibling?.getAttribute("data-testid")).toBe("worker-detail-header-dot");
   });
 
   it("header falls back to 自由代辦 when the task has no type (adhoc, blank typeKey)", async () => {

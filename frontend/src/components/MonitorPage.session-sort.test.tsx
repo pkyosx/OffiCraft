@@ -561,4 +561,35 @@ describe("MonitorPage AI Sessions — column sort", () => {
     fireEvent.click(screen.getByTestId("mon-sort-member"));
     expect(memberNames()).toEqual(["Ada Renamed", "Zoe Renamed"]);
   });
+
+  it("under a roster member whose login warnings carry a current Claude pair, its row shows the mark named beta 未登入 Claude and the other row shows none", async () => {
+    listMembers.mockResolvedValue([
+      {
+        id: "mem-eva",
+        name: "Eva",
+        kind: "staff",
+        runtimeLoginWarnings: [
+          { machineId: "m-beta", machineName: "beta", runtime: "claude", pending: false },
+        ],
+      } as Member,
+      { id: "mem-kai", name: "Kai", kind: "staff" } as Member,
+    ]);
+    getMonitoring.mockResolvedValue({
+      accounts: [],
+      machines: [],
+      sessions: [
+        session({ id: "mem-eva", name: "Eva" }),
+        session({ id: "mem-kai", name: "Kai" }),
+      ],
+    });
+    renderMonitor();
+
+    await screen.findByText("Eva");
+    const marks = sessionRows().map((r) =>
+      Array.from(r.querySelectorAll('[data-testid="runtime-login-warning"]')).map((m) =>
+        m.getAttribute("aria-label")
+      )
+    );
+    expect(marks).toEqual([["beta 未登入 Claude"], []]);
+  });
 });

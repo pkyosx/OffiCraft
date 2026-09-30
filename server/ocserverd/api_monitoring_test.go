@@ -709,7 +709,7 @@ func TestFoldWorkerCommandResult(t *testing.T) {
 }
 
 func TestHandleIngestTelemetryApiMonitoringTelemetryPost(t *testing.T) {
-	t.Run("a full warden report answers a three-field receipt, and the blocks it carried show up on the monitoring view", func(t *testing.T) {
+	t.Run("a full warden report answers a receipt carrying the login check and recheck intervals, and the blocks it carried show up on the monitoring view", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		warden := apiTestAgentToken(t, api, "m-server-self", "m-server-self")
 
@@ -732,9 +732,11 @@ func TestHandleIngestTelemetryApiMonitoringTelemetryPost(t *testing.T) {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
 		apiWantBody(t, data, map[string]any{
-			"agent_id": "m-server-self",
-			"machine":  "m-server-self",
-			"ts":       apiAnyNumber,
+			"agent_id":                    "m-server-self",
+			"machine":                     "m-server-self",
+			"ts":                          apiAnyNumber,
+			"login_check_interval_secs":   300,
+			"login_recheck_interval_secs": 30,
 		})
 
 		status, view := apiJSON(t, h, "GET", "/api/monitoring", owner, "")
@@ -770,6 +772,162 @@ func TestHandleIngestTelemetryApiMonitoringTelemetryPost(t *testing.T) {
 			"machines": []any{wantMachine},
 			"accounts": view["accounts"],
 		})
+	})
+
+	t.Run("under owner-set login check and recheck intervals, a warden's receipt carries those values and an agent's receipt on the same machine carries neither", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		warden := apiTestAgentToken(t, api, "m-server-self", "m-server-self")
+		mira := apiTestAgentToken(t, api, "mira", "m-server-self")
+		apiJSON(t, h, "PATCH", "/api/settings", owner, `{"runtime_login_check_interval_secs":45,"runtime_login_recheck_interval_secs":60}`)
+
+		status, data := apiJSON(t, h, "POST", "/api/monitoring/telemetry", warden, `{"tokens":{"input":1}}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"agent_id":                    "m-server-self",
+			"machine":                     "m-server-self",
+			"ts":                          apiAnyNumber,
+			"login_check_interval_secs":   45,
+			"login_recheck_interval_secs": 60,
+		})
+
+		status, data = apiJSON(t, h, "POST", "/api/monitoring/telemetry", mira, `{"tokens":{"input":1}}`)
+		if status != 200 {
+			t.Fatalf("agent: want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"agent_id": "mira",
+			"machine":  "m-server-self",
+			"ts":       apiAnyNumber,
+		})
+	})
+
+	t.Run("under a machine's claude login flipping, including from never-reported to false, every member running there is re-announced to the owner, a repeat of the same state announces nobody, and a logged-out machine returning from stale telemetry is re-announced", func(t *testing.T) {
+		api, h, _, _ := newAPITestServer(t)
+		warden := apiTestAgentToken(t, api, "m-server-self", "m-server-self")
+		kip := apiTestAgentToken(t, api, "kip", "")
+		apiJSON(t, h, "POST", "/api/monitoring/telemetry", kip, `{"runtime":"claude"}`)
+		kipLink, err := api.hub.Connect("kip", "m-server-self")
+		if err != nil {
+			t.Fatalf("hub.Connect: %v", err)
+		}
+		t.Cleanup(func() { api.hub.Disconnect(kipLink) })
+		apiJSON(t, h, "POST", "/api/monitoring/telemetry", warden,
+			`{"runtimes":{"claude":{"installed":true}}}`)
+		dashboard := apiTestListen(t, api, "")
+		report := func(body string) {
+			t.Helper()
+			if status, data := apiJSON(t, h, "POST", "/api/monitoring/telemetry", warden, body); status != 200 {
+				t.Fatalf("want 200, got %d (%v)", status, data)
+			}
+		}
+
+		monitoringSignal := map[string]any{
+			"seq":   apiAnyNumber,
+			"topic": "monitoring",
+			"op":    "signal",
+			"data": map[string]any{
+				"entity":  "monitoring",
+				"key":     "m-server-self",
+				"epoch":   apiAnyNumber,
+				"deleted": false,
+				"payload": nil,
+			},
+			"ts":      apiAnyNumber,
+			"trigger": "m-server-self",
+		}
+		kipPatch := map[string]any{
+			"seq":   apiAnyNumber,
+			"topic": "member",
+			"op":    "patch",
+			"data": map[string]any{
+				"entity":  "member",
+				"key":     "owner::kip",
+				"epoch":   apiAnyNumber,
+				"deleted": false,
+				"payload": map[string]any{
+					"id":            "kip",
+					"name":          "Kip",
+					"owner_id":      "owner",
+					"status":        "active",
+					"desired_state": "",
+				},
+			},
+			"ts":      apiAnyNumber,
+			"trigger": "m-server-self",
+		}
+
+		report(`{"runtimes":{"claude":{"installed":true,"logged_in":false}}}`)
+		dashboard.wantFrames(monitoringSignal, kipPatch)
+
+		report(`{"runtimes":{"claude":{"installed":true,"logged_in":true}}}`)
+		report(`{"runtimes":{"claude":{"installed":true,"logged_in":false}}}`)
+		report(`{"runtimes":{"claude":{"installed":true,"logged_in":false}}}`)
+		dashboard.wantFrames(monitoringSignal, kipPatch, monitoringSignal, kipPatch, monitoringSignal)
+
+		aged := api.telemetry.Get("m-server-self")
+		aged["runtimes_ts"] = nowSecs() - telemetryFreshSecs - 1
+		api.telemetry.Set("m-server-self", aged)
+		report(`{"runtimes":{"claude":{"installed":true,"logged_in":false}}}`)
+		dashboard.wantFrames(monitoringSignal, kipPatch)
+	})
+
+	t.Run("under a machine's claude login flipping, an outsource worker whose pair names that machine is re-announced to the owner", func(t *testing.T) {
+		api, h, d, _ := newAPITestServer(t)
+		warden := apiTestAgentToken(t, api, "m-server-self", "m-server-self")
+		if err := d.PutOutsourceWorker(OutsourceWorker{
+			ID: "ow-abc123", Codename: "Contractor", Runtime: "claude", ActualRuntime: "claude",
+			TaskID: "T-1", Status: WorkerStatusActive, CreatedTS: 12,
+		}); err != nil {
+			t.Fatalf("PutOutsourceWorker: %v", err)
+		}
+		api.workerSpawnTarget["ow-abc123"] = "m-server-self"
+		apiJSON(t, h, "POST", "/api/monitoring/telemetry", warden,
+			`{"runtimes":{"claude":{"installed":true,"logged_in":true}}}`)
+		dashboard := apiTestListen(t, api, "")
+
+		if status, data := apiJSON(t, h, "POST", "/api/monitoring/telemetry", warden,
+			`{"runtimes":{"claude":{"installed":true,"logged_in":false}}}`); status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+
+		dashboard.wantFrames(
+			map[string]any{
+				"seq":   apiAnyNumber,
+				"topic": "monitoring",
+				"op":    "signal",
+				"data": map[string]any{
+					"entity":  "monitoring",
+					"key":     "m-server-self",
+					"epoch":   apiAnyNumber,
+					"deleted": false,
+					"payload": nil,
+				},
+				"ts":      apiAnyNumber,
+				"trigger": "m-server-self",
+			},
+			map[string]any{
+				"seq":   apiAnyNumber,
+				"topic": "member",
+				"op":    "patch",
+				"data": map[string]any{
+					"entity":  "member",
+					"key":     "owner::ow-abc123",
+					"epoch":   apiAnyNumber,
+					"deleted": false,
+					"payload": map[string]any{
+						"id":            "ow-abc123",
+						"name":          "Contractor",
+						"owner_id":      "owner",
+						"status":        "active",
+						"desired_state": "",
+					},
+				},
+				"ts":      apiAnyNumber,
+				"trigger": "m-server-self",
+			},
+		)
 	})
 
 	t.Run("a report naming its own machine while the token carries no claim answers 200 attributing that machine", func(t *testing.T) {
@@ -824,9 +982,11 @@ func TestHandleIngestTelemetryApiMonitoringTelemetryPost(t *testing.T) {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
 		apiWantBody(t, data, map[string]any{
-			"agent_id": "m-server-self",
-			"machine":  "m-server-self",
-			"ts":       apiAnyNumber,
+			"agent_id":                    "m-server-self",
+			"machine":                     "m-server-self",
+			"ts":                          apiAnyNumber,
+			"login_check_interval_secs":   300,
+			"login_recheck_interval_secs": 30,
 		})
 
 		status, member := apiJSON(t, h, "GET", "/api/members/mira", owner, "")
@@ -916,9 +1076,11 @@ func TestHandleIngestTelemetryApiMonitoringTelemetryPost(t *testing.T) {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
 		apiWantBody(t, data, map[string]any{
-			"agent_id": "m-server-self",
-			"machine":  "m-server-self",
-			"ts":       apiAnyNumber,
+			"agent_id":                    "m-server-self",
+			"machine":                     "m-server-self",
+			"ts":                          apiAnyNumber,
+			"login_check_interval_secs":   300,
+			"login_recheck_interval_secs": 30,
 		})
 
 		status, view := apiJSON(t, h, "GET", "/api/monitoring", owner, "")

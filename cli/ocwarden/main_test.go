@@ -524,7 +524,7 @@ func TestRunOnce(t *testing.T) {
 			func() string { return "anchor" },
 			func() string { return "in_effect" },
 			func() map[string]any { return map[string]any{"claude": true} })
-		if want := (ReportResult{Posted: true, Status: 200, Reason: "posted"}); got != want {
+		if want := (ReportResult{Posted: true, Status: 200, Reason: "posted", LoginCheckInterval: 300 * time.Second, LoginRecheckInterval: 30 * time.Second}); got != want {
 			t.Errorf("result = %+v, want %+v", got, want)
 		}
 		if want := []string{"/api/monitoring/telemetry"}; !reflect.DeepEqual(paths, want) {
@@ -541,6 +541,33 @@ func TestRunOnce(t *testing.T) {
 		}}
 		if !reflect.DeepEqual(payloads, want) {
 			t.Errorf("payload = %v, want %v", payloads, want)
+		}
+	})
+
+	t.Run("under a receipt's login check and recheck intervals, the result carries them; otherwise the 300s and 30s defaults", func(t *testing.T) {
+		for _, c := range []struct {
+			name        string
+			receipt     map[string]any
+			want        time.Duration
+			wantRecheck time.Duration
+		}{
+			{"in range", map[string]any{"login_check_interval_secs": 90.0, "login_recheck_interval_secs": 120.0}, 90 * time.Second, 120 * time.Second},
+			{"floor", map[string]any{"login_check_interval_secs": 30.0, "login_recheck_interval_secs": 30.0}, 30 * time.Second, 30 * time.Second},
+			{"ceiling", map[string]any{"login_check_interval_secs": 3600.0, "login_recheck_interval_secs": 3600.0}, 3600 * time.Second, 3600 * time.Second},
+			{"below the floor", map[string]any{"login_check_interval_secs": 29.0, "login_recheck_interval_secs": 29.0}, 300 * time.Second, 30 * time.Second},
+			{"above the ceiling", map[string]any{"login_check_interval_secs": 3601.0, "login_recheck_interval_secs": 3601.0}, 300 * time.Second, 30 * time.Second},
+			{"fractional", map[string]any{"login_check_interval_secs": 45.5, "login_recheck_interval_secs": 45.5}, 300 * time.Second, 30 * time.Second},
+			{"null", map[string]any{"login_check_interval_secs": nil, "login_recheck_interval_secs": nil}, 300 * time.Second, 30 * time.Second},
+			{"a string", map[string]any{"login_check_interval_secs": "60", "login_recheck_interval_secs": "60"}, 300 * time.Second, 30 * time.Second},
+			{"missing", map[string]any{"agent_id": "warden-1"}, 300 * time.Second, 30 * time.Second},
+			{"only the recheck", map[string]any{"login_recheck_interval_secs": 600.0}, 300 * time.Second, 600 * time.Second},
+		} {
+			post := func(string, map[string]any) (int, map[string]any) { return 200, c.receipt }
+			got := runOnce(cfg, hardware, machine, post, nil, nil, nil, nil)
+			want := ReportResult{Posted: true, Status: 200, Reason: "posted", LoginCheckInterval: c.want, LoginRecheckInterval: c.wantRecheck}
+			if got != want {
+				t.Errorf("%s: result = %+v, want %+v", c.name, got, want)
+			}
 		}
 	})
 
@@ -584,7 +611,7 @@ func TestRunOnce(t *testing.T) {
 		}
 		got := runOnce(cfg, func() map[string]any { return nil }, func() string { return "" }, post,
 			func() map[string]string { return map[string]string{"ocagent": "sha-a"} }, nil, nil, nil)
-		if want := (ReportResult{Posted: true, Status: 200, Reason: "posted"}); got != want {
+		if want := (ReportResult{Posted: true, Status: 200, Reason: "posted", LoginCheckInterval: 300 * time.Second, LoginRecheckInterval: 30 * time.Second}); got != want {
 			t.Errorf("result = %+v, want %+v", got, want)
 		}
 		want := []map[string]any{{"binaries": map[string]string{"ocagent": "sha-a"}}}
@@ -628,7 +655,7 @@ func TestRun(t *testing.T) {
 				return 200, nil
 			}, nil, nil, nil, nil,
 			func(context.Context, time.Duration) bool { t.Error("must not sleep"); return true },
-			1, &out)
+			1, &out, nil)
 		if rc != 0 {
 			t.Errorf("rc = %d, want 0", rc)
 		}
@@ -646,7 +673,7 @@ func TestRun(t *testing.T) {
 			func(string, map[string]any) (int, map[string]any) { posts++; return 200, nil },
 			nil, nil, nil, nil,
 			func(_ context.Context, d time.Duration) bool { waits = append(waits, d); return true },
-			1, &out)
+			1, &out, nil)
 		if rc != 0 || posts != 1 {
 			t.Errorf("rc = %d, posts = %d, want 0 and 1", rc, posts)
 		}
@@ -658,6 +685,31 @@ func TestRun(t *testing.T) {
 		}
 	})
 
+	t.Run("under accepted heartbeats, each receipt's interval reaches the login check; a refused one does not", func(t *testing.T) {
+		var out bytes.Buffer
+		var applied [][2]time.Duration
+		replies := []struct {
+			status int
+			body   map[string]any
+		}{
+			{200, map[string]any{"login_check_interval_secs": 60.0, "login_recheck_interval_secs": 90.0}},
+			{422, map[string]any{"error": map[string]any{"message": "bad"}}},
+			{200, map[string]any{}},
+		}
+		posts := 0
+		run(context.Background(), cfg, hardware, machine,
+			func(string, map[string]any) (int, map[string]any) {
+				r := replies[posts]
+				posts++
+				return r.status, r.body
+			}, nil, nil, nil, nil,
+			func(context.Context, time.Duration) bool { return true },
+			3, &out, func(check, recheck time.Duration) { applied = append(applied, [2]time.Duration{check, recheck}) })
+		if want := [][2]time.Duration{{60 * time.Second, 90 * time.Second}, {300 * time.Second, 30 * time.Second}}; !reflect.DeepEqual(applied, want) {
+			t.Errorf("applied intervals = %v, want %v", applied, want)
+		}
+	})
+
 	t.Run("a refused heartbeat is logged and backs off, doubling each time", func(t *testing.T) {
 		var out bytes.Buffer
 		var waits []time.Duration
@@ -666,7 +718,7 @@ func TestRun(t *testing.T) {
 				return 422, map[string]any{"error": map[string]any{"message": "agent_id: unknown field"}}
 			}, nil, nil, nil, nil,
 			func(_ context.Context, d time.Duration) bool { waits = append(waits, d); return true },
-			3, &out)
+			3, &out, nil)
 		if rc != 0 {
 			t.Errorf("rc = %d, want 0", rc)
 		}
@@ -686,7 +738,7 @@ func TestRun(t *testing.T) {
 			func(string, map[string]any) (int, map[string]any) { return 0, nil },
 			nil, nil, nil, nil,
 			func(_ context.Context, d time.Duration) bool { waits = append(waits, d); return true },
-			2, &out)
+			2, &out, nil)
 		if want := []time.Duration{30 * time.Second, 30 * time.Second}; !reflect.DeepEqual(waits, want) {
 			t.Errorf("waits = %v, want %v", waits, want)
 		}
@@ -705,7 +757,7 @@ func TestRun(t *testing.T) {
 				return 200, nil
 			}, nil, nil, nil, nil,
 			func(context.Context, time.Duration) bool { t.Error("must not sleep"); return true },
-			0, &out)
+			0, &out, nil)
 		if rc != 0 || out.String() != "" {
 			t.Errorf("rc = %d, out = %q, want 0 and silence", rc, out.String())
 		}
@@ -718,7 +770,7 @@ func TestRun(t *testing.T) {
 			func(string, map[string]any) (int, map[string]any) { posts++; return 200, nil },
 			nil, nil, nil, nil,
 			func(context.Context, time.Duration) bool { return false },
-			0, &out)
+			0, &out, nil)
 		if rc != 0 || posts != 1 {
 			t.Errorf("rc = %d, posts = %d, want 0 and 1", rc, posts)
 		}
@@ -819,6 +871,111 @@ func TestWireUpdaterSeams(t *testing.T) {
 	if len(up.kick) != 1 {
 		t.Error("the renew verb must also wake the poll loop")
 	}
+}
+
+type keepWardenRunner struct {
+	*wardenRunner
+	*keepShellRunner
+}
+
+func TestWireLoginCheck(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("PATH", filepath.Join(root, "nothing-here"))
+
+	t.Run("under receipt intervals, the login check re-runs on the check interval while logged in and on the recheck interval while logged out", func(t *testing.T) {
+		codexBin := stageBinary(t, filepath.Join(root, "bin", "codex"), "#!/bin/sh\n")
+		codexArgv := codexBin + " login status"
+		runner := &wardenRunner{script: map[string]wardenRun{codexArgv: {out: "Logged in"}}}
+		env := envMap(map[string]string{"HOME": root, "OC_CODEX_BIN": codexBin, "OC_CLAUDE_CRED_CHECK": "0"})
+		_, login, setIntervals := wireLoginCheck(Config{}, env, runner, "linux", nil)
+		clock := time.Unix(1_000_000, 0)
+		login.now = func() time.Time { return clock }
+
+		login.state()
+		setIntervals(60*time.Second, 90*time.Second)
+		runner.script[codexArgv] = wardenRun{err: errors.New("exit status 1: not logged in")}
+		var runs []int
+		for _, step := range []time.Duration{59 * time.Second, 1 * time.Second, 89 * time.Second, 1 * time.Second} {
+			clock = clock.Add(step)
+			login.state()
+			runs = append(runs, len(runner.calls))
+		}
+		if want := []int{1, 2, 2, 3}; !reflect.DeepEqual(runs, want) {
+			t.Errorf("cumulative runs = %v, want %v", runs, want)
+		}
+	})
+
+	t.Run("under a spawn that captured the shell env, the login check runs with that env, and a later spawn's failed capture keeps it", func(t *testing.T) {
+		box := t.TempDir()
+		evidence := filepath.Join(box, "evidence")
+		counter := filepath.Join(box, "captures")
+		shell := stageBinary(t, filepath.Join(box, "bin", "zsh"), "#!/bin/sh\n"+
+			`n=$(( $(/bin/cat '`+counter+`' 2>/dev/null || echo 0) + 1 ))`+"\n"+
+			`echo "$n" > '`+counter+"'\n"+
+			`[ "$n" -ge 2 ] && exit 1`+"\n"+
+			`printf 'FROM_SHELL=capture-%s\000' "$n"`+"\n")
+		claudeBin := stageBinary(t, filepath.Join(box, "bin", "claude"), "#!/bin/sh\n"+
+			`printf '%s' "$FROM_SHELL" > '`+evidence+"'\n"+
+			`printf '{"loggedIn":true}'`+"\n")
+		exe, err := os.Executable()
+		if err != nil {
+			t.Fatalf("executable: %v", err)
+		}
+		ocagent := filepath.Join(filepath.Dir(exe), "ocagent")
+		if err := os.WriteFile(ocagent, []byte("#!/bin/sh\n"), 0o755); err != nil {
+			t.Skipf("cannot publish an ocagent beside the test binary: %v", err)
+		}
+		t.Cleanup(func() { os.Remove(ocagent) })
+		wardenHome := filepath.Join(box, "home")
+		if err := os.MkdirAll(wardenHome, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		env := envMap(map[string]string{
+			"HOME": wardenHome, "OC_AGENT_HOME": filepath.Join(box, "agents"),
+			"OC_AGENT_ENV_FILE": filepath.Join(box, "no-env-file"), "OC_AGENT_ENV_SHELL": shell,
+			"OC_CLAUDE_CRED_CHECK": "0", "OC_CLAUDE_BIN": claudeBin,
+		})
+		runner := keepWardenRunner{
+			wardenRunner: &wardenRunner{
+				script: map[string]wardenRun{
+					"tmux -L officraft has-session -t member-m1": {err: errors.New("can't find session: member-m1")},
+				},
+				fallback: wardenRun{err: errors.New("no tmux in this test")},
+			},
+			keepShellRunner: &keepShellRunner{},
+		}
+		deps, login, _ := wireLoginCheck(Config{Base: "https://station.example"}, env, runner, "linux", nil)
+
+		got := deps.Spawn(StartParams{MemberID: "m1", PersonaContext: "p", MemberToken: "jwt", Role: "builder"})
+		if want := (SpawnOutcome{Reason: "spawn_exec_failed: tmux new-session: no tmux in this test"}); !reflect.DeepEqual(got, want) {
+			t.Fatalf("outcome = %+v, want %+v", got, want)
+		}
+		yes := true
+		if state := login.state(); !reflect.DeepEqual(state, loginState{Claude: &yes}) {
+			t.Errorf("state = %s, want claude=true codex=nil", fmtLogin(state))
+		}
+		raw, err := os.ReadFile(evidence)
+		if err != nil {
+			t.Fatalf("auth status never ran: %v", err)
+		}
+		if string(raw) != "capture-1" {
+			t.Errorf("claude saw FROM_SHELL=%q, want the spawn's capture-1", raw)
+		}
+
+		runner.script["tmux -L officraft has-session -t member-m2"] = wardenRun{err: errors.New("can't find session: member-m2")}
+		deps.Spawn(StartParams{MemberID: "m2", PersonaContext: "p", MemberToken: "jwt", Role: "builder"})
+		clock := time.Now().Add(defaultLoginCheckInterval)
+		login.now = func() time.Time { return clock }
+		_ = os.Remove(evidence)
+		login.state()
+		raw, err = os.ReadFile(evidence)
+		if err != nil {
+			t.Fatalf("auth status did not re-run: %v", err)
+		}
+		if string(raw) != "capture-1" {
+			t.Errorf("after a failed capture claude saw FROM_SHELL=%q, want the last good capture-1", raw)
+		}
+	})
 }
 
 func TestRealMain(t *testing.T) {
@@ -950,7 +1107,11 @@ func init() {
 		return
 	}
 	r := execRunner{timeout: 5 * time.Second}
-	out, err := r.Run(os.Args[2], os.Args[3:]...)
+	run := r.Run
+	if os.Args[1] == "keep" {
+		run = r.RunKeepStdout
+	}
+	out, err := run(os.Args[2], os.Args[3:]...)
 	fmt.Printf("OUT<<<%s>>>ERR<<<%v>>>", out, err)
 	os.Exit(0)
 }
@@ -1009,6 +1170,20 @@ func TestExecRunnerFailureOutput(t *testing.T) {
 		return string(out)
 	}
 
+	t.Run("under a non-zero exit, the stdout-keeping seam returns stdout and keeps it out of the error", func(t *testing.T) {
+		cmd := exec.Command(probe, "keep", "/bin/sh", "-c",
+			`printf '{"loggedIn":false,"email":"eva@example.com"}'; printf %s '`+answer+`' >&2; exit 1`)
+		cmd.Env = append(os.Environ(), "OCWARDEN_EXECPROBE=1")
+		out, err := cmd.Output()
+		if err != nil {
+			t.Fatalf("run the probe: %v", err)
+		}
+		want := `OUT<<<{"loggedIn":false,"email":"eva@example.com"}>>>ERR<<<exit status 1: ` + answer + `>>>`
+		if string(out) != want {
+			t.Errorf("RunKeepStdout gave %s, want %s", out, want)
+		}
+	})
+
 	t.Run("the plain seam still drops that same answer", func(t *testing.T) {
 		got := ask(t, "plain")
 		if !strings.Contains(got, "OUT<<<>>>") {
@@ -1016,6 +1191,36 @@ func TestExecRunnerFailureOutput(t *testing.T) {
 		}
 		if !strings.Contains(got, answer) {
 			t.Errorf("Run gave %s, want the stderr folded into the error text", got)
+		}
+	})
+
+	t.Run("under a background grandchild holding stdout open, the seam returns within the wait delay", func(t *testing.T) {
+		cmd := exec.Command(probe, "plain", "/bin/sh", "-c", `sleep 30 & printf started`)
+		cmd.Env = append(os.Environ(), "OCWARDEN_EXECPROBE=1")
+		var out bytes.Buffer
+		cmd.Stdout = &out
+		if err := cmd.Start(); err != nil {
+			t.Fatalf("start the probe: %v", err)
+		}
+		done := make(chan error, 1)
+		start := time.Now()
+		go func() { done <- cmd.Wait() }()
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatalf("run the probe: %v", err)
+			}
+		case <-time.After(15 * time.Second):
+			_ = cmd.Process.Kill()
+			<-done
+			t.Fatalf("the seam was still blocked after 15s — a leftover grandchild would stall the heartbeat")
+		}
+		if elapsed := time.Since(start); elapsed >= 5*time.Second {
+			t.Errorf("the seam returned after %s, want under 5s", elapsed)
+		}
+		want := "OUT<<<>>>ERR<<<exec: WaitDelay expired before I/O complete>>>"
+		if out.String() != want {
+			t.Errorf("Run gave %s, want %s", out.String(), want)
 		}
 	})
 }

@@ -27,13 +27,14 @@ const (
 	telemetryPath = "/api/monitoring/telemetry"
 	// The SAME telemetry ingest endpoint: the server folds command_result there onto
 	// the durable member.
-	commandResultPath = telemetryPath
-	userAgent         = "ocwarden/0.1"
-	reportThrottle    = 30 * time.Second
-	backoffStart      = 1 * time.Second
-	backoffCap        = 60 * time.Second
-	httpTimeout       = 10 * time.Second
-	subprocessBudget  = 5 * time.Second
+	commandResultPath   = telemetryPath
+	userAgent           = "ocwarden/0.1"
+	reportThrottle      = 30 * time.Second
+	backoffStart        = 1 * time.Second
+	backoffCap          = 60 * time.Second
+	httpTimeout         = 10 * time.Second
+	subprocessBudget    = 5 * time.Second
+	subprocessWaitDelay = 2 * time.Second
 	// Deliberately SHORT and INDEPENDENT of the SSE/telemetry clients: a slow/dead
 	// server must never stall the command reader after a kill/spawn.
 	commandReportTimeout = 5 * time.Second
@@ -131,13 +132,24 @@ type execRunner struct{ timeout time.Duration }
 
 var newCmdRunner = func(timeout time.Duration) CmdRunner { return execRunner{timeout: timeout} }
 
-// Run is the process choke point of the whole binary, so refuseInTestBinary lives
+// exec is the process choke point of the whole binary, so refuseInTestBinary lives
 // HERE, not only on the seam constructors: a caller can assemble the struct itself
 // (an inline `sysOps{run: execRunner{…}.Run, …}` once made a test binary issue a
 // REAL `launchctl bootout` against the developer's live warden), but it cannot
 // avoid starting the subprocess here.
 func (r execRunner) Run(name string, args ...string) (string, error) {
-	refuseInTestBinary("execRunner.Run(" + name + ")")
+	return r.exec("execRunner.Run", false, name, args...)
+}
+
+// RunKeepStdout also returns stdout from a non-zero exit (`claude auth status`
+// answers a logged-out host with exit 1 AND its verdict on stdout). stdout never
+// enters the error: it can carry the account's email and organization.
+func (r execRunner) RunKeepStdout(name string, args ...string) (string, error) {
+	return r.exec("execRunner.RunKeepStdout", true, name, args...)
+}
+
+func (r execRunner) exec(caller string, keepStdout bool, name string, args ...string) (string, error) {
+	refuseInTestBinary(caller + "(" + name + ")")
 	to := r.timeout
 	if to == 0 {
 		to = subprocessBudget
@@ -148,6 +160,9 @@ func (r execRunner) Run(name string, args ...string) (string, error) {
 	// stderr goes into the returned error so callers can CLASSIFY a non-zero exit
 	// (e.g. the tmux three-way probe telling "can't find session" from a broken probe).
 	cmd.Stderr = &errb
+	// Without it a background process that inherited stdout keeps Wait blocked
+	// after the child exits, even past a timeout Kill, and the heartbeat stops.
+	cmd.WaitDelay = subprocessWaitDelay
 	done := make(chan error, 1)
 	if err := cmd.Start(); err != nil {
 		return "", err
@@ -156,10 +171,14 @@ func (r execRunner) Run(name string, args ...string) (string, error) {
 	select {
 	case err := <-done:
 		if err != nil {
-			if msg := strings.TrimSpace(errb.String()); msg != "" {
-				return "", fmt.Errorf("%w: %s", err, msg)
+			kept := ""
+			if keepStdout {
+				kept = out.String()
 			}
-			return "", err
+			if msg := strings.TrimSpace(errb.String()); msg != "" {
+				return kept, fmt.Errorf("%w: %s", err, msg)
+			}
+			return kept, err
 		}
 		return out.String(), nil
 	case <-time.After(to):
@@ -389,6 +408,9 @@ type ReportResult struct {
 	Posted bool
 	Status int
 	Reason string
+	// Set only on an accepted heartbeat, from its receipt.
+	LoginCheckInterval   time.Duration
+	LoginRecheckInterval time.Duration
 }
 
 func errorMessageOf(body map[string]any) string {
@@ -444,7 +466,9 @@ func runOnce(cfg Config, collect func() map[string]any, machine func() string, p
 	}
 	status, body := post(telemetryPath, payload)
 	if status == 200 {
-		return ReportResult{Posted: true, Status: 200, Reason: "posted"}
+		return ReportResult{Posted: true, Status: 200, Reason: "posted",
+			LoginCheckInterval:   loginIntervalFromReceipt(body, "login_check_interval_secs", defaultLoginCheckInterval),
+			LoginRecheckInterval: loginIntervalFromReceipt(body, "login_recheck_interval_secs", defaultLoginRecheckInterval)}
 	}
 	reason := fmt.Sprintf("post status %d", status)
 	if detail := errorMessageOf(body); detail != "" {
@@ -456,7 +480,7 @@ func runOnce(cfg Config, collect func() map[string]any, machine func() string, p
 func run(ctx context.Context, cfg Config, collect func() map[string]any, machine func() string, post Poster,
 	binaries func() map[string]string, claude func() map[string]any, shape func() string,
 	effect func() string, sleep func(context.Context, time.Duration) bool, iterations int, out io.Writer,
-	runtimes ...func() map[string]any) int {
+	loginIntervals func(check, recheck time.Duration), runtimes ...func() map[string]any) int {
 
 	if cfg.Token == "" || cfg.ID == "" {
 		fmt.Fprintln(out, "[ocwarden] run: no OC_TOKEN/OC_ID — nothing to report; exiting.")
@@ -468,6 +492,9 @@ func run(ctx context.Context, cfg Config, collect func() map[string]any, machine
 			return 0
 		}
 		result := runOnce(cfg, collect, machine, post, binaries, claude, shape, effect, runtimes...)
+		if result.Posted && loginIntervals != nil {
+			loginIntervals(result.LoginCheckInterval, result.LoginRecheckInterval)
+		}
 		wait := backoff
 		if result.Posted || result.Status == 0 {
 			backoff = backoffStart
@@ -643,8 +670,9 @@ func realMain(argv []string, env func(string) string, out io.Writer) int {
 		maybeStartAnchorCutover(*wardenPathsOrNil, os.Getppid(), logf)
 	}
 
+	commandDeps, login, setLoginIntervals := wireLoginCheck(cfg, env, runner, runtime.GOOS, logf)
 	if cfg.Token != "" && cfg.ID != "" && iters == 0 {
-		transport := newCommandTransport(cfg, env, runner, logf)
+		transport := newCommandTransport(cfg, commandDeps, logf)
 
 		// 🔴 NOTHING GUARDS THIS CALL SITE. Deleting these lines, or `go up.run(ctx)`,
 		// leaves the package green and silently stops self-update and credential renewal
@@ -668,14 +696,32 @@ func realMain(argv []string, env func(string) string, out io.Writer) int {
 	}
 
 	runtimeProbe := func() map[string]any {
-		return collectRuntimeCapabilities(env, runner, claudeProbe.collect(), logf)
+		return collectRuntimeCapabilities(env, runner, claudeProbe.collect(), login.state())
 	}
+	// 🔴 NOTHING GUARDS `setLoginIntervals` here. Dropping it, or passing a no-op
+	// setter, compiles and leaves the package green, but the owner's two login
+	// intervals are then silently ignored and every warden stays at 300 s / 30 s.
 	rc := run(ctx, cfg, collect, machine, post, fingerprints.collect, claudeProbe.collect,
-		wardenShapeOf, cutoverEffectOf, sleepUntil, iters, out, runtimeProbe)
+		wardenShapeOf, cutoverEffectOf, sleepUntil, iters, out, setLoginIntervals, runtimeProbe)
 
 	stop()
 	waitGraceful(&wg, shutdownGrace)
 	return rc
+}
+
+// wireLoginCheck gives the spawn path and the login check one launch-env cache:
+// the login check reads the shell env the last spawn captured. setIntervals is
+// what the heartbeat receipt's login_check_interval_secs and
+// login_recheck_interval_secs must reach.
+func wireLoginCheck(cfg Config, env func(string) string, runner CmdRunner, goos string,
+	logf func(string, ...any)) (deps CommandDeps, login *loginProber, setIntervals func(check, recheck time.Duration)) {
+	launchEnv := &launchEnvCache{}
+	var keep stdoutRunner
+	if k, ok := runner.(stdoutRunner); ok {
+		keep = k
+	}
+	login = newLoginProber(env, runner, keep, goos, launchEnv, logf)
+	return buildCommandDeps(cfg, env, runner, launchEnv), login, login.setIntervals
 }
 
 func main() {

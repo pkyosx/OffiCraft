@@ -32,7 +32,7 @@ func realHeartbeat(t *testing.T) map[string]any {
 					"codex":  map[string]any{"installed": true, "logged_in": true, "version": "0.52.0"},
 				}
 			})
-		want := ReportResult{Posted: true, Status: 200, Reason: "posted"}
+		want := ReportResult{Posted: true, Status: 200, Reason: "posted", LoginCheckInterval: 300 * time.Second, LoginRecheckInterval: 30 * time.Second}
 		if result != want {
 			t.Errorf("runOnce = %+v, want %+v", result, want)
 		}

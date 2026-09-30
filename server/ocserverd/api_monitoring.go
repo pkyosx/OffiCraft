@@ -563,7 +563,13 @@ func (s *apiServer) HandleIngestTelemetryApiMonitoringTelemetryPost(w http.Respo
 	if body.Claude != nil {
 		entry["claude"] = claude
 	}
+	loginFlipped := false
 	if body.Runtimes != nil {
+		next := loginStatesOf(map[string]any{"runtimes": runtimes})
+		// A stale machine's logged-out runtime warns nobody, so its return to
+		// fresh telemetry is a change the rows must hear about too.
+		wasStale := *runtimeCapabilitiesStale(entry, true, nowSecs())
+		loginFlipped = loginStatesDiffer(loginStatesOf(entry), next) || (wasStale && anyLoggedOut(next))
 		entry["runtimes"] = runtimes
 		// Same per-sample stamp as hardware_ts. Placement (machineSupportsRuntime)
 		// deliberately does NOT consult it — expiring the map there would
@@ -614,15 +620,26 @@ func (s *apiServer) HandleIngestTelemetryApiMonitoringTelemetryPost(w http.Respo
 	// No agent consumes the monitoring signal on the wire; owner cockpit only.
 	s.hub.Publish("monitoring", "signal", "monitoring", agentID, nil, audienceOwnerOnly(), requestTrigger(r))
 
+	if loginFlipped {
+		s.publishLoginPairsOn(agentID, requestTrigger(r))
+	}
+
 	if commandResult != nil {
 		s.foldCommandResult(commandResult, requestTrigger(r), receiptReporterMachine(r))
 	}
 
-	writeJSON(w, http.StatusOK, agentTelemetryReceiptDTO{
+	receipt := agentTelemetryReceiptDTO{
 		AgentID: agentID,
 		Machine: entryStr(entry, "machine"),
 		TS:      entry["ts"].(float64),
-	})
+	}
+	if s.principalOfRequest(r) == principalMachine {
+		interval := s.runtimeLoginCheckInterval()
+		receipt.LoginCheckIntervalSecs = &interval
+		recheck := s.runtimeLoginRecheckInterval()
+		receipt.LoginRecheckIntervalSecs = &recheck
+	}
+	writeJSON(w, http.StatusOK, receipt)
 }
 
 // These columns must be durable: s.telemetry is in-memory, so a re-exec would
@@ -729,6 +746,20 @@ const telemetryFreshSecs = 90.0
 func runtimeCapabilitiesStampOf(entry map[string]any) float64 {
 	ts, _ := entry["runtimes_ts"].(float64)
 	return ts
+}
+
+// runtimeCapabilitiesStale is the verdict served as runtime_capabilities_stale;
+// nil = never reported. A map with no stamp predates the stamp and is stale.
+func runtimeCapabilitiesStale(entry map[string]any, reported bool, now float64) *bool {
+	if ts := runtimeCapabilitiesStampOf(entry); ts > 0 {
+		stale := now-ts > telemetryFreshSecs
+		return &stale
+	}
+	if !reported {
+		return nil
+	}
+	stale := true
+	return &stale
 }
 
 func rateLimitStampOf(entry map[string]any) float64 {
@@ -1010,13 +1041,9 @@ func (s *apiServer) HandleGetMonitoringApiMonitoringGet(w http.ResponseWriter, r
 		if entry := s.telemetry.Get(host); entry != nil {
 			if ts := runtimeCapabilitiesStampOf(entry); ts > 0 {
 				stamp := ts
-				stale := now-ts > telemetryFreshSecs
 				row.RuntimeCapabilitiesTS = &stamp
-				row.RuntimeCapabilitiesStale = &stale
-			} else if len(row.RuntimeCapabilities) > 0 {
-				stale := true
-				row.RuntimeCapabilitiesStale = &stale
 			}
+			row.RuntimeCapabilitiesStale = runtimeCapabilitiesStale(entry, len(row.RuntimeCapabilities) > 0, now)
 		}
 		machines = append(machines, row)
 	}

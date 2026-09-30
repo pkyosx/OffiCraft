@@ -736,6 +736,11 @@ export const en: Dict = {
       resumeReport: "Resume report · what's next and what's in hand",
       degraded: "Degraded · circuit breaker tripped",
     },
+    // Follows the machine name: "seth-m1 signed out of Claude".
+    loginWarning: {
+      claude: "signed out of Claude",
+      codex: "signed out of Codex",
+    },
   },
   login: {
     title: "Sign in",
@@ -1739,9 +1744,9 @@ export const en: Dict = {
       runtimeUnknown: "No status yet; if this persists, the OffiCraft software on this machine may be outdated and needs updating.",
       // ── per-runtime version columns (T-674d). The Runtimes column's ✓/✗
       // digest is gone; Claude and Codex each print their probed version. The
-      // ✗ states it used to carry still have to be sayable, because they are
-      // the reason placement refuses the machine — so "not installed" and "not
-      // signed in" are WORDS in the cell, never a silently missing version.
+      // ✗ states it used to carry still have to be sayable, because for Codex
+      // they are the reason placement refuses the machine — so "not installed"
+      // and "signed out" are WORDS in the cell, never a silently missing version.
       runtimeNotInstalled: "not installed",
       runtimeNotInstalledHint:
         "This AI runtime is not installed on this machine, so members cannot be woken here.",
@@ -1749,8 +1754,6 @@ export const en: Dict = {
       runtimeNoVersionHint:
         "Installed, but its version could not be read.",
       runtimeLoggedOut: "signed out",
-      runtimeLoggedOutHint:
-        "Installed but not signed in — members will not be placed on this machine.",
       // ── hardware sample age (T-b36a). The server WITHHOLDS the numbers of an
       // expired sample, so cpu/ram/power fall back to a dash — the same dash a
       // machine that has never reported hardware shows. These two labels are
@@ -2147,6 +2150,12 @@ export const en: Dict = {
     wardenCredentialLifetime: "Machine credential lifetime",
     wardenCredentialLifetimeSub:
       "How long a machine's login credential lasts. Machines renew it automatically before it expires; a machine that misses its renewal has to be re-installed. Lowering it does not affect credentials already issued. (86400–34560000 seconds)",
+    runtimeLoginCheckInterval: "Login check interval",
+    runtimeLoginCheckIntervalSub:
+      "While Claude or Codex reads as logged in, how often each machine checks it again. A change reaches each machine at its next report (30–3600 seconds)",
+    runtimeLoginRecheckInterval: "Logged-out recheck interval",
+    runtimeLoginRecheckIntervalSub:
+      "While Claude or Codex reads as logged out (or its check failed), how often each machine checks it again; 30 means at every report. A change reaches each machine at its next report (30–3600 seconds)",
     rounds: "rounds",
     // T-ae38 (split again by T-30f1): one cap became many. Deleting from these
     // documents costs wildly different amounts — a role definition is a

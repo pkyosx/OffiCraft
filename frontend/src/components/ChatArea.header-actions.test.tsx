@@ -16,7 +16,7 @@
 //      class would hijack an unrelated suite rather than fail honestly.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, fireEvent } from "@testing-library/react";
+import { render, fireEvent, screen } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { zh } from "../i18n/locales/zh";
 import { ChatArea } from "./ChatArea";
@@ -109,6 +109,26 @@ describe("ChatArea header 任務/角色設定 圖示 (T-dfae)", () => {
     fireEvent.click(getByLabelText(zh.chat.roleSettingsLink));
     expect(onOpenRoleSettings).toHaveBeenCalledTimes(1);
     expect(onOpenTasks).toHaveBeenCalledTimes(1); // still just the one
+  });
+
+  it("under a runtime login warning, the header's presence line carries the exclamation whose hint shows on keyboard focus, and without one it does not", () => {
+    const warned = renderChat({
+      member: mkMember({
+        runtimeLoginWarnings: [
+          { machineId: "mac-1", machineName: "mac-1", runtime: "claude", pending: false },
+        ],
+      }),
+    });
+    const mark = warned.getByTestId("runtime-login-warning");
+    expect(mark.hasAttribute("title")).toBe(false);
+    fireEvent.focus(mark);
+    expect(screen.getByRole("tooltip").textContent).toBe("mac-1 未登入 Claude");
+    fireEvent.blur(mark);
+    expect(mark.closest(".chat__header-sub")).not.toBeNull();
+    warned.unmount();
+
+    const clean = renderChat({ member: mkMember({ runtimeLoginWarnings: [] }) });
+    expect(clean.queryByTestId("runtime-login-warning")).toBeNull();
   });
 
   it("neither click bubbles into the clickable header (open detail)", () => {

@@ -353,8 +353,9 @@ func (s *apiServer) HandleDeleteMemberAvatarApiMembersMemberIdAvatarDelete(
 	writeJSON(w, http.StatusOK, memberAvatarResult(*m, "", nil))
 }
 
-// ?fields=light: unread_count, presence, machine and last_op* are NOT computed
-// (honest-empty); a consumer must not read them as known values.
+// ?fields=light: unread_count, presence, machine, last_op* and
+// runtime_login_warnings are NOT computed (honest-empty); a consumer must not
+// read them as known values.
 func (s *apiServer) HandleListMembersApiMembersGet(w http.ResponseWriter, r *http.Request, params HandleListMembersApiMembersGetParams) {
 	members, err := s.dal.ListMembers()
 	if err != nil {
@@ -372,17 +373,18 @@ func (s *apiServer) HandleListMembersApiMembersGet(w http.ResponseWriter, r *htt
 			return
 		}
 	}
-	var machineNames map[string]string
+	var machines machineDirectory
 	var tele, gauge map[string]map[string]any
 	var accountDisplay func(string) string
 	var typeNames map[string]string
 	now := nowSecs()
 	if !light {
-		machineNames, err = s.dal.MachineDisplayNames()
+		machineNames, err := s.dal.MachineDisplayNames()
 		if err != nil {
 			internalError(w, err)
 			return
 		}
+		machines = newMachineDirectory(members, machineNames)
 		tele = s.telemetry.Snapshot()
 		gauge = s.gauge.Snapshot()
 		accountDisplay, err = s.accountDisplayFold(r, tele)
@@ -414,10 +416,10 @@ func (s *apiServer) HandleListMembersApiMembersGet(w http.ResponseWriter, r *htt
 				internalError(w, err)
 				return
 			}
-			out = append(out, s.projectWorker(worker, task, unread[m.ID], now, tele, gauge, machineNames, accountDisplay, typeNames))
+			out = append(out, s.projectWorker(worker, task, unread[m.ID], now, tele, gauge, machines, accountDisplay, typeNames))
 			continue
 		}
-		out = append(out, s.newMemberDTO(m, roleName, s.observedHost(m), unread[m.ID]))
+		out = append(out, s.newMemberDTO(m, roleName, s.observedHost(m), unread[m.ID], machines))
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -536,14 +538,14 @@ func (s *apiServer) HandleGetMemberApiMembersMemberIdGet(w http.ResponseWriter, 
 		internalError(w, err)
 		return
 	}
+	machines, err := s.loadMachineDirectory()
+	if err != nil {
+		internalError(w, err)
+		return
+	}
 	if m.Kind == KindOutsource {
 		worker := workerFromMember(*m)
 		task, err := s.dal.GetTask(worker.TaskID)
-		if err != nil {
-			internalError(w, err)
-			return
-		}
-		machineNames, err := s.dal.MachineDisplayNames()
 		if err != nil {
 			internalError(w, err)
 			return
@@ -555,10 +557,10 @@ func (s *apiServer) HandleGetMemberApiMembersMemberIdGet(w http.ResponseWriter, 
 			internalError(w, err)
 			return
 		}
-		writeJSON(w, http.StatusOK, s.projectWorker(worker, task, unread[m.ID], nowSecs(), tele, gauge, machineNames, accountDisplay, s.taskTypeDisplayNames()))
+		writeJSON(w, http.StatusOK, s.projectWorker(worker, task, unread[m.ID], nowSecs(), tele, gauge, machines, accountDisplay, s.taskTypeDisplayNames()))
 		return
 	}
-	writeJSON(w, http.StatusOK, s.newMemberDTO(*m, roleName, s.observedHost(*m), unread[m.ID]))
+	writeJSON(w, http.StatusOK, s.newMemberDTO(*m, roleName, s.observedHost(*m), unread[m.ID], machines))
 }
 
 func (s *apiServer) HandleUpdateMemberApiMembersMemberIdPatch(w http.ResponseWriter, r *http.Request, memberId string) {

@@ -1085,6 +1085,20 @@ func TestStart(t *testing.T) {
 		}
 	})
 
+	t.Run("under a captured interactive shell env, the spawn leaves that layer for the login check", func(t *testing.T) {
+		h := newSpawnHarness()
+		d := h.deps()
+		d.CaptureEnv = func() (string, error) { return "FROM_SHELL=v1\x00EDITOR=vim\x00", nil }
+		d.LaunchEnv = &launchEnvCache{}
+		if got := d.start(startParamsM1()); !got.OK {
+			t.Fatalf("outcome = %+v, want OK", got)
+		}
+		want := []agentEnvPair{{"FROM_SHELL", "v1"}, {"EDITOR", "vim"}}
+		if got := d.LaunchEnv.interactive(); !reflect.DeepEqual(got, want) {
+			t.Errorf("cached launch env = %v, want %v", got, want)
+		}
+	})
+
 	t.Run("an agent env that moves the config home is overwritten, not obeyed", func(t *testing.T) {
 		dir := t.TempDir()
 		envFile := filepath.Join(dir, "env")

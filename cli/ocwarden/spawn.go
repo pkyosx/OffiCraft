@@ -511,6 +511,8 @@ type SpawnDeps struct {
 	Namespace  string
 	EnvFile    string
 	CaptureEnv func() (string, error)
+	// LaunchEnv keeps the last spawn's interactive layer for the login check.
+	LaunchEnv *launchEnvCache
 	// Logf receives KEY NAMES and reasons ONLY, never a value.
 	Logf      func(string, ...any)
 	ClaudeBin string
@@ -703,6 +705,7 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 		d.logf("agent env: could not clear stale %s (%v); continuing", renderPath, err)
 	}
 	interactive := d.interactiveEnvPairs()
+	d.LaunchEnv.remember(interactive)
 	fileEnv := loadAgentEnv(d.EnvFile, d.logf)
 	if names := overriddenKeyNames(interactive, fileEnv); len(names) > 0 {
 		d.logf("agent env: %s overrides the interactive shell for: %s",

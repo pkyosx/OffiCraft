@@ -45,42 +45,44 @@ func TestValidatePushContactEmail(t *testing.T) {
 // its patch moved and nothing can change unnoticed.
 func apiTestShippedSettings() map[string]any {
 	return map[string]any{
-		"owner_token_ttl":                  86400,
-		"agent_token_ttl":                  604800,
-		"handover_pct":                     50,
-		"notice_pct":                       40,
-		"codex_compaction_threshold":       3,
-		"codex_notice_round":               2,
-		"monitoring_refresh_seconds":       5,
-		"outsource_max_parallel":           3,
-		"accelerated_grace_secs":           120,
-		"reassign_handover_timeout_secs":   1800,
-		"warden_credential_lifetime_secs":  2592000,
-		"doc_cap_chars_duty":               1000,
-		"doc_cap_chars_insight":            15000,
-		"doc_cap_chars_manual_sop":         15000,
-		"doc_cap_chars_system_interaction": 60000,
-		"doc_cap_chars_boot_sequence":      15000,
-		"doc_cap_chars_offboard":           15000,
-		"lore_cap_chars_role":              10000,
-		"lore_cap_chars_manual":            10000,
-		"lore_cap_chars_title":             80,
-		"lore_cap_chars_body":              500,
-		"chat_budget_chars":                6000,
-		"step_note_cap_chars":              10000,
-		"backup_retain":                    5,
-		"updater_receive_beta":             false,
-		"updater_auto_update":              false,
-		"org_name":                         "",
-		"owner_name":                       "",
-		"push_contact_email":               "",
-		"display_theme":                    "",
-		"display_language":                 "",
-		"display_wide":                     false,
-		"suggested_replies_reply_card":     []any{},
-		"suggested_replies_task_message":   []any{},
-		"suggested_replies_lore_message":   []any{},
-		"onboarding":                       nil,
+		"owner_token_ttl":                     86400,
+		"agent_token_ttl":                     604800,
+		"handover_pct":                        50,
+		"notice_pct":                          40,
+		"codex_compaction_threshold":          3,
+		"codex_notice_round":                  2,
+		"monitoring_refresh_seconds":          5,
+		"outsource_max_parallel":              3,
+		"accelerated_grace_secs":              120,
+		"reassign_handover_timeout_secs":      1800,
+		"runtime_login_check_interval_secs":   300,
+		"runtime_login_recheck_interval_secs": 30,
+		"warden_credential_lifetime_secs":     2592000,
+		"doc_cap_chars_duty":                  1000,
+		"doc_cap_chars_insight":               15000,
+		"doc_cap_chars_manual_sop":            15000,
+		"doc_cap_chars_system_interaction":    60000,
+		"doc_cap_chars_boot_sequence":         15000,
+		"doc_cap_chars_offboard":              15000,
+		"lore_cap_chars_role":                 10000,
+		"lore_cap_chars_manual":               10000,
+		"lore_cap_chars_title":                80,
+		"lore_cap_chars_body":                 500,
+		"chat_budget_chars":                   6000,
+		"step_note_cap_chars":                 10000,
+		"backup_retain":                       5,
+		"updater_receive_beta":                false,
+		"updater_auto_update":                 false,
+		"org_name":                            "",
+		"owner_name":                          "",
+		"push_contact_email":                  "",
+		"display_theme":                       "",
+		"display_language":                    "",
+		"display_wide":                        false,
+		"suggested_replies_reply_card":        []any{},
+		"suggested_replies_task_message":      []any{},
+		"suggested_replies_lore_message":      []any{},
+		"onboarding":                          nil,
 	}
 }
 
@@ -585,6 +587,8 @@ func TestHandleUpdateSettingsApiSettingsPatch(t *testing.T) {
 			"monitoring_refresh_seconds":30,
 			"accelerated_grace_secs":90,
 			"reassign_handover_timeout_secs":600,
+			"runtime_login_check_interval_secs":60,
+			"runtime_login_recheck_interval_secs":120,
 			"warden_credential_lifetime_secs":864000,
 			"outsource_max_parallel":-1,
 			"doc_cap_chars_duty":2000,
@@ -610,6 +614,8 @@ func TestHandleUpdateSettingsApiSettingsPatch(t *testing.T) {
 		want["monitoring_refresh_seconds"] = 30
 		want["accelerated_grace_secs"] = 90
 		want["reassign_handover_timeout_secs"] = 600
+		want["runtime_login_check_interval_secs"] = 60
+		want["runtime_login_recheck_interval_secs"] = 120
 		want["warden_credential_lifetime_secs"] = 864000
 		want["outsource_max_parallel"] = -1
 		want["doc_cap_chars_duty"] = 2000
@@ -622,6 +628,25 @@ func TestHandleUpdateSettingsApiSettingsPatch(t *testing.T) {
 		want["step_note_cap_chars"] = 20000
 		want["backup_retain"] = 9
 		apiWantBody(t, data, want)
+	})
+
+	t.Run("under a restart on the same database, the patched login intervals are still reported", func(t *testing.T) {
+		_, h, d, owner := newAPITestServer(t)
+		status, data := apiJSON(t, h, "PATCH", "/api/settings", owner,
+			`{"runtime_login_check_interval_secs":600,"runtime_login_recheck_interval_secs":45}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+
+		_, restarted, _, _ := apiTestStackOn(t, d, true)
+		status, data = apiJSON(t, restarted, "GET", "/api/settings", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200 after the restart, got %d (%v)", status, data)
+		}
+		if data["runtime_login_check_interval_secs"] != float64(600) || data["runtime_login_recheck_interval_secs"] != float64(45) {
+			t.Fatalf("after the restart: check=%v recheck=%v, want 600 and 45",
+				data["runtime_login_check_interval_secs"], data["runtime_login_recheck_interval_secs"])
+		}
 	})
 
 	t.Run("a patch of every text and toggle knob answers 200 with the new values", func(t *testing.T) {
@@ -804,6 +829,28 @@ func TestHandleUpdateSettingsApiSettingsPatch(t *testing.T) {
 		}
 		if stored, err := d.GetSetting(settingReassignHandoverTimeoutSecs); err != nil || stored != nil {
 			t.Fatalf("a refused value must not be stored, got %v %v", stored, err)
+		}
+		_, served := apiJSON(t, h, "GET", "/api/settings", owner, "")
+		apiWantBody(t, served, apiTestShippedSettings())
+	})
+
+	t.Run("a runtime_login_check_interval_secs or runtime_login_recheck_interval_secs outside its range answers 422 and writes nothing", func(t *testing.T) {
+		_, h, d, owner := newAPITestServer(t)
+
+		for _, field := range []string{"runtime_login_check_interval_secs", "runtime_login_recheck_interval_secs"} {
+			for _, value := range []string{"29", "3601"} {
+				body := `{"` + field + `":` + value + `}`
+				status, data := apiJSON(t, h, "PATCH", "/api/settings", owner, body)
+				if status != 422 {
+					t.Fatalf("%s: want 422, got %d (%v)", body, status, data)
+				}
+				apiWantError(t, data, "validation_error", field+" must be between 30 and 3600 seconds")
+			}
+		}
+		for _, key := range []string{settingRuntimeLoginCheckIntervalSecs, settingRuntimeLoginRecheckIntervalSecs} {
+			if stored, err := d.GetSetting(key); err != nil || stored != nil {
+				t.Fatalf("%s: a refused value must not be stored, got %v %v", key, stored, err)
+			}
 		}
 		_, served := apiJSON(t, h, "GET", "/api/settings", owner, "")
 		apiWantBody(t, served, apiTestShippedSettings())
@@ -1061,38 +1108,40 @@ func TestSettingsView(t *testing.T) {
 	api, h, _, owner := newAPITestServer(t)
 	got := api.settingsView()
 	want := settingsDTO{
-		OwnerTokenTTL:                86400,
-		AgentTokenTTL:                604800,
-		HandoverPct:                  50,
-		NoticePct:                    40,
-		CodexCompactionThreshold:     3,
-		CodexNoticeRound:             2,
-		MonitoringRefreshSeconds:     5,
-		OutsourceMaxParallel:         3,
-		AcceleratedGraceSecs:         120,
-		ReassignHandoverTimeoutSecs:  1800,
-		WardenCredentialLifetimeSecs: 2592000,
-		DocCapCharsDuty:              1000,
-		DocCapCharsInsight:           15000,
-		DocCapCharsManualSop:         15000,
-		DocCapCharsSystemInteraction: 60000,
-		DocCapCharsBootSequence:      15000,
-		DocCapCharsOffboard:          15000,
-		LoreCapCharsRole:             10000,
-		LoreCapCharsManual:           10000,
-		LoreCapCharsTitle:            80,
-		LoreCapCharsBody:             500,
-		ChatBudgetChars:              6000,
-		StepNoteCapChars:             10000,
-		BackupRetain:                 5,
-		OrgName:                      "",
-		OwnerName:                    "",
-		PushContactEmail:             "",
-		DisplayTheme:                 "",
-		DisplayLanguage:              "",
-		SuggestedRepliesReplyCard:    []string{},
-		SuggestedRepliesTaskMessage:  []string{},
-		SuggestedRepliesLoreMessage:  []string{},
+		OwnerTokenTTL:                   86400,
+		AgentTokenTTL:                   604800,
+		HandoverPct:                     50,
+		NoticePct:                       40,
+		CodexCompactionThreshold:        3,
+		CodexNoticeRound:                2,
+		MonitoringRefreshSeconds:        5,
+		OutsourceMaxParallel:            3,
+		AcceleratedGraceSecs:            120,
+		ReassignHandoverTimeoutSecs:     1800,
+		RuntimeLoginCheckIntervalSecs:   300,
+		RuntimeLoginRecheckIntervalSecs: 30,
+		WardenCredentialLifetimeSecs:    2592000,
+		DocCapCharsDuty:                 1000,
+		DocCapCharsInsight:              15000,
+		DocCapCharsManualSop:            15000,
+		DocCapCharsSystemInteraction:    60000,
+		DocCapCharsBootSequence:         15000,
+		DocCapCharsOffboard:             15000,
+		LoreCapCharsRole:                10000,
+		LoreCapCharsManual:              10000,
+		LoreCapCharsTitle:               80,
+		LoreCapCharsBody:                500,
+		ChatBudgetChars:                 6000,
+		StepNoteCapChars:                10000,
+		BackupRetain:                    5,
+		OrgName:                         "",
+		OwnerName:                       "",
+		PushContactEmail:                "",
+		DisplayTheme:                    "",
+		DisplayLanguage:                 "",
+		SuggestedRepliesReplyCard:       []string{},
+		SuggestedRepliesTaskMessage:     []string{},
+		SuggestedRepliesLoreMessage:     []string{},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("settingsView defaults:\n got %+v\nwant %+v", got, want)

@@ -26,7 +26,7 @@
 // is the REAL wiring, not a stub.
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { act, render, fireEvent, waitFor, within } from "@testing-library/react";
+import { act, render, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { zh } from "../i18n/locales/zh";
 import { OfficePage } from "./OfficePage";
@@ -251,6 +251,69 @@ describe("OutsourcePanel", () => {
     expect(dot.className).toContain("lifecycle-dot--offline");
     expect(dot.className).not.toContain("online-awake");
     expect(dot.getAttribute("aria-label")).toBe(zh.office.presence.offline);
+  });
+
+  it("under runtime login warnings, the row's dot is followed by one exclamation whose hover hint lists each pair on its own line, and a clean row has none", async () => {
+    const warned = mkTask({ id: "t-warned", taskNo: "T-warned" });
+    const clean = mkTask({ id: "t-clean", taskNo: "T-clean" });
+    __injectMockTask(warned);
+    __injectMockTask(clean);
+    __injectMockOutsourceWorker(
+      mkWorker({
+        id: "ow-warned",
+        taskId: warned.id,
+        presence: "online",
+        runtimeLoginWarnings: [
+          { machineId: "mac-1", machineName: "Mac Studio", runtime: "codex", pending: false },
+          { machineId: "mac-2", machineName: "Mac Mini", runtime: "claude", pending: true },
+        ],
+      }),
+    );
+    __injectMockOutsourceWorker(
+      mkWorker({ id: "ow-clean", taskId: clean.id, presence: "online", runtimeLoginWarnings: [] }),
+    );
+
+    const { findByTestId } = renderOutsource();
+    const warnedLine = await findByTestId("outsource-task-line-ow-warned");
+    const cleanLine = await findByTestId("outsource-task-line-ow-clean");
+    const marks = within(warnedLine).getAllByTestId("runtime-login-warning");
+    expect(marks).toHaveLength(1);
+    expect(marks[0].hasAttribute("title")).toBe(false);
+    fireEvent.mouseEnter(marks[0]);
+    expect(
+      Array.from(screen.getByRole("tooltip").children).map((line) => line.textContent),
+    ).toEqual(["Mac Studio 未登入 Codex", "Mac Mini 未登入 Claude"]);
+    expect(marks[0].previousElementSibling?.getAttribute("data-testid")).toBe("outsource-presence-ow-warned");
+    expect(within(cleanLine).queryByTestId("runtime-login-warning")).toBeNull();
+  });
+
+  it("under Enter or Space on the row's focused login mark, the row does not open the chat, while Enter on the row itself does", async () => {
+    const task = mkTask({ id: "t-keys", taskNo: "T-keys" });
+    __injectMockTask(task);
+    __injectMockOutsourceWorker(
+      mkWorker({
+        id: "ow-keys",
+        taskId: task.id,
+        presence: "online",
+        runtimeLoginWarnings: [
+          { machineId: "mac-1", machineName: "Mac Studio", runtime: "codex", pending: false },
+        ],
+      }),
+    );
+
+    const { findByTestId } = renderOutsource();
+    const row = await findByTestId("outsource-row-ow-keys");
+    const mark = within(row).getByTestId("runtime-login-warning");
+    const before = window.location.hash;
+
+    act(() => mark.focus());
+    expect(document.activeElement).toBe(mark);
+    fireEvent.keyDown(mark, { key: "Enter" });
+    fireEvent.keyDown(mark, { key: " " });
+    expect(window.location.hash).toBe(before);
+
+    fireEvent.keyDown(row, { key: "Enter" });
+    expect(window.location.hash).toBe("#office/chat/ow-keys");
   });
 
   it("the type line shows the manual's DISPLAY name — the raw key stays out of the UI (T-fa76)", async () => {

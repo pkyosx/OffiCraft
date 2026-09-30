@@ -85,6 +85,7 @@ export interface Messages {
   memberMachineMovingTo: (machine: string) => string;
   agentPendingChange: (value: string) => string;
   workerMachineMovingTo: (machine: string) => string;
+  runtimeLoginWarning: (machine: string, runtime: "claude" | "codex") => string;
   /** `by` is the deadline text, or null when the wind-down is on NO clock —
    * which since T-ed79 is every cause except the second context threshold. The
    * no-clock sentence must not contain any time at all. */
@@ -314,6 +315,10 @@ export function makeMessages(t: Dict, language: Lang): Messages {
     // Machines get 「→ 要換到」 (a place) rather than 「→ 要換成」 (a value) —
     // the wording the member panel has always used, now on both panels.
     workerMachineMovingTo: (machine) => `${mp.machineMovingToLabel} ${machine}`,
+    // Owner ruling: a current and a pending pair read the same — machine name,
+    // then the runtime it is signed out of; no "moving to" wording.
+    runtimeLoginWarning: (machine, runtime) =>
+      `${machine} ${t.lifecycle.loginWarning[runtime]}`,
     // 「正在收尾以套用你的改動 · 最晚 14:32 生效」 — the deadline is a CEILING
     // (the collect fires as soon as the agent reports stopped), so the wording
     // says 最晚 rather than promising a time.

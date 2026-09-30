@@ -764,12 +764,13 @@ export function MonitorPage() {
                      * the capability map; absent means unknown, and the cell
                      * says so rather than inventing a number.
                      *
-                     * The ✗ states the digest carried are NOT dropped: they are
-                     * spelled out ("not installed" / "signed out"), because
-                     * they are the only on-screen explanation for a worker
-                     * parked on machine_unavailable. And because these values
-                     * come from telemetry that is never cleared on disconnect,
-                     * a non-fresh probe is MARKED, never shown plain. */}
+                     * The digest's ✗ states stay words, because for Codex they
+                     * are the only on-screen explanation for a worker parked
+                     * on machine_unavailable: "not installed" always (MARKED
+                     * when the probe is not fresh, since telemetry is never
+                     * cleared on disconnect); "signed out" only on fresh
+                     * telemetry — stale telemetry carries no login state
+                     * (owner ruling). */}
                     <td
                       className="mon-table__left"
                       data-label={t.monitor.machineCol.claude}
@@ -1456,32 +1457,27 @@ function HardwareBadMark() {
  * columns that replaced the single ✓/✗ Runtimes digest.
  *
  * Reads the SAME capability map the digest read; nothing new is collected and
- * no version is ever synthesized. What it must NOT lose is the digest's ✗: an
- * `installed:false` / `loggedIn:false` is the reason placement refuses this
- * machine and a worker sits stamped `machine_unavailable`, and this cell is
- * still the only place that reason appears on screen. So those states are
- * spelled out as words rather than expressed by an absent version — an empty
- * cell would read as "we don't know", which is a different and wrong claim.
+ * no version is ever synthesized. A Codex `installed:false` or `loggedIn:false`
+ * is the reason placement refuses this machine and a worker sits stamped
+ * `machine_unavailable`, and this cell is the only place that reason appears
+ * on screen, so it is spelled out as a word rather than an absent version (an
+ * empty cell would wrongly read as "we don't know"). `installed:false` is
+ * always shown (marked when not fresh); `loggedIn:false` only as the
+ * fresh-telemetry chip below.
  *
  * The four honest outcomes, in order:
  *   never reported     → dash, titled "never probed"
  *   installed:false    → "not installed"
  *   version present    → the version verbatim
  *   installed, no ver. → "installed" (the probe answered, without a number)
- * plus a "signed out" mark whenever `loggedIn === false`, which can accompany
- * a perfectly good version — an installed, up-to-date, logged-out runtime is
- * exactly the case the operator needs to see.
- *
- * ⚠️ THAT MARK IS CURRENTLY REACHABLE FOR CODEX ONLY. Since T-b3d0 the warden
- * OMITS claude's `logged_in` when it cannot find evidence rather than sending
- * `false` (it was calling an unmeasured login a no, and placement then pinned
- * such a host to codex irreversibly — see runtimeprobe.go). Absent arrives here
- * as null, and null is not `=== false`, so a genuinely signed-out claude host
- * now shows "installed + version" with nothing saying it cannot run. That is a
- * KNOWN diagnostic loss, taken deliberately over the irreversible mis-pin; the
- * failure surfaces on the member row at spawn instead (claude_not_logged_in,
- * which names the Codex exit). Do not "fix" this by making the collector send
- * false again — restoring the badge that way restores the mis-pin with it.
+ * followed by a 未登入 chip whenever the cell shows a version or "installed"
+ * and fresh telemetry reports signed out — an installed, up-to-date,
+ * logged-out runtime is exactly the case the operator needs to see.
+ * ⚠️ Signed in and unknown (no login state reported) both show nothing after
+ * the version: owner ruling, do not re-add a mark for either.
+ * ⚠️ Owner ruling: stale telemetry carries no login state, so no 未登入 then.
+ * ⚠️ Owner ruling: the chip has no hover or title; the word and its column say
+ * it all.
  *
  * `fallbackVersion` exists only for Claude: the machine registry has carried
  * its own `claude_version` since T-97ee/T-7c5b, and an older warden reports
@@ -1554,12 +1550,8 @@ function RuntimeVersionCell({
           {m.runtimeNoVersion}
         </span>
       )}
-      {capability.loggedIn === false && (
-        <span
-          className="mon-stale mon-bad"
-          data-testid={`${testIdPrefix}-logged-out`}
-          title={m.runtimeLoggedOutHint}
-        >
+      {capability.loggedIn === false && stale === false && (
+        <span className="mon-stale mon-bad" data-testid={`${testIdPrefix}-logged-out`}>
           {m.runtimeLoggedOut}
         </span>
       )}

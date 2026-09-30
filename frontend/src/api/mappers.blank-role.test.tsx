@@ -35,6 +35,7 @@ function mkWireMember(over: Partial<WireMember>): WireMember {
     actual_runtime: "",
     actual_effort: "",
     actual_machine: "",
+    runtime_login_warnings: [],
     refocus_op: "",
     refocus_deadline: 0,
     effort: "medium",

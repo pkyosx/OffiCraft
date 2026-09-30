@@ -258,8 +258,8 @@ _MEMBER_READ_KEYS = {
     "forced_stop_at", "id", "kind", "last_op", "last_op_at", "last_op_log",
     "last_op_ok", "last_op_reason", "machine", "model", "name", "owner_id",
     "presence", "refocus_deadline", "refocus_op", "refocus_since", "role_key",
-    "role_name", "roster_status", "runtime", "schema_version",
-    "terminal_attach_command", "unread_count",
+    "role_name", "roster_status", "runtime", "runtime_login_warnings",
+    "schema_version", "terminal_attach_command", "unread_count",
 }
 _MEMBER_DECLARED_KEYS = _MEMBER_READ_KEYS | {
     "account", "banked_cost", "compaction_count", "context_pct", "cost",

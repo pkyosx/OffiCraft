@@ -17,6 +17,7 @@ import { ChevronLeftIcon, ChevronRightIcon } from "./icons";
 import { AvatarEditor } from "./AvatarEditor";
 import { Avatar } from "./Avatar";
 import { ResumeSummaryCard } from "./ResumeSummaryCard";
+import { RuntimeLoginWarningMark } from "./RuntimeLoginWarningMark";
 import { LifecycleDot, presenceVisual } from "./LifecycleDot";
 import { MemberActionButtons, stopLadderStageOf } from "./MemberActionButtons";
 import { ScheduledMessagesCard } from "./ScheduledMessagesCard";
@@ -494,6 +495,7 @@ export function WorkerDetailPanel({
             status={presenceVisual(worker.presence)}
             testId="worker-detail-header-dot"
           />
+          <RuntimeLoginWarningMark warnings={worker.runtimeLoginWarnings} />
           {worker.taskNo && (
             <button
               type="button"

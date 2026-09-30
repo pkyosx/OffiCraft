@@ -61,6 +61,11 @@ describe("SettingsPage · 參數調整", () => {
     // opened the API, and since 第二段 the same number is the credential's expiry,
     // so the page has to show what the machines are actually running on.
     expect((utils.getByLabelText(s.wardenCredentialLifetime) as HTMLInputElement).value).toBe("2592000");
+    const loginCheck = utils.getByLabelText(s.runtimeLoginCheckInterval) as HTMLInputElement;
+    expect(loginCheck.value).toBe("300");
+    const loginRecheck = utils.getByLabelText(s.runtimeLoginRecheckInterval) as HTMLInputElement;
+    expect(loginRecheck.value).toBe("30");
+    expect(rows.indexOf(loginRecheck)).toBe(rows.indexOf(loginCheck) + 1);
   });
 
   it("changing the login TTL patches the server immediately", async () => {
@@ -151,6 +156,30 @@ describe("SettingsPage · 參數調整", () => {
     }
     expect((await api.getServerSettings()).reassignHandoverTimeoutSecs).toBe(86400);
     expect(patch).toHaveBeenCalledTimes(3);
+    patch.mockRestore();
+  });
+
+  it.each([
+    ["login check", "runtimeLoginCheckInterval", "runtimeLoginCheckIntervalSecs"],
+    ["logged-out recheck", "runtimeLoginRecheckInterval", "runtimeLoginRecheckIntervalSecs"],
+  ] as const)("under an in-range %s interval it persists, and outside 30..3600 it snaps back without a write", async (_name, label, field) => {
+    const patch = vi.spyOn(api, "patchServerSettings");
+    const utils = await openParams();
+    const secs = utils.getByLabelText(s[label]) as HTMLInputElement;
+    for (const edge of [3600, 30]) {
+      fireEvent.change(secs, { target: { value: String(edge) } });
+      fireEvent.blur(secs);
+      await waitFor(async () => expect((await api.getServerSettings())[field]).toBe(edge));
+      expect(patch).toHaveBeenLastCalledWith({ [field]: edge });
+    }
+    for (const outside of ["29", "3601"]) {
+      fireEvent.change(secs, { target: { value: outside } });
+      fireEvent.blur(secs);
+      await utils.findByText(s.paramsSaveError);
+      expect(secs.value).toBe("30");
+    }
+    expect((await api.getServerSettings())[field]).toBe(30);
+    expect(patch).toHaveBeenCalledTimes(2);
     patch.mockRestore();
   });
 

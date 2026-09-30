@@ -20,9 +20,10 @@
 // tell — "as of some unknown moment" presented as "right now".
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { MonitorPage } from "./MonitorPage";
+import { RuntimeLoginWarningMark } from "./RuntimeLoginWarningMark";
 import type { Member, MachineView, MonMachineView } from "../types";
 
 const listMembers = vi.fn(async (): Promise<Member[]> => []);
@@ -162,6 +163,117 @@ describe("MonitorPage per-runtime version columns", () => {
     expect(within(claude).queryByTestId("mon-claude-logged-out")).toBeNull();
   });
 
+  it("under signed out, the version is followed by a plain 未登入 chip with no hover, focus stop or native title", async () => {
+    mount(
+      card(false, {
+        claude: { installed: true, loggedIn: false, version: "2.1.211" },
+        codex: { installed: true, loggedIn: false, version: "0.52.0" },
+      })
+    );
+    const claudeOut = await screen.findByTestId("mon-claude-version");
+    const codexOut = await screen.findByTestId("mon-codex-version");
+    expect(claudeOut.textContent).toBe("2.1.211未登入");
+    expect(codexOut.textContent).toBe("0.52.0未登入");
+    for (const chip of [
+      within(claudeOut).getByTestId("mon-claude-logged-out"),
+      within(codexOut).getByTestId("mon-codex-logged-out"),
+    ]) {
+      expect(chip.outerHTML).toBe(
+        `<span class="mon-stale mon-bad" data-testid="${chip.dataset.testid}">未登入</span>`
+      );
+      fireEvent.mouseEnter(chip);
+      fireEvent.focus(chip);
+      expect(screen.queryByRole("tooltip")).toBeNull();
+    }
+
+    // Positive control: the same events on the member login mark do open a hint.
+    render(
+      <I18nProvider>
+        <RuntimeLoginWarningMark
+          warnings={[{ machineId: "m1", machineName: "seth-m5", runtime: "claude", pending: false }]}
+        />
+      </I18nProvider>
+    );
+    fireEvent.mouseEnter(screen.getByTestId("runtime-login-warning"));
+    expect(screen.getByRole("tooltip").textContent).toBe("seth-m5 未登入 Claude");
+  });
+
+  it("under English, the chip reads signed out, still with no hover", async () => {
+    window.localStorage.setItem("oc.language", "en");
+    try {
+      mount(
+        card(false, {
+          claude: { installed: true, loggedIn: false, version: "2.1.211" },
+          codex: { installed: false, loggedIn: null, version: null },
+        })
+      );
+      const claudeOut = await screen.findByTestId("mon-claude-version");
+      expect(claudeOut.textContent).toBe("2.1.211signed out");
+      const chip = within(claudeOut).getByTestId("mon-claude-logged-out");
+      expect(chip.hasAttribute("title")).toBe(false);
+      fireEvent.mouseEnter(chip);
+      expect(screen.queryByRole("tooltip")).toBeNull();
+    } finally {
+      window.localStorage.removeItem("oc.language");
+    }
+  });
+
+  it("under an unreported login state, the cell is the version alone, while a signed-out runtime on the same machine still says 未登入", async () => {
+    mount(
+      card(false, {
+        claude: { installed: true, loggedIn: null, version: "2.1.211" },
+        codex: { installed: true, loggedIn: false, version: "0.52.0" },
+      })
+    );
+    const claudeUnknown = await screen.findByTestId("mon-claude-version");
+    const codexOut = await screen.findByTestId("mon-codex-version");
+    expect(claudeUnknown.textContent).toBe("2.1.211");
+    expect(codexOut.textContent).toBe("0.52.0未登入");
+  });
+
+  it("under signed in, the cell is the version alone, while a signed-out runtime on the same machine still says 未登入", async () => {
+    mount(
+      card(false, {
+        claude: { installed: true, loggedIn: true, version: "2.1.211" },
+        codex: { installed: true, loggedIn: false, version: "0.52.0" },
+      })
+    );
+    const claudeIn = await screen.findByTestId("mon-claude-version");
+    const codexOut = await screen.findByTestId("mon-codex-version");
+    expect(claudeIn.textContent).toBe("2.1.211");
+    expect(codexOut.textContent).toBe("0.52.0未登入");
+    cleanup();
+
+    mount(
+      card(false, {
+        claude: { installed: null, loggedIn: true, version: "9.9" },
+        codex: { installed: true, loggedIn: true, version: null },
+      })
+    );
+    expect((await screen.findByTestId("mon-claude-version")).textContent).toBe("9.9");
+    expect((await screen.findByTestId("mon-codex-version")).textContent).toBe("已安裝");
+  });
+
+  it("under stale telemetry, a last-reported signed-out runtime shows its version and 過期 but no 未登入, while the same report fresh shows 未登入", async () => {
+    const loggedOut = { codex: { installed: true, loggedIn: false, version: "0.52.0" } };
+    mount(card(true, loggedOut));
+    const stale = await screen.findByTestId("mon-codex-version");
+    expect(stale.textContent).toBe("0.52.0過期");
+    expect(within(stale).queryByTestId("mon-codex-logged-out")).toBeNull();
+    cleanup();
+
+    mount(card(false, loggedOut));
+    const fresh = await screen.findByTestId("mon-codex-version");
+    expect(fresh.textContent).toBe("0.52.0未登入");
+  });
+
+  it("under telemetry of unknown age, a last-reported signed-out runtime shows its version and 過期 but no 未登入", async () => {
+    mount(card(null, { claude: { installed: true, loggedIn: false, version: "2.1.211" } }));
+    const claude = await screen.findByTestId("mon-claude-version");
+    expect(claude.textContent).toBe("2.1.211過期");
+    expect(within(claude).queryByTestId("mon-claude-logged-out")).toBeNull();
+  });
+
   it("names a not-installed runtime instead of leaving the cell blank", async () => {
     mount(
       card(false, {
@@ -173,7 +285,7 @@ describe("MonitorPage per-runtime version columns", () => {
     // A reported false is an ANSWER. "—" would fold it back into "never told
     // us", which is the one thing this cell exists to distinguish.
     expect(codex.textContent).not.toBe("—");
-    expect(codex.textContent).toContain("未安裝");
+    expect(codex.textContent).toBe("未安裝");
     // owner 2026-07-31 (rc-b7d1c642f2d2): ONE verb. The hover hint explaining
     // WHY the runtime is unusable described the same act as 啟動 — a third
     // word for it. It lives in a title attribute, so textContent misses it.

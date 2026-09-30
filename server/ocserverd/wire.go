@@ -63,6 +63,9 @@ type settingsDTO struct {
 
 	ReassignHandoverTimeoutSecs int `json:"reassign_handover_timeout_secs"`
 
+	RuntimeLoginCheckIntervalSecs   int `json:"runtime_login_check_interval_secs"`
+	RuntimeLoginRecheckIntervalSecs int `json:"runtime_login_recheck_interval_secs"`
+
 	// WardenCredentialLifetimeSecs drives both the warden's renewal age (two thirds
 	// of it) and the minted credential's exp (api_auth.go mintWardenToken).
 	// 🔴 A change here can take a machine off the network: one that does not renew
@@ -212,6 +215,8 @@ type memberDTO struct {
 	BankedCost            *float64 `json:"banked_cost,omitempty"`
 	CreatorID             string   `json:"creator_id,omitempty"`
 	DelegatedBy           string   `json:"delegated_by,omitempty"`
+
+	RuntimeLoginWarnings []RuntimeLoginWarningDTO `json:"runtime_login_warnings"`
 }
 
 type machineDTO struct {
@@ -464,6 +469,9 @@ type agentTelemetryReceiptDTO struct {
 	AgentID string  `json:"agent_id"`
 	Machine *string `json:"machine"`
 	TS      float64 `json:"ts"`
+
+	LoginCheckIntervalSecs   *int `json:"login_check_interval_secs,omitempty"`
+	LoginRecheckIntervalSecs *int `json:"login_recheck_interval_secs,omitempty"`
 }
 
 type monitoringSessionDTO struct {
@@ -1594,6 +1602,8 @@ type outsourceWorkerProjection struct {
 	typeDisplay func(string) string
 
 	terminalAttach string
+
+	loginWarnings []RuntimeLoginWarningDTO
 }
 
 // noteCap is the caller's s.stepNoteCap() — the ceiling writes are refused
@@ -1962,6 +1972,9 @@ func (s *apiServer) newOutsourceMemberDTO(w OutsourceWorker, task *Task, p outso
 	dto.RefocusDeadline = winddownDeadlineOf(memberFromWorker(w), p.cfg)
 	dto.DesiredState = w.DesiredState
 	dto.TerminalAttachCommand = p.terminalAttach
+	if p.loginWarnings != nil {
+		dto.RuntimeLoginWarnings = p.loginWarnings
+	}
 	return dto
 }
 

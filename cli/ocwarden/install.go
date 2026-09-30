@@ -93,7 +93,7 @@ func realSysOps() sysOps {
 // install / teardown / uninstall-RPC entry points can reach. Nothing rebinds
 // newHostSeam in this tree, so a test that calls an entry point gets the real
 // seam and dies in refuseInTestBinary. Wiring assembled inline (a `sysOps{…}`
-// literal) is caught only by main.go's execRunner.Run opening with
+// literal) is caught only by main.go's execRunner.exec opening with
 // refuseInTestBinary — at the syscall, not before the tests run.
 type hostSeam struct {
 	sys          sysOps

@@ -1,14 +1,12 @@
 // MemberDetailPanel · presence-gated runtime identity (T-2860).
 //
-// Owner contract: 機器 + Claude Account are RUNTIME facts — they exist only while
-// the agent is actually up. When the member is NOT awakened (presence outside
-// online/waking) both cells must read a bare dash, never a desired_machine
-// residual nor a stale/banked monitoring-session value that leaked through
-// joinSessionRuntime. Once awakened, the real running machine + its bound
-// account show through. Locked here as two scenarios.
+// 機器 + Claude Account are RUNTIME facts: offline/stopped read a bare dash,
+// never a desired_machine residual nor a stale/banked monitoring-session value
+// that leaked through joinSessionRuntime. Online/waking show both; stopping
+// shows the machine only (owner ruling rc-5a126c0e1b28).
 
 import { describe, it, expect, vi } from "vitest";
-import { fireEvent, render, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { zh } from "../i18n/locales/zh";
 import { MemberDetailPanel } from "./MemberDetailPanel";
@@ -100,6 +98,49 @@ describe("MemberDetailPanel · presence-gated machine + account", () => {
     expect(within(cell).queryByText("seth-m5")).toBeNull();
     expect(within(cell).queryByText("eva-claude")).toBeNull();
     expect(within(cell).getAllByText(dash)).toHaveLength(2);
+  });
+
+  it("under stopping, the machine still shows while the Claude Account reads a dash", async () => {
+    const { container } = renderPanel(
+      mkMember({ status: "online", lifecycle: "stopping" })
+    );
+    const cell = await waitFor(() => runtimeIdentityCell(container));
+
+    expect(within(cell).getByText("seth-m5")).toBeTruthy();
+    expect(within(cell).queryByText("eva-claude")).toBeNull();
+    expect(within(cell).getAllByText(dash)).toHaveLength(1);
+  });
+
+  it("under runtime login warnings, the presence line carries one exclamation whose hover hint lists each pair on its own line", async () => {
+    const { container } = renderPanel(
+      mkMember({
+        status: "online",
+        lifecycle: "online",
+        runtimeLoginWarnings: [
+          { machineId: "seth-m5", machineName: "seth-m5", runtime: "claude", pending: false },
+          { machineId: "m-b", machineName: "Studio B", runtime: "codex", pending: true },
+        ],
+      })
+    );
+    const marks = await waitFor(() => {
+      const found = within(container).getAllByTestId("runtime-login-warning");
+      expect(found).toHaveLength(1);
+      return found;
+    });
+    expect(marks[0].hasAttribute("title")).toBe(false);
+    expect(marks[0].closest(".presence-badge")).not.toBeNull();
+    fireEvent.mouseEnter(marks[0]);
+    expect(
+      Array.from(screen.getByRole("tooltip").children).map((line) => line.textContent),
+    ).toEqual(["seth-m5 未登入 Claude", "Studio B 未登入 Codex"]);
+  });
+
+  it("under no runtime login warning, the presence line has no exclamation", async () => {
+    const { container } = renderPanel(
+      mkMember({ status: "online", lifecycle: "online", runtimeLoginWarnings: [] })
+    );
+    await waitFor(() => runtimeIdentityCell(container));
+    expect(within(container).queryByTestId("runtime-login-warning")).toBeNull();
   });
 
   it("awakened (online) shows the real running machine and its bound account", async () => {
