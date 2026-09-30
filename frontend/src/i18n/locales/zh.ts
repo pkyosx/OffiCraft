@@ -1246,7 +1246,8 @@ export const zh = {
     settingsNoteOnline: "按下後，它會先把手上的事收尾，再用新設定重新開起來。",
     settingsNoteAfterStop: "按下後會存下新設定，它停下後會用新設定重新開起來。",
     settingsNoteWake: "按下後會用這些設定開起來。",
-    settingsNoteWaking: "按下後會改用新設定重新開起來。",
+    settingsNoteWaking:
+      "按下後：換了機器會當場用新設定重新開起來；只換型號、執行環境或思考強度，下次開起來才生效。",
     settingsIntentNoteReported: "上方顯示的是目前實際使用的模型，可能和這裡的設定不同。",
     wakeManual: "手動喚醒",
     // 點喚醒後、server presence 尚未跟上前的即時回饋

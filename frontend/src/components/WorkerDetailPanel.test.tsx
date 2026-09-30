@@ -1191,7 +1191,7 @@ describe("WorkerDetailPanel — lifecycle ops (T-32e1/T-f190)", () => {
     [
       "waking",
       "worker-detail-change",
-      "按下後會改用新設定重新開起來。" +
+      "按下後：換了機器會當場用新設定重新開起來；只換型號、執行環境或思考強度，下次開起來才生效。" +
         " 上方顯示的是目前實際使用的模型，可能和這裡的設定不同。",
     ],
   ] as const)(
@@ -1213,6 +1213,42 @@ describe("WorkerDetailPanel — lifecycle ops (T-32e1/T-f190)", () => {
       expect(
         (await findByTestId("worker-detail-settings-note")).textContent,
       ).toBe(note);
+    },
+  );
+
+  it.each([
+    [
+      "stopped",
+      "worker-detail-wake",
+      "Once confirmed, it starts with these settings.",
+    ],
+    [
+      "waking",
+      "worker-detail-change",
+      "Once confirmed: a new machine restarts it there right away with the new settings; a new model, runtime or effort alone takes effect the next time it starts.",
+    ],
+  ] as const)(
+    "in English, a %s worker's dialog opened by %s → the settings note reads %s",
+    async (presence, opener, note) => {
+      localStorage.setItem("oc.language", "en");
+      try {
+        __injectMockTask(mkTask({ id: "t-1" }));
+        __injectMockOutsourceWorker(
+          mkWorker({
+            id: "ow-1",
+            taskId: "t-1",
+            presence,
+            desiredState: presence === "stopped" ? "offline" : "online",
+          }),
+        );
+        const { findByTestId } = renderOfficeAt("#office/worker/ow-1");
+        fireEvent.click(await findByTestId(opener));
+        expect(
+          (await findByTestId("worker-detail-settings-note")).textContent,
+        ).toBe(note);
+      } finally {
+        localStorage.removeItem("oc.language");
+      }
     },
   );
 
