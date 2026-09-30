@@ -428,9 +428,8 @@ export const en: Dict = {
     closeAlreadyClosedTail: "), so there is nothing left to close.",
     // 404: the task is gone; its status cannot be read, so this one names none.
     closeGoneError: "This task no longer exists — it may have been deleted.",
-    // 422: the server could not parse the request (bad JSON / an unknown field).
-    // The page and the wire disagree; retrying the same payload cannot help, so
-    // the line must not ask for a retry.
+    // 422: only when the page and the server versions disagree; retrying in place
+    // cannot help, reloading the page to pick up the new version can.
     closeBadRequestError:
       "The task could not be closed and was not changed. The page and the server may be on different versions — reload the page and try again; if it still fails, please report it.",
     // Reassign: hand the task to another staff member, or to an outsource
@@ -2023,7 +2022,7 @@ export const en: Dict = {
     reset: "Reset",
     editorPlaceholder: "Write in Markdown…",
     docReplaceNote:
-      "Saving replaces the whole document with what is in the editor; any section not in the editor is gone.",
+      "Saving replaces the editable part with what is in the editor; any section not in the editor is gone.",
     docReadOnlyHead: "Read-only (written by the program, not editable)",
     docActionFailed: "That did not go through — try again.",
     docOverCapLead: "Now ",
