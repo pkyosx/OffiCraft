@@ -646,7 +646,6 @@ func realMain(argv []string, env func(string) string, out io.Writer) int {
 	wardenShapeOf := newShapeReporter(anchorPath, os.Getppid())
 	cutoverEffectOf := newCutoverEffectReporter(anchorPath, agentSocket, os.Getppid())
 	claudeProbe := newClaudeProber(env, runner, runtime.GOOS)
-	launchEnv := &launchEnvCache{}
 
 	iters := 0
 	if *once {
@@ -669,8 +668,9 @@ func realMain(argv []string, env func(string) string, out io.Writer) int {
 		maybeStartAnchorCutover(*wardenPathsOrNil, os.Getppid(), logf)
 	}
 
+	commandDeps, login, setLoginInterval := wireLoginCheck(cfg, env, runner, runtime.GOOS, logf)
 	if cfg.Token != "" && cfg.ID != "" && iters == 0 {
-		transport := newCommandTransport(cfg, env, runner, launchEnv, logf)
+		transport := newCommandTransport(cfg, commandDeps, logf)
 
 		// 🔴 NOTHING GUARDS THIS CALL SITE. Deleting these lines, or `go up.run(ctx)`,
 		// leaves the package green and silently stops self-update and credential renewal
@@ -693,20 +693,29 @@ func realMain(argv []string, env func(string) string, out io.Writer) int {
 		logf("[ocwarden] self-update: enabled (poll %s; %s + %s; reconnect-kick on)", selfUpdateInterval, wardenBinaryPath, agentBinaryPath)
 	}
 
-	var keep stdoutRunner
-	if k, ok := runner.(stdoutRunner); ok {
-		keep = k
-	}
-	login := newLoginProber(env, runner, keep, runtime.GOOS, launchEnv, logf)
 	runtimeProbe := func() map[string]any {
 		return collectRuntimeCapabilities(env, runner, claudeProbe.collect(), login.state())
 	}
 	rc := run(ctx, cfg, collect, machine, post, fingerprints.collect, claudeProbe.collect,
-		wardenShapeOf, cutoverEffectOf, sleepUntil, iters, out, login.setInterval, runtimeProbe)
+		wardenShapeOf, cutoverEffectOf, sleepUntil, iters, out, setLoginInterval, runtimeProbe)
 
 	stop()
 	waitGraceful(&wg, shutdownGrace)
 	return rc
+}
+
+// wireLoginCheck gives the spawn path and the login check one launch-env cache:
+// the login check reads the shell env the last spawn captured. setInterval is
+// what the heartbeat receipt's login_check_interval_secs must reach.
+func wireLoginCheck(cfg Config, env func(string) string, runner CmdRunner, goos string,
+	logf func(string, ...any)) (deps CommandDeps, login *loginProber, setInterval func(time.Duration)) {
+	launchEnv := &launchEnvCache{}
+	var keep stdoutRunner
+	if k, ok := runner.(stdoutRunner); ok {
+		keep = k
+	}
+	login = newLoginProber(env, runner, keep, goos, launchEnv, logf)
+	return buildCommandDeps(cfg, env, runner, launchEnv), login, login.setInterval
 }
 
 func main() {

@@ -497,13 +497,12 @@ func newCommandReporter(cfg Config) func(CommandResult) error {
 	}
 }
 
-func newCommandTransport(cfg Config, env func(string) string, runner CmdRunner,
-	launchEnv *launchEnvCache, logf func(string, ...any)) *sseTransport {
+func newCommandTransport(cfg Config, deps CommandDeps, logf func(string, ...any)) *sseTransport {
 	return &sseTransport{
 		base:            cfg.Base,
 		token:           cfg.Token,
 		client:          newSSEClient(),
-		deps:            buildCommandDeps(cfg, env, runner, launchEnv),
+		deps:            deps,
 		sleep:           time.Sleep,
 		backoffStart:    sseBackoffStart,
 		backoffCap:      sseBackoffCap,

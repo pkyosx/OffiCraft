@@ -1028,8 +1028,8 @@ func TestNewCommandTransport(t *testing.T) {
 
 	var log []string
 	logf := func(format string, a ...any) { log = append(log, fmt.Sprintf(format, a...)) }
-	tr := newCommandTransport(Config{Base: "https://station.example", Token: jwtWardenOne, ID: "warden-1"},
-		env, &wardenRunner{}, nil, logf)
+	cfg := Config{Base: "https://station.example", Token: jwtWardenOne, ID: "warden-1"}
+	tr := newCommandTransport(cfg, buildCommandDeps(cfg, env, &wardenRunner{}, nil), logf)
 
 	if tr.base != "https://station.example" || tr.token != jwtWardenOne {
 		t.Errorf("addressing = (%q, ...), want the configured station and its credential", tr.base)

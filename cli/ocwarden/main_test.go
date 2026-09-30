@@ -871,6 +871,91 @@ func TestWireUpdaterSeams(t *testing.T) {
 	}
 }
 
+type keepWardenRunner struct {
+	*wardenRunner
+	*keepShellRunner
+}
+
+func TestWireLoginCheck(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("PATH", filepath.Join(root, "nothing-here"))
+
+	t.Run("under a receipt interval, the login check re-runs on that cadence", func(t *testing.T) {
+		codexBin := stageBinary(t, filepath.Join(root, "bin", "codex"), "#!/bin/sh\n")
+		codexArgv := codexBin + " login status"
+		runner := &wardenRunner{script: map[string]wardenRun{codexArgv: {out: "Logged in"}}}
+		env := envMap(map[string]string{"HOME": root, "OC_CODEX_BIN": codexBin, "OC_CLAUDE_CRED_CHECK": "0"})
+		_, login, setInterval := wireLoginCheck(Config{}, env, runner, "linux", nil)
+		clock := time.Unix(1_000_000, 0)
+		login.now = func() time.Time { return clock }
+
+		login.state()
+		setInterval(60 * time.Second)
+		clock = clock.Add(60 * time.Second)
+		login.state()
+		if want := []string{codexArgv, codexArgv}; !reflect.DeepEqual(runner.calls, want) {
+			t.Errorf("ran %v, want %v", runner.calls, want)
+		}
+	})
+
+	t.Run("under a spawn that captured the shell env, the login check runs with that env", func(t *testing.T) {
+		box := t.TempDir()
+		evidence := filepath.Join(box, "evidence")
+		counter := filepath.Join(box, "captures")
+		shell := stageBinary(t, filepath.Join(box, "bin", "zsh"), "#!/bin/sh\n"+
+			`n=$(( $(/bin/cat '`+counter+`' 2>/dev/null || echo 0) + 1 ))`+"\n"+
+			`echo "$n" > '`+counter+"'\n"+
+			`printf 'FROM_SHELL=capture-%s\000' "$n"`+"\n")
+		claudeBin := stageBinary(t, filepath.Join(box, "bin", "claude"), "#!/bin/sh\n"+
+			`printf '%s' "$FROM_SHELL" > '`+evidence+"'\n"+
+			`printf '{"loggedIn":true}'`+"\n")
+		exe, err := os.Executable()
+		if err != nil {
+			t.Fatalf("executable: %v", err)
+		}
+		ocagent := filepath.Join(filepath.Dir(exe), "ocagent")
+		if err := os.WriteFile(ocagent, []byte("#!/bin/sh\n"), 0o755); err != nil {
+			t.Skipf("cannot publish an ocagent beside the test binary: %v", err)
+		}
+		t.Cleanup(func() { os.Remove(ocagent) })
+		wardenHome := filepath.Join(box, "home")
+		if err := os.MkdirAll(wardenHome, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		env := envMap(map[string]string{
+			"HOME": wardenHome, "OC_AGENT_HOME": filepath.Join(box, "agents"),
+			"OC_AGENT_ENV_FILE": filepath.Join(box, "no-env-file"), "OC_AGENT_ENV_SHELL": shell,
+			"OC_CLAUDE_CRED_CHECK": "0", "OC_CLAUDE_BIN": claudeBin,
+		})
+		runner := keepWardenRunner{
+			wardenRunner: &wardenRunner{
+				script: map[string]wardenRun{
+					"tmux -L officraft has-session -t member-m1": {err: errors.New("can't find session: member-m1")},
+				},
+				fallback: wardenRun{err: errors.New("no tmux in this test")},
+			},
+			keepShellRunner: &keepShellRunner{},
+		}
+		deps, login, _ := wireLoginCheck(Config{Base: "https://station.example"}, env, runner, "linux", nil)
+
+		got := deps.Spawn(StartParams{MemberID: "m1", PersonaContext: "p", MemberToken: "jwt", Role: "builder"})
+		if want := (SpawnOutcome{Reason: "spawn_exec_failed: tmux new-session: no tmux in this test"}); !reflect.DeepEqual(got, want) {
+			t.Fatalf("outcome = %+v, want %+v", got, want)
+		}
+		yes := true
+		if state := login.state(); !reflect.DeepEqual(state, loginState{Claude: &yes}) {
+			t.Errorf("state = %s, want claude=true codex=nil", fmtLogin(state))
+		}
+		raw, err := os.ReadFile(evidence)
+		if err != nil {
+			t.Fatalf("auth status never ran: %v", err)
+		}
+		if string(raw) != "capture-1" {
+			t.Errorf("claude saw FROM_SHELL=%q, want the spawn's capture-1", raw)
+		}
+	})
+}
+
 func TestRealMain(t *testing.T) {
 	t.Run("no verb prints the usage banner", func(t *testing.T) {
 		want := "usage: ocwarden {run [--once] | install | teardown [--canonical]}\n" +
