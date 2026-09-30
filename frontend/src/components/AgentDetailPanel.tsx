@@ -101,8 +101,8 @@ export interface AgentDetailVM {
     effort?: string;
     machine?: string;
   };
-  /** Resolved machine display text; "" ⇒ dash. Wrappers apply their own gate
-   * (member: awake-only; worker: 尚未分配 fallback text). */
+  /** Resolved machine display text; "" ⇒ dash. Wrappers apply their own
+   * "is it running" gate. */
   machineText: string;
   /** True when the 模型 row shows what the agent REPORTED rather than what the
    * owner configured (the member panel; T-927a). The row then carries a tag, or

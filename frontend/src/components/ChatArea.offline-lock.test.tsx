@@ -108,11 +108,17 @@ function renderChat(
 }
 
 describe("ChatArea composer lock (T-9c3c: a live member is always messageable)", () => {
-  it.each<MemberLifecycle>(["offline", "stopped", "waking", "stopping"])(
-    "%s member (onWake wired) → composer UNLOCKED (typable) + wake row, NO locked bar",
-    (lifecycle) => {
+  it.each<[MemberLifecycle, boolean]>([
+    ["offline", true],
+    ["stopped", true],
+    ["waking", true],
+    ["stopping", false],
+  ])(
+    "%s member (onWake wired) → composer UNLOCKED (typable) + wake row, NO locked bar, ⚡喚醒 shown: %s",
+    (lifecycle, wakeShown) => {
       const { query } = renderChat(lifecycle);
-      const { input, locked, wakeRow } = query();
+      const { input, locked, wakeRow, wakeBtn } = query();
+      expect(wakeBtn !== null).toBe(wakeShown);
       // The fix: the input is present for EVERY non-online state — the message
       // queues, so none of them may drop the composer.
       expect(input).not.toBeNull();

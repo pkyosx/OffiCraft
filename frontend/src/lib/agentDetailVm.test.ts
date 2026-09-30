@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   buildAgentDetailVm,
   machineOptions,
+  settingsNoteKey,
   totalCostOf,
   type AgentDetailVmInput,
 } from "./agentDetailVm";
@@ -72,7 +73,7 @@ describe("totalCostOf", () => {
 function mkInput(over: Partial<AgentDetailVmInput> = {}): AgentDetailVmInput {
   return {
     testIdPrefix: "mp",
-    online: true,
+    presence: "online",
     awake: true,
     runtime: "claude",
     actualRuntime: "claude",
@@ -207,5 +208,29 @@ describe("buildAgentDetailVm", () => {
     );
     await vm.onRefocus!();
     expect(calls).toBe(1);
+  });
+
+  it.each([
+    ["online", true],
+    ["stopping", false],
+    ["stopped", false],
+    ["waking", false],
+    ["offline", false],
+    [undefined, false],
+  ] as const)("counts presence %s as online: %s", (presence, online) => {
+    expect(buildAgentDetailVm(mkInput({ presence })).online).toBe(online);
+  });
+});
+
+describe("settingsNoteKey", () => {
+  it.each([
+    ["online", "settingsNoteOnline"],
+    ["stopping", "settingsNoteAfterStop"],
+    ["stopped", "settingsNoteAfterStop"],
+    ["offline", "settingsNoteNextWake"],
+    ["waking", "settingsNoteNextWake"],
+    [undefined, "settingsNoteNextWake"],
+  ] as const)("picks %s → %s", (presence, key) => {
+    expect(settingsNoteKey(presence)).toBe(key);
   });
 });

@@ -865,8 +865,8 @@ export interface OutsourceWorkerView {
   presence?: MemberLifecycle;
   /** The machine the worker's session was ACTUALLY dispatched to (wire
    * `machine` — last_spawn_target resolved to its display name), NOT the
-   * manual's preference. "" when never dispatched → the panel shows 「尚未分配」,
-   * never a fabricated machine name. */
+   * manual's preference. "" when never dispatched, never a fabricated machine
+   * name. */
   machine?: string;
   /** The OWNER-PINNED placement (wire `desired_machine_id`; the relocate
    * target the picker binds): "" = unpinned, else a concrete machine id. */

@@ -23,7 +23,11 @@ import {
   slot,
 } from "./AgentDetailPanel";
 import { pendingChangeHint, pendingModelHint, reportedMachine } from "../lib/pendingChange";
-import { buildAgentDetailVm, machineOptions } from "../lib/agentDetailVm";
+import {
+  buildAgentDetailVm,
+  machineOptions,
+  settingsNoteKey,
+} from "../lib/agentDetailVm";
 import { AvatarEditor } from "./AvatarEditor";
 import { Avatar } from "./Avatar";
 import { avatarKindForMember } from "../lib/avatarKind";
@@ -142,11 +146,15 @@ export function MemberDetailPanel({
   // at once. Force-stop keeps its own flag because it fires from the confirm
   // dialog, not from the row.
   const [stopBusy, setStopBusy] = useState(false);
+  const [stopError, setStopError] = useState(false);
   async function runStopRung(fire?: () => void | Promise<void>) {
     if (!fire || stopBusy) return;
     setStopBusy(true);
+    setStopError(false);
     try {
       await fire();
+    } catch {
+      setStopError(true);
     } finally {
       setStopBusy(false);
     }
@@ -154,10 +162,13 @@ export function MemberDetailPanel({
   async function confirmForceStop() {
     if (!onForceStop) return;
     setForceStopBusy(true);
+    setStopError(false);
     try {
       await onForceStop();
-      setForceStopConfirm(false);
+    } catch {
+      setStopError(true);
     } finally {
+      setForceStopConfirm(false);
       setForceStopBusy(false);
     }
   }
@@ -389,49 +400,6 @@ export function MemberDetailPanel({
     } catch {
       if (shownMemberIdRef.current !== firedFor) return;
       setWakePending(false);
-    }
-  }
-
-  /** Persist the launch settings WITHOUT starting anything (creator ruling after
-   * independent review r3). Folding relocate + model/effort into one dialog had
-   * silently removed two capabilities the panel used to have for an offline
-   * member: editing model/effort without waking it, and re-pinning it for its
-   * next wake. Neither removal was asked for — the spec describes what the WAKE
-   * button does, it never says the settings become unreachable while a member is
-   * off. Offered only when the member is NOT AWAKENED (offline/stopped): a live
-   * member's settings change is what 更改 (graceful wind-down) is for, and for a
-   * `waking` member the confirm path reaches activate, so promising "saved, not
-   * started" there would be a lie. */
-  async function saveSettingsOnly() {
-    if (!settingsMachineId || awake) return;
-    const launchChanged =
-      runtimeChanged ||
-      settingsModel.trim() !== member.model ||
-      settingsEffort !== member.effort;
-    const machineChanged = settingsMachineId !== member.desiredMachineId;
-    if (!launchChanged && !machineChanged) {
-      setSettingsOpen(false);
-      return;
-    }
-    setSettingsBusy(true);
-    setSettingsError("");
-    try {
-      if (launchChanged) {
-        await api.patchMember(member.id, launchIntentPatch());
-      }
-      // Placement-only re-pin: the server's relocate never touches
-      // desired_state, so for an offline member this is the whole honest effect
-      // (it is what the retired 改機器 button did) — and it must NOT reach
-      // activate, or "save without waking" would wake.
-      if (machineChanged) await onRelocate?.(settingsMachineId);
-      setSettingsOpen(false);
-    } catch (error) {
-      setSettingsError(
-        (error instanceof ApiError && error.serverMessage) ||
-          t.mp.modelEffortError,
-      );
-    } finally {
-      setSettingsBusy(false);
     }
   }
 
@@ -967,6 +935,14 @@ export function MemberDetailPanel({
           {relocateUndispatched && !relocateLanded && (
             <DispatchAlert kind="relocate" testId="mp-relocate-undispatched" />
           )}
+          {stopError && (
+            <div
+              className="mp-field__hint mp-info2__error"
+              data-testid="mp-stop-error"
+            >
+              {t.mp.stopError}
+            </div>
+          )}
         </div>
       </div>
     </>
@@ -1028,12 +1004,8 @@ export function MemberDetailPanel({
             <div className="machine-picker__title">
               {online ? t.mp.change : t.lifecycle.action.spawn}
             </div>
-            {/* The other half of the same honesty fix: this dialog edits the
-                CONFIGURED launch model, while the card above shows the REPORTED
-                one. Tagging only the card leaves the owner looking at two
-                different values under one name. */}
             <div className="mp-field__hint" data-testid="mp-settings-intent-note">
-              {t.mp.settingsIntentNote}
+              {t.mp[settingsNoteKey(member.lifecycle)]}
               {/* The second half only when the card actually HAS a reported model
                   to compare against. Unconditional, it pointed at a dash and
                   invited "so this agent never reported" — which is not what an
@@ -1078,17 +1050,6 @@ export function MemberDetailPanel({
               <button type="button" className="btn btn--ghost" disabled={settingsBusy} onClick={() => setSettingsOpen(false)}>
                 {t.common.cancel}
               </button>
-              {!awake && (
-                <button
-                  type="button"
-                  className="btn btn--ghost"
-                  data-testid="mp-settings-save-only"
-                  disabled={settingsBusy || !settingsMachineId}
-                  onClick={() => void saveSettingsOnly()}
-                >
-                  {t.mp.settingsSaveOnly}
-                </button>
-              )}
               <button
                 type="button"
                 className="btn btn--accent"
@@ -1636,7 +1597,7 @@ export function MemberDetailPanel({
       // its own domain object, its own 機器 gate, its own i18n leaves.
       vm={buildAgentDetailVm({
         testIdPrefix: "mp",
-        online,
+        presence: member.lifecycle,
         awake,
         runtime: member.runtime,
         actualRuntime: member.actualRuntime,

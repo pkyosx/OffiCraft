@@ -143,6 +143,28 @@ describe("MemberDetailPanel · presence-gated machine + account", () => {
     expect(within(container).queryByTestId("runtime-login-warning")).toBeNull();
   });
 
+  it.each([
+    ["online", "online", false, "重新聚焦"],
+    ["stopping", "online", true, "僅線上可重新聚焦"],
+    ["stopped", "offline", true, "僅線上可重新聚焦"],
+  ] as const)(
+    "refocus on a %s member (status %s): disabled=%s, titled %s",
+    (lifecycle, status, disabled, title) => {
+      const { getByTestId } = render(
+        <I18nProvider>
+          <MemberDetailPanel
+            member={mkMember({ lifecycle, status })}
+            onBack={() => {}}
+            onRefocus={vi.fn()}
+          />
+        </I18nProvider>,
+      );
+      const refocus = getByTestId("mp-refocus") as HTMLButtonElement;
+      expect(refocus.disabled).toBe(disabled);
+      expect(refocus.getAttribute("title")).toBe(title);
+    },
+  );
+
   it("awakened (online) shows the real running machine and its bound account", async () => {
     const { container } = renderPanel(
       mkMember({ status: "online", lifecycle: "online" })
@@ -258,16 +280,12 @@ describe("MemberDetailPanel · presence-gated machine + account", () => {
       expect((getByTestId("mp-change") as HTMLButtonElement).disabled).toBe(false),
     );
     fireEvent.click(getByTestId("mp-change"));
-    // Both halves for a member that HAS a reported model: what the dialog edits,
-    // and what the card above is.
-    const note = getByTestId("mp-settings-intent-note").textContent ?? "";
-    expect(note).toContain(zh.mp.settingsIntentNote);
-    expect(note).toContain(zh.mp.settingsIntentNoteReported);
-    // owner 2026-07-31 (rc-b7d1c642f2d2): ONE verb — the note said 下次啟動
-    // while the button that opens this dialog says 喚醒. The two assertions
-    // above read the SAME constant the component renders, so they hold for any
-    // wording; this one is literal on purpose.
-    expect(note).toContain("下次喚醒要用哪一個");
+    // Both halves for a member that HAS a reported model: what the confirm
+    // will do, and what the card above is.
+    expect(getByTestId("mp-settings-intent-note").textContent).toBe(
+      "按下後，它會先把手上的事收尾，再用新設定重新開起來。" +
+        " 上方顯示的是目前實際使用的模型，可能和這裡的設定不同。",
+    );
   });
 
   it("leaves the model cell BLANK when nobody has reported one (never the configured value)", async () => {

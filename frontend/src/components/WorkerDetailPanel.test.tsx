@@ -215,16 +215,14 @@ describe("WorkerDetailPanel — aligned real info (T-f190 item 1)", () => {
     expect((await findByTestId("worker-detail-cost")).textContent).toBe("$4");
   });
 
-  it("shows honest dashes / 尚未分配, never fabricated values, when nothing reported", async () => {
+  it("shows honest dashes, never fabricated values, when nothing reported", async () => {
     __injectMockTask(mkTask({ id: "t-1" }));
     __injectMockOutsourceWorker(
       mkWorker({ id: "ow-1", taskId: "t-1" }), // all runtime fields at honest empty
     );
 
     const { findByTestId } = renderOfficeAt("#office/worker/ow-1");
-    expect((await findByTestId("worker-detail-machine")).textContent).toBe(
-      "尚未分配",
-    );
+    expect((await findByTestId("worker-detail-machine")).textContent).toBe("—");
     expect((await findByTestId("worker-detail-context")).textContent).toBe("—");
     expect((await findByTestId("worker-detail-cost")).textContent).toBe("—");
   });
@@ -245,7 +243,7 @@ describe("WorkerDetailPanel — honest presence states (A案 P6 member vocabular
     );
   }
 
-  it("未分配機器: machine cell shows 尚未分配 (presence waking, never dispatched)", async () => {
+  it("a waking worker that was never dispatched shows 機器 as —", async () => {
     __injectMockTask(mkTask({ id: "t-1" }));
     __injectMockOutsourceWorker(
       mkWorker({
@@ -257,12 +255,25 @@ describe("WorkerDetailPanel — honest presence states (A案 P6 member vocabular
       }),
     );
     const { findByTestId } = renderOfficeAt("#office/worker/ow-1");
-    expect((await findByTestId("worker-detail-machine")).textContent).toBe(
-      "尚未分配",
-    );
+    expect((await findByTestId("worker-detail-machine")).textContent).toBe("—");
     expect(
       (await findByTestId("worker-detail-header-dot")).getAttribute("aria-label"),
     ).toBe(zh.office.presence.waking);
+  });
+
+  it.each([
+    ["online", "Warden · mbp5"],
+    ["waking", "Warden · mbp5"],
+    ["stopping", "Warden · mbp5"],
+    ["stopped", "—"],
+    ["offline", "—"],
+  ] as const)("a %s worker's 機器 cell reads %s", async (presence, cell) => {
+    __injectMockTask(mkTask({ id: "t-1" }));
+    __injectMockOutsourceWorker(
+      mkWorker({ id: "ow-1", taskId: "t-1", presence, machine: "Warden · mbp5" }),
+    );
+    const { findByTestId } = renderOfficeAt("#office/worker/ow-1");
+    expect((await findByTestId("worker-detail-machine")).textContent).toBe(cell);
   });
 
   // owner 2026-07-31 (rc-b7d1c642f2d2): ONE verb for this action on BOTH
@@ -478,7 +489,13 @@ describe("WorkerDetailPanel — 設定改走喚醒區 (T-7526 parity)", () => {
     __setMockMemberOnline("warden-mbp5", true);
     __injectMockTask(mkTask({ id: "t-1" }));
     __injectMockOutsourceWorker(
-      mkWorker({ id: "ow-1", taskId: "t-1", machine: "", desiredMachineId: "" }),
+      mkWorker({
+        id: "ow-1",
+        taskId: "t-1",
+        presence: "online",
+        machine: "",
+        desiredMachineId: "",
+      }),
     );
     const relocate = vi.spyOn(api, "relocateMember");
     const { findByTestId } = renderOfficeAt("#office/worker/ow-1");
@@ -777,29 +794,24 @@ describe("WorkerDetailPanel — header matches the sidebar 外包 row (T-f190 UI
 });
 
 describe("WorkerDetailPanel — lifecycle ops (T-32e1/T-f190)", () => {
-  it("refocus is disabled off-line and enabled online", async () => {
-    __injectMockTask(mkTask({ id: "t-1" }));
-    __injectMockOutsourceWorker(
-      mkWorker({ id: "ow-1", taskId: "t-1", presence: "offline" }),
-    );
-    const { findByTestId, rerender } = renderOfficeAt("#office/worker/ow-1");
-    const btn = (await findByTestId("worker-detail-refocus")) as HTMLButtonElement;
-    expect(btn.disabled).toBe(true); // offline: online-only gate mirrored client-side
-
-    __resetMock();
-    __injectMockTask(mkTask({ id: "t-2" }));
-    __injectMockOutsourceWorker(
-      mkWorker({ id: "ow-2", taskId: "t-2", presence: "online" }),
-    );
-    window.location.hash = "#office/worker/ow-2";
-    rerender(
-      <I18nProvider>
-        <OfficePage />
-      </I18nProvider>,
-    );
-    const btn2 = (await findByTestId("worker-detail-refocus")) as HTMLButtonElement;
-    expect(btn2.disabled).toBe(false);
-  });
+  it.each([
+    ["online", false, "重新聚焦"],
+    ["stopping", true, "僅線上可重新聚焦"],
+    ["stopped", true, "僅線上可重新聚焦"],
+    ["offline", true, "僅線上可重新聚焦"],
+  ] as const)(
+    "refocus on a %s worker: disabled=%s, titled %s",
+    async (presence, disabled, title) => {
+      __injectMockTask(mkTask({ id: "t-1" }));
+      __injectMockOutsourceWorker(
+        mkWorker({ id: "ow-1", taskId: "t-1", presence }),
+      );
+      const { findByTestId } = renderOfficeAt("#office/worker/ow-1");
+      const btn = (await findByTestId("worker-detail-refocus")) as HTMLButtonElement;
+      expect(btn.disabled).toBe(disabled);
+      expect(btn.getAttribute("title")).toBe(title);
+    },
+  );
 
   it("refocus round-trips: clicking online surfaces the sent acknowledgement", async () => {
     __injectMockTask(mkTask({ id: "t-1" }));
@@ -858,11 +870,15 @@ describe("WorkerDetailPanel — lifecycle ops (T-32e1/T-f190)", () => {
     // (spent): the old premise, that the pressed rung stays put and the new one
     // takes a fresh slot, no longer holds. The rung ABOVE is still absent: a
     // stop that has not been put on a clock is not a kill waiting to happen.
-    const upgraded = await findByTestId("member-action-accelerated-stop");
-    expect(upgraded.textContent).toBe(zh.lifecycle.action["accelerated-stop"]);
-    expect(queryTestId(document.body, "member-action-stop")).toBeNull();
-    expect(queryTestId(document.body, "member-action-force-stop")).toBeNull();
-    expect(queryTestId(document.body, "worker-detail-wake")).toBeNull();
+    await findByTestId("member-action-accelerated-stop");
+    expect(
+      Array.from(
+        document.querySelectorAll(".mp-identity__buttons button"),
+      ).map((b) => [b.getAttribute("data-testid"), b.textContent]),
+    ).toEqual([
+      ["worker-detail-change", "更改"],
+      ["member-action-accelerated-stop", "加速停止"],
+    ]);
   });
 
   // 強制停止 is the rung that still kills, and it is the only one behind a
@@ -1003,12 +1019,9 @@ describe("WorkerDetailPanel — lifecycle ops (T-32e1/T-f190)", () => {
     const input = (await findByTestId("me-model-input")) as HTMLInputElement;
     fireEvent.change(input, { target: { value: "claude-opus-4-8" } });
     expect(input.value).toBe("claude-opus-4-8");
-    // owner 2026-07-31 (rc-b7d1c642f2d2): ONE verb. The note under these cells
-    // said 下次啟動生效 while the member panel's identical note said
-    // 下次喚醒生效 — literal, not zh.*, or the assertion moves with the string.
     expect(
       (await findByTestId("worker-detail-settings-note")).textContent,
-    ).toContain("下次喚醒生效");
+    ).toBe("按下後只存下新設定，下次喚醒時使用。");
   });
 
   it("喚醒 stores the launch settings and the pin BEFORE it wakes, so the new session boots as described", async () => {
@@ -1159,6 +1172,203 @@ describe("WorkerDetailPanel — lifecycle ops (T-32e1/T-f190)", () => {
         ((await findByTestId("me-model-input")) as HTMLInputElement).value,
       ).toBe("claude-opus-4-8"),
     );
+  });
+  it.each([
+    [
+      "online",
+      "worker-detail-change",
+      "按下後，它會先把手上的事收尾，再用新設定重新開起來。" +
+        " 上方顯示的是目前實際使用的模型，可能和這裡的設定不同。",
+    ],
+    [
+      "stopping",
+      "worker-detail-change",
+      "按下後會存下新設定，它停下後會用新設定重新開起來。",
+    ],
+    [
+      "stopped",
+      "worker-detail-wake",
+      "按下後會存下新設定，它停下後會用新設定重新開起來。",
+    ],
+    [undefined, "worker-detail-change", "按下後只存下新設定，下次喚醒時使用。"],
+  ] as const)(
+    "%s worker, dialog opened by %s → the settings note reads %s",
+    async (presence, opener, note) => {
+      __injectMockTask(mkTask({ id: "t-1" }));
+      __injectMockOutsourceWorker(
+        mkWorker({
+          id: "ow-1",
+          taskId: "t-1",
+          presence,
+          desiredState:
+            presence === "stopping" || presence === "stopped" ? "offline" : "online",
+          actualModel: "Opus 4.6",
+        }),
+      );
+      const { findByTestId } = renderOfficeAt("#office/worker/ow-1");
+      fireEvent.click(await findByTestId(opener));
+      expect(
+        (await findByTestId("worker-detail-settings-note")).textContent,
+      ).toBe(note);
+    },
+  );
+
+  it("a wake that dispatched nothing raises the same alert the member panel does", async () => {
+    __injectMockTask(mkTask({ id: "t-1" }));
+    __injectMockOutsourceWorker(
+      mkWorker({ id: "ow-1", taskId: "t-1", presence: "stopped", desiredState: "offline" }),
+    );
+    const wake = vi
+      .spyOn(api, "activateMember")
+      .mockResolvedValue({ activationPending: true });
+    const { findByTestId } = renderOfficeAt("#office/worker/ow-1");
+    fireEvent.click(await findByTestId("worker-detail-wake"));
+    fireEvent.click(await findByTestId("worker-detail-settings-confirm"));
+    const alert = await findByTestId("worker-detail-wake-undispatched");
+    expect(wake).toHaveBeenCalledWith("ow-1");
+    expect(alert.querySelector(".dispatch-alert__title")?.textContent).toBe(
+      "這次沒有送出喚醒指令",
+    );
+  });
+
+  it("a wake that went out raises no alert", async () => {
+    __injectMockTask(mkTask({ id: "t-1" }));
+    __injectMockOutsourceWorker(
+      mkWorker({ id: "ow-1", taskId: "t-1", presence: "stopped", desiredState: "offline" }),
+    );
+    const wake = vi
+      .spyOn(api, "activateMember")
+      .mockResolvedValue({ activationPending: false });
+    const { findByTestId } = renderOfficeAt("#office/worker/ow-1");
+    fireEvent.click(await findByTestId("worker-detail-wake"));
+    fireEvent.click(await findByTestId("worker-detail-settings-confirm"));
+    await waitFor(() =>
+      expect(queryTestId(document.body, "worker-detail-settings-dialog")).toBeNull(),
+    );
+    expect(wake).toHaveBeenCalledWith("ow-1");
+    expect(queryTestId(document.body, "worker-detail-wake-undispatched")).toBeNull();
+  });
+
+  async function moveToSeedWarden(
+    findByTestId: (testId: string) => Promise<HTMLElement>,
+    opener: string,
+  ) {
+    fireEvent.click(await findByTestId(opener));
+    const select = (await findByTestId(
+      "worker-detail-settings-machine",
+    )) as HTMLSelectElement;
+    await waitFor(() =>
+      expect(Array.from(select.options).map((o) => o.value)).toContain(
+        "warden-mbp5",
+      ),
+    );
+    fireEvent.change(select, { target: { value: "warden-mbp5" } });
+    fireEvent.click(await findByTestId("worker-detail-settings-confirm"));
+    await waitFor(() =>
+      expect(queryTestId(document.body, "worker-detail-settings-dialog")).toBeNull(),
+    );
+  }
+
+  it("a move on a running worker that dispatched nothing raises the relocate alert", async () => {
+    __setMockMemberOnline("warden-mbp5", true);
+    __injectMockTask(mkTask({ id: "t-1" }));
+    __injectMockOutsourceWorker(
+      mkWorker({ id: "ow-1", taskId: "t-1", presence: "online", desiredState: "online" }),
+    );
+    const relocate = vi
+      .spyOn(api, "relocateMember")
+      .mockResolvedValue({ relocationPending: true, relocationDeferred: false });
+    const { findByTestId } = renderOfficeAt("#office/worker/ow-1");
+    await moveToSeedWarden(findByTestId, "worker-detail-change");
+    expect(relocate).toHaveBeenCalledWith("ow-1", "warden-mbp5");
+    const alert = await findByTestId("worker-detail-relocate-undispatched");
+    expect(alert.querySelector(".dispatch-alert__title")?.textContent).toBe(
+      "這次沒有送出搬移指令",
+    );
+  });
+
+  it.each([
+    [
+      "a running worker's move deferred behind its wind-down",
+      { presence: "online", desiredState: "online" },
+      "worker-detail-change",
+      { relocationPending: true, relocationDeferred: true },
+    ],
+    [
+      "a stopping worker's move queued behind the stop",
+      { presence: "stopping", desiredState: "offline" },
+      "worker-detail-change",
+      { relocationPending: true, relocationDeferred: false },
+    ],
+    [
+      "a stopped worker's move saved for its next start",
+      { presence: "stopped", desiredState: "offline" },
+      "worker-detail-wake",
+      { relocationPending: true, relocationDeferred: false },
+    ],
+    [
+      "a dead-session worker's move whose wake went out",
+      { presence: "offline", desiredState: "online" },
+      "worker-detail-wake",
+      { relocationPending: true, relocationDeferred: false },
+    ],
+  ] as const)("%s raises no alert", async (_name, state, opener, receipt) => {
+    __setMockMemberOnline("warden-mbp5", true);
+    __injectMockTask(mkTask({ id: "t-1" }));
+    __injectMockOutsourceWorker(mkWorker({ id: "ow-1", taskId: "t-1", ...state }));
+    const relocate = vi.spyOn(api, "relocateMember").mockResolvedValue(receipt);
+    vi.spyOn(api, "activateMember").mockResolvedValue({ activationPending: false });
+    const { findByTestId } = renderOfficeAt("#office/worker/ow-1");
+    await moveToSeedWarden(findByTestId, opener);
+    expect(relocate).toHaveBeenCalledWith("ow-1", "warden-mbp5");
+    expect(queryTestId(document.body, "worker-detail-relocate-undispatched")).toBeNull();
+    expect(queryTestId(document.body, "worker-detail-wake-undispatched")).toBeNull();
+  });
+
+  it.each([
+    ["deactivateMember", "member-action-stop", { presence: "online" }],
+    [
+      "acceleratedStopMember",
+      "member-action-accelerated-stop",
+      { presence: "stopping", desiredState: "offline" },
+    ],
+  ] as const)(
+    "a rejected %s says 操作失敗，請稍後重試",
+    async (method, testId, state) => {
+      __injectMockTask(mkTask({ id: "t-1" }));
+      __injectMockOutsourceWorker(mkWorker({ id: "ow-1", taskId: "t-1", ...state }));
+      vi.spyOn(api, method).mockRejectedValue(new Error("http 500"));
+      const { findByTestId } = renderOfficeAt("#office/worker/ow-1");
+      expect(queryTestId(document.body, "worker-detail-stop-error")).toBeNull();
+      fireEvent.click(await findByTestId(testId));
+      expect((await findByTestId("worker-detail-stop-error")).textContent).toBe(
+        "操作失敗，請稍後重試",
+      );
+    },
+  );
+
+  it("a rejected 強制停止 closes its confirm and says 操作失敗，請稍後重試", async () => {
+    __injectMockTask(mkTask({ id: "t-1" }));
+    __injectMockOutsourceWorker(
+      mkWorker({
+        id: "ow-1",
+        taskId: "t-1",
+        presence: "stopping",
+        desiredState: "offline",
+        refocusOp: "accelerated_stop",
+      }),
+    );
+    const force = vi
+      .spyOn(api, "forceStopMember")
+      .mockRejectedValue(new Error("http 500"));
+    const { findByTestId } = renderOfficeAt("#office/worker/ow-1");
+    fireEvent.click(await findByTestId("member-action-force-stop"));
+    fireEvent.click(await findByTestId("worker-detail-force-stop-confirm-btn"));
+    expect((await findByTestId("worker-detail-stop-error")).textContent).toBe(
+      "操作失敗，請稍後重試",
+    );
+    expect(force).toHaveBeenCalledWith("ow-1");
+    expect(queryTestId(document.body, "worker-detail-force-stop-confirm")).toBeNull();
   });
 });
 

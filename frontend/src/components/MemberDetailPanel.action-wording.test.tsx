@@ -155,6 +155,32 @@ describe("MemberDetailPanel — 喚醒/更改 wording matches what is dispatched
     await waitFor(() => expect(onActivate).toHaveBeenCalledWith("mach-b"));
     expect(onRelocate).not.toHaveBeenCalled();
   });
+
+  it("offers a stopping member 更改 and no 喚醒, and that confirm wakes nothing", async () => {
+    const { getByTestId, container, onActivate, onRelocate } = renderPanel({
+      status: "online",
+      lifecycle: "stopping",
+      desiredState: "offline",
+      machine: "mach-a",
+    });
+    const row = () =>
+      Array.from(
+        container.querySelectorAll(".mp-identity__buttons button"),
+      ).map((b) => [b.getAttribute("data-testid"), b.textContent]);
+    expect(row()).toEqual([
+      ["mp-change", "更改"],
+      ["member-action-accelerated-stop", "加速停止"],
+    ]);
+
+    fireEvent.click(await armedAction(getByTestId, "mp-change"));
+    const { title, confirm, select } = await openedDialog(getByTestId);
+    expect(title.textContent).toBe("更改");
+    expect(confirm.textContent).toBe("更改");
+    fireEvent.change(select, { target: { value: "mach-b" } });
+    fireEvent.click(confirm);
+    await waitFor(() => expect(onRelocate).toHaveBeenCalledWith("mach-b"));
+    expect(onActivate).not.toHaveBeenCalled();
+  });
 });
 
 // owner 2026-07-31「全部變成左右並排」. The pair used to be STACKED: the action

@@ -708,7 +708,6 @@ export const zh = {
     context: "記憶用量",
     estimatedCost: "估計$",
     // presence（成員同一套詞彙——A案 P6）的誠實文案（不留空白假值）。
-    notAssigned: "尚未分配",
     // T-7526：啟動中／離線／工作中／已停止 四個 presence 字隨狀態欄一起退場——
     // 它們是 LifecycleDot 的 aria-label（office.presence.*）的第二份副本。
     // ── T-32e1/T-f190 生命週期操作（對齊成員詳情：換手／停止／換 model）──────
@@ -726,12 +725,10 @@ export const zh = {
     // 換詞也只換一次。REST 路徑仍是 /restart（凍結 wire），只有字退場。
     stop: "停止",
     stopping: "停止中…",
-    stopError: "操作失敗，請稍後重試",
     // 換 model（沿用成員 model/effort 編輯器）。
     modelSave: "儲存",
     modelCancel: "取消",
     modelError: "儲存失敗，請稍後重試",
-    modelNextSpawnNote: "工作中立即生效；已指派則下次喚醒生效",
     // 改機器（owner-only）：picker 標題／確認、無線上機器提示。
     relocateTitle: "選擇要遷移到的機器",
     relocateConfirm: "遷移到此機器",
@@ -1246,9 +1243,10 @@ export const zh = {
     renamePlaceholder: "輸入名字",
     wake: "喚醒",
     change: "更改",
-    settingsSaveOnly: "只儲存，不喚醒",
     modelReportedTag: "最近一次開機回報",
-    settingsIntentNote: "這裡設定的是「下次喚醒要用哪一個」。",
+    settingsNoteOnline: "按下後，它會先把手上的事收尾，再用新設定重新開起來。",
+    settingsNoteAfterStop: "按下後會存下新設定，它停下後會用新設定重新開起來。",
+    settingsNoteNextWake: "按下後只存下新設定，下次喚醒時使用。",
     settingsIntentNoteReported: "上方顯示的是目前實際使用的模型，可能和這裡的設定不同。",
     wakeManual: "手動喚醒",
     // 點喚醒後、server presence 尚未跟上前的即時回饋
@@ -1277,12 +1275,8 @@ export const zh = {
     modelMachineDefault: "使用此機器的 Codex 預設模型",
     claudeAccount: "Claude Account",
     codexAccount: "Codex Account",
-    // T-b6d9: 這行原本寫「變更於下次喚醒／換手生效」，在正職成員的 model/runtime/
-    // effort 改成「儲存即自動換手、收尾後以新值重生」之後就是假話了（線上成員不必
-    // 等下一次喚醒，也不必有人另外按換手）。key 名字保留歷史拼法（theme wording
-    // overlay 以 key 為契約），文案才是給人看的那一份。
-    modelEffortNextWakeNote: "線上會自動換手後套用；離線則下次喚醒生效",
     modelEffortError: "儲存失敗，請稍後重試",
+    stopError: "操作失敗，請稍後重試",
     runtime: "運行狀況",
     machine: "機器",
     machineMovingToLabel: "→ 要換到",

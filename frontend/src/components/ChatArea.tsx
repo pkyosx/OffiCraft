@@ -2532,7 +2532,9 @@ export function ChatArea({
                   <MoonIcon size={14} />
                   {msg.chatWakeQueueHint(member.name)}
                 </span>
-                {onWake && (
+                {/* No ⚡喚醒 while stopping (owner rc-2e1c96250169): wait for the
+                    stop to finish, then wake. The queue hint stays. */}
+                {onWake && member.lifecycle !== "stopping" && (
                   <button
                     type="button"
                     className="chat__wake-btn"

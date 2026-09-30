@@ -61,4 +61,4 @@ styleOwnership test 防止最後一個間接 importer 消失後 dialog 變成原
 
 喚醒先開與更改相同的設定 dialog，預設保留原執行環境、模型、思考強度與已釘機器；落地順序是 model、必要時 relocate、restart。restart 不吃 machine_id。睡著的已釘機器不能 fallback 到第一台線上機器。
 
-正職可只儲存；外包 relocate 會 kill + re-dispatch，除非 desired_state 已 offline，所以不可把兩者 UI 強行對齊。released worker 的身分文字與入口共用，依 worker.status 判定；released 不畫生命週期卡或 dead action，offline 對照仍要保留。
+兩邊都沒有「只儲存，不喚醒」（owner `rc-baa00a00dbc9`）。released worker 的身分文字與入口共用，依 worker.status 判定；released 不畫生命週期卡或 dead action，offline 對照仍要保留。
