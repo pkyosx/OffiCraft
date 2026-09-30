@@ -297,4 +297,23 @@ describe("ChatArea · in-chat wake that was never dispatched (T-7fa1)", () => {
       "可能是目標機器沒有連線——到「監控」看它是否在線。也可能是前一次喚醒還在重試中——請看這位成員的「最近操作」。",
     ]);
   });
+
+  it("under a not-logged-in reason in the activate receipt, the notice says it even before the row carries it", async () => {
+    const onWake = vi.fn(async () => ({
+      activationPending: true,
+      lastOpReason:
+        "machine_unavailable: machine 'm-server-self' is not logged in to claude; no other machine is substituted",
+    }));
+    const { wakeBtn, findByTestId } = renderChat(onWake);
+
+    fireEvent.click(wakeBtn());
+
+    const alert = await findByTestId("chat-wake-undispatched");
+    await waitFor(() =>
+      expect(Array.from(alert.children, (el) => el.textContent)).toEqual([
+        "這次沒有送出喚醒指令",
+        "伺服器這一台 未登入 Claude",
+      ]),
+    );
+  });
 });

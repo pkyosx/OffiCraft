@@ -294,7 +294,7 @@ func TestActivateMember_RefusedPlacementAnswersItsOwnCause(t *testing.T) {
 				"family 'sol' — upgrade that machine's warden, or set a full model id"},
 	}
 	for _, c := range cases {
-		t.Run(c.name+", the receipt and the row carry that cause, not warden_unreachable", func(t *testing.T) {
+		t.Run(c.name+", the receipt and the row name that cause", func(t *testing.T) {
 			s := newReconcileTestServer(t)
 			putWarden(t, s, "mach-live")
 			connectOnline(t, s, "mach-live")

@@ -420,6 +420,7 @@ export function ChatArea({
   // T-7fa1: the activate reported that nothing was dispatched. Distinct from
   // wakePending — "not waiting, because nothing was sent". Never both true.
   const [wakeUndispatched, setWakeUndispatched] = useState(false);
+  const [wakeUndispatchedReason, setWakeUndispatchedReason] = useState("");
   // The OTHER thing that clears the optimistic bridge: reality moving on this
   // member. Once presence reflects a fresh lifecycle the local optimism has
   // handed off to the real state (`waking` drives the label below), so a
@@ -433,6 +434,7 @@ export function ChatArea({
   // The wake row's button shows "喚醒中…" while a wake is in flight — either the
   // just-clicked optimism, or the server-confirmed `waking` presence itself.
   const wakeInFlight = wakePending || member.lifecycle === "waking";
+  const wakeReason = wakeUndispatchedReason || (member.lastOpReason ?? "");
 
   // Threshold (px) within which the viewport counts as "at the bottom" for
   // auto-follow and the read watermark.
@@ -2565,6 +2567,7 @@ export function ChatArea({
                           if (result?.activationPending) {
                             setWakePending(false);
                             setWakeUndispatched(true);
+                            setWakeUndispatchedReason(result.lastOpReason ?? "");
                           }
                         })
                         .catch(() => {
@@ -2584,8 +2587,8 @@ export function ChatArea({
             {/* T-7fa1: the in-chat wake has its OWN optimistic state, so it needs
                 its own outcome — the same notice the detail panel raises. */}
             {offlineQueue && wakeUndispatched &&
-              (notLoggedInLine(member.lastOpReason ?? "", t.mp) !== null ? (
-                <NotLoggedInWakeAlert reason={member.lastOpReason ?? ""} />
+              (notLoggedInLine(wakeReason, t.mp) !== null ? (
+                <NotLoggedInWakeAlert reason={wakeReason} />
               ) : (
                 <DispatchAlert kind="wake" testId="chat-wake-undispatched" />
               ))}

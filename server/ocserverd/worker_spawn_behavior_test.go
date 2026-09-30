@@ -1648,6 +1648,48 @@ func TestReconcileWorkerLiveness_NeverCollectedIsNotAFailedBoot(t *testing.T) {
 	})
 }
 
+func TestReconcileWorkerLiveness_UnderAWardenRefusalOfTheStart(t *testing.T) {
+	for _, c := range []struct {
+		name, refusal, want string
+	}{
+		{"not logged in: the lapse and the back-off keep the refusal",
+			"claude_not_logged_in: no claude credential here (cred_file=unset keychain=unset).",
+			"claude_not_logged_in: machine 'm-server-self' is not logged in to claude"},
+		{"any other refusal: the lapse replaces it with the wake-timeout receipt",
+			"claude_bin_unresolved: set OC_CLAUDE_BIN or put claude on the daemon PATH",
+			"wake_timeout: the start was collected by machine 'm-server-self' but this worker never " +
+				"came online within the start window — check that the 'claude' runtime actually runs " +
+				"and is logged in on that machine (warden log: ocwarden.out.log)"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			s := newWorkerTestServer(t)
+			connectWarden(t, s, ServerSelfHost)
+			w := fsmWorkerFixture(t, s, "ow-rf", WorkerStatusAssigned, 0)
+			tick := func(now float64) {
+				s.outsourceMu.Lock()
+				defer s.outsourceMu.Unlock()
+				s.reconcileWorkerLiveness(w, now)
+			}
+			base := nowSecs()
+			tick(base)
+			if len(s.hub.DrainWardenCommands(ServerSelfHost)) != 1 {
+				t.Fatal("premise: one START must be collected")
+			}
+			s.foldCommandResult(map[string]any{
+				"worker_id": w.ID, "rpc": "start", "ok": false,
+				"reason": c.refusal, "log": c.refusal, "at": base + 1,
+			}, "telemetry", ServerSelfHost)
+
+			for _, at := range []float64{base + WakingTTLSecs + 1, base + WakingTTLSecs + 2} {
+				tick(at)
+				if got := readWorker(t, s, w.ID).LastOpReason; got != c.want {
+					t.Fatalf("at +%.0fs:\n got %q\nwant %q", at-base, got, c.want)
+				}
+			}
+		})
+	}
+}
+
 // TestReconcileWorkerLiveness_DroppedStartIsNotBlamedOnTheRuntime (T-66a2 ×
 // T-e0e3): the THIRD outcome, and the one the two arms above cannot see between
 // them. A START that was drained off the FIFO and then lost — the warden's stream

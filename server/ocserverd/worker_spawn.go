@@ -218,11 +218,13 @@ const sessionAliveWakeNote = " — the start window then lapsed, but that is NOT
 	"runtime on that machine; deal with the live session — 重啟 this worker to " +
 	"displace it, or stop it first."
 
-// wakeTimeoutOverWardenReceipt keeps a warden's clobber refusal from being
-// overwritten by a wake_timeout stamp (clearWorkerPlacementBlock already never
-// touches a warden receipt). A defence, not a fix: no production path reaches it
-// today, because reconcile.go returns early on the clobber prefix before
-// StartTimedOut is set — an FSM reorder there would make it live.
+// wakeTimeoutOverWardenReceipt keeps a warden's clobber or not-logged-in refusal
+// from being overwritten by a wake_timeout stamp (clearWorkerPlacementBlock
+// already never touches a warden receipt); the not-logged-in one is returned
+// unchanged, so the stamp writes nothing. The clobber arm is a defence, not a
+// fix: no production path reaches it today, because reconcile.go returns early
+// on the clobber prefix before StartTimedOut is set — an FSM reorder there would
+// make it live.
 // The warden's line stays verbatim and IN FRONT: reconcile.go and
 // api_monitoring.go dispatch on HasPrefix(spawnClobberReasonPrefix), and losing
 // the prefix silently disarms the zombie takeover. Legacy `worker_start` rows
@@ -231,6 +233,9 @@ const sessionAliveWakeNote = " — the start window then lapsed, but that is NOT
 func wakeTimeoutOverWardenReceipt(fresh OutsourceWorker, reason string) string {
 	if !strings.HasPrefix(reason, spawnReasonWakeTimeout+":") {
 		return reason
+	}
+	if wakeTimeoutYieldsToReceipt(fresh.LastOp, fresh.LastOpReason) {
+		return fresh.LastOpReason
 	}
 	if fresh.LastOp != reconcileCmdStart ||
 		!strings.HasPrefix(fresh.LastOpReason, spawnClobberReasonPrefix+":") {

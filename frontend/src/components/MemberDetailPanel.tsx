@@ -188,6 +188,7 @@ export function MemberDetailPanel({
   // `wakePending` on purpose — pending is "we are waiting", this is "we are not
   // waiting for anything, because nothing was sent". They are never both true.
   const [wakeUndispatched, setWakeUndispatched] = useState(false);
+  const [wakeUndispatchedReason, setWakeUndispatchedReason] = useState("");
   useEffect(() => {
     if (wakePendingClears) {
       setWakePending(false);
@@ -397,6 +398,7 @@ export function MemberDetailPanel({
       if (result?.activationPending) {
         setWakePending(false);
         setWakeUndispatched(true);
+        setWakeUndispatchedReason(result.lastOpReason ?? "");
       }
     } catch {
       if (shownMemberIdRef.current !== firedFor) return;
@@ -935,7 +937,11 @@ export function MemberDetailPanel({
               kind="wake"
               testId="mp-wake-undispatched"
               cause={
-                notLoggedInLine(member.lastOpReason ?? "", t.mp, machineDisplay) ??
+                notLoggedInLine(
+                  wakeUndispatchedReason || (member.lastOpReason ?? ""),
+                  t.mp,
+                  machineDisplay,
+                ) ??
                 undefined
               }
             />

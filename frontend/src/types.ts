@@ -195,6 +195,10 @@ export interface Member {
  */
 export interface MemberActivateResult {
   activationPending: boolean;
+  /** Wire `last_op_reason`: the cause the server stamped for THIS attempt; absent
+   * when it sent none. Fresher than the member row, which reaches the cockpit
+   * by a later SSE delta. */
+  lastOpReason?: string;
 }
 
 /**
