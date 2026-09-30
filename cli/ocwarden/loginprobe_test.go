@@ -322,6 +322,126 @@ func TestLoginProberState(t *testing.T) {
 		}
 	})
 
+	type beat struct {
+		at             time.Duration
+		claude         answer
+		codex          wardenRun
+		want           loginState
+		wantClaudeRuns int
+		wantCodexRuns  int
+	}
+	loggedOut := answer{`{"loggedIn":false}`, "1"}
+	loggedIn := answer{`{"loggedIn":true}`, "0"}
+	codexIn := wardenRun{out: "Logged in"}
+	codexOut := wardenRun{err: errors.New("exit status 1: not logged in")}
+	cadenceCases := []struct {
+		name     string
+		goos     string
+		env      map[string]string
+		keychain wardenRun
+		beats    []beat
+	}{
+		{
+			name: "under a logged-in verdict, the next check runs only once the interval has passed",
+			goos: "linux",
+			env:  map[string]string{"HOME": home, "OC_CODEX_BIN": codexBin},
+			beats: []beat{
+				{at: 0, codex: codexIn, want: loginState{Codex: &yes}, wantCodexRuns: 1},
+				{at: 30 * time.Second, codex: codexIn, want: loginState{Codex: &yes}, wantCodexRuns: 1},
+				{at: 299 * time.Second, codex: codexIn, want: loginState{Codex: &yes}, wantCodexRuns: 1},
+				{at: 300 * time.Second, codex: codexIn, want: loginState{Codex: &yes}, wantCodexRuns: 2},
+			},
+		},
+		{
+			name: "under a logged-out verdict, claude is re-checked at every next heartbeat",
+			goos: "linux",
+			env:  map[string]string{"HOME": home, "OC_CLAUDE_BIN": claudeBin},
+			beats: []beat{
+				{at: 0, claude: loggedOut, want: loginState{Claude: &no}, wantClaudeRuns: 1},
+				{at: 30 * time.Second, claude: loggedOut, want: loginState{Claude: &no}, wantClaudeRuns: 2},
+				{at: 60 * time.Second, claude: loggedOut, want: loginState{Claude: &no}, wantClaudeRuns: 3},
+			},
+		},
+		{
+			name: "under a refused codex login status, codex is re-checked at the next heartbeat",
+			goos: "linux",
+			env:  map[string]string{"HOME": home, "OC_CODEX_BIN": codexBin},
+			beats: []beat{
+				{at: 0, codex: codexOut, want: loginState{Codex: &no}, wantCodexRuns: 1},
+				{at: 30 * time.Second, codex: codexOut, want: loginState{Codex: &no}, wantCodexRuns: 2},
+			},
+		},
+		{
+			name: "under an unknown verdict from non-JSON output, claude is re-checked at the next heartbeat",
+			goos: "linux",
+			env:  map[string]string{"HOME": home, "OC_CLAUDE_BIN": claudeBin},
+			beats: []beat{
+				{at: 0, claude: answer{"Logged in as eva@example.com", "0"}, want: loginState{}, wantClaudeRuns: 1},
+				{at: 30 * time.Second, claude: answer{"Logged in as eva@example.com", "0"}, want: loginState{}, wantClaudeRuns: 2},
+			},
+		},
+		{
+			name:     "under an unknown verdict from an unreadable keychain, claude is re-checked at the next heartbeat",
+			goos:     "darwin",
+			env:      map[string]string{"HOME": home, "OC_CLAUDE_BIN": claudeBin},
+			keychain: wardenRun{err: errors.New("exit status 50")},
+			beats: []beat{
+				{at: 0, claude: loggedOut, want: loginState{}, wantClaudeRuns: 1},
+				{at: 30 * time.Second, claude: loggedOut, want: loginState{}, wantClaudeRuns: 2},
+			},
+		},
+		{
+			name: "under a logged-out verdict followed by a logged-in one, claude returns to the interval",
+			goos: "linux",
+			env:  map[string]string{"HOME": home, "OC_CLAUDE_BIN": claudeBin},
+			beats: []beat{
+				{at: 0, claude: loggedOut, want: loginState{Claude: &no}, wantClaudeRuns: 1},
+				{at: 30 * time.Second, claude: loggedIn, want: loginState{Claude: &yes}, wantClaudeRuns: 2},
+				{at: 60 * time.Second, claude: loggedOut, want: loginState{Claude: &yes}, wantClaudeRuns: 2},
+				{at: 329 * time.Second, claude: loggedOut, want: loginState{Claude: &yes}, wantClaudeRuns: 2},
+				{at: 330 * time.Second, claude: loggedOut, want: loginState{Claude: &no}, wantClaudeRuns: 3},
+			},
+		},
+		{
+			name: "under claude logged out while codex is logged in, only claude is re-checked each heartbeat",
+			goos: "linux",
+			env:  map[string]string{"HOME": home, "OC_CLAUDE_BIN": claudeBin, "OC_CODEX_BIN": codexBin},
+			beats: []beat{
+				{at: 0, claude: loggedOut, codex: codexIn, want: loginState{Claude: &no, Codex: &yes}, wantClaudeRuns: 1, wantCodexRuns: 1},
+				{at: 30 * time.Second, claude: loggedOut, codex: codexIn, want: loginState{Claude: &no, Codex: &yes}, wantClaudeRuns: 2, wantCodexRuns: 1},
+				{at: 60 * time.Second, claude: loggedOut, codex: codexIn, want: loginState{Claude: &no, Codex: &yes}, wantClaudeRuns: 3, wantCodexRuns: 1},
+				{at: 300 * time.Second, claude: loggedOut, codex: codexIn, want: loginState{Claude: &no, Codex: &yes}, wantClaudeRuns: 4, wantCodexRuns: 2},
+			},
+		},
+	}
+	for _, c := range cadenceCases {
+		t.Run(c.name, func(t *testing.T) {
+			runner := &wardenRunner{script: map[string]wardenRun{keychainArgv: c.keychain}}
+			keep := &keepShellRunner{renderPath: filepath.Join(agentHome, loginCheckEnvName)}
+			cache := &launchEnvCache{}
+			cache.remember([]agentEnvPair{{"FROM_SHELL", "shell-value"}})
+			var log []string
+			p := newProber(c.env, c.goos, runner, keep, cache, &log)
+			start := time.Unix(1_000_000, 0)
+			for _, b := range c.beats {
+				stage(t, b.claude)
+				runner.script[codexArgv] = b.codex
+				p.now = func() time.Time { return start.Add(b.at) }
+				got := p.state()
+				codexRuns := 0
+				for _, argv := range runner.calls {
+					if argv == codexArgv {
+						codexRuns++
+					}
+				}
+				if !reflect.DeepEqual(got, b.want) || len(keep.shells) != b.wantClaudeRuns || codexRuns != b.wantCodexRuns {
+					t.Errorf("at %s: state = %s, claude runs %d, codex runs %d; want %s, %d, %d",
+						b.at, fmtLogin(got), len(keep.shells), codexRuns, fmtLogin(b.want), b.wantClaudeRuns, b.wantCodexRuns)
+				}
+			}
+		})
+	}
+
 	t.Run("under repeated heartbeats, checks run at start and again only once the receipt's interval has passed", func(t *testing.T) {
 		runner := &wardenRunner{script: map[string]wardenRun{codexArgv: {out: "ok"}}}
 		var log []string

@@ -15,6 +15,11 @@ const (
 	maxLoginCheckIntervalSecs = 3600
 )
 
+// How soon a runtime whose last verdict was logged out or unknown is checked
+// again. Zero means every heartbeat, which is the floor; the owner-set interval
+// applies only while the last verdict is logged in.
+const defaultLoginRecheckInterval time.Duration = 0
+
 const loginCheckEnvName = ".oc-login-check-env"
 
 func loginCheckIntervalFromReceipt(body map[string]any) time.Duration {
@@ -94,10 +99,17 @@ type loginProber struct {
 	logf       func(string, ...any)
 
 	interval     time.Duration
+	recheck      time.Duration
 	captureTried bool
-	checked      bool
-	lastAt       time.Time
-	last         loginState
+	claude       runtimeLogin
+	codex        runtimeLogin
+}
+
+type runtimeLogin struct {
+	checked     bool
+	at          time.Time
+	verdict     *bool
+	notLoggedIn bool
 }
 
 func newLoginProber(env func(string) string, runner CmdRunner, keep stdoutRunner, goos string,
@@ -118,19 +130,33 @@ func newLoginProber(env func(string) string, runner CmdRunner, keep stdoutRunner
 		remove:     os.Remove,
 		logf:       logf,
 		interval:   defaultLoginCheckInterval,
+		recheck:    defaultLoginRecheckInterval,
 	}
 }
 
 func (p *loginProber) setInterval(d time.Duration) { p.interval = d }
 
 func (p *loginProber) state() loginState {
-	if p.checked && p.now().Sub(p.lastAt) < p.interval {
-		return p.last
+	p.refresh(&p.claude, p.claudeLoggedIn)
+	p.refresh(&p.codex, p.codexLoggedIn)
+	return loginState{Claude: p.claude.verdict, Codex: p.codex.verdict}
+}
+
+// probe reports whether it ran a check at all; a runtime that is not installed
+// stays on the interval rather than being re-resolved every heartbeat.
+func (p *loginProber) refresh(r *runtimeLogin, probe func() (verdict *bool, probed bool)) {
+	wait := p.interval
+	if r.notLoggedIn {
+		wait = p.recheck
 	}
-	p.last = loginState{Claude: p.claudeLoggedIn(), Codex: p.codexLoggedIn()}
-	p.checked = true
-	p.lastAt = p.now()
-	return p.last
+	if r.checked && p.now().Sub(r.at) < wait {
+		return
+	}
+	verdict, probed := probe()
+	r.verdict = verdict
+	r.checked = true
+	r.at = p.now()
+	r.notLoggedIn = probed && (verdict == nil || !*verdict)
 }
 
 func (p *loginProber) log(format string, args ...any) {
@@ -139,10 +165,10 @@ func (p *loginProber) log(format string, args ...any) {
 	}
 }
 
-func (p *loginProber) codexLoggedIn() *bool {
+func (p *loginProber) codexLoggedIn() (*bool, bool) {
 	bin := resolveCodexBin(p.env)
 	if bin == "" {
-		return nil
+		return nil, false
 	}
 	_, err := p.runner.Run(bin, "login", "status")
 	// A false here conflates signed out, probe timeout, crash and wrong binary, and
@@ -153,15 +179,15 @@ func (p *loginProber) codexLoggedIn() *bool {
 		p.log("[ocwarden runtimeprobe] codex login status failed (bin=%s): %v", bin, err)
 	}
 	ok := err == nil
-	return &ok
+	return &ok, true
 }
 
 // The stdout of `claude auth status` carries the account's email and
 // organization: it is decoded into the one boolean and never logged or sent.
-func (p *loginProber) claudeLoggedIn() *bool {
+func (p *loginProber) claudeLoggedIn() (*bool, bool) {
 	bin := resolveClaudeBin(p.env)
 	if bin == "" || p.claudeHome.Home == "" || p.keep == nil {
-		return nil
+		return nil, false
 	}
 	p.ensureLaunchEnv()
 	cmd, rendered := p.claudeStatusCommand(bin)
@@ -178,16 +204,16 @@ func (p *loginProber) claudeLoggedIn() *bool {
 		} else {
 			p.log("[ocwarden runtimeprobe] claude auth status gave no login verdict (bin=%s)", bin)
 		}
-		return nil
+		return nil, true
 	}
 	if *status.LoggedIn {
-		return status.LoggedIn
+		return status.LoggedIn, true
 	}
 	// Without the owner's interactive shell the check misses a credential that
 	// ~/.zshrc exports (API key, Bedrock, Vertex), so its false proves nothing.
 	if len(p.launchEnv.interactive()) == 0 {
 		p.log("[ocwarden runtimeprobe] claude reports logged out but the interactive shell env is unavailable; reporting unknown")
-		return nil
+		return nil, true
 	}
 	// A locked or unreadable login keychain makes a signed-in claude report
 	// loggedIn:false — that is not a logout, so it stays unknown.
@@ -195,10 +221,10 @@ func (p *loginProber) claudeLoggedIn() *bool {
 		keychain := filepath.Join(p.claudeHome.Home, "Library", "Keychains", "login.keychain-db")
 		if _, kerr := p.runner.Run("security", "show-keychain-info", keychain); kerr != nil {
 			p.log("[ocwarden runtimeprobe] claude reports logged out but the login keychain is unreadable; reporting unknown: %v", kerr)
-			return nil
+			return nil, true
 		}
 	}
-	return status.LoggedIn
+	return status.LoggedIn, true
 }
 
 // Before the first spawn the shared cache is empty; the check captures the shell
