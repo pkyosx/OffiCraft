@@ -565,8 +565,15 @@ func TestPaneWriter(t *testing.T) {
 					}
 					return strings.TrimSpace(string(got))
 				}
-				tmux("new-session", "-d", "-s", "member-m1", "cat >> "+out)
-				t.Cleanup(func() { _ = exec.Command(bin, "-L", socket, "kill-server").Run() })
+				tmux("new-session", "-d", "-s", "member-m1", fmt.Sprintf("cat >> '%s'", out))
+				socketPath := tmux("display-message", "-p", "#{socket_path}")
+				t.Cleanup(func() {
+					_ = exec.Command(bin, "-L", socket, "kill-server").Run()
+					_ = os.Remove(socketPath)
+				})
+				// With vi mode-keys (tmux picks them from EDITOR/VISUAL) Enter itself
+				// leaves copy-mode, and the copy-mode case would pass without the fix.
+				tmux("set-option", "-g", "mode-keys", "emacs")
 				if len(tc.enter) > 0 {
 					tmux(append([]string{tc.enter[0], "-t", "member-m1"}, tc.enter[1:]...)...)
 				}

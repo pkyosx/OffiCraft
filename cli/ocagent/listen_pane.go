@@ -279,9 +279,10 @@ func (w *paneWriter) note(format string, args ...any) {
 }
 
 // A pane left in copy-mode (someone attached and scrolled) swallows every Enter
-// while the paste still lands, so the member sits on unsent input for as long
-// as nobody leaves the mode. `copy-mode -q` leaves every mode, not only
-// copy-mode.
+// under emacs mode-keys while the paste still lands, so the member sits on
+// unsent input for as long as nobody leaves the mode. `copy-mode -q` leaves
+// every mode, not only copy-mode. Visible cost: whoever is reading the pane's
+// scrollback is sent back to the bottom when an event arrives.
 func (w *paneWriter) submit() {
 	for attempt := 0; attempt < paneEnterAttempts; attempt++ {
 		_ = w.run("-L", w.socket, "copy-mode", "-q", "-t", w.session)
