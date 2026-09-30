@@ -78,6 +78,63 @@ describe("InstantHint", () => {
     expect(screen.queryByRole("tooltip")).toBeNull();
   });
 
+  it("under a scroll inside an inner scrolling box while shown, the hint closes too (scroll does not bubble, so only a capturing listener hears it)", () => {
+    render(
+      <div data-testid="scroller" style={{ overflow: "auto" }}>
+        <InstantHint hint="Claude 未登入" data-testid="trigger">
+          !
+        </InstantHint>
+      </div>,
+    );
+    fireEvent.mouseEnter(screen.getByTestId("trigger"));
+    expect(screen.getByRole("tooltip")).toBeTruthy();
+    fireEvent.scroll(screen.getByTestId("scroller"));
+    expect(screen.queryByRole("tooltip")).toBeNull();
+  });
+
+  it("under a window resize while shown, the hint closes", () => {
+    const trigger = renderHint("Claude 未登入");
+    fireEvent.mouseEnter(trigger);
+    expect(screen.getByRole("tooltip")).toBeTruthy();
+    fireEvent(window, new Event("resize"));
+    expect(screen.queryByRole("tooltip")).toBeNull();
+  });
+
+  it("under two hints open at once (one focused, one hovered), each has its own id and each trigger points at its own hint", () => {
+    render(
+      <>
+        <InstantHint hint="甲" data-testid="a">!</InstantHint>
+        <InstantHint hint="乙" data-testid="b">!</InstantHint>
+      </>,
+    );
+    const a = screen.getByTestId("a");
+    const b = screen.getByTestId("b");
+    fireEvent.focus(a);
+    fireEvent.mouseEnter(b);
+    const hints = screen.getAllByRole("tooltip");
+    expect(hints).toHaveLength(2);
+    expect(hints[0].id).not.toBe(hints[1].id);
+    expect(document.getElementById(a.getAttribute("aria-describedby")!)?.textContent).toBe("甲");
+    expect(document.getElementById(b.getAttribute("aria-describedby")!)?.textContent).toBe("乙");
+  });
+
+  it("under Enter or Space on the focused trigger, the key does not reach an enclosing handler, while Tab does", () => {
+    const parentKeys: string[] = [];
+    render(
+      <div onKeyDown={(e) => parentKeys.push(e.key)}>
+        <InstantHint hint="Claude 未登入" data-testid="trigger">
+          !
+        </InstantHint>
+      </div>,
+    );
+    const trigger = screen.getByTestId("trigger");
+    fireEvent.focus(trigger);
+    fireEvent.keyDown(trigger, { key: "Enter" });
+    fireEvent.keyDown(trigger, { key: " " });
+    fireEvent.keyDown(trigger, { key: "Tab" });
+    expect(parentKeys).toEqual(["Tab"]);
+  });
+
   // jsdom's viewport is 1024 x 768.
   it("under room below the trigger, the hint sits 6px under it, left-aligned with it", () => {
     stubRects({ top: 100, bottom: 116, left: 50 }, { width: 200, height: 40 });

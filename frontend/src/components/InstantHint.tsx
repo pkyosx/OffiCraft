@@ -21,6 +21,7 @@ const EDGE = 8;
 export function InstantHint({
   hint,
   children,
+  onKeyDown,
   ...rest
 }: { hint: string } & Omit<HTMLAttributes<HTMLSpanElement>, "title">) {
   const id = useId();
@@ -69,6 +70,13 @@ export function InstantHint({
         onMouseLeave={() => setOpen(false)}
         onFocus={() => setOpen(true)}
         onBlur={() => setOpen(false)}
+        // The focusable trigger sits inside row-buttons that activate on
+        // Enter/Space; letting those keys bubble would open the row. Pointer
+        // clicks still reach the row on purpose.
+        onKeyDown={(e) => {
+          onKeyDown?.(e);
+          if (e.key === "Enter" || e.key === " ") e.stopPropagation();
+        }}
       >
         {children}
       </span>

@@ -15,7 +15,7 @@
 // aria-hidden; the label just stops being reachable).
 
 import { describe, it, expect, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { MemberCard } from "./MemberCard";
 import type { Member } from "../types";
@@ -112,7 +112,7 @@ describe("MemberCard presence — the dot carries it", () => {
   // user can't tell the states apart, which is the same failure as having no
   // label at all (and would survive every per-state check above if they all
   // read e.g. "線上").
-  it("under a runtime login warning, the card shows one exclamation right after the dot, whose hint shows at once on hover without opening the row", () => {
+  it("under a runtime login warning, the card shows one exclamation right after the dot, whose hint shows at once on hover or focus, and Enter/Space on the focused mark do not open the row", () => {
     const onChat = vi.fn();
     const onOpenDetail = vi.fn();
     const { getAllByTestId, container } = render(
@@ -140,12 +140,23 @@ describe("MemberCard presence — the dot carries it", () => {
     fireEvent.mouseOver(marks[0]);
     fireEvent.mouseEnter(marks[0]);
     expect(screen.getByRole("tooltip").textContent).toBe("未登入 Codex");
-    fireEvent.focus(marks[0]);
+    fireEvent.mouseLeave(marks[0]);
+    expect(screen.queryByRole("tooltip")).toBeNull();
+
+    act(() => marks[0].focus());
+    expect(document.activeElement).toBe(marks[0]);
+    expect(screen.getByRole("tooltip").textContent).toBe("未登入 Codex");
+    fireEvent.keyDown(marks[0], { key: "Enter" });
+    fireEvent.keyDown(marks[0], { key: " " });
     expect(onChat).not.toHaveBeenCalled();
     expect(onOpenDetail).not.toHaveBeenCalled();
 
-    fireEvent.blur(marks[0]);
-    fireEvent.mouseLeave(marks[0]);
+    // Positive control: the same key on the card itself does open the chat.
+    fireEvent.keyDown(container.querySelector(".member-card")!, { key: "Enter" });
+    expect(onChat).toHaveBeenCalledTimes(1);
+    expect(onOpenDetail).not.toHaveBeenCalled();
+
+    act(() => marks[0].blur());
     expect(screen.queryByRole("tooltip")).toBeNull();
   });
 

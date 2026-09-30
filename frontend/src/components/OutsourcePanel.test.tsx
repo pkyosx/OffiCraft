@@ -287,6 +287,35 @@ describe("OutsourcePanel", () => {
     expect(within(cleanLine).queryByTestId("runtime-login-warning")).toBeNull();
   });
 
+  it("under Enter or Space on the row's focused login mark, the row does not open the chat, while Enter on the row itself does", async () => {
+    const task = mkTask({ id: "t-keys", taskNo: "T-keys" });
+    __injectMockTask(task);
+    __injectMockOutsourceWorker(
+      mkWorker({
+        id: "ow-keys",
+        taskId: task.id,
+        presence: "online",
+        runtimeLoginWarnings: [
+          { machineId: "mac-1", machineName: "Mac Studio", runtime: "codex", pending: false },
+        ],
+      }),
+    );
+
+    const { findByTestId } = renderOutsource();
+    const row = await findByTestId("outsource-row-ow-keys");
+    const mark = within(row).getByTestId("runtime-login-warning");
+    const before = window.location.hash;
+
+    act(() => mark.focus());
+    expect(document.activeElement).toBe(mark);
+    fireEvent.keyDown(mark, { key: "Enter" });
+    fireEvent.keyDown(mark, { key: " " });
+    expect(window.location.hash).toBe(before);
+
+    fireEvent.keyDown(row, { key: "Enter" });
+    expect(window.location.hash).toBe("#office/chat/ow-keys");
+  });
+
   it("the type line shows the manual's DISPLAY name — the raw key stays out of the UI (T-fa76)", async () => {
     __injectMockTaskType({
       typeKey: "tm-aaaabbbbcccc",
