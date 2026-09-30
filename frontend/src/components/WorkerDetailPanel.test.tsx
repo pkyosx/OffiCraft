@@ -1022,7 +1022,7 @@ describe("WorkerDetailPanel — lifecycle ops (T-32e1/T-f190)", () => {
     expect(input.value).toBe("claude-opus-4-8");
     expect(
       (await findByTestId("worker-detail-settings-note")).textContent,
-    ).toBe("按下後只存下新設定，下次喚醒時使用。");
+    ).toBe("按下後會用這些設定開起來。");
   });
 
   it("喚醒 stores the launch settings and the pin BEFORE it wakes, so the new session boots as described", async () => {
@@ -1186,16 +1186,12 @@ describe("WorkerDetailPanel — lifecycle ops (T-32e1/T-f190)", () => {
       "worker-detail-change",
       "按下後會存下新設定，它停下後會用新設定重新開起來。",
     ],
-    [
-      "stopped",
-      "worker-detail-wake",
-      "按下後會存下新設定，它停下後會用新設定重新開起來。",
-    ],
-    ["offline", "worker-detail-wake", "按下後只存下新設定，下次喚醒時使用。"],
+    ["stopped", "worker-detail-wake", "按下後會用這些設定開起來。"],
+    ["offline", "worker-detail-wake", "按下後會用這些設定開起來。"],
     [
       "waking",
       "worker-detail-change",
-      "按下後只存下新設定，下次喚醒時使用。" +
+      "按下後會改用新設定重新開起來。" +
         " 上方顯示的是目前實際使用的模型，可能和這裡的設定不同。",
     ],
   ] as const)(

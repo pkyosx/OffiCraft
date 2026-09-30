@@ -200,19 +200,23 @@ export interface AgentDetailVmInput {
 const START_OPS = ["start", "worker_start"];
 const STOP_OPS = ["stop", "worker_stop"];
 
-/** Which `mp.settingsNote*` sentence the 更改／喚醒 dialog shows — what the
- * confirm will actually cause, per presence (owner `rc-f1bf62940fc8`, the same
- * text on both kinds). `stopping`／`stopped` are exactly the presences the
- * server derives from `stopping_since > 0`, its own "a stop was asked for" test,
- * so they are where a saved change comes back up once the agent is down. */
+/** Which `mp.settingsNote*` sentence the settings dialog shows — what its
+ * confirm will actually cause, per dialog kind and presence (owner
+ * `rc-71d6a9d0ce54`, the same text on both kinds). A 喚醒 dialog's confirm
+ * starts the agent whatever its presence. */
 export function settingsNoteKey(
+  dialog: "change" | "wake",
   presence: string | undefined,
-): "settingsNoteOnline" | "settingsNoteAfterStop" | "settingsNoteNextWake" {
+):
+  | "settingsNoteOnline"
+  | "settingsNoteAfterStop"
+  | "settingsNoteWake"
+  | "settingsNoteWaking" {
+  if (dialog === "wake") return "settingsNoteWake";
   if (presence === "online") return "settingsNoteOnline";
-  if (presence === "stopping" || presence === "stopped") {
-    return "settingsNoteAfterStop";
-  }
-  return "settingsNoteNextWake";
+  if (presence === "stopping") return "settingsNoteAfterStop";
+  if (presence === "waking") return "settingsNoteWaking";
+  return "settingsNoteWake";
 }
 
 /** Build the ONE view model both detail panels render through.

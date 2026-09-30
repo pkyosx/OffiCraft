@@ -174,14 +174,14 @@ describe("MemberDetailPanel — unified wake/change settings", () => {
     );
     fireEvent.click(getByTestId("member-action-spawn"));
     expect(getByTestId("mp-settings-intent-note").textContent).toBe(
-      "按下後只存下新設定，下次喚醒時使用。",
+      "按下後會用這些設定開起來。",
     );
   });
 
   it.each([
     ["stopping", "online", "mp-change", "按下後會存下新設定，它停下後會用新設定重新開起來。"],
-    ["stopped", "offline", "member-action-spawn", "按下後會存下新設定，它停下後會用新設定重新開起來。"],
-    ["waking", "waking", "member-action-spawn", "按下後只存下新設定，下次喚醒時使用。"],
+    ["stopped", "offline", "member-action-spawn", "按下後會用這些設定開起來。"],
+    ["waking", "waking", "member-action-spawn", "按下後會用這些設定開起來。"],
   ] as const)(
     "a %s member's settings note (status %s, opened by %s) reads %s",
     async (lifecycle, status, opener, text) => {

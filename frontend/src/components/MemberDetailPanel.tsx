@@ -1005,7 +1005,7 @@ export function MemberDetailPanel({
               {online ? t.mp.change : t.lifecycle.action.spawn}
             </div>
             <div className="mp-field__hint" data-testid="mp-settings-intent-note">
-              {t.mp[settingsNoteKey(member.lifecycle)]}
+              {t.mp[settingsNoteKey(online ? "change" : "wake", member.lifecycle)]}
               {/* The second half only when the card actually HAS a reported model
                   to compare against. Unconditional, it pointed at a dash and
                   invited "so this agent never reported" — which is not what an

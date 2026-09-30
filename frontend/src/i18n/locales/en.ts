@@ -1222,8 +1222,9 @@ export const en: Dict = {
       "Once confirmed, it wraps up what it is doing, then starts again with the new settings.",
     settingsNoteAfterStop:
       "Once confirmed, the new settings are saved, and it starts again with them after it has stopped.",
-    settingsNoteNextWake:
-      "Once confirmed, the new settings are only saved, and used at the next wake.",
+    settingsNoteWake: "Once confirmed, it starts with these settings.",
+    settingsNoteWaking:
+      "Once confirmed, it starts again with the new settings instead.",
     settingsIntentNoteReported: "The model shown above is the one actually in use now, which can differ from what is set here.",
     wakeManual: "Wake manually",
     // Instant feedback after clicking Wake, before server presence catches up.

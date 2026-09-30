@@ -677,7 +677,7 @@ export function WorkerDetailPanel({
           className="mp-field__hint"
           data-testid="worker-detail-settings-note"
         >
-          {t.mp[settingsNoteKey(worker.presence)]}
+          {t.mp[settingsNoteKey(wakeMode ? "wake" : "change", worker.presence)]}
           {reportedModelOnScreen && ` ${t.mp.settingsIntentNoteReported}`}
         </div>
         <ModelEffortEditor
