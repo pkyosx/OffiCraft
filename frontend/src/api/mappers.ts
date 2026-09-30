@@ -845,8 +845,6 @@ export function toOutsourceWorker(w: WireOutsourceWorker): OutsourceWorkerView {
     // (released / never dispatched), so `undefined` is kept rather than floored
     // to offline — `presenceVisual` still paints it as the offline dot.
     presence: toPresence(w.presence),
-    // machine = the ACTUAL dispatch target as alias‖id; "" when never
-    // dispatched.
     machine: w.machine ?? "",
     desiredMachineId: w.desired_machine_id ?? "",
     // See the member mapper: reported twins + durable last landing, all

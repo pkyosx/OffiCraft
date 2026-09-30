@@ -200,10 +200,9 @@ export interface AgentDetailVmInput {
 const START_OPS = ["start", "worker_start"];
 const STOP_OPS = ["stop", "worker_stop"];
 
-/** Which `mp.settingsNote*` sentence the settings dialog shows — what its
- * confirm will actually cause, per dialog kind and presence (owner
- * `rc-71d6a9d0ce54`, the same text on both kinds). A 喚醒 dialog's confirm
- * starts the agent whatever its presence. */
+/** Each sentence states what the dialog's confirm will actually cause, and a
+ * 喚醒 dialog's confirm starts the agent whatever its presence. Both kinds show
+ * the same sentence: owner `rc-71d6a9d0ce54`, do not give one panel its own. */
 export function settingsNoteKey(
   dialog: "change" | "wake",
   presence: string | undefined,

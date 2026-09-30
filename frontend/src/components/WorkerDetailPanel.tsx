@@ -82,7 +82,7 @@ interface WorkerDetailPanelProps {
    * member activation endpoint. The resolved receipt is read:
    * `activationPending` raises the same alert the member panel does. */
   onWake?: () => Promise<MemberActivateResult | void>;
-  /** Change runtime/model/effort (換 model — T-f190). When it lands depends on
+  /** Change runtime/model/effort (換 model). When it lands depends on
    * presence — the dialog's note (`settingsNoteKey`) says which. */
   onSetModel?: (
     runtime: "claude" | "codex",

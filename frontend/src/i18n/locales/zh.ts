@@ -707,7 +707,6 @@ export const zh = {
     runtime: "運行狀況",
     context: "記憶用量",
     estimatedCost: "估計$",
-    // presence（成員同一套詞彙——A案 P6）的誠實文案（不留空白假值）。
     // T-7526：啟動中／離線／工作中／已停止 四個 presence 字隨狀態欄一起退場——
     // 它們是 LifecycleDot 的 aria-label（office.presence.*）的第二份副本。
     // ── T-32e1/T-f190 生命週期操作（對齊成員詳情：換手／停止／換 model）──────
