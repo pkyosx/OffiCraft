@@ -1438,15 +1438,16 @@ MATRIX: dict[str, Route] = {
         #     pass if the cross-role admin write were lost — the cross-role
         #     admin statement is carried by the two rows above, not here.
         #   * agent_self aims at its OWN role → the per-role guard PASSES and
-        #     the route then 404s for want of a seed. That is the whole point of
-        #     spending a cell on it: a 403 here would mean the guard had started
-        #     refusing an agent its own document.
+        #     the route then refuses 409 (not applicable) for want of a seed.
+        #     That is the whole point of spending a cell on it: a 403 here
+        #     would mean the guard had started refusing an agent its own
+        #     document.
         #   * agent_other aims at `assistant` → 403, the cross-role refusal.
         #   * warden is below the agent floor → derived 403, never written.
-        # The 404 face is recorded in DEGRADED (it is a positive face that
+        # The 409 face is recorded in DEGRADED (it is a positive face that
         # cannot reach 200), not because anything about it is unasserted.
         requires="agent",
-        overrides={"agent_self": 404, "agent_other": 403},
+        overrides={"agent_self": 409, "agent_other": 403},
         path=lambda ctx, i: (
             f"/api/insight/{ctx.agent_a.role_key}/reset"
             if i == "agent_self"
@@ -1969,10 +1970,10 @@ SKIPPED: dict[str, str] = {}
 # route's full semantics. Reported here so nothing is silently soft.
 DEGRADED: dict[str, str] = {
     "POST /api/insight/{role_key}/reset": (
-        "the agent_self face is pinned at 404, not 200: it aims at the agent's "
+        "the agent_self face is pinned at 409, not 200: it aims at the agent's "
         "OWN role (so the per-role write guard is genuinely exercised and PASSES) "
         "and that role ships no seeds/insight_<role_key>.md, which is the "
-        "route's documented 404. Only `assistant` ships an insight seed, and a "
+        "route's documented 409 (not applicable). Only `assistant` ships an insight seed, and a "
         "plain conformance agent cannot be given that role without making it an "
         "admin. The owner/admin_agent faces are full 200s; the reset's own "
         "semantics (seed restored, is_default flipped, the discarded overlay "

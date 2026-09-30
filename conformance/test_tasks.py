@@ -38,6 +38,7 @@ through test_rest_happy.
 
 from __future__ import annotations
 
+import hashlib
 import uuid
 
 import pytest
@@ -1215,7 +1216,12 @@ def test_manual_crud_and_delete_guard(client, owner_token, executor):
                       headers=_auth(owner_token)).status_code == 404
 
 
-def test_builtin_manual_is_listed_resettable_and_undeletable(client, owner_token):
+_BUILTIN_TASK_MANUAL_DESIGN_SOP_SHA256 = (
+    "bb27fb16377af2f6dc457a06315faff8d12332142dff16a9545d73b1331fc004")
+
+
+def test_builtin_manual_is_listed_resettable_and_undeletable(
+        client, owner_token, executor):
     builtin = "builtin-task-manual-design"
     h = _auth(owner_token)
     listed = client.get("/api/task-manuals", headers=h).json()
@@ -1224,16 +1230,24 @@ def test_builtin_manual_is_listed_resettable_and_undeletable(client, owner_token
 
     r = client.post(f"/api/task-manuals/{builtin}",
                     json={"purpose": "conf edited built-in",
-                          "assignee": {"kind": "staff", "member_id": "mira"}},
+                          "sop_md": "conf edited SOP",
+                          "assignee": {"kind": "staff",
+                                       "member_id": executor.member_id}},
                     headers=h)
     assert r.status_code == 200, r.text
     assert (r.json()["is_seed"], r.json()["is_default"]) == (True, False), r.json()
+    edited = client.get(f"/api/task-manuals/{builtin}", headers=h).json()
+    assert edited["assignee"] == {"kind": "staff",
+                                  "member_id": executor.member_id}, edited
 
     r = client.post(f"/api/task-manuals/{builtin}/reset", headers=h)
     assert r.status_code == 200, r.text
     assert (r.json()["is_seed"], r.json()["is_default"]) == (True, True), r.json()
     manual = client.get(f"/api/task-manuals/{builtin}", headers=h).json()
-    assert manual["purpose"] != "conf edited built-in", manual
+    assert manual["purpose"] == "建立新的任務手冊，或調整既有任務手冊的內容與負責成員。", manual
+    assert len(manual["sop_md"]) == 3872, manual["sop_md"][:80]
+    assert hashlib.sha256(manual["sop_md"].encode()).hexdigest() == (
+        _BUILTIN_TASK_MANUAL_DESIGN_SOP_SHA256), manual["sop_md"][:80]
     assert manual["is_default"] is True, manual
     assert manual["assignee"] == {"kind": "staff", "member_id": "mira"}, manual
 
