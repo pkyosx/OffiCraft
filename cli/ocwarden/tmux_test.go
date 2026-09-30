@@ -29,8 +29,8 @@ type wardenRunner struct {
 	// pattern, or resolves no binary, so the fragments that decide the child's
 	// config home are exercised instead of read.
 	shellPassthrough bool
-	// tmuxPassthrough really runs every `tmux` argv: only for a server the test
-	// started on its own socket, never a live member's.
+	// tmuxPassthrough really runs `tmux -L oc-test-…` argvs. The prefix check keeps
+	// it off the live server: TMUX in a member's environment points at it.
 	tmuxPassthrough bool
 }
 
@@ -43,7 +43,7 @@ func (r *wardenRunner) Run(name string, args ...string) (string, error) {
 	if r.shellPassthrough && len(args) == 2 && args[0] == "-c" {
 		return r.passthrough(name, args)
 	}
-	if r.tmuxPassthrough && name == "tmux" {
+	if r.tmuxPassthrough && name == "tmux" && len(args) > 1 && args[0] == "-L" && strings.HasPrefix(args[1], "oc-test-") {
 		return r.passthrough(name, args)
 	}
 	return r.fallback.out, r.fallback.err

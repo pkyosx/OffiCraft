@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -621,16 +620,17 @@ func TestTmuxDeliverNudge(t *testing.T) {
 
 				tmuxDeliverNudge(&wardenRunner{tmuxPassthrough: true}, func(time.Duration) {}, socket, "member-m1", "開始。")
 
+				want := "開始。" + strings.Repeat("\n", 30)
 				deadline := time.Now().Add(2 * time.Second)
 				var got []byte
 				for time.Now().Before(deadline) {
 					got, _ = os.ReadFile(out)
-					if bytes.Contains(got, []byte("開始。\n")) {
+					if string(got) == want {
 						return
 					}
 					time.Sleep(20 * time.Millisecond)
 				}
-				t.Errorf("the pane's program received %q, want it to contain %q", got, "開始。\n")
+				t.Errorf("the pane's program received %q, want %q", got, want)
 			})
 		}
 	})
