@@ -41,8 +41,10 @@ type launchEnvCache struct {
 	pairs []agentEnvPair
 }
 
+// A spawn whose capture failed keeps the last good layer: the login check
+// captures on its own only once, so a cleared cache would never refill.
 func (c *launchEnvCache) remember(pairs []agentEnvPair) {
-	if c == nil {
+	if c == nil || len(pairs) == 0 {
 		return
 	}
 	c.mu.Lock()

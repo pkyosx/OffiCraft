@@ -905,13 +905,14 @@ func TestWireLoginCheck(t *testing.T) {
 		}
 	})
 
-	t.Run("under a spawn that captured the shell env, the login check runs with that env", func(t *testing.T) {
+	t.Run("under a spawn that captured the shell env, the login check runs with that env, and a later spawn's failed capture keeps it", func(t *testing.T) {
 		box := t.TempDir()
 		evidence := filepath.Join(box, "evidence")
 		counter := filepath.Join(box, "captures")
 		shell := stageBinary(t, filepath.Join(box, "bin", "zsh"), "#!/bin/sh\n"+
 			`n=$(( $(/bin/cat '`+counter+`' 2>/dev/null || echo 0) + 1 ))`+"\n"+
 			`echo "$n" > '`+counter+"'\n"+
+			`[ "$n" -ge 2 ] && exit 1`+"\n"+
 			`printf 'FROM_SHELL=capture-%s\000' "$n"`+"\n")
 		claudeBin := stageBinary(t, filepath.Join(box, "bin", "claude"), "#!/bin/sh\n"+
 			`printf '%s' "$FROM_SHELL" > '`+evidence+"'\n"+
@@ -959,6 +960,20 @@ func TestWireLoginCheck(t *testing.T) {
 		}
 		if string(raw) != "capture-1" {
 			t.Errorf("claude saw FROM_SHELL=%q, want the spawn's capture-1", raw)
+		}
+
+		runner.script["tmux -L officraft has-session -t member-m2"] = wardenRun{err: errors.New("can't find session: member-m2")}
+		deps.Spawn(StartParams{MemberID: "m2", PersonaContext: "p", MemberToken: "jwt", Role: "builder"})
+		clock := time.Now().Add(defaultLoginCheckInterval)
+		login.now = func() time.Time { return clock }
+		_ = os.Remove(evidence)
+		login.state()
+		raw, err = os.ReadFile(evidence)
+		if err != nil {
+			t.Fatalf("auth status did not re-run: %v", err)
+		}
+		if string(raw) != "capture-1" {
+			t.Errorf("after a failed capture claude saw FROM_SHELL=%q, want the last good capture-1", raw)
 		}
 	})
 }
