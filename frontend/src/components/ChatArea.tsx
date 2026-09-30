@@ -928,6 +928,14 @@ export function ChatArea({
       // as well, so both paths say the same thing.
       const added = measured > 0 ? measured : el.scrollHeight - anchor.height;
       el.scrollTop = el.scrollTop + added;
+      // ⚠️ A page at least one screen tall has to be read past before the top
+      // comes back, so reaching the top again is a new request even inside the
+      // same gesture. Without this, a wheel spun without pause stalls at the
+      // top of a long thread after one page.
+      if (added >= el.clientHeight) {
+        session.wheelSpent = false;
+        session.touchSpent = false;
+      }
     }
     // The one-shot entry positioning (session.initialPositioned) already ran for
     // this conversation — a prepend must never re-run it, and it doesn't:
@@ -997,8 +1005,7 @@ export function ChatArea({
   // 🔴 一次手勢一頁 binds the scroll door too, not only the wheel and touch
   // doors. A prepend that folds into a collapsed block adds almost no height,
   // so the late events of the same flick carry the pane straight back to the
-  // top and the scroll event there would buy another page — measured, one
-  // flick pulled up to five.
+  // top and the scroll event there would buy another page.
   function claimGesturePageForScroll(): boolean {
     const wheelGestureOn =
       Date.now() - session.lastWheelTs <= WHEEL_GESTURE_GAP_MS;

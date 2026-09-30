@@ -159,9 +159,12 @@ async function inertialFlick(page: Page) {
   await page.waitForTimeout(1200);
 }
 
-// 一般的長對話(每一列都有真的高度)往上一路滑,是捲動那道門在載:每一次滑到頂
-// 就再載一頁,不會因為「一次手勢一頁」卡在頂端要停下來才載得到。
-test("長對話一次一次往上滑到頂,每一次都接著載一頁", async ({ mount, page }) => {
+// 一般的長對話(每一列都有真的高度)一路不停地往上轉滾輪:每一頁都比一個畫面高,
+// 讀的人要捲過它才回得到頂端,所以不必停下來,也會一頁接一頁往上載。
+test("長對話不停往上轉滾輪,不必停下來也一頁接一頁載入", async ({
+  mount,
+  page,
+}) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await mount(
     <ChatThreadLoadingStory entrance="plain" widthPx={1280} latencyMs={60} />,
@@ -171,16 +174,15 @@ test("長對話一次一次往上滑到頂,每一次都接著載一頁", async (
   await expect.poll(async () => await rows.count()).toBe(30);
   await box.hover();
 
-  const reachTop = async () => {
-    await box.evaluate((el) => {
-      el.scrollTop = 600;
-    });
-    await page.waitForTimeout(300);
-    await inertialFlick(page);
-  };
-
-  for (const expected of [60, 90, 120]) {
-    await reachTop();
-    expect(await rows.count(), "每一次滑到頂只接著載一頁").toBe(expected);
+  // 事件間隔 40ms,遠小於手勢之間的安靜間隔 —— 從頭到尾是同一次手勢。
+  const counts: number[] = [];
+  for (let i = 0; i < 125; i += 1) {
+    await page.mouse.wheel(0, -150);
+    await page.waitForTimeout(40);
+    if (i % 25 === 24) counts.push(await rows.count());
   }
+  expect(
+    counts[counts.length - 1],
+    `不停轉 5 秒,每秒的列數依序是 ${counts.join(" → ")}`,
+  ).toBeGreaterThanOrEqual(120);
 });

@@ -252,7 +252,7 @@ describe("scroll-top history loading", () => {
 
   // 一次手勢一頁(owner 圈定 rc-3bceed6d9e0a)。滾輪那一串沒有結束事件,所以手勢的
   // 邊界是「安靜下來」;手指有 touchstart 這個真的邊界,不需要時鐘。
-  it("同一次手勢只買一頁:滾輪連續事件只撈一次,安靜之後的下一次滑動才會再撈", async () => {
+  it("同一次手勢只買一頁:滾輪與它帶出的 scroll 事件只撈一次,安靜之後的下一次滑動或手勢外的捲動才會再撈", async () => {
     initialMessages = [
       mkMsg("c2", "b", "owner", 2000),
       mkMsg("c3", "b", "owner", 2001),
@@ -285,6 +285,7 @@ describe("scroll-top history loading", () => {
       // 發出的 scroll 事件也一樣。
       for (const dt of [16, 32, 48, 64]) await at(dt, wheelUp);
       await at(70, scroll);
+      await at(214, scroll);
       expect(loadOlderCalls).toBe(1);
 
       // 安靜一段時間之後,那是新的一次滑動。
@@ -305,6 +306,24 @@ describe("scroll-top history loading", () => {
       // 沒有滑動在進行時(拖捲軸、鍵盤),捲到頂端照樣會撈。
       await at(3000, scroll);
       expect(loadOlderCalls).toBe(4);
+
+      // 落地的那一頁至少一個畫面高:讀的人要捲過它才回得到頂端,所以同一次滑動
+      // 再回到頂端可以再撈。
+      let tallPage = 0;
+      onLoadOlder = () => {
+        tallPage += 1;
+        olderPage = [mkMsg(`t${tallPage}`, "b", "owner", 900 - tallPage)];
+        Object.defineProperty(list, "scrollHeight", {
+          configurable: true,
+          value: list.scrollHeight + 200,
+        });
+      };
+      await at(4000, wheelUp);
+      expect(loadOlderCalls).toBe(5);
+      expect((list as HTMLElement).scrollTop).toBe(200);
+      scrollTo(0);
+      await at(4016, wheelUp);
+      expect(loadOlderCalls).toBe(6);
     } finally {
       vi.useRealTimers();
     }
