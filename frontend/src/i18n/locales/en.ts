@@ -1281,6 +1281,10 @@ export const en: Dict = {
     lastOpOk: "succeeded",
     lastOpFail: "failed",
     lastOpLogLabel: "View log",
+    lastOpCodexFamilyMissing: (version: string | null, family: string, available: string) =>
+      `This machine's Codex (${version ? `version ${version}` : "version unknown"}) has no ${family} model. Available: ${available}`,
+    lastOpCodexFamilyUnreadable: (version: string | null, family: string) =>
+      `Could not read the model list of this machine's Codex (${version ? `version ${version}` : "version unknown"}), so no ${family} model could be picked`,
     estimatedCost: "est. $",
     costReset: "Reset",
     costResetHint: "Reset this member's accumulated estimated spend to zero. This cannot be undone.",

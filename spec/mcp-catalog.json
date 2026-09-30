@@ -517,7 +517,7 @@
               }
             ],
             "default": null,
-            "description": "Model the new member launches with. There is no model whitelist anywhere in the server: runtime and effort are validated against closed sets and 422 on an unknown value, while this string is stored exactly as sent. A misspelt or retired model name is accepted with 200 and becomes visible only much later, when the member fails to spawn. Blank is legal and leaves the launcher's default.",
+            "description": "Model the new member launches with. There is no model whitelist anywhere in the server: runtime and effort are validated against closed sets and 422 on an unknown value, while this string is stored exactly as sent. A misspelt or retired model name is accepted with 200 and becomes visible only much later, when the member fails to spawn. Blank is legal and leaves the launcher's default. For the codex runtime this may instead be a model FAMILY - astra, sol, terra or luna: every time the member starts, the warden on the machine it starts on picks the newest full model id that machine's Codex lists for that family (so the same setting can land on different ids on different machines, or after a Codex upgrade), and actual_model reports the id it landed on. Any other value, including a full model id, is launched exactly as given. A machine whose Codex lists no model of the family refuses the start with a codex_model_family_unavailable reason naming what it does list, and a machine whose warden cannot resolve families is never chosen for such a member.",
             "title": "Model"
           },
           "name": {
@@ -606,7 +606,7 @@
               }
             ],
             "default": null,
-            "description": "New launch model for the member. Unlike name - which is refused when blank - this field is written exactly as sent, with no whitelist and no blank check. And it is not a passive edit: a value DIFFERENT from the stored one arms the same graceful wind-down a refocus uses, so the member finishes what it is doing and comes back on the new value. A typo therefore does not just sit in a column, it recycles a working member onto a model nothing has checked. Re-sending the value the member already carries arms nothing.",
+            "description": "New launch model for the member. Unlike name - which is refused when blank - this field is written exactly as sent, with no whitelist and no blank check. And it is not a passive edit: a value DIFFERENT from the stored one arms the same graceful wind-down a refocus uses, so the member finishes what it is doing and comes back on the new value. A typo therefore does not just sit in a column, it recycles a working member onto a model nothing has checked. Re-sending the value the member already carries arms nothing. For the codex runtime this may instead be a model FAMILY - astra, sol, terra or luna: every time the member starts, the warden on the machine it starts on picks the newest full model id that machine's Codex lists for that family (so the same setting can land on different ids on different machines, or after a Codex upgrade), and actual_model reports the id it landed on. Any other value, including a full model id, is launched exactly as given. A machine whose Codex lists no model of the family refuses the start with a codex_model_family_unavailable reason naming what it does list, and a machine whose warden cannot resolve families is never chosen for such a member.",
             "title": "Model"
           },
           "name": {
@@ -2385,7 +2385,7 @@
               }
             ],
             "default": null,
-            "description": "Model the new role's member launches with. There is NO model whitelist anywhere in the server: runtime and effort in this same call are checked against closed sets and 422 on anything else, but this string is trimmed and stored exactly as sent. A typo, a retired model name, or a model the chosen runtime cannot launch all answer 200 here and only surface much later, as a member that fails to spawn. Blank is legal and leaves the launcher's own default in place.",
+            "description": "Model the new role's member launches with. There is NO model whitelist anywhere in the server: runtime and effort in this same call are checked against closed sets and 422 on anything else, but this string is trimmed and stored exactly as sent. A typo, a retired model name, or a model the chosen runtime cannot launch all answer 200 here and only surface much later, as a member that fails to spawn. Blank is legal and leaves the launcher's own default in place. For the codex runtime this may instead be a model FAMILY - astra, sol, terra or luna: every time the member starts, the warden on the machine it starts on picks the newest full model id that machine's Codex lists for that family (so the same setting can land on different ids on different machines, or after a Codex upgrade), and actual_model reports the id it landed on. Any other value, including a full model id, is launched exactly as given. A machine whose Codex lists no model of the family refuses the start with a codex_model_family_unavailable reason naming what it does list, and a machine whose warden cannot resolve families is never chosen for such a member.",
             "title": "Model"
           },
           "name": {
@@ -2775,6 +2775,7 @@
                   }
                 ],
                 "default": null,
+                "description": "Model the outsource worker launches with; read only when kind is 'outsource'. Stored exactly as sent, with no whitelist; blank leaves the machine's default. For the codex runtime this may instead be a model FAMILY - astra, sol, terra or luna: every time the worker starts, the warden on the machine it starts on picks the newest full model id that machine's Codex lists for that family (so the same setting can land on different ids on different machines, or after a Codex upgrade), and actual_model reports the id it landed on. Any other value, including a full model id, is launched exactly as given. A machine whose Codex lists no model of the family refuses the start with a codex_model_family_unavailable reason naming what it does list, and a machine whose warden cannot resolve families is never chosen for such a worker.",
                 "title": "Model"
               },
               "runtime": {
@@ -3353,6 +3354,7 @@
                   }
                 ],
                 "default": null,
+                "description": "Model the outsource worker launches with; read only when kind is 'outsource'. Stored exactly as sent, with no whitelist; blank leaves the machine's default. For the codex runtime this may instead be a model FAMILY - astra, sol, terra or luna: every time the worker starts, the warden on the machine it starts on picks the newest full model id that machine's Codex lists for that family (so the same setting can land on different ids on different machines, or after a Codex upgrade), and actual_model reports the id it landed on. Any other value, including a full model id, is launched exactly as given. A machine whose Codex lists no model of the family refuses the start with a codex_model_family_unavailable reason naming what it does list, and a machine whose warden cannot resolve families is never chosen for such a worker.",
                 "title": "Model"
               },
               "runtime": {

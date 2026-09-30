@@ -50,3 +50,22 @@ export function pendingChangeHint(
 export function reportedMachine(observed: string, lastObserved: string): string {
   return observed || lastObserved;
 }
+
+const CLAUDE_ALIAS_MODEL = /^claude-(fable|opus|sonnet|haiku)-\d[\w.-]*(\[1m\])?$/;
+const CODEX_FAMILY_MODEL = /^gpt-\d+(?:\.\d+)*-(astra|sol|terra|luna)$/;
+
+/** The model cell's twist: a setting can name a family (Codex `sol`) or an alias
+ * (Claude `opus`) while the agent reports the full id it landed on
+ * (`gpt-6.1-sol`, `claude-opus-5-5`). That pair is applied, not pending. Only a
+ * known family/alias and a report of that same family count; anything else is
+ * still compared exactly. */
+export function pendingModelHint(
+  configured: string,
+  reported: string,
+  label: (configuredDisplay: string) => string,
+): string {
+  const family =
+    CLAUDE_ALIAS_MODEL.exec(reported)?.[1] ?? CODEX_FAMILY_MODEL.exec(reported)?.[1];
+  if (family !== undefined && configured === family) return "";
+  return pendingChangeHint(configured, reported, label);
+}

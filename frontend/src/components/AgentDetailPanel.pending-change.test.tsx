@@ -138,6 +138,49 @@ describe("AgentDetailPanel · pending-change hints", () => {
     },
   );
 
+  it.each([
+    ["sol", "gpt-6.1-sol", null],
+    ["luna", "gpt-5.6-luna", null],
+    ["opus", "claude-opus-5-5", null],
+    ["opus", "claude-opus-5-5[1m]", null],
+    ["sol", "gpt-6-luna", "sol"],
+    ["opus", "claude-sonnet-5-5", "opus"],
+    ["gpt-6-sol", "gpt-6.1-sol", "gpt-6-sol"],
+    ["claude-opus-5", "claude-opus-5-5", "claude-opus-5"],
+  ])(
+    "model set to %s and reported as %s: pending hint %s",
+    async (model, actualModel, expected) => {
+      const { queryByTestId } = await renderPanel({ model, actualModel });
+      const hint = queryByTestId("mp-model-pending");
+      if (expected === null) {
+        expect(hint).toBeNull();
+      } else {
+        expect(hint?.textContent).toContain(expected);
+      }
+    },
+  );
+
+  it("does not mark a move when the machine is reported by its name and the pin by its id", async () => {
+    listMachines.mockImplementation(() =>
+      Promise.resolve([machine("m-5f3a", "eva-m5"), machine("m-9c1d", "seth-m1")]),
+    );
+    try {
+      const same = await renderPanel({ desiredMachineId: "m-5f3a", machine: "eva-m5", actualMachine: "eva-m5" });
+      await waitFor(() => expect(same.getByTestId("mp-machine").textContent).toBe("eva-m5"));
+      expect(same.queryByTestId("mp-machine-pending")).toBeNull();
+      same.unmount();
+
+      const moving = await renderPanel({ desiredMachineId: "m-9c1d", machine: "eva-m5", actualMachine: "eva-m5" });
+      await waitFor(() =>
+        expect(moving.getByTestId("mp-machine-pending").textContent).toContain("seth-m1"),
+      );
+    } finally {
+      listMachines.mockImplementation(() =>
+        Promise.resolve([machine("mach-a", "Machine A"), machine("mach-b", "Machine B")]),
+      );
+    }
+  });
+
   it("marks the machine cell with the pin's display name, not its raw id", async () => {
     const { getByTestId } = await renderPanel({ desiredMachineId: "mach-b" });
     const hint = getByTestId("mp-machine-pending").textContent ?? "";

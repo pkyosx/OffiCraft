@@ -748,6 +748,7 @@ func TestBuildSpawnDeps(t *testing.T) {
 	for name, wired := range map[string]bool{
 		"Logf": deps.Logf != nil, "WriteFile": deps.WriteFile != nil, "MkdirAll": deps.MkdirAll != nil,
 		"Symlink": deps.Symlink != nil, "Remove": deps.Remove != nil, "Sleep": deps.Sleep != nil,
+		"CodexModels": deps.CodexModels != nil,
 	} {
 		if !wired {
 			t.Errorf("buildSpawnDeps left %s unwired", name)

@@ -6,10 +6,11 @@
 //   • Claude model = fable/opus/sonnet/haiku quick-pick CHIPS + a free custom
 //     string input (spawn --model is a FREE string — the chips are safe
 //     defaults, the input stays authoritative; BLANK ⇒ the server/CLI default).
-//   • Codex model = quick-pick CHIPS + a free custom string input.  No selected
-//     chip / a blank input delegates to the Codex configuration on the selected
-//     machine, just like Claude.  The input remains an escape hatch for a new
-//     model identifier or an incident workaround.
+//   • Codex model = model-FAMILY CHIPS + a free custom string input.  A family
+//     word is resolved by the machine's warden at every start to the newest full
+//     model id that machine's Codex lists; a full id typed into the input is
+//     launched as given.  No selected chip / a blank input delegates to the
+//     Codex configuration on the selected machine, just like Claude.
 //   • effort = a low/medium/high/xhigh/max dropdown (closed vocabulary, server-422
 //     outside it).
 //
@@ -23,13 +24,10 @@ import "./model-effort-editor.css";
 
 /** Quick-pick model chips (safe defaults — the input stays free-form). */
 export const MODEL_QUICK_PICKS = ["fable", "opus", "sonnet", "haiku"] as const;
-/** Suggested Codex App Server model identifiers (the input remains free-form). */
-export const CODEX_MODEL_OPTIONS = [
-  "gpt-6-astra",
-  "gpt-5.6-terra",
-  "gpt-5.6-sol",
-  "gpt-5.6-luna",
-] as const;
+/** Codex model families (the input remains free-form for a full model id).
+ * Keep in step with isCodexModelFamily (server) and codexModelFamilies
+ * (cli/ocwarden): a chip neither of those knows would launch the bare word. */
+export const CODEX_MODEL_OPTIONS = ["astra", "sol", "terra", "luna"] as const;
 /** The closed effort vocabulary (server 422s anything else). */
 export const EFFORTS: readonly Effort[] = [
   "low",

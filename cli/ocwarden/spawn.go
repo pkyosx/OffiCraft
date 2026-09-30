@@ -522,6 +522,8 @@ type SpawnDeps struct {
 	// ClaudeCreds returns a value-free verdict; it must NEVER hand a credential value
 	// back into this file.
 	ClaudeCreds func() claudeCredStatus
+	// nil refuses every spawn whose model is a Codex family word.
+	CodexModels func(codexBin string) ([]codexModelEntry, error)
 	RepoRoot    string
 	// Resolved PER SPAWN: on a fresh machine ocagent is downloaded AFTER warden boot,
 	// so a boot-time path left every member with a dangling symlink, never online, and
@@ -601,6 +603,11 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 			d.logf("codex gate: `%s login status` failed: %v", d.CodexBin, err)
 			return SpawnOutcome{OK: false, Reason: "codex_not_logged_in: `codex login status` failed on this host"}
 		}
+		resolved, refusal := d.resolveCodexLaunchModel(p.Model)
+		if refusal != "" {
+			return SpawnOutcome{OK: false, Reason: refusal}
+		}
+		p.Model = resolved
 	}
 	// A logged-out claude launches its TUI fine and the spawn would report OK:true
 	// while the agent can never boot. nil seam = gate off (OC_CLAUDE_CRED_CHECK=0).

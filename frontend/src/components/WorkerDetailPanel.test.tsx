@@ -312,6 +312,27 @@ describe("WorkerDetailPanel — honest presence states (A案 P6 member vocabular
     expect(queryTestId(document.body, "worker-detail-lastop-reason")).toBeNull();
   });
 
+  it("離線 on a missing Codex model family: the reason is worded in the viewer's language", async () => {
+    __injectMockTask(mkTask({ id: "t-1" }));
+    __injectMockOutsourceWorker(
+      mkWorker({
+        id: "ow-1",
+        taskId: "t-1",
+        status: "assigned",
+        presence: "offline",
+        machine: "Warden · mbp5",
+        lastOpReason:
+          "codex_model_family_unavailable: this machine's Codex (version 0.153.4) lists no terra model; " +
+          "available: gpt-6-astra, gpt-5.5",
+      }),
+    );
+    const { findByTestId } = renderOfficeAt("#office/worker/ow-1");
+    expect((await findByTestId("worker-detail-stuck-reason")).textContent).toBe(
+      "codex_model_family_unavailable: 這台機器的 Codex（版本 0.153.4）沒有 terra 系列的型號，" +
+        "可用：gpt-6-astra, gpt-5.5",
+    );
+  });
+
   it("運行中: presence online reads the online label", async () => {
     expect(await presenceLabelFor({ status: "active", presence: "online" })).toBe(
       zh.office.presence["online-awake"],
@@ -1545,8 +1566,8 @@ describe("WorkerDetailPanel — pending launch changes (T-7f28)", () => {
         taskId: "t-2",
         runtime: "claude",
         actualRuntime: "claude",
-        model: "Opus 4.6",
-        actualModel: "Opus 4.6",
+        model: "opus",
+        actualModel: "claude-opus-5-5",
         effort: "high",
         actualEffort: "high",
         // 🔴 The regression this case exists for: the pin is a raw id and the

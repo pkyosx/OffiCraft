@@ -1,9 +1,9 @@
 // Story (T-129) — the Codex 模型 quick-pick chips, in BOTH places that render
 // CODEX_MODEL_OPTIONS: the 轉派 dialog and the 任務手冊 負責成員 editor.
 //
-// The vocabulary went from 3 slugs to 4 when gpt-6-astra was added, which is a
-// layout change: four `gpt-5.6-*` chips do not fit one row inside a 390px
-// phone's ~300px content column. jsdom applies no layout engine, so the whole
+// Four chips in a 390px phone's ~300px content column is a layout question
+// (the chips were full `gpt-5.6-*` ids when it was first measured; they are
+// family words now). jsdom applies no layout engine, so the whole
 // question — do the four chips land on two even rows, or does one of them end
 // up alone on a full-width row / squeezed until its label breaks across three
 // lines — is invisible to the vitest suite.

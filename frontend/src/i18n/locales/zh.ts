@@ -1311,6 +1311,10 @@ export const zh = {
     lastOpOk: "成功",
     lastOpFail: "失敗",
     lastOpLogLabel: "查看記錄",
+    lastOpCodexFamilyMissing: (version: string | null, family: string, available: string) =>
+      `這台機器的 Codex（${version ? `版本 ${version}` : "版本不明"}）沒有 ${family} 系列的型號，可用：${available}`,
+    lastOpCodexFamilyUnreadable: (version: string | null, family: string) =>
+      `讀不到這台機器 Codex（${version ? `版本 ${version}` : "版本不明"}）的型號清單，無法決定 ${family} 要用哪個型號`,
     estimatedCost: "估計$",
     costReset: "歸零",
     costResetHint: "把這個成員的累計估計花費歸零。按下去救不回來。",

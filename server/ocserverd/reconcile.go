@@ -823,6 +823,17 @@ func (s *apiServer) reconcileOne(m Member, st reconcileState, now float64) recon
 			decision.DispatchUnlanded = true
 			return decision
 		}
+		if !s.machineResolvesCodexModel(warden, m.Runtime, m.Model) {
+			reconcileLog("%s: target warden %q cannot resolve codex model family %q — fail-closed",
+				m.ID, warden, m.Model)
+			s.stampMemberOpBlocked(m.ID, placementReasonUnavailable+": machine '"+warden+"' "+
+				codexFamilyUnresolvedDetail(m.Model), now)
+			decision.Command = reconcileCmdNone
+			decision.Reason = "codex model family unresolvable on target machine"
+			decision.State = st
+			decision.DispatchUnlanded = true
+			return decision
+		}
 		frame, ok := s.buildStartFrame(m)
 		if !ok {
 			reconcileLog("%s: no START payload (persona/token) — fail-closed, not dispatching",

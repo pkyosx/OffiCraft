@@ -397,6 +397,7 @@ func buildSpawnDeps(cfg Config, env func(string) string, runner CmdRunner, socke
 		// heuristic set of credential sources, and a false negative would take a whole
 		// fleet offline at its next respawn.
 		ClaudeCreds: buildClaudeCredProbe(env, runner),
+		CodexModels: listCodexModels,
 		RepoRoot:    resolveRepoRoot(os.Executable),
 		// 🔴 A FUNCTION, resolved at spawn time: on a fresh machine ocagent is
 		// downloaded after the warden boots, and a value baked in here left every
