@@ -31,7 +31,6 @@ import { useHashRoute } from "../lib/hashRoute";
 import { Avatar } from "./Avatar";
 import { avatarKindForMember } from "../lib/avatarKind";
 import { InlineEdit } from "./InlineEdit";
-import { InstantHint } from "./InstantHint";
 import { MemberDetailPanel } from "./MemberDetailPanel";
 import { PresenceBadge } from "./PresenceBadge";
 import { CopyIcon, CheckIcon, CloseIcon } from "./icons";
@@ -778,7 +777,6 @@ export function MonitorPage() {
                       data-testid="mon-claude-version"
                     >
                       <RuntimeVersionCell
-                        runtime="claude"
                         capability={hw?.runtimeCapabilities?.claude}
                         fallbackVersion={m.claudeVersion}
                         stale={hw?.runtimeCapabilitiesStale}
@@ -791,7 +789,6 @@ export function MonitorPage() {
                       data-testid="mon-codex-version"
                     >
                       <RuntimeVersionCell
-                        runtime="codex"
                         capability={hw?.runtimeCapabilities?.codex}
                         fallbackVersion={null}
                         stale={hw?.runtimeCapabilitiesStale}
@@ -1479,6 +1476,8 @@ function HardwareBadMark() {
  * ⚠️ Signed in and unknown (no login state reported) both show nothing after
  * the version: owner ruling, do not re-add a mark for either.
  * ⚠️ Owner ruling: stale telemetry carries no login state, so no 未登入 then.
+ * ⚠️ Owner ruling: the chip has no hover or title; the word and its column say
+ * it all.
  *
  * `fallbackVersion` exists only for Claude: the machine registry has carried
  * its own `claude_version` since T-97ee/T-7c5b, and an older warden reports
@@ -1491,13 +1490,11 @@ function HardwareBadMark() {
  * the server says it is fresh (`stale === false`). The registry fallback is not
  * telemetry and carries no mark. */
 function RuntimeVersionCell({
-  runtime,
   capability,
   fallbackVersion,
   stale,
   testIdPrefix,
 }: {
-  runtime: "claude" | "codex";
   capability?: { installed: boolean | null; loggedIn: boolean | null; version: string | null };
   fallbackVersion: string | null;
   stale: boolean | null | undefined;
@@ -1554,13 +1551,9 @@ function RuntimeVersionCell({
         </span>
       )}
       {capability.loggedIn === false && stale === false && (
-        <InstantHint
-          className="mon-stale mon-bad"
-          data-testid={`${testIdPrefix}-logged-out`}
-          hint={m.runtimeLoggedOutHint[runtime]}
-        >
+        <span className="mon-stale mon-bad" data-testid={`${testIdPrefix}-logged-out`}>
           {m.runtimeLoggedOut}
-        </InstantHint>
+        </span>
       )}
       {staleMark}
     </>

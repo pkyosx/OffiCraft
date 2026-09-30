@@ -297,8 +297,6 @@ var messageKeys = map[string]bool{
 	"monitor.machine.online":                           true,
 	"monitor.machine.reinstall":                        true,
 	"monitor.machine.runtimeLoggedOut":                 true,
-	"monitor.machine.runtimeLoggedOutHint.claude":      true,
-	"monitor.machine.runtimeLoggedOutHint.codex":       true,
 	"monitor.machine.runtimeNoVersion":                 true,
 	"monitor.machine.runtimeNoVersionHint":             true,
 	"monitor.machine.runtimeNotInstalled":              true,

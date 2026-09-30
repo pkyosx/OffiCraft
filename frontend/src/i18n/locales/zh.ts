@@ -1774,10 +1774,6 @@ export const zh = {
       runtimeNoVersion: "已安裝",
       runtimeNoVersionHint: "已安裝，但讀不到版本。",
       runtimeLoggedOut: "未登入",
-      runtimeLoggedOutHint: {
-        claude: "未登入 Claude",
-        codex: "未登入 Codex",
-      },
       // 硬體樣本時效(T-b36a):過期的數值 server 會收回,於是 CPU/RAM/電源
       // 落回 dash——跟「從來沒回報過硬體」是同一個 dash。這兩個標籤就是把兩
       // 個世界分開的東西,要行動的只有後者(這台失聯了,不是它從沒說過話)。

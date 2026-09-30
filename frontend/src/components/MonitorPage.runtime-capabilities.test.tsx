@@ -23,6 +23,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { MonitorPage } from "./MonitorPage";
+import { RuntimeLoginWarningMark } from "./RuntimeLoginWarningMark";
 import type { Member, MachineView, MonMachineView } from "../types";
 
 const listMembers = vi.fn(async (): Promise<Member[]> => []);
@@ -162,7 +163,7 @@ describe("MonitorPage per-runtime version columns", () => {
     expect(within(claude).queryByTestId("mon-claude-logged-out")).toBeNull();
   });
 
-  it("under signed out, the version is followed by a 未登入 chip, whose runtime-accurate hint shows at once on hover or focus and never as a native title", async () => {
+  it("under signed out, the version is followed by a plain 未登入 chip with no hover, focus stop or native title", async () => {
     mount(
       card(false, {
         claude: { installed: true, loggedIn: false, version: "2.1.211" },
@@ -172,44 +173,46 @@ describe("MonitorPage per-runtime version columns", () => {
     const claudeOut = await screen.findByTestId("mon-claude-version");
     const codexOut = await screen.findByTestId("mon-codex-version");
     expect(claudeOut.textContent).toBe("2.1.211未登入");
-    const claudeMark = within(claudeOut).getByTestId("mon-claude-logged-out");
-    expect(claudeMark.textContent).toBe("未登入");
-    expect(claudeMark.className).toBe("mon-stale mon-bad");
-    expect(claudeMark.hasAttribute("title")).toBe(false);
-    expect(screen.queryByRole("tooltip")).toBeNull();
-    fireEvent.mouseEnter(claudeMark);
-    expect(screen.getByRole("tooltip").textContent).toBe("未登入 Claude");
-    fireEvent.mouseLeave(claudeMark);
-    expect(screen.queryByRole("tooltip")).toBeNull();
-
     expect(codexOut.textContent).toBe("0.52.0未登入");
-    const codexMark = within(codexOut).getByTestId("mon-codex-logged-out");
-    expect(codexMark.hasAttribute("title")).toBe(false);
-    fireEvent.focus(codexMark);
-    expect(screen.getByRole("tooltip").textContent).toBe("未登入 Codex");
-    fireEvent.blur(codexMark);
-    expect(screen.queryByRole("tooltip")).toBeNull();
+    for (const chip of [
+      within(claudeOut).getByTestId("mon-claude-logged-out"),
+      within(codexOut).getByTestId("mon-codex-logged-out"),
+    ]) {
+      expect(chip.outerHTML).toBe(
+        `<span class="mon-stale mon-bad" data-testid="${chip.dataset.testid}">未登入</span>`
+      );
+      fireEvent.mouseEnter(chip);
+      fireEvent.focus(chip);
+      expect(screen.queryByRole("tooltip")).toBeNull();
+    }
+
+    // Positive control: the same events on the member login mark do open a hint.
+    render(
+      <I18nProvider>
+        <RuntimeLoginWarningMark
+          warnings={[{ machineId: "m1", machineName: "seth-m5", runtime: "claude", pending: false }]}
+        />
+      </I18nProvider>
+    );
+    fireEvent.mouseEnter(screen.getByTestId("runtime-login-warning"));
+    expect(screen.getByRole("tooltip").textContent).toBe("seth-m5 未登入 Claude");
   });
 
-  it("under English, the 未登入 chip reads signed out and its hint names only the runtime", async () => {
+  it("under English, the chip reads signed out, still with no hover", async () => {
     window.localStorage.setItem("oc.language", "en");
     try {
       mount(
         card(false, {
           claude: { installed: true, loggedIn: false, version: "2.1.211" },
-          codex: { installed: true, loggedIn: false, version: "0.52.0" },
+          codex: { installed: false, loggedIn: null, version: null },
         })
       );
       const claudeOut = await screen.findByTestId("mon-claude-version");
       expect(claudeOut.textContent).toBe("2.1.211signed out");
-      fireEvent.mouseEnter(within(claudeOut).getByTestId("mon-claude-logged-out"));
-      expect(screen.getByRole("tooltip").textContent).toBe("Signed out of Claude");
-      const codexOut = await screen.findByTestId("mon-codex-version");
-      fireEvent.mouseEnter(within(codexOut).getByTestId("mon-codex-logged-out"));
-      expect(screen.getAllByRole("tooltip").map((h) => h.textContent)).toEqual([
-        "Signed out of Claude",
-        "Signed out of Codex",
-      ]);
+      const chip = within(claudeOut).getByTestId("mon-claude-logged-out");
+      expect(chip.hasAttribute("title")).toBe(false);
+      fireEvent.mouseEnter(chip);
+      expect(screen.queryByRole("tooltip")).toBeNull();
     } finally {
       window.localStorage.removeItem("oc.language");
     }

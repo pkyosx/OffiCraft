@@ -1754,11 +1754,6 @@ export const en: Dict = {
       runtimeNoVersionHint:
         "Installed, but its version could not be read.",
       runtimeLoggedOut: "signed out",
-      // Owner ruling: the runtime only, no explanation of what follows.
-      runtimeLoggedOutHint: {
-        claude: "Signed out of Claude",
-        codex: "Signed out of Codex",
-      },
       // ── hardware sample age (T-b36a). The server WITHHOLDS the numbers of an
       // expired sample, so cpu/ram/power fall back to a dash — the same dash a
       // machine that has never reported hardware shows. These two labels are
