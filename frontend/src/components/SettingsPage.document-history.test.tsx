@@ -437,7 +437,7 @@ describe("SettingsPage · 版本紀錄", () => {
   // 重置 lost its button; the seed became the list's last row. Two halves have
   // to hold at once, and a test that only checked one would let the other rot:
   // the row must BE there where a seed exists, and must NOT be there where the
-  // server would 404 the reset.
+  // server would refuse the reset as not applicable.
   //
   // T-40f0 changed WHAT the row opens, not where it is: it used to jump straight
   // to the reset confirmation (the only row in the list that did), because the
@@ -678,7 +678,7 @@ describe("SettingsPage · 版本紀錄", () => {
     });
 
     // …a CUSTOM role's does not: its doc IS its only truth, and the server
-    // 404s the reset, so a row offering one would be a dead affordance.
+    // refuses the reset (409), so a row offering one would be a dead affordance.
     goSettingsRoot();
     fireEvent.click(utils.getByText(s.roles));
     fireEvent.click(await utils.findByText("臨時角色"));

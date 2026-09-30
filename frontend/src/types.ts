@@ -877,9 +877,10 @@ export interface DiffPairView {
  * one unchanged, so 初始版本 can be COMPARED before anyone decides to go back
  * to it. Reading it writes nothing.
  *
- * Only the two documents that own a reset have one (the global block's default
- * is the empty document, a seed role's is its file seed); everywhere else the
- * route 404s, exactly where the 初始版本 row is not rendered either.
+ * Only a document that ships a default has one (the global block's default is
+ * the empty document, a seed role's is its file seed, a built-in manual's is
+ * its shipped SOP); everywhere else the route 404s, exactly where the 初始版本
+ * row is not rendered either.
  */
 export interface DocumentSeedView {
   kind: DocumentKind;

@@ -371,7 +371,7 @@ describe("SettingsPage · 角色詳情 版本紀錄", () => {
   // T-1f39 (owner 2026-07-31): 重置 lost its own button — the slot now holds
   // 版本紀錄, and the reset survives as the 初始版本 row inside it. The role
   // page is where the SEED/CUSTOM split still has to hold: a seed role has a
-  // file to go back to, a custom one does not (the server 404s its reset), so
+  // file to go back to, a custom one does not (the server refuses its reset as not applicable), so
   // the row must be there for one and absent for the other.
   it("edit mode offers a way back to the seed on a seed role but NOT on a custom role", async () => {
     const utils = await openRolesLog();

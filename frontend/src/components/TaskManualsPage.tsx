@@ -155,6 +155,7 @@ export function TaskManualsList({
     return (
       <div className="set-entry-row" key={m.typeKey}>
         <div className="set-entry-row__main">
+          {/* Display name only — no purpose subtitle, no leading icon (owner 2026-07-13). */}
           <button
             type="button"
             className="set-entry manual-row"
