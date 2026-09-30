@@ -28,14 +28,29 @@ func apiSeededAssistantRow() map[string]any {
 	}
 }
 
+// apiBuiltinManualSizeRows is the built-in task manuals every station lists,
+// before anyone has edited them.
+func apiBuiltinManualSizeRows(capChars int) []any {
+	return []any{
+		map[string]any{
+			"type_key": "builtin-task-manual-design",
+			"sop":      map[string]any{"size_chars": 3872, "cap_chars": capChars},
+		},
+		map[string]any{
+			"type_key": "builtin-role-design",
+			"sop":      map[string]any{"size_chars": 2761, "cap_chars": capChars},
+		},
+	}
+}
+
 func TestHandlePeekDocSizesApiDocSizesGet(t *testing.T) {
-	t.Run("an out-of-box station reports its one seeded role's two documents and no task manual at all", func(t *testing.T) {
+	t.Run("an out-of-box station reports its one seeded role's two documents and the built-in task manuals' SOPs", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		dashboard := apiTestListen(t, api, "")
 
 		apiWantBody(t, apiDocSizes(t, h, owner), map[string]any{
 			"roles":        []any{apiSeededAssistantRow()},
-			"task_manuals": []any{},
+			"task_manuals": apiBuiltinManualSizeRows(15000),
 		})
 		dashboard.wantFrames()
 	})
@@ -62,12 +77,12 @@ func TestHandlePeekDocSizesApiDocSizesGet(t *testing.T) {
 					"insight":  map[string]any{"size_chars": 0, "cap_chars": 15000},
 				},
 			},
-			"task_manuals": []any{
+			"task_manuals": append(apiBuiltinManualSizeRows(15000),
 				map[string]any{
 					"type_key": "crate",
 					"sop":      map[string]any{"size_chars": 0, "cap_chars": 15000},
 				},
-			},
+			),
 		})
 		dashboard.wantFrames()
 	})
@@ -86,7 +101,7 @@ func TestHandlePeekDocSizesApiDocSizesGet(t *testing.T) {
 				"duty":     map[string]any{"size_chars": 169, "cap_chars": 1000},
 				"insight":  map[string]any{"size_chars": 13, "cap_chars": 15000},
 			}},
-			"task_manuals": []any{},
+			"task_manuals": apiBuiltinManualSizeRows(15000),
 		})
 		dashboard.wantFrames()
 	})
@@ -108,10 +123,10 @@ func TestHandlePeekDocSizesApiDocSizesGet(t *testing.T) {
 				"duty":     map[string]any{"size_chars": 169, "cap_chars": 1000},
 				"insight":  map[string]any{"size_chars": 1089, "cap_chars": 20000},
 			}},
-			"task_manuals": []any{map[string]any{
+			"task_manuals": append(apiBuiltinManualSizeRows(30000), map[string]any{
 				"type_key": "crate",
 				"sop":      map[string]any{"size_chars": 0, "cap_chars": 30000},
-			}},
+			}),
 		})
 	})
 
@@ -121,7 +136,7 @@ func TestHandlePeekDocSizesApiDocSizesGet(t *testing.T) {
 
 		apiWantBody(t, apiDocSizes(t, h, housekeeper), map[string]any{
 			"roles":        []any{apiSeededAssistantRow()},
-			"task_manuals": []any{},
+			"task_manuals": apiBuiltinManualSizeRows(15000),
 		})
 	})
 
@@ -146,7 +161,7 @@ func TestHandlePeekDocSizesApiDocSizesGet(t *testing.T) {
 		}
 		apiWantBody(t, data, map[string]any{
 			"roles":        []any{apiSeededAssistantRow()},
-			"task_manuals": []any{},
+			"task_manuals": apiBuiltinManualSizeRows(15000),
 		})
 	})
 }

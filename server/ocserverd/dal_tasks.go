@@ -896,6 +896,8 @@ func releaseWorkerOn(ex sqlExecer, workerID string, now float64) error {
 	return err
 }
 
+// IsSeed and IsDefault are not columns: FoldTaskManual sets them. A row read
+// straight from the DAL is an overlay and says nothing about the seed.
 type TaskManual struct {
 	TypeKey     string
 	DisplayName string
@@ -904,16 +906,19 @@ type TaskManual struct {
 	SopMD       string
 	Assignee    string // JSON object; "{}" = unset
 	UpdatedTS   float64
+	Tombstoned  bool
+	IsSeed      bool
+	IsDefault   bool
 }
 
 const taskManualColumns = `type_key, purpose, fields, sop_md,
-	assignee, updated_ts, display_name`
+	assignee, updated_ts, display_name, tombstoned`
 
 func scanTaskManual(row interface{ Scan(...any) error }) (TaskManual, error) {
 	var m TaskManual
 	err := row.Scan(
 		&m.TypeKey, &m.Purpose, &m.Fields, &m.SopMD,
-		&m.Assignee, &m.UpdatedTS, &m.DisplayName,
+		&m.Assignee, &m.UpdatedTS, &m.DisplayName, &m.Tombstoned,
 	)
 	return m, err
 }
@@ -962,14 +967,15 @@ func (d *DAL) PutTaskManual(m TaskManual) error {
 func putTaskManualOn(ex sqlExecer, m TaskManual) error {
 	_, err := ex.Exec(`
 		INSERT INTO task_manual (`+taskManualColumns+`)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (type_key) DO UPDATE SET
 			purpose = excluded.purpose, fields = excluded.fields,
 			sop_md = excluded.sop_md,
 			assignee = excluded.assignee, updated_ts = excluded.updated_ts,
-			display_name = excluded.display_name`,
+			display_name = excluded.display_name,
+			tombstoned = excluded.tombstoned`,
 		m.TypeKey, m.Purpose, m.Fields, m.SopMD,
-		m.Assignee, m.UpdatedTS, m.DisplayName,
+		m.Assignee, m.UpdatedTS, m.DisplayName, m.Tombstoned,
 	)
 	return err
 }

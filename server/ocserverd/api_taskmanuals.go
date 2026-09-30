@@ -7,6 +7,8 @@ package main
 import (
 	"encoding/json"
 	"net/http"
+	"sort"
+	"strings"
 	"unicode/utf8"
 )
 
@@ -28,8 +30,65 @@ func taskManualSopHistorySnapshot(m TaskManual) (string, error) {
 	return historyJSON(map[string]string{"sop_md": m.SopMD})
 }
 
+// 🔴 The ONE read of a task manual outside the DAL: every reader that means
+// "the manual this station serves" goes through foldTaskManual /
+// foldTaskManuals, or an unedited built-in is invisible to it.
+func (s *apiServer) foldTaskManual(typeKey string) (*TaskManual, error) {
+	overlay, err := s.dal.GetTaskManual(typeKey)
+	if err != nil {
+		return nil, err
+	}
+	seed, err := s.root.seedTaskManual(typeKey)
+	if err != nil {
+		return nil, err
+	}
+	return FoldTaskManual(overlay, seed), nil
+}
+
+func (s *apiServer) foldTaskManuals() ([]TaskManual, error) {
+	overlays, err := s.dal.ListTaskManuals()
+	if err != nil {
+		return nil, err
+	}
+	overlayOf := make(map[string]*TaskManual, len(overlays))
+	for i := range overlays {
+		overlayOf[overlays[i].TypeKey] = &overlays[i]
+	}
+	var out []TaskManual
+	for _, b := range builtinTaskManuals {
+		seed, err := s.root.seedTaskManual(b.TypeKey)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *FoldTaskManual(overlayOf[b.TypeKey], seed))
+	}
+	for i := range overlays {
+		if isBuiltinTaskManual(overlays[i].TypeKey) {
+			continue
+		}
+		if folded := FoldTaskManual(&overlays[i], nil); folded != nil {
+			out = append(out, *folded)
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		a, b := taskManualSortName(out[i]), taskManualSortName(out[j])
+		if a != b {
+			return a < b
+		}
+		return out[i].TypeKey < out[j].TypeKey
+	})
+	return out, nil
+}
+
+func taskManualSortName(m TaskManual) string {
+	if m.DisplayName == "" {
+		return strings.ToLower(m.TypeKey)
+	}
+	return strings.ToLower(m.DisplayName)
+}
+
 func (s *apiServer) resolveTaskManual(typeKey string) (*TaskManual, error) {
-	m, err := s.dal.GetTaskManual(typeKey)
+	m, err := s.foldTaskManual(typeKey)
 	if err != nil {
 		return nil, err
 	}
@@ -61,7 +120,12 @@ func (s *apiServer) writeTaskManual(w http.ResponseWriter, m TaskManual) {
 }
 
 func (s *apiServer) writeTaskManualReceipt(w http.ResponseWriter, m TaskManual, wroteSop bool) {
-	receipt := taskManualReceiptDTO{TypeKey: m.TypeKey, UpdatedTS: m.UpdatedTS}
+	receipt := taskManualReceiptDTO{
+		TypeKey:   m.TypeKey,
+		UpdatedTS: m.UpdatedTS,
+		IsDefault: m.IsDefault,
+		IsSeed:    m.IsSeed,
+	}
 	if wroteSop {
 		n := utf8.RuneCountInString(m.SopMD)
 		capChars := s.manualSopCap()
@@ -152,7 +216,7 @@ const assigneeGovernanceMsg = "assignee is owner/admin-agent governance — " +
 	"a plain agent may not set who executes a task type"
 
 func (s *apiServer) HandleListTaskManualsApiTaskManualsGet(w http.ResponseWriter, r *http.Request) {
-	manuals, err := s.dal.ListTaskManuals()
+	manuals, err := s.foldTaskManuals()
 	if err != nil {
 		internalError(w, err)
 		return
@@ -213,7 +277,7 @@ func (s *apiServer) HandleCreateTaskManualApiTaskManualsPost(w http.ResponseWrit
 		assigneeBlob = string(blob)
 	}
 	taken := func() error {
-		existing, err := s.dal.GetTaskManual(typeKey)
+		existing, err := s.foldTaskManual(typeKey)
 		if err == nil && existing != nil {
 			err = refuseInTx(http.StatusConflict, "task manual '"+typeKey+"' already exists")
 		}
@@ -342,6 +406,7 @@ func (s *apiServer) HandleUpdateTaskManualApiTaskManualsTypeKeyPost(w http.Respo
 		m.Assignee = string(blob)
 	}
 	m.UpdatedTS = nowSecs()
+	m.IsDefault = false
 	streams := taskManualHistoryStreams(typeKey, currentActor(r), m.SopMD != sopBefore)
 	if err := s.dal.SaveWithDocumentHistories(streams, func(ex sqlExecer) error {
 		return putTaskManualOn(ex, *m)
@@ -356,6 +421,11 @@ func (s *apiServer) HandleUpdateTaskManualApiTaskManualsTypeKeyPost(w http.Respo
 }
 
 func (s *apiServer) HandleDeleteTaskManualApiTaskManualsTypeKeyDelete(w http.ResponseWriter, r *http.Request, typeKey string) {
+	if isBuiltinTaskManual(typeKey) {
+		writeError(w, http.StatusForbidden,
+			"task manual '"+typeKey+"' is built-in and cannot be deleted — reset it instead")
+		return
+	}
 	if _, err := s.resolveTaskManual(typeKey); err != nil {
 		writeResolveError(w, err, "task manual", typeKey)
 		return
@@ -379,6 +449,42 @@ func (s *apiServer) HandleDeleteTaskManualApiTaskManualsTypeKeyDelete(w http.Res
 	writeJSON(w, http.StatusOK, taskManualDeleteResultDTO{
 		TypeKey: typeKey, Deleted: deleted,
 	})
+}
+
+// Reset writes a tombstone rather than deleting the row: DeleteTaskManual also
+// drops the SOP history, which a reset must keep.
+func (s *apiServer) HandleResetTaskManualApiTaskManualsTypeKeyResetPost(w http.ResponseWriter, r *http.Request, typeKey string) {
+	if !isBuiltinTaskManual(typeKey) {
+		if _, err := s.resolveTaskManual(typeKey); err != nil {
+			writeResolveError(w, err, "task manual", typeKey)
+			return
+		}
+		writeError(w, http.StatusConflict, "reset is not applicable to task manual '"+typeKey+
+			"': it was created on this station and has no shipped version — only built-in task manuals can be reset")
+		return
+	}
+	tombstone := TaskManual{
+		TypeKey:    typeKey,
+		Fields:     "[]",
+		Assignee:   "{}",
+		UpdatedTS:  nowSecs(),
+		Tombstoned: true,
+	}
+	if err := s.dal.SaveWithDocumentHistories(
+		taskManualHistoryStreams(typeKey, currentActor(r), true),
+		func(ex sqlExecer) error {
+			return putTaskManualOn(ex, tombstone)
+		}); err != nil {
+		internalError(w, err)
+		return
+	}
+	s.publishTaskManual(typeKey, requestTrigger(r))
+	m, err := s.resolveTaskManual(typeKey)
+	if err != nil {
+		internalError(w, err)
+		return
+	}
+	s.writeTaskManualReceipt(w, *m, true)
 }
 
 // POST /api/task-manuals/{type_key}/sop/patch — anchor-addressed SOP patch on

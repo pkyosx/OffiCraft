@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestHistoryKeyParts(t *testing.T) {
@@ -672,6 +673,43 @@ func TestDocumentSeedContent(t *testing.T) {
 		}
 	})
 
+	t.Run("a built-in task manual returns its shipped SOP under the SOP field and tombstone", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+		for _, tc := range []struct {
+			typeKey string
+			runes   int
+			sha256  string
+		}{
+			{"builtin-role-design", 2761, "f1784a9bdda165a3f28348180b7c888afa94fc35cb250855d5ad94eb175dbbb7"},
+			{"builtin-task-manual-design", 3872, "bb27fb16377af2f6dc457a06315faff8d12332142dff16a9545d73b1331fc004"},
+		} {
+			got, hasSeed, err := api.documentSeedContent(docKindTaskManualSop, tc.typeKey)
+			if err != nil || !hasSeed {
+				t.Fatalf("%s: documentSeedContent = %v, %v", tc.typeKey, hasSeed, err)
+			}
+			if len(got) != 2 || got["tombstoned"] != "true" {
+				t.Fatalf("%s: seed content keys = %#v, want exactly sop_md and tombstoned=true", tc.typeKey, got)
+			}
+			if n := utf8.RuneCountInString(got["sop_md"]); n != tc.runes {
+				t.Fatalf("%s: seed sop_md runes = %d, want %d", tc.typeKey, n, tc.runes)
+			}
+			if sum := receiptSha256(got["sop_md"]); sum != tc.sha256 {
+				t.Fatalf("%s: seed sop_md sha256 = %s, want %s", tc.typeKey, sum, tc.sha256)
+			}
+		}
+	})
+
+	t.Run("a task manual created on the station has no shipped seed", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		if err := d.PutTaskManual(TaskManual{TypeKey: "tm-quote", Fields: "[]", Assignee: "{}", SopMD: "# SOP"}); err != nil {
+			t.Fatalf("PutTaskManual: %v", err)
+		}
+		got, hasSeed, err := api.documentSeedContent(docKindTaskManualSop, "tm-quote")
+		if got != nil || hasSeed || err != nil {
+			t.Fatalf("documentSeedContent = %#v, %v, %v; want nil, false, nil", got, hasSeed, err)
+		}
+	})
+
 	t.Run("an unknown kind has no seed and no error", func(t *testing.T) {
 		api, _, _, _ := newAPITestServer(t)
 		got, hasSeed, err := api.documentSeedContent("bogus", "global")
@@ -1220,7 +1258,36 @@ func TestRestoreTaskManualField(t *testing.T) {
 			"sop_md": "SOP 舊版", "assignee": map[string]any{},
 			"lore": "", "lore_chars": 0,
 			"sop_md_chars": 6, "sop_md_cap_chars": 15000,
-			"updated_ts": apiAnyNumber,
+			"updated_ts": apiAnyNumber, "is_seed": false, "is_default": false,
+		})
+	})
+
+	t.Run("restoring a built-in manual's SOP revision after a reset puts that SOP over the shipped manual", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/task-manuals/builtin-role-design", owner, `{"sop_md":"第一次改寫"}`)
+		apiJSON(t, h, "POST", "/api/task-manuals/builtin-role-design", owner, `{"sop_md":"第二次改寫"}`)
+		apiJSON(t, h, "POST", "/api/task-manuals/builtin-role-design/reset", owner, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/document-history/task_manual_sop/builtin-role-design/1/restore", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"id": 1, "created_ts": apiAnyNumber, "actor_id": "owner",
+			"content": map[string]any{"sop_md": "第一次改寫"},
+		})
+		status, data = apiJSON(t, h, "GET", "/api/task-manuals/builtin-role-design", owner, "")
+		if status != 200 {
+			t.Fatalf("read task manual: %d %v", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"type_key": "builtin-role-design", "display_name": "建立／修改角色",
+			"purpose": "建立新的角色，或調整既有角色的角色定義與判準（Insight）。",
+			"fields":  []any{map[string]any{"name": "role_name", "required": true, "is_key": true}},
+			"sop_md":  "第一次改寫", "assignee": map[string]any{"kind": "staff", "member_id": "mira"},
+			"lore": "", "lore_chars": 0,
+			"sop_md_chars": 5, "sop_md_cap_chars": 15000,
+			"updated_ts": apiAnyNumber, "is_seed": true, "is_default": false,
 		})
 	})
 }

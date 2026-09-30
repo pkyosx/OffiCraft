@@ -705,7 +705,7 @@ type insightDTO struct {
 	SchemaVersion int    `json:"schema_version"`
 	IsDefault     bool   `json:"is_default"`
 	// HasSeed: a factory insight exists for THIS role — the precondition for
-	// reset_insight (404 otherwise). 🔴 Not IsDefault (what was written vs what to
+	// reset_insight (409 otherwise). 🔴 Not IsDefault (what was written vs what to
 	// fall back to), and not RoleDefDTO.IsSeed: the duty seed is gated on the
 	// factory role roster (seedRoleDefinitionMD), the insight seed only on the file
 	// existing (seedInsightMD), so a role can have one without the other.
@@ -1215,6 +1215,9 @@ type taskManualReceiptDTO struct {
 
 	UpdatedTS float64 `json:"updated_ts"`
 
+	IsDefault bool `json:"is_default"`
+	IsSeed    bool `json:"is_seed"`
+
 	SopMdChars    *int    `json:"sop_md_chars,omitempty"`
 	SopMdCapChars *int    `json:"sop_md_cap_chars,omitempty"`
 	SopMdSha256   *string `json:"sop_md_sha256,omitempty"`
@@ -1523,6 +1526,8 @@ type taskManualDTO struct {
 	LoreChars int            `json:"lore_chars"`
 	Assignee  map[string]any `json:"assignee"`
 	UpdatedTS float64        `json:"updated_ts"`
+	IsSeed    bool           `json:"is_seed"`
+	IsDefault bool           `json:"is_default"`
 }
 
 // taskManualListItemDTO: sop_md is ABSENT, not "" (an empty SOP is a
@@ -1536,6 +1541,8 @@ type taskManualListItemDTO struct {
 	Fields        []ManualField  `json:"fields"`
 	Assignee      map[string]any `json:"assignee"`
 	UpdatedTS     float64        `json:"updated_ts"`
+	IsSeed        bool           `json:"is_seed"`
+	IsDefault     bool           `json:"is_default"`
 }
 
 type taskManualDeleteResultDTO struct {
@@ -1865,6 +1872,8 @@ func newTaskManualDTO(m TaskManual, sopCapChars int) (taskManualDTO, error) {
 		SopMD:         m.SopMD,
 		Assignee:      assignee,
 		UpdatedTS:     m.UpdatedTS,
+		IsSeed:        m.IsSeed,
+		IsDefault:     m.IsDefault,
 	}, nil
 }
 
@@ -1892,6 +1901,8 @@ func newTaskManualListItemDTO(m TaskManual, sopCapChars int) (taskManualListItem
 		Fields:        fields,
 		Assignee:      assignee,
 		UpdatedTS:     m.UpdatedTS,
+		IsSeed:        m.IsSeed,
+		IsDefault:     m.IsDefault,
 	}, nil
 }
 

@@ -385,7 +385,7 @@ func TestHandleResetInsightApiInsightRoleKeyResetPost(t *testing.T) {
 		})
 	})
 
-	t.Run("a role that ships no factory insight answers 404 naming it and fans nothing", func(t *testing.T) {
+	t.Run("a role that does not exist answers 404 naming it and fans nothing", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		dashboard := apiTestListen(t, api, "")
 
@@ -393,8 +393,34 @@ func TestHandleResetInsightApiInsightRoleKeyResetPost(t *testing.T) {
 		if status != 404 {
 			t.Fatalf("want 404, got %d (%v)", status, data)
 		}
-		apiWantError(t, data, "not_found", "role 'engineer' has no factory insight to reset to")
+		apiWantError(t, data, "not_found", "role 'engineer' not found")
 		dashboard.wantFrames()
+	})
+
+	t.Run("a role that ships no factory insight answers 409 not applicable and keeps its insight", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		if err := d.PutRoleDef(RoleDef{RoleKey: "r-design", Name: "Design", DefinitionMD: "# Duty"}); err != nil {
+			t.Fatalf("PutRoleDef: %v", err)
+		}
+		if status, data := apiJSON(t, h, "POST", "/api/insight/r-design", owner, `{"text":"weigh latency"}`); status != 200 {
+			t.Fatalf("write insight: %d %v", status, data)
+		}
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/insight/r-design/reset", owner, "")
+		if status != 409 {
+			t.Fatalf("want 409, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "conflict", "reset is not applicable to the insight of role 'r-design': "+
+			"it has no shipped version — only roles that ship an insight can be reset")
+		dashboard.wantFrames()
+		overlay, err := d.GetInsight("r-design")
+		if err != nil {
+			t.Fatalf("GetInsight: %v", err)
+		}
+		if overlay == nil || *overlay != (Insight{RoleKey: "r-design", Text: "weigh latency"}) {
+			t.Fatalf("insight after refused reset = %#v", overlay)
+		}
 	})
 
 	t.Run("an agent resetting another role's insight answers 403 and fans nothing", func(t *testing.T) {

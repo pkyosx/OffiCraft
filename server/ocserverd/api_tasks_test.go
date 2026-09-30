@@ -5026,6 +5026,40 @@ func TestHandleCreateTaskApiTasksPost(t *testing.T) {
 		})
 	})
 
+	t.Run("a task of an unedited built-in type takes the shipped manual's executor and identity field", func(t *testing.T) {
+		api, h, _, _ := newAPITestServer(t)
+		if err := seedOutOfBox(api.dal); err != nil {
+			t.Fatal(err)
+		}
+		mira := apiTestAgentToken(t, api, "mira", "")
+
+		status, data := apiJSON(t, h, "POST", "/api/tasks", mira,
+			`{"title":"新增設計角色","type_key":"builtin-role-design","inputs":{"role_name":"設計"}}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"task_id":       "T-1",
+			"executor_kind": "staff",
+			"executor_id":   "mira",
+			"deduped":       false,
+		})
+
+		status, again := apiJSON(t, h, "POST", "/api/tasks", mira,
+			`{"title":"再新增設計角色","type_key":"builtin-role-design","inputs":{"role_name":"設計"}}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, again)
+		}
+		apiWantBody(t, again, map[string]any{
+			"task_id":       "T-1",
+			"executor_kind": "staff",
+			"executor_id":   "mira",
+			"deduped":       true,
+			"title":         "新增設計角色",
+			"status":        "not_started",
+		})
+	})
+
 	t.Run("a typed task missing a required input answers 400 naming the field", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		apiJSON(t, h, "POST", "/api/task-manuals", owner,

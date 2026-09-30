@@ -121,6 +121,8 @@ func manualSnapshotIn(typeKey string, of func(TaskManual) (string, error)) func(
 		if err != nil {
 			return "", err
 		}
+		// Raw overlay on purpose: an unedited built-in's seed is the 初始版本
+		// row, not a retained version (a reset's tombstone carries no SOP).
 		if current == nil {
 			return "{}", nil
 		}
@@ -267,8 +269,8 @@ func (s *apiServer) HandleGetDocumentVersionApiDocumentHistoryKindKeyIdGet(w htt
 // names the history snapshot uses: the cockpit diffs the maps key by key, and a
 // mismatched name renders 「沒有差異」 against every version instead of erroring.
 //
-// hasSeed is true only for documents that own a reset route, so this 404s exactly
-// where the reset does — the cockpit renders its 初始版本 row from that. Seeds are
+// hasSeed is false exactly where the reset is refused (no shipped version), so
+// this 404s there — the cockpit renders its 初始版本 row from that. Seeds are
 // tombstoned because that is how resets are written; it drives the
 // 「當時為預設內容」 badge.
 func (s *apiServer) documentSeedContent(kind, key string) (map[string]string, bool, error) {
@@ -313,6 +315,12 @@ func (s *apiServer) documentSeedContent(kind, key string) (map[string]string, bo
 			return nil, false, nil
 		}
 		return map[string]string{"text": seedMD, "tombstoned": "true"}, true, nil
+	case docKindTaskManualSop:
+		seed, err := s.root.seedTaskManual(key)
+		if err != nil || seed == nil {
+			return nil, false, err
+		}
+		return map[string]string{"sop_md": seed.SopMD, "tombstoned": "true"}, true, nil
 	}
 	return nil, false, nil
 }
@@ -533,12 +541,9 @@ func (s *apiServer) restoreDocumentHistory(r *http.Request, kind, key string, co
 }
 
 func (s *apiServer) restoreTaskManualField(key string, streams []documentHistoryStream, apply func(*TaskManual) error) error {
-	current, err := s.dal.GetTaskManual(key)
+	current, err := s.resolveTaskManual(key)
 	if err != nil {
 		return err
-	}
-	if current == nil {
-		return errNotFound
 	}
 	next := *current
 	if err := apply(&next); err != nil {

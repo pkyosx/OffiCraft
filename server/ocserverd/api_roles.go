@@ -289,7 +289,17 @@ func roleDefReceiptOf(dto *roleDefDTO) roleDefReceiptDTO {
 
 func (s *apiServer) HandleResetRoleApiRolesRoleResetPost(w http.ResponseWriter, r *http.Request, role string) {
 	if seedRoleName(role) == "" {
-		writeError(w, http.StatusNotFound, "role '"+role+"' not found")
+		existing, err := s.foldRoleDefDTO(role)
+		if err != nil {
+			internalError(w, err)
+			return
+		}
+		if existing == nil {
+			writeError(w, http.StatusNotFound, "role '"+role+"' not found")
+			return
+		}
+		writeError(w, http.StatusConflict, "reset is not applicable to role '"+role+
+			"': it was created on this station and has no shipped version — only shipped roles can be reset")
 		return
 	}
 	current, err := s.foldRoleDefDTO(role)

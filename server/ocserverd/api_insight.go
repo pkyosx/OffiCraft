@@ -31,7 +31,7 @@ func (s *apiServer) foldInsightDTO(roleKey string) (*insightDTO, error) {
 		OwnerID:       wireOwnerID,
 		SchemaVersion: wireSchemaVersion,
 		IsDefault:     isDefault,
-		// From the seed-file probe (the value reset's 404 is decided by), not derived
+		// From the seed-file probe (the value reset's 409 is decided by), not derived
 		// from isDefault: they answer different questions (see wire.go).
 		HasSeed: hasSeed,
 	}, nil
@@ -98,8 +98,8 @@ func (s *apiServer) HandleGetInsightApiInsightRoleKeyGet(w http.ResponseWriter, 
 // 🔴 No doc cap on this path, matching reset_role: the factory text is not
 // caller-authored. (The restore in api_document_history.go does check the cap.)
 func (s *apiServer) HandleResetInsightApiInsightRoleKeyResetPost(w http.ResponseWriter, r *http.Request, roleKey string) {
-	// Authz before the 404 (like replace/patch, unlike reset_role), so the status
-	// code does not reveal which roles ship a seed.
+	// Authz before the 404/409 (like replace/patch, unlike reset_role), so the
+	// status code does not reveal which roles ship a seed.
 	if !s.insightWriteAuthz(w, r, roleKey) {
 		return
 	}
@@ -109,8 +109,17 @@ func (s *apiServer) HandleResetInsightApiInsightRoleKeyResetPost(w http.Response
 		return
 	}
 	if !hasSeed {
-		writeError(w, http.StatusNotFound,
-			"role '"+roleKey+"' has no factory insight to reset to")
+		role, err := s.foldRoleDefDTO(roleKey)
+		if err != nil {
+			internalError(w, err)
+			return
+		}
+		if role == nil {
+			writeError(w, http.StatusNotFound, "role '"+roleKey+"' not found")
+			return
+		}
+		writeError(w, http.StatusConflict, "reset is not applicable to the insight of role '"+roleKey+
+			"': it has no shipped version — only roles that ship an insight can be reset")
 		return
 	}
 	if err := s.dal.SaveWithDocumentHistory("insight", roleKey, currentActor(r), insightSnapshotIn(roleKey), func(ex sqlExecer) error {

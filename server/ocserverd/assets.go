@@ -13,6 +13,7 @@ import (
 	"crypto/sha256"
 	"embed"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"io/fs"
 	"os"
@@ -155,6 +156,77 @@ func safeSeedRoleKey(roleKey string) bool {
 		}
 	}
 	return true
+}
+
+// The SOP text lives in seeds/task_manual_<type_key>.md; the rest of the
+// shipped manual is here. The keys sit outside the minted "tm-" space so no
+// station-created manual can already hold one.
+type builtinTaskManual struct {
+	TypeKey     string
+	DisplayName string
+	Purpose     string
+	Fields      []ManualField
+	Assignee    map[string]any
+}
+
+var builtinTaskManuals = []builtinTaskManual{
+	{
+		TypeKey:     "builtin-role-design",
+		DisplayName: "建立／修改角色",
+		Purpose:     "建立新的角色，或調整既有角色的角色定義與判準（Insight）。",
+		Fields:      []ManualField{{Name: "role_name", Required: true, IsKey: true}},
+		Assignee:    map[string]any{"kind": TaskExecutorStaff, "member_id": seedMiraID},
+	},
+	{
+		TypeKey:     "builtin-task-manual-design",
+		DisplayName: "建立／修改任務手冊",
+		Purpose:     "建立新的任務手冊，或調整既有任務手冊的內容與負責成員。",
+		Fields:      []ManualField{{Name: "manual_name", Required: true, IsKey: true}},
+		Assignee:    map[string]any{"kind": TaskExecutorStaff, "member_id": seedMiraID},
+	},
+}
+
+func builtinTaskManualFor(typeKey string) (builtinTaskManual, bool) {
+	for _, b := range builtinTaskManuals {
+		if b.TypeKey == typeKey {
+			return b, true
+		}
+	}
+	return builtinTaskManual{}, false
+}
+
+func isBuiltinTaskManual(typeKey string) bool {
+	_, ok := builtinTaskManualFor(typeKey)
+	return ok
+}
+
+// A registered built-in whose SOP file is missing is an error, not "no seed":
+// serving it blank would let the first edit persist an empty SOP as the manual.
+func (root assetRoot) seedTaskManual(typeKey string) (*TaskManual, error) {
+	b, ok := builtinTaskManualFor(typeKey)
+	if !ok {
+		return nil, nil
+	}
+	sop, err := root.readSeedFile("task_manual_" + typeKey + ".md")
+	if err != nil {
+		return nil, err
+	}
+	fields, err := json.Marshal(b.Fields)
+	if err != nil {
+		return nil, err
+	}
+	assignee, err := json.Marshal(b.Assignee)
+	if err != nil {
+		return nil, err
+	}
+	return &TaskManual{
+		TypeKey:     b.TypeKey,
+		DisplayName: b.DisplayName,
+		Purpose:     b.Purpose,
+		Fields:      string(fields),
+		SopMD:       sop,
+		Assignee:    string(assignee),
+	}, nil
 }
 
 const defaultBootRole = seedRoleAssistant
