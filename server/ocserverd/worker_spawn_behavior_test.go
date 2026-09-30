@@ -915,25 +915,41 @@ func TestNotifyWorkerSpawn_BlockedReasonNamesTheCause(t *testing.T) {
 	s.telemetry.Set("m-claudeonly", map[string]any{"runtimes": map[string]any{
 		RuntimeClaude: map[string]any{"installed": true, "logged_in": true},
 	}})
+	putWardenFixture(t, s, "m-signedout")
+	connectWarden(t, s, "m-signedout")
+	s.telemetry.Set("m-signedout", map[string]any{"runtimes_ts": nowSecs(), "runtimes": map[string]any{
+		RuntimeClaude: map[string]any{"installed": true, "logged_in": false},
+		RuntimeCodex:  map[string]any{"installed": true, "logged_in": false},
+	}})
 	// An ACTIVE roster member that is not a machine at all.
 	putTestMember(t, s, testAgent("m-person"))
 
 	now := 4_000_000.0
 	cases := []struct {
-		name, workerID, taskID, machine, runtime, phrase string
-		bench                                            bool
+		name, workerID, taskID, machine, runtime, want string
+		bench                                          bool
 	}{
 		{name: "offline", workerID: "ow-c1", taskID: "t-0000000000d1",
-			machine: "m-offline", phrase: "is offline"},
+			machine: "m-offline",
+			want:    "machine_unavailable: machine 'm-offline' is offline; no other machine is substituted"},
 		{name: "benched after a failed boot", workerID: "ow-c2", taskID: "t-0000000000d2",
-			machine: "m-benched", bench: true, phrase: "benched after a failed boot"},
+			machine: "m-benched", bench: true,
+			want: "machine_unavailable: machine 'm-benched' was just benched after a failed boot of this worker; no other machine is substituted"},
 		{name: "wrong runtime", workerID: "ow-c3", taskID: "t-0000000000d3",
 			machine: "m-claudeonly", runtime: RuntimeCodex,
-			phrase: "does not provide the '" + RuntimeCodex + "' runtime"},
+			want: "machine_unavailable: machine 'm-claudeonly' does not provide the 'codex' runtime; no other machine is substituted"},
 		{name: "not an active machine", workerID: "ow-c4", taskID: "t-0000000000d4",
-			machine: "m-person", phrase: "is not an active machine"},
+			machine: "m-person",
+			want:    "machine_unavailable: machine 'm-person' is not an active machine; no other machine is substituted"},
 		{name: "does not exist", workerID: "ow-c5", taskID: "t-0000000000d5",
-			machine: "m-ghost", phrase: "does not exist"},
+			machine: "m-ghost",
+			want:    "machine_unavailable: machine 'm-ghost' does not exist; no other machine is substituted"},
+		{name: "claude logged out", workerID: "ow-c7", taskID: "t-0000000000d7",
+			machine: "m-signedout", runtime: RuntimeClaude,
+			want: "machine_unavailable: machine 'm-signedout' is not logged in to claude; no other machine is substituted"},
+		{name: "codex logged out", workerID: "ow-c8", taskID: "t-0000000000d8",
+			machine: "m-signedout", runtime: RuntimeCodex,
+			want: "machine_unavailable: machine 'm-signedout' is not logged in to codex; no other machine is substituted"},
 	}
 	seen := map[string]string{}
 	for _, c := range cases {
@@ -959,13 +975,8 @@ func TestNotifyWorkerSpawn_BlockedReasonNamesTheCause(t *testing.T) {
 			t.Fatalf("%s: a refused placement must not dispatch", c.name)
 		}
 		blocked := readWorker(t, s, c.workerID)
-		if !strings.HasPrefix(blocked.LastOpReason, placementReasonUnavailable+":") {
-			t.Fatalf("%s: last_op_reason = %q, want a %s reason", c.name,
-				blocked.LastOpReason, placementReasonUnavailable)
-		}
-		if !strings.Contains(blocked.LastOpReason, c.phrase) {
-			t.Fatalf("%s: last_op_reason must name the cause %q, got %q", c.name,
-				c.phrase, blocked.LastOpReason)
+		if blocked.LastOpReason != c.want {
+			t.Fatalf("%s: last_op_reason:\n got %q\nwant %q", c.name, blocked.LastOpReason, c.want)
 		}
 		if prior, dup := seen[blocked.LastOpReason]; dup {
 			t.Fatalf("%s and %s share one reason %q — the causes are not distinguishable",
@@ -985,6 +996,83 @@ func TestNotifyWorkerSpawn_BlockedReasonNamesTheCause(t *testing.T) {
 	s.outsourceMu.Unlock()
 	if !dispatched || len(s.hub.DrainWardenCommands(ServerSelfHost)) != 1 {
 		t.Fatal("a healthy named machine must take the worker")
+	}
+}
+
+func TestNotifyWorkerSpawn_UnderALoginReadingThatIsNotAFreshFalseTheWorkerDispatches(t *testing.T) {
+	for _, runtime := range []string{RuntimeClaude, RuntimeCodex} {
+		for _, c := range []struct {
+			name     string
+			loggedIn any
+			age      float64
+		}{
+			{"stale false", false, telemetryFreshSecs + 1},
+			{"null", nil, 0},
+			{"true", true, 0},
+		} {
+			t.Run(runtime+" "+c.name, func(t *testing.T) {
+				s := newWorkerTestServer(t)
+				putWardenFixture(t, s, "m-box")
+				connectWarden(t, s, "m-box")
+				s.telemetry.Set("m-box", map[string]any{"runtimes_ts": nowSecs() - c.age, "runtimes": map[string]any{
+					runtime: map[string]any{"installed": true, "logged_in": c.loggedIn},
+				}})
+				w := blockedSpawnFixture(t, s, "t-0000000000f1", "ow-login", "m-box")
+				w.Runtime = runtime
+				if err := s.dal.SetMemberRuntime(w.ID, runtime); err != nil {
+					t.Fatalf("set runtime: %v", err)
+				}
+
+				s.outsourceMu.Lock()
+				dispatched := s.notifyWorkerSpawn(w, nowSecs())
+				s.outsourceMu.Unlock()
+
+				if !dispatched || len(s.hub.DrainWardenCommands("m-box")) != 1 {
+					t.Fatalf("dispatched = %v; want one START on m-box", dispatched)
+				}
+				if got := readWorker(t, s, w.ID).LastOpReason; got != "" {
+					t.Fatalf("last_op_reason = %q, want none", got)
+				}
+			})
+		}
+	}
+}
+
+func TestNotifyWorkerSpawn_AfterLoginIsRestoredTheWorkerDispatchesAndTheReasonClears(t *testing.T) {
+	s := newWorkerTestServer(t)
+	putWardenFixture(t, s, "m-box")
+	connectWarden(t, s, "m-box")
+	report := func(loggedIn bool) {
+		s.telemetry.Set("m-box", map[string]any{"runtimes_ts": nowSecs(), "runtimes": map[string]any{
+			RuntimeCodex: map[string]any{"installed": true, "logged_in": loggedIn},
+		}})
+	}
+	w := blockedSpawnFixture(t, s, "t-0000000000f2", "ow-back", "m-box")
+	w.Runtime = RuntimeCodex
+	if err := s.dal.SetMemberRuntime(w.ID, RuntimeCodex); err != nil {
+		t.Fatalf("set runtime: %v", err)
+	}
+	spawn := func() bool {
+		s.outsourceMu.Lock()
+		defer s.outsourceMu.Unlock()
+		return s.notifyWorkerSpawn(w, nowSecs())
+	}
+
+	report(false)
+	if spawn() {
+		t.Fatal("premise: a fresh logged-out codex must refuse the spawn")
+	}
+	if got, want := readWorker(t, s, w.ID).LastOpReason,
+		"machine_unavailable: machine 'm-box' is not logged in to codex; no other machine is substituted"; got != want {
+		t.Fatalf("refused last_op_reason:\n got %q\nwant %q", got, want)
+	}
+
+	report(true)
+	if !spawn() || len(s.hub.DrainWardenCommands("m-box")) != 1 {
+		t.Fatal("after login is restored the worker must dispatch one START")
+	}
+	if got := readWorker(t, s, w.ID).LastOpReason; got != "" {
+		t.Fatalf("last_op_reason after the dispatch = %q, want it cleared", got)
 	}
 }
 

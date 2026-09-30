@@ -4086,7 +4086,7 @@ export interface components {
             runtime?: unknown;
             /**
              * Runtimes
-             * @description Warden heartbeats only — provider-neutral runtime capability map. Each ``claude``/``codex`` entry may report ``installed`` bool, ``logged_in`` bool/null, and ``version`` string/null, and ``codex`` also ``model_families`` bool; values are readiness metadata only, never credentials. The shape is DECLARED (T-90be) and this is the block where a silent rename costs the most: ``machineSupportsRuntime`` (api_machines.go) fail-closes to false when it cannot read codex ``installed``, so the machine becomes permanently unsupported for codex and its workers sit stamped ``machine_unavailable`` — with nothing on screen saying why. NOT closed (see ``hardware``): an unknown runtime name or a new readiness key must not 422 the whole heartbeat.
+             * @description Warden heartbeats only — provider-neutral runtime capability map. Each ``claude``/``codex`` entry may report ``installed`` bool, ``logged_in`` bool/null, and ``version`` string/null, and ``codex`` also ``model_families`` bool; values are readiness metadata only, never credentials. The shape is DECLARED (T-90be) and this is the block where a silent rename costs the most: ``runtimePlacementRefusal`` (api_machines.go) fail-closes when it cannot read codex ``installed``, so the machine becomes permanently unsupported for codex and its workers sit stamped ``machine_unavailable`` — with nothing on screen saying why. NOT closed (see ``hardware``): an unknown runtime name or a new readiness key must not 422 the whole heartbeat.
              */
             runtimes?: {
                 /**
@@ -4101,7 +4101,7 @@ export interface components {
                     installed?: boolean | null;
                     /**
                      * Logged In
-                     * @description Result of ``claude auth status``, run in the same environment the warden launches members with and re-run every ``runtime_login_check_interval_secs`` while it reads logged in, every ``runtime_login_recheck_interval_secs`` while it reads logged out or unknown: true when it reports logged in; false only when it reports logged out and (on macOS) the warden can read the login keychain; absent on timeout, unparseable output or an unreadable keychain. Absent is unknown, never logged out. Claude placement does not gate on this value. Never carries a credential value.
+                     * @description Result of ``claude auth status``, run in the same environment the warden launches members with and re-run every ``runtime_login_check_interval_secs`` while it reads logged in, every ``runtime_login_recheck_interval_secs`` while it reads logged out or unknown: true when it reports logged in; false only when it reports logged out and (on macOS) the warden can read the login keychain; absent on timeout, unparseable output or an unreadable keychain. Absent is unknown, never logged out. A false refuses Claude placement while ``runtime_capabilities_stale`` is false. Never carries a credential value.
                      */
                     logged_in?: boolean | null;
                     /** Version */
@@ -4111,7 +4111,7 @@ export interface components {
                 };
                 /**
                  * Codex
-                 * @description Codex readiness (``codex --version`` + ``codex login status``). This is the entry ``machineSupportsRuntime`` gates codex placement on.
+                 * @description Codex readiness (``codex --version`` + ``codex login status``). This is the entry ``runtimePlacementRefusal`` gates codex placement on.
                  */
                 codex?: {
                     /**
@@ -5628,7 +5628,7 @@ export interface components {
             online: boolean;
             /**
              * Runtime Capabilities
-             * @description Provider-neutral runtime readiness keyed by ``claude``/``codex``. Empty for an older warden that has not reported capability probes. Codex placement requires an explicit installed=true and logged_in!=false report. A completely absent capability map preserves legacy Claude placement; once a map is reported, Claude placement needs a ``claude`` entry but does not gate on its installed or logged_in values.
+             * @description Provider-neutral runtime readiness keyed by ``claude``/``codex``. Empty for an older warden that has not reported capability probes. Codex placement requires an explicit installed=true report. A completely absent capability map preserves legacy Claude placement; once a map is reported, Claude placement needs a ``claude`` entry but does not gate on its installed value. For both runtimes a logged_in=false reading refuses the wake while ``runtime_capabilities_stale`` is false; null (unknown) or a stale reading does not.
              */
             runtime_capabilities?: {
                 [key: string]: components["schemas"]["RuntimeCapabilityDTO"];

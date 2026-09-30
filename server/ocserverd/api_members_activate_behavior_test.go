@@ -245,3 +245,115 @@ func TestActivateMember_AlreadyOnlineIsNotPending(t *testing.T) {
 		t.Fatalf("online activate must not dispatch a replacement: %+v", frames)
 	}
 }
+
+func activateForReceipt(t *testing.T, s *apiServer, memberID string) map[string]any {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	s.HandleActivateMemberApiMembersMemberIdActivatePost(rec,
+		taskReq(t, "POST", "/api/members/"+memberID+"/activate",
+			map[string]any{}, wireOwnerID, "owner"), memberID)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("activate: %d %s", rec.Code, rec.Body.String())
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
+		t.Fatalf("decode activate response: %v", err)
+	}
+	return raw
+}
+
+func startFramesOn(t *testing.T, s *apiServer, wardenID string) int {
+	t.Helper()
+	n := 0
+	for _, frame := range drainFrames(t, s, wardenID) {
+		if frame.RPC == reconcileCmdStart {
+			n++
+		}
+	}
+	return n
+}
+
+func TestActivateMember_RefusedPlacementAnswersItsOwnCause(t *testing.T) {
+	cases := []struct {
+		name, runtime, model string
+		capability           map[string]any
+		want                 string
+	}{
+		{"under claude reported logged out", RuntimeClaude, "",
+			map[string]any{"installed": true, "logged_in": false},
+			"machine_unavailable: machine 'mach-live' is not logged in to claude; no other machine is substituted"},
+		{"under codex reported logged out", RuntimeCodex, "",
+			map[string]any{"installed": true, "logged_in": false},
+			"machine_unavailable: machine 'mach-live' is not logged in to codex; no other machine is substituted"},
+		{"under codex reported not installed", RuntimeCodex, "",
+			map[string]any{"installed": false},
+			"machine_unavailable: machine 'mach-live' does not provide the 'codex' runtime; no other machine is substituted"},
+		{"under a codex model family the warden cannot resolve", RuntimeCodex, "sol",
+			map[string]any{"installed": true, "logged_in": true},
+			"machine_unavailable: machine 'mach-live' runs a warden too old to resolve the Codex model " +
+				"family 'sol' — upgrade that machine's warden, or set a full model id"},
+	}
+	for _, c := range cases {
+		t.Run(c.name+", the receipt and the row carry that cause, not warden_unreachable", func(t *testing.T) {
+			s := newReconcileTestServer(t)
+			putWarden(t, s, "mach-live")
+			connectOnline(t, s, "mach-live")
+			s.telemetry.Set("mach-live", map[string]any{"runtimes_ts": nowSecs(), "runtimes": map[string]any{
+				c.runtime: c.capability,
+			}})
+			m := testAgent("m-sleepy")
+			m.DesiredState = DesiredStateOffline
+			m.DesiredMachineID = "mach-live"
+			m.Model = c.model
+			putTestMember(t, s, m)
+			if err := s.dal.SetMemberRuntime(m.ID, c.runtime); err != nil {
+				t.Fatalf("set runtime: %v", err)
+			}
+
+			raw := activateForReceipt(t, s, m.ID)
+
+			apiWantValue(t, "receipt", any(raw), any(map[string]any{
+				"id": "m-sleepy", "activation_pending": true, "last_op_reason": c.want,
+			}))
+			if got, _ := s.dal.GetMember(m.ID); got == nil || got.LastOpReason != c.want {
+				t.Fatalf("row last_op_reason = %+v, want %q", got, c.want)
+			}
+			if n := startFramesOn(t, s, "mach-live"); n != 0 {
+				t.Fatalf("a refused placement queued %d START(s)", n)
+			}
+		})
+	}
+}
+
+func TestActivateMember_AfterLoginIsRestoredTheWakeGoesOutAndTheReasonClears(t *testing.T) {
+	s := newReconcileTestServer(t)
+	putWarden(t, s, "mach-live")
+	connectOnline(t, s, "mach-live")
+	report := func(loggedIn bool) {
+		s.telemetry.Set("mach-live", map[string]any{"runtimes_ts": nowSecs(), "runtimes": map[string]any{
+			RuntimeClaude: map[string]any{"installed": true, "logged_in": loggedIn},
+		}})
+	}
+	m := testAgent("m-sleepy")
+	m.DesiredState = DesiredStateOffline
+	m.DesiredMachineID = "mach-live"
+	putTestMember(t, s, m)
+
+	report(false)
+	refused := activateForReceipt(t, s, m.ID)
+	apiWantValue(t, "refused receipt", any(refused), any(map[string]any{
+		"id": "m-sleepy", "activation_pending": true,
+		"last_op_reason": "machine_unavailable: machine 'mach-live' is not logged in to claude; no other machine is substituted",
+	}))
+
+	report(true)
+	landed := activateForReceipt(t, s, m.ID)
+
+	apiWantValue(t, "landed receipt", any(landed), any(map[string]any{"id": "m-sleepy"}))
+	if got, _ := s.dal.GetMember(m.ID); got == nil || got.LastOpReason != "" {
+		t.Fatalf("row last_op_reason after the landed wake = %+v, want it cleared", got)
+	}
+	if n := startFramesOn(t, s, "mach-live"); n != 1 {
+		t.Fatalf("START frames after login was restored = %d, want 1", n)
+	}
+}

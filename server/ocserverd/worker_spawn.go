@@ -125,8 +125,8 @@ func (s *apiServer) resolveWorkerPlacement(w OutsourceWorker, preferred string, 
 		if s.workerMachineBenched(w.ID, m.ID, now) {
 			return unavailable("was just benched after a failed boot of this worker")
 		}
-		if !s.machineSupportsRuntime(m.ID, w.Runtime) {
-			return unavailable("does not provide the '" + NormalizeRuntime(w.Runtime) + "' runtime")
+		if detail := s.runtimePlacementRefusal(m.ID, w.Runtime); detail != "" {
+			return unavailable(detail)
 		}
 		if !s.machineResolvesCodexModel(m.ID, w.Runtime, w.Model) {
 			return unavailable(codexFamilyUnresolvedDetail(w.Model))

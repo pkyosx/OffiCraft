@@ -753,56 +753,86 @@ func apiTestBoolPtr(v bool) *bool { return &v }
 
 func apiTestStringPtr(v string) *string { return &v }
 
-func TestMachineSupportsRuntime(t *testing.T) {
+func TestRuntimePlacementRefusal(t *testing.T) {
+	const noCodex = "does not provide the 'codex' runtime"
+	const noClaude = "does not provide the 'claude' runtime"
+
 	t.Run("a warden that probed nothing is a claude warden by construction and never a codex one", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		machineID, credential := apiTestMachineCredential(t, h, owner, "Studio Mac")
 		apiTestIngest(t, h, credential, `{"cost":2.5}`)
 
-		apiTestWantSupports(t, api, machineID, map[string]any{
-			"claude": true, "codex": false, "": true, "gpt": false,
+		apiTestWantRefusals(t, api, machineID, map[string]any{
+			"claude": "", "codex": noCodex, "": "", "gpt": "does not provide the 'gpt' runtime",
 		})
 	})
 
 	t.Run("a probed map that never mentions a runtime is that runtime's absence, not its unknown", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		machineID, credential := apiTestMachineCredential(t, h, owner, "Studio Mac")
-		apiTestIngest(t, h, credential, `{"runtimes":{"claude":{"installed":true,"logged_in":true}}}`)
+		apiTestIngest(t, h, credential, `{"runtimes":{"codex":{"installed":true,"logged_in":true}}}`)
 
-		apiTestWantSupports(t, api, machineID, map[string]any{
-			"claude": true, "codex": false, "": true, "gpt": false,
-		})
+		apiTestWantRefusals(t, api, machineID, map[string]any{"claude": noClaude, "codex": ""})
 	})
 
-	t.Run("claude stays permitted even when its own probe says not installed and not logged in", func(t *testing.T) {
+	t.Run("under a claude probe saying not installed, claude is still placed", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		machineID, credential := apiTestMachineCredential(t, h, owner, "Studio Mac")
-		apiTestIngest(t, h, credential,
-			`{"runtimes":{"claude":{"installed":false,"logged_in":false},"codex":{"installed":true}}}`)
+		apiTestIngest(t, h, credential, `{"runtimes":{"claude":{"installed":false},"codex":{"installed":true}}}`)
 
-		apiTestWantSupports(t, api, machineID, map[string]any{"claude": true, "codex": true})
+		apiTestWantRefusals(t, api, machineID, map[string]any{"claude": "", "codex": ""})
 	})
 
-	t.Run("codex needs an installed probe and refuses a reported logged-out one", func(t *testing.T) {
+	t.Run("under each login reading, only a fresh logged-out one refuses, for claude and codex alike", func(t *testing.T) {
+		cases := []struct {
+			name  string
+			probe string
+			stale bool
+			want  map[string]any
+		}{
+			{"logged in", `{"installed":true,"logged_in":true}`, false,
+				map[string]any{"claude": "", "codex": ""}},
+			{"no login verdict", `{"installed":true}`, false,
+				map[string]any{"claude": "", "codex": ""}},
+			{"a null login verdict", `{"installed":true,"logged_in":null}`, false,
+				map[string]any{"claude": "", "codex": ""}},
+			{"a fresh logged-out verdict", `{"installed":true,"logged_in":false}`, false,
+				map[string]any{"claude": "is not logged in to claude", "codex": "is not logged in to codex"}},
+			{"a stale logged-out verdict", `{"installed":true,"logged_in":false}`, true,
+				map[string]any{"claude": "", "codex": ""}},
+		}
+		for _, c := range cases {
+			api, h, _, owner := newAPITestServer(t)
+			machineID, credential := apiTestMachineCredential(t, h, owner, "Studio Mac")
+			apiTestIngest(t, h, credential, `{"runtimes":{"claude":`+c.probe+`,"codex":`+c.probe+`}}`)
+			if c.stale {
+				aged := api.telemetry.Get(machineID)
+				aged["runtimes_ts"] = nowSecs() - telemetryFreshSecs - 1
+				api.telemetry.Set(machineID, aged)
+			}
+
+			t.Run(c.name, func(t *testing.T) { apiTestWantRefusals(t, api, machineID, c.want) })
+		}
+	})
+
+	t.Run("codex needs an installed probe before its login is asked", func(t *testing.T) {
 		cases := []struct {
 			probe string
-			want  bool
+			want  string
 		}{
-			{`{"installed":true,"logged_in":true}`, true},
-			{`{"installed":true}`, true},
-			{`{"installed":true,"logged_in":null}`, true},
-			{`{"installed":true,"logged_in":false}`, false},
-			{`{"installed":false,"logged_in":true}`, false},
-			{`{"logged_in":true}`, false},
-			{`{}`, false},
+			{`{"installed":true}`, ""},
+			{`{"installed":false,"logged_in":true}`, noCodex},
+			{`{"installed":false,"logged_in":false}`, noCodex},
+			{`{"logged_in":true}`, noCodex},
+			{`{}`, noCodex},
 		}
 		for _, c := range cases {
 			api, h, _, owner := newAPITestServer(t)
 			machineID, credential := apiTestMachineCredential(t, h, owner, "Studio Mac")
 			apiTestIngest(t, h, credential, `{"runtimes":{"codex":`+c.probe+`}}`)
 
-			if got := api.machineSupportsRuntime(machineID, "codex"); got != c.want {
-				t.Fatalf("codex probe %s: want %v, got %v", c.probe, c.want, got)
+			if got := api.runtimePlacementRefusal(machineID, "codex"); got != c.want {
+				t.Fatalf("codex probe %s: want %q, got %q", c.probe, c.want, got)
 			}
 		}
 	})
@@ -812,21 +842,21 @@ func TestMachineSupportsRuntime(t *testing.T) {
 		machineID, credential := apiTestMachineCredential(t, h, owner, "Studio Mac")
 		apiTestIngest(t, h, credential, `{"runtimes":{"codex":{"installed":true}}}`)
 
-		apiTestWantSupports(t, api, machineID, map[string]any{
-			"codex": true, " codex ": true, "claude": false, "": false, "   ": false,
+		apiTestWantRefusals(t, api, machineID, map[string]any{
+			"codex": "", " codex ": "", "claude": noClaude, "": noClaude, "   ": noClaude,
 		})
 	})
 }
 
-// apiTestWantSupports asks the placement gate about several runtimes at once,
+// apiTestWantRefusals asks the placement gate about several runtimes at once,
 // so the answer for one is always read beside the answers for its neighbours.
-func apiTestWantSupports(t *testing.T, api *apiServer, machineID string, want map[string]any) {
+func apiTestWantRefusals(t *testing.T, api *apiServer, machineID string, want map[string]any) {
 	t.Helper()
 	got := map[string]any{}
 	for runtime := range want {
-		got[runtime] = api.machineSupportsRuntime(machineID, runtime)
+		got[runtime] = api.runtimePlacementRefusal(machineID, runtime)
 	}
-	apiWantValue(t, "supports", any(got), any(want))
+	apiWantValue(t, "refusals", any(got), any(want))
 }
 
 func TestMachineTokenKey(t *testing.T) {

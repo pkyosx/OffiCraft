@@ -179,6 +179,34 @@ func supersededDispatchClue(m Member) string {
 		m.LastOpAt, m.LastOpReason)
 }
 
+// warden refusal code → the runtime it could not find logged in
+var wardenLoginRefusalRuntime = map[string]string{
+	"claude_not_logged_in": RuntimeClaude,
+	"codex_not_logged_in":  RuntimeCodex,
+}
+
+// loginRefusalNamingMachine rewrites a warden's not-logged-in refusal into the
+// sentence placement writes, naming the reporting machine the warden's own text
+// cannot; the cockpit localizes that one sentence. The warden's text is kept as
+// the log.
+func loginRefusalNamingMachine(commandResult map[string]any, reporter string) map[string]any {
+	reason := stringOf(commandResult["reason"])
+	code, _, found := strings.Cut(reason, ":")
+	runtime, isLogin := wardenLoginRefusalRuntime[code]
+	if !found || !isLogin || reporter == "" {
+		return commandResult
+	}
+	out := make(map[string]any, len(commandResult)+1)
+	for k, v := range commandResult {
+		out[k] = v
+	}
+	if _, hasLog := out["log"].(string); !hasLog {
+		out["log"] = reason
+	}
+	out["reason"] = code + ": machine '" + reporter + "' is not logged in to " + runtime
+	return out
+}
+
 func stringOf(v any) string {
 	s, _ := v.(string)
 	return s
@@ -219,6 +247,7 @@ func (s *apiServer) foldCommandResult(commandResult map[string]any, trigger, rep
 				strings.TrimSpace(memberIDRawOf(commandResult)), reporter)
 		}
 	}
+	commandResult = loginRefusalNamingMachine(commandResult, reporter)
 	if workerID := strings.TrimSpace(workerIDRaw); workerID != "" {
 		s.foldWorkerCommandResult(workerID, commandResult, trigger)
 		return
@@ -571,9 +600,10 @@ func (s *apiServer) HandleIngestTelemetryApiMonitoringTelemetryPost(w http.Respo
 		wasStale := *runtimeCapabilitiesStale(entry, true, nowSecs())
 		loginFlipped = loginStatesDiffer(loginStatesOf(entry), next) || (wasStale && anyLoggedOut(next))
 		entry["runtimes"] = runtimes
-		// Same per-sample stamp as hardware_ts. Placement (machineSupportsRuntime)
-		// deliberately does NOT consult it — expiring the map there would
-		// reclassify a quiet machine as a legacy warden and hand it Claude work.
+		// Same per-sample stamp as hardware_ts. Placement (runtimePlacementRefusal)
+		// reads it only to discount a stale logged-out verdict; it never expires the
+		// map — that would reclassify a quiet machine as a legacy warden and hand it
+		// Claude work.
 		entry["runtimes_ts"] = nowSecs()
 	}
 	if runtime != nil {
