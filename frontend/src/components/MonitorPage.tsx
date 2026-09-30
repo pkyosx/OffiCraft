@@ -765,12 +765,13 @@ export function MonitorPage() {
                      * the capability map; absent means unknown, and the cell
                      * says so rather than inventing a number.
                      *
-                     * The ✗ states the digest carried are NOT dropped: they are
-                     * spelled out ("not installed" / "signed out"), because
-                     * they are the only on-screen explanation for a worker
-                     * parked on machine_unavailable. And because these values
-                     * come from telemetry that is never cleared on disconnect,
-                     * a non-fresh probe is MARKED, never shown plain. */}
+                     * The digest's ✗ states stay words, because for Codex they
+                     * are the only on-screen explanation for a worker parked
+                     * on machine_unavailable: "not installed" always (MARKED
+                     * when the probe is not fresh, since telemetry is never
+                     * cleared on disconnect); "signed out" only on fresh
+                     * telemetry — stale telemetry carries no login state
+                     * (owner ruling). */}
                     <td
                       className="mon-table__left"
                       data-label={t.monitor.machineCol.claude}
@@ -1459,13 +1460,13 @@ function HardwareBadMark() {
  * columns that replaced the single ✓/✗ Runtimes digest.
  *
  * Reads the SAME capability map the digest read; nothing new is collected and
- * no version is ever synthesized. What it must NOT lose is the digest's ✗: an
- * a Codex `installed:false` or `loggedIn:false` is the reason
- * placement refuses this machine and a worker sits stamped
- * `machine_unavailable`, and this cell is still the only place that reason
- * appears on screen. So those states are spelled out as words rather than
- * expressed by an absent version — an empty cell would read as "we don't
- * know", which is a different and wrong claim.
+ * no version is ever synthesized. A Codex `installed:false` or `loggedIn:false`
+ * is the reason placement refuses this machine and a worker sits stamped
+ * `machine_unavailable`, and this cell is the only place that reason appears
+ * on screen, so it is spelled out as a word rather than an absent version (an
+ * empty cell would wrongly read as "we don't know"). `installed:false` is
+ * always shown (marked when not fresh); `loggedIn:false` only as the
+ * fresh-telemetry chip below.
  *
  * The four honest outcomes, in order:
  *   never reported     → dash, titled "never probed"
