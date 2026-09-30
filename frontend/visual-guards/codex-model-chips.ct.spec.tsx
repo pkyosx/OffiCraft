@@ -2,9 +2,9 @@
 // (轉派 dialog · 任務手冊 負責成員 editor): Codex 模型 in both. It covered the
 // 轉派 dialog's 投入程度 row too until T-131 made that a dropdown — see below.
 //
-// Adding gpt-6-astra took the Codex vocabulary from 3 chips to 4, and 4
-// `gpt-5.6-*` slugs do not fit one row in a phone's ~300px content column. The
-// two ways that goes wrong are opposite, and each picker had one of them:
+// The Codex vocabulary is 4 chips and a grid decides their rows, so its
+// geometry is what this file pins. The two ways a row of 4 goes wrong are
+// opposite, and each picker had one of them:
 //
 //   .task-reassign__seg wraps → the 4th chip drops onto a row of its own and
 //     stretches to the full width, centered. That is the shape tasks.css
@@ -184,7 +184,7 @@ test("轉派 dialog 模型: the Codex model chips leave no orphan at 390px", asy
   await openReassignCodex(mount, page, 390);
   await assertNoOrphanChip(
     "轉派 dialog 模型",
-    groupOf(page, "reassign-model-gpt-6-astra"),
+    groupOf(page, "reassign-model-astra"),
     "reassign-model",
     390
   );
@@ -212,7 +212,7 @@ for (const width of [320, 390, 520]) {
     await openManualCodex(mount, page, width);
     await assertNoOrphanChip(
       `任務手冊 負責成員 模型 @${width}`,
-      groupOf(page, "manual-assignee-model-gpt-6-astra"),
+      groupOf(page, "manual-assignee-model-astra"),
       "manual-assignee-model",
       width
     );
@@ -240,7 +240,7 @@ for (const { width, columns } of [
     page,
   }) => {
     await openManualCodex(mount, page, width);
-    const group = groupOf(page, "manual-assignee-model-gpt-6-astra");
+    const group = groupOf(page, "manual-assignee-model-astra");
     const chips = await readChips(group, "manual-assignee-model");
     const rows = rowsOf(chips);
     expect(
@@ -280,7 +280,7 @@ test("任務手冊 負責成員 模型 @1280: the chips stay on one row", async 
 }) => {
   await openManualCodex(mount, page, 1280);
 
-  const modelGroup = groupOf(page, "manual-assignee-model-gpt-6-astra");
+  const modelGroup = groupOf(page, "manual-assignee-model-astra");
   const model = await readChips(modelGroup, "manual-assignee-model");
   const groupWidth = Math.round((await modelGroup.boundingBox())!.width);
 

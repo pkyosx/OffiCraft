@@ -22,6 +22,7 @@ import { render } from "@testing-library/react";
 import { vi } from "vitest";
 import { I18nProvider } from "../i18n";
 import { MemberDetailPanel } from "./MemberDetailPanel";
+import { clearLocale, useEnglishLocale } from "../test/effortOptions";
 import type { Member } from "../types";
 
 vi.mock("../api", () => ({
@@ -175,6 +176,77 @@ describe("MemberDetailPanel 最近操作 failure reason", () => {
       throw new Error("no .mp-lastop__reason rule in member-detail.css");
     }
     expect(base).toContain("var(--color-danger)");
+  });
+
+  it.each([
+    [
+      "zh",
+      "codex_model_family_unavailable: this machine's Codex (version 0.153.4) lists no terra model; " +
+        "available: gpt-6-astra, gpt-5.6-sol, gpt-5.5",
+      "codex_model_family_unavailable: 這台機器的 Codex（版本 0.153.4）沒有 terra 系列的型號，" +
+        "可用：gpt-6-astra, gpt-5.6-sol, gpt-5.5",
+    ],
+    [
+      "en",
+      "codex_model_family_unavailable: this machine's Codex (version 0.153.4) lists no terra model; " +
+        "available: gpt-6-astra, gpt-5.6-sol, gpt-5.5",
+      "codex_model_family_unavailable: This machine's Codex (version 0.153.4) has no terra model. " +
+        "Available: gpt-6-astra, gpt-5.6-sol, gpt-5.5",
+    ],
+    [
+      "zh",
+      "codex_model_family_unavailable: could not read the model list of this machine's Codex " +
+        "(version unknown) to pick the newest sol model",
+      "codex_model_family_unavailable: 讀不到這台機器 Codex（版本不明）的型號清單，無法決定 sol 要用哪個型號",
+    ],
+    [
+      "zh",
+      "machine_unavailable: machine 'm-cx' runs a warden too old to resolve the Codex model family 'sol' " +
+        "— upgrade that machine's warden, or set a full model id",
+      "machine_unavailable: 機器「m-cx」上的 OffiCraft 程式是舊版，還不認得 Codex 型號系列 sol；" +
+        "請更新那台機器上的 OffiCraft 程式，或改設完整的型號名稱",
+    ],
+    [
+      "en",
+      "machine_unavailable: machine 'm-cx' runs a warden too old to resolve the Codex model family 'sol' " +
+        "— upgrade that machine's warden, or set a full model id",
+      "machine_unavailable: Machine 'm-cx' runs an OffiCraft program too old to resolve the Codex model " +
+        "family sol. Upgrade the OffiCraft program on that machine, or set a full model id",
+    ],
+    [
+      "zh",
+      "machine_unavailable: machine 'm-cx' is offline; no other machine is substituted",
+      "machine_unavailable: machine 'm-cx' is offline; no other machine is substituted",
+    ],
+    [
+      "zh",
+      "machine_unavailable: machine 'm-cx' runs a warden too old to resolve the Codex model family 'sol' " +
+        "— upgrade that machine's warden, or set a full model id; retry after the upgrade",
+      "machine_unavailable: machine 'm-cx' runs a warden too old to resolve the Codex model family 'sol' " +
+        "— upgrade that machine's warden, or set a full model id; retry after the upgrade",
+    ],
+    [
+      "zh",
+      "machine_unavailable: machine 'm-cx' runs a warden too old to resolve the Codex model family 'sol' " +
+        "— upgrade that machine's warden, or set a full model id (warden log: ocwarden.out.log)",
+      "machine_unavailable: machine 'm-cx' runs a warden too old to resolve the Codex model family 'sol' " +
+        "— upgrade that machine's warden, or set a full model id (warden log: ocwarden.out.log)",
+    ],
+    [
+      "zh",
+      "wake_timeout: machine_unavailable: machine 'm-cx' runs a warden too old to resolve the Codex model family 'sol' " +
+        "— upgrade that machine's warden, or set a full model id",
+      "wake_timeout: machine_unavailable: machine 'm-cx' runs a warden too old to resolve the Codex model family 'sol' " +
+        "— upgrade that machine's warden, or set a full model id",
+    ],
+  ])("a Codex model family or old-warden refusal is worded in the viewer's language, any other reason is shown as sent (%s)", (locale, reason, shown) => {
+    if (locale === "en") useEnglishLocale();
+    try {
+      const { getByTestId } = renderPanel(mkMember({ lastOpReason: reason }));
+      expect(getByTestId("mp-lastop-reason").textContent).toBe(shown);
+    } finally {
+      clearLocale();
+    }
   });
 
   it("offers the collapsible log on a SUCCEEDED op that carried one", () => {

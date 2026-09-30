@@ -12,6 +12,7 @@ import {
   CopyIcon,
   FileTextIcon,
 } from "./icons";
+import { localizeLastOpReason } from "../lib/lastOpReason";
 import "./member-detail.css";
 
 /** The lazily-fetched initial-prompt expand card's config. `fetch` returns the
@@ -740,7 +741,7 @@ export function AgentDetailPanel({
               }`}
               data-testid={`${p}-lastop-reason`}
             >
-              {vm.lastOpReason}
+              {localizeLastOpReason(vm.lastOpReason, t.mp)}
             </div>
           )}
           {lastOpLog && lastOpLog !== lastOpReason && (

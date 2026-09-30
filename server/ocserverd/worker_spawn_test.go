@@ -306,6 +306,40 @@ func TestResolveWorkerPlacement(t *testing.T) {
 		wantPlacement(t, id, why, "", "machine_unavailable: machine 'm-server-self' does not provide "+
 			"the 'codex' runtime; no other machine is substituted")
 	})
+
+	t.Run("a codex worker set to a model family is refused by a warden that has not said it resolves families, while a full model id is placed there", func(t *testing.T) {
+		api, _, _, _, w := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
+		apiTestListen(t, api, ServerSelfHost)
+		api.telemetry.Set(ServerSelfHost, map[string]any{"runtimes": map[string]any{
+			"codex": map[string]any{"installed": true, "logged_in": true},
+		}})
+		codexWorker := w
+		codexWorker.Runtime = "codex"
+
+		codexWorker.Model = "sol"
+		id, why := api.resolveWorkerPlacement(codexWorker, ServerSelfHost, 1000)
+		wantPlacement(t, id, why, "", "machine_unavailable: machine 'm-server-self' runs a warden too old "+
+			"to resolve the Codex model family 'sol' — upgrade that machine's warden, or set a full model id; "+
+			"no other machine is substituted")
+
+		codexWorker.Model = "gpt-6-sol"
+		id, why = api.resolveWorkerPlacement(codexWorker, ServerSelfHost, 1000)
+		wantPlacement(t, id, why, ServerSelfHost, "")
+	})
+
+	t.Run("a codex worker set to a model family is placed on a warden that resolves families", func(t *testing.T) {
+		api, _, _, _, w := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
+		apiTestListen(t, api, ServerSelfHost)
+		api.telemetry.Set(ServerSelfHost, map[string]any{"runtimes": map[string]any{
+			"codex": map[string]any{"installed": true, "logged_in": true, "model_families": true},
+		}})
+		codexWorker := w
+		codexWorker.Runtime = "codex"
+		codexWorker.Model = "luna"
+
+		id, why := api.resolveWorkerPlacement(codexWorker, ServerSelfHost, 1000)
+		wantPlacement(t, id, why, ServerSelfHost, "")
+	})
 }
 
 func TestResolveStickyWorkerPlacement(t *testing.T) {

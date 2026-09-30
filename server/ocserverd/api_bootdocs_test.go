@@ -694,8 +694,8 @@ func TestBootSequenceText(t *testing.T) {
 		if err != nil {
 			t.Fatalf("bootSequenceText(codex): %v", err)
 		}
-		if n := utf8.RuneCountInString(codex); n != 2151 {
-			t.Fatalf("the codex sequence is %d runes, want the shipped 2151", n)
+		if n := utf8.RuneCountInString(codex); n != 2241 {
+			t.Fatalf("the codex sequence is %d runes, want the shipped 2241", n)
 		}
 	})
 

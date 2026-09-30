@@ -22,7 +22,7 @@ import {
   runtimeLabel,
   slot,
 } from "./AgentDetailPanel";
-import { pendingChangeHint, reportedMachine } from "../lib/pendingChange";
+import { pendingChangeHint, pendingModelHint, reportedMachine } from "../lib/pendingChange";
 import { buildAgentDetailVm, machineOptions } from "../lib/agentDetailVm";
 import { AvatarEditor } from "./AvatarEditor";
 import { Avatar } from "./Avatar";
@@ -803,9 +803,18 @@ export function MemberDetailPanel({
   // member showed nothing at all — the single case where the owner has no other
   // way to tell the move is still outstanding. The comparison now runs against
   // the DURABLE last landing, which is what makes that possible.
+  //
+  // Both sides are compared as display names: the pin is an id, but `machine`
+  // can arrive as the machine's self-reported name when the server has no id
+  // for the connection, and the two must not read as a move.
+  const machineDisplay = (id: string) =>
+    machines.find((m) => m.machineId === id)?.displayName || id;
   const pendingMachine = pendingChangeHint(
-    member.desiredMachineId,
-    reportedMachine(member.machine ?? "", member.actualMachine ?? ""),
+    machineDisplay(member.desiredMachineId),
+    reportedMachine(
+      machineDisplay(member.machine ?? ""),
+      machineDisplay(member.actualMachine ?? ""),
+    ),
     msg.memberMachineMovingTo,
     desiredMachineName,
   );
@@ -818,7 +827,7 @@ export function MemberDetailPanel({
     msg.agentPendingChange,
     runtimeLabel(member.runtime || "claude"),
   );
-  const pendingModel = pendingChangeHint(
+  const pendingModel = pendingModelHint(
     member.model,
     member.actualModel ?? "",
     msg.agentPendingChange,

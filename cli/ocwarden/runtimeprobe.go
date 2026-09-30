@@ -33,6 +33,9 @@ func collectRuntimeCapabilities(env func(string) string, runner CmdRunner,
 	codexBin := resolveCodexBin(env)
 	codexCap := map[string]any{"installed": codexBin != ""}
 	if codexBin != "" {
+		// Placement reads this before sending a member whose model is a family word
+		// (sol, luna, …) here; a warden without it would pass the word to Codex verbatim.
+		codexCap["model_families"] = true
 		if version, err := runner.Run(codexBin, "--version"); err == nil {
 			fields := strings.Fields(version)
 			if len(fields) > 0 {

@@ -296,6 +296,16 @@ func ValidRuntime(runtime string) bool {
 	return runtime == RuntimeClaude || runtime == RuntimeCodex
 }
 
+// Keep in step with cli/ocwarden's codexModelFamilies and the frontend's
+// CODEX_MODEL_OPTIONS and CODEX_FAMILY_MODEL: nothing compares them.
+func isCodexModelFamily(model string) bool {
+	switch model {
+	case "astra", "sol", "terra", "luna":
+		return true
+	}
+	return false
+}
+
 func (s *apiServer) memberRoleName(m Member) (string, error) {
 	if name := seedRoleName(m.RoleKey); name != "" {
 		return name, nil

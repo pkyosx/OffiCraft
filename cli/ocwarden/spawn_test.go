@@ -1236,6 +1236,37 @@ func TestStart(t *testing.T) {
 				d.WardenBin = "/Users/eva/.officraft/warden/ocwarden"
 				h.runner.script["/usr/local/bin/codex login status"] = wardenRun{err: errors.New("exit status 1")}
 			}, "codex_not_logged_in: `codex login status` failed on this host"},
+			{"a codex that lists no model of the chosen family", func(h *spawnHarness, d *SpawnDeps, p *StartParams) {
+				p.Runtime = "codex"
+				p.Model = "terra"
+				d.CodexBin = "/usr/local/bin/codex"
+				d.WardenBin = "/Users/eva/.officraft/warden/ocwarden"
+				d.CodexModels = func(string) ([]codexModelEntry, error) {
+					return []codexModelEntry{
+						{ID: "gpt-6-astra"}, {ID: "gpt-6-sol"}, {ID: "gpt-6-terra", Hidden: true}, {ID: "gpt-5.5"},
+					}, nil
+				}
+				h.runner.script["/usr/local/bin/codex --version"] = wardenRun{out: "codex-cli 0.159.2\n"}
+			}, "codex_model_family_unavailable: this machine's Codex (version 0.159.2) lists no terra model; " +
+				"available: gpt-6-astra, gpt-6-sol, gpt-5.5"},
+			{"a codex whose model list cannot be read", func(h *spawnHarness, d *SpawnDeps, p *StartParams) {
+				p.Runtime = "codex"
+				p.Model = "sol"
+				d.CodexBin = "/usr/local/bin/codex"
+				d.WardenBin = "/Users/eva/.officraft/warden/ocwarden"
+				d.CodexModels = func(string) ([]codexModelEntry, error) {
+					return nil, errors.New("model/list timed out after 15s")
+				}
+				h.runner.script["/usr/local/bin/codex --version"] = wardenRun{err: errors.New("exit status 1")}
+			}, "codex_model_family_unavailable: could not read the model list of this machine's Codex " +
+				"(version unknown) to pick the newest sol model"},
+			{"a warden built with no codex model lister", func(_ *spawnHarness, d *SpawnDeps, p *StartParams) {
+				p.Runtime = "codex"
+				p.Model = "luna"
+				d.CodexBin = "/usr/local/bin/codex"
+				d.WardenBin = "/Users/eva/.officraft/warden/ocwarden"
+			}, "codex_model_family_unavailable: could not read the model list of this machine's Codex " +
+				"(version unknown) to pick the newest luna model"},
 			{"a workdir that cannot be made", func(h *spawnHarness, _ *SpawnDeps, _ *StartParams) {
 				h.mkdirErr = errors.New("permission denied")
 			}, "mkdir_failed: workdir /w/m1: permission denied"},
@@ -1306,6 +1337,10 @@ func TestStart(t *testing.T) {
 		p.Runtime = "codex"
 		p.Model = "gpt-5"
 		p.Effort = "high"
+		d.CodexModels = func(string) ([]codexModelEntry, error) {
+			t.Error("a full model id was looked up in the Codex model list")
+			return nil, nil
+		}
 
 		got := d.start(p)
 		if want := (SpawnOutcome{OK: true, SessionID: "member-m1", PID: "500"}); got != want {
@@ -1334,6 +1369,69 @@ func TestStart(t *testing.T) {
 		}
 		if len(h.slept) != 0 {
 			t.Errorf("slept %v, want none", h.slept)
+		}
+	})
+
+	t.Run("a codex family word launches the newest full model this machine's Codex lists", func(t *testing.T) {
+		fullList := []codexModelEntry{
+			{ID: "gpt-5.6-sol"}, {ID: "gpt-6-sol"}, {ID: "gpt-6.1-sol"}, {ID: "gpt-7-sol", Hidden: true},
+			{ID: "gpt-6.2-sol-mini"}, {ID: "gpt-6-luna"}, {ID: "gpt-5.6-luna"}, {ID: "gpt-5.6-terra"},
+			{ID: "gpt-10-astra"}, {ID: "gpt-9.9-astra"}, {ID: "gpt-5.5"}, {ID: "codex-auto-review", Hidden: true},
+		}
+		cases := []struct {
+			name      string
+			family    string
+			models    []codexModelEntry
+			wantModel string
+		}{
+			{"sol skips a hidden newer id and a suffixed variant", "sol", fullList, "gpt-6.1-sol"},
+			{"luna listed at 6 and 5.6 launches the 6", "luna", fullList, "gpt-6-luna"},
+			{"terra listed only at 5.6 launches the 5.6", "terra", fullList, "gpt-5.6-terra"},
+			{"astra compares versions numerically, so 10 beats 9.9", "astra", fullList, "gpt-10-astra"},
+			{"two spellings of one version launch the one listed first", "sol",
+				[]codexModelEntry{{ID: "gpt-6-sol"}, {ID: "gpt-6.0-sol"}}, "gpt-6-sol"},
+		}
+		for _, c := range cases {
+			t.Run(c.name, func(t *testing.T) {
+				h := newSpawnHarness()
+				d := h.deps()
+				d.CodexBin = "/usr/local/bin/codex"
+				d.WardenBin = "/Users/eva/.officraft/warden/ocwarden"
+				var asked []string
+				d.CodexModels = func(bin string) ([]codexModelEntry, error) {
+					asked = append(asked, bin)
+					return c.models, nil
+				}
+				p := startParamsM1()
+				p.Runtime = "codex"
+				p.Model = c.family
+				p.Effort = "high"
+
+				got := d.start(p)
+				if want := (SpawnOutcome{OK: true, SessionID: "member-m1", PID: "500"}); got != want {
+					t.Errorf("outcome = %+v, want %+v", got, want)
+				}
+				if want := []string{"/usr/local/bin/codex"}; !reflect.DeepEqual(asked, want) {
+					t.Errorf("model list asked of %v, want %v", asked, want)
+				}
+				wantCalls := []string{
+					"/usr/local/bin/codex login status",
+					"tmux -L officraft has-session -t member-m1",
+					"tmux -L officraft new-session -d -s member-m1 -x 160 -y 50 " +
+						`cd /w/m1; export OC_TOKEN="$(/bin/cat /w/m1/.oc-token)" ` +
+						`OC_BASE=http://127.0.0.1:7755 OC_ID=m1 OC_SESSION=member-m1 OC_TMUX_SOCKET=officraft; ` +
+						`export PATH=/w/m1:"$PATH"; ` +
+						`exec /Users/eva/.officraft/warden/ocwarden codex-session ` +
+						`--codex-bin /usr/local/bin/codex --workdir /w/m1 --persona /w/m1/persona.md ` +
+						`--agent-id m1 --model ` + c.wantModel + ` --effort high`,
+					"tmux -L officraft set-option -t member-m1 window-size manual",
+					"tmux -L officraft resize-window -t member-m1 -x 160 -y 50",
+					"tmux -L officraft display-message -p -t member-m1 #{pane_pid}",
+				}
+				if !reflect.DeepEqual(h.runner.calls, wantCalls) {
+					t.Errorf("calls =\n%v\nwant\n%v", h.runner.calls, wantCalls)
+				}
+			})
 		}
 	})
 

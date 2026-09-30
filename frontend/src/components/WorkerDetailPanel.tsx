@@ -9,7 +9,8 @@ import {
   runtimeLabel,
   slot,
 } from "./AgentDetailPanel";
-import { pendingChangeHint, reportedMachine } from "../lib/pendingChange";
+import { pendingChangeHint, pendingModelHint, reportedMachine } from "../lib/pendingChange";
+import { localizeLastOpReason } from "../lib/lastOpReason";
 import { buildAgentDetailVm, machineOptions } from "../lib/agentDetailVm";
 import { ModelEffortEditor } from "./ModelEffortEditor";
 import { ChevronLeftIcon, ChevronRightIcon } from "./icons";
@@ -230,7 +231,7 @@ export function WorkerDetailPanel({
     msg.agentPendingChange,
     runtimeLabel(worker.runtime || "claude"),
   );
-  const pendingModel = pendingChangeHint(
+  const pendingModel = pendingModelHint(
     worker.model,
     worker.actualModel ?? "",
     msg.agentPendingChange,
@@ -517,7 +518,7 @@ export function WorkerDetailPanel({
             under the dot it explains. Honest: hidden when nothing folded. */}
         {offline && offlineReason && (
           <div className="mp-field__hint" data-testid="worker-detail-stuck-reason">
-            {offlineReason}
+            {localizeLastOpReason(offlineReason, t.mp)}
           </div>
         )}
       </div>

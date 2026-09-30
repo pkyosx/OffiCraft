@@ -71,7 +71,7 @@ func TestCollectRuntimeCapabilities(t *testing.T) {
 			},
 		},
 		{
-			name: "codex answers its version and its login status",
+			name: "codex answers its version and its login status, and this warden says it resolves model families",
 			env:  map[string]string{"HOME": root, "OC_CODEX_BIN": codexBin},
 			script: map[string]wardenRun{
 				versionArgv: {out: "codex-cli 0.52.0\n"},
@@ -80,7 +80,7 @@ func TestCollectRuntimeCapabilities(t *testing.T) {
 			claude: map[string]any{},
 			want: map[string]any{
 				"claude": map[string]any{"installed": false},
-				"codex":  map[string]any{"installed": true, "version": "0.52.0", "logged_in": true},
+				"codex":  map[string]any{"installed": true, "version": "0.52.0", "logged_in": true, "model_families": true},
 			},
 			wantRuns: []string{versionArgv, statusArgv},
 		},
@@ -94,7 +94,7 @@ func TestCollectRuntimeCapabilities(t *testing.T) {
 			claude: map[string]any{},
 			want: map[string]any{
 				"claude": map[string]any{"installed": false},
-				"codex":  map[string]any{"installed": true, "version": "0.52.0", "logged_in": false},
+				"codex":  map[string]any{"installed": true, "version": "0.52.0", "logged_in": false, "model_families": true},
 			},
 			wantRuns: []string{versionArgv, statusArgv},
 			wantLog: []string{fmt.Sprintf(
@@ -110,7 +110,7 @@ func TestCollectRuntimeCapabilities(t *testing.T) {
 			claude: map[string]any{},
 			want: map[string]any{
 				"claude": map[string]any{"installed": false},
-				"codex":  map[string]any{"installed": true, "logged_in": true},
+				"codex":  map[string]any{"installed": true, "logged_in": true, "model_families": true},
 			},
 			wantRuns: []string{versionArgv, statusArgv},
 		},
@@ -124,7 +124,7 @@ func TestCollectRuntimeCapabilities(t *testing.T) {
 			claude: map[string]any{},
 			want: map[string]any{
 				"claude": map[string]any{"installed": false},
-				"codex":  map[string]any{"installed": true, "logged_in": true},
+				"codex":  map[string]any{"installed": true, "logged_in": true, "model_families": true},
 			},
 			wantRuns: []string{versionArgv, statusArgv},
 		},
@@ -152,7 +152,7 @@ func TestCollectRuntimeCapabilities(t *testing.T) {
 		envMap(map[string]string{"HOME": root, "OC_CODEX_BIN": codexBin}), silent, nil, nil)
 	want := map[string]any{
 		"claude": map[string]any{"installed": false},
-		"codex":  map[string]any{"installed": true, "logged_in": false},
+		"codex":  map[string]any{"installed": true, "logged_in": false, "model_families": true},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("an unwired log sink must not change the report: capabilities = %#v, want %#v", got, want)

@@ -128,6 +128,9 @@ func (s *apiServer) resolveWorkerPlacement(w OutsourceWorker, preferred string, 
 		if !s.machineSupportsRuntime(m.ID, w.Runtime) {
 			return unavailable("does not provide the '" + NormalizeRuntime(w.Runtime) + "' runtime")
 		}
+		if !s.machineResolvesCodexModel(m.ID, w.Runtime, w.Model) {
+			return unavailable(codexFamilyUnresolvedDetail(w.Model))
+		}
 		return m.ID, ""
 	}
 	return unavailable("does not exist")

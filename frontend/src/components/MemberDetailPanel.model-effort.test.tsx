@@ -149,13 +149,13 @@ describe("MemberDetailPanel · model/effort quick-pick editor", () => {
     const modelInput = utils.getByTestId("me-codex-model-select-input") as HTMLInputElement;
     expect(modelInput.value).toBe("");
     expect(utils.queryByTestId("me-model-chip-opus")).toBeNull();
-    fireEvent.click(utils.getByTestId("me-codex-model-select-chip-gpt-5.6-terra"));
-    fireEvent.click(utils.getByTestId("me-codex-model-select-chip-gpt-5.6-luna"));
+    fireEvent.click(utils.getByTestId("me-codex-model-select-chip-terra"));
+    fireEvent.click(utils.getByTestId("me-codex-model-select-chip-luna"));
     await confirmSettings();
     await waitFor(() =>
       expect(patchMember).toHaveBeenCalledWith("mira", {
         runtime: "codex",
-        model: "gpt-5.6-luna",
+        model: "luna",
         effort: "medium",
       })
     );

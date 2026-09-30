@@ -301,7 +301,8 @@ fires no change event, so it would be a rule that only sometimes works.
 
 The selected adapter receives the shared launch knobs:
 
-- `model`: provider-specific free string; blank uses that provider's default.
+- `model`: provider-specific free string; blank uses that provider's default. For Codex it may
+  also be a model family (`astra`, `sol`, `terra`, `luna`), resolved per start as below.
 - `effort`: exact shared vocabulary `low | medium | high | xhigh | max`; omitted uses `medium`.
 - Codex sandbox: `danger-full-access`.
 - Codex approvals: `never`.
@@ -310,6 +311,20 @@ For a blank Codex model, the sidecar tells the boot turn to omit `report_waking.
 The model must not guess its own identifier and persist that guess, because the persisted
 value becomes an explicit override on the next wake and would replace the machine's Codex
 default. An explicit OffiCraft model is reported back verbatim.
+
+A family word is resolved by the warden at spawn, after the `codex login status` gate and
+before the launch line is built: it asks that machine's Codex App Server for `model/list`
+(no thread is started), keeps the non-hidden ids that are exactly `gpt-<version>-<family>`,
+and launches the one with the highest version, compared numerically part by part (6.1 > 6 >
+5.6). The sidecar, `thread/start`, the `report_waking` instruction and telemetry only ever
+see that full id, so `actual_model` is the id the member landed on and can differ between
+machines or across a Codex upgrade. A full id or a blank never reaches this step. When the
+list names no model of the family, or cannot be read, the spawn is refused with
+`codex_model_family_unavailable` and the member's 最近操作 says which Codex version was asked
+and what it lists; the member is never started on the bare word. The warden advertises this
+ability as `runtimes.codex.model_families: true` in its heartbeat, and placement does not
+send a member whose model is a family word to a machine without it (the reason lands on the
+member or worker row as `machine_unavailable`).
 
 These settings intentionally favor capability for this trusted-machine deployment. They do
 not expand OffiCraft authorization: member identity, MCP scope, task governance, and

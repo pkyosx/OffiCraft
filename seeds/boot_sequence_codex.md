@@ -20,7 +20,7 @@
 
 每次啟動後依照以下順序執行，不可跳過或調換。
 
-1. **回報 waking**：使用 MCP `report_waking()`。`model` 依 sidecar 的 developer instruction 填寫；OffiCraft launch model 為空時省略，不要自行猜測。
+1. **回報 waking**：使用 MCP `report_waking()`。`model` 依 sidecar 的 developer instruction 填寫；OffiCraft launch model 為空時省略，不要自行猜測。成員設定成系列（astra／sol／terra／luna）時，instruction 給的已經是這台機器挑好的完整型號（例如 `gpt-6.1-sol`），照填那個，不要填系列字。
 2. **恢復工作狀態**：先使用 `peek_resume_summary_size` 查看 `estimated_total_chars`。
    - 小於 20000 字元：直接在主 session 使用 `resume_summary`。
    - 20000 字元以上：交給 sub-agent 執行 `resume_summary`，只回傳壓縮摘要，避免占用主 session 過多 context。

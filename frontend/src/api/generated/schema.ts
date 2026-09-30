@@ -4072,7 +4072,7 @@ export interface components {
             machine?: unknown;
             /**
              * Model
-             * @description The session's LIVE model, reported verbatim by the harness that is actually running it — the Claude Code statusLine payload's ``model.id`` for the claude runtime, the sidecar's launch model for codex. ``model.id`` and NOT ``model.display_name``: the id is what the boot seed already tells a member to report ("填 Claude Code 提供的真實 model id,不要猜值"), and it is the only one of the two that carries the ``[1m]`` 1M-context marker — a distinction the cockpit column shows today and must not lose. It carries the same INGEST contract as ``effort``: what the session IS, never the owner-configured launch setting it was started with (a mid-session model switch is visible here and nowhere else). The two diverge AFTER ingest — see ``MonitoringSessionDTO.model`` — so the shared contract is about what a producer must send, not about how the server stores it. OMITTED when the harness reports no model — an empty string would turn "not measured" into a reported blank, which is exactly the failure mode this field exists to end. Omitted leaves previously stored telemetry untouched.
+             * @description The session's LIVE model, reported verbatim by the harness that is actually running it — the Claude Code statusLine payload's ``model.id`` for the claude runtime, for codex the full model id the sidecar was launched with (a family word such as sol has already been resolved by the warden). ``model.id`` and NOT ``model.display_name``: the id is what the boot seed already tells a member to report ("填 Claude Code 提供的真實 model id,不要猜值"), and it is the only one of the two that carries the ``[1m]`` 1M-context marker — a distinction the cockpit column shows today and must not lose. It carries the same INGEST contract as ``effort``: what the session IS, never the owner-configured launch setting it was started with (a mid-session model switch is visible here and nowhere else). The two diverge AFTER ingest — see ``MonitoringSessionDTO.model`` — so the shared contract is about what a producer must send, not about how the server stores it. OMITTED when the harness reports no model — an empty string would turn "not measured" into a reported blank, which is exactly the failure mode this field exists to end. Omitted leaves previously stored telemetry untouched.
              */
             model?: unknown;
             /** Rate Limits */
@@ -4084,7 +4084,7 @@ export interface components {
             runtime?: unknown;
             /**
              * Runtimes
-             * @description Warden heartbeats only — provider-neutral runtime capability map. Each ``claude``/``codex`` entry may report ``installed`` bool, ``logged_in`` bool/null, and ``version`` string/null; values are readiness metadata only, never credentials. The shape is DECLARED (T-90be) and this is the block where a silent rename costs the most: ``machineSupportsRuntime`` (api_machines.go) fail-closes to false when it cannot read ``installed``/``logged_in``, so the machine becomes permanently unsupported for codex and its workers sit stamped ``machine_unavailable`` — with nothing on screen saying why. NOT closed (see ``hardware``): an unknown runtime name or a new readiness key must not 422 the whole heartbeat.
+             * @description Warden heartbeats only — provider-neutral runtime capability map. Each ``claude``/``codex`` entry may report ``installed`` bool, ``logged_in`` bool/null, and ``version`` string/null, and ``codex`` also ``model_families`` bool; values are readiness metadata only, never credentials. The shape is DECLARED (T-90be) and this is the block where a silent rename costs the most: ``machineSupportsRuntime`` (api_machines.go) fail-closes to false when it cannot read ``installed``/``logged_in``, so the machine becomes permanently unsupported for codex and its workers sit stamped ``machine_unavailable`` — with nothing on screen saying why. NOT closed (see ``hardware``): an unknown runtime name or a new readiness key must not 422 the whole heartbeat.
              */
             runtimes?: {
                 /**
@@ -4122,6 +4122,11 @@ export interface components {
                      * @description ``codex login status`` exited 0. Absent = not probed.
                      */
                     logged_in?: boolean | null;
+                    /**
+                     * Model Families
+                     * @description true = this warden resolves a Codex model FAMILY word (astra, sol, terra, luna) to the newest full model id this host's Codex lists before it launches a member. Absent or anything but true = it does not, and placement never sends a codex member whose model is a family word to this machine: such a warden would hand the word to Codex verbatim and the member would never come online.
+                     */
+                    model_families?: boolean | null;
                     /** Version */
                     version?: string | null;
                 } & {

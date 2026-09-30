@@ -1281,6 +1281,12 @@ export const en: Dict = {
     lastOpOk: "succeeded",
     lastOpFail: "failed",
     lastOpLogLabel: "View log",
+    lastOpCodexFamilyMissing: (version: string | null, family: string, available: string) =>
+      `This machine's Codex (${version ? `version ${version}` : "version unknown"}) has no ${family} model. Available: ${available}`,
+    lastOpCodexFamilyUnreadable: (version: string | null, family: string) =>
+      `Could not read the model list of this machine's Codex (${version ? `version ${version}` : "version unknown"}), so no ${family} model could be picked`,
+    lastOpCodexFamilyOldWarden: (machine: string, family: string, noSubstitute: boolean) =>
+      `Machine '${machine}' runs an OffiCraft program too old to resolve the Codex model family ${family}. Upgrade the OffiCraft program on that machine, or set a full model id${noSubstitute ? ". No other machine is substituted" : ""}`,
     estimatedCost: "est. $",
     costReset: "Reset",
     costResetHint: "Reset this member's accumulated estimated spend to zero. This cannot be undone.",
