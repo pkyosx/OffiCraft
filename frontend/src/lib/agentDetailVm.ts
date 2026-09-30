@@ -137,8 +137,8 @@ export interface AgentDetailVmInput {
     effort?: string;
     machine?: string;
   };
-  /** Already resolved AND already gated by the wrapper: the member panel reads
-   * a bare dash outside online/waking/stopping, the worker panel falls back to 「尚未分配」. */
+  /** Already resolved AND already gated by the wrapper: each panel decides what
+   * its cell reads when the agent is not running. */
   machineText: string;
   /** Already resolved readable account name — never a raw credential key.
    *
