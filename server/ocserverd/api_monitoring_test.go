@@ -447,21 +447,26 @@ func TestFoldCommandResult(t *testing.T) {
 				before := apiTestMemberRow(t, d, "kip")
 				receipt := map[string]any{
 					"member_id": "kip", "rpc": "start", "ok": false,
-					"reason": c.text, "at": float64(1720000000),
+					"reason": c.text, "at": "2024-07-03T09:46:40Z",
 				}
 				if c.withLog {
 					receipt["log"] = c.text
 				}
 
+				received := nowSecs()
 				api.foldCommandResult(receipt, "telemetry", "m-studio")
+				got := apiTestMemberRow(t, d, "kip")
 
+				if got.LastOpAt < received || got.LastOpAt > nowSecs() {
+					t.Fatalf("last_op_at = %v, want the server's receipt time (>= %v), not the machine's stamp", got.LastOpAt, received)
+				}
 				want := before
 				want.LastOp = "start"
 				want.LastOpOK = boolPtr(false)
 				want.LastOpReason = c.want
 				want.LastOpLog = c.text
-				want.LastOpAt = 1720000000
-				apiTestWantEqual(t, "stored member", apiTestMemberRow(t, d, "kip"), want)
+				want.LastOpAt = got.LastOpAt
+				apiTestWantEqual(t, "stored member", got, want)
 			})
 		}
 	})

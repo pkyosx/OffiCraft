@@ -195,16 +195,25 @@ func isWardenLoginRefusal(reason string) bool {
 // sentence placement writes, naming the reporting machine the warden's own text
 // cannot; the cockpit localizes that one sentence. The warden's text is kept as
 // the log.
+//
+// Its `at` becomes the server's receipt time: wakeTimeoutYieldsToReceipt compares
+// it with the server-clock start anchor, and the warden's own stamp is whole
+// seconds on the machine's clock — a refusal of this start would read as older
+// than the start and lose to wake_timeout.
 func loginRefusalNamingMachine(commandResult map[string]any, reporter string) map[string]any {
 	reason := stringOf(commandResult["reason"])
 	code, _, found := strings.Cut(reason, ":")
 	runtime, isLogin := wardenLoginRefusalRuntime[code]
-	if !found || !isLogin || reporter == "" {
+	if !found || !isLogin {
 		return commandResult
 	}
 	out := make(map[string]any, len(commandResult)+1)
 	for k, v := range commandResult {
 		out[k] = v
+	}
+	out["at"] = nowSecs()
+	if reporter == "" {
+		return out
 	}
 	if _, hasLog := out["log"].(string); !hasLog {
 		out["log"] = reason

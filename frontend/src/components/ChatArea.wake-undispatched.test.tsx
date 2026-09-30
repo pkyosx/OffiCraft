@@ -352,4 +352,24 @@ describe("ChatArea · in-chat wake that was never dispatched (T-7fa1)", () => {
       ]);
     });
   });
+
+  it("under a stopping member whose row carries a not-logged-in reason, with no wake pressed, the stopping hint shows and no wake notice", () => {
+    const { container, queryByTestId } = renderChat(
+      vi.fn(async () => ({ activationPending: true })),
+      makeMember({
+        status: "online",
+        lifecycle: "stopping",
+        lastOp: "start",
+        lastOpOk: false,
+        lastOpReason:
+          "machine_unavailable: machine 'm-server-self' is not logged in to claude; no other machine is substituted",
+      }),
+    );
+
+    expect(container.querySelector(".chat__wake-row__hint")?.textContent).toBe(
+      "Mira 正在停止 — 訊息會排隊",
+    );
+    expect(container.querySelector("button.chat__wake-btn")).toBeNull();
+    expect(queryByTestId("chat-wake-undispatched")).toBeNull();
+  });
 });
