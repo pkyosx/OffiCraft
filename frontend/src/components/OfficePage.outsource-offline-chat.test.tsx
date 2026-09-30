@@ -197,26 +197,26 @@ beforeEach(() => {
 });
 
 describe("OfficePage — an outsource worker's chat room", () => {
-  it.each<[MemberLifecycle, boolean]>([
-    ["offline", true],
-    ["stopped", true],
-    ["waking", true],
-    ["stopping", false],
+  it.each<[MemberLifecycle, boolean, string]>([
+    ["offline", true, "外包 · O-128 目前離線中 — 訊息會排隊，或立即喚醒上線"],
+    ["stopped", true, "外包 · O-128 目前離線中 — 訊息會排隊，或立即喚醒上線"],
+    ["waking", true, "外包 · O-128 目前離線中 — 訊息會排隊，或立即喚醒上線"],
+    ["stopping", false, "外包 · O-128 正在停止 — 訊息會排隊"],
   ])(
-    "%s worker → the SAME unlocked composer + queue notice a 正職 gets, ⚡喚醒 shown: %s",
-    async (presence, wakeShown) => {
+    "%s worker → the SAME unlocked composer + queue notice a 正職 gets, ⚡喚醒 shown: %s, notice %s",
+    async (presence, wakeShown, notice) => {
       injectWorker(presence);
-      const { query } = await openWorkerChat();
+      const { query, container } = await openWorkerChat();
       const { input, locked, wakeRow, wakeBtn } = query();
       expect(locked).toBeNull();
       expect(input).not.toBeNull();
       expect(wakeRow).not.toBeNull();
       expect(wakeBtn !== null).toBe(wakeShown);
-      expect(wakeRow?.textContent ?? "").toContain(CODENAME);
+      expect(container.querySelector(".chat__wake-row__hint")?.textContent).toBe(notice);
     },
   );
 
-  it("⚡喚醒 that dispatched nothing shows the same alert a 正職's room does", async () => {
+  it("⚡喚醒 that dispatched nothing shows 這次沒有送出喚醒指令 with its two steps", async () => {
     const wake = vi
       .spyOn(api, "activateMember")
       .mockResolvedValue({ activationPending: true });
@@ -225,9 +225,14 @@ describe("OfficePage — an outsource worker's chat room", () => {
     fireEvent.click(utils.query().wakeBtn!);
     const alert = await utils.findByTestId("chat-wake-undispatched");
     expect(wake).toHaveBeenCalledWith(WORKER_ID);
-    expect(alert.querySelector(".dispatch-alert__title")?.textContent).toBe(
+    expect(
+      Array.from(alert.querySelectorAll("strong, p, li")).map((e) => e.textContent),
+    ).toEqual([
       "這次沒有送出喚醒指令",
-    );
+      "這次沒有送出喚醒，系統會在背景自動重試。",
+      "可能是目標機器沒有連線——到「監控」看它是否在線。",
+      "也可能是前一次喚醒還在重試中——請看這位成員的「最近操作」。",
+    ]);
   });
 
   it("online worker → the plain composer, unchanged: no wake row, no lock", async () => {

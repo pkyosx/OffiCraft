@@ -1252,7 +1252,7 @@ describe("WorkerDetailPanel — lifecycle ops (T-32e1/T-f190)", () => {
     },
   );
 
-  it("a wake that dispatched nothing raises the same alert the member panel does", async () => {
+  it("a wake that dispatched nothing shows 這次沒有送出喚醒指令 with its two steps", async () => {
     __injectMockTask(mkTask({ id: "t-1" }));
     __injectMockOutsourceWorker(
       mkWorker({ id: "ow-1", taskId: "t-1", presence: "stopped", desiredState: "offline" }),
@@ -1265,9 +1265,14 @@ describe("WorkerDetailPanel — lifecycle ops (T-32e1/T-f190)", () => {
     fireEvent.click(await findByTestId("worker-detail-settings-confirm"));
     const alert = await findByTestId("worker-detail-wake-undispatched");
     expect(wake).toHaveBeenCalledWith("ow-1");
-    expect(alert.querySelector(".dispatch-alert__title")?.textContent).toBe(
+    expect(
+      Array.from(alert.querySelectorAll("strong, p, li")).map((e) => e.textContent),
+    ).toEqual([
       "這次沒有送出喚醒指令",
-    );
+      "這次沒有送出喚醒，系統會在背景自動重試。",
+      "可能是目標機器沒有連線——到「監控」看它是否在線。",
+      "也可能是前一次喚醒還在重試中——請看這位成員的「最近操作」。",
+    ]);
   });
 
   it("a wake that went out raises no alert", async () => {
@@ -1308,7 +1313,7 @@ describe("WorkerDetailPanel — lifecycle ops (T-32e1/T-f190)", () => {
     );
   }
 
-  it("a move on a running worker that dispatched nothing raises the relocate alert", async () => {
+  it("a move on a running worker that dispatched nothing shows 這次沒有送出搬移指令 with its two steps", async () => {
     __setMockMemberOnline("warden-mbp5", true);
     __injectMockTask(mkTask({ id: "t-1" }));
     __injectMockOutsourceWorker(
@@ -1321,9 +1326,14 @@ describe("WorkerDetailPanel — lifecycle ops (T-32e1/T-f190)", () => {
     await moveToSeedWarden(findByTestId, "worker-detail-change");
     expect(relocate).toHaveBeenCalledWith("ow-1", "warden-mbp5");
     const alert = await findByTestId("worker-detail-relocate-undispatched");
-    expect(alert.querySelector(".dispatch-alert__title")?.textContent).toBe(
+    expect(
+      Array.from(alert.querySelectorAll("strong, p, li")).map((e) => e.textContent),
+    ).toEqual([
       "這次沒有送出搬移指令",
-    );
+      "新機器已經指定好了，但這一次沒有派出搬移指令 —— 要收下這道指令的機器沒有連上。背景會繼續重試。",
+      "到「監控」看得到哪幾台機器不在線 —— 這道指令送不出去，就是因為要收下它的那一台沒有連上。",
+      "等那台機器連上，背景重試就會把這次搬移送出去 —— 不必重按，新指定的機器已經存下來了。",
+    ]);
   });
 
   it("the wake alert goes away once the worker leaves 已停止", async () => {
