@@ -27,13 +27,14 @@ const (
 	telemetryPath = "/api/monitoring/telemetry"
 	// The SAME telemetry ingest endpoint: the server folds command_result there onto
 	// the durable member.
-	commandResultPath = telemetryPath
-	userAgent         = "ocwarden/0.1"
-	reportThrottle    = 30 * time.Second
-	backoffStart      = 1 * time.Second
-	backoffCap        = 60 * time.Second
-	httpTimeout       = 10 * time.Second
-	subprocessBudget  = 5 * time.Second
+	commandResultPath   = telemetryPath
+	userAgent           = "ocwarden/0.1"
+	reportThrottle      = 30 * time.Second
+	backoffStart        = 1 * time.Second
+	backoffCap          = 60 * time.Second
+	httpTimeout         = 10 * time.Second
+	subprocessBudget    = 5 * time.Second
+	subprocessWaitDelay = 2 * time.Second
 	// Deliberately SHORT and INDEPENDENT of the SSE/telemetry clients: a slow/dead
 	// server must never stall the command reader after a kill/spawn.
 	commandReportTimeout = 5 * time.Second
@@ -159,6 +160,9 @@ func (r execRunner) exec(caller string, keepStdout bool, name string, args ...st
 	// stderr goes into the returned error so callers can CLASSIFY a non-zero exit
 	// (e.g. the tmux three-way probe telling "can't find session" from a broken probe).
 	cmd.Stderr = &errb
+	// Without it a background process that inherited stdout keeps Wait blocked
+	// after the child exits, even past a timeout Kill, and the heartbeat stops.
+	cmd.WaitDelay = subprocessWaitDelay
 	done := make(chan error, 1)
 	if err := cmd.Start(); err != nil {
 		return "", err
