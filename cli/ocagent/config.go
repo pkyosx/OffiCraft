@@ -25,8 +25,6 @@ type Config struct {
 	Token         string
 	MemberID      string
 	AgentsRoot    string
-	Role          string
-	TaskType      string
 }
 
 // The message states the fact, never "refusing": diff/upload/download refuse on
@@ -84,8 +82,6 @@ func loadConfig(env func(string) string) Config {
 		Token:          token,
 		MemberID:       id,
 		AgentsRoot:     home,
-		Role:           env("OC_ROLE"),
-		TaskType:       env("OC_TASK_TYPE"),
 	}
 }
 

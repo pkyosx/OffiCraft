@@ -60,8 +60,6 @@ func TestLoadConfig(t *testing.T) {
 			"OC_TOKEN":      "h.eyJzdWIiOiJtZW1iZXItYWxpY2UiLCJleHAiOjF9.s",
 			"OC_ID":         "member-bob",
 			"OC_AGENT_HOME": "/srv/officraft/agents",
-			"OC_ROLE":       "engineer",
-			"OC_TASK_TYPE":  "build",
 		}))
 		want := Config{
 			Base:           "https://station.example.com",
@@ -69,8 +67,6 @@ func TestLoadConfig(t *testing.T) {
 			Token:          "h.eyJzdWIiOiJtZW1iZXItYWxpY2UiLCJleHAiOjF9.s",
 			MemberID:       "member-bob",
 			AgentsRoot:     "/srv/officraft/agents",
-			Role:           "engineer",
-			TaskType:       "build",
 		}
 		if !reflect.DeepEqual(got, want) {
 			t.Fatalf("loadConfig = %+v, want %+v", got, want)
