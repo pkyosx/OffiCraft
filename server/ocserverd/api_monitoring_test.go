@@ -871,6 +871,63 @@ func TestHandleIngestTelemetryApiMonitoringTelemetryPost(t *testing.T) {
 		dashboard.wantFrames(monitoringSignal, kipPatch)
 	})
 
+	t.Run("under a machine's claude login flipping, an outsource worker whose pair names that machine is re-announced to the owner", func(t *testing.T) {
+		api, h, d, _ := newAPITestServer(t)
+		warden := apiTestAgentToken(t, api, "m-server-self", "m-server-self")
+		if err := d.PutOutsourceWorker(OutsourceWorker{
+			ID: "ow-abc123", Codename: "Contractor", Runtime: "claude", ActualRuntime: "claude",
+			TaskID: "T-1", Status: WorkerStatusActive, CreatedTS: 12,
+		}); err != nil {
+			t.Fatalf("PutOutsourceWorker: %v", err)
+		}
+		api.workerSpawnTarget["ow-abc123"] = "m-server-self"
+		apiJSON(t, h, "POST", "/api/monitoring/telemetry", warden,
+			`{"runtimes":{"claude":{"installed":true,"logged_in":true}}}`)
+		dashboard := apiTestListen(t, api, "")
+
+		if status, data := apiJSON(t, h, "POST", "/api/monitoring/telemetry", warden,
+			`{"runtimes":{"claude":{"installed":true,"logged_in":false}}}`); status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+
+		dashboard.wantFrames(
+			map[string]any{
+				"seq":   apiAnyNumber,
+				"topic": "monitoring",
+				"op":    "signal",
+				"data": map[string]any{
+					"entity":  "monitoring",
+					"key":     "m-server-self",
+					"epoch":   apiAnyNumber,
+					"deleted": false,
+					"payload": nil,
+				},
+				"ts":      apiAnyNumber,
+				"trigger": "m-server-self",
+			},
+			map[string]any{
+				"seq":   apiAnyNumber,
+				"topic": "member",
+				"op":    "patch",
+				"data": map[string]any{
+					"entity":  "member",
+					"key":     "owner::ow-abc123",
+					"epoch":   apiAnyNumber,
+					"deleted": false,
+					"payload": map[string]any{
+						"id":            "ow-abc123",
+						"name":          "Contractor",
+						"owner_id":      "owner",
+						"status":        "active",
+						"desired_state": "",
+					},
+				},
+				"ts":      apiAnyNumber,
+				"trigger": "m-server-self",
+			},
+		)
+	})
+
 	t.Run("a report naming its own machine while the token carries no claim answers 200 attributing that machine", func(t *testing.T) {
 		api, h, _, _ := newAPITestServer(t)
 		agent := apiTestAgentToken(t, api, "mira", "")
