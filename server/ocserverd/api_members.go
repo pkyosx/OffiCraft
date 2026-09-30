@@ -1061,9 +1061,13 @@ func (s *apiServer) HandleForceStopMemberApiMembersMemberIdForceStopPost(w http.
 	writeJSON(w, http.StatusOK, agentLifecycleReceiptDTO{ID: saved.ID})
 }
 
-const acceleratedStopNeedsAnOpenWindDownMsg = "加速停止 escalates a wind-down that is " +
-	"already open — this member has not been asked to stop. Press 停止 (deactivate) " +
-	"or 重新聚焦 (refocus) first"
+const (
+	acceleratedStopNeedsAnOpenWindDownMsg = "加速停止 escalates a wind-down that is " +
+		"already open — this member has not been asked to stop. Press 停止 (deactivate) " +
+		"or 重新聚焦 (refocus) first"
+	acceleratedStopNeedsALiveSessionMsg = "加速停止 requires a live session — there is " +
+		"nothing to accelerate on a member that is not connected"
+)
 
 // Middle rung of 停止 → 加速停止 → 強制停止 (owner 2026-08-21). 🔴 It escalates, never
 // initiates (409 otherwise): a member never asked to stop would get a deadline it
@@ -1085,9 +1089,7 @@ func (s *apiServer) HandleAcceleratedStopMemberApiMembersMemberIdAcceleratedStop
 	// The notice travels on the member's own stream; a clock nobody hears is a silent
 	// deadline.
 	if !s.hub.IsOnline(m.ID) {
-		writeError(w, http.StatusConflict,
-			"加速停止 requires a live session — there is nothing to accelerate on a "+
-				"member that is not connected")
+		writeError(w, http.StatusConflict, acceleratedStopNeedsALiveSessionMsg)
 		return
 	}
 	if err := accelerateMemberStop(m, nowSecs()); err != nil {

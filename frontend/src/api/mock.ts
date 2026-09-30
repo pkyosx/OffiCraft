@@ -4732,7 +4732,7 @@ const mockApiImpl = {
     // 加速停止 (T-ed79) — the MIDDLE rung. It escalates a wind-down that is
     // ALREADY open, so its refusal is what makes it an escalation rather than a
     // second stop button; the message names the rungs below it, mirroring the
-    // server's acceleratedStopOutsourceMemberNeedsAnOpenWindDownMsg.
+    // server's acceleratedStopNeedsAnOpenWindDownMsg.
     const w = outsourceWorkers.find((x) => x.id === id);
     if (!w || w.status === "released") {
       throw mockApiError(
@@ -4746,15 +4746,15 @@ const mockApiImpl = {
     if (w.presence !== "online" && w.presence !== "stopping") {
       throw mockApiError(
         `http 409 for POST /api/members/${id}/accelerated-stop`,
-        409, "加速停止 requires the worker to be online (no live session to accelerate)"
+        409,
+        "加速停止 requires a live session — there is nothing to accelerate on a member that is not connected"
       );
     }
     if (!windingDown) {
       throw mockApiError(
         `http 409 for POST /api/members/${id}/accelerated-stop`,
         409,
-        "加速停止 escalates a wind-down that is already open — this worker has not " +
-          "been asked to stop. Press 停止 or 重新聚焦 first"
+        "加速停止 escalates a wind-down that is already open — this member has not been asked to stop. Press 停止 (deactivate) or 重新聚焦 (refocus) first"
       );
     }
     w.refocusOp = "accelerated_stop";

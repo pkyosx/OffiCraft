@@ -1040,6 +1040,35 @@ func TestHandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcceleratedSto
 		)
 	})
 
+	t.Run("escalating a stop on a worker that has not reported waking yet is admitted like staff", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusAssigned)
+		apiTestListen(t, api, "ow-abc123")
+		if code, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/deactivate", owner, ""); code != 200 {
+			t.Fatalf("stop: %d %v", code, data)
+		}
+		contractor := apiTestListen(t, api, "ow-abc123")
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/accelerated-stop", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{"id": "ow-abc123"})
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "assigned", "presence": "stopping", "desired_state": "offline",
+			"refocus_op": "accelerated_stop", "refocus_deadline": apiAnyNumber,
+		}))
+		dashboard.wantFrames(
+			apiTestHandoverDelta(4, "offline", apiAnyString, "owner"),
+			apiTestHandoverDelta(5, "offline", apiAnyString, "owner"),
+		)
+		contractor.wantFrames(
+			apiTestHandoverDelta(4, "offline", apiAnyString, "owner"),
+			apiTestHandoverDelta(5, "offline", apiAnyString, "owner"),
+		)
+	})
+
 	t.Run("escalating a worker nobody has asked to stop answers 409 naming the rung below", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
@@ -1051,8 +1080,8 @@ func TestHandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcceleratedSto
 			t.Fatalf("want 409, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "conflict",
-			"加速停止 escalates a wind-down that is already open — this worker has not "+
-				"been asked to stop. Press 停止 or 重新聚焦 first")
+			"加速停止 escalates a wind-down that is already open — this member has not "+
+				"been asked to stop. Press 停止 (deactivate) or 重新聚焦 (refocus) first")
 		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
 			"status": "active", "presence": "online",
 		}))
@@ -1069,14 +1098,26 @@ func TestHandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcceleratedSto
 			t.Fatalf("want 409, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "conflict",
-			"加速停止 requires the worker to be online (no live session to accelerate)")
+			"加速停止 requires a live session — there is nothing to accelerate on a "+
+				"member that is not connected")
 		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, nil))
 		dashboard.wantFrames()
 	})
 
-	t.Run("a released worker answers 404 naming the id from the path", func(t *testing.T) {
+	t.Run("a stopping worker whose task was closed answers 404 naming the id from the path and changes nothing", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
-		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusReleased)
+		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
+		apiTestListen(t, api, "ow-abc123")
+		if code, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/deactivate", owner, ""); code != 200 {
+			t.Fatalf("stop: %d %v", code, data)
+		}
+		if code, data := apiJSON(t, h, "POST", "/api/tasks/T-1/mark-terminated", owner, ""); code != 200 {
+			t.Fatalf("close: %d %v", code, data)
+		}
+		before, err := d.GetOutsourceWorker("ow-abc123")
+		if err != nil || before == nil {
+			t.Fatalf("GetOutsourceWorker: %v (%v)", before, err)
+		}
 		dashboard := apiTestListen(t, api, "")
 
 		status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/accelerated-stop", owner, "")
@@ -1084,6 +1125,16 @@ func TestHandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcceleratedSto
 			t.Fatalf("want 404, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "not_found", "member 'ow-abc123' not found")
+		after, err := d.GetOutsourceWorker("ow-abc123")
+		if err != nil || after == nil {
+			t.Fatalf("GetOutsourceWorker: %v (%v)", after, err)
+		}
+		if after.Status != WorkerStatusReleased || after.RefocusOp != "" ||
+			after.StoppingSince != before.StoppingSince || after.StoppingSince <= 0 {
+			t.Fatalf("status=%q refocus_op=%q stopping_since=%v, want released, no cause "+
+				"and the stop anchor untouched at %v", after.Status, after.RefocusOp,
+				after.StoppingSince, before.StoppingSince)
+		}
 
 		status, data = apiJSON(t, h, "POST", "/api/members/ow-nope/accelerated-stop", owner, "")
 		if status != 404 {

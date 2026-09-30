@@ -262,20 +262,7 @@ func (s *apiServer) HandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost
 }
 
 // Outsource arm of POST /api/members/{member_id}/accelerated-stop — the middle
-// rung of the owner's 停止 → 加速停止 → 強制停止 (owner 2026-08-21). Two arms:
-//   - 下線: re-stamp stopping_since; autoHandoverWorker's stop arm collects at
-//     stopping_since + the grace, and offboardKindOf answers `final` off the
-//     same refocus_op.
-//   - 換手: re-stamp refocus_since.
-//
-// The anchor is re-stamped from THIS press because the deadline is anchor +
-// grace. The other wind-down anchors are deliberately NOT cleared: this promotes
-// the epoch in flight, and zeroing stopped_since would erase a worker's own
-// "I am done".
-const acceleratedStopWorkerNeedsAnOpenWindDownMsg = "加速停止 escalates a wind-down " +
-	"that is already open — this worker has not been asked to stop. Press 停止 or " +
-	"重新聚焦 first"
-
+// rung of 停止 → 加速停止 → 強制停止. Same rules as the staff arm (accelerateMemberStop).
 func (s *apiServer) HandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcceleratedStopPost(w http.ResponseWriter, r *http.Request, id string) {
 	unlockMu := s.outsourceMu.Acquire()
 	defer unlockMu()
@@ -286,25 +273,17 @@ func (s *apiServer) HandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcc
 		if worker, err = resolveLiveWorkerOn(tx, id); err != nil {
 			return err
 		}
-		if worker.Status != WorkerStatusActive || !online {
-			return refuseInTx(http.StatusConflict,
-				"加速停止 requires the worker to be online (no live session to accelerate)")
+		if !online {
+			return refuseInTx(http.StatusConflict, acceleratedStopNeedsALiveSessionMsg)
 		}
-		switch {
-		case worker.DesiredState == DesiredStateOffline:
-			if !gracefulStopEpochOpen(memberFromWorker(*worker)) {
-				return refuseInTx(http.StatusConflict, acceleratedStopWorkerNeedsAnOpenWindDownMsg)
-			}
-			worker.StoppingSince = nowSecs()
-		case worker.RefocusSince > 0.0:
-			worker.RefocusSince = nowSecs()
-		default:
-			return refuseInTx(http.StatusConflict, acceleratedStopWorkerNeedsAnOpenWindDownMsg)
+		proj := memberFromWorker(*worker)
+		if err := accelerateMemberStop(&proj, nowSecs()); err != nil {
+			return err
 		}
-		worker.RefocusOp = refocusOpAcceleratedStop
-		// 後蓋前: a 下線 verb cancels a queued 起來 (last-writer-wins) while the
-		// ladder it advances stays a ratchet.
-		clearWorkerRestartIntent(worker)
+		worker.StoppingSince = proj.StoppingSince
+		worker.RefocusSince = proj.RefocusSince
+		worker.RefocusOp = proj.RefocusOp
+		worker.RestartAfterStop = proj.RestartAfterStop
 		return persistWorkerRowOn(tx, *worker)
 	})
 	if err != nil {
