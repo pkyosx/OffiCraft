@@ -3604,8 +3604,8 @@ type TaskManualFieldDTO struct {
 //
 // “sop_md“ is deliberately ABSENT rather than served empty: it is the bulk that
 // made a listing unreadable, and an empty string in a field that normally holds
-// the SOP reads as "this type has no SOP". Its size is measured on the STORED
-// row, so the row still answers "which manual is nearly full" — read the one you
+// the SOP reads as "this type has no SOP". Its size is measured on the SERVED
+// document (an unedited built-in manual's is its shipped SOP), so the row still answers "which manual is nearly full" — read the one you
 // picked with get_task_manual.
 type TaskManualListItemDTO struct {
 	Assignee    map[string]interface{} `json:"assignee"`
@@ -3622,7 +3622,7 @@ type TaskManualListItemDTO struct {
 	// SopMdCapChars The cap on the type's sop_md now in force, in CHARACTERS (the doc.cap_chars.manual_sop setting).
 	SopMdCapChars *int `json:"sop_md_cap_chars,omitempty"`
 
-	// SopMdChars Size of the type's sop_md in CHARACTERS, measured on the STORED document.
+	// SopMdChars Size of the type's sop_md in CHARACTERS, measured on the document get_task_manual serves (for an unedited built-in manual, its shipped SOP).
 	SopMdChars *int     `json:"sop_md_chars,omitempty"`
 	TypeKey    string   `json:"type_key"`
 	UpdatedTs  *float64 `json:"updated_ts,omitempty"`

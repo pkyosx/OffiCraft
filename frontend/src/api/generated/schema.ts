@@ -9208,8 +9208,8 @@ export interface components {
          *
          *     ``sop_md`` is deliberately ABSENT rather than served empty: it is the bulk that
          *     made a listing unreadable, and an empty string in a field that normally holds
-         *     the SOP reads as "this type has no SOP". Its size is measured on the STORED
-         *     row, so the row still answers "which manual is nearly full" — read the one you
+         *     the SOP reads as "this type has no SOP". Its size is measured on the SERVED
+         *     document (an unedited built-in manual's is its shipped SOP), so the row still answers "which manual is nearly full" — read the one you
          *     picked with get_task_manual.
          */
         TaskManualListItemDTO: {
@@ -9249,7 +9249,7 @@ export interface components {
             sop_md_cap_chars: number;
             /**
              * Sop Md Chars
-             * @description Size of the type's sop_md in CHARACTERS, measured on the STORED document.
+             * @description Size of the type's sop_md in CHARACTERS, measured on the document get_task_manual serves (for an unedited built-in manual, its shipped SOP).
              * @default 0
              */
             sop_md_chars: number;

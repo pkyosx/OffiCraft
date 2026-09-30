@@ -7872,7 +7872,7 @@
       },
       "TaskManualListItemDTO": {
         "additionalProperties": false,
-        "description": "One row of the TASK-MANUAL LISTING: the type's identity and its dispatch\nsetting — ``type_key`` / ``display_name`` / ``purpose`` / ``fields`` /\n``assignee`` / ``updated_ts`` — plus the SIZE of the long document it does NOT\ncarry and the cap it is judged against.\n\n``sop_md`` is deliberately ABSENT rather than served empty: it is the bulk that\nmade a listing unreadable, and an empty string in a field that normally holds\nthe SOP reads as \"this type has no SOP\". Its size is measured on the STORED\nrow, so the row still answers \"which manual is nearly full\" — read the one you\npicked with get_task_manual.",
+        "description": "One row of the TASK-MANUAL LISTING: the type's identity and its dispatch\nsetting — ``type_key`` / ``display_name`` / ``purpose`` / ``fields`` /\n``assignee`` / ``updated_ts`` — plus the SIZE of the long document it does NOT\ncarry and the cap it is judged against.\n\n``sop_md`` is deliberately ABSENT rather than served empty: it is the bulk that\nmade a listing unreadable, and an empty string in a field that normally holds\nthe SOP reads as \"this type has no SOP\". Its size is measured on the SERVED\ndocument (an unedited built-in manual's is its shipped SOP), so the row still answers \"which manual is nearly full\" — read the one you\npicked with get_task_manual.",
         "properties": {
           "assignee": {
             "additionalProperties": true,
@@ -7916,7 +7916,7 @@
           },
           "sop_md_chars": {
             "default": 0,
-            "description": "Size of the type's sop_md in CHARACTERS, measured on the STORED document.",
+            "description": "Size of the type's sop_md in CHARACTERS, measured on the document get_task_manual serves (for an unedited built-in manual, its shipped SOP).",
             "title": "Sop Md Chars",
             "type": "integer"
           },

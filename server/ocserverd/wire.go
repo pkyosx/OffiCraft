@@ -1531,7 +1531,7 @@ type taskManualDTO struct {
 }
 
 // taskManualListItemDTO: sop_md is ABSENT, not "" (an empty SOP is a
-// different claim). The size is measured on the stored row.
+// different claim). The size is measured on the served (folded) document.
 type taskManualListItemDTO struct {
 	SopMDChars    int            `json:"sop_md_chars"`
 	SopMDCapChars int            `json:"sop_md_cap_chars"`
