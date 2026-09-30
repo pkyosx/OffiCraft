@@ -47,6 +47,19 @@ func (c *launchEnvCache) remember(pairs []agentEnvPair) {
 	c.pairs = append([]agentEnvPair(nil), pairs...)
 }
 
+// A spawn that raced ahead of the login check's own capture holds the fresher
+// layer, so it is not overwritten.
+func (c *launchEnvCache) rememberIfEmpty(pairs []agentEnvPair) {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(c.pairs) == 0 {
+		c.pairs = append([]agentEnvPair(nil), pairs...)
+	}
+}
+
 func (c *launchEnvCache) interactive() []agentEnvPair {
 	if c == nil {
 		return nil
@@ -74,15 +87,17 @@ type loginProber struct {
 	agentHome  string
 	envFile    string
 	launchEnv  *launchEnvCache
+	captureEnv func() (string, error)
 	mkdirAll   func(path string, perm os.FileMode) error
 	writeFile  func(path, content string, mode os.FileMode) error
 	remove     func(name string) error
 	logf       func(string, ...any)
 
-	interval time.Duration
-	checked  bool
-	lastAt   time.Time
-	last     loginState
+	interval     time.Duration
+	captureTried bool
+	checked      bool
+	lastAt       time.Time
+	last         loginState
 }
 
 func newLoginProber(env func(string) string, runner CmdRunner, keep stdoutRunner, goos string,
@@ -97,6 +112,7 @@ func newLoginProber(env func(string) string, runner CmdRunner, keep stdoutRunner
 		agentHome:  defaultAgentHome(env),
 		envFile:    defaultAgentEnvFile(env),
 		launchEnv:  launchEnv,
+		captureEnv: defaultCaptureEnv(env),
 		mkdirAll:   os.MkdirAll,
 		writeFile:  osWriteFile,
 		remove:     os.Remove,
@@ -147,6 +163,7 @@ func (p *loginProber) claudeLoggedIn() *bool {
 	if bin == "" || p.claudeHome.Home == "" || p.keep == nil {
 		return nil
 	}
+	p.ensureLaunchEnv()
 	cmd, rendered := p.claudeStatusCommand(bin)
 	out, err := p.keep.RunKeepStdout(p.shell(), "-c", cmd)
 	if rendered != "" {
@@ -166,6 +183,12 @@ func (p *loginProber) claudeLoggedIn() *bool {
 	if *status.LoggedIn {
 		return status.LoggedIn
 	}
+	// Without the owner's interactive shell the check misses a credential that
+	// ~/.zshrc exports (API key, Bedrock, Vertex), so its false proves nothing.
+	if len(p.launchEnv.interactive()) == 0 {
+		p.log("[ocwarden runtimeprobe] claude reports logged out but the interactive shell env is unavailable; reporting unknown")
+		return nil
+	}
 	// A locked or unreadable login keychain makes a signed-in claude report
 	// loggedIn:false — that is not a logout, so it stays unknown.
 	if strings.HasPrefix(p.goos, "darwin") {
@@ -176,6 +199,21 @@ func (p *loginProber) claudeLoggedIn() *bool {
 		}
 	}
 	return status.LoggedIn
+}
+
+// Before the first spawn the shared cache is empty; the check captures the shell
+// once itself rather than run without it, and a later spawn refreshes the cache.
+func (p *loginProber) ensureLaunchEnv() {
+	if p.captureTried || p.captureEnv == nil || len(p.launchEnv.interactive()) > 0 {
+		return
+	}
+	p.captureTried = true
+	raw, err := p.captureEnv()
+	if err != nil {
+		p.log("[ocwarden runtimeprobe] interactive env: capture failed (%v)", err)
+		return
+	}
+	p.launchEnv.rememberIfEmpty(parseNulEnv(raw, p.logf))
 }
 
 func (p *loginProber) shell() string {

@@ -249,9 +249,12 @@ map reported yet leaves it unset, which is today's legacy behaviour
 measures Claude login with `claude auth status`, run in the environment members launch
 with and re-run every `runtime_login_check_interval_secs` (an org setting, default 300 s,
 delivered in the heartbeat reply): `true` when it reports logged in, `false` only when it
-reports logged out and, on macOS, the warden can read the login keychain (a locked
-keychain makes a signed-in claude report logged out, so that case stays absent), and
-absent on a timeout or unparseable output. Wardens older than v0.5.211-beta.1 also sent a
+reports logged out, the owner's interactive shell environment was in hand (the one the
+last spawn captured, or before any spawn one the check captures itself; without it a
+credential exported from `~/.zshrc` goes unseen, so that case stays absent) and, on
+macOS, the warden can read the login keychain (a locked keychain makes a signed-in
+claude report logged out, so that case stays absent too), and absent on a timeout or
+unparseable output. Wardens older than v0.5.211-beta.1 also sent a
 `false` that was a guess, and the reading is a single moment of one host. Persisting codex
 on it would pin the member permanently: that already cost one machine once, with no
 backfill to undo it, and every hire is born UNSET, so it would reach every future member

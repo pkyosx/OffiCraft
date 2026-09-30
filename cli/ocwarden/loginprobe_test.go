@@ -70,6 +70,7 @@ func TestLoginProberState(t *testing.T) {
 		p.claudeHome = claudeHome{Home: home}
 		p.agentHome = agentHome
 		p.envFile = envFile
+		p.captureEnv = func() (string, error) { return "", errors.New("capture not staged") }
 		return p
 	}
 	stage := func(t *testing.T, a answer) {
@@ -192,7 +193,9 @@ func TestLoginProberState(t *testing.T) {
 			runner := &wardenRunner{script: c.script, fallback: wardenRun{err: errors.New("unscripted argv")}}
 			keep := &keepShellRunner{renderPath: filepath.Join(agentHome, loginCheckEnvName)}
 			var log []string
-			got := newProber(c.env, c.goos, runner, keep, nil, &log).state()
+			cache := &launchEnvCache{}
+			cache.remember([]agentEnvPair{{"FROM_SHELL", "shell-value"}})
+			got := newProber(c.env, c.goos, runner, keep, cache, &log).state()
 			if !reflect.DeepEqual(got, c.want) {
 				t.Errorf("state = %s, want %s", fmtLogin(got), fmtLogin(c.want))
 			}
@@ -252,15 +255,70 @@ func TestLoginProberState(t *testing.T) {
 		})
 	}
 
-	t.Run("under no spawn yet, auth status runs with the warden env plus the env file", func(t *testing.T) {
-		stage(t, answer{`{"loggedIn":true}`, "0"})
+	t.Run("under no spawn yet and a capture that succeeds, auth status runs with the captured env and the shared cache keeps it", func(t *testing.T) {
+		stage(t, answer{`{"loggedIn":false}`, "1"})
+		cache := &launchEnvCache{}
 		keep := &keepShellRunner{renderPath: filepath.Join(agentHome, loginCheckEnvName)}
 		var log []string
-		newProber(map[string]string{"HOME": home, "OC_CLAUDE_BIN": claudeBin}, "linux",
-			&wardenRunner{}, keep, &launchEnvCache{}, &log).state()
+		p := newProber(map[string]string{"HOME": home, "OC_CLAUDE_BIN": claudeBin}, "linux",
+			&wardenRunner{}, keep, cache, &log)
+		captures := 0
+		p.captureEnv = func() (string, error) {
+			captures++
+			return "FROM_SHELL=captured\x00OC_TOKEN=stray\x00", nil
+		}
+		if got := p.state(); !reflect.DeepEqual(got, loginState{Claude: &no}) {
+			t.Errorf("state = %s, want claude=false codex=nil", fmtLogin(got))
+		}
+		raw, _ := os.ReadFile(evidence)
+		if want := "captured|file-value|unset|unset|unset|" + home + "|auth status"; string(raw) != want {
+			t.Errorf("claude saw %q, want %q", raw, want)
+		}
+		if want := []agentEnvPair{{"FROM_SHELL", "captured"}}; !reflect.DeepEqual(cache.interactive(), want) {
+			t.Errorf("cache = %v, want %v", cache.interactive(), want)
+		}
+		if captures != 1 {
+			t.Errorf("captures = %d, want 1", captures)
+		}
+		if want := []string{"interactive env: skipped OC_TOKEN — OC_* is warden-reserved (the agent's own identity)"}; !reflect.DeepEqual(log, want) {
+			t.Errorf("log =\n  %#v\nwant\n  %#v", log, want)
+		}
+	})
+
+	t.Run("under no spawn yet and a failing capture, a logged-out verdict is unknown, a logged-in one stays true, and the capture is not retried", func(t *testing.T) {
+		stage(t, answer{`{"loggedIn":false}`, "1"})
+		keep := &keepShellRunner{renderPath: filepath.Join(agentHome, loginCheckEnvName)}
+		var log []string
+		p := newProber(map[string]string{"HOME": home, "OC_CLAUDE_BIN": claudeBin}, "linux",
+			&wardenRunner{}, keep, &launchEnvCache{}, &log)
+		captures := 0
+		p.captureEnv = func() (string, error) {
+			captures++
+			return "", errors.New("timed out after 10s")
+		}
+		clock := time.Unix(1_000_000, 0)
+		p.now = func() time.Time { return clock }
+		if got := p.state(); !reflect.DeepEqual(got, loginState{}) {
+			t.Errorf("logged-out state = %s, want claude=nil codex=nil", fmtLogin(got))
+		}
+		stage(t, answer{`{"loggedIn":true}`, "0"})
+		clock = clock.Add(defaultLoginCheckInterval)
+		if got := p.state(); !reflect.DeepEqual(got, loginState{Claude: &yes}) {
+			t.Errorf("logged-in state = %s, want claude=true codex=nil", fmtLogin(got))
+		}
 		raw, _ := os.ReadFile(evidence)
 		if want := "|file-value|unset|unset|unset|" + home + "|auth status"; string(raw) != want {
 			t.Errorf("claude saw %q, want %q", raw, want)
+		}
+		if captures != 1 {
+			t.Errorf("captures = %d, want 1", captures)
+		}
+		want := []string{
+			"[ocwarden runtimeprobe] interactive env: capture failed (timed out after 10s)",
+			"[ocwarden runtimeprobe] claude reports logged out but the interactive shell env is unavailable; reporting unknown",
+		}
+		if !reflect.DeepEqual(log, want) {
+			t.Errorf("log =\n  %#v\nwant\n  %#v", log, want)
 		}
 	})
 
