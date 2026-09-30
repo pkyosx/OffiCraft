@@ -213,7 +213,33 @@ describe("MemberDetailPanel 最近操作 failure reason", () => {
       "machine_unavailable: Machine 'm-cx' runs an OffiCraft program too old to resolve the Codex model " +
         "family sol. Upgrade the OffiCraft program on that machine, or set a full model id",
     ],
-  ])("words a missing Codex model family in the viewer's language (%s)", (locale, reason, shown) => {
+    [
+      "zh",
+      "machine_unavailable: machine 'm-cx' is offline; no other machine is substituted",
+      "machine_unavailable: machine 'm-cx' is offline; no other machine is substituted",
+    ],
+    [
+      "zh",
+      "machine_unavailable: machine 'm-cx' runs a warden too old to resolve the Codex model family 'sol' " +
+        "— upgrade that machine's warden, or set a full model id; retry after the upgrade",
+      "machine_unavailable: machine 'm-cx' runs a warden too old to resolve the Codex model family 'sol' " +
+        "— upgrade that machine's warden, or set a full model id; retry after the upgrade",
+    ],
+    [
+      "zh",
+      "machine_unavailable: machine 'm-cx' runs a warden too old to resolve the Codex model family 'sol' " +
+        "— upgrade that machine's warden, or set a full model id (warden log: ocwarden.out.log)",
+      "machine_unavailable: machine 'm-cx' runs a warden too old to resolve the Codex model family 'sol' " +
+        "— upgrade that machine's warden, or set a full model id (warden log: ocwarden.out.log)",
+    ],
+    [
+      "zh",
+      "wake_timeout: machine_unavailable: machine 'm-cx' runs a warden too old to resolve the Codex model family 'sol' " +
+        "— upgrade that machine's warden, or set a full model id",
+      "wake_timeout: machine_unavailable: machine 'm-cx' runs a warden too old to resolve the Codex model family 'sol' " +
+        "— upgrade that machine's warden, or set a full model id",
+    ],
+  ])("a Codex model family or old-warden refusal is worded in the viewer's language, any other reason is shown as sent (%s)", (locale, reason, shown) => {
     if (locale === "en") useEnglishLocale();
     try {
       const { getByTestId } = renderPanel(mkMember({ lastOpReason: reason }));

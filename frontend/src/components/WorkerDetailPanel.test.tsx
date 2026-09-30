@@ -325,7 +325,7 @@ describe("WorkerDetailPanel — honest presence states (A案 P6 member vocabular
       "machine_unavailable: 機器「m-server-self」上的 OffiCraft 程式是舊版，還不認得 Codex 型號系列 sol；" +
         "請更新那台機器上的 OffiCraft 程式，或改設完整的型號名稱。不會改派到其他機器",
     ],
-  ])("離線 on a missing Codex model family: the reason is worded in the viewer's language (%s)", async (reason, shown) => {
+  ])("離線 on a Codex model family or old-warden refusal: the reason is worded in the viewer's language (%s)", async (reason, shown) => {
     __injectMockTask(mkTask({ id: "t-1" }));
     __injectMockOutsourceWorker(
       mkWorker({

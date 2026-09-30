@@ -61,10 +61,10 @@ func (f *fakeCodexAppServer) seen() []string {
 	return append([]string(nil), f.requests...)
 }
 
-// startFakeCodexAppServer answers each JSON-RPC request with reply's result; a nil
-// result leaves the request unanswered and exit=true closes stdout like a dead process.
+// startFakeCodexAppServer writes reply's messages for each JSON-RPC request; no
+// messages leaves the request unanswered and exit=true closes stdout like a dead process.
 func startFakeCodexAppServer(t *testing.T,
-	reply func(method string, params map[string]any) (result map[string]any, exit bool),
+	reply func(id any, method string, params map[string]any) (messages []appServerMessage, exit bool),
 ) (io.Writer, io.Reader, *fakeCodexAppServer) {
 	stdinR, stdinW := io.Pipe()
 	stdoutR, stdoutW := io.Pipe()
@@ -75,6 +75,7 @@ func startFakeCodexAppServer(t *testing.T,
 	fake := &fakeCodexAppServer{}
 	go func() {
 		dec := json.NewDecoder(stdinR)
+		enc := json.NewEncoder(stdoutW)
 		for {
 			var msg appServerMessage
 			if dec.Decode(&msg) != nil {
@@ -86,21 +87,25 @@ func startFakeCodexAppServer(t *testing.T,
 			fake.mu.Lock()
 			fake.requests = append(fake.requests, method+" "+string(raw))
 			fake.mu.Unlock()
-			if _, isRequest := msg["id"]; !isRequest {
+			id, isRequest := msg["id"]
+			if !isRequest {
 				continue
 			}
-			result, exit := reply(method, params)
+			messages, exit := reply(id, method, params)
 			if exit {
 				_ = stdoutW.Close()
 				return
 			}
-			if result == nil {
-				continue
+			for _, m := range messages {
+				_ = enc.Encode(m)
 			}
-			_ = json.NewEncoder(stdoutW).Encode(appServerMessage{"id": msg["id"], "result": result})
 		}
 	}()
 	return stdinW, stdoutR, fake
+}
+
+func codexResult(id any, result map[string]any) []appServerMessage {
+	return []appServerMessage{{"id": id, "result": result}}
 }
 
 func readCodexModelListWithin(t *testing.T, stdin io.Writer, stdout io.Reader,
@@ -123,35 +128,32 @@ func readCodexModelListWithin(t *testing.T, stdin io.Writer, stdout io.Reader,
 	}
 }
 
-func codexModelPage(nextCursor string, models ...map[string]any) map[string]any {
+func codexModelPage(nextCursor any, models ...map[string]any) map[string]any {
 	data := make([]any, 0, len(models))
 	for _, m := range models {
 		data = append(data, m)
 	}
-	page := map[string]any{"data": data}
-	if nextCursor != "" {
-		page["nextCursor"] = nextCursor
-	}
-	return page
+	return map[string]any{"data": data, "nextCursor": nextCursor}
 }
 
 func TestReadCodexModelList(t *testing.T) {
-	t.Run("models on every page are read and the newest sol is on the second page", func(t *testing.T) {
-		stdin, stdout, fake := startFakeCodexAppServer(t, func(method string, params map[string]any) (map[string]any, bool) {
+	t.Run("models on every page are read until a null nextCursor and the newest sol is on the second page", func(t *testing.T) {
+		stdin, stdout, fake := startFakeCodexAppServer(t, func(id any, method string, params map[string]any) ([]appServerMessage, bool) {
 			switch {
 			case method == "initialize":
-				return map[string]any{}, false
+				return codexResult(id, map[string]any{}), false
 			case method == "model/list" && params["cursor"] == nil:
-				return codexModelPage("page-2",
+				return codexResult(id, codexModelPage("page-2",
 					map[string]any{"id": "gpt-6-sol", "hidden": false},
-					map[string]any{"id": "gpt-6-luna"}), false
+					map[string]any{"id": "gpt-6-luna"})), false
 			case method == "model/list" && params["cursor"] == "page-2":
-				return codexModelPage("", map[string]any{"id": "gpt-6.1-sol", "hidden": false}), false
+				return codexResult(id, codexModelPage(nil,
+					map[string]any{"id": "gpt-6.1-sol", "hidden": false})), false
 			}
 			return nil, false
 		})
 
-		models, err := readCodexModelListWithin(t, stdin, stdout, 5*time.Second)
+		models, err := readCodexModelListWithin(t, stdin, stdout, 2*time.Second)
 
 		if err != nil {
 			t.Fatalf("readCodexModelList: %v", err)
@@ -175,19 +177,20 @@ func TestReadCodexModelList(t *testing.T) {
 	})
 
 	t.Run("a model listed as hidden is read as hidden and is not picked", func(t *testing.T) {
-		stdin, stdout, _ := startFakeCodexAppServer(t, func(method string, params map[string]any) (map[string]any, bool) {
+		stdin, stdout, _ := startFakeCodexAppServer(t, func(id any, method string, params map[string]any) ([]appServerMessage, bool) {
 			switch method {
 			case "initialize":
-				return map[string]any{}, false
+				return codexResult(id, map[string]any{}), false
 			case "model/list":
-				return codexModelPage("",
+				return codexResult(id, map[string]any{"data": []any{
 					map[string]any{"id": "gpt-7-sol", "hidden": true},
-					map[string]any{"id": "gpt-6-sol", "hidden": false}), false
+					map[string]any{"id": "gpt-6-sol", "hidden": false},
+				}}), false
 			}
 			return nil, false
 		})
 
-		models, err := readCodexModelListWithin(t, stdin, stdout, 5*time.Second)
+		models, err := readCodexModelListWithin(t, stdin, stdout, 2*time.Second)
 
 		if err != nil {
 			t.Fatalf("readCodexModelList: %v", err)
@@ -201,10 +204,57 @@ func TestReadCodexModelList(t *testing.T) {
 		}
 	})
 
-	t.Run("an app server that never answers model/list times out", func(t *testing.T) {
-		stdin, stdout, _ := startFakeCodexAppServer(t, func(method string, params map[string]any) (map[string]any, bool) {
+	t.Run("a reply to another id, a notification and a model without an id are not read into the list", func(t *testing.T) {
+		stdin, stdout, _ := startFakeCodexAppServer(t, func(id any, method string, params map[string]any) ([]appServerMessage, bool) {
+			switch method {
+			case "initialize":
+				return codexResult(id, map[string]any{}), false
+			case "model/list":
+				return []appServerMessage{
+					{"id": 99, "result": codexModelPage(nil, map[string]any{"id": "gpt-9-sol"})},
+					{"method": "model/rerouted", "params": map[string]any{"data": []any{}}},
+					{"id": id, "result": codexModelPage(nil,
+						map[string]any{"id": ""},
+						map[string]any{"hidden": false},
+						map[string]any{"id": "gpt-6-sol"})},
+				}, false
+			}
+			return nil, false
+		})
+
+		models, err := readCodexModelListWithin(t, stdin, stdout, 2*time.Second)
+
+		if err != nil {
+			t.Fatalf("readCodexModelList: %v", err)
+		}
+		wantModels := []codexModelEntry{{ID: "gpt-6-sol"}}
+		if !reflect.DeepEqual(models, wantModels) {
+			t.Errorf("models = %#v, want %#v", models, wantModels)
+		}
+	})
+
+	t.Run("an error reply to model/list is returned as that method's failure", func(t *testing.T) {
+		stdin, stdout, _ := startFakeCodexAppServer(t, func(id any, method string, params map[string]any) ([]appServerMessage, bool) {
 			if method == "initialize" {
-				return map[string]any{}, false
+				return codexResult(id, map[string]any{}), false
+			}
+			return []appServerMessage{{"id": id, "error": map[string]any{"code": -32603, "message": "not signed in"}}}, false
+		})
+
+		models, err := readCodexModelListWithin(t, stdin, stdout, 2*time.Second)
+
+		if models != nil {
+			t.Errorf("models = %#v, want nil", models)
+		}
+		if err == nil || err.Error() != "model/list failed: not signed in" {
+			t.Errorf("err = %v, want model/list failed: not signed in", err)
+		}
+	})
+
+	t.Run("an app server that never answers model/list times out", func(t *testing.T) {
+		stdin, stdout, _ := startFakeCodexAppServer(t, func(id any, method string, params map[string]any) ([]appServerMessage, bool) {
+			if method == "initialize" {
+				return codexResult(id, map[string]any{}), false
 			}
 			return nil, false
 		})
@@ -219,10 +269,35 @@ func TestReadCodexModelList(t *testing.T) {
 		}
 	})
 
-	t.Run("an app server that exits before answering model/list is reported as exited", func(t *testing.T) {
-		stdin, stdout, _ := startFakeCodexAppServer(t, func(method string, params map[string]any) (map[string]any, bool) {
+	t.Run("pages that each answer within the budget but together exceed it time out", func(t *testing.T) {
+		stdin, stdout, _ := startFakeCodexAppServer(t, func(id any, method string, params map[string]any) ([]appServerMessage, bool) {
 			if method == "initialize" {
-				return map[string]any{}, false
+				return codexResult(id, map[string]any{}), false
+			}
+			time.Sleep(100 * time.Millisecond)
+			switch params["cursor"] {
+			case nil:
+				return codexResult(id, codexModelPage("page-2", map[string]any{"id": "gpt-6-sol"})), false
+			case "page-2":
+				return codexResult(id, codexModelPage("page-3", map[string]any{"id": "gpt-6-luna"})), false
+			}
+			return codexResult(id, codexModelPage(nil, map[string]any{"id": "gpt-6-terra"})), false
+		})
+
+		models, err := readCodexModelListWithin(t, stdin, stdout, 150*time.Millisecond)
+
+		if models != nil {
+			t.Errorf("models = %#v, want nil", models)
+		}
+		if err == nil || err.Error() != "model/list timed out after 150ms" {
+			t.Errorf("err = %v, want model/list timed out after 150ms", err)
+		}
+	})
+
+	t.Run("an app server that exits before answering model/list is reported as exited", func(t *testing.T) {
+		stdin, stdout, _ := startFakeCodexAppServer(t, func(id any, method string, params map[string]any) ([]appServerMessage, bool) {
+			if method == "initialize" {
+				return codexResult(id, map[string]any{}), false
 			}
 			return nil, true
 		})
