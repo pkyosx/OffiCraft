@@ -5,7 +5,7 @@
 #   collector → run the actor → stop the collector → judge → emit the friction
 #   questions → teardown
 #
-# Read seven_gate/CLAUDE.md before changing anything here.
+# Read seven_gate/AGENTS.md before changing anything here.
 #
 #   bash e2e_test/seven_gate/run.sh                          # stub actor, current seeds
 #   OC_SEEDS_SRC=/tmp/candidate-seeds bash …/run.sh          # candidate boot context
@@ -57,7 +57,7 @@ COLLECTOR_PID=""
 RESPONDER_PID=""
 # EXACT PIDs only, never a name pattern: this harness's serve is the same binary
 # with the same argv as the live one, so `pkill -f` here would take the fleet
-# down with it (root CLAUDE.md §13).
+# down with it (root AGENTS.md §13).
 cleanup() {
   local rc=$?
   [[ -n "$RESPONDER_PID" ]] && kill "$RESPONDER_PID" 2>/dev/null
@@ -358,7 +358,7 @@ sleep 2
 #     is not a harness convenience; it is who the counterparty is. It answers
 #     only cards this run's agent opened, on this run's isolated server.
 #     It answers CARDS. It never answers the friction questions — those are the
-#     agent's own words or they are nothing (see 〈friction〉 in CLAUDE.md).
+#     agent's own words or they are nothing (see 〈friction〉 in AGENTS.md).
 #
 # 🔴 THIS ANSWER MAY NEVER FAIL QUIETLY. It used to end in `|| true`, and that
 #    line is exactly how the harness breaks without anyone being told: the

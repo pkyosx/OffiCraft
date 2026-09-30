@@ -19,7 +19,7 @@
 // The last heading is computed from those same bytes rather than written down,
 // so a seed edit moves the guard's expectation with it.
 //
-// The ancestor chain is reproduced BY CLASS, per frontend/CLAUDE.md 〈浮層寬度
+// The ancestor chain is reproduced BY CLASS, per frontend/AGENTS.md 〈浮層寬度
 // 不可用 vw 夾〉: a bare card mounted at x≈0 carries ~22px of slack it does not
 // have in the app. Production is
 //   .app > .app__main (max-width 1040 + 22px side padding) > .settings > card.

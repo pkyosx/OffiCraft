@@ -1,7 +1,7 @@
 // CT story for the 「已用 / 上限」 readout on the task-manual SOP (T-100), at
 // phone and desktop widths.
 //
-// The ancestor chain is reproduced BY CLASS, per frontend/CLAUDE.md 〈浮層寬度
+// The ancestor chain is reproduced BY CLASS, per frontend/AGENTS.md 〈浮層寬度
 // 不可用 vw 夾〉: a bare card mounted at x≈0 carries ~22px of slack it does not
 // have in the app, and that slack is exactly what hides an overflow at 390px.
 // Production is  .app > .app__main > .settings > (this page's own wrapper).

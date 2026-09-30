@@ -1,7 +1,7 @@
 package main
 
 // 「所有換手都可以給他機會收尾」 for STAFF members — the twin of the outsource
-// rule (server/CLAUDE.md 「所有 owner 動詞都給收尾機會」).
+// rule (server/AGENTS.md 「所有 owner 動詞都給收尾機會」).
 //
 // THE DISCRIMINATOR IS ONE FIELD. The 〈停止〉 wake an agent prints is fanned by
 // cli/ocagent's recycleHook.maybeRecycle, gated on `desired_state == online ∧
@@ -69,7 +69,7 @@ func memberHasStateToFlushGiven(m Member, online bool) bool {
 	return hasUncollectedOnlineOwnerOpState(m.RefocusSince, m.StoppedSince, online)
 }
 
-// Server half of a CROSS-LAYER contract (root CLAUDE.md §9c): maybeRecycle in
+// Server half of a CROSS-LAYER contract (root AGENTS.md §9c): maybeRecycle in
 // cli/ocagent/listen_hooks.go first checks `desired_state == online`. A refocus
 // stamp on a desired-offline member reaches nobody and is stranded — activate does
 // not clear it, so the next wake can be robust-stopped on an expired epoch. Every

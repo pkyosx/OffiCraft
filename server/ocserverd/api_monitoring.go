@@ -170,7 +170,7 @@ const wakeTimeoutReasonCode = "wake_timeout"
 // last_op* is ONE slot with two writers: this fold (execution outcome) and
 // stampWakeObservability (dispatch diagnosis). The receipt wins the slot, but a
 // displaced diagnosis is carried into last_op_log — in place, because the wire
-// is frozen (CLAUDE.md §13).
+// is frozen (AGENTS.md §13).
 func supersededDispatchClue(m Member) string {
 	if !strings.HasPrefix(m.LastOpReason, wakeTimeoutReasonCode+":") {
 		return ""

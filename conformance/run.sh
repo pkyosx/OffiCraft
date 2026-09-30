@@ -96,7 +96,7 @@ fi
 #   - 8770, 8780: officraft's own RETIRED former defaults (config.go history)
 #     — kept for any install that still has one explicitly pinned in oc.toml.
 #   - 8766: a DIFFERENT product's live port ("vibe-clicking", see
-#     conformance/CLAUDE.md) — not derivable from this repo at all.
+#     conformance/AGENTS.md) — not derivable from this repo at all.
 for _p in "$PROD_PORT" 8770 8780 8766; do
   if [[ "$CONF_PORT" == "$_p" ]]; then
     echo "[conformance] FATAL: OC_CONF_PORT=$CONF_PORT is a PROD port (current officraft default=$PROD_PORT per server/ocserverd/config.go, or a retired officraft default / a different live product's port) — refuse." >&2

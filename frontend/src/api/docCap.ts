@@ -11,7 +11,7 @@
 // It is a TEMPORARY STAND-IN. The right shape is the server returning a
 // per-revision `restorable` + `reason` on DocumentHistoryDTO, at which point
 // this whole module is deleted and the card reads the flag. That is a wire
-// change (spec/openapi.json is frozen — see root CLAUDE.md §13) and is
+// change (spec/openapi.json is frozen — see root AGENTS.md §13) and is
 // currently blocked on owner approval, so until then two implementations of one
 // rule exist. Only this one is pinned against a fixture:
 //   bin/tests/fixtures/doc-cap-cases.tsv   — the table

@@ -1,6 +1,6 @@
 # e2e_test/ — Playwright 端到端
 
-進入 `e2e_test/` 時讀本檔；repo-wide 規則在根目錄 `CLAUDE.md`。本檔只保留 e2e harness 會讓實作者猜錯的隔離、生命週期與驗證邊界。
+進入 `e2e_test/` 時讀本檔；repo-wide 規則在根目錄 `AGENTS.md`。本檔只保留 e2e harness 會讓實作者猜錯的隔離、生命週期與驗證邊界。
 
 ## 0. member browser contract（T-45/B）
 
@@ -24,7 +24,7 @@
 
 ## 3. seven_gate 是另一條載體
 
-- `e2e_test/seven_gate/` 不在 Playwright、`run_all.sh` 或 CI service run 裡；CI 只守它的 hermetic `tests_guard`。其 server-fact journal/judge、七 gate/兩 observation、live 未真跑界線與產物規則只讀 `seven_gate/CLAUDE.md`，本檔不複製步驟清單。
+- `e2e_test/seven_gate/` 不在 Playwright、`run_all.sh` 或 CI service run 裡；CI 只守它的 hermetic `tests_guard`。其 server-fact journal/judge、七 gate/兩 observation、live 未真跑界線與產物規則只讀 `seven_gate/AGENTS.md`，本檔不複製步驟清單。
 
 ## 4. online member 與誠實前置條件
 

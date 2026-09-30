@@ -66,7 +66,7 @@ fi
 #   - 8770, 8780: officraft's own RETIRED former defaults (config.go history)
 #     — kept for any install that still has one explicitly pinned in oc.toml.
 #   - 8766: a DIFFERENT product's live port ("vibe-clicking", see
-#     conformance/CLAUDE.md) — not derivable from this repo at all.
+#     conformance/AGENTS.md) — not derivable from this repo at all.
 PROD_PORTS=("$PROD_OFFICRAFT_PORT" 8770 8780 8766)
 for _p in "${PROD_PORTS[@]}"; do
   if [ "$OC_E2E_PORT" = "$_p" ]; then
@@ -211,7 +211,7 @@ oc_resolve_bin() {
 
 # Restore server/ocserverd/webdist to pristine (only .gitkeep survives). The go
 # leg stages the built SPA here for go:embed; a stray file that survives cleanup
-# gets baked into whatever binary the next `go build` links (server/CLAUDE.md) —
+# gets baked into whatever binary the next `go build` links (server/AGENTS.md) —
 # so a SILENT delete failure is a real hazard, not cosmetic. This
 # historically ran `find … -delete 2>/dev/null` with no rc check, so a half-failed
 # delete retired silently (T-c5d4 weakness-2). Now: let find's stderr through,

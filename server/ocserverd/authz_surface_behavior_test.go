@@ -441,7 +441,7 @@ var authzOutsideRouteTable = map[string]string{
 	"api_monitoring.go :: HandleGetMonitoringApiMonitoringGet :: s.principalOfRequest(r) == principalOwner": "" +
 		"same owner-only account-label overlay, at the monitoring handler's call site.",
 
-	// ── self-ops: identity from the token, never a parameter (CLAUDE.md §14) ──
+	// ── self-ops: identity from the token, never a parameter (AGENTS.md §14) ──
 	"api_members.go :: HandleGetMemberApiMembersMemberIdGet :: memberId == currentActor(r)": "" +
 		"self-read fold: an outsource worker's recycle/wind-down hook refetches ITS OWN " +
 		"row and must see desired_state/refocus_since. Strictly self-scoped — any OTHER " +
@@ -458,7 +458,7 @@ var authzOutsideRouteTable = map[string]string{
 	"api_members.go :: HandleRestartSelfApiSelfRefocusPost :: m.Kind == KindOutsource": "" +
 		"same outsource refusal on the self-refocus face.",
 
-	// ── the hire self-promotion seam (root CLAUDE.md §4, owner ruling) ────────
+	// ── the hire self-promotion seam (root AGENTS.md §4, owner ruling) ────────
 	"api_members.go :: HandleHireMemberApiMembersPost :: principalAtLeast(s.principalOfRequest(r), principalAdminAgent)": "" +
 		"§4 閉環: hiring is at the machine floor, but hiring WITH kind/role_key is " +
 		"privilege-bearing (an agent could otherwise hire itself a 'staff' colleague " +
@@ -765,7 +765,7 @@ func TestAuthzOutsideTheRouteTableIsEnumerated(t *testing.T) {
 		t.Fatalf("the inventory is empty — it is the artifact this gate exists to keep")
 	}
 	// Logged, not hard-coded in prose: any count quoted in a comment or in
-	// server/CLAUDE.md can be re-checked with `go test -v -run Enumerated`
+	// server/AGENTS.md can be re-checked with `go test -v -run Enumerated`
 	// instead of being trusted. (The base commit of this ticket exists because
 	// a comment that disagrees with the code is worse than no comment.)
 	t.Logf("authz scan corpus: %d predicates / %d files / %d caller-visible functions "+
@@ -932,7 +932,7 @@ var machineFloorWriteRulings = map[string]machineFloorRuling{
 			"covered by the same declined proposal.",
 	},
 	"POST /api/members": {
-		Ruling: "root CLAUDE.md §4 閉環",
+		Ruling: "root AGENTS.md §4 閉環",
 		Why: "hiring is floor-level, but hiring WITH kind/role_key is admin-gated INSIDE " +
 			"the handler (see the HandleHireMember entries in authzOutsideRouteTable) — " +
 			"otherwise an agent hires itself a 'staff' colleague and walks up the ladder. The " +
@@ -957,13 +957,13 @@ var machineFloorWriteRulings = map[string]machineFloorRuling{
 	"POST /api/self/stopped":  selfOpRuling,
 	"POST /api/self/refocus":  selfOpRuling,
 	"POST /api/chat": {
-		Ruling: "M1 wire freeze · root CLAUDE.md §14",
+		Ruling: "M1 wire freeze · root AGENTS.md §14",
 		Why: "talking is what every principal in the office does; the SENDER is taken " +
 			"from the verified token and can never be forged via the body, so the floor " +
 			"grants 'speak as yourself', not 'speak as anyone'.",
 	},
 	"POST /api/chat/mark-read": {
-		Ruling: "M1 wire freeze · root CLAUDE.md §14",
+		Ruling: "M1 wire freeze · root AGENTS.md §14",
 		Why: "a read receipt for the CALLER's own reader id (from the token). Floor-level " +
 			"by the same argument as POST /api/chat.",
 	},
@@ -973,7 +973,7 @@ var machineFloorWriteRulings = map[string]machineFloorRuling{
 			"referenced by a chat/reply-card the caller is entitled to post.",
 	},
 	"POST /api/reply-cards": {
-		Ruling: "M1 wire freeze · root CLAUDE.md §14",
+		Ruling: "M1 wire freeze · root AGENTS.md §14",
 		Why: "agents OPEN cards, the owner answers them (the answer faces are " +
 			"admin_agent since T-6020). Opening is the low-privilege half by design.",
 	},
@@ -996,7 +996,7 @@ var machineFloorWriteRulings = map[string]machineFloorRuling{
 }
 
 var selfOpRuling = machineFloorRuling{
-	Ruling: "root CLAUDE.md §14 · owner 2026-07-10",
+	Ruling: "root AGENTS.md §14 · owner 2026-07-10",
 	Why: "self-ops carry NO identity parameter — the server reads the caller from the " +
 		"token, so the route can only ever affect the caller itself. Wardens rank at " +
 		"the machine floor and must be able to report their own presence.",
@@ -1043,7 +1043,7 @@ func TestMachineFloorWriteRoutesAreEachARuling(t *testing.T) {
 			continue
 		}
 		if !strings.Contains(ruling.Ruling, "T-") && !strings.Contains(ruling.Ruling, "owner ") &&
-			!strings.Contains(ruling.Ruling, "CLAUDE.md") && !strings.Contains(ruling.Ruling, "M1") {
+			!strings.Contains(ruling.Ruling, "AGENTS.md") && !strings.Contains(ruling.Ruling, "M1") {
 			t.Errorf("%s: Ruling=%q names no ticket, owner date, or charter section — an "+
 				"exemption nobody can trace is a whitelist, and a whitelist is how this "+
 				"gate becomes decorative. This checks the FORM of the reference, not that the "+

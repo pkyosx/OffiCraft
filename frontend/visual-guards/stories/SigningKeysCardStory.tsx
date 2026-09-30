@@ -5,7 +5,7 @@
 // if it were on screen. The card's own vitest file mocks the hook and asserts
 // WORDING and BEHAVIOUR; the geometry has to be measured in a browser.
 //
-// The ancestor chain is reproduced BY CLASS (frontend/CLAUDE.md 〈浮層寬度不可用
+// The ancestor chain is reproduced BY CLASS (frontend/AGENTS.md 〈浮層寬度不可用
 // vw 夾〉): a bare card mounted at x≈0 carries ~22px of slack it does not have
 // in the app, which is how a narrow-width guard can stay green on a phone that
 // is actually broken. Production is

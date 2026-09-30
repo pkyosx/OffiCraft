@@ -7,12 +7,12 @@
 // file paths, sometimes a long unbreakable token. That token used to sit in a
 // section LABEL (`.boot-doc-sec__label`); it now sits in the rendered document
 // (`.doc-md`), which is where the same defect class lives for every other
-// document surface in the cockpit (frontend/CLAUDE.md 〈長 token 溢出〉).
+// document surface in the cockpit (frontend/AGENTS.md 〈長 token 溢出〉).
 //
 // jsdom cannot see any of this: it applies no layout engine, so the buttons are
 // in the DOM whether or not they are on screen.
 //
-// The ancestor chain is reproduced BY CLASS, per frontend/CLAUDE.md 〈浮層寬度
+// The ancestor chain is reproduced BY CLASS, per frontend/AGENTS.md 〈浮層寬度
 // 不可用 vw 夾〉: a bare card mounted at x≈0 carries ~22px of slack it does not
 // have in the app, which is how earlier 390px guards stayed green while the
 // owner's phone was broken. Production is

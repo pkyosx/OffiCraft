@@ -1,6 +1,6 @@
 # seven_gate/ — 任務路徑關卡
 
-進入 `e2e_test/seven_gate/` 時讀本檔；上層規則在 `e2e_test/CLAUDE.md` 與根目錄 `CLAUDE.md`。資料夾名是歷史遺跡：目前 `judge.py` 的 `STEPS` 有九格，但其中 `report_waking` 與 `step_done` 是 observation，不是 gate；不要在別的文件複製步驟清單。
+進入 `e2e_test/seven_gate/` 時讀本檔；上層規則在 `e2e_test/AGENTS.md` 與根目錄 `AGENTS.md`。資料夾名是歷史遺跡：目前 `judge.py` 的 `STEPS` 有九格，但其中 `report_waking` 與 `step_done` 是 observation，不是 gate；不要在別的文件複製步驟清單。
 
 ## 1. 載體契約：只判 server 事實
 

@@ -50,7 +50,7 @@ during T-dbd4's review rounds — they are measurements, not predictions:
 
   * A listing SPLIT ACROSS TWO LINES. Every sweep here is per-line, so a marker
     on one line and its list on the next is invisible. (Found live during T-dbd4:
-    frontend/CLAUDE.md said "投入程度 =" then "低/中/高" on the following line. It
+    frontend/AGENTS.md said "投入程度 =" then "低/中/高" on the following line. It
     was reflowed onto one line when it was fixed, so it is inside the sweep now —
     the shape stays a hole even though that instance is gone.)
   * A copy on a line that never says "effort" (or 思考強度 / 投入). This gates
@@ -103,7 +103,7 @@ it belongs to the doc-truth step of a change, not to a green here.
 
 REPORTED effort is a different thing and is NOT in scope. `actual_effort` /
 `effortLabel` render whatever the harness reports, verbatim and unvalidated, by
-design (cli/CLAUDE.md is explicit about the passthrough). A value like "ludicrous"
+design (cli/AGENTS.md is explicit about the passthrough). A value like "ludicrous"
 appearing there says only that the channel accepts any string; it is not a
 configurable level and must not be dragged into this set.
 

@@ -421,7 +421,7 @@ func TestAMachineThatHasNeverAuthenticatedIsNotCountedEitherWay(t *testing.T) {
 // TestRepeatedRequestsOnAnUnchangedKeyCostNoFurtherWrites is a real constraint,
 // not a micro-optimisation: this observation runs on EVERY authenticated request
 // on every gated route, and the write pool is ONE connection wide
-// (server/CLAUDE.md §7). A write per request would serialise the whole server
+// (server/AGENTS.md §7). A write per request would serialise the whole server
 // behind a bookkeeping column.
 //
 // It asks the DATABASE what happened (sqlite total_changes() on the write

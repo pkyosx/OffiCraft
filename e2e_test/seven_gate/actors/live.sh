@@ -7,7 +7,7 @@
 # question the gate exists for: does an agent that has read ONLY the boot
 # context DECIDE to do the seven things? So it is DEFAULT-OFF twice over:
 # run.sh's default actor is the stub, and this file refuses to do anything at
-# all unless OC_SG_LIVE_AGENT is exactly "1" (strict, as e2e_test/CLAUDE.md
+# all unless OC_SG_LIVE_AGENT is exactly "1" (strict, as e2e_test/AGENTS.md
 # requires of every spend switch — `true`/`yes`/`1 ` all fall to "did not run,
 # did not spend").
 #
@@ -147,7 +147,7 @@ OWNED_PIDS="$RUN_DIR/owned-pids"
 say "isolation: namespace=$OC_SG_NAMESPACE socket=$TMUX_SOCKET (the fleet's '$SG_FLEET_SOCKET' is unreachable from here)"
 
 # ── teardown: EXACT names, EXACT pids, nothing pattern-matched ──────────────
-# root CLAUDE.md §13 bans killing by program NAME (`pkill -f` and friends),
+# root AGENTS.md §13 bans killing by program NAME (`pkill -f` and friends),
 # because the live fleet runs the same binaries with the same argv — name is not
 # identity. Cleanup here kills ONLY what the ledgers say THIS run created, on
 # this run's OWN socket: no pattern, no glob, no "list the sessions and pick the

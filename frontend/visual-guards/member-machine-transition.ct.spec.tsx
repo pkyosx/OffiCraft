@@ -13,7 +13,7 @@
 //
 // jsdom answers neither question — no flex, no @media, every width 0 — so the
 // vitest suites cover the state machine and this covers the pixels. Widths span
-// the phone case, the repo's 720px mobile breakpoint (frontend/CLAUDE.md) and a
+// the phone case, the repo's 720px mobile breakpoint (frontend/AGENTS.md) and a
 // desktop width, because narrow and wide can fail in opposite directions.
 //
 // Machine ids the registry does not know fall back to the raw id, so the story

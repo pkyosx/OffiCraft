@@ -55,7 +55,7 @@ describe("toMonitoring account_label", () => {
 // whole suite (205 files / 1724 tests) green, even though the BE half and the
 // render half each had their own passing mutants. The entire user-visible fix
 // could therefore have gone dead silently — the exact failure shape
-// frontend/CLAUDE.md already records under "a fake api must not be more
+// frontend/AGENTS.md already records under "a fake api must not be more
 // generous than the real server".
 describe("toMonitoring usage-window measured_at (T-3b90)", () => {
   const withWindows = (

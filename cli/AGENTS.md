@@ -1,6 +1,6 @@
 # cli/ — Go 自更新 binaries (`ocagent` / `ocwarden`)
 
-進入 `cli/` 時讀本檔；repo-wide 規則在根目錄 `CLAUDE.md`。本檔只保留兩個 CLI module 會讓實作者猜錯的現行契約。行為權威看各 module source、wire/spec、conformance、可執行 guard 與測試；不在此列 route、檔案、job 或測試數量清單。
+進入 `cli/` 時讀本檔；repo-wide 規則在根目錄 `AGENTS.md`。本檔只保留兩個 CLI module 會讓實作者猜錯的現行契約。行為權威看各 module source、wire/spec、conformance、可執行 guard 與測試；不在此列 route、檔案、job 或測試數量清單。
 
 ## 1. 身分、命名與 namespace
 

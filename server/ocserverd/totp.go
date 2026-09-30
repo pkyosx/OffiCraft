@@ -1,6 +1,6 @@
 package main
 
-// Hand-rolled on the standard library ON PURPOSE (root CLAUDE.md, Lazy ladder
+// Hand-rolled on the standard library ON PURPOSE (root AGENTS.md, Lazy ladder
 // rung 5/6).
 //
 // HMAC-SHA1, 6 digits, 30-second step is an interop constraint, not a choice:

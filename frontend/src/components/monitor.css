@@ -452,7 +452,7 @@
    🔴 Kept as `display: block` — a own-line sentence shape, NOT a fixed-height
    badge/chip. That is not laziness: a fixed height + shrinkable flex item + a
    CJK label is exactly the combination that folds 未生效 into two stacked lines
-   and bursts the box (frontend/CLAUDE.md, T-5e79; the 390–414px band). This
+   and bursts the box (frontend/AGENTS.md, T-5e79; the 390–414px band). This
    shape has no fixed height, so the defect cannot occur here. */
 .mon-cutover-warn {
   display: block;
