@@ -239,19 +239,6 @@ describe("MemberDetailPanel — unified wake/change settings", () => {
     expect(onRelocate).not.toHaveBeenCalled();
   });
 
-  it("offers a WAKING member no 更改 (its confirm activates)", async () => {
-    const { getByTestId, queryByTestId } = renderPanel({
-      status: "waking",
-      lifecycle: "waking",
-      machine: "mach-a",
-    });
-    await waitFor(() =>
-      expect((getByTestId("member-action-spawn") as HTMLButtonElement).disabled).toBe(false),
-    );
-    // Its confirm is an activate, and 更改 promises a graceful handover.
-    expect(queryByTestId("mp-change")).toBeNull();
-  });
-
   it("still prints the pending target for an OFFLINE member, beside a dashed cell", async () => {
     // 🔴 REVERSED in T-7f28. This used to assert the opposite: an `awake &&`
     // gate hid the hint whenever the member was not up, on the reasoning that

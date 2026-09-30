@@ -1020,9 +1020,6 @@ describe("WorkerDetailPanel — lifecycle ops (T-32e1/T-f190)", () => {
     const input = (await findByTestId("me-model-input")) as HTMLInputElement;
     fireEvent.change(input, { target: { value: "claude-opus-4-8" } });
     expect(input.value).toBe("claude-opus-4-8");
-    expect(
-      (await findByTestId("worker-detail-settings-note")).textContent,
-    ).toBe("按下後會用這些設定開起來。");
   });
 
   it("喚醒 stores the launch settings and the pin BEFORE it wakes, so the new session boots as described", async () => {

@@ -137,18 +137,26 @@ describe("MemberDetailPanel — 喚醒/更改 wording matches what is dispatched
     expect(onActivate).not.toHaveBeenCalled();
   });
 
-  it("says 喚醒 for a waking member, because that confirm dispatches an activate", async () => {
-    const { getByTestId, onActivate, onRelocate } = renderPanel({
+  it("offers a waking member 取消 and 喚醒 (no 更改), and that confirm dispatches an activate", async () => {
+    const { getByTestId, container, onActivate, onRelocate } = renderPanel({
       status: "waking",
       lifecycle: "waking",
       machine: "mach-a",
     });
-    fireEvent.click(await armedAction(getByTestId, "member-action-spawn"));
+    const spawn = await armedAction(getByTestId, "member-action-spawn");
+    expect(
+      Array.from(
+        container.querySelectorAll(".mp-identity__buttons button"),
+      ).map((b) => [b.getAttribute("data-testid"), b.textContent]),
+    ).toEqual([
+      ["member-action-cancel", "取消"],
+      ["member-action-spawn", "喚醒"],
+    ]);
+    fireEvent.click(spawn);
     const { title, confirm, select } = await openedDialog(getByTestId);
 
-    expect(title.textContent).toBe(zh.lifecycle.action.spawn);
-    expect(confirm.textContent).toBe(zh.lifecycle.action.spawn);
-    expect(title.textContent).not.toBe(zh.mp.change);
+    expect(title.textContent).toBe("喚醒");
+    expect(confirm.textContent).toBe("喚醒");
 
     fireEvent.change(select, { target: { value: "mach-b" } });
     fireEvent.click(confirm);
