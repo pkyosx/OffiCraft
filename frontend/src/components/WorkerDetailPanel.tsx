@@ -9,7 +9,7 @@ import {
   runtimeLabel,
   slot,
 } from "./AgentDetailPanel";
-import { pendingChangeHint, pendingModelHint, reportedMachine } from "../lib/pendingChange";
+import { pendingChangeHint, pendingModelHint } from "../lib/pendingChange";
 import { localizeLastOpReason } from "../lib/lastOpReason";
 import {
   buildAgentDetailVm,
@@ -178,33 +178,34 @@ export function WorkerDetailPanel({
   // 🔴 A `stopping` worker is on the CHANGE side: owner `rc-2e1c96250169` — no
   // 喚醒 while it is stopping; wait for the stop to finish, then wake.
   const wakeMode = noLiveSession;
+  // 🔴 `machine` arrives as the server's alias‖id, while the registry names a
+  // machine by its displayName — the same machine can reach this panel under two
+  // spellings. Every machine value is resolved to the registry's displayName
+  // before it is shown or compared, and the pin is compared by id when the
+  // worker has a recorded landing; otherwise a correctly placed worker reads as
+  // mid-relocation.
+  const machineDisplay = (value: string) =>
+    machines.find((m) => m.machineId === value || m.displayName === value)
+      ?.displayName || value;
+  const shownMachine = machineDisplay(worker.machine ?? "");
   // 機器 says only where it is running now; not running ⇒ the dash (owner
   // `rc-25c5679371c3`, both kinds).
-  const machineText = awake || stoppingNow ? (worker.machine ?? "") : "";
-  // ── the four "changed, not applied yet" hints (T-7f28) ────────────────────
-  // This panel had NONE of these — not even for 機器, which the member panel
-  // has had all along. Same rule, same shared helper, so the two panels cannot
-  // drift apart again. `worker.machine` is the display name the server already
-  // resolved, so the pin is resolved the same way before they are compared.
-  //
-  // 🔴 BOTH SIDES ARE RESOLVED TO DISPLAY NAMES BEFORE THEY ARE COMPARED. The
-  // worker wire is asymmetric: `machine` arrives ALREADY resolved server-side
-  // ("Mac Studio (mac-1)") while `desired_machine_id` and `actual_machine` are
-  // raw ids. Comparing a display name against a raw id makes every correctly
-  // placed worker look mid-relocation — the false-positive twin of the bug
-  // this ticket exists to kill, and it would have shipped as a hint on every
-  // healthy row.
-  const machineDisplay = (id: string) =>
-    machines.find((m) => m.machineId === id)?.displayName || id;
-  const desiredMachineDisplay = machineDisplay(worker.desiredMachineId ?? "");
-  const pendingMachine = pendingChangeHint(
-    desiredMachineDisplay,
-    reportedMachine(
-      worker.machine ?? "",
-      machineDisplay(worker.actualMachine ?? ""),
-    ),
-    msg.workerMachineMovingTo,
-  );
+  const machineText = awake || stoppingNow ? shownMachine : "";
+  const desiredMachineId = worker.desiredMachineId ?? "";
+  const actualMachineId = worker.actualMachine ?? "";
+  const pendingMachine =
+    desiredMachineId && actualMachineId
+      ? pendingChangeHint(
+          desiredMachineId,
+          actualMachineId,
+          msg.workerMachineMovingTo,
+          machineDisplay(desiredMachineId),
+        )
+      : pendingChangeHint(
+          machineDisplay(desiredMachineId),
+          shownMachine,
+          msg.workerMachineMovingTo,
+        );
   const pendingRuntime = pendingChangeHint(
     worker.runtime || "claude",
     worker.actualRuntime ?? "",
