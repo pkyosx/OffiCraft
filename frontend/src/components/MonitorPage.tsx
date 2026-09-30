@@ -31,6 +31,7 @@ import { useHashRoute } from "../lib/hashRoute";
 import { Avatar } from "./Avatar";
 import { avatarKindForMember } from "../lib/avatarKind";
 import { InlineEdit } from "./InlineEdit";
+import { InstantHint } from "./InstantHint";
 import { MemberDetailPanel } from "./MemberDetailPanel";
 import { PresenceBadge } from "./PresenceBadge";
 import { CopyIcon, CheckIcon, CloseIcon } from "./icons";
@@ -1471,10 +1472,10 @@ function HardwareBadMark() {
  *   installed:false    → "not installed"
  *   version present    → the version verbatim
  *   installed, no ver. → "installed" (the probe answered, without a number)
- * followed by the login mark (signed in / signed out / unknown) whenever the
- * cell shows a version or "installed" — an installed, up-to-date, logged-out
- * runtime is exactly the case the operator needs to see. Unknown means the
- * warden sent no login state; it is not a soft "signed out".
+ * followed by a login mark (signed out / unknown; signed in adds nothing)
+ * whenever the cell shows a version or "installed" — an installed, up-to-date,
+ * logged-out runtime is exactly the case the operator needs to see. Unknown
+ * means the warden sent no login state; it is not a soft "signed out".
  *
  * `fallbackVersion` exists only for Claude: the machine registry has carried
  * its own `claude_version` since T-97ee/T-7c5b, and an older warden reports
@@ -1549,26 +1550,23 @@ function RuntimeVersionCell({
           {m.runtimeNoVersion}
         </span>
       )}
-      {capability.loggedIn === true && (
-        <span data-testid={`${testIdPrefix}-logged-in`}>{m.runtimeLoggedIn}</span>
-      )}
       {capability.loggedIn === false && (
-        <span
+        <InstantHint
           className="mon-stale mon-bad"
           data-testid={`${testIdPrefix}-logged-out`}
-          title={runtime === "claude" ? m.runtimeClaudeLoggedOutHint : m.runtimeLoggedOutHint}
+          hint={runtime === "claude" ? m.runtimeClaudeLoggedOutHint : m.runtimeLoggedOutHint}
         >
           {m.runtimeLoggedOut}
-        </span>
+        </InstantHint>
       )}
       {capability.loggedIn == null && (
-        <span
+        <InstantHint
           className="mon-muted"
           data-testid={`${testIdPrefix}-login-unknown`}
-          title={m.runtimeLoginUnknownHint}
+          hint={m.runtimeLoginUnknownHint}
         >
           {m.runtimeLoginUnknown}
-        </span>
+        </InstantHint>
       )}
       {staleMark}
     </>

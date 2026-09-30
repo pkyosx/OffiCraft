@@ -299,7 +299,6 @@ export const MESSAGE_KEYS: readonly string[] = [
   "monitor.machine.online",
   "monitor.machine.reinstall",
   "monitor.machine.runtimeClaudeLoggedOutHint",
-  "monitor.machine.runtimeLoggedIn",
   "monitor.machine.runtimeLoggedOut",
   "monitor.machine.runtimeLoggedOutHint",
   "monitor.machine.runtimeLoginUnknown",

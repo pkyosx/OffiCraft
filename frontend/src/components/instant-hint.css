@@ -1,0 +1,22 @@
+/* Above the 1100 modal layer: the hint's hosts include detail panels and
+ * overlays. pointer-events: none keeps it from ever taking a click that React
+ * would bubble through the portal into a clickable host row. */
+.instant-hint {
+  position: fixed;
+  z-index: 1200;
+  box-sizing: border-box;
+  max-width: min(320px, calc(100vw - 16px));
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 8%, transparent);
+  background: var(--color-card);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--color-shadow) 35%, transparent);
+  color: var(--color-text);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.5;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: left;
+  pointer-events: none;
+}

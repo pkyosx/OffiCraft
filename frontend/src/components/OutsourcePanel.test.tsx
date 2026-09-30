@@ -26,7 +26,7 @@
 // is the REAL wiring, not a stub.
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { act, render, fireEvent, waitFor, within } from "@testing-library/react";
+import { act, render, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { zh } from "../i18n/locales/zh";
 import { OfficePage } from "./OfficePage";
@@ -253,7 +253,7 @@ describe("OutsourcePanel", () => {
     expect(dot.getAttribute("aria-label")).toBe(zh.office.presence.offline);
   });
 
-  it("under runtime login warnings, the row's dot is followed by one exclamation listing each pair, and a clean row has none", async () => {
+  it("under runtime login warnings, the row's dot is followed by one exclamation whose hover hint lists each pair on its own line, and a clean row has none", async () => {
     const warned = mkTask({ id: "t-warned", taskNo: "T-warned" });
     const clean = mkTask({ id: "t-clean", taskNo: "T-clean" });
     __injectMockTask(warned);
@@ -278,7 +278,11 @@ describe("OutsourcePanel", () => {
     const cleanLine = await findByTestId("outsource-task-line-ow-clean");
     const marks = within(warnedLine).getAllByTestId("runtime-login-warning");
     expect(marks).toHaveLength(1);
-    expect(marks[0].getAttribute("title")).toBe("未登入 Codex\n要換到的 Mac Mini 未登入 Claude");
+    expect(marks[0].hasAttribute("title")).toBe(false);
+    fireEvent.mouseEnter(marks[0]);
+    expect(
+      Array.from(screen.getByRole("tooltip").children).map((line) => line.textContent),
+    ).toEqual(["未登入 Codex", "要換到的 Mac Mini 未登入 Claude"]);
     expect(marks[0].previousElementSibling?.getAttribute("data-testid")).toBe("outsource-presence-ow-warned");
     expect(within(cleanLine).queryByTestId("runtime-login-warning")).toBeNull();
   });

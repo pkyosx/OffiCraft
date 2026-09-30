@@ -562,7 +562,7 @@ describe("MonitorPage AI Sessions — column sort", () => {
     expect(memberNames()).toEqual(["Ada Renamed", "Zoe Renamed"]);
   });
 
-  it("under a roster member whose login warnings carry a current Claude pair, its row shows the mark titled 未登入 Claude and the other row shows none", async () => {
+  it("under a roster member whose login warnings carry a current Claude pair, its row shows the mark named 未登入 Claude and the other row shows none", async () => {
     listMembers.mockResolvedValue([
       {
         id: "mem-eva",
@@ -587,7 +587,7 @@ describe("MonitorPage AI Sessions — column sort", () => {
     await screen.findByText("Eva");
     const marks = sessionRows().map((r) =>
       Array.from(r.querySelectorAll('[data-testid="runtime-login-warning"]')).map((m) =>
-        m.getAttribute("title")
+        m.getAttribute("aria-label")
       )
     );
     expect(marks).toEqual([["未登入 Claude"], []]);

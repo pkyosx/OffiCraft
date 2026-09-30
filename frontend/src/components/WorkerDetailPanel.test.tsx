@@ -14,7 +14,7 @@
 // the picker's dark theme) is NOT asserted here — jsdom does not compute it.
 
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
-import { render, fireEvent, waitFor, configure, within } from "@testing-library/react";
+import { render, fireEvent, screen, waitFor, configure, within } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { api } from "../api";
 import { zh } from "../i18n/locales/zh";
@@ -706,7 +706,7 @@ describe("WorkerDetailPanel — header matches the sidebar 外包 row (T-f190 UI
     await waitFor(() => expect(window.location.hash).toBe("#tasks/t-1"));
   });
 
-  it("under a runtime login warning, the header dot is followed by one exclamation naming the pending pair", async () => {
+  it("under a runtime login warning, the header dot is followed by one exclamation whose hover hint names the pending pair", async () => {
     __injectMockTask(mkTask({ id: "t-1", taskNo: "T-e9f4" }));
     __injectMockOutsourceWorker(
       mkWorker({
@@ -722,7 +722,9 @@ describe("WorkerDetailPanel — header matches the sidebar 外包 row (T-f190 UI
     const header = await findByTestId("worker-detail-header-task");
     const marks = within(header).getAllByTestId("runtime-login-warning");
     expect(marks).toHaveLength(1);
-    expect(marks[0].getAttribute("title")).toBe("要換到的 Mac Mini 未登入 Codex");
+    expect(marks[0].hasAttribute("title")).toBe(false);
+    fireEvent.mouseEnter(marks[0]);
+    expect(screen.getByRole("tooltip").textContent).toBe("要換到的 Mac Mini 未登入 Codex");
     expect(marks[0].previousElementSibling?.getAttribute("data-testid")).toBe("worker-detail-header-dot");
   });
 

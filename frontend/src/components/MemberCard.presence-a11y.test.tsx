@@ -14,8 +14,8 @@
 // getAttribute("aria-label") check would NOT catch it (the attribute survives
 // aria-hidden; the label just stops being reachable).
 
-import { describe, it, expect } from "vitest";
-import { render } from "@testing-library/react";
+import { describe, it, expect, vi } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { MemberCard } from "./MemberCard";
 import type { Member } from "../types";
@@ -112,7 +112,9 @@ describe("MemberCard presence — the dot carries it", () => {
   // user can't tell the states apart, which is the same failure as having no
   // label at all (and would survive every per-state check above if they all
   // read e.g. "線上").
-  it("under a runtime login warning, the card shows one exclamation right after the dot, named by its tooltip", () => {
+  it("under a runtime login warning, the card shows one exclamation right after the dot, whose hint shows at once on hover without opening the row", () => {
+    const onChat = vi.fn();
+    const onOpenDetail = vi.fn();
     const { getAllByTestId, container } = render(
       <I18nProvider>
         <MemberCard
@@ -123,15 +125,28 @@ describe("MemberCard presence — the dot carries it", () => {
             ],
           })}
           selected={false}
-          onOpenDetail={() => {}}
-          onChat={() => {}}
+          onOpenDetail={onOpenDetail}
+          onChat={onChat}
         />
       </I18nProvider>,
     );
     const marks = getAllByTestId("runtime-login-warning");
     expect(marks).toHaveLength(1);
     expect(marks[0].getAttribute("aria-label")).toBe("未登入 Codex");
+    expect(marks[0].hasAttribute("title")).toBe(false);
     expect(marks[0].previousElementSibling).toBe(container.querySelector(".lifecycle-dot"));
+    expect(screen.queryByRole("tooltip")).toBeNull();
+
+    fireEvent.mouseOver(marks[0]);
+    fireEvent.mouseEnter(marks[0]);
+    expect(screen.getByRole("tooltip").textContent).toBe("未登入 Codex");
+    fireEvent.focus(marks[0]);
+    expect(onChat).not.toHaveBeenCalled();
+    expect(onOpenDetail).not.toHaveBeenCalled();
+
+    fireEvent.blur(marks[0]);
+    fireEvent.mouseLeave(marks[0]);
+    expect(screen.queryByRole("tooltip")).toBeNull();
   });
 
   it("gives each of the five lifecycle states a distinct label", () => {

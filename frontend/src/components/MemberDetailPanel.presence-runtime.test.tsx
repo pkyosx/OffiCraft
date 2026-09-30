@@ -6,7 +6,7 @@
 // shows the machine only (owner ruling rc-5a126c0e1b28).
 
 import { describe, it, expect, vi } from "vitest";
-import { fireEvent, render, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { zh } from "../i18n/locales/zh";
 import { MemberDetailPanel } from "./MemberDetailPanel";
@@ -111,7 +111,7 @@ describe("MemberDetailPanel · presence-gated machine + account", () => {
     expect(within(cell).getAllByText(dash)).toHaveLength(1);
   });
 
-  it("under runtime login warnings, the presence line carries one exclamation listing each pair", async () => {
+  it("under runtime login warnings, the presence line carries one exclamation whose hover hint lists each pair on its own line", async () => {
     const { container } = renderPanel(
       mkMember({
         status: "online",
@@ -127,8 +127,12 @@ describe("MemberDetailPanel · presence-gated machine + account", () => {
       expect(found).toHaveLength(1);
       return found;
     });
-    expect(marks[0].getAttribute("title")).toBe("未登入 Claude\n要換到的 Studio B 未登入 Codex");
+    expect(marks[0].hasAttribute("title")).toBe(false);
     expect(marks[0].closest(".presence-badge")).not.toBeNull();
+    fireEvent.mouseEnter(marks[0]);
+    expect(
+      Array.from(screen.getByRole("tooltip").children).map((line) => line.textContent),
+    ).toEqual(["未登入 Claude", "要換到的 Studio B 未登入 Codex"]);
   });
 
   it("under no runtime login warning, the presence line has no exclamation", async () => {

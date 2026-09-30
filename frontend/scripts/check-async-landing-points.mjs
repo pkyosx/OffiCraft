@@ -458,6 +458,13 @@ const REGISTRY = [
 
   // ─── Global / conversation-independent ───
   {
+    file: "components/InstantHint.tsx",
+    kind: "addEventListener",
+    count: 2,
+    verdict:
+      "scroll + resize while a hover hint is shown; both only close this mount's own hint, carry no conversation's value, and are removed by the effect cleanup when the hint closes or the host unmounts",
+  },
+  {
     file: "hooks/sharedServerSettings.ts",
     kind: "addEventListener",
     count: 2,

@@ -1755,7 +1755,6 @@ export const en: Dict = {
       runtimeNoVersion: "installed",
       runtimeNoVersionHint:
         "Installed, but its version could not be read.",
-      runtimeLoggedIn: "(signed in)",
       runtimeLoggedOut: "(signed out)",
       runtimeLoggedOutHint:
         "Installed but not signed in — members will not be placed on this machine.",
