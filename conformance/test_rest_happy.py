@@ -1282,7 +1282,7 @@ def _happy_manual(ctx: HCtx) -> str:
     # asserting type_key is present would stay green if the whole manual came
     # back, because a manual carries a type_key too.
     receipt = r.json()
-    assert set(receipt) == {"type_key", "updated_ts"}, receipt
+    assert set(receipt) == {"type_key", "updated_ts", "is_default", "is_seed"}, receipt
     assert receipt["type_key"] == type_key, receipt
     # The backfill this helper exists to exercise is a stored property, so it
     # is asserted on the READ face — the write face no longer echoes it, and
@@ -1932,7 +1932,8 @@ def _check_manual_minted(ctx: HCtx, r: httpx.Response) -> None:
     mints the tm- key. The receipt names the manual and the documents THIS
     call wrote — it wrote neither, so both optional triples are absent."""
     d = r.json()
-    assert set(d) == {"type_key", "updated_ts"}, d
+    assert set(d) == {"type_key", "updated_ts", "is_default", "is_seed"}, d
+    assert (d["is_default"], d["is_seed"]) == (False, False), d
     assert d["type_key"].startswith("tm-"), d
     assert len(d["type_key"]) == len("tm-") + 12, d
     g = ctx.client.get(
@@ -1948,7 +1949,8 @@ def _check_manual_minted(ctx: HCtx, r: httpx.Response) -> None:
 
 def _check_manual_edited(ctx: HCtx, r: httpx.Response) -> None:
     d = r.json()
-    assert set(d) == {"type_key", "updated_ts"}, d
+    assert set(d) == {"type_key", "updated_ts", "is_default", "is_seed"}, d
+    assert (d["is_default"], d["is_seed"]) == (False, False), d
     g = ctx.client.get(
         f"/api/task-manuals/{d['type_key']}",
         headers={"Authorization": f"Bearer {ctx.owner_token}"},
@@ -1959,6 +1961,23 @@ def _check_manual_edited(ctx: HCtx, r: httpx.Response) -> None:
     assert manual["fields"][0]["is_key"] is True, manual
 
 
+
+def _check_manual_reset(ctx: HCtx, r: httpx.Response) -> None:
+    """A reset writes the SOP back, so the SOP triple rides the receipt."""
+    d = r.json()
+    assert set(d) == {"type_key", "updated_ts", "is_default", "is_seed",
+                      "sop_md_chars", "sop_md_cap_chars", "sop_md_sha256"}, d
+    assert (d["type_key"], d["is_default"], d["is_seed"]) == (
+        "builtin-role-design", True, True), d
+    g = ctx.client.get(
+        "/api/task-manuals/builtin-role-design",
+        headers={"Authorization": f"Bearer {ctx.owner_token}"},
+    )
+    assert g.status_code == 200, f"{g.status_code} {g.text}"
+    manual = g.json()
+    assert manual["is_default"] is True, manual
+    assert len(manual["sop_md"]) == d["sop_md_chars"], manual
+    assert manual["assignee"] == {"kind": "staff", "member_id": "mira"}, manual
 
 # ── 傳承 (T-33) ──────────────────────────────────────────────────────────────
 _HAPPY_LORE_TITLE = "conf happy lore title"
@@ -3480,6 +3499,11 @@ HAPPY: dict[str, Happy] = {
     "DELETE /api/task-manuals/{type_key}": Happy(
         path=lambda ctx: f"/api/task-manuals/{_happy_manual(ctx)}",
         check=lambda _c, r: _expect(r, lambda d: d["deleted"] is True),
+    ),
+    "POST /api/task-manuals/{type_key}/reset": Happy(
+        # admin_agent floor; only a built-in manual has anything to reset to.
+        path="/api/task-manuals/builtin-role-design/reset",
+        check=_check_manual_reset,
     ),
     "POST /api/task-manuals/{type_key}/sop/patch": Happy(
         identity="agent",

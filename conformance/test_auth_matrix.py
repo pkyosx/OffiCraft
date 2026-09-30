@@ -1831,6 +1831,12 @@ MATRIX: dict[str, Route] = {
             f"{_matrix_manual(ctx) if i in _ADMIN_FACES else 'conf-missing-type'}"
         ),
     ),
+    "POST /api/task-manuals/{type_key}/reset": Route(
+        # A built-in manual is the only thing a reset applies to, and it exists
+        # on every station, so every at-floor face resets it 200 (idempotent).
+        requires="admin_agent",
+        path="/api/task-manuals/builtin-role-design/reset",
+    ),
     "POST /api/task-manuals/{type_key}/sop/patch": Route(
         # the agent patch face for sop_md — same agent floor as the whole-doc
         # update_task_manual content fields (per-type, not per-executor).

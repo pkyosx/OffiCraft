@@ -1244,5 +1244,12 @@
     "method": "POST",
     "path": "/api/lore/{entry_id}/scope",
     "requires": "admin_agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "reset_task_manual",
+    "method": "POST",
+    "path": "/api/task-manuals/{type_key}/reset",
+    "requires": "admin_agent"
   }
 ]

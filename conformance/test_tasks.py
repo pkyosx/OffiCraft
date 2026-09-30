@@ -199,7 +199,7 @@ def _open_count(client, owner_token) -> int:
 # T-91: create_task_manual and update_task_manual answer taskManualReceiptDTO.
 # The document triple is a POINTER: sop_md_* is on the response only when this
 # call wrote the SOP, so "not written" is expressible and is not spelled 0.
-_MANUAL_RECEIPT_ALWAYS = {"type_key", "updated_ts"}
+_MANUAL_RECEIPT_ALWAYS = {"type_key", "updated_ts", "is_default", "is_seed"}
 _MANUAL_RECEIPT_OPTIONAL = {
     "sop_md_chars", "sop_md_cap_chars", "sop_md_sha256",
 }
@@ -233,7 +233,7 @@ def _new_manual(client, owner_token, **edits) -> str:
     # the documents THIS call wrote, and it wrote neither, so both optional
     # triples are absent. Key-set equality: asserting only that type_key is
     # present would stay green if the whole manual came back.
-    assert set(r.json()) == {"type_key", "updated_ts"}, r.text
+    assert set(r.json()) == {"type_key", "updated_ts", "is_default", "is_seed"}, r.text
     assert r.json()["type_key"] == type_key, r.text
     if edits:
         r = client.post(
@@ -1215,6 +1215,41 @@ def test_manual_crud_and_delete_guard(client, owner_token, executor):
                       headers=_auth(owner_token)).status_code == 404
 
 
+def test_builtin_manual_is_listed_resettable_and_undeletable(client, owner_token):
+    builtin = "builtin-task-manual-design"
+    h = _auth(owner_token)
+    listed = client.get("/api/task-manuals", headers=h).json()
+    row = next(m for m in listed if m["type_key"] == builtin)
+    assert row["is_seed"] is True, row
+
+    r = client.post(f"/api/task-manuals/{builtin}",
+                    json={"purpose": "conf edited built-in",
+                          "assignee": {"kind": "staff", "member_id": "mira"}},
+                    headers=h)
+    assert r.status_code == 200, r.text
+    assert (r.json()["is_seed"], r.json()["is_default"]) == (True, False), r.json()
+
+    r = client.post(f"/api/task-manuals/{builtin}/reset", headers=h)
+    assert r.status_code == 200, r.text
+    assert (r.json()["is_seed"], r.json()["is_default"]) == (True, True), r.json()
+    manual = client.get(f"/api/task-manuals/{builtin}", headers=h).json()
+    assert manual["purpose"] != "conf edited built-in", manual
+    assert manual["is_default"] is True, manual
+    assert manual["assignee"] == {"kind": "staff", "member_id": "mira"}, manual
+
+    r = client.delete(f"/api/task-manuals/{builtin}", headers=h)
+    assert r.status_code == 403, r.text
+    assert client.get(f"/api/task-manuals/{builtin}", headers=h).status_code == 200
+
+    custom = _new_manual(client, owner_token, purpose="conf custom")
+    r = client.post(f"/api/task-manuals/{custom}/reset", headers=h)
+    assert r.status_code == 409, r.text
+    assert r.json()["error"]["code"] == "conflict", r.json()
+    r = client.post(f"/api/task-manuals/conf-missing-{uuid.uuid4().hex[:8]}/reset",
+                    headers=h)
+    assert r.status_code == 404, r.text
+
+
 # ── manual authorship split (owner ruling 2026-07-13) ────────────────────────
 # Agents author manual CONTENT; the assignee face + delete are governance
 # (owner / admin_agent — T-6020), so a plain agent is a flat 403 on both.
@@ -1340,7 +1375,8 @@ def test_agent_manual_authorship_via_mcp_tools(client, executor):
     # the purpose the caller just sent does not ride home. Key-set equality
     # over the structured content, then the stored value read back off the
     # read face, so the claim "the edit LANDED" is not merely dropped.
-    assert set(result["structuredContent"]) == {"type_key", "updated_ts"}, result
+    assert set(result["structuredContent"]) == {
+        "type_key", "updated_ts", "is_default", "is_seed"}, result
     assert result["structuredContent"]["type_key"] == type_key, result
     stored = client.get(f"/api/task-manuals/{type_key}",
                         headers=_auth(executor.token))
