@@ -96,6 +96,7 @@ var messageKeys = map[string]bool{
 	"chat.send":                                        true,
 	"chat.shareLinkCopied":                             true,
 	"chat.shareLinkCopyFailed":                         true,
+	"chat.stoppingQueueHintSuffix":                     true,
 	"chat.systemSender":                                true,
 	"chat.tasksLink":                                   true,
 	"chat.threadLoading":                               true,

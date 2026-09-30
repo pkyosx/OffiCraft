@@ -986,6 +986,7 @@ export const en: Dict = {
     offlineQueueHintTail: "will read it once back online.",
     // T-94c1 wake row (offline/stopped composer): queue notice + in-place wake.
     wakeQueueHintSuffix: "is offline — your message will queue, or wake them now",
+    stoppingQueueHintSuffix: "is stopping — your message will queue",
     wakeButton: "Wake",
     wakePending: "Waking…",
     emptyRange: "No messages in this range yet",

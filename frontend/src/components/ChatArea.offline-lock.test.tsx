@@ -108,17 +108,18 @@ function renderChat(
 }
 
 describe("ChatArea composer lock (T-9c3c: a live member is always messageable)", () => {
-  it.each<[MemberLifecycle, boolean]>([
-    ["offline", true],
-    ["stopped", true],
-    ["waking", true],
-    ["stopping", false],
+  it.each<[MemberLifecycle, boolean, string]>([
+    ["offline", true, "Mira 目前離線中 — 訊息會排隊，或立即喚醒上線"],
+    ["stopped", true, "Mira 目前離線中 — 訊息會排隊，或立即喚醒上線"],
+    ["waking", true, "Mira 目前離線中 — 訊息會排隊，或立即喚醒上線"],
+    ["stopping", false, "Mira 正在停止 — 訊息會排隊"],
   ])(
-    "%s member (onWake wired) → composer UNLOCKED (typable) + wake row, NO locked bar, ⚡喚醒 shown: %s",
-    (lifecycle, wakeShown) => {
-      const { query } = renderChat(lifecycle);
+    "%s member (onWake wired) → composer UNLOCKED (typable) + wake row, NO locked bar, ⚡喚醒 shown: %s, hint %s",
+    (lifecycle, wakeShown, hint) => {
+      const { query, container } = renderChat(lifecycle);
       const { input, locked, wakeRow, wakeBtn } = query();
       expect(wakeBtn !== null).toBe(wakeShown);
+      expect(container.querySelector(".chat__wake-row__hint")?.textContent).toBe(hint);
       // The fix: the input is present for EVERY non-online state — the message
       // queues, so none of them may drop the composer.
       expect(input).not.toBeNull();

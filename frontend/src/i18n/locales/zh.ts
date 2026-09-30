@@ -1048,6 +1048,7 @@ export const zh = {
     offlineQueueHintTail: "上線後就會讀到。",
     // T-94c1 wake row (offline/stopped composer): queue notice + in-place wake.
     wakeQueueHintSuffix: "目前離線中 — 訊息會排隊，或立即喚醒上線",
+    stoppingQueueHintSuffix: "正在停止 — 訊息會排隊",
     wakeButton: "喚醒",
     wakePending: "喚醒中…",
     emptyRange: "這個範圍還沒有訊息",
