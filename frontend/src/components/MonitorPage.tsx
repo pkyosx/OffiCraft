@@ -1472,10 +1472,11 @@ function HardwareBadMark() {
  *   installed:false    → "not installed"
  *   version present    → the version verbatim
  *   installed, no ver. → "installed" (the probe answered, without a number)
- * followed by a login mark (signed out / unknown; signed in adds nothing)
- * whenever the cell shows a version or "installed" — an installed, up-to-date,
- * logged-out runtime is exactly the case the operator needs to see. Unknown
- * means the warden sent no login state; it is not a soft "signed out".
+ * followed by a 未登入 chip whenever the cell shows a version or "installed"
+ * and the runtime reports signed out — an installed, up-to-date, logged-out
+ * runtime is exactly the case the operator needs to see.
+ * ⚠️ Signed in and unknown (no login state reported) both show nothing after
+ * the version: owner ruling, do not re-add a mark for either.
  *
  * `fallbackVersion` exists only for Claude: the machine registry has carried
  * its own `claude_version` since T-97ee/T-7c5b, and an older warden reports
@@ -1557,15 +1558,6 @@ function RuntimeVersionCell({
           hint={runtime === "claude" ? m.runtimeClaudeLoggedOutHint : m.runtimeLoggedOutHint}
         >
           {m.runtimeLoggedOut}
-        </InstantHint>
-      )}
-      {capability.loggedIn == null && (
-        <InstantHint
-          className="mon-muted"
-          data-testid={`${testIdPrefix}-login-unknown`}
-          hint={m.runtimeLoginUnknownHint}
-        >
-          {m.runtimeLoginUnknown}
         </InstantHint>
       )}
       {staleMark}

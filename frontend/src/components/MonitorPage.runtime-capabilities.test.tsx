@@ -162,7 +162,7 @@ describe("MonitorPage per-runtime version columns", () => {
     expect(within(claude).queryByTestId("mon-claude-logged-out")).toBeNull();
   });
 
-  it("under signed out, the version is followed by （未登入）, whose runtime-accurate hint shows at once on hover or focus and never as a native title", async () => {
+  it("under signed out, the version is followed by a 未登入 chip, whose runtime-accurate hint shows at once on hover or focus and never as a native title", async () => {
     mount(
       card(false, {
         claude: { installed: true, loggedIn: false, version: "2.1.211" },
@@ -171,8 +171,9 @@ describe("MonitorPage per-runtime version columns", () => {
     );
     const claudeOut = await screen.findByTestId("mon-claude-version");
     const codexOut = await screen.findByTestId("mon-codex-version");
-    expect(claudeOut.textContent).toBe("2.1.211（未登入）");
+    expect(claudeOut.textContent).toBe("2.1.211未登入");
     const claudeMark = within(claudeOut).getByTestId("mon-claude-logged-out");
+    expect(claudeMark.textContent).toBe("未登入");
     expect(claudeMark.className).toBe("mon-stale mon-bad");
     expect(claudeMark.hasAttribute("title")).toBe(false);
     expect(screen.queryByRole("tooltip")).toBeNull();
@@ -183,7 +184,7 @@ describe("MonitorPage per-runtime version columns", () => {
     fireEvent.mouseLeave(claudeMark);
     expect(screen.queryByRole("tooltip")).toBeNull();
 
-    expect(codexOut.textContent).toBe("0.52.0（未登入）");
+    expect(codexOut.textContent).toBe("0.52.0未登入");
     const codexMark = within(codexOut).getByTestId("mon-codex-logged-out");
     expect(codexMark.hasAttribute("title")).toBe(false);
     fireEvent.focus(codexMark);
@@ -194,25 +195,20 @@ describe("MonitorPage per-runtime version columns", () => {
     expect(screen.queryByRole("tooltip")).toBeNull();
   });
 
-  it("under an unreported login state, the version is followed by （未知）, whose hint shows at once on hover", async () => {
+  it("under an unreported login state, the cell is the version alone, while a signed-out runtime on the same machine still says 未登入", async () => {
     mount(
       card(false, {
-        claude: { installed: true, loggedIn: true, version: "2.1.211" },
-        codex: { installed: true, loggedIn: null, version: "0.52.0" },
+        claude: { installed: true, loggedIn: null, version: "2.1.211" },
+        codex: { installed: true, loggedIn: false, version: "0.52.0" },
       })
     );
-    const codexUnknown = await screen.findByTestId("mon-codex-version");
-    expect(codexUnknown.textContent).toBe("0.52.0（未知）");
-    const mark = within(codexUnknown).getByTestId("mon-codex-login-unknown");
-    expect(mark.className).toBe("mon-muted");
-    expect(mark.hasAttribute("title")).toBe(false);
-    fireEvent.mouseEnter(mark);
-    expect(screen.getByRole("tooltip").textContent).toBe(
-      "這台機器沒有回報是否登入（檢查逾時、讀不到結果，或讀不到 macOS 鑰匙圈）。"
-    );
+    const claudeUnknown = await screen.findByTestId("mon-claude-version");
+    const codexOut = await screen.findByTestId("mon-codex-version");
+    expect(claudeUnknown.textContent).toBe("2.1.211");
+    expect(codexOut.textContent).toBe("0.52.0未登入");
   });
 
-  it("under signed in, the cell is the version alone, while a signed-out runtime on the same machine still says （未登入）", async () => {
+  it("under signed in, the cell is the version alone, while a signed-out runtime on the same machine still says 未登入", async () => {
     mount(
       card(false, {
         claude: { installed: true, loggedIn: true, version: "2.1.211" },
@@ -222,7 +218,7 @@ describe("MonitorPage per-runtime version columns", () => {
     const claudeIn = await screen.findByTestId("mon-claude-version");
     const codexOut = await screen.findByTestId("mon-codex-version");
     expect(claudeIn.textContent).toBe("2.1.211");
-    expect(codexOut.textContent).toBe("0.52.0（未登入）");
+    expect(codexOut.textContent).toBe("0.52.0未登入");
     cleanup();
 
     mount(

@@ -302,8 +302,6 @@ var messageKeys = map[string]bool{
 	"monitor.machine.runtimeClaudeLoggedOutHint":       true,
 	"monitor.machine.runtimeLoggedOut":                 true,
 	"monitor.machine.runtimeLoggedOutHint":             true,
-	"monitor.machine.runtimeLoginUnknown":              true,
-	"monitor.machine.runtimeLoginUnknownHint":          true,
 	"monitor.machine.runtimeNoVersion":                 true,
 	"monitor.machine.runtimeNoVersionHint":             true,
 	"monitor.machine.runtimeNotInstalled":              true,

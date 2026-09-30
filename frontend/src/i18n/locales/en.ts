@@ -1755,14 +1755,11 @@ export const en: Dict = {
       runtimeNoVersion: "installed",
       runtimeNoVersionHint:
         "Installed, but its version could not be read.",
-      runtimeLoggedOut: "(signed out)",
+      runtimeLoggedOut: "signed out",
       runtimeLoggedOutHint:
         "Installed but not signed in — members will not be placed on this machine.",
       runtimeClaudeLoggedOutHint:
         "Claude is not signed in on this machine. Members can still be placed here, but they cannot work until Claude is signed in on it.",
-      runtimeLoginUnknown: "(unknown)",
-      runtimeLoginUnknownHint:
-        "This machine did not report whether it is signed in (the check timed out, gave no readable answer, or could not read the macOS keychain).",
       // ── hardware sample age (T-b36a). The server WITHHOLDS the numbers of an
       // expired sample, so cpu/ram/power fall back to a dash — the same dash a
       // machine that has never reported hardware shows. These two labels are

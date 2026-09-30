@@ -1775,11 +1775,9 @@ export const zh = {
       runtimeNotInstalledHint: "這台機器上沒有安裝這個 AI 執行環境，無法在這裡喚醒成員。",
       runtimeNoVersion: "已安裝",
       runtimeNoVersionHint: "已安裝，但讀不到版本。",
-      runtimeLoggedOut: "（未登入）",
+      runtimeLoggedOut: "未登入",
       runtimeLoggedOutHint: "已安裝但尚未登入，成員不會被派到這台機器。",
       runtimeClaudeLoggedOutHint: "這台機器上的 Claude 尚未登入。成員仍會被派到這裡，但要等這台機器登入 Claude 後才能工作。",
-      runtimeLoginUnknown: "（未知）",
-      runtimeLoginUnknownHint: "這台機器沒有回報是否登入（檢查逾時、讀不到結果，或讀不到 macOS 鑰匙圈）。",
       // 硬體樣本時效(T-b36a):過期的數值 server 會收回,於是 CPU/RAM/電源
       // 落回 dash——跟「從來沒回報過硬體」是同一個 dash。這兩個標籤就是把兩
       // 個世界分開的東西,要行動的只有後者(這台失聯了,不是它從沒說過話)。
