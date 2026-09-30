@@ -215,8 +215,9 @@ func (p *loginProber) claudeLoggedIn() (*bool, bool) {
 		return status.LoggedIn, true
 	}
 	// Without the owner's interactive shell the check misses a credential that
-	// ~/.zshrc exports (API key, Bedrock, Vertex), so its false proves nothing.
-	if len(p.launchEnv.interactive()) == 0 {
+	// ~/.zshrc exports (API key, Bedrock, Vertex), so its false proves nothing —
+	// unless capture is switched off, when members launch without that shell too.
+	if p.captureEnv != nil && len(p.launchEnv.interactive()) == 0 {
 		p.log("[ocwarden runtimeprobe] claude reports logged out but the interactive shell env is unavailable; reporting unknown")
 		return nil, true
 	}

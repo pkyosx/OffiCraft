@@ -322,6 +322,25 @@ func TestLoginProberState(t *testing.T) {
 		}
 	})
 
+	t.Run("under capture switched off by OC_AGENT_ENV_INHERIT=0, a logged-out verdict stays false", func(t *testing.T) {
+		stage(t, answer{`{"loggedIn":false}`, "1"})
+		keep := &keepShellRunner{renderPath: filepath.Join(agentHome, loginCheckEnvName)}
+		var log []string
+		env := map[string]string{"HOME": home, "OC_CLAUDE_BIN": claudeBin, "OC_AGENT_ENV_INHERIT": "0"}
+		p := newProber(env, "linux", &wardenRunner{}, keep, &launchEnvCache{}, &log)
+		p.captureEnv = defaultCaptureEnv(envMap(env))
+		if got := p.state(); !reflect.DeepEqual(got, loginState{Claude: &no}) {
+			t.Errorf("state = %s, want claude=false codex=nil", fmtLogin(got))
+		}
+		raw, _ := os.ReadFile(evidence)
+		if want := "|file-value|unset|unset|unset|" + home + "|auth status"; string(raw) != want {
+			t.Errorf("claude saw %q, want %q", raw, want)
+		}
+		if len(log) != 0 {
+			t.Errorf("log = %#v, want none", log)
+		}
+	})
+
 	type beat struct {
 		at             time.Duration
 		claude         answer

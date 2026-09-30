@@ -253,7 +253,9 @@ i.e. every heartbeat) while it reads logged out or unknown, each runtime on its 
 (both delivered in the heartbeat reply): `true` when it reports logged in, `false` only when it
 reports logged out, the owner's interactive shell environment was in hand (the one the
 last spawn captured, or before any spawn one the check captures itself; without it a
-credential exported from `~/.zshrc` goes unseen, so that case stays absent) and, on
+credential exported from `~/.zshrc` goes unseen, so that case stays absent — except when
+the owner has switched capture off with `OC_AGENT_ENV_INHERIT=0`, since members then
+launch without that shell too and the `false` is accurate) and, on
 macOS, the warden can read the login keychain (a locked keychain makes a signed-in
 claude report logged out, so that case stays absent too), and absent on a timeout or
 unparseable output. Wardens older than v0.5.211-beta.1 also sent a
