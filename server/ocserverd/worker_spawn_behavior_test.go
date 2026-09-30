@@ -1649,17 +1649,22 @@ func TestReconcileWorkerLiveness_NeverCollectedIsNotAFailedBoot(t *testing.T) {
 }
 
 func TestReconcileWorkerLiveness_UnderAWardenRefusalOfTheStart(t *testing.T) {
+	const lapsed = "wake_timeout: the start was collected by machine 'm-server-self' but this worker never " +
+		"came online within the start window — check that the 'claude' runtime actually runs " +
+		"and is logged in on that machine (warden log: ocwarden.out.log)"
 	for _, c := range []struct {
 		name, refusal, want string
+		earlier             bool
 	}{
-		{"not logged in: the lapse and the back-off keep the refusal",
-			"claude_not_logged_in: no claude credential here (cred_file=unset keychain=unset).",
-			"claude_not_logged_in: machine 'm-server-self' is not logged in to claude"},
-		{"any other refusal: the lapse replaces it with the wake-timeout receipt",
-			"claude_bin_unresolved: set OC_CLAUDE_BIN or put claude on the daemon PATH",
-			"wake_timeout: the start was collected by machine 'm-server-self' but this worker never " +
-				"came online within the start window — check that the 'claude' runtime actually runs " +
-				"and is logged in on that machine (warden log: ocwarden.out.log)"},
+		{name: "not logged in: the lapse and the back-off keep the refusal",
+			refusal: "claude_not_logged_in: no claude credential here (cred_file=unset keychain=unset).",
+			want:    "claude_not_logged_in: machine 'm-server-self' is not logged in to claude"},
+		{name: "any other refusal: the lapse replaces it with the wake-timeout receipt",
+			refusal: "claude_bin_unresolved: set OC_CLAUDE_BIN or put claude on the daemon PATH",
+			want:    lapsed},
+		{name: "not logged in, but of an earlier start: the lapse of this start is a wake timeout",
+			refusal: "claude_not_logged_in: no claude credential here (cred_file=unset keychain=unset).",
+			want:    lapsed, earlier: true},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			s := newWorkerTestServer(t)
@@ -1671,14 +1676,25 @@ func TestReconcileWorkerLiveness_UnderAWardenRefusalOfTheStart(t *testing.T) {
 				s.reconcileWorkerLiveness(w, now)
 			}
 			base := nowSecs()
+			refuse := func(at float64) {
+				s.foldCommandResult(map[string]any{
+					"worker_id": w.ID, "rpc": "start", "ok": false,
+					"reason": c.refusal, "log": c.refusal, "at": at,
+				}, "telemetry", ServerSelfHost)
+			}
+			if c.earlier {
+				refuse(base - 100)
+				s.outsourceMu.Lock()
+				delete(s.workerMachineBench, workerMachineKey(w.ID, ServerSelfHost))
+				s.outsourceMu.Unlock()
+			}
 			tick(base)
 			if len(s.hub.DrainWardenCommands(ServerSelfHost)) != 1 {
 				t.Fatal("premise: one START must be collected")
 			}
-			s.foldCommandResult(map[string]any{
-				"worker_id": w.ID, "rpc": "start", "ok": false,
-				"reason": c.refusal, "log": c.refusal, "at": base + 1,
-			}, "telemetry", ServerSelfHost)
+			if !c.earlier {
+				refuse(base + 1)
+			}
 
 			for _, at := range []float64{base + WakingTTLSecs + 1, base + WakingTTLSecs + 2} {
 				tick(at)

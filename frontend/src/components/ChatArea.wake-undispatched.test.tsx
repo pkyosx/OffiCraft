@@ -316,4 +316,40 @@ describe("ChatArea · in-chat wake that was never dispatched (T-7fa1)", () => {
       ]),
     );
   });
+
+  it("under a second wake whose receipt names a different cause, the notice shows the second cause", async () => {
+    const onWake = vi
+      .fn()
+      .mockResolvedValueOnce({
+        activationPending: true,
+        lastOpReason:
+          "machine_unavailable: machine 'm-server-self' is not logged in to claude; no other machine is substituted",
+      })
+      .mockResolvedValueOnce({
+        activationPending: true,
+        lastOpReason:
+          "machine_unavailable: machine 'm-server-self' is not logged in to codex; no other machine is substituted",
+      });
+    const { wakeBtn, findByTestId } = renderChat(onWake);
+
+    fireEvent.click(wakeBtn());
+    const first = await findByTestId("chat-wake-undispatched");
+    await waitFor(() =>
+      expect(Array.from(first.children, (el) => el.textContent)).toEqual([
+        "這次沒有送出喚醒指令",
+        "伺服器這一台 未登入 Claude",
+      ]),
+    );
+
+    await waitFor(() => expect(wakeBtn().disabled).toBe(false));
+    fireEvent.click(wakeBtn());
+    await waitFor(() => expect(onWake).toHaveBeenCalledTimes(2));
+    await waitFor(async () => {
+      const second = await findByTestId("chat-wake-undispatched");
+      expect(Array.from(second.children, (el) => el.textContent)).toEqual([
+        "這次沒有送出喚醒指令",
+        "伺服器這一台 未登入 Codex",
+      ]);
+    });
+  });
 });

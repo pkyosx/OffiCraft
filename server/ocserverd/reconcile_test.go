@@ -1850,6 +1850,17 @@ func TestStampMemberOpBlocked(t *testing.T) {
 		}
 	})
 
+	t.Run("the retry loop describing its own wait replaces a standing refusal that is not a not-logged-in one", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestPut(t, d, Member{ID: "refused", Name: "R", Kind: KindStaff, RoleKey: "assistant", DesiredState: DesiredStateOnline})
+		refusal := "claude_bin_unresolved: set OC_CLAUDE_BIN or put claude on the daemon PATH"
+		if err := d.SetMemberLastOp("refused", reconcileCmdStart, reconcileTestFalse(), refusal, refusal, reconcileTestNow); err != nil {
+			t.Fatalf("SetMemberLastOp: %v", err)
+		}
+		api.stampMemberOpBlocked("refused", spawnReasonBackoff+": waiting", reconcileTestNow+10)
+		apiWantValue(t, "reason", any(reconcileTestRow(t, d, "refused").LastOpReason), any("backoff: waiting"))
+	})
+
 	t.Run("the retry loop describing its own wait yields to a standing wake-lapse diagnosis, while a fresh finding replaces it", func(t *testing.T) {
 		api, d := reconcileTestServer(t)
 		reconcileTestPut(t, d, Member{ID: "lapsed", Name: "L", Kind: KindStaff, RoleKey: "assistant", DesiredState: DesiredStateOnline})
@@ -2022,6 +2033,40 @@ func TestStampWakeObservability(t *testing.T) {
 				got := reconcileTestRow(t, d, "refused")
 				apiWantValue(t, "reason and waking", any([]any{got.LastOpReason, got.WakingSince}),
 					any([]any{c.want, 0.0}))
+			})
+		}
+	})
+
+	t.Run("under a not-logged-in refusal left from an earlier start, a later START lost mid-delivery lapses into the undelivered wake-timeout receipt", func(t *testing.T) {
+		for _, c := range []struct {
+			name, refusal string
+		}{
+			{"claude", "claude_not_logged_in: machine 'm-box' is not logged in to claude"},
+			{"codex", "codex_not_logged_in: machine 'm-box' is not logged in to codex"},
+		} {
+			t.Run(c.name, func(t *testing.T) {
+				api, d := reconcileTestServer(t)
+				reconcileTestPut(t, d, Member{
+					ID: "refused", Name: "R", Kind: KindStaff, RoleKey: "assistant",
+					DesiredState: DesiredStateOnline, DesiredMachineID: "m-box", WakingSince: reconcileTestNow,
+				})
+				if err := d.SetMemberLastOp("refused", reconcileCmdStart, reconcileTestFalse(), c.refusal,
+					c.refusal, reconcileTestNow-100); err != nil {
+					t.Fatalf("SetMemberLastOp: %v", err)
+				}
+				frame, _ := buildTargetFrame(reconcileCmdStart, "refused")
+				hubTestStderr(t, func() {
+					api.hub.ReturnUndeliveredCommands("m-box", []wardenCmd{{Subject: "refused", Frame: frame}})
+				})
+				before := reconcileTestRow(t, d, "refused")
+				m := before
+				api.stampWakeObservability(&m, reconcileDecision{StartTimedOut: true}, reconcileTestNow+WakingTTLSecs+1)
+
+				got := reconcileTestRow(t, d, "refused")
+				apiWantValue(t, "reason and waking", any([]any{got.LastOpReason, got.WakingSince}),
+					any([]any{"wake_timeout: the START never reached machine \"m-box\" — its SSE stream failed " +
+						"mid-delivery and the frame was dropped server-side, so nothing on that machine was ever " +
+						"asked to start; do not go looking at claude there, the machine's connection is the suspect", 0.0}))
 			})
 		}
 	})
