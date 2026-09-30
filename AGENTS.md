@@ -2,6 +2,8 @@
 
 This file is read by coding agents (Claude Code, Codex) working in this repo.
 
+⚠️ Claude Code skips every AGENTS.md in a session, silently, when any CLAUDE.md exists in the working directory or any directory above it (including outside the repo). Do not add a CLAUDE.md anywhere in this repo, and check the machine's parent directories when an agent seems to ignore these rules.
+
 ## 讀法與範圍
 
 這份檔案只放 repo-wide、讀碼不一定看得出的不變量與工作邊界。`server/`、`cli/`、`frontend/`、`conformance/`、`e2e_test/` 的域內規則，讀各自的 `AGENTS.md`；`frontend/.claude/rules/` 的規則依 `paths:` 條件載入。不要把域內細節或會頻繁變動的清單複製到這裡。
