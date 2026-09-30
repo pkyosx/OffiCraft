@@ -931,6 +931,7 @@ export const MESSAGE_KEYS: readonly string[] = [
   "settings.historyGlobalTitle",
   "settings.historyInsightTitle",
   "settings.historyLoading",
+  "settings.historyManualSeedConfirm",
   "settings.historyModalDefaultContent",
   "settings.historyModalEmpty",
   "settings.historyNoContent",

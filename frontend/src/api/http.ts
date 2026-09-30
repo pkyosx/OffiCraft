@@ -2048,6 +2048,14 @@ export const httpApi: Api = {
     );
   },
 
+  async resetTaskManual(typeKey: string): Promise<void> {
+    unwrap(
+      await client.POST("/api/task-manuals/{type_key}/reset", {
+        params: { path: { type_key: typeKey } },
+      }),
+    );
+  },
+
   // ── 傳承 (T-33) ──────────────────────────────────────────────────────────
 
   async listLoreEntries(opts?: LoreListOptions): Promise<LoreEntryPageView> {
@@ -3025,7 +3033,7 @@ export const httpApi: Api = {
     // tombstone → the folded read is the per-role file seed again,
     // is_default true). The write answers with a bounded receipt (T-91), not
     // the folded doc; the cockpit refetches, exactly as it already did. Same
-    // POST-reset shape as resetRole; a role with no seed file 404s.
+    // POST-reset shape as resetRole; a role with no seed file is 409.
     await client.POST("/api/insight/{role_key}/reset", {
       params: { path: { role_key: roleKey } },
     });

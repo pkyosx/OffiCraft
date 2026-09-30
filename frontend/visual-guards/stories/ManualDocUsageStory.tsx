@@ -33,7 +33,8 @@ const MANUAL: TaskManualView = {
   assignee: null,
   updatedTs: 0,
   sopMdChars: 15796,
-  sopMdCapChars: 18000,
+  sopMdCapChars: 18000,  isSeed: false,
+  isDefault: false,
 };
 
 export function ManualDocUsageStory({ widthPx }: { widthPx: number }) {

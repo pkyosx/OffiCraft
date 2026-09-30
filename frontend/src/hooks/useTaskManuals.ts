@@ -45,6 +45,8 @@ interface UseTaskManuals {
    * THIS call wrote, as sizes — never their text. */
   update: (typeKey: string, patch: TaskManualPatch) => Promise<void>;
   remove: (typeKey: string) => Promise<void>;
+  /** Put a built-in manual back to its shipped version, then re-read the list. */
+  reset: (typeKey: string) => Promise<void>;
 }
 
 export function useTaskManuals(): UseTaskManuals {
@@ -134,7 +136,22 @@ export function useTaskManuals(): UseTaskManuals {
     [refetch]
   );
 
-  return { manuals, loading, error, refetch, create, update, remove };
+  const reset = useCallback(
+    async (typeKey: string) => {
+      await api.resetTaskManual(typeKey);
+      try {
+        await refetch();
+      } catch (e) {
+        console.warn(
+          "useTaskManuals: post-reset refetch failed (the manual was reset)",
+          e
+        );
+      }
+    },
+    [refetch]
+  );
+
+  return { manuals, loading, error, refetch, create, update, remove, reset };
 }
 
 interface UseTaskManual {

@@ -2131,6 +2131,8 @@ export const zh = {
     historySopTitle: "SOP 版本紀錄",
     historySopSub:
       "只有 SOP 會保留版本；用途與識別鍵的修改不留版本紀錄。系統保留最近 3 次修改；還原只會覆蓋 SOP。",
+    historyManualSeedConfirm:
+      "確定還原成初始版本？整本手冊（名稱、用途、識別鍵、SOP 與負責成員）都會回到出廠時的內容，目前的修改會被覆蓋。",
     historyField: {
       text: "內容",
       name: "名稱",

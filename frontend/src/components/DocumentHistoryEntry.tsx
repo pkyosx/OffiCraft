@@ -14,7 +14,7 @@
 //   2. **點了才打 API**。`useDocumentHistory` 的 enabled 就是這件事本身；沒點開
 //      的編輯面一通請求都不發。
 //   3. **重置變成清單最後一項「初始版本」**。有 seed 預設的文件（`onReset`）才有
-//      這一項；沒有的（自訂角色、任務手冊）不能長出一個按了會 404 的入口。它現在
+//      這一項；沒有的（自訂角色、自訂任務手冊）不能長出一個按了會被拒絕的入口。它現在
 //      是重置的唯一入口，所以走跟還原一模一樣的破壞性確認框。
 //
 // 清單列本身沿用原本卡片的內容（時間／修改者／逐欄預覽／超上限的不可還原徽章／
@@ -77,8 +77,8 @@ export interface DocumentHistoryEntryProps {
    */
   currentContent?: Record<string, string>;
   /**
-   * True when THIS document can be deleted whole from the cockpit (a task
-   * manual, a custom role). Such a delete keeps no history, so the list states
+   * True when THIS document can be deleted whole from the cockpit (a custom
+   * task manual, a custom role). Such a delete keeps no history, so the list states
    * that limit — otherwise it reads as a general undo. Left false where no
    * delete flow exists (global context, seed roles): a footnote that
    * is false for the document on screen is worse than no footnote.
@@ -88,11 +88,14 @@ export interface DocumentHistoryEntryProps {
   onRestored?: () => Promise<unknown> | void;
   /**
    * Restore the FILE SEED — the document's shipped default. Present only where
-   * one exists; where it does not (custom roles, task manuals) the 初始版本 row
-   * must not appear, because the server 404s that reset. This is now the ONLY
-   * reset affordance in the cockpit.
+   * one exists; where it does not (custom roles, custom task manuals) the
+   * 初始版本 row must not appear, because the server refuses that reset. This is
+   * now the ONLY reset affordance in the cockpit.
    */
   onReset?: () => Promise<unknown> | void;
+  /** Replaces the 初始版本 confirmation where the reset rewrites more than
+   * this document. */
+  seedConfirm?: string;
   /** Dead while the surrounding editor has a write in flight. */
   disabled?: boolean;
 }
@@ -106,6 +109,7 @@ export function DocumentHistoryEntry({
   docDeletable,
   onRestored,
   onReset,
+  seedConfirm,
   disabled,
 }: DocumentHistoryEntryProps) {
   const { t, msg } = useI18n();
@@ -454,6 +458,7 @@ export function DocumentHistoryEntry({
           // the restore actually leaves behind instead of announcing that the
           // whole document would be deleted.
           seedContent={seedDoc.content}
+          seedConfirm={seedConfirm}
           actorLine={
             reading.kind === "version" ? actorLine(reading.version.actorId) : ""
           }

@@ -931,7 +931,7 @@ export interface paths {
          *
          *     ADDRESSING: ``kind`` and ``key`` name a document exactly as they do for list_document_history — the same server-side gate answers both routes, so whatever that tool addresses is addressable here, and a ``kind`` this server does not know is refused with 400 while a ``key`` that names no document of that kind is refused with 404 that names it. Neither is something to guess at: ask and read the answer.
          *
-         *     COVERAGE: whether THAT document ships a default is answered by asking for it. 200 means it does, and ``content`` is that text. 404 means it has none at all — a role the owner created, a task manual — which is the same set whose reset the server also 404s, so it is the honest 'there is nothing to go back to', not a gap to work around. 400 on a retired kind names the series that replaced it.
+         *     COVERAGE: whether THAT document ships a default is answered by asking for it. 200 means it does, and ``content`` is that text. 404 means it has none at all — a role the owner created, a task manual created on this station — which is the same set whose reset the server refuses as not applicable (409), so it is the honest 'there is nothing to go back to', not a gap to work around. 400 on a retired kind names the series that replaced it.
          * @description - The document's shipped default, so it can be compared against the live text before anyone resets to it.
          *     - Read-only, same floor as reading the retained versions.
          *     - 404 where no seed exists.
@@ -1137,9 +1137,9 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Reset a per-role insight doc back to its factory seed (idempotent tombstone of the overlay) - the counterpart of reset_role on the Duty block. A role with NO seed file (seeds/insight_<role_key>.md) returns 404: there must be a factory version to reset TO. No length cap is applied on this path, matching reset_role - the factory text is part of the product. The overlay you are discarding is retained as a document-history revision, so the reset is recoverable. Only the role's own agents (and admin) may do it. Answers with a bounded receipt (``role_key``, ``is_default``, ``has_seed``, ``size_chars``, ``cap_chars``, ``sha256``), not the folded doc — call ``get_insight`` when you need the rest.
+         * Reset a per-role insight doc back to its factory seed (idempotent tombstone of the overlay) - the counterpart of reset_role on the Duty block. A role with NO seed file (seeds/insight_<role_key>.md) is refused with 409 (not applicable): there must be a factory version to reset TO; a role that does not exist is 404. No length cap is applied on this path, matching reset_role - the factory text is part of the product. The overlay you are discarding is retained as a document-history revision, so the reset is recoverable. Only the role's own agents (and admin) may do it. Answers with a bounded receipt (``role_key``, ``is_default``, ``has_seed``, ``size_chars``, ``cap_chars``, ``sha256``), not the folded doc — call ``get_insight`` when you need the rest.
          * @description - Drops the role's insight overlay so reads fall back to the shipped seed; idempotent.
-         *     - A role with no seed file is a 404 — there must be a factory version to return to.
+         *     - A role with no seed file is refused with 409 (not applicable) — there must be a factory version to return to; a role that does not exist is 404.
          *     - The discarded overlay is retained as a document revision, so the reset is recoverable.
          *     - Returns a bounded receipt, not the folded doc.
          *     - Emits an `insight` event; a client holding the stream learns of this without polling.
@@ -2497,9 +2497,9 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Reset a role definition to seed (idempotent tombstone overlay). Answers with a bounded receipt (``key``, ``name``, ``is_default``, ``is_seed``, ``size_chars``, ``cap_chars``, ``sha256``), not the duty document — call ``get_role`` when you need the rest.
+         * Reset a role definition to seed (idempotent tombstone overlay). Only a shipped (seed) role can be reset: a role created on this station is refused with 409 (not applicable), an unknown role is 404. Answers with a bounded receipt (``key``, ``name``, ``is_default``, ``is_seed``, ``size_chars``, ``cap_chars``, ``sha256``), not the duty document — call ``get_role`` when you need the rest.
          * @description - Drops any owner edit and returns the role to its seed text; idempotent.
-         *     - Only a SEED role can be reset; anything else is a 404.
+         *     - Only a SEED role can be reset: a role created on this station is refused with 409 (not applicable); an unknown role is 404.
          */
         post: operations["handle_reset_role_api_roles__role__reset_post"];
         delete?: never;
@@ -2730,11 +2730,12 @@ export interface paths {
          * @description - Identity rows only: `sop_md` is ABSENT, not empty - serving it once made this answer six figures of characters.
          *     - Every row still carries `sop_md_chars` and the cap it is judged against, so which manual is nearly full is answerable here.
          *     - Fetch one manual's text with get_task_manual.
+         *     - Built-in manuals are listed even when nothing was ever written for them; `is_seed` / `is_default` say which rows are built-in and unedited.
          */
         get: operations["handle_list_task_manuals_api_task_manuals_get"];
         put?: never;
         /**
-         * Create a task type: pass display_name; the server mints and returns the tm- type_key id (legacy explicit type_key still accepted; duplicate → 409; assignee = owner/admin agent). An outsource assignee may select runtime claude/codex; absent = claude. Answers with a bounded receipt (``type_key``, ``updated_ts``, ``sop_md_chars``, ``sop_md_cap_chars``, ``sop_md_sha256``), not the manual — call ``get_task_manual`` when you need the rest.
+         * Create a task type: pass display_name; the server mints and returns the tm- type_key id (legacy explicit type_key still accepted; duplicate → 409; assignee = owner/admin agent). An outsource assignee may select runtime claude/codex; absent = claude. Answers with a bounded receipt (``type_key``, ``updated_ts``, ``is_default``, ``is_seed``, ``sop_md_chars``, ``sop_md_cap_chars``, ``sop_md_sha256``), not the manual — call ``get_task_manual`` when you need the rest.
          * @description - Creates one task type as a blank manual from `display_name`; the server mints the `tm-` type_key and returns it.
          *     - An explicit `type_key` is still accepted verbatim as the id (duplicate is 409; a blank display_name backfills to it).
          *     - Any agent may create a manual, but supplying `assignee` below admin_agent is a 403.
@@ -2758,11 +2759,12 @@ export interface paths {
          * @description - One manual in full: purpose, fields, SOP and assignee.
          *     - The SOP is judged against `sop_md_cap_chars`.
          *     - Unknown type: 404.
+         *     - A built-in manual is served even when nothing was ever written for it; `is_seed` / `is_default` say whether it is built-in and unedited.
          */
         get: operations["handle_get_task_manual_api_task_manuals__type_key__get"];
         put?: never;
         /**
-         * Edit a task manual (partial; content fields agent-editable; assignee = owner/admin agent). An outsource assignee may select runtime claude/codex; absent = claude. Only the fields you name change, so omitting a field is safe — but unknown keys are rejected rather than dropped. The SOP is judged against sop_md_cap_chars. Answers with a bounded receipt (``type_key``, ``updated_ts``, ``sop_md_chars``, ``sop_md_cap_chars``, ``sop_md_sha256``), not the manual — call ``get_task_manual`` when you need the rest.
+         * Edit a task manual (partial; content fields agent-editable; assignee = owner/admin agent). An outsource assignee may select runtime claude/codex; absent = claude. Only the fields you name change, so omitting a field is safe — but unknown keys are rejected rather than dropped. The SOP is judged against sop_md_cap_chars. Answers with a bounded receipt (``type_key``, ``updated_ts``, ``is_default``, ``is_seed``, ``sop_md_chars``, ``sop_md_cap_chars``, ``sop_md_sha256``), not the manual — call ``get_task_manual`` when you need the rest.
          * @description - Partial edit: only supplied fields change, but an unrecognised field name is 422 rather than silently ignored.
          *     - Content fields are agent-writable; `assignee` below admin is 403.
          *     - `assignee` is {kind: staff, member_id} or {kind: outsource, model, effort, copies}; {} unsets it.
@@ -2770,11 +2772,34 @@ export interface paths {
          */
         post: operations["handle_update_task_manual_api_task_manuals__type_key__post"];
         /**
-         * Delete a task type (open tasks of the type → 409).
+         * Delete a task type (open tasks of the type → 409). A built-in manual cannot be deleted (403) — reset it with reset_task_manual instead.
          * @description - Refused with 409 while any NON-terminal task of this type exists; closed tasks never block.
          *     - Owner or admin agent only; a plain agent is 403.
+         *     - A built-in (seed) manual cannot be deleted: 403; reset it instead.
          */
         delete: operations["handle_delete_task_manual_api_task_manuals__type_key__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/task-manuals/{type_key}/reset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reset a built-in task manual to its shipped version (idempotent): drops any edit, content AND assignee alike. Only a built-in (seed) manual can be reset: a manual created on this station is refused with 409 (not applicable), an unknown type_key is 404. Owner or admin agent only. Answers with a bounded receipt (``type_key``, ``updated_ts``, ``is_default``, ``is_seed``, ``sop_md_chars``, ``sop_md_cap_chars``, ``sop_md_sha256``), not the manual — call ``get_task_manual`` when you need the rest.
+         * @description - Drops any edit (content AND assignee) and returns the manual to its shipped version; idempotent.
+         *     - Only a built-in (seed) manual can be reset: a manual created on this station is refused with 409 (not applicable); an unknown type is 404.
+         *     - Owner or admin agent only; a plain agent is 403.
+         */
+        post: operations["handle_reset_task_manual_api_task_manuals__type_key__reset_post"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -5186,7 +5211,7 @@ export interface components {
             key: string;
             kind: string;
         };
-        /** @description The SHIPPED DEFAULT of an editable long-form document — what a reset puts back, expressed in the SAME field names a retained revision uses so one reader can compare either against the live document. READ-ONLY: this route writes nothing, so looking at 初始版本 can never overwrite anything. 404 when the document has no shipped default (a custom role, a task manual) — exactly the documents whose reset the server also 404s. */
+        /** @description The SHIPPED DEFAULT of an editable long-form document — what a reset puts back, expressed in the SAME field names a retained revision uses so one reader can compare either against the live document. READ-ONLY: this route writes nothing, so looking at 初始版本 can never overwrite anything. 404 when the document has no shipped default (a custom role, a task manual created on this station) — exactly the documents whose reset the server refuses as not applicable (409). */
         DocumentSeedDTO: {
             content: {
                 [key: string]: string;
@@ -5328,7 +5353,7 @@ export interface components {
             cap_chars: number;
             /**
              * Has Seed
-             * @description True when a FACTORY VERSION of this role's insight exists to fall back to — i.e. `seeds/insight_<role_key>.md` ships. It answers ONLY that: it says nothing about whether the doc you are holding IS that factory version (`is_default` answers that), and the two are independent — a role with a seed that has since written its own reads has_seed=true, is_default=false. Added by T-6501 as the precondition for `reset_insight`: a role with has_seed=false gets a 404 from that route, so a surface offering the reset must gate on THIS field. Deliberately NOT named after `RoleDefDTO.is_seed`, which is a fact about the role's DUTY and was misread twice on 2026-08-04 as "you are reading the factory version".
+             * @description True when a FACTORY VERSION of this role's insight exists to fall back to — i.e. `seeds/insight_<role_key>.md` ships. It answers ONLY that: it says nothing about whether the doc you are holding IS that factory version (`is_default` answers that), and the two are independent — a role with a seed that has since written its own reads has_seed=true, is_default=false. Added by T-6501 as the precondition for `reset_insight`: a role with has_seed=false gets a 409 (not applicable) from that route, so a surface offering the reset must gate on THIS field. Deliberately NOT named after `RoleDefDTO.is_seed`, which is a fact about the role's DUTY and was misread twice on 2026-08-04 as "you are reading the factory version".
              * @default false
              */
             has_seed: boolean;
@@ -9081,6 +9106,18 @@ export interface components {
             /** Fields */
             fields: components["schemas"]["TaskManualFieldDTO"][];
             /**
+             * Is Default
+             * @description True when the station is serving the shipped factory version of a built-in manual: no owner or agent edit overlays it. Any edit clears it (content or assignee); reset_task_manual sets it again. Always false for a manual created on this station.
+             * @default false
+             */
+            is_default: boolean;
+            /**
+             * Is Seed
+             * @description Whether this task type ships built-in with OffiCraft rather than being created on this station. Only a built-in manual can be reset (reset_task_manual), and a built-in manual cannot be deleted.
+             * @default false
+             */
+            is_seed: boolean;
+            /**
              * Purpose
              * @default
              */
@@ -9188,6 +9225,18 @@ export interface components {
             /** Fields */
             fields: components["schemas"]["TaskManualFieldDTO"][];
             /**
+             * Is Default
+             * @description True when the station is serving the shipped factory version of a built-in manual: no owner or agent edit overlays it. Any edit clears it (content or assignee); reset_task_manual sets it again. Always false for a manual created on this station.
+             * @default false
+             */
+            is_default: boolean;
+            /**
+             * Is Seed
+             * @description Whether this task type ships built-in with OffiCraft rather than being created on this station. Only a built-in manual can be reset (reset_task_manual), and a built-in manual cannot be deleted.
+             * @default false
+             */
+            is_seed: boolean;
+            /**
              * Purpose
              * @default
              */
@@ -9214,9 +9263,21 @@ export interface components {
         };
         /**
          * TaskManualReceiptDTO
-         * @description Bounded receipt returned after create_task_manual and update_task_manual (T-91). update_task_manual is a PARTIAL write - every field of its body is nullable and the handler acts only on the ones present - so this receipt reports ONLY the document THIS call actually wrote. Send ``sop_md`` and the three ``sop_md_*`` fields come back; send neither (a create, or an update of display_name alone) and none of them appears. That absence is the answer, not a gap: reporting numbers for a document this call did not touch is the shape owner rejected verbatim on 2026-09-05 ("為什麼還是要回這麼多訊息"). The manual's configuration - display_name, purpose, assignee, fields - is NOT here either: the caller just sent it, and get_task_manual serves it. ``type_key`` always rides back because create MINTS it server-side, so it is the one thing the caller cannot know.
+         * @description Bounded receipt returned after create_task_manual, update_task_manual and reset_task_manual (T-91). update_task_manual is a PARTIAL write - every field of its body is nullable and the handler acts only on the ones present - so this receipt reports ONLY the document THIS call actually wrote. Send ``sop_md`` and the three ``sop_md_*`` fields come back; send neither (a create, or an update of display_name alone) and none of them appears. That absence is the answer, not a gap: reporting numbers for a document this call did not touch is the shape owner rejected verbatim on 2026-09-05 ("為什麼還是要回這麼多訊息"). The manual's configuration - display_name, purpose, assignee, fields - is NOT here either: the caller just sent it, and get_task_manual serves it. ``type_key`` always rides back because create MINTS it server-side, so it is the one thing the caller cannot know.
          */
         TaskManualReceiptDTO: {
+            /**
+             * Is Default
+             * @description True when no edit overlays the shipped version after this write. reset_task_manual makes it true by dropping the edit; create and update leave it false. The flag tracks whether an edit EXISTS, not whether the text differs: writing text identical to the shipped version still clears it.
+             * @default false
+             */
+            is_default: boolean;
+            /**
+             * Is Seed
+             * @description Whether this task type ships built-in. A registry fact the write does not decide; only a built-in manual has anything to reset to.
+             * @default false
+             */
+            is_seed: boolean;
             /**
              * Sop Md Cap Chars
              * @description The SOP ceiling in force (settings key doc_cap_chars_manual_sop). Present ONLY when this call wrote the SOP document. No ``default``, not required.
@@ -9234,7 +9295,7 @@ export interface components {
             sop_md_sha256?: string;
             /**
              * Type Key
-             * @description The manual this write landed on, always present. It is only NEWS on one of the three faces: the display_name create path mints it server-side. On the legacy create path the caller's own type_key is taken verbatim, and on update_task_manual it is the caller's own URL path parameter - on those two it is an echo, kept because a receipt that cannot say which manual it wrote is useless.
+             * @description The manual this write landed on, always present. It is only NEWS on one of the four faces: the display_name create path mints it server-side. On the legacy create path the caller's own type_key is taken verbatim, and on update_task_manual and reset_task_manual it is the caller's own URL path parameter - on those three it is an echo, kept because a receipt that cannot say which manual it wrote is useless.
              */
             type_key: string;
             /**
@@ -16784,6 +16845,55 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TaskManualDeleteResultDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_reset_task_manual_api_task_manuals__type_key__reset_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                type_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskManualReceiptDTO"];
                 };
             };
             /** @description Validation error (unified error envelope). */

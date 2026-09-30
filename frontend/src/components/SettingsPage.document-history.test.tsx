@@ -618,6 +618,8 @@ describe("SettingsPage · 版本紀錄", () => {
     await mockApi.saveInsight(customKey, "第一版判準");
     await mockApi.updateTaskManual(manual.typeKey, { sopMd: "第零版 SOP" });
     await mockApi.updateTaskManual(manual.typeKey, { sopMd: "第一版 SOP" });
+    await mockApi.updateTaskManual("builtin-role-design", { sopMd: "第零版 SOP" });
+    await mockApi.updateTaskManual("builtin-role-design", { sopMd: "第一版 SOP" });
 
     const utils = render(
       <I18nProvider>
@@ -687,7 +689,7 @@ describe("SettingsPage · 版本紀錄", () => {
       seeded: false,
     });
 
-    // Insight and the task manual's SOP have no seed either.
+    // Insight and a custom task manual's SOP have no seed either.
     //
     // ⚠️ The card is picked BY CARD, not by position. This used to be
     // `getAllByText(s.edit).at(-1)` with a comment asserting the page's last
@@ -721,6 +723,18 @@ describe("SettingsPage · 版本紀錄", () => {
     expect(await probe("manual SOP", "task_manual_sop")).toEqual({
       surface: "manual SOP",
       seeded: false,
+    });
+
+    // …while a built-in manual's SOP ships one.
+    goSettingsRoot();
+    fireEvent.click(utils.getByText(s.manuals));
+    fireEvent.click(await utils.findByTestId("manual-open-builtin-role-design"));
+    fireEvent.click(await utils.findByTestId("manual-entry-definition"));
+    fireEvent.click(await utils.findByTestId("manual-def-edit-3"));
+    fireEvent.click(utils.getByTestId("doc-history-entry-task_manual_sop"));
+    expect(await probe("built-in manual SOP", "task_manual_sop")).toEqual({
+      surface: "built-in manual SOP",
+      seeded: true,
     });
   });
 

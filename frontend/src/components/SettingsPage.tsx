@@ -708,6 +708,19 @@ export function SettingsPage({
       await manualDoc.refetch();
       await manualsH.refetch();
     };
+    const onReset = manual.isSeed
+      ? async () => {
+          await manualsH.reset(key);
+          try {
+            await manualDoc.refetch();
+          } catch (e) {
+            console.warn(
+              "SettingsPage: manual re-read after reset failed (the manual was reset)",
+              e
+            );
+          }
+        }
+      : undefined;
     return (
       <TaskManualDefinitionPage
         manual={manualDoc.manual}
@@ -715,6 +728,7 @@ export function SettingsPage({
         crumbs={subCrumbs}
         onSave={onSave}
         onRestored={onRestored}
+        onReset={onReset}
       />
     );
   }
@@ -1033,8 +1047,8 @@ export function SettingsPage({
           }
         }}
         // 重置 = "restore the FILE SEED" — only a seed role has one. A custom
-        // role's doc IS its only truth (the server 404s its reset — verified
-        // live), so the affordance is omitted rather than left half-dead: on a
+        // role's doc IS its only truth (the server refuses its reset as not
+        // applicable), so the affordance is omitted rather than left half-dead: on a
         // seed role it becomes the list's 初始版本 row, on a custom one there
         // is no such row at all.
         onReset={

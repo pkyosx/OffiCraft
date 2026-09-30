@@ -33,6 +33,8 @@ const WIRE: WireTaskManual = {
   // pair would be indistinguishable from a correct one if the numbers matched.
   lore: "# 傳承",
   lore_chars: 5,
+  is_seed: true,
+  is_default: false,
 };
 
 describe("toTaskManual / toTaskManualSummary · the size + cap pair", () => {
@@ -65,5 +67,20 @@ describe("toTaskManual / toTaskManualSummary · the size + cap pair", () => {
     // The one that WAS sent still arrives — a blanket 0 would pass the
     // assertion above.
     expect(v.sopMdChars).toBe(15796);
+  });
+});
+
+describe("toTaskManualSummary · the built-in flags", () => {
+  it("carries is_seed and is_default each into its own field", () => {
+    const v = toTaskManualSummary(WIRE);
+    expect(v.isSeed).toBe(true);
+    expect(v.isDefault).toBe(false);
+  });
+
+  it("reads an absent flag as false — a manual somebody created, unlike roles", () => {
+    const { is_seed: _s, is_default: _d, ...thin } = WIRE;
+    const v = toTaskManualSummary(thin as WireTaskManual);
+    expect(v.isSeed).toBe(false);
+    expect(v.isDefault).toBe(false);
   });
 });

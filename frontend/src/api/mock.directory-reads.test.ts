@@ -58,7 +58,9 @@ describe("mockApi.listTaskManuals", () => {
       updatedTs: 1,
     });
 
-    const [row] = await mockApi.listTaskManuals();
+    const row = (await mockApi.listTaskManuals()).find(
+      (m) => m.typeKey === "tm-000000000001"
+    )!;
     // Everything the list page and the hub render is still on the row…
     expect(row.displayName).toBe("審查 PR");
     expect(row.purpose).toBe("審一份 PR");
