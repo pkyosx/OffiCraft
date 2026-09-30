@@ -84,11 +84,12 @@ function renderPanel(
   onActivate: (
     machineId?: string,
   ) => void | Promise<MemberActivateResult | void>,
+  member: Member = mkMember(),
 ) {
   return render(
     <I18nProvider>
       <MemberDetailPanel
-        member={mkMember()}
+        member={member}
         onBack={() => {}}
         onActivate={onActivate}
       />
@@ -169,5 +170,61 @@ describe("MemberDetailPanel · wake that was never dispatched (T-7fa1)", () => {
 
     await waitFor(() => expect(wakeButton(container).disabled).toBe(true));
     expect(queryByTestId("mp-wake-undispatched")).toBeNull();
+  });
+
+  it.each([
+    [
+      "machine_unavailable: machine 'mach-a' is not logged in to claude; no other machine is substituted",
+      "Mac 未登入 Claude",
+    ],
+    [
+      "claude_not_logged_in: machine 'mach-a' is not logged in to claude",
+      "Mac 未登入 Claude",
+    ],
+    [
+      "machine_unavailable: machine 'mach-a' is not logged in to codex; no other machine is substituted",
+      "Mac 未登入 Codex",
+    ],
+  ])("under a not-logged-in reason on the row, the notice says only that the machine is not logged in (%s)", async (reason, line) => {
+    const onActivate = vi.fn(async () => ({ activationPending: true }));
+    const { container, findByTestId } = renderPanel(
+      onActivate,
+      mkMember({ lastOp: "start", lastOpOk: false, lastOpReason: reason }),
+    );
+
+    const btn = wakeButton(container);
+    await waitFor(() => expect(btn.disabled).toBe(false));
+    fireEvent.click(btn);
+    await confirmWakeSettings();
+
+    const alert = await findByTestId("mp-wake-undispatched");
+    expect(
+      Array.from(alert.children, (el) => el.textContent),
+    ).toEqual(["這次沒有送出喚醒指令", line]);
+  });
+
+  it("under any other reason on the row, the notice keeps its hedged steps", async () => {
+    const onActivate = vi.fn(async () => ({ activationPending: true }));
+    const { container, findByTestId } = renderPanel(
+      onActivate,
+      mkMember({
+        lastOp: "start",
+        lastOpOk: false,
+        lastOpReason:
+          "machine_unavailable: machine 'mach-a' does not provide the 'codex' runtime; no other machine is substituted",
+      }),
+    );
+
+    const btn = wakeButton(container);
+    await waitFor(() => expect(btn.disabled).toBe(false));
+    fireEvent.click(btn);
+    await confirmWakeSettings();
+
+    const alert = await findByTestId("mp-wake-undispatched");
+    expect(Array.from(alert.children, (el) => el.textContent)).toEqual([
+      "這次沒有送出喚醒指令",
+      "這次沒有送出喚醒，系統會在背景自動重試。",
+      "可能是目標機器沒有連線——到「監控」看它是否在線。也可能是前一次喚醒還在重試中——請看這位成員的「最近操作」。",
+    ]);
   });
 });

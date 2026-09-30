@@ -50,6 +50,7 @@ import {
   TrashIcon,
 } from "./icons";
 import { DispatchAlert } from "./DispatchAlert";
+import { notLoggedInLine } from "../lib/lastOpReason";
 // 🔴 This panel renders its settings dialog with the .machine-picker* classes,
 // so it must import their stylesheet ITSELF (T-7526). Both panels used to reach
 // that sheet only through a chain of OTHER modules' imports; one link in the
@@ -930,7 +931,14 @@ export function MemberDetailPanel({
           {/* T-7fa1: sits directly under the wake button the owner just pressed
               — the click and its outcome in one place. */}
           {wakeUndispatched && (
-            <DispatchAlert kind="wake" testId="mp-wake-undispatched" />
+            <DispatchAlert
+              kind="wake"
+              testId="mp-wake-undispatched"
+              cause={
+                notLoggedInLine(member.lastOpReason ?? "", t.mp, machineDisplay) ??
+                undefined
+              }
+            />
           )}
           {relocateUndispatched && !relocateLanded && (
             <DispatchAlert kind="relocate" testId="mp-relocate-undispatched" />
@@ -1573,6 +1581,7 @@ export function MemberDetailPanel({
   return (
     <AgentDetailPanel
       onBack={onBack}
+      machineName={machineDisplay}
       identity={identityCard}
       // EVERY slot the panel offers, no exceptions (T-0b4f). A slot this side
       // deliberately has nothing in is `notHere(<why>)` — a decision that is
