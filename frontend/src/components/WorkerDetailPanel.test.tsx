@@ -1988,6 +1988,31 @@ describe("WorkerDetailPanel — pending launch changes (T-7f28)", () => {
     },
   );
 
+  it("two machines both named box: a worker pinned to one and running on the other shows → 要換到 box", async () => {
+    __setMockMemberOnline("warden-mbp5", true);
+    __setMockMemberOnline("m-server-self", true);
+    await api.patchMachine("warden-mbp5", { displayName: "box" });
+    await api.patchMachine("m-server-self", { displayName: "box" });
+    __injectMockTask(mkTask({ id: "t-5" }));
+    __injectMockOutsourceWorker(
+      mkWorker({
+        id: "ow-1",
+        taskId: "t-5",
+        presence: "online",
+        desiredMachineId: "warden-mbp5",
+        machine: "m-server-self",
+        actualMachine: "m-server-self",
+      }),
+    );
+    const { findByTestId } = renderOfficeAt("#office/worker/ow-1");
+    await waitFor(async () =>
+      expect((await findByTestId("worker-detail-machine")).textContent).toBe("box"),
+    );
+    expect((await findByTestId("worker-detail-machine-pending")).textContent).toBe(
+      "→ 要換到 box",
+    );
+  });
+
   it("stays silent when the worker has reported nothing, rather than echoing the settings", async () => {
     // 🔴 The reason this ticket exists. `mkWorker` leaves every actual_* blank —
     // an unreported worker. Marking a pending change here would be a guess, and
