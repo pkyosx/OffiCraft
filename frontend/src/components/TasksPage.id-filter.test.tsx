@@ -263,7 +263,7 @@ describe("任務頁 ID 篩選 — 三種結局 (owner 2026-09-06 選項①)", ()
     expect(queryByTestId("tasks-empty-filtered")).toBeNull();
   });
 
-  it("a NON-404 failure is not a miss: it says the server was never reached", async () => {
+  it("a NON-404 failure is not a miss: it says whether the task exists is unknown", async () => {
     // 500 / offline. 「找不到」 would be an answer to a question that never got
     // asked, and the owner would read a broken server as a deleted task.
     __injectMockTask(mkTask({ id: "t-real" }));
@@ -274,9 +274,8 @@ describe("任務頁 ID 篩選 — 三種結局 (owner 2026-09-06 選項①)", ()
     applyIdFilter("t-real");
 
     const err = await findByTestId("tasks-error");
-    expect(err.textContent).toContain("沒有得到伺服器的回覆");
-    // It may only mention 找不到 to DENY it — never as the verdict.
-    expect(err.textContent).toContain("這不是「找不到」");
+    expect(err.textContent).toContain("無法確認「t-real」是否存在");
+    expect(err.textContent).not.toContain("找不到");
     // No answer of any other kind may be on screen. 🔴 tasks-empty-filtered is
     // the one that matters now that a 404 renders it: an unreached server must
     // NOT borrow the sentence a real 「0 筆」 uses, or a broken server reads as a

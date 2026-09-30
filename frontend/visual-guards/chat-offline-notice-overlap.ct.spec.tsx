@@ -138,21 +138,26 @@ const MEASURE = () => {
 // Measured on the running app (vite mock adapter, zh, office theme, b61b742):
 //   viewport 390×667 ⇒ pane 94.7px, empty state overhangs the wake row 44.8px
 //   viewport 390×700 ⇒ pane 127.7px, overhang 11.8px
-// Measured in this story: pane = chatHeight − 380.1. Hence 475 and 508, which
-// reproduce those two panes to within 0.2px (and reproduce the 44.7 / 11.7px
-// overhangs). Assertion (0) pins the calibration so it cannot rot silently.
+// Measured in this story: pane = chatHeight − 341.3. Hence 436 and 469, which
+// reproduce those two panes exactly. Assertion (0) pins the calibration so it
+// cannot rot silently.
+//
+// The pane heights, not the chat heights, are what this guard holds fixed: they
+// are the squeezes the bug was reported at. When T-297 shortened the wake notice
+// the composer lost 38.8px and the offset moved from 380.1 to 341.3; the chat
+// heights were re-derived from it so every case still measures the same pane.
 //
 // `squeezed` records whether the empty state genuinely overflows the pane. It
 // gates assertion (4) — the roomy control legitimately has nothing to contain.
 const CASES: [number, number, string, boolean][] = [
-  [560, 179.9, "roomy control — the pane still fits its empty state", false],
-  [508, 127.9, "390×700 — iPhone 13/14 with Safari toolbars (app pane 127.7)", true],
-  [475, 94.9, "390×667 — iPhone SE, the reported device (app pane 94.7)", true],
-  [450, 69.9, "shorter still", true],
-  // 420 would compute to a 40px pane, but the pane bottoms out at 48px — its own
+  [521, 179.7, "roomy control — the pane still fits its empty state", false],
+  [469, 127.7, "390×700 — iPhone 13/14 with Safari toolbars (app pane 127.7)", true],
+  [436, 94.7, "390×667 — iPhone SE, the reported device (app pane 94.7)", true],
+  [411, 69.7, "shorter still", true],
+  // 381 would compute to a 39.7px pane, but the pane bottoms out at 48px — its own
   // 24+24 padding, which is not shrinkable. That floor is the worst case the
   // layout can ever produce, so it is the right last case.
-  [420, 48, "extreme squeeze — pane at its 48px padding floor", true],
+  [381, 48, "extreme squeeze — pane at its 48px padding floor", true],
 ];
 
 for (const [chatHeight, expectPane, label, squeezed] of CASES) {

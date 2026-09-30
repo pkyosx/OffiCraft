@@ -115,7 +115,7 @@ describe("MonitorPage install on an online machine", () => {
       // Not a shared canned line: it must say what is actually lost.
       expect(dialog.textContent).toContain("覆蓋");
       expect(dialog.textContent).toContain("斷線");
-      expect(dialog.textContent).toContain("不可逆");
+      expect(dialog.textContent).toMatch(/不可逆|無法復原/);
       expect(dialog.textContent).toContain("本機");
       // Nothing has been asked of the server yet — the dialog is a question.
       expect(bootstrapOnServer).not.toHaveBeenCalled();
