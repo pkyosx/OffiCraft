@@ -46,13 +46,15 @@ func TestLoginProberState(t *testing.T) {
 	reply := filepath.Join(root, "reply")
 	rc := filepath.Join(root, "rc")
 	claudeBin := stageBinary(t, filepath.Join(root, "bin", "claude"), "#!/bin/sh\n"+
-		`printf '%s|%s|%s|%s|%s|%s' "$FROM_SHELL" "$FROM_FILE" "${CLAUDE_STRAY-unset}" "${CLAUDE_FROM_WARDEN-unset}" "$HOME" "$*" > '`+evidence+"'\n"+
+		`printf '%s|%s|%s|%s|%s|%s|%s' "$FROM_SHELL" "$FROM_FILE" "${CLAUDE_STRAY-unset}" "${CLAUDE_FROM_WARDEN-unset}" "${CLAUDE_CONFIG_DIR-unset}" "$HOME" "$*" > '`+evidence+"'\n"+
 		`/bin/cat '`+reply+"'\n"+
 		`exit "$(/bin/cat '`+rc+`')"`+"\n")
 	codexBin := stageBinary(t, filepath.Join(root, "bin", "codex"), "#!/bin/sh\n")
 	if err := os.WriteFile(envFile, []byte("FROM_FILE=file-value\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	loggedInReply := "{\n  \"loggedIn\": true,\n  \"authMethod\": \"claude.ai\",\n  \"apiProvider\": \"firstParty\",\n" +
+		"  \"email\": \"member@example.test\",\n  \"orgId\": \"00000000-0000-0000-0000-000000000000\",\n  \"orgName\": \"Example Org\"\n}\n"
 	keychainArgv := "security show-keychain-info " + filepath.Join(home, "Library", "Keychains", "login.keychain-db")
 	codexArgv := codexBin + " login status"
 	yes, no := true, false
@@ -96,7 +98,7 @@ func TestLoginProberState(t *testing.T) {
 			name:      "under a logged-in auth status, claude is true and nothing runs for an absent codex",
 			goos:      "darwin",
 			env:       map[string]string{"HOME": home, "OC_CLAUDE_BIN": claudeBin},
-			answer:    answer{`{"loggedIn":true,"email":"eva@example.com","orgName":"Acme"}`, "0"},
+			answer:    answer{loggedInReply, "0"},
 			want:      loginState{Claude: &yes},
 			wantShell: []string{"/bin/zsh"},
 		},
@@ -148,6 +150,24 @@ func TestLoginProberState(t *testing.T) {
 			wantLog:   []string{fmt.Sprintf("[ocwarden runtimeprobe] claude auth status gave no login verdict (bin=%s): exit status 1: ", claudeBin)},
 		},
 		{
+			name:      "under a loggedIn that is the string \"false\", claude is unknown",
+			goos:      "linux",
+			env:       map[string]string{"HOME": home, "OC_CLAUDE_BIN": claudeBin},
+			answer:    answer{"{\n  \"loggedIn\": \"false\",\n  \"authMethod\": \"none\"\n}\n", "1"},
+			want:      loginState{},
+			wantShell: []string{"/bin/sh"},
+			wantLog:   []string{fmt.Sprintf("[ocwarden runtimeprobe] claude auth status gave no login verdict (bin=%s): exit status 1: ", claudeBin)},
+		},
+		{
+			name:      "under a null loggedIn, claude is unknown",
+			goos:      "linux",
+			env:       map[string]string{"HOME": home, "OC_CLAUDE_BIN": claudeBin},
+			answer:    answer{"{\n  \"loggedIn\": null\n}\n", "0"},
+			want:      loginState{},
+			wantShell: []string{"/bin/sh"},
+			wantLog:   []string{fmt.Sprintf("[ocwarden runtimeprobe] claude auth status gave no login verdict (bin=%s)", claudeBin)},
+		},
+		{
 			name:     "under a codex whose login status succeeds, codex is true and claude unknown when absent",
 			goos:     "linux",
 			env:      map[string]string{"HOME": home, "OC_CODEX_BIN": codexBin},
@@ -188,31 +208,49 @@ func TestLoginProberState(t *testing.T) {
 		})
 	}
 
-	t.Run("under a spawn's captured shell env, auth status runs with it, the env file and the member's HOME, CLAUDE_* purged, and the render removed", func(t *testing.T) {
-		stage(t, answer{`{"loggedIn":true}`, "0"})
-		cache := &launchEnvCache{}
-		cache.remember([]agentEnvPair{{"FROM_SHELL", "shell-value"}, {"CLAUDE_STRAY", "x"}})
-		keep := &keepShellRunner{renderPath: filepath.Join(agentHome, loginCheckEnvName)}
-		var log []string
-		p := newProber(map[string]string{"HOME": home, "OC_CLAUDE_BIN": claudeBin}, "linux",
-			&wardenRunner{}, keep, cache, &log)
-		if got := p.state(); !reflect.DeepEqual(got, loginState{Claude: &yes}) {
-			t.Errorf("state = %s, want claude=true codex=nil", fmtLogin(got))
-		}
-		raw, err := os.ReadFile(evidence)
-		if err != nil {
-			t.Fatalf("auth status never ran: %v", err)
-		}
-		if want := "shell-value|file-value|unset|unset|" + home + "|auth status"; string(raw) != want {
-			t.Errorf("claude saw %q, want %q", raw, want)
-		}
-		if want := []bool{true}; !reflect.DeepEqual(keep.renderExists, want) {
-			t.Errorf("render present during the check = %v, want %v", keep.renderExists, want)
-		}
-		if _, err := os.Stat(filepath.Join(agentHome, loginCheckEnvName)); !os.IsNotExist(err) {
-			t.Errorf("render left on disk after the check (stat err %v)", err)
-		}
-	})
+	envCases := []struct {
+		name      string
+		configDir string
+		want      string
+	}{
+		{
+			name: "under a spawn's captured shell env, auth status runs with it, the env file and the member's HOME, CLAUDE_* purged, and the render removed",
+			want: "shell-value|file-value|unset|unset|unset|" + home + "|auth status",
+		},
+		{
+			name:      "under a relocated claude config dir, CLAUDE_CONFIG_DIR survives the CLAUDE_* purge",
+			configDir: filepath.Join(root, "claude-config"),
+			want:      "shell-value|file-value|unset|unset|" + filepath.Join(root, "claude-config") + "|" + home + "|auth status",
+		},
+	}
+	for _, c := range envCases {
+		t.Run(c.name, func(t *testing.T) {
+			stage(t, answer{`{"loggedIn":true}`, "0"})
+			cache := &launchEnvCache{}
+			cache.remember([]agentEnvPair{{"FROM_SHELL", "shell-value"}, {"CLAUDE_STRAY", "x"}})
+			keep := &keepShellRunner{renderPath: filepath.Join(agentHome, loginCheckEnvName)}
+			var log []string
+			p := newProber(map[string]string{"HOME": home, "OC_CLAUDE_BIN": claudeBin}, "linux",
+				&wardenRunner{}, keep, cache, &log)
+			p.claudeHome.ConfigDir = c.configDir
+			if got := p.state(); !reflect.DeepEqual(got, loginState{Claude: &yes}) {
+				t.Errorf("state = %s, want claude=true codex=nil", fmtLogin(got))
+			}
+			raw, err := os.ReadFile(evidence)
+			if err != nil {
+				t.Fatalf("auth status never ran: %v", err)
+			}
+			if string(raw) != c.want {
+				t.Errorf("claude saw %q, want %q", raw, c.want)
+			}
+			if want := []bool{true}; !reflect.DeepEqual(keep.renderExists, want) {
+				t.Errorf("render present during the check = %v, want %v", keep.renderExists, want)
+			}
+			if _, err := os.Stat(filepath.Join(agentHome, loginCheckEnvName)); !os.IsNotExist(err) {
+				t.Errorf("render left on disk after the check (stat err %v)", err)
+			}
+		})
+	}
 
 	t.Run("under no spawn yet, auth status runs with the warden env plus the env file", func(t *testing.T) {
 		stage(t, answer{`{"loggedIn":true}`, "0"})
@@ -221,7 +259,7 @@ func TestLoginProberState(t *testing.T) {
 		newProber(map[string]string{"HOME": home, "OC_CLAUDE_BIN": claudeBin}, "linux",
 			&wardenRunner{}, keep, &launchEnvCache{}, &log).state()
 		raw, _ := os.ReadFile(evidence)
-		if want := "|file-value|unset|unset|" + home + "|auth status"; string(raw) != want {
+		if want := "|file-value|unset|unset|unset|" + home + "|auth status"; string(raw) != want {
 			t.Errorf("claude saw %q, want %q", raw, want)
 		}
 	})
