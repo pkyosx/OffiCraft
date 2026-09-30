@@ -698,6 +698,9 @@ func realMain(argv []string, env func(string) string, out io.Writer) int {
 	runtimeProbe := func() map[string]any {
 		return collectRuntimeCapabilities(env, runner, claudeProbe.collect(), login.state())
 	}
+	// 🔴 NOTHING GUARDS `setLoginIntervals` here. Dropping it, or passing a no-op
+	// setter, compiles and leaves the package green, but the owner's two login
+	// intervals are then silently ignored and every warden stays at 300 s / 30 s.
 	rc := run(ctx, cfg, collect, machine, post, fingerprints.collect, claudeProbe.collect,
 		wardenShapeOf, cutoverEffectOf, sleepUntil, iters, out, setLoginIntervals, runtimeProbe)
 
