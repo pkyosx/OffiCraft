@@ -63,6 +63,8 @@ import {
   UserGearIcon,
 } from "./icons";
 import { DispatchAlert } from "./DispatchAlert";
+import { useMachines } from "../hooks/useMachines";
+import { notLoggedInLine } from "../lib/lastOpReason";
 
 // The owner's sender id. The real backend stamps a message's `from` from the
 // verified JWT `sub`; the owner token's sub is the fixed owner id ("owner")
@@ -2581,9 +2583,12 @@ export function ChatArea({
             )}
             {/* T-7fa1: the in-chat wake has its OWN optimistic state, so it needs
                 its own outcome — the same notice the detail panel raises. */}
-            {offlineQueue && wakeUndispatched && (
-              <DispatchAlert kind="wake" testId="chat-wake-undispatched" />
-            )}
+            {offlineQueue && wakeUndispatched &&
+              (notLoggedInLine(member.lastOpReason ?? "", t.mp) !== null ? (
+                <NotLoggedInWakeAlert reason={member.lastOpReason ?? ""} />
+              ) : (
+                <DispatchAlert kind="wake" testId="chat-wake-undispatched" />
+              ))}
             {(pendingAttachments.length > 0 || attachError) && (
               <ComposerAttachmentPreview
                 pendingAttachments={pendingAttachments}
@@ -2756,5 +2761,21 @@ export function ChatArea({
        * owner for the read behind it (hooks/useQuotedMessageOverlay). */}
       {quotedMessage.overlay}
     </div>
+  );
+}
+
+// Mounted only for a not-logged-in reason, so an ordinary chat does not fetch
+// the machine registry just to name a machine it will never show.
+function NotLoggedInWakeAlert({ reason }: { reason: string }) {
+  const { t } = useI18n();
+  const { machines } = useMachines();
+  const machineName = (id: string) =>
+    machines.find((m) => m.machineId === id)?.displayName || id;
+  return (
+    <DispatchAlert
+      kind="wake"
+      testId="chat-wake-undispatched"
+      cause={notLoggedInLine(reason, t.mp, machineName) ?? undefined}
+    />
   );
 }

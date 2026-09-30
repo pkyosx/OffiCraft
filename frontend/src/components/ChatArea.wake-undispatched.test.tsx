@@ -65,10 +65,11 @@ function makeMember(over: Partial<Member> = {}): Member {
 
 function renderChat(
   onWake: () => void | Promise<MemberActivateResult | void>,
+  member: Member = makeMember(),
 ) {
   const utils = render(
     <I18nProvider>
-      <ChatArea key="m1" member={makeMember()} onWake={onWake} />
+      <ChatArea key="m1" member={member} onWake={onWake} />
     </I18nProvider>,
   );
   const wakeBtn = () => {
@@ -242,5 +243,58 @@ describe("ChatArea · in-chat wake that was never dispatched (T-7fa1)", () => {
 
     await waitFor(() => expect(wakeBtn().disabled).toBe(true));
     expect(queryByTestId("chat-wake-undispatched")).toBeNull();
+  });
+
+  it.each([
+    [
+      "machine_unavailable: machine 'm-server-self' is not logged in to claude; no other machine is substituted",
+      "伺服器這一台 未登入 Claude",
+    ],
+    [
+      "codex_not_logged_in: machine 'm-server-self' is not logged in to codex",
+      "伺服器這一台 未登入 Codex",
+    ],
+    [
+      "machine_unavailable: machine 'm-ghost' is not logged in to codex; no other machine is substituted",
+      "m-ghost 未登入 Codex",
+    ],
+  ])("under a not-logged-in reason on the row, the notice says only that the machine is not logged in (%s)", async (reason, line) => {
+    const onWake = vi.fn(async () => ({ activationPending: true }));
+    const { wakeBtn, findByTestId } = renderChat(
+      onWake,
+      makeMember({ lastOp: "start", lastOpOk: false, lastOpReason: reason }),
+    );
+
+    fireEvent.click(wakeBtn());
+
+    const alert = await findByTestId("chat-wake-undispatched");
+    await waitFor(() =>
+      expect(Array.from(alert.children, (el) => el.textContent)).toEqual([
+        "這次沒有送出喚醒指令",
+        line,
+      ]),
+    );
+  });
+
+  it("under any other reason on the row, the notice keeps its hedged steps", async () => {
+    const onWake = vi.fn(async () => ({ activationPending: true }));
+    const { wakeBtn, findByTestId } = renderChat(
+      onWake,
+      makeMember({
+        lastOp: "start",
+        lastOpOk: false,
+        lastOpReason:
+          "machine_unavailable: machine 'm-server-self' does not provide the 'codex' runtime; no other machine is substituted",
+      }),
+    );
+
+    fireEvent.click(wakeBtn());
+
+    const alert = await findByTestId("chat-wake-undispatched");
+    expect(Array.from(alert.children, (el) => el.textContent)).toEqual([
+      "這次沒有送出喚醒指令",
+      "這次沒有送出喚醒，系統會在背景自動重試。",
+      "可能是目標機器沒有連線——到「監控」看它是否在線。也可能是前一次喚醒還在重試中——請看這位成員的「最近操作」。",
+    ]);
   });
 });
