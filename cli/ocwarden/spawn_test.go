@@ -1385,8 +1385,8 @@ func TestStart(t *testing.T) {
 			wantModel string
 		}{
 			{"sol skips a hidden newer id and a suffixed variant", "sol", fullList, "gpt-6.1-sol"},
-			{"luna", "luna", fullList, "gpt-6-luna"},
-			{"terra", "terra", fullList, "gpt-5.6-terra"},
+			{"luna listed at 6 and 5.6 launches the 6", "luna", fullList, "gpt-6-luna"},
+			{"terra listed only at 5.6 launches the 5.6", "terra", fullList, "gpt-5.6-terra"},
 			{"astra compares versions numerically, so 10 beats 9.9", "astra", fullList, "gpt-10-astra"},
 			{"two spellings of one version launch the one listed first", "sol",
 				[]codexModelEntry{{ID: "gpt-6-sol"}, {ID: "gpt-6.0-sol"}}, "gpt-6-sol"},

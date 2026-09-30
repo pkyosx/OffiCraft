@@ -144,6 +144,7 @@ describe("AgentDetailPanel · pending-change hints", () => {
     ["opus", "claude-opus-5-5", null],
     ["opus", "claude-opus-5-5[1m]", null],
     ["sol", "gpt-6-luna", "→ 要換成 sol"],
+    ["sol", "gpt-6-sol-mini", "→ 要換成 sol"],
     ["opus", "claude-sonnet-5-5", "→ 要換成 opus"],
     ["gpt-6-sol", "gpt-6.1-sol", "→ 要換成 gpt-6-sol"],
     ["claude-opus-5", "claude-opus-5-5", "→ 要換成 claude-opus-5"],

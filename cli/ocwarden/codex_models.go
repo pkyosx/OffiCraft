@@ -56,9 +56,6 @@ func codexModelVersion(dotted string) []int {
 		n, _ := strconv.Atoi(p)
 		out = append(out, n)
 	}
-	for len(out) > 1 && out[len(out)-1] == 0 {
-		out = out[:len(out)-1]
-	}
 	return out
 }
 

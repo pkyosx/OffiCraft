@@ -1484,10 +1484,8 @@
   border-radius: 12px;
   background: color-mix(in srgb, var(--color-overlay) 2%, transparent);
 }
-/* Layout opt-in for the Codex 模型 picker, with the same per-callsite opt-in as
-   the 轉派 dialog's .task-reassign__seg--grid2: its four chips land on even
-   rows, the geometry codex-model-chips.ct.spec.tsx pins. Only the Codex 模型
-   picker opts in.
+/* The Codex 模型 picker's per-callsite layout opt-in, the counterpart of the
+   轉派 dialog's .task-reassign__seg--grid2.
 
    NOT named --grid2, and not two fixed tracks, because this control is on a
    PAGE that grows with the viewport rather than inside a max-width modal (which
