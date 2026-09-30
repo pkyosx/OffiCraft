@@ -1228,7 +1228,8 @@ ONE-SHOT, never a standing order):
   ACTIVE warden on M's `desired_machine_id` (the machine id IS the warden's own member id);
   a warden target addresses itself.
 - Placement MUST filter for an online machine whose latest telemetry reports the selected
-  runtime `installed == true` and `logged_in != false`. **There is NO automatic placement:**
+  runtime. For Codex that means `installed == true` and `logged_in != false`; Claude needs
+  only a `claude` entry (or no capability map at all) and is not gated on its values. **There is NO automatic placement:**
   an explicit machine that is offline, inactive, or lacks that readiness makes the dispatch
   STALL, and no other machine is substituted. A member with no machine selected is likewise
   not placed anywhere. This follows the owner's 2026-07-25 ruling that removed automatic

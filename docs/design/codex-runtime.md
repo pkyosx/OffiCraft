@@ -215,10 +215,11 @@ Warden telemetry adds a provider-neutral `runtimes` map:
 
 The map contains readiness only—never tokens, credential values, or credential paths.
 Legacy Claude probe fields stay for existing clients. Codex placement always requires an
-explicit `installed == true` and rejects an explicit `logged_in == false`. During a rolling
-upgrade only, a completely absent capability map preserves legacy Claude placement; after
-any map is reported, Claude follows the same explicit readiness rule. Null login state
-remains eligible. Placement is an explicit decision (owner ruling 2026-07-25): a placement
+explicit `installed == true` and rejects an explicit `logged_in == false`; null login state
+remains eligible. A completely absent capability map preserves legacy Claude placement;
+after any map is reported, Claude placement needs a `claude` entry but does not gate on its
+`installed` or `logged_in` values (a logged-out Claude shows on the monitor page and on the
+member, not as a placement refusal). Placement is an explicit decision (owner ruling 2026-07-25): a placement
 that is offline or lacks the selected runtime is NOT substituted by another host, and
 there is no automatic placement to fall back on — a machine nobody named is no placement
 at all. Either way no `start` is dispatched; the stall is named on the row the cockpit
