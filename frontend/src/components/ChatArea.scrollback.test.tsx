@@ -306,24 +306,72 @@ describe("scroll-top history loading", () => {
       // 沒有滑動在進行時(拖捲軸、鍵盤),捲到頂端照樣會撈。
       await at(3000, scroll);
       expect(loadOlderCalls).toBe(4);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 
-      // 落地的那一頁至少一個畫面高:讀的人要捲過它才回得到頂端,所以同一次滑動
-      // 再回到頂端可以再撈。
-      let tallPage = 0;
-      onLoadOlder = () => {
-        tallPage += 1;
-        olderPage = [mkMsg(`t${tallPage}`, "b", "owner", 900 - tallPage)];
-        Object.defineProperty(list, "scrollHeight", {
-          configurable: true,
-          value: list.scrollHeight + 200,
-        });
-      };
-      await at(4000, wheelUp);
+  // 落地的那一頁至少一個畫面高:讀的人要捲過它才回得到頂端,所以同一次滑動再回到
+  // 頂端可以再撈;不到一個畫面高的那一頁不算。
+  it("同一次手勢裡,落地那一頁至少一個畫面高時再回到頂端會再撈,不到一個畫面高不會", async () => {
+    initialMessages = [
+      mkMsg("c2", "b", "owner", 2000),
+      mkMsg("c3", "b", "owner", 2001),
+    ];
+    const { container } = renderChat();
+    const list = container.querySelector(".chat__messages")! as HTMLElement;
+    setScrollGeometry(list, {
+      scrollHeight: 400,
+      clientHeight: 200,
+      scrollTop: 0,
+    });
+    let pageNo = 0;
+    let pageHeight = 0;
+    onLoadOlder = () => {
+      pageNo += 1;
+      olderPage = [mkMsg(`p${pageNo}`, "b", "owner", 1000 - pageNo)];
+      Object.defineProperty(list, "scrollHeight", {
+        configurable: true,
+        value: list.scrollHeight + pageHeight,
+      });
+    };
+    const at = async (ms: number, fire: () => void) => {
+      vi.setSystemTime(new Date(1_000_000 + ms));
+      await act(async () => {
+        fire();
+      });
+    };
+    const wheelUp = () => fireEvent.wheel(list, { deltaY: -120 });
+    const touchDown = (y: number) =>
+      fireEvent.touchMove(list, { touches: [{ clientY: y }] });
+
+    vi.useFakeTimers();
+    try {
+      pageHeight = 150;
+      await at(0, wheelUp);
+      expect(loadOlderCalls).toBe(1);
+      expect(list.scrollTop).toBe(150);
+      list.scrollTop = 0;
+      await at(16, wheelUp);
+      expect(loadOlderCalls).toBe(1);
+
+      pageHeight = 200;
+      await at(500, wheelUp);
+      expect(loadOlderCalls).toBe(2);
+      expect(list.scrollTop).toBe(200);
+      list.scrollTop = 0;
+      await at(516, wheelUp);
+      expect(loadOlderCalls).toBe(3);
+
+      list.scrollTop = 0;
+      await at(2000, () => {
+        fireEvent.touchStart(list, { touches: [{ clientY: 100 }] });
+      });
+      await at(2000, () => touchDown(180));
+      expect(loadOlderCalls).toBe(4);
+      list.scrollTop = 0;
+      await at(2000, () => touchDown(260));
       expect(loadOlderCalls).toBe(5);
-      expect((list as HTMLElement).scrollTop).toBe(200);
-      scrollTo(0);
-      await at(4016, wheelUp);
-      expect(loadOlderCalls).toBe(6);
     } finally {
       vi.useRealTimers();
     }
