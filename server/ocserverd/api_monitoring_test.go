@@ -773,9 +773,10 @@ func TestHandleIngestTelemetryApiMonitoringTelemetryPost(t *testing.T) {
 		})
 	})
 
-	t.Run("under an owner-set login check interval, a warden's receipt carries that value", func(t *testing.T) {
+	t.Run("under an owner-set login check interval, a warden's receipt carries that value and an agent's receipt on the same machine carries no interval", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		warden := apiTestAgentToken(t, api, "m-server-self", "m-server-self")
+		mira := apiTestAgentToken(t, api, "mira", "m-server-self")
 		apiJSON(t, h, "PATCH", "/api/settings", owner, `{"runtime_login_check_interval_secs":45}`)
 
 		status, data := apiJSON(t, h, "POST", "/api/monitoring/telemetry", warden, `{"tokens":{"input":1}}`)
@@ -788,9 +789,19 @@ func TestHandleIngestTelemetryApiMonitoringTelemetryPost(t *testing.T) {
 			"ts":                        apiAnyNumber,
 			"login_check_interval_secs": 45,
 		})
+
+		status, data = apiJSON(t, h, "POST", "/api/monitoring/telemetry", mira, `{"tokens":{"input":1}}`)
+		if status != 200 {
+			t.Fatalf("agent: want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"agent_id": "mira",
+			"machine":  "m-server-self",
+			"ts":       apiAnyNumber,
+		})
 	})
 
-	t.Run("under a machine's claude login flipping, every member running there is re-announced to the owner, and a repeat of the same state announces nobody", func(t *testing.T) {
+	t.Run("under a machine's claude login flipping, including from never-reported to false, every member running there is re-announced to the owner, and a repeat of the same state announces nobody", func(t *testing.T) {
 		api, h, _, _ := newAPITestServer(t)
 		warden := apiTestAgentToken(t, api, "m-server-self", "m-server-self")
 		kip := apiTestAgentToken(t, api, "kip", "")
@@ -801,14 +812,11 @@ func TestHandleIngestTelemetryApiMonitoringTelemetryPost(t *testing.T) {
 		}
 		t.Cleanup(func() { api.hub.Disconnect(kipLink) })
 		apiJSON(t, h, "POST", "/api/monitoring/telemetry", warden,
-			`{"runtimes":{"claude":{"installed":true,"logged_in":true}}}`)
+			`{"runtimes":{"claude":{"installed":true}}}`)
 		dashboard := apiTestListen(t, api, "")
-
-		for _, report := range []string{
-			`{"runtimes":{"claude":{"installed":true,"logged_in":false}}}`,
-			`{"runtimes":{"claude":{"installed":true,"logged_in":false}}}`,
-		} {
-			if status, data := apiJSON(t, h, "POST", "/api/monitoring/telemetry", warden, report); status != 200 {
+		report := func(body string) {
+			t.Helper()
+			if status, data := apiJSON(t, h, "POST", "/api/monitoring/telemetry", warden, body); status != 200 {
 				t.Fatalf("want 200, got %d (%v)", status, data)
 			}
 		}
@@ -827,7 +835,7 @@ func TestHandleIngestTelemetryApiMonitoringTelemetryPost(t *testing.T) {
 			"ts":      apiAnyNumber,
 			"trigger": "m-server-self",
 		}
-		dashboard.wantFrames(monitoringSignal, map[string]any{
+		kipPatch := map[string]any{
 			"seq":   apiAnyNumber,
 			"topic": "member",
 			"op":    "patch",
@@ -846,7 +854,15 @@ func TestHandleIngestTelemetryApiMonitoringTelemetryPost(t *testing.T) {
 			},
 			"ts":      apiAnyNumber,
 			"trigger": "m-server-self",
-		}, monitoringSignal)
+		}
+
+		report(`{"runtimes":{"claude":{"installed":true,"logged_in":false}}}`)
+		dashboard.wantFrames(monitoringSignal, kipPatch)
+
+		report(`{"runtimes":{"claude":{"installed":true,"logged_in":true}}}`)
+		report(`{"runtimes":{"claude":{"installed":true,"logged_in":false}}}`)
+		report(`{"runtimes":{"claude":{"installed":true,"logged_in":false}}}`)
+		dashboard.wantFrames(monitoringSignal, kipPatch, monitoringSignal, kipPatch, monitoringSignal)
 	})
 
 	t.Run("a report naming its own machine while the token carries no claim answers 200 attributing that machine", func(t *testing.T) {

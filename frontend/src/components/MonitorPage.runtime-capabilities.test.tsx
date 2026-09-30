@@ -195,6 +195,15 @@ describe("MonitorPage per-runtime version columns", () => {
     expect(within(codexUnknown).getByTestId("mon-codex-login-unknown").getAttribute("title")).toBe(
       "這台機器沒有回報是否登入（檢查逾時、讀不到結果，或讀不到 macOS 鑰匙圈）。"
     );
+    cleanup();
+
+    mount(
+      card(false, {
+        claude: { installed: null, loggedIn: true, version: "9.9" },
+      })
+    );
+    const claudeNoInstalledFlag = await screen.findByTestId("mon-claude-version");
+    expect(claudeNoInstalledFlag.textContent).toBe("9.9（已登入）");
   });
 
   it("names a not-installed runtime instead of leaving the cell blank", async () => {
