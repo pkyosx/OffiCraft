@@ -7,12 +7,14 @@ package main
 import (
 	"encoding/json"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // newWorkerTestServer builds an apiServer with the out-of-box roster seeded
@@ -1648,23 +1650,38 @@ func TestReconcileWorkerLiveness_NeverCollectedIsNotAFailedBoot(t *testing.T) {
 	})
 }
 
+// wardenStamp renders a time the way cli/ocwarden stamps a command result: RFC3339,
+// whole seconds.
+func wardenStamp(secs float64) string {
+	return time.Unix(int64(secs), 0).UTC().Format(time.RFC3339)
+}
+
 func TestReconcileWorkerLiveness_UnderAWardenRefusalOfTheStart(t *testing.T) {
+	const loggedOut = "claude_not_logged_in: machine 'm-server-self' is not logged in to claude"
 	const lapsed = "wake_timeout: the start was collected by machine 'm-server-self' but this worker never " +
 		"came online within the start window — check that the 'claude' runtime actually runs " +
 		"and is logged in on that machine (warden log: ocwarden.out.log)"
+	const noCredential = "claude_not_logged_in: no claude credential here (cred_file=unset keychain=unset)."
 	for _, c := range []struct {
 		name, refusal, want string
-		earlier             bool
+		// machine clock offset of the refusal's stamp from the start, in seconds
+		stampOffset float64
+		earlier     bool
+		restarted   bool
 	}{
-		{name: "not logged in: the lapse and the back-off keep the refusal",
-			refusal: "claude_not_logged_in: no claude credential here (cred_file=unset keychain=unset).",
-			want:    "claude_not_logged_in: machine 'm-server-self' is not logged in to claude"},
+		{name: "not logged in, stamped in the start's own second: the lapse and the back-off keep the refusal",
+			refusal: noCredential, want: loggedOut},
+		{name: "not logged in, stamped by a machine clock 5s slow: the lapse and the back-off keep the refusal",
+			refusal: noCredential, want: loggedOut, stampOffset: -5},
 		{name: "any other refusal: the lapse replaces it with the wake-timeout receipt",
-			refusal: "claude_bin_unresolved: set OC_CLAUDE_BIN or put claude on the daemon PATH",
-			want:    lapsed},
+			refusal: "claude_bin_unresolved: set OC_CLAUDE_BIN or put claude on the daemon PATH", want: lapsed},
 		{name: "not logged in, but of an earlier start: the lapse of this start is a wake timeout",
-			refusal: "claude_not_logged_in: no claude credential here (cred_file=unset keychain=unset).",
-			want:    lapsed, earlier: true},
+			refusal: noCredential, want: lapsed, earlier: true},
+		{name: "not logged in, but the server has since lost the start's time: the lapse is a wake timeout",
+			refusal: noCredential, restarted: true,
+			want: "wake_timeout: the start window elapsed with no session, and this server no longer has a " +
+				"record of which machine the start was sent to (the spawn ledger is in-memory and a server " +
+				"restart clears it) — retry 改機器 to place it again"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			s := newWorkerTestServer(t)
@@ -1675,15 +1692,18 @@ func TestReconcileWorkerLiveness_UnderAWardenRefusalOfTheStart(t *testing.T) {
 				defer s.outsourceMu.Unlock()
 				s.reconcileWorkerLiveness(w, now)
 			}
-			base := nowSecs()
-			refuse := func(at float64) {
+			refuse := func(stampedAt float64) {
 				s.foldCommandResult(map[string]any{
 					"worker_id": w.ID, "rpc": "start", "ok": false,
-					"reason": c.refusal, "log": c.refusal, "at": at,
+					"reason": c.refusal, "log": c.refusal, "at": wardenStamp(stampedAt),
 				}, "telemetry", ServerSelfHost)
 			}
+			// Half a second into a second, so the warden's whole-second stamp of
+			// a refusal in that same second reads earlier than the start.
+			base := math.Floor(nowSecs()-2) + 0.5
 			if c.earlier {
-				refuse(base - 100)
+				base = nowSecs() + 10
+				refuse(nowSecs())
 				s.outsourceMu.Lock()
 				delete(s.workerMachineBench, workerMachineKey(w.ID, ServerSelfHost))
 				s.outsourceMu.Unlock()
@@ -1693,7 +1713,13 @@ func TestReconcileWorkerLiveness_UnderAWardenRefusalOfTheStart(t *testing.T) {
 				t.Fatal("premise: one START must be collected")
 			}
 			if !c.earlier {
-				refuse(base + 1)
+				refuse(base + c.stampOffset)
+			}
+			if c.restarted {
+				s.outsourceMu.Lock()
+				delete(s.workerSpawnAt, w.ID)
+				delete(s.workerSpawnTarget, w.ID)
+				s.outsourceMu.Unlock()
 			}
 
 			for _, at := range []float64{base + WakingTTLSecs + 1, base + WakingTTLSecs + 2} {

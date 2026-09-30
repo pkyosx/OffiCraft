@@ -8,6 +8,7 @@ package main
 
 import (
 	"encoding/json"
+	"math"
 	"reflect"
 	"sort"
 	"strconv"
@@ -2548,38 +2549,51 @@ func TestReconcileTickMemberLocked(t *testing.T) {
 	})
 
 	t.Run("under a warden's not-logged-in refusal of the START, the ticks past the start window and through back-off still show that refusal", func(t *testing.T) {
-		api, d := reconcileTestServer(t)
-		reconcileTestOnline(t, api, "m-box", "")
-		reconcileTestPut(t, d, Member{ID: "runner", Name: "Runner", Kind: KindStaff, RoleKey: "assistant", DesiredState: DesiredStateOnline, DesiredMachineID: "m-box"})
-		tick := func(now float64) reconcileDecision {
-			api.reconcileMu.Lock()
-			defer api.reconcileMu.Unlock()
-			return api.reconcileTickMemberLocked(reconcileTestRow(t, d, "runner"), now)
-		}
-		hubTestStderr(t, func() {
-			if got := tick(reconcileTestNow); got.Command != reconcileCmdStart {
-				t.Fatalf("premise: the first tick must dispatch a START, got %+v", got)
-			}
-			api.foldCommandResult(map[string]any{
-				"member_id": "runner", "rpc": "start", "ok": false,
-				"reason": "claude_not_logged_in: no claude credential here (cred_file=unset keychain=unset).",
-				"at":     reconcileTestNow + 1,
-			}, "telemetry", "m-box")
-			if got := tick(reconcileTestNow + WakingTTLSecs + 1); !got.StartTimedOut {
-				t.Fatalf("premise: this tick must be the start-window lapse, got %+v", got)
-			}
-		})
-		want := "claude_not_logged_in: machine 'm-box' is not logged in to claude"
-		if got := reconcileTestRow(t, d, "runner").LastOpReason; got != want {
-			t.Fatalf("after the lapse:\n got %q\nwant %q", got, want)
-		}
-		hubTestStderr(t, func() {
-			if got := tick(reconcileTestNow + WakingTTLSecs + 2); got.ReasonCode == "" {
-				t.Fatalf("premise: this tick must be a back-off wait, got %+v", got)
-			}
-		})
-		if got := reconcileTestRow(t, d, "runner").LastOpReason; got != want {
-			t.Fatalf("during back-off:\n got %q\nwant %q", got, want)
+		for _, c := range []struct {
+			name        string
+			stampOffset float64
+		}{
+			{"stamped in the start's own second", 0},
+			{"stamped by a machine clock 5s slow", -5},
+		} {
+			t.Run(c.name, func(t *testing.T) {
+				api, d := reconcileTestServer(t)
+				reconcileTestOnline(t, api, "m-box", "")
+				reconcileTestPut(t, d, Member{ID: "runner", Name: "Runner", Kind: KindStaff, RoleKey: "assistant", DesiredState: DesiredStateOnline, DesiredMachineID: "m-box"})
+				tick := func(now float64) reconcileDecision {
+					api.reconcileMu.Lock()
+					defer api.reconcileMu.Unlock()
+					return api.reconcileTickMemberLocked(reconcileTestRow(t, d, "runner"), now)
+				}
+				// Half a second into a second, so the warden's whole-second stamp of a
+				// refusal in that same second reads earlier than the start.
+				base := math.Floor(nowSecs()-2) + 0.5
+				hubTestStderr(t, func() {
+					if got := tick(base); got.Command != reconcileCmdStart {
+						t.Fatalf("premise: the first tick must dispatch a START, got %+v", got)
+					}
+					api.foldCommandResult(map[string]any{
+						"member_id": "runner", "rpc": "start", "ok": false,
+						"reason": "claude_not_logged_in: no claude credential here (cred_file=unset keychain=unset).",
+						"at":     time.Unix(int64(base+c.stampOffset), 0).UTC().Format(time.RFC3339),
+					}, "telemetry", "m-box")
+					if got := tick(base + WakingTTLSecs + 1); !got.StartTimedOut {
+						t.Fatalf("premise: this tick must be the start-window lapse, got %+v", got)
+					}
+				})
+				want := "claude_not_logged_in: machine 'm-box' is not logged in to claude"
+				if got := reconcileTestRow(t, d, "runner").LastOpReason; got != want {
+					t.Fatalf("after the lapse:\n got %q\nwant %q", got, want)
+				}
+				hubTestStderr(t, func() {
+					if got := tick(base + WakingTTLSecs + 2); got.ReasonCode == "" {
+						t.Fatalf("premise: this tick must be a back-off wait, got %+v", got)
+					}
+				})
+				if got := reconcileTestRow(t, d, "runner").LastOpReason; got != want {
+					t.Fatalf("during back-off:\n got %q\nwant %q", got, want)
+				}
+			})
 		}
 	})
 
