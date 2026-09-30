@@ -227,4 +227,53 @@ describe("MemberDetailPanel · wake that was never dispatched (T-7fa1)", () => {
       "可能是目標機器沒有連線——到「監控」看它是否在線。也可能是前一次喚醒還在重試中——請看這位成員的「最近操作」。",
     ]);
   });
+
+  it("under a not-logged-in reason in the activate receipt, the notice says it even before the row carries it", async () => {
+    const onActivate = vi.fn(async () => ({
+      activationPending: true,
+      lastOpReason:
+        "machine_unavailable: machine 'mach-a' is not logged in to codex; no other machine is substituted",
+    }));
+    const { container, findByTestId } = renderPanel(onActivate);
+
+    const btn = wakeButton(container);
+    await waitFor(() => expect(btn.disabled).toBe(false));
+    fireEvent.click(btn);
+    await confirmWakeSettings();
+
+    const alert = await findByTestId("mp-wake-undispatched");
+    expect(Array.from(alert.children, (el) => el.textContent)).toEqual([
+      "這次沒有送出喚醒指令",
+      "Mac 未登入 Codex",
+    ]);
+  });
+
+  it("under a receipt naming another cause, the receipt wins over a not-logged-in reason left on the row", async () => {
+    const onActivate = vi.fn(async () => ({
+      activationPending: true,
+      lastOpReason:
+        "machine_unavailable: machine 'mach-a' does not provide the 'codex' runtime; no other machine is substituted",
+    }));
+    const { container, findByTestId } = renderPanel(
+      onActivate,
+      mkMember({
+        lastOp: "start",
+        lastOpOk: false,
+        lastOpReason:
+          "machine_unavailable: machine 'mach-a' is not logged in to claude; no other machine is substituted",
+      }),
+    );
+
+    const btn = wakeButton(container);
+    await waitFor(() => expect(btn.disabled).toBe(false));
+    fireEvent.click(btn);
+    await confirmWakeSettings();
+
+    const alert = await findByTestId("mp-wake-undispatched");
+    expect(Array.from(alert.children, (el) => el.textContent)).toEqual([
+      "這次沒有送出喚醒指令",
+      "這次沒有送出喚醒，系統會在背景自動重試。",
+      "可能是目標機器沒有連線——到「監控」看它是否在線。也可能是前一次喚醒還在重試中——請看這位成員的「最近操作」。",
+    ]);
+  });
 });

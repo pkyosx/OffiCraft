@@ -1836,6 +1836,20 @@ func TestStampMemberOpBlocked(t *testing.T) {
 		reconcileTestWantRow(t, d, "stalled", want)
 	})
 
+	t.Run("the retry loop describing its own wait yields to a standing not-logged-in refusal", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestPut(t, d, Member{ID: "refused", Name: "R", Kind: KindStaff, RoleKey: "assistant", DesiredState: DesiredStateOnline})
+		refusal := "codex_not_logged_in: machine 'm-box' is not logged in to codex"
+		if err := d.SetMemberLastOp("refused", reconcileCmdStart, reconcileTestFalse(), refusal, refusal, reconcileTestNow); err != nil {
+			t.Fatalf("SetMemberLastOp: %v", err)
+		}
+		diagnosed := reconcileTestRow(t, d, "refused")
+		for _, retry := range []string{spawnReasonBackoff + ": waiting", spawnReasonCircuitOpen + ": disabled"} {
+			api.stampMemberOpBlocked("refused", retry, reconcileTestNow+10)
+			reconcileTestWantRow(t, d, "refused", diagnosed)
+		}
+	})
+
 	t.Run("the retry loop describing its own wait yields to a standing wake-lapse diagnosis, while a fresh finding replaces it", func(t *testing.T) {
 		api, d := reconcileTestServer(t)
 		reconcileTestPut(t, d, Member{ID: "lapsed", Name: "L", Kind: KindStaff, RoleKey: "assistant", DesiredState: DesiredStateOnline})
@@ -1976,6 +1990,40 @@ func TestStampWakeObservability(t *testing.T) {
 			"never came online within the start window — check that claude runs and is logged " +
 			"in on the target machine (warden log: ocwarden.out.log)"
 		reconcileTestWantRow(t, d, "lapsed", want)
+	})
+
+	t.Run("under a warden's not-logged-in refusal, the lapse keeps that refusal on the row, while any other refusal is replaced by the wake-timeout receipt", func(t *testing.T) {
+		for _, c := range []struct {
+			name, refusal, want string
+		}{
+			{"claude not logged in", "claude_not_logged_in: machine 'm-box' is not logged in to claude",
+				"claude_not_logged_in: machine 'm-box' is not logged in to claude"},
+			{"codex not logged in", "codex_not_logged_in: machine 'm-box' is not logged in to codex",
+				"codex_not_logged_in: machine 'm-box' is not logged in to codex"},
+			{"another refusal", "claude_bin_unresolved: set OC_CLAUDE_BIN or put claude on the daemon PATH",
+				"wake_timeout: the START was dispatched but the agent never came online within the " +
+					"start window — check that claude runs and is logged in on the target machine " +
+					"(warden log: ocwarden.out.log)"},
+		} {
+			t.Run(c.name, func(t *testing.T) {
+				api, d := reconcileTestServer(t)
+				reconcileTestPut(t, d, Member{
+					ID: "refused", Name: "R", Kind: KindStaff, RoleKey: "assistant",
+					DesiredState: DesiredStateOnline, DesiredMachineID: "m-box", WakingSince: reconcileTestNow,
+				})
+				if err := d.SetMemberLastOp("refused", reconcileCmdStart, reconcileTestFalse(), c.refusal,
+					c.refusal, reconcileTestNow+5); err != nil {
+					t.Fatalf("SetMemberLastOp: %v", err)
+				}
+				before := reconcileTestRow(t, d, "refused")
+				m := before
+				api.stampWakeObservability(&m, reconcileDecision{StartTimedOut: true}, reconcileTestNow+WakingTTLSecs+1)
+
+				got := reconcileTestRow(t, d, "refused")
+				apiWantValue(t, "reason and waking", any([]any{got.LastOpReason, got.WakingSince}),
+					any([]any{c.want, 0.0}))
+			})
+		}
 	})
 
 	t.Run("a lapse whose frame was dropped mid-delivery names the connection instead of sending the owner to the machine", func(t *testing.T) {
@@ -2451,6 +2499,42 @@ func TestReconcileTickMemberLocked(t *testing.T) {
 		reconcileTestWantRow(t, d, "runner", wantRow)
 		if got := api.hub.PendingWardenCommandsFor("m-box", "runner"); got != 1 {
 			t.Fatalf("the warden's per-subject backlog = %d, want the one START", got)
+		}
+	})
+
+	t.Run("under a warden's not-logged-in refusal of the START, the ticks past the start window and through back-off still show that refusal", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestOnline(t, api, "m-box", "")
+		reconcileTestPut(t, d, Member{ID: "runner", Name: "Runner", Kind: KindStaff, RoleKey: "assistant", DesiredState: DesiredStateOnline, DesiredMachineID: "m-box"})
+		tick := func(now float64) reconcileDecision {
+			api.reconcileMu.Lock()
+			defer api.reconcileMu.Unlock()
+			return api.reconcileTickMemberLocked(reconcileTestRow(t, d, "runner"), now)
+		}
+		hubTestStderr(t, func() {
+			if got := tick(reconcileTestNow); got.Command != reconcileCmdStart {
+				t.Fatalf("premise: the first tick must dispatch a START, got %+v", got)
+			}
+			api.foldCommandResult(map[string]any{
+				"member_id": "runner", "rpc": "start", "ok": false,
+				"reason": "claude_not_logged_in: no claude credential here (cred_file=unset keychain=unset).",
+				"at":     reconcileTestNow + 1,
+			}, "telemetry", "m-box")
+			if got := tick(reconcileTestNow + WakingTTLSecs + 1); !got.StartTimedOut {
+				t.Fatalf("premise: this tick must be the start-window lapse, got %+v", got)
+			}
+		})
+		want := "claude_not_logged_in: machine 'm-box' is not logged in to claude"
+		if got := reconcileTestRow(t, d, "runner").LastOpReason; got != want {
+			t.Fatalf("after the lapse:\n got %q\nwant %q", got, want)
+		}
+		hubTestStderr(t, func() {
+			if got := tick(reconcileTestNow + WakingTTLSecs + 2); got.ReasonCode == "" {
+				t.Fatalf("premise: this tick must be a back-off wait, got %+v", got)
+			}
+		})
+		if got := reconcileTestRow(t, d, "runner").LastOpReason; got != want {
+			t.Fatalf("during back-off:\n got %q\nwant %q", got, want)
 		}
 	})
 

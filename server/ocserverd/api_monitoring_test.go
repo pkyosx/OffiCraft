@@ -466,9 +466,41 @@ func TestFoldCommandResult(t *testing.T) {
 		}
 	})
 
-	t.Run("under a worker's not-logged-in refusal, the worker row's reason names the reporting machine", func(t *testing.T) {
+	t.Run("under a not-logged-in refusal from a machine other than the member's pin, the reason names the reporting machine", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		if err := d.SetMemberDesiredMachineID("kip", "m-other"); err != nil {
+			t.Fatalf("SetMemberDesiredMachineID: %v", err)
+		}
+		text := "codex_not_logged_in: `codex login status` failed on this host"
+
+		api.foldCommandResult(map[string]any{
+			"member_id": "kip", "rpc": "start", "ok": false,
+			"reason": text, "log": text, "at": float64(1720000000),
+		}, "telemetry", "m-studio")
+
+		apiWantValue(t, "reason", any(apiTestMemberRow(t, d, "kip").LastOpReason),
+			any("codex_not_logged_in: machine 'm-studio' is not logged in to codex"))
+	})
+
+	t.Run("under a not-logged-in refusal with no reporting machine, the reason is kept as the warden wrote it", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		text := "codex_not_logged_in: `codex login status` failed on this host"
+
+		api.foldCommandResult(map[string]any{
+			"member_id": "kip", "rpc": "start", "ok": false,
+			"reason": text, "log": text, "at": float64(1720000000),
+		}, "telemetry", "")
+
+		row := apiTestMemberRow(t, d, "kip")
+		apiWantValue(t, "receipt", any([]string{row.LastOpReason, row.LastOpLog}), any([]string{text, text}))
+	})
+
+	t.Run("under a worker's not-logged-in refusal from a machine other than its pin, the worker row's reason names the reporting machine", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusAssigned)
+		if err := d.SetMemberDesiredMachineID("ow-abc123", "m-other"); err != nil {
+			t.Fatalf("SetMemberDesiredMachineID: %v", err)
+		}
 		text := "codex_not_logged_in: `codex login status` failed on this host"
 
 		api.foldCommandResult(map[string]any{

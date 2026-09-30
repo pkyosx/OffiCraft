@@ -185,6 +185,12 @@ var wardenLoginRefusalRuntime = map[string]string{
 	"codex_not_logged_in":  RuntimeCodex,
 }
 
+func isWardenLoginRefusal(reason string) bool {
+	code, _, found := strings.Cut(reason, ":")
+	_, isLogin := wardenLoginRefusalRuntime[code]
+	return found && isLogin
+}
+
 // loginRefusalNamingMachine rewrites a warden's not-logged-in refusal into the
 // sentence placement writes, naming the reporting machine the warden's own text
 // cannot; the cockpit localizes that one sentence. The warden's text is kept as

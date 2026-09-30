@@ -983,11 +983,19 @@ func isStopgapRetryReason(reason string) bool {
 
 // stopgapRetryStampYields is the precedence rule both the staff and the worker op-blocked stamps
 // obey: a retry-loop wait (backoff / circuit_open) must not overwrite a diagnosis of the PREVIOUS
-// attempt (wake_timeout, or the worker-only never_collected).
+// attempt (wake_timeout, a warden's not-logged-in refusal, or the worker-only never_collected).
 func stopgapRetryStampYields(prior, reason string) bool {
 	return isStopgapRetryReason(reason) &&
 		(strings.HasPrefix(prior, wakeTimeoutReasonCode+":") ||
-			strings.HasPrefix(prior, spawnReasonNeverCollected+":"))
+			strings.HasPrefix(prior, spawnReasonNeverCollected+":") ||
+			isWardenLoginRefusal(prior))
+}
+
+// wakeTimeoutYieldsToReceipt: a start the warden refused as not logged in never came up for that
+// reason, and the owner reads it on 最近操作; the timeout that follows would replace it with a
+// vaguer guess.
+func wakeTimeoutYieldsToReceipt(lastOp, lastOpReason string) bool {
+	return lastOp == reconcileCmdStart && isWardenLoginRefusal(lastOpReason)
 }
 
 // stampMemberOpBlocked never clears: clearing belongs to stampWakeObservability, and a converged
@@ -1107,7 +1115,7 @@ func (s *apiServer) stampWakeObservability(m *Member, decision reconcileDecision
 		if err != nil || fresh == nil || fresh.RosterStatus != RosterStatusActive {
 			return err
 		}
-		if decision.StartTimedOut {
+		if decision.StartTimedOut && !wakeTimeoutYieldsToReceipt(fresh.LastOp, fresh.LastOpReason) {
 			fresh.LastOp = m.LastOp
 			fresh.LastOpOK = m.LastOpOK
 			fresh.LastOpReason = m.LastOpReason
