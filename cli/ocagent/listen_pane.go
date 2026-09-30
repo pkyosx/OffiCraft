@@ -14,7 +14,7 @@ import (
 
 // The listener runs BESIDE its claude member (started by cli/ocwarden/spawn.go,
 // not inside the member's harness, which drops background jobs every 30 min) and
-// reaches the member's pane with the same tmux buffer + Enter the boot nudge uses.
+// reaches the member's pane with a tmux buffer + Enter, as the boot nudge does.
 
 const (
 	// 🔴 The session suffix is load-bearing: tmux buffers are per SERVER (one per
