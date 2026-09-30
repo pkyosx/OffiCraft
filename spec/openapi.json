@@ -7741,6 +7741,18 @@
             "title": "Fields",
             "type": "array"
           },
+          "is_default": {
+            "default": false,
+            "description": "True when the station is serving the shipped factory version of a built-in manual: no owner or agent edit overlays it. Any edit clears it (content or assignee); reset_task_manual sets it again. Always false for a manual created on this station.",
+            "title": "Is Default",
+            "type": "boolean"
+          },
+          "is_seed": {
+            "default": false,
+            "description": "Whether this task type ships built-in with OffiCraft rather than being created on this station. Only a built-in manual can be reset (reset_task_manual), and a built-in manual cannot be deleted.",
+            "title": "Is Seed",
+            "type": "boolean"
+          },
           "purpose": {
             "default": "",
             "title": "Purpose",
@@ -7879,6 +7891,18 @@
             "title": "Fields",
             "type": "array"
           },
+          "is_default": {
+            "default": false,
+            "description": "True when the station is serving the shipped factory version of a built-in manual: no owner or agent edit overlays it. Any edit clears it (content or assignee); reset_task_manual sets it again. Always false for a manual created on this station.",
+            "title": "Is Default",
+            "type": "boolean"
+          },
+          "is_seed": {
+            "default": false,
+            "description": "Whether this task type ships built-in with OffiCraft rather than being created on this station. Only a built-in manual can be reset (reset_task_manual), and a built-in manual cannot be deleted.",
+            "title": "Is Seed",
+            "type": "boolean"
+          },
           "purpose": {
             "default": "",
             "title": "Purpose",
@@ -7917,8 +7941,20 @@
       },
       "TaskManualReceiptDTO": {
         "additionalProperties": false,
-        "description": "Bounded receipt returned after create_task_manual and update_task_manual (T-91). update_task_manual is a PARTIAL write - every field of its body is nullable and the handler acts only on the ones present - so this receipt reports ONLY the document THIS call actually wrote. Send ``sop_md`` and the three ``sop_md_*`` fields come back; send neither (a create, or an update of display_name alone) and none of them appears. That absence is the answer, not a gap: reporting numbers for a document this call did not touch is the shape owner rejected verbatim on 2026-09-05 (\"為什麼還是要回這麼多訊息\"). The manual's configuration - display_name, purpose, assignee, fields - is NOT here either: the caller just sent it, and get_task_manual serves it. ``type_key`` always rides back because create MINTS it server-side, so it is the one thing the caller cannot know.",
+        "description": "Bounded receipt returned after create_task_manual, update_task_manual and reset_task_manual (T-91). update_task_manual is a PARTIAL write - every field of its body is nullable and the handler acts only on the ones present - so this receipt reports ONLY the document THIS call actually wrote. Send ``sop_md`` and the three ``sop_md_*`` fields come back; send neither (a create, or an update of display_name alone) and none of them appears. That absence is the answer, not a gap: reporting numbers for a document this call did not touch is the shape owner rejected verbatim on 2026-09-05 (\"為什麼還是要回這麼多訊息\"). The manual's configuration - display_name, purpose, assignee, fields - is NOT here either: the caller just sent it, and get_task_manual serves it. ``type_key`` always rides back because create MINTS it server-side, so it is the one thing the caller cannot know.",
         "properties": {
+          "is_default": {
+            "default": false,
+            "description": "True when no edit overlays the shipped version after this write. reset_task_manual makes it true by dropping the edit; create and update leave it false. The flag tracks whether an edit EXISTS, not whether the text differs: writing text identical to the shipped version still clears it.",
+            "title": "Is Default",
+            "type": "boolean"
+          },
+          "is_seed": {
+            "default": false,
+            "description": "Whether this task type ships built-in. A registry fact the write does not decide; only a built-in manual has anything to reset to.",
+            "title": "Is Seed",
+            "type": "boolean"
+          },
           "sop_md_cap_chars": {
             "description": "The SOP ceiling in force (settings key doc_cap_chars_manual_sop). Present ONLY when this call wrote the SOP document. No ``default``, not required.",
             "title": "Sop Md Cap Chars",
@@ -18310,7 +18346,7 @@
     },
     "/api/task-manuals": {
       "get": {
-        "description": "- Identity rows only: `sop_md` is ABSENT, not empty - serving it once made this answer six figures of characters.\n- Every row still carries `sop_md_chars` and the cap it is judged against, so which manual is nearly full is answerable here.\n- Fetch one manual's text with get_task_manual.",
+        "description": "- Identity rows only: `sop_md` is ABSENT, not empty - serving it once made this answer six figures of characters.\n- Every row still carries `sop_md_chars` and the cap it is judged against, so which manual is nearly full is answerable here.\n- Fetch one manual's text with get_task_manual.\n- Built-in manuals are listed even when nothing was ever written for them; `is_seed` / `is_default` say which rows are built-in and unedited.",
         "operationId": "handle_list_task_manuals_api_task_manuals_get",
         "responses": {
           "200": {
@@ -18438,7 +18474,7 @@
     },
     "/api/task-manuals/{type_key}": {
       "delete": {
-        "description": "- Refused with 409 while any NON-terminal task of this type exists; closed tasks never block.\n- Owner or admin agent only; a plain agent is 403.",
+        "description": "- Refused with 409 while any NON-terminal task of this type exists; closed tasks never block.\n- Owner or admin agent only; a plain agent is 403.\n- A built-in (seed) manual cannot be deleted: 403; reset it instead.",
         "operationId": "handle_delete_task_manual_api_task_manuals__type_key__delete",
         "parameters": [
           {
@@ -18505,7 +18541,7 @@
         }
       },
       "get": {
-        "description": "- One manual in full: purpose, fields, SOP and assignee.\n- The SOP is judged against `sop_md_cap_chars`.\n- Unknown type: 404.",
+        "description": "- One manual in full: purpose, fields, SOP and assignee.\n- The SOP is judged against `sop_md_cap_chars`.\n- Unknown type: 404.\n- A built-in manual is served even when nothing was ever written for it; `is_seed` / `is_default` say whether it is built-in and unedited.",
         "operationId": "handle_get_task_manual_api_task_manuals__type_key__get",
         "parameters": [
           {
@@ -18646,6 +18682,75 @@
           },
           "name": "update_task_manual",
           "order": 90
+        }
+      }
+    },
+    "/api/task-manuals/{type_key}/reset": {
+      "post": {
+        "description": "- Drops any edit (content AND assignee) and returns the manual to its shipped version; idempotent.\n- Only a built-in (seed) manual can be reset; anything else is a 404.\n- Owner or admin agent only; a plain agent is 403.",
+        "operationId": "handle_reset_task_manual_api_task_manuals__type_key__reset_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "type_key",
+            "required": true,
+            "schema": {
+              "title": "Type Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskManualReceiptDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Validation error (unified error envelope)."
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Client error (unified error envelope)."
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Server error (unified error envelope)."
+          }
+        },
+        "summary": "Reset a built-in task manual to its shipped version (idempotent): drops any edit, content AND assignee alike. Only a built-in (seed) manual can be reset; anything else is 404. Owner or admin agent only. Answers with a bounded receipt (``type_key``, ``updated_ts``, ``is_default``, ``is_seed``, ``sop_md_chars``, ``sop_md_cap_chars``, ``sop_md_sha256``), not the manual — call ``get_task_manual`` when you need the rest.",
+        "x-mcp": {
+          "description": "Reset a built-in task manual to its shipped version (idempotent): drops any edit, content AND assignee alike. Only a built-in (seed) manual can be reset; anything else is 404. Owner or admin agent only. Answers with a bounded receipt (``type_key``, ``updated_ts``, ``is_default``, ``is_seed``, ``sop_md_chars``, ``sop_md_cap_chars``, ``sop_md_sha256``), not the manual — call ``get_task_manual`` when you need the rest.",
+          "include": true,
+          "legacy": {
+            "descriptor": "{\n      \"description\": \"Reset a built-in task manual to its shipped version (idempotent): drops any edit, content AND assignee alike. Only a built-in (seed) manual can be reset; anything else is 404. Owner or admin agent only. Answers with a bounded receipt (``type_key``, ``updated_ts``, ``is_default``, ``is_seed``, ``sop_md_chars``, ``sop_md_cap_chars``, ``sop_md_sha256``), not the manual — call ``get_task_manual`` when you need the rest.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"type_key\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"type_key\"\n        ],\n        \"additionalProperties\": false,\n        \"type\": \"object\"\n      },\n      \"name\": \"reset_task_manual\"\n    }"
+          },
+          "name": "reset_task_manual",
+          "order": 124
         }
       }
     },

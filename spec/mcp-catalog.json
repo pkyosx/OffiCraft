@@ -4550,6 +4550,22 @@
         "type": "object"
       },
       "name": "set_lore_entry_scope"
+    },
+    {
+      "description": "Reset a built-in task manual to its shipped version (idempotent): drops any edit, content AND assignee alike. Only a built-in (seed) manual can be reset; anything else is 404. Owner or admin agent only. Answers with a bounded receipt (``type_key``, ``updated_ts``, ``is_default``, ``is_seed``, ``sop_md_chars``, ``sop_md_cap_chars``, ``sop_md_sha256``), not the manual — call ``get_task_manual`` when you need the rest.",
+      "inputSchema": {
+        "properties": {
+          "type_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type_key"
+        ],
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "name": "reset_task_manual"
     }
   ]
 }
