@@ -1769,7 +1769,7 @@ export const zh = {
       runtimeUnknown: "還沒有取得狀態；如果一直這樣，這台機器上的 OffiCraft 程式可能是舊版，需要更新。",
       // 各 runtime 自己的版本欄(T-674d)。原本 Runtime 欄的 ✓/✗ 摘要拿掉了,
       // Claude 與 Codex 各自印出探測到的版本。但原本 ✗ 講的事情還是要講得出來
-      // ——那是 placement 拒絕這台機器的原因——所以「未安裝」「未登入」是格子裡
+      // ——對 Codex 那是 placement 拒絕這台機器的原因——所以「未安裝」「未登入」是格子裡
       // 的字,不是一個默默消失的版本號。
       runtimeNotInstalled: "未安裝",
       runtimeNotInstalledHint: "這台機器上沒有安裝這個 AI 執行環境，無法在這裡喚醒成員。",

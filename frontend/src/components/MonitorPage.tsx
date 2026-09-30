@@ -1459,7 +1459,7 @@ function HardwareBadMark() {
  *
  * Reads the SAME capability map the digest read; nothing new is collected and
  * no version is ever synthesized. What it must NOT lose is the digest's ✗: an
- * `installed:false` (either runtime) or a Codex `loggedIn:false` is the reason
+ * a Codex `installed:false` or `loggedIn:false` is the reason
  * placement refuses this machine and a worker sits stamped
  * `machine_unavailable`, and this cell is still the only place that reason
  * appears on screen. So those states are spelled out as words rather than

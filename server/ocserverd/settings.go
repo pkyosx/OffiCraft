@@ -165,8 +165,8 @@ const (
 	maxReassignHandoverTimeoutSecs     = 86400
 )
 
-// The floor is the warden's heartbeat cadence: the interval travels on the
-// heartbeat reply, so a shorter one cannot be honoured.
+// The floor is the warden's heartbeat cadence: the check runs at most once per
+// heartbeat, so a shorter interval cannot be honoured.
 const (
 	runtimeLoginCheckIntervalSecsDefault = 300
 	minRuntimeLoginCheckIntervalSecs     = 30

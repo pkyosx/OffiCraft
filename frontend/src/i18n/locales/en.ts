@@ -1746,9 +1746,9 @@ export const en: Dict = {
       runtimeUnknown: "No status yet; if this persists, the OffiCraft software on this machine may be outdated and needs updating.",
       // ── per-runtime version columns (T-674d). The Runtimes column's ✓/✗
       // digest is gone; Claude and Codex each print their probed version. The
-      // ✗ states it used to carry still have to be sayable, because they are
-      // the reason placement refuses the machine — so "not installed" and "not
-      // signed in" are WORDS in the cell, never a silently missing version.
+      // ✗ states it used to carry still have to be sayable, because for Codex
+      // they are the reason placement refuses the machine — so "not installed"
+      // and "not signed in" are WORDS in the cell, never a silently missing version.
       runtimeNotInstalled: "not installed",
       runtimeNotInstalledHint:
         "This AI runtime is not installed on this machine, so members cannot be woken here.",

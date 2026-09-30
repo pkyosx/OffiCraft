@@ -122,7 +122,7 @@ export interface AgentDetailVmInput {
   online: boolean;
   /** The agent is awakened (presence online or waking) — owner presence
    * contract T-2860. Gates 模型 / 思考強度 here, and the wrapper applies it to
-   * its own 機器 / Claude Account cells. */
+   * its own Claude Account cell (its 機器 cell also shows while stopping). */
   awake: boolean;
   /** The owner-CONFIGURED launch runtime. */
   runtime: "claude" | "codex" | undefined;
@@ -138,7 +138,7 @@ export interface AgentDetailVmInput {
     machine?: string;
   };
   /** Already resolved AND already gated by the wrapper: the member panel reads
-   * a bare dash when not awake, the worker panel falls back to 「尚未分配」. */
+   * a bare dash outside online/waking/stopping, the worker panel falls back to 「尚未分配」. */
   machineText: string;
   /** Already resolved readable account name — never a raw credential key.
    *
