@@ -905,7 +905,8 @@ export function ChatArea({
     // The fallback is for the one case that measurement cannot reach: the
     // anchor row is inside a COLLAPSED 成員間對話 block and has no node at all.
     // Growth during the request (an image finishing, an SSE append) is then
-    // counted as part of the prepend.
+    // counted as part of the prepend: the reader is moved by that much, and
+    // enough of it re-arms the gesture below as if a tall page had landed.
     if (el) {
       // Walked rather than selected: a message id goes into an attribute
       // selector unescaped, and `CSS.escape` does not exist in the jsdom the
