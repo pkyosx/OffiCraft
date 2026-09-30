@@ -1324,17 +1324,21 @@ describe("WorkerDetailPanel — lifecycle ops (T-32e1/T-f190)", () => {
       taskId: "t-1",
       presence: "online",
       desiredState: "online",
+      desiredMachineId: "m-server-self",
+      machine: "m-server-self",
+      actualMachine: "m-server-self",
     });
     __injectMockOutsourceWorker(worker);
-    vi.spyOn(api, "relocateMember").mockResolvedValue({
-      relocationPending: true,
-      relocationDeferred: false,
+    vi.spyOn(api, "relocateMember").mockImplementation(async (_id, machineId) => {
+      worker.desiredMachineId = machineId;
+      __injectMockOutsourceWorker(mkWorker({ id: "ow-pin", taskId: "t-1" }));
+      return { relocationPending: true, relocationDeferred: false };
     });
     const { findByTestId } = renderOfficeAt("#office/worker/ow-1");
     await moveToSeedWarden(findByTestId, "worker-detail-change");
     await findByTestId("worker-detail-relocate-undispatched");
 
-    worker.desiredMachineId = "warden-mbp5";
+    worker.machine = "warden-mbp5";
     worker.actualMachine = "warden-mbp5";
     __injectMockOutsourceWorker(mkWorker({ id: "ow-other", taskId: "t-1" }));
     await waitFor(() =>
@@ -1342,10 +1346,13 @@ describe("WorkerDetailPanel — lifecycle ops (T-32e1/T-f190)", () => {
         queryTestId(document.body, "worker-detail-relocate-undispatched"),
       ).toBeNull(),
     );
+    worker.machine = "m-server-self";
     worker.actualMachine = "m-server-self";
     __injectMockOutsourceWorker(mkWorker({ id: "ow-other-2", taskId: "t-1" }));
-    await waitFor(() =>
-      expect(document.body.textContent).toContain("Warden · mbp5"),
+    await waitFor(async () =>
+      expect((await findByTestId("worker-detail-machine-pending")).textContent).toBe(
+        "→ 要換到 Warden · mbp5",
+      ),
     );
     expect(
       queryTestId(document.body, "worker-detail-relocate-undispatched"),
