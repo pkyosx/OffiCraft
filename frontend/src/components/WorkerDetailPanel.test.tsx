@@ -1933,12 +1933,10 @@ describe("WorkerDetailPanel — pending launch changes (T-7f28)", () => {
       mkWorker({
         id: "ow-1",
         taskId: "t-1",
-        // configured (the settings dialog's round-trip values)…
         runtime: "codex",
         model: "Opus 4.6",
         effort: "high",
         desiredMachineId: "warden-mbp5",
-        // …versus what the worker's session actually reported.
         actualRuntime: "claude",
         actualModel: "claude-sonnet-4-5",
         actualEffort: "low",
