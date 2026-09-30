@@ -709,7 +709,7 @@ func TestFoldWorkerCommandResult(t *testing.T) {
 }
 
 func TestHandleIngestTelemetryApiMonitoringTelemetryPost(t *testing.T) {
-	t.Run("a full warden report answers a receipt carrying the login check interval, and the blocks it carried show up on the monitoring view", func(t *testing.T) {
+	t.Run("a full warden report answers a receipt carrying the login check and recheck intervals, and the blocks it carried show up on the monitoring view", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		warden := apiTestAgentToken(t, api, "m-server-self", "m-server-self")
 
@@ -732,10 +732,11 @@ func TestHandleIngestTelemetryApiMonitoringTelemetryPost(t *testing.T) {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
 		apiWantBody(t, data, map[string]any{
-			"agent_id":                  "m-server-self",
-			"machine":                   "m-server-self",
-			"ts":                        apiAnyNumber,
-			"login_check_interval_secs": 300,
+			"agent_id":                    "m-server-self",
+			"machine":                     "m-server-self",
+			"ts":                          apiAnyNumber,
+			"login_check_interval_secs":   300,
+			"login_recheck_interval_secs": 30,
 		})
 
 		status, view := apiJSON(t, h, "GET", "/api/monitoring", owner, "")
@@ -773,21 +774,22 @@ func TestHandleIngestTelemetryApiMonitoringTelemetryPost(t *testing.T) {
 		})
 	})
 
-	t.Run("under an owner-set login check interval, a warden's receipt carries that value and an agent's receipt on the same machine carries no interval", func(t *testing.T) {
+	t.Run("under owner-set login check and recheck intervals, a warden's receipt carries those values and an agent's receipt on the same machine carries neither", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		warden := apiTestAgentToken(t, api, "m-server-self", "m-server-self")
 		mira := apiTestAgentToken(t, api, "mira", "m-server-self")
-		apiJSON(t, h, "PATCH", "/api/settings", owner, `{"runtime_login_check_interval_secs":45}`)
+		apiJSON(t, h, "PATCH", "/api/settings", owner, `{"runtime_login_check_interval_secs":45,"runtime_login_recheck_interval_secs":60}`)
 
 		status, data := apiJSON(t, h, "POST", "/api/monitoring/telemetry", warden, `{"tokens":{"input":1}}`)
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
 		apiWantBody(t, data, map[string]any{
-			"agent_id":                  "m-server-self",
-			"machine":                   "m-server-self",
-			"ts":                        apiAnyNumber,
-			"login_check_interval_secs": 45,
+			"agent_id":                    "m-server-self",
+			"machine":                     "m-server-self",
+			"ts":                          apiAnyNumber,
+			"login_check_interval_secs":   45,
+			"login_recheck_interval_secs": 60,
 		})
 
 		status, data = apiJSON(t, h, "POST", "/api/monitoring/telemetry", mira, `{"tokens":{"input":1}}`)
@@ -980,10 +982,11 @@ func TestHandleIngestTelemetryApiMonitoringTelemetryPost(t *testing.T) {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
 		apiWantBody(t, data, map[string]any{
-			"agent_id":                  "m-server-self",
-			"machine":                   "m-server-self",
-			"ts":                        apiAnyNumber,
-			"login_check_interval_secs": 300,
+			"agent_id":                    "m-server-self",
+			"machine":                     "m-server-self",
+			"ts":                          apiAnyNumber,
+			"login_check_interval_secs":   300,
+			"login_recheck_interval_secs": 30,
 		})
 
 		status, member := apiJSON(t, h, "GET", "/api/members/mira", owner, "")
@@ -1073,10 +1076,11 @@ func TestHandleIngestTelemetryApiMonitoringTelemetryPost(t *testing.T) {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
 		apiWantBody(t, data, map[string]any{
-			"agent_id":                  "m-server-self",
-			"machine":                   "m-server-self",
-			"ts":                        apiAnyNumber,
-			"login_check_interval_secs": 300,
+			"agent_id":                    "m-server-self",
+			"machine":                     "m-server-self",
+			"ts":                          apiAnyNumber,
+			"login_check_interval_secs":   300,
+			"login_recheck_interval_secs": 30,
 		})
 
 		status, view := apiJSON(t, h, "GET", "/api/monitoring", owner, "")

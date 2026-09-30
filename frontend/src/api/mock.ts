@@ -2101,6 +2101,7 @@ const DEFAULT_MOCK_SETTINGS = {
   // Mirrors the server's shipped reassign handover timeout.
   reassign_handover_timeout_secs: 1800,
   runtime_login_check_interval_secs: 300,
+  runtime_login_recheck_interval_secs: 30,
   // T-fc53 warden credential lifetime — mirrors the server's shipped default
   // (30 days). Hard-coded rather than derived so the mock still shows the fleet
   // default the day someone changes the constant on only one side.
@@ -5837,6 +5838,12 @@ const mockApiImpl = {
     ) {
       throw mockApiError("http 422 for PATCH /api/settings", 422, "runtime_login_check_interval_secs must be between 30 and 3600 seconds");
     }
+    if (
+      patch.runtimeLoginRecheckIntervalSecs !== undefined &&
+      (patch.runtimeLoginRecheckIntervalSecs < 30 || patch.runtimeLoginRecheckIntervalSecs > 3600)
+    ) {
+      throw mockApiError("http 422 for PATCH /api/settings", 422, "runtime_login_recheck_interval_secs must be between 30 and 3600 seconds");
+    }
     // T-fc53: the mock refuses exactly what the server refuses, so a UI that
     // only ever runs against the mock cannot ship a field that offers the owner
     // a number he would get a 422 for on a real install.
@@ -6077,6 +6084,9 @@ const mockApiImpl = {
     }
     if (patch.runtimeLoginCheckIntervalSecs !== undefined) {
       mockServerSettings.runtime_login_check_interval_secs = patch.runtimeLoginCheckIntervalSecs;
+    }
+    if (patch.runtimeLoginRecheckIntervalSecs !== undefined) {
+      mockServerSettings.runtime_login_recheck_interval_secs = patch.runtimeLoginRecheckIntervalSecs;
     }
     if (patch.wardenCredentialLifetimeSecs !== undefined) {
       mockServerSettings.warden_credential_lifetime_secs = patch.wardenCredentialLifetimeSecs;

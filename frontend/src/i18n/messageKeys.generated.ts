@@ -1020,6 +1020,8 @@ export const MESSAGE_KEYS: readonly string[] = [
   "settings.rounds",
   "settings.runtimeLoginCheckInterval",
   "settings.runtimeLoginCheckIntervalSub",
+  "settings.runtimeLoginRecheckInterval",
+  "settings.runtimeLoginRecheckIntervalSub",
   "settings.seconds",
   "settings.sessionTtl",
   "settings.sessionTtlSub",

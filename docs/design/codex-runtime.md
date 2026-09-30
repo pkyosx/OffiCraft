@@ -247,8 +247,10 @@ map reported yet leaves it unset, which is today's legacy behaviour
 
 **A claude `logged_in: false` does not make the resolver choose codex.** The warden
 measures Claude login with `claude auth status`, run in the environment members launch
-with and re-run every `runtime_login_check_interval_secs` (an org setting, default 300 s,
-delivered in the heartbeat reply): `true` when it reports logged in, `false` only when it
+with and re-run every `runtime_login_check_interval_secs` (an org setting, default 300 s)
+while it reads logged in, and every `runtime_login_recheck_interval_secs` (default 30 s,
+i.e. every heartbeat) while it reads logged out or unknown, each runtime on its own
+(both delivered in the heartbeat reply): `true` when it reports logged in, `false` only when it
 reports logged out, the owner's interactive shell environment was in hand (the one the
 last spawn captured, or before any spawn one the check captures itself; without it a
 credential exported from `~/.zshrc` goes unseen, so that case stays absent) and, on

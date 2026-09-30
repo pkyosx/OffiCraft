@@ -9,24 +9,22 @@ import (
 	"time"
 )
 
+// The interval applies while a runtime's last verdict is logged in, the recheck
+// interval while it is logged out or unknown. Both share the range.
 const (
-	defaultLoginCheckInterval = 300 * time.Second
-	minLoginCheckIntervalSecs = 30
-	maxLoginCheckIntervalSecs = 3600
+	defaultLoginCheckInterval   = 300 * time.Second
+	defaultLoginRecheckInterval = 30 * time.Second
+	minLoginCheckIntervalSecs   = 30
+	maxLoginCheckIntervalSecs   = 3600
 )
-
-// How soon a runtime whose last verdict was logged out or unknown is checked
-// again. Zero means every heartbeat, which is the floor; the owner-set interval
-// applies only while the last verdict is logged in.
-const defaultLoginRecheckInterval time.Duration = 0
 
 const loginCheckEnvName = ".oc-login-check-env"
 
-func loginCheckIntervalFromReceipt(body map[string]any) time.Duration {
-	secs, ok := body["login_check_interval_secs"].(float64)
+func loginIntervalFromReceipt(body map[string]any, key string, fallback time.Duration) time.Duration {
+	secs, ok := body[key].(float64)
 	if !ok || secs != float64(int64(secs)) ||
 		secs < minLoginCheckIntervalSecs || secs > maxLoginCheckIntervalSecs {
-		return defaultLoginCheckInterval
+		return fallback
 	}
 	return time.Duration(secs) * time.Second
 }
@@ -134,7 +132,10 @@ func newLoginProber(env func(string) string, runner CmdRunner, keep stdoutRunner
 	}
 }
 
-func (p *loginProber) setInterval(d time.Duration) { p.interval = d }
+func (p *loginProber) setIntervals(check, recheck time.Duration) {
+	p.interval = check
+	p.recheck = recheck
+}
 
 func (p *loginProber) state() loginState {
 	p.refresh(&p.claude, p.claudeLoggedIn)
@@ -144,6 +145,10 @@ func (p *loginProber) state() loginState {
 
 // probe reports whether it ran a check at all; a runtime that is not installed
 // stays on the interval rather than being re-resolved every heartbeat.
+//
+// A 30 s recheck means every heartbeat only because the loop sleeps 30 s AFTER
+// each beat, so consecutive checks are never less than 30 s apart. A fixed-rate
+// ticker would make that 30 s land a hair short and silently double the cadence.
 func (p *loginProber) refresh(r *runtimeLogin, probe func() (verdict *bool, probed bool)) {
 	wait := p.interval
 	if r.notLoggedIn {

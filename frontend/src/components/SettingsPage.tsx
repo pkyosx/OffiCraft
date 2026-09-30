@@ -1429,6 +1429,7 @@ function ServerParams({
   const [reassignHandoverTimeoutDraft, setReassignHandoverTimeoutDraft] = useState<string | null>(null);
   const [wardenCredLifetimeDraft, setWardenCredLifetimeDraft] = useState<string | null>(null);
   const [runtimeLoginCheckDraft, setRuntimeLoginCheckDraft] = useState<string | null>(null);
+  const [runtimeLoginRecheckDraft, setRuntimeLoginRecheckDraft] = useState<string | null>(null);
   // T-ae38, widened by T-30f1: five independent caps, so five independent
   // drafts. A shared draft would make typing in one field snap the others back.
   const [docCapDrafts, setDocCapDrafts] = useState<
@@ -1536,6 +1537,14 @@ function ServerParams({
     if (!Number.isInteger(n) || n < 30 || n > 3600) { setRangeError(true); setRuntimeLoginCheckDraft(null); return; }
     setRuntimeLoginCheckDraft(null);
     if (n !== settings.runtimeLoginCheckIntervalSecs) void onSave({ runtimeLoginCheckIntervalSecs: n });
+  }
+
+  function commitRuntimeLoginRecheck() {
+    if (!settings || runtimeLoginRecheckDraft === null) return;
+    const n = Number(runtimeLoginRecheckDraft);
+    if (!Number.isInteger(n) || n < 30 || n > 3600) { setRangeError(true); setRuntimeLoginRecheckDraft(null); return; }
+    setRuntimeLoginRecheckDraft(null);
+    if (n !== settings.runtimeLoginRecheckIntervalSecs) void onSave({ runtimeLoginRecheckIntervalSecs: n });
   }
 
   // 機器憑證壽命 (T-fc53). A free-typed number rather than a dropdown of fixed
@@ -1883,6 +1892,21 @@ function ServerParams({
                 value={runtimeLoginCheckDraft ?? String(settings.runtimeLoginCheckIntervalSecs)}
                 onChange={(e) => { setRangeError(false); onClearSaveError(); setRuntimeLoginCheckDraft(e.target.value); }}
                 onBlur={commitRuntimeLoginCheck} onKeyDown={(e) => { if (e.key === "Enter") commitRuntimeLoginCheck(); }} />
+              <span className="param-pct__sign">{t.settings.seconds}</span>
+            </div>
+          </div>
+
+          <div className="param-row">
+            <div className="param-row__body">
+              <div className="param-row__name">{t.settings.runtimeLoginRecheckInterval}</div>
+              <div className="param-row__sub">{t.settings.runtimeLoginRecheckIntervalSub}</div>
+            </div>
+            <div className="param-pct">
+              <input id="param-runtime-login-recheck-interval" className="param-input" type="number" min={30} max={3600}
+                aria-label={t.settings.runtimeLoginRecheckInterval}
+                value={runtimeLoginRecheckDraft ?? String(settings.runtimeLoginRecheckIntervalSecs)}
+                onChange={(e) => { setRangeError(false); onClearSaveError(); setRuntimeLoginRecheckDraft(e.target.value); }}
+                onBlur={commitRuntimeLoginRecheck} onKeyDown={(e) => { if (e.key === "Enter") commitRuntimeLoginRecheck(); }} />
               <span className="param-pct__sign">{t.settings.seconds}</span>
             </div>
           </div>

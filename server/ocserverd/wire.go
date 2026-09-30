@@ -63,7 +63,8 @@ type settingsDTO struct {
 
 	ReassignHandoverTimeoutSecs int `json:"reassign_handover_timeout_secs"`
 
-	RuntimeLoginCheckIntervalSecs int `json:"runtime_login_check_interval_secs"`
+	RuntimeLoginCheckIntervalSecs   int `json:"runtime_login_check_interval_secs"`
+	RuntimeLoginRecheckIntervalSecs int `json:"runtime_login_recheck_interval_secs"`
 
 	// WardenCredentialLifetimeSecs drives both the warden's renewal age (two thirds
 	// of it) and the minted credential's exp (api_auth.go mintWardenToken).
@@ -469,7 +470,8 @@ type agentTelemetryReceiptDTO struct {
 	Machine *string `json:"machine"`
 	TS      float64 `json:"ts"`
 
-	LoginCheckIntervalSecs *int `json:"login_check_interval_secs,omitempty"`
+	LoginCheckIntervalSecs   *int `json:"login_check_interval_secs,omitempty"`
+	LoginRecheckIntervalSecs *int `json:"login_recheck_interval_secs,omitempty"`
 }
 
 type monitoringSessionDTO struct {

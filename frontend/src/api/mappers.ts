@@ -1238,6 +1238,7 @@ export function toServerSettings(w: WireServerSettings): ServerSettingsView {
     // 1800 is the server's shipped default.
     reassignHandoverTimeoutSecs: w.reassign_handover_timeout_secs ?? 1800,
     runtimeLoginCheckIntervalSecs: w.runtime_login_check_interval_secs ?? 300,
+    runtimeLoginRecheckIntervalSecs: w.runtime_login_recheck_interval_secs ?? 30,
     // 2592000 (30 days) is the server's shipped default, the value a fleet that
     // never touched the knob renews on — and the same number a warden falls back
     // to when it cannot reach the credential-policy endpoint, so a server too

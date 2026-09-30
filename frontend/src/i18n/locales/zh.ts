@@ -2203,7 +2203,10 @@ export const zh = {
       "機器登入憑證的有效期。機器會在到期前自動換新；錯過換新的機器要重新安裝。調小不影響已經發出的憑證。（86400–34560000 秒）",
     runtimeLoginCheckInterval: "登入檢查間隔",
     runtimeLoginCheckIntervalSub:
-      "每台機器多久重新檢查一次 Claude 與 Codex 是否登入。改動會在各機器下一次回報時生效（30–3600 秒）",
+      "Claude 或 Codex 已登入時，每台機器多久再檢查一次。改動會在各機器下一次回報時生效（30–3600 秒）",
+    runtimeLoginRecheckInterval: "未登入時重查間隔",
+    runtimeLoginRecheckIntervalSub:
+      "Claude 或 Codex 未登入（或檢查失敗）時，每台機器多久再檢查一次；30 秒即每次回報都檢查。改動會在各機器下一次回報時生效（30–3600 秒）",
     rounds: "次",
     // T-ae38 起(T-30f1 又拆過一次):上限不再是一個。這些文件被刪掉的成本差很多
     // ——角色定義是常設說明、判準是逐次累積的權衡——所以不再共用同一把尺。

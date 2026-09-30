@@ -14,11 +14,14 @@ function settingsFromServer(extra: Record<string, unknown> = {}): WireServerSett
 }
 
 describe("toServerSettings", () => {
-  it("under a server that omits runtime_login_check_interval_secs, the login check interval reads as the 300s shipped default; a sent value is carried as is", () => {
-    expect(toServerSettings(settingsFromServer()).runtimeLoginCheckIntervalSecs).toBe(300);
-    expect(
-      toServerSettings(settingsFromServer({ runtime_login_check_interval_secs: 120 }))
-        .runtimeLoginCheckIntervalSecs
-    ).toBe(120);
+  it("under a server that omits the runtime login intervals, the check reads as the 300s and the recheck as the 30s shipped default; sent values are carried as is", () => {
+    const omitted = toServerSettings(settingsFromServer());
+    expect(omitted.runtimeLoginCheckIntervalSecs).toBe(300);
+    expect(omitted.runtimeLoginRecheckIntervalSecs).toBe(30);
+    const sent = toServerSettings(
+      settingsFromServer({ runtime_login_check_interval_secs: 120, runtime_login_recheck_interval_secs: 90 }),
+    );
+    expect(sent.runtimeLoginCheckIntervalSecs).toBe(120);
+    expect(sent.runtimeLoginRecheckIntervalSecs).toBe(90);
   });
 });

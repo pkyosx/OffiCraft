@@ -636,6 +636,8 @@ func (s *apiServer) HandleIngestTelemetryApiMonitoringTelemetryPost(w http.Respo
 	if s.principalOfRequest(r) == principalMachine {
 		interval := s.runtimeLoginCheckInterval()
 		receipt.LoginCheckIntervalSecs = &interval
+		recheck := s.runtimeLoginRecheckInterval()
+		receipt.LoginRecheckIntervalSecs = &recheck
 	}
 	writeJSON(w, http.StatusOK, receipt)
 }

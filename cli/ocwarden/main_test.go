@@ -524,7 +524,7 @@ func TestRunOnce(t *testing.T) {
 			func() string { return "anchor" },
 			func() string { return "in_effect" },
 			func() map[string]any { return map[string]any{"claude": true} })
-		if want := (ReportResult{Posted: true, Status: 200, Reason: "posted", LoginCheckInterval: 300 * time.Second}); got != want {
+		if want := (ReportResult{Posted: true, Status: 200, Reason: "posted", LoginCheckInterval: 300 * time.Second, LoginRecheckInterval: 30 * time.Second}); got != want {
 			t.Errorf("result = %+v, want %+v", got, want)
 		}
 		if want := []string{"/api/monitoring/telemetry"}; !reflect.DeepEqual(paths, want) {
@@ -544,25 +544,27 @@ func TestRunOnce(t *testing.T) {
 		}
 	})
 
-	t.Run("under a receipt's login check interval, the result carries it; otherwise the 300s default", func(t *testing.T) {
+	t.Run("under a receipt's login check and recheck intervals, the result carries them; otherwise the 300s and 30s defaults", func(t *testing.T) {
 		for _, c := range []struct {
-			name    string
-			receipt map[string]any
-			want    time.Duration
+			name        string
+			receipt     map[string]any
+			want        time.Duration
+			wantRecheck time.Duration
 		}{
-			{"in range", map[string]any{"login_check_interval_secs": 90.0}, 90 * time.Second},
-			{"floor", map[string]any{"login_check_interval_secs": 30.0}, 30 * time.Second},
-			{"ceiling", map[string]any{"login_check_interval_secs": 3600.0}, 3600 * time.Second},
-			{"below the floor", map[string]any{"login_check_interval_secs": 29.0}, 300 * time.Second},
-			{"above the ceiling", map[string]any{"login_check_interval_secs": 3601.0}, 300 * time.Second},
-			{"fractional", map[string]any{"login_check_interval_secs": 45.5}, 300 * time.Second},
-			{"null", map[string]any{"login_check_interval_secs": nil}, 300 * time.Second},
-			{"a string", map[string]any{"login_check_interval_secs": "60"}, 300 * time.Second},
-			{"missing", map[string]any{"agent_id": "warden-1"}, 300 * time.Second},
+			{"in range", map[string]any{"login_check_interval_secs": 90.0, "login_recheck_interval_secs": 120.0}, 90 * time.Second, 120 * time.Second},
+			{"floor", map[string]any{"login_check_interval_secs": 30.0, "login_recheck_interval_secs": 30.0}, 30 * time.Second, 30 * time.Second},
+			{"ceiling", map[string]any{"login_check_interval_secs": 3600.0, "login_recheck_interval_secs": 3600.0}, 3600 * time.Second, 3600 * time.Second},
+			{"below the floor", map[string]any{"login_check_interval_secs": 29.0, "login_recheck_interval_secs": 29.0}, 300 * time.Second, 30 * time.Second},
+			{"above the ceiling", map[string]any{"login_check_interval_secs": 3601.0, "login_recheck_interval_secs": 3601.0}, 300 * time.Second, 30 * time.Second},
+			{"fractional", map[string]any{"login_check_interval_secs": 45.5, "login_recheck_interval_secs": 45.5}, 300 * time.Second, 30 * time.Second},
+			{"null", map[string]any{"login_check_interval_secs": nil, "login_recheck_interval_secs": nil}, 300 * time.Second, 30 * time.Second},
+			{"a string", map[string]any{"login_check_interval_secs": "60", "login_recheck_interval_secs": "60"}, 300 * time.Second, 30 * time.Second},
+			{"missing", map[string]any{"agent_id": "warden-1"}, 300 * time.Second, 30 * time.Second},
+			{"only the recheck", map[string]any{"login_recheck_interval_secs": 600.0}, 300 * time.Second, 600 * time.Second},
 		} {
 			post := func(string, map[string]any) (int, map[string]any) { return 200, c.receipt }
 			got := runOnce(cfg, hardware, machine, post, nil, nil, nil, nil)
-			want := ReportResult{Posted: true, Status: 200, Reason: "posted", LoginCheckInterval: c.want}
+			want := ReportResult{Posted: true, Status: 200, Reason: "posted", LoginCheckInterval: c.want, LoginRecheckInterval: c.wantRecheck}
 			if got != want {
 				t.Errorf("%s: result = %+v, want %+v", c.name, got, want)
 			}
@@ -609,7 +611,7 @@ func TestRunOnce(t *testing.T) {
 		}
 		got := runOnce(cfg, func() map[string]any { return nil }, func() string { return "" }, post,
 			func() map[string]string { return map[string]string{"ocagent": "sha-a"} }, nil, nil, nil)
-		if want := (ReportResult{Posted: true, Status: 200, Reason: "posted", LoginCheckInterval: 300 * time.Second}); got != want {
+		if want := (ReportResult{Posted: true, Status: 200, Reason: "posted", LoginCheckInterval: 300 * time.Second, LoginRecheckInterval: 30 * time.Second}); got != want {
 			t.Errorf("result = %+v, want %+v", got, want)
 		}
 		want := []map[string]any{{"binaries": map[string]string{"ocagent": "sha-a"}}}
@@ -685,12 +687,12 @@ func TestRun(t *testing.T) {
 
 	t.Run("under accepted heartbeats, each receipt's interval reaches the login check; a refused one does not", func(t *testing.T) {
 		var out bytes.Buffer
-		var applied []time.Duration
+		var applied [][2]time.Duration
 		replies := []struct {
 			status int
 			body   map[string]any
 		}{
-			{200, map[string]any{"login_check_interval_secs": 60.0}},
+			{200, map[string]any{"login_check_interval_secs": 60.0, "login_recheck_interval_secs": 90.0}},
 			{422, map[string]any{"error": map[string]any{"message": "bad"}}},
 			{200, map[string]any{}},
 		}
@@ -702,8 +704,8 @@ func TestRun(t *testing.T) {
 				return r.status, r.body
 			}, nil, nil, nil, nil,
 			func(context.Context, time.Duration) bool { return true },
-			3, &out, func(d time.Duration) { applied = append(applied, d) })
-		if want := []time.Duration{60 * time.Second, 300 * time.Second}; !reflect.DeepEqual(applied, want) {
+			3, &out, func(check, recheck time.Duration) { applied = append(applied, [2]time.Duration{check, recheck}) })
+		if want := [][2]time.Duration{{60 * time.Second, 90 * time.Second}, {300 * time.Second, 30 * time.Second}}; !reflect.DeepEqual(applied, want) {
 			t.Errorf("applied intervals = %v, want %v", applied, want)
 		}
 	})
@@ -880,21 +882,26 @@ func TestWireLoginCheck(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("PATH", filepath.Join(root, "nothing-here"))
 
-	t.Run("under a receipt interval, the login check re-runs on that cadence", func(t *testing.T) {
+	t.Run("under receipt intervals, the login check re-runs on the check interval while logged in and on the recheck interval while logged out", func(t *testing.T) {
 		codexBin := stageBinary(t, filepath.Join(root, "bin", "codex"), "#!/bin/sh\n")
 		codexArgv := codexBin + " login status"
 		runner := &wardenRunner{script: map[string]wardenRun{codexArgv: {out: "Logged in"}}}
 		env := envMap(map[string]string{"HOME": root, "OC_CODEX_BIN": codexBin, "OC_CLAUDE_CRED_CHECK": "0"})
-		_, login, setInterval := wireLoginCheck(Config{}, env, runner, "linux", nil)
+		_, login, setIntervals := wireLoginCheck(Config{}, env, runner, "linux", nil)
 		clock := time.Unix(1_000_000, 0)
 		login.now = func() time.Time { return clock }
 
 		login.state()
-		setInterval(60 * time.Second)
-		clock = clock.Add(60 * time.Second)
-		login.state()
-		if want := []string{codexArgv, codexArgv}; !reflect.DeepEqual(runner.calls, want) {
-			t.Errorf("ran %v, want %v", runner.calls, want)
+		setIntervals(60*time.Second, 90*time.Second)
+		runner.script[codexArgv] = wardenRun{err: errors.New("exit status 1: not logged in")}
+		var runs []int
+		for _, step := range []time.Duration{59 * time.Second, 1 * time.Second, 89 * time.Second, 1 * time.Second} {
+			clock = clock.Add(step)
+			login.state()
+			runs = append(runs, len(runner.calls))
+		}
+		if want := []int{1, 2, 2, 3}; !reflect.DeepEqual(runs, want) {
+			t.Errorf("cumulative runs = %v, want %v", runs, want)
 		}
 	})
 

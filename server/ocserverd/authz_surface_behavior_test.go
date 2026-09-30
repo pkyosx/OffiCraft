@@ -441,7 +441,8 @@ var authzOutsideRouteTable = map[string]string{
 	"api_monitoring.go :: HandleGetMonitoringApiMonitoringGet :: s.principalOfRequest(r) == principalOwner": "" +
 		"same owner-only account-label overlay, at the monitoring handler's call site.",
 	"api_monitoring.go :: HandleIngestTelemetryApiMonitoringTelemetryPost :: s.principalOfRequest(r) == principalMachine": "" +
-		"the heartbeat receipt carries login_check_interval_secs only for a warden, the " +
+		"the heartbeat receipt carries login_check_interval_secs and login_recheck_interval_secs " +
+		"only for a warden, the " +
 		"one caller that runs login checks (spec AgentTelemetryReceiptDTO). A reply " +
 		"field, not access: the route's floor still admits every caller it admitted.",
 

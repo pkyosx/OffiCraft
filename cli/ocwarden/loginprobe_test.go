@@ -339,6 +339,7 @@ func TestLoginProberState(t *testing.T) {
 		goos     string
 		env      map[string]string
 		keychain wardenRun
+		recheck  time.Duration
 		beats    []beat
 	}{
 		{
@@ -391,6 +392,29 @@ func TestLoginProberState(t *testing.T) {
 			},
 		},
 		{
+			name:    "under a 90s recheck interval and a logged-out verdict, claude is re-checked only once 90s have passed",
+			goos:    "linux",
+			env:     map[string]string{"HOME": home, "OC_CLAUDE_BIN": claudeBin},
+			recheck: 90 * time.Second,
+			beats: []beat{
+				{at: 0, claude: loggedOut, want: loginState{Claude: &no}, wantClaudeRuns: 1},
+				{at: 30 * time.Second, claude: loggedOut, want: loginState{Claude: &no}, wantClaudeRuns: 1},
+				{at: 89 * time.Second, claude: loggedOut, want: loginState{Claude: &no}, wantClaudeRuns: 1},
+				{at: 90 * time.Second, claude: loggedOut, want: loginState{Claude: &no}, wantClaudeRuns: 2},
+			},
+		},
+		{
+			name:    "under a 90s recheck interval and a logged-in verdict, codex still waits the full interval",
+			goos:    "linux",
+			env:     map[string]string{"HOME": home, "OC_CODEX_BIN": codexBin},
+			recheck: 90 * time.Second,
+			beats: []beat{
+				{at: 0, codex: codexIn, want: loginState{Codex: &yes}, wantCodexRuns: 1},
+				{at: 90 * time.Second, codex: codexIn, want: loginState{Codex: &yes}, wantCodexRuns: 1},
+				{at: 300 * time.Second, codex: codexIn, want: loginState{Codex: &yes}, wantCodexRuns: 2},
+			},
+		},
+		{
 			name: "under a logged-out verdict followed by a logged-in one, claude returns to the interval",
 			goos: "linux",
 			env:  map[string]string{"HOME": home, "OC_CLAUDE_BIN": claudeBin},
@@ -422,6 +446,9 @@ func TestLoginProberState(t *testing.T) {
 			cache.remember([]agentEnvPair{{"FROM_SHELL", "shell-value"}})
 			var log []string
 			p := newProber(c.env, c.goos, runner, keep, cache, &log)
+			if c.recheck != 0 {
+				p.setIntervals(defaultLoginCheckInterval, c.recheck)
+			}
 			start := time.Unix(1_000_000, 0)
 			for _, b := range c.beats {
 				stage(t, b.claude)
@@ -452,7 +479,7 @@ func TestLoginProberState(t *testing.T) {
 		p.state()
 		clock = clock.Add(299 * time.Second)
 		p.state()
-		p.setInterval(60 * time.Second)
+		p.setIntervals(60*time.Second, defaultLoginRecheckInterval)
 		p.state()
 		clock = clock.Add(59 * time.Second)
 		p.state()

@@ -2644,7 +2644,8 @@ export interface paths {
          *     - `monitoring_refresh_seconds`: Minimum interval between monitoring and machine refreshes, in seconds (1 through 60).
          *     - `accelerated_grace_secs`: 加速停止 grace, in seconds. Must be 10 through 3600. Applies to every CLOCKED wind-down cause at once (the second context threshold and the owner-pressed 加速停止); it can never put a clock on a soft cause.
          *     - `reassign_handover_timeout_secs`: Reassign handover timeout, in seconds. Must be 60 through 86400. How long an OUTSOURCE predecessor under the reassign hold may go without a change to the task before it is reclaimed (its hold rights revoked); changes to the plan, steps, step notes, priority, dependencies, title or description, or to a reply card bound to a step, restart the clock, while artifact changes do not. Staff predecessors are never reclaimed by it.
-         *     - `runtime_login_check_interval_secs`: How often, in seconds, each warden re-checks Claude and Codex login on its machine. Must be 30 through 3600; the floor is 30 because a warden reports at most every 30 seconds. Wardens pick a change up from their next heartbeat reply.
+         *     - `runtime_login_check_interval_secs`: How often, in seconds, each warden re-checks Claude or Codex login on its machine while that runtime last read as logged in. Must be 30 through 3600; the floor is 30 because a warden reports at most every 30 seconds. Wardens pick a change up from their next heartbeat reply.
+         *     - `runtime_login_recheck_interval_secs`: How often, in seconds, each warden re-checks Claude or Codex login on its machine while that runtime last read as logged out or its check failed. Must be 30 through 3600; the floor is 30 because a warden reports at most every 30 seconds, so 30 means every heartbeat. Wardens pick a change up from their next heartbeat reply.
          *     - `warden_credential_lifetime_secs`: How long a MACHINE (warden) credential is meant to live, in seconds. Must be 86400 through 34560000 (one day through 400 days). A warden renews its own credential once that credential is two thirds of this old, plus a per-machine stagger of up to one hour so that LOWERING this value does not put the whole fleet on the mint endpoint inside one poll. The floor is one day because the last third of the lifetime is the retry window: at the 15-minute poll a one-day lifetime still leaves about 32 attempts. Wardens pick a change up within one poll interval. It is ALSO the expiry stamped into the credential (`exp = iat + this`, T-fc53), so a machine that misses its whole retry window needs a hand re-install; lowering the value never shortens a credential already issued, because an `exp` is fixed at mint time. Read the current value from get_settings rather than assuming a number.
          *     - `org_name`: The studio display name (T-d693) — trimmed, max 80 runes; "" clears it back to the localized default. A value longer than 80 runes is a 422.
          *     - `owner_name`: The owner's display nickname (T-0b41) — trimmed, max 80 runes; "" clears it back to the localized default. A value longer than 80 runes is a 422.
@@ -4100,7 +4101,7 @@ export interface components {
                     installed?: boolean | null;
                     /**
                      * Logged In
-                     * @description Result of ``claude auth status``, run in the same environment the warden launches members with and re-run every ``runtime_login_check_interval_secs``: true when it reports logged in; false only when it reports logged out and (on macOS) the warden can read the login keychain; absent on timeout, unparseable output or an unreadable keychain. Absent is unknown, never logged out. Claude placement does not gate on this value. Never carries a credential value.
+                     * @description Result of ``claude auth status``, run in the same environment the warden launches members with and re-run every ``runtime_login_check_interval_secs`` while it reads logged in, every ``runtime_login_recheck_interval_secs`` while it reads logged out or unknown: true when it reports logged in; false only when it reports logged out and (on macOS) the warden can read the login keychain; absent on timeout, unparseable output or an unreadable keychain. Absent is unknown, never logged out. Claude placement does not gate on this value. Never carries a credential value.
                      */
                     logged_in?: boolean | null;
                     /** Version */
@@ -4120,7 +4121,7 @@ export interface components {
                     installed?: boolean | null;
                     /**
                      * Logged In
-                     * @description ``codex login status`` exited 0, re-run every ``runtime_login_check_interval_secs``. Absent = not probed.
+                     * @description ``codex login status`` exited 0, re-run every ``runtime_login_check_interval_secs`` while true, every ``runtime_login_recheck_interval_secs`` while false. Absent = not probed.
                      */
                     logged_in?: boolean | null;
                     /**
@@ -4150,7 +4151,7 @@ export interface components {
          * AgentTelemetryReceiptDTO
          * @description Bounded receipt returned after ``POST /api/monitoring/telemetry`` (ingest_telemetry) (T-133). It used to answer ``AgentTelemetryDTO``, whose own description called it an "Echo of a stored telemetry entry": 17 fields, carrying back the whole MERGED entry — the hardware snapshot, the binary fingerprints, the runtimes probe, the rate-limit windows and the token counts the caller had just uploaded. A warden heartbeat is the largest body an agent sends on any schedule, and every byte of it came back.
          *
-         *     WHAT IS LEFT IS WHAT THE CALLER COULD NOT COMPUTE. ``machine`` is the attribution the SERVER decided: it comes from the verified token's machine_id claim FIRST and falls back to the self-reported ``machine`` only for a claim-less token, so a reporter that sent one machine can be stored under another and the old echo was the only place that showed it. ``ts`` is the server's own stamp, ``agent_id`` is the identity the entry was filed under, and ``login_check_interval_secs`` hands a warden caller the org's login-check interval. Everything else is recoverable from ``get_monitoring``, at the moment a caller wants it rather than at the moment it wrote.
+         *     WHAT IS LEFT IS WHAT THE CALLER COULD NOT COMPUTE. ``machine`` is the attribution the SERVER decided: it comes from the verified token's machine_id claim FIRST and falls back to the self-reported ``machine`` only for a claim-less token, so a reporter that sent one machine can be stored under another and the old echo was the only place that showed it. ``ts`` is the server's own stamp, ``agent_id`` is the identity the entry was filed under, and ``login_check_interval_secs`` / ``login_recheck_interval_secs`` hand a warden caller the org's login-check and login-recheck intervals. Everything else is recoverable from ``get_monitoring``, at the moment a caller wants it rather than at the moment it wrote.
          *
          *     This is a MERGE endpoint: a partial report leaves the other fields of the stored entry alone. That is exactly why echoing the merged entry was so expensive — a one-field report answered with the accumulated whole.
          */
@@ -4162,9 +4163,14 @@ export interface components {
             agent_id: string;
             /**
              * Login Check Interval Secs
-             * @description How often, in seconds, this warden re-checks Claude/Codex login: the org's ``runtime_login_check_interval_secs``. Filled only when the caller is a machine (warden) credential; null or absent for an agent caller.
+             * @description How often, in seconds, this warden re-checks a Claude/Codex login that last read as logged in: the org's ``runtime_login_check_interval_secs``. Filled only when the caller is a machine (warden) credential; null or absent for an agent caller.
              */
             login_check_interval_secs?: number | null;
+            /**
+             * Login Recheck Interval Secs
+             * @description How often, in seconds, this warden re-checks a Claude/Codex login that last read as logged out or whose check failed: the org's ``runtime_login_recheck_interval_secs``. Filled only when the caller is a machine (warden) credential; null or absent for an agent caller.
+             */
+            login_recheck_interval_secs?: number | null;
             /**
              * Machine
              * @description The machine the entry was ATTRIBUTED to, which is not necessarily the one the body named: the verified token's machine_id claim wins, and the payload ``machine`` is consulted only when the token carries no claim (long-lived /api/mint tokens and outsource-worker tokens mint machine_id "none" by design). Null when neither source supplied one.
@@ -7513,7 +7519,7 @@ export interface components {
         };
         /**
          * RuntimeCapabilityDTO
-         * @description Value-free readiness of one AI CLI runtime on a machine. ``installed`` means the exact binary the warden would launch resolved and passed its version probe. ``logged_in`` is the warden's latest provider login check, re-run every ``runtime_login_check_interval_secs``: for Claude, ``claude auth status`` in the environment members launch with — true when it reports logged in, false only when it reports logged out and (on macOS) the login keychain is readable by the warden, null on timeout, unparseable output or an unreadable keychain; for Codex, whether ``codex login status`` succeeded. Null means unknown, never logged out. ``version`` is null when unresolved or probing failed. No credential value or path is exposed.
+         * @description Value-free readiness of one AI CLI runtime on a machine. ``installed`` means the exact binary the warden would launch resolved and passed its version probe. ``logged_in`` is the warden's latest provider login check, re-run every ``runtime_login_check_interval_secs`` while it is true and every ``runtime_login_recheck_interval_secs`` while it is false or null: for Claude, ``claude auth status`` in the environment members launch with — true when it reports logged in, false only when it reports logged out and (on macOS) the login keychain is readable by the warden, null on timeout, unparseable output or an unreadable keychain; for Codex, whether ``codex login status`` succeeded. Null means unknown, never logged out. ``version`` is null when unresolved or probing failed. No credential value or path is exposed.
          */
         RuntimeCapabilityDTO: {
             /**
@@ -7963,10 +7969,16 @@ export interface components {
             reassign_handover_timeout_secs: number;
             /**
              * Runtime Login Check Interval Secs
-             * @description How often, in seconds (30 through 3600), each warden re-checks Claude and Codex login on its machine. The floor is 30 because a warden reports at most every 30 seconds. Wardens learn the value from their heartbeat reply.
+             * @description How often, in seconds (30 through 3600), each warden re-checks Claude or Codex login on its machine while that runtime last read as logged in. The floor is 30 because a warden reports at most every 30 seconds. Wardens learn the value from their heartbeat reply.
              * @default 300
              */
             runtime_login_check_interval_secs: number;
+            /**
+             * Runtime Login Recheck Interval Secs
+             * @description How often, in seconds (30 through 3600), each warden re-checks Claude or Codex login on its machine while that runtime last read as logged out or its check failed. The floor is 30 because a warden reports at most every 30 seconds, so 30 means every heartbeat. Wardens learn the value from their heartbeat reply.
+             * @default 30
+             */
+            runtime_login_recheck_interval_secs: number;
             /**
              * Agent Token Ttl
              * @description Agent and outsource-worker JWT lifetime in seconds. Fresh installs default to 7 days.
@@ -8198,9 +8210,14 @@ export interface components {
             reassign_handover_timeout_secs?: number | null;
             /**
              * Runtime Login Check Interval Secs
-             * @description How often, in seconds, each warden re-checks Claude and Codex login on its machine. Must be 30 through 3600; the floor is 30 because a warden reports at most every 30 seconds. Wardens pick a change up from their next heartbeat reply.
+             * @description How often, in seconds, each warden re-checks Claude or Codex login on its machine while that runtime last read as logged in. Must be 30 through 3600; the floor is 30 because a warden reports at most every 30 seconds. Wardens pick a change up from their next heartbeat reply.
              */
             runtime_login_check_interval_secs?: number | null;
+            /**
+             * Runtime Login Recheck Interval Secs
+             * @description How often, in seconds, each warden re-checks Claude or Codex login on its machine while that runtime last read as logged out or its check failed. Must be 30 through 3600; the floor is 30 because a warden reports at most every 30 seconds, so 30 means every heartbeat. Wardens pick a change up from their next heartbeat reply.
+             */
+            runtime_login_recheck_interval_secs?: number | null;
             /** Agent Token Ttl */
             agent_token_ttl?: number | null;
             /**

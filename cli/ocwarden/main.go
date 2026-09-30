@@ -409,7 +409,8 @@ type ReportResult struct {
 	Status int
 	Reason string
 	// Set only on an accepted heartbeat, from its receipt.
-	LoginCheckInterval time.Duration
+	LoginCheckInterval   time.Duration
+	LoginRecheckInterval time.Duration
 }
 
 func errorMessageOf(body map[string]any) string {
@@ -466,7 +467,8 @@ func runOnce(cfg Config, collect func() map[string]any, machine func() string, p
 	status, body := post(telemetryPath, payload)
 	if status == 200 {
 		return ReportResult{Posted: true, Status: 200, Reason: "posted",
-			LoginCheckInterval: loginCheckIntervalFromReceipt(body)}
+			LoginCheckInterval:   loginIntervalFromReceipt(body, "login_check_interval_secs", defaultLoginCheckInterval),
+			LoginRecheckInterval: loginIntervalFromReceipt(body, "login_recheck_interval_secs", defaultLoginRecheckInterval)}
 	}
 	reason := fmt.Sprintf("post status %d", status)
 	if detail := errorMessageOf(body); detail != "" {
@@ -478,7 +480,7 @@ func runOnce(cfg Config, collect func() map[string]any, machine func() string, p
 func run(ctx context.Context, cfg Config, collect func() map[string]any, machine func() string, post Poster,
 	binaries func() map[string]string, claude func() map[string]any, shape func() string,
 	effect func() string, sleep func(context.Context, time.Duration) bool, iterations int, out io.Writer,
-	loginInterval func(time.Duration), runtimes ...func() map[string]any) int {
+	loginIntervals func(check, recheck time.Duration), runtimes ...func() map[string]any) int {
 
 	if cfg.Token == "" || cfg.ID == "" {
 		fmt.Fprintln(out, "[ocwarden] run: no OC_TOKEN/OC_ID — nothing to report; exiting.")
@@ -490,8 +492,8 @@ func run(ctx context.Context, cfg Config, collect func() map[string]any, machine
 			return 0
 		}
 		result := runOnce(cfg, collect, machine, post, binaries, claude, shape, effect, runtimes...)
-		if result.Posted && loginInterval != nil {
-			loginInterval(result.LoginCheckInterval)
+		if result.Posted && loginIntervals != nil {
+			loginIntervals(result.LoginCheckInterval, result.LoginRecheckInterval)
 		}
 		wait := backoff
 		if result.Posted || result.Status == 0 {
@@ -668,7 +670,7 @@ func realMain(argv []string, env func(string) string, out io.Writer) int {
 		maybeStartAnchorCutover(*wardenPathsOrNil, os.Getppid(), logf)
 	}
 
-	commandDeps, login, setLoginInterval := wireLoginCheck(cfg, env, runner, runtime.GOOS, logf)
+	commandDeps, login, setLoginIntervals := wireLoginCheck(cfg, env, runner, runtime.GOOS, logf)
 	if cfg.Token != "" && cfg.ID != "" && iters == 0 {
 		transport := newCommandTransport(cfg, commandDeps, logf)
 
@@ -697,7 +699,7 @@ func realMain(argv []string, env func(string) string, out io.Writer) int {
 		return collectRuntimeCapabilities(env, runner, claudeProbe.collect(), login.state())
 	}
 	rc := run(ctx, cfg, collect, machine, post, fingerprints.collect, claudeProbe.collect,
-		wardenShapeOf, cutoverEffectOf, sleepUntil, iters, out, setLoginInterval, runtimeProbe)
+		wardenShapeOf, cutoverEffectOf, sleepUntil, iters, out, setLoginIntervals, runtimeProbe)
 
 	stop()
 	waitGraceful(&wg, shutdownGrace)
@@ -705,17 +707,18 @@ func realMain(argv []string, env func(string) string, out io.Writer) int {
 }
 
 // wireLoginCheck gives the spawn path and the login check one launch-env cache:
-// the login check reads the shell env the last spawn captured. setInterval is
-// what the heartbeat receipt's login_check_interval_secs must reach.
+// the login check reads the shell env the last spawn captured. setIntervals is
+// what the heartbeat receipt's login_check_interval_secs and
+// login_recheck_interval_secs must reach.
 func wireLoginCheck(cfg Config, env func(string) string, runner CmdRunner, goos string,
-	logf func(string, ...any)) (deps CommandDeps, login *loginProber, setInterval func(time.Duration)) {
+	logf func(string, ...any)) (deps CommandDeps, login *loginProber, setIntervals func(check, recheck time.Duration)) {
 	launchEnv := &launchEnvCache{}
 	var keep stdoutRunner
 	if k, ok := runner.(stdoutRunner); ok {
 		keep = k
 	}
 	login = newLoginProber(env, runner, keep, goos, launchEnv, logf)
-	return buildCommandDeps(cfg, env, runner, launchEnv), login, login.setInterval
+	return buildCommandDeps(cfg, env, runner, launchEnv), login, login.setIntervals
 }
 
 func main() {

@@ -148,6 +148,9 @@ func TestLoadAuthSettings(t *testing.T) {
 		if got.runtimeLoginCheckIntervalSecs != 300 {
 			t.Fatalf("fresh runtime login check interval: want 300, got %d", got.runtimeLoginCheckIntervalSecs)
 		}
+		if got.runtimeLoginRecheckIntervalSecs != 30 {
+			t.Fatalf("fresh runtime login recheck interval: want 30, got %d", got.runtimeLoginRecheckIntervalSecs)
+		}
 		again, secondLogs, err := settingsTestLoadAuth(t, d, defaultConfig())
 		if err != nil {
 			t.Fatalf("second loadAuthSettings: %v", err)
@@ -226,16 +229,17 @@ func TestLoadAuthSettings(t *testing.T) {
 	t.Run("stored successor TTLs context values and suggestion lists load independently", func(t *testing.T) {
 		d := newAPITestDAL(t)
 		for key, value := range map[string]string{
-			settingOwnerTokenTTL:                 "7200",
-			settingAgentTokenTTL:                 "1800",
-			settingCtxNoticePct:                  "41",
-			settingCtxHandoverPct:                "66",
-			settingCtxMinBootSecs:                "12.5",
-			settingCtxStaleGuard:                 "false",
-			settingReassignHandoverTimeoutSecs:   "900",
-			settingRuntimeLoginCheckIntervalSecs: "45",
-			settingSuggestedRepliesReplyCard:     ` ["first"] `,
-			settingSuggestedRepliesTaskMessage:   `["second","third"]`,
+			settingOwnerTokenTTL:                   "7200",
+			settingAgentTokenTTL:                   "1800",
+			settingCtxNoticePct:                    "41",
+			settingCtxHandoverPct:                  "66",
+			settingCtxMinBootSecs:                  "12.5",
+			settingCtxStaleGuard:                   "false",
+			settingReassignHandoverTimeoutSecs:     "900",
+			settingRuntimeLoginCheckIntervalSecs:   "45",
+			settingRuntimeLoginRecheckIntervalSecs: "90",
+			settingSuggestedRepliesReplyCard:       ` ["first"] `,
+			settingSuggestedRepliesTaskMessage:     `["second","third"]`,
 		} {
 			if err := d.PutSetting(key, value); err != nil {
 				t.Fatalf("PutSetting(%q): %v", key, err)
@@ -257,6 +261,9 @@ func TestLoadAuthSettings(t *testing.T) {
 		}
 		if got.runtimeLoginCheckIntervalSecs != 45 {
 			t.Fatalf("runtime login check interval did not load as stored: %d", got.runtimeLoginCheckIntervalSecs)
+		}
+		if got.runtimeLoginRecheckIntervalSecs != 90 {
+			t.Fatalf("runtime login recheck interval did not load as stored: %d", got.runtimeLoginRecheckIntervalSecs)
 		}
 		wantCtx := SseContextHighConfig{NoticePct: 41, HandoverPct: 66, MinBootSecs: 12.5, StaleGuard: false}
 		if got.ctxHigh != wantCtx {
@@ -280,6 +287,8 @@ func TestLoadAuthSettings(t *testing.T) {
 			{name: "reassign handover timeout above range", key: settingReassignHandoverTimeoutSecs, value: "86401", want: `settings task.reassign_handover_timeout_secs: must be between 60 and 86400 seconds: "86401"`},
 			{name: "runtime login check interval below range", key: settingRuntimeLoginCheckIntervalSecs, value: "29", want: `settings runtime.login_check_interval_secs: must be between 30 and 3600 seconds: "29"`},
 			{name: "runtime login check interval above range", key: settingRuntimeLoginCheckIntervalSecs, value: "3601", want: `settings runtime.login_check_interval_secs: must be between 30 and 3600 seconds: "3601"`},
+			{name: "runtime login recheck interval below range", key: settingRuntimeLoginRecheckIntervalSecs, value: "29", want: `settings runtime.login_recheck_interval_secs: must be between 30 and 3600 seconds: "29"`},
+			{name: "runtime login recheck interval above range", key: settingRuntimeLoginRecheckIntervalSecs, value: "3601", want: `settings runtime.login_recheck_interval_secs: must be between 30 and 3600 seconds: "3601"`},
 			{name: "invalid suggested reply JSON", key: settingSuggestedRepliesTaskMessage, value: "not-json", want: `settings suggested_replies.task_message: must be a JSON array of strings: "not-json"`},
 		}
 		for _, tc := range cases {

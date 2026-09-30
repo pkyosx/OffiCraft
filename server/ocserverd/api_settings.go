@@ -388,6 +388,12 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 			"runtime_login_check_interval_secs "+runtimeLoginCheckIntervalRangeMsg)
 		return
 	}
+	if body.RuntimeLoginRecheckIntervalSecs != nil &&
+		!runtimeLoginCheckIntervalInRange(*body.RuntimeLoginRecheckIntervalSecs) {
+		writeError(w, http.StatusUnprocessableEntity,
+			"runtime_login_recheck_interval_secs "+runtimeLoginCheckIntervalRangeMsg)
+		return
+	}
 	if body.OutsourceMaxParallel != nil &&
 		!outsourceParallelInRange(*body.OutsourceMaxParallel) {
 		writeError(w, http.StatusUnprocessableEntity,
@@ -599,6 +605,10 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 		v := *body.RuntimeLoginCheckIntervalSecs
 		put(settingRuntimeLoginCheckIntervalSecs, strconv.Itoa(v), func() { s.runtimeLoginCheckIntervalSecs = v })
 	}
+	if body.RuntimeLoginRecheckIntervalSecs != nil {
+		v := *body.RuntimeLoginRecheckIntervalSecs
+		put(settingRuntimeLoginRecheckIntervalSecs, strconv.Itoa(v), func() { s.runtimeLoginRecheckIntervalSecs = v })
+	}
 	if body.WardenCredentialLifetimeSecs != nil {
 		v := *body.WardenCredentialLifetimeSecs
 		put(settingWardenCredLifetimeSecs, strconv.Itoa(v), func() { s.wardenCredLifetimeSecs = v })
@@ -728,39 +738,40 @@ func (s *apiServer) settingsView() settingsDTO {
 	s.settingsMu.RLock()
 	defer s.settingsMu.RUnlock()
 	return settingsDTO{
-		OwnerTokenTTL:                 s.ownerTokenTTL,
-		AgentTokenTTL:                 s.agentTokenTTL,
-		HandoverPct:                   s.ctxHigh.HandoverPct,
-		NoticePct:                     s.ctxHigh.NoticePct,
-		CodexCompactionThreshold:      s.codexCompactionThreshold,
-		CodexNoticeRound:              s.codexNoticeRound,
-		MonitoringRefreshSeconds:      s.monitoringRefreshSeconds,
-		AcceleratedGraceSecs:          s.acceleratedGraceSecs,
-		ReassignHandoverTimeoutSecs:   s.reassignHandoverTimeoutSecs,
-		RuntimeLoginCheckIntervalSecs: s.runtimeLoginCheckIntervalSecs,
-		WardenCredentialLifetimeSecs:  s.wardenCredLifetimeSecs,
-		OutsourceMaxParallel:          s.outsourceMaxParallel,
-		DocCapCharsDuty:               s.docCapCharsDuty,
-		DocCapCharsInsight:            s.docCapCharsInsight,
-		DocCapCharsManualSop:          s.docCapCharsManualSop,
-		DocCapCharsSystemInteraction:  s.docCapCharsSystemInteraction,
-		DocCapCharsBootSequence:       s.docCapCharsBootSequence,
-		DocCapCharsOffboard:           s.docCapCharsOffboard,
-		LoreCapCharsRole:              s.loreCapCharsRole,
-		LoreCapCharsManual:            s.loreCapCharsManual,
-		LoreCapCharsTitle:             s.loreCapCharsTitle,
-		LoreCapCharsBody:              s.loreCapCharsBody,
-		ChatBudgetChars:               s.chatBudgetChars,
-		StepNoteCapChars:              s.stepNoteCapChars,
-		BackupRetain:                  s.backupRetain,
-		UpdaterReceiveBeta:            s.updaterReceiveBeta,
-		UpdaterAutoUpdate:             s.updaterAutoUpdate,
-		OrgName:                       s.orgName,
-		OwnerName:                     s.ownerName,
-		PushContactEmail:              s.pushContactEmail,
-		DisplayTheme:                  s.displayTheme,
-		DisplayLanguage:               s.displayLanguage,
-		DisplayWide:                   s.displayWide,
+		OwnerTokenTTL:                   s.ownerTokenTTL,
+		AgentTokenTTL:                   s.agentTokenTTL,
+		HandoverPct:                     s.ctxHigh.HandoverPct,
+		NoticePct:                       s.ctxHigh.NoticePct,
+		CodexCompactionThreshold:        s.codexCompactionThreshold,
+		CodexNoticeRound:                s.codexNoticeRound,
+		MonitoringRefreshSeconds:        s.monitoringRefreshSeconds,
+		AcceleratedGraceSecs:            s.acceleratedGraceSecs,
+		ReassignHandoverTimeoutSecs:     s.reassignHandoverTimeoutSecs,
+		RuntimeLoginCheckIntervalSecs:   s.runtimeLoginCheckIntervalSecs,
+		RuntimeLoginRecheckIntervalSecs: s.runtimeLoginRecheckIntervalSecs,
+		WardenCredentialLifetimeSecs:    s.wardenCredLifetimeSecs,
+		OutsourceMaxParallel:            s.outsourceMaxParallel,
+		DocCapCharsDuty:                 s.docCapCharsDuty,
+		DocCapCharsInsight:              s.docCapCharsInsight,
+		DocCapCharsManualSop:            s.docCapCharsManualSop,
+		DocCapCharsSystemInteraction:    s.docCapCharsSystemInteraction,
+		DocCapCharsBootSequence:         s.docCapCharsBootSequence,
+		DocCapCharsOffboard:             s.docCapCharsOffboard,
+		LoreCapCharsRole:                s.loreCapCharsRole,
+		LoreCapCharsManual:              s.loreCapCharsManual,
+		LoreCapCharsTitle:               s.loreCapCharsTitle,
+		LoreCapCharsBody:                s.loreCapCharsBody,
+		ChatBudgetChars:                 s.chatBudgetChars,
+		StepNoteCapChars:                s.stepNoteCapChars,
+		BackupRetain:                    s.backupRetain,
+		UpdaterReceiveBeta:              s.updaterReceiveBeta,
+		UpdaterAutoUpdate:               s.updaterAutoUpdate,
+		OrgName:                         s.orgName,
+		OwnerName:                       s.ownerName,
+		PushContactEmail:                s.pushContactEmail,
+		DisplayTheme:                    s.displayTheme,
+		DisplayLanguage:                 s.displayLanguage,
+		DisplayWide:                     s.displayWide,
 		// Never null on the wire (spec types these as arrays); copied so no response
 		// shares a slice with the live snapshot.
 		SuggestedRepliesReplyCard:   append([]string{}, s.suggestedRepliesReplyCard...),

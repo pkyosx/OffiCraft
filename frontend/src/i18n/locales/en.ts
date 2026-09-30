@@ -2162,7 +2162,10 @@ export const en: Dict = {
       "How long a machine's login credential lasts. Machines renew it automatically before it expires; a machine that misses its renewal has to be re-installed. Lowering it does not affect credentials already issued. (86400–34560000 seconds)",
     runtimeLoginCheckInterval: "Login check interval",
     runtimeLoginCheckIntervalSub:
-      "How often each machine re-checks whether Claude and Codex are logged in. A change reaches each machine at its next report (30–3600 seconds)",
+      "While Claude or Codex reads as logged in, how often each machine checks it again. A change reaches each machine at its next report (30–3600 seconds)",
+    runtimeLoginRecheckInterval: "Logged-out recheck interval",
+    runtimeLoginRecheckIntervalSub:
+      "While Claude or Codex reads as logged out (or its check failed), how often each machine checks it again; 30 means at every report. A change reaches each machine at its next report (30–3600 seconds)",
     rounds: "rounds",
     // T-ae38 (split again by T-30f1): one cap became many. Deleting from these
     // documents costs wildly different amounts — a role definition is a

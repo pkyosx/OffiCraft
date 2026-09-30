@@ -1021,6 +1021,8 @@ var messageKeys = map[string]bool{
 	"settings.rounds":                                  true,
 	"settings.runtimeLoginCheckInterval":               true,
 	"settings.runtimeLoginCheckIntervalSub":            true,
+	"settings.runtimeLoginRecheckInterval":             true,
+	"settings.runtimeLoginRecheckIntervalSub":          true,
 	"settings.seconds":                                 true,
 	"settings.sessionTtl":                              true,
 	"settings.sessionTtlSub":                           true,
