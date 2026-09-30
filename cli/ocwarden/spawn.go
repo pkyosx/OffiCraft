@@ -348,6 +348,9 @@ func tmuxDeliverNudge(r CmdRunner, sleep func(time.Duration), socket, session, n
 		_, _ = r.Run("tmux", "-L", socket, "paste-buffer", "-t", session, "-b", buf)
 	}
 	for attempt := 0; attempt < nudgeMaxAttempts; attempt++ {
+		// Under emacs mode-keys a pane left in copy-mode swallows every Enter while the
+		// paste still lands; -q leaves any mode. Per attempt: a viewer can re-enter it.
+		_, _ = r.Run("tmux", "-L", socket, "copy-mode", "-q", "-t", session)
 		_, _ = r.Run("tmux", "-L", socket, "send-keys", "-t", session, "Enter")
 		sleep(nudgeSettle)
 	}

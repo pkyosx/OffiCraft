@@ -29,6 +29,9 @@ type wardenRunner struct {
 	// pattern, or resolves no binary, so the fragments that decide the child's
 	// config home are exercised instead of read.
 	shellPassthrough bool
+	// tmuxPassthrough really runs every `tmux` argv: only for a server the test
+	// started on its own socket, never a live member's.
+	tmuxPassthrough bool
 }
 
 func (r *wardenRunner) Run(name string, args ...string) (string, error) {
@@ -38,6 +41,9 @@ func (r *wardenRunner) Run(name string, args ...string) (string, error) {
 		return res.out, res.err
 	}
 	if r.shellPassthrough && len(args) == 2 && args[0] == "-c" {
+		return r.passthrough(name, args)
+	}
+	if r.tmuxPassthrough && name == "tmux" {
 		return r.passthrough(name, args)
 	}
 	return r.fallback.out, r.fallback.err

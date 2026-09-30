@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -552,7 +553,9 @@ func TestTmuxDeliverNudge(t *testing.T) {
 		"tmux -L officraft paste-buffer -t member-m1 -b oc-spawn-nudge -d -p",
 	}
 	for i := 0; i < 30; i++ {
-		want = append(want, "tmux -L officraft send-keys -t member-m1 Enter")
+		want = append(want,
+			"tmux -L officraft copy-mode -q -t member-m1",
+			"tmux -L officraft send-keys -t member-m1 Enter")
 	}
 	if !reflect.DeepEqual(r.calls, want) {
 		t.Errorf("calls (%d) =\n%v\nwant (%d)\n%v", len(r.calls), r.calls, len(want), want)
@@ -573,9 +576,64 @@ func TestTmuxDeliverNudge(t *testing.T) {
 	if old.calls[2] != "tmux -L officraft paste-buffer -t member-m1 -b oc-spawn-nudge" {
 		t.Errorf("a rejected paste must retry bare-flag, call 2 = %q", old.calls[2])
 	}
-	if len(old.calls) != 33 {
-		t.Errorf("calls = %d, want 33 (set-buffer + 2 pastes + 30 Enters)", len(old.calls))
+	if len(old.calls) != 63 {
+		t.Errorf("calls = %d, want 63 (set-buffer + 2 pastes + 30 × (copy-mode + Enter))", len(old.calls))
 	}
+
+	t.Run("the nudge is submitted into a real pane whatever mode someone left it in", func(t *testing.T) {
+		if _, err := exec.LookPath("tmux"); err != nil {
+			t.Skip("tmux not installed")
+		}
+		for _, tc := range []struct {
+			name  string
+			enter []string
+		}{
+			{"no mode", nil},
+			{"copy-mode", []string{"copy-mode"}},
+			{"view-mode", []string{"run-shell", "echo 一段指令輸出"}},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				socket := fmt.Sprintf("oc-test-%d-%d", os.Getpid(), time.Now().UnixNano())
+				out := filepath.Join(t.TempDir(), "received.txt")
+				tmux := func(args ...string) string {
+					t.Helper()
+					got, err := exec.Command("tmux", append([]string{"-L", socket, "-f", "/dev/null"}, args...)...).CombinedOutput()
+					if err != nil {
+						t.Fatalf("tmux %v: %v: %s", args, err, got)
+					}
+					return strings.TrimSpace(string(got))
+				}
+				tmux("new-session", "-d", "-s", "member-m1", fmt.Sprintf("cat >> '%s'", out))
+				socketPath := tmux("display-message", "-p", "#{socket_path}")
+				t.Cleanup(func() {
+					_ = exec.Command("tmux", "-L", socket, "kill-server").Run()
+					_ = os.Remove(socketPath)
+				})
+				// With vi mode-keys (tmux picks them from EDITOR/VISUAL) Enter itself
+				// leaves copy-mode, and the copy-mode case would pass without the fix.
+				tmux("set-option", "-g", "mode-keys", "emacs")
+				if len(tc.enter) > 0 {
+					tmux(append([]string{tc.enter[0], "-t", "member-m1"}, tc.enter[1:]...)...)
+				}
+				if len(tc.enter) > 0 && tmux("display-message", "-p", "-t", "member-m1", "#{pane_in_mode}") == "0" {
+					t.Fatal("the pane never entered a mode — this case would test nothing")
+				}
+
+				tmuxDeliverNudge(&wardenRunner{tmuxPassthrough: true}, func(time.Duration) {}, socket, "member-m1", "開始。")
+
+				deadline := time.Now().Add(2 * time.Second)
+				var got []byte
+				for time.Now().Before(deadline) {
+					got, _ = os.ReadFile(out)
+					if bytes.Contains(got, []byte("開始。\n")) {
+						return
+					}
+					time.Sleep(20 * time.Millisecond)
+				}
+				t.Errorf("the pane's program received %q, want it to contain %q", got, "開始。\n")
+			})
+		}
+	})
 }
 
 func TestDefaultAgentHome(t *testing.T) {
@@ -1009,7 +1067,9 @@ func TestStart(t *testing.T) {
 			"tmux -L officraft paste-buffer -t member-m1 -b oc-spawn-nudge -d -p",
 		}
 		for i := 0; i < 30; i++ {
-			wantCalls = append(wantCalls, "tmux -L officraft send-keys -t member-m1 Enter")
+			wantCalls = append(wantCalls,
+				"tmux -L officraft copy-mode -q -t member-m1",
+				"tmux -L officraft send-keys -t member-m1 Enter")
 		}
 		wantCalls = append(wantCalls,
 			"tmux -L officraft kill-session -t listen-m1",
