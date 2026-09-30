@@ -9,8 +9,10 @@
 // 這支 guard 用的是 owner 在 c-fc47d568cc14 拍到的那個組成:14 成員間 + 1 + 12
 // 成員間 + 1 + 2 成員間。
 import { test, expect } from "@playwright/experimental-ct-react";
+import type { Page } from "@playwright/test";
 import { ChatInterAgentScrollbackStory } from "./stories/ChatInterAgentScrollbackStory";
 import { NORMAL_TOTAL } from "./stories/chatInterAgentScrollbackFixtures";
+import { ChatThreadLoadingStory } from "./stories/ChatThreadLoadingStory";
 
 test("一頁幾乎全是成員間對話時,往上捲仍然載得到更舊的訊息", async ({
   mount,
@@ -136,6 +138,51 @@ test("一次滑動只買一頁,不管那一次滑動送出幾個滾輪事件", a
   expect(loaded, `一次滑動之後載到 ${loaded} 則 owner↔成員訊息`).toBe(4);
 
   // 而且它只是「一次一頁」,不是「只有一頁」:下一次滑動照樣買得到。
-  await flick();
+  // 這一次是帶慣性的滑動:事件拖得比那一頁落地還久,落地之後晚到的事件把面板捲
+  // 回頂端,那一下的 scroll 事件也不能再買一頁。
+  await inertialFlick(page);
   expect(await bubbles.count()).toBe(6);
+});
+
+/** 一次帶慣性的觸控板滑動:約 600ms、越來越小的一串滾輪事件,一起送出最後才一起
+ * 等(一個一個 await 會把它拆成好幾次滑動)。 */
+async function inertialFlick(page: Page) {
+  const DURATION_MS = 600;
+  const jobs: Promise<void>[] = [];
+  const t0 = Date.now();
+  for (let t = 0; t <= DURATION_MS; t += 12) {
+    while (Date.now() - t0 < t) await page.waitForTimeout(1);
+    const dy = -Math.max(1, Math.round(100 * Math.exp((-3 * t) / DURATION_MS)));
+    jobs.push(page.mouse.wheel(0, dy));
+  }
+  await Promise.all(jobs);
+  await page.waitForTimeout(1200);
+}
+
+// 一般的長對話(每一列都有真的高度)一路不停地往上轉滾輪:每一頁都比一個畫面高,
+// 讀的人要捲過它才回得到頂端,所以不必停下來,也會一頁接一頁往上載。
+test("長對話不停往上轉滾輪,不必停下來也一頁接一頁載入", async ({
+  mount,
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await mount(
+    <ChatThreadLoadingStory entrance="plain" widthPx={1280} latencyMs={60} />,
+  );
+  const box = page.locator(".chat__messages");
+  const rows = page.locator("[data-msg-id]");
+  await expect.poll(async () => await rows.count()).toBe(30);
+  await box.hover();
+
+  // 事件間隔 40ms,遠小於手勢之間的安靜間隔 —— 從頭到尾是同一次手勢。
+  const counts: number[] = [];
+  for (let i = 0; i < 125; i += 1) {
+    await page.mouse.wheel(0, -150);
+    await page.waitForTimeout(40);
+    if (i % 25 === 24) counts.push(await rows.count());
+  }
+  expect(
+    counts[counts.length - 1],
+    `不停轉 5 秒,每秒的列數依序是 ${counts.join(" → ")}`,
+  ).toBeGreaterThanOrEqual(120);
 });

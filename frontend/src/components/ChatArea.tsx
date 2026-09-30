@@ -904,9 +904,9 @@ export function ChatArea({
     //
     // The fallback is for the one case that measurement cannot reach: the
     // anchor row is inside a COLLAPSED 成員間對話 block and has no node at all.
-    // That is also the case where a wrong number cannot move anybody — a
-    // thread whose page folds that far renders shorter than the pane, so it has
-    // no overflow and scrollTop is pinned at 0 either way.
+    // Growth during the request (an image finishing, an SSE append) is then
+    // counted as part of the prepend: the reader is moved by that much, and
+    // enough of it re-arms the gesture below as if a tall page had landed.
     if (el) {
       // Walked rather than selected: a message id goes into an attribute
       // selector unescaped, and `CSS.escape` does not exist in the jsdom the
@@ -928,6 +928,15 @@ export function ChatArea({
       // as well, so both paths say the same thing.
       const added = measured > 0 ? measured : el.scrollHeight - anchor.height;
       el.scrollTop = el.scrollTop + added;
+      // ⚠️ A page at least one screen tall has to be read past before the top
+      // comes back, so reaching the top again is a new request even inside the
+      // same gesture. Without this, a wheel spun without pause stalls at the
+      // top of a long thread after one page. The visible cost: on a long
+      // thread one strong flick can load more than one page.
+      if (added >= el.clientHeight) {
+        session.wheelSpent = false;
+        session.touchSpent = false;
+      }
     }
     // The one-shot entry positioning (session.initialPositioned) already ran for
     // this conversation — a prepend must never re-run it, and it doesn't:
@@ -994,13 +1003,32 @@ export function ChatArea({
     session.touchY = null;
   }
 
+  // 🔴 一次手勢一頁 binds the scroll door too, not only the wheel and touch
+  // doors. A prepend that folds into a collapsed block adds almost no height,
+  // so the late events of the same flick carry the pane straight back to the
+  // top and the scroll event there would buy another page.
+  function claimGesturePageForScroll(): boolean {
+    const wheelGestureOn =
+      Date.now() - session.lastWheelTs <= WHEEL_GESTURE_GAP_MS;
+    const touchGestureOn = session.touchY != null;
+    if (
+      (wheelGestureOn && session.wheelSpent) ||
+      (touchGestureOn && session.touchSpent)
+    ) {
+      return false;
+    }
+    if (wheelGestureOn) session.wheelSpent = true;
+    if (touchGestureOn) session.touchSpent = true;
+    return true;
+  }
+
   function onMessagesScroll() {
     const el = messagesRef.current;
     if (!el) return;
     // Near the TOP → pull one older page (no-op while one is in flight or
     // when the history is exhausted — hasMore=false renders the
     // "已到最早訊息" marker instead).
-    if (el.scrollTop < NEAR_TOP_PX && hasMore) {
+    if (el.scrollTop < NEAR_TOP_PX && hasMore && claimGesturePageForScroll()) {
       void loadOlderAnchored();
     }
     const distance = el.scrollHeight - el.scrollTop - el.clientHeight;

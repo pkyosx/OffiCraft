@@ -252,7 +252,7 @@ describe("scroll-top history loading", () => {
 
   // 一次手勢一頁(owner 圈定 rc-3bceed6d9e0a)。滾輪那一串沒有結束事件,所以手勢的
   // 邊界是「安靜下來」;手指有 touchstart 這個真的邊界,不需要時鐘。
-  it("同一次手勢只買一頁:滾輪連續事件只撈一次,安靜之後的下一次滑動才會再撈", async () => {
+  it("同一次手勢只買一頁:滾輪與它帶出的 scroll 事件只撈一次,安靜之後的下一次滑動或手勢外的捲動才會再撈", async () => {
     initialMessages = [
       mkMsg("c2", "b", "owner", 2000),
       mkMsg("c3", "b", "owner", 2001),
@@ -265,29 +265,112 @@ describe("scroll-top history loading", () => {
       clientHeight: 200,
       scrollTop: 0,
     });
+    const at = async (ms: number, fire: () => void) => {
+      vi.setSystemTime(new Date(1_000_000 + ms));
+      await act(async () => {
+        fire();
+      });
+    };
+    const wheelUp = () => fireEvent.wheel(list, { deltaY: -120 });
+    const scroll = () => fireEvent.scroll(list);
+    const scrollTo = (top: number) => {
+      (list as HTMLElement).scrollTop = top;
+    };
 
     vi.useFakeTimers();
     try {
-      vi.setSystemTime(new Date(1_000_000));
-      await act(async () => {
-        fireEvent.wheel(list, { deltaY: -120 });
-      });
+      await at(0, wheelUp);
       expect(loadOlderCalls).toBe(1);
-      // 同一次滑動的其餘事件(幾十毫秒內)不再買第二頁。
-      for (const dt of [16, 32, 48, 64]) {
-        vi.setSystemTime(new Date(1_000_000 + dt));
-        await act(async () => {
-          fireEvent.wheel(list, { deltaY: -120 });
-        });
-      }
+      // 同一次滑動的其餘事件(幾十毫秒內)不再買第二頁 —— 它們把面板帶回頂端時
+      // 發出的 scroll 事件也一樣。
+      for (const dt of [16, 32, 48, 64]) await at(dt, wheelUp);
+      await at(70, scroll);
+      await at(214, scroll);
       expect(loadOlderCalls).toBe(1);
 
       // 安靜一段時間之後,那是新的一次滑動。
-      vi.setSystemTime(new Date(1_000_000 + 500));
-      await act(async () => {
-        fireEvent.wheel(list, { deltaY: -120 });
-      });
+      await at(500, wheelUp);
       expect(loadOlderCalls).toBe(2);
+
+      // 這一次滑動轉第一格時還離頂端很遠,是捲動把它帶進頂端那一帶的:那一頁由
+      // scroll 事件買,同一次滑動後面的滾輪不再買。
+      scrollTo(400);
+      await at(1500, wheelUp);
+      expect(loadOlderCalls).toBe(2);
+      scrollTo(0);
+      await at(1510, scroll);
+      expect(loadOlderCalls).toBe(3);
+      for (const dt of [1520, 1536, 1552]) await at(dt, wheelUp);
+      expect(loadOlderCalls).toBe(3);
+
+      // 沒有滑動在進行時(拖捲軸、鍵盤),捲到頂端照樣會撈。
+      await at(3000, scroll);
+      expect(loadOlderCalls).toBe(4);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // 讀的人要捲過一整個畫面才回得到頂端,那一次到頂是新的要求。
+  it("同一次手勢裡,落地那一頁至少一個畫面高時再回到頂端會再撈,不到一個畫面高不會", async () => {
+    initialMessages = [
+      mkMsg("c2", "b", "owner", 2000),
+      mkMsg("c3", "b", "owner", 2001),
+    ];
+    const { container } = renderChat();
+    const list = container.querySelector(".chat__messages")! as HTMLElement;
+    setScrollGeometry(list, {
+      scrollHeight: 400,
+      clientHeight: 200,
+      scrollTop: 0,
+    });
+    let pageNo = 0;
+    let pageHeight = 0;
+    onLoadOlder = () => {
+      pageNo += 1;
+      olderPage = [mkMsg(`p${pageNo}`, "b", "owner", 1000 - pageNo)];
+      Object.defineProperty(list, "scrollHeight", {
+        configurable: true,
+        value: list.scrollHeight + pageHeight,
+      });
+    };
+    const at = async (ms: number, fire: () => void) => {
+      vi.setSystemTime(new Date(1_000_000 + ms));
+      await act(async () => {
+        fire();
+      });
+    };
+    const wheelUp = () => fireEvent.wheel(list, { deltaY: -120 });
+    const touchDown = (y: number) =>
+      fireEvent.touchMove(list, { touches: [{ clientY: y }] });
+
+    vi.useFakeTimers();
+    try {
+      pageHeight = 150;
+      await at(0, wheelUp);
+      expect(loadOlderCalls).toBe(1);
+      expect(list.scrollTop).toBe(150);
+      list.scrollTop = 0;
+      await at(16, wheelUp);
+      expect(loadOlderCalls).toBe(1);
+
+      pageHeight = 200;
+      await at(500, wheelUp);
+      expect(loadOlderCalls).toBe(2);
+      expect(list.scrollTop).toBe(200);
+      list.scrollTop = 0;
+      await at(516, wheelUp);
+      expect(loadOlderCalls).toBe(3);
+
+      list.scrollTop = 0;
+      await at(2000, () => {
+        fireEvent.touchStart(list, { touches: [{ clientY: 100 }] });
+      });
+      await at(2000, () => touchDown(180));
+      expect(loadOlderCalls).toBe(4);
+      list.scrollTop = 0;
+      await at(2000, () => touchDown(260));
+      expect(loadOlderCalls).toBe(5);
     } finally {
       vi.useRealTimers();
     }
@@ -318,6 +401,10 @@ describe("scroll-top history loading", () => {
         fireEvent.touchMove(list, { touches: [{ clientY: y }] });
       });
     }
+    // 手指拖動帶出來的原生捲動也是同一次滑動。
+    await act(async () => {
+      fireEvent.scroll(list);
+    });
     expect(loadOlderCalls).toBe(1);
 
     await act(async () => {
@@ -328,6 +415,29 @@ describe("scroll-top history loading", () => {
       fireEvent.touchMove(list, { touches: [{ clientY: 180 }] });
     });
     expect(loadOlderCalls).toBe(2);
+
+    // 從離頂端很遠的地方拖下來:那一頁由拖進頂端那一帶的原生捲動買,同一次拖動後面
+    // 的 touchmove 不再買。
+    (list as HTMLElement).scrollTop = 400;
+    await act(async () => {
+      fireEvent.touchEnd(list, { touches: [] });
+      fireEvent.touchStart(list, { touches: [{ clientY: 100 }] });
+    });
+    await act(async () => {
+      fireEvent.touchMove(list, { touches: [{ clientY: 180 }] });
+    });
+    expect(loadOlderCalls).toBe(2);
+    (list as HTMLElement).scrollTop = 0;
+    await act(async () => {
+      fireEvent.scroll(list);
+    });
+    expect(loadOlderCalls).toBe(3);
+    for (const y of [260, 340]) {
+      await act(async () => {
+        fireEvent.touchMove(list, { touches: [{ clientY: y }] });
+      });
+    }
+    expect(loadOlderCalls).toBe(3);
   });
 
   // T-124 (owner c-c9cd7fefe19f「載入時我正在開的位置或手機手指指的位置都會跑
