@@ -993,9 +993,11 @@ func stopgapRetryStampYields(prior, reason string) bool {
 
 // wakeTimeoutYieldsToReceipt: a start the warden refused as not logged in never came up for that
 // reason, and the owner reads it on 最近操作; the timeout that follows would replace it with a
-// vaguer guess.
-func wakeTimeoutYieldsToReceipt(lastOp, lastOpReason string) bool {
-	return lastOp == reconcileCmdStart && isWardenLoginRefusal(lastOpReason)
+// vaguer guess. Only a refusal of THIS start (written at or after startedAt) counts: an older one
+// left on the row says nothing about why this start lapsed.
+func wakeTimeoutYieldsToReceipt(lastOp, lastOpReason string, lastOpAt, startedAt float64) bool {
+	return lastOp == reconcileCmdStart && isWardenLoginRefusal(lastOpReason) &&
+		startedAt > 0 && lastOpAt >= startedAt
 }
 
 // stampMemberOpBlocked never clears: clearing belongs to stampWakeObservability, and a converged
@@ -1115,7 +1117,8 @@ func (s *apiServer) stampWakeObservability(m *Member, decision reconcileDecision
 		if err != nil || fresh == nil || fresh.RosterStatus != RosterStatusActive {
 			return err
 		}
-		if decision.StartTimedOut && !wakeTimeoutYieldsToReceipt(fresh.LastOp, fresh.LastOpReason) {
+		if decision.StartTimedOut &&
+			!wakeTimeoutYieldsToReceipt(fresh.LastOp, fresh.LastOpReason, fresh.LastOpAt, fresh.WakingSince) {
 			fresh.LastOp = m.LastOp
 			fresh.LastOpOK = m.LastOpOK
 			fresh.LastOpReason = m.LastOpReason

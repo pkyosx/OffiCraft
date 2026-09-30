@@ -230,11 +230,11 @@ const sessionAliveWakeNote = " — the start window then lapsed, but that is NOT
 // the prefix silently disarms the zombie takeover. Legacy `worker_start` rows
 // are deliberately not folded here. Keep it narrow: a blanket "wake_timeout
 // never overwrites" would drop the stamp on rows with no warden receipt.
-func wakeTimeoutOverWardenReceipt(fresh OutsourceWorker, reason string) string {
+func wakeTimeoutOverWardenReceipt(fresh OutsourceWorker, reason string, spawnAt float64) string {
 	if !strings.HasPrefix(reason, spawnReasonWakeTimeout+":") {
 		return reason
 	}
-	if wakeTimeoutYieldsToReceipt(fresh.LastOp, fresh.LastOpReason) {
+	if wakeTimeoutYieldsToReceipt(fresh.LastOp, fresh.LastOpReason, fresh.LastOpAt, spawnAt) {
 		return fresh.LastOpReason
 	}
 	if fresh.LastOp != reconcileCmdStart ||
@@ -261,7 +261,7 @@ func (s *apiServer) stampWorkerPlacementBlocked(w *OutsourceWorker, reason strin
 		if err != nil || fresh == nil || fresh.Status == WorkerStatusReleased {
 			return err
 		}
-		reason := wakeTimeoutOverWardenReceipt(*fresh, reason)
+		reason := wakeTimeoutOverWardenReceipt(*fresh, reason, s.workerSpawnAt[w.ID])
 		if stopgapRetryStampYields(fresh.LastOpReason, reason) {
 			return nil
 		}

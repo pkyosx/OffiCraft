@@ -276,4 +276,44 @@ describe("MemberDetailPanel · wake that was never dispatched (T-7fa1)", () => {
       "可能是目標機器沒有連線——到「監控」看它是否在線。也可能是前一次喚醒還在重試中——請看這位成員的「最近操作」。",
     ]);
   });
+
+  it("under a second wake whose receipt names a different cause, the notice shows the second cause", async () => {
+    const onActivate = vi
+      .fn()
+      .mockResolvedValueOnce({
+        activationPending: true,
+        lastOpReason:
+          "machine_unavailable: machine 'mach-a' is not logged in to codex; no other machine is substituted",
+      })
+      .mockResolvedValueOnce({
+        activationPending: true,
+        lastOpReason:
+          "machine_unavailable: machine 'mach-a' does not provide the 'codex' runtime; no other machine is substituted",
+      });
+    const { container, findByTestId } = renderPanel(onActivate);
+    const wakeOnce = async () => {
+      const btn = wakeButton(container);
+      await waitFor(() => expect(btn.disabled).toBe(false));
+      fireEvent.click(btn);
+      await confirmWakeSettings();
+    };
+
+    await wakeOnce();
+    const first = await findByTestId("mp-wake-undispatched");
+    expect(Array.from(first.children, (el) => el.textContent)).toEqual([
+      "這次沒有送出喚醒指令",
+      "Mac 未登入 Codex",
+    ]);
+
+    await wakeOnce();
+    await waitFor(() => expect(onActivate).toHaveBeenCalledTimes(2));
+    await waitFor(async () => {
+      const second = await findByTestId("mp-wake-undispatched");
+      expect(Array.from(second.children, (el) => el.textContent)).toEqual([
+      "這次沒有送出喚醒指令",
+      "這次沒有送出喚醒，系統會在背景自動重試。",
+      "可能是目標機器沒有連線——到「監控」看它是否在線。也可能是前一次喚醒還在重試中——請看這位成員的「最近操作」。",
+    ]);
+    });
+  });
 });
