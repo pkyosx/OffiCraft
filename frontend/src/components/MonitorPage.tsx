@@ -776,6 +776,7 @@ export function MonitorPage() {
                       data-testid="mon-claude-version"
                     >
                       <RuntimeVersionCell
+                        runtime="claude"
                         capability={hw?.runtimeCapabilities?.claude}
                         fallbackVersion={m.claudeVersion}
                         stale={hw?.runtimeCapabilitiesStale}
@@ -788,6 +789,7 @@ export function MonitorPage() {
                       data-testid="mon-codex-version"
                     >
                       <RuntimeVersionCell
+                        runtime="codex"
                         capability={hw?.runtimeCapabilities?.codex}
                         fallbackVersion={null}
                         stale={hw?.runtimeCapabilitiesStale}
@@ -1457,31 +1459,22 @@ function HardwareBadMark() {
  *
  * Reads the SAME capability map the digest read; nothing new is collected and
  * no version is ever synthesized. What it must NOT lose is the digest's ✗: an
- * `installed:false` / `loggedIn:false` is the reason placement refuses this
- * machine and a worker sits stamped `machine_unavailable`, and this cell is
- * still the only place that reason appears on screen. So those states are
- * spelled out as words rather than expressed by an absent version — an empty
- * cell would read as "we don't know", which is a different and wrong claim.
+ * `installed:false` (either runtime) or a Codex `loggedIn:false` is the reason
+ * placement refuses this machine and a worker sits stamped
+ * `machine_unavailable`, and this cell is still the only place that reason
+ * appears on screen. So those states are spelled out as words rather than
+ * expressed by an absent version — an empty cell would read as "we don't
+ * know", which is a different and wrong claim.
  *
  * The four honest outcomes, in order:
  *   never reported     → dash, titled "never probed"
  *   installed:false    → "not installed"
  *   version present    → the version verbatim
  *   installed, no ver. → "installed" (the probe answered, without a number)
- * plus a "signed out" mark whenever `loggedIn === false`, which can accompany
- * a perfectly good version — an installed, up-to-date, logged-out runtime is
- * exactly the case the operator needs to see.
- *
- * ⚠️ THAT MARK IS CURRENTLY REACHABLE FOR CODEX ONLY. Since T-b3d0 the warden
- * OMITS claude's `logged_in` when it cannot find evidence rather than sending
- * `false` (it was calling an unmeasured login a no, and placement then pinned
- * such a host to codex irreversibly — see runtimeprobe.go). Absent arrives here
- * as null, and null is not `=== false`, so a genuinely signed-out claude host
- * now shows "installed + version" with nothing saying it cannot run. That is a
- * KNOWN diagnostic loss, taken deliberately over the irreversible mis-pin; the
- * failure surfaces on the member row at spawn instead (claude_not_logged_in,
- * which names the Codex exit). Do not "fix" this by making the collector send
- * false again — restoring the badge that way restores the mis-pin with it.
+ * followed by the login mark (signed in / signed out / unknown) whenever the
+ * cell shows a version or "installed" — an installed, up-to-date, logged-out
+ * runtime is exactly the case the operator needs to see. Unknown means the
+ * warden sent no login state; it is not a soft "signed out".
  *
  * `fallbackVersion` exists only for Claude: the machine registry has carried
  * its own `claude_version` since T-97ee/T-7c5b, and an older warden reports
@@ -1494,11 +1487,13 @@ function HardwareBadMark() {
  * the server says it is fresh (`stale === false`). The registry fallback is not
  * telemetry and carries no mark. */
 function RuntimeVersionCell({
+  runtime,
   capability,
   fallbackVersion,
   stale,
   testIdPrefix,
 }: {
+  runtime: "claude" | "codex";
   capability?: { installed: boolean | null; loggedIn: boolean | null; version: string | null };
   fallbackVersion: string | null;
   stale: boolean | null | undefined;
@@ -1554,13 +1549,25 @@ function RuntimeVersionCell({
           {m.runtimeNoVersion}
         </span>
       )}
+      {capability.loggedIn === true && (
+        <span data-testid={`${testIdPrefix}-logged-in`}>{m.runtimeLoggedIn}</span>
+      )}
       {capability.loggedIn === false && (
         <span
           className="mon-stale mon-bad"
           data-testid={`${testIdPrefix}-logged-out`}
-          title={m.runtimeLoggedOutHint}
+          title={runtime === "claude" ? m.runtimeClaudeLoggedOutHint : m.runtimeLoggedOutHint}
         >
           {m.runtimeLoggedOut}
+        </span>
+      )}
+      {capability.loggedIn == null && (
+        <span
+          className="mon-muted"
+          data-testid={`${testIdPrefix}-login-unknown`}
+          title={m.runtimeLoginUnknownHint}
+        >
+          {m.runtimeLoginUnknown}
         </span>
       )}
       {staleMark}

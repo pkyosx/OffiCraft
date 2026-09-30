@@ -952,6 +952,7 @@ func TestApiServerNewOutsourceMemberDTO(t *testing.T) {
 			RefocusSince: 900, RefocusOp: refocusOpAcceleratedStop,
 			RefocusDeadline: 960, DesiredState: "online",
 			RosterStatus: RosterStatusActive, OwnerID: wireOwnerID, SchemaVersion: wireSchemaVersion,
+			RuntimeLoginWarnings: []RuntimeLoginWarningDTO{},
 		}
 		if !reflect.DeepEqual(got, want) {
 			t.Fatalf("newOutsourceMemberDTO(bound worker):\n got %+v\nwant %+v", got, want)

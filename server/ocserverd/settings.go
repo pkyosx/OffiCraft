@@ -81,6 +81,9 @@ const (
 	// the reassign hold may go without a change to the task's updated time before
 	// the handover-timeout reaper reclaims it.
 	settingReassignHandoverTimeoutSecs = "task.reassign_handover_timeout_secs"
+	// settingRuntimeLoginCheckIntervalSecs is how often each warden re-checks
+	// Claude/Codex login; wardens read it from their heartbeat reply.
+	settingRuntimeLoginCheckIntervalSecs = "runtime.login_check_interval_secs"
 	// 🔴 EVERY doc.cap_chars key carries a suffix: an agent reading get_settings
 	// sees key names with no descriptions, so a bare `doc.cap_chars` beside its
 	// segments reads as "the default for all of them".
@@ -162,6 +165,14 @@ const (
 	maxReassignHandoverTimeoutSecs     = 86400
 )
 
+// The floor is the warden's heartbeat cadence: the interval travels on the
+// heartbeat reply, so a shorter one cannot be honoured.
+const (
+	runtimeLoginCheckIntervalSecsDefault = 300
+	minRuntimeLoginCheckIntervalSecs     = 30
+	maxRuntimeLoginCheckIntervalSecs     = 3600
+)
+
 // THE DEFAULT IS 30 DAYS (owner rc-f2b96594c621): the production station has
 // no row for this setting, so moving the default moves production.
 //
@@ -182,43 +193,44 @@ const (
 )
 
 type authSettings struct {
-	secret                       []byte
-	passwordHash                 string
-	passwordChangedAt            int64
-	mfaOffered                   bool
-	totpSecret                   string
-	totpLastStep                 int64
-	ownerTokenTTL                int64
-	agentTokenTTL                int64
-	ctxHigh                      SseContextHighConfig
-	codexCompactionThreshold     int // the FINAL round (handover)
-	codexNoticeRound             int // the FIRST, soft notice round
-	monitoringRefreshSeconds     int
-	acceleratedGraceSecs         int
-	wardenCredLifetimeSecs       int
-	outsourceMaxParallel         int
-	reassignHandoverTimeoutSecs  int
-	docCapCharsDuty              int
-	docCapCharsInsight           int
-	docCapCharsManualSop         int
-	docCapCharsSystemInteraction int
-	docCapCharsBootSequence      int // ONE cap, both runtimes
-	docCapCharsOffboard          int
-	loreCapCharsRole             int
-	loreCapCharsManual           int
-	loreCapCharsTitle            int
-	loreCapCharsBody             int
-	chatBudgetChars              int
-	stepNoteCapChars             int
-	backupRetain                 int
-	updaterReceiveBeta           bool
-	updaterAutoUpdate            bool
-	orgName                      string
-	ownerName                    string
-	pushContactEmail             string
-	displayTheme                 string
-	displayLanguage              string
-	displayWide                  bool
+	secret                        []byte
+	passwordHash                  string
+	passwordChangedAt             int64
+	mfaOffered                    bool
+	totpSecret                    string
+	totpLastStep                  int64
+	ownerTokenTTL                 int64
+	agentTokenTTL                 int64
+	ctxHigh                       SseContextHighConfig
+	codexCompactionThreshold      int // the FINAL round (handover)
+	codexNoticeRound              int // the FIRST, soft notice round
+	monitoringRefreshSeconds      int
+	acceleratedGraceSecs          int
+	wardenCredLifetimeSecs        int
+	outsourceMaxParallel          int
+	reassignHandoverTimeoutSecs   int
+	runtimeLoginCheckIntervalSecs int
+	docCapCharsDuty               int
+	docCapCharsInsight            int
+	docCapCharsManualSop          int
+	docCapCharsSystemInteraction  int
+	docCapCharsBootSequence       int // ONE cap, both runtimes
+	docCapCharsOffboard           int
+	loreCapCharsRole              int
+	loreCapCharsManual            int
+	loreCapCharsTitle             int
+	loreCapCharsBody              int
+	chatBudgetChars               int
+	stepNoteCapChars              int
+	backupRetain                  int
+	updaterReceiveBeta            bool
+	updaterAutoUpdate             bool
+	orgName                       string
+	ownerName                     string
+	pushContactEmail              string
+	displayTheme                  string
+	displayLanguage               string
+	displayWide                   bool
 
 	suggestedRepliesReplyCard   []string
 	suggestedRepliesTaskMessage []string
@@ -283,14 +295,15 @@ func decodeSuggestedReplies(raw string) ([]string, error) {
 // boot, and a value that survives a save must never refuse the next start.
 func loadAuthSettings(d *DAL, cfg Config, logf func(string)) (authSettings, error) {
 	out := authSettings{
-		ownerTokenTTL:               defaultOwnerTokenTTL,
-		agentTokenTTL:               defaultAgentTokenTTL,
-		ctxHigh:                     cfg.SseContextHigh,
-		codexCompactionThreshold:    defaultCodexCompactionThreshold,
-		monitoringRefreshSeconds:    defaultMonitoringRefreshSeconds,
-		acceleratedGraceSecs:        acceleratedGraceSecsDefault,
-		wardenCredLifetimeSecs:      wardenCredLifetimeSecsDefault,
-		reassignHandoverTimeoutSecs: reassignHandoverTimeoutSecsDefault,
+		ownerTokenTTL:                 defaultOwnerTokenTTL,
+		agentTokenTTL:                 defaultAgentTokenTTL,
+		ctxHigh:                       cfg.SseContextHigh,
+		codexCompactionThreshold:      defaultCodexCompactionThreshold,
+		monitoringRefreshSeconds:      defaultMonitoringRefreshSeconds,
+		acceleratedGraceSecs:          acceleratedGraceSecsDefault,
+		wardenCredLifetimeSecs:        wardenCredLifetimeSecsDefault,
+		reassignHandoverTimeoutSecs:   reassignHandoverTimeoutSecsDefault,
+		runtimeLoginCheckIntervalSecs: runtimeLoginCheckIntervalSecsDefault,
 	}
 
 	stored, err := d.GetSetting(settingJWTSecret)
@@ -478,6 +491,16 @@ func loadAuthSettings(d *DAL, cfg Config, logf func(string)) (authSettings, erro
 				settingReassignHandoverTimeoutSecs, reassignHandoverTimeoutRangeMsg, *v)
 		}
 		out.reassignHandoverTimeoutSecs = n
+	}
+	if v, err := d.GetSetting(settingRuntimeLoginCheckIntervalSecs); err != nil {
+		return out, err
+	} else if v != nil {
+		n, err := strconv.Atoi(*v)
+		if err != nil || !runtimeLoginCheckIntervalInRange(n) {
+			return out, fmt.Errorf("settings %s: %s: %q",
+				settingRuntimeLoginCheckIntervalSecs, runtimeLoginCheckIntervalRangeMsg, *v)
+		}
+		out.runtimeLoginCheckIntervalSecs = n
 	}
 
 	if v, err := d.GetSetting(settingWardenCredLifetimeSecs); err != nil {

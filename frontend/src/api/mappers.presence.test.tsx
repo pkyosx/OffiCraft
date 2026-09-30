@@ -34,6 +34,7 @@ function mkWireMember(over: Partial<WireMember>): WireMember {
     actual_runtime: "",
     actual_effort: "",
     actual_machine: "",
+    runtime_login_warnings: [],
     refocus_op: "",
     refocus_deadline: 0,
     effort: "medium",
@@ -126,6 +127,22 @@ describe("presence narrowing at the mapper seam (T-59d6)", () => {
     expect(toMember(mkWireMember({ presence: "stopped" })).status).toBe(
       "offline",
     );
+  });
+
+  it("maps runtime_login_warnings onto both the member and the worker, and an absent list to an empty one", () => {
+    const wire = [
+      { machine_id: "mac-1", machine_name: "Mac Studio", runtime: "codex" as const, pending: true },
+    ];
+    const want = [{ machineId: "mac-1", machineName: "Mac Studio", runtime: "codex", pending: true }];
+    expect(toMember(mkWireMember({ runtime_login_warnings: wire })).runtimeLoginWarnings).toEqual(want);
+    expect(
+      toOutsourceWorker({ ...mkWireMember({}), runtime_login_warnings: wire } as WireOutsourceWorker)
+        .runtimeLoginWarnings,
+    ).toEqual(want);
+    expect(
+      toMember({ ...mkWireMember({}), runtime_login_warnings: undefined } as unknown as WireMember)
+        .runtimeLoginWarnings,
+    ).toEqual([]);
   });
 
   it("WORKER path: absence stays undefined (released / never dispatched is a real distinction)", () => {

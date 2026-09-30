@@ -627,7 +627,7 @@
     {
       "id": "warden-hop-2",
       "source": "cli/ocwarden/main.go",
-      "callsite": "transport := newCommandTransport(cfg, env, runner, logf)",
+      "callsite": "transport := newCommandTransport(cfg, env, runner, launchEnv, logf)",
       "kind": "seam",
       "seam_reason": "builds the command transport; the sends it wires up are declared on their own callsites"
     },
@@ -704,7 +704,7 @@
     {
       "id": "warden-transport-3",
       "source": "cli/ocwarden/transport.go",
-      "callsite": "deps:            buildCommandDeps(cfg, env, runner),",
+      "callsite": "deps:            buildCommandDeps(cfg, env, runner, launchEnv),",
       "kind": "seam",
       "seam_reason": "builds CommandDeps, whose Report field is the command_result reporter; the POST is declared by warden-command-result"
     },

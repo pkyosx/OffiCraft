@@ -834,7 +834,7 @@ func TestNewMemberDTO(t *testing.T) {
 		}
 		dashboard := apiTestListen(t, api, "")
 
-		dto := api.newMemberDTO(member, "Quartermaster", "m-obs", 5)
+		dto := api.newMemberDTO(member, "Quartermaster", "m-obs", 5, machineDirectory{})
 
 		apiWantValue(t, "dto", any(apiHelpersWire(t, dto)), any(map[string]any{
 			"id":                      "m-rich",
@@ -868,6 +868,7 @@ func TestNewMemberDTO(t *testing.T) {
 			"owner_id":                "owner",
 			"schema_version":          3,
 			"terminal_attach_command": "tmux -L officraft attach -t member-m-rich",
+			"runtime_login_warnings":  []any{},
 		}))
 		dashboard.wantFrames()
 	})
@@ -876,12 +877,12 @@ func TestNewMemberDTO(t *testing.T) {
 		api, _, d, _ := newAPITestServer(t)
 		member := apiHelpersMember(t, d, seedMiraID)
 
-		offline := api.newMemberDTO(member, "Assistant", "", 0)
+		offline := api.newMemberDTO(member, "Assistant", "", 0, machineDirectory{})
 		listener, err := api.hub.Connect(seedMiraID, "")
 		if err != nil {
 			t.Fatalf("hub.Connect: %v", err)
 		}
-		online := api.newMemberDTO(member, "Assistant", "", 0)
+		online := api.newMemberDTO(member, "Assistant", "", 0, machineDirectory{})
 		api.hub.Disconnect(listener)
 
 		apiWantValue(t, "presence with no connection", any(offline.Presence), any("offline"))
@@ -890,6 +891,88 @@ func TestNewMemberDTO(t *testing.T) {
 		apiWantValue(t, "runtime on the wire", any(offline.Runtime), any("claude"))
 		apiWantValue(t, "no avatar is a blank url, not a dangling one",
 			any(offline.AvatarURL), any(""))
+	})
+
+	t.Run("under machines reporting a runtime logged out, the warnings name exactly the current and pending pairs the detail panel shows", func(t *testing.T) {
+		api, h, d, _ := newAPITestServer(t)
+		for _, machine := range []Member{
+			{ID: "m-a", Name: "mac-a", Kind: KindWarden, RosterStatus: RosterStatusActive},
+			{ID: "m-b", Name: "box-b", Kind: KindWarden, RosterStatus: RosterStatusActive},
+			{ID: "m-c", Name: "mac-c", Kind: KindWarden, RosterStatus: RosterStatusActive},
+		} {
+			if err := d.PutMember(machine); err != nil {
+				t.Fatalf("PutMember(%q): %v", machine.ID, err)
+			}
+		}
+		if err := d.PutMachineAlias(MachineAlias{MachineID: "m-a", DisplayName: "Studio A"}); err != nil {
+			t.Fatalf("PutMachineAlias: %v", err)
+		}
+		for machine, report := range map[string]string{
+			"m-a": `{"runtimes":{"claude":{"installed":true,"logged_in":false},"codex":{"installed":true,"logged_in":true}}}`,
+			"m-b": `{"runtimes":{"claude":{"installed":true,"logged_in":true},"codex":{"installed":true,"logged_in":false}}}`,
+			"m-c": `{"runtimes":{"claude":{"installed":true,"logged_in":null}}}`,
+		} {
+			token := apiTestAgentToken(t, api, machine, machine)
+			if status, data := apiJSON(t, h, "POST", "/api/monitoring/telemetry", token, report); status != 200 {
+				t.Fatalf("%s telemetry: %d %v", machine, status, data)
+			}
+		}
+		dir, err := api.loadMachineDirectory()
+		if err != nil {
+			t.Fatalf("loadMachineDirectory: %v", err)
+		}
+		now := nowSecs()
+		for _, c := range []struct {
+			name   string
+			member Member
+			host   string
+			want   []any
+		}{
+			{"online on a machine whose claude is logged out: the current pair",
+				Member{ID: "w-online", Runtime: "claude", ActualRuntime: "claude", DesiredMachineID: "m-a"}, "m-a",
+				[]any{map[string]any{"machine_id": "m-a", "machine_name": "Studio A", "pending": false, "runtime": "claude"}}},
+			{"stopping still shows its machine: the current pair",
+				Member{ID: "w-stopping", ActualRuntime: "claude", DesiredMachineID: "m-a", StoppingSince: now}, "m-a",
+				[]any{map[string]any{"machine_id": "m-a", "machine_name": "Studio A", "pending": false, "runtime": "claude"}}},
+			{"offline with nothing pending: no pair on screen, no warning",
+				Member{ID: "w-offline", ActualRuntime: "claude", DesiredMachineID: "m-a", LastMachineID: "m-a"}, "",
+				[]any{}},
+			{"a pending runtime change onto a runtime that is logged in there: only the current pair warns",
+				Member{ID: "w-to-codex", Runtime: "codex", ActualRuntime: "claude", DesiredMachineID: "m-a"}, "m-a",
+				[]any{map[string]any{"machine_id": "m-a", "machine_name": "Studio A", "pending": false, "runtime": "claude"}}},
+			{"a pending machine and runtime change: the current pair and the pending destination pair, the unaliased machine named by its roster name",
+				Member{ID: "w-moving", Runtime: "claude", ActualRuntime: "codex", DesiredMachineID: "m-a"}, "m-b",
+				[]any{
+					map[string]any{"machine_id": "m-b", "machine_name": "box-b", "pending": false, "runtime": "codex"},
+					map[string]any{"machine_id": "m-a", "machine_name": "Studio A", "pending": true, "runtime": "claude"},
+				}},
+			{"offline with a pending move from its last machine: the pending pair keeps the reported runtime",
+				Member{ID: "w-parked", Runtime: "claude", ActualRuntime: "claude", DesiredMachineID: "m-a", LastMachineID: "m-b"}, "",
+				[]any{map[string]any{"machine_id": "m-a", "machine_name": "Studio A", "pending": true, "runtime": "claude"}}},
+			{"a connection reporting the pinned machine by its display name is not a move",
+				Member{ID: "w-by-name", Runtime: "codex", ActualRuntime: "codex", DesiredMachineID: "m-a"}, "Studio A",
+				[]any{}},
+			{"a machine whose login state is unknown yields nothing",
+				Member{ID: "w-unknown", ActualRuntime: "claude", DesiredMachineID: "m-c"}, "m-c",
+				[]any{}},
+			{"a member that never reported a runtime yields nothing",
+				Member{ID: "w-silent", Runtime: "claude", DesiredMachineID: "m-a"}, "m-a",
+				[]any{}},
+		} {
+			member := c.member
+			member.Name, member.Kind, member.RosterStatus = member.ID, KindStaff, RosterStatusActive
+			if c.host != "" {
+				link, err := api.hub.Connect(member.ID, c.host)
+				if err != nil {
+					t.Fatalf("%s: hub.Connect: %v", c.name, err)
+				}
+				t.Cleanup(func() { api.hub.Disconnect(link) })
+			}
+
+			dto := api.newMemberDTO(member, "", api.observedHost(member), 0, dir)
+
+			apiWantValue(t, c.name, apiHelpersWire(t, dto)["runtime_login_warnings"], any(c.want))
+		}
 	})
 }
 
@@ -942,6 +1025,7 @@ func TestNewMemberLightDTO(t *testing.T) {
 			"last_op_at":              0,
 			"forced_stop_at":          0,
 			"unread_count":            0,
+			"runtime_login_warnings":  []any{},
 		}))
 		dashboard.wantFrames()
 	})
@@ -961,7 +1045,7 @@ func TestNewMemberLightDTO(t *testing.T) {
 		apiWantValue(t, "presence stays blank", any(online.Presence), any(""))
 		apiWantValue(t, "the whole projection is unchanged", any(online), any(offline))
 		apiWantValue(t, "the full projection would have said otherwise",
-			any(api.newMemberDTO(member, "Assistant", "", 0).Presence), any("offline"))
+			any(api.newMemberDTO(member, "Assistant", "", 0, machineDirectory{}).Presence), any("offline"))
 	})
 }
 

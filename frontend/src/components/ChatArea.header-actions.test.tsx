@@ -111,6 +111,23 @@ describe("ChatArea header 任務/角色設定 圖示 (T-dfae)", () => {
     expect(onOpenTasks).toHaveBeenCalledTimes(1); // still just the one
   });
 
+  it("under a runtime login warning, the header's presence line carries the exclamation, and without one it does not", () => {
+    const warned = renderChat({
+      member: mkMember({
+        runtimeLoginWarnings: [
+          { machineId: "mac-1", machineName: "mac-1", runtime: "claude", pending: false },
+        ],
+      }),
+    });
+    const mark = warned.getByTestId("runtime-login-warning");
+    expect(mark.getAttribute("title")).toBe("未登入 Claude");
+    expect(mark.closest(".chat__header-sub")).not.toBeNull();
+    warned.unmount();
+
+    const clean = renderChat({ member: mkMember({ runtimeLoginWarnings: [] }) });
+    expect(clean.queryByTestId("runtime-login-warning")).toBeNull();
+  });
+
   it("neither click bubbles into the clickable header (open detail)", () => {
     const onOpenDetail = vi.fn();
     const { getByLabelText } = renderChat({

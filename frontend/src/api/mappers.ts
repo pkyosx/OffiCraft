@@ -18,6 +18,7 @@ import {
 } from "./suggestedReplies";
 import type {
   Member,
+  RuntimeLoginWarning,
   MemberStatus,
   MemberLifecycle,
   RoleKey,
@@ -209,6 +210,17 @@ export function toStatus(presence: MemberLifecycle): MemberStatus {
 /**
  * Map one wire member → the view-model `Member`. Every field's source is noted.
  */
+export function toRuntimeLoginWarnings(
+  w: WireMember["runtime_login_warnings"],
+): RuntimeLoginWarning[] {
+  return (w ?? []).map((x) => ({
+    machineId: x.machine_id,
+    machineName: x.machine_name,
+    runtime: x.runtime,
+    pending: x.pending,
+  }));
+}
+
 export function toMember(w: WireMember): Member {
   // Narrowed ONCE per member (T-59d6): both `status` and `lifecycle` below are
   // projections of the same presence word, so they must agree about what
@@ -296,6 +308,7 @@ export function toMember(w: WireMember): Member {
     // the member stops running; this one survives, so a pending relocation is
     // still legible while it is offline.
     actualMachine: w.actual_machine || "",
+    runtimeLoginWarnings: toRuntimeLoginWarnings(w.runtime_login_warnings),
 
     // fleet remote-ops stage 1: the last warden-op receipt (snake→camel passthrough).
     // last_op_at > 0 → real epoch (shown as the op time); 0 → null (no op yet) so the
@@ -842,6 +855,7 @@ export function toOutsourceWorker(w: WireOutsourceWorker): OutsourceWorkerView {
     actualModel: w.actual_model ?? "",
     actualEffort: w.actual_effort ?? "",
     actualMachine: w.actual_machine ?? "",
+    runtimeLoginWarnings: toRuntimeLoginWarnings(w.runtime_login_warnings),
     // Runtime facts: nullable on the wire (null = unreported). A defaulted-away
     // field arrives as undefined — coalesce to null (the honest dash), never 0.
     account: w.account ?? null,
@@ -1223,6 +1237,7 @@ export function toServerSettings(w: WireServerSettings): ServerSettingsView {
     acceleratedGraceSecs: w.accelerated_grace_secs ?? 120,
     // 1800 is the server's shipped default.
     reassignHandoverTimeoutSecs: w.reassign_handover_timeout_secs ?? 1800,
+    runtimeLoginCheckIntervalSecs: w.runtime_login_check_interval_secs ?? 300,
     // 2592000 (30 days) is the server's shipped default, the value a fleet that
     // never touched the knob renews on — and the same number a warden falls back
     // to when it cannot reach the credential-policy endpoint, so a server too

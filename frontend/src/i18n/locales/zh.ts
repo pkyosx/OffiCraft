@@ -789,6 +789,13 @@ export const zh = {
       // degraded / 熔斷告警
       degraded: "服務降級 · 已觸發熔斷保護",
     },
+    loginWarning: {
+      claude: "未登入 Claude",
+      codex: "未登入 Codex",
+      pendingLead: "要換到的",
+      pendingClaude: "未登入 Claude",
+      pendingCodex: "未登入 Codex",
+    },
   },
   login: {
     title: "登入 AI 工作室",
@@ -1768,8 +1775,12 @@ export const zh = {
       runtimeNotInstalledHint: "這台機器上沒有安裝這個 AI 執行環境，無法在這裡喚醒成員。",
       runtimeNoVersion: "已安裝",
       runtimeNoVersionHint: "已安裝，但讀不到版本。",
-      runtimeLoggedOut: "未登入",
+      runtimeLoggedIn: "（已登入）",
+      runtimeLoggedOut: "（未登入）",
       runtimeLoggedOutHint: "已安裝但尚未登入，成員不會被派到這台機器。",
+      runtimeClaudeLoggedOutHint: "這台機器上的 Claude 尚未登入。成員仍會被派到這裡，但要等這台機器登入 Claude 後才能工作。",
+      runtimeLoginUnknown: "（未知）",
+      runtimeLoginUnknownHint: "這台機器沒有回報是否登入（檢查逾時、讀不到結果，或讀不到 macOS 鑰匙圈）。",
       // 硬體樣本時效(T-b36a):過期的數值 server 會收回,於是 CPU/RAM/電源
       // 落回 dash——跟「從來沒回報過硬體」是同一個 dash。這兩個標籤就是把兩
       // 個世界分開的東西,要行動的只有後者(這台失聯了,不是它從沒說過話)。
@@ -2190,6 +2201,9 @@ export const zh = {
     wardenCredentialLifetime: "機器憑證壽命",
     wardenCredentialLifetimeSub:
       "機器登入憑證的有效期。機器會在到期前自動換新；錯過換新的機器要重新安裝。調小不影響已經發出的憑證。（86400–34560000 秒）",
+    runtimeLoginCheckInterval: "登入檢查間隔",
+    runtimeLoginCheckIntervalSub:
+      "每台機器多久重新檢查一次 Claude 與 Codex 是否登入。改動會在各機器下一次回報時生效（30–3600 秒）",
     rounds: "次",
     // T-ae38 起(T-30f1 又拆過一次):上限不再是一個。這些文件被刪掉的成本差很多
     // ——角色定義是常設說明、判準是逐次累積的權衡——所以不再共用同一把尺。

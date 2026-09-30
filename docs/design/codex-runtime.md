@@ -244,24 +244,22 @@ runtime is already set is never touched; the owner's choice always wins. No capa
 map reported yet leaves it unset, which is today's legacy behaviour
 (`NormalizeRuntime("") == claude`).
 
-**One reported shape is treated as UNKNOWN rather than as an answer**: a claude entry of
-`{"installed": true, "logged_in": false}`. No current warden can produce it —
-`collectRuntimeCapabilities` is evidence-only for Claude and OMITS `logged_in` when its
-two presence checks find nothing — so an explicit `false` dates the reporter to a warden
-older than v0.5.211-beta.1, where that `false` was a guess rather than a measurement. The
-spawn-side gate routinely disproves it: it honours four env-carried credential sources the
-probe never inspects (two direct keys plus the Bedrock / Vertex managed-auth flags, where
-no local claude login exists at all). Reading the stale `false` as "this box cannot run
-Claude" already cost one machine once, permanently pinned to codex with no backfill to
-undo it; T-ae8b makes every hire born UNSET, so the same stale `false` would now reach
-every future member on that machine instead of just the seeded one. So the resolver
-declines to choose, leaves the runtime unset, and logs why and what to do about it
-(upgrade that machine's warden, or set the member's 執行環境 by hand). The START still
-goes out on the permissive claude path, so either it launches — proving the `false` was a
-guess — or it fails at spawn with `claude_not_logged_in`, which names the Codex exit. A
-visible, reversible failure is preferred to an invisible irreversible guess. Codex gets no
-such grace and must not: `codex login status` is a real command, so its `false` is a
-measurement.
+**A claude `logged_in: false` does not make the resolver choose codex.** The warden
+measures Claude login with `claude auth status`, run in the environment members launch
+with and re-run every `runtime_login_check_interval_secs` (an org setting, default 300 s,
+delivered in the heartbeat reply): `true` when it reports logged in, `false` only when it
+reports logged out and, on macOS, the warden can read the login keychain (a locked
+keychain makes a signed-in claude report logged out, so that case stays absent), and
+absent on a timeout or unparseable output. Wardens older than v0.5.211-beta.1 also sent a
+`false` that was a guess, and the reading is a single moment of one host. Persisting codex
+on it would pin the member permanently: that already cost one machine once, with no
+backfill to undo it, and every hire is born UNSET, so it would reach every future member
+on that machine. So the resolver declines to choose, leaves the runtime unset, and logs
+why and what to do about it (sign Claude in on that machine, or set the member's 執行環境
+by hand). The START still goes out on the permissive claude path, so either it launches
+or it fails at spawn with `claude_not_logged_in`, which names the Codex exit. A visible,
+reversible failure is preferred to an invisible irreversible switch. Codex placement does
+gate on its `false`: `codex login status` failing keeps codex members off the machine.
 
 🔴 **The consequence, which is deliberate and owner-known: hiring is not a pure
 function of the request.** The same `hire_member` call yields a Claude member on one

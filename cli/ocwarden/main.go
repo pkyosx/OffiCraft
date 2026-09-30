@@ -131,13 +131,24 @@ type execRunner struct{ timeout time.Duration }
 
 var newCmdRunner = func(timeout time.Duration) CmdRunner { return execRunner{timeout: timeout} }
 
-// Run is the process choke point of the whole binary, so refuseInTestBinary lives
+// exec is the process choke point of the whole binary, so refuseInTestBinary lives
 // HERE, not only on the seam constructors: a caller can assemble the struct itself
 // (an inline `sysOps{run: execRunner{…}.Run, …}` once made a test binary issue a
 // REAL `launchctl bootout` against the developer's live warden), but it cannot
 // avoid starting the subprocess here.
 func (r execRunner) Run(name string, args ...string) (string, error) {
-	refuseInTestBinary("execRunner.Run(" + name + ")")
+	return r.exec("execRunner.Run", false, name, args...)
+}
+
+// RunKeepStdout also returns stdout from a non-zero exit (`claude auth status`
+// answers a logged-out host with exit 1 AND its verdict on stdout). stdout never
+// enters the error: it can carry the account's email and organization.
+func (r execRunner) RunKeepStdout(name string, args ...string) (string, error) {
+	return r.exec("execRunner.RunKeepStdout", true, name, args...)
+}
+
+func (r execRunner) exec(caller string, keepStdout bool, name string, args ...string) (string, error) {
+	refuseInTestBinary(caller + "(" + name + ")")
 	to := r.timeout
 	if to == 0 {
 		to = subprocessBudget
@@ -156,10 +167,14 @@ func (r execRunner) Run(name string, args ...string) (string, error) {
 	select {
 	case err := <-done:
 		if err != nil {
-			if msg := strings.TrimSpace(errb.String()); msg != "" {
-				return "", fmt.Errorf("%w: %s", err, msg)
+			kept := ""
+			if keepStdout {
+				kept = out.String()
 			}
-			return "", err
+			if msg := strings.TrimSpace(errb.String()); msg != "" {
+				return kept, fmt.Errorf("%w: %s", err, msg)
+			}
+			return kept, err
 		}
 		return out.String(), nil
 	case <-time.After(to):
@@ -389,6 +404,8 @@ type ReportResult struct {
 	Posted bool
 	Status int
 	Reason string
+	// Set only on an accepted heartbeat, from its receipt.
+	LoginCheckInterval time.Duration
 }
 
 func errorMessageOf(body map[string]any) string {
@@ -444,7 +461,8 @@ func runOnce(cfg Config, collect func() map[string]any, machine func() string, p
 	}
 	status, body := post(telemetryPath, payload)
 	if status == 200 {
-		return ReportResult{Posted: true, Status: 200, Reason: "posted"}
+		return ReportResult{Posted: true, Status: 200, Reason: "posted",
+			LoginCheckInterval: loginCheckIntervalFromReceipt(body)}
 	}
 	reason := fmt.Sprintf("post status %d", status)
 	if detail := errorMessageOf(body); detail != "" {
@@ -456,7 +474,7 @@ func runOnce(cfg Config, collect func() map[string]any, machine func() string, p
 func run(ctx context.Context, cfg Config, collect func() map[string]any, machine func() string, post Poster,
 	binaries func() map[string]string, claude func() map[string]any, shape func() string,
 	effect func() string, sleep func(context.Context, time.Duration) bool, iterations int, out io.Writer,
-	runtimes ...func() map[string]any) int {
+	loginInterval func(time.Duration), runtimes ...func() map[string]any) int {
 
 	if cfg.Token == "" || cfg.ID == "" {
 		fmt.Fprintln(out, "[ocwarden] run: no OC_TOKEN/OC_ID — nothing to report; exiting.")
@@ -468,6 +486,9 @@ func run(ctx context.Context, cfg Config, collect func() map[string]any, machine
 			return 0
 		}
 		result := runOnce(cfg, collect, machine, post, binaries, claude, shape, effect, runtimes...)
+		if result.Posted && loginInterval != nil {
+			loginInterval(result.LoginCheckInterval)
+		}
 		wait := backoff
 		if result.Posted || result.Status == 0 {
 			backoff = backoffStart
@@ -621,6 +642,7 @@ func realMain(argv []string, env func(string) string, out io.Writer) int {
 	wardenShapeOf := newShapeReporter(anchorPath, os.Getppid())
 	cutoverEffectOf := newCutoverEffectReporter(anchorPath, agentSocket, os.Getppid())
 	claudeProbe := newClaudeProber(env, runner, runtime.GOOS)
+	launchEnv := &launchEnvCache{}
 
 	iters := 0
 	if *once {
@@ -644,7 +666,7 @@ func realMain(argv []string, env func(string) string, out io.Writer) int {
 	}
 
 	if cfg.Token != "" && cfg.ID != "" && iters == 0 {
-		transport := newCommandTransport(cfg, env, runner, logf)
+		transport := newCommandTransport(cfg, env, runner, launchEnv, logf)
 
 		// 🔴 NOTHING GUARDS THIS CALL SITE. Deleting these lines, or `go up.run(ctx)`,
 		// leaves the package green and silently stops self-update and credential renewal
@@ -667,11 +689,16 @@ func realMain(argv []string, env func(string) string, out io.Writer) int {
 		logf("[ocwarden] self-update: enabled (poll %s; %s + %s; reconnect-kick on)", selfUpdateInterval, wardenBinaryPath, agentBinaryPath)
 	}
 
+	var keep stdoutRunner
+	if k, ok := runner.(stdoutRunner); ok {
+		keep = k
+	}
+	login := newLoginProber(env, runner, keep, runtime.GOOS, launchEnv, logf)
 	runtimeProbe := func() map[string]any {
-		return collectRuntimeCapabilities(env, runner, claudeProbe.collect(), logf)
+		return collectRuntimeCapabilities(env, runner, claudeProbe.collect(), login.state())
 	}
 	rc := run(ctx, cfg, collect, machine, post, fingerprints.collect, claudeProbe.collect,
-		wardenShapeOf, cutoverEffectOf, sleepUntil, iters, out, runtimeProbe)
+		wardenShapeOf, cutoverEffectOf, sleepUntil, iters, out, login.setInterval, runtimeProbe)
 
 	stop()
 	waitGraceful(&wg, shutdownGrace)

@@ -508,6 +508,7 @@ epoch 再當場砍，**沒有重生**，所以存下的新值要等之後某一�
 | 加速停止秒數 | `acceleratedGrace` |
 | 轉派交接逾時秒數 | `reassignHandoverTimeout` |
 | 機器憑證壽命 | `wardenCredentialLifetime` |
+| 登入檢查間隔 | `runtimeLoginCheckInterval` |
 | 監控刷新間隔 | `monitoringRefresh` |
 | **三個文件字數上限** | `docCapCharsDuty` / `Insight` / `ManualSop` |
 | 喚醒聊天字數預算 | `chatBudget` |

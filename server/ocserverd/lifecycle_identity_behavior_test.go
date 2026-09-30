@@ -756,6 +756,17 @@ var identityGateLedger = map[string]string{
 		"refuse to delete a non-machine through the machines face: a typo'd member id " +
 		"must 404 as a machine rather than soft-delete a colleague. Also in " +
 		"authzOutsideRouteTable.",
+	"api_machines.go :: newMachineDirectory :: m.Kind != machineKind": "" +
+		"the machine directory is the roster FILTERED to kind==warden, the same filter " +
+		"GET /api/machines applies, so a machine resolves to the name that face shows. " +
+		"Machine-vs-person axis.",
+	"api_machines.go :: publishLoginPairsOn :: m.Kind == machineKind": "" +
+		"a machine row has no runtime_login_warnings to refresh. Machine-vs-person axis.",
+	"api_machines.go :: publishLoginPairsOn :: m.Kind == KindOutsource": "" +
+		"the login-pair refresh reads each row's shown machine the way its MemberDTO " +
+		"projection does, and that is the declared observation-input difference: a " +
+		"worker's machine comes from its dispatch target (projectWorker), a staff " +
+		"member's from observedHost gated on presence. Both publish the same member patch.",
 
 	// ── shared member face: the three intentional outsource differences ─────
 	"api_members.go :: HandleListMembersApiMembersGet :: m.Kind == KindOutsource": "" +

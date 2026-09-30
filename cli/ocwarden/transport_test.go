@@ -771,7 +771,7 @@ func TestBuildCommandDeps(t *testing.T) {
 	env := envMap(map[string]string{"HOME": root, "OC_AGENT_ENV_INHERIT": "0", "OC_CLAUDE_CRED_CHECK": "0"})
 
 	deps := buildCommandDeps(Config{Base: "https://station.example", Token: jwtWardenOne, ID: "warden-1"},
-		env, &wardenRunner{})
+		env, &wardenRunner{}, nil)
 
 	for name, wired := range map[string]bool{
 		"Spawn": deps.Spawn != nil, "Stop": deps.Stop != nil, "Teardown": deps.Teardown != nil,
@@ -844,7 +844,7 @@ func TestBuildCommandDeps(t *testing.T) {
 		runner := &wardenRunner{shellPassthrough: true, script: map[string]wardenRun{
 			"tmux -L officraft has-session -t member-m1": {err: errors.New("can't find session: member-m1")},
 		}}
-		d := buildCommandDeps(Config{Base: "https://station.example"}, spawnEnv, runner)
+		d := buildCommandDeps(Config{Base: "https://station.example"}, spawnEnv, runner, nil)
 
 		got := d.Spawn(StartParams{MemberID: "m1", PersonaContext: "p", MemberToken: "jwt", Role: "builder"})
 		if !got.OK {
@@ -921,7 +921,7 @@ func TestBuildCommandDeps(t *testing.T) {
 		runner := &wardenRunner{shellPassthrough: true, script: map[string]wardenRun{
 			"tmux -L officraft has-session -t member-m1": {err: errors.New("can't find session: member-m1")},
 		}}
-		d := buildCommandDeps(Config{Base: "https://station.example"}, spawnEnv, runner)
+		d := buildCommandDeps(Config{Base: "https://station.example"}, spawnEnv, runner, nil)
 
 		if got := d.Spawn(StartParams{MemberID: "m1", PersonaContext: "p", MemberToken: "jwt", Role: "builder"}); !got.OK {
 			t.Fatalf("outcome = %+v, want OK", got)
@@ -943,7 +943,7 @@ func TestBuildCommandDeps(t *testing.T) {
 		}
 	})
 
-	homeless := buildCommandDeps(Config{}, envMap(map[string]string{}), &wardenRunner{})
+	homeless := buildCommandDeps(Config{}, envMap(map[string]string{}), &wardenRunner{}, nil)
 	ok, log := homeless.Teardown()
 	if ok || log != "[ocwarden teardown] cannot resolve paths: HOME must be set\n" {
 		t.Errorf("Teardown = (%v, %q), want a reported path failure that leaves the warden alive", ok, log)
@@ -1029,7 +1029,7 @@ func TestNewCommandTransport(t *testing.T) {
 	var log []string
 	logf := func(format string, a ...any) { log = append(log, fmt.Sprintf(format, a...)) }
 	tr := newCommandTransport(Config{Base: "https://station.example", Token: jwtWardenOne, ID: "warden-1"},
-		env, &wardenRunner{}, logf)
+		env, &wardenRunner{}, nil, logf)
 
 	if tr.base != "https://station.example" || tr.token != jwtWardenOne {
 		t.Errorf("addressing = (%q, ...), want the configured station and its credential", tr.base)

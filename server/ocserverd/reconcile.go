@@ -729,19 +729,18 @@ func (s *apiServer) resolveEmptyRuntimeForPlacement(m *Member, warden string) {
 	if len(capabilities) == 0 {
 		return
 	}
-	// installed:true + logged_in:false only comes from a warden older than v0.5.211-beta.1 and means
-	// "no evidence", not "signed out". Codex's false is a measurement (`codex login status`) and gets
-	// no such grace.
+	// Claude signed out never auto-picks codex: the choice is persisted and irreversible, while
+	// signing Claude back in on that machine undoes the cause. A warden older than v0.5.211-beta.1
+	// also sends this shape for mere "no credential evidence".
 	if claude := capabilities[RuntimeClaude]; claude.Installed != nil && *claude.Installed &&
 		claude.LoggedIn != nil && !*claude.LoggedIn {
-		reconcileLog("%s: machine %q reports claude installed with logged_in:false — a shape only a "+
-			"warden older than v0.5.211-beta.1 emits, where it means \"no credential evidence found\", "+
-			"NOT \"signed out\". Declining to auto-resolve this member to codex, because persisting "+
-			"that choice is irreversible and this machine may well run claude (env-carried key, "+
-			"Bedrock/Vertex managed auth, or OC_CLAUDE_CRED_CHECK=0). Leaving 執行環境 unset: the "+
-			"start still goes out as claude, and if it really is signed out the spawn will say so and "+
-			"name the Codex exit. To choose deliberately instead: upgrade that machine's warden, or "+
-			"set this member's 執行環境 by hand.", m.ID, warden)
+		reconcileLog("%s: machine %q reports claude installed with logged_in:false — Claude is signed "+
+			"out there (a warden older than v0.5.211-beta.1 sends the same shape when it merely found "+
+			"no credential evidence). Declining to auto-resolve this member to codex, because "+
+			"persisting that choice is irreversible and signing Claude back in on that machine fixes "+
+			"the cause. Leaving 執行環境 unset: the start still goes out as claude. To choose "+
+			"deliberately instead: sign Claude in on that machine, or set this member's 執行環境 by "+
+			"hand.", m.ID, warden)
 		return
 	}
 	resolved := ""

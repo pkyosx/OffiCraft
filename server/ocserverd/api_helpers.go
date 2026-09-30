@@ -394,11 +394,14 @@ func (s *apiServer) unreadCountsForRequest(r *http.Request) (map[string]int, err
 	return s.dal.UnreadCountsFor(currentActor(r))
 }
 
-func (s *apiServer) newMemberDTO(m Member, roleName, observedMachine string, unreadCount int) memberDTO {
-	return newMemberDTO(m, roleName, observedMachine, unreadCount,
-		PresenceState(m, nowSecs(), s.hub.IsOnline(m.ID)),
+func (s *apiServer) newMemberDTO(m Member, roleName, observedMachine string, unreadCount int, machines machineDirectory) memberDTO {
+	presence := PresenceState(m, nowSecs(), s.hub.IsOnline(m.ID))
+	dto := newMemberDTO(m, roleName, observedMachine, unreadCount, presence,
 		winddownDeadlineOf(m, s.reconcileConfigLive()),
 		terminalAttachCommand(s.namespace, m.ID))
+	dto.RuntimeLoginWarnings = s.runtimeLoginWarnings(machines,
+		s.staffLoginPairs(machines, m, observedMachine, presence))
+	return dto
 }
 
 func newMemberDTO(m Member, roleName, observedMachine string, unreadCount int,
@@ -439,6 +442,7 @@ func newMemberDTO(m Member, roleName, observedMachine string, unreadCount int,
 		// T-139: the WHOLE attach command — a cockpit-side `tmux -L officraft`
 		// is wrong on every namespaced station.
 		TerminalAttachCommand: terminalAttach,
+		RuntimeLoginWarnings:  []RuntimeLoginWarningDTO{},
 	}
 }
 
@@ -457,6 +461,7 @@ func (s *apiServer) newMemberLightDTO(m Member, roleName string) memberDTO {
 		// Served here too, unlike the other derived fields: "" is the wire's
 		// "server too old to send one", which a light row would state falsely.
 		TerminalAttachCommand: terminalAttachCommand(s.namespace, m.ID),
+		RuntimeLoginWarnings:  []RuntimeLoginWarningDTO{},
 	}
 }
 

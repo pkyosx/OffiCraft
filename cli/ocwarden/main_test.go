@@ -524,7 +524,7 @@ func TestRunOnce(t *testing.T) {
 			func() string { return "anchor" },
 			func() string { return "in_effect" },
 			func() map[string]any { return map[string]any{"claude": true} })
-		if want := (ReportResult{Posted: true, Status: 200, Reason: "posted"}); got != want {
+		if want := (ReportResult{Posted: true, Status: 200, Reason: "posted", LoginCheckInterval: 300 * time.Second}); got != want {
 			t.Errorf("result = %+v, want %+v", got, want)
 		}
 		if want := []string{"/api/monitoring/telemetry"}; !reflect.DeepEqual(paths, want) {
@@ -541,6 +541,31 @@ func TestRunOnce(t *testing.T) {
 		}}
 		if !reflect.DeepEqual(payloads, want) {
 			t.Errorf("payload = %v, want %v", payloads, want)
+		}
+	})
+
+	t.Run("under a receipt's login check interval, the result carries it; otherwise the 300s default", func(t *testing.T) {
+		for _, c := range []struct {
+			name    string
+			receipt map[string]any
+			want    time.Duration
+		}{
+			{"in range", map[string]any{"login_check_interval_secs": 90.0}, 90 * time.Second},
+			{"floor", map[string]any{"login_check_interval_secs": 30.0}, 30 * time.Second},
+			{"ceiling", map[string]any{"login_check_interval_secs": 3600.0}, 3600 * time.Second},
+			{"below the floor", map[string]any{"login_check_interval_secs": 29.0}, 300 * time.Second},
+			{"above the ceiling", map[string]any{"login_check_interval_secs": 3601.0}, 300 * time.Second},
+			{"fractional", map[string]any{"login_check_interval_secs": 45.5}, 300 * time.Second},
+			{"null", map[string]any{"login_check_interval_secs": nil}, 300 * time.Second},
+			{"a string", map[string]any{"login_check_interval_secs": "60"}, 300 * time.Second},
+			{"missing", map[string]any{"agent_id": "warden-1"}, 300 * time.Second},
+		} {
+			post := func(string, map[string]any) (int, map[string]any) { return 200, c.receipt }
+			got := runOnce(cfg, hardware, machine, post, nil, nil, nil, nil)
+			want := ReportResult{Posted: true, Status: 200, Reason: "posted", LoginCheckInterval: c.want}
+			if got != want {
+				t.Errorf("%s: result = %+v, want %+v", c.name, got, want)
+			}
 		}
 	})
 
@@ -584,7 +609,7 @@ func TestRunOnce(t *testing.T) {
 		}
 		got := runOnce(cfg, func() map[string]any { return nil }, func() string { return "" }, post,
 			func() map[string]string { return map[string]string{"ocagent": "sha-a"} }, nil, nil, nil)
-		if want := (ReportResult{Posted: true, Status: 200, Reason: "posted"}); got != want {
+		if want := (ReportResult{Posted: true, Status: 200, Reason: "posted", LoginCheckInterval: 300 * time.Second}); got != want {
 			t.Errorf("result = %+v, want %+v", got, want)
 		}
 		want := []map[string]any{{"binaries": map[string]string{"ocagent": "sha-a"}}}
@@ -628,7 +653,7 @@ func TestRun(t *testing.T) {
 				return 200, nil
 			}, nil, nil, nil, nil,
 			func(context.Context, time.Duration) bool { t.Error("must not sleep"); return true },
-			1, &out)
+			1, &out, nil)
 		if rc != 0 {
 			t.Errorf("rc = %d, want 0", rc)
 		}
@@ -646,7 +671,7 @@ func TestRun(t *testing.T) {
 			func(string, map[string]any) (int, map[string]any) { posts++; return 200, nil },
 			nil, nil, nil, nil,
 			func(_ context.Context, d time.Duration) bool { waits = append(waits, d); return true },
-			1, &out)
+			1, &out, nil)
 		if rc != 0 || posts != 1 {
 			t.Errorf("rc = %d, posts = %d, want 0 and 1", rc, posts)
 		}
@@ -658,6 +683,31 @@ func TestRun(t *testing.T) {
 		}
 	})
 
+	t.Run("under accepted heartbeats, each receipt's interval reaches the login check; a refused one does not", func(t *testing.T) {
+		var out bytes.Buffer
+		var applied []time.Duration
+		replies := []struct {
+			status int
+			body   map[string]any
+		}{
+			{200, map[string]any{"login_check_interval_secs": 60.0}},
+			{422, map[string]any{"error": map[string]any{"message": "bad"}}},
+			{200, map[string]any{}},
+		}
+		posts := 0
+		run(context.Background(), cfg, hardware, machine,
+			func(string, map[string]any) (int, map[string]any) {
+				r := replies[posts]
+				posts++
+				return r.status, r.body
+			}, nil, nil, nil, nil,
+			func(context.Context, time.Duration) bool { return true },
+			3, &out, func(d time.Duration) { applied = append(applied, d) })
+		if want := []time.Duration{60 * time.Second, 300 * time.Second}; !reflect.DeepEqual(applied, want) {
+			t.Errorf("applied intervals = %v, want %v", applied, want)
+		}
+	})
+
 	t.Run("a refused heartbeat is logged and backs off, doubling each time", func(t *testing.T) {
 		var out bytes.Buffer
 		var waits []time.Duration
@@ -666,7 +716,7 @@ func TestRun(t *testing.T) {
 				return 422, map[string]any{"error": map[string]any{"message": "agent_id: unknown field"}}
 			}, nil, nil, nil, nil,
 			func(_ context.Context, d time.Duration) bool { waits = append(waits, d); return true },
-			3, &out)
+			3, &out, nil)
 		if rc != 0 {
 			t.Errorf("rc = %d, want 0", rc)
 		}
@@ -686,7 +736,7 @@ func TestRun(t *testing.T) {
 			func(string, map[string]any) (int, map[string]any) { return 0, nil },
 			nil, nil, nil, nil,
 			func(_ context.Context, d time.Duration) bool { waits = append(waits, d); return true },
-			2, &out)
+			2, &out, nil)
 		if want := []time.Duration{30 * time.Second, 30 * time.Second}; !reflect.DeepEqual(waits, want) {
 			t.Errorf("waits = %v, want %v", waits, want)
 		}
@@ -705,7 +755,7 @@ func TestRun(t *testing.T) {
 				return 200, nil
 			}, nil, nil, nil, nil,
 			func(context.Context, time.Duration) bool { t.Error("must not sleep"); return true },
-			0, &out)
+			0, &out, nil)
 		if rc != 0 || out.String() != "" {
 			t.Errorf("rc = %d, out = %q, want 0 and silence", rc, out.String())
 		}
@@ -718,7 +768,7 @@ func TestRun(t *testing.T) {
 			func(string, map[string]any) (int, map[string]any) { posts++; return 200, nil },
 			nil, nil, nil, nil,
 			func(context.Context, time.Duration) bool { return false },
-			0, &out)
+			0, &out, nil)
 		if rc != 0 || posts != 1 {
 			t.Errorf("rc = %d, posts = %d, want 0 and 1", rc, posts)
 		}
@@ -950,7 +1000,11 @@ func init() {
 		return
 	}
 	r := execRunner{timeout: 5 * time.Second}
-	out, err := r.Run(os.Args[2], os.Args[3:]...)
+	run := r.Run
+	if os.Args[1] == "keep" {
+		run = r.RunKeepStdout
+	}
+	out, err := run(os.Args[2], os.Args[3:]...)
 	fmt.Printf("OUT<<<%s>>>ERR<<<%v>>>", out, err)
 	os.Exit(0)
 }
@@ -1008,6 +1062,20 @@ func TestExecRunnerFailureOutput(t *testing.T) {
 		}
 		return string(out)
 	}
+
+	t.Run("under a non-zero exit, the stdout-keeping seam returns stdout and keeps it out of the error", func(t *testing.T) {
+		cmd := exec.Command(probe, "keep", "/bin/sh", "-c",
+			`printf '{"loggedIn":false,"email":"eva@example.com"}'; printf %s '`+answer+`' >&2; exit 1`)
+		cmd.Env = append(os.Environ(), "OCWARDEN_EXECPROBE=1")
+		out, err := cmd.Output()
+		if err != nil {
+			t.Fatalf("run the probe: %v", err)
+		}
+		want := `OUT<<<{"loggedIn":false,"email":"eva@example.com"}>>>ERR<<<exit status 1: ` + answer + `>>>`
+		if string(out) != want {
+			t.Errorf("RunKeepStdout gave %s, want %s", out, want)
+		}
+	})
 
 	t.Run("the plain seam still drops that same answer", func(t *testing.T) {
 		got := ask(t, "plain")

@@ -145,6 +145,24 @@ func (e ReplyCardDTOSelectMode) Valid() bool {
 	}
 }
 
+// Defines values for RuntimeLoginWarningDTORuntime.
+const (
+	Claude RuntimeLoginWarningDTORuntime = "claude"
+	Codex  RuntimeLoginWarningDTORuntime = "codex"
+)
+
+// Valid indicates whether the value is a known member of the RuntimeLoginWarningDTORuntime enum.
+func (e RuntimeLoginWarningDTORuntime) Valid() bool {
+	switch e {
+	case Claude:
+		return true
+	case Codex:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ScheduledMessageCreateDTOCadence.
 const (
 	ScheduledMessageCreateDTOCadenceCustom  ScheduledMessageCreateDTOCadence = "custom"
@@ -492,6 +510,9 @@ type AgentTelemetryIngestDTO struct {
 type AgentTelemetryReceiptDTO struct {
 	// AgentId The identity this report was filed under — the verified JWT sub, never a self-report. A reporter that believed it was somebody else learns it here.
 	AgentId string `json:"agent_id"`
+
+	// LoginCheckIntervalSecs How often, in seconds, this warden re-checks Claude/Codex login: the org's ``runtime_login_check_interval_secs``. Filled only when the caller is a machine (warden) credential; null or absent for an agent caller.
+	LoginCheckIntervalSecs *int `json:"login_check_interval_secs,omitempty"`
 
 	// Machine The machine the entry was ATTRIBUTED to, which is not necessarily the one the body named: the verified token's machine_id claim wins, and the payload ``machine`` is consulted only when the token carries no claim (long-lived /api/mint tokens and outsource-worker tokens mint machine_id "none" by design). Null when neither source supplied one.
 	Machine *string `json:"machine,omitempty"`
@@ -1815,16 +1836,19 @@ type MemberDTO struct {
 	RosterStatus *string  `json:"roster_status,omitempty"`
 
 	// Runtime The member's selected AI CLI runtime. Existing rows default to ``claude``.
-	Runtime       *AgentRuntime `json:"runtime,omitempty"`
-	SchemaVersion *int          `json:"schema_version,omitempty"`
-	Status        *string       `json:"status,omitempty"`
-	TaskCreatedTs *float64      `json:"task_created_ts,omitempty"`
-	TaskId        *string       `json:"task_id,omitempty"`
-	TaskNo        *string       `json:"task_no,omitempty"`
-	TaskStatus    *string       `json:"task_status,omitempty"`
-	TaskTitle     *string       `json:"task_title,omitempty"`
-	TaskTypeKey   *string       `json:"task_type_key,omitempty"`
-	TaskTypeName  *string       `json:"task_type_name,omitempty"`
+	Runtime *AgentRuntime `json:"runtime,omitempty"`
+
+	// RuntimeLoginWarnings Machine/runtime pairs this member uses or is about to use whose runtime the machine reports as logged out — the pairs the member detail panel's 機器 and AI 執行環境 cells show. The CURRENT pair is the machine the member is observed running on (only while ``presence`` is online, waking or stopping) with ``actual_runtime``. The PENDING pair (``pending``=true) exists only while the panel shows a pending change: the machine is pending when ``desired_machine_id`` is set and differs from the reported machine (live, else ``actual_machine``); the runtime is pending when ``runtime`` differs from a non-empty ``actual_runtime``. It pairs the desired machine if the machine is pending, else the current machine, with ``runtime`` if the runtime is pending, else ``actual_runtime``. A pair missing either side is skipped. An entry appears only when that machine's ``runtime_capabilities[runtime].logged_in`` is explicitly false; unknown or not installed yields none. Empty on a ``fields=light`` row, where it is not computed.
+	RuntimeLoginWarnings *[]RuntimeLoginWarningDTO `json:"runtime_login_warnings,omitempty"`
+	SchemaVersion        *int                      `json:"schema_version,omitempty"`
+	Status               *string                   `json:"status,omitempty"`
+	TaskCreatedTs        *float64                  `json:"task_created_ts,omitempty"`
+	TaskId               *string                   `json:"task_id,omitempty"`
+	TaskNo               *string                   `json:"task_no,omitempty"`
+	TaskStatus           *string                   `json:"task_status,omitempty"`
+	TaskTitle            *string                   `json:"task_title,omitempty"`
+	TaskTypeKey          *string                   `json:"task_type_key,omitempty"`
+	TaskTypeName         *string                   `json:"task_type_name,omitempty"`
 
 	// TerminalAttachCommand The COMPLETE, ready-to-paste shell command that attaches a terminal to this row's tmux session, composed server-side and served verbatim (T-139). Clients display and copy it AS-IS and MUST NOT assemble one of their own out of the parts: the ``tmux -L`` socket is the bare ``officraft`` only on the main instance and ``officraft-<ns>`` on a namespaced one (``[server].namespace``, the same value this station bakes into every warden it installs), so a client-side socket literal attaches to a DIFFERENT tmux server and silently drops the owner into another station's sessions.
 	//
@@ -2667,12 +2691,27 @@ type RoleDocSizesDTO struct {
 	RoleKey string     `json:"role_key"`
 }
 
-// RuntimeCapabilityDTO Value-free readiness of one AI CLI runtime on a machine. “installed“ means the exact binary the warden would launch resolved and passed its version probe. “logged_in“ is true/false when a safe provider login probe concluded, null when unknown. “version“ is null when unresolved or probing failed. No credential value or path is exposed.
+// RuntimeCapabilityDTO Value-free readiness of one AI CLI runtime on a machine. “installed“ means the exact binary the warden would launch resolved and passed its version probe. “logged_in“ is the warden's latest provider login check, re-run every “runtime_login_check_interval_secs“: for Claude, “claude auth status“ in the environment members launch with — true when it reports logged in, false only when it reports logged out and (on macOS) the login keychain is readable by the warden, null on timeout, unparseable output or an unreadable keychain; for Codex, whether “codex login status“ succeeded. Null means unknown, never logged out. “version“ is null when unresolved or probing failed. No credential value or path is exposed.
 type RuntimeCapabilityDTO struct {
 	Installed *bool   `json:"installed,omitempty"`
 	LoggedIn  *bool   `json:"logged_in,omitempty"`
 	Version   *string `json:"version,omitempty"`
 }
+
+// RuntimeLoginWarningDTO One machine/runtime pair on “MemberDTO.runtime_login_warnings“ whose runtime the machine reports as logged out.
+type RuntimeLoginWarningDTO struct {
+	MachineId string `json:"machine_id"`
+
+	// MachineName The machine's display name, or its id when it has none.
+	MachineName string `json:"machine_name"`
+
+	// Pending true = the pair the member will run on once its pending machine or runtime change lands; false = the pair it runs on now.
+	Pending bool                          `json:"pending"`
+	Runtime RuntimeLoginWarningDTORuntime `json:"runtime"`
+}
+
+// RuntimeLoginWarningDTORuntime defines model for RuntimeLoginWarningDTO.Runtime.
+type RuntimeLoginWarningDTORuntime string
 
 // ScheduledMessageCreateDTO Create one scheduled message on a member (T-f059 定期訊息; `custom` cadence added by T-49e7). `body`, `cadence` and `timezone` are REQUIRED unconditionally; the remaining fields are required or ignored ACCORDING TO `cadence`, and each states its own behaviour. `daily`/`weekly`/`monthly` fire once a day at the single wall-clock reading `hour`/`minute` names, so those two are required for them (omitting either is a 422, never a silent midnight) and `weekly` additionally reads `day_of_week`, `monthly` `day_of_month`. `custom` fires at every reading where `custom_months`, `custom_days`, `custom_hours` and `custom_minutes` all hold, so `custom_days`/`custom_hours`/`custom_minutes` are required for it and `hour`/`minute`/`day_of_week`/`day_of_month` are ignored. `custom_months` is the one set of the four that may be omitted — an omitted `custom_months` means all twelve months, which is what keeps a client written before that field working unchanged; an explicit empty array is still a 422. `hour` and `minute` left the unconditional required list in T-49e7 precisely so that a `custom` schedule does not have to send two values it never reads — a required-but-ignored field is the ambiguity this table was warned about — and the conditional 422 keeps the calendar cadences exactly as strict as before. `timezone` is required for every cadence and deliberately not defaulted: a defaulted zone would sooner or later be read as "wherever the server happens to run". The delivery cursor is initialised to the slot most recently elapsed at creation time, so a schedule created at 10:00 for `daily` 09:00 does not fire today. The recipient may be an assistant OR an `ow-` outsource worker — the same recipient rule ordinary chat uses.
 type ScheduledMessageCreateDTO struct {
@@ -3029,6 +3068,9 @@ type SettingsDTO struct {
 	// ReassignHandoverTimeoutSecs Reassign handover timeout, in seconds (60 through 86400): while a task sits under the reassign hold and its predecessor is an OUTSOURCE worker, the predecessor is reclaimed once this many seconds pass without a change to the task's updated time. That clock restarts when the task's plan, steps, step statuses or step notes, priority, dependencies, title or description change, or a reply card bound to one of its steps is opened or settled (only the owner or an admin agent can open one during the hold); pinning, replacing or removing artifacts does not restart it. Staff predecessors are never reclaimed by it. Reclaiming revokes the predecessor's hold rights. Distinct from any close-out or accelerated-stop grace.
 	ReassignHandoverTimeoutSecs *int `json:"reassign_handover_timeout_secs,omitempty"`
 
+	// RuntimeLoginCheckIntervalSecs How often, in seconds (30 through 3600), each warden re-checks Claude and Codex login on its machine. The floor is 30 because a warden reports at most every 30 seconds. Wardens learn the value from their heartbeat reply.
+	RuntimeLoginCheckIntervalSecs *int `json:"runtime_login_check_interval_secs,omitempty"`
+
 	// StepNoteCapChars The size cap on ONE task STEP's working note, in CHARACTERS (Unicode code points — Chinese prose counts one per character). One number serves both faces: it is what `get_task` reports per step and what `get_task_step` reports as `note_cap_chars`, AND it is what both note write faces (the wholesale write and the anchor patch) refuse a longer note against, read from this one setting so the reported ceiling and the enforced one can never drift apart. The adjustable range is 1000..100000. Like `chat_budget_chars`, and unlike the `doc_cap_chars_*` knobs, it may be LOWERED as well as raised: the cap is checked only on WRITE, so a note already stored above a newly lowered cap stays readable in full and simply cannot be edited until it is shortened. Two neighbouring fields are deliberately NOT governed by this setting and keep their own 4,000-character server constant: the task-level handover note and a chat message body (owner ruling 2026-09-06).
 	StepNoteCapChars *int `json:"step_note_cap_chars,omitempty"`
 
@@ -3151,6 +3193,9 @@ type SettingsUpdateDTO struct {
 
 	// ReassignHandoverTimeoutSecs Reassign handover timeout, in seconds. Must be 60 through 86400. How long an OUTSOURCE predecessor under the reassign hold may go without a change to the task before it is reclaimed (its hold rights revoked); changes to the plan, steps, step notes, priority, dependencies, title or description, or to a reply card bound to a step, restart the clock, while artifact changes do not. Staff predecessors are never reclaimed by it.
 	ReassignHandoverTimeoutSecs *int `json:"reassign_handover_timeout_secs,omitempty"`
+
+	// RuntimeLoginCheckIntervalSecs How often, in seconds, each warden re-checks Claude and Codex login on its machine. Must be 30 through 3600; the floor is 30 because a warden reports at most every 30 seconds. Wardens pick a change up from their next heartbeat reply.
+	RuntimeLoginCheckIntervalSecs *int `json:"runtime_login_check_interval_secs,omitempty"`
 
 	// StepNoteCapChars The size cap on one task step's working note, in CHARACTERS (Unicode code points). Must be between 1000 and 100000. Unlike the `doc_cap_chars_*` knobs the floor is NOT the shipped default — this cap may be lowered as well as raised, because it is enforced only when a note is WRITTEN: a note already stored above a lowered cap stays readable in full and only becomes uneditable. It does not govern the task-level handover note or a chat message body, which keep their own 4,000-character constant.
 	StepNoteCapChars *int `json:"step_note_cap_chars,omitempty"`
@@ -4916,6 +4961,7 @@ type ServerInterface interface {
 	// - `monitoring_refresh_seconds`: Minimum interval between monitoring and machine refreshes, in seconds (1 through 60).
 	// - `accelerated_grace_secs`: 加速停止 grace, in seconds. Must be 10 through 3600. Applies to every CLOCKED wind-down cause at once (the second context threshold and the owner-pressed 加速停止); it can never put a clock on a soft cause.
 	// - `reassign_handover_timeout_secs`: Reassign handover timeout, in seconds. Must be 60 through 86400. How long an OUTSOURCE predecessor under the reassign hold may go without a change to the task before it is reclaimed (its hold rights revoked); changes to the plan, steps, step notes, priority, dependencies, title or description, or to a reply card bound to a step, restart the clock, while artifact changes do not. Staff predecessors are never reclaimed by it.
+	// - `runtime_login_check_interval_secs`: How often, in seconds, each warden re-checks Claude and Codex login on its machine. Must be 30 through 3600; the floor is 30 because a warden reports at most every 30 seconds. Wardens pick a change up from their next heartbeat reply.
 	// - `warden_credential_lifetime_secs`: How long a MACHINE (warden) credential is meant to live, in seconds. Must be 86400 through 34560000 (one day through 400 days). A warden renews its own credential once that credential is two thirds of this old, plus a per-machine stagger of up to one hour so that LOWERING this value does not put the whole fleet on the mint endpoint inside one poll. The floor is one day because the last third of the lifetime is the retry window: at the 15-minute poll a one-day lifetime still leaves about 32 attempts. Wardens pick a change up within one poll interval. It is ALSO the expiry stamped into the credential (`exp = iat + this`, T-fc53), so a machine that misses its whole retry window needs a hand re-install; lowering the value never shortens a credential already issued, because an `exp` is fixed at mint time. Read the current value from get_settings rather than assuming a number.
 	// - `org_name`: The studio display name (T-d693) — trimmed, max 80 runes; "" clears it back to the localized default. A value longer than 80 runes is a 422.
 	// - `owner_name`: The owner's display nickname (T-0b41) — trimmed, max 80 runes; "" clears it back to the localized default. A value longer than 80 runes is a 422.

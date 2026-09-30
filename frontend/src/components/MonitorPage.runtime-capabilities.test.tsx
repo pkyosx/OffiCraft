@@ -20,7 +20,7 @@
 // tell — "as of some unknown moment" presented as "right now".
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { MonitorPage } from "./MonitorPage";
 import type { Member, MachineView, MonMachineView } from "../types";
@@ -162,6 +162,41 @@ describe("MonitorPage per-runtime version columns", () => {
     expect(within(claude).queryByTestId("mon-claude-logged-out")).toBeNull();
   });
 
+  it("under each login state, the mark after the version says signed in, signed out or unknown, with a runtime-accurate hint", async () => {
+    mount(
+      card(false, {
+        claude: { installed: true, loggedIn: false, version: "2.1.211" },
+        codex: { installed: true, loggedIn: false, version: "0.52.0" },
+      })
+    );
+    const claudeOut = await screen.findByTestId("mon-claude-version");
+    const codexOut = await screen.findByTestId("mon-codex-version");
+    expect(claudeOut.textContent).toBe("2.1.211（未登入）");
+    expect(within(claudeOut).getByTestId("mon-claude-logged-out").className).toBe("mon-stale mon-bad");
+    expect(within(claudeOut).getByTestId("mon-claude-logged-out").getAttribute("title")).toBe(
+      "這台機器上的 Claude 尚未登入。成員仍會被派到這裡，但要等這台機器登入 Claude 後才能工作。"
+    );
+    expect(codexOut.textContent).toBe("0.52.0（未登入）");
+    expect(within(codexOut).getByTestId("mon-codex-logged-out").getAttribute("title")).toBe(
+      "已安裝但尚未登入，成員不會被派到這台機器。"
+    );
+    cleanup();
+
+    mount(
+      card(false, {
+        claude: { installed: true, loggedIn: true, version: "2.1.211" },
+        codex: { installed: true, loggedIn: null, version: "0.52.0" },
+      })
+    );
+    const claudeIn = await screen.findByTestId("mon-claude-version");
+    const codexUnknown = await screen.findByTestId("mon-codex-version");
+    expect(claudeIn.textContent).toBe("2.1.211（已登入）");
+    expect(codexUnknown.textContent).toBe("0.52.0（未知）");
+    expect(within(codexUnknown).getByTestId("mon-codex-login-unknown").getAttribute("title")).toBe(
+      "這台機器沒有回報是否登入（檢查逾時、讀不到結果，或讀不到 macOS 鑰匙圈）。"
+    );
+  });
+
   it("names a not-installed runtime instead of leaving the cell blank", async () => {
     mount(
       card(false, {
@@ -173,7 +208,7 @@ describe("MonitorPage per-runtime version columns", () => {
     // A reported false is an ANSWER. "—" would fold it back into "never told
     // us", which is the one thing this cell exists to distinguish.
     expect(codex.textContent).not.toBe("—");
-    expect(codex.textContent).toContain("未安裝");
+    expect(codex.textContent).toBe("未安裝");
     // owner 2026-07-31 (rc-b7d1c642f2d2): ONE verb. The hover hint explaining
     // WHY the runtime is unusable described the same act as 啟動 — a third
     // word for it. It lives in a title attribute, so textContent misses it.

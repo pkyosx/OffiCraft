@@ -25,6 +25,14 @@ export type AgentRuntime = "claude" | "codex";
 // keys) then fall back to the member's server-resolved `roleName`.
 export type RoleKey = string;
 
+export interface RuntimeLoginWarning {
+  machineId: string;
+  machineName: string;
+  runtime: "claude" | "codex";
+  /** true = the pair a pending machine/runtime change lands on. */
+  pending: boolean;
+}
+
 export interface Member {
   id: string;
   /** Personal image URL bound to this stable member id. Empty/absent keeps the
@@ -131,6 +139,9 @@ export interface Member {
    * above blanks the moment the member stops running; this survives, so a
    * pending relocation stays legible while it is offline. */
   actualMachine?: string;
+  /** Machine/runtime pairs this member runs on, or is about to, whose runtime
+   * that machine reports as logged out (wire `runtime_login_warnings`). */
+  runtimeLoginWarnings?: RuntimeLoginWarning[];
 
   /**
    * Fleet remote-ops stage 1 — the "most recent operation" receipt the warden

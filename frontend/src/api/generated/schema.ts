@@ -1529,7 +1529,7 @@ export interface paths {
          * @description - Every member not removed, outsource members and warden (machine) rows included; soft-removed members never appear.
          *     - `machine` is where the member is OBSERVED running, not its desired machine — they differ after a relocate until reconcile lands.
          *     - `unread_count` is for YOU: messages that member sent you above your read watermark, regardless of presence.
-         *     - `fields=light` skips the two expensive computations and answers the SAME shape: `unread_count` 0, `machine` and `presence` empty. Those are un-computed values, not measured ones.
+         *     - `fields=light` skips the expensive computations and answers the SAME shape: `unread_count` 0, `machine`, `presence` and `runtime_login_warnings` empty. Those are un-computed values, not measured ones.
          *     - Cleared ONLY by POST /api/chat/mark-read; listing marks nothing.
          */
         get: operations["handle_list_members_api_members_get"];
@@ -2644,6 +2644,7 @@ export interface paths {
          *     - `monitoring_refresh_seconds`: Minimum interval between monitoring and machine refreshes, in seconds (1 through 60).
          *     - `accelerated_grace_secs`: 加速停止 grace, in seconds. Must be 10 through 3600. Applies to every CLOCKED wind-down cause at once (the second context threshold and the owner-pressed 加速停止); it can never put a clock on a soft cause.
          *     - `reassign_handover_timeout_secs`: Reassign handover timeout, in seconds. Must be 60 through 86400. How long an OUTSOURCE predecessor under the reassign hold may go without a change to the task before it is reclaimed (its hold rights revoked); changes to the plan, steps, step notes, priority, dependencies, title or description, or to a reply card bound to a step, restart the clock, while artifact changes do not. Staff predecessors are never reclaimed by it.
+         *     - `runtime_login_check_interval_secs`: How often, in seconds, each warden re-checks Claude and Codex login on its machine. Must be 30 through 3600; the floor is 30 because a warden reports at most every 30 seconds. Wardens pick a change up from their next heartbeat reply.
          *     - `warden_credential_lifetime_secs`: How long a MACHINE (warden) credential is meant to live, in seconds. Must be 86400 through 34560000 (one day through 400 days). A warden renews its own credential once that credential is two thirds of this old, plus a per-machine stagger of up to one hour so that LOWERING this value does not put the whole fleet on the mint endpoint inside one poll. The floor is one day because the last third of the lifetime is the retry window: at the 15-minute poll a one-day lifetime still leaves about 32 attempts. Wardens pick a change up within one poll interval. It is ALSO the expiry stamped into the credential (`exp = iat + this`, T-fc53), so a machine that misses its whole retry window needs a hand re-install; lowering the value never shortens a credential already issued, because an `exp` is fixed at mint time. Read the current value from get_settings rather than assuming a number.
          *     - `org_name`: The studio display name (T-d693) — trimmed, max 80 runes; "" clears it back to the localized default. A value longer than 80 runes is a 422.
          *     - `owner_name`: The owner's display nickname (T-0b41) — trimmed, max 80 runes; "" clears it back to the localized default. A value longer than 80 runes is a 422.
@@ -4089,7 +4090,7 @@ export interface components {
             runtimes?: {
                 /**
                  * Claude
-                 * @description Claude readiness. Transcribed from the same ``claude`` probe (runtimeprobe.go), never a second exec.
+                 * @description Claude readiness. ``installed`` and ``version`` are transcribed from the ``claude`` probe (runtimeprobe.go); ``logged_in`` comes from ``claude auth status``.
                  */
                 claude?: {
                     /**
@@ -4099,7 +4100,7 @@ export interface components {
                     installed?: boolean | null;
                     /**
                      * Logged In
-                     * @description Credentials present (presence only, never a value). Absent = not probed, which placement reads as unknown, not as false.
+                     * @description Result of ``claude auth status``, run in the same environment the warden launches members with and re-run every ``runtime_login_check_interval_secs``: true when it reports logged in; false only when it reports logged out and (on macOS) the warden can read the login keychain; absent on timeout, unparseable output or an unreadable keychain. Absent is unknown, which placement does not read as false. Never carries a credential value.
                      */
                     logged_in?: boolean | null;
                     /** Version */
@@ -4119,7 +4120,7 @@ export interface components {
                     installed?: boolean | null;
                     /**
                      * Logged In
-                     * @description ``codex login status`` exited 0. Absent = not probed.
+                     * @description ``codex login status`` exited 0, re-run every ``runtime_login_check_interval_secs``. Absent = not probed.
                      */
                     logged_in?: boolean | null;
                     /**
@@ -4159,6 +4160,11 @@ export interface components {
              * @description The identity this report was filed under — the verified JWT sub, never a self-report. A reporter that believed it was somebody else learns it here.
              */
             agent_id: string;
+            /**
+             * Login Check Interval Secs
+             * @description How often, in seconds, this warden re-checks Claude/Codex login: the org's ``runtime_login_check_interval_secs``. Filled only when the caller is a machine (warden) credential; null or absent for an agent caller.
+             */
+            login_check_interval_secs?: number | null;
             /**
              * Machine
              * @description The machine the entry was ATTRIBUTED to, which is not necessarily the one the body named: the verified token's machine_id claim wins, and the payload ``machine`` is consulted only when the token carries no claim (long-lived /api/mint tokens and outsource-worker tokens mint machine_id "none" by design). Null when neither source supplied one.
@@ -6067,6 +6073,12 @@ export interface components {
              */
             runtime: components["schemas"]["AgentRuntime"];
             /**
+             * Runtime Login Warnings
+             * @description Machine/runtime pairs this member uses or is about to use whose runtime the machine reports as logged out — the pairs the member detail panel's 機器 and AI 執行環境 cells show. The CURRENT pair is the machine the member is observed running on (only while ``presence`` is online, waking or stopping) with ``actual_runtime``. The PENDING pair (``pending``=true) exists only while the panel shows a pending change: the machine is pending when ``desired_machine_id`` is set and differs from the reported machine (live, else ``actual_machine``); the runtime is pending when ``runtime`` differs from a non-empty ``actual_runtime``. It pairs the desired machine if the machine is pending, else the current machine, with ``runtime`` if the runtime is pending, else ``actual_runtime``. A pair missing either side is skipped. An entry appears only when that machine's ``runtime_capabilities[runtime].logged_in`` is explicitly false; unknown or not installed yields none. Empty on a ``fields=light`` row, where it is not computed.
+             * @default []
+             */
+            runtime_login_warnings: components["schemas"]["RuntimeLoginWarningDTO"][];
+            /**
              * Schema Version
              * @default 3
              */
@@ -7501,7 +7513,7 @@ export interface components {
         };
         /**
          * RuntimeCapabilityDTO
-         * @description Value-free readiness of one AI CLI runtime on a machine. ``installed`` means the exact binary the warden would launch resolved and passed its version probe. ``logged_in`` is true/false when a safe provider login probe concluded, null when unknown. ``version`` is null when unresolved or probing failed. No credential value or path is exposed.
+         * @description Value-free readiness of one AI CLI runtime on a machine. ``installed`` means the exact binary the warden would launch resolved and passed its version probe. ``logged_in`` is the warden's latest provider login check, re-run every ``runtime_login_check_interval_secs``: for Claude, ``claude auth status`` in the environment members launch with — true when it reports logged in, false only when it reports logged out and (on macOS) the login keychain is readable by the warden, null on timeout, unparseable output or an unreadable keychain; for Codex, whether ``codex login status`` succeeded. Null means unknown, never logged out. ``version`` is null when unresolved or probing failed. No credential value or path is exposed.
          */
         RuntimeCapabilityDTO: {
             /**
@@ -7513,6 +7525,29 @@ export interface components {
             logged_in?: boolean | null;
             /** Version */
             version?: string | null;
+        };
+        /**
+         * RuntimeLoginWarningDTO
+         * @description One machine/runtime pair on ``MemberDTO.runtime_login_warnings`` whose runtime the machine reports as logged out.
+         */
+        RuntimeLoginWarningDTO: {
+            /** Machine Id */
+            machine_id: string;
+            /**
+             * Machine Name
+             * @description The machine's display name, or its id when it has none.
+             */
+            machine_name: string;
+            /**
+             * Pending
+             * @description true = the pair the member will run on once its pending machine or runtime change lands; false = the pair it runs on now.
+             */
+            pending: boolean;
+            /**
+             * Runtime
+             * @enum {string}
+             */
+            runtime: "claude" | "codex";
         };
         /**
          * ScheduledMessageCreateDTO
@@ -7927,6 +7962,12 @@ export interface components {
              */
             reassign_handover_timeout_secs: number;
             /**
+             * Runtime Login Check Interval Secs
+             * @description How often, in seconds (30 through 3600), each warden re-checks Claude and Codex login on its machine. The floor is 30 because a warden reports at most every 30 seconds. Wardens learn the value from their heartbeat reply.
+             * @default 300
+             */
+            runtime_login_check_interval_secs: number;
+            /**
              * Agent Token Ttl
              * @description Agent and outsource-worker JWT lifetime in seconds. Fresh installs default to 7 days.
              * @default 604800
@@ -8155,6 +8196,11 @@ export interface components {
              * @description Reassign handover timeout, in seconds. Must be 60 through 86400. How long an OUTSOURCE predecessor under the reassign hold may go without a change to the task before it is reclaimed (its hold rights revoked); changes to the plan, steps, step notes, priority, dependencies, title or description, or to a reply card bound to a step, restart the clock, while artifact changes do not. Staff predecessors are never reclaimed by it.
              */
             reassign_handover_timeout_secs?: number | null;
+            /**
+             * Runtime Login Check Interval Secs
+             * @description How often, in seconds, each warden re-checks Claude and Codex login on its machine. Must be 30 through 3600; the floor is 30 because a warden reports at most every 30 seconds. Wardens pick a change up from their next heartbeat reply.
+             */
+            runtime_login_check_interval_secs?: number | null;
             /** Agent Token Ttl */
             agent_token_ttl?: number | null;
             /**

@@ -112,6 +112,28 @@ describe("MemberCard presence — the dot carries it", () => {
   // user can't tell the states apart, which is the same failure as having no
   // label at all (and would survive every per-state check above if they all
   // read e.g. "線上").
+  it("under a runtime login warning, the card shows one exclamation right after the dot, named by its tooltip", () => {
+    const { getAllByTestId, container } = render(
+      <I18nProvider>
+        <MemberCard
+          member={mkMember({
+            lifecycle: "online",
+            runtimeLoginWarnings: [
+              { machineId: "mac-1", machineName: "mac-1", runtime: "codex", pending: false },
+            ],
+          })}
+          selected={false}
+          onOpenDetail={() => {}}
+          onChat={() => {}}
+        />
+      </I18nProvider>,
+    );
+    const marks = getAllByTestId("runtime-login-warning");
+    expect(marks).toHaveLength(1);
+    expect(marks[0].getAttribute("aria-label")).toBe("未登入 Codex");
+    expect(marks[0].previousElementSibling).toBe(container.querySelector(".lifecycle-dot"));
+  });
+
   it("gives each of the five lifecycle states a distinct label", () => {
     const labels = ALL.map((lifecycle) => {
       const { getByRole, unmount } = renderCard(lifecycle);

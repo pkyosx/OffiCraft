@@ -253,6 +253,36 @@ describe("OutsourcePanel", () => {
     expect(dot.getAttribute("aria-label")).toBe(zh.office.presence.offline);
   });
 
+  it("under runtime login warnings, the row's dot is followed by one exclamation listing each pair, and a clean row has none", async () => {
+    const warned = mkTask({ id: "t-warned", taskNo: "T-warned" });
+    const clean = mkTask({ id: "t-clean", taskNo: "T-clean" });
+    __injectMockTask(warned);
+    __injectMockTask(clean);
+    __injectMockOutsourceWorker(
+      mkWorker({
+        id: "ow-warned",
+        taskId: warned.id,
+        presence: "online",
+        runtimeLoginWarnings: [
+          { machineId: "mac-1", machineName: "Mac Studio", runtime: "codex", pending: false },
+          { machineId: "mac-2", machineName: "Mac Mini", runtime: "claude", pending: true },
+        ],
+      }),
+    );
+    __injectMockOutsourceWorker(
+      mkWorker({ id: "ow-clean", taskId: clean.id, presence: "online", runtimeLoginWarnings: [] }),
+    );
+
+    const { findByTestId } = renderOutsource();
+    const warnedLine = await findByTestId("outsource-task-line-ow-warned");
+    const cleanLine = await findByTestId("outsource-task-line-ow-clean");
+    const marks = within(warnedLine).getAllByTestId("runtime-login-warning");
+    expect(marks).toHaveLength(1);
+    expect(marks[0].getAttribute("title")).toBe("未登入 Codex\n要換到的 Mac Mini 未登入 Claude");
+    expect(marks[0].previousElementSibling?.getAttribute("data-testid")).toBe("outsource-presence-ow-warned");
+    expect(within(cleanLine).queryByTestId("runtime-login-warning")).toBeNull();
+  });
+
   it("the type line shows the manual's DISPLAY name — the raw key stays out of the UI (T-fa76)", async () => {
     __injectMockTaskType({
       typeKey: "tm-aaaabbbbcccc",

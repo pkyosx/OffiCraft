@@ -736,6 +736,13 @@ export const en: Dict = {
       resumeReport: "Resume report · what's next and what's in hand",
       degraded: "Degraded · circuit breaker tripped",
     },
+    loginWarning: {
+      claude: "Not signed in to Claude",
+      codex: "Not signed in to Codex",
+      pendingLead: "Moving to",
+      pendingClaude: "(not signed in to Claude)",
+      pendingCodex: "(not signed in to Codex)",
+    },
   },
   login: {
     title: "Sign in",
@@ -1748,9 +1755,15 @@ export const en: Dict = {
       runtimeNoVersion: "installed",
       runtimeNoVersionHint:
         "Installed, but its version could not be read.",
-      runtimeLoggedOut: "signed out",
+      runtimeLoggedIn: "(signed in)",
+      runtimeLoggedOut: "(signed out)",
       runtimeLoggedOutHint:
         "Installed but not signed in — members will not be placed on this machine.",
+      runtimeClaudeLoggedOutHint:
+        "Claude is not signed in on this machine. Members can still be placed here, but they cannot work until Claude is signed in on it.",
+      runtimeLoginUnknown: "(unknown)",
+      runtimeLoginUnknownHint:
+        "This machine did not report whether it is signed in (the check timed out, gave no readable answer, or could not read the macOS keychain).",
       // ── hardware sample age (T-b36a). The server WITHHOLDS the numbers of an
       // expired sample, so cpu/ram/power fall back to a dash — the same dash a
       // machine that has never reported hardware shows. These two labels are
@@ -2147,6 +2160,9 @@ export const en: Dict = {
     wardenCredentialLifetime: "Machine credential lifetime",
     wardenCredentialLifetimeSub:
       "How long a machine's login credential lasts. Machines renew it automatically before it expires; a machine that misses its renewal has to be re-installed. Lowering it does not affect credentials already issued. (86400–34560000 seconds)",
+    runtimeLoginCheckInterval: "Login check interval",
+    runtimeLoginCheckIntervalSub:
+      "How often each machine re-checks whether Claude and Codex are logged in. A change reaches each machine at its next report (30–3600 seconds)",
     rounds: "rounds",
     // T-ae38 (split again by T-30f1): one cap became many. Deleting from these
     // documents costs wildly different amounts — a role definition is a

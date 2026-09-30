@@ -3934,6 +3934,7 @@ func TestReconcileWorkerLiveness(t *testing.T) {
 			apiWantValue(t, "receipt status", any(float64(status)), any(200))
 			apiWantBody(t, data, map[string]any{
 				"agent_id": "m-server-self", "machine": nil, "ts": apiAnyNumber,
+				"login_check_interval_secs": 300,
 			})
 
 			api.outsourceMu.Lock()

@@ -64,7 +64,7 @@ func TestAgentDTOsServeTheTerminalAttachCommand(t *testing.T) {
 
 			m := testAgent("m-t139")
 			putTestMember(t, s, m)
-			if got := s.newMemberDTO(m, "", "", 0).TerminalAttachCommand; got != tc.wantStaff {
+			if got := s.newMemberDTO(m, "", "", 0, machineDirectory{}).TerminalAttachCommand; got != tc.wantStaff {
 				t.Fatalf("MemberDTO:\n got %q\nwant %q", got, tc.wantStaff)
 			}
 			// The ?fields=light roster goes through the SAME cockpit mapper, so
@@ -78,7 +78,7 @@ func TestAgentDTOsServeTheTerminalAttachCommand(t *testing.T) {
 			if err := s.dal.PutOutsourceWorker(w); err != nil {
 				t.Fatalf("put worker: %v", err)
 			}
-			dto := s.projectWorker(w, nil, 0, nowSecs(), nil, nil, nil, func(string) string { return "" }, nil)
+			dto := s.projectWorker(w, nil, 0, nowSecs(), nil, nil, machineDirectory{}, func(string) string { return "" }, nil)
 			if got := dto.TerminalAttachCommand; got != tc.wantOW {
 				t.Fatalf("OutsourceWorkerDTO:\n got %q\nwant %q", got, tc.wantOW)
 			}

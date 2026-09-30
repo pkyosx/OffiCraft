@@ -142,7 +142,8 @@ type apiServer struct {
 	// acceleratedGraceSecs is read ONLY through reconcileConfigLive().
 	acceleratedGraceSecs int
 
-	reassignHandoverTimeoutSecs int
+	reassignHandoverTimeoutSecs   int
+	runtimeLoginCheckIntervalSecs int
 	// wardenCredLifetimeSecs: mintWardenToken stamps exp = iat + this. An exp is
 	// fixed at mint time, so lowering it shortens only future credentials.
 	wardenCredLifetimeSecs int
@@ -357,6 +358,12 @@ func (s *apiServer) reassignHandoverTimeout() int {
 	s.settingsMu.RLock()
 	defer s.settingsMu.RUnlock()
 	return s.reassignHandoverTimeoutSecs
+}
+
+func (s *apiServer) runtimeLoginCheckInterval() int {
+	s.settingsMu.RLock()
+	defer s.settingsMu.RUnlock()
+	return s.runtimeLoginCheckIntervalSecs
 }
 
 func (s *apiServer) outsourceParallelCap() int {

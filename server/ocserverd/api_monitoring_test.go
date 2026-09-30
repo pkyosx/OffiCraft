@@ -709,7 +709,7 @@ func TestFoldWorkerCommandResult(t *testing.T) {
 }
 
 func TestHandleIngestTelemetryApiMonitoringTelemetryPost(t *testing.T) {
-	t.Run("a full warden report answers a three-field receipt, and the blocks it carried show up on the monitoring view", func(t *testing.T) {
+	t.Run("a full warden report answers a receipt carrying the login check interval, and the blocks it carried show up on the monitoring view", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		warden := apiTestAgentToken(t, api, "m-server-self", "m-server-self")
 
@@ -732,9 +732,10 @@ func TestHandleIngestTelemetryApiMonitoringTelemetryPost(t *testing.T) {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
 		apiWantBody(t, data, map[string]any{
-			"agent_id": "m-server-self",
-			"machine":  "m-server-self",
-			"ts":       apiAnyNumber,
+			"agent_id":                  "m-server-self",
+			"machine":                   "m-server-self",
+			"ts":                        apiAnyNumber,
+			"login_check_interval_secs": 300,
 		})
 
 		status, view := apiJSON(t, h, "GET", "/api/monitoring", owner, "")
@@ -770,6 +771,82 @@ func TestHandleIngestTelemetryApiMonitoringTelemetryPost(t *testing.T) {
 			"machines": []any{wantMachine},
 			"accounts": view["accounts"],
 		})
+	})
+
+	t.Run("under an owner-set login check interval, a warden's receipt carries that value", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		warden := apiTestAgentToken(t, api, "m-server-self", "m-server-self")
+		apiJSON(t, h, "PATCH", "/api/settings", owner, `{"runtime_login_check_interval_secs":45}`)
+
+		status, data := apiJSON(t, h, "POST", "/api/monitoring/telemetry", warden, `{"tokens":{"input":1}}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"agent_id":                  "m-server-self",
+			"machine":                   "m-server-self",
+			"ts":                        apiAnyNumber,
+			"login_check_interval_secs": 45,
+		})
+	})
+
+	t.Run("under a machine's claude login flipping, every member running there is re-announced to the owner, and a repeat of the same state announces nobody", func(t *testing.T) {
+		api, h, _, _ := newAPITestServer(t)
+		warden := apiTestAgentToken(t, api, "m-server-self", "m-server-self")
+		kip := apiTestAgentToken(t, api, "kip", "")
+		apiJSON(t, h, "POST", "/api/monitoring/telemetry", kip, `{"runtime":"claude"}`)
+		kipLink, err := api.hub.Connect("kip", "m-server-self")
+		if err != nil {
+			t.Fatalf("hub.Connect: %v", err)
+		}
+		t.Cleanup(func() { api.hub.Disconnect(kipLink) })
+		apiJSON(t, h, "POST", "/api/monitoring/telemetry", warden,
+			`{"runtimes":{"claude":{"installed":true,"logged_in":true}}}`)
+		dashboard := apiTestListen(t, api, "")
+
+		for _, report := range []string{
+			`{"runtimes":{"claude":{"installed":true,"logged_in":false}}}`,
+			`{"runtimes":{"claude":{"installed":true,"logged_in":false}}}`,
+		} {
+			if status, data := apiJSON(t, h, "POST", "/api/monitoring/telemetry", warden, report); status != 200 {
+				t.Fatalf("want 200, got %d (%v)", status, data)
+			}
+		}
+
+		monitoringSignal := map[string]any{
+			"seq":   apiAnyNumber,
+			"topic": "monitoring",
+			"op":    "signal",
+			"data": map[string]any{
+				"entity":  "monitoring",
+				"key":     "m-server-self",
+				"epoch":   apiAnyNumber,
+				"deleted": false,
+				"payload": nil,
+			},
+			"ts":      apiAnyNumber,
+			"trigger": "m-server-self",
+		}
+		dashboard.wantFrames(monitoringSignal, map[string]any{
+			"seq":   apiAnyNumber,
+			"topic": "member",
+			"op":    "patch",
+			"data": map[string]any{
+				"entity":  "member",
+				"key":     "owner::kip",
+				"epoch":   apiAnyNumber,
+				"deleted": false,
+				"payload": map[string]any{
+					"id":            "kip",
+					"name":          "Kip",
+					"owner_id":      "owner",
+					"status":        "active",
+					"desired_state": "",
+				},
+			},
+			"ts":      apiAnyNumber,
+			"trigger": "m-server-self",
+		}, monitoringSignal)
 	})
 
 	t.Run("a report naming its own machine while the token carries no claim answers 200 attributing that machine", func(t *testing.T) {
@@ -824,9 +901,10 @@ func TestHandleIngestTelemetryApiMonitoringTelemetryPost(t *testing.T) {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
 		apiWantBody(t, data, map[string]any{
-			"agent_id": "m-server-self",
-			"machine":  "m-server-self",
-			"ts":       apiAnyNumber,
+			"agent_id":                  "m-server-self",
+			"machine":                   "m-server-self",
+			"ts":                        apiAnyNumber,
+			"login_check_interval_secs": 300,
 		})
 
 		status, member := apiJSON(t, h, "GET", "/api/members/mira", owner, "")
@@ -916,9 +994,10 @@ func TestHandleIngestTelemetryApiMonitoringTelemetryPost(t *testing.T) {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
 		apiWantBody(t, data, map[string]any{
-			"agent_id": "m-server-self",
-			"machine":  "m-server-self",
-			"ts":       apiAnyNumber,
+			"agent_id":                  "m-server-self",
+			"machine":                   "m-server-self",
+			"ts":                        apiAnyNumber,
+			"login_check_interval_secs": 300,
 		})
 
 		status, view := apiJSON(t, h, "GET", "/api/monitoring", owner, "")

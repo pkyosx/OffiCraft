@@ -61,6 +61,7 @@ describe("SettingsPage · 參數調整", () => {
     // opened the API, and since 第二段 the same number is the credential's expiry,
     // so the page has to show what the machines are actually running on.
     expect((utils.getByLabelText(s.wardenCredentialLifetime) as HTMLInputElement).value).toBe("2592000");
+    expect((utils.getByLabelText(s.runtimeLoginCheckInterval) as HTMLInputElement).value).toBe("300");
   });
 
   it("changing the login TTL patches the server immediately", async () => {
@@ -151,6 +152,29 @@ describe("SettingsPage · 參數調整", () => {
     }
     expect((await api.getServerSettings()).reassignHandoverTimeoutSecs).toBe(86400);
     expect(patch).toHaveBeenCalledTimes(3);
+    patch.mockRestore();
+  });
+
+  it("under an in-range login check interval it persists, and outside 30..3600 it snaps back without a write", async () => {
+    const patch = vi.spyOn(api, "patchServerSettings");
+    const utils = await openParams();
+    const secs = utils.getByLabelText(s.runtimeLoginCheckInterval) as HTMLInputElement;
+    for (const edge of [30, 3600]) {
+      fireEvent.change(secs, { target: { value: String(edge) } });
+      fireEvent.blur(secs);
+      await waitFor(async () =>
+        expect((await api.getServerSettings()).runtimeLoginCheckIntervalSecs).toBe(edge),
+      );
+      expect(patch).toHaveBeenLastCalledWith({ runtimeLoginCheckIntervalSecs: edge });
+    }
+    for (const outside of ["29", "3601"]) {
+      fireEvent.change(secs, { target: { value: outside } });
+      fireEvent.blur(secs);
+      await utils.findByText(s.paramsSaveError);
+      expect(secs.value).toBe("3600");
+    }
+    expect((await api.getServerSettings()).runtimeLoginCheckIntervalSecs).toBe(3600);
+    expect(patch).toHaveBeenCalledTimes(2);
     patch.mockRestore();
   });
 

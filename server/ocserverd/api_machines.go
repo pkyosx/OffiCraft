@@ -1138,3 +1138,209 @@ func (s *apiServer) HandleWardenBinaryApiWardenBinaryGet(w http.ResponseWriter, 
 func (s *apiServer) HandleAgentBinaryApiAgentBinaryGet(w http.ResponseWriter, r *http.Request) {
 	serveBinary(w, r, "ocagent", bindistFS())
 }
+
+// machineDirectory resolves what a member row names as its machine — a roster
+// id, or the self-reported name of a connection the server has no id for — to a
+// roster id, so two spellings of one machine never read as a move.
+type machineDirectory struct {
+	aliases map[string]string
+	display map[string]string
+	byName  map[string]string
+}
+
+func newMachineDirectory(members []Member, aliases map[string]string) machineDirectory {
+	dir := machineDirectory{aliases: aliases, display: map[string]string{}, byName: map[string]string{}}
+	for _, m := range members {
+		if m.Kind != machineKind || m.RosterStatus != RosterStatusActive {
+			continue
+		}
+		display := aliases[m.ID]
+		if display == "" {
+			display = m.Name
+		}
+		if display == "" {
+			display = m.ID
+		}
+		dir.display[m.ID] = display
+		dir.byName[display] = m.ID
+	}
+	return dir
+}
+
+func (s *apiServer) loadMachineDirectory() (machineDirectory, error) {
+	members, err := s.dal.ListMembers()
+	if err != nil {
+		return machineDirectory{}, err
+	}
+	aliases, err := s.dal.MachineDisplayNames()
+	if err != nil {
+		return machineDirectory{}, err
+	}
+	return newMachineDirectory(members, aliases), nil
+}
+
+func (d machineDirectory) resolve(ref string) string {
+	if _, ok := d.display[ref]; ok {
+		return ref
+	}
+	if id, ok := d.byName[ref]; ok {
+		return id
+	}
+	return ref
+}
+
+func (d machineDirectory) name(id string) string {
+	if display := d.display[id]; display != "" {
+		return display
+	}
+	return id
+}
+
+type runtimeLoginPair struct {
+	machine string
+	runtime string
+	pending bool
+}
+
+// runtimeLoginPairs mirrors the detail panels' 機器 / AI 執行環境 cells: the
+// pair on screen now, and the pair a pending machine or runtime change lands
+// on. Machine arguments are raw row values; configured is the owner's runtime.
+func runtimeLoginPairs(dir machineDirectory, current, desired, reported, configured, actual string) []runtimeLoginPair {
+	current = dir.resolve(current)
+	desired = dir.resolve(desired)
+	reported = dir.resolve(reported)
+	configured = NormalizeRuntime(configured)
+	var pairs []runtimeLoginPair
+	if current != "" && actual != "" {
+		pairs = append(pairs, runtimeLoginPair{machine: current, runtime: actual})
+	}
+	machinePending := desired != "" && reported != "" && desired != reported
+	runtimePending := actual != "" && configured != actual
+	if !machinePending && !runtimePending {
+		return pairs
+	}
+	pending := runtimeLoginPair{machine: current, runtime: actual, pending: true}
+	if machinePending {
+		pending.machine = desired
+	}
+	if runtimePending {
+		pending.runtime = configured
+	}
+	if pending.machine != "" && pending.runtime != "" {
+		pairs = append(pairs, pending)
+	}
+	return pairs
+}
+
+func (s *apiServer) runtimeLoginWarnings(dir machineDirectory, pairs []runtimeLoginPair) []RuntimeLoginWarningDTO {
+	out := []RuntimeLoginWarningDTO{}
+	for _, p := range pairs {
+		capability, ok := s.machineRuntimeCapabilities(p.machine)[p.runtime]
+		if !ok || capability.LoggedIn == nil || *capability.LoggedIn {
+			continue
+		}
+		out = append(out, RuntimeLoginWarningDTO{
+			MachineId:   p.machine,
+			MachineName: dir.name(p.machine),
+			Pending:     p.pending,
+			Runtime:     RuntimeLoginWarningDTORuntime(p.runtime),
+		})
+	}
+	return out
+}
+
+func staffShowsMachine(presence string) bool {
+	return presence == MemberPresenceOnline || presence == MemberPresenceWaking ||
+		presence == MemberPresenceStopping
+}
+
+func (s *apiServer) staffLoginPairs(dir machineDirectory, m Member, observed, presence string) []runtimeLoginPair {
+	current := ""
+	if staffShowsMachine(presence) {
+		current = observed
+	}
+	reported := observed
+	if reported == "" {
+		reported = m.LastMachineID
+	}
+	return runtimeLoginPairs(dir, current, m.DesiredMachineID, reported, m.Runtime, m.ActualRuntime)
+}
+
+func workerLoginPairs(dir machineDirectory, w OutsourceWorker, observed string) []runtimeLoginPair {
+	reported := observed
+	if reported == "" {
+		reported = w.LastMachineID
+	}
+	return runtimeLoginPairs(dir, observed, w.DesiredMachineID, reported, w.Runtime, w.ActualRuntime)
+}
+
+// workerObservedMachine is the machine the worker panel's 機器 cell names.
+// workerSpawnObs is in-memory: a server re-exec forgets it and a healthy worker
+// is never re-dispatched, so it falls back to the restart-proof observed host.
+func (s *apiServer) workerObservedMachine(workerID string, tele map[string]any) string {
+	if spawnTarget, _ := s.workerSpawnObs(workerID); spawnTarget != "" {
+		return spawnTarget
+	}
+	return s.observedWorkerHost(workerID, tele)
+}
+
+func loginStatesOf(entry map[string]any) map[string]*bool {
+	out := map[string]*bool{}
+	runtimes, _ := entry["runtimes"].(map[string]any)
+	for _, name := range []string{RuntimeClaude, RuntimeCodex} {
+		capability, _ := runtimes[name].(map[string]any)
+		if v, ok := capability["logged_in"].(bool); ok {
+			out[name] = &v
+		}
+	}
+	return out
+}
+
+func loginStatesDiffer(a, b map[string]*bool) bool {
+	for _, name := range []string{RuntimeClaude, RuntimeCodex} {
+		x, y := a[name], b[name]
+		if (x == nil) != (y == nil) || (x != nil && *x != *y) {
+			return true
+		}
+	}
+	return false
+}
+
+// publishLoginPairsOn refreshes every roster row whose runtime_login_warnings
+// can read this machine: the warnings are derived, so no row write announces
+// the change on its own.
+func (s *apiServer) publishLoginPairsOn(machineID, trigger string) {
+	members, err := s.dal.ListMembers()
+	if err != nil {
+		return
+	}
+	aliases, err := s.dal.MachineDisplayNames()
+	if err != nil {
+		return
+	}
+	dir := newMachineDirectory(members, aliases)
+	for _, m := range members {
+		if m.RosterStatus == RosterStatusRemoved || m.Kind == machineKind {
+			continue
+		}
+		row := m
+		var pairs []runtimeLoginPair
+		if m.Kind == KindOutsource {
+			w := workerFromMember(m)
+			if w.Status == WorkerStatusReleased {
+				continue
+			}
+			row = memberFromWorker(w)
+			pairs = workerLoginPairs(dir, w, s.workerObservedMachine(w.ID, s.telemetry.Get(w.ID)))
+		} else {
+			pairs = s.staffLoginPairs(dir, m, s.observedHost(m),
+				PresenceState(m, nowSecs(), s.hub.IsOnline(m.ID)))
+		}
+		for _, p := range pairs {
+			if p.machine == machineID {
+				s.publishMemberOwnerOnly(row, trigger)
+				break
+			}
+		}
+	}
+}

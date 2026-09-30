@@ -563,7 +563,9 @@ func (s *apiServer) HandleIngestTelemetryApiMonitoringTelemetryPost(w http.Respo
 	if body.Claude != nil {
 		entry["claude"] = claude
 	}
+	loginFlipped := false
 	if body.Runtimes != nil {
+		loginFlipped = loginStatesDiffer(loginStatesOf(entry), loginStatesOf(map[string]any{"runtimes": runtimes}))
 		entry["runtimes"] = runtimes
 		// Same per-sample stamp as hardware_ts. Placement (machineSupportsRuntime)
 		// deliberately does NOT consult it — expiring the map there would
@@ -614,15 +616,24 @@ func (s *apiServer) HandleIngestTelemetryApiMonitoringTelemetryPost(w http.Respo
 	// No agent consumes the monitoring signal on the wire; owner cockpit only.
 	s.hub.Publish("monitoring", "signal", "monitoring", agentID, nil, audienceOwnerOnly(), requestTrigger(r))
 
+	if loginFlipped {
+		s.publishLoginPairsOn(agentID, requestTrigger(r))
+	}
+
 	if commandResult != nil {
 		s.foldCommandResult(commandResult, requestTrigger(r), receiptReporterMachine(r))
 	}
 
-	writeJSON(w, http.StatusOK, agentTelemetryReceiptDTO{
+	receipt := agentTelemetryReceiptDTO{
 		AgentID: agentID,
 		Machine: entryStr(entry, "machine"),
 		TS:      entry["ts"].(float64),
-	})
+	}
+	if s.principalOfRequest(r) == principalMachine {
+		interval := s.runtimeLoginCheckInterval()
+		receipt.LoginCheckIntervalSecs = &interval
+	}
+	writeJSON(w, http.StatusOK, receipt)
 }
 
 // These columns must be durable: s.telemetry is in-memory, so a re-exec would

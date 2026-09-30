@@ -33,6 +33,7 @@ import { useWindowActive } from "../hooks/useWindowActive";
 import type { OutsourceWorkerView } from "../api/adapter";
 import { Avatar } from "./Avatar";
 import { CurrentTaskTitle } from "./CurrentTaskTitle";
+import { RuntimeLoginWarningMark } from "./RuntimeLoginWarningMark";
 import { LifecycleDot, presenceVisual } from "./LifecycleDot";
 
 /** The worker's ONE-LINE task line — [task-id chip → task type], optionally
@@ -74,10 +75,13 @@ export function OutsourceTaskLine({
        * uses. Each state is visually distinct: offline dark, waking amber
        * pulse, online mint, stopping orange pulse, stopped grey. */}
       {dot && (
-        <LifecycleDot
-          status={presenceVisual(w.presence)}
-          testId={`${idPrefix}-presence-${w.id}`}
-        />
+        <>
+          <LifecycleDot
+            status={presenceVisual(w.presence)}
+            testId={`${idPrefix}-presence-${w.id}`}
+          />
+          <RuntimeLoginWarningMark warnings={w.runtimeLoginWarnings} />
+        </>
       )}
       {w.taskNo && (
         <button

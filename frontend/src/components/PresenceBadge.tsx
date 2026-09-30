@@ -1,8 +1,8 @@
 /**
  * Shared presence badge — the SINGLE place that renders a member's live
- * presence line. It now renders exactly TWO things: the 5-state lifecycle dot
- * (the sole VISUAL carrier of presence — its colour distinguishes
- * offline/waking/online-awake/stopping/stopped) and the member's role.
+ * presence line: the 5-state lifecycle dot (the sole VISUAL carrier of
+ * presence — its colour distinguishes offline/waking/online-awake/stopping/
+ * stopped), the runtime-login exclamation when there is one, and the role.
  *
  * WHY the trim (Seth 定案): presence used to be expressed THREE times on one
  * line — the dot, a status word (`t.lifecycle.status[visual]`, e.g.
@@ -18,6 +18,7 @@ import { useI18n } from "../i18n";
 import type { Member } from "../types";
 import { LifecycleDot, presenceVisual } from "./LifecycleDot";
 import type { LifecycleVisualStatus } from "./LifecycleDot";
+import { RuntimeLoginWarningMark } from "./RuntimeLoginWarningMark";
 
 /** Map the REAL five-state lifecycle onto the one-per-state visual union the
  * lifecycle dot consumes. Thin member-shaped wrapper over the ONE shared
@@ -39,6 +40,7 @@ export function PresenceBadge({ member }: { member: Member }) {
   return (
     <span className="presence-badge">
       <LifecycleDot status={visual} />
+      <RuntimeLoginWarningMark warnings={member.runtimeLoginWarnings} />
       {/* Role only — presence itself is carried entirely by the dot's colour.
        * No status word, no last-seen (that was the triple-expressed-presence
        * redundancy + the "online yet Never online" bug). */}

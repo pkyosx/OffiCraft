@@ -1683,7 +1683,7 @@ func TestResolveEmptyRuntimeForPlacement(t *testing.T) {
 		}
 	})
 
-	t.Run("the legacy claude installed-but-logged-out shape declines to choose and says so, rather than pinning the member to codex", func(t *testing.T) {
+	t.Run("under a machine reporting claude signed out, the member is not pinned to codex and the log says why", func(t *testing.T) {
 		api, d := reconcileTestServer(t)
 		api.telemetry.Set("m-legacy", map[string]any{"runtimes": map[string]any{
 			"claude": map[string]any{"installed": true, "logged_in": false},
@@ -1694,14 +1694,12 @@ func TestResolveEmptyRuntimeForPlacement(t *testing.T) {
 		m := before
 		out := hubTestStderr(t, func() { api.resolveEmptyRuntimeForPlacement(&m, "m-legacy") })
 		want := "[reconcile] undecided: machine \"m-legacy\" reports claude installed with " +
-			"logged_in:false — a shape only a warden older than v0.5.211-beta.1 emits, where it " +
-			"means \"no credential evidence found\", NOT \"signed out\". Declining to auto-resolve " +
-			"this member to codex, because persisting that choice is irreversible and this machine " +
-			"may well run claude (env-carried key, Bedrock/Vertex managed auth, or " +
-			"OC_CLAUDE_CRED_CHECK=0). Leaving 執行環境 unset: the start still goes out as claude, " +
-			"and if it really is signed out the spawn will say so and name the Codex exit. To " +
-			"choose deliberately instead: upgrade that machine's warden, or set this member's " +
-			"執行環境 by hand.\n"
+			"logged_in:false — Claude is signed out there (a warden older than v0.5.211-beta.1 " +
+			"sends the same shape when it merely found no credential evidence). Declining to " +
+			"auto-resolve this member to codex, because persisting that choice is irreversible " +
+			"and signing Claude back in on that machine fixes the cause. Leaving 執行環境 unset: " +
+			"the start still goes out as claude. To choose deliberately instead: sign Claude in " +
+			"on that machine, or set this member's 執行環境 by hand.\n"
 		if out != want {
 			t.Fatalf("stderr:\n got %q\nwant %q", out, want)
 		}

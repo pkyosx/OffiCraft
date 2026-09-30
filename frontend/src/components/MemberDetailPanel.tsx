@@ -124,14 +124,11 @@ export function MemberDetailPanel({
 }: MemberDetailPanelProps) {
   const { t, msg } = useI18n();
   const online = member.status === "online";
-  // Owner presence contract (T-2860): 機器 + Claude Account are RUNTIME facts that
-  // exist only while the agent is actually up. When the member is NOT awakened
-  // (presence outside online/waking) both cells must read a bare dash — never a
-  // desired_machine residual (member.machine can server-resolve to the DESIRED
-  // binding via observed_host's desired_state fallback) and never a stale/banked
-  // monitoring-session value (joinSessionRuntime keeps joining an ended session's
-  // machine/account by member id). One flag gates both cells so offline/stopping/
-  // stopped all read "—"; online/waking let the real running values through.
+  // 機器 + Claude Account are RUNTIME facts: outside online/waking they read a
+  // bare dash — never a desired_machine residual and never a stale monitoring-
+  // session value (joinSessionRuntime keeps joining an ended session's
+  // machine/account by member id). The machine cell alone also shows while
+  // stopping (see machineText below).
   const awake = member.lifecycle === "online" || member.lifecycle === "waking";
 
   // Force-stop confirm (二次確認): a *stopping* member's Stop button escalates to an
@@ -320,7 +317,7 @@ export function MemberDetailPanel({
   // back to desired_machine_id when nobody can see the member, which makes
   // `machine === desiredMachineId` true BY CONSTRUCTION for anyone not awake.
   // Reading that as "it arrived" would retire the notice on a move that never
-  // happened, so the signal is gated on `awake` exactly like the 機器 cell, and
+  // happened, so the signal is gated on `awake`, and
   // the ""/null guards keep an UNPINNED member from comparing null === null and
   // swallowing a live verdict.
   const observedMachineId = awake && member.machine ? member.machine : null;
@@ -1651,11 +1648,8 @@ export function MemberDetailPanel({
           effort: pendingEffort,
           machine: pendingMachine,
         },
-        // Gate on `awake` (owner presence contract T-2860): 機器 + Claude
-        // Account are runtime facts — not-awakened reads a bare dash, never a
-        // desired/stale residual. The worker panel answers this cell
-        // differently (「尚未分配」), which is why it stays a wrapper's answer.
-        machineText: awake ? machineName : "",
+        // ⚠️ Stopping shows the machine too (owner ruling rc-5a126c0e1b28); the account cell keeps `awake`.
+        machineText: awake || member.lifecycle === "stopping" ? machineName : "",
         accountText: (awake && member.account) || "",
         contextPct: member.contextPct,
         compactionCount: member.compactionCount,

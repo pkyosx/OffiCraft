@@ -1,0 +1,6 @@
+.runtime-login-warning {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  color: var(--color-danger);
+}

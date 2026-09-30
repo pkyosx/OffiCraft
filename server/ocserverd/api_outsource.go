@@ -14,19 +14,12 @@ import (
 
 func (s *apiServer) projectWorker(
 	worker OutsourceWorker, task *Task, unread int, now float64,
-	tele, gauge map[string]map[string]any, machineNames map[string]string,
+	tele, gauge map[string]map[string]any, machines machineDirectory,
 	accountDisplay func(string) string, typeNames map[string]string,
 ) memberDTO {
-	spawnTarget, _ := s.workerSpawnObs(worker.ID)
-	// workerSpawnObs is in-memory: a server re-exec forgets it and a healthy
-	// worker is never re-dispatched, so fall back to the restart-proof observed
-	// host (the member roster's observedHost precedence). Display-only: the
-	// identity-sweep 正身 check keeps reading workerSpawnObs, so no kill decision
-	// widens.
-	machineObserved := spawnTarget
-	if machineObserved == "" {
-		machineObserved = s.observedWorkerHost(worker.ID, tele[worker.ID])
-	}
+	// Display-only: the identity-sweep 正身 check keeps reading workerSpawnObs, so
+	// no kill decision widens.
+	machineObserved := s.workerObservedMachine(worker.ID, tele[worker.ID])
 	return s.newOutsourceMemberDTO(worker, task, outsourceWorkerProjection{
 		cfg:         s.reconcileConfigLive(),
 		unread:      unread,
@@ -36,7 +29,7 @@ func (s *apiServer) projectWorker(
 		gaugeEntry:  gauge[worker.ID],
 		spawnTarget: machineObserved,
 		machineDisplay: func(id string) string {
-			if name := machineNames[id]; name != "" {
+			if name := machines.aliases[id]; name != "" {
 				return name
 			}
 			return id
@@ -47,6 +40,8 @@ func (s *apiServer) projectWorker(
 		// Unconditional — no online / desired-state gate; see terminal_attach.go
 		// for why the empty string had to stay free.
 		terminalAttach: terminalAttachCommand(s.namespace, worker.ID),
+		loginWarnings: s.runtimeLoginWarnings(machines,
+			workerLoginPairs(machines, worker, machineObserved)),
 	})
 }
 
