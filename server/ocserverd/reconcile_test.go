@@ -2133,39 +2133,51 @@ func TestReconcileOne(t *testing.T) {
 		}
 	})
 
-	t.Run("a codex member set to a model family is not sent to a warden that cannot resolve families, and its row says why", func(t *testing.T) {
-		api, d := reconcileTestServer(t)
-		reconcileTestPut(t, d, Member{ID: "m-cx", Name: "CX", Kind: KindWarden})
-		api.telemetry.Set("m-cx", map[string]any{"runtimes": map[string]any{
-			"codex": map[string]any{"installed": true, "logged_in": true},
-		}})
-		reconcileTestOnline(t, api, "m-cx", "")
-		reconcileTestPut(t, d, Member{
-			ID: "solo", Name: "Solo", Kind: KindStaff, RoleKey: "assistant",
-			DesiredState: DesiredStateOnline, DesiredMachineID: "m-cx", Runtime: RuntimeCodex, Model: "sol",
-		})
-		before := reconcileTestRow(t, d, "solo")
-		out := hubTestStderr(t, func() {
-			got := api.reconcileOne(before, newReconcileState(), reconcileTestNow)
-			reconcileTestWantDecision(t, got, reconcileDecision{
-				Command: reconcileCmdNone, MemberID: "solo",
-				Reason: "codex model family unresolvable on target machine",
-				State:  newReconcileState(), DispatchUnlanded: true,
+	t.Run("a member set to a codex model family is not sent to a warden that cannot resolve families, and its row says why", func(t *testing.T) {
+		cases := []struct {
+			name    string
+			runtime string
+		}{
+			{name: "runtime set to codex", runtime: RuntimeCodex},
+			{name: "runtime unset, resolved to codex by a codex-only machine", runtime: ""},
+		}
+		for _, c := range cases {
+			t.Run(c.name, func(t *testing.T) {
+				api, d := reconcileTestServer(t)
+				reconcileTestPut(t, d, Member{ID: "m-cx", Name: "CX", Kind: KindWarden})
+				api.telemetry.Set("m-cx", map[string]any{"runtimes": map[string]any{
+					"codex": map[string]any{"installed": true, "logged_in": true},
+				}})
+				reconcileTestOnline(t, api, "m-cx", "")
+				reconcileTestPut(t, d, Member{
+					ID: "solo", Name: "Solo", Kind: KindStaff, RoleKey: "assistant",
+					DesiredState: DesiredStateOnline, DesiredMachineID: "m-cx", Runtime: c.runtime, Model: "sol",
+				})
+				before := reconcileTestRow(t, d, "solo")
+				out := hubTestStderr(t, func() {
+					got := api.reconcileOne(before, newReconcileState(), reconcileTestNow)
+					reconcileTestWantDecision(t, got, reconcileDecision{
+						Command: reconcileCmdNone, MemberID: "solo",
+						Reason: "codex model family unresolvable on target machine",
+						State:  newReconcileState(), DispatchUnlanded: true,
+					})
+				})
+				if want := "[reconcile] solo: target warden \"m-cx\" cannot resolve codex model family \"sol\" — fail-closed\n"; out != want {
+					t.Fatalf("stderr:\n got %q\nwant %q", out, want)
+				}
+				if got := api.hub.PendingWardenCommands("m-cx"); got != 0 {
+					t.Fatalf("a refused dispatch queued %d frame(s)", got)
+				}
+				want := before
+				want.Runtime = "codex"
+				want.LastOp = reconcileCmdStart
+				want.LastOpOK = reconcileTestFalse()
+				want.LastOpAt = reconcileTestNow
+				want.LastOpReason = "machine_unavailable: machine 'm-cx' runs a warden too old to resolve the " +
+					"Codex model family 'sol' — upgrade that machine's warden, or set a full model id"
+				reconcileTestWantRow(t, d, "solo", want)
 			})
-		})
-		if want := "[reconcile] solo: target warden \"m-cx\" cannot resolve codex model family \"sol\" — fail-closed\n"; out != want {
-			t.Fatalf("stderr:\n got %q\nwant %q", out, want)
 		}
-		if got := api.hub.PendingWardenCommands("m-cx"); got != 0 {
-			t.Fatalf("a refused dispatch queued %d frame(s)", got)
-		}
-		want := before
-		want.LastOp = reconcileCmdStart
-		want.LastOpOK = reconcileTestFalse()
-		want.LastOpAt = reconcileTestNow
-		want.LastOpReason = "machine_unavailable: machine 'm-cx' runs a warden too old to resolve the " +
-			"Codex model family 'sol' — upgrade that machine's warden, or set a full model id"
-		reconcileTestWantRow(t, d, "solo", want)
 	})
 
 	t.Run("a codex member set to a model family is started on a warden that resolves families", func(t *testing.T) {

@@ -312,7 +312,20 @@ describe("WorkerDetailPanel — honest presence states (A案 P6 member vocabular
     expect(queryTestId(document.body, "worker-detail-lastop-reason")).toBeNull();
   });
 
-  it("離線 on a missing Codex model family: the reason is worded in the viewer's language", async () => {
+  it.each([
+    [
+      "codex_model_family_unavailable: this machine's Codex (version 0.153.4) lists no terra model; " +
+        "available: gpt-6-astra, gpt-5.5",
+      "codex_model_family_unavailable: 這台機器的 Codex（版本 0.153.4）沒有 terra 系列的型號，" +
+        "可用：gpt-6-astra, gpt-5.5",
+    ],
+    [
+      "machine_unavailable: machine 'm-server-self' runs a warden too old to resolve the Codex model " +
+        "family 'sol' — upgrade that machine's warden, or set a full model id; no other machine is substituted",
+      "machine_unavailable: 機器「m-server-self」上的 OffiCraft 程式是舊版，還不認得 Codex 型號系列 sol；" +
+        "請更新那台機器上的 OffiCraft 程式，或改設完整的型號名稱。不會改派到其他機器",
+    ],
+  ])("離線 on a missing Codex model family: the reason is worded in the viewer's language (%s)", async (reason, shown) => {
     __injectMockTask(mkTask({ id: "t-1" }));
     __injectMockOutsourceWorker(
       mkWorker({
@@ -321,16 +334,11 @@ describe("WorkerDetailPanel — honest presence states (A案 P6 member vocabular
         status: "assigned",
         presence: "offline",
         machine: "Warden · mbp5",
-        lastOpReason:
-          "codex_model_family_unavailable: this machine's Codex (version 0.153.4) lists no terra model; " +
-          "available: gpt-6-astra, gpt-5.5",
+        lastOpReason: reason,
       }),
     );
     const { findByTestId } = renderOfficeAt("#office/worker/ow-1");
-    expect((await findByTestId("worker-detail-stuck-reason")).textContent).toBe(
-      "codex_model_family_unavailable: 這台機器的 Codex（版本 0.153.4）沒有 terra 系列的型號，" +
-        "可用：gpt-6-astra, gpt-5.5",
-    );
+    expect((await findByTestId("worker-detail-stuck-reason")).textContent).toBe(shown);
   });
 
   it("運行中: presence online reads the online label", async () => {

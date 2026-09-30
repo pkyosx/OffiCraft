@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os/exec"
 	"regexp"
 	"strconv"
@@ -108,8 +109,12 @@ func listCodexModels(codexBin string) ([]codexModelEntry, error) {
 		_ = cmd.Process.Kill()
 		_ = cmd.Wait()
 	}()
+	return readCodexModelList(stdin, stdout, codexModelListBudget)
+}
+
+func readCodexModelList(stdin io.Writer, stdout io.Reader, budget time.Duration) ([]codexModelEntry, error) {
 	messages := codexAppReader(stdout)
-	deadline := time.NewTimer(codexModelListBudget)
+	deadline := time.NewTimer(budget)
 	defer deadline.Stop()
 	nextID := 0
 	call := func(method string, params map[string]any) (map[string]any, error) {
@@ -123,7 +128,7 @@ func listCodexModels(codexBin string) ([]codexModelEntry, error) {
 		for {
 			select {
 			case <-deadline.C:
-				return nil, fmt.Errorf("%s timed out after %s", method, codexModelListBudget)
+				return nil, fmt.Errorf("%s timed out after %s", method, budget)
 			case msg, ok := <-messages:
 				if !ok {
 					return nil, errors.New("app-server exited before answering " + method)
