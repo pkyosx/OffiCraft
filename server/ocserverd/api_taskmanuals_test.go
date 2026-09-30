@@ -390,6 +390,23 @@ func apiTestRoleDesignSopVersions(t *testing.T, h http.Handler, token string) []
 	return versions
 }
 
+// apiTestShipBuiltinAssignee makes a built-in ship another assignee for one
+// test: the outsource paths act only on an outsource assignee, and the shipped
+// built-ins name a staff member.
+func apiTestShipBuiltinAssignee(t *testing.T, typeKey string, assignee map[string]any) {
+	t.Helper()
+	for i := range builtinTaskManuals {
+		if builtinTaskManuals[i].TypeKey != typeKey {
+			continue
+		}
+		shipped := builtinTaskManuals[i].Assignee
+		builtinTaskManuals[i].Assignee = assignee
+		t.Cleanup(func() { builtinTaskManuals[i].Assignee = shipped })
+		return
+	}
+	t.Fatalf("no built-in task manual %q", typeKey)
+}
+
 func apiTestShippedRoleDesignManual() map[string]any {
 	return map[string]any{
 		"type_key":         "builtin-role-design",

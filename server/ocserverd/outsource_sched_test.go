@@ -506,6 +506,27 @@ func TestRunOutsourceTick(t *testing.T) {
 		}
 	})
 
+	t.Run("a queued task of an unedited built-in type gets a worker launched as that manual ships", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		apiTestShipBuiltinAssignee(t, "builtin-role-design", map[string]any{
+			"kind": "outsource", "runtime": "codex", "model": "gpt-5", "effort": "high",
+		})
+		task := outsourceSchedTestQueuedTask(t, d, "T-builtin", "builtin-role-design")
+
+		api.runOutsourceTick(1700000100)
+
+		workers, err := d.ListOutsourceWorkers()
+		if err != nil {
+			t.Fatalf("ListOutsourceWorkers: %v", err)
+		}
+		if len(workers) != 1 || workers[0].TaskID != task.ID {
+			t.Fatalf("workers = %+v, want one bound to %s", workers, task.ID)
+		}
+		if w := workers[0]; w.Runtime != RuntimeCodex || w.Model != "gpt-5" || w.Effort != "high" {
+			t.Fatalf("worker launch spec = (%q, %q, %q), want (%q, %q, %q)", w.Runtime, w.Model, w.Effort, RuntimeCodex, "gpt-5", "high")
+		}
+	})
+
 	t.Run("past the handover timeout an outsource predecessor is released and loses the hold", func(t *testing.T) {
 		f := newHandoverFixture(t)
 		f.must(t, "POST", "/api/tasks", f.owner,

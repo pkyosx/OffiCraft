@@ -4306,6 +4306,33 @@ func TestHandleReassignTaskApiTasksTaskIdReassignPost(t *testing.T) {
 		})
 	})
 
+	t.Run("handing a task of an unedited built-in type to the outsource lane inherits the manual's launch spec", func(t *testing.T) {
+		_, h, d, owner := newAPITestServer(t)
+		apiTestShipBuiltinAssignee(t, "builtin-role-design", map[string]any{
+			"kind": "outsource", "runtime": "codex", "model": "gpt-5", "effort": "high",
+		})
+		if err := d.PutTask(Task{
+			ID: "T-1", Title: "新增設計角色", TypeKey: "builtin-role-design",
+			Inputs: map[string]any{"role_name": "設計"}, Status: TaskStatusNotStarted,
+			Priority: TaskPriorityMid, ExecutorKind: KindStaff, ExecutorID: "kip", CreatorID: "owner",
+		}); err != nil {
+			t.Fatalf("PutTask: %v", err)
+		}
+
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/reassign", owner, `{"target":{"kind":"outsource"}}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		got, err := d.GetTask("T-1")
+		if err != nil || got == nil {
+			t.Fatalf("GetTask: %v %v", got, err)
+		}
+		if got.OutsourceRuntime != RuntimeCodex || got.OutsourceModel != "gpt-5" || got.OutsourceEffort != "high" {
+			t.Fatalf("dispatch spec = (%q, %q, %q), want (%q, %q, %q)",
+				got.OutsourceRuntime, got.OutsourceModel, got.OutsourceEffort, RuntimeCodex, "gpt-5", "high")
+		}
+	})
+
 	t.Run("an outsource target naming a machine nothing carries answers 404", func(t *testing.T) {
 		_, h, _, owner := newAPITestServer(t)
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)

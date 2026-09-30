@@ -728,6 +728,36 @@ func TestNotifyWorkerSpawn_HonoursManualMachinePreference(t *testing.T) {
 	}
 }
 
+func TestNotifyWorkerSpawn_HonoursUneditedBuiltinManualMachinePreference(t *testing.T) {
+	s := newWorkerTestServer(t)
+	putWardenFixture(t, s, "m-other")
+	connectWarden(t, s, ServerSelfHost)
+	connectWarden(t, s, "m-other")
+	apiTestShipBuiltinAssignee(t, "builtin-role-design", map[string]any{
+		"kind": "outsource", "model": "opus", "machine": "m-other",
+	})
+	task := putTaskFixture(t, s, Task{
+		ID: "t-00000000000f", TypeKey: "builtin-role-design", Title: "x",
+		Status: TaskStatusNotStarted, Priority: TaskPriorityMid,
+		ExecutorKind: TaskExecutorOutsource, ExecutorID: "ow-f",
+	})
+	w := putWorkerFixture(t, s, OutsourceWorker{
+		ID: "ow-f", Codename: "O-15", Model: "opus", Effort: "high",
+		TaskID: task.ID, Status: WorkerStatusAssigned,
+	})
+
+	s.outsourceMu.Lock()
+	s.notifyWorkerSpawn(w, nowSecs())
+	s.outsourceMu.Unlock()
+
+	if got := len(s.hub.DrainWardenCommands(ServerSelfHost)); got != 0 {
+		t.Errorf("server-self must receive nothing, got %d frames", got)
+	}
+	if frames := s.hub.DrainWardenCommands("m-other"); len(frames) != 1 {
+		t.Fatalf("want 1 start on the machine the built-in ships, got %d", len(frames))
+	}
+}
+
 // readWorker re-reads a worker row from the DAL — the blocked-placement stamp
 // lands on the ROW, so every assertion below reads it back rather than trusting
 // the in-memory copy the caller passed in.
