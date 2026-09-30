@@ -21,9 +21,9 @@
 //   * 🔴 EVERY SHAPE THE LADDER CAN BE. Owner 2026-08-21 「按了才出現」 made the
 //     rung set a function of how far up the escalation the actor already is, and
 //     owner 2026-08-22 (「同一個按鈕 升級的概念 不是不同按鈕」) collapsed the row
-//     to ONE cell that upgrades. So the cluster is TWO buttons on a live actor
-//     (更改 ＋ the cell) and THREE on a `stopping` one (the 喚醒 wedge rescue
-//     joins them) — and the cell itself carries a different LABEL per stage,
+//     to ONE cell that upgrades. So the cluster is TWO buttons (更改 ＋ the
+//     cell) — `stopping` offers no 喚醒 (owner rc-2e1c96250169) — and the cell
+//     itself carries a different LABEL per stage,
 //     which is a distinct measurement because 強制停止 is the longest of the
 //     three and a cell that fits 停止 is no evidence that it fits that. The four
 //     cases below are therefore still four: they now vary the label inside the
@@ -88,23 +88,16 @@ const RUNG = {
 } as const;
 
 // 🔴 FOUR shapes — the four (status, stage) pairs the panels derive from the
-// wire. `stopping` also carries the 喚醒 wedge rescue ahead of the ladder cell
-// (the panel keeps 更改 there too: mappers folds presence "stopping" onto status
-// "online"), which is what makes the `stopping` cases the THREE-button worst
-// case. `ids` is a function of the panel because only 更改's testid differs.
+// wire. `ids` is a function of the panel because only 更改's testid differs.
 const CASES = [
-  { status: "online-awake" as const, stage: "none" as const, wedge: false },
-  { status: "online-awake" as const, stage: "soft" as const, wedge: false },
-  { status: "stopping" as const, stage: "soft" as const, wedge: true },
-  { status: "stopping" as const, stage: "accelerated" as const, wedge: true },
+  { status: "online-awake" as const, stage: "none" as const },
+  { status: "online-awake" as const, stage: "soft" as const },
+  { status: "stopping" as const, stage: "soft" as const },
+  { status: "stopping" as const, stage: "accelerated" as const },
 ];
 
 function idsFor(panel: (typeof PANELS)[number], c: (typeof CASES)[number]) {
-  return [
-    CHANGE_TESTID[panel],
-    ...(c.wedge ? ["member-action-spawn"] : []),
-    RUNG[c.stage],
-  ];
+  return [CHANGE_TESTID[panel], RUNG[c.stage]];
 }
 
 type Box = { x: number; y: number; width: number; height: number };

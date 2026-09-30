@@ -72,7 +72,7 @@ describe("totalCostOf", () => {
 function mkInput(over: Partial<AgentDetailVmInput> = {}): AgentDetailVmInput {
   return {
     testIdPrefix: "mp",
-    online: true,
+    presence: "online",
     awake: true,
     runtime: "claude",
     actualRuntime: "claude",
@@ -207,5 +207,16 @@ describe("buildAgentDetailVm", () => {
     );
     await vm.onRefocus!();
     expect(calls).toBe(1);
+  });
+
+  it.each([
+    ["online", true],
+    ["stopping", false],
+    ["stopped", false],
+    ["waking", false],
+    ["offline", false],
+    [undefined, false],
+  ] as const)("counts presence %s as online: %s", (presence, online) => {
+    expect(buildAgentDetailVm(mkInput({ presence })).online).toBe(online);
   });
 });

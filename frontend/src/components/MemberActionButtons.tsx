@@ -155,14 +155,11 @@ const DANGER_ACTIONS = new Set<ActionKey>([
   "force-stop",
 ]);
 
-/** The non-ladder part of each status's button set, in display order. The
- * winding-down states (`stopping` / `waking`) can WEDGE — a member can get stuck
- * `stopping` (still alive, SSE holding, pinned by a stale stop marker) or
- * mid-`waking` if the old stop command never lands (crashed warden, lost
- * signal) — so both ALSO offer Spawn (=wake) as a rescue, backed by the same
- * activate endpoint. A live session is kept in place; an offline generation
- * clears the old wind-down before the stop→start handoff. Spawn leads in those
- * states: rescue first.
+/** The non-ladder part of each status's button set, in display order. `waking`
+ * can WEDGE mid-start if the old stop command never lands (crashed warden, lost
+ * signal), so it ALSO offers Spawn (=wake) as a rescue, and Spawn leads there.
+ * `stopping` offers no Spawn at all: owner `rc-2e1c96250169` — wait for the stop
+ * to finish, then wake — on both kinds.
  * (Refocus is deliberately NOT a header action — it lives with the context cell
  * in MemberDetailPanel. Dismiss is not offered either: owner acceptance removed
  * the UI entry and DELETE /api/members stays a pure backend seam.) */
@@ -170,7 +167,7 @@ const PREFIX_SETS: Record<LifecycleStatus, ActionKey[]> = {
   offline: ["spawn"],
   waking: ["cancel", "spawn"],
   "online-awake": [],
-  stopping: ["spawn"],
+  stopping: [],
   stopped: ["spawn"],
 };
 

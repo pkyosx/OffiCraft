@@ -137,23 +137,57 @@ describe("MemberDetailPanel — 喚醒/更改 wording matches what is dispatched
     expect(onActivate).not.toHaveBeenCalled();
   });
 
-  it("says 喚醒 for a waking member, because that confirm dispatches an activate", async () => {
-    const { getByTestId, onActivate, onRelocate } = renderPanel({
+  it("offers a waking member 取消 and 喚醒 (no 更改), and that confirm dispatches an activate", async () => {
+    const { getByTestId, container, onActivate, onRelocate } = renderPanel({
       status: "waking",
       lifecycle: "waking",
       machine: "mach-a",
     });
-    fireEvent.click(await armedAction(getByTestId, "member-action-spawn"));
+    const spawn = await armedAction(getByTestId, "member-action-spawn");
+    expect(
+      Array.from(
+        container.querySelectorAll(".mp-identity__buttons button"),
+      ).map((b) => [b.getAttribute("data-testid"), b.textContent]),
+    ).toEqual([
+      ["member-action-cancel", "取消"],
+      ["member-action-spawn", "喚醒"],
+    ]);
+    fireEvent.click(spawn);
     const { title, confirm, select } = await openedDialog(getByTestId);
 
-    expect(title.textContent).toBe(zh.lifecycle.action.spawn);
-    expect(confirm.textContent).toBe(zh.lifecycle.action.spawn);
-    expect(title.textContent).not.toBe(zh.mp.change);
+    expect(title.textContent).toBe("喚醒");
+    expect(confirm.textContent).toBe("喚醒");
 
     fireEvent.change(select, { target: { value: "mach-b" } });
     fireEvent.click(confirm);
     await waitFor(() => expect(onActivate).toHaveBeenCalledWith("mach-b"));
     expect(onRelocate).not.toHaveBeenCalled();
+  });
+
+  it("offers a stopping member 更改 and no 喚醒, and that confirm wakes nothing", async () => {
+    const { getByTestId, container, onActivate, onRelocate } = renderPanel({
+      status: "online",
+      lifecycle: "stopping",
+      desiredState: "offline",
+      machine: "mach-a",
+    });
+    const row = () =>
+      Array.from(
+        container.querySelectorAll(".mp-identity__buttons button"),
+      ).map((b) => [b.getAttribute("data-testid"), b.textContent]);
+    expect(row()).toEqual([
+      ["mp-change", "更改"],
+      ["member-action-accelerated-stop", "加速停止"],
+    ]);
+
+    fireEvent.click(await armedAction(getByTestId, "mp-change"));
+    const { title, confirm, select } = await openedDialog(getByTestId);
+    expect(title.textContent).toBe("更改");
+    expect(confirm.textContent).toBe("更改");
+    fireEvent.change(select, { target: { value: "mach-b" } });
+    fireEvent.click(confirm);
+    await waitFor(() => expect(onRelocate).toHaveBeenCalledWith("mach-b"));
+    expect(onActivate).not.toHaveBeenCalled();
   });
 });
 

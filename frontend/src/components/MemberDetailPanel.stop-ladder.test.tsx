@@ -85,7 +85,7 @@ beforeEach(() => {
   Element.prototype.scrollIntoView = vi.fn();
 });
 
-describe("MemberDetailPanel — the 停止 ladder holds while a rung is in flight", () => {
+describe("MemberDetailPanel — the 停止 ladder", () => {
   it("sends ONE deactivate for two clicks on 停止", async () => {
     const gate = deferred();
     const onDeactivate = vi.fn(() => gate.promise);
@@ -139,8 +139,7 @@ describe("MemberDetailPanel — the 停止 ladder holds while a rung is in fligh
         />
       </I18nProvider>,
     );
-    // In `stopping` the panel offers 喚醒 ＋ the ONE ladder cell, which at this
-    // stage IS 加速停止 (owner 2026-08-22 — 停止 is not kept beside it any more).
+    // In `stopping` the ONE ladder cell at this stage IS 加速停止.
     // The panel mounts already at that stage, so LADDER_ARM_MS is not in play
     // and the in-flight case this pins is the one the owner reaches by pressing
     // 加速停止 twice.
@@ -148,5 +147,90 @@ describe("MemberDetailPanel — the 停止 ladder holds while a rung is in fligh
     fireEvent.click(accelerated);
     fireEvent.click(accelerated);
     await waitFor(() => expect(onAcceleratedStop).toHaveBeenCalledTimes(1));
+  });
+
+  it.each([
+    ["member-action-stop", { lifecycle: "online" }],
+    ["member-action-accelerated-stop", { lifecycle: "stopping", desiredState: "offline" }],
+    ["member-action-cancel", { lifecycle: "waking", status: "waking" }],
+  ] as const)(
+    "a rejected %s says 操作失敗，請稍後重試",
+    async (testId, over) => {
+      const reject = vi.fn(async () => {
+        throw new Error("http 500");
+      });
+      const { getByTestId, findByTestId, queryByTestId } = render(
+        <I18nProvider>
+          <MemberDetailPanel
+            member={mkMember(over)}
+            onBack={vi.fn()}
+            onActivate={vi.fn()}
+            onRelocate={vi.fn()}
+            onDeactivate={reject}
+            onAcceleratedStop={reject}
+          />
+        </I18nProvider>,
+      );
+      expect(queryByTestId("mp-stop-error")).toBeNull();
+      fireEvent.click(getByTestId(testId));
+      expect((await findByTestId("mp-stop-error")).textContent).toBe(
+        "操作失敗，請稍後重試",
+      );
+    },
+  );
+
+  it("a retry of a rejected 停止 clears 操作失敗，請稍後重試", async () => {
+    const onDeactivate = vi
+      .fn<() => Promise<void>>()
+      .mockRejectedValueOnce(new Error("http 500"))
+      .mockResolvedValueOnce(undefined);
+    const { getByTestId, findByTestId, queryByTestId } = render(
+      <I18nProvider>
+        <MemberDetailPanel
+          member={mkMember()}
+          onBack={vi.fn()}
+          onActivate={vi.fn()}
+          onRelocate={vi.fn()}
+          onDeactivate={onDeactivate}
+        />
+      </I18nProvider>,
+    );
+    fireEvent.click(getByTestId("member-action-stop"));
+    await findByTestId("mp-stop-error");
+    await waitFor(() =>
+      expect((getByTestId("member-action-stop") as HTMLButtonElement).disabled).toBe(false),
+    );
+    fireEvent.click(getByTestId("member-action-stop"));
+    await waitFor(() => expect(onDeactivate).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(queryByTestId("mp-stop-error")).toBeNull());
+  });
+
+  it("a rejected 強制停止 closes its confirm and says 操作失敗，請稍後重試", async () => {
+    const onForceStop = vi.fn(async () => {
+      throw new Error("http 500");
+    });
+    const { getByTestId, findByTestId, queryByTestId } = render(
+      <I18nProvider>
+        <MemberDetailPanel
+          member={mkMember({
+            lifecycle: "stopping",
+            desiredState: "offline",
+            refocusOp: "accelerated_stop",
+          })}
+          onBack={vi.fn()}
+          onActivate={vi.fn()}
+          onRelocate={vi.fn()}
+          onDeactivate={vi.fn()}
+          onForceStop={onForceStop}
+        />
+      </I18nProvider>,
+    );
+    fireEvent.click(getByTestId("member-action-force-stop"));
+    fireEvent.click(await findByTestId("mp-force-stop-confirm-btn"));
+    expect((await findByTestId("mp-stop-error")).textContent).toBe(
+      "操作失敗，請稍後重試",
+    );
+    expect(onForceStop).toHaveBeenCalledTimes(1);
+    expect(queryByTestId("mp-force-stop-confirm")).toBeNull();
   });
 });

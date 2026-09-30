@@ -77,6 +77,7 @@ export interface Messages {
   chatOfflineTitle: (name: string) => string;
   chatOfflineQueueHint: (name: string) => string;
   chatWakeQueueHint: (name: string) => string;
+  chatStoppingQueueHint: (name: string) => string;
   chatComposerOffline: (name: string) => string;
   chatInterAgentExpand: (count: number) => string;
   // ── member panel ──
@@ -300,6 +301,7 @@ export function makeMessages(t: Dict, language: Lang): Messages {
     chatOfflineQueueHint: (name) =>
       `${chat.offlineQueueHintLead}${sp}${name} ${chat.offlineQueueHintTail}`,
     chatWakeQueueHint: (name) => `${name} ${chat.wakeQueueHintSuffix}`,
+    chatStoppingQueueHint: (name) => `${name} ${chat.stoppingQueueHintSuffix}`,
     chatComposerOffline: (name) => `${name} ${chat.composerOfflineSuffix}`,
     // Only the plural BRANCH is code; both branches' words are overridable.
     chatInterAgentExpand: (count) =>

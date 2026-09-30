@@ -17,13 +17,9 @@
 //
 // 🔴 The row is NOT one shape. Owner 2026-08-21 made the ladder REVEALED, and
 // owner 2026-08-22 made it ONE BUTTON THAT UPGRADES (「同一個按鈕 升級的概念 不是
-// 不同按鈕」), so the cluster is 更改 ＋ at most the 喚醒 wedge rescue ＋ exactly
-// one ladder cell: TWO buttons on a live actor, THREE on a `stopping` one (the
-// panel keeps 更改 there because mappers folds presence "stopping" onto status
-// "online"). Both counts have to be measured — three is the widest the card ever
-// has to hold now, two is what 375px spends most of its time in — and so does
-// every rung the one cell can carry, because 強制停止 is the longest label and a
-// cell that fits 停止 is not evidence that it fits that.
+// 不同按鈕」), so the cluster is 更改 ＋ exactly one ladder cell, and every rung
+// the one cell can carry has to be measured, because 強制停止 is the longest
+// label and a cell that fits 停止 is not evidence that it fits that.
 //
 // 🔴 BOTH PANELS, from ONE story. 正職 and 外包 render the same
 // `.mp-identity__actions > .mp-identity__buttons` shell around the same

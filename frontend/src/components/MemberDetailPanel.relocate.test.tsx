@@ -173,48 +173,31 @@ describe("MemberDetailPanel — unified wake/change settings", () => {
       expect((getByTestId("member-action-spawn") as HTMLButtonElement).disabled).toBe(false),
     );
     fireEvent.click(getByTestId("member-action-spawn"));
-    const note = getByTestId("mp-settings-intent-note").textContent ?? "";
-    expect(note).toContain(zh.mp.settingsIntentNote);
-    expect(note).not.toContain(zh.mp.settingsIntentNoteReported);
-  });
-
-  it("saves an OFFLINE member's settings without waking it (creator ruling r3)", async () => {
-    // Two capabilities the unified dialog had silently removed: editing an
-    // offline member's model/effort without starting it, and re-pinning it for
-    // its next wake. Both are restored through this second action, and the
-    // discriminating assertion is that activate is NOT reached — otherwise
-    // "save without waking" wakes.
-    const { getByTestId, onActivate, onRelocate } = renderPanel();
-    await waitFor(() =>
-      expect((getByTestId("member-action-spawn") as HTMLButtonElement).disabled).toBe(false),
+    expect(getByTestId("mp-settings-intent-note").textContent).toBe(
+      "按下後會用這些設定開起來。",
     );
-    fireEvent.click(getByTestId("member-action-spawn"));
-    const dialog = getByTestId("me-runtime-select").closest("[role=dialog]")!;
-    const select = dialog.querySelector("select.machine-picker__select") as HTMLSelectElement;
-    await waitFor(() => expect(select.options).toHaveLength(2));
-    fireEvent.change(getByTestId("me-model-input"), { target: { value: "haiku" } });
-    fireEvent.change(select, { target: { value: "mach-b" } });
-    fireEvent.click(getByTestId("mp-settings-save-only"));
-
-    await waitFor(() => expect(wireCalls).toEqual(["patch", "relocate"]));
-    expect(patchMember).toHaveBeenCalledWith(
-      "mira",
-      expect.objectContaining({ model: "haiku" }),
-    );
-    expect(onRelocate).toHaveBeenCalledWith("mach-b");
-    expect(onActivate).not.toHaveBeenCalled();
   });
 
-  it("offers no save-without-waking action for a LIVE member (that is what 更改 is)", async () => {
-    const { getByTestId, queryByTestId } = renderPanel({
-      status: "online",
-      lifecycle: "online",
-      machine: "mach-a",
-    });
-    fireEvent.click(getByTestId("mp-change"));
-    await waitFor(() => expect(getByTestId("me-runtime-select")).toBeTruthy());
-    expect(queryByTestId("mp-settings-save-only")).toBeNull();
-  });
+  it.each([
+    ["stopping", "online", "mp-change", "按下後會存下新設定，它停下後會用新設定重新開起來。"],
+    ["stopped", "offline", "member-action-spawn", "按下後會用這些設定開起來。"],
+    ["waking", "waking", "member-action-spawn", "按下後會用這些設定開起來。"],
+  ] as const)(
+    "a %s member's settings note (status %s, opened by %s) reads %s",
+    async (lifecycle, status, opener, text) => {
+      const { getByTestId } = renderPanel({
+        lifecycle,
+        status,
+        desiredState: "offline",
+        actualModel: "",
+      });
+      await waitFor(() =>
+        expect((getByTestId(opener) as HTMLButtonElement).disabled).toBe(false),
+      );
+      fireEvent.click(getByTestId(opener));
+      expect(getByTestId("mp-settings-intent-note").textContent).toBe(text);
+    },
+  );
 
   it("keeps a pin on an OFFLINE machine instead of silently re-pinning it", async () => {
     // 🔴 Regression guard (independent review r2). The select lists online
@@ -254,23 +237,6 @@ describe("MemberDetailPanel — unified wake/change settings", () => {
 
     await waitFor(() => expect(wireCalls).toEqual(["patch"]));
     expect(onRelocate).not.toHaveBeenCalled();
-  });
-
-  it("hides the save-without-waking action for a WAKING member too (its confirm activates)", async () => {
-    const { getByTestId, queryByTestId } = renderPanel({
-      status: "waking",
-      lifecycle: "waking",
-      machine: "mach-a",
-    });
-    await waitFor(() =>
-      expect((getByTestId("member-action-spawn") as HTMLButtonElement).disabled).toBe(false),
-    );
-    fireEvent.click(getByTestId("member-action-spawn"));
-    await waitFor(() => expect(getByTestId("me-runtime-select")).toBeTruthy());
-    expect(queryByTestId("mp-settings-save-only")).toBeNull();
-    // …and a waking member is not offered 更改 either: its confirm is an
-    // activate, and 更改 promises a graceful handover (guard gap MED-5).
-    expect(queryByTestId("mp-change")).toBeNull();
   });
 
   it("still prints the pending target for an OFFLINE member, beside a dashed cell", async () => {

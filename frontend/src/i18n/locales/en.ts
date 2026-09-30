@@ -660,11 +660,9 @@ export const en: Dict = {
     runtime: "Runtime",
     context: "Memory used",
     estimatedCost: "est. $",
-    notAssigned: "Not yet assigned",
     // T-7526: the four presence words retired with the 狀態 cell — see zh.ts.
     // ── T-32e1/T-f190 lifecycle ops (aligned with the member detail panel) ──
     refocus: "Refocus",
-    refocusOfflineHint: "Refocus requires the worker online",
     refocusing: "Refocusing…",
     refocusDone: "Sent",
     refocusError: "Refocus failed",
@@ -674,12 +672,9 @@ export const en: Dict = {
     // `lifecycle.action.spawn` on both panels — see zh.ts.
     stop: "Stop",
     stopping: "Stopping…",
-    stopError: "Action failed, please retry",
     modelSave: "Save",
     modelCancel: "Cancel",
     modelError: "Save failed, please retry",
-    modelNextSpawnNote:
-      "Takes effect now while working; on the next wake if only assigned",
     relocateTitle: "Choose a machine to move to",
     relocateConfirm: "Move to this machine",
     noOnlineMachine: "No online machine",
@@ -991,6 +986,7 @@ export const en: Dict = {
     offlineQueueHintTail: "will read it once back online.",
     // T-94c1 wake row (offline/stopped composer): queue notice + in-place wake.
     wakeQueueHintSuffix: "is offline — your message will queue, or wake them now",
+    stoppingQueueHintSuffix: "is stopping — your message will queue",
     wakeButton: "Wake",
     wakePending: "Waking…",
     emptyRange: "No messages in this range yet",
@@ -1222,9 +1218,14 @@ export const en: Dict = {
     renamePlaceholder: "Enter name",
     wake: "Wake",
     change: "Change",
-    settingsSaveOnly: "Save without waking",
     modelReportedTag: "reported at last boot",
-    settingsIntentNote: "These are the values to wake WITH.",
+    settingsNoteOnline:
+      "Once confirmed, it wraps up what it is doing, then starts again with the new settings.",
+    settingsNoteAfterStop:
+      "Once confirmed, the new settings are saved, and it starts again with them after it has stopped.",
+    settingsNoteWake: "Once confirmed, it starts with these settings.",
+    settingsNoteWaking:
+      "Once confirmed: a new machine restarts it there right away with the new settings; a new model, runtime or effort alone takes effect the next time it starts.",
     settingsIntentNoteReported: "The model shown above is the one actually in use now, which can differ from what is set here.",
     wakeManual: "Wake manually",
     // Instant feedback after clicking Wake, before server presence catches up.
@@ -1251,13 +1252,8 @@ export const en: Dict = {
     modelMachineDefault: "Use this machine's Codex default model",
     claudeAccount: "Claude Account",
     codexAccount: "Codex Account",
-    // T-b6d9 — see the zh note: an online member now hands over automatically
-    // on save and comes back on the new value; only an offline one waits for a
-    // wake. The key keeps its historical spelling (theme wording overlays are
-    // keyed on it); the copy is the part humans read.
-    modelEffortNextWakeNote:
-      "Applied via an automatic handover when online; on the next wake when offline",
     modelEffortError: "Save failed. Please try again.",
+    stopError: "Action failed, please retry",
     runtime: "Runtime",
     machine: "Machine",
     machineMovingToLabel: "→ Moving to",

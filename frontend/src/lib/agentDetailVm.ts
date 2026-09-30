@@ -106,20 +106,10 @@ export function totalCostOf(
 export interface AgentDetailVmInput {
   /** data-testid prefix — each page's existing stable test surface. */
   testIdPrefix: string;
-  /** The agent's session is really up: gates the refocus button (the server
-   * 409s an offline refocus on both kinds).
-   *
-   * ⚠️ The two wrappers do NOT compute this the same way, and folding them was
-   * deliberately left out of T-14 item 2 (out of its scope: the three rulings
-   * it carried were 模型 provenance, the 模型/思考強度 gate, and the machine
-   * option list). The member panel reads `member.status`, the FROZEN tri-state,
-   * and `toMember` collapses `stopping → online` there — so a member winding
-   * down still counts as online here. The worker panel reads
-   * `worker.presence === "online"`, the five-state word, where `stopping` is
-   * its own state and does NOT count. ⇒ a member may refocus mid-wind-down and
-   * a worker may not. Nothing today says which is right; settling it is a
-   * behaviour change and needs an owner ruling of its own. */
-  online: boolean;
+  /** Wire `presence`, the five-state word. Only `online` gates the refocus
+   * button; `stopping` does not count (owner `rc-137e6bf933d5`: 停止中／已停止
+   * 正職外包都灰掉), on both kinds. */
+  presence: string | undefined;
   /** The agent is awakened (presence online or waking) — owner presence
    * contract T-2860. Gates 模型 / 思考強度 here, and the wrapper applies it to
    * its own Claude Account cell (its 機器 cell also shows while stopping). */
@@ -210,6 +200,24 @@ export interface AgentDetailVmInput {
 const START_OPS = ["start", "worker_start"];
 const STOP_OPS = ["stop", "worker_stop"];
 
+/** Each sentence states what the dialog's confirm will actually cause, and a
+ * 喚醒 dialog's confirm starts the agent whatever its presence. Both kinds show
+ * the same sentence: owner `rc-71d6a9d0ce54`, do not give one panel its own. */
+export function settingsNoteKey(
+  dialog: "change" | "wake",
+  presence: string | undefined,
+):
+  | "settingsNoteOnline"
+  | "settingsNoteAfterStop"
+  | "settingsNoteWake"
+  | "settingsNoteWaking" {
+  if (dialog === "wake") return "settingsNoteWake";
+  if (presence === "online") return "settingsNoteOnline";
+  if (presence === "stopping") return "settingsNoteAfterStop";
+  if (presence === "waking") return "settingsNoteWaking";
+  return "settingsNoteWake";
+}
+
 /** Build the ONE view model both detail panels render through.
  *
  * The three rules this settled, each an owner ruling on 2026-08-28 rather than
@@ -228,7 +236,7 @@ export function buildAgentDetailVm(input: AgentDetailVmInput): AgentDetailVM {
   const lastOp = input.lastOp ?? "";
   return {
     testIdPrefix: input.testIdPrefix,
-    online: input.online,
+    online: input.presence === "online",
     runtime: input.runtime || "claude",
     // The READOUT is the REPORTED runtime — the honest dash until something
     // reports one. The configured value above only labels the account row.

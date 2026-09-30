@@ -53,9 +53,8 @@ func TestListOutsourceWorkers_RuntimeFold(t *testing.T) {
 
 	workerID := assignOneWorker(t, api)
 
-	// No online warden was connected, so the tick found no eligible host: the
-	// worker is assigned but NEVER dispatched → last_spawn_target "" → the panel
-	// renders 「尚未分配」, never a fabricated machine name.
+	// No online warden was connected, so the tick found no eligible host and
+	// never dispatched the worker.
 	rows := listWorkersAs(t, api, wireOwnerID)
 	if len(rows) != 1 || rows[0].Machine != "" {
 		t.Fatalf("never-dispatched worker must serve empty machine, got %+v", rows)
@@ -725,8 +724,7 @@ func TestRelocateNeverDispatchedWorker(t *testing.T) {
 	api := newTasksTestServer(t)
 	api.noOutsource = true
 	workerID := assignOneWorker(t, api)
-	// No online warden at assign time → the worker was never dispatched: its
-	// in-memory spawn target is empty (the 尚未分配 shape).
+	// No online warden at assign time, so the worker was never dispatched.
 	if api.workerSpawnTarget[workerID] != "" {
 		t.Fatalf("precondition: worker must be undispatched, target=%q", api.workerSpawnTarget[workerID])
 	}
@@ -1211,13 +1209,11 @@ func TestListOutsourceWorkers_PresenceUsesLivePresence(t *testing.T) {
 	}
 }
 
-// TestListOutsourceWorkers_MachineSurvivesReexec (T-c23a): the cockpit machine
-// cell must survive a server re-exec. The spawn observation (workerSpawnTarget)
-// is in-memory since the P7d fold: a restart forgets it, and a HEALTHY live
-// worker is never re-dispatched, so the cell read 「尚未分配」 forever while the
-// session kept working. The projection now falls back to the restart-proof
-// observed host: live SSE machine claim first, then the worker's self-reported
-// telemetry `machine` — the same precedence the member observedHost fold trusts.
+// The spawn observation (workerSpawnTarget) is in-memory, so a re-exec forgets
+// it, and a healthy live worker is never re-dispatched. `machine` therefore
+// falls back to the restart-proof observed host: live SSE machine claim first,
+// then the worker's self-reported telemetry `machine` — the same precedence the
+// member observedHost fold trusts.
 func TestListOutsourceWorkers_MachineSurvivesReexec(t *testing.T) {
 	api := newTasksTestServer(t)
 	api.noOutsource = true
@@ -1249,7 +1245,7 @@ func TestListOutsourceWorkers_MachineSurvivesReexec(t *testing.T) {
 		t.Fatalf("connect worker listener: %v", err)
 	}
 	if rows := listWorkersAs(t, api, wireOwnerID); rows[0].Machine != "MBP 5" {
-		t.Fatalf("after re-exec + SSE reconnect: machine = %q, want MBP 5 (尚未分配 regression)",
+		t.Fatalf("after re-exec + SSE reconnect: machine = %q, want MBP 5 (machine lost on re-exec)",
 			rows[0].Machine)
 	}
 

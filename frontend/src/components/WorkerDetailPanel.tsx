@@ -9,9 +9,15 @@ import {
   runtimeLabel,
   slot,
 } from "./AgentDetailPanel";
-import { pendingChangeHint, pendingModelHint, reportedMachine } from "../lib/pendingChange";
+import { pendingChangeHint, pendingModelHint } from "../lib/pendingChange";
 import { localizeLastOpReason } from "../lib/lastOpReason";
-import { buildAgentDetailVm, machineOptions } from "../lib/agentDetailVm";
+import {
+  buildAgentDetailVm,
+  machineOptions,
+  settingsNoteKey,
+} from "../lib/agentDetailVm";
+import { DispatchAlert } from "./DispatchAlert";
+import type { MemberActivateResult, MemberRelocateResult } from "../types";
 import { ModelEffortEditor } from "./ModelEffortEditor";
 import { ChevronLeftIcon, ChevronRightIcon } from "./icons";
 import { AvatarEditor } from "./AvatarEditor";
@@ -53,8 +59,9 @@ interface WorkerDetailPanelProps {
   /** Relocate the worker to a machine (owner 改機器 — T-f190). Undefined ⇒ the
    * 改機器 affordance is hidden (the office entry always wires it; a caller that
    * cannot relocate simply omits it). The panel leans on the member
-   * SSE refetch for the post-move refresh, so the handler need only fire. */
-  onRelocate?: (machineId: string) => Promise<void>;
+   * SSE refetch for the post-move refresh; the resolved receipt is read for the
+   * "nothing was dispatched" alert. */
+  onRelocate?: (machineId: string) => Promise<MemberRelocateResult | void>;
   /** Refocus (換手 — T-32e1): kill+respawn the session onto the SAME task. The
    * worker twin of the member refocus. Undefined ⇒ the affordance is hidden. */
   onRefocus?: () => Promise<void>;
@@ -72,10 +79,11 @@ interface WorkerDetailPanelProps {
    * This panel gates it behind its own confirm. */
   onForceStop?: () => Promise<void>;
   /** Wake (喚醒 — T-7526): clear the stop and re-dispatch through the shared
-   * member activation endpoint. */
-  onWake?: () => Promise<void>;
-  /** Change model/effort (換 model — T-f190): active → takes effect now,
-   * assigned → next spawn. Undefined ⇒ the model cell is read-only. */
+   * member activation endpoint. The resolved receipt is read:
+   * `activationPending` raises the same alert the member panel does. */
+  onWake?: () => Promise<MemberActivateResult | void>;
+  /** Change runtime/model/effort (換 model). When it lands depends on
+   * presence — the dialog's note (`settingsNoteKey`) says which. */
   onSetModel?: (
     runtime: "claude" | "codex",
     model: string,
@@ -101,7 +109,7 @@ interface WorkerDetailPanelProps {
  * 思考強度 and 機器 carry no in-place editor, and every edit goes through the ONE
  * dialog the identity card's action row opens — 更改 while it is running, 喚醒
  * while it is not (owner 2026-07-31). Everything the
- * worker has not really reported renders an honest dash / 「尚未分配」 — never a
+ * worker has not really reported renders an honest dash — never a
  * fabricated value (the shared panel's honest gate, the member's).
  */
 export function WorkerDetailPanel({
@@ -128,17 +136,14 @@ export function WorkerDetailPanel({
   // ── honest presence projection (A案 P6 — the ONE member vocabulary) ────────
   // presence (wire `presence`, replacing the retired spawn_state) is the
   // REAL-liveness authority, distinct from the lifecycle status: a worker whose
-  // session is not actually up is never drawn as a live green row. Machine =
-  // the ACTUAL dispatch target (already resolved to a display name
-  // server-side); "" ⇒ never dispatched ⇒ 「尚未分配」, never a fabricated
-  // machine name.
-  const online = worker.presence === "online";
+  // session is not actually up is never drawn as a live green row.
   // Awakened = the same two presences the member panel reads (owner presence
   // contract T-2860). It gates the 模型 / 思考強度 readout in the SHARED vm
   // assembly: a worker that is not up reports no model, so the cell reads the
   // dash rather than a value left over from a session that has ended (owner
   // ruling `rc-8a129bc3a188`, option [1]).
   const awake = worker.presence === "online" || worker.presence === "waking";
+  const reportedModelOnScreen = awake && (worker.actualModel ?? "") !== "";
   const offline = worker.presence === "offline";
   // 🔴 stopping and stopped are NO LONGER one mode (T-ed79). They were, while
   // 停止 killed the session on the spot: `stopping` was a blink between the
@@ -167,65 +172,43 @@ export function WorkerDetailPanel({
   // left alone (widening it would reach the 正職 roster, which has no such state).
   const released = worker.status === "released";
   // Which of the two things the ONE settings dialog does when confirmed: wake a
-  // worker that is not running, or change a running one. Same split as the
-  // member panel's `online`, and it decides the dialog's title + confirm word
-  // too, so the button can never promise something the click does not do.
-  // 🔴 stoppingNow is deliberately on the WAKE side of this particular split,
-  // which is the opposite of where the button row puts it, and both are right
-  // because they answer different questions. The row asks "can the owner still
-  // escalate?" (yes — the session is alive and working its close-out); this
-  // asks "what does the ONE settings dialog DO when confirmed?", and for a
-  // worker the owner has already held down the answer is 喚醒: /restart is
-  // NEVER refused (the old over-spawn 409 is gone, T-ed79 #10 — it has exactly
-  // two preconditions, the row exists and it is not released), so the confirm
-  // really does revive it. That is what makes the ladder's first rung — Spawn,
-  // which opens this same dialog — a genuine rescue rather than a button that
-  // opens a dialog promising 更改 and then changes nothing on a held-down
-  // worker.
-  //
-  // ⚠️ THE "really does revive it" HALF WAS AN INFERENCE UNTIL T-65 包④, and
-  // 包④ is precisely what could have falsified it. The revival used to BE the
-  // kill: /restart killed the live close-out session and dispatched the
-  // replacement in the same request. 包④ deleted that kill (owner 2026-09-06,
-  // rc-1f591528a6d0 圈 [0]: 「正在跑就不動它」), so this sentence had to be
-  // re-earned on a different mechanism, and it was — MEASURED, end to end, by
-  // TestWakeOnAStoppingWorkerBringsItBackAfterTheCloseOut
-  // (server/ocserverd/worker_wake_on_stopping_revives_t65_test.go): the press
-  // flips desired_state to online and clears stopping_since → the agent
-  // finishes its close-out and files report_stopped, which stops the session
-  // through the handover funnel and starts nothing → the next outsource tick
-  // sees an online intent with no session and sends a plain start. It is
-  // SLOWER than it was (one tick plus however long the close-out takes) and it
-  // no longer throws away the half-written work, which is the trade the owner
-  // asked for. If any step of that regresses, this line becomes a lie with no
-  // visible symptom:
-  // the owner confirms, gets a 200, and the worker never comes back.
-  const wakeMode = noLiveSession || stoppingNow;
-  const machineText = worker.machine || t.workerDetail.notAssigned;
-  // ── the four "changed, not applied yet" hints (T-7f28) ────────────────────
-  // This panel had NONE of these — not even for 機器, which the member panel
-  // has had all along. Same rule, same shared helper, so the two panels cannot
-  // drift apart again. `worker.machine` is the display name the server already
-  // resolved, so the pin is resolved the same way before they are compared.
-  //
-  // 🔴 BOTH SIDES ARE RESOLVED TO DISPLAY NAMES BEFORE THEY ARE COMPARED. The
-  // worker wire is asymmetric: `machine` arrives ALREADY resolved server-side
-  // ("Mac Studio (mac-1)") while `desired_machine_id` and `actual_machine` are
-  // raw ids. Comparing a display name against a raw id makes every correctly
-  // placed worker look mid-relocation — the false-positive twin of the bug
-  // this ticket exists to kill, and it would have shipped as a hint on every
-  // healthy row.
-  const machineDisplay = (id: string) =>
-    machines.find((m) => m.machineId === id)?.displayName || id;
-  const desiredMachineDisplay = machineDisplay(worker.desiredMachineId ?? "");
-  const pendingMachine = pendingChangeHint(
-    desiredMachineDisplay,
-    reportedMachine(
-      worker.machine ?? "",
-      machineDisplay(worker.actualMachine ?? ""),
-    ),
-    msg.workerMachineMovingTo,
-  );
+  // worker that is not running, or change a running one. It decides the
+  // dialog's title + confirm word too, so the button can never promise
+  // something the click does not do.
+  // 🔴 A `stopping` worker is on the CHANGE side: owner `rc-2e1c96250169` — no
+  // 喚醒 while it is stopping; wait for the stop to finish, then wake.
+  const wakeMode = noLiveSession;
+  // 🔴 `machine` arrives as the server's alias‖id, while the registry names a
+  // machine by its displayName — the same machine can reach this panel under two
+  // spellings, so every machine value is resolved through the registry before
+  // it is shown or compared. The reported side is the live dispatch target
+  // first and the durable landing only when there is none (the server's own
+  // pending-machine rule): right after a move `machine` is already the new host
+  // while `actual_machine` is still the old one.
+  const registryEntry = (value: string) =>
+    machines.find((m) => m.machineId === value || m.displayName === value);
+  const machineDisplay = (value: string) =>
+    registryEntry(value)?.displayName || value;
+  const shownMachine = machineDisplay(worker.machine ?? "");
+  // 機器 says only where it is running now; not running ⇒ the dash (owner
+  // `rc-25c5679371c3`, both kinds).
+  const machineText = awake || stoppingNow ? shownMachine : "";
+  const desiredMachineId = worker.desiredMachineId ?? "";
+  const reportedMachineRaw = worker.machine || worker.actualMachine || "";
+  const reportedMachineId = registryEntry(reportedMachineRaw)?.machineId ?? "";
+  const pendingMachine =
+    desiredMachineId && reportedMachineId
+      ? pendingChangeHint(
+          desiredMachineId,
+          reportedMachineId,
+          msg.workerMachineMovingTo,
+          machineDisplay(desiredMachineId),
+        )
+      : pendingChangeHint(
+          machineDisplay(desiredMachineId),
+          machineDisplay(reportedMachineRaw),
+          msg.workerMachineMovingTo,
+        );
   const pendingRuntime = pendingChangeHint(
     worker.runtime || "claude",
     worker.actualRuntime ?? "",
@@ -312,10 +295,10 @@ export function WorkerDetailPanel({
     setStopError(false);
     try {
       await onForceStop();
-      setForceStopConfirm(false);
     } catch {
       setStopError(true);
     } finally {
+      setForceStopConfirm(false);
       setStopBusy(false);
     }
   }
@@ -326,15 +309,6 @@ export function WorkerDetailPanel({
   // itself is READ-ONLY: the cells state what is currently true, every edit goes
   // through here — the member panel's shape since T-927a, now the outsource
   // panel's too.
-  //
-  // ⚠️ It deliberately has NO 「只儲存，不喚醒」 twin button, and that is NOT the
-  // member panel's shape (the member offers one). The reason is the wire: the
-  // member's 「只儲存」 is a PATCH + a placement-only relocate, neither of which
-  // starts anything. The worker's relocate is not placement-only — it kills and
-  // re-dispatches unless desired_state is already offline — so a worker button
-  // promising "saved, not started" would be a lie for exactly the workers whose
-  // session merely died (desired_state still online). Offering it would need a
-  // pin-only worker endpoint, i.e. a frozen-wire change (§13).
   const onlineMachines = machines.filter((m) => m.online);
   // The pinned machine stays in the list even when it is not online — labelled
   // 離線 and disabled. That rule is now the SHARED one (lib/agentDetailVm), not
@@ -356,6 +330,19 @@ export function WorkerDetailPanel({
   );
   const [settingsBusy, setSettingsBusy] = useState(false);
   const [settingsError, setSettingsError] = useState("");
+  const [wakeUndispatched, setWakeUndispatched] = useState(false);
+  const [relocateUndispatched, setRelocateUndispatched] = useState(false);
+  const wakeLanded = !noLiveSession;
+  useEffect(() => {
+    if (wakeLanded) setWakeUndispatched(false);
+  }, [wakeLanded]);
+  const relocateLanded =
+    awake &&
+    (worker.desiredMachineId ?? "") !== "" &&
+    worker.actualMachine === worker.desiredMachineId;
+  useEffect(() => {
+    if (relocateLanded) setRelocateUndispatched(false);
+  }, [relocateLanded]);
   // Neither OfficePage nor MonitorPage passes a `key`, so switching which worker
   // the panel shows is a prop change, not a remount: an open dialog would
   // survive holding the PREVIOUS worker's draft, and one confirm would write
@@ -363,6 +350,8 @@ export function WorkerDetailPanel({
   useEffect(() => {
     setSettingsOpen(false);
     setSettingsError("");
+    setWakeUndispatched(false);
+    setRelocateUndispatched(false);
   }, [worker.id]);
   // …and that reset is a RESET, not a CANCEL: a submit still in flight resolves
   // after it. Same render-time ref discipline the member panel uses.
@@ -423,6 +412,8 @@ export function WorkerDetailPanel({
     }
     setSettingsBusy(true);
     setSettingsError("");
+    setWakeUndispatched(false);
+    setRelocateUndispatched(false);
     const firedFor = worker.id;
     try {
       // 🔴 The model op goes FIRST. A relocate kills the session and re-dispatches
@@ -433,13 +424,27 @@ export function WorkerDetailPanel({
       if (launchChanged) {
         await onSetModel?.(settingsRuntime, settingsModel.trim(), settingsEffort);
       }
-      if (machineChanged) await onRelocate?.(settingsMachineId);
+      const relocated = machineChanged
+        ? await onRelocate?.(settingsMachineId)
+        : undefined;
       // …and the wake goes LAST, after both intents are stored, so the session
-      // that comes up is the one the owner just described. For a STOPPED worker
-      // the two ops above are pure persistence (the server refuses to start
-      // anything while desired_state=offline), so this is the only dispatch.
-      if (wakeMode) await onWake?.();
+      // that comes up is the one the owner just described.
+      const woken = wakeMode ? await onWake?.() : undefined;
       if (shownWorkerIdRef.current !== firedFor) return;
+      // ⚠️ A worker's relocation_pending is ALSO true when the move was only
+      // queued behind a stop (desired_state offline — stopped, or stopping), and
+      // that is by design, not a failure; the staff receipt has no such case.
+      // In wakeMode the wake's own receipt is the verdict on whether anything
+      // went out.
+      if (
+        !wakeMode &&
+        worker.desiredState !== "offline" &&
+        relocated?.relocationPending &&
+        !relocated.relocationDeferred
+      ) {
+        setRelocateUndispatched(true);
+      }
+      if (woken?.activationPending) setWakeUndispatched(true);
       setSettingsOpen(false);
     } catch (error) {
       if (shownWorkerIdRef.current !== firedFor) return;
@@ -559,10 +564,6 @@ export function WorkerDetailPanel({
                 // desired_state / refocus_since / refocus_op, so 外包 climbs the
                 // ladder on exactly the same evidence 正職 does.
                 stage={stopLadderStageOf(worker)}
-                // Spawn is the wedge rescue MemberActionButtons already offers
-                // in `stopping`, and here it is real: wakeMode is true for a
-                // held-down worker, so this dialog's confirm reaches 喚醒.
-                onSpawn={stoppingNow && onWake ? openSettings : undefined}
                 onStop={onStop ? () => void handleStop() : undefined}
                 // No confirm on the middle rung, for the member panel's stated
                 // reason: 加速停止 gives the worker a deadline it is TOLD about
@@ -595,9 +596,21 @@ export function WorkerDetailPanel({
               )
             )}
           </div>
+          {wakeUndispatched && (
+            <DispatchAlert kind="wake" testId="worker-detail-wake-undispatched" />
+          )}
+          {relocateUndispatched && !relocateLanded && (
+            <DispatchAlert
+              kind="relocate"
+              testId="worker-detail-relocate-undispatched"
+            />
+          )}
           {stopError && (
-            <div className="mp-field__hint mp-info2__error">
-              {t.workerDetail.stopError}
+            <div
+              className="mp-field__hint mp-info2__error"
+              data-testid="worker-detail-stop-error"
+            >
+              {t.mp.stopError}
             </div>
           )}
         </div>
@@ -660,14 +673,12 @@ export function WorkerDetailPanel({
         <div className="machine-picker__title">
           {wakeMode ? t.lifecycle.action.spawn : t.mp.change}
         </div>
-        {/* The worker endpoint's REAL semantics — deliberately not the member
-            panel's 「下次啟動要用哪一個」, which would be false for a working
-            outsource worker (its model op respawns it now). */}
         <div
           className="mp-field__hint"
           data-testid="worker-detail-settings-note"
         >
-          {t.workerDetail.modelNextSpawnNote}
+          {t.mp[settingsNoteKey(wakeMode ? "wake" : "change", worker.presence)]}
+          {reportedModelOnScreen && ` ${t.mp.settingsIntentNoteReported}`}
         </div>
         <ModelEffortEditor
           runtime={settingsRuntime}
@@ -852,7 +863,7 @@ export function WorkerDetailPanel({
       // leaves.
       vm={buildAgentDetailVm({
         testIdPrefix: "worker-detail",
-        online,
+        presence: worker.presence,
         awake,
         runtime: worker.runtime,
         // STATE readout = what the worker's own telemetry reported; honest ""

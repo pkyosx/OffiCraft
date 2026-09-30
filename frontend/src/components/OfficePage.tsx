@@ -412,9 +412,9 @@ export function OfficePage({
         }
         // 改機器 (T-f190; admin-gated since P7c): fire the relocate; the member SSE
         // delta refetches the worker list so the panel adopts the new placement.
-        onRelocate={async (machineId) => {
-          await api.relocateMember(workerDetail.id, machineId);
-        }}
+        onRelocate={(machineId) =>
+          api.relocateMember(workerDetail.id, machineId)
+        }
         // T-32e1/T-f190 lifecycle ops (owner/admin-agent floor since T-6020). Each fires the mutation; the
         // member SSE delta refetches so the panel adopts the new state.
         onRefocus={async () => {
@@ -438,9 +438,7 @@ export function OfficePage({
         onForceStop={async () => {
           await api.forceStopMember(workerDetail.id);
         }}
-        onWake={async () => {
-          await api.activateMember(workerDetail.id);
-        }}
+        onWake={() => api.activateMember(workerDetail.id)}
         onSetModel={async (runtime, model, effort) => {
           await api.patchMember(workerDetail.id, {
             runtime,
@@ -668,9 +666,7 @@ export function OfficePage({
             onOpenDetail: () => setWorkerDetailId(workerPeer.id),
             onOpenTasks: undefined,
             onOpenRoleSettings: undefined,
-            onWake: async () => {
-              await api.activateMember(workerPeer.id);
-            },
+            onWake: () => api.activateMember(workerPeer.id),
             jumpToMsgId: route.msgId,
             draftSeed: seedFor(workerPeer.id),
             headerSub: (

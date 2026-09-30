@@ -1422,16 +1422,11 @@ func TestNotifyWorkerSpawn_TerminalTask_NoDispatch(t *testing.T) {
 	}
 }
 
-// TestReconcileWorkerLiveness_WakeTimeoutLeavesDurableReceipt (T-e0e3 — the ACTUAL
-// X-46 root cause): a START that is DISPATCHED and never produces a session was
-// the one failure a worker row had NO durable record of. The member producer has
-// stamped this same FSM signal since T-ba62 (stampWakeObservability arm (b));
-// reconcileWorkerLiveness never read decision.StartTimedOut, and because worker
-// spawn observability is in-memory by contract, a re-exec then erased the machine
-// cell too — leaving a worker that had been dispatched to repeatedly showing
-// 尚未分配機器 with every last_op field blank.
-//
-// Also pins the 31751ae lesson: the retry that FOLLOWS a wake timeout must not
+// A START that is dispatched and never produces a session leaves a durable
+// receipt on the worker row — the same FSM signal the member producer stamps
+// (stampWakeObservability arm (b)). Worker spawn observability is in-memory, so
+// without it a re-exec leaves a repeatedly dispatched worker with no machine and
+// every last_op field blank. The retry that follows a wake timeout must not
 // erase the explanation for the one before it.
 func TestReconcileWorkerLiveness_WakeTimeoutLeavesDurableReceipt(t *testing.T) {
 	s := newWorkerTestServer(t)

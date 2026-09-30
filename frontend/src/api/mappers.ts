@@ -845,8 +845,6 @@ export function toOutsourceWorker(w: WireOutsourceWorker): OutsourceWorkerView {
     // (released / never dispatched), so `undefined` is kept rather than floored
     // to offline — `presenceVisual` still paints it as the offline dot.
     presence: toPresence(w.presence),
-    // machine = the ACTUAL dispatch target (already resolved to a display name
-    // server-side); "" when never dispatched → the panel shows 「尚未分配」.
     machine: w.machine ?? "",
     desiredMachineId: w.desired_machine_id ?? "",
     // See the member mapper: reported twins + durable last landing, all

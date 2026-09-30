@@ -197,21 +197,43 @@ beforeEach(() => {
 });
 
 describe("OfficePage — an outsource worker's chat room", () => {
-  it.each<MemberLifecycle>(["offline", "stopped", "waking", "stopping"])(
-    "%s worker → the SAME unlocked composer + queue notice + ⚡喚醒 a 正職 gets",
-    async (presence) => {
+  it.each<[MemberLifecycle, boolean, string]>([
+    ["offline", true, "外包 · O-128 目前離線中 — 訊息會排隊，或立即喚醒上線"],
+    ["stopped", true, "外包 · O-128 目前離線中 — 訊息會排隊，或立即喚醒上線"],
+    ["waking", true, "外包 · O-128 目前離線中 — 訊息會排隊，或立即喚醒上線"],
+    ["stopping", false, "外包 · O-128 正在停止 — 訊息會排隊"],
+  ])(
+    "%s worker → the SAME unlocked composer + queue notice a 正職 gets, ⚡喚醒 shown: %s, notice %s",
+    async (presence, wakeShown, notice) => {
       injectWorker(presence);
-      const { query } = await openWorkerChat();
+      const { query, container } = await openWorkerChat();
       const { input, locked, wakeRow, wakeBtn } = query();
       expect(locked).toBeNull();
       expect(input).not.toBeNull();
       expect(wakeRow).not.toBeNull();
-      // The button is the half `onWake` decides; the notice alone would leave
-      // the owner with an honest message and no way to act on it.
-      expect(wakeBtn).not.toBeNull();
-      expect(wakeRow?.textContent ?? "").toContain(CODENAME);
+      expect(wakeBtn !== null).toBe(wakeShown);
+      expect(container.querySelector(".chat__wake-row__hint")?.textContent).toBe(notice);
     },
   );
+
+  it("⚡喚醒 that dispatched nothing shows 這次沒有送出喚醒指令 with its two steps", async () => {
+    const wake = vi
+      .spyOn(api, "activateMember")
+      .mockResolvedValue({ activationPending: true });
+    injectWorker("stopped");
+    const utils = await openWorkerChat();
+    fireEvent.click(utils.query().wakeBtn!);
+    const alert = await utils.findByTestId("chat-wake-undispatched");
+    expect(wake).toHaveBeenCalledWith(WORKER_ID);
+    expect(
+      Array.from(alert.querySelectorAll("strong, p, li")).map((e) => e.textContent),
+    ).toEqual([
+      "這次沒有送出喚醒指令",
+      "這次沒有送出喚醒，系統會在背景自動重試。",
+      "可能是目標機器沒有連線——到「監控」看它是否在線。",
+      "也可能是前一次喚醒還在重試中——請看這位成員的「最近操作」。",
+    ]);
+  });
 
   it("online worker → the plain composer, unchanged: no wake row, no lock", async () => {
     injectWorker("online");
