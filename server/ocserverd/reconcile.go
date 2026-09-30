@@ -708,8 +708,8 @@ func (s *apiServer) wakeTimeoutReason(m Member) string {
 		"logged in on the target machine (warden log: ocwarden.out.log)"
 }
 
-// runtimeCapabilityReady: deliberately NOT machineSupportsRuntime, whose claude arm is permissive
-// by contract (OC_CLAUDE_CRED_CHECK=0) and would pick claude on a codex-only box.
+// runtimeCapabilityReady: deliberately NOT runtimePlacementRefusal, whose claude arm ignores
+// installed and would pick claude on a codex-only box.
 func runtimeCapabilityReady(c RuntimeCapabilityDTO) bool {
 	if c.Installed == nil || !*c.Installed {
 		return false
@@ -738,7 +738,8 @@ func (s *apiServer) resolveEmptyRuntimeForPlacement(m *Member, warden string) {
 			"out there (a warden older than v0.5.211-beta.1 sends the same shape when it merely found "+
 			"no credential evidence). Declining to auto-resolve this member to codex, because "+
 			"persisting that choice is irreversible and signing Claude back in on that machine fixes "+
-			"the cause. Leaving 執行環境 unset: the start still goes out as claude. To choose "+
+			"the cause. Leaving 執行環境 unset (claude), so the start is refused as not logged in "+
+			"to claude while that reading is fresh. To choose "+
 			"deliberately instead: sign Claude in on that machine, or set this member's 執行環境 by "+
 			"hand.", m.ID, warden)
 		return
@@ -813,11 +814,18 @@ func (s *apiServer) reconcileOne(m Member, st reconcileState, now float64) recon
 			return decision
 		}
 		s.resolveEmptyRuntimeForPlacement(&m, warden)
-		if m.Kind != KindWarden && !s.machineSupportsRuntime(warden, m.Runtime) {
-			reconcileLog("%s: target warden %q does not report runtime %q ready — fail-closed",
-				m.ID, warden, NormalizeRuntime(m.Runtime))
+		// Both refusals ride on the decision's code rather than a stamp here: /activate
+		// stamps that code, and would overwrite a direct stamp with warden_unreachable.
+		refusal := ""
+		if m.Kind != KindWarden {
+			refusal = s.runtimePlacementRefusal(warden, m.Runtime)
+		}
+		if refusal != "" {
+			reconcileLog("%s: target warden %q %s — fail-closed", m.ID, warden, refusal)
 			decision.Command = reconcileCmdNone
 			decision.Reason = "selected runtime unavailable on target machine"
+			decision.ReasonCode = placementReasonUnavailable + ": machine '" + warden + "' " +
+				refusal + "; no other machine is substituted"
 			decision.State = st
 			decision.DispatchUnlanded = true
 			return decision
@@ -825,10 +833,10 @@ func (s *apiServer) reconcileOne(m Member, st reconcileState, now float64) recon
 		if !s.machineResolvesCodexModel(warden, m.Runtime, m.Model) {
 			reconcileLog("%s: target warden %q cannot resolve codex model family %q — fail-closed",
 				m.ID, warden, m.Model)
-			s.stampMemberOpBlocked(m.ID, placementReasonUnavailable+": machine '"+warden+"' "+
-				codexFamilyUnresolvedDetail(m.Model), now)
 			decision.Command = reconcileCmdNone
 			decision.Reason = "codex model family unresolvable on target machine"
+			decision.ReasonCode = placementReasonUnavailable + ": machine '" + warden + "' " +
+				codexFamilyUnresolvedDetail(m.Model)
 			decision.State = st
 			decision.DispatchUnlanded = true
 			return decision

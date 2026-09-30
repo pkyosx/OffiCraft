@@ -383,28 +383,45 @@ func (s *apiServer) machineRuntimeCapabilities(machineID string) map[string]Runt
 	return out
 }
 
-func (s *apiServer) machineSupportsRuntime(machineID, runtime string) bool {
+// runtimePlacementRefusal answers why machineID cannot boot runtime, as the
+// "<detail>" of a machine_unavailable reason; "" means it can.
+func (s *apiServer) runtimePlacementRefusal(machineID, runtime string) string {
 	normalized := NormalizeRuntime(runtime)
+	notProvided := "does not provide the '" + normalized + "' runtime"
 	capabilities := s.machineRuntimeCapabilities(machineID)
 	// Pre-capability wardens are Claude wardens by construction; Codex never gets
 	// this inference and stays fail-closed until probed.
 	if len(capabilities) == 0 {
-		return normalized == RuntimeClaude
+		if normalized == RuntimeClaude {
+			return ""
+		}
+		return notProvided
 	}
 	capability, ok := capabilities[normalized]
 	if !ok {
+		return notProvided
+	}
+	// Claude's installed flag stays ungated: a warden that cannot find claude
+	// refuses the spawn itself and says why.
+	if normalized != RuntimeClaude && (capability.Installed == nil || !*capability.Installed) {
+		return notProvided
+	}
+	if s.runtimeReportedLoggedOut(machineID, normalized, nowSecs()) {
+		return "is not logged in to " + normalized
+	}
+	return ""
+}
+
+// runtimeReportedLoggedOut is the one reading behind both the logged-out
+// warning mark and the wake refusal, so the two never disagree.
+func (s *apiServer) runtimeReportedLoggedOut(machineID, runtime string, now float64) bool {
+	capability, ok := s.machineRuntimeCapabilities(machineID)[runtime]
+	if !ok || capability.LoggedIn == nil || *capability.LoggedIn {
 		return false
 	}
-	// Claude is intentionally permissive: hosts whose credential heuristic
-	// false-negatives rely on the spawn-time escape hatch OC_CLAUDE_CRED_CHECK=0.
-	// Do not tighten Claude with this Codex-era gate.
-	if normalized == RuntimeClaude {
-		return true
-	}
-	if capability.Installed == nil || !*capability.Installed {
-		return false
-	}
-	return capability.LoggedIn == nil || *capability.LoggedIn
+	// Telemetry is never cleared on disconnect: a stale logged-out reading is
+	// unknown, and unknown never counts as logged out.
+	return !*runtimeCapabilitiesStale(s.telemetry.Get(machineID), true, now)
 }
 
 // An older warden hands a family word to Codex verbatim and the member never
@@ -1236,13 +1253,7 @@ func (s *apiServer) runtimeLoginWarnings(dir machineDirectory, pairs []runtimeLo
 	out := []RuntimeLoginWarningDTO{}
 	now := nowSecs()
 	for _, p := range pairs {
-		capability, ok := s.machineRuntimeCapabilities(p.machine)[p.runtime]
-		if !ok || capability.LoggedIn == nil || *capability.LoggedIn {
-			continue
-		}
-		// Telemetry is never cleared on disconnect: a stale logged-out reading is
-		// unknown, and unknown never counts as logged out.
-		if *runtimeCapabilitiesStale(s.telemetry.Get(p.machine), true, now) {
+		if !s.runtimeReportedLoggedOut(p.machine, p.runtime, now) {
 			continue
 		}
 		out = append(out, RuntimeLoginWarningDTO{

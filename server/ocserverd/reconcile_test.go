@@ -1697,9 +1697,10 @@ func TestResolveEmptyRuntimeForPlacement(t *testing.T) {
 			"logged_in:false — Claude is signed out there (a warden older than v0.5.211-beta.1 " +
 			"sends the same shape when it merely found no credential evidence). Declining to " +
 			"auto-resolve this member to codex, because persisting that choice is irreversible " +
-			"and signing Claude back in on that machine fixes the cause. Leaving 執行環境 unset: " +
-			"the start still goes out as claude. To choose deliberately instead: sign Claude in " +
-			"on that machine, or set this member's 執行環境 by hand.\n"
+			"and signing Claude back in on that machine fixes the cause. Leaving 執行環境 unset " +
+			"(claude), so the start is refused as not logged in to claude while that reading is " +
+			"fresh. To choose deliberately instead: sign Claude in on that machine, or set this " +
+			"member's 執行環境 by hand.\n"
 		if out != want {
 			t.Fatalf("stderr:\n got %q\nwant %q", out, want)
 		}
@@ -2118,16 +2119,71 @@ func TestReconcileOne(t *testing.T) {
 			got := api.reconcileOne(reconcileTestRow(t, d, "wrongbox"), newReconcileState(), reconcileTestNow)
 			reconcileTestWantDecision(t, got, reconcileDecision{
 				Command: reconcileCmdNone, MemberID: "wrongbox",
-				Reason: "selected runtime unavailable on target machine",
-				State:  newReconcileState(), DispatchUnlanded: true,
+				Reason:     "selected runtime unavailable on target machine",
+				ReasonCode: "machine_unavailable: machine 'm-cx' does not provide the 'claude' runtime; no other machine is substituted",
+				State:      newReconcileState(), DispatchUnlanded: true,
 			})
 		})
-		want := "[reconcile] wrongbox: target warden \"m-cx\" does not report runtime \"claude\" ready — fail-closed\n"
+		want := "[reconcile] wrongbox: target warden \"m-cx\" does not provide the 'claude' runtime — fail-closed\n"
 		if out != want {
 			t.Fatalf("stderr:\n got %q\nwant %q", out, want)
 		}
 		if got := api.hub.PendingWardenCommands("m-cx"); got != 0 {
 			t.Fatalf("a refused dispatch queued %d frame(s)", got)
+		}
+	})
+
+	t.Run("under a target machine reporting the member's runtime logged out, the dispatch is refused only while that reading is fresh", func(t *testing.T) {
+		refused := func(runtime string) reconcileDecision {
+			return reconcileDecision{
+				Command: reconcileCmdNone, MemberID: "signedout",
+				Reason: "selected runtime unavailable on target machine",
+				ReasonCode: "machine_unavailable: machine 'm-box' is not logged in to " + runtime +
+					"; no other machine is substituted",
+				State: newReconcileState(), DispatchUnlanded: true,
+			}
+		}
+		started := reconcileDecision{
+			Command: reconcileCmdStart, MemberID: "signedout",
+			Reason: "spawn: desired_state online, no live session",
+			State: reconcileState{
+				Phase: reconcilePhaseStarting, LastCommand: reconcileCmdStart,
+				LastCommandAt: reconcileTestNow, OfflineSince: reconcileTestNow,
+			},
+		}
+		for _, runtime := range []string{RuntimeClaude, RuntimeCodex} {
+			for _, c := range []struct {
+				name     string
+				loggedIn any
+				age      float64
+				want     reconcileDecision
+				frames   int
+			}{
+				{"fresh false", false, 0, refused(runtime), 0},
+				{"stale false", false, telemetryFreshSecs + 1, started, 1},
+				{"null", nil, 0, started, 1},
+				{"true", true, 0, started, 1},
+			} {
+				t.Run(runtime+" "+c.name, func(t *testing.T) {
+					api, d := reconcileTestServer(t)
+					reconcileTestPut(t, d, Member{ID: "m-box", Name: "Box", Kind: KindWarden})
+					api.telemetry.Set("m-box", map[string]any{"runtimes_ts": nowSecs() - c.age, "runtimes": map[string]any{
+						runtime: map[string]any{"installed": true, "logged_in": c.loggedIn},
+					}})
+					reconcileTestOnline(t, api, "m-box", "")
+					reconcileTestPut(t, d, Member{
+						ID: "signedout", Name: "S", Kind: KindStaff, RoleKey: "assistant",
+						DesiredState: DesiredStateOnline, DesiredMachineID: "m-box", Runtime: runtime,
+					})
+					hubTestStderr(t, func() {
+						got := api.reconcileOne(reconcileTestRow(t, d, "signedout"), newReconcileState(), reconcileTestNow)
+						reconcileTestWantDecision(t, got, c.want)
+					})
+					if got := api.hub.PendingWardenCommands("m-box"); got != c.frames {
+						t.Fatalf("queued frames = %d, want %d", got, c.frames)
+					}
+				})
+			}
 		}
 	})
 
@@ -2157,7 +2213,9 @@ func TestReconcileOne(t *testing.T) {
 					reconcileTestWantDecision(t, got, reconcileDecision{
 						Command: reconcileCmdNone, MemberID: "solo",
 						Reason: "codex model family unresolvable on target machine",
-						State:  newReconcileState(), DispatchUnlanded: true,
+						ReasonCode: "machine_unavailable: machine 'm-cx' runs a warden too old to resolve the " +
+							"Codex model family 'sol' — upgrade that machine's warden, or set a full model id",
+						State: newReconcileState(), DispatchUnlanded: true,
 					})
 				})
 				if want := "[reconcile] solo: target warden \"m-cx\" cannot resolve codex model family \"sol\" — fail-closed\n"; out != want {
@@ -2168,11 +2226,6 @@ func TestReconcileOne(t *testing.T) {
 				}
 				want := before
 				want.Runtime = "codex"
-				want.LastOp = reconcileCmdStart
-				want.LastOpOK = reconcileTestFalse()
-				want.LastOpAt = reconcileTestNow
-				want.LastOpReason = "machine_unavailable: machine 'm-cx' runs a warden too old to resolve the " +
-					"Codex model family 'sol' — upgrade that machine's warden, or set a full model id"
 				reconcileTestWantRow(t, d, "solo", want)
 			})
 		}

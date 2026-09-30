@@ -429,6 +429,62 @@ func TestFoldCommandResult(t *testing.T) {
 			apiTestMemberPayload("kip", "Kip", "active", ""), "telemetry"))
 	})
 
+	t.Run("under a warden's not-logged-in refusal, the reason names the reporting machine and the warden's own text stays as the log", func(t *testing.T) {
+		claudeText := "claude_not_logged_in: no claude credential here (cred_file=unset keychain=unset). " +
+			"Fix any one: set this member's 執行環境 to Codex; run `claude` once as this user; or " +
+			"re-install the warden with OC_CLAUDE_CRED_CHECK=0 (shell exports do not reach it)."
+		codexText := "codex_not_logged_in: `codex login status` failed on this host"
+		for _, c := range []struct {
+			name, text, want string
+			withLog          bool
+		}{
+			{"claude with a log", claudeText, "claude_not_logged_in: machine 'm-studio' is not logged in to claude", true},
+			{"codex with a log", codexText, "codex_not_logged_in: machine 'm-studio' is not logged in to codex", true},
+			{"codex without a log", codexText, "codex_not_logged_in: machine 'm-studio' is not logged in to codex", false},
+		} {
+			t.Run(c.name, func(t *testing.T) {
+				api, _, d, _ := newAPITestServer(t)
+				before := apiTestMemberRow(t, d, "kip")
+				receipt := map[string]any{
+					"member_id": "kip", "rpc": "start", "ok": false,
+					"reason": c.text, "at": float64(1720000000),
+				}
+				if c.withLog {
+					receipt["log"] = c.text
+				}
+
+				api.foldCommandResult(receipt, "telemetry", "m-studio")
+
+				want := before
+				want.LastOp = "start"
+				want.LastOpOK = boolPtr(false)
+				want.LastOpReason = c.want
+				want.LastOpLog = c.text
+				want.LastOpAt = 1720000000
+				apiTestWantEqual(t, "stored member", apiTestMemberRow(t, d, "kip"), want)
+			})
+		}
+	})
+
+	t.Run("under a worker's not-logged-in refusal, the worker row's reason names the reporting machine", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusAssigned)
+		text := "codex_not_logged_in: `codex login status` failed on this host"
+
+		api.foldCommandResult(map[string]any{
+			"worker_id": "ow-abc123", "rpc": "start", "ok": false,
+			"reason": text, "log": text, "at": float64(1720000000),
+		}, "telemetry", "m-studio")
+
+		after, err := d.GetOutsourceWorker("ow-abc123")
+		if err != nil || after == nil {
+			t.Fatalf("GetOutsourceWorker: %v %v", after, err)
+		}
+		apiWantValue(t, "receipt", any([]string{after.LastOpReason, after.LastOpLog}), any([]string{
+			"codex_not_logged_in: machine 'm-studio' is not logged in to codex", text,
+		}))
+	})
+
 	t.Run("a successful no-such-session stop leaves the existing receipt untouched and fans nothing", func(t *testing.T) {
 		api, _, d, _ := newAPITestServer(t)
 		before := apiTestMemberRow(t, d, "kip")
