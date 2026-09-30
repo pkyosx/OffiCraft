@@ -2,7 +2,7 @@
 
 This file is read by coding agents (Claude Code, Codex) working in this repo.
 
-⚠️ Claude Code skips every AGENTS.md in a session, silently, when any CLAUDE.md exists in the working directory or any directory above it (including outside the repo). Do not add a CLAUDE.md anywhere in this repo, and check the machine's parent directories when an agent seems to ignore these rules.
+⚠️ Claude Code skips every AGENTS.md in a session, silently, when any CLAUDE.md, CLAUDE.local.md or .claude/CLAUDE.md exists in the working directory or any directory above it (including outside the repo; the user-wide ~/.claude/CLAUDE.md does not count). Do not add any of those files anywhere in this repo, and check the machine's parent directories when an agent seems to ignore these rules.
 
 ## 讀法與範圍
 
