@@ -100,39 +100,7 @@ func apiTestStackOn(t *testing.T, d *DAL, withSigningSecret bool) (*apiServer, h
 		secret = nil
 	}
 	api := newAPIServer(d, NewHub(), singleKeyring(secret), auth.ownerTokenTTL, "../..")
-	api.agentTokenTTL = auth.agentTokenTTL
-	api.passwordHash = auth.passwordHash
-	api.passwordChangedAt = auth.passwordChangedAt
-	api.mfaOffered = auth.mfaOffered
-	api.totpSecret = auth.totpSecret
-	api.totpLastStep = auth.totpLastStep
-	api.ctxHigh = auth.ctxHigh
-	api.codexCompactionThreshold = auth.codexCompactionThreshold
-	api.codexNoticeRound = auth.codexNoticeRound
-	api.monitoringRefreshSeconds = auth.monitoringRefreshSeconds
-	api.acceleratedGraceSecs = auth.acceleratedGraceSecs
-	api.reassignHandoverTimeoutSecs = auth.reassignHandoverTimeoutSecs
-	api.wardenCredLifetimeSecs = auth.wardenCredLifetimeSecs
-	api.outsourceMaxParallel = auth.outsourceMaxParallel
-	api.docCapCharsDuty = auth.docCapCharsDuty
-	api.docCapCharsInsight = auth.docCapCharsInsight
-	api.docCapCharsManualSop = auth.docCapCharsManualSop
-	api.docCapCharsSystemInteraction = auth.docCapCharsSystemInteraction
-	api.docCapCharsBootSequence = auth.docCapCharsBootSequence
-	api.docCapCharsOffboard = auth.docCapCharsOffboard
-	api.chatBudgetChars = auth.chatBudgetChars
-	api.stepNoteCapChars = auth.stepNoteCapChars
-	api.backupRetain = auth.backupRetain
-	api.updaterReceiveBeta = auth.updaterReceiveBeta
-	api.updaterAutoUpdate = auth.updaterAutoUpdate
-	api.orgName = auth.orgName
-	api.ownerName = auth.ownerName
-	api.pushContactEmail = auth.pushContactEmail
-	api.displayTheme = auth.displayTheme
-	api.displayLanguage = auth.displayLanguage
-	api.displayWide = auth.displayWide
-	api.suggestedRepliesReplyCard = auth.suggestedRepliesReplyCard
-	api.suggestedRepliesTaskMessage = auth.suggestedRepliesTaskMessage
+	api.adoptSettings(auth)
 	// $OC_RELEASE_API_BASE's harness seam, pointed at a dead port: nothing in
 	// the fixture may reach the real api.github.com.
 	api.releaseAPIBase = "http://127.0.0.1:1"

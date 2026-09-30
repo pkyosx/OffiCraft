@@ -630,6 +630,25 @@ func TestHandleUpdateSettingsApiSettingsPatch(t *testing.T) {
 		apiWantBody(t, data, want)
 	})
 
+	t.Run("under a restart on the same database, the patched login intervals are still reported", func(t *testing.T) {
+		_, h, d, owner := newAPITestServer(t)
+		status, data := apiJSON(t, h, "PATCH", "/api/settings", owner,
+			`{"runtime_login_check_interval_secs":600,"runtime_login_recheck_interval_secs":45}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+
+		_, restarted, _, _ := apiTestStackOn(t, d, true)
+		status, data = apiJSON(t, restarted, "GET", "/api/settings", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200 after the restart, got %d (%v)", status, data)
+		}
+		if data["runtime_login_check_interval_secs"] != float64(600) || data["runtime_login_recheck_interval_secs"] != float64(45) {
+			t.Fatalf("after the restart: check=%v recheck=%v, want 600 and 45",
+				data["runtime_login_check_interval_secs"], data["runtime_login_recheck_interval_secs"])
+		}
+	})
+
 	t.Run("a patch of every text and toggle knob answers 200 with the new values", func(t *testing.T) {
 		_, h, _, owner := newAPITestServer(t)
 

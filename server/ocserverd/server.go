@@ -290,6 +290,51 @@ func specsFor(s *apiServer) []RouteSpec {
 	return specs
 }
 
+// A field left out here compiles and keeps its constructor default, so the
+// owner's stored value is silently lost on every restart.
+func (s *apiServer) adoptSettings(auth authSettings) {
+	s.agentTokenTTL = auth.agentTokenTTL
+	s.passwordHash = auth.passwordHash
+	s.passwordChangedAt = auth.passwordChangedAt
+	s.mfaOffered = auth.mfaOffered
+	s.totpSecret = auth.totpSecret
+	s.totpLastStep = auth.totpLastStep
+	s.ctxHigh = auth.ctxHigh
+	s.codexCompactionThreshold = auth.codexCompactionThreshold
+	s.codexNoticeRound = auth.codexNoticeRound
+	s.monitoringRefreshSeconds = auth.monitoringRefreshSeconds
+	s.acceleratedGraceSecs = auth.acceleratedGraceSecs
+	s.reassignHandoverTimeoutSecs = auth.reassignHandoverTimeoutSecs
+	s.runtimeLoginCheckIntervalSecs = auth.runtimeLoginCheckIntervalSecs
+	s.runtimeLoginRecheckIntervalSecs = auth.runtimeLoginRecheckIntervalSecs
+	s.wardenCredLifetimeSecs = auth.wardenCredLifetimeSecs
+	s.outsourceMaxParallel = auth.outsourceMaxParallel
+	s.docCapCharsDuty = auth.docCapCharsDuty
+	s.docCapCharsInsight = auth.docCapCharsInsight
+	s.docCapCharsManualSop = auth.docCapCharsManualSop
+	s.docCapCharsSystemInteraction = auth.docCapCharsSystemInteraction
+	s.docCapCharsBootSequence = auth.docCapCharsBootSequence
+	s.docCapCharsOffboard = auth.docCapCharsOffboard
+	s.loreCapCharsRole = auth.loreCapCharsRole
+	s.loreCapCharsManual = auth.loreCapCharsManual
+	s.loreCapCharsTitle = auth.loreCapCharsTitle
+	s.loreCapCharsBody = auth.loreCapCharsBody
+	s.chatBudgetChars = auth.chatBudgetChars
+	s.stepNoteCapChars = auth.stepNoteCapChars
+	s.backupRetain = auth.backupRetain
+	s.updaterReceiveBeta = auth.updaterReceiveBeta
+	s.updaterAutoUpdate = auth.updaterAutoUpdate
+	s.orgName = auth.orgName
+	s.ownerName = auth.ownerName
+	s.pushContactEmail = auth.pushContactEmail
+	s.displayTheme = auth.displayTheme
+	s.displayLanguage = auth.displayLanguage
+	s.displayWide = auth.displayWide
+	s.suggestedRepliesReplyCard = auth.suggestedRepliesReplyCard
+	s.suggestedRepliesTaskMessage = auth.suggestedRepliesTaskMessage
+	s.suggestedRepliesLoreMessage = auth.suggestedRepliesLoreMessage
+}
+
 // Build identity is captured ONCE so the probes report the RUNNING code's sha:
 // an autodeploy that pulls a new sha but fails to restart keeps reporting the old.
 func newAPIServer(dal *DAL, hub *Hub, keys *keyring, tokenTTL int64, root assetRoot) *apiServer {
@@ -450,49 +495,10 @@ func cmdServe(env func(string) string, noReconcile, noOutsource bool, out io.Wri
 		return 1
 	}
 	api := newAPIServer(dal, NewHub(), keys, auth.ownerTokenTTL, ".")
-	api.agentTokenTTL = auth.agentTokenTTL
-	api.passwordHash = auth.passwordHash
-	api.passwordChangedAt = auth.passwordChangedAt
-	api.mfaOffered = auth.mfaOffered
-	api.totpSecret = auth.totpSecret
-	api.totpLastStep = auth.totpLastStep
-	api.ctxHigh = auth.ctxHigh
-	api.codexCompactionThreshold = auth.codexCompactionThreshold
-	api.codexNoticeRound = auth.codexNoticeRound
-	api.monitoringRefreshSeconds = auth.monitoringRefreshSeconds
-	api.acceleratedGraceSecs = auth.acceleratedGraceSecs
-	api.reassignHandoverTimeoutSecs = auth.reassignHandoverTimeoutSecs
-	api.runtimeLoginCheckIntervalSecs = auth.runtimeLoginCheckIntervalSecs
-	api.runtimeLoginRecheckIntervalSecs = auth.runtimeLoginRecheckIntervalSecs
-	api.wardenCredLifetimeSecs = auth.wardenCredLifetimeSecs
-	api.outsourceMaxParallel = auth.outsourceMaxParallel
-	api.docCapCharsDuty = auth.docCapCharsDuty
-	api.docCapCharsInsight = auth.docCapCharsInsight
-	api.docCapCharsManualSop = auth.docCapCharsManualSop
-	api.docCapCharsSystemInteraction = auth.docCapCharsSystemInteraction
-	api.docCapCharsBootSequence = auth.docCapCharsBootSequence
-	api.docCapCharsOffboard = auth.docCapCharsOffboard
-	api.loreCapCharsRole = auth.loreCapCharsRole
-	api.loreCapCharsManual = auth.loreCapCharsManual
-	api.loreCapCharsTitle = auth.loreCapCharsTitle
-	api.loreCapCharsBody = auth.loreCapCharsBody
-	api.chatBudgetChars = auth.chatBudgetChars
-	api.stepNoteCapChars = auth.stepNoteCapChars
-	api.backupRetain = auth.backupRetain
-	api.updaterReceiveBeta = auth.updaterReceiveBeta
-	api.updaterAutoUpdate = auth.updaterAutoUpdate
+	api.adoptSettings(auth)
 	// A conformance/e2e harness seam that re-points the GitHub Releases API base;
 	// normal deployments never set it.
 	api.releaseAPIBase = env("OC_RELEASE_API_BASE")
-	api.orgName = auth.orgName
-	api.ownerName = auth.ownerName
-	api.pushContactEmail = auth.pushContactEmail
-	api.displayTheme = auth.displayTheme
-	api.displayLanguage = auth.displayLanguage
-	api.displayWide = auth.displayWide
-	api.suggestedRepliesReplyCard = auth.suggestedRepliesReplyCard
-	api.suggestedRepliesTaskMessage = auth.suggestedRepliesTaskMessage
-	api.suggestedRepliesLoreMessage = auth.suggestedRepliesLoreMessage
 	api.namespace = cfg.Server.Namespace
 	api.binCacheDir = filepath.Join(filepath.Dir(dbPath), "bin")
 	if n, err := api.reconcileTaskStatusesOnBoot(); err != nil {
