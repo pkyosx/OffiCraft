@@ -1473,10 +1473,11 @@ function HardwareBadMark() {
  *   version present    → the version verbatim
  *   installed, no ver. → "installed" (the probe answered, without a number)
  * followed by a 未登入 chip whenever the cell shows a version or "installed"
- * and the runtime reports signed out — an installed, up-to-date, logged-out
- * runtime is exactly the case the operator needs to see.
+ * and fresh telemetry reports signed out — an installed, up-to-date,
+ * logged-out runtime is exactly the case the operator needs to see.
  * ⚠️ Signed in and unknown (no login state reported) both show nothing after
  * the version: owner ruling, do not re-add a mark for either.
+ * ⚠️ Owner ruling: stale telemetry carries no login state, so no 未登入 then.
  *
  * `fallbackVersion` exists only for Claude: the machine registry has carried
  * its own `claude_version` since T-97ee/T-7c5b, and an older warden reports
@@ -1551,7 +1552,7 @@ function RuntimeVersionCell({
           {m.runtimeNoVersion}
         </span>
       )}
-      {capability.loggedIn === false && (
+      {capability.loggedIn === false && stale === false && (
         <InstantHint
           className="mon-stale mon-bad"
           data-testid={`${testIdPrefix}-logged-out`}

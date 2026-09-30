@@ -231,6 +231,26 @@ describe("MonitorPage per-runtime version columns", () => {
     expect((await screen.findByTestId("mon-codex-version")).textContent).toBe("已安裝");
   });
 
+  it("under stale telemetry, a last-reported signed-out runtime shows its version and 過期 but no 未登入, while the same report fresh shows 未登入", async () => {
+    const loggedOut = { codex: { installed: true, loggedIn: false, version: "0.52.0" } };
+    mount(card(true, loggedOut));
+    const stale = await screen.findByTestId("mon-codex-version");
+    expect(stale.textContent).toBe("0.52.0過期");
+    expect(within(stale).queryByTestId("mon-codex-logged-out")).toBeNull();
+    cleanup();
+
+    mount(card(false, loggedOut));
+    const fresh = await screen.findByTestId("mon-codex-version");
+    expect(fresh.textContent).toBe("0.52.0未登入");
+  });
+
+  it("under telemetry of unknown age, a last-reported signed-out runtime shows its version and 過期 but no 未登入", async () => {
+    mount(card(null, { claude: { installed: true, loggedIn: false, version: "2.1.211" } }));
+    const claude = await screen.findByTestId("mon-claude-version");
+    expect(claude.textContent).toBe("2.1.211過期");
+    expect(within(claude).queryByTestId("mon-claude-logged-out")).toBeNull();
+  });
+
   it("names a not-installed runtime instead of leaving the cell blank", async () => {
     mount(
       card(false, {
