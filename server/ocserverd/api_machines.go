@@ -1234,9 +1234,15 @@ func runtimeLoginPairs(dir machineDirectory, current, desired, reported, configu
 
 func (s *apiServer) runtimeLoginWarnings(dir machineDirectory, pairs []runtimeLoginPair) []RuntimeLoginWarningDTO {
 	out := []RuntimeLoginWarningDTO{}
+	now := nowSecs()
 	for _, p := range pairs {
 		capability, ok := s.machineRuntimeCapabilities(p.machine)[p.runtime]
 		if !ok || capability.LoggedIn == nil || *capability.LoggedIn {
+			continue
+		}
+		// Telemetry is never cleared on disconnect: a stale logged-out reading is
+		// unknown, and unknown never counts as logged out.
+		if *runtimeCapabilitiesStale(s.telemetry.Get(p.machine), true, now) {
 			continue
 		}
 		out = append(out, RuntimeLoginWarningDTO{
@@ -1294,6 +1300,15 @@ func loginStatesOf(entry map[string]any) map[string]*bool {
 		}
 	}
 	return out
+}
+
+func anyLoggedOut(states map[string]*bool) bool {
+	for _, v := range states {
+		if v != nil && !*v {
+			return true
+		}
+	}
+	return false
 }
 
 func loginStatesDiffer(a, b map[string]*bool) bool {

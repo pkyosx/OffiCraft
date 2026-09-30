@@ -243,10 +243,10 @@ func TestProjectWorker(t *testing.T) {
 	t.Run("under logged-out runtimes on its shown machine and on its pending destination, the warnings name both pairs", func(t *testing.T) {
 		api.workerSpawnTarget[worker.ID] = "m-dispatch"
 		t.Cleanup(func() { delete(api.workerSpawnTarget, worker.ID) })
-		api.telemetry.Set("m-dispatch", map[string]any{"runtimes": map[string]any{
+		api.telemetry.Set("m-dispatch", map[string]any{"runtimes_ts": nowSecs(), "runtimes": map[string]any{
 			"codex": map[string]any{"installed": true, "logged_in": false},
 		}})
-		api.telemetry.Set("m-pin", map[string]any{"runtimes": map[string]any{
+		api.telemetry.Set("m-pin", map[string]any{"runtimes_ts": nowSecs(), "runtimes": map[string]any{
 			"claude": map[string]any{"installed": true, "logged_in": false},
 		}})
 		moving := worker
@@ -265,7 +265,7 @@ func TestProjectWorker(t *testing.T) {
 	t.Run("under a worker running where its runtime is logged in, with nothing pending, no warning", func(t *testing.T) {
 		api.workerSpawnTarget[worker.ID] = "m-pin"
 		t.Cleanup(func() { delete(api.workerSpawnTarget, worker.ID) })
-		api.telemetry.Set("m-pin", map[string]any{"runtimes": map[string]any{
+		api.telemetry.Set("m-pin", map[string]any{"runtimes_ts": nowSecs(), "runtimes": map[string]any{
 			"claude": map[string]any{"installed": true, "logged_in": true},
 		}})
 		settled := worker
@@ -273,6 +273,22 @@ func TestProjectWorker(t *testing.T) {
 		settled.DesiredMachineID = "m-pin"
 
 		got := api.projectWorker(settled, task, 0, 1700000000, tele, gauge, machines,
+			accountDisplay, typeNames)
+
+		apiWantValue(t, "warnings", any(got.RuntimeLoginWarnings), any([]RuntimeLoginWarningDTO{}))
+	})
+
+	t.Run("under a logged-out runtime on its shown machine whose reading is stale, no warning", func(t *testing.T) {
+		api.workerSpawnTarget[worker.ID] = "m-dispatch"
+		t.Cleanup(func() { delete(api.workerSpawnTarget, worker.ID) })
+		api.telemetry.Set("m-dispatch", map[string]any{"runtimes_ts": nowSecs() - telemetryFreshSecs - 1, "runtimes": map[string]any{
+			"codex": map[string]any{"installed": true, "logged_in": false},
+		}})
+		stale := worker
+		stale.Runtime = "codex"
+		stale.ActualRuntime = "codex"
+
+		got := api.projectWorker(stale, task, 0, 1700000000, tele, gauge, machines,
 			accountDisplay, typeNames)
 
 		apiWantValue(t, "warnings", any(got.RuntimeLoginWarnings), any([]RuntimeLoginWarningDTO{}))

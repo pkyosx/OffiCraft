@@ -801,7 +801,7 @@ func TestHandleIngestTelemetryApiMonitoringTelemetryPost(t *testing.T) {
 		})
 	})
 
-	t.Run("under a machine's claude login flipping, including from never-reported to false, every member running there is re-announced to the owner, and a repeat of the same state announces nobody", func(t *testing.T) {
+	t.Run("under a machine's claude login flipping, including from never-reported to false, every member running there is re-announced to the owner, a repeat of the same state announces nobody, and a logged-out machine returning from stale telemetry is re-announced", func(t *testing.T) {
 		api, h, _, _ := newAPITestServer(t)
 		warden := apiTestAgentToken(t, api, "m-server-self", "m-server-self")
 		kip := apiTestAgentToken(t, api, "kip", "")
@@ -863,6 +863,12 @@ func TestHandleIngestTelemetryApiMonitoringTelemetryPost(t *testing.T) {
 		report(`{"runtimes":{"claude":{"installed":true,"logged_in":false}}}`)
 		report(`{"runtimes":{"claude":{"installed":true,"logged_in":false}}}`)
 		dashboard.wantFrames(monitoringSignal, kipPatch, monitoringSignal, kipPatch, monitoringSignal)
+
+		aged := api.telemetry.Get("m-server-self")
+		aged["runtimes_ts"] = nowSecs() - telemetryFreshSecs - 1
+		api.telemetry.Set("m-server-self", aged)
+		report(`{"runtimes":{"claude":{"installed":true,"logged_in":false}}}`)
+		dashboard.wantFrames(monitoringSignal, kipPatch)
 	})
 
 	t.Run("a report naming its own machine while the token carries no claim answers 200 attributing that machine", func(t *testing.T) {

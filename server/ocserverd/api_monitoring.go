@@ -565,7 +565,11 @@ func (s *apiServer) HandleIngestTelemetryApiMonitoringTelemetryPost(w http.Respo
 	}
 	loginFlipped := false
 	if body.Runtimes != nil {
-		loginFlipped = loginStatesDiffer(loginStatesOf(entry), loginStatesOf(map[string]any{"runtimes": runtimes}))
+		next := loginStatesOf(map[string]any{"runtimes": runtimes})
+		// A stale machine's logged-out runtime warns nobody, so its return to
+		// fresh telemetry is a change the rows must hear about too.
+		wasStale := *runtimeCapabilitiesStale(entry, true, nowSecs())
+		loginFlipped = loginStatesDiffer(loginStatesOf(entry), next) || (wasStale && anyLoggedOut(next))
 		entry["runtimes"] = runtimes
 		// Same per-sample stamp as hardware_ts. Placement (machineSupportsRuntime)
 		// deliberately does NOT consult it — expiring the map there would
@@ -740,6 +744,20 @@ const telemetryFreshSecs = 90.0
 func runtimeCapabilitiesStampOf(entry map[string]any) float64 {
 	ts, _ := entry["runtimes_ts"].(float64)
 	return ts
+}
+
+// runtimeCapabilitiesStale is the verdict served as runtime_capabilities_stale;
+// nil = never reported. A map with no stamp predates the stamp and is stale.
+func runtimeCapabilitiesStale(entry map[string]any, reported bool, now float64) *bool {
+	if ts := runtimeCapabilitiesStampOf(entry); ts > 0 {
+		stale := now-ts > telemetryFreshSecs
+		return &stale
+	}
+	if !reported {
+		return nil
+	}
+	stale := true
+	return &stale
 }
 
 func rateLimitStampOf(entry map[string]any) float64 {
@@ -1021,13 +1039,9 @@ func (s *apiServer) HandleGetMonitoringApiMonitoringGet(w http.ResponseWriter, r
 		if entry := s.telemetry.Get(host); entry != nil {
 			if ts := runtimeCapabilitiesStampOf(entry); ts > 0 {
 				stamp := ts
-				stale := now-ts > telemetryFreshSecs
 				row.RuntimeCapabilitiesTS = &stamp
-				row.RuntimeCapabilitiesStale = &stale
-			} else if len(row.RuntimeCapabilities) > 0 {
-				stale := true
-				row.RuntimeCapabilitiesStale = &stale
 			}
+			row.RuntimeCapabilitiesStale = runtimeCapabilitiesStale(entry, len(row.RuntimeCapabilities) > 0, now)
 		}
 		machines = append(machines, row)
 	}

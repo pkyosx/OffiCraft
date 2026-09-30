@@ -899,6 +899,7 @@ func TestNewMemberDTO(t *testing.T) {
 			{ID: "m-a", Name: "mac-a", Kind: KindWarden, RosterStatus: RosterStatusActive},
 			{ID: "m-b", Name: "box-b", Kind: KindWarden, RosterStatus: RosterStatusActive},
 			{ID: "m-c", Name: "mac-c", Kind: KindWarden, RosterStatus: RosterStatusActive},
+			{ID: "m-d", Name: "mac-d", Kind: KindWarden, RosterStatus: RosterStatusActive},
 		} {
 			if err := d.PutMember(machine); err != nil {
 				t.Fatalf("PutMember(%q): %v", machine.ID, err)
@@ -911,12 +912,16 @@ func TestNewMemberDTO(t *testing.T) {
 			"m-a": `{"runtimes":{"claude":{"installed":true,"logged_in":false},"codex":{"installed":true,"logged_in":true}}}`,
 			"m-b": `{"runtimes":{"claude":{"installed":true,"logged_in":true},"codex":{"installed":true,"logged_in":false}}}`,
 			"m-c": `{"runtimes":{"claude":{"installed":true,"logged_in":null}}}`,
+			"m-d": `{"runtimes":{"claude":{"installed":true,"logged_in":false}}}`,
 		} {
 			token := apiTestAgentToken(t, api, machine, machine)
 			if status, data := apiJSON(t, h, "POST", "/api/monitoring/telemetry", token, report); status != 200 {
 				t.Fatalf("%s telemetry: %d %v", machine, status, data)
 			}
 		}
+		aged := api.telemetry.Get("m-d")
+		aged["runtimes_ts"] = nowSecs() - telemetryFreshSecs - 1
+		api.telemetry.Set("m-d", aged)
 		dir, err := api.loadMachineDirectory()
 		if err != nil {
 			t.Fatalf("loadMachineDirectory: %v", err)
@@ -949,6 +954,9 @@ func TestNewMemberDTO(t *testing.T) {
 			{"offline with a pending move from its last machine: the pending pair keeps the reported runtime",
 				Member{ID: "w-parked", Runtime: "claude", ActualRuntime: "claude", DesiredMachineID: "m-a", LastMachineID: "m-b"}, "",
 				[]any{map[string]any{"machine_id": "m-a", "machine_name": "Studio A", "pending": true, "runtime": "claude"}}},
+			{"a machine whose logged-out reading is stale yields nothing",
+				Member{ID: "w-stale", ActualRuntime: "claude", DesiredMachineID: "m-d"}, "m-d",
+				[]any{}},
 			{"a connection reporting the pinned machine by its display name is not a move",
 				Member{ID: "w-by-name", Runtime: "codex", ActualRuntime: "codex", DesiredMachineID: "m-a"}, "Studio A",
 				[]any{}},
