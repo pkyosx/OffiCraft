@@ -278,8 +278,13 @@ func (w *paneWriter) note(format string, args ...any) {
 	fmt.Fprintf(w.inner, agentLinePrefix+format, args...)
 }
 
+// A pane left in copy-mode (someone attached and scrolled) swallows every Enter
+// while the paste still lands, so the member sits on unsent input for as long
+// as nobody leaves the mode. `copy-mode -q` leaves every mode, not only
+// copy-mode.
 func (w *paneWriter) submit() {
 	for attempt := 0; attempt < paneEnterAttempts; attempt++ {
+		_ = w.run("-L", w.socket, "copy-mode", "-q", "-t", w.session)
 		_ = w.run("-L", w.socket, "send-keys", "-t", w.session, "Enter")
 		w.sleep(paneEnterSettle)
 	}

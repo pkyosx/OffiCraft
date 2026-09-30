@@ -3,7 +3,11 @@ package main
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"sync"
@@ -85,8 +89,11 @@ func deliveryOf(socket, session, payload string) [][]string {
 	return [][]string{
 		{"-L", socket, "set-buffer", "-b", buffer, payload},
 		{"-L", socket, "paste-buffer", "-t", session, "-b", buffer, "-d", "-p"},
+		{"-L", socket, "copy-mode", "-q", "-t", session},
 		{"-L", socket, "send-keys", "-t", session, "Enter"},
+		{"-L", socket, "copy-mode", "-q", "-t", session},
 		{"-L", socket, "send-keys", "-t", session, "Enter"},
+		{"-L", socket, "copy-mode", "-q", "-t", session},
 		{"-L", socket, "send-keys", "-t", session, "Enter"},
 	}
 }
@@ -100,8 +107,11 @@ func degradedDeliveryOf(socket, session, line string) [][]string {
 	return [][]string{
 		{"-L", socket, "set-buffer", "-b", buffer, line},
 		{"-L", socket, "paste-buffer", "-t", session, "-b", buffer},
+		{"-L", socket, "copy-mode", "-q", "-t", session},
 		{"-L", socket, "send-keys", "-t", session, "Enter"},
+		{"-L", socket, "copy-mode", "-q", "-t", session},
 		{"-L", socket, "send-keys", "-t", session, "Enter"},
+		{"-L", socket, "copy-mode", "-q", "-t", session},
 		{"-L", socket, "send-keys", "-t", session, "Enter"},
 	}
 }
@@ -528,6 +538,58 @@ func TestPaneWriter(t *testing.T) {
 			deliveryOf("officraft", "member-m1", "[ocagent] listen: giving up — 30 attempts")...)
 		if got := rec.snapshot(); !reflect.DeepEqual(got, want) {
 			t.Errorf("tmux calls =\n%v\nwant\n%v", got, want)
+		}
+	})
+
+	t.Run("an event is submitted into a real pane whatever mode someone left it in", func(t *testing.T) {
+		bin := resolveTmuxBin()
+		if bin == "" {
+			t.Skip("tmux not installed")
+		}
+		for _, tc := range []struct {
+			name  string
+			enter []string
+		}{
+			{"no mode", nil},
+			{"copy-mode", []string{"copy-mode"}},
+			{"view-mode", []string{"run-shell", "echo 一段指令輸出"}},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				socket := fmt.Sprintf("oc-test-%d-%d", os.Getpid(), time.Now().UnixNano())
+				out := filepath.Join(t.TempDir(), "received.txt")
+				tmux := func(args ...string) string {
+					t.Helper()
+					got, err := exec.Command(bin, append([]string{"-L", socket, "-f", "/dev/null"}, args...)...).CombinedOutput()
+					if err != nil {
+						t.Fatalf("tmux %v: %v: %s", args, err, got)
+					}
+					return strings.TrimSpace(string(got))
+				}
+				tmux("new-session", "-d", "-s", "member-m1", "cat >> "+out)
+				t.Cleanup(func() { _ = exec.Command(bin, "-L", socket, "kill-server").Run() })
+				if len(tc.enter) > 0 {
+					tmux(append([]string{tc.enter[0], "-t", "member-m1"}, tc.enter[1:]...)...)
+				}
+				if len(tc.enter) > 0 && tmux("display-message", "-p", "-t", "member-m1", "#{pane_in_mode}") == "0" {
+					t.Fatal("the pane never entered a mode — this case would test nothing")
+				}
+
+				w := newPaneWriter(io.Discard, socket, "member-m1", nil, func(time.Duration) {})
+				line := "[ocagent] chat #c-1 from Owner: 進度？"
+				w.Write([]byte(line + "\n"))
+				w.drain()
+
+				deadline := time.Now().Add(2 * time.Second)
+				var got []byte
+				for time.Now().Before(deadline) {
+					got, _ = os.ReadFile(out)
+					if bytes.Contains(got, []byte(line+"\n")) {
+						return
+					}
+					time.Sleep(20 * time.Millisecond)
+				}
+				t.Errorf("the pane's program received %q, want it to contain %q", got, line+"\n")
+			})
 		}
 	})
 }
