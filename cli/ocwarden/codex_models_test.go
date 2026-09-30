@@ -9,47 +9,6 @@ import (
 	"time"
 )
 
-func TestNewestCodexFamilyModel(t *testing.T) {
-	list := []codexModelEntry{
-		{ID: "gpt-5.6-sol"},
-		{ID: "gpt-6-sol"},
-		{ID: "gpt-6.1-sol"},
-		{ID: "gpt-7-sol", Hidden: true},
-		{ID: "gpt-6.2-sol-mini"},
-		{ID: "gpt-6-luna"},
-		{ID: "gpt-5.6-luna"},
-		{ID: "gpt-5.6-terra"},
-		{ID: "gpt-10-astra"},
-		{ID: "gpt-9.9-astra"},
-		{ID: "gpt-5.5"},
-		{ID: "codex-auto-review", Hidden: true},
-	}
-	cases := []struct {
-		family string
-		want   string
-		found  bool
-	}{
-		{"sol", "gpt-6.1-sol", true},
-		{"luna", "gpt-6-luna", true},
-		{"terra", "gpt-5.6-terra", true},
-		{"astra", "gpt-10-astra", true},
-		{"gpt-5.5", "", false},
-	}
-	for _, c := range cases {
-		got, found := newestCodexFamilyModel(list, c.family)
-		if got != c.want || found != c.found {
-			t.Errorf("%s: got (%q, %v), want (%q, %v)", c.family, got, found, c.want, c.found)
-		}
-	}
-
-	if got, found := newestCodexFamilyModel([]codexModelEntry{{ID: "gpt-6-terra", Hidden: true}}, "terra"); found {
-		t.Errorf("a family whose only model is hidden resolved to %q", got)
-	}
-	if got, _ := newestCodexFamilyModel([]codexModelEntry{{ID: "gpt-6-sol"}, {ID: "gpt-6.0-sol"}}, "sol"); got != "gpt-6-sol" {
-		t.Errorf("two spellings of one version: got %q, want the first listed, gpt-6-sol", got)
-	}
-}
-
 type fakeCodexAppServer struct {
 	mu       sync.Mutex
 	requests []string
@@ -61,8 +20,6 @@ func (f *fakeCodexAppServer) seen() []string {
 	return append([]string(nil), f.requests...)
 }
 
-// startFakeCodexAppServer writes reply's messages for each JSON-RPC request; no
-// messages leaves the request unanswered and exit=true closes stdout like a dead process.
 func startFakeCodexAppServer(t *testing.T,
 	reply func(id any, method string, params map[string]any) (messages []appServerMessage, exit bool),
 ) (io.Writer, io.Reader, *fakeCodexAppServer) {
@@ -137,7 +94,7 @@ func codexModelPage(nextCursor any, models ...map[string]any) map[string]any {
 }
 
 func TestReadCodexModelList(t *testing.T) {
-	t.Run("models on every page are read until a null nextCursor and the newest sol is on the second page", func(t *testing.T) {
+	t.Run("models on every page are read until a null nextCursor", func(t *testing.T) {
 		stdin, stdout, fake := startFakeCodexAppServer(t, func(id any, method string, params map[string]any) ([]appServerMessage, bool) {
 			switch {
 			case method == "initialize":
@@ -171,12 +128,9 @@ func TestReadCodexModelList(t *testing.T) {
 		if got := fake.seen(); !reflect.DeepEqual(got, wantRequests) {
 			t.Errorf("requests = %q, want %q", got, wantRequests)
 		}
-		if got, _ := newestCodexFamilyModel(models, "sol"); got != "gpt-6.1-sol" {
-			t.Errorf("newest sol = %q, want gpt-6.1-sol", got)
-		}
 	})
 
-	t.Run("a model listed as hidden is read as hidden and is not picked", func(t *testing.T) {
+	t.Run("a model listed as hidden is read as hidden", func(t *testing.T) {
 		stdin, stdout, _ := startFakeCodexAppServer(t, func(id any, method string, params map[string]any) ([]appServerMessage, bool) {
 			switch method {
 			case "initialize":
@@ -198,9 +152,6 @@ func TestReadCodexModelList(t *testing.T) {
 		wantModels := []codexModelEntry{{ID: "gpt-7-sol", Hidden: true}, {ID: "gpt-6-sol"}}
 		if !reflect.DeepEqual(models, wantModels) {
 			t.Errorf("models = %#v, want %#v", models, wantModels)
-		}
-		if got, _ := newestCodexFamilyModel(models, "sol"); got != "gpt-6-sol" {
-			t.Errorf("newest sol = %q, want gpt-6-sol", got)
 		}
 	})
 

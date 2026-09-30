@@ -2,14 +2,12 @@
 //
 // CODEX_MODEL_OPTIONS is the ONE definition of the Codex quick-pick chips
 // (TaskManualsPage and TaskReassignDialog import it, and CodexModelSelect
-// renders it). The word a chip reports is what ships to the server as the
-// launch model, and the warden resolves only these four family words, so they
-// are pinned literally.
+// renders it).
 
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { render, fireEvent } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
-import { CODEX_MODEL_OPTIONS, CodexModelSelect, ModelEffortEditor } from "./ModelEffortEditor";
+import { CodexModelSelect, ModelEffortEditor } from "./ModelEffortEditor";
 import {
   EFFORT_LABELS_EN_WITH_SLUG,
   EFFORT_SLUGS,
@@ -28,10 +26,15 @@ describe("CodexModelSelect", () => {
       </I18nProvider>
     );
 
-    expect([...CODEX_MODEL_OPTIONS]).toEqual(["astra", "sol", "terra", "luna"]);
-    for (const family of ["astra", "sol", "terra", "luna"]) {
-      expect(utils.getByTestId(`me-codex-model-select-chip-${family}`).textContent).toBe(family);
-    }
+    const chips = [
+      ...utils.container.querySelectorAll('[data-testid^="me-codex-model-select-chip-"]'),
+    ].map((chip) => [chip.getAttribute("data-testid"), chip.textContent]);
+    expect(chips).toEqual([
+      ["me-codex-model-select-chip-astra", "astra"],
+      ["me-codex-model-select-chip-sol", "sol"],
+      ["me-codex-model-select-chip-terra", "terra"],
+      ["me-codex-model-select-chip-luna", "luna"],
+    ]);
 
     fireEvent.click(utils.getByTestId("me-codex-model-select-chip-sol"));
     expect(onModelChange).toHaveBeenCalledWith("sol");

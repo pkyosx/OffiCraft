@@ -143,24 +143,19 @@ describe("AgentDetailPanel · pending-change hints", () => {
     ["luna", "gpt-5.6-luna", null],
     ["opus", "claude-opus-5-5", null],
     ["opus", "claude-opus-5-5[1m]", null],
-    ["sol", "gpt-6-luna", "sol"],
-    ["opus", "claude-sonnet-5-5", "opus"],
-    ["gpt-6-sol", "gpt-6.1-sol", "gpt-6-sol"],
-    ["claude-opus-5", "claude-opus-5-5", "claude-opus-5"],
+    ["sol", "gpt-6-luna", "→ 要換成 sol"],
+    ["opus", "claude-sonnet-5-5", "→ 要換成 opus"],
+    ["gpt-6-sol", "gpt-6.1-sol", "→ 要換成 gpt-6-sol"],
+    ["claude-opus-5", "claude-opus-5-5", "→ 要換成 claude-opus-5"],
   ])(
-    "model set to %s and reported as %s: pending hint %s",
+    "model set to %s and reported as %s renders the pending hint %s (null: none)",
     async (model, actualModel, expected) => {
       const { queryByTestId } = await renderPanel({ model, actualModel });
-      const hint = queryByTestId("mp-model-pending");
-      if (expected === null) {
-        expect(hint).toBeNull();
-      } else {
-        expect(hint?.textContent).toContain(expected);
-      }
+      expect(queryByTestId("mp-model-pending")?.textContent ?? null).toBe(expected);
     },
   );
 
-  it("does not mark a move when the machine is reported by its name and the pin by its id", async () => {
+  it("marks a move only when the pin names another machine, with the machine reported by its name and the pin by its id", async () => {
     listMachines.mockImplementation(() =>
       Promise.resolve([machine("m-5f3a", "eva-m5"), machine("m-9c1d", "seth-m1")]),
     );
@@ -172,7 +167,7 @@ describe("AgentDetailPanel · pending-change hints", () => {
 
       const moving = await renderPanel({ desiredMachineId: "m-9c1d", machine: "eva-m5", actualMachine: "eva-m5" });
       await waitFor(() =>
-        expect(moving.getByTestId("mp-machine-pending").textContent).toContain("seth-m1"),
+        expect(moving.getByTestId("mp-machine-pending").textContent).toBe("→ 要換到 seth-m1"),
       );
     } finally {
       listMachines.mockImplementation(() =>

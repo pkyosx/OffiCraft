@@ -2191,12 +2191,27 @@ func TestReconcileOne(t *testing.T) {
 			ID: "solo", Name: "Solo", Kind: KindStaff, RoleKey: "assistant",
 			DesiredState: DesiredStateOnline, DesiredMachineID: "m-cx", Runtime: RuntimeCodex, Model: "sol",
 		})
-		got := api.reconcileOne(reconcileTestRow(t, d, "solo"), newReconcileState(), reconcileTestNow)
-		if got.Command != reconcileCmdStart {
-			t.Fatalf("decision = %+v, want a START", got)
+		out := hubTestStderr(t, func() {
+			got := api.reconcileOne(reconcileTestRow(t, d, "solo"), newReconcileState(), reconcileTestNow)
+			reconcileTestWantDecision(t, got, reconcileDecision{
+				Command: reconcileCmdStart, MemberID: "solo",
+				Reason: "spawn: desired_state online, no live session",
+				State: reconcileState{
+					Phase: reconcilePhaseStarting, LastCommand: reconcileCmdStart,
+					LastCommandAt: reconcileTestNow, OfflineSince: reconcileTestNow,
+				},
+			})
+		})
+		if out != "" {
+			t.Fatalf("a clean dispatch logs nothing, got %q", out)
 		}
-		if got := api.hub.PendingWardenCommands("m-cx"); got != 1 {
-			t.Fatalf("queued %d frame(s), want 1", got)
+		queued := api.hub.DrainWardenCommands("m-cx")
+		if len(queued) != 1 || queued[0].Subject != "solo" {
+			t.Fatalf("queued = %+v, want one frame tagged solo", queued)
+		}
+		if digest, ok := decodeWardenCommandFrame(queued[0].Frame); !ok ||
+			digest != (wardenCommandDigest{Verb: reconcileCmdStart, MemberID: "solo"}) {
+			t.Fatalf("queued frame digest = %+v (%v)", digest, ok)
 		}
 	})
 

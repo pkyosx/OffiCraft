@@ -9,9 +9,9 @@ const FAMILY_OLD_WARDEN =
 
 /** The warden and server write last_op_reason in English; the few reasons an owner acts on
  * directly are re-worded in the viewer's language here. The code prefix is kept
- * so the line can still be looked up in the troubleshooting guide. Any reason
- * this does not recognise is returned untouched. The patterns mirror the
- * sentences in cli/ocwarden/codex_models.go and server/ocserverd/api_machines.go. */
+ * so the line can still be looked up in the troubleshooting guide. The patterns
+ * mirror the sentences in cli/ocwarden/codex_models.go and
+ * server/ocserverd/api_machines.go; nothing checks the two sides agree. */
 export function localizeLastOpReason(reason: string, mp: Dict["mp"]): string {
   const version = (raw: string) => (raw === "unknown" ? null : raw);
   const missing = FAMILY_MISSING.exec(reason);

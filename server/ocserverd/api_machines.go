@@ -407,9 +407,8 @@ func (s *apiServer) machineSupportsRuntime(machineID, runtime string) bool {
 	return capability.LoggedIn == nil || *capability.LoggedIn
 }
 
-// machineResolvesCodexModel is false only for a Codex family word (sol, luna, …) on
-// a machine whose warden has not reported runtimes.codex.model_families: an older
-// warden hands the word to Codex verbatim and the member never comes online.
+// An older warden hands a family word to Codex verbatim and the member never
+// comes online.
 func (s *apiServer) machineResolvesCodexModel(machineID, runtime, model string) bool {
 	if NormalizeRuntime(runtime) != RuntimeCodex || !isCodexModelFamily(model) {
 		return true
@@ -420,6 +419,8 @@ func (s *apiServer) machineResolvesCodexModel(machineID, runtime, model string) 
 	return resolves
 }
 
+// frontend/src/lib/lastOpReason.ts parses this sentence to reword it; change
+// both together or the owner sees the English line.
 func codexFamilyUnresolvedDetail(model string) string {
 	return "runs a warden too old to resolve the Codex model family '" + model +
 		"' — upgrade that machine's warden, or set a full model id"

@@ -30,10 +30,7 @@ func isCodexModelFamily(model string) bool {
 	return false
 }
 
-// newestCodexFamilyModel only accepts the exact `gpt-<version>-<family>` shape:
-// a suffixed variant (`gpt-6-sol-mini`) is a different model, not a newer sol.
-// Versions compare numerically part by part, so 6.1 > 6 > 5.6; trailing zeros are
-// dropped so `gpt-6-sol` and `gpt-6.0-sol` tie and the list's first one wins.
+// A suffixed variant (`gpt-6-sol-mini`) is a different model, not a newer sol.
 func newestCodexFamilyModel(models []codexModelEntry, family string) (string, bool) {
 	best, bestVersion := "", []int(nil)
 	for _, m := range models {
@@ -179,10 +176,7 @@ func readCodexModelList(stdin io.Writer, stdout io.Reader, budget time.Duration)
 	return nil, errors.New("model/list kept paging past 20 pages")
 }
 
-// resolveCodexLaunchModel returns the model the sidecar is launched with, or a
-// refusal Reason. Only the four family words are resolved; a full id and a blank
-// pass through untouched so their launch line stays byte-identical.
-func (d SpawnDeps) resolveCodexLaunchModel(model string) (string, string) {
+func (d SpawnDeps) resolveCodexLaunchModel(model string) (launchModel, refusal string) {
 	if !isCodexModelFamily(model) {
 		return model, ""
 	}
@@ -209,6 +203,8 @@ func (d SpawnDeps) resolveCodexLaunchModel(model string) (string, string) {
 		codexModelFamilyUnavailable, d.codexVersion(), model, strings.Join(available, ", "))
 }
 
+// frontend/src/lib/lastOpReason.ts parses both refusal sentences above to
+// reword them; change them together or the owner sees the English line.
 const codexModelFamilyUnavailable = "codex_model_family_unavailable"
 
 func (d SpawnDeps) codexVersion() string {

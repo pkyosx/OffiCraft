@@ -1484,13 +1484,10 @@
   border-radius: 12px;
   background: color-mix(in srgb, var(--color-overlay) 2%, transparent);
 }
-/* Layout opt-in for the Codex 模型 picker, for the same reason as the 轉派
-   dialog's .task-reassign__seg--grid2 and with the same per-callsite opt-in: a
-   flex row could not fit four full `gpt-5.6-*` ids at 390px, and with no
-   flex-wrap here it squeezed them until each label broke across three lines.
-   The chips are family words now and the grid stays, because the geometry it
-   gives is what codex-model-chips.ct.spec.tsx pins. Only the Codex 模型 picker
-   opts in.
+/* Layout opt-in for the Codex 模型 picker, with the same per-callsite opt-in as
+   the 轉派 dialog's .task-reassign__seg--grid2: its four chips land on even
+   rows, the geometry codex-model-chips.ct.spec.tsx pins. Only the Codex 模型
+   picker opts in.
 
    NOT named --grid2, and not two fixed tracks, because this control is on a
    PAGE that grows with the viewport rather than inside a max-width modal (which

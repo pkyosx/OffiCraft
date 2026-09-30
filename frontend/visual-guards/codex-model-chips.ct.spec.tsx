@@ -2,11 +2,9 @@
 // (轉派 dialog · 任務手冊 負責成員 editor): Codex 模型 in both. It covered the
 // 轉派 dialog's 投入程度 row too until T-131 made that a dropdown — see below.
 //
-// The Codex vocabulary is 4 chips. When they were full model ids (`gpt-5.6-*`)
-// they did not fit one row in a phone's ~300px content column; they are family
-// words now, but the grid below still decides their rows, so its geometry is
-// what this file pins. The two ways a row of 4 goes wrong are opposite, and
-// each picker had one of them:
+// The Codex vocabulary is 4 chips and a grid decides their rows, so its
+// geometry is what this file pins. The two ways a row of 4 goes wrong are
+// opposite, and each picker had one of them:
 //
 //   .task-reassign__seg wraps → the 4th chip drops onto a row of its own and
 //     stretches to the full width, centered. That is the shape tasks.css

@@ -804,8 +804,7 @@ export function MemberDetailPanel({
   // way to tell the move is still outstanding. The comparison now runs against
   // the DURABLE last landing, which is what makes that possible.
   //
-  // Both sides are compared as display names, as WorkerDetailPanel does: the pin
-  // is an id, but `machine` can arrive as the machine's self-reported name when
+  // Both sides are compared as display names: the pin is an id, but `machine` can arrive as the machine's self-reported name when
   // the server has no id for the connection, and the two must not read as a move.
   const machineDisplay = (id: string) =>
     machines.find((m) => m.machineId === id)?.displayName || id;

@@ -296,9 +296,8 @@ func ValidRuntime(runtime string) bool {
 	return runtime == RuntimeClaude || runtime == RuntimeCodex
 }
 
-// isCodexModelFamily names the model words a warden resolves at spawn to the newest
-// full id its own Codex lists. Keep in step with cli/ocwarden's codexModelFamilies and
-// the frontend's CODEX_MODEL_OPTIONS: nothing compares the three.
+// Keep in step with cli/ocwarden's codexModelFamilies and the frontend's
+// CODEX_MODEL_OPTIONS and CODEX_FAMILY_MODEL: nothing compares them.
 func isCodexModelFamily(model string) bool {
 	switch model {
 	case "astra", "sol", "terra", "luna":

@@ -307,7 +307,7 @@ func TestResolveWorkerPlacement(t *testing.T) {
 			"the 'codex' runtime; no other machine is substituted")
 	})
 
-	t.Run("a codex worker set to a model family is refused by a warden that has not said it resolves families", func(t *testing.T) {
+	t.Run("a codex worker set to a model family is refused by a warden that has not said it resolves families, while a full model id is placed there", func(t *testing.T) {
 		api, _, _, _, w := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
 		apiTestListen(t, api, ServerSelfHost)
 		api.telemetry.Set(ServerSelfHost, map[string]any{"runtimes": map[string]any{
