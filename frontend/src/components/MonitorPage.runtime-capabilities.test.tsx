@@ -6,7 +6,7 @@
 // operator actually wants was either in a different column (claude) or nowhere
 // at all (codex). Claude and Codex now each print their probed version.
 //
-// What must NOT be lost in the trade: `machineSupportsRuntime` fail-closes when
+// What must NOT be lost in the trade: `runtimePlacementRefusal` fail-closes when
 // it cannot read `installed`/`logged_in`, so a machine whose codex probe says
 // "not logged in" silently stops accepting codex work and its worker sits
 // stamped machine_unavailable. That was the ✗'s whole job. A version-only cell

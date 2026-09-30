@@ -231,6 +231,8 @@ function slotNode(s: AgentDetailSlot): ReactNode {
 interface AgentDetailPanelProps {
   vm: AgentDetailVM;
   onBack: () => void;
+  /** Machine id → display name, for a 最近操作 reason that names a machine. */
+  machineName?: (id: string) => string;
   /** The kind-specific identity card (member: avatar + rename + presence +
    * action buttons; worker: briefcase + codename + task chip). */
   identity: ReactNode;
@@ -280,6 +282,7 @@ interface AgentDetailPanelProps {
 export function AgentDetailPanel({
   vm,
   onBack,
+  machineName,
   identity,
   slots,
 }: AgentDetailPanelProps) {
@@ -741,7 +744,7 @@ export function AgentDetailPanel({
               }`}
               data-testid={`${p}-lastop-reason`}
             >
-              {localizeLastOpReason(vm.lastOpReason, t.mp)}
+              {localizeLastOpReason(vm.lastOpReason, t.mp, machineName)}
             </div>
           )}
           {lastOpLog && lastOpLog !== lastOpReason && (

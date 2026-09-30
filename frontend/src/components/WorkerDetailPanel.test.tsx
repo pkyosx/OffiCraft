@@ -336,7 +336,15 @@ describe("WorkerDetailPanel — honest presence states (A案 P6 member vocabular
       "machine_unavailable: 機器「m-server-self」上的 OffiCraft 程式是舊版，還不認得 Codex 型號系列 sol；" +
         "請更新那台機器上的 OffiCraft 程式，或改設完整的型號名稱。不會改派到其他機器",
     ],
-  ])("離線 on a Codex model family or old-warden refusal: the reason is worded in the viewer's language (%s)", async (reason, shown) => {
+    [
+      "machine_unavailable: machine 'm-server-self' is not logged in to codex; no other machine is substituted",
+      "伺服器這一台 未登入 Codex",
+    ],
+    [
+      "machine_unavailable: machine 'm-server-self' is not logged in to claude; no other machine is substituted",
+      "伺服器這一台 未登入 Claude",
+    ],
+  ])("離線 on a Codex model family, old-warden or not-logged-in refusal: the reason is worded in the viewer's language (%s)", async (reason, shown) => {
     __injectMockTask(mkTask({ id: "t-1" }));
     __injectMockOutsourceWorker(
       mkWorker({
@@ -349,7 +357,28 @@ describe("WorkerDetailPanel — honest presence states (A案 P6 member vocabular
       }),
     );
     const { findByTestId } = renderOfficeAt("#office/worker/ow-1");
-    expect((await findByTestId("worker-detail-stuck-reason")).textContent).toBe(shown);
+    const line = await findByTestId("worker-detail-stuck-reason");
+    await waitFor(() => expect(line.textContent).toBe(shown));
+  });
+
+  it("最近操作 on a not-logged-in refusal names the machine by its display name", async () => {
+    __injectMockTask(mkTask({ id: "t-1" }));
+    __injectMockOutsourceWorker(
+      mkWorker({
+        id: "ow-1",
+        taskId: "t-1",
+        status: "active",
+        presence: "online",
+        machine: "Warden · mbp5",
+        lastOp: "start",
+        lastOpOk: false,
+        lastOpAt: 1_752_400_000,
+        lastOpReason: "codex_not_logged_in: machine 'm-server-self' is not logged in to codex",
+      }),
+    );
+    const { findByTestId } = renderOfficeAt("#office/worker/ow-1");
+    const line = await findByTestId("worker-detail-lastop-reason");
+    await waitFor(() => expect(line.textContent).toBe("伺服器這一台 未登入 Codex"));
   });
 
   it("運行中: presence online reads the online label", async () => {

@@ -1317,6 +1317,7 @@ export const zh = {
       `讀不到這台機器 Codex（${version ? `版本 ${version}` : "版本不明"}）的型號清單，無法決定 ${family} 要用哪個型號`,
     lastOpCodexFamilyOldWarden: (machine: string, family: string, noSubstitute: boolean) =>
       `機器「${machine}」上的 OffiCraft 程式是舊版，還不認得 Codex 型號系列 ${family}；請更新那台機器上的 OffiCraft 程式，或改設完整的型號名稱${noSubstitute ? "。不會改派到其他機器" : ""}`,
+    lastOpNotLoggedIn: (machine: string, runtime: string) => `${machine} 未登入 ${runtime}`,
     estimatedCost: "估計$",
     costReset: "歸零",
     costResetHint: "把這個成員的累計估計花費歸零。按下去救不回來。",

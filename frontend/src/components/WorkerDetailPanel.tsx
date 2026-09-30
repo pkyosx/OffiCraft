@@ -525,7 +525,7 @@ export function WorkerDetailPanel({
             under the dot it explains. Honest: hidden when nothing folded. */}
         {offline && offlineReason && (
           <div className="mp-field__hint" data-testid="worker-detail-stuck-reason">
-            {localizeLastOpReason(offlineReason, t.mp)}
+            {localizeLastOpReason(offlineReason, t.mp, machineDisplay)}
           </div>
         )}
       </div>
@@ -844,6 +844,7 @@ export function WorkerDetailPanel({
   return (
     <AgentDetailPanel
       onBack={onBack}
+      machineName={machineDisplay}
       identity={identity}
       // EVERY slot the panel offers, no exceptions (T-0b4f) — see the twin
       // literal in MemberDetailPanel.tsx. This is the side the old optional

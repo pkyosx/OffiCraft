@@ -1288,6 +1288,8 @@ export const en: Dict = {
       `Could not read the model list of this machine's Codex (${version ? `version ${version}` : "version unknown"}), so no ${family} model could be picked`,
     lastOpCodexFamilyOldWarden: (machine: string, family: string, noSubstitute: boolean) =>
       `Machine '${machine}' runs an OffiCraft program too old to resolve the Codex model family ${family}. Upgrade the OffiCraft program on that machine, or set a full model id${noSubstitute ? ". No other machine is substituted" : ""}`,
+    lastOpNotLoggedIn: (machine: string, runtime: string) =>
+      `${machine} is not logged in to ${runtime}`,
     estimatedCost: "est. $",
     costReset: "Reset",
     costResetHint: "Reset this member's accumulated estimated spend to zero. This cannot be undone.",
