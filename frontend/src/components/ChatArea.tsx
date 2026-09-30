@@ -994,13 +994,33 @@ export function ChatArea({
     session.touchY = null;
   }
 
+  // 🔴 一次手勢一頁 binds the scroll door too, not only the wheel and touch
+  // doors. A prepend that folds into a collapsed block adds almost no height,
+  // so the late events of the same flick carry the pane straight back to the
+  // top and the scroll event there would buy another page — measured, one
+  // flick pulled up to five.
+  function claimGesturePageForScroll(): boolean {
+    const wheelGestureOn =
+      Date.now() - session.lastWheelTs <= WHEEL_GESTURE_GAP_MS;
+    const touchGestureOn = session.touchY != null;
+    if (
+      (wheelGestureOn && session.wheelSpent) ||
+      (touchGestureOn && session.touchSpent)
+    ) {
+      return false;
+    }
+    if (wheelGestureOn) session.wheelSpent = true;
+    if (touchGestureOn) session.touchSpent = true;
+    return true;
+  }
+
   function onMessagesScroll() {
     const el = messagesRef.current;
     if (!el) return;
     // Near the TOP → pull one older page (no-op while one is in flight or
     // when the history is exhausted — hasMore=false renders the
     // "已到最早訊息" marker instead).
-    if (el.scrollTop < NEAR_TOP_PX && hasMore) {
+    if (el.scrollTop < NEAR_TOP_PX && hasMore && claimGesturePageForScroll()) {
       void loadOlderAnchored();
     }
     const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
