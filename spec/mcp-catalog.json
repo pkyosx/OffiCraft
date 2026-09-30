@@ -257,7 +257,6 @@
                   "type": "null"
                 }
               ],
-              "description": "Runtime login check interval.",
               "title": "Runtime Login Check Interval Secs"
             },
             "warden_credential_lifetime_secs": {
