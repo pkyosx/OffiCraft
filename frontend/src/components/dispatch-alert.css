@@ -19,7 +19,7 @@
   font-size: 12.5px;
   line-height: 1.55;
   /* Free-form-ish copy in a flex host: let it wrap rather than force the
-     column wider (frontend/CLAUDE.md 長 token 溢出). */
+     column wider (frontend/AGENTS.md 長 token 溢出). */
   overflow-wrap: anywhere;
 }
 

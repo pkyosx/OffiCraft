@@ -11,7 +11,7 @@
 // sheets (`member-detail.css` comes in through the component's own import,
 // `settings.css` through playwright/index.ts).
 //
-// The ancestor chain is reproduced BY CLASS, per frontend/CLAUDE.md 〈浮層寬度
+// The ancestor chain is reproduced BY CLASS, per frontend/AGENTS.md 〈浮層寬度
 // 不可用 vw 夾〉: a bare card mounted at x≈0 carries ~22px of slack it does not
 // have in the app, which is exactly how earlier 390px guards stayed green while
 // the owner's phone was broken. Production is

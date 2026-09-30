@@ -605,7 +605,7 @@ const MOCK_WIRE_ROLES_SEED: WireRoleDef[] = [
     // default. That was retired with the oversized seed (T-e1e3, then T-795e
     // replaced it again) and this copy was missed — the server-side copies of
     // the same paragraph (domain.go, api_doc_caps_tae38_test.go, server
-    // CLAUDE.md) were all corrected then. Deliberately no rune count here: read
+    // AGENTS.md) were all corrected then. Deliberately no rune count here: read
     // seeds/role_def_assistant.md if you need its size.
     size_chars: [...SEED_ROLE_ASSISTANT_MD].length,
     cap_chars: DOC_CAP_CHARS_DEFAULTS.duty,
@@ -6793,7 +6793,7 @@ const mockApiImpl = {
     // server has had `case "insight"` since T-6501 and `POST
     // /api/insight/{role_key}/reset` sits right there in the route table, so
     // 404ing here was the mock being STINGIER than the server — the direction
-    // frontend/CLAUDE.md warns about, just less famous than the generous one.
+    // frontend/AGENTS.md warns about, just less famous than the generous one.
     // Its cost was concrete: the InsightCard's 初始版本 row could not be read
     // offline, and a tombstoned insight revision could only ever swap one wrong
     // screen for a differently wrong one. 🔴 The roster is INSIGHT_SEEDS (the

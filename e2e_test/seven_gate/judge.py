@@ -236,7 +236,7 @@ def _observe_step_shape(task, samples, multi=""):
                 break
         if first_co is not None:
             break
-    # CLAUDE.md promises this second number is printed EVERY ROUND. It used to be
+    # AGENTS.md promises this second number is printed EVERY ROUND. It used to be
     # skipped in silence when there were no stamps but the close-out HAD been
     # seen (neither `stamps and first_co` nor `not first_co` held), so the branch
     # order below is: say why it is missing before saying nothing.
@@ -356,7 +356,7 @@ def judge(scene, samples):
     # are the harness's, not the agent's. The alternative (pick whichever of the
     # agent's tasks satisfies ④⑤⑦) is worse: it makes those cells unfalsifiable
     # by construction. So the exposure is kept, named here, written verbatim in
-    # CLAUDE.md, and — since it cannot be removed — SAID OUT LOUD in the evidence
+    # AGENTS.md, and — since it cannot be removed — SAID OUT LOUD in the evidence
     # of every cell it can poison (`_multi` below).
     mine = {}
     for _, t in _iter(samples, "tasks"):
@@ -372,7 +372,7 @@ def judge(scene, samples):
                   "EARLIEST — ④⑤⑦ are read from %s only. If those cells look "
                   "wrong, suspect a draft/scratch ticket opened before the real "
                   "one rather than the agent: the gate has no server fact that "
-                  "says which ticket this round is about (see CLAUDE.md 〈③ 取最早…〉)."
+                  "says which ticket this round is about (see AGENTS.md 〈③ 取最早…〉)."
                   % (len(ordered), ", ".join(t.get("id") or "<no id>" for t in ordered),
                      task.get("id")))
     out.append(("create_task", "開票", task is not None,

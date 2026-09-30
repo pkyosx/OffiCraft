@@ -152,7 +152,7 @@ shell_sources() {
 # A captured run is successful only if BOTH hold: rc == 0 AND the final line is
 # the exact authority.
 #
-# Why the rc half exists at all — CLAUDE.md deliberately used to say the
+# Why the rc half exists at all — AGENTS.md deliberately used to say the
 # authority "is the literal marker, NOT exit 0", and that wording was earned:
 # bin/common.sh's `set -e` once beat run_all.sh's intentional rc capture and made
 # a failure signal vanish, i.e. rc has historically been UNTRUSTWORTHY. The rule

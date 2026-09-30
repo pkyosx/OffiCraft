@@ -50,7 +50,7 @@ type killTargetSources struct {
 // passes no LastMachineID and fans out instead (worker_spawn.go).
 //
 // ⚠️ THIS IS THE KILL CHAIN ONLY. For the outsource SPAWN chain
-// desired_machine_id is a hard pin (server/CLAUDE.md §3): unusable means STALL
+// desired_machine_id is a hard pin (server/AGENTS.md §3): unusable means STALL
 // with a machine_unavailable receipt, never a fallback.
 func (s *apiServer) killTargetChain(id string, src killTargetSources) (targets []string, broadcast bool) {
 	if named := s.namedKillTarget(id, src); named != "" {

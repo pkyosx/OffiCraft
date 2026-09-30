@@ -9,7 +9,7 @@
 // real page is mounted and walked the way an owner walks it.
 //
 // Wrapped in `.app__main` for the real ancestor chain (the 22px gutters a bare
-// mount omits — frontend/CLAUDE.md).
+// mount omits — frontend/AGENTS.md).
 import { useState } from "react";
 import { I18nProvider } from "../../src/i18n";
 import { mockApi } from "../../src/api/mock";

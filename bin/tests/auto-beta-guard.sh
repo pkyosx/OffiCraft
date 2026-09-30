@@ -63,7 +63,7 @@
 #       W1 exists to stop.
 #   W1x THE EXEMPTION ROLL-CALL. W1r stops a job being mislabelled; it does not
 #       stop one being honestly labelled a non-gate and thereby leaving the set
-#       auto-beta waits for. CLAUDE.md's land criteria answer that with a ruling —
+#       auto-beta waits for. AGENTS.md's land criteria answer that with a ruling —
 #       the exemption list is a hardcoded roll-call and a third member needs its
 #       own owner ruling — and this is what makes that sentence a mechanism rather
 #       than prose. The enumeration is the point here, not a smell: it cannot go
@@ -782,7 +782,7 @@ for job in sorted(parsed):
 # pull requests — which reddens here, and is a change nobody makes by accident.
 # ⚠️ This is corroboration, NOT the definition. A main-pinned job is not thereby a
 # non-gate; the marker is what says so, and a human review of that marker is what
-# CLAUDE.md's exemption rule is about.
+# AGENTS.md's exemption rule is about.
 #
 # ⚠️ THE GATE SIDE USED TO BE SPELLING-DEPENDENT, AND THAT WAS A HOLE. It asked
 # only whether the ONE literal `github.ref == 'refs/heads/main'` appeared, so
@@ -1074,7 +1074,7 @@ for job in sorted(parsed):
 # required set — declare a new job not-a-gate, pin it to main, and both rules
 # above are satisfied while the trunk quietly stops waiting for it.
 #
-# CLAUDE.md answers that with a ruling, not a rule of thumb: the exemption list is
+# AGENTS.md answers that with a ruling, not a rule of thumb: the exemption list is
 # a hardcoded roll-call, and a third member needs its OWN owner ruling. Until now
 # that sentence was prose with nothing behind it. This is the mechanism. Yes, it is
 # an enumeration, and yes, this file argues against those everywhere else — the
@@ -1089,10 +1089,10 @@ for job in sorted(j for j, r in roles.items() if r == NOTGATE):
         continue
     print("EXEMPTFAIL:job '%s' (declared on line %s, marker on line %s) declares itself "
           "%s, which takes it out of the set auto-beta waits for. The jobs ruled exempt "
-          "are exactly: %s. A third one needs its OWN owner ruling (CLAUDE.md land "
+          "are exactly: %s. A third one needs its OWN owner ruling (AGENTS.md land "
           "criteria) — the analogy to the existing two is explicitly not enough. If you "
           "have that ruling, add the name to RULED_EXEMPT in this guard and to the "
-          "exemption list in CLAUDE.md in the SAME commit."
+          "exemption list in AGENTS.md in the SAME commit."
           % (job, declared_at.get(job, "?"), marked_at.get(job, "?"), NOTGATE,
              ", ".join(RULED_EXEMPT)))
 

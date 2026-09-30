@@ -38,7 +38,7 @@
 // Do not restate this guard as covering the rule.
 //
 // Widths span the phone case, the repo's 720px mobile breakpoint
-// (frontend/CLAUDE.md) and a desktop width — narrow and wide fail in opposite
+// (frontend/AGENTS.md) and a desktop width — narrow and wide fail in opposite
 // directions. Screenshots go to `testInfo.outputPath()` so nothing ever lands
 // in the repo tree.
 import { test, expect } from "@playwright/experimental-ct-react";

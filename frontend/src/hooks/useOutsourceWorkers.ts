@@ -12,7 +12,7 @@
 // T-8115 they re-read just that row (`GET /api/members/{id}`) when the
 // delta names a worker on the rail, and do NOTHING when it names a peer that is
 // not on it — a chat line can neither assign nor release a worker. See
-// frontend/CLAUDE.md 「一則通知 = 一次『只抓它碰到的那一項』」.
+// frontend/AGENTS.md 「一則通知 = 一次『只抓它碰到的那一項』」.
 //
 // 🔴 T-b17f narrowed that further: naming a worker on the rail is NOT enough.
 // The badge is `UnreadCounts(…, owner)`, so only a line addressed TO THE OWNER

@@ -1,10 +1,12 @@
-# officraft — builder CLAUDE.md
+# officraft — builder AGENTS.md
 
-This file is read by Claude Code agents working in this repo.
+This file is read by coding agents (Claude Code, Codex) working in this repo.
+
+⚠️ Claude Code skips every AGENTS.md in a session, silently, when any CLAUDE.md, CLAUDE.local.md or .claude/CLAUDE.md exists in the working directory or any directory above it (including outside the repo; the user-wide ~/.claude/CLAUDE.md does not count). Do not add any of those files anywhere in this repo, and check the machine's parent directories when an agent seems to ignore these rules.
 
 ## 讀法與範圍
 
-這份檔案只放 repo-wide、讀碼不一定看得出的不變量與工作邊界。`server/`、`cli/`、`frontend/`、`conformance/`、`e2e_test/` 的域內規則，讀各自的 `CLAUDE.md`；`frontend/.claude/rules/` 的規則依 `paths:` 條件載入。不要把域內細節或會頻繁變動的清單複製到這裡。
+這份檔案只放 repo-wide、讀碼不一定看得出的不變量與工作邊界。`server/`、`cli/`、`frontend/`、`conformance/`、`e2e_test/` 的域內規則，讀各自的 `AGENTS.md`；`frontend/.claude/rules/` 的規則依 `paths:` 條件載入。不要把域內細節或會頻繁變動的清單複製到這裡。
 
 `.claude/rules/` 與 `paths:` 是既定的隨需載入邊界；`@import` 不會節省 context，不要用另一套拆檔方式取代它。
 
@@ -24,7 +26,7 @@ This file is read by Claude Code agents working in this repo.
 
    - **同一事實的複本檢查(開發)**:改動一段敘述或契約前,先找**同一事實在樹上的其他表示**(生成物、schema、DTO、測試、seed 或對外文件);修一份不等於修好事實。能選 canonical source 就讓其他位置指向它;必須保留拷貝時,在**同一個 commit** 更新並從各讀者入口驗證。⚠️ **會漂移的量(份數、編號、清單、版本)不要寫進文字**——那一格的規則本體是下面的〈文件鐵律〉,本條不重述、不摘要。
 
-9. **reviewer code-hygiene checklist(每次 land-flow review 必查)**:review 一個 land 前,除既有 §7 manifest 審查外,逐條過這六點——(a) 有無**該清而沒清的 legacy 碼 / 過時 doc** 被留下?(b) 本次改動有無**建在過時或錯誤的概念**上(疊在已漂移的碼/doc 之上)?(c) 動到的碼,其 **context doc 有沒有隨碼同一波更新**(§6)?**特別地:凡動到 agent 互動面(MCP 工具、`ocagent` CLI、agent 要照做的流程),`seeds/`(global context)必須同一批更新**——agent 只知道 seed 教的做法,seed 不更新=新能力對全 fleet 隱形(owner 定調 2026-07-12;反例:attachment 送端 land 了、seed 卻還教舊法)?(d) 一旦發現 **doc↔碼 misalignment** → 照 §6 的關鍵護欄辦(不自裁就是開卡問 owner;開卡見 `seeds/system_interaction.md` §2.2),不自裁哪個對。 <!-- defers-to: rule:conflicting-authorities@6a56076a857f -->(e) 這次的改動有沒有在文件裡新增、或原封留下一份**「有哪些閘 / 哪些跑在哪」的列舉**?照下面〈文件鐵律〉辦。(f) 改動一段敘述或契約時,問**同一事實是否在別處還有表示**(生成物、schema、DTO、測試、seed、對外文件);若有,確認 canonical source 與其他讀者的指向/同步都在本次變更內(§6)。人眼 review 是判準,不新增掃描型守衛。任何一點不過 = 擋下、align 清楚再放行。
+9. **reviewer code-hygiene checklist(每次 land-flow review 必查)**:review 一個 land 前,除既有 §7 manifest 審查外,逐條過這七點——(a) 有無**該清而沒清的 legacy 碼 / 過時 doc** 被留下?(b) 本次改動有無**建在過時或錯誤的概念**上(疊在已漂移的碼/doc 之上)?(c) 動到的碼,其 **context doc 有沒有隨碼同一波更新**(§6)?**特別地:凡動到 agent 互動面(MCP 工具、`ocagent` CLI、agent 要照做的流程),`seeds/`(global context)必須同一批更新**——agent 只知道 seed 教的做法,seed 不更新=新能力對全 fleet 隱形(owner 定調 2026-07-12;反例:attachment 送端 land 了、seed 卻還教舊法)?(d) 一旦發現 **doc↔碼 misalignment** → 照 §6 的關鍵護欄辦(不自裁就是開卡問 owner;開卡見 `seeds/system_interaction.md` §2.2),不自裁哪個對。 <!-- defers-to: rule:conflicting-authorities@6a56076a857f -->(e) 這次的改動有沒有在文件裡新增、或原封留下一份**「有哪些閘 / 哪些跑在哪」的列舉**?照下面〈文件鐵律〉辦。(f) 改動一段敘述或契約時,問**同一事實是否在別處還有表示**(生成物、schema、DTO、測試、seed、對外文件);若有,確認 canonical source 與其他讀者的指向/同步都在本次變更內(§6)。(g) 新增或改動的註解是否符合下面〈註解〉;只是重述程式的註解 = 擋下。人眼 review 是判準,不新增掃描型守衛。任何一點不過 = 擋下、align 清楚再放行。
 
 5. **token 權威在 server**：server 決定要起哪個 member、mint 該 member 的 token，並在派工時交給 warden；warden 與 agent 都不 mint、不自 bootstrap、不自行決定 auth。過渡中的 pull bootstrap 程式碼不是設計目標，先讀相關 spec 再改。
 
@@ -38,6 +40,10 @@ This file is read by Claude Code agents working in this repo.
 - 新 server endpoint 走 `RouteSpec` table-driven 路由，包含 handler 與 test；wire 變更遵守下面的 spec-first 流程。
 - 對外 DTO 新增欄位預設 optional，避免破壞既有 client；需要破壞相容時先找 Seth／owner 對齊。
 - commit message 以 `[why]` 說明動機、`[how]` 說明關鍵改法；署真實執行模型的 Co-Authored-By，不用不實名稱。
+
+## 註解
+
+先讓程式自己說話；程式與名稱已說清楚的事不用註解重述。只留三種：看程式看不出來的「為什麼」；陷阱警告（改這裡會壞掉什麼、且不會馬上被發現，包括「這是 owner 的裁定，不要改成另一種」）；對外看得到的後果（畫面、API 規格、帳單）。不寫票號、歷史經過、設計取捨長文（放 commit 或 PR 說明）。程式在讀的註解（守衛比對的標記、`//go:` 指令、`//nolint`）不是說明文字，不刪。不跟著既有的長註解風格加碼。
 
 ## 驗證、CI 與出貨
 
@@ -53,9 +59,9 @@ This file is read by Claude Code agents working in this repo.
 
 ## Repo map
 
-- `server/`：Go production server（REST、SSE、MCP、reconcile、migration、SPA embed）；先讀 `server/CLAUDE.md`。
-- `cli/`：`ocagent` 與 `ocwarden` 的自更新工具；先讀 `cli/CLAUDE.md`。
-- `frontend/`：React／Vite／TypeScript SPA；共通規則在 `frontend/CLAUDE.md`，窄範圍規則在 `frontend/.claude/rules/`。
+- `server/`：Go production server（REST、SSE、MCP、reconcile、migration、SPA embed）；先讀 `server/AGENTS.md`。
+- `cli/`：`ocagent` 與 `ocwarden` 的自更新工具；先讀 `cli/AGENTS.md`。
+- `frontend/`：React／Vite／TypeScript SPA；共通規則在 `frontend/AGENTS.md`，窄範圍規則在 `frontend/.claude/rules/`。
 - `conformance/`：HTTP-only、語言無關的 wire 行為回歸權威；`e2e_test/`：隔離環境的 Playwright 流程，絕不碰 production。
 - `spec/`：凍結 wire 契約；`seeds/`：runtime seed 資產；`bin/`／`Makefile`：可執行檢查與建置；`docs/`：較長的設計與操作說明。
 

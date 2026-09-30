@@ -25,7 +25,7 @@ func currentScope(r *http.Request) string {
 
 // requestTrigger is the SSE frame `trigger` (spec/sse.md §2.3): the verified
 // token sub (the owner token's sub IS the wireOwnerID literal), NEVER a
-// client-supplied field (root CLAUDE.md §14).
+// client-supplied field (root AGENTS.md §14).
 func requestTrigger(r *http.Request) string {
 	if sub := currentActor(r); sub != "" {
 		return sub

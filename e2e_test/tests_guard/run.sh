@@ -2313,7 +2313,7 @@ _sg_helper_code="$(grep -cF '%{http_code}' "$SG_DIR/lib/http.sh" || true)"
   && ok "seven_gate: lib/http.sh captures the HTTP status code (a body without a status cannot separate a refusal from a no-op)" \
   || bad "seven_gate: lib/http.sh no longer captures %{http_code} — a refused call and an accepted one are indistinguishable again"
 
-# 21g) the LIVE actor is default-off, and its opt-in is STRICT. e2e_test/CLAUDE.md
+# 21g) the LIVE actor is default-off, and its opt-in is STRICT. e2e_test/AGENTS.md
 # records what the loose version cost: an EXCLUDE-shaped flag set in only one
 # place meant every laptop spawned real agents and paid for them. The switch
 # must be an INCLUDE flag compared exactly, so every typo lands on "did not run,
@@ -2678,7 +2678,7 @@ fi
 # somebody else's live agent. Nothing here says so any more; the socket layer
 # above does NOT catch it, because a pid has no socket. There is also no longer
 # any mechanical ban on `pkill` in run.sh / lib/carrier.sh / actors/live.sh — the
-# shape that took the live ocserverd down on 2026-08-11 — only root CLAUDE.md
+# shape that took the live ocserverd down on 2026-08-11 — only root AGENTS.md
 # §13 in prose.
 SG_OWNED="$SG_DIR/lib/ownedkill.sh"
 SG_LIVE="$SG_DIR/actors/live.sh"
@@ -3298,7 +3298,7 @@ T45_RUN_ALL="$HERE/../run_all.sh"
 T45_MEMBER_ERROR="[run_all] FATAL: OffiCraft members do not use cmux browser for e2e;"
 T45_MEMBER_ROUTE="[run_all] member e2e browser backend=Playwright"
 T45_MEMBER_README="$HERE/../README.md"
-T45_MEMBER_CLAUDE="$HERE/../CLAUDE.md"
+T45_MEMBER_AGENTS="$HERE/../AGENTS.md"
 T45_RUN_ALL_CODE="$(_t45_code "$T45_RUN_ALL")"
 T45_CMUX_GATE_LINE="$(printf '%s\n' "$T45_RUN_ALL_CODE" | grep -nF 'case "${OC_E2E_BROWSER_BACKEND:-playwright}" in' | head -1 | cut -d: -f1)"
 T45_SETUP_LINE="$(printf '%s\n' "$T45_RUN_ALL_CODE" | grep -nF 'if ! bash "$HERE/setup.sh"; then' | head -1 | cut -d: -f1)"
@@ -3322,9 +3322,9 @@ grep -qF 'If `agent.browsers.getForUrl(...)` says' "$T45_MEMBER_README" \
   && grep -qF '`No browser is available`' "$T45_MEMBER_README" \
   && ok "T-45/B: README maps the browser-tool failure to the supported route" \
   || bad 'T-45/B: README no longer explains what to do after `No browser is available`'
-grep -qF 'OffiCraft 成員做 e2e **不使用 cmux browser**' "$T45_MEMBER_CLAUDE" \
-  && ok "T-45/B: CLAUDE.md carries the same member contract for agents" \
-  || bad "T-45/B: CLAUDE.md no longer carries the member cmux contract"
+grep -qF 'OffiCraft 成員做 e2e **不使用 cmux browser**' "$T45_MEMBER_AGENTS" \
+  && ok "T-45/B: AGENTS.md carries the same member contract for agents" \
+  || bad "T-45/B: AGENTS.md no longer carries the member cmux contract"
 
 T45_MEMBER_MUT="$T45_TMUX_FIXTURE/run-all-mut.sh"
 sed '/OffiCraft members do not use cmux browser for e2e;/d' "$T45_RUN_ALL" > "$T45_MEMBER_MUT"

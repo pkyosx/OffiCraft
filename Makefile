@@ -169,7 +169,7 @@ build-frontend-deps:
 # lint
 # ===========================================================================
 
-# Naming invariant (root CLAUDE.md §10 folder = module = binary). THREE names,
+# Naming invariant (root AGENTS.md §10 folder = module = binary). THREE names,
 # so this needs THREE INDEPENDENT SOURCES or it proves nothing. Folder basename
 # and go.mod's `module` line are two of them. The third — the name the shipped
 # executable actually gets — lives ONLY in the build scripts' `-o` flags
@@ -236,7 +236,7 @@ lint-go-naming:
 	  found=0; \
 	  for s in $$scripts; do \
 	    if [[ ! -f "$$s" ]]; then \
-	      echo "FAIL — naming (CLAUDE.md 10): build script '$$s' is missing, so the produced-executable name for $$dir cannot be read"; exit 1; \
+	      echo "FAIL — naming (AGENTS.md 10): build script '$$s' is missing, so the produced-executable name for $$dir cannot be read"; exit 1; \
 	    fi; \
 	    outs="$$(awk '/\\$$/ { sub(/\\$$/,""); buf = buf $$0; next } { print buf $$0; buf = "" }' "$$s" \
 	      | grep -v '^[[:space:]]*#' \
@@ -247,12 +247,12 @@ lint-go-naming:
 	    for out in $$outs; do \
 	      found=1; obin="$$(basename "$$out")"; \
 	      if [[ "$$base" != "$$obin" ]]; then \
-	        echo "FAIL — naming (CLAUDE.md 10): module $$dir has folder name '$$base' but $$s builds it as '$$obin' (-o \"$$out\") — folder, go.mod module and produced executable must all be the same name"; exit 1; \
+	        echo "FAIL — naming (AGENTS.md 10): module $$dir has folder name '$$base' but $$s builds it as '$$obin' (-o \"$$out\") — folder, go.mod module and produced executable must all be the same name"; exit 1; \
 	      fi; \
 	    done; \
 	  done; \
 	  if [[ "$$found" != 1 ]]; then \
-	    echo "FAIL — naming (CLAUDE.md 10): module $$dir (folder '$$base') — no build line found, so the produced executable name is unknowable and folder=module=binary cannot be checked."; \
+	    echo "FAIL — naming (AGENTS.md 10): module $$dir (folder '$$base') — no build line found, so the produced executable name is unknowable and folder=module=binary cannot be checked."; \
 	    echo "  Searched: $$scripts"; \
 	    echo "  Wanted: ONE line carrying ALL THREE of  cd \"\$$ROOT/$$dir\"  +  go build  +  a DOUBLE-QUOTED  -o \"…\"  (after backslash-continuations are folded, whole-line comments dropped and trailing '#' comments stripped)."; \
 	    echo "  If the build line was DELETED: restore it. Deletion is what this clause catches."; \
@@ -261,7 +261,7 @@ lint-go-naming:
 	    exit 1; \
 	  fi; \
 	  if ! grep -qE "^module $${base}\$$" "$$dir/go.mod"; then \
-	    echo "FAIL — naming (CLAUDE.md 10): $$dir/go.mod 'module' line is not 'module $$base'"; exit 1; \
+	    echo "FAIL — naming (AGENTS.md 10): $$dir/go.mod 'module' line is not 'module $$base'"; exit 1; \
 	  fi; \
 	done; \
 	$(DONE)
@@ -377,7 +377,7 @@ lint-conformance-blackbox:
 	  if [[ -n "$$hits" ]]; then \
 	    echo "FAIL — conformance black-box violation (suite must stay HTTP-only):"; \
 	    printf '  %s\n' "$$hits"; \
-	    echo "conformance tests speak ONLY HTTP to \$$OC_TARGET_URL (see conformance/CLAUDE.md)."; \
+	    echo "conformance tests speak ONLY HTTP to \$$OC_TARGET_URL (see conformance/AGENTS.md)."; \
 	    exit 1; \
 	  fi; \
 	fi; \

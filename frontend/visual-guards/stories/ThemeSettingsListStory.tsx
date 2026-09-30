@@ -23,7 +23,7 @@
 // resolves to its office default — the contrast we ship by default.
 //
 // Wrapped in `.app__main` to reproduce the real ancestor chain (the 22px
-// gutters that a bare mount would omit — see frontend/CLAUDE.md).
+// gutters that a bare mount would omit — see frontend/AGENTS.md).
 import { I18nProvider } from "../../src/i18n";
 import { mockApi } from "../../src/api/mock";
 import { setToken } from "../../src/api/auth";

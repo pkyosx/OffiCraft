@@ -1,6 +1,6 @@
 # conformance/ — 語言無關黑箱 conformance 套件
 
-進入 `conformance/` 時讀本檔；repo-wide 規則在根目錄 `CLAUDE.md`。本套件是 server wire 行為的可執行定義：測試只對 `OC_TARGET_URL` 發 HTTP，不 import server implementation。未來換 backend，行為等價仍以這套黑箱結果為準。
+進入 `conformance/` 時讀本檔；repo-wide 規則在根目錄 `AGENTS.md`。本套件是 server wire 行為的可執行定義：測試只對 `OC_TARGET_URL` 發 HTTP，不 import server implementation。未來換 backend，行為等價仍以這套黑箱結果為準。
 
 ## 1. 黑箱與 source of truth
 

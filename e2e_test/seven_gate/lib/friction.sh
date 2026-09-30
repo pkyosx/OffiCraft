@@ -2,7 +2,7 @@
 # e2e_test/seven_gate/lib/friction.sh — the ONE reader of the two follow-up
 # questions.
 #
-# The wording lives in friction.md and nowhere else (CLAUDE.md 〈friction〉:
+# The wording lives in friction.md and nowhere else (AGENTS.md 〈friction〉:
 # "問法逐字寫死在 friction.md"，tests_guard case 21d pins both questions
 # verbatim and bans the pleasantry forms). Two callers now need them — run.sh
 # prints them for a human to ask, actors/live.sh puts them to the real agent —

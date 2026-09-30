@@ -1,6 +1,6 @@
 # frontend/ — React SPA
 
-進入 frontend/ 時 nested-load。本檔只放前端共通路由與驗證；repo-wide 憲章見根目錄 CLAUDE.md。
+進入 frontend/ 時 nested-load。本檔只放前端共通路由與驗證；repo-wide 憲章見根目錄 AGENTS.md。
 
 ## path-scoped 規則
 

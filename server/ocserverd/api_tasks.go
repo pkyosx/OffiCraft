@@ -34,7 +34,7 @@ type dispatchSpec struct {
 
 // inheritDispatchSpec fills the fields a 發包 left unset; an explicit field
 // always wins. Two cases, not a priority order (owner ruling 2026-07-26,
-// server/CLAUDE.md §8): typed → the manual's outsource assignee, ad-hoc → the
+// server/AGENTS.md §8): typed → the manual's outsource assignee, ad-hoc → the
 // dispatcher's own spec; the dispatcher pass only fills what the manual left
 // blank. Reading it as one global priority order once broke every typed dispatch.
 //

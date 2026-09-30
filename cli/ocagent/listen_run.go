@@ -197,7 +197,7 @@ func stationVerdict(prev, cur string, firstConnect bool) string {
 }
 
 // 🔴 The predicate is BaseConfigured (was the fallback TAKEN), never
-// `Base == defaultBase` (cli/CLAUDE.md): loadConfig fills defaultBase so Base is
+// `Base == defaultBase` (cli/AGENTS.md): loadConfig fills defaultBase so Base is
 // never empty, and loopback alone is no tell — cli/ocwarden/testdata/
 // golden_launch.txt exports OC_BASE=http://127.0.0.1:7755 on purpose.
 // 🔴 Text only, never a refusal or exit (owner ruling rc-55a969718c98, option [1]).

@@ -69,7 +69,7 @@ export function ReassignCodexChipsStory() {
 }
 
 /** 任務手冊 › 負責成員 editor. The ancestor chain is reproduced BY CLASS
- * (.app > .app__main) per frontend/CLAUDE.md — .app__main's side padding is
+ * (.app > .app__main) per frontend/AGENTS.md — .app__main's side padding is
  * part of the width the chips actually get. */
 export function ManualCodexChipsStory({ widthPx }: { widthPx: number }) {
   return (

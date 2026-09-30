@@ -20,11 +20,11 @@
 // `.settings` is named explicitly because it is `overflow-y: auto`, which the
 // overflow spec coerces into `overflow-x: auto` — exactly the silent
 // absorption that let an earlier page-only assertion sail over a broken phone
-// (frontend/CLAUDE.md 〈浮層寬度不可用 vw 夾〉, and the repo paid for it again
+// (frontend/AGENTS.md 〈浮層寬度不可用 vw 夾〉, and the repo paid for it again
 // in T-ee17).
 //
 // LEGITIMATE SCROLL REGIONS ARE EXEMPT, AND ONLY THOSE. `.doc-md pre` and
-// `.doc-md table` declare `overflow-x: auto` on purpose (frontend/CLAUDE.md
+// `.doc-md table` declare `overflow-x: auto` on purpose (frontend/AGENTS.md
 // 〈長 token 溢出〉 — flattening them to kill a page-level spill is the
 // specific over-correction that section forbids). The subtree sweep therefore
 // skips any element whose computed `overflow-x` is auto/scroll, and anything

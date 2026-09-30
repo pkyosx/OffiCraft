@@ -6,7 +6,7 @@
 // label, so it alone opts out and wraps — every OTHER column
 // (machine/account/model) must stay nowrap on purpose.
 //
-// Real ancestor chain reproduced per frontend/CLAUDE.md's guard discipline
+// Real ancestor chain reproduced per frontend/AGENTS.md's guard discipline
 // (bare-mounting a card loses the `.app__main` max-width 1040 + 22px side
 // padding, and an overflow can vanish under the extra room): `.app` >
 // `.app__main` > `.mon-table-wrap[data-surface="sessions"]` > `.mon-table`,

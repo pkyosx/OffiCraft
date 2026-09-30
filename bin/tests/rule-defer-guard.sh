@@ -27,7 +27,7 @@ RULE_END="#### "
 REVIEWED_RULE_HASH="5fbfa2d0afaec6d1bdd641d0e19070fe7d14577ef3d6b833d7dbc6fb5f988ab5"
 
 required_sites=(
-  "CLAUDE.md"
+  "AGENTS.md"
   "docs/guide/best-practices.md"
 )
 

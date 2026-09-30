@@ -3,7 +3,7 @@ package main
 // Why a hook: the harness's dangerous-removal prompt ignores
 // --dangerously-skip-permissions (every member's launch flag) and nobody is at
 // the keyboard, so the member stalls silently; a PreToolUse deny means the prompt
-// is never raised. The same rule as prose in cli/CLAUDE.md §5 did not prevent a
+// is never raised. The same rule as prose in cli/AGENTS.md §5 did not prevent a
 // stall.
 //
 // OC_BASE CLASSIFICATION: EXEMPT.

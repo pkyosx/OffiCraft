@@ -70,7 +70,7 @@ const DEFAULT_CONTEXT_RADIUS = 3;
 // stalls for SECONDS, and that is accepted rather than solved. No absolute
 // figure is quoted here on purpose: two runs on this same machine measured
 // 3.7 s and 5.7 s for the same input, so a number written into this comment is
-// a measurement that rots (CLAUDE.md §4). Re-measure rather than cite.
+// a measurement that rots (AGENTS.md §4). Re-measure rather than cite.
 //
 // 🔴 AND THE DIFF IS ONLY HALF THE STALL. DiffView renders every row (no
 // virtualisation — the owner's "do not collapse" ruling) and runs wordDiff over

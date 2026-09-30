@@ -44,7 +44,7 @@
 # the ocserverd that a `pkill -f` took down for 27 seconds on 2026-08-11. The
 # socket layer above does NOT cover this — a pid has no socket, and a look-alike
 # session name on our own socket is still not ours.
-# The only remaining protection is prose: root CLAUDE.md §13, and this comment.
+# The only remaining protection is prose: root AGENTS.md §13, and this comment.
 # Every assertion this file's rules make is an assertion of ABSENCE, and "safe"
 # is trivially achieved by killing nothing — so the positive control that made
 # the difference visible is exactly what is gone.

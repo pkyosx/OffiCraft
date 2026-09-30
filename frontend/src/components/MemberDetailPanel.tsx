@@ -515,7 +515,7 @@ export function MemberDetailPanel({
       // would make this fallback lie, and no test would go red for it.
       // 🔴 NOT `error.message` (independent review r3): every ApiError carries the
       // historical `http <status> for <METHOD> <path>` text, which frontend's
-      // CLAUDE.md reserves for logs — and `ApiError extends Error`, so an
+      // AGENTS.md reserves for logs — and `ApiError extends Error`, so an
       // `instanceof Error` ternary shows it to the owner and makes the fallback
       // below dead code. The server's own envelope sentence is the only wire text
       // fit to display; anything else falls back to the dictionary.

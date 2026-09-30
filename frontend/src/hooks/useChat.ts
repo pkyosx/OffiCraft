@@ -23,7 +23,7 @@
 // anywhere in the company. markRead() is now the only thing that can start
 // that round, but the SSE branches below stay gated on the delta's own
 // participants — a load nobody asked for is still a wasted request. See
-// frontend/CLAUDE.md 「一則通知 = 一次『只抓它碰到的那一項』」.
+// frontend/AGENTS.md 「一則通知 = 一次『只抓它碰到的那一項』」.
 
 // SCROLLBACK (T-bf82): the thread starts as the newest page (server default
 // 30) and grows BACKWARDS through loadOlder() — a keyset-cursor page
