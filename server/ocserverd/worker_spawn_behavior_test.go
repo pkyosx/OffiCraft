@@ -1429,7 +1429,7 @@ func TestNotifyWorkerSpawn_TerminalTask_NoDispatch(t *testing.T) {
 // reconcileWorkerLiveness never read decision.StartTimedOut, and because worker
 // spawn observability is in-memory by contract, a re-exec then erased the machine
 // cell too — leaving a worker that had been dispatched to repeatedly showing
-// 尚未分配機器 with every last_op field blank.
+// no machine with every last_op field blank.
 //
 // Also pins the 31751ae lesson: the retry that FOLLOWS a wake timeout must not
 // erase the explanation for the one before it.

@@ -54,8 +54,8 @@ func TestListOutsourceWorkers_RuntimeFold(t *testing.T) {
 	workerID := assignOneWorker(t, api)
 
 	// No online warden was connected, so the tick found no eligible host: the
-	// worker is assigned but NEVER dispatched → last_spawn_target "" → the panel
-	// renders 「尚未分配」, never a fabricated machine name.
+	// worker is assigned but NEVER dispatched → last_spawn_target "" → machine
+	// is "", never a fabricated machine name.
 	rows := listWorkersAs(t, api, wireOwnerID)
 	if len(rows) != 1 || rows[0].Machine != "" {
 		t.Fatalf("never-dispatched worker must serve empty machine, got %+v", rows)
@@ -726,7 +726,7 @@ func TestRelocateNeverDispatchedWorker(t *testing.T) {
 	api.noOutsource = true
 	workerID := assignOneWorker(t, api)
 	// No online warden at assign time → the worker was never dispatched: its
-	// in-memory spawn target is empty (the 尚未分配 shape).
+	// in-memory spawn target is empty.
 	if api.workerSpawnTarget[workerID] != "" {
 		t.Fatalf("precondition: worker must be undispatched, target=%q", api.workerSpawnTarget[workerID])
 	}
@@ -1214,7 +1214,7 @@ func TestListOutsourceWorkers_PresenceUsesLivePresence(t *testing.T) {
 // TestListOutsourceWorkers_MachineSurvivesReexec (T-c23a): the cockpit machine
 // cell must survive a server re-exec. The spawn observation (workerSpawnTarget)
 // is in-memory since the P7d fold: a restart forgets it, and a HEALTHY live
-// worker is never re-dispatched, so the cell read 「尚未分配」 forever while the
+// worker is never re-dispatched, so the cell read empty forever while the
 // session kept working. The projection now falls back to the restart-proof
 // observed host: live SSE machine claim first, then the worker's self-reported
 // telemetry `machine` — the same precedence the member observedHost fold trusts.

@@ -1316,7 +1316,6 @@ export const MESSAGE_KEYS: readonly string[] = [
   "workerDetail.refocus",
   "workerDetail.refocusDone",
   "workerDetail.refocusError",
-  "workerDetail.refocusOfflineHint",
   "workerDetail.refocusSinceLabel",
   "workerDetail.refocusSubmittedNote",
   "workerDetail.refocusing",

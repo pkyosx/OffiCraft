@@ -139,8 +139,7 @@ describe("MemberDetailPanel — the 停止 ladder", () => {
         />
       </I18nProvider>,
     );
-    // In `stopping` the ONE ladder cell at this stage IS 加速停止 (owner
-    // 2026-08-22 — 停止 is not kept beside it any more).
+    // In `stopping` the ONE ladder cell at this stage IS 加速停止.
     // The panel mounts already at that stage, so LADDER_ARM_MS is not in play
     // and the in-flight case this pins is the one the owner reaches by pressing
     // 加速停止 twice.
@@ -179,6 +178,32 @@ describe("MemberDetailPanel — the 停止 ladder", () => {
       );
     },
   );
+
+  it("a retry of a rejected 停止 clears 操作失敗，請稍後重試", async () => {
+    const onDeactivate = vi
+      .fn<() => Promise<void>>()
+      .mockRejectedValueOnce(new Error("http 500"))
+      .mockResolvedValueOnce(undefined);
+    const { getByTestId, findByTestId, queryByTestId } = render(
+      <I18nProvider>
+        <MemberDetailPanel
+          member={mkMember()}
+          onBack={vi.fn()}
+          onActivate={vi.fn()}
+          onRelocate={vi.fn()}
+          onDeactivate={onDeactivate}
+        />
+      </I18nProvider>,
+    );
+    fireEvent.click(getByTestId("member-action-stop"));
+    await findByTestId("mp-stop-error");
+    await waitFor(() =>
+      expect((getByTestId("member-action-stop") as HTMLButtonElement).disabled).toBe(false),
+    );
+    fireEvent.click(getByTestId("member-action-stop"));
+    await waitFor(() => expect(onDeactivate).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(queryByTestId("mp-stop-error")).toBeNull());
+  });
 
   it("a rejected 強制停止 closes its confirm and says 操作失敗，請稍後重試", async () => {
     const onForceStop = vi.fn(async () => {

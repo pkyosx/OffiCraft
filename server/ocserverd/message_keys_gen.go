@@ -1317,7 +1317,6 @@ var messageKeys = map[string]bool{
 	"workerDetail.refocus":                             true,
 	"workerDetail.refocusDone":                         true,
 	"workerDetail.refocusError":                        true,
-	"workerDetail.refocusOfflineHint":                  true,
 	"workerDetail.refocusSinceLabel":                   true,
 	"workerDetail.refocusSubmittedNote":                true,
 	"workerDetail.refocusing":                          true,

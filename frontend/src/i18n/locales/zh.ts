@@ -713,7 +713,6 @@ export const zh = {
     // ── T-32e1/T-f190 生命週期操作（對齊成員詳情：換手／停止／換 model）──────
     // 換手（refocus）：僅線上可觸發；送出後由外包端非同步重生，故保留「已送出」註記。
     refocus: "重新聚焦",
-    refocusOfflineHint: "僅線上可重新聚焦",
     refocusing: "聚焦中…",
     refocusDone: "已送出",
     refocusError: "聚焦失敗",

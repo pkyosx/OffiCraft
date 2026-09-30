@@ -799,6 +799,7 @@ describe("WorkerDetailPanel — lifecycle ops (T-32e1/T-f190)", () => {
     ["stopping", true, "僅線上可重新聚焦"],
     ["stopped", true, "僅線上可重新聚焦"],
     ["offline", true, "僅線上可重新聚焦"],
+    ["waking", true, "僅線上可重新聚焦"],
   ] as const)(
     "refocus on a %s worker: disabled=%s, titled %s",
     async (presence, disabled, title) => {
@@ -1190,7 +1191,13 @@ describe("WorkerDetailPanel — lifecycle ops (T-32e1/T-f190)", () => {
       "worker-detail-wake",
       "按下後會存下新設定，它停下後會用新設定重新開起來。",
     ],
-    [undefined, "worker-detail-change", "按下後只存下新設定，下次喚醒時使用。"],
+    ["offline", "worker-detail-wake", "按下後只存下新設定，下次喚醒時使用。"],
+    [
+      "waking",
+      "worker-detail-change",
+      "按下後只存下新設定，下次喚醒時使用。" +
+        " 上方顯示的是目前實際使用的模型，可能和這裡的設定不同。",
+    ],
   ] as const)(
     "%s worker, dialog opened by %s → the settings note reads %s",
     async (presence, opener, note) => {
@@ -1286,6 +1293,109 @@ describe("WorkerDetailPanel — lifecycle ops (T-32e1/T-f190)", () => {
       "這次沒有送出搬移指令",
     );
   });
+
+  it("the wake alert goes away once the worker leaves 已停止", async () => {
+    __injectMockTask(mkTask({ id: "t-1" }));
+    const worker = mkWorker({
+      id: "ow-1",
+      taskId: "t-1",
+      presence: "stopped",
+      desiredState: "offline",
+    });
+    __injectMockOutsourceWorker(worker);
+    vi.spyOn(api, "activateMember").mockResolvedValue({ activationPending: true });
+    const { findByTestId } = renderOfficeAt("#office/worker/ow-1");
+    fireEvent.click(await findByTestId("worker-detail-wake"));
+    fireEvent.click(await findByTestId("worker-detail-settings-confirm"));
+    await findByTestId("worker-detail-wake-undispatched");
+
+    worker.presence = "waking";
+    __injectMockOutsourceWorker(mkWorker({ id: "ow-other", taskId: "t-1" }));
+    await waitFor(() =>
+      expect(queryTestId(document.body, "worker-detail-wake-undispatched")).toBeNull(),
+    );
+  });
+
+  it("the relocate alert goes away once the worker is running on the pinned machine, and stays away after it drifts off", async () => {
+    __setMockMemberOnline("warden-mbp5", true);
+    __injectMockTask(mkTask({ id: "t-1" }));
+    const worker = mkWorker({
+      id: "ow-1",
+      taskId: "t-1",
+      presence: "online",
+      desiredState: "online",
+    });
+    __injectMockOutsourceWorker(worker);
+    vi.spyOn(api, "relocateMember").mockResolvedValue({
+      relocationPending: true,
+      relocationDeferred: false,
+    });
+    const { findByTestId } = renderOfficeAt("#office/worker/ow-1");
+    await moveToSeedWarden(findByTestId, "worker-detail-change");
+    await findByTestId("worker-detail-relocate-undispatched");
+
+    worker.desiredMachineId = "warden-mbp5";
+    worker.actualMachine = "warden-mbp5";
+    __injectMockOutsourceWorker(mkWorker({ id: "ow-other", taskId: "t-1" }));
+    await waitFor(() =>
+      expect(
+        queryTestId(document.body, "worker-detail-relocate-undispatched"),
+      ).toBeNull(),
+    );
+    worker.actualMachine = "m-server-self";
+    __injectMockOutsourceWorker(mkWorker({ id: "ow-other-2", taskId: "t-1" }));
+    await waitFor(() =>
+      expect(document.body.textContent).toContain("Warden · mbp5"),
+    );
+    expect(
+      queryTestId(document.body, "worker-detail-relocate-undispatched"),
+    ).toBeNull();
+  });
+
+  it.each([
+    ["worker-detail-wake-undispatched", "stopped", "worker-detail-wake"],
+    ["worker-detail-relocate-undispatched", "online", "worker-detail-change"],
+  ] as const)(
+    "%s does not follow the owner onto another worker",
+    async (alertId, presence, opener) => {
+      __setMockMemberOnline("warden-mbp5", true);
+      __injectMockTask(mkTask({ id: "t-1" }));
+      __injectMockTask(mkTask({ id: "t-2" }));
+      __injectMockOutsourceWorker(
+        mkWorker({
+          id: "ow-1",
+          codename: "O-FIRST",
+          taskId: "t-1",
+          presence,
+          desiredState: presence === "online" ? "online" : "offline",
+        }),
+      );
+      __injectMockOutsourceWorker(
+        mkWorker({
+          id: "ow-2",
+          codename: "O-SECOND",
+          taskId: "t-2",
+          presence: "stopped",
+          desiredState: "offline",
+        }),
+      );
+      vi.spyOn(api, "activateMember").mockResolvedValue({ activationPending: true });
+      vi.spyOn(api, "relocateMember").mockResolvedValue({
+        relocationPending: true,
+        relocationDeferred: false,
+      });
+      const { findByTestId } = renderOfficeAt("#office/worker/ow-1");
+      await moveToSeedWarden(findByTestId, opener);
+      await findByTestId(alertId);
+
+      window.location.hash = "#office/worker/ow-2";
+      fireEvent(window, new HashChangeEvent("hashchange"));
+      await waitFor(() =>
+        expect(document.body.textContent).toContain("O-SECOND"),
+      );
+      expect(queryTestId(document.body, alertId)).toBeNull();
+    },
+  );
 
   it.each([
     [

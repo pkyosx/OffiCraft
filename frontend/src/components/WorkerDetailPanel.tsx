@@ -82,8 +82,8 @@ interface WorkerDetailPanelProps {
    * member activation endpoint. The resolved receipt is read:
    * `activationPending` raises the same alert the member panel does. */
   onWake?: () => Promise<MemberActivateResult | void>;
-  /** Change model/effort (換 model — T-f190): active → takes effect now,
-   * assigned → next spawn. Undefined ⇒ the model cell is read-only. */
+  /** Change runtime/model/effort (換 model — T-f190). When it lands depends on
+   * presence — the dialog's note (`settingsNoteKey`) says which. */
   onSetModel?: (
     runtime: "claude" | "codex",
     model: string,

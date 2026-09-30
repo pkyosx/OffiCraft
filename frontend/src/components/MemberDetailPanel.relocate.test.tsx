@@ -179,11 +179,12 @@ describe("MemberDetailPanel — unified wake/change settings", () => {
   });
 
   it.each([
-    ["stopping", "online", "mp-change"],
-    ["stopped", "offline", "member-action-spawn"],
+    ["stopping", "online", "mp-change", "按下後會存下新設定，它停下後會用新設定重新開起來。"],
+    ["stopped", "offline", "member-action-spawn", "按下後會存下新設定，它停下後會用新設定重新開起來。"],
+    ["waking", "waking", "member-action-spawn", "按下後只存下新設定，下次喚醒時使用。"],
   ] as const)(
-    "tells a %s member's owner the change comes back up once it has stopped",
-    async (lifecycle, status, opener) => {
+    "a %s member's settings note (status %s, opened by %s) reads %s",
+    async (lifecycle, status, opener, text) => {
       const { getByTestId } = renderPanel({
         lifecycle,
         status,
@@ -194,9 +195,7 @@ describe("MemberDetailPanel — unified wake/change settings", () => {
         expect((getByTestId(opener) as HTMLButtonElement).disabled).toBe(false),
       );
       fireEvent.click(getByTestId(opener));
-      expect(getByTestId("mp-settings-intent-note").textContent).toBe(
-        "按下後會存下新設定，它停下後會用新設定重新開起來。",
-      );
+      expect(getByTestId("mp-settings-intent-note").textContent).toBe(text);
     },
   );
 
@@ -249,8 +248,7 @@ describe("MemberDetailPanel — unified wake/change settings", () => {
     await waitFor(() =>
       expect((getByTestId("member-action-spawn") as HTMLButtonElement).disabled).toBe(false),
     );
-    // …a waking member is not offered 更改: its confirm is an activate, and
-    // 更改 promises a graceful handover (guard gap MED-5).
+    // Its confirm is an activate, and 更改 promises a graceful handover.
     expect(queryByTestId("mp-change")).toBeNull();
   });
 

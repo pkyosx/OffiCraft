@@ -663,7 +663,6 @@ export const en: Dict = {
     // T-7526: the four presence words retired with the 狀態 cell — see zh.ts.
     // ── T-32e1/T-f190 lifecycle ops (aligned with the member detail panel) ──
     refocus: "Refocus",
-    refocusOfflineHint: "Refocus requires the worker online",
     refocusing: "Refocusing…",
     refocusDone: "Sent",
     refocusError: "Refocus failed",

@@ -2533,7 +2533,7 @@ export function ChatArea({
                   {msg.chatWakeQueueHint(member.name)}
                 </span>
                 {/* No ⚡喚醒 while stopping (owner rc-2e1c96250169): wait for the
-                    stop to finish, then wake. The queue hint stays. */}
+                    stop to finish, then wake. */}
                 {onWake && member.lifecycle !== "stopping" && (
                   <button
                     type="button"

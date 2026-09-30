@@ -2,7 +2,6 @@ import { describe, it, expect } from "vitest";
 import {
   buildAgentDetailVm,
   machineOptions,
-  settingsNoteKey,
   totalCostOf,
   type AgentDetailVmInput,
 } from "./agentDetailVm";
@@ -219,18 +218,5 @@ describe("buildAgentDetailVm", () => {
     [undefined, false],
   ] as const)("counts presence %s as online: %s", (presence, online) => {
     expect(buildAgentDetailVm(mkInput({ presence })).online).toBe(online);
-  });
-});
-
-describe("settingsNoteKey", () => {
-  it.each([
-    ["online", "settingsNoteOnline"],
-    ["stopping", "settingsNoteAfterStop"],
-    ["stopped", "settingsNoteAfterStop"],
-    ["offline", "settingsNoteNextWake"],
-    ["waking", "settingsNoteNextWake"],
-    [undefined, "settingsNoteNextWake"],
-  ] as const)("picks %s → %s", (presence, key) => {
-    expect(settingsNoteKey(presence)).toBe(key);
   });
 });

@@ -147,6 +147,7 @@ describe("MemberDetailPanel · presence-gated machine + account", () => {
     ["online", "online", false, "重新聚焦"],
     ["stopping", "online", true, "僅線上可重新聚焦"],
     ["stopped", "offline", true, "僅線上可重新聚焦"],
+    ["waking", "waking", true, "僅線上可重新聚焦"],
   ] as const)(
     "refocus on a %s member (status %s): disabled=%s, titled %s",
     (lifecycle, status, disabled, title) => {
@@ -280,8 +281,6 @@ describe("MemberDetailPanel · presence-gated machine + account", () => {
       expect((getByTestId("mp-change") as HTMLButtonElement).disabled).toBe(false),
     );
     fireEvent.click(getByTestId("mp-change"));
-    // Both halves for a member that HAS a reported model: what the confirm
-    // will do, and what the card above is.
     expect(getByTestId("mp-settings-intent-note").textContent).toBe(
       "按下後，它會先把手上的事收尾，再用新設定重新開起來。" +
         " 上方顯示的是目前實際使用的模型，可能和這裡的設定不同。",
