@@ -130,30 +130,27 @@ describe("T-8 — backup retention N is an adjustable setting", () => {
     // The failure: a reader sets 5 and believes they bought a fixed number of
     // days of history. They did not — the same 5 covered under three days on
     // this machine's busiest day and over a week on a quiet one.
-    expect(await retainSubTextIn("zh")).toContain(
-      "它算的是「份數」，不是「天數」"
-    );
-    expect(await retainSubTextIn("en")).toContain("VERSIONS, NOT DAYS");
+    expect(await retainSubTextIn("zh")).toContain("算的是份數不是天數");
+    expect(await retainSubTextIn("en")).toContain("counts backups, not days");
   });
 
-  it("the copy beside the field says N is PER POOL, not per directory", async () => {
+  it("the copy beside the field says each backup type keeps N, so the disk holds up to twice as many", async () => {
     // The failure: a reader sets 5 and believes the directory holds 5 files. It
     // holds up to 10 — routine and pre-migration backups keep separate quotas —
     // so both the disk cost and the depth are double what they assumed.
     const zhSub = await retainSubTextIn("zh");
-    expect(zhSub).toContain("它也是「每一池」而不是「每個資料夾」");
-    expect(zhSub).toContain("十份");
+    expect(zhSub).toContain("日常備份與升級前備份各自保留這個份數");
+    expect(zhSub).toContain("磁碟上最多會有兩倍的檔案");
     const enSub = await retainSubTextIn("en");
-    expect(enSub).toContain("PER POOL, NOT PER DIRECTORY");
-    expect(enSub).toContain("TEN files");
+    expect(enSub).toContain("routine backups and pre-upgrade backups each keep this many");
+    expect(enSub).toContain("up to twice as many files on disk");
   });
 
   it("the copy says the excess is DELETED, not moved aside", async () => {
     // The whole point of the ticket. Someone lowering this number is deleting
     // backups, and the page must say so before they do it, not after.
     const zhSub = await retainSubTextIn("zh");
-    expect(zhSub).toContain("刪掉");
-    expect(zhSub).toContain("救不回來");
-    expect(await retainSubTextIn("en")).toContain("DELETED");
+    expect(zhSub).toContain("永久刪除");
+    expect(await retainSubTextIn("en")).toContain("permanently deleted");
   });
 });

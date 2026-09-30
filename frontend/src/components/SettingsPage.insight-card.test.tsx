@@ -191,7 +191,9 @@ describe("SettingsPage · InsightCard (T-3809)", () => {
     // worse than no card at all.
     const utils = await openRolePage(zh.office.role.assistant);
     const note = within(insightCard(utils)!).getByText(mp.insightShared);
-    expect(note.textContent).toContain("目前不是私有的");
+    expect(note.textContent).toBe(
+      "所有成員都看得到這份判準；只有這個角色本人和管理員可以修改。"
+    );
   });
 
   it("carries a version-history entry keyed on the BARE role_key", async () => {

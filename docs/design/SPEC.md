@@ -92,7 +92,7 @@ presence 是 **server 端算出來的**，不是 agent 自報的心跳狀態。�
 - 剛升級的那一階會被 disable 一小段時間（`LADDER_ARM_MS`），免得連按兩下替你再升一級；
   disable 的理由是有字的（`lifecycle.reason.alreadyStopping` / `.justAppeared`）。
 - **沒有線上機器時喚醒鍵是 disabled**，理由 `machine.noOnlineMachine`「沒有線上的機器」。
-- **強制停止有確認對話框**，內文明寫「現在就砍掉 session、跳過正常收尾。進行中的未存工作會遺失。」
+- **強制停止有確認對話框**，內文明寫「跳過正常收尾，進行中未存的工作會遺失。」
 
 ⚠️ **這個階梯與「換 model／換機器」的關係，寫在 [docs/guide/members.md](../guide/members.md)**：
 一個線上、手上還有沒收完狀態的成員，改設定會先開一個收尾窗，**不送 kill／start、沒有時鐘**
@@ -182,7 +182,7 @@ epoch 再當場砍，**沒有重生**，所以存下的新值要等之後某一�
 **資訊卡** —— 左欄：`AI 執行環境`、`模型`（附「最近一次開機回報」提示）、`EFFORT · 思考強度`；
 右欄：`機器`、帳號。四格都可能掛一個待生效提示（`→ 要換成` / 機器是 `→ 要換到`）。
 
-**運行狀況卡** —— 🧠 `context`（Codex 另附 `壓縮：N`）＋ **重新聚焦** 鍵（僅線上可按）；
+**運行狀況卡** —— 🧠 `記憶用量`（Codex 另附 `記憶壓縮次數：N`）＋ **重新聚焦** 鍵（僅線上可按）；
 💲 `估計$`；以及收尾中／上次重新聚焦的註記。
 
 **最近操作卡** —— 動詞（喚醒／停止）、結果（成功／失敗）、時間、理由、可展開的「查看記錄」。
@@ -502,7 +502,7 @@ epoch 再當場砍，**沒有重生**，所以存下的新值要等之後某一�
 | 參數 | key |
 |---|---|
 | 登入有效期 | `sessionTtl` |
-| Agent token 有效期 | `agentTokenTtl` |
+| 成員登入有效期 | `agentTokenTtl` |
 | Claude 第一次通知 / Claude 最後通牒 | `notice` / `handover` |
 | Codex 第一次通知 / Codex 最後通牒回合 | `codexNotice` / `codexHandover` |
 | 加速停止秒數 | `acceleratedGrace` |

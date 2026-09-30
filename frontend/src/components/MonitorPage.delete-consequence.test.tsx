@@ -87,7 +87,7 @@ const LOCALES: LocaleCase[] = [
     name: "zh",
     dict: zh,
     must: [
-      { what: "憑證會失效", anyOf: ["憑證", "token"] },
+      { what: "憑證會失效（機器無法再連線）", anyOf: ["憑證", "token", "無法連線"] },
       { what: "而且是立刻", anyOf: ["立刻", "馬上", "即刻"] },
       { what: "機器上的 agent 受影響", anyOf: ["agent", "成員", "代理"] },
       { what: "不可復原", anyOf: ["無法復原", "不可復原", "無法還原"] },
@@ -100,7 +100,7 @@ const LOCALES: LocaleCase[] = [
     name: "en",
     dict: en,
     must: [
-      { what: "the credentials die", anyOf: ["credential", "token"] },
+      { what: "the credentials die (the machine can no longer connect)", anyOf: ["credential", "token", "can no longer connect"] },
       { what: "and immediately", anyOf: ["immediately", "at once", "right away"] },
       { what: "the agents on it are affected", anyOf: ["agent", "member"] },
       { what: "it cannot be undone", anyOf: ["cannot be undone", "irreversible"] },

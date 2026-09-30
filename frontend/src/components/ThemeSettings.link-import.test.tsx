@@ -269,22 +269,17 @@ describe("ThemeSettings · import from a link", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it("warns that a share link is identity-less and unexpiring, and says the one coarse way to void it", async () => {
+  it("warns that anyone holding a share link can read the theme, and that the link never expires and cannot be withdrawn", async () => {
     // The person pasting a link here is the one who can still decide whether
     // the theme should be readable by anyone holding the URL, so this warning
     // has to be on THIS screen — it is worth nothing in a doc they will not
     // open. Pinned by its own text so deleting it goes red.
-    //
-    // A sig is derived from a key in the signing-key ring, so removing that key
-    // voids every link it signed. The warning carries both halves — no per-link
-    // withdrawal, AND that coarse route — because a reader told only the first
-    // half will not look for the second when they need it.
     setToken("owner-token");
     const utils = await renderManage();
     fireEvent.click(utils.getByText(p.themeImport));
     const note = utils.container.querySelector(".ts-link-note");
-    expect(note?.textContent).toBe(p.themeImportLinkShareNote);
-    expect(p.themeImportLinkShareNote).toContain("收不回來");
-    expect(p.themeImportLinkShareNote).toContain("簽章金鑰");
+    expect(note?.textContent).toBe(
+      "拿到這條連結的人都能看到這套主題（包含裡面的私人圖片）。連結不會過期，也無法單獨收回。"
+    );
   });
 });

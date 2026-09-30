@@ -178,7 +178,7 @@ describe("MonitorPage per-runtime version columns", () => {
     // WHY the runtime is unusable described the same act as 啟動 — a third
     // word for it. It lives in a title attribute, so textContent misses it.
     expect(codex.querySelector(".mon-muted")?.getAttribute("title")).toContain(
-      "無法在此喚醒"
+      "無法在這裡喚醒成員"
     );
   });
 

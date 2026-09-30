@@ -142,7 +142,7 @@ export const zh = {
     // 具名上限線的其餘片段
     capLineSep: " · ",
     capLineMid: " 上限 ",
-    capLineTail: " 字，以下不會被載入",
+    capLineTail: " 字，以下的傳承成員讀不到",
     // 篩選列：所有撰寫人 → 所有成員傳承 → 所有任務傳承 → 所有狀態 → 清除篩選。
     // 順序與名字都是負責人 2026-09-08 逐字給的，抄任務頁的排法，少掉它那個
     // 任務編號搜尋框（傳承的編號沒有人會用打的去找）。
@@ -222,7 +222,7 @@ export const zh = {
     filterStatusNoun: "狀態",
     // 非 404 的失敗:根本沒問到,所以不能說「找不到」。
     idUnreached: (id: string) =>
-      `查「${id}」時沒有得到伺服器的回覆，所以還不知道它在不在——這不是「找不到」。請稍後再試。`,
+      `暫時無法確認「${id}」是否存在，請稍後再試。`,
     outsource: "外包",
     unassigned: "未指派",
     adhoc: "自由代辦",
@@ -367,7 +367,7 @@ export const zh = {
     terminate: "終止",
     terminateConfirmBodyLead: "確定要終止「",
     terminateConfirmBodyTail:
-      "」嗎？任務將結案為終止，無法恢復；後端會通知負責人做結束處理。",
+      "」嗎？任務將結案為終止，無法恢復；負責人會收到通知並收尾。",
     terminateConfirm: "確認終止",
     // 標記重複(T-02c9):負責人指向原票即可收斂,免 owner 逐張終止
     markDuplicate: "標記重複",
@@ -440,16 +440,15 @@ export const zh = {
     closeAlreadyClosedTail: "),不需要再結一次。",
     // 404:票不在了,連狀態都讀不出來,所以這一句刻意不提狀態。
     closeGoneError: "找不到這張票,它可能已經被刪除了。",
-    // 422:伺服器看不懂這次送出的內容(解碼失敗／有未知欄位)。這是前端與
-    // wire 對不上,重試同一份內容不會有不同結果,所以不要叫人重試。
-    closeBadRequestError: "伺服器看不懂這次的結案請求,這張票沒有被動過。這是畫面與伺服器版本對不上,請回報。",
+    // 422:畫面與伺服器版本不一致時才會發生;原地重試不會變,重新整理載入新版畫面才可能成功。
+    closeBadRequestError: "結案沒有成功，這張票沒有被變更。畫面和伺服器的版本可能不一致，請重新整理頁面後再試；仍失敗請回報。",
     // 轉派:把任務交給另一位正職,或交給伺服器新起的外包(模型／投入度／機器
     // 同任務類型指派那套)。任務先進「轉派中」;接手人以 claim_task 認領,
     // 認領前前任仍可寫入。
     reassign: "轉派…",
     reassignTitleLabel: "轉派",
     reassignBody:
-      "任務會先進入「轉派中」,雙方都會收到交接通知。新負責人認領之前,前任仍可寫入交接資訊;新負責人認領後才由新負責人接手推進。",
+      "任務會進入轉派中，雙方都會收到交接通知。",
     reassignToMember: "轉給成員",
     reassignToOutsource: "轉外包",
     reassignPickMember: "請選擇要接手的成員",
@@ -489,7 +488,7 @@ export const zh = {
       close: "關閉產物",
       remove: "移除產物",
       removeConfirm:
-        "從任務卡移除這個產物？目前指向的檔案會保留，但這個產物若曾被取代，保留下來的每個舊版本都會連同檔案一起永久刪除。",
+        "從任務卡移除這個產物？目前的檔案會保留，但它的所有舊版本會連同檔案永久刪除。",
       loading: "載入產物中…",
       loadFailed: "產物讀取失敗,請關掉再打開試試",
       downloadHint: "下載",
@@ -511,7 +510,7 @@ export const zh = {
       versionsLoading: "載入中…",
       versionsLoadError: "讀不到版本紀錄",
       versionsContentError: "讀不到這個版本的內容",
-      versionsContentGone: "這個版本沒有指向任何內容",
+      versionsContentGone: "這個版本沒有內容",
       versionsUnnamed: "未命名",
       versionsUnpinned: "這個產物已經不在任務上了",
       versionsOpaqueLead: "這不是文字檔(",
@@ -547,10 +546,10 @@ export const zh = {
     // 🔴 三種結局三句話，不可合併成一句。第一輪只有「沒有符合篩選條件的請示」，
     // 於是「這張卡不存在」與「這張卡只是沒被載進來」在畫面上長得一模一樣——
     // owner 在驗收時就是被這個併句騙過去的，這張票要移除的正是它。
-    lookupLoading: "正在跟伺服器查這個編號…",
+    lookupLoading: "查詢中…",
     // ⚠️ 這句**不准**說「找不到」：沒問到伺服器就沒有資格對存不存在下判斷。
     lookupFailed:
-      "沒能問到伺服器（連線或伺服器出錯），所以現在無法判斷這個編號存不存在。請稍後重試。",
+      "暫時無法確認這個編號是否存在，請稍後重試。",
     loadError: "載入請示失敗，請稍後重試",
     waitedLabel: "已等你",
     // 開卡/已回覆一律絕對時間含日期(如 7/13 09:05),不用相對或「今天」。
@@ -706,7 +705,7 @@ export const zh = {
     machine: "機器",
     claudeAccount: "Claude Account",
     runtime: "運行狀況",
-    context: "context",
+    context: "記憶用量",
     estimatedCost: "估計$",
     // presence（成員同一套詞彙——A案 P6）的誠實文案（不留空白假值）。
     notAssigned: "尚未分配",
@@ -748,15 +747,15 @@ export const zh = {
     copyCommand: "複製指令",
     copied: "已複製",
     terminalHint: "在你自己的終端機貼上這行，即可接上這位外包的工作階段。",
-    terminalUnavailable: "這個版本的伺服器沒有提供接上終端的指令。",
+    terminalUnavailable: "目前的伺服器版本不支援連線指令，請更新伺服器。",
     // 初始 PROMPT 預覽（boot-context）：外包沒存派工當下的逐字 persona，伺服器
     // 用同一套組裝即時重組，故 hint 與 note 都要誠實標明「目前版本」。
     // T-4595 起這份就是正職那份扣掉整個 persona——角色說明、判準
     // （外包沒有角色，這兩份都跟著沒有）——裡面不含任務也不含手冊 —— 舊文案寫
     // 「依目前任務與手冊重組」已經是假的。
-    initialPromptHint: "目前版本重組",
+    initialPromptHint: "目前版本預覽",
     initialPromptNote:
-      "此為依目前開機說明即時重組的預覽，非派工當下的逐字版本（開機說明事後修改過會有差異）。內容就是正職那份扣掉整個 persona（角色說明、判準）——外包沒有角色，這兩份都跟著沒有；任務與手冊不在裡面，它開機後自己去領。",
+      "這是依目前設定產生的預覽，可能和派工當下的內容不同。",
     dash: "—",
   },
   // ── Layer-4 lifecycle UI (aligned to backend's real five-state presence) ──
@@ -778,8 +777,8 @@ export const zh = {
     },
     // 那一格只有兩種「畫得出來但按不下」的情況，而且都要說明原因。
     reason: {
-      alreadyStopping: "已經在收尾中了；等收尾上了時鐘，這顆會自己升級成加速停止",
-      justAppeared: "剛剛升級成這一段；先停一下，免得連按兩下替你再升一級",
+      alreadyStopping: "正在收尾中，稍後可改按加速停止。",
+      justAppeared: "請稍候再按。",
     },
     message: {
       // 先關收尾:收尾中 → 壓縮中(dump)
@@ -793,7 +792,7 @@ export const zh = {
   },
   login: {
     title: "登入 AI 工作室",
-    passwordPlaceholder: "部署密碼",
+    passwordPlaceholder: "密碼",
     submit: "登入",
     submitting: "登入中…",
     error: "密碼錯誤，請再試一次",
@@ -816,7 +815,7 @@ export const zh = {
     // 當一次被拒的登入其實是「少了驗證碼」而不是「密碼錯」時顯示 —— 也就是這面
     // 牆本來是過期的、剛剛才長出驗證碼欄位。必須解釋欄位為什麼突然出現，否則
     // owner 會讀成密碼錯了。
-    codeNowRequired: "這台 server 現在需要驗證碼，請輸入驗證器 App 顯示的那一組。",
+    codeNowRequired: "這台伺服器現在需要驗證碼，請輸入驗證器 App 顯示的那一組。",
   },
   // 首設密碼(全新安裝第一次打開座艙;啟用碼 = server 啟動訊息印出的一次性
   // claim token,證明你是這台機器的主人)。
@@ -858,11 +857,11 @@ export const zh = {
     //    在下面的「詳細記錄」裡,那一區維持原文,那是給工程師的)。
     reasons: {
       install_failed:
-        "這台機器沒有安裝成功,所以助理沒有被喚醒——喚醒一台沒裝好的機器,只會留下一個沒有原因的灰色成員。下面的詳細記錄是安裝當下的完整輸出。",
+        "這台機器沒有安裝成功，所以助理沒有被喚醒。下面是安裝當下的完整輸出。",
       roster_missing:
-        "這台伺服器自己的機器紀錄不在名冊裡,出廠設定沒有跑完。把伺服器重開再試一次。",
+        "初始設定沒有完成。請重新啟動伺服器後再試一次。",
       assistant_missing:
-        "出廠附的那位助理不在名冊裡,出廠設定沒有跑完。把伺服器重開再試一次。",
+        "初始設定沒有完成。請重新啟動伺服器後再試一次。",
       interrupted:
         "自動設定跑到一半被打斷了(伺服器在那當下重開),所以沒有做完。請到 監控 › 機器 › 「安裝」 自己裝這台機器,再把助理叫上線。",
       faulted: "自動設定中途出錯停住了。伺服器的記錄裡有當下的細節。",
@@ -895,11 +894,11 @@ export const zh = {
   dispatchAlert: {
     wakeTitle: "這次沒有送出喚醒指令",
     wakeBody:
-      "這一次點擊沒有派出任何指令，成員不會因此醒來。喚醒意圖已經記下來，背景會繼續重試。",
+      "這次沒有送出喚醒，系統會在背景自動重試。",
     wakeStep1:
-      "可能是目標機器（或它上面的常駐程式）沒有連上 —— 到「監控」看得到它在不在線。",
+      "可能是目標機器沒有連線——到「監控」看它是否在線。",
     wakeStep2:
-      "也可能是前一次的指令還在重試中 —— 這個成員的「最近操作」若寫了原因，以那一行為準，它比這裡精確。",
+      "也可能是前一次喚醒還在重試中——請看這位成員的「最近操作」。",
     relocateTitle: "這次沒有送出搬移指令",
     relocateBody:
       "新機器已經指定好了，但這一次沒有派出搬移指令 —— 要收下這道指令的機器沒有連上。背景會繼續重試。",
@@ -960,8 +959,8 @@ export const zh = {
     themeImportLinkWorking: "抓取中…",
     themeImportLinkFailed: "抓不到那條連結",
     themeImportLinkShareNote:
-      "分享連結沒有身分、也不會過期——連得到這台站又拿到連結的人都讀得到這套主題,包含裡面的私人圖片。單一條連結收不回來;要作廢只有一個很粗的辦法:到〈設定 › 簽章金鑰〉移除當初簽它的那把金鑰,那會讓同一把金鑰簽過的所有連結一起失效。",
-    themeImportDup: "已有相同 id 的自訂主題",
+      "拿到這條連結的人都能看到這套主題（包含裡面的私人圖片）。連結不會過期，也無法單獨收回。",
+    themeImportDup: "已經有同一套自訂主題",
     themeImportReadFailed: "讀取檔案失敗",
     themeLimitReached: "自訂主題數量已達上限",
     themeImportSkippedLead: "已匯入,但有",
@@ -973,7 +972,7 @@ export const zh = {
     langZh: "中文",
     langEn: "English",
     pushContactEmail: "通知信箱",
-    pushContactEmailSub: "推播服務用來識別這個座艙的公開信箱；未填時不會送出通知。",
+    pushContactEmailSub: "填寫後才會送出通知。這個信箱會提供給瀏覽器的推播服務，請用可公開的信箱。",
     pushContactEmailPlaceholder: "name@company.com",
     pushContactEmailError: "請填入可公開使用的信箱。",
     layout: "版面",
@@ -999,18 +998,18 @@ export const zh = {
     mfaSubOff: "未開啟 — 你的密碼是唯一的鑰匙",
     // 出貨旗標。獨立一句,因為「這台 server 沒開放這個功能」跟「你還沒去設定」
     // 是兩件事;混在一起會讓人去找一個刻意不存在的按鈕。
-    mfaSubUnavailable: "這台 server 未啟用此功能",
+    mfaSubUnavailable: "這台伺服器未啟用此功能",
     mfaOfferIntro:
-      "這台 server 尚未開放兩步驟驗證。開放之後才能設定——這只是讓選項出現，不會替任何人開啟。",
-    mfaOfferOn: "為這台 server 開放兩步驟驗證",
-    mfaOfferOff: "關閉這台 server 的此功能",
+      "這台伺服器尚未開放兩步驟驗證。開放之後才能設定——這只是讓選項出現，不會替任何人開啟。",
+    mfaOfferOn: "為這台伺服器開放兩步驟驗證",
+    mfaOfferOff: "關閉這台伺服器的此功能",
     // 明講,因為這正是這個旗標的安全性重點。
     mfaOfferOffHint:
       "這只會把設定入口收起來。已經開啟的第二因子仍然會在登入時被要求，也仍然可以從上面關掉。",
     mfaErrorOffer: "無法變更這個設定",
     mfaSubOn: "已開啟 — 登入時需要驗證器的驗證碼",
     mfaIntro:
-      "每次登入都要再輸入一次手機驗證器 App 的驗證碼。如果這台 server 可以從外部連進來，建議開啟。",
+      "每次登入都要再輸入一次手機驗證器 App 的驗證碼。如果這台伺服器可以從外部連進來，建議開啟。",
     mfaEnrollStart: "設定兩步驟驗證",
     mfaEnrollStarting: "準備中…",
     mfaScanQrHint: "用驗證器 App 掃描，或手動輸入下面的設定金鑰。",
@@ -1245,14 +1244,14 @@ export const zh = {
     settingsSaveOnly: "只儲存，不喚醒",
     modelReportedTag: "最近一次開機回報",
     settingsIntentNote: "這裡設定的是「下次喚醒要用哪一個」。",
-    settingsIntentNoteReported: "上面資訊卡的模型是 agent 最近一次開機時回報的，跟這裡的設定可能不同。",
+    settingsIntentNoteReported: "上方顯示的是目前實際使用的模型，可能和這裡的設定不同。",
     wakeManual: "手動喚醒",
     // 點喚醒後、server presence 尚未跟上前的即時回饋
     wakePendingNote: "喚醒中…",
     forceStopConfirmTitle: "強制停止?",
     forceStopConfirmBodyLead: "立即強制停止",
     forceStopConfirmBodyTail:
-      "——現在就砍掉 session、跳過正常收尾。進行中的未存工作會遺失。",
+      "——跳過正常收尾，進行中未存的工作會遺失。",
     forceStopConfirmAction: "強制停止",
     forceStopBusy: "停止中…",
     model: "模型",
@@ -1294,8 +1293,8 @@ export const zh = {
     windDownByLabel: "最晚",
     windDownEffectSuffix: "生效",
     standby: "待命中",
-    context: "context",
-    compactionCount: (n: number) => `壓縮：${n}`,
+    context: "記憶用量",
+    compactionCount: (n: number) => `記憶壓縮次數：${n}`,
     refocus: "重新聚焦",
     refocusOfflineHint: "僅線上可重新聚焦",
     refocusing: "聚焦中…",
@@ -1303,7 +1302,7 @@ export const zh = {
     refocusError: "聚焦失敗",
     // persistent note after a refocus is submitted — the compaction happens on
     // the agent side asynchronously, so "已送出" (not "已完成") is the honest state.
-    refocusSubmittedNote: "已送出重新聚焦 · agent 壓縮中…",
+    refocusSubmittedNote: "已送出重新聚焦 · 成員整理記憶中…",
     refocusSinceLabel: "上次重新聚焦",
     // fleet remote-ops stage 1 — 最近操作 (last warden op receipt)
     lastOp: "最近操作",
@@ -1324,7 +1323,7 @@ export const zh = {
     copyCommand: "複製指令",
     copied: "已複製",
     terminalHint: "在你自己的終端機貼上執行，即可接上這個成員的 session。",
-    terminalUnavailable: "這個版本的伺服器沒有提供接上終端的指令。",
+    terminalUnavailable: "目前的伺服器版本不支援連線指令，請更新伺服器。",
     initialPrompt: "初始 PROMPT",
     promptLoading: "載入中…",
     promptError: "讀取初始 PROMPT 失敗",
@@ -1335,9 +1334,9 @@ export const zh = {
     insightLoading: "載入中…",
     insightError: "讀取判準失敗",
     insightEmpty:
-      "這個角色還沒有 Insight。還沒有人把判準搬進來——這一塊上線時所有角色都是空的。",
+      "這個角色還沒有判準。",
     insightShared:
-      "Insight 目前不是私有的,只是分開的——任何已認證身分都讀得到;只有這個角色自己的 agent 與 admin 寫得動。",
+      "所有成員都看得到這份判準；只有這個角色本人和管理員可以修改。",
     insightSaveError: "儲存判準失敗",
     // ── 回呼端點 · WEBHOOK（M4）──
     webhook: {
@@ -1437,7 +1436,7 @@ export const zh = {
       customSelectAll: "全選",
       customClear: "清除",
       customEmptyHint:
-        "四組都要至少選一項,否則這條排程沒有任何送出時間,伺服器也會拒絕。",
+        "四組都至少要選一項，否則這條排程不會送出。",
       customNone: "尚未選擇",
       // 摘要片語:四組各自成句(標題就在它上面),列摘要再把四句用「 · 」接起來。
       customEveryMonth: "每個月",
@@ -1528,7 +1527,7 @@ export const zh = {
       // 只剩數字。
       bodyOmittedMark: "折起",
       // 只在聊天區塊講一次,任何一則都不必再重複。
-      bodyOmittedNote: "折起 = 此則在此,僅縮短,全文仍存 server(用 get_chat 重讀全文)",
+      bodyOmittedNote: "折起＝此處只顯示部分內容",
       // 這一組講的是「更早的往來可能根本沒有被帶進來」——要去撈才知道。
       // 🔴 措辭是「可能」而不是「一定」:server 端只要那條線被截在切點上就
       // 亮這個標記,而它不會再往切點外看一眼,所以就算其實沒有更舊的往來,
@@ -1658,7 +1657,7 @@ export const zh = {
       machine: "機器",
       account: "帳號",
       model: "模型",
-      context: "context",
+      context: "記憶用量",
       estCost: "估計$",
     },
     // machine lifecycle: onboard (新增機器 / 上線) + teardown (拆除)
@@ -1685,13 +1684,13 @@ export const zh = {
       uninstall: "解除安裝",
       deleteMachine: "刪除",
       // 離線機器沒有可解除安裝的 warden(按鈕停用時的提示)
-      uninstallOfflineHint: "機器離線,沒有可解除安裝的 warden",
+      uninstallOfflineHint: "機器離線，無法解除安裝",
       // 解除安裝意圖已下、warden 尚未斷線 —— 與「安裝中…」同一套過渡態
       uninstallInProgress: "解除安裝中…",
       // install 對話框(非伺服器機器):單一畫面 —— 複製指令到該機器執行
       installTitle: "安裝機器",
       installRemoteHint:
-        "複製下方指令,到那台機器上執行以安裝 warden。指令會重新產生一組 token。",
+        "複製下方指令，到那台機器上執行就能完成安裝。",
       // 複製安裝指令 (GET /boot-command,會重新產生 token)
       copyBootCmd: "複製安裝指令",
       copyBootCmdError: "取得指令失敗",
@@ -1711,19 +1710,19 @@ export const zh = {
       bootstrapConfirmTitle: "確認在伺服器上重新安裝",
       bootstrapConfirmBodyLead: "「",
       bootstrapConfirmBodyTail:
-        "」目前在線上,已經有一個正在服役的 warden。再安裝一次會直接覆蓋它:這台機器上的成員會全部斷線,而且此動作不可逆 —— 被覆蓋掉的 warden 無法還原,只能重新安裝並讓成員重新上線。",
+        "」目前在線上。重新安裝會讓這台機器上的成員全部斷線，而且無法復原；之後要讓成員重新上線。",
       bootstrapConfirm: "覆蓋並重新安裝",
       // uninstall (POST /uninstall):驅動 uninstall RPC 給 warden(僅線上可用)
       uninstallConfirmTitle: "確認解除安裝",
       uninstallConfirmBodyLead: "確定要解除安裝「",
       uninstallConfirmBodyTail:
-        "」嗎？這會請該機器上的 warden 執行 ocwarden uninstall;成功後機器會變為離線,但記錄會保留(可再次安裝)。",
+        "」嗎？成功後機器會變成離線，但紀錄會保留，之後可以再安裝。",
       uninstallConfirm: "確認解除安裝",
       uninstallBusy: "處理中…",
       uninstallError: "解除安裝失敗",
       uninstallResultTitle: "解除安裝結果",
       uninstallDispatched:
-        "已送出解除安裝指令 —— 待 warden 回報後,機器將變為離線。記錄已保留,可再次安裝。",
+        "已送出解除安裝——機器回報後會變成離線。紀錄會保留，可以再安裝。",
       uninstallAlreadyOffline:
         "機器已離線,視為已解除安裝 —— 未送出任何指令。記錄已保留,可再次安裝。",
       // uninstall 防呆:仍有成員「實際在線」於這台機器時,先跳警告
@@ -1734,7 +1733,7 @@ export const zh = {
       uninstallWarnBody1: "「",
       uninstallWarnBody2: "」上還有 ",
       uninstallWarnBody3:
-        " 位成員在線上。現在解除安裝會在成員仍在這台機器上時把 warden 拆除 —— 建議先將相關成員下線。仍要繼續嗎?",
+        " 位成員在線上。現在解除安裝會讓他們斷線——建議先讓相關成員下線。仍要繼續嗎？",
       uninstallWarnProceed: "確認繼續",
       // delete (DELETE /machines/{id}):不送任何 warden 指令,但 T-9cf8 之後
       // 它已經不是舊文案講的「只是動一筆記錄」:名冊是憑證的權威,把機器移出
@@ -1745,7 +1744,7 @@ export const zh = {
       deleteConfirmTitle: "確認刪除機器",
       deleteConfirmBodyLead: "確定要刪除「",
       deleteConfirmBodyTail:
-        "」嗎?該機器的憑證會立刻失效:機器無法再回報,還指派在這台機器上的 agent 也會一起失去存取權。機器上的 warden 不會被拆除(那是「解除安裝」),而且這個動作無法復原 —— 要恢復只能重新安裝。",
+        "」嗎？這台機器會立刻無法連線，還在上面的成員也會一起斷線。機器上安裝的程式不會被移除（那是「解除安裝」）。此動作無法復原，要恢復只能重新安裝。",
       deleteConfirm: "確認刪除",
       deleteBusy: "刪除中…",
       deleteError: "刪除失敗",
@@ -1753,29 +1752,29 @@ export const zh = {
       // 刻意留在 wire 上(那是 worker 卡在 machine_unavailable 唯一的解釋),
       // 所以畫面的責任是「照顯示、但不冒充現況」。
       runtimeStale: "過期",
-      runtimeStaleHint: "距離上次探測已久,該機之後沒有再回報,這個能力狀態可能已經不成立",
-      runtimeUnknown: "從未探測(舊版 warden,或還沒有心跳)",
+      runtimeStaleHint: "這台機器很久沒有回報，狀態可能已經不準。",
+      runtimeUnknown: "還沒有取得狀態；如果一直這樣，這台機器上的 OffiCraft 程式可能是舊版，需要更新。",
       // 各 runtime 自己的版本欄(T-674d)。原本 Runtime 欄的 ✓/✗ 摘要拿掉了,
       // Claude 與 Codex 各自印出探測到的版本。但原本 ✗ 講的事情還是要講得出來
       // ——那是 placement 拒絕這台機器的原因——所以「未安裝」「未登入」是格子裡
       // 的字,不是一個默默消失的版本號。
       runtimeNotInstalled: "未安裝",
-      runtimeNotInstalledHint: "warden 在這台機器上找不到這個 runtime 的執行檔,無法在此喚醒",
+      runtimeNotInstalledHint: "這台機器上沒有安裝這個 AI 執行環境，無法在這裡喚醒成員。",
       runtimeNoVersion: "已安裝",
-      runtimeNoVersionHint: "執行檔存在,但版本探測沒有回傳結果",
+      runtimeNoVersionHint: "已安裝，但讀不到版本。",
       runtimeLoggedOut: "未登入",
-      runtimeLoggedOutHint: "已安裝,但登入探測回報未登入,placement 不會把這個 runtime 派到這台機器",
+      runtimeLoggedOutHint: "已安裝但尚未登入，成員不會被派到這台機器。",
       // 硬體樣本時效(T-b36a):過期的數值 server 會收回,於是 CPU/RAM/電源
       // 落回 dash——跟「從來沒回報過硬體」是同一個 dash。這兩個標籤就是把兩
       // 個世界分開的東西,要行動的只有後者(這台失聯了,不是它從沒說過話)。
       hardwareStale: "過期",
-      hardwareStaleHint: "距離上次量測已久且之後沒有再回報,數值已收回,不以現況呈現",
+      hardwareStaleHint: "這台機器很久沒有回報，所以不顯示數值。",
       // 型別錯的硬體值(T-aad2):這格空白的第三種理由,也是原本跟「從來沒
       // 量到」長得一模一樣的那一種——探測其實有回報,只是值的型別 server 讀
       // 不懂(數字欄位送了字串)。刻意跟「過期」分開:過期是沒人去量,這個是
       // 回報端本身壞了,要查的東西不同。
       hardwareBad: "值異常",
-      hardwareBadHint: "這台回報了型別不對的值,無法呈現——探測有跑,但讀數不可用。請檢查該機 warden 版本。",
+      hardwareBadHint: "這台機器回報的數值無法顯示，請確認它安裝的是最新版本。",
       // 切換狀態。四種狀態裡只有一種會說話——已證實的失敗;其餘三種(已量到確認
       // 生效 / 量了但判斷不出來 / 從來沒量過)一律完全不顯示。
       //
@@ -1808,23 +1807,23 @@ export const zh = {
   signingKeys: {
     title: "簽章金鑰",
     intro:
-      "伺服器用簽章金鑰簽發登入憑證。可以同時存在多把：只有一把在簽，其餘的仍然驗得過 —— 這是換金鑰的過渡期。",
+      "這裡管理用來簽發登入與分享連結的金鑰。換新金鑰時，已登入的人不受影響。",
     loading: "讀取中…",
-    signingBadge: "正在簽",
-    retiredBadge: "只驗不簽",
+    signingBadge: "使用中",
+    retiredBadge: "舊金鑰（仍有效）",
     createdLabel: "產生於",
     createdUnknown: "此站啟用以來（時間未記錄）",
     countLabel: (n: number) => `目前有 ${n} 把金鑰`,
     rotateButton: "產生新金鑰",
     rotateHint:
-      "產生一把新的並讓它接手簽章。既有的登入不會被踢掉：舊金鑰留著繼續驗，只是不再簽新的。立刻生效，不必重啟。",
+      "產生一把新金鑰並改用它。已登入的人不會被登出，立即生效。",
     removeButton: "移除",
     // 🔴 這兩句是這張卡最重要的文字。移除沒有復原，而它的射程比人直覺的大。
     removeConfirmTitle: "移除這把金鑰？",
     removeConfirmBody:
       "這把金鑰簽過的東西會當場全部失效，沒有緩衝期，也不會通知任何人：用它簽的登入憑證會被拒絕，用它產生的分享連結（檔案的、比較的）也會一起壞掉。",
     removeConfirmWarden:
-      "⚠️ 機器（warden）的憑證是長命的——以月計，不是以天計——而在憑證加回到期時間之前就裝好的機器，手上那張根本不會過期。所以「等一等」不是答案。要判斷現在能不能移除，看的是「每一台機器都已經換到新金鑰了嗎」，不是「等了幾天」，也不是「都重新連過了」——重新連上、但手上還是舊金鑰簽的憑證，一樣會在你按下去的當下失聯。離線的機器要等它自己上線才換得掉。",
+      "⚠️ 還沒換到新金鑰的機器，會在移除後立刻斷線；離線的機器要等它上線後才會換。請確認每台機器都已換到新金鑰再移除。",
     removeConfirmCancel: "取消",
     removeConfirmOk: "確定移除",
     actionFailed: "這個動作沒有成功，伺服器沒有說明原因。",
@@ -1842,7 +1841,7 @@ export const zh = {
     reasonStale: "最新的排程備份已經超過保鮮期，備份可能已經停掉了。",
     reasonFailed: "最近一次排程備份失敗或被略過，沒有產生新的還原點。",
     // unknown 的兩種來源分開講:伺服器說它還沒評估 vs 座艙根本問不到伺服器。
-    reasonUnknown: "監看器還沒評估過，或讀不到自己的狀態，所以現在無法判斷有沒有還原點。",
+    reasonUnknown: "目前無法判斷有沒有可用的還原點，請稍後再查看。",
     reasonUnavailable: "讀不到備份狀態（問不到伺服器），所以現在無法判斷有沒有還原點。",
     // 事實列
     newestLabel: "最新排程備份",
@@ -1907,7 +1906,7 @@ export const zh = {
     // ── 外框背景圖 (T-081b) ──
     themeCanvasBgSection: "外框背景",
     themeCanvasBgHint:
-      "上傳疊在底色之上的圖(PNG / JPEG / WEBP,上限 512 KB),留空則只有純底色。平鋪與貼邊只畫在內容欄兩側的外框,因此在手機、窄視窗與寬版版面(外框寬度為 0)都看不到;滿版則畫滿整個視窗。",
+      "上傳疊在底色之上的圖(PNG / JPEG / WEBP,上限 512 KB),留空則只有純底色。平鋪與貼邊只畫在內容欄兩側的外框,因此在手機、窄視窗與寬版版面都看不到;滿版則畫滿整個視窗。",
     // 背景圖有自己的上限(512 KB),所以不能沿用共用的 themeAvatarInvalid
     // ——那句寫著 64 KB,對背景圖是假的(T-72da)。
     themeCanvasBgInvalid: "圖片無效——僅接受 512 KB 以內的 PNG / JPEG / WEBP 檔。",
@@ -1955,9 +1954,9 @@ export const zh = {
     // UI 不露檔名。
     globalSection: "上線（BOOT）",
     systemName: "系統互動",
-    systemSub: "系統運作說明，注入給每個 agent · 可編輯",
+    systemSub: "每位成員開機時都會讀到的系統運作說明 · 可編輯",
     customName: "使用者自訂",
-    customSub: "追加到每個 agent 開機情境的自訂內容 · 可編輯",
+    customSub: "每位成員開機時都會讀到的自訂內容 · 可編輯",
     roleDefsSection: "角色定義",
     // 兩份**不同**的文件，分別開自己的頁：只有 Codex 那一份要求成員在開機
     // 那一輪結束時把控制權交回旁邊的程序，兩份不能互換，
@@ -1976,7 +1975,7 @@ export const zh = {
     // 〈停止〉（T-c9c0）——不進開機情境，是 server 要收掉這個 session 時
     // 夾帶給 agent 的收尾指示，所以在清單上自成一列，排在啟動步驟之後。
     offboardName: "停止",
-    offboardSub: "server 要收掉這個 session 時夾帶給 agent 的收尾指示 · 可編輯",
+    offboardSub: "成員被停止時會收到的收尾指示 · 可編輯",
     // ── T-3201：其餘六份生命週期文件 ──
     // 分組標題。上線那組沿用既有的 globalSection；下線、任務是另外兩組。
     stopSection: "下線（STOP）",
@@ -2006,11 +2005,11 @@ export const zh = {
     bootDocNoteHistoryTail:
       " 版，而且是以「存檔次數」計、不是以時間計——連按幾次小修就會把較舊的版本沖掉。「還原出廠版」不受影響，永遠在。",
     bootDocSaveConfirmBoot:
-      "要儲存這份啟動步驟嗎？啟動步驟改壞會讓之後開機的 agent 掛不上 SSE、因此永遠不會上線，而且不會有任何錯誤訊息——到時候也沒有人在線上可以救。存檔前請確認你看過預覽；真的出事就按「還原出廠版」。",
+      "要儲存這份啟動步驟嗎？寫壞會讓之後開機的成員無法上線，而且不會有任何錯誤訊息。存檔前請確認看過預覽；出事就按「還原出廠版」。",
     bootDocSaveConfirmSystem:
       "要儲存這份系統互動說明嗎？之後開機的每一個 agent 都會讀到這份內容。",
     bootDocSaveConfirmOffboard:
-      "要儲存這份〈停止〉嗎？之後每一個被收掉的 session 都會讀到這份內容，而且讀到的時候沒有人在線上可以問——而且這條路上沒有任何時鐘：一般停止、Refocus、改機器或換 model、token 快到期、context 的第一段門檻，全都是送出去之後等它自己回報。會倒數的那一種讀的是另一份〈加速停止〉，不是這份。所以這份要在「沒有人替它計時」的前提下寫得完才算數。",
+      "要儲存這份〈停止〉嗎？之後每一位被停止的成員都會讀到它，而且當下沒有人可以問、也沒有時間限制；有時限的情況讀的是〈加速停止〉。",
     bootDocSaveConfirmAction: "確認儲存",
     // 堆疊呈現的文件，點標題才展開（T-6278）。兩份啟動步驟都預設收疊，讓一個
     // 畫面看得到兩份；標籤寫的是「按下去會怎樣」，不是目前狀態。
@@ -2041,7 +2040,7 @@ export const zh = {
     // T-3201 起，「整份」指的是可編輯的那一半：唯讀區不在編輯框裡，也沒有任何
     // 方式可以送出，所以能被這一次儲存蓋掉的只有下半。
     docReplaceNote:
-      "儲存會用編輯框裡的內容「整份取代」這份文件可編輯的那一半——沒有逐段合併，沒被貼進來的段落就不會留下；上方的唯讀區不受影響，也改不動。",
+      "儲存會用編輯框的內容取代可編輯的部分；沒有放進編輯框的段落會消失。",
     // 唯讀區那一塊的標籤（T-3201）。owner 的裁定是他必須看得見改不動的那一半
     //（「以前 global context 是固定內容 我們也是會顯示 只是不給改」），所以它
     // 被畫出來但沒有編輯框；標籤要說清楚它為什麼不是壞掉的輸入框。
@@ -2091,7 +2090,7 @@ export const zh = {
     historyBlockedBadge: "無法還原",
     historyBlockedReasonLead: "「",
     historyBlockedReasonMid: "」超過 ",
-    historyBlockedReasonTail: " 字上限，且不比目前的內容短——伺服器會拒絕這次還原。",
+    historyBlockedReasonTail: " 字上限，而且沒有比目前的內容短，所以無法還原。",
     // ── 版本 modal（T-1f39）——點一列打開；預設看內容，右上角切到逐行差異 ──
     historyOpen: "檢視這個版本",
     historyPaneLabel: "顯示方式",
@@ -2159,8 +2158,8 @@ export const zh = {
     paramsSaveError: "沒存成，請再試一次",
     sessionTtl: "登入有效期",
     sessionTtlSub: "登入後多久需要重新輸入密碼",
-    agentTokenTtl: "Agent token 有效期",
-    agentTokenTtlSub: "新啟動的成員與外包工作者多久需要換新 token",
+    agentTokenTtl: "成員登入有效期",
+    agentTokenTtlSub: "新啟動的成員與外包，多久需要重新取得登入憑證",
     ttl12h: "12 小時",
     ttl24h: "24 小時",
     ttl7d: "7 天",
@@ -2170,33 +2169,33 @@ export const zh = {
     handover: "Claude 最後通牒",
     handoverSub: "到這個比例送最後通牒並自動換手，之後依「加速停止秒數」強制回收（40–90%）",
     codexNotice: "Codex 第一次通知",
-    codexNoticeSub: "第幾輪 context compaction 後把〈停止〉送給它（要比下面的回合數小）",
+    codexNoticeSub: "第幾次記憶壓縮後把〈停止〉送給它（要比下面的回合數小）",
     codexHandover: "Codex 最後通牒回合",
-    codexHandoverSub: "完成這麼多次 context compaction 後自動重新聚焦；不依 context 百分比判斷",
+    codexHandoverSub: "完成這麼多次記憶壓縮後自動重新聚焦",
     monitoringRefresh: "監控刷新間隔",
     monitoringRefreshSub: "收到連續事件時，最多每隔幾秒刷新一次（1–60）",
     seconds: "秒",
     acceleratedGrace: "加速停止秒數",
     acceleratedGraceSub:
-      "按下加速停止之後，成員還有多少秒可以收尾；記憶第二段門檻自動換手也走同一個時鐘。這個時刻會原文告訴成員（10–3600）",
+      "按下加速停止之後，成員還有多少秒可以收尾。這個時刻會原文告訴成員（10–3600）",
     reassignHandoverTimeout: "轉派交接逾時秒數",
     reassignHandoverTimeoutSub:
       "轉派後，外包前任多久沒有更新任務就會被回收；每次更新任務都會重新計時，正職前任不受影響（60–86400）",
     wardenCredentialLifetime: "機器憑證壽命",
     wardenCredentialLifetimeSub:
-      "一台機器的憑證能活多久——這就是蓋在憑證上的到期時間，也是每台機器換發時對照的那個數字。每台機器會在自己的憑證用掉三分之二的時候自己換一張新的，並隨機錯開最多一小時，避免整批機器同一刻一起換。錯過剩下那三分之一的機器只能靠人重裝。調小不會縮短任何已經發出去的憑證（86400–34560000）",
+      "機器登入憑證的有效期。機器會在到期前自動換新；錯過換新的機器要重新安裝。調小不影響已經發出的憑證。（86400–34560000 秒）",
     rounds: "次",
     // T-ae38 起(T-30f1 又拆過一次):上限不再是一個。這些文件被刪掉的成本差很多
     // ——角色定義是常設說明、判準是逐次累積的權衡——所以不再共用同一把尺。
     docCapDuty: "角色定義字數上限",
     docCapDutySub:
-      "一個角色的角色定義的字數上限（出廠預設比其餘每一段都小）。下限 100、上限 100000，兩個方向都能調——調低不會截斷任何已經存下來的角色定義，也不會讓它讀不回來，只約束下一次寫入；已經超過上限的那幾份，只要新版比舊版短就仍然寫得進去。",
+      "一個角色的角色定義最多幾個字（100–100000）。調低不會截斷已存的內容，只影響之後的儲存。",
     docCapInsight: "Insight 字數上限",
     docCapInsightSub:
-      "一個角色的 Insight 的字數上限。下限 100、上限 100000，兩個方向都能調——調低只約束下一次寫入，已經存下來的內容不會被截斷，也照樣讀得回來；已經超過上限的，只要新版比舊版短就仍然寫得進去。",
+      "一個角色的判準最多幾個字（100–100000）。調低不會截斷已存的內容，只影響之後的儲存。",
     docCapManualSop: "任務手冊 SOP 字數上限",
     docCapManualSopSub:
-      "任務手冊的 SOP（做法藍圖）的字數上限。下限 100、上限 100000，兩個方向都能調——調低只約束下一次寫入，已經存下來的 SOP 不會被截斷，也照樣讀得回來；已經超過上限的，只要新版比舊版短就仍然寫得進去。",
+      "任務手冊 SOP 最多幾個字（100–100000）。調低不會截斷已存的內容，只影響之後的儲存。",
     // T-c9b4:喚醒快照的聊天區塊預算。刻意不跟上面那幾格共用一段說明——兩個方向
     // 都能調這件事現在兩邊一樣(owner 2026-09-07 把那幾格的下限一律改成 100),
     // 但上下限的數字不同,而且那幾格管的是存起來的文件、這一格管的是每次重新
@@ -2206,8 +2205,8 @@ export const zh = {
     // 旋鈕的人。
     backupRetain: "備份保留份數",
     backupRetainSub:
-      "資料庫備份要保留幾份。超過這個數字的，會在下一次備份時直接從磁碟上刪掉——不是移到別的資料夾，刪掉就救不回來。有兩件事這個數字並不代表。它算的是「份數」，不是「天數」：它數的是檔案，所以能回溯多久完全看那幾天實際備份了幾次——忙的那幾天可能不到三天就用完，閒的時候可以撐超過一週。它也是「每一池」而不是「每個資料夾」：日常備份（定時＋手動）與升級前備份各自有各自的額度，所以這裡填 5，磁碟上最多會有十份，不是五份。範圍 1～20；上限是磁碟預算——佔用空間大約是這個數字的兩倍再乘上一份備份的大小。",
-    backupRetainUnit: "份／池",
+      "資料庫備份要保留幾份（1–20）。超過的會在下一次備份時永久刪除。算的是份數不是天數；日常備份與升級前備份各自保留這個份數，所以磁碟上最多會有兩倍的檔案。",
+    backupRetainUnit: "份（每類各計）",
     // T-122:建議回覆清單(T-33 加上第三份)。刻意是一格一個訊息框而不是共用
     // 一格——請示卡的回覆、任務訊息與傳承條目的訊息是三件不同的對話,同一句話
     // 放錯格子就不合用(owner 裁定)。
@@ -2244,16 +2243,16 @@ export const zh = {
     suggestedRepliesFull: "已經有 20 句了。要再加,先刪掉一句。",
     chatBudget: "喚醒聊天字數預算",
     chatBudgetSub:
-      "喚醒快照(resume_summary)裡聊天區塊的字數預算,含訊息、摺疊卡片、快照表頭與截斷提示;peek 回報的大小算的是同一個數字。範圍 1000~13000,可調高也可調低——聊天區塊每次都是重新裝箱的,調低只是下次帶回比較少則,被留下的部分照樣由「更早的訊息已省略」交代。",
+      "成員喚醒時最多帶回多少字的近期聊天（1000–13000）。調低只會讓下次帶回的訊息變少。",
     // T-119:步驟備註字數上限。說明文字必須講出它「可以調低」與「只管步驟
     // 備註」這兩件事,因為前者是它跟上面五格文件上限相反的地方,後者是轉這個
     // 旋鈕的人最容易誤以為連帶變寬的東西。
     loreCapRole: "成員傳承字數上限",
     loreCapRoleSub:
-      "一個成員的開機檔裡，傳承那一段最多載入多少字；正職讀到的是他角色的傳承，外包讀到的是他自己寫的。裝不下的整筆不載入，不會被截斷，也不會有任何錯誤訊息。與下面的任務傳承各自獨立，兩個數字不相加。可以調低——條目不能編輯，調低只影響下次載入哪幾筆，不會弄壞任何已經寫好的條目。",
+      "每位成員開機時最多讀多少字的成員傳承。放不下的整筆不會被讀到，也不會有錯誤訊息。可以調低，不會影響已寫好的條目。",
     loreCapManual: "任務傳承字數上限",
     loreCapManualSub:
-      "讀一本任務手冊時，接在 SOP 後面的傳承最多多少字。這一段不進任何人的開機檔，正職與外包一視同仁。與上面的成員傳承各自獨立。可以調低。",
+      "讀任務手冊時最多附帶多少字的任務傳承。與成員傳承各自計算，可以調低。",
     loreCapTitle: "傳承標題字數上限",
     loreCapTitleSub:
       "一筆傳承的標題最多幾個字。超過的寫入會被拒絕,一個字都不會寫進去。可以調低,調低只擋接下來的寫入,已經存好的條目不受影響。",
@@ -2271,11 +2270,11 @@ export const zh = {
     configSecretSet: "已設定",
     configValueUnset: "未設定",
     configSaving: "存檔中…",
-    configSaved: "已存檔，回讀對帳一致",
+    configSaved: "已儲存",
     // 失敗路徑蓋兩種情境：寫入被拒（伺服器值沒變）與 PATCH 成功但回讀
     // 對帳失敗（無從確認伺服器存了什麼）——文案不斷言伺服器狀態，只講
     // UI 的誠實事實：無法確認 + 顯示值回到伺服器最後確認的值。
-    configSaveFailed: "無法確認已存檔——顯示值已還原為伺服器最後確認值，請再試一次",
+    configSaveFailed: "沒有儲存成功，已恢復原本的值，請再試一次",
     // ── 任務手冊（SPEC §5：任務類型／playbook 的定義與維護;與角色誌並列。
     // 不對使用者顯示內部檔名 — 手冊是內容，不是檔案）──
     manuals: "任務手冊",

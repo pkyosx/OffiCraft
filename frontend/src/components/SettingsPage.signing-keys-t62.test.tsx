@@ -186,7 +186,7 @@ describe("簽章金鑰卡 · 英文那一份也要是真的字", () => {
     // A half-translated destructive confirmation is a wrong string with legs:
     // the English reader would get the button without the blast radius.
     expect(en.signingKeys.removeConfirmBody).toContain("share links");
-    expect(en.signingKeys.removeConfirmWarden).toContain("warden");
+    expect(en.signingKeys.removeConfirmWarden).toContain("machine");
     expect(en.signingKeys.removeConfirmBody).not.toBe(zh.signingKeys.removeConfirmBody);
   });
 });

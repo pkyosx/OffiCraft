@@ -530,7 +530,7 @@ describe("ThemeSettings · wording overlay", () => {
     // …and the fragment composes into a sentence that still has its spaces.
     const themed = { ...zh, monitor: { ...zh.monitor, machine: { ...zh.monitor.machine, uninstallWarnBody2: stored! } } };
     expect(makeMessages(themed, "zh").machineUninstallWarnBody("Alpha", 3)).toBe(
-      "「Alpha」上頭還有 3 位成員在線上。現在解除安裝會在成員仍在這台機器上時把 warden 拆除 —— 建議先將相關成員下線。仍要繼續嗎?"
+      "「Alpha」上頭還有 3 位成員在線上。現在解除安裝會讓他們斷線——建議先讓相關成員下線。仍要繼續嗎？"
     );
   });
 });
