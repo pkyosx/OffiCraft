@@ -50,23 +50,44 @@ const (
 // code, and a real `claude auth login` opens a sign-in. Under `go test` only a
 // fake staged in a temp dir may run.
 func refuseRealLoginInTest(bin string) {
+	refuseRealPathInTest("login", bin)
+}
+
+// refuseRealPathInTest exits a test binary handed a path outside the temp dir:
+// a login binary that would really sign in, or a codex home whose auth.json a
+// test would overwrite.
+func refuseRealPathInTest(what, path string) {
 	if !testing.Testing() {
 		return
-	}
-	resolved, err := filepath.EvalSymlinks(bin)
-	if err != nil {
-		resolved = bin
 	}
 	tmp, err := filepath.EvalSymlinks(os.TempDir())
 	if err != nil {
 		tmp = os.TempDir()
 	}
-	if strings.HasPrefix(resolved, tmp+string(filepath.Separator)) {
+	if strings.HasPrefix(resolveExisting(path), tmp+string(filepath.Separator)) {
 		return
 	}
-	fmt.Fprintf(os.Stderr, "\nFATAL: refusing to run a real %s login inside a test binary.\n"+
-		"Login tests must stage a fake CLI in a temp dir and inject it.\n", bin)
+	if what == "login" {
+		fmt.Fprintf(os.Stderr, "\nFATAL: refusing to run a real %s login inside a test binary.\n"+
+			"Login tests must stage a fake CLI in a temp dir and inject it.\n", path)
+	} else {
+		fmt.Fprintf(os.Stderr, "\nFATAL: refusing to write a real %s (%s) inside a test binary.\n", what, path)
+	}
 	os.Exit(1)
+}
+
+// resolveExisting resolves symlinks through the deepest ancestor of path that
+// exists; a codex home may not exist yet.
+func resolveExisting(path string) string {
+	for p := filepath.Clean(path); ; p = filepath.Dir(p) {
+		if resolved, err := filepath.EvalSymlinks(p); err == nil {
+			rel, _ := filepath.Rel(p, filepath.Clean(path))
+			return filepath.Join(resolved, rel)
+		}
+		if filepath.Dir(p) == p {
+			return path
+		}
+	}
 }
 
 var loginIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
@@ -105,7 +126,9 @@ func loginURLFromLine(raw string) (string, bool) {
 // allowed to differ from a member's (TestLoginRunsUnderTheMemberSpawnEnvironment
 // pins that): claude 2.1.286 opens `$BROWSER <url>` (else `open`), and BROWSER
 // moves no credential. Anything else here would write the login where members
-// cannot read it.
+// cannot read it. The one other difference is codex's staging CODEX_HOME, whose
+// auth.json is installed into the member's CODEX_HOME on success
+// (TestCodexLoginRunsUnderTheMemberSpawnEnvironment pins that).
 var loginBrowserOverride = [2]string{"BROWSER", "/usr/bin/true"}
 
 type LoginSeam interface {
@@ -198,6 +221,8 @@ type loginFlow interface {
 	failedState() string
 	expiredReason(limit time.Duration) string
 	conclude(s *loginSession)
+	// finish runs once the login is over, however it ended.
+	finish()
 }
 
 type loginSession struct {
@@ -307,6 +332,7 @@ func (r *loginRelay) launch(loginID, runtime, bin, script, rendered string, flow
 		if rendered != "" {
 			_ = r.remove(rendered)
 		}
+		flow.finish()
 		r.fail(loginID, "the login process could not start: "+err.Error())
 		return
 	}
@@ -346,6 +372,7 @@ func (r *loginRelay) watch(s *loginSession, rendered string) {
 	delete(r.sessions, s.id)
 	r.mu.Unlock()
 	defer close(s.done)
+	defer s.flow.finish()
 
 	s.mu.Lock()
 	cancelled, timedOut := s.cancelled, s.timedOut
@@ -444,6 +471,8 @@ func (f *claudeLoginFlow) conclude(s *loginSession) {
 	f.relay.concludeSucceeded(s.id)
 }
 
+func (f *claudeLoginFlow) finish() {}
+
 func (r *loginRelay) concludeSucceeded(loginID string) {
 	verdict, account := r.prober.checkClaudeAccount()
 	if verdict != nil && !*verdict {
@@ -513,23 +542,27 @@ func (r *loginRelay) Abandon() {
 	}
 }
 
-// sweepStaleRenders removes env renders a previous warden process left behind
-// (it was exec'd or killed while a login ran): each is a 0600 copy of the env
-// file's credentials.
-func (r *loginRelay) sweepStaleRenders() {
+// sweepStaleLoginFiles removes what a previous warden process left behind when
+// it was exec'd or killed while a login ran: env renders (each a 0600 copy of
+// the env file's credentials) and codex staging homes.
+func (r *loginRelay) sweepStaleLoginFiles() {
 	dir := r.prober.agentHome
 	if dir == "" {
 		return
 	}
-	matches, err := filepath.Glob(filepath.Join(dir, loginRenderPrefix+"*"))
-	if err != nil {
-		return
-	}
-	for _, path := range matches {
+	renders, _ := filepath.Glob(filepath.Join(dir, loginRenderPrefix+"*"))
+	for _, path := range renders {
 		_ = r.remove(path)
 	}
-	if len(matches) > 0 {
-		r.log("removed %d env render(s) a previous warden process left behind", len(matches))
+	if len(renders) > 0 {
+		r.log("removed %d env render(s) a previous warden process left behind", len(renders))
+	}
+	homes, _ := filepath.Glob(filepath.Join(dir, codexStagingPrefix+"*"))
+	for _, path := range homes {
+		_ = os.RemoveAll(path)
+	}
+	if len(homes) > 0 {
+		r.log("removed %d codex login staging home(s) a previous warden process left behind", len(homes))
 	}
 }
 

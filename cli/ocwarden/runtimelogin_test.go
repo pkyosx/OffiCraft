@@ -649,8 +649,8 @@ func TestLoginRunsUnderTheMemberSpawnEnvironment(t *testing.T) {
 	}
 }
 
-func TestLoginRelaySweepStaleRenders(t *testing.T) {
-	t.Run("under renders a previous warden process left, the sweep removes them and leaves other files", func(t *testing.T) {
+func TestLoginRelaySweepStaleLoginFiles(t *testing.T) {
+	t.Run("under renders and codex staging homes a previous warden process left, the sweep removes them and leaves other files", func(t *testing.T) {
 		h := newRelayHarness(t)
 		dir := h.prober.agentHome
 		if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -659,7 +659,9 @@ func TestLoginRelaySweepStaleRenders(t *testing.T) {
 		for _, name := range []string{loginRenderPrefix + "rl-old", loginRenderPrefix + "rl-older", loginCheckEnvName, "m1"} {
 			h.claude.write(t, filepath.Join(dir, name), "SECRET=x\n")
 		}
-		h.relay.sweepStaleRenders()
+		staged := filepath.Join(dir, codexStagingPrefix+"rl-old-123")
+		h.codex.write(t, filepath.Join(staged, "auth.json"), `{"tokens":{}}`)
+		h.relay.sweepStaleLoginFiles()
 		entries, err := os.ReadDir(dir)
 		if err != nil {
 			t.Fatal(err)

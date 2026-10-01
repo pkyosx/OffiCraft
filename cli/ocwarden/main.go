@@ -758,7 +758,7 @@ func wireLoginCheck(cfg Config, env func(string) string, runner CmdRunner, goos 
 	login = newLoginProber(env, runner, keep, goos, launchEnv, logf)
 	deps = buildCommandDeps(cfg, env, runner, launchEnv, login)
 	relay := newLoginRelay(login, newLoginReporter(cfg), logf)
-	relay.sweepStaleRenders()
+	relay.sweepStaleLoginFiles()
 	deps.Login = relay
 	return deps, login, login.setIntervals
 }
