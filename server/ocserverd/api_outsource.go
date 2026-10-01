@@ -208,7 +208,7 @@ func (s *apiServer) HandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost
 			return persistWorkerRestartIntentOn(tx, *worker)
 		}
 		queued = false
-		if worker.Status != WorkerStatusActive || !online {
+		if !online {
 			return refuseInTx(http.StatusConflict,
 				"refocus requires the worker to be online (no live session to hand over)")
 		}
@@ -500,7 +500,7 @@ func (s *apiServer) handleRestartOutsourceWorker(w http.ResponseWriter, r *http.
 
 // Outsource arm of PATCH /api/members/{member_id}. Its floor is update_member's
 // machine floor, not admin_agent (owner rc-376a41719e62 「正職跟外包一樣」; see
-// routes.go). A live, active worker whose launch intent changed is handed over;
+// routes.go). A live worker whose launch intent changed is handed over;
 // otherwise the next spawn bakes the new values in.
 func (s *apiServer) HandleSetOutsourceWorkerModelApiOutsourceWorkersIdModelPost(w http.ResponseWriter, r *http.Request, id string) {
 	var body MemberUpdateDTO
@@ -553,11 +553,11 @@ func (s *apiServer) handleSetOutsourceWorkerModel(w http.ResponseWriter, r *http
 		}
 		// Whether the owner wants it running is NOT re-asked here —
 		// respawnWorkerForOwnerOp owns that branch for all three owner verbs.
-		respawn = launchIntentChanged && worker.Status == WorkerStatusActive && online
+		respawn = launchIntentChanged && online
 		if !respawn && launchIntentChanged && worker.DesiredState == DesiredStateOffline {
-			// A converged stop never enters the funnel (no active worker, no live
-			// session), so the queued restart is stamped here; 改機器 has no such
-			// gate. Owner 2026-08-30: 「change model / machine 只是帶起來的方式不一樣而已」.
+			// A converged stop never enters the funnel (no live session), so the
+			// queued restart is stamped here; 改機器 has no such gate. Owner
+			// 2026-08-30: 「change model / machine 只是帶起來的方式不一樣而已」.
 			if s.queueWorkerRestartAfterStop(worker, ownerOpRuntimeModel, nowSecs()) {
 				if err := persistWorkerRestartIntentOn(tx, *worker); err != nil {
 					return err

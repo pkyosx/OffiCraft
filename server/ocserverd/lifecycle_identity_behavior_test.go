@@ -511,9 +511,10 @@ var identityGateExpectedCount = map[string]int{
 // 🔴 BEFORE YOU ADD AN ENTRY, answer the owner's question
 // (2026-08-26): 「任何正職外包的差異化處理都需要重新檢視」. Could this difference
 // be deleted instead? The constitution (migration 00025) says 外包＝正職 and the
-// ONE slot the difference is allowed to live in is lifecyclePolicyFor.ShouldExist
-// — 「正職會不會有 instance 存活取決於人物設定有沒有這個角色，外包則是取決於 task
-// 還是不是未完成狀態」. Anything else is either a different axis (machine vs
+// ONE difference allowed is whether an instance should exist — 「正職會不會有
+// instance 存活取決於人物設定有沒有這個角色，外包則是取決於 task 還是不是未完成狀態」 —
+// and lifecyclePolicyFor carries it with no kind branch: a released worker's row is
+// removed from the roster, exactly as a dismissed member's is. Anything else is either a different axis (machine vs
 // person, task-executor vs member), a genuine wire/storage projection, or a
 // divergence that needs a ruling. Say which, in the reason.
 // 🔑 AN ORDINARY REFACTOR IS ENOUGH TO MAKE A REGISTRATION LIE, and it did on
@@ -578,14 +579,9 @@ var identityGateLedger = map[string]string{
 	// Member identity, so it is a documented scanner false positive.
 	"migration_lock.go :: registrarLocations :: lit.Kind != token.STRING": "this compares a Go AST token kind with token.STRING while locating migration registrations; it classifies syntax, not a Member identity, so it is a scanner false positive.",
 
-	// ── the ONE slot the 正職／外包 difference is allowed to live in ──────────
-	"lifecycle_roster.go :: lifecyclePolicyFor :: m.Kind == KindOutsource": "" +
-		"THE entry filter, and the only place the owner's 2026-08-26 ruling permits a " +
-		"正職／外包 branch: a worker is alive while its task is unfinished, a member " +
-		"while the roster carries it. Every other pre-decide difference is supposed to " +
-		"be spelled as an AppliesTo on the shared list instead of here.",
+	// ── the lifecycle entry filter ─────────────────────────────────────────
 	"lifecycle_roster.go :: lifecyclePolicyFor :: m.Kind == KindWarden": "" +
-		"the staff arm's warden carve-out: a warden is never an agent-lifecycle " +
+		"the warden carve-out: a warden is never an agent-lifecycle " +
 		"spawn/stop candidate, it is the thing that EXECUTES them — unless it is being " +
 		"uninstalled, which is the one case the reconcile tick must still drive. A " +
 		"machine-vs-person axis, not the 正職／外包 one.",

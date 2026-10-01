@@ -27,14 +27,14 @@ func TestLifecyclePolicyFor(t *testing.T) {
 			Kind: KindOutsource, RosterStatus: RosterStatusActive,
 			ActivatedTS: 100, DesiredState: DesiredStateOnline,
 		}, want: true},
-		{name: "held-down outsource work is excluded", member: Member{
+		{name: "active outsource work is retained even when offline is desired", member: Member{
 			Kind: KindOutsource, RosterStatus: RosterStatusActive,
 			ActivatedTS: 100, DesiredState: DesiredStateOffline,
-		}, want: false},
-		{name: "assigned outsource work has no session to retain", member: Member{
+		}, want: true},
+		{name: "outsource work that has not reported waking yet is retained", member: Member{
 			Kind: KindOutsource, RosterStatus: RosterStatusActive,
 			DesiredState: DesiredStateOnline,
-		}, want: false},
+		}, want: true},
 		{name: "released outsource work is excluded", member: Member{
 			Kind: KindOutsource, RosterStatus: RosterStatusRemoved,
 			ActivatedTS: 100, DesiredState: DesiredStateOnline,
@@ -129,66 +129,48 @@ func TestRunLifecycleRosterPasses(t *testing.T) {
 }
 
 func TestRunWorkerLifecyclePasses(t *testing.T) {
-	t.Run("an online active worker receives the shared stale-stop pass and folds its anchors back", func(t *testing.T) {
-		api, _, d, _ := newAPITestServer(t)
-		worker := OutsourceWorker{
-			ID: "ow-lifecycle-pass", Codename: "Lifecycle worker", Runtime: RuntimeClaude,
-			Effort: "medium", TaskID: "T-lifecycle-pass", Status: WorkerStatusActive,
-			ActivatedTS: 100, DesiredState: DesiredStateOnline, DesiredMachineID: ServerSelfHost,
-			RefocusSince: 50, RefocusOp: refocusOpContextNotice,
-			StoppingSince: 100, StoppedSince: 40, CreatedTS: 1,
-		}
-		if err := d.PutOutsourceWorker(worker); err != nil {
-			t.Fatalf("PutOutsourceWorker: %v", err)
-		}
-		listener, err := api.hub.Connect(worker.ID, ServerSelfHost)
-		if err != nil {
-			t.Fatalf("hub.Connect: %v", err)
-		}
-		t.Cleanup(func() { api.hub.Disconnect(listener) })
+	for _, tc := range []struct {
+		status      string
+		activatedTS float64
+	}{
+		{status: WorkerStatusActive, activatedTS: 100},
+		{status: WorkerStatusAssigned, activatedTS: 0},
+	} {
+		t.Run("an online "+tc.status+" worker receives the shared stale-stop pass and folds its anchors back", func(t *testing.T) {
+			api, _, d, _ := newAPITestServer(t)
+			worker := OutsourceWorker{
+				ID: "ow-lifecycle-pass", Codename: "Lifecycle worker", Runtime: RuntimeClaude,
+				Effort: "medium", TaskID: "T-lifecycle-pass", Status: tc.status,
+				ActivatedTS: tc.activatedTS, DesiredState: DesiredStateOnline, DesiredMachineID: ServerSelfHost,
+				RefocusSince: 50, RefocusOp: refocusOpContextNotice,
+				StoppingSince: 100, StoppedSince: 40, CreatedTS: 1,
+			}
+			if err := d.PutOutsourceWorker(worker); err != nil {
+				t.Fatalf("PutOutsourceWorker: %v", err)
+			}
+			listener, err := api.hub.Connect(worker.ID, ServerSelfHost)
+			if err != nil {
+				t.Fatalf("hub.Connect: %v", err)
+			}
+			t.Cleanup(func() { api.hub.Disconnect(listener) })
 
-		workers := []OutsourceWorker{worker}
-		api.runWorkerLifecyclePasses(workers, 701)
-		if workers[0].StoppingSince != 0 {
-			t.Fatalf("folded stopping_since = %v, want 0", workers[0].StoppingSince)
-		}
-		if workers[0].RefocusSince != 50 || workers[0].RefocusOp != refocusOpContextNotice || workers[0].StoppedSince != 40 {
-			t.Fatalf("folded wind-down anchors = (%v, %q, %v), want (50, %q, 40)",
-				workers[0].RefocusSince, workers[0].RefocusOp, workers[0].StoppedSince, refocusOpContextNotice)
-		}
+			workers := []OutsourceWorker{worker}
+			api.runWorkerLifecyclePasses(workers, 701)
+			if workers[0].StoppingSince != 0 {
+				t.Fatalf("folded stopping_since = %v, want 0", workers[0].StoppingSince)
+			}
+			if workers[0].RefocusSince != 50 || workers[0].RefocusOp != refocusOpContextNotice || workers[0].StoppedSince != 40 {
+				t.Fatalf("folded wind-down anchors = (%v, %q, %v), want (50, %q, 40)",
+					workers[0].RefocusSince, workers[0].RefocusOp, workers[0].StoppedSince, refocusOpContextNotice)
+			}
 
-		stored, err := d.GetOutsourceWorker(worker.ID)
-		if err != nil {
-			t.Fatalf("GetOutsourceWorker: %v", err)
-		}
-		if stored == nil || stored.StoppingSince != 0 {
-			t.Fatalf("persisted stopping_since = %+v, want 0", stored)
-		}
-	})
-
-	t.Run("an assigned worker is not offered to lifecycle passes", func(t *testing.T) {
-		api, _, d, _ := newAPITestServer(t)
-		worker := OutsourceWorker{
-			ID: "ow-assigned-lifecycle", Codename: "Assigned worker", Runtime: RuntimeClaude,
-			Effort: "medium", TaskID: "T-assigned-lifecycle", Status: WorkerStatusAssigned,
-			DesiredState: DesiredStateOnline, DesiredMachineID: ServerSelfHost,
-			StoppingSince: 100, CreatedTS: 1,
-		}
-		if err := d.PutOutsourceWorker(worker); err != nil {
-			t.Fatalf("PutOutsourceWorker: %v", err)
-		}
-
-		workers := []OutsourceWorker{worker}
-		api.runWorkerLifecyclePasses(workers, 701)
-		if workers[0].StoppingSince != 100 {
-			t.Fatalf("assigned worker stopping_since = %v, want 100", workers[0].StoppingSince)
-		}
-		stored, err := d.GetOutsourceWorker(worker.ID)
-		if err != nil {
-			t.Fatalf("GetOutsourceWorker: %v", err)
-		}
-		if stored == nil || stored.StoppingSince != 100 {
-			t.Fatalf("persisted assigned worker = %+v, want stopping_since 100", stored)
-		}
-	})
+			stored, err := d.GetOutsourceWorker(worker.ID)
+			if err != nil {
+				t.Fatalf("GetOutsourceWorker: %v", err)
+			}
+			if stored == nil || stored.StoppingSince != 0 || stored.Status != tc.status {
+				t.Fatalf("persisted worker = %+v, want stopping_since 0 and status %q", stored, tc.status)
+			}
+		})
+	}
 }

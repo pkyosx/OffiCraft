@@ -722,81 +722,85 @@ func TestRelocateWorkerByID(t *testing.T) {
 }
 
 func TestHandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost(t *testing.T) {
-	t.Run("換手 on a live worker stamps the epoch, fans the 預告 at its own session and starts no clock", func(t *testing.T) {
-		api, h, d, owner := newAPITestServer(t)
-		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
-		contractor := apiTestListen(t, api, "ow-abc123")
-		dashboard := apiTestListen(t, api, "")
-		bystander := apiTestListen(t, api, "kip")
-		push := apiTestWebPushSink(t, api)
+	for _, workerStatus := range []string{WorkerStatusActive, WorkerStatusAssigned} {
+		t.Run("換手 on a live "+workerStatus+" worker stamps the epoch, fans the 預告 at its own session and starts no clock", func(t *testing.T) {
+			api, h, d, owner := newAPITestServer(t)
+			apiTestWorkerFixture(t, h, d, owner, "ow-abc123", workerStatus)
+			contractor := apiTestListen(t, api, "ow-abc123")
+			dashboard := apiTestListen(t, api, "")
+			bystander := apiTestListen(t, api, "kip")
+			push := apiTestWebPushSink(t, api)
 
-		status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/refocus", owner, "")
-		if status != 200 {
-			t.Fatalf("want 200, got %d (%v)", status, data)
-		}
-		apiWantBody(t, data, map[string]any{"id": "ow-abc123"})
-		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
-			"status": "active", "presence": "online",
-			"refocus_since": apiAnyNumber, "refocus_op": "refocus",
-		}))
-		// BOTH frames carry the notice: it rides EVERY write to a row whose
-		// wind-down is open, not just the one that opened it (offboardDeltaPayload,
-		// owner 2026-08-16) — the client de-duplicates.
-		dashboard.wantFrames(
-			apiTestHandoverDelta(2, "", apiTestOffboardNotice, "owner"),
-			apiTestHandoverDelta(3, "", apiTestOffboardNotice, "owner"),
-		)
-		contractor.wantFrames(
-			apiTestHandoverDelta(2, "", apiTestOffboardNotice, "owner"),
-			apiTestHandoverDelta(3, "", apiTestOffboardNotice, "owner"),
-		)
-		bystander.wantFrames()
-		push()
-	})
+			status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/refocus", owner, "")
+			if status != 200 {
+				t.Fatalf("want 200, got %d (%v)", status, data)
+			}
+			apiWantBody(t, data, map[string]any{"id": "ow-abc123"})
+			apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+				"status": workerStatus, "presence": "online",
+				"refocus_since": apiAnyNumber, "refocus_op": "refocus",
+			}))
+			// BOTH frames carry the notice: it rides EVERY write to a row whose
+			// wind-down is open, not just the one that opened it (offboardDeltaPayload,
+			// owner 2026-08-16) — the client de-duplicates.
+			dashboard.wantFrames(
+				apiTestHandoverDelta(2, "", apiTestOffboardNotice, "owner"),
+				apiTestHandoverDelta(3, "", apiTestOffboardNotice, "owner"),
+			)
+			contractor.wantFrames(
+				apiTestHandoverDelta(2, "", apiTestOffboardNotice, "owner"),
+				apiTestHandoverDelta(3, "", apiTestOffboardNotice, "owner"),
+			)
+			bystander.wantFrames()
+			push()
+		})
+	}
 
-	t.Run("換手 on a live worker is collected as a STOP only, and the replacement START goes out on the first tick after it reads offline", func(t *testing.T) {
-		api, h, d, owner := newAPITestServer(t)
-		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
-		apiTestWorkerWantedOnline(t, d, "ow-abc123")
-		if err := d.SetMemberDesiredMachineID("ow-abc123", ServerSelfHost); err != nil {
-			t.Fatalf("SetMemberDesiredMachineID: %v", err)
-		}
-		apiTestListen(t, api, ServerSelfHost)
-		session, err := api.hub.Connect("ow-abc123", ServerSelfHost)
-		if err != nil {
-			t.Fatalf("hub.Connect: %v", err)
-		}
-		contractor := apiTestAgentToken(t, api, "ow-abc123", ServerSelfHost)
+	for _, workerStatus := range []string{WorkerStatusActive, WorkerStatusAssigned} {
+		t.Run("換手 on a live "+workerStatus+" worker is collected as a STOP only, and the replacement START goes out on the first tick after it reads offline", func(t *testing.T) {
+			api, h, d, owner := newAPITestServer(t)
+			apiTestWorkerFixture(t, h, d, owner, "ow-abc123", workerStatus)
+			apiTestWorkerWantedOnline(t, d, "ow-abc123")
+			if err := d.SetMemberDesiredMachineID("ow-abc123", ServerSelfHost); err != nil {
+				t.Fatalf("SetMemberDesiredMachineID: %v", err)
+			}
+			apiTestListen(t, api, ServerSelfHost)
+			session, err := api.hub.Connect("ow-abc123", ServerSelfHost)
+			if err != nil {
+				t.Fatalf("hub.Connect: %v", err)
+			}
+			contractor := apiTestAgentToken(t, api, "ow-abc123", ServerSelfHost)
 
-		if status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/refocus", owner, ""); status != 200 {
-			t.Fatalf("refocus: %d (%v)", status, data)
-		}
-		wsWantWardenFrames(t, api, ServerSelfHost)
-		if status, data := apiJSON(t, h, "POST", "/api/self/stopped", contractor, `{}`); status != 200 {
-			t.Fatalf("report_stopped: %d (%v)", status, data)
-		}
-		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"))
+			if status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/refocus", owner, ""); status != 200 {
+				t.Fatalf("refocus: %d (%v)", status, data)
+			}
+			wsWantWardenFrames(t, api, ServerSelfHost)
+			if status, data := apiJSON(t, h, "POST", "/api/self/stopped", contractor, `{}`); status != 200 {
+				t.Fatalf("report_stopped: %d (%v)", status, data)
+			}
+			wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"))
 
-		now := nowSecs()
-		api.runOutsourceTick(now)
-		wsWantWardenFrames(t, api, ServerSelfHost)
-		api.runOutsourceTick(now + 30)
-		wsWantWardenFrames(t, api, ServerSelfHost)
+			now := nowSecs()
+			api.runOutsourceTick(now)
+			wsWantWardenFrames(t, api, ServerSelfHost)
+			api.runOutsourceTick(now + 30)
+			wsWantWardenFrames(t, api, ServerSelfHost)
 
-		api.hub.Disconnect(session)
-		status, boot := apiJSON(t, h, "GET", "/api/outsource-workers/ow-abc123/boot-context", owner, "")
-		if status != 200 {
-			t.Fatalf("boot-context preview: %d (%v)", status, boot)
-		}
-		api.runOutsourceTick(now + 31)
-		wsWantWardenFrames(t, api, ServerSelfHost,
-			wsStartFrame("ow-abc123", boot["context"].(string), "claude", "sonnet", "medium"))
-		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
-			"status": "active", "presence": "waking", "desired_state": "online",
-			"desired_machine_id": "m-server-self", "machine": "m-server-self",
-			"refocus_since": apiAnyNumber, "refocus_op": "refocus",
-		}))
-	})
+			api.hub.Disconnect(session)
+			status, boot := apiJSON(t, h, "GET", "/api/outsource-workers/ow-abc123/boot-context", owner, "")
+			if status != 200 {
+				t.Fatalf("boot-context preview: %d (%v)", status, boot)
+			}
+			api.runOutsourceTick(now + 31)
+			wsWantWardenFrames(t, api, ServerSelfHost,
+				wsStartFrame("ow-abc123", boot["context"].(string), "claude", "sonnet", "medium"))
+			apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+				"status": workerStatus, "presence": "waking", "desired_state": "online",
+				"desired_machine_id": "m-server-self", "machine": "m-server-self",
+				"refocus_since": apiAnyNumber, "refocus_op": "refocus",
+			}))
+		})
+	}
 
 	t.Run("換手 on a worker whose 停止 is in flight answers 200 and queues the 起來 behind it", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
@@ -1931,31 +1935,75 @@ func TestHandleSetOutsourceWorkerModelApiOutsourceWorkersIdModelPost(t *testing.
 		push()
 	})
 
-	t.Run("a changed model on a live worker opens the wind-down that carries it into the next session", func(t *testing.T) {
-		api, h, d, owner := newAPITestServer(t)
-		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
-		contractor := apiTestListen(t, api, "ow-abc123")
-		dashboard := apiTestListen(t, api, "")
+	for _, workerStatus := range []string{WorkerStatusActive, WorkerStatusAssigned} {
+		t.Run("a changed model on a live "+workerStatus+" worker opens the wind-down that carries it into the next session", func(t *testing.T) {
+			api, h, d, owner := newAPITestServer(t)
+			apiTestWorkerFixture(t, h, d, owner, "ow-abc123", workerStatus)
+			contractor := apiTestListen(t, api, "ow-abc123")
+			dashboard := apiTestListen(t, api, "")
 
-		status, data := apiJSON(t, h, "PATCH", "/api/members/ow-abc123", owner,
-			`{"model":"opus"}`)
-		if status != 200 {
-			t.Fatalf("want 200, got %d (%v)", status, data)
-		}
-		apiWantBody(t, data, map[string]any{"id": "ow-abc123"})
-		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
-			"status": "active", "presence": "online", "model": "opus",
-			"refocus_since": apiAnyNumber, "refocus_op": "runtime/model",
-		}))
-		dashboard.wantFrames(
-			apiTestHandoverDelta(2, "", apiTestOffboardNotice, "server"),
-			apiTestHandoverDelta(3, "", apiTestOffboardNotice, "owner"),
-		)
-		contractor.wantFrames(
-			apiTestHandoverDelta(2, "", apiTestOffboardNotice, "server"),
-			apiTestHandoverDelta(3, "", apiTestOffboardNotice, "owner"),
-		)
-	})
+			status, data := apiJSON(t, h, "PATCH", "/api/members/ow-abc123", owner,
+				`{"model":"opus"}`)
+			if status != 200 {
+				t.Fatalf("want 200, got %d (%v)", status, data)
+			}
+			apiWantBody(t, data, map[string]any{"id": "ow-abc123"})
+			apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+				"status": workerStatus, "presence": "online", "model": "opus",
+				"refocus_since": apiAnyNumber, "refocus_op": "runtime/model",
+			}))
+			dashboard.wantFrames(
+				apiTestHandoverDelta(2, "", apiTestOffboardNotice, "server"),
+				apiTestHandoverDelta(3, "", apiTestOffboardNotice, "owner"),
+			)
+			contractor.wantFrames(
+				apiTestHandoverDelta(2, "", apiTestOffboardNotice, "server"),
+				apiTestHandoverDelta(3, "", apiTestOffboardNotice, "owner"),
+			)
+		})
+
+		t.Run("a changed model on a live "+workerStatus+" worker is collected as a STOP and the replacement START carries the new model", func(t *testing.T) {
+			api, h, d, owner := newAPITestServer(t)
+			apiTestWorkerFixture(t, h, d, owner, "ow-abc123", workerStatus)
+			apiTestWorkerWantedOnline(t, d, "ow-abc123")
+			if err := d.SetMemberDesiredMachineID("ow-abc123", ServerSelfHost); err != nil {
+				t.Fatalf("SetMemberDesiredMachineID: %v", err)
+			}
+			apiTestListen(t, api, ServerSelfHost)
+			session, err := api.hub.Connect("ow-abc123", ServerSelfHost)
+			if err != nil {
+				t.Fatalf("hub.Connect: %v", err)
+			}
+			contractor := apiTestAgentToken(t, api, "ow-abc123", ServerSelfHost)
+
+			if status, data := apiJSON(t, h, "PATCH", "/api/members/ow-abc123", owner, `{"model":"opus"}`); status != 200 {
+				t.Fatalf("model: %d (%v)", status, data)
+			}
+			wsWantWardenFrames(t, api, ServerSelfHost)
+			if status, data := apiJSON(t, h, "POST", "/api/self/stopped", contractor, `{}`); status != 200 {
+				t.Fatalf("report_stopped: %d (%v)", status, data)
+			}
+			wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"))
+
+			now := nowSecs()
+			api.runOutsourceTick(now)
+			wsWantWardenFrames(t, api, ServerSelfHost)
+
+			api.hub.Disconnect(session)
+			status, boot := apiJSON(t, h, "GET", "/api/outsource-workers/ow-abc123/boot-context", owner, "")
+			if status != 200 {
+				t.Fatalf("boot-context preview: %d (%v)", status, boot)
+			}
+			api.runOutsourceTick(now + 31)
+			wsWantWardenFrames(t, api, ServerSelfHost,
+				wsStartFrame("ow-abc123", boot["context"].(string), "claude", "opus", "medium"))
+			apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+				"status": workerStatus, "presence": "waking", "desired_state": "online",
+				"desired_machine_id": "m-server-self", "machine": "m-server-self", "model": "opus",
+				"refocus_since": apiAnyNumber, "refocus_op": "runtime/model",
+			}))
+		})
+	}
 
 	t.Run("re-saving the value the worker already runs on stores it again and opens no session", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)

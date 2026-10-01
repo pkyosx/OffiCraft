@@ -1205,9 +1205,11 @@ ONE-SHOT, never a standing order):
       fluent false one. The second is not hypothetical — a shipped ledger reason
       was already found describing the wrong mechanism, twice.
 - 🔴 **The ENTRY filter is one function too: `lifecyclePolicyFor(m).ShouldExist()`.**
-  It is the only place the 正職/外包 difference may be spelled at the door — the
-  owner's ruling that 「正職會不會有 instance 存活取決於 人物設定有沒有這個角色，外包則是取決於
-  task 還是不是未完成狀態。其餘的部分應該要統一才對」. It replaced four hand-copies
+  It carries the owner's ruling 「正職會不會有 instance 存活取決於 人物設定有沒有這個角色，外包則是取決於
+  task 還是不是未完成狀態。其餘的部分應該要統一才對」 with no 正職/外包 branch: it reads
+  `roster_status` for both, and a worker's row goes `removed` when it is released. A worker
+  that has not reported waking yet passes the door like any other, so the context and
+  token-expiry hand-offs reach it under the staff conditions. It replaced four hand-copies
   (`runReconcileTick`, `reconcileMemberNow`, `runOutsourceTick`'s projection filter,
   and the copy inside the test helper `workerTickPass`).
 - 🔴 **The 停止 → 加速停止 → 強制停止 ladder binds the WORKER side too, and it binds

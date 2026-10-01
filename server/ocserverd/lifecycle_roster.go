@@ -17,16 +17,10 @@ type LifecyclePolicy struct {
 }
 
 // lifecyclePolicyFor: a warden is excluded unless it is being uninstalled — it
-// is never a spawn/stop candidate, it is the thing that executes them. The staff
-// arm reads roster_status, not the role table: it was extracted from the
-// existing call sites and must not quietly become stricter.
+// is never a spawn/stop candidate, it is the thing that executes them. It reads
+// roster_status, not the role table: it was extracted from the existing call
+// sites and must not quietly become stricter.
 func lifecyclePolicyFor(m Member) LifecyclePolicy {
-	if m.Kind == KindOutsource {
-		return LifecyclePolicy{ShouldExist: func() bool {
-			return workerStatusFrom(m.RosterStatus, m.ActivatedTS) == WorkerStatusActive &&
-				m.DesiredState != DesiredStateOffline
-		}}
-	}
 	return LifecyclePolicy{ShouldExist: func() bool {
 		if m.RosterStatus != RosterStatusActive {
 			return false
@@ -146,11 +140,6 @@ func (s *apiServer) runLifecycleRosterPasses(roster []Member, now float64) {
 // misses them. The wind-down suite's helper workerTickPass re-reads the row from
 // the DAL, so it never observes this fold-back: green after deleting these lines
 // proves nothing.
-//
-// The door admits more than the worker vocabulary's "active": memberFromWorker
-// stamps ActivatedTS for an active row whose ActivatedTS is 0 and keeps
-// ActivatedTS>0 for an unrecognised Status, so both read ACTIVE here while the
-// tick's own `switch w.Status` disagrees. Know this before widening it.
 //
 // Callers hold s.outsourceMu.
 func (s *apiServer) runWorkerLifecyclePasses(workers []OutsourceWorker, now float64) {
