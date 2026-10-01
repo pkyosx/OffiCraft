@@ -411,7 +411,9 @@ func tmuxDeliverNudge(r CmdRunner, sleep func(time.Duration), socket, session, n
 	const buf = "oc-spawn-nudge"
 	_, _ = r.Run("tmux", "-L", socket, "set-buffer", "-b", buf, nudge)
 	// Paste ONCE (it lands even in a not-ready REPL); only the Enter races, so it
-	// is retried. This loop deliberately does NOT judge success — a statusline-scraping
+	// is retried. A dialog drawn before the REPL discards the paste instead, which is
+	// why every first-launch dialog is answered in advance (pretrustWorkdir,
+	// buildStatuslineSettings). This loop deliberately does NOT judge success — a statusline-scraping
 	// check was permanently false. The authority is the server's PRESENCE (a live SSE
 	// listener for this member id), NOT a report_waking receipt and NOT waking_since
 	// (stamped at dispatch).
