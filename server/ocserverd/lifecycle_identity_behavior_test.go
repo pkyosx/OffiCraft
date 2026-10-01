@@ -920,10 +920,11 @@ var identityGateLedger = map[string]string{
 		"FIFO iff its token sub resolves to a machine row — the unforgeable addressing " +
 		"key. Also enumerated in authzOutsideRouteTable.",
 	"api_infra.go :: sseStopGateRefusal :: m.Kind == KindOutsource": "" +
-		"🔴 A REAL DIVERGENCE, declared: a RELEASED worker's session deliberately lives " +
-		"on for its §6.3 close-out duties (the reclaim grace), so its SSE must stay " +
-		"admitted even though the row is roster-removed — the member stop gate below " +
-		"would refuse it. The asymmetry is a consequence of workers being released with " +
+		"🔴 A REAL DIVERGENCE, declared, and ONLY for a RELEASED worker: its session " +
+		"deliberately lives on for its §6.3 close-out duties (the reclaim grace), so its " +
+		"SSE must stay admitted even though the row is roster-removed — the roster gate " +
+		"below would refuse it. A worker still on the roster falls through to the same " +
+		"stop gate as staff. The asymmetry is a consequence of workers being released with " +
 		"their task while members are dismissed by hand; it is the retirement half the " +
 		"stage 3 comment records as NOT yet wired into LifecyclePolicy.",
 	"api_infra.go :: sseStopGateRefusal :: m.Kind != KindWarden": "" +

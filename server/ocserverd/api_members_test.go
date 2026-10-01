@@ -3346,31 +3346,93 @@ func TestHandleReportWakingApiSelfWakingPost(t *testing.T) {
 		}
 	})
 
-	t.Run("a boot report on a member the owner has already stopped keeps the stop trace", func(t *testing.T) {
-		api, h, d, owner := newAPITestServer(t)
-		if status, data := apiJSON(t, h, "POST", "/api/members/kip/deactivate", owner, `{}`); status != 200 {
-			t.Fatalf("deactivate: %d %v", status, data)
-		}
-		agent := apiTestAgentToken(t, api, "kip", "")
+	for _, kind := range []struct {
+		name, id string
+		setup    func(t *testing.T, h http.Handler, d *DAL, owner string)
+	}{
+		{"staff", "kip",
+			func(t *testing.T, h http.Handler, d *DAL, owner string) {
+				if status, data := apiJSON(t, h, "POST", "/api/members/kip/activate", owner, `{}`); status != 200 {
+					t.Fatalf("activate: %d %v", status, data)
+				}
+			}},
+		{"outsource", "ow-abc123",
+			func(t *testing.T, h http.Handler, d *DAL, owner string) {
+				apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusAssigned)
+				apiTestWorkerWantedOnline(t, d, "ow-abc123")
+			}},
+	} {
+		t.Run(kind.name+": a boot report on a member the owner stopped mid-boot keeps the stop trace and reads stopping", func(t *testing.T) {
+			api, h, d, owner := newAPITestServer(t)
+			kind.setup(t, h, d, owner)
+			if status, data := apiJSON(t, h, "POST", "/api/members/"+kind.id+"/deactivate", owner, `{}`); status != 200 {
+				t.Fatalf("deactivate: %d %v", status, data)
+			}
+			agent := apiTestAgentToken(t, api, kind.id, "")
 
-		status, data := apiJSON(t, h, "POST", "/api/self/waking", agent, `{"model":"claude-opus-5"}`)
-		if status != 200 {
-			t.Fatalf("want 200, got %d (%v)", status, data)
-		}
-		apiWantBody(t, data, map[string]any{
-			"id":               "kip",
-			"desired_state":    "offline",
-			"refocus_op":       "",
-			"refocus_deadline": 0,
+			status, data := apiJSON(t, h, "POST", "/api/self/waking", agent, `{"model":"claude-opus-5"}`)
+			if status != 200 {
+				t.Fatalf("want 200, got %d (%v)", status, data)
+			}
+			apiWantBody(t, data, map[string]any{
+				"id":               kind.id,
+				"desired_state":    "offline",
+				"refocus_op":       "",
+				"refocus_deadline": 0,
+			})
+			m, err := d.GetMember(kind.id)
+			if err != nil || m == nil {
+				t.Fatalf("GetMember: %v (%v)", m, err)
+			}
+			if m.StoppingSince <= 0 {
+				t.Fatalf("the cancelled-mid-boot trace must survive, got %v", m.StoppingSince)
+			}
+			if m.StoppedSince != 0 || m.RefocusSince != 0 || m.RefocusOp != "" {
+				t.Fatalf("stopped_since/refocus_since/refocus_op must be cleared, got %v/%v/%q",
+					m.StoppedSince, m.RefocusSince, m.RefocusOp)
+			}
+			if p := PresenceState(*m, nowSecs(), true); p != MemberPresenceStopping {
+				t.Fatalf("a connected member with the trace kept must read stopping, got %q", p)
+			}
 		})
-		m, err := d.GetMember("kip")
-		if err != nil {
-			t.Fatalf("GetMember: %v", err)
-		}
-		if m.StoppingSince <= 0 {
-			t.Fatalf("the cancelled-mid-boot trace must survive, got %v", m.StoppingSince)
-		}
-	})
+
+		t.Run(kind.name+": a boot report on a member wanted online clears every anchor of the earlier epoch", func(t *testing.T) {
+			api, h, d, owner := newAPITestServer(t)
+			kind.setup(t, h, d, owner)
+			if err := d.SetMemberWindDownAnchors(kind.id, 1000, 1100, 1200, refocusOpRefocus); err != nil {
+				t.Fatalf("SetMemberWindDownAnchors: %v", err)
+			}
+			seeded, err := d.GetMember(kind.id)
+			if err != nil || seeded == nil {
+				t.Fatalf("GetMember: %v (%v)", seeded, err)
+			}
+			if seeded.StoppingSince != 1000 || seeded.StoppedSince != 1100 ||
+				seeded.RefocusSince != 1200 || seeded.RefocusOp != refocusOpRefocus {
+				t.Fatalf("premise: all four anchors must be seeded, got stopping=%v stopped=%v refocus=%v op=%q",
+					seeded.StoppingSince, seeded.StoppedSince, seeded.RefocusSince, seeded.RefocusOp)
+			}
+			agent := apiTestAgentToken(t, api, kind.id, "")
+
+			status, data := apiJSON(t, h, "POST", "/api/self/waking", agent, `{}`)
+			if status != 200 {
+				t.Fatalf("want 200, got %d (%v)", status, data)
+			}
+			apiWantBody(t, data, map[string]any{
+				"id":               kind.id,
+				"desired_state":    "online",
+				"refocus_op":       "",
+				"refocus_deadline": 0,
+			})
+			m, err := d.GetMember(kind.id)
+			if err != nil || m == nil {
+				t.Fatalf("GetMember: %v (%v)", m, err)
+			}
+			if m.StoppingSince != 0 || m.StoppedSince != 0 || m.RefocusSince != 0 || m.RefocusOp != "" {
+				t.Fatalf("all four wind-down anchors must be cleared, got stopping=%v stopped=%v refocus=%v op=%q",
+					m.StoppingSince, m.StoppedSince, m.RefocusSince, m.RefocusOp)
+			}
+		})
+	}
 
 	t.Run("a caller whose roster row is gone answers 404 naming it", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)

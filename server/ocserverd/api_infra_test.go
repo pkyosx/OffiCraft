@@ -420,57 +420,72 @@ func TestSseStopGateRefusal(t *testing.T) {
 		}
 	})
 
-	t.Run("a member working its close-out is still admitted, and refused the moment it reports stopped", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
-		agent := apiTestAgentToken(t, api, "kip", "")
-		// A live session keeps the graceful epoch open. Without this connection,
-		// deactivation collects the member immediately and the gate is correctly
-		// refusing a stopped row rather than exercising the close-out window.
-		apiTestListen(t, api, "kip")
-		if status, data := apiJSON(t, h, "POST", "/api/members/kip/deactivate", owner, ""); status != 200 {
-			t.Fatalf("deactivate: want 200, got %d (%v)", status, data)
-		}
+	for _, kind := range []struct {
+		name, id string
+		setup    func(t *testing.T, h http.Handler, d *DAL, owner string)
+	}{
+		{"staff", "kip", func(t *testing.T, h http.Handler, d *DAL, owner string) {}},
+		{"outsource", "ow-abc123", func(t *testing.T, h http.Handler, d *DAL, owner string) {
+			apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
+			apiTestWorkerWantedOnline(t, d, "ow-abc123")
+		}},
+	} {
+		stopRefusal := "member '" + kind.id + "' has a stop in effect (desired_state=offline) — " +
+			"SSE refused (a stopped member must not re-project online; activate it to reconnect)"
 
-		if got := api.sseStopGateRefusal("kip"); got != "" {
-			t.Fatalf("a close-out in flight must be admitted, got %q", got)
-		}
+		t.Run(kind.name+": a member working its close-out is still admitted, and refused the moment it reports stopped", func(t *testing.T) {
+			api, h, d, owner := newAPITestServer(t)
+			kind.setup(t, h, d, owner)
+			agent := apiTestAgentToken(t, api, kind.id, "")
+			// A live session keeps the graceful epoch open. Without this connection,
+			// deactivation collects the member immediately and the gate is correctly
+			// refusing a stopped row rather than exercising the close-out window.
+			apiTestListen(t, api, kind.id)
+			if status, data := apiJSON(t, h, "POST", "/api/members/"+kind.id+"/deactivate", owner, ""); status != 200 {
+				t.Fatalf("deactivate: want 200, got %d (%v)", status, data)
+			}
 
-		if status, data := apiJSON(t, h, "POST", "/api/self/stopped", agent, ""); status != 200 {
-			t.Fatalf("report stopped: want 200, got %d (%v)", status, data)
-		}
+			if got := api.sseStopGateRefusal(kind.id); got != "" {
+				t.Fatalf("a close-out in flight must be admitted, got %q", got)
+			}
 
-		if got := api.sseStopGateRefusal("kip"); got != "member 'kip' has a stop in effect (desired_state=offline) — "+
-			"SSE refused (a stopped member must not re-project online; activate it to reconnect)" {
-			t.Fatalf("a finished close-out must be refused, got %q", got)
-		}
-	})
+			if status, data := apiJSON(t, h, "POST", "/api/self/stopped", agent, ""); status != 200 {
+				t.Fatalf("report stopped: want 200, got %d (%v)", status, data)
+			}
 
-	t.Run("a member the owner force-stopped is refused without waiting for it to report", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
-		if status, data := apiJSON(t, h, "POST", "/api/members/kip/force-stop", owner, ""); status != 200 {
-			t.Fatalf("force-stop: want 200, got %d (%v)", status, data)
-		}
+			if got := api.sseStopGateRefusal(kind.id); got != stopRefusal {
+				t.Fatalf("a finished close-out must be refused, got %q", got)
+			}
+		})
 
-		if got := api.sseStopGateRefusal("kip"); got != "member 'kip' has a stop in effect (desired_state=offline) — "+
-			"SSE refused (a stopped member must not re-project online; activate it to reconnect)" {
-			t.Fatalf("want the stop refusal, got %q", got)
-		}
-	})
+		t.Run(kind.name+": a member the owner force-stopped is refused without waiting for it to report", func(t *testing.T) {
+			api, h, d, owner := newAPITestServer(t)
+			kind.setup(t, h, d, owner)
+			if status, data := apiJSON(t, h, "POST", "/api/members/"+kind.id+"/force-stop", owner, ""); status != 200 {
+				t.Fatalf("force-stop: want 200, got %d (%v)", status, data)
+			}
 
-	t.Run("activating the member again lifts the gate", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
-		if status, data := apiJSON(t, h, "POST", "/api/members/kip/force-stop", owner, ""); status != 200 {
-			t.Fatalf("force-stop: want 200, got %d (%v)", status, data)
-		}
+			if got := api.sseStopGateRefusal(kind.id); got != stopRefusal {
+				t.Fatalf("want the stop refusal, got %q", got)
+			}
+		})
 
-		if status, data := apiJSON(t, h, "POST", "/api/members/kip/activate", owner, ""); status != 200 {
-			t.Fatalf("activate: want 200, got %d (%v)", status, data)
-		}
+		t.Run(kind.name+": activating the member again lifts the gate", func(t *testing.T) {
+			api, h, d, owner := newAPITestServer(t)
+			kind.setup(t, h, d, owner)
+			if status, data := apiJSON(t, h, "POST", "/api/members/"+kind.id+"/force-stop", owner, ""); status != 200 {
+				t.Fatalf("force-stop: want 200, got %d (%v)", status, data)
+			}
 
-		if got := api.sseStopGateRefusal("kip"); got != "" {
-			t.Fatalf("an activated member must be admitted, got %q", got)
-		}
-	})
+			if status, data := apiJSON(t, h, "POST", "/api/members/"+kind.id+"/activate", owner, ""); status != 200 {
+				t.Fatalf("activate: want 200, got %d (%v)", status, data)
+			}
+
+			if got := api.sseStopGateRefusal(kind.id); got != "" {
+				t.Fatalf("an activated member must be admitted, got %q", got)
+			}
+		})
+	}
 
 	t.Run("a dismissed member is refused with the roster wording instead", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
@@ -484,7 +499,7 @@ func TestSseStopGateRefusal(t *testing.T) {
 		}
 	})
 
-	t.Run("an outsource worker keeps the pre-fold admission even once its row is released", func(t *testing.T) {
+	t.Run("a released outsource worker stays admitted for its close-out", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusReleased)
 
