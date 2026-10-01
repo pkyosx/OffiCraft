@@ -1480,8 +1480,7 @@ export interface paths {
          * Submit the sign-in code for a runtime login.
          * @description - Relays the code to the waiting login process via the `login_code` warden command and moves the login to `verifying`.
          *     - The code is never stored, logged or echoed back; it exists only in the command frame.
-         *     - A code that is not two non-empty parts joined by exactly one `#` (a partial copy) is a 422 and the login stays `awaiting_code`, so the owner can paste again.
-         *     - 409 unless the login is `awaiting_code`, and 409 when the machine's warden is offline (nothing relayed, the login stays `awaiting_code`); 404 when unknown or dropped.
+         *     - Checked in this order: 404 when the login is unknown or dropped; 409 unless it is `awaiting_code`, and 409 when the machine's warden is offline (nothing relayed); then 422 for a code that is not two non-empty parts joined by exactly one `#` (a partial copy). On every refusal the login stays as it was, so the owner can paste again.
          *     - Admin agent only (403).
          */
         post: operations["handle_submit_runtime_login_code_api_machines__machine_id__runtime_login__login_id__code_post"];

@@ -429,6 +429,25 @@ func TestRuntimeLoginCode(t *testing.T) {
 		}
 	})
 
+	t.Run("under an unknown login, a malformed code is still 404, not 422", func(t *testing.T) {
+		f := newLoginFixture(t)
+		f.awaitingCode(t)
+		status, data := apiJSON(t, f.h, "POST", loginStartPath+"/rl-nope/code", f.owner, `{"code":"conf-code"}`)
+		if status != http.StatusNotFound {
+			t.Fatalf("want 404, got %d %v", status, data)
+		}
+		apiWantError(t, data, "not_found", "runtime login 'rl-nope' not found")
+	})
+
+	t.Run("under a login that is not awaiting_code, a malformed code is 409, not 422", func(t *testing.T) {
+		f := newLoginFixture(t)
+		id := f.start(t)
+		status, data := apiJSON(t, f.h, "POST", loginStartPath+"/"+id+"/code", f.owner, `{"code":"conf-code"}`)
+		if status != http.StatusConflict {
+			t.Fatalf("want 409, got %d %v", status, data)
+		}
+	})
+
 	t.Run("under an unknown login or a login on another machine's path, the code is 404", func(t *testing.T) {
 		f := newLoginFixture(t)
 		id := f.awaitingCode(t)

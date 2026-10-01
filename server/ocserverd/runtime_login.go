@@ -264,43 +264,44 @@ func (s *apiServer) HandleSubmitRuntimeLoginCodeApiMachinesMachineIdRuntimeLogin
 	if !decodeJSONBodyRequired(w, r, &body, "code") {
 		return
 	}
+	st := s.runtimeLogins
+	st.mu.Lock()
+	now := st.now()
+	swept := st.sweepLocked(now)
+	refuse := func(status int, msg string) {
+		st.mu.Unlock()
+		s.publishRuntimeLogin(triggerServer, swept...)
+		writeError(w, status, msg)
+	}
+	l := st.lookupLocked(machineId, loginId)
+	if l == nil {
+		refuse(http.StatusNotFound, "runtime login '"+loginId+"' not found")
+		return
+	}
+	if l.state != runtimeLoginAwaitingCode {
+		refuse(http.StatusConflict, "runtime login '"+loginId+"' is "+l.state+", not awaiting_code")
+		return
+	}
+	if !s.hub.IsOnline(machineId) {
+		refuse(http.StatusConflict, runtimeLoginOfflineMsg)
+		return
+	}
 	code := strings.TrimSpace(body.Code)
 	if code == "" {
-		writeError(w, http.StatusUnprocessableEntity, "code must not be blank")
+		refuse(http.StatusUnprocessableEntity, "code must not be blank")
 		return
 	}
 	// claude's own check: a code without both halves is refused on its stderr
 	// while the process keeps waiting, which a relayed frame cannot see.
 	if left, right, found := strings.Cut(code, "#"); !found || left == "" || right == "" || strings.Contains(right, "#") {
-		writeError(w, http.StatusUnprocessableEntity, runtimeLoginPartialCodeMsg)
-		return
-	}
-	st := s.runtimeLogins
-	st.mu.Lock()
-	now := st.now()
-	swept := st.sweepLocked(now)
-	l := st.lookupLocked(machineId, loginId)
-	if l == nil {
-		st.mu.Unlock()
-		s.publishRuntimeLogin(triggerServer, swept...)
-		runtimeLoginNotFound(w, loginId)
-		return
-	}
-	if l.state != runtimeLoginAwaitingCode {
-		state := l.state
-		st.mu.Unlock()
-		s.publishRuntimeLogin(triggerServer, swept...)
-		writeError(w, http.StatusConflict,
-			"runtime login '"+loginId+"' is "+state+", not awaiting_code")
+		refuse(http.StatusUnprocessableEntity, runtimeLoginPartialCodeMsg)
 		return
 	}
 	frame, built := buildRuntimeLoginFrame(wardenCmdLoginCode, wardenLoginCodeArgs{
 		MemberID: machineId, LoginID: loginId, Code: code,
 	})
 	if !built || !s.enqueueToWarden(machineId, machineId, frame) {
-		st.mu.Unlock()
-		s.publishRuntimeLogin(triggerServer, swept...)
-		writeError(w, http.StatusConflict, runtimeLoginOfflineMsg)
+		refuse(http.StatusConflict, runtimeLoginOfflineMsg)
 		return
 	}
 	l.reason = nil
