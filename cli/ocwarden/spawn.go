@@ -192,6 +192,16 @@ func claudeAcceptsPromptFile(r CmdRunner, claudeBin, promptFile string) bool {
 	return err != nil && strings.Contains(err.Error(), "'"+claudePromptFileProbeFlag+"'")
 }
 
+// Only the real runner has a timeout to shorten; an injected one is returned
+// as is, so tests keep their seam.
+func withRunTimeout(r CmdRunner, timeout time.Duration) CmdRunner {
+	if real, ok := r.(execRunner); ok {
+		real.timeout = timeout
+		return real
+	}
+	return r
+}
+
 type claudeSystemPrompt struct {
 	flag, value string
 }

@@ -395,7 +395,7 @@ func buildSpawnDeps(cfg Config, env func(string) string, runner CmdRunner, socke
 		},
 		ClaudeBin: claudeBin,
 		ClaudeTakesPromptFile: func(promptFile string) bool {
-			return claudeAcceptsPromptFile(newCmdRunner(claudePromptFileProbeBudget), claudeBin, promptFile)
+			return claudeAcceptsPromptFile(withRunTimeout(runner, claudePromptFileProbeBudget), claudeBin, promptFile)
 		},
 		CodexBin:    codexBin,
 		ClaudeHome:  resolvedClaudeHome(env, stderrLogf),
