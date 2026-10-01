@@ -273,6 +273,7 @@ func (s *apiServer) runOutsourceTick(now float64) {
 		case WorkerStatusAssigned:
 			// Owner-explicit stop dominates every auto-revival (member parity).
 			if w.DesiredState == DesiredStateOffline {
+				s.autoHandoverWorker(w, now)
 				continue
 			}
 			s.reconcileWorkerLiveness(w, now)
