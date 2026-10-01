@@ -523,6 +523,22 @@ func TestSseStopGateRefusal(t *testing.T) {
 			t.Fatalf("want the roster refusal, got %q", got)
 		}
 	})
+
+	t.Run("a roster read that fails admits even a dismissed member", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		if status, data := apiJSON(t, h, "DELETE", "/api/members/kip", owner, ""); status != 200 {
+			t.Fatalf("dismiss: want 200, got %d (%v)", status, data)
+		}
+		if got := api.sseStopGateRefusal("kip"); got == "" {
+			t.Fatal("premise: a dismissed member must be refused while the roster is readable")
+		}
+
+		api.dal = failingDAL(t)
+
+		if got := api.sseStopGateRefusal("kip"); got != "" {
+			t.Fatalf("a failed roster read must admit, got %q", got)
+		}
+	})
 }
 
 func TestOnFirstConnect(t *testing.T) {
