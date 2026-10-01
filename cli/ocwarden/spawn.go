@@ -771,8 +771,8 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 			takesPromptFile, whyNot = d.ClaudeTakesPromptFile(promptFile)
 		}
 		if !takesPromptFile {
-			d.logf("%s boots by reading persona.md itself, not via --append-system-prompt-file: %s",
-				p.MemberID, whyNot)
+			d.logf("%s boots by reading persona.md itself, not via --append-system-prompt-file (%s): %s",
+				p.MemberID, d.ClaudeBin, whyNot)
 		}
 	}
 	if takesPromptFile {

@@ -768,7 +768,7 @@ func TestBuildSpawnDeps(t *testing.T) {
 	}
 	// 2s is a line of the receiptDeadlineSecs budget (server/ocserverd/receipt_watch.go).
 	if want := []time.Duration{2 * time.Second, 2 * time.Second}; !reflect.DeepEqual(runner.timeouts, want) {
-		t.Errorf("probe timeouts = %v, want %v", runner.timeouts, want)
+		t.Errorf("timeouts the probe ran under = %v, want %v", runner.timeouts, want)
 	}
 	if got, _ := deps.ResolveOcAgentBin(); !strings.HasSuffix(got, "ocagent") {
 		t.Errorf("ResolveOcAgentBin() = %q, want a path ending in ocagent", got)

@@ -287,16 +287,26 @@ func TestWithRunTimeout(t *testing.T) {
 	}
 }
 
-// timeoutRecordingRunner is a wardenRunner that records every timeout it was
-// asked to run under.
+// timeoutRecordingRunner is a wardenRunner whose withTimeout hands back a
+// DIFFERENT runner; only calls made through that one land in timeouts, so a
+// caller that asks for a timeout and then runs on the original records nothing.
 type timeoutRecordingRunner struct {
 	*wardenRunner
 	timeouts []time.Duration
 }
 
 func (r *timeoutRecordingRunner) withTimeout(timeout time.Duration) CmdRunner {
-	r.timeouts = append(r.timeouts, timeout)
-	return r
+	return timedRecordingRunner{owner: r, timeout: timeout}
+}
+
+type timedRecordingRunner struct {
+	owner   *timeoutRecordingRunner
+	timeout time.Duration
+}
+
+func (t timedRecordingRunner) Run(name string, args ...string) (string, error) {
+	t.owner.timeouts = append(t.owner.timeouts, t.timeout)
+	return t.owner.wardenRunner.Run(name, args...)
 }
 
 func TestClaudeAcceptsPromptFile(t *testing.T) {
@@ -1192,9 +1202,9 @@ func TestStart(t *testing.T) {
 			wantLog string
 		}{
 			{"the probe says no", func(string) (bool, string) { return false, "the probe timed out" },
-				"m1 boots by reading persona.md itself, not via --append-system-prompt-file: the probe timed out"},
+				"m1 boots by reading persona.md itself, not via --append-system-prompt-file (/usr/local/bin/claude): the probe timed out"},
 			{"no probe is wired", nil,
-				"m1 boots by reading persona.md itself, not via --append-system-prompt-file: no prompt-file probe is wired"},
+				"m1 boots by reading persona.md itself, not via --append-system-prompt-file (/usr/local/bin/claude): no prompt-file probe is wired"},
 		} {
 			t.Run(tc.name, func(t *testing.T) {
 				h := newSpawnHarness()

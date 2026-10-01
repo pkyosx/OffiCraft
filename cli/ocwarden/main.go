@@ -137,13 +137,13 @@ var newCmdRunner = func(timeout time.Duration) CmdRunner { return execRunner{tim
 // (an inline `sysOps{run: execRunner{…}.Run, …}` once made a test binary issue a
 // REAL `launchctl bootout` against the developer's live warden), but it cannot
 // avoid starting the subprocess here.
+func (r execRunner) Run(name string, args ...string) (string, error) {
+	return r.exec("execRunner.Run", false, name, args...)
+}
+
 func (r execRunner) withTimeout(timeout time.Duration) CmdRunner {
 	r.timeout = timeout
 	return r
-}
-
-func (r execRunner) Run(name string, args ...string) (string, error) {
-	return r.exec("execRunner.Run", false, name, args...)
 }
 
 // RunKeepStdout also returns stdout from a non-zero exit (`claude auth status`
