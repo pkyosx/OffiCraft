@@ -733,14 +733,13 @@ func (s *apiServer) dropLiveCost(actorID string) *float64 {
 // Irreversible — no per-charge ledger exists — so the response is a receipt of
 // what was destroyed; never grow it into an undo without a fresh owner ruling.
 //
-// A RELEASED worker is accepted (owner ruling rc-1344cc76a24a); a dismissed staff
-// member is not.
+// An actor that has left is accepted: a RELEASED worker (owner ruling
+// rc-1344cc76a24a) and a departed staff member alike.
 func (s *apiServer) HandleResetCostApiMembersMemberIdCostResetPost(w http.ResponseWriter, r *http.Request, memberId string) {
 	// target is the staff row or the outsource worker whose cost the reset
 	// clears, or the 404.
 	target := func() (*Member, *OutsourceWorker, error) {
-		if m, err := s.dal.GetMember(memberId); err == nil && m != nil &&
-			m.RosterStatus != RosterStatusRemoved && m.Kind != KindOutsource {
+		if m, err := s.dal.GetMember(memberId); err == nil && m != nil && m.Kind != KindOutsource {
 			return m, nil, nil
 		}
 		wk, err := s.dal.GetOutsourceWorker(memberId)
@@ -778,6 +777,8 @@ func (s *apiServer) HandleResetCostApiMembersMemberIdCostResetPost(w http.Respon
 	var cleared *float64
 	if staff != nil {
 		staff.BankedCost = 0
+		// A member that has left fans as op "remove", as the worker arm does; no
+		// subscriber acts on the op, each refetches on the topic.
 		s.publishMemberPatch(*staff, requestTrigger(r))
 		cleared = s.dropLiveCost(memberId)
 	} else {

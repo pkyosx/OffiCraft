@@ -13,7 +13,7 @@
 //   #settings/manuals/<typeKey>; 負責人/建立者 chip → that peer's chat compose.
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, fireEvent } from "@testing-library/react";
+import { render, fireEvent, waitFor } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { TasksPage } from "./TasksPage";
 import {
@@ -23,6 +23,7 @@ import {
   __injectMockOutsourceWorker,
 } from "../api/mock";
 import type { TaskView } from "../api/adapter";
+import { api } from "../api";
 
 // Unlisted-identity cache: the REAL hook lazily fetches GET /api/members/{id}
 // (which serves released workers and dismissed staff); here it is a fixed map
@@ -320,11 +321,6 @@ describe("TaskCard 卡頭對齊 owner spec (T-705e)", () => {
     expect(executorOf("查無負責人")).toBe("m-unknown");
     expect(
       byTitle("正職已離開")
-        .querySelector('[data-testid="task-msg-input"]')
-        ?.getAttribute("placeholder")
-    ).toBe("傳訊息給 阿哲…");
-    expect(
-      byTitle("正職已離開")
         .querySelector('[data-testid="task-assignee-link"] .avatar__img')
         ?.getAttribute("src")
     ).toBe("/api/chat/attachment/ava-left");
@@ -340,6 +336,48 @@ describe("TaskCard 卡頭對齊 owner spec (T-705e)", () => {
     expect(window.location.hash).toBe(
       `#office/chat/m-left/compose/${encodeURIComponent(dismissed.taskNo)}`
     );
+  });
+
+  it("under an executor that has left (released 外包, dismissed 正職, or unresolvable) the card renders no message box, while a listed executor keeps it", async () => {
+    __injectMockTask(
+      mkTask({ title: "外包已釋出", executorKind: "outsource", executorId: "ow-rel" })
+    );
+    __injectMockTask(mkTask({ title: "正職已離開", executorId: "m-left" }));
+    __injectMockTask(mkTask({ title: "查無負責人", executorId: "m-unknown" }));
+    __injectMockTask(mkTask({ title: "正職在職", executorId: "mira" }));
+
+    const { findAllByTestId } = renderPage();
+    const cards = await findAllByTestId("task-card");
+    const boxOf = (title: string) => {
+      const card = cards.find((c) =>
+        c.querySelector(".task-card__title")?.textContent?.includes(title)
+      )!;
+      return ["task-msg-attach", "task-msg-input", "task-msg-send"].filter(
+        (id) => card.querySelector(`[data-testid="${id}"]`) !== null
+      );
+    };
+
+    await waitFor(() => expect(boxOf("正職已離開")).toEqual([]));
+    expect(boxOf("外包已釋出")).toEqual([]);
+    expect(boxOf("查無負責人")).toEqual([]);
+    expect(boxOf("正職在職")).toEqual([
+      "task-msg-attach",
+      "task-msg-input",
+      "task-msg-send",
+    ]);
+  });
+
+  it("while the roster has not loaded yet an executor missing from it keeps the message box", async () => {
+    const roster = vi.spyOn(api, "listMembers").mockReturnValue(new Promise(() => {}));
+    try {
+      __injectMockTask(mkTask({ title: "名冊未到", executorId: "mira" }));
+      const { findByTestId } = renderPage();
+      await findByTestId("task-card");
+      expect(await findByTestId("task-msg-input")).toBeTruthy();
+      expect(roster).toHaveBeenCalled();
+    } finally {
+      roster.mockRestore();
+    }
   });
 
   it("a released 外包 or dismissed 正職 前任 shows its name from the lazy cache, not the raw id", async () => {

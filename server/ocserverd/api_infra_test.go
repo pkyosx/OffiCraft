@@ -1607,28 +1607,134 @@ func TestHandleResetCostApiMembersMemberIdCostResetPost(t *testing.T) {
 		}
 	})
 
+	t.Run("a dismissed staff member's banked cost is cleared and returned as the receipt", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		if status, data := apiJSON(t, h, "POST", "/api/monitoring/telemetry", agent, `{"cost":2.5}`); status != 200 {
+			t.Fatalf("telemetry: want 200, got %d (%v)", status, data)
+		}
+		apiEventsStream(t, h, agent, "").stop()
+		if status, data := apiJSON(t, h, "DELETE", "/api/members/kip", owner, ""); status != 200 {
+			t.Fatalf("dismiss: %d %v", status, data)
+		}
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/members/kip/cost/reset", owner, "")
+
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"member_id":           "kip",
+			"cleared_cost":        nil,
+			"cleared_banked_cost": 2.5,
+		})
+		if n := windowCount(t, d, `SELECT COUNT(*) FROM member WHERE id = 'kip' AND banked_cost = 0`); n != 1 {
+			t.Fatalf("kip's banked cost must be 0 after the reset")
+		}
+		dashboard.wantFrames(map[string]any{
+			"seq":   4,
+			"topic": "member",
+			"op":    "remove",
+			"data": map[string]any{
+				"entity":  "member",
+				"key":     "owner::kip",
+				"epoch":   4,
+				"deleted": true,
+				"payload": nil,
+			},
+			"ts":      apiAnyNumber,
+			"trigger": "owner",
+		}, map[string]any{
+			"seq":   5,
+			"topic": "monitoring",
+			"op":    "signal",
+			"data": map[string]any{
+				"entity":  "monitoring",
+				"key":     "kip",
+				"epoch":   5,
+				"deleted": false,
+				"payload": nil,
+			},
+			"ts":      apiAnyNumber,
+			"trigger": "owner",
+		})
+	})
+
+	t.Run("a released worker's banked cost is cleared and returned as the receipt", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusReleased)
+		if err := d.AddMemberBankedCost("ow-abc123", 4); err != nil {
+			t.Fatalf("AddMemberBankedCost: %v", err)
+		}
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/cost/reset", owner, "")
+
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"member_id":           "ow-abc123",
+			"cleared_cost":        nil,
+			"cleared_banked_cost": 4.0,
+		})
+		if n := windowCount(t, d, `SELECT COUNT(*) FROM member WHERE id = 'ow-abc123' AND banked_cost = 0`); n != 1 {
+			t.Fatalf("the worker's banked cost must be 0 after the reset")
+		}
+		dashboard.wantFrames(map[string]any{
+			"seq":   2,
+			"topic": "member",
+			"op":    "remove",
+			"data": map[string]any{
+				"entity":  "member",
+				"key":     "owner::ow-abc123",
+				"epoch":   2,
+				"deleted": true,
+				"payload": nil,
+			},
+			"ts":      apiAnyNumber,
+			"trigger": "owner",
+		}, map[string]any{
+			"seq":   3,
+			"topic": "monitoring",
+			"op":    "signal",
+			"data": map[string]any{
+				"entity":  "monitoring",
+				"key":     "ow-abc123",
+				"epoch":   3,
+				"deleted": false,
+				"payload": nil,
+			},
+			"ts":      apiAnyNumber,
+			"trigger": "owner",
+		})
+	})
+
 	for _, shape := range windowDALShapes {
-		t.Run(shape+": a member dismissed after the handler read it answers 404 and keeps its banked cost", func(t *testing.T) {
+		t.Run(shape+": a member dismissed after the handler read it is still cleared and its banked cost returned", func(t *testing.T) {
 			d, hook, path := windowDAL(t, shape)
-			api, h, _, owner := newAPITestServerOn(t, d)
+			_, h, _, owner := newAPITestServerOn(t, d)
 			if err := d.AddMemberBankedCost("kip", 4); err != nil {
 				t.Fatalf("AddMemberBankedCost: %v", err)
 			}
-			dashboard := apiTestListen(t, api, "")
 			hook.execAfterRead(t, path, "FROM member WHERE id",
 				`UPDATE member SET roster_status = 'removed' WHERE id = 'kip'`)
 
 			status, data := windowJSON(t, h, "POST", "/api/members/kip/cost/reset", owner, "")
 
 			hook.wantFiredOnce(t)
-			if status != http.StatusNotFound {
-				t.Fatalf("want 404, got %d (%v)", status, data)
+			if status != http.StatusOK {
+				t.Fatalf("want 200, got %d (%v)", status, data)
 			}
-			apiWantError(t, data, "not_found", "member 'kip' not found")
-			if n := windowCount(t, d, `SELECT COUNT(*) FROM member WHERE id = 'kip' AND banked_cost = 4`); n != 1 {
-				t.Fatalf("kip's banked cost moved: want it still 4")
+			apiWantBody(t, data, map[string]any{
+				"member_id":           "kip",
+				"cleared_cost":        nil,
+				"cleared_banked_cost": 4.0,
+			})
+			if n := windowCount(t, d, `SELECT COUNT(*) FROM member WHERE id = 'kip' AND banked_cost = 0`); n != 1 {
+				t.Fatalf("kip's banked cost must be 0 after the reset")
 			}
-			dashboard.wantFrames()
 		})
 	}
 }

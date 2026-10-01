@@ -18,9 +18,11 @@ import { render, waitFor } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { OfficePage } from "./OfficePage";
 import { zh } from "../i18n/locales/zh";
+import { __resetWorkerCodenameCache } from "../hooks/useWorkerCodenames";
 import {
   __resetMock,
   __injectMockChat,
+  __injectMockMember,
   __injectMockOutsourceWorker,
 } from "../api/mock";
 
@@ -53,6 +55,7 @@ function stubMobileViewport() {
 
 beforeEach(() => {
   __resetMock();
+  __resetWorkerCodenameCache();
   window.location.hash = "";
   // jsdom has no scrollIntoView; ChatArea's entry positioning calls it once a
   // thread renders — stub like the other office/chat suites.
@@ -95,9 +98,10 @@ describe("OfficePage — 跳到原訊息 to an outsource sender", () => {
     expect(container.querySelector("textarea.chat__input")).toBeNull();
     expect(container.querySelector(".chat__composer-locked")).not.toBeNull();
 
-    // NEGATIVE: never Mira's room.
+    // NEGATIVE: never Mira's room. The per-id read 404s for this worker, so
+    // the generic released title stands in for its codename.
     const headerName = container.querySelector(".chat__header-name");
-    expect(headerName?.textContent ?? "").not.toContain("Mira");
+    expect(headerName?.textContent).toBe("外包 · 已釋出");
   });
 
   it("shows the back nav + conversation on a phone (no dead-end)", async () => {
@@ -249,8 +253,9 @@ describe("OfficePage — 跳到原訊息 to an outsource sender", () => {
     const { container, findByText } = renderOffice();
 
     await findByText("已離開成員的舊訊息。");
+    // The per-id read 404s for this id, so the generic title stands in.
     const headerName = container.querySelector(".chat__header-name");
-    expect(headerName?.textContent ?? "").not.toContain("Mira");
+    expect(headerName?.textContent).toBe("對話對象已不在名單");
     // The 已釋出(outsource) subtitle must NOT show for a member id — the neutral
     // 不在名單 copy is used instead (both share the released-chat-sub testid).
     const sub = container.querySelector('[data-testid="released-chat-sub"]');
@@ -306,6 +311,94 @@ describe("OfficePage — a released worker says the same thing from either entry
     // second, duplicated string fail here.
     expect(chatSentence).toBe(zh.office.outsource.releasedSub);
     expect(panelSentence).toBe(zh.office.outsource.releasedSub);
+  });
+
+  it("under a released worker the per-id read names it 外包 · 代號 in the chat header, on its own messages and in the detail panel", async () => {
+    __injectMockMember({
+      id: workerId,
+      kind: "outsource",
+      name: "O-9",
+      roster_status: "removed",
+    });
+    __injectMockChat({
+      id: "m-orig",
+      from: workerId,
+      to: "owner",
+      body: "外包回報:任務初稿完成,請確認。",
+      ts: Date.now() / 1000 - 120,
+      attachments: [],
+      replyCardId: null,
+    });
+
+    window.location.hash = `#office/chat/${workerId}`;
+    const chat = renderOffice();
+    await chat.findByText("外包回報:任務初稿完成,請確認。");
+    await waitFor(() =>
+      expect(
+        chat.container.querySelector(".chat__header-name")?.textContent,
+      ).toBe("外包 · O-9"),
+    );
+    expect(
+      Array.from(chat.container.querySelectorAll(".chat__msg-name")).map(
+        (n) => n.textContent,
+      ),
+    ).toEqual(["外包 · O-9"]);
+    expect(
+      (await chat.findByTestId("released-chat-sub")).textContent,
+    ).toBe(zh.office.outsource.releasedSub);
+    expect(
+      chat.container.querySelector(".chat__composer-locked")?.textContent,
+    ).toBe("該成員已離開，無法再傳訊息");
+    chat.unmount();
+
+    window.location.hash = `#office/worker/${workerId}`;
+    const panel = renderOffice();
+    const released = await panel.findByTestId("worker-detail-released");
+    await waitFor(() =>
+      expect(
+        released.querySelector(".outsource-row__codename")?.textContent,
+      ).toBe("外包 · O-9"),
+    );
+  });
+
+  it("under a dismissed staff member the per-id read names it in the chat header and on its own messages, and the composer says it has left", async () => {
+    const goneMemberId = "m-gone-staff";
+    __injectMockMember({
+      id: goneMemberId,
+      kind: "staff",
+      name: "老王",
+      roster_status: "removed",
+    });
+    __injectMockChat({
+      id: "m-gone",
+      from: goneMemberId,
+      to: "owner",
+      body: "已離開成員的舊訊息。",
+      ts: Date.now() / 1000 - 300,
+      attachments: [],
+      replyCardId: null,
+    });
+
+    window.location.hash = `#office/chat/${goneMemberId}`;
+    const { container, findByText, findByTestId } = renderOffice();
+    await findByText("已離開成員的舊訊息。");
+    await waitFor(() =>
+      expect(container.querySelector(".chat__header-name")?.textContent).toBe(
+        "老王",
+      ),
+    );
+    expect(
+      Array.from(container.querySelectorAll(".chat__msg-name")).map(
+        (n) => n.textContent,
+      ),
+    ).toEqual(["老王"]);
+    expect((await findByTestId("released-chat-sub")).textContent).toBe(
+      zh.office.chatUnavailableSub,
+    );
+    expect(container.querySelector("textarea.chat__input")).toBeNull();
+    expect(container.querySelector(".chat__composer-locked")?.textContent).toBe(
+      "該成員已離開，無法再傳訊息",
+    );
   });
 
   it("a LIVE worker's detail entry is the ordinary panel, not the released view", async () => {

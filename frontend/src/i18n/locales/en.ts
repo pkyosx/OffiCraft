@@ -986,9 +986,7 @@ export const en: Dict = {
     emptyRange: "No messages in this range yet",
     threadLoading: "Loading conversation…",
     inputPlaceholder: (name: string) => `Reply to ${name}…`,
-    // M2-4 composer lock: shown IN PLACE OF the reply input while the member
-    // is not online (offline / stopped / waking / stopping).
-    composerOfflineSuffix: "is currently offline",
+    composerPeerLeft: "This member has left; messages can no longer be sent.",
     me: "Me",
     systemSender: "System",
     send: "Send",

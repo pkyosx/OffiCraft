@@ -320,7 +320,7 @@ server 在 `desired_state=offline` 時只記下，所以步驟 2 是這次唯一
 | 文案的家 | `office.outsource.releasedTitle` / `releasedSub` **一份**。原本叫 `releasedChatTitle`/`ChatSub`，**名字裡的 Chat 就是病灶**：它在邀請下一個人為面板再複製一份 |
 | 措辭 | 改成**與入口無關**：原文「以下為歷史對話（唯讀）」對聊天室為真、**對面板是假話**。新文案「這裡是唯讀的歷史紀錄」兩邊逐字為真，所以**不需要組字、不需要第二片葉子** |
 | 誰負責畫 | **只有 `WorkerDetailPanel`**。`OfficePage` 對那條路由合成一個只帶 `id` 的 released view 丟給它，而不是自己再畫一份 |
-| 合成的誠實邊界 | 只填**我們真的知道的那一個欄位（id）**。`codename` 留空、面板回退到誠實的 released 標籤 —— **不為一個已經查不到的 id 捏一個代號** |
+| 合成的誠實邊界 | 只填**我們真的知道的欄位**：id，以及 `GET /api/members/{id}` 讀回的代號（聊天室入口讀的是同一支，兩個入口的名字因此一致）。讀不到時 `codename` 留空、面板回退到誠實的 released 標籤 —— **不為一個已經查不到的 id 捏一個代號** |
 | 已結案還顯示什麼 | 共用卡片全部不畫。released worker 沒有 session／機器／context%／live 花費／boot context，八張卡會是八個 dash ——**八個誠實的 dash 不比一句話更誠實，只是把那句話埋了**。生命週期按鍵也全拿掉：server 對 released worker 的 `/stop` `/restart` `/model` `/relocate` `/refocus` **一律 404**，留著就是 by construction 的 dead affordance |
 
 護欄：`OfficePage.jump-outsource.test.tsx` 的

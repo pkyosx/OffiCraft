@@ -166,6 +166,7 @@ export function TaskCard({
   onRemoveArtifact,
   onForceDone,
   canForceDone = false,
+  rosterSettled = false,
 }: {
   task: TaskView;
   /** The whole loaded list — the 重複於 link resolves its target's task_no
@@ -174,6 +175,11 @@ export function TaskCard({
   members: Member[];
   /** LIVE outsource workers — resolves the 外包 codename/model/effort. */
   workers: OutsourceWorkerView[];
+  /** True once `members` and `workers` have both loaded without error. Before
+   * that, an executor missing from them may simply not have arrived yet, so the
+   * card does not conclude it has left. Defaults false: the message box stays,
+   * and the server is what refuses a message to someone who has left. */
+  rosterSettled?: boolean;
   /** type_key → manual display name (T-fa76): the 類型 chip shows the human
    * label; an absent entry (deleted manual / old task) falls back to the raw
    * key. OPTIONAL so hand-built fixtures stay valid. */
@@ -259,6 +265,10 @@ export function TaskCard({
   // old "· 成員" role tag is redundant and the spec chip shows the name alone —
   // 外包 keeps its substantive 代號·模型·投入度 line).
   const releasedExecutorCodename = unlistedNames.get(task.executorId);
+  // A departed staff member or a released worker: POST /api/tasks/{id}/message
+  // refuses them, so the card offers no message box at all.
+  const executorHasLeft =
+    rosterSettled && !unassigned && isUnlisted(task.executorId);
   const staffExecutorName =
     member?.name || unlistedNames.get(task.executorId) || task.executorId;
   const executorText = unassigned
@@ -2100,83 +2110,86 @@ export function TaskCard({
       {/* Staged-attachment preview strip — same markup/classes as the chat
        * composer / ReplyComposer (office.css, already imported by TasksPage):
        * one visual language for "composing a message". */}
-      {(pendingAttachments.length > 0 || attachError) && (
+      {!executorHasLeft && (pendingAttachments.length > 0 || attachError) && (
         <ComposerAttachmentPreview
           pendingAttachments={pendingAttachments}
           attachError={attachError}
           onRemove={removeAttachment}
         />
       )}
-      <div className="task-card__composer">
-        <input
-          ref={fileInputRef}
-          className="chat__file-input"
-          type="file"
-          accept={ATTACH_ACCEPT}
-          multiple
-          onChange={onPickFile}
-          hidden
-        />
-        <button
-          type="button"
-          className="chat__attach"
-          aria-label={t.chat.attachLabel}
-          title={t.chat.attachLabel}
-          disabled={unassigned}
-          data-testid="task-msg-attach"
-          onClick={() => fileInputRef.current?.click()}
-        >
-          <PaperclipIcon size={18} />
-        </button>
-        {/* Multi-line message box. Desktop: a bare Enter submits (onMsgKeyDown),
-         * a shifted Enter falls through to the native newline. Mobile: Enter
-         * falls through too (send is via the button). */}
-        <textarea
-          ref={draftRef}
-          className="chat__input"
-          rows={1}
-          value={draft}
-          disabled={unassigned || sending}
-          placeholder={t.tasks.messagePlaceholder(
-            unassigned
-              ? t.tasks.unassigned
-              : task.executorKind === "staff"
-                ? staffExecutorName
-                : worker
-                  ? msg.outsourceLabel(worker.codename)
-                  : t.tasks.outsource
-          )}
-          data-testid="task-msg-input"
-          onChange={(e) => setDraft(e.target.value)}
-          onCompositionStart={() => {
-            isComposingRef.current = true;
-          }}
-          onCompositionEnd={(e) => {
-            isComposingRef.current = false;
-            setDraft(e.currentTarget.value);
-          }}
-          onKeyDown={onMsgKeyDown}
-          onPaste={onPaste}
-        ></textarea>
-        <button
-          type="button"
-          className="task-card__send"
-          disabled={!canSend}
-          data-testid="task-msg-send"
-          onClick={() => void sendMessage()}
-        >
-          <SendIcon size={14} />
-          {t.tasks.send}
-        </button>
-      </div>
+      {!executorHasLeft && (
+        <div className="task-card__composer">
+          <input
+            ref={fileInputRef}
+            className="chat__file-input"
+            type="file"
+            accept={ATTACH_ACCEPT}
+            multiple
+            onChange={onPickFile}
+            hidden
+          />
+          <button
+            type="button"
+            className="chat__attach"
+            aria-label={t.chat.attachLabel}
+            title={t.chat.attachLabel}
+            disabled={unassigned}
+            data-testid="task-msg-attach"
+            onClick={() => fileInputRef.current?.click()}
+          >
+            <PaperclipIcon size={18} />
+          </button>
+          {/* Multi-line message box. Desktop: a bare Enter submits (onMsgKeyDown),
+           * a shifted Enter falls through to the native newline. Mobile: Enter
+           * falls through too (send is via the button). */}
+          <textarea
+            ref={draftRef}
+            className="chat__input"
+            rows={1}
+            value={draft}
+            disabled={unassigned || sending}
+            placeholder={t.tasks.messagePlaceholder(
+              unassigned
+                ? t.tasks.unassigned
+                : task.executorKind === "staff"
+                  ? staffExecutorName
+                  : worker
+                    ? msg.outsourceLabel(worker.codename)
+                    : t.tasks.outsource
+            )}
+            data-testid="task-msg-input"
+            onChange={(e) => setDraft(e.target.value)}
+            onCompositionStart={() => {
+              isComposingRef.current = true;
+            }}
+            onCompositionEnd={(e) => {
+              isComposingRef.current = false;
+              setDraft(e.currentTarget.value);
+            }}
+            onKeyDown={onMsgKeyDown}
+            onPaste={onPaste}
+          ></textarea>
+          <button
+            type="button"
+            className="task-card__send"
+            disabled={!canSend}
+            data-testid="task-msg-send"
+            onClick={() => void sendMessage()}
+          >
+            <SendIcon size={14} />
+            {t.tasks.send}
+          </button>
+        </div>
+      )}
       {/* T-122: a pick FILLS this box and leaves the send to the owner — this
        * message goes to the executor and cannot be recalled, so a mis-tap must
        * never be the thing that sends it. OUTSIDE `.task-card__composer`, which
        * is the flex ROW holding the paperclip, the textarea and the send
        * button: the suggestions are a row of their own, under that one. Hidden
-       * while the task is unassigned, where the box itself is disabled and a
-       * chip would only offer something that cannot happen. */}
-      {!unassigned && (
+       * while the task is unassigned, where the box itself is disabled, and when
+       * the executor has left, where there is no box: a chip would only offer
+       * something that cannot happen. */}
+      {!unassigned && !executorHasLeft && (
         <SuggestedReplies
           replies={suggestedReplies}
           testId="task-suggested-replies"

@@ -1088,6 +1088,34 @@ def test_task_message_rides_chat_with_task_context(client, owner_token, executor
                        headers=_auth(owner_token)).status_code == 400
 
 
+def test_task_message_to_a_dismissed_executor_is_refused_like_chat_and_lands_nothing(
+    client, owner_token
+):
+    member_id = hire_member(client, owner_token, "conf-task-departed")
+    r = client.post("/api/tasks",
+                    json={"title": "departed target", "executor_member_id": member_id},
+                    headers=_auth(owner_token))
+    assert r.status_code == 200, r.text
+    task_id = r.json()["task_id"]
+    before = client.post(f"/api/tasks/{task_id}/message", json={"body": "before"},
+                         headers=_auth(owner_token))
+    assert before.status_code == 200, before.text
+    r = client.delete(f"/api/members/{member_id}", headers=_auth(owner_token))
+    assert r.status_code == 200, r.text
+
+    r = client.post(f"/api/tasks/{task_id}/message", json={"body": "after"},
+                    headers=_auth(owner_token))
+
+    assert r.status_code == 404, r.text
+    assert r.json() == {"error": {
+        "code": "not_found",
+        "message": f"chat recipient '{member_id}' not found",
+    }}
+    msgs = client.get(f"/api/chat?with={member_id}&limit=-1",
+                      headers=_auth(owner_token)).json()["messages"]
+    assert [m["id"] for m in msgs] == [before.json()["id"]], msgs
+
+
 # ── manuals: CRUD + the delete guard ─────────────────────────────────────────
 
 

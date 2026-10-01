@@ -215,4 +215,20 @@ describe("task card message box — 建議回覆", () => {
     await settleRealTime();
     expect(queryByTestId("task-suggested-replies")).toBeNull();
   });
+
+  it.each([
+    ["a staff executor no longer on the roster", "staff", "m-gone"],
+    ["a released outsource executor", "outsource", "ow-gone"],
+  ] as const)(
+    "offers no sentences and no message box under %s",
+    async (_label, executorKind, executorId) => {
+      __setMockSuggestedRepliesTaskMessage(["收到，照這樣做"]);
+      __injectMockTask(mkTask({ id: "task-sugg-3", executorKind, executorId }));
+      const { queryByTestId, findByTestId } = renderPage();
+      await findByTestId("task-card");
+      await settleRealTime();
+      expect(queryByTestId("task-msg-input")).toBeNull();
+      expect(queryByTestId("task-suggested-replies")).toBeNull();
+    },
+  );
 });

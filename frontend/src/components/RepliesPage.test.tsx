@@ -45,11 +45,13 @@ import { api } from "../api";
 import type { ReplyCard } from "../api/adapter";
 import { ApiError } from "../api/errors";
 
-// Released-worker codename cache (T-3ed8): fixed map (the hook has its own
-// tests) — only "ow-rel" resolves; other ids keep the raw-id fallback.
+// Unlisted-identity cache (T-3ed8): fixed map (the hook has its own tests) —
+// only "ow-rel" (released worker) and "m-left" (dismissed staff) resolve; other
+// ids keep the raw-id fallback.
+const UNLISTED_NAMES: Record<string, string> = { "ow-rel": "R-2", "m-left": "阿哲" };
 vi.mock("../hooks/useWorkerCodenames", () => ({
   useWorkerCodenames: (ids: readonly string[]) =>
-    new Map(ids.filter((id) => id === "ow-rel").map((id) => [id, "R-2"])),
+    new Map(ids.filter((id) => id in UNLISTED_NAMES).map((id) => [id, UNLISTED_NAMES[id]])),
   useWorkerAvatarUrls: (ids: readonly string[]) =>
     new Map(
       ids
@@ -208,6 +210,29 @@ describe("RepliesPage", () => {
     expect(names).toContain("外包 · R-2");
     expect(names).toContain("ow-9");
     expect(names).not.toContain("ow-rel");
+  });
+
+  it("under a dismissed staff asker the card and the 開卡人 option both read its plain name, the raw id only when unresolvable", async () => {
+    __injectMockReplyCard(
+      mkCard({ id: "rc-left", from: "m-left", summary: "離職正職的請示" })
+    );
+    __injectMockReplyCard(
+      mkCard({ id: "rc-unknown", from: "m-unknown", summary: "查無正職的請示" })
+    );
+    const { findAllByTestId, findByTestId } = renderPage();
+    const cards = await findAllByTestId("waiting-card");
+    const nameOf = (summary: string) =>
+      cards
+        .find((c) => c.textContent?.includes(summary))
+        ?.querySelector(".reply-card__name")?.textContent;
+    expect(nameOf("離職正職的請示")).toBe("阿哲");
+    expect(nameOf("查無正職的請示")).toBe("m-unknown");
+
+    fireEvent.click(await findByTestId("filter-opener"));
+    expect(
+      document.querySelector('[data-testid="filter-opener-opt-m-left"]')
+        ?.textContent,
+    ).toContain("阿哲");
   });
 
   it("tags the option that carries ai_pick and leaves every other chip untagged", async () => {

@@ -1996,10 +1996,11 @@ export interface Api {
   /**
    * 成本歸零: POST /api/members/{id}/cost/reset → clear ONE actor's estimated
    * spend, both halves at once (the durable banked figure AND the live
-   * telemetry figure). Serves staff and outsource workers alike, a RELEASED
-   * worker included (owner ruling rc-1344cc76a24a) — a worker that has left
-   * still has a figure on screen, and the button beside it has to be able to
-   * clear it. Only an id that resolves to nobody is a 404.
+   * telemetry figure). Serves staff and outsource workers alike, including one
+   * that has left — a RELEASED worker (owner ruling rc-1344cc76a24a) or a
+   * departed staff member: an actor that has left can still hold a figure, and
+   * the reset has to be able to clear it. Only an id that resolves to nobody is
+   * a 404.
    *
    * It does NOT move the account card: since rc-5c5d7c7c6dcd that figure is an
    * accumulator of its own with its own button (resetAccountCost), which is why

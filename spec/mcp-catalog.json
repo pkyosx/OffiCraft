@@ -2918,7 +2918,7 @@
       "name": "set_task_priority"
     },
     {
-      "description": "Message the task's executor (owner/admin agent; task context auto-attached). Answers with a bounded receipt (``id``, ``ts``, ``to``, ``attachments``), not the message — call ``get_chat`` when you need the rest. ``to`` is the executor the server delivered to: you did not name it (you named a task), and a later read cannot recompute it, because the executor can change between two calls.",
+      "description": "Message the task's executor (owner/admin agent; task context auto-attached). Refused with 404, exactly like ``post_chat``, when the executor has left (a departed staff member or a released worker). Answers with a bounded receipt (``id``, ``ts``, ``to``, ``attachments``), not the message — call ``get_chat`` when you need the rest. ``to`` is the executor the server delivered to: you did not name it (you named a task), and a later read cannot recompute it, because the executor can change between two calls.",
       "inputSchema": {
         "$defs": {
           "ChatAttachmentInputDTO": {

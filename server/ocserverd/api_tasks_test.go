@@ -3588,6 +3588,58 @@ func TestHandlePostTaskMessageApiTasksTaskIdMessagePost(t *testing.T) {
 		apiWantError(t, data, "not_found", "task 'T-999' not found")
 	})
 
+	t.Run("a task whose staff executor has been dismissed answers 404 naming the executor and stores nothing", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+		if status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/message", owner, `{"body":"before"}`); status != 200 {
+			t.Fatalf("message while kip is on the roster: %d %v", status, data)
+		}
+		if status, data := apiJSON(t, h, "DELETE", "/api/members/kip", owner, ""); status != 200 {
+			t.Fatalf("dismiss: %d %v", status, data)
+		}
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/message", owner, `{"body":"any update?"}`)
+
+		if status != 404 {
+			t.Fatalf("want 404, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "not_found", "chat recipient 'kip' not found")
+		apiWantValue(t, "chat rows", any(apiTestChatRows(t, d)), []any{
+			map[string]any{"from": "owner", "to": "kip", "body": "[TaskID=T-1] before"},
+		})
+		dashboard.wantFrames()
+	})
+
+	t.Run("a task whose outsource executor has been released answers 404 naming the worker and stores nothing", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		putTaskFixture(t, api, Task{
+			ID: "T-1", Title: "Ship it", Status: TaskStatusDone, Priority: TaskPriorityMid,
+			ExecutorKind: TaskExecutorOutsource, ExecutorID: "ow-gone",
+		})
+		worker := putWorkerFixture(t, api, OutsourceWorker{
+			ID: "ow-gone", Codename: "O-9", TaskID: "T-1", Status: WorkerStatusActive,
+			Runtime: "claude", Model: "sonnet", Effort: "medium",
+		})
+		if status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/message", owner, `{"body":"before"}`); status != 200 {
+			t.Fatalf("message while the worker is live: %d %v", status, data)
+		}
+		worker.Status = WorkerStatusReleased
+		putWorkerFixture(t, api, worker)
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/message", owner, `{"body":"any update?"}`)
+
+		if status != 404 {
+			t.Fatalf("want 404, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "not_found", "chat recipient 'ow-gone' not found")
+		apiWantValue(t, "chat rows", any(apiTestChatRows(t, d)), []any{
+			map[string]any{"from": "owner", "to": "ow-gone", "body": "[TaskID=T-1] before"},
+		})
+		dashboard.wantFrames()
+	})
+
 	t.Run("a request without a token answers 401", func(t *testing.T) {
 		_, h, _, owner := newAPITestServer(t)
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
@@ -3647,6 +3699,29 @@ func TestHandlePostTaskMessageApiTasksTaskIdMessagePost(t *testing.T) {
 			if n := windowCount(t, d, `SELECT COUNT(*) FROM chat_message`); n != 0 {
 				t.Fatalf("%d messages stored, want none", n)
 			}
+		})
+	}
+
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": an executor dismissed after the handler read it answers 404 naming the executor and stores nothing", func(t *testing.T) {
+			d, hook, path := windowDAL(t, shape)
+			api, h, _, owner := newAPITestServerOn(t, d)
+			apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+			dashboard := apiTestListen(t, api, "")
+			hook.execAfterRead(t, path, "FROM member WHERE id",
+				`UPDATE member SET roster_status = 'removed' WHERE id = 'kip'`)
+
+			status, data := windowJSON(t, h, "POST", "/api/tasks/T-1/message", owner, `{"body":"any update?"}`)
+
+			hook.wantFiredOnce(t)
+			if status != http.StatusNotFound {
+				t.Fatalf("want 404, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "not_found", "chat recipient 'kip' not found")
+			if n := windowCount(t, d, `SELECT COUNT(*) FROM chat_message`); n != 0 {
+				t.Fatalf("%d messages stored, want none", n)
+			}
+			dashboard.wantFrames()
 		})
 	}
 
