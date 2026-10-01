@@ -483,7 +483,9 @@ func clearWindDownRow(row windDownAnchorRow) {
 // too: a late report_waking from the old session would otherwise erase the marker
 // the agent's wake is gated on, and nobody would close the session out. iat is whole
 // seconds, so the same second counts as before — a replacement session minted in
-// the stamp's second must not be handed over again.
+// the stamp's second must not be handed over again. This assumes the session runs on
+// the credential minted at its dispatch; a long-lived /api/mint token would keep
+// every later hand-off.
 func clearWindDownRowOnWake(row windDownAnchorRow, desiredState string, sessionIat float64) {
 	stoppingSince := *row.StoppingSince
 	refocusSince, refocusOp := *row.RefocusSince, *row.RefocusOp

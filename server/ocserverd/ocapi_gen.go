@@ -2550,7 +2550,7 @@ type ReplyCardReceiptDTO struct {
 }
 
 // ReportWakingDTO Body for “report_waking()“ — the boot report (identity from token, NO
-// member_id). Stamps the CALLER's “waking_since“ and clears the recycle markers an earlier session left; a hand-off stamped after this session's credential was issued is kept.
+// member_id). Stamps the CALLER's “waking_since“ and clears the recycle markers an earlier session left; a hand-off stamped in a later second than this session's credential was issued is kept.
 //
 // “model“ is OPTIONAL runtime telemetry. The server stores it separately as
 // “actual_model“; it never changes the owner-configured launch model.
@@ -5307,7 +5307,7 @@ type ServerInterface interface {
 	// report_stopping(): stamp the caller's stopping_since (graceful stop). Answers with a bounded receipt (“id“, “desired_state“, “refocus_op“, “refocus_deadline“), not the member row — call “get_member“ when you need the rest.
 	// (POST /api/self/stopping)
 	HandleReportStoppingApiSelfStoppingPost(w http.ResponseWriter, r *http.Request)
-	// report_waking(): stamp the caller's waking + clear the recycle markers left by an earlier session (a hand-off stamped after this session's credential was issued is kept). Answers with a bounded receipt (“id“, “desired_state“, “refocus_op“, “refocus_deadline“), not the member row — call “get_member“ when you need the rest.
+	// report_waking(): stamp the caller's waking + clear the recycle markers left by an earlier session (a hand-off stamped in a later second than this session's credential was issued is kept). Answers with a bounded receipt (“id“, “desired_state“, “refocus_op“, “refocus_deadline“), not the member row — call “get_member“ when you need the rest.
 	// (POST /api/self/waking)
 	HandleReportWakingApiSelfWakingPost(w http.ResponseWriter, r *http.Request)
 	// Read the org-adjustable settings (owner/admin agent).

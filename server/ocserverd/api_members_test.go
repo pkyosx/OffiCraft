@@ -1812,6 +1812,7 @@ func TestHandleUpdateMemberApiMembersMemberIdPatch(t *testing.T) {
 				t.Fatalf("model: %d (%v)", status, data)
 			}
 			wsWantWardenFrames(t, api, "m-box")
+			armed := apiTestMemberRow(t, d, "runner")
 			if lateBoot {
 				status, data := apiJSON(t, h, "POST", "/api/self/waking", oldSession, `{"model":"sonnet"}`)
 				if status != 200 {
@@ -1822,9 +1823,10 @@ func TestHandleUpdateMemberApiMembersMemberIdPatch(t *testing.T) {
 				})
 			}
 			row := apiTestMemberRow(t, d, "runner")
-			if row.RefocusSince <= 0 || row.RefocusOp != "runtime/model" || row.StoppedSince != 0 {
-				t.Fatalf("the hand-off must still be open, got refocus=%v op=%q stopped=%v",
-					row.RefocusSince, row.RefocusOp, row.StoppedSince)
+			if armed.RefocusSince <= 0 || row.RefocusSince != armed.RefocusSince ||
+				row.RefocusOp != "runtime/model" || row.StoppedSince != 0 {
+				t.Fatalf("the hand-off stamped at %v must still be open, got refocus=%v op=%q stopped=%v",
+					armed.RefocusSince, row.RefocusSince, row.RefocusOp, row.StoppedSince)
 			}
 			if status, data := apiJSON(t, h, "POST", "/api/self/stopped", oldSession, `{}`); status != 200 {
 				t.Fatalf("report_stopped: %d (%v)", status, data)

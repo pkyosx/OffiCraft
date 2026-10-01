@@ -718,6 +718,8 @@ func TestClearWindDownRowOnWake(t *testing.T) {
 	}{
 		{"a session issued before the hand-off keeps the hand-off and drops the stop pair", DesiredStateOnline, 1000,
 			Member{RefocusSince: 1030.7, RefocusOp: memberOpRelocate}},
+		{"a session issued one second before the hand-off keeps the hand-off", DesiredStateOnline, 1029,
+			Member{RefocusSince: 1030.7, RefocusOp: memberOpRelocate}},
 		{"a session issued in the hand-off's second clears everything", DesiredStateOnline, 1030, Member{}},
 		{"a session issued after the hand-off clears everything", DesiredStateOnline, 1031, Member{}},
 		{"a session whose credential carries no issue time clears everything", DesiredStateOnline, 0, Member{}},

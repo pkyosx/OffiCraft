@@ -824,6 +824,7 @@ func TestHandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost(t *testing
 				t.Fatalf("refocus: %d (%v)", status, data)
 			}
 			wsWantWardenFrames(t, api, ServerSelfHost)
+			armed, _ := d.GetOutsourceWorker("ow-abc123")
 			status, data := apiJSON(t, h, "POST", "/api/self/waking", oldSession, `{"model":"sonnet"}`)
 			if status != 200 {
 				t.Fatalf("report_waking: %d (%v)", status, data)
@@ -834,7 +835,7 @@ func TestHandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost(t *testing
 			apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
 				"status": "active", "presence": "online", "desired_state": "online",
 				"desired_machine_id": "m-server-self", "machine": "m-server-self", "actual_model": "sonnet",
-				"refocus_since": apiAnyNumber, "refocus_op": "refocus",
+				"refocus_since": armed.RefocusSince, "refocus_op": "refocus",
 			}))
 			if status, data := apiJSON(t, h, "POST", "/api/self/stopped", oldSession, `{}`); status != 200 {
 				t.Fatalf("report_stopped: %d (%v)", status, data)
@@ -2087,6 +2088,7 @@ func TestHandleSetOutsourceWorkerModelApiOutsourceWorkersIdModelPost(t *testing.
 				t.Fatalf("model: %d (%v)", status, data)
 			}
 			wsWantWardenFrames(t, api, ServerSelfHost)
+			armed, _ := d.GetOutsourceWorker("ow-abc123")
 			status, data := apiJSON(t, h, "POST", "/api/self/waking", oldSession, `{"model":"sonnet"}`)
 			if status != 200 {
 				t.Fatalf("report_waking: %d (%v)", status, data)
@@ -2098,7 +2100,7 @@ func TestHandleSetOutsourceWorkerModelApiOutsourceWorkersIdModelPost(t *testing.
 				"status": "active", "presence": "online", "desired_state": "online",
 				"desired_machine_id": "m-server-self", "machine": "m-server-self",
 				"model": "opus", "actual_model": "sonnet",
-				"refocus_since": apiAnyNumber, "refocus_op": "runtime/model",
+				"refocus_since": armed.RefocusSince, "refocus_op": "runtime/model",
 			}))
 			if status, data := apiJSON(t, h, "POST", "/api/self/stopped", oldSession, `{}`); status != 200 {
 				t.Fatalf("report_stopped: %d (%v)", status, data)
