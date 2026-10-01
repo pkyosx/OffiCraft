@@ -159,7 +159,7 @@ func TestOpenReplyCard(t *testing.T) {
 			Summary: "ship this",
 			Body:    &body,
 			Options: []ReplyCardOptionDTO{{Text: "ship", AiPick: &pick}, {Text: "hold"}},
-		}, nil, nil, "mira")
+		}, nil, nil, nil, "mira")
 		if err != nil || problem != "" {
 			t.Fatalf("openReplyCard = card:%#v problem:%q err:%v", card, problem, err)
 		}
@@ -216,7 +216,7 @@ func TestOpenReplyCard(t *testing.T) {
 			Kind:    ReplyCardCreateDTOKind("decision"),
 			Summary: "orphan",
 			Options: []ReplyCardOptionDTO{{Text: "yes"}},
-		}, &Task{ID: "T-1", Status: TaskStatusInProgress}, nil, "mira")
+		}, &Task{ID: "T-1", Status: TaskStatusInProgress}, nil, nil, "mira")
 		want := "refusing to mint a reply card bound to task 'T-1' with no step: a step-less task binding places no 等我回覆 hold and orphans the card when the task closes"
 		if err == nil || problem != "" || err.Error() != want {
 			t.Fatalf("step-less binding = problem:%q err:%v, want %q", problem, err, want)
@@ -233,10 +233,36 @@ func TestOpenReplyCard(t *testing.T) {
 			Kind:    ReplyCardCreateDTOKind("decision"),
 			Summary: "orphan",
 			Options: []ReplyCardOptionDTO{{Text: "yes"}},
-		}, nil, &TaskStep{ID: ""}, "mira")
+		}, nil, &TaskStep{ID: ""}, nil, "mira")
 		want := "refusing to mint a reply card from a half-resolved binding: the task and the step must be resolved together or not at all"
 		if err == nil || problem != "" || err.Error() != want {
 			t.Fatalf("blank-id step with no task = problem:%q err:%v, want %q", problem, err, want)
+		}
+	})
+
+	t.Run("a card that both binds a step and names a task without one is refused", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+		_, problem, err := api.openReplyCard("mira", ReplyCardCreateDTO{
+			Kind:    ReplyCardCreateDTOKind("decision"),
+			Summary: "both",
+			Options: []ReplyCardOptionDTO{{Text: "yes"}},
+		}, &Task{ID: "T-1", Status: TaskStatusInProgress}, &TaskStep{ID: "ts-1"}, &Task{ID: "T-1"}, "mira")
+		want := "refusing to mint a reply card that both binds a step and names a task without one"
+		if err == nil || problem != "" || err.Error() != want {
+			t.Fatalf("bind and about = problem:%q err:%v, want %q", problem, err, want)
+		}
+	})
+
+	t.Run("a card about a task whose id is blank is refused", func(t *testing.T) {
+		api, _, _, _ := newAPITestServer(t)
+		_, problem, err := api.openReplyCard("mira", ReplyCardCreateDTO{
+			Kind:    ReplyCardCreateDTOKind("decision"),
+			Summary: "blank",
+			Options: []ReplyCardOptionDTO{{Text: "yes"}},
+		}, nil, nil, &Task{ID: ""}, "mira")
+		want := "refusing to mint a reply card about a task with a blank id"
+		if err == nil || problem != "" || err.Error() != want {
+			t.Fatalf("blank about = problem:%q err:%v, want %q", problem, err, want)
 		}
 	})
 
@@ -246,7 +272,7 @@ func TestOpenReplyCard(t *testing.T) {
 			Kind:    ReplyCardCreateDTOKind("decision"),
 			Summary: "orphan",
 			Options: []ReplyCardOptionDTO{{Text: "yes"}},
-		}, &Task{ID: "", Status: TaskStatusInProgress}, nil, "mira")
+		}, &Task{ID: "", Status: TaskStatusInProgress}, nil, nil, "mira")
 		want := "refusing to mint a reply card from a half-resolved binding: the task and the step must be resolved together or not at all"
 		if err == nil || problem != "" || err.Error() != want {
 			t.Fatalf("blank-id task with no step = problem:%q err:%v, want %q", problem, err, want)
@@ -320,23 +346,24 @@ func TestWriteReplyCard(t *testing.T) {
 			"options":     []any{map[string]any{"text": "yes", "ai_pick": true}},
 			"select_mode": "multi", "status": "waiting", "created_ts": 12,
 			"attachments": []any{}, "answered_ts": nil, "expired_ts": nil,
-			"chat_message_id": "c-1", "answer": nil, "task": nil,
+			"chat_message_id": "c-1", "answer": nil, "task": nil, "task_executor": "",
 		})
 	})
 }
 
 func TestWriteReplyCardCreateReceipt(t *testing.T) {
-	t.Run("a create receipt reports only the minted ids, timestamp and landed attachments", func(t *testing.T) {
+	t.Run("a create receipt reports only the minted ids, timestamp, landed attachments and the hold note", func(t *testing.T) {
 		api, _, _, _ := newAPITestServer(t)
 		rec := httptest.NewRecorder()
 		api.writeReplyCardCreateReceipt(rec, ReplyCard{
 			ID: "rc-1", ChatMessageID: "c-1", CreatedTS: 12,
-		})
+		}, "the task will not wait")
 		if rec.Code != http.StatusOK {
 			t.Fatalf("writeReplyCardCreateReceipt status = %d, want 200", rec.Code)
 		}
 		apiWantBody(t, apiTestDecodeJSONBody(t, rec), map[string]any{
 			"id": "rc-1", "chat_message_id": "c-1", "created_ts": 12, "attachments": []any{},
+			"hold_note": "the task will not wait",
 		})
 	})
 }
@@ -398,6 +425,7 @@ func TestHandleCreateReplyCardApiReplyCardsPost(t *testing.T) {
 			"chat_message_id": apiAnyString,
 			"created_ts":      apiAnyNumber,
 			"attachments":     []any{},
+			"hold_note":       "",
 		})
 		cardID, _ := data["id"].(string)
 		messageID, _ := data["chat_message_id"].(string)
@@ -425,7 +453,7 @@ func TestHandleCreateReplyCardApiReplyCardsPost(t *testing.T) {
 				"key":     "owner::" + cardID,
 				"epoch":   2,
 				"deleted": false,
-				"payload": map[string]any{"id": cardID, "from": "mira", "status": "waiting"},
+				"payload": map[string]any{"id": cardID, "from": "mira", "status": "waiting", "task_executor": ""},
 			},
 			"ts":      apiAnyNumber,
 			"trigger": "mira",
@@ -516,6 +544,303 @@ func TestHandleCreateReplyCardApiReplyCardsPost(t *testing.T) {
 		apiWantError(t, data, "not_found", "task 'T-9' not found")
 		dashboard.wantFrames()
 		apiTestWantNoReplyCards(t, h, owner)
+	})
+
+	t.Run("a non-executor binding a step answers 403 pointing at about_task_id, opens no card and holds nothing", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		_, steps := apiTestTwoStepTask(t, api, h, owner)
+		intruder := apiTestAgentToken(t, api, "joey", "")
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/reply-cards", intruder,
+			`{"kind":"decision","summary":"出貨路線","options":[{"text":"走 A"}],`+
+				`"linked_task":{"task_id":"T-1","step_id":"`+steps[0]+`"}}`)
+		if status != 403 {
+			t.Fatalf("want 403, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "forbidden",
+			"caller is not the task's executor — only the task's executor can make one of its steps "+
+				"wait on a card. To tell the owner which task this ask is about without holding a step, "+
+				"send linked_task=null with about_task_id.")
+		dashboard.wantFrames()
+		apiTestWantNoReplyCards(t, h, owner)
+		apiTestWantStepStatuses(t, d, "T-1", StepStatusInProgress, StepStatusPending)
+	})
+
+	t.Run("about_task_id with linked_task null opens a card under that task that holds no step, and hold_note names who is told", func(t *testing.T) {
+		const holdNote = "This card is about task 'T-1' but holds none of its steps, so that task keeps running and " +
+			"will NOT wait for this answer. When the owner answers, whoever executes the task at that moment " +
+			"is told as well as you"
+		cases := []struct {
+			name, asker, wantNote string
+			executor              bool
+		}{
+			{"asked by another member", "joey", holdNote + " (right now 'kip').", true},
+			{"asked by the executor itself", "kip", holdNote + " (right now that is you).", true},
+			{"about a task with no executor", "joey", holdNote + " (nobody executes it right now).", false},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				api, h, d, owner := newAPITestServer(t)
+				if tc.executor {
+					apiTestTwoStepTask(t, api, h, owner)
+				} else {
+					unassigned := dalTestTask("T-1")
+					unassigned.ExecutorID, unassigned.Lock, unassigned.ReassignedFrom = "", "", ""
+					if err := d.PutTask(unassigned); err != nil {
+						t.Fatalf("PutTask: %v", err)
+					}
+				}
+				asker := apiTestAgentToken(t, api, tc.asker, "")
+				before, err := d.GetTask("T-1")
+				if err != nil {
+					t.Fatalf("GetTask: %v", err)
+				}
+
+				status, data := apiJSON(t, h, "POST", "/api/reply-cards", asker,
+					`{"kind":"decision","summary":"出貨路線","options":[{"text":"走 A"}],`+
+						`"linked_task":null,"about_task_id":" T-1 "}`)
+				if status != 200 {
+					t.Fatalf("want 200, got %d (%v)", status, data)
+				}
+				apiWantBody(t, data, map[string]any{
+					"id":              apiAnyString,
+					"chat_message_id": apiAnyString,
+					"created_ts":      apiAnyNumber,
+					"attachments":     []any{},
+					"hold_note":       tc.wantNote,
+				})
+				cardID, _ := data["id"].(string)
+				stored, err := d.GetReplyCard(cardID)
+				if err != nil || stored == nil {
+					t.Fatalf("GetReplyCard: %#v, %v", stored, err)
+				}
+				if stored.TaskID != "T-1" || stored.TaskStepID != "" || stored.Status != replyCardStatusWaiting {
+					t.Fatalf("stored card task=%q step=%q status=%q, want T-1 / \"\" / waiting",
+						stored.TaskID, stored.TaskStepID, stored.Status)
+				}
+				after, err := d.GetTask("T-1")
+				if err != nil {
+					t.Fatalf("GetTask: %v", err)
+				}
+				if after.Status != before.Status || after.UpdatedTS != before.UpdatedTS {
+					t.Fatalf("task moved: status %q→%q updated_ts %v→%v",
+						before.Status, after.Status, before.UpdatedTS, after.UpdatedTS)
+				}
+				if tc.executor {
+					apiTestWantStepStatuses(t, d, "T-1", StepStatusInProgress, StepStatusPending)
+				}
+			})
+		}
+	})
+
+	t.Run("a card about another member's task fans its create delta to that task's executor and names the predecessor under a reassign hold", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiTestTwoStepTask(t, api, h, owner)
+		if status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/reassign", owner,
+			`{"target":{"kind":"staff","member_id":"mira"}}`); status != 200 {
+			t.Fatalf("reassign: %d %v", status, data)
+		}
+		asker := apiTestAgentToken(t, api, "joey", "")
+		predecessor := apiTestListen(t, api, "kip")
+		successor := apiTestListen(t, api, "mira")
+		author := apiTestListen(t, api, "joey")
+
+		status, data := apiJSON(t, h, "POST", "/api/reply-cards", asker,
+			`{"kind":"decision","summary":"出貨路線","options":[{"text":"走 A"}],"linked_task":null,"about_task_id":"T-1"}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantValue(t, "hold_note", data["hold_note"],
+			"This card is about task 'T-1' but holds none of its steps, so that task keeps running and "+
+				"will NOT wait for this answer. When the owner answers, whoever executes the task at that moment "+
+				"is told as well as you (right now 'kip').")
+		cardID, _ := data["id"].(string)
+		frame := apiTestAboutCardFrame(cardID, "joey", "waiting", "joey", "kip")
+		predecessor.wantFrames(frame)
+		successor.wantFrames()
+		author.wantFrames(map[string]any{
+			"seq": apiAnyNumber, "topic": "chat", "op": "patch",
+			"data": map[string]any{
+				"entity": "chat", "key": apiAnyString, "epoch": apiAnyNumber, "deleted": false,
+				"payload": map[string]any{"id": apiAnyString, "from": "joey", "to": "owner"},
+			},
+			"ts": apiAnyNumber, "trigger": "joey",
+		}, frame)
+	})
+
+	t.Run("binding a card to the step that waits on the outside world answers 409 and leaves the wait in place", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		executor, steps := apiTestTwoStepTask(t, api, h, owner)
+		apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+steps[0]+"/status", executor,
+			`{"status":"waiting_external","waiting_reason":"CI"}`)
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/reply-cards", executor,
+			`{"kind":"decision","summary":"出貨路線","options":[{"text":"走 A"}],`+
+				`"linked_task":{"task_id":"T-1","step_id":"`+steps[0]+`"}}`)
+		if status != 409 {
+			t.Fatalf("want 409, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "conflict",
+			"step '"+steps[0]+"' is waiting on the outside world (waiting_external) — binding a card to it "+
+				"would drop that wait; bind the card to a step that is not waiting")
+		dashboard.wantFrames()
+		apiTestWantNoReplyCards(t, h, owner)
+		apiTestWantStepStatuses(t, d, "T-1", StepStatusWaitingExternal, StepStatusPending)
+		stored, err := d.ListTaskSteps("T-1")
+		if err != nil || stored[0].WaitingReason != "CI" {
+			t.Fatalf("step 0 waiting_reason = %q (%v), want CI", stored[0].WaitingReason, err)
+		}
+	})
+
+	t.Run("a task that has not started or is ready to close still refuses a bound card with 409", func(t *testing.T) {
+		cases := []struct {
+			name, wantStatus string
+			prepare          func(t *testing.T, h http.Handler, executor string, steps []string)
+		}{
+			{"not_started", "not_started", nil},
+			{"ready_for_done", "ready_for_done", func(t *testing.T, h http.Handler, executor string, steps []string) {
+				apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+steps[0]+"/status", executor, `{"status":"done"}`)
+				apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+steps[1]+"/status", executor, `{"status":"in_progress"}`)
+				apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+steps[1]+"/status", executor, `{"status":"done"}`)
+			}},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				api, h, d, owner := newAPITestServer(t)
+				var executor string
+				var steps []string
+				if tc.prepare == nil {
+					apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+					executor = apiTestAgentToken(t, api, "kip", "")
+					apiJSON(t, h, "POST", "/api/tasks/T-1/plan", executor,
+						`{"steps":[{"name":"Draft","dod":"a draft exists"},{"name":"Review","dod":"a review is signed off"}]}`)
+					planned, err := d.ListTaskSteps("T-1")
+					if err != nil || len(planned) != 2 {
+						t.Fatalf("ListTaskSteps: %d, %v", len(planned), err)
+					}
+					steps = []string{planned[0].ID, planned[1].ID}
+				} else {
+					executor, steps = apiTestTwoStepTask(t, api, h, owner)
+					tc.prepare(t, h, executor, steps)
+				}
+				task, err := d.GetTask("T-1")
+				if err != nil || task.Status != tc.wantStatus {
+					t.Fatalf("precondition: task = %#v, %v, want %s", task, err, tc.wantStatus)
+				}
+				dashboard := apiTestListen(t, api, "")
+
+				status, data := apiJSON(t, h, "POST", "/api/reply-cards", executor,
+					`{"kind":"decision","summary":"出貨路線","options":[{"text":"走 A"}],`+
+						`"linked_task":{"task_id":"T-1","step_id":"`+steps[1]+`"}}`)
+				if status != 409 {
+					t.Fatalf("want 409, got %d (%v)", status, data)
+				}
+				apiWantError(t, data, "conflict",
+					"a card can only bind to an in_progress, waiting_owner or waiting_external task (is "+tc.wantStatus+")")
+				dashboard.wantFrames()
+				apiTestWantNoReplyCards(t, h, owner)
+			})
+		}
+	})
+
+	t.Run("about_task_id naming a task nobody created answers 404 before the body is judged, and opens no card", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, "joey", "")
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/reply-cards", agent,
+			`{"kind":"decision","summary":"   ","options":[{"text":"走 A"}],"linked_task":null,"about_task_id":"T-9"}`)
+		if status != 404 {
+			t.Fatalf("want 404, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "not_found", "task 'T-9' not found")
+		dashboard.wantFrames()
+		apiTestWantNoReplyCards(t, h, owner)
+	})
+
+	t.Run("about_task_id naming a closed task answers 409 and opens no card", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiTestTwoStepTask(t, api, h, owner)
+		if status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/mark-terminated", owner, `{}`); status != 200 {
+			t.Fatalf("terminate: %d %v", status, data)
+		}
+		agent := apiTestAgentToken(t, api, "joey", "")
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/reply-cards", agent,
+			`{"kind":"decision","summary":"出貨路線","options":[{"text":"走 A"}],"linked_task":null,"about_task_id":"T-1"}`)
+		if status != 409 {
+			t.Fatalf("want 409, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "conflict",
+			"task 'T-1' is already closed (terminated) — a card about a closed task can no longer be answered")
+		dashboard.wantFrames()
+		apiTestWantNoReplyCards(t, h, owner)
+	})
+
+	t.Run("about_task_id naming another task than the binding answers 400 and opens no card", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		executor, steps := apiTestTwoStepTask(t, api, h, owner)
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/reply-cards", executor,
+			`{"kind":"decision","summary":"出貨路線","options":[{"text":"走 A"}],`+
+				`"linked_task":{"task_id":"T-1","step_id":"`+steps[0]+`"},"about_task_id":"T-2"}`)
+		if status != 400 {
+			t.Fatalf("want 400, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error",
+			"about_task_id must name the same task as linked_task: the binding already says which task "+
+				"this ask is about. Drop about_task_id, or send linked_task=null to name a task without "+
+				"holding a step.")
+		dashboard.wantFrames()
+		apiTestWantNoReplyCards(t, h, owner)
+	})
+
+	t.Run("a binding next to an about_task_id naming the same task holds the step and carries no hold_note", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		executor, steps := apiTestTwoStepTask(t, api, h, owner)
+
+		status, data := apiJSON(t, h, "POST", "/api/reply-cards", executor,
+			`{"kind":"decision","summary":"出貨路線","options":[{"text":"走 A"}],`+
+				`"linked_task":{"task_id":"T-1","step_id":"`+steps[0]+`"},"about_task_id":"T-1"}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"id":              apiAnyString,
+			"chat_message_id": apiAnyString,
+			"created_ts":      apiAnyNumber,
+			"attachments":     []any{},
+			"hold_note":       "",
+		})
+		apiTestWantStepStatuses(t, d, "T-1", StepStatusWaitingOwner, StepStatusPending)
+	})
+
+	t.Run("a task whose other step waits on the outside world still takes a bound card, and that step holds", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		executor, steps := apiTestTwoStepTask(t, api, h, owner)
+		apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+steps[0]+"/status", executor,
+			`{"status":"waiting_external","waiting_reason":"CI"}`)
+		apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+steps[1]+"/status", executor, `{"status":"in_progress"}`)
+		task, err := d.GetTask("T-1")
+		if err != nil || task.Status != TaskStatusWaitingExternal {
+			t.Fatalf("precondition: task = %#v, %v, want waiting_external", task, err)
+		}
+
+		status, data := apiJSON(t, h, "POST", "/api/reply-cards", executor,
+			`{"kind":"decision","summary":"出貨路線","options":[{"text":"走 A"}],`+
+				`"linked_task":{"task_id":"T-1","step_id":"`+steps[1]+`"}}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiTestWantStepStatuses(t, d, "T-1", StepStatusWaitingExternal, StepStatusWaitingOwner)
+		task, err = d.GetTask("T-1")
+		if err != nil || task.Status != TaskStatusWaitingOwner {
+			t.Fatalf("task = %#v, %v, want waiting_owner", task, err)
+		}
 	})
 
 	t.Run("a kind outside decision and action answers 400 and opens no card", func(t *testing.T) {
@@ -719,6 +1044,56 @@ func TestHandleCreateReplyCardApiReplyCardsPost(t *testing.T) {
 	})
 }
 
+// apiTestTwoStepTask creates T-1 executed by kip with steps [in_progress,
+// pending] and returns kip's token and the step ids.
+func apiTestTwoStepTask(t *testing.T, api *apiServer, h http.Handler, owner string) (string, []string) {
+	t.Helper()
+	if status, data := apiJSON(t, h, "POST", "/api/tasks", owner,
+		`{"title":"Ship it","executor_member_id":"kip"}`); status != 200 {
+		t.Fatalf("create task: %d %v", status, data)
+	}
+	executor := apiTestAgentToken(t, api, "kip", "")
+	if status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/plan", executor,
+		`{"steps":[{"name":"Draft","dod":"a draft exists"},{"name":"Review","dod":"a review is signed off"}]}`); status != 200 {
+		t.Fatalf("plan: %d %v", status, data)
+	}
+	steps, err := api.dal.ListTaskSteps("T-1")
+	if err != nil || len(steps) != 2 {
+		t.Fatalf("ListTaskSteps: %d steps, %v", len(steps), err)
+	}
+	if status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+steps[0].ID+"/status", executor,
+		`{"status":"in_progress"}`); status != 200 {
+		t.Fatalf("start step: %d %v", status, data)
+	}
+	return executor, []string{steps[0].ID, steps[1].ID}
+}
+
+// apiTestAboutCardFrame is the reply_card frame of a card about T-1 whose
+// executor is executor, at whatever seq the test has reached.
+func apiTestAboutCardFrame(cardID, from, status, trigger, executor string) map[string]any {
+	frame := apiTestReplyCardFrame(0, cardID, from, status, trigger)
+	frame["seq"] = apiAnyNumber
+	data := frame["data"].(map[string]any)
+	data["epoch"] = apiAnyNumber
+	data["payload"].(map[string]any)["task_executor"] = executor
+	return frame
+}
+
+func apiTestWantStepStatuses(t *testing.T, d *DAL, taskID string, want ...string) {
+	t.Helper()
+	steps, err := d.ListTaskSteps(taskID)
+	if err != nil {
+		t.Fatalf("ListTaskSteps: %v", err)
+	}
+	got := make([]string, len(steps))
+	for i, st := range steps {
+		got[i] = st.Status
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("step statuses = %v, want %v", got, want)
+	}
+}
+
 func apiTestOpenReplyCard(t *testing.T, h http.Handler, token, body string) string {
 	t.Helper()
 	status, data := apiJSON(t, h, "POST", "/api/reply-cards", token, body)
@@ -762,7 +1137,7 @@ func apiTestReplyCardFrame(seq int, cardID, from, status, trigger string) map[st
 			"key":     "owner::" + cardID,
 			"epoch":   seq,
 			"deleted": false,
-			"payload": map[string]any{"id": cardID, "from": from, "status": status},
+			"payload": map[string]any{"id": cardID, "from": from, "status": status, "task_executor": ""},
 		},
 		"ts":      apiAnyNumber,
 		"trigger": trigger,
@@ -849,6 +1224,52 @@ func TestHandleListReplyCardsApiReplyCardsGet(t *testing.T) {
 		dashboard.wantFrames()
 	})
 
+	t.Run("a card about a task carries the task and its acting executor on the row and on the card", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiTestTwoStepTask(t, api, h, owner)
+		asker := apiTestAgentToken(t, api, "joey", "")
+		cardID := apiTestOpenReplyCard(t, h, asker,
+			`{"kind":"decision","summary":"出貨路線","options":[{"text":"走 A"}],"linked_task":null,"about_task_id":"T-1"}`)
+
+		apiWantValue(t, "waiting pane", any(apiTestReplyCardPane(t, h, owner, "")), any([]any{
+			map[string]any{
+				"id":            cardID,
+				"from":          "joey",
+				"kind":          "decision",
+				"summary":       "出貨路線",
+				"status":        "waiting",
+				"created_ts":    apiAnyNumber,
+				"answered_ts":   nil,
+				"expired_ts":    nil,
+				"answer":        nil,
+				"task":          map[string]any{"id": "T-1", "type_key": "", "title": "Ship it"},
+				"task_executor": "kip",
+			},
+		}))
+		status, card := apiJSON(t, h, "GET", "/api/reply-cards/"+cardID, owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, card)
+		}
+		apiWantBody(t, card, map[string]any{
+			"id":              cardID,
+			"from":            "joey",
+			"kind":            "decision",
+			"summary":         "出貨路線",
+			"body":            "",
+			"options":         []any{map[string]any{"text": "走 A", "ai_pick": false}},
+			"select_mode":     "single",
+			"status":          "waiting",
+			"created_ts":      apiAnyNumber,
+			"attachments":     []any{},
+			"answered_ts":     nil,
+			"expired_ts":      nil,
+			"chat_message_id": apiAnyString,
+			"answer":          nil,
+			"task":            map[string]any{"id": "T-1", "type_key": "", "title": "Ship it"},
+			"task_executor":   "kip",
+		})
+	})
+
 	t.Run("the waiting pane leads with the longest-waiting card and carries no body or options", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		admin := apiTestAgentToken(t, api, "mira", "")
@@ -861,28 +1282,30 @@ func TestHandleListReplyCardsApiReplyCardsGet(t *testing.T) {
 
 		apiWantValue(t, "waiting pane", any(apiTestReplyCardPane(t, h, owner, "")), any([]any{
 			map[string]any{
-				"id":          first,
-				"from":        apiTestPlainAgentID,
-				"kind":        "decision",
-				"summary":     "要不要漲價",
-				"status":      "waiting",
-				"created_ts":  apiAnyNumber,
-				"answered_ts": nil,
-				"expired_ts":  nil,
-				"answer":      nil,
-				"task":        nil,
+				"id":            first,
+				"from":          apiTestPlainAgentID,
+				"kind":          "decision",
+				"summary":       "要不要漲價",
+				"status":        "waiting",
+				"created_ts":    apiAnyNumber,
+				"answered_ts":   nil,
+				"expired_ts":    nil,
+				"answer":        nil,
+				"task":          nil,
+				"task_executor": "",
 			},
 			map[string]any{
-				"id":          second,
-				"from":        "mira",
-				"kind":        "action",
-				"summary":     "請批出貨",
-				"status":      "waiting",
-				"created_ts":  apiAnyNumber,
-				"answered_ts": nil,
-				"expired_ts":  nil,
-				"answer":      nil,
-				"task":        nil,
+				"id":            second,
+				"from":          "mira",
+				"kind":          "action",
+				"summary":       "請批出貨",
+				"status":        "waiting",
+				"created_ts":    apiAnyNumber,
+				"answered_ts":   nil,
+				"expired_ts":    nil,
+				"answer":        nil,
+				"task":          nil,
+				"task_executor": "",
 			},
 		}))
 		dashboard.wantFrames()
@@ -898,16 +1321,17 @@ func TestHandleListReplyCardsApiReplyCardsGet(t *testing.T) {
 
 		apiWantValue(t, "waiting pane", any(apiTestReplyCardPane(t, h, owner, "?limit=1")), any([]any{
 			map[string]any{
-				"id":          first,
-				"from":        apiTestPlainAgentID,
-				"kind":        "decision",
-				"summary":     "要不要漲價",
-				"status":      "waiting",
-				"created_ts":  apiAnyNumber,
-				"answered_ts": nil,
-				"expired_ts":  nil,
-				"answer":      nil,
-				"task":        nil,
+				"id":            first,
+				"from":          apiTestPlainAgentID,
+				"kind":          "decision",
+				"summary":       "要不要漲價",
+				"status":        "waiting",
+				"created_ts":    apiAnyNumber,
+				"answered_ts":   nil,
+				"expired_ts":    nil,
+				"answer":        nil,
+				"task":          nil,
+				"task_executor": "",
 			},
 		}))
 	})
@@ -928,28 +1352,30 @@ func TestHandleListReplyCardsApiReplyCardsGet(t *testing.T) {
 		apiWantValue(t, "waiting pane",
 			any(apiTestReplyCardPane(t, h, owner, "?opened_by=mira&limit=2")), any([]any{
 				map[string]any{
-					"id":          second,
-					"from":        "mira",
-					"kind":        "decision",
-					"summary":     "要不要出貨",
-					"status":      "waiting",
-					"created_ts":  apiAnyNumber,
-					"answered_ts": nil,
-					"expired_ts":  nil,
-					"answer":      nil,
-					"task":        nil,
+					"id":            second,
+					"from":          "mira",
+					"kind":          "decision",
+					"summary":       "要不要出貨",
+					"status":        "waiting",
+					"created_ts":    apiAnyNumber,
+					"answered_ts":   nil,
+					"expired_ts":    nil,
+					"answer":        nil,
+					"task":          nil,
+					"task_executor": "",
 				},
 				map[string]any{
-					"id":          third,
-					"from":        "mira",
-					"kind":        "action",
-					"summary":     "請批退款",
-					"status":      "waiting",
-					"created_ts":  apiAnyNumber,
-					"answered_ts": nil,
-					"expired_ts":  nil,
-					"answer":      nil,
-					"task":        nil,
+					"id":            third,
+					"from":          "mira",
+					"kind":          "action",
+					"summary":       "請批退款",
+					"status":        "waiting",
+					"created_ts":    apiAnyNumber,
+					"answered_ts":   nil,
+					"expired_ts":    nil,
+					"answer":        nil,
+					"task":          nil,
+					"task_executor": "",
 				},
 			}))
 	})
@@ -967,28 +1393,30 @@ func TestHandleListReplyCardsApiReplyCardsGet(t *testing.T) {
 			apiWantValue(t, "waiting pane "+query,
 				any(apiTestReplyCardPane(t, h, owner, query)), any([]any{
 					map[string]any{
-						"id":          first,
-						"from":        apiTestPlainAgentID,
-						"kind":        "decision",
-						"summary":     "要不要漲價",
-						"status":      "waiting",
-						"created_ts":  apiAnyNumber,
-						"answered_ts": nil,
-						"expired_ts":  nil,
-						"answer":      nil,
-						"task":        nil,
+						"id":            first,
+						"from":          apiTestPlainAgentID,
+						"kind":          "decision",
+						"summary":       "要不要漲價",
+						"status":        "waiting",
+						"created_ts":    apiAnyNumber,
+						"answered_ts":   nil,
+						"expired_ts":    nil,
+						"answer":        nil,
+						"task":          nil,
+						"task_executor": "",
 					},
 					map[string]any{
-						"id":          second,
-						"from":        "mira",
-						"kind":        "decision",
-						"summary":     "要不要出貨",
-						"status":      "waiting",
-						"created_ts":  apiAnyNumber,
-						"answered_ts": nil,
-						"expired_ts":  nil,
-						"answer":      nil,
-						"task":        nil,
+						"id":            second,
+						"from":          "mira",
+						"kind":          "decision",
+						"summary":       "要不要出貨",
+						"status":        "waiting",
+						"created_ts":    apiAnyNumber,
+						"answered_ts":   nil,
+						"expired_ts":    nil,
+						"answer":        nil,
+						"task":          nil,
+						"task_executor": "",
 					},
 				}))
 		}
@@ -1030,7 +1458,8 @@ func TestHandleListReplyCardsApiReplyCardsGet(t *testing.T) {
 					"text":        "",
 					"attachments": 0,
 				},
-				"task": nil,
+				"task":          nil,
+				"task_executor": "",
 			},
 			map[string]any{
 				"id":          single,
@@ -1047,7 +1476,8 @@ func TestHandleListReplyCardsApiReplyCardsGet(t *testing.T) {
 					"text":        "就漲",
 					"attachments": 0,
 				},
-				"task": nil,
+				"task":          nil,
+				"task_executor": "",
 			},
 		}))
 	})
@@ -1076,7 +1506,8 @@ func TestHandleListReplyCardsApiReplyCardsGet(t *testing.T) {
 					"text":        strings.Repeat("字", 200) + "…",
 					"attachments": 0,
 				},
-				"task": nil,
+				"task":          nil,
+				"task_executor": "",
 			},
 		}))
 	})
@@ -1090,16 +1521,17 @@ func TestHandleListReplyCardsApiReplyCardsGet(t *testing.T) {
 
 		apiWantValue(t, "expired pane", any(apiTestReplyCardPane(t, h, owner, "?status=expired")), any([]any{
 			map[string]any{
-				"id":          card,
-				"from":        apiTestPlainAgentID,
-				"kind":        "decision",
-				"summary":     "要不要漲價",
-				"status":      "expired",
-				"created_ts":  apiAnyNumber,
-				"answered_ts": nil,
-				"expired_ts":  apiAnyNumber,
-				"answer":      nil,
-				"task":        nil,
+				"id":            card,
+				"from":          apiTestPlainAgentID,
+				"kind":          "decision",
+				"summary":       "要不要漲價",
+				"status":        "expired",
+				"created_ts":    apiAnyNumber,
+				"answered_ts":   nil,
+				"expired_ts":    apiAnyNumber,
+				"answer":        nil,
+				"task":          nil,
+				"task_executor": "",
 			},
 		}))
 		apiWantValue(t, "waiting pane", any(apiTestReplyCardPane(t, h, owner, "")), any([]any{}))
@@ -1209,6 +1641,7 @@ func TestHandleGetReplyCardApiReplyCardsCardIdGet(t *testing.T) {
 			"chat_message_id": messageID,
 			"answer":          nil,
 			"task":            nil,
+			"task_executor":   "",
 		})
 		dashboard.wantFrames()
 	})
@@ -1251,7 +1684,8 @@ func TestHandleGetReplyCardApiReplyCardsCardIdGet(t *testing.T) {
 				"text":        "先撐著",
 				"attachments": []any{},
 			},
-			"task": nil,
+			"task":          nil,
+			"task_executor": "",
 		})
 	})
 
@@ -1551,7 +1985,7 @@ func TestAnsweringACardAnnouncesOnlyAfterTheWriteLands(t *testing.T) {
 				"seq": 1, "topic": "reply_card", "op": "patch",
 				"data": map[string]any{
 					"entity": "reply_card", "key": "owner::rc-1", "epoch": 1, "deleted": false,
-					"payload": map[string]any{"id": "rc-1", "from": "kip", "status": replyCardStatusAnswered},
+					"payload": map[string]any{"id": "rc-1", "from": "kip", "status": replyCardStatusAnswered, "task_executor": ""},
 				},
 				"ts": apiAnyNumber, "trigger": "owner",
 			},
@@ -1679,12 +2113,13 @@ func TestExpireWaitingCards(t *testing.T) {
 }
 
 func TestExpireWaitingCardsForTask(t *testing.T) {
-	t.Run("cards bound to the named task expire while cards for other tasks remain waiting", func(t *testing.T) {
+	t.Run("cards bound to or naming the task expire while cards for other tasks remain waiting", func(t *testing.T) {
 		api, _, d, _ := newAPITestServer(t)
 		cards := []ReplyCard{
 			{ID: "rc-task", FromMember: "mira", Kind: "decision", Status: "waiting", CreatedTS: 10, TaskID: "T-1", TaskStepID: "ts-1"},
 			{ID: "rc-other", FromMember: "mira", Kind: "decision", Status: "waiting", CreatedTS: 11, TaskID: "T-2", TaskStepID: "ts-2"},
 			{ID: "rc-plain", FromMember: "mira", Kind: "decision", Status: "waiting", CreatedTS: 12},
+			{ID: "rc-about", FromMember: "joey", Kind: "decision", Status: "waiting", CreatedTS: 13, TaskID: "T-1"},
 		}
 		for _, card := range cards {
 			if err := d.PutReplyCard(card); err != nil {
@@ -1697,17 +2132,20 @@ func TestExpireWaitingCardsForTask(t *testing.T) {
 		if err != nil {
 			t.Fatalf("expireWaitingCardsForTask: %v", err)
 		}
-		if count != 1 {
-			t.Fatalf("expired count = %d, want 1", count)
+		if count != 2 {
+			t.Fatalf("expired count = %d, want 2", count)
 		}
 		got, err := d.ListReplyCards()
 		if err != nil {
 			t.Fatalf("ListReplyCards: %v", err)
 		}
-		if got[0].Status != "expired" || got[0].ExpiredTS != 42 || got[1].Status != "waiting" || got[2].Status != "waiting" {
+		if got[0].Status != "expired" || got[0].ExpiredTS != 42 || got[1].Status != "waiting" || got[2].Status != "waiting" ||
+			got[3].Status != "expired" || got[3].ExpiredTS != 42 {
 			t.Fatalf("cards after task sweep = %#v", got)
 		}
-		dashboard.wantFrames(apiTestReplyCardFrame(1, "rc-task", "mira", "expired", "reassign"))
+		dashboard.wantFrames(
+			apiTestReplyCardFrame(1, "rc-task", "mira", "expired", "reassign"),
+			apiTestReplyCardFrame(2, "rc-about", "joey", "expired", "reassign"))
 	})
 
 	t.Run("an empty task id is rejected before any card is selected", func(t *testing.T) {
@@ -1764,7 +2202,7 @@ func TestExpireWaitingCardsFromMember(t *testing.T) {
 }
 
 func TestReconcileOrphanReplyCardsOnBoot(t *testing.T) {
-	t.Run("waiting cards bound to closed or missing tasks expire while live and unbound cards remain", func(t *testing.T) {
+	t.Run("waiting cards bound to or naming closed or missing tasks expire while live and unbound cards remain", func(t *testing.T) {
 		api, _, d, _ := newAPITestServer(t)
 		closed := dalTestTask("T-closed")
 		closed.Status = "done"
@@ -1780,6 +2218,8 @@ func TestReconcileOrphanReplyCardsOnBoot(t *testing.T) {
 			{ID: "rc-missing", FromMember: "mira", Kind: "decision", Status: "waiting", CreatedTS: 11, TaskID: "T-missing", TaskStepID: "ts-missing"},
 			{ID: "rc-live", FromMember: "mira", Kind: "decision", Status: "waiting", CreatedTS: 12, TaskID: "T-live", TaskStepID: "ts-live"},
 			{ID: "rc-plain", FromMember: "mira", Kind: "decision", Status: "waiting", CreatedTS: 13},
+			{ID: "rc-about-closed", FromMember: "mira", Kind: "decision", Status: "waiting", CreatedTS: 14, TaskID: "T-closed"},
+			{ID: "rc-about-live", FromMember: "mira", Kind: "decision", Status: "waiting", CreatedTS: 15, TaskID: "T-live"},
 		}
 		for _, card := range cards {
 			if err := d.PutReplyCard(card); err != nil {
@@ -1793,15 +2233,16 @@ func TestReconcileOrphanReplyCardsOnBoot(t *testing.T) {
 		if err != nil {
 			t.Fatalf("reconcileOrphanReplyCardsOnBoot: %v", err)
 		}
-		if count != 2 {
-			t.Fatalf("reconciled count = %d, want 2", count)
+		if count != 3 {
+			t.Fatalf("reconciled count = %d, want 3", count)
 		}
 		got, err := d.ListReplyCards()
 		if err != nil {
 			t.Fatalf("ListReplyCards: %v", err)
 		}
 		if got[0].Status != "expired" || got[0].ExpiredTS <= 0 || got[1].Status != "expired" || got[1].ExpiredTS <= 0 ||
-			got[2].Status != "waiting" || got[3].Status != "waiting" {
+			got[2].Status != "waiting" || got[3].Status != "waiting" ||
+			got[4].Status != "expired" || got[4].ExpiredTS <= 0 || got[5].Status != "waiting" {
 			t.Fatalf("cards after boot reconciliation = %#v", got)
 		}
 		closedAfter, err := d.GetTask("T-closed")
@@ -1821,10 +2262,12 @@ func TestReconcileOrphanReplyCardsOnBoot(t *testing.T) {
 		dashboard.wantFrames(
 			apiTestReplyCardFrame(1, "rc-closed", "mira", "expired", "boot-reconcile"),
 			apiTestReplyCardFrame(2, "rc-missing", "mira", "expired", "boot-reconcile"),
+			apiTestReplyCardFrame(3, "rc-about-closed", "mira", "expired", "boot-reconcile"),
 		)
 		initiator.wantFrames(
 			apiTestReplyCardFrame(1, "rc-closed", "mira", "expired", "boot-reconcile"),
 			apiTestReplyCardFrame(2, "rc-missing", "mira", "expired", "boot-reconcile"),
+			apiTestReplyCardFrame(3, "rc-about-closed", "mira", "expired", "boot-reconcile"),
 		)
 	})
 }
@@ -1875,6 +2318,50 @@ func TestHandleAnswerReplyCardApiReplyCardsCardIdAnswerPost(t *testing.T) {
 		asker.wantFrames(frame)
 		bystander.wantFrames()
 		wantPushed()
+	})
+
+	t.Run("answering a card that only names a task settles it without touching the task or its steps", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiTestTwoStepTask(t, api, h, owner)
+		asker := apiTestAgentToken(t, api, "joey", "")
+		cardID := apiTestOpenReplyCard(t, h, asker,
+			`{"kind":"decision","summary":"出貨路線","options":[{"text":"走 A"}],"linked_task":null,"about_task_id":"T-1"}`)
+		before, err := d.GetTask("T-1")
+		if err != nil {
+			t.Fatalf("GetTask: %v", err)
+		}
+		dashboard := apiTestListen(t, api, "")
+		executor := apiTestListen(t, api, "kip")
+		author := apiTestListen(t, api, "joey")
+		bystander := apiTestListen(t, api, "mira")
+
+		status, data := apiJSON(t, h, "POST", "/api/reply-cards/"+cardID+"/answer", owner, `{"option_idxs":[0]}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"id":          cardID,
+			"status":      "answered",
+			"answered_ts": apiAnyNumber,
+			"expired_ts":  nil,
+			"answer":      map[string]any{"option_idxs": []any{0}, "text": "", "attachments": []any{}},
+			"task_id":     "",
+			"step_id":     "",
+		})
+		after, err := d.GetTask("T-1")
+		if err != nil {
+			t.Fatalf("GetTask: %v", err)
+		}
+		if after.Status != before.Status || after.UpdatedTS != before.UpdatedTS {
+			t.Fatalf("task moved: status %q→%q updated_ts %v→%v",
+				before.Status, after.Status, before.UpdatedTS, after.UpdatedTS)
+		}
+		apiTestWantStepStatuses(t, d, "T-1", StepStatusInProgress, StepStatusPending)
+		frame := apiTestAboutCardFrame(cardID, "joey", "answered", "owner", "kip")
+		dashboard.wantFrames(frame)
+		executor.wantFrames(frame)
+		author.wantFrames(frame)
+		bystander.wantFrames()
 	})
 
 	t.Run("the circled options are stored deduped and ascending", func(t *testing.T) {
@@ -2046,6 +2533,26 @@ func TestHandleReanswerReplyCardApiReplyCardsCardIdAnswerPut(t *testing.T) {
 		}
 		return cardID
 	}
+
+	t.Run("re-deciding a card about a task fans the delta to the task's executor as well as the author", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiTestTwoStepTask(t, api, h, owner)
+		asker := apiTestAgentToken(t, api, "joey", "")
+		cardID := apiTestOpenReplyCard(t, h, asker,
+			`{"kind":"decision","summary":"出貨路線","options":[{"text":"走 A"},{"text":"走 B"}],"linked_task":null,"about_task_id":"T-1"}`)
+		apiJSON(t, h, "POST", "/api/reply-cards/"+cardID+"/answer", owner, `{"option_idxs":[0]}`)
+		executor := apiTestListen(t, api, "kip")
+		author := apiTestListen(t, api, "joey")
+		bystander := apiTestListen(t, api, "mira")
+
+		if status, data := apiJSON(t, h, "PUT", "/api/reply-cards/"+cardID+"/answer", owner, `{"option_idxs":[1]}`); status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		frame := apiTestAboutCardFrame(cardID, "joey", "answered", "owner", "kip")
+		executor.wantFrames(frame)
+		author.wantFrames(frame)
+		bystander.wantFrames()
+	})
 
 	t.Run("a revision replaces the stored answer and keeps the card answered", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
@@ -2265,6 +2772,25 @@ func TestHandleExpireReplyCardApiReplyCardsCardIdExpirePost(t *testing.T) {
 		_, card := apiJSON(t, h, "GET", "/api/reply-cards/"+cardID, owner, "")
 		apiWantValue(t, "card.status", card["status"], "expired")
 		apiWantValue(t, "card.answer", card["answer"], nil)
+	})
+
+	t.Run("the author retiring a card about a task fans the delta to the task's executor as well", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiTestTwoStepTask(t, api, h, owner)
+		asker := apiTestAgentToken(t, api, "joey", "")
+		cardID := apiTestOpenReplyCard(t, h, asker,
+			`{"kind":"decision","summary":"出貨路線","options":[{"text":"走 A"}],"linked_task":null,"about_task_id":"T-1"}`)
+		executor := apiTestListen(t, api, "kip")
+		author := apiTestListen(t, api, "joey")
+		bystander := apiTestListen(t, api, "mira")
+
+		if status, data := apiJSON(t, h, "POST", "/api/reply-cards/"+cardID+"/expire", asker, `{}`); status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		frame := apiTestAboutCardFrame(cardID, "joey", "expired", "joey", "kip")
+		executor.wantFrames(frame)
+		author.wantFrames(frame)
+		bystander.wantFrames()
 	})
 
 	t.Run("an admin agent retires a card it did not open", func(t *testing.T) {

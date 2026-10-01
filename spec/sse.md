@@ -109,9 +109,10 @@ data: {"seq":42,"topic":"member","op":"patch","data":{"entity":"member","key":"o
     connection, which reads no key of it.
   - `chat` (new message): `{id, from, to}`
   - `chat_read`: `{reader, peer, last_read_ts}`
-  - `reply_card`: `{id, from, status}` (create / answer / answer revision / expire all
-    ride `patch`; refetch the card for the full context — the payload never carries the
-    answer)
+  - `reply_card`: `{id, from, status, task_executor}` (create / answer / answer revision /
+    expire all ride `patch`; refetch the card for the full context — the payload never
+    carries the answer). `task_executor` is the acting executor of the card's task while
+    that task is open, `""` otherwise
   - `task`: `{id, status, priority}` (any durable task write — status/priority/plan/
     steps/deps/executor; one topic per task entity, the member granularity)
   - `task_manual`: `payload` is `null` (manual create/edit/delete)
@@ -273,7 +274,7 @@ order per connection MUST be publish order.
 ### 4.1 Audience per topic
 
 The audience of each delta topic is fixed by the entity it concerns — computed from the
-written entity's own fields, never a subscription and never a dependency walk (coordination
+written entity's own fields (the one exception, `reply_card`'s task executor, is stated in its row), never a subscription and never a dependency walk (coordination
 between agents is done by pulling — `list_tasks` / `get_task` / `get_chat` — and by the
 server's own deps-fulfill, not by eavesdropping on another member's stream):
 
@@ -282,7 +283,7 @@ server's own deps-fulfill, not by eavesdropping on another member's stream):
 | `member` | the subject member, including an outsource worker (its own delta drives the wind-down / recycle hooks) |
 | `chat` | the sender and the recipient |
 | `chat_read` | — (no agent consumes it; owner cockpit only) |
-| `reply_card` | the initiator (`from`) |
+| `reply_card` | the initiator (`from`) and, while the card's task is open, that task's acting executor (`task_executor`) — the one audience read from another row: the card stores only the task id, and a stored executor would go stale on reassignment |
 | `task` | the executor ONLY (NOT the creator, NOT dependents); a reassign additionally fans one delta to the OLD executor — the row's executor just changed, so the person unassigned would otherwise be silently dropped from the audience |
 | `task_manual` | — (owner cockpit only) |
 | `global_context` / `role_def` / `insight` | — (owner cockpit only) |

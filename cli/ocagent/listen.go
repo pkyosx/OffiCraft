@@ -828,9 +828,9 @@ func printChatLine(out io.Writer, m map[string]any, now float64) {
 		pyStr(m["from"]), strings.Join(tag, ", "), content)
 }
 
-// handleReplyCard: the reply_card delta fans out to every listener of the
-// owner, but an answer is for the card's initiator alone — payload.from
-// pre-filters before the refetch. A 重新決定 revision bumps answered_ts, so the
+// handleReplyCard: an answer is for the card's initiator and for the executor
+// of the task the card is about — payload.from / payload.task_executor
+// pre-filter before the refetch. A 重新決定 revision bumps answered_ts, so the
 // seen dedup never swallows it.
 func handleReplyCard(client httpClient, cfg Config, frame map[string]any, seen *replyCardSeen, trigger string, out io.Writer) {
 	data, _ := frame["data"].(map[string]any)
@@ -847,7 +847,7 @@ func handleReplyCard(client httpClient, cfg Config, frame map[string]any, seen *
 	}
 	selfID := strings.ToLower(strings.TrimSpace(cfg.MemberID))
 	from := strings.ToLower(strings.TrimSpace(strOrEmpty(payload["from"])))
-	if from != "" && from != selfID {
+	if from != "" && from != selfID && !replyCardTaskIsMine(payload, selfID) {
 		return
 	}
 	status, body := getJSON(client, cfg, replyCardsPath+url.PathEscape(id), true)
@@ -857,16 +857,17 @@ func handleReplyCard(client httpClient, cfg Config, frame map[string]any, seen *
 			"read it manually (get_reply_card).\n", id, status)
 		return
 	}
-	if strings.ToLower(strings.TrimSpace(strOrEmpty(card["from"]))) != selfID {
+	if !replyCardIsMine(card, selfID) {
 		return
 	}
+	about := replyCardAboutYourTask(card, selfID)
 	switch strOrEmpty(card["status"]) {
 	case replyCardAnswered:
 		ts, _ := card["answered_ts"].(float64)
 		if seen.has(id, ts) {
 			return
 		}
-		printReplyCardAnswered(out, id, card, trigger)
+		printReplyCardAnswered(out, id, card, about, trigger)
 		seen.record(id, ts)
 	case replyCardExpired:
 		// expired_ts never collides with an answered_ts for the same card: a card
@@ -875,28 +876,57 @@ func handleReplyCard(client httpClient, cfg Config, frame map[string]any, seen *
 		if seen.has(id, ts) {
 			return
 		}
-		printReplyCardExpired(out, id, card, trigger)
+		printReplyCardExpired(out, id, card, about, trigger)
 		seen.record(id, ts)
 	default:
 		return
 	}
 }
 
-func printReplyCardAnswered(out io.Writer, id string, card map[string]any, trigger string) {
-	fmt.Fprintf(out, "[ocagent] reply-card %s answered: %s | asked: %s%s\n",
+func replyCardIsMine(card map[string]any, selfID string) bool {
+	return strings.ToLower(strings.TrimSpace(strOrEmpty(card["from"]))) == selfID ||
+		replyCardTaskIsMine(card, selfID)
+}
+
+func replyCardTaskIsMine(card map[string]any, selfID string) bool {
+	return strings.ToLower(strings.TrimSpace(strOrEmpty(card["task_executor"]))) == selfID
+}
+
+// replyCardAboutYourTask is "" on a card the reader opened, and otherwise says
+// whose card it is: the reader is hearing about it only as the task's executor.
+func replyCardAboutYourTask(card map[string]any, selfID string) string {
+	from := strings.TrimSpace(strOrEmpty(card["from"]))
+	if strings.ToLower(from) == selfID {
+		return ""
+	}
+	taskID := ""
+	if task, ok := card["task"].(map[string]any); ok {
+		taskID = strings.TrimSpace(strOrEmpty(task["id"]))
+	}
+	return fmt.Sprintf(" | opened by %s about your task %s", from, taskID)
+}
+
+func printReplyCardAnswered(out io.Writer, id string, card map[string]any, about, trigger string) {
+	fmt.Fprintf(out, "[ocagent] reply-card %s answered: %s | asked: %s%s%s\n",
 		id, renderReplyCardAnswer(card),
-		renderMessageBody(strOrEmpty(card["summary"]), replyCardFullReadTool), byTrigger(trigger))
+		renderMessageBody(strOrEmpty(card["summary"]), replyCardFullReadTool), about, byTrigger(trigger))
 }
 
 // printReplyCardExpired carries its own guidance for agents whose seeds
 // predate the expired state, and names no presser — the card's own author may
 // expire it too (owner ruling rc-3ff94b116970); who pressed belongs to byTrigger.
-func printReplyCardExpired(out io.Writer, id string, card map[string]any, trigger string) {
-	fmt.Fprintf(out, "[ocagent] reply-card %s EXPIRED (no answer) | asked: %s — "+
-		"settled without an answer: if the question still matters, open a FRESH "+
-		"card with current context; if not, proceed / close out. Any held "+
-		"step/task was already restored to in_progress%s\n",
-		id, renderMessageBody(strOrEmpty(card["summary"]), replyCardFullReadTool), byTrigger(trigger))
+func printReplyCardExpired(out io.Writer, id string, card map[string]any, about, trigger string) {
+	guidance := "if the question still matters, open a FRESH card with current context; " +
+		"if not, proceed / close out. Any held step/task was already restored to in_progress"
+	if about != "" {
+		guidance = "do not keep waiting on it; any step of yours it held was already restored " +
+			"to in_progress; if you still need the question settled, ask its author or open " +
+			"your own card"
+	}
+	fmt.Fprintf(out, "[ocagent] reply-card %s EXPIRED (no answer) | asked: %s%s — "+
+		"settled without an answer: %s%s\n",
+		id, renderMessageBody(strOrEmpty(card["summary"]), replyCardFullReadTool), about, guidance,
+		byTrigger(trigger))
 }
 
 // renderReplyCardAnswer takes both wire shapes: the FULL card (per-id refetch:
@@ -1032,7 +1062,7 @@ func drainReplyCards(client httpClient, cfg Config, seen *replyCardSeen, out io.
 	panes := []struct {
 		status string
 		tsKey  string
-		print  func(io.Writer, string, map[string]any, string)
+		print  func(io.Writer, string, map[string]any, string, string)
 	}{
 		{replyCardAnswered, "answered_ts", printReplyCardAnswered},
 		{replyCardExpired, "expired_ts", printReplyCardExpired},
@@ -1061,12 +1091,12 @@ func drainReplyCards(client httpClient, cfg Config, seen *replyCardSeen, out io.
 				continue
 			}
 			id := strings.TrimSpace(strOrEmpty(card["id"]))
-			if id == "" || strings.ToLower(strings.TrimSpace(strOrEmpty(card["from"]))) != selfID {
+			if id == "" || !replyCardIsMine(card, selfID) {
 				continue // the pane is owner-wide
 			}
 			ts, _ := card[p.tsKey].(float64)
 			if !silent && !seen.has(id, ts) {
-				p.print(out, id, card, "")
+				p.print(out, id, card, replyCardAboutYourTask(card, selfID), "")
 				n++
 			}
 			fresh[id] = ts

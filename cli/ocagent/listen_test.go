@@ -1135,6 +1135,10 @@ func TestHandleReplyCard(t *testing.T) {
 		return map[string]any{"topic": "reply_card",
 			"data": map[string]any{"payload": map[string]any{"id": id, "from": from}}}
 	}
+	frameAboutTask := func(id, from, executor string) map[string]any {
+		return map[string]any{"topic": "reply_card",
+			"data": map[string]any{"payload": map[string]any{"id": id, "from": from, "task_executor": executor}}}
+	}
 	newSeen := func(t *testing.T) *replyCardSeen {
 		t.Helper()
 		return loadReplyCardSeen(filepath.Join(t.TempDir(), "replycards-seen"))
@@ -1210,6 +1214,70 @@ func TestHandleReplyCard(t *testing.T) {
 		}
 	})
 
+	t.Run("an answered card about my task prints the answer naming its author and the task", func(t *testing.T) {
+		client := newRoutedHTTP(map[string]string{
+			"/api/reply-cards/rc-7": `{"id":"rc-7","from":"m-2","status":"answered",` +
+				`"answered_ts":1700,"summary":"出貨路線?","task":{"id":"T-1"},"task_executor":"m-1",` +
+				`"options":[{"text":"走 A"}],"answer":{"option_idxs":[0]}}`,
+		})
+		var out bytes.Buffer
+		seen := newSeen(t)
+
+		handleReplyCard(client, cfg, frameAboutTask("rc-7", "m-2", "m-1"), seen, "owner", &out)
+
+		want := "[ocagent] reply-card rc-7 answered: picked [0] \"走 A\" | asked: 出貨路線? " +
+			"| opened by m-2 about your task T-1 · by owner\n"
+		if out.String() != want {
+			t.Errorf("printed %q, want %q", out.String(), want)
+		}
+		if !seen.has("rc-7", 1700) {
+			t.Error("the answer was printed but not recorded — the next drain would repeat it")
+		}
+	})
+
+	t.Run("an expired card about my task tells me to stop waiting on it", func(t *testing.T) {
+		client := newRoutedHTTP(map[string]string{
+			"/api/reply-cards/rc-8": `{"id":"rc-8","from":"m-2","status":"expired",` +
+				`"expired_ts":1800,"summary":"出貨路線?","task":{"id":"T-1"},"task_executor":"m-1"}`,
+		})
+		var out bytes.Buffer
+
+		handleReplyCard(client, cfg, frameAboutTask("rc-8", "m-2", "m-1"), newSeen(t), "m-2", &out)
+
+		want := "[ocagent] reply-card rc-8 EXPIRED (no answer) | asked: 出貨路線? " +
+			"| opened by m-2 about your task T-1 — settled without an answer: do not keep " +
+			"waiting on it; any step of yours it held was already restored to in_progress; if " +
+			"you still need the question settled, ask its author or open your own card · by m-2\n"
+		if out.String() != want {
+			t.Errorf("printed %q, want %q", out.String(), want)
+		}
+	})
+
+	t.Run("the authority overrules a payload that claims the task is mine", func(t *testing.T) {
+		client := newRoutedHTTP(map[string]string{
+			"/api/reply-cards/rc-9": `{"id":"rc-9","from":"m-2","status":"answered",` +
+				`"answered_ts":1700,"task":{"id":"T-1"},"task_executor":"m-3","answer":{"text":"改"}}`,
+		})
+		var out bytes.Buffer
+
+		handleReplyCard(client, cfg, frameAboutTask("rc-9", "m-2", "m-1"), newSeen(t), "owner", &out)
+
+		if out.String() != "" {
+			t.Errorf("printed %q, want nothing — the task was handed on before the refetch", out.String())
+		}
+	})
+
+	t.Run("a card about someone else's task costs no refetch and no line", func(t *testing.T) {
+		client := newRoutedHTTP(nil)
+		var out bytes.Buffer
+
+		handleReplyCard(client, cfg, frameAboutTask("rc-10", "m-2", "m-3"), newSeen(t), "owner", &out)
+
+		if out.String() != "" || client.asked != nil {
+			t.Errorf("printed %q and asked %v, want neither", out.String(), client.asked)
+		}
+	})
+
 	t.Run("the authority overrules a payload that claims the card is mine", func(t *testing.T) {
 		client := newRoutedHTTP(map[string]string{
 			"/api/reply-cards/rc-4": `{"id":"rc-4","from":"m-2","status":"answered",` +
@@ -1269,7 +1337,7 @@ func TestPrintReplyCardAnswered(t *testing.T) {
 
 	t.Run("the live path carries who answered", func(t *testing.T) {
 		var out bytes.Buffer
-		printReplyCardAnswered(&out, "rc-1", card, "owner")
+		printReplyCardAnswered(&out, "rc-1", card, "", "owner")
 		want := "[ocagent] reply-card rc-1 answered: \"改\" | asked: 要不要改 schema? · by owner\n"
 		if out.String() != want {
 			t.Errorf("printed %q, want %q", out.String(), want)
@@ -1278,7 +1346,7 @@ func TestPrintReplyCardAnswered(t *testing.T) {
 
 	t.Run("the drain path has no frame and adds no suffix", func(t *testing.T) {
 		var out bytes.Buffer
-		printReplyCardAnswered(&out, "rc-1", card, "")
+		printReplyCardAnswered(&out, "rc-1", card, "", "")
 		want := "[ocagent] reply-card rc-1 answered: \"改\" | asked: 要不要改 schema?\n"
 		if out.String() != want {
 			t.Errorf("printed %q, want %q", out.String(), want)
@@ -1289,7 +1357,7 @@ func TestPrintReplyCardAnswered(t *testing.T) {
 func TestPrintReplyCardExpired(t *testing.T) {
 	t.Run("the body never names a presser", func(t *testing.T) {
 		var out bytes.Buffer
-		printReplyCardExpired(&out, "rc-2", map[string]any{"summary": "要不要改 schema?"}, "m-1")
+		printReplyCardExpired(&out, "rc-2", map[string]any{"summary": "要不要改 schema?"}, "", "m-1")
 		want := "[ocagent] reply-card rc-2 EXPIRED (no answer) | asked: 要不要改 schema? — " +
 			"settled without an answer: if the question still matters, open a FRESH card " +
 			"with current context; if not, proceed / close out. Any held step/task was " +
@@ -1301,7 +1369,7 @@ func TestPrintReplyCardExpired(t *testing.T) {
 
 	t.Run("the drain path adds no attribution suffix", func(t *testing.T) {
 		var out bytes.Buffer
-		printReplyCardExpired(&out, "rc-2", map[string]any{"summary": "q"}, "")
+		printReplyCardExpired(&out, "rc-2", map[string]any{"summary": "q"}, "", "")
 		want := "[ocagent] reply-card rc-2 EXPIRED (no answer) | asked: q — " +
 			"settled without an answer: if the question still matters, open a FRESH card " +
 			"with current context; if not, proceed / close out. Any held step/task was " +
@@ -1579,6 +1647,31 @@ func TestDrainReplyCards(t *testing.T) {
 		}
 		if out.String() != "" {
 			t.Errorf("printed %q, want nothing", out.String())
+		}
+	})
+
+	t.Run("a card about my task in the owner-wide pane prints naming its author and the task", func(t *testing.T) {
+		client := newRoutedHTTP(map[string]string{
+			answeredPane: `[{"id":"rc-5","from":"m-2","answered_ts":1700,"summary":"q5",` +
+				`"task":{"id":"T-1"},"task_executor":"m-1","answer":{"text":"走 A"}}]`,
+			expiredPane: `[{"id":"rc-6","from":"m-2","expired_ts":1800,"summary":"q6",` +
+				`"task":{"id":"T-1"},"task_executor":"m-3"}]`,
+		})
+		path := filepath.Join(t.TempDir(), "replycards-seen")
+		if err := os.WriteFile(path, []byte(`{"rc-0":1}`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		var out bytes.Buffer
+
+		if n := drainReplyCards(client, cfg, loadReplyCardSeen(path), &out); n != 1 {
+			t.Errorf("printed %d lines, want 1", n)
+		}
+		want := "[ocagent] reply-card rc-5 answered: \"走 A\" | asked: q5 | opened by m-2 about your task T-1\n"
+		if out.String() != want {
+			t.Errorf("printed %q, want %q", out.String(), want)
+		}
+		if got := readFileString(t, path); got != `{"rc-5":1700}` {
+			t.Errorf("state = %q, want %q", got, `{"rc-5":1700}`)
 		}
 	})
 

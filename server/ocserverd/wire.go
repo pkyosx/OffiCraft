@@ -769,21 +769,23 @@ type replyCardDTO struct {
 	ChatMessageID string              `json:"chat_message_id"`
 	Answer        *replyCardAnswerDTO `json:"answer"`
 	Task          *taskRefDTO         `json:"task"`
+	TaskExecutor  string              `json:"task_executor"`
 }
 
 // replyCardListItemDTO is a LIGHT row: summary plus, when answered, the
 // decision digest; never the body (owner ruling T-3f31: 卡只需要 title+決策).
 type replyCardListItemDTO struct {
-	ID         string                   `json:"id"`
-	From       string                   `json:"from"`
-	Kind       string                   `json:"kind"`
-	Summary    string                   `json:"summary"`
-	Status     string                   `json:"status"`
-	CreatedTS  float64                  `json:"created_ts"`
-	AnsweredTS *float64                 `json:"answered_ts"`
-	ExpiredTS  *float64                 `json:"expired_ts"`
-	Answer     *replyCardAnswerBriefDTO `json:"answer"`
-	Task       *taskRefDTO              `json:"task"`
+	ID           string                   `json:"id"`
+	From         string                   `json:"from"`
+	Kind         string                   `json:"kind"`
+	Summary      string                   `json:"summary"`
+	Status       string                   `json:"status"`
+	CreatedTS    float64                  `json:"created_ts"`
+	AnsweredTS   *float64                 `json:"answered_ts"`
+	ExpiredTS    *float64                 `json:"expired_ts"`
+	Answer       *replyCardAnswerBriefDTO `json:"answer"`
+	Task         *taskRefDTO              `json:"task"`
+	TaskExecutor string                   `json:"task_executor"`
 }
 
 // replyCardAnswerBriefDTO: Text is preview-truncated and attachments are a
@@ -1111,6 +1113,7 @@ type replyCardCreateReceiptDTO struct {
 	CreatedTS float64 `json:"created_ts"`
 	// Attachments: same contract as chatPostReceiptDTO.Attachments.
 	Attachments []chatAttachmentDTO `json:"attachments"`
+	HoldNote    string              `json:"hold_note"`
 }
 
 type replyCardReceiptDTO struct {

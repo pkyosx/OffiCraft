@@ -40,8 +40,8 @@ const {
 // pass its own linked_task {task_id, step_id} rather than inherit this null.
 // 🔴 T-91: THE CREATE ANSWERS A RECEIPT, NOT THE CARD. POST /api/reply-cards
 // used to hand back the whole ReplyCardDTO; it now answers
-// {id, chat_message_id, created_ts, attachments} — every field the handler
-// MINTED, and nothing the caller sent. So this helper creates, then READS THE
+// {id, chat_message_id, created_ts, attachments, hold_note} — every field the handler
+// MINTED or decided, and nothing the caller sent. So this helper creates, then READS THE
 // CARD BACK, which is the same "write then re-read" the cockpit itself moved to
 // in this package. Returning the receipt directly would make every downstream
 // `.status` / `.options` / `.select_mode` assertion silently `undefined`.

@@ -357,6 +357,8 @@ type handoverDoor struct {
 	prep func(t *testing.T, f handoverFixture) string
 	call func(t *testing.T, f handoverFixture, token, prepared string) (int, map[string]any)
 	want func(before handoverView) handoverView
+	// refusal is the 403 message when the door words it beyond the shared one.
+	refusal string
 }
 
 func handoverPost(target, body string) func(*testing.T, handoverFixture, string, string) (int, map[string]any) {
@@ -441,7 +443,10 @@ func handoverDoors() []handoverDoor {
 			want: handoverWith(func(v *handoverView) {
 				v.Status = "waiting_owner"
 				v.Steps = []string{"one:waiting_owner", "two:pending"}
-			})},
+			}),
+			refusal: "caller is not the task's executor — only the task's executor can make one of its " +
+				"steps wait on a card. To tell the owner which task this ask is about without holding a " +
+				"step, send linked_task=null with about_task_id."},
 		{name: "add_task_artifact",
 			call: handoverPost("/api/tasks/T-1/artifact", `{"kind":"link","name":"PR 2","url":"https://example.com/pr/2"}`),
 			want: handoverWith(func(v *handoverView) {
@@ -537,7 +542,11 @@ func TestTaskWriteRightsFollowTheReassignHoldUntilTheSuccessorClaims(t *testing.
 		if status != http.StatusForbidden {
 			t.Fatalf("%s by %s: want 403, got %d %v", door.name, who, status, data)
 		}
-		apiWantError(t, data, "forbidden", "caller is not the task's executor")
+		refusal := "caller is not the task's executor"
+		if door.refusal != "" {
+			refusal = door.refusal
+		}
+		apiWantError(t, data, "forbidden", refusal)
 		if after := f.view(t); !reflect.DeepEqual(after, before) {
 			t.Fatalf("%s by %s was refused but T-1 changed:\nbefore %#v\nafter  %#v", door.name, who, before, after)
 		}

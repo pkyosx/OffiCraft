@@ -2260,15 +2260,19 @@ export interface paths {
         get: operations["handle_list_reply_cards_api_reply_cards_get"];
         put?: never;
         /**
-         * Open a reply card: an ask the owner must answer (at least one option; options ≤4 on a single card, ≤20 on a multi card, each carrying its own ai_pick flag; select_mode single|multi). linked_task is REQUIRED and has no default — every card must SAY whether it is about a task, because the server no longer infers one. Send linked_task={"task_id": ..., "step_id": ...} to bind the ask to the step it is about: that step (and its task) enters waiting_owner until the owner answers. Send linked_task=null when the ask is not about a task — it opens as a plain unbound 請示. BOTH ids are required in the object form: a task_id with NO step_id is a 400, because a card bound to a task but to no step places no 等我回覆 hold, so the task would finish underneath your question and the owner's answer would then be rejected for good. Omitting linked_task entirely is a 400 that names both legal shapes. With both ids present the bind is still refused, before anything is written, when the task does not exist (404), when you are not the task's acting executor (the predecessor while it holds the task under the reassign hold) and not the owner or an admin agent (403), when the task is not in_progress or waiting_owner, for example not_started or ready_for_done (409), when the step does not belong to that task (404), and when the step is already done or superseded (409). Optional attachments ride the question, up to a capped count that a refusal names (same shape as post_chat: {id} from `ocagent upload` / POST /api/chat/attachments, or inline data_b64). Answers with a bounded receipt (``id``, ``chat_message_id``, ``created_ts``, ``attachments``), not the card — call ``get_reply_card`` when you need the rest.
+         * Open a reply card: an ask the owner must answer (at least one option; options ≤4 on a single card, ≤20 on a multi card, each carrying its own ai_pick flag; select_mode single|multi). linked_task is REQUIRED and has no default — every card must SAY whether it is about a task, because the server no longer infers one. Send linked_task={"task_id": ..., "step_id": ...} to bind the ask to the step it is about: that step (and its task) enters waiting_owner until the owner answers. Send linked_task=null when the ask is not about a task — it opens as a plain unbound 請示. To say WHICH task an ask is about without holding any of its steps — the only way open to an agent that is not that task's executor — send linked_task=null with about_task_id: the task keeps running and does NOT wait, and the receipt's hold_note says so in one sentence. Whenever a card names a task (bound or not) that is still open, the task's acting executor receives the card's reply_card events alongside the card's author, so the answer, a re-answer and an expiry reach the executor through the same reply-card notification the author gets. BOTH ids are required in the object form: a task_id with NO step_id is a 400, because a card bound to a task but to no step places no 等我回覆 hold, so the task would finish underneath your question and the owner's answer would then be rejected for good. Omitting linked_task entirely is a 400 that names both legal shapes. With both ids present the bind is still refused, before anything is written, when the task does not exist (404), when you are not the task's acting executor (the predecessor while it holds the task under the reassign hold) and not the owner or an admin agent (403 — the refusal points you at about_task_id), when the task is not in_progress, waiting_owner or waiting_external, for example not_started or ready_for_done (409) — a task whose OTHER step waits on the outside world still takes a card on this step, when the step does not belong to that task (404), and when the step is already done or superseded (409). Optional attachments ride the question, up to a capped count that a refusal names (same shape as post_chat: {id} from `ocagent upload` / POST /api/chat/attachments, or inline data_b64). Answers with a bounded receipt (``id``, ``chat_message_id``, ``created_ts``, ``attachments``, ``hold_note``), not the card — call ``get_reply_card`` when you need the rest.
          *
          *     PARAMETER NOTES. In the input schema the parameters below carry only a short summary; these are their full rules.
+         *     - `about_task_id`: OPTIONAL — the task this ask is about, WITHOUT holding any of its steps. Valid with linked_task=null; next to a linked_task object it must name the same task (400 otherwise). The task must exist (404) and be open (409). Nothing waits on the card: no step and no task status changes. While the task is open its executor receives the card's reply-card notifications too, and the card expires when the task closes.
          *     - `body`: The question's full text - the part that lets the owner decide without going and looking things up. It is stored as sent with NO validation, so OMITTING it is not an error: the card is created with an empty body and answers 200, and what reaches the owner is a summary line and some options with no reasoning attached. Nothing warns you; the card simply arrives thinner than you meant it to.
          *     - `linked_task`: REQUIRED — declare it, the server never infers it. ``null`` = this ask is NOT about a task (a plain unbound 請示). ``{"task_id": ..., "step_id": ...}`` binds the ask to that step, which enters waiting_owner until the owner answers. BOTH ids are required: a task_id with no step_id is a 400, because binding a task without a step places no 等我回覆 hold and the task would run past your question. Omitting the field is a 400 that names both legal shapes.
          *     - `select_mode`: How many options the owner may circle: single (the default - at most one, and at most one option may carry ai_pick) or multi (any number). It is a SEPARATE axis from kind: kind says what the owner must DO (decide / act), select_mode says how many choices the answer may carry. A single card refuses an answer carrying two indices, and refuses a create marking two options ai_pick.
          * @description - `linked_task` is REQUIRED: `null` for an unbound ask, or `{task_id, step_id}` to bind a step.
          *     - Binding puts the step in `waiting_owner`, and the task unless it is parallel.
          *     - A `task_id` without `step_id`, or omitting `linked_task`, is a 400.
+         *     - A task in `waiting_external` (another step waits on the outside world) still accepts a binding.
+         *     - `about_task_id` names a task without binding a step: nothing waits, and the receipt's `hold_note` says so.
+         *     - While a card's task is open, the task's acting executor is in the audience of the card's `reply_card` events (the payload names it as `task_executor`).
          *     - Opening a card also posts a chat message to the owner.
          *     - Emits a `reply_card` event; a client holding the stream learns of this without polling.
          */
@@ -3283,7 +3287,7 @@ export interface paths {
          * Reassign a task to a staff member or a fresh outsource worker (executor-guarded: a plain agent may reassign only a task it is the acting executor of; owner/admin drive any task). REASSIGN HOLD: until the successor claims the task (claim_task), the predecessor keeps the executor's write rights and is the task's ACTING EXECUTOR, unless it leaves first — an outsource predecessor is reclaimed after `reassign_handover_timeout_secs` with no change to the task (artifact changes do not count), a staff predecessor leaves when dismissed; the successor can only read and claim. Caller authorization (正職授權矩陣, T-23cf): owner/admin may hand a task to any active member or 發包 it to a fresh outsource worker; a 一般正職 may only turn its own task into a 發包 (a staff target is 403); an outsource worker may not reassign at all. An outsource target uses target.runtime claude/codex (absent = claude), lands the task unassigned for the scheduler to spawn under the global parallel cap, and enters the reassigning handover state. Answers with a bounded receipt (``artifact_count``, ``closed_ts``, ``deps``, ``description_sha256``, ``description_size_chars``, ``duplicate_of``, ``executor_id``, ``executor_kind``, ``lock``, ``progress_done``, ``progress_total``, ``status``, ``task_id``, ``title``), not the task — call ``get_task`` when you need the rest.
          * @description - Target is an active member (`kind=staff`) or a new outsource worker (`outsource`).
          *     - Owner/admin reassign any task; ordinary staff may only outsource its OWN; a worker never (403).
-         *     - Waiting cards expire, live steps reset to `pending`, and the task locks until the new executor claims it.
+         *     - Waiting cards that hold a step expire (a card that only names the task stays for the next executor), live steps reset to `pending`, and the task locks until the new executor claims it.
          *     - Under the hold the predecessor keeps the executor's write rights until the successor claims or the predecessor leaves (an outsource predecessor is reclaimed after `reassign_handover_timeout_secs` with no change to the task (artifact changes do not count); a staff predecessor when dismissed); the successor can only read and claim.
          *     - Both sides get a handover message.
          *     - 404 unknown task; 409 terminal or same executor; 400 invalid target.
@@ -6723,9 +6727,14 @@ export interface components {
         };
         /**
          * ReplyCardCreateDTO
-         * @description Open one reply card (請示): an ask the OWNER must answer before the agent can proceed. ``kind`` is the closed set ``decision`` (needs a call/approval) | ``action`` (needs the owner to DO something first). ``options`` are the quick-reply choices: 1..4 objects ``{"text": ..., "ai_pick": true|false}`` with non-blank ``text``; ``ai_pick`` is what marks the AI's own recommendation — POSITION CARRIES NO MEANING. ``select_mode`` (``single``, the default, or ``multi``) says how many of them the owner may circle; a ``single`` card may mark at most one option ``ai_pick``. A free-typed answer (with attachments) is always allowed on top — options never close that door. Optional ``attachments`` ride the QUESTION side of the card (same input shape + limits as chat attachments: ``{id}`` references a blob already uploaded via ``POST /api/chat/attachments``, or ``data_b64`` carries small bytes inline; blobs land in the shared chat-attachment store). ``linked_task`` is REQUIRED and has no default: every card must SAY whether it is about a task. There is no inference — the server never guesses a binding from what work you hold, because a guess that misses is silent (the card opens with no 等我回覆 hold and the task runs past your question).
+         * @description Open one reply card (請示): an ask the OWNER must answer before the agent can proceed. ``kind`` is the closed set ``decision`` (needs a call/approval) | ``action`` (needs the owner to DO something first). ``options`` are the quick-reply choices: 1..4 objects ``{"text": ..., "ai_pick": true|false}`` with non-blank ``text``; ``ai_pick`` is what marks the AI's own recommendation — POSITION CARRIES NO MEANING. ``select_mode`` (``single``, the default, or ``multi``) says how many of them the owner may circle; a ``single`` card may mark at most one option ``ai_pick``. A free-typed answer (with attachments) is always allowed on top — options never close that door. Optional ``attachments`` ride the QUESTION side of the card (same input shape + limits as chat attachments: ``{id}`` references a blob already uploaded via ``POST /api/chat/attachments``, or ``data_b64`` carries small bytes inline; blobs land in the shared chat-attachment store). ``linked_task`` is REQUIRED and has no default: every card must SAY whether it is about a task. There is no inference — the server never guesses a binding from what work you hold, because a guess that misses is silent (the card opens with no 等我回覆 hold and the task runs past your question). ``about_task_id`` is the other way to name a task: it says which task the ask is about WITHOUT holding a step, for an agent that is not that task's executor.
          */
         ReplyCardCreateDTO: {
+            /**
+             * About Task Id
+             * @description OPTIONAL. Names the task this ask is about WITHOUT holding any of its steps — for an agent that is not that task's executor (only the executor may bind a step) or an executor who does not want a step to wait. Meant for ``linked_task: null``; sent next to a ``linked_task`` object it must name the same task, otherwise 400. The task must exist (404) and must not be closed (409). Effects: the owner's queue shows the card under that task; while the task is open its acting executor receives the card's ``reply_card`` events (``task_executor``) and so the same answered / expired notification as the author; the card expires when the task closes. It places NO 等我回覆 hold — no step and no task status changes — which the create receipt's ``hold_note`` states.
+             */
+            about_task_id?: string;
             /** Attachments */
             attachments?: components["schemas"]["ChatAttachmentInputDTO"][];
             /**
@@ -6777,6 +6786,11 @@ export interface components {
              * @description The SERVER's stamp for the card, epoch seconds (api_replycards.go:282, ``now := nowSecs()``). The caller does not send it and cannot compute it.
              */
             created_ts: number;
+            /**
+             * Hold Note
+             * @description Empty on a card that holds a step and on a card that names no task. It carries one sentence in exactly one case: the card names a task (``about_task_id``) but holds none of its steps — that task keeps running and will NOT wait for this answer — and the sentence names the executor who is told when the owner answers. It rides back because nothing else would tell you: the create answers 200 either way, and a card that holds nothing looks exactly like one that holds a step until the task runs past your question. It is decided by this write, not an echo.
+             */
+            hold_note?: string;
             /**
              * Id
              * @description The card id, MINTED HERE (api_replycards.go:283, ``"rc-" + newHexID(12)``). The handle answer_reply_card, reanswer_reply_card, expire_reply_card and get_reply_card all take, and the one thing the caller cannot compute.
@@ -6831,6 +6845,11 @@ export interface components {
             summary: string;
             /** Task */
             task?: components["schemas"]["TaskRefDTO"] | null;
+            /**
+             * Task Executor
+             * @description The acting executor of the card's task, read when this response is built (it follows a reassignment), so the reader can tell an answer that concerns its own task from one that concerns somebody else's. Empty when the card names no task, when that task has no executor, or when the task is closed. A member's listener treats a card as its own when ``from`` OR ``task_executor`` is that member.
+             */
+            task_executor?: string;
         };
         /**
          * ReplyCardLinkDTO
@@ -6873,6 +6892,11 @@ export interface components {
             summary: string;
             /** Task */
             task?: components["schemas"]["TaskRefDTO"] | null;
+            /**
+             * Task Executor
+             * @description The acting executor of the card's task, read when this response is built (it follows a reassignment), so the reader can tell an answer that concerns its own task from one that concerns somebody else's. Empty when the card names no task, when that task has no executor, or when the task is closed. A member's listener treats a card as its own when ``from`` OR ``task_executor`` is that member.
+             */
+            task_executor?: string;
         };
         /**
          * ReplyCardOptionDTO
