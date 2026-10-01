@@ -112,6 +112,57 @@ describe("RuntimeLoginDialog", () => {
     expect(screen.queryByTestId("runtime-login-restart")).toBeNull();
   });
 
+  it("under a partial code (422), it says the code is incomplete and keeps the code box for another paste", async () => {
+    mount();
+    await flush();
+    await emit(login({ state: "awaiting_code", authUrl: URL }));
+    submitRuntimeLoginCode.mockRejectedValueOnce(
+      new ApiError("http 422 for POST", 422, codeForStatus(422), "code is incomplete: copy the whole code the sign-in page shows (two parts joined by '#')")
+    );
+    fireEvent.change(screen.getByTestId("runtime-login-code"), { target: { value: "abc" } });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("runtime-login-submit"));
+    });
+    await flush();
+    expect(text("runtime-login-code-refused")).toBe("授權碼不完整，請複製完整的授權碼");
+    expect(screen.getByTestId("runtime-login-awaiting")).toBeTruthy();
+    expect(screen.queryByTestId("runtime-login-failed")).toBeNull();
+
+    submitRuntimeLoginCode.mockResolvedValueOnce(login({ state: "verifying", authUrl: URL }));
+    fireEvent.change(screen.getByTestId("runtime-login-code"), { target: { value: "abc#s1" } });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("runtime-login-submit"));
+    });
+    await flush();
+    expect(submitRuntimeLoginCode).toHaveBeenLastCalledWith("m-box", "rl-1", "abc#s1");
+    expect(text("runtime-login-verifying")).toBe("登入中…");
+  });
+
+  it("under a login the machine's CLI sent back to awaiting_code with a reason, it asks for the whole code again", async () => {
+    mount();
+    await flush();
+    await emit(login({ state: "awaiting_code", authUrl: URL, reason: "Invalid code. Please make sure the full code was copied." }));
+    expect(text("runtime-login-code-refused")).toBe("授權碼不完整，請複製完整的授權碼");
+    expect((screen.getByTestId("runtime-login-code") as HTMLInputElement).disabled).toBe(false);
+  });
+
+  it("under a 409 on the code, it shows the Chinese reason rather than the server's English", async () => {
+    mount();
+    await flush();
+    await emit(login({ state: "awaiting_code", authUrl: URL }));
+    submitRuntimeLoginCode.mockRejectedValueOnce(
+      new ApiError("http 409 for POST", 409, codeForStatus(409), "machine is offline; its warden cannot run a login")
+    );
+    fireEvent.change(screen.getByTestId("runtime-login-code"), { target: { value: "abc#s1" } });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("runtime-login-submit"));
+    });
+    await flush();
+    expect(text("runtime-login-failed")).toBe(
+      "登入失敗：這次登入已無法接收授權碼（機器可能已離線，或登入已結束），請重新開始"
+    );
+  });
+
   it("under a machine that is already logged in, it says the account will be replaced until the login ends", async () => {
     mount({ loggedIn: true });
     await flush();
@@ -142,6 +193,57 @@ describe("RuntimeLoginDialog", () => {
     expect(startRuntimeLogin).toHaveBeenCalledTimes(2);
     expect(cancelRuntimeLogin).not.toHaveBeenCalled();
     expect(text("runtime-login-preparing")).toBe("正在請 工作站 準備登入…");
+  });
+
+  it("under 重新開始 while a login is still in flight, the new start waits until the cancel has landed", async () => {
+    mount();
+    await flush();
+    let landCancel: () => void = () => {};
+    cancelRuntimeLogin.mockReturnValueOnce(
+      new Promise((resolve) => {
+        landCancel = () => resolve(login({ state: "cancelled" }));
+      })
+    );
+    await emit(login({ state: "awaiting_code", authUrl: URL }));
+    submitRuntimeLoginCode.mockRejectedValueOnce(
+      new ApiError("http 409 for POST", 409, codeForStatus(409), "x")
+    );
+    fireEvent.change(screen.getByTestId("runtime-login-code"), { target: { value: "abc#s1" } });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("runtime-login-submit"));
+    });
+    await flush();
+    startRuntimeLogin.mockResolvedValue(login({ loginId: "rl-2" }));
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("runtime-login-restart"));
+    });
+    await flush();
+    expect(cancelRuntimeLogin).toHaveBeenCalledWith("m-box", "rl-1");
+    expect(startRuntimeLogin).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      landCancel();
+    });
+    await flush();
+    expect(startRuntimeLogin).toHaveBeenCalledTimes(2);
+  });
+
+  it("under the dialog unmounting with a login in flight (page navigation), the login is cancelled once", async () => {
+    const view = mount();
+    await flush();
+    await emit(login({ state: "awaiting_code", authUrl: URL }));
+    expect(cancelRuntimeLogin).not.toHaveBeenCalled();
+    view.unmount();
+    expect(cancelRuntimeLogin).toHaveBeenCalledTimes(1);
+    expect(cancelRuntimeLogin).toHaveBeenCalledWith("m-box", "rl-1");
+  });
+
+  it("under a close followed by the unmount it causes, the login is cancelled only once", async () => {
+    let view: ReturnType<typeof mount> | null = null;
+    view = mount({ onClose: () => view?.unmount() });
+    await flush();
+    await emit(login({ state: "awaiting_code", authUrl: URL }));
+    fireEvent.click(screen.getByTestId("runtime-login-close"));
+    expect(cancelRuntimeLogin).toHaveBeenCalledTimes(1);
   });
 
   it("under an offline warden (409 on start), it says the machine did not answer and why", async () => {

@@ -39,6 +39,7 @@ export function RuntimeLoginDialog({
   const [login, setLogin] = useState<RuntimeLoginView | null>(null);
   const [failure, setFailure] = useState<Failure | null>(null);
   const [code, setCode] = useState("");
+  const [codeRefused, setCodeRefused] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [copied, setCopied] = useState(false);
   const loginRef = useRef<RuntimeLoginView | null>(null);
@@ -50,6 +51,7 @@ export function RuntimeLoginDialog({
     setLogin(null);
     setFailure(null);
     setCode("");
+    setCodeRefused(false);
     api
       .startRuntimeLogin(machineId, "claude")
       .then((next) => {
@@ -60,7 +62,7 @@ export function RuntimeLoginDialog({
         setFailure(
           isHttpStatus(e, 409)
             ? { kind: "noResponse" }
-            : { kind: "error", message: serverMessageOf(e) || String(e) }
+            : { kind: "error", message: isHttpStatus(e, 422) ? m.startRefused : serverMessageOf(e) || String(e) }
         );
       });
     return () => {
@@ -95,21 +97,33 @@ export function RuntimeLoginDialog({
     return () => window.clearTimeout(timer);
   }, [stillStarting, machineId, attempt]);
 
-  const cancelInFlight = useCallback(() => {
+  const cancelledRef = useRef(new Set<string>());
+  const cancelInFlight = useCallback((): Promise<void> => {
     const current = loginRef.current;
-    if (current && !isTerminal(current.state)) {
-      void api.cancelRuntimeLogin(machineId, current.loginId).catch(() => {});
+    if (!current || isTerminal(current.state) || cancelledRef.current.has(current.loginId)) {
+      return Promise.resolve();
     }
+    cancelledRef.current.add(current.loginId);
+    return api
+      .cancelRuntimeLogin(machineId, current.loginId)
+      .then(() => {})
+      .catch(() => {});
   }, [machineId]);
 
+  // Leaving the page must end the machine's login process too, not just the
+  // close button.
+  useEffect(() => () => void cancelInFlight(), [cancelInFlight]);
+
   const close = useCallback(() => {
-    cancelInFlight();
+    void cancelInFlight();
     onClose();
   }, [cancelInFlight, onClose]);
   useEscapeLayer(close, rootRef);
 
-  function restart() {
-    cancelInFlight();
+  // The cancel must land first: a start while the old login is still in flight
+  // answers that old login, which the late cancel then ends.
+  async function restart() {
+    await cancelInFlight();
     setAttempt((a) => a + 1);
   }
 
@@ -117,11 +131,18 @@ export function RuntimeLoginDialog({
     const current = loginRef.current;
     if (!current || submitting || code.trim() === "") return;
     setSubmitting(true);
+    setCodeRefused(false);
     try {
       setLogin(await api.submitRuntimeLoginCode(machineId, current.loginId, code.trim()));
       setCode("");
     } catch (e) {
-      setFailure({ kind: "error", message: serverMessageOf(e) || String(e) });
+      if (isHttpStatus(e, 422)) {
+        setCodeRefused(true);
+      } else if (isHttpStatus(e, 409)) {
+        setFailure({ kind: "error", message: m.codeConflict });
+      } else {
+        setFailure({ kind: "error", message: serverMessageOf(e) || String(e) });
+      }
     } finally {
       setSubmitting(false);
     }
@@ -142,7 +163,7 @@ export function RuntimeLoginDialog({
       type="button"
       className="confirm-modal__btn confirm-modal__btn--accent"
       data-testid="runtime-login-restart"
-      onClick={restart}
+      onClick={() => void restart()}
     >
       {m.restart}
     </button>
@@ -221,6 +242,11 @@ export function RuntimeLoginDialog({
               onChange={(e) => setCode(e.target.value)}
             />
           </label>
+          {(codeRefused || login.reason) && (
+            <p className="runtime-login__line runtime-login__line--bad" data-testid="runtime-login-code-refused">
+              {m.codeIncomplete}
+            </p>
+          )}
           <button
             type="submit"
             className="confirm-modal__btn confirm-modal__btn--accent"
