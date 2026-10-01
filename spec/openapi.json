@@ -14639,7 +14639,7 @@
     },
     "/api/members/{member_id}/accelerated-stop": {
       "post": {
-        "description": "- Puts an already-open wind-down on a clock (default 120 s) and tells the member, quoting the deadline.\n- It does not open one: not yet asked to stop, no live session, or already force-stopped is a 409.\n- The clock runs from this press, not from the earlier stop.\n- Owner token or admin-role member only.\n- Emits a `member` event; a client holding the stream learns of this without polling.",
+        "description": "- Puts an already-open wind-down on a clock (default 120 s) and tells the member, quoting the deadline.\n- It does not open one: not yet asked to stop, no live session, or already force-stopped is a 409.\n- The clock runs from this press, not from the earlier stop.\n- A wind-down already on a clock keeps its deadline: pressing again never moves it later.\n- Owner token or admin-role member only.\n- Emits a `member` event; a client holding the stream learns of this without polling.",
         "operationId": "handle_accelerated_stop_member_api_members__member_id__accelerated_stop_post",
         "parameters": [
           {
