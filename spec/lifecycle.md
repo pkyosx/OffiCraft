@@ -791,7 +791,10 @@ The server owns desired-state reconciliation; the warden is a stateless executor
   instant tick makes the next cadence tick a no-op (idempotent, no double spawn).
 - Candidate set per cadence tick: every ACTIVE non-warden member, plus any ACTIVE warden
   whose `desired_state == "uninstall"` (wardens are never spawn/stop candidates — no warden
-  reconciles another warden).
+  reconciles another warden), plus a dismissed staff member only while the robust STOP its
+  dismissal sent is still owed (`RobustStopPendingAt`). It leaves the set once that STOP is
+  judged landed, so the session-gone collect of §4.3 never reaches it: the dismissal's STOP
+  is its only one.
 - The tick loop MUST survive any single tick fault (log and continue).
 
 ### 4.2 Inputs
