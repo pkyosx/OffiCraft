@@ -3807,6 +3807,63 @@ func TestReconcileWorkerLiveness(t *testing.T) {
 		}))
 	})
 
+	// The same codex-only machine answers both runtimes: the receipt must follow the worker's own
+	// 執行環境, or a codex worker is told to switch to the Codex it already runs.
+	codexOnlyTimedOut := func(t *testing.T, runtime, model string) (http.Handler, string) {
+		t.Helper()
+		api, h, d, owner, w := wsWindDown(t, WorkerStatusActive, DesiredStateOnline, "", 0, 0, 0, false)
+		// PutOutsourceWorker leaves an existing row's runtime alone; these columns have their own writers.
+		w.Runtime, w.Model = runtime, model
+		if err := d.SetMemberRuntime(w.ID, runtime); err != nil {
+			t.Fatalf("SetMemberRuntime: %v", err)
+		}
+		if err := d.SetMemberModel(w.ID, model); err != nil {
+			t.Fatalf("SetMemberModel: %v", err)
+		}
+		apiTestListen(t, api, ServerSelfHost)
+		api.telemetry.Set(ServerSelfHost, map[string]any{"runtimes": map[string]any{
+			"claude": map[string]any{"installed": false},
+			"codex":  map[string]any{"installed": true, "logged_in": true},
+		}})
+
+		api.outsourceMu.Lock()
+		api.workerSpawnTarget["ow-abc123"] = ServerSelfHost
+		api.setReconcileState("ow-abc123", reconcileState{
+			Phase: reconcilePhaseStarting, LastCommand: reconcileCmdStart, LastCommandAt: 500,
+		})
+		api.reconcileWorkerLiveness(w, 1000)
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "the verbs dispatched", any(wsVerbs(t, api, ServerSelfHost)), any([]any{}))
+		return h, owner
+	}
+
+	t.Run("a claude worker whose START lapsed on a codex-only machine is told that machine has no Claude Code and offered Codex", func(t *testing.T) {
+		h, owner := codexOnlyTimedOut(t, RuntimeClaude, "sonnet")
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "active", "desired_state": "online", "machine": "m-server-self",
+			"last_op": "start", "last_op_ok": false, "last_op_at": 1000,
+			"last_op_reason": "wake_timeout: the START was dispatched to machine " +
+				"'m-server-self' but the agent never came online within the start window — " +
+				"that machine reports no Claude Code installed, so the agent cannot boot " +
+				"there. Fix any one: set its 執行環境 to Codex (that machine has it ready); " +
+				"or install Claude Code on that machine (warden log: ocwarden.out.log)",
+		}))
+	})
+
+	t.Run("a codex worker whose START lapsed on that same codex-only machine is pointed at codex, not offered the switch it already made", func(t *testing.T) {
+		h, owner := codexOnlyTimedOut(t, RuntimeCodex, "gpt-5")
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"runtime": "codex", "model": "gpt-5",
+			"status": "active", "desired_state": "online", "machine": "m-server-self",
+			"last_op": "start", "last_op_ok": false, "last_op_at": 1000,
+			"last_op_reason": "wake_timeout: the START was dispatched to machine " +
+				"'m-server-self' but the agent never came online within the start window — " +
+				"check that codex runs and is logged in on that machine " +
+				"(warden log: ocwarden.out.log)",
+		}))
+	})
+
 	t.Run("a START still sitting on that machine's queue says nobody picked it up, so the runtime is not the suspect", func(t *testing.T) {
 		api, h, _, owner, w := wsWindDown(t, WorkerStatusActive, DesiredStateOnline, "", 0, 0, 0, false)
 		apiTestListen(t, api, ServerSelfHost)
