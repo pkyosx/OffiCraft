@@ -4571,6 +4571,21 @@
         "type": "object"
       },
       "name": "reset_task_manual"
+    },
+    {
+      "description": "Read a staff member's boot-context preview (owner/admin agent).",
+      "inputSchema": {
+        "properties": {
+          "member_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "member_id"
+        ],
+        "type": "object"
+      },
+      "name": "get_member_boot_context"
     }
   ]
 }

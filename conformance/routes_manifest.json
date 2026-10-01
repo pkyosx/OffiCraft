@@ -1286,5 +1286,12 @@
     "method": "POST",
     "path": "/api/task-manuals/{type_key}/reset",
     "requires": "admin_agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "get_member_boot_context",
+    "method": "GET",
+    "path": "/api/members/{member_id}/boot-context",
+    "requires": "admin_agent"
   }
 ]

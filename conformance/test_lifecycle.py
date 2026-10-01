@@ -44,7 +44,7 @@ import pathlib
 import time
 import uuid
 
-from conftest import hire_member
+from conftest import hire_member, mint_member_token
 from sse_client import SSEConnection
 
 HERE = pathlib.Path(__file__).resolve().parent
@@ -571,6 +571,55 @@ def test_boot_fold_written_insight_appears_under_its_own_header(
             f"/api/insight/{role_key}/reset", headers=_auth(owner_token)
         )
         assert reset.status_code == 200, reset.text
+
+
+def test_member_boot_context_preview_equals_the_member_boot_fold_verbatim(
+    client, owner_token
+) -> None:
+    """The staff preview (GET /api/members/{id}/boot-context) serves exactly
+    the text the member's own bootstrap assembles, byte for byte, including
+    that member's 傳承 entry, and carries no token."""
+    r = client.post("/api/global-context/reset", headers=_auth(owner_token))
+    assert r.status_code == 200, r.text
+    member_id = hire_member(client, owner_token, f"conf-lc-preview-{uuid.uuid4().hex[:6]}")
+    member = client.get(f"/api/members/{member_id}", headers=_auth(owner_token))
+    assert member.status_code == 200, member.text
+    assert member.json()["runtime"] in ("", "claude"), member.json()
+    role_key = member.json()["role_key"]
+
+    lore_title = f"conf preview lore {uuid.uuid4().hex[:8]}"
+    member_token = mint_member_token(client, owner_token, member_id, ttl_days=1)
+    r = client.post(
+        "/api/lore",
+        json={"title": lore_title, "body": "conf preview lore body"},
+        headers=_auth(member_token),
+    )
+    assert r.status_code == 200, r.text
+
+    try:
+        preview = client.get(
+            f"/api/members/{member_id}/boot-context", headers=_auth(owner_token)
+        )
+        assert preview.status_code == 200, preview.text
+        assert set(preview.json()) == {"context"}, preview.json()
+        context = preview.json()["context"]
+
+        boot = client.post(
+            "/api/bootstrap", json={"member_id": member_id}, headers=_auth(owner_token)
+        )
+        assert boot.status_code == 200, boot.text
+        assert context == boot.json()["context"], (
+            "the preview differs from the context the member's bootstrap assembles "
+            f"(len preview={len(context)} vs boot={len(boot.json()['context'])})"
+        )
+        assert f" {lore_title}" in context, context
+        expected = _expected_context(client, owner_token, role_key, "", member_id)
+        assert context == expected, (
+            "the preview does not reproduce the §2.2 assembly byte-for-byte "
+            f"(len served={len(context)} vs expected={len(expected)})"
+        )
+    finally:
+        client.delete(f"/api/members/{member_id}", headers=_auth(owner_token))
 
 
 def test_bootstrap_unknown_role_404(client, owner_token) -> None:

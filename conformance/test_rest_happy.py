@@ -2233,6 +2233,15 @@ HAPPY: dict[str, Happy] = {
         path=lambda ctx: f"/api/members/{ctx.agent.member_id}",
         check=_check_member_read,
     ),
+    "GET /api/members/{member_id}/boot-context": Happy(
+        path=lambda ctx: f"/api/members/{ctx.agent.member_id}/boot-context",
+        check=lambda _ctx, r: _expect(
+            r,
+            lambda d: set(d) == {"context"}
+            and d["context"].endswith("\n")
+            and "# Role: " in d["context"],
+        ),
+    ),
     "PATCH /api/members/{member_id}": Happy(
         path=lambda ctx: f"/api/members/{ctx.fresh_member()}",
         body={"name": "conf-happy-renamed"},

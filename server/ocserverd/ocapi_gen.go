@@ -1860,6 +1860,11 @@ type MemberAvatarDTO struct {
 	Mime      *string `json:"mime,omitempty"`
 }
 
+// MemberBootContextDTO A staff member's boot-context PREVIEW (GET /api/members/{member_id}/boot-context): the text buildBootContext assembles for THIS member right now, which is the context the start path would hand the warden at this moment. It carries the member's 傳承 block (“everyone“ entries first, then the member's own, under one “lore_cap_chars_role“ budget) and the boot sequence for the member's own runtime; it excludes the header the warden prepends for its runtime. Nothing is stored and no token is minted.
+type MemberBootContextDTO struct {
+	Context string `json:"context"`
+}
+
 // MemberDTO API representation of one “domain.Member“ (a roster member; §3.4 #8/#10).
 //
 // Carries the durable roster fields PLUS one projection the domain computes at
@@ -4970,6 +4975,9 @@ type ServerInterface interface {
 	// Upload or replace a member's personal avatar (owner only).
 	// (PUT /api/members/{member_id}/avatar)
 	HandlePutMemberAvatarApiMembersMemberIdAvatarPut(w http.ResponseWriter, r *http.Request, memberId string, params HandlePutMemberAvatarApiMembersMemberIdAvatarPutParams)
+	// Read a staff member's boot-context preview (owner/admin agent).
+	// (GET /api/members/{member_id}/boot-context)
+	HandleGetMemberBootContextApiMembersMemberIdBootContextGet(w http.ResponseWriter, r *http.Request, memberId string)
 	// Reset one actor's estimated spend to zero (owner-only, irreversible): clears the durable banked figure AND the live telemetry figure.
 	// (POST /api/members/{member_id}/cost/reset)
 	HandleResetCostApiMembersMemberIdCostResetPost(w http.ResponseWriter, r *http.Request, memberId string)
@@ -7679,6 +7687,32 @@ func (siw *ServerInterfaceWrapper) HandlePutMemberAvatarApiMembersMemberIdAvatar
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.HandlePutMemberAvatarApiMembersMemberIdAvatarPut(w, r, memberId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleGetMemberBootContextApiMembersMemberIdBootContextGet operation middleware
+func (siw *ServerInterfaceWrapper) HandleGetMemberBootContextApiMembersMemberIdBootContextGet(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "member_id" -------------
+	var memberId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "member_id", r.PathValue("member_id"), &memberId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "member_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleGetMemberBootContextApiMembersMemberIdBootContextGet(w, r, memberId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -10428,6 +10462,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/members/{member_id}/activate", wrapper.HandleActivateMemberApiMembersMemberIdActivatePost)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/members/{member_id}/avatar", wrapper.HandleDeleteMemberAvatarApiMembersMemberIdAvatarDelete)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/members/{member_id}/avatar", wrapper.HandlePutMemberAvatarApiMembersMemberIdAvatarPut)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/members/{member_id}/boot-context", wrapper.HandleGetMemberBootContextApiMembersMemberIdBootContextGet)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/members/{member_id}/cost/reset", wrapper.HandleResetCostApiMembersMemberIdCostResetPost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/members/{member_id}/deactivate", wrapper.HandleDeactivateMemberApiMembersMemberIdDeactivatePost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/members/{member_id}/force-stop", wrapper.HandleForceStopMemberApiMembersMemberIdForceStopPost)

@@ -814,6 +814,14 @@ MATRIX: dict[str, Route] = {
         requires="machine",
         path=lambda ctx, _i: f"/api/members/{ctx.agent_a.member_id}",
     ),
+    "GET /api/members/{member_id}/boot-context": Route(
+        # The positive faces probe an id no roster row carries, so at the
+        # floor the gate passes and the handler answers its own 404; a 200
+        # here would mean the preview resolved a member that does not exist.
+        requires="admin_agent",
+        path=lambda _ctx, _i: "/api/members/m-nope/boot-context",
+        overrides={"owner": 404, "admin_agent": 404},
+    ),
     "PATCH /api/members/{member_id}": Route(
         requires="machine",
         path=lambda ctx, _i: f"/api/members/{ctx.agent_a.member_id}",
