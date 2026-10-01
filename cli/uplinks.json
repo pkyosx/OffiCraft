@@ -323,6 +323,32 @@
       "seam_reason": "Construction of the poster seam for command receipts. The send through it is warden-command-result, compared there."
     },
     {
+      "id": "warden-login-reporter-wired",
+      "source": "cli/ocwarden/main.go",
+      "callsite": "deps.Login = newLoginRelay(login, newLoginReporter(cfg), logf)",
+      "kind": "seam",
+      "seam_reason": "builds the runtime-login reporter closure and hands it to the login relay; the POST inside it is declared by warden-runtime-login-report"
+    },
+    {
+      "id": "warden-login-poster-built",
+      "source": "cli/ocwarden/runtimelogin.go",
+      "callsite": "post := httpPoster(&http.Client{Timeout: commandReportTimeout}, cfg.Base, cfg.Token)\n\treturn func(rep loginReport) string {",
+      "kind": "seam",
+      "seam_reason": "Construction of the poster seam for runtime-login reports. The send through it is warden-runtime-login-report, compared there."
+    },
+    {
+      "id": "warden-runtime-login-report",
+      "source": "cli/ocwarden/runtimelogin.go",
+      "callsite": "_, body := post(runtimeLoginPath, loginReportPayload(rep))",
+      "kind": "json",
+      "method": "post",
+      "path": "/api/monitoring/runtime-login",
+      "request_schema": "#/components/schemas/RuntimeLoginReportDTO",
+      "wire_test": "cli/ocwarden/runtimelogin_wire_test.go",
+      "wire_needle": "newLoginReporter(Config{Base: base, Token: \"tok\", ID: \"m-1\"})(rep)",
+      "wire_case": "runtime-login"
+    },
+    {
       "id": "ocagent-reportpost-seam",
       "source": "cli/ocagent/contextreport.go",
       "callsite": "status, detail := httpRequest(client, http.MethodPost, cfg.Base+path, cfg.Token, body)",
@@ -704,7 +730,7 @@
     {
       "id": "warden-transport-3",
       "source": "cli/ocwarden/main.go",
-      "callsite": "return buildCommandDeps(cfg, env, runner, launchEnv, login), login, login.setIntervals",
+      "callsite": "deps = buildCommandDeps(cfg, env, runner, launchEnv, login)",
       "kind": "seam",
       "seam_reason": "builds CommandDeps, whose Report field is the command_result reporter; the POST is declared by warden-command-result"
     },

@@ -743,7 +743,9 @@ func wireLoginCheck(cfg Config, env func(string) string, runner CmdRunner, goos 
 		keep = k
 	}
 	login = newLoginProber(env, runner, keep, goos, launchEnv, logf)
-	return buildCommandDeps(cfg, env, runner, launchEnv, login), login, login.setIntervals
+	deps = buildCommandDeps(cfg, env, runner, launchEnv, login)
+	deps.Login = newLoginRelay(login, newLoginReporter(cfg), logf)
+	return deps, login, login.setIntervals
 }
 
 func main() {

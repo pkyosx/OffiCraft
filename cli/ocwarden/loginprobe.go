@@ -121,6 +121,14 @@ type loginProber struct {
 	captureTried bool
 	claude       runtimeLogin
 	codex        runtimeLogin
+	// Display values from the last claude auth status; they leave the machine
+	// only in a runtime-login report.
+	claudeAccount loginAccount
+}
+
+type loginAccount struct {
+	Email   string
+	OrgName string
 }
 
 type runtimeLogin struct {
@@ -291,7 +299,7 @@ func (p *loginProber) codexLoggedIn() (*bool, bool) {
 }
 
 // The stdout of `claude auth status` carries the account's email and
-// organization: it is decoded into the one boolean and never logged or sent.
+// organization: never logged, and sent only by a runtime login the owner started.
 func (p *loginProber) claudeLoggedIn() (*bool, bool) {
 	bin := resolveClaudeBin(p.env)
 	if bin == "" || p.claudeHome.Home == "" || p.keep == nil {
@@ -304,9 +312,13 @@ func (p *loginProber) claudeLoggedIn() (*bool, bool) {
 		_ = p.remove(rendered)
 	}
 	var status struct {
-		LoggedIn *bool `json:"loggedIn"`
+		LoggedIn *bool  `json:"loggedIn"`
+		Email    string `json:"email"`
+		OrgName  string `json:"orgName"`
 	}
-	if json.Unmarshal([]byte(strings.TrimSpace(out)), &status) != nil || status.LoggedIn == nil {
+	parseErr := json.Unmarshal([]byte(strings.TrimSpace(out)), &status)
+	p.claudeAccount = loginAccount{Email: status.Email, OrgName: status.OrgName}
+	if parseErr != nil || status.LoggedIn == nil {
 		if err != nil {
 			p.log("[ocwarden runtimeprobe] claude auth status gave no login verdict (bin=%s): %v", bin, err)
 		} else {
@@ -358,13 +370,21 @@ func (p *loginProber) shell() string {
 	return "/bin/sh"
 }
 
-// The render holds the env file's credentials, so the caller removes it as soon
-// as the command has run.
 func (p *loginProber) claudeStatusCommand(bin string) (string, string) {
+	return p.claudeCommand(bin, loginCheckEnvName, "auth status")
+}
+
+// claudeCommand is the one launch prologue every claude the warden runs outside
+// a member shares with the member spawn (claudeChildEnvPrologue + the HOME /
+// CLAUDE_CONFIG_DIR exports). 🔴 The keychain entry claude reads and writes is
+// named from CLAUDE_CONFIG_DIR, so a login run under any other env stores a
+// credential members never see. The render holds the env file's credentials, so
+// the caller removes it as soon as the command has run.
+func (p *loginProber) claudeCommand(bin, renderName, subcommand string) (string, string) {
 	rendered := ""
 	pairs := mergeAgentEnv(p.launchEnv.interactive(), loadAgentEnv(p.envFile, nil))
 	if len(pairs) > 0 && p.agentHome != "" {
-		path := filepath.Join(p.agentHome, loginCheckEnvName)
+		path := filepath.Join(p.agentHome, renderName)
 		if err := p.mkdirAll(p.agentHome, 0o700); err == nil {
 			if err := p.writeFile(path, renderAgentEnvFile(pairs), 0o600); err == nil {
 				rendered = path
@@ -383,5 +403,22 @@ func (p *loginProber) claudeStatusCommand(bin string) (string, string) {
 		}
 		cmd += "export " + strings.Join(kvs, " ") + "; "
 	}
-	return cmd + "exec " + shellQuote(bin) + " auth status", rendered
+	return cmd + "exec " + shellQuote(bin) + " " + subcommand, rendered
+}
+
+// prepareLaunchEnv gives a command built outside the check the same captured
+// shell layer the check would use.
+func (p *loginProber) prepareLaunchEnv() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.ensureLaunchEnv()
+}
+
+// checkClaudeAccount is checkNow("claude") plus the account that same auth
+// status named.
+func (p *loginProber) checkClaudeAccount() (*bool, loginAccount) {
+	verdict := p.checkNow("claude")
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return verdict, p.claudeAccount
 }
