@@ -141,6 +141,11 @@ func (r execRunner) Run(name string, args ...string) (string, error) {
 	return r.exec("execRunner.Run", false, name, args...)
 }
 
+func (r execRunner) withTimeout(timeout time.Duration) CmdRunner {
+	r.timeout = timeout
+	return r
+}
+
 // RunKeepStdout also returns stdout from a non-zero exit (`claude auth status`
 // answers a logged-out host with exit 1 AND its verdict on stdout). stdout never
 // enters the error: it can carry the account's email and organization.

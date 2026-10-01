@@ -27,11 +27,13 @@ const receiptMissingReasonCode = "receipt_missing"
 //     interactiveEnvWaitDelay 2s;
 //   - Codex only, resolving a model family word: `codex --version` (5s) and the
 //     model list, codexAppResponseTimeout 30s;
+//   - Claude only, the prompt-file probe, claudePromptFileProbeBudget 2s +
+//     subprocessWaitDelay 2s;
 //   - Claude only, the boot-nudge loop, which always runs all nudgeMaxAttempts ×
 //     nudgeSettle = 30s;
 //
 // After those, commandReportTimeout 5s, plus up to one 30s lifecycle cadence
-// before the deadline is read. Worst case ≈ 92s for Claude and ≈ 97s for a Codex family
+// before the deadline is read. Worst case ≈ 96s for Claude and ≈ 97s for a Codex family
 // word — PAST this 90s deadline, so a start that is merely slow at every step
 // can be stamped receipt_missing with nothing wrong. Known and left as is here.
 // 🔴 Those warden constants live in another Go module and nothing links them;

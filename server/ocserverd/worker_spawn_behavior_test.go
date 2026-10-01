@@ -131,7 +131,7 @@ func TestBuildWorkerBootContext_FullAssembly(t *testing.T) {
 	}
 
 	// No identity block: identity arrives the way it always has for staff,
-	// through the launcher's --append-system-prompt.
+	// through the header the launcher puts in front of the boot context.
 	for _, gone := range []string{"# 你的身分", w.ID, w.Codename} {
 		if strings.Contains(got, gone) {
 			t.Errorf("worker boot context still carries %q — a worker reads the staff "+

@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -37,6 +38,8 @@ type spawnHarness struct {
 	pretrusts int
 	pretrustE error
 	purges    int
+	// promptProbes records every "does this claude take a prompt file" question.
+	promptProbes []string
 }
 
 func (h *spawnHarness) deps() SpawnDeps {
@@ -50,7 +53,11 @@ func (h *spawnHarness) deps() SpawnDeps {
 		// tell a launch line that exported the wrong one.
 		ClaudeHome: claudeHome{Home: "/Users/wardenowner"},
 		ClaudeBin:  "/usr/local/bin/claude",
-		RepoRoot:   "/repo",
+		ClaudeTakesPromptFile: func(promptFile string) (bool, string) {
+			h.promptProbes = append(h.promptProbes, promptFile)
+			return true, ""
+		},
+		RepoRoot: "/repo",
 		ResolveOcAgentBin: func() (string, bool) {
 			return "/Users/eva/.officraft/warden/ocagent", true
 		},
@@ -112,11 +119,20 @@ var goldenLaunchM1 = `cd /w/m1; ` + goldenClaudePurge + `unset CLAUDE_CONFIG_DIR
 	`export PATH=/w/m1:"$PATH"; ` +
 	`exec /usr/local/bin/claude --dangerously-skip-permissions ` +
 	`--disallowedTools AskUserQuestion --mcp-config /w/m1/.mcp.json --effort medium ` +
-	`--append-system-prompt '你是 m1(role=builder)。你的完整身分、操作準則與開機程序都由 launcher 預抓在本地檔 ` +
-	`/w/m1/persona.md。第一步:用 Read 工具把它從頭到尾整份讀完 —— 不要帶 offset/limit,不要只讀開頭,` +
-	`也不准用 cat/head/tail/sed 或任何終端機指令讀它:這個檔有數萬字元,終端機輸出只有開頭一小段會進到你的 context,` +
-	`其餘會被靜默丟棄而且不會有任何錯誤訊息,而「開機程序」在整份檔案的最後面。` +
-	`整份讀完後,照裡面「開機程序」段逐步執行。' --settings ` + shellQuote(goldenInlineSettings)
+	`--append-system-prompt-file /w/m1/system-prompt.md --settings ` + shellQuote(goldenInlineSettings)
+
+// goldenSystemPromptM1 is what the member reads as its appended system prompt:
+// the header, then the persona verbatim.
+const goldenSystemPromptM1 = "你是 m1(role=builder)。以下「---」之後是你的 OffiCraft 開機檔全文" +
+	"(與 /w/m1/persona.md 內容相同),它已經在你的 system prompt 裡:不要再用任何工具讀那個檔。" +
+	"開機時照開機檔最後的「啟動步驟」逐步執行。\n---\nyou are m1"
+
+const goldenFallbackPromptM1 = "你是 m1(role=builder)。你的完整身分、操作準則與啟動步驟都由 " +
+	"launcher 預抓在本地檔 /w/m1/persona.md。第一步:用 Read 工具從第一行讀到最後一行;" +
+	"一次 Read 讀不完時,用 offset/limit 從上一次停下的那一行接著讀,直到讀到最後一行。" +
+	"不要用 cat/head/tail/sed 或任何終端機指令讀它:終端機輸出只有開頭一小段會進到你的 context," +
+	"其餘會被靜默丟棄而且不會有任何錯誤訊息,而「啟動步驟」在整份檔案的最後面。" +
+	"整份讀完後,照裡面「啟動步驟」段逐步執行。"
 
 // goldenListenerM1 is the line the member's own SSE listener runs under — typed
 // out rather than built from buildListenerLaunchCommand, so a change to that
@@ -248,18 +264,89 @@ func TestBuildStatuslineSettings(t *testing.T) {
 	}
 }
 
-func TestBuildAppendSystemPrompt(t *testing.T) {
-	want := "你是 m1(role=builder)。你的完整身分、操作準則與開機程序都由 launcher 預抓在本地檔 " +
-		"/w/m1/persona.md。第一步:用 Read 工具把它從頭到尾整份讀完 —— " +
-		"不要帶 offset/limit,不要只讀開頭,也不准用 cat/head/tail/sed 或任何終端機指令讀它:" +
-		"這個檔有數萬字元,終端機輸出只有開頭一小段會進到你的 context," +
-		"其餘會被靜默丟棄而且不會有任何錯誤訊息,而「開機程序」在整份檔案的最後面。" +
-		"整份讀完後,照裡面「開機程序」段逐步執行。"
-	if got := buildAppendSystemPrompt("m1", "builder", "/w/m1/persona.md"); got != want {
-		t.Errorf("prompt =\n%q\nwant\n%q", got, want)
+func TestBuildClaudeSystemPrompt(t *testing.T) {
+	if got := buildClaudeSystemPrompt("m1", "builder", "/w/m1/persona.md", "you are m1"); got != goldenSystemPromptM1 {
+		t.Errorf("prompt =\n%q\nwant\n%q", got, goldenSystemPromptM1)
 	}
-	if got := buildAppendSystemPrompt("m1", "builder", "/w/m1/persona.md"); strings.Contains(got, "you are m1") {
-		t.Error("the persona itself must ride the file, never this prompt")
+}
+
+func TestBuildAppendSystemPrompt(t *testing.T) {
+	if got := buildAppendSystemPrompt("m1", "builder", "/w/m1/persona.md"); got != goldenFallbackPromptM1 {
+		t.Errorf("prompt =\n%q\nwant\n%q", got, goldenFallbackPromptM1)
+	}
+}
+
+func TestWithRunTimeout(t *testing.T) {
+	if got := withRunTimeout(execRunner{timeout: 5 * time.Second}, 2*time.Second); got != CmdRunner(execRunner{timeout: 2 * time.Second}) {
+		t.Errorf("the real runner = %#v, want its timeout cut to 2s", got)
+	}
+	fake := &wardenRunner{}
+	if got := withRunTimeout(fake, 2*time.Second); got != CmdRunner(fake) {
+		t.Errorf("a runner without a timeout = %#v, want it returned as is", got)
+	}
+}
+
+// timeoutRecordingRunner is a wardenRunner whose withTimeout hands back a
+// DIFFERENT runner; only calls made through that one land in timeouts, so a
+// caller that asks for a timeout and then runs on the original records nothing.
+type timeoutRecordingRunner struct {
+	*wardenRunner
+	timeouts []time.Duration
+}
+
+func (r *timeoutRecordingRunner) withTimeout(timeout time.Duration) CmdRunner {
+	return timedRecordingRunner{owner: r, timeout: timeout}
+}
+
+type timedRecordingRunner struct {
+	owner   *timeoutRecordingRunner
+	timeout time.Duration
+}
+
+func (t timedRecordingRunner) withTimeout(timeout time.Duration) CmdRunner {
+	t.timeout = timeout
+	return t
+}
+
+func (t timedRecordingRunner) Run(name string, args ...string) (string, error) {
+	t.owner.timeouts = append(t.owner.timeouts, t.timeout)
+	return t.owner.wardenRunner.Run(name, args...)
+}
+
+func TestClaudeAcceptsPromptFile(t *testing.T) {
+	const probe = "/c/claude --append-system-prompt-file /w/m1/system-prompt.md --oc-probe-unsupported-flag"
+	cases := []struct {
+		name    string
+		run     wardenRun
+		want    bool
+		wantWhy string
+	}{
+		{"the parser got past the file flag and rejected the sentinel",
+			wardenRun{err: errors.New("exit status 1: error: unknown option '--oc-probe-unsupported-flag'")}, true, ""},
+		{"an old claude rejects the file flag itself",
+			wardenRun{err: errors.New("exit status 1: error: unknown option '--append-system-prompt-file'")}, false,
+			"claude rejected --append-system-prompt-file"},
+		{"a claude that cannot run at all",
+			wardenRun{err: errors.New("fork/exec /c/claude: no such file or directory")}, false, "the probe failed"},
+		{"a claude that accepted an unknown flag and exited 0", wardenRun{}, false,
+			"the probe exited 0 on an unknown flag"},
+		{"a claude that hung until the probe budget ran out",
+			wardenRun{err: errors.New("timeout after 2s")}, false, "the probe timed out"},
+		{"a claude that answers in another language without naming the sentinel",
+			wardenRun{err: errors.New("exit status 1: 錯誤：無法辨識的選項")}, false, "the probe failed"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := &wardenRunner{script: map[string]wardenRun{probe: tc.run}}
+
+			got, why := claudeAcceptsPromptFile(r, "/c/claude", "/w/m1/system-prompt.md")
+			if got != tc.want || why != tc.wantWhy {
+				t.Errorf("claudeAcceptsPromptFile = (%v, %q), want (%v, %q)", got, why, tc.want, tc.wantWhy)
+			}
+			if want := []string{probe}; !reflect.DeepEqual(r.calls, want) {
+				t.Errorf("calls = %v, want %v", r.calls, want)
+			}
+		})
 	}
 }
 
@@ -293,7 +380,7 @@ func TestBuildLaunchCommand(t *testing.T) {
 		`export PATH=/w/m1:"$PATH"; ` +
 		`exec /usr/local/bin/claude --dangerously-skip-permissions --disallowedTools AskUserQuestion ` +
 		`--mcp-config /w/m1/.mcp.json --effort medium --append-system-prompt APPEND`
-	got := buildLaunchCommand("/usr/local/bin/claude", "/w/m1", "/w/m1/.mcp.json", "APPEND",
+	got := buildLaunchCommand("/usr/local/bin/claude", "/w/m1", "/w/m1/.mcp.json", claudeSystemPromptInline("APPEND"),
 		"/w/m1/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft", "", "", "",
 		claudeHome{Home: "/Users/wardenowner"})
 	if got != want {
@@ -307,7 +394,7 @@ func TestBuildLaunchCommand(t *testing.T) {
 		`exec /usr/local/bin/claude --dangerously-skip-permissions --disallowedTools AskUserQuestion ` +
 		`--mcp-config /w/m1/.mcp.json --effort high --append-system-prompt APPEND ` +
 		`--model opus --settings '{"hooks":{}}'`
-	got = buildLaunchCommand("/usr/local/bin/claude", "/w/m1", "/w/m1/.mcp.json", "APPEND",
+	got = buildLaunchCommand("/usr/local/bin/claude", "/w/m1", "/w/m1/.mcp.json", claudeSystemPromptInline("APPEND"),
 		"/w/m1/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft",
 		"opus", "high", `{"hooks":{}}`, claudeHome{Home: "/Users/wardenowner"})
 	if got != wantFull {
@@ -325,21 +412,21 @@ func TestBuildLaunchCommandWithEnv(t *testing.T) {
 		`exec /usr/local/bin/claude --dangerously-skip-permissions --disallowedTools AskUserQuestion ` +
 		`--mcp-config /w/m1/.mcp.json --effort medium --append-system-prompt APPEND ` +
 		`--settings '{"hooks":{}}'`
-	got := buildLaunchCommandWithEnv("/usr/local/bin/claude", "/w/m1", "/w/m1/.mcp.json", "APPEND",
+	got := buildLaunchCommandWithEnv("/usr/local/bin/claude", "/w/m1", "/w/m1/.mcp.json", claudeSystemPromptInline("APPEND"),
 		"/w/m1/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft-lab", "", "medium",
 		`{"hooks":{}}`, [][2]string{{"OC_AGENT_HOME", "/w"}}, "/w/m1/.oc-env", home)
 	if got != want {
 		t.Errorf("launch line =\n%s\nwant\n%s", got, want)
 	}
 
-	plain := buildLaunchCommandWithEnv("/usr/local/bin/claude", "/w/m1", "/w/m1/.mcp.json", "APPEND",
+	plain := buildLaunchCommandWithEnv("/usr/local/bin/claude", "/w/m1", "/w/m1/.mcp.json", claudeSystemPromptInline("APPEND"),
 		"/w/m1/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft", "", "", "", nil, "", home)
-	if plain != buildLaunchCommand("/usr/local/bin/claude", "/w/m1", "/w/m1/.mcp.json", "APPEND",
+	if plain != buildLaunchCommand("/usr/local/bin/claude", "/w/m1", "/w/m1/.mcp.json", claudeSystemPromptInline("APPEND"),
 		"/w/m1/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft", "", "", "", home) {
 		t.Errorf("no extra env must be byte-identical to the plain line, got\n%s", plain)
 	}
 
-	spaced := buildLaunchCommandWithEnv("/opt/my claude/claude", "/w/a b", "/w/a b/.mcp.json", "it's me",
+	spaced := buildLaunchCommandWithEnv("/opt/my claude/claude", "/w/a b", "/w/a b/.mcp.json", claudeSystemPromptInline("it's me"),
 		"/w/a b/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft", "", "", "", nil, "/w/a b/.oc-env",
 		claudeHome{Home: "/Users/warden owner"})
 	wantSpaced := `cd '/w/a b'; [ -f '/w/a b/.oc-env' ] && . '/w/a b/.oc-env'; ` + goldenClaudePurge + `unset CLAUDE_CONFIG_DIR; ` +
@@ -354,7 +441,7 @@ func TestBuildLaunchCommandWithEnv(t *testing.T) {
 	}
 
 	t.Run("a redirected config home is exported instead of unset", func(t *testing.T) {
-		line := buildLaunchCommandWithEnv("/usr/local/bin/claude", "/w/m1", "/w/m1/.mcp.json", "APPEND",
+		line := buildLaunchCommandWithEnv("/usr/local/bin/claude", "/w/m1", "/w/m1/.mcp.json", claudeSystemPromptInline("APPEND"),
 			"/w/m1/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft", "", "", "", nil, "/w/m1/.oc-env",
 			claudeHome{Home: "/Users/wardenowner", ConfigDir: "/tmp/box"})
 		if !strings.Contains(line, "CLAUDE_CONFIG_DIR=/tmp/box") {
@@ -369,7 +456,7 @@ func TestBuildLaunchCommandWithEnv(t *testing.T) {
 		// The whole guarantee is positional: these exports overrule the owner's
 		// file because they run later. Emitted before the source line they are
 		// silently erased by it, and every other assertion here still passes.
-		line := buildLaunchCommandWithEnv("/usr/local/bin/claude", "/w/m1", "/w/m1/.mcp.json", "APPEND",
+		line := buildLaunchCommandWithEnv("/usr/local/bin/claude", "/w/m1", "/w/m1/.mcp.json", claudeSystemPromptInline("APPEND"),
 			"/w/m1/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft", "", "", "", nil, "/w/m1/.oc-env",
 			claudeHome{Home: "/Users/wardenowner", ConfigDir: "/tmp/box"})
 		source := strings.Index(line, ". /w/m1/.oc-env")
@@ -381,7 +468,7 @@ func TestBuildLaunchCommandWithEnv(t *testing.T) {
 		if source > pinHome || source > pinDir {
 			t.Errorf("source at %d must precede the pins (HOME=%d, CLAUDE_CONFIG_DIR=%d):\n%s", source, pinHome, pinDir, line)
 		}
-		unsetLine := buildLaunchCommandWithEnv("/usr/local/bin/claude", "/w/m1", "/w/m1/.mcp.json", "APPEND",
+		unsetLine := buildLaunchCommandWithEnv("/usr/local/bin/claude", "/w/m1", "/w/m1/.mcp.json", claudeSystemPromptInline("APPEND"),
 			"/w/m1/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft", "", "", "", nil, "/w/m1/.oc-env",
 			claudeHome{Home: "/Users/wardenowner"})
 		if src, un := strings.Index(unsetLine, ". /w/m1/.oc-env"), strings.Index(unsetLine, "unset CLAUDE_CONFIG_DIR"); src < 0 || un < 0 || src > un {
@@ -412,7 +499,7 @@ func TestBuildLaunchCommandWithEnv(t *testing.T) {
 		if err := os.WriteFile(render, []byte("export CLAUDE_FROM_THE_ENV_FILE=1\n"), 0o600); err != nil {
 			t.Fatalf("seed render: %v", err)
 		}
-		line := buildLaunchCommandWithEnv("/usr/local/bin/claude", workdir, "/w/m1/.mcp.json", "APPEND",
+		line := buildLaunchCommandWithEnv("/usr/local/bin/claude", workdir, "/w/m1/.mcp.json", claudeSystemPromptInline("APPEND"),
 			"/dev/null", "m1", "http://127.0.0.1:7755", "member-m1", "officraft", "", "", "", nil, render,
 			claudeHome{Home: "/Users/wardenowner"})
 		execAt := strings.Index(line, "; exec ")
@@ -430,7 +517,7 @@ func TestBuildLaunchCommandWithEnv(t *testing.T) {
 	})
 
 	t.Run("a pin cannot be overridden by an extra env pair of the same name", func(t *testing.T) {
-		line := buildLaunchCommandWithEnv("/usr/local/bin/claude", "/w/m1", "/w/m1/.mcp.json", "APPEND",
+		line := buildLaunchCommandWithEnv("/usr/local/bin/claude", "/w/m1", "/w/m1/.mcp.json", claudeSystemPromptInline("APPEND"),
 			"/w/m1/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft", "", "", "",
 			[][2]string{{"HOME", "/Volumes/scratch/home"}}, "", claudeHome{Home: "/Users/wardenowner"})
 		early := strings.Index(line, "HOME=/Volumes/scratch/home")
@@ -1044,6 +1131,7 @@ func TestStart(t *testing.T) {
 			{"/w/m1/.mcp.json", buildMCPConfig("http://127.0.0.1:7755", "jwt-m1"), 0o600},
 			{"/w/m1/settings.json", buildStatuslineSettings(), 0o600},
 			{"/w/m1/.oc-token", "jwt-m1", 0o600},
+			{"/w/m1/system-prompt.md", goldenSystemPromptM1, 0o600},
 		}
 		if !reflect.DeepEqual(h.writes, wantWrites) {
 			t.Errorf("writes =\n%+v\nwant\n%+v", h.writes, wantWrites)
@@ -1091,6 +1179,99 @@ func TestStart(t *testing.T) {
 		}
 	})
 
+	t.Run("the claude launch asks about the prompt file it is about to pass", func(t *testing.T) {
+		h := newSpawnHarness()
+
+		if got := h.deps().start(startParamsM1()); !got.OK {
+			t.Fatalf("outcome = %+v, want OK", got)
+		}
+		if want := []string{"/w/m1/system-prompt.md"}; !reflect.DeepEqual(h.promptProbes, want) {
+			t.Errorf("prompt-file probes = %v, want %v", h.promptProbes, want)
+		}
+	})
+
+	t.Run("a claude without the prompt-file flag boots by reading the persona file", func(t *testing.T) {
+		wantLaunch := "tmux -L officraft new-session -d -s member-m1 -x 160 -y 50 " +
+			`cd /w/m1; ` + goldenClaudePurge + `unset CLAUDE_CONFIG_DIR; export OC_TOKEN="$(/bin/cat /w/m1/.oc-token)" ` +
+			`OC_BASE=http://127.0.0.1:7755 OC_SESSION=member-m1 OC_TMUX_SOCKET=officraft ` +
+			`HOME=/Users/wardenowner; ` +
+			`export PATH=/w/m1:"$PATH"; ` +
+			`exec /usr/local/bin/claude --dangerously-skip-permissions ` +
+			`--disallowedTools AskUserQuestion --mcp-config /w/m1/.mcp.json --effort medium ` +
+			`--append-system-prompt ` + shellQuote(goldenFallbackPromptM1) +
+			` --settings ` + shellQuote(goldenInlineSettings)
+		for _, tc := range []struct {
+			name    string
+			probe   func(string) (bool, string)
+			wantLog string
+		}{
+			{"the probe says no", func(string) (bool, string) { return false, "the probe timed out" },
+				"m1 boots by reading persona.md itself, not via --append-system-prompt-file (/usr/local/bin/claude): the probe timed out"},
+			{"no probe is wired", nil,
+				"m1 boots by reading persona.md itself, not via --append-system-prompt-file (/usr/local/bin/claude): no prompt-file probe is wired"},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				h := newSpawnHarness()
+				d := h.deps()
+				d.ClaudeTakesPromptFile = tc.probe
+
+				if got := d.start(startParamsM1()); !got.OK {
+					t.Fatalf("outcome = %+v, want OK", got)
+				}
+				if h.runner.calls[1] != wantLaunch {
+					t.Errorf("launch call =\n%s\nwant\n%s", h.runner.calls[1], wantLaunch)
+				}
+				for _, w := range h.writes {
+					if w.path == "/w/m1/system-prompt.md" {
+						t.Errorf("wrote %s for a claude that cannot take it", w.path)
+					}
+				}
+				if !slices.Contains(h.logs, tc.wantLog) {
+					t.Errorf("warden logs = %q, want them to carry %q", h.logs, tc.wantLog)
+				}
+			})
+		}
+	})
+
+	t.Run("a boot file far past one Read call reaches the prompt file whole", func(t *testing.T) {
+		h := newSpawnHarness()
+		p := startParamsM1()
+		p.PersonaContext = strings.Repeat("一行很長的開機檔內容。\n", 4000) + "# 啟動步驟\nTAIL-MARKER-7f3c\n"
+
+		if got := h.deps().start(p); !got.OK {
+			t.Fatalf("outcome = %+v, want OK", got)
+		}
+		prompt := ""
+		for _, w := range h.writes {
+			if w.path == "/w/m1/system-prompt.md" {
+				prompt = w.content
+			}
+		}
+		if len(p.PersonaContext) < 100_000 {
+			t.Fatalf("fixture is only %d bytes; it must be larger than a real boot file", len(p.PersonaContext))
+		}
+		if !strings.HasSuffix(prompt, "\n---\n"+p.PersonaContext) {
+			t.Errorf("system prompt (%d bytes) does not end with the %d-byte boot file verbatim",
+				len(prompt), len(p.PersonaContext))
+		}
+	})
+
+	t.Run("a prompt file that cannot be written refuses the spawn", func(t *testing.T) {
+		h := newSpawnHarness()
+		h.writeErr["/w/m1/system-prompt.md"] = errors.New("disk full")
+
+		got := h.deps().start(startParamsM1())
+
+		if want := (SpawnOutcome{OK: false, Reason: "write_file_failed: system-prompt.md: disk full"}); got != want {
+			t.Errorf("outcome = %+v, want %+v", got, want)
+		}
+		for _, call := range h.runner.calls {
+			if strings.Contains(call, "new-session") {
+				t.Errorf("a member was launched without its prompt file: %s", call)
+			}
+		}
+	})
+
 	t.Run("the owner's env file is rendered into the workdir and sourced by the launch line", func(t *testing.T) {
 		dir := t.TempDir()
 		envFile := filepath.Join(dir, "env")
@@ -1130,11 +1311,7 @@ func TestStart(t *testing.T) {
 			`export PATH=/w/m1:"$PATH"; ` +
 			`exec /usr/local/bin/claude --dangerously-skip-permissions --disallowedTools AskUserQuestion ` +
 			`--mcp-config /w/m1/.mcp.json --effort high ` +
-			`--append-system-prompt '你是 m1(role=builder)。你的完整身分、操作準則與開機程序都由 launcher 預抓在本地檔 ` +
-			`/w/m1/persona.md。第一步:用 Read 工具把它從頭到尾整份讀完 —— 不要帶 offset/limit,不要只讀開頭,` +
-			`也不准用 cat/head/tail/sed 或任何終端機指令讀它:這個檔有數萬字元,終端機輸出只有開頭一小段會進到你的 context,` +
-			`其餘會被靜默丟棄而且不會有任何錯誤訊息,而「開機程序」在整份檔案的最後面。` +
-			`整份讀完後,照裡面「開機程序」段逐步執行。' --model opus --settings ` + shellQuote(goldenInlineSettings)
+			`--append-system-prompt-file /w/m1/system-prompt.md --model opus --settings ` + shellQuote(goldenInlineSettings)
 		if h.runner.calls[1] != wantLaunch {
 			t.Errorf("launch call =\n%s\nwant\n%s", h.runner.calls[1], wantLaunch)
 		}
@@ -1465,6 +1642,19 @@ func TestStart(t *testing.T) {
 		if h.pretrusts != 0 {
 			t.Errorf("pretrusts = %d, want 0 (claude.json is not codex's gate)", h.pretrusts)
 		}
+		if len(h.promptProbes) != 0 {
+			t.Errorf("a codex spawn probed claude for a prompt file: %v", h.promptProbes)
+		}
+		for _, line := range h.logs {
+			if strings.Contains(line, "--append-system-prompt-file") {
+				t.Errorf("a codex spawn logged a claude prompt-file fallback: %q", line)
+			}
+		}
+		for _, w := range h.writes {
+			if w.path == "/w/m1/system-prompt.md" {
+				t.Errorf("a codex spawn wrote %s", w.path)
+			}
+		}
 		if len(h.slept) != 0 {
 			t.Errorf("slept %v, want none", h.slept)
 		}
@@ -1576,9 +1766,17 @@ func TestStart(t *testing.T) {
 		if want := (SpawnOutcome{OK: true, SessionID: "custom-session", PID: "700"}); got != want {
 			t.Errorf("outcome = %+v, want %+v", got, want)
 		}
-		if !strings.Contains(h.runner.calls[1], "OC_SESSION=custom-session") ||
-			!strings.Contains(h.runner.calls[1], "你是 m1(role=agent)") {
-			t.Errorf("launch call =\n%s\nwant the custom session and the default role", h.runner.calls[1])
+		if !strings.Contains(h.runner.calls[1], "OC_SESSION=custom-session") {
+			t.Errorf("launch call =\n%s\nwant the custom session", h.runner.calls[1])
+		}
+		prompt := ""
+		for _, w := range h.writes {
+			if w.path == "/w/m1/system-prompt.md" {
+				prompt = w.content
+			}
+		}
+		if !strings.HasPrefix(prompt, "你是 m1(role=agent)。") {
+			t.Errorf("system prompt =\n%q\nwant the default role", prompt)
 		}
 	})
 

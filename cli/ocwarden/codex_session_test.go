@@ -209,59 +209,27 @@ func TestNormalizeCodexEffort(t *testing.T) {
 }
 
 func TestCodexPersonaInstruction(t *testing.T) {
-	const head = "Read /w/PERSONA.md completely before acting, first line to LAST line, and read " +
-		"it with your shell — that is the only tool you have that can open a local file. Read it " +
-		"like this: (1) run `wc -l /w/PERSONA.md` first and write down the total line count N; " +
-		"(2) then walk the file in order with `sed -n 'START,ENDp' /w/PERSONA.md`, about 200 " +
-		"lines per call, until a call has returned line N; (3) after EVERY call check that the " +
-		"output really ends at the line you asked for — shell output is truncated silently, with " +
-		"no error of any kind, so a short chunk means you must re-read that range in smaller " +
-		"pieces, never skip ahead. You have read the file ONLY when every line from 1 to N has " +
-		"come back untruncated: reaching the LAST line is what finishes the read, not reaching a " +
-		"part that looks like an ending, and the 開機程序 (boot sequence) section is at the very " +
-		"END of the file. Do not tell anyone you have read it until then. It is your OffiCraft " +
-		"identity and operating context. Never use request_user_input for normal questions; " +
-		"create an OffiCraft reply card instead. "
+	const head = "Everything after the \"---\" line below is your OffiCraft boot file, in full " +
+		"(the same text as /w/PERSONA.md). It is already in your context: do not read that " +
+		"file with your shell. It is your OffiCraft identity and operating context. " +
+		"Never use request_user_input for normal questions; create an OffiCraft reply card instead. "
+	const persona = "# 身分\n第一行\n\n# 啟動步驟（Boot Sequence）\n最後一行 `$HOME` \"q\" \\ $(x)\n"
 
-	if got, want := codexPersonaInstruction("/w/PERSONA.md", "gpt-5-codex"), head+
-		"The explicit OffiCraft launch model is gpt-5-codex. If your role's boot sequence calls "+
-		"report_waking, pass that exact value as its model argument. Follow your role-specific "+
-		"boot sequence when it says not to call report_waking."; got != want {
-		t.Errorf("codexPersonaInstruction with an explicit model =\n%q\nwant\n%q", got, want)
+	explicit := head + "The explicit OffiCraft launch model is gpt-5-codex. If your role's boot sequence calls " +
+		"report_waking, pass that exact value as its model argument. Follow your role-specific " +
+		"boot sequence when it says not to call report_waking.\n---\n" + persona
+	if got := codexPersonaInstruction("/w/PERSONA.md", persona, "gpt-5-codex"); got != explicit {
+		t.Errorf("codexPersonaInstruction with an explicit model =\n%q\nwant\n%q", got, explicit)
 	}
 
 	blank := head + "The OffiCraft launch model setting is blank, so the machine's Codex default " +
 		"applies. If your role's boot sequence calls report_waking, omit its optional model " +
-		"argument; never guess or persist a model name."
-	if got := codexPersonaInstruction("/w/PERSONA.md", ""); got != blank {
+		"argument; never guess or persist a model name.\n---\n" + persona
+	if got := codexPersonaInstruction("/w/PERSONA.md", persona, ""); got != blank {
 		t.Errorf("codexPersonaInstruction with a blank model =\n%q\nwant\n%q", got, blank)
 	}
-	if got := codexPersonaInstruction("/w/PERSONA.md", "   "); got != blank {
+	if got := codexPersonaInstruction("/w/PERSONA.md", persona, "   "); got != blank {
 		t.Errorf("codexPersonaInstruction with a whitespace model =\n%q\nwant\n%q", got, blank)
-	}
-
-	// The shell is the ONLY path a Codex member has to a local file (T-178): 136 of
-	// 146 measured boots reached the whole persona, and every one of them did it by
-	// breaking the old ban. Banning it again sends the obedient member away empty.
-	for _, banned := range []string{
-		"Do NOT read it with shell",
-		"do NOT read it in chunks",
-		"cat/head/tail/sed",
-		"ONE read of the WHOLE file",
-	} {
-		if strings.Contains(head, banned) {
-			t.Errorf("codexPersonaInstruction still forbids the only read path it has: %q", banned)
-		}
-	}
-	for _, required := range []string{
-		"wc -l /w/PERSONA.md",
-		"sed -n 'START,ENDp' /w/PERSONA.md",
-		"LAST line",
-		"every line from 1 to N has come back untruncated",
-	} {
-		if !strings.Contains(head, required) {
-			t.Errorf("codexPersonaInstruction no longer teaches how to read to the end: %q missing", required)
-		}
 	}
 }
 
@@ -1799,13 +1767,112 @@ func TestRunCodexSession(t *testing.T) {
 		}
 	})
 
+	t.Run("a missing or blank boot file is refused before the app server starts", func(t *testing.T) {
+		empty, blank := "", " \n\t\n"
+		cases := []struct {
+			name    string
+			content *string
+		}{
+			{name: "no file", content: nil},
+			{name: "an empty file", content: &empty},
+			{name: "only whitespace", content: &blank},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				work := t.TempDir()
+				persona := filepath.Join(work, "P.md")
+				if tc.content != nil {
+					if err := os.WriteFile(persona, []byte(*tc.content), 0o600); err != nil {
+						t.Fatalf("stage persona: %v", err)
+					}
+				}
+				started := filepath.Join(work, "started")
+				codexBin := filepath.Join(work, "codex")
+				if err := os.WriteFile(codexBin, []byte("#!/bin/sh\ntouch "+started+"\n"), 0o755); err != nil {
+					t.Fatalf("stage codex stub: %v", err)
+				}
+				out := &lockedBuffer{}
+
+				code := runCodexSession([]string{
+					"--codex-bin", codexBin, "--workdir", work, "--persona", persona,
+				}, env, out)
+
+				if code != 2 {
+					t.Errorf("runCodexSession returned %d, want 2", code)
+				}
+				if want := "codex-session: no boot file at " + persona + ", refusing to boot without one\n"; out.String() != want {
+					t.Errorf("runCodexSession printed %q, want %q", out.String(), want)
+				}
+				if _, err := os.Stat(started); err == nil {
+					t.Error("the app server was started without a boot file")
+				}
+			})
+		}
+	})
+
+	t.Run("thread/start carries the whole boot file as developer instructions", func(t *testing.T) {
+		t.Setenv("HOME", t.TempDir())
+		work := t.TempDir()
+		persona := filepath.Join(work, "persona.md")
+		personaText := "# 身分\n" + strings.Repeat("一行很長的開機檔內容。\n", 4000) +
+			"# 啟動步驟（Boot Sequence）\n最後一行 `$HOME` \"q\" \\ $(x) <b>&\n"
+		if err := os.WriteFile(persona, []byte(personaText), 0o600); err != nil {
+			t.Fatalf("stage persona: %v", err)
+		}
+		captured := filepath.Join(work, "thread_start.json")
+		script := "#!/bin/sh\n" +
+			"while IFS= read -r line; do\n" +
+			"  case \"$line\" in\n" +
+			"    *'\"method\":\"initialize\"'*) echo '{\"id\":1,\"result\":{}}' ;;\n" +
+			"    *'\"method\":\"account/rateLimits/read\"'*) echo '{\"id\":2,\"result\":{}}' ;;\n" +
+			"    *'\"method\":\"thread/start\"'*) printf '%s\\n' \"$line\" > " + captured + "; exit 0 ;;\n" +
+			"  esac\n" +
+			"done\n"
+		codexBin := filepath.Join(work, "codex")
+		if err := os.WriteFile(codexBin, []byte(script), 0o755); err != nil {
+			t.Fatalf("stage codex stub: %v", err)
+		}
+		out := &lockedBuffer{}
+
+		code := runCodexSession([]string{
+			"--codex-bin", codexBin, "--workdir", work, "--persona", persona, "--model", "gpt-5-codex",
+		}, env, out)
+
+		if code != 1 {
+			t.Errorf("runCodexSession returned %d, want 1 (the stub exits at thread/start)", code)
+		}
+		raw, err := os.ReadFile(captured)
+		if err != nil {
+			t.Fatalf("the app server never received thread/start: %v (pane: %q)", err, out.String())
+		}
+		var msg struct {
+			Params struct {
+				DeveloperInstructions string `json:"developerInstructions"`
+			} `json:"params"`
+		}
+		if err := json.Unmarshal(raw, &msg); err != nil {
+			t.Fatalf("thread/start is not JSON: %v", err)
+		}
+		got := msg.Params.DeveloperInstructions
+		if want := "Everything after the \"---\" line below is your OffiCraft boot file, in full (the same text as " +
+			persona + ")."; !strings.HasPrefix(got, want) {
+			t.Errorf("developerInstructions =\n%q\nwant it to start with\n%q", got, want)
+		}
+		if want := "The explicit OffiCraft launch model is gpt-5-codex."; !strings.Contains(got, want) {
+			t.Errorf("developerInstructions =\n%q\nwant it to carry %q", got, want)
+		}
+		if !strings.HasSuffix(got, "\n---\n"+personaText) {
+			t.Errorf("developerInstructions does not end with the boot file verbatim: %q", got)
+		}
+	})
+
 	t.Run("an unlaunchable codex binary is reported", func(t *testing.T) {
 		work := t.TempDir()
 		out := &lockedBuffer{}
 
 		code := runCodexSession([]string{
 			"--codex-bin", filepath.Join(work, "no-such-codex"),
-			"--workdir", work, "--persona", filepath.Join(work, "P.md"),
+			"--workdir", work, "--persona", stagePersona(t, work),
 		}, env, out)
 
 		if code != 1 {
@@ -1828,7 +1895,7 @@ func TestRunCodexSession(t *testing.T) {
 
 		code := runCodexSession([]string{
 			"--codex-bin", codexBin, "--workdir", work,
-			"--persona", filepath.Join(work, "P.md"), "--model", "gpt-5-codex",
+			"--persona", stagePersona(t, work), "--model", "gpt-5-codex",
 		}, env, out)
 
 		if code != 1 {
@@ -1854,7 +1921,7 @@ func TestRunCodexSession(t *testing.T) {
 			out := &lockedBuffer{}
 			runCodexSession([]string{
 				"--codex-bin", codexBin, "--workdir", work,
-				"--persona", filepath.Join(work, "P.md"), "--effort", effort,
+				"--persona", stagePersona(t, work), "--effort", effort,
 			}, env, out)
 			return out.String()
 		}
@@ -1873,4 +1940,13 @@ func TestRunCodexSession(t *testing.T) {
 			}
 		}
 	})
+}
+
+func stagePersona(t *testing.T, dir string) string {
+	t.Helper()
+	path := filepath.Join(dir, "P.md")
+	if err := os.WriteFile(path, []byte("# persona\n"), 0o600); err != nil {
+		t.Fatalf("stage persona: %v", err)
+	}
+	return path
 }

@@ -86,31 +86,24 @@ func normalizeCodexEffort(effort string) (string, bool) {
 	}
 }
 
-func codexPersonaInstruction(personaFile, model string) string {
-	instruction := "Read " + personaFile +
-		" completely before acting, first line to LAST line, and read it with your shell — " +
-		"that is the only tool you have that can open a local file. " +
-		"Read it like this: (1) run `wc -l " + personaFile + "` first and write down the total " +
-		"line count N; (2) then walk the file in order with `sed -n 'START,ENDp' " + personaFile +
-		"`, about 200 lines per call, until a call has returned line N; (3) after EVERY call " +
-		"check that the output really ends at the line you asked for — shell output is truncated " +
-		"silently, with no error of any kind, so a short chunk means you must re-read that range " +
-		"in smaller pieces, never skip ahead. " +
-		"You have read the file ONLY when every line from 1 to N has come back untruncated: " +
-		"reaching the LAST line is what finishes the read, not reaching a part that looks like an " +
-		"ending, and the 開機程序 (boot sequence) section is at the very END of the file. " +
-		"Do not tell anyone you have read it until then. " +
-		"It is your OffiCraft identity and operating context. " +
+// The whole boot file rides developerInstructions because Codex re-injects them
+// after every compaction, while a file read through the shell is a tool output
+// and is dropped.
+func codexPersonaInstruction(personaFile, persona, model string) string {
+	instruction := "Everything after the \"---\" line below is your OffiCraft boot file, in full " +
+		"(the same text as " + personaFile + "). It is already in your context: do not read that " +
+		"file with your shell. It is your OffiCraft identity and operating context. " +
 		"Never use request_user_input for normal questions; create an OffiCraft reply card instead. "
 	if strings.TrimSpace(model) == "" {
-		return instruction +
-			"The OffiCraft launch model setting is blank, so the machine's Codex default applies. " +
+		instruction += "The OffiCraft launch model setting is blank, so the machine's Codex default applies. " +
 			"If your role's boot sequence calls report_waking, omit its optional model argument; " +
 			"never guess or persist a model name."
+	} else {
+		instruction += "The explicit OffiCraft launch model is " + model +
+			". If your role's boot sequence calls report_waking, pass that exact value as its model argument. " +
+			"Follow your role-specific boot sequence when it says not to call report_waking."
 	}
-	return instruction + "The explicit OffiCraft launch model is " + model +
-		". If your role's boot sequence calls report_waking, pass that exact value as its model argument. " +
-		"Follow your role-specific boot sequence when it says not to call report_waking."
+	return instruction + "\n---\n" + persona
 }
 
 type appServerMessage map[string]any
@@ -805,6 +798,11 @@ func runCodexSession(argv []string, env func(string) string, out io.Writer) int 
 		fmt.Fprintln(out, "codex-session: missing required launch parameters")
 		return 2
 	}
+	personaBytes, err := os.ReadFile(*persona)
+	if err != nil || strings.TrimSpace(string(personaBytes)) == "" {
+		fmt.Fprintf(out, "codex-session: no boot file at %s, refusing to boot without one\n", *persona)
+		return 2
+	}
 	cmd := exec.Command(*codexBin, "app-server")
 	cmd.Dir = *workdir
 	stdin, err := cmd.StdinPipe()
@@ -864,7 +862,7 @@ func runCodexSession(argv []string, env func(string) string, out io.Writer) int 
 	}
 	threadParams := map[string]any{
 		"cwd": *workdir, "approvalPolicy": "never", "sandbox": "danger-full-access",
-		"developerInstructions": codexPersonaInstruction(*persona, *model),
+		"developerInstructions": codexPersonaInstruction(*persona, string(personaBytes), *model),
 		"config": map[string]any{
 			"features": map[string]any{"default_mode_request_user_input": false},
 			"mcp_servers": map[string]any{"officraft": map[string]any{

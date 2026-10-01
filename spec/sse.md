@@ -474,11 +474,13 @@ data: {"topic":"warden-command","data":{"rpc":"start","args":{"member_id":"m-1a2
     compatibility with older servers. Blank `effort`/`model`/`session_name` mean the
     selected runtime's defaults; `session_name` is always `""` today — the warden derives
     `member-<id>`.
-    - Claude execution keeps the existing private `persona.md` + `.mcp.json` +
-      `settings.json` launch path unchanged.
+    - Claude execution writes the private `persona.md` + `.mcp.json` + `settings.json`
+      and a `system-prompt.md` (a short header plus the whole persona), passed with
+      `--append-system-prompt-file`; a claude that does not take that flag gets an
+      inline pointer to `persona.md` instead.
     - Codex execution writes the same private `persona.md`, starts a warden-managed
-      `codex app-server` sidecar, and gives App Server a minimal developer instruction
-      pointing to that file. App Server is the correctness path; an attached Codex TUI is
+      `codex app-server` sidecar, and gives App Server the whole persona (behind a
+      short header) as its developer instructions. App Server is the correctness path; an attached Codex TUI is
       optional and may disconnect/reconnect without ending the agent.
     - Server lifecycle events are wake signals, never raw prompt interpolation. While the
       Codex thread is idle, a durable pending wake starts a turn. During an active turn,

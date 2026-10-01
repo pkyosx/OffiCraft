@@ -725,7 +725,7 @@ func TestBuildSpawnDeps(t *testing.T) {
 		"OC_AGENT_HOME": filepath.Join(home, "agents"), "OC_AGENT_ENV_FILE": filepath.Join(home, "env"),
 		"OC_AGENT_ENV_INHERIT": "0", "OC_CLAUDE_CRED_CHECK": "0",
 	})
-	runner := &wardenRunner{}
+	runner := &timeoutRecordingRunner{wardenRunner: &wardenRunner{}}
 	deps := buildSpawnDeps(Config{Base: "https://station.example"}, env, runner, "officraft-lab", "lab")
 
 	if deps.Base != "https://station.example" || deps.Socket != "officraft-lab" || deps.Namespace != "lab" {
@@ -749,6 +749,26 @@ func TestBuildSpawnDeps(t *testing.T) {
 	}
 	if deps.ResolveOcAgentBin == nil {
 		t.Fatal("ResolveOcAgentBin unwired — every spawn would publish a dangling ocagent symlink (T-81)")
+	}
+	if deps.ClaudeTakesPromptFile == nil {
+		t.Fatal("ClaudeTakesPromptFile unwired — every claude member would fall back to reading its persona file")
+	}
+	probeKey := claudeBin + " --append-system-prompt-file /a/system-prompt.md --oc-probe-unsupported-flag"
+	runner.script = map[string]wardenRun{probeKey: {
+		err: errors.New("exit status 1: error: unknown option '--oc-probe-unsupported-flag'"),
+	}}
+	if ok, _ := deps.ClaudeTakesPromptFile("/a/system-prompt.md"); !ok {
+		t.Errorf("the prompt-file probe did not ask the resolved claude; calls = %v", runner.calls)
+	}
+	runner.script = map[string]wardenRun{probeKey: {
+		err: errors.New("exit status 1: error: unknown option '--append-system-prompt-file'"),
+	}}
+	if ok, _ := deps.ClaudeTakesPromptFile("/a/system-prompt.md"); ok {
+		t.Error("a claude that rejects --append-system-prompt-file was reported as taking it")
+	}
+	// 2s is a line of the receiptDeadlineSecs budget (server/ocserverd/receipt_watch.go).
+	if want := []time.Duration{2 * time.Second, 2 * time.Second}; !reflect.DeepEqual(runner.timeouts, want) {
+		t.Errorf("timeouts the probe ran under = %v, want %v", runner.timeouts, want)
 	}
 	if got, _ := deps.ResolveOcAgentBin(); !strings.HasSuffix(got, "ocagent") {
 		t.Errorf("ResolveOcAgentBin() = %q, want a path ending in ocagent", got)

@@ -54,8 +54,8 @@ const (
 // rc-3c24fdc61ed3), then the runtime's 啟動步驟 seed LAST (recency-authoritative).
 // Nothing is written FOR outsource readers. The bound task, the type manual and
 // an identity block are deliberately NOT embedded: the worker reads task and
-// manual live (a spawn-time copy is stale), and identity arrives via the
-// warden's --append-system-prompt.
+// manual live (a spawn-time copy is stale), and identity arrives in the header
+// the warden puts in front of this context.
 func (s *apiServer) buildWorkerBootContext(w OutsourceWorker) (string, error) {
 	head, err := s.workerSharedHead()
 	if err != nil {
