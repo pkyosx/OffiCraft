@@ -2637,6 +2637,21 @@
         "title": "MemberAvatarDTO",
         "type": "object"
       },
+      "MemberBootContextDTO": {
+        "additionalProperties": false,
+        "description": "A staff member's boot-context PREVIEW (GET /api/members/{member_id}/boot-context): the text buildBootContext assembles for THIS member right now, which is the context the start path would hand the warden at this moment. It carries the member's 傳承 block (``everyone`` entries first, then the member's own, under one ``lore_cap_chars_role`` budget) and the boot sequence for the member's own runtime; it excludes the header the warden prepends for its runtime. Nothing is stored and no token is minted.",
+        "properties": {
+          "context": {
+            "title": "Context",
+            "type": "string"
+          }
+        },
+        "required": [
+          "context"
+        ],
+        "title": "MemberBootContextDTO",
+        "type": "object"
+      },
       "MemberDTO": {
         "additionalProperties": false,
         "description": "API representation of one ``domain.Member`` (a roster member; §3.4 #8/#10).\n\nCarries the durable roster fields PLUS one projection the domain computes at\nread time: ``presence`` (the DERIVED five-state\noffline/waking/online/stopping/stopped, §3.6 — never stored; the SINGLE\npresence word on this wire). The raw ``online`` / ``waking_since`` /\n``stopping_timed_out`` projections were removed from the wire (2026-07-11\naudit): the FE mapper never mapped them and no agent read them — every\nconsumer reads ``presence``. ``roster_status`` is the\nactive/removed LIFECYCLE (the durable ``member.status``), orthogonal to\npresence — named ``roster_status`` on the wire because the FE view model\nalready uses ``status`` for its presence tint (three layers, one word was a\ncollision). The member's TOKEN is NEVER on this DTO.\n\n``role_name`` is the role's display title, resolved by the handler from the\nrole roster (empty until role definitions land in build order B2).",
@@ -15513,6 +15528,75 @@
         "summary": "Upload or replace a member's personal avatar (owner only).",
         "x-mcp": {
           "include": false
+        }
+      }
+    },
+    "/api/members/{member_id}/boot-context": {
+      "get": {
+        "description": "Read a staff member's boot-context PREVIEW: the server assembles the boot text FOR THIS MEMBER with the same fold the staff start path uses (buildBootContext with this member, the text reconcile hands the warden), WITHOUT minting any token. Because it is assembled for the member, it carries the member's 傳承 block (the ``everyone`` entries first, then the member's own) and the boot sequence for the member's own runtime. Owner/admin-agent cockpit read, the same floor as /api/bootstrap and the outsource worker preview. 404 for an unknown member, a removed member, an outsource worker (its preview is /api/outsource-workers/{id}/boot-context) or a machine; 404 when the member's role definition is gone. It does NOT include the header the warden prepends for its runtime at spawn. HONEST caveat the UI must carry: this is today's assembly, not a verbatim start-time record — nothing is stored.",
+        "operationId": "handle_get_member_boot_context_api_members__member_id__boot_context_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "member_id",
+            "required": true,
+            "schema": {
+              "title": "Member Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemberBootContextDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Validation error (unified error envelope)."
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Client error (unified error envelope)."
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Server error (unified error envelope)."
+          }
+        },
+        "summary": "Read a staff member's boot-context preview (owner/admin agent).",
+        "x-mcp": {
+          "description": "Read a staff member's boot-context preview (owner/admin agent).",
+          "include": true,
+          "legacy": {
+            "descriptor": "{\n      \"description\": \"Read a staff member's boot-context preview (owner/admin agent).\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"member_id\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"member_id\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"get_member_boot_context\"\n    }"
+          },
+          "name": "get_member_boot_context",
+          "order": 125
         }
       }
     },
