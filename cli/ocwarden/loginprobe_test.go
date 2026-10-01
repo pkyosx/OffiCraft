@@ -177,13 +177,31 @@ func TestLoginProberState(t *testing.T) {
 			wantRuns: []string{codexArgv},
 		},
 		{
-			name:     "under a refused codex login status, codex is false and the error reaches the log",
+			name:     "under a codex login status that exits non-zero, codex is false and the error reaches the log",
 			goos:     "linux",
 			env:      map[string]string{"HOME": home, "OC_CODEX_BIN": codexBin},
-			script:   map[string]wardenRun{codexArgv: {err: errors.New("exit status 1: not logged in")}},
+			script:   map[string]wardenRun{codexArgv: {err: exitStatus1(t, "not logged in")}},
 			want:     loginState{Codex: &no},
 			wantRuns: []string{codexArgv},
 			wantLog:  []string{fmt.Sprintf("[ocwarden runtimeprobe] codex login status failed (bin=%s): exit status 1: not logged in", codexBin)},
+		},
+		{
+			name:     "under a codex login status that timed out, codex is unknown and the error reaches the log",
+			goos:     "linux",
+			env:      map[string]string{"HOME": home, "OC_CODEX_BIN": codexBin},
+			script:   map[string]wardenRun{codexArgv: {err: errors.New("timeout after 10s")}},
+			want:     loginState{},
+			wantRuns: []string{codexArgv},
+			wantLog:  []string{fmt.Sprintf("[ocwarden runtimeprobe] codex login status failed (bin=%s): timeout after 10s", codexBin)},
+		},
+		{
+			name:     "under a codex binary that would not start, codex is unknown",
+			goos:     "linux",
+			env:      map[string]string{"HOME": home, "OC_CODEX_BIN": codexBin},
+			script:   map[string]wardenRun{codexArgv: {err: errors.New("fork/exec " + codexBin + ": exec format error")}},
+			want:     loginState{},
+			wantRuns: []string{codexArgv},
+			wantLog:  []string{fmt.Sprintf("[ocwarden runtimeprobe] codex login status failed (bin=%s): fork/exec %s: exec format error", codexBin, codexBin)},
 		},
 	}
 
@@ -352,7 +370,7 @@ func TestLoginProberState(t *testing.T) {
 	loggedOut := answer{`{"loggedIn":false}`, "1"}
 	loggedIn := answer{`{"loggedIn":true}`, "0"}
 	codexIn := wardenRun{out: "Logged in"}
-	codexOut := wardenRun{err: errors.New("exit status 1: not logged in")}
+	codexOut := wardenRun{err: exitStatus1(t, "not logged in")}
 	cadenceCases := []struct {
 		name     string
 		goos     string
@@ -511,11 +529,41 @@ func TestLoginProberState(t *testing.T) {
 }
 
 func fmtLogin(s loginState) string {
-	f := func(b *bool) string {
-		if b == nil {
-			return "nil"
-		}
-		return fmt.Sprint(*b)
+	return "claude=" + fmtVerdict(s.Claude) + " codex=" + fmtVerdict(s.Codex)
+}
+
+func fmtVerdict(b *bool) string {
+	if b == nil {
+		return "nil"
 	}
-	return "claude=" + f(s.Claude) + " codex=" + f(s.Codex)
+	return fmt.Sprint(*b)
+}
+
+func boolRef(v bool) *bool { return &v }
+
+// loginVerdicts is a LoginCheck answering from a fixed table; a runtime not in
+// it reads unknown.
+func loginVerdicts(m map[string]*bool) func(string) *bool {
+	return func(runtime string) *bool { return m[runtime] }
+}
+
+// exitStatus1 is the error a real `codex login status` gives a logged-out host:
+// an *exec.ExitError, wrapped the way execRunner wraps it.
+func exitStatus1(t *testing.T, stderr string) error {
+	t.Helper()
+	falseBin := ""
+	for _, candidate := range []string{"/usr/bin/false", "/bin/false"} {
+		if _, err := os.Stat(candidate); err == nil {
+			falseBin = candidate
+			break
+		}
+	}
+	if falseBin == "" {
+		t.Fatal("no false(1) at /usr/bin or /bin")
+	}
+	runErr := exec.Command(falseBin).Run()
+	if runErr == nil {
+		t.Fatal("false(1) exited 0")
+	}
+	return fmt.Errorf("%w: %s", runErr, stderr)
 }

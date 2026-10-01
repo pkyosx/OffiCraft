@@ -530,6 +530,23 @@ func sleepUntil(ctx context.Context, d time.Duration) bool {
 	}
 }
 
+// sleepUntilOrKick is sleepUntil that also returns early, true, on kick.
+func sleepUntilOrKick(ctx context.Context, d time.Duration, kick <-chan struct{}) bool {
+	if ctx.Err() != nil {
+		return false
+	}
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
+	case <-kick:
+		return true
+	}
+}
+
 func waitGraceful(wg *sync.WaitGroup, grace time.Duration) {
 	done := make(chan struct{})
 	go func() { wg.Wait(); close(done) }()
@@ -701,8 +718,13 @@ func realMain(argv []string, env func(string) string, out io.Writer) int {
 	// 🔴 NOTHING GUARDS `setLoginIntervals` here. Dropping it, or passing a no-op
 	// setter, compiles and leaves the package green, but the owner's two login
 	// intervals are then silently ignored and every warden stays at 300 s / 30 s.
+	// A spawn's login check kicks the loop so the machine's login report changes
+	// with it, not one heartbeat later.
+	sleep := func(ctx context.Context, d time.Duration) bool {
+		return sleepUntilOrKick(ctx, d, login.kicked())
+	}
 	rc := run(ctx, cfg, collect, machine, post, fingerprints.collect, claudeProbe.collect,
-		wardenShapeOf, cutoverEffectOf, sleepUntil, iters, out, setLoginIntervals, runtimeProbe)
+		wardenShapeOf, cutoverEffectOf, sleep, iters, out, setLoginIntervals, runtimeProbe)
 
 	stop()
 	waitGraceful(&wg, shutdownGrace)
@@ -721,7 +743,7 @@ func wireLoginCheck(cfg Config, env func(string) string, runner CmdRunner, goos 
 		keep = k
 	}
 	login = newLoginProber(env, runner, keep, goos, launchEnv, logf)
-	return buildCommandDeps(cfg, env, runner, launchEnv), login, login.setIntervals
+	return buildCommandDeps(cfg, env, runner, launchEnv, login), login, login.setIntervals
 }
 
 func main() {

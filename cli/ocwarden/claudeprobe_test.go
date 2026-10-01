@@ -45,7 +45,7 @@ func TestNewClaudeProber(t *testing.T) {
 	if err := os.WriteFile(credPath, []byte(`{"claudeAiOauth":{"subscriptionType":"max"}}`), 0o600); err != nil {
 		t.Fatalf("stage credentials: %v", err)
 	}
-	env := credEnvFunc(map[string]string{"HOME": home, "OC_CLAUDE_BIN": bin})
+	env := envMap(map[string]string{"HOME": home, "OC_CLAUDE_BIN": bin})
 	runner := fakeRunner{out: map[string]string{bin + " --version": "2.1.211 (Claude Code)\n"}}
 
 	prober := newClaudeProber(env, runner, "linux")
@@ -71,7 +71,7 @@ func TestClaudeProberCollect(t *testing.T) {
 
 	newProber := func(seams *probeSeams, home, goos string, files map[string]string, keychain error) *claudeProber {
 		return &claudeProber{
-			env:        credEnvFunc(map[string]string{"HOME": home}),
+			env:        envMap(map[string]string{"HOME": home}),
 			resolveBin: func() string { return "/usr/local/bin/claude" },
 			stat: func(path string) (os.FileInfo, error) {
 				seams.statPaths = append(seams.statPaths, path)

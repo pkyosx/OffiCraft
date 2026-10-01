@@ -1768,7 +1768,7 @@ func TestCodexSessionHandleServerRequest(t *testing.T) {
 }
 
 func TestRunCodexSession(t *testing.T) {
-	env := credEnvFunc(map[string]string{"OC_BASE": "https://x.test", "OC_TOKEN": "tok"})
+	env := envMap(map[string]string{"OC_BASE": "https://x.test", "OC_TOKEN": "tok"})
 
 	t.Run("incomplete launch parameters are refused before anything starts", func(t *testing.T) {
 		cases := []struct {

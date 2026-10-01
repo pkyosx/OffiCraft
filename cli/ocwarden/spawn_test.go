@@ -1249,6 +1249,33 @@ func TestStart(t *testing.T) {
 		}
 	})
 
+	t.Run("under an unknown login verdict, the spawn launches, for claude and codex alike", func(t *testing.T) {
+		for _, runtime := range []string{"claude", "codex"} {
+			t.Run(runtime, func(t *testing.T) {
+				h := newSpawnHarness()
+				d := h.deps()
+				d.CodexBin = "/usr/local/bin/codex"
+				d.WardenBin = "/Users/eva/.officraft/warden/ocwarden"
+				var asked []string
+				d.LoginCheck = func(rt string) *bool {
+					asked = append(asked, rt)
+					return nil
+				}
+				p := startParamsM1()
+				p.Runtime = runtime
+				p.Model = "gpt-5"
+
+				got := d.start(p)
+				if want := (SpawnOutcome{OK: true, SessionID: "member-m1", PID: "500"}); got != want {
+					t.Errorf("outcome = %+v, want %+v", got, want)
+				}
+				if !reflect.DeepEqual(asked, []string{runtime}) {
+					t.Errorf("login checked for %v, want [%s]", asked, runtime)
+				}
+			})
+		}
+	})
+
 	t.Run("a live session is never clobbered", func(t *testing.T) {
 		h := newSpawnHarness()
 		h.runner.script["tmux -L officraft has-session -t member-m1"] = wardenRun{}
@@ -1290,11 +1317,9 @@ func TestStart(t *testing.T) {
 				"Fix any one: set this member's 執行環境 to Codex; " +
 				"install Claude Code here; or re-install the warden with OC_CLAUDE_BIN=<path>."},
 			{"a signed-out claude", func(_ *spawnHarness, d *SpawnDeps, _ *StartParams) {
-				d.ClaudeCreds = func() claudeCredStatus {
-					return claudeCredStatus{Summary: "cred_file=unset keychain=unset"}
-				}
-			}, "claude_not_logged_in: no claude credential here (cred_file=unset keychain=unset). " +
-				"Fix any one: set this member's 執行環境 to Codex; run `claude` once as this user; " +
+				d.LoginCheck = loginVerdicts(map[string]*bool{"claude": boolRef(false)})
+			}, "claude_not_logged_in: `claude auth status` reports logged out on this host. " +
+				"Fix any one: set this member's 執行環境 to Codex; log in with `claude` as this user; " +
 				"or re-install the warden with OC_CLAUDE_CRED_CHECK=0 (shell exports do not reach it)."},
 			{"no codex on the machine", func(_ *spawnHarness, d *SpawnDeps, p *StartParams) {
 				p.Runtime = "codex"
@@ -1308,7 +1333,7 @@ func TestStart(t *testing.T) {
 				p.Runtime = "codex"
 				d.CodexBin = "/usr/local/bin/codex"
 				d.WardenBin = "/Users/eva/.officraft/warden/ocwarden"
-				h.runner.script["/usr/local/bin/codex login status"] = wardenRun{err: errors.New("exit status 1")}
+				d.LoginCheck = loginVerdicts(map[string]*bool{"codex": boolRef(false)})
 			}, "codex_not_logged_in: `codex login status` failed on this host"},
 			{"a codex that lists no model of the chosen family", func(h *spawnHarness, d *SpawnDeps, p *StartParams) {
 				p.Runtime = "codex"
@@ -1428,7 +1453,6 @@ func TestStart(t *testing.T) {
 			`--codex-bin /usr/local/bin/codex --workdir /w/m1 --persona /w/m1/persona.md ` +
 			`--agent-id m1 --model gpt-5 --effort high`
 		wantCalls := []string{
-			"/usr/local/bin/codex login status",
 			"tmux -L officraft has-session -t member-m1",
 			wantLaunch,
 			"tmux -L officraft set-option -t member-m1 window-size manual",
@@ -1489,7 +1513,6 @@ func TestStart(t *testing.T) {
 					t.Errorf("model list asked of %v, want %v", asked, want)
 				}
 				wantCalls := []string{
-					"/usr/local/bin/codex login status",
 					"tmux -L officraft has-session -t member-m1",
 					"tmux -L officraft new-session -d -s member-m1 -x 160 -y 50 " +
 						`cd /w/m1; export OC_TOKEN="$(/bin/cat /w/m1/.oc-token)" ` +
@@ -1529,8 +1552,8 @@ func TestStart(t *testing.T) {
 			`exec /Users/eva/.officraft/warden/ocwarden codex-session ` +
 			`--codex-bin /usr/local/bin/codex --workdir /w/m1 --persona /w/m1/persona.md ` +
 			`--agent-id m1 --model gpt-5 --effort medium`
-		if h.runner.calls[2] != wantLaunch {
-			t.Errorf("launch call =\n%s\nwant\n%s", h.runner.calls[2], wantLaunch)
+		if h.runner.calls[1] != wantLaunch {
+			t.Errorf("launch call =\n%s\nwant\n%s", h.runner.calls[1], wantLaunch)
 		}
 		wantLog := `codex launch: effort "xxhigh" is not a level this warden knows; ` +
 			`launching at "medium". The cockpit will keep showing "xxhigh", so this line is the ` +

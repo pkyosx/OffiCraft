@@ -668,33 +668,47 @@ func TestNewOcAgentResolver(t *testing.T) {
 	}
 }
 
-func TestBuildClaudeCredProbe(t *testing.T) {
-	home := t.TempDir()
+func TestBuildLoginGate(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("PATH", filepath.Join(root, "nothing-here"))
+	codexBin := stageBinary(t, filepath.Join(root, "bin", "codex"), "#!/bin/sh\n")
+	claudeBin := stageBinary(t, filepath.Join(root, "bin", "claude"), "#!/bin/sh\nprintf '{\"loggedIn\":false}'\nexit 1\n")
+	codexArgv := codexBin + " login status"
+	prober := func(env func(string) string) (*loginProber, *wardenRunner, *keepShellRunner) {
+		runner := &wardenRunner{script: map[string]wardenRun{codexArgv: {out: "Logged in"}}}
+		keep := &keepShellRunner{}
+		return newLoginProber(env, runner, keep, "linux", &launchEnvCache{}, nil), runner, keep
+	}
+	base := map[string]string{"HOME": root, "OC_CLAUDE_BIN": claudeBin, "OC_CODEX_BIN": codexBin,
+		"OC_AGENT_ENV_INHERIT": "0"}
+	withHatch := map[string]string{"OC_CLAUDE_CRED_CHECK": "0"}
+	for k, v := range base {
+		withHatch[k] = v
+	}
+	yes, no := true, false
 
-	if probe := buildClaudeCredProbe(envMap(map[string]string{"OC_CLAUDE_CRED_CHECK": "0"}), &wardenRunner{}); probe != nil {
-		t.Error("OC_CLAUDE_CRED_CHECK=0 must leave the gate off (a nil probe), not a fabricated verdict")
-	}
+	t.Run("under no escape hatch, each runtime's verdict is the login check run now", func(t *testing.T) {
+		login, runner, keep := prober(envMap(base))
+		gate := buildLoginGate(envMap(base), login)
 
-	keychainArgv := "security find-generic-password -s Claude Code-credentials"
-	signedOut := &wardenRunner{fallback: wardenRun{err: errors.New("SecKeychainSearchCopyNext: not found")}}
-	probe := buildClaudeCredProbe(envMap(map[string]string{"HOME": home}), signedOut)
-	if probe == nil {
-		t.Fatal("the gate must be wired when nobody disabled it")
-	}
-	got := probe()
-	want := claudeCredStatus{Present: false,
-		Summary: "cred_file=unset keychain=unset ANTHROPIC_API_KEY=unset ANTHROPIC_AUTH_TOKEN=unset " +
-			"CLAUDE_CODE_USE_BEDROCK=unset CLAUDE_CODE_USE_VERTEX=unset CLAUDE_CODE_OAUTH_TOKEN=unset"}
-	if got != want {
-		t.Errorf("probe() = %+v, want %+v", got, want)
-	}
-	if !reflect.DeepEqual(signedOut.calls, []string{keychainArgv}) {
-		t.Errorf("ran %v, want the metadata-only keychain lookup %q", signedOut.calls, keychainArgv)
-	}
+		got := []any{fmtVerdict(gate("claude")), fmtVerdict(gate("codex")), len(keep.shells), len(runner.calls)}
+		if want := []any{fmtVerdict(&no), fmtVerdict(&yes), 1, 1}; !reflect.DeepEqual(got, want) {
+			t.Errorf("claude verdict, codex verdict, claude checks, codex checks = %v, want %v", got, want)
+		}
+	})
 
-	stageBinary(t, filepath.Join(home, ".claude", ".credentials.json"), "{}")
-	if got := probe(); !got.Present || !strings.HasPrefix(got.Summary, "cred_file=SET ") {
-		t.Errorf("probe() = %+v, want a present verdict led by cred_file=SET", got)
+	t.Run("under OC_CLAUDE_CRED_CHECK=0, claude is not checked and reads unknown, while codex still is", func(t *testing.T) {
+		login, runner, keep := prober(envMap(withHatch))
+		gate := buildLoginGate(envMap(withHatch), login)
+
+		got := []any{fmtVerdict(gate("claude")), fmtVerdict(gate("codex")), len(keep.shells), len(runner.calls)}
+		if want := []any{fmtVerdict(nil), fmtVerdict(&yes), 0, 1}; !reflect.DeepEqual(got, want) {
+			t.Errorf("claude verdict, codex verdict, claude checks, codex checks = %v, want %v", got, want)
+		}
+	})
+
+	if buildLoginGate(envMap(base), nil) != nil {
+		t.Error("with no login prober there is no gate")
 	}
 }
 
@@ -730,9 +744,6 @@ func TestBuildSpawnDeps(t *testing.T) {
 	if deps.CaptureEnv != nil {
 		t.Error("OC_AGENT_ENV_INHERIT=0 must leave the interactive-env capture off")
 	}
-	if deps.ClaudeCreds != nil {
-		t.Error("OC_CLAUDE_CRED_CHECK=0 must leave the login gate off")
-	}
 	if deps.Pretrust != nil {
 		t.Error("Pretrust is bound per spawn, so the literal must leave it nil")
 	}
@@ -759,9 +770,6 @@ func TestBuildSpawnDeps(t *testing.T) {
 	if inherit.CaptureEnv == nil {
 		t.Error("the interactive-env capture must be on unless the owner turned it off")
 	}
-	if inherit.ClaudeCreds == nil {
-		t.Error("the claude-login gate must be on unless the owner turned it off")
-	}
 }
 
 func TestBuildCommandDeps(t *testing.T) {
@@ -771,7 +779,7 @@ func TestBuildCommandDeps(t *testing.T) {
 	env := envMap(map[string]string{"HOME": root, "OC_AGENT_ENV_INHERIT": "0", "OC_CLAUDE_CRED_CHECK": "0"})
 
 	deps := buildCommandDeps(Config{Base: "https://station.example", Token: jwtWardenOne, ID: "warden-1"},
-		env, &wardenRunner{}, nil)
+		env, &wardenRunner{}, nil, nil)
 
 	for name, wired := range map[string]bool{
 		"Spawn": deps.Spawn != nil, "Stop": deps.Stop != nil, "Teardown": deps.Teardown != nil,
@@ -844,7 +852,7 @@ func TestBuildCommandDeps(t *testing.T) {
 		runner := &wardenRunner{shellPassthrough: true, script: map[string]wardenRun{
 			"tmux -L officraft has-session -t member-m1": {err: errors.New("can't find session: member-m1")},
 		}}
-		d := buildCommandDeps(Config{Base: "https://station.example"}, spawnEnv, runner, nil)
+		d := buildCommandDeps(Config{Base: "https://station.example"}, spawnEnv, runner, nil, nil)
 
 		got := d.Spawn(StartParams{MemberID: "m1", PersonaContext: "p", MemberToken: "jwt", Role: "builder"})
 		if !got.OK {
@@ -921,7 +929,7 @@ func TestBuildCommandDeps(t *testing.T) {
 		runner := &wardenRunner{shellPassthrough: true, script: map[string]wardenRun{
 			"tmux -L officraft has-session -t member-m1": {err: errors.New("can't find session: member-m1")},
 		}}
-		d := buildCommandDeps(Config{Base: "https://station.example"}, spawnEnv, runner, nil)
+		d := buildCommandDeps(Config{Base: "https://station.example"}, spawnEnv, runner, nil, nil)
 
 		if got := d.Spawn(StartParams{MemberID: "m1", PersonaContext: "p", MemberToken: "jwt", Role: "builder"}); !got.OK {
 			t.Fatalf("outcome = %+v, want OK", got)
@@ -943,7 +951,7 @@ func TestBuildCommandDeps(t *testing.T) {
 		}
 	})
 
-	homeless := buildCommandDeps(Config{}, envMap(map[string]string{}), &wardenRunner{}, nil)
+	homeless := buildCommandDeps(Config{}, envMap(map[string]string{}), &wardenRunner{}, nil, nil)
 	ok, log := homeless.Teardown()
 	if ok || log != "[ocwarden teardown] cannot resolve paths: HOME must be set\n" {
 		t.Errorf("Teardown = (%v, %q), want a reported path failure that leaves the warden alive", ok, log)
@@ -1029,7 +1037,7 @@ func TestNewCommandTransport(t *testing.T) {
 	var log []string
 	logf := func(format string, a ...any) { log = append(log, fmt.Sprintf(format, a...)) }
 	cfg := Config{Base: "https://station.example", Token: jwtWardenOne, ID: "warden-1"}
-	tr := newCommandTransport(cfg, buildCommandDeps(cfg, env, &wardenRunner{}, nil), logf)
+	tr := newCommandTransport(cfg, buildCommandDeps(cfg, env, &wardenRunner{}, nil, nil), logf)
 
 	if tr.base != "https://station.example" || tr.token != jwtWardenOne {
 		t.Errorf("addressing = (%q, ...), want the configured station and its credential", tr.base)
