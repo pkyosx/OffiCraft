@@ -4,7 +4,16 @@ import { api } from "../api";
 import { isHttpStatus, serverMessageOf } from "../api/errors";
 import { useEscapeLayer } from "../lib/useEscapeLayer";
 import type { RuntimeLoginRuntime, RuntimeLoginState, RuntimeLoginView } from "../types";
-import { CheckIcon, CopyIcon, ExternalLinkIcon } from "./icons";
+import {
+  AlertTriangleIcon,
+  CheckIcon,
+  ClockIcon,
+  CopyIcon,
+  ExternalLinkIcon,
+  KeyIcon,
+  ShieldAlertIcon,
+  TerminalIcon,
+} from "./icons";
 import "./confirm-modal.css";
 import "./runtime-login.css";
 
@@ -23,6 +32,11 @@ const CODE_UNREADABLE = /^could not read the one-time code/;
 function remaining(deadlineMs: number, nowMs: number): string {
   const secs = Math.floor((deadlineMs - nowMs) / 1000);
   return `${String(Math.floor(secs / 60)).padStart(2, "0")}:${String(secs % 60).padStart(2, "0")}`;
+}
+
+function leftPercent(deadlineMs: number, nowMs: number, totalMs: number): number {
+  if (totalMs <= 0) return 0;
+  return Math.min(100, Math.max(0, ((deadlineMs - nowMs) / totalMs) * 100));
 }
 
 const TERMINAL: RuntimeLoginState[] = ["succeeded", "failed", "expired", "cancelled"];
@@ -169,7 +183,7 @@ export function RuntimeLoginDialog({
   // expires_ts and updated_ts are both server clock, so their difference is
   // what is left; counted down on the browser clock from when it arrived, it is
   // immune to skew between the two clocks.
-  const [deadline, setDeadline] = useState<{ key: string; ms: number } | null>(null);
+  const [deadline, setDeadline] = useState<{ key: string; ms: number; totalMs: number } | null>(null);
   const deadlineKey =
     login?.state === "awaiting_authorization" && login.expiresTs != null
       ? `${login.loginId}:${login.expiresTs}:${login.updatedTs}`
@@ -180,7 +194,15 @@ export function RuntimeLoginDialog({
       return;
     }
     const left = login.expiresTs - login.updatedTs;
-    setDeadline({ key: deadlineKey, ms: Date.now() + left * 1000 });
+    const code = `${login.loginId}:${login.expiresTs}:`;
+    // A newer updatedTs for the same code leaves less time but the same code:
+    // the bar keeps measuring against the code's whole lifetime instead of
+    // jumping back to full.
+    setDeadline((prev) => ({
+      key: deadlineKey,
+      ms: Date.now() + left * 1000,
+      totalMs: prev?.key.startsWith(code) ? prev.totalMs : left * 1000,
+    }));
     // Keyed on the values, not the object: a refetch of the same login must not
     // restart the countdown.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -216,230 +238,272 @@ export function RuntimeLoginDialog({
     </button>
   );
 
+  const codex = runtime === "codex";
+  const replaceHint = loggedIn && (
+    <p className="runtime-login__hint" data-testid="runtime-login-replace-hint">
+      {m.replaceHint}
+    </p>
+  );
+  const openStep = (url: string) => (
+    <Step
+      n={1}
+      title={codex ? m.codexStep1Title : m.step1Title}
+      desc={codex ? m.codexStep1Desc : m.step1Desc}
+    >
+      <div className="runtime-login__row">
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="confirm-modal__btn confirm-modal__btn--accent runtime-login__link"
+          data-testid="runtime-login-url"
+        >
+          <ExternalLinkIcon size={14} />
+          <span>{m.openUrl}</span>
+        </a>
+        <button
+          type="button"
+          className="confirm-modal__btn"
+          data-testid="runtime-login-copy"
+          onClick={() => void copy("url", url)}
+        >
+          {copied === "url" ? <CheckIcon size={14} /> : <CopyIcon size={14} />}
+          <span>{copied === "url" ? m.copied : m.copyUrl}</span>
+        </button>
+      </div>
+    </Step>
+  );
+
   let body: React.ReactNode;
   let ended = false;
   if (failure?.kind === "noResponse") {
     ended = true;
     body = (
-      <div data-testid="runtime-login-no-response">
-        <p className="runtime-login__line">
-          {machineName}
-          {m.noResponseTail}
-        </p>
-        <p className="runtime-login__hint">{m.noResponseCauses}</p>
-      </div>
+      <Status tone="bad">
+        <div data-testid="runtime-login-no-response">
+          <p className="runtime-login__line runtime-login__line--bad">
+            {machineName}
+            {m.noResponseTail}
+          </p>
+          <p className="runtime-login__hint">{m.noResponseCauses}</p>
+        </div>
+      </Status>
     );
   } else if (failure?.kind === "error") {
     ended = true;
     body = (
-      <p className="runtime-login__line runtime-login__line--bad" data-testid="runtime-login-failed">
-        {m.failedLead}
-        {failure.message}
-      </p>
+      <Status tone="bad">
+        <p className="runtime-login__line runtime-login__line--bad" data-testid="runtime-login-failed">
+          {m.failedLead}
+          {failure.message}
+        </p>
+      </Status>
     );
   } else if (login === null || login.state === "starting") {
     body = (
-      <p className="runtime-login__line" data-testid="runtime-login-preparing">
-        {m.preparingLead}
-        {machineName}
-        {m.preparingTail}
-      </p>
+      <Status tone="busy">
+        <p className="runtime-login__line" data-testid="runtime-login-preparing">
+          {m.preparingLead}
+          {machineName}
+          {m.preparingTail}
+        </p>
+        {replaceHint}
+      </Status>
     );
   } else if (login.state === "awaiting_code") {
-    const url = login.authUrl ?? "";
     body = (
-      <div className="runtime-login__awaiting" data-testid="runtime-login-awaiting">
-        <p className="runtime-login__hint">{m.instructions}</p>
-        <div className="runtime-login__url">
-          <a
-            href={url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="runtime-login__link"
-            data-testid="runtime-login-url"
+      <ol className="runtime-login__steps" data-testid="runtime-login-awaiting">
+        {openStep(login.authUrl ?? "")}
+        <Step n={2} title={m.step2Title} desc={m.step2Desc}>
+          <form
+            className="runtime-login__row"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void submit();
+            }}
           >
-            <ExternalLinkIcon size={14} />
-            <span>{m.openUrl}</span>
-          </a>
-          <button
-            type="button"
-            className="confirm-modal__btn"
-            data-testid="runtime-login-copy"
-            onClick={() => void copy("url", url)}
-          >
-            {copied === "url" ? <CheckIcon size={14} /> : <CopyIcon size={14} />}
-            <span>{copied === "url" ? m.copied : m.copyUrl}</span>
-          </button>
-        </div>
-        <form
-          className="runtime-login__code"
-          onSubmit={(e) => {
-            e.preventDefault();
-            void submit();
-          }}
-        >
-          <label className="runtime-login__code-label">
-            <span>{m.codeLabel}</span>
             <input
               className="runtime-login__code-input"
               data-testid="runtime-login-code"
+              aria-label={m.codeLabel}
+              placeholder={m.codePlaceholder}
               value={code}
               autoComplete="off"
               spellCheck={false}
               onChange={(e) => setCode(e.target.value)}
             />
-          </label>
-          <button
-            type="submit"
-            className="confirm-modal__btn confirm-modal__btn--accent"
-            data-testid="runtime-login-submit"
-            disabled={submitting || code.trim() === ""}
-          >
-            {m.submit}
-          </button>
-        </form>
-        {(codeRefused || login.reason) && (
-          <p className="runtime-login__code-error" data-testid="runtime-login-code-refused">
-            {m.codeIncomplete}
-          </p>
-        )}
-      </div>
+            <button
+              type="submit"
+              className="confirm-modal__btn confirm-modal__btn--accent runtime-login__submit"
+              data-testid="runtime-login-submit"
+              disabled={submitting || code.trim() === ""}
+            >
+              {m.submit}
+            </button>
+          </form>
+          {(codeRefused || login.reason) && (
+            <p className="runtime-login__code-error" data-testid="runtime-login-code-refused">
+              {m.codeIncomplete}
+            </p>
+          )}
+        </Step>
+        <Step n={3} pending title={m.step3Title} desc={m.step3Desc}>
+          {replaceHint}
+        </Step>
+      </ol>
     );
   } else if (codeRanOut) {
     ended = true;
     body = (
-      <p className="runtime-login__line runtime-login__line--bad" data-testid="runtime-login-failed">
-        {m.codexExpired}
-      </p>
+      <Status tone="bad">
+        <p className="runtime-login__line runtime-login__line--bad" data-testid="runtime-login-failed">
+          {m.codexExpired}
+        </p>
+      </Status>
     );
   } else if (login.state === "awaiting_authorization") {
-    const url = login.authUrl ?? "";
     const userCode = login.userCode ?? "";
     body = (
-      <div className="runtime-login__awaiting" data-testid="runtime-login-authorize">
-        <p className="runtime-login__hint">{m.codexInstructions}</p>
-        <div className="runtime-login__url">
-          <a
-            href={url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="runtime-login__link"
-            data-testid="runtime-login-url"
-          >
-            <ExternalLinkIcon size={14} />
-            <span>{m.openUrl}</span>
-          </a>
-          <button
-            type="button"
-            className="confirm-modal__btn"
-            data-testid="runtime-login-copy"
-            onClick={() => void copy("url", url)}
-          >
-            {copied === "url" ? <CheckIcon size={14} /> : <CopyIcon size={14} />}
-            <span>{copied === "url" ? m.copied : m.copyUrl}</span>
-          </button>
-        </div>
-        <div className="runtime-login__user-code">
-          <span className="runtime-login__code-label">{m.userCodeLabel}</span>
-          <code className="runtime-login__user-code-value" data-testid="runtime-login-user-code">
-            {userCode}
-          </code>
-          <button
-            type="button"
-            className="confirm-modal__btn"
-            data-testid="runtime-login-copy-code"
-            onClick={() => void copy("code", userCode)}
-          >
-            {copied === "code" ? <CheckIcon size={14} /> : <CopyIcon size={14} />}
-            <span>{copied === "code" ? m.copied : m.copyCode}</span>
-          </button>
-        </div>
-        {deadlineMs != null && (
-          <p className="runtime-login__hint" data-testid="runtime-login-remaining">
-            {m.remainingLead}
-            {remaining(deadlineMs, nowMs)}
+      <ol className="runtime-login__steps" data-testid="runtime-login-authorize">
+        {openStep(login.authUrl ?? "")}
+        <Step n={2} title={m.codexStep2Title} desc={m.codexStep2Desc}>
+          <div className="runtime-login__chip" role="group" aria-label={m.userCodeLabel}>
+            <code className="runtime-login__chip-code" data-testid="runtime-login-user-code">
+              {userCode}
+            </code>
+            <button
+              type="button"
+              className="confirm-modal__btn runtime-login__chip-copy"
+              data-testid="runtime-login-copy-code"
+              onClick={() => void copy("code", userCode)}
+            >
+              {copied === "code" ? <CheckIcon size={13} /> : <CopyIcon size={13} />}
+              <span>{copied === "code" ? m.copied : m.copyCode}</span>
+            </button>
+          </div>
+          {deadline != null && deadlineMs != null && (
+            <div className="runtime-login__timer">
+              <span className="runtime-login__bar" aria-hidden="true">
+                <span
+                  className="runtime-login__bar-fill"
+                  data-testid="runtime-login-remaining-bar"
+                  style={{ width: `${leftPercent(deadlineMs, nowMs, deadline.totalMs)}%` }}
+                />
+              </span>
+              <span className="runtime-login__pill" data-testid="runtime-login-remaining">
+                <ClockIcon size={12} />
+                {m.remainingLead}
+                <b>{remaining(deadlineMs, nowMs)}</b>
+              </span>
+            </div>
+          )}
+          <p className="runtime-login__callout">
+            <ShieldAlertIcon size={14} />
+            <span data-testid="runtime-login-phishing">{m.codexPhishing}</span>
           </p>
-        )}
-        <p className="runtime-login__phishing" data-testid="runtime-login-phishing">
-          {m.codexPhishing}
-        </p>
-      </div>
+        </Step>
+        <Step n={3} pending title={m.codexStep3Title}>
+          <p className="runtime-login__waiting" data-testid="runtime-login-waiting">
+            <span className="runtime-login__spinner" aria-hidden="true" />
+            <span>
+              <b>{m.codexWaiting}</b>
+              {m.codexWaitingTail}
+            </span>
+          </p>
+          {replaceHint}
+        </Step>
+      </ol>
     );
   } else if (login.state === "verifying") {
     body = (
-      <p className="runtime-login__line" data-testid="runtime-login-verifying">
-        {m.verifying}
-      </p>
+      <Status tone="busy">
+        <p className="runtime-login__line" data-testid="runtime-login-verifying">
+          {m.verifying}
+        </p>
+        {replaceHint}
+      </Status>
     );
   } else if (login.state === "succeeded") {
     ended = true;
     const email = login.account?.email ?? "";
     // Claude shows the organization, Codex the subscription plan.
-    const org = (runtime === "codex" ? login.account?.plan : login.account?.orgName) ?? "";
+    const org = (codex ? login.account?.plan : login.account?.orgName) ?? "";
     body = (
-      <p className="runtime-login__line runtime-login__line--good" data-testid="runtime-login-succeeded">
-        {m.succeededLead}
-        {email}
-        {org !== "" && (
-          <>
-            {m.orgLead}
-            {org}
-            {m.orgTail}
-          </>
-        )}
-      </p>
+      <Status tone="good">
+        <p className="runtime-login__line runtime-login__line--good" data-testid="runtime-login-succeeded">
+          {m.succeededLead}
+          {email}
+          {org !== "" && (
+            <>
+              {m.orgLead}
+              {org}
+              {m.orgTail}
+            </>
+          )}
+        </p>
+      </Status>
     );
   } else if (login.state === "failed") {
     ended = true;
     const reason = login.reason ?? "";
     body = (
-      <div data-testid="runtime-login-failed">
-        <p className="runtime-login__line runtime-login__line--bad" data-testid="runtime-login-failed-summary">
-          {RUNTIME_UNSUPPORTED.test(reason)
-            ? m.codexUnsupported
-            : runtime === "codex" && CODE_UNREADABLE.test(reason)
-              ? m.codexCodeUnreadable
-            : runtime === "claude" && CODE_REJECTED.test(reason)
-              ? m.codeRejected
-              : m.failedHeading}
-        </p>
-        {reason !== "" && (
-          <p className="runtime-login__cli" data-testid="runtime-login-failed-cli">
-            {runtime === "codex" ? m.codexSaidLead : m.cliSaidLead}
-            {reason}
+      <Status tone="bad">
+        <div data-testid="runtime-login-failed">
+          <p className="runtime-login__line runtime-login__line--bad" data-testid="runtime-login-failed-summary">
+            {RUNTIME_UNSUPPORTED.test(reason)
+              ? m.codexUnsupported
+              : codex && CODE_UNREADABLE.test(reason)
+                ? m.codexCodeUnreadable
+              : !codex && CODE_REJECTED.test(reason)
+                ? m.codeRejected
+                : m.failedHeading}
           </p>
-        )}
-      </div>
+          {reason !== "" && (
+            <p className="runtime-login__cli" data-testid="runtime-login-failed-cli">
+              {codex ? m.codexSaidLead : m.cliSaidLead}
+              {reason}
+            </p>
+          )}
+        </div>
+      </Status>
     );
   } else {
     ended = true;
     body = (
-      <p className="runtime-login__line runtime-login__line--bad" data-testid="runtime-login-failed">
-        {login.state === "expired" ? (runtime === "codex" ? m.codexExpired : m.expired) : m.cancelled}
-      </p>
+      <Status tone="bad">
+        <p className="runtime-login__line runtime-login__line--bad" data-testid="runtime-login-failed">
+          {login.state === "expired" ? (codex ? m.codexExpired : m.expired) : m.cancelled}
+        </p>
+      </Status>
     );
   }
 
   const succeeded = login?.state === "succeeded" && failure === null;
+  const title = codex ? m.titleCodex : m.title;
   return (
     <div
       ref={rootRef}
       className="confirm-modal"
       role="dialog"
       aria-modal="true"
-      aria-label={runtime === "codex" ? m.titleCodex : m.title}
+      aria-label={title}
       data-testid="runtime-login-dialog"
     >
-      <div className="confirm-modal__box">
-        <div className="runtime-login__title">{runtime === "codex" ? m.titleCodex : m.title}</div>
-        <div className="confirm-modal__body">
-          {body}
-          {loggedIn && !ended && (
-            <p className="runtime-login__hint" data-testid="runtime-login-replace-hint">
-              {m.replaceHint}
+      <div className="confirm-modal__box runtime-login__box">
+        <div className="runtime-login__head">
+          <span className="runtime-login__mark" aria-hidden="true">
+            {codex ? <KeyIcon size={17} /> : <TerminalIcon size={17} />}
+          </span>
+          <div className="runtime-login__head-text">
+            <div className="runtime-login__title">{title}</div>
+            <p className="runtime-login__subtitle" data-testid="runtime-login-subtitle">
+              {codex ? m.codexSubtitleLead : m.subtitleLead}
+              {machineName}
+              {codex ? m.codexSubtitleTail : m.subtitleTail}
             </p>
-          )}
+          </div>
         </div>
+        <div className="confirm-modal__body">{body}</div>
         <div className="confirm-modal__actions">
           {ended && !succeeded && restartButton}
           <button
@@ -452,6 +516,53 @@ export function RuntimeLoginDialog({
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+function Step({
+  n,
+  title,
+  desc,
+  pending = false,
+  children,
+}: {
+  n: number;
+  title: string;
+  desc?: string;
+  pending?: boolean;
+  children?: React.ReactNode;
+}) {
+  return (
+    <li className="runtime-login__step">
+      <span
+        className={`runtime-login__step-num${pending ? " runtime-login__step-num--pending" : ""}`}
+        aria-hidden="true"
+      >
+        {n}
+      </span>
+      <div className="runtime-login__step-main">
+        <div className="runtime-login__step-title">{title}</div>
+        {desc && <p className="runtime-login__step-desc">{desc}</p>}
+        {children && <div className="runtime-login__step-body">{children}</div>}
+      </div>
+    </li>
+  );
+}
+
+function Status({ tone, children }: { tone: "busy" | "good" | "bad"; children: React.ReactNode }) {
+  return (
+    <div className={`runtime-login__status runtime-login__status--${tone}`}>
+      <span className="runtime-login__status-mark" aria-hidden="true">
+        {tone === "busy" ? (
+          <span className="runtime-login__spinner" />
+        ) : tone === "good" ? (
+          <CheckIcon size={15} />
+        ) : (
+          <AlertTriangleIcon size={15} />
+        )}
+      </span>
+      <div className="runtime-login__status-text">{children}</div>
     </div>
   );
 }

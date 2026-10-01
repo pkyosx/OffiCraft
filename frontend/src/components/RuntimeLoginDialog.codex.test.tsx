@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import type { RuntimeLoginView } from "../types";
 import { RuntimeLoginDialog } from "./RuntimeLoginDialog";
@@ -102,9 +102,17 @@ describe("RuntimeLoginDialog (codex)", () => {
     expect(text("runtime-login-phishing")).toBe(
       "只有在你自己按下登入時才輸入這組碼；如果是網站或別人給你的碼，請關閉"
     );
-    expect(screen.getByTestId("runtime-login-authorize").textContent).toContain(
-      "在新分頁開啟網址、登入 ChatGPT 帳號，輸入下面的一次性碼並授權；完成後這裡會自動更新"
-    );
+    const [open, enter, wait] = within(screen.getByTestId("runtime-login-authorize")).getAllByRole("listitem");
+    within(open).getByText("開啟 OpenAI 授權頁面");
+    within(open).getByText("在新分頁登入 ChatGPT 帳號");
+    expect(open.contains(link)).toBe(true);
+    within(enter).getByText("輸入一次性碼");
+    within(enter).getByText("在授權頁面貼上這組碼並按下繼續");
+    for (const id of ["runtime-login-user-code", "runtime-login-copy-code", "runtime-login-remaining", "runtime-login-phishing"]) {
+      expect(enter.contains(screen.getByTestId(id))).toBe(true);
+    }
+    within(wait).getByText("等待完成");
+    expect(within(wait).getByTestId("runtime-login-waiting").textContent).toBe("等待授權中 · 完成後這裡會自動更新");
     expect(screen.queryByTestId("runtime-login-code")).toBeNull();
     await act(async () => {
       vi.advanceTimersByTime(61_000);
@@ -121,6 +129,39 @@ describe("RuntimeLoginDialog (codex)", () => {
 
     await emit(login({ state: "succeeded", account: { email: "owner@example.test", orgName: null, plan: "team" } }));
     expect(text("runtime-login-succeeded")).toBe("已登入：owner@example.test（team）");
+  });
+
+  it("under a countdown, the bar shrinks with the time left and keeps the code's whole lifetime across a newer refetch", async () => {
+    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval", "setTimeout", "clearTimeout"] });
+    vi.setSystemTime(new Date(1_800_000_000_000));
+    mount();
+    await flush();
+    await emit(login({ state: "awaiting_authorization", authUrl: URL, userCode: "ABCD-EFGHI", expiresTs: 1_800_000_900 }));
+    const bar = () => (screen.getByTestId("runtime-login-remaining-bar") as HTMLElement).style.width;
+    expect(bar()).toBe("100%");
+    await act(async () => {
+      vi.advanceTimersByTime(450_000);
+    });
+    expect(bar()).toBe("50%");
+    await emit(login({ state: "awaiting_authorization", authUrl: URL, userCode: "ABCD-EFGHI",
+      expiresTs: 1_800_000_900, updatedTs: 1_800_000_450 }));
+    expect(text("runtime-login-remaining")).toBe("剩餘有效時間 07:30");
+    expect(bar()).toBe("50%");
+  });
+
+  it("under a machine already logged in, the waiting step says the account will be replaced", async () => {
+    mount({ loggedIn: true });
+    await flush();
+    await emit(login({ state: "awaiting_authorization", authUrl: URL, userCode: "ABCD-EFGHI", expiresTs: null }));
+    const steps = within(screen.getByTestId("runtime-login-authorize")).getAllByRole("listitem");
+    expect(steps[2].contains(screen.getByTestId("runtime-login-replace-hint"))).toBe(true);
+    expect(text("runtime-login-replace-hint")).toBe("完成後會換成新登入的帳號");
+  });
+
+  it("under a sign-in, the header names the machine being authorized", async () => {
+    mount();
+    await flush();
+    expect(text("runtime-login-subtitle")).toBe("用你的 ChatGPT 帳號授權 工作站 上的 Codex");
   });
 
   it("under a codex account with no plan, it shows the email alone", async () => {
