@@ -3352,15 +3352,73 @@ func TestRunReconcileTick(t *testing.T) {
 		want = "[reconcile] tick: 2 candidate(s)\n" +
 			"[reconcile] kip: desired=offline command=none — offline: converged\n" +
 			"[reconcile] mira: desired=offline command=none — offline: converged\n" +
-			"[reconcile] left: desired=offline command=none — stopping: offline, not yet for the whole confirm window — a reconnect inside it is a network blip, not a finished session\n"
+			"[reconcile] left: desired=offline command=none — offline: converged\n"
 		if out != want {
 			t.Fatalf("offline tick stderr:\n got %q\nwant %q", out, want)
 		}
 		apiWantValue(t, "the owed stop", any(reconcileTestState(api, "left").RobustStopPendingAt), any(float64(0)))
 
 		out = hubTestStderr(t, func() { api.runReconcileTick(reconcileTestNow + 1 + offlineConfirmGraceSecs + 1) })
-		if strings.Contains(out, "left") {
-			t.Fatalf("a removed member with nothing owed reached the tick:\n%s", out)
+		want = "[reconcile] tick: 2 candidate(s)\n" +
+			"[reconcile] kip: desired=offline command=none — offline: converged\n" +
+			"[reconcile] mira: desired=offline command=none — offline: converged\n"
+		if out != want {
+			t.Fatalf("past-window tick stderr:\n got %q\nwant %q", out, want)
+		}
+		wsWantWardenFrames(t, api, "m-box")
+	})
+
+	t.Run("a member dismissed long after it last ran is sent no stop beyond its dismissal's, and is never collected", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestOnline(t, api, "m-box", "")
+		reconcileTestPut(t, d, Member{
+			ID: "idle", Name: "Idle", Kind: KindStaff, RoleKey: "assistant",
+			DesiredState: DesiredStateOffline, RosterStatus: RosterStatusActive,
+		})
+		out := hubTestStderr(t, func() { api.runReconcileTick(reconcileTestNow - offlineConfirmGraceSecs - 10) })
+		want := "[reconcile] recycle: gate skip idle gate=no-actionable-pct pct=- pct_ts=- boot_ts=- boot_secs=- online=false\n" +
+			"[reconcile] recycle: gate skip kip gate=no-actionable-pct pct=- pct_ts=- boot_ts=- boot_secs=- online=false\n" +
+			"[reconcile] recycle: gate skip mira gate=no-actionable-pct pct=- pct_ts=- boot_ts=- boot_secs=- online=false\n" +
+			"[reconcile] tick: 3 candidate(s)\n" +
+			"[reconcile] idle: desired=offline command=none — offline: converged\n" +
+			"[reconcile] kip: desired=offline command=none — offline: converged\n" +
+			"[reconcile] mira: desired=offline command=none — offline: converged\n"
+		if out != want {
+			t.Fatalf("at-rest tick stderr:\n got %q\nwant %q", out, want)
+		}
+
+		row, err := d.GetMember("idle")
+		if err != nil {
+			t.Fatalf("GetMember: %v", err)
+		}
+		row.RosterStatus = RosterStatusRemoved
+		reconcileTestPut(t, d, *row)
+		if err := d.SetMemberWindDownAnchors("idle", reconcileTestNow-1, 0, 0, ""); err != nil {
+			t.Fatalf("SetMemberWindDownAnchors: %v", err)
+		}
+		api.noteRobustStopDispatched("idle", reconcileTestNow-1)
+
+		out = hubTestStderr(t, func() { api.runReconcileTick(reconcileTestNow) })
+		want = "[reconcile] tick: 2 candidate(s)\n" +
+			"[reconcile] kip: desired=offline command=none — offline: converged\n" +
+			"[reconcile] mira: desired=offline command=none — offline: converged\n" +
+			"[reconcile] idle: desired=offline command=none — offline: converged\n"
+		if out != want {
+			t.Fatalf("landed tick stderr:\n got %q\nwant %q", out, want)
+		}
+		wsWantWardenFrames(t, api, "m-box")
+		after, err := d.GetMember("idle")
+		if err != nil {
+			t.Fatalf("GetMember: %v", err)
+		}
+		apiWantValue(t, "stopped_since", any(after.StoppedSince), any(float64(0)))
+
+		out = hubTestStderr(t, func() { api.runReconcileTick(reconcileTestNow + 1) })
+		want = "[reconcile] tick: 2 candidate(s)\n" +
+			"[reconcile] kip: desired=offline command=none — offline: converged\n" +
+			"[reconcile] mira: desired=offline command=none — offline: converged\n"
+		if out != want {
+			t.Fatalf("after-landing tick stderr:\n got %q\nwant %q", out, want)
 		}
 		wsWantWardenFrames(t, api, "m-box")
 	})

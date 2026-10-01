@@ -792,9 +792,11 @@ The server owns desired-state reconciliation; the warden is a stateless executor
 - Candidate set per cadence tick: every ACTIVE non-warden member, plus any ACTIVE warden
   whose `desired_state == "uninstall"` (wardens are never spawn/stop candidates — no warden
   reconciles another warden), plus a dismissed staff member only while the robust STOP its
-  dismissal sent is still owed (`RobustStopPendingAt`). It leaves the set once that STOP is
-  judged landed, so the session-gone collect of §4.3 never reaches it: the dismissal's STOP
-  is its only one.
+  dismissal sent is still owed (`RobustStopPendingAt`). The session-gone collect of §4.3 is
+  never computed for it, so the only STOP it is sent is that one and its re-sends. It leaves
+  the set on the first offline sample; a session that comes back after that is not stopped
+  by the tick but by the SSE stop gate, which refuses a removed member, and the agent's
+  listener ends its own session after a run of refusals.
 - The tick loop MUST survive any single tick fault (log and continue).
 
 ### 4.2 Inputs

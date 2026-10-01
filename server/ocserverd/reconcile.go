@@ -824,7 +824,9 @@ func (s *apiServer) reconcileOne(m Member, st reconcileState, now float64) recon
 		RunningMachine:  s.hub.MachineOf(m.ID),
 		HandoverArmable: s.memberOwnerOpHandoverArmable(m, memberOpRelocate),
 	}
-	if obs.Desired == DesiredStateOffline {
+	// A dismissed row rides the tick only for the robust STOP its dismissal owes; collecting
+	// it would send a second STOP the moment that one is judged landed.
+	if obs.Desired == DesiredStateOffline && m.RosterStatus == RosterStatusActive {
 		obs.StopAwaitsCollect = stopAwaitsCollect(m)
 		obs.SessionConfirmedGone = s.sessionConfirmedGone(m.ID, now)
 	}
