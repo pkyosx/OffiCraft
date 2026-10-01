@@ -401,6 +401,16 @@ func (d SpawnDeps) logf(format string, a ...any) {
 	}
 }
 
+// loggedOut is true only on an explicit logged-out verdict: an unknown one (an
+// unreadable keychain, a timeout, output that does not parse) launches.
+func (d SpawnDeps) loggedOut(runtime string) bool {
+	if d.LoginCheck == nil {
+		return false
+	}
+	verdict := d.LoginCheck(runtime)
+	return verdict != nil && !*verdict
+}
+
 func (d SpawnDeps) interactiveEnvPairs() []agentEnvPair {
 	if d.CaptureEnv == nil {
 		return nil
@@ -524,9 +534,9 @@ type SpawnDeps struct {
 	// write and the read on the same claude.json.
 	ClaudeHome claudeHome
 	WardenBin  string
-	// ClaudeCreds returns a value-free verdict; it must NEVER hand a credential value
-	// back into this file.
-	ClaudeCreds func() claudeCredStatus
+	// LoginCheck runs the runtime's login check now (the same one the heartbeat
+	// reports) and returns its verdict; nil verdict = unknown, nil func = no check.
+	LoginCheck func(runtime string) *bool
 	// nil refuses every spawn whose model is a Codex family word.
 	CodexModels func(codexBin string) ([]codexModelEntry, error)
 	RepoRoot    string
@@ -602,10 +612,7 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 		if d.WardenBin == "" {
 			return SpawnOutcome{OK: false, Reason: "warden_bin_unresolved: cannot launch codex-session sidecar"}
 		}
-		if _, err := d.Runner.Run(d.CodexBin, "login", "status"); err != nil {
-			// err carries unvetted subprocess stderr: never in the owner-facing Reason, but
-			// it must not vanish either — the log holds it.
-			d.logf("codex gate: `%s login status` failed: %v", d.CodexBin, err)
+		if d.loggedOut("codex") {
 			return SpawnOutcome{OK: false, Reason: "codex_not_logged_in: `codex login status` failed on this host"}
 		}
 		resolved, refusal := d.resolveCodexLaunchModel(p.Model)
@@ -615,16 +622,12 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 		p.Model = resolved
 	}
 	// A logged-out claude launches its TUI fine and the spawn would report OK:true
-	// while the agent can never boot. nil seam = gate off (OC_CLAUDE_CRED_CHECK=0).
-	if runtimeName == "claude" && d.ClaudeCreds != nil {
-		if st := d.ClaudeCreds(); !st.Present {
-			return SpawnOutcome{OK: false, Reason: fmt.Sprintf(
-				"claude_not_logged_in: no claude credential here (%s). "+
-					"Fix any one: set this member's 執行環境 to Codex; "+
-					"run `claude` once as this user; or re-install the warden "+
-					"with OC_CLAUDE_CRED_CHECK=0 (shell exports do not reach it).",
-				st.Summary)}
-		}
+	// while the agent can never boot.
+	if runtimeName == "claude" && d.loggedOut("claude") {
+		return SpawnOutcome{OK: false, Reason: "claude_not_logged_in: `claude auth status` reports " +
+			"logged out on this host. Fix any one: set this member's 執行環境 to Codex; " +
+			"log in with `claude` as this user; or re-install the warden with " +
+			"OC_CLAUDE_CRED_CHECK=0 (shell exports do not reach it)."}
 	}
 	// A BROKEN probe (nil) is not treated as present — only a positively-present session refuses.
 	if has := tmuxHasSession(d.Runner, socket, session); has != nil && *has {

@@ -777,6 +777,38 @@ func TestRun(t *testing.T) {
 	})
 }
 
+func TestSleepUntilOrKick(t *testing.T) {
+	t.Run("under a pending kick, an hour's sleep ends at once and reports true", func(t *testing.T) {
+		kick := make(chan struct{}, 1)
+		kick <- struct{}{}
+		start := time.Now()
+		if !sleepUntilOrKick(context.Background(), time.Hour, kick) {
+			t.Error("a kicked sleep must report true")
+		}
+		if elapsed := time.Since(start); elapsed > 5*time.Second {
+			t.Errorf("returned after %v, want at once", elapsed)
+		}
+	})
+
+	t.Run("under no kick, the sleep runs its full length", func(t *testing.T) {
+		start := time.Now()
+		if !sleepUntilOrKick(context.Background(), 30*time.Millisecond, make(chan struct{})) {
+			t.Error("a full sleep must report true")
+		}
+		if elapsed := time.Since(start); elapsed < 30*time.Millisecond {
+			t.Errorf("returned after %v, want at least 30ms", elapsed)
+		}
+	})
+
+	t.Run("under a cancelled ctx, it reports false", func(t *testing.T) {
+		cancelled, cancel := context.WithCancel(context.Background())
+		cancel()
+		if sleepUntilOrKick(cancelled, time.Hour, make(chan struct{})) {
+			t.Error("a cancelled ctx must report false")
+		}
+	})
+}
+
 func TestSleepUntil(t *testing.T) {
 	start := time.Now()
 	if !sleepUntil(context.Background(), 30*time.Millisecond) {
@@ -902,6 +934,107 @@ func TestWireLoginCheck(t *testing.T) {
 		}
 		if want := []int{1, 2, 2, 3}; !reflect.DeepEqual(runs, want) {
 			t.Errorf("cumulative runs = %v, want %v", runs, want)
+		}
+	})
+
+	t.Run("under a spawn, the login check runs now: a logged-out verdict refuses it, an unknown one launches, and either is what the next heartbeat reports, sent at once", func(t *testing.T) {
+		box := t.TempDir()
+		exe, err := os.Executable()
+		if err != nil {
+			t.Fatalf("executable: %v", err)
+		}
+		ocagent := filepath.Join(filepath.Dir(exe), "ocagent")
+		if err := os.WriteFile(ocagent, []byte("#!/bin/sh\n"), 0o755); err != nil {
+			t.Skipf("cannot publish an ocagent beside the test binary: %v", err)
+		}
+		t.Cleanup(func() { os.Remove(ocagent) })
+		claudeOut := stageBinary(t, filepath.Join(box, "out", "claude"), "#!/bin/sh\nprintf '{\"loggedIn\":false}'\nexit 1\n")
+		claudeNull := stageBinary(t, filepath.Join(box, "null", "claude"), "#!/bin/sh\nprintf '{\"loggedIn\":null}'\n")
+		codexBin := stageBinary(t, filepath.Join(box, "bin", "codex"), "#!/bin/sh\n")
+		codexArgv := codexBin + " login status"
+		no := false
+		const launchFailed = "spawn_exec_failed: tmux new-session: no tmux in this test"
+		cases := []struct {
+			name, claudeBin, runtime string
+			codex                    wardenRun
+			hatch                    bool
+			wantReason               string
+			wantState                loginState
+			wantKick                 bool
+		}{
+			{name: "claude logged out", claudeBin: claudeOut, runtime: "claude",
+				wantReason: "claude_not_logged_in: `claude auth status` reports logged out on this host. " +
+					"Fix any one: set this member's 執行環境 to Codex; log in with `claude` as this user; " +
+					"or re-install the warden with OC_CLAUDE_CRED_CHECK=0 (shell exports do not reach it).",
+				wantState: loginState{Claude: &no}, wantKick: true},
+			{name: "claude unknown", claudeBin: claudeNull, runtime: "claude",
+				wantReason: launchFailed, wantState: loginState{}, wantKick: true},
+			{name: "claude logged out under OC_CLAUDE_CRED_CHECK=0", claudeBin: claudeOut, runtime: "claude", hatch: true,
+				wantReason: launchFailed, wantKick: false},
+			{name: "codex logged out", claudeBin: claudeNull, runtime: "codex", codex: wardenRun{err: exitStatus1(t, "not logged in")},
+				wantReason: "codex_not_logged_in: `codex login status` failed on this host",
+				wantState:  loginState{Codex: &no}, wantKick: true},
+			{name: "codex check timed out", claudeBin: claudeNull, runtime: "codex", codex: wardenRun{err: errors.New("timeout after 10s")},
+				wantReason: launchFailed, wantState: loginState{}, wantKick: true},
+		}
+		for _, c := range cases {
+			t.Run(c.name, func(t *testing.T) {
+				home := filepath.Join(box, "home-"+strings.ReplaceAll(c.name, " ", "-"))
+				if err := os.MkdirAll(home, 0o700); err != nil {
+					t.Fatal(err)
+				}
+				vars := map[string]string{
+					"HOME": home, "OC_AGENT_HOME": filepath.Join(home, "agents"),
+					"OC_AGENT_ENV_FILE": filepath.Join(home, "no-env-file"), "OC_AGENT_ENV_INHERIT": "0",
+					"OC_CLAUDE_BIN": c.claudeBin, "OC_CODEX_BIN": codexBin,
+				}
+				if c.hatch {
+					vars["OC_CLAUDE_CRED_CHECK"] = "0"
+				}
+				runner := keepWardenRunner{
+					wardenRunner: &wardenRunner{
+						script: map[string]wardenRun{
+							"tmux -L officraft has-session -t member-m1": {err: errors.New("can't find session: member-m1")},
+							codexArgv: c.codex,
+						},
+						fallback: wardenRun{err: errors.New("no tmux in this test")},
+					},
+					keepShellRunner: &keepShellRunner{},
+				}
+				deps, login, _ := wireLoginCheck(Config{Base: "https://station.example"}, envMap(vars), runner, "linux", nil)
+
+				got := deps.Spawn(StartParams{MemberID: "m1", PersonaContext: "p", MemberToken: "jwt",
+					Role: "builder", Runtime: c.runtime, Model: "gpt-5"})
+
+				if got.Reason != c.wantReason {
+					t.Errorf("reason:\n got %q\nwant %q", got.Reason, c.wantReason)
+				}
+				kicked := false
+				select {
+				case <-login.kicked():
+					kicked = true
+				default:
+				}
+				if kicked != c.wantKick {
+					t.Errorf("heartbeat kicked = %v, want %v", kicked, c.wantKick)
+				}
+				if !c.wantKick {
+					return
+				}
+				checks := []int{len(runner.keepShellRunner.shells), len(runner.wardenRunner.calls)}
+				state := login.state()
+				if c.runtime == "claude" {
+					state.Codex = nil
+				} else {
+					state.Claude = nil
+				}
+				if !reflect.DeepEqual(state, c.wantState) {
+					t.Errorf("reported state = %s, want %s", fmtLogin(state), fmtLogin(c.wantState))
+				}
+				if c.runtime == "claude" && len(runner.keepShellRunner.shells) != checks[0] {
+					t.Errorf("the heartbeat re-ran claude auth status instead of reporting the spawn's verdict")
+				}
+			})
 		}
 	})
 

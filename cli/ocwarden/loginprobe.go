@@ -2,7 +2,9 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -80,9 +82,13 @@ type loginState struct {
 	Codex  *bool
 }
 
-// Single-goroutine by contract: the telemetry loop both applies the receipt's
-// interval and asks for the state.
+// The telemetry loop applies the receipt's interval and asks for the state; a
+// spawn asks for a fresh verdict from the command goroutine (checkNow). mu
+// serializes the two.
 type loginProber struct {
+	mu   sync.Mutex
+	kick chan struct{}
+
 	env        func(string) string
 	runner     CmdRunner
 	keep       stdoutRunner
@@ -131,18 +137,51 @@ func newLoginProber(env func(string) string, runner CmdRunner, keep stdoutRunner
 		logf:       logf,
 		interval:   defaultLoginCheckInterval,
 		recheck:    defaultLoginRecheckInterval,
+		kick:       make(chan struct{}, 1),
 	}
 }
 
 func (p *loginProber) setIntervals(check, recheck time.Duration) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	p.interval = check
 	p.recheck = recheck
 }
 
 func (p *loginProber) state() loginState {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	p.refresh(&p.claude, p.claudeLoggedIn)
 	p.refresh(&p.codex, p.codexLoggedIn)
 	return loginState{Claude: p.claude.verdict, Codex: p.codex.verdict}
+}
+
+// checkNow runs runtime's login check regardless of the interval, keeps the
+// verdict as the one the next heartbeat reports, and asks the telemetry loop to
+// send that heartbeat now. nil = unknown.
+func (p *loginProber) checkNow(runtime string) *bool {
+	p.mu.Lock()
+	var verdict *bool
+	switch runtime {
+	case "claude":
+		verdict = p.record(&p.claude, p.claudeLoggedIn)
+	case "codex":
+		verdict = p.record(&p.codex, p.codexLoggedIn)
+	default:
+		p.mu.Unlock()
+		return nil
+	}
+	p.mu.Unlock()
+	select {
+	case p.kick <- struct{}{}:
+	default:
+	}
+	return verdict
+}
+
+// kicked fires once after any checkNow the telemetry loop has not yet reported.
+func (p *loginProber) kicked() <-chan struct{} {
+	return p.kick
 }
 
 // probe reports whether it ran a check at all; a runtime that is not installed
@@ -159,11 +198,16 @@ func (p *loginProber) refresh(r *runtimeLogin, probe func() (verdict *bool, prob
 	if r.checked && p.now().Sub(r.at) < wait {
 		return
 	}
+	p.record(r, probe)
+}
+
+func (p *loginProber) record(r *runtimeLogin, probe func() (verdict *bool, probed bool)) *bool {
 	verdict, probed := probe()
 	r.verdict = verdict
 	r.checked = true
 	r.at = p.now()
 	r.notLoggedIn = probed && (verdict == nil || !*verdict)
+	return verdict
 }
 
 func (p *loginProber) log(format string, args ...any) {
@@ -178,15 +222,21 @@ func (p *loginProber) codexLoggedIn() (*bool, bool) {
 		return nil, false
 	}
 	_, err := p.runner.Run(bin, "login", "status")
-	// A false here conflates signed out, probe timeout, crash and wrong binary, and
-	// placement fail-closes every codex member on the host on it. The error goes to
-	// the local log only: it is subprocess stderr we cannot promise is
-	// credential-free.
-	if err != nil {
-		p.log("[ocwarden runtimeprobe] codex login status failed (bin=%s): %v", bin, err)
+	if err == nil {
+		ok := true
+		return &ok, true
 	}
-	ok := err == nil
-	return &ok, true
+	// The error goes to the local log only: it is subprocess stderr we cannot
+	// promise is credential-free.
+	p.log("[ocwarden runtimeprobe] codex login status failed (bin=%s): %v", bin, err)
+	// Only a non-zero exit is codex saying "not logged in"; a timeout or a binary
+	// that would not start is unknown, and a spawn goes ahead on unknown.
+	var exit *exec.ExitError
+	if !errors.As(err, &exit) {
+		return nil, true
+	}
+	loggedOut := false
+	return &loggedOut, true
 }
 
 // The stdout of `claude auth status` carries the account's email and
