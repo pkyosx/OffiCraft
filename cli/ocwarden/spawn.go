@@ -155,15 +155,48 @@ func compactSettingsJSON(raw string) (string, error) {
 // arg-length limits). The ordered boot procedure lives only in
 // seeds/boot_sequence.md / boot_sequence_codex.md (pre-fetched into personaFile);
 // do not re-spell it here.
+func buildClaudeSystemPrompt(agentID, role, personaFile, persona string) string {
+	return fmt.Sprintf("你是 %s(role=%s)。以下「---」之後是你的 OffiCraft 開機檔全文"+
+		"(與 %s 內容相同),它已經在你的 system prompt 裡:不要再用任何工具讀那個檔。"+
+		"開機時照開機檔最後的「啟動步驟」逐步執行,只在這個 session 開始時做一次;"+
+		"對話被壓縮(compact)後不是重新開機:不要重跑啟動步驟,繼續手上的工作。\n---\n",
+		agentID, role, personaFile) + persona
+}
+
+// Only for a claude too old to take --append-system-prompt-file: the member
+// then has to read the boot file itself, and one Read call stops short of it.
 func buildAppendSystemPrompt(agentID, role, personaFile string) string {
-	prompt := fmt.Sprintf("你是 %s(role=%s)。你的完整身分、操作準則與開機程序都由 "+
-		"launcher 預抓在本地檔 %s。第一步:用 Read 工具把它從頭到尾整份讀完 —— "+
-		"不要帶 offset/limit,不要只讀開頭,也不准用 cat/head/tail/sed 或任何終端機指令讀它:"+
-		"這個檔有數萬字元,終端機輸出只有開頭一小段會進到你的 context,"+
-		"其餘會被靜默丟棄而且不會有任何錯誤訊息,而「開機程序」在整份檔案的最後面。"+
-		"整份讀完後,照裡面「開機程序」段逐步執行。",
+	return fmt.Sprintf("你是 %s(role=%s)。你的完整身分、操作準則與開機程序都由 "+
+		"launcher 預抓在本地檔 %s。第一步:用 Read 工具從第一行讀到最後一行;"+
+		"一次 Read 讀不完時,用 offset/limit 從上一次停下的那一行接著讀,直到讀到最後一行。"+
+		"不要用 cat/head/tail/sed 或任何終端機指令讀它:終端機輸出只有開頭一小段會進到你的 context,"+
+		"其餘會被靜默丟棄而且不會有任何錯誤訊息,而「啟動步驟」在整份檔案的最後面。"+
+		"整份讀完後,照裡面「啟動步驟」段逐步執行。",
 		agentID, role, personaFile)
-	return prompt
+}
+
+// The claude CLI hides --append-system-prompt-file from --help and lets
+// --version swallow unknown flags, so neither can answer. Its parser rejects
+// the FIRST unknown flag, so a rejection that names the trailing sentinel proves
+// the file flag parsed; any other answer means "not supported", which falls back
+// to a launch that still boots.
+const claudePromptFileProbeFlag = "--oc-probe-unsupported-flag"
+
+func claudeAcceptsPromptFile(r CmdRunner, claudeBin, promptFile string) bool {
+	_, err := r.Run(claudeBin, "--append-system-prompt-file", promptFile, claudePromptFileProbeFlag)
+	return err != nil && strings.Contains(err.Error(), "'"+claudePromptFileProbeFlag+"'")
+}
+
+type claudeSystemPrompt struct {
+	flag, value string
+}
+
+func claudeSystemPromptFile(path string) claudeSystemPrompt {
+	return claudeSystemPrompt{flag: "--append-system-prompt-file", value: path}
+}
+
+func claudeSystemPromptInline(text string) claudeSystemPrompt {
+	return claudeSystemPrompt{flag: "--append-system-prompt", value: text}
 }
 
 // The workdir `ocagent` SYMLINK makes the bare `ocagent` resolve here, shadowing any
@@ -187,9 +220,9 @@ func (d SpawnDeps) ocAgentTarget() (string, bool) {
 }
 
 // Flags/order are FROZEN: a divergence makes the spawned claude silently lose MCP
-// (--mcp-config) or persona (--append-system-prompt).
-func buildLaunchCommand(claudeBin, workdir, mcpConfigPath, appendSys, tokenFile, agentID, base, session, socket, model, effort, settingsJSON string, ch claudeHome) string {
-	return buildLaunchCommandWithEnv(claudeBin, workdir, mcpConfigPath, appendSys,
+// (--mcp-config) or persona (--append-system-prompt-file / --append-system-prompt).
+func buildLaunchCommand(claudeBin, workdir, mcpConfigPath string, sys claudeSystemPrompt, tokenFile, agentID, base, session, socket, model, effort, settingsJSON string, ch claudeHome) string {
+	return buildLaunchCommandWithEnv(claudeBin, workdir, mcpConfigPath, sys,
 		tokenFile, agentID, base, session, socket, model, effort, settingsJSON, nil, "", ch)
 }
 
@@ -226,7 +259,7 @@ func claudeHomeExportPairs(ch claudeHome) [][2]string {
 // the file's same names — a positional override only, NOT enforcement of the OC_*
 // rule (that lives solely in the parser) — and (b) `export PATH=<workdir>:"$PATH"`
 // composes ON TOP of an env-file PATH.
-func buildLaunchCommandWithEnv(claudeBin, workdir, mcpConfigPath, appendSys, tokenFile, agentID, base, session, socket, model, effort, settingsJSON string, extraEnv [][2]string, envRendered string, ch claudeHome) string {
+func buildLaunchCommandWithEnv(claudeBin, workdir, mcpConfigPath string, sys claudeSystemPrompt, tokenFile, agentID, base, session, socket, model, effort, settingsJSON string, extraEnv [][2]string, envRendered string, ch claudeHome) string {
 	cd := claudeChildEnvPrologue(workdir, envRendered, ch)
 	pairs := [][2]string{
 		{baseEnv, base},
@@ -262,8 +295,8 @@ func buildLaunchCommandWithEnv(claudeBin, workdir, mcpConfigPath, appendSys, tok
 		shellQuote(mcpConfigPath),
 		"--effort",
 		shellQuote(effort),
-		"--append-system-prompt",
-		shellQuote(appendSys),
+		sys.flag,
+		shellQuote(sys.value),
 	}
 	if model != "" {
 		parts = append(parts, "--model", shellQuote(model))
@@ -529,7 +562,10 @@ type SpawnDeps struct {
 	// Logf receives KEY NAMES and reasons ONLY, never a value.
 	Logf      func(string, ...any)
 	ClaudeBin string
-	CodexBin  string
+	// nil, or false, launches with the inline boot pointer that has the member
+	// read the boot file itself.
+	ClaudeTakesPromptFile func(promptFile string) bool
+	CodexBin              string
 	// ClaudeHome feeds both the launch line and Pretrust's file, which keeps the
 	// write and the read on the same claude.json.
 	ClaudeHome claudeHome
@@ -644,6 +680,7 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 		d.PurgeTrash()
 	}
 	personaFile := filepath.Join(workdir, "persona.md")
+	promptFile := filepath.Join(workdir, "system-prompt.md")
 	mcpConfigPath := filepath.Join(workdir, ".mcp.json")
 	settingsPath := filepath.Join(workdir, "settings.json")
 	settingsJSON, err := compactSettingsJSON(buildStatuslineSettings())
@@ -695,7 +732,14 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 			"symlink_failed: publishing workdir ocagent link: %v", err)}
 	}
 
-	appendSys := buildAppendSystemPrompt(p.MemberID, role, personaFile)
+	sys := claudeSystemPromptInline(buildAppendSystemPrompt(p.MemberID, role, personaFile))
+	if runtimeName == "claude" && d.ClaudeTakesPromptFile != nil && d.ClaudeTakesPromptFile(promptFile) {
+		if err := d.WriteFile(promptFile, buildClaudeSystemPrompt(p.MemberID, role, personaFile, p.PersonaContext), 0o600); err != nil {
+			return SpawnOutcome{OK: false, Reason: fmt.Sprintf(
+				"write_file_failed: system-prompt.md: %v", err)}
+		}
+		sys = claudeSystemPromptFile(promptFile)
+	}
 	// Namespaced instances export OC_AGENT_HOME: otherwise two instances' same-named
 	// agents share one sse-cursor / context_report.stamp dir.
 	var extraEnv [][2]string
@@ -734,7 +778,7 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 			personaFile, tokenFile, p.MemberID, base, session, socket, p.Model, p.Effort,
 			extraEnv, envRendered, d.logf)
 	} else {
-		command = buildLaunchCommandWithEnv(d.ClaudeBin, workdir, mcpConfigPath, appendSys,
+		command = buildLaunchCommandWithEnv(d.ClaudeBin, workdir, mcpConfigPath, sys,
 			tokenFile, p.MemberID, base, session, socket, p.Model, p.Effort, settingsJSON, extraEnv, envRendered,
 			d.ClaudeHome)
 	}

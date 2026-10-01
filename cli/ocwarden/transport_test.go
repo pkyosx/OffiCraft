@@ -750,6 +750,17 @@ func TestBuildSpawnDeps(t *testing.T) {
 	if deps.ResolveOcAgentBin == nil {
 		t.Fatal("ResolveOcAgentBin unwired — every spawn would publish a dangling ocagent symlink (T-81)")
 	}
+	if deps.ClaudeTakesPromptFile == nil {
+		t.Fatal("ClaudeTakesPromptFile unwired — every claude member would fall back to reading its persona file")
+	}
+	runner.script = map[string]wardenRun{
+		claudeBin + " --append-system-prompt-file /a/system-prompt.md --oc-probe-unsupported-flag": {
+			err: errors.New("exit status 1: error: unknown option '--oc-probe-unsupported-flag'"),
+		},
+	}
+	if !deps.ClaudeTakesPromptFile("/a/system-prompt.md") {
+		t.Errorf("the prompt-file probe did not ask the resolved claude; calls = %v", runner.calls)
+	}
 	if got, _ := deps.ResolveOcAgentBin(); !strings.HasSuffix(got, "ocagent") {
 		t.Errorf("ResolveOcAgentBin() = %q, want a path ending in ocagent", got)
 	}
