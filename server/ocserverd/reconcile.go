@@ -824,7 +824,9 @@ func (s *apiServer) reconcileOne(m Member, st reconcileState, now float64) recon
 		RunningMachine:  s.hub.MachineOf(m.ID),
 		HandoverArmable: s.memberOwnerOpHandoverArmable(m, memberOpRelocate),
 	}
-	if obs.Desired == DesiredStateOffline {
+	// A dismissed row rides the tick only for the robust STOP its dismissal owes; collecting
+	// it would send a second STOP the moment that one is judged landed.
+	if obs.Desired == DesiredStateOffline && m.RosterStatus == RosterStatusActive {
 		obs.StopAwaitsCollect = stopAwaitsCollect(m)
 		obs.SessionConfirmedGone = s.sessionConfirmedGone(m.ID, now)
 	}
@@ -945,7 +947,8 @@ func (s *apiServer) collectMemberStop(memberID string, decision reconcileDecisio
 		if err != nil || cur == nil {
 			return err
 		}
-		if parseDesired(cur.DesiredState) != DesiredStateOffline || !stopAwaitsCollect(*cur) {
+		if cur.RosterStatus != RosterStatusActive ||
+			parseDesired(cur.DesiredState) != DesiredStateOffline || !stopAwaitsCollect(*cur) {
 			return nil
 		}
 		collectWindDownRow(windDownAnchorRowOfMember(cur), now)
@@ -1678,7 +1681,7 @@ func (s *apiServer) runReconcileTick(now float64) {
 		reconcileLog("tick: roster read failed: %v", err)
 		return
 	}
-	var members []Member
+	var members, removedOwingStop []Member
 	for _, m := range all {
 		// 🔴 ListMembers includes contractor rows; this line is the only thing keeping them out of the
 		// member FSM (else one row takes a `start` from both halves in the same tick).
@@ -1686,6 +1689,9 @@ func (s *apiServer) runReconcileTick(now float64) {
 			continue
 		}
 		if !lifecyclePolicyFor(m).ShouldExist() {
+			if s.removedRowOwesRobustStop(m) {
+				removedOwingStop = append(removedOwingStop, m)
+			}
 			continue
 		}
 		members = append(members, m)
@@ -1700,6 +1706,18 @@ func (s *apiServer) runReconcileTick(now float64) {
 	for i := range members {
 		s.reconcileTickMemberLocked(members[i], now)
 	}
+	// Kept out of the roster passes above: those stamp and clear wind-down anchors on rows that are
+	// meant to keep running.
+	for _, m := range removedOwingStop {
+		s.reconcileTickMemberLocked(m, now)
+	}
+}
+
+// removedRowOwesRobustStop keeps a dismissed member on the tick until its out-of-band STOP is
+// judged landed; dropped at removal, an unlanded STOP would never be re-sent. Caller holds
+// reconcileMu.
+func (s *apiServer) removedRowOwesRobustStop(m Member) bool {
+	return m.RosterStatus == RosterStatusRemoved && s.reconcileStateOf(m.ID).RobustStopPendingAt > 0.0
 }
 
 func (s *apiServer) reconcileMemberNow(memberID string) reconcileDecision {

@@ -122,9 +122,7 @@ func TestDeliverPasswordExposedAlert(t *testing.T) {
 
 	t.Run("an install whose roster no longer carries the assistant writes nothing and fans nothing", func(t *testing.T) {
 		api, _, d, _ := newAPITestServer(t)
-		if _, err := d.HardDeleteMember(seedMiraID); err != nil {
-			t.Fatalf("HardDeleteMember: %v", err)
-		}
+		dalTestDeleteMemberRow(t, d, seedMiraID)
 		dashboard := apiTestListen(t, api, "")
 
 		api.deliverPasswordExposedAlert(3)

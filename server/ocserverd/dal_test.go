@@ -496,64 +496,6 @@ func TestSetMemberOpReceipt(t *testing.T) {
 	}
 }
 
-func TestHardDeleteMember(t *testing.T) {
-	d := newAPITestDAL(t)
-	ann := dalTestMember("ann", "Ann")
-	ann.AvatarAttachmentID = "blob-ann"
-	dalPutMember(t, d, ann)
-	bob := dalPutMember(t, d, dalTestMember("bob", "Bob"))
-	for _, id := range []string{"blob-ann", "blob-loose"} {
-		if err := d.PutChatAttachment(ChatAttachment{ID: id, Mime: "image/png", Data: []byte(id)}); err != nil {
-			t.Fatalf("PutChatAttachment(%q): %v", id, err)
-		}
-	}
-
-	deleted, err := d.HardDeleteMember("ann")
-	if err != nil {
-		t.Fatalf("HardDeleteMember(ann): %v", err)
-	}
-	if !deleted {
-		t.Fatalf("HardDeleteMember(ann): want true, got false")
-	}
-	if got, err := d.GetMember("ann"); err != nil || got != nil {
-		t.Fatalf("HardDeleteMember must remove the row, got %+v, %v", got, err)
-	}
-	if got, err := d.GetChatAttachment("blob-ann"); err != nil || got != nil {
-		t.Fatalf("HardDeleteMember must collect the dedicated avatar blob, got %+v, %v", got, err)
-	}
-	loose, err := d.GetChatAttachment("blob-loose")
-	if err != nil {
-		t.Fatalf("GetChatAttachment(blob-loose): %v", err)
-	}
-	if !reflect.DeepEqual(loose, &ChatAttachment{ID: "blob-loose", Mime: "image/png", Data: []byte("blob-loose")}) {
-		t.Fatalf("HardDeleteMember must leave another member's blobs alone, got %+v", loose)
-	}
-	dalWantMember(t, d, bob)
-
-	deleted, err = d.HardDeleteMember("ann")
-	if err != nil {
-		t.Fatalf("HardDeleteMember(ann) again: %v", err)
-	}
-	if deleted {
-		t.Fatalf("HardDeleteMember on an absent row: want false, got true")
-	}
-
-	deleted, err = d.HardDeleteMember("bob")
-	if err != nil {
-		t.Fatalf("HardDeleteMember(bob): %v", err)
-	}
-	if !deleted {
-		t.Fatalf("HardDeleteMember(bob): want true, got false")
-	}
-	rest, err := d.ListMembers()
-	if err != nil {
-		t.Fatalf("ListMembers: %v", err)
-	}
-	if len(rest) != 0 {
-		t.Fatalf("ListMembers after both deletes: want none, got %+v", rest)
-	}
-}
-
 func TestScanChat(t *testing.T) {
 	d := newAPITestDAL(t)
 	rich := ChatMessage{
@@ -1507,56 +1449,6 @@ func TestRefIDsFromJSON(t *testing.T) {
 	}
 }
 
-func TestDeleteChatInvolving(t *testing.T) {
-	d := newAPITestDAL(t)
-	dalPutBlobs(t, d, "att-orphan", "att-shared", "att-card", "att-artifact", "att-avatar", "att-untouched")
-	doomedSent := dalChatWithAtts("m1", "ann", "bob", 100,
-		dalAttRef("att-orphan", "image/png", "a.png"),
-		dalAttRef("att-shared", "image/png", "b.png"),
-		dalAttRef("att-card", "image/png", "c.png"),
-		dalAttRef("att-artifact", "image/png", "d.png"),
-		dalAttRef("att-avatar", "image/png", "e.png"))
-	doomedReceived := dalChat("m2", "carl", "ann", 200)
-	survivor := dalChatWithAtts("m3", "carl", "dee", 300, dalAttRef("att-shared", "image/png", "b.png"))
-	dalPutChats(t, d, doomedSent, doomedReceived, survivor)
-	if err := d.PutReplyCard(ReplyCard{
-		ID: "rc-1", FromMember: "dee", Kind: "decision", SelectMode: "single", Status: "answered",
-		AnswerAttachments: []any{dalAttRef("att-card", "image/png", "c.png")},
-	}); err != nil {
-		t.Fatalf("PutReplyCard: %v", err)
-	}
-	if err := d.PutTaskArtifact(TaskArtifact{
-		ID: "ta-1", TaskID: "T-1", Kind: "file", AttachmentID: "att-artifact",
-	}); err != nil {
-		t.Fatalf("PutTaskArtifact: %v", err)
-	}
-	avatarOwner := dalTestMember("dee", "Dee")
-	avatarOwner.AvatarAttachmentID = "att-avatar"
-	dalPutMember(t, d, avatarOwner)
-
-	msgs, atts, err := d.DeleteChatInvolving("ann")
-	if err != nil {
-		t.Fatalf("DeleteChatInvolving: %v", err)
-	}
-	if msgs != 2 || atts != 1 {
-		t.Fatalf("DeleteChatInvolving: want (2 messages, 1 blob), got (%d, %d)", msgs, atts)
-	}
-	dalWantChats(t, "only the messages involving the member are gone",
-		dalMustListChat(t, d), []ChatMessage{survivor})
-	want := []string{"att-artifact", "att-avatar", "att-card", "att-shared", "att-untouched"}
-	if got := dalStoredBlobIDs(t, d); !reflect.DeepEqual(got, want) {
-		t.Fatalf("only the blob no surviving record references is collected: want %v, got %v", want, got)
-	}
-
-	msgs, atts, err = d.DeleteChatInvolving("ann")
-	if err != nil {
-		t.Fatalf("DeleteChatInvolving again: %v", err)
-	}
-	if msgs != 0 || atts != 0 {
-		t.Fatalf("DeleteChatInvolving on a member with no messages: want (0, 0), got (%d, %d)", msgs, atts)
-	}
-}
-
 func TestCollectOrphanBlobs(t *testing.T) {
 	d := newAPITestDAL(t)
 	dalPutBlobs(t, d, "att-1", "att-2", "att-3")
@@ -2084,44 +1976,6 @@ func TestPutChatRead(t *testing.T) {
 	}
 	if !reflect.DeepEqual(all, wantAll) {
 		t.Fatalf("the composite key keeps one row per pair:\n got %+v\nwant %+v", all, wantAll)
-	}
-}
-
-func TestDeleteChatReadsInvolving(t *testing.T) {
-	d := newAPITestDAL(t)
-	for _, r := range []ChatRead{
-		{ReaderID: "owner", PeerID: "ann", LastReadTS: 100},
-		{ReaderID: "ann", PeerID: "owner", LastReadTS: 200},
-		{ReaderID: "bob", PeerID: "ann", LastReadTS: 300},
-		{ReaderID: "bob", PeerID: "carl", LastReadTS: 400},
-	} {
-		if _, _, err := d.PutChatRead(r); err != nil {
-			t.Fatalf("PutChatRead: %v", err)
-		}
-	}
-
-	deleted, err := d.DeleteChatReadsInvolving("ann")
-	if err != nil {
-		t.Fatalf("DeleteChatReadsInvolving: %v", err)
-	}
-	if deleted != 3 {
-		t.Fatalf("every receipt naming the member on either side goes: want 3, got %d", deleted)
-	}
-	got, err := d.ListChatReads("", "")
-	if err != nil {
-		t.Fatalf("ListChatReads: %v", err)
-	}
-	want := []ChatRead{{ReaderID: "bob", PeerID: "carl", LastReadTS: 400}}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("want %+v, got %+v", want, got)
-	}
-
-	deleted, err = d.DeleteChatReadsInvolving("ann")
-	if err != nil {
-		t.Fatalf("DeleteChatReadsInvolving again: %v", err)
-	}
-	if deleted != 0 {
-		t.Fatalf("a member with no receipt deletes nothing: want 0, got %d", deleted)
 	}
 }
 

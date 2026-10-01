@@ -274,9 +274,9 @@ interface UseChat {
  * reading cannot be undone. The caller passes 0 whenever `listChatReads` comes
  * back without a receipt row, and before this rule that zero turned the 已讀
  * ticks off. It should not: "no row this time" is never evidence against a row
- * we have already seen. Its realistic causes are a partial 200 and a hard
- * receipt delete (`DeleteChatReadsInvolving`, which takes the messages with
- * it), and in neither case is "un-tick what the owner already saw" honest.
+ * we have already seen. Its realistic cause is a partial 200 — the server never
+ * deletes a read receipt — and "un-tick what the owner already saw" is not an
+ * honest answer to it.
  *
  * The cost is bounded on purpose: this state is per-room and this hook is
  * mounted per room, so the watermark is rebuilt from the server on the next

@@ -65,7 +65,7 @@ interface UseRoles {
    * The result is returned for the ids it MINTS — never to render from.
    * Rejections (422) propagate to the caller. */
   create: (input: RoleCreateInput) => Promise<RoleCreateResult>;
-  /** HARD-delete a custom role (M2-2). Rejections propagate — a 409 (member
+  /** Delete a custom role, dismissing its members (M2-2). Rejections propagate — a 409 (member
    * online) must reach the caller so it can surface 有成員在線上,無法刪除. */
   remove: (key: string) => Promise<void>;
 }

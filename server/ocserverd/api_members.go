@@ -1229,23 +1229,38 @@ func (s *apiServer) HandleDismissMemberApiMembersMemberIdDelete(w http.ResponseW
 		if err != nil {
 			return err
 		}
-		cur.RosterStatus = RosterStatusRemoved
-		cur.DesiredState = DesiredStateOffline
-		clearRestartIntent(cur)
+		if err := dismissStaffOn(tx, cur, nowSecs()); err != nil {
+			return err
+		}
 		m = *cur
-		return writeMemberOn(tx, m)
+		return nil
 	})
 	if err != nil {
 		writeResolveTxError(w, err, "member", memberId)
 		return
 	}
-	s.publishMemberPatch(m, requestTrigger(r))
-	// The asker is gone, so its waiting cards are retired. Best-effort: the dismissal
-	// has already committed in a transaction of its own.
-	if _, err := s.expireWaitingCardsByAuthor(m.ID, nowSecs(), requestTrigger(r)); err != nil {
+	s.finishStaffDismissal(m, requestTrigger(r))
+	writeJSON(w, http.StatusOK, agentLifecycleReceiptDTO{ID: m.ID})
+}
+
+// dismissStaffOn is the roster half of a staff exit; finishStaffDismissal, run
+// after the commit, is the other half.
+func dismissStaffOn(tx *writeTx, m *Member, now float64) error {
+	applyStopVerbRow(stopVerbRowOfMember(m), *m, now)
+	m.RosterStatus = RosterStatusRemoved
+	return persistMemberRowOn(tx, *m)
+}
+
+// A removed row's token is still honoured, so without the stop its session keeps
+// running and billing with nothing on screen showing it.
+func (s *apiServer) finishStaffDismissal(m Member, trigger string) {
+	s.publishMemberPatch(m, trigger)
+	s.bankLiveCost(m.ID)
+	s.dispatchRobustStopNow(m.ID)
+	// Best-effort: the dismissal has already committed in a transaction of its own.
+	if _, err := s.expireWaitingCardsByAuthor(m.ID, nowSecs(), trigger); err != nil {
 		taskLog("dismiss %s: reply-card sweep failed (cards left waiting): %v", m.ID, err)
 	}
-	writeJSON(w, http.StatusOK, agentLifecycleReceiptDTO{ID: m.ID})
 }
 
 // Does not exclude kind='outsource': workers report through these self endpoints

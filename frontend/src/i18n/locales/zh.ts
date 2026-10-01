@@ -2156,7 +2156,7 @@ export const zh = {
     deleteRole: "刪除",
     deleteRoleConfirmLead: "確定刪除角色「",
     deleteRoleConfirmTail:
-      "」？該角色的成員及其對話將一併移除，無法復原。",
+      "」？該角色的正職成員會標記為已離開，聊天紀錄保留為唯讀歷史；角色定義與 Insight 會永久刪除，無法復原。",
     deleteRoleConfirmAction: "確認刪除",
     deleteRoleOnline: "有成員在線上，無法刪除",
     deleteRoleError: "刪除失敗，請稍後重試",

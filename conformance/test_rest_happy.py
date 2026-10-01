@@ -338,9 +338,10 @@ def _check_dismiss_receipt(ctx: HCtx, r: httpx.Response) -> None:
         f"/api/members/{d['id']}",
         headers={"Authorization": f"Bearer {ctx.owner_token}"},
     )
-    assert g.status_code == 404, (
-        "a dismissed member still resolves — the dismiss did not land: "
-        f"{g.status_code} {g.text[:200]}")
+    assert g.status_code == 200, (g.status_code, g.text[:200])
+    assert g.json()["roster_status"] == "removed", (
+        "a dismissed member still reads as on the roster — the dismiss did not land: "
+        f"{g.text[:200]}")
 
 
 def _check_version(_ctx: HCtx, r: httpx.Response) -> None:
@@ -2299,12 +2300,6 @@ HAPPY: dict[str, Happy] = {
     ),
     "DELETE /api/members/{member_id}": Happy(
         path=lambda ctx: f"/api/members/{ctx.fresh_member()}",
-        # 🔴 NO follow-up read here, and the reason is worth stating: a dismiss
-        # is a soft delete on the row but the member GET stops resolving it
-        # (404), so the old roster_status=="removed" claim has no read face
-        # left to be made against. What is checked instead is that the id came
-        # back and that the row it names no longer resolves — which is the
-        # observable half of the dismissal, and the half a caller acts on.
         check=_check_dismiss_receipt,
     ),
     # ── webhooks (M4) — a member's 回呼端點 config CRUD (admin_agent floor since

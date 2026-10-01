@@ -566,7 +566,10 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   // released keeps the identity row on the same 代號 the office rail shows
   // instead of the raw id. `whoOf` below routes to it on `kind === "outsource"`,
   // so a live worker that IS in `members` takes this path as well.
-  const workerIds = [...waiting, ...handled].map((c) => c.from);
+  // ow- only: `whoOfId` prints every name this read resolves as 外包.
+  const workerIds = [...waiting, ...handled]
+    .map((c) => c.from)
+    .filter((id) => id.startsWith("ow-"));
   const codenames = useWorkerCodenames(workerIds);
   const workerAvatarUrls = useWorkerAvatarUrls(workerIds);
   // T-196 (owner rc-dce285c5274c:「只在 UI 上補上顯示就好 就像在 chat 那邊 使用者

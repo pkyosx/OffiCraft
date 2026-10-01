@@ -1,22 +1,17 @@
-// hooks/useWorkerCodenames.ts — lazy outsource-codename resolution for ids
-// that are NOT in any list the caller already holds (T-3ed8 全站盤查).
+// hooks/useWorkerCodenames.ts — lazy identity resolution for member ids that
+// are NOT in any list the caller already holds.
 //
-// Why it exists: GET /api/members DOES carry kind='outsource' rows, but it
-// drops every roster_status='removed' one — and release sets exactly that —
-// and the filtered GET /api/members list serves LIVE workers only. So a RELEASED
-// worker's id (task closed / reassigned away) resolves to nothing client-side
-// and every display point degraded to the raw ow- id (chat sender labels,
-// 任務卡 前任/建立者 chips, 請示卡 identity row) while the left rail showed the
-// codename.
-// The per-id GET /api/members/{id} DOES serve released rows, so this
-// hook resolves unknown ow- ids through it, once each, into a module-level
-// cache shared by every display point.
+// GET /api/members drops every roster_status='removed' row — a released
+// outsource worker and a dismissed staff member alike — while the per-id
+// GET /api/members/{id} still serves both. This hook resolves such ids through
+// that read, once each, into a module-level cache shared by every display point.
 //
-// Contract: pass ANY id list — non-ow- ids are ignored. Returns a Map of
-// id → codename for every id resolved SO FAR (this render); entries appear as
-// fetches land (a re-render is triggered). A failed fetch (404 / network) is
-// negative-cached for the session so an unresolvable id never hammers the
-// server — the caller's raw-id fallback stays, honest as before.
+// Contract: pass ONLY ids the caller could not resolve from its own lists —
+// every non-empty id passed is read. Returns a Map of id → name (the row's wire
+// `name`: an outsource codename or a staff name) for every id resolved SO FAR;
+// entries appear as reads land (a re-render is triggered). A failed read (404 /
+// network) is negative-cached for the session so an unresolvable id never
+// hammers the server — the caller's raw-id fallback stays.
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api";
@@ -57,18 +52,21 @@ export function updateCachedWorkerAvatar(id: string, avatarUrl: string) {
   notifyAll();
 }
 
+function readableIds(ids: readonly string[]): string[] {
+  return ids.filter((id) => id !== "");
+}
+
+function idsKey(ids: readonly string[]): string {
+  return readableIds(ids).sort().join("|");
+}
+
 export function useWorkerCodenames(ids: readonly string[]): Map<string, string> {
   const [tick, setTick] = useState(0);
 
-  // The ids this caller still needs fetched (dedup, ow- only, not yet tried).
-  const key = ids.filter((id) => id.startsWith("ow-")).sort().join("|");
+  // The ids this caller still needs fetched (dedup, not yet tried).
+  const key = idsKey(ids);
   const wanted = useMemo(
-    () =>
-      Array.from(
-        new Set(
-          ids.filter((id) => id.startsWith("ow-") && !cache.has(id)),
-        ),
-      ),
+    () => Array.from(new Set(readableIds(ids).filter((id) => !cache.has(id)))),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [key],
   );
@@ -155,7 +153,7 @@ export function useWorkerCurrentTasks(
   ids: readonly string[],
 ): Map<string, OutsourceWorkerView> {
   const base = useWorkerCodenames(ids); // one fetch path, shared cache
-  const key = ids.filter((id) => id.startsWith("ow-")).sort().join("|");
+  const key = idsKey(ids);
   const [tick, setTick] = useState(0);
   // The ids to re-read, readable from the SSE callback without a stale closure.
   const wantedRef = useRef<string[]>([]);
@@ -263,7 +261,7 @@ export function useWorkerCurrentTasks(
 /** Personal avatar URLs from the same per-id identity fetch/cache. */
 export function useWorkerAvatarUrls(ids: readonly string[]): Map<string, string> {
   const codenames = useWorkerCodenames(ids);
-  const key = ids.filter((id) => id.startsWith("ow-")).sort().join("|");
+  const key = idsKey(ids);
   return useMemo(() => {
     const out = new Map<string, string>();
     for (const id of ids) {

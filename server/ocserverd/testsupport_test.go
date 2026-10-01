@@ -26,6 +26,15 @@ const apiTestOwnerPassword = "officraft-support-pass"
 // answer 403 to.
 const apiTestPlainAgentID = "kip"
 
+// dalTestDeleteMemberRow makes a roster id resolve to no row at all; no product
+// path deletes a member row.
+func dalTestDeleteMemberRow(t *testing.T, d *DAL, id string) {
+	t.Helper()
+	if _, err := d.wdb.Exec(`DELETE FROM member WHERE id = ?`, id); err != nil {
+		t.Fatalf("delete member %q: %v", id, err)
+	}
+}
+
 // newAPITestDAL opens a fresh migrated SQLite database for one test, over the
 // two pools serve time uses: writes on one connection, reads on several.
 func newAPITestDAL(t *testing.T) *DAL {

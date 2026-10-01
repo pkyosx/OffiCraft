@@ -992,20 +992,25 @@ func TestHandleResetRoleApiRolesRoleResetPost(t *testing.T) {
 }
 
 func TestHandleDeleteRoleApiRolesRoleDelete(t *testing.T) {
-	t.Run("deleting a custom role answers the cascade counts and fans a delta for every table it emptied", func(t *testing.T) {
+	t.Run("deleting a custom role dismisses its member, keeps that member's chat, retires its waiting cards and stops its session", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		if err := d.PutRoleDef(RoleDef{RoleKey: "r-design", Name: "Design", DefinitionMD: "# Duty"}); err != nil {
 			t.Fatalf("PutRoleDef: %v", err)
 		}
 		if err := d.PutMember(Member{
-			ID: "m-zed", Name: "Zed", Kind: KindStaff,
-			RoleKey: "r-design", RosterStatus: RosterStatusActive,
+			ID: "m-zed", Name: "Zed", Kind: KindStaff, RoleKey: "r-design",
+			RosterStatus: RosterStatusActive, DesiredMachineID: ServerSelfHost,
 		}); err != nil {
 			t.Fatalf("PutMember: %v", err)
 		}
-		apiJSON(t, h, "POST", "/api/chat", owner, `{"to":"m-zed","body":"hi"}`)
+		if err := d.PutReplyCard(ReplyCard{ID: "rc-zed", FromMember: "m-zed", Kind: "decision", Status: "waiting", CreatedTS: 10}); err != nil {
+			t.Fatalf("PutReplyCard: %v", err)
+		}
+		apiJSON(t, h, "POST", "/api/chat", owner,
+			`{"to":"m-zed","body":"hi","attachments":[{"data_b64":"aGk=","filename":"hi.txt","mime":"text/plain"}]}`)
 		apiJSON(t, h, "POST", "/api/chat/mark-read", owner, `{"peer":"m-zed"}`)
 		apiJSON(t, h, "POST", "/api/insight/r-design", owner, `{"text":"I"}`)
+		apiTestListen(t, api, ServerSelfHost)
 		dashboard := apiTestListen(t, api, "")
 		bystander := apiTestListen(t, api, "kip")
 
@@ -1014,99 +1019,86 @@ func TestHandleDeleteRoleApiRolesRoleDelete(t *testing.T) {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
 		apiWantBody(t, data, map[string]any{
-			"role":                     "r-design",
-			"removed_member_ids":       []any{"m-zed"},
-			"deleted_chat_messages":    1,
-			"deleted_chat_attachments": 0,
-			"deleted_chat_reads":       1,
+			"role":               "r-design",
+			"removed_member_ids": []any{"m-zed"},
 		})
-		memberFrame := map[string]any{
-			"seq":   6,
-			"topic": "member",
-			"op":    "remove",
-			"data": map[string]any{
-				"entity":  "member",
-				"key":     "owner::m-zed",
-				"epoch":   6,
-				"deleted": true,
-				"payload": nil,
-			},
-			"ts":      apiAnyNumber,
-			"trigger": "owner",
-		}
 		dashboard.wantFrames(
 			map[string]any{
-				"seq":   4,
-				"topic": "chat",
-				"op":    "patch",
+				"seq": 4, "topic": "member", "op": "remove",
 				"data": map[string]any{
-					"entity":  "chat",
-					"key":     "owner::m-zed",
-					"epoch":   4,
-					"deleted": false,
-					"payload": nil,
+					"entity": "member", "key": "owner::m-zed", "epoch": 4, "deleted": true, "payload": nil,
 				},
-				"ts":      apiAnyNumber,
-				"trigger": "owner",
+				"ts": apiAnyNumber, "trigger": "owner",
+			},
+			apiTestReplyCardFrame(5, "rc-zed", "m-zed", "expired", "owner"),
+			map[string]any{
+				"seq": 6, "topic": "insight", "op": "patch",
+				"data": map[string]any{
+					"entity": "insight", "key": "owner::r-design", "epoch": 6, "deleted": false, "payload": nil,
+				},
+				"ts": apiAnyNumber, "trigger": "owner",
 			},
 			map[string]any{
-				"seq":   5,
-				"topic": "chat_read",
-				"op":    "patch",
+				"seq": 7, "topic": "role_def", "op": "remove",
 				"data": map[string]any{
-					"entity":  "chat_read",
-					"key":     "owner::m-zed",
-					"epoch":   5,
-					"deleted": false,
-					"payload": nil,
+					"entity": "role_def", "key": "owner::r-design", "epoch": 7, "deleted": true, "payload": nil,
 				},
-				"ts":      apiAnyNumber,
-				"trigger": "owner",
-			},
-			memberFrame,
-			map[string]any{
-				"seq":   7,
-				"topic": "insight",
-				"op":    "patch",
-				"data": map[string]any{
-					"entity":  "insight",
-					"key":     "owner::r-design",
-					"epoch":   7,
-					"deleted": false,
-					"payload": nil,
-				},
-				"ts":      apiAnyNumber,
-				"trigger": "owner",
-			},
-			map[string]any{
-				"seq":   8,
-				"topic": "role_def",
-				"op":    "remove",
-				"data": map[string]any{
-					"entity":  "role_def",
-					"key":     "owner::r-design",
-					"epoch":   8,
-					"deleted": true,
-					"payload": nil,
-				},
-				"ts":      apiAnyNumber,
-				"trigger": "owner",
+				"ts": apiAnyNumber, "trigger": "owner",
 			},
 		)
 		bystander.wantFrames()
+		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("m-zed"))
+
+		status, data = apiJSON(t, h, "GET", "/api/chat?with=m-zed", owner, "")
+		if status != 200 {
+			t.Fatalf("chat: want 200, got %d (%v)", status, data)
+		}
+		msgs, _ := data["messages"].([]any)
+		if len(msgs) != 1 {
+			t.Fatalf("want the one message kept, got %v", data)
+		}
+		msg, _ := msgs[0].(map[string]any)
+		atts, _ := msg["attachments"].([]any)
+		if len(atts) != 1 {
+			t.Fatalf("want the one attachment kept, got %v", msg)
+		}
+		att, _ := atts[0].(map[string]any)
+		apiWantValue(t, "the kept message", any(map[string]any{
+			"from": msg["from"], "to": msg["to"], "body": msg["body"],
+			"filename": att["filename"], "mime": att["mime"],
+		}), any(map[string]any{
+			"from": "owner", "to": "m-zed", "body": "hi", "filename": "hi.txt", "mime": "text/plain",
+		}))
+		blob, err := d.GetChatAttachment(att["id"].(string))
+		if err != nil || blob == nil || string(blob.Data) != "hi" {
+			t.Fatalf("the attachment bytes must be kept: %+v, %v", blob, err)
+		}
+		reads, err := d.ListChatReads("owner", "m-zed")
+		if err != nil || len(reads) != 1 {
+			t.Fatalf("the read receipt must be kept: %+v, %v", reads, err)
+		}
+		row := apiTestMemberRow(t, d, "m-zed")
+		apiWantValue(t, "the dismissed row", any(map[string]any{
+			"roster_status": row.RosterStatus, "desired_state": row.DesiredState,
+		}), any(map[string]any{"roster_status": "removed", "desired_state": "offline"}))
+		cards, err := d.ListReplyCards()
+		if err != nil || len(cards) != 1 || cards[0].Status != "expired" {
+			t.Fatalf("the member's waiting card must be expired: %+v, %v", cards, err)
+		}
 	})
 
-	t.Run("the deleted member's own connection receives the member removal and nobody else's does", func(t *testing.T) {
+	t.Run("an already-removed member of the role is announced again to its own connection and nobody else's, and its session is sent a stop", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		if err := d.PutRoleDef(RoleDef{RoleKey: "r-design", Name: "Design", DefinitionMD: "# Duty"}); err != nil {
 			t.Fatalf("PutRoleDef: %v", err)
 		}
 		if err := d.PutMember(Member{
-			ID: "m-zed", Name: "Zed", Kind: KindStaff,
-			RoleKey: "r-design", RosterStatus: RosterStatusRemoved,
+			ID: "m-zed", Name: "Zed", Kind: KindStaff, RoleKey: "r-design",
+			RosterStatus: RosterStatusRemoved, DesiredMachineID: ServerSelfHost,
 		}); err != nil {
 			t.Fatalf("PutMember: %v", err)
 		}
+		apiTestListen(t, api, ServerSelfHost)
 		dashboard := apiTestListen(t, api, "")
 		deleted := apiTestListen(t, api, "m-zed")
 		bystander := apiTestListen(t, api, "kip")
@@ -1116,11 +1108,8 @@ func TestHandleDeleteRoleApiRolesRoleDelete(t *testing.T) {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
 		apiWantBody(t, data, map[string]any{
-			"role":                     "r-design",
-			"removed_member_ids":       []any{"m-zed"},
-			"deleted_chat_messages":    0,
-			"deleted_chat_attachments": 0,
-			"deleted_chat_reads":       0,
+			"role":               "r-design",
+			"removed_member_ids": []any{"m-zed"},
 		})
 		memberFrame := map[string]any{
 			"seq":   1,
@@ -1152,9 +1141,10 @@ func TestHandleDeleteRoleApiRolesRoleDelete(t *testing.T) {
 		})
 		deleted.wantFrames(memberFrame)
 		bystander.wantFrames()
+		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("m-zed"))
 	})
 
-	t.Run("deleting a custom role nothing hangs off answers zero cascade counts and fans only the role removal", func(t *testing.T) {
+	t.Run("deleting a custom role nothing hangs off answers no members and fans only the role removal", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		if err := d.PutRoleDef(RoleDef{RoleKey: "r-design", Name: "Design", DefinitionMD: "# Duty"}); err != nil {
 			t.Fatalf("PutRoleDef: %v", err)
@@ -1166,11 +1156,8 @@ func TestHandleDeleteRoleApiRolesRoleDelete(t *testing.T) {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
 		apiWantBody(t, data, map[string]any{
-			"role":                     "r-design",
-			"removed_member_ids":       []any{},
-			"deleted_chat_messages":    0,
-			"deleted_chat_attachments": 0,
-			"deleted_chat_reads":       0,
+			"role":               "r-design",
+			"removed_member_ids": []any{},
 		})
 		dashboard.wantFrames(map[string]any{
 			"seq":   1,
@@ -1300,7 +1287,7 @@ func TestHandleDeleteRoleApiRolesRoleDelete(t *testing.T) {
 		}
 	}
 	for _, shape := range windowDALShapes {
-		t.Run(shape+": a member moved into the role after the handler listed it goes with the role", func(t *testing.T) {
+		t.Run(shape+": a member moved into the role after the handler listed it is dismissed with the role", func(t *testing.T) {
 			d, hook, path := windowDAL(t, shape)
 			_, h, _, owner := newAPITestServerOn(t, d)
 			windowDesignRole(t, d)
@@ -1314,14 +1301,11 @@ func TestHandleDeleteRoleApiRolesRoleDelete(t *testing.T) {
 				t.Fatalf("want 200, got %d (%v)", status, data)
 			}
 			apiWantBody(t, data, map[string]any{
-				"role":                     "r-design",
-				"removed_member_ids":       []any{"kip", "m-zed"},
-				"deleted_chat_messages":    0,
-				"deleted_chat_attachments": 0,
-				"deleted_chat_reads":       0,
+				"role":               "r-design",
+				"removed_member_ids": []any{"kip", "m-zed"},
 			})
-			if m, err := d.GetMember("kip"); err != nil || m != nil {
-				t.Fatalf("GetMember(kip): %#v, %v; want the row gone", m, err)
+			if m, err := d.GetMember("kip"); err != nil || m == nil || m.RosterStatus != RosterStatusRemoved {
+				t.Fatalf("GetMember(kip): %#v, %v; want the row kept as removed", m, err)
 			}
 		})
 	}
@@ -1340,8 +1324,8 @@ func TestHandleDeleteRoleApiRolesRoleDelete(t *testing.T) {
 				t.Fatalf("want 500, got %d (%v)", status, data)
 			}
 			apiWantError(t, data, "internal_error", windowRefusal("the role delete fails"))
-			if m, err := d.GetMember("m-zed"); err != nil || m == nil {
-				t.Fatalf("GetMember(m-zed): %#v, %v; want the member kept", m, err)
+			if m, err := d.GetMember("m-zed"); err != nil || m == nil || m.RosterStatus != RosterStatusActive {
+				t.Fatalf("GetMember(m-zed): %#v, %v; want the member kept active", m, err)
 			}
 			dashboard.wantFrames()
 		})

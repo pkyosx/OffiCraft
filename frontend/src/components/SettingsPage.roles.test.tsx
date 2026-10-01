@@ -289,8 +289,8 @@ describe("SettingsPage · 角色誌 刪除 (M2-2)", () => {
     await utils.findByTestId("role-delete-confirm");
 
     fireEvent.click(utils.getByTestId("role-delete-confirm-btn"));
-    // The role row drops; the founding member is gone from the roster too
-    // (hard cascade, mock parity).
+    // The role row drops; the founding member is dismissed, so it leaves the
+    // roster list too (mock parity).
     await waitFor(() => expect(utils.queryByText("研究員")).toBeNull());
     expect((await api.listRoles()).some((r) => r.key === custom.key)).toBe(
       false

@@ -1,6 +1,6 @@
-// useWorkerCodenames — the lazy released-worker codename cache (T-3ed8).
-// GET /api/members/{id} serves released rows, so an ow- id missing
-// from every list the caller holds still resolves to its codename; a failed
+// useWorkerCodenames — the lazy identity cache for ids in no held list.
+// GET /api/members/{id} serves released workers and dismissed staff, so an id
+// missing from every list the caller holds still resolves to its name; a failed
 // fetch is negative-cached (raw-id fallback, no refetch loop).
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -46,14 +46,24 @@ describe("useWorkerCodenames", () => {
     getOutsourceWorker.mockReset();
   });
 
-  it("resolves an ow- id to its codename via the per-id read", async () => {
-    getOutsourceWorker.mockResolvedValue({ id: "ow-abc", codename: "X-1" });
-    const { result } = renderHook(() => useWorkerCodenames(["ow-abc"]));
+  it("resolves a released worker and a dismissed staff member to their names via the per-id read", async () => {
+    getOutsourceWorker.mockImplementation(async (id: string) =>
+      id === "ow-abc"
+        ? { id: "ow-abc", codename: "X-1" }
+        : { id: "m-left", codename: "阿哲" },
+    );
+    const { result } = renderHook(() =>
+      useWorkerCodenames(["ow-abc", "m-left"]),
+    );
     await waitFor(() => {
-      expect(result.current.get("ow-abc")).toBe("X-1");
+      expect(result.current).toEqual(
+        new Map([
+          ["ow-abc", "X-1"],
+          ["m-left", "阿哲"],
+        ]),
+      );
     });
-    expect(getOutsourceWorker).toHaveBeenCalledTimes(1);
-    expect(getOutsourceWorker).toHaveBeenCalledWith("ow-abc");
+    expect(getOutsourceWorker.mock.calls).toEqual([["ow-abc"], ["m-left"]]);
   });
 
   it("shares the per-id read for a released worker's personal avatar", async () => {
@@ -89,10 +99,8 @@ describe("useWorkerCodenames", () => {
     });
   });
 
-  it("never fetches non-ow ids", async () => {
-    const { result } = renderHook(() =>
-      useWorkerCodenames(["m-123", "mira", "system", ""]),
-    );
+  it("never reads an empty id", async () => {
+    const { result } = renderHook(() => useWorkerCodenames([""]));
     expect(result.current.size).toBe(0);
     expect(getOutsourceWorker).not.toHaveBeenCalled();
   });
@@ -110,15 +118,30 @@ describe("useWorkerCodenames", () => {
     expect(getOutsourceWorker).toHaveBeenCalledTimes(1);
   });
 
-  it("fetches each id once and shares the cache across mounts", async () => {
-    getOutsourceWorker.mockResolvedValue({ id: "ow-abc", codename: "X-1" });
-    const first = renderHook(() => useWorkerCodenames(["ow-abc"]));
+  it("fetches each id once, including one that joins after mount, and shares the cache across mounts", async () => {
+    getOutsourceWorker.mockImplementation(async (id: string) =>
+      id === "ow-abc"
+        ? { id: "ow-abc", codename: "X-1" }
+        : { id: "m-new", codename: "新人" },
+    );
+    const first = renderHook(({ ids }) => useWorkerCodenames(ids), {
+      initialProps: { ids: ["ow-abc"] },
+    });
     await waitFor(() => {
       expect(first.result.current.get("ow-abc")).toBe("X-1");
     });
-    const second = renderHook(() => useWorkerCodenames(["ow-abc"]));
+    first.rerender({ ids: ["ow-abc", "m-new"] });
+    await waitFor(() => {
+      expect(first.result.current).toEqual(
+        new Map([
+          ["ow-abc", "X-1"],
+          ["m-new", "新人"],
+        ]),
+      );
+    });
+    const second = renderHook(() => useWorkerCodenames(["ow-abc", "m-new"]));
     expect(second.result.current.get("ow-abc")).toBe("X-1");
-    expect(getOutsourceWorker).toHaveBeenCalledTimes(1);
+    expect(getOutsourceWorker.mock.calls).toEqual([["ow-abc"], ["m-new"]]);
   });
   // ── T-196: the current-task accessor ───────────────────────────────────────
   // The same per-id read now feeds a THIRD display fact (the worker's bound

@@ -63,7 +63,7 @@ ordering constraint. Rollback deletes only blobs referenced by the avatar
 column before dropping it.
 
 Regression coverage pins upload, persistence, replacement cache busting, old
-blob cleanup, idempotent removal, hard-delete cleanup, validation failures,
+blob cleanup, idempotent removal, validation failures,
 unsupported member kinds, owner-only/MCP-excluded routing, DTO compatibility,
 frontend fallback behavior, and editor feedback. Generated OpenAPI clients are
 regenerated from `spec/openapi.json`; generated files are not hand edited.

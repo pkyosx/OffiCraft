@@ -372,37 +372,22 @@ func (s *apiServer) HandleDeleteRoleApiRolesRoleDelete(w http.ResponseWriter, r 
 		writeTxError(w, err)
 		return
 	}
-	// The members are listed again inside the transaction that deletes them: one
+	// The members are listed again inside the transaction that dismisses them: one
 	// hired into the role or brought online in between is judged as it stands.
-	type removedMember struct {
-		id          string
-		msgs, reads int
-	}
-	var removed []removedMember
-	deletedMsgs, deletedAtts, deletedReads, deletedInsight := 0, 0, 0, 0
+	var dismissed []Member
+	deletedInsight := 0
 	err := s.dal.inTx(func(tx *writeTx) error {
 		members, err := roleMembers(tx)
 		if err != nil {
 			return err
 		}
-		removed = nil
-		deletedMsgs, deletedAtts, deletedReads = 0, 0, 0
-		for _, m := range members {
-			msgs, atts, err := deleteChatInvolvingOn(tx, m.ID)
-			if err != nil {
+		dismissed = nil
+		now := nowSecs()
+		for i := range members {
+			if err := dismissStaffOn(tx, &members[i], now); err != nil {
 				return err
 			}
-			reads, err := deleteChatReadsInvolvingOn(tx, m.ID)
-			if err != nil {
-				return err
-			}
-			if _, err := hardDeleteMemberOn(tx, m.ID); err != nil {
-				return err
-			}
-			deletedMsgs += msgs
-			deletedAtts += atts
-			deletedReads += reads
-			removed = append(removed, removedMember{id: m.ID, msgs: msgs, reads: reads})
+			dismissed = append(dismissed, members[i])
 		}
 		if deletedInsight, err = deleteInsightForRoleOn(tx, role); err != nil {
 			return err
@@ -415,30 +400,16 @@ func (s *apiServer) HandleDeleteRoleApiRolesRoleDelete(w http.ResponseWriter, r 
 		return
 	}
 	removedIDs := []string{}
-	for _, m := range removed {
-		if m.msgs > 0 {
-			// Owner-only: agents do not act on a chat deletion (they re-list on
-			// their next fetch).
-			s.hub.Publish("chat", "patch", "chat", wireOwnerID+"::"+m.id, nil, audienceOwnerOnly(), requestTrigger(r))
-		}
-		if m.reads > 0 {
-			s.hub.Publish("chat_read", "patch", "chat_read", wireOwnerID+"::"+m.id, nil, audienceOwnerOnly(), requestTrigger(r))
-		}
-		s.telemetry.Delete(m.id)
-		s.gauge.Delete(m.id)
-		s.hub.Publish("member", "remove", "member", wireOwnerID+"::"+m.id, nil,
-			audienceMembers(m.id), requestTrigger(r))
-		removedIDs = append(removedIDs, m.id)
+	for _, m := range dismissed {
+		s.finishStaffDismissal(m, requestTrigger(r))
+		removedIDs = append(removedIDs, m.ID)
 	}
 	if deletedInsight > 0 {
 		s.hub.Publish("insight", "patch", "insight", wireOwnerID+"::"+role, nil, audienceOwnerOnly(), requestTrigger(r))
 	}
 	s.hub.Publish("role_def", "remove", "role_def", wireOwnerID+"::"+role, nil, audienceOwnerOnly(), requestTrigger(r))
 	writeJSON(w, http.StatusOK, roleDeleteResultDTO{
-		Role:                   role,
-		RemovedMemberIDs:       removedIDs,
-		DeletedChatMessages:    deletedMsgs,
-		DeletedChatAttachments: deletedAtts,
-		DeletedChatReads:       deletedReads,
+		Role:             role,
+		RemovedMemberIDs: removedIDs,
 	})
 }

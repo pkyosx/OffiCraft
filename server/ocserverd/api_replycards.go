@@ -725,7 +725,7 @@ func (s *apiServer) applyReplyCardAnswer(w http.ResponseWriter, r *http.Request,
 		return
 	}
 	// Blobs go in the same write as the card that names them: nothing reclaims
-	// a blob no record references (DeleteChatInvolving walks from record refs).
+	// a blob no record references (collectOrphanBlobs walks from record refs).
 	refs := []any{}
 	fresh := make([]ChatAttachment, 0, len(decoded))
 	for _, att := range decoded {

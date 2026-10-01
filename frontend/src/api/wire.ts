@@ -369,8 +369,8 @@ export type WireRoleDefListItem = components["schemas"]["RoleDefListItemDTO"];
  * founding-member pair (`POST /api/roles`, M2-2). */
 export type WireRoleCreateResult = components["schemas"]["RoleCreateResultDTO"];
 
-/** Mirrors `service/dto.py :: RoleDeleteResultDTO` — the hard-delete cascade
- * receipt (`DELETE /api/roles/{role}`, M2-2). */
+/** Mirrors `service/dto.py :: RoleDeleteResultDTO` — the role-delete receipt
+ * (`DELETE /api/roles/{role}`): the role and the ids of the members it dismissed. */
 export type WireRoleDeleteResult = components["schemas"]["RoleDeleteResultDTO"];
 
 /** Mirrors `service/dto.py :: BootstrapDTO`. `context` is the assembled agent

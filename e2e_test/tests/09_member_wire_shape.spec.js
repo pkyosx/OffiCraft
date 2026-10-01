@@ -19,11 +19,9 @@
 // The write legs pin what they answer:
 //   • the hire and the dismiss each answer a receipt — `id` present, and none
 //     of the roster-row fields riding along uninvited;
-//   • a dismissed row is served by no response: the DELETE says only `id`, and
-//     no read face serves the dismissed row — `GET /api/members/{id}` 404s
-//     afterwards (the audit row survives server-side, off the wire). The
-//     dismiss is proved by its observable consequences: the row drops off the
-//     roster list AND the direct GET is an honest 404.
+//   • the DELETE says only `id`; the dismissed row drops off the roster list
+//     but `GET /api/members/{id}` still serves it with `roster_status`
+//     "removed", so tasks and chats keep the member's name.
 const { test, expect } = require('@playwright/test');
 const {
   BASE,
@@ -145,18 +143,17 @@ test.describe('D1 · Member read-face wire shape', () => {
       'the dismiss receipt must name the member it dismissed',
     ).toBe(hired.id);
 
-    // No response carries roster_status === "removed" (see the header): the
-    // receipt does not carry it and no read face serves the dismissed row. The
-    // removed row drops off the roster list (audit row survives server-side)…
     const after = await listMembers(request, token);
     expect(
       after.find((m) => m.id === hired.id),
       'a dismissed member must not be listed',
     ).toBeUndefined();
-    // …and a direct read is an honest 404.
     const get = await request.get(`${BASE}/api/members/${hired.id}`, {
       headers: authHeaders(token),
     });
-    expect(get.status(), 'GET of a removed member must 404').toBe(404);
+    expect(get.status(), 'GET of a dismissed member must still serve the row').toBe(200);
+    const gone = await get.json();
+    assertMemberWireShape(gone, 'dismissed member (GET by id)');
+    expect(gone.roster_status, 'a dismissed member reads as removed').toBe('removed');
   });
 });

@@ -2655,18 +2655,10 @@ type RoleDefUpdateDTO struct {
 	Name         *string `json:"name,omitempty"`
 }
 
-// RoleDeleteResultDTO Receipt of a HARD custom-role delete (M2-2 刪除角色): the role overlay +
-// its members + their conversations are PHYSICALLY removed (not the
-// status="removed" soft-remove path — that stays the dismiss seam). The counts
-// let the caller (and the tests) assert the cascade actually cleared each
-// category that exists in this office: chat messages (+ their attachment
-// blobs) and chat read receipts.
+// RoleDeleteResultDTO Receipt of a custom-role delete: the role's definition and Insight are removed permanently. `removed_member_ids` lists every member of the role, each now `roster_status` = `removed` — dismissed, not deleted: their chats and attachments are kept.
 type RoleDeleteResultDTO struct {
-	DeletedChatAttachments *int      `json:"deleted_chat_attachments,omitempty"`
-	DeletedChatMessages    *int      `json:"deleted_chat_messages,omitempty"`
-	DeletedChatReads       *int      `json:"deleted_chat_reads,omitempty"`
-	RemovedMemberIds       *[]string `json:"removed_member_ids,omitempty"`
-	Role                   string    `json:"role"`
+	RemovedMemberIds *[]string `json:"removed_member_ids,omitempty"`
+	Role             string    `json:"role"`
 }
 
 // RoleDocSizesDTO The two capped documents of ONE role, by size only: “duty“ (the role
@@ -4783,7 +4775,7 @@ type ServerInterface interface {
 	// Dismiss a member (soft delete). Pure seam, no UI (§9.1). Staff only -- an outsource-worker id is a 404: a worker leaves by being RELEASED with its task, not by being dismissed. Answers with a bounded receipt (“id“), not the roster row — call “get_member“ when you need the rest.
 	// (DELETE /api/members/{member_id})
 	HandleDismissMemberApiMembersMemberIdDelete(w http.ResponseWriter, r *http.Request, memberId string)
-	// Read one member row — STAFF OR OUTSOURCE. Released outsource rows remain readable so durable chat, task and lore attribution keeps the worker codename; dismissed staff and removed wardens answer 404. The write verbs on this same {member_id} take an active ow- id too -- update, activate, deactivate, force-stop, accelerated-stop and refocus each dispatch to the worker body; release remains task-bound and dismiss refuses an ow- id with 404.
+	// Read one member row — STAFF OR OUTSOURCE. Released outsource workers and dismissed staff remain readable (`roster_status` = `removed`) so durable chat, task and lore attribution keeps their names; removed wardens answer 404. The write verbs on this same {member_id} take an active ow- id too -- update, activate, deactivate, force-stop, accelerated-stop and refocus each dispatch to the worker body; release remains task-bound and dismiss refuses an ow- id with 404.
 	// (GET /api/members/{member_id})
 	HandleGetMemberApiMembersMemberIdGet(w http.ResponseWriter, r *http.Request, memberId string)
 	// Partially update a member's name / runtime / model / effort. Blank name, invalid runtime or invalid effort → 422, and changing a launch-intent field arms a graceful handover. Also accepts an outsource-worker id: the same edit changes the worker's runtime / model / effort, but a worker's codename is task-bound, so naming one is a 422. Answers with a bounded receipt (“id“), not the roster row — call “get_member“ when you need the rest.
@@ -4946,7 +4938,7 @@ type ServerInterface interface {
 	// Create a custom role + its founding member (one pair per call). runtime is claude/codex; absent = stored UNSET and resolved at the founding member's first placement from the host's reported capabilities, not written as claude. Answers with a bounded receipt (“role_key“, “member_id“, “member_name“), not the role and member objects — call “get_role“ when you need the rest.
 	// (POST /api/roles)
 	HandleCreateRoleApiRolesPost(w http.ResponseWriter, r *http.Request)
-	// Hard-delete a custom role + its members (seed → 403; online → 409).
+	// Delete a custom role and dismiss its staff members; their chats are kept (seed → 403; online → 409).
 	// (DELETE /api/roles/{role})
 	HandleDeleteRoleApiRolesRoleDelete(w http.ResponseWriter, r *http.Request, role string)
 	// Read one role definition (unknown → 404).

@@ -1356,7 +1356,7 @@ MATRIX: dict[str, Route] = {
         path="/api/roles/assistant/reset",
     ),
     "DELETE /api/roles/{role}": Route(
-        # positive faces: a FRESH custom role hard-deletes clean; below-floor
+        # positive faces: a FRESH custom role deletes clean; below-floor
         # identities hit the governance choke (403) before any target logic.
         requires="admin_agent",
         path=lambda ctx, i: (
@@ -2328,7 +2328,7 @@ def test_install_script_requires_exactly_one_credential_param(client: httpx.Clie
 
 
 def test_seed_role_delete_is_refused(client: httpx.Client, owner_token: str) -> None:
-    """Semantic pin: even the owner cannot hard-delete a SEED role (403)."""
+    """Semantic pin: even the owner cannot delete a SEED role (403)."""
     r = client.delete(
         "/api/roles/assistant", headers={"Authorization": f"Bearer {owner_token}"}
     )

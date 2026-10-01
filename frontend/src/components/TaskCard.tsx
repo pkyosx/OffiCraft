@@ -98,6 +98,7 @@ import { TaskReassignDialog } from "./TaskReassignDialog";
 import { TaskReplyCard } from "./TaskReplyCard";
 import { Avatar } from "./Avatar";
 import { avatarKindForMember } from "../lib/avatarKind";
+import { OWNER_ID } from "../lib/ownerUnread";
 import {
   ChatBubbleIcon,
   CheckIcon,
@@ -225,19 +226,21 @@ export function TaskCard({
   const unassigned = task.executorKind === "outsource" && !task.executorId;
 
   // ── executor identity ──────────────────────────────────────────────────────
-  // RELEASED-worker codenames (T-3ed8): an ow- id on the card (executor of a
-  // closed task, 前任, creator) drops off the LIVE workers list on release —
-  // resolve its codename lazily via the per-id read so the chip shows the same
-  // identity the rail did, never the raw id.
-  const releasedWorkerIds = [
+  // An id on the card that is in neither list — a released worker or a
+  // dismissed member — resolves its name lazily via the per-id read, so the chip
+  // shows the same identity it had while listed, never the raw id.
+  const isUnlisted = (id: string) =>
+    id !== "" &&
+    id !== OWNER_ID &&
+    !members.some((m) => m.id === id) &&
+    !workers.some((w) => w.id === id);
+  const unlistedIds = [
     task.executorId,
     task.creatorId,
     task.reassignedFrom ?? "",
-  ].filter(
-      (id) => id.startsWith("ow-") && !workers.some((w) => w.id === id),
-    );
-  const releasedCodenames = useWorkerCodenames(releasedWorkerIds);
-  const releasedAvatarUrls = useWorkerAvatarUrls(releasedWorkerIds);
+  ].filter(isUnlisted);
+  const unlistedNames = useWorkerCodenames(unlistedIds);
+  const unlistedAvatarUrls = useWorkerAvatarUrls(unlistedIds);
   const member =
     task.executorKind === "staff"
       ? members.find((m) => m.id === task.executorId)
@@ -251,15 +254,17 @@ export function TaskCard({
   // 外包 display: 「外包 代號 · 模型 · 投入度」 while the worker is LIVE; a
   // released worker (closed task) keeps its REAL codename via the lazy per-id
   // read (never fabricated — resolved from the server row), degrading to the
-  // bare 外包 label only while/if unresolvable. A member is just the bare name
-  // (T-705e: the chip sits under the 負責人 label, so the old "· 成員" role tag
-  // is redundant and the spec chip shows the name alone — 外包 keeps its
-  // substantive 代號·模型·投入度 line).
-  const releasedExecutorCodename = releasedCodenames.get(task.executorId);
+  // bare 外包 label only while/if unresolvable. A member, listed or dismissed,
+  // is just the bare name (T-705e: the chip sits under the 負責人 label, so the
+  // old "· 成員" role tag is redundant and the spec chip shows the name alone —
+  // 外包 keeps its substantive 代號·模型·投入度 line).
+  const releasedExecutorCodename = unlistedNames.get(task.executorId);
+  const staffExecutorName =
+    member?.name || unlistedNames.get(task.executorId) || task.executorId;
   const executorText = unassigned
     ? t.tasks.unassigned
     : task.executorKind === "staff"
-      ? member?.name || task.executorId
+      ? staffExecutorName
       : worker
         ? `${msg.outsourceLabel(worker.codename)} · ${worker.model || "—"} · ${
             t.tasks.effortOf[worker.effort] ?? worker.effort
@@ -284,17 +289,20 @@ export function TaskCard({
   function openChat(peerId: string) {
     navigateHash({ page: "office", chatId: peerId, composeTaskNo: task.taskNo });
   }
-  // Assignee row → the executor's chat. Any resolvable executor (a member, a
-  // live OR released outsource worker — history is keyed by peer id, T-661b) is
-  // reachable; only 未指派 (outsource with no executorId) is not clickable.
+  // Assignee row → the executor's chat. Any resolvable executor (a listed or
+  // dismissed member, a live OR released outsource worker — history is keyed by
+  // peer id, T-661b) is reachable; only 未指派 (outsource with no executorId) is
+  // not clickable.
   const assigneePeerId = unassigned ? "" : task.executorId;
 
   // Creator row → the creator's chat. The creator is a verified token sub: a
   // roster member (name, clickable), an outsource worker id ("ow-…" → 外包
-  // 代號 when live, else the raw id; chat reachable either way), "" on a
-  // pre-column task ("—", not clickable), or a non-member/non-worker value
-  // ("owner" or anything else) which is shown as plain text and NOT clickable —
-  // there is no self-chat, and fabricating one would be a lie (owner ruling).
+  // 代號 when resolvable, else the raw id; chat reachable either way), a
+  // dismissed member (name via the per-id read, clickable to the read-only
+  // history), "" on a pre-column task ("—", not clickable), or any other value
+  // ("owner", an unresolvable id) which is shown as plain text and NOT
+  // clickable — there is no self-chat, and fabricating one would be a lie
+  // (owner ruling).
   const creator = ((): { text: string; peerId: string } => {
     if (task.creatorId === "") return { text: t.tasks.creatorUnknown, peerId: "" };
     const m = members.find((x) => x.id === task.creatorId);
@@ -302,12 +310,14 @@ export function TaskCard({
     if (task.creatorId.startsWith("ow-")) {
       const cn =
         workers.find((x) => x.id === task.creatorId)?.codename ??
-        releasedCodenames.get(task.creatorId);
+        unlistedNames.get(task.creatorId);
       return {
         text: cn ? msg.outsourceLabel(cn) : task.creatorId,
         peerId: task.creatorId,
       };
     }
+    const dismissedName = unlistedNames.get(task.creatorId);
+    if (dismissedName) return { text: dismissedName, peerId: task.creatorId };
     return { text: task.creatorId, peerId: "" };
   })();
 
@@ -321,11 +331,11 @@ export function TaskCard({
     if (id === "") return null;
     if (task.reassignedFromKind === "outsource" || id.startsWith("ow-")) {
       const cn =
-        workers.find((x) => x.id === id)?.codename ?? releasedCodenames.get(id);
+        workers.find((x) => x.id === id)?.codename ?? unlistedNames.get(id);
       return { text: cn ? msg.outsourceLabel(cn) : id, peerId: id };
     }
     const m = members.find((x) => x.id === id);
-    return { text: m ? m.name : id, peerId: id };
+    return { text: m?.name ?? unlistedNames.get(id) ?? id, peerId: id };
   })();
 
   // 負責人 == 建立者 → drop the 建立者 row entirely (owner 2026-07-17): it
@@ -354,11 +364,11 @@ export function TaskCard({
     if (outsourceWorker) {
       return { src: outsourceWorker.avatarUrl, kind: "outsource" } as const;
     }
-    if (id.startsWith("ow-")) {
+    if (id.startsWith("ow-") || unlistedNames.has(id)) {
       return {
-        src: releasedAvatarUrls.get(id),
-        kind: "outsource",
-      } as const;
+        src: unlistedAvatarUrls.get(id),
+        kind: avatarKindForMember({ id }),
+      };
     }
     return null;
   }
@@ -532,6 +542,10 @@ export function TaskCard({
   // heavy until its own detail arrives.
   const hasDetail = detail !== null && detail.id === task.id;
   const view = hasDetail ? detail : task;
+  const forcedDoneBy = view.forcedDoneBy ?? "";
+  const forcedDoneByNames = useWorkerCodenames(
+    isUnlisted(forcedDoneBy) ? [forcedDoneBy] : [],
+  );
   // A task with no detail yet: show a loading placeholder while hydrating,
   // and an error+retry state if the fetch failed — never the transitional
   // empty state, which would be a silent lie. (The workflow render below ALSO
@@ -2065,8 +2079,9 @@ export function TaskCard({
         <div className="task-card__forced-done" data-testid="task-forced-done">
           <span className="task-card__meta-label">{t.tasks.forcedDoneLabel}</span>
           <span className="task-card__forced-done-by">
-            {members.find((m) => m.id === view.forcedDoneBy)?.name ??
-              view.forcedDoneBy}
+            {members.find((m) => m.id === forcedDoneBy)?.name ??
+              forcedDoneByNames.get(forcedDoneBy) ??
+              forcedDoneBy}
           </span>
           <span
             className={`task-card__forced-done-reason${
@@ -2126,7 +2141,7 @@ export function TaskCard({
             unassigned
               ? t.tasks.unassigned
               : task.executorKind === "staff"
-                ? member?.name || task.executorId
+                ? staffExecutorName
                 : worker
                   ? msg.outsourceLabel(worker.codename)
                   : t.tasks.outsource
@@ -2258,7 +2273,7 @@ export function TaskCard({
             <div className="task-card__transition" data-testid="task-transition">
               {msg.taskPlanningBy(
                 task.executorKind === "staff"
-                  ? member?.name || task.executorId
+                  ? staffExecutorName
                   : worker
                     ? msg.outsourceLabel(worker.codename)
                     : t.tasks.outsource

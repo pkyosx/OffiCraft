@@ -2112,7 +2112,7 @@ export const en: Dict = {
     deleteRole: "Delete",
     deleteRoleConfirmLead: 'Delete role "',
     deleteRoleConfirmTail:
-      '"? Its members and their conversations will be removed permanently.',
+      '"? Its staff members will be marked as departed and their chats kept as read-only history; the role definition and Insight will be deleted permanently.',
     deleteRoleConfirmAction: "Delete role",
     deleteRoleOnline: "A member is online — cannot delete",
     deleteRoleError: "Delete failed. Please try again.",

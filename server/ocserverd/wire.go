@@ -686,11 +686,8 @@ type docSizesDTO struct {
 }
 
 type roleDeleteResultDTO struct {
-	Role                   string   `json:"role"`
-	RemovedMemberIDs       []string `json:"removed_member_ids"`
-	DeletedChatMessages    int      `json:"deleted_chat_messages"`
-	DeletedChatAttachments int      `json:"deleted_chat_attachments"`
-	DeletedChatReads       int      `json:"deleted_chat_reads"`
+	Role             string   `json:"role"`
+	RemovedMemberIDs []string `json:"removed_member_ids"`
 }
 
 // insightDTO: 🔴 IsDefault ("never written its own") does NOT imply Text=="" —

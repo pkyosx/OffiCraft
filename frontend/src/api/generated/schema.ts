@@ -1560,10 +1560,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Read one member row — STAFF OR OUTSOURCE. Released outsource rows remain readable so durable chat, task and lore attribution keeps the worker codename; dismissed staff and removed wardens answer 404. The write verbs on this same {member_id} take an active ow- id too -- update, activate, deactivate, force-stop, accelerated-stop and refocus each dispatch to the worker body; release remains task-bound and dismiss refuses an ow- id with 404.
-         * @description - Reads one roster member, including a released outsource row for durable identity attribution.
+         * Read one member row — STAFF OR OUTSOURCE. Released outsource workers and dismissed staff remain readable (`roster_status` = `removed`) so durable chat, task and lore attribution keeps their names; removed wardens answer 404. The write verbs on this same {member_id} take an active ow- id too -- update, activate, deactivate, force-stop, accelerated-stop and refocus each dispatch to the worker body; release remains task-bound and dismiss refuses an ow- id with 404.
+         * @description - Reads one roster member, including a released outsource worker or a dismissed staff member, for durable identity attribution.
          *     - `machine` is the OBSERVED position, not the pinned one — same as the list endpoint.
-         *     - 404 if the member is absent, or if a staff/warden row is soft-removed.
+         *     - 404 if the member is absent, or if a warden row is removed.
          */
         get: operations["handle_get_member_api_members__member_id__get"];
         put?: never;
@@ -2478,9 +2478,11 @@ export interface paths {
          */
         post: operations["handle_update_role_api_roles__role__post"];
         /**
-         * Hard-delete a custom role + its members (seed → 403; online → 409).
-         * @description - Hard-deletes a custom role and everything it owns; there is no undo and this is not the soft dismiss.
-         *     - Every member of the role, soft-removed ones included, is physically deleted with its chats, attachments and read receipts.
+         * Delete a custom role and dismiss its staff members; their chats are kept (seed → 403; online → 409).
+         * @description - Deletes a custom role: its definition, its Insight and their retained revisions are removed permanently; there is no undo.
+         *     - Every staff member of the role is dismissed exactly as `DELETE /api/members/{member_id}` does: `roster_status` becomes `removed`, the member is asked offline, and the row survives. A member already removed stays removed.
+         *     - Those members' chats, attachments and read receipts are kept: the conversation stays readable as history, and `GET /api/members/{member_id}` still answers the row.
+         *     - Reply cards those members opened that are still waiting are expired.
          *     - A seed role can never be deleted: 403. Unknown role 404.
          *     - 409 while any member of the role is online.
          *     - Owner or admin agent only.
@@ -7522,29 +7524,9 @@ export interface components {
         };
         /**
          * RoleDeleteResultDTO
-         * @description Receipt of a HARD custom-role delete (M2-2 刪除角色): the role overlay +
-         *     its members + their conversations are PHYSICALLY removed (not the
-         *     status="removed" soft-remove path — that stays the dismiss seam). The counts
-         *     let the caller (and the tests) assert the cascade actually cleared each
-         *     category that exists in this office: chat messages (+ their attachment
-         *     blobs) and chat read receipts.
+         * @description Receipt of a custom-role delete: the role's definition and Insight are removed permanently. `removed_member_ids` lists every member of the role, each now `roster_status` = `removed` — dismissed, not deleted: their chats and attachments are kept.
          */
         RoleDeleteResultDTO: {
-            /**
-             * Deleted Chat Attachments
-             * @default 0
-             */
-            deleted_chat_attachments: number;
-            /**
-             * Deleted Chat Messages
-             * @default 0
-             */
-            deleted_chat_messages: number;
-            /**
-             * Deleted Chat Reads
-             * @default 0
-             */
-            deleted_chat_reads: number;
             /**
              * Removed Member Ids
              * @default []

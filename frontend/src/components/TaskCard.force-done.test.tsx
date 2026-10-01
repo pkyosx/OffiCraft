@@ -50,7 +50,12 @@ import { zh } from "../i18n/locales/zh";
 import { en } from "../i18n/locales/en";
 import { TasksPage } from "./TasksPage";
 import { TaskCard } from "./TaskCard";
-import { __resetMock, __injectMockTask, mockApi } from "../api/mock";
+import {
+  __resetMock,
+  __injectMockTask,
+  __injectMockMember,
+  mockApi,
+} from "../api/mock";
 import type { TaskView } from "../api/adapter";
 import { toggleFilter } from "../test/tasksFilter";
 
@@ -507,6 +512,35 @@ describe("④ what the server recorded comes back onto the card", () => {
       expect(
         within(document.body).getByTestId("task-status").textContent?.trim()
       ).toBe(zh.tasks.status.done)
+    );
+  });
+
+  it("a forced close by a member since dismissed names them, not their id", async () => {
+    __injectMockMember({
+      id: "m-admin-left",
+      kind: "staff",
+      name: "老管",
+      roster_status: "removed",
+    });
+    __injectMockTask(
+      mkTask({
+        title: "被已離開的人結案",
+        status: "done",
+        closedTs: 1,
+        forcedDoneBy: "m-admin-left",
+        forcedDoneReason: "清掉",
+      })
+    );
+    const { findByTestId } = renderPage();
+    showDone();
+    await openClosedSection();
+    expandCard(await findByTestId("task-card"));
+
+    const row = await findByTestId("task-forced-done");
+    await waitFor(() =>
+      expect(
+        row.querySelector(".task-card__forced-done-by")?.textContent
+      ).toBe("老管")
     );
   });
 
