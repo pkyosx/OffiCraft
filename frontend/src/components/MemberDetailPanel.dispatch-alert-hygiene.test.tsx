@@ -51,8 +51,6 @@ const ONLINE_MACHINE_B = {
 vi.mock("../api", () => ({
   api: {
     listMachines: () => Promise.resolve([ONLINE_MACHINE, ONLINE_MACHINE_B]),
-    getBootstrap: () =>
-      Promise.resolve({ role: "assistant", name: "", taskType: "", context: "" }),
     listWebhooks: () => Promise.resolve([]),
     listScheduledMessages: () => Promise.resolve([]),
     patchMember: () => Promise.resolve({}),

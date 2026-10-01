@@ -9,13 +9,6 @@ import type { Member } from "../types";
 vi.mock("../api", () => ({
   api: {
     listMachines: () => Promise.resolve([]),
-    getBootstrap: () =>
-      Promise.resolve({
-        role: "assistant",
-        name: "",
-        taskType: "",
-        context: "",
-      }),
     listWebhooks: () => Promise.resolve([]),
     listScheduledMessages: () => Promise.resolve([]),
     createWebhook: () =>

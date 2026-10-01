@@ -43,8 +43,6 @@ vi.mock("../api", () => ({
     // ONE online machine → the wake button is enabled and auto-uses it (no
     // picker), so a click fires the activate directly.
     listMachines: () => Promise.resolve([ONLINE_MACHINE]),
-    getBootstrap: () =>
-      Promise.resolve({ role: "assistant", name: "", taskType: "", context: "" }),
     listWebhooks: () => Promise.resolve([]),
     listScheduledMessages: () => Promise.resolve([]),
     patchMember: () => Promise.resolve({}),

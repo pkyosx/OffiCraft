@@ -45,7 +45,6 @@ import type {
   DiffPairView,
   RoleSummaryView,
   RoleDefView,
-  BootstrapView,
   InsightView,
   OnboardResultView,
   DeleteResultView,
@@ -140,7 +139,6 @@ import {
   toDocumentSeed,
   toRoleDef,
   toRoleSummary,
-  toBootstrap,
   toInsight,
   toOnboardResult,
   toDeleteResult,
@@ -3029,16 +3027,6 @@ export const httpApi: Api = {
     await client.DELETE("/api/roles/{role}", {
       params: { path: { role: key } },
     });
-  },
-
-  async getBootstrap(role: string): Promise<BootstrapView> {
-    // POST /api/bootstrap {role} -> BootstrapDTO. We send ONLY `role` (no
-    // member_id) so the server mints no token (token=null) — a UI preview must
-    // never receive an agent JWT. toBootstrap drops token from the view anyway.
-    const wire = unwrap(
-      await client.POST("/api/bootstrap", { body: { role } }),
-    );
-    return toBootstrap(wire);
   },
 
   async getMemberBootContext(memberId: string): Promise<string> {

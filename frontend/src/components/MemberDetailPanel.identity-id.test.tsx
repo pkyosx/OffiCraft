@@ -19,7 +19,6 @@ import type { Member } from "../types";
 vi.mock("../api", () => ({
   api: {
     listMachines: () => Promise.resolve([]),
-    getBootstrap: () => Promise.resolve({ context: "" }),
     listWebhooks: () => Promise.resolve([]),
     listScheduledMessages: () => Promise.resolve([]),
     subscribeEvents: () => () => {},

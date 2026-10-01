@@ -34,7 +34,6 @@ import type {
   DiffPairView,
   RoleSummaryView,
   RoleDefView,
-  BootstrapView,
   InsightView,
   OnboardResultView,
   DeleteResultView,
@@ -2577,7 +2576,7 @@ export interface Api {
   getOutsourceWorker(id: string): Promise<OutsourceWorkerView>;
   /** Read a worker's boot-context PREVIEW (`GET
    * /api/outsource-workers/{id}/boot-context`, owner/admin-agent) — the worker twin
-   * of getBootstrap's role preview: the server re-assembles the boot text
+   * of getMemberBootContext: the server re-assembles the boot text
    * (shared seeds + this worker's 傳承 + its runtime's boot sequence; no
    * identity, task or manual) from the CURRENT rows, no token. HONEST: today's re-assembly, not a verbatim spawn-time record.
    * Unknown worker / gone task → 404 (throws ApiError). (T-ba6b) */
@@ -2883,17 +2882,6 @@ export interface Api {
    */
   deleteRole(key: string): Promise<void>;
 
-  /**
-   * Preview a member's initial boot prompt from /api/bootstrap — 系統互動 ⊕
-   * global context ⊕ role definition ⊕ insight ⊕ 啟動步驟, every
-   * document FOLDED (the owner's edit wins, the seed is what an unedited
-   * installation folds to). Pass the ROLE key (NOT a member_id) so the server
-   * mints NO token: a UI preview must never receive an agent credential
-   * (§3.4 #29 — member_id is the warden-spawn path). ⚠️ That same omission is
-   * why the reply carries the CLAUDE 啟動步驟 whatever runtime the member on
-   * screen runs: with no member the server has no runtime to resolve (T-30e4).
-   */
-  getBootstrap(role: string): Promise<BootstrapView>;
   /**
    * A staff member's boot-context PREVIEW (`GET
    * /api/members/{member_id}/boot-context`, owner/admin-agent): the text the

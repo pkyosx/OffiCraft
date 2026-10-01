@@ -42,8 +42,6 @@ vi.mock("../api", () => ({
     listMachines: () =>
       Promise.resolve([{ machineId: "mach-1", displayName: "Mac", online: true }]),
     patchMember: (id: string, patch: object) => patchMember(id, patch),
-    getBootstrap: () =>
-      Promise.resolve({ role: "assistant", name: "", taskType: "", context: "" }),
     listWebhooks: () => Promise.resolve([]),
     listScheduledMessages: () => Promise.resolve([]),
     createWebhook: () =>

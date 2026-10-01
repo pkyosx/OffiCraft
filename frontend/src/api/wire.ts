@@ -375,11 +375,6 @@ export type WireRoleCreateResult = components["schemas"]["RoleCreateResultDTO"];
  * (`DELETE /api/roles/{role}`): the role and the ids of the members it dismissed. */
 export type WireRoleDeleteResult = components["schemas"]["RoleDeleteResultDTO"];
 
-/** Mirrors `service/dto.py :: BootstrapDTO`. `context` is the assembled agent
- * boot persona; `token` is the member JWT (null on a UI preview). The view
- * NEVER maps token in. */
-export type WireBootstrap = components["schemas"]["BootstrapDTO"];
-
 /** Mirrors `service/dto.py :: InsightDTO` (T-3809). The folded PER-ROLE
  * insight doc for one `role_key` — the role journal's second block.
  * The seed (T-e1e3) is PER-ROLE — `seeds/insight_<role_key>.md` — so

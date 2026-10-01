@@ -24,8 +24,6 @@ vi.mock("../api", () => ({
           isSelf: true,
         },
       ]),
-    getBootstrap: () =>
-      Promise.resolve({ role: "assistant", name: "", taskType: "", context: "" }),
     listWebhooks: () => Promise.resolve([]),
     listScheduledMessages: () => Promise.resolve([]),
     createWebhook: () =>

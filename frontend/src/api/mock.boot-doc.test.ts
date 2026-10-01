@@ -320,24 +320,14 @@ describe("mockApi · boot-context blocks", () => {
   });
 });
 
-// ── 開機脈絡預覽（T-30e4） ──────────────────────────────────────────────
+// ── 開機脈絡預覽 ────────────────────────────────────────────────────────
 //
 // The preview is the ONLY consumer of these documents that a person reads with
-// their own eyes, and until T-30e4 it was the one place that did not fold: it
-// read the seed constants straight, so the owner's edit was invisible in the
-// very screen built to show what an agent will read.
-//
-// The two rules pinned here are asymmetric on purpose:
-//
-//   * 系統互動 and 啟動步驟 must FOLD (overlay wins) — that is the fix;
-//   * the preview must take the CLAUDE boot sequence and must NOT grow a
-//     runtime parameter — the real request carries no member (http.ts sends
-//     `{role}` only, deliberately, so the server mints no token), so the real
-//     server also resolves an empty runtime and hands back the claude document.
-//     A runtime-aware mock would be a mock that disagrees with production.
+// their own eyes, so 系統互動 and 啟動步驟 must FOLD (overlay wins) here exactly
+// as they do on a real start.
 describe("mockApi · 開機脈絡預覽", () => {
   it("shows the owner's edit rather than the factory text", async () => {
-    const before = (await mockApi.getBootstrap("assistant")).context;
+    const before = await mockApi.getMemberBootContext("mira");
     expect(before).toContain(SEED_SYSTEM_INTERACTION_MD.trim());
     expect(before).toContain(SEED_BOOT_SEQUENCE_MD.trim());
 
@@ -352,7 +342,7 @@ describe("mockApi · 開機脈絡預覽", () => {
       "啟動步驟：owner 改過的版本\n"
     );
 
-    const after = (await mockApi.getBootstrap("assistant")).context;
+    const after = await mockApi.getMemberBootContext("mira");
     expect(after).toContain("系統互動：owner 改過的版本");
     expect(after).toContain("啟動步驟：owner 改過的版本");
     // Whole-document comparison, not a keyword probe: an overlay REPLACES the
@@ -361,27 +351,9 @@ describe("mockApi · 開機脈絡預覽", () => {
     expect(after).not.toContain(SEED_BOOT_SEQUENCE_MD.trim());
   });
 
-  // 🔴 READ THIS BEFORE "FIXING" THE ASSERTION BELOW. It pins a limitation, not
-  // a desirable behaviour: a codex member's panel shows the CLAUDE 啟動步驟,
-  // which is missing the hand-back step that member is really booted with.
-  // The mock is right to copy it — /api/bootstrap genuinely cannot resolve a
-  // runtime, because the request names no member. The day that endpoint learns
-  // who the preview is for, THIS ASSERTION IS THE ONE THAT MUST CHANGE FIRST;
-  // it is not a guard you are breaking, it is the guard telling you the server
-  // contract moved.
-  it("takes the claude boot sequence, never codex — matching a request that names no member", async () => {
-    await mockApi.saveBootDoc("boot_sequence", "codex", "codex 版\n");
-    await mockApi.saveBootDoc("boot_sequence", "claude", "claude 版\n");
-    const ctx = (await mockApi.getBootstrap("assistant")).context;
-    expect(ctx).toContain("claude 版");
-    expect(ctx).not.toContain("codex 版");
-  });
-  it("folds the OUTSOURCE preview too — the same defect was written twice", async () => {
-    // getBootstrap and getWorkerBootContext assembled the same blocks from the
-    // same constants side by side. Fixing only the one the ticket named would
-    // have left an identical un-folded preview one panel over, so this pins the
-    // twin. It also pins the ONE real difference: a spawn names its worker, so
-    // this path does resolve runtime — codex gets the codex document.
+  it("folds the OUTSOURCE preview too, with the worker's own runtime", async () => {
+    // The worker preview assembles the same folded documents as the staff
+    // preview, so it must fold too, and it resolves the worker's own runtime.
     __injectMockTask({
       id: "t-30e4",
       taskNo: "T-30e4",
