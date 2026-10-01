@@ -947,7 +947,8 @@ func (s *apiServer) collectMemberStop(memberID string, decision reconcileDecisio
 		if err != nil || cur == nil {
 			return err
 		}
-		if parseDesired(cur.DesiredState) != DesiredStateOffline || !stopAwaitsCollect(*cur) {
+		if cur.RosterStatus != RosterStatusActive ||
+			parseDesired(cur.DesiredState) != DesiredStateOffline || !stopAwaitsCollect(*cur) {
 			return nil
 		}
 		collectWindDownRow(windDownAnchorRowOfMember(cur), now)

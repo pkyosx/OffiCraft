@@ -2206,6 +2206,33 @@ func TestReconcileOne(t *testing.T) {
 		infraWantSession(t, api, d, "runner", 1700000000, 1700000000, infraSeededGauge())
 	})
 
+	t.Run("a member dismissed after the tick read it is not collected and is sent no stop", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestOnline(t, api, "m-box", "")
+		reconcileTestPut(t, d, Member{
+			ID: "gone", Name: "Gone", Kind: KindStaff, RoleKey: "assistant",
+			DesiredState: DesiredStateOffline, DesiredMachineID: "m-box",
+		})
+		if err := d.SetMemberWindDownAnchors("gone", reconcileTestNow-200, 0, 0, ""); err != nil {
+			t.Fatalf("SetMemberWindDownAnchors: %v", err)
+		}
+		api.offlineConfirmSince.Store("gone", reconcileTestNow-200)
+		snapshot := reconcileTestRow(t, d, "gone")
+		dismissed := snapshot
+		dismissed.RosterStatus = RosterStatusRemoved
+		reconcileTestPut(t, d, dismissed)
+
+		got := api.reconcileOne(snapshot, newReconcileState(), reconcileTestNow)
+		reconcileTestWantDecision(t, got, reconcileDecision{
+			Command: reconcileCmdNone, MemberID: "gone",
+			Reason:   "collect: the row no longer awaits collection, or the latch did not land",
+			State:    newReconcileState(),
+			StopKind: stopKindSessionGone,
+		})
+		reconcileTestWantRow(t, d, "gone", dismissed)
+		wsWantWardenFrames(t, api, "m-box")
+	})
+
 	t.Run("a member with no machine is downgraded to a no-op that reports unlanded, keeps the prior state and stamps the row", func(t *testing.T) {
 		api, d := reconcileTestServer(t)
 		reconcileTestPut(t, d, Member{ID: "nowhere", Name: "Nowhere", Kind: KindStaff, RoleKey: "assistant", DesiredState: DesiredStateOnline})
