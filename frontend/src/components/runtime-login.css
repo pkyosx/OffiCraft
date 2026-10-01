@@ -71,6 +71,24 @@
 .runtime-login__line--bad {
   color: var(--color-danger);
 }
+.runtime-login__user-code {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+.runtime-login__user-code-value {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--color-text);
+}
+.runtime-login__phishing {
+  margin: 10px 0 0;
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
 .runtime-login__code-error {
   margin: 6px 0 0;
   color: var(--color-danger);

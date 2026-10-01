@@ -3,7 +3,7 @@ import { useI18n } from "../i18n";
 import { api } from "../api";
 import { isHttpStatus, serverMessageOf } from "../api/errors";
 import { useEscapeLayer } from "../lib/useEscapeLayer";
-import type { RuntimeLoginState, RuntimeLoginView } from "../types";
+import type { RuntimeLoginRuntime, RuntimeLoginState, RuntimeLoginView } from "../types";
 import { CheckIcon, CopyIcon, ExternalLinkIcon } from "./icons";
 import "./confirm-modal.css";
 import "./runtime-login.css";
@@ -15,6 +15,14 @@ const RUNTIME_LOGIN_START_TIMEOUT_MS = 30_000;
 // claude's answer to a wrong or expired code: the token exchange is refused.
 const CODE_REJECTED = /^Login failed: Request failed with status code 40[01]\b/;
 
+// What a warden that can only log in claude answers a codex login_start with.
+const RUNTIME_UNSUPPORTED = /cannot log in runtime "codex"/;
+
+function remaining(expiresTs: number, nowMs: number): string {
+  const secs = Math.max(0, Math.floor(expiresTs - nowMs / 1000));
+  return `${String(Math.floor(secs / 60)).padStart(2, "0")}:${String(secs % 60).padStart(2, "0")}`;
+}
+
 const TERMINAL: RuntimeLoginState[] = ["succeeded", "failed", "expired", "cancelled"];
 
 function isTerminal(state: RuntimeLoginState): boolean {
@@ -23,16 +31,20 @@ function isTerminal(state: RuntimeLoginState): boolean {
 
 type Failure = { kind: "noResponse" } | { kind: "error"; message: string };
 
-/** The Claude sign-in dialog. Closing it cancels a login still in flight, so
- * the machine's login process never outlives the dialog. */
+/** The sign-in dialog for one runtime on one machine: claude by sign-in URL
+ * plus a pasted code, codex by device code approved on OpenAI's page. Closing
+ * it cancels a login still in flight, so the machine's login process never
+ * outlives the dialog. */
 export function RuntimeLoginDialog({
   machineId,
   machineName,
+  runtime,
   loggedIn,
   onClose,
 }: {
   machineId: string;
   machineName: string;
+  runtime: RuntimeLoginRuntime;
   loggedIn: boolean;
   onClose: () => void;
 }) {
@@ -44,7 +56,8 @@ export function RuntimeLoginDialog({
   const [code, setCode] = useState("");
   const [codeRefused, setCodeRefused] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useState<"url" | "code" | null>(null);
+  const [nowMs, setNowMs] = useState(() => Date.now());
   const loginRef = useRef<RuntimeLoginView | null>(null);
   loginRef.current = login;
   const rootRef = useRef<HTMLDivElement>(null);
@@ -56,7 +69,7 @@ export function RuntimeLoginDialog({
     setCode("");
     setCodeRefused(false);
     api
-      .startRuntimeLogin(machineId, "claude")
+      .startRuntimeLogin(machineId, runtime)
       .then((next) => {
         if (alive) setLogin(next);
       })
@@ -71,7 +84,7 @@ export function RuntimeLoginDialog({
     return () => {
       alive = false;
     };
-  }, [machineId, attempt]);
+  }, [machineId, runtime, attempt]);
 
   useEffect(() => {
     const unsubscribe = api.subscribeEvents((topic) => {
@@ -151,13 +164,21 @@ export function RuntimeLoginDialog({
     }
   }
 
-  async function copyUrl(url: string) {
+  const counting = login?.state === "awaiting_authorization" && login.expiresTs != null;
+  useEffect(() => {
+    if (!counting) return;
+    setNowMs(Date.now());
+    const timer = window.setInterval(() => setNowMs(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [counting]);
+
+  async function copy(what: "url" | "code", text: string) {
     try {
-      await navigator.clipboard.writeText(url);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1600);
+      await navigator.clipboard.writeText(text);
+      setCopied(what);
+      window.setTimeout(() => setCopied(null), 1600);
     } catch {
-      setCopied(false);
+      setCopied(null);
     }
   }
 
@@ -221,10 +242,10 @@ export function RuntimeLoginDialog({
             type="button"
             className="confirm-modal__btn"
             data-testid="runtime-login-copy"
-            onClick={() => void copyUrl(url)}
+            onClick={() => void copy("url", url)}
           >
-            {copied ? <CheckIcon size={14} /> : <CopyIcon size={14} />}
-            <span>{copied ? m.copied : m.copyUrl}</span>
+            {copied === "url" ? <CheckIcon size={14} /> : <CopyIcon size={14} />}
+            <span>{copied === "url" ? m.copied : m.copyUrl}</span>
           </button>
         </div>
         <form
@@ -261,6 +282,59 @@ export function RuntimeLoginDialog({
         )}
       </div>
     );
+  } else if (login.state === "awaiting_authorization") {
+    const url = login.authUrl ?? "";
+    const userCode = login.userCode ?? "";
+    body = (
+      <div className="runtime-login__awaiting" data-testid="runtime-login-authorize">
+        <p className="runtime-login__hint">{m.codexInstructions}</p>
+        <div className="runtime-login__url">
+          <a
+            href={url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="runtime-login__link"
+            data-testid="runtime-login-url"
+          >
+            <ExternalLinkIcon size={14} />
+            <span>{m.openUrl}</span>
+          </a>
+          <button
+            type="button"
+            className="confirm-modal__btn"
+            data-testid="runtime-login-copy"
+            onClick={() => void copy("url", url)}
+          >
+            {copied === "url" ? <CheckIcon size={14} /> : <CopyIcon size={14} />}
+            <span>{copied === "url" ? m.copied : m.copyUrl}</span>
+          </button>
+        </div>
+        <div className="runtime-login__user-code">
+          <span className="runtime-login__code-label">{m.userCodeLabel}</span>
+          <code className="runtime-login__user-code-value" data-testid="runtime-login-user-code">
+            {userCode}
+          </code>
+          <button
+            type="button"
+            className="confirm-modal__btn"
+            data-testid="runtime-login-copy-code"
+            onClick={() => void copy("code", userCode)}
+          >
+            {copied === "code" ? <CheckIcon size={14} /> : <CopyIcon size={14} />}
+            <span>{copied === "code" ? m.copied : m.copyCode}</span>
+          </button>
+        </div>
+        {login.expiresTs != null && (
+          <p className="runtime-login__hint" data-testid="runtime-login-remaining">
+            {m.remainingLead}
+            {remaining(login.expiresTs, nowMs)}
+          </p>
+        )}
+        <p className="runtime-login__phishing" data-testid="runtime-login-phishing">
+          {m.codexPhishing}
+        </p>
+      </div>
+    );
   } else if (login.state === "verifying") {
     body = (
       <p className="runtime-login__line" data-testid="runtime-login-verifying">
@@ -290,11 +364,15 @@ export function RuntimeLoginDialog({
     body = (
       <div data-testid="runtime-login-failed">
         <p className="runtime-login__line runtime-login__line--bad" data-testid="runtime-login-failed-summary">
-          {CODE_REJECTED.test(reason) ? m.codeRejected : m.failedHeading}
+          {RUNTIME_UNSUPPORTED.test(reason)
+            ? m.codexUnsupported
+            : runtime === "claude" && CODE_REJECTED.test(reason)
+              ? m.codeRejected
+              : m.failedHeading}
         </p>
         {reason !== "" && (
           <p className="runtime-login__cli" data-testid="runtime-login-failed-cli">
-            {m.cliSaidLead}
+            {runtime === "codex" ? m.codexSaidLead : m.cliSaidLead}
             {reason}
           </p>
         )}
@@ -304,7 +382,7 @@ export function RuntimeLoginDialog({
     ended = true;
     body = (
       <p className="runtime-login__line runtime-login__line--bad" data-testid="runtime-login-failed">
-        {login.state === "expired" ? m.expired : m.cancelled}
+        {login.state === "expired" ? (runtime === "codex" ? m.codexExpired : m.expired) : m.cancelled}
       </p>
     );
   }
@@ -316,11 +394,11 @@ export function RuntimeLoginDialog({
       className="confirm-modal"
       role="dialog"
       aria-modal="true"
-      aria-label={m.title}
+      aria-label={runtime === "codex" ? m.titleCodex : m.title}
       data-testid="runtime-login-dialog"
     >
       <div className="confirm-modal__box">
-        <div className="runtime-login__title">{m.title}</div>
+        <div className="runtime-login__title">{runtime === "codex" ? m.titleCodex : m.title}</div>
         <div className="confirm-modal__body">
           {body}
           {loggedIn && !ended && (

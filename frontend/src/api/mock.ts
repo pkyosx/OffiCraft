@@ -31,6 +31,7 @@ import type {
   DeleteResultView,
   UninstallResultView,
   RuntimeLoginView,
+  RuntimeLoginRuntime,
   BootstrapResultView,
   TeardownHereResultView,
   MachineView,
@@ -5508,7 +5509,7 @@ const mockApiImpl = {
     return toUninstallResult(wire);
   },
 
-  async startRuntimeLogin(machineId: string, runtime: "claude"): Promise<RuntimeLoginView> {
+  async startRuntimeLogin(machineId: string, runtime: RuntimeLoginRuntime): Promise<RuntimeLoginView> {
     const path = `POST /api/machines/${machineId}/runtime-login`;
     for (const login of mockRuntimeLogins.values()) {
       if (
@@ -5537,17 +5538,36 @@ const mockApiImpl = {
       runtime,
       state: "starting",
       auth_url: null,
+      user_code: null,
+      expires_ts: null,
       account: null,
       reason: null,
       updated_ts: Date.now() / 1000,
     };
     mockRuntimeLogins.set(id, login);
-    setTimeout(() => {
-      mockRuntimeLoginUpdate(id, {
-        state: "awaiting_code",
-        auth_url: "https://claude.ai/oauth/authorize?mock=1",
-      });
-    }, 800);
+    if (runtime === "codex") {
+      setTimeout(() => {
+        mockRuntimeLoginUpdate(id, {
+          state: "awaiting_authorization",
+          auth_url: "https://auth.openai.com/codex/device",
+          user_code: "MOCK-CODE1",
+          expires_ts: Date.now() / 1000 + 15 * 60,
+        });
+      }, 800);
+      setTimeout(() => {
+        mockRuntimeLoginUpdate(id, {
+          state: "succeeded",
+          account: { email: "owner@example.test", org_name: null },
+        });
+      }, 8000);
+    } else {
+      setTimeout(() => {
+        mockRuntimeLoginUpdate(id, {
+          state: "awaiting_code",
+          auth_url: "https://claude.ai/oauth/authorize?mock=1",
+        });
+      }, 800);
+    }
     return toRuntimeLogin(login);
   },
 

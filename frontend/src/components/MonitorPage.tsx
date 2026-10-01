@@ -20,6 +20,7 @@ import type {
   UninstallResultView,
   BootstrapResultView,
   CutoverEffect,
+  RuntimeLoginRuntime,
 } from "../types";
 import type { OutsourceWorkerView } from "../api/adapter";
 import {
@@ -154,6 +155,7 @@ export function MonitorPage() {
   const [deleteTarget, setDeleteTarget] = useState<MachineView | null>(null);
   const [loginTarget, setLoginTarget] = useState<{
     machine: MachineView;
+    runtime: RuntimeLoginRuntime;
     loggedIn: boolean;
   } | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
@@ -659,6 +661,7 @@ export function MonitorPage() {
           <RuntimeLoginDialog
             machineId={loginTarget.machine.machineId}
             machineName={loginTarget.machine.displayName}
+            runtime={loginTarget.runtime}
             loggedIn={loginTarget.loggedIn}
             onClose={() => setLoginTarget(null)}
           />
@@ -810,6 +813,7 @@ export function MonitorPage() {
                               onSelect: () =>
                                 setLoginTarget({
                                   machine: m,
+                                  runtime: "claude",
                                   loggedIn:
                                     hw?.runtimeCapabilities?.claude?.loggedIn === true,
                                 }),
@@ -829,6 +833,25 @@ export function MonitorPage() {
                         stale={hw?.runtimeCapabilitiesStale}
                         testIdPrefix="mon-codex"
                       />
+                      {runtimeShownInstalled(hw?.runtimeCapabilities?.codex, null) && (
+                        <RuntimeActionMenu
+                          label={t.monitor.runtimeLogin.menuLabel}
+                          testIdPrefix="mon-codex"
+                          items={[
+                            {
+                              key: "login",
+                              label: t.monitor.runtimeLogin.login,
+                              onSelect: () =>
+                                setLoginTarget({
+                                  machine: m,
+                                  runtime: "codex",
+                                  loggedIn:
+                                    hw?.runtimeCapabilities?.codex?.loggedIn === true,
+                                }),
+                            },
+                          ]}
+                        />
+                      )}
                     </td>
                     {/* Hardware telemetry (joined by host). Honest dash when the
                      * host reported no telemetry — never a fabricated number.

@@ -39,6 +39,7 @@ import type {
   DeleteResultView,
   UninstallResultView,
   RuntimeLoginView,
+  RuntimeLoginRuntime,
   TeardownHereResultView,
   BootstrapResultView,
   MachineView,
@@ -2725,7 +2726,7 @@ export interface Api {
    * flight for that machine and runtime instead of a new one; an offline warden
    * is a 409. The code is a credential: never log it.
    */
-  startRuntimeLogin(machineId: string, runtime: "claude"): Promise<RuntimeLoginView>;
+  startRuntimeLogin(machineId: string, runtime: RuntimeLoginRuntime): Promise<RuntimeLoginView>;
   getRuntimeLogin(machineId: string, loginId: string): Promise<RuntimeLoginView>;
   submitRuntimeLoginCode(
     machineId: string,

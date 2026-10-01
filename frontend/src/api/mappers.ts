@@ -1776,6 +1776,8 @@ export function toRuntimeLogin(w: WireRuntimeLogin): RuntimeLoginView {
     runtime: w.runtime,
     state: w.state,
     authUrl: w.auth_url ?? null,
+    userCode: w.user_code ?? null,
+    expiresTs: w.expires_ts ?? null,
     account: w.account
       ? { email: w.account.email ?? null, orgName: w.account.org_name ?? null }
       : null,

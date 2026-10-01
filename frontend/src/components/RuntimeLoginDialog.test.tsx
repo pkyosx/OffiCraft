@@ -33,6 +33,8 @@ const login = (patch: Partial<RuntimeLoginView>): RuntimeLoginView => ({
   runtime: "claude",
   state: "starting",
   authUrl: null,
+  userCode: null,
+  expiresTs: null,
   account: null,
   reason: null,
   updatedTs: 1_800_000_000,
@@ -62,6 +64,7 @@ function mount(opts: { loggedIn?: boolean; onClose?: () => void } = {}) {
       <RuntimeLoginDialog
         machineId="m-box"
         machineName="工作站"
+        runtime="claude"
         loggedIn={opts.loggedIn ?? false}
         onClose={opts.onClose ?? (() => {})}
       />
