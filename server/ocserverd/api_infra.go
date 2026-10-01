@@ -737,8 +737,8 @@ func (s *apiServer) dropLiveCost(actorID string) *float64 {
 // Irreversible — no per-charge ledger exists — so the response is a receipt of
 // what was destroyed; never grow it into an undo without a fresh owner ruling.
 //
-// A RELEASED worker is accepted (owner ruling rc-1344cc76a24a). Removed staff are
-// not: removal hard-deletes the row and its telemetry entry (api_roles.go).
+// A RELEASED worker is accepted (owner ruling rc-1344cc76a24a); a dismissed staff
+// member is not.
 func (s *apiServer) HandleResetCostApiMembersMemberIdCostResetPost(w http.ResponseWriter, r *http.Request, memberId string) {
 	// target is the staff row or the outsource worker whose cost the reset
 	// clears, or the 404.
