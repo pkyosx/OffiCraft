@@ -699,7 +699,8 @@ func TestCodexOpenYourOwnCardMessage(t *testing.T) {
 	const refusal = "OffiCraft does not open reply cards on your behalf. Open it yourself with the " +
 		"create_reply_card tool, then end this turn and wait for its SSE answer event. " +
 		"linked_task is required: send {\"task_id\": ..., \"step_id\": ...} for the step this " +
-		"question is about, or null if it is not about a task."
+		"question is about, or null if it is not about a task (add about_task_id to name a task " +
+		"you do not execute)."
 
 	cases := []struct {
 		name     string

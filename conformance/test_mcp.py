@@ -813,7 +813,7 @@ def test_create_reply_card_descriptor_matches_what_the_server_accepts(
     # whole card came back, because a card carries an id too.
     receipt = result["structuredContent"]
     assert set(receipt) == {
-        "id", "chat_message_id", "created_ts", "attachments"
+        "id", "chat_message_id", "created_ts", "attachments", "hold_note"
     }, receipt
     # The descriptor-parity claim is about what the server STORED from the
     # fields the descriptor advertises, so it is read off the card itself.

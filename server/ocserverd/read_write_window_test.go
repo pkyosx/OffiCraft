@@ -526,7 +526,7 @@ func TestExpiringACardDecidesFromTheRowItWrites(t *testing.T) {
 		"seq": 1, "topic": "reply_card", "op": "patch",
 		"data": map[string]any{
 			"entity": "reply_card", "key": "owner::rc-1", "epoch": 1, "deleted": false,
-			"payload": map[string]any{"id": "rc-1", "from": "kip", "status": "expired"},
+			"payload": map[string]any{"id": "rc-1", "from": "kip", "status": "expired", "task_executor": ""},
 		},
 		"ts": apiAnyNumber, "trigger": "owner",
 	}
@@ -609,7 +609,7 @@ func TestSweepingAMembersCardsDecidesFromTheRowItWrites(t *testing.T) {
 				"seq": 2, "topic": "reply_card", "op": "patch",
 				"data": map[string]any{
 					"entity": "reply_card", "key": "owner::rc-1", "epoch": 2, "deleted": false,
-					"payload": map[string]any{"id": "rc-1", "from": "kip", "status": "expired"},
+					"payload": map[string]any{"id": "rc-1", "from": "kip", "status": "expired", "task_executor": ""},
 				},
 				"ts": apiAnyNumber, "trigger": "owner",
 			})
@@ -689,9 +689,67 @@ func TestOpeningACardDecidesFromTheRowItWrites(t *testing.T) {
 				t.Fatalf("want 409, got %d (%v)", status, data)
 			}
 			apiWantError(t, data, "conflict",
-				"a card can only bind to an in_progress or waiting_owner task (is done)")
+				"a card can only bind to an in_progress, waiting_owner or waiting_external task (is done)")
 			dalWantTask(t, d, windowClosed(task))
 			windowWantStep(t, d, step)
+			windowWantNoCards(t, d)
+			dashboard.wantFrames()
+			pushes()
+		})
+	}
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": a step that starts waiting on the outside world after the handler read it refuses the card", func(t *testing.T) {
+			d, hook, path := windowDAL(t, shape)
+			api, h, _, _ := newAPITestServerOn(t, d)
+			kip := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
+			task := dalPutTask(t, d, windowOpenTask("T-1"))
+			step := windowPendingStep("ts-1", task.ID)
+			if err := d.PutTaskStep(step); err != nil {
+				t.Fatalf("PutTaskStep: %v", err)
+			}
+			dashboard := apiTestListen(t, api, "")
+			pushes := apiTestWebPushSink(t, api)
+			hook.execAfterRead(t, path, "FROM task_step WHERE id",
+				`UPDATE task_step SET status = 'waiting_external', waiting_reason = 'CI' WHERE id = ?`, step.ID)
+
+			status, data := windowJSON(t, h, "POST", "/api/reply-cards", kip, body)
+
+			hook.wantFiredOnce(t)
+			if status != http.StatusConflict {
+				t.Fatalf("want 409, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "conflict",
+				"step 'ts-1' is waiting on the outside world (waiting_external) — binding a card to it "+
+					"would drop that wait; bind the card to a step that is not waiting")
+			step.Status, step.WaitingReason = StepStatusWaitingExternal, "CI"
+			windowWantStep(t, d, step)
+			windowWantNoCards(t, d)
+			dashboard.wantFrames()
+			pushes()
+		})
+	}
+
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": a task closed after the handler read it refuses a card about it", func(t *testing.T) {
+			d, hook, path := windowDAL(t, shape)
+			api, h, _, _ := newAPITestServerOn(t, d)
+			asker := apiTestAgentToken(t, api, "joey", "")
+			task := dalPutTask(t, d, windowOpenTask("T-1"))
+			dashboard := apiTestListen(t, api, "")
+			pushes := apiTestWebPushSink(t, api)
+			hook.closeTaskAfterRead(t, path, task.ID, "FROM task WHERE id")
+
+			status, data := windowJSON(t, h, "POST", "/api/reply-cards", asker,
+				`{"kind":"decision","summary":"which yard","options":[{"text":"north"}],`+
+					`"linked_task":null,"about_task_id":"T-1"}`)
+
+			hook.wantFiredOnce(t)
+			if status != http.StatusConflict {
+				t.Fatalf("want 409, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "conflict",
+				"task 'T-1' is already closed (done) — a card about a closed task can no longer be answered")
+			dalWantTask(t, d, windowClosed(task))
 			windowWantNoCards(t, d)
 			dashboard.wantFrames()
 			pushes()
@@ -1153,7 +1211,7 @@ func TestDismissingAWorkerThatStillHasAWaitingCard(t *testing.T) {
 					"seq": 3, "topic": "reply_card", "op": "patch",
 					"data": map[string]any{
 						"entity": "reply_card", "key": "owner::rc-1", "epoch": 3, "deleted": false,
-						"payload": map[string]any{"id": "rc-1", "from": "ow-abc123", "status": "expired"},
+						"payload": map[string]any{"id": "rc-1", "from": "ow-abc123", "status": "expired", "task_executor": ""},
 					},
 					"ts": apiAnyNumber, "trigger": "owner",
 				},

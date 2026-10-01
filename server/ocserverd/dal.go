@@ -1763,24 +1763,11 @@ func (d *DAL) PutChatWithAttachments(m ChatMessage, atts []ChatAttachment) error
 
 func (d *DAL) PutReplyCardWithChat(c ReplyCard, m ChatMessage, atts []ChatAttachment) error {
 	return d.inTx(func(tx *writeTx) error {
-		for _, a := range atts {
-			if err := putChatAttachmentOn(tx, a); err != nil {
-				return err
-			}
-		}
-		if err := putChatOn(tx, m); err != nil {
-			return err
-		}
-		return putReplyCardOn(tx, c)
+		return putReplyCardWithChatOn(tx, c, m, atts)
 	})
 }
 
-// A nil task is defence only: the caller answers 409 unless the task is
-// in_progress|waiting_owner. Relax that 409 and this writes the step while
-// leaving the task row untouched.
-func putReplyCardWithChatStepAndTaskOn(
-	ex sqlExecer, c ReplyCard, m ChatMessage, atts []ChatAttachment, st TaskStep, t *Task,
-) error {
+func putReplyCardWithChatOn(ex sqlExecer, c ReplyCard, m ChatMessage, atts []ChatAttachment) error {
 	for _, a := range atts {
 		if err := putChatAttachmentOn(ex, a); err != nil {
 			return err
@@ -1789,7 +1776,16 @@ func putReplyCardWithChatStepAndTaskOn(
 	if err := putChatOn(ex, m); err != nil {
 		return err
 	}
-	if err := putReplyCardOn(ex, c); err != nil {
+	return putReplyCardOn(ex, c)
+}
+
+// A nil task is defence only: the caller answers 409 unless the task is
+// in_progress|waiting_owner|waiting_external. Relax that 409 and this writes the
+// step while leaving the task row untouched.
+func putReplyCardWithChatStepAndTaskOn(
+	ex sqlExecer, c ReplyCard, m ChatMessage, atts []ChatAttachment, st TaskStep, t *Task,
+) error {
+	if err := putReplyCardWithChatOn(ex, c, m, atts); err != nil {
 		return err
 	}
 	if err := putTaskStepOn(ex, st); err != nil {

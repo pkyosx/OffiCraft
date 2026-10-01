@@ -110,7 +110,7 @@ def _create_task(client, executor, title="conf task", **extra) -> dict:
 # T-91: POST /api/reply-cards answers replyCardCreateReceiptDTO — the ids the
 # caller cannot compute plus the attachment list the server resolved — not the
 # card it opened.
-_CARD_CREATE_RECEIPT_KEYS = {"id", "chat_message_id", "created_ts", "attachments"}
+_CARD_CREATE_RECEIPT_KEYS = {"id", "chat_message_id", "created_ts", "attachments", "hold_note"}
 
 
 def _card_opened(client, token, r) -> dict:

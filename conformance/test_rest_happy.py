@@ -1772,7 +1772,7 @@ def _check_card_opened(ctx: HCtx, r: httpx.Response) -> None:
     GET /api/reply-cards/{id}, which is where a card has always been readable.
     `attachments` present-and-empty for the same reason as on the chat post."""
     d = r.json()
-    assert set(d) == {"id", "chat_message_id", "created_ts", "attachments"}, d
+    assert set(d) == {"id", "chat_message_id", "created_ts", "attachments", "hold_note"}, d
     assert d["attachments"] == [], d
     assert d["chat_message_id"], d
     g = ctx.client.get(

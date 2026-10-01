@@ -72,7 +72,7 @@ DEFAULT_OPTIONS = ({"text": "AI pick", "ai_pick": True}, {"text": "other"})
 # T-91: POST /api/reply-cards answers replyCardCreateReceiptDTO — the two
 # server-minted ids, the timestamp, and the attachment list the server
 # resolved from the ids it was handed. The card itself is not on it.
-_CARD_CREATE_RECEIPT_KEYS = {"id", "chat_message_id", "created_ts", "attachments"}
+_CARD_CREATE_RECEIPT_KEYS = {"id", "chat_message_id", "created_ts", "attachments", "hold_note"}
 
 
 def _open_card_receipt(client, asker: AgentIdentity, summary="need a call",
@@ -715,6 +715,90 @@ def test_answer_reaches_the_agent_with_card_context(
         blob = client.get(atts[0]["url"], headers=_auth(asker.token))
         assert blob.status_code == 200
         assert blob.content == base64.b64decode(_PNG_B64)
+
+
+def _task_with_steps(client, executor: AgentIdentity, title: str, n_steps: int):
+    h = _auth(executor.token)
+    r = client.post("/api/tasks", json={"title": title, "executor_member_id": executor.member_id},
+                    headers=h)
+    assert r.status_code == 200, r.text
+    task_id = r.json()["task_id"]
+    steps = [{"name": f"step {i}", "dod": "done"} for i in range(n_steps)]
+    assert client.post(f"/api/tasks/{task_id}/plan", json={"steps": steps},
+                       headers=h).status_code == 200
+    step_ids = [s["id"] for s in client.get(f"/api/tasks/{task_id}", headers=h).json()["steps"]]
+    assert client.post(f"/api/tasks/{task_id}/steps/{step_ids[0]}/status",
+                       json={"status": "in_progress"}, headers=h).status_code == 200
+    return task_id, step_ids
+
+
+def test_card_about_another_members_task_holds_nothing_and_reaches_its_executor(
+    base_url, client, owner_token, asker
+):
+    """A member that is not the executor names the task with about_task_id: no
+    step waits, the receipt says so, and the executor's own stream receives the
+    card's deltas — the answer included — naming itself as task_executor."""
+    author_id = hire_member(client, owner_token, "conf-replycard-other")
+    author = AgentIdentity(member_id=author_id, role_key="",
+                           token=mint_member_token(client, owner_token, author_id, ttl_days=1))
+    task_id, step_ids = _task_with_steps(client, asker, "conf about-task card", 1)
+
+    with SSEConnection(base_url, asker.token) as executor_sse:
+        assert executor_sse.status_code == 200, executor_sse.error_body
+        r = client.post(
+            "/api/reply-cards",
+            json={"kind": "decision", "summary": "route?", "options": [{"text": "A"}],
+                  "linked_task": None, "about_task_id": task_id},
+            headers=_auth(author.token),
+        )
+        assert r.status_code == 200, r.text
+        receipt = r.json()
+        assert set(receipt) == _CARD_CREATE_RECEIPT_KEYS, receipt
+        assert receipt["hold_note"] == (
+            f"This card is about task '{task_id}' but holds none of its steps, so that task "
+            f"keeps running and will NOT wait for this answer. When the owner answers, whoever "
+            f"executes the task at that moment is told as well as you (right now '{asker.member_id}').")
+        card_id = receipt["id"]
+
+        created = executor_sse.wait_for_frame("reply_card")["frame"]["data"]["payload"]
+        assert created == {"id": card_id, "from": author_id, "status": "waiting",
+                           "task_executor": asker.member_id}
+        task = client.get(f"/api/tasks/{task_id}", headers=_auth(owner_token)).json()
+        assert task["status"] == "in_progress"
+        assert task["steps"][0]["status"] == "in_progress"
+
+        assert _answer(client, owner_token, card_id, {"option_idxs": [0]}).status_code == 200
+        answered = executor_sse.wait_for_frame("reply_card")["frame"]["data"]["payload"]
+        assert answered == {"id": card_id, "from": author_id, "status": "answered",
+                            "task_executor": asker.member_id}
+
+        full = _get_card(client, asker.token, card_id)
+        assert full["task"]["id"] == task_id
+        assert full["task_executor"] == asker.member_id
+
+
+def test_a_task_waiting_externally_on_one_step_takes_a_card_on_another(
+    client, owner_token, asker
+):
+    task_id, step_ids = _task_with_steps(client, asker, "conf external + card", 2)
+    h = _auth(asker.token)
+    assert client.post(f"/api/tasks/{task_id}/steps/{step_ids[0]}/status",
+                       json={"status": "waiting_external", "waiting_reason": "CI"},
+                       headers=h).status_code == 200
+    assert client.post(f"/api/tasks/{task_id}/steps/{step_ids[1]}/status",
+                       json={"status": "in_progress"}, headers=h).status_code == 200
+
+    r = client.post(
+        "/api/reply-cards",
+        json={"kind": "decision", "summary": "go?", "options": [{"text": "go"}],
+              "linked_task": {"task_id": task_id, "step_id": step_ids[1]}},
+        headers=h,
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["hold_note"] == ""
+    task = client.get(f"/api/tasks/{task_id}", headers=_auth(owner_token)).json()
+    assert task["status"] == "waiting_owner"
+    assert [s["status"] for s in task["steps"]] == ["waiting_external", "waiting_owner"]
 
 
 # ── expired (T-1aa4): the terminal exit that is NOT an answer ──────────────

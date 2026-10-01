@@ -32,12 +32,17 @@ const (
 )
 
 // The payload is a hint, never the answer (spec/sse.md §2.2). The hub always
-// delivers to the owner cockpit; the audience adds the initiator, whose
-// ocagent handleReplyCard filters to from==self.
+// delivers to the owner cockpit; the audience adds the initiator and the
+// executor of the card's open task, and ocagent handleReplyCard keeps a card
+// whose from or task_executor is itself.
 func (s *apiServer) publishReplyCard(c ReplyCard, trigger string) {
+	_, executor, err := s.cardTaskRef(c)
+	if err != nil {
+		taskLog("reply card %s: task executor lookup failed (only the author is told): %v", c.ID, err)
+	}
 	s.hub.Publish("reply_card", "patch", "reply_card", wireOwnerID+"::"+c.ID,
-		map[string]any{"id": c.ID, "from": c.FromMember, "status": c.Status},
-		audienceMembers(c.FromMember), trigger)
+		map[string]any{"id": c.ID, "from": c.FromMember, "status": c.Status, "task_executor": executor},
+		audienceMembers(c.FromMember, executor), trigger)
 }
 
 func waitingReplyCards(cards []ReplyCard) []ReplyCard {
@@ -131,9 +136,18 @@ func normalizeAnswerOptionIdxs(idxs []int) []int {
 	return out
 }
 
+// about names a task without holding a step; t and step bind one, and a card
+// does one or the other.
 func (s *apiServer) openReplyCard(
-	actor string, body ReplyCardCreateDTO, t *Task, step *TaskStep, trigger string,
+	actor string, body ReplyCardCreateDTO, t *Task, step *TaskStep, about *Task, trigger string,
 ) (*ReplyCard, string, error) {
+	if about != nil && (t != nil || step != nil) {
+		return nil, "", errors.New("refusing to mint a reply card that both binds a step and " +
+			"names a task without one")
+	}
+	if about != nil && about.ID == "" {
+		return nil, "", errors.New("refusing to mint a reply card about a task with a blank id")
+	}
 	taskID, taskStepID := "", ""
 	if t != nil {
 		taskID = t.ID
@@ -223,12 +237,30 @@ func (s *apiServer) openReplyCard(
 		TaskID:        taskID,
 		TaskStepID:    taskStepID,
 	}
+	if about != nil {
+		card.TaskID = about.ID
+	}
 	var heldTask *Task
-	if step == nil {
+	switch {
+	case about != nil:
+		err := s.dal.inTx(func(tx *writeTx) error {
+			cur, err := getTaskOn(tx, about.ID)
+			if err != nil {
+				return err
+			}
+			if err := cardAboutTaskRefusal(cur, about.ID); err != nil {
+				return err
+			}
+			return putReplyCardWithChatOn(tx, card, msg, fresh)
+		})
+		if err != nil {
+			return nil, "", err
+		}
+	case step == nil:
 		if err := s.dal.PutReplyCardWithChat(card, msg, fresh); err != nil {
 			return nil, "", err
 		}
-	} else {
+	default:
 		err := s.dal.inTx(func(tx *writeTx) error {
 			cur, err := getTaskOn(tx, taskID)
 			if err != nil {
@@ -272,16 +304,26 @@ func (s *apiServer) openReplyCard(
 
 func (s *apiServer) replyCardDTOOf(c ReplyCard) (replyCardDTO, error) {
 	dto := newReplyCardDTO(c)
-	if c.TaskID != "" {
-		t, err := s.dal.GetTask(c.TaskID)
-		if err != nil {
-			return dto, err
-		}
-		if t != nil {
-			dto.Task = &taskRefDTO{ID: t.ID, TypeKey: t.TypeKey, Title: t.Title}
-		}
+	ref, executor, err := s.cardTaskRef(c)
+	dto.Task, dto.TaskExecutor = ref, executor
+	return dto, err
+}
+
+// The executor is read live rather than stored on the card so that the
+// notifications follow a reassignment. A closed task has no one left to tell.
+func (s *apiServer) cardTaskRef(c ReplyCard) (*taskRefDTO, string, error) {
+	if c.TaskID == "" {
+		return nil, "", nil
 	}
-	return dto, nil
+	t, err := s.dal.GetTask(c.TaskID)
+	if err != nil || t == nil {
+		return nil, "", err
+	}
+	executor := ""
+	if !TaskIsTerminal(t.Status) {
+		executor = actingExecutorOf(s.dal.GetMember, *t)
+	}
+	return &taskRefDTO{ID: t.ID, TypeKey: t.TypeKey, Title: t.Title}, executor, nil
 }
 
 func (s *apiServer) writeReplyCard(w http.ResponseWriter, c ReplyCard) {
@@ -293,21 +335,44 @@ func (s *apiServer) writeReplyCard(w http.ResponseWriter, c ReplyCard) {
 	writeJSON(w, http.StatusOK, dto)
 }
 
-func (s *apiServer) writeReplyCardCreateReceipt(w http.ResponseWriter, c ReplyCard) {
+func (s *apiServer) writeReplyCardCreateReceipt(w http.ResponseWriter, c ReplyCard, holdNote string) {
 	writeJSON(w, http.StatusOK, replyCardCreateReceiptDTO{
 		ID:            c.ID,
 		ChatMessageID: c.ChatMessageID,
 		CreatedTS:     c.CreatedTS,
 		Attachments:   attachmentDTOsFromRefs(c.Attachments),
+		HoldNote:      holdNote,
 	})
 }
 
+// The sentence is wire: create_reply_card's hold_note, read by the agent that
+// opened the card.
+func (s *apiServer) unheldCardNote(c ReplyCard) string {
+	if c.TaskID == "" || c.TaskStepID != "" {
+		return ""
+	}
+	note := "This card is about task '" + c.TaskID + "' but holds none of its steps, so that " +
+		"task keeps running and will NOT wait for this answer. When the owner answers, whoever " +
+		"executes the task at that moment is told as well as you"
+	_, executor, err := s.cardTaskRef(c)
+	if err != nil {
+		taskLog("reply card %s: task executor lookup failed for hold_note: %v", c.ID, err)
+		return note + "."
+	}
+	switch executor {
+	case "":
+		return note + " (nobody executes it right now)."
+	case c.FromMember:
+		return note + " (right now that is you)."
+	default:
+		return note + " (right now '" + executor + "')."
+	}
+}
+
 func (s *apiServer) writeReplyCardTransitionReceipt(w http.ResponseWriter, c ReplyCard) {
-	receipt := replyCardReceiptDTO{
-		ID:     c.ID,
-		Status: c.Status,
-		TaskID: c.TaskID,
-		StepID: c.TaskStepID,
+	receipt := replyCardReceiptDTO{ID: c.ID, Status: c.Status}
+	if c.TaskStepID != "" {
+		receipt.TaskID, receipt.StepID = c.TaskID, c.TaskStepID
 	}
 	if c.Status == replyCardStatusExpired {
 		ts := c.ExpiredTS
@@ -343,6 +408,14 @@ const linkedTaskStepRequiredMsg = "linked_task.step_id is required: a card bound
 const linkedTaskTaskRequiredMsg = "linked_task.task_id is required: name the task the step " +
 	"belongs to, or send linked_task=null if this ask is not about a task."
 
+const aboutTaskMismatchMsg = "about_task_id must name the same task as linked_task: the binding " +
+	"already says which task this ask is about. Drop about_task_id, or send linked_task=null to " +
+	"name a task without holding a step."
+
+const cardBindNotExecutorRefusal = taskActorRefusal + " — only the task's executor can make one " +
+	"of its steps wait on a card. To tell the owner which task this ask is about without holding " +
+	"a step, send linked_task=null with about_task_id."
+
 func (s *apiServer) HandleCreateReplyCardApiReplyCardsPost(w http.ResponseWriter, r *http.Request) {
 	var body ReplyCardCreateDTO
 	sent, ok := decodeJSONBodyPresent(w, r, &body, "kind", "summary", "options")
@@ -355,9 +428,10 @@ func (s *apiServer) HandleCreateReplyCardApiReplyCardsPost(w http.ResponseWriter
 		writeError(w, http.StatusBadRequest, linkedTaskRequiredMsg)
 		return
 	}
-	var t *Task
+	var t, about *Task
 	var step *TaskStep
 	taskID, stepID := "", ""
+	aboutTaskID := trimmedOrEmpty(body.AboutTaskId)
 	if link := body.LinkedTask; link != nil {
 		taskID = trimString(link.TaskId)
 		stepID = trimString(link.StepId)
@@ -369,6 +443,10 @@ func (s *apiServer) HandleCreateReplyCardApiReplyCardsPost(w http.ResponseWriter
 			writeError(w, http.StatusBadRequest, linkedTaskStepRequiredMsg)
 			return
 		}
+		if aboutTaskID != "" && aboutTaskID != taskID {
+			writeError(w, http.StatusBadRequest, aboutTaskMismatchMsg)
+			return
+		}
 		var err error
 		t, err = s.resolveTask(taskID)
 		if err != nil {
@@ -376,7 +454,7 @@ func (s *apiServer) HandleCreateReplyCardApiReplyCardsPost(w http.ResponseWriter
 			return
 		}
 		if !callerMayDriveTask(s.dal.GetMember, r, *t) {
-			writeError(w, http.StatusForbidden, taskActorRefusal)
+			writeError(w, http.StatusForbidden, cardBindNotExecutorRefusal)
 			return
 		}
 		if err := cardBindingTaskRefusal(t, taskID); err != nil {
@@ -392,8 +470,19 @@ func (s *apiServer) HandleCreateReplyCardApiReplyCardsPost(w http.ResponseWriter
 			writeTxError(w, err)
 			return
 		}
+	} else if aboutTaskID != "" {
+		var err error
+		about, err = s.dal.GetTask(aboutTaskID)
+		if err != nil {
+			internalError(w, err)
+			return
+		}
+		if err := cardAboutTaskRefusal(about, aboutTaskID); err != nil {
+			writeTxError(w, err)
+			return
+		}
 	}
-	card, problem, err := s.openReplyCard(currentActor(r), body, t, step, requestTrigger(r))
+	card, problem, err := s.openReplyCard(currentActor(r), body, t, step, about, requestTrigger(r))
 	if err != nil {
 		writeTxError(w, err)
 		return
@@ -402,7 +491,7 @@ func (s *apiServer) HandleCreateReplyCardApiReplyCardsPost(w http.ResponseWriter
 		writeError(w, http.StatusBadRequest, problem)
 		return
 	}
-	s.writeReplyCardCreateReceipt(w, *card)
+	s.writeReplyCardCreateReceipt(w, *card, s.unheldCardNote(*card))
 }
 
 // cardBindingTaskRefusal and cardBindingStepRefusal run twice: once before the
@@ -412,9 +501,24 @@ func cardBindingTaskRefusal(t *Task, taskID string) error {
 	if t == nil {
 		return refuseInTx(http.StatusNotFound, "task '"+taskID+"' not found")
 	}
-	if t.Status != TaskStatusInProgress && t.Status != TaskStatusWaitingOwner {
+	if t.Status != TaskStatusInProgress && t.Status != TaskStatusWaitingOwner &&
+		t.Status != TaskStatusWaitingExternal {
 		return refuseInTx(http.StatusConflict,
-			"a card can only bind to an in_progress or waiting_owner task (is "+t.Status+")")
+			"a card can only bind to an in_progress, waiting_owner or waiting_external task (is "+
+				t.Status+")")
+	}
+	return nil
+}
+
+// Runs before the body is judged and again inside the write, like the binding
+// refusals.
+func cardAboutTaskRefusal(t *Task, taskID string) error {
+	if t == nil {
+		return refuseInTx(http.StatusNotFound, "task '"+taskID+"' not found")
+	}
+	if TaskIsTerminal(t.Status) {
+		return refuseInTx(http.StatusConflict, taskAlreadyClosedRefusal(*t)+
+			" — a card about a closed task can no longer be answered")
 	}
 	return nil
 }
@@ -425,6 +529,11 @@ func cardBindingStepRefusal(step *TaskStep, taskID, stepID string) error {
 	}
 	if StepIsTerminal(step.Status) {
 		return refuseInTx(http.StatusConflict, "step '"+stepID+"' is already "+step.Status)
+	}
+	if step.Status == StepStatusWaitingExternal {
+		return refuseInTx(http.StatusConflict, "step '"+stepID+"' is waiting on the outside world "+
+			"(waiting_external) — binding a card to it would drop that wait; bind the card to a "+
+			"step that is not waiting")
 	}
 	return nil
 }
@@ -458,16 +567,9 @@ func (s *apiServer) replyCardListItemOf(c ReplyCard) (replyCardListItemDTO, erro
 			Attachments: len(c.AnswerAttachments),
 		}
 	}
-	if c.TaskID != "" {
-		t, err := s.dal.GetTask(c.TaskID)
-		if err != nil {
-			return dto, err
-		}
-		if t != nil {
-			dto.Task = &taskRefDTO{ID: t.ID, TypeKey: t.TypeKey, Title: t.Title}
-		}
-	}
-	return dto, nil
+	ref, executor, err := s.cardTaskRef(c)
+	dto.Task, dto.TaskExecutor = ref, executor
+	return dto, err
 }
 
 func replyCardOptionWording(c ReplyCard) []string {
@@ -700,7 +802,7 @@ type sqlReader interface {
 // Computes only: settleReplyCard writes and the caller announces.
 func planCardHoldReleaseOn(q sqlReader, card ReplyCard, now float64) (cardHoldRelease, error) {
 	var rel cardHoldRelease
-	if card.TaskID == "" {
+	if card.TaskID == "" || card.TaskStepID == "" {
 		return rel, nil
 	}
 	t, err := getTaskOn(q, card.TaskID)
@@ -803,6 +905,11 @@ func expireWaitingCardsOfTaskOn(tx *writeTx, taskID string, now float64) ([]expi
 	}
 	out := make([]expiredReplyCard, 0, len(cards))
 	for _, c := range cards {
+		// A card that names the task without holding a step asks about the task,
+		// not about the leaving executor's work: it stays for whoever executes next.
+		if c.TaskStepID == "" {
+			continue
+		}
 		c.Status = replyCardStatusExpired
 		c.ExpiredTS = now
 		rel, err := planCardHoldReleaseOn(tx, c, now)

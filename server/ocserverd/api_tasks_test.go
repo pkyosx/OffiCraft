@@ -1660,7 +1660,7 @@ func TestCloseTask(t *testing.T) {
 					"key":     "owner::" + cardID,
 					"epoch":   7,
 					"deleted": false,
-					"payload": map[string]any{"id": cardID, "from": "kip", "status": "expired"},
+					"payload": map[string]any{"id": cardID, "from": "kip", "status": "expired", "task_executor": ""},
 				},
 				"ts":      apiAnyNumber,
 				"trigger": "owner",
@@ -3701,6 +3701,28 @@ func apiTestChatRows(t *testing.T, d *DAL) []any {
 }
 
 func TestHandleReassignTaskApiTasksTaskIdReassignPost(t *testing.T) {
+	t.Run("a card that only names the task stays waiting across the reassignment while the held card expires", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		executor, steps := apiTestTwoStepTask(t, api, h, owner)
+		held := apiTestOpenReplyCard(t, h, executor,
+			`{"kind":"decision","summary":"要不要出貨","options":[{"text":"出"}],`+
+				`"linked_task":{"task_id":"T-1","step_id":"`+steps[0]+`"}}`)
+		asker := apiTestAgentToken(t, api, "joey", "")
+		about := apiTestOpenReplyCard(t, h, asker,
+			`{"kind":"decision","summary":"出貨路線","options":[{"text":"走 A"}],"linked_task":null,"about_task_id":"T-1"}`)
+
+		if status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/reassign", owner,
+			`{"target":{"kind":"staff","member_id":"mira"}}`); status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		for id, want := range map[string]string{held: replyCardStatusExpired, about: replyCardStatusWaiting} {
+			card, err := d.GetReplyCard(id)
+			if err != nil || card == nil || card.Status != want {
+				t.Fatalf("card %s after reassign = %#v, %v, want %s", id, card, err, want)
+			}
+		}
+	})
+
 	t.Run("handing a task to another member answers the receipt under the reassigning lock and pairs both sides in chat", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
@@ -3838,7 +3860,7 @@ func TestHandleReassignTaskApiTasksTaskIdReassignPost(t *testing.T) {
 			"seq": 1, "topic": "reply_card", "op": "patch",
 			"data": map[string]any{
 				"entity": "reply_card", "key": "owner::rc-1", "epoch": 1, "deleted": false,
-				"payload": map[string]any{"id": "rc-1", "from": "kip", "status": "expired"},
+				"payload": map[string]any{"id": "rc-1", "from": "kip", "status": "expired", "task_executor": "kip"},
 			},
 			"ts": apiAnyNumber, "trigger": "owner",
 		}
@@ -6364,7 +6386,7 @@ func TestArmingAStepWithACard(t *testing.T) {
 				"seq": 5, "topic": "reply_card", "op": "patch",
 				"data": map[string]any{
 					"entity": "reply_card", "key": "owner::" + cardID, "epoch": 5, "deleted": false,
-					"payload": map[string]any{"id": cardID, "from": "kip", "status": "waiting"},
+					"payload": map[string]any{"id": cardID, "from": "kip", "status": "waiting", "task_executor": "kip"},
 				},
 				"ts": apiAnyNumber, "trigger": "kip",
 			},
