@@ -77,7 +77,7 @@ func newFakeClaude(t *testing.T) *fakeClaude {
 		`  exit "$(/bin/cat '`+f.rc+`')"`+"\n"+
 		`done`+"\n")
 	f.write(t, f.rc, "0")
-	f.write(t, f.status, `{"loggedIn":true,"authMethod":"claude.ai","email":"owner@example.test","orgName":"Example Org"}`)
+	f.write(t, f.status, `{"loggedIn":true,"authMethod":"claude.ai","email":"owner@example.test","orgName":"Example Org","subscriptionType":"max"}`)
 	return f
 }
 
@@ -217,7 +217,7 @@ func TestLoginRelay(t *testing.T) {
 		}
 		got := h.next(t)
 		want := loginReport{LoginID: "rl-1", State: "succeeded",
-			Account: &loginAccount{Email: "owner@example.test", OrgName: "Example Org"}}
+			Account: &loginAccount{Email: "owner@example.test", OrgName: "Example Org", Plan: "max"}}
 		if !reflect.DeepEqual(got, want) {
 			t.Fatalf("third report = %+v, want %+v", got, want)
 		}

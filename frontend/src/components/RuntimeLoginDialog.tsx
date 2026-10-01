@@ -344,7 +344,8 @@ export function RuntimeLoginDialog({
   } else if (login.state === "succeeded") {
     ended = true;
     const email = login.account?.email ?? "";
-    const org = login.account?.orgName ?? "";
+    // Claude shows the organization, Codex the subscription plan.
+    const org = (runtime === "codex" ? login.account?.plan : login.account?.orgName) ?? "";
     body = (
       <p className="runtime-login__line runtime-login__line--good" data-testid="runtime-login-succeeded">
         {m.succeededLead}

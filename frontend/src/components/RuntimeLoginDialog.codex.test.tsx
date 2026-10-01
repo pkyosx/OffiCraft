@@ -119,7 +119,14 @@ describe("RuntimeLoginDialog (codex)", () => {
     expect(writeText).toHaveBeenCalledWith("ABCD-EFGHI");
     expect(text("runtime-login-copy-code")).toBe("已複製");
 
-    await emit(login({ state: "succeeded", account: { email: "owner@example.test", orgName: null } }));
+    await emit(login({ state: "succeeded", account: { email: "owner@example.test", orgName: null, plan: "team" } }));
+    expect(text("runtime-login-succeeded")).toBe("已登入：owner@example.test（team）");
+  });
+
+  it("under a codex account with no plan, it shows the email alone", async () => {
+    mount();
+    await flush();
+    await emit(login({ state: "succeeded", account: { email: "owner@example.test", orgName: "ignored", plan: null } }));
     expect(text("runtime-login-succeeded")).toBe("已登入：owner@example.test");
   });
 

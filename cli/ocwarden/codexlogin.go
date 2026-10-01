@@ -118,8 +118,8 @@ func (f *codexLoginFlow) expiredReason(limit time.Duration) string {
 }
 
 // conclude confirms the login under the member's environment, then reads the
-// account email from the ID token codex stored. The token is decoded here and
-// dropped: only the email claim leaves the machine.
+// account from the ID token codex stored. The token is decoded here and
+// dropped: only the email and plan claims leave the machine.
 func (f *codexLoginFlow) conclude(s *loginSession) {
 	r := f.relay
 	bin := resolveCodexBin(r.prober.env)
@@ -141,37 +141,40 @@ func (f *codexLoginFlow) conclude(s *loginSession) {
 	}
 	r.prober.checkNow("codex")
 	rep := loginReport{LoginID: s.id, State: "succeeded"}
-	if email := codexAuthEmail(out); email != "" {
-		rep.Account = &loginAccount{Email: email}
+	if account := codexAuthAccount(out); account != (loginAccount{}) {
+		rep.Account = &account
 	}
 	r.progress(rep)
 }
 
-// codexAuthEmail answers the email claim of auth.json's tokens.id_token, ""
-// when there is none (an API-key login, or a keyring credential store that
-// writes no auth.json).
-func codexAuthEmail(authJSON string) string {
+// codexAuthAccount answers the email and plan claims of auth.json's
+// tokens.id_token; empty when there is none (an API-key login, or a keyring
+// credential store that writes no auth.json).
+func codexAuthAccount(authJSON string) loginAccount {
 	var auth struct {
 		Tokens struct {
 			IDToken string `json:"id_token"`
 		} `json:"tokens"`
 	}
 	if json.Unmarshal([]byte(authJSON), &auth) != nil {
-		return ""
+		return loginAccount{}
 	}
 	parts := strings.Split(auth.Tokens.IDToken, ".")
 	if len(parts) != 3 {
-		return ""
+		return loginAccount{}
 	}
 	payload, err := base64.RawURLEncoding.DecodeString(strings.TrimRight(parts[1], "="))
 	if err != nil {
-		return ""
+		return loginAccount{}
 	}
 	var claims struct {
 		Email string `json:"email"`
+		Auth  struct {
+			Plan string `json:"chatgpt_plan_type"`
+		} `json:"https://api.openai.com/auth"`
 	}
 	if json.Unmarshal(payload, &claims) != nil {
-		return ""
+		return loginAccount{}
 	}
-	return claims.Email
+	return loginAccount{Email: claims.Email, Plan: claims.Auth.Plan}
 }

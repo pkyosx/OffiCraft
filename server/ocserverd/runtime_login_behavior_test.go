@@ -292,7 +292,7 @@ func TestRuntimeLoginReport(t *testing.T) {
 			t.Fatalf("succeeded report: %d %v", status, data)
 		}
 		want := loginBody(id, "succeeded", loginTestURL,
-			map[string]any{"email": "owner@example.test", "org_name": "Example Org"}, nil, loginEpoch+1)
+			map[string]any{"email": "owner@example.test", "org_name": "Example Org", "plan": nil}, nil, loginEpoch+1)
 		apiWantBody(t, data, want)
 
 		f.advance(time.Second)
@@ -356,12 +356,12 @@ func TestRuntimeLoginReport(t *testing.T) {
 		apiWantBody(t, got, want)
 
 		f.advance(time.Second)
-		status, data = f.report(t, f.warden, `{"login_id":"`+id+`","state":"succeeded","account":{"email":"owner@example.test"}}`)
+		status, data = f.report(t, f.warden, `{"login_id":"`+id+`","state":"succeeded","account":{"email":"owner@example.test","plan":"team"}}`)
 		if status != http.StatusOK {
 			t.Fatalf("succeeded: %d %v", status, data)
 		}
 		apiWantBody(t, data, codexLoginBody(id, "succeeded", codexTestURL, codexTestCode, 1800000902,
-			map[string]any{"email": "owner@example.test", "org_name": nil}, nil, loginEpoch+3))
+			map[string]any{"email": "owner@example.test", "org_name": nil, "plan": "team"}, nil, loginEpoch+3))
 	})
 
 	t.Run("under a report whose state belongs to the other runtime, the report is 409 and the login is unchanged", func(t *testing.T) {

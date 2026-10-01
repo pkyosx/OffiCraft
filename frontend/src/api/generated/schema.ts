@@ -7710,13 +7710,18 @@ export interface components {
         };
         /**
          * RuntimeLoginAccountDTO
-         * @description Who the runtime CLI says it is now logged in as. Display values only; no token or credential. For `claude`, both come from `claude auth status`. For `codex`, `email` is the email claim of the ID token codex keeps after login, decoded on the machine (the token itself never leaves it), and `org_name` is unset.
+         * @description Who the runtime CLI says it is now logged in as. Display values only; no token or credential. For `claude`, all three come from `claude auth status`. For `codex`, `email` and `plan` are claims of the ID token codex keeps after login, decoded on the machine (the token itself never leaves it), and `org_name` is unset.
          */
         RuntimeLoginAccountDTO: {
             /** Email */
             email?: string | null;
             /** Org Name */
             org_name?: string | null;
+            /**
+             * Plan
+             * @description Subscription plan as reported by the runtime (Codex: the ID token's `chatgpt_plan_type`, e.g. `team`; Claude: `claude auth status` `subscriptionType`); absent when unknown.
+             */
+            plan?: string | null;
         };
         /**
          * RuntimeLoginCodeDTO

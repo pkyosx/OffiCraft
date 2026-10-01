@@ -413,7 +413,7 @@ func (r *loginRelay) concludeSucceeded(loginID string) {
 		return
 	}
 	rep := loginReport{LoginID: loginID, State: "succeeded"}
-	if account.Email != "" || account.OrgName != "" {
+	if account.Email != "" || account.OrgName != "" || account.Plan != "" {
 		rep.Account = &account
 	}
 	r.progress(rep)
@@ -538,6 +538,9 @@ func loginReportPayload(rep loginReport) map[string]any {
 		}
 		if rep.Account.OrgName != "" {
 			account["org_name"] = rep.Account.OrgName
+		}
+		if rep.Account.Plan != "" {
+			account["plan"] = rep.Account.Plan
 		}
 		payload["account"] = account
 	}

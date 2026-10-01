@@ -5557,7 +5557,7 @@ const mockApiImpl = {
       setTimeout(() => {
         mockRuntimeLoginUpdate(id, {
           state: "succeeded",
-          account: { email: "owner@example.test", org_name: null },
+          account: { email: "owner@example.test", org_name: null, plan: "plus" },
         });
       }, 8000);
     } else {

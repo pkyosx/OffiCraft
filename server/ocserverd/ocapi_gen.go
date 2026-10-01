@@ -2814,10 +2814,13 @@ type RuntimeCapabilityDTO struct {
 	Version   *string `json:"version,omitempty"`
 }
 
-// RuntimeLoginAccountDTO Who the runtime CLI says it is now logged in as. Display values only; no token or credential. For `claude`, both come from `claude auth status`. For `codex`, `email` is the email claim of the ID token codex keeps after login, decoded on the machine (the token itself never leaves it), and `org_name` is unset.
+// RuntimeLoginAccountDTO Who the runtime CLI says it is now logged in as. Display values only; no token or credential. For `claude`, all three come from `claude auth status`. For `codex`, `email` and `plan` are claims of the ID token codex keeps after login, decoded on the machine (the token itself never leaves it), and `org_name` is unset.
 type RuntimeLoginAccountDTO struct {
 	Email   *string `json:"email,omitempty"`
 	OrgName *string `json:"org_name,omitempty"`
+
+	// Plan Subscription plan as reported by the runtime (Codex: the ID token's `chatgpt_plan_type`, e.g. `team`; Claude: `claude auth status` `subscriptionType`); absent when unknown.
+	Plan *string `json:"plan,omitempty"`
 }
 
 // RuntimeLoginCodeDTO The code the provider's sign-in page showed the owner. Relayed to the waiting login process and never stored, logged or echoed.

@@ -474,7 +474,7 @@ export interface RuntimeLoginView {
    * (epoch seconds). */
   userCode: string | null;
   expiresTs: number | null;
-  account: { email: string | null; orgName: string | null } | null;
+  account: { email: string | null; orgName: string | null; plan: string | null } | null;
   reason: string | null;
   updatedTs: number;
 }

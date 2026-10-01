@@ -107,7 +107,7 @@ func TestCodexLoginRelay(t *testing.T) {
 		}
 		h.codex.write(t, h.codex.approve, "")
 		got := h.next(t)
-		want := loginReport{LoginID: "rl-c1", State: "succeeded", Account: &loginAccount{Email: "owner@example.test"}}
+		want := loginReport{LoginID: "rl-c1", State: "succeeded", Account: &loginAccount{Email: "owner@example.test", Plan: "plus"}}
 		if !reflect.DeepEqual(got, want) {
 			t.Fatalf("final report = %+v, want %+v", got, want)
 		}
@@ -225,21 +225,27 @@ func pidAlive(t *testing.T, pidFile string) bool {
 	return f.alive(t)
 }
 
-func TestCodexAuthEmail(t *testing.T) {
+func TestCodexAuthAccount(t *testing.T) {
 	payload := func(json string) string {
 		return `{"tokens":{"id_token":"h.` + base64.RawURLEncoding.EncodeToString([]byte(json)) + `.s"}}`
 	}
-	cases := []struct{ name, in, want string }{
-		{"under an id_token with an email claim, the email", payload(`{"email":"a@b.test"}`), "a@b.test"},
-		{"under an id_token without an email claim, nothing", payload(`{"sub":"x"}`), ""},
-		{"under an API-key auth.json without tokens, nothing", `{"OPENAI_API_KEY":"sk-x"}`, ""},
-		{"under a malformed token, nothing", `{"tokens":{"id_token":"not-a-jwt"}}`, ""},
-		{"under no auth.json output, nothing", "", ""},
+	cases := []struct {
+		name, in string
+		want     loginAccount
+	}{
+		{"under an id_token with email and plan claims, both",
+			payload(`{"email":"a@b.test","https://api.openai.com/auth":{"chatgpt_plan_type":"team"}}`),
+			loginAccount{Email: "a@b.test", Plan: "team"}},
+		{"under an id_token with an email but no plan, the email only", payload(`{"email":"a@b.test"}`), loginAccount{Email: "a@b.test"}},
+		{"under an id_token without either claim, nothing", payload(`{"sub":"x"}`), loginAccount{}},
+		{"under an API-key auth.json without tokens, nothing", `{"OPENAI_API_KEY":"sk-x"}`, loginAccount{}},
+		{"under a malformed token, nothing", `{"tokens":{"id_token":"not-a-jwt"}}`, loginAccount{}},
+		{"under no auth.json output, nothing", "", loginAccount{}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if got := codexAuthEmail(c.in); got != c.want {
-				t.Errorf("codexAuthEmail = %q, want %q", got, c.want)
+			if got := codexAuthAccount(c.in); got != c.want {
+				t.Errorf("codexAuthAccount = %+v, want %+v", got, c.want)
 			}
 		})
 	}

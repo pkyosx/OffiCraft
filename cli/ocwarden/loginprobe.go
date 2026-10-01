@@ -129,6 +129,7 @@ type loginProber struct {
 type loginAccount struct {
 	Email   string
 	OrgName string
+	Plan    string
 }
 
 type runtimeLogin struct {
@@ -312,12 +313,13 @@ func (p *loginProber) claudeLoggedIn() (*bool, bool) {
 		_ = p.remove(rendered)
 	}
 	var status struct {
-		LoggedIn *bool  `json:"loggedIn"`
-		Email    string `json:"email"`
-		OrgName  string `json:"orgName"`
+		LoggedIn         *bool  `json:"loggedIn"`
+		Email            string `json:"email"`
+		OrgName          string `json:"orgName"`
+		SubscriptionType string `json:"subscriptionType"`
 	}
 	parseErr := json.Unmarshal([]byte(strings.TrimSpace(out)), &status)
-	p.claudeAccount = loginAccount{Email: status.Email, OrgName: status.OrgName}
+	p.claudeAccount = loginAccount{Email: status.Email, OrgName: status.OrgName, Plan: status.SubscriptionType}
 	if parseErr != nil || status.LoggedIn == nil {
 		if err != nil {
 			p.log("[ocwarden runtimeprobe] claude auth status gave no login verdict (bin=%s): %v", bin, err)

@@ -319,6 +319,7 @@ type machineUpgradeResultDTO struct {
 type runtimeLoginAccountDTO struct {
 	Email   *string `json:"email"`
 	OrgName *string `json:"org_name"`
+	Plan    *string `json:"plan"`
 }
 
 type runtimeLoginDTO struct {

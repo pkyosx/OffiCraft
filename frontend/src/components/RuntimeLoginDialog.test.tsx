@@ -110,7 +110,7 @@ describe("RuntimeLoginDialog", () => {
     expect(submitRuntimeLoginCode).toHaveBeenCalledWith("m-box", "rl-1", "abc#s1");
     expect(text("runtime-login-verifying")).toBe("登入中…");
 
-    await emit(login({ state: "succeeded", authUrl: URL, account: { email: "owner@example.test", orgName: "Example Org" } }));
+    await emit(login({ state: "succeeded", authUrl: URL, account: { email: "owner@example.test", orgName: "Example Org", plan: "max" } }));
     expect(text("runtime-login-succeeded")).toBe("已登入：owner@example.test（Example Org）");
     expect(screen.queryByTestId("runtime-login-restart")).toBeNull();
   });
@@ -170,7 +170,7 @@ describe("RuntimeLoginDialog", () => {
     mount({ loggedIn: true });
     await flush();
     expect(text("runtime-login-replace-hint")).toBe("完成後會換成新登入的帳號");
-    await emit(login({ state: "succeeded", account: { email: "a@b.test", orgName: null } }));
+    await emit(login({ state: "succeeded", account: { email: "a@b.test", orgName: null, plan: null } }));
     expect(text("runtime-login-succeeded")).toBe("已登入：a@b.test");
     expect(screen.queryByTestId("runtime-login-replace-hint")).toBeNull();
   });
@@ -330,7 +330,7 @@ describe("RuntimeLoginDialog", () => {
     const onClose = vi.fn();
     mount({ onClose });
     await flush();
-    await emit(login({ state: "succeeded", account: { email: "a@b.test", orgName: null } }));
+    await emit(login({ state: "succeeded", account: { email: "a@b.test", orgName: null, plan: null } }));
     fireEvent.click(screen.getByTestId("runtime-login-close"));
     expect(cancelRuntimeLogin).not.toHaveBeenCalled();
     expect(onClose).toHaveBeenCalledTimes(1);

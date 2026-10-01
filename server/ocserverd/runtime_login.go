@@ -435,7 +435,7 @@ func (s *apiServer) HandleReportRuntimeLoginApiMonitoringRuntimeLoginPost(w http
 		l.expiresTS = &at
 	}
 	if state == runtimeLoginSucceeded && body.Account != nil {
-		l.account = &runtimeLoginAccountDTO{Email: body.Account.Email, OrgName: body.Account.OrgName}
+		l.account = &runtimeLoginAccountDTO{Email: body.Account.Email, OrgName: body.Account.OrgName, Plan: body.Account.Plan}
 	}
 	switch {
 	case state == runtimeLoginAwaitingCode:
