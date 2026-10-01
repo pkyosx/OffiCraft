@@ -205,7 +205,9 @@ export function WorkerDetailPanel({
     desiredMachineId,
     reportedMachine(worker.machine ?? "", worker.actualMachine ?? ""),
     msg.workerMachineMovingTo,
-    machineDisplay(desiredMachineId),
+    // The destination's name and its 離線 suffix: the shared rule, same as the
+    // staff panel (lib/pendingChange).
+    msg.machineOfflineOption,
   );
   const pendingRuntime = pendingChangeHint(
     worker.runtime || "claude",

@@ -2091,6 +2091,36 @@ describe("WorkerDetailPanel — pending launch changes (T-7f28)", () => {
     );
   });
 
+  it.each([
+    [false, "→ 要換到 Warden · mbp5（離線）"],
+    [true, "→ 要換到 Warden · mbp5"],
+  ] as const)(
+    "a worker pinned to warden-mbp5 (machine online: %s) and running elsewhere reads %s — the staff panel's wording",
+    async (destinationOnline, movingTo) => {
+      // Ticket item 6: the staff panel says the destination is 離線 here, so the
+      // outsource panel must say it the same way (and say nothing when it is up).
+      __setMockMemberOnline("warden-mbp5", destinationOnline);
+      __setMockMemberOnline("m-server-self", true);
+      __injectMockTask(mkTask({ id: "t-6" }));
+      __injectMockOutsourceWorker(
+        mkWorker({
+          id: "ow-1",
+          taskId: "t-6",
+          presence: "online",
+          desiredMachineId: "warden-mbp5",
+          machine: "m-server-self",
+          actualMachine: "m-server-self",
+        }),
+      );
+      const { findByTestId } = renderOfficeAt("#office/worker/ow-1");
+      await waitFor(async () =>
+        expect((await findByTestId("worker-detail-machine-pending")).textContent).toBe(
+          movingTo,
+        ),
+      );
+    },
+  );
+
   it("stays silent when the worker has reported nothing, rather than echoing the settings", async () => {
     // 🔴 The reason this ticket exists. `mkWorker` leaves every actual_* blank —
     // an unreported worker. Marking a pending change here would be a guess, and

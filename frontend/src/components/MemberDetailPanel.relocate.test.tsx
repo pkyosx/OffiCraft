@@ -268,6 +268,26 @@ describe("MemberDetailPanel — unified wake/change settings", () => {
     expect(queryByTestId("mp-relocate-undispatched")).toBeNull();
   });
 
+  it.each([
+    ["mach-sleep", "→ 要換到 Sleeping Mac（離線）"],
+    ["mach-b", "→ 要換到 Machine B"],
+  ] as const)(
+    "a member pinned to %s and running on mach-a reads %s — the outsource panel's wording",
+    async (desiredMachineId, movingTo) => {
+      // Ticket item 6: an offline destination is named 離線 on both panels; an
+      // online one carries no suffix.
+      const { getByTestId } = renderPanel({
+        status: "online",
+        lifecycle: "online",
+        machine: "mach-a",
+        desiredMachineId,
+      });
+      await waitFor(() =>
+        expect(getByTestId("mp-machine-pending").textContent).toBe(movingTo),
+      );
+    },
+  );
+
   it("two machines both named box: a member pinned to one and running on the other shows → 要換到 box", async () => {
     listMachines.mockImplementationOnce(() =>
       Promise.resolve([machine("mach-a", "box"), machine("mach-b", "box")]),

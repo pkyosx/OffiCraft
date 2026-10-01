@@ -490,18 +490,6 @@ export function MemberDetailPanel({
     machines.find((m) => m.machineId === member.machine)?.displayName ||
     member.machine ||
     "";
-  const desiredMachine = machines.find(
-    (m) => m.machineId === member.desiredMachineId,
-  );
-  const desiredMachineNameRaw =
-    desiredMachine?.displayName || member.desiredMachineId || "";
-  // …and if the destination is not online, SAY so here too. The option list
-  // labels it 離線 two elements away; a hint that drops the label reads as a move
-  // that is merely in progress, when the destination cannot accept it at all.
-  const desiredMachineName =
-    desiredMachine && !desiredMachine.online
-      ? msg.machineOfflineOption(desiredMachineNameRaw)
-      : desiredMachineNameRaw;
   // Relocation keeps the observed location truthful while making the pending
   // destination visible. Once reconcile reports the new location, the note
   // naturally disappears rather than leaving stale launch intent in the panel.
@@ -517,7 +505,9 @@ export function MemberDetailPanel({
     member.desiredMachineId,
     reportedMachine(member.machine ?? "", member.actualMachine ?? ""),
     msg.memberMachineMovingTo,
-    desiredMachineName,
+    // The destination's name and its 離線 suffix: the shared rule, same as the
+    // outsource panel (lib/pendingChange).
+    msg.machineOfflineOption,
   );
   // The other three cells, same rule, same grey line. `member.runtime` /
   // `.model` / `.effort` are the owner's settings; the `actual*` twins are what
