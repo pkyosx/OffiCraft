@@ -206,7 +206,7 @@ data: {"seq":42,"topic":"member","op":"patch","data":{"entity":"member","key":"o
 
 ## 3. Topic and op vocabulary
 
-### 3.1 Topics — the closed set (11 topics)
+### 3.1 Topics — the closed set (12 topics)
 
 The server MUST emit deltas on exactly these topics and no others (`reply_card`
 joined the set in the M2 reply-card batch; `task` / `task_manual` joined in the
@@ -214,7 +214,8 @@ M3 task batch — the owner-tasked M3 scope [SPEC.md
 M3 任務系統] covers the task surface wholesale, these are its necessary
 delta topics; `insight` joined in T-3809, which split the role journal's judgement
 block into its own document and therefore needed its own delta rather than
-riding a topic that names a different document; everything else is the M1 freeze):
+riding a topic that names a different document; `runtime_login` joined in T-309, the
+machine runtime-login relay; everything else is the M1 freeze):
 
 | topic | trigger | op |
 |---|---|---|
@@ -229,6 +230,7 @@ riding a topic that names a different document; everything else is the M1 freeze
 | `insight` | insight overlay write (replace / patch / reset) / restore / cascade delete | patch |
 | `context` | agent context-gauge ingest (`POST /api/agent/context`) | signal |
 | `monitoring` | warden telemetry ingest (`POST /api/monitoring/telemetry`) | signal |
+| `runtime_login` | runtime-login start / code / cancel, warden report (`POST /api/monitoring/runtime-login`), drop after terminal | signal |
 
 ⚠️ **Known code-internal inconsistency at freeze, resolved in favour of the wire**: the
 frozen implementation's internal topic lists were incomplete (its declared topic constant
@@ -253,8 +255,8 @@ see `seeds/system_interaction.md` §2.2.1「何時開卡」.
 - `patch` — the topic's data changed; refetch. Note: an overlay **reset** (tombstone back to
   seed) rides as `patch`, not `remove` — the doc still exists, it fell back to the seed.
 - `remove` — the entity was deleted (`deleted: true`, `payload: null`).
-- `signal` — a volatile in-memory store changed (`context`, `monitoring`); no durable entity
-  behind it, `payload` always `null`.
+- `signal` — a volatile in-memory store changed (`context`, `monitoring`, `runtime_login`); no
+  durable entity behind it, `payload` always `null`.
 
 ## 4. Per-recipient fan-out
 
@@ -287,6 +289,7 @@ server's own deps-fulfill, not by eavesdropping on another member's stream):
 | `task_manual` | — (owner cockpit only) |
 | `global_context` / `role_def` / `insight` | — (owner cockpit only) |
 | `context` / `monitoring` | — (owner cockpit only; `context` also drives the server-side §6 band) |
+| `runtime_login` | — (owner cockpit only; refetch `GET /api/machines/{machine_id}/runtime-login/{login_id}`) |
 
 A blank id in an audience (an unassigned executor) is dropped — it narrows the
 set, never widens it. An implementation MAY carry a
@@ -533,6 +536,17 @@ data: {"topic":"warden-command","data":{"rpc":"start","args":{"member_id":"m-1a2
     on that machine's next authenticated request, which a warden that answered politely
     and did nothing cannot forge. A warden build that predates this verb MUST treat it as
     any unknown rpc: log + skip, reader loop unharmed.
+  - `login_start` / `login_code` / `login_cancel` (T-309 — the runtime-login relay behind
+    `POST /api/machines/{machine_id}/runtime-login[/{login_id}/code|/cancel]`):
+    `login_start` `{member_id, login_id, runtime}` makes the warden run the runtime's CLI
+    login (`runtime` is `claude` only) and report its progress through
+    `POST /api/monitoring/runtime-login`; `login_code` `{member_id, login_id, code}` hands the
+    owner-pasted code to that waiting login process; `login_cancel` `{member_id, login_id}`
+    kills it. `member_id` is informational addressing only, as with `update`. All three are
+    at-most-once and never durably mirrored: a lost `login_start` leaves the login `starting`
+    until the UI gives up (30s), and the owner starts over. A warden build that predates these
+    verbs MUST treat them as any unknown rpc: log + skip, reader loop unharmed — which is
+    exactly the `starting`-forever case the UI timeout covers.
   - **Outsource workers ride the SAME `start`/`stop` verbs** (A案 P5b naming
     convergence — the former `worker_start`/`worker_stop` verbs are RETIRED):
     a worker spawn is a plain `start` with `member_id == <ow-id>`,
@@ -550,9 +564,10 @@ data: {"topic":"warden-command","data":{"rpc":"start","args":{"member_id":"m-1a2
     transition window (an old server reclaiming through a new warden). The
     retired `worker_start` is refused as unknown-rpc (logged + skipped, reader
     loop unharmed).
-- **Confidentiality**: `member_token` / `worker_token` is a secret riding inside `args`. A
-  command frame MUST be written only onto the addressed warden's connection — never the
-  owner-scope entity fan-out.
+- **Confidentiality**: `member_token` / `worker_token` and `login_code`'s `code` are secrets
+  riding inside `args`. A command frame MUST be written only onto the addressed warden's
+  connection — never the owner-scope entity fan-out. The server keeps no copy of `code` beyond
+  the queued frame itself.
 - **Queue semantics**:
   - per-warden FIFO; drain MUST pop all pending frames in FIFO order;
   - delivery is **at-most-once** onto the downstream (fire-and-forget) **for every verb except

@@ -1399,6 +1399,96 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/machines/{machine_id}/runtime-login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start a runtime login on a machine: its warden runs the CLI login and relays the sign-in URL back.
+         * @description - Pushes the `login_start` warden command; the warden runs the runtime's login and reports through `POST /api/monitoring/runtime-login`.
+         *     - Held in server memory only, never persisted; a server restart forgets the login.
+         *     - A warden build that predates the verb ignores it and the login stays `starting`; the UI gives up after 30s.
+         *     - While a login for this machine and runtime is not yet terminal, a repeat returns that login instead of starting another.
+         *     - Admin agent only (403); an unknown, removed or non-machine id is a 404; an offline warden is a 409.
+         */
+        post: operations["handle_start_runtime_login_api_machines__machine_id__runtime_login_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/machines/{machine_id}/runtime-login/{login_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read a runtime login's current state.
+         * @description - Memory only: an unknown id, one from before a server restart, or one dropped about 10 minutes after reaching a terminal state is a 404.
+         *     - Admin agent only (403).
+         */
+        get: operations["handle_get_runtime_login_api_machines__machine_id__runtime_login__login_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/machines/{machine_id}/runtime-login/{login_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cancel a runtime login.
+         * @description - Marks the login `cancelled` at once and pushes `login_cancel` so the warden kills the login process.
+         *     - An already-terminal login is returned unchanged.
+         *     - 404 when unknown or dropped. Admin agent only (403).
+         */
+        post: operations["handle_cancel_runtime_login_api_machines__machine_id__runtime_login__login_id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/machines/{machine_id}/runtime-login/{login_id}/code": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Submit the sign-in code for a runtime login.
+         * @description - Relays the code to the waiting login process via the `login_code` warden command and moves the login to `verifying`.
+         *     - The code is never stored, logged or echoed back; it exists only in the command frame.
+         *     - 409 unless the login is `awaiting_code`; 404 when unknown or dropped.
+         *     - Admin agent only (403).
+         */
+        post: operations["handle_submit_runtime_login_code_api_machines__machine_id__runtime_login__login_id__code_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/machines/{machine_id}/teardown-here": {
         parameters: {
             query?: never;
@@ -2059,6 +2149,28 @@ export interface paths {
         get: operations["handle_get_monitoring_api_monitoring_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/monitoring/runtime-login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Report a runtime login's progress (warden only). Answers the login as the server now holds it.
+         * @description - Warden only, and only for a login on its own machine; any other caller, or an unknown or dropped `login_id`, is a 404.
+         *     - A terminal state is sticky: a later report leaves it unchanged, so the answer is how a warden learns the owner cancelled.
+         *     - Held in server memory only, never persisted.
+         */
+        post: operations["handle_report_runtime_login_api_monitoring_runtime_login_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -7531,6 +7643,104 @@ export interface components {
             logged_in?: boolean | null;
             /** Version */
             version?: string | null;
+        };
+        /**
+         * RuntimeLoginAccountDTO
+         * @description Who the runtime CLI says it is now logged in as. Display values only; no token or credential.
+         */
+        RuntimeLoginAccountDTO: {
+            /** Email */
+            email?: string | null;
+            /** Org Name */
+            org_name?: string | null;
+        };
+        /**
+         * RuntimeLoginCodeDTO
+         * @description The code the provider's sign-in page showed the owner. Relayed to the waiting login process and never stored, logged or echoed.
+         */
+        RuntimeLoginCodeDTO: {
+            /** Code */
+            code: string;
+        };
+        /**
+         * RuntimeLoginDTO
+         * @description One runtime login the server relays between the owner's browser and a login process the machine's warden runs. Held in server memory only and never persisted: a server restart forgets every login, and a login is dropped about 10 minutes after it reaches a terminal state (`succeeded`, `failed`, `expired`, `cancelled`), after which it reads as 404.
+         */
+        RuntimeLoginDTO: {
+            /**
+             * Account
+             * @description Set on `succeeded` only.
+             */
+            account?: components["schemas"]["RuntimeLoginAccountDTO"] | null;
+            /**
+             * Auth Url
+             * @description The provider sign-in URL the owner opens; set from `awaiting_code` on.
+             */
+            auth_url?: string | null;
+            /** Login Id */
+            login_id: string;
+            /** Machine Id */
+            machine_id: string;
+            /**
+             * Reason
+             * @description Why the login ended in `failed`, `expired` or `cancelled`.
+             */
+            reason?: string | null;
+            /**
+             * Runtime
+             * @enum {string}
+             */
+            runtime: "claude";
+            /**
+             * State
+             * @description `starting` until the warden's first report. A warden build that predates the `login_start` verb ignores it, so `starting` never advances; the UI gives up on it after 30s.
+             * @enum {string}
+             */
+            state: "starting" | "awaiting_code" | "verifying" | "succeeded" | "failed" | "expired" | "cancelled";
+            /**
+             * Updated Ts
+             * @description Epoch seconds of the last state change, server-stamped.
+             */
+            updated_ts: number;
+        };
+        /**
+         * RuntimeLoginReportDTO
+         * @description A warden's progress report for one runtime login. Every value is held in server memory only, like the login itself.
+         */
+        RuntimeLoginReportDTO: {
+            /**
+             * Account
+             * @description Send with `succeeded`.
+             */
+            account?: components["schemas"]["RuntimeLoginAccountDTO"] | null;
+            /**
+             * Auth Url
+             * @description Send with `awaiting_code`.
+             */
+            auth_url?: string | null;
+            /** Login Id */
+            login_id: string;
+            /**
+             * Reason
+             * @description Send with `failed`, `expired` or `cancelled`. Must not quote the code or any credential.
+             */
+            reason?: string | null;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "awaiting_code" | "verifying" | "succeeded" | "failed" | "expired" | "cancelled";
+        };
+        /**
+         * RuntimeLoginStartDTO
+         * @description Which runtime to log in on the machine.
+         */
+        RuntimeLoginStartDTO: {
+            /**
+             * Runtime
+             * @enum {string}
+             */
+            runtime: "claude";
         };
         /**
          * RuntimeLoginWarningDTO
@@ -13403,6 +13613,213 @@ export interface operations {
             };
         };
     };
+    handle_start_runtime_login_api_machines__machine_id__runtime_login_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                machine_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RuntimeLoginStartDTO"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RuntimeLoginDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_get_runtime_login_api_machines__machine_id__runtime_login__login_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                machine_id: string;
+                login_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RuntimeLoginDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_cancel_runtime_login_api_machines__machine_id__runtime_login__login_id__cancel_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                machine_id: string;
+                login_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RuntimeLoginDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_submit_runtime_login_code_api_machines__machine_id__runtime_login__login_id__code_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                machine_id: string;
+                login_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RuntimeLoginCodeDTO"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RuntimeLoginDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
     handle_teardown_here_api_machines__machine_id__teardown_here_post: {
         parameters: {
             query?: never;
@@ -14940,6 +15357,57 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MonitoringDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_report_runtime_login_api_monitoring_runtime_login_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RuntimeLoginReportDTO"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RuntimeLoginDTO"];
                 };
             };
             /** @description Validation error (unified error envelope). */
