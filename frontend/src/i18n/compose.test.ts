@@ -72,7 +72,6 @@ const EXPECTED: [Lang, string, (string | number | string[] | number[])[], string
     ["zh", "loreScopeManual", ["PR 審查"], "任務：PR 審查"],
     ["zh", "loreScopeAgent", ["Mira"], "建立者：Mira"],
     ["zh", "outsourceLabel", ["O-7"], "外包 · O-7"],
-    ["zh", "workerRefocusSince", ["2 天"], "上次換手 2 天"],
     // 🔴 折疊,不是截斷。這一句只可以講「這則還在、只是折起來了」;
     // 「更早的訊息沒有被帶進來」是另一件事,而且刻意沒有 composer——
     // 共用一個組裝器正是兩者會開始共用詞彙的那條路。
@@ -201,7 +200,6 @@ const EXPECTED: [Lang, string, (string | number | string[] | number[])[], string
     ["en", "loreScopeManual", ["PR review"], "Task: PR review"],
     ["en", "loreScopeAgent", ["Mira"], "Author: Mira"],
     ["en", "outsourceLabel", ["O-7"], "Outsource · O-7"],
-    ["en", "workerRefocusSince", ["2 天"], "Last handover 2 天"],
     ["en", "resumeBodyOmitted", [1284], "folded 1284"],
     ["en", "chatOfflineTitle", ["Mira"], "Mira is offline"],
     ["en", "chatOfflineQueueHint", ["Mira"], "You can still leave a message — Mira will read it once back online."],
@@ -374,7 +372,6 @@ describe("makeMessages", () => {
       "replies.expireConfirmBodyLead",
       "replies.expireConfirmBodyTail",
       "office.outsource.title",
-      "workerDetail.refocusSinceLabel",
       "chat.offlineTitleSuffix",
       "chat.offlineQueueHintLead",
       "chat.offlineQueueHintTail",

@@ -352,7 +352,7 @@ func TestConsumeRestartAfterStop(t *testing.T) {
 		want.LastOp = "start"
 		want.LastOpOK = &wantOK
 		want.LastOpLog = ""
-		want.LastOpReason = "held_down: the stop the owner asked for has landed — starting this member again, which is what the 重啟 he pressed during the wind-down asked for"
+		want.LastOpReason = "held_down: the stop the owner asked for has landed — starting this member again, which is what the 重新聚焦 or 更改 pressed during the wind-down asked for"
 		want.LastOpAt = 1234.5
 		apiTestWantEqual(t, "member in memory", m, want)
 		apiTestWantEqual(t, "member in database", apiTestMemberRow(t, d, m.ID), want)
@@ -594,7 +594,7 @@ func TestConsumeWorkerRestartAfterStop(t *testing.T) {
 		want.LastOp = "start"
 		want.LastOpOK = &wantOK
 		want.LastOpLog = ""
-		want.LastOpReason = "held_down: the stop the owner asked for has landed — starting this worker again, which is what the 重啟 he pressed during the wind-down asked for"
+		want.LastOpReason = "held_down: the stop the owner asked for has landed — starting this worker again, which is what the 重新聚焦 or 更改 pressed during the wind-down asked for"
 		want.LastOpAt = 1234.5
 		apiTestWantEqual(t, "worker in memory", w, want)
 		stored, err := d.GetOutsourceWorker(w.ID)
@@ -607,7 +607,7 @@ func TestConsumeWorkerRestartAfterStop(t *testing.T) {
 			"last_op":        "start",
 			"last_op_ok":     false,
 			"last_op_log":    "",
-			"last_op_reason": "held_down: the stop the owner asked for has landed — starting this worker again, which is what the 重啟 he pressed during the wind-down asked for",
+			"last_op_reason": "held_down: the stop the owner asked for has landed — starting this worker again, which is what the 重新聚焦 or 更改 pressed during the wind-down asked for",
 			"last_op_at":     1234.5,
 			"desired_state":  "online",
 		}))

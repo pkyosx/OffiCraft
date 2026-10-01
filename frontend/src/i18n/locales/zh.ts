@@ -710,13 +710,8 @@ export const zh = {
     // T-7526：啟動中／離線／工作中／已停止 四個 presence 字隨狀態欄一起退場——
     // 它們是 LifecycleDot 的 aria-label（office.presence.*）的第二份副本。
     // ── T-32e1/T-f190 生命週期操作（對齊成員詳情：換手／停止／換 model）──────
-    // 換手（refocus）：僅線上可觸發；送出後由外包端非同步重生，故保留「已送出」註記。
-    refocus: "重新聚焦",
-    refocusing: "聚焦中…",
-    refocusDone: "已送出",
-    refocusError: "聚焦失敗",
+    // 重新聚焦：僅線上可觸發；送出後由外包端非同步重生，故保留「已送出」註記。
     refocusSubmittedNote: "已送出重新聚焦 · 外包重生中…",
-    refocusSinceLabel: "上次換手",
     // 停止（owner 明示；停止後不自動救活）。
     // ⚠️ 沒有 restart 這條字了（owner 2026-07-31「應該要統一」）：喚醒的字一律用
     // 正職那一份 `lifecycle.action.spawn`＝「喚醒」，兩個面板同一個葉子，主題包
@@ -760,7 +755,6 @@ export const zh = {
     action: {
       // 「生成」→「喚醒」(owner 驗收):按鈕的語意是喚醒既有成員,不是生出新的。
       spawn: "喚醒",
-      cancel: "取消",
       stop: "停止",
       // 升級路徑的中間段（owner 2026-08-21「停止 → 加速停止 → 強制停止」）：
       // 給已經開始的收尾上一段時鐘，並且把那個時刻告訴他。不是殺，所以不做二次確認。
@@ -1247,11 +1241,9 @@ export const zh = {
     settingsNoteAfterStop: "按下後會存下新設定，它停下後會用新設定重新開起來。",
     settingsNoteWake: "按下後會用這些設定開起來。",
     settingsNoteWaking:
-      "按下後：換了機器會當場用新設定重新開起來；只換型號、執行環境或思考強度，下次開起來才生效。",
+      "按下後會存下新設定：換了機器會移到新機器、用新設定重新開起來；只換型號、執行環境或思考強度，下次開起來才生效。",
     settingsIntentNoteReported: "上方顯示的是目前實際使用的模型，可能和這裡的設定不同。",
     wakeManual: "手動喚醒",
-    // 點喚醒後、server presence 尚未跟上前的即時回饋
-    wakePendingNote: "喚醒中…",
     forceStopConfirmTitle: "強制停止?",
     forceStopConfirmBodyLead: "立即強制停止",
     forceStopConfirmBodyTail:

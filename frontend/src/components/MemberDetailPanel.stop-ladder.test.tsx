@@ -150,9 +150,9 @@ describe("MemberDetailPanel — the 停止 ladder", () => {
   it.each([
     ["member-action-stop", { lifecycle: "online" }],
     ["member-action-accelerated-stop", { lifecycle: "stopping", desiredState: "offline" }],
-    ["member-action-cancel", { lifecycle: "waking", status: "waking" }],
+    ["member-action-stop", { lifecycle: "waking", status: "waking" }],
   ] as const)(
-    "a rejected %s says 操作失敗，請稍後重試",
+    "a rejected %s on %j says 操作失敗，請稍後重試",
     async (testId, over) => {
       const reject = vi.fn(async () => {
         throw new Error("http 500");

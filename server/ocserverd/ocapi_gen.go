@@ -1848,7 +1848,7 @@ type MemberActivateReceiptDTO struct {
 	// Id The member this activation was aimed at — the caller's own path parameter, kept because a receipt that cannot say which member it acted on is unreadable next to a log of several.
 	Id string `json:"id"`
 
-	// LastOpReason WHICH cause, as a structured ``<code>: <detail>`` line, stamped on the row by the same handler before it answers. An arm that named no code falls back to the generic "活化 was recorded, but nothing has been dispatched yet". Empty when there is no refusal to report.
+	// LastOpReason WHICH cause, as a structured ``<code>: <detail>`` line, stamped on the row by the same handler before it answers. An arm that named no code falls back to the generic "喚醒 was recorded, but nothing has been dispatched yet". Empty when there is no refusal to report.
 	LastOpReason *string `json:"last_op_reason,omitempty"`
 }
 

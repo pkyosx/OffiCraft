@@ -137,8 +137,12 @@ describe("MemberDetailPanel · the notice does not outlive its truth (T-7fa1)", 
     await waitFor(() =>
       expect(queryByTestId("mp-wake-undispatched")).toBeNull(),
     );
-    // …and the panel is back to the honest in-progress state.
-    expect(wakeBtn(container).disabled).toBe(true);
+    // …and the panel is back to the honest in-progress state: the waking row.
+    expect(
+      Array.from(container.querySelectorAll(".mp-identity__buttons button")).map(
+        (b) => b.getAttribute("data-testid"),
+      ),
+    ).toEqual(["mp-change", "member-action-stop"]);
   });
 
   it("the notice does NOT follow the owner onto a different member (review r1 SHOULD-1)", async () => {

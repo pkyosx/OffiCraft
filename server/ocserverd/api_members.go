@@ -768,9 +768,17 @@ func (s *apiServer) HandleActivateMemberApiMembersMemberIdActivatePost(w http.Re
 		}
 		if !sessionAlive {
 			clearWindDownRow(windDownAnchorRowOfMember(cur))
+		} else {
+			stampMemberOpReceipt(cur, sessionAliveWakeReceipt, nowSecs())
 		}
 		saved = *cur
-		return persistMemberRowOn(tx, *cur)
+		if err := persistMemberRowOn(tx, *cur); err != nil {
+			return err
+		}
+		if sessionAlive {
+			return persistMemberOpReceiptOn(tx, *cur)
+		}
+		return nil
 	})
 	if err != nil {
 		writeResolveTxError(w, err, "member", memberId)
@@ -797,7 +805,7 @@ func (s *apiServer) HandleActivateMemberApiMembersMemberIdActivatePost(w http.Re
 		// itself at the decision site, not be guessed here.
 		reason := dec.ReasonCode
 		if reason == "" {
-			reason = spawnReasonWardenLost + ": 活化 was recorded, but nothing has been " +
+			reason = spawnReasonWardenLost + ": 喚醒 was recorded, but nothing has been " +
 				"dispatched yet — the machine's warden did not take the start. It will " +
 				"be retried; if it stays here, check that machine"
 		}
@@ -918,7 +926,7 @@ func (s *apiServer) HandleRelocateMemberApiMembersMemberIdRelocatePost(w http.Re
 // stamping it would be noise.
 func memberHeldDownReceipt(op string) string {
 	return spawnReasonHeldDown + ": the " + op + " was saved, but nothing was " +
-		"started — this member is stopped; 活化 it when you want it to run"
+		"started — this member is stopped; 喚醒 it when you want it to run"
 }
 
 // 🔴 The harm is on the NEXT generation: activate clears neither refocus_since nor

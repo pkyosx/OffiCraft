@@ -182,7 +182,8 @@ const (
 	spawnReasonCircuitOpen   = "circuit_open"
 	spawnReasonBackoff       = "backoff"
 	spawnReasonZombieSuspect = "zombie_suspect"
-	// Receipt 重啟 leaves on a still-running worker instead of a 409 (owner ruling 外包也不擋).
+	// Receipt 喚醒 leaves on an agent that is still running, instead of a 409 —
+	// staff and outsource alike (owner rulings 外包也不擋, rc-a8f7044ba92f).
 	spawnReasonSessionAlive = "session_alive"
 	// Known limitation (owner ruling): the receipt is a single slot, so the newest
 	// code overwrites an earlier diagnosis (e.g. never_collected → wake_timeout).
@@ -212,11 +213,16 @@ func stampWorkerOpReceipt(w *OutsourceWorker, reason string, now float64) {
 		reconcileCmdStart, reason, now)
 }
 
+const sessionAliveWakeReceipt = spawnReasonSessionAlive + ": it was already " +
+	"running — 喚醒 left that session alone and dispatched nothing. Its work, and " +
+	"any 加速停止 or 重新聚焦 already under way on it, are untouched. To end the " +
+	"current session and start a fresh one, press 強制停止 first, then 喚醒"
+
 const sessionAliveWakeNote = " — the start window then lapsed, but that is NOT a " +
 	"runtime failure: the previous session is still running and the warden refused " +
 	"to stomp it, so nothing new was ever started. Do not go looking for a broken " +
-	"runtime on that machine; deal with the live session — 重啟 this worker to " +
-	"displace it, or stop it first."
+	"runtime on that machine; deal with the live session — press 強制停止 to " +
+	"end it, then 喚醒."
 
 // wakeTimeoutOverWardenReceipt keeps a warden's clobber or not-logged-in refusal
 // from being overwritten by a wake_timeout stamp (clearWorkerPlacementBlock
@@ -598,17 +604,11 @@ func (s *apiServer) reconcileWorkerLiveness(w OutsourceWorker, now float64) bool
 		// means collected, not delivered: there is no ack on this path.
 		switch {
 		case target == "":
-			s.stampWorkerPlacementBlocked(&w, spawnReasonWakeTimeout+": the start "+
-				"window elapsed with no session, and this server no longer has a "+
-				"record of which machine the start was sent to (the spawn ledger is "+
-				"in-memory and a server restart clears it) — retry 改機器 to place it "+
-				"again", now)
+			s.stampWorkerPlacementBlocked(&w, s.wakeTimeoutReason(spawnReasonWakeTimeout,
+				wakeTimeoutTargetForgotten, "", ""), now)
 		case s.hub.PendingWardenCommandsFor(target, w.ID) > 0:
-			s.stampWorkerPlacementBlocked(&w, spawnReasonNeverCollected+": the start "+
-				"frame for this worker is still queued for machine '"+target+"' — that "+
-				"machine's warden has not picked it up, so nothing has tried to boot "+
-				"yet; check that ocwarden is running and holding its connection there",
-				now)
+			s.stampWorkerPlacementBlocked(&w, s.wakeTimeoutReason(spawnReasonNeverCollected,
+				wakeTimeoutStillQueued, target, ""), now)
 		case undeliveredWorkerStart(s.hub, w.ID, s.workerSpawnAt[w.ID]):
 			// Popped then lost: the stream died mid-drain and ReturnUndeliveredCommands
 			// dropped it (only `update` is put back), so the backlog check misses it.
@@ -616,17 +616,11 @@ func (s *apiServer) reconcileWorkerLiveness(w OutsourceWorker, now float64) bool
 			// (EnqueueWardenCommandFor clears cmdUndelivered) and the receipt falls to
 			// `default`. Do not fix by moving the stamp before the switch (that undoes
 			// the clear-on-success ordering); the real fix is a multi-slot receipt.
-			s.stampWorkerPlacementBlocked(&w, spawnReasonNeverCollected+": the start "+
-				"frame for this worker never reached machine '"+target+"' — that "+
-				"machine's SSE stream failed mid-delivery and the frame was dropped "+
-				"server-side, so nothing there was ever asked to boot; the machine's "+
-				"connection is the suspect, not the runtime on it", now)
+			s.stampWorkerPlacementBlocked(&w, s.wakeTimeoutReason(spawnReasonNeverCollected,
+				wakeTimeoutUndelivered, target, ""), now)
 		default:
-			s.stampWorkerPlacementBlocked(&w, spawnReasonWakeTimeout+": the start was "+
-				"collected by machine '"+target+"' but this worker never came "+
-				"online within the start window — check that the '"+
-				NormalizeRuntime(w.Runtime)+"' runtime actually runs and is logged in on "+
-				"that machine (warden log: ocwarden.out.log)", now)
+			s.stampWorkerPlacementBlocked(&w, s.wakeTimeoutReason(spawnReasonWakeTimeout,
+				wakeTimeoutNeverCameUp, target, w.Runtime), now)
 		}
 	} else if isStopgapRetryReason(decision.ReasonCode) {
 		// Retry-loop codes only: a zombie_suspect stamp would overwrite the
@@ -876,7 +870,7 @@ func (s *apiServer) respawnWorkerForOwnerOp(w OutsourceWorker, op string) ownerO
 			return ownerOpOutcome{HeldDown: true}
 		}
 		s.stampWorkerPlacementBlocked(&w, spawnReasonHeldDown+": the "+op+" was saved, "+
-			"but nothing was started — this worker is stopped; 重啟 it when you want it "+
+			"but nothing was started — this worker is stopped; 喚醒 it when you want it "+
 			"to run", now)
 		return ownerOpOutcome{HeldDown: true}
 	}

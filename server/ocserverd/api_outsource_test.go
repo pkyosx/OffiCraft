@@ -822,7 +822,7 @@ func TestHandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost(t *testing
 		dashboard.wantFrames(apiTestHandoverDelta(4, DesiredStateOffline, apiTestOffboardNotice, "owner"))
 	})
 
-	t.Run("換手 on a worker nobody ever asked to stop answers 409 naming 重啟 instead", func(t *testing.T) {
+	t.Run("換手 on a worker nobody ever asked to stop answers 409 naming 喚醒 instead", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
 		worker, err := d.GetOutsourceWorker("ow-abc123")
@@ -846,7 +846,7 @@ func TestHandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost(t *testing
 		apiWantError(t, data, "conflict",
 			"refocus requires a live worker — this one is stopped and has never been "+
 				"asked to stop, so there is no wind-down for a 起來 to be queued behind "+
-				"(重啟 it when you want it to run)")
+				"(喚醒 it when you want it to run)")
 		apiTestWantWorker(t, h, owner, "ow-abc123", held)
 		dashboard.wantFrames()
 	})
@@ -1729,18 +1729,18 @@ func TestHandleRestartOutsourceWorkerApiOutsourceWorkersIdRestartPost(t *testing
 		}
 		apiWantBody(t, data, map[string]any{
 			"id": "ow-abc123",
-			"last_op_reason": "session_alive: this worker was already running — 喚醒 left " +
-				"that session alone and dispatched nothing. Its work, and any 加速停止 or " +
-				"換手 already under way on it, are untouched. To end the current session " +
-				"and start a fresh one, press 強制停止 first, then 喚醒",
+			"last_op_reason": "session_alive: it was already running — 喚醒 left that " +
+				"session alone and dispatched nothing. Its work, and any 加速停止 or " +
+				"重新聚焦 already under way on it, are untouched. To end the current " +
+				"session and start a fresh one, press 強制停止 first, then 喚醒",
 		})
 		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
 			"status": "active", "presence": "online", "desired_state": "online",
 			"last_op": "start", "last_op_ok": false, "last_op_at": apiAnyNumber,
-			"last_op_reason": "session_alive: this worker was already running — 喚醒 left " +
-				"that session alone and dispatched nothing. Its work, and any 加速停止 or " +
-				"換手 already under way on it, are untouched. To end the current session " +
-				"and start a fresh one, press 強制停止 first, then 喚醒",
+			"last_op_reason": "session_alive: it was already running — 喚醒 left that " +
+				"session alone and dispatched nothing. Its work, and any 加速停止 or " +
+				"重新聚焦 already under way on it, are untouched. To end the current " +
+				"session and start a fresh one, press 強制停止 first, then 喚醒",
 		}))
 		dashboard.wantFrames(apiTestWorkerStateDelta(2, "active", "online", "owner"))
 		contractor.wantFrames(apiTestWorkerStateDelta(2, "active", "online", "owner"))
@@ -1766,10 +1766,10 @@ func TestHandleRestartOutsourceWorkerApiOutsourceWorkersIdRestartPost(t *testing
 			"refocus_since": apiAnyNumber, "refocus_op": "accelerated_stop",
 			"refocus_deadline": apiAnyNumber,
 			"last_op":          "start", "last_op_ok": false, "last_op_at": apiAnyNumber,
-			"last_op_reason": "session_alive: this worker was already running — 喚醒 left " +
-				"that session alone and dispatched nothing. Its work, and any 加速停止 or " +
-				"換手 already under way on it, are untouched. To end the current session " +
-				"and start a fresh one, press 強制停止 first, then 喚醒",
+			"last_op_reason": "session_alive: it was already running — 喚醒 left that " +
+				"session alone and dispatched nothing. Its work, and any 加速停止 or " +
+				"重新聚焦 already under way on it, are untouched. To end the current " +
+				"session and start a fresh one, press 強制停止 first, then 喚醒",
 		}))
 	})
 

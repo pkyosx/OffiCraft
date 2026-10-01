@@ -2048,6 +2048,12 @@ function acceleratedStopStamps(windingDownToOffline: boolean): {
     : { since: now, deadline: now + graceSecs };
 }
 
+const MOCK_SESSION_ALIVE_RECEIPT =
+  "session_alive: it was already running — 喚醒 left that session alone and " +
+  "dispatched nothing. Its work, and any 加速停止 or 重新聚焦 already under way on " +
+  "it, are untouched. To end the current session and start a fresh one, press " +
+  "強制停止 first, then 喚醒";
+
 function findWire(id: string): WireMember {
   const w = wireMembers.find((m) => m.id === id);
   if (!w) throw new Error(`mock: member not found: ${id}`);
@@ -2503,6 +2509,18 @@ function findScheduleRecipient(memberId: string): void {
   );
 }
 
+/** Webhook owner parity with the server: the endpoints resolve `anyMember`, so
+ * an `ow-` worker owns them like a member does, until it is released. */
+function findWebhookOwner(memberId: string): void {
+  if (wireMembers.some((m) => m.id === memberId)) return;
+  if (outsourceWorkers.some((w) => w.id === memberId && w.status !== "released")) return;
+  throw mockApiError(
+    `http 404 for /api/members/${memberId}/webhooks`,
+    404,
+    `member '${memberId}' not found`
+  );
+}
+
 /** Server 422 parity for the create/patch slot fields. */
 function validateSchedulePart(
   memberId: string,
@@ -2792,6 +2810,15 @@ const mockApiImpl = {
     // stages the OTHER branch so the failure UI is reachable without a broken
     // machine.
     const w = findWire(id);
+    if (w.presence === "online") {
+      w.desired_state = "online";
+      w.last_op = "start";
+      w.last_op_ok = false;
+      w.last_op_log = "";
+      w.last_op_reason = MOCK_SESSION_ALIVE_RECEIPT;
+      w.last_op_at = Date.now() / 1000;
+      return { activationPending: false };
+    }
     if (activationPendingNext) {
       // Nothing was dispatched: do NOT move presence. A mock that flipped to
       // waking here would reproduce the very lie this ticket removes.
@@ -2997,7 +3024,7 @@ const mockApiImpl = {
   },
 
   async listWebhooks(memberId: string): Promise<WebhookEndpoint[]> {
-    findWire(memberId); // 404 parity: an unknown member throws
+    findWebhookOwner(memberId);
     return (mockWebhooks.get(memberId) ?? []).map((e) => ({ ...e }));
   },
 
@@ -3005,7 +3032,7 @@ const mockApiImpl = {
     memberId: string,
     input: WebhookCreateInput
   ): Promise<WebhookEndpoint> {
-    findWire(memberId);
+    findWebhookOwner(memberId);
     const endpointId = input.endpointId.trim();
     // Same closed charset the server enforces (422 → throw).
     if (!/^[A-Za-z0-9_-]+$/.test(endpointId)) {
@@ -4750,7 +4777,7 @@ const mockApiImpl = {
     if (w.desiredState === "offline") {
       throw mockApiError(
         `http 409 for POST /api/members/${id}/refocus`,
-        409, "worker is stopped — restart it before refocusing"
+        409, "worker is stopped — 喚醒 it before refocusing"
       );
     }
     if (w.presence !== "online") {
@@ -4860,19 +4887,17 @@ const mockApiImpl = {
         404, `outsource worker ${id} not found`
       );
     }
-    // Mock ↔ http parity (T-ed79 #10, owner 2026-08-21 「往正職靠：外包也不擋」):
-    // the over-spawn guard is GONE. A live worker is DISPLACED, not refused —
-    // the same shape 活化 has always had for a staff member — and the fact that
-    // the press found a live session is a receipt on the row instead of a 409.
+    // Mock ↔ http parity: a live session is left alone and the press leaves the
+    // server's session_alive receipt, on both kinds (see activateMember).
     if (w.presence === "online") {
       w.lastOp = "start";
       w.lastOpOk = false;
       w.lastOpLog = "";
-      w.lastOpReason =
-        "session_alive: this worker was still running — 重啟 is replacing that " +
-        "session, not starting a first one. If it does not come back, its " +
-        "previous session was still holding the slot";
+      w.lastOpReason = MOCK_SESSION_ALIVE_RECEIPT;
       w.lastOpAt = Date.now() / 1000;
+      w.desiredState = "online";
+      emitTopic("member");
+      return;
     }
     w.desiredState = "online";
     w.presence = "waking";

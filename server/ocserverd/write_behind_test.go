@@ -807,9 +807,9 @@ func TestAStaffReconcileStampDoesNotUndoAWriteThatLandedAfterItsRead(t *testing.
 			},
 			behind: ownerStop,
 			want: func(t *testing.T, got Member) {
-				const reason = "wake_timeout: the START was dispatched but the agent never came online within " +
-					"the start window — check that claude runs and is logged in on the target machine " +
-					"(warden log: ocwarden.out.log)"
+				const reason = "wake_timeout: the START was dispatched to the target machine but the agent " +
+					"never came online within the start window — check that claude runs and is logged in " +
+					"on that machine (warden log: ocwarden.out.log)"
 				if got.DesiredState != DesiredStateOffline || got.StoppingSince != 1800000000 ||
 					got.WakingSince != 0 || got.LastOp != "start" || got.LastOpReason != reason {
 					t.Fatalf("desired_state %q stopping_since %v waking_since %v last_op %q reason %q; "+

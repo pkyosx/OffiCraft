@@ -1906,7 +1906,7 @@ func TestHandleRelocateMemberApiMembersMemberIdRelocatePost(t *testing.T) {
 		if m.DesiredState != "offline" {
 			t.Fatalf("a relocate must not touch desired_state, got %q", m.DesiredState)
 		}
-		if m.LastOpReason != "held_down: the relocate was saved, but nothing was started — this member is stopped; 活化 it when you want it to run" {
+		if m.LastOpReason != "held_down: the relocate was saved, but nothing was started — this member is stopped; 喚醒 it when you want it to run" {
 			t.Fatalf("held-down receipt: got %q", m.LastOpReason)
 		}
 	})
@@ -2067,9 +2067,9 @@ func TestHandleRelocateMemberApiMembersMemberIdRelocatePost(t *testing.T) {
 }
 
 func TestMemberHeldDownReceipt(t *testing.T) {
-	t.Run("the sentence names the verb that was saved and the 活化 that would start it", func(t *testing.T) {
+	t.Run("the sentence names the verb that was saved and the 喚醒 that would start it", func(t *testing.T) {
 		want := "held_down: the 重新聚焦 was saved, but nothing was started — " +
-			"this member is stopped; 活化 it when you want it to run"
+			"this member is stopped; 喚醒 it when you want it to run"
 		if got := memberHeldDownReceipt("重新聚焦"); got != want {
 			t.Fatalf("want %q, got %q", want, got)
 		}
@@ -2077,7 +2077,7 @@ func TestMemberHeldDownReceipt(t *testing.T) {
 
 	t.Run("a different verb changes only the verb", func(t *testing.T) {
 		want := "held_down: the 改機器 was saved, but nothing was started — " +
-			"this member is stopped; 活化 it when you want it to run"
+			"this member is stopped; 喚醒 it when you want it to run"
 		if got := memberHeldDownReceipt("改機器"); got != want {
 			t.Fatalf("want %q, got %q", want, got)
 		}
@@ -2085,7 +2085,7 @@ func TestMemberHeldDownReceipt(t *testing.T) {
 
 	t.Run("an empty verb still leaves the held-down reason readable", func(t *testing.T) {
 		want := "held_down: the  was saved, but nothing was started — " +
-			"this member is stopped; 活化 it when you want it to run"
+			"this member is stopped; 喚醒 it when you want it to run"
 		if got := memberHeldDownReceipt(""); got != want {
 			t.Fatalf("want %q, got %q", want, got)
 		}
@@ -4002,7 +4002,7 @@ func TestHandleReportStoppedApiSelfStoppedPost(t *testing.T) {
 			// unreachable-warden receipt on the row.
 			receipt: map[string]any{
 				"last_op": "start", "at": apiAnyNumber,
-				"reason": "warden_unreachable: 活化 was recorded, but nothing has been " +
+				"reason": "warden_unreachable: 喚醒 was recorded, but nothing has been " +
 					"dispatched yet — the machine's warden did not take the start. It will " +
 					"be retried; if it stays here, check that machine",
 			},

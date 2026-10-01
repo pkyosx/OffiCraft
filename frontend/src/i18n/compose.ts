@@ -71,8 +71,6 @@ export interface Messages {
   loreScopeAgent: (authorName: string) => string;
   // ── office ──
   outsourceLabel: (codename: string) => string;
-  // ── worker detail ──
-  workerRefocusSince: (elapsed: string) => string;
   // ── chat ──
   chatOfflineTitle: (name: string) => string;
   chatOfflineQueueHint: (name: string) => string;
@@ -293,9 +291,6 @@ export function makeMessages(t: Dict, language: Lang): Messages {
     // worded template), so a theme could re-word one and not the other.
     outsourceLabel: (codename) =>
       `${t.office.outsource.title} · ${codename}`,
-
-    workerRefocusSince: (elapsed) =>
-      `${t.workerDetail.refocusSinceLabel} ${elapsed}`,
 
     chatOfflineTitle: (name) => `${name} ${chat.offlineTitleSuffix}`,
     chatOfflineQueueHint: (name) =>

@@ -199,7 +199,7 @@ func (s *apiServer) HandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost
 				return refuseInTx(http.StatusConflict,
 					"refocus requires a live worker — this one is stopped and has never "+
 						"been asked to stop, so there is no wind-down for a 起來 to be "+
-						"queued behind (重啟 it when you want it to run)")
+						"queued behind (喚醒 it when you want it to run)")
 			}
 			queued = true
 			return persistWorkerRestartIntentOn(tx, *worker)
@@ -425,11 +425,7 @@ func (s *apiServer) handleRestartOutsourceWorker(w http.ResponseWriter, r *http.
 			// Stamped onto the in-memory row, not via stampWorkerPlacementBlocked:
 			// that helper re-reads and writes on its own and would race this
 			// handler's write. The receipt columns land through setMemberLastOpOn below.
-			stampWorkerOpReceipt(worker, spawnReasonSessionAlive+
-				": this worker was already running — 喚醒 left that session alone and "+
-				"dispatched nothing. Its work, and any 加速停止 or 換手 already under "+
-				"way on it, are untouched. To end the current session and start a "+
-				"fresh one, press 強制停止 first, then 喚醒", nowSecs())
+			stampWorkerOpReceipt(worker, sessionAliveWakeReceipt, nowSecs())
 		}
 		worker.DesiredState = DesiredStateOnline
 		// Cleared on BOTH arms, as the staff 活化 does (api_members.go):

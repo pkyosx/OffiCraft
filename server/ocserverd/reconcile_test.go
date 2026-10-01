@@ -1032,7 +1032,7 @@ func TestDecideUp(t *testing.T) {
 			},
 			ReasonCode: spawnReasonCircuitOpen + ": too many failed starts in a row, so the " +
 				"server has stopped retrying this member for now — it will try again by " +
-				"itself; fix what is failing on its machine, or 停止 and 活化 to start over",
+				"itself; fix what is failing on its machine, or 停止 and 喚醒 to start over",
 		})
 		backoff := reconcileState{Phase: reconcilePhaseOffline, LastCommand: reconcileCmdNone, BackoffUntil: now + 5}
 		reconcileTestWantDecision(t, decideUp(reconcileTestUpObs(), backoff, cfg, now), reconcileDecision{
@@ -1601,45 +1601,82 @@ func TestMachineLacksClaudeButHasCodex(t *testing.T) {
 }
 
 func TestWakeTimeoutReason(t *testing.T) {
-	t.Run("on a codex-only machine a claude member's lapse names the machine and the two ways out of it", func(t *testing.T) {
+	t.Run("on a codex-only machine a claude agent's lapse names the machine and the two ways out of it", func(t *testing.T) {
 		api, _ := reconcileTestServer(t)
 		api.telemetry.Set("m-cx", map[string]any{"runtimes": map[string]any{
 			"claude": map[string]any{"installed": false},
 			"codex":  map[string]any{"installed": true, "logged_in": true},
 		}})
-		got := api.wakeTimeoutReason(Member{ID: "kip", DesiredMachineID: "m-cx"})
-		want := wakeTimeoutReasonCode + ": the START was dispatched but the agent never came " +
-			"online within the start window — machine 'm-cx' reports no Claude Code installed, " +
-			"so this member cannot boot there. Fix any one: set this member's 執行環境 to Codex " +
-			"(that machine has it ready); or install Claude Code on that machine " +
+		got := api.wakeTimeoutReason("wake_timeout", wakeTimeoutNeverCameUp, "m-cx", "")
+		want := "wake_timeout: the START was dispatched to machine 'm-cx' but the agent never " +
+			"came online within the start window — that machine reports no Claude Code " +
+			"installed, so the agent cannot boot there. Fix any one: set its 執行環境 to " +
+			"Codex (that machine has it ready); or install Claude Code on that machine " +
 			"(warden log: ocwarden.out.log)"
 		if got != want {
 			t.Fatalf("reason:\n got %q\nwant %q", got, want)
 		}
 	})
 
-	t.Run("otherwise the sentence names the member's own runtime, with an unset runtime reading as claude", func(t *testing.T) {
+	t.Run("otherwise the sentence names the agent's own runtime, with an unset runtime reading as claude", func(t *testing.T) {
 		api, _ := reconcileTestServer(t)
 		api.telemetry.Set("m-cx", map[string]any{"runtimes": map[string]any{
 			"claude": map[string]any{"installed": false},
 			"codex":  map[string]any{"installed": true, "logged_in": true},
 		}})
-		generic := func(runtime string) string {
-			return wakeTimeoutReasonCode + ": the START was dispatched but the agent never came " +
-				"online within the start window — check that " + runtime + " runs and is logged " +
-				"in on the target machine (warden log: ocwarden.out.log)"
-		}
 		for _, c := range []struct {
-			name string
-			m    Member
-			want string
+			name, machine, runtime, want string
 		}{
-			{"a codex member on the same codex-only machine", Member{ID: "kip", DesiredMachineID: "m-cx", Runtime: RuntimeCodex}, generic(RuntimeCodex)},
-			{"an unset runtime on a machine that has claude", Member{ID: "kip", DesiredMachineID: "m-box"}, generic(RuntimeClaude)},
-			{"a member with no machine at all", Member{ID: "kip"}, generic(RuntimeClaude)},
+			{"a codex agent on the same codex-only machine", "m-cx", RuntimeCodex,
+				"wake_timeout: the START was dispatched to machine 'm-cx' but the agent never " +
+					"came online within the start window — check that codex runs and is logged " +
+					"in on that machine (warden log: ocwarden.out.log)"},
+			{"an unset runtime on a machine that has claude", "m-box", "",
+				"wake_timeout: the START was dispatched to machine 'm-box' but the agent never " +
+					"came online within the start window — check that claude runs and is logged " +
+					"in on that machine (warden log: ocwarden.out.log)"},
+			{"an agent with no machine at all", "", "",
+				"wake_timeout: the START was dispatched to the target machine but the agent never " +
+					"came online within the start window — check that claude runs and is logged " +
+					"in on that machine (warden log: ocwarden.out.log)"},
 		} {
-			if got := c.want; api.wakeTimeoutReason(c.m) != got {
-				t.Fatalf("%s:\n got %q\nwant %q", c.name, api.wakeTimeoutReason(c.m), got)
+			if got := api.wakeTimeoutReason("wake_timeout", wakeTimeoutNeverCameUp, c.machine, c.runtime); got != c.want {
+				t.Fatalf("%s:\n got %q\nwant %q", c.name, got, c.want)
+			}
+		}
+	})
+
+	t.Run("the delivery-side causes keep the caller's code and blame the machine's connection, queue or the server's memory", func(t *testing.T) {
+		api, _ := reconcileTestServer(t)
+		for _, c := range []struct {
+			name    string
+			code    string
+			cause   wakeTimeoutCause
+			machine string
+			want    string
+		}{
+			{"a staff start lost mid-delivery", "wake_timeout", wakeTimeoutUndelivered, "m-box",
+				"wake_timeout: the START never reached machine 'm-box' — its SSE stream failed " +
+					"mid-delivery and the frame was dropped server-side, so nothing on that " +
+					"machine was ever asked to start; the machine's connection is the suspect, " +
+					"not the runtime on it"},
+			{"a worker start lost mid-delivery", "never_collected", wakeTimeoutUndelivered, "m-box",
+				"never_collected: the START never reached machine 'm-box' — its SSE stream " +
+					"failed mid-delivery and the frame was dropped server-side, so nothing on " +
+					"that machine was ever asked to start; the machine's connection is the " +
+					"suspect, not the runtime on it"},
+			{"a start still in the machine's queue", "never_collected", wakeTimeoutStillQueued, "m-box",
+				"never_collected: the START is still queued for machine 'm-box' — that " +
+					"machine's warden has not picked it up, so nothing has tried to boot yet; " +
+					"check that ocwarden is running and holding its connection there"},
+			{"a start whose machine the server forgot", "wake_timeout", wakeTimeoutTargetForgotten, "",
+				"wake_timeout: the start window elapsed with no session, and this server no " +
+					"longer has a record of which machine the START was sent to (the spawn " +
+					"ledger is in-memory and a server restart clears it) — use 更改 to place " +
+					"it again"},
+		} {
+			if got := api.wakeTimeoutReason(c.code, c.cause, c.machine, ""); got != c.want {
+				t.Fatalf("%s:\n got %q\nwant %q", c.name, got, c.want)
 			}
 		}
 	})
@@ -2025,9 +2062,9 @@ func TestStampWakeObservability(t *testing.T) {
 		want.LastOp = reconcileCmdStart
 		want.LastOpOK = reconcileTestFalse()
 		want.LastOpAt = reconcileTestNow + 300
-		want.LastOpReason = wakeTimeoutReasonCode + ": the START was dispatched but the agent " +
-			"never came online within the start window — check that claude runs and is logged " +
-			"in on the target machine (warden log: ocwarden.out.log)"
+		want.LastOpReason = wakeTimeoutReasonCode + ": the START was dispatched to machine " +
+			"'m-box' but the agent never came online within the start window — check that " +
+			"claude runs and is logged in on that machine (warden log: ocwarden.out.log)"
 		reconcileTestWantRow(t, d, "lapsed", want)
 	})
 
@@ -2040,9 +2077,9 @@ func TestStampWakeObservability(t *testing.T) {
 			{"codex not logged in", "codex_not_logged_in: machine 'm-box' is not logged in to codex",
 				"codex_not_logged_in: machine 'm-box' is not logged in to codex"},
 			{"another refusal", "claude_bin_unresolved: set OC_CLAUDE_BIN or put claude on the daemon PATH",
-				"wake_timeout: the START was dispatched but the agent never came online within the " +
-					"start window — check that claude runs and is logged in on the target machine " +
-					"(warden log: ocwarden.out.log)"},
+				"wake_timeout: the START was dispatched to machine 'm-box' but the agent never came " +
+					"online within the start window — check that claude runs and is logged in on " +
+					"that machine (warden log: ocwarden.out.log)"},
 		} {
 			t.Run(c.name, func(t *testing.T) {
 				api, d := reconcileTestServer(t)
@@ -2092,9 +2129,9 @@ func TestStampWakeObservability(t *testing.T) {
 
 				got := reconcileTestRow(t, d, "refused")
 				apiWantValue(t, "reason and waking", any([]any{got.LastOpReason, got.WakingSince}),
-					any([]any{"wake_timeout: the START never reached machine \"m-box\" — its SSE stream failed " +
+					any([]any{"wake_timeout: the START never reached machine 'm-box' — its SSE stream failed " +
 						"mid-delivery and the frame was dropped server-side, so nothing on that machine was ever " +
-						"asked to start; do not go looking at claude there, the machine's connection is the suspect", 0.0}))
+						"asked to start; the machine's connection is the suspect, not the runtime on it", 0.0}))
 			})
 		}
 	})
@@ -2117,10 +2154,10 @@ func TestStampWakeObservability(t *testing.T) {
 		want.LastOp = reconcileCmdStart
 		want.LastOpOK = reconcileTestFalse()
 		want.LastOpAt = reconcileTestNow + 300
-		want.LastOpReason = wakeTimeoutReasonCode + ": the START never reached machine \"m-box\" — " +
+		want.LastOpReason = wakeTimeoutReasonCode + ": the START never reached machine 'm-box' — " +
 			"its SSE stream failed mid-delivery and the frame was dropped server-side, so nothing " +
-			"on that machine was ever asked to start; do not go looking at claude there, the " +
-			"machine's connection is the suspect"
+			"on that machine was ever asked to start; the machine's connection is the suspect, " +
+			"not the runtime on it"
 		reconcileTestWantRow(t, d, "lost", want)
 	})
 
@@ -2689,9 +2726,9 @@ func TestReconcileTickMemberLocked(t *testing.T) {
 		wantRow.LastOp = reconcileCmdStart
 		wantRow.LastOpOK = reconcileTestFalse()
 		wantRow.LastOpAt = reconcileTestNow
-		wantRow.LastOpReason = wakeTimeoutReasonCode + ": the START was dispatched but the agent " +
-			"never came online within the start window — check that claude runs and is logged " +
-			"in on the target machine (warden log: ocwarden.out.log)"
+		wantRow.LastOpReason = wakeTimeoutReasonCode + ": the START was dispatched to machine " +
+			"'m-box' but the agent never came online within the start window — check that " +
+			"claude runs and is logged in on that machine (warden log: ocwarden.out.log)"
 		reconcileTestWantRow(t, d, "lapsed", wantRow)
 	})
 

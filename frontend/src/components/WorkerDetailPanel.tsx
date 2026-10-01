@@ -9,7 +9,12 @@ import {
   runtimeLabel,
   slot,
 } from "./AgentDetailPanel";
-import { pendingChangeHint, pendingModelHint } from "../lib/pendingChange";
+import {
+  pendingChangeHint,
+  pendingMachineHint,
+  pendingModelHint,
+  reportedMachine,
+} from "../lib/pendingChange";
 import { localizeLastOpReason } from "../lib/lastOpReason";
 import {
   buildAgentDetailVm,
@@ -27,6 +32,7 @@ import { RuntimeLoginWarningMark } from "./RuntimeLoginWarningMark";
 import { LifecycleDot, presenceVisual } from "./LifecycleDot";
 import { MemberActionButtons, stopLadderStageOf } from "./MemberActionButtons";
 import { ScheduledMessagesCard } from "./ScheduledMessagesCard";
+import { WebhooksCard } from "./WebhooksCard";
 // 🔴 This panel renders its settings dialog with the .machine-picker* classes,
 // so it must import their stylesheet ITSELF (T-7526). Both panels used to reach
 // that sheet only through a chain of OTHER modules' imports; one link in the
@@ -194,21 +200,13 @@ export function WorkerDetailPanel({
   // `rc-25c5679371c3`, both kinds).
   const machineText = awake || stoppingNow ? shownMachine : "";
   const desiredMachineId = worker.desiredMachineId ?? "";
-  const reportedMachineRaw = worker.machine || worker.actualMachine || "";
-  const reportedMachineId = registryEntry(reportedMachineRaw)?.machineId ?? "";
-  const pendingMachine =
-    desiredMachineId && reportedMachineId
-      ? pendingChangeHint(
-          desiredMachineId,
-          reportedMachineId,
-          msg.workerMachineMovingTo,
-          machineDisplay(desiredMachineId),
-        )
-      : pendingChangeHint(
-          machineDisplay(desiredMachineId),
-          machineDisplay(reportedMachineRaw),
-          msg.workerMachineMovingTo,
-        );
+  const pendingMachine = pendingMachineHint(
+    machines,
+    desiredMachineId,
+    reportedMachine(worker.machine ?? "", worker.actualMachine ?? ""),
+    msg.workerMachineMovingTo,
+    machineDisplay(desiredMachineId),
+  );
   const pendingRuntime = pendingChangeHint(
     worker.runtime || "claude",
     worker.actualRuntime ?? "",
@@ -788,13 +786,15 @@ export function WorkerDetailPanel({
     </div>
   );
 
-  // ── extraExpandCards slot: 定期訊息 (T-f059) ───────────────────────────────
-  // 🔴 NOT member-only. A schedule may bind to an `ow-` worker — chat's own
-  // recipient rule allows outsource, and the server follows it — so the worker
-  // panel drives the SAME card the member panel does, from the SAME component.
-  // This slot had no caller here before, which is precisely how the webhook
-  // section ended up living on only one of the two panels.
-  const scheduleCard = <ScheduledMessagesCard memberId={worker.id} />;
+  // ── extraExpandCards slot: 回呼端點 + 定期訊息, the member panel's two cards ──
+  // Both bind to an `ow-` worker on the server as they do to a member, and an
+  // endpoint is revoked with the worker when it is released.
+  const extraExpandCards = (
+    <>
+      <WebhooksCard memberId={worker.id} />
+      <ScheduledMessagesCard memberId={worker.id} />
+    </>
+  );
 
   // ── released: the worker finished its task and left ──────────────────────
   // 🔴 ONE renderer, ONE sentence (owner 2026-07-31:「為什麼從不同進入頁面會有
@@ -854,7 +854,7 @@ export function WorkerDetailPanel({
         overlays: slot(settingsDialog),
         afterIdentityCards: slot(taskCard),
         afterInfoCards: slot(delegatorCard),
-        extraExpandCards: slot(scheduleCard),
+        extraExpandCards: slot(extraExpandCards),
         afterPromptCards: slot(<ResumeSummaryCard agentId={worker.id} />),
       }}
       // The vm is BUILT by the shared assembly (lib/agentDetailVm), the SAME
@@ -896,7 +896,7 @@ export function WorkerDetailPanel({
         refocusOp: worker.refocusOp,
         refocusDeadline: worker.refocusDeadline,
         refocusSubmittedNote: t.workerDetail.refocusSubmittedNote,
-        refocusSinceLabel: msg.workerRefocusSince,
+        refocusSinceLabel: msg.memberRefocusSince,
         lastOp: worker.lastOp,
         lastOpStartText: t.workerDetail.lastOpStart,
         lastOpStopText: t.workerDetail.lastOpStop,

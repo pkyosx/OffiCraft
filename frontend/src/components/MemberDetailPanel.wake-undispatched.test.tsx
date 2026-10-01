@@ -2,19 +2,19 @@
 //
 // 🔴 WHY THESE ARE TRANSITION TESTS, NOT RENDER SNAPSHOTS. The bug this file
 // guards was invisible to every static assertion that already existed: the
-// panel rendered CORRECTLY at every individual instant — 「喚醒中…」 is the
-// right thing to show right after a click. What was wrong was the SEQUENCE:
+// panel rendered CORRECTLY at every individual instant — the waking row
+// (更改 ＋ 停止) is the right thing to show right after a click. What was wrong was the SEQUENCE:
 // the state entered on click had no exit when the activate came back saying
 // nothing had been dispatched, so it stayed forever. A snapshot of "after the
-// click it says 喚醒中…" passes on the broken build and the fixed one alike.
+// click it shows the waking row" passes on the broken build and the fixed one alike.
 // So each test here drives click → resolve → assert the state MOVED.
 //
 // Locked here:
 //   1. POSITIVE: click → activate resolves {activationPending: true} → the
-//      optimistic 「喚醒中…」 is ROLLED BACK (the wake button is usable again)
+//      optimistic waking row is ROLLED BACK (the wake button is usable again)
 //      and the notice appears.
 //   2. NEGATIVE: click → activate resolves {activationPending: false} → the
-//      optimistic 「喚醒中…」 SURVIVES and no notice appears. Only asserting the
+//      optimistic waking row SURVIVES and no notice appears. Only asserting the
 //      positive half would pass a mutant that just never sets wakePending.
 //   3. A void-returning handler (the pre-T-7fa1 contract) keeps the old
 //      behaviour — the panel must not invent a failure it was not told about.
@@ -95,14 +95,25 @@ function renderPanel(
 }
 
 /** The wake button, found the way the owner finds it: the enabled action in the
- * identity header. Asserting it is ENABLED is how we read "not pending" — the
- * panel disables it for the whole duration of a pending wake. */
+ * identity header. It exists only while the member is not up or coming up. */
 function wakeButton(container: HTMLElement): HTMLButtonElement {
   const btn = container.querySelector('[data-testid="member-action-spawn"]') as HTMLButtonElement | null;
   // Existence assertion paired with every read (手冊 §1): a renamed class must
   // fail loudly here, not silently turn every assertion below into a no-op.
   expect(btn, "the wake button must exist").not.toBeNull();
   return btn!;
+}
+
+/** The row a waking member shows: 更改 ＋ 停止, and no 喚醒 to fire twice. */
+function expectWakingRow(container: HTMLElement) {
+  expect(
+    Array.from(container.querySelectorAll(".mp-identity__buttons button")).map(
+      (b) => [b.getAttribute("data-testid"), b.textContent],
+    ),
+  ).toEqual([
+    ["mp-change", "更改"],
+    ["member-action-stop", "停止"],
+  ]);
 }
 
 async function confirmWakeSettings() {
@@ -112,7 +123,7 @@ async function confirmWakeSettings() {
 }
 
 describe("MemberDetailPanel · wake that was never dispatched (T-7fa1)", () => {
-  it("rolls the optimistic 喚醒中… back and shows the notice when activation_pending is true", async () => {
+  it("rolls the optimistic waking row back and shows the notice when activation_pending is true", async () => {
     const onActivate = vi.fn(async () => ({ activationPending: true }));
     const { container, queryByTestId } = renderPanel(onActivate);
 
@@ -136,7 +147,7 @@ describe("MemberDetailPanel · wake that was never dispatched (T-7fa1)", () => {
     await waitFor(() => expect(wakeButton(container).disabled).toBe(false));
   });
 
-  it("keeps the optimistic 喚醒中… when activation_pending is false (a real wake)", async () => {
+  it("keeps the optimistic waking row when activation_pending is false (a real wake)", async () => {
     const onActivate = vi.fn(async () => ({ activationPending: false }));
     const { container, queryByTestId } = renderPanel(onActivate);
 
@@ -150,7 +161,7 @@ describe("MemberDetailPanel · wake that was never dispatched (T-7fa1)", () => {
     // The member is still offline (presence has not caught up yet) — so the
     // panel must STAY pending. Clearing it here would put an idle-looking wake
     // button in front of a wake that IS in progress, and invite a double wake.
-    await waitFor(() => expect(wakeButton(container).disabled).toBe(true));
+    await waitFor(() => expectWakingRow(container));
     expect(queryByTestId("mp-wake-undispatched")).toBeNull();
   });
 
@@ -165,7 +176,7 @@ describe("MemberDetailPanel · wake that was never dispatched (T-7fa1)", () => {
     await confirmWakeSettings();
     await waitFor(() => expect(onActivate).toHaveBeenCalledTimes(1));
 
-    await waitFor(() => expect(wakeButton(container).disabled).toBe(true));
+    await waitFor(() => expectWakingRow(container));
     expect(queryByTestId("mp-wake-undispatched")).toBeNull();
   });
 });

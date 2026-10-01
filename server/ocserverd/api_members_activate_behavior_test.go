@@ -193,8 +193,9 @@ func TestActivateMember_RejectsUnresolvableMachine(t *testing.T) {
 
 // Positive control for the "or already online" arm: activating a member who is
 // ALREADY online decides `none` legitimately (nothing to start), and that must
-// not be reported as pending.
-func TestActivateMember_AlreadyOnlineIsNotPending(t *testing.T) {
+// not be reported as pending — but 最近操作 says why nothing happened, in the
+// same words an outsource worker gets.
+func TestActivateMember_AlreadyOnlineIsNotPendingAndSaysItWasAlreadyRunning(t *testing.T) {
 	s := newReconcileTestServer(t)
 	putWarden(t, s, "mach-live")
 	connectOnline(t, s, "mach-live")
@@ -239,6 +240,15 @@ func TestActivateMember_AlreadyOnlineIsNotPending(t *testing.T) {
 	}
 	if after.RestartAfterStop {
 		t.Fatalf("online activate must consume restart_after_stop: %+v", after)
+	}
+	const alreadyRunning = "session_alive: it was already running — 喚醒 left that session " +
+		"alone and dispatched nothing. Its work, and any 加速停止 or 重新聚焦 already under " +
+		"way on it, are untouched. To end the current session and start a fresh one, press " +
+		"強制停止 first, then 喚醒"
+	if after.LastOp != "start" || after.LastOpOK == nil || *after.LastOpOK ||
+		after.LastOpAt <= 0 || after.LastOpReason != alreadyRunning {
+		t.Fatalf("online activate receipt: last_op %q ok %v at %v reason %q; want start, false, >0, %q",
+			after.LastOp, after.LastOpOK, after.LastOpAt, after.LastOpReason, alreadyRunning)
 	}
 	assertNoFrame(t, memberSession, "online activate")
 	if frames := drainFrames(t, s, "mach-live"); len(frames) != 0 {

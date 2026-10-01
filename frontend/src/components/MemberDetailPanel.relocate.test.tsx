@@ -179,7 +179,12 @@ describe("MemberDetailPanel — unified wake/change settings", () => {
   it.each([
     ["stopping", "online", "mp-change", "按下後會存下新設定，它停下後會用新設定重新開起來。"],
     ["stopped", "offline", "member-action-spawn", "按下後會用這些設定開起來。"],
-    ["waking", "waking", "member-action-spawn", "按下後會用這些設定開起來。"],
+    [
+      "waking",
+      "waking",
+      "mp-change",
+      "按下後會存下新設定：換了機器會移到新機器、用新設定重新開起來；只換型號、執行環境或思考強度，下次開起來才生效。",
+    ],
   ] as const)(
     "a %s member's settings note (status %s, opened by %s) reads %s",
     async (lifecycle, status, opener, text) => {
@@ -261,6 +266,25 @@ describe("MemberDetailPanel — unified wake/change settings", () => {
     // …and the OBSERVED cell is still honest about not observing anything.
     expect(getByTestId("mp-machine").textContent).toBe("—");
     expect(queryByTestId("mp-relocate-undispatched")).toBeNull();
+  });
+
+  it("two machines both named box: a member pinned to one and running on the other shows → 要換到 box", async () => {
+    listMachines.mockImplementationOnce(() =>
+      Promise.resolve([machine("mach-a", "box"), machine("mach-b", "box")]),
+    );
+    const { findByTestId } = renderPanel({
+      status: "online",
+      lifecycle: "online",
+      machine: "mach-b",
+      actualMachine: "mach-b",
+      desiredMachineId: "mach-a",
+    });
+    await waitFor(async () =>
+      expect((await findByTestId("mp-machine")).textContent).toBe("box"),
+    );
+    expect((await findByTestId("mp-machine-pending")).textContent).toBe(
+      "→ 要換到 box",
+    );
   });
 
   it("prints nothing at all when the pin and the last landing agree", async () => {

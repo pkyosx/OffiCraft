@@ -51,6 +51,32 @@ export function reportedMachine(observed: string, lastObserved: string): string 
   return observed || lastObserved;
 }
 
+/** The machine cell's hint, for both panels. A machine value can arrive as an
+ * id or as a display name, and two machines can share a display name — so the
+ * two sides are compared by id whenever both resolve to a registry entry, and
+ * by display name only when one of them does not. Comparing names alone would
+ * read a member pinned to one `box` and running on the other `box` as settled. */
+export function pendingMachineHint(
+  machines: readonly { machineId: string; displayName: string }[],
+  desiredMachineId: string,
+  reported: string,
+  label: (configuredDisplay: string) => string,
+  configuredDisplay: string,
+): string {
+  const entry = (value: string) =>
+    machines.find((m) => m.machineId === value || m.displayName === value);
+  const display = (value: string) => entry(value)?.displayName || value;
+  const reportedId = entry(reported)?.machineId ?? "";
+  return desiredMachineId && reportedId
+    ? pendingChangeHint(desiredMachineId, reportedId, label, configuredDisplay)
+    : pendingChangeHint(
+        display(desiredMachineId),
+        display(reported),
+        label,
+        configuredDisplay,
+      );
+}
+
 const CLAUDE_ALIAS_MODEL = /^claude-(fable|opus|sonnet|haiku)-\d[\w.-]*(\[1m\])?$/;
 const CODEX_FAMILY_MODEL = /^gpt-\d+(?:\.\d+)*-(astra|sol|terra|luna)$/;
 

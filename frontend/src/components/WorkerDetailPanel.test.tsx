@@ -843,7 +843,7 @@ describe("WorkerDetailPanel — lifecycle ops (T-32e1/T-f190)", () => {
     },
   );
 
-  it("refocus round-trips: clicking online surfaces the sent acknowledgement", async () => {
+  it("refocus round-trips: clicking online surfaces the sent acknowledgement and 上次重新聚焦, the member panel's label", async () => {
     __injectMockTask(mkTask({ id: "t-1" }));
     __injectMockOutsourceWorker(
       mkWorker({ id: "ow-1", taskId: "t-1", presence: "online" }),
@@ -851,7 +851,12 @@ describe("WorkerDetailPanel — lifecycle ops (T-32e1/T-f190)", () => {
     const { findByTestId } = renderOfficeAt("#office/worker/ow-1");
     fireEvent.click(await findByTestId("worker-detail-refocus"));
     // The mock stamps refocus_since; the panel keeps the persistent "sent" note.
-    await findByTestId("worker-detail-refocus-note");
+    expect((await findByTestId("worker-detail-refocus-note")).textContent).toBe(
+      "已送出重新聚焦 · 外包重生中…",
+    );
+    expect((await findByTestId("worker-detail-refocus-since")).textContent).toMatch(
+      /^上次重新聚焦 \S/,
+    );
   });
 
   // 🔴 REWRITTEN THREE TIMES FOR T-ed79. First for 「往正職靠：外包那顆改成優雅
@@ -1217,7 +1222,7 @@ describe("WorkerDetailPanel — lifecycle ops (T-32e1/T-f190)", () => {
     [
       "waking",
       "worker-detail-change",
-      "按下後：換了機器會當場用新設定重新開起來；只換型號、執行環境或思考強度，下次開起來才生效。" +
+      "按下後會存下新設定：換了機器會移到新機器、用新設定重新開起來；只換型號、執行環境或思考強度，下次開起來才生效。" +
         " 上方顯示的是目前實際使用的模型，可能和這裡的設定不同。",
     ],
   ] as const)(
@@ -1251,7 +1256,7 @@ describe("WorkerDetailPanel — lifecycle ops (T-32e1/T-f190)", () => {
     [
       "waking",
       "worker-detail-change",
-      "Once confirmed: a new machine restarts it there right away with the new settings; a new model, runtime or effort alone takes effect the next time it starts.",
+      "Once confirmed, the new settings are saved: a new machine moves it there and restarts it with the new settings; a new model, runtime or effort alone takes effect the next time it starts.",
     ],
   ] as const)(
     "in English, a %s worker's dialog opened by %s → the settings note reads %s",
@@ -2187,5 +2192,30 @@ describe("WorkerDetailPanel · 履歷摘要", () => {
     expect((await findByTestId("mp-resume-body")).textContent).toContain("T-4595");
 
     spy.mockRestore();
+  });
+});
+
+describe("WorkerDetailPanel · 回呼端點", () => {
+  it("creates an endpoint bound to THIS worker and lists it in the worker's own 回呼端點 card", async () => {
+    __injectMockTask(mkTask({ id: "t-w1" }));
+    __injectMockOutsourceWorker(mkWorker({ id: "ow-w1", taskId: "t-w1", presence: "online" }));
+    const spy = vi.spyOn(api, "createWebhook");
+
+    const { findByTestId, getByPlaceholderText } = renderOfficeAt("#office/worker/ow-w1");
+    fireEvent.click(await findByTestId("mp-webhook-toggle"));
+    fireEvent.click(await findByTestId("mp-webhook-add"));
+    fireEvent.change(getByPlaceholderText(zh.mp.webhook.endpointIdPlaceholder), {
+      target: { value: "ci-in" },
+    });
+    fireEvent.click(await findByTestId("mp-webhook-create"));
+
+    await waitFor(() =>
+      expect(spy).toHaveBeenCalledWith("ow-w1", {
+        endpointId: "ci-in",
+        purpose: "",
+        platform: "generic",
+      }),
+    );
+    await findByTestId("mp-webhook-stats-ci-in");
   });
 });

@@ -160,11 +160,11 @@ describe("OfficePage · an undispatched wake reaches the UI (T-7fa1)", () => {
     await confirmSettings();
 
     // Give the same async settling the positive case needed, then assert the
-    // notice never appeared. (The mock DOES move presence here, so this also
-    // pins that a landed wake keeps behaving exactly as it did before.)
+    // notice never appeared. The mock DOES move presence here, so the row is
+    // the waking one: 更改 ＋ 停止.
     await waitFor(() =>
       expect(
-        container.querySelector('[data-testid="member-action-spawn"]'),
+        container.querySelector('[data-testid="member-action-stop"]'),
       ).not.toBeNull(),
     );
     expect(queryByTestId("mp-wake-undispatched")).toBeNull();
