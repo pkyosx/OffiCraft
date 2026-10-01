@@ -249,6 +249,19 @@ describe("LorePage — 已離開的外包只留名牌，不留輸入框", () => 
     expect(perId.mock.calls.map(([id]) => id)).toEqual([DEPARTED_STAFF]);
   });
 
+  it("when the roster read fails a departed staff writer is still named through the per-id read", async () => {
+    stubRoster([]);
+    vi.spyOn(api, "listMembers").mockRejectedValue(new Error("roster unavailable"));
+    stubList([mkEntry({ id: "L-13", authorId: DEPARTED_STAFF })]);
+    const { container } = renderPage();
+    await waitFor(() =>
+      expect(
+        rowById(container, "L-13").querySelector('[data-testid="lore-author-row"]')
+          ?.textContent,
+      ).toBe("阿哲"),
+    );
+  });
+
   it("still renders the composer for a 外包 who is STILL on the live roster", async () => {
     // The other direction, and it is not decoration: a fix that hid the box for
     // every ow- author would pass the spec above and take the live case with

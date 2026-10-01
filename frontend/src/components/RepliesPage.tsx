@@ -103,7 +103,6 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   const {
     members,
     loading: membersLoading,
-    error: membersError,
   } = useMembers({ light: true });
   const {
     waiting,
@@ -581,7 +580,7 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   // way, and the same read still serves the name. Judged only once the roster
   // has loaded: before that every live colleague looks absent and would cost a
   // read each.
-  const rosterLoaded = !membersLoading && !membersError;
+  const rosterLoaded = !membersLoading;
   const departedStaffIds = rosterLoaded
     ? askerIds.filter(
         (id) =>

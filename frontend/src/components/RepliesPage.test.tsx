@@ -269,34 +269,55 @@ describe("RepliesPage", () => {
     }
   });
 
+  it("when the roster read fails a departed staff asker is still named through the per-id read", async () => {
+    const listMembers = vi
+      .spyOn(api, "listMembers")
+      .mockRejectedValue(new Error("roster unavailable"));
+    try {
+      __injectMockReplyCard(mkCard({ id: "rc-left", from: "m-left", summary: "離職正職的請示" }));
+      const { findAllByTestId } = renderPage();
+      const [card] = await findAllByTestId("waiting-card");
+      await waitFor(() =>
+        expect(card.querySelector(".reply-card__name")?.textContent).toBe("阿哲"),
+      );
+    } finally {
+      listMembers.mockRestore();
+    }
+  });
+
   it("under a link to a handled card whose pane was never opened, the asker that has left still reads its name", async () => {
     // jsdom has no scrollIntoView; a deep link scrolls to its card.
+    const scrollIntoView = Element.prototype.scrollIntoView;
     Element.prototype.scrollIntoView = vi.fn();
-    const twoDaysAgo = Date.now() / 1000 - 2 * 24 * 3600;
-    for (const [id, from, expected] of [
-      ["rc-left-old", "m-left", "阿哲"],
-      ["rc-rel-old", "ow-rel", "外包 · R-2"],
-    ] as const) {
-      __resetMock();
-      __injectMockReplyCard(
-        mkCard({
-          id,
-          from,
-          status: "expired",
-          createdTs: twoDaysAgo,
-          answeredTs: twoDaysAgo,
-        })
-      );
-      const { findByTestId, unmount } = render(
-        <I18nProvider>
-          <ReplyCardsProvider>
-            <RepliesPage replyCardId={id} />
-          </ReplyCardsProvider>
-        </I18nProvider>
-      );
-      const card = await findByTestId("expired-card");
-      expect(card.querySelector(".reply-card__name")?.textContent).toBe(expected);
-      unmount();
+    try {
+      const twoDaysAgo = Date.now() / 1000 - 2 * 24 * 3600;
+      for (const [id, from, expected] of [
+        ["rc-left-old", "m-left", "阿哲"],
+        ["rc-rel-old", "ow-rel", "外包 · R-2"],
+      ] as const) {
+        __resetMock();
+        __injectMockReplyCard(
+          mkCard({
+            id,
+            from,
+            status: "expired",
+            createdTs: twoDaysAgo,
+            answeredTs: twoDaysAgo,
+          })
+        );
+        const { findByTestId, unmount } = render(
+          <I18nProvider>
+            <ReplyCardsProvider>
+              <RepliesPage replyCardId={id} />
+            </ReplyCardsProvider>
+          </I18nProvider>
+        );
+        const card = await findByTestId("expired-card");
+        expect(card.querySelector(".reply-card__name")?.textContent).toBe(expected);
+        unmount();
+      }
+    } finally {
+      Element.prototype.scrollIntoView = scrollIntoView;
     }
   });
 

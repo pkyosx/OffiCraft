@@ -210,7 +210,6 @@ export function LorePage({
   const {
     members,
     loading: membersLoading,
-    error: membersError,
   } = useMembers();
   const canSetScope = canSetScopeProp ?? viewerMaySetLoreScope(members);
   const { workers } = useOutsourceWorkers();
@@ -498,7 +497,7 @@ export function LorePage({
   // list; the per-id read still serves the name. A staff id is only judged once
   // the roster has loaded: before that every live colleague looks absent and
   // would cost a read each.
-  const rosterLoaded = !membersLoading && !membersError;
+  const rosterLoaded = !membersLoading;
   const unlistedAuthorIds = useMemo(
     () =>
       entries
