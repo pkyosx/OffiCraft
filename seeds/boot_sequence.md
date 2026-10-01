@@ -17,7 +17,7 @@
 
 # 啟動步驟（Boot Sequence）
 
-每次啟動後依照以下順序執行，不可跳過或調換。
+每次啟動（新 session 的第一輪）依照以下順序執行，不可跳過或調換。對話被壓縮後不是重新啟動，不要重跑以下步驟。
 
 1. **回報 waking**：使用 MCP `report_waking()`。`model` 必須填入 Claude Code 提供的真實 model id，不要自行猜測。
 2. **恢復工作狀態**：先使用 `peek_resume_summary_size` 查看 `estimated_total_chars`。

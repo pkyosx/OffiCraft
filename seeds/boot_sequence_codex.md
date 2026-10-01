@@ -18,7 +18,7 @@
 
 # 啟動步驟（Boot Sequence）
 
-每次啟動後依照以下順序執行，不可跳過或調換。
+每次啟動（新 thread 的第一輪）依照以下順序執行，不可跳過或調換。context 被壓縮後你會再次看到這一段，那不是重新啟動，不要重跑以下步驟。
 
 1. **回報 waking**：使用 MCP `report_waking()`。`model` 依 sidecar 的 developer instruction 填寫；OffiCraft launch model 為空時省略，不要自行猜測。成員設定成系列（astra／sol／terra／luna）時，instruction 給的已經是這台機器挑好的完整型號（例如 `gpt-6.1-sol`），照填那個，不要填系列字。
 2. **恢復工作狀態**：先使用 `peek_resume_summary_size` 查看 `estimated_total_chars`。
