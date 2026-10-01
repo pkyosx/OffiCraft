@@ -218,7 +218,10 @@ type apiServer struct {
 
 	workerTakeoverLiftedAt map[string]float64
 
-	workerOfflineSince map[string]float64
+	// offlineConfirmSince: member/worker id → start of its current offline run
+	// (sessionConfirmedGone). A sync.Map because both ticks and the SSE connect
+	// edge touch it under different locks or none.
+	offlineConfirmSince sync.Map
 
 	updateMu    txguard.Mutex
 	updateCheck updateCheckState

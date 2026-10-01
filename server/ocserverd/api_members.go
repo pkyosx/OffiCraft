@@ -976,9 +976,9 @@ func (s *apiServer) HandleDeactivateMemberApiMembersMemberIdDeactivatePost(w htt
 		}
 		// 🔴 Cancelling a wake is not a graceful stop (T-7526). Read BEFORE the
 		// mutation: stamping stopping_since ends the waking projection. A waking
-		// member is not online, and decideDown's first branch treats !Online as
-		// converged, so without this the cadence dispatched nothing and the cancel
-		// did nothing.
+		// member is not online, and decideDown's offline arm sends nothing until the
+		// confirm window has passed, so without this the cancel did nothing for that
+		// long.
 		cancellingWake = PresenceState(*cur, nowSecs(), sessionAlive) == MemberPresenceWaking
 		applyStopVerbRow(stopVerbRowOfMember(cur), *cur, nowSecs())
 		stopped = *cur
@@ -1067,6 +1067,8 @@ const (
 		"or 重新聚焦 (refocus) first"
 	acceleratedStopNeedsALiveSessionMsg = "加速停止 requires a live session — there is " +
 		"nothing to accelerate on a member that is not connected"
+	acceleratedStopAlreadyForcedMsg = "加速停止 has nothing to escalate — this member was " +
+		"already force-stopped (強制停止): its session was cut off and no wind-down is open"
 )
 
 // Middle rung of 停止 → 加速停止 → 強制停止 (owner 2026-08-21). 🔴 It escalates, never
@@ -1126,6 +1128,11 @@ func accelerateMemberStop(m *Member, now float64) error {
 	_, alreadyClocked := winddownKindFor(m.RefocusOp)
 	switch {
 	case m.DesiredState == DesiredStateOffline:
+		// STOP-EPOCH-TERM-AUDIT: forcedEpochLive only picks which refusal to word; the
+		// gate itself is gracefulStopEpochOpen.
+		if forcedEpochLive(*m) {
+			return refuseInTx(http.StatusConflict, acceleratedStopAlreadyForcedMsg)
+		}
 		if !gracefulStopEpochOpen(*m) {
 			return refuseInTx(http.StatusConflict, acceleratedStopNeedsAnOpenWindDownMsg)
 		}

@@ -1102,30 +1102,6 @@ func (s *apiServer) stopWorkerNow(w OutsourceWorker) {
 		w.ID, w.Codename, targets)
 }
 
-// workerOfflineConfirmGraceSecs: how long a worker must be continuously offline
-// before its session counts as gone. hub.IsOnline is an instantaneous sample and
-// an ordinary reconnect blip used to kill a live worker mid hand-off.
-// 120 is an owner ruling (rc-dbee69264859). Floor ≈ 90: the agent's 45s
-// idle-read watchdog (cli/ocagent/listen.go) + 15s backoff cap + one 30s tick.
-// Do not derive it from WakingTTLSecs or reuse ZombieConfirmGrace.
-const workerOfflineConfirmGraceSecs = 120.0
-
-// workerSessionConfirmedGone is called once per tick for a desired-offline
-// worker, before its collect arms branch, so the anchor advances even on ticks
-// that collect nothing. Callers hold s.outsourceMu.
-func (s *apiServer) workerSessionConfirmedGone(workerID string, now float64) bool {
-	if s.hub.IsOnline(workerID) {
-		delete(s.workerOfflineSince, workerID)
-		return false
-	}
-	since, armed := s.workerOfflineSince[workerID]
-	if !armed {
-		s.workerOfflineSince[workerID] = now
-		return false
-	}
-	return now-since >= workerOfflineConfirmGraceSecs
-}
-
 // autoHandoverWorker drives only the 停止 epoch (desired_state=offline): the
 // shared FSM never sees a desired-offline worker, so this is that intent's only
 // driver. Handover collection and context thresholds live in the shared FSM and
@@ -1136,8 +1112,8 @@ func (s *apiServer) autoHandoverWorker(w OutsourceWorker, now float64) {
 	// session is confirmed gone, or the owner's 加速停止 deadline passed. A plain
 	// 停止 has no clock and waits indefinitely (owner ruling rc-27d1710174dd).
 	if w.DesiredState == DesiredStateOffline {
-		sessionGone := s.workerSessionConfirmedGone(w.ID, now)
-		if w.StoppedSince <= 0.0 && gracefulStopEpochOpen(memberFromWorker(w)) {
+		sessionGone := s.sessionConfirmedGone(w.ID, now)
+		if stopAwaitsCollect(memberFromWorker(w)) {
 			if sessionGone {
 				s.collectWorkerStop(w, "stop-session-gone", triggerServer)
 			} else if grace, clocked := recycleGraceFor(

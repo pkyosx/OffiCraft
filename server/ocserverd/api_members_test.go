@@ -2653,7 +2653,7 @@ func TestHandleAcceleratedStopMemberApiMembersMemberIdAcceleratedStopPost(t *tes
 		self.wantFrames(apiTestMemberFrame(1, "patch", "kip", payload, "owner"))
 	})
 
-	t.Run("a force-stopped member answers 409 and nothing is put on a clock", func(t *testing.T) {
+	t.Run("a force-stopped member answers 409 saying it was force-stopped and nothing is put on a clock", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		apiTestListen(t, api, "kip")
 		if status, data := apiJSON(t, h, "POST", "/api/members/kip/force-stop", owner, `{}`); status != 200 {
@@ -2670,8 +2670,8 @@ func TestHandleAcceleratedStopMemberApiMembersMemberIdAcceleratedStopPost(t *tes
 			t.Fatalf("want 409, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "conflict",
-			"加速停止 escalates a wind-down that is already open — this member has not "+
-				"been asked to stop. Press 停止 (deactivate) or 重新聚焦 (refocus) first")
+			"加速停止 has nothing to escalate — this member was already force-stopped "+
+				"(強制停止): its session was cut off and no wind-down is open")
 		dashboard.wantFrames()
 		m, err := d.GetMember("kip")
 		if err != nil || m == nil {
@@ -3697,7 +3697,7 @@ func TestHandleReportStoppedApiSelfStoppedPost(t *testing.T) {
 			}))
 
 			api.hub.Disconnect(session)
-			api.runOutsourceTick(nowSecs() + workerOfflineConfirmGraceSecs + 1)
+			api.runOutsourceTick(nowSecs() + offlineConfirmGraceSecs + 1)
 			wsWantWardenFrames(t, api, ServerSelfHost)
 		})
 	}

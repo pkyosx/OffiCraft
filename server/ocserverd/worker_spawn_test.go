@@ -1348,29 +1348,33 @@ func TestUndeliveredWorkerStart(t *testing.T) {
 	})
 }
 
-func TestWorkerSessionConfirmedGone(t *testing.T) {
-	t.Run("the first offline sample only arms the anchor; the session is a fact one full window later", func(t *testing.T) {
-		api, _, _, _, _ := wsWorkerSpawnFixture(t, WorkerStatusActive)
+func TestSessionConfirmedGone(t *testing.T) {
+	// One judgement for both populations: a worker and a staff member answer alike.
+	for _, id := range []string{"ow-abc123", "kip"} {
+		t.Run(id+": the first offline sample only arms the anchor; the session is a fact one full window later", func(t *testing.T) {
+			api, _, _, _, _ := wsWorkerSpawnFixture(t, WorkerStatusActive)
 
-		apiWantValue(t, "first sample", any(api.workerSessionConfirmedGone("ow-abc123", 1000)), any(false))
-		apiWantValue(t, "one second short of the window", any(api.workerSessionConfirmedGone("ow-abc123", 1119)), any(false))
-		apiWantValue(t, "at the window", any(api.workerSessionConfirmedGone("ow-abc123", 1120)), any(true))
-		apiWantValue(t, "past the window", any(api.workerSessionConfirmedGone("ow-abc123", 5000)), any(true))
-	})
+			apiWantValue(t, "first sample", any(api.sessionConfirmedGone(id, 1000)), any(false))
+			apiWantValue(t, "one second short of the window", any(api.sessionConfirmedGone(id, 1119)), any(false))
+			apiWantValue(t, "at the window", any(api.sessionConfirmedGone(id, 1120)), any(true))
+			apiWantValue(t, "past the window", any(api.sessionConfirmedGone(id, 5000)), any(true))
+		})
 
-	t.Run("a reconnect inside the window drops the anchor, and a later disconnect starts a fresh window rather than resuming it", func(t *testing.T) {
-		api, _, _, _, _ := wsWorkerSpawnFixture(t, WorkerStatusActive)
-		api.workerSessionConfirmedGone("ow-abc123", 1000)
-		listener := apiTestListen(t, api, "ow-abc123")
+		t.Run(id+": a reconnect inside the window drops the anchor, and a later disconnect starts a fresh window rather than resuming it", func(t *testing.T) {
+			api, _, _, _, _ := wsWorkerSpawnFixture(t, WorkerStatusActive)
+			api.sessionConfirmedGone(id, 1000)
+			listener := apiTestListen(t, api, id)
 
-		apiWantValue(t, "while online", any(api.workerSessionConfirmedGone("ow-abc123", 1119)), any(false))
-		apiWantValue(t, "the anchor after a reconnect", any(float64(len(api.workerOfflineSince))), any(0))
+			apiWantValue(t, "while online", any(api.sessionConfirmedGone(id, 1119)), any(false))
+			_, anchored := api.offlineConfirmSince.Load(id)
+			apiWantValue(t, "the anchor after a reconnect", any(anchored), any(false))
 
-		api.hub.Disconnect(listener.l)
-		apiWantValue(t, "the first sample of the new window", any(api.workerSessionConfirmedGone("ow-abc123", 1200)), any(false))
-		apiWantValue(t, "one second short of the new window", any(api.workerSessionConfirmedGone("ow-abc123", 1319)), any(false))
-		apiWantValue(t, "at the new window", any(api.workerSessionConfirmedGone("ow-abc123", 1320)), any(true))
-	})
+			api.hub.Disconnect(listener.l)
+			apiWantValue(t, "the first sample of the new window", any(api.sessionConfirmedGone(id, 1200)), any(false))
+			apiWantValue(t, "one second short of the new window", any(api.sessionConfirmedGone(id, 1319)), any(false))
+			apiWantValue(t, "at the new window", any(api.sessionConfirmedGone(id, 1320)), any(true))
+		})
+	}
 }
 
 func TestResolveWorkerKillTarget(t *testing.T) {

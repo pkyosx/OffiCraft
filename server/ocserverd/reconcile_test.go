@@ -1068,6 +1068,33 @@ func TestDecideDown(t *testing.T) {
 		})
 	})
 
+	t.Run("an offline member whose stop is uncollected stays stopping and is sent nothing until the confirm window has passed", func(t *testing.T) {
+		awaiting := obs
+		awaiting.StopAwaitsCollect = true
+		st := reconcileState{Phase: reconcilePhaseOffline, LastCommand: reconcileCmdNone}
+		reconcileTestWantDecision(t, decideDown(awaiting, st, cfg, now), reconcileDecision{
+			Command: reconcileCmdNone, MemberID: "kip",
+			Reason: "stopping: offline, not yet for the whole confirm window — a reconnect " +
+				"inside it is a network blip, not a finished session",
+			State: reconcileState{Phase: reconcilePhaseStopping, LastCommand: reconcileCmdNone},
+		})
+	})
+
+	t.Run("an offline member whose stop is uncollected and whose session is confirmed gone is collected with a STOP", func(t *testing.T) {
+		gone := obs
+		gone.StopAwaitsCollect = true
+		gone.SessionConfirmedGone = true
+		st := reconcileState{Phase: reconcilePhaseStopping, LastCommand: reconcileCmdNone}
+		reconcileTestWantDecision(t, decideDown(gone, st, cfg, now), reconcileDecision{
+			Command: reconcileCmdStop, MemberID: "kip", StopKind: "session_gone",
+			Reason: "collect: offline for the whole confirm window — latch the close-out " +
+				"and stop any residual session",
+			State: reconcileState{
+				Phase: reconcilePhaseStopping, LastCommand: reconcileCmdStop, LastCommandAt: now,
+			},
+		})
+	})
+
 	t.Run("a plain 停止 runs no clock at all: the member is left to work its offboard sequence indefinitely", func(t *testing.T) {
 		online := obs
 		online.Online = true

@@ -220,7 +220,7 @@ func memberRestartQueuedReceipt(op string) string {
 }
 
 // 🔴 Waits for the SESSION TO BE GONE (the same hub.IsOnline authority as
-// decideDown's converged branch), not a clock or a stopped-report, so a 強制停止
+// decideDown's offline arm), not a clock or a stopped-report, so a 強制停止
 // whose kill is still in flight is not restarted underneath itself.
 //
 // 🔴 T-55 TRIPWIRE: twelve fields land here in one tick. Every T-55 batch that
@@ -417,6 +417,37 @@ func collectWindDownRow(row windDownAnchorRow, now float64) (latched bool, prior
 		return true, prior
 	}
 	return false, prior
+}
+
+// offlineConfirmGraceSecs: how long a stopped member or worker must be
+// continuously offline before its session counts as gone. hub.IsOnline is an
+// instantaneous sample and an ordinary reconnect blip used to kill a live session
+// mid hand-off. 120 is an owner ruling (rc-dbee69264859). Floor ≈ 90: the agent's
+// 45s idle-read watchdog (cli/ocagent/listen.go) + 15s backoff cap + one 30s tick.
+// Do not derive it from WakingTTLSecs or reuse ZombieConfirmGrace.
+const offlineConfirmGraceSecs = 120.0
+
+// stopAwaitsCollect: a graceful 停止 epoch nobody has collected yet. A forced
+// epoch is excluded because force-stop already sent its kill.
+func stopAwaitsCollect(m Member) bool {
+	return m.StoppedSince <= 0.0 && gracefulStopEpochOpen(m)
+}
+
+// sessionConfirmedGone is the one "the stopped session is gone" judgement for
+// both populations. Both ticks call it once per tick for every desired-offline
+// subject, before deciding whether to collect, so the anchor advances even on
+// ticks that collect nothing. The anchor map takes no scheduler lock: the
+// outsource tick calls this under outsourceMu, the member tick under reconcileMu.
+func (s *apiServer) sessionConfirmedGone(memberID string, now float64) bool {
+	if s.hub.IsOnline(memberID) {
+		s.offlineConfirmSince.Delete(memberID)
+		return false
+	}
+	since, armed := s.offlineConfirmSince.LoadOrStore(memberID, now)
+	if !armed {
+		return false
+	}
+	return now-since.(float64) >= offlineConfirmGraceSecs
 }
 
 // 🔴 外包 force-stop (api_outsource.go) deliberately does NOT use this: it adds a
