@@ -50,6 +50,7 @@ import type {
   OnboardResultView,
   DeleteResultView,
   UninstallResultView,
+  RuntimeLoginView,
   BootstrapResultView,
   TeardownHereResultView,
   MachineView,
@@ -144,6 +145,7 @@ import {
   toOnboardResult,
   toDeleteResult,
   toUninstallResult,
+  toRuntimeLogin,
   toBootstrapResult,
   toTeardownHereResult,
   toMachine,
@@ -425,6 +427,7 @@ export const SSE_RESYNC_TOPICS = [
   "insight",
   "context",
   "monitoring",
+  "runtime_login",
 ] as const;
 
 // The payload fields that name an ENTITY rather than describe one (spec/sse.md
@@ -2284,6 +2287,48 @@ export const httpApi: Api = {
       }),
     );
     return toUninstallResult(wire);
+  },
+
+  async startRuntimeLogin(machineId: string, runtime: "claude"): Promise<RuntimeLoginView> {
+    const wire = unwrap(
+      await client.POST("/api/machines/{machine_id}/runtime-login", {
+        params: { path: { machine_id: machineId } },
+        body: { runtime },
+      }),
+    );
+    return toRuntimeLogin(wire);
+  },
+
+  async getRuntimeLogin(machineId: string, loginId: string): Promise<RuntimeLoginView> {
+    const wire = unwrap(
+      await client.GET("/api/machines/{machine_id}/runtime-login/{login_id}", {
+        params: { path: { machine_id: machineId, login_id: loginId } },
+      }),
+    );
+    return toRuntimeLogin(wire);
+  },
+
+  async submitRuntimeLoginCode(
+    machineId: string,
+    loginId: string,
+    code: string,
+  ): Promise<RuntimeLoginView> {
+    const wire = unwrap(
+      await client.POST("/api/machines/{machine_id}/runtime-login/{login_id}/code", {
+        params: { path: { machine_id: machineId, login_id: loginId } },
+        body: { code },
+      }),
+    );
+    return toRuntimeLogin(wire);
+  },
+
+  async cancelRuntimeLogin(machineId: string, loginId: string): Promise<RuntimeLoginView> {
+    const wire = unwrap(
+      await client.POST("/api/machines/{machine_id}/runtime-login/{login_id}/cancel", {
+        params: { path: { machine_id: machineId, login_id: loginId } },
+      }),
+    );
+    return toRuntimeLogin(wire);
   },
 
   async getMachineBootCommand(machineId: string): Promise<string> {

@@ -1658,6 +1658,33 @@ export const zh = {
       power: "電源",
       codex: "Codex",
     },
+    // 監控頁 Claude 欄的「⋯」操作選單與登入對話框。帶參數的句子拆成
+    // lead/tail 靜態葉子,由元件串接。
+    runtimeLogin: {
+      menuLabel: "操作",
+      login: "登入",
+      title: "登入 Claude",
+      preparingLead: "正在請 ",
+      preparingTail: " 準備登入…",
+      replaceHint: "完成後會換成新登入的帳號",
+      instructions: "在新分頁登入 Claude 並授權，把頁面上顯示的授權碼貼回這裡",
+      openUrl: "開啟授權頁面",
+      copyUrl: "複製網址",
+      copied: "已複製",
+      codeLabel: "授權碼",
+      submit: "送出",
+      verifying: "登入中…",
+      succeededLead: "已登入：",
+      orgLead: "（",
+      orgTail: "）",
+      failedLead: "登入失敗：",
+      expired: "登入逾時，請重新開始",
+      cancelled: "登入已取消",
+      restart: "重新開始",
+      noResponseTail: " 沒有回應登入要求",
+      noResponseCauses: "可能原因：機器離線，或這台機器上的 warden 版本太舊、還不支援從這裡登入。",
+      close: "關閉",
+    },
     // §3 session table headers
     sessionCol: {
       member: "成員",

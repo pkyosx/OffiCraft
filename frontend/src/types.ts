@@ -459,6 +459,30 @@ export interface UninstallResultView {
   dispatched: boolean;
 }
 
+/** `RuntimeLoginDTO.state`. `starting` never advances on a warden that
+ * predates the login verbs, so the UI gives up on it after 30s. */
+export type RuntimeLoginState =
+  | "starting"
+  | "awaiting_code"
+  | "verifying"
+  | "succeeded"
+  | "failed"
+  | "expired"
+  | "cancelled";
+
+/** One runtime login the server relays to a machine's warden. Memory-only on
+ * the server: a restart or ~10 minutes after it ends, it reads as 404. */
+export interface RuntimeLoginView {
+  loginId: string;
+  machineId: string;
+  runtime: "claude";
+  state: RuntimeLoginState;
+  authUrl: string | null;
+  account: { email: string | null; orgName: string | null } | null;
+  reason: string | null;
+  updatedTs: number;
+}
+
 // ── Monitoring view models (camelCase; mapped from the Wire* mon shapes) ──────
 // Same honesty rule as `Member`: `null` means "no real source yet" → the UI
 // renders "—", never a fabricated number.

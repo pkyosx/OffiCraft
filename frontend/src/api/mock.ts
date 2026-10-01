@@ -31,6 +31,7 @@ import type {
   OnboardResultView,
   DeleteResultView,
   UninstallResultView,
+  RuntimeLoginView,
   BootstrapResultView,
   TeardownHereResultView,
   MachineView,
@@ -119,6 +120,7 @@ import type {
   WireOnboardResult,
   WireDeleteResult,
   WireUninstallResult,
+  WireRuntimeLogin,
   WireMachine,
   WireServerSettings,
 } from "./wire";
@@ -142,6 +144,7 @@ import {
   toOnboardResult,
   toDeleteResult,
   toUninstallResult,
+  toRuntimeLogin,
   toMachine,
   toServerSettings,
 } from "./mappers";
@@ -1269,6 +1272,21 @@ const mockDocs: DocView[] = [
 const topicSubscribers = new Set<(topic: string) => void>();
 function emitTopic(topic: string): void {
   for (const cb of [...topicSubscribers]) cb(topic);
+}
+
+// The mock stands in for both the server and the warden: a start moves to
+// awaiting_code shortly after, a code moves to succeeded.
+const mockRuntimeLogins = new Map<string, WireRuntimeLogin>();
+
+function mockRuntimeLoginNotFound(path: string, loginId: string): never {
+  throw mockApiError(`http 404 for ${path}`, 404, `runtime login '${loginId}' not found`);
+}
+
+function mockRuntimeLoginUpdate(id: string, patch: Partial<WireRuntimeLogin>): void {
+  const cur = mockRuntimeLogins.get(id);
+  if (!cur || ["succeeded", "failed", "expired", "cancelled"].includes(cur.state)) return;
+  mockRuntimeLogins.set(id, { ...cur, ...patch, updated_ts: Date.now() / 1000 });
+  emitTopic("runtime_login");
 }
 
 /** The circled indices as the SERVER stores them: deduped + ascending, so
@@ -5465,6 +5483,94 @@ const mockApiImpl = {
       dispatched,
     };
     return toUninstallResult(wire);
+  },
+
+  async startRuntimeLogin(machineId: string, runtime: "claude"): Promise<RuntimeLoginView> {
+    const path = `POST /api/machines/${machineId}/runtime-login`;
+    for (const login of mockRuntimeLogins.values()) {
+      if (
+        login.machine_id === machineId &&
+        login.runtime === runtime &&
+        !["succeeded", "failed", "expired", "cancelled"].includes(login.state)
+      ) {
+        return toRuntimeLogin(login);
+      }
+    }
+    const warden = wireMembers.find((m) => m.id === machineId && m.kind === "warden");
+    if (!warden) {
+      throw mockApiError(`http 404 for ${path}`, 404, `machine '${machineId}' not found`);
+    }
+    if (warden.presence !== "online") {
+      throw mockApiError(
+        `http 409 for ${path}`,
+        409,
+        "machine is offline; its warden cannot run a login"
+      );
+    }
+    const id = `rl-mock-${Math.random().toString(36).slice(2, 10)}`;
+    const login: WireRuntimeLogin = {
+      login_id: id,
+      machine_id: machineId,
+      runtime,
+      state: "starting",
+      auth_url: null,
+      account: null,
+      reason: null,
+      updated_ts: Date.now() / 1000,
+    };
+    mockRuntimeLogins.set(id, login);
+    setTimeout(() => {
+      mockRuntimeLoginUpdate(id, {
+        state: "awaiting_code",
+        auth_url: "https://claude.ai/oauth/authorize?mock=1",
+      });
+    }, 800);
+    return toRuntimeLogin(login);
+  },
+
+  async getRuntimeLogin(machineId: string, loginId: string): Promise<RuntimeLoginView> {
+    const login = mockRuntimeLogins.get(loginId);
+    if (!login || login.machine_id !== machineId) {
+      mockRuntimeLoginNotFound(`GET /api/machines/${machineId}/runtime-login/${loginId}`, loginId);
+    }
+    return toRuntimeLogin(login);
+  },
+
+  async submitRuntimeLoginCode(
+    machineId: string,
+    loginId: string,
+    _code: string
+  ): Promise<RuntimeLoginView> {
+    const path = `POST /api/machines/${machineId}/runtime-login/${loginId}/code`;
+    const login = mockRuntimeLogins.get(loginId);
+    if (!login || login.machine_id !== machineId) mockRuntimeLoginNotFound(path, loginId);
+    if (login.state !== "awaiting_code") {
+      throw mockApiError(
+        `http 409 for ${path}`,
+        409,
+        `runtime login '${loginId}' is ${login.state}, not awaiting_code`
+      );
+    }
+    mockRuntimeLoginUpdate(loginId, { state: "verifying" });
+    setTimeout(() => {
+      mockRuntimeLoginUpdate(loginId, {
+        state: "succeeded",
+        account: { email: "owner@example.test", org_name: "Mock Org" },
+      });
+    }, 800);
+    return toRuntimeLogin(mockRuntimeLogins.get(loginId)!);
+  },
+
+  async cancelRuntimeLogin(machineId: string, loginId: string): Promise<RuntimeLoginView> {
+    const login = mockRuntimeLogins.get(loginId);
+    if (!login || login.machine_id !== machineId) {
+      mockRuntimeLoginNotFound(
+        `POST /api/machines/${machineId}/runtime-login/${loginId}/cancel`,
+        loginId
+      );
+    }
+    mockRuntimeLoginUpdate(loginId, { state: "cancelled", reason: "cancelled by the owner" });
+    return toRuntimeLogin(mockRuntimeLogins.get(loginId)!);
   },
 
   async getMachineBootCommand(_machineId: string): Promise<string> {

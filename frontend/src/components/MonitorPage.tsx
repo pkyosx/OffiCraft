@@ -34,6 +34,8 @@ import { InlineEdit } from "./InlineEdit";
 import { MemberDetailPanel } from "./MemberDetailPanel";
 import { PresenceBadge } from "./PresenceBadge";
 import { CopyIcon, CheckIcon, CloseIcon } from "./icons";
+import { RuntimeActionMenu } from "./RuntimeActionMenu";
+import { RuntimeLoginDialog } from "./RuntimeLoginDialog";
 // The 歸零 pill on the account card is the SAME control as the one on the member
 // panel — same look, same danger colour, same size — so it wears the `mp` block's
 // class rather than a second copy of those rules under `mon`. Importing the
@@ -150,6 +152,10 @@ export function MonitorPage() {
   // action → confirm first; on success the row drops (refetch). The result carries
   // {removed}.
   const [deleteTarget, setDeleteTarget] = useState<MachineView | null>(null);
+  const [loginTarget, setLoginTarget] = useState<{
+    machine: MachineView;
+    loggedIn: boolean;
+  } | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
@@ -649,6 +655,14 @@ export function MonitorPage() {
 
       {/* ── §2 機器資訊 (Machines) ── */}
       <section className="mon-section">
+        {loginTarget && (
+          <RuntimeLoginDialog
+            machineId={loginTarget.machine.machineId}
+            machineName={loginTarget.machine.displayName}
+            loggedIn={loginTarget.loggedIn}
+            onClose={() => setLoginTarget(null)}
+          />
+        )}
         <div className="mon-section__head">
           <div className="mon-section__title">{t.monitor.machinesTitle}</div>
         </div>
@@ -782,6 +796,27 @@ export function MonitorPage() {
                         stale={hw?.runtimeCapabilitiesStale}
                         testIdPrefix="mon-claude"
                       />
+                      {runtimeShownInstalled(
+                        hw?.runtimeCapabilities?.claude,
+                        m.claudeVersion
+                      ) && (
+                        <RuntimeActionMenu
+                          label={t.monitor.runtimeLogin.menuLabel}
+                          testIdPrefix="mon-claude"
+                          items={[
+                            {
+                              key: "login",
+                              label: t.monitor.runtimeLogin.login,
+                              onSelect: () =>
+                                setLoginTarget({
+                                  machine: m,
+                                  loggedIn:
+                                    hw?.runtimeCapabilities?.claude?.loggedIn === true,
+                                }),
+                            },
+                          ]}
+                        />
+                      )}
                     </td>
                     <td
                       className="mon-table__left"
@@ -1451,6 +1486,19 @@ function HardwareBadMark() {
       {t.monitor.machine.hardwareBad}
     </span>
   );
+}
+
+/** The action menu shows only beside a runtime the cell reads as installed:
+ * a version, or "installed" without one. */
+function runtimeShownInstalled(
+  capability:
+    | { installed: boolean | null; version: string | null }
+    | undefined,
+  fallbackVersion: string | null
+): boolean {
+  if (!capability) return fallbackVersion != null;
+  if (capability.installed === false) return false;
+  return !(capability.installed == null && capability.version == null);
 }
 
 /** One runtime's cell in the machine table (T-674d) — the per-runtime version

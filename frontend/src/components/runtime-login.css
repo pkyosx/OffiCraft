@@ -1,0 +1,118 @@
+/* The "⋯" runtime action menu on a machine row and the runtime sign-in dialog. */
+.runtime-menu {
+  position: relative;
+  display: inline-flex;
+  vertical-align: middle;
+  margin-left: 6px;
+}
+.runtime-menu__trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+.runtime-menu__trigger:hover,
+.runtime-menu__trigger[aria-expanded="true"] {
+  border-color: color-mix(in srgb, var(--color-overlay) 10%, transparent);
+  color: var(--color-text);
+}
+.runtime-menu__pop {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 4px);
+  z-index: 20;
+  min-width: 120px;
+  padding: 6px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 8%, transparent);
+  background: var(--color-card);
+  box-shadow: 0 10px 30px color-mix(in srgb, var(--color-shadow) 45%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.runtime-menu__item {
+  padding: 7px 10px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-text);
+  font-size: 13px;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.runtime-menu__item:hover {
+  background: color-mix(in srgb, var(--color-overlay) 6%, transparent);
+}
+
+.runtime-login__title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+.runtime-login__line {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.runtime-login__line--good {
+  color: var(--color-accent);
+}
+.runtime-login__line--bad {
+  color: var(--color-danger);
+}
+.runtime-login__hint {
+  margin: 8px 0 0;
+  color: var(--color-text-muted);
+  font-size: 12.5px;
+}
+.runtime-login__awaiting .runtime-login__hint {
+  margin-top: 0;
+}
+.runtime-login__url {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+.runtime-login__link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-accent);
+  font-size: 13px;
+}
+.runtime-login__code {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+.runtime-login__code-label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1 1 200px;
+  min-width: 0;
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+}
+.runtime-login__code-input {
+  height: 30px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 12%, transparent);
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  font-size: 13px;
+}

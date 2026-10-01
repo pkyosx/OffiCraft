@@ -39,6 +39,7 @@ import type {
   OnboardResultView,
   DeleteResultView,
   UninstallResultView,
+  RuntimeLoginView,
   TeardownHereResultView,
   BootstrapResultView,
   MachineView,
@@ -2715,6 +2716,23 @@ export interface Api {
    * uninstall). The caller refetches afterwards to pick up the new online state.
    */
   uninstallMachine(memberId: string): Promise<UninstallResultView>;
+
+  /**
+   * Runtime login on a machine (`POST /api/machines/{machine_id}/runtime-login`
+   * and its `/{login_id}`, `/code`, `/cancel`). The server holds the login in
+   * memory only and signals every change on SSE topic `runtime_login`; the
+   * caller refetches with `getRuntimeLogin`. Start answers the login already in
+   * flight for that machine and runtime instead of a new one; an offline warden
+   * is a 409. The code is a credential: never log it.
+   */
+  startRuntimeLogin(machineId: string, runtime: "claude"): Promise<RuntimeLoginView>;
+  getRuntimeLogin(machineId: string, loginId: string): Promise<RuntimeLoginView>;
+  submitRuntimeLoginCode(
+    machineId: string,
+    loginId: string,
+    code: string,
+  ): Promise<RuntimeLoginView>;
+  cancelRuntimeLogin(machineId: string, loginId: string): Promise<RuntimeLoginView>;
 
   /**
    * Re-fetch a machine's copy-paste install command anytime (`GET
