@@ -27,8 +27,8 @@ const loginCheckEnvName = ".oc-login-check-env"
 // periodic check can hold the prober for ~25 s (shell capture, auth status and
 // keychain on claude, then codex), and the START receipt has to reach the
 // server inside its receiptDeadlineSecs (server/ocserverd/receipt_watch.go),
-// whose derivation counts this budget. 🔴 Raising it eats that slack; nothing
-// links the two modules but spawn_test.go's literal.
+// whose derivation counts this budget. 🔴 Raising it eats into that deadline;
+// nothing links the two modules.
 const spawnCheckBudget = 15 * time.Second
 
 func loginIntervalFromReceipt(body map[string]any, key string, fallback time.Duration) time.Duration {
@@ -98,6 +98,8 @@ type loginProber struct {
 	mu          sync.Mutex
 	kick        chan struct{}
 	spawnBudget time.Duration
+	flightMu    sync.Mutex
+	inflight    map[string]*spawnFlight
 
 	env        func(string) string
 	runner     CmdRunner
@@ -149,7 +151,15 @@ func newLoginProber(env func(string) string, runner CmdRunner, keep stdoutRunner
 		recheck:     defaultLoginRecheckInterval,
 		kick:        make(chan struct{}, 1),
 		spawnBudget: spawnCheckBudget,
+		inflight:    map[string]*spawnFlight{},
 	}
+}
+
+// spawnFlight is one spawn-time check of one runtime; verdict is set before done
+// closes.
+type spawnFlight struct {
+	done    chan struct{}
+	verdict *bool
 }
 
 func (p *loginProber) setIntervals(check, recheck time.Duration) {
@@ -191,15 +201,29 @@ func (p *loginProber) checkNow(runtime string) *bool {
 }
 
 // checkForSpawn is checkNow within spawnBudget. A check that overruns keeps
-// running, so its verdict still reaches the report when it lands.
+// running, so its verdict still reaches the report when it lands; a spawn that
+// arrives while one runs waits on that one instead of queueing another, so a
+// burst of wakes against a slow check leaves one check, not one per wake.
 func (p *loginProber) checkForSpawn(runtime string) *bool {
-	done := make(chan *bool, 1)
-	go func() { done <- p.checkNow(runtime) }()
+	p.flightMu.Lock()
+	flight, running := p.inflight[runtime]
+	if !running {
+		flight = &spawnFlight{done: make(chan struct{})}
+		p.inflight[runtime] = flight
+		go func() {
+			flight.verdict = p.checkNow(runtime)
+			p.flightMu.Lock()
+			delete(p.inflight, runtime)
+			p.flightMu.Unlock()
+			close(flight.done)
+		}()
+	}
+	p.flightMu.Unlock()
 	timer := time.NewTimer(p.spawnBudget)
 	defer timer.Stop()
 	select {
-	case verdict := <-done:
-		return verdict
+	case <-flight.done:
+		return flight.verdict
 	case <-timer.C:
 		p.log("[ocwarden runtimeprobe] %s login check passed its %s spawn budget; launching on an unknown verdict", runtime, p.spawnBudget)
 		return nil

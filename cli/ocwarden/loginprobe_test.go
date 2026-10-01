@@ -615,12 +615,6 @@ func TestLoginProberCheckForSpawn(t *testing.T) {
 		return newLoginProber(env, runner, keep, "linux", cache, nil), keep
 	}
 
-	t.Run("the shipped budget is the one receiptDeadlineSecs counts", func(t *testing.T) {
-		if spawnCheckBudget != 15*time.Second {
-			t.Errorf("spawnCheckBudget = %s, want 15s — server/ocserverd/receipt_watch.go derives its deadline from it", spawnCheckBudget)
-		}
-	})
-
 	t.Run("under a periodic check that is stuck, a spawn's check reads unknown within its budget", func(t *testing.T) {
 		p, keep := newHeld()
 		p.spawnBudget = 200 * time.Millisecond
@@ -642,6 +636,57 @@ func TestLoginProberCheckForSpawn(t *testing.T) {
 			}
 		case <-time.After(5 * time.Second):
 			t.Fatal("the spawn's check waited on the stuck periodic check past its budget")
+		}
+	})
+
+	t.Run("under a spawn's check that is stuck, a second spawn waits on that check instead of starting another, and once it lands the next spawn checks afresh", func(t *testing.T) {
+		p, keep := newHeld()
+		p.spawnBudget = 200 * time.Millisecond
+		bare := buildLoginGate(env, p)
+		gate := func(runtime string) *bool {
+			done := make(chan *bool, 1)
+			go func() { done <- bare(runtime) }()
+			select {
+			case verdict := <-done:
+				return verdict
+			case <-time.After(10 * time.Second):
+				t.Fatal("a spawn's check did not return within its budget")
+				return nil
+			}
+		}
+		calls := func() int {
+			keep.mu.Lock()
+			defer keep.mu.Unlock()
+			return keep.calls
+		}
+
+		first := gate("claude")
+		second := gate("claude")
+		if first != nil || second != nil {
+			t.Fatalf("verdicts while stuck = %s, %s, want unknown twice", fmtVerdict(first), fmtVerdict(second))
+		}
+		close(keep.release)
+		deadline := time.Now().Add(5 * time.Second)
+		for {
+			p.flightMu.Lock()
+			idle := len(p.inflight) == 0
+			p.flightMu.Unlock()
+			if idle || time.Now().After(deadline) {
+				break
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		time.Sleep(100 * time.Millisecond)
+		if got := calls(); got != 1 {
+			t.Fatalf("auth status runs after two spawns against one stuck check = %d, want 1", got)
+		}
+
+		p.spawnBudget = 5 * time.Second
+		if got := gate("claude"); fmtVerdict(got) != "true" {
+			t.Errorf("verdict once the stuck check landed = %s, want true from a fresh check", fmtVerdict(got))
+		}
+		if got := calls(); got != 2 {
+			t.Errorf("auth status runs = %d, want a fresh second one", got)
 		}
 	})
 

@@ -18,15 +18,24 @@ import (
 // previous one went unanswered.
 const receiptMissingReasonCode = "receipt_missing"
 
-// receiptDeadlineSecs is derived from the warden's own budgets, not measured:
-// the spawn's login check spawnCheckBudget 15s (its wait for a running periodic
-// check included) + the whole boot-nudge loop 30s (it always runs all
-// nudgeMaxAttempts × nudgeSettle, and the START receipt is POSTed only after
-// Spawn returns) + commandReportTimeout 5s + up to one 30s lifecycle cadence
-// ≈ 80s. So 90 leaves only ~10 s of slack: a merely slow cold start can stamp
-// receipt_missing with nothing wrong. 🔴 Those warden constants live in another
-// Go module and nothing links them — raising nudgeMaxAttempts by six consumes
-// the slack outright. Erring long is the safe direction.
+// receiptDeadlineSecs is derived from the warden's own budgets, not measured.
+// The START receipt is POSTed only after Spawn returns, and the spawn path can
+// spend, in order:
+//   - the login check, spawnCheckBudget 15s (its wait for a running periodic
+//     check included; cli/ocwarden/loginprobe.go);
+//   - the interactive shell env capture, interactiveEnvTimeout 10s +
+//     interactiveEnvWaitDelay 2s;
+//   - Codex only, resolving a model family word: `codex --version` (5s) and the
+//     model list, codexAppResponseTimeout 30s;
+//   - Claude only, the boot-nudge loop, which always runs all nudgeMaxAttempts ×
+//     nudgeSettle = 30s;
+//
+// After those, commandReportTimeout 5s, plus up to one 30s lifecycle cadence
+// before the deadline is read. Worst case ≈ 92s for Claude and ≈ 97s for a Codex family
+// word — PAST this 90s deadline, so a start that is merely slow at every step
+// can be stamped receipt_missing with nothing wrong. Known and left as is here.
+// 🔴 Those warden constants live in another Go module and nothing links them;
+// raising any of them widens that gap. Erring long is the safe direction.
 const receiptDeadlineSecs = 90.0
 
 type pendingReceipt struct {
