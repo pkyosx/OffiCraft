@@ -3368,6 +3368,9 @@ func TestHandleReportWakingApiSelfWakingPost(t *testing.T) {
 			if status, data := apiJSON(t, h, "POST", "/api/members/"+kind.id+"/deactivate", owner, `{}`); status != 200 {
 				t.Fatalf("deactivate: %d %v", status, data)
 			}
+			if stopped, err := d.GetMember(kind.id); err != nil || stopped == nil || stopped.StoppedSince <= 0 {
+				t.Fatalf("premise: the stop must already be collected (stopped_since > 0), got %+v (%v)", stopped, err)
+			}
 			agent := apiTestAgentToken(t, api, kind.id, "")
 
 			status, data := apiJSON(t, h, "POST", "/api/self/waking", agent, `{"model":"claude-opus-5"}`)

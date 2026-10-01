@@ -488,6 +488,9 @@ func TestSseStopGateRefusal(t *testing.T) {
 			if status, data := apiJSON(t, h, "POST", "/api/members/"+kind.id+"/force-stop", owner, ""); status != 200 {
 				t.Fatalf("force-stop: want 200, got %d (%v)", status, data)
 			}
+			if got := api.sseStopGateRefusal(kind.id); got != stopRefusal {
+				t.Fatalf("premise: the force-stopped member must be refused, got %q", got)
+			}
 
 			if status, data := apiJSON(t, h, "POST", "/api/members/"+kind.id+"/activate", owner, ""); status != 200 {
 				t.Fatalf("activate: want 200, got %d (%v)", status, data)
