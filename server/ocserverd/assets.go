@@ -241,11 +241,10 @@ func resolveBootRoleKey(role string, member *Member) string {
 	return defaultBootRole
 }
 
-// selectUniqueActiveStaffForRolePreview chooses the person represented by a
-// role-only cockpit preview. A role has a person only when exactly one active
-// staff member carries it; ambiguity and absence deliberately keep the old
-// role-only view instead of guessing whose member-scoped lore or runtime to use.
-func (s *apiServer) selectUniqueActiveStaffForRolePreview(role string) (*Member, error) {
+// selectSoleActiveMemberOfRole returns nil when two or more active members
+// share the role: the preview then omits 傳承 rather than show one person's
+// entries as the role's.
+func (s *apiServer) selectSoleActiveMemberOfRole(role string) (*Member, error) {
 	roleKey := resolveBootRoleKey(role, nil)
 	members, err := s.dal.ListMembers()
 	if err != nil {
@@ -255,7 +254,7 @@ func (s *apiServer) selectUniqueActiveStaffForRolePreview(role string) (*Member,
 	var selected *Member
 	for i := range members {
 		member := &members[i]
-		if member.Kind != KindStaff || member.RosterStatus != RosterStatusActive || member.RoleKey != roleKey {
+		if member.RosterStatus != RosterStatusActive || member.RoleKey != roleKey {
 			continue
 		}
 		if selected != nil {
@@ -414,9 +413,8 @@ func (s *apiServer) buildBootContext(role string, member *Member) (*bootContext,
 	// member-fold budget under a stale name (see domain.go); s.loreManualCap()
 	// is the OTHER exit.
 	//
-	// ⚠️ On a role-only cockpit preview, member is nil only when no unique active
-	// staff member has this role; in that case omit member-scoped 傳承 rather
-	// than guessing. A unique active staff member is selected by the handler.
+	// ⚠️ member is nil on a role-only preview whose role has no sole active
+	// member; the whole block is omitted, everyone-scoped entries included.
 	if member != nil {
 		loreSel, err := selectMemberLore(s.dal, member.ID, s.loreRoleCap())
 		if err != nil {

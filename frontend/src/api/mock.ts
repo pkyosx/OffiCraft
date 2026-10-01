@@ -4940,10 +4940,7 @@ const mockApiImpl = {
     // 404s are the contract that tells the panel the row is stale — but the
     // assembled text does not depend on either of them.
     const userText = foldGlobalContext().text;
-    // FOLDED, like the staff preview and like the server (T-30e4). Both paths
-    // fold the shared owner documents, but they resolve identity differently:
-    // the staff preview selects only a unique active member for the requested
-    // role, while this worker preview has the worker id and its runtime.
+    // FOLDED, like the staff preview and like the server (T-30e4).
     const parts = [foldBootDoc("system_interaction", "global").text.trim()];
     if (userText.trim()) {
       parts.push(`# 使用者自訂（Owner Additions）\n\n${userText.trim()}`);
@@ -6786,16 +6783,8 @@ const mockApiImpl = {
     //   3. `# Role:` + `# Insight (role)` — the persona (Duty → Insight, the
     //      order the two blocks are defined in). The Insight section is SKIPPED
     //      when the folded text is blank, exactly like the owner block;
-    //   4. 傳承 — only when exactly one active staff member has this role,
-    //      everyone entries followed by that member's entries under one budget;
-    //   5. 啟動步驟 — FOLDED, LAST, for the selected member's runtime. The
-    //      role-only request still carries no member_id and mints no token; the
-    //      server independently chooses the same unique active staff member
-    //      for preview content. Zero or multiple matches keep a role-only
-    //      preview with no member lore and the Claude boot document.
-    // The owner block moved from below the persona to above it so the staff and
-    // worker folds keep their shared block order. Each path adds its own
-    // identity-specific content around those shared documents.
+    //   4. 傳承 — only when exactly one active staff member has this role;
+    //   5. 啟動步驟 — FOLDED, LAST, for that member's runtime, else Claude.
     // NO token (a UI preview mints none).
     const roleDef = foldRole(role); // throws for an unknown role (≈ server 404)
     const activeStaff = wireMembers.filter(

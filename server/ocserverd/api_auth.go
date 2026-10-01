@@ -154,7 +154,7 @@ func (s *apiServer) HandleBootstrapApiBootstrapPost(w http.ResponseWriter, r *ht
 	}
 	previewMember := member
 	if previewMember == nil {
-		selected, err := s.selectUniqueActiveStaffForRolePreview(strOrEmpty(body.Role))
+		selected, err := s.selectSoleActiveMemberOfRole(strOrEmpty(body.Role))
 		if err != nil {
 			internalError(w, err)
 			return

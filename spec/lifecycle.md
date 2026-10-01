@@ -641,12 +641,6 @@ Blocks 3-4 are the persona. Two blocks are dropped entirely when they fold blank
 使用者自訂 and 判準 — so a role that has never written a 判準 simply has no such section,
 rather than an empty heading.
 
-The `/api/bootstrap` role-only preview still omits `member_id` and returns
-`token: null`. The handler resolves a preview member only when exactly one active
-staff member has the resolved role; that member supplies the runtime and
-member-scoped 傳承 for the preview. With zero or multiple matches it keeps the
-role-only fallback, omitting 傳承 and using the blank-runtime Claude default.
-
 **The remaining assembly rules are deliberately not restated here.** The exact section
 titles, string formats, separator and trailing newline, and the seed placeholder
 substitution live in the implementation (`buildBootContext`) and are pinned byte-for-byte
