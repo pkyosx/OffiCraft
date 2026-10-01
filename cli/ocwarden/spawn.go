@@ -113,12 +113,15 @@ func buildMCPConfig(base, token string) string {
 // All three commands are named bare because the launch line puts the workdir holding
 // the ocagent symlink first on PATH.
 //
-// skipDangerousModePermissionPrompt: on a config that never accepted the bypass
-// warning, its default answer is "No, exit", so the nudge's Enter loop quits the
-// member before it boots.
+// skipDangerousModePermissionPrompt and tui each answer a first-launch dialog in
+// advance: on a config that never saw them, the bypass warning defaults to "No, exit"
+// (the nudge's Enter loop quits the member), and a logged-in config gets a "try the
+// fullscreen renderer?" dialog that swallows the pasted nudge. "fullscreen" is what
+// that dialog's default answer turns on, i.e. what members already run with.
 func buildStatuslineSettings() string {
 	return "{\n" +
 		"  \"skipDangerousModePermissionPrompt\": true,\n" +
+		"  \"tui\": \"fullscreen\",\n" +
 		"  \"statusLine\": {\n" +
 		"    \"type\": \"command\",\n" +
 		"    \"command\": \"ocagent context-report\"\n" +
