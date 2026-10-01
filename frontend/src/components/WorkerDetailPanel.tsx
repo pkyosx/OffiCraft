@@ -90,7 +90,7 @@ interface WorkerDetailPanelProps {
     effort: string,
   ) => Promise<void>;
   /** Fetch the worker's initial-prompt PREVIEW (GET …/boot-context — T-ba6b):
-   * the server re-runs the spawn fold over the CURRENT task/manual rows and
+   * the server re-runs the spawn fold over the CURRENT seeds and lore and
    * returns the text (no token). Undefined ⇒ the initial-prompt card is hidden
    * (a caller below the admin_agent floor omits it — T-6020). */
   onFetchBootContext?: () => Promise<string>;

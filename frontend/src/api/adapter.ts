@@ -2577,9 +2577,9 @@ export interface Api {
   getOutsourceWorker(id: string): Promise<OutsourceWorkerView>;
   /** Read a worker's boot-context PREVIEW (`GET
    * /api/outsource-workers/{id}/boot-context`, owner/admin-agent) — the worker twin
-   * of getBootstrap's role preview: the server re-assembles the persona text
-   * (seed + identity + bound task + manual) from the CURRENT DB rows, no
-   * token. HONEST: today's re-assembly, not a verbatim spawn-time record.
+   * of getBootstrap's role preview: the server re-assembles the boot text
+   * (shared seeds + this worker's 傳承 + its runtime's boot sequence; no
+   * identity, task or manual) from the CURRENT rows, no token. HONEST: today's re-assembly, not a verbatim spawn-time record.
    * Unknown worker / gone task → 404 (throws ApiError). (T-ba6b) */
   getWorkerBootContext(id: string): Promise<string>;
   /** List task types (`GET /api/task-manuals`) in the light {typeKey, purpose}
