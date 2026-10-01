@@ -3453,7 +3453,20 @@ func TestHandleReportWakingApiSelfWakingPost(t *testing.T) {
 		})
 	}
 
-	t.Run("a caller whose roster row is gone answers 404 naming it", func(t *testing.T) {
+	t.Run("a caller with no roster row answers 404 naming it", func(t *testing.T) {
+		api, h, _, _ := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, "ghost", "")
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/self/waking", agent, `{}`)
+		if status != 404 {
+			t.Fatalf("want 404, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "not_found", "member 'ghost' not found")
+		dashboard.wantFrames()
+	})
+
+	t.Run("a dismissed caller is refused at the credential gate", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		agent := apiTestAgentToken(t, api, "kip", "")
 		if status, data := apiJSON(t, h, "DELETE", "/api/members/kip", owner, ""); status != 200 {
@@ -3462,10 +3475,11 @@ func TestHandleReportWakingApiSelfWakingPost(t *testing.T) {
 		dashboard := apiTestListen(t, api, "")
 
 		status, data := apiJSON(t, h, "POST", "/api/self/waking", agent, `{}`)
-		if status != 404 {
-			t.Fatalf("want 404, got %d (%v)", status, data)
+		if status != 401 {
+			t.Fatalf("want 401, got %d (%v)", status, data)
 		}
-		apiWantError(t, data, "not_found", "member 'kip' not found")
+		apiWantError(t, data, "unauthorized",
+			"member 'kip' has left the roster; its credentials are no longer valid")
 		dashboard.wantFrames()
 	})
 
@@ -3540,7 +3554,20 @@ func TestHandleReportStoppingApiSelfStoppingPost(t *testing.T) {
 		}
 	})
 
-	t.Run("a caller whose roster row is gone answers 404 naming it", func(t *testing.T) {
+	t.Run("a caller with no roster row answers 404 naming it", func(t *testing.T) {
+		api, h, _, _ := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, "ghost", "")
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/self/stopping", agent, `{}`)
+		if status != 404 {
+			t.Fatalf("want 404, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "not_found", "member 'ghost' not found")
+		dashboard.wantFrames()
+	})
+
+	t.Run("a dismissed caller is refused at the credential gate", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		agent := apiTestAgentToken(t, api, "kip", "")
 		if status, data := apiJSON(t, h, "DELETE", "/api/members/kip", owner, ""); status != 200 {
@@ -3549,10 +3576,11 @@ func TestHandleReportStoppingApiSelfStoppingPost(t *testing.T) {
 		dashboard := apiTestListen(t, api, "")
 
 		status, data := apiJSON(t, h, "POST", "/api/self/stopping", agent, `{}`)
-		if status != 404 {
-			t.Fatalf("want 404, got %d (%v)", status, data)
+		if status != 401 {
+			t.Fatalf("want 401, got %d (%v)", status, data)
 		}
-		apiWantError(t, data, "not_found", "member 'kip' not found")
+		apiWantError(t, data, "unauthorized",
+			"member 'kip' has left the roster; its credentials are no longer valid")
 		dashboard.wantFrames()
 	})
 
@@ -4444,7 +4472,20 @@ func TestHandleReportStoppedApiSelfStoppedPost(t *testing.T) {
 		apiWantValue(t, "stopped anchor", any(apiTestWantStoppedSince(t, d, "ow-abc123")), any(first))
 	})
 
-	t.Run("a caller whose roster row is gone answers 404 naming it", func(t *testing.T) {
+	t.Run("a caller with no roster row answers 404 naming it", func(t *testing.T) {
+		api, h, _, _ := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, "ghost", "")
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/self/stopped", agent, `{}`)
+		if status != 404 {
+			t.Fatalf("want 404, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "not_found", "member 'ghost' not found")
+		dashboard.wantFrames()
+	})
+
+	t.Run("a dismissed caller is refused at the credential gate", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		agent := apiTestAgentToken(t, api, "kip", "")
 		if status, data := apiJSON(t, h, "DELETE", "/api/members/kip", owner, ""); status != 200 {
@@ -4453,10 +4494,11 @@ func TestHandleReportStoppedApiSelfStoppedPost(t *testing.T) {
 		dashboard := apiTestListen(t, api, "")
 
 		status, data := apiJSON(t, h, "POST", "/api/self/stopped", agent, `{}`)
-		if status != 404 {
-			t.Fatalf("want 404, got %d (%v)", status, data)
+		if status != 401 {
+			t.Fatalf("want 401, got %d (%v)", status, data)
 		}
-		apiWantError(t, data, "not_found", "member 'kip' not found")
+		apiWantError(t, data, "unauthorized",
+			"member 'kip' has left the roster; its credentials are no longer valid")
 		dashboard.wantFrames()
 	})
 
@@ -4746,7 +4788,20 @@ func TestHandleRestartSelfApiSelfRefocusPost(t *testing.T) {
 		}
 	})
 
-	t.Run("a caller whose roster row is gone answers 404 naming it", func(t *testing.T) {
+	t.Run("a caller with no roster row answers 404 naming it", func(t *testing.T) {
+		api, h, _, _ := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, "ghost", "")
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/self/refocus", agent, `{}`)
+		if status != 404 {
+			t.Fatalf("want 404, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "not_found", "member 'ghost' not found")
+		dashboard.wantFrames()
+	})
+
+	t.Run("a dismissed caller is refused at the credential gate", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		agent := apiTestAgentToken(t, api, "kip", "")
 		if status, data := apiJSON(t, h, "DELETE", "/api/members/kip", owner, ""); status != 200 {
@@ -4755,10 +4810,11 @@ func TestHandleRestartSelfApiSelfRefocusPost(t *testing.T) {
 		dashboard := apiTestListen(t, api, "")
 
 		status, data := apiJSON(t, h, "POST", "/api/self/refocus", agent, `{}`)
-		if status != 404 {
-			t.Fatalf("want 404, got %d (%v)", status, data)
+		if status != 401 {
+			t.Fatalf("want 401, got %d (%v)", status, data)
 		}
-		apiWantError(t, data, "not_found", "member 'kip' not found")
+		apiWantError(t, data, "unauthorized",
+			"member 'kip' has left the roster; its credentials are no longer valid")
 		dashboard.wantFrames()
 	})
 

@@ -556,16 +556,21 @@ func TestRunOutsourceTick(t *testing.T) {
 			{"POST", "/api/tasks/T-3/artifact", `{"kind":"link","name":"x","url":"https://example.com/x"}`},
 			{"POST", "/api/tasks/T-3/claim", ""},
 		} {
-			for who, token := range map[string]string{"the reaped predecessor": pred, "the successor": f.successor} {
-				if door.path == "/api/tasks/T-3/claim" && who == "the successor" {
-					continue
-				}
-				status, data := apiJSON(t, f.h, door.method, door.path, token, door.body)
-				if status != 403 {
-					t.Fatalf("%s %s by %s: want 403, got %d %v", door.method, door.path, who, status, data)
-				}
-				apiWantError(t, data, "forbidden", "caller is not the task's executor")
+			rec := apiRequest(t, f.h, door.method, door.path, pred, door.body)
+			if rec.Code != 401 || rec.Header().Get("X-OC-Auth-Refusal") != "member-removed" {
+				t.Fatalf("%s %s by the reaped predecessor: want 401 marked member-removed, got %d %q %s",
+					door.method, door.path, rec.Code, rec.Header().Get("X-OC-Auth-Refusal"), rec.Body.String())
 			}
+			apiWantError(t, apiTestDecodeJSONBody(t, rec), "unauthorized",
+				"member '"+worker+"' has left the roster; its credentials are no longer valid")
+			if door.path == "/api/tasks/T-3/claim" {
+				continue
+			}
+			status, data := apiJSON(t, f.h, door.method, door.path, f.successor, door.body)
+			if status != 403 {
+				t.Fatalf("%s %s by the successor: want 403, got %d %v", door.method, door.path, status, data)
+			}
+			apiWantError(t, data, "forbidden", "caller is not the task's executor")
 		}
 		f.must(t, "POST", "/api/tasks/T-3/claim", f.successor, "")
 		f.must(t, "POST", "/api/tasks/T-3/priority", f.successor, `{"priority":"high"}`)

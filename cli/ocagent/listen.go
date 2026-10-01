@@ -130,11 +130,13 @@ var errSelfExit = errors.New("listen: tmux session gone — self-exit")
 const (
 	authRefusalHeader      = "X-OC-Auth-Refusal"
 	refusalAgentSuperseded = "agent-superseded"
+	refusalMemberRemoved   = "member-removed"
 )
 
 // errSSERefused marks a server refusal that is authoritative: a 409 (the
-// server's zombie stop gate or dual-SSE guard) or a 401 marked agent-superseded
-// (a newer generation of this member has reported waking).
+// server's zombie stop gate or dual-SSE guard), a 401 marked agent-superseded
+// (a newer generation of this member has reported waking) or a 401 marked
+// member-removed (this member has left the roster).
 var errSSERefused = errors.New("listen: server authoritatively refused the SSE connection")
 
 type sseSink struct {

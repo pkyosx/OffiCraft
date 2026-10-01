@@ -1283,8 +1283,9 @@ func dismissStaffOn(tx *writeTx, m *Member, now float64) error {
 	return persistMemberRowOn(tx, *m)
 }
 
-// A removed row's token is still honoured, so without the stop its session keeps
-// running and billing with nothing on screen showing it.
+// A removed row's token is refused, but the refusal stops nothing by itself: without
+// the stop its session keeps running and billing, with nothing on screen showing it,
+// until its listener's refusal ladder runs out.
 func (s *apiServer) finishStaffDismissal(m Member, trigger string) {
 	s.publishMemberPatch(m, trigger)
 	s.bankLiveCost(m.ID)

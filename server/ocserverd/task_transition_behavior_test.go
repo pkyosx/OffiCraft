@@ -550,6 +550,19 @@ func TestTaskWriteRightsFollowTheReassignHoldUntilTheSuccessorClaims(t *testing.
 			t.Fatalf("%s by %s was refused but T-1 changed:\nbefore %#v\nafter  %#v", door.name, who, before, after)
 		}
 	}
+	refusedAsRemoved := func(t *testing.T, door handoverDoor, f handoverFixture, prepared, who, token string) {
+		t.Helper()
+		before := f.view(t)
+		status, data := door.call(t, f, token, prepared)
+		if status != http.StatusUnauthorized {
+			t.Fatalf("%s by %s: want 401, got %d %v", door.name, who, status, data)
+		}
+		apiWantError(t, data, "unauthorized",
+			"member 'kip' has left the roster; its credentials are no longer valid")
+		if after := f.view(t); !reflect.DeepEqual(after, before) {
+			t.Fatalf("%s by %s was refused but T-1 changed:\nbefore %#v\nafter  %#v", door.name, who, before, after)
+		}
+	}
 	admitted := func(t *testing.T, door handoverDoor, f handoverFixture, prepared, token string, want handoverView) {
 		t.Helper()
 		if status, data := door.call(t, f, token, prepared); status != http.StatusOK {
@@ -599,7 +612,7 @@ func TestTaskWriteRightsFollowTheReassignHoldUntilTheSuccessorClaims(t *testing.
 			f := newHandoverFixture(t)
 			f.dismissPredecessor(t)
 			prepared := prepare(t, door, f)
-			refused(t, door, f, prepared, "the dismissed predecessor", f.predecessor)
+			refusedAsRemoved(t, door, f, prepared, "the dismissed predecessor", f.predecessor)
 			refused(t, door, f, prepared, "the successor", f.successor)
 			refused(t, door, f, prepared, "an outsider", f.outsider)
 		})

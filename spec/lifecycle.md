@@ -245,8 +245,8 @@ ceiling of the warden lifetime setting (§1.6).
   Every failed redemption (unknown / expired / already used) is the same flat 401 with no
   distinguishing hint. The legacy `install.sh?token=` surface stays byte-identical
   indefinitely.
-- Token verification is stateless with FOUR revocation cuts (the fourth arrived with the
-  signing-key ring, §1.2 — and note that unlike the three below it is not a per-token cut:
+- Token verification is stateless with these revocation cuts (cut 4 arrived with the
+  signing-key ring, §1.2 — and note that unlike the others it is not a per-token cut:
   removing a key refuses every token that key signed, at once):
   1. **owner scope — the password floor.** Owner-scope tokens whose `iat` is earlier than
      the DB `auth.password_changed_at` (stamped by `POST /api/auth/change-password`) MUST
@@ -264,13 +264,8 @@ ceiling of the warden lifetime setting (§1.6).
 
      Scope notes, all load-bearing: the cut applies to `kind="warden"` rows ONLY —
      `roster_status="removed"` is ALSO how a released outsource worker and a dismissed
-     member are recorded. ⚠️ A released worker USED TO be contractually still working (it
-     kept its session to file a close-out report after the task closed); since T-182 the
-     close itself dismisses it — row released and session reclaimed in one call — so the
-     window this note protected is now very short rather than open-ended. The scope
-     restriction stands regardless: this cut is for `kind="warden"` rows only, and a
-     released worker's row must not be swept by it. A failed roster read MUST NOT revoke
-     (unknown ≠ revoked). `POST
+     member are recorded, and those are cut 5's, with its own message and marker. A
+     failed roster read MUST NOT revoke (unknown ≠ revoked). `POST
      /api/machines/{member_id}/uninstall` KEEPS the record and therefore does NOT revoke
      anything; the machine stays on the roster and re-installable.
 
@@ -284,9 +279,9 @@ ceiling of the warden lifetime setting (§1.6).
      immediately" as "no request succeeds from now on", not "the socket drops now".
 
      Refusal precedence on `GET /api/events`: the auth gate runs BEFORE the zombie stop
-     gate, so a removed WARDEN's reconnect is a 401 (this cut), while a dismissed
-     non-warden member's reconnect stays the pre-existing 409 (`sseStopGateRefusal`) —
-     the kind restriction above is what keeps those two apart.
+     gate, so every removed row's reconnect is a 401 — a removed WARDEN's by this cut,
+     a dismissed member's or released worker's by cut 5. The stop gate's 409 is left to
+     members still on the roster (`sseStopGateRefusal`).
 
      Because this cut turns "the server host's warden row was soft-deleted" into a
      credential revocation that also takes every agent placed on `m-server-self`,
@@ -388,13 +383,35 @@ ceiling of the warden lifetime setting (§1.6).
 
   4. **every scope — a signing key leaving the ring.** Removing a key
      (`POST /api/auth/signing-keys/{key_id}/remove`, §1.2) refuses every token that key
-     signed, whatever its scope, from the next request onward. It is the ONLY cut of the
-     four that is not per-token and not per-principal: it is per KEY, so it takes tokens
-     the operator never enumerated — including `kind="warden"` credentials, which the three
-     cuts above deliberately exempt or cannot reach, and whose own `exp` (§1.6) is far
+     signed, whatever its scope, from the next request onward. It is the ONLY cut here
+     that is not per-token and not per-principal: it is per KEY, so it takes tokens
+     the operator never enumerated — including `kind="warden"` credentials, which the other
+     cuts deliberately exempt or cannot reach, and whose own `exp` (§1.6) is far
      enough out — up to a full lifetime — that waiting for it is not a substitute. That is why it is a human's decision with no timer and no undo, and why
      the settings page states the cost before the press. It also ends every attachment
      share-link `?sig=` produced under that key, which is not a token at all.
+
+  5. **member scope — leaving the roster.** Dismissing a staff member
+     (`DELETE /api/members/{member_id}`) and releasing an outsource worker (every task
+     close, and the handover timeout's release of an outsource predecessor) both set
+     `roster_status="removed"`. From the next request onward every gated route — REST,
+     MCP `tools/call` and the `GET /api/events` handshake — MUST refuse that member's
+     non-owner token with 401, the standard error envelope, the message
+     `member '<id>' has left the roster; its credentials are no longer valid`, and the
+     response header `X-OC-Auth-Refusal: member-removed`. The header is the standing-refusal
+     marker `ocagent listen` acts on (`cli/ocagent` `authoritativeRefusal`): it fail-closes and ends its own
+     session instead of retrying, as it does for `agent-superseded`. No other 401 carries
+     either value.
+
+     Scope notes: `kind="warden"` rows are cut 2's. A failed roster read or an absent row
+     MUST NOT refuse (unknown ≠ removed). A member still on the roster is unaffected
+     whatever its `desired_state` — a stopped or deactivated member keeps its credentials,
+     and its SSE reconnect stays the stop gate's business. A worker's close-out (step notes,
+     artifacts, reply cards, lore) happens while the task is `ready_for_done` and the worker
+     is still on the roster; its own `mark_task_done` passed the gate on entry and answers
+     200, and the release that close performs is what ends its credentials. Like the other
+     per-request cuts it does not tear down an SSE stream that is already open; the close
+     enqueues the session STOP in the same call, and the stream ends with the session.
 
   For every other agent token — a `kind="warden"` credential, and any token on a member
   that has never reported waking — **expiry is not the only invalidation any more**: cut 4
@@ -806,8 +823,9 @@ The server owns desired-state reconciliation; the warden is a stateless executor
   dismissal sent is still owed (`RobustStopPendingAt`). The session-gone collect of §4.3 is
   never computed for it, so the only STOP it is sent is that one and its re-sends. It leaves
   the set on the first offline sample; a session that comes back after that is not stopped
-  by the tick but by the SSE stop gate, which refuses a removed member, and the agent's
-  listener ends its own session after a run of refusals.
+  by the tick but by the auth gate (§1.3 cut 5), which refuses a removed member's every
+  request and SSE handshake with the `member-removed` marker, and the agent's listener ends
+  its own session after a run of refusals.
 - The tick loop MUST survive any single tick fault (log and continue).
 
 ### 4.2 Inputs

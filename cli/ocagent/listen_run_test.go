@@ -716,11 +716,19 @@ func TestAuthoritativeRefusal(t *testing.T) {
 		{"the marker is read past its surrounding whitespace",
 			resp(401, "  agent-superseded  "),
 			"401 superseded — a newer generation of this member has reported waking"},
+		{"a 401 the server marked member-removed can never resolve itself",
+			resp(401, "member-removed"),
+			"401 member removed — this member has left the roster"},
+		{"the member-removed marker is read past its surrounding whitespace",
+			resp(401, " member-removed\t"),
+			"401 member removed — this member has left the roster"},
 		{"a bare 401 might just be a server having a moment", resp(401, ""), ""},
 		{"a 401 marked something else is not this refusal", resp(401, "token-expired"), ""},
 		{"a 502 is a retryable fault", resp(502, ""), ""},
 		{"a 500 carrying the superseded marker is still not this refusal",
 			resp(500, "agent-superseded"), ""},
+		{"a 403 carrying the member-removed marker is still not this refusal",
+			resp(403, "member-removed"), ""},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -842,6 +850,47 @@ func TestConnectOnce(t *testing.T) {
 			"[401 superseded — a newer generation of this member has reported waking]: agent superseded"
 		if err.Error() != want {
 			t.Errorf("err = %q, want %q", err.Error(), want)
+		}
+	})
+
+	t.Run("a 401 the server marked member-removed is an authoritative refusal", func(t *testing.T) {
+		h := http.Header{}
+		h.Set(authRefusalHeader, refusalMemberRemoved)
+		tr := &stubTransport{reply: func(int, *http.Request) (*http.Response, error) {
+			return sseReply(401, h, "member 'm-1' has left the roster"), nil
+		}}
+		l := newRunListener(t, runCfg(t), io.Discard, quietAPI(), tr)
+
+		opened, _, _, err := l.connectOnce(context.Background())
+
+		if opened {
+			t.Error("opened = true, want false — the refusal is pre-stream")
+		}
+		if !errors.Is(err, errSSERefused) {
+			t.Fatalf("err = %v, want it to wrap errSSERefused", err)
+		}
+		want := "listen: server authoritatively refused the SSE connection " +
+			"[401 member removed — this member has left the roster]: member 'm-1' has left the roster"
+		if err.Error() != want {
+			t.Errorf("err = %q, want %q", err.Error(), want)
+		}
+	})
+
+	t.Run("a 401 carrying an unknown refusal marker never folds toward the fail-closed kill", func(t *testing.T) {
+		h := http.Header{}
+		h.Set(authRefusalHeader, "member-retired")
+		tr := &stubTransport{reply: func(int, *http.Request) (*http.Response, error) {
+			return sseReply(401, h, "unauthorized"), nil
+		}}
+		l := newRunListener(t, runCfg(t), io.Discard, quietAPI(), tr)
+
+		_, _, _, err := l.connectOnce(context.Background())
+
+		if errors.Is(err, errSSERefused) {
+			t.Fatal("a 401 with an unknown marker folded as an authoritative refusal")
+		}
+		if err == nil || err.Error() != "unexpected status 401" {
+			t.Errorf("err = %v, want \"unexpected status 401\"", err)
 		}
 	})
 

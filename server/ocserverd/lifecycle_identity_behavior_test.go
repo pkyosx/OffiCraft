@@ -689,6 +689,10 @@ var identityGateLedger = map[string]string{
 		"the T-9cf8 revocation check: a DELETED machine's still-valid token must stop " +
 		"being honoured. Only machine rows have a permanent credential, so only they " +
 		"can be in this state — the kind test is what scopes the check to them.",
+	"authz.go :: memberRemovedRefusal :: m.Kind == machineKind": "" +
+		"a removed machine is revocationRefusal's (no standing-refusal header, its own " +
+		"message); every removed person — dismissed staff and released worker alike — " +
+		"is refused here on the same line. Machine-vs-person, not 正職／外包.",
 	"authz.go :: permanentCredentialRefusal :: m.Kind != machineKind": "" +
 		"refuse to mint a never-expiring credential for anything that is not a machine. " +
 		"An agent that obtained one would hold a permanent token; this is the guard " +
@@ -925,14 +929,6 @@ var identityGateLedger = map[string]string{
 		"warden-command eligibility (spec/sse.md §7): a connection drains the command " +
 		"FIFO iff its token sub resolves to a machine row — the unforgeable addressing " +
 		"key. Also enumerated in authzOutsideRouteTable.",
-	"api_infra.go :: sseStopGateRefusal :: m.Kind == KindOutsource": "" +
-		"🔴 A REAL DIVERGENCE, declared, and ONLY for a RELEASED worker: its session " +
-		"deliberately lives on for its §6.3 close-out duties (the reclaim grace), so its " +
-		"SSE must stay admitted even though the row is roster-removed — the roster gate " +
-		"below would refuse it. A worker still on the roster falls through to the same " +
-		"stop gate as staff. The asymmetry is a consequence of workers being released with " +
-		"their task while members are dismissed by hand; it is the retirement half the " +
-		"stage 3 comment records as NOT yet wired into LifecyclePolicy.",
 	"api_infra.go :: sseStopGateRefusal :: m.Kind != KindWarden": "" +
 		"the T-a9d6 offboard-in-progress exemption: a member working its offboard " +
 		"sequence keeps its SSE. Excluded for wardens because a warden has no offboard " +

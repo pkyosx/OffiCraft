@@ -222,6 +222,15 @@ func requireAuth(keys *keyring, ownerIatFloor func() int64, lookup func(id strin
 			writeError(w, http.StatusUnauthorized, "invalid token")
 			return
 		}
+		if refusal := memberRemovedRefusal(claims, lookup); refusal != "" {
+			w.Header().Set(authRefusalHeader, refusalMemberRemoved)
+			sub, _ := claims["sub"].(string)
+			log.Printf("[auth] REFUSED %s: member has left the roster. Marked %s: %s; "+
+				"the process holding it should stop retrying and shut itself down.",
+				sub, authRefusalHeader, refusalMemberRemoved)
+			writeError(w, http.StatusUnauthorized, refusal)
+			return
+		}
 		if refusal := revocationRefusal(claims, lookup); refusal != "" {
 			writeError(w, http.StatusUnauthorized, refusal)
 			return

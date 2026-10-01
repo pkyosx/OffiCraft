@@ -514,12 +514,13 @@ func TestSseStopGateRefusal(t *testing.T) {
 		}
 	})
 
-	t.Run("a released outsource worker stays admitted for its close-out", func(t *testing.T) {
+	t.Run("a released outsource worker is refused with the same roster wording", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusReleased)
 
-		if got := api.sseStopGateRefusal("ow-abc123"); got != "" {
-			t.Fatalf("a released worker must be admitted, got %q", got)
+		if got := api.sseStopGateRefusal("ow-abc123"); got != "member 'ow-abc123' is removed from the roster — "+
+			"SSE refused (a dismissed member must not re-project online)" {
+			t.Fatalf("want the roster refusal, got %q", got)
 		}
 	})
 }
