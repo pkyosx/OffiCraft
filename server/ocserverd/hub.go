@@ -262,6 +262,7 @@ var sseTopics = map[string]bool{
 	"insight":        true,
 	"context":        true,
 	"monitoring":     true,
+	"runtime_login":  true,
 }
 
 // jsonFloat: the frame ts is contractually a float; a bare integer literal would

@@ -1126,6 +1126,20 @@ MATRIX: dict[str, Route] = {
         requires="machine", body={"rate_limits": {}}
     ),
     "GET /api/monitoring": Route(requires="machine"),
+    # The warden's runtime-login report. machine is the FLOOR; the handler
+    # answers the same 404 to any caller that is not the login's own machine
+    # and to an unknown login, so every authenticated cell is 404 here.
+    "POST /api/monitoring/runtime-login": Route(
+        requires="machine",
+        overrides={
+            "owner": 404,
+            "admin_agent": 404,
+            "warden": 404,
+            "agent_self": 404,
+            "agent_other": 404,
+        },
+        body={"login_id": "rl-conf-missing", "state": "verifying"},
+    ),
     # T-da06: the cockpit's backup-health read. admin_agent floor — it is an
     # operational verdict about the studio's own retreat points, not something
     # an ordinary worker agent needs.
@@ -1212,6 +1226,31 @@ MATRIX: dict[str, Route] = {
         # command (200, dispatched=false) — fire-and-forget, no durable write.
         requires="admin_agent",
         path=lambda ctx, _i: f"/api/machines/{ctx.machine_id}/upgrade",
+    ),
+    # Runtime login. The scratch machine's warden is OFFLINE, so a start that
+    # clears the admin_agent choke is the honest 409 and nothing is relayed;
+    # the other three faces name a login that does not exist (404).
+    "POST /api/machines/{machine_id}/runtime-login": Route(
+        requires="admin_agent",
+        overrides={"owner": 409, "admin_agent": 409},
+        path=lambda ctx, _i: f"/api/machines/{ctx.machine_id}/runtime-login",
+        body={"runtime": "claude"},
+    ),
+    "GET /api/machines/{machine_id}/runtime-login/{login_id}": Route(
+        requires="admin_agent",
+        overrides={"owner": 404, "admin_agent": 404},
+        path=lambda ctx, _i: f"/api/machines/{ctx.machine_id}/runtime-login/rl-conf-missing",
+    ),
+    "POST /api/machines/{machine_id}/runtime-login/{login_id}/code": Route(
+        requires="admin_agent",
+        overrides={"owner": 404, "admin_agent": 404},
+        path=lambda ctx, _i: f"/api/machines/{ctx.machine_id}/runtime-login/rl-conf-missing/code",
+        body={"code": "conf-code"},
+    ),
+    "POST /api/machines/{machine_id}/runtime-login/{login_id}/cancel": Route(
+        requires="admin_agent",
+        overrides={"owner": 404, "admin_agent": 404},
+        path=lambda ctx, _i: f"/api/machines/{ctx.machine_id}/runtime-login/rl-conf-missing/cancel",
     ),
     "DELETE /api/machines/{member_id}": Route(
         requires="admin_agent",

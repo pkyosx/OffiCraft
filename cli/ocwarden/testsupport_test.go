@@ -112,6 +112,51 @@ type schemaNode struct {
 	Type                 string                 `json:"type"`
 	Required             []string               `json:"required"`
 	AnyOf                []*schemaNode          `json:"anyOf"`
+	Ref                  string                 `json:"$ref"`
+}
+
+// resolveRefs points every `$ref` node at the component it names, so a nullable
+// `anyOf: [{$ref}, {type: null}]` field is walked like an inline one.
+func resolveRefs(n *schemaNode, components map[string]*schemaNode, seen map[*schemaNode]bool) {
+	if n == nil || seen[n] {
+		return
+	}
+	seen[n] = true
+	for key, child := range n.Properties {
+		if target := refTarget(child, components); target != nil {
+			n.Properties[key] = target
+			child = target
+		}
+		resolveRefs(child, components, seen)
+	}
+	for i, alt := range n.AnyOf {
+		if target := refTarget(alt, components); target != nil {
+			n.AnyOf[i] = target
+			alt = target
+		}
+		resolveRefs(alt, components, seen)
+	}
+}
+
+func refTarget(n *schemaNode, components map[string]*schemaNode) *schemaNode {
+	if n == nil || n.Ref == "" {
+		return nil
+	}
+	return components[strings.TrimPrefix(n.Ref, "#/components/schemas/")]
+}
+
+// objectShape is the node whose properties describe this field's object value:
+// the node itself, or the one anyOf alternative that declares properties.
+func (n *schemaNode) objectShape() *schemaNode {
+	if n == nil || len(n.Properties) > 0 {
+		return n
+	}
+	for _, alt := range n.AnyOf {
+		if alt != nil && len(alt.Properties) > 0 {
+			return alt
+		}
+	}
+	return n
 }
 
 // declaredTypes flattens the `anyOf: [{type: x}, {type: null}]` shape the spec
@@ -204,6 +249,7 @@ func frozenRequestSchema(t *testing.T, method, route string) *schemaNode {
 	if !schema.closed() {
 		t.Fatalf("%s is not a closed schema — comparing against it proves nothing", name)
 	}
+	resolveRefs(schema, spec.Components.Schemas, map[*schemaNode]bool{})
 	return schema
 }
 
@@ -219,6 +265,7 @@ func undeclaredPayloadKeys(payload map[string]any, node *schemaNode) []string {
 				extra = append(extra, prefix+key)
 				continue
 			}
+			child = child.objectShape()
 			if child == nil || len(child.Properties) == 0 {
 				continue
 			}
@@ -245,6 +292,7 @@ func missingRequiredKeys(payload map[string]any, node *schemaNode) []string {
 		}
 		for key, value := range obj {
 			child, declared := at.Properties[key]
+			child = child.objectShape()
 			if !declared || child == nil || len(child.Properties) == 0 {
 				continue
 			}
@@ -280,8 +328,8 @@ func mistypedPayloadValues(payload map[string]any, node *schemaNode) []string {
 					prefix, key, jsonTypeOf(value), strings.Join(names, "|")))
 				continue
 			}
-			if nested, isObj := value.(map[string]any); isObj && len(child.Properties) > 0 {
-				walk(nested, child, prefix+key+".")
+			if nested, isObj := value.(map[string]any); isObj && len(child.objectShape().Properties) > 0 {
+				walk(nested, child.objectShape(), prefix+key+".")
 			}
 		}
 	}

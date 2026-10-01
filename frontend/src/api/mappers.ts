@@ -47,6 +47,7 @@ import type {
   OnboardResultView,
   DeleteResultView,
   UninstallResultView,
+  RuntimeLoginView,
   TeardownHereResultView,
   BootstrapResultView,
   MachineView,
@@ -80,6 +81,7 @@ import type {
   WireOnboardResult,
   WireDeleteResult,
   WireUninstallResult,
+  WireRuntimeLogin,
   WireTeardownHereResult,
   WireBootstrapResult,
   WireChatRead,
@@ -1777,6 +1779,21 @@ export function toUninstallResult(w: WireUninstallResult): UninstallResultView {
     memberId: w.member_id,
     machineId: w.machine_id,
     dispatched: w.dispatched,
+  };
+}
+
+export function toRuntimeLogin(w: WireRuntimeLogin): RuntimeLoginView {
+  return {
+    loginId: w.login_id,
+    machineId: w.machine_id,
+    runtime: w.runtime,
+    state: w.state,
+    authUrl: w.auth_url ?? null,
+    account: w.account
+      ? { email: w.account.email ?? null, orgName: w.account.org_name ?? null }
+      : null,
+    reason: w.reason ?? null,
+    updatedTs: w.updated_ts,
   };
 }
 

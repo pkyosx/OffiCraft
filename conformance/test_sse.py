@@ -343,7 +343,9 @@ def test_member_remove_frame(client, owner_token, fresh_member, owner_sse) -> No
 # ── §3 the closed topic/op vocabulary — EVERY topic of the set observed ───────
 
 
-def test_every_closed_topic_emits(client, owner_token, agent_a, fresh_member, owner_sse) -> None:
+def test_every_closed_topic_emits(
+    base_url, client, owner_token, agent_a, fresh_member, fresh_machine, owner_sse
+) -> None:
     """Trigger every topic of the closed set (spec §3.1 — the M1 freeze was 8
     topics, monitoring included despite the 7-topic SSE_TOPICS constant;
     reply_card joined in M2, the task batch added three more) and pin its op +
@@ -364,6 +366,24 @@ def test_every_closed_topic_emits(client, owner_token, agent_a, fresh_member, ow
     # this body ever stops writing `name`, that check FAILS LOUDLY instead of
     # silently degrading into something a stale frame satisfies.
     member_patch_body: dict[str, Any] = {"name": f"conf-topic-{tag}"}
+    # runtime_login is published only for a machine whose warden is ONLINE (an
+    # offline one is a 409 with nothing fanned), so this row holds a live warden
+    # connection open for the length of the test.
+    login_machine = fresh_machine()
+    warden_conn = SSEConnection(
+        base_url, mint_member_token(client, owner_token, login_machine, ttl_days=1)
+    )
+    assert warden_conn.status_code == 200, warden_conn.error_body
+    warden_conn.wait_for(lambda ev: ev["comment"] == "connected")
+    login_started: dict[str, Any] = {}
+
+    def start_login() -> Any:
+        r = client.post(
+            f"/api/machines/{login_machine}/runtime-login",
+            json={"runtime": "claude"}, headers=_auth(owner_token))
+        if r.status_code == 200:
+            login_started.update(r.json())
+        return r
     triggers: list[tuple[str, Any]] = [
         ("member", lambda: client.patch(
             f"/api/members/{member}", json=member_patch_body,
@@ -411,6 +431,7 @@ def test_every_closed_topic_emits(client, owner_token, agent_a, fresh_member, ow
             "/api/monitoring/telemetry",
             json={"rate_limits": {"primary_used_pct": 2}},
             headers=_auth(agent_a.token))),
+        ("runtime_login", start_login),
     ]
     expected_op = {
         "member": "patch", "chat": "patch", "chat_read": "patch",
@@ -419,6 +440,7 @@ def test_every_closed_topic_emits(client, owner_token, agent_a, fresh_member, ow
         "global_context": "patch", "role_def": "patch",
         "insight": "patch",
         "context": "signal", "monitoring": "signal",
+        "runtime_login": "signal",
     }
     # ── the self-confrontation: this table IS the closed set, not a subset ────
     closed = _closed_topic_set()
@@ -558,6 +580,8 @@ def test_every_closed_topic_emits(client, owner_token, agent_a, fresh_member, ow
                 f"NOT have caught it: the polluting frame is about this very "
                 f"member. Got payload: {payload}"
             )
+        if topic == "runtime_login":
+            assert frame["data"]["key"] == login_started["login_id"], (frame, login_started)
         if frame["op"] == "signal":
             # §3.2: volatile in-memory store change — payload always null.
             assert frame["data"]["payload"] is None, (topic, frame)
@@ -570,6 +594,78 @@ def test_every_closed_topic_emits(client, owner_token, agent_a, fresh_member, ow
     assert r.status_code == 200
     frame = owner_sse.wait_for_frame("global_context")["frame"]
     assert frame["data"]["payload"] is None, frame
+    client.post(
+        f"/api/machines/{login_machine}/runtime-login/{login_started['login_id']}/cancel",
+        headers=_auth(owner_token))
+    warden_conn.close()
+
+
+def test_runtime_login_relay_flow(base_url, client, owner_token, fresh_machine) -> None:
+    """The runtime-login relay end to end over HTTP + the warden's own stream:
+    the owner's start reaches that warden as login_start, the warden's report
+    is read back by the owner, a partial code is refused without leaving
+    awaiting_code, a whole code reaches the warden as login_code, and cancel
+    reaches it as login_cancel and is sticky against a later report."""
+    machine = fresh_machine()
+    warden_token = mint_member_token(client, owner_token, machine, ttl_days=1)
+    warden = SSEConnection(base_url, warden_token)
+    owner = _auth(owner_token)
+    base = f"/api/machines/{machine}/runtime-login"
+    url = "https://claude.ai/oauth/authorize?conf=1"
+    try:
+        assert warden.status_code == 200, warden.error_body
+        warden.wait_for(lambda ev: ev["comment"] == "connected")
+
+        r = client.post(base, json={"runtime": "claude"}, headers=owner)
+        assert r.status_code == 200, r.text
+        started = r.json()
+        login_id = started["login_id"]
+        assert {k: started[k] for k in ("machine_id", "runtime", "state", "auth_url", "account", "reason")} == {
+            "machine_id": machine, "runtime": "claude", "state": "starting",
+            "auth_url": None, "account": None, "reason": None,
+        }, started
+        frame = warden.wait_for_frame("warden-command")["frame"]
+        assert frame["data"] == {
+            "rpc": "login_start",
+            "args": {"member_id": machine, "login_id": login_id, "runtime": "claude"},
+        }, frame
+
+        r = client.post("/api/monitoring/runtime-login",
+                        json={"login_id": login_id, "state": "awaiting_code", "auth_url": url},
+                        headers=_auth(warden_token))
+        assert r.status_code == 200, r.text
+        g = client.get(f"{base}/{login_id}", headers=owner)
+        assert g.status_code == 200, g.text
+        assert (g.json()["state"], g.json()["auth_url"]) == ("awaiting_code", url), g.json()
+
+        r = client.post(f"{base}/{login_id}/code", json={"code": "conf-half"}, headers=owner)
+        assert r.status_code == 422, r.text
+        assert client.get(f"{base}/{login_id}", headers=owner).json()["state"] == "awaiting_code"
+
+        r = client.post(f"{base}/{login_id}/code", json={"code": "conf-code#conf-state"}, headers=owner)
+        assert r.status_code == 200, r.text
+        assert r.json()["state"] == "verifying", r.json()
+        frame = warden.wait_for_frame("warden-command")["frame"]
+        assert frame["data"] == {
+            "rpc": "login_code",
+            "args": {"member_id": machine, "login_id": login_id, "code": "conf-code#conf-state"},
+        }, frame
+
+        r = client.post(f"{base}/{login_id}/cancel", headers=owner)
+        assert r.status_code == 200, r.text
+        assert (r.json()["state"], r.json()["reason"]) == ("cancelled", "cancelled by the owner"), r.json()
+        frame = warden.wait_for_frame("warden-command")["frame"]
+        assert frame["data"] == {
+            "rpc": "login_cancel", "args": {"member_id": machine, "login_id": login_id},
+        }, frame
+
+        r = client.post("/api/monitoring/runtime-login",
+                        json={"login_id": login_id, "state": "succeeded"},
+                        headers=_auth(warden_token))
+        assert r.status_code == 200, r.text
+        assert r.json()["state"] == "cancelled", r.json()
+    finally:
+        warden.close()
 
 
 # ── §4 per-recipient routing (T-30d7) ────────────────────────────────────────

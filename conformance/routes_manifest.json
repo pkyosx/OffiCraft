@@ -533,6 +533,13 @@
   },
   {
     "auth": "gated",
+    "mcp_tool": null,
+    "method": "POST",
+    "path": "/api/monitoring/runtime-login",
+    "requires": "machine"
+  },
+  {
+    "auth": "gated",
     "mcp_tool": "get_monitoring",
     "method": "GET",
     "path": "/api/monitoring",
@@ -634,6 +641,34 @@
     "mcp_tool": "upgrade_warden",
     "method": "POST",
     "path": "/api/machines/{member_id}/upgrade",
+    "requires": "admin_agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": null,
+    "method": "POST",
+    "path": "/api/machines/{machine_id}/runtime-login",
+    "requires": "admin_agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": null,
+    "method": "GET",
+    "path": "/api/machines/{machine_id}/runtime-login/{login_id}",
+    "requires": "admin_agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": null,
+    "method": "POST",
+    "path": "/api/machines/{machine_id}/runtime-login/{login_id}/code",
+    "requires": "admin_agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": null,
+    "method": "POST",
+    "path": "/api/machines/{machine_id}/runtime-login/{login_id}/cancel",
     "requires": "admin_agent"
   },
   {

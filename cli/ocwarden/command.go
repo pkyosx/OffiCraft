@@ -67,7 +67,8 @@ func parseCommandFrame(payload []byte) (*Command, error) {
 		return nil, fmt.Errorf("command: malformed data body: %w", err)
 	}
 	switch body.RPC {
-	case rpcStart, rpcStop, rpcUninstall, rpcUpdate, rpcRenew, rpcWorkerStop:
+	case rpcStart, rpcStop, rpcUninstall, rpcUpdate, rpcRenew, rpcWorkerStop,
+		rpcLoginStart, rpcLoginCode, rpcLoginCancel:
 	default:
 		return nil, fmt.Errorf("command: unknown or missing rpc %q", body.RPC)
 	}
@@ -92,7 +93,11 @@ type CommandDeps struct {
 	// Takes and returns nothing: a warden's word about its own credential is worth
 	// nothing — the station counts convergence from the key id it sees on the next
 	// authenticated request.
-	Renew  func()
+	Renew func()
+	// No receipt either: a login reports its own progress through
+	// runtimeLoginPath, and a command_result would land on member.last_op*,
+	// which the login must never touch.
+	Login  LoginSeam
 	Report func(CommandResult) error
 }
 
@@ -222,6 +227,8 @@ func dispatchCommand(cmd *Command, deps CommandDeps) error {
 		}
 		deps.Renew()
 		return nil
+	case rpcLoginStart, rpcLoginCode, rpcLoginCancel:
+		return dispatchLogin(cmd, deps.Login)
 	case rpcStop:
 		session, err := stopSessionFromArgs(cmd.Args)
 		if err != nil {
@@ -363,4 +370,29 @@ func stopSessionFromArgs(args map[string]any) (string, error) {
 		return memberSessionName(id), nil
 	}
 	return "", fmt.Errorf("command: stop missing target (need session_name/session_id/member_id)")
+}
+
+// The error never quotes args: login_code carries the code.
+func dispatchLogin(cmd *Command, login LoginSeam) error {
+	if login == nil {
+		return fmt.Errorf("command: %s refused: login seam not wired", cmd.RPC)
+	}
+	loginID, err := loginIDFromArgs(cmd.Args)
+	if err != nil {
+		return err
+	}
+	switch cmd.RPC {
+	case rpcLoginStart:
+		runtime, _ := argString(cmd.Args, "runtime")
+		login.Start(loginID, runtime)
+	case rpcLoginCode:
+		code, _ := argString(cmd.Args, "code")
+		if strings.TrimSpace(code) == "" {
+			return fmt.Errorf("command: login_code for %s carries no code", loginID)
+		}
+		login.Code(loginID, code)
+	case rpcLoginCancel:
+		login.Cancel(loginID)
+	}
+	return nil
 }

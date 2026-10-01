@@ -572,6 +572,14 @@ func wireUpdaterSeams(transport *sseTransport, up *updater) {
 	transport.onConnect = up.Kick
 	transport.deps.Update = up.Kick
 	transport.deps.Renew = up.RenewNow
+	// An in-place exec keeps the PID but not the login relay's bookkeeping, so
+	// a running `claude auth login` would be orphaned for up to 10 minutes.
+	if login, exec := transport.deps.Login, up.execSelf; login != nil && exec != nil {
+		up.execSelf = func() error {
+			login.Abandon()
+			return exec()
+		}
+	}
 }
 
 func realMain(argv []string, env func(string) string, out io.Writer) int {
@@ -743,7 +751,11 @@ func wireLoginCheck(cfg Config, env func(string) string, runner CmdRunner, goos 
 		keep = k
 	}
 	login = newLoginProber(env, runner, keep, goos, launchEnv, logf)
-	return buildCommandDeps(cfg, env, runner, launchEnv, login), login, login.setIntervals
+	deps = buildCommandDeps(cfg, env, runner, launchEnv, login)
+	relay := newLoginRelay(login, newLoginReporter(cfg), logf)
+	relay.sweepStaleRenders()
+	deps.Login = relay
+	return deps, login, login.setIntervals
 }
 
 func main() {

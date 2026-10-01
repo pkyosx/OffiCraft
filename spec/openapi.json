@@ -5194,6 +5194,219 @@
         "title": "RuntimeCapabilityDTO",
         "type": "object"
       },
+      "RuntimeLoginAccountDTO": {
+        "additionalProperties": false,
+        "description": "Who the runtime CLI says it is now logged in as. Display values only; no token or credential.",
+        "properties": {
+          "email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
+          "org_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Org Name"
+          }
+        },
+        "title": "RuntimeLoginAccountDTO",
+        "type": "object"
+      },
+      "RuntimeLoginCodeDTO": {
+        "additionalProperties": false,
+        "description": "The code the provider's sign-in page showed the owner. Relayed to the waiting login process and never stored, logged or echoed.",
+        "properties": {
+          "code": {
+            "minLength": 1,
+            "title": "Code",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code"
+        ],
+        "title": "RuntimeLoginCodeDTO",
+        "type": "object"
+      },
+      "RuntimeLoginDTO": {
+        "additionalProperties": false,
+        "description": "One runtime login the server relays between the owner's browser and a login process the machine's warden runs. Held in server memory only and never persisted: a server restart forgets every login, and a login is dropped about 10 minutes after it reaches a terminal state (`succeeded`, `failed`, `expired`, `cancelled`), after which it reads as 404. A non-terminal login with no warden report for 15 minutes becomes `expired`; that is longer than the warden's own 10-minute login cap, so a live login always gets to report its own end first.",
+        "properties": {
+          "account": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RuntimeLoginAccountDTO"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Set on `succeeded` only.",
+            "title": "Account"
+          },
+          "auth_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The provider sign-in URL the owner opens; set from `awaiting_code` on.",
+            "title": "Auth Url"
+          },
+          "login_id": {
+            "title": "Login Id",
+            "type": "string"
+          },
+          "machine_id": {
+            "title": "Machine Id",
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why the login ended in `failed`, `expired` or `cancelled`; on `awaiting_code`, why the last code was refused by the login process (paste again). Cleared when a code is accepted for relay.",
+            "title": "Reason"
+          },
+          "runtime": {
+            "enum": [
+              "claude"
+            ],
+            "title": "Runtime",
+            "type": "string"
+          },
+          "state": {
+            "description": "`starting` until the warden's first report. A warden build that predates the `login_start` verb ignores it, so `starting` never advances; the UI gives up on it after 30s.",
+            "enum": [
+              "starting",
+              "awaiting_code",
+              "verifying",
+              "succeeded",
+              "failed",
+              "expired",
+              "cancelled"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "updated_ts": {
+            "description": "Epoch seconds of the last state change, server-stamped.",
+            "title": "Updated Ts",
+            "type": "number"
+          }
+        },
+        "required": [
+          "login_id",
+          "machine_id",
+          "runtime",
+          "state",
+          "updated_ts"
+        ],
+        "title": "RuntimeLoginDTO",
+        "type": "object"
+      },
+      "RuntimeLoginReportDTO": {
+        "additionalProperties": false,
+        "description": "A warden's progress report for one runtime login. Every value is held in server memory only, like the login itself.",
+        "properties": {
+          "account": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RuntimeLoginAccountDTO"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Send with `succeeded`.",
+            "title": "Account"
+          },
+          "auth_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Send with `awaiting_code`.",
+            "title": "Auth Url"
+          },
+          "login_id": {
+            "title": "Login Id",
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Send with `failed`, `expired` or `cancelled`, or with `awaiting_code` when the login process refused the code it was given and waits for another. Must not quote the code or any credential.",
+            "title": "Reason"
+          },
+          "state": {
+            "enum": [
+              "awaiting_code",
+              "verifying",
+              "succeeded",
+              "failed",
+              "expired",
+              "cancelled"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "login_id",
+          "state"
+        ],
+        "title": "RuntimeLoginReportDTO",
+        "type": "object"
+      },
+      "RuntimeLoginStartDTO": {
+        "additionalProperties": false,
+        "description": "Which runtime to log in on the machine.",
+        "properties": {
+          "runtime": {
+            "enum": [
+              "claude"
+            ],
+            "title": "Runtime",
+            "type": "string"
+          }
+        },
+        "required": [
+          "runtime"
+        ],
+        "title": "RuntimeLoginStartDTO",
+        "type": "object"
+      },
       "RuntimeLoginWarningDTO": {
         "additionalProperties": false,
         "description": "One machine/runtime pair on ``MemberDTO.runtime_login_warnings`` whose runtime the machine reports as logged out.",
@@ -13993,6 +14206,305 @@
         }
       }
     },
+    "/api/machines/{machine_id}/runtime-login": {
+      "post": {
+        "description": "- Pushes the `login_start` warden command; the warden runs the runtime's login and reports through `POST /api/monitoring/runtime-login`.\n- Held in server memory only, never persisted; a server restart forgets the login.\n- A login with no warden report for 15 minutes becomes `expired`, then is dropped about 10 minutes later.\n- A warden build that predates the verb ignores it and the login stays `starting`; the UI gives up after 30s.\n- While a login for this machine and runtime is not yet terminal, a repeat returns that login instead of starting another.\n- Admin agent only (403); an unknown, removed or non-machine id is a 404; an offline warden is a 409.",
+        "operationId": "handle_start_runtime_login_api_machines__machine_id__runtime_login_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "machine_id",
+            "required": true,
+            "schema": {
+              "title": "Machine Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RuntimeLoginStartDTO"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuntimeLoginDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Validation error (unified error envelope)."
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Client error (unified error envelope)."
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Server error (unified error envelope)."
+          }
+        },
+        "summary": "Start a runtime login on a machine: its warden runs the CLI login and relays the sign-in URL back.",
+        "x-mcp": {
+          "include": false
+        }
+      }
+    },
+    "/api/machines/{machine_id}/runtime-login/{login_id}": {
+      "get": {
+        "description": "- Memory only: an unknown id, one from before a server restart, or one dropped about 10 minutes after reaching a terminal state is a 404.\n- Admin agent only (403).",
+        "operationId": "handle_get_runtime_login_api_machines__machine_id__runtime_login__login_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "machine_id",
+            "required": true,
+            "schema": {
+              "title": "Machine Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "login_id",
+            "required": true,
+            "schema": {
+              "title": "Login Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuntimeLoginDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Validation error (unified error envelope)."
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Client error (unified error envelope)."
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Server error (unified error envelope)."
+          }
+        },
+        "summary": "Read a runtime login's current state.",
+        "x-mcp": {
+          "include": false
+        }
+      }
+    },
+    "/api/machines/{machine_id}/runtime-login/{login_id}/cancel": {
+      "post": {
+        "description": "- Marks the login `cancelled` at once and pushes `login_cancel` so the warden kills the login process.\n- An already-terminal login is returned unchanged.\n- 404 when unknown or dropped. Admin agent only (403).",
+        "operationId": "handle_cancel_runtime_login_api_machines__machine_id__runtime_login__login_id__cancel_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "machine_id",
+            "required": true,
+            "schema": {
+              "title": "Machine Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "login_id",
+            "required": true,
+            "schema": {
+              "title": "Login Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuntimeLoginDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Validation error (unified error envelope)."
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Client error (unified error envelope)."
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Server error (unified error envelope)."
+          }
+        },
+        "summary": "Cancel a runtime login.",
+        "x-mcp": {
+          "include": false
+        }
+      }
+    },
+    "/api/machines/{machine_id}/runtime-login/{login_id}/code": {
+      "post": {
+        "description": "- Relays the code to the waiting login process via the `login_code` warden command and moves the login to `verifying`.\n- The code is never stored, logged or echoed back; it exists only in the command frame.\n- Checked in this order: 404 when the login is unknown or dropped; 409 unless it is `awaiting_code`, and 409 when the machine's warden is offline (nothing relayed); then 422 for a code that contains whitespace or a control character inside it (the code is written to the login process as one line), or that is not two non-empty parts joined by exactly one `#` (a partial copy). On every refusal the login stays as it was, so the owner can paste again.\n- Admin agent only (403).",
+        "operationId": "handle_submit_runtime_login_code_api_machines__machine_id__runtime_login__login_id__code_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "machine_id",
+            "required": true,
+            "schema": {
+              "title": "Machine Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "login_id",
+            "required": true,
+            "schema": {
+              "title": "Login Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RuntimeLoginCodeDTO"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuntimeLoginDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Validation error (unified error envelope)."
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Client error (unified error envelope)."
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Server error (unified error envelope)."
+          }
+        },
+        "summary": "Submit the sign-in code for a runtime login.",
+        "x-mcp": {
+          "include": false
+        }
+      }
+    },
     "/api/machines/{machine_id}/teardown-here": {
       "post": {
         "description": "- Admin agent only, else 403.\n- Always refused 409 today: it cannot reach another host, and the server's own machine may not be torn down.\n- To retire another machine: POST /api/machines/{id}/uninstall, then DELETE /api/machines/{id}.\n- To repair this host's warden re-run bootstrap-here; nothing need be torn down first.\n- An unknown machine_id resolves first and is a 404.",
@@ -16225,6 +16737,68 @@
           },
           "name": "get_monitoring",
           "order": 40
+        }
+      }
+    },
+    "/api/monitoring/runtime-login": {
+      "post": {
+        "description": "- Warden only, and only for a login on its own machine; any other caller, or an unknown or dropped `login_id`, is a 404.\n- A terminal state is sticky: a later report leaves it unchanged, so the answer is how a warden learns the owner cancelled.\n- Held in server memory only, never persisted.",
+        "operationId": "handle_report_runtime_login_api_monitoring_runtime_login_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RuntimeLoginReportDTO"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuntimeLoginDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Validation error (unified error envelope)."
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Client error (unified error envelope)."
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Server error (unified error envelope)."
+          }
+        },
+        "summary": "Report a runtime login's progress (warden only). Answers the login as the server now holds it.",
+        "x-mcp": {
+          "include": false
         }
       }
     },
