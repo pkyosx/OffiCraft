@@ -3041,6 +3041,15 @@ export const httpApi: Api = {
     return toBootstrap(wire);
   },
 
+  async getMemberBootContext(memberId: string): Promise<string> {
+    const wire = unwrap(
+      await client.GET("/api/members/{member_id}/boot-context", {
+        params: { path: { member_id: memberId } },
+      }),
+    );
+    return wire.context;
+  },
+
   async getInsight(roleKey: string): Promise<InsightView> {
     // GET /api/insight/{role_key} -> InsightDTO (T-3809). PER-ROLE doc keyed on
     // the BARE role_key, and there

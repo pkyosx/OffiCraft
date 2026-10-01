@@ -461,7 +461,7 @@ export function AgentDetailPanel({
   // what made the card stick on 「載入中…」 forever:
   //
   //   `vm.prompt.fetch` is an inline arrow in BOTH wrappers (the member's
-  //   `async () => (await api.getBootstrap(member.role)).context`, the worker's
+  //   `() => api.getMemberBootContext(member.id)`, the worker's
   //   `onFetchBootContext` prop, itself an arrow rebuilt by OfficePage), so its
   //   identity changes on EVERY render. With it in the deps, any repaint —
   //   an SSE delta is enough — tore the effect down (`alive = false`, so neither

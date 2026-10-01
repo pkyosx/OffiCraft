@@ -17,9 +17,11 @@ import {
   __resetMock,
   __injectMockTask,
   __injectMockOutsourceWorker,
+  __injectMockMember,
   __setBootDocReadOnly,
 } from "./mock";
 import { ApiError } from "./errors";
+import { codeForStatus } from "./errorCodes";
 import type { BootDocKind } from "../types";
 import { BOOT_DOC_HISTORY_KEPT, BOOT_DOC_CAP_CHARS_DEFAULTS } from "./docCap";
 import {
@@ -427,5 +429,59 @@ describe("mockApi · 開機脈絡預覽", () => {
     expect(ctx).toContain("codex 版");
     expect(ctx).not.toContain("claude 版");
     expect(ctx).not.toContain(SEED_BOOT_SEQUENCE_CODEX_MD.trim());
+  });
+});
+
+describe("mockApi · getMemberBootContext", () => {
+  it("a staff member's preview carries the everyone entry, then its own live entries, then the Claude boot steps", async () => {
+    await mockApi.saveBootDoc("boot_sequence", "codex", "codex 版\n");
+    await mockApi.saveBootDoc("boot_sequence", "claude", "claude 版\n");
+
+    const ctx = await mockApi.getMemberBootContext("mira");
+
+    const lore = ctx.indexOf("\n\n# 傳承\n\n");
+    const everyone = ctx.indexOf("## L-7 回報前先讀一次自己寫的東西");
+    const pinned = ctx.indexOf("## L-1 成功回應不代表資料完整（置頂）");
+    const active = ctx.indexOf("## L-2 零命中的預設解讀是查法寫錯了");
+    expect(lore).toBeGreaterThan(ctx.indexOf("# Role: "));
+    expect(everyone).toBeGreaterThan(lore);
+    expect(pinned).toBeGreaterThan(everyone);
+    expect(active).toBeGreaterThan(pinned);
+    expect(ctx).not.toContain("退出碼要落檔再讀");
+    expect(ctx).not.toContain("交接路徑要寫絕對路徑");
+    expect(ctx.endsWith("\n\nclaude 版\n")).toBe(true);
+    expect(ctx).not.toContain("codex 版");
+  });
+
+  it("a Codex staff member of the same role gets the Codex boot steps and only the everyone entry", async () => {
+    __injectMockMember({
+      id: "codex-staff",
+      kind: "staff",
+      role_key: "assistant",
+      runtime: "codex",
+      roster_status: "active",
+    });
+    await mockApi.saveBootDoc("boot_sequence", "codex", "codex 版\n");
+    await mockApi.saveBootDoc("boot_sequence", "claude", "claude 版\n");
+
+    const ctx = await mockApi.getMemberBootContext("codex-staff");
+
+    expect(ctx).toContain("# 傳承\n\n## L-7 回報前先讀一次自己寫的東西");
+    expect(ctx).not.toContain("成功回應不代表資料完整");
+    expect(ctx.endsWith("\n\ncodex 版\n")).toBe(true);
+    expect(ctx).not.toContain("claude 版");
+  });
+
+  it("an unknown, dismissed, outsource or machine id rejects with the server's 404 envelope", async () => {
+    __injectMockMember({ id: "ow-preview", kind: "outsource" });
+    await mockApi.dismissMember("mira");
+
+    for (const id of ["nobody", "mira", "ow-preview", "warden-mbp5"]) {
+      await expect(mockApi.getMemberBootContext(id)).rejects.toMatchObject({
+        status: 404,
+        code: codeForStatus(404),
+        serverMessage: `member '${id}' not found`,
+      });
+    }
   });
 });

@@ -6829,6 +6829,76 @@ const mockApiImpl = {
     return toBootstrap(wire);
   },
 
+  async getMemberBootContext(memberId: string): Promise<string> {
+    // The server's buildBootContext for ONE member: getBootstrap's slots plus
+    // that member's 傳承 and the boot steps for its own runtime. No token.
+    const path = `/api/members/${memberId}/boot-context`;
+    const member = wireMembers.find((m) => m.id === memberId);
+    if (!member || member.kind !== "staff" || member.roster_status === "removed") {
+      throw mockApiError(
+        `http 404 for GET ${path}`,
+        404,
+        `member '${memberId}' not found`,
+      );
+    }
+    const role = member.role_key || "assistant";
+    let roleDef: WireRoleDef;
+    try {
+      roleDef = foldRole(role);
+    } catch {
+      throw mockApiError(`http 404 for GET ${path}`, 404, `role '${role}' not found`);
+    }
+    const userText = foldGlobalContext().text;
+    const parts = [foldBootDoc("system_interaction", "global").text.trim()];
+    if (userText.trim()) {
+      parts.push(`# 使用者自訂（Owner Additions）\n\n${userText.trim()}`);
+    }
+    parts.push(
+      `# Role: ${roleDef.name || roleDef.key}\n\n${roleDef.definition_md.trim()}`,
+    );
+    const insightText =
+      insightOverlays.get(role)?.text ?? INSIGHT_SEEDS[role] ?? "";
+    if (insightText.trim()) {
+      parts.push(`# Insight (${role})\n\n${insightText.trim()}`);
+    }
+    // One budget over everyone entries then the member's own, stopping at the
+    // first entry that does not fit (server selectMemberLore).
+    const lore = [
+      ...mockLoreEntries
+        .filter((entry) => entry.scopeKind === "everyone")
+        .sort(mockLoreOrder),
+      ...mockLoreEntries
+        .filter(
+          (entry) => entry.scopeKind === "agent" && entry.scopeKey === member.id,
+        )
+        .sort(mockLoreOrder),
+    ].filter((entry) => entry.state !== "retired");
+    const selected: LoreEntryView[] = [];
+    let usedChars = 0;
+    const loreCap = mockServerSettings.lore_cap_chars_role;
+    for (const entry of lore) {
+      const cost = [...entry.title].length + [...entry.body].length;
+      if (loreCap <= 0 || usedChars + cost > loreCap) break;
+      usedChars += cost;
+      selected.push(entry);
+    }
+    if (selected.length > 0) {
+      const lines = selected.map((entry) => {
+        const pinned = entry.state === "pinned" ? "（置頂）" : "";
+        const body = entry.body.trim();
+        return `## ${entry.id} ${entry.title.trim()}${pinned}${body ? `\n\n${body}` : ""}`;
+      });
+      parts.push(`# 傳承\n\n${lines.join("\n\n")}`);
+    }
+    parts.push(
+      foldBootDoc(
+        "boot_sequence",
+        member.runtime === "codex" ? "codex" : "claude",
+      ).text.trim(),
+    );
+    return parts.join("\n\n") + "\n";
+  },
+
   async getInsight(roleKey: string): Promise<InsightView> {
     // The folded PER-ROLE insight doc: overlay ⊕ this role's OWN file seed
     // (T-e1e3). 🔴 PER-ROLE, mirroring seedInsightMD on the server — `assistant`

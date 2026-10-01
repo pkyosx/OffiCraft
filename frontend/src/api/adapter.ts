@@ -2895,6 +2895,15 @@ export interface Api {
    */
   getBootstrap(role: string): Promise<BootstrapView>;
   /**
+   * A staff member's boot-context PREVIEW (`GET
+   * /api/members/{member_id}/boot-context`, owner/admin-agent): the text the
+   * start path would hand that member right now — its own 傳承 and the boot
+   * steps for its own runtime — with no token. Today's assembly, not a record
+   * of what it actually booted with. Unknown, removed, outsource or machine id,
+   * or a role whose definition is gone → 404 (throws ApiError).
+   */
+  getMemberBootContext(memberId: string): Promise<string>;
+  /**
    * The folded PER-ROLE insight doc for a `roleKey` (T-3809) — the role
    * journal's second block, beside Duty. No file seed, so an untouched doc
    * reads as genuinely empty.

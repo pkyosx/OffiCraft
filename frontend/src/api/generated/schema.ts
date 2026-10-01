@@ -1768,6 +1768,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/members/{member_id}/boot-context": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read a staff member's boot-context preview (owner/admin agent).
+         * @description Read a staff member's boot-context PREVIEW: the server assembles the boot text FOR THIS MEMBER with the same fold the staff start path uses (buildBootContext with this member, the text reconcile hands the warden), WITHOUT minting any token. Because it is assembled for the member, it carries the member's 傳承 block (the ``everyone`` entries first, then the member's own) and the boot sequence for the member's own runtime. Owner/admin-agent cockpit read, the same floor as /api/bootstrap and the outsource worker preview. 404 for an unknown member, a removed member, an outsource worker (its preview is /api/outsource-workers/{id}/boot-context) or a machine; 404 when the member's role definition is gone. It does NOT include the header the warden prepends for its runtime at spawn. HONEST caveat the UI must carry: this is today's assembly, not a verbatim start-time record — nothing is stored.
+         */
+        get: operations["handle_get_member_boot_context_api_members__member_id__boot_context_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/members/{member_id}/cost/reset": {
         parameters: {
             query?: never;
@@ -6046,6 +6066,14 @@ export interface components {
              * @default
              */
             mime: string;
+        };
+        /**
+         * MemberBootContextDTO
+         * @description A staff member's boot-context PREVIEW (GET /api/members/{member_id}/boot-context): the text buildBootContext assembles for THIS member right now, which is the context the start path would hand the warden at this moment. It carries the member's 傳承 block (``everyone`` entries first, then the member's own, under one ``lore_cap_chars_role`` budget) and the boot sequence for the member's own runtime; it excludes the header the warden prepends for its runtime. Nothing is stored and no token is minted.
+         */
+        MemberBootContextDTO: {
+            /** Context */
+            context: string;
         };
         /**
          * MemberDTO
@@ -14580,6 +14608,55 @@ export interface operations {
                 };
             };
             /** @description Authentication, authorization, or not-found error. */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_get_member_boot_context_api_members__member_id__boot_context_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                member_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemberBootContextDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
             "4XX": {
                 headers: {
                     [name: string]: unknown;
