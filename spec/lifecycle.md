@@ -888,7 +888,7 @@ decides that time is up.
   ⚠️ **T-197 folded the worker-namespaced routes away — the VERBS are unchanged, only the
   paths are.** A worker is reached through the member route for the same verb
   (`/deactivate` for 停止, `/force-stop`, `/accelerated-stop`, `/refocus`, `/relocate`,
-  `/activate` for 重啟, `PATCH /api/members/{member_id}` for 換 model); the member handler
+  `/activate` for 喚醒, `PATCH /api/members/{member_id}` for 換 model); the member handler
   dispatches on `kind == outsource` into the worker body. The paragraphs below describe
   those bodies, so read every old `/api/outsource-workers/{id}/…` path in them as the
   member route named next to it.

@@ -159,7 +159,7 @@ func TestAStoppedStaffMemberWhoseSessionDroppedIsCollectedAfterTheConfirmWindow(
 		wantStaffStop(t, d, "the retry", t0+121)
 	})
 
-	t.Run("an anchor from an earlier stop does not survive 活化 and a reconnect: the next stop waits a full window from its own disconnect", func(t *testing.T) {
+	t.Run("an anchor from an earlier stop does not survive 喚醒 and a reconnect: the next stop waits a full window from its own disconnect", func(t *testing.T) {
 		api, h, d, owner := stoppedStaffAfterDisconnect(t)
 		t0 := nowSecs()
 		api.runReconcileTick(t0)

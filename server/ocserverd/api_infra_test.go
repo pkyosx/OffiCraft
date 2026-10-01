@@ -378,7 +378,7 @@ func TestHandleEventsApiEventsGet(t *testing.T) {
 			}
 			apiWantError(t, data, "conflict",
 				"member '"+kind.id+"' has a stop in effect (desired_state=offline) — SSE refused "+
-					"(a stopped member must not re-project online; activate it to reconnect)")
+					"(a stopped member must not re-project online; 喚醒 it to reconnect)")
 			if row := apiTestSession(t, h, owner, kind.id); row["presence"] != "stopped" {
 				t.Fatalf("a refused reconnect must stay stopped, %s presence = %v", kind.id, row["presence"])
 			}
@@ -443,7 +443,7 @@ func TestSseStopGateRefusal(t *testing.T) {
 		}},
 	} {
 		stopRefusal := "member '" + kind.id + "' has a stop in effect (desired_state=offline) — " +
-			"SSE refused (a stopped member must not re-project online; activate it to reconnect)"
+			"SSE refused (a stopped member must not re-project online; 喚醒 it to reconnect)"
 
 		t.Run(kind.name+": a member working its close-out is still admitted, and refused the moment it reports stopped", func(t *testing.T) {
 			api, h, d, owner := newAPITestServer(t)

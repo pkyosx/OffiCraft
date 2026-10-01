@@ -846,10 +846,9 @@ func (s *apiServer) relocateWorkerNow(w OutsourceWorker) ownerOpOutcome {
 }
 
 // respawnWorkerForOwnerOp is the one path for owner verbs that should leave the
-// worker running (改機器, 重啟, runtime/model). desired_state=offline dominates
-// every one: nothing starts and the row says so. 重啟 never reaches that arm —
+// worker running (改機器, 喚醒, runtime/model). desired_state=offline dominates
+// every one: nothing starts and the row says so. 喚醒 never reaches that arm —
 // its handler sets DesiredState online on the row it passes by value.
-// Callers hold s.outsourceMu.
 // Callers hold s.outsourceMu.
 func (s *apiServer) respawnWorkerForOwnerOp(w OutsourceWorker, op string) ownerOpOutcome {
 	if w.DesiredState == DesiredStateOffline {
@@ -875,7 +874,7 @@ func (s *apiServer) respawnWorkerForOwnerOp(w OutsourceWorker, op string) ownerO
 		return ownerOpOutcome{HeldDown: true}
 	}
 	// Every owner verb gets a wind-down chance (owner: 「我建議所有換手都可以給他機會收尾」).
-	// 「正在跑就不動它」 for 重啟 is enforced by api_outsource.go (!sessionAliveReceipt)
+	// 「正在跑就不動它」 for 喚醒 is enforced by api_outsource.go (!sessionAliveReceipt)
 	// before this call; nothing in this function catches a weakened gate.
 	if s.workerHasStateToFlush(w) {
 		// A ladder refusal (openOwnerOpHandover false) still answers WoundDown: a

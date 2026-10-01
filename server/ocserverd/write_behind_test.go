@@ -341,7 +341,7 @@ func TestAnOwnerWakeAfterTheTickReadAStoppedWorkerIsNotUndoneByTheCollect(t *tes
 }
 
 // The staff twin: a 停止 whose session is confirmed gone is collected by the
-// member tick from its list read. An owner 活化 that lands after that read is
+// member tick from its list read. An owner 喚醒 that lands after that read is
 // neither collected nor sent a STOP.
 func TestAnOwnerActivateAfterTheTickReadAStoppedMemberIsNotCollected(t *testing.T) {
 	d, hook, path := windowDAL(t, "split pools")
@@ -359,7 +359,7 @@ func TestAnOwnerActivateAfterTheTickReadAStoppedMemberIsNotCollected(t *testing.
 
 	hook.wantFiredOnce(t)
 	if !behind.landed(t) {
-		t.Fatalf("premise: the owner's 活化 did not land inside the tick's gap")
+		t.Fatalf("premise: the owner's 喚醒 did not land inside the tick's gap")
 	}
 	got := apiTestMemberRow(t, d, "kip")
 	apiWantValue(t, "desired_state", any(got.DesiredState), any(DesiredStateOnline))
@@ -912,7 +912,7 @@ func TestOnboardingDoesNotReviveAnAssistantDismissedAfterItsRead(t *testing.T) {
 
 // A lapsed receipt is stamped on a staff member by the tick. The member delta
 // that follows describes the row as it is once the stamp lands, including an
-// owner 活化 written after the stamp's read.
+// owner 喚醒 written after the stamp's read.
 func TestAReceiptMissingStampPublishesTheRowAsItIsAfterTheStamp(t *testing.T) {
 	d, hook, path := windowDAL(t, "split pools")
 	api := windowStaff(t, d, `desired_state = 'offline'`)
@@ -925,7 +925,7 @@ func TestAReceiptMissingStampPublishesTheRowAsItIsAfterTheStamp(t *testing.T) {
 
 	hook.wantFiredOnce(t)
 	if !behind.landed(t) {
-		t.Fatalf("premise: the 活化 did not land between the stamp's read and its write")
+		t.Fatalf("premise: the 喚醒 did not land between the stamp's read and its write")
 	}
 	got := apiTestMemberRow(t, d, "kip")
 	const reason = "receipt_missing: the stop was handed to machine \"m-server-self\" but no receipt came " +

@@ -709,13 +709,13 @@ export const zh = {
     estimatedCost: "估計$",
     // T-7526：啟動中／離線／工作中／已停止 四個 presence 字隨狀態欄一起退場——
     // 它們是 LifecycleDot 的 aria-label（office.presence.*）的第二份副本。
-    // ── T-32e1/T-f190 生命週期操作（對齊成員詳情：換手／停止／換 model）──────
+    // ── T-32e1/T-f190 生命週期操作（對齊成員詳情：重新聚焦／停止／換 model）──────
     // 重新聚焦：僅線上可觸發；送出後由外包端非同步重生，故保留「已送出」註記。
     refocusSubmittedNote: "已送出重新聚焦 · 外包重生中…",
     // 停止（owner 明示；停止後不自動救活）。
     // ⚠️ 沒有 restart 這條字了（owner 2026-07-31「應該要統一」）：喚醒的字一律用
     // 正職那一份 `lifecycle.action.spawn`＝「喚醒」，兩個面板同一個葉子，主題包
-    // 換詞也只換一次。REST 路徑仍是 /restart（凍結 wire），只有字退場。
+    // 換詞也只換一次。
     stop: "停止",
     stopping: "停止中…",
     // 換 model（沿用成員 model/effort 編輯器）。

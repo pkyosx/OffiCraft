@@ -188,11 +188,11 @@ func (s *apiServer) armMemberOwnerOpHandover(m *Member, op string, cfg reconcile
 //	            verb sets it.
 //	下線用多強  RATCHET (winddownStageMayAdvanceTo), untouched.
 //
-// 活化 remains the ONE thing that cancels a stop outright rather than queueing a
+// 喚醒 remains the ONE thing that cancels a stop outright rather than queueing a
 // start behind it — deliberately.
 
 // 🔴 NOT "a stop is in flight": stopping_since stays > 0 forever after a converged
-// stop (decideDown resets only the in-memory reconcileState; only 活化 and
+// stop (decideDown resets only the in-memory reconcileState; only 喚醒 and
 // consumeRestartAfterStop clear the anchor). What it separates is a member ever
 // ASKED to stop from one never activated: editing a new hire's machine or model
 // must not boot it, while a long-stopped member IS brought back up

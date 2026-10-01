@@ -756,7 +756,7 @@ func (s *apiServer) HandleActivateMemberApiMembersMemberIdActivatePost(w http.Re
 		cur.StoppingSince = 0.0
 		cur.WakingSince = 0.0
 		cur.DesiredState = DesiredStateOnline
-		// 活化 spends the queued 起來, or it would fire a second start after the next 下線.
+		// 喚醒 spends the queued 起來, or it would fire a second start after the next 下線.
 		clearRestartIntent(cur)
 		if body.MachineId != nil {
 			cur.DesiredMachineID = *body.MachineId
@@ -826,7 +826,7 @@ func machineResolveRefusal(err error, machineID string) error {
 
 // A live member gets a graceful wind-down; the move happens at the 收口 (its own
 // report_stopped or the owner's force-stop). No recycle-grace ceiling:
-// winddownKindFor answers soft for a relocate. Unlike 活化 (which cancels the
+// winddownKindFor answers soft for a relocate. Unlike 喚醒 (which cancels the
 // stop), 改機器 queues behind it. "auto" is NOT exempt from the machine resolve:
 // IsOnline("auto") is always false, so it pinned members to an unreachable
 // destination.
@@ -930,7 +930,7 @@ func memberHeldDownReceipt(op string) string {
 }
 
 // 🔴 The harm is on the NEXT generation: activate clears neither refocus_since nor
-// stopped_since, so a leftover marker survives 下線 → 活化 and decideUp's recycle
+// stopped_since, so a leftover marker survives 下線 → 喚醒 and decideUp's recycle
 // arm robust-stops the brand-new session on its first tick. stopping_since /
 // stopped_since / forced_stop_at are left alone: forced_stop_at is the durable
 // cut-off record the next generation reads.
@@ -979,7 +979,7 @@ func stopVerbRowOfWorker(w *OutsourceWorker) stopVerbRow {
 //   - restart_after_stop cleared: 後蓋前 — any queued 起來 is cancelled.
 //
 // 🔴 activate does NOT clear stopped_since, so a new session can come up ONLINE
-// carrying the previous generation's report with no epoch (下線 → 活化).
+// carrying the previous generation's report with no epoch (下線 → 喚醒).
 func applyStopVerbRow(row stopVerbRow, snapshot Member, now float64) {
 	*row.DesiredState = DesiredStateOffline
 	*row.RefocusSince = 0.0

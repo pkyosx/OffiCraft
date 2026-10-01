@@ -22,7 +22,7 @@
 - ⚠️ **`desired_state` 不再獨自表示「要不要在線上」**(T-14 項目 7,owner 2026-08-30
   `rc-bc1b029a3aa2`)。它現在只表示「下線用多強」(停止 → 加速停止 → 強制停止,棘輪、只往上加);
   「下線之後要不要起來」是另一欄 `restart_after_stop`,規則是**後蓋前**(最後一個動作說了算)。
-  下面把 `desired_state` 列為單一起停意圖的句子,要照這一段讀。**活化**仍是唯一直接取消下線的
+  下面把 `desired_state` 列為單一起停意圖的句子,要照這一段讀。**喚醒**仍是唯一直接取消下線的
   動作(不是排隊,是取消),那是刻意的例外。
 
 - **intent(意圖 / 身分)= durable → 存 DB。** 人或系統「設定的意圖」與穩定身分:重啟後必須記得。例:`desired_state`(online/offline)、`desired_machine_id`(希望它在哪台)、`role_key`、`name`、`kind`、`model`、`effort`、`id`、`owner_id`、`banked_cost`(歷史累積)。(`core` 曾列於此;owner 2026-07-11 裁決該意圖已退役——全鏈路零讀者,seed 成員的保護實際 key 在 `role_key` 的 seed-role 判斷——migration 0028 已將欄位移除。)

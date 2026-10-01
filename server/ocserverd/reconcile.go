@@ -126,7 +126,7 @@ type reconcileState struct {
 	// RobustStopPendingAt: when dispatchRobustStopNow last sent an out-of-band robust STOP
 	// (force-stop, cancel-wake kill, report_stopped collect); 0 = none outstanding. That send is
 	// dropped on an unreachable warden and no decide arm re-derives it, so this is its only retry.
-	// 🔴 Do not re-derive it from stopped_since: 下線 → 活化 leaves a predecessor's stopped_since on
+	// 🔴 Do not re-derive it from stopped_since: 下線 → 喚醒 leaves a predecessor's stopped_since on
 	// a fresh session, which would then be robust-stopped on its first tick.
 	RobustStopPendingAt float64
 	// OfflineSince feeds the zombie-takeover second-confirmation window ONLY. Restart amnesia
@@ -969,7 +969,7 @@ func (s *apiServer) reconcileOne(m Member, st reconcileState, now float64) recon
 // whatever the dropped connection left behind. The tick holds reconcileMu, which
 // dispatchShutdown takes, so this resolves the same kill chain and sends through the same
 // sender itself. The judgement is re-made on the row inside the transaction because the HTTP
-// faces write member rows without reconcileMu: an 活化 that landed mid-tick must not be
+// faces write member rows without reconcileMu: a 喚醒 that landed mid-tick must not be
 // collected.
 func (s *apiServer) collectMemberStop(memberID string, decision reconcileDecision, prior reconcileState, now float64) reconcileDecision {
 	var collected *Member
@@ -1411,7 +1411,7 @@ func (s *apiServer) stampContextHighRecycle(members []Member, now float64) {
 		}
 		// 🔴 An agent that already reported stopped is not asked again: armRefocusEpoch zeroes the
 		// anchors and would destroy its finished close-out. The boot_ts test is load-bearing — 下線 →
-		// 活化 leaves a predecessor's stopped_since, and skipping on that would exclude the member from
+		// 喚醒 leaves a predecessor's stopped_since, and skipping on that would exclude the member from
 		// both thresholds for life. No boot_ts → stamp.
 		if bootTS, ok := gaugeBootTS(record); ok && m.StoppedSince >= bootTS {
 			continue

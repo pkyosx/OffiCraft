@@ -158,7 +158,7 @@ func TestTokenExpiry_DoesNotReopenAFinishedCloseOut(t *testing.T) {
 	l := connectOnline(t, s, m.ID)
 	defer drainListener(l)
 	// The gauge boot_ts is what tells THIS session's report apart from a
-	// predecessor's latch (下線 → 活化 leaves one behind).
+	// predecessor's latch (下線 → 喚醒 leaves one behind).
 	s.gauge.Set(m.ID, map[string]any{"boot_ts": m.SessionBootTS})
 
 	members := []Member{m}
