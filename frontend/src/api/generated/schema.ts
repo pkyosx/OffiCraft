@@ -2731,7 +2731,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * report_waking(): stamp the caller's waking + clear recycle markers. Answers with a bounded receipt (``id``, ``desired_state``, ``refocus_op``, ``refocus_deadline``), not the member row — call ``get_member`` when you need the rest.
+         * report_waking(): stamp the caller's waking + clear the recycle markers left by an earlier session (a hand-off stamped after this session's credential was issued is kept). Answers with a bounded receipt (``id``, ``desired_state``, ``refocus_op``, ``refocus_deadline``), not the member row — call ``get_member`` when you need the rest.
          * @description - Reports your new session booting; you read as waking until the SSE connects or the TTL lapses.
          *     - Clears every recycle marker, so a respawned agent cannot inherit a stale one and restart itself again.
          *     - Must land before your SSE connects.
@@ -7208,7 +7208,7 @@ export interface components {
         /**
          * ReportWakingDTO
          * @description Body for ``report_waking()`` — the boot report (identity from token, NO
-         *     member_id). Stamps the CALLER's ``waking_since`` and clears the recycle markers.
+         *     member_id). Stamps the CALLER's ``waking_since`` and clears the recycle markers an earlier session left; a hand-off stamped after this session's credential was issued is kept.
          *
          *     ``model`` is OPTIONAL runtime telemetry. The server stores it separately as
          *     ``actual_model``; it never changes the owner-configured launch model.
