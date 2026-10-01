@@ -7,12 +7,12 @@
 // at all (codex). Claude and Codex now each print their probed version.
 //
 // What must NOT be lost in the trade: `runtimePlacementRefusal` fail-closes when
-// it cannot read codex `installed`, and refuses a runtime whose fresh probe says
-// "not logged in", so such a machine stops accepting that work and its worker sits
-// stamped machine_unavailable. That was the ✗'s whole job. A version-only cell
-// would render that machine as a blank — which reads as "unknown" and is a
-// different, wrong claim. So the refusal states are spelled out in words, and
-// "signed out" rides alongside a perfectly good version number.
+// it cannot read codex `installed`, so such a machine stops accepting codex work
+// and its worker sits stamped machine_unavailable; a "not logged in" probe makes
+// the machine refuse each start it is sent. That was the ✗'s whole job. A
+// version-only cell would render that machine as a blank — which reads as
+// "unknown" and is a different, wrong claim. So the refusal states are spelled
+// out in words, and "signed out" rides alongside a perfectly good version number.
 //
 // And the age discipline is unchanged: telemetry is never cleared on
 // disconnect, so these values outlive the machine that reported them. A

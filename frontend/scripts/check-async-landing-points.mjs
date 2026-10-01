@@ -517,34 +517,6 @@ const REGISTRY = [
       "the T-196 current-task accessor's SSE subscription: it re-reads only the `ow-` ids its own caller asked for, into the same globally-keyed cache, and unsubscribes on unmount — nothing it writes is per conversation",
   },
   {
-    file: "hooks/useMachines.ts",
-    kind: ".then/.catch/.finally",
-    count: 7,
-    verdict:
-      "the machine registry (id → display name), which is the same list in every room; it is fetched only while the chat's not-logged-in wake notice is mounted, inside the keyed conversation, so a late landing can only write that same global list (a request-version check drops superseded answers)",
-  },
-  {
-    file: "hooks/useMachines.ts",
-    kind: "await",
-    count: 1,
-    verdict:
-      "the machine registry (id → display name), which is the same list in every room; it is fetched only while the chat's not-logged-in wake notice is mounted, inside the keyed conversation, so a late landing can only write that same global list (a request-version check drops superseded answers)",
-  },
-  {
-    file: "hooks/useMachines.ts",
-    kind: "setTimeout/setInterval",
-    count: 1,
-    verdict:
-      "the machine registry (id → display name), which is the same list in every room; it is fetched only while the chat's not-logged-in wake notice is mounted, inside the keyed conversation, so a late landing can only write that same global list (a request-version check drops superseded answers)",
-  },
-  {
-    file: "hooks/useMachines.ts",
-    kind: "subscribe",
-    count: 1,
-    verdict:
-      "the machine registry (id → display name), which is the same list in every room; it is fetched only while the chat's not-logged-in wake notice is mounted, inside the keyed conversation, so a late landing can only write that same global list (a request-version check drops superseded answers)",
-  },
-  {
     file: "lib/deltaSink.ts",
     kind: "queueMicrotask",
     count: 1,

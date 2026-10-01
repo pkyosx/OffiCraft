@@ -964,7 +964,9 @@ export const httpApi: Api = {
     // and it is computed onto the RESPONSE only — there is no row to re-read it
     // from. The field is set ONLY on that shape (never `false`), and the receipt
     // schema types it `boolean`, optional — so absent and false mean the same
-    // thing and `=== true` reads the wire without inventing a default.
+    // thing and `=== true` reads the wire without inventing a default. (The
+    // receipt also carries `last_op_reason`, which the cockpit does not read:
+    // the notice it draws needs the bit, not the cause.)
     const body = machineId !== undefined ? { machine_id: machineId } : {};
     const wire = unwrap(
       await client.POST("/api/members/{member_id}/activate", {
@@ -972,10 +974,7 @@ export const httpApi: Api = {
         body,
       }),
     );
-    return {
-      activationPending: wire.activation_pending === true,
-      ...(wire.last_op_reason ? { lastOpReason: wire.last_op_reason } : {}),
-    };
+    return { activationPending: wire.activation_pending === true };
   },
 
   async relocateMember(

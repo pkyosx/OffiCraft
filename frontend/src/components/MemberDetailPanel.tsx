@@ -50,7 +50,6 @@ import {
   TrashIcon,
 } from "./icons";
 import { DispatchAlert } from "./DispatchAlert";
-import { notLoggedInLine } from "../lib/lastOpReason";
 // 🔴 This panel renders its settings dialog with the .machine-picker* classes,
 // so it must import their stylesheet ITSELF (T-7526). Both panels used to reach
 // that sheet only through a chain of OTHER modules' imports; one link in the
@@ -188,7 +187,6 @@ export function MemberDetailPanel({
   // `wakePending` on purpose — pending is "we are waiting", this is "we are not
   // waiting for anything, because nothing was sent". They are never both true.
   const [wakeUndispatched, setWakeUndispatched] = useState(false);
-  const [wakeUndispatchedReason, setWakeUndispatchedReason] = useState("");
   useEffect(() => {
     if (wakePendingClears) {
       setWakePending(false);
@@ -398,7 +396,6 @@ export function MemberDetailPanel({
       if (result?.activationPending) {
         setWakePending(false);
         setWakeUndispatched(true);
-        setWakeUndispatchedReason(result.lastOpReason ?? "");
       }
     } catch {
       if (shownMemberIdRef.current !== firedFor) return;
@@ -933,18 +930,7 @@ export function MemberDetailPanel({
           {/* T-7fa1: sits directly under the wake button the owner just pressed
               — the click and its outcome in one place. */}
           {wakeUndispatched && (
-            <DispatchAlert
-              kind="wake"
-              testId="mp-wake-undispatched"
-              cause={
-                notLoggedInLine(
-                  wakeUndispatchedReason || (member.lastOpReason ?? ""),
-                  t.mp,
-                  machineDisplay,
-                ) ??
-                undefined
-              }
-            />
+            <DispatchAlert kind="wake" testId="mp-wake-undispatched" />
           )}
           {relocateUndispatched && !relocateLanded && (
             <DispatchAlert kind="relocate" testId="mp-relocate-undispatched" />

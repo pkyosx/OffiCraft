@@ -181,10 +181,10 @@ worker 那邊**至少四種**：**排程收案時的 admission**、**owner op**�
 
 初稿寫「claude 一律視為可用、只有 codex 真的檢查裝了沒登入了沒」——**錯的，而且錯兩層**。
 
-- **開機閘（warden 端）對 claude 一樣查**：它會查 claude 的執行檔找不找得到、有沒有 credential，找不到就用一個明確的受理由拒絕（還留了一個環境變數逃生口）。
+- **開機閘（warden 端）對 claude 一樣查**：它會查 claude 的執行檔找不找得到，並當場跑一次跟定時回報同一套的登入檢查（`claude auth status`；codex 是 `codex login status`）——明確未登入就用一個明確的理由拒絕，讀不到就照常開機（claude 這一半還留了一個環境變數逃生口）。
 - **放置閘（server 端）才是不對稱的那一層**：只有在一台機器**完全沒有回報能力清單**時（舊 warden，滾動升級相容）才無條件當 claude 可用；**一旦它回報了清單卻沒提到 claude，就當 claude 不在**——碼上的註解逐字寫「**它沒提到的 runtime 是不存在，不是未知**」。
 
-⇒ 正確的說法是：**server 端的放置閘對已回報 claude 的機器放行、不查登入；真正的登入檢查在 warden 那一端，而它對兩種 runtime 都做。**
+⇒ 正確的說法是：**server 端的放置閘不看登入（兩種 runtime 都一樣，機器回報的未登入只拿來亮驚嘆號）；真正的登入檢查在 warden 那一端，而它對兩種 runtime 都做。**
 
 ---
 

@@ -917,12 +917,6 @@ func TestNotifyWorkerSpawn_BlockedReasonNamesTheCause(t *testing.T) {
 	s.telemetry.Set("m-claudeonly", map[string]any{"runtimes": map[string]any{
 		RuntimeClaude: map[string]any{"installed": true, "logged_in": true},
 	}})
-	putWardenFixture(t, s, "m-signedout")
-	connectWarden(t, s, "m-signedout")
-	s.telemetry.Set("m-signedout", map[string]any{"runtimes_ts": nowSecs(), "runtimes": map[string]any{
-		RuntimeClaude: map[string]any{"installed": true, "logged_in": false},
-		RuntimeCodex:  map[string]any{"installed": true, "logged_in": false},
-	}})
 	// An ACTIVE roster member that is not a machine at all.
 	putTestMember(t, s, testAgent("m-person"))
 
@@ -946,12 +940,6 @@ func TestNotifyWorkerSpawn_BlockedReasonNamesTheCause(t *testing.T) {
 		{name: "does not exist", workerID: "ow-c5", taskID: "t-0000000000d5",
 			machine: "m-ghost",
 			want:    "machine_unavailable: machine 'm-ghost' does not exist; no other machine is substituted"},
-		{name: "claude logged out", workerID: "ow-c7", taskID: "t-0000000000d7",
-			machine: "m-signedout", runtime: RuntimeClaude,
-			want: "machine_unavailable: machine 'm-signedout' is not logged in to claude; no other machine is substituted"},
-		{name: "codex logged out", workerID: "ow-c8", taskID: "t-0000000000d8",
-			machine: "m-signedout", runtime: RuntimeCodex,
-			want: "machine_unavailable: machine 'm-signedout' is not logged in to codex; no other machine is substituted"},
 	}
 	seen := map[string]string{}
 	for _, c := range cases {
@@ -1001,13 +989,14 @@ func TestNotifyWorkerSpawn_BlockedReasonNamesTheCause(t *testing.T) {
 	}
 }
 
-func TestNotifyWorkerSpawn_UnderALoginReadingThatIsNotAFreshFalseTheWorkerDispatches(t *testing.T) {
+func TestNotifyWorkerSpawn_UnderAnyLoginReadingTheWorkerDispatches(t *testing.T) {
 	for _, runtime := range []string{RuntimeClaude, RuntimeCodex} {
 		for _, c := range []struct {
 			name     string
 			loggedIn any
 			age      float64
 		}{
+			{"fresh false", false, 0},
 			{"stale false", false, telemetryFreshSecs + 1},
 			{"null", nil, 0},
 			{"true", true, 0},
@@ -1037,44 +1026,6 @@ func TestNotifyWorkerSpawn_UnderALoginReadingThatIsNotAFreshFalseTheWorkerDispat
 				}
 			})
 		}
-	}
-}
-
-func TestNotifyWorkerSpawn_AfterLoginIsRestoredTheWorkerDispatchesAndTheReasonClears(t *testing.T) {
-	s := newWorkerTestServer(t)
-	putWardenFixture(t, s, "m-box")
-	connectWarden(t, s, "m-box")
-	report := func(loggedIn bool) {
-		s.telemetry.Set("m-box", map[string]any{"runtimes_ts": nowSecs(), "runtimes": map[string]any{
-			RuntimeCodex: map[string]any{"installed": true, "logged_in": loggedIn},
-		}})
-	}
-	w := blockedSpawnFixture(t, s, "t-0000000000f2", "ow-back", "m-box")
-	w.Runtime = RuntimeCodex
-	if err := s.dal.SetMemberRuntime(w.ID, RuntimeCodex); err != nil {
-		t.Fatalf("set runtime: %v", err)
-	}
-	spawn := func() bool {
-		s.outsourceMu.Lock()
-		defer s.outsourceMu.Unlock()
-		return s.notifyWorkerSpawn(w, nowSecs())
-	}
-
-	report(false)
-	if spawn() {
-		t.Fatal("premise: a fresh logged-out codex must refuse the spawn")
-	}
-	if got, want := readWorker(t, s, w.ID).LastOpReason,
-		"machine_unavailable: machine 'm-box' is not logged in to codex; no other machine is substituted"; got != want {
-		t.Fatalf("refused last_op_reason:\n got %q\nwant %q", got, want)
-	}
-
-	report(true)
-	if !spawn() || len(s.hub.DrainWardenCommands("m-box")) != 1 {
-		t.Fatal("after login is restored the worker must dispatch one START")
-	}
-	if got := readWorker(t, s, w.ID).LastOpReason; got != "" {
-		t.Fatalf("last_op_reason after the dispatch = %q, want it cleared", got)
 	}
 }
 
@@ -1661,7 +1612,7 @@ func TestReconcileWorkerLiveness_UnderAWardenRefusalOfTheStart(t *testing.T) {
 	const lapsed = "wake_timeout: the start was collected by machine 'm-server-self' but this worker never " +
 		"came online within the start window — check that the 'claude' runtime actually runs " +
 		"and is logged in on that machine (warden log: ocwarden.out.log)"
-	const noCredential = "claude_not_logged_in: no claude credential here (cred_file=unset keychain=unset)."
+	const noCredential = "claude_not_logged_in: `claude auth status` reports logged out on this host."
 	for _, c := range []struct {
 		name, refusal, want string
 		// machine clock offset of the refusal's stamp from the start, in seconds
