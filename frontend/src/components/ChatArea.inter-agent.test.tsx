@@ -29,9 +29,13 @@ let messages: ChatMessage[] = [];
 // own tests) — "ow-rel" is a RELEASED worker and "m-left" a dismissed staff
 // member, each resolvable only through it.
 const UNLISTED_NAMES: Record<string, string> = { "ow-rel": "R-2", "m-left": "阿哲" };
+// Every id the thread hands to the per-id read.
+const lookedUp = new Set<string>();
 vi.mock("../hooks/useWorkerCodenames", () => ({
-  useWorkerCodenames: (ids: readonly string[]) =>
-    new Map(ids.filter((id) => id in UNLISTED_NAMES).map((id) => [id, UNLISTED_NAMES[id]])),
+  useWorkerCodenames: (ids: readonly string[]) => {
+    ids.forEach((id) => lookedUp.add(id));
+    return new Map(ids.filter((id) => id in UNLISTED_NAMES).map((id) => [id, UNLISTED_NAMES[id]]));
+  },
 }));
 vi.mock("../hooks/useChat", () => ({
   useChat: () => ({
@@ -228,6 +232,22 @@ describe("ChatArea inter-agent thread", () => {
       container.querySelectorAll(".chat__msg-name"),
     ).map((n) => n.textContent);
     expect(names).toEqual(["阿哲 → Alma"]);
+  });
+
+  it("under server-stamped senders (system, hook:, sched:) and the owner no per-id read is issued and the labels stay as they were", () => {
+    lookedUp.clear();
+    messages = [
+      { id: "c1", from: "system", to: "owner", body: "交接通知", ts: 1000, attachments: [], replyCardId: null },
+      { id: "c2", from: "hook:ep1", to: "owner", body: "webhook 轉發", ts: 1001, attachments: [], replyCardId: null },
+      { id: "c3", from: "sched:abc", to: "owner", body: "定期訊息", ts: 1002, attachments: [], replyCardId: null },
+      { id: "c4", from: "m-left", to: "owner", body: "離職前的話", ts: 1003, attachments: [], replyCardId: null },
+    ];
+    const { container } = renderChat();
+    const names = Array.from(
+      container.querySelectorAll(".chat__msg-name"),
+    ).map((n) => n.textContent);
+    expect(names).toEqual(["系統", "hook:ep1", "sched:abc", "阿哲"]);
+    expect([...lookedUp]).toEqual(["m-left"]);
   });
 
   it("keeps owner↔agent messages expanded/normal (not collapsed)", () => {

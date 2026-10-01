@@ -98,7 +98,7 @@ import {
   useWorkerCodenames,
 } from "../hooks/useWorkerCodenames";
 import { avatarKindForMember } from "../lib/avatarKind";
-import { OWNER_ID } from "../lib/ownerUnread";
+import { isSyntheticSender } from "../lib/syntheticSender";
 import type { AvatarKind } from "../lib/themeBundle";
 import { copyText } from "../lib/clipboard";
 import { formatAbsolute } from "../lib/dateFormat";
@@ -207,7 +207,11 @@ export function LorePage({
   canSetScope?: boolean;
 } = {}) {
   const { t, msg } = useI18n();
-  const { members } = useMembers();
+  const {
+    members,
+    loading: membersLoading,
+    error: membersError,
+  } = useMembers();
   const canSetScope = canSetScopeProp ?? viewerMaySetLoreScope(members);
   const { workers } = useOutsourceWorkers();
   const { manuals } = useTaskManuals();
@@ -491,7 +495,10 @@ export function LorePage({
     [entries]
   );
   // A writer who has left — released worker or departed staff — is in neither
-  // list; the per-id read still serves the name.
+  // list; the per-id read still serves the name. A staff id is only judged once
+  // the roster has loaded: before that every live colleague looks absent and
+  // would cost a read each.
+  const rosterLoaded = !membersLoading && !membersError;
   const unlistedAuthorIds = useMemo(
     () =>
       entries
@@ -499,11 +506,12 @@ export function LorePage({
         .filter(
           (id) =>
             id !== "" &&
-            id !== OWNER_ID &&
-            !members.some((m) => m.id === id) &&
-            !workers.some((w) => w.id === id)
+            !isSyntheticSender(id) &&
+            !workers.some((w) => w.id === id) &&
+            (id.startsWith("ow-") ||
+              (rosterLoaded && !members.some((m) => m.id === id)))
         ),
-    [entries, members, workers]
+    [entries, members, workers, rosterLoaded]
   );
   const unlistedNames = useWorkerCodenames(unlistedAuthorIds);
   const releasedAvatarUrls = useWorkerAvatarUrls(workerIds);

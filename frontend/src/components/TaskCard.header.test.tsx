@@ -380,6 +380,23 @@ describe("TaskCard 卡頭對齊 owner spec (T-705e)", () => {
     }
   });
 
+  it("when the roster read fails an executor missing from it keeps the message box", async () => {
+    const roster = vi
+      .spyOn(api, "listMembers")
+      .mockRejectedValue(new Error("roster unavailable"));
+    try {
+      __injectMockTask(mkTask({ title: "名冊讀不到", executorId: "mira" }));
+      const { findByTestId } = renderPage();
+      await findByTestId("task-card");
+      await waitFor(() => expect(roster).toHaveBeenCalled());
+      // Let the rejection settle into useMembers' error state before judging.
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(await findByTestId("task-msg-input")).toBeTruthy();
+    } finally {
+      roster.mockRestore();
+    }
+  });
+
   it("a released 外包 or dismissed 正職 前任 shows its name from the lazy cache, not the raw id", async () => {
     __injectMockTask(
       mkTask({

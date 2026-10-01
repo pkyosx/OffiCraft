@@ -223,6 +223,32 @@ describe("LorePage — 已離開的外包只留名牌，不留輸入框", () => 
     expect(row.querySelector('[data-testid="lore-msg-input"]')).toBeNull();
   });
 
+  it("while the roster is still loading no per-id read is issued for a live staff writer, and once it lands a departed one is still named", async () => {
+    const roster = await api.listMembers();
+    stubRoster([]);
+    let land: (rows: typeof roster) => void = () => {};
+    vi.spyOn(api, "listMembers").mockReturnValue(
+      new Promise((resolve) => (land = resolve)),
+    );
+    const perId = vi.mocked(api.getOutsourceWorker);
+    stubList([
+      mkEntry({ id: "L-12", authorId: "mira" }),
+      mkEntry({ id: "L-13", authorId: DEPARTED_STAFF }),
+    ]);
+    const { container } = renderPage();
+    await waitFor(() => rowById(container, "L-13"));
+    expect(perId.mock.calls.map(([id]) => id)).toEqual([]);
+
+    land(roster);
+    await waitFor(() =>
+      expect(
+        rowById(container, "L-13").querySelector('[data-testid="lore-author-row"]')
+          ?.textContent,
+      ).toBe("阿哲"),
+    );
+    expect(perId.mock.calls.map(([id]) => id)).toEqual([DEPARTED_STAFF]);
+  });
+
   it("still renders the composer for a 外包 who is STILL on the live roster", async () => {
     // The other direction, and it is not decoration: a fix that hid the box for
     // every ow- author would pass the spec above and take the live case with

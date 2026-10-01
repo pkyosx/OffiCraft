@@ -49,6 +49,7 @@ import { MarkdownPreviewOverlay } from "./MarkdownPreviewOverlay";
 import { useQuotedMessageOverlay } from "../hooks/useQuotedMessageOverlay";
 import { PresenceBadge } from "./PresenceBadge";
 import { CurrentTaskTitle } from "./CurrentTaskTitle";
+import { isSyntheticSender } from "../lib/syntheticSender";
 import {
   BoltIcon,
   ChevronRightIcon,
@@ -482,8 +483,7 @@ export function ChatArea({
         if (
           id !== "" &&
           id !== member.id &&
-          id !== OWNER_ID &&
-          id !== "system" &&
+          !isSyntheticSender(id) &&
           !members.some((x) => x.id === id) &&
           !workers.some((w) => w.id === id)
         ) {

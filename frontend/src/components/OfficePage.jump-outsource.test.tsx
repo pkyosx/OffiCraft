@@ -19,6 +19,7 @@ import { I18nProvider } from "../i18n";
 import { OfficePage } from "./OfficePage";
 import { zh } from "../i18n/locales/zh";
 import { __resetWorkerCodenameCache } from "../hooks/useWorkerCodenames";
+import { api } from "../api";
 import {
   __resetMock,
   __injectMockChat,
@@ -399,6 +400,40 @@ describe("OfficePage — a released worker says the same thing from either entry
     expect(container.querySelector(".chat__composer-locked")?.textContent).toBe(
       "該成員已離開，無法再傳訊息",
     );
+  });
+
+  it("while the live worker list is still loading a live worker's detail entry is not drawn as released nor read per id, and once it lands it is the ordinary panel", async () => {
+    __injectMockOutsourceWorker({
+      id: workerId,
+      codename: "O-7",
+      model: "Opus 4.6",
+      effort: "high",
+      status: "active",
+      taskId: "t-live",
+      presence: "online",
+    });
+    const live = await api.listOutsourceWorkers();
+    let land: (rows: typeof live) => void = () => {};
+    const list = vi
+      .spyOn(api, "listOutsourceWorkers")
+      .mockReturnValue(new Promise((resolve) => (land = resolve)));
+    const perId = vi.spyOn(api, "getOutsourceWorker");
+    try {
+      window.location.hash = `#office/worker/${workerId}`;
+      const { findByTestId, queryByTestId } = renderOffice();
+      await waitFor(() => expect(list).toHaveBeenCalled());
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(queryByTestId("worker-detail-released")).toBeNull();
+      expect(perId).not.toHaveBeenCalled();
+
+      land(live);
+      await findByTestId("worker-detail-change");
+      expect(queryByTestId("worker-detail-released")).toBeNull();
+      expect(perId).not.toHaveBeenCalled();
+    } finally {
+      list.mockRestore();
+      perId.mockRestore();
+    }
   });
 
   it("a LIVE worker's detail entry is the ordinary panel, not the released view", async () => {
