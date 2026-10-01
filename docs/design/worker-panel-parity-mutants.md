@@ -209,7 +209,7 @@ mutant**；要獨立重放，請照本檔開頭的方法自己跑一次。
 |---|---|---|---|
 | M8 | 喚醒鍵改成直接 `onWake?.()`（＝裁定前的「按了就送」） | ④ | `喚醒 ASKS FIRST…` ＋ 另外 3 條（共 4） |
 | M9 | `openSettings` 的機器 seed 改成優先第一台**線上**機器 | ④ | `…PRE-SEEDED…` ＋ `…pinned to a SLEEPING machine never silently re-pins it` |
-| M10 | 喚醒排到 model／relocate **之前** | ④ | `喚醒 stores the launch settings and the pin BEFORE it wakes…` |
+| M10 | 喚醒排到 model／relocate **之前** | ④ | 現名 `喚醒 onto another machine stores the launch settings first, then sends ONE activate carrying the pin`（喚醒已不打 relocate；舊名 `喚醒 stores the launch settings and the pin BEFORE it wakes…`） |
 | M11 | 無編輯的早退也套用到喚醒（照原值確認＝什麼都不做） | ④ | `喚醒 ASKS FIRST…` |
 | M12 | 狀態格（含「已釋放」）加回去 | ② | `released…and NO 已釋放 status cell remains` |
 | M13 | 離線原因跟著狀態格一起被刪 | ② | `離線: the dot reads 離線 and the structured reason survives…` |

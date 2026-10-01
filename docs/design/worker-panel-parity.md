@@ -88,7 +88,7 @@
 | A6 | 任務 chip（任務編號，T-5291 起即 task id 本身）+ 任務類型 | 無 | 有，可點 → `#tasks/<id>` | 外包獨有 | **保留**。外包的「角色」就是它綁的任務類型，這是 rail 列形的同一條裁定（`frontend/CLAUDE.md` 外包面板節），移除等於拔掉外包唯一的身分線索 |
 | A7 | 動作鍵列（喚醒／停止／加速停止／強制停止） | `MemberActionButtons`，依 `visual` 五態切換按鈕集合 | 同一個 `MemberActionButtons`，前面接 `worker-detail-change`；沒有活 session 時換成 `worker-detail-wake` | 同 | ✅ 喚醒中兩邊都是「更改＋停止」（owner `rc-8b3d3a366c54`）；停止中兩邊都是「更改＋階梯」、**沒有喚醒**（owner `rc-2e1c96250169`：「停止中不提供喚醒，等它停完再喚醒」，聊天室 ⚡喚醒同）。停止／加速停止／強制停止任一失敗，兩邊都顯示 `mp.stopError`「操作失敗，請稍後重試」，強制停止確認框同時關掉（owner `rc-b2c4fbb5f2b1`） |
 | A8 | 「更改」鍵 | `mp-change`，線上、停止中與喚醒中出現，開啟動設定 dialog | `worker-detail-change`，有 session（喚醒中、線上、停止中）時出現，開同形狀的設定 dialog | 同 | ✅ 喚醒中的更改只存設定：換了機器會移到新機器、用新設定重新開起來，只換型號／執行環境／思考強度則下次開起來才生效。⚠️ 換機器的生效時機兩邊不同：外包當場殺掉重派；正職等它開起來後收尾、再到新機器開（或這次開機逾時後下一次直接派到新機器）。註記只寫兩邊都成立的那一句 |
-| A9 | 未派送警示 | `DispatchAlert`（`mp-wake-undispatched` / `mp-relocate-undispatched`） | `DispatchAlert`（`worker-detail-wake-undispatched` / `worker-detail-relocate-undispatched`；外包聊天室 ⚡喚醒同正職，`chat-wake-undispatched`） | 同（一處刻意不同） | ✅ owner `rc-e0207591ae4d`：同一則警示。喚醒讀 `activation_pending`；換機器讀 `relocation_pending && !relocation_deferred`。⚠️ 外包的 `relocation_pending` 在 desired_state=offline（已停止、或排在停止後）時也是 true——那是刻意排到下次開機，不是失敗，所以外包只在 desired_state 不是 offline、而且不是喚醒模式時才看換機器回執；喚醒模式以接著的喚醒回執為準 |
+| A9 | 未派送警示 | `DispatchAlert`（`mp-wake-undispatched` / `mp-relocate-undispatched`） | `DispatchAlert`（`worker-detail-wake-undispatched` / `worker-detail-relocate-undispatched`；外包聊天室 ⚡喚醒同正職，`chat-wake-undispatched`） | 同（一處刻意不同） | ✅ owner `rc-e0207591ae4d`：同一則警示。喚醒讀 `activation_pending`；換機器讀 `relocation_pending && !relocation_deferred`。⚠️ 外包的 `relocation_pending` 在 desired_state=offline（已停止、或排在停止後）時也是 true——那是刻意排到下次開機，不是失敗，所以外包只在 desired_state 不是 offline 時才看換機器回執；喚醒模式不送換機器（機器由喚醒自己帶著），只看喚醒回執 |
 
 ## B. 模型／機器 資訊卡（共用面板 `mp-info2`）
 
@@ -275,13 +275,15 @@ respawn，什麼都不問）。現在它開的是**與更改同一份 dialog**�
 
 | 步驟 | 端點 | 為什麼是這個順序 |
 |------|------|------------------|
-| 1 | `POST …/model`（`runtime` / `model` / `effort`） | relocate 與 restart 都會重生 session，設定必須先落地，否則新 session 用舊模型起來 |
-| 2 | `POST …/relocate`（只在機器有改時） | **`/restart` 不吃 machine_id**，所以釘選只能由 relocate 寫。這正是外包與正職的形狀差異：正職的 `activate(machineId)` 自己帶機器 |
-| 3 | `POST …/restart` | 唯一會把它叫起來的那條 |
+| 1 | `POST …/model`（`runtime` / `model` / `effort`） | 喚醒會重生 session，設定必須先落地，否則新 session 用舊模型起來 |
+| 2 | `POST /api/members/{member_id}/activate`（機器有改時帶 `machine_id`） | 唯一會把它叫起來的那條，釘選也由它寫入——與正職同形，一次喚醒只送這一個請求 |
 
-對一個 **stopped**（`desired_state=offline`）的 worker，步驟 1、2 在這次請求裡不派工——
-server 的 `respawnWorkerForOwnerOp` 在 `desired_state=offline` 時只記下（曾被停過的會排一次
-「停下後重新起來」），所以步驟 3 是這次唯一會派工的一步。
+🔴 **喚醒不先打 relocate**：對一個 stopped 的 worker，伺服器把 relocate 當成「排在停止後的重啟」，
+寫下 op=start、ok=false 的 held_down 回執，而接著的 activate 不會覆寫它——「最近操作」就會對一次
+成功的喚醒顯示「✗ 喚醒 失敗」。
+
+對一個 **stopped**（`desired_state=offline`）的 worker，步驟 1 在這次請求裡不派工——
+server 在 `desired_state=offline` 時只記下，所以步驟 2 是這次唯一會派工的一步。
 
 🔴 **釘住的機器只是「睡著」時不可被偷改**這條規則跟著一起搬過來了
 （`openSettings` 逐字 seed `worker.desiredMachineId`，不 fallback 第一台線上機器）。
@@ -289,15 +291,6 @@ server 的 `respawnWorkerForOwnerOp` 在 `desired_state=offline` 時只記下（
 「預設保留原本那台」與「使用者可以改」不衝突：預設是起點，不是鎖。
 
 **沒有「只儲存，不喚醒」那顆鍵**——正職也沒有了（owner `rc-baa00a00dbc9`：「拿掉「只儲存，不喚醒」，不改介面」），兩邊一致。
-
-### ④ 的已知代價（誠實記錄，不是待裁定）
-
-對一個 **offline**（session 自己死掉、`desired_state` 仍是 online）的 worker，**且**owner 在
-dialog 裡改了機器：步驟 2 的 relocate 本身就會 kill + re-dispatch，步驟 3 的 restart 再做一次
-——**多一次 kill＋spawn 的 churn**。終態是對的（跑在選的那台、用新設定），
-FE 也沒有可靠訊號能分辨「relocate 已經派出去了」，因為 relocate 的回應與 held-down 的回應
-形狀相同。要消掉它得讓 relocate 回報「有沒有真的派」＝改凍結 wire。
-**不改機器時（最常見）沒有這個 churn**，因為 relocate 根本不會被呼叫。
 
 ---
 

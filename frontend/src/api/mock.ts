@@ -2793,8 +2793,7 @@ const mockApiImpl = {
     machineId?: string,
   ): Promise<MemberActivateResult> {
     if (outsourceWorkers.some((worker) => worker.id === id)) {
-      if (machineId !== undefined) await mockApiImpl.relocateOutsourceMember(id, machineId);
-      await mockApiImpl.activateOutsourceMember(id);
+      await mockApiImpl.activateOutsourceMember(id, machineId);
       return { activationPending: false };
     }
     // Presence contract: write desired_state=online INTENT and enter WAKING. When a
@@ -4875,7 +4874,7 @@ const mockApiImpl = {
     // changed and the panel refetches.
   },
 
-  async activateOutsourceMember(id: string): Promise<void> {
+  async activateOutsourceMember(id: string, machineId?: string): Promise<void> {
     // 喚醒 (T-f190; the word since T-7526 — the path stays /restart). Inverse of stop: set desired_state back online + re-dispatch.
     // 409 only when the worker is actually ALIVE (T-7526 — see the guard below);
     // unknown/released → 404. The mock reflects the observable re-spawn as presence
@@ -4887,6 +4886,10 @@ const mockApiImpl = {
         404, `outsource worker ${id} not found`
       );
     }
+    // The activate stores the pin and nothing else, on both arms below, as the
+    // server does. `machine` is NOT moved: a running session stays where it is,
+    // and a fresh dispatch is reported by the warden, which the mock does not have.
+    if (machineId !== undefined) w.desiredMachineId = machineId;
     // Mock ↔ http parity: a live session is left alone and the press leaves the
     // server's session_alive receipt, on both kinds (see activateMember).
     if (w.presence === "online") {
