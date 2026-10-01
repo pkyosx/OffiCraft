@@ -42,7 +42,6 @@ import type {
   DocumentKind,
   RoleSummaryView,
   RoleDefView,
-  BootstrapView,
   InsightView,
   OnboardResultView,
   DeleteResultView,
@@ -76,7 +75,6 @@ import type {
   WireDocumentSeed,
   WireRoleDef,
   WireRoleDefListItem,
-  WireBootstrap,
   WireInsight,
   WireOnboardResult,
   WireDeleteResult,
@@ -294,7 +292,7 @@ export function toMember(w: WireMember): Member {
     // serve it; the panel says so rather than reconstructing one.
     terminalAttachCommand: w.terminal_attach_command ?? "",
     // The initial boot prompt is NOT baked into the member view — it is
-    // fetched on demand from /api/bootstrap (see api.getBootstrap).
+    // fetched on demand (see api.getMemberBootContext).
 
     // refocus_since > 0 → epoch of the last refocus intent (surfaced in the
     // detail panel); 0 → null (never refocused) so the panel shows no fabricated
@@ -1648,17 +1646,6 @@ export function toRoleSummary(
  * full-document response. */
 export function toRoleDef(w: WireRoleDef): RoleDefView {
   return { ...toRoleSummary(w), definitionMd: w.definition_md ?? "" };
-}
-
-/** Map bootstrap wire → view. DROPS `token` on purpose: a UI preview must never
- * surface an agent credential (the endpoint returns token=null for preview
- * requests, but we exclude it from the view model regardless). */
-export function toBootstrap(w: WireBootstrap): BootstrapView {
-  return {
-    role: w.role,
-    name: w.name,
-    context: w.context,
-  };
 }
 
 /** Map the onboard wire result → the view model (snake→camel). `token` +

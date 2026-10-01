@@ -17,6 +17,7 @@ import {
   __resetMock,
   __injectMockTask,
   __injectMockOutsourceWorker,
+  __injectMockMember,
   __setBootDocReadOnly,
 } from "./mock";
 import { ApiError } from "./errors";
@@ -318,24 +319,14 @@ describe("mockApi · boot-context blocks", () => {
   });
 });
 
-// ── 開機脈絡預覽（T-30e4） ──────────────────────────────────────────────
+// ── 開機脈絡預覽 ────────────────────────────────────────────────────────
 //
 // The preview is the ONLY consumer of these documents that a person reads with
-// their own eyes, and until T-30e4 it was the one place that did not fold: it
-// read the seed constants straight, so the owner's edit was invisible in the
-// very screen built to show what an agent will read.
-//
-// The two rules pinned here are asymmetric on purpose:
-//
-//   * 系統互動 and 啟動步驟 must FOLD (overlay wins) — that is the fix;
-//   * the preview must take the CLAUDE boot sequence and must NOT grow a
-//     runtime parameter — the real request carries no member (http.ts sends
-//     `{role}` only, deliberately, so the server mints no token), so the real
-//     server also resolves an empty runtime and hands back the claude document.
-//     A runtime-aware mock would be a mock that disagrees with production.
+// their own eyes, so 系統互動 and 啟動步驟 must FOLD (overlay wins) here exactly
+// as they do on a real start.
 describe("mockApi · 開機脈絡預覽", () => {
   it("shows the owner's edit rather than the factory text", async () => {
-    const before = (await mockApi.getBootstrap("assistant")).context;
+    const before = await mockApi.getMemberBootContext("mira");
     expect(before).toContain(SEED_SYSTEM_INTERACTION_MD.trim());
     expect(before).toContain(SEED_BOOT_SEQUENCE_MD.trim());
 
@@ -350,7 +341,7 @@ describe("mockApi · 開機脈絡預覽", () => {
       "啟動步驟：owner 改過的版本\n"
     );
 
-    const after = (await mockApi.getBootstrap("assistant")).context;
+    const after = await mockApi.getMemberBootContext("mira");
     expect(after).toContain("系統互動：owner 改過的版本");
     expect(after).toContain("啟動步驟：owner 改過的版本");
     // Whole-document comparison, not a keyword probe: an overlay REPLACES the
@@ -359,27 +350,9 @@ describe("mockApi · 開機脈絡預覽", () => {
     expect(after).not.toContain(SEED_BOOT_SEQUENCE_MD.trim());
   });
 
-  // 🔴 READ THIS BEFORE "FIXING" THE ASSERTION BELOW. It pins a limitation, not
-  // a desirable behaviour: a codex member's panel shows the CLAUDE 啟動步驟,
-  // which is missing the hand-back step that member is really booted with.
-  // The mock is right to copy it — /api/bootstrap genuinely cannot resolve a
-  // runtime, because the request names no member. The day that endpoint learns
-  // who the preview is for, THIS ASSERTION IS THE ONE THAT MUST CHANGE FIRST;
-  // it is not a guard you are breaking, it is the guard telling you the server
-  // contract moved.
-  it("takes the claude boot sequence, never codex — matching a request that names no member", async () => {
-    await mockApi.saveBootDoc("boot_sequence", "codex", "codex 版\n");
-    await mockApi.saveBootDoc("boot_sequence", "claude", "claude 版\n");
-    const ctx = (await mockApi.getBootstrap("assistant")).context;
-    expect(ctx).toContain("claude 版");
-    expect(ctx).not.toContain("codex 版");
-  });
-  it("folds the OUTSOURCE preview too — the same defect was written twice", async () => {
-    // getBootstrap and getWorkerBootContext assembled the same blocks from the
-    // same constants side by side. Fixing only the one the ticket named would
-    // have left an identical un-folded preview one panel over, so this pins the
-    // twin. It also pins the ONE real difference: a spawn names its worker, so
-    // this path does resolve runtime — codex gets the codex document.
+  it("folds the OUTSOURCE preview too, with the worker's own runtime", async () => {
+    // The worker preview assembles the same folded documents as the staff
+    // preview, so it must fold too, and it resolves the worker's own runtime.
     __injectMockTask({
       id: "t-30e4",
       taskNo: "T-30e4",
@@ -427,5 +400,111 @@ describe("mockApi · 開機脈絡預覽", () => {
     expect(ctx).toContain("codex 版");
     expect(ctx).not.toContain("claude 版");
     expect(ctx).not.toContain(SEED_BOOT_SEQUENCE_CODEX_MD.trim());
+  });
+});
+
+describe("mockApi · getMemberBootContext", () => {
+  it("a staff member's preview carries the everyone entry, then its own live entries, then the Claude boot steps", async () => {
+    await mockApi.saveBootDoc("boot_sequence", "codex", "codex 版\n");
+    await mockApi.saveBootDoc("boot_sequence", "claude", "claude 版\n");
+
+    const ctx = await mockApi.getMemberBootContext("mira");
+
+    const lore = ctx.indexOf("\n\n# 傳承\n\n");
+    const everyone = ctx.indexOf("## L-7 回報前先讀一次自己寫的東西");
+    const pinned = ctx.indexOf("## L-1 成功回應不代表資料完整（置頂）");
+    const active = ctx.indexOf("## L-2 零命中的預設解讀是查法寫錯了");
+    expect(lore).toBeGreaterThan(ctx.indexOf("# Role: "));
+    expect(everyone).toBeGreaterThan(lore);
+    expect(pinned).toBeGreaterThan(everyone);
+    expect(active).toBeGreaterThan(pinned);
+    expect(ctx).not.toContain("退出碼要落檔再讀");
+    expect(ctx).not.toContain("交接路徑要寫絕對路徑");
+    expect(ctx.endsWith("\n\nclaude 版\n")).toBe(true);
+    expect(ctx).not.toContain("codex 版");
+  });
+
+  it("a Codex staff member of the same role gets the Codex boot steps and only the everyone entry", async () => {
+    __injectMockMember({
+      id: "codex-staff",
+      kind: "staff",
+      role_key: "assistant",
+      runtime: "codex",
+      roster_status: "active",
+    });
+    await mockApi.saveBootDoc("boot_sequence", "codex", "codex 版\n");
+    await mockApi.saveBootDoc("boot_sequence", "claude", "claude 版\n");
+
+    const ctx = await mockApi.getMemberBootContext("codex-staff");
+
+    expect(ctx).toContain("# 傳承\n\n## L-7 回報前先讀一次自己寫的東西");
+    expect(ctx).not.toContain("成功回應不代表資料完整");
+    expect(ctx.endsWith("\n\ncodex 版\n")).toBe(true);
+    expect(ctx).not.toContain("claude 版");
+  });
+
+  it("a staff member whose role has an insight seed gets the insight section before the lore section and the lore section before the boot steps", async () => {
+    await mockApi.saveBootDoc("boot_sequence", "claude", "claude 版\n");
+
+    const ctx = await mockApi.getMemberBootContext("mira");
+
+    const role = ctx.indexOf("# Role: ");
+    const insight = ctx.indexOf("\n\n# Insight (assistant)\n\n");
+    const lore = ctx.indexOf("\n\n# 傳承\n\n");
+    const bootSteps = ctx.indexOf("\n\nclaude 版\n");
+    expect(role).toBeGreaterThan(-1);
+    expect(insight).toBeGreaterThan(role);
+    expect(lore).toBeGreaterThan(insight);
+    expect(bootSteps).toBeGreaterThan(lore);
+    expect(bootSteps).toBe(ctx.length - "\n\nclaude 版\n".length);
+  });
+
+  it("a staff member whose second lore entry does not fit the role lore budget gets only the first entry, even when a later entry would fit", async () => {
+    await mockApi.patchServerSettings({ loreCapCharsRole: 150 });
+    await mockApi.saveBootDoc("boot_sequence", "claude", "claude 版\n");
+
+    const ctx = await mockApi.getMemberBootContext("mira");
+
+    expect(
+      ctx.endsWith(
+        "\n\n# 傳承\n\n## L-7 回報前先讀一次自己寫的東西\n\n送出前從頭讀一遍：錯字、漏掉的編號、貼錯的路徑，都是讀的人要多花一輪來回的地方。\n\nclaude 版\n",
+      ),
+    ).toBe(true);
+    expect(ctx).not.toContain("成功回應不代表資料完整");
+    expect(ctx).not.toContain("零命中的預設解讀是查法寫錯了");
+  });
+
+  it("a staff member whose role definition does not exist rejects with a 404 naming the role", async () => {
+    __injectMockMember({
+      id: "ghost-staff",
+      kind: "staff",
+      role_key: "ghost-role",
+      roster_status: "active",
+    });
+
+    const err = await mockApi.getMemberBootContext("ghost-staff").catch((e) => e);
+
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err).toMatchObject({
+      name: "ApiError",
+      message: "http 404 for GET /api/members/ghost-staff/boot-context",
+      status: 404,
+      code: "not_found",
+      serverMessage: "role 'ghost-role' not found",
+      retryAfter: null,
+    });
+  });
+
+  it("an unknown, dismissed, outsource or machine id rejects with the server's 404 envelope", async () => {
+    __injectMockMember({ id: "ow-preview", kind: "outsource" });
+    await mockApi.dismissMember("mira");
+
+    for (const id of ["nobody", "mira", "ow-preview", "warden-mbp5"]) {
+      await expect(mockApi.getMemberBootContext(id)).rejects.toMatchObject({
+        status: 404,
+        code: "not_found",
+        serverMessage: `member '${id}' not found`,
+      });
+    }
   });
 });

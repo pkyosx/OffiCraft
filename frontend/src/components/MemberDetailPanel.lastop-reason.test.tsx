@@ -42,8 +42,6 @@ vi.mock("../api", () => ({
           claudeSubReadable: null,
         },
       ]),
-    getBootstrap: () =>
-      Promise.resolve({ role: "assistant", name: "", taskType: "", context: "" }),
     listWebhooks: () => Promise.resolve([]),
     listScheduledMessages: () => Promise.resolve([]),
     createWebhook: () =>

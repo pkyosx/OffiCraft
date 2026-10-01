@@ -1305,6 +1305,14 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler: w.HandleSetLoreEntryScopeApiLoreEntryIdScopePost,
 			MCPTool: "set_lore_entry_scope",
 		}),
+		Gated(principalAdminAgent, routeDef{
+			// Same floor as the outsource preview: the text embeds the full
+			// role definition and the member's 傳承.
+			Method:  "GET",
+			Path:    "/api/members/{member_id}/boot-context",
+			Handler: w.HandleGetMemberBootContextApiMembersMemberIdBootContextGet,
+			MCPTool: "get_member_boot_context",
+		}),
 	}
 	out := make([]RouteSpec, len(rows))
 	for i, r := range rows {

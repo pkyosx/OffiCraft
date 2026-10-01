@@ -23,7 +23,6 @@ let resumeSummaryCalls = 0;
 vi.mock("../api", () => ({
   api: {
     listMachines: () => Promise.resolve([]),
-    getBootstrap: () => Promise.resolve({ context: "" }),
     listWebhooks: () => Promise.resolve([]),
     listScheduledMessages: () => Promise.resolve([]),
     getMemberResumeSummary: () => {

@@ -394,7 +394,7 @@ func TestHandleBootstrapApiBootstrapPost(t *testing.T) {
 		}
 	})
 
-	t.Run("a preview with no member answers 200 and a null token", func(t *testing.T) {
+	t.Run("a role-only request answers 200 and a null token", func(t *testing.T) {
 		_, h, _, owner := newAPITestServer(t)
 
 		status, data := apiJSON(t, h, "POST", "/api/bootstrap", owner, `{"role":"assistant"}`)

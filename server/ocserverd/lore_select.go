@@ -6,8 +6,8 @@ package main
 //   2. the OUTSOURCE boot document    — selectMemberLore,   worker_spawn.go buildWorkerBootContext
 //   3. GET /api/task-manuals/{key}    — selectLoreForScope, api_taskmanuals.go writeTaskManual
 //
-// Exit 1 is conditional: buildBootContext is also the cockpit's role preview,
-// called with no member, and then emits no 傳承 block.
+// Exit 1 is conditional: /api/bootstrap with only a role calls buildBootContext
+// with no member, and then it emits no 傳承 block.
 //
 // A second implementation is forbidden: a divergence shows up as "the entry I
 // wrote is in the manual but not in my boot doc", and every face looks correct

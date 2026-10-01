@@ -44,7 +44,7 @@ import pathlib
 import time
 import uuid
 
-from conftest import hire_member
+from conftest import hire_member, mint_member_token
 from sse_client import SSEConnection
 
 HERE = pathlib.Path(__file__).resolve().parent
@@ -343,8 +343,8 @@ def _expected_lore_block(client, owner_token, member_id: str) -> str:
     🔴 KEYED BY THE MEMBER, NOT BY THE ROLE, AND THE EMPTY-STRING CASE IS THE
     ONE TO READ CAREFULLY. The owner collapsed the 傳承 scopes to two on
     2026-09-07 (card rc-a43100fd0486 [0]): a staff member's 傳承 hangs off its
-    own member id, and `scope_kind='role'` is retired. buildBootContext is also
-    the cockpit's ROLE PREVIEW — called with NO member — and on that path there
+    own member id, and `scope_kind='role'` is retired. buildBootContext also
+    serves a role-only /api/bootstrap request — called with NO member — and on that path there
     is no id to key by, so the server emits no 傳承 block at all rather than an
     arbitrary one. `member_id == ""` is exactly that path, and this function
     returns "" for it.
@@ -452,11 +452,11 @@ def _expected_context(
     #
     # 🔴 IT IS KEYED BY `member_id`, AND A BLANK ONE MEANS THE BLOCK IS ABSENT.
     # Since the 2026-09-07 scope collapse the staff fold reads the MEMBER's 傳承,
-    # so the preview path (POST /api/bootstrap with no member_id) has nothing to
-    # key by and emits no block. Callers that assemble a preview pass "" and get
-    # the same nothing; callers holding a real member pass its id and get the
-    # real fold. Defaulting this parameter to "" is deliberate — the preview is
-    # what most of this file exercises — but it does mean a caller that HAS a
+    # so a role-only POST /api/bootstrap (no member_id) has nothing to key by
+    # and emits no block. Callers that assemble that role-only fold pass "" and
+    # get the same nothing; callers holding a real member pass its id and get
+    # the real fold. Defaulting this parameter to "" is deliberate — the
+    # role-only fold is what most of this file exercises — but a caller that HAS a
     # member and forgets to pass it gets a silently weaker comparison.
     #
     # 使用者自訂 and 判準 are each dropped entirely when they fold blank. The
@@ -571,6 +571,55 @@ def test_boot_fold_written_insight_appears_under_its_own_header(
             f"/api/insight/{role_key}/reset", headers=_auth(owner_token)
         )
         assert reset.status_code == 200, reset.text
+
+
+def test_member_boot_context_preview_equals_the_member_boot_fold_verbatim(
+    client, owner_token
+) -> None:
+    """The staff preview (GET /api/members/{id}/boot-context) serves exactly
+    the text the member's own bootstrap assembles, byte for byte, including
+    that member's 傳承 entry, and carries no token."""
+    r = client.post("/api/global-context/reset", headers=_auth(owner_token))
+    assert r.status_code == 200, r.text
+    member_id = hire_member(client, owner_token, f"conf-lc-preview-{uuid.uuid4().hex[:6]}")
+    member = client.get(f"/api/members/{member_id}", headers=_auth(owner_token))
+    assert member.status_code == 200, member.text
+    assert member.json()["runtime"] in ("", "claude"), member.json()
+    role_key = member.json()["role_key"]
+
+    lore_title = f"conf preview lore {uuid.uuid4().hex[:8]}"
+    member_token = mint_member_token(client, owner_token, member_id, ttl_days=1)
+    r = client.post(
+        "/api/lore",
+        json={"title": lore_title, "body": "conf preview lore body"},
+        headers=_auth(member_token),
+    )
+    assert r.status_code == 200, r.text
+
+    try:
+        preview = client.get(
+            f"/api/members/{member_id}/boot-context", headers=_auth(owner_token)
+        )
+        assert preview.status_code == 200, preview.text
+        assert set(preview.json()) == {"context"}, preview.json()
+        context = preview.json()["context"]
+
+        boot = client.post(
+            "/api/bootstrap", json={"member_id": member_id}, headers=_auth(owner_token)
+        )
+        assert boot.status_code == 200, boot.text
+        assert context == boot.json()["context"], (
+            "the preview differs from the context the member's bootstrap assembles "
+            f"(len preview={len(context)} vs boot={len(boot.json()['context'])})"
+        )
+        assert f" {lore_title}" in context, context
+        expected = _expected_context(client, owner_token, role_key, "", member_id)
+        assert context == expected, (
+            "the preview does not reproduce the §2.2 assembly byte-for-byte "
+            f"(len served={len(context)} vs expected={len(expected)})"
+        )
+    finally:
+        client.delete(f"/api/members/{member_id}", headers=_auth(owner_token))
 
 
 def test_bootstrap_unknown_role_404(client, owner_token) -> None:

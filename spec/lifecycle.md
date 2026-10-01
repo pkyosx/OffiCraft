@@ -612,6 +612,12 @@ is not lost by having been satisfied on paper.
 The single shared fold both boot paths use (`POST /api/bootstrap` and the reconcile START
 payload) — they MUST produce byte-identical context for the same inputs.
 
+The cockpit's staff preview, `GET /api/members/{member_id}/boot-context`, is a third
+reader of the same member fold: for the same member it MUST serve the context the START
+payload would carry at that moment (that member's 傳承, its runtime's 啟動步驟), and it
+mints no token. It answers 404 for an unknown, removed, outsource or machine id, and when
+the member's role no longer resolves.
+
 ### 2.1 Role resolution
 
 `role_key := explicit role param → member.role_key → "assistant"`. The
@@ -627,13 +633,17 @@ The boot context is these blocks, in this order, joined into one document:
 2. **使用者自訂** — the owner's additive block;
 3. **角色定義** (`# Role:`) — what this role does;
 4. **判準** (`# Insight`) — how this role weighs things;
-5. **啟動步驟** — the boot-sequence file seed, selected by the READER'S OWN runtime
+5. **傳承** — for a member fold, the `everyone` entries followed by that member's
+   own `agent` entries, under one `lore_cap_chars_role` budget. A fold with no member
+   (`POST /api/bootstrap` with only a `role`) has no member id to key by and omits the
+   whole block, `everyone` included; it never reads lore by role.
+6. **啟動步驟** — the boot-sequence file seed, selected by the READER'S OWN runtime
    (`claude | codex`, blank folding to `claude`), and carrying that runtime's 執行環境
    section. It is LAST — the recency-authoritative tail — and nothing may be appended
    after it.
 
-Blocks 3-4 are the persona. Two blocks are dropped entirely when they fold blank —
-使用者自訂 and 判準 — so a role that has never written a 判準 simply has no such section,
+Blocks 3-4 are the persona. Three blocks are dropped entirely when they fold blank —
+使用者自訂, 判準 and 傳承 — so a role that has never written a 判準 simply has no such section,
 rather than an empty heading.
 
 **The remaining assembly rules are deliberately not restated here.** The exact section
@@ -666,7 +676,7 @@ implementations).
 ### 2.3 Bootstrap response token
 
 `POST /api/bootstrap` returns a freshly minted member JWT only when `member_id` was supplied
-(a warden spawn); a UI preview (no `member_id`) MUST get `token: null`.
+(a warden spawn); a request with only a `role` (no `member_id`) MUST get `token: null`.
 
 ## 3. In-memory lifecycle stores (restart amnesia is contract — one named exception)
 

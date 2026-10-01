@@ -1634,13 +1634,11 @@ export function MemberDetailPanel({
         terminalAttachCommand: member.terminalAttachCommand,
         terminalHint: t.mp.terminalHint,
         terminalUnavailable: t.mp.terminalUnavailable,
-        // Initial boot prompt: fetched live from /api/bootstrap by ROLE (the
-        // server mints NO token for a role-only preview), re-fetched when the
-        // viewed member's role changes.
         prompt: {
-          fetch: async () => (await api.getBootstrap(member.role)).context,
-          cacheKey: member.role,
-          hint: t.mp.expandableHint,
+          fetch: () => api.getMemberBootContext(member.id),
+          cacheKey: member.id,
+          hint: t.workerDetail.initialPromptHint,
+          note: t.mp.initialPromptNote,
         },
       })}
     />

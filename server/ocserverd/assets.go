@@ -389,9 +389,9 @@ func (s *apiServer) buildBootContext(role string, member *Member) (*bootContext,
 	// member-fold budget under a stale name (see domain.go); s.loreManualCap()
 	// is the OTHER exit.
 	//
-	// ⚠️ member is nil on the cockpit's role preview path: the block is OMITTED
-	// there, since role_key would resurrect the removed scope and picking a
-	// member would show one person's 傳承 as the role's.
+	// ⚠️ member is nil when /api/bootstrap names only a role: the block is
+	// OMITTED there, since role_key would resurrect the removed scope and picking
+	// a member would show one person's 傳承 as the role's.
 	if member != nil {
 		loreSel, err := selectMemberLore(s.dal, member.ID, s.loreRoleCap())
 		if err != nil {

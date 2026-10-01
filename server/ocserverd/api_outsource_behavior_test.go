@@ -221,7 +221,7 @@ func TestListOutsourceWorkers_WorkerCreatorResolvesToCodename(t *testing.T) {
 
 // TestGetWorkerBootContext (T-ba6b): the detail panel's initial-prompt preview
 // re-runs the SAME buildWorkerBootContext fold the spawn path uses, and NEVER
-// carries a token (parity with the member /api/bootstrap UI preview).
+// carries a token (parity with the staff member boot-context preview).
 //
 // 🔴 T-4595 rewrote the interesting half. This used to assert the preview
 // carried the identity block, the bound task and the manual, and that editing

@@ -563,6 +563,30 @@ func (s *apiServer) HandleGetMemberApiMembersMemberIdGet(w http.ResponseWriter, 
 	writeJSON(w, http.StatusOK, s.newMemberDTO(*m, roleName, s.observedHost(*m), unread[m.ID], machines))
 }
 
+// Same buildBootContext call as buildStartFrame, so the preview is the text a
+// start would hand the warden now. A preview must never carry a credential, so
+// nothing here mints.
+func (s *apiServer) HandleGetMemberBootContextApiMembersMemberIdBootContextGet(w http.ResponseWriter, r *http.Request, memberId string) {
+	m, err := s.resolveMember(memberId, staffOnly)
+	if err == nil && m.Kind == KindWarden {
+		err = errNotFound
+	}
+	if err != nil {
+		writeResolveError(w, err, "member", memberId)
+		return
+	}
+	boot, err := s.buildBootContext("", m)
+	if err != nil {
+		internalError(w, err)
+		return
+	}
+	if boot == nil {
+		writeError(w, http.StatusNotFound, "role '"+resolveBootRoleKey("", m)+"' not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, MemberBootContextDTO{Context: boot.Context})
+}
+
 func (s *apiServer) HandleUpdateMemberApiMembersMemberIdPatch(w http.ResponseWriter, r *http.Request, memberId string) {
 	var body MemberUpdateDTO
 	if !decodeJSONBody(w, r, &body) {

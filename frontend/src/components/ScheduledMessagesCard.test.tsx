@@ -114,8 +114,6 @@ vi.mock("../api", () => ({
     // T-91: PATCH answers a receipt, and the adapter resolves void. The double
     // says void too — a Member here would be a wire the server no longer sends.
     patchMember: () => Promise.resolve(),
-    getBootstrap: () =>
-      Promise.resolve({ role: "assistant", name: "", taskType: "", context: "" }),
     listWebhooks: () => Promise.resolve([]),
     listScheduledMessages: (memberId: string) =>
       Promise.resolve(

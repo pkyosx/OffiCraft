@@ -48,8 +48,6 @@ vi.mock("../api", () => ({
       relocateMember(id, machineId),
     activateMember: vi.fn(),
     patchMember: (id: string, patch: object) => patchMember(id, patch),
-    getBootstrap: () =>
-      Promise.resolve({ role: "assistant", name: "", taskType: "", context: "" }),
     listWebhooks: () => Promise.resolve([]),
     listScheduledMessages: () => Promise.resolve([]),
     subscribeEvents: () => () => {},

@@ -456,7 +456,7 @@ export function OfficePage({
         }}
         // Initial-prompt PREVIEW (T-ba6b): the server re-runs the spawn fold
         // over the CURRENT seeds and lore (no token minted) — the worker twin
-        // of the member panel's /api/bootstrap role preview.
+        // of the member panel's getMemberBootContext preview.
         onFetchBootContext={async () =>
           api.getWorkerBootContext(workerDetail.id)
         }

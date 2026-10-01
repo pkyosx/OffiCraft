@@ -217,17 +217,6 @@ export interface MemberRelocateResult {
 }
 
 /**
- * `/api/bootstrap` preview: the assembled agent boot persona (role definition ⊕
- * global context ⊕ insight). Excludes the member JWT BY DESIGN — a UI preview
- * mints no token and must never carry an agent credential (see WireBootstrap).
- */
-export interface BootstrapView {
-  role: string;
-  name: string;
-  context: string;
-}
-
-/**
  * The folded PER-ROLE insight doc for one `roleKey` (T-3809) — the role
  * journal's second block, beside Duty (the role definition).
  *

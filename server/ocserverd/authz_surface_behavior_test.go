@@ -700,6 +700,8 @@ var nonCallerKindPredicates = map[string]string{
 		"the kind of the TARGET member selects the outsource force-stop implementation; the caller's privilege comes from the route table.",
 	"api_members.go :: HandleGetMemberApiMembersMemberIdGet :: m.Kind == KindOutsource": "" +
 		"the kind of the member being READ selects the outsource detail projection; it is not an identity or privilege test on the caller.",
+	"api_members.go :: HandleGetMemberBootContextApiMembersMemberIdBootContextGet :: m.Kind == KindWarden": "" +
+		"the kind of the member being PREVIEWED: a machine has no staff boot context, so it answers 404 like an unknown id; the caller's privilege was already decided by the route floor.",
 	"api_members.go :: HandleHireMemberApiMembersPost :: kind != KindStaff": "" +
 		"the same request-body kind as the entry below — the kind of the member being " +
 		"HIRED, never the caller's — now read once more to close this door to every " +

@@ -551,10 +551,11 @@ def _check_avatar_delete(ctx: HCtx, r: httpx.Response) -> None:
     ctx._avatar_to_delete_url = None
 
 
-def _check_bootstrap_preview(_ctx: HCtx, r: httpx.Response) -> None:
-    # lifecycle.md §2.3: a UI preview (no member_id) MUST get token: null.
+def _check_bootstrap_role_only(_ctx: HCtx, r: httpx.Response) -> None:
+    # lifecycle.md §2.3: a request with only a role (no member_id) MUST get
+    # token: null.
     data = r.json()
-    assert data["token"] is None, f"preview bootstrap minted a token: {data}"
+    assert data["token"] is None, f"role-only bootstrap minted a token: {data}"
     assert data["role"] and data["context"], data
 
 
@@ -2233,6 +2234,15 @@ HAPPY: dict[str, Happy] = {
         path=lambda ctx: f"/api/members/{ctx.agent.member_id}",
         check=_check_member_read,
     ),
+    "GET /api/members/{member_id}/boot-context": Happy(
+        path=lambda ctx: f"/api/members/{ctx.agent.member_id}/boot-context",
+        check=lambda _ctx, r: _expect(
+            r,
+            lambda d: set(d) == {"context"}
+            and d["context"].endswith("\n")
+            and "# Role: " in d["context"],
+        ),
+    ),
     "PATCH /api/members/{member_id}": Happy(
         path=lambda ctx: f"/api/members/{ctx.fresh_member()}",
         body={"name": "conf-happy-renamed"},
@@ -2983,7 +2993,7 @@ HAPPY: dict[str, Happy] = {
             and "tasks" not in d,
         ),
     ),
-    "POST /api/bootstrap": Happy(body={}, check=_check_bootstrap_preview),
+    "POST /api/bootstrap": Happy(body={}, check=_check_bootstrap_role_only),
     # ── tasks (M3) ───────────────────────────────────────────────────────────
     "GET /api/tasks": Happy(path=_seeded_tasks_path, check=_nonempty_list),
     "POST /api/tasks": Happy(

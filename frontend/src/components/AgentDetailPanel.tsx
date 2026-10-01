@@ -17,7 +17,7 @@ import "./member-detail.css";
 
 /** The lazily-fetched initial-prompt expand card's config. `fetch` returns the
  * CURRENT boot/persona text (a preview — never a token); it is re-fetched when
- * `cacheKey` changes (member: the role; worker: the worker id). `note` is an
+ * `cacheKey` changes (member: the member id; worker: the worker id). `note` is an
  * optional honesty caveat rendered above the markdown (the worker's 「目前版本
  * 重組,非派工當下逐字版」). */
 export interface AgentDetailPrompt {
@@ -461,7 +461,7 @@ export function AgentDetailPanel({
   // what made the card stick on 「載入中…」 forever:
   //
   //   `vm.prompt.fetch` is an inline arrow in BOTH wrappers (the member's
-  //   `async () => (await api.getBootstrap(member.role)).context`, the worker's
+  //   `() => api.getMemberBootContext(member.id)`, the worker's
   //   `onFetchBootContext` prop, itself an arrow rebuilt by OfficePage), so its
   //   identity changes on EVERY render. With it in the deps, any repaint —
   //   an SSE delta is enough — tore the effect down (`alive = false`, so neither

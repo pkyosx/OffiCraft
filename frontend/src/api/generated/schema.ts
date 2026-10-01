@@ -492,7 +492,7 @@ export interface paths {
          * Assemble an agent boot context + mint the member JWT (spawn seam).
          * @description - Folds the role definition and global context into one readable `context`.
          *     - The role resolves from an explicit `role`, else the member's own role, else `assistant`.
-         *     - With `member_id` the response carries a freshly minted member token; a preview without it gets `token` null.
+         *     - With `member_id` the response carries a freshly minted member token; a request without it gets `token` null.
          *     - 404 on an unknown `member_id`, or a resolved role that is neither seeded nor an owner overlay.
          */
         post: operations["handle_bootstrap_api_bootstrap_post"];
@@ -1763,6 +1763,26 @@ export interface paths {
          *     - Emits a `member` event; a client holding the stream learns of this without polling.
          */
         delete: operations["handle_delete_member_avatar_api_members__member_id__avatar_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/members/{member_id}/boot-context": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read a staff member's boot-context preview (owner/admin agent).
+         * @description Read a staff member's boot-context PREVIEW: the server assembles the boot text FOR THIS MEMBER with the same fold the staff start path uses (buildBootContext with this member, the text reconcile hands the warden), WITHOUT minting any token. Because it is assembled for the member, it carries the member's 傳承 block (the ``everyone`` entries first, then the member's own) and the boot sequence for the member's own runtime. Owner/admin-agent cockpit read, the same floor as /api/bootstrap and the outsource worker preview. 404 for an unknown member, a removed member, an outsource worker (its preview is /api/outsource-workers/{id}/boot-context) or a machine; 404 when the member's role definition is gone. It does NOT include the header the warden prepends for its runtime at spawn. HONEST caveat the UI must carry: this is today's assembly, not a verbatim start-time record — nothing is stored.
+         */
+        get: operations["handle_get_member_boot_context_api_members__member_id__boot_context_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -4633,7 +4653,7 @@ export interface components {
          *     persona — role definition + global context, folded and concatenated
          *     into one readable markdown block (the North Star's "rich enough to converse and
          *     play", §7 leg 4). ``token`` is the member JWT (``scope="agent"``) when a
-         *     ``member_id`` was supplied; None for a UI preview.
+         *     ``member_id`` was supplied; None for a role-only request.
          */
         BootstrapDTO: {
             /**
@@ -4654,7 +4674,7 @@ export interface components {
         /**
          * BootstrapRequestDTO
          * @description Bootstrap request (§3.4 #29): ``{role?, member_id?}``. All
-         *     optional — a UI preview omits ``member_id`` (no token minted); a warden spawn
+         *     optional — a role-only request omits ``member_id`` (no token minted); a warden spawn
          *     supplies it to mint the member's boot JWT.
          *
          *     T-2 removed ``task_type``. Unknown keys are refused (422), so a caller still
@@ -6046,6 +6066,14 @@ export interface components {
              * @default
              */
             mime: string;
+        };
+        /**
+         * MemberBootContextDTO
+         * @description A staff member's boot-context PREVIEW (GET /api/members/{member_id}/boot-context): the text buildBootContext assembles for THIS member right now, which is the context the start path would hand the warden at this moment. It carries the member's 傳承 block (``everyone`` entries first, then the member's own, under one ``lore_cap_chars_role`` budget) and the boot sequence for the member's own runtime; it excludes the header the warden prepends for its runtime. Nothing is stored and no token is minted.
+         */
+        MemberBootContextDTO: {
+            /** Context */
+            context: string;
         };
         /**
          * MemberDTO
@@ -10503,7 +10531,7 @@ export interface components {
         };
         /**
          * WorkerBootContextDTO
-         * @description The outsource worker's boot-context PREVIEW (GET /api/outsource-workers/{id}/boot-context, T-ba6b) — the worker twin of the member panel's /api/bootstrap preview. The server re-runs the SAME buildWorkerBootContext fold the spawn path uses. Since T-4595 that fold is the STAFF boot context minus the persona slot (系統互動 + 使用者自訂 + the boot sequence for the worker's own runtime); it carries no outsource-only document, no identity block, no bound task and no type manual, so it does not vary with them. It DOES carry a 傳承 block (T-33): the ``everyone`` (所有人) entries first, then this worker's own (LoreScopeAgent keyed on the worker's member id), under one ``lore_cap_chars_role`` budget (T-236). The worker's own entries are the one part of this text that differs from worker to worker; the block changes when an entry in either scope is written, retired or bumped, or is moved into or out of them by ``set_lore_entry_scope``. HONEST: this is what the boot context would look like NOW — the seeds may have changed since spawn, and nothing is stored. Never carries a worker token.
+         * @description The outsource worker's boot-context PREVIEW (GET /api/outsource-workers/{id}/boot-context, T-ba6b) — the worker twin of GET /api/members/{member_id}/boot-context. The server re-runs the SAME buildWorkerBootContext fold the spawn path uses. Since T-4595 that fold is the STAFF boot context minus the persona slot (系統互動 + 使用者自訂 + the boot sequence for the worker's own runtime); it carries no outsource-only document, no identity block, no bound task and no type manual, so it does not vary with them. It DOES carry a 傳承 block (T-33): the ``everyone`` (所有人) entries first, then this worker's own (LoreScopeAgent keyed on the worker's member id), under one ``lore_cap_chars_role`` budget (T-236). The worker's own entries are the one part of this text that differs from worker to worker; the block changes when an entry in either scope is written, retired or bumped, or is moved into or out of them by ``set_lore_entry_scope``. HONEST: this is what the boot context would look like NOW — the seeds may have changed since spawn, and nothing is stored. Never carries a worker token.
          */
         WorkerBootContextDTO: {
             /** Context */
@@ -14580,6 +14608,55 @@ export interface operations {
                 };
             };
             /** @description Authentication, authorization, or not-found error. */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_get_member_boot_context_api_members__member_id__boot_context_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                member_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemberBootContextDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
             "4XX": {
                 headers: {
                     [name: string]: unknown;

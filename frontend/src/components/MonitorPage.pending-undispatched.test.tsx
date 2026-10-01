@@ -114,8 +114,6 @@ vi.mock("../api", () => ({
     getServerSettings: () => Promise.resolve({ outsourceMaxParallel: 0 }),
     listWebhooks: () => Promise.resolve([]),
     listScheduledMessages: () => Promise.resolve([]),
-    getBootstrap: () =>
-      Promise.resolve({ role: "assistant", name: "", taskType: "", context: "" }),
     activateMember: (id: string, machineId?: string) =>
       activateMember(id, machineId),
     relocateMember: (id: string, machineId: string) =>
