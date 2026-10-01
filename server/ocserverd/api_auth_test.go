@@ -394,7 +394,7 @@ func TestHandleBootstrapApiBootstrapPost(t *testing.T) {
 		}
 	})
 
-	t.Run("a preview with no member answers 200 and a null token", func(t *testing.T) {
+	t.Run("a role-only preview uses its one active staff but answers a null token", func(t *testing.T) {
 		_, h, _, owner := newAPITestServer(t)
 
 		status, data := apiJSON(t, h, "POST", "/api/bootstrap", owner, `{"role":"assistant"}`)
@@ -403,7 +403,7 @@ func TestHandleBootstrapApiBootstrapPost(t *testing.T) {
 		}
 		apiWantBody(t, data, map[string]any{
 			"role":    "assistant",
-			"name":    "Assistant",
+			"name":    "Mira",
 			"context": apiAnyString,
 			"token":   nil,
 		})
@@ -418,7 +418,7 @@ func TestHandleBootstrapApiBootstrapPost(t *testing.T) {
 		}
 		apiWantBody(t, data, map[string]any{
 			"role":    "assistant",
-			"name":    "Assistant",
+			"name":    "Mira",
 			"context": apiAnyString,
 			"token":   nil,
 		})
@@ -475,6 +475,135 @@ func TestHandleBootstrapApiBootstrapPost(t *testing.T) {
 		}
 		apiWantError(t, data, "not_found", "role 'nosuchrole' not found")
 	})
+}
+
+func TestHandleBootstrapRoleOnlyPreviewUsesOnlyOneActiveStaff(t *testing.T) {
+	const roleKey = "preview-writer"
+	const codexBoot = "# CODEX BOOT PREVIEW MARKER"
+	const claudeBoot = "# CLAUDE BOOT PREVIEW MARKER"
+
+	tests := []struct {
+		name       string
+		members    []Member
+		lore       map[string]string
+		wantName   string
+		wantLore   string
+		wantBoot   string
+		absentLore []string
+	}{
+		{
+			name: "one active staff uses its lore and Codex runtime; removed staff is ignored",
+			members: []Member{
+				{ID: "m-preview-codex", Name: "Codex Previewer", Kind: KindStaff, RoleKey: roleKey,
+					Runtime: RuntimeCodex, RosterStatus: RosterStatusActive},
+				{ID: "m-preview-removed", Name: "Former Previewer", Kind: KindStaff, RoleKey: roleKey,
+					Runtime: RuntimeClaude, RosterStatus: RosterStatusRemoved},
+				{ID: "ow-preview-worker", Name: "Preview Worker", Kind: KindOutsource, RoleKey: roleKey,
+					Runtime: RuntimeClaude, RosterStatus: RosterStatusActive},
+			},
+			lore: map[string]string{
+				"m-preview-codex":   "ONLY ACTIVE STAFF LORE",
+				"m-preview-removed": "REMOVED STAFF LORE MUST NOT APPEAR",
+				"ow-preview-worker": "OUTSOURCE LORE MUST NOT APPEAR IN STAFF PREVIEW",
+			},
+			wantName: "Codex Previewer",
+			wantLore: "ONLY ACTIVE STAFF LORE",
+			wantBoot: codexBoot,
+			absentLore: []string{
+				"REMOVED STAFF LORE MUST NOT APPEAR",
+				"OUTSOURCE LORE MUST NOT APPEAR IN STAFF PREVIEW",
+			},
+		},
+		{
+			name: "zero active staff keeps the role-only preview",
+			members: []Member{
+				{ID: "m-preview-former", Name: "Former Previewer", Kind: KindStaff, RoleKey: roleKey,
+					Runtime: RuntimeCodex, RosterStatus: RosterStatusRemoved},
+			},
+			lore: map[string]string{
+				"m-preview-former": "ZERO ACTIVE STAFF LORE MUST NOT APPEAR",
+			},
+			wantName: "Preview Writer",
+			wantBoot: claudeBoot,
+			absentLore: []string{
+				"ZERO ACTIVE STAFF LORE MUST NOT APPEAR",
+			},
+		},
+		{
+			name: "multiple active staff keep the role-only preview without guessing",
+			members: []Member{
+				{ID: "m-preview-one", Name: "First Previewer", Kind: KindStaff, RoleKey: roleKey,
+					Runtime: RuntimeCodex, RosterStatus: RosterStatusActive},
+				{ID: "m-preview-two", Name: "Second Previewer", Kind: KindStaff, RoleKey: roleKey,
+					Runtime: RuntimeClaude, RosterStatus: RosterStatusActive},
+			},
+			lore: map[string]string{
+				"m-preview-one": "FIRST AMBIGUOUS STAFF LORE MUST NOT APPEAR",
+				"m-preview-two": "SECOND AMBIGUOUS STAFF LORE MUST NOT APPEAR",
+			},
+			wantName: "Preview Writer",
+			wantBoot: claudeBoot,
+			absentLore: []string{
+				"FIRST AMBIGUOUS STAFF LORE MUST NOT APPEAR",
+				"SECOND AMBIGUOUS STAFF LORE MUST NOT APPEAR",
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, h, d, owner := newAPITestServer(t)
+			if err := d.PutRoleDef(RoleDef{
+				RoleKey: roleKey, Name: "Preview Writer", DefinitionMD: "# Preview role instructions",
+			}); err != nil {
+				t.Fatalf("PutRoleDef: %v", err)
+			}
+			for _, doc := range []BootDocument{
+				{Kind: docKindBootSequence, Key: bootSequenceKeyCodex, Text: codexBoot},
+				{Kind: docKindBootSequence, Key: bootSequenceKeyClaude, Text: claudeBoot},
+			} {
+				if err := d.PutBootDocument(doc); err != nil {
+					t.Fatalf("PutBootDocument(%s): %v", doc.Key, err)
+				}
+			}
+			for _, member := range tc.members {
+				if err := d.PutMember(member); err != nil {
+					t.Fatalf("PutMember(%s): %v", member.ID, err)
+				}
+			}
+			for memberID, body := range tc.lore {
+				if _, err := d.CreateLoreEntryMintingID(LoreEntry{
+					ScopeKind: LoreScopeAgent, ScopeKey: memberID, Title: "preview lore", Body: body,
+					AuthorID: "owner", State: LoreStateActive, EffectiveTS: 1, CreatedTS: 1, UpdatedTS: 1,
+				}); err != nil {
+					t.Fatalf("CreateLoreEntryMintingID(%s): %v", memberID, err)
+				}
+			}
+
+			status, data := apiJSON(t, h, "POST", "/api/bootstrap", owner, `{"role":"`+roleKey+`"}`)
+			if status != http.StatusOK {
+				t.Fatalf("want 200, got %d (%v)", status, data)
+			}
+			if got, _ := data["name"].(string); got != tc.wantName {
+				t.Fatalf("name = %q, want %q", got, tc.wantName)
+			}
+			if data["token"] != nil {
+				t.Fatalf("role-only preview minted a token: %#v", data["token"])
+			}
+			context, _ := data["context"].(string)
+			if !strings.Contains(context, tc.wantBoot) {
+				t.Fatalf("context does not contain runtime boot marker %q: %s", tc.wantBoot, context)
+			}
+			if tc.wantLore != "" && !strings.Contains(context, tc.wantLore) {
+				t.Fatalf("context does not contain selected member lore %q: %s", tc.wantLore, context)
+			}
+			for _, absent := range tc.absentLore {
+				if strings.Contains(context, absent) {
+					t.Fatalf("context leaked unselected member lore %q: %s", absent, context)
+				}
+			}
+		})
+	}
 }
 
 func TestNoteTokenKeyObservation(t *testing.T) {

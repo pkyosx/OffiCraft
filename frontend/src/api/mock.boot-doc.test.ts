@@ -17,6 +17,7 @@ import {
   __resetMock,
   __injectMockTask,
   __injectMockOutsourceWorker,
+  __injectMockMember,
   __setBootDocReadOnly,
 } from "./mock";
 import { ApiError } from "./errors";
@@ -328,11 +329,10 @@ describe("mockApi · boot-context blocks", () => {
 // The two rules pinned here are asymmetric on purpose:
 //
 //   * 系統互動 and 啟動步驟 must FOLD (overlay wins) — that is the fix;
-//   * the preview must take the CLAUDE boot sequence and must NOT grow a
-//     runtime parameter — the real request carries no member (http.ts sends
-//     `{role}` only, deliberately, so the server mints no token), so the real
-//     server also resolves an empty runtime and hands back the claude document.
-//     A runtime-aware mock would be a mock that disagrees with production.
+//   * a role-only preview resolves a member only when exactly one active staff
+//     member has that role. That selects member lore and runtime-specific boot
+//     content without adding member_id or minting a token; zero or multiple
+//     matches keep the role-only fallback.
 describe("mockApi · 開機脈絡預覽", () => {
   it("shows the owner's edit rather than the factory text", async () => {
     const before = (await mockApi.getBootstrap("assistant")).context;
@@ -359,20 +359,69 @@ describe("mockApi · 開機脈絡預覽", () => {
     expect(after).not.toContain(SEED_BOOT_SEQUENCE_MD.trim());
   });
 
-  // 🔴 READ THIS BEFORE "FIXING" THE ASSERTION BELOW. It pins a limitation, not
-  // a desirable behaviour: a codex member's panel shows the CLAUDE 啟動步驟,
-  // which is missing the hand-back step that member is really booted with.
-  // The mock is right to copy it — /api/bootstrap genuinely cannot resolve a
-  // runtime, because the request names no member. The day that endpoint learns
-  // who the preview is for, THIS ASSERTION IS THE ONE THAT MUST CHANGE FIRST;
-  // it is not a guard you are breaking, it is the guard telling you the server
-  // contract moved.
-  it("takes the claude boot sequence, never codex — matching a request that names no member", async () => {
+  it("uses the unique active staff member's lore and runtime without a token", async () => {
     await mockApi.saveBootDoc("boot_sequence", "codex", "codex 版\n");
     await mockApi.saveBootDoc("boot_sequence", "claude", "claude 版\n");
-    const ctx = (await mockApi.getBootstrap("assistant")).context;
-    expect(ctx).toContain("claude 版");
-    expect(ctx).not.toContain("codex 版");
+    const preview = await mockApi.getBootstrap("assistant");
+    expect(preview.name).toBe("Mira");
+    expect(preview.context).toContain("# 傳承");
+    expect(preview.context).toContain("## L-7 回報前先讀一次自己寫的東西");
+    expect(preview.context).toContain("## L-1 成功回應不代表資料完整");
+    expect(preview.context).not.toContain("## L-3 退出碼要落檔再讀");
+    expect(preview.context).toContain("claude 版");
+    expect(preview.context).not.toContain("codex 版");
+    expect(preview).not.toHaveProperty("token");
+  });
+
+  it("uses Codex boot steps for the one active Codex staff member", async () => {
+    await mockApi.dismissMember("mira");
+    __injectMockMember({
+      id: "codex-preview",
+      kind: "staff",
+      name: "Codex Preview",
+      role_key: "assistant",
+      runtime: "codex",
+      roster_status: "active",
+    });
+    await mockApi.saveBootDoc("boot_sequence", "codex", "codex 版\n");
+    await mockApi.saveBootDoc("boot_sequence", "claude", "claude 版\n");
+
+    const preview = await mockApi.getBootstrap("assistant");
+    expect(preview.name).toBe("Codex Preview");
+    expect(preview.context).toContain("codex 版");
+    expect(preview.context).not.toContain("claude 版");
+  });
+
+  it("falls back to a role-only preview for zero or multiple active staff", async () => {
+    await mockApi.saveBootDoc("boot_sequence", "codex", "codex 版\n");
+    await mockApi.saveBootDoc("boot_sequence", "claude", "claude 版\n");
+
+    await mockApi.dismissMember("mira");
+    const zero = await mockApi.getBootstrap("assistant");
+    expect(zero.name).toBe("Assistant");
+    expect(zero.context).not.toContain("# 傳承");
+    expect(zero.context).toContain("claude 版");
+    expect(zero.context).not.toContain("codex 版");
+
+    __injectMockMember({
+      id: "staff-one",
+      kind: "staff",
+      role_key: "assistant",
+      runtime: "codex",
+      roster_status: "active",
+    });
+    __injectMockMember({
+      id: "staff-two",
+      kind: "staff",
+      role_key: "assistant",
+      runtime: "codex",
+      roster_status: "active",
+    });
+    const multiple = await mockApi.getBootstrap("assistant");
+    expect(multiple.name).toBe("Assistant");
+    expect(multiple.context).not.toContain("# 傳承");
+    expect(multiple.context).toContain("claude 版");
+    expect(multiple.context).not.toContain("codex 版");
   });
   it("folds the OUTSOURCE preview too — the same defect was written twice", async () => {
     // getBootstrap and getWorkerBootContext assembled the same blocks from the

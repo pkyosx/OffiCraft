@@ -627,7 +627,12 @@ The boot context is these blocks, in this order, joined into one document:
 2. **使用者自訂** — the owner's additive block;
 3. **角色定義** (`# Role:`) — what this role does;
 4. **判準** (`# Insight`) — how this role weighs things;
-5. **啟動步驟** — the boot-sequence file seed, selected by the READER'S OWN runtime
+5. **傳承** — for a member fold, the `everyone` entries followed by that member's
+   `agent` entries, under one `lore_cap_chars_role` budget. A role-only preview
+   (no `member_id`) uses the unique active staff member for the resolved role;
+   if there are zero or multiple active staff members, it omits the whole block,
+   including `everyone`, rather than guessing or reading lore by role.
+6. **啟動步驟** — the boot-sequence file seed, selected by the READER'S OWN runtime
    (`claude | codex`, blank folding to `claude`), and carrying that runtime's 執行環境
    section. It is LAST — the recency-authoritative tail — and nothing may be appended
    after it.
@@ -635,6 +640,12 @@ The boot context is these blocks, in this order, joined into one document:
 Blocks 3-4 are the persona. Two blocks are dropped entirely when they fold blank —
 使用者自訂 and 判準 — so a role that has never written a 判準 simply has no such section,
 rather than an empty heading.
+
+The `/api/bootstrap` role-only preview still omits `member_id` and returns
+`token: null`. The handler resolves a preview member only when exactly one active
+staff member has the resolved role; that member supplies the runtime and
+member-scoped 傳承 for the preview. With zero or multiple matches it keeps the
+role-only fallback, omitting 傳承 and using the blank-runtime Claude default.
 
 **The remaining assembly rules are deliberately not restated here.** The exact section
 titles, string formats, separator and trailing newline, and the seed placeholder

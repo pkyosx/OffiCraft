@@ -3034,7 +3034,8 @@ export const httpApi: Api = {
   async getBootstrap(role: string): Promise<BootstrapView> {
     // POST /api/bootstrap {role} -> BootstrapDTO. We send ONLY `role` (no
     // member_id) so the server mints no token (token=null) — a UI preview must
-    // never receive an agent JWT. toBootstrap drops token from the view anyway.
+    // never receive an agent JWT. The server may resolve a unique active staff
+    // member for preview content; toBootstrap drops token from the view anyway.
     const wire = unwrap(
       await client.POST("/api/bootstrap", { body: { role } }),
     );

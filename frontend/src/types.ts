@@ -217,9 +217,10 @@ export interface MemberRelocateResult {
 }
 
 /**
- * `/api/bootstrap` preview: the assembled agent boot persona (role definition ⊕
- * global context ⊕ insight). Excludes the member JWT BY DESIGN — a UI preview
- * mints no token and must never carry an agent credential (see WireBootstrap).
+ * `/api/bootstrap` preview: the assembled agent boot context (role definition ⊕
+ * global context ⊕ insight ⊕ optional member lore ⊕ runtime boot steps). Excludes
+ * the member JWT BY DESIGN — a UI preview mints no token and must never carry an
+ * agent credential (see WireBootstrap).
  */
 export interface BootstrapView {
   role: string;

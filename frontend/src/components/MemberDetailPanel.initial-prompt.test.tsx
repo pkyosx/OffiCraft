@@ -18,12 +18,12 @@ import { zh } from "../i18n/locales/zh";
 import { MemberDetailPanel } from "./MemberDetailPanel";
 import type { Member } from "../types";
 
-let bootstrap: () => Promise<{ context: string }>;
+let bootstrap: (role: string) => Promise<{ context: string }>;
 
 vi.mock("../api", () => ({
   api: {
     listMachines: () => Promise.resolve([]),
-    getBootstrap: () => bootstrap(),
+    getBootstrap: (role: string) => bootstrap(role),
     listWebhooks: () => Promise.resolve([]),
     listScheduledMessages: () => Promise.resolve([]),
     subscribeEvents: () => () => {},
@@ -75,6 +75,23 @@ beforeEach(() => {
 });
 
 describe("MemberDetailPanel — 初始 PROMPT card", () => {
+  it("labels the role-only result as a current preview with a boot-time caveat", async () => {
+    const roles: string[] = [];
+    bootstrap = (role) => {
+      roles.push(role);
+      return Promise.resolve({ context: "角色開機指示" });
+    };
+
+    const { findByTestId } = renderPanel();
+    const toggle = await findByTestId("mp-prompt-toggle");
+    expect(toggle.textContent).toContain(zh.workerDetail.initialPromptHint);
+    fireEvent.click(toggle);
+
+    const note = await findByTestId("mp-prompt-note");
+    expect(note.textContent).toBe(zh.mp.initialPromptNote);
+    expect(roles).toEqual(["assistant"]);
+  });
+
   it("still shows the prompt when the panel repaints while the read is in flight", async () => {
     let calls = 0;
     let land: (v: { context: string }) => void = () => {};

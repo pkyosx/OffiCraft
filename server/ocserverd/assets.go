@@ -241,6 +241,31 @@ func resolveBootRoleKey(role string, member *Member) string {
 	return defaultBootRole
 }
 
+// selectUniqueActiveStaffForRolePreview chooses the person represented by a
+// role-only cockpit preview. A role has a person only when exactly one active
+// staff member carries it; ambiguity and absence deliberately keep the old
+// role-only view instead of guessing whose member-scoped lore or runtime to use.
+func (s *apiServer) selectUniqueActiveStaffForRolePreview(role string) (*Member, error) {
+	roleKey := resolveBootRoleKey(role, nil)
+	members, err := s.dal.ListMembers()
+	if err != nil {
+		return nil, err
+	}
+
+	var selected *Member
+	for i := range members {
+		member := &members[i]
+		if member.Kind != KindStaff || member.RosterStatus != RosterStatusActive || member.RoleKey != roleKey {
+			continue
+		}
+		if selected != nil {
+			return nil, nil
+		}
+		selected = member
+	}
+	return selected, nil
+}
+
 func (s *apiServer) foldRoleDefDTO(roleKey string) (*roleDefDTO, error) {
 	overlay, err := s.dal.GetRoleDef(roleKey)
 	if err != nil {
@@ -389,9 +414,9 @@ func (s *apiServer) buildBootContext(role string, member *Member) (*bootContext,
 	// member-fold budget under a stale name (see domain.go); s.loreManualCap()
 	// is the OTHER exit.
 	//
-	// ⚠️ member is nil on the cockpit's role preview path: the block is OMITTED
-	// there, since role_key would resurrect the removed scope and picking a
-	// member would show one person's 傳承 as the role's.
+	// ⚠️ On a role-only cockpit preview, member is nil only when no unique active
+	// staff member has this role; in that case omit member-scoped 傳承 rather
+	// than guessing. A unique active staff member is selected by the handler.
 	if member != nil {
 		loreSel, err := selectMemberLore(s.dal, member.ID, s.loreRoleCap())
 		if err != nil {

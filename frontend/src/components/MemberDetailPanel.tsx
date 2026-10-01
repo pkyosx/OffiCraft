@@ -1640,7 +1640,8 @@ export function MemberDetailPanel({
         prompt: {
           fetch: async () => (await api.getBootstrap(member.role)).context,
           cacheKey: member.role,
-          hint: t.mp.expandableHint,
+          hint: t.workerDetail.initialPromptHint,
+          note: t.mp.initialPromptNote,
         },
       })}
     />

@@ -1335,7 +1335,8 @@ export const zh = {
     promptLoading: "載入中…",
     promptError: "讀取初始 PROMPT 失敗",
     promptRetry: "重試",
-    expandableHint: "下次喚醒／聚焦生效",
+    initialPromptNote:
+      "這是依目前設定組裝的預覽，可能與這位成員實際開機時收到的內容不同。",
     // ── 判準 Insight（T-3809）——角色誌的第二塊。──
     insight: "判準(Insight)",
     insightLoading: "載入中…",

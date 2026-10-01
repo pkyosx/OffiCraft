@@ -4940,12 +4940,10 @@ const mockApiImpl = {
     // 404s are the contract that tells the panel the row is stale — but the
     // assembled text does not depend on either of them.
     const userText = foldGlobalContext().text;
-    // FOLDED, like the staff preview and like the server (T-30e4). This path
-    // and getBootstrap were the SAME defect written twice — worth saying out
-    // loud, because fixing only the one the ticket named would have left an
-    // identical preview lying next door. Unlike the staff preview, the runtime
-    // here is real: a spawn names its worker, so buildWorkerBootContext really
-    // does branch, and so does this.
+    // FOLDED, like the staff preview and like the server (T-30e4). Both paths
+    // fold the shared owner documents, but they resolve identity differently:
+    // the staff preview selects only a unique active member for the requested
+    // role, while this worker preview has the worker id and its runtime.
     const parts = [foldBootDoc("system_interaction", "global").text.trim()];
     if (userText.trim()) {
       parts.push(`# 使用者自訂（Owner Additions）\n\n${userText.trim()}`);
@@ -6786,26 +6784,27 @@ const mockApiImpl = {
     //      agent will read was the one place the owner's edit was invisible;
     //   2. 使用者自訂 — the owner's ADDITIVE block, SKIPPED entirely when empty;
     //   3. `# Role:` + `# Insight (role)` — the persona (Duty → Insight, the
-    //      order the two blocks are defined in), and the ONLY slot an outsource
-    //      worker has nothing in (see getWorkerBootContext below). The Insight section is SKIPPED
-    //      ENTIRELY when the folded text is blank, exactly like the owner block
-    //      — the gate is the TEXT, never is_default/has_seed (those answer
-    //      different questions and would emit an orphan header);
-    //   4. 啟動步驟 — FOLDED, LAST (recency-authoritative tail), and always the
-    //      CLAUDE document. 🔴 The missing runtime parameter is DELIBERATE, not
-    //      the other half of the T-30e4 gap: the real request carries `{role}`
-    //      and no member_id ON PURPOSE (http.ts getBootstrap — a UI preview must
-    //      never be handed an agent JWT), so server-side `member == nil` →
-    //      memberRuntime "" → bootSequenceDocKey("") → the claude key. Teaching
-    //      this mock about runtime would make it disagree with the endpoint it
-    //      stands in for. The worker path (getWorkerBootContext) DOES branch on
-    //      runtime because a spawn really does name its worker.
-    // The owner block moved from below the persona to above it so the two
-    // assemblies line up: a
-    // worker's boot context is this list minus slot 3, and with the owner block
-    // wedged between the persona and the boot sequence it could not be.
+    //      order the two blocks are defined in). The Insight section is SKIPPED
+    //      when the folded text is blank, exactly like the owner block;
+    //   4. 傳承 — only when exactly one active staff member has this role,
+    //      everyone entries followed by that member's entries under one budget;
+    //   5. 啟動步驟 — FOLDED, LAST, for the selected member's runtime. The
+    //      role-only request still carries no member_id and mints no token; the
+    //      server independently chooses the same unique active staff member
+    //      for preview content. Zero or multiple matches keep a role-only
+    //      preview with no member lore and the Claude boot document.
+    // The owner block moved from below the persona to above it so the staff and
+    // worker folds keep their shared block order. Each path adds its own
+    // identity-specific content around those shared documents.
     // NO token (a UI preview mints none).
     const roleDef = foldRole(role); // throws for an unknown role (≈ server 404)
+    const activeStaff = wireMembers.filter(
+      (member) =>
+        member.kind === "staff" &&
+        member.roster_status === "active" &&
+        member.role_key === role,
+    );
+    const previewMember = activeStaff.length === 1 ? activeStaff[0] : null;
     const userText = foldGlobalContext().text;
     const parts = [foldBootDoc("system_interaction", "global").text.trim()];
     if (userText.trim()) {
@@ -6819,10 +6818,42 @@ const mockApiImpl = {
     if (insightText.trim()) {
       parts.push(`# Insight (${role})\n\n${insightText.trim()}`);
     }
-    parts.push(foldBootDoc("boot_sequence", "claude").text.trim());
+    if (previewMember) {
+      const lore = [
+        ...mockLoreEntries
+          .filter((entry) => entry.scopeKind === "everyone")
+          .sort(mockLoreOrder),
+        ...mockLoreEntries
+          .filter(
+            (entry) =>
+              entry.scopeKind === "agent" &&
+              entry.scopeKey === previewMember.id,
+          )
+          .sort(mockLoreOrder),
+      ].filter((entry) => entry.state !== "retired");
+      const selected: LoreEntryView[] = [];
+      let usedChars = 0;
+      const loreCap = mockServerSettings.lore_cap_chars_role;
+      for (const entry of lore) {
+        const cost = [...entry.title].length + [...entry.body].length;
+        if (loreCap <= 0 || usedChars + cost > loreCap) break;
+        usedChars += cost;
+        selected.push(entry);
+      }
+      if (selected.length > 0) {
+        const lines = selected.map((entry) => {
+          const pinned = entry.state === "pinned" ? "（置頂）" : "";
+          const body = entry.body.trim();
+          return `## ${entry.id} ${entry.title.trim()}${pinned}${body ? `\n\n${body}` : ""}`;
+        });
+        parts.push(`# 傳承\n\n${lines.join("\n\n")}`);
+      }
+    }
+    const runtime = previewMember?.runtime === "codex" ? "codex" : "claude";
+    parts.push(foldBootDoc("boot_sequence", runtime).text.trim());
     const wire: WireBootstrap = {
       role,
-      name: roleDef.name,
+      name: previewMember ? previewMember.name : roleDef.name,
       context: parts.join("\n\n") + "\n",
       token: null,
     };

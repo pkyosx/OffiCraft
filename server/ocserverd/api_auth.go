@@ -152,7 +152,16 @@ func (s *apiServer) HandleBootstrapApiBootstrapPost(w http.ResponseWriter, r *ht
 		}
 		member = m
 	}
-	boot, err := s.buildBootContext(strOrEmpty(body.Role), member)
+	previewMember := member
+	if previewMember == nil {
+		selected, err := s.selectUniqueActiveStaffForRolePreview(strOrEmpty(body.Role))
+		if err != nil {
+			internalError(w, err)
+			return
+		}
+		previewMember = selected
+	}
+	boot, err := s.buildBootContext(strOrEmpty(body.Role), previewMember)
 	if err != nil {
 		internalError(w, err)
 		return

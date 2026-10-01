@@ -1309,7 +1309,8 @@ export const en: Dict = {
     promptLoading: "Loading…",
     promptError: "Failed to load initial prompt",
     promptRetry: "Retry",
-    expandableHint: "applies on next wake / refocus",
+    initialPromptNote:
+      "A preview assembled from the current settings; it may differ from what this member receives at boot.",
     // ── Insight (T-3809) — the role journal's SECOND block. ──
     insight: "Insight (judgement calls)",
     insightLoading: "Loading…",
