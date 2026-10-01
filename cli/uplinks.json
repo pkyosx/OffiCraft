@@ -325,7 +325,7 @@
     {
       "id": "warden-login-reporter-wired",
       "source": "cli/ocwarden/main.go",
-      "callsite": "deps.Login = newLoginRelay(login, newLoginReporter(cfg), logf)",
+      "callsite": "relay := newLoginRelay(login, newLoginReporter(cfg), logf)",
       "kind": "seam",
       "seam_reason": "builds the runtime-login reporter closure and hands it to the login relay; the POST inside it is declared by warden-runtime-login-report"
     },

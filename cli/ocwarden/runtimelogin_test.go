@@ -33,12 +33,17 @@ func (shellKeep) RunKeepStdout(name string, args ...string) (string, error) {
 	return out.String(), err
 }
 
-// fakeClaude is a stand-in for the claude CLI: `auth login` prints the sign-in
-// URL line, records its pid, reads one line of stdin into the code file and
-// exits with the code in the rc file, printing the stderr file's line first;
-// `auth status` prints the status reply.
+// fakeClaude is a stand-in for the claude CLI, shaped on claude 2.1.286:
+// `auth login` records its pid and the FROM_FILE it was started with, prints the
+// sign-in URL line (dimmed, as an OSC 8 hyperlink whose label is shortened,
+// when the osc file exists), then reads
+// stdin line by line. A line that is not two non-empty halves joined by `#` is
+// refused on stderr and the next is read; an accepted one is recorded, echoed
+// back on stderr when the echo file exists, followed by the stderr file, and
+// the process exits with the code in the rc file. `auth status` prints the
+// status reply.
 type fakeClaude struct {
-	root, bin, pid, gotCode, rc, stderr, status string
+	root, bin, pid, gotCode, rc, stderr, status, osc, echo, sawEnv string
 }
 
 func newFakeClaude(t *testing.T) *fakeClaude {
@@ -51,16 +56,24 @@ func newFakeClaude(t *testing.T) *fakeClaude {
 		rc:      filepath.Join(root, "rc"),
 		stderr:  filepath.Join(root, "stderr"),
 		status:  filepath.Join(root, "status"),
+		osc:     filepath.Join(root, "osc"),
+		echo:    filepath.Join(root, "echo"),
+		sawEnv:  filepath.Join(root, "saw-env"),
 	}
 	f.bin = stageBinary(t, filepath.Join(root, "bin", "claude"), "#!/bin/sh\n"+
 		`if [ "$1 $2" = "auth status" ]; then /bin/cat '`+f.status+`'; exit 0; fi`+"\n"+
 		`echo $$ > '`+f.pid+`'`+"\n"+
+		`printf '%s' "${FROM_FILE-unset}" > '`+f.sawEnv+`'`+"\n"+
 		`echo 'Opening browser to sign in…'`+"\n"+
-		`echo "If the browser didn't open, visit: `+fakeLoginURL+`"`+"\n"+
-		`IFS= read -r code`+"\n"+
-		`printf '%s' "$code" > '`+f.gotCode+`'`+"\n"+
-		`[ -f '`+f.stderr+`' ] && /bin/cat '`+f.stderr+`' >&2`+"\n"+
-		`exit "$(/bin/cat '`+f.rc+`')"`+"\n")
+		`if [ -f '`+f.osc+`' ]; then printf "\\033[2mIf the browser didn't open, visit: \\033]8;;%s\\007claude.ai/oauth/authorize\\033]8;;\\007\\033[0m\\n" '`+fakeLoginURL+`'; `+
+		`else echo "If the browser didn't open, visit: `+fakeLoginURL+`"; fi`+"\n"+
+		`while IFS= read -r code; do`+"\n"+
+		`  case "$code" in ?*'#'?*) ;; *) echo 'Invalid code. Please make sure the full code was copied.' >&2; continue;; esac`+"\n"+
+		`  printf '%s' "$code" > '`+f.gotCode+`'`+"\n"+
+		`  [ -f '`+f.echo+`' ] && printf 'Login failed: code %s rejected (%s / %s)\nRun claude auth login again\n' "$code" "${code%%#*}" "${code#*#}" >&2`+"\n"+
+		`  [ -f '`+f.stderr+`' ] && /bin/cat '`+f.stderr+`' >&2`+"\n"+
+		`  exit "$(/bin/cat '`+f.rc+`')"`+"\n"+
+		`done`+"\n")
 	f.write(t, f.rc, "0")
 	f.write(t, f.status, `{"loggedIn":true,"authMethod":"claude.ai","email":"owner@example.test","orgName":"Example Org"}`)
 	return f
@@ -229,6 +242,83 @@ func TestLoginRelay(t *testing.T) {
 		h.wantLogsFree(t, fakeLoginCode, fakeLoginURL)
 	})
 
+	t.Run("under a sign-in URL printed dimmed as an OSC 8 hyperlink with a shorter label, the reported URL is the link target", func(t *testing.T) {
+		h := newRelayHarness(t)
+		h.claude.write(t, h.claude.osc, "")
+		h.relay.Start("rl-osc", "claude")
+		if got, want := h.next(t), (loginReport{LoginID: "rl-osc", State: "awaiting_code", AuthURL: fakeLoginURL}); got != want {
+			t.Fatalf("first report = %+v, want %+v", got, want)
+		}
+	})
+
+	t.Run("under a partial code, the CLI's refusal returns the login to awaiting_code and a full code then succeeds", func(t *testing.T) {
+		h := newRelayHarness(t)
+		h.relay.Start("rl-p", "claude")
+		h.next(t)
+		h.relay.Code("rl-p", "fake-code-31")
+		if got, want := h.next(t), (loginReport{LoginID: "rl-p", State: "verifying"}); got != want {
+			t.Fatalf("report = %+v, want %+v", got, want)
+		}
+		if got, want := h.next(t), (loginReport{LoginID: "rl-p", State: "awaiting_code",
+			Reason: "Invalid code. Please make sure the full code was copied."}); got != want {
+			t.Fatalf("report = %+v, want %+v", got, want)
+		}
+		h.relay.Code("rl-p", fakeLoginCode)
+		if got, want := h.next(t), (loginReport{LoginID: "rl-p", State: "verifying"}); got != want {
+			t.Fatalf("report = %+v, want %+v", got, want)
+		}
+		if got := h.next(t); got.State != "succeeded" {
+			t.Fatalf("final report = %+v, want succeeded", got)
+		}
+		if raw, _ := os.ReadFile(h.claude.gotCode); string(raw) != fakeLoginCode {
+			t.Errorf("the login process accepted %q, want %q", raw, fakeLoginCode)
+		}
+	})
+
+	t.Run("under a CLI that echoes the code on stderr, the failure reason masks the code and each half", func(t *testing.T) {
+		h := newRelayHarness(t)
+		h.claude.write(t, h.claude.rc, "1")
+		h.claude.write(t, h.claude.echo, "")
+		h.relay.Start("rl-m", "claude")
+		h.next(t)
+		h.relay.Code("rl-m", fakeLoginCode)
+		h.next(t)
+		if got, want := h.next(t), (loginReport{LoginID: "rl-m", State: "failed",
+			Reason: "Login failed: code … rejected (… / …)"}); got != want {
+			t.Fatalf("final report = %+v, want %+v", got, want)
+		}
+	})
+
+	t.Run("under a failure followed by a hint line, the reason is the Login failed line", func(t *testing.T) {
+		h := newRelayHarness(t)
+		h.claude.write(t, h.claude.rc, "1")
+		h.claude.write(t, h.claude.stderr, "Login failed: Request failed with status code 400\nRun claude auth login to try again\n")
+		h.relay.Start("rl-h", "claude")
+		h.next(t)
+		h.relay.Code("rl-h", fakeLoginCode)
+		h.next(t)
+		if got, want := h.next(t), (loginReport{LoginID: "rl-h", State: "failed",
+			Reason: "Login failed: Request failed with status code 400"}); got != want {
+			t.Fatalf("final report = %+v, want %+v", got, want)
+		}
+	})
+
+	t.Run("under an env file, the process starts with it but its 0600 render is gone while the login still runs", func(t *testing.T) {
+		h := newRelayHarness(t)
+		h.claude.write(t, h.prober.envFile, "FROM_FILE=file-value\n")
+		h.relay.Start("rl-r", "claude")
+		h.next(t)
+		if raw, _ := os.ReadFile(h.claude.sawEnv); string(raw) != "file-value" {
+			t.Fatalf("control: the login process saw FROM_FILE=%q, so no render was sourced", raw)
+		}
+		if !h.claude.alive(t) {
+			t.Fatal("control: the login process is not running")
+		}
+		if _, err := os.Stat(filepath.Join(h.prober.agentHome, loginRenderPrefix+"rl-r")); !os.IsNotExist(err) {
+			t.Errorf("the env render is still on disk while the login runs (stat err %v)", err)
+		}
+	})
+
 	t.Run("under a cancel, the login process is killed and nothing more is reported", func(t *testing.T) {
 		h := newRelayHarness(t)
 		h.relay.Start("rl-3", "claude")
@@ -303,6 +393,7 @@ func (r *recordingLogin) Start(id, runtime string) {
 }
 func (r *recordingLogin) Code(id, code string) { r.calls = append(r.calls, "code "+id+" "+code) }
 func (r *recordingLogin) Cancel(id string)     { r.calls = append(r.calls, "cancel "+id) }
+func (r *recordingLogin) Abandon()             { r.calls = append(r.calls, "abandon") }
 
 func TestDispatchLoginCommands(t *testing.T) {
 	frame := func(rpc, args string) []byte {
@@ -412,8 +503,8 @@ func TestLoginRunsUnderTheMemberSpawnEnvironment(t *testing.T) {
 		name      string
 		configDir bool
 	}{
-		{"under the default config home, the login sees exactly the environment a member sees, less the member's own OC_* and workdir PATH entry", false},
-		{"under a redirected CLAUDE_CONFIG_DIR, the login sees exactly the environment a member sees, less the member's own OC_* and workdir PATH entry", true},
+		{"under the default config home, the login sees exactly the environment a member sees, less the member's own OC_* and workdir PATH entry, with BROWSER the one deliberate difference", false},
+		{"under a redirected CLAUDE_CONFIG_DIR, the login sees exactly the environment a member sees, less the member's own OC_* and workdir PATH entry, with BROWSER the one deliberate difference", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			root := t.TempDir()
@@ -432,7 +523,7 @@ func TestLoginRunsUnderTheMemberSpawnEnvironment(t *testing.T) {
 			}
 			cache := &launchEnvCache{}
 			capture := func() (string, error) {
-				return "FROM_SHELL=shell-value\x00CLAUDE_FROM_SHELL=leak\x00PATH=/usr/bin:/bin\x00", nil
+				return "FROM_SHELL=shell-value\x00CLAUDE_FROM_SHELL=leak\x00BROWSER=firefox\x00PATH=/usr/bin:/bin\x00", nil
 			}
 
 			runner := &spawnRunner{}
@@ -475,6 +566,11 @@ func TestLoginRunsUnderTheMemberSpawnEnvironment(t *testing.T) {
 			if member["PATH"] != workdir+":"+login["PATH"] {
 				t.Error("the member's PATH is not the workdir in front of the login's PATH")
 			}
+			if member["BROWSER"] != "firefox" || login["BROWSER"] != "/usr/bin/true" {
+				t.Errorf("BROWSER: member=%q login=%q, want firefox and /usr/bin/true", member["BROWSER"], login["BROWSER"])
+			}
+			delete(member, "BROWSER")
+			delete(login, "BROWSER")
 			memberOnly := []string{"OC_TOKEN", "OC_BASE", "OC_SESSION", "OC_TMUX_SOCKET", "PATH", "PWD", "OLDPWD", "SHLVL", "_"}
 			for _, k := range memberOnly {
 				delete(member, k)
@@ -508,4 +604,58 @@ func TestLoginRunsUnderTheMemberSpawnEnvironment(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestLoginRelaySweepStaleRenders(t *testing.T) {
+	t.Run("under renders a previous warden process left, the sweep removes them and leaves other files", func(t *testing.T) {
+		h := newRelayHarness(t)
+		dir := h.prober.agentHome
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		for _, name := range []string{loginRenderPrefix + "rl-old", loginRenderPrefix + "rl-older", loginCheckEnvName, "m1"} {
+			h.claude.write(t, filepath.Join(dir, name), "SECRET=x\n")
+		}
+		h.relay.sweepStaleRenders()
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var left []string
+		for _, e := range entries {
+			left = append(left, e.Name())
+		}
+		if want := []string{loginCheckEnvName, "m1"}; !reflect.DeepEqual(left, want) {
+			t.Errorf("left after the sweep = %v, want %v", left, want)
+		}
+	})
+}
+
+func TestUpdaterExecAbandonsRunningLogins(t *testing.T) {
+	t.Run("under a running login, the self-update exec first kills it and reports it failed", func(t *testing.T) {
+		h := newRelayHarness(t)
+		h.relay.Start("rl-x", "claude")
+		h.next(t)
+		if !h.claude.alive(t) {
+			t.Fatal("control: the login process is not running")
+		}
+		var aliveAtExec []bool
+		up := &updater{execSelf: func() error {
+			aliveAtExec = append(aliveAtExec, h.claude.alive(t))
+			return fmt.Errorf("exec refused in test")
+		}}
+		transport := &sseTransport{deps: CommandDeps{Login: h.relay}}
+		wireUpdaterSeams(transport, up)
+		if err := up.execSelf(); err == nil || err.Error() != "exec refused in test" {
+			t.Fatalf("execSelf = %v", err)
+		}
+		if !reflect.DeepEqual(aliveAtExec, []bool{false}) {
+			t.Errorf("login process alive at exec = %v, want [false]", aliveAtExec)
+		}
+		if got, want := h.next(t), (loginReport{LoginID: "rl-x", State: "failed",
+			Reason: "the warden restarted to update itself; start the login again"}); got != want {
+			t.Fatalf("report = %+v, want %+v", got, want)
+		}
+		h.wantNoReport(t)
+	})
 }

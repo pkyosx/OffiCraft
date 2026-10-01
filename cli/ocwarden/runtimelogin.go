@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -28,6 +29,9 @@ const (
 	runtimeLoginPath = "/api/monitoring/runtime-login"
 
 	claudeLoginURLPrefix = "If the browser didn't open, visit: "
+	// claude prints this on stderr and keeps waiting for another line.
+	claudeInvalidCodePrefix = "Invalid code"
+	claudeLoginFailedPrefix = "Login failed:"
 
 	// `claude auth login` never exits on stdin EOF, so this cap is the only thing
 	// that ends a login nobody finishes. The server's idle cap (15 minutes,
@@ -39,10 +43,48 @@ const (
 
 var loginIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 
+// claude prints the sign-in URL as an OSC 8 hyperlink even without a TTY.
+var (
+	osc8Link     = regexp.MustCompile(`\x1b\]8;[^;\x07\x1b]*;([^\x07\x1b]*)(?:\x07|\x1b\\)`)
+	oscSequence  = regexp.MustCompile(`\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)`)
+	csiSequence  = regexp.MustCompile(`\x1b\[[0-?]*[ -/]*[@-~]`)
+	lone2charEsc = regexp.MustCompile(`\x1b[@-_]`)
+)
+
+func stripTerminalEscapes(line string) string {
+	line = oscSequence.ReplaceAllString(line, "")
+	line = csiSequence.ReplaceAllString(line, "")
+	return lone2charEsc.ReplaceAllString(line, "")
+}
+
+// loginURLFromLine answers the URL on claude's sign-in line: the OSC 8 target
+// when there is one, else the visible text.
+func loginURLFromLine(raw string) (string, bool) {
+	visible := strings.TrimSpace(stripTerminalEscapes(raw))
+	if !strings.HasPrefix(visible, claudeLoginURLPrefix) {
+		return "", false
+	}
+	for _, m := range osc8Link.FindAllStringSubmatch(raw, -1) {
+		if target := strings.TrimSpace(m[1]); target != "" {
+			return target, true
+		}
+	}
+	return strings.TrimSpace(strings.TrimPrefix(visible, claudeLoginURLPrefix)), true
+}
+
+// The browser claude would open is on the warden's machine, where nobody is
+// looking. ⚠️ BROWSER is the ONLY variable in which a login's environment is
+// allowed to differ from a member's (TestLoginRunsUnderTheMemberSpawnEnvironment
+// pins that): claude 2.1.286 opens `$BROWSER <url>` (else `open`), and BROWSER
+// moves no credential. Anything else here would write the login where members
+// cannot read it.
+var loginBrowserOverride = [2]string{"BROWSER", "/usr/bin/true"}
+
 type LoginSeam interface {
 	Start(loginID, runtime string)
 	Code(loginID, code string)
 	Cancel(loginID string)
+	Abandon()
 }
 
 type loginReport struct {
@@ -118,9 +160,29 @@ type loginSession struct {
 	done chan struct{}
 
 	mu        sync.Mutex
-	code      string
+	codes     []string
+	codeSent  bool
 	cancelled bool
 	timedOut  bool
+}
+
+// mask hides every code this login was handed, and each half of one, from a
+// line about to leave the machine.
+func (s *loginSession) mask(line string) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, code := range s.codes {
+		parts := []string{code}
+		if left, right, ok := strings.Cut(code, "#"); ok {
+			parts = append(parts, left, right)
+		}
+		for _, part := range parts {
+			if len(part) >= 4 {
+				line = strings.ReplaceAll(line, part, "…")
+			}
+		}
+	}
+	return line
 }
 
 func newLoginRelay(prober *loginProber, progress loginReporter, logf func(string, ...any)) *loginRelay {
@@ -170,7 +232,8 @@ func (r *loginRelay) Start(loginID, runtime string) {
 		return
 	}
 	r.prober.prepareLaunchEnv()
-	script, rendered := r.prober.claudeCommand(bin, loginRenderPrefix+loginID, "auth login --claudeai")
+	script, rendered := r.prober.claudeCommand(bin, loginRenderPrefix+loginID, "auth login --claudeai",
+		claudeCommandOpts{selfDeleteRender: true, extra: [][2]string{loginBrowserOverride}})
 	proc, err := r.start(r.prober.shell(), script)
 	if err != nil {
 		if rendered != "" {
@@ -188,7 +251,7 @@ func (r *loginRelay) Start(loginID, runtime string) {
 }
 
 func (r *loginRelay) watch(s *loginSession, rendered string) {
-	var lastOut, lastErr string
+	var lastOut, lastErr, loginFailed string
 	var readers sync.WaitGroup
 	readers.Add(2)
 	go func() {
@@ -196,26 +259,41 @@ func (r *loginRelay) watch(s *loginSession, rendered string) {
 		sawURL := false
 		scanner := bufio.NewScanner(s.proc.stdout)
 		for scanner.Scan() {
-			line := strings.TrimSpace(scanner.Text())
-			if line == "" {
-				continue
+			raw := scanner.Text()
+			if !sawURL {
+				if url, ok := loginURLFromLine(raw); ok {
+					sawURL = true
+					r.log("%s: awaiting the code", s.id)
+					r.relay(s, loginReport{LoginID: s.id, State: "awaiting_code", AuthURL: url})
+					continue
+				}
 			}
-			if !sawURL && strings.HasPrefix(line, claudeLoginURLPrefix) {
-				sawURL = true
-				url := strings.TrimSpace(strings.TrimPrefix(line, claudeLoginURLPrefix))
-				r.log("%s: awaiting the code", s.id)
-				r.relay(s, loginReport{LoginID: s.id, State: "awaiting_code", AuthURL: url})
-				continue
+			if line := strings.TrimSpace(stripTerminalEscapes(raw)); line != "" {
+				lastOut = line
 			}
-			lastOut = line
 		}
 	}()
 	go func() {
 		defer readers.Done()
 		scanner := bufio.NewScanner(s.proc.stderr)
 		for scanner.Scan() {
-			if line := strings.TrimSpace(scanner.Text()); line != "" {
-				lastErr = line
+			line := strings.TrimSpace(stripTerminalEscapes(scanner.Text()))
+			if line == "" {
+				continue
+			}
+			lastErr = line
+			if strings.HasPrefix(line, claudeLoginFailedPrefix) {
+				loginFailed = line
+			}
+			if strings.HasPrefix(line, claudeInvalidCodePrefix) {
+				s.mu.Lock()
+				sent := s.codeSent
+				s.codeSent = false
+				s.mu.Unlock()
+				if sent {
+					r.log("%s: the login process refused the code; awaiting another", s.id)
+					r.relay(s, loginReport{LoginID: s.id, State: "awaiting_code", Reason: s.mask(line)})
+				}
 			}
 		}
 	}()
@@ -237,8 +315,7 @@ func (r *loginRelay) watch(s *loginSession, rendered string) {
 	defer close(s.done)
 
 	s.mu.Lock()
-	cancelled, timedOut, code := s.cancelled, s.timedOut, s.code
-	s.code = ""
+	cancelled, timedOut := s.cancelled, s.timedOut
 	s.mu.Unlock()
 
 	switch {
@@ -253,17 +330,17 @@ func (r *loginRelay) watch(s *loginSession, rendered string) {
 		r.concludeSucceeded(s.id)
 	default:
 		r.log("%s: login process exited (%v)", s.id, waitErr)
-		reason := lastErr
+		reason := loginFailed
+		if reason == "" {
+			reason = lastErr
+		}
 		if reason == "" {
 			reason = lastOut
 		}
 		if reason == "" {
 			reason = "claude auth login exited: " + waitErr.Error()
 		}
-		if code != "" {
-			reason = strings.ReplaceAll(reason, code, "…")
-		}
-		r.progress(loginReport{LoginID: s.id, State: "failed", Reason: reason})
+		r.progress(loginReport{LoginID: s.id, State: "failed", Reason: s.mask(reason)})
 	}
 }
 
@@ -297,15 +374,63 @@ func (r *loginRelay) Code(loginID, code string) {
 		return
 	}
 	s.mu.Lock()
-	s.code = code
+	s.codes = append(s.codes, code)
+	s.codeSent = true
 	s.mu.Unlock()
+	// Reported BEFORE the write: claude's refusal of this code arrives on
+	// stderr as an awaiting_code report, which must land after this one.
+	r.relay(s, loginReport{LoginID: loginID, State: "verifying"})
 	if _, err := io.WriteString(s.proc.stdin, code+"\n"); err != nil {
 		r.log("%s: could not hand the code to the login process", loginID)
 		s.proc.kill()
 		return
 	}
 	r.log("%s: code handed to the login process", loginID)
-	r.relay(s, loginReport{LoginID: loginID, State: "verifying"})
+}
+
+// Abandon ends every login this process is running, before the warden execs
+// itself in place: the exec would orphan them (and their 0600 env render).
+func (r *loginRelay) Abandon() {
+	r.mu.Lock()
+	running := make([]*loginSession, 0, len(r.sessions))
+	for _, s := range r.sessions {
+		running = append(running, s)
+	}
+	r.mu.Unlock()
+	for _, s := range running {
+		s.mu.Lock()
+		s.cancelled = true
+		s.mu.Unlock()
+		s.proc.kill()
+		r.progress(loginReport{LoginID: s.id, State: "failed",
+			Reason: "the warden restarted to update itself; start the login again"})
+	}
+	for _, s := range running {
+		select {
+		case <-s.done:
+		case <-time.After(5 * time.Second):
+		}
+	}
+}
+
+// sweepStaleRenders removes env renders a previous warden process left behind
+// (it was exec'd or killed while a login ran): each is a 0600 copy of the env
+// file's credentials.
+func (r *loginRelay) sweepStaleRenders() {
+	dir := r.prober.agentHome
+	if dir == "" {
+		return
+	}
+	matches, err := filepath.Glob(filepath.Join(dir, loginRenderPrefix+"*"))
+	if err != nil {
+		return
+	}
+	for _, path := range matches {
+		_ = r.remove(path)
+	}
+	if len(matches) > 0 {
+		r.log("removed %d env render(s) a previous warden process left behind", len(matches))
+	}
 }
 
 func (r *loginRelay) Cancel(loginID string) {

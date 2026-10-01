@@ -371,7 +371,16 @@ func (p *loginProber) shell() string {
 }
 
 func (p *loginProber) claudeStatusCommand(bin string) (string, string) {
-	return p.claudeCommand(bin, loginCheckEnvName, "auth status")
+	return p.claudeCommand(bin, loginCheckEnvName, "auth status", claudeCommandOpts{})
+}
+
+type claudeCommandOpts struct {
+	// The shell deletes the render as soon as it has sourced it, for a command
+	// that outlives the caller (a login can run for 10 minutes, and a self-update
+	// exec of the warden never comes back to clean up).
+	selfDeleteRender bool
+	// Exported after HOME / CLAUDE_CONFIG_DIR, so they win over every layer.
+	extra [][2]string
 }
 
 // claudeCommand is the one launch prologue every claude the warden runs outside
@@ -380,7 +389,7 @@ func (p *loginProber) claudeStatusCommand(bin string) (string, string) {
 // named from CLAUDE_CONFIG_DIR, so a login run under any other env stores a
 // credential members never see. The render holds the env file's credentials, so
 // the caller removes it as soon as the command has run.
-func (p *loginProber) claudeCommand(bin, renderName, subcommand string) (string, string) {
+func (p *loginProber) claudeCommand(bin, renderName, subcommand string, opts claudeCommandOpts) (string, string) {
 	rendered := ""
 	pairs := mergeAgentEnv(p.launchEnv.interactive(), loadAgentEnv(p.envFile, nil))
 	if len(pairs) > 0 && p.agentHome != "" {
@@ -396,7 +405,10 @@ func (p *loginProber) claudeCommand(bin, renderName, subcommand string) (string,
 		dir = p.claudeHome.Home
 	}
 	cmd := claudeChildEnvPrologue(dir, rendered, p.claudeHome)
-	if exports := claudeHomeExportPairs(p.claudeHome); len(exports) > 0 {
+	if opts.selfDeleteRender && rendered != "" {
+		cmd += "/bin/rm -f " + shellQuote(rendered) + "; "
+	}
+	if exports := append(claudeHomeExportPairs(p.claudeHome), opts.extra...); len(exports) > 0 {
 		kvs := make([]string, 0, len(exports))
 		for _, kv := range exports {
 			kvs = append(kvs, kv[0]+"="+shellQuote(kv[1]))
