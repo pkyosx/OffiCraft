@@ -1114,8 +1114,8 @@ func parityCases() []verbCase {
 					api.HandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcceleratedStopPost)
 				return workerTerminal(t, api, id, code.Code, notices)
 			},
-			// Both run accelerateMemberStop: the desired-offline arm re-stamps its
-			// anchor from THIS press and writes RefocusOp = refocusOpAcceleratedStop.
+			// Both: the desired-offline arm re-stamps its anchor from THIS press and
+			// names the cause accelerated_stop.
 			wantStaff: terminalState{
 				Status: http.StatusOK, DesiredState: DesiredStateOffline,
 				Stopping: anchorPast, Stopped: anchorZero,

@@ -2571,7 +2571,9 @@ func TestHandleAcceleratedStopMemberApiMembersMemberIdAcceleratedStopPost(t *tes
 					t.Fatalf("second press: want 200, got %d (%v)", status, data)
 				}
 				apiWantBody(t, data, map[string]any{"id": "kip"})
-				self.wantFrames(apiTestStaffAcceleratedFrame(3, "offline"))
+				payload := apiTestMemberPayload("kip", "Kip", "active", "offline")
+				payload["offboard_notice"] = apiAnyString
+				self.wantFrames(apiTestMemberFrame(3, "patch", "kip", payload, "owner"))
 				m, err := d.GetMember("kip")
 				if err != nil || m == nil {
 					t.Fatalf("GetMember: %v (%v)", m, err)
@@ -2592,10 +2594,11 @@ func TestHandleAcceleratedStopMemberApiMembersMemberIdAcceleratedStopPost(t *tes
 	t.Run("a hand-off already on the second-threshold clock keeps its anchor", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		apiTestListen(t, api, "kip")
-		since := nowSecs() - 30
+		since := nowSecs() - 3600
 		if err := d.SetMemberWindDownAnchors("kip", 0, 0, since, refocusOpContextHigh); err != nil {
 			t.Fatalf("SetMemberWindDownAnchors: %v", err)
 		}
+		self := apiTestListen(t, api, "kip")
 
 		status, data := apiJSON(t, h, "POST", "/api/members/kip/accelerated-stop", owner, `{}`)
 		if status != 200 {
@@ -2614,6 +2617,9 @@ func TestHandleAcceleratedStopMemberApiMembersMemberIdAcceleratedStopPost(t *tes
 		if view["refocus_deadline"] != since+120 {
 			t.Fatalf("refocus_deadline=%v, want %v", view["refocus_deadline"], since+120)
 		}
+		payload := apiTestMemberPayload("kip", "Kip", "active", "")
+		payload["offboard_notice"] = apiAnyString
+		self.wantFrames(apiTestMemberFrame(1, "patch", "kip", payload, "owner"))
 	})
 
 	t.Run("a hand-off the first context threshold opened is put on the clock from this press", func(t *testing.T) {
@@ -2623,6 +2629,7 @@ func TestHandleAcceleratedStopMemberApiMembersMemberIdAcceleratedStopPost(t *tes
 		if err := d.SetMemberWindDownAnchors("kip", 0, 0, since, refocusOpContextNotice); err != nil {
 			t.Fatalf("SetMemberWindDownAnchors: %v", err)
 		}
+		self := apiTestListen(t, api, "kip")
 
 		status, data := apiJSON(t, h, "POST", "/api/members/kip/accelerated-stop", owner, `{}`)
 		if status != 200 {
@@ -2641,6 +2648,9 @@ func TestHandleAcceleratedStopMemberApiMembersMemberIdAcceleratedStopPost(t *tes
 		if view["refocus_deadline"] != m.RefocusSince+120 {
 			t.Fatalf("refocus_deadline=%v, want %v", view["refocus_deadline"], m.RefocusSince+120)
 		}
+		payload := apiTestMemberPayload("kip", "Kip", "active", "")
+		payload["offboard_notice"] = apiAnyString
+		self.wantFrames(apiTestMemberFrame(1, "patch", "kip", payload, "owner"))
 	})
 
 	t.Run("a force-stopped member answers 409 and nothing is put on a clock", func(t *testing.T) {
@@ -4659,20 +4669,5 @@ func TestHandleRestartSelfApiSelfRefocusPost(t *testing.T) {
 				}
 			})
 		}
-	}
-}
-
-func apiTestStaffAcceleratedFrame(seq int, desiredState string) map[string]any {
-	return map[string]any{
-		"seq": seq, "topic": "member", "op": "patch",
-		"data": map[string]any{
-			"entity": "member", "key": "owner::kip", "epoch": seq, "deleted": false,
-			"payload": map[string]any{
-				"id": "kip", "name": "Kip", "status": "active",
-				"desired_state": desiredState, "owner_id": "owner",
-				"offboard_notice": apiAnyString,
-			},
-		},
-		"ts": apiAnyNumber, "trigger": "owner",
 	}
 }
