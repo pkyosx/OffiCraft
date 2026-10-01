@@ -402,6 +402,7 @@ func TestRunOutsourceTick(t *testing.T) {
 				api.runOutsourceTick(anchor + 119)
 				early := wsVerbs(t, api, ServerSelfHost)
 				earlyRow := apiTestMemberRow(t, d, "ow-abc123")
+				dashboard := apiTestListen(t, api, "")
 				api.runOutsourceTick(anchor + 120)
 
 				apiWantValue(t, "one second short of the deadline", any(early), any([]any{}))
@@ -412,6 +413,12 @@ func TestRunOutsourceTick(t *testing.T) {
 				if got := apiTestMemberRow(t, d, "ow-abc123").StoppedSince; got <= 0 {
 					t.Fatalf("stopped_since=%v at the deadline, want the collection latched", got)
 				}
+				apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+					"status": status, "presence": "stopping", "desired_state": "offline",
+					"desired_machine_id": ServerSelfHost, "machine": ServerSelfHost,
+					"refocus_op": "accelerated_stop", "refocus_deadline": anchor + 120,
+				}))
+				dashboard.wantFrames(apiTestHandoverDelta(6, "offline", apiAnyString, "server"))
 			})
 		}
 	})
@@ -437,6 +444,7 @@ func TestRunOutsourceTick(t *testing.T) {
 				api.runOutsourceTick(1000)
 				api.runOutsourceTick(1119)
 				early := wsVerbs(t, api, ServerSelfHost)
+				dashboard := apiTestListen(t, api, "")
 				api.runOutsourceTick(1120)
 
 				apiWantValue(t, "inside the confirmation window", any(early), any([]any{}))
@@ -444,6 +452,11 @@ func TestRunOutsourceTick(t *testing.T) {
 				if got := apiTestMemberRow(t, d, "ow-abc123").StoppedSince; got <= 0 {
 					t.Fatalf("stopped_since=%v at the window, want the collection latched", got)
 				}
+				apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+					"status": status, "presence": "stopped", "desired_state": "offline",
+					"desired_machine_id": ServerSelfHost, "machine": "",
+				}))
+				dashboard.wantFrames(apiTestHandoverDelta(4, "offline", apiAnyString, "server"))
 			})
 		}
 	})
