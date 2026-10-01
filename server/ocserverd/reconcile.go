@@ -88,6 +88,9 @@ const (
 	stopKindRelocate       = "relocate"
 	stopKindWinddown       = "winddown"
 	stopKindRobustResend   = "robust_resend"
+	// stopKindSessionGone: the dispatcher latches stopped_since before sending, which is what
+	// makes this STOP once-only.
+	stopKindSessionGone = "session_gone"
 )
 
 // spawnClobberReasonPrefix must match the warden SpawnOutcome.Reason prefix
@@ -169,6 +172,11 @@ type memberObservation struct {
 	TargetMachine   string
 	RunningMachine  string
 	HandoverArmable bool
+	// StopAwaitsCollect / SessionConfirmedGone: the staff half of the judgement the outsource
+	// tick makes in autoHandoverWorker (stopAwaitsCollect, sessionConfirmedGone). Workers leave
+	// both false: a desired-offline worker never reaches this decider.
+	StopAwaitsCollect    bool
+	SessionConfirmedGone bool
 }
 
 type reconcileDecision struct {
@@ -453,6 +461,23 @@ func decideUp(
 func decideDown(
 	obs memberObservation, st reconcileState, cfg reconcileConfig, now float64,
 ) reconcileDecision {
+	if !obs.Online && obs.StopAwaitsCollect {
+		st.Phase = reconcilePhaseStopping
+		if !obs.SessionConfirmedGone {
+			return decisionNone(obs, st,
+				"stopping: offline, not yet for the whole confirm window — a reconnect "+
+					"inside it is a network blip, not a finished session")
+		}
+		st.LastCommand = reconcileCmdStop
+		st.LastCommandAt = now
+		return reconcileDecision{
+			Command: reconcileCmdStop, MemberID: obs.MemberID,
+			StopKind: stopKindSessionGone,
+			Reason: "collect: offline for the whole confirm window — latch the close-out " +
+				"and stop any residual session",
+			State: st,
+		}
+	}
 	if !obs.Online {
 		st.Phase = reconcilePhaseOffline
 		st.Attempts = 0
@@ -799,6 +824,10 @@ func (s *apiServer) reconcileOne(m Member, st reconcileState, now float64) recon
 		RunningMachine:  s.hub.MachineOf(m.ID),
 		HandoverArmable: s.memberOwnerOpHandoverArmable(m, memberOpRelocate),
 	}
+	if obs.Desired == DesiredStateOffline {
+		obs.StopAwaitsCollect = stopAwaitsCollect(m)
+		obs.SessionConfirmedGone = s.sessionConfirmedGone(m.ID, now)
+	}
 	decision := reconcileDecide(obs, st, s.reconcileConfigLive(), now)
 	switch decision.Command {
 	case reconcileCmdNone:
@@ -864,6 +893,9 @@ func (s *apiServer) reconcileOne(m Member, st reconcileState, now float64) recon
 		s.armReceiptWatch(m.ID, reconcileCmdStart, warden, now)
 		return decision
 	case reconcileCmdStop:
+		if decision.StopKind == stopKindSessionGone {
+			return s.collectMemberStop(m.ID, decision, st, now)
+		}
 		// sendStopFrames (shutdown.go) takes no scheduler lock, so it is safe with reconcileMu held.
 		warden := decision.DispatchWarden
 		if warden == "" {
@@ -898,6 +930,50 @@ func (s *apiServer) reconcileOne(m Member, st reconcileState, now float64) recon
 		s.clearSessionBootTS(m.ID)
 		return decision
 	}
+}
+
+// collectMemberStop is the staff twin of collectWorkerStop: latch stopped_since, then stop
+// whatever the dropped connection left behind. The tick holds reconcileMu, which
+// dispatchShutdown takes, so this resolves the same kill chain and sends through the same
+// sender itself. The judgement is re-made on the row inside the transaction because the HTTP
+// faces write member rows without reconcileMu: an 活化 that landed mid-tick must not be
+// collected.
+func (s *apiServer) collectMemberStop(memberID string, decision reconcileDecision, prior reconcileState, now float64) reconcileDecision {
+	var collected *Member
+	err := s.dal.inTx(func(tx *writeTx) error {
+		cur, err := getMemberOn(tx, memberID)
+		if err != nil || cur == nil {
+			return err
+		}
+		if parseDesired(cur.DesiredState) != DesiredStateOffline || !stopAwaitsCollect(*cur) {
+			return nil
+		}
+		collectWindDownRow(windDownAnchorRowOfMember(cur), now)
+		if err := setMemberStoppedSinceOn(tx, cur.ID, cur.StoppedSince); err != nil {
+			return err
+		}
+		collected = cur
+		return nil
+	})
+	if err != nil || collected == nil {
+		if err != nil {
+			reconcileLog("%s: session-gone collect latch failed, nothing landed: %v", memberID, err)
+		}
+		decision.Command = reconcileCmdNone
+		decision.Reason = "collect: the row no longer awaits collection, or the latch did not land"
+		decision.State = prior
+		return decision
+	}
+	s.publishMemberPatch(*collected, triggerServer)
+	targets, _ := s.killTargetChain(memberID, killTargetSources{LastMachineID: collected.LastMachineID})
+	if len(s.sendStopFrames(memberID, targets, now)) == 0 {
+		decision.DispatchUnlanded = true
+	}
+	// Only when something was aimed at, as in dispatchShutdown.
+	if len(targets) > 0 {
+		s.clearSessionBootTS(memberID)
+	}
+	return decision
 }
 
 func (s *apiServer) reconcileTickMemberLocked(m Member, now float64) reconcileDecision {

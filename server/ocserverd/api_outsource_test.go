@@ -1178,7 +1178,7 @@ func TestHandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcceleratedSto
 		)
 	})
 
-	t.Run("a force-stopped worker answers 409 and nothing is put on a clock", func(t *testing.T) {
+	t.Run("a force-stopped worker answers 409 saying it was force-stopped and nothing is put on a clock", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
 		apiTestListen(t, api, "ow-abc123")
@@ -1193,8 +1193,8 @@ func TestHandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcceleratedSto
 			t.Fatalf("want 409, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "conflict",
-			"加速停止 escalates a wind-down that is already open — this member has not "+
-				"been asked to stop. Press 停止 (deactivate) or 重新聚焦 (refocus) first")
+			"加速停止 has nothing to escalate — this member was already force-stopped "+
+				"(強制停止): its session was cut off and no wind-down is open")
 		contractor.wantFrames()
 		after := apiTestMemberRow(t, d, "ow-abc123")
 		if after.RefocusOp != "" || after.StoppingSince != forced.StoppingSince || forced.StoppingSince <= 0 {

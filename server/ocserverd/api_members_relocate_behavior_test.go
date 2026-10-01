@@ -86,12 +86,14 @@ func TestRelocateAfterAConvergedStopWakesTheMember(t *testing.T) {
 	putWarden(t, s, "mach-new")
 
 	// A member the owner stopped, whose session has long since gone: desired
-	// offline, stop anchor still on the row (nothing ever clears it), no live
+	// offline, stop anchor still on the row (nothing ever clears it), the stop
+	// collected once the session stayed offline for the confirm window, no live
 	// session, and the reconcile already at "offline: converged".
 	m := testAgent("m-longstopped")
 	m.DesiredState = DesiredStateOffline
 	m.DesiredMachineID = ServerSelfHost
 	m.StoppingSince = 9990
+	m.StoppedSince = 9995
 	putTestMember(t, s, m)
 	if dec := s.reconcileOne(m, newReconcileState(), 100000); dec.Reason != "offline: converged" {
 		t.Fatalf("fixture: want a converged stop, tick decided %q", dec.Reason)

@@ -831,7 +831,17 @@ runtime capability report.
 「不要兜底：只有你按強制下線才收它」. The server does not arm a deadline here and never
 decides that time is up.
 
-- ¬online → converged; reset bookkeeping. **…and this is where a queued 重啟 is spent**
+- ¬online ∧ a graceful stop epoch nobody has collected (`stopped_since = 0`, not
+  force-stopped) → the session dropped without reporting. It is **not** converged yet: the
+  member stays `stopping` and nothing is sent until it has been offline **continuously for
+  120 s** (owner ruling `rc-dbee69264859`, anti network blip; a reconnect restarts the
+  window). Then the tick latches `stopped_since` and sends one STOP down the kill chain to
+  clear any residual session. This is the same judgement, from the same code, the outsource
+  tick makes for a stopped worker. It is a confirmation window on an observed disconnect, not
+  a deadline on the close-out: a member that stays connected is still never collected by
+  time.
+- ¬online otherwise → converged; reset bookkeeping.
+- **On any ¬online sample, before either bullet above, a queued 重啟 is spent**
   (T-14 項目 7): if `restart_after_stop` is set, THIS edge clears it, flips `desired_state`
   back to `online` and clears the wind-down anchors, so the same tick takes the §4.3
   `desired_state=online` arm and STARTs the member. `forced_stop_at` is deliberately kept —

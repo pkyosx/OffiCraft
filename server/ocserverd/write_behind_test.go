@@ -319,9 +319,7 @@ func TestAnOwnerWakeAfterTheTickReadAStoppedWorkerIsNotUndoneByTheCollect(t *tes
 	d, hook, path := windowDAL(t, "split pools")
 	api, _, _ := windowTickWorker(t, d,
 		`desired_state = 'offline', stopping_since = 1700000000, stopped_since = 0, last_machine_id = 'm-old'`)
-	api.outsourceMu.Lock()
-	api.workerOfflineSince["ow-abc123"] = 1700000000
-	api.outsourceMu.Unlock()
+	api.offlineConfirmSince.Store("ow-abc123", 1700000000.0)
 	behind := windowWriteBehind(t, hook, path, "FROM member WHERE kind = 'outsource'",
 		`UPDATE member SET desired_state = 'online', stopping_since = 0, last_machine_id = 'm-new'
 		 WHERE id = 'ow-abc123'`)
