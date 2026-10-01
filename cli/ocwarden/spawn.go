@@ -159,8 +159,7 @@ func compactSettingsJSON(raw string) (string, error) {
 func buildClaudeSystemPrompt(agentID, role, personaFile, persona string) string {
 	return fmt.Sprintf("你是 %s(role=%s)。以下「---」之後是你的 OffiCraft 開機檔全文"+
 		"(與 %s 內容相同),它已經在你的 system prompt 裡:不要再用任何工具讀那個檔。"+
-		"開機時照開機檔最後的「啟動步驟」逐步執行,只在這個 session 開始時做一次;"+
-		"對話被壓縮(compact)後不是重新開機:不要重跑啟動步驟,繼續手上的工作。\n---\n",
+		"開機時照開機檔最後的「啟動步驟」逐步執行。\n---\n",
 		agentID, role, personaFile) + persona
 }
 
