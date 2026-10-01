@@ -10,16 +10,44 @@
 // literal: a test that expected a fixed string would stay green if the badge
 // started rendering some other member's id, or a constant.
 
-import { describe, it, expect, vi } from "vitest";
-import { render } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { render, fireEvent, waitFor } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
+import { zh } from "../i18n/locales/zh";
 import { MemberDetailPanel } from "./MemberDetailPanel";
 import type { Member } from "../types";
+import type { WebhookEndpoint, WebhookCreateInput } from "../api/adapter";
+
+// Webhook endpoints kept per member id, so a card reading or writing under the
+// wrong id finds nothing of this member's.
+let webhookStore = new Map<string, WebhookEndpoint[]>();
+const createWebhook = vi.fn(
+  async (memberId: string, input: WebhookCreateInput) => {
+    const created: WebhookEndpoint = {
+      endpointId: input.endpointId,
+      purpose: input.purpose ?? "",
+      status: "enabled",
+      createdTs: 0,
+      token: "mock-token-000000000000",
+      platform: input.platform ?? "generic",
+      hasSigningSecret: false,
+      lastReceivedTs: 0,
+      deliveredCount: 0,
+      droppedCount: 0,
+      lastDropReason: "",
+    };
+    webhookStore.set(memberId, [...(webhookStore.get(memberId) ?? []), created]);
+    return { ...created };
+  }
+);
 
 vi.mock("../api", () => ({
   api: {
     listMachines: () => Promise.resolve([]),
-    listWebhooks: () => Promise.resolve([]),
+    listWebhooks: (memberId: string) =>
+      Promise.resolve((webhookStore.get(memberId) ?? []).map((e) => ({ ...e }))),
+    createWebhook: (memberId: string, input: WebhookCreateInput) =>
+      createWebhook(memberId, input),
     listScheduledMessages: () => Promise.resolve([]),
     subscribeEvents: () => () => {},
   },
@@ -92,5 +120,36 @@ describe("MemberDetailPanel identity badge — real id (T-5dab)", () => {
     expect(renderBadge({ id: "mira" })!.textContent).not.toBe(
       renderBadge({ id: "kyle" })!.textContent
     );
+  });
+});
+
+describe("MemberDetailPanel 回呼端點 card — bound to the member's own id", () => {
+  beforeEach(() => {
+    webhookStore = new Map();
+    createWebhook.mockClear();
+  });
+
+  it("creates an endpoint bound to THIS member and lists it in the member's own 回呼端點 card", async () => {
+    const { findByTestId, getByPlaceholderText } = render(
+      <I18nProvider>
+        <MemberDetailPanel
+          member={mkMember({ id: "m-3417933c8632" })}
+          onBack={() => {}}
+        />
+      </I18nProvider>
+    );
+    fireEvent.click(await findByTestId("mp-webhook-toggle"));
+    fireEvent.click(await findByTestId("mp-webhook-add"));
+    fireEvent.change(getByPlaceholderText(zh.mp.webhook.endpointIdPlaceholder), {
+      target: { value: "ci-in" },
+    });
+    fireEvent.click(await findByTestId("mp-webhook-create"));
+
+    await waitFor(() => expect(createWebhook).toHaveBeenCalledTimes(1));
+    expect(createWebhook.mock.calls[0]).toStrictEqual([
+      "m-3417933c8632",
+      { endpointId: "ci-in", purpose: "", platform: "generic" },
+    ]);
+    await findByTestId("mp-webhook-stats-ci-in");
   });
 });
