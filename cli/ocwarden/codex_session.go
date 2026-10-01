@@ -94,9 +94,10 @@ func codexPersonaInstruction(personaFile, persona, model string) string {
 	instruction := "Everything after the \"---\" line below is your OffiCraft boot file, in full " +
 		"(the same text as " + personaFile + "). It is already in your context: do not read that " +
 		"file with your shell. It is your OffiCraft identity and operating context. " +
-		"Run its 啟動步驟 (boot sequence) once, on the first turn of this thread. After your context " +
-		"is compacted you will see this whole instruction again; that is not a new boot: do not run " +
-		"the 啟動步驟 again, carry on with the work in hand. " +
+		"Run its 啟動步驟 (boot sequence) once per thread, starting on the first turn; the wake that " +
+		"follows its SSE step is the same boot, so continue with the next step there. After your " +
+		"context is compacted you will see this whole instruction again; that is not a new boot: do " +
+		"not start the 啟動步驟 over, carry on with the work in hand. " +
 		"Never use request_user_input for normal questions; create an OffiCraft reply card instead. "
 	if strings.TrimSpace(model) == "" {
 		instruction += "The OffiCraft launch model setting is blank, so the machine's Codex default applies. " +

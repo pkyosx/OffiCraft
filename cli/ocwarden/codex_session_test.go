@@ -212,9 +212,10 @@ func TestCodexPersonaInstruction(t *testing.T) {
 	const head = "Everything after the \"---\" line below is your OffiCraft boot file, in full " +
 		"(the same text as /w/PERSONA.md). It is already in your context: do not read that " +
 		"file with your shell. It is your OffiCraft identity and operating context. " +
-		"Run its 啟動步驟 (boot sequence) once, on the first turn of this thread. After your context " +
-		"is compacted you will see this whole instruction again; that is not a new boot: do not run " +
-		"the 啟動步驟 again, carry on with the work in hand. " +
+		"Run its 啟動步驟 (boot sequence) once per thread, starting on the first turn; the wake that " +
+		"follows its SSE step is the same boot, so continue with the next step there. After your " +
+		"context is compacted you will see this whole instruction again; that is not a new boot: do " +
+		"not start the 啟動步驟 over, carry on with the work in hand. " +
 		"Never use request_user_input for normal questions; create an OffiCraft reply card instead. "
 	const persona = "# 身分\n第一行\n\n# 啟動步驟（Boot Sequence）\n最後一行 `$HOME` \"q\" \\ $(x)\n"
 
@@ -1817,7 +1818,8 @@ func TestRunCodexSession(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
 		work := t.TempDir()
 		persona := filepath.Join(work, "persona.md")
-		const personaText = "# 身分\n第一行\n\n# 啟動步驟（Boot Sequence）\n最後一行 `$HOME` \"q\" \\ $(x) <b>&\n"
+		personaText := "# 身分\n" + strings.Repeat("一行很長的開機檔內容。\n", 4000) +
+			"# 啟動步驟（Boot Sequence）\n最後一行 `$HOME` \"q\" \\ $(x) <b>&\n"
 		if err := os.WriteFile(persona, []byte(personaText), 0o600); err != nil {
 			t.Fatalf("stage persona: %v", err)
 		}

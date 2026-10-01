@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -127,7 +128,7 @@ const goldenSystemPromptM1 = "你是 m1(role=builder)。以下「---」之後是
 	"開機時照開機檔最後的「啟動步驟」逐步執行,只在這個 session 開始時做一次;" +
 	"對話被壓縮(compact)後不是重新開機:不要重跑啟動步驟,繼續手上的工作。\n---\nyou are m1"
 
-const goldenFallbackPromptM1 = "你是 m1(role=builder)。你的完整身分、操作準則與開機程序都由 " +
+const goldenFallbackPromptM1 = "你是 m1(role=builder)。你的完整身分、操作準則與啟動步驟都由 " +
 	"launcher 預抓在本地檔 /w/m1/persona.md。第一步:用 Read 工具從第一行讀到最後一行;" +
 	"一次 Read 讀不完時,用 offset/limit 從上一次停下的那一行接著讀,直到讀到最後一行。" +
 	"不要用 cat/head/tail/sed 或任何終端機指令讀它:終端機輸出只有開頭一小段會進到你的 context," +
@@ -290,6 +291,10 @@ func TestClaudeAcceptsPromptFile(t *testing.T) {
 		{"a claude that cannot run at all",
 			wardenRun{err: errors.New("fork/exec /c/claude: no such file or directory")}, false},
 		{"a claude that accepted an unknown flag and exited 0", wardenRun{}, false},
+		{"a claude that hung until the probe budget ran out",
+			wardenRun{err: errors.New("timeout after 2s")}, false},
+		{"a claude that answers in another language without naming the sentinel",
+			wardenRun{err: errors.New("exit status 1: 錯誤：無法辨識的選項")}, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1178,7 +1183,34 @@ func TestStart(t *testing.T) {
 						t.Errorf("wrote %s for a claude that cannot take it", w.path)
 					}
 				}
+				wantLog := "/usr/local/bin/claude does not take --append-system-prompt-file; m1 boots by reading persona.md itself"
+				if !slices.Contains(h.logs, wantLog) {
+					t.Errorf("warden logs = %q, want them to carry %q", h.logs, wantLog)
+				}
 			})
+		}
+	})
+
+	t.Run("a boot file far past one Read call reaches the prompt file whole", func(t *testing.T) {
+		h := newSpawnHarness()
+		p := startParamsM1()
+		p.PersonaContext = strings.Repeat("一行很長的開機檔內容。\n", 4000) + "# 啟動步驟\nTAIL-MARKER-7f3c\n"
+
+		if got := h.deps().start(p); !got.OK {
+			t.Fatalf("outcome = %+v, want OK", got)
+		}
+		prompt := ""
+		for _, w := range h.writes {
+			if w.path == "/w/m1/system-prompt.md" {
+				prompt = w.content
+			}
+		}
+		if len(p.PersonaContext) < 100_000 {
+			t.Fatalf("fixture is only %d bytes; it must be larger than a real boot file", len(p.PersonaContext))
+		}
+		if !strings.HasSuffix(prompt, "\n---\n"+p.PersonaContext) {
+			t.Errorf("system prompt (%d bytes) does not end with the %d-byte boot file verbatim",
+				len(prompt), len(p.PersonaContext))
 		}
 	})
 
@@ -1567,6 +1599,14 @@ func TestStart(t *testing.T) {
 		}
 		if h.pretrusts != 0 {
 			t.Errorf("pretrusts = %d, want 0 (claude.json is not codex's gate)", h.pretrusts)
+		}
+		if len(h.promptProbes) != 0 {
+			t.Errorf("a codex spawn probed claude for a prompt file: %v", h.promptProbes)
+		}
+		for _, w := range h.writes {
+			if w.path == "/w/m1/system-prompt.md" {
+				t.Errorf("a codex spawn wrote %s", w.path)
+			}
 		}
 		if len(h.slept) != 0 {
 			t.Errorf("slept %v, want none", h.slept)

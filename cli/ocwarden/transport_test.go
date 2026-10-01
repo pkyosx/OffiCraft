@@ -753,21 +753,30 @@ func TestBuildSpawnDeps(t *testing.T) {
 	if deps.ClaudeTakesPromptFile == nil {
 		t.Fatal("ClaudeTakesPromptFile unwired — every claude member would fall back to reading its persona file")
 	}
-	runner.script = map[string]wardenRun{
-		claudeBin + " --append-system-prompt-file /a/system-prompt.md --oc-probe-unsupported-flag": {
-			err: errors.New("exit status 1: error: unknown option '--oc-probe-unsupported-flag'"),
-		},
+	probe := &wardenRunner{}
+	var probeTimeouts []time.Duration
+	realNewCmdRunner := newCmdRunner
+	newCmdRunner = func(timeout time.Duration) CmdRunner {
+		probeTimeouts = append(probeTimeouts, timeout)
+		return probe
 	}
+	t.Cleanup(func() { newCmdRunner = realNewCmdRunner })
+	probeKey := claudeBin + " --append-system-prompt-file /a/system-prompt.md --oc-probe-unsupported-flag"
+	probe.script = map[string]wardenRun{probeKey: {
+		err: errors.New("exit status 1: error: unknown option '--oc-probe-unsupported-flag'"),
+	}}
 	if !deps.ClaudeTakesPromptFile("/a/system-prompt.md") {
-		t.Errorf("the prompt-file probe did not ask the resolved claude; calls = %v", runner.calls)
+		t.Errorf("the prompt-file probe did not ask the resolved claude; calls = %v", probe.calls)
 	}
-	runner.script = map[string]wardenRun{
-		claudeBin + " --append-system-prompt-file /a/system-prompt.md --oc-probe-unsupported-flag": {
-			err: errors.New("exit status 1: error: unknown option '--append-system-prompt-file'"),
-		},
-	}
+	probe.script = map[string]wardenRun{probeKey: {
+		err: errors.New("exit status 1: error: unknown option '--append-system-prompt-file'"),
+	}}
 	if deps.ClaudeTakesPromptFile("/a/system-prompt.md") {
 		t.Error("a claude that rejects --append-system-prompt-file was reported as taking it")
+	}
+	// 2s comes out of the ~3s slack under receiptDeadlineSecs (server/ocserverd/receipt_watch.go).
+	if want := []time.Duration{2 * time.Second, 2 * time.Second}; !reflect.DeepEqual(probeTimeouts, want) {
+		t.Errorf("probe runner timeouts = %v, want %v", probeTimeouts, want)
 	}
 	if got, _ := deps.ResolveOcAgentBin(); !strings.HasSuffix(got, "ocagent") {
 		t.Errorf("ResolveOcAgentBin() = %q, want a path ending in ocagent", got)

@@ -17,7 +17,8 @@ const (
 	defaultNudge = "開始。"
 	// The Enter loop is UNCONDITIONAL: every spawn spends 30×1s here, out of the
 	// 90s receiptDeadlineSecs in server/ocserverd/receipt_watch.go (the START receipt
-	// is POSTed only after Spawn returns) — about 5 SECONDS of slack. NEITHER NUMBER
+	// is POSTed only after Spawn returns); that comment lists the rest of the spawn
+	// path's budgets, and their worst case already runs past 90s. NEITHER NUMBER
 	// HAS EVER BEEN MEASURED, and nothing mechanical links them: cli/ocwarden and
 	// server/ocserverd are separate Go modules.
 	nudgeMaxAttempts = 30
@@ -166,7 +167,7 @@ func buildClaudeSystemPrompt(agentID, role, personaFile, persona string) string 
 // Only for a claude too old to take --append-system-prompt-file: the member
 // then has to read the boot file itself, and one Read call stops short of it.
 func buildAppendSystemPrompt(agentID, role, personaFile string) string {
-	return fmt.Sprintf("你是 %s(role=%s)。你的完整身分、操作準則與開機程序都由 "+
+	return fmt.Sprintf("你是 %s(role=%s)。你的完整身分、操作準則與啟動步驟都由 "+
 		"launcher 預抓在本地檔 %s。第一步:用 Read 工具從第一行讀到最後一行;"+
 		"一次 Read 讀不完時,用 offset/limit 從上一次停下的那一行接著讀,直到讀到最後一行。"+
 		"不要用 cat/head/tail/sed 或任何終端機指令讀它:終端機輸出只有開頭一小段會進到你的 context,"+
@@ -181,6 +182,10 @@ func buildAppendSystemPrompt(agentID, role, personaFile string) string {
 // the file flag parsed; any other answer means "not supported", which falls back
 // to a launch that still boots.
 const claudePromptFileProbeFlag = "--oc-probe-unsupported-flag"
+
+// Spent before the START receipt is sent, so it comes out of the slack described
+// at nudgeMaxAttempts. A timeout reads as "not supported" and still boots.
+const claudePromptFileProbeBudget = 2 * time.Second
 
 func claudeAcceptsPromptFile(r CmdRunner, claudeBin, promptFile string) bool {
 	_, err := r.Run(claudeBin, "--append-system-prompt-file", promptFile, claudePromptFileProbeFlag)
@@ -733,7 +738,12 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 	}
 
 	sys := claudeSystemPromptInline(buildAppendSystemPrompt(p.MemberID, role, personaFile))
-	if runtimeName == "claude" && d.ClaudeTakesPromptFile != nil && d.ClaudeTakesPromptFile(promptFile) {
+	takesPromptFile := runtimeName == "claude" && d.ClaudeTakesPromptFile != nil && d.ClaudeTakesPromptFile(promptFile)
+	if runtimeName == "claude" && !takesPromptFile {
+		d.logf("%s does not take --append-system-prompt-file; %s boots by reading persona.md itself",
+			d.ClaudeBin, p.MemberID)
+	}
+	if takesPromptFile {
 		if err := d.WriteFile(promptFile, buildClaudeSystemPrompt(p.MemberID, role, personaFile, p.PersonaContext), 0o600); err != nil {
 			return SpawnOutcome{OK: false, Reason: fmt.Sprintf(
 				"write_file_failed: system-prompt.md: %v", err)}
