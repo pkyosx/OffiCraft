@@ -769,7 +769,7 @@ func (s *apiServer) HandleActivateMemberApiMembersMemberIdActivatePost(w http.Re
 		if !sessionAlive {
 			clearWindDownRow(windDownAnchorRowOfMember(cur))
 		} else {
-			stampMemberOpReceipt(cur, sessionAliveWakeReceipt, nowSecs())
+			stampSessionAliveWakeReceipt(cur, nowSecs())
 		}
 		saved = *cur
 		if err := persistMemberRowOn(tx, *cur); err != nil {

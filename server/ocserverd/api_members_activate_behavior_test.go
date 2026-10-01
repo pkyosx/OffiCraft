@@ -245,14 +245,50 @@ func TestActivateMember_AlreadyOnlineIsNotPendingAndSaysItWasAlreadyRunning(t *t
 		"alone and dispatched nothing. Its work, and any 加速停止 or 重新聚焦 already under " +
 		"way on it, are untouched. To end the current session and start a fresh one, press " +
 		"強制停止 first, then 喚醒"
-	if after.LastOp != "start" || after.LastOpOK == nil || *after.LastOpOK ||
-		after.LastOpAt <= 0 || after.LastOpReason != alreadyRunning {
-		t.Fatalf("online activate receipt: last_op %q ok %v at %v reason %q; want start, false, >0, %q",
-			after.LastOp, after.LastOpOK, after.LastOpAt, after.LastOpReason, alreadyRunning)
+	if after.LastOp != "start" || after.LastOpOK == nil || !*after.LastOpOK ||
+		after.LastOpAt <= 0 || after.LastOpLog != "" || after.LastOpReason != alreadyRunning {
+		t.Fatalf("online activate receipt: last_op %q ok %v at %v log %q reason %q; want start, true, >0, \"\", %q",
+			after.LastOp, after.LastOpOK, after.LastOpAt, after.LastOpLog, after.LastOpReason, alreadyRunning)
 	}
 	assertNoFrame(t, memberSession, "online activate")
 	if frames := drainFrames(t, s, "mach-live"); len(frames) != 0 {
 		t.Fatalf("online activate must not dispatch a replacement: %+v", frames)
+	}
+}
+
+// 喚醒 on a member that is already running is a success with a note: the lifecycle tick that finds
+// her online clears only receipts the cockpit paints red, so this one must still be on the row,
+// unchanged, after it.
+func TestActivateMember_AlreadyRunningNoteOutlivesTheOnlineTick(t *testing.T) {
+	s := newReconcileTestServer(t)
+	putWarden(t, s, "mach-live")
+	connectOnline(t, s, "mach-live")
+	m := testAgent("m-awake")
+	m.DesiredMachineID = "mach-live"
+	putTestMember(t, s, m)
+	connectOnline(t, s, "m-awake")
+
+	activateForReceipt(t, s, "m-awake")
+	stamped, _ := s.dal.GetMember("m-awake")
+	if stamped == nil {
+		t.Fatal("activate removed the member")
+	}
+	s.runLifecycleTick(stamped.LastOpAt + 30)
+
+	after, _ := s.dal.GetMember("m-awake")
+	if after == nil {
+		t.Fatal("the tick removed the member")
+	}
+	const alreadyRunning = "session_alive: it was already running — 喚醒 left that session " +
+		"alone and dispatched nothing. Its work, and any 加速停止 or 重新聚焦 already under " +
+		"way on it, are untouched. To end the current session and start a fresh one, press " +
+		"強制停止 first, then 喚醒"
+	if after.LastOp != "start" || after.LastOpOK == nil || !*after.LastOpOK ||
+		after.LastOpLog != "" || after.LastOpReason != alreadyRunning ||
+		after.LastOpAt != stamped.LastOpAt || after.LastOpAt <= 0 {
+		t.Fatalf("receipt after the online tick: last_op %q ok %v log %q reason %q at %v; "+
+			"want start, true, \"\", %q, %v", after.LastOp, after.LastOpOK, after.LastOpLog,
+			after.LastOpReason, after.LastOpAt, alreadyRunning, stamped.LastOpAt)
 	}
 }
 

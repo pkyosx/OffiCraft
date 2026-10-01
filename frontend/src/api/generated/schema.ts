@@ -6043,7 +6043,7 @@ export interface components {
             id: string;
             /**
              * Last Op Reason
-             * @description WHICH cause, as a structured ``<code>: <detail>`` line, stamped on the row by the same handler before it answers. An arm that named no code falls back to the generic "喚醒 was recorded, but nothing has been dispatched yet". Empty when there is no refusal to report.
+             * @description WHICH cause, as a structured ``<code>: <detail>`` line, stamped on the row by the same handler before it answers. An arm that named no code falls back to the generic "喚醒 was recorded, but nothing has been dispatched yet". Empty when there is no refusal to report. On an agent that was already running it can instead carry the ``session_alive`` note: that is a success, not a refusal, and the row's ``last_op_ok`` is true.
              */
             last_op_reason?: string;
         };

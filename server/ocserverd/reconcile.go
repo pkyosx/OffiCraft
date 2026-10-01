@@ -1076,7 +1076,20 @@ func (s *apiServer) armDecidedHandover(memberID string, decision reconcileDecisi
 // struct, because scanMember/PutMember list these columns positionally.
 func stampOpReceipt(lastOp *string, lastOpOK **bool, lastOpLog, lastOpReason *string,
 	lastOpAt *float64, op, reason string, now float64) {
-	ok := false
+	writeOpReceipt(lastOp, lastOpOK, lastOpLog, lastOpReason, lastOpAt, false, op, reason, now)
+}
+
+// stampOpNoteReceipt is stampOpReceipt's success twin: the op did what it should, and reason is a
+// note for the owner (painted ✓ with the amber note), not a refusal. last_op_ok TRUE is also what
+// keeps the converged-online clear (receiptRendersAsFailure) off it, so the note stands until the
+// next op overwrites it. Same persistence rule as stampOpReceipt.
+func stampOpNoteReceipt(lastOp *string, lastOpOK **bool, lastOpLog, lastOpReason *string,
+	lastOpAt *float64, op, reason string, now float64) {
+	writeOpReceipt(lastOp, lastOpOK, lastOpLog, lastOpReason, lastOpAt, true, op, reason, now)
+}
+
+func writeOpReceipt(lastOp *string, lastOpOK **bool, lastOpLog, lastOpReason *string,
+	lastOpAt *float64, ok bool, op, reason string, now float64) {
 	*lastOp = op
 	*lastOpOK = &ok
 	*lastOpLog = ""

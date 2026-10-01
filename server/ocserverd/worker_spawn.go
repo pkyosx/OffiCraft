@@ -218,6 +218,13 @@ const sessionAliveWakeReceipt = spawnReasonSessionAlive + ": it was already " +
 	"any 加速停止 or 重新聚焦 already under way on it, are untouched. To end the " +
 	"current session and start a fresh one, press 強制停止 first, then 喚醒"
 
+// stampSessionAliveWakeReceipt is the one writer of that receipt, staff and outsource alike. It is a
+// success with a note, not a refusal: leaving a running session alone is what 喚醒 is meant to do.
+func stampSessionAliveWakeReceipt(m *Member, now float64) {
+	stampOpNoteReceipt(&m.LastOp, &m.LastOpOK, &m.LastOpLog, &m.LastOpReason, &m.LastOpAt,
+		reconcileCmdStart, sessionAliveWakeReceipt, now)
+}
+
 const sessionAliveWakeNote = " — the start window then lapsed, but that is NOT a " +
 	"runtime failure: the previous session is still running and the warden refused " +
 	"to stomp it, so nothing new was ever started. Do not go looking for a broken " +

@@ -2813,7 +2813,7 @@ const mockApiImpl = {
     if (w.presence === "online") {
       w.desired_state = "online";
       w.last_op = "start";
-      w.last_op_ok = false;
+      w.last_op_ok = true;
       w.last_op_log = "";
       w.last_op_reason = MOCK_SESSION_ALIVE_RECEIPT;
       w.last_op_at = Date.now() / 1000;
@@ -4891,7 +4891,7 @@ const mockApiImpl = {
     // server's session_alive receipt, on both kinds (see activateMember).
     if (w.presence === "online") {
       w.lastOp = "start";
-      w.lastOpOk = false;
+      w.lastOpOk = true;
       w.lastOpLog = "";
       w.lastOpReason = MOCK_SESSION_ALIVE_RECEIPT;
       w.lastOpAt = Date.now() / 1000;

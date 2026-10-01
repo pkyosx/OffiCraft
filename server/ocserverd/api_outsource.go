@@ -425,7 +425,7 @@ func (s *apiServer) handleRestartOutsourceWorker(w http.ResponseWriter, r *http.
 			// Stamped onto the in-memory row, not via stampWorkerPlacementBlocked:
 			// that helper re-reads and writes on its own and would race this
 			// handler's write. The receipt columns land through setMemberLastOpOn below.
-			stampWorkerOpReceipt(worker, sessionAliveWakeReceipt, nowSecs())
+			stampSessionAliveWakeReceipt((*Member)(worker), nowSecs())
 		}
 		worker.DesiredState = DesiredStateOnline
 		// Cleared on BOTH arms, as the staff 喚醒 does (api_members.go):

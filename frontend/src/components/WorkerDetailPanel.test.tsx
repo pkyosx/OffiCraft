@@ -298,6 +298,33 @@ describe("WorkerDetailPanel — honest presence states (A案 P6 member vocabular
     });
   });
 
+  // 喚醒 on a worker that is already running leaves it alone; that is the
+  // press doing its job, so the receipt is ✓ with the amber note, the same as
+  // the member panel. Read through the mock adapter, which must answer what the
+  // server stores.
+  it("paints the note 喚醒 leaves on a running worker as ✓ 成功 with the amber note", async () => {
+    __injectMockTask(mkTask({ id: "t-1" }));
+    __injectMockOutsourceWorker(
+      mkWorker({ id: "ow-1", taskId: "t-1", presence: "online", machine: "Warden · mbp5" }),
+    );
+    await api.activateMember("ow-1");
+    const { container, findByTestId } = renderOfficeAt("#office/worker/ow-1");
+
+    const line = await findByTestId("worker-detail-lastop-reason");
+    expect(line.className).toBe("mp-lastop__reason mp-lastop__reason--note");
+    expect(line.textContent).toBe(
+      "session_alive: it was already running — 喚醒 left that session alone and " +
+        "dispatched nothing. Its work, and any 加速停止 or 重新聚焦 already under way on " +
+        "it, are untouched. To end the current session and start a fresh one, press " +
+        "強制停止 first, then 喚醒",
+    );
+    expect(container.querySelector(".mp-lastop__head--ok")).not.toBeNull();
+    expect(container.querySelector(".mp-lastop__head--fail")).toBeNull();
+    expect(container.querySelector(".mp-lastop__icon")?.textContent).toBe("✓");
+    expect(container.querySelector(".mp-lastop__verb")?.textContent).toBe("喚醒");
+    expect(container.querySelector(".mp-lastop__result")?.textContent).toBe("成功");
+  });
+
   it("離線: the dot reads 離線 and the structured reason survives the 狀態 cell's removal", async () => {
     __injectMockTask(mkTask({ id: "t-1" }));
     __injectMockOutsourceWorker(

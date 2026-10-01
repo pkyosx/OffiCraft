@@ -1736,7 +1736,7 @@ func TestHandleRestartOutsourceWorkerApiOutsourceWorkersIdRestartPost(t *testing
 		})
 		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
 			"status": "active", "presence": "online", "desired_state": "online",
-			"last_op": "start", "last_op_ok": false, "last_op_at": apiAnyNumber,
+			"last_op": "start", "last_op_ok": true, "last_op_at": apiAnyNumber,
 			"last_op_reason": "session_alive: it was already running — 喚醒 left that " +
 				"session alone and dispatched nothing. Its work, and any 加速停止 or " +
 				"重新聚焦 already under way on it, are untouched. To end the current " +
@@ -1744,6 +1744,30 @@ func TestHandleRestartOutsourceWorkerApiOutsourceWorkersIdRestartPost(t *testing
 		}))
 		dashboard.wantFrames(apiTestWorkerStateDelta(2, "active", "online", "owner"))
 		contractor.wantFrames(apiTestWorkerStateDelta(2, "active", "online", "owner"))
+	})
+
+	t.Run("the note 喚醒 leaves on a running worker is a success, so the online tick leaves it standing", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
+		apiTestListen(t, api, "ow-abc123")
+		if status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/activate", owner, ""); status != 200 {
+			t.Fatalf("activate: %d (%v)", status, data)
+		}
+		stamped, err := d.GetOutsourceWorker("ow-abc123")
+		if err != nil || stamped == nil {
+			t.Fatalf("GetOutsourceWorker: %v (%v)", stamped, err)
+		}
+
+		api.runLifecycleTick(stamped.LastOpAt + 30)
+
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "active", "presence": "online", "desired_state": "online",
+			"last_op": "start", "last_op_ok": true, "last_op_at": stamped.LastOpAt,
+			"last_op_reason": "session_alive: it was already running — 喚醒 left that " +
+				"session alone and dispatched nothing. Its work, and any 加速停止 or " +
+				"重新聚焦 already under way on it, are untouched. To end the current " +
+				"session and start a fresh one, press 強制停止 first, then 喚醒",
+		}))
 	})
 
 	t.Run("喚醒 on a live worker leaves an 加速停止 already under way running", func(t *testing.T) {
@@ -1765,7 +1789,7 @@ func TestHandleRestartOutsourceWorkerApiOutsourceWorkersIdRestartPost(t *testing
 			"status": "active", "presence": "online", "desired_state": "online",
 			"refocus_since": apiAnyNumber, "refocus_op": "accelerated_stop",
 			"refocus_deadline": apiAnyNumber,
-			"last_op":          "start", "last_op_ok": false, "last_op_at": apiAnyNumber,
+			"last_op":          "start", "last_op_ok": true, "last_op_at": apiAnyNumber,
 			"last_op_reason": "session_alive: it was already running — 喚醒 left that " +
 				"session alone and dispatched nothing. Its work, and any 加速停止 or " +
 				"重新聚焦 already under way on it, are untouched. To end the current " +
