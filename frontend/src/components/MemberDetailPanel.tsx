@@ -1573,6 +1573,7 @@ export function MemberDetailPanel({
   return (
     <AgentDetailPanel
       onBack={onBack}
+      machineName={machineDisplay}
       identity={identityCard}
       // EVERY slot the panel offers, no exceptions (T-0b4f). A slot this side
       // deliberately has nothing in is `notHere(<why>)` — a decision that is

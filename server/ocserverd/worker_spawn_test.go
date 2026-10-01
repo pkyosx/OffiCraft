@@ -467,50 +467,50 @@ func TestWakeTimeoutOverWardenReceipt(t *testing.T) {
 	t.Run("a wake_timeout landing on a start row that carries the warden's refusal is composed onto it, keeping the warden's line in front", func(t *testing.T) {
 		row := OutsourceWorker{LastOp: "start", LastOpReason: wardenRefusal}
 
-		apiWantValue(t, "reason", any(wakeTimeoutOverWardenReceipt(row, "wake_timeout: the runtime never reported")), any(composed))
+		apiWantValue(t, "reason", any(wakeTimeoutOverWardenReceipt(row, "wake_timeout: the runtime never reported", 0)), any(composed))
 	})
 
 	t.Run("a second tick composing the same pair answers the row's own string, so the anti-churn compare writes nothing", func(t *testing.T) {
 		row := OutsourceWorker{LastOp: "start", LastOpReason: composed}
 
-		apiWantValue(t, "reason", any(wakeTimeoutOverWardenReceipt(row, "wake_timeout: the runtime never reported")), any(composed))
+		apiWantValue(t, "reason", any(wakeTimeoutOverWardenReceipt(row, "wake_timeout: the runtime never reported", 0)), any(composed))
 	})
 
 	t.Run("a reason that is not a wake_timeout passes through untouched even over the warden's refusal", func(t *testing.T) {
 		row := OutsourceWorker{LastOp: "start", LastOpReason: wardenRefusal}
 
-		apiWantValue(t, "reason", any(wakeTimeoutOverWardenReceipt(row, "backoff: waiting out the ladder")),
+		apiWantValue(t, "reason", any(wakeTimeoutOverWardenReceipt(row, "backoff: waiting out the ladder", 0)),
 			any("backoff: waiting out the ladder"))
 	})
 
 	t.Run("the bare code without its colon is not a wake_timeout stamp, so it passes through", func(t *testing.T) {
 		row := OutsourceWorker{LastOp: "start", LastOpReason: wardenRefusal}
 
-		apiWantValue(t, "reason", any(wakeTimeoutOverWardenReceipt(row, "wake_timeout")), any("wake_timeout"))
+		apiWantValue(t, "reason", any(wakeTimeoutOverWardenReceipt(row, "wake_timeout", 0)), any("wake_timeout"))
 	})
 
 	t.Run("with no warden receipt to protect the wake_timeout is stamped exactly as before", func(t *testing.T) {
 		apiWantValue(t, "reason over an empty row",
-			any(wakeTimeoutOverWardenReceipt(OutsourceWorker{}, "wake_timeout: the runtime never reported")),
+			any(wakeTimeoutOverWardenReceipt(OutsourceWorker{}, "wake_timeout: the runtime never reported", 0)),
 			any("wake_timeout: the runtime never reported"))
 		apiWantValue(t, "reason over another server stamp",
 			any(wakeTimeoutOverWardenReceipt(
 				OutsourceWorker{LastOp: "start", LastOpReason: "backoff: waiting"},
-				"wake_timeout: the runtime never reported")),
+				"wake_timeout: the runtime never reported", 0)),
 			any("wake_timeout: the runtime never reported"))
 	})
 
 	t.Run("the legacy worker_start verb is compared raw and therefore never composes, which is the documented blind spot", func(t *testing.T) {
 		row := OutsourceWorker{LastOp: "worker_start", LastOpReason: wardenRefusal}
 
-		apiWantValue(t, "reason", any(wakeTimeoutOverWardenReceipt(row, "wake_timeout: the runtime never reported")),
+		apiWantValue(t, "reason", any(wakeTimeoutOverWardenReceipt(row, "wake_timeout: the runtime never reported", 0)),
 			any("wake_timeout: the runtime never reported"))
 	})
 
 	t.Run("a clobber code without its colon does not trip the gate", func(t *testing.T) {
 		row := OutsourceWorker{LastOp: "start", LastOpReason: "session_already_exists"}
 
-		apiWantValue(t, "reason", any(wakeTimeoutOverWardenReceipt(row, "wake_timeout: the runtime never reported")),
+		apiWantValue(t, "reason", any(wakeTimeoutOverWardenReceipt(row, "wake_timeout: the runtime never reported", 0)),
 			any("wake_timeout: the runtime never reported"))
 	})
 }

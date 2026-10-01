@@ -125,8 +125,8 @@ func (s *apiServer) resolveWorkerPlacement(w OutsourceWorker, preferred string, 
 		if s.workerMachineBenched(w.ID, m.ID, now) {
 			return unavailable("was just benched after a failed boot of this worker")
 		}
-		if !s.machineSupportsRuntime(m.ID, w.Runtime) {
-			return unavailable("does not provide the '" + NormalizeRuntime(w.Runtime) + "' runtime")
+		if detail := s.runtimePlacementRefusal(m.ID, w.Runtime); detail != "" {
+			return unavailable(detail)
 		}
 		if !s.machineResolvesCodexModel(m.ID, w.Runtime, w.Model) {
 			return unavailable(codexFamilyUnresolvedDetail(w.Model))
@@ -218,19 +218,24 @@ const sessionAliveWakeNote = " — the start window then lapsed, but that is NOT
 	"runtime on that machine; deal with the live session — 重啟 this worker to " +
 	"displace it, or stop it first."
 
-// wakeTimeoutOverWardenReceipt keeps a warden's clobber refusal from being
-// overwritten by a wake_timeout stamp (clearWorkerPlacementBlock already never
-// touches a warden receipt). A defence, not a fix: no production path reaches it
-// today, because reconcile.go returns early on the clobber prefix before
-// StartTimedOut is set — an FSM reorder there would make it live.
+// wakeTimeoutOverWardenReceipt keeps a warden's clobber or not-logged-in refusal
+// from being overwritten by a wake_timeout stamp (clearWorkerPlacementBlock
+// already never touches a warden receipt); the not-logged-in one is returned
+// unchanged, so the stamp writes nothing. The clobber arm is a defence, not a
+// fix: no production path reaches it today, because reconcile.go returns early
+// on the clobber prefix before StartTimedOut is set — an FSM reorder there would
+// make it live.
 // The warden's line stays verbatim and IN FRONT: reconcile.go and
 // api_monitoring.go dispatch on HasPrefix(spawnClobberReasonPrefix), and losing
 // the prefix silently disarms the zombie takeover. Legacy `worker_start` rows
 // are deliberately not folded here. Keep it narrow: a blanket "wake_timeout
 // never overwrites" would drop the stamp on rows with no warden receipt.
-func wakeTimeoutOverWardenReceipt(fresh OutsourceWorker, reason string) string {
+func wakeTimeoutOverWardenReceipt(fresh OutsourceWorker, reason string, spawnAt float64) string {
 	if !strings.HasPrefix(reason, spawnReasonWakeTimeout+":") {
 		return reason
+	}
+	if wakeTimeoutYieldsToReceipt(fresh.LastOp, fresh.LastOpReason, fresh.LastOpAt, spawnAt) {
+		return fresh.LastOpReason
 	}
 	if fresh.LastOp != reconcileCmdStart ||
 		!strings.HasPrefix(fresh.LastOpReason, spawnClobberReasonPrefix+":") {
@@ -256,7 +261,7 @@ func (s *apiServer) stampWorkerPlacementBlocked(w *OutsourceWorker, reason strin
 		if err != nil || fresh == nil || fresh.Status == WorkerStatusReleased {
 			return err
 		}
-		reason := wakeTimeoutOverWardenReceipt(*fresh, reason)
+		reason := wakeTimeoutOverWardenReceipt(*fresh, reason, s.workerSpawnAt[w.ID])
 		if stopgapRetryStampYields(fresh.LastOpReason, reason) {
 			return nil
 		}

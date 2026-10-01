@@ -215,17 +215,26 @@ Warden telemetry adds a provider-neutral `runtimes` map:
 
 The map contains readiness only—never tokens, credential values, or credential paths.
 Legacy Claude probe fields stay for existing clients. Codex placement always requires an
-explicit `installed == true` and rejects an explicit `logged_in == false`; null login state
-remains eligible. A completely absent capability map preserves legacy Claude placement;
-after any map is reported, Claude placement needs a `claude` entry but does not gate on its
-`installed` or `logged_in` values (a logged-out Claude shows on the monitor page and on the
-member, not as a placement refusal). Placement is an explicit decision (owner ruling 2026-07-25): a placement
+explicit `installed == true`. Neither runtime's `logged_in` gates placement (owner ruling
+2026-10-01): it only drives the logged-out mark on the member and the monitor page. The
+login check that refuses a start runs on the machine, when the START arrives — the same
+check the heartbeat reports (`claude auth status` / `codex login status`), run on the spot:
+logged in launches; an explicit logged out refuses with `claude_not_logged_in` /
+`codex_not_logged_in`; unknown (an unreadable keychain, a timeout, output that does not
+parse, a `codex` that would not start) launches. The verdict replaces the machine's login
+report at once and the heartbeat is sent immediately. `OC_CLAUDE_CRED_CHECK=0` switches the
+Claude half of that spawn-time check off. A completely absent capability map preserves
+legacy Claude placement; after any map is reported, Claude placement needs a `claude` entry
+but does not gate on its `installed` value. Placement is an explicit decision (owner ruling 2026-07-25): a placement
 that is offline or lacks the selected runtime is NOT substituted by another host, and
 there is no automatic placement to fall back on — a machine nobody named is no placement
 at all. Either way no `start` is dispatched; the stall is named on the row the cockpit
-reads (`last_op_reason` — `no_machine_selected`, and `machine_unavailable` for an
-outsource worker whose named machine cannot take it), and reconcile retries after
-telemetry or placement changes.
+reads (`last_op_reason` — `no_machine_selected`, and `machine_unavailable` when the named
+machine cannot take it, for staff and outsource alike), and reconcile retries after
+telemetry or placement changes. A machine-side not-logged-in refusal is folded into
+`<code>: machine '<id>' is not logged in to <runtime>` (the id is the reporting machine,
+stamped at the server's receipt time) and is not overwritten by the wake_timeout or back-off
+of the start it refused.
 
 ### An UNSET runtime is resolved at placement, from that machine
 
@@ -238,9 +247,9 @@ the first START dispatch, from the target machine's reported `runtimes` map, and
 the choice on the roster row: claude if ready, else codex if ready, else nothing is
 persisted — the resolver refuses to freeze a guess onto the row. It does NOT follow that
 an unready box is refused: the runtime stays unset, `NormalizeRuntime` folds it to
-`claude`, and `machineSupportsRuntime`'s claude arm is deliberately permissive
-(`api_machines.go` — the `OC_CLAUDE_CRED_CHECK=0` escape hatch), so the START is still
-dispatched and the failure surfaces at spawn time, not at the gate. A member whose
+`claude`, and `runtimePlacementRefusal`'s claude arm does not gate on `installed`
+(`api_machines.go`), so the START is still dispatched and the failure surfaces at spawn
+time, not at the gate. A member whose
 runtime is already set is never touched; the owner's choice always wins. No capability
 map reported yet leaves it unset, which is today's legacy behaviour
 (`NormalizeRuntime("") == claude`).
@@ -264,10 +273,9 @@ on it would pin the member permanently: that already cost one machine once, with
 backfill to undo it, and every hire is born UNSET, so it would reach every future member
 on that machine. So the resolver declines to choose, leaves the runtime unset, and logs
 why and what to do about it (sign Claude in on that machine, or set the member's 執行環境
-by hand). The START still goes out on the permissive claude path, so either it launches
-or it fails at spawn with `claude_not_logged_in`, which names the Codex exit. A visible,
-reversible failure is preferred to an invisible irreversible switch. Codex placement does
-gate on its `false`: `codex login status` failing keeps codex members off the machine.
+by hand). The START goes out, and the machine's own check at spawn either launches it or
+refuses it with `claude_not_logged_in`. A visible, reversible failure is preferred to an
+invisible irreversible switch.
 
 🔴 **The consequence, which is deliberate and owner-known: hiring is not a pure
 function of the request.** The same `hire_member` call yields a Claude member on one

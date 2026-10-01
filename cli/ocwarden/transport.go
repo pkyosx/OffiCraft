@@ -17,7 +17,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -357,15 +356,20 @@ func resolveOcAgentBin(executable func() (string, error), exists func(string) bo
 	return fallback, exists(fallback)
 }
 
-func buildClaudeCredProbe(env func(string) string, runner CmdRunner) func() claudeCredStatus {
-	if strings.TrimSpace(env("OC_CLAUDE_CRED_CHECK")) == "0" {
+// buildLoginGate is the spawn-time login check: the heartbeat's own check, run
+// now. OC_CLAUDE_CRED_CHECK=0 still switches it off for claude — the escape
+// hatch for a host whose `claude auth status` reads logged out while claude in
+// fact runs.
+func buildLoginGate(env func(string) string, login *loginProber) func(runtime string) *bool {
+	if login == nil {
 		return nil
 	}
-	return func() claudeCredStatus {
-		return probeClaudeCreds(env, func(p string) bool {
-			_, err := os.Stat(p)
-			return err == nil
-		}, runner, runtime.GOOS)
+	claudeOff := strings.TrimSpace(env("OC_CLAUDE_CRED_CHECK")) == "0"
+	return func(runtime string) *bool {
+		if runtime == "claude" && claudeOff {
+			return nil
+		}
+		return login.checkForSpawn(runtime)
 	}
 }
 
@@ -389,14 +393,10 @@ func buildSpawnDeps(cfg Config, env func(string) string, runner CmdRunner, socke
 		Logf: func(format string, a ...any) {
 			fmt.Fprintf(os.Stderr, "[ocwarden spawn] "+format+"\n", a...)
 		},
-		ClaudeBin:  claudeBin,
-		CodexBin:   codexBin,
-		ClaudeHome: resolvedClaudeHome(env, stderrLogf),
-		WardenBin:  wardenBin,
-		// OC_CLAUDE_CRED_CHECK=0 is the escape hatch: this gate is fail-closed over a
-		// heuristic set of credential sources, and a false negative would take a whole
-		// fleet offline at its next respawn.
-		ClaudeCreds: buildClaudeCredProbe(env, runner),
+		ClaudeBin:   claudeBin,
+		CodexBin:    codexBin,
+		ClaudeHome:  resolvedClaudeHome(env, stderrLogf),
+		WardenBin:   wardenBin,
 		CodexModels: listCodexModels,
 		RepoRoot:    resolveRepoRoot(os.Executable),
 		// 🔴 A FUNCTION, resolved at spawn time: on a fresh machine ocagent is
@@ -414,13 +414,15 @@ func buildSpawnDeps(cfg Config, env func(string) string, runner CmdRunner, socke
 	}
 }
 
-func buildCommandDeps(cfg Config, env func(string) string, runner CmdRunner, launchEnv *launchEnvCache) CommandDeps {
+func buildCommandDeps(cfg Config, env func(string) string, runner CmdRunner, launchEnv *launchEnvCache,
+	login *loginProber) CommandDeps {
 	// Error ignored: realMain refuses an invalid OC_NAMESPACE before any transport
 	// is built.
 	ns, _ := namespaceFromEnv(env)
 	socket := tmuxSocketFor(ns)
 	spawnDeps := buildSpawnDeps(cfg, env, runner, socket, ns)
 	spawnDeps.LaunchEnv = launchEnv
+	spawnDeps.LoginCheck = buildLoginGate(env, login)
 	claudeJSONPath := spawnDeps.ClaudeHome.ClaudeJSONPath()
 	return CommandDeps{
 		Spawn: func(p StartParams) SpawnOutcome {

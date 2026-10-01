@@ -708,8 +708,8 @@ func (s *apiServer) wakeTimeoutReason(m Member) string {
 		"logged in on the target machine (warden log: ocwarden.out.log)"
 }
 
-// runtimeCapabilityReady: deliberately NOT machineSupportsRuntime, whose claude arm is permissive
-// by contract (OC_CLAUDE_CRED_CHECK=0) and would pick claude on a codex-only box.
+// runtimeCapabilityReady: deliberately NOT runtimePlacementRefusal, whose claude arm ignores
+// installed and would pick claude on a codex-only box.
 func runtimeCapabilityReady(c RuntimeCapabilityDTO) bool {
 	if c.Installed == nil || !*c.Installed {
 		return false
@@ -738,7 +738,8 @@ func (s *apiServer) resolveEmptyRuntimeForPlacement(m *Member, warden string) {
 			"out there (a warden older than v0.5.211-beta.1 sends the same shape when it merely found "+
 			"no credential evidence). Declining to auto-resolve this member to codex, because "+
 			"persisting that choice is irreversible and signing Claude back in on that machine fixes "+
-			"the cause. Leaving 執行環境 unset: the start still goes out as claude. To choose "+
+			"the cause. Leaving 執行環境 unset (claude): the machine checks Claude's login again when "+
+			"the start arrives and refuses it there if Claude is still signed out. To choose "+
 			"deliberately instead: sign Claude in on that machine, or set this member's 執行環境 by "+
 			"hand.", m.ID, warden)
 		return
@@ -813,11 +814,18 @@ func (s *apiServer) reconcileOne(m Member, st reconcileState, now float64) recon
 			return decision
 		}
 		s.resolveEmptyRuntimeForPlacement(&m, warden)
-		if m.Kind != KindWarden && !s.machineSupportsRuntime(warden, m.Runtime) {
-			reconcileLog("%s: target warden %q does not report runtime %q ready — fail-closed",
-				m.ID, warden, NormalizeRuntime(m.Runtime))
+		// Both refusals ride on the decision's code rather than a stamp here: /activate
+		// stamps that code, and would overwrite a direct stamp with warden_unreachable.
+		refusal := ""
+		if m.Kind != KindWarden {
+			refusal = s.runtimePlacementRefusal(warden, m.Runtime)
+		}
+		if refusal != "" {
+			reconcileLog("%s: target warden %q %s — fail-closed", m.ID, warden, refusal)
 			decision.Command = reconcileCmdNone
 			decision.Reason = "selected runtime unavailable on target machine"
+			decision.ReasonCode = placementReasonUnavailable + ": machine '" + warden + "' " +
+				refusal + "; no other machine is substituted"
 			decision.State = st
 			decision.DispatchUnlanded = true
 			return decision
@@ -825,10 +833,10 @@ func (s *apiServer) reconcileOne(m Member, st reconcileState, now float64) recon
 		if !s.machineResolvesCodexModel(warden, m.Runtime, m.Model) {
 			reconcileLog("%s: target warden %q cannot resolve codex model family %q — fail-closed",
 				m.ID, warden, m.Model)
-			s.stampMemberOpBlocked(m.ID, placementReasonUnavailable+": machine '"+warden+"' "+
-				codexFamilyUnresolvedDetail(m.Model), now)
 			decision.Command = reconcileCmdNone
 			decision.Reason = "codex model family unresolvable on target machine"
+			decision.ReasonCode = placementReasonUnavailable + ": machine '" + warden + "' " +
+				codexFamilyUnresolvedDetail(m.Model)
 			decision.State = st
 			decision.DispatchUnlanded = true
 			return decision
@@ -975,11 +983,21 @@ func isStopgapRetryReason(reason string) bool {
 
 // stopgapRetryStampYields is the precedence rule both the staff and the worker op-blocked stamps
 // obey: a retry-loop wait (backoff / circuit_open) must not overwrite a diagnosis of the PREVIOUS
-// attempt (wake_timeout, or the worker-only never_collected).
+// attempt (wake_timeout, a warden's not-logged-in refusal, or the worker-only never_collected).
 func stopgapRetryStampYields(prior, reason string) bool {
 	return isStopgapRetryReason(reason) &&
 		(strings.HasPrefix(prior, wakeTimeoutReasonCode+":") ||
-			strings.HasPrefix(prior, spawnReasonNeverCollected+":"))
+			strings.HasPrefix(prior, spawnReasonNeverCollected+":") ||
+			isWardenLoginRefusal(prior))
+}
+
+// wakeTimeoutYieldsToReceipt: a start the warden refused as not logged in never came up for that
+// reason, and the owner reads it on 最近操作; the timeout that follows would replace it with a
+// vaguer guess. Only a refusal of THIS start (written at or after startedAt) counts: an older one
+// left on the row says nothing about why this start lapsed.
+func wakeTimeoutYieldsToReceipt(lastOp, lastOpReason string, lastOpAt, startedAt float64) bool {
+	return lastOp == reconcileCmdStart && isWardenLoginRefusal(lastOpReason) &&
+		startedAt > 0 && lastOpAt >= startedAt
 }
 
 // stampMemberOpBlocked never clears: clearing belongs to stampWakeObservability, and a converged
@@ -1099,7 +1117,8 @@ func (s *apiServer) stampWakeObservability(m *Member, decision reconcileDecision
 		if err != nil || fresh == nil || fresh.RosterStatus != RosterStatusActive {
 			return err
 		}
-		if decision.StartTimedOut {
+		if decision.StartTimedOut &&
+			!wakeTimeoutYieldsToReceipt(fresh.LastOp, fresh.LastOpReason, fresh.LastOpAt, fresh.WakingSince) {
 			fresh.LastOp = m.LastOp
 			fresh.LastOpOK = m.LastOpOK
 			fresh.LastOpReason = m.LastOpReason

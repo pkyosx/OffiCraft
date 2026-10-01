@@ -18,7 +18,7 @@
 
 import { describe, it, expect } from "vitest";
 import { readFile } from "node:fs/promises";
-import { render } from "@testing-library/react";
+import { render, waitFor } from "@testing-library/react";
 import { vi } from "vitest";
 import { I18nProvider } from "../i18n";
 import { MemberDetailPanel } from "./MemberDetailPanel";
@@ -27,7 +27,21 @@ import type { Member } from "../types";
 
 vi.mock("../api", () => ({
   api: {
-    listMachines: () => Promise.resolve([]),
+    listMachines: () =>
+      Promise.resolve([
+        {
+          machineId: "m-studio",
+          displayName: 'Studio "A"',
+          online: false,
+          isSelf: false,
+          binStatus: null,
+          wardenShape: null,
+          cutoverEffect: null,
+          claudeVersion: null,
+          claudeCredSource: null,
+          claudeSubReadable: null,
+        },
+      ]),
     getBootstrap: () =>
       Promise.resolve({ role: "assistant", name: "", taskType: "", context: "" }),
     listWebhooks: () => Promise.resolve([]),
@@ -244,6 +258,59 @@ describe("MemberDetailPanel 最近操作 failure reason", () => {
     try {
       const { getByTestId } = renderPanel(mkMember({ lastOpReason: reason }));
       expect(getByTestId("mp-lastop-reason").textContent).toBe(shown);
+    } finally {
+      clearLocale();
+    }
+  });
+
+  it.each([
+    [
+      "zh",
+      "claude_not_logged_in: machine 'm-studio' is not logged in to claude",
+      'Studio "A" 未登入 Claude',
+    ],
+    [
+      "zh",
+      "codex_not_logged_in: machine 'm-studio' is not logged in to codex",
+      'Studio "A" 未登入 Codex',
+    ],
+    [
+      "en",
+      "claude_not_logged_in: machine 'm-studio' is not logged in to claude",
+      'Studio "A" is not logged in to Claude',
+    ],
+    [
+      "en",
+      "codex_not_logged_in: machine 'm-studio' is not logged in to codex",
+      'Studio "A" is not logged in to Codex',
+    ],
+    [
+      "zh",
+      "claude_not_logged_in: machine 'm-gone' is not logged in to claude",
+      "m-gone 未登入 Claude",
+    ],
+    [
+      "zh",
+      "machine_unavailable: machine 'm-studio' is not logged in to claude; no other machine is substituted",
+      "machine_unavailable: machine 'm-studio' is not logged in to claude; no other machine is substituted",
+    ],
+    [
+      "zh",
+      "machine_unavailable: machine 'm-studio' does not provide the 'codex' runtime; no other machine is substituted",
+      "machine_unavailable: machine 'm-studio' does not provide the 'codex' runtime; no other machine is substituted",
+    ],
+    [
+      "zh",
+      "codex_not_logged_in: `codex login status` failed on this host",
+      "codex_not_logged_in: `codex login status` failed on this host",
+    ],
+  ])("under a not-logged-in reason the line is the machine's name and the runtime, any other reason is shown as sent (%s: %s)", async (locale, reason, shown) => {
+    if (locale === "en") useEnglishLocale();
+    try {
+      const { getByTestId } = renderPanel(mkMember({ lastOpReason: reason }));
+      await waitFor(() =>
+        expect(getByTestId("mp-lastop-reason").textContent).toBe(shown),
+      );
     } finally {
       clearLocale();
     }

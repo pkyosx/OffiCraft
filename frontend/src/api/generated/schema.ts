@@ -4087,7 +4087,7 @@ export interface components {
             runtime?: unknown;
             /**
              * Runtimes
-             * @description Warden heartbeats only — provider-neutral runtime capability map. Each ``claude``/``codex`` entry may report ``installed`` bool, ``logged_in`` bool/null, and ``version`` string/null, and ``codex`` also ``model_families`` bool; values are readiness metadata only, never credentials. The shape is DECLARED (T-90be) and this is the block where a silent rename costs the most: ``machineSupportsRuntime`` (api_machines.go) fail-closes to false when it cannot read codex ``installed``, so the machine becomes permanently unsupported for codex and its workers sit stamped ``machine_unavailable`` — with nothing on screen saying why. NOT closed (see ``hardware``): an unknown runtime name or a new readiness key must not 422 the whole heartbeat.
+             * @description Warden heartbeats only — provider-neutral runtime capability map. Each ``claude``/``codex`` entry may report ``installed`` bool, ``logged_in`` bool/null, and ``version`` string/null, and ``codex`` also ``model_families`` bool; values are readiness metadata only, never credentials. The shape is DECLARED (T-90be) and this is the block where a silent rename costs the most: ``runtimePlacementRefusal`` (api_machines.go) fail-closes when it cannot read codex ``installed``, so the machine becomes permanently unsupported for codex and its workers sit stamped ``machine_unavailable`` — with nothing on screen saying why. NOT closed (see ``hardware``): an unknown runtime name or a new readiness key must not 422 the whole heartbeat.
              */
             runtimes?: {
                 /**
@@ -4102,7 +4102,7 @@ export interface components {
                     installed?: boolean | null;
                     /**
                      * Logged In
-                     * @description Result of ``claude auth status``, run in the same environment the warden launches members with and re-run every ``runtime_login_check_interval_secs`` while it reads logged in, every ``runtime_login_recheck_interval_secs`` while it reads logged out or unknown: true when it reports logged in; false only when it reports logged out and (on macOS) the warden can read the login keychain; absent on timeout, unparseable output or an unreadable keychain. Absent is unknown, never logged out. Claude placement does not gate on this value. Never carries a credential value.
+                     * @description Result of ``claude auth status``, run in the same environment the warden launches members with and re-run every ``runtime_login_check_interval_secs`` while it reads logged in, every ``runtime_login_recheck_interval_secs`` while it reads logged out or unknown: true when it reports logged in; false only when it reports logged out and (on macOS) the warden can read the login keychain; absent on timeout, unparseable output or an unreadable keychain. Absent is unknown, never logged out. It does not gate placement: the warden runs the same check again when a start arrives and refuses only an explicit logged-out verdict. Never carries a credential value.
                      */
                     logged_in?: boolean | null;
                     /** Version */
@@ -4112,7 +4112,7 @@ export interface components {
                 };
                 /**
                  * Codex
-                 * @description Codex readiness (``codex --version`` + ``codex login status``). This is the entry ``machineSupportsRuntime`` gates codex placement on.
+                 * @description Codex readiness (``codex --version`` + ``codex login status``). This is the entry ``runtimePlacementRefusal`` gates codex placement on.
                  */
                 codex?: {
                     /**
@@ -4122,7 +4122,7 @@ export interface components {
                     installed?: boolean | null;
                     /**
                      * Logged In
-                     * @description ``codex login status`` exited 0, re-run every ``runtime_login_check_interval_secs`` while true, every ``runtime_login_recheck_interval_secs`` while false. Absent = not probed.
+                     * @description Result of ``codex login status``: true when it exits 0, false when it exits non-zero; absent when it was not probed, timed out or would not start — unknown, never logged out. Re-run every ``runtime_login_check_interval_secs`` while true, every ``runtime_login_recheck_interval_secs`` while false or absent, and on the spot before each Codex start, whose verdict replaces this one at once.
                      */
                     logged_in?: boolean | null;
                     /**
@@ -5629,7 +5629,7 @@ export interface components {
             online: boolean;
             /**
              * Runtime Capabilities
-             * @description Provider-neutral runtime readiness keyed by ``claude``/``codex``. Empty for an older warden that has not reported capability probes. Codex placement requires an explicit installed=true and logged_in!=false report. A completely absent capability map preserves legacy Claude placement; once a map is reported, Claude placement needs a ``claude`` entry but does not gate on its installed or logged_in values.
+             * @description Provider-neutral runtime readiness keyed by ``claude``/``codex``. Empty for an older warden that has not reported capability probes. Codex placement requires an explicit installed=true report. A completely absent capability map preserves legacy Claude placement; once a map is reported, Claude placement needs a ``claude`` entry but does not gate on its installed value. logged_in gates neither runtime: the warden checks login again when a start arrives.
              */
             runtime_capabilities?: {
                 [key: string]: components["schemas"]["RuntimeCapabilityDTO"];
@@ -7520,7 +7520,7 @@ export interface components {
         };
         /**
          * RuntimeCapabilityDTO
-         * @description Value-free readiness of one AI CLI runtime on a machine. ``installed`` means the exact binary the warden would launch resolved and passed its version probe. ``logged_in`` is the warden's latest provider login check, re-run every ``runtime_login_check_interval_secs`` while it is true and every ``runtime_login_recheck_interval_secs`` while it is false or null: for Claude, ``claude auth status`` in the environment members launch with — true when it reports logged in, false only when it reports logged out and (on macOS) the login keychain is readable by the warden, null on timeout, unparseable output or an unreadable keychain; for Codex, whether ``codex login status`` succeeded. Null means unknown, never logged out. ``version`` is null when unresolved or probing failed. No credential value or path is exposed.
+         * @description Value-free readiness of one AI CLI runtime on a machine. ``installed`` means the exact binary the warden would launch resolved and passed its version probe. ``logged_in`` is the warden's latest provider login check, re-run every ``runtime_login_check_interval_secs`` while it is true and every ``runtime_login_recheck_interval_secs`` while it is false or null: for Claude, ``claude auth status`` in the environment members launch with — true when it reports logged in, false only when it reports logged out and (on macOS) the login keychain is readable by the warden, null on timeout, unparseable output or an unreadable keychain; for Codex, ``codex login status`` — true on exit 0, false on a non-zero exit, null when it timed out or would not start. Null means unknown, never logged out. A start runs the same check on the spot first, and its verdict replaces this one at once. ``version`` is null when unresolved or probing failed. No credential value or path is exposed.
          */
         RuntimeCapabilityDTO: {
             /**

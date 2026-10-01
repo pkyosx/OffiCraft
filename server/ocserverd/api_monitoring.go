@@ -179,6 +179,49 @@ func supersededDispatchClue(m Member) string {
 		m.LastOpAt, m.LastOpReason)
 }
 
+// warden refusal code → the runtime it could not find logged in
+var wardenLoginRefusalRuntime = map[string]string{
+	"claude_not_logged_in": RuntimeClaude,
+	"codex_not_logged_in":  RuntimeCodex,
+}
+
+func isWardenLoginRefusal(reason string) bool {
+	code, _, found := strings.Cut(reason, ":")
+	_, isLogin := wardenLoginRefusalRuntime[code]
+	return found && isLogin
+}
+
+// loginRefusalNamingMachine rewrites a warden's not-logged-in refusal into the
+// sentence placement writes, naming the reporting machine the warden's own text
+// cannot; the cockpit localizes that one sentence. The warden's text is kept as
+// the log.
+//
+// Its `at` becomes the server's receipt time: wakeTimeoutYieldsToReceipt compares
+// it with the server-clock start anchor, and the warden's own stamp is whole
+// seconds on the machine's clock — a refusal of this start would read as older
+// than the start and lose to wake_timeout.
+func loginRefusalNamingMachine(commandResult map[string]any, reporter string) map[string]any {
+	reason := stringOf(commandResult["reason"])
+	code, _, found := strings.Cut(reason, ":")
+	runtime, isLogin := wardenLoginRefusalRuntime[code]
+	if !found || !isLogin {
+		return commandResult
+	}
+	out := make(map[string]any, len(commandResult)+1)
+	for k, v := range commandResult {
+		out[k] = v
+	}
+	out["at"] = nowSecs()
+	if reporter == "" {
+		return out
+	}
+	if _, hasLog := out["log"].(string); !hasLog {
+		out["log"] = reason
+	}
+	out["reason"] = code + ": machine '" + reporter + "' is not logged in to " + runtime
+	return out
+}
+
 func stringOf(v any) string {
 	s, _ := v.(string)
 	return s
@@ -219,6 +262,7 @@ func (s *apiServer) foldCommandResult(commandResult map[string]any, trigger, rep
 				strings.TrimSpace(memberIDRawOf(commandResult)), reporter)
 		}
 	}
+	commandResult = loginRefusalNamingMachine(commandResult, reporter)
 	if workerID := strings.TrimSpace(workerIDRaw); workerID != "" {
 		s.foldWorkerCommandResult(workerID, commandResult, trigger)
 		return
@@ -571,9 +615,10 @@ func (s *apiServer) HandleIngestTelemetryApiMonitoringTelemetryPost(w http.Respo
 		wasStale := *runtimeCapabilitiesStale(entry, true, nowSecs())
 		loginFlipped = loginStatesDiffer(loginStatesOf(entry), next) || (wasStale && anyLoggedOut(next))
 		entry["runtimes"] = runtimes
-		// Same per-sample stamp as hardware_ts. Placement (machineSupportsRuntime)
-		// deliberately does NOT consult it — expiring the map there would
-		// reclassify a quiet machine as a legacy warden and hand it Claude work.
+		// Same per-sample stamp as hardware_ts. Only the logged-out mark
+		// (runtimeReportedLoggedOut) reads it, to discount a stale verdict; nothing
+		// expires the map on it — placement would then reclassify a quiet machine as
+		// a legacy warden and hand it Claude work.
 		entry["runtimes_ts"] = nowSecs()
 	}
 	if runtime != nil {

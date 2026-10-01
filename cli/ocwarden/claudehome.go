@@ -114,9 +114,19 @@ func resolvedClaudeHome(env func(string) string, logf func(string, ...any)) clau
 //
 // ANTHROPIC_* is left alone deliberately — measured, not reasoned (claude
 // 2.1.268): ANTHROPIC_CONFIG_DIR does not move the config layout, and the family
-// carries the direct credentials the spawn gate accepts (claudeCredEnvKeys), so
-// purging it would log those hosts out.
+// carries direct credentials claude accepts (claudeCredEnvKeys), so purging it
+// would log those hosts out.
 const claudeEnvPurgePrefix = "CLAUDE_"
+
+// The CLAUDE_CODE_USE_* flags select Bedrock/Vertex, where no local claude login
+// exists. Listing CLAUDE_CODE_OAUTH_TOKEN lets it through the purge above.
+var claudeCredEnvKeys = []string{
+	"ANTHROPIC_API_KEY",
+	"ANTHROPIC_AUTH_TOKEN",
+	"CLAUDE_CODE_USE_BEDROCK",
+	"CLAUDE_CODE_USE_VERTEX",
+	"CLAUDE_CODE_OAUTH_TOKEN",
+}
 
 func claudeEnvAllowedNames() []string {
 	out := make([]string, 0, len(claudeCredEnvKeys))

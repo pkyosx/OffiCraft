@@ -2,7 +2,9 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -19,6 +21,15 @@ const (
 )
 
 const loginCheckEnvName = ".oc-login-check-env"
+
+// spawnCheckBudget bounds a spawn's login check, its wait for a running periodic
+// check included: past it the verdict is unknown and the spawn launches. The
+// periodic check can hold the prober for ~25 s (shell capture, auth status and
+// keychain on claude, then codex), and the START receipt has to reach the
+// server inside its receiptDeadlineSecs (server/ocserverd/receipt_watch.go),
+// whose derivation counts this budget. 🔴 Raising it eats into that deadline;
+// nothing links the two modules.
+const spawnCheckBudget = 15 * time.Second
 
 func loginIntervalFromReceipt(body map[string]any, key string, fallback time.Duration) time.Duration {
 	secs, ok := body[key].(float64)
@@ -80,9 +91,16 @@ type loginState struct {
 	Codex  *bool
 }
 
-// Single-goroutine by contract: the telemetry loop both applies the receipt's
-// interval and asks for the state.
+// The telemetry loop applies the receipt's interval and asks for the state; a
+// spawn asks for a fresh verdict from the command goroutine (checkNow). mu
+// serializes the two.
 type loginProber struct {
+	mu          sync.Mutex
+	kick        chan struct{}
+	spawnBudget time.Duration
+	flightMu    sync.Mutex
+	inflight    map[string]*spawnFlight
+
 	env        func(string) string
 	runner     CmdRunner
 	keep       stdoutRunner
@@ -115,34 +133,106 @@ type runtimeLogin struct {
 func newLoginProber(env func(string) string, runner CmdRunner, keep stdoutRunner, goos string,
 	launchEnv *launchEnvCache, logf func(string, ...any)) *loginProber {
 	return &loginProber{
-		env:        env,
-		runner:     runner,
-		keep:       keep,
-		goos:       goos,
-		now:        time.Now,
-		claudeHome: resolvedClaudeHome(env, nil),
-		agentHome:  defaultAgentHome(env),
-		envFile:    defaultAgentEnvFile(env),
-		launchEnv:  launchEnv,
-		captureEnv: defaultCaptureEnv(env),
-		mkdirAll:   os.MkdirAll,
-		writeFile:  osWriteFile,
-		remove:     os.Remove,
-		logf:       logf,
-		interval:   defaultLoginCheckInterval,
-		recheck:    defaultLoginRecheckInterval,
+		env:         env,
+		runner:      runner,
+		keep:        keep,
+		goos:        goos,
+		now:         time.Now,
+		claudeHome:  resolvedClaudeHome(env, nil),
+		agentHome:   defaultAgentHome(env),
+		envFile:     defaultAgentEnvFile(env),
+		launchEnv:   launchEnv,
+		captureEnv:  defaultCaptureEnv(env),
+		mkdirAll:    os.MkdirAll,
+		writeFile:   osWriteFile,
+		remove:      os.Remove,
+		logf:        logf,
+		interval:    defaultLoginCheckInterval,
+		recheck:     defaultLoginRecheckInterval,
+		kick:        make(chan struct{}, 1),
+		spawnBudget: spawnCheckBudget,
+		inflight:    map[string]*spawnFlight{},
 	}
 }
 
+// spawnFlight is one spawn-time check of one runtime; verdict is set before done
+// closes.
+type spawnFlight struct {
+	done    chan struct{}
+	verdict *bool
+}
+
 func (p *loginProber) setIntervals(check, recheck time.Duration) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	p.interval = check
 	p.recheck = recheck
 }
 
 func (p *loginProber) state() loginState {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	p.refresh(&p.claude, p.claudeLoggedIn)
 	p.refresh(&p.codex, p.codexLoggedIn)
 	return loginState{Claude: p.claude.verdict, Codex: p.codex.verdict}
+}
+
+// checkNow runs runtime's login check regardless of the interval, keeps the
+// verdict as the one the next heartbeat reports, and asks the telemetry loop to
+// send that heartbeat now. nil = unknown.
+func (p *loginProber) checkNow(runtime string) *bool {
+	p.mu.Lock()
+	var verdict *bool
+	switch runtime {
+	case "claude":
+		verdict = p.record(&p.claude, p.claudeLoggedIn)
+	case "codex":
+		verdict = p.record(&p.codex, p.codexLoggedIn)
+	default:
+		p.mu.Unlock()
+		return nil
+	}
+	p.mu.Unlock()
+	select {
+	case p.kick <- struct{}{}:
+	default:
+	}
+	return verdict
+}
+
+// checkForSpawn is checkNow within spawnBudget. A check that overruns keeps
+// running, so its verdict still reaches the report when it lands; a spawn that
+// arrives while one runs waits on that one instead of queueing another, so a
+// burst of wakes against a slow check leaves one check, not one per wake.
+func (p *loginProber) checkForSpawn(runtime string) *bool {
+	p.flightMu.Lock()
+	flight, running := p.inflight[runtime]
+	if !running {
+		flight = &spawnFlight{done: make(chan struct{})}
+		p.inflight[runtime] = flight
+		go func() {
+			flight.verdict = p.checkNow(runtime)
+			p.flightMu.Lock()
+			delete(p.inflight, runtime)
+			p.flightMu.Unlock()
+			close(flight.done)
+		}()
+	}
+	p.flightMu.Unlock()
+	timer := time.NewTimer(p.spawnBudget)
+	defer timer.Stop()
+	select {
+	case <-flight.done:
+		return flight.verdict
+	case <-timer.C:
+		p.log("[ocwarden runtimeprobe] %s login check passed its %s spawn budget; launching on an unknown verdict", runtime, p.spawnBudget)
+		return nil
+	}
+}
+
+// kicked fires once after any checkNow the telemetry loop has not yet reported.
+func (p *loginProber) kicked() <-chan struct{} {
+	return p.kick
 }
 
 // probe reports whether it ran a check at all; a runtime that is not installed
@@ -159,11 +249,16 @@ func (p *loginProber) refresh(r *runtimeLogin, probe func() (verdict *bool, prob
 	if r.checked && p.now().Sub(r.at) < wait {
 		return
 	}
+	p.record(r, probe)
+}
+
+func (p *loginProber) record(r *runtimeLogin, probe func() (verdict *bool, probed bool)) *bool {
 	verdict, probed := probe()
 	r.verdict = verdict
 	r.checked = true
 	r.at = p.now()
 	r.notLoggedIn = probed && (verdict == nil || !*verdict)
+	return verdict
 }
 
 func (p *loginProber) log(format string, args ...any) {
@@ -178,15 +273,21 @@ func (p *loginProber) codexLoggedIn() (*bool, bool) {
 		return nil, false
 	}
 	_, err := p.runner.Run(bin, "login", "status")
-	// A false here conflates signed out, probe timeout, crash and wrong binary, and
-	// placement fail-closes every codex member on the host on it. The error goes to
-	// the local log only: it is subprocess stderr we cannot promise is
-	// credential-free.
-	if err != nil {
-		p.log("[ocwarden runtimeprobe] codex login status failed (bin=%s): %v", bin, err)
+	if err == nil {
+		ok := true
+		return &ok, true
 	}
-	ok := err == nil
-	return &ok, true
+	// The error goes to the local log only: it is subprocess stderr we cannot
+	// promise is credential-free.
+	p.log("[ocwarden runtimeprobe] codex login status failed (bin=%s): %v", bin, err)
+	// Only a non-zero exit is codex saying "not logged in"; a timeout or a binary
+	// that would not start is unknown, and a spawn goes ahead on unknown.
+	var exit *exec.ExitError
+	if !errors.As(err, &exit) {
+		return nil, true
+	}
+	loggedOut := false
+	return &loggedOut, true
 }
 
 // The stdout of `claude auth status` carries the account's email and

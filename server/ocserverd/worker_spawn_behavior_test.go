@@ -7,12 +7,14 @@ package main
 import (
 	"encoding/json"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // newWorkerTestServer builds an apiServer with the out-of-box roster seeded
@@ -920,20 +922,24 @@ func TestNotifyWorkerSpawn_BlockedReasonNamesTheCause(t *testing.T) {
 
 	now := 4_000_000.0
 	cases := []struct {
-		name, workerID, taskID, machine, runtime, phrase string
-		bench                                            bool
+		name, workerID, taskID, machine, runtime, want string
+		bench                                          bool
 	}{
 		{name: "offline", workerID: "ow-c1", taskID: "t-0000000000d1",
-			machine: "m-offline", phrase: "is offline"},
+			machine: "m-offline",
+			want:    "machine_unavailable: machine 'm-offline' is offline; no other machine is substituted"},
 		{name: "benched after a failed boot", workerID: "ow-c2", taskID: "t-0000000000d2",
-			machine: "m-benched", bench: true, phrase: "benched after a failed boot"},
+			machine: "m-benched", bench: true,
+			want: "machine_unavailable: machine 'm-benched' was just benched after a failed boot of this worker; no other machine is substituted"},
 		{name: "wrong runtime", workerID: "ow-c3", taskID: "t-0000000000d3",
 			machine: "m-claudeonly", runtime: RuntimeCodex,
-			phrase: "does not provide the '" + RuntimeCodex + "' runtime"},
+			want: "machine_unavailable: machine 'm-claudeonly' does not provide the 'codex' runtime; no other machine is substituted"},
 		{name: "not an active machine", workerID: "ow-c4", taskID: "t-0000000000d4",
-			machine: "m-person", phrase: "is not an active machine"},
+			machine: "m-person",
+			want:    "machine_unavailable: machine 'm-person' is not an active machine; no other machine is substituted"},
 		{name: "does not exist", workerID: "ow-c5", taskID: "t-0000000000d5",
-			machine: "m-ghost", phrase: "does not exist"},
+			machine: "m-ghost",
+			want:    "machine_unavailable: machine 'm-ghost' does not exist; no other machine is substituted"},
 	}
 	seen := map[string]string{}
 	for _, c := range cases {
@@ -959,13 +965,8 @@ func TestNotifyWorkerSpawn_BlockedReasonNamesTheCause(t *testing.T) {
 			t.Fatalf("%s: a refused placement must not dispatch", c.name)
 		}
 		blocked := readWorker(t, s, c.workerID)
-		if !strings.HasPrefix(blocked.LastOpReason, placementReasonUnavailable+":") {
-			t.Fatalf("%s: last_op_reason = %q, want a %s reason", c.name,
-				blocked.LastOpReason, placementReasonUnavailable)
-		}
-		if !strings.Contains(blocked.LastOpReason, c.phrase) {
-			t.Fatalf("%s: last_op_reason must name the cause %q, got %q", c.name,
-				c.phrase, blocked.LastOpReason)
+		if blocked.LastOpReason != c.want {
+			t.Fatalf("%s: last_op_reason:\n got %q\nwant %q", c.name, blocked.LastOpReason, c.want)
 		}
 		if prior, dup := seen[blocked.LastOpReason]; dup {
 			t.Fatalf("%s and %s share one reason %q — the causes are not distinguishable",
@@ -985,6 +986,46 @@ func TestNotifyWorkerSpawn_BlockedReasonNamesTheCause(t *testing.T) {
 	s.outsourceMu.Unlock()
 	if !dispatched || len(s.hub.DrainWardenCommands(ServerSelfHost)) != 1 {
 		t.Fatal("a healthy named machine must take the worker")
+	}
+}
+
+func TestNotifyWorkerSpawn_UnderAnyLoginReadingTheWorkerDispatches(t *testing.T) {
+	for _, runtime := range []string{RuntimeClaude, RuntimeCodex} {
+		for _, c := range []struct {
+			name     string
+			loggedIn any
+			age      float64
+		}{
+			{"fresh false", false, 0},
+			{"stale false", false, telemetryFreshSecs + 1},
+			{"null", nil, 0},
+			{"true", true, 0},
+		} {
+			t.Run(runtime+" "+c.name, func(t *testing.T) {
+				s := newWorkerTestServer(t)
+				putWardenFixture(t, s, "m-box")
+				connectWarden(t, s, "m-box")
+				s.telemetry.Set("m-box", map[string]any{"runtimes_ts": nowSecs() - c.age, "runtimes": map[string]any{
+					runtime: map[string]any{"installed": true, "logged_in": c.loggedIn},
+				}})
+				w := blockedSpawnFixture(t, s, "t-0000000000f1", "ow-login", "m-box")
+				w.Runtime = runtime
+				if err := s.dal.SetMemberRuntime(w.ID, runtime); err != nil {
+					t.Fatalf("set runtime: %v", err)
+				}
+
+				s.outsourceMu.Lock()
+				dispatched := s.notifyWorkerSpawn(w, nowSecs())
+				s.outsourceMu.Unlock()
+
+				if !dispatched || len(s.hub.DrainWardenCommands("m-box")) != 1 {
+					t.Fatalf("dispatched = %v; want one START on m-box", dispatched)
+				}
+				if got := readWorker(t, s, w.ID).LastOpReason; got != "" {
+					t.Fatalf("last_op_reason = %q, want none", got)
+				}
+			})
+		}
 	}
 }
 
@@ -1558,6 +1599,88 @@ func TestReconcileWorkerLiveness_NeverCollectedIsNotAFailedBoot(t *testing.T) {
 			t.Errorf("a collected frame must not claim it was never picked up")
 		}
 	})
+}
+
+// wardenStamp renders a time the way cli/ocwarden stamps a command result: RFC3339,
+// whole seconds.
+func wardenStamp(secs float64) string {
+	return time.Unix(int64(secs), 0).UTC().Format(time.RFC3339)
+}
+
+func TestReconcileWorkerLiveness_UnderAWardenRefusalOfTheStart(t *testing.T) {
+	const loggedOut = "claude_not_logged_in: machine 'm-server-self' is not logged in to claude"
+	const lapsed = "wake_timeout: the start was collected by machine 'm-server-self' but this worker never " +
+		"came online within the start window — check that the 'claude' runtime actually runs " +
+		"and is logged in on that machine (warden log: ocwarden.out.log)"
+	const noCredential = "claude_not_logged_in: `claude auth status` reports logged out on this host."
+	for _, c := range []struct {
+		name, refusal, want string
+		// machine clock offset of the refusal's stamp from the start, in seconds
+		stampOffset float64
+		earlier     bool
+		restarted   bool
+	}{
+		{name: "not logged in, stamped in the start's own second: the lapse and the back-off keep the refusal",
+			refusal: noCredential, want: loggedOut},
+		{name: "not logged in, stamped by a machine clock 5s slow: the lapse and the back-off keep the refusal",
+			refusal: noCredential, want: loggedOut, stampOffset: -5},
+		{name: "any other refusal: the lapse replaces it with the wake-timeout receipt",
+			refusal: "claude_bin_unresolved: set OC_CLAUDE_BIN or put claude on the daemon PATH", want: lapsed},
+		{name: "not logged in, but of an earlier start: the lapse of this start is a wake timeout",
+			refusal: noCredential, want: lapsed, earlier: true},
+		{name: "not logged in, but the server has since lost the start's time: the lapse is a wake timeout",
+			refusal: noCredential, restarted: true,
+			want: "wake_timeout: the start window elapsed with no session, and this server no longer has a " +
+				"record of which machine the start was sent to (the spawn ledger is in-memory and a server " +
+				"restart clears it) — retry 改機器 to place it again"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			s := newWorkerTestServer(t)
+			connectWarden(t, s, ServerSelfHost)
+			w := fsmWorkerFixture(t, s, "ow-rf", WorkerStatusAssigned, 0)
+			tick := func(now float64) {
+				s.outsourceMu.Lock()
+				defer s.outsourceMu.Unlock()
+				s.reconcileWorkerLiveness(w, now)
+			}
+			refuse := func(stampedAt float64) {
+				s.foldCommandResult(map[string]any{
+					"worker_id": w.ID, "rpc": "start", "ok": false,
+					"reason": c.refusal, "log": c.refusal, "at": wardenStamp(stampedAt),
+				}, "telemetry", ServerSelfHost)
+			}
+			// Half a second into a second, so the warden's whole-second stamp of
+			// a refusal in that same second reads earlier than the start.
+			base := math.Floor(nowSecs()-2) + 0.5
+			if c.earlier {
+				base = nowSecs() + 10
+				refuse(nowSecs())
+				s.outsourceMu.Lock()
+				delete(s.workerMachineBench, workerMachineKey(w.ID, ServerSelfHost))
+				s.outsourceMu.Unlock()
+			}
+			tick(base)
+			if len(s.hub.DrainWardenCommands(ServerSelfHost)) != 1 {
+				t.Fatal("premise: one START must be collected")
+			}
+			if !c.earlier {
+				refuse(base + c.stampOffset)
+			}
+			if c.restarted {
+				s.outsourceMu.Lock()
+				delete(s.workerSpawnAt, w.ID)
+				delete(s.workerSpawnTarget, w.ID)
+				s.outsourceMu.Unlock()
+			}
+
+			for _, at := range []float64{base + WakingTTLSecs + 1, base + WakingTTLSecs + 2} {
+				tick(at)
+				if got := readWorker(t, s, w.ID).LastOpReason; got != c.want {
+					t.Fatalf("at +%.0fs:\n got %q\nwant %q", at-base, got, c.want)
+				}
+			}
+		})
+	}
 }
 
 // TestReconcileWorkerLiveness_DroppedStartIsNotBlamedOnTheRuntime (T-66a2 ×

@@ -429,6 +429,99 @@ func TestFoldCommandResult(t *testing.T) {
 			apiTestMemberPayload("kip", "Kip", "active", ""), "telemetry"))
 	})
 
+	t.Run("under a warden's not-logged-in refusal, the reason names the reporting machine and the warden's own text stays as the log", func(t *testing.T) {
+		claudeText := "claude_not_logged_in: `claude auth status` reports logged out on this host. " +
+			"Fix any one: set this member's 執行環境 to Codex; log in with `claude` as this user; or " +
+			"re-install the warden with OC_CLAUDE_CRED_CHECK=0 (shell exports do not reach it)."
+		codexText := "codex_not_logged_in: `codex login status` failed on this host"
+		for _, c := range []struct {
+			name, text, want string
+			withLog          bool
+		}{
+			{"claude with a log", claudeText, "claude_not_logged_in: machine 'm-studio' is not logged in to claude", true},
+			{"codex with a log", codexText, "codex_not_logged_in: machine 'm-studio' is not logged in to codex", true},
+			{"codex without a log", codexText, "codex_not_logged_in: machine 'm-studio' is not logged in to codex", false},
+		} {
+			t.Run(c.name, func(t *testing.T) {
+				api, _, d, _ := newAPITestServer(t)
+				before := apiTestMemberRow(t, d, "kip")
+				receipt := map[string]any{
+					"member_id": "kip", "rpc": "start", "ok": false,
+					"reason": c.text, "at": "2024-07-03T09:46:40Z",
+				}
+				if c.withLog {
+					receipt["log"] = c.text
+				}
+
+				received := nowSecs()
+				api.foldCommandResult(receipt, "telemetry", "m-studio")
+				got := apiTestMemberRow(t, d, "kip")
+
+				if got.LastOpAt < received || got.LastOpAt > nowSecs() {
+					t.Fatalf("last_op_at = %v, want the server's receipt time (>= %v), not the machine's stamp", got.LastOpAt, received)
+				}
+				want := before
+				want.LastOp = "start"
+				want.LastOpOK = boolPtr(false)
+				want.LastOpReason = c.want
+				want.LastOpLog = c.text
+				want.LastOpAt = got.LastOpAt
+				apiTestWantEqual(t, "stored member", got, want)
+			})
+		}
+	})
+
+	t.Run("under a not-logged-in refusal from a machine other than the member's pin, the reason names the reporting machine", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		if err := d.SetMemberDesiredMachineID("kip", "m-other"); err != nil {
+			t.Fatalf("SetMemberDesiredMachineID: %v", err)
+		}
+		text := "codex_not_logged_in: `codex login status` failed on this host"
+
+		api.foldCommandResult(map[string]any{
+			"member_id": "kip", "rpc": "start", "ok": false,
+			"reason": text, "log": text, "at": float64(1720000000),
+		}, "telemetry", "m-studio")
+
+		apiWantValue(t, "reason", any(apiTestMemberRow(t, d, "kip").LastOpReason),
+			any("codex_not_logged_in: machine 'm-studio' is not logged in to codex"))
+	})
+
+	t.Run("under a not-logged-in refusal with no reporting machine, the reason is kept as the warden wrote it", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		text := "codex_not_logged_in: `codex login status` failed on this host"
+
+		api.foldCommandResult(map[string]any{
+			"member_id": "kip", "rpc": "start", "ok": false,
+			"reason": text, "log": text, "at": float64(1720000000),
+		}, "telemetry", "")
+
+		row := apiTestMemberRow(t, d, "kip")
+		apiWantValue(t, "receipt", any([]string{row.LastOpReason, row.LastOpLog}), any([]string{text, text}))
+	})
+
+	t.Run("under a worker's not-logged-in refusal from a machine other than its pin, the worker row's reason names the reporting machine", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusAssigned)
+		if err := d.SetMemberDesiredMachineID("ow-abc123", "m-other"); err != nil {
+			t.Fatalf("SetMemberDesiredMachineID: %v", err)
+		}
+		text := "codex_not_logged_in: `codex login status` failed on this host"
+
+		api.foldCommandResult(map[string]any{
+			"worker_id": "ow-abc123", "rpc": "start", "ok": false,
+			"reason": text, "log": text, "at": float64(1720000000),
+		}, "telemetry", "m-studio")
+
+		after, err := d.GetOutsourceWorker("ow-abc123")
+		if err != nil || after == nil {
+			t.Fatalf("GetOutsourceWorker: %v %v", after, err)
+		}
+		apiWantValue(t, "receipt", any([]string{after.LastOpReason, after.LastOpLog}), any([]string{
+			"codex_not_logged_in: machine 'm-studio' is not logged in to codex", text,
+		}))
+	})
+
 	t.Run("a successful no-such-session stop leaves the existing receipt untouched and fans nothing", func(t *testing.T) {
 		api, _, d, _ := newAPITestServer(t)
 		before := apiTestMemberRow(t, d, "kip")

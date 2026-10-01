@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"sync"
 	"testing"
 	"time"
 )
@@ -177,13 +178,31 @@ func TestLoginProberState(t *testing.T) {
 			wantRuns: []string{codexArgv},
 		},
 		{
-			name:     "under a refused codex login status, codex is false and the error reaches the log",
+			name:     "under a codex login status that exits non-zero, codex is false and the error reaches the log",
 			goos:     "linux",
 			env:      map[string]string{"HOME": home, "OC_CODEX_BIN": codexBin},
-			script:   map[string]wardenRun{codexArgv: {err: errors.New("exit status 1: not logged in")}},
+			script:   map[string]wardenRun{codexArgv: {err: exitStatus1(t, "not logged in")}},
 			want:     loginState{Codex: &no},
 			wantRuns: []string{codexArgv},
 			wantLog:  []string{fmt.Sprintf("[ocwarden runtimeprobe] codex login status failed (bin=%s): exit status 1: not logged in", codexBin)},
+		},
+		{
+			name:     "under a codex login status that timed out, codex is unknown and the error reaches the log",
+			goos:     "linux",
+			env:      map[string]string{"HOME": home, "OC_CODEX_BIN": codexBin},
+			script:   map[string]wardenRun{codexArgv: {err: errors.New("timeout after 10s")}},
+			want:     loginState{},
+			wantRuns: []string{codexArgv},
+			wantLog:  []string{fmt.Sprintf("[ocwarden runtimeprobe] codex login status failed (bin=%s): timeout after 10s", codexBin)},
+		},
+		{
+			name:     "under a codex binary that would not start, codex is unknown",
+			goos:     "linux",
+			env:      map[string]string{"HOME": home, "OC_CODEX_BIN": codexBin},
+			script:   map[string]wardenRun{codexArgv: {err: errors.New("fork/exec " + codexBin + ": exec format error")}},
+			want:     loginState{},
+			wantRuns: []string{codexArgv},
+			wantLog:  []string{fmt.Sprintf("[ocwarden runtimeprobe] codex login status failed (bin=%s): fork/exec %s: exec format error", codexBin, codexBin)},
 		},
 	}
 
@@ -352,7 +371,7 @@ func TestLoginProberState(t *testing.T) {
 	loggedOut := answer{`{"loggedIn":false}`, "1"}
 	loggedIn := answer{`{"loggedIn":true}`, "0"}
 	codexIn := wardenRun{out: "Logged in"}
-	codexOut := wardenRun{err: errors.New("exit status 1: not logged in")}
+	codexOut := wardenRun{err: exitStatus1(t, "not logged in")}
 	cadenceCases := []struct {
 		name     string
 		goos     string
@@ -511,11 +530,185 @@ func TestLoginProberState(t *testing.T) {
 }
 
 func fmtLogin(s loginState) string {
-	f := func(b *bool) string {
-		if b == nil {
-			return "nil"
-		}
-		return fmt.Sprint(*b)
+	return "claude=" + fmtVerdict(s.Claude) + " codex=" + fmtVerdict(s.Codex)
+}
+
+func fmtVerdict(b *bool) string {
+	if b == nil {
+		return "nil"
 	}
-	return "claude=" + f(s.Claude) + " codex=" + f(s.Codex)
+	return fmt.Sprint(*b)
+}
+
+func boolRef(v bool) *bool { return &v }
+
+// loginVerdicts is a LoginCheck answering from a fixed table; a runtime not in
+// it reads unknown.
+func loginVerdicts(m map[string]*bool) func(string) *bool {
+	return func(runtime string) *bool { return m[runtime] }
+}
+
+// exitStatus1 is the error a real `codex login status` gives a logged-out host:
+// an *exec.ExitError, wrapped the way execRunner wraps it.
+func exitStatus1(t *testing.T, stderr string) error {
+	t.Helper()
+	falseBin := ""
+	for _, candidate := range []string{"/usr/bin/false", "/bin/false"} {
+		if _, err := os.Stat(candidate); err == nil {
+			falseBin = candidate
+			break
+		}
+	}
+	if falseBin == "" {
+		t.Fatal("no false(1) at /usr/bin or /bin")
+	}
+	runErr := exec.Command(falseBin).Run()
+	if runErr == nil {
+		t.Fatal("false(1) exited 0")
+	}
+	return fmt.Errorf("%w: %s", runErr, stderr)
+}
+
+// heldKeep is a claude `auth status` seam the test controls: each call reports
+// whether the rendered env file exists as it starts and once more as it ends,
+// and the first call can be held open until release closes.
+type heldKeep struct {
+	mu         sync.Mutex
+	calls      int
+	renderPath string
+	seen       []bool
+	entered    chan struct{}
+	release    chan struct{}
+}
+
+func (k *heldKeep) RunKeepStdout(string, ...string) (string, error) {
+	k.mu.Lock()
+	k.calls++
+	first := k.calls == 1
+	k.mu.Unlock()
+	if first {
+		close(k.entered)
+		<-k.release
+	}
+	_, err := os.Stat(k.renderPath)
+	k.mu.Lock()
+	k.seen = append(k.seen, err == nil)
+	k.mu.Unlock()
+	return `{"loggedIn":true}`, nil
+}
+
+func TestLoginProberCheckForSpawn(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("PATH", filepath.Join(root, "nothing-here"))
+	claudeBin := stageBinary(t, filepath.Join(root, "bin", "claude"), "#!/bin/sh\n")
+	codexBin := stageBinary(t, filepath.Join(root, "bin", "codex"), "#!/bin/sh\n")
+	agentHome := filepath.Join(root, "agents")
+	env := envMap(map[string]string{"HOME": root, "OC_CLAUDE_BIN": claudeBin, "OC_CODEX_BIN": codexBin,
+		"OC_AGENT_HOME": agentHome, "OC_AGENT_ENV_FILE": filepath.Join(root, "no-env-file"),
+		"OC_AGENT_ENV_INHERIT": "0"})
+	newHeld := func() (*loginProber, *heldKeep) {
+		keep := &heldKeep{renderPath: filepath.Join(agentHome, loginCheckEnvName),
+			entered: make(chan struct{}), release: make(chan struct{})}
+		cache := &launchEnvCache{}
+		cache.remember([]agentEnvPair{{"FROM_SHELL", "shell-value"}})
+		runner := &wardenRunner{script: map[string]wardenRun{codexBin + " login status": {out: "Logged in"}}}
+		return newLoginProber(env, runner, keep, "linux", cache, nil), keep
+	}
+
+	t.Run("under a periodic check that is stuck, a spawn's check reads unknown within its budget", func(t *testing.T) {
+		p, keep := newHeld()
+		p.spawnBudget = 200 * time.Millisecond
+		defer close(keep.release)
+		go p.state()
+		<-keep.entered
+
+		gate := buildLoginGate(env, p)
+		done := make(chan *bool, 1)
+		start := time.Now()
+		go func() { done <- gate("codex") }()
+		select {
+		case verdict := <-done:
+			if verdict != nil {
+				t.Errorf("verdict = %s, want unknown", fmtVerdict(verdict))
+			}
+			if elapsed := time.Since(start); elapsed > 3*time.Second {
+				t.Errorf("returned after %s, want about the 200ms budget", elapsed)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("the spawn's check waited on the stuck periodic check past its budget")
+		}
+	})
+
+	t.Run("under a spawn's check that is stuck, a second spawn waits on that check instead of starting another, and once it lands the next spawn checks afresh", func(t *testing.T) {
+		p, keep := newHeld()
+		p.spawnBudget = 200 * time.Millisecond
+		bare := buildLoginGate(env, p)
+		gate := func(runtime string) *bool {
+			done := make(chan *bool, 1)
+			go func() { done <- bare(runtime) }()
+			select {
+			case verdict := <-done:
+				return verdict
+			case <-time.After(10 * time.Second):
+				t.Fatal("a spawn's check did not return within its budget")
+				return nil
+			}
+		}
+		calls := func() int {
+			keep.mu.Lock()
+			defer keep.mu.Unlock()
+			return keep.calls
+		}
+
+		first := gate("claude")
+		second := gate("claude")
+		if first != nil || second != nil {
+			t.Fatalf("verdicts while stuck = %s, %s, want unknown twice", fmtVerdict(first), fmtVerdict(second))
+		}
+		close(keep.release)
+		deadline := time.Now().Add(5 * time.Second)
+		for {
+			p.flightMu.Lock()
+			idle := len(p.inflight) == 0
+			p.flightMu.Unlock()
+			if idle || time.Now().After(deadline) {
+				break
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		time.Sleep(100 * time.Millisecond)
+		if got := calls(); got != 1 {
+			t.Fatalf("auth status runs after two spawns against one stuck check = %d, want 1", got)
+		}
+
+		p.spawnBudget = 5 * time.Second
+		if got := gate("claude"); fmtVerdict(got) != "true" {
+			t.Errorf("verdict once the stuck check landed = %s, want true from a fresh check", fmtVerdict(got))
+		}
+		if got := calls(); got != 2 {
+			t.Errorf("auth status runs = %d, want a fresh second one", got)
+		}
+	})
+
+	t.Run("under a periodic check and a spawn's check of claude at once, each auth status runs with its own env file", func(t *testing.T) {
+		p, keep := newHeld()
+		go func() {
+			<-keep.entered
+			// Let the spawn's check reach the prober while the periodic one is
+			// inside auth status, then let the periodic one finish.
+			time.Sleep(100 * time.Millisecond)
+			close(keep.release)
+		}()
+		periodic := make(chan struct{})
+		go func() { p.state(); close(periodic) }()
+		<-keep.entered
+		p.checkNow("claude")
+		<-periodic
+
+		keep.mu.Lock()
+		defer keep.mu.Unlock()
+		if want := []bool{true, true}; !reflect.DeepEqual(keep.seen, want) {
+			t.Errorf("env file present at each auth status = %v, want %v — one check removed the other's file", keep.seen, want)
+		}
+	})
 }
