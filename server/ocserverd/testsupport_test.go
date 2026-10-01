@@ -26,8 +26,6 @@ const apiTestOwnerPassword = "officraft-support-pass"
 // answer 403 to.
 const apiTestPlainAgentID = "kip"
 
-// newAPITestDAL opens a fresh migrated SQLite database for one test, over the
-// two pools serve time uses: writes on one connection, reads on several.
 // dalTestDeleteMemberRow makes a roster id resolve to no row at all; no product
 // path deletes a member row.
 func dalTestDeleteMemberRow(t *testing.T, d *DAL, id string) {
@@ -37,6 +35,8 @@ func dalTestDeleteMemberRow(t *testing.T, d *DAL, id string) {
 	}
 }
 
+// newAPITestDAL opens a fresh migrated SQLite database for one test, over the
+// two pools serve time uses: writes on one connection, reads on several.
 func newAPITestDAL(t *testing.T) *DAL {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "api-test.db")
