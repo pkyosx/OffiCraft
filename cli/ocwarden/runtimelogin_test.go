@@ -661,7 +661,17 @@ func TestLoginRelaySweepStaleLoginFiles(t *testing.T) {
 		}
 		staged := filepath.Join(dir, codexStagingPrefix+"rl-old-123")
 		h.codex.write(t, filepath.Join(staged, "auth.json"), `{"tokens":{}}`)
+		realHome := filepath.Join(h.codex.root, "real-codex-home")
+		h.codex.write(t, filepath.Join(realHome, "auth.json"), "kept-login")
+		h.codex.write(t, filepath.Join(realHome, codexInstallTempPrefix+"4711"), "half-written")
+		h.codex.write(t, filepath.Join(staged, codexRealHomeMarker), realHome)
 		h.relay.sweepStaleLoginFiles()
+		if got, err := os.ReadFile(filepath.Join(realHome, "auth.json")); err != nil || string(got) != "kept-login" {
+			t.Errorf("the real auth.json after the sweep = %q (err %v), want it kept", got, err)
+		}
+		if left, _ := filepath.Glob(filepath.Join(realHome, codexInstallTempPrefix+"*")); len(left) > 0 {
+			t.Errorf("an install temp file survived the sweep: %v", left)
+		}
 		entries, err := os.ReadDir(dir)
 		if err != nil {
 			t.Fatal(err)

@@ -27,10 +27,11 @@ const (
 // does after 15 minutes. Otherwise it waits until the approve or deny file
 // appears. deny's content goes to stderr and the exit is 1; approve copies the
 // issued file (when there is one) to $CODEX_HOME/auth.json and exits 0 after
-// "Successfully logged in". `login status` exits with the status-rc file's code,
-// else 0 exactly when $CODEX_HOME/auth.json exists.
+// "Successfully logged in". `login status` exits 1 under the CODEX_HOME named
+// in the refuse-home file, else with the status-rc file's code, else 0 exactly
+// when $CODEX_HOME/auth.json exists.
 type fakeCodex struct {
-	root, bin, pid, sawEnv, sawHome, sawConfig, toStderr, approve, deny, statusRC, selfTimeout, noCode, issued string
+	root, bin, pid, sawEnv, sawHome, sawConfig, toStderr, approve, deny, statusRC, refuseHome, selfTimeout, noCode, issued string
 }
 
 func newFakeCodex(t *testing.T) *fakeCodex {
@@ -46,6 +47,7 @@ func newFakeCodex(t *testing.T) *fakeCodex {
 		approve:     filepath.Join(root, "approve"),
 		deny:        filepath.Join(root, "deny"),
 		statusRC:    filepath.Join(root, "status-rc"),
+		refuseHome:  filepath.Join(root, "refuse-home"),
 		selfTimeout: filepath.Join(root, "self-timeout"),
 		noCode:      filepath.Join(root, "no-code"),
 		issued:      filepath.Join(root, "issued", "auth.json"),
@@ -60,7 +62,7 @@ func newFakeCodex(t *testing.T) *fakeCodex {
 		`printf '\n\033[90mContinue only if you started this login in Codex. If a website or another person gave you this code, cancel.\033[0m\n'`
 	f.bin = stageBinary(t, filepath.Join(root, "bin", "codex"), "#!/bin/sh\n"+
 		`__home="${CODEX_HOME:-/nonexistent-codex-home}"`+"\n"+
-		`if [ "$1 $2" = "login status" ]; then [ -f '`+f.statusRC+`' ] && exit "$(/bin/cat '`+f.statusRC+`')"; `+
+		`if [ "$1 $2" = "login status" ]; then [ -f '`+f.refuseHome+`' ] && [ "$(/bin/cat '`+f.refuseHome+`')" = "$__home" ] && exit 1; [ -f '`+f.statusRC+`' ] && exit "$(/bin/cat '`+f.statusRC+`')"; `+
 		`[ -f "$__home/auth.json" ] || { echo 'Not logged in' >&2; exit 1; }; echo 'Logged in using ChatGPT' >&2; exit 0; fi`+"\n"+
 		`echo $$ > '`+f.pid+`'`+"\n"+
 		`printf '%s' "${FROM_FILE-unset}" > '`+f.sawEnv+`'`+"\n"+
@@ -234,6 +236,9 @@ func TestCodexLoginRelay(t *testing.T) {
 		if got := string(readFile(t, h.codex.sawConfig)); got != config {
 			t.Errorf("the staged config.toml = %q, want the member's %q", got, config)
 		}
+		if got := string(readFile(t, filepath.Join(saw, codexRealHomeMarker))); got != codexHome {
+			t.Errorf("the staging home names %q as the real home, want %q", got, codexHome)
+		}
 	})
 
 	t.Run("under codex exiting 0 without writing an auth.json, the relay reports failed and the existing login survives", func(t *testing.T) {
@@ -286,6 +291,57 @@ func TestCodexLoginRelay(t *testing.T) {
 			t.Fatalf("final report = %+v, want %+v", got, want)
 		}
 		wantCodexHomeUntouched(t, h, codexHome, before)
+	})
+
+	t.Run("under codex in the member environment still logged out after the install, the relay reports the install and that it did not take", func(t *testing.T) {
+		h, codexHome := newCodexHarness(t)
+		codexAuthFile(t, h.codex, filepath.Dir(h.codex.issued), "new@example.test")
+		h.codex.write(t, h.codex.refuseHome, codexHome)
+		h.relay.Start("rl-ci", "codex")
+		h.next(t)
+		h.codex.write(t, h.codex.approve, "")
+		if got, want := h.next(t), (loginReport{LoginID: "rl-ci", State: "failed",
+			Reason: "the new login was installed but codex in the member environment still reports logged out"}); got != want {
+			t.Fatalf("final report = %+v, want %+v", got, want)
+		}
+		if !bytes.Equal(readFile(t, filepath.Join(codexHome, "auth.json")), readFile(t, h.codex.issued)) {
+			t.Error("control: the issued login was not installed")
+		}
+	})
+
+	t.Run("under a self-update during an install, Abandon returns only after the install is done", func(t *testing.T) {
+		h, codexHome := newCodexHarness(t)
+		codexAuthFile(t, h.codex, filepath.Dir(h.codex.issued), "new@example.test")
+		entered, release := make(chan struct{}), make(chan struct{})
+		h.relay.installAuth = func(home string, auth []byte) error {
+			close(entered)
+			<-release
+			return installCodexAuth(home, auth)
+		}
+		h.relay.Start("rl-cu", "codex")
+		h.next(t)
+		h.codex.write(t, h.codex.approve, "")
+		select {
+		case <-entered:
+		case <-time.After(10 * time.Second):
+			t.Fatal("the install never started")
+		}
+		abandoned := make(chan struct{})
+		go func() { h.relay.Abandon(); close(abandoned) }()
+		select {
+		case <-abandoned:
+			t.Fatal("Abandon returned while an install was in progress")
+		case <-time.After(300 * time.Millisecond):
+		}
+		close(release)
+		select {
+		case <-abandoned:
+		case <-time.After(10 * time.Second):
+			t.Fatal("Abandon never returned after the install finished")
+		}
+		if !bytes.Equal(readFile(t, filepath.Join(codexHome, "auth.json")), readFile(t, h.codex.issued)) {
+			t.Error("the install did not complete")
+		}
 	})
 
 	t.Run("under a refused device login followed by a hint, the reason is the Error logging in line and the existing login survives", func(t *testing.T) {

@@ -197,15 +197,19 @@ func startLoginProcess(shell, script, bin string) (*loginProc, error) {
 }
 
 type loginRelay struct {
-	prober     *loginProber
-	progress   loginReporter
-	start      loginStarter
-	resolveBin func(runtime string) string
-	remove     func(string) error
-	cap        time.Duration
-	codexCap   time.Duration
-	codeWait   time.Duration
-	logf       func(string, ...any)
+	prober      *loginProber
+	progress    loginReporter
+	start       loginStarter
+	resolveBin  func(runtime string) string
+	remove      func(string) error
+	cap         time.Duration
+	codexCap    time.Duration
+	codeWait    time.Duration
+	installAuth func(home string, auth []byte) error
+	// Held across an install, so Abandon can wait one out before the warden
+	// execs over it.
+	installMu sync.Mutex
+	logf      func(string, ...any)
 
 	mu       sync.Mutex
 	sessions map[string]*loginSession
@@ -270,6 +274,7 @@ func newLoginRelay(prober *loginProber, progress loginReporter, logf func(string
 		logf:     logf,
 		sessions: map[string]*loginSession{},
 	}
+	r.installAuth = installCodexAuth
 	r.resolveBin = func(runtime string) string {
 		if runtime == "codex" {
 			return resolveCodexBin(prober.env)
@@ -540,6 +545,11 @@ func (r *loginRelay) Abandon() {
 		case <-time.After(5 * time.Second):
 		}
 	}
+	// A login past its process (concluding) is no longer in sessions. An install
+	// that starts after this still leaves auth.json whole (one rename) and at
+	// worst a temp file the next startup sweep removes.
+	r.installMu.Lock()
+	r.installMu.Unlock()
 }
 
 // sweepStaleLoginFiles removes what a previous warden process left behind when
@@ -559,7 +569,7 @@ func (r *loginRelay) sweepStaleLoginFiles() {
 	}
 	homes, _ := filepath.Glob(filepath.Join(dir, codexStagingPrefix+"*"))
 	for _, path := range homes {
-		_ = os.RemoveAll(path)
+		sweepCodexStaging(path)
 	}
 	if len(homes) > 0 {
 		r.log("removed %d codex login staging home(s) a previous warden process left behind", len(homes))

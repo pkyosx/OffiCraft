@@ -34,12 +34,17 @@ var (
 const (
 	codexDeviceLoginCommand = "login --device-auth"
 	codexLoggedOutReason    = "codex login status still reports logged out after the login finished"
+	codexInstalledButOut    = "the new login was installed but codex in the member environment still reports logged out"
 	codexNoCodeReason       = "could not read the one-time code from codex's output"
 	codexNoHomeReason       = "the warden cannot state the CODEX_HOME codex would use"
 	codexNoAuthFileReason   = "codex finished the login but wrote no auth.json"
 	codexKeyringReason      = "這台機器的 Codex 把登入存在系統鑰匙圈，OffiCraft 目前不支援"
 	codexDeviceURLPrefix    = "https://auth.openai.com/"
 	codexStagingPrefix      = ".oc-codex-login-"
+	codexInstallTempPrefix  = ".auth.json.oc-"
+	// Inside each staging home: the real CODEX_HOME the login installs into, so
+	// the startup sweep can find an install temp file a killed warden left there.
+	codexRealHomeMarker = "oc-real-codex-home"
 	// Only display claims are read from auth.json; a larger file is still
 	// installed but yields no account.
 	codexAuthFileMax = 1 << 20
@@ -130,6 +135,10 @@ func (r *loginRelay) stageCodexHome(loginID, realHome string) (string, string) {
 	}
 	staging, err := os.MkdirTemp(dir, codexStagingPrefix+loginID+"-")
 	if err != nil {
+		return "", "could not stage the codex login: " + err.Error()
+	}
+	if err := os.WriteFile(filepath.Join(staging, codexRealHomeMarker), []byte(realHome), 0o600); err != nil {
+		_ = os.RemoveAll(staging)
 		return "", "could not stage the codex login: " + err.Error()
 	}
 	if config != nil {
@@ -266,14 +275,17 @@ func (f *codexLoginFlow) conclude(s *loginSession) {
 		r.progress(loginReport{LoginID: s.id, State: "failed", Reason: codexNoAuthFileReason})
 		return
 	}
-	if err := installCodexAuth(f.realHome, auth); err != nil {
+	r.installMu.Lock()
+	err = r.installAuth(f.realHome, auth)
+	r.installMu.Unlock()
+	if err != nil {
 		r.log("%s: could not install the new codex login: %v", s.id, err)
 		r.progress(loginReport{LoginID: s.id, State: "failed",
 			Reason: "could not write the new login into " + f.realHome + ": " + err.Error()})
 		return
 	}
 	if !f.statusOK(s.id+"-status", bin, "") {
-		r.progress(loginReport{LoginID: s.id, State: "failed", Reason: codexLoggedOutReason})
+		r.progress(loginReport{LoginID: s.id, State: "failed", Reason: codexInstalledButOut})
 		return
 	}
 	r.prober.checkNow("codex")
@@ -320,7 +332,7 @@ func installCodexAuth(home string, auth []byte) error {
 	if err := os.MkdirAll(home, 0o700); err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(home, ".auth.json.oc-")
+	tmp, err := os.CreateTemp(home, codexInstallTempPrefix)
 	if err != nil {
 		return err
 	}
@@ -346,6 +358,8 @@ func installCodexAuth(home string, auth []byte) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
+	// ⚠️ An auth.json that is a symlink is replaced by a regular file here; its
+	// target keeps the old login.
 	if err := os.Rename(name, filepath.Join(home, "auth.json")); err != nil {
 		return err
 	}
@@ -386,4 +400,19 @@ func codexAuthAccount(authJSON string) loginAccount {
 		return loginAccount{}
 	}
 	return loginAccount{Email: claims.Email, Plan: claims.Auth.Plan}
+}
+
+// sweepCodexStaging removes a staging home a previous warden process left, and
+// any install temp file it had made in the real CODEX_HOME.
+func sweepCodexStaging(staging string) {
+	if realHome, err := os.ReadFile(filepath.Join(staging, codexRealHomeMarker)); err == nil &&
+		filepath.IsAbs(string(realHome)) {
+		temps, _ := filepath.Glob(filepath.Join(string(realHome), codexInstallTempPrefix+"*"))
+		for _, path := range temps {
+			if info, err := os.Lstat(path); err == nil && info.Mode().IsRegular() {
+				_ = os.Remove(path)
+			}
+		}
+	}
+	_ = os.RemoveAll(staging)
 }
