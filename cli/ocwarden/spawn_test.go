@@ -304,6 +304,11 @@ type timedRecordingRunner struct {
 	timeout time.Duration
 }
 
+func (t timedRecordingRunner) withTimeout(timeout time.Duration) CmdRunner {
+	t.timeout = timeout
+	return t
+}
+
 func (t timedRecordingRunner) Run(name string, args ...string) (string, error) {
 	t.owner.timeouts = append(t.owner.timeouts, t.timeout)
 	return t.owner.wardenRunner.Run(name, args...)
