@@ -4,9 +4,33 @@
 // back over the live document (itself retaining what it overwrote).
 
 import { describe, it, expect, beforeEach } from "vitest";
-import { mockApi, __resetMock } from "./mock";
+import {
+  mockApi,
+  __resetMock,
+  __injectMockMember,
+  __injectMockReplyCard,
+} from "./mock";
 import { ApiError, isHttpStatus } from "./errors";
+import type { ReplyCard } from "./adapter";
 import { documentRevisions } from "../test/documentHistory";
+
+function waitingCard(id: string, from: string): ReplyCard {
+  return {
+    id,
+    from,
+    kind: "decision",
+    summary: "要繼續嗎？",
+    body: "",
+    options: [],
+    selectMode: "single",
+    status: "waiting",
+    attachments: [],
+    createdTs: 1000,
+    answeredTs: null,
+    chatMessageId: `msg-${id}`,
+    answer: null,
+  };
+}
 
 beforeEach(() => {
   __resetMock();
@@ -196,17 +220,38 @@ describe("mockApi · document history", () => {
   // Deleting a document takes its retained revisions with it, in the same
   // transaction (dal.go DeleteRoleDef / DeleteTaskManual):
   // history is readable by any authenticated caller, so a leftover revision is a
-  // readable echo of a deleted document and makes the guide's 「永久移除」 false.
+  // readable echo of a deleted document and makes the guide's 「永久刪除」 false.
   // No live cockpit path reaches a stale row today — role keys and manual
   // type_keys are randomly minted, so a deleted key is never seen again — but
   // the mock is the cockpit's stand-in for the contract: one that still lists
   // history for a deleted document teaches the UI, and the next reader of this
   // file, a behaviour the server does not have.
-  it("deleting a role drops its own history and its insight history, and dismisses its members with their chats kept", async () => {
+  it("deleting a role drops its own history and its insight history, and dismisses its members with their chats kept and their waiting cards expired", async () => {
     const { roleKey, memberId } = await mockApi.createRole({
       name: "臨時角色",
       memberName: "小明",
     });
+    __injectMockMember({
+      id: "m-xiaohua",
+      kind: "staff",
+      name: "小華",
+      role_key: roleKey,
+      roster_status: "active",
+      desired_state: "online",
+      presence: "offline",
+    });
+    // Already dismissed but still connected: only an ACTIVE online member blocks.
+    __injectMockMember({
+      id: "m-gone",
+      kind: "staff",
+      name: "老王",
+      role_key: roleKey,
+      roster_status: "removed",
+      desired_state: "offline",
+      presence: "online",
+    });
+    __injectMockReplyCard(waitingCard("rc-role-member", memberId));
+    __injectMockReplyCard(waitingCard("rc-other-member", "mira"));
     await mockApi.postChat({ to: memberId, body: "交接一下" });
     await mockApi.markChatRead({ peer: memberId, lastReadTs: 1234 });
     await mockApi.saveRole(roleKey, { definitionMd: "改寫" });
@@ -228,9 +273,22 @@ describe("mockApi · document history", () => {
     ).toEqual([]);
     expect(await documentRevisions(mockApi, "insight", roleKey)).toEqual([]);
 
-    expect((await mockApi.listMembers()).map((m) => m.id)).not.toContain(memberId);
+    const listedIds = (await mockApi.listMembers()).map((m) => m.id);
+    expect(
+      [memberId, "m-xiaohua", "m-gone"].filter((id) => listedIds.includes(id))
+    ).toEqual([]);
     const dismissed = await mockApi.getMember(memberId);
     expect([dismissed.name, dismissed.desiredState]).toEqual(["小明", "offline"]);
+    const wasOnline = await mockApi.getMember("m-xiaohua");
+    expect([wasOnline.name, wasOnline.desiredState]).toEqual(["小華", "offline"]);
+    const roleCard = await mockApi.getReplyCard("rc-role-member");
+    expect([roleCard.status, (roleCard.expiredTs ?? 0) > 0]).toEqual([
+      "expired",
+      true,
+    ]);
+    expect((await mockApi.getReplyCard("rc-other-member")).status).toBe(
+      "waiting"
+    );
     expect((await mockApi.getOutsourceWorker(memberId)).codename).toBe("小明");
     expect(
       (await mockApi.listChat(memberId)).map((m) => [m.from, m.body])

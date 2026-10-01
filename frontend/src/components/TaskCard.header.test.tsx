@@ -29,17 +29,25 @@ import type { TaskView } from "../api/adapter";
 // (the hook has its own tests) — only "ow-rel" and "m-left" resolve, so the
 // unresolvable-raw-id cases below stay honest.
 const UNLISTED_NAMES: Record<string, string> = { "ow-rel": "R-2", "m-left": "阿哲" };
+const UNLISTED_AVATARS: Record<string, string> = {
+  "ow-rel": "/api/chat/attachment/ava-released",
+  "m-left": "/api/chat/attachment/ava-left",
+};
+// Every id the card asks the per-id read about, across both accessors.
+const lookedUp = new Set<string>();
 vi.mock("../hooks/useWorkerCodenames", () => ({
-  useWorkerCodenames: (ids: readonly string[]) =>
-    new Map(
+  useWorkerCodenames: (ids: readonly string[]) => {
+    ids.forEach((id) => lookedUp.add(id));
+    return new Map(
       ids.filter((id) => id in UNLISTED_NAMES).map((id) => [id, UNLISTED_NAMES[id]]),
-    ),
-  useWorkerAvatarUrls: (ids: readonly string[]) =>
-    new Map(
-      ids
-        .filter((id) => id === "ow-rel")
-        .map((id) => [id, "/api/chat/attachment/ava-released"]),
-    ),
+    );
+  },
+  useWorkerAvatarUrls: (ids: readonly string[]) => {
+    ids.forEach((id) => lookedUp.add(id));
+    return new Map(
+      ids.filter((id) => id in UNLISTED_AVATARS).map((id) => [id, UNLISTED_AVATARS[id]]),
+    );
+  },
 }));
 
 let seq = 0;
@@ -82,6 +90,7 @@ function renderPage() {
 beforeEach(() => {
   __resetMock();
   window.location.hash = "";
+  lookedUp.clear();
 });
 
 describe("TaskCard 卡頭對齊 owner spec (T-705e)", () => {
@@ -314,6 +323,16 @@ describe("TaskCard 卡頭對齊 owner spec (T-705e)", () => {
         .querySelector('[data-testid="task-msg-input"]')
         ?.getAttribute("placeholder")
     ).toBe("傳訊息給 阿哲…");
+    expect(
+      byTitle("正職已離開")
+        .querySelector('[data-testid="task-assignee-link"] .avatar__img')
+        ?.getAttribute("src")
+    ).toBe("/api/chat/attachment/ava-left");
+
+    fireEvent.click(byTitle("正職已離開").querySelector(".task-card__title")!);
+    expect(
+      (await findAllByTestId("task-transition")).map((n) => n.textContent)
+    ).toEqual(["等待 阿哲 建立 Steps"]);
 
     fireEvent.click(
       byTitle("正職已離開").querySelector('[data-testid="task-assignee-link"]')!
@@ -520,6 +539,9 @@ describe("TaskCard 卡頭對齊 owner spec (T-705e)", () => {
 
       expect(creatorLinkOf("已釋出建立").textContent).toBe("外包 · R-2");
       expect(creatorLinkOf("已離開建立").textContent).toBe("阿哲");
+      expect(
+        creatorLinkOf("已離開建立").querySelector(".avatar__img")?.getAttribute("src")
+      ).toBe("/api/chat/attachment/ava-left");
       fireEvent.click(creatorLinkOf("已離開建立"));
       expect(window.location.hash).toBe(
         `#office/chat/m-left/compose/${encodeURIComponent(dismissed.taskNo)}`
@@ -558,6 +580,9 @@ describe("TaskCard 卡頭對齊 owner spec (T-705e)", () => {
           )?.textContent
         ).toBe(text);
       }
+      // Executor "mira" is listed, "owner" is never a member and 前任 is "":
+      // only the one id no list could answer is read.
+      expect([...lookedUp]).toEqual(["m-unknown"]);
     });
   });
 });

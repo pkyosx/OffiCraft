@@ -1401,7 +1401,7 @@ func deleteRoleDefOn(ex sqlExecer, roleKey string) (bool, error) {
 		return false, err
 	}
 	// History goes in the same tx: its read face is open to every authenticated
-	// caller, and the guide promises 「永久移除」.
+	// caller, and the guide promises 「永久刪除」.
 	_, err = ex.Exec(`DELETE FROM document_history
 		WHERE document_kind = 'role_definition' AND document_key = ?`, roleKey)
 	return n > 0, err

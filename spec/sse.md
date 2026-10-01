@@ -220,8 +220,8 @@ riding a topic that names a different document; everything else is the M1 freeze
 | topic | trigger | op |
 |---|---|---|
 | `member` | any roster write, including outsource assignment / claim / release | patch / remove |
-| `chat` | message append; cascade delete | patch |
-| `chat_read` | read-watermark advance; cascade delete | patch |
+| `chat` | message append | patch |
+| `chat_read` | read-watermark advance | patch |
 | `reply_card` | reply-card create / answer / answer revision / expire | patch |
 | `task` | any durable task write (create / status / priority / plan / step / deps / executor assignment / terminate) | patch |
 | `task_manual` | manual create / edit / delete | patch |

@@ -2921,10 +2921,16 @@ const mockApiImpl = {
 
   async dismissMember(id: string): Promise<void> {
     // Soft delete (mirror handle_dismiss_member): flip status=removed + intent
-    // desired_state=offline. listMembers drops the row; getMember still reads it.
+    // desired_state=offline, and retire the asks nobody is left to act on.
+    // listMembers drops the row; getMember still reads it.
     const w = findWire(id);
     w.roster_status = "removed";
     w.desired_state = "offline";
+    for (const c of replyCards) {
+      if (c.from === id && c.status === "waiting") {
+        await mockApiImpl.expireReplyCard(c.id);
+      }
+    }
   },
 
   async patchMember(id: string, patch: MemberPatch): Promise<void> {
@@ -6644,11 +6650,15 @@ const mockApiImpl = {
       );
     }
     const members = wireMembers.filter((m) => m.role_key === key);
-    if (members.some((m) => m.presence !== "offline")) {
+    const live = members
+      .filter((m) => m.roster_status === "active" && m.presence !== "offline")
+      .map((m) => m.id)
+      .sort();
+    if (live.length > 0) {
       throw mockApiError(
         `http 409 for DELETE /api/roles/${key}`,
         409,
-        `role '${key}' has online member(s) — stop them before deleting`
+        `role '${key}' has online member(s): ${live.join(", ")} — stop them before deleting`
       );
     }
     for (const m of members) await mockApiImpl.dismissMember(m.id);

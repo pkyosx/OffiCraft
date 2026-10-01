@@ -118,15 +118,30 @@ describe("useWorkerCodenames", () => {
     expect(getOutsourceWorker).toHaveBeenCalledTimes(1);
   });
 
-  it("fetches each id once and shares the cache across mounts", async () => {
-    getOutsourceWorker.mockResolvedValue({ id: "ow-abc", codename: "X-1" });
-    const first = renderHook(() => useWorkerCodenames(["ow-abc"]));
+  it("fetches each id once, including one that joins after mount, and shares the cache across mounts", async () => {
+    getOutsourceWorker.mockImplementation(async (id: string) =>
+      id === "ow-abc"
+        ? { id: "ow-abc", codename: "X-1" }
+        : { id: "m-new", codename: "新人" },
+    );
+    const first = renderHook(({ ids }) => useWorkerCodenames(ids), {
+      initialProps: { ids: ["ow-abc"] },
+    });
     await waitFor(() => {
       expect(first.result.current.get("ow-abc")).toBe("X-1");
     });
-    const second = renderHook(() => useWorkerCodenames(["ow-abc"]));
+    first.rerender({ ids: ["ow-abc", "m-new"] });
+    await waitFor(() => {
+      expect(first.result.current).toEqual(
+        new Map([
+          ["ow-abc", "X-1"],
+          ["m-new", "新人"],
+        ]),
+      );
+    });
+    const second = renderHook(() => useWorkerCodenames(["ow-abc", "m-new"]));
     expect(second.result.current.get("ow-abc")).toBe("X-1");
-    expect(getOutsourceWorker).toHaveBeenCalledTimes(1);
+    expect(getOutsourceWorker.mock.calls).toEqual([["ow-abc"], ["m-new"]]);
   });
   // ── T-196: the current-task accessor ───────────────────────────────────────
   // The same per-id read now feeds a THIRD display fact (the worker's bound
