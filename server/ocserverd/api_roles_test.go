@@ -1087,17 +1087,18 @@ func TestHandleDeleteRoleApiRolesRoleDelete(t *testing.T) {
 		}
 	})
 
-	t.Run("an already-removed member of the role is announced again to its own connection and nobody else's", func(t *testing.T) {
+	t.Run("an already-removed member of the role is announced again to its own connection and nobody else's, and its session is sent a stop", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		if err := d.PutRoleDef(RoleDef{RoleKey: "r-design", Name: "Design", DefinitionMD: "# Duty"}); err != nil {
 			t.Fatalf("PutRoleDef: %v", err)
 		}
 		if err := d.PutMember(Member{
-			ID: "m-zed", Name: "Zed", Kind: KindStaff,
-			RoleKey: "r-design", RosterStatus: RosterStatusRemoved,
+			ID: "m-zed", Name: "Zed", Kind: KindStaff, RoleKey: "r-design",
+			RosterStatus: RosterStatusRemoved, DesiredMachineID: ServerSelfHost,
 		}); err != nil {
 			t.Fatalf("PutMember: %v", err)
 		}
+		apiTestListen(t, api, ServerSelfHost)
 		dashboard := apiTestListen(t, api, "")
 		deleted := apiTestListen(t, api, "m-zed")
 		bystander := apiTestListen(t, api, "kip")
@@ -1140,6 +1141,7 @@ func TestHandleDeleteRoleApiRolesRoleDelete(t *testing.T) {
 		})
 		deleted.wantFrames(memberFrame)
 		bystander.wantFrames()
+		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("m-zed"))
 	})
 
 	t.Run("deleting a custom role nothing hangs off answers no members and fans only the role removal", func(t *testing.T) {

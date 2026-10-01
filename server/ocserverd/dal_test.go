@@ -496,64 +496,6 @@ func TestSetMemberOpReceipt(t *testing.T) {
 	}
 }
 
-func TestHardDeleteMember(t *testing.T) {
-	d := newAPITestDAL(t)
-	ann := dalTestMember("ann", "Ann")
-	ann.AvatarAttachmentID = "blob-ann"
-	dalPutMember(t, d, ann)
-	bob := dalPutMember(t, d, dalTestMember("bob", "Bob"))
-	for _, id := range []string{"blob-ann", "blob-loose"} {
-		if err := d.PutChatAttachment(ChatAttachment{ID: id, Mime: "image/png", Data: []byte(id)}); err != nil {
-			t.Fatalf("PutChatAttachment(%q): %v", id, err)
-		}
-	}
-
-	deleted, err := d.HardDeleteMember("ann")
-	if err != nil {
-		t.Fatalf("HardDeleteMember(ann): %v", err)
-	}
-	if !deleted {
-		t.Fatalf("HardDeleteMember(ann): want true, got false")
-	}
-	if got, err := d.GetMember("ann"); err != nil || got != nil {
-		t.Fatalf("HardDeleteMember must remove the row, got %+v, %v", got, err)
-	}
-	if got, err := d.GetChatAttachment("blob-ann"); err != nil || got != nil {
-		t.Fatalf("HardDeleteMember must collect the dedicated avatar blob, got %+v, %v", got, err)
-	}
-	loose, err := d.GetChatAttachment("blob-loose")
-	if err != nil {
-		t.Fatalf("GetChatAttachment(blob-loose): %v", err)
-	}
-	if !reflect.DeepEqual(loose, &ChatAttachment{ID: "blob-loose", Mime: "image/png", Data: []byte("blob-loose")}) {
-		t.Fatalf("HardDeleteMember must leave another member's blobs alone, got %+v", loose)
-	}
-	dalWantMember(t, d, bob)
-
-	deleted, err = d.HardDeleteMember("ann")
-	if err != nil {
-		t.Fatalf("HardDeleteMember(ann) again: %v", err)
-	}
-	if deleted {
-		t.Fatalf("HardDeleteMember on an absent row: want false, got true")
-	}
-
-	deleted, err = d.HardDeleteMember("bob")
-	if err != nil {
-		t.Fatalf("HardDeleteMember(bob): %v", err)
-	}
-	if !deleted {
-		t.Fatalf("HardDeleteMember(bob): want true, got false")
-	}
-	rest, err := d.ListMembers()
-	if err != nil {
-		t.Fatalf("ListMembers: %v", err)
-	}
-	if len(rest) != 0 {
-		t.Fatalf("ListMembers after both deletes: want none, got %+v", rest)
-	}
-}
-
 func TestScanChat(t *testing.T) {
 	d := newAPITestDAL(t)
 	rich := ChatMessage{

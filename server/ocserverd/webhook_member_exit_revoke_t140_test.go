@@ -371,8 +371,8 @@ func TestMemberExitRevoke_NeedsNoGoCode(t *testing.T) {
 
 	// The three exit shapes: the staff soft delete (api_members dismiss) and the
 	// worker release (dal_tasks ReleaseWorker*), written exactly as production
-	// writes them, and a hard row delete (dal HardDeleteMember), which no
-	// production path takes any more but the AFTER DELETE trigger still covers.
+	// writes them, and a raw row delete, which no product path issues but the
+	// AFTER DELETE trigger still covers.
 	if _, err := db.Exec(
 		`UPDATE member SET roster_status = 'removed', desired_state = 'offline' WHERE id = 'm-raw-staff'`); err != nil {
 		t.Fatalf("soft delete: %v", err)

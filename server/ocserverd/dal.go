@@ -402,51 +402,6 @@ func setMemberLastOpOn(ex sqlExecer, id, op string, ok *bool, log, reason string
 	return err
 }
 
-func (d *DAL) HardDeleteMember(id string) (bool, error) {
-	var deleted bool
-	err := d.inTx(func(tx *writeTx) error {
-		var err error
-		deleted, err = hardDeleteMemberOn(tx, id)
-		return err
-	})
-	return deleted, err
-}
-
-func hardDeleteMemberOn(tx *writeTx, id string) (bool, error) {
-	var avatarID string
-	err := tx.QueryRow(`SELECT avatar_attachment_id FROM member WHERE id = ?`, id).Scan(&avatarID)
-	if errors.Is(err, sql.ErrNoRows) {
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	res, err := tx.Exec(`DELETE FROM member WHERE id = ?`, id)
-	if err != nil {
-		return false, err
-	}
-	if avatarID != "" {
-		// Avatar blobs are dedicated (ava- ids, kept out of the general attachment
-		// graph), which is why
-		// Replace/DeleteMemberAvatar drop the old blob outright; this survivor check
-		// only guards against legacy/corrupt cross-references.
-		surviving := map[string]bool{}
-		if err := collectSurvivingBlobRefs(tx, surviving); err != nil {
-			return false, err
-		}
-		if !surviving[avatarID] {
-			if _, err := tx.Exec(`DELETE FROM chat_attachment WHERE id = ?`, avatarID); err != nil {
-				return false, err
-			}
-		}
-	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return false, err
-	}
-	return n > 0, nil
-}
-
 type ChatMessage struct {
 	ID        string
 	Sender    string
@@ -898,7 +853,7 @@ func collectOrphanBlobs(tx *writeTx, candidates map[string]bool) (int, error) {
 }
 
 // collectSurvivingBlobRefs is the only liveness verdict for chat_attachment
-// blobs (collectOrphanBlobs, HardDeleteMember, dal_task_artifacts.go). A NEW
+// blobs (collectOrphanBlobs, dal_task_artifacts.go). A NEW
 // non-derived column holding blob ids MUST be added here: a blob whose referrer
 // this scan does not know is deleted under it, silently.
 // chat_attachment_ref.attachment_id deliberately does NOT vote — it is a

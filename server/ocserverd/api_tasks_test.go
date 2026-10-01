@@ -1484,9 +1484,7 @@ func TestTaskCallerOf(t *testing.T) {
 	t.Run("a sub with no roster row resolves to a plain agent carrying no member", func(t *testing.T) {
 		api, _, d, _ := newAPITestServer(t)
 		token := apiTestAgentToken(t, api, "kip", "")
-		if _, err := d.HardDeleteMember("kip"); err != nil {
-			t.Fatalf("HardDeleteMember: %v", err)
-		}
+		dalTestDeleteMemberRow(t, d, "kip")
 		taskTestUnderCaller(t, api, d, token, func(r *http.Request) {
 			c, err := taskCallerOf(api.dal.GetMember, r)
 			if err != nil {
@@ -3144,9 +3142,7 @@ func TestCallerMayTerminateTask(t *testing.T) {
 			t.Fatalf("resolveTask: %v", err)
 		}
 		token := apiTestAgentToken(t, api, "kip", "")
-		if _, err := d.HardDeleteMember("kip"); err != nil {
-			t.Fatalf("HardDeleteMember: %v", err)
-		}
+		dalTestDeleteMemberRow(t, d, "kip")
 		taskTestUnderCaller(t, api, d, token, func(r *http.Request) {
 			ok, reason := callerMayTerminateTask(api.dal.GetMember, r, *task)
 			if ok || reason != taskActorRefusal {
@@ -7215,9 +7211,7 @@ func TestArtifactOnTask(t *testing.T) {
 		api, h, owner, artifactID := pinned(t)
 		apiJSON(t, h, "POST", "/api/tasks/T-1/mark-terminated", owner, "")
 		bystander := apiTestAgentToken(t, api, "mira", "")
-		if _, err := api.dal.HardDeleteMember("mira"); err != nil {
-			t.Fatalf("HardDeleteMember: %v", err)
-		}
+		dalTestDeleteMemberRow(t, api.dal, "mira")
 
 		status, data := apiJSON(t, h, "DELETE", "/api/tasks/T-1/artifact/"+artifactID, bystander, "")
 		if status != 403 {
@@ -7267,9 +7261,7 @@ func TestArtifactOnTask(t *testing.T) {
 			`{"url":"https://example.com/pr/124"}`)
 		apiJSON(t, h, "POST", "/api/tasks/T-1/mark-terminated", owner, "")
 		bystander := apiTestAgentToken(t, api, "mira", "")
-		if _, err := api.dal.HardDeleteMember("mira"); err != nil {
-			t.Fatalf("HardDeleteMember: %v", err)
-		}
+		dalTestDeleteMemberRow(t, api.dal, "mira")
 
 		rec := apiRequest(t, h, "GET", "/api/tasks/T-1/artifact/"+artifactID+"/history", bystander, "")
 		if rec.Code != 200 {
