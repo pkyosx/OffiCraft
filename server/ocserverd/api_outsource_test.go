@@ -1770,6 +1770,42 @@ func TestHandleRestartOutsourceWorkerApiOutsourceWorkersIdRestartPost(t *testing
 		}))
 	})
 
+	t.Run("when the session 喚醒 left alone later ends and the worker is started again, the note is dropped and the wake stays a success", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
+		if err := d.SetMemberDesiredMachineID("ow-abc123", ServerSelfHost); err != nil {
+			t.Fatalf("SetMemberDesiredMachineID: %v", err)
+		}
+		apiTestListen(t, api, ServerSelfHost)
+		session, err := api.hub.Connect("ow-abc123", ServerSelfHost)
+		if err != nil {
+			t.Fatalf("hub.Connect: %v", err)
+		}
+		if status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/activate", owner, ""); status != 200 {
+			t.Fatalf("activate: %d (%v)", status, data)
+		}
+		stamped, err := d.GetOutsourceWorker("ow-abc123")
+		if err != nil || stamped == nil {
+			t.Fatalf("GetOutsourceWorker: %v (%v)", stamped, err)
+		}
+		api.hub.Disconnect(session)
+		status, boot := apiJSON(t, h, "GET", "/api/outsource-workers/ow-abc123/boot-context", owner, "")
+		if status != 200 {
+			t.Fatalf("boot-context preview: %d (%v)", status, boot)
+		}
+
+		api.runOutsourceTick(stamped.LastOpAt + 30)
+
+		wsWantWardenFrames(t, api, ServerSelfHost,
+			wsStartFrame("ow-abc123", boot["context"].(string), "claude", "sonnet", "medium"))
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "active", "presence": "waking", "desired_state": "online",
+			"desired_machine_id": "m-server-self", "machine": "m-server-self",
+			"last_op": "start", "last_op_ok": true, "last_op_log": "",
+			"last_op_reason": "", "last_op_at": stamped.LastOpAt,
+		}))
+	})
+
 	t.Run("喚醒 on a live worker leaves an 加速停止 already under way running", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)

@@ -205,14 +205,6 @@ var spawnBlockedReasonCodes = []string{
 	spawnReasonSessionAlive,
 }
 
-// stampWorkerOpReceipt stamps a receipt onto an in-memory worker the caller is
-// about to write; PutMember no longer carries the receipt columns, so the caller
-// must follow with dal.SetMemberLastOp.
-func stampWorkerOpReceipt(w *OutsourceWorker, reason string, now float64) {
-	stampOpReceipt(&w.LastOp, &w.LastOpOK, &w.LastOpLog, &w.LastOpReason, &w.LastOpAt,
-		reconcileCmdStart, reason, now)
-}
-
 const sessionAliveWakeReceipt = spawnReasonSessionAlive + ": it was already " +
 	"running — 喚醒 left that session alone and dispatched nothing. Its work, and " +
 	"any 加速停止 or 重新聚焦 already under way on it, are untouched. To end the " +
@@ -305,13 +297,15 @@ func (s *apiServer) clearWorkerPlacementBlock(workerID string) {
 		if err != nil || fresh == nil || fresh.LastOp != reconcileCmdStart {
 			return err
 		}
-		if !isSpawnBlockedReason(fresh.LastOpReason) {
+		if !dropSpawnBlockedNote(&fresh.LastOpLog, &fresh.LastOpReason) {
 			return nil
 		}
-		fresh.LastOpReason = ""
-		fresh.LastOpLog = ""
-		// nil, not false: a leftover false renders as a FAILED start with nothing to explain it.
-		fresh.LastOpOK = nil
+		// A refusal's false goes to nil: that verdict belonged to the note just retired, and the
+		// dispatched start has none yet. nil still paints ✗ (receiptRendersAsFailure) until the
+		// converged-online clear removes the line. Staff keeps the false instead; both paint the same.
+		if fresh.LastOpOK != nil && !*fresh.LastOpOK {
+			fresh.LastOpOK = nil
+		}
 		// last_op and last_op_at are written back unchanged on purpose: last_op_at is
 		// what tells "stalled an hour ago" from "stalled now". Do not zero them.
 		return setMemberLastOpOn(tx, fresh.ID, fresh.LastOp, fresh.LastOpOK, fresh.LastOpLog,

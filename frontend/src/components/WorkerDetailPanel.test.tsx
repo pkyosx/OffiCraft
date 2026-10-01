@@ -300,8 +300,8 @@ describe("WorkerDetailPanel — honest presence states (A案 P6 member vocabular
 
   // 喚醒 on a worker that is already running leaves it alone; that is the
   // press doing its job, so the receipt is ✓ with the amber note, the same as
-  // the member panel. Read through the mock adapter, which must answer what the
-  // server stores.
+  // the member panel. Read through the mock adapter's 喚醒 answer, so it covers
+  // what the mock stores for that press as well as how the panel paints it.
   it("paints the note 喚醒 leaves on a running worker as ✓ 成功 with the amber note", async () => {
     __injectMockTask(mkTask({ id: "t-1" }));
     __injectMockOutsourceWorker(

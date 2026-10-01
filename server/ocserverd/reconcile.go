@@ -1222,10 +1222,7 @@ func (s *apiServer) stampWakeObservability(m *Member, decision reconcileDecision
 		changed = true
 		// Only a PLACEMENT stamp is cleared on dispatch: wake_timeout and refused-start receipts say why
 		// a boot failed and survive the retry; convergence (below) is what clears them.
-		if isSpawnBlockedReason(m.LastOpReason) {
-			m.LastOpReason = ""
-			m.LastOpLog = ""
-		}
+		dropSpawnBlockedNote(&m.LastOpLog, &m.LastOpReason)
 	}
 	if decision.ConvergedOnline {
 		s.clearMemberConvergedFailureReceipt(m.ID, *m)
@@ -1250,9 +1247,8 @@ func (s *apiServer) stampWakeObservability(m *Member, decision reconcileDecision
 			fresh.LastOpReason = m.LastOpReason
 			fresh.LastOpAt = m.LastOpAt
 		}
-		if decision.Command == reconcileCmdStart && isSpawnBlockedReason(fresh.LastOpReason) {
-			fresh.LastOpReason = ""
-			fresh.LastOpLog = ""
+		if decision.Command == reconcileCmdStart {
+			dropSpawnBlockedNote(&fresh.LastOpLog, &fresh.LastOpReason)
 		}
 		fresh.WakingSince = m.WakingSince
 		stamped = fresh
@@ -1299,6 +1295,19 @@ func (s *apiServer) clearMemberConvergedFailureReceipt(memberID string, snapshot
 		fresh.LastOpAt = 0.0
 		return true
 	})
+}
+
+// dropSpawnBlockedNote retires a "did not dispatch" note once a START has been dispatched, for
+// staff and outsource alike, and reports whether there was one. The verdict is left to the caller:
+// a success with a note (喚醒 on a running session) must stay a success, because the later dispatch
+// does not make that earlier wake a failure.
+func dropSpawnBlockedNote(lastOpLog, lastOpReason *string) bool {
+	if !isSpawnBlockedReason(*lastOpReason) {
+		return false
+	}
+	*lastOpReason = ""
+	*lastOpLog = ""
+	return true
 }
 
 func isSpawnBlockedReason(reason string) bool {

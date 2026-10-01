@@ -390,43 +390,6 @@ func TestResolveStickyWorkerPlacement(t *testing.T) {
 	})
 }
 
-func TestStampWorkerOpReceipt(t *testing.T) {
-	t.Run("stamping writes the whole five-column receipt onto the caller's own struct as a FAILED start", func(t *testing.T) {
-		w := OutsourceWorker{ID: "ow-abc123", Codename: "Contractor", Status: WorkerStatusAssigned}
-
-		stampWorkerOpReceipt(&w, "no_machine_selected: nothing was picked", 1234.5)
-
-		if w.LastOpOK == nil {
-			t.Fatalf("last_op_ok must be a written false, not an absent verdict: %#v", w)
-		}
-		apiWantValue(t, "receipt", any(map[string]any{
-			"last_op": w.LastOp, "last_op_ok": *w.LastOpOK, "last_op_log": w.LastOpLog,
-			"last_op_reason": w.LastOpReason, "last_op_at": w.LastOpAt,
-			"id": w.ID, "codename": w.Codename, "status": w.Status,
-		}), any(map[string]any{
-			"last_op": "start", "last_op_ok": false, "last_op_log": "",
-			"last_op_reason": "no_machine_selected: nothing was picked", "last_op_at": 1234.5,
-			"id": "ow-abc123", "codename": "Contractor", "status": "assigned",
-		}))
-	})
-
-	t.Run("a second stamp replaces the whole receipt, so a stale log line from the previous one cannot survive", func(t *testing.T) {
-		w := OutsourceWorker{ID: "ow-abc123"}
-		stampWorkerOpReceipt(&w, "machine_unavailable: offline", 100)
-		w.LastOpLog = "warden said: boom"
-
-		stampWorkerOpReceipt(&w, "wake_timeout: never came up", 200)
-
-		apiWantValue(t, "receipt", any(map[string]any{
-			"last_op": w.LastOp, "last_op_ok": *w.LastOpOK, "last_op_log": w.LastOpLog,
-			"last_op_reason": w.LastOpReason, "last_op_at": w.LastOpAt,
-		}), any(map[string]any{
-			"last_op": "start", "last_op_ok": false, "last_op_log": "",
-			"last_op_reason": "wake_timeout: never came up", "last_op_at": 200.0,
-		}))
-	})
-}
-
 func TestWakeTimeoutOverWardenReceipt(t *testing.T) {
 	const wardenRefusal = "session_already_exists: a live session is holding the slot"
 	const composed = wardenRefusal + " — the start window then lapsed, but that is NOT a " +

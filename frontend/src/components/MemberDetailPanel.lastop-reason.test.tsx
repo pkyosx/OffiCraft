@@ -17,8 +17,8 @@
 //   4. A SUCCEEDED op with no reason still renders status-only.
 //   5. 喚醒 on a member that is already running is a SUCCESS that carries the
 //      session_alive note: ✓ and the amber note, never the red ✗ 失敗. Built
-//      from the mock adapter's own answer, so the mock cannot drift back to
-//      a failure unseen.
+//      from the mock adapter's own 喚醒 answer, so it covers what the mock
+//      stores for that press as well as how the panel paints it.
 
 import { describe, it, expect } from "vitest";
 import { readFile } from "node:fs/promises";
