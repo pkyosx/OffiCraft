@@ -820,6 +820,12 @@ var identityGateLedger = map[string]string{
 		"cannot be a Requires floor.",
 	"api_members.go :: HandleDeleteMemberAvatarApiMembersMemberIdAvatarDelete :: m.Kind == KindWarden": "" +
 		"the delete half of the same T-c826 target rule, same reasoning.",
+	"api_members.go :: HandleGetMemberBootContextApiMembersMemberIdBootContextGet :: m.Kind == KindWarden": "" +
+		"a warden is a machine, not an AI member: no start frame ever carries a staff " +
+		"boot context for it, so the staff preview answers 404 for that kind the same " +
+		"as an unknown id. Classifies the TARGET, not the caller (the route floor " +
+		"decides the caller), and is not a staff/outsource difference: outsource ids " +
+		"are refused by staffOnly and read their own preview route.",
 
 	// ── offboard / wind-down ────────────────────────────────────────────────
 	"api_members.go :: offboardManualWriteBackFor :: m.Kind != KindOutsource": "" +
