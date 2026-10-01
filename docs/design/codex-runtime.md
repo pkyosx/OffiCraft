@@ -38,8 +38,10 @@ The adapter reuses the Claude persona mechanism:
 
 1. write the server-folded context to the member's private `persona.md`;
 2. configure the same OffiCraft MCP endpoint and member JWT;
-3. pass only a minimal App Server developer instruction that directs Codex to read and
-   obey that persona file.
+3. pass the persona file's whole text, behind a short header, as the App Server
+   developer instructions. Codex re-injects developer instructions after every
+   compaction and drops tool outputs, so a persona read through the shell would be
+   lost at the first compaction.
 
 No generated `AGENTS.md`, duplicate prompt fold, or per-member `CODEX_HOME` is introduced.
 Codex uses the machine user's existing login/config, just as Claude uses the shared machine

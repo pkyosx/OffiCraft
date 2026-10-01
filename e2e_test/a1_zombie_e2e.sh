@@ -203,11 +203,11 @@ tmux_has_session() {
 listener_pid_of() {
   local agent="$1" wd pid matches=()
   wd="$(agent_workdir "$HOME_DIR" "$agent")"
-  # EXACT process name (pgrep -x), NOT -f. The agent's own claude process carries the
-  # string "ocagent listen" INSIDE its --append-system-prompt persona text, so -f also
-  # matches the claude parent AND the zsh wrapper — 3 hits per workdir → AMBIGUOUS →
-  # we refuse to pick → stage fails. Only the real listener has comm == "ocagent".
-  # (This is NOT a timing race: polling longer never reduces the 3 matches.)
+  # EXACT process name (pgrep -x), NOT -f. -f matches every process whose command line
+  # merely mentions "ocagent listen", so one workdir can yield several hits →
+  # AMBIGUOUS → we refuse to pick → stage fails. Only the real listener has
+  # comm == "ocagent".
+  # (This is NOT a timing race: polling longer never reduces the extra matches.)
   # Then keep only pids whose cwd is $wd.
   local p
   for p in $(pgrep -x ocagent 2>/dev/null || true); do
