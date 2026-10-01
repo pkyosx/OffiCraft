@@ -3324,12 +3324,13 @@ func TestRunReconcileTick(t *testing.T) {
 		reconcileTestWantRow(t, d, "left", before)
 	})
 
-	t.Run("a removed member still owing a stop is sent it again past stop_retry, and drops off once it is offline", func(t *testing.T) {
+	t.Run("a removed member still owing a stop is sent it again past stop_retry, and once offline drops off without a second stop even past the confirm window", func(t *testing.T) {
 		api, d := reconcileTestServer(t)
 		reconcileTestOnline(t, api, "m-box", "")
 		reconcileTestPut(t, d, Member{
 			ID: "left", Name: "Left", Kind: KindStaff, RoleKey: "assistant",
 			DesiredState: DesiredStateOffline, RosterStatus: RosterStatusRemoved,
+			StoppingSince: reconcileTestNow - 100,
 		})
 		session := reconcileTestOnline(t, api, "left", "m-box")
 		api.noteRobustStopDispatched("left", reconcileTestNow-100)
@@ -3351,13 +3352,13 @@ func TestRunReconcileTick(t *testing.T) {
 		want = "[reconcile] tick: 2 candidate(s)\n" +
 			"[reconcile] kip: desired=offline command=none — offline: converged\n" +
 			"[reconcile] mira: desired=offline command=none — offline: converged\n" +
-			"[reconcile] left: desired=offline command=none — offline: converged\n"
+			"[reconcile] left: desired=offline command=none — stopping: offline, not yet for the whole confirm window — a reconnect inside it is a network blip, not a finished session\n"
 		if out != want {
 			t.Fatalf("offline tick stderr:\n got %q\nwant %q", out, want)
 		}
 		apiWantValue(t, "the owed stop", any(reconcileTestState(api, "left").RobustStopPendingAt), any(float64(0)))
 
-		out = hubTestStderr(t, func() { api.runReconcileTick(reconcileTestNow + 2) })
+		out = hubTestStderr(t, func() { api.runReconcileTick(reconcileTestNow + 1 + offlineConfirmGraceSecs + 1) })
 		if strings.Contains(out, "left") {
 			t.Fatalf("a removed member with nothing owed reached the tick:\n%s", out)
 		}
