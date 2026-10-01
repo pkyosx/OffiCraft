@@ -3656,9 +3656,9 @@ SKIPPED_HAPPY: dict[str, str] = {
         "row + its bound task, mintable only by the Phase 2 assignment scheduler "
         "(no black-box mint path — the common member GET is covered separately). "
         "The below-owner-403 / owner-404 faces are pinned in the auth "
-        "matrix; the re-assembled boot-context fold (codename/task/identity, "
-        "never a token, unknown-worker 404) in the server unit tests "
-        "(api_outsource_test.go, TestGetWorkerBootContext / "
+        "matrix; the re-assembled boot-context fold (no codename, task or "
+        "identity, never a token, unknown-worker 404) in the server unit tests "
+        "(api_outsource_behavior_test.go, TestGetWorkerBootContext / "
         "TestGetWorkerBootContext_UnknownWorker404)."
     ),
     "POST /api/members/{member_id}/accelerated-stop": (

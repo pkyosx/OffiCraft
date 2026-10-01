@@ -56,7 +56,7 @@ const (
 // an identity block are deliberately NOT embedded: the worker reads task and
 // manual live (a spawn-time copy is stale), and identity arrives via the
 // warden's --append-system-prompt.
-func (s *apiServer) buildWorkerBootContext(w OutsourceWorker, t Task, manual *TaskManual) (string, error) {
+func (s *apiServer) buildWorkerBootContext(w OutsourceWorker) (string, error) {
 	head, err := s.workerSharedHead()
 	if err != nil {
 		return "", err
@@ -420,7 +420,7 @@ func (s *apiServer) notifyWorkerSpawn(w OutsourceWorker, now float64) bool {
 		s.stampWorkerPlacementBlocked(&w, blocked, now)
 		return false
 	}
-	persona, err := s.buildWorkerBootContext(w, *t, manual)
+	persona, err := s.buildWorkerBootContext(w)
 	if err != nil {
 		s.stampWorkerPlacementBlocked(&w, spawnReasonBootContext+
 			": could not assemble the worker's boot context: "+err.Error(), now)

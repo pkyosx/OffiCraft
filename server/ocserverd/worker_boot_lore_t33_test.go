@@ -92,11 +92,7 @@ func workerBootLoreFixture(t *testing.T) (staffDoc, workerDoc, workerID string) 
 	}
 	worker, err := s.buildWorkerBootContext(
 		OutsourceWorker{ID: workerID, Codename: "O-9", Model: "opus", Effort: "high",
-			Runtime: RuntimeClaude},
-		Task{ID: "t-aabbccddeeff", TypeKey: "review-pr", Title: "Review PR 42",
-			Priority: TaskPriorityHigh},
-		&TaskManual{TypeKey: "review-pr", DisplayName: "審查 PR",
-			Purpose: "review 一個 PR", SopMD: "先看 diff 再留結論"})
+			Runtime: RuntimeClaude})
 	if err != nil {
 		t.Fatalf("buildWorkerBootContext: %v", err)
 	}
@@ -268,7 +264,7 @@ func TestMemberBootDocumentsCarryEveryoneLore(t *testing.T) {
 				t.Fatalf("buildBootContext: %v", err)
 			}
 			worker, err := s.buildWorkerBootContext(
-				OutsourceWorker{ID: workerID, Codename: "O-9", Runtime: RuntimeClaude}, Task{}, nil)
+				OutsourceWorker{ID: workerID, Codename: "O-9", Runtime: RuntimeClaude})
 			if err != nil {
 				t.Fatalf("buildWorkerBootContext: %v", err)
 			}

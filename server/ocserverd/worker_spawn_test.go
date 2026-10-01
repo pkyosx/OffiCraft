@@ -106,13 +106,9 @@ func wsStartFrame(workerID, persona, runtime, model, effort string) map[string]a
 
 func TestBuildWorkerBootContext(t *testing.T) {
 	t.Run("the assembled context is exactly what the cockpit's boot-context preview serves for the same worker", func(t *testing.T) {
-		api, h, d, owner, w := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
-		task, err := d.GetTask("T-1")
-		if err != nil || task == nil {
-			t.Fatalf("GetTask: %v (%v)", task, err)
-		}
+		api, h, _, owner, w := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
 
-		got, err := api.buildWorkerBootContext(w, *task, nil)
+		got, err := api.buildWorkerBootContext(w)
 		if err != nil {
 			t.Fatalf("buildWorkerBootContext: %v", err)
 		}
@@ -123,36 +119,19 @@ func TestBuildWorkerBootContext(t *testing.T) {
 		apiWantBody(t, data, map[string]any{"context": got})
 	})
 
-	t.Run("neither the bound task nor the type manual reaches the text, so two workers on different tasks boot on the same words", func(t *testing.T) {
-		api, _, d, _, w := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
-		task, err := d.GetTask("T-1")
-		if err != nil || task == nil {
-			t.Fatalf("GetTask: %v (%v)", task, err)
-		}
+	t.Run("another worker's id, codename, model and effort do not reach the text, so two workers boot on the same words", func(t *testing.T) {
+		api, _, _, _, w := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
 
-		base, err := api.buildWorkerBootContext(w, *task, nil)
+		base, err := api.buildWorkerBootContext(w)
 		if err != nil {
 			t.Fatalf("buildWorkerBootContext: %v", err)
 		}
-		other := *task
-		other.ID = "T-9"
-		other.Title = "Unload the reefer"
-		other.TypeKey = "customs"
-		withManual, err := api.buildWorkerBootContext(w, other, &TaskManual{
-			TypeKey: "customs", DisplayName: "Customs", Purpose: "clear it",
-			SopMD: "# SOP\nstep one",
-		})
-		if err != nil {
-			t.Fatalf("buildWorkerBootContext: %v", err)
-		}
-		apiWantValue(t, "context with another task and a manual", any(withManual), any(base))
-
 		stranger := w
 		stranger.ID = "ow-def456"
 		stranger.Codename = "Stevedore"
 		stranger.Model = "opus"
 		stranger.Effort = "high"
-		forStranger, err := api.buildWorkerBootContext(stranger, *task, nil)
+		forStranger, err := api.buildWorkerBootContext(stranger)
 		if err != nil {
 			t.Fatalf("buildWorkerBootContext: %v", err)
 		}
@@ -160,19 +139,15 @@ func TestBuildWorkerBootContext(t *testing.T) {
 	})
 
 	t.Run("the worker's own runtime picks slot 4, so a codex worker is handed different words than a claude one", func(t *testing.T) {
-		api, _, d, _, w := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
-		task, err := d.GetTask("T-1")
-		if err != nil || task == nil {
-			t.Fatalf("GetTask: %v (%v)", task, err)
-		}
+		api, _, _, _, w := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
 
-		claude, err := api.buildWorkerBootContext(w, *task, nil)
+		claude, err := api.buildWorkerBootContext(w)
 		if err != nil {
 			t.Fatalf("buildWorkerBootContext: %v", err)
 		}
 		codexWorker := w
 		codexWorker.Runtime = "codex"
-		codex, err := api.buildWorkerBootContext(codexWorker, *task, nil)
+		codex, err := api.buildWorkerBootContext(codexWorker)
 		if err != nil {
 			t.Fatalf("buildWorkerBootContext: %v", err)
 		}
@@ -181,7 +156,7 @@ func TestBuildWorkerBootContext(t *testing.T) {
 		}
 		blankRuntime := w
 		blankRuntime.Runtime = ""
-		normalized, err := api.buildWorkerBootContext(blankRuntime, *task, nil)
+		normalized, err := api.buildWorkerBootContext(blankRuntime)
 		if err != nil {
 			t.Fatalf("buildWorkerBootContext: %v", err)
 		}
@@ -189,12 +164,8 @@ func TestBuildWorkerBootContext(t *testing.T) {
 	})
 
 	t.Run("the owner's additive block lands in slot 2, between the shared seed and the runtime's boot sequence", func(t *testing.T) {
-		api, h, d, owner, w := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
-		task, err := d.GetTask("T-1")
-		if err != nil || task == nil {
-			t.Fatalf("GetTask: %v (%v)", task, err)
-		}
-		before, err := api.buildWorkerBootContext(w, *task, nil)
+		api, h, _, owner, w := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
+		before, err := api.buildWorkerBootContext(w)
 		if err != nil {
 			t.Fatalf("buildWorkerBootContext: %v", err)
 		}
@@ -204,7 +175,7 @@ func TestBuildWorkerBootContext(t *testing.T) {
 		if status != 200 {
 			t.Fatalf("replace global context: %d (%v)", status, data)
 		}
-		after, err := api.buildWorkerBootContext(w, *task, nil)
+		after, err := api.buildWorkerBootContext(w)
 		if err != nil {
 			t.Fatalf("buildWorkerBootContext: %v", err)
 		}

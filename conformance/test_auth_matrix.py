@@ -1831,11 +1831,10 @@ MATRIX: dict[str, Route] = {
     ),
     # ── outsource panel (M3) ────────────────────────────────────────────────
     "GET /api/outsource-workers/{id}/boot-context": Route(
-        # T-ba6b initial-prompt preview — floor admin_agent since T-6020 (the
-        # text embeds the full task + manual). Below-floor faces are a flat 403
-        # (the gate's teeth); the positive faces get an honest 404 against the
-        # unknown ow-nope row (no black-box worker exists — same as the worker
-        # ops).
+        # T-ba6b initial-prompt preview — floor admin_agent since T-6020.
+        # Below-floor faces are a flat 403 (the gate's teeth); the positive
+        # faces get an honest 404 against the unknown ow-nope row (no
+        # black-box worker exists — same as the worker ops).
         requires="admin_agent",
         path=lambda _ctx, _i: "/api/outsource-workers/ow-nope/boot-context",
         overrides={"owner": 404, "admin_agent": 404},

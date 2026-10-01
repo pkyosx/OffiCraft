@@ -1119,8 +1119,6 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			MCPExclude: true,
 		}),
 		Gated(principalAdminAgent, routeDef{
-			// The preview embeds the full task + manual, so the floor is
-			// admin_agent, never plain agent.
 			Method:  "GET",
 			Path:    "/api/outsource-workers/{id}/boot-context",
 			Handler: w.HandleGetWorkerBootContextApiOutsourceWorkersIdBootContextGet,
