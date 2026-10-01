@@ -105,6 +105,7 @@ type relayHarness struct {
 	relay   *loginRelay
 	prober  *loginProber
 	claude  *fakeClaude
+	codex   *fakeCodex
 	reports chan loginReport
 	answer  func(loginReport) string
 	mu      sync.Mutex
@@ -113,9 +114,12 @@ type relayHarness struct {
 
 func newRelayHarness(t *testing.T) *relayHarness {
 	t.Helper()
-	h := &relayHarness{claude: newFakeClaude(t), reports: make(chan loginReport, 16)}
+	h := &relayHarness{claude: newFakeClaude(t), codex: newFakeCodex(t), reports: make(chan loginReport, 16)}
+	// No real claude or codex may ever be found: a real `codex login
+	// --device-auth` asks OpenAI for a device code over the network.
+	t.Setenv("PATH", filepath.Join(h.claude.root, "no-binaries-here"))
 	home := filepath.Join(h.claude.root, "home")
-	env := envMap(map[string]string{"HOME": home, "OC_CLAUDE_BIN": h.claude.bin})
+	env := envMap(map[string]string{"HOME": home, "OC_CLAUDE_BIN": h.claude.bin, "OC_CODEX_BIN": h.codex.bin})
 	logf := func(format string, a ...any) {
 		h.mu.Lock()
 		h.logs = append(h.logs, fmt.Sprintf(format, a...))
@@ -396,11 +400,11 @@ func TestLoginRelay(t *testing.T) {
 		h.wantNoReport(t)
 	})
 
-	t.Run("under a runtime other than claude, the relay reports failed and runs nothing", func(t *testing.T) {
+	t.Run("under a runtime this warden cannot log in, the relay reports failed and runs nothing", func(t *testing.T) {
 		h := newRelayHarness(t)
-		h.relay.Start("rl-6", "codex")
+		h.relay.Start("rl-6", "gemini")
 		if got, want := h.next(t), (loginReport{LoginID: "rl-6", State: "failed",
-			Reason: `this warden cannot log in runtime "codex"`}); got != want {
+			Reason: `this warden cannot log in runtime "gemini"`}); got != want {
 			t.Fatalf("report = %+v, want %+v", got, want)
 		}
 		if _, err := os.Stat(h.claude.pid); !os.IsNotExist(err) {

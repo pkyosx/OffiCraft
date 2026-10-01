@@ -33,10 +33,7 @@ func (s *codexSession) reportRejectedCodexPost(path string, status int) {
 func buildCodexLaunchCommand(wardenBin, codexBin, workdir, personaFile, tokenFile,
 	agentID, base, session, socket, model, effort string, extraEnv [][2]string,
 	envRendered string, logf func(string, ...any)) string {
-	cd := "cd " + shellQuote(workdir) + "; "
-	if envRendered != "" {
-		cd += "[ -f " + shellQuote(envRendered) + " ] && . " + shellQuote(envRendered) + "; "
-	}
+	cd := codexChildEnvPrologue(workdir, envRendered)
 	pairs := [][2]string{
 		{baseEnv, base},
 		{idEnv, agentID},
@@ -67,6 +64,18 @@ func buildCodexLaunchCommand(wardenBin, codexBin, workdir, personaFile, tokenFil
 		"--effort", shellQuote(launchEffort),
 	}
 	return cd + exports + "exec " + strings.Join(parts, " ")
+}
+
+// codexChildEnvPrologue is the environment every codex the warden runs starts
+// from: the member's sidecar (and through it the App Server) and the runtime
+// login. 🔴 codex stores the login under $CODEX_HOME, which the env render may
+// set, so a login run under any other prologue logs in a home members never read.
+func codexChildEnvPrologue(workdir, envRendered string) string {
+	s := "cd " + shellQuote(workdir) + "; "
+	if envRendered != "" {
+		s += "[ -f " + shellQuote(envRendered) + " ] && . " + shellQuote(envRendered) + "; "
+	}
+	return s
 }
 
 // Coerces rather than refuses: a warden is upgraded separately from the

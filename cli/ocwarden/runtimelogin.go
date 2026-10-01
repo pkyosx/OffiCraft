@@ -34,9 +34,12 @@ const (
 	claudeLoginFailedPrefix = "Login failed:"
 
 	// `claude auth login` never exits on stdin EOF, so this cap is the only thing
-	// that ends a login nobody finishes. The server's idle cap (15 minutes,
+	// that ends a login nobody finishes. The server's idle cap (20 minutes,
 	// server/ocserverd/runtime_login.go) must stay above it.
 	loginProcessCap = 10 * time.Minute
+	// codex prints a one-time code that lasts 15 minutes and times itself out
+	// then; this backstop only has to outlast it.
+	codexLoginProcessCap = 16 * time.Minute
 
 	loginRenderPrefix = ".oc-login-env-"
 )
@@ -88,11 +91,13 @@ type LoginSeam interface {
 }
 
 type loginReport struct {
-	LoginID string
-	State   string
-	AuthURL string
-	Account *loginAccount
-	Reason  string
+	LoginID   string
+	State     string
+	AuthURL   string
+	UserCode  string
+	ExpiresTS float64
+	Account   *loginAccount
+	Reason    string
 }
 
 // loginReporter answers the state the server now holds ("" when the POST did
@@ -148,16 +153,29 @@ type loginRelay struct {
 	start    loginStarter
 	remove   func(string) error
 	cap      time.Duration
+	codexCap time.Duration
+	now      func() time.Time
 	logf     func(string, ...any)
 
 	mu       sync.Mutex
 	sessions map[string]*loginSession
 }
 
+// loginFlow is what one runtime's login CLI prints and how its end is read.
+// line runs on the stdout and the stderr reader goroutines at once.
+type loginFlow interface {
+	line(s *loginSession, stderr bool, raw string)
+	failureReason() string
+	expiredReason(limit time.Duration) string
+	conclude(s *loginSession)
+}
+
 type loginSession struct {
-	id   string
-	proc *loginProc
-	done chan struct{}
+	id    string
+	proc  *loginProc
+	done  chan struct{}
+	flow  loginFlow
+	limit time.Duration
 
 	mu        sync.Mutex
 	codes     []string
@@ -192,6 +210,8 @@ func newLoginRelay(prober *loginProber, progress loginReporter, logf func(string
 		start:    startLoginProcess,
 		remove:   os.Remove,
 		cap:      loginProcessCap,
+		codexCap: codexLoginProcessCap,
+		now:      time.Now,
 		logf:     logf,
 		sessions: map[string]*loginSession{},
 	}
@@ -215,13 +235,20 @@ func (r *loginRelay) fail(loginID, reason string) {
 }
 
 func (r *loginRelay) Start(loginID, runtime string) {
-	if runtime != "claude" {
-		r.fail(loginID, fmt.Sprintf("this warden cannot log in runtime %q", runtime))
-		return
-	}
 	if r.session(loginID) != nil {
 		return
 	}
+	switch runtime {
+	case "claude":
+		r.startClaude(loginID)
+	case "codex":
+		r.startCodex(loginID)
+	default:
+		r.fail(loginID, fmt.Sprintf("this warden cannot log in runtime %q", runtime))
+	}
+}
+
+func (r *loginRelay) startClaude(loginID string) {
 	bin := resolveClaudeBin(r.prober.env)
 	if bin == "" {
 		r.fail(loginID, "Claude Code is not installed on this machine")
@@ -234,6 +261,10 @@ func (r *loginRelay) Start(loginID, runtime string) {
 	r.prober.prepareLaunchEnv()
 	script, rendered := r.prober.claudeCommand(bin, loginRenderPrefix+loginID, "auth login --claudeai",
 		claudeCommandOpts{selfDeleteRender: true, extra: [][2]string{loginBrowserOverride}})
+	r.launch(loginID, "claude", script, rendered, &claudeLoginFlow{relay: r}, r.cap)
+}
+
+func (r *loginRelay) launch(loginID, runtime, script, rendered string, flow loginFlow, limit time.Duration) {
 	proc, err := r.start(r.prober.shell(), script)
 	if err != nil {
 		if rendered != "" {
@@ -242,62 +273,27 @@ func (r *loginRelay) Start(loginID, runtime string) {
 		r.fail(loginID, "the login process could not start: "+err.Error())
 		return
 	}
-	s := &loginSession{id: loginID, proc: proc, done: make(chan struct{})}
+	s := &loginSession{id: loginID, proc: proc, done: make(chan struct{}), flow: flow, limit: limit}
 	r.mu.Lock()
 	r.sessions[loginID] = s
 	r.mu.Unlock()
-	r.log("%s: claude login process started", loginID)
+	r.log("%s: %s login process started", loginID, runtime)
 	go r.watch(s, rendered)
 }
 
 func (r *loginRelay) watch(s *loginSession, rendered string) {
-	var lastOut, lastErr, loginFailed string
 	var readers sync.WaitGroup
 	readers.Add(2)
-	go func() {
+	read := func(stream io.Reader, stderr bool) {
 		defer readers.Done()
-		sawURL := false
-		scanner := bufio.NewScanner(s.proc.stdout)
+		scanner := bufio.NewScanner(stream)
 		for scanner.Scan() {
-			raw := scanner.Text()
-			if !sawURL {
-				if url, ok := loginURLFromLine(raw); ok {
-					sawURL = true
-					r.log("%s: awaiting the code", s.id)
-					r.relay(s, loginReport{LoginID: s.id, State: "awaiting_code", AuthURL: url})
-					continue
-				}
-			}
-			if line := strings.TrimSpace(stripTerminalEscapes(raw)); line != "" {
-				lastOut = line
-			}
+			s.flow.line(s, stderr, scanner.Text())
 		}
-	}()
-	go func() {
-		defer readers.Done()
-		scanner := bufio.NewScanner(s.proc.stderr)
-		for scanner.Scan() {
-			line := strings.TrimSpace(stripTerminalEscapes(scanner.Text()))
-			if line == "" {
-				continue
-			}
-			lastErr = line
-			if strings.HasPrefix(line, claudeLoginFailedPrefix) {
-				loginFailed = line
-			}
-			if strings.HasPrefix(line, claudeInvalidCodePrefix) {
-				s.mu.Lock()
-				sent := s.codeSent
-				s.codeSent = false
-				s.mu.Unlock()
-				if sent {
-					r.log("%s: the login process refused the code; awaiting another", s.id)
-					r.relay(s, loginReport{LoginID: s.id, State: "awaiting_code", Reason: s.mask(line)})
-				}
-			}
-		}
-	}()
-	timer := time.AfterFunc(r.cap, func() {
+	}
+	go read(s.proc.stdout, false)
+	go read(s.proc.stderr, true)
+	timer := time.AfterFunc(s.limit, func() {
 		s.mu.Lock()
 		s.timedOut = true
 		s.mu.Unlock()
@@ -322,26 +318,91 @@ func (r *loginRelay) watch(s *loginSession, rendered string) {
 	case cancelled:
 		r.log("%s: login process ended on cancel", s.id)
 	case timedOut:
-		r.log("%s: login process killed at its %s cap", s.id, r.cap)
-		r.progress(loginReport{LoginID: s.id, State: "expired",
-			Reason: fmt.Sprintf("no code arrived within %s", r.cap)})
+		r.log("%s: login process killed at its %s cap", s.id, s.limit)
+		r.progress(loginReport{LoginID: s.id, State: "expired", Reason: s.flow.expiredReason(s.limit)})
 	case waitErr == nil:
 		r.log("%s: login process exited 0", s.id)
-		r.concludeSucceeded(s.id)
+		s.flow.conclude(s)
 	default:
 		r.log("%s: login process exited (%v)", s.id, waitErr)
-		reason := loginFailed
+		reason := s.flow.failureReason()
 		if reason == "" {
-			reason = lastErr
-		}
-		if reason == "" {
-			reason = lastOut
-		}
-		if reason == "" {
-			reason = "claude auth login exited: " + waitErr.Error()
+			reason = "the login process exited: " + waitErr.Error()
 		}
 		r.progress(loginReport{LoginID: s.id, State: "failed", Reason: s.mask(reason)})
 	}
+}
+
+type claudeLoginFlow struct {
+	relay *loginRelay
+
+	mu          sync.Mutex
+	sawURL      bool
+	lastOut     string
+	lastErr     string
+	loginFailed string
+}
+
+func (f *claudeLoginFlow) line(s *loginSession, stderr bool, raw string) {
+	r := f.relay
+	if !stderr {
+		f.mu.Lock()
+		seen := f.sawURL
+		f.mu.Unlock()
+		if !seen {
+			if url, ok := loginURLFromLine(raw); ok {
+				f.mu.Lock()
+				f.sawURL = true
+				f.mu.Unlock()
+				r.log("%s: awaiting the code", s.id)
+				r.relay(s, loginReport{LoginID: s.id, State: "awaiting_code", AuthURL: url})
+				return
+			}
+		}
+	}
+	line := strings.TrimSpace(stripTerminalEscapes(raw))
+	if line == "" {
+		return
+	}
+	f.mu.Lock()
+	if stderr {
+		f.lastErr = line
+		if strings.HasPrefix(line, claudeLoginFailedPrefix) {
+			f.loginFailed = line
+		}
+	} else {
+		f.lastOut = line
+	}
+	f.mu.Unlock()
+	if stderr && strings.HasPrefix(line, claudeInvalidCodePrefix) {
+		s.mu.Lock()
+		sent := s.codeSent
+		s.codeSent = false
+		s.mu.Unlock()
+		if sent {
+			r.log("%s: the login process refused the code; awaiting another", s.id)
+			r.relay(s, loginReport{LoginID: s.id, State: "awaiting_code", Reason: s.mask(line)})
+		}
+	}
+}
+
+func (f *claudeLoginFlow) failureReason() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, reason := range []string{f.loginFailed, f.lastErr, f.lastOut} {
+		if reason != "" {
+			return reason
+		}
+	}
+	return ""
+}
+
+func (f *claudeLoginFlow) expiredReason(limit time.Duration) string {
+	return fmt.Sprintf("no code arrived within %s", limit)
+}
+
+func (f *claudeLoginFlow) conclude(s *loginSession) {
+	f.relay.concludeSucceeded(s.id)
 }
 
 func (r *loginRelay) concludeSucceeded(loginID string) {
@@ -460,6 +521,12 @@ func loginReportPayload(rep loginReport) map[string]any {
 	payload := map[string]any{"login_id": rep.LoginID, "state": rep.State}
 	if rep.AuthURL != "" {
 		payload["auth_url"] = rep.AuthURL
+	}
+	if rep.UserCode != "" {
+		payload["user_code"] = rep.UserCode
+	}
+	if rep.ExpiresTS > 0 {
+		payload["expires_ts"] = rep.ExpiresTS
 	}
 	if rep.Reason != "" {
 		payload["reason"] = rep.Reason
