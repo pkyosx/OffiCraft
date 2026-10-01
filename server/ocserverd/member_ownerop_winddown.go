@@ -467,12 +467,20 @@ func openWindDownRow(row windDownAnchorRow, now float64) {
 //
 // ⚠️ waking_since and forced_stop_at must NOT be added: callers clear waking_since
 // for their own reasons, and forced_stop_at is deliberately kept.
-// ⚠️ Staff report_waking is deliberately not a caller: it clears stopping_since
-// only under `DesiredState == Online` (T-7526), unlike workerReportWaking — a named
-// parity-whitelist row.
 func clearWindDownRow(row windDownAnchorRow) {
 	*row.StoppingSince = 0.0
 	*row.StoppedSince = 0.0
 	*row.RefocusSince = 0.0
 	*row.RefocusOp = ""
+}
+
+// clearWindDownRowOnWake is report_waking's clear, for staff and workers alike.
+// 🔴 stopping_since survives unless the subject is wanted online: it is the only
+// trace of a stop that landed while the session was still booting.
+func clearWindDownRowOnWake(row windDownAnchorRow, desiredState string) {
+	stoppingSince := *row.StoppingSince
+	clearWindDownRow(row)
+	if desiredState != DesiredStateOnline {
+		*row.StoppingSince = stoppingSince
+	}
 }

@@ -1267,7 +1267,7 @@ func (s *apiServer) workerReportWaking(id string, model *string, trigger string,
 		if w.Status == WorkerStatusAssigned {
 			w.Status = WorkerStatusActive
 		}
-		clearWindDownRow(windDownAnchorRowOfWorker(w))
+		clearWindDownRowOnWake(windDownAnchorRowOfWorker(w), w.DesiredState)
 		m = memberFromWorker(*w)
 		if model != nil {
 			m.ActualModel = *model

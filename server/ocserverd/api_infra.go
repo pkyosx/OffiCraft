@@ -325,10 +325,10 @@ func (s *apiServer) sseStopGateRefusal(memberID string) string {
 	if err != nil || m == nil {
 		return ""
 	}
-	if m.Kind == KindOutsource {
+	if m.Kind == KindOutsource && m.RosterStatus == RosterStatusRemoved {
 		// A RELEASED worker's session deliberately lives on for its close-out duties
 		// (worker_spawn.go reclaim grace) although its row is roster-removed, so the
-		// member gate below would wrongly refuse it.
+		// roster gate below would wrongly refuse it.
 		return ""
 	}
 	if m.RosterStatus != RosterStatusActive {

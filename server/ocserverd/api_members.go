@@ -1333,14 +1333,7 @@ func (s *apiServer) HandleReportWakingApiSelfWakingPost(w http.ResponseWriter, r
 			return err
 		}
 		cur.WakingSince = nowSecs()
-		cur.RefocusSince = 0.0
-		cur.RefocusOp = ""
-		cur.StoppedSince = 0.0
-		// 🔴 Not for a member the owner already cancelled (T-7526): that anchor is the
-		// only trace of a mid-wake 取消.
-		if cur.DesiredState == DesiredStateOnline {
-			cur.StoppingSince = 0.0
-		}
+		clearWindDownRowOnWake(windDownAnchorRowOfMember(cur), cur.DesiredState)
 		if body.Model != nil {
 			cur.ActualModel = *body.Model
 		}
