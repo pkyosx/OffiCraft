@@ -534,7 +534,7 @@ func TestRoleLoreDoesNotReachTheOutsourceBootContext(t *testing.T) {
 	}
 
 	worker := OutsourceWorker{ID: "ow-lore-7", Runtime: RuntimeClaude}
-	ctx, err := s.buildWorkerBootContext(worker, Task{}, nil)
+	ctx, err := s.buildWorkerBootContext(worker)
 	if err != nil {
 		t.Fatalf("buildWorkerBootContext: %v", err)
 	}

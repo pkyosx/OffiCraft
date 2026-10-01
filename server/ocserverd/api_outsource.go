@@ -93,15 +93,7 @@ func (s *apiServer) HandleGetWorkerBootContextApiOutsourceWorkersIdBootContextGe
 		writeResolveError(w, errNotFound, "task", worker.TaskID)
 		return
 	}
-	// The fold does not render the manual; it is resolved only so this preview
-	// takes exactly the same inputs the spawn path takes.
-	var manual *TaskManual
-	if task.TypeKey != "" {
-		if m, err := s.foldTaskManual(task.TypeKey); err == nil {
-			manual = m
-		}
-	}
-	context, err := s.buildWorkerBootContext(*worker, *task, manual)
+	context, err := s.buildWorkerBootContext(*worker)
 	if err != nil {
 		internalError(w, err)
 		return

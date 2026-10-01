@@ -203,8 +203,7 @@ func TestBootSequenceTellsBothIdentitiesToConfirmThenClaim(t *testing.T) {
 	}
 	worker, err := s.buildWorkerBootContext(
 		OutsourceWorker{ID: "ow-t91", Codename: "T-91", Model: "opus",
-			Effort: "high", Runtime: RuntimeClaude},
-		Task{ID: "t-t91t91t91t9", Title: "任務", Priority: TaskPriorityHigh}, nil)
+			Effort: "high", Runtime: RuntimeClaude})
 	if err != nil {
 		t.Fatalf("buildWorkerBootContext: %v", err)
 	}

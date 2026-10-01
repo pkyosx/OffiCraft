@@ -108,20 +108,7 @@ func decodeWardenFrame(t *testing.T, frame []byte) (string, map[string]any) {
 func TestBuildWorkerBootContext_FullAssembly(t *testing.T) {
 	s := newWorkerTestServer(t)
 	w := OutsourceWorker{ID: "ow-abc", Codename: "O-7", Model: "opus", Effort: "high"}
-	task := Task{
-		ID: "t-1234567890ab", TypeKey: "review-pr", Title: "Review PR 42",
-		DedupeKey: "https://pr/42", Description: "把 42 號 PR 看完",
-		Priority:     TaskPriorityHigh,
-		Inputs:       map[string]any{"pr_url": "https://pr/42", "repo": "x/y"},
-		HandoverNote: "先跑既有測試", HandoverNoteTS: 1, HandoverNoteBy: "m-kyle",
-	}
-	manual := &TaskManual{
-		TypeKey: "review-pr", DisplayName: "審查 PR",
-		Purpose: "review 一個 PR",
-		Fields:  `[{"name":"pr_url","required":true,"is_key":true}]`,
-		SopMD:   "先看 diff 再留結論",
-	}
-	got, err := s.buildWorkerBootContext(w, task, manual)
+	got, err := s.buildWorkerBootContext(w)
 	if err != nil {
 		t.Fatalf("fold: %v", err)
 	}
@@ -143,26 +130,9 @@ func TestBuildWorkerBootContext_FullAssembly(t *testing.T) {
 		}
 	}
 
-	// T-4595 — WHAT THIS ASSEMBLY NO LONGER CONTAINS. Three groups, each with
-	// its own reason; every literal is a field of the fixture above (or the
-	// heading the old assembly emitted for it), so this stays a real assertion
-	// rather than a spelling check.
-	//
-	//  1. 你的身分 — identity arrives the way it always has for staff, through
-	//     the launcher's --append-system-prompt.
-	//  2. the BOUND TASK — the boot sequence has the worker pick it up with
-	//     the boot sequence's 領工 step, which serves the LIVE row; this copy was a spawn-time
-	//     snapshot, stale by construction. Staff boot contexts never carried one.
-	//  3. the TYPE MANUAL — staff pull a manual with get_task_manual at the
-	//     moment they plan a task's steps; outsource now does the same.
-	for _, gone := range []string{
-		"# 你的身分", w.ID, w.Codename, // 1
-		TaskNo(task.ID), "Review PR 42", "https://pr/42", // 2
-		"把 42 號 PR 看完", "pr_url", "x/y",
-		"m-kyle", "先跑既有測試",
-		"# 任務手冊", "review 一個 PR", "先看 diff 再留結論", // 3
-		"大 PR 先分檔看", "必填、識別鍵",
-	} {
+	// No identity block: identity arrives the way it always has for staff,
+	// through the launcher's --append-system-prompt.
+	for _, gone := range []string{"# 你的身分", w.ID, w.Codename} {
 		if strings.Contains(got, gone) {
 			t.Errorf("worker boot context still carries %q — a worker reads the staff "+
 				"assembly minus slot 3, and nothing is written for it (T-4595)", gone)
@@ -201,8 +171,7 @@ func TestBuildWorkerBootContext_RuntimeGuidanceIsTheSeedsOwnAndItIsLast(t *testi
 		t.Run(tc.name, func(t *testing.T) {
 			s := newWorkerTestServer(t)
 			got, err := s.buildWorkerBootContext(
-				OutsourceWorker{ID: "ow-" + tc.name, Codename: "C-1", Runtime: tc.runtime},
-				Task{ID: "t-aabbccddeeff", Title: "x", Priority: TaskPriorityMid}, nil)
+				OutsourceWorker{ID: "ow-" + tc.name, Codename: "C-1", Runtime: tc.runtime})
 			if err != nil {
 				t.Fatalf("fold: %v", err)
 			}
@@ -243,88 +212,6 @@ func TestBuildWorkerBootContext_RuntimeGuidanceIsTheSeedsOwnAndItIsLast(t *testi
 // 2 and 4 still compared byte for byte, plus a new one saying neither path's
 // slot 3 can carry the other's lore scope. Read that file's header before
 // touching either of them.
-
-// T-ba04: a worker minted onto a task that is in `reassigning` gets a TAKEOVER
-// section in its boot context — who its predecessor is (id) + the "hand over
-// first, THEN flip the status yourself" protocol. A non-reassigning task must
-// NOT carry that section (a fresh assignment has no predecessor). RED/GREEN pin
-// for the boot-context handover fold.
-// TestWorkerBootContextIsInvariantToTheTaskAndItsManual — T-4595 replaces two
-// tests that pinned blocks the assembly no longer emits
-// (_ReassigningTakeoverSection and _MissingManualIsHonest).
-//
-// Neither the bound task nor its type manual is pasted into a worker's boot
-// context any more: the boot sequence has the worker pick the task up with
-// its own read (which serves the LIVE row, lock and handover note included), and
-// a manual is pulled with get_task_manual at the moment the task is planned —
-// exactly what staff do, in exactly the same places. So the STRONGEST statement
-// available is INVARIANCE: the assembled document does not vary with either
-// input at all.
-//
-// That is deliberately stronger than a list of absent substrings. A future
-// reinstatement of any per-task or per-manual text — the takeover protocol, the
-// honest "手冊目前不存在" placeholder, a description, a single field name —
-// makes two of these three documents differ and turns this red, without anyone
-// having to predict the wording.
-func TestWorkerBootContextIsInvariantToTheTaskAndItsManual(t *testing.T) {
-	s := newWorkerTestServer(t)
-	if err := s.dal.PutMember(Member{
-		ID: "m-pred", Name: "Ken", Kind: KindStaff, RosterStatus: RosterStatusActive,
-	}); err != nil {
-		t.Fatalf("put predecessor: %v", err)
-	}
-	w := OutsourceWorker{ID: "ow-new", Codename: "O-2", Model: "opus", Effort: "high"}
-
-	plain := Task{ID: "t-aabbccddeeff", TypeKey: "x", Title: "接手任務",
-		Priority: TaskPriorityMid}
-
-	// A reassignment takeover, with a predecessor and a handover note — the
-	// richest task shape the old assembly rendered.
-	takeover := plain
-	takeover.Lock = TaskLockReassigning
-	takeover.ReassignedFrom = "m-pred"
-	takeover.ReassignedFromKind = TaskExecutorStaff
-	takeover.Description = "把 42 號 PR 看完"
-	takeover.HandoverNote = "先跑既有測試"
-	takeover.HandoverNoteTS = 1
-	takeover.HandoverNoteBy = "m-kyle"
-
-	manual := &TaskManual{
-		TypeKey: "x", DisplayName: "審查 PR",
-		Purpose: "review 一個 PR",
-		Fields:  `[{"name":"pr_url","required":true,"is_key":true}]`,
-		SopMD:   "先看 diff 再留結論",
-	}
-
-	base, err := s.buildWorkerBootContext(w, plain, nil)
-	if err != nil {
-		t.Fatalf("fold plain: %v", err)
-	}
-	// Positive control: the fold really did produce a document. Comparing two
-	// empty strings would satisfy every assertion below.
-	if len(base) < 10000 {
-		t.Fatalf("worker boot context is only %d bytes — the shared core is missing "+
-			"and the equalities below would be vacuous", len(base))
-	}
-
-	withTakeover, err := s.buildWorkerBootContext(w, takeover, nil)
-	if err != nil {
-		t.Fatalf("fold takeover: %v", err)
-	}
-	if withTakeover != base {
-		t.Error("worker boot context varies with the bound task — the worker reads " +
-			"the live task; a spawn-time copy can only be stale (T-4595)")
-	}
-
-	withManual, err := s.buildWorkerBootContext(w, takeover, manual)
-	if err != nil {
-		t.Fatalf("fold with manual: %v", err)
-	}
-	if withManual != base {
-		t.Error("worker boot context varies with the type manual — a manual is pulled " +
-			"with get_task_manual when the task is planned, as staff do (T-4595)")
-	}
-}
 
 // ── warden targeting ─────────────────────────────────────────────────────────
 
