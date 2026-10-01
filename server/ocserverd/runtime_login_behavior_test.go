@@ -382,6 +382,22 @@ func TestRuntimeLoginCode(t *testing.T) {
 		apiWantBody(t, got, loginBody(id, "awaiting_code", loginTestURL, nil, nil, loginEpoch))
 	})
 
+	t.Run("under a code with whitespace or a control character inside it, the code is 422, nothing is sent and the login stays awaiting_code", func(t *testing.T) {
+		f := newLoginFixture(t)
+		id := f.awaitingCode(t)
+		drainFrames(t, f.api, loginMachine)
+		for _, code := range []string{`abc\n#def`, `abc#de\rf`, `abc #def`, `abc#\tdef`, `abc#d\u0007ef`} {
+			status, data := apiJSON(t, f.h, "POST", loginStartPath+"/"+id+"/code", f.owner, `{"code":"`+code+`"}`)
+			if status != http.StatusUnprocessableEntity {
+				t.Fatalf("code %q: want 422, got %d %v", code, status, data)
+			}
+			apiWantError(t, data, "validation_error", "code must not contain spaces, tabs or line breaks")
+		}
+		wantNoWardenFrames(t, f, loginMachine)
+		_, got := f.get(t, id)
+		apiWantBody(t, got, loginBody(id, "awaiting_code", loginTestURL, nil, nil, loginEpoch))
+	})
+
 	t.Run("under a login that is not awaiting_code, the code is 409 and nothing is sent", func(t *testing.T) {
 		f := newLoginFixture(t)
 		id := f.start(t)

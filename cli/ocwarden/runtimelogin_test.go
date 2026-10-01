@@ -37,28 +37,29 @@ func (shellKeep) RunKeepStdout(name string, args ...string) (string, error) {
 // `auth login` records its pid and the FROM_FILE it was started with, prints the
 // sign-in URL line (dimmed, as an OSC 8 hyperlink whose label is shortened,
 // when the osc file exists), then reads
-// stdin line by line. A line that is not two non-empty halves joined by `#` is
+// stdin line by line, touching the read-line file for each. A line that is not two non-empty halves joined by `#` is
 // refused on stderr and the next is read; an accepted one is recorded, echoed
 // back on stderr when the echo file exists, followed by the stderr file, and
 // the process exits with the code in the rc file. `auth status` prints the
 // status reply.
 type fakeClaude struct {
-	root, bin, pid, gotCode, rc, stderr, status, osc, echo, sawEnv string
+	root, bin, pid, gotCode, rc, stderr, status, osc, echo, sawEnv, readLine string
 }
 
 func newFakeClaude(t *testing.T) *fakeClaude {
 	t.Helper()
 	root := t.TempDir()
 	f := &fakeClaude{
-		root:    root,
-		pid:     filepath.Join(root, "pid"),
-		gotCode: filepath.Join(root, "got-code"),
-		rc:      filepath.Join(root, "rc"),
-		stderr:  filepath.Join(root, "stderr"),
-		status:  filepath.Join(root, "status"),
-		osc:     filepath.Join(root, "osc"),
-		echo:    filepath.Join(root, "echo"),
-		sawEnv:  filepath.Join(root, "saw-env"),
+		root:     root,
+		pid:      filepath.Join(root, "pid"),
+		gotCode:  filepath.Join(root, "got-code"),
+		rc:       filepath.Join(root, "rc"),
+		stderr:   filepath.Join(root, "stderr"),
+		status:   filepath.Join(root, "status"),
+		osc:      filepath.Join(root, "osc"),
+		echo:     filepath.Join(root, "echo"),
+		sawEnv:   filepath.Join(root, "saw-env"),
+		readLine: filepath.Join(root, "read-line"),
 	}
 	f.bin = stageBinary(t, filepath.Join(root, "bin", "claude"), "#!/bin/sh\n"+
 		`if [ "$1 $2" = "auth status" ]; then /bin/cat '`+f.status+`'; exit 0; fi`+"\n"+
@@ -68,6 +69,7 @@ func newFakeClaude(t *testing.T) *fakeClaude {
 		`if [ -f '`+f.osc+`' ]; then printf "\\033[2mIf the browser didn't open, visit: \\033]8;;%s\\007claude.ai/oauth/authorize\\033]8;;\\007\\033[0m\\n" '`+fakeLoginURL+`'; `+
 		`else echo "If the browser didn't open, visit: `+fakeLoginURL+`"; fi`+"\n"+
 		`while IFS= read -r code; do`+"\n"+
+		`  : > '`+f.readLine+`'`+"\n"+
 		`  case "$code" in ?*'#'?*) ;; *) echo 'Invalid code. Please make sure the full code was copied.' >&2; continue;; esac`+"\n"+
 		`  printf '%s' "$code" > '`+f.gotCode+`'`+"\n"+
 		`  [ -f '`+f.echo+`' ] && printf 'Login failed: code %s rejected (%s / %s)\nRun claude auth login again\n' "$code" "${code%%#*}" "${code#*#}" >&2`+"\n"+
@@ -273,6 +275,37 @@ func TestLoginRelay(t *testing.T) {
 		if raw, _ := os.ReadFile(h.claude.gotCode); string(raw) != fakeLoginCode {
 			t.Errorf("the login process accepted %q, want %q", raw, fakeLoginCode)
 		}
+	})
+
+	t.Run("under a refused code, verifying reaches the server before the CLI has the code, so the refusal's awaiting_code is the last word", func(t *testing.T) {
+		h := newRelayHarness(t)
+		var cliHadCode []bool
+		h.answer = func(rep loginReport) string {
+			if rep.State == "verifying" {
+				// Long enough for a CLI that already got the code to have read it.
+				time.Sleep(300 * time.Millisecond)
+				_, err := os.Stat(h.claude.readLine)
+				cliHadCode = append(cliHadCode, err == nil)
+			}
+			return rep.State
+		}
+		h.relay.Start("rl-o", "claude")
+		h.next(t)
+		h.relay.Code("rl-o", "fake-code-31")
+		if got, want := h.next(t), (loginReport{LoginID: "rl-o", State: "verifying"}); got != want {
+			t.Fatalf("second report = %+v, want %+v", got, want)
+		}
+		if got, want := h.next(t), (loginReport{LoginID: "rl-o", State: "awaiting_code",
+			Reason: "Invalid code. Please make sure the full code was copied."}); got != want {
+			t.Fatalf("third report = %+v, want %+v", got, want)
+		}
+		if !reflect.DeepEqual(cliHadCode, []bool{false}) {
+			t.Errorf("CLI had read the code when verifying was reported = %v, want [false]", cliHadCode)
+		}
+		if _, err := os.Stat(h.claude.readLine); err != nil {
+			t.Error("control: the CLI never read the code at all")
+		}
+		h.wantNoReport(t)
 	})
 
 	t.Run("under a CLI that echoes the code on stderr, the failure reason masks the code and each half", func(t *testing.T) {

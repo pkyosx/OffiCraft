@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"unicode"
 
 	"ocserverd/txguard"
 )
@@ -41,6 +42,7 @@ const (
 	runtimeLoginCancelledReason = "cancelled by the owner"
 	runtimeLoginOfflineMsg      = "machine is offline; its warden cannot run a login"
 	runtimeLoginPartialCodeMsg  = "code is incomplete: copy the whole code the sign-in page shows (two parts joined by '#')"
+	runtimeLoginSpacedCodeMsg   = "code must not contain spaces, tabs or line breaks"
 )
 
 func runtimeLoginTerminal(state string) bool {
@@ -289,6 +291,12 @@ func (s *apiServer) HandleSubmitRuntimeLoginCodeApiMachinesMachineIdRuntimeLogin
 	code := strings.TrimSpace(body.Code)
 	if code == "" {
 		refuse(http.StatusUnprocessableEntity, "code must not be blank")
+		return
+	}
+	// The warden writes code+"\n" to the CLI's stdin, so an embedded line break
+	// would arrive as two inputs.
+	if strings.IndexFunc(code, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }) >= 0 {
+		refuse(http.StatusUnprocessableEntity, runtimeLoginSpacedCodeMsg)
 		return
 	}
 	// claude's own check: a code without both halves is refused on its stderr
