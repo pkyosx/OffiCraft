@@ -761,6 +761,14 @@ func TestBuildSpawnDeps(t *testing.T) {
 	if !deps.ClaudeTakesPromptFile("/a/system-prompt.md") {
 		t.Errorf("the prompt-file probe did not ask the resolved claude; calls = %v", runner.calls)
 	}
+	runner.script = map[string]wardenRun{
+		claudeBin + " --append-system-prompt-file /a/system-prompt.md --oc-probe-unsupported-flag": {
+			err: errors.New("exit status 1: error: unknown option '--append-system-prompt-file'"),
+		},
+	}
+	if deps.ClaudeTakesPromptFile("/a/system-prompt.md") {
+		t.Error("a claude that rejects --append-system-prompt-file was reported as taking it")
+	}
 	if got, _ := deps.ResolveOcAgentBin(); !strings.HasSuffix(got, "ocagent") {
 		t.Errorf("ResolveOcAgentBin() = %q, want a path ending in ocagent", got)
 	}
