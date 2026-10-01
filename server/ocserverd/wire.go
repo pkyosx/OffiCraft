@@ -316,6 +316,22 @@ type machineUpgradeResultDTO struct {
 	Dispatched bool   `json:"dispatched"`
 }
 
+type runtimeLoginAccountDTO struct {
+	Email   *string `json:"email"`
+	OrgName *string `json:"org_name"`
+}
+
+type runtimeLoginDTO struct {
+	LoginID   string                  `json:"login_id"`
+	MachineID string                  `json:"machine_id"`
+	Runtime   string                  `json:"runtime"`
+	State     string                  `json:"state"`
+	AuthURL   *string                 `json:"auth_url"`
+	Account   *runtimeLoginAccountDTO `json:"account"`
+	Reason    *string                 `json:"reason"`
+	UpdatedTS float64                 `json:"updated_ts"`
+}
+
 type chatAttachmentDTO struct {
 	ID       string `json:"id"`
 	URL      string `json:"url"`

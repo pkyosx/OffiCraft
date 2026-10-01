@@ -590,6 +590,14 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler: w.HandleIngestTelemetryApiMonitoringTelemetryPost,
 			MCPTool: "ingest_telemetry",
 		}),
+		// principalMachine so the warden clears the floor; the handler admits only
+		// the login's own machine.
+		Gated(principalMachine, routeDef{
+			Method:     "POST",
+			Path:       "/api/monitoring/runtime-login",
+			Handler:    w.HandleReportRuntimeLoginApiMonitoringRuntimeLoginPost,
+			MCPExclude: true,
+		}),
 		Gated(principalMachine, routeDef{
 			Method:  "GET",
 			Path:    "/api/monitoring",
@@ -687,6 +695,30 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Path:    "/api/machines/{member_id}/upgrade",
 			Handler: w.HandleUpgradeMachineApiMachinesMemberIdUpgradePost,
 			MCPTool: "upgrade_warden",
+		}),
+		Gated(principalAdminAgent, routeDef{
+			Method:     "POST",
+			Path:       "/api/machines/{machine_id}/runtime-login",
+			Handler:    w.HandleStartRuntimeLoginApiMachinesMachineIdRuntimeLoginPost,
+			MCPExclude: true,
+		}),
+		Gated(principalAdminAgent, routeDef{
+			Method:     "GET",
+			Path:       "/api/machines/{machine_id}/runtime-login/{login_id}",
+			Handler:    w.HandleGetRuntimeLoginApiMachinesMachineIdRuntimeLoginLoginIdGet,
+			MCPExclude: true,
+		}),
+		Gated(principalAdminAgent, routeDef{
+			Method:     "POST",
+			Path:       "/api/machines/{machine_id}/runtime-login/{login_id}/code",
+			Handler:    w.HandleSubmitRuntimeLoginCodeApiMachinesMachineIdRuntimeLoginLoginIdCodePost,
+			MCPExclude: true,
+		}),
+		Gated(principalAdminAgent, routeDef{
+			Method:     "POST",
+			Path:       "/api/machines/{machine_id}/runtime-login/{login_id}/cancel",
+			Handler:    w.HandleCancelRuntimeLoginApiMachinesMachineIdRuntimeLoginLoginIdCancelPost,
+			MCPExclude: true,
 		}),
 		Gated(principalAdminAgent, routeDef{
 			Method:  "DELETE",

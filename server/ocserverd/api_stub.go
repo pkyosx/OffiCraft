@@ -26,6 +26,7 @@ type apiServer struct {
 	gauge       *memStore
 
 	machineClaims *machineClaimStore
+	runtimeLogins *runtimeLoginStore
 	// keys is a POINTER on purpose: every gated route shares this one ring, so a
 	// rotation is visible process-wide. Read keys.signingSecret() per mint —
 	// never cache the []byte it returns across requests.

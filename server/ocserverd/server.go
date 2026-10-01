@@ -352,6 +352,7 @@ func newAPIServer(dal *DAL, hub *Hub, keys *keyring, tokenTTL int64, root assetR
 		telemetry:                       newMemStore(),
 		gauge:                           newMemStore(),
 		machineClaims:                   newMachineClaimStore(),
+		runtimeLogins:                   newRuntimeLoginStore(),
 		keys:                            keys,
 		ownerTokenTTL:                   tokenTTL,
 		agentTokenTTL:                   defaultAgentTokenTTL,
@@ -535,6 +536,7 @@ func cmdServe(env func(string) string, noReconcile, noOutsource bool, out io.Wri
 	api.startLifecycleCadence(time.Duration(lifecycleCadenceSecs * float64(time.Second)))
 	api.startAutoUpdateCadence(autoUpdateCadence)
 	api.startScheduledMessageCadence(scheduledMessageCadence)
+	api.startRuntimeLoginSweep(runtimeLoginSweepPeriod)
 	// The watchdog is armed synchronously and deliberately NOT hung off the backup
 	// cadence: the failure it exists to catch is "the cadence never ran at all".
 	api.backupHealth = armBackupHealth(dal, dbPath, time.Now())

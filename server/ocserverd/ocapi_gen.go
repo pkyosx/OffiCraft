@@ -145,6 +145,99 @@ func (e ReplyCardDTOSelectMode) Valid() bool {
 	}
 }
 
+// Defines values for RuntimeLoginDTORuntime.
+const (
+	RuntimeLoginDTORuntimeClaude RuntimeLoginDTORuntime = "claude"
+)
+
+// Valid indicates whether the value is a known member of the RuntimeLoginDTORuntime enum.
+func (e RuntimeLoginDTORuntime) Valid() bool {
+	switch e {
+	case RuntimeLoginDTORuntimeClaude:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RuntimeLoginDTOState.
+const (
+	RuntimeLoginDTOStateAwaitingCode RuntimeLoginDTOState = "awaiting_code"
+	RuntimeLoginDTOStateCancelled    RuntimeLoginDTOState = "cancelled"
+	RuntimeLoginDTOStateExpired      RuntimeLoginDTOState = "expired"
+	RuntimeLoginDTOStateFailed       RuntimeLoginDTOState = "failed"
+	RuntimeLoginDTOStateStarting     RuntimeLoginDTOState = "starting"
+	RuntimeLoginDTOStateSucceeded    RuntimeLoginDTOState = "succeeded"
+	RuntimeLoginDTOStateVerifying    RuntimeLoginDTOState = "verifying"
+)
+
+// Valid indicates whether the value is a known member of the RuntimeLoginDTOState enum.
+func (e RuntimeLoginDTOState) Valid() bool {
+	switch e {
+	case RuntimeLoginDTOStateAwaitingCode:
+		return true
+	case RuntimeLoginDTOStateCancelled:
+		return true
+	case RuntimeLoginDTOStateExpired:
+		return true
+	case RuntimeLoginDTOStateFailed:
+		return true
+	case RuntimeLoginDTOStateStarting:
+		return true
+	case RuntimeLoginDTOStateSucceeded:
+		return true
+	case RuntimeLoginDTOStateVerifying:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RuntimeLoginReportDTOState.
+const (
+	RuntimeLoginReportDTOStateAwaitingCode RuntimeLoginReportDTOState = "awaiting_code"
+	RuntimeLoginReportDTOStateCancelled    RuntimeLoginReportDTOState = "cancelled"
+	RuntimeLoginReportDTOStateExpired      RuntimeLoginReportDTOState = "expired"
+	RuntimeLoginReportDTOStateFailed       RuntimeLoginReportDTOState = "failed"
+	RuntimeLoginReportDTOStateSucceeded    RuntimeLoginReportDTOState = "succeeded"
+	RuntimeLoginReportDTOStateVerifying    RuntimeLoginReportDTOState = "verifying"
+)
+
+// Valid indicates whether the value is a known member of the RuntimeLoginReportDTOState enum.
+func (e RuntimeLoginReportDTOState) Valid() bool {
+	switch e {
+	case RuntimeLoginReportDTOStateAwaitingCode:
+		return true
+	case RuntimeLoginReportDTOStateCancelled:
+		return true
+	case RuntimeLoginReportDTOStateExpired:
+		return true
+	case RuntimeLoginReportDTOStateFailed:
+		return true
+	case RuntimeLoginReportDTOStateSucceeded:
+		return true
+	case RuntimeLoginReportDTOStateVerifying:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RuntimeLoginStartDTORuntime.
+const (
+	RuntimeLoginStartDTORuntimeClaude RuntimeLoginStartDTORuntime = "claude"
+)
+
+// Valid indicates whether the value is a known member of the RuntimeLoginStartDTORuntime enum.
+func (e RuntimeLoginStartDTORuntime) Valid() bool {
+	switch e {
+	case RuntimeLoginStartDTORuntimeClaude:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for RuntimeLoginWarningDTORuntime.
 const (
 	Claude RuntimeLoginWarningDTORuntime = "claude"
@@ -2704,6 +2797,69 @@ type RuntimeCapabilityDTO struct {
 	Version   *string `json:"version,omitempty"`
 }
 
+// RuntimeLoginAccountDTO Who the runtime CLI says it is now logged in as. Display values only; no token or credential.
+type RuntimeLoginAccountDTO struct {
+	Email   *string `json:"email,omitempty"`
+	OrgName *string `json:"org_name,omitempty"`
+}
+
+// RuntimeLoginCodeDTO The code the provider's sign-in page showed the owner. Relayed to the waiting login process and never stored, logged or echoed.
+type RuntimeLoginCodeDTO struct {
+	Code string `json:"code"`
+}
+
+// RuntimeLoginDTO One runtime login the server relays between the owner's browser and a login process the machine's warden runs. Held in server memory only and never persisted: a server restart forgets every login, and a login is dropped about 10 minutes after it reaches a terminal state (`succeeded`, `failed`, `expired`, `cancelled`), after which it reads as 404. A non-terminal login with no warden report for 15 minutes becomes `expired`; that is longer than the warden's own 10-minute login cap, so a live login always gets to report its own end first.
+type RuntimeLoginDTO struct {
+	// Account Set on `succeeded` only.
+	Account *RuntimeLoginAccountDTO `json:"account,omitempty"`
+
+	// AuthUrl The provider sign-in URL the owner opens; set from `awaiting_code` on.
+	AuthUrl   *string `json:"auth_url,omitempty"`
+	LoginId   string  `json:"login_id"`
+	MachineId string  `json:"machine_id"`
+
+	// Reason Why the login ended in `failed`, `expired` or `cancelled`.
+	Reason  *string                `json:"reason,omitempty"`
+	Runtime RuntimeLoginDTORuntime `json:"runtime"`
+
+	// State `starting` until the warden's first report. A warden build that predates the `login_start` verb ignores it, so `starting` never advances; the UI gives up on it after 30s.
+	State RuntimeLoginDTOState `json:"state"`
+
+	// UpdatedTs Epoch seconds of the last state change, server-stamped.
+	UpdatedTs float64 `json:"updated_ts"`
+}
+
+// RuntimeLoginDTORuntime defines model for RuntimeLoginDTO.Runtime.
+type RuntimeLoginDTORuntime string
+
+// RuntimeLoginDTOState `starting` until the warden's first report. A warden build that predates the `login_start` verb ignores it, so `starting` never advances; the UI gives up on it after 30s.
+type RuntimeLoginDTOState string
+
+// RuntimeLoginReportDTO A warden's progress report for one runtime login. Every value is held in server memory only, like the login itself.
+type RuntimeLoginReportDTO struct {
+	// Account Send with `succeeded`.
+	Account *RuntimeLoginAccountDTO `json:"account,omitempty"`
+
+	// AuthUrl Send with `awaiting_code`.
+	AuthUrl *string `json:"auth_url,omitempty"`
+	LoginId string  `json:"login_id"`
+
+	// Reason Send with `failed`, `expired` or `cancelled`. Must not quote the code or any credential.
+	Reason *string                    `json:"reason,omitempty"`
+	State  RuntimeLoginReportDTOState `json:"state"`
+}
+
+// RuntimeLoginReportDTOState defines model for RuntimeLoginReportDTO.State.
+type RuntimeLoginReportDTOState string
+
+// RuntimeLoginStartDTO Which runtime to log in on the machine.
+type RuntimeLoginStartDTO struct {
+	Runtime RuntimeLoginStartDTORuntime `json:"runtime"`
+}
+
+// RuntimeLoginStartDTORuntime defines model for RuntimeLoginStartDTO.Runtime.
+type RuntimeLoginStartDTORuntime string
+
 // RuntimeLoginWarningDTO One machine/runtime pair on “MemberDTO.runtime_login_warnings“ whose runtime the machine reports as logged out.
 type RuntimeLoginWarningDTO struct {
 	MachineId string `json:"machine_id"`
@@ -4365,6 +4521,12 @@ type HandleClaimMachineTokenApiMachinesClaimPostJSONRequestBody = MachineClaimDT
 // HandleUpdateMachineApiMachinesMachineIdPatchJSONRequestBody defines body for HandleUpdateMachineApiMachinesMachineIdPatch for application/json ContentType.
 type HandleUpdateMachineApiMachinesMachineIdPatchJSONRequestBody = AliasUpdateDTO
 
+// HandleStartRuntimeLoginApiMachinesMachineIdRuntimeLoginPostJSONRequestBody defines body for HandleStartRuntimeLoginApiMachinesMachineIdRuntimeLoginPost for application/json ContentType.
+type HandleStartRuntimeLoginApiMachinesMachineIdRuntimeLoginPostJSONRequestBody = RuntimeLoginStartDTO
+
+// HandleSubmitRuntimeLoginCodeApiMachinesMachineIdRuntimeLoginLoginIdCodePostJSONRequestBody defines body for HandleSubmitRuntimeLoginCodeApiMachinesMachineIdRuntimeLoginLoginIdCodePost for application/json ContentType.
+type HandleSubmitRuntimeLoginCodeApiMachinesMachineIdRuntimeLoginLoginIdCodePostJSONRequestBody = RuntimeLoginCodeDTO
+
 // HandleHireMemberApiMembersPostJSONRequestBody defines body for HandleHireMemberApiMembersPost for application/json ContentType.
 type HandleHireMemberApiMembersPostJSONRequestBody = MemberHireDTO
 
@@ -4391,6 +4553,9 @@ type HandleUpdateWebhookApiMembersMemberIdWebhooksEndpointIdPatchJSONRequestBody
 
 // HandleMintApiMintPostJSONRequestBody defines body for HandleMintApiMintPost for application/json ContentType.
 type HandleMintApiMintPostJSONRequestBody = MintRequestDTO
+
+// HandleReportRuntimeLoginApiMonitoringRuntimeLoginPostJSONRequestBody defines body for HandleReportRuntimeLoginApiMonitoringRuntimeLoginPost for application/json ContentType.
+type HandleReportRuntimeLoginApiMonitoringRuntimeLoginPostJSONRequestBody = RuntimeLoginReportDTO
 
 // HandleIngestTelemetryApiMonitoringTelemetryPostJSONRequestBody defines body for HandleIngestTelemetryApiMonitoringTelemetryPost for application/json ContentType.
 type HandleIngestTelemetryApiMonitoringTelemetryPostJSONRequestBody = AgentTelemetryIngestDTO
@@ -4751,6 +4916,18 @@ type ServerInterface interface {
 	// Bootstrap on server: runs `ocwarden install --force` on the SERVER's own host. machine_id is NOT a target — this verb has no way to reach another machine, and naming one is refused (409); the server-local machine is the only value it accepts, and the install overwrites the existing one, which is how you repair this host's warden. To install a different machine, fetch that machine's own boot command with GET /api/machines/{machine_id}/boot-command and run it on that host.
 	// (POST /api/machines/{machine_id}/bootstrap-here)
 	HandleBootstrapHereApiMachinesMachineIdBootstrapHerePost(w http.ResponseWriter, r *http.Request, machineId string)
+	// Start a runtime login on a machine: its warden runs the CLI login and relays the sign-in URL back.
+	// (POST /api/machines/{machine_id}/runtime-login)
+	HandleStartRuntimeLoginApiMachinesMachineIdRuntimeLoginPost(w http.ResponseWriter, r *http.Request, machineId string)
+	// Read a runtime login's current state.
+	// (GET /api/machines/{machine_id}/runtime-login/{login_id})
+	HandleGetRuntimeLoginApiMachinesMachineIdRuntimeLoginLoginIdGet(w http.ResponseWriter, r *http.Request, machineId string, loginId string)
+	// Cancel a runtime login.
+	// (POST /api/machines/{machine_id}/runtime-login/{login_id}/cancel)
+	HandleCancelRuntimeLoginApiMachinesMachineIdRuntimeLoginLoginIdCancelPost(w http.ResponseWriter, r *http.Request, machineId string, loginId string)
+	// Submit the sign-in code for a runtime login.
+	// (POST /api/machines/{machine_id}/runtime-login/{login_id}/code)
+	HandleSubmitRuntimeLoginCodeApiMachinesMachineIdRuntimeLoginLoginIdCodePost(w http.ResponseWriter, r *http.Request, machineId string, loginId string)
 	// Teardown on server: runs `ocwarden teardown` on the SERVER's own host. machine_id is NOT a target — this verb has no way to reach another machine, and naming one is refused (409). The server-local machine is refused too (retiring it revokes credentials fleet-wide). To retire another machine use uninstall_machine then delete_machine; to repair the server host's own warden use install_warden_on_server_host, which runs `install --force` over the existing install.
 	// (POST /api/machines/{machine_id}/teardown-here)
 	HandleTeardownHereApiMachinesMachineIdTeardownHerePost(w http.ResponseWriter, r *http.Request, machineId string)
@@ -4857,6 +5034,9 @@ type ServerInterface interface {
 	// Monitoring telemetry (roster + context + warden push; honest — else).
 	// (GET /api/monitoring)
 	HandleGetMonitoringApiMonitoringGet(w http.ResponseWriter, r *http.Request)
+	// Report a runtime login's progress (warden only). Answers the login as the server now holds it.
+	// (POST /api/monitoring/runtime-login)
+	HandleReportRuntimeLoginApiMonitoringRuntimeLoginPost(w http.ResponseWriter, r *http.Request)
 	// Ingest warden telemetry (hardware/limits/tokens/cost/self_update). Answers with a bounded receipt (“agent_id“, “machine“, “ts“), not the stored entry echoed back — call “get_monitoring“ when you need the rest.
 	//
 	// PARAMETER NOTES. In the input schema the parameters below carry only a short summary; these are their full rules.
@@ -7001,6 +7181,137 @@ func (siw *ServerInterfaceWrapper) HandleBootstrapHereApiMachinesMachineIdBootst
 	handler.ServeHTTP(w, r)
 }
 
+// HandleStartRuntimeLoginApiMachinesMachineIdRuntimeLoginPost operation middleware
+func (siw *ServerInterfaceWrapper) HandleStartRuntimeLoginApiMachinesMachineIdRuntimeLoginPost(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "machine_id" -------------
+	var machineId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "machine_id", r.PathValue("machine_id"), &machineId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "machine_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleStartRuntimeLoginApiMachinesMachineIdRuntimeLoginPost(w, r, machineId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleGetRuntimeLoginApiMachinesMachineIdRuntimeLoginLoginIdGet operation middleware
+func (siw *ServerInterfaceWrapper) HandleGetRuntimeLoginApiMachinesMachineIdRuntimeLoginLoginIdGet(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "machine_id" -------------
+	var machineId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "machine_id", r.PathValue("machine_id"), &machineId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "machine_id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "login_id" -------------
+	var loginId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "login_id", r.PathValue("login_id"), &loginId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "login_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleGetRuntimeLoginApiMachinesMachineIdRuntimeLoginLoginIdGet(w, r, machineId, loginId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleCancelRuntimeLoginApiMachinesMachineIdRuntimeLoginLoginIdCancelPost operation middleware
+func (siw *ServerInterfaceWrapper) HandleCancelRuntimeLoginApiMachinesMachineIdRuntimeLoginLoginIdCancelPost(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "machine_id" -------------
+	var machineId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "machine_id", r.PathValue("machine_id"), &machineId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "machine_id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "login_id" -------------
+	var loginId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "login_id", r.PathValue("login_id"), &loginId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "login_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleCancelRuntimeLoginApiMachinesMachineIdRuntimeLoginLoginIdCancelPost(w, r, machineId, loginId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleSubmitRuntimeLoginCodeApiMachinesMachineIdRuntimeLoginLoginIdCodePost operation middleware
+func (siw *ServerInterfaceWrapper) HandleSubmitRuntimeLoginCodeApiMachinesMachineIdRuntimeLoginLoginIdCodePost(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "machine_id" -------------
+	var machineId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "machine_id", r.PathValue("machine_id"), &machineId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "machine_id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "login_id" -------------
+	var loginId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "login_id", r.PathValue("login_id"), &loginId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "login_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleSubmitRuntimeLoginCodeApiMachinesMachineIdRuntimeLoginLoginIdCodePost(w, r, machineId, loginId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // HandleTeardownHereApiMachinesMachineIdTeardownHerePost operation middleware
 func (siw *ServerInterfaceWrapper) HandleTeardownHereApiMachinesMachineIdTeardownHerePost(w http.ResponseWriter, r *http.Request) {
 
@@ -7831,6 +8142,20 @@ func (siw *ServerInterfaceWrapper) HandleGetMonitoringApiMonitoringGet(w http.Re
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.HandleGetMonitoringApiMonitoringGet(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleReportRuntimeLoginApiMonitoringRuntimeLoginPost operation middleware
+func (siw *ServerInterfaceWrapper) HandleReportRuntimeLoginApiMonitoringRuntimeLoginPost(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleReportRuntimeLoginApiMonitoringRuntimeLoginPost(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -10085,6 +10410,10 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/api/machines/{machine_id}", wrapper.HandleUpdateMachineApiMachinesMachineIdPatch)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/machines/{machine_id}/boot-command", wrapper.HandleMachineBootCommandApiMachinesMachineIdBootCommandGet)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/machines/{machine_id}/bootstrap-here", wrapper.HandleBootstrapHereApiMachinesMachineIdBootstrapHerePost)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/machines/{machine_id}/runtime-login", wrapper.HandleStartRuntimeLoginApiMachinesMachineIdRuntimeLoginPost)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/machines/{machine_id}/runtime-login/{login_id}", wrapper.HandleGetRuntimeLoginApiMachinesMachineIdRuntimeLoginLoginIdGet)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/machines/{machine_id}/runtime-login/{login_id}/cancel", wrapper.HandleCancelRuntimeLoginApiMachinesMachineIdRuntimeLoginLoginIdCancelPost)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/machines/{machine_id}/runtime-login/{login_id}/code", wrapper.HandleSubmitRuntimeLoginCodeApiMachinesMachineIdRuntimeLoginLoginIdCodePost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/machines/{machine_id}/teardown-here", wrapper.HandleTeardownHereApiMachinesMachineIdTeardownHerePost)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/machines/{member_id}", wrapper.HandleDeleteMachineApiMachinesMemberIdDelete)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/machines/{member_id}/uninstall", wrapper.HandleUninstallMachineApiMachinesMemberIdUninstallPost)
@@ -10116,6 +10445,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/members/{member_id}/webhooks/{endpoint_id}/requests", wrapper.HandleListWebhookRequestsApiMembersMemberIdWebhooksEndpointIdRequestsGet)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/mint", wrapper.HandleMintApiMintPost)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/monitoring", wrapper.HandleGetMonitoringApiMonitoringGet)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/monitoring/runtime-login", wrapper.HandleReportRuntimeLoginApiMonitoringRuntimeLoginPost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/monitoring/telemetry", wrapper.HandleIngestTelemetryApiMonitoringTelemetryPost)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/offboard", wrapper.HandleGetOffboardApiOffboardGet)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/offboard", wrapper.HandleReplaceOffboardApiOffboardPost)

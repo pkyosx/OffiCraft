@@ -343,7 +343,9 @@ def test_member_remove_frame(client, owner_token, fresh_member, owner_sse) -> No
 # ── §3 the closed topic/op vocabulary — EVERY topic of the set observed ───────
 
 
-def test_every_closed_topic_emits(client, owner_token, agent_a, fresh_member, owner_sse) -> None:
+def test_every_closed_topic_emits(
+    base_url, client, owner_token, agent_a, fresh_member, fresh_machine, owner_sse
+) -> None:
     """Trigger every topic of the closed set (spec §3.1 — the M1 freeze was 8
     topics, monitoring included despite the 7-topic SSE_TOPICS constant;
     reply_card joined in M2, the task batch added three more) and pin its op +
@@ -364,6 +366,24 @@ def test_every_closed_topic_emits(client, owner_token, agent_a, fresh_member, ow
     # this body ever stops writing `name`, that check FAILS LOUDLY instead of
     # silently degrading into something a stale frame satisfies.
     member_patch_body: dict[str, Any] = {"name": f"conf-topic-{tag}"}
+    # runtime_login is published only for a machine whose warden is ONLINE (an
+    # offline one is a 409 with nothing fanned), so this row holds a live warden
+    # connection open for the length of the test.
+    login_machine = fresh_machine()
+    warden_conn = SSEConnection(
+        base_url, mint_member_token(client, owner_token, login_machine, ttl_days=1)
+    )
+    assert warden_conn.status_code == 200, warden_conn.error_body
+    warden_conn.wait_for(lambda ev: ev["comment"] == "connected")
+    login_started: dict[str, Any] = {}
+
+    def start_login() -> Any:
+        r = client.post(
+            f"/api/machines/{login_machine}/runtime-login",
+            json={"runtime": "claude"}, headers=_auth(owner_token))
+        if r.status_code == 200:
+            login_started.update(r.json())
+        return r
     triggers: list[tuple[str, Any]] = [
         ("member", lambda: client.patch(
             f"/api/members/{member}", json=member_patch_body,
@@ -411,6 +431,7 @@ def test_every_closed_topic_emits(client, owner_token, agent_a, fresh_member, ow
             "/api/monitoring/telemetry",
             json={"rate_limits": {"primary_used_pct": 2}},
             headers=_auth(agent_a.token))),
+        ("runtime_login", start_login),
     ]
     expected_op = {
         "member": "patch", "chat": "patch", "chat_read": "patch",
@@ -419,6 +440,7 @@ def test_every_closed_topic_emits(client, owner_token, agent_a, fresh_member, ow
         "global_context": "patch", "role_def": "patch",
         "insight": "patch",
         "context": "signal", "monitoring": "signal",
+        "runtime_login": "signal",
     }
     # ── the self-confrontation: this table IS the closed set, not a subset ────
     closed = _closed_topic_set()
@@ -558,6 +580,8 @@ def test_every_closed_topic_emits(client, owner_token, agent_a, fresh_member, ow
                 f"NOT have caught it: the polluting frame is about this very "
                 f"member. Got payload: {payload}"
             )
+        if topic == "runtime_login":
+            assert frame["data"]["key"] == login_started["login_id"], (frame, login_started)
         if frame["op"] == "signal":
             # §3.2: volatile in-memory store change — payload always null.
             assert frame["data"]["payload"] is None, (topic, frame)
@@ -570,6 +594,10 @@ def test_every_closed_topic_emits(client, owner_token, agent_a, fresh_member, ow
     assert r.status_code == 200
     frame = owner_sse.wait_for_frame("global_context")["frame"]
     assert frame["data"]["payload"] is None, frame
+    client.post(
+        f"/api/machines/{login_machine}/runtime-login/{login_started['login_id']}/cancel",
+        headers=_auth(owner_token))
+    warden_conn.close()
 
 
 # ── §4 per-recipient routing (T-30d7) ────────────────────────────────────────

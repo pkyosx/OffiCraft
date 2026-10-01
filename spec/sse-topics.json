@@ -11,6 +11,7 @@
     "monitoring",
     "reply_card",
     "role_def",
+    "runtime_login",
     "task",
     "task_manual"
   ]

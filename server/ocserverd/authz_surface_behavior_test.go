@@ -957,6 +957,14 @@ var machineFloorWriteRulings = map[string]machineFloorRuling{
 			"The route also names NO target: the machine acted on is the caller's " +
 			"verified sub, so the floor grants 'renew yourself', never 'renew anyone'.",
 	},
+	"POST /api/monitoring/runtime-login": {
+		Ruling: "T-309 · owner-approved spec (precedent: renew-credential)",
+		Why: "the floor is FORCED for the same reason as renew-credential: the warden " +
+			"is the only intended caller and ranks machine. The handler admits only the " +
+			"login's own machine (the verified sub must be an active machine AND equal " +
+			"the login's machine_id); every other caller reads the same 404 as an " +
+			"unknown login, so the floor grants 'report your own login', never anyone's.",
+	},
 	"POST /api/self/waking":   selfOpRuling,
 	"POST /api/self/stopping": selfOpRuling,
 	"POST /api/self/stopped":  selfOpRuling,
