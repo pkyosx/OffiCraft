@@ -1412,6 +1412,7 @@ export interface paths {
          * Start a runtime login on a machine: its warden runs the CLI login and relays the sign-in URL back.
          * @description - Pushes the `login_start` warden command; the warden runs the runtime's login and reports through `POST /api/monitoring/runtime-login`.
          *     - Held in server memory only, never persisted; a server restart forgets the login.
+         *     - A login with no warden report for 15 minutes becomes `expired`, then is dropped about 10 minutes later.
          *     - A warden build that predates the verb ignores it and the login stays `starting`; the UI gives up after 30s.
          *     - While a login for this machine and runtime is not yet terminal, a repeat returns that login instead of starting another.
          *     - Admin agent only (403); an unknown, removed or non-machine id is a 404; an offline warden is a 409.
@@ -7664,7 +7665,7 @@ export interface components {
         };
         /**
          * RuntimeLoginDTO
-         * @description One runtime login the server relays between the owner's browser and a login process the machine's warden runs. Held in server memory only and never persisted: a server restart forgets every login, and a login is dropped about 10 minutes after it reaches a terminal state (`succeeded`, `failed`, `expired`, `cancelled`), after which it reads as 404.
+         * @description One runtime login the server relays between the owner's browser and a login process the machine's warden runs. Held in server memory only and never persisted: a server restart forgets every login, and a login is dropped about 10 minutes after it reaches a terminal state (`succeeded`, `failed`, `expired`, `cancelled`), after which it reads as 404. A non-terminal login with no warden report for 15 minutes becomes `expired`; that is longer than the warden's own 10-minute login cap, so a live login always gets to report its own end first.
          */
         RuntimeLoginDTO: {
             /**
