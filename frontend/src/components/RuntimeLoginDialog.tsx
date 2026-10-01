@@ -12,6 +12,9 @@ import "./runtime-login.css";
  * `starting`; this is how long the dialog waits before saying so. */
 const RUNTIME_LOGIN_START_TIMEOUT_MS = 30_000;
 
+// claude's answer to a wrong or expired code: the token exchange is refused.
+const CODE_REJECTED = /^Login failed: Request failed with status code 40[01]\b/;
+
 const TERMINAL: RuntimeLoginState[] = ["succeeded", "failed", "expired", "cancelled"];
 
 function isTerminal(state: RuntimeLoginState): boolean {
@@ -242,11 +245,6 @@ export function RuntimeLoginDialog({
               onChange={(e) => setCode(e.target.value)}
             />
           </label>
-          {(codeRefused || login.reason) && (
-            <p className="runtime-login__line runtime-login__line--bad" data-testid="runtime-login-code-refused">
-              {m.codeIncomplete}
-            </p>
-          )}
           <button
             type="submit"
             className="confirm-modal__btn confirm-modal__btn--accent"
@@ -256,6 +254,11 @@ export function RuntimeLoginDialog({
             {m.submit}
           </button>
         </form>
+        {(codeRefused || login.reason) && (
+          <p className="runtime-login__code-error" data-testid="runtime-login-code-refused">
+            {m.codeIncomplete}
+          </p>
+        )}
       </div>
     );
   } else if (login.state === "verifying") {
@@ -281,17 +284,27 @@ export function RuntimeLoginDialog({
         )}
       </p>
     );
+  } else if (login.state === "failed") {
+    ended = true;
+    const reason = login.reason ?? "";
+    body = (
+      <div data-testid="runtime-login-failed">
+        <p className="runtime-login__line runtime-login__line--bad" data-testid="runtime-login-failed-summary">
+          {CODE_REJECTED.test(reason) ? m.codeRejected : m.failedHeading}
+        </p>
+        {reason !== "" && (
+          <p className="runtime-login__cli" data-testid="runtime-login-failed-cli">
+            {m.cliSaidLead}
+            {reason}
+          </p>
+        )}
+      </div>
+    );
   } else {
     ended = true;
-    const text =
-      login.state === "failed"
-        ? `${m.failedLead}${login.reason ?? ""}`
-        : login.state === "expired"
-          ? m.expired
-          : m.cancelled;
     body = (
       <p className="runtime-login__line runtime-login__line--bad" data-testid="runtime-login-failed">
-        {text}
+        {login.state === "expired" ? m.expired : m.cancelled}
       </p>
     );
   }

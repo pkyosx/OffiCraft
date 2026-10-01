@@ -183,7 +183,8 @@ describe("RuntimeLoginDialog", () => {
     mount();
     await flush();
     await emit(login({ state: "failed", reason: "Login failed: Request failed with status code 400" }));
-    expect(text("runtime-login-failed")).toBe("登入失敗：Login failed: Request failed with status code 400");
+    expect(text("runtime-login-failed-summary")).toBe("授權碼錯誤或已過期，請按「重新開始」取得新的授權網址");
+    expect(text("runtime-login-failed-cli")).toBe("Claude 回應：Login failed: Request failed with status code 400");
 
     startRuntimeLogin.mockResolvedValue(login({ loginId: "rl-2" }));
     await act(async () => {
@@ -244,6 +245,32 @@ describe("RuntimeLoginDialog", () => {
     await emit(login({ state: "awaiting_code", authUrl: URL }));
     fireEvent.click(screen.getByTestId("runtime-login-close"));
     expect(cancelRuntimeLogin).toHaveBeenCalledTimes(1);
+  });
+
+  it("under a 401 from the token exchange, it also explains a wrong or expired code", async () => {
+    mount();
+    await flush();
+    await emit(login({ state: "failed", reason: "Login failed: Request failed with status code 401" }));
+    expect(text("runtime-login-failed-summary")).toBe("授權碼錯誤或已過期，請按「重新開始」取得新的授權網址");
+    expect(text("runtime-login-failed-cli")).toBe("Claude 回應：Login failed: Request failed with status code 401");
+  });
+
+  it("under any other CLI failure, it heads with 登入失敗 and shows the CLI's text below", async () => {
+    mount();
+    await flush();
+    await emit(login({ state: "failed", reason: "Login failed: Request failed with status code 500" }));
+    expect(text("runtime-login-failed-summary")).toBe("登入失敗");
+    expect(text("runtime-login-failed-cli")).toBe("Claude 回應：Login failed: Request failed with status code 500");
+  });
+
+  it("under the incomplete-code message, it sits outside the code row so the submit button keeps its place", async () => {
+    mount();
+    await flush();
+    await emit(login({ state: "awaiting_code", authUrl: URL, reason: "Invalid code. Please make sure the full code was copied." }));
+    const error = screen.getByTestId("runtime-login-code-refused");
+    const row = screen.getByTestId("runtime-login-submit").closest("form")!;
+    expect(row.contains(error)).toBe(false);
+    expect(row.nextElementSibling).toBe(error);
   });
 
   it("under an offline warden (409 on start), it says the machine did not answer and why", async () => {

@@ -23,11 +23,10 @@
   border-color: color-mix(in srgb, var(--color-overlay) 10%, transparent);
   color: var(--color-text);
 }
+/* Portalled to <body> and placed by RuntimeActionMenu from the trigger's rect. */
 .runtime-menu__pop {
-  position: absolute;
-  left: 0;
-  top: calc(100% + 4px);
-  z-index: 20;
+  position: fixed;
+  z-index: 50;
   min-width: 120px;
   padding: 6px;
   border-radius: 12px;
@@ -49,6 +48,10 @@
   white-space: nowrap;
   cursor: pointer;
 }
+.runtime-menu__item:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+}
 .runtime-menu__item:hover {
   background: color-mix(in srgb, var(--color-overlay) 6%, transparent);
 }
@@ -67,6 +70,17 @@
 }
 .runtime-login__line--bad {
   color: var(--color-danger);
+}
+.runtime-login__code-error {
+  margin: 6px 0 0;
+  color: var(--color-danger);
+  font-size: 12.5px;
+}
+.runtime-login__cli {
+  margin: 6px 0 0;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
 }
 .runtime-login__hint {
   margin: 8px 0 0;
