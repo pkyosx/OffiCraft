@@ -278,7 +278,7 @@ func TestBuildAppendSystemPrompt(t *testing.T) {
 }
 
 func TestWithRunTimeout(t *testing.T) {
-	// 2s comes out of the ~3s slack under receiptDeadlineSecs (server/ocserverd/receipt_watch.go).
+	// 2s is a line of the receiptDeadlineSecs budget (server/ocserverd/receipt_watch.go).
 	if got := withRunTimeout(execRunner{timeout: 5 * time.Second}, claudePromptFileProbeBudget); got != CmdRunner(execRunner{timeout: 2 * time.Second}) {
 		t.Errorf("the real runner = %#v, want its timeout cut to 2s", got)
 	}

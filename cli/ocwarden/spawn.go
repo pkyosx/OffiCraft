@@ -183,8 +183,9 @@ func buildAppendSystemPrompt(agentID, role, personaFile string) string {
 // to a launch that still boots.
 const claudePromptFileProbeFlag = "--oc-probe-unsupported-flag"
 
-// Spent before the START receipt is sent, so it comes out of the slack described
-// at nudgeMaxAttempts. A timeout reads as "not supported" and still boots.
+// Spent before the START receipt is sent, so it is one line of the budget
+// listed at receiptDeadlineSecs (server/ocserverd/receipt_watch.go). A timeout
+// reads as "not supported" and still boots.
 const claudePromptFileProbeBudget = 2 * time.Second
 
 func claudeAcceptsPromptFile(r CmdRunner, claudeBin, promptFile string) bool {
