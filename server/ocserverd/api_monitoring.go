@@ -615,10 +615,10 @@ func (s *apiServer) HandleIngestTelemetryApiMonitoringTelemetryPost(w http.Respo
 		wasStale := *runtimeCapabilitiesStale(entry, true, nowSecs())
 		loginFlipped = loginStatesDiffer(loginStatesOf(entry), next) || (wasStale && anyLoggedOut(next))
 		entry["runtimes"] = runtimes
-		// Same per-sample stamp as hardware_ts. Placement (runtimePlacementRefusal)
-		// reads it only to discount a stale logged-out verdict; it never expires the
-		// map — that would reclassify a quiet machine as a legacy warden and hand it
-		// Claude work.
+		// Same per-sample stamp as hardware_ts. Only the logged-out mark
+		// (runtimeReportedLoggedOut) reads it, to discount a stale verdict; nothing
+		// expires the map on it — placement would then reclassify a quiet machine as
+		// a legacy warden and hand it Claude work.
 		entry["runtimes_ts"] = nowSecs()
 	}
 	if runtime != nil {

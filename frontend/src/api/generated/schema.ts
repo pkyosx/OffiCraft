@@ -4122,7 +4122,7 @@ export interface components {
                     installed?: boolean | null;
                     /**
                      * Logged In
-                     * @description ``codex login status`` exited 0, re-run every ``runtime_login_check_interval_secs`` while true, every ``runtime_login_recheck_interval_secs`` while false. Absent = not probed.
+                     * @description Result of ``codex login status``: true when it exits 0, false when it exits non-zero; absent when it was not probed, timed out or would not start — unknown, never logged out. Re-run every ``runtime_login_check_interval_secs`` while true, every ``runtime_login_recheck_interval_secs`` while false or absent, and on the spot before each Codex start, whose verdict replaces this one at once.
                      */
                     logged_in?: boolean | null;
                     /**
@@ -7520,7 +7520,7 @@ export interface components {
         };
         /**
          * RuntimeCapabilityDTO
-         * @description Value-free readiness of one AI CLI runtime on a machine. ``installed`` means the exact binary the warden would launch resolved and passed its version probe. ``logged_in`` is the warden's latest provider login check, re-run every ``runtime_login_check_interval_secs`` while it is true and every ``runtime_login_recheck_interval_secs`` while it is false or null: for Claude, ``claude auth status`` in the environment members launch with — true when it reports logged in, false only when it reports logged out and (on macOS) the login keychain is readable by the warden, null on timeout, unparseable output or an unreadable keychain; for Codex, whether ``codex login status`` succeeded. Null means unknown, never logged out. ``version`` is null when unresolved or probing failed. No credential value or path is exposed.
+         * @description Value-free readiness of one AI CLI runtime on a machine. ``installed`` means the exact binary the warden would launch resolved and passed its version probe. ``logged_in`` is the warden's latest provider login check, re-run every ``runtime_login_check_interval_secs`` while it is true and every ``runtime_login_recheck_interval_secs`` while it is false or null: for Claude, ``claude auth status`` in the environment members launch with — true when it reports logged in, false only when it reports logged out and (on macOS) the login keychain is readable by the warden, null on timeout, unparseable output or an unreadable keychain; for Codex, ``codex login status`` — true on exit 0, false on a non-zero exit, null when it timed out or would not start. Null means unknown, never logged out. A start runs the same check on the spot first, and its verdict replaces this one at once. ``version`` is null when unresolved or probing failed. No credential value or path is exposed.
          */
         RuntimeCapabilityDTO: {
             /**

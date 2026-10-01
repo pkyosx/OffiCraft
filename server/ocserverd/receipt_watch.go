@@ -19,10 +19,11 @@ import (
 const receiptMissingReasonCode = "receipt_missing"
 
 // receiptDeadlineSecs is derived from the warden's own budgets, not measured:
-// claudeProbeBudget 20s + the whole boot-nudge loop 30s (it always runs all
+// the spawn's login check spawnCheckBudget 15s (its wait for a running periodic
+// check included) + the whole boot-nudge loop 30s (it always runs all
 // nudgeMaxAttempts × nudgeSettle, and the START receipt is POSTed only after
 // Spawn returns) + commandReportTimeout 5s + up to one 30s lifecycle cadence
-// ≈ 85s. So 90 leaves only ~5 s of slack: a merely slow cold start can stamp
+// ≈ 80s. So 90 leaves only ~10 s of slack: a merely slow cold start can stamp
 // receipt_missing with nothing wrong. 🔴 Those warden constants live in another
 // Go module and nothing links them — raising nudgeMaxAttempts by six consumes
 // the slack outright. Erring long is the safe direction.

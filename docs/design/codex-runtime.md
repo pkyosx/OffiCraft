@@ -216,7 +216,7 @@ Warden telemetry adds a provider-neutral `runtimes` map:
 The map contains readiness only—never tokens, credential values, or credential paths.
 Legacy Claude probe fields stay for existing clients. Codex placement always requires an
 explicit `installed == true`. Neither runtime's `logged_in` gates placement (owner ruling
-rc-5f15024ac003): it only drives the logged-out mark on the member and the monitor page. The
+2026-10-01): it only drives the logged-out mark on the member and the monitor page. The
 login check that refuses a start runs on the machine, when the START arrives — the same
 check the heartbeat reports (`claude auth status` / `codex login status`), run on the spot:
 logged in launches; an explicit logged out refuses with `claude_not_logged_in` /

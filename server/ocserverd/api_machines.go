@@ -406,9 +406,9 @@ func (s *apiServer) runtimePlacementRefusal(machineID, runtime string) string {
 	if normalized != RuntimeClaude && (capability.Installed == nil || !*capability.Installed) {
 		return notProvided
 	}
-	// A reported logged-out runtime does not refuse here (owner ruling
-	// rc-5f15024ac003): the machine checks again when the start arrives and
-	// refuses it there, so a login since the last report is never turned away.
+	// A reported logged-out runtime does not refuse here — an owner ruling, do not
+	// add it back: the machine checks again when the start arrives and refuses it
+	// there, so a login since the last report is never turned away.
 	return ""
 }
 

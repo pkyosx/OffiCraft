@@ -369,7 +369,7 @@ func buildLoginGate(env func(string) string, login *loginProber) func(runtime st
 		if runtime == "claude" && claudeOff {
 			return nil
 		}
-		return login.checkNow(runtime)
+		return login.checkForSpawn(runtime)
 	}
 }
 

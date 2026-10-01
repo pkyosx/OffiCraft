@@ -22,6 +22,15 @@ const (
 
 const loginCheckEnvName = ".oc-login-check-env"
 
+// spawnCheckBudget bounds a spawn's login check, its wait for a running periodic
+// check included: past it the verdict is unknown and the spawn launches. The
+// periodic check can hold the prober for ~25 s (shell capture, auth status and
+// keychain on claude, then codex), and the START receipt has to reach the
+// server inside its receiptDeadlineSecs (server/ocserverd/receipt_watch.go),
+// whose derivation counts this budget. 🔴 Raising it eats that slack; nothing
+// links the two modules but spawn_test.go's literal.
+const spawnCheckBudget = 15 * time.Second
+
 func loginIntervalFromReceipt(body map[string]any, key string, fallback time.Duration) time.Duration {
 	secs, ok := body[key].(float64)
 	if !ok || secs != float64(int64(secs)) ||
@@ -86,8 +95,9 @@ type loginState struct {
 // spawn asks for a fresh verdict from the command goroutine (checkNow). mu
 // serializes the two.
 type loginProber struct {
-	mu   sync.Mutex
-	kick chan struct{}
+	mu          sync.Mutex
+	kick        chan struct{}
+	spawnBudget time.Duration
 
 	env        func(string) string
 	runner     CmdRunner
@@ -121,23 +131,24 @@ type runtimeLogin struct {
 func newLoginProber(env func(string) string, runner CmdRunner, keep stdoutRunner, goos string,
 	launchEnv *launchEnvCache, logf func(string, ...any)) *loginProber {
 	return &loginProber{
-		env:        env,
-		runner:     runner,
-		keep:       keep,
-		goos:       goos,
-		now:        time.Now,
-		claudeHome: resolvedClaudeHome(env, nil),
-		agentHome:  defaultAgentHome(env),
-		envFile:    defaultAgentEnvFile(env),
-		launchEnv:  launchEnv,
-		captureEnv: defaultCaptureEnv(env),
-		mkdirAll:   os.MkdirAll,
-		writeFile:  osWriteFile,
-		remove:     os.Remove,
-		logf:       logf,
-		interval:   defaultLoginCheckInterval,
-		recheck:    defaultLoginRecheckInterval,
-		kick:       make(chan struct{}, 1),
+		env:         env,
+		runner:      runner,
+		keep:        keep,
+		goos:        goos,
+		now:         time.Now,
+		claudeHome:  resolvedClaudeHome(env, nil),
+		agentHome:   defaultAgentHome(env),
+		envFile:     defaultAgentEnvFile(env),
+		launchEnv:   launchEnv,
+		captureEnv:  defaultCaptureEnv(env),
+		mkdirAll:    os.MkdirAll,
+		writeFile:   osWriteFile,
+		remove:      os.Remove,
+		logf:        logf,
+		interval:    defaultLoginCheckInterval,
+		recheck:     defaultLoginRecheckInterval,
+		kick:        make(chan struct{}, 1),
+		spawnBudget: spawnCheckBudget,
 	}
 }
 
@@ -177,6 +188,22 @@ func (p *loginProber) checkNow(runtime string) *bool {
 	default:
 	}
 	return verdict
+}
+
+// checkForSpawn is checkNow within spawnBudget. A check that overruns keeps
+// running, so its verdict still reaches the report when it lands.
+func (p *loginProber) checkForSpawn(runtime string) *bool {
+	done := make(chan *bool, 1)
+	go func() { done <- p.checkNow(runtime) }()
+	timer := time.NewTimer(p.spawnBudget)
+	defer timer.Stop()
+	select {
+	case verdict := <-done:
+		return verdict
+	case <-timer.C:
+		p.log("[ocwarden runtimeprobe] %s login check passed its %s spawn budget; launching on an unknown verdict", runtime, p.spawnBudget)
+		return nil
+	}
 }
 
 // kicked fires once after any checkNow the telemetry loop has not yet reported.

@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"sync"
 	"testing"
 	"time"
 )
@@ -566,4 +567,103 @@ func exitStatus1(t *testing.T, stderr string) error {
 		t.Fatal("false(1) exited 0")
 	}
 	return fmt.Errorf("%w: %s", runErr, stderr)
+}
+
+// heldKeep is a claude `auth status` seam the test controls: each call reports
+// whether the rendered env file exists as it starts and once more as it ends,
+// and the first call can be held open until release closes.
+type heldKeep struct {
+	mu         sync.Mutex
+	calls      int
+	renderPath string
+	seen       []bool
+	entered    chan struct{}
+	release    chan struct{}
+}
+
+func (k *heldKeep) RunKeepStdout(string, ...string) (string, error) {
+	k.mu.Lock()
+	k.calls++
+	first := k.calls == 1
+	k.mu.Unlock()
+	if first {
+		close(k.entered)
+		<-k.release
+	}
+	_, err := os.Stat(k.renderPath)
+	k.mu.Lock()
+	k.seen = append(k.seen, err == nil)
+	k.mu.Unlock()
+	return `{"loggedIn":true}`, nil
+}
+
+func TestLoginProberCheckForSpawn(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("PATH", filepath.Join(root, "nothing-here"))
+	claudeBin := stageBinary(t, filepath.Join(root, "bin", "claude"), "#!/bin/sh\n")
+	codexBin := stageBinary(t, filepath.Join(root, "bin", "codex"), "#!/bin/sh\n")
+	agentHome := filepath.Join(root, "agents")
+	env := envMap(map[string]string{"HOME": root, "OC_CLAUDE_BIN": claudeBin, "OC_CODEX_BIN": codexBin,
+		"OC_AGENT_HOME": agentHome, "OC_AGENT_ENV_FILE": filepath.Join(root, "no-env-file"),
+		"OC_AGENT_ENV_INHERIT": "0"})
+	newHeld := func() (*loginProber, *heldKeep) {
+		keep := &heldKeep{renderPath: filepath.Join(agentHome, loginCheckEnvName),
+			entered: make(chan struct{}), release: make(chan struct{})}
+		cache := &launchEnvCache{}
+		cache.remember([]agentEnvPair{{"FROM_SHELL", "shell-value"}})
+		runner := &wardenRunner{script: map[string]wardenRun{codexBin + " login status": {out: "Logged in"}}}
+		return newLoginProber(env, runner, keep, "linux", cache, nil), keep
+	}
+
+	t.Run("the shipped budget is the one receiptDeadlineSecs counts", func(t *testing.T) {
+		if spawnCheckBudget != 15*time.Second {
+			t.Errorf("spawnCheckBudget = %s, want 15s — server/ocserverd/receipt_watch.go derives its deadline from it", spawnCheckBudget)
+		}
+	})
+
+	t.Run("under a periodic check that is stuck, a spawn's check reads unknown within its budget", func(t *testing.T) {
+		p, keep := newHeld()
+		p.spawnBudget = 200 * time.Millisecond
+		defer close(keep.release)
+		go p.state()
+		<-keep.entered
+
+		gate := buildLoginGate(env, p)
+		done := make(chan *bool, 1)
+		start := time.Now()
+		go func() { done <- gate("codex") }()
+		select {
+		case verdict := <-done:
+			if verdict != nil {
+				t.Errorf("verdict = %s, want unknown", fmtVerdict(verdict))
+			}
+			if elapsed := time.Since(start); elapsed > 3*time.Second {
+				t.Errorf("returned after %s, want about the 200ms budget", elapsed)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("the spawn's check waited on the stuck periodic check past its budget")
+		}
+	})
+
+	t.Run("under a periodic check and a spawn's check of claude at once, each auth status runs with its own env file", func(t *testing.T) {
+		p, keep := newHeld()
+		go func() {
+			<-keep.entered
+			// Let the spawn's check reach the prober while the periodic one is
+			// inside auth status, then let the periodic one finish.
+			time.Sleep(100 * time.Millisecond)
+			close(keep.release)
+		}()
+		periodic := make(chan struct{})
+		go func() { p.state(); close(periodic) }()
+		<-keep.entered
+		p.checkNow("claude")
+		<-periodic
+
+		keep.mu.Lock()
+		defer keep.mu.Unlock()
+		if want := []bool{true, true}; !reflect.DeepEqual(keep.seen, want) {
+			t.Errorf("env file present at each auth status = %v, want %v — one check removed the other's file", keep.seen, want)
+		}
+	})
 }
