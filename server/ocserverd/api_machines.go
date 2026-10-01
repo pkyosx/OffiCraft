@@ -406,14 +406,13 @@ func (s *apiServer) runtimePlacementRefusal(machineID, runtime string) string {
 	if normalized != RuntimeClaude && (capability.Installed == nil || !*capability.Installed) {
 		return notProvided
 	}
-	if s.runtimeReportedLoggedOut(machineID, normalized, nowSecs()) {
-		return "is not logged in to " + normalized
-	}
+	// A reported logged-out runtime does not refuse here (owner ruling
+	// rc-5f15024ac003): the machine checks again when the start arrives and
+	// refuses it there, so a login since the last report is never turned away.
 	return ""
 }
 
-// runtimeReportedLoggedOut is the one reading behind both the logged-out
-// warning mark and the wake refusal, so the two never disagree.
+// runtimeReportedLoggedOut is the reading behind the logged-out warning mark.
 func (s *apiServer) runtimeReportedLoggedOut(machineID, runtime string, now float64) bool {
 	capability, ok := s.machineRuntimeCapabilities(machineID)[runtime]
 	if !ok || capability.LoggedIn == nil || *capability.LoggedIn {

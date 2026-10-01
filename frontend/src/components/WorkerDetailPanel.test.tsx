@@ -337,11 +337,11 @@ describe("WorkerDetailPanel — honest presence states (A案 P6 member vocabular
         "請更新那台機器上的 OffiCraft 程式，或改設完整的型號名稱。不會改派到其他機器",
     ],
     [
-      "machine_unavailable: machine 'm-server-self' is not logged in to codex; no other machine is substituted",
+      "codex_not_logged_in: machine 'm-server-self' is not logged in to codex",
       "伺服器這一台 未登入 Codex",
     ],
     [
-      "machine_unavailable: machine 'm-server-self' is not logged in to claude; no other machine is substituted",
+      "claude_not_logged_in: machine 'm-server-self' is not logged in to claude",
       "伺服器這一台 未登入 Claude",
     ],
   ])("離線 on a Codex model family, old-warden or not-logged-in refusal: the reason is worded in the viewer's language (%s)", async (reason, shown) => {

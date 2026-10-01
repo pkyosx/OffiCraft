@@ -783,7 +783,7 @@ func TestRuntimePlacementRefusal(t *testing.T) {
 		apiTestWantRefusals(t, api, machineID, map[string]any{"claude": "", "codex": ""})
 	})
 
-	t.Run("under each login reading, only a fresh logged-out one refuses, for claude and codex alike", func(t *testing.T) {
+	t.Run("under any login reading, fresh or stale, nothing is refused, for claude and codex alike", func(t *testing.T) {
 		cases := []struct {
 			name  string
 			probe string
@@ -797,7 +797,7 @@ func TestRuntimePlacementRefusal(t *testing.T) {
 			{"a null login verdict", `{"installed":true,"logged_in":null}`, false,
 				map[string]any{"claude": "", "codex": ""}},
 			{"a fresh logged-out verdict", `{"installed":true,"logged_in":false}`, false,
-				map[string]any{"claude": "is not logged in to claude", "codex": "is not logged in to codex"}},
+				map[string]any{"claude": "", "codex": ""}},
 			{"a stale logged-out verdict", `{"installed":true,"logged_in":false}`, true,
 				map[string]any{"claude": "", "codex": ""}},
 		}

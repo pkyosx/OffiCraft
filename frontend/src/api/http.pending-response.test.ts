@@ -61,23 +61,6 @@ describe("httpApi.activateMember reads activation_pending", () => {
     });
   });
 
-  it("under a receipt carrying last_op_reason, the result carries it as lastOpReason", async () => {
-    fetchMock.mockImplementation(async () =>
-      jsonResponse(
-        receiptBody({
-          activation_pending: true,
-          last_op_reason:
-            "machine_unavailable: machine 'm-a' is not logged in to claude; no other machine is substituted",
-        }),
-      ),
-    );
-    expect(await httpApi.activateMember("m-1")).toStrictEqual({
-      activationPending: true,
-      lastOpReason:
-        "machine_unavailable: machine 'm-a' is not logged in to claude; no other machine is substituted",
-    });
-  });
-
   it("absent → activationPending false (omitempty = the START went out)", async () => {
     fetchMock.mockImplementation(async () => jsonResponse(receiptBody()));
     expect(await httpApi.activateMember("m-1")).toEqual({

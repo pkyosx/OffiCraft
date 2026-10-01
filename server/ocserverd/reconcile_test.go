@@ -1699,9 +1699,9 @@ func TestResolveEmptyRuntimeForPlacement(t *testing.T) {
 			"sends the same shape when it merely found no credential evidence). Declining to " +
 			"auto-resolve this member to codex, because persisting that choice is irreversible " +
 			"and signing Claude back in on that machine fixes the cause. Leaving 執行環境 unset " +
-			"(claude), so the start is refused as not logged in to claude while that reading is " +
-			"fresh. To choose deliberately instead: sign Claude in on that machine, or set this " +
-			"member's 執行環境 by hand.\n"
+			"(claude): the machine checks Claude's login again when the start arrives and refuses " +
+			"it there if Claude is still signed out. To choose deliberately instead: sign Claude in " +
+			"on that machine, or set this member's 執行環境 by hand.\n"
 		if out != want {
 			t.Fatalf("stderr:\n got %q\nwant %q", out, want)
 		}
@@ -2227,16 +2227,7 @@ func TestReconcileOne(t *testing.T) {
 		}
 	})
 
-	t.Run("under a target machine reporting the member's runtime logged out, the dispatch is refused only while that reading is fresh", func(t *testing.T) {
-		refused := func(runtime string) reconcileDecision {
-			return reconcileDecision{
-				Command: reconcileCmdNone, MemberID: "signedout",
-				Reason: "selected runtime unavailable on target machine",
-				ReasonCode: "machine_unavailable: machine 'm-box' is not logged in to " + runtime +
-					"; no other machine is substituted",
-				State: newReconcileState(), DispatchUnlanded: true,
-			}
-		}
+	t.Run("under a target machine reporting the member's runtime logged out, fresh or stale, the START is dispatched", func(t *testing.T) {
 		started := reconcileDecision{
 			Command: reconcileCmdStart, MemberID: "signedout",
 			Reason: "spawn: desired_state online, no live session",
@@ -2250,13 +2241,11 @@ func TestReconcileOne(t *testing.T) {
 				name     string
 				loggedIn any
 				age      float64
-				want     reconcileDecision
-				frames   int
 			}{
-				{"fresh false", false, 0, refused(runtime), 0},
-				{"stale false", false, telemetryFreshSecs + 1, started, 1},
-				{"null", nil, 0, started, 1},
-				{"true", true, 0, started, 1},
+				{"fresh false", false, 0},
+				{"stale false", false, telemetryFreshSecs + 1},
+				{"null", nil, 0},
+				{"true", true, 0},
 			} {
 				t.Run(runtime+" "+c.name, func(t *testing.T) {
 					api, d := reconcileTestServer(t)
@@ -2271,10 +2260,10 @@ func TestReconcileOne(t *testing.T) {
 					})
 					hubTestStderr(t, func() {
 						got := api.reconcileOne(reconcileTestRow(t, d, "signedout"), newReconcileState(), reconcileTestNow)
-						reconcileTestWantDecision(t, got, c.want)
+						reconcileTestWantDecision(t, got, started)
 					})
-					if got := api.hub.PendingWardenCommands("m-box"); got != c.frames {
-						t.Fatalf("queued frames = %d, want %d", got, c.frames)
+					if got := api.hub.PendingWardenCommands("m-box"); got != 1 {
+						t.Fatalf("queued frames = %d, want the one START", got)
 					}
 				})
 			}
@@ -2574,7 +2563,7 @@ func TestReconcileTickMemberLocked(t *testing.T) {
 					}
 					api.foldCommandResult(map[string]any{
 						"member_id": "runner", "rpc": "start", "ok": false,
-						"reason": "claude_not_logged_in: no claude credential here (cred_file=unset keychain=unset).",
+						"reason": "claude_not_logged_in: `claude auth status` reports logged out on this host.",
 						"at":     time.Unix(int64(base+c.stampOffset), 0).UTC().Format(time.RFC3339),
 					}, "telemetry", "m-box")
 					if got := tick(base + WakingTTLSecs + 1); !got.StartTimedOut {

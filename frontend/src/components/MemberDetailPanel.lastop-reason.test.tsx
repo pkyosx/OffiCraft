@@ -266,16 +266,6 @@ describe("MemberDetailPanel 最近操作 failure reason", () => {
   it.each([
     [
       "zh",
-      "machine_unavailable: machine 'm-studio' is not logged in to claude; no other machine is substituted",
-      'Studio "A" 未登入 Claude',
-    ],
-    [
-      "zh",
-      "machine_unavailable: machine 'm-studio' is not logged in to codex; no other machine is substituted",
-      'Studio "A" 未登入 Codex',
-    ],
-    [
-      "zh",
       "claude_not_logged_in: machine 'm-studio' is not logged in to claude",
       'Studio "A" 未登入 Claude',
     ],
@@ -286,7 +276,7 @@ describe("MemberDetailPanel 最近操作 failure reason", () => {
     ],
     [
       "en",
-      "machine_unavailable: machine 'm-studio' is not logged in to claude; no other machine is substituted",
+      "claude_not_logged_in: machine 'm-studio' is not logged in to claude",
       'Studio "A" is not logged in to Claude',
     ],
     [
@@ -296,8 +286,13 @@ describe("MemberDetailPanel 最近操作 failure reason", () => {
     ],
     [
       "zh",
-      "machine_unavailable: machine 'm-gone' is not logged in to claude; no other machine is substituted",
+      "claude_not_logged_in: machine 'm-gone' is not logged in to claude",
       "m-gone 未登入 Claude",
+    ],
+    [
+      "zh",
+      "machine_unavailable: machine 'm-studio' is not logged in to claude; no other machine is substituted",
+      "machine_unavailable: machine 'm-studio' is not logged in to claude; no other machine is substituted",
     ],
     [
       "zh",

@@ -279,12 +279,6 @@ func TestActivateMember_RefusedPlacementAnswersItsOwnCause(t *testing.T) {
 		capability           map[string]any
 		want                 string
 	}{
-		{"under claude reported logged out", RuntimeClaude, "",
-			map[string]any{"installed": true, "logged_in": false},
-			"machine_unavailable: machine 'mach-live' is not logged in to claude; no other machine is substituted"},
-		{"under codex reported logged out", RuntimeCodex, "",
-			map[string]any{"installed": true, "logged_in": false},
-			"machine_unavailable: machine 'mach-live' is not logged in to codex; no other machine is substituted"},
 		{"under codex reported not installed", RuntimeCodex, "",
 			map[string]any{"installed": false},
 			"machine_unavailable: machine 'mach-live' does not provide the 'codex' runtime; no other machine is substituted"},
@@ -325,35 +319,29 @@ func TestActivateMember_RefusedPlacementAnswersItsOwnCause(t *testing.T) {
 	}
 }
 
-func TestActivateMember_AfterLoginIsRestoredTheWakeGoesOutAndTheReasonClears(t *testing.T) {
-	s := newReconcileTestServer(t)
-	putWarden(t, s, "mach-live")
-	connectOnline(t, s, "mach-live")
-	report := func(loggedIn bool) {
-		s.telemetry.Set("mach-live", map[string]any{"runtimes_ts": nowSecs(), "runtimes": map[string]any{
-			RuntimeClaude: map[string]any{"installed": true, "logged_in": loggedIn},
-		}})
-	}
-	m := testAgent("m-sleepy")
-	m.DesiredState = DesiredStateOffline
-	m.DesiredMachineID = "mach-live"
-	putTestMember(t, s, m)
+func TestActivateMember_UnderAMachineReportingTheRuntimeLoggedOutTheWakeGoesOut(t *testing.T) {
+	for _, runtime := range []string{RuntimeClaude, RuntimeCodex} {
+		t.Run(runtime, func(t *testing.T) {
+			s := newReconcileTestServer(t)
+			putWarden(t, s, "mach-live")
+			connectOnline(t, s, "mach-live")
+			s.telemetry.Set("mach-live", map[string]any{"runtimes_ts": nowSecs(), "runtimes": map[string]any{
+				runtime: map[string]any{"installed": true, "logged_in": false},
+			}})
+			m := testAgent("m-sleepy")
+			m.DesiredState = DesiredStateOffline
+			m.DesiredMachineID = "mach-live"
+			putTestMember(t, s, m)
+			if err := s.dal.SetMemberRuntime(m.ID, runtime); err != nil {
+				t.Fatalf("set runtime: %v", err)
+			}
 
-	report(false)
-	refused := activateForReceipt(t, s, m.ID)
-	apiWantValue(t, "refused receipt", any(refused), any(map[string]any{
-		"id": "m-sleepy", "activation_pending": true,
-		"last_op_reason": "machine_unavailable: machine 'mach-live' is not logged in to claude; no other machine is substituted",
-	}))
+			raw := activateForReceipt(t, s, m.ID)
 
-	report(true)
-	landed := activateForReceipt(t, s, m.ID)
-
-	apiWantValue(t, "landed receipt", any(landed), any(map[string]any{"id": "m-sleepy"}))
-	if got, _ := s.dal.GetMember(m.ID); got == nil || got.LastOpReason != "" {
-		t.Fatalf("row last_op_reason after the landed wake = %+v, want it cleared", got)
-	}
-	if n := startFramesOn(t, s, "mach-live"); n != 1 {
-		t.Fatalf("START frames after login was restored = %d, want 1", n)
+			apiWantValue(t, "receipt", any(raw), any(map[string]any{"id": "m-sleepy"}))
+			if n := startFramesOn(t, s, "mach-live"); n != 1 {
+				t.Fatalf("START frames = %d, want 1", n)
+			}
+		})
 	}
 }

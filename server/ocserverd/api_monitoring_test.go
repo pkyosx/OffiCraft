@@ -430,8 +430,8 @@ func TestFoldCommandResult(t *testing.T) {
 	})
 
 	t.Run("under a warden's not-logged-in refusal, the reason names the reporting machine and the warden's own text stays as the log", func(t *testing.T) {
-		claudeText := "claude_not_logged_in: no claude credential here (cred_file=unset keychain=unset). " +
-			"Fix any one: set this member's 執行環境 to Codex; run `claude` once as this user; or " +
+		claudeText := "claude_not_logged_in: `claude auth status` reports logged out on this host. " +
+			"Fix any one: set this member's 執行環境 to Codex; log in with `claude` as this user; or " +
 			"re-install the warden with OC_CLAUDE_CRED_CHECK=0 (shell exports do not reach it)."
 		codexText := "codex_not_logged_in: `codex login status` failed on this host"
 		for _, c := range []struct {

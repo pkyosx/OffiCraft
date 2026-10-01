@@ -84,20 +84,14 @@ export type DispatchAlertKind = "wake" | "relocate";
 export function DispatchAlert({
   kind,
   testId = "dispatch-alert",
-  cause,
 }: {
   kind: DispatchAlertKind;
   /** Overridden per surface so a test can pin WHICH surface raised it. */
   testId?: string;
-  /** A cause the server positively named for this wake. It replaces the hedged
-   * body and steps: the owner ruled that a not-logged-in machine is said
-   * plainly, with nothing else. */
-  cause?: string;
 }) {
   const { t } = useI18n();
   const a = t.dispatchAlert;
   const wake = kind === "wake";
-  const namedCause = wake ? cause : undefined;
   return (
     // role="status" (not "alert"): the owner's own click is what produced this,
     // so it is a polite result, not an interruption — same register as the
@@ -106,19 +100,13 @@ export function DispatchAlert({
       <strong className="dispatch-alert__title">
         {wake ? a.wakeTitle : a.relocateTitle}
       </strong>
-      {namedCause ? (
-        <p className="dispatch-alert__body">{namedCause}</p>
-      ) : (
-        <>
-          <p className="dispatch-alert__body">
-            {wake ? a.wakeBody : a.relocateBody}
-          </p>
-          <ul className="dispatch-alert__steps">
-            <li>{wake ? a.wakeStep1 : a.relocateStep1}</li>
-            <li>{wake ? a.wakeStep2 : a.relocateStep2}</li>
-          </ul>
-        </>
-      )}
+      <p className="dispatch-alert__body">
+        {wake ? a.wakeBody : a.relocateBody}
+      </p>
+      <ul className="dispatch-alert__steps">
+        <li>{wake ? a.wakeStep1 : a.relocateStep1}</li>
+        <li>{wake ? a.wakeStep2 : a.relocateStep2}</li>
+      </ul>
     </div>
   );
 }

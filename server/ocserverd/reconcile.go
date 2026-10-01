@@ -738,8 +738,8 @@ func (s *apiServer) resolveEmptyRuntimeForPlacement(m *Member, warden string) {
 			"out there (a warden older than v0.5.211-beta.1 sends the same shape when it merely found "+
 			"no credential evidence). Declining to auto-resolve this member to codex, because "+
 			"persisting that choice is irreversible and signing Claude back in on that machine fixes "+
-			"the cause. Leaving 執行環境 unset (claude), so the start is refused as not logged in "+
-			"to claude while that reading is fresh. To choose "+
+			"the cause. Leaving 執行環境 unset (claude): the machine checks Claude's login again when "+
+			"the start arrives and refuses it there if Claude is still signed out. To choose "+
 			"deliberately instead: sign Claude in on that machine, or set this member's 執行環境 by "+
 			"hand.", m.ID, warden)
 		return

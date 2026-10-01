@@ -63,8 +63,6 @@ import {
   UserGearIcon,
 } from "./icons";
 import { DispatchAlert } from "./DispatchAlert";
-import { useMachines } from "../hooks/useMachines";
-import { notLoggedInLine } from "../lib/lastOpReason";
 
 // The owner's sender id. The real backend stamps a message's `from` from the
 // verified JWT `sub`; the owner token's sub is the fixed owner id ("owner")
@@ -420,7 +418,6 @@ export function ChatArea({
   // T-7fa1: the activate reported that nothing was dispatched. Distinct from
   // wakePending — "not waiting, because nothing was sent". Never both true.
   const [wakeUndispatched, setWakeUndispatched] = useState(false);
-  const [wakeUndispatchedReason, setWakeUndispatchedReason] = useState("");
   // The OTHER thing that clears the optimistic bridge: reality moving on this
   // member. Once presence reflects a fresh lifecycle the local optimism has
   // handed off to the real state (`waking` drives the label below), so a
@@ -434,7 +431,6 @@ export function ChatArea({
   // The wake row's button shows "喚醒中…" while a wake is in flight — either the
   // just-clicked optimism, or the server-confirmed `waking` presence itself.
   const wakeInFlight = wakePending || member.lifecycle === "waking";
-  const wakeReason = wakeUndispatchedReason || (member.lastOpReason ?? "");
 
   // Threshold (px) within which the viewport counts as "at the bottom" for
   // auto-follow and the read watermark.
@@ -2567,7 +2563,6 @@ export function ChatArea({
                           if (result?.activationPending) {
                             setWakePending(false);
                             setWakeUndispatched(true);
-                            setWakeUndispatchedReason(result.lastOpReason ?? "");
                           }
                         })
                         .catch(() => {
@@ -2586,12 +2581,9 @@ export function ChatArea({
             )}
             {/* T-7fa1: the in-chat wake has its OWN optimistic state, so it needs
                 its own outcome — the same notice the detail panel raises. */}
-            {offlineQueue && wakeUndispatched &&
-              (notLoggedInLine(wakeReason, t.mp) !== null ? (
-                <NotLoggedInWakeAlert reason={wakeReason} />
-              ) : (
-                <DispatchAlert kind="wake" testId="chat-wake-undispatched" />
-              ))}
+            {offlineQueue && wakeUndispatched && (
+              <DispatchAlert kind="wake" testId="chat-wake-undispatched" />
+            )}
             {(pendingAttachments.length > 0 || attachError) && (
               <ComposerAttachmentPreview
                 pendingAttachments={pendingAttachments}
@@ -2764,21 +2756,5 @@ export function ChatArea({
        * owner for the read behind it (hooks/useQuotedMessageOverlay). */}
       {quotedMessage.overlay}
     </div>
-  );
-}
-
-// Mounted only for a not-logged-in reason, so an ordinary chat does not fetch
-// the machine registry just to name a machine it will never show.
-function NotLoggedInWakeAlert({ reason }: { reason: string }) {
-  const { t } = useI18n();
-  const { machines } = useMachines();
-  const machineName = (id: string) =>
-    machines.find((m) => m.machineId === id)?.displayName || id;
-  return (
-    <DispatchAlert
-      kind="wake"
-      testId="chat-wake-undispatched"
-      cause={notLoggedInLine(reason, t.mp, machineName) ?? undefined}
-    />
   );
 }

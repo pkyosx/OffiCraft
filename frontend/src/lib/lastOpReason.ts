@@ -8,14 +8,14 @@ const FAMILY_OLD_WARDEN =
   /^machine_unavailable: machine '([^']+)' runs a warden too old to resolve the Codex model family '(\w+)' — upgrade that machine's warden, or set a full model id(; no other machine is substituted)?$/;
 
 const NOT_LOGGED_IN =
-  /^(?:machine_unavailable|claude_not_logged_in|codex_not_logged_in): machine '([^']+)' is not logged in to (claude|codex)(?:; no other machine is substituted)?$/;
+  /^(?:claude|codex)_not_logged_in: machine '([^']+)' is not logged in to (claude|codex)$/;
 const RUNTIME_NAME = { claude: "Claude", codex: "Codex" } as const;
 
-/** The owner-ruled line for a wake refused because the machine is not logged in
- * — the machine's display name and the runtime, with no code prefix and nothing
- * else; null for any other reason. The pattern mirrors the sentences in
- * server/ocserverd/api_machines.go and api_monitoring.go. */
-export function notLoggedInLine(
+/** The owner-ruled line for a start the machine refused as not logged in — the
+ * machine's display name and the runtime, with no code prefix and nothing else;
+ * null for any other reason. The pattern mirrors the sentence the server writes
+ * for that refusal (server/ocserverd/api_monitoring.go). */
+function notLoggedInLine(
   reason: string,
   mp: Dict["mp"],
   machineName: (id: string) => string = (id) => id,
