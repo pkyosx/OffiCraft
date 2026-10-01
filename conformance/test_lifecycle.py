@@ -343,8 +343,8 @@ def _expected_lore_block(client, owner_token, member_id: str) -> str:
     🔴 KEYED BY THE MEMBER, NOT BY THE ROLE, AND THE EMPTY-STRING CASE IS THE
     ONE TO READ CAREFULLY. The owner collapsed the 傳承 scopes to two on
     2026-09-07 (card rc-a43100fd0486 [0]): a staff member's 傳承 hangs off its
-    own member id, and `scope_kind='role'` is retired. buildBootContext is also
-    the cockpit's ROLE PREVIEW — called with NO member — and on that path there
+    own member id, and `scope_kind='role'` is retired. buildBootContext also
+    serves a role-only /api/bootstrap request — called with NO member — and on that path there
     is no id to key by, so the server emits no 傳承 block at all rather than an
     arbitrary one. `member_id == ""` is exactly that path, and this function
     returns "" for it.

@@ -551,7 +551,7 @@ def _check_avatar_delete(ctx: HCtx, r: httpx.Response) -> None:
     ctx._avatar_to_delete_url = None
 
 
-def _check_bootstrap_preview(_ctx: HCtx, r: httpx.Response) -> None:
+def _check_bootstrap_role_only(_ctx: HCtx, r: httpx.Response) -> None:
     # lifecycle.md §2.3: a request with only a role (no member_id) MUST get
     # token: null.
     data = r.json()
@@ -2993,7 +2993,7 @@ HAPPY: dict[str, Happy] = {
             and "tasks" not in d,
         ),
     ),
-    "POST /api/bootstrap": Happy(body={}, check=_check_bootstrap_preview),
+    "POST /api/bootstrap": Happy(body={}, check=_check_bootstrap_role_only),
     # ── tasks (M3) ───────────────────────────────────────────────────────────
     "GET /api/tasks": Happy(path=_seeded_tasks_path, check=_nonempty_list),
     "POST /api/tasks": Happy(

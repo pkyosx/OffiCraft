@@ -3,7 +3,7 @@ package main
 // wire.go — hand-written response DTOs. Not the generated ocapi_gen.go types:
 // those carry `omitempty` on every optional field, while this wire serialises
 // every declared field (null, never omitted) and conformance checks exact keys
-// (e.g. bootstrap preview's `token: null`). The generated types remain the
+// (e.g. a role-only bootstrap's `token: null`). The generated types remain the
 // request-body vocabulary.
 
 import (

@@ -52,7 +52,7 @@ import (
 // 🔴 A REAL *Member IS PASSED TO buildBootContext, WHERE nil USED TO DO. It has
 // to be: the staff fold keys its 傳承 by the member id now, and buildBootContext
 // with no member has no id to key by and deliberately emits no lore block at all
-// (the cockpit's role PREVIEW path). Passing nil here would leave the staff side
+// (the role-only /api/bootstrap request). Passing nil here would leave the staff side
 // permanently empty and every assertion below would pass while testing nothing —
 // which is why the inertness checks at the bottom of this fixture are load-bearing
 // rather than decorative.
