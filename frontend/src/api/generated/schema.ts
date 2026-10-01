@@ -1480,7 +1480,8 @@ export interface paths {
          * Submit the sign-in code for a runtime login.
          * @description - Relays the code to the waiting login process via the `login_code` warden command and moves the login to `verifying`.
          *     - The code is never stored, logged or echoed back; it exists only in the command frame.
-         *     - 409 unless the login is `awaiting_code`; 404 when unknown or dropped.
+         *     - A code that is not two non-empty parts joined by exactly one `#` (a partial copy) is a 422 and the login stays `awaiting_code`, so the owner can paste again.
+         *     - 409 unless the login is `awaiting_code`, and 409 when the machine's warden is offline (nothing relayed, the login stays `awaiting_code`); 404 when unknown or dropped.
          *     - Admin agent only (403).
          */
         post: operations["handle_submit_runtime_login_code_api_machines__machine_id__runtime_login__login_id__code_post"];
@@ -7716,7 +7717,7 @@ export interface components {
             machine_id: string;
             /**
              * Reason
-             * @description Why the login ended in `failed`, `expired` or `cancelled`.
+             * @description Why the login ended in `failed`, `expired` or `cancelled`; on `awaiting_code`, why the last code was refused by the login process (paste again). Cleared when a code is accepted for relay.
              */
             reason?: string | null;
             /**
@@ -7755,7 +7756,7 @@ export interface components {
             login_id: string;
             /**
              * Reason
-             * @description Send with `failed`, `expired` or `cancelled`. Must not quote the code or any credential.
+             * @description Send with `failed`, `expired` or `cancelled`, or with `awaiting_code` when the login process refused the code it was given and waits for another. Must not quote the code or any credential.
              */
             reason?: string | null;
             /**

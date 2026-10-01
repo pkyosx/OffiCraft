@@ -600,6 +600,74 @@ def test_every_closed_topic_emits(
     warden_conn.close()
 
 
+def test_runtime_login_relay_flow(base_url, client, owner_token, fresh_machine) -> None:
+    """The runtime-login relay end to end over HTTP + the warden's own stream:
+    the owner's start reaches that warden as login_start, the warden's report
+    is read back by the owner, a partial code is refused without leaving
+    awaiting_code, a whole code reaches the warden as login_code, and cancel
+    reaches it as login_cancel and is sticky against a later report."""
+    machine = fresh_machine()
+    warden_token = mint_member_token(client, owner_token, machine, ttl_days=1)
+    warden = SSEConnection(base_url, warden_token)
+    owner = _auth(owner_token)
+    base = f"/api/machines/{machine}/runtime-login"
+    url = "https://claude.ai/oauth/authorize?conf=1"
+    try:
+        assert warden.status_code == 200, warden.error_body
+        warden.wait_for(lambda ev: ev["comment"] == "connected")
+
+        r = client.post(base, json={"runtime": "claude"}, headers=owner)
+        assert r.status_code == 200, r.text
+        started = r.json()
+        login_id = started["login_id"]
+        assert {k: started[k] for k in ("machine_id", "runtime", "state", "auth_url", "account", "reason")} == {
+            "machine_id": machine, "runtime": "claude", "state": "starting",
+            "auth_url": None, "account": None, "reason": None,
+        }, started
+        frame = warden.wait_for_frame("warden-command")["frame"]
+        assert frame["data"] == {
+            "rpc": "login_start",
+            "args": {"member_id": machine, "login_id": login_id, "runtime": "claude"},
+        }, frame
+
+        r = client.post("/api/monitoring/runtime-login",
+                        json={"login_id": login_id, "state": "awaiting_code", "auth_url": url},
+                        headers=_auth(warden_token))
+        assert r.status_code == 200, r.text
+        g = client.get(f"{base}/{login_id}", headers=owner)
+        assert g.status_code == 200, g.text
+        assert (g.json()["state"], g.json()["auth_url"]) == ("awaiting_code", url), g.json()
+
+        r = client.post(f"{base}/{login_id}/code", json={"code": "conf-half"}, headers=owner)
+        assert r.status_code == 422, r.text
+        assert client.get(f"{base}/{login_id}", headers=owner).json()["state"] == "awaiting_code"
+
+        r = client.post(f"{base}/{login_id}/code", json={"code": "conf-code#conf-state"}, headers=owner)
+        assert r.status_code == 200, r.text
+        assert r.json()["state"] == "verifying", r.json()
+        frame = warden.wait_for_frame("warden-command")["frame"]
+        assert frame["data"] == {
+            "rpc": "login_code",
+            "args": {"member_id": machine, "login_id": login_id, "code": "conf-code#conf-state"},
+        }, frame
+
+        r = client.post(f"{base}/{login_id}/cancel", headers=owner)
+        assert r.status_code == 200, r.text
+        assert (r.json()["state"], r.json()["reason"]) == ("cancelled", "cancelled by the owner"), r.json()
+        frame = warden.wait_for_frame("warden-command")["frame"]
+        assert frame["data"] == {
+            "rpc": "login_cancel", "args": {"member_id": machine, "login_id": login_id},
+        }, frame
+
+        r = client.post("/api/monitoring/runtime-login",
+                        json={"login_id": login_id, "state": "succeeded"},
+                        headers=_auth(warden_token))
+        assert r.status_code == 200, r.text
+        assert r.json()["state"] == "cancelled", r.json()
+    finally:
+        warden.close()
+
+
 # ── §4 per-recipient routing (T-30d7) ────────────────────────────────────────
 #
 # The fan-out is per-recipient: an AGENT connection receives a delta iff it is

@@ -40,6 +40,7 @@ const (
 	runtimeLoginExpiredReason   = "no report from the machine for 15 minutes"
 	runtimeLoginCancelledReason = "cancelled by the owner"
 	runtimeLoginOfflineMsg      = "machine is offline; its warden cannot run a login"
+	runtimeLoginPartialCodeMsg  = "code is incomplete: copy the whole code the sign-in page shows (two parts joined by '#')"
 )
 
 func runtimeLoginTerminal(state string) bool {
@@ -268,6 +269,12 @@ func (s *apiServer) HandleSubmitRuntimeLoginCodeApiMachinesMachineIdRuntimeLogin
 		writeError(w, http.StatusUnprocessableEntity, "code must not be blank")
 		return
 	}
+	// claude's own check: a code without both halves is refused on its stderr
+	// while the process keeps waiting, which a relayed frame cannot see.
+	if left, right, found := strings.Cut(code, "#"); !found || left == "" || right == "" || strings.Contains(right, "#") {
+		writeError(w, http.StatusUnprocessableEntity, runtimeLoginPartialCodeMsg)
+		return
+	}
 	st := s.runtimeLogins
 	st.mu.Lock()
 	now := st.now()
@@ -296,6 +303,7 @@ func (s *apiServer) HandleSubmitRuntimeLoginCodeApiMachinesMachineIdRuntimeLogin
 		writeError(w, http.StatusConflict, runtimeLoginOfflineMsg)
 		return
 	}
+	l.reason = nil
 	l.moveTo(runtimeLoginVerifying, now)
 	out := l.dto()
 	st.mu.Unlock()
@@ -384,7 +392,14 @@ func (s *apiServer) HandleReportRuntimeLoginApiMonitoringRuntimeLoginPost(w http
 	if state == runtimeLoginSucceeded && body.Account != nil {
 		l.account = &runtimeLoginAccountDTO{Email: body.Account.Email, OrgName: body.Account.OrgName}
 	}
-	if runtimeLoginTerminal(state) && state != runtimeLoginSucceeded && body.Reason != nil {
+	switch {
+	case state == runtimeLoginAwaitingCode:
+		l.reason = nil
+		if body.Reason != nil {
+			reason := *body.Reason
+			l.reason = &reason
+		}
+	case runtimeLoginTerminal(state) && state != runtimeLoginSucceeded && body.Reason != nil:
 		reason := *body.Reason
 		l.reason = &reason
 	}

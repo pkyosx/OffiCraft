@@ -2818,7 +2818,7 @@ type RuntimeLoginDTO struct {
 	LoginId   string  `json:"login_id"`
 	MachineId string  `json:"machine_id"`
 
-	// Reason Why the login ended in `failed`, `expired` or `cancelled`.
+	// Reason Why the login ended in `failed`, `expired` or `cancelled`; on `awaiting_code`, why the last code was refused by the login process (paste again). Cleared when a code is accepted for relay.
 	Reason  *string                `json:"reason,omitempty"`
 	Runtime RuntimeLoginDTORuntime `json:"runtime"`
 
@@ -2844,7 +2844,7 @@ type RuntimeLoginReportDTO struct {
 	AuthUrl *string `json:"auth_url,omitempty"`
 	LoginId string  `json:"login_id"`
 
-	// Reason Send with `failed`, `expired` or `cancelled`. Must not quote the code or any credential.
+	// Reason Send with `failed`, `expired` or `cancelled`, or with `awaiting_code` when the login process refused the code it was given and waits for another. Must not quote the code or any credential.
 	Reason *string                    `json:"reason,omitempty"`
 	State  RuntimeLoginReportDTOState `json:"state"`
 }

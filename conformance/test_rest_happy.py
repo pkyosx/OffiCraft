@@ -3548,6 +3548,19 @@ HAPPY: dict[str, Happy] = {
 
 # Manifest rows deliberately NOT happy-tested (reason required — the coverage
 # tooth enforces the union).
+_RUNTIME_LOGIN_SKIP = (
+    "the positive face needs a LIVE warden SSE connection on the target machine"
+    " (an offline warden is the honest 409 with nothing relayed), and the "
+    "warden report needs a login that only that live path creates; this file "
+    "has no SSE warden. The whole relay — start, the "
+    "login_start/login_code/login_cancel frames on the warden's own stream, the"
+    " warden report, read-back, the partial-code 422, cancel and the sticky "
+    "terminal state — is driven end to end in "
+    "test_sse.py::test_runtime_login_relay_flow; the authz faces are in the "
+    "auth matrix, and the memory-only, expiry and own-machine-only semantics in"
+    " the server unit tests (runtime_login_behavior_test.go)."
+)
+
 SKIPPED_HAPPY: dict[str, str] = {
     "POST /api/auth/set-password": (
         "the positive face needs an UNSET password + the serve-log claim token; "
@@ -3599,6 +3612,12 @@ SKIPPED_HAPPY: dict[str, str] = {
         "and the credential's usability plus the removed-machine refusal in the "
         "server unit tests (api_machines_renew_tfc53_test.go)."
     ),
+    # Runtime login: one reason for all five rows.
+    "POST /api/machines/{machine_id}/runtime-login": _RUNTIME_LOGIN_SKIP,
+    "GET /api/machines/{machine_id}/runtime-login/{login_id}": _RUNTIME_LOGIN_SKIP,
+    "POST /api/machines/{machine_id}/runtime-login/{login_id}/code": _RUNTIME_LOGIN_SKIP,
+    "POST /api/machines/{machine_id}/runtime-login/{login_id}/cancel": _RUNTIME_LOGIN_SKIP,
+    "POST /api/monitoring/runtime-login": _RUNTIME_LOGIN_SKIP,
     "POST /api/machines/{machine_id}/bootstrap-here": (
         "positive face runs `ocwarden install` on the HOST under test — a side "
         "effect the black-box harness must not trigger (matrix DEGRADED row)."

@@ -261,6 +261,30 @@ func TestRuntimeLoginReport(t *testing.T) {
 		apiWantBody(t, data, want)
 	})
 
+	t.Run("under a code the login process refused, an awaiting_code report carries its reason and the next relayed code clears it", func(t *testing.T) {
+		f := newLoginFixture(t)
+		id := f.awaitingCode(t)
+		f.advance(time.Second)
+		if status, data := apiJSON(t, f.h, "POST", loginStartPath+"/"+id+"/code", f.owner, `{"code":"abc#def"}`); status != http.StatusOK {
+			t.Fatalf("code: %d %v", status, data)
+		}
+		f.advance(time.Second)
+		status, data := f.report(t, f.warden, `{"login_id":"`+id+`","state":"awaiting_code",`+
+			`"reason":"Invalid code. Please make sure the full code was copied."}`)
+		if status != http.StatusOK {
+			t.Fatalf("report: %d %v", status, data)
+		}
+		apiWantBody(t, data, loginBody(id, "awaiting_code", loginTestURL, nil,
+			"Invalid code. Please make sure the full code was copied.", loginEpoch+2))
+
+		f.advance(time.Second)
+		status, data = apiJSON(t, f.h, "POST", loginStartPath+"/"+id+"/code", f.owner, `{"code":"ghi#jkl"}`)
+		if status != http.StatusOK {
+			t.Fatalf("second code: %d %v", status, data)
+		}
+		apiWantBody(t, data, loginBody(id, "verifying", loginTestURL, nil, nil, loginEpoch+3))
+	})
+
 	t.Run("under a failed report, the reason is kept", func(t *testing.T) {
 		f := newLoginFixture(t)
 		id := f.awaitingCode(t)
@@ -339,11 +363,30 @@ func TestRuntimeLoginCode(t *testing.T) {
 		f.dashboard.wantFrames(loginSignal(id, "owner"))
 	})
 
+	t.Run("under a partial code, the code is 422, nothing is sent and the login stays awaiting_code", func(t *testing.T) {
+		f := newLoginFixture(t)
+		id := f.awaitingCode(t)
+		drainFrames(t, f.api, loginMachine)
+		f.dashboard.wantFrames(loginSignal(id, "owner"), loginSignal(id, loginMachine))
+		for _, code := range []string{"needle-code-9b7e", "needle-code-9b7e#", "#state", "a#b#c"} {
+			status, data := apiJSON(t, f.h, "POST", loginStartPath+"/"+id+"/code", f.owner, `{"code":"`+code+`"}`)
+			if status != http.StatusUnprocessableEntity {
+				t.Fatalf("code %q: want 422, got %d %v", code, status, data)
+			}
+			apiWantError(t, data, "validation_error",
+				"code is incomplete: copy the whole code the sign-in page shows (two parts joined by '#')")
+		}
+		wantNoWardenFrames(t, f, loginMachine)
+		f.dashboard.wantFrames()
+		_, got := f.get(t, id)
+		apiWantBody(t, got, loginBody(id, "awaiting_code", loginTestURL, nil, nil, loginEpoch))
+	})
+
 	t.Run("under a login that is not awaiting_code, the code is 409 and nothing is sent", func(t *testing.T) {
 		f := newLoginFixture(t)
 		id := f.start(t)
 		drainFrames(t, f.api, loginMachine)
-		status, data := apiJSON(t, f.h, "POST", loginStartPath+"/"+id+"/code", f.owner, `{"code":"abc"}`)
+		status, data := apiJSON(t, f.h, "POST", loginStartPath+"/"+id+"/code", f.owner, `{"code":"abc#def"}`)
 		if status != http.StatusConflict {
 			t.Fatalf("code while starting: want 409, got %d %v", status, data)
 		}
@@ -369,7 +412,7 @@ func TestRuntimeLoginCode(t *testing.T) {
 		drainFrames(t, api, loginMachine)
 		api.hub.Disconnect(conn)
 
-		status, data := apiJSON(t, h, "POST", loginStartPath+"/"+id+"/code", owner, `{"code":"abc"}`)
+		status, data := apiJSON(t, h, "POST", loginStartPath+"/"+id+"/code", owner, `{"code":"abc#def"}`)
 		if status != http.StatusConflict {
 			t.Fatalf("code to an offline warden: want 409, got %d %v", status, data)
 		}
@@ -393,7 +436,7 @@ func TestRuntimeLoginCode(t *testing.T) {
 			loginStartPath + "/rl-nope/code",
 			"/api/machines/" + loginOtherMachine + "/runtime-login/" + id + "/code",
 		} {
-			status, data := apiJSON(t, f.h, "POST", path, f.owner, `{"code":"abc"}`)
+			status, data := apiJSON(t, f.h, "POST", path, f.owner, `{"code":"abc#def"}`)
 			if status != http.StatusNotFound {
 				t.Fatalf("%s: want 404, got %d %v", path, status, data)
 			}
