@@ -112,6 +112,53 @@ func TestAStoppedStaffMemberWhoseSessionDroppedIsCollectedAfterTheConfirmWindow(
 		wantStaffStop(t, d, "at the new window", t0+250)
 	})
 
+	t.Run("a reconnect and drop over the SSE stream with no tick in between starts a fresh window", func(t *testing.T) {
+		api, _, d, _ := stoppedStaffAfterDisconnect(t)
+		t0 := nowSecs()
+
+		api.runReconcileTick(t0)
+		end := openTestEventStream(t, api, "kip")
+		end()
+		api.runReconcileTick(t0 + 120)
+		api.runReconcileTick(t0 + 239)
+		wsWantWardenFrames(t, api, ServerSelfHost)
+		wantStaffStop(t, d, "one second short of a window from the new disconnect", 0)
+
+		api.runReconcileTick(t0 + 240)
+		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("kip"))
+		wantStaffStop(t, d, "a window from the new disconnect", t0+240)
+	})
+
+	t.Run("a member the owner force-stopped after it dropped is not collected by the window: force-stop already sent its kill", func(t *testing.T) {
+		api, h, d, owner := stoppedStaffAfterDisconnect(t)
+		if status, data := apiJSON(t, h, "POST", "/api/members/kip/force-stop", owner, `{}`); status != 200 {
+			t.Fatalf("force-stop: %d %v", status, data)
+		}
+		wsDrainWardenFrames(t, api, ServerSelfHost)
+		t0 := nowSecs()
+
+		api.runReconcileTick(t0)
+		api.runReconcileTick(t0 + 500)
+		wsWantWardenFrames(t, api, ServerSelfHost)
+		wantStaffStop(t, d, "well past the window", 0)
+	})
+
+	t.Run("a latch that does not land sends no STOP; the next tick collects", func(t *testing.T) {
+		api, _, d, _ := stoppedStaffAfterDisconnect(t)
+		t0 := nowSecs()
+		api.runReconcileTick(t0)
+		apiTestFailStoppedAnchorWrite(t, d, "kip")
+
+		api.runReconcileTick(t0 + 120)
+		wsWantWardenFrames(t, api, ServerSelfHost)
+		wantStaffStop(t, d, "the failed latch", 0)
+
+		apiTestRestoreStoppedAnchorWrite(t, d)
+		api.runReconcileTick(t0 + 121)
+		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("kip"))
+		wantStaffStop(t, d, "the retry", t0+121)
+	})
+
 	t.Run("an anchor from an earlier stop does not survive 活化 and a reconnect: the next stop waits a full window from its own disconnect", func(t *testing.T) {
 		api, h, d, owner := stoppedStaffAfterDisconnect(t)
 		t0 := nowSecs()
@@ -182,6 +229,20 @@ func TestAStoppedWorkerWhoseSessionDroppedIsCollectedAfterTheConfirmWindow(t *te
 		api.runOutsourceTick(t0 + 250)
 		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"))
 		wantWorkerStop(t, d, "at the new window", true)
+	})
+
+	t.Run("a worker the owner force-stopped after it dropped is not collected by the window: force-stop already sent its kill", func(t *testing.T) {
+		api, h, d, owner := stoppedWorkerAfterDisconnect(t)
+		if status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/force-stop", owner, ""); status != 200 {
+			t.Fatalf("force-stop: %d %v", status, data)
+		}
+		wsDrainWardenFrames(t, api, ServerSelfHost)
+		t0 := nowSecs()
+
+		api.runOutsourceTick(t0)
+		api.runOutsourceTick(t0 + 500)
+		wsWantWardenFrames(t, api, ServerSelfHost)
+		wantWorkerStop(t, d, "well past the window", false)
 	})
 
 	t.Run("an anchor from an earlier stop does not survive 喚醒 and a reconnect: the next stop waits a full window from its own disconnect", func(t *testing.T) {

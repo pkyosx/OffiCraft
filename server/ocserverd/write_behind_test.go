@@ -340,6 +340,34 @@ func TestAnOwnerWakeAfterTheTickReadAStoppedWorkerIsNotUndoneByTheCollect(t *tes
 	}
 }
 
+// The staff twin: a 停止 whose session is confirmed gone is collected by the
+// member tick from its list read. An owner 活化 that lands after that read is
+// neither collected nor sent a STOP.
+func TestAnOwnerActivateAfterTheTickReadAStoppedMemberIsNotCollected(t *testing.T) {
+	d, hook, path := windowDAL(t, "split pools")
+	api, _, _, _ := newAPITestServerOn(t, d)
+	if _, err := d.wdb.Exec(`UPDATE member SET desired_state = 'offline', stopping_since = 1700000000,
+		stopped_since = 0, desired_machine_id = '` + ServerSelfHost + `' WHERE id = 'kip'`); err != nil {
+		t.Fatalf("prepare the member: %v", err)
+	}
+	apiTestListen(t, api, ServerSelfHost)
+	api.offlineConfirmSince.Store("kip", 1700000000.0)
+	behind := windowWriteBehind(t, hook, path, "FROM member ORDER BY name COLLATE NOCASE",
+		`UPDATE member SET desired_state = 'online', stopping_since = 0 WHERE id = 'kip'`)
+
+	windowWithin(t, "runReconcileTick", func() { api.runReconcileTick(1700000500) })
+
+	hook.wantFiredOnce(t)
+	if !behind.landed(t) {
+		t.Fatalf("premise: the owner's 活化 did not land inside the tick's gap")
+	}
+	got := apiTestMemberRow(t, d, "kip")
+	apiWantValue(t, "desired_state", any(got.DesiredState), any(DesiredStateOnline))
+	apiWantValue(t, "stopping_since", any(got.StoppingSince), any(0.0))
+	apiWantValue(t, "stopped_since", any(got.StoppedSince), any(0.0))
+	wsWantWardenFrames(t, api, ServerSelfHost)
+}
+
 // A queued 重啟 is spent by the tick once the stop has converged. A release
 // that lands after the tick's list read stands: the spend neither revives the
 // worker nor rewrites its row.

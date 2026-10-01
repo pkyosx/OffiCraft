@@ -966,12 +966,18 @@ func (s *apiServer) collectMemberStop(memberID string, decision reconcileDecisio
 	}
 	s.publishMemberPatch(*collected, triggerServer)
 	targets, _ := s.killTargetChain(memberID, killTargetSources{LastMachineID: collected.LastMachineID})
-	if len(s.sendStopFrames(memberID, targets, now)) == 0 {
-		decision.DispatchUnlanded = true
+	if len(targets) == 0 {
+		reconcileLog("%s: session-gone collect: no kill target — live claim, last landing "+
+			"and pin all silent, and no warden is online", memberID)
 	}
 	// Only when something was aimed at, as in dispatchShutdown.
 	if len(targets) > 0 {
 		s.clearSessionBootTS(memberID)
+	}
+	if len(s.sendStopFrames(memberID, targets, now)) == 0 {
+		decision.Command = reconcileCmdNone
+		decision.State = prior
+		decision.DispatchUnlanded = true
 	}
 	return decision
 }
