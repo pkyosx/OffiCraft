@@ -1601,6 +1601,7 @@ export interface paths {
          * @description - Puts an already-open wind-down on a clock (default 120 s) and tells the member, quoting the deadline.
          *     - It does not open one: not yet asked to stop, no live session, or already force-stopped is a 409.
          *     - The clock runs from this press, not from the earlier stop.
+         *     - A wind-down already on a clock keeps its deadline: pressing again never moves it later.
          *     - Owner token or admin-role member only.
          *     - Emits a `member` event; a client holding the stream learns of this without polling.
          */

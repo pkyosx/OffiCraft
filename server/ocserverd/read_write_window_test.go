@@ -1673,7 +1673,7 @@ func TestMemberLifecycleDoorsDecideFromTheRowTheyWrite(t *testing.T) {
 				path: "/api/members/ow-abc123/accelerated-stop", body: `{}`, worker: true, live: true,
 				prepare: strings.ReplaceAll(stopOpen, "%ID%", "ow-abc123")},
 			window: `UPDATE member SET desired_state = 'online', stopping_since = 0 WHERE id = '%ID%'`,
-			status: http.StatusConflict, refusal: acceleratedStopWorkerNeedsAnOpenWindDownMsg,
+			status: http.StatusConflict, refusal: acceleratedStopNeedsAnOpenWindDownMsg,
 			row: func(t *testing.T, m Member) {
 				if m.RefocusOp != "" || m.StoppingSince != 0 {
 					t.Fatalf("refocus_op=%q stopping_since=%v, want the row as the window left it", m.RefocusOp, m.StoppingSince)

@@ -21,8 +21,8 @@ package main
 //
 //	ONLY block ① of TestVerbPopulationParityMatrix (`gotStaff != c.wantStaff` /
 //	`gotOutsource != c.wantOutsource`, 7 verbs × 2 populations = 14 assertions)
-//	and TestAcceleratedStopWorkerHasAnExtraLifecycleGate call a handler and
-//	compare what came back. Those are the mutant killers.
+//	and TestReportWakingKeepsAStaffStopAnchorButClearsTheWorkerOne call a handler
+//	and compare what came back. Those are the mutant killers.
 //
 // Everything else here — the `UNDOCUMENTED DIVERGENCE` and `STALE WHITELIST
 // ROW` branches, the orphan-row check, and
@@ -1114,11 +1114,8 @@ func parityCases() []verbCase {
 					api.HandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcceleratedStopPost)
 				return workerTerminal(t, api, id, code.Code, notices)
 			},
-			// Both: the desired-offline arm re-stamps its anchor from THIS press
-			// (m.StoppingSince = now / worker.StoppingSince = nowSecs()) and writes
-			// RefocusOp = refocusOpAcceleratedStop. 正職 additionally calls
-			// clearRestartIntent — which is a no-op on a row that carries no queued
-			// 起來, so the two terminal rows agree here.
+			// Both: the desired-offline arm re-stamps its anchor from THIS press and
+			// names the cause accelerated_stop.
 			wantStaff: terminalState{
 				Status: http.StatusOK, DesiredState: DesiredStateOffline,
 				Stopping: anchorPast, Stopped: anchorZero,
@@ -1522,44 +1519,8 @@ func TestVerbPopulationParityWhitelistIsExplained(t *testing.T) {
 	}
 }
 
-// TestAcceleratedStopWorkerHasAnExtraLifecycleGate is the one divergence the
-// matrix above CANNOT express as a shared start state: 加速停止 on the worker
-// side additionally requires `worker.Status != WorkerStatusActive` to be false,
-// and a staff member has no Status column to be non-active in. It is asserted
-// one-sidedly rather than dropped, because "no shared start state" is not the
-// same as "not a divergence".
-func TestAcceleratedStopWorkerHasAnExtraLifecycleGate(t *testing.T) {
-	api := newParityServer(t)
-	id := seedParityWorker(t, api, func(w *OutsourceWorker) {
-		w.DesiredState = DesiredStateOffline
-		w.StoppingSince = parityPast
-		w.Status = WorkerStatusAssigned // online, open epoch — only Status refuses
-	})
-	rec := postWorker(t, api, id, "accelerated-stop", nil,
-		api.HandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcceleratedStopPost)
-	if rec.Code != http.StatusConflict {
-		t.Fatalf("加速停止 on a non-active but ONLINE worker with an open stop epoch = %d %s, "+
-			"want 409. The worker handler gates on `worker.Status != WorkerStatusActive || "+
-			"!s.hub.IsOnline(...)`; the staff twin gates on liveness ALONE, so this arm is "+
-			"外包-only and has no member analogue.", rec.Code, rec.Body.String())
-	}
-	// NEGATIVE CONTROL: the same worker with Status=active is admitted, so the
-	// 409 above is the Status gate and not some other refusal on the way in.
-	api2 := newParityServer(t)
-	id2 := seedParityWorker(t, api2, func(w *OutsourceWorker) {
-		w.DesiredState = DesiredStateOffline
-		w.StoppingSince = parityPast
-	})
-	if rec := postWorker(t, api2, id2, "accelerated-stop", nil,
-		api2.HandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcceleratedStopPost); rec.Code != http.StatusOK {
-		t.Fatalf("control: the SAME state with Status=active must be admitted, got %d %s",
-			rec.Code, rec.Body.String())
-	}
-}
-
-// TestReportWakingKeepsAStaffStopAnchorButClearsTheWorkerOne is the SECOND
-// divergence the matrix above cannot express, recorded the same one-sided way
-// TestAcceleratedStopWorkerHasAnExtraLifecycleGate is.
+// TestReportWakingKeepsAStaffStopAnchorButClearsTheWorkerOne is a divergence
+// the matrix above cannot express, so it is recorded one-sidedly.
 //
 // 🔴 WHY IT IS A TEST RATHER THAN A knownDivergences ROW, which is where T-65
 // 包⑤ was asked to put it: the whitelist is keyed (verb, field) and the orphan

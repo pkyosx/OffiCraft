@@ -379,6 +379,88 @@ func outsourceSchedTestQueuedTask(t *testing.T, d *DAL, id, typeKey string) Task
 }
 
 func TestRunOutsourceTick(t *testing.T) {
+	t.Run("a stopped worker is collected at its 加速停止 deadline whether or not it has reported waking", func(t *testing.T) {
+		for _, status := range []string{WorkerStatusActive, WorkerStatusAssigned} {
+			t.Run(status, func(t *testing.T) {
+				api, h, d, owner := newAPITestServer(t)
+				apiTestWorkerFixture(t, h, d, owner, "ow-abc123", status)
+				if err := d.SetMemberDesiredMachineID("ow-abc123", ServerSelfHost); err != nil {
+					t.Fatalf("SetMemberDesiredMachineID: %v", err)
+				}
+				apiTestListen(t, api, ServerSelfHost)
+				if _, err := api.hub.Connect("ow-abc123", ServerSelfHost); err != nil {
+					t.Fatalf("hub.Connect: %v", err)
+				}
+				if code, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/deactivate", owner, ""); code != 200 {
+					t.Fatalf("stop: %d %v", code, data)
+				}
+				if code, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/accelerated-stop", owner, ""); code != 200 {
+					t.Fatalf("accelerated-stop: %d %v", code, data)
+				}
+				anchor := apiTestMemberRow(t, d, "ow-abc123").StoppingSince
+
+				api.runOutsourceTick(anchor + 119)
+				early := wsVerbs(t, api, ServerSelfHost)
+				earlyRow := apiTestMemberRow(t, d, "ow-abc123")
+				dashboard := apiTestListen(t, api, "")
+				api.runOutsourceTick(anchor + 120)
+
+				apiWantValue(t, "one second short of the deadline", any(early), any([]any{}))
+				if earlyRow.StoppedSince != 0 {
+					t.Fatalf("stopped_since=%v one second short of the deadline, want 0", earlyRow.StoppedSince)
+				}
+				apiWantValue(t, "at the deadline", any(wsVerbs(t, api, ServerSelfHost)), any([]any{"stop"}))
+				if got := apiTestMemberRow(t, d, "ow-abc123").StoppedSince; got <= 0 {
+					t.Fatalf("stopped_since=%v at the deadline, want the collection latched", got)
+				}
+				apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+					"status": status, "presence": "stopping", "desired_state": "offline",
+					"desired_machine_id": ServerSelfHost, "machine": ServerSelfHost,
+					"refocus_op": "accelerated_stop", "refocus_deadline": anchor + 120,
+				}))
+				dashboard.wantFrames(apiTestHandoverDelta(6, "offline", apiAnyString, "server"))
+			})
+		}
+	})
+
+	t.Run("a stopped worker whose session is confirmed gone is collected whether or not it has reported waking", func(t *testing.T) {
+		for _, status := range []string{WorkerStatusActive, WorkerStatusAssigned} {
+			t.Run(status, func(t *testing.T) {
+				api, h, d, owner := newAPITestServer(t)
+				apiTestWorkerFixture(t, h, d, owner, "ow-abc123", status)
+				if err := d.SetMemberDesiredMachineID("ow-abc123", ServerSelfHost); err != nil {
+					t.Fatalf("SetMemberDesiredMachineID: %v", err)
+				}
+				apiTestListen(t, api, ServerSelfHost)
+				session, err := api.hub.Connect("ow-abc123", ServerSelfHost)
+				if err != nil {
+					t.Fatalf("hub.Connect: %v", err)
+				}
+				if code, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/deactivate", owner, ""); code != 200 {
+					t.Fatalf("stop: %d %v", code, data)
+				}
+				api.hub.Disconnect(session)
+
+				api.runOutsourceTick(1000)
+				api.runOutsourceTick(1119)
+				early := wsVerbs(t, api, ServerSelfHost)
+				dashboard := apiTestListen(t, api, "")
+				api.runOutsourceTick(1120)
+
+				apiWantValue(t, "inside the confirmation window", any(early), any([]any{}))
+				apiWantValue(t, "at the window", any(wsVerbs(t, api, ServerSelfHost)), any([]any{"stop"}))
+				if got := apiTestMemberRow(t, d, "ow-abc123").StoppedSince; got <= 0 {
+					t.Fatalf("stopped_since=%v at the window, want the collection latched", got)
+				}
+				apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+					"status": status, "presence": "stopped", "desired_state": "offline",
+					"desired_machine_id": ServerSelfHost, "machine": "",
+				}))
+				dashboard.wantFrames(apiTestHandoverDelta(4, "offline", apiAnyString, "server"))
+			})
+		}
+	})
+
 	t.Run("a queued outsource task gets a freshly minted worker", func(t *testing.T) {
 		api, _, d, _ := newAPITestServer(t)
 		manual := TaskManual{

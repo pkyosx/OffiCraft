@@ -1061,15 +1061,19 @@ func (s *apiServer) HandleForceStopMemberApiMembersMemberIdForceStopPost(w http.
 	writeJSON(w, http.StatusOK, agentLifecycleReceiptDTO{ID: saved.ID})
 }
 
-const acceleratedStopNeedsAnOpenWindDownMsg = "加速停止 escalates a wind-down that is " +
-	"already open — this member has not been asked to stop. Press 停止 (deactivate) " +
-	"or 重新聚焦 (refocus) first"
+const (
+	acceleratedStopNeedsAnOpenWindDownMsg = "加速停止 escalates a wind-down that is " +
+		"already open — this member has not been asked to stop. Press 停止 (deactivate) " +
+		"or 重新聚焦 (refocus) first"
+	acceleratedStopNeedsALiveSessionMsg = "加速停止 requires a live session — there is " +
+		"nothing to accelerate on a member that is not connected"
+)
 
 // Middle rung of 停止 → 加速停止 → 強制停止 (owner 2026-08-21). 🔴 It escalates, never
 // initiates (409 otherwise): a member never asked to stop would get a deadline it
 // never heard about. It does not reopen rc-27d1710174dd: that ruling forbids a
 // clock the SERVER starts; this one is the owner's press.
-// On the 換手 arm refocus_since is re-stamped: promoting in place would put the
+// A 換手 not yet on the clock is re-stamped: promoting in place would put the
 // deadline at the ORIGINAL stamp, already past, collecting the member on the tick
 // that announced it. A force-stopped epoch is refused (no reader).
 func (s *apiServer) HandleAcceleratedStopMemberApiMembersMemberIdAcceleratedStopPost(w http.ResponseWriter, r *http.Request, memberId string) {
@@ -1085,9 +1089,7 @@ func (s *apiServer) HandleAcceleratedStopMemberApiMembersMemberIdAcceleratedStop
 	// The notice travels on the member's own stream; a clock nobody hears is a silent
 	// deadline.
 	if !s.hub.IsOnline(m.ID) {
-		writeError(w, http.StatusConflict,
-			"加速停止 requires a live session — there is nothing to accelerate on a "+
-				"member that is not connected")
+		writeError(w, http.StatusConflict, acceleratedStopNeedsALiveSessionMsg)
 		return
 	}
 	if err := accelerateMemberStop(m, nowSecs()); err != nil {
@@ -1117,19 +1119,25 @@ func (s *apiServer) HandleAcceleratedStopMemberApiMembersMemberIdAcceleratedStop
 	writeJSON(w, http.StatusOK, agentLifecycleReceiptDTO{ID: saved.ID})
 }
 
-// accelerateMemberStop re-stamps the open wind-down from now, or refuses (409)
-// a member that has none open.
+// accelerateMemberStop puts the open wind-down on the clock from now, or refuses
+// (409) a member that has none open. A wind-down already on the clock keeps its
+// anchor, so pressing again does not move its deadline.
 func accelerateMemberStop(m *Member, now float64) error {
+	_, alreadyClocked := winddownKindFor(m.RefocusOp)
 	switch {
 	case m.DesiredState == DesiredStateOffline:
 		if !gracefulStopEpochOpen(*m) {
 			return refuseInTx(http.StatusConflict, acceleratedStopNeedsAnOpenWindDownMsg)
 		}
-		// The grace runs from THIS press. Other anchors untouched: zeroing stopped_since
-		// would erase the agent's 「我收完了」 and cancel a collection it already earned.
-		m.StoppingSince = now
+		// Other anchors untouched: zeroing stopped_since would erase the agent's
+		// 「我收完了」 and cancel a collection it already earned.
+		if !alreadyClocked {
+			m.StoppingSince = now
+		}
 	case m.RefocusSince > 0.0:
-		m.RefocusSince = now
+		if !alreadyClocked {
+			m.RefocusSince = now
+		}
 	default:
 		return refuseInTx(http.StatusConflict, acceleratedStopNeedsAnOpenWindDownMsg)
 	}
