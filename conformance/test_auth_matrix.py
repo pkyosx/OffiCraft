@@ -1504,7 +1504,7 @@ MATRIX: dict[str, Route] = {
     "GET /api/resume-summary": Route(requires="machine"),
     "GET /api/resume-summary-size": Route(requires="machine"),
     "POST /api/bootstrap": Route(
-        # positive faces: {} = UI preview (default role, no token minted) → 200.
+        # positive faces: {} = role-only request (default role, no token minted) → 200.
         requires="admin_agent",
         body={},
     ),

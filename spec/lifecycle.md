@@ -676,7 +676,7 @@ implementations).
 ### 2.3 Bootstrap response token
 
 `POST /api/bootstrap` returns a freshly minted member JWT only when `member_id` was supplied
-(a warden spawn); a UI preview (no `member_id`) MUST get `token: null`.
+(a warden spawn); a request with only a `role` (no `member_id`) MUST get `token: null`.
 
 ## 3. In-memory lifecycle stores (restart amnesia is contract — one named exception)
 

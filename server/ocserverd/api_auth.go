@@ -136,7 +136,7 @@ func (s *apiServer) HandleMintApiMintPost(w http.ResponseWriter, r *http.Request
 	})
 }
 
-// Admin-gated in the route table. A UI preview (no member_id) gets token: null
+// Admin-gated in the route table. A role-only request (no member_id) gets token: null
 // (lifecycle.md §2.3).
 func (s *apiServer) HandleBootstrapApiBootstrapPost(w http.ResponseWriter, r *http.Request) {
 	var body BootstrapRequestDTO

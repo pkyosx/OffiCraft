@@ -802,7 +802,7 @@ type BootDocumentReplaceDTO struct {
 // persona — role definition + global context, folded and concatenated
 // into one readable markdown block (the North Star's "rich enough to converse and
 // play", §7 leg 4). “token“ is the member JWT (“scope="agent"“) when a
-// “member_id“ was supplied; None for a UI preview.
+// “member_id“ was supplied; None for a role-only request.
 type BootstrapDTO struct {
 	Context *string `json:"context,omitempty"`
 	Name    *string `json:"name,omitempty"`
@@ -811,7 +811,7 @@ type BootstrapDTO struct {
 }
 
 // BootstrapRequestDTO Bootstrap request (§3.4 #29): “{role?, member_id?}“. All
-// optional — a UI preview omits “member_id“ (no token minted); a warden spawn
+// optional — a role-only request omits “member_id“ (no token minted); a warden spawn
 // supplies it to mint the member's boot JWT.
 //
 // T-2 removed “task_type“. Unknown keys are refused (422), so a caller still
@@ -4293,7 +4293,7 @@ type WebhookUpdateDTO struct {
 	Status        *string `json:"status,omitempty"`
 }
 
-// WorkerBootContextDTO The outsource worker's boot-context PREVIEW (GET /api/outsource-workers/{id}/boot-context, T-ba6b) — the worker twin of the member panel's /api/bootstrap preview. The server re-runs the SAME buildWorkerBootContext fold the spawn path uses. Since T-4595 that fold is the STAFF boot context minus the persona slot (系統互動 + 使用者自訂 + the boot sequence for the worker's own runtime); it carries no outsource-only document, no identity block, no bound task and no type manual, so it does not vary with them. It DOES carry a 傳承 block (T-33): the “everyone“ (所有人) entries first, then this worker's own (LoreScopeAgent keyed on the worker's member id), under one “lore_cap_chars_role“ budget (T-236). The worker's own entries are the one part of this text that differs from worker to worker; the block changes when an entry in either scope is written, retired or bumped, or is moved into or out of them by “set_lore_entry_scope“. HONEST: this is what the boot context would look like NOW — the seeds may have changed since spawn, and nothing is stored. Never carries a worker token.
+// WorkerBootContextDTO The outsource worker's boot-context PREVIEW (GET /api/outsource-workers/{id}/boot-context, T-ba6b) — the worker twin of GET /api/members/{member_id}/boot-context. The server re-runs the SAME buildWorkerBootContext fold the spawn path uses. Since T-4595 that fold is the STAFF boot context minus the persona slot (系統互動 + 使用者自訂 + the boot sequence for the worker's own runtime); it carries no outsource-only document, no identity block, no bound task and no type manual, so it does not vary with them. It DOES carry a 傳承 block (T-33): the “everyone“ (所有人) entries first, then this worker's own (LoreScopeAgent keyed on the worker's member id), under one “lore_cap_chars_role“ budget (T-236). The worker's own entries are the one part of this text that differs from worker to worker; the block changes when an entry in either scope is written, retired or bumped, or is moved into or out of them by “set_lore_entry_scope“. HONEST: this is what the boot context would look like NOW — the seeds may have changed since spawn, and nothing is stored. Never carries a worker token.
 type WorkerBootContextDTO struct {
 	Context string `json:"context"`
 }

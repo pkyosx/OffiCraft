@@ -131,7 +131,7 @@
 | E3 | 估計 $（live + banked 合計） | 同（兩邊 wrapper 都用同一口徑折算） |
 | E4 | 最近操作回執卡 | 同（含失敗原因、記錄展開） |
 | E5 | 終端 · TMUX 複製鍵 | 同（session 名分別為 `member.tmuxSession` / `member-<workerId>`） |
-| E6 | 初始 PROMPT 展開卡 | 同（正職按 role 抓 `/api/bootstrap`；外包按 id 抓 boot-context，另帶誠實 caveat 註記） |
+| E6 | 初始 PROMPT 展開卡 | 同（正職按成員 id 抓 `/api/members/{member_id}/boot-context`，外包按 id 抓 `/api/outsource-workers/{id}/boot-context`，兩邊都帶誠實 caveat 註記） |
 | E7 | 履歷摘要展開卡（`mp-resume-*`） | 同（T-4595：兩邊都畫共用的 `ResumeSummaryCard`，同一個 `getMemberResumeSummary(agentId)`、同一組 test id、同樣展開才抓）。⚠️ 這一列**在 T-4595 之前是「差」**——外包那格是 `notHere()` 佔位，因為 `resolveMember` 對 `KindOutsource` 回 404；server 端多開一支 `resolveResumeSummaryTarget`（**只**放行這一支動詞的 `ow-` id，其餘 member 動詞的 floor 一字未動）之後才共用得起來 |
 
 ---

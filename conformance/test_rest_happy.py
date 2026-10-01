@@ -552,9 +552,10 @@ def _check_avatar_delete(ctx: HCtx, r: httpx.Response) -> None:
 
 
 def _check_bootstrap_preview(_ctx: HCtx, r: httpx.Response) -> None:
-    # lifecycle.md §2.3: a UI preview (no member_id) MUST get token: null.
+    # lifecycle.md §2.3: a request with only a role (no member_id) MUST get
+    # token: null.
     data = r.json()
-    assert data["token"] is None, f"preview bootstrap minted a token: {data}"
+    assert data["token"] is None, f"role-only bootstrap minted a token: {data}"
     assert data["role"] and data["context"], data
 
 

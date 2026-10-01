@@ -452,11 +452,11 @@ def _expected_context(
     #
     # 🔴 IT IS KEYED BY `member_id`, AND A BLANK ONE MEANS THE BLOCK IS ABSENT.
     # Since the 2026-09-07 scope collapse the staff fold reads the MEMBER's 傳承,
-    # so the preview path (POST /api/bootstrap with no member_id) has nothing to
-    # key by and emits no block. Callers that assemble a preview pass "" and get
-    # the same nothing; callers holding a real member pass its id and get the
-    # real fold. Defaulting this parameter to "" is deliberate — the preview is
-    # what most of this file exercises — but it does mean a caller that HAS a
+    # so a role-only POST /api/bootstrap (no member_id) has nothing to key by
+    # and emits no block. Callers that assemble that role-only fold pass "" and
+    # get the same nothing; callers holding a real member pass its id and get
+    # the real fold. Defaulting this parameter to "" is deliberate — the
+    # role-only fold is what most of this file exercises — but a caller that HAS a
     # member and forgets to pass it gets a silently weaker comparison.
     #
     # 使用者自訂 and 判準 are each dropped entirely when they fold blank. The
