@@ -111,7 +111,7 @@ func startParamsM1() StartParams {
 // against a literal instead of agreeing with itself.
 const goldenClaudePurge = `for __oc_e in $(/usr/bin/env); do case $__oc_e in CLAUDE_CODE_USE_BEDROCK=*|CLAUDE_CODE_USE_VERTEX=*|CLAUDE_CODE_OAUTH_TOKEN=*) continue;; CLAUDE_*=*) ;; *) continue;; esac; __oc_n=${__oc_e%%=*}; case $__oc_n in *[!A-Za-z0-9_]*) continue;; esac; unset "$__oc_n"; done; unset __oc_e __oc_n; `
 
-const goldenInlineSettings = `{"statusLine":{"type":"command","command":"ocagent context-report"},"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"ocagent guard-bash"}]}],"PermissionRequest":[{"hooks":[{"type":"command","command":"ocagent guard-permission"}]}]}}`
+const goldenInlineSettings = `{"skipDangerousModePermissionPrompt":true,"statusLine":{"type":"command","command":"ocagent context-report"},"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"ocagent guard-bash"}]}],"PermissionRequest":[{"hooks":[{"type":"command","command":"ocagent guard-permission"}]}]}}`
 
 var goldenLaunchM1 = `cd /w/m1; ` + goldenClaudePurge + `unset CLAUDE_CONFIG_DIR; export OC_TOKEN="$(/bin/cat /w/m1/.oc-token)" ` +
 	`OC_BASE=http://127.0.0.1:7755 OC_SESSION=member-m1 OC_TMUX_SOCKET=officraft ` +
@@ -214,6 +214,7 @@ func TestBuildMCPConfig(t *testing.T) {
 
 func TestBuildStatuslineSettings(t *testing.T) {
 	want := `{
+  "skipDangerousModePermissionPrompt": true,
   "statusLine": {
     "type": "command",
     "command": "ocagent context-report"
@@ -939,6 +940,7 @@ func TestPretrustWorkdir(t *testing.T) {
 			t.Fatalf("err = %v, want nil", err)
 		}
 		want := `{
+  "hasCompletedOnboarding": true,
   "projects": {
     "/w/m1": {
       "hasTrustDialogAccepted": true
@@ -965,6 +967,7 @@ func TestPretrustWorkdir(t *testing.T) {
 			t.Fatalf("err = %v, want nil", err)
 		}
 		want := `{
+  "hasCompletedOnboarding": true,
   "numStartups": 7,
   "projects": {
     "/w/m0": {
@@ -991,6 +994,33 @@ func TestPretrustWorkdir(t *testing.T) {
 		}
 	})
 
+	t.Run("a config left with onboarding cleared is marked completed and keeps the owner's own settings", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), ".claude.json")
+		seed := `{"hasCompletedOnboarding":false,"theme":"light","oauthAccount":{"emailAddress":"seth@example.com"}}`
+		if err := os.WriteFile(path, []byte(seed), 0o600); err != nil {
+			t.Fatalf("seed: %v", err)
+		}
+		if err := pretrustWorkdir(path, "/w/m1"); err != nil {
+			t.Fatalf("err = %v, want nil", err)
+		}
+		want := `{
+  "hasCompletedOnboarding": true,
+  "oauthAccount": {
+    "emailAddress": "seth@example.com"
+  },
+  "projects": {
+    "/w/m1": {
+      "hasTrustDialogAccepted": true
+    }
+  },
+  "theme": "light"
+}
+`
+		if got := read(t, path); got != want {
+			t.Errorf("claude.json =\n%s\nwant\n%s", got, want)
+		}
+	})
+
 	t.Run("an unparsable file restarts from an empty config", func(t *testing.T) {
 		for _, corrupt := range []string{"{not json", "[1,2]", ""} {
 			path := filepath.Join(t.TempDir(), ".claude.json")
@@ -1000,7 +1030,7 @@ func TestPretrustWorkdir(t *testing.T) {
 			if err := pretrustWorkdir(path, "/w/m1"); err != nil {
 				t.Fatalf("%q: err = %v, want nil", corrupt, err)
 			}
-			want := "{\n  \"projects\": {\n    \"/w/m1\": {\n      \"hasTrustDialogAccepted\": true\n    }\n  }\n}\n"
+			want := "{\n  \"hasCompletedOnboarding\": true,\n  \"projects\": {\n    \"/w/m1\": {\n      \"hasTrustDialogAccepted\": true\n    }\n  }\n}\n"
 			if got := read(t, path); got != want {
 				t.Errorf("%q: claude.json =\n%s\nwant\n%s", corrupt, got, want)
 			}

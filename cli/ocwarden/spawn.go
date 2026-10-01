@@ -112,8 +112,13 @@ func buildMCPConfig(base, token string) string {
 // answers it once raised (no matcher: every question reaching it is unanswerable).
 // All three commands are named bare because the launch line puts the workdir holding
 // the ocagent symlink first on PATH.
+//
+// skipDangerousModePermissionPrompt: on a config that never accepted the bypass
+// warning, its default answer is "No, exit", so the nudge's Enter loop quits the
+// member before it boots.
 func buildStatuslineSettings() string {
 	return "{\n" +
+		"  \"skipDangerousModePermissionPrompt\": true,\n" +
 		"  \"statusLine\": {\n" +
 		"    \"type\": \"command\",\n" +
 		"    \"command\": \"ocagent context-report\"\n" +
@@ -503,9 +508,13 @@ func osWriteFile(path, content string, mode os.FileMode) error {
 }
 
 // LOAD-BEARING: without it the "trust this folder?" dialog eats the boot nudge →
-// dead-on-boot.
+// dead-on-boot. hasCompletedOnboarding covers a config that never ran claude
+// interactively (a fresh machine, or one where someone ran /logout): `claude auth
+// login` does not set it, so the member stops on the theme picker and then asks to
+// log in again although the machine shows as logged in.
 func pretrustWorkdir(claudeJSONPath, workdir string) error {
-	return editClaudeProjectEntry(claudeJSONPath, workdir, func(entry map[string]any) {
+	return editClaudeProjectEntry(claudeJSONPath, workdir, func(root, entry map[string]any) {
+		root["hasCompletedOnboarding"] = true
 		entry["hasTrustDialogAccepted"] = true
 	})
 }
@@ -519,7 +528,7 @@ func claudeProjectKey(workdir string) string {
 	return workdir
 }
 
-func editClaudeProjectEntry(claudeJSONPath, workdir string, fn func(entry map[string]any)) error {
+func editClaudeProjectEntry(claudeJSONPath, workdir string, fn func(root, entry map[string]any)) error {
 	workdir = claudeProjectKey(workdir)
 	data := map[string]any{}
 	raw, err := os.ReadFile(claudeJSONPath)
@@ -546,7 +555,7 @@ func editClaudeProjectEntry(claudeJSONPath, workdir string, fn func(entry map[st
 		entry = map[string]any{}
 		projects[workdir] = entry
 	}
-	fn(entry)
+	fn(data, entry)
 
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
