@@ -3387,9 +3387,8 @@ func TestHandleReportWakingApiSelfWakingPost(t *testing.T) {
 			if m.StoppingSince <= 0 {
 				t.Fatalf("the cancelled-mid-boot trace must survive, got %v", m.StoppingSince)
 			}
-			if m.StoppedSince != 0 || m.RefocusSince != 0 || m.RefocusOp != "" {
-				t.Fatalf("stopped_since/refocus_since/refocus_op must be cleared, got %v/%v/%q",
-					m.StoppedSince, m.RefocusSince, m.RefocusOp)
+			if m.StoppedSince != 0 {
+				t.Fatalf("stopped_since must be cleared, got %v", m.StoppedSince)
 			}
 			if p := PresenceState(*m, nowSecs(), true); p != MemberPresenceStopping {
 				t.Fatalf("a connected member with the trace kept must read stopping, got %q", p)

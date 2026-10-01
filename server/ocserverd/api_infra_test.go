@@ -349,30 +349,42 @@ func TestHandleEventsApiEventsGet(t *testing.T) {
 		dashboard.wantFrames()
 	})
 
-	t.Run("a member whose stop is in effect is refused 409 and never re-projects online", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
-		agent := apiTestAgentToken(t, api, "kip", "")
-		if status, data := apiJSON(t, h, "POST", "/api/members/kip/deactivate", owner, ""); status != 200 {
-			t.Fatalf("deactivate: want 200, got %d (%v)", status, data)
-		}
-		if status, data := apiJSON(t, h, "POST", "/api/self/stopped", agent, ""); status != 200 {
-			t.Fatalf("report stopped: want 200, got %d (%v)", status, data)
-		}
-		dashboard := apiTestListen(t, api, "")
+	for _, kind := range []struct {
+		name, id string
+		setup    func(t *testing.T, h http.Handler, d *DAL, owner string)
+	}{
+		{"staff", "kip", func(t *testing.T, h http.Handler, d *DAL, owner string) {}},
+		{"outsource", "ow-abc123", func(t *testing.T, h http.Handler, d *DAL, owner string) {
+			apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
+			apiTestWorkerWantedOnline(t, d, "ow-abc123")
+		}},
+	} {
+		t.Run(kind.name+": a member whose stop is in effect is refused 409 and never re-projects online", func(t *testing.T) {
+			api, h, d, owner := newAPITestServer(t)
+			kind.setup(t, h, d, owner)
+			agent := apiTestAgentToken(t, api, kind.id, "")
+			if status, data := apiJSON(t, h, "POST", "/api/members/"+kind.id+"/deactivate", owner, ""); status != 200 {
+				t.Fatalf("deactivate: want 200, got %d (%v)", status, data)
+			}
+			if status, data := apiJSON(t, h, "POST", "/api/self/stopped", agent, ""); status != 200 {
+				t.Fatalf("report stopped: want 200, got %d (%v)", status, data)
+			}
+			dashboard := apiTestListen(t, api, "")
 
-		status, data := apiJSON(t, h, "GET", "/api/events", agent, "")
+			status, data := apiJSON(t, h, "GET", "/api/events", agent, "")
 
-		if status != 409 {
-			t.Fatalf("want 409, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "conflict",
-			"member 'kip' has a stop in effect (desired_state=offline) — SSE refused "+
-				"(a stopped member must not re-project online; activate it to reconnect)")
-		if row := apiTestSession(t, h, owner, "kip"); row["presence"] != "stopped" {
-			t.Fatalf("a refused reconnect must stay stopped, kip presence = %v", row["presence"])
-		}
-		dashboard.wantFrames()
-	})
+			if status != 409 {
+				t.Fatalf("want 409, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "conflict",
+				"member '"+kind.id+"' has a stop in effect (desired_state=offline) — SSE refused "+
+					"(a stopped member must not re-project online; activate it to reconnect)")
+			if row := apiTestSession(t, h, owner, kind.id); row["presence"] != "stopped" {
+				t.Fatalf("a refused reconnect must stay stopped, %s presence = %v", kind.id, row["presence"])
+			}
+			dashboard.wantFrames()
+		})
+	}
 
 	t.Run("a request body is ignored, so even a malformed one still opens the stream", func(t *testing.T) {
 		_, h, _, owner := newAPITestServer(t)

@@ -475,8 +475,8 @@ func clearWindDownRow(row windDownAnchorRow) {
 }
 
 // clearWindDownRowOnWake is report_waking's clear, for staff and workers alike.
-// 🔴 stopping_since survives unless the subject is wanted online (T-7526): it is
-// the only trace of a stop that landed while the session was still booting.
+// 🔴 stopping_since survives unless the subject is wanted online: it is the only
+// trace of a stop that landed while the session was still booting.
 func clearWindDownRowOnWake(row windDownAnchorRow, desiredState string) {
 	stoppingSince := *row.StoppingSince
 	clearWindDownRow(row)
