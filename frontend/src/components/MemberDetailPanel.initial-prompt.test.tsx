@@ -12,7 +12,7 @@
 // delta is enough.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, fireEvent, waitFor } from "@testing-library/react";
+import { render, fireEvent, waitFor, act } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { zh } from "../i18n/locales/zh";
 import { MemberDetailPanel } from "./MemberDetailPanel";
@@ -128,6 +128,26 @@ describe("MemberDetailPanel — 初始 PROMPT card", () => {
       "mira 的開機指示",
     );
     expect(ids).toEqual(["mira", "nova"]);
+  });
+
+  it("switching to another member of the same role while the first read is in flight shows the second member's boot context even when the first answer lands last", async () => {
+    const pending = new Map<string, (text: string) => void>();
+    bootContext = (memberId) =>
+      new Promise<string>((resolve) => pending.set(memberId, resolve));
+
+    const { findByTestId, showMember } = renderPanel();
+    fireEvent.click(await findByTestId("mp-prompt-toggle"));
+    expect((await findByTestId("mp-prompt-body")).textContent).toBe("載入中…");
+
+    showMember(mkMember("nova", "Nova"));
+    await waitFor(() => expect([...pending.keys()]).toEqual(["mira", "nova"]));
+
+    await act(async () => pending.get("nova")!("nova 的開機指示"));
+    await act(async () => pending.get("mira")!("mira 的開機指示"));
+
+    expect((await findByTestId("mp-prompt-body")).textContent).toBe(
+      "這是依目前設定組裝的預覽，可能與這位成員實際開機時收到的內容不同。nova 的開機指示",
+    );
   });
 
   it("still shows the prompt when the panel repaints while the read is in flight", async () => {

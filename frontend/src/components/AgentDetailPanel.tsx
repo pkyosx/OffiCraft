@@ -17,7 +17,7 @@ import "./member-detail.css";
 
 /** The lazily-fetched initial-prompt expand card's config. `fetch` returns the
  * CURRENT boot/persona text (a preview — never a token); it is re-fetched when
- * `cacheKey` changes (member: the role; worker: the worker id). `note` is an
+ * `cacheKey` changes (member: the member id; worker: the worker id). `note` is an
  * optional honesty caveat rendered above the markdown (the worker's 「目前版本
  * 重組,非派工當下逐字版」). */
 export interface AgentDetailPrompt {

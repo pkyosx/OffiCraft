@@ -21,7 +21,6 @@ import {
   __setBootDocReadOnly,
 } from "./mock";
 import { ApiError } from "./errors";
-import { codeForStatus } from "./errorCodes";
 import type { BootDocKind } from "../types";
 import { BOOT_DOC_HISTORY_KEPT, BOOT_DOC_CAP_CHARS_DEFAULTS } from "./docCap";
 import {
@@ -444,6 +443,43 @@ describe("mockApi · getMemberBootContext", () => {
     expect(ctx).not.toContain("claude 版");
   });
 
+  it("a staff member whose role has an insight seed gets the insight section before the lore section and the lore section before the boot steps", async () => {
+    await mockApi.saveBootDoc("boot_sequence", "claude", "claude 版\n");
+
+    const ctx = await mockApi.getMemberBootContext("mira");
+
+    const role = ctx.indexOf("# Role: ");
+    const insight = ctx.indexOf("\n\n# Insight (assistant)\n\n");
+    const lore = ctx.indexOf("\n\n# 傳承\n\n");
+    const bootSteps = ctx.indexOf("\n\nclaude 版\n");
+    expect(role).toBeGreaterThan(-1);
+    expect(insight).toBeGreaterThan(role);
+    expect(lore).toBeGreaterThan(insight);
+    expect(bootSteps).toBeGreaterThan(lore);
+    expect(bootSteps).toBe(ctx.length - "\n\nclaude 版\n".length);
+  });
+
+  it("a staff member whose role definition does not exist rejects with a 404 naming the role", async () => {
+    __injectMockMember({
+      id: "ghost-staff",
+      kind: "staff",
+      role_key: "ghost-role",
+      roster_status: "active",
+    });
+
+    const err = await mockApi.getMemberBootContext("ghost-staff").catch((e) => e);
+
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err).toMatchObject({
+      name: "ApiError",
+      message: "http 404 for GET /api/members/ghost-staff/boot-context",
+      status: 404,
+      code: "not_found",
+      serverMessage: "role 'ghost-role' not found",
+      retryAfter: null,
+    });
+  });
+
   it("an unknown, dismissed, outsource or machine id rejects with the server's 404 envelope", async () => {
     __injectMockMember({ id: "ow-preview", kind: "outsource" });
     await mockApi.dismissMember("mira");
@@ -451,7 +487,7 @@ describe("mockApi · getMemberBootContext", () => {
     for (const id of ["nobody", "mira", "ow-preview", "warden-mbp5"]) {
       await expect(mockApi.getMemberBootContext(id)).rejects.toMatchObject({
         status: 404,
-        code: codeForStatus(404),
+        code: "not_found",
         serverMessage: `member '${id}' not found`,
       });
     }
