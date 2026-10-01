@@ -287,7 +287,7 @@ func TestTokenExpiry_AnOutsourceSessionIsDerivableToo(t *testing.T) {
 // tokenExpiryOf with no projection in runOutsourceTick is indistinguishable
 // from the bug.
 func TestTokenExpiry_TheOutsourceCadenceActuallyRunsIt(t *testing.T) {
-	for _, status := range []string{WorkerStatusActive, WorkerStatusAssigned} {
+	for _, status := range []string{"active", "assigned"} {
 		t.Run("an online "+status+" worker inside the lead is asked to close out", func(t *testing.T) {
 			api := newTasksTestServer(t)
 			api.noOutsource = true

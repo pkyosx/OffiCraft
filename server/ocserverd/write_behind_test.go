@@ -445,21 +445,39 @@ func TestAnOwnerStopAfterTheTickReadAWorkerIsNotOverwrittenByAContextStamp(t *te
 // CONTROL for the test above: with nothing landing in the gap, the same tick
 // stamps the context-high wind-down.
 func TestATickStampsAContextHighWindDownOnALiveWorker(t *testing.T) {
-	d, _, _ := windowDAL(t, "split pools")
-	api, _, _ := windowTickWorker(t, d, `desired_state = 'online', desired_machine_id = 'm-server-self'`)
-	session, err := api.hub.Connect("ow-abc123", ServerSelfHost)
-	if err != nil {
-		t.Fatalf("hub.Connect: %v", err)
-	}
-	t.Cleanup(func() { api.hub.Disconnect(session) })
-	api.gauge.Set("ow-abc123", map[string]any{"context_pct": 55.0, "context_pct_ts": 19900.0, "boot_ts": 19000.0})
+	for _, tc := range []struct {
+		name        string
+		activatedTS string
+		wantStatus  string
+	}{
+		{"a worker that has reported waking", "100", "active"},
+		{"a worker that has not reported waking yet", "0", "assigned"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d, _, _ := windowDAL(t, "split pools")
+			api, h, owner := windowTickWorker(t, d,
+				`desired_state = 'online', desired_machine_id = 'm-server-self', activated_ts = `+tc.activatedTS)
+			session, err := api.hub.Connect("ow-abc123", ServerSelfHost)
+			if err != nil {
+				t.Fatalf("hub.Connect: %v", err)
+			}
+			t.Cleanup(func() { api.hub.Disconnect(session) })
+			api.gauge.Set("ow-abc123", map[string]any{"context_pct": 55.0, "context_pct_ts": 19900.0, "boot_ts": 19000.0})
 
-	windowWithin(t, "runOutsourceTick", func() { api.runOutsourceTick(20000) })
+			windowWithin(t, "runOutsourceTick", func() { api.runOutsourceTick(20000) })
 
-	got := apiTestMemberRow(t, d, "ow-abc123")
-	if got.RefocusOp != refocusOpContextHigh || got.RefocusSince != 20000 || got.DesiredState != DesiredStateOnline {
-		t.Fatalf("after the tick: refocus_op %q refocus_since %v desired_state %q; want context_high, 20000, online",
-			got.RefocusOp, got.RefocusSince, got.DesiredState)
+			got := apiTestMemberRow(t, d, "ow-abc123")
+			if got.RefocusOp != refocusOpContextHigh || got.RefocusSince != 20000 || got.DesiredState != DesiredStateOnline {
+				t.Fatalf("after the tick: refocus_op %q refocus_since %v desired_state %q; want context_high, 20000, online",
+					got.RefocusOp, got.RefocusSince, got.DesiredState)
+			}
+			apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+				"status": tc.wantStatus, "presence": "online", "desired_state": "online",
+				"desired_machine_id": "m-server-self", "machine": "m-server-self",
+				"refocus_since": 20000.0, "refocus_op": "context_high", "refocus_deadline": 20120.0,
+				"context_pct": 55.0,
+			}))
+		})
 	}
 }
 

@@ -133,8 +133,8 @@ func TestRunWorkerLifecyclePasses(t *testing.T) {
 		status      string
 		activatedTS float64
 	}{
-		{status: WorkerStatusActive, activatedTS: 100},
-		{status: WorkerStatusAssigned, activatedTS: 0},
+		{status: "active", activatedTS: 100},
+		{status: "assigned", activatedTS: 0},
 	} {
 		t.Run("an online "+tc.status+" worker receives the shared stale-stop pass and folds its anchors back", func(t *testing.T) {
 			api, _, d, _ := newAPITestServer(t)

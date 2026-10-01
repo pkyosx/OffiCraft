@@ -722,7 +722,7 @@ func TestRelocateWorkerByID(t *testing.T) {
 }
 
 func TestHandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost(t *testing.T) {
-	for _, workerStatus := range []string{WorkerStatusActive, WorkerStatusAssigned} {
+	for _, workerStatus := range []string{"active", "assigned"} {
 		t.Run("換手 on a live "+workerStatus+" worker stamps the epoch, fans the 預告 at its own session and starts no clock", func(t *testing.T) {
 			api, h, d, owner := newAPITestServer(t)
 			apiTestWorkerFixture(t, h, d, owner, "ow-abc123", workerStatus)
@@ -756,7 +756,7 @@ func TestHandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost(t *testing
 		})
 	}
 
-	for _, workerStatus := range []string{WorkerStatusActive, WorkerStatusAssigned} {
+	for _, workerStatus := range []string{"active", "assigned"} {
 		t.Run("換手 on a live "+workerStatus+" worker is collected as a STOP only, and the replacement START goes out on the first tick after it reads offline", func(t *testing.T) {
 			api, h, d, owner := newAPITestServer(t)
 			apiTestWorkerFixture(t, h, d, owner, "ow-abc123", workerStatus)
@@ -1917,6 +1917,11 @@ func TestHandleSetOutsourceWorkerModelApiOutsourceWorkersIdModelPost(t *testing.
 	t.Run("the three launch intents are stored on a worker with no live session, and nothing is handed over", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusAssigned)
+		apiTestWorkerWantedOnline(t, d, "ow-abc123")
+		if err := d.SetMemberDesiredMachineID("ow-abc123", ServerSelfHost); err != nil {
+			t.Fatalf("SetMemberDesiredMachineID: %v", err)
+		}
+		apiTestListen(t, api, ServerSelfHost)
 		dashboard := apiTestListen(t, api, "")
 		bystander := apiTestListen(t, api, "kip")
 		push := apiTestWebPushSink(t, api)
@@ -1929,13 +1934,15 @@ func TestHandleSetOutsourceWorkerModelApiOutsourceWorkersIdModelPost(t *testing.
 		apiWantBody(t, data, map[string]any{"id": "ow-abc123"})
 		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
 			"model": "opus", "runtime": "codex", "effort": "high",
+			"desired_state": "online", "desired_machine_id": "m-server-self",
 		}))
-		dashboard.wantFrames(apiTestWorkerDelta(2, "assigned", "owner"))
+		wsWantWardenFrames(t, api, ServerSelfHost)
+		dashboard.wantFrames(apiTestWorkerStateDelta(2, "assigned", "online", "owner"))
 		bystander.wantFrames()
 		push()
 	})
 
-	for _, workerStatus := range []string{WorkerStatusActive, WorkerStatusAssigned} {
+	for _, workerStatus := range []string{"active", "assigned"} {
 		t.Run("a changed model on a live "+workerStatus+" worker opens the wind-down that carries it into the next session", func(t *testing.T) {
 			api, h, d, owner := newAPITestServer(t)
 			apiTestWorkerFixture(t, h, d, owner, "ow-abc123", workerStatus)
