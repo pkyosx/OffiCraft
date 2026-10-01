@@ -371,7 +371,8 @@ export function WorkerDetailPanel({
     setSettingsRuntime(worker.runtime || "claude");
     setSettingsModel(worker.model);
     setSettingsEffort(worker.effort);
-    // 🔴 Seed the pin VERBATIM, carried over from the member panel's openSettings
+    // 🔴 Seed the pin VERBATIM when there is one (with no pin the first online machine
+    // is offered, and counts as a change, so the wake carries it). Carried over from the member panel's openSettings
     // together with the defect it fixes. Falling back to the first ONLINE machine
     // makes `machineChanged` unconditionally true for a worker pinned to a machine
     // that is merely ASLEEP — so opening the dialog just to edit a MODEL silently
