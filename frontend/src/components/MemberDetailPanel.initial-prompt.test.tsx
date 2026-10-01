@@ -150,6 +150,48 @@ describe("MemberDetailPanel — 初始 PROMPT card", () => {
     );
   });
 
+  it("switching to another member of the same role while the first read is in flight shows the second member's boot context, not an error, when the first read fails after the second has landed", async () => {
+    const pending = new Map<
+      string,
+      { resolve: (text: string) => void; reject: (err: Error) => void }
+    >();
+    bootContext = (memberId) =>
+      new Promise<string>((resolve, reject) =>
+        pending.set(memberId, { resolve, reject }),
+      );
+
+    const { findByTestId, showMember } = renderPanel();
+    fireEvent.click(await findByTestId("mp-prompt-toggle"));
+    expect((await findByTestId("mp-prompt-body")).textContent).toBe("載入中…");
+
+    showMember(mkMember("nova", "Nova"));
+    await waitFor(() => expect([...pending.keys()]).toEqual(["mira", "nova"]));
+
+    await act(async () => pending.get("nova")!.resolve("nova 的開機指示"));
+    await act(async () => pending.get("mira")!.reject(new Error("boom")));
+
+    expect((await findByTestId("mp-prompt-body")).textContent).toBe(
+      "這是依目前設定組裝的預覽，可能與這位成員實際開機時收到的內容不同。nova 的開機指示",
+    );
+  });
+
+  it("switching to another member of the same role while the first read is in flight stays on 載入中… when the first answer lands before the second", async () => {
+    const pending = new Map<string, (text: string) => void>();
+    bootContext = (memberId) =>
+      new Promise<string>((resolve) => pending.set(memberId, resolve));
+
+    const { findByTestId, showMember } = renderPanel();
+    fireEvent.click(await findByTestId("mp-prompt-toggle"));
+    expect((await findByTestId("mp-prompt-body")).textContent).toBe("載入中…");
+
+    showMember(mkMember("nova", "Nova"));
+    await waitFor(() => expect([...pending.keys()]).toEqual(["mira", "nova"]));
+
+    await act(async () => pending.get("mira")!("mira 的開機指示"));
+
+    expect((await findByTestId("mp-prompt-body")).textContent).toBe("載入中…");
+  });
+
   it("still shows the prompt when the panel repaints while the read is in flight", async () => {
     let calls = 0;
     let land: (v: string) => void = () => {};

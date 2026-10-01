@@ -459,6 +459,21 @@ describe("mockApi · getMemberBootContext", () => {
     expect(bootSteps).toBe(ctx.length - "\n\nclaude 版\n".length);
   });
 
+  it("a staff member whose second lore entry does not fit the role lore budget gets only the first entry, even when a later entry would fit", async () => {
+    await mockApi.patchServerSettings({ loreCapCharsRole: 150 });
+    await mockApi.saveBootDoc("boot_sequence", "claude", "claude 版\n");
+
+    const ctx = await mockApi.getMemberBootContext("mira");
+
+    expect(
+      ctx.endsWith(
+        "\n\n# 傳承\n\n## L-7 回報前先讀一次自己寫的東西\n\n送出前從頭讀一遍：錯字、漏掉的編號、貼錯的路徑，都是讀的人要多花一輪來回的地方。\n\nclaude 版\n",
+      ),
+    ).toBe(true);
+    expect(ctx).not.toContain("成功回應不代表資料完整");
+    expect(ctx).not.toContain("零命中的預設解讀是查法寫錯了");
+  });
+
   it("a staff member whose role definition does not exist rejects with a 404 naming the role", async () => {
     __injectMockMember({
       id: "ghost-staff",
