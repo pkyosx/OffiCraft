@@ -188,17 +188,32 @@ const claudePromptFileProbeFlag = "--oc-probe-unsupported-flag"
 // reads as "not supported" and still boots.
 const claudePromptFileProbeBudget = 2 * time.Second
 
-func claudeAcceptsPromptFile(r CmdRunner, claudeBin, promptFile string) bool {
+// The second result says why not, for the warden log; it never carries the
+// subprocess output.
+func claudeAcceptsPromptFile(r CmdRunner, claudeBin, promptFile string) (bool, string) {
 	_, err := r.Run(claudeBin, "--append-system-prompt-file", promptFile, claudePromptFileProbeFlag)
-	return err != nil && strings.Contains(err.Error(), "'"+claudePromptFileProbeFlag+"'")
+	switch {
+	case err == nil:
+		return false, "the probe exited 0 on an unknown flag"
+	case strings.Contains(err.Error(), "'"+claudePromptFileProbeFlag+"'"):
+		return true, ""
+	case strings.Contains(err.Error(), "'--append-system-prompt-file'"):
+		return false, "claude rejected --append-system-prompt-file"
+	case strings.HasPrefix(err.Error(), "timeout after"):
+		return false, "the probe timed out"
+	default:
+		return false, "the probe failed"
+	}
 }
 
-// Only the real runner has a timeout to shorten; an injected one is returned
-// as is, so tests keep their seam.
+type timeoutRunner interface {
+	withTimeout(time.Duration) CmdRunner
+}
+
+// A runner that cannot change its timeout is returned as is.
 func withRunTimeout(r CmdRunner, timeout time.Duration) CmdRunner {
-	if real, ok := r.(execRunner); ok {
-		real.timeout = timeout
-		return real
+	if t, ok := r.(timeoutRunner); ok {
+		return t.withTimeout(timeout)
 	}
 	return r
 }
@@ -579,8 +594,8 @@ type SpawnDeps struct {
 	Logf      func(string, ...any)
 	ClaudeBin string
 	// nil, or false, launches with the inline boot pointer that has the member
-	// read the boot file itself.
-	ClaudeTakesPromptFile func(promptFile string) bool
+	// read the boot file itself; the string says why not.
+	ClaudeTakesPromptFile func(promptFile string) (bool, string)
 	CodexBin              string
 	// ClaudeHome feeds both the launch line and Pretrust's file, which keeps the
 	// write and the read on the same claude.json.
@@ -749,10 +764,16 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 	}
 
 	sys := claudeSystemPromptInline(buildAppendSystemPrompt(p.MemberID, role, personaFile))
-	takesPromptFile := runtimeName == "claude" && d.ClaudeTakesPromptFile != nil && d.ClaudeTakesPromptFile(promptFile)
-	if runtimeName == "claude" && !takesPromptFile {
-		d.logf("%s does not take --append-system-prompt-file; %s boots by reading persona.md itself",
-			d.ClaudeBin, p.MemberID)
+	takesPromptFile := false
+	if runtimeName == "claude" {
+		whyNot := "no prompt-file probe is wired"
+		if d.ClaudeTakesPromptFile != nil {
+			takesPromptFile, whyNot = d.ClaudeTakesPromptFile(promptFile)
+		}
+		if !takesPromptFile {
+			d.logf("%s boots by reading persona.md itself, not via --append-system-prompt-file: %s",
+				p.MemberID, whyNot)
+		}
 	}
 	if takesPromptFile {
 		if err := d.WriteFile(promptFile, buildClaudeSystemPrompt(p.MemberID, role, personaFile, p.PersonaContext), 0o600); err != nil {

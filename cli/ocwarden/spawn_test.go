@@ -53,9 +53,9 @@ func (h *spawnHarness) deps() SpawnDeps {
 		// tell a launch line that exported the wrong one.
 		ClaudeHome: claudeHome{Home: "/Users/wardenowner"},
 		ClaudeBin:  "/usr/local/bin/claude",
-		ClaudeTakesPromptFile: func(promptFile string) bool {
+		ClaudeTakesPromptFile: func(promptFile string) (bool, string) {
 			h.promptProbes = append(h.promptProbes, promptFile)
-			return true
+			return true, ""
 		},
 		RepoRoot: "/repo",
 		ResolveOcAgentBin: func() (string, bool) {
@@ -278,41 +278,56 @@ func TestBuildAppendSystemPrompt(t *testing.T) {
 }
 
 func TestWithRunTimeout(t *testing.T) {
-	// 2s is a line of the receiptDeadlineSecs budget (server/ocserverd/receipt_watch.go).
-	if got := withRunTimeout(execRunner{timeout: 5 * time.Second}, claudePromptFileProbeBudget); got != CmdRunner(execRunner{timeout: 2 * time.Second}) {
+	if got := withRunTimeout(execRunner{timeout: 5 * time.Second}, 2*time.Second); got != CmdRunner(execRunner{timeout: 2 * time.Second}) {
 		t.Errorf("the real runner = %#v, want its timeout cut to 2s", got)
 	}
 	fake := &wardenRunner{}
-	if got := withRunTimeout(fake, claudePromptFileProbeBudget); got != CmdRunner(fake) {
-		t.Errorf("an injected runner = %#v, want it returned as is", got)
+	if got := withRunTimeout(fake, 2*time.Second); got != CmdRunner(fake) {
+		t.Errorf("a runner without a timeout = %#v, want it returned as is", got)
 	}
+}
+
+// timeoutRecordingRunner is a wardenRunner that records every timeout it was
+// asked to run under.
+type timeoutRecordingRunner struct {
+	*wardenRunner
+	timeouts []time.Duration
+}
+
+func (r *timeoutRecordingRunner) withTimeout(timeout time.Duration) CmdRunner {
+	r.timeouts = append(r.timeouts, timeout)
+	return r
 }
 
 func TestClaudeAcceptsPromptFile(t *testing.T) {
 	const probe = "/c/claude --append-system-prompt-file /w/m1/system-prompt.md --oc-probe-unsupported-flag"
 	cases := []struct {
-		name string
-		run  wardenRun
-		want bool
+		name    string
+		run     wardenRun
+		want    bool
+		wantWhy string
 	}{
 		{"the parser got past the file flag and rejected the sentinel",
-			wardenRun{err: errors.New("exit status 1: error: unknown option '--oc-probe-unsupported-flag'")}, true},
+			wardenRun{err: errors.New("exit status 1: error: unknown option '--oc-probe-unsupported-flag'")}, true, ""},
 		{"an old claude rejects the file flag itself",
-			wardenRun{err: errors.New("exit status 1: error: unknown option '--append-system-prompt-file'")}, false},
+			wardenRun{err: errors.New("exit status 1: error: unknown option '--append-system-prompt-file'")}, false,
+			"claude rejected --append-system-prompt-file"},
 		{"a claude that cannot run at all",
-			wardenRun{err: errors.New("fork/exec /c/claude: no such file or directory")}, false},
-		{"a claude that accepted an unknown flag and exited 0", wardenRun{}, false},
+			wardenRun{err: errors.New("fork/exec /c/claude: no such file or directory")}, false, "the probe failed"},
+		{"a claude that accepted an unknown flag and exited 0", wardenRun{}, false,
+			"the probe exited 0 on an unknown flag"},
 		{"a claude that hung until the probe budget ran out",
-			wardenRun{err: errors.New("timeout after 2s")}, false},
+			wardenRun{err: errors.New("timeout after 2s")}, false, "the probe timed out"},
 		{"a claude that answers in another language without naming the sentinel",
-			wardenRun{err: errors.New("exit status 1: 錯誤：無法辨識的選項")}, false},
+			wardenRun{err: errors.New("exit status 1: 錯誤：無法辨識的選項")}, false, "the probe failed"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			r := &wardenRunner{script: map[string]wardenRun{probe: tc.run}}
 
-			if got := claudeAcceptsPromptFile(r, "/c/claude", "/w/m1/system-prompt.md"); got != tc.want {
-				t.Errorf("claudeAcceptsPromptFile = %v, want %v", got, tc.want)
+			got, why := claudeAcceptsPromptFile(r, "/c/claude", "/w/m1/system-prompt.md")
+			if got != tc.want || why != tc.wantWhy {
+				t.Errorf("claudeAcceptsPromptFile = (%v, %q), want (%v, %q)", got, why, tc.want, tc.wantWhy)
 			}
 			if want := []string{probe}; !reflect.DeepEqual(r.calls, want) {
 				t.Errorf("calls = %v, want %v", r.calls, want)
@@ -1172,11 +1187,14 @@ func TestStart(t *testing.T) {
 			`--append-system-prompt ` + shellQuote(goldenFallbackPromptM1) +
 			` --settings ` + shellQuote(goldenInlineSettings)
 		for _, tc := range []struct {
-			name  string
-			probe func(string) bool
+			name    string
+			probe   func(string) (bool, string)
+			wantLog string
 		}{
-			{"the probe says no", func(string) bool { return false }},
-			{"no probe is wired", nil},
+			{"the probe says no", func(string) (bool, string) { return false, "the probe timed out" },
+				"m1 boots by reading persona.md itself, not via --append-system-prompt-file: the probe timed out"},
+			{"no probe is wired", nil,
+				"m1 boots by reading persona.md itself, not via --append-system-prompt-file: no prompt-file probe is wired"},
 		} {
 			t.Run(tc.name, func(t *testing.T) {
 				h := newSpawnHarness()
@@ -1194,9 +1212,8 @@ func TestStart(t *testing.T) {
 						t.Errorf("wrote %s for a claude that cannot take it", w.path)
 					}
 				}
-				wantLog := "/usr/local/bin/claude does not take --append-system-prompt-file; m1 boots by reading persona.md itself"
-				if !slices.Contains(h.logs, wantLog) {
-					t.Errorf("warden logs = %q, want them to carry %q", h.logs, wantLog)
+				if !slices.Contains(h.logs, tc.wantLog) {
+					t.Errorf("warden logs = %q, want them to carry %q", h.logs, tc.wantLog)
 				}
 			})
 		}
@@ -1613,6 +1630,11 @@ func TestStart(t *testing.T) {
 		}
 		if len(h.promptProbes) != 0 {
 			t.Errorf("a codex spawn probed claude for a prompt file: %v", h.promptProbes)
+		}
+		for _, line := range h.logs {
+			if strings.Contains(line, "--append-system-prompt-file") {
+				t.Errorf("a codex spawn logged a claude prompt-file fallback: %q", line)
+			}
 		}
 		for _, w := range h.writes {
 			if w.path == "/w/m1/system-prompt.md" {

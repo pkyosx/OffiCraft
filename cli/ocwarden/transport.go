@@ -394,7 +394,7 @@ func buildSpawnDeps(cfg Config, env func(string) string, runner CmdRunner, socke
 			fmt.Fprintf(os.Stderr, "[ocwarden spawn] "+format+"\n", a...)
 		},
 		ClaudeBin: claudeBin,
-		ClaudeTakesPromptFile: func(promptFile string) bool {
+		ClaudeTakesPromptFile: func(promptFile string) (bool, string) {
 			return claudeAcceptsPromptFile(withRunTimeout(runner, claudePromptFileProbeBudget), claudeBin, promptFile)
 		},
 		CodexBin:    codexBin,
