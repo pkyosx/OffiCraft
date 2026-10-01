@@ -1328,11 +1328,16 @@ func (s *apiServer) stampAgentIatFloor(r *http.Request) error {
 }
 
 func stampAgentIatFloorOn(ex sqlExecer, r *http.Request) error {
-	iat, ok := claimsFromContext(r.Context())["iat"].(float64)
-	if !ok || iat <= 0 {
+	iat := callerIat(r)
+	if iat <= 0 {
 		return nil
 	}
 	return setMemberAgentIatFloorOn(ex, currentActor(r), iat)
+}
+
+func callerIat(r *http.Request) float64 {
+	iat, _ := claimsFromContext(r.Context())["iat"].(float64)
+	return iat
 }
 
 func (s *apiServer) HandleReportWakingApiSelfWakingPost(w http.ResponseWriter, r *http.Request) {
@@ -1351,7 +1356,7 @@ func (s *apiServer) HandleReportWakingApiSelfWakingPost(w http.ResponseWriter, r
 	if m.Kind == KindOutsource {
 		// Through the worker funnel under outsourceMu: a member-path write would race
 		// the tick's read-modify-write.
-		fresh, werr := s.workerReportWaking(m.ID, body.Model, requestTrigger(r),
+		fresh, werr := s.workerReportWaking(m.ID, body.Model, callerIat(r), requestTrigger(r),
 			func(ex sqlExecer) error { return stampAgentIatFloorOn(ex, r) })
 		if werr != nil {
 			writeResolveTxError(w, werr, "member", currentActor(r))
@@ -1373,7 +1378,7 @@ func (s *apiServer) HandleReportWakingApiSelfWakingPost(w http.ResponseWriter, r
 			return err
 		}
 		cur.WakingSince = nowSecs()
-		clearWindDownRowOnWake(windDownAnchorRowOfMember(cur), cur.DesiredState)
+		clearWindDownRowOnWake(windDownAnchorRowOfMember(cur), cur.DesiredState, callerIat(r))
 		if body.Model != nil {
 			cur.ActualModel = *body.Model
 		}

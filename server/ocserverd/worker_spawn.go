@@ -1244,7 +1244,7 @@ func resolveLiveWorkerOn(q sqlRowQuerier, id string) (*OutsourceWorker, error) {
 // stampFloor, when set, raises the caller's credential floor in the same
 // transaction: the floor lands with the wake or not at all
 // (HandleReportWakingApiSelfWakingPost).
-func (s *apiServer) workerReportWaking(id string, model *string, trigger string, stampFloor func(sqlExecer) error) (*Member, error) {
+func (s *apiServer) workerReportWaking(id string, model *string, sessionIat float64, trigger string, stampFloor func(sqlExecer) error) (*Member, error) {
 	s.outsourceMu.Lock()
 	defer s.outsourceMu.Unlock()
 	var m Member
@@ -1261,7 +1261,7 @@ func (s *apiServer) workerReportWaking(id string, model *string, trigger string,
 		if w.Status == WorkerStatusAssigned {
 			w.Status = WorkerStatusActive
 		}
-		clearWindDownRowOnWake(windDownAnchorRowOfWorker(w), w.DesiredState)
+		clearWindDownRowOnWake(windDownAnchorRowOfWorker(w), w.DesiredState, sessionIat)
 		m = memberFromWorker(*w)
 		if model != nil {
 			m.ActualModel = *model

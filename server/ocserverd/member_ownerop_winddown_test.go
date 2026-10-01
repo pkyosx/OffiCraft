@@ -709,6 +709,34 @@ func TestOpenWindDownRow(t *testing.T) {
 	apiTestWantEqual(t, "existing row", existing, Member{ID: "m-existing", StoppingSince: 20})
 }
 
+func TestClearWindDownRowOnWake(t *testing.T) {
+	for _, c := range []struct {
+		name         string
+		desiredState string
+		sessionIat   float64
+		want         Member
+	}{
+		{"a session issued before the hand-off keeps the hand-off and drops the stop pair", DesiredStateOnline, 1000,
+			Member{RefocusSince: 1030.7, RefocusOp: memberOpRelocate}},
+		{"a session issued in the hand-off's second clears everything", DesiredStateOnline, 1030, Member{}},
+		{"a session issued after the hand-off clears everything", DesiredStateOnline, 1031, Member{}},
+		{"a session whose credential carries no issue time clears everything", DesiredStateOnline, 0, Member{}},
+		{"a member wanted offline keeps the stop trace beside an earlier session's hand-off", DesiredStateOffline, 1000,
+			Member{StoppingSince: 10, RefocusSince: 1030.7, RefocusOp: memberOpRelocate}},
+		{"a member wanted offline with no issue time keeps only the stop trace", DesiredStateOffline, 0,
+			Member{StoppingSince: 10}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			row := Member{ID: "m-wake", StoppingSince: 10, StoppedSince: 20,
+				RefocusSince: 1030.7, RefocusOp: memberOpRelocate, WakingSince: 40, ForcedStopAt: 50}
+			clearWindDownRowOnWake(windDownAnchorRowOfMember(&row), c.desiredState, c.sessionIat)
+			want := c.want
+			want.ID, want.WakingSince, want.ForcedStopAt = "m-wake", 40, 50
+			apiTestWantEqual(t, "row after the wake", row, want)
+		})
+	}
+}
+
 func TestClearWindDownRow(t *testing.T) {
 	row := Member{ID: "m-clear-row", StoppingSince: 10, StoppedSince: 20,
 		RefocusSince: 30, RefocusOp: memberOpRelocate, WakingSince: 40, ForcedStopAt: 50}

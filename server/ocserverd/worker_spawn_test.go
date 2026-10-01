@@ -3172,7 +3172,7 @@ func TestWorkerReportWaking(t *testing.T) {
 		dashboard := apiTestListen(t, api, "")
 		model := "claude-opus-5"
 
-		m, err := api.workerReportWaking("ow-abc123", &model, triggerServer, nil)
+		m, err := api.workerReportWaking("ow-abc123", &model, 1000, triggerServer, nil)
 		if err != nil {
 			t.Fatalf("workerReportWaking: %v", err)
 		}
@@ -3194,12 +3194,12 @@ func TestWorkerReportWaking(t *testing.T) {
 	t.Run("a repeat report on an already-active worker fans no worker delta and leaves the stored model alone", func(t *testing.T) {
 		api, h, _, owner, _ := wsWindDown(t, WorkerStatusAssigned, DesiredStateOnline, "", 0, 0, 0, true)
 		model := "claude-opus-5"
-		if _, err := api.workerReportWaking("ow-abc123", &model, triggerServer, nil); err != nil {
+		if _, err := api.workerReportWaking("ow-abc123", &model, 1000, triggerServer, nil); err != nil {
 			t.Fatalf("workerReportWaking: %v", err)
 		}
 		dashboard := apiTestListen(t, api, "")
 
-		m, err := api.workerReportWaking("ow-abc123", nil, triggerServer, nil)
+		m, err := api.workerReportWaking("ow-abc123", nil, 1000, triggerServer, nil)
 		if err != nil {
 			t.Fatalf("workerReportWaking: %v", err)
 		}
@@ -3216,7 +3216,7 @@ func TestWorkerReportWaking(t *testing.T) {
 		api, h, _, owner, _ := wsWindDown(t, WorkerStatusAssigned, DesiredStateOnline, "", 0, 0, 0, false)
 		dashboard := apiTestListen(t, api, "")
 
-		m, err := api.workerReportWaking("ow-nope", nil, triggerServer, nil)
+		m, err := api.workerReportWaking("ow-nope", nil, 1000, triggerServer, nil)
 		if m != nil || err != errNotFound {
 			t.Fatalf("want (nil, not found), got (%v, %v)", m, err)
 		}

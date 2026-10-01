@@ -1782,6 +1782,76 @@ func TestHandleUpdateMemberApiMembersMemberIdPatch(t *testing.T) {
 			dashboard.wantFrames()
 		})
 	}
+
+	for _, lateBoot := range []bool{false, true} {
+		name := "a changed model on a live member is collected as a STOP and the replacement START carries the new model"
+		if lateBoot {
+			name = "a changed model on a live member survives the old session's late boot report, and the replacement START still carries the new model"
+		}
+		t.Run(name, func(t *testing.T) {
+			api, h, d, owner := newAPITestServer(t)
+			reconcileTestPut(t, d, Member{ID: "m-box", Name: "Box", Kind: KindWarden})
+			api.telemetry.Set("m-box", map[string]any{"runtimes": map[string]any{
+				"claude": map[string]any{"installed": true, "logged_in": true},
+			}})
+			reconcileTestOnline(t, api, "m-box", "")
+			reconcileTestPut(t, d, Member{ID: "runner", Name: "Runner", Kind: KindStaff, RoleKey: "assistant",
+				Runtime: "claude", Model: "sonnet", Effort: "medium",
+				DesiredState: DesiredStateOnline, DesiredMachineID: "m-box"})
+			session, err := api.hub.Connect("runner", "m-box")
+			if err != nil {
+				t.Fatalf("hub.Connect: %v", err)
+			}
+			oldSession, err := mintJWT("runner", "agent", 3600, api.keys.signingSecret(),
+				time.Now().Unix()-60, "m-box")
+			if err != nil {
+				t.Fatalf("mintJWT: %v", err)
+			}
+
+			if status, data := apiJSON(t, h, "PATCH", "/api/members/runner", owner, `{"model":"opus"}`); status != 200 {
+				t.Fatalf("model: %d (%v)", status, data)
+			}
+			wsWantWardenFrames(t, api, "m-box")
+			if lateBoot {
+				status, data := apiJSON(t, h, "POST", "/api/self/waking", oldSession, `{"model":"sonnet"}`)
+				if status != 200 {
+					t.Fatalf("report_waking: %d (%v)", status, data)
+				}
+				apiWantBody(t, data, map[string]any{
+					"id": "runner", "desired_state": "online", "refocus_op": "runtime/model", "refocus_deadline": 0,
+				})
+			}
+			row := apiTestMemberRow(t, d, "runner")
+			if row.RefocusSince <= 0 || row.RefocusOp != "runtime/model" || row.StoppedSince != 0 {
+				t.Fatalf("the hand-off must still be open, got refocus=%v op=%q stopped=%v",
+					row.RefocusSince, row.RefocusOp, row.StoppedSince)
+			}
+			if status, data := apiJSON(t, h, "POST", "/api/self/stopped", oldSession, `{}`); status != 200 {
+				t.Fatalf("report_stopped: %d (%v)", status, data)
+			}
+			wsWantWardenFrames(t, api, "m-box", wsStopFrame("runner"))
+
+			api.hub.Disconnect(session)
+			api.runReconcileTick(nowSecs() + 31)
+			wsWantWardenFrames(t, api, "m-box", map[string]any{
+				"subject": "runner",
+				"topic":   "warden-command",
+				"data": map[string]any{
+					"rpc": "start",
+					"args": map[string]any{
+						"member_id":       "runner",
+						"persona_context": apiAnyString,
+						"member_token":    apiAnyString,
+						"role":            "assistant",
+						"runtime":         "claude",
+						"model":           "opus",
+						"effort":          "medium",
+						"session_name":    "",
+					},
+				},
+			})
+		})
+	}
 }
 
 func TestHandleActivateMemberApiMembersMemberIdActivatePost(t *testing.T) {
@@ -3475,6 +3545,52 @@ func TestHandleReportWakingApiSelfWakingPost(t *testing.T) {
 					m.StoppingSince, m.StoppedSince, m.RefocusSince, m.RefocusOp)
 			}
 		})
+
+		for _, c := range []struct {
+			name            string
+			stampAfterIat   float64
+			wantRefocusKept bool
+		}{
+			{"a late boot report from a session issued before an open hand-off keeps the hand-off and clears the rest", 60.5, true},
+			{"a boot report from a session issued in the same second as the hand-off clears it", 0.5, false},
+		} {
+			t.Run(kind.name+": "+c.name, func(t *testing.T) {
+				api, h, d, owner := newAPITestServer(t)
+				kind.setup(t, h, d, owner)
+				issued := time.Now().Unix() - 100
+				stampedAt := float64(issued) + c.stampAfterIat
+				if err := d.SetMemberWindDownAnchors(kind.id, 1000, 1100, stampedAt, refocusOpRefocus); err != nil {
+					t.Fatalf("SetMemberWindDownAnchors: %v", err)
+				}
+				agent, err := mintJWT(kind.id, "agent", 3600, api.keys.signingSecret(), issued, "")
+				if err != nil {
+					t.Fatalf("mintJWT: %v", err)
+				}
+
+				status, data := apiJSON(t, h, "POST", "/api/self/waking", agent, `{}`)
+				if status != 200 {
+					t.Fatalf("want 200, got %d (%v)", status, data)
+				}
+				wantOp, wantRefocus := "", 0.0
+				if c.wantRefocusKept {
+					wantOp, wantRefocus = "refocus", stampedAt
+				}
+				apiWantBody(t, data, map[string]any{
+					"id":               kind.id,
+					"desired_state":    "online",
+					"refocus_op":       wantOp,
+					"refocus_deadline": 0,
+				})
+				m, err := d.GetMember(kind.id)
+				if err != nil || m == nil {
+					t.Fatalf("GetMember: %v (%v)", m, err)
+				}
+				if m.StoppingSince != 0 || m.StoppedSince != 0 || m.RefocusSince != wantRefocus || m.RefocusOp != wantOp {
+					t.Fatalf("want stopping=0 stopped=0 refocus=%v op=%q, got stopping=%v stopped=%v refocus=%v op=%q",
+						wantRefocus, wantOp, m.StoppingSince, m.StoppedSince, m.RefocusSince, m.RefocusOp)
+				}
+			})
+		}
 	}
 
 	t.Run("a caller with no roster row answers 404 naming it", func(t *testing.T) {

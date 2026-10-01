@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 func apiTestWorkerFixture(t *testing.T, h http.Handler, d *DAL, owner, id, status string) string {
@@ -799,6 +800,59 @@ func TestHandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost(t *testing
 				"desired_machine_id": "m-server-self", "machine": "m-server-self",
 				"refocus_since": apiAnyNumber, "refocus_op": "refocus",
 			}))
+		})
+
+		t.Run("換手 on a live "+workerStatus+" worker survives the old session's late boot report, and is still collected as a STOP and a replacement START", func(t *testing.T) {
+			api, h, d, owner := newAPITestServer(t)
+			apiTestWorkerFixture(t, h, d, owner, "ow-abc123", workerStatus)
+			apiTestWorkerWantedOnline(t, d, "ow-abc123")
+			if err := d.SetMemberDesiredMachineID("ow-abc123", ServerSelfHost); err != nil {
+				t.Fatalf("SetMemberDesiredMachineID: %v", err)
+			}
+			apiTestListen(t, api, ServerSelfHost)
+			session, err := api.hub.Connect("ow-abc123", ServerSelfHost)
+			if err != nil {
+				t.Fatalf("hub.Connect: %v", err)
+			}
+			oldSession, err := mintJWT("ow-abc123", "agent", 3600, api.keys.signingSecret(),
+				time.Now().Unix()-60, ServerSelfHost)
+			if err != nil {
+				t.Fatalf("mintJWT: %v", err)
+			}
+
+			if status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/refocus", owner, ""); status != 200 {
+				t.Fatalf("refocus: %d (%v)", status, data)
+			}
+			wsWantWardenFrames(t, api, ServerSelfHost)
+			status, data := apiJSON(t, h, "POST", "/api/self/waking", oldSession, `{"model":"sonnet"}`)
+			if status != 200 {
+				t.Fatalf("report_waking: %d (%v)", status, data)
+			}
+			apiWantBody(t, data, map[string]any{
+				"id": "ow-abc123", "desired_state": "online", "refocus_op": "refocus", "refocus_deadline": 0,
+			})
+			apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+				"status": "active", "presence": "online", "desired_state": "online",
+				"desired_machine_id": "m-server-self", "machine": "m-server-self", "actual_model": "sonnet",
+				"refocus_since": apiAnyNumber, "refocus_op": "refocus",
+			}))
+			if status, data := apiJSON(t, h, "POST", "/api/self/stopped", oldSession, `{}`); status != 200 {
+				t.Fatalf("report_stopped: %d (%v)", status, data)
+			}
+			wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"))
+
+			now := nowSecs()
+			api.runOutsourceTick(now)
+			wsWantWardenFrames(t, api, ServerSelfHost)
+
+			api.hub.Disconnect(session)
+			status, boot := apiJSON(t, h, "GET", "/api/outsource-workers/ow-abc123/boot-context", owner, "")
+			if status != 200 {
+				t.Fatalf("boot-context preview: %d (%v)", status, boot)
+			}
+			api.runOutsourceTick(now + 31)
+			wsWantWardenFrames(t, api, ServerSelfHost,
+				wsStartFrame("ow-abc123", boot["context"].(string), "claude", "sonnet", "medium"))
 		})
 	}
 
@@ -2009,6 +2063,60 @@ func TestHandleSetOutsourceWorkerModelApiOutsourceWorkersIdModelPost(t *testing.
 				"desired_machine_id": "m-server-self", "machine": "m-server-self", "model": "opus",
 				"refocus_since": apiAnyNumber, "refocus_op": "runtime/model",
 			}))
+		})
+
+		t.Run("a changed model on a live "+workerStatus+" worker survives the old session's late boot report, and the replacement START still carries the new model", func(t *testing.T) {
+			api, h, d, owner := newAPITestServer(t)
+			apiTestWorkerFixture(t, h, d, owner, "ow-abc123", workerStatus)
+			apiTestWorkerWantedOnline(t, d, "ow-abc123")
+			if err := d.SetMemberDesiredMachineID("ow-abc123", ServerSelfHost); err != nil {
+				t.Fatalf("SetMemberDesiredMachineID: %v", err)
+			}
+			apiTestListen(t, api, ServerSelfHost)
+			session, err := api.hub.Connect("ow-abc123", ServerSelfHost)
+			if err != nil {
+				t.Fatalf("hub.Connect: %v", err)
+			}
+			oldSession, err := mintJWT("ow-abc123", "agent", 3600, api.keys.signingSecret(),
+				time.Now().Unix()-60, ServerSelfHost)
+			if err != nil {
+				t.Fatalf("mintJWT: %v", err)
+			}
+
+			if status, data := apiJSON(t, h, "PATCH", "/api/members/ow-abc123", owner, `{"model":"opus"}`); status != 200 {
+				t.Fatalf("model: %d (%v)", status, data)
+			}
+			wsWantWardenFrames(t, api, ServerSelfHost)
+			status, data := apiJSON(t, h, "POST", "/api/self/waking", oldSession, `{"model":"sonnet"}`)
+			if status != 200 {
+				t.Fatalf("report_waking: %d (%v)", status, data)
+			}
+			apiWantBody(t, data, map[string]any{
+				"id": "ow-abc123", "desired_state": "online", "refocus_op": "runtime/model", "refocus_deadline": 0,
+			})
+			apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+				"status": "active", "presence": "online", "desired_state": "online",
+				"desired_machine_id": "m-server-self", "machine": "m-server-self",
+				"model": "opus", "actual_model": "sonnet",
+				"refocus_since": apiAnyNumber, "refocus_op": "runtime/model",
+			}))
+			if status, data := apiJSON(t, h, "POST", "/api/self/stopped", oldSession, `{}`); status != 200 {
+				t.Fatalf("report_stopped: %d (%v)", status, data)
+			}
+			wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"))
+
+			now := nowSecs()
+			api.runOutsourceTick(now)
+			wsWantWardenFrames(t, api, ServerSelfHost)
+
+			api.hub.Disconnect(session)
+			status, boot := apiJSON(t, h, "GET", "/api/outsource-workers/ow-abc123/boot-context", owner, "")
+			if status != 200 {
+				t.Fatalf("boot-context preview: %d (%v)", status, boot)
+			}
+			api.runOutsourceTick(now + 31)
+			wsWantWardenFrames(t, api, ServerSelfHost,
+				wsStartFrame("ow-abc123", boot["context"].(string), "claude", "opus", "medium"))
 		})
 	}
 

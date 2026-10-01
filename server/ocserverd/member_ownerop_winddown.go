@@ -1,5 +1,7 @@
 package main
 
+import "math"
+
 // 「所有換手都可以給他機會收尾」 for STAFF members — the twin of the outsource
 // rule (server/AGENTS.md 「所有 owner 動詞都給收尾機會」).
 //
@@ -477,10 +479,19 @@ func clearWindDownRow(row windDownAnchorRow) {
 // clearWindDownRowOnWake is report_waking's clear, for staff and workers alike.
 // 🔴 stopping_since survives unless the subject is wanted online: it is the only
 // trace of a stop that landed while the session was still booting.
-func clearWindDownRowOnWake(row windDownAnchorRow, desiredState string) {
+// 🔴 A hand-off stamped after the waking session's credential was issued survives
+// too: a late report_waking from the old session would otherwise erase the marker
+// the agent's wake is gated on, and nobody would close the session out. iat is whole
+// seconds, so the same second counts as before — a replacement session minted in
+// the stamp's second must not be handed over again.
+func clearWindDownRowOnWake(row windDownAnchorRow, desiredState string, sessionIat float64) {
 	stoppingSince := *row.StoppingSince
+	refocusSince, refocusOp := *row.RefocusSince, *row.RefocusOp
 	clearWindDownRow(row)
 	if desiredState != DesiredStateOnline {
 		*row.StoppingSince = stoppingSince
+	}
+	if sessionIat > 0 && math.Floor(refocusSince) > sessionIat {
+		*row.RefocusSince, *row.RefocusOp = refocusSince, refocusOp
 	}
 }
