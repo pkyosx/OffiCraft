@@ -26,6 +26,7 @@ vi.mock("../api", () => ({
     subscribeEvents: () => () => {},
     getChatAttachmentShareLink: vi.fn(),
     getTaskStep: vi.fn(),
+    getOutsourceWorker: () => Promise.reject(new Error("not found")),
     listTaskArtifacts,
   },
 }));

@@ -1544,7 +1544,7 @@ func TestHandleGetMemberApiMembersMemberIdGet(t *testing.T) {
 		dashboard.wantFrames()
 	})
 
-	t.Run("a dismissed member answers 404 naming it, as does an id nothing carries", func(t *testing.T) {
+	t.Run("a dismissed member still answers its row as removed so tasks and chats keep its name", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		if status, data := apiJSON(t, h, "DELETE", "/api/members/kip", owner, ""); status != 200 {
 			t.Fatalf("dismiss: %d %v", status, data)
@@ -1552,10 +1552,40 @@ func TestHandleGetMemberApiMembersMemberIdGet(t *testing.T) {
 		dashboard := apiTestListen(t, api, "")
 
 		status, data := apiJSON(t, h, "GET", "/api/members/kip", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"id": "kip", "avatar_url": "", "name": "Kip",
+			"kind": "staff", "role_key": "engineer", "role_name": "", "runtime": "claude",
+			"model": "", "actual_model": "", "actual_runtime": "",
+			"actual_effort": "", "actual_machine": "", "effort": "",
+			"desired_state": "offline", "desired_machine_id": "", "machine": "",
+			"presence": "stopped", "refocus_since": 0, "refocus_op": "",
+			"refocus_deadline": 0, "last_op": "", "last_op_ok": nil,
+			"last_op_log": "", "last_op_reason": "", "last_op_at": 0,
+			"forced_stop_at": 0, "unread_count": 0, "roster_status": "removed",
+			"owner_id": "owner", "schema_version": 3,
+			"terminal_attach_command": "tmux -L officraft attach -t member-kip",
+			"runtime_login_warnings":  []any{},
+		})
+		dashboard.wantFrames()
+	})
+
+	t.Run("a removed warden answers 404 naming it, as does an id nothing carries", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		if err := d.PutMember(Member{
+			ID: "m-gone", Name: "gone-host", Kind: KindWarden, RosterStatus: RosterStatusRemoved,
+		}); err != nil {
+			t.Fatalf("PutMember: %v", err)
+		}
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "GET", "/api/members/m-gone", owner, "")
 		if status != 404 {
 			t.Fatalf("want 404, got %d (%v)", status, data)
 		}
-		apiWantError(t, data, "not_found", "member 'kip' not found")
+		apiWantError(t, data, "not_found", "member 'm-gone' not found")
 
 		status, data = apiJSON(t, h, "GET", "/api/members/nope", owner, "")
 		if status != 404 {
@@ -3011,8 +3041,20 @@ func TestHandleRefocusMemberApiMembersMemberIdRefocusPost(t *testing.T) {
 }
 
 func TestHandleDismissMemberApiMembersMemberIdDelete(t *testing.T) {
-	t.Run("a dismissal answers the member id and fans a removal carrying no payload to the dashboard and to that member", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
+	t.Run("a dismissal answers the member id, fans a removal carrying no payload, retires the member's waiting cards and sends its machine a stop", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		if err := d.SetMemberDesiredMachineID("kip", ServerSelfHost); err != nil {
+			t.Fatalf("SetMemberDesiredMachineID: %v", err)
+		}
+		for _, card := range []ReplyCard{
+			{ID: "rc-kip", FromMember: "kip", Kind: "decision", Status: "waiting", CreatedTS: 10},
+			{ID: "rc-mira", FromMember: "mira", Kind: "decision", Status: "waiting", CreatedTS: 11},
+		} {
+			if err := d.PutReplyCard(card); err != nil {
+				t.Fatalf("PutReplyCard(%q): %v", card.ID, err)
+			}
+		}
+		apiTestListen(t, api, ServerSelfHost)
 		dashboard := apiTestListen(t, api, "")
 		self := apiTestListen(t, api, "kip")
 		bystander := apiTestListen(t, api, "mira")
@@ -3022,6 +3064,15 @@ func TestHandleDismissMemberApiMembersMemberIdDelete(t *testing.T) {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
 		apiWantBody(t, data, map[string]any{"id": "kip"})
+		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("kip"))
+		cards, err := d.ListReplyCards()
+		if err != nil {
+			t.Fatalf("ListReplyCards: %v", err)
+		}
+		apiWantValue(t, "card statuses", any(map[string]any{
+			cards[0].ID: cards[0].Status, cards[1].ID: cards[1].Status,
+		}), any(map[string]any{"rc-kip": "expired", "rc-mira": "waiting"}))
+		cardFrame := apiTestReplyCardFrame(2, "rc-kip", "kip", "expired", "owner")
 		frame := map[string]any{
 			"seq":   1,
 			"topic": "member",
@@ -3036,8 +3087,8 @@ func TestHandleDismissMemberApiMembersMemberIdDelete(t *testing.T) {
 			"ts":      apiAnyNumber,
 			"trigger": "owner",
 		}
-		dashboard.wantFrames(frame)
-		self.wantFrames(frame)
+		dashboard.wantFrames(frame, cardFrame)
+		self.wantFrames(frame, cardFrame)
 		bystander.wantFrames()
 	})
 

@@ -313,7 +313,7 @@ describe("useChat load routing (active vs background)", () => {
     // 🔴 T-48 R11-7 — `mergePeerRead` 取較大值,不只救回同一個 peer 晚到的真值,
     // 也讓水位在這一趟造訪內不可下降。這是刻意的:水位講的是「已經發生過的事」,
     // 讀過不會變成沒讀過,所以「這次沒查到 receipt」從來不是反證。真實來源是
-    // 一次不完整的 200,或 receipt 被硬刪(`DeleteChatReadsInvolving`)。
+    // 一次不完整的 200(伺服器從不刪 receipt)。
     // 單調只在造訪內成立:下次進房是一份新的 hook,會重新跟伺服器要。
     h.listChat.mockResolvedValue([mkMsg("c1", "owner", "b", 1000)]);
     h.listChatReads

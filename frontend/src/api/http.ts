@@ -2942,7 +2942,7 @@ export const httpApi: Api = {
     // seed). The write answers with a bounded receipt (T-91), not the duty
     // document; the cockpit refetches, exactly as it already did.
     // NOTE the POST-reset route — the old DELETE verb here never matched the
-    // route table (405), and DELETE /api/roles/{key} is now the HARD custom-role
+    // route table (405), and DELETE /api/roles/{key} is now the custom-role
     // delete (M2-2), a destructive different verb.
     await client.POST("/api/roles/{role}/reset", {
       params: { path: { role: key } },
@@ -2976,11 +2976,11 @@ export const httpApi: Api = {
   },
 
   async deleteRole(key: string): Promise<void> {
-    // DELETE /api/roles/{key} -> RoleDeleteResultDTO. HARD cascade delete of a
-    // CUSTOM role (seed → 403, online member → 409 — both throw an ApiError via
-    // the client middleware; the caller branches on `.status` via isHttpStatus
-    // (api/errors.ts) to surface 「有成員在線上，無法刪除」). The receipt counts
-    // are not needed by the UI — the caller refetches roles + members.
+    // DELETE /api/roles/{key} -> RoleDeleteResultDTO. Deletes a CUSTOM role and
+    // dismisses its members (seed → 403, online member → 409 — both throw an
+    // ApiError via the client middleware; the caller branches on `.status` via
+    // isHttpStatus (api/errors.ts) to surface 「有成員在線上，無法刪除」). The
+    // receipt is not needed by the UI — the caller refetches roles + members.
     await client.DELETE("/api/roles/{role}", {
       params: { path: { role: key } },
     });

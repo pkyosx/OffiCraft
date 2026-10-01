@@ -24,13 +24,16 @@ import {
 } from "../api/mock";
 import type { TaskView } from "../api/adapter";
 
-// Released-worker codename cache (T-3ed8): the REAL hook lazily fetches
-// GET /api/members/{id} (which serves released rows); here it is a
-// fixed map (the hook has its own tests) — only "ow-rel" resolves, so the
+// Unlisted-identity cache: the REAL hook lazily fetches GET /api/members/{id}
+// (which serves released workers and dismissed staff); here it is a fixed map
+// (the hook has its own tests) — only "ow-rel" and "m-left" resolve, so the
 // unresolvable-raw-id cases below stay honest.
+const UNLISTED_NAMES: Record<string, string> = { "ow-rel": "R-2", "m-left": "阿哲" };
 vi.mock("../hooks/useWorkerCodenames", () => ({
   useWorkerCodenames: (ids: readonly string[]) =>
-    new Map(ids.filter((id) => id === "ow-rel").map((id) => [id, "R-2"])),
+    new Map(
+      ids.filter((id) => id in UNLISTED_NAMES).map((id) => [id, UNLISTED_NAMES[id]]),
+    ),
   useWorkerAvatarUrls: (ids: readonly string[]) =>
     new Map(
       ids
@@ -280,9 +283,7 @@ describe("TaskCard 卡頭對齊 owner spec (T-705e)", () => {
     ).toBe("外包 · O-7 · Opus 4.6 · 高投入");
   });
 
-  it("released 外包 executor resolves its codename via the lazy cache", async () => {
-    // "ow-rel" has NO live worker row (released) — the chip resolves the
-    // codename through the per-id cache instead of the bare 外包 label.
+  it("an executor missing from the live lists shows its name from the lazy cache, the raw id only when unresolvable, and opens its chat", async () => {
     __injectMockTask(
       mkTask({
         title: "外包已釋出",
@@ -290,24 +291,63 @@ describe("TaskCard 卡頭對齊 owner spec (T-705e)", () => {
         executorId: "ow-rel",
       })
     );
-    const { findByTestId } = renderPage();
-    const link = await findByTestId("task-assignee-link");
+    const dismissed = mkTask({ title: "正職已離開", executorId: "m-left" });
+    __injectMockTask(dismissed);
+    __injectMockTask(mkTask({ title: "查無負責人", executorId: "m-unknown" }));
+
+    const { findAllByTestId } = renderPage();
+    const cards = await findAllByTestId("task-card");
+    const byTitle = (title: string) =>
+      cards.find((c) =>
+        c.querySelector(".task-card__title")?.textContent?.includes(title)
+      )!;
+    const executorOf = (title: string) =>
+      byTitle(title).querySelector(
+        '[data-testid="task-assignee-link"] [data-testid="task-executor"]'
+      )?.textContent;
+
+    expect(executorOf("外包已釋出")).toBe("外包 · R-2");
+    expect(executorOf("正職已離開")).toBe("阿哲");
+    expect(executorOf("查無負責人")).toBe("m-unknown");
     expect(
-      link.querySelector('[data-testid="task-executor"]')?.textContent
-    ).toBe("外包 · R-2");
+      byTitle("正職已離開")
+        .querySelector('[data-testid="task-msg-input"]')
+        ?.getAttribute("placeholder")
+    ).toBe("傳訊息給 阿哲…");
+
+    fireEvent.click(
+      byTitle("正職已離開").querySelector('[data-testid="task-assignee-link"]')!
+    );
+    expect(window.location.hash).toBe(
+      `#office/chat/m-left/compose/${encodeURIComponent(dismissed.taskNo)}`
+    );
   });
 
-  it("released 前任 resolves its codename via the lazy cache, not the raw id", async () => {
+  it("a released 外包 or dismissed 正職 前任 shows its name from the lazy cache, not the raw id", async () => {
     __injectMockTask(
       mkTask({
-        title: "轉派後",
+        title: "外包轉派後",
         reassignedFrom: "ow-rel",
         reassignedFromKind: "outsource",
       })
     );
-    const { findByTestId } = renderPage();
-    const chip = await findByTestId("task-previous-assignee");
-    expect(chip.textContent).toBe("外包 · R-2");
+    __injectMockTask(
+      mkTask({
+        title: "正職轉派後",
+        reassignedFrom: "m-left",
+        reassignedFromKind: "staff",
+      })
+    );
+    const { findAllByTestId } = renderPage();
+    const cards = await findAllByTestId("task-card");
+    const previousOf = (title: string) =>
+      cards
+        .find((c) =>
+          c.querySelector(".task-card__title")?.textContent?.includes(title)
+        )!
+        .querySelector('[data-testid="task-previous-assignee"]')?.textContent;
+    expect(previousOf("外包轉派後")).toBe("外包 · R-2");
+    expect(previousOf("正職轉派後")).toBe("阿哲");
   });
 
   it("未指派 assignee chip is plain text (no chat to open, no icon)", async () => {
@@ -465,14 +505,25 @@ describe("TaskCard 卡頭對齊 owner spec (T-705e)", () => {
         encodeURIComponent(task.taskNo));
     });
 
-    it("a released outsource-worker creator resolves its codename via the lazy cache", async () => {
-      const task = mkTask({ title: "已釋出建立", creatorId: "ow-rel" });
-      __injectMockTask(task); // no live worker row — the codename cache resolves
-      const { findByTestId } = renderPage();
-      const link = await findByTestId("task-creator-link");
-      expect(
-        link.querySelector('[data-testid="task-creator"]')?.textContent
-      ).toBe("外包 · R-2");
+    it("a released 外包 or dismissed 正職 creator shows its name from the lazy cache and opens its chat", async () => {
+      __injectMockTask(mkTask({ title: "已釋出建立", creatorId: "ow-rel" }));
+      const dismissed = mkTask({ title: "已離開建立", creatorId: "m-left" });
+      __injectMockTask(dismissed);
+      const { findAllByTestId } = renderPage();
+      const cards = await findAllByTestId("task-card");
+      const creatorLinkOf = (title: string) =>
+        cards
+          .find((c) =>
+            c.querySelector(".task-card__title")?.textContent?.includes(title)
+          )!
+          .querySelector('[data-testid="task-creator-link"]')!;
+
+      expect(creatorLinkOf("已釋出建立").textContent).toBe("外包 · R-2");
+      expect(creatorLinkOf("已離開建立").textContent).toBe("阿哲");
+      fireEvent.click(creatorLinkOf("已離開建立"));
+      expect(window.location.hash).toBe(
+        `#office/chat/m-left/compose/${encodeURIComponent(dismissed.taskNo)}`
+      );
     });
 
     it("an UNRESOLVABLE outsource creator falls back to the raw id, still clickable", async () => {
@@ -485,14 +536,28 @@ describe("TaskCard 卡頭對齊 owner spec (T-705e)", () => {
       ).toBe("ow-9");
     });
 
-    it('a non-member/non-worker creator (e.g. "owner") is plain text, not clickable', async () => {
+    it('a non-member/non-worker creator ("owner", an unresolvable staff id) is plain text, not clickable', async () => {
       __injectMockTask(mkTask({ title: "老闆建立", creatorId: "owner" }));
-      const { findByTestId } = renderPage();
-      const row = await findByTestId("task-creator-row");
-      expect(row.tagName).not.toBe("BUTTON");
-      expect(
-        row.querySelector('[data-testid="task-creator"]')?.textContent
-      ).toBe("owner");
+      __injectMockTask(mkTask({ title: "查無正職建立", creatorId: "m-unknown" }));
+      const { findAllByTestId } = renderPage();
+      const cards = await findAllByTestId("task-card");
+      const creatorOf = (title: string) =>
+        cards.find((c) =>
+          c.querySelector(".task-card__title")?.textContent?.includes(title)
+        )!;
+
+      for (const [title, text] of [
+        ["老闆建立", "owner"],
+        ["查無正職建立", "m-unknown"],
+      ]) {
+        const card = creatorOf(title);
+        expect(card.querySelector('[data-testid="task-creator-link"]')).toBeNull();
+        expect(
+          card.querySelector(
+            '[data-testid="task-creator-row"] [data-testid="task-creator"]'
+          )?.textContent
+        ).toBe(text);
+      }
     });
   });
 });

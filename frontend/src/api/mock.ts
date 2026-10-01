@@ -124,6 +124,7 @@ import type {
 } from "./wire";
 import {
   toMember,
+  toOutsourceWorker,
   toMonitoring,
   toVersion,
   toReleaseCheck,
@@ -2038,6 +2039,12 @@ function findWire(id: string): WireMember {
   return w;
 }
 
+/** GET /api/members/{id} serves removed rows too (released outsource,
+ * dismissed staff) — all but a removed warden. */
+function isReadableByMemberId(w: WireMember): boolean {
+  return !(w.roster_status === "removed" && w.kind === "warden");
+}
+
 /** Resume-summary target parity with the server (T-4595): the ONE member verb
  * the owner released to workers resolves member ∪ outsource — the server's
  * `resolveResumeSummaryTarget` is deliberately `resolveMember` WITHOUT the
@@ -2699,10 +2706,8 @@ const mockApiImpl = {
   },
 
   async getMember(id: string): Promise<Member> {
-    // Released outsource rows stay readable for durable identity attribution;
-    // dismissed staff and removed wardens still read as 404.
     const w = findWire(id);
-    if (w.roster_status === "removed" && w.kind !== "outsource") {
+    if (!isReadableByMemberId(w)) {
       throw new Error(`mock: member removed: ${id}`);
     }
     // unread_count is COMPUTED here exactly as listMembers computes it — the Go
@@ -2916,8 +2921,7 @@ const mockApiImpl = {
 
   async dismissMember(id: string): Promise<void> {
     // Soft delete (mirror handle_dismiss_member): flip status=removed + intent
-    // desired_state=offline. listMembers / getMember filter removed rows, so the
-    // member drops from the roster (getMember then 404s) — never a hard delete.
+    // desired_state=offline. listMembers drops the row; getMember still reads it.
     const w = findWire(id);
     w.roster_status = "removed";
     w.desired_state = "offline";
@@ -4660,6 +4664,10 @@ const mockApiImpl = {
     // roster). Live unread is computed the same way as the list.
     const w = outsourceWorkers.find((x) => x.id === id);
     if (!w) {
+      const member = wireMembers.find((m) => m.id === id);
+      if (member && isReadableByMemberId(member)) {
+        return { ...toOutsourceWorker(member), unreadCount: unreadCountOf(id) };
+      }
       throw mockApiError(
         `http 404 for GET /api/members/${id}`,
         404,
@@ -6616,7 +6624,7 @@ const mockApiImpl = {
   },
 
   async deleteRole(key: string): Promise<void> {
-    // Mirrors handle_delete_role's 防線 + hard cascade — thrown as the SAME
+    // Mirrors handle_delete_role's 防線 — thrown as the SAME
     // ApiError the http client throws (status/code off the unified error
     // envelope, docs/design/api-error-envelope.md), so a caller branching on
     // e.status (SettingsPage's isHttpStatus) behaves identically on mock.
@@ -6643,13 +6651,7 @@ const mockApiImpl = {
         `role '${key}' has online member(s) — stop them before deleting`
       );
     }
-    const ids = new Set(members.map((m) => m.id));
-    wireMembers = wireMembers.filter((m) => !ids.has(m.id));
-    chatLog = chatLog.filter((c) => !ids.has(c.from) && !ids.has(c.to));
-    for (const k of [...chatReads.keys()]) {
-      const [reader, peer] = k.split("::");
-      if (ids.has(reader) || ids.has(peer)) chatReads.delete(k);
-    }
+    for (const m of members) await mockApiImpl.dismissMember(m.id);
     // The role's documents go with it, retained revisions included.
     dropRoleInsightHistory(key);
     dropDocumentHistory("role_definition", key);

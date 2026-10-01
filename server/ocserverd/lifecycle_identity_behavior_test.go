@@ -536,13 +536,12 @@ var identityGateExpectedCount = map[string]int{
 // The fix applied here was to put the predicate back where the scanners can see
 // it (at each call site) and re-register it, not to widen the scanners.
 var identityGateLedger = map[string]string{
-	"api_helpers.go :: resolveMemberForItemRead :: m.Kind != KindOutsource": "" +
-		"the read-only durable-identity exception required by T-197: a released " +
-		"outsource worker keeps its codename for chats, tasks and lore, while a " +
-		"dismissed staff member or removed warden remains unreadable. This does not " +
-		"widen lifecycle or write resolution (those still use resolveMember), so it " +
-		"is a wire/read projection distinction rather than differentiated lifecycle " +
-		"treatment under the 2026-08-26 外包＝正職 ruling.",
+	"api_helpers.go :: resolveMemberForItemRead :: m.Kind == KindWarden": "" +
+		"machine-vs-person on the read-only durable-identity exception: a released " +
+		"outsource worker and a dismissed staff member both stay readable so chats, " +
+		"tasks and lore keep their names, while a removed warden is a torn-down " +
+		"machine nothing is attributed to. 正職 and 外包 are treated the same here; " +
+		"lifecycle and write resolution still use resolveMember.",
 	// ── the hire door hires staff only (owner 2026-09-13, rc-3989498e0c8f) ──
 	//
 	// The 2026-08-26 ruling asks for a CONVERSATION before a new 正職／外包
@@ -1776,6 +1775,15 @@ var lifecycleProducerLoopRulings = map[string]producerLoopRuling{
 			"pre-decide formalities and the receipt sweep. This is the tick's terminal " +
 			"loop, not a formality — a new stamp added in here would be exactly the " +
 			"regression this gate exists to announce.",
+	},
+	"runReconcileTick :: for _, m := range removedOwingStop": {
+		Count: 1,
+		Why: "the decide pass for dismissed staff that still owe the out-of-band robust " +
+			"STOP their exit sent, so an unlanded one is re-sent until the session is " +
+			"offline. It runs reconcileTickMemberLocked only, never the roster passes. " +
+			"Not a formality withheld from 外包: a released worker gets the same " +
+			"guarantee from runOutsourceTick's WorkerStatusReleased arm, which retries " +
+			"reclaimWorkerSession until a warden takes the kill.",
 	},
 	"runOutsourceTick :: for _, t := range tasks": {
 		Count: 4,

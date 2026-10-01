@@ -2570,8 +2570,9 @@ export interface Api {
   listOutsourceWorkers(): Promise<OutsourceWorkerView[]>;
   /** Read ONE worker (`GET /api/members/{member_id}`) — the SAME
    * projection the list serves, for the detail panel's post-relocate refresh.
-   * Released rows remain readable for durable identity attribution; an unknown
-   * worker still → 404 (throws ApiError). (T-f190) */
+   * The route reads any member id: released workers and dismissed staff remain
+   * readable for durable identity attribution; an unknown id or a removed warden
+   * → 404 (throws ApiError). (T-f190) */
   getOutsourceWorker(id: string): Promise<OutsourceWorkerView>;
   /** Read a worker's boot-context PREVIEW (`GET
    * /api/outsource-workers/{id}/boot-context`, owner/admin-agent) — the worker twin
@@ -2855,12 +2856,12 @@ export interface Api {
    */
   createRole(input: RoleCreateInput): Promise<RoleCreateResult>;
   /**
-   * HARD-delete a CUSTOM role + its members + their conversations / receipts
-   * (`DELETE /api/roles/{key}`, M2-2). Server-side 防線 (not UI-only):
-   * a seed role → 403; ANY member of the role online → 409 (the caller surfaces
-   * 「有成員在線上，無法刪除」); unknown → 404. All three reject (throw). On
-   * success the role row, its members and their chat/receipts are
-   * PHYSICALLY gone — the caller refetches roles + members.
+   * Delete a CUSTOM role (`DELETE /api/roles/{key}`). Its definition and Insight
+   * are gone for good; each of its members is dismissed exactly as
+   * `dismissMember` does, so their conversations stay readable as history.
+   * Server-side 防線 (not UI-only): a seed role → 403; ANY member of the role
+   * online → 409 (the caller surfaces 「有成員在線上，無法刪除」); unknown → 404.
+   * All three reject (throw). The caller refetches roles + members.
    */
   deleteRole(key: string): Promise<void>;
 

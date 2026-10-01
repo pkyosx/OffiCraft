@@ -871,42 +871,6 @@ func refIDsFromJSON(blob string, into map[string]bool) {
 	}
 }
 
-func (d *DAL) DeleteChatInvolving(memberID string) (int, int, error) {
-	var msgs, atts int
-	err := d.inTx(func(tx *writeTx) error {
-		var err error
-		msgs, atts, err = deleteChatInvolvingOn(tx, memberID)
-		return err
-	})
-	return msgs, atts, err
-}
-
-func deleteChatInvolvingOn(tx *writeTx, memberID string) (int, int, error) {
-	candidates := map[string]bool{}
-	if err := collectChatMetaRefs(tx,
-		`SELECT meta FROM chat_message WHERE sender = ? OR recipient = ?`,
-		candidates, memberID, memberID); err != nil {
-		return 0, 0, err
-	}
-
-	res, err := tx.Exec(
-		`DELETE FROM chat_message WHERE sender = ? OR recipient = ?`,
-		memberID, memberID)
-	if err != nil {
-		return 0, 0, err
-	}
-	deletedMsgs, err := res.RowsAffected()
-	if err != nil {
-		return 0, 0, err
-	}
-
-	deletedAtts, err := collectOrphanBlobs(tx, candidates)
-	if err != nil {
-		return 0, 0, err
-	}
-	return int(deletedMsgs), deletedAtts, nil
-}
-
 func collectOrphanBlobs(tx *writeTx, candidates map[string]bool) (int, error) {
 	if len(candidates) == 0 {
 		return 0, nil
@@ -1319,21 +1283,6 @@ func (d *DAL) PutChatRead(r ChatRead) (ChatRead, bool, error) {
 		r.ReaderID, r.PeerID,
 	).Scan(&eff.ReaderID, &eff.PeerID, &eff.LastReadTS)
 	return eff, n > 0, err
-}
-
-func (d *DAL) DeleteChatReadsInvolving(memberID string) (int, error) {
-	return deleteChatReadsInvolvingOn(d.wdb, memberID)
-}
-
-func deleteChatReadsInvolvingOn(ex sqlExecer, memberID string) (int, error) {
-	res, err := ex.Exec(
-		`DELETE FROM chat_read WHERE reader_id = ? OR peer_id = ?`,
-		memberID, memberID)
-	if err != nil {
-		return 0, err
-	}
-	n, err := res.RowsAffected()
-	return int(n), err
 }
 
 type UserContext struct {

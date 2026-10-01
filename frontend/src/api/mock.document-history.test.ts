@@ -202,8 +202,13 @@ describe("mockApi · document history", () => {
   // the mock is the cockpit's stand-in for the contract: one that still lists
   // history for a deleted document teaches the UI, and the next reader of this
   // file, a behaviour the server does not have.
-  it("deleting a role drops its own history and its insight history", async () => {
-    const { roleKey } = await mockApi.createRole({ name: "臨時角色" });
+  it("deleting a role drops its own history and its insight history, and dismisses its members with their chats kept", async () => {
+    const { roleKey, memberId } = await mockApi.createRole({
+      name: "臨時角色",
+      memberName: "小明",
+    });
+    await mockApi.postChat({ to: memberId, body: "交接一下" });
+    await mockApi.markChatRead({ peer: memberId, lastReadTs: 1234 });
     await mockApi.saveRole(roleKey, { definitionMd: "改寫" });
     // The insight history key is the BARE role_key — one document per role,
     // addressed exactly, so this is an equality rather than a prefix sweep.
@@ -222,6 +227,17 @@ describe("mockApi · document history", () => {
       await documentRevisions(mockApi, "role_definition", roleKey)
     ).toEqual([]);
     expect(await documentRevisions(mockApi, "insight", roleKey)).toEqual([]);
+
+    expect((await mockApi.listMembers()).map((m) => m.id)).not.toContain(memberId);
+    const dismissed = await mockApi.getMember(memberId);
+    expect([dismissed.name, dismissed.desiredState]).toEqual(["小明", "offline"]);
+    expect((await mockApi.getOutsourceWorker(memberId)).codename).toBe("小明");
+    expect(
+      (await mockApi.listChat(memberId)).map((m) => [m.from, m.body])
+    ).toEqual([["owner", "交接一下"]]);
+    expect(await mockApi.listChatReads(memberId)).toEqual([
+      { readerId: "owner", peerId: memberId, lastReadTs: 1234 },
+    ]);
   });
 
   it("deleting a task manual drops its SOP history", async () => {

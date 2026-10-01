@@ -32,6 +32,7 @@
 // direction, and that is the follow-up this file cannot substitute for.
 import { beforeEach, describe, expect, it } from "vitest";
 import type { components } from "./generated/schema";
+import { isHttpStatus } from "./errors";
 import {
   __injectMockChat,
   __injectMockMember,
@@ -129,7 +130,7 @@ describe("per-item DTO gaps are what the adapter really does (T-8115 follow-up)"
     expect(single.name).toBe(worker.name);
   });
 
-  it("keeps a released outsource identity readable without exposing dismissed staff", async () => {
+  it("keeps a released outsource worker and a dismissed staff member readable by id, but not a removed warden", async () => {
     __injectMockMember({
       id: "ow-released",
       kind: "outsource",
@@ -142,14 +143,39 @@ describe("per-item DTO gaps are what the adapter really does (T-8115 follow-up)"
       name: "Dismissed member",
       roster_status: "removed",
     });
+    __injectMockMember({
+      id: "w-removed",
+      kind: "warden",
+      name: "Removed warden",
+      roster_status: "removed",
+    });
 
-    expect((await mockApi.listMembers()).some((m) => m.id === "ow-released")).toBe(false);
+    const listedIds = (await mockApi.listMembers()).map((m) => m.id);
+    expect(
+      ["ow-released", "m-dismissed", "w-removed"].filter((id) =>
+        listedIds.includes(id)
+      )
+    ).toEqual([]);
     const released = await mockApi.getMember("ow-released");
-    expect(released.id).toBe("ow-released");
-    expect(released.kind).toBe("outsource");
-    expect(released.name).toBe("Archived codename");
-    await expect(mockApi.getMember("m-dismissed")).rejects.toThrow(
-      "mock: member removed: m-dismissed"
+    expect([released.id, released.kind, released.name]).toEqual([
+      "ow-released",
+      "outsource",
+      "Archived codename",
+    ]);
+    const dismissed = await mockApi.getMember("m-dismissed");
+    expect([dismissed.id, dismissed.kind, dismissed.name]).toEqual([
+      "m-dismissed",
+      "staff",
+      "Dismissed member",
+    ]);
+    expect((await mockApi.getOutsourceWorker("m-dismissed")).codename).toBe(
+      "Dismissed member"
+    );
+    await expect(mockApi.getMember("w-removed")).rejects.toThrow(
+      "mock: member removed: w-removed"
+    );
+    await expect(mockApi.getOutsourceWorker("w-removed")).rejects.toSatisfy(
+      (e) => isHttpStatus(e, 404)
     );
   });
 

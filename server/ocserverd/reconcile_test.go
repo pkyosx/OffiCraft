@@ -3324,6 +3324,46 @@ func TestRunReconcileTick(t *testing.T) {
 		reconcileTestWantRow(t, d, "left", before)
 	})
 
+	t.Run("a removed member still owing a stop is sent it again past stop_retry, and drops off once it is offline", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestOnline(t, api, "m-box", "")
+		reconcileTestPut(t, d, Member{
+			ID: "left", Name: "Left", Kind: KindStaff, RoleKey: "assistant",
+			DesiredState: DesiredStateOffline, RosterStatus: RosterStatusRemoved,
+		})
+		session := reconcileTestOnline(t, api, "left", "m-box")
+		api.noteRobustStopDispatched("left", reconcileTestNow-100)
+
+		out := hubTestStderr(t, func() { api.runReconcileTick(reconcileTestNow) })
+		want := "[reconcile] recycle: gate skip kip gate=no-actionable-pct pct=- pct_ts=- boot_ts=- boot_secs=- online=false\n" +
+			"[reconcile] recycle: gate skip mira gate=no-actionable-pct pct=- pct_ts=- boot_ts=- boot_secs=- online=false\n" +
+			"[reconcile] tick: 2 candidate(s)\n" +
+			"[reconcile] kip: desired=offline command=none — offline: converged\n" +
+			"[reconcile] mira: desired=offline command=none — offline: converged\n" +
+			"[reconcile] left: desired=offline command=stop — robust stop: re-dispatch (out-of-band STOP unlanded — still online past stop_retry)\n"
+		if out != want {
+			t.Fatalf("resend tick stderr:\n got %q\nwant %q", out, want)
+		}
+		wsWantWardenFrames(t, api, "m-box", wsStopFrame("left"))
+
+		api.hub.Disconnect(session)
+		out = hubTestStderr(t, func() { api.runReconcileTick(reconcileTestNow + 1) })
+		want = "[reconcile] tick: 2 candidate(s)\n" +
+			"[reconcile] kip: desired=offline command=none — offline: converged\n" +
+			"[reconcile] mira: desired=offline command=none — offline: converged\n" +
+			"[reconcile] left: desired=offline command=none — offline: converged\n"
+		if out != want {
+			t.Fatalf("offline tick stderr:\n got %q\nwant %q", out, want)
+		}
+		apiWantValue(t, "the owed stop", any(reconcileTestState(api, "left").RobustStopPendingAt), any(float64(0)))
+
+		out = hubTestStderr(t, func() { api.runReconcileTick(reconcileTestNow + 2) })
+		if strings.Contains(out, "left") {
+			t.Fatalf("a removed member with nothing owed reached the tick:\n%s", out)
+		}
+		wsWantWardenFrames(t, api, "m-box")
+	})
+
 	t.Run("a fault inside the tick is caught and named rather than raised into the cadence loop", func(t *testing.T) {
 		api, _ := reconcileTestServer(t)
 		api.reconcileStates.Store(apiTestPlainAgentID, "not a reconcile state")

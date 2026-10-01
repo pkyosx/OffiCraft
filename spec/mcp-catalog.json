@@ -582,7 +582,7 @@
       "name": "hire_member"
     },
     {
-      "description": "Read one member row — STAFF OR OUTSOURCE. Released outsource rows remain readable so durable chat, task and lore attribution keeps the worker codename; dismissed staff and removed wardens answer 404. The write verbs on this same {member_id} take an active ow- id too -- update, activate, deactivate, force-stop, accelerated-stop and refocus each dispatch to the worker body; release remains task-bound and dismiss refuses an ow- id with 404.",
+      "description": "Read one member row — STAFF OR OUTSOURCE. Released outsource workers and dismissed staff remain readable (`roster_status` = `removed`) so durable chat, task and lore attribution keeps their names; removed wardens answer 404. The write verbs on this same {member_id} take an active ow- id too -- update, activate, deactivate, force-stop, accelerated-stop and refocus each dispatch to the worker body; release remains task-bound and dismiss refuses an ow- id with 404.",
       "inputSchema": {
         "properties": {
           "member_id": {
@@ -2516,7 +2516,7 @@
       "name": "reset_role"
     },
     {
-      "description": "Hard-delete a custom role + its members (seed \u2192 403; online \u2192 409).",
+      "description": "Delete a custom role and dismiss its staff members; their chats are kept (seed \u2192 403; online \u2192 409).",
       "inputSchema": {
         "properties": {
           "role": {

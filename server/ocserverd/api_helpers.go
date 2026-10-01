@@ -218,15 +218,15 @@ func resolveMemberOn(q sqlRowQuerier, memberID string, scope memberScope) (*Memb
 	return m, nil
 }
 
-// resolveMemberForItemRead keeps a released outsource worker addressable because
-// chats, tasks and lore keep its codename; the same roster_status means
-// dismissal for staff and teardown for wardens, so those stay not found.
+// resolveMemberForItemRead keeps a released worker or a dismissed staff member
+// addressable because chats, tasks and lore keep its name; a removed warden is a
+// torn-down machine, not a person anything is attributed to.
 func (s *apiServer) resolveMemberForItemRead(memberID string) (*Member, error) {
 	m, err := s.dal.GetMember(memberID)
 	if err != nil {
 		return nil, err
 	}
-	if m == nil || (m.RosterStatus == RosterStatusRemoved && m.Kind != KindOutsource) {
+	if m == nil || (m.RosterStatus == RosterStatusRemoved && m.Kind == KindWarden) {
 		return nil, errNotFound
 	}
 	return m, nil
