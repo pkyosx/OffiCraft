@@ -148,12 +148,15 @@ func (e ReplyCardDTOSelectMode) Valid() bool {
 // Defines values for RuntimeLoginDTORuntime.
 const (
 	RuntimeLoginDTORuntimeClaude RuntimeLoginDTORuntime = "claude"
+	RuntimeLoginDTORuntimeCodex  RuntimeLoginDTORuntime = "codex"
 )
 
 // Valid indicates whether the value is a known member of the RuntimeLoginDTORuntime enum.
 func (e RuntimeLoginDTORuntime) Valid() bool {
 	switch e {
 	case RuntimeLoginDTORuntimeClaude:
+		return true
+	case RuntimeLoginDTORuntimeCodex:
 		return true
 	default:
 		return false
@@ -162,18 +165,21 @@ func (e RuntimeLoginDTORuntime) Valid() bool {
 
 // Defines values for RuntimeLoginDTOState.
 const (
-	RuntimeLoginDTOStateAwaitingCode RuntimeLoginDTOState = "awaiting_code"
-	RuntimeLoginDTOStateCancelled    RuntimeLoginDTOState = "cancelled"
-	RuntimeLoginDTOStateExpired      RuntimeLoginDTOState = "expired"
-	RuntimeLoginDTOStateFailed       RuntimeLoginDTOState = "failed"
-	RuntimeLoginDTOStateStarting     RuntimeLoginDTOState = "starting"
-	RuntimeLoginDTOStateSucceeded    RuntimeLoginDTOState = "succeeded"
-	RuntimeLoginDTOStateVerifying    RuntimeLoginDTOState = "verifying"
+	RuntimeLoginDTOStateAwaitingAuthorization RuntimeLoginDTOState = "awaiting_authorization"
+	RuntimeLoginDTOStateAwaitingCode          RuntimeLoginDTOState = "awaiting_code"
+	RuntimeLoginDTOStateCancelled             RuntimeLoginDTOState = "cancelled"
+	RuntimeLoginDTOStateExpired               RuntimeLoginDTOState = "expired"
+	RuntimeLoginDTOStateFailed                RuntimeLoginDTOState = "failed"
+	RuntimeLoginDTOStateStarting              RuntimeLoginDTOState = "starting"
+	RuntimeLoginDTOStateSucceeded             RuntimeLoginDTOState = "succeeded"
+	RuntimeLoginDTOStateVerifying             RuntimeLoginDTOState = "verifying"
 )
 
 // Valid indicates whether the value is a known member of the RuntimeLoginDTOState enum.
 func (e RuntimeLoginDTOState) Valid() bool {
 	switch e {
+	case RuntimeLoginDTOStateAwaitingAuthorization:
+		return true
 	case RuntimeLoginDTOStateAwaitingCode:
 		return true
 	case RuntimeLoginDTOStateCancelled:
@@ -195,17 +201,20 @@ func (e RuntimeLoginDTOState) Valid() bool {
 
 // Defines values for RuntimeLoginReportDTOState.
 const (
-	RuntimeLoginReportDTOStateAwaitingCode RuntimeLoginReportDTOState = "awaiting_code"
-	RuntimeLoginReportDTOStateCancelled    RuntimeLoginReportDTOState = "cancelled"
-	RuntimeLoginReportDTOStateExpired      RuntimeLoginReportDTOState = "expired"
-	RuntimeLoginReportDTOStateFailed       RuntimeLoginReportDTOState = "failed"
-	RuntimeLoginReportDTOStateSucceeded    RuntimeLoginReportDTOState = "succeeded"
-	RuntimeLoginReportDTOStateVerifying    RuntimeLoginReportDTOState = "verifying"
+	RuntimeLoginReportDTOStateAwaitingAuthorization RuntimeLoginReportDTOState = "awaiting_authorization"
+	RuntimeLoginReportDTOStateAwaitingCode          RuntimeLoginReportDTOState = "awaiting_code"
+	RuntimeLoginReportDTOStateCancelled             RuntimeLoginReportDTOState = "cancelled"
+	RuntimeLoginReportDTOStateExpired               RuntimeLoginReportDTOState = "expired"
+	RuntimeLoginReportDTOStateFailed                RuntimeLoginReportDTOState = "failed"
+	RuntimeLoginReportDTOStateSucceeded             RuntimeLoginReportDTOState = "succeeded"
+	RuntimeLoginReportDTOStateVerifying             RuntimeLoginReportDTOState = "verifying"
 )
 
 // Valid indicates whether the value is a known member of the RuntimeLoginReportDTOState enum.
 func (e RuntimeLoginReportDTOState) Valid() bool {
 	switch e {
+	case RuntimeLoginReportDTOStateAwaitingAuthorization:
+		return true
 	case RuntimeLoginReportDTOStateAwaitingCode:
 		return true
 	case RuntimeLoginReportDTOStateCancelled:
@@ -226,12 +235,15 @@ func (e RuntimeLoginReportDTOState) Valid() bool {
 // Defines values for RuntimeLoginStartDTORuntime.
 const (
 	RuntimeLoginStartDTORuntimeClaude RuntimeLoginStartDTORuntime = "claude"
+	RuntimeLoginStartDTORuntimeCodex  RuntimeLoginStartDTORuntime = "codex"
 )
 
 // Valid indicates whether the value is a known member of the RuntimeLoginStartDTORuntime enum.
 func (e RuntimeLoginStartDTORuntime) Valid() bool {
 	switch e {
 	case RuntimeLoginStartDTORuntimeClaude:
+		return true
+	case RuntimeLoginStartDTORuntimeCodex:
 		return true
 	default:
 		return false
@@ -2802,7 +2814,7 @@ type RuntimeCapabilityDTO struct {
 	Version   *string `json:"version,omitempty"`
 }
 
-// RuntimeLoginAccountDTO Who the runtime CLI says it is now logged in as. Display values only; no token or credential.
+// RuntimeLoginAccountDTO Who the runtime CLI says it is now logged in as. Display values only; no token or credential. For `claude`, both come from `claude auth status`. For `codex`, `email` is the email claim of the ID token codex keeps after login, decoded on the machine (the token itself never leaves it), and `org_name` is unset.
 type RuntimeLoginAccountDTO struct {
 	Email   *string `json:"email,omitempty"`
 	OrgName *string `json:"org_name,omitempty"`
@@ -2813,31 +2825,37 @@ type RuntimeLoginCodeDTO struct {
 	Code string `json:"code"`
 }
 
-// RuntimeLoginDTO One runtime login the server relays between the owner's browser and a login process the machine's warden runs. Held in server memory only and never persisted: a server restart forgets every login, and a login is dropped about 10 minutes after it reaches a terminal state (`succeeded`, `failed`, `expired`, `cancelled`), after which it reads as 404. A non-terminal login with no warden report for 15 minutes becomes `expired`; that is longer than the warden's own 10-minute login cap, so a live login always gets to report its own end first.
+// RuntimeLoginDTO One runtime login the server relays between the owner's browser and a login process the machine's warden runs. Held in server memory only and never persisted: a server restart forgets every login, and a login is dropped about 10 minutes after it reaches a terminal state (`succeeded`, `failed`, `expired`, `cancelled`), after which it reads as 404. A non-terminal login with no warden report for 20 minutes becomes `expired`; that is longer than the warden's own login caps (10 minutes for `claude`; for `codex`, the 15 minutes the one-time code lasts plus a minute), so a live login always gets to report its own end first. `claude` logs in by sign-in URL plus a code the owner pastes back (`awaiting_code` → `verifying`); `codex` logs in by device code: the owner opens `auth_url`, enters `user_code` and authorizes, and the machine notices completion on its own (`awaiting_authorization`, no code is pasted back).
 type RuntimeLoginDTO struct {
 	// Account Set on `succeeded` only.
 	Account *RuntimeLoginAccountDTO `json:"account,omitempty"`
 
-	// AuthUrl The provider sign-in URL the owner opens; set from `awaiting_code` on.
-	AuthUrl   *string `json:"auth_url,omitempty"`
-	LoginId   string  `json:"login_id"`
-	MachineId string  `json:"machine_id"`
+	// AuthUrl The provider sign-in URL the owner opens; set from `awaiting_code` (`claude`) or `awaiting_authorization` (`codex`) on.
+	AuthUrl *string `json:"auth_url,omitempty"`
+
+	// ExpiresTs `codex` only: epoch seconds at which `user_code` stops working, as the machine computed it from the expiry the CLI printed (about 15 minutes after `awaiting_authorization`). Advisory for a countdown; the login process's own end decides the state.
+	ExpiresTs *float64 `json:"expires_ts,omitempty"`
+	LoginId   string   `json:"login_id"`
+	MachineId string   `json:"machine_id"`
 
 	// Reason Why the login ended in `failed`, `expired` or `cancelled`; on `awaiting_code`, why the last code was refused by the login process (paste again). Cleared when a code is accepted for relay.
 	Reason  *string                `json:"reason,omitempty"`
 	Runtime RuntimeLoginDTORuntime `json:"runtime"`
 
-	// State `starting` until the warden's first report. A warden build that predates the `login_start` verb ignores it, so `starting` never advances; the UI gives up on it after 30s.
+	// State `starting` until the warden's first report. A warden build that predates the `login_start` verb ignores it, so `starting` never advances; the UI gives up on it after 30s. `awaiting_code` / `verifying` occur for `claude` only, `awaiting_authorization` for `codex` only (added in T-309 package 2; a reader that predates it must treat an unknown value as non-terminal).
 	State RuntimeLoginDTOState `json:"state"`
 
 	// UpdatedTs Epoch seconds of the last state change, server-stamped.
 	UpdatedTs float64 `json:"updated_ts"`
+
+	// UserCode `codex` only, set from `awaiting_authorization` on: the one-time code the owner enters on the `auth_url` page. Not a credential by itself (it only lets whoever holds it approve this machine's pending login from a signed-in OpenAI account), but held in server memory only like `auth_url`: never persisted, logged or mirrored, and gone when the login is dropped.
+	UserCode *string `json:"user_code,omitempty"`
 }
 
 // RuntimeLoginDTORuntime defines model for RuntimeLoginDTO.Runtime.
 type RuntimeLoginDTORuntime string
 
-// RuntimeLoginDTOState `starting` until the warden's first report. A warden build that predates the `login_start` verb ignores it, so `starting` never advances; the UI gives up on it after 30s.
+// RuntimeLoginDTOState `starting` until the warden's first report. A warden build that predates the `login_start` verb ignores it, so `starting` never advances; the UI gives up on it after 30s. `awaiting_code` / `verifying` occur for `claude` only, `awaiting_authorization` for `codex` only (added in T-309 package 2; a reader that predates it must treat an unknown value as non-terminal).
 type RuntimeLoginDTOState string
 
 // RuntimeLoginReportDTO A warden's progress report for one runtime login. Every value is held in server memory only, like the login itself.
@@ -2845,19 +2863,27 @@ type RuntimeLoginReportDTO struct {
 	// Account Send with `succeeded`.
 	Account *RuntimeLoginAccountDTO `json:"account,omitempty"`
 
-	// AuthUrl Send with `awaiting_code`.
+	// AuthUrl Send with `awaiting_code` (`claude`) or `awaiting_authorization` (`codex`).
 	AuthUrl *string `json:"auth_url,omitempty"`
-	LoginId string  `json:"login_id"`
+
+	// ExpiresTs Send with `awaiting_authorization`: epoch seconds at which `user_code` expires.
+	ExpiresTs *float64 `json:"expires_ts,omitempty"`
+	LoginId   string   `json:"login_id"`
 
 	// Reason Send with `failed`, `expired` or `cancelled`, or with `awaiting_code` when the login process refused the code it was given and waits for another. Must not quote the code or any credential.
-	Reason *string                    `json:"reason,omitempty"`
-	State  RuntimeLoginReportDTOState `json:"state"`
+	Reason *string `json:"reason,omitempty"`
+
+	// State `awaiting_code` / `verifying` for a `claude` login, `awaiting_authorization` for a `codex` login; the server refuses (409) a state that does not belong to the login's runtime and keeps the login as it was.
+	State RuntimeLoginReportDTOState `json:"state"`
+
+	// UserCode Send with `awaiting_authorization`: the one-time code codex printed, escape sequences stripped.
+	UserCode *string `json:"user_code,omitempty"`
 }
 
-// RuntimeLoginReportDTOState defines model for RuntimeLoginReportDTO.State.
+// RuntimeLoginReportDTOState `awaiting_code` / `verifying` for a `claude` login, `awaiting_authorization` for a `codex` login; the server refuses (409) a state that does not belong to the login's runtime and keeps the login as it was.
 type RuntimeLoginReportDTOState string
 
-// RuntimeLoginStartDTO Which runtime to log in on the machine.
+// RuntimeLoginStartDTO Which runtime to log in on the machine. `codex` runs a device-code login, which works whether or not the machine is already logged in; an existing login stays in effect until the new one completes.
 type RuntimeLoginStartDTO struct {
 	Runtime RuntimeLoginStartDTORuntime `json:"runtime"`
 }

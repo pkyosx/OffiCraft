@@ -5211,7 +5211,7 @@
       },
       "RuntimeLoginAccountDTO": {
         "additionalProperties": false,
-        "description": "Who the runtime CLI says it is now logged in as. Display values only; no token or credential.",
+        "description": "Who the runtime CLI says it is now logged in as. Display values only; no token or credential. For `claude`, both come from `claude auth status`. For `codex`, `email` is the email claim of the ID token codex keeps after login, decoded on the machine (the token itself never leaves it), and `org_name` is unset.",
         "properties": {
           "email": {
             "anyOf": [
@@ -5257,7 +5257,7 @@
       },
       "RuntimeLoginDTO": {
         "additionalProperties": false,
-        "description": "One runtime login the server relays between the owner's browser and a login process the machine's warden runs. Held in server memory only and never persisted: a server restart forgets every login, and a login is dropped about 10 minutes after it reaches a terminal state (`succeeded`, `failed`, `expired`, `cancelled`), after which it reads as 404. A non-terminal login with no warden report for 15 minutes becomes `expired`; that is longer than the warden's own 10-minute login cap, so a live login always gets to report its own end first.",
+        "description": "One runtime login the server relays between the owner's browser and a login process the machine's warden runs. Held in server memory only and never persisted: a server restart forgets every login, and a login is dropped about 10 minutes after it reaches a terminal state (`succeeded`, `failed`, `expired`, `cancelled`), after which it reads as 404. A non-terminal login with no warden report for 20 minutes becomes `expired`; that is longer than the warden's own login caps (10 minutes for `claude`; for `codex`, the 15 minutes the one-time code lasts plus a minute), so a live login always gets to report its own end first. `claude` logs in by sign-in URL plus a code the owner pastes back (`awaiting_code` → `verifying`); `codex` logs in by device code: the owner opens `auth_url`, enters `user_code` and authorizes, and the machine notices completion on its own (`awaiting_authorization`, no code is pasted back).",
         "properties": {
           "account": {
             "anyOf": [
@@ -5280,8 +5280,20 @@
                 "type": "null"
               }
             ],
-            "description": "The provider sign-in URL the owner opens; set from `awaiting_code` on.",
+            "description": "The provider sign-in URL the owner opens; set from `awaiting_code` (`claude`) or `awaiting_authorization` (`codex`) on.",
             "title": "Auth Url"
+          },
+          "expires_ts": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "`codex` only: epoch seconds at which `user_code` stops working, as the machine computed it from the expiry the CLI printed (about 15 minutes after `awaiting_authorization`). Advisory for a countdown; the login process's own end decides the state.",
+            "title": "Expires Ts"
           },
           "login_id": {
             "title": "Login Id",
@@ -5305,16 +5317,18 @@
           },
           "runtime": {
             "enum": [
-              "claude"
+              "claude",
+              "codex"
             ],
             "title": "Runtime",
             "type": "string"
           },
           "state": {
-            "description": "`starting` until the warden's first report. A warden build that predates the `login_start` verb ignores it, so `starting` never advances; the UI gives up on it after 30s.",
+            "description": "`starting` until the warden's first report. A warden build that predates the `login_start` verb ignores it, so `starting` never advances; the UI gives up on it after 30s. `awaiting_code` / `verifying` occur for `claude` only, `awaiting_authorization` for `codex` only (added in T-309 package 2; a reader that predates it must treat an unknown value as non-terminal).",
             "enum": [
               "starting",
               "awaiting_code",
+              "awaiting_authorization",
               "verifying",
               "succeeded",
               "failed",
@@ -5323,6 +5337,18 @@
             ],
             "title": "State",
             "type": "string"
+          },
+          "user_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "`codex` only, set from `awaiting_authorization` on: the one-time code the owner enters on the `auth_url` page. Not a credential by itself (it only lets whoever holds it approve this machine's pending login from a signed-in OpenAI account), but held in server memory only like `auth_url`: never persisted, logged or mirrored, and gone when the login is dropped.",
+            "title": "User Code"
           },
           "updated_ts": {
             "description": "Epoch seconds of the last state change, server-stamped.",
@@ -5365,8 +5391,20 @@
                 "type": "null"
               }
             ],
-            "description": "Send with `awaiting_code`.",
+            "description": "Send with `awaiting_code` (`claude`) or `awaiting_authorization` (`codex`).",
             "title": "Auth Url"
+          },
+          "expires_ts": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Send with `awaiting_authorization`: epoch seconds at which `user_code` expires.",
+            "title": "Expires Ts"
           },
           "login_id": {
             "title": "Login Id",
@@ -5385,8 +5423,10 @@
             "title": "Reason"
           },
           "state": {
+            "description": "`awaiting_code` / `verifying` for a `claude` login, `awaiting_authorization` for a `codex` login; the server refuses (409) a state that does not belong to the login's runtime and keeps the login as it was.",
             "enum": [
               "awaiting_code",
+              "awaiting_authorization",
               "verifying",
               "succeeded",
               "failed",
@@ -5395,6 +5435,18 @@
             ],
             "title": "State",
             "type": "string"
+          },
+          "user_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Send with `awaiting_authorization`: the one-time code codex printed, escape sequences stripped.",
+            "title": "User Code"
           }
         },
         "required": [
@@ -5406,11 +5458,12 @@
       },
       "RuntimeLoginStartDTO": {
         "additionalProperties": false,
-        "description": "Which runtime to log in on the machine.",
+        "description": "Which runtime to log in on the machine. `codex` runs a device-code login, which works whether or not the machine is already logged in; an existing login stays in effect until the new one completes.",
         "properties": {
           "runtime": {
             "enum": [
-              "claude"
+              "claude",
+              "codex"
             ],
             "title": "Runtime",
             "type": "string"
@@ -14223,7 +14276,7 @@
     },
     "/api/machines/{machine_id}/runtime-login": {
       "post": {
-        "description": "- Pushes the `login_start` warden command; the warden runs the runtime's login and reports through `POST /api/monitoring/runtime-login`.\n- Held in server memory only, never persisted; a server restart forgets the login.\n- A login with no warden report for 15 minutes becomes `expired`, then is dropped about 10 minutes later.\n- A warden build that predates the verb ignores it and the login stays `starting`; the UI gives up after 30s.\n- While a login for this machine and runtime is not yet terminal, a repeat returns that login instead of starting another.\n- Admin agent only (403); an unknown, removed or non-machine id is a 404; an offline warden is a 409.",
+        "description": "- Pushes the `login_start` warden command; the warden runs the runtime's login and reports through `POST /api/monitoring/runtime-login`.\n- Held in server memory only, never persisted; a server restart forgets the login.\n- A login with no warden report for 20 minutes becomes `expired`, then is dropped about 10 minutes later.\n- `runtime: \"codex\"` runs a device-code login: the login reaches `awaiting_authorization` with `auth_url` and `user_code`, and ends `succeeded` once the owner approves it on that page — nothing is posted back to `/code`.\n- A warden build that predates the verb ignores it and the login stays `starting`; the UI gives up after 30s.\n- While a login for this machine and runtime is not yet terminal, a repeat returns that login instead of starting another.\n- Admin agent only (403); an unknown, removed or non-machine id is a 404; an offline warden is a 409.",
         "operationId": "handle_start_runtime_login_api_machines__machine_id__runtime_login_post",
         "parameters": [
           {
@@ -14440,7 +14493,7 @@
     },
     "/api/machines/{machine_id}/runtime-login/{login_id}/code": {
       "post": {
-        "description": "- Relays the code to the waiting login process via the `login_code` warden command and moves the login to `verifying`.\n- The code is never stored, logged or echoed back; it exists only in the command frame.\n- Checked in this order: 404 when the login is unknown or dropped; 409 unless it is `awaiting_code`, and 409 when the machine's warden is offline (nothing relayed); then 422 for a code that contains whitespace or a control character inside it (the code is written to the login process as one line), or that is not two non-empty parts joined by exactly one `#` (a partial copy). On every refusal the login stays as it was, so the owner can paste again.\n- Admin agent only (403).",
+        "description": "- Relays the code to the waiting login process via the `login_code` warden command and moves the login to `verifying`.\n- The code is never stored, logged or echoed back; it exists only in the command frame.\n- Checked in this order: 404 when the login is unknown or dropped; 409 unless it is `awaiting_code` (so always for a `codex` login, which never asks for a code), and 409 when the machine's warden is offline (nothing relayed); then 422 for a code that contains whitespace or a control character inside it (the code is written to the login process as one line), or that is not two non-empty parts joined by exactly one `#` (a partial copy). On every refusal the login stays as it was, so the owner can paste again.\n- Admin agent only (403).",
         "operationId": "handle_submit_runtime_login_code_api_machines__machine_id__runtime_login__login_id__code_post",
         "parameters": [
           {
