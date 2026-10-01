@@ -1,19 +1,31 @@
 package main
 
 // A member that has left the roster — dismissed staff, or an outsource worker
-// released by its task's close — is refused on every authenticated surface with
-// the standing-refusal marker cli/ocagent's listener acts on. Every arm drives
-// the full handler chain in memory with production-minted credentials.
+// released by its task's close — is refused on every authenticated call with a
+// 401, and its SSE handshake with the stop gate's 409. Every arm drives the full
+// handler chain in memory with production-minted credentials.
 
 import (
+	"context"
 	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 )
 
 func removedRefusalBody(id string) map[string]any {
 	return map[string]any{"error": map[string]any{
 		"code":    "unauthorized",
 		"message": "member '" + id + "' has left the roster; its credentials are no longer valid",
+	}}
+}
+
+func removedSSERefusalBody(id string) map[string]any {
+	return map[string]any{"error": map[string]any{
+		"code": "conflict",
+		"message": "member '" + id + "' is removed from the roster — SSE refused " +
+			"(a dismissed member must not re-project online)",
 	}}
 }
 
@@ -29,17 +41,38 @@ func removedSurfaces(taskID string) []struct{ name, method, path, body string } 
 	}
 }
 
-func wantRemovedRefused(t *testing.T, h http.Handler, token, id, taskID string) {
+// boundedRequest is apiRequest with a deadline, so a handshake wrongly admitted
+// into a live stream fails the status assertion instead of hanging the package.
+func boundedRequest(t *testing.T, h http.Handler, method, target, token, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	req := httptest.NewRequest(method, target, strings.NewReader(body)).WithContext(ctx)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	return rec
+}
+
+func wantRemovedRefused(t *testing.T, api *apiServer, h http.Handler, token, id, taskID string) {
 	t.Helper()
 	for _, s := range removedSurfaces(taskID) {
-		rec := apiRequest(t, h, s.method, s.path, token, s.body)
-		if rec.Code != http.StatusUnauthorized {
-			t.Fatalf("%s by removed %s: want 401, got %d %s", s.name, id, rec.Code, rec.Body.String())
+		rec := boundedRequest(t, h, s.method, s.path, token, s.body)
+		wantStatus, wantBody := http.StatusUnauthorized, removedRefusalBody(id)
+		if s.path == "/api/events" {
+			wantStatus, wantBody = http.StatusConflict, removedSSERefusalBody(id)
 		}
-		if got := rec.Header().Get("X-OC-Auth-Refusal"); got != "member-removed" {
-			t.Fatalf("%s by removed %s: X-OC-Auth-Refusal = %q, want %q", s.name, id, got, "member-removed")
+		if rec.Code != wantStatus {
+			t.Fatalf("%s by removed %s: want %d, got %d %s", s.name, id, wantStatus, rec.Code, rec.Body.String())
 		}
-		apiWantBody(t, apiTestDecodeJSONBody(t, rec), removedRefusalBody(id))
+		if got := rec.Header().Values("X-OC-Auth-Refusal"); len(got) != 0 {
+			t.Fatalf("%s by removed %s: want no X-OC-Auth-Refusal, got %q", s.name, id, got)
+		}
+		apiWantBody(t, apiTestDecodeJSONBody(t, rec), wantBody)
+	}
+	if api.hub.IsOnline(id) {
+		t.Fatalf("a refused SSE handshake must not project %s online", id)
 	}
 }
 
@@ -88,10 +121,7 @@ func TestDismissedStaffCredentialsAreRefusedEverywhere(t *testing.T) {
 		t.Fatalf("dismiss: want 200, got %d (%v)", status, data)
 	}
 
-	wantRemovedRefused(t, h, kip, "kip", "T-1")
-	if api.hub.IsOnline("kip") {
-		t.Fatal("a refused SSE handshake must not project the dismissed member online")
-	}
+	wantRemovedRefused(t, api, h, kip, "kip", "T-1")
 	wantAdmitted(t, api, h, mira, "mira", "T-1")
 }
 
@@ -117,7 +147,7 @@ func TestStoppedStaffOnTheRosterKeepsItsCredentials(t *testing.T) {
 		}
 	}
 	// The stop gate still owns the stopped member's SSE: a 409, not this refusal.
-	rec := apiRequest(t, h, "GET", "/api/events", kip, "")
+	rec := boundedRequest(t, h, "GET", "/api/events", kip, "")
 	if rec.Code != http.StatusConflict || rec.Header().Get("X-OC-Auth-Refusal") != "" {
 		t.Fatalf("SSE by a stopped member: want an unmarked 409, got %d %q %s",
 			rec.Code, rec.Header().Get("X-OC-Auth-Refusal"), rec.Body.String())
@@ -179,10 +209,22 @@ func TestReleasedWorkerCredentialsAreRefusedAfterItsOwnMarkDone(t *testing.T) {
 		t.Fatalf("the close must release the worker, got %+v (%v)", released, err)
 	}
 
-	wantRemovedRefused(t, h, worker, workerID, "T-1")
-	if api.hub.IsOnline(workerID) {
-		t.Fatal("a refused SSE handshake must not project the released worker online")
-	}
+	wantRemovedRefused(t, api, h, worker, workerID, "T-1")
 	kip := apiTestAgentToken(t, api, "kip", "")
 	wantAdmitted(t, api, h, kip, "kip", "T-1")
+}
+
+// A route carrying RosterRefusalInHandler admits a removed member past the auth
+// gate, so its handler must refuse it; only the SSE handshake has such a handler.
+func TestOnlyTheSSEHandshakeLeavesTheRosterRefusalToItsHandler(t *testing.T) {
+	api, _, _, _ := newAPITestServer(t)
+	got := []string{}
+	for _, spec := range specsFor(api) {
+		if spec.RosterRefusalInHandler {
+			got = append(got, spec.Method+" "+spec.Path)
+		}
+	}
+	if len(got) != 1 || got[0] != "GET /api/events" {
+		t.Fatalf("routes leaving the roster refusal to the handler = %q, want [GET /api/events]", got)
+	}
 }

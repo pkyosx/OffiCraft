@@ -77,8 +77,7 @@ func resolvePrincipal(claims map[string]any, lookup func(id string) (*Member, er
 // deny-by-default: revoking on a failed read turns a transient DB hiccup into a
 // fleet-wide credential outage.
 //
-// A removed staff member or released worker is memberRemovedRefusal's: same
-// fail-open rules, but that refusal carries the standing-refusal header.
+// A removed staff member or released worker is memberRemovedRefusal's.
 //
 // Two arms: a warden's token carries machine_id "" by design ("a warden carries NO
 // self-binding"), so its arm keys on `sub`; an agent/worker boot token carries
@@ -163,19 +162,16 @@ func permanentCredentialRefusal(claims map[string]any, lookup func(id string) (*
 	return err != nil || m == nil || m.Kind != machineKind || m.RosterStatus != RosterStatusActive
 }
 
-// authRefusalHeader marks the 401s that are standing refusals: the agent iat floor
-// and a member that has left the roster. cli/ocagent's listener retries a
-// non-authoritative 401 forever, so a superseded generation would re-dial every
-// ≤15s while the cockpit shows the SUCCESSOR, and a removed member's listener
-// would never exit.
+// authRefusalHeader marks the ONE 401 that is a standing refusal (agent iat floor).
+// cli/ocagent's listener retries a non-authoritative 401 forever, so a superseded
+// generation would re-dial every ≤15s while the cockpit shows the SUCCESSOR.
 // It rides a RESPONSE HEADER, not the body: the body text is what agents read, and
 // this must not become an instruction to a model.
-// 🔴 IT IS ONLY EVER SET ON THESE REFUSALS: on any other 401 (expiry, unconfigured
+// 🔴 IT IS ONLY EVER SET ON THIS ONE REFUSAL: on any other 401 (expiry, unconfigured
 // secret, bad signature) it turns a self-healing retry into a self-kill.
 const (
 	authRefusalHeader      = "X-OC-Auth-Refusal"
 	refusalAgentSuperseded = "agent-superseded"
-	refusalMemberRemoved   = "member-removed"
 )
 
 // agentIatFloorRefusal: the floor is raised by report_waking with the WAKING

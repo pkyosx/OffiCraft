@@ -30,6 +30,11 @@ type RouteSpec struct {
 	// path on THIS row only (precedence: Authorization header → ?token= →
 	// ?sig=), and IS the verifier. nil = this row never consults sigs.
 	ShareSig shareSigVerifier
+	// RosterRefusalInHandler: requireAuth lets a roster-removed staff/outsource
+	// caller through and the handler refuses it. /api/events only: its stop gate
+	// answers 409, the one refusal an ocagent listener of ANY version exits on — a
+	// 401 there keeps an old listener, and the session it serves, retrying forever.
+	RosterRefusalInHandler bool
 }
 
 // A shareSigVerifier's subject is everything the response depends on, so a
@@ -58,6 +63,8 @@ type routeDef struct {
 	MCPExclude bool
 	MCPTool    string
 	ShareSig   shareSigVerifier
+
+	RosterRefusalInHandler bool
 }
 
 // Public and Gated are routeRow's only constructors, so a bare RouteSpec
@@ -70,6 +77,7 @@ func (d routeDef) row(auth string, requires principalClass) routeRow {
 		Method: d.Method, Path: d.Path, Handler: d.Handler,
 		Auth: auth, Requires: requires,
 		MCPExclude: d.MCPExclude, MCPTool: d.MCPTool, ShareSig: d.ShareSig,
+		RosterRefusalInHandler: d.RosterRefusalInHandler,
 	}}
 }
 
@@ -257,6 +265,8 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Path:       "/api/events",
 			Handler:    w.HandleEventsApiEventsGet,
 			MCPExclude: true,
+
+			RosterRefusalInHandler: true,
 		}),
 		Gated(principalMachine, routeDef{
 			Method:     "POST",

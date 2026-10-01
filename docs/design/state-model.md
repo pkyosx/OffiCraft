@@ -62,7 +62,7 @@
   - **owner / dashboard 連線豁免**:它不投影成任何 member 的 online,可以並存多條。
   - ⚠️ **這一條在 2026-07-12 定案時是「第二條連線 409 拒絕、舊的續存」**,後來改成 takeover(spec/sse.md §5.1 已同步,並有專門的單元測試與 conformance 斷言)。原始裁定的**目的**沒有被推翻——目的一直是「同時只有一個 live 實例」;變的是達成手段:409 拒新會讓一個半死的舊連線永遠佔著槽位,新的那個永遠上不來。**這是手段換掉,不是原則被否決。**(T-e04f 對帳時發現本文落後,owner 2026-08-17 於 rc-cfbc6624378f 裁定由 Kyle 更新。)
 - **殭屍 stop gate**(765deb9,`sseStopGateRefusal`):roster 非 active、或 desired_state=offline 且有 stop 錨 → 409 拒連。停用/回收中的 member 連不回來。
-  - 已離開名冊的成員(遣散的正職、釋放的外包)走不到這道 gate:auth 那一關先回 401 + `X-OC-Auth-Refusal: member-removed`(`spec/lifecycle.md` §1.3 第 5 刀)。
+  - 已離開名冊的成員(遣散的正職、釋放的外包)在 `/api/events` 由這道 gate 的 roster 那一臂回 409——auth 那一關刻意不在這條路上擋它們(`RosterRefusalInHandler`),因為每一版 `ocagent listen` 都會在連續 409 後自己結束,而 401 只會被無限重試;它們的其他請求在 auth 那一關回 401(`spec/lifecycle.md` §1.3 第 5 刀)。
   - ⚠️ 「有 stop 錨 → 409」這句有**兩個豁免**:①warden 不受 desired-offline 那一臂管;②**收尾進行中放行**(T-a9d6)——只打了「開始收尾」而還沒報「收完了」、且不是被強制切斷的,允許重連,否則一次網路抖動就會把做到一半的交接弄死。真正決定拒不拒的是「收完了」的錨與強制切斷的判定。
 
 **連線的 machine claim 不參與 handshake 判斷**。它用來標出 online 的位置、下架擋門,以及(後來新增的)**解析 kill 要送到哪一台 warden**、與 relocation backstop 臂的機器分歧判斷。

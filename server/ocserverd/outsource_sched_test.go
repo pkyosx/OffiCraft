@@ -557,9 +557,9 @@ func TestRunOutsourceTick(t *testing.T) {
 			{"POST", "/api/tasks/T-3/claim", ""},
 		} {
 			rec := apiRequest(t, f.h, door.method, door.path, pred, door.body)
-			if rec.Code != 401 || rec.Header().Get("X-OC-Auth-Refusal") != "member-removed" {
-				t.Fatalf("%s %s by the reaped predecessor: want 401 marked member-removed, got %d %q %s",
-					door.method, door.path, rec.Code, rec.Header().Get("X-OC-Auth-Refusal"), rec.Body.String())
+			if rec.Code != 401 || len(rec.Header().Values("X-OC-Auth-Refusal")) != 0 {
+				t.Fatalf("%s %s by the reaped predecessor: want an unmarked 401, got %d %q %s",
+					door.method, door.path, rec.Code, rec.Header().Values("X-OC-Auth-Refusal"), rec.Body.String())
 			}
 			apiWantError(t, apiTestDecodeJSONBody(t, rec), "unauthorized",
 				"member '"+worker+"' has left the roster; its credentials are no longer valid")

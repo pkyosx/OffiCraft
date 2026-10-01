@@ -264,7 +264,7 @@ ceiling of the warden lifetime setting (§1.6).
 
      Scope notes, all load-bearing: the cut applies to `kind="warden"` rows ONLY —
      `roster_status="removed"` is ALSO how a released outsource worker and a dismissed
-     member are recorded, and those are cut 5's, with its own message and marker. A
+     member are recorded, and those are cut 5's, with its own message. A
      failed roster read MUST NOT revoke (unknown ≠ revoked). `POST
      /api/machines/{member_id}/uninstall` KEEPS the record and therefore does NOT revoke
      anything; the machine stays on the roster and re-installable.
@@ -279,9 +279,9 @@ ceiling of the warden lifetime setting (§1.6).
      immediately" as "no request succeeds from now on", not "the socket drops now".
 
      Refusal precedence on `GET /api/events`: the auth gate runs BEFORE the zombie stop
-     gate, so every removed row's reconnect is a 401 — a removed WARDEN's by this cut,
-     a dismissed member's or released worker's by cut 5. The stop gate's 409 is left to
-     members still on the roster (`sseStopGateRefusal`).
+     gate, so a removed WARDEN's reconnect is a 401 (this cut). A dismissed member's or
+     released worker's reconnect is the stop gate's 409 (`sseStopGateRefusal`), because
+     cut 5 is deliberately not applied on that route (see cut 5).
 
      Because this cut turns "the server host's warden row was soft-deleted" into a
      credential revocation that also takes every agent placed on `m-server-self`,
@@ -391,22 +391,29 @@ ceiling of the warden lifetime setting (§1.6).
      the settings page states the cost before the press. It also ends every attachment
      share-link `?sig=` produced under that key, which is not a token at all.
 
-  5. **member scope — leaving the roster.** Dismissing a staff member
-     (`DELETE /api/members/{member_id}`) and releasing an outsource worker (every task
-     close, and the handover timeout's release of an outsource predecessor) both set
-     `roster_status="removed"`. From the next request onward every gated route — REST,
-     MCP `tools/call` and the `GET /api/events` handshake — MUST refuse that member's
-     non-owner token with 401, the standard error envelope, the message
-     `member '<id>' has left the roster; its credentials are no longer valid`, and the
-     response header `X-OC-Auth-Refusal: member-removed`. The header is the standing-refusal
-     marker `ocagent listen` acts on (`cli/ocagent` `authoritativeRefusal`): it fail-closes and ends its own
-     session instead of retrying, as it does for `agent-superseded`. No other 401 carries
-     either value.
+  5. **member scope — leaving the roster.** Whenever a staff or outsource row is set
+     `roster_status="removed"` — a dismissal (`DELETE /api/members/{member_id}`, or a
+     custom role's delete dismissing its members) or any release of an outsource worker
+     (a task close, a predecessor's release at the successor's `claim_task` or at the
+     handover timeout, a displaced unclaimed successor) — from the next request onward
+     every gated route MUST refuse that member's non-owner token with 401, the standard
+     error envelope and the message
+     `member '<id>' has left the roster; its credentials are no longer valid`. It carries
+     NO `X-OC-Auth-Refusal` header.
+
+     The one exception is the `GET /api/events` handshake, which this cut does not
+     refuse: the stop gate behind it does, with its roster arm's 409 `conflict`
+     (`member '<id>' is removed from the roster — SSE refused (a dismissed member must
+     not re-project online)`). That is load-bearing: every `ocagent listen` version
+     fail-closes and ends its own session on a run of 409s, while a 401 without the
+     `agent-superseded` marker is retried forever. A session that comes back after its
+     STOP was judged landed (§4.1), with an old listener binary, would otherwise keep
+     running.
 
      Scope notes: `kind="warden"` rows are cut 2's. A failed roster read or an absent row
      MUST NOT refuse (unknown ≠ removed). A member still on the roster is unaffected
      whatever its `desired_state` — a stopped or deactivated member keeps its credentials,
-     and its SSE reconnect stays the stop gate's business. A worker's close-out (step notes,
+     and its SSE reconnect is the stop gate's ordinary stop arm. A worker's close-out (step notes,
      artifacts, reply cards, lore) happens while the task is `ready_for_done` and the worker
      is still on the roster; its own `mark_task_done` passed the gate on entry and answers
      200, and the release that close performs is what ends its credentials. Like the other
@@ -823,9 +830,9 @@ The server owns desired-state reconciliation; the warden is a stateless executor
   dismissal sent is still owed (`RobustStopPendingAt`). The session-gone collect of §4.3 is
   never computed for it, so the only STOP it is sent is that one and its re-sends. It leaves
   the set on the first offline sample; a session that comes back after that is not stopped
-  by the tick but by the auth gate (§1.3 cut 5), which refuses a removed member's every
-  request and SSE handshake with the `member-removed` marker, and the agent's listener ends
-  its own session after a run of refusals.
+  by the tick but by the SSE stop gate, which refuses a removed member's handshake with a
+  409 (every other request of its is refused 401 by §1.3 cut 5), and the agent's listener
+  ends its own session after a run of 409s.
 - The tick loop MUST survive any single tick fault (log and continue).
 
 ### 4.2 Inputs

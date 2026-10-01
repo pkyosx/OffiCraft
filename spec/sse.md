@@ -12,10 +12,10 @@
 ## 1. Endpoint
 
 - `GET /api/events` — **gated** (bearer JWT; see spec/lifecycle.md §1). An unauthenticated
-  request MUST be refused `401` before any stream bytes are sent. So MUST a credential one
-  of the revocation cuts refuses (spec/lifecycle.md §1.3); the handshake of a member that
-  has left the roster carries `X-OC-Auth-Refusal: member-removed`, the same marker its
-  REST and MCP calls get.
+  request MUST be refused `401` before any stream bytes are sent, and so MUST a credential
+  a revocation cut refuses (spec/lifecycle.md §1.3) — except a member that has left the
+  roster: its handshake is refused `409` `conflict` by the stop gate, pre-stream, the
+  refusal an agent listener exits on (spec/lifecycle.md §1.3 cut 5).
 - The response MUST be `Content-Type: text/event-stream` and MUST carry
   `Cache-Control: no-cache` and `X-Accel-Buffering: no` headers.
 - The stream MUST begin with the comment line `: connected\n\n`.

@@ -691,13 +691,15 @@ func TestTeardownHereRefusesAnOrdinaryMachineToo(t *testing.T) {
 	}
 }
 
-// TestSSERefusalForRemovedRowsIsTheCredentialCut: `GET /api/events` sits behind
-// the auth gate as well as the zombie stop gate, and the auth gate runs FIRST, so
-// every removed row's reconnect is a 401. Only the person's refusal carries the
-// standing-refusal marker; the machine's does not, and its wording differs.
-// conformance test_sse.py test_dismissed_member_reconnect_refused asserts the
-// same wire for a dismissed member.
-func TestSSERefusalForRemovedRowsIsTheCredentialCut(t *testing.T) {
+// TestSSERefusalForRemovedRows: `GET /api/events` sits behind the auth gate and
+// the zombie stop gate. A removed WARDEN is refused by the auth gate (401, the
+// machine message). A dismissed member or released worker is let through it on
+// this route only and refused by the stop gate's roster arm (409 conflict) — the
+// refusal every ocagent listener version exits on. No refusal here carries the
+// standing-refusal header. conformance test_sse.py
+// test_dismissed_member_reconnect_refused asserts the same wire for a dismissed
+// member.
+func TestSSERefusalForRemovedRows(t *testing.T) {
 	api, h, d, owner := newAPITestServer(t)
 	machineID := apiTestOnboardMachine(t, h, owner, "Studio Mac")
 	wardenTok := apiHelpersWardenToken(t, api, d, machineID)
@@ -715,24 +717,28 @@ func TestSSERefusalForRemovedRowsIsTheCredentialCut(t *testing.T) {
 		t.Fatalf("release: %v", err)
 	}
 
+	gateMsg := func(id string) string {
+		return "member '" + id + "' is removed from the roster — SSE refused " +
+			"(a dismissed member must not re-project online)"
+	}
 	cases := []struct {
-		who, token, header, message string
+		who, token    string
+		status        int
+		code, message string
 	}{
-		{"the removed warden", wardenTok, "", machineRevokedMsg(machineID)},
-		{"the dismissed member", kipTok, "member-removed",
-			"member 'kip' has left the roster; its credentials are no longer valid"},
-		{"the released worker", workerTok, "member-removed",
-			"member 'ow-abc123' has left the roster; its credentials are no longer valid"},
+		{"the removed warden", wardenTok, 401, "unauthorized", machineRevokedMsg(machineID)},
+		{"the dismissed member", kipTok, 409, "conflict", gateMsg("kip")},
+		{"the released worker", workerTok, 409, "conflict", gateMsg("ow-abc123")},
 	}
 	for _, c := range cases {
-		rec := apiRequest(t, h, "GET", "/api/events", c.token, "")
-		if rec.Code != http.StatusUnauthorized {
-			t.Fatalf("%s's SSE reconnect: want 401, got %d %s", c.who, rec.Code, rec.Body.String())
+		rec := boundedRequest(t, h, "GET", "/api/events", c.token, "")
+		if rec.Code != c.status {
+			t.Fatalf("%s's SSE reconnect: want %d, got %d %s", c.who, c.status, rec.Code, rec.Body.String())
 		}
-		if got := rec.Header().Get(authRefusalHeader); got != c.header {
-			t.Fatalf("%s's SSE reconnect: %s = %q, want %q", c.who, authRefusalHeader, got, c.header)
+		if got := rec.Header().Values(authRefusalHeader); len(got) != 0 {
+			t.Fatalf("%s's SSE reconnect: want no %s, got %q", c.who, authRefusalHeader, got)
 		}
-		apiWantError(t, apiTestDecodeJSONBody(t, rec), "unauthorized", c.message)
+		apiWantError(t, apiTestDecodeJSONBody(t, rec), c.code, c.message)
 	}
 	if api.hub.IsOnline(machineID) || api.hub.IsOnline("kip") || api.hub.IsOnline("ow-abc123") {
 		t.Fatal("a refused handshake must not project anything online")

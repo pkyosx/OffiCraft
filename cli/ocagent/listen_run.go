@@ -263,9 +263,6 @@ func (l *listener) dispatch(payload []byte) {
 //   - 401 with X-OC-Auth-Refusal: agent-superseded — the member's credential
 //     floor only rises (server authz.go agentIatFloorRefusal), so this never
 //     resolves; without it the superseded session re-dials forever as an orphan.
-//   - 401 with X-OC-Auth-Refusal: member-removed — the member was dismissed or the
-//     worker released (server authz.go memberRemovedRefusal); its credentials stay
-//     refused for good.
 //
 // 🔴 A BARE 401 IS DELIBERATELY NOT AUTHORITATIVE: status alone cannot tell
 // "replaced" from "server blip" or "token expired"; only the server's marker can.
@@ -276,9 +273,6 @@ func authoritativeRefusal(resp *http.Response) string {
 	case resp.StatusCode == http.StatusUnauthorized &&
 		strings.TrimSpace(resp.Header.Get(authRefusalHeader)) == refusalAgentSuperseded:
 		return "401 superseded — a newer generation of this member has reported waking"
-	case resp.StatusCode == http.StatusUnauthorized &&
-		strings.TrimSpace(resp.Header.Get(authRefusalHeader)) == refusalMemberRemoved:
-		return "401 member removed — this member has left the roster"
 	default:
 		return ""
 	}
