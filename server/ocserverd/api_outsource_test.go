@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -1067,9 +1068,10 @@ func TestHandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcceleratedSto
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
 		apiWantBody(t, data, map[string]any{"id": "ow-abc123"})
+		pressed := apiTestMemberRow(t, d, "ow-abc123")
 		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
 			"status": "assigned", "presence": "stopping", "desired_state": "offline",
-			"refocus_op": "accelerated_stop", "refocus_deadline": apiAnyNumber,
+			"refocus_op": "accelerated_stop", "refocus_deadline": pressed.StoppingSince + 120,
 		}))
 		dashboard.wantFrames(
 			apiTestHandoverDelta(4, "offline", apiAnyString, "owner"),
@@ -1081,33 +1083,65 @@ func TestHandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcceleratedSto
 		)
 	})
 
-	t.Run("pressing again on a stop already on the clock keeps its deadline anchor after the grace was shortened", func(t *testing.T) {
+	t.Run("pressing again on a stop already on the clock keeps its deadline anchor whichever way the grace moved", func(t *testing.T) {
+		for _, grace := range []int{10, 3600} {
+			t.Run("grace set to "+strconv.Itoa(grace)+" between the presses", func(t *testing.T) {
+				api, h, d, owner := newAPITestServer(t)
+				apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
+				apiTestListen(t, api, "ow-abc123")
+				if code, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/deactivate", owner, ""); code != 200 {
+					t.Fatalf("stop: %d %v", code, data)
+				}
+				if code, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/accelerated-stop", owner, ""); code != 200 {
+					t.Fatalf("first press: %d %v", code, data)
+				}
+				first := apiTestMemberRow(t, d, "ow-abc123")
+				if code, data := apiJSON(t, h, "PATCH", "/api/settings", owner,
+					`{"accelerated_grace_secs":`+strconv.Itoa(grace)+`}`); code != 200 {
+					t.Fatalf("settings: %d %v", code, data)
+				}
+				contractor := apiTestListen(t, api, "ow-abc123")
+
+				status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/accelerated-stop", owner, "")
+				if status != 200 {
+					t.Fatalf("second press: want 200, got %d (%v)", status, data)
+				}
+				apiWantBody(t, data, map[string]any{"id": "ow-abc123"})
+				apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+					"status": "active", "presence": "stopping", "desired_state": "offline",
+					"refocus_op": "accelerated_stop", "refocus_deadline": first.StoppingSince + float64(grace),
+				}))
+				contractor.wantFrames(
+					apiTestHandoverDelta(6, "offline", apiAnyString, "owner"),
+					apiTestHandoverDelta(7, "offline", apiAnyString, "owner"),
+				)
+			})
+		}
+	})
+
+	t.Run("a hand-off already on the second-threshold clock keeps its anchor", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
 		apiTestListen(t, api, "ow-abc123")
-		if code, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/deactivate", owner, ""); code != 200 {
-			t.Fatalf("stop: %d %v", code, data)
+		since := nowSecs() - 30
+		if err := d.SetMemberWindDownAnchors("ow-abc123", 0, 0, since, refocusOpContextHigh); err != nil {
+			t.Fatalf("SetMemberWindDownAnchors: %v", err)
 		}
-		if code, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/accelerated-stop", owner, ""); code != 200 {
-			t.Fatalf("first press: %d %v", code, data)
-		}
-		first, err := d.GetOutsourceWorker("ow-abc123")
-		if err != nil || first == nil {
-			t.Fatalf("GetOutsourceWorker: %v (%v)", first, err)
-		}
-		if code, data := apiJSON(t, h, "PATCH", "/api/settings", owner, `{"accelerated_grace_secs":10}`); code != 200 {
-			t.Fatalf("settings: %d %v", code, data)
-		}
+		contractor := apiTestListen(t, api, "ow-abc123")
 
 		status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/accelerated-stop", owner, "")
 		if status != 200 {
-			t.Fatalf("second press: want 200, got %d (%v)", status, data)
+			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
 		apiWantBody(t, data, map[string]any{"id": "ow-abc123"})
 		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
-			"status": "active", "presence": "stopping", "desired_state": "offline",
-			"refocus_op": "accelerated_stop", "refocus_deadline": first.StoppingSince + 10,
+			"status": "active", "presence": "online",
+			"refocus_since": since, "refocus_op": "accelerated_stop", "refocus_deadline": since + 120,
 		}))
+		contractor.wantFrames(
+			apiTestHandoverDelta(2, "", apiAnyString, "owner"),
+			apiTestHandoverDelta(3, "", apiAnyString, "owner"),
+		)
 	})
 
 	t.Run("escalating a stop drops the 起來 queued behind it", func(t *testing.T) {
@@ -1123,6 +1157,7 @@ func TestHandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcceleratedSto
 		if !apiTestMemberRow(t, d, "ow-abc123").RestartAfterStop {
 			t.Fatalf("setup: the refocus must have queued a 起來")
 		}
+		contractor := apiTestListen(t, api, "ow-abc123")
 
 		status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/accelerated-stop", owner, "")
 		if status != 200 {
@@ -1134,6 +1169,10 @@ func TestHandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcceleratedSto
 			t.Fatalf("restart_after_stop=%v refocus_op=%q, want false and accelerated_stop",
 				pressed.RestartAfterStop, pressed.RefocusOp)
 		}
+		contractor.wantFrames(
+			apiTestHandoverDelta(5, "offline", apiAnyString, "owner"),
+			apiTestHandoverDelta(6, "offline", apiAnyString, "owner"),
+		)
 	})
 
 	t.Run("escalating a worker nobody has asked to stop answers 409 naming the rung below", func(t *testing.T) {

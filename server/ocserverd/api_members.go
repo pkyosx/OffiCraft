@@ -1121,7 +1121,7 @@ func (s *apiServer) HandleAcceleratedStopMemberApiMembersMemberIdAcceleratedStop
 
 // accelerateMemberStop puts the open wind-down on the clock from now, or refuses
 // (409) a member that has none open. A wind-down already on the clock keeps its
-// anchor: the deadline only ever moves earlier.
+// anchor, so pressing again does not move its deadline.
 func accelerateMemberStop(m *Member, now float64) error {
 	_, alreadyClocked := winddownKindFor(m.RefocusOp)
 	switch {

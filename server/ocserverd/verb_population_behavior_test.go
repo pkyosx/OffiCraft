@@ -1114,11 +1114,8 @@ func parityCases() []verbCase {
 					api.HandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcceleratedStopPost)
 				return workerTerminal(t, api, id, code.Code, notices)
 			},
-			// Both: the desired-offline arm re-stamps its anchor from THIS press
-			// (m.StoppingSince = now / worker.StoppingSince = nowSecs()) and writes
-			// RefocusOp = refocusOpAcceleratedStop. 正職 additionally calls
-			// clearRestartIntent — which is a no-op on a row that carries no queued
-			// 起來, so the two terminal rows agree here.
+			// Both run accelerateMemberStop: the desired-offline arm re-stamps its
+			// anchor from THIS press and writes RefocusOp = refocusOpAcceleratedStop.
 			wantStaff: terminalState{
 				Status: http.StatusOK, DesiredState: DesiredStateOffline,
 				Stopping: anchorPast, Stopped: anchorZero,

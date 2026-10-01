@@ -262,7 +262,7 @@ func (s *apiServer) HandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost
 }
 
 // Outsource arm of POST /api/members/{member_id}/accelerated-stop — the middle
-// rung of 停止 → 加速停止 → 強制停止. Same rules as the staff arm (accelerateMemberStop).
+// rung of 停止 → 加速停止 → 強制停止.
 func (s *apiServer) HandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcceleratedStopPost(w http.ResponseWriter, r *http.Request, id string) {
 	unlockMu := s.outsourceMu.Acquire()
 	defer unlockMu()
