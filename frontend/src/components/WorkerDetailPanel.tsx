@@ -444,7 +444,6 @@ export function WorkerDetailPanel({
       // In wakeMode the wake's own receipt is the verdict on whether anything
       // went out.
       if (
-        !wakeMode &&
         worker.desiredState !== "offline" &&
         relocated?.relocationPending &&
         !relocated.relocationDeferred

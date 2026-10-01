@@ -1815,24 +1815,41 @@ func TestHandleActivateMemberApiMembersMemberIdActivatePost(t *testing.T) {
 	})
 
 	t.Run("an outsource worker is activated and pinned through the shared member verb", func(t *testing.T) {
-		_, h, d, owner := newAPITestServer(t)
+		api, h, d, owner := newAPITestServer(t)
 		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusAssigned)
+		for _, id := range []string{"mach-a", "mach-b"} {
+			if err := d.PutMember(Member{
+				ID: id, Name: id + " box", Kind: KindWarden, Effort: "medium",
+				DesiredState: DesiredStateOffline, RosterStatus: RosterStatusActive,
+			}); err != nil {
+				t.Fatalf("put warden %s: %v", id, err)
+			}
+			apiTestListen(t, api, id)
+		}
+		if err := d.SetMemberDesiredMachineID("ow-abc123", "mach-a"); err != nil {
+			t.Fatalf("SetMemberDesiredMachineID: %v", err)
+		}
+		status, boot := apiJSON(t, h, "GET", "/api/outsource-workers/ow-abc123/boot-context", owner, "")
+		if status != 200 {
+			t.Fatalf("boot-context preview: %d (%v)", status, boot)
+		}
 
 		status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/activate", owner,
-			`{"machine_id":"m-server-self"}`)
+			`{"machine_id":"mach-b"}`)
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
-		if data["id"] != "ow-abc123" {
-			t.Fatalf("want worker id receipt, got %v", data)
-		}
-		worker, err := d.GetOutsourceWorker("ow-abc123")
-		if err != nil {
-			t.Fatalf("GetOutsourceWorker: %v", err)
-		}
-		if worker.DesiredState != DesiredStateOnline || worker.DesiredMachineID != ServerSelfHost {
-			t.Fatalf("worker was not activated on the requested machine: %+v", worker)
-		}
+		apiWantBody(t, data, map[string]any{"id": "ow-abc123"})
+		// No earlier landing is recorded, so the clean-sheet STOP goes to every
+		// online warden; only the START is aimed.
+		wsWantWardenFrames(t, api, "mach-b",
+			wsStopFrame("ow-abc123"),
+			wsStartFrame("ow-abc123", boot["context"].(string), "claude", "sonnet", "medium"))
+		wsWantWardenFrames(t, api, "mach-a", wsStopFrame("ow-abc123"))
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "assigned", "presence": "waking", "desired_state": "online",
+			"desired_machine_id": "mach-b", "machine": "mach-b",
+		}))
 	})
 
 	t.Run("an authenticated agent identity answers 403 because this row requires admin_agent", func(t *testing.T) {

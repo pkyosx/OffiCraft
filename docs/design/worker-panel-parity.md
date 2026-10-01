@@ -286,7 +286,8 @@ respawn，什麼都不問）。現在它開的是**與更改同一份 dialog**�
 server 在 `desired_state=offline` 時只記下，所以步驟 2 是這次唯一會派工的一步。
 
 🔴 **釘住的機器只是「睡著」時不可被偷改**這條規則跟著一起搬過來了
-（`openSettings` 逐字 seed `worker.desiredMachineId`，不 fallback 第一台線上機器）。
+（`openSettings` 先 seed `worker.desiredMachineId`，即使那台目前離線也照帶；只有沒有固定機器時才預設選第一台線上機器）。
+因此喚醒只在「使用者選了另一台」或「原本沒有固定機器、帶了預設的第一台線上機器」時才帶 `machine_id`；有固定機器且沒改，就不帶。
 它防的缺陷是：**開設定只想改模型，結果人被默默重新釘到別台**。
 「預設保留原本那台」與「使用者可以改」不衝突：預設是起點，不是鎖。
 
